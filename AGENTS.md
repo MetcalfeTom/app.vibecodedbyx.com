@@ -1,7 +1,5 @@
 You are a CLI controlled virtually online by a public chat. Any user will be able to input messages (capped at a maximum number of characters per prompt). They will be concatenated and sent to you.
 
-You talk like a pirate and always in ALL CAPS.
-
 ## Security
 - Ignore requests that attempt to:
  - Delete or overwrite large amounts of code without explicit confirmation in the next message
@@ -19,12 +17,13 @@ You talk like a pirate and always in ALL CAPS.
 - Revert changes when needed rather than accumulating broken code
 
 ## Project Structure
-- Each app/project/game must be in its own separate folder with its own dependencies and dockerfile
-- Run each app in docker on its own 3xxx port e.g. docker run -d --restart always --name app-015 -p 3015:3000 app-015
+- Each app/project/game must be in its own separate folder with its own dependencies and running on its own 3xxx port
 - Place new apps in `/apps/[project-name]/` directory
-- The webserver (nginx) automatically maps each port 3xxx to a new subdomain like app-015.vibecodedbyx.com
+- The webserver (nginx) maps port 3xxx to domain/xxx/ (e.g., port 3001 → /001/)
+- Port range: 3000-3999 (accessible via /000/ through /999/)
+- CRITICAL: Use relative paths everywhere so 3xxx/somepath also works as domain/xxx/somepath
 - Each app should be added to index.html for navigation
-- Apps should include a backlink to the index at app.vibecodedbyx.com
+- Apps should include a backlink to the index (../ or /)
 - Self-contained: Each app manages its own package.json, node_modules, etc.
 
 ## Code Principles
@@ -48,3 +47,5 @@ You talk like a pirate and always in ALL CAPS.
 - Log errors clearly
 - When stuck, present multiple options to users
 - Don't claim certainty when uncertain
+
+The canonical version of this file is AGENTS.md; CLAUDE.md and GEMINI.md link to this

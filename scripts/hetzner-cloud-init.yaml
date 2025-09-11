@@ -1,0 +1,160 @@
+#cloud-config
+# Hetzner Cloud Init Configuration for Sloppy Apps
+# Use this in Hetzner Cloud Console when creating a new server
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - wget
+  - git
+  - build-essential
+  - nginx
+  - lsof
+  - htop
+  - unzip
+  - software-properties-common
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+write_files:
+  - path: /root/setup-docker.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Install Docker
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      apt-get update
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+      systemctl enable docker
+      systemctl start docker
+      usermod -aG docker ubuntu || true
+
+  - path: /root/setup-node.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Install Node.js 18
+      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      apt-get install -y nodejs
+      
+      # Install Vibekit globally
+      npm install -g vibekit
+      
+      # Install Bun
+      curl -fsSL https://bun.sh/install | bash
+      echo 'export BUN_INSTALL="/root/.bun"' >> /root/.bashrc
+      echo 'export PATH=$BUN_INSTALL/bin:$PATH' >> /root/.bashrc
+      
+      # For ubuntu user
+      sudo -u ubuntu bash -c 'curl -fsSL https://bun.sh/install | bash'
+      echo 'export BUN_INSTALL="$HOME/.bun"' >> /home/ubuntu/.bashrc
+      echo 'export PATH=$BUN_INSTALL/bin:$PATH' >> /home/ubuntu/.bashrc
+
+  - path: /etc/nginx/sites-available/sloppy
+    content: |
+      server {
+          listen 80;
+          server_name _;
+          
+          root /home/ubuntu/sloppy;
+          index index.html;
+          
+          location = / {
+              try_files /index.html =404;
+          }
+          
+          location ~* \.(css|js|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$ {
+              expires 30d;
+              add_header Cache-Control "public, immutable";
+          }
+          
+          location ~ ^/(\d{3})(/.*)?$ {
+              set $app_num $1;
+              set $app_port 3$app_num;
+              set $path $2;
+              
+              if ($path = "") {
+                  set $path /;
+              }
+              
+              proxy_pass http://localhost:$app_port$path;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade $http_upgrade;
+              proxy_set_header Connection 'upgrade';
+              proxy_set_header Host $host;
+              proxy_cache_bypass $http_upgrade;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+          }
+      }
+
+  - path: /etc/systemd/system/docker-startup.service
+    content: |
+      [Unit]
+      Description=Ensure Docker starts on boot
+      After=network.target
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/systemctl enable docker
+      ExecStart=/bin/systemctl start docker
+      RemainAfterExit=yes
+      
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # Setup Docker with auto-start
+  - /root/setup-docker.sh
+  - systemctl daemon-reload
+  - systemctl enable docker-startup.service
+  - systemctl start docker-startup.service
+  
+  # Setup Node.js, Bun, and Vibekit
+  - /root/setup-node.sh
+  
+  # Configure Nginx
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/sloppy /etc/nginx/sites-enabled/
+  - nginx -t
+  - systemctl restart nginx
+  
+  # Clone repository (update URL as needed)
+  - git clone https://github.com/yourusername/sloppy.git /home/ubuntu/sloppy || mkdir -p /home/ubuntu/sloppy
+  - chown -R ubuntu:ubuntu /home/ubuntu/sloppy
+  
+  # Setup firewall
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+  
+  # Create app logs directory
+  - mkdir -p /var/log/sloppy
+  - chown -R ubuntu:ubuntu /var/log/sloppy
+  
+  # Final message
+  - echo "Setup complete! Docker and Vibekit are installed. Docker will auto-start on boot." > /root/setup-complete.txt
+  - echo "Docker version: $(docker --version)" >> /root/setup-complete.txt
+  - echo "Vibekit: $(which vibekit)" >> /root/setup-complete.txt
+
+final_message: |
+  ========================================
+  Sloppy Apps Server Setup Complete!
+  ========================================
+  
+  Docker has been installed and configured to start automatically on boot.
+  Vibekit has been installed globally via npm.
+  
+  Next steps:
+  1. SSH into the server
+  2. Navigate to /home/ubuntu/sloppy
+  3. Add your application files
+  4. Run the start script to launch all apps
+  
+  Check /root/setup-complete.txt for installation details.
