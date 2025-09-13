@@ -760,6 +760,35 @@ function drawPlayerLimbs() {
     ctx.fill();
 }
 
+// small: draw speech bubbles near player
+function drawPlayerBubbles() {
+    if (!playerBubbles || !playerBubbles.length) return;
+    const now = Date.now();
+    playerBubbles = playerBubbles.filter(b => b.expiresAt > now);
+    playerBubbles.forEach((b, i) => {
+        const alpha = Math.max(0, Math.min(1, (b.expiresAt - now) / 400));
+        const bx = player.x + player.width + 10;
+        const by = player.y - 10 - i * 26;
+        const text = b.text || '';
+        const w = Math.max(60, ctx.measureText(text).width + 20);
+        const h = 20;
+        ctx.save();
+        ctx.globalAlpha = 0.9 * (0.5 + 0.5 * alpha);
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 2;
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, w, h, 6); ctx.fill(); ctx.stroke(); }
+        else { ctx.fillRect(bx, by, w, h); ctx.strokeRect(bx, by, w, h); }
+        ctx.beginPath(); ctx.moveTo(bx + 8, by + h); ctx.lineTo(bx + 16, by + h); ctx.lineTo(bx + 12, by + h + 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.globalAlpha = 1; ctx.fillStyle = '#111'; ctx.font = "12px 'Press Start 2P', monospace"; ctx.fillText(text, bx + 10, by + 14);
+        ctx.restore();
+    });
+}
+
+function say(text, ms = 1500) {
+    playerBubbles.push({ text, expiresAt: Date.now() + ms });
+}
+
 function drawObstacles() {
     obstacles.forEach(obstacle => {
         ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
@@ -1331,6 +1360,7 @@ function detectCollisions() {
             score += 50;
             updateScoreDisplay();
             benches = benches.filter(b => b !== bench);
+            if (typeof say === 'function') say('mmm, pie!', 1200);
         }
     });
 
@@ -1504,6 +1534,7 @@ function shoot() {
 function setHat(hatType) {
     player.currentHat = hatType;
     if (typeof updateSelectionUI === 'function') updateSelectionUI();
+    if (typeof say === 'function') say(hatType === 'none' ? 'no hat!' : hatType + ' on');
 }
 
 function setTheme(themeType) {
@@ -1515,6 +1546,7 @@ function setTheme(themeType) {
     } else {
         player.color = '#BB86FC';
     }
+    if (typeof say === 'function') say(themeType + ' vibe');
 }
 
 // weapon selection for UI buttons
@@ -1523,6 +1555,10 @@ function setWeapon(type) {
         currentWeapon = type;
         updateScoreDisplay();
         if (typeof updateSelectionUI === 'function') updateSelectionUI();
+        if (typeof say === 'function') {
+            const nick = type === 'pistol' ? 'pew!' : type === 'laser' ? 'zap!' : 'boom!';
+            say(type + ' ready ' + nick, 1200);
+        }
     }
 }
 
@@ -1554,6 +1590,7 @@ function startGame() {
     lastBirdTime = 0;
     birdInterval = 4000;
     setTheme(player.currentTheme);
+    if (typeof say === 'function') say('let\'s go!', 1600);
     requestAnimationFrame(gameLoop);
 }
 
