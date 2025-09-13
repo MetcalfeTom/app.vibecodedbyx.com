@@ -24,6 +24,7 @@ let player = {
 
 let obstacles = [];
 let benches = [];
+let floaters = [];
 let score = 0;
 let gameRunning = false;
 let obstacleSpeed = 3;
@@ -33,6 +34,8 @@ let lastBenchTime = 0;
 const benchSpawnChance = 0.1;
 let winkTimer = 0; // frames remaining for sun wink
 let t = 0; // animation time for river flow
+let lastFloaterTime = 0;
+let floaterInterval = 2200; // ms between floating enemies
 
 let backgroundElements = [
     { x: 0, y: 0, width: canvas.width, height: canvas.height, color: 'rgba(0,0,0,0.1)', speed: 0.1 },
@@ -322,6 +325,35 @@ function drawBenches() {
     });
 }
 
+// floating enemies
+function drawFloaters(currentTime) {
+    const time = currentTime / 1000;
+    floaters.forEach(f => {
+        // sine wave vertical motion
+        f.y = f.baseY + Math.sin(time * f.frequency + f.phase) * f.amplitude;
+
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetX = 3;
+        ctx.shadowOffsetY = 3;
+
+        // draw as glowing orb
+        const gradient = ctx.createRadialGradient(f.x + f.width/2, f.y + f.height/2, 2, f.x + f.width/2, f.y + f.height/2, Math.max(f.width, f.height));
+        gradient.addColorStop(0, f.color);
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.ellipse(f.x + f.width/2, f.y + f.height/2, f.width/2, f.height/2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.closePath();
+
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+    });
+}
+
 function updatePlayer() {
     player.dy += player.gravity;
     player.y += player.dy;
@@ -343,9 +375,13 @@ function updateObstacles(deltaTime) {
     benches.forEach(bench => {
         bench.x -= obstacleSpeed;
     });
+    floaters.forEach(f => {
+        f.x -= f.speed; // horizontal drift
+    });
 
     obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
     benches = benches.filter(bench => bench.x + bench.width > 0);
+    floaters = floaters.filter(f => f.x + f.width > 0);
 
     if (Date.now() - lastObstacleTime > obstacleInterval) {
         if (Math.random() < benchSpawnChance) {
@@ -356,6 +392,15 @@ function updateObstacles(deltaTime) {
         lastObstacleTime = Date.now();
         obstacleSpeed += 0.1;
         obstacleInterval = Math.max(500, obstacleInterval - 50);
+    }
+
+    // spawn floating enemies on their own cadence
+    if (Date.now() - lastFloaterTime > floaterInterval) {
+        if (Math.random() < 0.8) { // high chance to spawn when interval elapses
+            createFloater();
+        }
+        lastFloaterTime = Date.now();
+        floaterInterval = Math.max(1200, floaterInterval - 20); // get slightly more frequent
     }
 }
 
@@ -388,6 +433,26 @@ function createBench() {
     });
 }
 
+function createFloater() {
+    const width = 26;
+    const height = 18;
+    const marginFromGround = 120;
+    const topLimit = 40;
+    const baseY = Math.random() * (canvas.height - marginFromGround - topLimit) + topLimit;
+    floaters.push({
+        x: canvas.width + 20,
+        y: baseY,
+        baseY: baseY,
+        width: width,
+        height: height,
+        amplitude: Math.random() * 25 + 15,
+        frequency: Math.random() * 1.5 + 0.8,
+        phase: Math.random() * Math.PI * 2,
+        speed: obstacleSpeed * 0.9 + Math.random() * 1.5,
+        color: 'rgba(255, 85, 85, 0.9)'
+    });
+}
+
 function detectCollisions() {
     obstacles.forEach(obstacle => {
         if (
@@ -412,6 +477,18 @@ function detectCollisions() {
             score += 50;
             scoreDisplay.textContent = `SCORE: ${score}`;
             benches = benches.filter(b => b !== bench);
+        }
+    });
+
+    // collisions with floating enemies
+    floaters.forEach(f => {
+        if (
+            player.x < f.x + f.width &&
+            player.x + player.width > f.x &&
+            player.y < f.y + f.height &&
+            player.y + player.height > f.y
+        ) {
+            endGame();
         }
     });
 }
@@ -442,6 +519,7 @@ function gameLoop(currentTime) {
     drawPlayer();
     drawObstacles();
     drawBenches();
+    drawFloaters(currentTime);
 
     updatePlayer();
     updateObstacles(deltaTime);
