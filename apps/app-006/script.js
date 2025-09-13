@@ -58,6 +58,11 @@ const SUN_MESSAGE_FRAMES = 240; // ~4 seconds at 60fps
 let lastBirdTime = 0;
 let birdInterval = 4000; // ms; randomized per spawn
 
+// day-night cycle (60s full cycle)
+const dayCycleMs = 60000;
+let dayCycleStart = performance.now();
+let dayCycleT = 0; // 0..1 across full cycle
+
 function updateScoreDisplay() {
     scoreDisplay.textContent = `SCORE: ${score} [${currentWeapon.toUpperCase()}]`;
 }
@@ -100,17 +105,51 @@ function drawParallaxBackground() {
     });
 }
 
+// sky gradient that blends between day and night
+function drawSky() {
+    // triangle wave for daylight intensity (0 at midnight, 1 at midday)
+    const p = dayCycleT;
+    const dayLight = p < 0.5 ? (p / 0.5) : (1 - (p - 0.5) / 0.5);
+    const nightFactor = 1 - dayLight;
+
+    // day gradient
+    const dayGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    dayGrad.addColorStop(0, '#87CEEB'); // top
+    dayGrad.addColorStop(1, '#4682B4'); // bottom
+    ctx.fillStyle = dayGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // overlay night gradient with alpha
+    if (nightFactor > 0) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, nightFactor);
+        const nightGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        nightGrad.addColorStop(0, '#0B1C3C');
+        nightGrad.addColorStop(1, '#020918');
+        ctx.fillStyle = nightGrad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+    }
+}
+
 // Draw Sun with Mustache and winkable eyes
 function drawSunWithMustache() {
-    const sunX = canvas.width - 100;
-    const sunY = 80;
+    // compute sun position across the sky during the day half of the cycle
+    const margin = 60;
+    let sunVisible = dayCycleT < 0.5;
     const sunRadius = 40;
+    const phase = sunVisible ? (dayCycleT / 0.5) : 0; // 0..1 left->right
+    const sunX = margin + (canvas.width - margin * 2) * phase;
+    const yBottom = 160;
+    const yTop = 70;
+    const sunY = yBottom - Math.sin(phase * Math.PI) * (yBottom - yTop);
 
     // animated sun rays (behind the sun)
     const rayCount = 16;
     const rayInner = sunRadius + 4;
     const rayOuter = sunRadius + 16;
     ctx.save();
+    ctx.globalAlpha = sunVisible ? 1 : 0; // hide sun at night
     ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
     ctx.lineWidth = 3;
     for (let i = 0; i < rayCount; i++) {
@@ -123,6 +162,10 @@ function drawSunWithMustache() {
         ctx.stroke();
     }
     ctx.restore();
+
+    if (!sunVisible) {
+        return;
+    }
 
     // Sun body with radial gradient and glow
     const grad = ctx.createRadialGradient(sunX - 6, sunY - 10, sunRadius * 0.2, sunX, sunY, sunRadius);
@@ -194,7 +237,7 @@ function drawSunWithMustache() {
     ctx.closePath();
 
     // sun speech bubble when message is active
-    if (sunMessageTimer > 0) {
+    if (sunMessageTimer > 0 && sunVisible) {
         const bubbleWidth = 260;
         const bubbleHeight = 50;
         const bubbleX = sunX - bubbleWidth - 20;
@@ -222,6 +265,48 @@ function drawSunWithMustache() {
         ctx.fillText('well done my child,', bubbleX + 12, bubbleY + bubbleHeight / 2 - 8);
         ctx.fillText('come closer', bubbleX + 12, bubbleY + bubbleHeight / 2 + 10);
     }
+}
+
+function drawMoon() {
+    if (dayCycleT < 0.5) return; // only at night half
+    const margin = 60;
+    const phase = (dayCycleT - 0.5) / 0.5; // 0..1 across night
+    const x = margin + (canvas.width - margin * 2) * phase;
+    const yBottom = 160;
+    const yTop = 70;
+    const y = yBottom - Math.sin(phase * Math.PI) * (yBottom - yTop);
+    const r = 28;
+
+    // moon body
+    ctx.save();
+    ctx.shadowColor = 'rgba(200, 220, 255, 0.35)';
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#E0E6F2';
+    ctx.fill();
+    ctx.restore();
+
+    // subtle outline
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = '#9FA9C2';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // craters
+    ctx.fillStyle = '#C7CFDF';
+    const craters = [
+        {dx: -8, dy: -6, rr: 4},
+        {dx: 10, dy: 2, rr: 3},
+        {dx: 3, dy: -10, rr: 2.5},
+        {dx: -2, dy: 8, rr: 3}
+    ];
+    craters.forEach(c => {
+        ctx.beginPath();
+        ctx.arc(x + c.dx, y + c.dy, c.rr, 0, Math.PI * 2);
+        ctx.fill();
+    });
 }
 
 // Mountain and flowing river background
@@ -837,13 +922,17 @@ function gameLoop(currentTime) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     t += 0.016; // advance animation time
+    // update day-night cycle progress
+    dayCycleT = ((performance.now() - dayCycleStart) % dayCycleMs) / dayCycleMs;
 
     // trigger wink every 500 points
     if (score > 0 && score % 500 === 0 && winkTimer === 0) {
         winkTimer = 45; // ~0.75s at 60fps
     }
 
+    drawSky();
     drawParallaxBackground();
+    drawMoon();
     drawSunWithMustache();
     drawMountainAndRiver();
     drawBirds();
