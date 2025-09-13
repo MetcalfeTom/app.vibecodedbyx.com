@@ -31,6 +31,10 @@
   const diners = [];
   let seatsCount = 4;
   let selectedDiner = null;
+  // player avatar (walk around the restaurant)
+  const player = { x: 0, y: 0, r: 14, speed: 140, tx: null, ty: null };
+  const keys = new Set();
+  let pendingInteract = null; // diner to auto-open when in range
   const tokens = []; // draggable dish tokens
   let dragId = null; let dragOffset = {x:0,y:0};
 
@@ -55,6 +59,8 @@
     }
     // serving counter area at bottom
     layoutTokens();
+    // place player near the counter initially
+    player.x = w/2; player.y = Math.min(h - 140, table.y + table.r + 120);
   }
 
   function layoutTokens(){
@@ -95,7 +101,14 @@
     for(let i=tokens.length-1;i>=0;i--){ const t=tokens[i]; if (rectIn(t.x-t.w/2, t.y-t.h/2, t.w, t.h)){ dragId = i; dragOffset.x = mouse.x - t.x; dragOffset.y = mouse.y - t.y; t.held=true; canvas.setPointerCapture?.(e.pointerId); return; } }
     // else, check diner tap to open menu/dialogue
     const diner = dinerAt(mouse.x, mouse.y);
-    if (diner){ openDialog(diner); return; }
+    if (diner){
+      // if close enough, open; otherwise walk to them then open
+      if (dist(player.x, player.y, diner.x, diner.y) <= 70) { openDialog(diner); }
+      else { player.tx = diner.x; player.ty = diner.y; pendingInteract = diner; }
+      return;
+    }
+    // background tap: walk target
+    player.tx = mouse.x; player.ty = mouse.y; pendingInteract = null;
     canvas.setPointerCapture?.(e.pointerId);
   });
   canvas.addEventListener('pointerup', (e)=>{
@@ -124,6 +137,54 @@
     for (let i=diners.length-1;i>=0;i--){ const d=diners[i]; const dx=x-d.x, dy=y-d.y; if (dx*dx+dy*dy <= (d.r+20)*(d.r+20)) return d; }
     return null;
   }
+  function dist(ax,ay,bx,by){ const dx=bx-ax, dy=by-ay; return Math.hypot(dx,dy); }
+
+  // movement and collisions
+  function updatePlayer(dt){
+    // keyboard input vector
+    let vx = 0, vy = 0;
+    if (keys.has('arrowup') || keys.has('w')) vy -= 1;
+    if (keys.has('arrowdown') || keys.has('s')) vy += 1;
+    if (keys.has('arrowleft') || keys.has('a')) vx -= 1;
+    if (keys.has('arrowright') || keys.has('d')) vx += 1;
+    // target click-to-move if no keys
+    if (vx === 0 && vy === 0 && player.tx != null && player.ty != null) {
+      const ang = Math.atan2(player.ty - player.y, player.tx - player.x);
+      vx = Math.cos(ang); vy = Math.sin(ang);
+      if (dist(player.x, player.y, player.tx, player.ty) < 6) { player.tx = player.ty = null; }
+    }
+    const len = Math.hypot(vx, vy);
+    if (len > 0) { vx /= len; vy /= len; }
+    const step = player.speed * dt;
+    let nx = player.x + vx * step;
+    let ny = player.y + vy * step;
+    // collide with table disk
+    const toCenter = dist(nx, ny, table.x, table.y);
+    const minDist = table.r + player.r + 10;
+    if (toCenter < minDist) {
+      // push out along normal
+      const ang = Math.atan2(ny - table.y, nx - table.x);
+      nx = table.x + Math.cos(ang) * minDist;
+      ny = table.y + Math.sin(ang) * minDist;
+    }
+    // collide with diners
+    diners.forEach(d => {
+      const dd = dist(nx, ny, d.x, d.y);
+      const clear = d.r + player.r + 8;
+      if (dd < clear) {
+        const ang = Math.atan2(ny - d.y, nx - d.x);
+        nx = d.x + Math.cos(ang) * clear;
+        ny = d.y + Math.sin(ang) * clear;
+      }
+    });
+    player.x = nx; player.y = ny;
+    // auto-open dialog if we were heading to a diner and arrived
+    if (pendingInteract && dist(player.x, player.y, pendingInteract.x, pendingInteract.y) <= 70) {
+      openDialog(pendingInteract);
+      pendingInteract = null;
+      player.tx = player.ty = null;
+    }
+  }
 
   // draw helpers
   function roundRect(x,y,wid,hei,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+wid,y,x+wid,y+hei,r); ctx.arcTo(x+wid,y+hei,x,y+hei,r); ctx.arcTo(x,y+hei,x,y,r); ctx.arcTo(x,y,x+wid,y,r); ctx.closePath(); }
@@ -149,6 +210,21 @@
     ctx.restore();
   }
 
+  function drawPlayer(){
+    // simple person with shadow
+    ctx.save();
+    // shadow
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(player.x, player.y + 6, 18, 8, 0, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+    // body
+    ctx.fillStyle = '#6fa8ff';
+    ctx.beginPath(); ctx.arc(player.x, player.y - 18, 10, 0, Math.PI*2); ctx.fill(); // head
+    ctx.fillStyle = '#88c'; ctx.fillRect(player.x - 10, player.y - 18, 20, 22); // torso
+    ctx.restore();
+  }
+
   function drawCounter(){
     const y = h - 80; ctx.fillStyle='#262833'; ctx.fillRect(0, y, w, 120);
     tokens.forEach(t=>{
@@ -162,8 +238,8 @@
     });
   }
 
-  function update(){ if (running){ time += 1/60; timerEl.textContent = `${time.toFixed(1)}s`; } }
-  function render(){ ctx.clearRect(0,0,w,h); drawTable(); drawCounter(); }
+  function update(){ if (running){ time += 1/60; timerEl.textContent = `${time.toFixed(1)}s`; } updatePlayer(1/60); }
+  function render(){ ctx.clearRect(0,0,w,h); drawTable(); drawPlayer(); drawCounter(); }
   function loop(){ update(); render(); requestAnimationFrame(loop); }
 
   // buttons
@@ -218,4 +294,8 @@
 
   // init
   layout(); loop();
+
+  // keyboard controls
+  addEventListener('keydown', (e)=>{ keys.add(e.key.toLowerCase()); });
+  addEventListener('keyup', (e)=>{ keys.delete(e.key.toLowerCase()); });
 })();
