@@ -488,7 +488,7 @@ function drawObstacles() {
         ctx.shadowOffsetY = 5;
 
         // draw cactus with angry face
-        drawCactus(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        drawCactus(obstacle);
 
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
@@ -497,11 +497,20 @@ function drawObstacles() {
     });
 }
 
-function drawCactus(x, y, w, h) {
-    // body
+function drawCactus(ob) {
+    const x = ob.x, y = ob.y, w = ob.width, h = ob.height;
+    const v = ob.variant || { seed: 1337, ribCount: 6, spikes: 14, angry: 2, armLiftL: 0.45, armLiftR: 0.5 };
+    // seeded rng
+    let seed = v.seed || 1337;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) >>> 0, (seed & 0x7fffffff) / 0x7fffffff);
+
+    // gradient body
     const radius = Math.max(6, Math.min(w, h) * 0.4);
     const baseY = y + h;
-    ctx.fillStyle = '#2E7D32';
+    const bodyGrad = ctx.createLinearGradient(x, y, x, baseY);
+    bodyGrad.addColorStop(0, '#2F8F2E');
+    bodyGrad.addColorStop(1, '#1F5F1E');
+    ctx.fillStyle = bodyGrad;
     ctx.beginPath();
     ctx.moveTo(x, baseY);
     ctx.lineTo(x, y + radius);
@@ -512,47 +521,103 @@ function drawCactus(x, y, w, h) {
     ctx.closePath();
     ctx.fill();
 
-    // arms
-    const armY = y + h * 0.45;
-    const armThickness = Math.max(6, w * 0.6);
-    const armLen = Math.min(18, w * 1.2);
-    // left arm
-    ctx.fillRect(x - armLen * 0.4, armY - armThickness, armLen, armThickness);
-    ctx.fillRect(x - armLen * 0.4, armY - armThickness - 14, armThickness * 0.6, 14);
-    // right arm
-    ctx.fillRect(x + w - armLen * 0.6, armY - armThickness * 0.6, armLen, armThickness * 0.6);
-    ctx.fillRect(x + w + armLen * 0.4 - armThickness * 0.6, armY - armThickness * 0.6 - 12, armThickness * 0.6, 12);
+    // outline
+    ctx.strokeStyle = '#114416';
+    ctx.lineWidth = 2;
+    ctx.stroke();
 
-    // face (angry)
+    // arms with rounded ends
+    const armBaseYL = y + h * (v.armLiftL || 0.5);
+    const armBaseYR = y + h * (v.armLiftR || 0.5);
+    const armThick = Math.max(6, w * 0.6);
+    const armLen = Math.min(24, w * 1.5);
+    ctx.fillStyle = bodyGrad;
+    // left arm
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x - armLen * 0.5, armBaseYL - armThick, armLen, armThick, Math.min(8, armThick / 2))
+                  : ctx.rect(x - armLen * 0.5, armBaseYL - armThick, armLen, armThick);
+    ctx.fill();
+    // left arm vertical tip
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x - armLen * 0.5, armBaseYL - armThick - 16, Math.max(6, armThick * 0.55), 16, 6)
+                  : ctx.rect(x - armLen * 0.5, armBaseYL - armThick - 16, Math.max(6, armThick * 0.55), 16);
+    ctx.fill();
+    // right arm
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x + w - armLen * 0.5, armBaseYR - armThick * 0.7, armLen, armThick * 0.7, Math.min(8, armThick / 2))
+                  : ctx.rect(x + w - armLen * 0.5, armBaseYR - armThick * 0.7, armLen, armThick * 0.7);
+    ctx.fill();
+    // right arm vertical tip
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x + w + armLen * 0.1 - armThick * 0.5, armBaseYR - armThick * 0.7 - 14, Math.max(6, armThick * 0.5), 14, 6)
+                  : ctx.rect(x + w + armLen * 0.1 - armThick * 0.5, armBaseYR - armThick * 0.7 - 14, Math.max(6, armThick * 0.5), 14);
+    ctx.fill();
+
+    // ribs
+    const ribs = v.ribCount || 6;
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i < ribs; i++) {
+        const rx = x + (w / ribs) * i;
+        ctx.beginPath();
+        ctx.moveTo(rx, y + 6);
+        ctx.lineTo(rx, baseY - 4);
+        ctx.stroke();
+    }
+
+    // spines
+    const spineCount = Math.max(10, Math.floor((w * h) / 60 * (0.6 + (v.spikes || 14) / 20)));
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < spineCount; i++) {
+        const px = x + 3 + rnd() * (w - 6);
+        const py = y + 6 + rnd() * (h - 12);
+        const ang = (rnd() - 0.5) * Math.PI / 3;
+        const len = 3 + rnd() * 2;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + Math.cos(ang) * len, py + Math.sin(ang) * len);
+        ctx.stroke();
+    }
+
+    // face (more angry)
     const faceCenterX = x + w / 2;
     const faceTop = y + Math.min(h * 0.2, 28);
-    ctx.strokeStyle = '#0D3B1E';
-    ctx.lineWidth = 2;
+    const angry = v.angry || 2; // 1..3
     // eyebrows
+    ctx.strokeStyle = '#06220F';
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(faceCenterX - 10, faceTop + 2);
-    ctx.lineTo(faceCenterX - 2, faceTop - 4);
-    ctx.moveTo(faceCenterX + 10, faceTop + 2);
-    ctx.lineTo(faceCenterX + 2, faceTop - 4);
+    ctx.moveTo(faceCenterX - 12, faceTop + 4);
+    ctx.lineTo(faceCenterX - 2, faceTop - (angry >= 3 ? 8 : 6));
+    ctx.moveTo(faceCenterX + 12, faceTop + 4);
+    ctx.lineTo(faceCenterX + 2, faceTop - (angry >= 3 ? 8 : 6));
     ctx.stroke();
-    // eyes
-    ctx.fillStyle = '#0D3B1E';
+    // eyes (red glow)
+    ctx.fillStyle = '#D32F2F';
     ctx.beginPath();
-    ctx.arc(faceCenterX - 6, faceTop + 6, 2.2, 0, Math.PI * 2);
-    ctx.arc(faceCenterX + 6, faceTop + 6, 2.2, 0, Math.PI * 2);
+    ctx.ellipse(faceCenterX - 6, faceTop + 7, 3.2, 2.4, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(faceCenterX + 6, faceTop + 7, 3.2, 2.4, 0.2, 0, Math.PI * 2);
     ctx.fill();
-    // angry mouth
+    // mouth with teeth
+    ctx.fillStyle = '#1A1A1A';
     ctx.beginPath();
-    ctx.moveTo(faceCenterX - 8, faceTop + 16);
-    ctx.quadraticCurveTo(faceCenterX, faceTop + 22, faceCenterX + 8, faceTop + 16);
-    ctx.stroke();
-
-    // subtle spines (dots)
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    for (let i = 0; i < 6; i++) {
-        const px = x + 4 + Math.random() * (w - 8);
-        const py = y + 8 + Math.random() * (h - 16);
-        ctx.fillRect(px, py, 1.5, 1.5);
+    ctx.moveTo(faceCenterX - 10, faceTop + 18);
+    ctx.quadraticCurveTo(faceCenterX, faceTop + (angry >= 3 ? 28 : 24), faceCenterX + 10, faceTop + 18);
+    ctx.quadraticCurveTo(faceCenterX, faceTop + (angry >= 3 ? 22 : 20), faceCenterX - 10, faceTop + 18);
+    ctx.closePath();
+    ctx.fill();
+    // teeth
+    ctx.fillStyle = '#FFFFFF';
+    const teeth = 4;
+    for (let i = 0; i < teeth; i++) {
+        const tx = faceCenterX - 8 + i * (16 / (teeth - 1));
+        ctx.beginPath();
+        ctx.moveTo(tx, faceTop + 18);
+        ctx.lineTo(tx + 2, faceTop + 22);
+        ctx.lineTo(tx + 4, faceTop + 18);
+        ctx.closePath();
+        ctx.fill();
     }
 }
 
@@ -770,7 +835,15 @@ function createObstacle() {
         width: obstacleWidth,
         height: obstacleHeight,
         color: (player.currentTheme === 'sonic' || player.currentTheme === 'knuckles') ? '#FFD700' : '#03DAC6',
-        counted: false
+        counted: false,
+        variant: {
+            seed: Math.floor(Math.random() * 1e9),
+            ribCount: Math.floor(5 + Math.random() * 4),
+            spikes: Math.floor(10 + Math.random() * 10),
+            angry: Math.random() < 0.6 ? 3 : 2,
+            armLiftL: 0.4 + Math.random() * 0.2,
+            armLiftR: 0.4 + Math.random() * 0.25
+        }
     });
 }
 
