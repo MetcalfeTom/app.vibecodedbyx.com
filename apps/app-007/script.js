@@ -203,6 +203,7 @@ function pointerMove(e) {
     orbit.target.addScaledVector(up, cy * panSpeed);
     lastPinchDist = m.dist;
     lastPinchCenter = m.center;
+    achState.didZoom = true; achState.didPan = true; tryUnlock();
   } else {
     // single finger/mouse: orbit, shift-key pan remains on desktop
     const dx = e.clientX - lastX; const dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
@@ -213,10 +214,12 @@ function pointerMove(e) {
       const up = camera.up.clone();
       orbit.target.addScaledVector(right, -dx * panSpeed);
       orbit.target.addScaledVector(up, dy * panSpeed);
+      achState.didPan = true; tryUnlock();
     } else {
       orbit.theta -= dx * 0.005;
       orbit.phi   -= dy * 0.004;
       orbit.phi = Math.max(0.1, Math.min(Math.PI - 0.1, orbit.phi));
+      if (Math.hypot(dx, dy) > 2) { achState.didOrbit = true; tryUnlock(); }
     }
   }
 }
@@ -225,7 +228,7 @@ canvas.addEventListener('pointerdown', pointerDown);
 canvas.addEventListener('pointerup', pointerUp);
 canvas.addEventListener('pointercancel', pointerUp);
 canvas.addEventListener('pointermove', pointerMove);
-canvas.addEventListener('wheel', (e) => { if (isMobile) return; orbit.r *= (1 + Math.sign(e.deltaY) * 0.08); orbit.r = Math.max(4, Math.min(28, orbit.r)); });
+canvas.addEventListener('wheel', (e) => { if (isMobile) return; orbit.r *= (1 + Math.sign(e.deltaY) * 0.08); orbit.r = Math.max(4, Math.min(28, orbit.r)); achState.didZoom = true; tryUnlock(); });
 
 function updateCamera() {
   const x = orbit.target.x + orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta);
@@ -364,6 +367,90 @@ class SoundEngine {
 }
 const sound = new SoundEngine();
 
+// ---- achievements ----
+const achDefs = [
+  { id: 'first-bite', name: 'first bite', desc: 'start the family dinner', test: s => s.started },
+  { id: 'server-i', name: 'server i', desc: 'serve your first dish', test: s => s.served >= 1 },
+  { id: 'server-ii', name: 'server ii', desc: 'serve 5 dishes', test: s => s.served >= 5 },
+  { id: 'feast', name: 'feast', desc: 'serve 12 dishes', test: s => s.served >= 12 },
+  { id: 'table-talk', name: 'table talk', desc: 'orbit the camera around the table', test: s => s.didOrbit },
+  { id: 'zoom-zoom', name: 'zoom zoom', desc: 'pinch or scroll to zoom', test: s => s.didZoom },
+  { id: 'pan-handler', name: 'pan handler', desc: 'pan the view of the room', test: s => s.didPan },
+  { id: 'agent-of-chaos', name: 'agent of chaos', desc: 'toggle chaos mode', test: s => s.toggledChaos },
+  { id: 'family-time', name: 'family time', desc: 'keep dinner going for 30 seconds', test: s => s.dinnerSeconds >= 30 },
+];
+const achState = {
+  served: 0,
+  started: false,
+  toggledChaos: false,
+  dinnerSeconds: 0,
+  didOrbit: false,
+  didZoom: false,
+  didPan: false,
+  unlocked: new Set(),
+};
+
+function loadAchievements() {
+  try {
+    const raw = localStorage.getItem('fds3d_achievements');
+    if (!raw) return;
+    const obj = JSON.parse(raw);
+    (obj.unlocked || []).forEach(id => achState.unlocked.add(id));
+  } catch (_) {}
+}
+function saveAchievements() {
+  try {
+    localStorage.setItem('fds3d_achievements', JSON.stringify({ unlocked: Array.from(achState.unlocked) }));
+  } catch (_) {}
+}
+function notify(msg) {
+  const host = document.getElementById('toastHost');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = `achievement unlocked: ${msg}`;
+  host.appendChild(el);
+  // play a tiny chime
+  sound.enable().then(() => sound.playStart());
+  setTimeout(() => { el.remove(); }, 2600);
+}
+function tryUnlock() {
+  let changed = false;
+  achDefs.forEach(def => {
+    if (!achState.unlocked.has(def.id) && def.test(achState)) {
+      achState.unlocked.add(def.id);
+      notify(def.name);
+      changed = true;
+    }
+  });
+  if (changed) { saveAchievements(); renderAchList(); }
+}
+function renderAchList() {
+  const list = document.getElementById('achList');
+  if (!list) return;
+  list.innerHTML = '';
+  achDefs.forEach(def => {
+    const li = document.createElement('li');
+    const ok = achState.unlocked.has(def.id);
+    li.className = ok ? '' : 'locked';
+    const badge = document.createElement('div');
+    badge.className = `ach-badge ${ok ? 'ok' : 'no'}`;
+    badge.textContent = ok ? '✓' : '○';
+    const body = document.createElement('div');
+    body.className = 'ach-body';
+    const h3 = document.createElement('h3'); h3.textContent = def.name;
+    const p = document.createElement('p'); p.textContent = def.desc;
+    body.appendChild(h3); body.appendChild(p);
+    li.appendChild(badge); li.appendChild(body);
+    list.appendChild(li);
+  });
+}
+function showAchPanel(show) {
+  const panel = document.getElementById('achPanel');
+  if (!panel) return;
+  panel.hidden = !show;
+}
+
 function animateArms(t) {
   family.forEach((p, i) => {
     const A = p.userData.armL, B = p.userData.armR;
@@ -386,14 +473,18 @@ const btnServe = document.getElementById('btnServe');
 const btnChaos = document.getElementById('btnChaos');
 const btnReset = document.getElementById('btnReset');
 const btnSound = document.getElementById('btnSound');
+const btnAch = document.getElementById('btnAch');
+const achClose = document.getElementById('achClose');
 
 function unlockAudioOnce() { sound.enable(); canvas.removeEventListener('pointerdown', unlockAudioOnce); }
 canvas.addEventListener('pointerdown', unlockAudioOnce, { passive: true });
 
-btnStart.addEventListener('click', async () => { dinnerOn = true; await sound.enable(); sound.playStart(); });
-btnServe.addEventListener('click', async () => { serveDish(); await sound.enable(); sound.playClink(); sound.playThump(0.08); });
-btnChaos.addEventListener('click', async () => { chaos = !chaos; await sound.enable(); sound.playChaos(); });
+btnStart.addEventListener('click', async () => { dinnerOn = true; achState.started = true; tryUnlock(); await sound.enable(); sound.playStart(); });
+btnServe.addEventListener('click', async () => { serveDish(); achState.served++; tryUnlock(); await sound.enable(); sound.playClink(); sound.playThump(0.08); });
+btnChaos.addEventListener('click', async () => { chaos = !chaos; achState.toggledChaos = true; tryUnlock(); await sound.enable(); sound.playChaos(); });
 btnReset.addEventListener('click', () => { dinnerOn = false; chaos = false; });
+btnAch.addEventListener('click', () => showAchPanel(true));
+achClose.addEventListener('click', () => showAchPanel(false));
 btnSound.addEventListener('click', async () => {
   if (!sound.enabled) { await sound.enable(); btnSound.textContent = 'sound: on'; btnSound.setAttribute('aria-pressed', 'true'); }
   else { sound.disable(); btnSound.textContent = 'sound: off'; btnSound.setAttribute('aria-pressed', 'false'); }
@@ -407,5 +498,12 @@ function loop() {
   updateCamera();
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
+  // track dinner time for achievement
+  if (dinnerOn) { achState.dinnerSeconds += 0.016; if ((Math.floor(achState.dinnerSeconds * 10) % 10) === 0) { /* throttle */ } tryUnlock(); }
 }
 loop();
+
+// init achievements ui
+loadAchievements();
+renderAchList();
+showAchPanel(false);
