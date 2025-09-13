@@ -25,6 +25,7 @@ let benches = [];
 let score = 0;
 let gameRunning = false;
 let t = 0; // animation time for river flow
+let winkTimer = 0; // frames remaining for sun wink
 
 canvas.width = initialCanvasWidth;
 canvas.height = initialCanvasHeight;
@@ -47,6 +48,30 @@ function drawBackground() {
     ctx.beginPath();
     ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
     ctx.fillStyle = 'yellow';
+    ctx.fill();
+    ctx.closePath();
+
+    // SUN FACE (EYES + OPTIONAL WINK)
+    const isWinking = winkTimer > 0;
+    // left eye
+    ctx.strokeStyle = 'black';
+    ctx.fillStyle = 'black';
+    ctx.lineWidth = 3;
+    if (isWinking) {
+        // draw a closed eye (arc) for a wink
+        ctx.beginPath();
+        ctx.arc(sunX - 10, sunY - 5, 5, Math.PI * 0.15, Math.PI * 0.85);
+        ctx.stroke();
+        ctx.closePath();
+    } else {
+        ctx.beginPath();
+        ctx.arc(sunX - 10, sunY - 5, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.closePath();
+    }
+    // right eye (always open)
+    ctx.beginPath();
+    ctx.arc(sunX + 10, sunY - 5, 3, 0, Math.PI * 2);
     ctx.fill();
     ctx.closePath();
 
@@ -230,6 +255,10 @@ function drawBenches() {
 
 function update() {
     if (!gameRunning) return;
+    // trigger wink every 500 points for a short duration
+    if (score > 0 && score % 500 === 0 && winkTimer === 0) {
+        winkTimer = 45; // ~0.75s at 60fps
+    }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     t += 0.016; // advance animation time
     drawBackground();
@@ -266,6 +295,7 @@ function update() {
     drawPlayer();
     score++;
     scoreDisplay.textContent = `SCORE: ${score}`;
+    if (winkTimer > 0) winkTimer--;
     requestAnimationFrame(update);
 }
 
@@ -296,6 +326,7 @@ function startGame() {
     benches = [];
     score = 0;
     gameRunning = true;
+    winkTimer = 0;
     instructions.style.display = 'none';
     player.x = 50;
     player.y = canvas.height - 60;
