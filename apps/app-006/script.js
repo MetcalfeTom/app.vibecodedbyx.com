@@ -282,8 +282,10 @@ function drawMoon() {
     const x = margin + (canvas.width - margin * 2) * phase;
     const yBottom = 160;
     const yTop = 70;
-    const y = yBottom - Math.sin(phase * Math.PI) * (yBottom - yTop);
-    const r = 28;
+    // give the moon a subtle bob for extra goof
+    const bob = Math.sin(t * 2.1) * 2.5;
+    const y = yBottom - Math.sin(phase * Math.PI) * (yBottom - yTop) + bob;
+    const r = 30;
 
     // moon body
     ctx.save();
@@ -316,73 +318,115 @@ function drawMoon() {
         ctx.fill();
     });
 
-    // goofy face: uneven eyes, big smile, two teeth
-    const eyeRY = Math.max(1.6, r * 0.12);
-    const eyeRX = eyeRY * 1.2;
-    // left eye (slightly bigger)
+    // extra-goofy face: googly eyes, wiggly brows, big grin, tongue
+    const eyeRY = Math.max(1.8, r * 0.14);
+    const eyeRX = eyeRY * 1.25;
+    const leftEyeX = x - r * 0.35;
+    const leftEyeY = y - r * 0.16;
+    const rightEyeX = x + r * 0.22;
+    const rightEyeY = y - r * 0.18;
+
+    // sclerae
     ctx.fillStyle = '#FFFFFF';
     ctx.beginPath();
-    ctx.ellipse(x - r * 0.35, y - r * 0.15, eyeRX * 1.2, eyeRY * 1.2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // right eye
-    ctx.beginPath();
-    ctx.ellipse(x + r * 0.20, y - r * 0.18, eyeRX, eyeRY, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // pupils (cross-eyed)
-    ctx.fillStyle = '#1B1B1B';
-    ctx.beginPath();
-    ctx.arc(x - r * 0.38, y - r * 0.12, eyeRY * 0.6, 0, Math.PI * 2);
-    ctx.arc(x + r * 0.17, y - r * 0.15, eyeRY * 0.55, 0, Math.PI * 2);
+    ctx.ellipse(leftEyeX, leftEyeY, eyeRX * 1.15, eyeRY * 1.15, 0, 0, Math.PI * 2);
+    ctx.ellipse(rightEyeX, rightEyeY, eyeRX, eyeRY, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // smile
-    ctx.strokeStyle = '#263238';
-    ctx.lineWidth = Math.max(1.2, r * 0.05);
+    // pupils wobble
+    const wobX = Math.sin(t * 3.2) * eyeRX * 0.25;
+    const wobY = Math.cos(t * 2.6) * eyeRY * 0.2;
+    ctx.fillStyle = '#1B1B1B';
     ctx.beginPath();
-    ctx.arc(x - r * 0.03, y + r * 0.20, r * 0.42, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.arc(leftEyeX - eyeRX * 0.15 + wobX * 0.6, leftEyeY + wobY * 0.6, eyeRY * 0.55, 0, Math.PI * 2);
+    ctx.arc(rightEyeX - eyeRX * 0.18 + wobX, rightEyeY + wobY, eyeRY * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // eyebrows
+    ctx.strokeStyle = '#2a2a2a';
+    ctx.lineWidth = Math.max(1.4, r * 0.05);
+    const browWob = Math.sin(t * 1.7) * 3;
+    ctx.beginPath();
+    ctx.moveTo(leftEyeX - eyeRX * 0.9, leftEyeY - eyeRY * 1.2 + browWob * 0.2);
+    ctx.quadraticCurveTo(leftEyeX, leftEyeY - eyeRY * 1.6 - browWob * 0.2, leftEyeX + eyeRX * 0.9, leftEyeY - eyeRY * 1.2);
+    ctx.moveTo(rightEyeX - eyeRX * 0.9, rightEyeY - eyeRY * 1.1 - browWob * 0.2);
+    ctx.quadraticCurveTo(rightEyeX, rightEyeY - eyeRY * 1.5 + browWob * 0.2, rightEyeX + eyeRX * 0.9, rightEyeY - eyeRY * 1.1);
     ctx.stroke();
-    // two teeth in the middle
+
+    // cheeks
+    ctx.fillStyle = 'rgba(255, 105, 97, 0.22)';
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.46, y - r * 0.02, r * 0.18, r * 0.10, -0.3, 0, Math.PI * 2);
+    ctx.ellipse(x + r * 0.46, y - r * 0.04, r * 0.18, r * 0.10, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // big grin
+    ctx.strokeStyle = '#263238';
+    ctx.lineWidth = Math.max(1.6, r * 0.06);
+    const grinCX = x - r * 0.02;
+    const grinR = r * 0.46;
+    ctx.beginPath();
+    ctx.arc(grinCX, y + r * 0.18, grinR, Math.PI * 0.15, Math.PI * 0.9);
+    ctx.stroke();
+    // teeth
     ctx.fillStyle = '#FFFFFF';
     const toothW = Math.max(2, r * 0.12);
     const toothH = Math.max(3, r * 0.22);
-    const mouthY = y + r * 0.23;
-    ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(x - toothW - 1, mouthY, toothW, toothH, 2)
-                  : ctx.rect(x - toothW - 1, mouthY, toothW, toothH);
-    ctx.roundRect ? ctx.roundRect(x + 1, mouthY, toothW, toothH, 2)
-                  : ctx.rect(x + 1, mouthY, toothW, toothH);
-    ctx.fill();
-
-    // name badge that says 'moon'
-    const badgeW = Math.max(36, r * 1.4);
-    const badgeH = Math.max(14, r * 0.5);
-    const badgeX = x + r * 0.6;
-    const badgeY = y + r * 0.15;
-    ctx.save();
-    // pin line
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + r * 0.35, y + r * 0.05);
-    ctx.lineTo(badgeX, badgeY);
-    ctx.stroke();
-    // badge
-    ctx.fillStyle = '#FFE082';
-    ctx.strokeStyle = '#C9A23B';
-    ctx.lineWidth = 1;
+    const mouthY = y + r * 0.22;
     ctx.beginPath();
     if (ctx.roundRect) {
-        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+        ctx.roundRect(x - toothW - 1, mouthY, toothW, toothH, 2);
+        ctx.roundRect(x + 1, mouthY, toothW, toothH, 2);
     } else {
-        ctx.rect(badgeX, badgeY, badgeW, badgeH);
+        ctx.rect(x - toothW - 1, mouthY, toothW, toothH);
+        ctx.rect(x + 1, mouthY, toothW, toothH);
     }
     ctx.fill();
+    // tongue
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.1, y + r * 0.28, r * 0.16, r * 0.10, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff6b81';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.1, y + r * 0.20);
+    ctx.lineTo(x + r * 0.1, y + r * 0.36);
     ctx.stroke();
-    // text
-    ctx.fillStyle = '#3E2723';
-    ctx.font = `${Math.max(8, Math.floor(r * 0.38))}px 'Press Start 2P', monospace`;
-    ctx.textBaseline = 'middle';
-    ctx.fillText('moon', badgeX + 6, badgeY + badgeH / 2);
+
+    // occasional drool drip for comedy
+    if (((Math.floor(t * 2)) % 4) === 0) {
+        ctx.fillStyle = 'rgba(135, 206, 250, 0.9)';
+        ctx.beginPath();
+        ctx.moveTo(x + r * 0.26, y + r * 0.26);
+        ctx.quadraticCurveTo(x + r * 0.34, y + r * 0.40, x + r * 0.22, y + r * 0.46);
+        ctx.quadraticCurveTo(x + r * 0.28, y + r * 0.36, x + r * 0.26, y + r * 0.26);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // add a little star sticker instead of a badge
+    const starR = Math.max(6, r * 0.28);
+    const sx = x + r * 0.62;
+    const sy = y - r * 0.02;
+    ctx.save();
+    ctx.fillStyle = '#FFD54F';
+    ctx.strokeStyle = '#C9A23B';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + i * (2 * Math.PI / 5);
+        const ox = Math.cos(a) * starR;
+        const oy = Math.sin(a) * starR;
+        const ix = Math.cos(a + Math.PI / 5) * (starR * 0.45);
+        const iy = Math.sin(a + Math.PI / 5) * (starR * 0.45);
+        if (i === 0) ctx.moveTo(sx + ox, sy + oy);
+        ctx.lineTo(sx + ix, sy + iy);
+        ctx.lineTo(sx + ox, sy + oy);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
 }
 
