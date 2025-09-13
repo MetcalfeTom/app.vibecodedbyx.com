@@ -3,6 +3,7 @@ const ctx = canvas.getContext('2d');
 const scoreDisplay = document.getElementById('score');
 const startButton = document.getElementById('startButton');
 const instructions = document.getElementById('instructions');
+const shootUIButton = document.getElementById('shootButton');
 
 let initialCanvasWidth = 800;
 let initialCanvasHeight = 400;
@@ -1098,6 +1099,13 @@ canvas.addEventListener('touchstart', (e) => {
 });
 
 startButton.addEventListener('click', startGame);
+
+// mobile shoot button handlers
+if (shootUIButton) {
+    const fire = (e) => { e.preventDefault(); e.stopPropagation(); shoot(); };
+    shootUIButton.addEventListener('click', fire);
+    shootUIButton.addEventListener('touchstart', fire, { passive: false });
+}
 
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
