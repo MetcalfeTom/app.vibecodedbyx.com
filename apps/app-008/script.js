@@ -2,7 +2,7 @@
 const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2));
 const scene = new THREE.Scene();
 scene.background = null;
 
@@ -100,20 +100,68 @@ let washing=false; let soap=0; let time=0; let selectedNPC=null;
 
 // camera controls with touch gestures
 let dragging=false,lastX=0,lastY=0; const pointers=new Map(); let lastPinch=0;
+let inputMode='orbit'; // 'orbit' or 'scrub'
+let scrubActive=false; let scrubPointerId=null; let lastScrubPos=null;
 function updateCam(){const x=orbit.target.x+orbit.r*Math.sin(orbit.phi)*Math.cos(orbit.theta);const y=orbit.target.y+orbit.r*Math.cos(orbit.phi);const z=orbit.target.z+orbit.r*Math.sin(orbit.phi)*Math.sin(orbit.theta);camera.position.set(x,y,z);camera.lookAt(orbit.target)}
 updateCam();
-function onPointerDown(e){pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});dragging=true;lastX=e.clientX;lastY=e.clientY;canvas.setPointerCapture(e.pointerId)}
-function onPointerUp(e){pointers.delete(e.pointerId);if(pointers.size<2)lastPinch=0;if(pointers.size===0)dragging=false;canvas.releasePointerCapture(e.pointerId)}
-function onPointerMove(e){if(!dragging)return;if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(pointers.size>=2){const pts=[...pointers.values()];const dx=pts[1].x-pts[0].x,dy=pts[1].y-pts[0].y;const dist=Math.hypot(dx,dy);if(lastPinch===0){lastPinch=dist;return}const dd=dist-lastPinch;orbit.r*=1-dd*0.002;orbit.r=Math.max(4,Math.min(24,orbit.r));lastPinch=dist;}else{const dx=e.clientX-lastX,dy=e.clientY-lastY;lastX=e.clientX;lastY=e.clientY;orbit.theta-=dx*0.005;orbit.phi-=dy*0.004;orbit.phi=Math.max(0.1,Math.min(Math.PI-0.1,orbit.phi));}updateCam()}
+function onPointerDown(e){
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  // if touch/click begins over water, enter scrub mode
+  if (hitWater(e)) {
+    inputMode='scrub'; scrubActive=true; scrubPointerId=e.pointerId; lastScrubPos = intersectWater(e);
+  } else {
+    inputMode='orbit'; dragging=true; lastX=e.clientX; lastY=e.clientY;
+  }
+  canvas.setPointerCapture(e.pointerId)
+}
+function onPointerUp(e){
+  pointers.delete(e.pointerId);
+  if (scrubPointerId===e.pointerId){ scrubActive=false; inputMode='orbit'; lastScrubPos=null; }
+  if(pointers.size<2)lastPinch=0; if(pointers.size===0)dragging=false; canvas.releasePointerCapture(e.pointerId)
+}
+function onPointerMove(e){
+  if (scrubActive && e.pointerId===scrubPointerId) {
+    // move hands towards intersection point and add soap
+    const pt = intersectWater(e);
+    if (pt) {
+      moveHandsTo(pt);
+      if (lastScrubPos) {
+        const d = pt.distanceTo(lastScrubPos);
+        if (washing && d > 0.01) {
+          soap = Math.min(100, soap + Math.min(1.2, d*120));
+          if (Math.random() < 0.6) spawnFoam(1);
+        }
+      }
+      lastScrubPos = pt;
+    }
+    return;
+  }
+  if(!dragging)return; if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size>=2){const pts=[...pointers.values()];const dx=pts[1].x-pts[0].x,dy=pts[1].y-pts[0].y;const dist=Math.hypot(dx,dy);if(lastPinch===0){lastPinch=dist;return}const dd=dist-lastPinch;orbit.r*=1-dd*0.002;orbit.r=Math.max(4,Math.min(24,orbit.r));lastPinch=dist;}else{const dx=e.clientX-lastX,dy=e.clientY-lastY;lastX=e.clientX;lastY=e.clientY;orbit.theta-=dx*0.005;orbit.phi-=dy*0.004;orbit.phi=Math.max(0.1,Math.min(Math.PI-0.1,orbit.phi));}
+  updateCam()
+}
 canvas.addEventListener('pointerdown',onPointerDown);canvas.addEventListener('pointerup',onPointerUp);canvas.addEventListener('pointercancel',onPointerUp);canvas.addEventListener('pointermove',onPointerMove);canvas.addEventListener('wheel',e=>{if(isMobile)return;orbit.r*=1+Math.sign(e.deltaY)*0.08;orbit.r=Math.max(4,Math.min(24,orbit.r));updateCam()});
 
 // raycaster for npc selection
 const ray=new THREE.Raycaster(); const mouse=new THREE.Vector2();
 function pickNPC(e){const rect=canvas.getBoundingClientRect(); const x=(e.clientX-rect.left)/rect.width*2-1; const y=-(e.clientY-rect.top)/rect.height*2+1; mouse.set(x,y); ray.setFromCamera(mouse,camera); const hits=ray.intersectObjects(npcs,true); if(hits.length){const root=hits[0].object.parent; selectedNPC=root; btnTalk.disabled=false; highlightSelection(root);} }
 function highlightSelection(n){npcs.forEach(g=>{g.traverse(o=>{if(o.material&&o.material.emissive){o.material.emissive.setHex(0x000000)}})}); n.traverse(o=>{if(o.material&&o.material.emissive){o.material.emissive.setHex(0x222211)}})}
-canvas.addEventListener('pointerdown', (e)=>{ // allow tap to select
-  pickNPC(e);
+canvas.addEventListener('pointerdown', (e)=>{ // tap selection only if not over water
+  if (!hitWater(e)) pickNPC(e);
 });
+
+function intersectWater(e){
+  const rect=canvas.getBoundingClientRect(); const x=(e.clientX-rect.left)/rect.width*2-1; const y=-(e.clientY-rect.top)/rect.height*2+1; mouse.set(x,y); ray.setFromCamera(mouse,camera);
+  const hit = ray.intersectObject(water, false);
+  return hit.length ? hit[0].point.clone() : null;
+}
+function hitWater(e){ return !!intersectWater(e); }
+function moveHandsTo(pt){
+  // constrain to trough bounds
+  const minX=-1.4, maxX=1.4, minZ=-0.45, maxZ=0.45; const x=Math.max(minX,Math.min(maxX, pt.x)); const z=Math.max(minZ,Math.min(maxZ, pt.z));
+  leftHand.position.set(x-0.35, 1.42, z+0.05);
+  rightHand.position.set(x+0.35, 1.42, z-0.05);
+}
 
 // washing logic
 function startWash(){washing=true; soap=0; time=0; btnStart.disabled=true; spawnFoam(24)}
@@ -132,12 +180,12 @@ function renderLine(npc){ npcName.textContent=npc.userData.name; npcLine.textCon
 // main loop
 let t=0; function loop(){ t+=0.016; // foam rise/evaporate
   foamGroup.children.forEach(b=>{ b.position.add(b.userData.v); b.material.opacity*=0.985; if(b.material.opacity<0.03){ foamGroup.remove(b)} });
-  if(washing){ time+=0.016; // increase soap if hands move over water
-    const oscill=Math.sin(t*6)*0.4; leftHand.position.z=oscill*0.4; rightHand.position.z=-oscill*0.4; leftHand.position.y=1.42+Math.abs(Math.cos(t*5))*0.06; rightHand.position.y=1.42+Math.abs(Math.sin(t*5))*0.06;
-    // when hands near center, add soap and spawn small foam
-    if(Math.abs(oscill)<0.2){ soap=Math.min(100, soap+0.6); if(Math.random()<0.25) spawnFoam(2) }
+  if(washing){ time+=0.016; // increase soap when scrubbing or auto-oscillate if idle
+    if (!scrubActive) {
+      const oscill=Math.sin(t*6)*0.4; leftHand.position.z=oscill*0.4; rightHand.position.z=-oscill*0.4; leftHand.position.y=1.42+Math.abs(Math.cos(t*5))*0.06; rightHand.position.y=1.42+Math.abs(Math.sin(t*5))*0.06;
+      if(Math.abs(oscill)<0.2){ soap=Math.min(100, soap+0.4); if(Math.random()<0.2) spawnFoam(1) }
+    }
     if(soap>=100){ washing=false }
     soapPct.textContent = `${Math.floor(soap)}%`; timerEl.textContent = `${time.toFixed(1)}s`;
   }
   renderer.render(scene,camera); requestAnimationFrame(loop)} loop();
-
