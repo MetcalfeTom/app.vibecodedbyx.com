@@ -841,19 +841,68 @@ function drawCactus(ob) {
 
 function drawBenches() {
     benches.forEach(bench => {
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        ctx.shadowBlur = 10;
-        ctx.shadowOffsetX = 5;
-        ctx.shadowOffsetY = 5;
-
-        ctx.fillStyle = bench.color;
-        ctx.fillRect(bench.x, bench.y, bench.width, bench.height);
-
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
+        // subtle drop shadow
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetX = 4;
+        ctx.shadowOffsetY = 4;
+        // draw as a tasty pie instead of a gray block
+        drawPie(bench.x, bench.y, bench.width, bench.height);
+        ctx.restore();
     });
+}
+
+function drawPie(x, y, w, h) {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const rx = Math.max(10, w / 2);
+    const ry = Math.max(5, h / 2);
+
+    // crust base
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    const crustGrad = ctx.createLinearGradient(cx, cy - ry, cx, cy + ry);
+    crustGrad.addColorStop(0, '#f3c98b');
+    crustGrad.addColorStop(1, '#d39a52');
+    ctx.fillStyle = crustGrad;
+    ctx.fill();
+    ctx.strokeStyle = '#a87439';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // filling (slightly inset)
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - ry * 0.08, rx * 0.78, ry * 0.65, 0, 0, Math.PI * 2);
+    const flavors = ['#b22222', '#8e24aa', '#c62828', '#ad1457'];
+    ctx.fillStyle = flavors[(Math.floor(x + y) % flavors.length + flavors.length) % flavors.length];
+    ctx.fill();
+
+    // simple lattice
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 248, 225, 0.9)';
+    ctx.lineWidth = 3;
+    // vertical-ish strips
+    for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(cx - rx * 0.7 + i * (rx * 0.28), cy - ry * 0.6);
+        ctx.lineTo(cx - rx * 0.7 + i * (rx * 0.28), cy + ry * 0.6);
+        ctx.stroke();
+    }
+    // horizontal-ish strips
+    for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(cx - rx * 0.85, cy + i * (ry * 0.35));
+        ctx.lineTo(cx + rx * 0.85, cy + i * (ry * 0.35));
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    // specular highlight
+    ctx.beginPath();
+    ctx.ellipse(cx - rx * 0.25, cy - ry * 0.35, rx * 0.25, ry * 0.12, -0.6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fill();
 }
 
 // floating enemies (winged pig men)
@@ -1128,8 +1177,8 @@ function createObstacle() {
 }
 
 function createBench() {
-    const benchWidth = 40;
-    const benchHeight = 20;
+    const benchWidth = 30;
+    const benchHeight = 18;
     const benchX = canvas.width;
     const benchY = canvas.height - benchHeight - 20;
     benches.push({
