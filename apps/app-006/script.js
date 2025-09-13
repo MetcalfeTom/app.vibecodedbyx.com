@@ -27,6 +27,7 @@ let benches = [];
 let floaters = [];
 let bullets = [];
 let lasers = [];
+let birds = [];
 let score = 0;
 let gameRunning = false;
 let obstacleSpeed = 3;
@@ -52,6 +53,10 @@ const blunderCooldown = 900; // ms between blunderbuss shots
 let obstaclesCleared = 0;
 let sunMessageTimer = 0; // frames remaining to show message
 const SUN_MESSAGE_FRAMES = 240; // ~4 seconds at 60fps
+
+// background birds
+let lastBirdTime = 0;
+let birdInterval = 4000; // ms; randomized per spawn
 
 function updateScoreDisplay() {
     scoreDisplay.textContent = `SCORE: ${score} [${currentWeapon.toUpperCase()}]`;
@@ -510,6 +515,30 @@ function drawFloaters(currentTime) {
     });
 }
 
+// background birds (non-colliding)
+function drawBirds() {
+    ctx.save();
+    birds.forEach(b => {
+        // wing flap factor
+        const flap = Math.sin(t * b.flapSpeed + b.phase);
+        const span = b.scale * (12 + flap * 6);
+        const wingY = b.y + Math.sin(t * b.glideSpeed + b.phase) * 2; // subtle glide
+
+        ctx.strokeStyle = 'rgba(30, 30, 30, 0.7)';
+        ctx.lineWidth = Math.max(1, b.scale * 1.2);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        // left wing
+        ctx.moveTo(b.x, wingY);
+        ctx.quadraticCurveTo(b.x - span * 0.4, wingY - span * 0.25, b.x - span, wingY);
+        // right wing
+        ctx.moveTo(b.x, wingY);
+        ctx.quadraticCurveTo(b.x + span * 0.4, wingY - span * 0.25, b.x + span, wingY);
+        ctx.stroke();
+    });
+    ctx.restore();
+}
+
 // bullets
 function drawBullets() {
     bullets.forEach(b => {
@@ -598,6 +627,10 @@ function updateObstacles(deltaTime) {
     // cull expired lasers
     const nowUpdate = Date.now();
     lasers = lasers.filter(L => L.expiresAt > nowUpdate);
+    // move birds
+    birds.forEach(b => {
+        b.x -= b.speed;
+    });
 
     obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
     benches = benches.filter(bench => bench.x + bench.width > 0);
@@ -607,6 +640,7 @@ function updateObstacles(deltaTime) {
         const notExpired = !b.expiresAt || b.expiresAt > nowUpdate;
         return withinScreen && notExpired;
     });
+    birds = birds.filter(b => b.x + b.scale * 20 > -40);
 
     if (Date.now() - lastObstacleTime > obstacleInterval) {
         if (Math.random() < benchSpawnChance) {
@@ -626,6 +660,15 @@ function updateObstacles(deltaTime) {
         }
         lastFloaterTime = Date.now();
         floaterInterval = Math.max(1200, floaterInterval - 20); // get slightly more frequent
+    }
+
+    // spawn background birds occasionally
+    if (Date.now() - lastBirdTime > birdInterval) {
+        if (Math.random() < 0.85) {
+            createBirdFlock();
+        }
+        lastBirdTime = Date.now();
+        birdInterval = 3000 + Math.random() * 4000; // 3–7s
     }
 }
 
@@ -677,6 +720,24 @@ function createFloater() {
         speed: obstacleSpeed * 0.9 + Math.random() * 1.5,
         color: 'rgba(255, 85, 85, 0.9)'
     });
+}
+
+function createBirdFlock() {
+    const flockSize = Math.random() < 0.6 ? 3 : 5;
+    const baseY = 50 + Math.random() * Math.max(60, canvas.height * 0.35);
+    const baseSpeed = 1.2 + Math.random() * 0.8; // slower than gameplay objects
+    const baseScale = 1 + Math.random() * 1.2;
+    for (let i = 0; i < flockSize; i++) {
+        birds.push({
+            x: canvas.width + 20 + i * 18,
+            y: baseY + (Math.random() * 16 - 8),
+            speed: baseSpeed * (0.9 + Math.random() * 0.2),
+            scale: baseScale * (0.8 + Math.random() * 0.4),
+            flapSpeed: 4 + Math.random() * 2,
+            glideSpeed: 0.8 + Math.random() * 0.6,
+            phase: Math.random() * Math.PI * 2
+        });
+    }
 }
 
 function detectCollisions() {
@@ -785,6 +846,7 @@ function gameLoop(currentTime) {
     drawParallaxBackground();
     drawSunWithMustache();
     drawMountainAndRiver();
+    drawBirds();
     drawGround();
 
     drawPlayer();
@@ -892,6 +954,7 @@ function startGame() {
     floaters = [];
     bullets = [];
     lasers = [];
+    birds = [];
     obstaclesCleared = 0;
     sunMessageTimer = 0;
     player.x = 50;
@@ -903,6 +966,8 @@ function startGame() {
     winkTimer = 0;
     lastShotTime = 0;
     lastLaserTime = 0;
+    lastBirdTime = 0;
+    birdInterval = 4000;
     setTheme(player.currentTheme);
     requestAnimationFrame(gameLoop);
 }
