@@ -1,7 +1,8 @@
 // basic three.js setup
 const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
 const scene = new THREE.Scene();
 scene.background = null;
 
@@ -154,26 +155,77 @@ function serveDish() {
 
 // camera orbit controls (no external deps)
 let isDragging = false, lastX = 0, lastY = 0;
-canvas.addEventListener('pointerdown', (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener('pointerup',   (e) => { isDragging = false; canvas.releasePointerCapture(e.pointerId); });
-canvas.addEventListener('pointermove', (e) => {
+// multi-touch gesture support
+const pointers = new Map();
+let lastPinchDist = 0;
+let lastPinchCenter = null;
+
+function pointerDown(e) {
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  isDragging = true; lastX = e.clientX; lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+}
+function pointerUp(e) {
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) { lastPinchDist = 0; lastPinchCenter = null; }
+  if (pointers.size === 0) { isDragging = false; }
+  canvas.releasePointerCapture(e.pointerId);
+}
+function getPinchMetrics() {
+  const pts = Array.from(pointers.values());
+  if (pts.length < 2) return null;
+  const dx = pts[1].x - pts[0].x;
+  const dy = pts[1].y - pts[0].y;
+  const dist = Math.hypot(dx, dy);
+  const center = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  return { dist, center };
+}
+function pointerMove(e) {
   if (!isDragging) return;
-  const dx = e.clientX - lastX; const dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
-  if (e.shiftKey) {
-    // pan
+  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  const ptsCount = pointers.size;
+  if (ptsCount >= 2) {
+    // pinch to zoom + two-finger pan
+    const m = getPinchMetrics();
+    if (!m) return;
+    if (lastPinchDist === 0) { lastPinchDist = m.dist; lastPinchCenter = m.center; return; }
+    const distDelta = m.dist - lastPinchDist;
+    orbit.r *= (1 - distDelta * 0.002);
+    orbit.r = Math.max(4, Math.min(28, orbit.r));
+
+    const cx = m.center.x - lastPinchCenter.x;
+    const cy = m.center.y - lastPinchCenter.y;
     const panSpeed = 0.003 * orbit.r;
     const right = new THREE.Vector3();
     camera.getWorldDirection(right); right.cross(camera.up).normalize();
     const up = camera.up.clone();
-    orbit.target.addScaledVector(right, -dx * panSpeed);
-    orbit.target.addScaledVector(up, dy * panSpeed);
+    orbit.target.addScaledVector(right, -cx * panSpeed);
+    orbit.target.addScaledVector(up, cy * panSpeed);
+    lastPinchDist = m.dist;
+    lastPinchCenter = m.center;
   } else {
-    orbit.theta -= dx * 0.005;
-    orbit.phi   -= dy * 0.004;
-    orbit.phi = Math.max(0.1, Math.min(Math.PI - 0.1, orbit.phi));
+    // single finger/mouse: orbit, shift-key pan remains on desktop
+    const dx = e.clientX - lastX; const dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
+    if (e.shiftKey && !isMobile) {
+      const panSpeed = 0.003 * orbit.r;
+      const right = new THREE.Vector3();
+      camera.getWorldDirection(right); right.cross(camera.up).normalize();
+      const up = camera.up.clone();
+      orbit.target.addScaledVector(right, -dx * panSpeed);
+      orbit.target.addScaledVector(up, dy * panSpeed);
+    } else {
+      orbit.theta -= dx * 0.005;
+      orbit.phi   -= dy * 0.004;
+      orbit.phi = Math.max(0.1, Math.min(Math.PI - 0.1, orbit.phi));
+    }
   }
-});
-canvas.addEventListener('wheel', (e) => { orbit.r *= (1 + Math.sign(e.deltaY) * 0.08); orbit.r = Math.max(4, Math.min(28, orbit.r)); });
+}
+
+canvas.addEventListener('pointerdown', pointerDown);
+canvas.addEventListener('pointerup', pointerUp);
+canvas.addEventListener('pointercancel', pointerUp);
+canvas.addEventListener('pointermove', pointerMove);
+canvas.addEventListener('wheel', (e) => { if (isMobile) return; orbit.r *= (1 + Math.sign(e.deltaY) * 0.08); orbit.r = Math.max(4, Math.min(28, orbit.r)); });
 
 function updateCamera() {
   const x = orbit.target.x + orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta);
@@ -220,4 +272,3 @@ function loop() {
   requestAnimationFrame(loop);
 }
 loop();
-
