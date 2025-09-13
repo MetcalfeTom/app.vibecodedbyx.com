@@ -18,12 +18,19 @@
   const tipsEl = document.getElementById('tips');
   const btnStart = document.getElementById('btnStart');
   const btnReset = document.getElementById('btnReset');
+  const dlg = document.getElementById('dialog');
+  const dlgName = document.getElementById('dlgName');
+  const dlgClose = document.getElementById('dlgClose');
+  const menuGrid = document.getElementById('menuGrid');
+  const chatLine = document.getElementById('chatLine');
 
   // state
   let w = canvas.clientWidth, h = canvas.clientHeight;
   let time = 0; let running = false; let servedCount = 0; let tips = 0;
   const table = { x: 0, y: 0, r: 180 };
   const diners = [];
+  let seatsCount = 4;
+  let selectedDiner = null;
   const tokens = []; // draggable dish tokens
   let dragId = null; let dragOffset = {x:0,y:0};
 
@@ -39,12 +46,12 @@
     table.x = w/2; table.y = h/2 + 30; table.r = Math.min(w,h)*0.22;
     // diners around the table (4 family members)
     diners.length = 0;
-    const seats = 4; const radius = table.r + 70;
+    const seats = seatsCount; const radius = table.r + 70;
     for(let i=0;i<seats;i++){
       const ang = -Math.PI/2 + i * (Math.PI*2/seats);
       const x = table.x + Math.cos(ang)*radius;
       const y = table.y + Math.sin(ang)*radius;
-      diners.push({ x, y, r: 26, order: null, served:false });
+      diners.push({ x, y, r: 26, order: null, served:false, name: randomName() });
     }
     // serving counter area at bottom
     layoutTokens();
@@ -60,8 +67,10 @@
 
   function startService(){
     running = true; time = 0; servedCount = 0; tips = 0;
-    diners.forEach(d => { d.served=false; d.order = randomOrder(); });
-    servedEl.textContent = '0'; tipsEl.textContent = `$0`;
+    seatsCount = 4 + Math.floor(Math.random()*3); // 4..6
+    layout();
+    diners.forEach(d => { d.served=false; d.order = null; });
+    servedEl.textContent = `0/${diners.length}`; tipsEl.textContent = `$0`;
   }
   function reset(){ running=false; time=0; servedCount=0; tips=0; diners.forEach(d=>{d.order=null; d.served=false}); servedEl.textContent='0'; timerEl.textContent='0.0s'; tipsEl.textContent='$0'; layoutTokens(); }
 
@@ -71,6 +80,10 @@
   }
 
   function dishById(id){ return dishes.find(d=>d.id===id); }
+  function randomName(){
+    const f = ['maria','anna','giulia','francesca','sofia','luca','marco','andrea','nicola','giovanni'];
+    return f[Math.floor(Math.random()*f.length)];
+  }
 
   // input
   function ptIn(x,y,r){ return (mouse.x>=x-r && mouse.x<=x+r && mouse.y>=y-r && mouse.y<=y+r); }
@@ -78,8 +91,11 @@
   const mouse = { x:0,y:0, down:false };
   canvas.addEventListener('pointerdown', (e)=>{
     mouse.down = true; const p = point(e); mouse.x=p.x; mouse.y=p.y;
-    // pick token
-    for(let i=tokens.length-1;i>=0;i--){ const t=tokens[i]; if (rectIn(t.x-t.w/2, t.y-t.h/2, t.w, t.h)){ dragId = i; dragOffset.x = mouse.x - t.x; dragOffset.y = mouse.y - t.y; t.held=true; break; } }
+    // pick token first if pressed on the bar
+    for(let i=tokens.length-1;i>=0;i--){ const t=tokens[i]; if (rectIn(t.x-t.w/2, t.y-t.h/2, t.w, t.h)){ dragId = i; dragOffset.x = mouse.x - t.x; dragOffset.y = mouse.y - t.y; t.held=true; canvas.setPointerCapture?.(e.pointerId); return; } }
+    // else, check diner tap to open menu/dialogue
+    const diner = dinerAt(mouse.x, mouse.y);
+    if (diner){ openDialog(diner); return; }
     canvas.setPointerCapture?.(e.pointerId);
   });
   canvas.addEventListener('pointerup', (e)=>{
@@ -93,7 +109,7 @@
       });
       // snap back token to bar
       t.held=false; layoutTokens();
-      if (served){ servedEl.textContent = String(servedCount); tipsEl.textContent = `$${tips}`; }
+      if (served){ servedEl.textContent = `${servedCount}/${diners.length}`; tipsEl.textContent = `$${tips}`; }
       if (servedCount >= diners.length){ running=false; }
     }
     dragId = null; canvas.releasePointerCapture?.(e.pointerId);
@@ -104,6 +120,10 @@
   });
 
   function point(e){ const r = canvas.getBoundingClientRect(); return { x:(e.clientX - r.left), y:(e.clientY - r.top) }; }
+  function dinerAt(x,y){
+    for (let i=diners.length-1;i>=0;i--){ const d=diners[i]; const dx=x-d.x, dy=y-d.y; if (dx*dx+dy*dy <= (d.r+20)*(d.r+20)) return d; }
+    return null;
+  }
 
   // draw helpers
   function roundRect(x,y,wid,hei,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+wid,y,x+wid,y+hei,r); ctx.arcTo(x+wid,y+hei,x,y+hei,r); ctx.arcTo(x,y+hei,x,y,r); ctx.arcTo(x,y,x+wid,y,r); ctx.closePath(); }
@@ -119,8 +139,10 @@
       ctx.fillStyle = '#f2f2f2'; ctx.beginPath(); ctx.arc(d.x, d.y, 22, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle='#ddd'; ctx.stroke();
       // diner head
       ctx.fillStyle = '#ffe0bd'; ctx.beginPath(); ctx.arc(d.x, d.y - 58, 16, 0, Math.PI*2); ctx.fill();
+      // small name tag
+      ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(d.x-24, d.y-92, 48, 16); ctx.fillStyle='#fff'; ctx.font='11px Inter, sans-serif'; ctx.textAlign='center'; ctx.fillText(d.name, d.x, d.y-80);
       // order bubble
-      if (running && !d.served && d.order){ const dish = dishById(d.order); const bx=d.x + (d.x<table.x? -46:46), by=d.y-78; ctx.fillStyle='rgba(0,0,0,0.5)'; roundRect(bx-40,by-18,80,28,8); ctx.fill(); ctx.fillStyle=dish.color; ctx.fillRect(bx-30, by-8, 16, 16); ctx.fillStyle='#fff'; ctx.font='12px Inter, sans-serif'; ctx.fillText(dish.label.split(' ')[0], bx-10, by+4); }
+      if (running && !d.served && d.order){ const dish = dishById(d.order); const bx=d.x + (d.x<table.x? -52:52), by=d.y-78; ctx.fillStyle='rgba(0,0,0,0.55)'; roundRect(bx-48,by-18,96,28,8); ctx.fill(); ctx.fillStyle=dish.color; ctx.fillRect(bx-36, by-8, 16, 16); ctx.fillStyle='#fff'; ctx.font='12px Inter, sans-serif'; ctx.textAlign='left'; ctx.fillText(dish.label, bx-16, by+4); }
       // served tick
       if (d.served){ ctx.fillStyle='#2ecc71'; ctx.beginPath(); ctx.arc(d.x, d.y, 10, 0, Math.PI*2); ctx.fill(); }
     });
@@ -148,7 +170,52 @@
   btnStart.addEventListener('click', startService);
   btnReset.addEventListener('click', reset);
 
+  // dialog interactions
+  function openDialog(d){
+    selectedDiner = d; dlgName.textContent = d.name; chatLine.textContent = '';
+    // build menu
+    menuGrid.innerHTML = '';
+    dishes.forEach(ds => {
+      const b = document.createElement('button');
+      const sw = document.createElement('span'); sw.className='menu-swatch'; sw.style.background = ds.color; b.appendChild(sw);
+      const lbl = document.createElement('span'); lbl.textContent = ds.label; b.appendChild(lbl);
+      b.addEventListener('click', () => { d.order = ds.id; closeDialog(); });
+      menuGrid.appendChild(b);
+    });
+    // chat buttons
+    document.querySelectorAll('#dialog [data-chat]').forEach(el => {
+      el.onclick = () => {
+        const k = el.getAttribute('data-chat');
+        chatLine.textContent = chatReply(k);
+      };
+    });
+    dlg.classList.add('open'); dlg.removeAttribute('hidden');
+  }
+  function closeDialog(){ dlg.classList.remove('open'); dlg.setAttribute('hidden',''); selectedDiner=null; }
+  dlgClose.addEventListener('click', closeDialog);
+  ['click','touchstart'].forEach(evt=> dlg.addEventListener(evt, (e)=>{ if (e.target === dlg){ e.preventDefault(); closeDialog(); } }, { passive:false }));
+  function chatReply(key){
+    const replies = {
+      rec: [
+        'chef says the carbonara sings tonight.',
+        'gnocchi’s light as a cloud. highly recommended.',
+        'pizza margherita is a crowd favorite.'
+      ],
+      day: [
+        'long day on the road, but good company helps.',
+        'couldn’t be better—smells like fresh basil in here.',
+        'hungry and happy, thanks for asking.'
+      ],
+      kids: [
+        'they’re angels, as long as dessert arrives quickly.',
+        'we’ve negotiated for extra garlic bread.',
+        'promise they’ll behave if there’s tiramisu.'
+      ]
+    };
+    const arr = replies[key] || ['buon appetito!'];
+    return arr[Math.floor(Math.random()*arr.length)];
+  }
+
   // init
   layout(); loop();
 })();
-
