@@ -316,6 +316,75 @@ function drawMoon() {
         ctx.arc(x + c.dx, y + c.dy, c.rr, 0, Math.PI * 2);
         ctx.fill();
     });
+
+    // goofy face: uneven eyes, big smile, two teeth
+    const eyeRY = Math.max(1.6, r * 0.12);
+    const eyeRX = eyeRY * 1.2;
+    // left eye (slightly bigger)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.35, y - r * 0.15, eyeRX * 1.2, eyeRY * 1.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // right eye
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.20, y - r * 0.18, eyeRX, eyeRY, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // pupils (cross-eyed)
+    ctx.fillStyle = '#1B1B1B';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.38, y - r * 0.12, eyeRY * 0.6, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.17, y - r * 0.15, eyeRY * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // smile
+    ctx.strokeStyle = '#263238';
+    ctx.lineWidth = Math.max(1.2, r * 0.05);
+    ctx.beginPath();
+    ctx.arc(x - r * 0.03, y + r * 0.20, r * 0.42, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.stroke();
+    // two teeth in the middle
+    ctx.fillStyle = '#FFFFFF';
+    const toothW = Math.max(2, r * 0.12);
+    const toothH = Math.max(3, r * 0.22);
+    const mouthY = y + r * 0.23;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x - toothW - 1, mouthY, toothW, toothH, 2)
+                  : ctx.rect(x - toothW - 1, mouthY, toothW, toothH);
+    ctx.roundRect ? ctx.roundRect(x + 1, mouthY, toothW, toothH, 2)
+                  : ctx.rect(x + 1, mouthY, toothW, toothH);
+    ctx.fill();
+
+    // name badge that says 'moon'
+    const badgeW = Math.max(36, r * 1.4);
+    const badgeH = Math.max(14, r * 0.5);
+    const badgeX = x + r * 0.6;
+    const badgeY = y + r * 0.15;
+    ctx.save();
+    // pin line
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.35, y + r * 0.05);
+    ctx.lineTo(badgeX, badgeY);
+    ctx.stroke();
+    // badge
+    ctx.fillStyle = '#FFE082';
+    ctx.strokeStyle = '#C9A23B';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+    } else {
+        ctx.rect(badgeX, badgeY, badgeW, badgeH);
+    }
+    ctx.fill();
+    ctx.stroke();
+    // text
+    ctx.fillStyle = '#3E2723';
+    ctx.font = `${Math.max(8, Math.floor(r * 0.38))}px 'Press Start 2P', monospace`;
+    ctx.textBaseline = 'middle';
+    ctx.fillText('moon', badgeX + 6, badgeY + badgeH / 2);
+    ctx.restore();
 }
 
 // Mountain and flowing river background
