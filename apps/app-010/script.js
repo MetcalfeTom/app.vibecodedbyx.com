@@ -72,8 +72,11 @@
         like: pickLike(),
         dislike: pickDislike(),
         backstory: makeBackstory(),
+        talk: null,
       });
     }
+    // attach small talk topics (after all diners created so likes are set)
+    diners.forEach(d => { d.talk = makeSmallTalk(d.name, d.like); });
     // serving counter area at bottom
     layoutTokens();
     // place player near the counter initially
@@ -139,6 +142,69 @@
       'keeps a lucky basil leaf in their wallet'
     ];
     return `${past[Math.floor(Math.random()*past.length)]}; ${twist[Math.floor(Math.random()*twist.length)]}.`;
+  }
+
+  // random small-talk topics per diner
+  function makeSmallTalk(name, likeId){
+    const like = dishById(likeId)?.label || 'the special';
+    const topics = [
+      {
+        key: 'rec', label: 'what do you recommend?',
+        replies: [
+          `i've got my eye on ${like}.`,
+          `heard the chef hums while making ${like}. sounds promising.`,
+          'honestly? anything that arrives with extra basil.'
+        ]
+      },
+      {
+        key: 'story', label: 'tell me something fun',
+        replies: [
+          'once tried to twirl spaghetti with chopsticks. it worked... briefly.',
+          'i collect olive oil tins with birds on them.',
+          'i clap when the parm shows up. can’t help it.'
+        ]
+      },
+      {
+        key: 'local', label: 'you from around here?',
+        replies: [
+          'close enough to complain about the sauce like a local.',
+          'i’m from where the tomatoes taste like sunshine.',
+          'my nonna would approve of this place—high praise.'
+        ]
+      },
+      {
+        key: 'music', label: 'music good tonight?',
+        replies: [
+          'accordion makes everything taste 12% better.',
+          'if the violinist plays volare, i’m ordering dessert twice.',
+          'i tipped the pianist in breadsticks once.'
+        ]
+      },
+      {
+        key: 'football', label: 'how’s the football?',
+        replies: [
+          'i cheer for whoever brings me garlic bread first.',
+          'my team? team tiramisu.',
+          'i only yell at the ref if the pasta’s undercooked.'
+        ]
+      },
+      {
+        key: 'chef', label: 'what’s the chef like?',
+        replies: [
+          'rumor says they season with intuition and a little drama.',
+          'they can taste saltiness with their eyes. terrifying.',
+          'saw them high-five a saucepan. morale seems high.'
+        ]
+      }
+    ];
+    // pick 3 distinct topics at random per diner
+    const pool = topics.slice();
+    const chosen = [];
+    for (let i = 0; i < 3 && pool.length; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      chosen.push(pool.splice(idx,1)[0]);
+    }
+    return chosen;
   }
 
   // input
@@ -521,40 +587,27 @@
       b.addEventListener('click', () => { d.order = ds.id; closeDialog(); });
       menuGrid.appendChild(b);
     });
-    // chat buttons
-    document.querySelectorAll('#dialog [data-chat]').forEach(el => {
-      el.onclick = () => {
-        const k = el.getAttribute('data-chat');
-        chatLine.textContent = chatReply(k);
-      };
-    });
+    // build random small-talk buttons per character
+    const chatWrap = dlg.querySelector('.chat-buttons');
+    if (chatWrap) {
+      chatWrap.innerHTML = '';
+      (d.talk || makeSmallTalk(d.name, d.like)).forEach(t => {
+        const btn = document.createElement('button');
+        btn.textContent = t.label;
+        btn.addEventListener('click', () => {
+          const msg = t.replies[Math.floor(Math.random()*t.replies.length)] || 'buon appetito!';
+          chatLine.textContent = msg;
+        });
+        chatWrap.appendChild(btn);
+      });
+    }
     if (backstoryEl) backstoryEl.textContent = d.backstory || '';
     dlg.classList.add('open'); dlg.removeAttribute('hidden');
   }
   function closeDialog(){ dlg.classList.remove('open'); dlg.setAttribute('hidden',''); selectedDiner=null; }
   dlgClose.addEventListener('click', closeDialog);
   ['click','touchstart'].forEach(evt=> dlg.addEventListener(evt, (e)=>{ if (e.target === dlg){ e.preventDefault(); closeDialog(); } }, { passive:false }));
-  function chatReply(key){
-    const replies = {
-      rec: [
-        'chef says the carbonara sings tonight.',
-        'gnocchi’s light as a cloud. highly recommended.',
-        'pizza margherita is a crowd favorite.'
-      ],
-      day: [
-        'long day on the road, but good company helps.',
-        'couldn’t be better—smells like fresh basil in here.',
-        'hungry and happy, thanks for asking.'
-      ],
-      kids: [
-        'they’re angels, as long as dessert arrives quickly.',
-        'we’ve negotiated for extra garlic bread.',
-        'promise they’ll behave if there’s tiramisu.'
-      ]
-    };
-    const arr = replies[key] || ['buon appetito!'];
-    return arr[Math.floor(Math.random()*arr.length)];
-  }
+  // legacy chatReply removed; topics are per-diner now
 
   // init
   layout(); loop();
