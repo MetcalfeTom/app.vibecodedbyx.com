@@ -38,10 +38,12 @@
   let seatsCount = 4;
   let selectedDiner = null;
   // player avatar (walk around the restaurant)
-  const player = { x: 0, y: 0, r: 14, speed: 140, tx: null, ty: null, name: 'you', color: '#6fa8ff' };
+  const player = { x: 0, y: 0, r: 14, speed: 140, tx: null, ty: null, name: 'you', color: '#6fa8ff', boostTimer: 0 };
   const keys = new Set();
   let pendingInteract = null; // diner to auto-open when in range
   const tokens = []; // draggable dish tokens
+  const boosts = []; // espresso speed boosts
+  let boostSpawnTimer = 0; // seconds
   let dragId = null; let dragOffset = {x:0,y:0};
 
   function resize(){
@@ -85,6 +87,11 @@
       tokens.push({ id:dishes[i].id, label:dishes[i].label, color:dishes[i].color, x:startX + i*gap, y:barY, w:80, h:40, held:false });
     }
   }
+  function spawnBoost(){
+    const rx = 40 + Math.random() * (w - 80);
+    const ry = Math.max(table.y + table.r + 40, h * 0.6 + Math.random() * (h * 0.35));
+    boosts.push({ x: rx, y: ry, r: 12, t: 8 });
+  }
 
   function startService(){
     running = true; time = 0; servedCount = 0; tips = 0;
@@ -94,8 +101,9 @@
     layout();
     diners.forEach(d => { d.served=false; d.order = null; });
     servedEl.textContent = `0/${diners.length}`; tipsEl.textContent = `$0`;
+    boosts.length = 0; boostSpawnTimer = 0; player.boostTimer = 0;
   }
-  function reset(){ running=false; time=0; servedCount=0; tips=0; diners.forEach(d=>{d.order=null; d.served=false}); servedEl.textContent='0'; timerEl.textContent='0.0s'; tipsEl.textContent='$0'; layoutTokens(); }
+  function reset(){ running=false; time=0; servedCount=0; tips=0; diners.forEach(d=>{d.order=null; d.served=false}); servedEl.textContent='0'; timerEl.textContent='0.0s'; tipsEl.textContent='$0'; layoutTokens(); boosts.length=0; boostSpawnTimer=0; player.boostTimer=0; }
 
   function randomOrder(){
     const pool = dishes.map(d=>d.id);
@@ -207,7 +215,9 @@
     }
     const len = Math.hypot(vx, vy);
     if (len > 0) { vx /= len; vy /= len; }
-    const step = player.speed * dt;
+    const sprint = (keys.has('shift')) ? 1.35 : 1.0;
+    const boostMul = (player.boostTimer && player.boostTimer > 0) ? 2.5 : 1.0;
+    const step = player.speed * sprint * boostMul * dt;
     let nx = player.x + vx * step;
     let ny = player.y + vy * step;
     // collide with table disk
@@ -230,12 +240,21 @@
       }
     });
     player.x = nx; player.y = ny;
+    // collect boosts
+    for (let i = boosts.length - 1; i >= 0; i--) {
+      const b = boosts[i];
+      if (dist(player.x, player.y, b.x, b.y) <= player.r + b.r) {
+        player.boostTimer = Math.max(player.boostTimer || 0, 7.0);
+        boosts.splice(i,1);
+      }
+    }
     // auto-open dialog if we were heading to a diner and arrived
     if (pendingInteract && dist(player.x, player.y, pendingInteract.x, pendingInteract.y) <= 70) {
       openDialog(pendingInteract);
       pendingInteract = null;
       player.tx = player.ty = null;
     }
+    if (player.boostTimer && player.boostTimer > 0) player.boostTimer = Math.max(0, player.boostTimer - dt);
   }
 
   // draw helpers and faux-3d utilities
@@ -388,6 +407,16 @@
     ctx.fillStyle = '#000';
     ctx.beginPath(); ctx.ellipse(player.x, player.y + 6*s, 18*s, 8*s, 0, 0, Math.PI*2); ctx.fill();
     ctx.globalAlpha = 1;
+    // speed trail when boosted
+    if (player.boostTimer && player.boostTimer > 0) {
+      ctx.save();
+      const glow = Math.min(10, 4 + player.boostTimer * 1.2);
+      ctx.shadowBlur = glow; ctx.shadowColor = 'rgba(255, 215, 128, 0.85)';
+      ctx.strokeStyle = 'rgba(255, 215, 128, 0.6)';
+      ctx.lineWidth = 3*s;
+      ctx.beginPath(); ctx.moveTo(player.x - 24*s, player.y); ctx.lineTo(player.x - 8*s, player.y);
+      ctx.stroke(); ctx.restore();
+    }
     // body
     ctx.fillStyle = '#6fa8ff';
     ctx.beginPath(); ctx.arc(player.x, player.y - 18*s, 10*s, 0, Math.PI*2); ctx.fill(); // head
@@ -406,6 +435,20 @@
       // colored square + label
       ctx.fillStyle=t.color; ctx.fillRect(-t.w/2+8, -10, 22, 22);
       ctx.fillStyle='#fff'; ctx.font='12px Inter, sans-serif'; const name = t.label; ctx.fillText(name, -t.w/2+36, 4);
+      ctx.restore();
+    });
+    // boosts (espresso cups)
+    boosts.forEach(b => {
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      // saucer
+      ctx.fillStyle = '#f2e8d5'; ctx.beginPath(); ctx.ellipse(b.x, b.y + 10, 18, 6, 0, 0, Math.PI*2); ctx.fill();
+      // cup
+      ctx.fillStyle = '#ffffff'; roundRect(b.x - 8, b.y - 6, 16, 12, 4); ctx.fill();
+      // coffee
+      ctx.fillStyle = '#6b3e2b'; ctx.beginPath(); ctx.ellipse(b.x, b.y, 10, 5, 0, 0, Math.PI*2); ctx.fill();
+      // steam
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.moveTo(b.x-4, b.y-10); ctx.bezierCurveTo(b.x-6, b.y-18, b.x-2, b.y-20, b.x, b.y-24); ctx.stroke();
       ctx.restore();
     });
   }
@@ -436,6 +479,10 @@
           if (d.wantTimer > 8) d.state = 'done';
         }
       });
+      // boosts: spawn and age
+      boostSpawnTimer += 1/60;
+      if (boosts.length < 2 && boostSpawnTimer > 9) { boostSpawnTimer = 0; spawnBoost(); }
+      for (let i = boosts.length - 1; i >= 0; i--) { boosts[i].t -= 1/60; if (boosts[i].t <= 0) boosts.splice(i,1); }
     }
     updatePlayer(1/60);
   }
