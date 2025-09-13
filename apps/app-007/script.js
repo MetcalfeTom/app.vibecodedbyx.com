@@ -240,6 +240,130 @@ updateCamera();
 let dinnerOn = false;
 let chaos = false;
 
+// ---- simple web audio sound engine (procedural, no downloads) ----
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.master = null;
+    this.enabled = false;
+    this._ambTimer = null;
+  }
+  async init() {
+    if (this.ctx) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return; // no audio support
+    this.ctx = new Ctx();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.5;
+    this.master.connect(this.ctx.destination);
+  }
+  async enable() {
+    await this.init();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    this.enabled = true;
+    this.startAmbience();
+  }
+  disable() {
+    this.enabled = false;
+    if (this._ambTimer) { clearInterval(this._ambTimer); this._ambTimer = null; }
+  }
+  startAmbience() {
+    if (this._ambTimer) return;
+    this._ambTimer = setInterval(() => {
+      if (!this.enabled || !this.ctx) return;
+      const r = Math.random();
+      if (r < 0.35) this.playClink(0.08 + Math.random() * 0.04);
+      else if (r < 0.6) this.playChatter(0.05 + Math.random() * 0.05);
+    }, 900);
+  }
+  // helpers
+  _gainEnv(duration = 0.12, peak = 1.0) {
+    const g = this.ctx.createGain();
+    const t = this.ctx.currentTime;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + duration * 0.15);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    return g;
+  }
+  _noiseBuffer(lenSec = 0.2) {
+    const len = Math.max(1, Math.floor(this.ctx.sampleRate * lenSec));
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+  playClink(duration = 0.1) {
+    if (!this.enabled || !this.ctx) return;
+    // sine blip + filtered noise burst
+    const t0 = this.ctx.currentTime;
+    const sine = this.ctx.createOscillator();
+    sine.type = 'sine';
+    sine.frequency.setValueAtTime(2200, t0);
+    sine.frequency.exponentialRampToValueAtTime(900, t0 + duration);
+    const sGain = this._gainEnv(duration, 0.3);
+    sine.connect(sGain).connect(this.master);
+    sine.start();
+    sine.stop(t0 + duration);
+
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noiseBuffer(duration);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'highpass'; bp.frequency.value = 1800; bp.Q.value = 0.7;
+    const nGain = this._gainEnv(duration * 0.9, 0.15);
+    src.connect(bp).connect(nGain).connect(this.master);
+    src.start();
+  }
+  playThump(duration = 0.12) {
+    if (!this.enabled || !this.ctx) return;
+    const t0 = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(220, t0);
+    osc.frequency.exponentialRampToValueAtTime(90, t0 + duration);
+    const g = this._gainEnv(duration, 0.4);
+    osc.connect(g).connect(this.master);
+    osc.start();
+    osc.stop(t0 + duration);
+  }
+  playStart() {
+    if (!this.enabled || !this.ctx) return;
+    const t0 = this.ctx.currentTime;
+    [440, 554.37, 659.25].forEach((f, i) => {
+      const osc = this.ctx.createOscillator();
+      const g = this._gainEnv(0.35 + i * 0.05, 0.2);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, t0 + i * 0.01);
+      osc.connect(g).connect(this.master);
+      osc.start(t0 + i * 0.01);
+      osc.stop(t0 + 0.5 + i * 0.01);
+    });
+  }
+  playChaos() {
+    if (!this.enabled || !this.ctx) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noiseBuffer(0.35);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 1200; bp.Q.value = 2;
+    const g = this._gainEnv(0.4, 0.25);
+    src.connect(bp).connect(g).connect(this.master);
+    src.start();
+  }
+  playChatter(duration = 0.08) {
+    if (!this.enabled || !this.ctx) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noiseBuffer(duration);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 400 + Math.random() * 800;
+    bp.Q.value = 0.8;
+    const g = this._gainEnv(duration, 0.06);
+    src.connect(bp).connect(g).connect(this.master);
+    src.start();
+  }
+}
+const sound = new SoundEngine();
+
 function animateArms(t) {
   family.forEach((p, i) => {
     const A = p.userData.armL, B = p.userData.armR;
@@ -257,10 +381,23 @@ function animateArms(t) {
 }
 
 // ui hookups
-document.getElementById('btnStart').addEventListener('click', () => { dinnerOn = true; });
-document.getElementById('btnServe').addEventListener('click', serveDish);
-document.getElementById('btnChaos').addEventListener('click', () => { chaos = !chaos; });
-document.getElementById('btnReset').addEventListener('click', () => { dinnerOn = false; chaos = false; });
+const btnStart = document.getElementById('btnStart');
+const btnServe = document.getElementById('btnServe');
+const btnChaos = document.getElementById('btnChaos');
+const btnReset = document.getElementById('btnReset');
+const btnSound = document.getElementById('btnSound');
+
+function unlockAudioOnce() { sound.enable(); canvas.removeEventListener('pointerdown', unlockAudioOnce); }
+canvas.addEventListener('pointerdown', unlockAudioOnce, { passive: true });
+
+btnStart.addEventListener('click', async () => { dinnerOn = true; await sound.enable(); sound.playStart(); });
+btnServe.addEventListener('click', async () => { serveDish(); await sound.enable(); sound.playClink(); sound.playThump(0.08); });
+btnChaos.addEventListener('click', async () => { chaos = !chaos; await sound.enable(); sound.playChaos(); });
+btnReset.addEventListener('click', () => { dinnerOn = false; chaos = false; });
+btnSound.addEventListener('click', async () => {
+  if (!sound.enabled) { await sound.enable(); btnSound.textContent = 'sound: on'; btnSound.setAttribute('aria-pressed', 'true'); }
+  else { sound.disable(); btnSound.textContent = 'sound: off'; btnSound.setAttribute('aria-pressed', 'false'); }
+});
 
 // main loop
 let t = 0;
