@@ -4,6 +4,7 @@ const scoreDisplay = document.getElementById('score');
 const startButton = document.getElementById('startButton');
 const instructions = document.getElementById('instructions');
 const shootUIButton = document.getElementById('shootButton');
+const jumpUIButton = document.getElementById('jumpButton');
 const startScreen = document.getElementById('startScreen');
 const startCanvas = document.getElementById('startCanvas');
 const sctx = startCanvas ? startCanvas.getContext('2d') : null;
@@ -1148,6 +1149,14 @@ function updatePlayer() {
     }
 }
 
+function jump() {
+    if (player.jumpsRemaining > 0) {
+        player.dy = player.jumpPower;
+        player.jumpsRemaining--;
+        player.grounded = false;
+    }
+}
+
 function updateObstacles(deltaTime) {
     obstacles.forEach(obstacle => {
         obstacle.x -= obstacleSpeed;
@@ -1558,10 +1567,8 @@ function endGame() {
 }
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowUp' && player.jumpsRemaining > 0) { // Modified for double jump
-        player.dy = player.jumpPower;
-        player.jumpsRemaining--;
-        player.grounded = false; // Ensure not grounded after jump
+    if (e.key === 'ArrowUp') {
+        jump();
     } else if (e.key === ' ' || e.key.toLowerCase() === 'f') {
         e.preventDefault();
         shoot();
@@ -1579,11 +1586,7 @@ document.addEventListener('keydown', (e) => {
 
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    if (player.jumpsRemaining > 0) { // Modified for double jump
-        player.dy = player.jumpPower;
-        player.jumpsRemaining--;
-        player.grounded = false; // Ensure not grounded after jump
-    }
+    jump();
 });
 
 startButton.addEventListener('click', startGame);
@@ -1593,6 +1596,13 @@ if (shootUIButton) {
     const fire = (e) => { e.preventDefault(); e.stopPropagation(); shoot(); };
     shootUIButton.addEventListener('click', fire);
     shootUIButton.addEventListener('touchstart', fire, { passive: false });
+}
+
+// mobile jump button handlers
+if (jumpUIButton) {
+    const j = (e) => { e.preventDefault(); e.stopPropagation(); jump(); };
+    jumpUIButton.addEventListener('click', j);
+    jumpUIButton.addEventListener('touchstart', j, { passive: false });
 }
 
 resizeCanvas();
