@@ -24,6 +24,7 @@ let obstacles = [];
 let benches = [];
 let score = 0;
 let gameRunning = false;
+let t = 0; // animation time for river flow
 
 canvas.width = initialCanvasWidth;
 canvas.height = initialCanvasHeight;
@@ -38,6 +39,7 @@ window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
 function drawBackground() {
+    // SUN
     const sunX = canvas.width - 60;
     const sunY = 60;
     const sunRadius = 25;
@@ -48,6 +50,7 @@ function drawBackground() {
     ctx.fill();
     ctx.closePath();
 
+    // SUN MUSTACHE
     ctx.beginPath();
     ctx.moveTo(sunX - 20, sunY + 5);
     ctx.quadraticCurveTo(sunX - 10, sunY + 15, sunX, sunY + 5);
@@ -56,6 +59,68 @@ function drawBackground() {
     ctx.lineWidth = 3;
     ctx.stroke();
     ctx.closePath();
+
+    // DISTANT MOUNTAINS
+    const farBaseY = canvas.height - 140;
+    ctx.fillStyle = '#2F4F4F';
+    ctx.beginPath();
+    ctx.moveTo(0, farBaseY);
+    ctx.lineTo(80, farBaseY - 60);
+    ctx.lineTo(140, farBaseY);
+    ctx.lineTo(240, farBaseY - 80);
+    ctx.lineTo(330, farBaseY);
+    ctx.lineTo(460, farBaseY - 70);
+    ctx.lineTo(560, farBaseY);
+    ctx.lineTo(canvas.width, farBaseY - 60);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(0, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // NEAR MOUNTAINS
+    const nearBaseY = canvas.height - 100;
+    ctx.fillStyle = '#1E3A3A';
+    ctx.beginPath();
+    ctx.moveTo(0, nearBaseY);
+    ctx.lineTo(120, nearBaseY - 70);
+    ctx.lineTo(200, nearBaseY);
+    ctx.lineTo(320, nearBaseY - 90);
+    ctx.lineTo(420, nearBaseY);
+    ctx.lineTo(560, nearBaseY - 75);
+    ctx.lineTo(canvas.width, nearBaseY);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(0, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // FLOWING RIVER (ANIMATED STRIPES)
+    const riverTopY = canvas.height - 80;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(canvas.width, riverTopY);
+    ctx.quadraticCurveTo(canvas.width * 0.6, riverTopY - 40, 180, canvas.height - 60);
+    ctx.lineTo(140, canvas.height - 50);
+    ctx.quadraticCurveTo(canvas.width * 0.55, riverTopY - 20, 0, riverTopY);
+    ctx.closePath();
+    ctx.fillStyle = '#1E90FF';
+    ctx.fill();
+
+    // Clip to river shape for animated highlights
+    ctx.clip();
+    ctx.globalAlpha = 0.25;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#FFFFFF';
+    const offset = (t * 60) % 20; // move rightward
+    for (let i = -200; i < canvas.width + 200; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(i + offset, canvas.height);
+        ctx.lineTo(i + 120 + offset, riverTopY);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1.0;
+    ctx.restore();
 }
 
 function drawPlayer() {
@@ -166,6 +231,7 @@ function drawBenches() {
 function update() {
     if (!gameRunning) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    t += 0.016; // advance animation time
     drawBackground();
     drawObstacles();
     drawBenches();
