@@ -44,7 +44,9 @@ const shotCooldown = 300; // ms between shots
 let lastLaserTime = 0;
 const laserCooldown = 800; // ms between lasers
 const laserDuration = 150; // ms visible laser beam
-let currentWeapon = 'pistol'; // 'pistol' | 'laser'
+let currentWeapon = 'pistol'; // 'pistol' | 'laser' | 'blunderbuss'
+let lastBlunderTime = 0;
+const blunderCooldown = 900; // ms between blunderbuss shots
 
 function updateScoreDisplay() {
     scoreDisplay.textContent = `SCORE: ${score} [${currentWeapon.toUpperCase()}]`;
@@ -375,10 +377,18 @@ function drawBullets() {
         ctx.shadowOffsetX = 2;
         ctx.shadowOffsetY = 2;
 
-        const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.width, b.y);
-        grad.addColorStop(0, '#FFD54F');
-        grad.addColorStop(1, '#FF6F00');
-        ctx.fillStyle = grad;
+        if (b.type === 'pellet') {
+            // pellets: whiter core for punchy effect
+            const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.width, b.y);
+            grad.addColorStop(0, '#FFF176');
+            grad.addColorStop(1, '#FFA000');
+            ctx.fillStyle = grad;
+        } else {
+            const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.width, b.y);
+            grad.addColorStop(0, '#FFD54F');
+            grad.addColorStop(1, '#FF6F00');
+            ctx.fillStyle = grad;
+        }
         ctx.fillRect(b.x, b.y, b.width, b.height);
 
         ctx.shadowColor = 'transparent';
@@ -429,7 +439,12 @@ function updateObstacles(deltaTime) {
         f.x -= f.speed; // horizontal drift
     });
     bullets.forEach(b => {
-        b.x += b.speed;
+        if (typeof b.vx === 'number' && typeof b.vy === 'number') {
+            b.x += b.vx;
+            b.y += b.vy;
+        } else {
+            b.x += b.speed;
+        }
     });
     // cull expired lasers
     const nowUpdate = Date.now();
@@ -438,7 +453,11 @@ function updateObstacles(deltaTime) {
     obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
     benches = benches.filter(bench => bench.x + bench.width > 0);
     floaters = floaters.filter(f => f.x + f.width > 0);
-    bullets = bullets.filter(b => b.x < canvas.width + 40);
+    bullets = bullets.filter(b => {
+        const withinScreen = b.x < canvas.width + 40 && b.x + b.width > -40 && b.y + b.height > -40 && b.y < canvas.height + 40;
+        const notExpired = !b.expiresAt || b.expiresAt > nowUpdate;
+        return withinScreen && notExpired;
+    });
 
     if (Date.now() - lastObstacleTime > obstacleInterval) {
         if (Math.random() < benchSpawnChance) {
@@ -561,7 +580,8 @@ function detectCollisions() {
                 // mark for removal and award points
                 f._hit = true;
                 b._hit = true;
-                score += 25;
+                const pts = b.type === 'pellet' ? 12 : 25;
+                score += pts;
                 updateScoreDisplay();
             }
         });
@@ -658,6 +678,31 @@ function shoot() {
             thickness: 6,
             expiresAt: now + laserDuration
         });
+    } else if (currentWeapon === 'blunderbuss') {
+        if (now - lastBlunderTime < blunderCooldown) return;
+        lastBlunderTime = now;
+        const originX = player.x + player.width;
+        const originY = player.y + player.height / 2;
+        const pellets = 7;
+        const spreadDeg = 18; // total spread (~ +/-9 deg)
+        for (let i = 0; i < pellets; i++) {
+            const t = i / (pellets - 1); // 0..1
+            const angleDeg = -spreadDeg / 2 + t * spreadDeg + (Math.random() * 4 - 2);
+            const angleRad = angleDeg * Math.PI / 180;
+            const speed = 8 + Math.random() * 1.5;
+            const vx = Math.cos(angleRad) * speed;
+            const vy = Math.sin(angleRad) * speed;
+            bullets.push({
+                type: 'pellet',
+                x: originX,
+                y: originY,
+                vx,
+                vy,
+                width: 8,
+                height: 3,
+                expiresAt: now + 400
+            });
+        }
     }
 }
 
@@ -678,7 +723,7 @@ function setTheme(themeType) {
 
 // weapon selection for UI buttons
 function setWeapon(type) {
-    if (type === 'pistol' || type === 'laser') {
+    if (type === 'pistol' || type === 'laser' || type === 'blunderbuss') {
         currentWeapon = type;
         updateScoreDisplay();
     }
@@ -729,6 +774,9 @@ document.addEventListener('keydown', (e) => {
         updateScoreDisplay();
     } else if (e.key === '2') {
         currentWeapon = 'laser';
+        updateScoreDisplay();
+    } else if (e.key === '3') {
+        currentWeapon = 'blunderbuss';
         updateScoreDisplay();
     }
 });
