@@ -475,6 +475,7 @@ const btnReset = document.getElementById('btnReset');
 const btnSound = document.getElementById('btnSound');
 const btnAch = document.getElementById('btnAch');
 const achClose = document.getElementById('achClose');
+const achPanel = document.getElementById('achPanel');
 
 function unlockAudioOnce() { sound.enable(); canvas.removeEventListener('pointerdown', unlockAudioOnce); }
 canvas.addEventListener('pointerdown', unlockAudioOnce, { passive: true });
@@ -483,8 +484,18 @@ btnStart.addEventListener('click', async () => { dinnerOn = true; achState.start
 btnServe.addEventListener('click', async () => { serveDish(); achState.served++; tryUnlock(); await sound.enable(); sound.playClink(); sound.playThump(0.08); });
 btnChaos.addEventListener('click', async () => { chaos = !chaos; achState.toggledChaos = true; tryUnlock(); await sound.enable(); sound.playChaos(); });
 btnReset.addEventListener('click', () => { dinnerOn = false; chaos = false; });
-btnAch.addEventListener('click', () => showAchPanel(true));
-achClose.addEventListener('click', () => showAchPanel(false));
+btnAch.addEventListener('click', () => showAchPanel(achPanel?.hidden !== false));
+['click','touchstart'].forEach(evt => {
+  achClose.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); showAchPanel(false); }, { passive: false });
+});
+// tap/click outside the card closes on mobile/desktop
+['click','touchstart'].forEach(evt => {
+  achPanel.addEventListener(evt, (e) => {
+    if (e.target === achPanel) { e.preventDefault(); showAchPanel(false); }
+  }, { passive: false });
+});
+// esc key closes
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') showAchPanel(false); });
 btnSound.addEventListener('click', async () => {
   if (!sound.enabled) { await sound.enable(); btnSound.textContent = 'sound: on'; btnSound.setAttribute('aria-pressed', 'true'); }
   else { sound.disable(); btnSound.textContent = 'sound: off'; btnSound.setAttribute('aria-pressed', 'false'); }
