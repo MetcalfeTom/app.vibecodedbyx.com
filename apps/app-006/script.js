@@ -4,20 +4,21 @@ const scoreDisplay = document.getElementById('score');
 const startButton = document.getElementById('startButton');
 const instructions = document.getElementById('instructions');
 
-canvas.width = 800;
-canvas.height = 400;
+// Initial canvas dimensions (will be adjusted by resizeCanvas)
+let initialCanvasWidth = 800;
+let initialCanvasHeight = 400;
 
 let player = {
     x: 50,
-    y: canvas.height - 60,
+    y: initialCanvasHeight - 60, // Will be updated on resize
     width: 30,
     height: 30,
-    color: '#BB86FC', // Silksong-like purple
+    color: '#BB86FC',
     dy: 0,
     gravity: 0.5,
     jumpPower: -10,
     grounded: false,
-    currentHat: 'none' // New: Hat property
+    currentHat: 'none'
 };
 
 let obstacles = [];
@@ -30,23 +31,38 @@ let lastObstacleTime = 0;
 let lastBenchTime = 0;
 const benchSpawnChance = 0.1;
 
+// New: Function to resize canvas
+function resizeCanvas() {
+    const aspectRatio = initialCanvasWidth / initialCanvasHeight;
+    let newWidth = window.innerWidth * 0.9; // 90% of viewport width
+    let newHeight = newWidth / aspectRatio;
+
+    if (newHeight > window.innerHeight * 0.8) { // Don't exceed 80% of viewport height
+        newHeight = window.innerHeight * 0.8;
+        newWidth = newHeight * aspectRatio;
+    }
+
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+
+    // Adjust player position relative to new canvas height
+    player.y = canvas.height - player.height - 30; // Keep player near bottom
+}
+
 function drawPlayer() {
     ctx.fillStyle = player.color;
     ctx.fillRect(player.x, player.y, player.width, player.height);
-    drawHat(); // New: Draw hat after player
+    drawHat();
 }
 
-// New: Draw hat function
 function drawHat() {
-    ctx.fillStyle = 'brown'; // Default hat color
+    ctx.fillStyle = 'brown';
     switch (player.currentHat) {
         case 'tophat':
-            // Draw top hat (simple rectangle on top of player)
-            ctx.fillRect(player.x - 5, player.y - 15, player.width + 10, 15); // Brim
-            ctx.fillRect(player.x + 5, player.y - 30, player.width - 10, 15); // Top part
+            ctx.fillRect(player.x - 5, player.y - 15, player.width + 10, 15);
+            ctx.fillRect(player.x + 5, player.y - 30, player.width - 10, 15);
             break;
         case 'cowboyhat':
-            // Draw cowboy hat (simple shape)
             ctx.beginPath();
             ctx.moveTo(player.x - 10, player.y - 5);
             ctx.lineTo(player.x + player.width + 10, player.y - 5);
@@ -57,7 +73,6 @@ function drawHat() {
             break;
         case 'none':
         default:
-            // No hat
             break;
     }
 }
@@ -179,19 +194,18 @@ function gameLoop(currentTime) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    drawPlayer(); // This now calls drawHat internally
+    drawPlayer();
     drawObstacles();
     drawBenches();
 
     updatePlayer();
     updateObstacles(deltaTime);
     detectCollisions();
-    updateScore(); // Keep this for continuous score increase
+    updateScore();
 
     requestAnimationFrame(gameLoop);
 }
 
-// New: Function to set hat
 function setHat(hatType) {
     player.currentHat = hatType;
 }
@@ -205,7 +219,7 @@ function startGame() {
     obstacles = [];
     benches = [];
     player.x = 50;
-    player.y = canvas.height - 60;
+    player.y = canvas.height - 60; // Reset player Y
     player.dy = 0;
     obstacleSpeed = 3;
     obstacleInterval = 1500;
@@ -227,7 +241,18 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// New: Touch event listener for jump
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault(); // Prevent scrolling on touch
+    if (player.grounded) {
+        player.dy = player.jumpPower;
+        player.grounded = false;
+    }
+});
+
 startButton.addEventListener('click', startGame);
 
-// Initial draw
+// Initial setup
+resizeCanvas(); // Call resize on load
+window.addEventListener('resize', resizeCanvas); // Call resize on window resize
 drawPlayer();
