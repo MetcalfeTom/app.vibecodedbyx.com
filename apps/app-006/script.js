@@ -17,6 +17,8 @@ let selectionButtons = [];
 
 let initialCanvasWidth = 800;
 let initialCanvasHeight = 400;
+const MAX_CANVAS_WIDTH = 1200;
+const MAX_CANVAS_HEIGHT = 700;
 
 let player = {
     x: 50,
@@ -97,13 +99,14 @@ function resizeCanvas() {
     const vh = window.innerHeight;
     const isLandscape = vw > vh;
     let maxHeight = isLandscape ? vh * 0.8 : vh * 0.75;
-    let newWidth = Math.min(vw * 0.95, maxHeight * aspectRatio);
+    let newWidth = Math.min(vw * 0.95, maxHeight * aspectRatio, MAX_CANVAS_WIDTH);
     let newHeight = newWidth / aspectRatio;
 
-    canvas.width = Math.max(300, Math.floor(newWidth));
-    canvas.height = Math.max(200, Math.floor(newHeight));
+    canvas.width = Math.max(300, Math.min(Math.floor(newWidth), MAX_CANVAS_WIDTH));
+    canvas.height = Math.max(200, Math.min(Math.floor(newHeight), MAX_CANVAS_HEIGHT));
 
     player.y = canvas.height - player.height - 30;
+    rebuildStaticBackdrop();
 }
 
 function drawGround() {
@@ -444,88 +447,22 @@ function drawMoon() {
 
 // Mountain and flowing river background
 function drawMountainAndRiver() {
-    // distant range
-    const farBaseY = canvas.height - 140;
-    ctx.fillStyle = '#2F4F4F';
-    ctx.beginPath();
-    ctx.moveTo(0, farBaseY);
-    ctx.lineTo(80, farBaseY - 60);
-    ctx.lineTo(140, farBaseY);
-    ctx.lineTo(240, farBaseY - 80);
-    ctx.lineTo(330, farBaseY);
-    ctx.lineTo(460, farBaseY - 70);
-    ctx.lineTo(560, farBaseY);
-    ctx.lineTo(canvas.width, farBaseY - 60);
-    ctx.lineTo(canvas.width, canvas.height);
-    ctx.lineTo(0, canvas.height);
-    ctx.closePath();
-    ctx.fill();
-
-    // near range
-    const nearBaseY = canvas.height - 100;
-    ctx.fillStyle = '#1E3A3A';
-    ctx.beginPath();
-    ctx.moveTo(0, nearBaseY);
-    ctx.lineTo(120, nearBaseY - 70);
-    ctx.lineTo(200, nearBaseY);
-    ctx.lineTo(320, nearBaseY - 90);
-    ctx.lineTo(420, nearBaseY);
-    ctx.lineTo(560, nearBaseY - 75);
-    ctx.lineTo(canvas.width, nearBaseY);
-    ctx.lineTo(canvas.width, canvas.height);
-    ctx.lineTo(0, canvas.height);
-    ctx.closePath();
-    ctx.fill();
-
-    // featured central mountain
-    const peakX = canvas.width * 0.45;
-    const peakY = nearBaseY - 130;
-    const baseOffset = 120;
-    ctx.fillStyle = '#324B50';
-    ctx.beginPath();
-    ctx.moveTo(peakX, peakY);
-    ctx.lineTo(peakX - baseOffset, nearBaseY);
-    ctx.lineTo(peakX + baseOffset, nearBaseY);
-    ctx.closePath();
-    ctx.fill();
-    // light side
-    ctx.fillStyle = '#3B5960';
-    ctx.beginPath();
-    ctx.moveTo(peakX, peakY);
-    ctx.lineTo(peakX + baseOffset, nearBaseY);
-    ctx.lineTo(peakX + baseOffset * 0.33, nearBaseY);
-    ctx.closePath();
-    ctx.fill();
-    // snow cap
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath();
-    ctx.moveTo(peakX, peakY);
-    ctx.lineTo(peakX - 20, peakY + 20);
-    ctx.lineTo(peakX - 5, peakY + 15);
-    ctx.lineTo(peakX + 5, peakY + 18);
-    ctx.lineTo(peakX + 20, peakY + 22);
-    ctx.closePath();
-    ctx.fill();
-
-    // flowing river with gradient and animated highlights
-    const riverTopY = canvas.height - 80;
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height);
-    ctx.lineTo(canvas.width, canvas.height);
-    ctx.lineTo(canvas.width, riverTopY);
-    ctx.quadraticCurveTo(canvas.width * 0.6, riverTopY - 40, 180, canvas.height - 60);
-    ctx.lineTo(140, canvas.height - 50);
-    ctx.quadraticCurveTo(canvas.width * 0.55, riverTopY - 20, 0, riverTopY);
-    ctx.closePath();
-
-    const riverGradient = ctx.createLinearGradient(0, riverTopY, 0, canvas.height);
-    riverGradient.addColorStop(0, '#1E90FF');
-    riverGradient.addColorStop(1, '#1565C0');
-    ctx.fillStyle = riverGradient;
-    ctx.fill();
-
+    // draw cached static backdrop (mountains + river base)
+    if (staticBackdropCanvas) {
+        ctx.drawImage(staticBackdropCanvas, 0, 0);
+    }
+    // animated river highlights in high detail
     if (!perfMode) {
+        const riverTopY = canvas.height - 80;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height);
+        ctx.lineTo(canvas.width, canvas.height);
+        ctx.lineTo(canvas.width, riverTopY);
+        ctx.quadraticCurveTo(canvas.width * 0.6, riverTopY - 40, 180, canvas.height - 60);
+        ctx.lineTo(140, canvas.height - 50);
+        ctx.quadraticCurveTo(canvas.width * 0.55, riverTopY - 20, 0, riverTopY);
+        ctx.closePath();
         ctx.clip();
         ctx.globalAlpha = 0.25;
         ctx.lineWidth = 2;
@@ -539,9 +476,97 @@ function drawMountainAndRiver() {
         }
         ctx.globalAlpha = 1.0;
         ctx.restore();
-    } else {
-        ctx.restore();
     }
+}
+
+// offscreen static backdrop to reduce per-frame draw cost
+let staticBackdropCanvas = null;
+let staticBackdropCtx = null;
+function rebuildStaticBackdrop() {
+    staticBackdropCanvas = document.createElement('canvas');
+    staticBackdropCanvas.width = canvas.width;
+    staticBackdropCanvas.height = canvas.height;
+    staticBackdropCtx = staticBackdropCanvas.getContext('2d');
+    const bctx = staticBackdropCtx;
+    if (!bctx) return;
+    // distant range
+    const farBaseY = canvas.height - 140;
+    bctx.fillStyle = '#2F4F4F';
+    bctx.beginPath();
+    bctx.moveTo(0, farBaseY);
+    bctx.lineTo(80, farBaseY - 60);
+    bctx.lineTo(140, farBaseY);
+    bctx.lineTo(240, farBaseY - 80);
+    bctx.lineTo(330, farBaseY);
+    bctx.lineTo(460, farBaseY - 70);
+    bctx.lineTo(560, farBaseY);
+    bctx.lineTo(staticBackdropCanvas.width, farBaseY - 60);
+    bctx.lineTo(staticBackdropCanvas.width, staticBackdropCanvas.height);
+    bctx.lineTo(0, staticBackdropCanvas.height);
+    bctx.closePath();
+    bctx.fill();
+
+    // near range
+    const nearBaseY = canvas.height - 100;
+    bctx.fillStyle = '#1E3A3A';
+    bctx.beginPath();
+    bctx.moveTo(0, nearBaseY);
+    bctx.lineTo(120, nearBaseY - 70);
+    bctx.lineTo(200, nearBaseY);
+    bctx.lineTo(320, nearBaseY - 90);
+    bctx.lineTo(420, nearBaseY);
+    bctx.lineTo(560, nearBaseY - 75);
+    bctx.lineTo(staticBackdropCanvas.width, nearBaseY);
+    bctx.lineTo(staticBackdropCanvas.width, staticBackdropCanvas.height);
+    bctx.lineTo(0, staticBackdropCanvas.height);
+    bctx.closePath();
+    bctx.fill();
+
+    // featured central mountain
+    const peakX = canvas.width * 0.45;
+    const peakY = nearBaseY - 130;
+    const baseOffset = 120;
+    bctx.fillStyle = '#324B50';
+    bctx.beginPath();
+    bctx.moveTo(peakX, peakY);
+    bctx.lineTo(peakX - baseOffset, nearBaseY);
+    bctx.lineTo(peakX + baseOffset, nearBaseY);
+    bctx.closePath();
+    bctx.fill();
+    // light side
+    bctx.fillStyle = '#3B5960';
+    bctx.beginPath();
+    bctx.moveTo(peakX, peakY);
+    bctx.lineTo(peakX + baseOffset, nearBaseY);
+    bctx.lineTo(peakX + baseOffset * 0.33, nearBaseY);
+    bctx.closePath();
+    bctx.fill();
+    // snow cap
+    bctx.fillStyle = '#FFFFFF';
+    bctx.beginPath();
+    bctx.moveTo(peakX, peakY);
+    bctx.lineTo(peakX - 20, peakY + 20);
+    bctx.lineTo(peakX - 5, peakY + 15);
+    bctx.lineTo(peakX + 5, peakY + 18);
+    bctx.lineTo(peakX + 20, peakY + 22);
+    bctx.closePath();
+    bctx.fill();
+
+    // river base (no animated highlights here)
+    const riverTopY = canvas.height - 80;
+    bctx.beginPath();
+    bctx.moveTo(0, staticBackdropCanvas.height);
+    bctx.lineTo(staticBackdropCanvas.width, staticBackdropCanvas.height);
+    bctx.lineTo(staticBackdropCanvas.width, riverTopY);
+    bctx.quadraticCurveTo(staticBackdropCanvas.width * 0.6, riverTopY - 40, 180, staticBackdropCanvas.height - 60);
+    bctx.lineTo(140, staticBackdropCanvas.height - 50);
+    bctx.quadraticCurveTo(staticBackdropCanvas.width * 0.55, riverTopY - 20, 0, riverTopY);
+    bctx.closePath();
+    const riverGradient = bctx.createLinearGradient(0, riverTopY, 0, staticBackdropCanvas.height);
+    riverGradient.addColorStop(0, '#1E90FF');
+    riverGradient.addColorStop(1, '#1565C0');
+    bctx.fillStyle = riverGradient;
+    bctx.fill();
 }
 
 function drawPlayer() {
@@ -1100,9 +1125,9 @@ function drawWingShape(w, h) {
 
 // background birds (non-colliding)
 function drawBirds() {
+    if (perfMode) return;
     ctx.save();
-    const maxBirds = perfMode ? 8 : birds.length;
-    birds.slice(0, maxBirds).forEach(b => {
+    birds.forEach(b => {
         // wing flap factor
         const flap = Math.sin(t * b.flapSpeed + b.phase);
         const span = b.scale * (12 + flap * 6);
@@ -1482,8 +1507,8 @@ function gameLoop(currentTime) {
     if (_fpsSamples.length > 45) _fpsSamples.shift();
     const avg = _fpsSamples.reduce((a, b) => a + b, 0) / _fpsSamples.length;
     // enter perf mode if avg frame time > ~24ms (~41fps), exit if < ~18ms (~55fps)
-    if (!perfMode && avg > 24) perfMode = true;
-    else if (perfMode && avg < 18) perfMode = false;
+    if (!perfMode && avg > 20) perfMode = true;
+    else if (perfMode && avg < 16) perfMode = false;
 
     const deltaTime = currentTime - lastObstacleTime; // retained for spawn logic
 
