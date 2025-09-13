@@ -9,6 +9,8 @@ const startCanvas = document.getElementById('startCanvas');
 const sctx = startCanvas ? startCanvas.getContext('2d') : null;
 let startAnimId = null;
 let startScene = null;
+let selectionButtons = [];
+let selectionButtons = [];
 
 let initialCanvasWidth = 800;
 let initialCanvasHeight = 400;
@@ -1208,6 +1210,7 @@ function shoot() {
 
 function setHat(hatType) {
     player.currentHat = hatType;
+    if (typeof updateSelectionUI === 'function') updateSelectionUI();
 }
 
 function setTheme(themeType) {
@@ -1226,6 +1229,7 @@ function setWeapon(type) {
     if (type === 'pistol' || type === 'laser' || type === 'blunderbuss') {
         currentWeapon = type;
         updateScoreDisplay();
+        if (typeof updateSelectionUI === 'function') updateSelectionUI();
     }
 }
 
@@ -1236,7 +1240,6 @@ function startGame() {
     if (startScreen) startScreen.style.display = 'none';
     stopStartScene();
     score = 0;
-    currentWeapon = 'pistol';
     updateScoreDisplay();
     obstacles = [];
     benches = [];
@@ -1314,6 +1317,23 @@ drawPlayer();
 // initialize start scene drawing
 initStartScene();
 startStartScene();
+initSelectionUI();
+
+function initSelectionUI() {
+    const qAll = (sel) => Array.from(document.querySelectorAll(sel));
+    selectionButtons = [
+        ...qAll('[data-hat]'),
+        ...qAll('[data-weapon]')
+    ];
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    selectionButtons.forEach(btn => {
+        if (btn.dataset.hat) btn.classList.toggle('active', player.currentHat === btn.dataset.hat);
+        if (btn.dataset.weapon) btn.classList.toggle('active', currentWeapon === btn.dataset.weapon);
+    });
+}
 
 function initStartScene() {
     if (!startCanvas || !sctx) return;
