@@ -313,14 +313,73 @@ function drawObstacles() {
         ctx.shadowOffsetX = 5;
         ctx.shadowOffsetY = 5;
 
-        ctx.fillStyle = obstacle.color;
-        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        // draw cactus with angry face
+        drawCactus(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
 
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
     });
+}
+
+function drawCactus(x, y, w, h) {
+    // body
+    const radius = Math.max(6, Math.min(w, h) * 0.4);
+    const baseY = y + h;
+    ctx.fillStyle = '#2E7D32';
+    ctx.beginPath();
+    ctx.moveTo(x, baseY);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, baseY);
+    ctx.closePath();
+    ctx.fill();
+
+    // arms
+    const armY = y + h * 0.45;
+    const armThickness = Math.max(6, w * 0.6);
+    const armLen = Math.min(18, w * 1.2);
+    // left arm
+    ctx.fillRect(x - armLen * 0.4, armY - armThickness, armLen, armThickness);
+    ctx.fillRect(x - armLen * 0.4, armY - armThickness - 14, armThickness * 0.6, 14);
+    // right arm
+    ctx.fillRect(x + w - armLen * 0.6, armY - armThickness * 0.6, armLen, armThickness * 0.6);
+    ctx.fillRect(x + w + armLen * 0.4 - armThickness * 0.6, armY - armThickness * 0.6 - 12, armThickness * 0.6, 12);
+
+    // face (angry)
+    const faceCenterX = x + w / 2;
+    const faceTop = y + Math.min(h * 0.2, 28);
+    ctx.strokeStyle = '#0D3B1E';
+    ctx.lineWidth = 2;
+    // eyebrows
+    ctx.beginPath();
+    ctx.moveTo(faceCenterX - 10, faceTop + 2);
+    ctx.lineTo(faceCenterX - 2, faceTop - 4);
+    ctx.moveTo(faceCenterX + 10, faceTop + 2);
+    ctx.lineTo(faceCenterX + 2, faceTop - 4);
+    ctx.stroke();
+    // eyes
+    ctx.fillStyle = '#0D3B1E';
+    ctx.beginPath();
+    ctx.arc(faceCenterX - 6, faceTop + 6, 2.2, 0, Math.PI * 2);
+    ctx.arc(faceCenterX + 6, faceTop + 6, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    // angry mouth
+    ctx.beginPath();
+    ctx.moveTo(faceCenterX - 8, faceTop + 16);
+    ctx.quadraticCurveTo(faceCenterX, faceTop + 22, faceCenterX + 8, faceTop + 16);
+    ctx.stroke();
+
+    // subtle spines (dots)
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    for (let i = 0; i < 6; i++) {
+        const px = x + 4 + Math.random() * (w - 8);
+        const py = y + 8 + Math.random() * (h - 16);
+        ctx.fillRect(px, py, 1.5, 1.5);
+    }
 }
 
 function drawBenches() {
