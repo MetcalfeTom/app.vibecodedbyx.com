@@ -10,7 +10,6 @@ const sctx = startCanvas ? startCanvas.getContext('2d') : null;
 let startAnimId = null;
 let startScene = null;
 let selectionButtons = [];
-let selectionButtons = [];
 
 let initialCanvasWidth = 800;
 let initialCanvasHeight = 400;
