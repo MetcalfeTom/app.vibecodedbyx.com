@@ -70,6 +70,11 @@ const dayCycleMs = 60000;
 let dayCycleStart = performance.now();
 let dayCycleT = 0; // 0..1 across full cycle
 
+// performance governor: toggles lighter rendering when fps drops
+let perfMode = false; // reduced-effects mode
+let _fpsSamples = [];
+let _lastFrameTs = 0;
+
 function updateScoreDisplay() {
     scoreDisplay.textContent = `SCORE: ${score} [${currentWeapon.toUpperCase()}]`;
 }
@@ -153,9 +158,9 @@ function drawSunWithMustache() {
     const sunRadius = Math.max(26, Math.min(44, canvas.width * (isMobile ? 0.065 : 0.05)));
 
     // animated sun rays (behind the sun)
-    const rayCount = 16;
+    const rayCount = perfMode ? 6 : 16;
     const rayInner = sunRadius + 4;
-    const rayOuter = sunRadius + 16;
+    const rayOuter = sunRadius + (perfMode ? 10 : 16);
     ctx.save();
     ctx.globalAlpha = sunVisible ? 1 : 0; // hide sun at night
     ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
@@ -513,35 +518,43 @@ function drawMountainAndRiver() {
     ctx.fillStyle = riverGradient;
     ctx.fill();
 
-    ctx.clip();
-    ctx.globalAlpha = 0.25;
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#FFFFFF';
-    const offset = (t * 60) % 20;
-    for (let i = -200; i < canvas.width + 200; i += 20) {
-        ctx.beginPath();
-        ctx.moveTo(i + offset, canvas.height);
-        ctx.lineTo(i + 120 + offset, riverTopY);
-        ctx.stroke();
+    if (!perfMode) {
+        ctx.clip();
+        ctx.globalAlpha = 0.25;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#FFFFFF';
+        const offset = (t * 60) % 20;
+        for (let i = -200; i < canvas.width + 200; i += 20) {
+            ctx.beginPath();
+            ctx.moveTo(i + offset, canvas.height);
+            ctx.lineTo(i + 120 + offset, riverTopY);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1.0;
+        ctx.restore();
+    } else {
+        ctx.restore();
     }
-    ctx.globalAlpha = 1.0;
-    ctx.restore();
 }
 
 function drawPlayer() {
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetX = 5;
-    ctx.shadowOffsetY = 5;
+    if (!perfMode) {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetX = 5;
+        ctx.shadowOffsetY = 5;
+    }
 
     // render as head with hands and feet (no body)
     drawPlayerLimbs();
     drawPlayerHead();
 
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
+    if (!perfMode) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+    }
 
     drawPlayerFace();
     drawHat();
@@ -553,10 +566,12 @@ function drawHat() {
     const hatWidth = player.width;
     const hatHeight = player.height;
 
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 5;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
+    if (!perfMode) {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 5;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+    }
 
     switch (player.currentHat) {
         case 'tophat':
@@ -595,10 +610,12 @@ function drawHat() {
         default:
             break;
     }
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
+    if (!perfMode) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+    }
 }
 
 function drawPlayerFace() {
@@ -885,15 +902,18 @@ function drawCactus(ob) {
 
 function drawBenches() {
     benches.forEach(bench => {
-        // subtle drop shadow
-        ctx.save();
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-        ctx.shadowBlur = 8;
-        ctx.shadowOffsetX = 4;
-        ctx.shadowOffsetY = 4;
-        // draw as a tasty pie instead of a gray block
-        drawPie(bench.x, bench.y, bench.width, bench.height);
-        ctx.restore();
+        if (!perfMode) {
+            // subtle drop shadow
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetX = 4;
+            ctx.shadowOffsetY = 4;
+            drawPie(bench.x, bench.y, bench.width, bench.height);
+            ctx.restore();
+        } else {
+            drawPie(bench.x, bench.y, bench.width, bench.height);
+        }
     });
 }
 
@@ -922,25 +942,25 @@ function drawPie(x, y, w, h) {
     ctx.fillStyle = flavors[(Math.floor(x + y) % flavors.length + flavors.length) % flavors.length];
     ctx.fill();
 
-    // simple lattice
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255, 248, 225, 0.9)';
-    ctx.lineWidth = 3;
-    // vertical-ish strips
-    for (let i = -2; i <= 2; i++) {
-        ctx.beginPath();
-        ctx.moveTo(cx - rx * 0.7 + i * (rx * 0.28), cy - ry * 0.6);
-        ctx.lineTo(cx - rx * 0.7 + i * (rx * 0.28), cy + ry * 0.6);
-        ctx.stroke();
+    // simple lattice (skip in perf mode)
+    if (!perfMode) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 248, 225, 0.9)';
+        ctx.lineWidth = 3;
+        for (let i = -2; i <= 2; i++) {
+            ctx.beginPath();
+            ctx.moveTo(cx - rx * 0.7 + i * (rx * 0.28), cy - ry * 0.6);
+            ctx.lineTo(cx - rx * 0.7 + i * (rx * 0.28), cy + ry * 0.6);
+            ctx.stroke();
+        }
+        for (let i = -1; i <= 1; i++) {
+            ctx.beginPath();
+            ctx.moveTo(cx - rx * 0.85, cy + i * (ry * 0.35));
+            ctx.lineTo(cx + rx * 0.85, cy + i * (ry * 0.35));
+            ctx.stroke();
+        }
+        ctx.restore();
     }
-    // horizontal-ish strips
-    for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.moveTo(cx - rx * 0.85, cy + i * (ry * 0.35));
-        ctx.lineTo(cx + rx * 0.85, cy + i * (ry * 0.35));
-        ctx.stroke();
-    }
-    ctx.restore();
 
     // specular highlight
     ctx.beginPath();
@@ -970,10 +990,12 @@ function drawWingedPig(f, flap) {
 
     // subtle shadow
     ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetX = 3;
-    ctx.shadowOffsetY = 3;
+    if (!perfMode) {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetX = 3;
+        ctx.shadowOffsetY = 3;
+    }
 
     // body (pig torso)
     ctx.fillStyle = '#F48FB1';
@@ -1043,14 +1065,15 @@ function drawWingShape(w, h) {
 // background birds (non-colliding)
 function drawBirds() {
     ctx.save();
-    birds.forEach(b => {
+    const maxBirds = perfMode ? 8 : birds.length;
+    birds.slice(0, maxBirds).forEach(b => {
         // wing flap factor
         const flap = Math.sin(t * b.flapSpeed + b.phase);
         const span = b.scale * (12 + flap * 6);
         const wingY = b.y + Math.sin(t * b.glideSpeed + b.phase) * 2; // subtle glide
 
         ctx.strokeStyle = 'rgba(30, 30, 30, 0.7)';
-        ctx.lineWidth = Math.max(1, b.scale * 1.2);
+        ctx.lineWidth = Math.max(1, b.scale * (perfMode ? 1.0 : 1.2));
         ctx.lineCap = 'round';
         ctx.beginPath();
         // left wing
@@ -1097,8 +1120,10 @@ function drawBullets() {
 function drawLasers() {
     lasers.forEach(L => {
         ctx.save();
-        ctx.shadowColor = 'rgba(100, 181, 246, 0.9)';
-        ctx.shadowBlur = 15;
+        if (!perfMode) {
+            ctx.shadowColor = 'rgba(100, 181, 246, 0.9)';
+            ctx.shadowBlur = 15;
+        }
         const grad = ctx.createLinearGradient(L.x, L.y, L.x + L.width, L.y);
         grad.addColorStop(0, 'rgba(0, 229, 255, 0.9)');
         grad.addColorStop(0.5, 'rgba(41, 121, 255, 0.9)');
@@ -1179,17 +1204,17 @@ function updateObstacles(deltaTime) {
     }
 
     // spawn floating enemies on their own cadence
-    if (Date.now() - lastFloaterTime > floaterInterval) {
+    if (Date.now() - lastFloaterTime > (perfMode ? floaterInterval * 1.3 : floaterInterval)) {
         if (Math.random() < 0.8) { // high chance to spawn when interval elapses
             createFloater();
         }
         lastFloaterTime = Date.now();
-        floaterInterval = Math.max(1200, floaterInterval - 20); // get slightly more frequent
+        floaterInterval = Math.max(1200, floaterInterval - (perfMode ? 10 : 20)); // slower ramp in perf mode
     }
 
     // spawn background birds occasionally
-    if (Date.now() - lastBirdTime > birdInterval) {
-        if (Math.random() < 0.85) {
+    if (Date.now() - lastBirdTime > (perfMode ? birdInterval * 1.25 : birdInterval)) {
+        if (Math.random() < (perfMode ? 0.6 : 0.85)) {
             createBirdFlock();
         }
         lastBirdTime = Date.now();
@@ -1366,7 +1391,18 @@ function updateScore() {
 function gameLoop(currentTime) {
     if (!gameRunning) return;
 
-    const deltaTime = currentTime - lastObstacleTime;
+    // fps sampling and dynamic perf mode
+    if (_lastFrameTs === 0) _lastFrameTs = currentTime;
+    const frameDt = currentTime - _lastFrameTs;
+    _lastFrameTs = currentTime;
+    _fpsSamples.push(frameDt);
+    if (_fpsSamples.length > 45) _fpsSamples.shift();
+    const avg = _fpsSamples.reduce((a, b) => a + b, 0) / _fpsSamples.length;
+    // enter perf mode if avg frame time > ~24ms (~41fps), exit if < ~18ms (~55fps)
+    if (!perfMode && avg > 24) perfMode = true;
+    else if (perfMode && avg < 18) perfMode = false;
+
+    const deltaTime = currentTime - lastObstacleTime; // retained for spawn logic
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     t += 0.016; // advance animation time
