@@ -118,6 +118,37 @@ function drawBackground() {
     ctx.closePath();
     ctx.fill();
 
+    // FEATURED CENTRAL MOUNTAIN WITH SNOW CAP
+    const peakX = canvas.width * 0.45;
+    const peakY = nearBaseY - 130;
+    const baseOffset = 120;
+    // main mountain body
+    ctx.fillStyle = '#324B50';
+    ctx.beginPath();
+    ctx.moveTo(peakX, peakY);
+    ctx.lineTo(peakX - baseOffset, nearBaseY);
+    ctx.lineTo(peakX + baseOffset, nearBaseY);
+    ctx.closePath();
+    ctx.fill();
+    // light side shading
+    ctx.fillStyle = '#3B5960';
+    ctx.beginPath();
+    ctx.moveTo(peakX, peakY);
+    ctx.lineTo(peakX + baseOffset, nearBaseY);
+    ctx.lineTo(peakX + baseOffset * 0.33, nearBaseY);
+    ctx.closePath();
+    ctx.fill();
+    // snow cap
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.moveTo(peakX, peakY);
+    ctx.lineTo(peakX - 20, peakY + 20);
+    ctx.lineTo(peakX - 5, peakY + 15);
+    ctx.lineTo(peakX + 5, peakY + 18);
+    ctx.lineTo(peakX + 20, peakY + 22);
+    ctx.closePath();
+    ctx.fill();
+
     // FLOWING RIVER (ANIMATED STRIPES)
     const riverTopY = canvas.height - 80;
     ctx.save();
@@ -129,7 +160,11 @@ function drawBackground() {
     ctx.lineTo(140, canvas.height - 50);
     ctx.quadraticCurveTo(canvas.width * 0.55, riverTopY - 20, 0, riverTopY);
     ctx.closePath();
-    ctx.fillStyle = '#1E90FF';
+    // subtle vertical gradient for depth
+    const riverGradient = ctx.createLinearGradient(0, riverTopY, 0, canvas.height);
+    riverGradient.addColorStop(0, '#1E90FF');
+    riverGradient.addColorStop(1, '#1565C0');
+    ctx.fillStyle = riverGradient;
     ctx.fill();
 
     // Clip to river shape for animated highlights
