@@ -75,16 +75,15 @@ let backgroundElements = [
 
 function resizeCanvas() {
     const aspectRatio = initialCanvasWidth / initialCanvasHeight;
-    let newWidth = window.innerWidth * 0.9;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const isLandscape = vw > vh;
+    let maxHeight = isLandscape ? vh * 0.8 : vh * 0.75;
+    let newWidth = Math.min(vw * 0.95, maxHeight * aspectRatio);
     let newHeight = newWidth / aspectRatio;
 
-    if (newHeight > window.innerHeight * 0.8) {
-        newHeight = window.innerHeight * 0.8;
-        newWidth = newHeight * aspectRatio;
-    }
-
-    canvas.width = newWidth;
-    canvas.height = newHeight;
+    canvas.width = Math.max(300, Math.floor(newWidth));
+    canvas.height = Math.max(200, Math.floor(newHeight));
 
     player.y = canvas.height - player.height - 30;
 }
