@@ -1473,12 +1473,15 @@ drawPlayer();
 initStartScene();
 startStartScene();
 initSelectionUI();
+initFromQuery();
+updateSelectionUI();
 
 function initSelectionUI() {
     const qAll = (sel) => Array.from(document.querySelectorAll(sel));
     selectionButtons = [
         ...qAll('[data-hat]'),
-        ...qAll('[data-weapon]')
+        ...qAll('[data-weapon]'),
+        ...qAll('[data-theme]')
     ];
     updateSelectionUI();
 }
@@ -1487,7 +1490,37 @@ function updateSelectionUI() {
     selectionButtons.forEach(btn => {
         if (btn.dataset.hat) btn.classList.toggle('active', player.currentHat === btn.dataset.hat);
         if (btn.dataset.weapon) btn.classList.toggle('active', currentWeapon === btn.dataset.weapon);
+        if (btn.dataset.theme) btn.classList.toggle('active', player.currentTheme === btn.dataset.theme);
     });
+}
+
+// initialize from URL query params, e.g. ?theme=silkson&weapon=laser&hat=cowboyhat
+function initFromQuery() {
+    try {
+        const params = new URLSearchParams(location.search);
+        const norm = (v) => (v || '').toString().trim().toLowerCase();
+        // theme (tolerate common typos)
+        let theme = norm(params.get('theme'));
+        if (theme) {
+            if (theme === 'silkson' || theme === 'silksng' || theme === 'silksong') theme = 'silksong';
+            if (theme === 'sonic') theme = 'sonic';
+            if (theme === 'knuckles' || theme === 'knuckle') theme = 'knuckles';
+            if (theme === 'silksong' || theme === 'sonic' || theme === 'knuckles') {
+                player.currentTheme = theme;
+                setTheme(theme);
+            }
+        }
+        // weapon
+        const w = norm(params.get('weapon'));
+        if (w === 'pistol' || w === 'laser' || w === 'blunderbuss') {
+            setWeapon(w);
+        }
+        // hat
+        const h = norm(params.get('hat'));
+        if (h === 'none' || h === 'tophat' || h === 'cowboyhat') {
+            setHat(h);
+        }
+    } catch (_) {}
 }
 
 function initStartScene() {
