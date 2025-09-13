@@ -5,6 +5,10 @@ const startButton = document.getElementById('startButton');
 const instructions = document.getElementById('instructions');
 const shootUIButton = document.getElementById('shootButton');
 const startScreen = document.getElementById('startScreen');
+const startCanvas = document.getElementById('startCanvas');
+const sctx = startCanvas ? startCanvas.getContext('2d') : null;
+let startAnimId = null;
+let startScene = null;
 
 let initialCanvasWidth = 800;
 let initialCanvasHeight = 400;
@@ -1168,6 +1172,7 @@ function startGame() {
     startButton.style.display = 'none';
     instructions.style.display = 'none';
     if (startScreen) startScreen.style.display = 'none';
+    stopStartScene();
     score = 0;
     currentWeapon = 'pistol';
     updateScoreDisplay();
@@ -1200,6 +1205,7 @@ function endGame() {
     instructions.style.display = 'block';
     if (startScreen) startScreen.style.display = 'block';
     alert(`GAME OVER! YOUR SCORE: ${score}`);
+    startStartScene();
 }
 
 document.addEventListener('keydown', (e) => {
@@ -1243,3 +1249,189 @@ if (shootUIButton) {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 drawPlayer();
+// initialize start scene drawing
+initStartScene();
+startStartScene();
+
+function initStartScene() {
+    if (!startCanvas || !sctx) return;
+    resizeStartCanvas();
+    startScene = {
+        t: 0,
+        cacti: [
+            { x: startCanvas.width * 0.35, y: null, w: 36, h: 80, vx: 1.2, seed: 12345, phase: Math.random() * Math.PI * 2 },
+            { x: startCanvas.width * 0.65, y: null, w: 36, h: 80, vx: -1.0, seed: 67890, phase: Math.random() * Math.PI * 2 }
+        ],
+        trees: [],
+    };
+    const groundY = startCanvas.height * 0.78;
+    startScene.cacti.forEach(c => c.y = groundY - c.h);
+    // sprinkle some trees
+    for (let i = 0; i < 6; i++) {
+        startScene.trees.push({
+            x: (i / 5) * startCanvas.width + (Math.random() * 40 - 20),
+            y: groundY,
+            h: 50 + Math.random() * 40,
+            scale: 0.8 + Math.random() * 0.6
+        });
+    }
+    window.addEventListener('resize', resizeStartCanvas);
+}
+
+function resizeStartCanvas() {
+    if (!startCanvas) return;
+    startCanvas.width = Math.max(300, window.innerWidth);
+    startCanvas.height = Math.max(200, window.innerHeight);
+}
+
+function drawStartMountains() {
+    if (!sctx || !startCanvas) return;
+    const h = startCanvas.height;
+    sctx.fillStyle = '#1E3A3A';
+    sctx.beginPath();
+    sctx.moveTo(0, h * 0.72);
+    sctx.lineTo(startCanvas.width * 0.18, h * 0.5);
+    sctx.lineTo(startCanvas.width * 0.32, h * 0.72);
+    sctx.lineTo(startCanvas.width * 0.5, h * 0.46);
+    sctx.lineTo(startCanvas.width * 0.64, h * 0.72);
+    sctx.lineTo(startCanvas.width * 0.86, h * 0.52);
+    sctx.lineTo(startCanvas.width, h * 0.72);
+    sctx.lineTo(startCanvas.width, h);
+    sctx.lineTo(0, h);
+    sctx.closePath();
+    sctx.fill();
+}
+
+function drawStartTrees() {
+    if (!sctx || !startCanvas || !startScene) return;
+    startScene.trees.forEach(tr => {
+        const x = tr.x, baseY = tr.y, h = tr.h * tr.scale;
+        // trunk
+        sctx.fillStyle = '#5D4037';
+        sctx.fillRect(x - 3, baseY - h * 0.6, 6, h * 0.6);
+        // canopy
+        sctx.fillStyle = '#2E7D32';
+        sctx.beginPath();
+        sctx.arc(x, baseY - h * 0.7, h * 0.25, 0, Math.PI * 2);
+        sctx.arc(x - h * 0.18, baseY - h * 0.55, h * 0.22, 0, Math.PI * 2);
+        sctx.arc(x + h * 0.18, baseY - h * 0.55, h * 0.22, 0, Math.PI * 2);
+        sctx.fill();
+    });
+}
+
+function drawStartGround() {
+    if (!sctx || !startCanvas) return;
+    const h = startCanvas.height;
+    sctx.fillStyle = '#3E7A28';
+    sctx.fillRect(0, h * 0.78, startCanvas.width, h * 0.22);
+}
+
+function drawStartCactus(c) {
+    if (!sctx) return;
+    // reuse a simplified cactus renderer
+    const bodyGrad = sctx.createLinearGradient(c.x, c.y, c.x, c.y + c.h);
+    bodyGrad.addColorStop(0, '#2F8F2E');
+    bodyGrad.addColorStop(1, '#1F5F1E');
+    sctx.fillStyle = bodyGrad;
+    const r = 12;
+    sctx.beginPath();
+    sctx.moveTo(c.x, c.y + c.h);
+    sctx.lineTo(c.x, c.y + r);
+    sctx.quadraticCurveTo(c.x, c.y, c.x + r, c.y);
+    sctx.lineTo(c.x + c.w - r, c.y);
+    sctx.quadraticCurveTo(c.x + c.w, c.y, c.x + c.w, c.y + r);
+    sctx.lineTo(c.x + c.w, c.y + c.h);
+    sctx.closePath();
+    sctx.fill();
+
+    // waving arms
+    const armY = c.y + c.h * 0.45;
+    const armL = 24;
+    const thick = 10;
+    const wave = Math.sin(startScene.t * 3 + c.phase) * 6;
+    sctx.fillStyle = bodyGrad;
+    // left arm
+    sctx.fillRect(c.x - armL * 0.5, armY - thick + wave * 0.2, armL, thick);
+    sctx.fillRect(c.x - armL * 0.5, armY - thick - 14 + wave * 0.2, thick * 0.6, 14);
+    // right arm
+    sctx.fillRect(c.x + c.w - armL * 0.5, armY - thick * 0.7 - wave * 0.2, armL, thick * 0.7);
+    sctx.fillRect(c.x + c.w + armL * 0.1 - thick * 0.5, armY - thick * 0.7 - 14 - wave * 0.2, thick * 0.5, 14);
+
+    // angry face
+    const cx = c.x + c.w / 2;
+    const ft = c.y + 18;
+    sctx.strokeStyle = '#06220F';
+    sctx.lineWidth = 3;
+    sctx.beginPath();
+    sctx.moveTo(cx - 10, ft);
+    sctx.lineTo(cx - 2, ft - 6);
+    sctx.moveTo(cx + 10, ft);
+    sctx.lineTo(cx + 2, ft - 6);
+    sctx.stroke();
+    sctx.fillStyle = '#D32F2F';
+    sctx.beginPath();
+    sctx.arc(cx - 6, ft + 6, 2.5, 0, Math.PI * 2);
+    sctx.arc(cx + 6, ft + 6, 2.5, 0, Math.PI * 2);
+    sctx.fill();
+}
+
+function startStartScene() {
+    if (!startCanvas || !sctx) return;
+    cancelAnimationFrame(startAnimId || 0);
+    startAnimId = null;
+    const loop = () => {
+        if (startScreen && startScreen.style.display === 'none') return; // paused
+        startScene.t += 0.016;
+        sctx.clearRect(0, 0, startCanvas.width, startCanvas.height);
+        drawStartMountains();
+        drawStartTrees();
+        drawStartGround();
+        // move cacti and draw
+        startScene.cacti.forEach(c => {
+            c.x += c.vx;
+        });
+        // bounce and clash
+        const left = startScene.cacti[0], right = startScene.cacti[1];
+        const minX = startCanvas.width * 0.1, maxX = startCanvas.width * 0.9;
+        [left, right].forEach(c => {
+            if (c.x < minX) { c.x = minX; c.vx *= -1; }
+            if (c.x + c.w > maxX) { c.x = maxX - c.w; c.vx *= -1; }
+        });
+        // if close, reverse and show "pow"
+        if ((right.x - (left.x + left.w)) < 4) {
+            left.vx = -Math.abs(left.vx);
+            right.vx = Math.abs(right.vx);
+            // pow flash
+            sctx.save();
+            sctx.globalAlpha = 0.8;
+            sctx.fillStyle = '#FFD54F';
+            sctx.beginPath();
+            const px = (left.x + left.w + right.x) / 2;
+            const py = left.y + 24;
+            sctx.moveTo(px, py - 10);
+            sctx.lineTo(px + 6, py - 3);
+            sctx.lineTo(px + 14, py - 10);
+            sctx.lineTo(px + 11, py + 2);
+            sctx.lineTo(px + 18, py + 8);
+            sctx.lineTo(px + 6, py + 6);
+            sctx.lineTo(px, py + 16);
+            sctx.lineTo(px - 6, py + 6);
+            sctx.lineTo(px - 18, py + 8);
+            sctx.lineTo(px - 11, py + 2);
+            sctx.lineTo(px - 14, py - 10);
+            sctx.lineTo(px - 6, py - 3);
+            sctx.closePath();
+            sctx.fill();
+            sctx.restore();
+        }
+        drawStartCactus(left);
+        drawStartCactus(right);
+        startAnimId = requestAnimationFrame(loop);
+    };
+    loop();
+}
+
+function stopStartScene() {
+    cancelAnimationFrame(startAnimId || 0);
+    startAnimId = null;
+}
