@@ -26,6 +26,7 @@ let obstacles = [];
 let benches = [];
 let floaters = [];
 let bullets = [];
+let lasers = [];
 let score = 0;
 let gameRunning = false;
 let obstacleSpeed = 3;
@@ -39,6 +40,15 @@ let lastFloaterTime = 0;
 let floaterInterval = 2200; // ms between floating enemies
 let lastShotTime = 0;
 const shotCooldown = 300; // ms between shots
+
+let lastLaserTime = 0;
+const laserCooldown = 800; // ms between lasers
+const laserDuration = 150; // ms visible laser beam
+let currentWeapon = 'pistol'; // 'pistol' | 'laser'
+
+function updateScoreDisplay() {
+    scoreDisplay.textContent = `SCORE: ${score} [${currentWeapon.toUpperCase()}]`;
+}
 
 let backgroundElements = [
     { x: 0, y: 0, width: canvas.width, height: canvas.height, color: 'rgba(0,0,0,0.1)', speed: 0.1 },
@@ -378,6 +388,22 @@ function drawBullets() {
     });
 }
 
+// lasers
+function drawLasers() {
+    lasers.forEach(L => {
+        ctx.save();
+        ctx.shadowColor = 'rgba(100, 181, 246, 0.9)';
+        ctx.shadowBlur = 15;
+        const grad = ctx.createLinearGradient(L.x, L.y, L.x + L.width, L.y);
+        grad.addColorStop(0, 'rgba(0, 229, 255, 0.9)');
+        grad.addColorStop(0.5, 'rgba(41, 121, 255, 0.9)');
+        grad.addColorStop(1, 'rgba(0, 229, 255, 0.7)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(L.x, L.y - L.thickness / 2, L.width, L.thickness);
+        ctx.restore();
+    });
+}
+
 function updatePlayer() {
     player.dy += player.gravity;
     player.y += player.dy;
@@ -405,6 +431,9 @@ function updateObstacles(deltaTime) {
     bullets.forEach(b => {
         b.x += b.speed;
     });
+    // cull expired lasers
+    const nowUpdate = Date.now();
+    lasers = lasers.filter(L => L.expiresAt > nowUpdate);
 
     obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
     benches = benches.filter(bench => bench.x + bench.width > 0);
@@ -503,7 +532,7 @@ function detectCollisions() {
         ) {
             bench.collected = true;
             score += 50;
-            scoreDisplay.textContent = `SCORE: ${score}`;
+            updateScoreDisplay();
             benches = benches.filter(b => b !== bench);
         }
     });
@@ -533,7 +562,7 @@ function detectCollisions() {
                 f._hit = true;
                 b._hit = true;
                 score += 25;
-                scoreDisplay.textContent = `SCORE: ${score}`;
+                updateScoreDisplay();
             }
         });
     });
@@ -542,11 +571,32 @@ function detectCollisions() {
         floaters = floaters.filter(f => !f._hit);
         bullets = bullets.filter(b => !b._hit);
     }
+
+    // laser vs floater collisions (can hit multiple)
+    lasers.forEach(L => {
+        floaters.forEach(f => {
+            if (
+                L.x < f.x + f.width &&
+                L.x + L.width > f.x &&
+                (L.y - L.thickness / 2) < f.y + f.height &&
+                (L.y + L.thickness / 2) > f.y
+            ) {
+                if (!f._hit) {
+                    f._hit = true;
+                    score += 20; // slightly less per enemy than bullet chain
+                    updateScoreDisplay();
+                }
+            }
+        });
+    });
+    if (floaters.some(f => f._hit)) {
+        floaters = floaters.filter(f => !f._hit);
+    }
 }
 
 function updateScore() {
     score += 1;
-    scoreDisplay.textContent = `SCORE: ${score}`;
+    updateScoreDisplay();
 }
 
 function gameLoop(currentTime) {
@@ -572,6 +622,7 @@ function gameLoop(currentTime) {
     drawBenches();
     drawFloaters(currentTime);
     drawBullets();
+    drawLasers();
 
     updatePlayer();
     updateObstacles(deltaTime);
@@ -585,15 +636,29 @@ function gameLoop(currentTime) {
 function shoot() {
     if (!gameRunning) return;
     const now = Date.now();
-    if (now - lastShotTime < shotCooldown) return;
-    lastShotTime = now;
-    bullets.push({
-        x: player.x + player.width,
-        y: player.y + player.height / 2 - 2,
-        width: 14,
-        height: 4,
-        speed: 9
-    });
+    if (currentWeapon === 'pistol') {
+        if (now - lastShotTime < shotCooldown) return;
+        lastShotTime = now;
+        bullets.push({
+            x: player.x + player.width,
+            y: player.y + player.height / 2 - 2,
+            width: 14,
+            height: 4,
+            speed: 9
+        });
+    } else if (currentWeapon === 'laser') {
+        if (now - lastLaserTime < laserCooldown) return;
+        lastLaserTime = now;
+        const beamX = player.x + player.width;
+        const beamY = player.y + player.height / 2;
+        lasers.push({
+            x: beamX,
+            y: beamY,
+            width: canvas.width - beamX,
+            thickness: 6,
+            expiresAt: now + laserDuration
+        });
+    }
 }
 
 function setHat(hatType) {
@@ -611,14 +676,26 @@ function setTheme(themeType) {
     }
 }
 
+// weapon selection for UI buttons
+function setWeapon(type) {
+    if (type === 'pistol' || type === 'laser') {
+        currentWeapon = type;
+        updateScoreDisplay();
+    }
+}
+
 function startGame() {
     gameRunning = true;
     startButton.style.display = 'none';
     instructions.style.display = 'none';
     score = 0;
-    scoreDisplay.textContent = `SCORE: ${score}`;
+    currentWeapon = 'pistol';
+    updateScoreDisplay();
     obstacles = [];
     benches = [];
+    floaters = [];
+    bullets = [];
+    lasers = [];
     player.x = 50;
     player.y = canvas.height - player.height - 20;
     player.dy = 0;
@@ -626,6 +703,8 @@ function startGame() {
     obstacleInterval = 1500;
     lastObstacleTime = Date.now();
     winkTimer = 0;
+    lastShotTime = 0;
+    lastLaserTime = 0;
     setTheme(player.currentTheme);
     requestAnimationFrame(gameLoop);
 }
@@ -645,6 +724,12 @@ document.addEventListener('keydown', (e) => {
     } else if (e.key === ' ' || e.key.toLowerCase() === 'f') {
         e.preventDefault();
         shoot();
+    } else if (e.key === '1') {
+        currentWeapon = 'pistol';
+        updateScoreDisplay();
+    } else if (e.key === '2') {
+        currentWeapon = 'laser';
+        updateScoreDisplay();
     }
 });
 
