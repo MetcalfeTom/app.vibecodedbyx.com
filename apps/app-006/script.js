@@ -423,6 +423,7 @@ function drawPlayer() {
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
 
+    drawPlayerFace();
     drawHat();
 }
 
@@ -478,6 +479,61 @@ function drawHat() {
     ctx.shadowBlur = 0;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
+}
+
+function drawPlayerFace() {
+    const cx = player.x + player.width / 2;
+    const eyeY = player.y + player.height * 0.42;
+    const eyeDX = Math.max(6, player.width * 0.22);
+    const eyeR = Math.max(2, Math.min(4.5, player.width * 0.12));
+
+    // simple blink every ~4 seconds for 6 frames
+    const blink = ((Math.floor(t * 60) % 240) < 6);
+
+    // eye whites
+    ctx.fillStyle = '#FFFFFF';
+    if (!blink) {
+        ctx.beginPath();
+        ctx.ellipse(cx - eyeDX, eyeY, eyeR + 1, eyeR, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx + eyeDX, eyeY, eyeR + 1, eyeR, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // pupils
+        ctx.fillStyle = '#111';
+        ctx.beginPath();
+        ctx.arc(cx - eyeDX, eyeY, eyeR * 0.6, 0, Math.PI * 2);
+        ctx.arc(cx + eyeDX, eyeY, eyeR * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+    } else {
+        // closed eyes (blink)
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx - eyeDX - eyeR, eyeY);
+        ctx.lineTo(cx - eyeDX + eyeR, eyeY);
+        ctx.moveTo(cx + eyeDX - eyeR, eyeY);
+        ctx.lineTo(cx + eyeDX + eyeR, eyeY);
+        ctx.stroke();
+    }
+
+    // eyebrows (slight determined tilt)
+    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    ctx.lineWidth = 2;
+    const browY = eyeY - eyeR * 1.6;
+    ctx.beginPath();
+    ctx.moveTo(cx - eyeDX - eyeR * 0.9, browY + 1);
+    ctx.lineTo(cx - eyeDX + eyeR * 0.9, browY - 2);
+    ctx.moveTo(cx + eyeDX - eyeR * 0.9, browY - 2);
+    ctx.lineTo(cx + eyeDX + eyeR * 0.9, browY + 1);
+    ctx.stroke();
+
+    // mouth (confident smile)
+    const mouthY = player.y + player.height * 0.68;
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - eyeDX * 0.7, mouthY);
+    ctx.quadraticCurveTo(cx, mouthY + Math.max(2, player.height * 0.04), cx + eyeDX * 0.7, mouthY);
+    ctx.stroke();
 }
 
 function drawObstacles() {
