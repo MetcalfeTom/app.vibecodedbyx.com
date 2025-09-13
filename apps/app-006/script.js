@@ -699,33 +699,95 @@ function drawBenches() {
     });
 }
 
-// floating enemies
+// floating enemies (winged pig men)
 function drawFloaters(currentTime) {
     const time = currentTime / 1000;
     floaters.forEach(f => {
-        // sine wave vertical motion
+        // bobbing vertical motion
         f.y = f.baseY + Math.sin(time * f.frequency + f.phase) * f.amplitude;
 
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-        ctx.shadowBlur = 8;
-        ctx.shadowOffsetX = 3;
-        ctx.shadowOffsetY = 3;
+        // flap animation
+        const flap = Math.sin(time * 8 + f.phase);
 
-        // draw as glowing orb
-        const gradient = ctx.createRadialGradient(f.x + f.width/2, f.y + f.height/2, 2, f.x + f.width/2, f.y + f.height/2, Math.max(f.width, f.height));
-        gradient.addColorStop(0, f.color);
-        gradient.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.ellipse(f.x + f.width/2, f.y + f.height/2, f.width/2, f.height/2, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.closePath();
-
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
+        drawWingedPig(f, flap);
     });
+}
+
+function drawWingedPig(f, flap) {
+    const cx = f.x + f.width / 2;
+    const cy = f.y + f.height / 2;
+    const scale = Math.max(0.9, Math.min(1.4, f.width / 28));
+
+    // subtle shadow
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 3;
+
+    // body (pig torso)
+    ctx.fillStyle = '#F48FB1';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 2 * scale, 10 * scale, 8 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // head
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - 5 * scale, 7 * scale, 6 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // snout
+    ctx.fillStyle = '#F06292';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - 3 * scale, 4.2 * scale, 2.8 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // nostrils
+    ctx.fillStyle = '#5D4037';
+    ctx.beginPath();
+    ctx.arc(cx - 1.2 * scale, cy - 3 * scale, 0.6 * scale, 0, Math.PI * 2);
+    ctx.arc(cx + 1.2 * scale, cy - 3 * scale, 0.6 * scale, 0, Math.PI * 2);
+    ctx.fill();
+
+    // eyes
+    ctx.fillStyle = '#212121';
+    ctx.beginPath();
+    ctx.arc(cx - 2.2 * scale, cy - 6 * scale, 0.8 * scale, 0, Math.PI * 2);
+    ctx.arc(cx + 2.2 * scale, cy - 6 * scale, 0.8 * scale, 0, Math.PI * 2);
+    ctx.fill();
+
+    // legs
+    ctx.fillStyle = '#EC407A';
+    for (let i = -1; i <= 1; i += 2) {
+        ctx.fillRect(cx - 3 * scale + i * 3, cy + 7 * scale, 2 * scale, 4 * scale);
+    }
+
+    // wings
+    ctx.fillStyle = '#E0E0E0';
+    const wingAngle = flap * 0.5; // radians range around 0
+    // left wing
+    ctx.save();
+    ctx.translate(cx - 8 * scale, cy - 2 * scale);
+    ctx.rotate(-0.8 + wingAngle);
+    drawWingShape(8 * scale, 6 * scale);
+    ctx.restore();
+    // right wing
+    ctx.save();
+    ctx.translate(cx + 8 * scale, cy - 2 * scale);
+    ctx.rotate(0.8 - wingAngle);
+    drawWingShape(8 * scale, 6 * scale);
+    ctx.restore();
+
+    ctx.restore();
+}
+
+function drawWingShape(w, h) {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(-w * 0.4, -h * 0.2, -w * 0.9, -h * 0.1);
+    ctx.quadraticCurveTo(-w * 0.5, h * 0.2, 0, h * 0.25);
+    ctx.quadraticCurveTo(-w * 0.3, h * 0.05, 0, 0);
+    ctx.closePath();
+    ctx.fill();
 }
 
 // background birds (non-colliding)
@@ -924,8 +986,8 @@ function createBench() {
 }
 
 function createFloater() {
-    const width = 26;
-    const height = 18;
+    const width = 30;
+    const height = 22;
     const marginFromGround = 120;
     const topLimit = 40;
     const baseY = Math.random() * (canvas.height - marginFromGround - topLimit) + topLimit;
