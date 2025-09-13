@@ -8,17 +8,43 @@
   const btnReset = document.getElementById('btnReset');
   const soapEl = document.getElementById('soapPct');
   const timerEl = document.getElementById('timer');
+  const dialog = document.getElementById('dialog');
+  const dialogClose = document.getElementById('dialogClose');
+  const btnNext = document.getElementById('btnNext');
+  const npcNameEl = document.getElementById('npcName');
+  const npcLineEl = document.getElementById('npcLine');
 
   // state
   let w = canvas.clientWidth, h = canvas.clientHeight;
   let washing = false, soap = 0, time = 0;
   const hands = { lx: 0, ly: 0, rx: 0, ry: 0 };
   const foam = [];
+  const npcs = [];
+  let selectedNPC = null;
+
+  const npcDialog = [
+    { name: 'ranch hand', lines: [
+      'dust gets everywhere out here. soap helps.',
+      'little circles, partner. slow and steady.',
+      'clean hands make for clean deals.'
+    ]},
+    { name: 'drifter', lines: [
+      'roads are long, sinks are short.',
+      'you scrub, i’ll hum a tune.',
+      'cold water wakes the soul.'
+    ]},
+    { name: 'cook', lines: [
+      'not at my table with dusty paws.',
+      'don’t forget the knuckles.',
+      'soap’s cheap. trouble ain’t.'
+    ]},
+  ];
 
   function resize(){
     w = canvas.clientWidth; h = canvas.clientHeight;
     canvas.width = Math.floor(w * DPR); canvas.height = Math.floor(h * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    layoutNPCs();
   }
   resize();
   addEventListener('resize', resize);
@@ -33,6 +59,28 @@
     const s = sinkRect();
     const pad = Math.min(s.w, s.h) * 0.12;
     return { x: s.x + pad, y: s.y + pad, w: s.w - pad * 2, h: s.h - pad * 2 };
+  }
+
+  function layoutNPCs(){
+    npcs.length = 0;
+    const s = sinkRect();
+    const spots = [
+      { x: s.x - 80, y: s.y + s.h - 10 },
+      { x: s.x + s.w + 80, y: s.y + 20 },
+      { x: s.x + s.w/2, y: s.y + s.h + 40 },
+    ];
+    for (let i = 0; i < spots.length; i++) {
+      const d = npcDialog[i % npcDialog.length];
+      npcs.push({
+        name: d.name,
+        lines: d.lines,
+        li: 0,
+        x: spots[i].x,
+        y: spots[i].y,
+        w: 56,
+        h: 86,
+      });
+    }
   }
 
   function addFoam(x, y, n=6){
@@ -51,7 +99,18 @@
     hands.lx = clampX - 32; hands.ly = clampY + 8;
     hands.rx = clampX + 32; hands.ry = clampY - 8;
   }
-  function onDown(e){ dragging = true; const p = point(e); lastX=p.x; lastY=p.y; overWater = ptIn(waterRect(), p.x, p.y); moveHands(p.x, p.y); if (overWater) startWash(); canvas.setPointerCapture?.(e.pointerId); }
+  function onDown(e){
+    const p = point(e);
+    // npc tap detection first
+    const hit = npcAt(p.x, p.y);
+    if (hit) {
+      selectedNPC = hit;
+      openDialog(hit);
+      return;
+    }
+    dragging = true; lastX=p.x; lastY=p.y; overWater = ptIn(waterRect(), p.x, p.y);
+    moveHands(p.x, p.y); if (overWater) startWash(); canvas.setPointerCapture?.(e.pointerId);
+  }
   function onUp(e){ dragging = false; canvas.releasePointerCapture?.(e.pointerId); }
   function onMove(e){ if(!dragging) return; const p = point(e); moveHands(p.x, p.y); if (washing && ptIn(waterRect(), p.x, p.y)) { const d = Math.hypot(p.x-lastX, p.y-lastY); soap = Math.min(100, soap + Math.min(1.6, d*0.12)); if (d>2) addFoam(p.x, p.y, 2); } lastX=p.x; lastY=p.y; }
   function point(e){ const rect = canvas.getBoundingClientRect(); return { x: (e.clientX - rect.left), y: (e.clientY - rect.top) }; }
@@ -62,6 +121,24 @@
   function reset(){ washing=false; soap=0; time=0; foam.length=0; soapEl.textContent='0%'; timerEl.textContent='0.0s'; }
   btnStart.addEventListener('click', startWash);
   btnReset.addEventListener('click', reset);
+
+  // dialogue helpers
+  function npcAt(x, y){
+    for (let i = npcs.length - 1; i >= 0; i--) {
+      const n = npcs[i]; const r = { x: n.x - n.w/2, y: n.y - n.h, w: n.w, h: n.h };
+      if (ptIn(r, x, y)) return n;
+    }
+    return null;
+  }
+  function openDialog(n){
+    npcNameEl.textContent = n.name;
+    npcLineEl.textContent = n.lines[n.li];
+    dialog.classList.add('open'); dialog.removeAttribute('hidden');
+  }
+  function closeDialog(){ dialog.classList.remove('open'); dialog.setAttribute('hidden',''); }
+  btnNext.addEventListener('click', () => { if (!selectedNPC) return; selectedNPC.li = (selectedNPC.li + 1) % selectedNPC.lines.length; npcLineEl.textContent = selectedNPC.lines[selectedNPC.li]; });
+  dialogClose.addEventListener('click', () => closeDialog());
+  ['click','touchstart'].forEach(evt => dialog.addEventListener(evt, (e) => { if (e.target === dialog) { e.preventDefault(); closeDialog(); } }, { passive: false }));
 
   // render helpers
   function drawSink(){
@@ -119,6 +196,28 @@
     });
   }
 
+  function drawNPCs(){
+    npcs.forEach(n => {
+      const rx = n.x, by = n.y; // base point (feet)
+      // selection glow
+      if (selectedNPC === n) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(244,213,141,0.25)';
+        ctx.beginPath(); ctx.ellipse(rx, by+2, 40, 12, 0, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+      // body
+      ctx.fillStyle = '#7aa2ff';
+      ctx.fillRect(rx - n.w/2, by - n.h, n.w, n.h - 28);
+      // head
+      ctx.fillStyle = '#ffe0bd';
+      ctx.beginPath(); ctx.ellipse(rx, by - n.h, 16, 18, 0, 0, Math.PI*2); ctx.fill();
+      // tiny face
+      ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(rx - 5, by - n.h - 2, 2, 0, Math.PI*2); ctx.arc(rx + 5, by - n.h - 2, 2, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.moveTo(rx - 6, by - n.h + 8); ctx.quadraticCurveTo(rx, by - n.h + 12, rx + 6, by - n.h + 8); ctx.stroke();
+    });
+  }
+
   function stepFoam(){
     for(let i=foam.length-1;i>=0;i--){ const b=foam[i]; b.x += b.vx; b.y += b.vy; b.a *= 0.985; if (b.a < 0.04) foam.splice(i,1); }
   }
@@ -134,12 +233,13 @@
     drawSink();
     drawFoam();
     drawHands();
+    drawNPCs();
   }
 
   function loop(){ update(); render(); requestAnimationFrame(loop); }
   // initial hand positions
   const wr = waterRect(); hands.lx = wr.x + wr.w*0.4 - 32; hands.ly = wr.y + wr.h*0.6;
   hands.rx = wr.x + wr.w*0.6 + 32; hands.ry = wr.y + wr.h*0.4;
+  layoutNPCs();
   loop();
 })();
-
