@@ -55,7 +55,15 @@
       const ang = -Math.PI/2 + i * (Math.PI*2/seats);
       const x = table.x + Math.cos(ang)*radius;
       const y = table.y + Math.sin(ang)*radius;
-      diners.push({ x, y, r: 26, order: null, served:false, name: randomName() });
+      diners.push({
+        x, y, r: 26, order: null, served:false, name: randomName(),
+        // ai state
+        state: 'waiting', // waiting -> ordered -> eating -> done
+        patience: 1.0,
+        wantTimer: 0, // time until they auto-place order if ignored
+        like: pickLike(),
+        dislike: pickDislike(),
+      });
     }
     // serving counter area at bottom
     layoutTokens();
@@ -90,6 +98,12 @@
     const f = ['maria','anna','giulia','francesca','sofia','luca','marco','andrea','nicola','giovanni'];
     return f[Math.floor(Math.random()*f.length)];
   }
+  function pickLike(){ return dishes[Math.floor(Math.random()*dishes.length)].id; }
+  function pickDislike(){
+    let id = dishes[Math.floor(Math.random()*dishes.length)].id;
+    // ensure dislike not equal to like randomly when both used
+    return id;
+  }
 
   // input
   function ptIn(x,y,r){ return (mouse.x>=x-r && mouse.x<=x+r && mouse.y>=y-r && mouse.y<=y+r); }
@@ -118,7 +132,17 @@
       const t = tokens[dragId];
       let served = false;
       diners.forEach(d => {
-        if (!d.served && ptIn(d.x, d.y, d.r+20) && d.order === t.id){ d.served = true; served = true; servedCount++; tips += 5 + Math.max(0, 10 - Math.floor(time)); }
+        if (!d.served && ptIn(d.x, d.y, d.r+20) && d.order === t.id){
+          d.served = true; d.state = 'eating';
+          served = true; servedCount++;
+          // tip based on patience and preference
+          const base = 6 + Math.max(0, 10 - Math.floor(time));
+          let mult = 1.0;
+          if (d.order === d.like) mult += 0.25;
+          if (d.order === d.dislike) mult -= 0.25;
+          mult = Math.max(0.5, Math.min(1.5, mult));
+          tips += Math.round(base * mult * d.patience);
+        }
       });
       // snap back token to bar
       t.held=false; layoutTokens();
@@ -202,8 +226,16 @@
       ctx.fillStyle = '#ffe0bd'; ctx.beginPath(); ctx.arc(d.x, d.y - 58, 16, 0, Math.PI*2); ctx.fill();
       // small name tag
       ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(d.x-24, d.y-92, 48, 16); ctx.fillStyle='#fff'; ctx.font='11px Inter, sans-serif'; ctx.textAlign='center'; ctx.fillText(d.name, d.x, d.y-80);
+      // patience ring around head (green->red)
+      const px = d.x, py = d.y - 58; const pr = 20;
+      const hue = Math.floor(120 * d.patience); // 120=green -> 0=red
+      ctx.strokeStyle = `hsl(${hue} 80% 50% / 0.9)`;
+      ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, pr, -Math.PI/2, -Math.PI/2 + Math.PI*2*d.patience); ctx.stroke();
       // order bubble
       if (running && !d.served && d.order){ const dish = dishById(d.order); const bx=d.x + (d.x<table.x? -52:52), by=d.y-78; ctx.fillStyle='rgba(0,0,0,0.55)'; roundRect(bx-48,by-18,96,28,8); ctx.fill(); ctx.fillStyle=dish.color; ctx.fillRect(bx-36, by-8, 16, 16); ctx.fillStyle='#fff'; ctx.font='12px Inter, sans-serif'; ctx.textAlign='left'; ctx.fillText(dish.label, bx-16, by+4); }
+      else if (running && !d.served && !d.order) { // wants to order
+        const bx=d.x + (d.x<table.x? -32:32), by=d.y-78; ctx.fillStyle='rgba(0,0,0,0.5)'; roundRect(bx-20,by-18,40,28,8); ctx.fill(); ctx.fillStyle='#fff'; ctx.font='16px Inter, sans-serif'; ctx.fillText('?', bx-5, by+4);
+      }
       // served tick
       if (d.served){ ctx.fillStyle='#2ecc71'; ctx.beginPath(); ctx.arc(d.x, d.y, 10, 0, Math.PI*2); ctx.fill(); }
     });
@@ -238,7 +270,35 @@
     });
   }
 
-  function update(){ if (running){ time += 1/60; timerEl.textContent = `${time.toFixed(1)}s`; } updatePlayer(1/60); }
+  function update(){
+    if (running){
+      time += 1/60; timerEl.textContent = `${time.toFixed(1)}s`;
+      // diner ai updates
+      diners.forEach(d => {
+        // patience decays while waiting for order or food
+        const waiting = (!d.order) || (!d.served && d.order);
+        if (waiting) d.patience = Math.max(0.1, d.patience - 0.003);
+        else d.patience = Math.min(1.0, d.patience + 0.001);
+        // if no order yet, start wanting timer
+        if (!d.order) {
+          d.wantTimer += 1/60;
+          // after 6–10s, they place an order themselves (biased by like)
+          const limit = 6 + (d.like.charCodeAt(0) % 5); // pseudo-random per diner
+          if (d.wantTimer > limit) {
+            // weighted pick: like favored
+            const pool = dishes.flatMap(ds => ds.id === d.like ? [ds.id, ds.id, ds.id] : [ds.id]);
+            d.order = pool[Math.floor(Math.random()*pool.length)];
+          }
+        }
+        // transition to done after served for a bit
+        if (d.served && d.state === 'eating') {
+          d.wantTimer += 1/60;
+          if (d.wantTimer > 8) d.state = 'done';
+        }
+      });
+    }
+    updatePlayer(1/60);
+  }
   function render(){ ctx.clearRect(0,0,w,h); drawTable(); drawPlayer(); drawCounter(); }
   function loop(){ update(); render(); requestAnimationFrame(loop); }
 
