@@ -31,6 +31,8 @@ let obstacleInterval = 1500;
 let lastObstacleTime = 0;
 let lastBenchTime = 0;
 const benchSpawnChance = 0.1;
+let winkTimer = 0; // frames remaining for sun wink
+let t = 0; // animation time for river flow
 
 let backgroundElements = [
     { x: 0, y: 0, width: canvas.width, height: canvas.height, color: 'rgba(0,0,0,0.1)', speed: 0.1 },
@@ -70,7 +72,7 @@ function drawParallaxBackground() {
     });
 }
 
-// New: Draw Sun with Mustache
+// Draw Sun with Mustache and winkable eyes
 function drawSunWithMustache() {
     const sunX = canvas.width - 100;
     const sunY = 80;
@@ -83,6 +85,29 @@ function drawSunWithMustache() {
     ctx.fill();
     ctx.closePath();
 
+    // Eyes (left can wink)
+    const isWinking = winkTimer > 0;
+    ctx.strokeStyle = 'black';
+    ctx.fillStyle = 'black';
+    ctx.lineWidth = 3;
+    // left eye
+    if (isWinking) {
+        ctx.beginPath();
+        ctx.arc(sunX - 15, sunY - 10, 6, Math.PI * 0.15, Math.PI * 0.85);
+        ctx.stroke();
+        ctx.closePath();
+    } else {
+        ctx.beginPath();
+        ctx.arc(sunX - 15, sunY - 12, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.closePath();
+    }
+    // right eye (always open)
+    ctx.beginPath();
+    ctx.arc(sunX + 15, sunY - 12, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.closePath();
+
     // Mustache
     ctx.beginPath();
     ctx.moveTo(sunX - 20, sunY + 5);
@@ -92,6 +117,104 @@ function drawSunWithMustache() {
     ctx.lineWidth = 3;
     ctx.stroke();
     ctx.closePath();
+}
+
+// Mountain and flowing river background
+function drawMountainAndRiver() {
+    // distant range
+    const farBaseY = canvas.height - 140;
+    ctx.fillStyle = '#2F4F4F';
+    ctx.beginPath();
+    ctx.moveTo(0, farBaseY);
+    ctx.lineTo(80, farBaseY - 60);
+    ctx.lineTo(140, farBaseY);
+    ctx.lineTo(240, farBaseY - 80);
+    ctx.lineTo(330, farBaseY);
+    ctx.lineTo(460, farBaseY - 70);
+    ctx.lineTo(560, farBaseY);
+    ctx.lineTo(canvas.width, farBaseY - 60);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(0, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // near range
+    const nearBaseY = canvas.height - 100;
+    ctx.fillStyle = '#1E3A3A';
+    ctx.beginPath();
+    ctx.moveTo(0, nearBaseY);
+    ctx.lineTo(120, nearBaseY - 70);
+    ctx.lineTo(200, nearBaseY);
+    ctx.lineTo(320, nearBaseY - 90);
+    ctx.lineTo(420, nearBaseY);
+    ctx.lineTo(560, nearBaseY - 75);
+    ctx.lineTo(canvas.width, nearBaseY);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(0, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // featured central mountain
+    const peakX = canvas.width * 0.45;
+    const peakY = nearBaseY - 130;
+    const baseOffset = 120;
+    ctx.fillStyle = '#324B50';
+    ctx.beginPath();
+    ctx.moveTo(peakX, peakY);
+    ctx.lineTo(peakX - baseOffset, nearBaseY);
+    ctx.lineTo(peakX + baseOffset, nearBaseY);
+    ctx.closePath();
+    ctx.fill();
+    // light side
+    ctx.fillStyle = '#3B5960';
+    ctx.beginPath();
+    ctx.moveTo(peakX, peakY);
+    ctx.lineTo(peakX + baseOffset, nearBaseY);
+    ctx.lineTo(peakX + baseOffset * 0.33, nearBaseY);
+    ctx.closePath();
+    ctx.fill();
+    // snow cap
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.moveTo(peakX, peakY);
+    ctx.lineTo(peakX - 20, peakY + 20);
+    ctx.lineTo(peakX - 5, peakY + 15);
+    ctx.lineTo(peakX + 5, peakY + 18);
+    ctx.lineTo(peakX + 20, peakY + 22);
+    ctx.closePath();
+    ctx.fill();
+
+    // flowing river with gradient and animated highlights
+    const riverTopY = canvas.height - 80;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(canvas.width, riverTopY);
+    ctx.quadraticCurveTo(canvas.width * 0.6, riverTopY - 40, 180, canvas.height - 60);
+    ctx.lineTo(140, canvas.height - 50);
+    ctx.quadraticCurveTo(canvas.width * 0.55, riverTopY - 20, 0, riverTopY);
+    ctx.closePath();
+
+    const riverGradient = ctx.createLinearGradient(0, riverTopY, 0, canvas.height);
+    riverGradient.addColorStop(0, '#1E90FF');
+    riverGradient.addColorStop(1, '#1565C0');
+    ctx.fillStyle = riverGradient;
+    ctx.fill();
+
+    ctx.clip();
+    ctx.globalAlpha = 0.25;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#FFFFFF';
+    const offset = (t * 60) % 20;
+    for (let i = -200; i < canvas.width + 200; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(i + offset, canvas.height);
+        ctx.lineTo(i + 120 + offset, riverTopY);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1.0;
+    ctx.restore();
 }
 
 function drawPlayer() {
@@ -304,9 +427,16 @@ function gameLoop(currentTime) {
     const deltaTime = currentTime - lastObstacleTime;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    t += 0.016; // advance animation time
+
+    // trigger wink every 500 points
+    if (score > 0 && score % 500 === 0 && winkTimer === 0) {
+        winkTimer = 45; // ~0.75s at 60fps
+    }
 
     drawParallaxBackground();
-    drawSunWithMustache(); // New: Draw sun
+    drawSunWithMustache();
+    drawMountainAndRiver();
     drawGround();
 
     drawPlayer();
@@ -317,6 +447,7 @@ function gameLoop(currentTime) {
     updateObstacles(deltaTime);
     detectCollisions();
     updateScore();
+    if (winkTimer > 0) winkTimer--;
 
     requestAnimationFrame(gameLoop);
 }
@@ -350,6 +481,7 @@ function startGame() {
     obstacleSpeed = 3;
     obstacleInterval = 1500;
     lastObstacleTime = Date.now();
+    winkTimer = 0;
     setTheme(player.currentTheme);
     requestAnimationFrame(gameLoop);
 }
