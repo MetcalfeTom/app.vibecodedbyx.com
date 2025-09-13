@@ -4,13 +4,12 @@ const scoreDisplay = document.getElementById('score');
 const startButton = document.getElementById('startButton');
 const instructions = document.getElementById('instructions');
 
-// Initial canvas dimensions (will be adjusted by resizeCanvas)
 let initialCanvasWidth = 800;
 let initialCanvasHeight = 400;
 
 let player = {
     x: 50,
-    y: initialCanvasHeight - 60, // Will be updated on resize
+    y: initialCanvasHeight - 60,
     width: 30,
     height: 30,
     color: '#BB86FC',
@@ -18,7 +17,8 @@ let player = {
     gravity: 0.5,
     jumpPower: -10,
     grounded: false,
-    currentHat: 'none'
+    currentHat: 'none',
+    currentTheme: 'silksong' // New: Theme property
 };
 
 let obstacles = [];
@@ -31,13 +31,12 @@ let lastObstacleTime = 0;
 let lastBenchTime = 0;
 const benchSpawnChance = 0.1;
 
-// New: Function to resize canvas
 function resizeCanvas() {
     const aspectRatio = initialCanvasWidth / initialCanvasHeight;
-    let newWidth = window.innerWidth * 0.9; // 90% of viewport width
+    let newWidth = window.innerWidth * 0.9;
     let newHeight = newWidth / aspectRatio;
 
-    if (newHeight > window.innerHeight * 0.8) { // Don't exceed 80% of viewport height
+    if (newHeight > window.innerHeight * 0.8) {
         newHeight = window.innerHeight * 0.8;
         newWidth = newHeight * aspectRatio;
     }
@@ -45,8 +44,7 @@ function resizeCanvas() {
     canvas.width = newWidth;
     canvas.height = newHeight;
 
-    // Adjust player position relative to new canvas height
-    player.y = canvas.height - player.height - 30; // Keep player near bottom
+    player.y = canvas.height - player.height - 30;
 }
 
 function drawPlayer() {
@@ -55,20 +53,34 @@ function drawPlayer() {
     drawHat();
 }
 
+// Updated: Draw hat function with more detail
 function drawHat() {
-    ctx.fillStyle = 'brown';
+    const hatX = player.x;
+    const hatY = player.y;
+    const hatWidth = player.width;
+    const hatHeight = player.height;
+
     switch (player.currentHat) {
         case 'tophat':
-            ctx.fillRect(player.x - 5, player.y - 15, player.width + 10, 15);
-            ctx.fillRect(player.x + 5, player.y - 30, player.width - 10, 15);
+            ctx.fillStyle = '#333'; // Dark grey for tophat
+            // Brim
+            ctx.fillRect(hatX - 5, hatY - 10, hatWidth + 10, 5);
+            // Main cylinder
+            ctx.fillRect(hatX, hatY - 30, hatWidth, 20);
             break;
         case 'cowboyhat':
+            ctx.fillStyle = '#8B4513'; // Saddle brown for cowboy hat
+            // Crown
             ctx.beginPath();
-            ctx.moveTo(player.x - 10, player.y - 5);
-            ctx.lineTo(player.x + player.width + 10, player.y - 5);
-            ctx.lineTo(player.x + player.width, player.y - 20);
-            ctx.lineTo(player.x, player.y - 20);
+            ctx.moveTo(hatX, hatY - 15);
+            ctx.lineTo(hatX + hatWidth, hatY - 15);
+            ctx.lineTo(hatX + hatWidth - 5, hatY - 30);
+            ctx.lineTo(hatX + 5, hatY - 30);
             ctx.closePath();
+            ctx.fill();
+            // Brim
+            ctx.beginPath();
+            ctx.ellipse(hatX + hatWidth / 2, hatY - 10, hatWidth / 2 + 10, 8, 0, 0, Math.PI * 2);
             ctx.fill();
             break;
         case 'none':
@@ -135,7 +147,7 @@ function createObstacle() {
         y: obstacleY,
         width: obstacleWidth,
         height: obstacleHeight,
-        color: '#03DAC6'
+        color: (player.currentTheme === 'sonic' || player.currentTheme === 'knuckles') ? '#FFD700' : '#03DAC6' // Gold for Sonic/Knuckles obstacles
     });
 }
 
@@ -210,6 +222,19 @@ function setHat(hatType) {
     player.currentHat = hatType;
 }
 
+// New: Function to set theme
+function setTheme(themeType) {
+    player.currentTheme = themeType;
+    if (themeType === 'sonic') {
+        player.color = '#0000FF'; // Blue for Sonic
+    } else if (themeType === 'knuckles') {
+        player.color = '#FF0000'; // Red for Knuckles
+    } else {
+        player.color = '#BB86FC'; // Default Silksong purple
+    }
+    // Obstacle color is handled in createObstacle based on theme
+}
+
 function startGame() {
     gameRunning = true;
     startButton.style.display = 'none';
@@ -219,11 +244,12 @@ function startGame() {
     obstacles = [];
     benches = [];
     player.x = 50;
-    player.y = canvas.height - 60; // Reset player Y
+    player.y = canvas.height - 60;
     player.dy = 0;
     obstacleSpeed = 3;
     obstacleInterval = 1500;
     lastObstacleTime = Date.now();
+    setTheme(player.currentTheme); // Apply theme on start
     requestAnimationFrame(gameLoop);
 }
 
@@ -241,9 +267,8 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// New: Touch event listener for jump
 canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault(); // Prevent scrolling on touch
+    e.preventDefault();
     if (player.grounded) {
         player.dy = player.jumpPower;
         player.grounded = false;
@@ -252,7 +277,6 @@ canvas.addEventListener('touchstart', (e) => {
 
 startButton.addEventListener('click', startGame);
 
-// Initial setup
-resizeCanvas(); // Call resize on load
-window.addEventListener('resize', resizeCanvas); // Call resize on window resize
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
 drawPlayer();
