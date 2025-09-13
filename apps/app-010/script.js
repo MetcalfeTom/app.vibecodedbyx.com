@@ -210,50 +210,110 @@
     }
   }
 
-  // draw helpers
+  // draw helpers and faux-3d utilities
   function roundRect(x,y,wid,hei,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+wid,y,x+wid,y+hei,r); ctx.arcTo(x+wid,y+hei,x,y+hei,r); ctx.arcTo(x,y+hei,x,y,r); ctx.arcTo(x,y,x+wid,y,r); ctx.closePath(); }
+  function depthScale(y){
+    // scale 0.85 at top of room to 1.15 near bottom
+    const top = table.y - table.r - 140;
+    const bottom = Math.min(h - 80, table.y + table.r + 160);
+    const t = Math.max(0, Math.min(1, (y - top) / (bottom - top)));
+    return 0.85 + t * 0.30;
+  }
+  function drawFloor(){
+    // subtle perspective tiles
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, '#14151a'); grad.addColorStop(1, '#0d0e12');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    // angled lines to suggest depth
+    for (let y = table.y - table.r - 200; y < h; y += 24) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y + 40); ctx.stroke();
+    }
+  }
   function drawTable(){
-    // table top
     ctx.save();
-    const g = ctx.createRadialGradient(table.x, table.y, table.r*0.3, table.x, table.y, table.r);
-    g.addColorStop(0,'#5c3b2e'); g.addColorStop(1,'#3a231a');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(table.x, table.y, table.r, 0, Math.PI*2); ctx.fill();
-    // plates and diners
-    diners.forEach(d=>{
+    // elliptical table top (faux-3d)
+    const topH = table.r * 0.55;
+    // shadow under table
+    ctx.globalAlpha = 0.28; ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(table.x, table.y + topH * 0.6, table.r * 1.05, topH * 0.75, 0, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+    // wood gradient
+    const g = ctx.createLinearGradient(0, table.y - topH, 0, table.y + topH);
+    g.addColorStop(0,'#6a4636'); g.addColorStop(1,'#3a231a');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(table.x, table.y, table.r, topH, 0, 0, Math.PI*2); ctx.fill();
+    // rim
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(table.x, table.y, table.r*0.92, topH*0.92, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+  function drawChair(cx, cy, ang){
+    // simple back + seat, scaled with depth
+    const s = depthScale(cy);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(ang);
+    ctx.scale(s, s);
+    ctx.fillStyle = '#5b402f';
+    // seat
+    roundRect(-16, -8, 32, 16, 4); ctx.fill();
+    // back
+    ctx.fillStyle = '#6b4a38'; ctx.fillRect(-14, -26, 28, 18);
+    ctx.restore();
+  }
+  function drawPlatesAndDiners(){
+    // sort entities by y to get faux depth layering
+    const actors = diners.map(d => ({ type: 'diner', ref: d, y: d.y }));
+    // include player in unified z-order later in render
+    // draw plates first (beneath diners)
+    diners.forEach(d => {
+      const s = depthScale(d.y);
+      ctx.save();
       // plate
-      ctx.fillStyle = '#f2f2f2'; ctx.beginPath(); ctx.arc(d.x, d.y, 22, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle='#ddd'; ctx.stroke();
-      // diner head
-      ctx.fillStyle = '#ffe0bd'; ctx.beginPath(); ctx.arc(d.x, d.y - 58, 16, 0, Math.PI*2); ctx.fill();
-      // small name tag
-      ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(d.x-24, d.y-92, 48, 16); ctx.fillStyle='#fff'; ctx.font='11px Inter, sans-serif'; ctx.textAlign='center'; ctx.fillText(d.name, d.x, d.y-80);
-      // patience ring around head (green->red)
-      const px = d.x, py = d.y - 58; const pr = 20;
-      const hue = Math.floor(120 * d.patience); // 120=green -> 0=red
-      ctx.strokeStyle = `hsl(${hue} 80% 50% / 0.9)`;
-      ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, pr, -Math.PI/2, -Math.PI/2 + Math.PI*2*d.patience); ctx.stroke();
-      // order bubble
-      if (running && !d.served && d.order){ const dish = dishById(d.order); const bx=d.x + (d.x<table.x? -52:52), by=d.y-78; ctx.fillStyle='rgba(0,0,0,0.55)'; roundRect(bx-48,by-18,96,28,8); ctx.fill(); ctx.fillStyle=dish.color; ctx.fillRect(bx-36, by-8, 16, 16); ctx.fillStyle='#fff'; ctx.font='12px Inter, sans-serif'; ctx.textAlign='left'; ctx.fillText(dish.label, bx-16, by+4); }
-      else if (running && !d.served && !d.order) { // wants to order
-        const bx=d.x + (d.x<table.x? -32:32), by=d.y-78; ctx.fillStyle='rgba(0,0,0,0.5)'; roundRect(bx-20,by-18,40,28,8); ctx.fill(); ctx.fillStyle='#fff'; ctx.font='16px Inter, sans-serif'; ctx.fillText('?', bx-5, by+4);
+      ctx.fillStyle = '#f2f2f2'; ctx.beginPath(); ctx.ellipse(d.x, d.y, 22*s, 22*s*0.85, 0, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle='#ddd'; ctx.stroke();
+      ctx.restore();
+    });
+    // diners and ui over plates
+    actors.sort((a,b)=>a.y-b.y).forEach(a => {
+      const d = a.ref; const s = depthScale(d.y);
+      // shadow
+      ctx.save();
+      ctx.globalAlpha = 0.25; ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.ellipse(d.x, d.y + 6*s, 18*s, 7*s, 0, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 1;
+      // head
+      ctx.fillStyle = '#ffe0bd'; ctx.beginPath(); ctx.arc(d.x, d.y - 58*s, 16*s, 0, Math.PI*2); ctx.fill();
+      // name tag
+      ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(d.x-24*s, d.y-92*s, 48*s, 16*s); ctx.fillStyle='#fff'; ctx.font=`${Math.max(10, 11*s)}px Inter, sans-serif`; ctx.textAlign='center'; ctx.fillText(d.name, d.x, d.y-80*s);
+      // patience ring
+      const px = d.x, py = d.y - 58*s; const pr = 20*s;
+      const hue = Math.floor(120 * d.patience);
+      ctx.strokeStyle = `hsl(${hue} 80% 50% / 0.9)`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, pr, -Math.PI/2, -Math.PI/2 + Math.PI*2*d.patience); ctx.stroke();
+      // bubbles
+      if (running && !d.served && d.order){
+        const dish = dishById(d.order); const bx=d.x + (d.x<table.x? -52*s:52*s), by=d.y-78*s; ctx.fillStyle='rgba(0,0,0,0.55)'; roundRect(bx-48*s,by-18*s,96*s,28*s,8*s); ctx.fill(); ctx.fillStyle=dish.color; ctx.fillRect(bx-36*s, by-8*s, 16*s, 16*s); ctx.fillStyle='#fff'; ctx.font=`${Math.max(10, 12*s)}px Inter, sans-serif`; ctx.textAlign='left'; ctx.fillText(dish.label, bx-16*s, by+4*s);
+      } else if (running && !d.served && !d.order) {
+        const bx=d.x + (d.x<table.x? -32*s:32*s), by=d.y-78*s; ctx.fillStyle='rgba(0,0,0,0.5)'; roundRect(bx-20*s,by-18*s,40*s,28*s,8*s); ctx.fill(); ctx.fillStyle='#fff'; ctx.font=`${Math.max(12, 16*s)}px Inter, sans-serif`; ctx.fillText('?', bx-5*s, by+4*s);
       }
       // served tick
-      if (d.served){ ctx.fillStyle='#2ecc71'; ctx.beginPath(); ctx.arc(d.x, d.y, 10, 0, Math.PI*2); ctx.fill(); }
+      if (d.served){ ctx.fillStyle='#2ecc71'; ctx.beginPath(); ctx.arc(d.x, d.y, 10*s, 0, Math.PI*2); ctx.fill(); }
+      ctx.restore();
     });
-    ctx.restore();
   }
 
   function drawPlayer(){
     // simple person with shadow
     ctx.save();
+    const s = depthScale(player.y);
     // shadow
     ctx.globalAlpha = 0.25;
     ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.ellipse(player.x, player.y + 6, 18, 8, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(player.x, player.y + 6*s, 18*s, 8*s, 0, 0, Math.PI*2); ctx.fill();
     ctx.globalAlpha = 1;
     // body
     ctx.fillStyle = '#6fa8ff';
-    ctx.beginPath(); ctx.arc(player.x, player.y - 18, 10, 0, Math.PI*2); ctx.fill(); // head
-    ctx.fillStyle = '#88c'; ctx.fillRect(player.x - 10, player.y - 18, 20, 22); // torso
+    ctx.beginPath(); ctx.arc(player.x, player.y - 18*s, 10*s, 0, Math.PI*2); ctx.fill(); // head
+    ctx.fillStyle = '#88c'; ctx.fillRect(player.x - 10*s, player.y - 18*s, 20*s, 22*s); // torso
     ctx.restore();
   }
 
@@ -299,7 +359,22 @@
     }
     updatePlayer(1/60);
   }
-  function render(){ ctx.clearRect(0,0,w,h); drawTable(); drawPlayer(); drawCounter(); }
+  function render(){
+    ctx.clearRect(0,0,w,h);
+    drawFloor();
+    // chairs around table for extra 3d feel
+    const seats = seatsCount; const radius = table.r + 54;
+    for (let i=0;i<seats;i++){
+      const ang = -Math.PI/2 + i * (Math.PI*2/seats);
+      const x = table.x + Math.cos(ang)*radius;
+      const y = table.y + Math.sin(ang)*radius;
+      drawChair(x, y, ang);
+    }
+    drawTable();
+    drawPlatesAndDiners();
+    drawPlayer();
+    drawCounter();
+  }
   function loop(){ update(); render(); requestAnimationFrame(loop); }
 
   // buttons
