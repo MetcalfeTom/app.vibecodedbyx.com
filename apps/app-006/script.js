@@ -491,8 +491,9 @@ function drawPlayer() {
     ctx.shadowOffsetX = 5;
     ctx.shadowOffsetY = 5;
 
-    ctx.fillStyle = player.color;
-    ctx.fillRect(player.x, player.y, player.width, player.height);
+    // render as head with hands and feet (no body)
+    drawPlayerLimbs();
+    drawPlayerHead();
 
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
@@ -610,6 +611,92 @@ function drawPlayerFace() {
     ctx.moveTo(cx - eyeDX * 0.7, mouthY);
     ctx.quadraticCurveTo(cx, mouthY + Math.max(2, player.height * 0.04), cx + eyeDX * 0.7, mouthY);
     ctx.stroke();
+}
+
+function drawPlayerHead() {
+    const cx = player.x + player.width / 2;
+    const headR = Math.min(player.width, player.height) * 0.6;
+    const topY = player.y;
+    const cy = topY + headR; // keep top of head at player.y so hats fit
+
+    // gradient fill using player color as mid
+    const grad = ctx.createRadialGradient(cx - headR * 0.3, cy - headR * 0.6, headR * 0.2, cx, cy, headR);
+    grad.addColorStop(0, 'rgba(255,255,255,0.6)');
+    grad.addColorStop(0.4, player.color);
+    grad.addColorStop(1, '#2a2a2a');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, headR, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawPlayerLimbs() {
+    const cx = player.x + player.width / 2;
+    const headR = Math.min(player.width, player.height) * 0.6;
+    const topY = player.y;
+    const cy = topY + headR;
+    const limbColor = '#1e1e1e';
+    const handColor = '#f5f5f5';
+    const footColor = '#333';
+    const armLen = headR * 1.2;
+    const legLen = headR * 1.35;
+    const thickness = Math.max(2, Math.floor(headR * 0.22));
+    const swing = Math.sin(t * 10) * (player.grounded ? 1 : 0.5);
+
+    // draw legs first (behind)
+    ctx.strokeStyle = limbColor;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = thickness;
+    const hipY = cy + headR * 0.7;
+    // left leg
+    let angleL = Math.PI / 2 + swing * 0.4;
+    // right leg
+    let angleR = Math.PI / 2 - swing * 0.4;
+    const hipLX = cx - headR * 0.35;
+    const hipRX = cx + headR * 0.35;
+    const footLX = hipLX + Math.cos(angleL) * legLen;
+    const footLY = hipY + Math.sin(angleL) * legLen;
+    const footRX = hipRX + Math.cos(angleR) * legLen;
+    const footRY = hipY + Math.sin(angleR) * legLen;
+    ctx.beginPath();
+    ctx.moveTo(hipLX, hipY);
+    ctx.lineTo(footLX, footLY);
+    ctx.moveTo(hipRX, hipY);
+    ctx.lineTo(footRX, footRY);
+    ctx.stroke();
+    // feet
+    ctx.fillStyle = footColor;
+    const footW = thickness * 1.2;
+    const footH = thickness * 0.7;
+    ctx.beginPath();
+    ctx.ellipse(footLX, footLY, footW, footH, 0.2, 0, Math.PI * 2);
+    ctx.ellipse(footRX, footRY, footW, footH, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // arms (above legs, below head)
+    const shoulderY = cy - headR * 0.2;
+    const shoulderLX = cx - headR * 0.85;
+    const shoulderRX = cx + headR * 0.85;
+    const armAngleL = Math.PI - 0.3 + swing * 0.5;
+    const armAngleR = 0.3 - swing * 0.5;
+    const handLX = shoulderLX + Math.cos(armAngleL) * armLen;
+    const handLY = shoulderY + Math.sin(armAngleL) * armLen;
+    const handRX = shoulderRX + Math.cos(armAngleR) * armLen;
+    const handRY = shoulderY + Math.sin(armAngleR) * armLen;
+    ctx.strokeStyle = limbColor;
+    ctx.lineWidth = thickness * 0.9;
+    ctx.beginPath();
+    ctx.moveTo(shoulderLX, shoulderY);
+    ctx.lineTo(handLX, handLY);
+    ctx.moveTo(shoulderRX, shoulderY);
+    ctx.lineTo(handRX, handRY);
+    ctx.stroke();
+    // hands
+    ctx.fillStyle = handColor;
+    ctx.beginPath();
+    ctx.arc(handLX, handLY, thickness * 0.7, 0, Math.PI * 2);
+    ctx.arc(handRX, handRY, thickness * 0.7, 0, Math.PI * 2);
+    ctx.fill();
 }
 
 function drawObstacles() {
