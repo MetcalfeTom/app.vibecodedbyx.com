@@ -8,6 +8,9 @@ const jumpUIButton = document.getElementById('jumpButton');
 const startScreen = document.getElementById('startScreen');
 const startCanvas = document.getElementById('startCanvas');
 const sctx = startCanvas ? startCanvas.getContext('2d') : null;
+const gameOverEl = document.getElementById('gameOver');
+const finalScoreEl = document.getElementById('finalScore');
+const retryButton = document.getElementById('retryButton');
 let startAnimId = null;
 let startScene = null;
 let selectionButtons = [];
@@ -38,6 +41,9 @@ let lasers = [];
 let birds = [];
 let score = 0;
 let gameRunning = false;
+let deathState = 'none'; // 'none' | 'anim' | 'over'
+let deathStartAt = 0;
+let deathParticles = [];
 let obstacleSpeed = 3;
 let obstacleInterval = 1500;
 let lastObstacleTime = 0;
@@ -1164,6 +1170,44 @@ function drawLasers() {
     });
 }
 
+function startDeath() {
+    if (deathState !== 'none') return;
+    deathState = 'anim';
+    deathStartAt = performance.now();
+    deathParticles = [];
+    const px = player.x + player.width / 2;
+    const py = player.y + player.height / 2;
+    for (let i = 0; i < 32; i++) {
+        const a = (Math.PI * 2) * (i / 32) + Math.random() * 0.5;
+        const sp = 2 + Math.random() * 3;
+        deathParticles.push({ x: px, y: py, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 800 + Math.random()*300 });
+    }
+}
+
+function drawDeathAnim(now) {
+    const t = now - deathStartAt;
+    ctx.save();
+    deathParticles.forEach(p => {
+        p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.life -= 16;
+        const alpha = Math.max(0, Math.min(1, p.life / 900));
+        ctx.globalAlpha = 0.8 * alpha;
+        ctx.fillStyle = '#FFD54F';
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.restore();
+    const fade = Math.max(0, Math.min(1, t / 900));
+    ctx.save(); ctx.globalAlpha = 0.6 * fade; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.restore();
+    if (t > 1000) showGameOver();
+}
+
+function showGameOver() {
+    if (deathState === 'over') return;
+    deathState = 'over';
+    gameRunning = false;
+    if (finalScoreEl) finalScoreEl.textContent = `score: ${score}`;
+    if (gameOverEl) { gameOverEl.hidden = false; gameOverEl.classList.add('show'); }
+}
+
 function updatePlayer() {
     player.dy += player.gravity;
     player.y += player.dy;
@@ -1344,7 +1388,7 @@ function detectCollisions() {
             player.y < obstacle.y + obstacle.height &&
             player.y + player.height > obstacle.y
         ) {
-            endGame();
+            startDeath();
         }
     });
 
@@ -1372,7 +1416,7 @@ function detectCollisions() {
             player.y < f.y + f.height &&
             player.y + player.height > f.y
         ) {
-            endGame();
+            startDeath();
         }
     });
 
@@ -1428,7 +1472,7 @@ function updateScore() {
 }
 
 function gameLoop(currentTime) {
-    if (!gameRunning) return;
+    if (!gameRunning && deathState === 'none') return;
 
     // fps sampling and dynamic perf mode
     if (_lastFrameTs === 0) _lastFrameTs = currentTime;
@@ -1468,10 +1512,15 @@ function gameLoop(currentTime) {
     drawBullets();
     drawLasers();
 
-    updatePlayer();
-    updateObstacles(deltaTime);
-    detectCollisions();
-    updateScore();
+    if (gameRunning) {
+        updatePlayer();
+        updateObstacles(deltaTime);
+        detectCollisions();
+        updateScore();
+    }
+    if (deathState === 'anim') {
+        drawDeathAnim(currentTime);
+    }
     if (winkTimer > 0) winkTimer--;
     if (sunMessageTimer > 0) sunMessageTimer--;
 
@@ -1627,6 +1676,15 @@ canvas.addEventListener('touchstart', (e) => {
 });
 
 startButton.addEventListener('click', startGame);
+
+// retry button on game over
+if (retryButton) {
+    retryButton.addEventListener('click', () => {
+        if (gameOverEl) { gameOverEl.classList.remove('show'); gameOverEl.hidden = true; }
+        deathState = 'none';
+        startGame();
+    });
+}
 
 // mobile shoot button handlers
 if (shootUIButton) {
