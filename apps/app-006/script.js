@@ -48,6 +48,11 @@ let currentWeapon = 'pistol'; // 'pistol' | 'laser' | 'blunderbuss'
 let lastBlunderTime = 0;
 const blunderCooldown = 900; // ms between blunderbuss shots
 
+// track cleared obstacles and sun message
+let obstaclesCleared = 0;
+let sunMessageTimer = 0; // frames remaining to show message
+const SUN_MESSAGE_FRAMES = 240; // ~4 seconds at 60fps
+
 function updateScoreDisplay() {
     scoreDisplay.textContent = `SCORE: ${score} [${currentWeapon.toUpperCase()}]`;
 }
@@ -135,6 +140,36 @@ function drawSunWithMustache() {
     ctx.lineWidth = 3;
     ctx.stroke();
     ctx.closePath();
+
+    // sun speech bubble when message is active
+    if (sunMessageTimer > 0) {
+        const bubbleWidth = 260;
+        const bubbleHeight = 50;
+        const bubbleX = sunX - bubbleWidth - 20;
+        const bubbleY = sunY - bubbleHeight / 2;
+        // bubble background
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 8) : ctx.rect(bubbleX, bubbleY, bubbleWidth, bubbleHeight);
+        ctx.fill();
+        ctx.stroke();
+        // bubble tail
+        ctx.beginPath();
+        ctx.moveTo(bubbleX + bubbleWidth, bubbleY + bubbleHeight * 0.6);
+        ctx.lineTo(bubbleX + bubbleWidth + 12, bubbleY + bubbleHeight * 0.65);
+        ctx.lineTo(bubbleX + bubbleWidth, bubbleY + bubbleHeight * 0.8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        // text
+        ctx.fillStyle = '#000';
+        ctx.font = "12px 'Press Start 2P', monospace";
+        ctx.textBaseline = 'middle';
+        ctx.fillText('well done my child,', bubbleX + 12, bubbleY + bubbleHeight / 2 - 8);
+        ctx.fillText('come closer', bubbleX + 12, bubbleY + bubbleHeight / 2 + 10);
+    }
 }
 
 // Mountain and flowing river background
@@ -490,6 +525,14 @@ function updatePlayer() {
 function updateObstacles(deltaTime) {
     obstacles.forEach(obstacle => {
         obstacle.x -= obstacleSpeed;
+        // count as cleared when it fully passes the player
+        if (!obstacle.counted && (obstacle.x + obstacle.width) < player.x) {
+            obstacle.counted = true;
+            obstaclesCleared++;
+            if (obstaclesCleared >= 20 && sunMessageTimer === 0) {
+                sunMessageTimer = SUN_MESSAGE_FRAMES;
+            }
+        }
     });
     benches.forEach(bench => {
         bench.x -= obstacleSpeed;
@@ -549,7 +592,8 @@ function createObstacle() {
         y: obstacleY,
         width: obstacleWidth,
         height: obstacleHeight,
-        color: (player.currentTheme === 'sonic' || player.currentTheme === 'knuckles') ? '#FFD700' : '#03DAC6'
+        color: (player.currentTheme === 'sonic' || player.currentTheme === 'knuckles') ? '#FFD700' : '#03DAC6',
+        counted: false
     });
 }
 
@@ -708,6 +752,7 @@ function gameLoop(currentTime) {
     detectCollisions();
     updateScore();
     if (winkTimer > 0) winkTimer--;
+    if (sunMessageTimer > 0) sunMessageTimer--;
 
     requestAnimationFrame(gameLoop);
 }
@@ -800,6 +845,8 @@ function startGame() {
     floaters = [];
     bullets = [];
     lasers = [];
+    obstaclesCleared = 0;
+    sunMessageTimer = 0;
     player.x = 50;
     player.y = canvas.height - player.height - 20;
     player.dy = 0;
