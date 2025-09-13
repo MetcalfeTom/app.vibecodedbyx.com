@@ -101,11 +101,43 @@ function drawSunWithMustache() {
     const sunY = 80;
     const sunRadius = 40;
 
-    // Sun
+    // animated sun rays (behind the sun)
+    const rayCount = 16;
+    const rayInner = sunRadius + 4;
+    const rayOuter = sunRadius + 16;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < rayCount; i++) {
+        const a = i * (Math.PI * 2 / rayCount) + t * 0.6;
+        const cos = Math.cos(a);
+        const sin = Math.sin(a);
+        ctx.beginPath();
+        ctx.moveTo(sunX + cos * rayInner, sunY + sin * rayInner);
+        ctx.lineTo(sunX + cos * rayOuter, sunY + sin * rayOuter);
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    // Sun body with radial gradient and glow
+    const grad = ctx.createRadialGradient(sunX - 6, sunY - 10, sunRadius * 0.2, sunX, sunY, sunRadius);
+    grad.addColorStop(0, '#FFF59D');
+    grad.addColorStop(0.55, '#FFEB3B');
+    grad.addColorStop(1, '#FBC02D');
+    ctx.save();
+    ctx.shadowColor = 'rgba(255, 215, 0, 0.6)';
+    ctx.shadowBlur = 25;
     ctx.beginPath();
     ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
-    ctx.fillStyle = 'yellow';
+    ctx.fillStyle = grad;
     ctx.fill();
+    ctx.restore();
+    // subtle outline
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = '#E09E14';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.closePath();
 
     // Eyes (left can wink)
@@ -139,6 +171,21 @@ function drawSunWithMustache() {
     ctx.strokeStyle = 'black';
     ctx.lineWidth = 3;
     ctx.stroke();
+    ctx.closePath();
+
+    // rosy cheeks
+    ctx.fillStyle = 'rgba(255, 105, 97, 0.25)';
+    ctx.beginPath();
+    ctx.arc(sunX - 24, sunY, 7, 0, Math.PI * 2);
+    ctx.arc(sunX + 24, sunY, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.closePath();
+
+    // specular highlight
+    ctx.beginPath();
+    ctx.ellipse(sunX - 14, sunY - 16, 10, 6, -0.7, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fill();
     ctx.closePath();
 
     // sun speech bubble when message is active
