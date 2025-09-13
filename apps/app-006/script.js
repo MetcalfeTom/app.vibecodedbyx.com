@@ -16,22 +16,50 @@ let player = {
     dy: 0,
     gravity: 0.5,
     jumpPower: -10,
-    grounded: false
+    grounded: false,
+    currentHat: 'none' // New: Hat property
 };
 
 let obstacles = [];
-let benches = []; // New: Array for benches
+let benches = [];
 let score = 0;
 let gameRunning = false;
 let obstacleSpeed = 3;
-let obstacleInterval = 1500; // Milliseconds
+let obstacleInterval = 1500;
 let lastObstacleTime = 0;
-let lastBenchTime = 0; // New: For bench spawning
-const benchSpawnChance = 0.1; // 10% chance to spawn a bench instead of an obstacle
+let lastBenchTime = 0;
+const benchSpawnChance = 0.1;
 
 function drawPlayer() {
     ctx.fillStyle = player.color;
     ctx.fillRect(player.x, player.y, player.width, player.height);
+    drawHat(); // New: Draw hat after player
+}
+
+// New: Draw hat function
+function drawHat() {
+    ctx.fillStyle = 'brown'; // Default hat color
+    switch (player.currentHat) {
+        case 'tophat':
+            // Draw top hat (simple rectangle on top of player)
+            ctx.fillRect(player.x - 5, player.y - 15, player.width + 10, 15); // Brim
+            ctx.fillRect(player.x + 5, player.y - 30, player.width - 10, 15); // Top part
+            break;
+        case 'cowboyhat':
+            // Draw cowboy hat (simple shape)
+            ctx.beginPath();
+            ctx.moveTo(player.x - 10, player.y - 5);
+            ctx.lineTo(player.x + player.width + 10, player.y - 5);
+            ctx.lineTo(player.x + player.width, player.y - 20);
+            ctx.lineTo(player.x, player.y - 20);
+            ctx.closePath();
+            ctx.fill();
+            break;
+        case 'none':
+        default:
+            // No hat
+            break;
+    }
 }
 
 function drawObstacles() {
@@ -41,7 +69,6 @@ function drawObstacles() {
     });
 }
 
-// New: Draw benches
 function drawBenches() {
     benches.forEach(bench => {
         ctx.fillStyle = bench.color;
@@ -64,21 +91,20 @@ function updateObstacles(deltaTime) {
     obstacles.forEach(obstacle => {
         obstacle.x -= obstacleSpeed;
     });
-    benches.forEach(bench => { // New: Move benches
+    benches.forEach(bench => {
         bench.x -= obstacleSpeed;
     });
 
     obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
-    benches = benches.filter(bench => bench.x + bench.width > 0); // New: Filter benches
+    benches = benches.filter(bench => bench.x + bench.width > 0);
 
     if (Date.now() - lastObstacleTime > obstacleInterval) {
-        if (Math.random() < benchSpawnChance) { // New: Chance to spawn bench
+        if (Math.random() < benchSpawnChance) {
             createBench();
         } else {
             createObstacle();
         }
         lastObstacleTime = Date.now();
-        // Make it harder over time
         obstacleSpeed += 0.1;
         obstacleInterval = Math.max(500, obstacleInterval - 50);
     }
@@ -86,7 +112,7 @@ function updateObstacles(deltaTime) {
 
 function createObstacle() {
     const obstacleWidth = 20;
-    const obstacleHeight = Math.random() * 50 + 20; // Random height
+    const obstacleHeight = Math.random() * 50 + 20;
     const obstacleX = canvas.width;
     const obstacleY = canvas.height - obstacleHeight;
     obstacles.push({
@@ -94,11 +120,10 @@ function createObstacle() {
         y: obstacleY,
         width: obstacleWidth,
         height: obstacleHeight,
-        color: '#03DAC6' // Silksong-like teal
+        color: '#03DAC6'
     });
 }
 
-// New: Create bench
 function createBench() {
     const benchWidth = 40;
     const benchHeight = 20;
@@ -109,7 +134,7 @@ function createBench() {
         y: benchY,
         width: benchWidth,
         height: benchHeight,
-        color: '#C0C0C0', // Grey for bench
+        color: '#C0C0C0',
         collected: false
     });
 }
@@ -126,7 +151,6 @@ function detectCollisions() {
         }
     });
 
-    // New: Bench collision
     benches.forEach(bench => {
         if (
             !bench.collected &&
@@ -136,9 +160,8 @@ function detectCollisions() {
             player.y + player.height > bench.y
         ) {
             bench.collected = true;
-            score += 50; // Score for collecting a bench
+            score += 50;
             scoreDisplay.textContent = `SCORE: ${score}`;
-            // Optionally, remove bench immediately or add a visual effect
             benches = benches.filter(b => b !== bench);
         }
     });
@@ -156,16 +179,21 @@ function gameLoop(currentTime) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    drawPlayer();
+    drawPlayer(); // This now calls drawHat internally
     drawObstacles();
-    drawBenches(); // New: Draw benches
+    drawBenches();
 
     updatePlayer();
     updateObstacles(deltaTime);
     detectCollisions();
-    // updateScore(); // Score is now updated in detectCollisions and implicitly by time
+    updateScore(); // Keep this for continuous score increase
 
     requestAnimationFrame(gameLoop);
+}
+
+// New: Function to set hat
+function setHat(hatType) {
+    player.currentHat = hatType;
 }
 
 function startGame() {
@@ -175,7 +203,7 @@ function startGame() {
     score = 0;
     scoreDisplay.textContent = `SCORE: ${score}`;
     obstacles = [];
-    benches = []; // New: Reset benches
+    benches = [];
     player.x = 50;
     player.y = canvas.height - 60;
     player.dy = 0;
@@ -203,4 +231,3 @@ startButton.addEventListener('click', startGame);
 
 // Initial draw
 drawPlayer();
-// createObstacle(); // Removed: Obstacles will spawn via updateObstacles
