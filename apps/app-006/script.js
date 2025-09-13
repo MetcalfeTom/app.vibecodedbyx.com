@@ -4,6 +4,7 @@ const scoreDisplay = document.getElementById('score');
 const startButton = document.getElementById('startButton');
 const instructions = document.getElementById('instructions');
 const shootUIButton = document.getElementById('shootButton');
+const startScreen = document.getElementById('startScreen');
 
 let initialCanvasWidth = 800;
 let initialCanvasHeight = 400;
@@ -1166,6 +1167,7 @@ function startGame() {
     gameRunning = true;
     startButton.style.display = 'none';
     instructions.style.display = 'none';
+    if (startScreen) startScreen.style.display = 'none';
     score = 0;
     currentWeapon = 'pistol';
     updateScoreDisplay();
@@ -1196,6 +1198,7 @@ function endGame() {
     gameRunning = false;
     startButton.style.display = 'block';
     instructions.style.display = 'block';
+    if (startScreen) startScreen.style.display = 'block';
     alert(`GAME OVER! YOUR SCORE: ${score}`);
 }
 
