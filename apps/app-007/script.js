@@ -448,7 +448,8 @@ function renderAchList() {
 function showAchPanel(show) {
   const panel = document.getElementById('achPanel');
   if (!panel) return;
-  panel.hidden = !show;
+  if (show) { panel.classList.add('open'); panel.setAttribute('aria-hidden', 'false'); }
+  else { panel.classList.remove('open'); panel.setAttribute('aria-hidden', 'true'); }
 }
 
 function animateArms(t) {
@@ -484,7 +485,7 @@ btnStart.addEventListener('click', async () => { dinnerOn = true; achState.start
 btnServe.addEventListener('click', async () => { serveDish(); achState.served++; tryUnlock(); await sound.enable(); sound.playClink(); sound.playThump(0.08); });
 btnChaos.addEventListener('click', async () => { chaos = !chaos; achState.toggledChaos = true; tryUnlock(); await sound.enable(); sound.playChaos(); });
 btnReset.addEventListener('click', () => { dinnerOn = false; chaos = false; });
-btnAch.addEventListener('click', () => showAchPanel(achPanel?.hidden !== false));
+btnAch.addEventListener('click', () => showAchPanel(!achPanel.classList.contains('open')));
 ['click','touchstart'].forEach(evt => {
   achClose.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); showAchPanel(false); }, { passive: false });
 });
