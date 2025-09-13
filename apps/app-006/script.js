@@ -25,6 +25,7 @@ let player = {
 let obstacles = [];
 let benches = [];
 let floaters = [];
+let bullets = [];
 let score = 0;
 let gameRunning = false;
 let obstacleSpeed = 3;
@@ -36,6 +37,8 @@ let winkTimer = 0; // frames remaining for sun wink
 let t = 0; // animation time for river flow
 let lastFloaterTime = 0;
 let floaterInterval = 2200; // ms between floating enemies
+let lastShotTime = 0;
+const shotCooldown = 300; // ms between shots
 
 let backgroundElements = [
     { x: 0, y: 0, width: canvas.width, height: canvas.height, color: 'rgba(0,0,0,0.1)', speed: 0.1 },
@@ -354,6 +357,27 @@ function drawFloaters(currentTime) {
     });
 }
 
+// bullets
+function drawBullets() {
+    bullets.forEach(b => {
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.6)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+
+        const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.width, b.y);
+        grad.addColorStop(0, '#FFD54F');
+        grad.addColorStop(1, '#FF6F00');
+        ctx.fillStyle = grad;
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+    });
+}
+
 function updatePlayer() {
     player.dy += player.gravity;
     player.y += player.dy;
@@ -378,10 +402,14 @@ function updateObstacles(deltaTime) {
     floaters.forEach(f => {
         f.x -= f.speed; // horizontal drift
     });
+    bullets.forEach(b => {
+        b.x += b.speed;
+    });
 
     obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
     benches = benches.filter(bench => bench.x + bench.width > 0);
     floaters = floaters.filter(f => f.x + f.width > 0);
+    bullets = bullets.filter(b => b.x < canvas.width + 40);
 
     if (Date.now() - lastObstacleTime > obstacleInterval) {
         if (Math.random() < benchSpawnChance) {
@@ -491,6 +519,29 @@ function detectCollisions() {
             endGame();
         }
     });
+
+    // bullet vs floater collisions
+    bullets.forEach(b => {
+        floaters.forEach(f => {
+            if (
+                b.x < f.x + f.width &&
+                b.x + b.width > f.x &&
+                b.y < f.y + f.height &&
+                b.y + b.height > f.y
+            ) {
+                // mark for removal and award points
+                f._hit = true;
+                b._hit = true;
+                score += 25;
+                scoreDisplay.textContent = `SCORE: ${score}`;
+            }
+        });
+    });
+    // remove hit entities
+    if (floaters.some(f => f._hit) || bullets.some(b => b._hit)) {
+        floaters = floaters.filter(f => !f._hit);
+        bullets = bullets.filter(b => !b._hit);
+    }
 }
 
 function updateScore() {
@@ -520,6 +571,7 @@ function gameLoop(currentTime) {
     drawObstacles();
     drawBenches();
     drawFloaters(currentTime);
+    drawBullets();
 
     updatePlayer();
     updateObstacles(deltaTime);
@@ -528,6 +580,20 @@ function gameLoop(currentTime) {
     if (winkTimer > 0) winkTimer--;
 
     requestAnimationFrame(gameLoop);
+}
+
+function shoot() {
+    if (!gameRunning) return;
+    const now = Date.now();
+    if (now - lastShotTime < shotCooldown) return;
+    lastShotTime = now;
+    bullets.push({
+        x: player.x + player.width,
+        y: player.y + player.height / 2 - 2,
+        width: 14,
+        height: 4,
+        speed: 9
+    });
 }
 
 function setHat(hatType) {
@@ -576,6 +642,9 @@ document.addEventListener('keydown', (e) => {
         player.dy = player.jumpPower;
         player.jumpsRemaining--;
         player.grounded = false; // Ensure not grounded after jump
+    } else if (e.key === ' ' || e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        shoot();
     }
 });
 
