@@ -135,14 +135,16 @@ function drawSky() {
 // Draw Sun with Mustache and winkable eyes
 function drawSunWithMustache() {
     // compute sun position across the sky during the day half of the cycle
-    const margin = 60;
+    const margin = Math.max(40, canvas.width * 0.06);
     let sunVisible = dayCycleT < 0.5;
-    const sunRadius = 40;
     const phase = sunVisible ? (dayCycleT / 0.5) : 0; // 0..1 left->right
     const sunX = margin + (canvas.width - margin * 2) * phase;
-    const yBottom = 160;
-    const yTop = 70;
+    // keep sun higher on small/mobile canvases so it stays visible above mountains
+    const isMobile = window.innerWidth <= 768;
+    const yTop = canvas.height * (isMobile ? 0.12 : 0.18);
+    const yBottom = canvas.height * (isMobile ? 0.32 : 0.40);
     const sunY = yBottom - Math.sin(phase * Math.PI) * (yBottom - yTop);
+    const sunRadius = Math.max(26, Math.min(44, canvas.width * (isMobile ? 0.065 : 0.05)));
 
     // animated sun rays (behind the sun)
     const rayCount = 16;
