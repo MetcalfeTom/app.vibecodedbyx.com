@@ -41,6 +41,8 @@ let floaters = [];
 let bullets = [];
 let lasers = [];
 let birds = [];
+// transient ui speech bubbles shown near the player via say()
+let playerBubbles = [];
 let score = 0;
 let gameRunning = false;
 let deathState = 'none'; // 'none' | 'anim' | 'over'
@@ -1531,6 +1533,8 @@ function gameLoop(currentTime) {
     drawGround();
 
     drawPlayer();
+    // render any transient speech bubbles (e.g., start hints, selection feedback)
+    drawPlayerBubbles();
     drawObstacles();
     drawBenches();
     drawFloaters(currentTime);
