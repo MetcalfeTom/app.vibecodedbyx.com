@@ -1,5 +1,37 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+// polyfills for broader browser support
+try {
+    if (typeof CanvasRenderingContext2D !== 'undefined') {
+        if (!CanvasRenderingContext2D.prototype.ellipse) {
+            CanvasRenderingContext2D.prototype.ellipse = function(x, y, rx, ry, rotation, startAngle, endAngle, anticlockwise) {
+                this.save();
+                this.translate(x, y);
+                this.rotate(rotation || 0);
+                this.scale(rx || 1, ry || 1);
+                this.arc(0, 0, 1, startAngle || 0, endAngle || Math.PI * 2, !!anticlockwise);
+                this.restore();
+            };
+        }
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+                const rr = Array.isArray(r) ? r : [r, r, r, r].map(v => Math.max(0, v || 0));
+                const [r1, r2, r3, r4] = rr;
+                this.beginPath();
+                this.moveTo(x + r1, y);
+                this.lineTo(x + w - r2, y);
+                this.quadraticCurveTo(x + w, y, x + w, y + r2);
+                this.lineTo(x + w, y + h - r3);
+                this.quadraticCurveTo(x + w, y + h, x + w - r3, y + h);
+                this.lineTo(x + r4, y + h);
+                this.quadraticCurveTo(x, y + h, x, y + h - r4);
+                this.lineTo(x, y + r1);
+                this.quadraticCurveTo(x, y, x + r1, y);
+                this.closePath();
+            };
+        }
+    }
+} catch (_) {}
 const scoreDisplay = document.getElementById('score');
 const startButton = document.getElementById('startButton');
 const instructions = document.getElementById('instructions');
@@ -1704,7 +1736,9 @@ function endGame() {
     startButton.style.display = 'block';
     instructions.style.display = 'block';
     if (startScreen) startScreen.style.display = 'block';
-    alert(`GAME OVER! YOUR SCORE: ${score}`);
+    // prefer in-page overlay instead of blocking alert
+    if (finalScoreEl) finalScoreEl.textContent = `score: ${score}`;
+    if (gameOverEl) { gameOverEl.hidden = false; gameOverEl.classList.add('show'); }
     startStartScene();
 }
 
