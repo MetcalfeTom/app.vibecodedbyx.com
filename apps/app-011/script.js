@@ -241,3 +241,10 @@ loop();
 // start button
 document.getElementById('btnStart').addEventListener('click', () => { running = true; document.getElementById('zone').textContent = 'piazza del sole'; });
 
+// show controls only on mobile
+if (isMobile) {
+  document.getElementById('controls').style.display = 'flex';
+} else {
+  document.getElementById('controls').style.display = 'none';
+}
+
