@@ -6,6 +6,33 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2
 const scene = new THREE.Scene();
 scene.background = null;
 
+// add restaurant ceiling
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0xf5f5f5, side: THREE.DoubleSide }));
+ceiling.rotation.x = -Math.PI / 2;
+ceiling.position.y = 8;
+scene.add(ceiling);
+
+// add fans and lights
+const fanMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+const lightMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
+
+const fans = [];
+for (let i = 0; i < 3; i++) {
+  const fanGroup = new THREE.Group();
+  const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8), fanMat); motor.position.y = 0.1; fanGroup.add(motor);
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2, 0.05), fanMat); fanGroup.add(blade);
+  fanGroup.position.set((i - 1) * 10, 8.2, 0);
+  scene.add(fanGroup);
+  fans.push(fanGroup);
+
+  // add light
+  const light = new THREE.PointLight(0xffffff, 0.8, 15);
+  light.position.set((i - 1) * 10, 7.8, 0);
+  scene.add(light);
+  const lightFixture = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.1, 8), lightMat); lightFixture.position.copy(light.position); lightFixture.position.y += 0.05;
+  scene.add(lightFixture);
+}
+
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 500);
 const orbit = { yaw: 0, pitch: -0.1 }; // third-person orbit
 const player = { pos: new THREE.Vector3(0, 1, 0), vel: new THREE.Vector3(), speed: 6.5, sprint: 10.5, heading: 0 };
@@ -21,15 +48,7 @@ size(); window.addEventListener('resize', size);
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 const sun = new THREE.DirectionalLight(0xfff1c1, 1.0); sun.position.set(8, 12, 6); scene.add(sun);
 
-// sky dome gradient
-const skyGeo = new THREE.SphereGeometry(200, 24, 16);
-const skyMat = new THREE.ShaderMaterial({
-  side: THREE.BackSide,
-  uniforms: { top: { value: new THREE.Color(0x243b55) }, bottom: { value: new THREE.Color(0x141e30) } },
-  vertexShader:`varying vec3 vPos; void main(){ vPos=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-  fragmentShader:`uniform vec3 top; uniform vec3 bottom; varying vec3 vPos; void main(){ float h = normalize(vPos).y*0.5+0.5; gl_FragColor=vec4(mix(bottom, top, h), 1.0); }`
-});
-scene.add(new THREE.Mesh(skyGeo, skyMat));
+// removed sky dome for indoor restaurant
 
 // ground + roads
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300), new THREE.MeshStandardMaterial({ color: 0x2e2a27, roughness: 1 }));
@@ -241,6 +260,8 @@ let running = false;
 function loop(){
   const t = performance.now(); const dt = Math.min(0.05, (t - lastT)/1000); lastT = t;
   if (running) step(dt);
+  // rotate fans
+  fans.forEach(f => f.rotation.y += 0.1);
   drawMinimap();
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
@@ -248,7 +269,7 @@ function loop(){
 loop();
 
 // start button
-document.getElementById('btnStart').addEventListener('click', () => { running = true; document.getElementById('zone').textContent = 'piazza del sole'; });
+document.getElementById('btnStart').addEventListener('click', () => { running = true; document.getElementById('zone').textContent = 'restaurant'; });
 
 // show controls only on mobile
 if (isMobile) {
