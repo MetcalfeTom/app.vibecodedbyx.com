@@ -4,13 +4,39 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true 
 const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
 const scene = new THREE.Scene();
-scene.background = null;
+scene.background = new THREE.Color(0xf5f5dc); // cream color for Italian restaurant
 
 // add restaurant ceiling
 const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0xf5f5f5, side: THREE.DoubleSide }));
 ceiling.rotation.x = -Math.PI / 2;
 ceiling.position.y = 8;
 scene.add(ceiling);
+
+// add walls for enclosed restaurant
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.9 });
+const wallHeight = 8;
+const wallThickness = 0.5;
+// north wall
+const northWall = new THREE.Mesh(new THREE.BoxGeometry(80, wallHeight, wallThickness), wallMat);
+northWall.position.set(0, wallHeight/2, 40);
+scene.add(northWall);
+// south wall
+const southWall = new THREE.Mesh(new THREE.BoxGeometry(80, wallHeight, wallThickness), wallMat);
+southWall.position.set(0, wallHeight/2, -40);
+scene.add(southWall);
+// east wall
+const eastWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, 80), wallMat);
+eastWall.position.set(40, wallHeight/2, 0);
+scene.add(eastWall);
+// west wall
+const westWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, 80), wallMat);
+westWall.position.set(-40, wallHeight/2, 0);
+scene.add(westWall);
+// add to colliders
+colliders.push({ pos: northWall.position.clone(), w: 80, d: wallThickness, h: wallHeight });
+colliders.push({ pos: southWall.position.clone(), w: 80, d: wallThickness, h: wallHeight });
+colliders.push({ pos: eastWall.position.clone(), w: wallThickness, d: 80, h: wallHeight });
+colliders.push({ pos: westWall.position.clone(), w: wallThickness, d: 80, h: wallHeight });
 
 // add fans and lights
 const fanMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
