@@ -86,6 +86,30 @@ let perfMode = false; // reduced-effects mode
 let _fpsSamples = [];
 let _lastFrameTs = 0;
 
+// simple on-screen error reporter to avoid silent freezes
+let _errorBox = null;
+function reportError(err) {
+    try {
+        console.error(err);
+        if (!_errorBox) {
+            _errorBox = document.createElement('div');
+            _errorBox.id = 'errorBox';
+            Object.assign(_errorBox.style, {
+                position: 'fixed', left: '8px', top: '8px', zIndex: 9999,
+                background: 'rgba(220, 38, 38, 0.92)', color: '#fff',
+                border: '1px solid rgba(0,0,0,0.3)', borderRadius: '6px',
+                padding: '8px 10px', fontFamily: "'Press Start 2P', monospace",
+                fontSize: '10px', maxWidth: '80vw', pointerEvents: 'none'
+            });
+            document.body.appendChild(_errorBox);
+        }
+        const msg = (err && err.message) ? err.message : String(err);
+        _errorBox.textContent = 'error: ' + msg;
+    } catch(_) { /* ignore */ }
+}
+window.addEventListener('error', (e) => reportError(e?.error || e?.message || 'runtime error'));
+window.addEventListener('unhandledrejection', (e) => reportError(e?.reason || 'unhandled rejection'));
+
 function updateScoreDisplay() {
     scoreDisplay.textContent = `SCORE: ${score} [${currentWeapon.toUpperCase()}]`;
 }
@@ -1499,60 +1523,63 @@ function updateScore() {
 }
 
 function gameLoop(currentTime) {
-    if (!gameRunning && deathState === 'none') return;
+    try {
+        if (!gameRunning && deathState === 'none') return;
 
-    // fps sampling and dynamic perf mode
-    if (_lastFrameTs === 0) _lastFrameTs = currentTime;
-    const frameDt = currentTime - _lastFrameTs;
-    _lastFrameTs = currentTime;
-    _fpsSamples.push(frameDt);
-    if (_fpsSamples.length > 45) _fpsSamples.shift();
-    const avg = _fpsSamples.reduce((a, b) => a + b, 0) / _fpsSamples.length;
-    // enter perf mode if avg frame time > ~24ms (~41fps), exit if < ~18ms (~55fps)
-    if (!perfMode && avg > 20) perfMode = true;
-    else if (perfMode && avg < 16) perfMode = false;
+        // fps sampling and dynamic perf mode
+        if (_lastFrameTs === 0) _lastFrameTs = currentTime;
+        const frameDt = currentTime - _lastFrameTs;
+        _lastFrameTs = currentTime;
+        _fpsSamples.push(frameDt);
+        if (_fpsSamples.length > 45) _fpsSamples.shift();
+        const avg = _fpsSamples.reduce((a, b) => a + b, 0) / _fpsSamples.length;
+        // enter perf mode if avg frame time > ~24ms (~41fps), exit if < ~18ms (~55fps)
+        if (!perfMode && avg > 20) perfMode = true;
+        else if (perfMode && avg < 16) perfMode = false;
 
-    const deltaTime = currentTime - lastObstacleTime; // retained for spawn logic
+        const deltaTime = currentTime - lastObstacleTime; // retained for spawn logic
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    t += 0.016; // advance animation time
-    // update day-night cycle progress
-    dayCycleT = ((performance.now() - dayCycleStart) % dayCycleMs) / dayCycleMs;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        t += 0.016; // advance animation time
+        // update day-night cycle progress
+        dayCycleT = ((performance.now() - dayCycleStart) % dayCycleMs) / dayCycleMs;
 
-    // trigger wink every 500 points
-    if (score > 0 && score % 500 === 0 && winkTimer === 0) {
-        winkTimer = 45; // ~0.75s at 60fps
+        // trigger wink every 500 points
+        if (score > 0 && score % 500 === 0 && winkTimer === 0) {
+            winkTimer = 45; // ~0.75s at 60fps
+        }
+
+        drawSky();
+        drawParallaxBackground();
+        drawMoon();
+        drawSunWithMustache();
+        drawMountainAndRiver();
+        drawBirds();
+        drawGround();
+
+        drawPlayer();
+        // render any transient speech bubbles (e.g., start hints, selection feedback)
+        drawPlayerBubbles();
+        drawObstacles();
+        drawBenches();
+        drawFloaters(currentTime);
+        drawBullets();
+        drawLasers();
+
+        if (gameRunning) {
+            updatePlayer();
+            updateObstacles(deltaTime);
+            detectCollisions();
+            updateScore();
+        }
+        if (deathState === 'anim') {
+            drawDeathAnim(currentTime);
+        }
+        if (winkTimer > 0) winkTimer--;
+        if (sunMessageTimer > 0) sunMessageTimer--;
+    } catch (e) {
+        reportError(e);
     }
-
-    drawSky();
-    drawParallaxBackground();
-    drawMoon();
-    drawSunWithMustache();
-    drawMountainAndRiver();
-    drawBirds();
-    drawGround();
-
-    drawPlayer();
-    // render any transient speech bubbles (e.g., start hints, selection feedback)
-    drawPlayerBubbles();
-    drawObstacles();
-    drawBenches();
-    drawFloaters(currentTime);
-    drawBullets();
-    drawLasers();
-
-    if (gameRunning) {
-        updatePlayer();
-        updateObstacles(deltaTime);
-        detectCollisions();
-        updateScore();
-    }
-    if (deathState === 'anim') {
-        drawDeathAnim(currentTime);
-    }
-    if (winkTimer > 0) winkTimer--;
-    if (sunMessageTimer > 0) sunMessageTimer--;
-
     requestAnimationFrame(gameLoop);
 }
 
