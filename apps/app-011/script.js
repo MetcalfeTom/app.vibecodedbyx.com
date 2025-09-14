@@ -84,6 +84,15 @@ function makeNPC(name, x, z){
   const g = new THREE.Group();
   const h = head.clone(); const b = body.clone();
   g.add(h); g.add(b);
+  // add hair
+  const hair = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.2, 0.3, 8), new THREE.MeshStandardMaterial({ color: 0x8b4513 }));
+  hair.position.y = 1.8; g.add(hair);
+  // add eyes
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+  const eye1 = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), eyeMat); eye1.position.set(-0.08, 1.65, 0.18); g.add(eye1);
+  const eye2 = eye1.clone(); eye2.position.x = 0.08; g.add(eye2);
+  // add mouth
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.01), new THREE.MeshStandardMaterial({ color: 0xff0000 })); mouth.position.set(0, 1.55, 0.18); g.add(mouth);
   g.position.set(x, 0, z);
   g.userData = { name, talk: smallTalk(name) };
   scene.add(g); npcs.push(g);
