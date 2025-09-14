@@ -91,6 +91,9 @@ function makeNPC(name, x, z){
 makeNPC('marco', -5, 4);
 makeNPC('giulia', 2, -8);
 makeNPC('sofia', 18, -4);
+makeNPC('luca', -10, 10);
+makeNPC('rosa', 5, 15);
+makeNPC('paolo', -15, -5);
 
 // input
 const keys = new Set();
@@ -104,6 +107,22 @@ canvas.addEventListener('pointermove', e=>{
 });
 addEventListener('keydown', e=>{ keys.add(e.key.toLowerCase()); if (e.key.toLowerCase()==='e') tryInteract(); });
 addEventListener('keyup', e=>{ keys.delete(e.key.toLowerCase()); });
+
+document.getElementById('up').addEventListener('pointerdown', () => keys.add('arrowup'));
+document.getElementById('up').addEventListener('pointerup', () => keys.delete('arrowup'));
+document.getElementById('up').addEventListener('pointerleave', () => keys.delete('arrowup'));
+
+document.getElementById('down').addEventListener('pointerdown', () => keys.add('arrowdown'));
+document.getElementById('down').addEventListener('pointerup', () => keys.delete('arrowdown'));
+document.getElementById('down').addEventListener('pointerleave', () => keys.delete('arrowdown'));
+
+document.getElementById('left').addEventListener('pointerdown', () => keys.add('arrowleft'));
+document.getElementById('left').addEventListener('pointerup', () => keys.delete('arrowleft'));
+document.getElementById('left').addEventListener('pointerleave', () => keys.delete('arrowleft'));
+
+document.getElementById('right').addEventListener('pointerdown', () => keys.add('arrowright'));
+document.getElementById('right').addEventListener('pointerup', () => keys.delete('arrowright'));
+document.getElementById('right').addEventListener('pointerleave', () => keys.delete('arrowright'));
 
 // simple collision check against building AABBs
 function collide(next){
