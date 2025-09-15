@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>verify messages table - vibespace</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #0f0f0f;
+            color: #00ff00;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .output {
+            background: #1a1a1a;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border: 1px solid #333;
+            white-space: pre-wrap;
+            font-family: 'courier new', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 5px;
+            background: #333;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #00ff00;
+            color: #000;
+        }
+        .status { color: #ffff00; }
+        .error { color: #ff0000; }
+        .success { color: #00ff00; }
+        .info { color: #00aaff; }
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+        }
+        input[type="text"] {
+            background: #333;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 8px;
+            font-family: monospace;
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <h1>verify messages table</h1>
+    <p>this page tests the messages table functionality and rls policies</p>
+
+    <div class="controls">
+        <h3>table verification</h3>
+        <button onclick="checkTableExists()">check if table exists</button>
+        <button onclick="testReadAccess()">test read access</button>
+        <button onclick="listAllMessages()">list all messages</button>
+    </div>
+
+    <div class="controls">
+        <h3>message operations</h3>
+        <input type="text" id="usernameInput" placeholder="enter username" value="test_user">
+        <input type="text" id="messageInput" placeholder="enter message" value="hello from verification test">
+        <br><br>
+        <button onclick="insertTestMessage()">insert test message</button>
+        <button onclick="updateLastMessage()">update last message</button>
+        <button onclick="deleteLastMessage()">delete last message</button>
+    </div>
+
+    <div class="controls">
+        <h3>rls policy tests</h3>
+        <button onclick="testRlsPolicies()">test all rls policies</button>
+        <button onclick="clearTestMessages()">clear test messages</button>
+    </div>
+
+    <div id="output" class="output">ready to test messages table...\nuser session will be initialized automatically.\n</div>
+
+    <script type="module">
+        import { supabase, supabaseSession } from './supabase-config.js';
+
+        let currentSession = null;
+        let lastInsertedId = null;
+
+        async function initSession() {
+            if (!currentSession) {
+                currentSession = await supabaseSession();
+                log('session initialized for user: ' + currentSession.user.id, 'status');
+            }
+            return currentSession;
+        }
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'status' ? 'status' : type === 'info' ? 'info' : '';
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        window.checkTableExists = async function() {
+            try {
+                await initSession();
+                log('checking if messages table exists...', 'status');
+
+                const { data, error } = await supabase
+                    .from('messages')
+                    .select('id')
+                    .limit(1);
+
+                if (error) {
+                    if (error.code === 'PGRST205') {
+                        log('table does not exist: ' + error.message, 'error');
+                        log('please create the table using the sql in database-setup-instructions.md', 'error');
+                    } else {
+                        log('error checking table: ' + error.message, 'error');
+                    }
+                } else {
+                    log('messages table exists and is accessible!', 'success');
+                }
+
+            } catch (err) {
+                log('unexpected error: ' + err.message, 'error');
+            }
+        };
+
+        window.testReadAccess = async function() {
+            try {
+                await initSession();
+                log('testing read access to messages table...', 'status');
+
+                const { data, error } = await supabase
+                    .from('messages')
+                    .select('*')
+                    .limit(5);
+
+                if (error) {
+                    log('read access failed: ' + error.message, 'error');
+                } else {
+                    log('read access successful - found ' + data.length + ' messages', 'success');
+                    if (data.length > 0) {
+                        log('sample message: ' + JSON.stringify(data[0], null, 2), 'info');
+                    }
+                }
+
+            } catch (err) {
+                log('read test error: ' + err.message, 'error');
+            }
+        };
+
+        window.listAllMessages = async function() {
+            try {
+                await initSession();
+                log('listing all messages...', 'status');
+
+                const { data, error } = await supabase
+                    .from('messages')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) {
+                    log('failed to list messages: ' + error.message, 'error');
+                } else {
+                    log('found ' + data.length + ' total messages:', 'success');
+                    data.forEach((msg, index) => {
+                        log(`${index + 1}. [${msg.created_at}] ${msg.username}: ${msg.message} (id: ${msg.id})`, 'info');
+                    });
+                }
+
+            } catch (err) {
+                log('list error: ' + err.message, 'error');
+            }
+        };
+
+        window.insertTestMessage = async function() {
+            try {
+                await initSession();
+                const username = document.getElementById('usernameInput').value;
+                const message = document.getElementById('messageInput').value;
+
+                if (!username || !message) {
+                    log('please enter both username and message', 'error');
+                    return;
+                }
+
+                log('inserting test message...', 'status');
+
+                const { data, error } = await supabase
+                    .from('messages')
+                    .insert([{
+                        user_id: currentSession.user.id,
+                        username: username,
+                        message: message
+                    }])
+                    .select();
+
+                if (error) {
+                    log('insert failed: ' + error.message, 'error');
+                } else {
+                    lastInsertedId = data[0].id;
+                    log('message inserted successfully with id: ' + data[0].id, 'success');
+                    log('message data: ' + JSON.stringify(data[0], null, 2), 'info');
+                }
+
+            } catch (err) {
+                log('insert error: ' + err.message, 'error');
+            }
+        };
+
+        window.updateLastMessage = async function() {
+            try {
+                await initSession();
+
+                if (!lastInsertedId) {
+                    log('no message to update - insert a message first', 'error');
+                    return;
+                }
+
+                log('updating last inserted message...', 'status');
+
+                const { data, error } = await supabase
+                    .from('messages')
+                    .update({ message: 'updated message at ' + new Date().toISOString() })
+                    .eq('id', lastInsertedId)
+                    .select();
+
+                if (error) {
+                    log('update failed: ' + error.message, 'error');
+                } else {
+                    log('message updated successfully', 'success');
+                    log('updated data: ' + JSON.stringify(data[0], null, 2), 'info');
+                }
+
+            } catch (err) {
+                log('update error: ' + err.message, 'error');
+            }
+        };
+
+        window.deleteLastMessage = async function() {
+            try {
+                await initSession();
+
+                if (!lastInsertedId) {
+                    log('no message to delete - insert a message first', 'error');
+                    return;
+                }
+
+                log('deleting last inserted message...', 'status');
+
+                const { error } = await supabase
+                    .from('messages')
+                    .delete()
+                    .eq('id', lastInsertedId);
+
+                if (error) {
+                    log('delete failed: ' + error.message, 'error');
+                } else {
+                    log('message deleted successfully', 'success');
+                    lastInsertedId = null;
+                }
+
+            } catch (err) {
+                log('delete error: ' + err.message, 'error');
+            }
+        };
+
+        window.testRlsPolicies = async function() {
+            try {
+                await initSession();
+                log('testing rls policies...', 'status');
+
+                // test 1: insert with correct user_id (should work)
+                log('test 1: inserting message with correct user_id...', 'status');
+                const { data: insertData, error: insertError } = await supabase
+                    .from('messages')
+                    .insert([{
+                        user_id: currentSession.user.id,
+                        username: 'rls_test',
+                        message: 'rls policy test message'
+                    }])
+                    .select();
+
+                if (insertError) {
+                    log('test 1 failed: ' + insertError.message, 'error');
+                } else {
+                    log('test 1 passed: message inserted successfully', 'success');
+                    const testId = insertData[0].id;
+
+                    // test 2: try to insert with wrong user_id (should fail)
+                    log('test 2: trying to insert with wrong user_id...', 'status');
+                    const { error: wrongUserError } = await supabase
+                        .from('messages')
+                        .insert([{
+                            user_id: 'fake-user-id',
+                            username: 'fake_user',
+                            message: 'this should fail'
+                        }]);
+
+                    if (wrongUserError) {
+                        log('test 2 passed: insert with wrong user_id correctly failed', 'success');
+                    } else {
+                        log('test 2 failed: insert with wrong user_id should have failed', 'error');
+                    }
+
+                    // test 3: read all messages (should work)
+                    log('test 3: reading all messages...', 'status');
+                    const { data: readData, error: readError } = await supabase
+                        .from('messages')
+                        .select('*')
+                        .limit(5);
+
+                    if (readError) {
+                        log('test 3 failed: ' + readError.message, 'error');
+                    } else {
+                        log('test 3 passed: can read ' + readData.length + ' messages', 'success');
+                    }
+
+                    // cleanup test message
+                    await supabase.from('messages').delete().eq('id', testId);
+                    log('test cleanup completed', 'success');
+                }
+
+                log('rls policy testing completed', 'status');
+
+            } catch (err) {
+                log('rls test error: ' + err.message, 'error');
+            }
+        };
+
+        window.clearTestMessages = async function() {
+            try {
+                await initSession();
+                log('clearing test messages...', 'status');
+
+                const { data, error } = await supabase
+                    .from('messages')
+                    .delete()
+                    .eq('user_id', currentSession.user.id)
+                    .like('username', '%test%');
+
+                if (error) {
+                    log('failed to clear test messages: ' + error.message, 'error');
+                } else {
+                    log('test messages cleared successfully', 'success');
+                    lastInsertedId = null;
+                }
+
+            } catch (err) {
+                log('clear error: ' + err.message, 'error');
+            }
+        };
+
+        // auto-initialize on page load
+        window.addEventListener('load', async () => {
+            log('page loaded - initializing session...', 'status');
+            try {
+                await initSession();
+                log('ready to test messages table', 'success');
+                log('click "check if table exists" to start verification', 'info');
+            } catch (err) {
+                log('session initialization failed: ' + err.message, 'error');
+            }
+        });
+    </script>
+</body>
+</html>
