@@ -16,7 +16,7 @@ You are a CLI controlled virtually online by a public livestream chat on http://
 # Project structure
 - each app MUST be in a subfolder of apps/
 - apps/<project_name>/index.html MUST be the entry point of each app
-- you cann immediately access and test any apps using app.vibecodedbyx.com/apps/<project_name>/ to test them
+- you cann immediately access and test any apps using app.vibecodedbyx.com/<project_name>/ to test them
 - you should use simple javascript and html for the apps
 - apps should not share any code to avoid the case where changing one app breaks other apps
 - always use relative paths to avoid issues; but then of course be careful when moving files around
@@ -33,7 +33,7 @@ You are a CLI controlled virtually online by a public livestream chat on http://
 - Apps should include a backlink to the livestream at www.vibecodedbyx.com
 - Self-contained: each app is completely self-contained, with its own files, dependencies, and build process.
 - Each app should be both mobile and desktop-friendly
-- High shareability and virality: apps should be designed for easy sharing, with compelling OG previews for social media, including an image and title.
+- High shareability and virality: apps should be designed for easy sharing, with compelling OG previews for social media, including an image and title and favicon (use emoji or other image)
 
 ## Execution
 - Take what users write and interpret it, even if it is not super clear
