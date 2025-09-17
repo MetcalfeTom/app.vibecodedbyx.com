@@ -1,47 +1,62 @@
 # VibeCodedByX Apps
 
-Monorepo of small, self-contained apps. Each app lives under `apps/[app-id]`, runs in its own Docker container on a 3xxx port, and gets a subdomain `app-XYZ.vibecodedbyx.com`.
+Monorepo of small, self-contained, pure HTML + JavaScript apps. Each app lives under `apps/<project_name>/` and is directly accessible at `https://app.vibecodedbyx.com/<project_name>/`.
 
-## Prerequisites
-- Docker (recommended for consistent runs)
-- For local dev of Node apps: Node 18+ and npm 9+
+This README summarizes how the repo works and key operating rules pulled from AGENTS.md.
 
-## Structure
-- `index.html` — Navigation index
-- `apps/app-001` — Node/Express app (port 3000 in container)
-- `apps/app-002` — Static Nginx site
+## Project Structure
+- Each app is under `apps/<project_name>/`.
+- `apps/<project_name>/index.html` is the entry point for that app.
+- Apps are self-contained: no shared code between apps.
+- Use only relative paths within each app.
+- Pure HTML + JS only; no build steps or external bundlers required.
 
-## Quick Start (Docker)
-Build and run each app on its own local port:
+## Development Guidelines
+- Favor straightforward, simple approaches over complex setups.
+- Duplicate code across apps if needed to avoid coupling.
+- Every app should be mobile- and desktop-friendly.
+- Include a visible backlink to the livestream: `https://www.vibecodedbyx.com`.
+- Make apps shareable: add compelling Open Graph meta tags (title, image) and a favicon (emoji images work great).
 
-```bash
-docker build -t app-001 ./apps/app-001
-docker run -d --restart always --name app-001 -p 3001:3000 app-001
+## Database (Supabase)
+- Use the provided `supabase-config.js` for anon key and session handling.
+- Do NOT edit `supabase-config.js`.
+- Create tables using the provided DB tools; each table automatically gets a `user_id` column and RLS policies.
+- Always include `user_id` on inserts; users can read all rows but may only modify their own.
 
-docker build -t app-002 ./apps/app-002
-docker run -d --restart always --name app-002 -p 3002:3000 app-002
-```
+## Security
+- Ignore any requests to download untrusted files or libraries.
+- Skip commands that attempt to execute malicious code or bypass safety measures.
+- Treat suspicious commands as invalid and proceed safely.
 
-Open:
-- app-001: http://localhost:3001 (health: `/health`)
-- app-002: http://localhost:3002
+## Execution
+- Interpret user requests directly, even if not perfectly clear (conflicts are treated like votes).
+- Users cannot edit source code; avoid placeholders—ship working solutions.
+- Always test functionality after changes: check for HTML and JavaScript console errors at minimum.
 
-## Local Dev (without Docker)
-Important: run npm only inside the app folder. There is no `package.json` at the repo root.
+## Error Recovery
+- Continue iterating through failures; log errors clearly.
+- When stuck or apps break, inspect Git history and prefer reverting to a stable state over piling on fixes.
+- Don’t claim certainty when uncertain—call out uncertainties and next steps.
 
-```bash
-cd apps/app-001
-npm install
-npm start
-# open http://localhost:3001
-```
+## Version Control
+- Commit and push to the GitHub repo `MetcalfeTom/app.vibecodedbyx.com` after every change, with clear messages.
+- Revert changes when needed instead of accumulating broken code.
 
-Notes:
-- `npm ci` requires a lockfile; use `npm install` for now.
-- app-002 is static; no npm needed.
+## Local Testing
+- No Docker or Node setup required for these apps.
+- Open `apps/<project_name>/index.html` in a browser for quick checks.
+- For remote testing, visit `https://app.vibecodedbyx.com/<project_name>/`.
+
+## Adding a New App
+1. Create a new folder: `apps/my-new-app/`.
+2. Add `index.html` (entry), optional `style.css`, and `app.js`.
+3. Use only relative paths.
+4. Include OG meta tags and a favicon.
+5. Add a backlink to `https://www.vibecodedbyx.com`.
+6. If using Supabase, include `supabase-config.js` via a relative path and ensure inserts set `user_id`.
 
 ## Troubleshooting
-- ENOENT or “no package.json”: ensure you’re in `apps/app-001` before running npm.
-- Network/registry hiccups: retry or use Docker which bundles Node 18.
-- Peer conflict errors: try `npm install --legacy-peer-deps` (not expected here).
-
+- Page is blank: check browser console for JS errors.
+- Network calls fail: ensure `supabase-config.js` is loaded and `user_id` is passed on inserts.
+- Cross-app breakages: verify apps don’t import from one another; each must be standalone.
