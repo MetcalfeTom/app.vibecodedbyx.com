@@ -329,92 +329,142 @@
         
         async function loadBest() {
             if (!state.user) return null;
-            const { data, error } = await supabase
-                .from('breakout_scores')
-                .select('score')
-                .eq('user_id', state.user.id)
-                .single();
-            if (error && error.code !== 'PGRST116') console.error('Best load error:', error.message);
-            return data?.score ?? null;
+            try {
+                const { data, error } = await supabase
+                    .from('breakout_scores')
+                    .select('score')
+                    .eq('user_id', state.user.id)
+                    .single();
+
+                if (error) {
+                    if (error.code === 'PGRST116') {
+                        // No rows found, return null
+                        return null;
+                    }
+                    if (error.code === '42P01') {
+                        // Table doesn't exist
+                        console.log('Breakout scores table not found, using local storage only');
+                        return null;
+                    }
+                    console.error('Best load error:', error.message);
+                    return null;
+                }
+                return data?.score ?? null;
+            } catch (err) {
+                console.error('Database connection error:', err);
+                return null;
+            }
         }
 
         async function saveBest(score) {
             if (!state.user) return;
-            const { data: existingRows, error: readError } = await supabase
-                .from('breakout_scores')
-                .select('score')
-                .eq('user_id', state.user.id)
-                .limit(1);
 
-            if (readError && readError.code !== 'PGRST116') {
-                console.error('Score read error:', readError.message);
-                return;
-            }
-
-            const existing = existingRows?.[0];
-            const nextBest = existing?.score != null ? Math.max(existing.score, score) : score;
-
-            if (!existing) {
-                const { error: insertError } = await supabase
+            try {
+                const { data: existingRows, error: readError } = await supabase
                     .from('breakout_scores')
-                    .insert({ user_id: state.user.id, score: nextBest });
-                if (insertError) {
-                    console.error('Save insert error:', insertError.message);
-                    return;
-                }
-            } else if (nextBest > existing.score) {
-                const { error: updateError } = await supabase
-                    .from('breakout_scores')
-                    .update({ score: nextBest })
-                    .eq('user_id', state.user.id);
-                if (updateError) {
-                    console.error('Save update error:', updateError.message);
-                    return;
-                }
-            }
+                    .select('score')
+                    .eq('user_id', state.user.id)
+                    .limit(1);
 
-            state.bestMs = nextBest;
-            document.getElementById('highScore').textContent = nextBest;
-            refreshLeaders();
+                if (readError) {
+                    if (readError.code === '42P01') {
+                        console.log('Breakout scores table not found, using local storage only');
+                        return;
+                    }
+                    if (readError.code !== 'PGRST116') {
+                        console.error('Score read error:', readError.message);
+                        return;
+                    }
+                }
+
+                const existing = existingRows?.[0];
+                const nextBest = existing?.score != null ? Math.max(existing.score, score) : score;
+
+                if (!existing) {
+                    const { error: insertError } = await supabase
+                        .from('breakout_scores')
+                        .insert({ user_id: state.user.id, score: nextBest });
+                    if (insertError) {
+                        console.error('Save insert error:', insertError.message);
+                        return;
+                    }
+                } else if (nextBest > existing.score) {
+                    const { error: updateError } = await supabase
+                        .from('breakout_scores')
+                        .update({ score: nextBest })
+                        .eq('user_id', state.user.id);
+                    if (updateError) {
+                        console.error('Save update error:', updateError.message);
+                        return;
+                    }
+                }
+
+                state.bestMs = nextBest;
+                document.getElementById('highScore').textContent = nextBest;
+                refreshLeaders();
+            } catch (err) {
+                console.error('Database save error:', err);
+            }
         }
 
         async function refreshLeaders() {
-            const { data, error } = await supabase
-                .from('breakout_scores')
-                .select('score, user_id')
-                .order('score', { ascending: false })
-                .limit(10);
-            if (error) { console.error('Leaders error:', error.message); return; }
-            const rows = data || [];
-            const ids = rows.map((r) => r.user_id).filter(Boolean);
-            const nameLookup = {};
+            try {
+                const { data, error } = await supabase
+                    .from('breakout_scores')
+                    .select('score, user_id')
+                    .order('score', { ascending: false })
+                    .limit(10);
 
-            if (ids.length) {
-                const { data: profiles, error: profileError } = await supabase
-                    .from('users')
-                    .select('user_id, display_name, twitter_handle')
-                    .in('user_id', ids);
-                if (profileError) {
-                    console.error('Leader profile error:', profileError.message);
-                } else {
-                    for (const profile of profiles) {
-                        const displayName = profile.display_name?.trim();
-                        const twitter = profile.twitter_handle?.trim();
-                        const handle = twitter ? (twitter.startsWith('@') ? twitter : `@${twitter}`) : '';
-                        const label = displayName || handle;
-                        if (label) nameLookup[profile.user_id] = label;
+                if (error) {
+                    if (error.code === '42P01') {
+                        console.log('Breakout scores table not found');
+                        document.getElementById('leaders').innerHTML = '<li style="text-align: center; opacity: 0.7;">Leaderboard unavailable</li>';
+                        return;
+                    }
+                    console.error('Leaders error:', error.message);
+                    document.getElementById('leaders').innerHTML = '<li style="text-align: center; opacity: 0.7;">Error loading leaderboard</li>';
+                    return;
+                }
+
+                const rows = data || [];
+                if (rows.length === 0) {
+                    document.getElementById('leaders').innerHTML = '<li style="text-align: center; opacity: 0.7;">No scores yet</li>';
+                    return;
+                }
+
+                const ids = rows.map((r) => r.user_id).filter(Boolean);
+                const nameLookup = {};
+
+                if (ids.length) {
+                    const { data: profiles, error: profileError } = await supabase
+                        .from('users')
+                        .select('user_id, display_name, twitter_handle')
+                        .in('user_id', ids);
+                    if (profileError) {
+                        console.error('Leader profile error:', profileError.message);
+                    } else {
+                        for (const profile of profiles) {
+                            const displayName = profile.display_name?.trim();
+                            const twitter = profile.twitter_handle?.trim();
+                            const handle = twitter ? (twitter.startsWith('@') ? twitter : `@${twitter}`) : '';
+                            const label = displayName || handle;
+                            if (label) nameLookup[profile.user_id] = label;
+                        }
                     }
                 }
-            }
 
-            const leadersList = document.getElementById('leaders');
-            leadersList.innerHTML = rows
-                .map((r, i) => {
-                    const fallback = `…${String(r.user_id ?? '').slice(-6)}`;
-                    const label = nameLookup[r.user_id] || fallback;
-                    return `<li>#${i + 1} <strong>${r.score}</strong> — ${label}</li>`;
-                })
-                .join('');
+                const leadersList = document.getElementById('leaders');
+                leadersList.innerHTML = rows
+                    .map((r, i) => {
+                        const fallback = `…${String(r.user_id ?? '').slice(-6)}`;
+                        const label = nameLookup[r.user_id] || fallback;
+                        return `<li>#${i + 1} <strong>${r.score}</strong> — ${label}</li>`;
+                    })
+                    .join('');
+            } catch (err) {
+                console.error('Leaderboard error:', err);
+                document.getElementById('leaders').innerHTML = '<li style="text-align: center; opacity: 0.7;">Offline mode</li>';
+            }
         }
         
                 function resetBall() {
@@ -769,20 +819,40 @@
                             document.getElementById('signout').onclick = async ()=>{ await supabase.auth.signOut(); location.reload(); };
                             document.getElementById('signin').style.display = 'none';
 
+                            // Try to load best score from database
                             state.bestMs = await loadBest();
                             if (state.bestMs !== null) {
                                 document.getElementById('highScore').textContent = state.bestMs;
+                            } else {
+                                // Fallback to localStorage if database fails
+                                const localBest = localStorage.getItem('breakoutHighScore');
+                                if (localBest) {
+                                    document.getElementById('highScore').textContent = localBest;
+                                }
                             }
-                            refreshLeaders();
 
-                            supabase
-                              .channel('breakout_scores')
-                              .on('postgres_changes', { event: '*', schema: 'public', table: 'breakout_scores' }, refreshLeaders)
-                              .subscribe();
+                            // Try to load leaderboard
+                            await refreshLeaders();
+
+                            // Only subscribe to real-time updates if tables exist
+                            try {
+                                supabase
+                                  .channel('breakout_scores')
+                                  .on('postgres_changes', { event: '*', schema: 'public', table: 'breakout_scores' }, refreshLeaders)
+                                  .subscribe();
+                            } catch (subscribeErr) {
+                                console.log('Real-time updates not available:', subscribeErr.message);
+                            }
                         } catch (err) {
                             console.error('Auth error:', err);
-                            document.getElementById('auth').textContent = 'Auth error - playing offline';
+                            document.getElementById('auth').textContent = 'Playing offline';
                             document.getElementById('leaders').innerHTML = '<li style="text-align: center; opacity: 0.7;">Offline mode</li>';
+
+                            // Use localStorage for offline mode
+                            const localBest = localStorage.getItem('breakoutHighScore');
+                            if (localBest) {
+                                document.getElementById('highScore').textContent = localBest;
+                            }
                         }
                       }
 
