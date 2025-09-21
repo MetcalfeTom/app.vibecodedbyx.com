@@ -196,6 +196,7 @@
             }
         }
     </style>
+    <script src="supabase-config.js"></script>
 </head>
 <body>
     <div class="terminal-container">
@@ -246,7 +247,8 @@
         <button class="play-btn" onclick="startGame()">INITIALIZE</button>
     </div>
 
-    <script>
+    <script type="module">
+      import supabase, { supabaseSession } from './supabase-config.js';
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -255,394 +257,504 @@
         let score = 0;
         let level = 1;
         let lives = 3;
-        let highScore = localStorage.getItem('breakoutHighScore') || 0;
+                let highScore = localStorage.getItem('breakoutHighScore') || 0;
+        
+                let state = {
+                    session: null,
+                    user: null,
+                    bestMs: null,
+                };
+        
+                const paddle = {
+                    x: canvas.width / 2 - 50,
+                    y: canvas.height - 30,
+                    width: 100,
+                    height: 10,
+                    speed: 8
+                };
+        
+                const ball = {
+                    x: canvas.width / 2,
+                    y: canvas.height - 50,
+                    radius: 6,
+                    speedX: 0,
+                    speedY: 0,
+                    attached: true
+                };
+        
+                const brickRowCount = 8;
+                const brickColumnCount = 10;
+                const brickWidth = 50;
+                const brickHeight = 20;
+                const brickPadding = 5;
+                const brickOffsetTop = 60;
+                const brickOffsetLeft = 35;
+        
+                let bricks = [];
+                let powerUp = null;
+                let paddleExpanded = false;
+                let paddleExpandTimer = 0;
+        
+                const keys = {};
+        
+                function initBricks() {
+                    bricks = [];
+                    for (let c = 0; c < brickColumnCount; c++) {
+                        bricks[c] = [];
+                        for (let r = 0; r < brickRowCount; r++) {
+                            const hitPoints = r < 2 ? 3 : r < 4 ? 2 : 1;
+                            bricks[c][r] = {
+                                x: 0,
+                                y: 0,
+                                status: hitPoints,
+                                maxHits: hitPoints
+                            };
+                        }
+                    }
+                }
+        
+        async function loadBest() {
+            if (!state.user) return null;
+            const { data, error } = await supabase
+                .from('breakout_scores')
+                .select('score')
+                .eq('user_id', state.user.id)
+                .single();
+            if (error && error.code !== 'PGRST116') console.error('Best load error:', error.message);
+            return data?.score ?? null;
+        }
 
-        const paddle = {
-            x: canvas.width / 2 - 50,
-            y: canvas.height - 30,
-            width: 100,
-            height: 10,
-            speed: 8
-        };
+        async function saveBest(score) {
+            if (!state.user) return;
+            const { data: existingRows, error: readError } = await supabase
+                .from('breakout_scores')
+                .select('score')
+                .eq('user_id', state.user.id)
+                .limit(1);
 
-        const ball = {
-            x: canvas.width / 2,
-            y: canvas.height - 50,
-            radius: 6,
-            speedX: 0,
-            speedY: 0,
-            attached: true
-        };
+            if (readError && readError.code !== 'PGRST116') {
+                console.error('Score read error:', readError.message);
+                return;
+            }
 
-        const brickRowCount = 8;
-        const brickColumnCount = 10;
-        const brickWidth = 50;
-        const brickHeight = 20;
-        const brickPadding = 5;
-        const brickOffsetTop = 60;
-        const brickOffsetLeft = 35;
+            const existing = existingRows?.[0];
+            const nextBest = existing?.score != null ? Math.max(existing.score, score) : score;
 
-        let bricks = [];
-        let powerUp = null;
-        let paddleExpanded = false;
-        let paddleExpandTimer = 0;
-
-        const keys = {};
-
-        function initBricks() {
-            bricks = [];
-            for (let c = 0; c < brickColumnCount; c++) {
-                bricks[c] = [];
-                for (let r = 0; r < brickRowCount; r++) {
-                    const hitPoints = r < 2 ? 3 : r < 4 ? 2 : 1;
-                    bricks[c][r] = {
-                        x: 0,
-                        y: 0,
-                        status: hitPoints,
-                        maxHits: hitPoints
-                    };
+            if (!existing) {
+                const { error: insertError } = await supabase
+                    .from('breakout_scores')
+                    .insert({ user_id: state.user.id, score: nextBest });
+                if (insertError) {
+                    console.error('Save insert error:', insertError.message);
+                    return;
+                }
+            } else if (nextBest > existing.score) {
+                const { error: updateError } = await supabase
+                    .from('breakout_scores')
+                    .update({ score: nextBest })
+                    .eq('user_id', state.user.id);
+                if (updateError) {
+                    console.error('Save update error:', updateError.message);
+                    return;
                 }
             }
+
+            state.bestMs = nextBest;
+            document.getElementById('highScore').textContent = nextBest;
+            refreshLeaders();
         }
 
-        function updateHighScore() {
-            if (score > highScore) {
-                highScore = score;
-                localStorage.setItem('breakoutHighScore', highScore);
-                document.getElementById('highScore').textContent = highScore;
-            }
-        }
+        async function refreshLeaders() {
+            const { data, error } = await supabase
+                .from('breakout_scores')
+                .select('score, user_id')
+                .order('score', { ascending: false })
+                .limit(10);
+            if (error) { console.error('Leaders error:', error.message); return; }
+            const rows = data || [];
+            const ids = rows.map((r) => r.user_id).filter(Boolean);
+            const nameLookup = {};
 
-        function resetBall() {
-            ball.x = paddle.x + paddle.width / 2;
-            ball.y = paddle.y - 10;
-            ball.speedX = 0;
-            ball.speedY = 0;
-            ball.attached = true;
-        }
-
-        function launchBall() {
-            if (ball.attached) {
-                ball.speedX = (Math.random() - 0.5) * 6;
-                ball.speedY = -6;
-                ball.attached = false;
-            }
-        }
-
-        function startGame() {
-            score = 0;
-            level = 1;
-            lives = 3;
-            gameRunning = true;
-            initBricks();
-            resetBall();
-            updateDisplay();
-            document.getElementById('gameMessage').classList.remove('show');
-            document.getElementById('highScore').textContent = highScore;
-        }
-
-        function nextLevel() {
-            level++;
-            initBricks();
-            resetBall();
-            ball.speedX *= 1.1;
-            ball.speedY *= 1.1;
-            updateDisplay();
-            showMessage('LEVEL ' + level, 'FIREWALL UPGRADED', 1500);
-        }
-
-        function gameOver() {
-            gameRunning = false;
-            updateHighScore();
-            document.getElementById('messageTitle').textContent = 'SYSTEM BREACH FAILED';
-            document.getElementById('messageText').textContent = 'ACCESS DENIED';
-            document.getElementById('messageScore').textContent = 'FINAL SCORE: ' + score;
-            document.getElementById('gameMessage').classList.add('show');
-        }
-
-        function showMessage(title, text, duration) {
-            document.getElementById('messageTitle').textContent = title;
-            document.getElementById('messageText').textContent = text;
-            document.getElementById('messageScore').textContent = '';
-            document.getElementById('gameMessage').classList.add('show');
-            if (duration) {
-                setTimeout(() => {
-                    document.getElementById('gameMessage').classList.remove('show');
-                }, duration);
-            }
-        }
-
-        function updateDisplay() {
-            document.getElementById('score').textContent = score;
-            document.getElementById('level').textContent = level;
-            document.getElementById('lives').textContent = lives;
-        }
-
-        function createPowerUp(x, y) {
-            if (Math.random() < 0.1) {
-                powerUp = {
-                    x: x,
-                    y: y,
-                    width: 20,
-                    height: 20,
-                    speed: 2,
-                    type: Math.random() < 0.5 ? 'expand' : 'multiball'
-                };
-            }
-        }
-
-        function activatePowerUp(type) {
-            if (type === 'expand') {
-                paddle.width = 150;
-                paddleExpanded = true;
-                paddleExpandTimer = 600;
-                document.getElementById('powerUpDisplay').textContent = 'PADDLE EXPANDED';
-            }
-        }
-
-        function drawBricks() {
-            for (let c = 0; c < brickColumnCount; c++) {
-                for (let r = 0; r < brickRowCount; r++) {
-                    if (!bricks[c] || !bricks[c][r]) continue;
-                    if (bricks[c][r].status > 0) {
-                        const brickX = c * (brickWidth + brickPadding) + brickOffsetLeft;
-                        const brickY = r * (brickHeight + brickPadding) + brickOffsetTop;
-                        bricks[c][r].x = brickX;
-                        bricks[c][r].y = brickY;
-
-                        const opacity = bricks[c][r].status / bricks[c][r].maxHits;
-                        ctx.fillStyle = `rgba(0, 255, 0, ${opacity})`;
-                        ctx.fillRect(brickX, brickY, brickWidth, brickHeight);
-
-                        ctx.strokeStyle = '#00ff00';
-                        ctx.strokeRect(brickX, brickY, brickWidth, brickHeight);
-
-                        ctx.font = '10px Share Tech Mono';
-                        ctx.fillStyle = '#000';
-                        ctx.fillText(bricks[c][r].status, brickX + brickWidth/2 - 3, brickY + brickHeight/2 + 3);
+            if (ids.length) {
+                const { data: profiles, error: profileError } = await supabase
+                    .from('users')
+                    .select('user_id, display_name, twitter_handle')
+                    .in('user_id', ids);
+                if (profileError) {
+                    console.error('Leader profile error:', profileError.message);
+                } else {
+                    for (const profile of profiles) {
+                        const displayName = profile.display_name?.trim();
+                        const twitter = profile.twitter_handle?.trim();
+                        const handle = twitter ? (twitter.startsWith('@') ? twitter : `@${twitter}`) : '';
+                        const label = displayName || handle;
+                        if (label) nameLookup[profile.user_id] = label;
                     }
                 }
             }
+
+            const leadersList = document.getElementById('leaders');
+            leadersList.innerHTML = rows
+                .map((r, i) => {
+                    const fallback = `…${String(r.user_id ?? '').slice(-6)}`;
+                    const label = nameLookup[r.user_id] || fallback;
+                    return `<li>#${i + 1} <strong>${r.score}</strong> — ${label}</li>`;
+                })
+                .join('');
         }
-
-        function drawPaddle() {
-            ctx.fillStyle = '#00ff00';
-            ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
-            ctx.strokeStyle = '#00cc00';
-            ctx.strokeRect(paddle.x, paddle.y, paddle.width, paddle.height);
-        }
-
-        function drawBall() {
-            ctx.fillStyle = '#00ff00';
-            ctx.beginPath();
-            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#00ff00';
-            ctx.stroke();
-        }
-
-        function drawPowerUp() {
-            if (powerUp) {
-                ctx.fillStyle = '#ffff00';
-                ctx.fillRect(powerUp.x, powerUp.y, powerUp.width, powerUp.height);
-                ctx.strokeStyle = '#ffff00';
-                ctx.strokeRect(powerUp.x, powerUp.y, powerUp.width, powerUp.height);
-
-                ctx.font = '12px Share Tech Mono';
-                ctx.fillStyle = '#000';
-                ctx.fillText('P', powerUp.x + 6, powerUp.y + 14);
-            }
-        }
-
-        function collisionDetection() {
-            for (let c = 0; c < brickColumnCount; c++) {
-                for (let r = 0; r < brickRowCount; r++) {
-                    const b = bricks[c][r];
-                    if (b.status > 0) {
-                        if (ball.x + ball.radius > b.x &&
-                            ball.x - ball.radius < b.x + brickWidth &&
-                            ball.y + ball.radius > b.y &&
-                            ball.y - ball.radius < b.y + brickHeight) {
-
-                            ball.speedY = -ball.speedY;
-                            b.status--;
-
-                            if (b.status === 0) {
-                                score += (b.maxHits * 10);
-                                createPowerUp(b.x + brickWidth/2, b.y + brickHeight/2);
-                            } else {
-                                score += 5;
-                            }
-
-                            updateDisplay();
-
-                            const remainingBricks = bricks.flat().filter(brick => brick.status > 0).length;
-                            if (remainingBricks === 0) {
-                                nextLevel();
+        
+                function resetBall() {
+                    ball.x = paddle.x + paddle.width / 2;
+                    ball.y = paddle.y - 10;
+                    ball.speedX = 0;
+                    ball.speedY = 0;
+                    ball.attached = true;
+                }
+        
+                function launchBall() {
+                    if (ball.attached) {
+                        ball.speedX = (Math.random() - 0.5) * 6;
+                        ball.speedY = -6;
+                        ball.attached = false;
+                    }
+                }
+        
+                function startGame() {
+                    score = 0;
+                    level = 1;
+                    lives = 3;
+                    gameRunning = true;
+                    initBricks();
+                    resetBall();
+                    updateDisplay();
+                    document.getElementById('gameMessage').classList.remove('show');
+                    document.getElementById('highScore').textContent = highScore;
+                }
+        
+                function nextLevel() {
+                    level++;
+                    initBricks();
+                    resetBall();
+                    ball.speedX *= 1.1;
+                    ball.speedY *= 1.1;
+                    updateDisplay();
+                    showMessage('LEVEL ' + level, 'FIREWALL UPGRADED', 1500);
+                }
+        
+                        function gameOver() {
+                            gameRunning = false;
+                            updateHighScore(); // This will now save to Supabase and refresh leaders
+                            document.getElementById('messageTitle').textContent = 'SYSTEM BREACH FAILED';
+                            document.getElementById('messageText').textContent = 'ACCESS DENIED';
+                            document.getElementById('messageScore').textContent = 'FINAL SCORE: ' + score;
+                            document.getElementById('gameMessage').classList.add('show');
+                        }        
+                function showMessage(title, text, duration) {
+                    document.getElementById('messageTitle').textContent = title;
+                    document.getElementById('messageText').textContent = text;
+                    document.getElementById('messageScore').textContent = '';
+                    document.getElementById('gameMessage').classList.add('show');
+                    if (duration) {
+                        setTimeout(() => {
+                            document.getElementById('gameMessage').classList.remove('show');
+                        }, duration);
+                    }
+                }
+        
+                function updateDisplay() {
+                    document.getElementById('score').textContent = score;
+                    document.getElementById('level').textContent = level;
+                    document.getElementById('lives').textContent = lives;
+                }
+        
+                function createPowerUp(x, y) {
+                    if (Math.random() < 0.1) {
+                        powerUp = {
+                            x: x,
+                            y: y,
+                            width: 20,
+                            height: 20,
+                            speed: 2,
+                            type: Math.random() < 0.5 ? 'expand' : 'multiball'
+                        };
+                    }
+                }
+        
+                function activatePowerUp(type) {
+                    if (type === 'expand') {
+                        paddle.width = 150;
+                        paddleExpanded = true;
+                        paddleExpandTimer = 600;
+                        document.getElementById('powerUpDisplay').textContent = 'PADDLE EXPANDED';
+                    }
+                }
+        
+                function drawBricks() {
+                    for (let c = 0; c < brickColumnCount; c++) {
+                        for (let r = 0; r < brickRowCount; r++) {
+                            if (!bricks[c] || !bricks[c][r]) continue;
+                            if (bricks[c][r].status > 0) {
+                                const brickX = c * (brickWidth + brickPadding) + brickOffsetLeft;
+                                const brickY = r * (brickHeight + brickPadding) + brickOffsetTop;
+                                bricks[c][r].x = brickX;
+                                bricks[c][r].y = brickY;
+        
+                                const opacity = bricks[c][r].status / bricks[c][r].maxHits;
+                                ctx.fillStyle = `rgba(0, 255, 0, ${opacity})`;
+                                ctx.fillRect(brickX, brickY, brickWidth, brickHeight);
+        
+                                ctx.strokeStyle = '#00ff00';
+                                ctx.strokeRect(brickX, brickY, brickWidth, brickHeight);
+        
+                                ctx.font = '10px Share Tech Mono';
+                                ctx.fillStyle = '#000';
+                                ctx.fillText(bricks[c][r].status, brickX + brickWidth/2 - 3, brickY + brickHeight/2 + 3);
                             }
                         }
                     }
                 }
-            }
-        }
-
-        function update() {
-            if (!gameRunning || paused) return;
-
-            if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
-                paddle.x = Math.max(0, paddle.x - paddle.speed);
-            }
-            if (keys['ArrowRight'] || keys['d'] || keys['D']) {
-                paddle.x = Math.min(canvas.width - paddle.width, paddle.x + paddle.speed);
-            }
-
-            if (ball.attached) {
-                ball.x = paddle.x + paddle.width / 2;
-                ball.y = paddle.y - 10;
-            } else {
-                ball.x += ball.speedX;
-                ball.y += ball.speedY;
-
-                if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) {
-                    ball.speedX = -ball.speedX;
+        
+                function drawPaddle() {
+                    ctx.fillStyle = '#00ff00';
+                    ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+                    ctx.strokeStyle = '#00cc00';
+                    ctx.strokeRect(paddle.x, paddle.y, paddle.width, paddle.height);
                 }
-                if (ball.y - ball.radius < 0) {
-                    ball.speedY = -ball.speedY;
+        
+                function drawBall() {
+                    ctx.fillStyle = '#00ff00';
+                    ctx.beginPath();
+                    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.stroke();
                 }
-
-                if (ball.x > paddle.x &&
-                    ball.x < paddle.x + paddle.width &&
-                    ball.y + ball.radius > paddle.y &&
-                    ball.y - ball.radius < paddle.y + paddle.height) {
-
-                    ball.speedY = -Math.abs(ball.speedY);
-                    const hitPos = (ball.x - paddle.x) / paddle.width;
-                    ball.speedX = 8 * (hitPos - 0.5);
-                }
-
-                if (ball.y > canvas.height) {
-                    lives--;
-                    updateDisplay();
-                    if (lives === 0) {
-                        gameOver();
-                    } else {
-                        resetBall();
+        
+                function drawPowerUp() {
+                    if (powerUp) {
+                        ctx.fillStyle = '#ffff00';
+                        ctx.fillRect(powerUp.x, powerUp.y, powerUp.width, powerUp.height);
+                        ctx.strokeStyle = '#ffff00';
+                        ctx.strokeRect(powerUp.x, powerUp.y, powerUp.width, powerUp.height);
+        
+                        ctx.font = '12px Share Tech Mono';
+                        ctx.fillStyle = '#000';
+                        ctx.fillText('P', powerUp.x + 6, powerUp.y + 14);
                     }
                 }
-
-                collisionDetection();
-            }
-
-            if (powerUp) {
-                powerUp.y += powerUp.speed;
-
-                if (powerUp.x < paddle.x + paddle.width &&
-                    powerUp.x + powerUp.width > paddle.x &&
-                    powerUp.y < paddle.y + paddle.height &&
-                    powerUp.y + powerUp.height > paddle.y) {
-
-                    activatePowerUp(powerUp.type);
-                    powerUp = null;
+        
+                function collisionDetection() {
+                    for (let c = 0; c < brickColumnCount; c++) {
+                        for (let r = 0; r < brickRowCount; r++) {
+                            const b = bricks[c][r];
+                            if (b.status > 0) {
+                                if (ball.x + ball.radius > b.x &&
+                                    ball.x - ball.radius < b.x + brickWidth &&
+                                    ball.y + ball.radius > b.y &&
+                                    ball.y - ball.radius < b.y + brickHeight) {
+        
+                                    ball.speedY = -ball.speedY;
+                                    b.status--;
+        
+                                    if (b.status === 0) {
+                                        score += (b.maxHits * 10);
+                                        createPowerUp(b.x + brickWidth/2, b.y + brickHeight/2);
+                                    } else {
+                                        score += 5;
+                                    }
+        
+                                    updateDisplay();
+        
+                                    const remainingBricks = bricks.flat().filter(brick => brick.status > 0).length;
+                                    if (remainingBricks === 0) {
+                                        nextLevel();
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-
-                if (powerUp && powerUp.y > canvas.height) {
-                    powerUp = null;
+        
+                function update() {
+                    if (!gameRunning || paused) return;
+        
+                    if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
+                        paddle.x = Math.max(0, paddle.x - paddle.speed);
+                    }
+                    if (keys['ArrowRight'] || keys['d'] || keys['D']) {
+                        paddle.x = Math.min(canvas.width - paddle.width, paddle.x + paddle.speed);
+                    }
+        
+                    if (ball.attached) {
+                        ball.x = paddle.x + paddle.width / 2;
+                        ball.y = paddle.y - 10;
+                    } else {
+                        ball.x += ball.speedX;
+                        ball.y += ball.speedY;
+        
+                        if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) {
+                            ball.speedX = -ball.speedX;
+                        }
+                        if (ball.y - ball.radius < 0) {
+                            ball.speedY = -ball.speedY;
+                        }
+        
+                        if (ball.x > paddle.x &&
+                            ball.x < paddle.x + paddle.width &&
+                            ball.y + ball.radius > paddle.y &&
+                            ball.y - ball.radius < paddle.y + paddle.height) {
+        
+                            ball.speedY = -Math.abs(ball.speedY);
+                            const hitPos = (ball.x - paddle.x) / paddle.width;
+                            ball.speedX = 8 * (hitPos - 0.5);
+                        }
+        
+                        if (ball.y > canvas.height) {
+                            lives--;
+                            updateDisplay();
+                            if (lives === 0) {
+                                gameOver();
+                            } else {
+                                resetBall();
+                            }
+                        }
+        
+                        collisionDetection();
+                    }
+        
+                    if (powerUp) {
+                        powerUp.y += powerUp.speed;
+        
+                        if (powerUp.x < paddle.x + paddle.width &&
+                            powerUp.x + powerUp.width > paddle.x &&
+                            powerUp.y < paddle.y + paddle.height &&
+                            powerUp.y + powerUp.height > paddle.y) {
+        
+                            activatePowerUp(powerUp.type);
+                            powerUp = null;
+                        }
+        
+                        if (powerUp && powerUp.y > canvas.height) {
+                            powerUp = null;
+                        }
+                    }
+        
+                    if (paddleExpanded) {
+                        paddleExpandTimer--;
+                        if (paddleExpandTimer <= 0) {
+                            paddle.width = 100;
+                            paddleExpanded = false;
+                            document.getElementById('powerUpDisplay').textContent = '';
+                        }
+                    }
                 }
-            }
-
-            if (paddleExpanded) {
-                paddleExpandTimer--;
-                if (paddleExpandTimer <= 0) {
-                    paddle.width = 100;
-                    paddleExpanded = false;
-                    document.getElementById('powerUpDisplay').textContent = '';
+        
+                function draw() {
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+                    drawBricks();
+                    drawPaddle();
+                    drawBall();
+                    drawPowerUp();
+        
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(0, 0, canvas.width, canvas.height);
                 }
-            }
-        }
-
-        function draw() {
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            drawBricks();
-            drawPaddle();
-            drawBall();
-            drawPowerUp();
-
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(0, 0, canvas.width, canvas.height);
-        }
-
-        function gameLoop() {
-            update();
-            draw();
-            requestAnimationFrame(gameLoop);
-        }
-
-        document.addEventListener('keydown', (e) => {
-            keys[e.key] = true;
-
-            if (e.key === ' ') {
-                if (!gameRunning) {
-                    startGame();
-                } else {
-                    launchBall();
+        
+                function gameLoop() {
+                    update();
+                    draw();
+                    requestAnimationFrame(gameLoop);
                 }
-            }
-
-            if (e.key === 'p' || e.key === 'P') {
-                if (gameRunning) {
-                    paused = !paused;
-                }
-            }
-        });
-
-        document.addEventListener('keyup', (e) => {
-            keys[e.key] = false;
-        });
-
-        let touchX = null;
-
-        canvas.addEventListener('touchstart', (e) => {
-            touchX = e.touches[0].clientX;
-            if (ball.attached) {
-                launchBall();
-            }
-        });
-
-        canvas.addEventListener('touchmove', (e) => {
-            if (touchX !== null) {
-                const deltaX = e.touches[0].clientX - touchX;
-                paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x + deltaX));
-                touchX = e.touches[0].clientX;
-            }
-        });
-
-        canvas.addEventListener('touchend', () => {
-            touchX = null;
-        });
-
-        canvas.addEventListener('mousemove', (e) => {
-            if (gameRunning && !paused) {
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, mouseX - paddle.width / 2));
-            }
-        });
-
-        canvas.addEventListener('click', () => {
-            if (gameRunning && ball.attached) {
-                launchBall();
-            }
-        });
-
-        document.getElementById('gameMessage').classList.add('show');
-        // Ensure bricks exist before the first draw to avoid undefined access
-        initBricks();
-        resetBall();
-        updateDisplay();
-        gameLoop();
-    </script>
-</body>
-</html>
+        
+                      async function init() {
+                        window.addEventListener('resize', () => {
+                          // placeHolds(); // This function is not defined in this context
+                          // updateLimbPositions(); // This function is not defined in this context
+                        });
+                        document.addEventListener('keydown', (e) => {
+                            keys[e.key] = true;
+                
+                            if (e.key === ' ') {
+                                if (!gameRunning) {
+                                    startGame();
+                                } else {
+                                    launchBall();
+                                }
+                            }
+                
+                            if (e.key === 'p' || e.key === 'P') {
+                                if (gameRunning) {
+                                    paused = !paused;
+                                }
+                            }
+                        });
+                
+                        document.addEventListener('keyup', (e) => {
+                            keys[e.key] = false;
+                        });
+                
+                        let touchX = null;
+                
+                        canvas.addEventListener('touchstart', (e) => {
+                            touchX = e.touches[0].clientX;
+                            if (ball.attached) {
+                                launchBall();
+                            }
+                        });
+                
+                        canvas.addEventListener('touchmove', (e) => {
+                            if (touchX !== null) {
+                                const deltaX = e.touches[0].clientX - touchX;
+                                paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x + deltaX));
+                                touchX = e.touches[0].clientX;
+                            }
+                        });
+                
+                        canvas.addEventListener('touchend', () => {
+                            touchX = null;
+                        });
+                
+                        canvas.addEventListener('mousemove', (e) => {
+                            if (gameRunning && !paused) {
+                                const rect = canvas.getBoundingClientRect();
+                                const mouseX = e.clientX - rect.left;
+                                paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, mouseX - paddle.width / 2));
+                            }
+                        });
+                
+                        canvas.addEventListener('click', () => {
+                            if (gameRunning && ball.attached) {
+                                launchBall();
+                            }
+                        });
+                
+                        document.getElementById('gameMessage').classList.add('show');
+                        // Ensure bricks exist before the first draw to avoid undefined access
+                        initBricks();
+                        resetBall();
+                        updateDisplay();
+                        gameLoop();
+                
+                        const { session, user } = await supabaseSession();
+                        state.session = session; state.user = user;
+                        document.getElementById('auth').textContent = `Signed in: …${String(user.id).slice(-6)}`;
+                        document.getElementById('signout').style.display = 'inline-block';
+                        document.getElementById('signout').onclick = async ()=>{ await supabase.auth.signOut(); location.reload(); };
+                        document.getElementById('signin').style.display = 'none';
+                
+                        state.bestMs = await loadBest();
+                        document.getElementById('highScore').textContent = state.bestMs == null ? '—' : state.bestMs;
+                        refreshLeaders();
+                
+                        supabase
+                          .channel('breakout_scores')
+                          .on('postgres_changes', { event: '*', schema: 'public', table: 'breakout_scores' }, refreshLeaders)
+                          .subscribe();
+                      }
+                
+                      init().catch(err => { console.error(err); document.getElementById('auth').textContent = 'Auth error'; });
+                    </script>          </body>
+        </html>
