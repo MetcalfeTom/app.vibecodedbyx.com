@@ -24,9 +24,6 @@ const supabase = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     path: '/',
     sameSite: 'lax',
   },
-  global: {
-    headers: { Accept: 'application/json' },
-  },
 });
 
 export default supabase;
@@ -72,7 +69,7 @@ export async function isUserPremium() {
       .from("users")
       .select("purchased_at")
       .eq("user_id", user.id)
-      .limit(1);
+      .single();
 
     if (error) {
       if (error.code !== "PGRST116") {
@@ -81,8 +78,7 @@ export async function isUserPremium() {
       return false;
     }
 
-    const row = Array.isArray(data) ? data[0] : null;
-    return !!row?.purchased_at;
+    return !!data?.purchased_at;
 
   } catch (error) {
     console.error("Failed to check premium status:", error.message);
@@ -90,20 +86,16 @@ export async function isUserPremium() {
   }
 }
 
-// --- Example Usage ---
-// You can use this function to conditionally show or hide features.
-
+// --- Example Usage (kept for compatibility with other apps) ---
 async function displayContentBasedOnPremiumStatus() {
   const isPremium = await isUserPremium();
-
   if (isPremium) {
-    document.getElementById("premium-content").style.display = "block";
-    document.getElementById("upgrade-button").style.display = "none";
+    const pc = document.getElementById('premium-content'); if (pc) pc.style.display = 'block';
+    const up = document.getElementById('upgrade-button'); if (up) up.style.display = 'none';
   } else {
-    document.getElementById("premium-content").style.display = "none";
-    document.getElementById("upgrade-button").style.display = "block";
+    const pc = document.getElementById('premium-content'); if (pc) pc.style.display = 'none';
+    const up = document.getElementById('upgrade-button'); if (up) up.style.display = 'block';
   }
 }
-
-// Call the function when your app loads
 displayContentBasedOnPremiumStatus();
+
