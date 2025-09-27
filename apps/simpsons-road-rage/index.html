@@ -424,6 +424,8 @@
 
       const dustGroup = new THREE.Group();
       world.add(dustGroup);
+      const skidGroup = new THREE.Group();
+      world.add(skidGroup);
 
       const clock = new THREE.Clock();
       let elapsed = 0;
@@ -458,6 +460,7 @@
         timeBonus: 0,
         playing: true,
         gameOverShown: false,
+        skidTimer: 0,
       };
 
       function buildCar() {
@@ -598,6 +601,30 @@
         }, 128, 128);
 
         textures.bus = new THREE.MeshStandardMaterial({ color: 0xfcbf49, roughness: 0.5 });
+
+        // Skid texture (dark twin stripes with soft edges)
+        {
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 64;
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          for (let i = 0; i < 2; i++) {
+            const y = 20 + i * 20;
+            const grad = ctx.createLinearGradient(0, y - 10, 0, y + 10);
+            grad.addColorStop(0, 'rgba(20,20,20,0)');
+            grad.addColorStop(0.2, 'rgba(20,20,20,0.5)');
+            grad.addColorStop(0.5, 'rgba(20,20,20,0.9)');
+            grad.addColorStop(0.8, 'rgba(20,20,20,0.5)');
+            grad.addColorStop(1, 'rgba(20,20,20,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(8, y - 10, canvas.width - 16, 20);
+          }
+          const tex = new THREE.CanvasTexture(canvas);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = 8;
+          textures.skidMap = tex;
+        }
 
         return textures;
       }
@@ -821,6 +848,17 @@
         car.mesh.position.add(movement);
         car.mesh.rotation.y = car.heading;
 
+        // Visual skid marks when drifting (brake + turn + slip)
+        state.skidTimer -= delta;
+        if (brakingActive && turningActive && car.velocity.length() > 1) {
+          const velDir = car.velocity.clone().normalize();
+          const slip = 1 - Math.max(-1, Math.min(1, velDir.dot(forward.clone().normalize())));
+          if (slip > 0.12 && state.skidTimer <= 0) {
+            spawnSkidMarks(car.mesh.position, forward, right, car.heading, Math.min(1, slip * 2));
+            state.skidTimer = 0.045; // throttle spawning
+          }
+        }
+
         car.mesh.position.x = THREE.MathUtils.clamp(car.mesh.position.x, -190, 190);
         car.mesh.position.z = THREE.MathUtils.clamp(car.mesh.position.z, -190, 190);
 
@@ -896,6 +934,56 @@
         }
       }
 
+      function spawnSkidMarks(carPos, forward, right, heading, strength = 1) {
+        const base = carPos.clone().add(forward.clone().multiplyScalar(-1.7));
+        const offsets = [-0.9, 0.9];
+        offsets.forEach((off) => {
+          const pos = base.clone().add(right.clone().multiplyScalar(off));
+          const geo = new THREE.PlaneGeometry(1.2 + strength * 0.8, 0.28);
+          const mat = new THREE.MeshBasicMaterial({
+            map: textures.skidMap,
+            transparent: true,
+            opacity: Math.min(0.9, 0.4 + strength * 0.5),
+            depthWrite: false,
+          });
+          mat.polygonOffset = true;
+          mat.polygonOffsetFactor = -1;
+          const skid = new THREE.Mesh(geo, mat);
+          skid.position.set(pos.x, 0.06, pos.z);
+          skid.rotation.x = -Math.PI / 2; // lay flat
+          skid.rotation.y = heading; // align with car
+          skid.userData = { life: 0.9 };
+          skidGroup.add(skid);
+        });
+
+        // Cap total skid marks to avoid perf issues
+        const MAX_SKIDS = 220;
+        while (skidGroup.children.length > MAX_SKIDS) {
+          const old = skidGroup.children.shift();
+          if (old) {
+            old.geometry.dispose();
+            old.material.map?.dispose?.();
+            old.material.dispose();
+          }
+        }
+      }
+
+      function updateSkids(delta) {
+        for (let i = skidGroup.children.length - 1; i >= 0; i--) {
+          const skid = skidGroup.children[i];
+          skid.userData.life -= delta;
+          const life = skid.userData.life;
+          const mat = skid.material;
+          mat.opacity = Math.max(0, Math.min(1, life / 0.9));
+          if (life <= 0) {
+            skidGroup.remove(skid);
+            skid.geometry.dispose();
+            mat.map?.dispose?.();
+            mat.dispose();
+          }
+        }
+      }
+
       function resetIfOutOfBounds() {
         if (Math.abs(car.mesh.position.x) > 198 || Math.abs(car.mesh.position.z) > 198) {
           resetCar();
@@ -924,6 +1012,7 @@
           updateTraffic(delta);
           checkCollisions(delta);
           updateDust(delta);
+          updateSkids(delta);
           resetIfOutOfBounds();
         }
 
