@@ -19,7 +19,7 @@ class Minesweeper {
 
     init() {
         this.container.innerHTML = `
-            <div style="background: #c0c0c0; padding: 8px; height: 100%; font-family: 'MS Sans Serif', sans-serif;">
+            <div style="background: #c0c0c0; padding: 8px; height: 100%; width: 100%; font-family: 'MS Sans Serif', sans-serif; display: flex; flex-direction: column;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 4px; border: 2px inset #c0c0c0;">
                     <div style="background: #000; color: #ff0000; font-weight: bold; font-family: 'Courier New', monospace; padding: 2px 4px; border: 1px inset #c0c0c0;">
                         <span id="mine-count">${this.mines.toString().padStart(3, '0')}</span>
@@ -31,7 +31,8 @@ class Minesweeper {
                         <span id="timer">000</span>
                     </div>
                 </div>
-                <div id="minefield" style="border: 3px inset #c0c0c0; display: inline-block; background: #c0c0c0;">
+                <div id="minefield-wrap" style="flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                    <div id="minefield" style="border: 3px inset #c0c0c0; background: #c0c0c0;"></div>
                 </div>
             </div>
         `;
@@ -39,6 +40,9 @@ class Minesweeper {
         this.createBoard();
         this.renderBoard();
         this.startTimer();
+
+        // Re-render on window resize to keep it filling the window
+        window.addEventListener('resize', () => this.renderBoard());
     }
 
     createBoard() {
@@ -102,39 +106,53 @@ class Minesweeper {
 
     renderBoard() {
         const minefield = document.getElementById('minefield');
+        const wrap = document.getElementById('minefield-wrap');
+        if (!minefield || !wrap) return;
         minefield.innerHTML = '';
         minefield.style.display = 'grid';
-        minefield.style.gridTemplateColumns = `repeat(${this.width}, 16px)`;
-        minefield.style.gridTemplateRows = `repeat(${this.height}, 16px)`;
         minefield.style.gap = '0';
+
+        // Compute largest square cell size that fits the available area
+        const availableWidth = wrap.clientWidth - 8; // padding allowance
+        const availableHeight = wrap.clientHeight - 8;
+        const cellSize = Math.max(12, Math.floor(Math.min(availableWidth / this.width, availableHeight / this.height)));
+        const gridWidth = cellSize * this.width;
+        const gridHeight = cellSize * this.height;
+
+        minefield.style.width = gridWidth + 'px';
+        minefield.style.height = gridHeight + 'px';
+        minefield.style.gridTemplateColumns = `repeat(${this.width}, ${cellSize}px)`;
+        minefield.style.gridTemplateRows = `repeat(${this.height}, ${cellSize}px)`;
 
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
                 const cell = document.createElement('div');
                 cell.style.cssText = `
-                    width: 16px;
-                    height: 16px;
-                    border: 1px outset #c0c0c0;
+                    width: ${cellSize}px;
+                    height: ${cellSize}px;
+                    border: 2px outset #efefef;
+                    background: #e6e6e6; /* covered state */
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    font-size: 10px;
+                    font-size: ${Math.max(10, Math.floor(cellSize * 0.6))}px;
                     font-weight: bold;
                     cursor: pointer;
                     user-select: none;
                     font-family: 'MS Sans Serif', sans-serif;
+                    color: #000;
                 `;
 
                 cell.addEventListener('click', (e) => this.handleClick(x, y, e));
                 cell.addEventListener('contextmenu', (e) => this.handleRightClick(x, y, e));
 
                 if (this.revealed[y][x]) {
-                    cell.style.border = '1px inset #c0c0c0';
-                    cell.style.background = '#c0c0c0';
+                    cell.style.border = '2px inset #9c9c9c';
+                    cell.style.background = '#d4d0c8'; /* revealed state */
 
                     if (this.board[y][x] === -1) {
                         cell.textContent = '💣';
-                        cell.style.background = this.gameOver ? '#ff0000' : '#c0c0c0';
+                        cell.style.background = this.gameOver ? '#ffcccc' : '#d4d0c8';
                     } else if (this.board[y][x] > 0) {
                         cell.textContent = this.board[y][x];
                         const colors = ['', '#0000ff', '#008000', '#ff0000', '#000080', '#800000', '#008080', '#000000', '#808080'];
@@ -142,6 +160,7 @@ class Minesweeper {
                     }
                 } else if (this.flagged[y][x]) {
                     cell.textContent = '🚩';
+                    cell.style.background = '#fff2cc';
                 }
 
                 minefield.appendChild(cell);
