@@ -20,16 +20,10 @@ class Minesweeper {
     init() {
         this.container.innerHTML = `
             <div style="background: #c0c0c0; padding: 8px; height: 100%; width: 100%; font-family: 'MS Sans Serif', sans-serif; display: flex; flex-direction: column;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 4px; border: 2px inset #c0c0c0;">
-                    <div style="background: #000; color: #ff0000; font-weight: bold; font-family: 'Courier New', monospace; padding: 2px 4px; border: 1px inset #c0c0c0;">
-                        <span id="mine-count">${this.mines.toString().padStart(3, '0')}</span>
-                    </div>
-                    <button id="smiley-btn" style="width: 24px; height: 24px; font-size: 14px; border: 2px outset #c0c0c0; background: #c0c0c0; cursor: pointer;" onclick="minesweeper.resetGame()">
-                        🙂
-                    </button>
-                    <div style="background: #000; color: #ff0000; font-weight: bold; font-family: 'Courier New', monospace; padding: 2px 4px; border: 1px inset #c0c0c0;">
-                        <span id="timer">000</span>
-                    </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 6px; border: 2px inset #c0c0c0;">
+                    <div id="mine-display" style="display:flex; align-items:center; gap:2px; padding: 2px 4px; background: #000; border: 1px inset #c0c0c0;"></div>
+                    <button id="smiley-btn" style="width: 32px; height: 32px; font-size: 20px; border: 2px outset #c0c0c0; background: #c0c0c0; cursor: pointer; line-height: 1; display:flex; align-items:center; justify-content:center;" onclick="minesweeper.resetGame()">🙂</button>
+                    <div id="timer-display" style="display:flex; align-items:center; gap:2px; padding: 2px 4px; background: #000; border: 1px inset #c0c0c0;"></div>
                 </div>
                 <div id="minefield-wrap" style="flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden;">
                     <div id="minefield" style="border: 3px inset #c0c0c0; background: #c0c0c0;"></div>
@@ -39,6 +33,7 @@ class Minesweeper {
 
         this.createBoard();
         this.renderBoard();
+        this.setupDisplays();
         this.startTimer();
 
         // Re-render on window resize to keep it filling the window
@@ -168,6 +163,81 @@ class Minesweeper {
         }
     }
 
+    setupDisplays() {
+        // Build 3-digit seven-seg displays for mines and timer
+        this.mineDigits = this.createSevenSeg('mine-display', 3);
+        this.timerDigits = this.createSevenSeg('timer-display', 3);
+        this.updateMineDisplay();
+        this.updateTimerDisplay(0);
+    }
+
+    createSevenSeg(containerId, digits) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '';
+        const list = [];
+        for (let i = 0; i < digits; i++) {
+            const d = document.createElement('div');
+            d.style.cssText = 'position:relative;width:22px;height:36px;margin:0 1px;';
+            const mk = (name, css) => {
+                const s = document.createElement('div');
+                s.dataset.seg = name;
+                s.style.cssText = css + ';background:#2a0000;';
+                d.appendChild(s);
+                return s;
+            };
+            // Horizontal segments (a,g,d)
+            mk('a', 'position:absolute;left:4px;top:2px;width:14px;height:3px');
+            mk('g', 'position:absolute;left:4px;top:16px;width:14px;height:3px');
+            mk('d', 'position:absolute;left:4px;bottom:2px;width:14px;height:3px');
+            // Vertical segments (b,c,f,e)
+            mk('b', 'position:absolute;right:2px;top:5px;width:3px;height:12px');
+            mk('c', 'position:absolute;right:2px;bottom:5px;width:3px;height:12px');
+            mk('f', 'position:absolute;left:2px;top:5px;width:3px;height:12px');
+            mk('e', 'position:absolute;left:2px;bottom:5px;width:3px;height:12px');
+
+            container.appendChild(d);
+            list.push(d);
+        }
+        return list;
+    }
+
+    setDigit(el, n) {
+        const onColor = '#ff2a2a';
+        const offColor = '#2a0000';
+        const map = {
+            0: ['a','b','c','d','e','f'],
+            1: ['b','c'],
+            2: ['a','b','g','e','d'],
+            3: ['a','b','g','c','d'],
+            4: ['f','g','b','c'],
+            5: ['a','f','g','c','d'],
+            6: ['a','f','g','e','c','d'],
+            7: ['a','b','c'],
+            8: ['a','b','c','d','e','f','g'],
+            9: ['a','b','c','d','f','g']
+        };
+        const active = new Set(map[n] || []);
+        el.querySelectorAll('[data-seg]').forEach(seg => {
+            seg.style.background = active.has(seg.dataset.seg) ? onColor : offColor;
+        });
+    }
+
+    renderDigits(digits, value) {
+        const s = String(Math.max(0, Math.min(999, value))).padStart(digits.length, '0');
+        for (let i = 0; i < digits.length; i++) {
+            const n = Number(s[i]);
+            this.setDigit(digits[i], n);
+        }
+    }
+
+    updateMineDisplay() {
+        this.renderDigits(this.mineDigits, this.mineCount);
+    }
+
+    updateTimerDisplay(seconds) {
+        this.renderDigits(this.timerDigits, seconds);
+    }
+
     handleClick(x, y, e) {
         e.preventDefault();
         if (this.gameOver || this.gameWon || this.flagged[y][x]) return;
@@ -189,7 +259,7 @@ class Minesweeper {
 
         this.flagged[y][x] = !this.flagged[y][x];
         this.mineCount += this.flagged[y][x] ? -1 : 1;
-        document.getElementById('mine-count').textContent = this.mineCount.toString().padStart(3, '0');
+        this.updateMineDisplay();
         this.renderBoard();
     }
 
@@ -245,7 +315,8 @@ class Minesweeper {
                     }
                 }
             }
-            document.getElementById('mine-count').textContent = '000';
+            this.mineCount = 0;
+            this.updateMineDisplay();
         }
     }
 
@@ -269,7 +340,7 @@ class Minesweeper {
             }
 
             const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-            document.getElementById('timer').textContent = Math.min(elapsed, 999).toString().padStart(3, '0');
+            this.updateTimerDisplay(Math.min(elapsed, 999));
         }, 1000);
     }
 
@@ -282,8 +353,8 @@ class Minesweeper {
         this.createBoard();
         this.renderBoard();
         this.startTimer();
-        document.getElementById('mine-count').textContent = this.mines.toString().padStart(3, '0');
-        document.getElementById('timer').textContent = '000';
+        this.updateMineDisplay();
+        this.updateTimerDisplay(0);
         this.updateSmiley();
     }
 }
