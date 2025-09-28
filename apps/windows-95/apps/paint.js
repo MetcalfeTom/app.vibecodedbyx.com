@@ -117,14 +117,14 @@ class Paint {
     }
 }
 
-// Global paint instance (scoped to avoid collisions)
-let windows95Paint;
+// Global paint instance
+let paint;
 
 // Global functions
 function selectPaintTool(tool) {
-    if (windows95Paint) windows95Paint.selectTool(tool);
+    if (paint) paint.selectTool(tool);
 }
 
 function clearPaintCanvas() {
-    if (windows95Paint) windows95Paint.clearCanvas();
+    if (paint) paint.clearCanvas();
 }
