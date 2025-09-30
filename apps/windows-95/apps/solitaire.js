@@ -101,16 +101,11 @@ class Solitaire {
         this.updateScore();
     }
 
-    renderCard(card, top = 0, selected = false, pileIndex = -1, cardIndex = -1) {
-        const clickHandler = pileIndex >= 0 && cardIndex >= 0 ?
-            `onclick="solitaire.selectTableauCard(${pileIndex}, ${cardIndex}); event.stopPropagation();"` :
-            '';
-        const cursorStyle = pileIndex >= 0 && cardIndex >= 0 ? 'cursor: pointer;' : '';
-
+    renderCard(card, top = 0, selected = false, clickHandler = '') {
         if (!card.faceUp) {
-            return `<div ${clickHandler} style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #0000aa; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; border-radius: 4px; ${cursorStyle} ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'}">🂠</div>`;
+            return `<div ${clickHandler} style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #0000aa; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'}">🂠</div>`;
         }
-        return `<div ${clickHandler} style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; border-radius: 4px; ${cursorStyle} ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-2px);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'} transition: all 0.15s;">
+        return `<div ${clickHandler} style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-2px);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'} transition: all 0.15s;">
             <div style="color: ${card.color}; padding: 4px; font-size: 14px; font-weight: bold;">${card.value}</div>
             <div style="text-align: center; margin-top: 12px; font-size: 24px; color: ${card.color};">${card.suit}</div>
         </div>`;
@@ -138,7 +133,8 @@ class Solitaire {
         }
         return this.tableau[index].map((card, cardIndex) => {
             const selected = this.selectedPile === `tableau-${index}` && cardIndex === this.selectedCard;
-            return this.renderCard(card, cardIndex * 20, selected, index, cardIndex);
+            const clickHandler = `onclick="solitaire.selectTableauCard(${index}, ${cardIndex}); event.stopPropagation();" style="cursor: pointer;"`;
+            return this.renderCard(card, cardIndex * 20, selected, clickHandler);
         }).join('');
     }
 
