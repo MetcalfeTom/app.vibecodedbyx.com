@@ -63,7 +63,7 @@ class Solitaire {
 
     render() {
         this.container.innerHTML = `
-            <div onclick="solitaire.clearSelection(event)" style="background: #008080; padding: 8px; font-family: 'MS Sans Serif', sans-serif; height: 100%; overflow: auto;">
+            <div onclick="solitaire.clearSelection(event)" style="background: #ffeb3b; padding: 8px; font-family: 'MS Sans Serif', sans-serif; height: 100%; overflow: auto;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 6px; background: #c0c0c0; border: 2px inset #808080;">
                     <div style="font-size: 11px;">
                         <span style="font-weight: bold;">Score:</span> <span id="sol-score">0</span> &nbsp;
