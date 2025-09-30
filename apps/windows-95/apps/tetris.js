@@ -73,6 +73,27 @@ class Tetris {
     }
 
     async askPlayerName() {
+        // Try to get previous name from localStorage or existing leaderboard entry
+        let previousName = localStorage.getItem('tetris_player_name') || '';
+
+        // If no localStorage name, try to get from their previous Supabase entry
+        if (!previousName && this.supabase && this.currentUser) {
+            try {
+                const { data } = await this.supabase
+                    .from('tetris_leaderboard')
+                    .select('name')
+                    .eq('user_id', this.currentUser.id)
+                    .limit(1)
+                    .single();
+
+                if (data && data.name) {
+                    previousName = data.name;
+                }
+            } catch (e) {
+                // No previous entry, that's fine
+            }
+        }
+
         return new Promise((resolve) => {
             const overlay = document.getElementById('dialogOverlay');
             const titleElement = document.getElementById('dialogTitle');
@@ -86,7 +107,7 @@ class Tetris {
                 messageElement.innerHTML = `
                     <div style="margin-bottom: 10px;">Congratulations! You made it to the leaderboard!</div>
                     <div style="margin-bottom: 10px;">Enter your name:</div>
-                    <input type="text" id="tetris-name-input" maxlength="20" value="" style="width: 100%; padding: 4px; border: 1px inset #808080; font-family: 'MS Sans Serif'; font-size: 11px;" />
+                    <input type="text" id="tetris-name-input" maxlength="20" value="${previousName}" style="width: 100%; padding: 4px; border: 1px inset #808080; font-family: 'MS Sans Serif'; font-size: 11px;" />
                 `;
 
                 buttonsContainer.innerHTML = '';
@@ -97,6 +118,8 @@ class Tetris {
                     const input = document.getElementById('tetris-name-input');
                     const name = input.value.trim() || 'Anonymous';
                     this.playerName = name;
+                    // Save to localStorage for next time
+                    localStorage.setItem('tetris_player_name', name);
                     window.closeDialog();
                     resolve();
                 };
@@ -108,13 +131,16 @@ class Tetris {
                     const input = document.getElementById('tetris-name-input');
                     if (input) {
                         input.focus();
+                        input.select(); // Select the text for easy replacement
                         input.addEventListener('keypress', (e) => {
                             if (e.key === 'Enter') okBtn.click();
                         });
                     }
                 }, 100);
             } else {
-                this.playerName = prompt('Enter your name for the leaderboard:') || 'Anonymous';
+                this.playerName = prompt('Enter your name for the leaderboard:', previousName) || 'Anonymous';
+                // Save to localStorage for next time
+                localStorage.setItem('tetris_player_name', this.playerName);
                 resolve();
             }
         });
