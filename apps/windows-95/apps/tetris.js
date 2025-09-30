@@ -98,49 +98,60 @@ class Tetris {
 
     render() {
         this.container.innerHTML = `
-            <div style="background: #c0c0c0; padding: 8px; font-family: 'MS Sans Serif', sans-serif; height: 100%; display: flex; gap: 8px;">
-                <!-- Game Area -->
-                <div style="flex: 0 0 auto;">
-                    <div style="margin-bottom: 8px; padding: 4px; background: #000080; color: white; text-align: center; font-weight: bold;">TETRIS</div>
-                    <canvas id="tetris-canvas" width="${this.COLS * this.BLOCK_SIZE}" height="${this.ROWS * this.BLOCK_SIZE}" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
-                    <div style="margin-top: 8px; display: flex; gap: 4px; justify-content: center;">
-                        <button id="tetris-start" onclick="tetris.togglePause()" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 4px 12px; cursor: pointer; font-size: 11px;">Start</button>
-                        <button onclick="tetris.resetGame()" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 4px 12px; cursor: pointer; font-size: 11px;">New Game</button>
+            <div style="background: #c0c0c0; padding: 12px; font-family: 'MS Sans Serif', sans-serif; height: 100%; display: flex; flex-direction: column; gap: 12px;">
+                <!-- Top Bar: Title and Controls -->
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="padding: 6px 12px; background: linear-gradient(90deg, #000080, #0000ff); color: white; font-weight: bold; font-size: 14px; border: 2px outset #c0c0c0;">TETRIS</div>
+                    <div style="display: flex; gap: 6px;">
+                        <button id="tetris-start" onclick="tetris.togglePause()" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 6px 16px; cursor: pointer; font-size: 11px; font-weight: bold;">Start</button>
+                        <button onclick="tetris.resetGame()" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 6px 16px; cursor: pointer; font-size: 11px;">New Game</button>
                     </div>
                 </div>
 
-                <!-- Side Panel -->
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 200px;">
-                    <!-- Stats -->
-                    <div style="border: 2px inset #808080; padding: 8px; background: #fff;">
-                        <div style="font-weight: bold; margin-bottom: 4px; color: #000080;">Player: <span id="tetris-player"></span></div>
-                        <div style="font-size: 11px; color: #000;">Score: <span id="tetris-score" style="font-weight: bold;">0</span></div>
-                        <div style="font-size: 11px; color: #000;">Lines: <span id="tetris-lines" style="font-weight: bold;">0</span></div>
-                        <div style="font-size: 11px; color: #000;">Level: <span id="tetris-level" style="font-weight: bold;">1</span></div>
+                <!-- Main Content Area -->
+                <div style="display: flex; gap: 12px; flex: 1;">
+                    <!-- Left: Game Canvas -->
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <canvas id="tetris-canvas" width="${this.COLS * this.BLOCK_SIZE}" height="${this.ROWS * this.BLOCK_SIZE}" style="border: 3px inset #808080; background: #000; display: block; box-shadow: inset 0 0 8px rgba(0,0,0,0.5);"></canvas>
                     </div>
 
-                    <!-- Next Piece -->
-                    <div style="border: 2px inset #808080; padding: 8px; background: #fff;">
-                        <div style="font-weight: bold; margin-bottom: 4px; color: #000080;">Next:</div>
-                        <canvas id="tetris-next" width="100" height="80" style="border: 1px solid #c0c0c0; background: #000; display: block;"></canvas>
-                    </div>
-
-                    <!-- Controls -->
-                    <div style="border: 2px inset #808080; padding: 8px; background: #fff;">
-                        <div style="font-weight: bold; margin-bottom: 4px; color: #000080;">Controls:</div>
-                        <div style="font-size: 10px; line-height: 1.4; color: #000;">
-                            ← → Move<br>
-                            ↑ Rotate<br>
-                            ↓ Soft Drop<br>
-                            Space Hard Drop<br>
-                            P Pause
+                    <!-- Right: Info Panel -->
+                    <div style="display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 180px;">
+                        <!-- Player & Stats -->
+                        <div style="border: 2px groove #808080; padding: 10px; background: #d4d0c8;">
+                            <div style="font-weight: bold; margin-bottom: 8px; color: #000080; font-size: 12px;">👤 <span id="tetris-player"></span></div>
+                            <table style="width: 100%; font-size: 11px; color: #000; border-spacing: 4px 2px;">
+                                <tr><td>Score:</td><td style="text-align: right; font-weight: bold;"><span id="tetris-score">0</span></td></tr>
+                                <tr><td>Lines:</td><td style="text-align: right; font-weight: bold;"><span id="tetris-lines">0</span></td></tr>
+                                <tr><td>Level:</td><td style="text-align: right; font-weight: bold;"><span id="tetris-level">1</span></td></tr>
+                            </table>
                         </div>
-                    </div>
 
-                    <!-- Leaderboard -->
-                    <div style="border: 2px inset #808080; padding: 8px; background: #fff; flex: 1; overflow: auto;">
-                        <div style="font-weight: bold; margin-bottom: 4px; color: #000080;">Leaderboard:</div>
-                        <div id="tetris-leaderboard" style="font-size: 10px; color: #000;"></div>
+                        <!-- Next Piece -->
+                        <div style="border: 2px groove #808080; padding: 10px; background: #d4d0c8;">
+                            <div style="font-weight: bold; margin-bottom: 6px; color: #000080; font-size: 11px;">Next Piece</div>
+                            <div style="display: flex; justify-content: center;">
+                                <canvas id="tetris-next" width="100" height="80" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Controls -->
+                        <div style="border: 2px groove #808080; padding: 10px; background: #d4d0c8;">
+                            <div style="font-weight: bold; margin-bottom: 6px; color: #000080; font-size: 11px;">⌨️ Controls</div>
+                            <div style="font-size: 10px; line-height: 1.6; color: #000;">
+                                <div><kbd style="background: #fff; border: 1px solid #888; padding: 1px 4px; border-radius: 2px;">← →</kbd> or <kbd style="background: #fff; border: 1px solid #888; padding: 1px 4px; border-radius: 2px;">A D</kbd> Move</div>
+                                <div><kbd style="background: #fff; border: 1px solid #888; padding: 1px 4px; border-radius: 2px;">↑</kbd> or <kbd style="background: #fff; border: 1px solid #888; padding: 1px 4px; border-radius: 2px;">W</kbd> Rotate</div>
+                                <div><kbd style="background: #fff; border: 1px solid #888; padding: 1px 4px; border-radius: 2px;">↓</kbd> or <kbd style="background: #fff; border: 1px solid #888; padding: 1px 4px; border-radius: 2px;">S</kbd> Soft Drop</div>
+                                <div><kbd style="background: #fff; border: 1px solid #888; padding: 1px 4px; border-radius: 2px;">Space</kbd> Hard Drop</div>
+                                <div><kbd style="background: #fff; border: 1px solid #888; padding: 1px 4px; border-radius: 2px;">P</kbd> Pause</div>
+                            </div>
+                        </div>
+
+                        <!-- Leaderboard -->
+                        <div style="border: 2px groove #808080; padding: 10px; background: #d4d0c8; flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                            <div style="font-weight: bold; margin-bottom: 6px; color: #000080; font-size: 11px;">🏆 Top 10</div>
+                            <div id="tetris-leaderboard" style="font-size: 10px; color: #000; overflow-y: auto; flex: 1;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -169,18 +180,26 @@ class Tetris {
 
         switch(e.key) {
             case 'ArrowLeft':
+            case 'a':
+            case 'A':
                 this.movePiece(-1);
                 e.preventDefault();
                 break;
             case 'ArrowRight':
+            case 'd':
+            case 'D':
                 this.movePiece(1);
                 e.preventDefault();
                 break;
             case 'ArrowDown':
+            case 's':
+            case 'S':
                 this.dropPiece();
                 e.preventDefault();
                 break;
             case 'ArrowUp':
+            case 'w':
+            case 'W':
                 this.rotatePiece();
                 e.preventDefault();
                 break;
