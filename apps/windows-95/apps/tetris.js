@@ -108,8 +108,15 @@ class Tetris {
                 <!-- Main Content Area -->
                 <div style="display: flex; gap: 12px; flex: 1; min-height: 0;">
                     <!-- Left: Game Canvas -->
-                    <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; flex-direction: column; position: relative;">
                         <canvas id="tetris-canvas" width="${this.COLS * this.BLOCK_SIZE}" height="${this.ROWS * this.BLOCK_SIZE}" style="border: 3px inset #808080; background: #000; display: block; box-shadow: inset 0 0 8px rgba(0,0,0,0.5);"></canvas>
+                        <div id="tetris-game-over" style="display: none; position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: #c0c0c0; border: 3px outset #c0c0c0; padding: 20px; text-align: center; cursor: pointer; box-shadow: 4px 4px 8px rgba(0,0,0,0.5);" onclick="tetris.resetGame()">
+                            <div style="font-weight: bold; font-size: 16px; color: #c00; margin-bottom: 10px;">GAME OVER</div>
+                            <div style="font-size: 11px; margin-bottom: 8px;">Score: <span id="tetris-final-score" style="font-weight: bold;">0</span></div>
+                            <div style="font-size: 11px; margin-bottom: 8px;">Lines: <span id="tetris-final-lines" style="font-weight: bold;">0</span></div>
+                            <div style="font-size: 11px; margin-bottom: 12px;">Level: <span id="tetris-final-level" style="font-weight: bold;">0</span></div>
+                            <div style="font-size: 10px; color: #000080;">Click to restart</div>
+                        </div>
                     </div>
 
                     <!-- Right: Info Panel -->
@@ -127,9 +134,9 @@ class Tetris {
                         <!-- Next Pieces -->
                         <div style="border: 2px groove #808080; padding: 10px; background: #d4d0c8;">
                             <div style="font-weight: bold; margin-bottom: 6px; color: #000080; font-size: 11px;">Next Pieces</div>
-                            <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;">
-                                <canvas id="tetris-next" width="100" height="70" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
-                                <canvas id="tetris-next-next" width="100" height="70" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
+                            <div style="display: flex; gap: 4px; justify-content: center;">
+                                <canvas id="tetris-next" width="70" height="70" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
+                                <canvas id="tetris-next-next" width="70" height="70" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
                             </div>
                         </div>
 
@@ -214,6 +221,12 @@ class Tetris {
     }
 
     resetGame() {
+        // Hide game over overlay
+        const gameOverDiv = document.getElementById('tetris-game-over');
+        if (gameOverDiv) {
+            gameOverDiv.style.display = 'none';
+        }
+
         this.board = Array(this.ROWS).fill(null).map(() => Array(this.COLS).fill(0));
         this.score = 0;
         this.lines = 0;
@@ -333,22 +346,24 @@ class Tetris {
     }
 
     drawNextPieces() {
+        const smallBlockSize = 18; // Smaller blocks for next pieces
+
         // Draw first next piece
         this.nextCtx.fillStyle = '#000';
         this.nextCtx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
 
-        const offsetX = (this.nextCanvas.width - this.nextPiece.shape[0].length * this.BLOCK_SIZE) / 2;
-        const offsetY = (this.nextCanvas.height - this.nextPiece.shape.length * this.BLOCK_SIZE) / 2;
+        const offsetX = (this.nextCanvas.width - this.nextPiece.shape[0].length * smallBlockSize) / 2;
+        const offsetY = (this.nextCanvas.height - this.nextPiece.shape.length * smallBlockSize) / 2;
 
         this.nextPiece.shape.forEach((row, y) => {
             row.forEach((value, x) => {
                 if (value) {
                     this.nextCtx.fillStyle = this.COLORS[this.nextPiece.color];
                     this.nextCtx.fillRect(
-                        offsetX + x * this.BLOCK_SIZE + 1,
-                        offsetY + y * this.BLOCK_SIZE + 1,
-                        this.BLOCK_SIZE - 2,
-                        this.BLOCK_SIZE - 2
+                        offsetX + x * smallBlockSize + 1,
+                        offsetY + y * smallBlockSize + 1,
+                        smallBlockSize - 2,
+                        smallBlockSize - 2
                     );
                 }
             });
@@ -358,18 +373,18 @@ class Tetris {
         this.nextNextCtx.fillStyle = '#000';
         this.nextNextCtx.fillRect(0, 0, this.nextNextCanvas.width, this.nextNextCanvas.height);
 
-        const offsetX2 = (this.nextNextCanvas.width - this.nextNextPiece.shape[0].length * this.BLOCK_SIZE) / 2;
-        const offsetY2 = (this.nextNextCanvas.height - this.nextNextPiece.shape.length * this.BLOCK_SIZE) / 2;
+        const offsetX2 = (this.nextNextCanvas.width - this.nextNextPiece.shape[0].length * smallBlockSize) / 2;
+        const offsetY2 = (this.nextNextCanvas.height - this.nextNextPiece.shape.length * smallBlockSize) / 2;
 
         this.nextNextPiece.shape.forEach((row, y) => {
             row.forEach((value, x) => {
                 if (value) {
                     this.nextNextCtx.fillStyle = this.COLORS[this.nextNextPiece.color];
                     this.nextNextCtx.fillRect(
-                        offsetX2 + x * this.BLOCK_SIZE + 1,
-                        offsetY2 + y * this.BLOCK_SIZE + 1,
-                        this.BLOCK_SIZE - 2,
-                        this.BLOCK_SIZE - 2
+                        offsetX2 + x * smallBlockSize + 1,
+                        offsetY2 + y * smallBlockSize + 1,
+                        smallBlockSize - 2,
+                        smallBlockSize - 2
                     );
                 }
             });
@@ -494,20 +509,18 @@ class Tetris {
 
         if (window.playSound) window.playSound('error');
 
+        // Show game over overlay on canvas
+        const gameOverDiv = document.getElementById('tetris-game-over');
+        if (gameOverDiv) {
+            document.getElementById('tetris-final-score').textContent = this.score;
+            document.getElementById('tetris-final-lines').textContent = this.lines;
+            document.getElementById('tetris-final-level').textContent = this.level;
+            gameOverDiv.style.display = 'block';
+        }
+
         // Save to leaderboard
         await this.saveToLeaderboard();
         this.loadLeaderboard();
-
-        // Show game over dialog
-        setTimeout(() => {
-            if (window.showWindowsDialog) {
-                window.showWindowsDialog(
-                    'Game Over',
-                    `Game Over!\n\nScore: ${this.score}\nLines: ${this.lines}\nLevel: ${this.level}`,
-                    '🎮'
-                );
-            }
-        }, 500);
     }
 
     async saveToLeaderboard() {
