@@ -20,6 +20,8 @@ class Tetris {
         this.dropInterval = 1000;
         this.lastTime = 0;
         this.playerName = null;
+        this.supabase = null;
+        this.currentUser = null;
 
         this.COLS = 10;
         this.ROWS = 20;
@@ -40,9 +42,34 @@ class Tetris {
     }
 
     async initGame() {
+        // Initialize Supabase (get from window if available)
+        if (window.supabaseClient) {
+            this.supabase = window.supabaseClient;
+        } else {
+            // Import from CDN if not available
+            const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+            const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
+            this.supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            window.supabaseClient = this.supabase;
+        }
+
+        // Get or create user session
+        await this.ensureSession();
+
         this.render();
         this.setupCanvas();
         this.resetGame();
+    }
+
+    async ensureSession() {
+        const { data: { session } } = await this.supabase.auth.getSession();
+        if (!session) {
+            const { data } = await this.supabase.auth.signInAnonymously();
+            this.currentUser = data.user;
+        } else {
+            this.currentUser = session.user;
+        }
     }
 
     async askPlayerName() {
@@ -524,75 +551,111 @@ class Tetris {
     }
 
     async saveToLeaderboard() {
-        const leaderboardKey = 'tetris_leaderboard';
-        let leaderboard = JSON.parse(localStorage.getItem(leaderboardKey) || '[]');
+        if (!this.supabase || this.score === 0) return;
 
-        // Check if this score qualifies for the leaderboard
-        const isHighScore = leaderboard.length < 10 || this.score > leaderboard[leaderboard.length - 1].score;
+        try {
+            // Get top 10 scores to check if this qualifies
+            const { data: topScores, error: fetchError } = await this.supabase
+                .from('tetris_leaderboard')
+                .select('score')
+                .order('score', { ascending: false })
+                .limit(10);
 
-        if (!isHighScore && this.score > 0) {
-            // Score doesn't qualify for top 10
-            return;
-        }
+            if (fetchError) throw fetchError;
 
-        // Ask for name only if it's a high score
-        if (this.score > 0) {
-            await this.askPlayerName();
-        } else {
-            return; // Don't save 0 scores
-        }
+            // Check if this score qualifies for the leaderboard
+            const isHighScore = !topScores || topScores.length < 10 || this.score > topScores[topScores.length - 1].score;
 
-        // Check if player already has an entry
-        const existingIndex = leaderboard.findIndex(entry => entry.name === this.playerName);
-
-        if (existingIndex >= 0) {
-            // Update only if new score is higher
-            if (this.score > leaderboard[existingIndex].score) {
-                leaderboard[existingIndex] = {
-                    name: this.playerName,
-                    score: this.score,
-                    lines: this.lines,
-                    level: this.level,
-                    date: new Date().toISOString()
-                };
-            } else {
-                // Don't replace better score
+            if (!isHighScore) {
+                // Score doesn't qualify for top 10
                 return;
             }
-        } else {
-            // Add new entry
-            leaderboard.push({
-                name: this.playerName,
-                score: this.score,
-                lines: this.lines,
-                level: this.level,
-                date: new Date().toISOString()
-            });
+
+            // Ask for name only if it's a high score
+            await this.askPlayerName();
+
+            // Check if this user already has an entry
+            const { data: existingScores, error: existError } = await this.supabase
+                .from('tetris_leaderboard')
+                .select('id, name, score, lines, level')
+                .eq('user_id', this.currentUser.id);
+
+            if (existError) throw existError;
+
+            if (existingScores && existingScores.length > 0) {
+                // User has existing score(s) - update only if this score is higher
+                const bestExisting = existingScores.reduce((best, curr) => curr.score > best.score ? curr : best);
+
+                if (this.score > bestExisting.score) {
+                    // Update the existing entry
+                    const { error: updateError } = await this.supabase
+                        .from('tetris_leaderboard')
+                        .update({
+                            name: this.playerName,
+                            score: this.score,
+                            lines: this.lines,
+                            level: this.level,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', bestExisting.id);
+
+                    if (updateError) throw updateError;
+                }
+            } else {
+                // Insert new entry
+                const { error: insertError } = await this.supabase
+                    .from('tetris_leaderboard')
+                    .insert({
+                        user_id: this.currentUser.id,
+                        name: this.playerName,
+                        score: this.score,
+                        lines: this.lines,
+                        level: this.level
+                    });
+
+                if (insertError) throw insertError;
+            }
+        } catch (error) {
+            console.error('Error saving to leaderboard:', error);
+            // Fallback to showing error to user
+            if (window.showWindowsDialog) {
+                window.showWindowsDialog('Error', 'Failed to save score to leaderboard.', '⚠️');
+            }
         }
-
-        // Sort by score descending and keep top 10
-        leaderboard.sort((a, b) => b.score - a.score);
-        leaderboard = leaderboard.slice(0, 10);
-
-        localStorage.setItem(leaderboardKey, JSON.stringify(leaderboard));
     }
 
-    loadLeaderboard() {
-        const leaderboardKey = 'tetris_leaderboard';
-        const leaderboard = JSON.parse(localStorage.getItem(leaderboardKey) || '[]');
+    async loadLeaderboard() {
         const container = document.getElementById('tetris-leaderboard');
 
-        if (leaderboard.length === 0) {
-            container.innerHTML = '<div style="color: #666; font-style: italic;">No scores yet!</div>';
+        if (!this.supabase) {
+            container.innerHTML = '<div style="color: #666; font-style: italic;">Loading...</div>';
             return;
         }
 
-        container.innerHTML = leaderboard.map((entry, index) => `
-            <div style="display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #e0e0e0;">
-                <span>${index + 1}. ${entry.name}</span>
-                <span style="font-weight: bold;">${entry.score}</span>
-            </div>
-        `).join('');
+        try {
+            const { data: leaderboard, error } = await this.supabase
+                .from('tetris_leaderboard')
+                .select('name, score, lines, level, created_at')
+                .order('score', { ascending: false })
+                .limit(10);
+
+            if (error) throw error;
+
+            if (!leaderboard || leaderboard.length === 0) {
+                container.innerHTML = '<div style="color: #666; font-style: italic;">No scores yet!</div>';
+                return;
+            }
+
+            container.innerHTML = leaderboard.map((entry, index) => `
+                <div style="display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #e0e0e0;">
+                    <span>${index + 1}. ${entry.name || 'Anonymous'}</span>
+                    <span style="font-weight: bold;">${entry.score}</span>
+                </div>
+            `).join('');
+        } catch (error) {
+            console.error('Error loading leaderboard:', error);
+            container.innerHTML = '<div style="color: #c00; font-style: italic;">Error loading scores</div>';
+        }
     }
 }
 
