@@ -111,11 +111,13 @@ class Solitaire {
         </div>`;
     }
 
-    renderCardClickable(card, top = 0, selected = false, clickHandler = '') {
+    renderCardClickable(card, top = 0, selected = false, clickHandler = '', zIndex = 1) {
+        // Boost z-index when selected to appear above all other cards
+        const actualZIndex = selected ? 100 : zIndex;
         if (!card.faceUp) {
-            return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #0000aa; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'}">🂠</div>`;
+            return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #0000aa; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; border-radius: 4px; z-index: ${actualZIndex}; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'}">🂠</div>`;
         }
-        return `<div ${clickHandler} style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-2px);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'} transition: all 0.15s; ${clickHandler ? 'cursor: pointer;' : ''}">
+        return `<div ${clickHandler} style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; border-radius: 4px; z-index: ${actualZIndex}; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-2px);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'} transition: all 0.15s; ${clickHandler ? 'cursor: pointer;' : ''}">
             <div style="color: ${card.color}; padding: 4px; font-size: 14px; font-weight: bold;">${card.value}</div>
             <div style="text-align: center; margin-top: 12px; font-size: 24px; color: ${card.color};">${card.suit}</div>
         </div>`;
@@ -141,10 +143,12 @@ class Solitaire {
         if (this.tableau[index].length === 0) {
             return `<div style="position: absolute; top: 0; width: 70px; height: 96px; border: 2px dashed #004040;"></div>`;
         }
+        const totalCards = this.tableau[index].length;
         return this.tableau[index].map((card, cardIndex) => {
             const selected = this.selectedPile === `tableau-${index}` && cardIndex === this.selectedCard;
             const clickable = card.faceUp ? `onclick="solitaire.selectTableauCard(${index}, ${cardIndex}); event.stopPropagation();"` : '';
-            return this.renderCardClickable(card, cardIndex * 20, selected, clickable);
+            const zIndex = totalCards - cardIndex; // Higher cards in stack get higher z-index
+            return this.renderCardClickable(card, cardIndex * 20, selected, clickable, zIndex);
         }).join('');
     }
 
