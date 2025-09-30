@@ -74,15 +74,15 @@ class Solitaire {
 
                 <!-- Top row: Stock, Waste, and Foundations -->
                 <div style="display: flex; gap: 8px; margin-bottom: 16px;">
-                    <div id="stock" onclick="solitaire.drawCard(); event.stopPropagation();" style="width: 70px; height: 96px; background: ${this.stock.length > 0 ? '#0000aa' : '#006060'}; border: 2px solid #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; transition: transform 0.1s; user-select: none;" onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">
+                    <div id="stock" onclick="solitaire.drawCard(); event.stopPropagation();" style="width: 70px; height: 96px; background: ${this.stock.length > 0 ? '#0000aa' : '#2e7d32'}; border: 2px solid #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; transition: transform 0.1s; user-select: none;" onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">
                         ${this.stock.length > 0 ? '🂠' : '♻️'}
                     </div>
-                    <div id="waste" onclick="solitaire.selectFromWaste(); event.stopPropagation();" style="width: 70px; height: 96px; background: #006060; border: 2px solid #fff; cursor: pointer; position: relative; user-select: none;">
+                    <div id="waste" onclick="solitaire.selectFromWaste(); event.stopPropagation();" style="width: 70px; height: 96px; background: #2e7d32; border: 2px solid #fff; cursor: pointer; position: relative; user-select: none;">
                         ${this.renderWaste()}
                     </div>
                     <div style="flex: 1;"></div>
                     ${this.foundations.map((f, i) => `
-                        <div id="foundation-${i}" onclick="solitaire.selectFoundation(${i}); event.stopPropagation();" style="width: 70px; height: 96px; background: #006060; border: 2px solid #fff; cursor: pointer; position: relative; user-select: none;">
+                        <div id="foundation-${i}" onclick="solitaire.selectFoundation(${i}); event.stopPropagation();" style="width: 70px; height: 96px; background: #2e7d32; border: 2px solid #fff; cursor: pointer; position: relative; user-select: none;">
                             ${this.renderFoundation(i)}
                         </div>
                     `).join('')}
@@ -133,7 +133,7 @@ class Solitaire {
     renderFoundation(index) {
         if (this.foundations[index].length === 0) {
             const symbols = ['♥', '♦', '♣', '♠'];
-            return `<div style="position: absolute; top: 0; width: 70px; height: 96px; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #004040; opacity: 0.5;">${symbols[index]}</div>`;
+            return `<div style="position: absolute; top: 0; width: 70px; height: 96px; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #1b5e20; opacity: 0.5;">${symbols[index]}</div>`;
         }
         const card = this.foundations[index][this.foundations[index].length - 1];
         return this.renderCard(card, 0, false);
@@ -141,13 +141,12 @@ class Solitaire {
 
     renderTableau(index) {
         if (this.tableau[index].length === 0) {
-            return `<div style="position: absolute; top: 0; width: 70px; height: 96px; border: 2px dashed #004040;"></div>`;
+            return `<div style="position: absolute; top: 0; width: 70px; height: 96px; border: 2px dashed #1b5e20;"></div>`;
         }
-        const totalCards = this.tableau[index].length;
         return this.tableau[index].map((card, cardIndex) => {
             const selected = this.selectedPile === `tableau-${index}` && cardIndex === this.selectedCard;
             const clickable = card.faceUp ? `onclick="solitaire.selectTableauCard(${index}, ${cardIndex}); event.stopPropagation();"` : '';
-            const zIndex = totalCards - cardIndex; // Higher cards in stack get higher z-index
+            const zIndex = cardIndex + 1; // Cards lower in cascade get higher z-index
             return this.renderCardClickable(card, cardIndex * 20, selected, clickable, zIndex);
         }).join('');
     }
