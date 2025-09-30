@@ -63,35 +63,38 @@ class Solitaire {
 
     render() {
         this.container.innerHTML = `
-            <div style="background: #008080; padding: 8px; font-family: 'MS Sans Serif', sans-serif; height: 100%; overflow: auto;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; padding: 4px; background: #c0c0c0; border: 2px inset #808080;">
+            <div onclick="solitaire.clearSelection(event)" style="background: #008080; padding: 8px; font-family: 'MS Sans Serif', sans-serif; height: 100%; overflow: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 6px; background: #c0c0c0; border: 2px inset #808080;">
                     <div style="font-size: 11px;">
                         <span style="font-weight: bold;">Score:</span> <span id="sol-score">0</span> &nbsp;
                         <span style="font-weight: bold;">Moves:</span> <span id="sol-moves">0</span>
                     </div>
-                    <button onclick="solitaire.newGame()" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 2px 8px; cursor: pointer; font-size: 11px;">New Game</button>
+                    <div style="display: flex; gap: 4px;">
+                        <button onclick="solitaire.clearSelection(event); event.stopPropagation();" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 2px 8px; cursor: pointer; font-size: 11px;">Unselect</button>
+                        <button onclick="solitaire.newGame(); event.stopPropagation();" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 2px 8px; cursor: pointer; font-size: 11px;">New Game</button>
+                    </div>
                 </div>
 
                 <!-- Top row: Stock, Waste, and Foundations -->
                 <div style="display: flex; gap: 8px; margin-bottom: 16px;">
-                    <div id="stock" onclick="solitaire.drawCard()" style="width: 70px; height: 96px; background: ${this.stock.length > 0 ? '#0000aa' : '#006060'}; border: 2px solid #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff;">
-                        ${this.stock.length > 0 ? '🂠' : ''}
+                    <div id="stock" onclick="solitaire.drawCard(); event.stopPropagation();" style="width: 70px; height: 96px; background: ${this.stock.length > 0 ? '#0000aa' : '#006060'}; border: 2px solid #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; transition: transform 0.1s; user-select: none;" onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">
+                        ${this.stock.length > 0 ? '🂠' : '♻️'}
                     </div>
-                    <div id="waste" onclick="solitaire.selectFromWaste()" style="width: 70px; height: 96px; background: #006060; border: 2px solid #fff; cursor: pointer; position: relative;">
+                    <div id="waste" onclick="solitaire.selectFromWaste(); event.stopPropagation();" style="width: 70px; height: 96px; background: #006060; border: 2px solid #fff; cursor: pointer; position: relative; user-select: none;">
                         ${this.renderWaste()}
                     </div>
                     <div style="flex: 1;"></div>
                     ${this.foundations.map((f, i) => `
-                        <div id="foundation-${i}" onclick="solitaire.selectFoundation(${i})" style="width: 70px; height: 96px; background: #006060; border: 2px solid #fff; cursor: pointer; position: relative;">
+                        <div id="foundation-${i}" onclick="solitaire.selectFoundation(${i}); event.stopPropagation();" style="width: 70px; height: 96px; background: #006060; border: 2px solid #fff; cursor: pointer; position: relative; user-select: none;">
                             ${this.renderFoundation(i)}
                         </div>
                     `).join('')}
                 </div>
 
                 <!-- Tableau (7 columns) -->
-                <div style="display: flex; gap: 8px;">
+                <div style="display: flex; gap: 8px; justify-content: center;">
                     ${this.tableau.map((pile, i) => `
-                        <div id="tableau-${i}" onclick="solitaire.selectTableau(${i})" style="width: 70px; min-height: 96px; cursor: pointer; position: relative;">
+                        <div id="tableau-${i}" onclick="solitaire.selectTableau(${i}); event.stopPropagation();" style="width: 70px; min-height: 96px; cursor: pointer; position: relative; user-select: none;">
                             ${this.renderTableau(i)}
                         </div>
                     `).join('')}
@@ -103,9 +106,9 @@ class Solitaire {
 
     renderCard(card, top = 0, selected = false) {
         if (!card.faceUp) {
-            return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #0000aa; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; ${selected ? 'box-shadow: 0 0 0 3px yellow;' : ''}">🂠</div>`;
+            return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #0000aa; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'}">🂠</div>`;
         }
-        return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; ${selected ? 'box-shadow: 0 0 0 3px yellow;' : ''}">
+        return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-2px);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'} transition: all 0.15s;">
             <div style="color: ${card.color}; padding: 4px; font-size: 14px; font-weight: bold;">${card.value}</div>
             <div style="text-align: center; margin-top: 12px; font-size: 24px; color: ${card.color};">${card.suit}</div>
         </div>`;
@@ -142,8 +145,22 @@ class Solitaire {
         document.getElementById('sol-moves').textContent = this.moves;
     }
 
+    clearSelection(event) {
+        if (event) event.stopPropagation();
+        if (this.selectedPile) {
+            if (window.playSound) window.playSound('click');
+            this.selectedPile = null;
+            this.selectedCard = null;
+            this.render();
+        }
+    }
+
     drawCard() {
         if (window.playSound) window.playSound('click');
+        // Clear any selection when drawing a card
+        this.selectedPile = null;
+        this.selectedCard = null;
+
         if (this.stock.length > 0) {
             const card = this.stock.pop();
             card.faceUp = true;
@@ -191,6 +208,10 @@ class Solitaire {
                 this.selectedPile = null;
                 this.selectedCard = null;
                 this.checkWin();
+            } else {
+                // Invalid move - unselect
+                this.selectedPile = null;
+                this.selectedCard = null;
             }
         } else if (this.selectedPile && this.selectedPile.startsWith('tableau-')) {
             const tableauIndex = parseInt(this.selectedPile.split('-')[1]);
@@ -208,7 +229,15 @@ class Solitaire {
                     this.selectedPile = null;
                     this.selectedCard = null;
                     this.checkWin();
+                } else {
+                    // Invalid move - unselect
+                    this.selectedPile = null;
+                    this.selectedCard = null;
                 }
+            } else {
+                // Can't move multiple cards to foundation - unselect
+                this.selectedPile = null;
+                this.selectedCard = null;
             }
         }
         this.render();
@@ -226,21 +255,36 @@ class Solitaire {
                 this.moves++;
                 this.selectedPile = null;
                 this.selectedCard = null;
+            } else {
+                // Invalid move - unselect
+                this.selectedPile = null;
+                this.selectedCard = null;
             }
         } else if (this.selectedPile && this.selectedPile.startsWith('tableau-')) {
             const fromIndex = parseInt(this.selectedPile.split('-')[1]);
-            const fromPile = this.tableau[fromIndex];
-            const cards = fromPile.slice(this.selectedCard);
 
-            if (this.canMoveToTableau(cards[0], index)) {
-                fromPile.splice(this.selectedCard);
-                this.tableau[index].push(...cards);
-                this.moves++;
-                if (fromPile.length > 0) {
-                    fromPile[fromPile.length - 1].faceUp = true;
-                }
+            // Clicking on same tableau - unselect
+            if (fromIndex === index) {
                 this.selectedPile = null;
                 this.selectedCard = null;
+            } else {
+                const fromPile = this.tableau[fromIndex];
+                const cards = fromPile.slice(this.selectedCard);
+
+                if (this.canMoveToTableau(cards[0], index)) {
+                    fromPile.splice(this.selectedCard);
+                    this.tableau[index].push(...cards);
+                    this.moves++;
+                    if (fromPile.length > 0) {
+                        fromPile[fromPile.length - 1].faceUp = true;
+                    }
+                    this.selectedPile = null;
+                    this.selectedCard = null;
+                } else {
+                    // Invalid move - unselect
+                    this.selectedPile = null;
+                    this.selectedCard = null;
+                }
             }
         } else if (this.tableau[index].length > 0) {
             // Select card from this tableau
