@@ -91,7 +91,7 @@ class Solitaire {
                 <!-- Tableau (7 columns) -->
                 <div style="display: flex; gap: 8px; justify-content: center;">
                     ${this.tableau.map((pile, i) => `
-                        <div id="tableau-${i}" onclick="solitaire.selectTableau(${i}); event.stopPropagation();" style="width: 70px; min-height: 96px; cursor: pointer; position: relative; user-select: none;">
+                        <div id="tableau-${i}" style="width: 70px; min-height: 96px; position: relative; user-select: none;">
                             ${this.renderTableau(i)}
                         </div>
                     `).join('')}
@@ -101,11 +101,15 @@ class Solitaire {
         this.updateScore();
     }
 
-    renderCard(card, top = 0, selected = false) {
+    renderCard(card, top = 0, selected = false, pileIndex = -1, cardIndex = -1) {
+        const clickHandler = pileIndex >= 0 && cardIndex >= 0 ?
+            `onclick="solitaire.selectTableauCard(${pileIndex}, ${cardIndex}); event.stopPropagation();" style="cursor: pointer;"` :
+            '';
+
         if (!card.faceUp) {
-            return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #0000aa; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'}">🂠</div>`;
+            return `<div ${clickHandler} style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #0000aa; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #fff; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'}">🂠</div>`;
         }
-        return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-2px);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'} transition: all 0.15s;">
+        return `<div ${clickHandler} style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; border-radius: 4px; ${selected ? 'box-shadow: 0 0 0 4px #ffff00, 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-2px);' : 'box-shadow: 0 2px 4px rgba(0,0,0,0.2);'} transition: all 0.15s;">
             <div style="color: ${card.color}; padding: 4px; font-size: 14px; font-weight: bold;">${card.value}</div>
             <div style="text-align: center; margin-top: 12px; font-size: 24px; color: ${card.color};">${card.suit}</div>
         </div>`;
@@ -129,11 +133,11 @@ class Solitaire {
 
     renderTableau(index) {
         if (this.tableau[index].length === 0) {
-            return `<div style="position: absolute; top: 0; width: 70px; height: 96px; border: 2px dashed #004040;"></div>`;
+            return `<div onclick="solitaire.selectTableauEmpty(${index}); event.stopPropagation();" style="position: absolute; top: 0; width: 70px; height: 96px; border: 2px dashed #004040; cursor: pointer;"></div>`;
         }
         return this.tableau[index].map((card, cardIndex) => {
             const selected = this.selectedPile === `tableau-${index}` && cardIndex === this.selectedCard;
-            return this.renderCard(card, cardIndex * 20, selected);
+            return this.renderCard(card, cardIndex * 20, selected, index, cardIndex);
         }).join('');
     }
 
@@ -240,7 +244,30 @@ class Solitaire {
         this.render();
     }
 
-    selectTableau(index) {
+    selectTableauCard(pileIndex, cardIndex) {
+        if (window.playSound) window.playSound('click');
+
+        const card = this.tableau[pileIndex][cardIndex];
+
+        // Can only select face-up cards
+        if (!card.faceUp) {
+            return;
+        }
+
+        if (this.selectedPile === `tableau-${pileIndex}` && this.selectedCard === cardIndex) {
+            // Clicking same card - unselect
+            this.selectedPile = null;
+            this.selectedCard = null;
+        } else {
+            // Select this card and all cards below it
+            this.selectedPile = `tableau-${pileIndex}`;
+            this.selectedCard = cardIndex;
+        }
+
+        this.render();
+    }
+
+    selectTableauEmpty(index) {
         if (window.playSound) window.playSound('click');
 
         if (this.selectedPile === 'waste' && this.waste.length > 0) {
@@ -259,39 +286,31 @@ class Solitaire {
             }
         } else if (this.selectedPile && this.selectedPile.startsWith('tableau-')) {
             const fromIndex = parseInt(this.selectedPile.split('-')[1]);
+            const fromPile = this.tableau[fromIndex];
+            const cards = fromPile.slice(this.selectedCard);
 
-            // Clicking on same tableau - unselect
-            if (fromIndex === index) {
+            if (this.canMoveToTableau(cards[0], index)) {
+                fromPile.splice(this.selectedCard);
+                this.tableau[index].push(...cards);
+                this.moves++;
+                if (fromPile.length > 0) {
+                    fromPile[fromPile.length - 1].faceUp = true;
+                }
                 this.selectedPile = null;
                 this.selectedCard = null;
             } else {
-                const fromPile = this.tableau[fromIndex];
-                const cards = fromPile.slice(this.selectedCard);
-
-                if (this.canMoveToTableau(cards[0], index)) {
-                    fromPile.splice(this.selectedCard);
-                    this.tableau[index].push(...cards);
-                    this.moves++;
-                    if (fromPile.length > 0) {
-                        fromPile[fromPile.length - 1].faceUp = true;
-                    }
-                    this.selectedPile = null;
-                    this.selectedCard = null;
-                } else {
-                    // Invalid move - unselect
-                    this.selectedPile = null;
-                    this.selectedCard = null;
-                }
-            }
-        } else if (this.tableau[index].length > 0) {
-            // Select card from this tableau
-            const faceUpIndex = this.tableau[index].findIndex(c => c.faceUp);
-            if (faceUpIndex >= 0) {
-                this.selectedPile = `tableau-${index}`;
-                this.selectedCard = faceUpIndex;
+                // Invalid move - unselect
+                this.selectedPile = null;
+                this.selectedCard = null;
             }
         }
+
         this.render();
+    }
+
+    selectTableau(index) {
+        // This method is now deprecated but keeping for backwards compatibility
+        this.selectTableauEmpty(index);
     }
 
     canMoveToFoundation(card, foundationIndex) {
