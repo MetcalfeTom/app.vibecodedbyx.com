@@ -69,10 +69,7 @@ class Solitaire {
                         <span style="font-weight: bold;">Score:</span> <span id="sol-score">0</span> &nbsp;
                         <span style="font-weight: bold;">Moves:</span> <span id="sol-moves">0</span>
                     </div>
-                    <div style="display: flex; gap: 4px;">
-                        <button onclick="solitaire.clearSelection(event); event.stopPropagation();" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 2px 8px; cursor: pointer; font-size: 11px;">Unselect</button>
-                        <button onclick="solitaire.newGame(); event.stopPropagation();" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 2px 8px; cursor: pointer; font-size: 11px;">New Game</button>
-                    </div>
+                    <button onclick="solitaire.confirmNewGame(event);" style="border: 2px outset #c0c0c0; background: #c0c0c0; padding: 2px 8px; cursor: pointer; font-size: 11px;">New Game</button>
                 </div>
 
                 <!-- Top row: Stock, Waste, and Foundations -->
@@ -338,6 +335,61 @@ class Solitaire {
                     alert(`You won! Score: ${this.score}, Moves: ${this.moves}`);
                 }
             }, 300);
+        }
+    }
+
+    confirmNewGame(event) {
+        if (event) event.stopPropagation();
+
+        // If game hasn't started (no moves), just start new game
+        if (this.moves === 0) {
+            this.newGame();
+            return;
+        }
+
+        // Show confirmation dialog
+        if (window.showWindowsDialog) {
+            const overlay = document.getElementById('dialogOverlay');
+            const titleElement = document.getElementById('dialogTitle');
+            const iconElement = document.getElementById('dialogIcon');
+            const messageElement = document.getElementById('dialogMessage');
+            const buttonsContainer = document.getElementById('dialogButtons');
+
+            if (overlay && titleElement && iconElement && messageElement && buttonsContainer) {
+                titleElement.textContent = 'Solitaire';
+                iconElement.textContent = '❓';
+                messageElement.textContent = 'Start a new game? Your current progress will be lost.';
+
+                buttonsContainer.innerHTML = '';
+                const yesBtn = document.createElement('button');
+                yesBtn.className = 'dialog-button';
+                yesBtn.textContent = 'Yes';
+                yesBtn.onclick = () => {
+                    window.closeDialog();
+                    this.newGame();
+                };
+
+                const noBtn = document.createElement('button');
+                noBtn.className = 'dialog-button';
+                noBtn.textContent = 'No';
+                noBtn.onclick = () => window.closeDialog();
+
+                buttonsContainer.appendChild(yesBtn);
+                buttonsContainer.appendChild(noBtn);
+
+                overlay.style.display = 'flex';
+                setTimeout(() => noBtn.focus(), 100);
+            } else {
+                // Fallback to confirm dialog
+                if (confirm('Start a new game? Your current progress will be lost.')) {
+                    this.newGame();
+                }
+            }
+        } else {
+            // Fallback to confirm dialog
+            if (confirm('Start a new game? Your current progress will be lost.')) {
+                this.newGame();
+            }
         }
     }
 
