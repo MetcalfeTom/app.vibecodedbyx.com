@@ -9,6 +9,7 @@ class Tetris {
         this.board = [];
         this.currentPiece = null;
         this.nextPiece = null;
+        this.nextNextPiece = null;
         this.score = 0;
         this.lines = 0;
         this.level = 1;
@@ -105,14 +106,14 @@ class Tetris {
                 </div>
 
                 <!-- Main Content Area -->
-                <div style="display: flex; gap: 12px; flex: 1;">
+                <div style="display: flex; gap: 12px; flex: 1; min-height: 0;">
                     <!-- Left: Game Canvas -->
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; flex-direction: column;">
                         <canvas id="tetris-canvas" width="${this.COLS * this.BLOCK_SIZE}" height="${this.ROWS * this.BLOCK_SIZE}" style="border: 3px inset #808080; background: #000; display: block; box-shadow: inset 0 0 8px rgba(0,0,0,0.5);"></canvas>
                     </div>
 
                     <!-- Right: Info Panel -->
-                    <div style="display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 180px;">
+                    <div style="display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 180px; height: ${this.ROWS * this.BLOCK_SIZE}px; overflow: hidden;">
                         <!-- Stats -->
                         <div style="border: 2px groove #808080; padding: 10px; background: #d4d0c8;">
                             <div style="font-weight: bold; margin-bottom: 8px; color: #000080; font-size: 12px;">📊 Stats</div>
@@ -123,11 +124,12 @@ class Tetris {
                             </table>
                         </div>
 
-                        <!-- Next Piece -->
+                        <!-- Next Pieces -->
                         <div style="border: 2px groove #808080; padding: 10px; background: #d4d0c8;">
-                            <div style="font-weight: bold; margin-bottom: 6px; color: #000080; font-size: 11px;">Next Piece</div>
-                            <div style="display: flex; justify-content: center;">
-                                <canvas id="tetris-next" width="100" height="80" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
+                            <div style="font-weight: bold; margin-bottom: 6px; color: #000080; font-size: 11px;">Next Pieces</div>
+                            <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;">
+                                <canvas id="tetris-next" width="100" height="70" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
+                                <canvas id="tetris-next-next" width="100" height="70" style="border: 2px inset #808080; background: #000; display: block;"></canvas>
                             </div>
                         </div>
 
@@ -159,6 +161,8 @@ class Tetris {
         this.ctx = this.canvas.getContext('2d');
         this.nextCanvas = document.getElementById('tetris-next');
         this.nextCtx = this.nextCanvas.getContext('2d');
+        this.nextNextCanvas = document.getElementById('tetris-next-next');
+        this.nextNextCtx = this.nextNextCanvas.getContext('2d');
 
         // Keyboard controls
         document.addEventListener('keydown', this.handleKeyPress.bind(this));
@@ -220,8 +224,9 @@ class Tetris {
         this.dropInterval = 1000;
         this.currentPiece = this.createPiece();
         this.nextPiece = this.createPiece();
+        this.nextNextPiece = this.createPiece();
         this.updateStats();
-        this.drawNextPiece();
+        this.drawNextPieces();
         this.draw();
         this.loadLeaderboard();
 
@@ -327,7 +332,8 @@ class Tetris {
         });
     }
 
-    drawNextPiece() {
+    drawNextPieces() {
+        // Draw first next piece
         this.nextCtx.fillStyle = '#000';
         this.nextCtx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
 
@@ -341,6 +347,27 @@ class Tetris {
                     this.nextCtx.fillRect(
                         offsetX + x * this.BLOCK_SIZE + 1,
                         offsetY + y * this.BLOCK_SIZE + 1,
+                        this.BLOCK_SIZE - 2,
+                        this.BLOCK_SIZE - 2
+                    );
+                }
+            });
+        });
+
+        // Draw second next piece
+        this.nextNextCtx.fillStyle = '#000';
+        this.nextNextCtx.fillRect(0, 0, this.nextNextCanvas.width, this.nextNextCanvas.height);
+
+        const offsetX2 = (this.nextNextCanvas.width - this.nextNextPiece.shape[0].length * this.BLOCK_SIZE) / 2;
+        const offsetY2 = (this.nextNextCanvas.height - this.nextNextPiece.shape.length * this.BLOCK_SIZE) / 2;
+
+        this.nextNextPiece.shape.forEach((row, y) => {
+            row.forEach((value, x) => {
+                if (value) {
+                    this.nextNextCtx.fillStyle = this.COLORS[this.nextNextPiece.color];
+                    this.nextNextCtx.fillRect(
+                        offsetX2 + x * this.BLOCK_SIZE + 1,
+                        offsetY2 + y * this.BLOCK_SIZE + 1,
                         this.BLOCK_SIZE - 2,
                         this.BLOCK_SIZE - 2
                     );
@@ -374,8 +401,9 @@ class Tetris {
             this.mergePiece();
             this.clearLines();
             this.currentPiece = this.nextPiece;
-            this.nextPiece = this.createPiece();
-            this.drawNextPiece();
+            this.nextPiece = this.nextNextPiece;
+            this.nextNextPiece = this.createPiece();
+            this.drawNextPieces();
 
             if (this.checkCollision()) {
                 this.endGame();
@@ -392,8 +420,9 @@ class Tetris {
         this.mergePiece();
         this.clearLines();
         this.currentPiece = this.nextPiece;
-        this.nextPiece = this.createPiece();
-        this.drawNextPiece();
+        this.nextPiece = this.nextNextPiece;
+        this.nextNextPiece = this.createPiece();
+        this.drawNextPieces();
 
         if (this.checkCollision()) {
             this.endGame();
