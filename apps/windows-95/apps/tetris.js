@@ -17,7 +17,7 @@ class Tetris {
         this.paused = false;
         this.gameLoop = null;
         this.dropCounter = 0;
-        this.dropInterval = 1000;
+        this.dropInterval = 800;
         this.lastTime = 0;
         this.playerName = null;
         this.supabase = null;
@@ -287,7 +287,7 @@ class Tetris {
         this.gameOver = false;
         this.paused = false;
         this.dropCounter = 0;
-        this.dropInterval = 1000;
+        this.dropInterval = 800;
         this.currentPiece = this.createPiece();
         this.nextPiece = this.createPiece();
         this.nextNextPiece = this.createPiece();
@@ -542,8 +542,10 @@ class Tetris {
         if (linesCleared > 0) {
             this.lines += linesCleared;
             this.score += [0, 40, 100, 300, 1200][linesCleared] * this.level;
-            this.level = Math.floor(this.lines / 10) + 1;
-            this.dropInterval = Math.max(100, 1000 - (this.level - 1) * 100);
+            // Speed up every 5 lines instead of 10 for better difficulty curve
+            this.level = Math.floor(this.lines / 5) + 1;
+            // Faster progression: starts at 800ms, decreases by 50ms per level, min 100ms
+            this.dropInterval = Math.max(100, 800 - (this.level - 1) * 50);
             this.updateStats();
             if (window.playSound) window.playSound('click');
         }
@@ -653,34 +655,40 @@ class Tetris {
     async loadLeaderboard() {
         const container = document.getElementById('tetris-leaderboard');
 
+        if (!container) return;
+
         if (!this.supabase) {
-            container.innerHTML = '<div style="color: #666; font-style: italic;">Loading...</div>';
+            container.innerHTML = '<div style="color: #666; font-style: italic;">Connecting...</div>';
             return;
         }
 
         try {
+            // Fetch global top 10 scores
             const { data: leaderboard, error } = await this.supabase
                 .from('tetris_leaderboard')
                 .select('name, score, lines, level, created_at')
                 .order('score', { ascending: false })
                 .limit(10);
 
-            if (error) throw error;
+            if (error) {
+                console.error('Leaderboard fetch error:', error);
+                throw error;
+            }
 
             if (!leaderboard || leaderboard.length === 0) {
-                container.innerHTML = '<div style="color: #666; font-style: italic;">No scores yet!</div>';
+                container.innerHTML = '<div style="color: #666; font-style: italic;">No scores yet! Be the first!</div>';
                 return;
             }
 
             container.innerHTML = leaderboard.map((entry, index) => `
                 <div style="display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #e0e0e0;">
-                    <span>${index + 1}. ${entry.name || 'Anonymous'}</span>
-                    <span style="font-weight: bold;">${entry.score}</span>
+                    <span style="flex: 1;">${index + 1}. ${entry.name || 'Anonymous'}</span>
+                    <span style="font-weight: bold;">${entry.score.toLocaleString()}</span>
                 </div>
             `).join('');
         } catch (error) {
             console.error('Error loading leaderboard:', error);
-            container.innerHTML = '<div style="color: #c00; font-style: italic;">Error loading scores</div>';
+            container.innerHTML = '<div style="color: #c00; font-style: italic;">Failed to load. Check console.</div>';
         }
     }
 }
