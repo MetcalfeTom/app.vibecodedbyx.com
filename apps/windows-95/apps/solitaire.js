@@ -107,7 +107,7 @@ class Solitaire {
         }
         return `<div style="position: absolute; top: ${top}px; width: 70px; height: 96px; background: #fff; border: 2px solid #000; font-family: Arial; ${selected ? 'box-shadow: 0 0 0 3px yellow;' : ''}">
             <div style="color: ${card.color}; padding: 4px; font-size: 14px; font-weight: bold;">${card.value}</div>
-            <div style="text-align: center; margin-top: 12px; font-size: 24px;">${card.suit}</div>
+            <div style="text-align: center; margin-top: 12px; font-size: 24px; color: ${card.color};">${card.suit}</div>
         </div>`;
     }
 
