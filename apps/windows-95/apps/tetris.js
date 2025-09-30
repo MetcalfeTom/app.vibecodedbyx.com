@@ -18,7 +18,7 @@ class Tetris {
         this.dropCounter = 0;
         this.dropInterval = 1000;
         this.lastTime = 0;
-        this.playerName = localStorage.getItem('tetris_player_name') || null;
+        this.playerName = null;
 
         this.COLS = 10;
         this.ROWS = 20;
@@ -39,9 +39,6 @@ class Tetris {
     }
 
     async initGame() {
-        if (!this.playerName) {
-            await this.askPlayerName();
-        }
         this.render();
         this.setupCanvas();
         this.resetGame();
@@ -56,11 +53,12 @@ class Tetris {
             const buttonsContainer = document.getElementById('dialogButtons');
 
             if (overlay && titleElement && iconElement && messageElement && buttonsContainer) {
-                titleElement.textContent = 'Tetris';
-                iconElement.textContent = '🎮';
+                titleElement.textContent = 'High Score!';
+                iconElement.textContent = '🏆';
                 messageElement.innerHTML = `
-                    <div style="margin-bottom: 10px;">Welcome to Tetris! Please enter your name:</div>
-                    <input type="text" id="tetris-name-input" maxlength="20" style="width: 100%; padding: 4px; border: 1px inset #808080; font-family: 'MS Sans Serif'; font-size: 11px;" />
+                    <div style="margin-bottom: 10px;">Congratulations! You made it to the leaderboard!</div>
+                    <div style="margin-bottom: 10px;">Enter your name:</div>
+                    <input type="text" id="tetris-name-input" maxlength="20" value="" style="width: 100%; padding: 4px; border: 1px inset #808080; font-family: 'MS Sans Serif'; font-size: 11px;" />
                 `;
 
                 buttonsContainer.innerHTML = '';
@@ -69,9 +67,8 @@ class Tetris {
                 okBtn.textContent = 'OK';
                 okBtn.onclick = () => {
                     const input = document.getElementById('tetris-name-input');
-                    const name = input.value.trim() || 'Player';
+                    const name = input.value.trim() || 'Anonymous';
                     this.playerName = name;
-                    localStorage.setItem('tetris_player_name', name);
                     window.closeDialog();
                     resolve();
                 };
@@ -89,8 +86,7 @@ class Tetris {
                     }
                 }, 100);
             } else {
-                this.playerName = prompt('Enter your name:') || 'Player';
-                localStorage.setItem('tetris_player_name', this.playerName);
+                this.playerName = prompt('Enter your name for the leaderboard:') || 'Anonymous';
                 resolve();
             }
         });
@@ -117,9 +113,9 @@ class Tetris {
 
                     <!-- Right: Info Panel -->
                     <div style="display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 180px;">
-                        <!-- Player & Stats -->
+                        <!-- Stats -->
                         <div style="border: 2px groove #808080; padding: 10px; background: #d4d0c8;">
-                            <div style="font-weight: bold; margin-bottom: 8px; color: #000080; font-size: 12px;">👤 <span id="tetris-player"></span></div>
+                            <div style="font-weight: bold; margin-bottom: 8px; color: #000080; font-size: 12px;">📊 Stats</div>
                             <table style="width: 100%; font-size: 11px; color: #000; border-spacing: 4px 2px;">
                                 <tr><td>Score:</td><td style="text-align: right; font-weight: bold;"><span id="tetris-score">0</span></td></tr>
                                 <tr><td>Lines:</td><td style="text-align: right; font-weight: bold;"><span id="tetris-lines">0</span></td></tr>
@@ -156,8 +152,6 @@ class Tetris {
                 </div>
             </div>
         `;
-
-        document.getElementById('tetris-player').textContent = this.playerName;
     }
 
     setupCanvas() {
@@ -491,7 +485,22 @@ class Tetris {
         const leaderboardKey = 'tetris_leaderboard';
         let leaderboard = JSON.parse(localStorage.getItem(leaderboardKey) || '[]');
 
-        // Find existing entry for this player
+        // Check if this score qualifies for the leaderboard
+        const isHighScore = leaderboard.length < 10 || this.score > leaderboard[leaderboard.length - 1].score;
+
+        if (!isHighScore && this.score > 0) {
+            // Score doesn't qualify for top 10
+            return;
+        }
+
+        // Ask for name only if it's a high score
+        if (this.score > 0) {
+            await this.askPlayerName();
+        } else {
+            return; // Don't save 0 scores
+        }
+
+        // Check if player already has an entry
         const existingIndex = leaderboard.findIndex(entry => entry.name === this.playerName);
 
         if (existingIndex >= 0) {
@@ -504,6 +513,9 @@ class Tetris {
                     level: this.level,
                     date: new Date().toISOString()
                 };
+            } else {
+                // Don't replace better score
+                return;
             }
         } else {
             // Add new entry
@@ -534,9 +546,9 @@ class Tetris {
         }
 
         container.innerHTML = leaderboard.map((entry, index) => `
-            <div style="display: flex; justify-content: space-between; padding: 2px 0; ${entry.name === this.playerName ? 'background: #ffff00; font-weight: bold;' : ''}">
+            <div style="display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #e0e0e0;">
                 <span>${index + 1}. ${entry.name}</span>
-                <span>${entry.score}</span>
+                <span style="font-weight: bold;">${entry.score}</span>
             </div>
         `).join('');
     }
