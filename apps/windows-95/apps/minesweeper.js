@@ -13,6 +13,8 @@ class Minesweeper {
         this.gameWon = false;
         this.firstClick = true;
         this.mineCount = this.mines;
+        this.touchTimer = null;
+        this.longPressDelay = 500; // 500ms for long press
 
         this.init();
     }
@@ -140,6 +142,12 @@ class Minesweeper {
 
                 cell.addEventListener('click', (e) => this.handleClick(x, y, e));
                 cell.addEventListener('contextmenu', (e) => this.handleRightClick(x, y, e));
+
+                // Touch event handlers for long-press flag on mobile
+                cell.addEventListener('touchstart', (e) => this.handleTouchStart(x, y, e));
+                cell.addEventListener('touchend', (e) => this.handleTouchEnd(x, y, e));
+                cell.addEventListener('touchcancel', (e) => this.handleTouchCancel());
+                cell.addEventListener('touchmove', (e) => this.handleTouchCancel());
 
                 if (this.revealed[y][x]) {
                     cell.style.border = '2px inset #9c9c9c';
@@ -356,6 +364,34 @@ class Minesweeper {
         this.updateMineDisplay();
         this.updateTimerDisplay(0);
         this.updateSmiley();
+    }
+
+    handleTouchStart(x, y, e) {
+        // Start timer for long press
+        this.touchTimer = setTimeout(() => {
+            // Long press detected - place/remove flag
+            this.handleRightClick(x, y, e);
+            this.touchTimer = null;
+        }, this.longPressDelay);
+    }
+
+    handleTouchEnd(x, y, e) {
+        // If timer still exists, it was a quick tap (not long press)
+        if (this.touchTimer !== null) {
+            clearTimeout(this.touchTimer);
+            this.touchTimer = null;
+            // Treat as regular click
+            this.handleClick(x, y, e);
+        }
+        // If timer is null, long press already triggered
+    }
+
+    handleTouchCancel() {
+        // Cancel the long press if touch is cancelled or moved
+        if (this.touchTimer !== null) {
+            clearTimeout(this.touchTimer);
+            this.touchTimer = null;
+        }
     }
 }
 
