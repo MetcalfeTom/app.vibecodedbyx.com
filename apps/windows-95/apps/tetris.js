@@ -637,17 +637,17 @@ class Tetris {
             // Check if this user already has an entry
             const { data: existingScores, error: existError } = await this.supabase
                 .from('tetris_leaderboard')
-                .select('id, name, score, lines, level')
+                .select('name, score, lines, level, user_id')
                 .eq('user_id', this.currentUser.id);
 
             if (existError) throw existError;
 
             if (existingScores && existingScores.length > 0) {
-                // User has existing score(s) - update only if this score is higher
-                const bestExisting = existingScores.reduce((best, curr) => curr.score > best.score ? curr : best);
+                // User has existing score - update only if this score is higher
+                const bestExisting = existingScores[0];
 
                 if (this.score > bestExisting.score) {
-                    // Update the existing entry
+                    // Update the existing entry using user_id
                     const { error: updateError } = await this.supabase
                         .from('tetris_leaderboard')
                         .update({
@@ -657,7 +657,7 @@ class Tetris {
                             level: this.level,
                             updated_at: new Date().toISOString()
                         })
-                        .eq('id', bestExisting.id);
+                        .eq('user_id', this.currentUser.id);
 
                     if (updateError) throw updateError;
                 }
