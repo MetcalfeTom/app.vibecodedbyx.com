@@ -341,7 +341,12 @@ class Tetris {
         this.lastTime = time;
         this.dropCounter += deltaTime;
 
-        // Check if piece is grounded
+        // Drop piece if interval elapsed
+        if (this.dropCounter > this.dropInterval) {
+            this.dropPiece();
+        }
+
+        // Check if piece is grounded (AFTER potential drop)
         this.currentPiece.y++;
         const grounded = this.checkCollision();
         this.currentPiece.y--;
@@ -361,10 +366,6 @@ class Tetris {
         } else {
             this.isGrounded = false;
             this.lockCounter = 0;
-        }
-
-        if (this.dropCounter > this.dropInterval) {
-            this.dropPiece();
         }
 
         this.draw();
