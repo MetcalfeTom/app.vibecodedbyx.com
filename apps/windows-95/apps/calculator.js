@@ -10,7 +10,7 @@ class Calculator {
     init() {
         this.container.innerHTML = `
             <div class="calculator" style="font-family: 'MS Sans Serif', sans-serif; width: 250px; height: 320px; background: #c0c0c0; padding: 5px;">
-                <div class="calc-display" id="calcDisplay" style="background: #000; color: lime; padding: 10px; text-align: right; font-size: 18px; margin: 5px; border: 1px inset #c0c0c0; font-family: 'Courier New', monospace;">0</div>
+                <div class="calc-display" id="calcDisplay" style="background: #c0c0c0; color: #000; padding: 10px; text-align: right; font-size: 18px; margin: 5px; border: 2px inset #808080; font-family: 'Courier New', monospace;">0</div>
                 <div class="calc-buttons" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 5px;">
                     ${this.createButton('C', 'calcClear()')}
                     ${this.createButton('±', 'calcOperation(\'±\')')}
