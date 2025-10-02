@@ -14,7 +14,7 @@ class Minesweeper {
         this.firstClick = true;
         this.mineCount = this.mines;
         this.touchTimer = null;
-        this.longPressDelay = 500; // 500ms for long press
+        this.longPressDelay = 300; // 300ms for long press
 
         this.init();
     }
