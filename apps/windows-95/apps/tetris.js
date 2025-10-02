@@ -22,6 +22,9 @@ class Tetris {
         this.playerName = null;
         this.supabase = null;
         this.currentUser = null;
+        this.lockDelay = 500; // 500ms lock delay after piece touches ground
+        this.lockCounter = 0;
+        this.isGrounded = false;
 
         this.COLS = 10;
         this.ROWS = 20;
@@ -288,6 +291,8 @@ class Tetris {
         this.paused = false;
         this.dropCounter = 0;
         this.dropInterval = 800;
+        this.lockCounter = 0;
+        this.isGrounded = false;
         this.currentPiece = this.createPiece();
         this.nextPiece = this.createPiece();
         this.nextNextPiece = this.createPiece();
@@ -335,6 +340,28 @@ class Tetris {
         const deltaTime = time - this.lastTime;
         this.lastTime = time;
         this.dropCounter += deltaTime;
+
+        // Check if piece is grounded
+        this.currentPiece.y++;
+        const grounded = this.checkCollision();
+        this.currentPiece.y--;
+
+        if (grounded) {
+            if (!this.isGrounded) {
+                // Just touched ground, start lock delay
+                this.isGrounded = true;
+                this.lockCounter = 0;
+            } else {
+                // Already grounded, count lock delay
+                this.lockCounter += deltaTime;
+                if (this.lockCounter > this.lockDelay) {
+                    this.lockPiece();
+                }
+            }
+        } else {
+            this.isGrounded = false;
+            this.lockCounter = 0;
+        }
 
         if (this.dropCounter > this.dropInterval) {
             this.dropPiece();
@@ -448,6 +475,9 @@ class Tetris {
         this.currentPiece.x += dir;
         if (this.checkCollision()) {
             this.currentPiece.x -= dir;
+        } else if (this.isGrounded) {
+            // Reset lock delay when successfully moved while grounded
+            this.lockCounter = 0;
         }
     }
 
@@ -459,6 +489,9 @@ class Tetris {
         this.currentPiece.shape = rotated;
         if (this.checkCollision()) {
             this.currentPiece.shape = originalShape;
+        } else if (this.isGrounded) {
+            // Reset lock delay when successfully rotated while grounded
+            this.lockCounter = 0;
         }
     }
 
@@ -466,18 +499,24 @@ class Tetris {
         this.currentPiece.y++;
         if (this.checkCollision()) {
             this.currentPiece.y--;
-            this.mergePiece();
-            this.clearLines();
-            this.currentPiece = this.nextPiece;
-            this.nextPiece = this.nextNextPiece;
-            this.nextNextPiece = this.createPiece();
-            this.drawNextPieces();
-
-            if (this.checkCollision()) {
-                this.endGame();
-            }
+            // Don't lock immediately, let lock delay handle it
         }
         this.dropCounter = 0;
+    }
+
+    lockPiece() {
+        this.mergePiece();
+        this.clearLines();
+        this.currentPiece = this.nextPiece;
+        this.nextPiece = this.nextNextPiece;
+        this.nextNextPiece = this.createPiece();
+        this.drawNextPieces();
+        this.isGrounded = false;
+        this.lockCounter = 0;
+
+        if (this.checkCollision()) {
+            this.endGame();
+        }
     }
 
     hardDrop() {
@@ -485,16 +524,8 @@ class Tetris {
             this.currentPiece.y++;
         }
         this.currentPiece.y--;
-        this.mergePiece();
-        this.clearLines();
-        this.currentPiece = this.nextPiece;
-        this.nextPiece = this.nextNextPiece;
-        this.nextNextPiece = this.createPiece();
-        this.drawNextPieces();
-
-        if (this.checkCollision()) {
-            this.endGame();
-        }
+        // Hard drop locks immediately, bypassing lock delay
+        this.lockPiece();
         this.dropCounter = 0;
     }
 
