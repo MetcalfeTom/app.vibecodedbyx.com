@@ -25,6 +25,7 @@ class Tetris {
         this.lockDelay = 500; // 500ms lock delay after piece touches ground
         this.lockCounter = 0;
         this.isGrounded = false;
+        this.spawnProtection = 0; // Grace period after spawning new piece
 
         this.COLS = 10;
         this.ROWS = 20;
@@ -293,6 +294,7 @@ class Tetris {
         this.dropInterval = 800;
         this.lockCounter = 0;
         this.isGrounded = false;
+        this.spawnProtection = 200; // Give initial piece spawn protection too
         this.currentPiece = this.createPiece();
         this.nextPiece = this.createPiece();
         this.nextNextPiece = this.createPiece();
@@ -341,31 +343,38 @@ class Tetris {
         this.lastTime = time;
         this.dropCounter += deltaTime;
 
+        // Spawn protection countdown
+        if (this.spawnProtection > 0) {
+            this.spawnProtection -= deltaTime;
+        }
+
         // Drop piece if interval elapsed
         if (this.dropCounter > this.dropInterval) {
             this.dropPiece();
         }
 
-        // Check if piece is grounded (AFTER potential drop)
-        this.currentPiece.y++;
-        const grounded = this.checkCollision();
-        this.currentPiece.y--;
+        // Check if piece is grounded (AFTER potential drop) - but only if spawn protection expired
+        if (this.spawnProtection <= 0) {
+            this.currentPiece.y++;
+            const grounded = this.checkCollision();
+            this.currentPiece.y--;
 
-        if (grounded) {
-            if (!this.isGrounded) {
-                // Just touched ground, start lock delay
-                this.isGrounded = true;
-                this.lockCounter = 0;
-            } else {
-                // Already grounded, count lock delay
-                this.lockCounter += deltaTime;
-                if (this.lockCounter > this.lockDelay) {
-                    this.lockPiece();
+            if (grounded) {
+                if (!this.isGrounded) {
+                    // Just touched ground, start lock delay
+                    this.isGrounded = true;
+                    this.lockCounter = 0;
+                } else {
+                    // Already grounded, count lock delay
+                    this.lockCounter += deltaTime;
+                    if (this.lockCounter > this.lockDelay) {
+                        this.lockPiece();
+                    }
                 }
+            } else {
+                this.isGrounded = false;
+                this.lockCounter = 0;
             }
-        } else {
-            this.isGrounded = false;
-            this.lockCounter = 0;
         }
 
         this.draw();
@@ -514,6 +523,7 @@ class Tetris {
         this.drawNextPieces();
         this.isGrounded = false;
         this.lockCounter = 0;
+        this.spawnProtection = 200; // 200ms grace period for new piece
 
         if (this.checkCollision()) {
             this.endGame();
