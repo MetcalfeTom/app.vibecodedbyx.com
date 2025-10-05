@@ -1,7 +1,9 @@
 # SpaceCraft Notes
 
 ## Log
-- Very gradual acceleration (0.002) from 0 to max cruising speed (2.5), boost allows higher (4.0)
+- Limited boost fuel system (drains 0.5/frame, recharges 0.15/frame) with color-coded UI
+- Very gradual acceleration (0.002) from 0 to max cruising speed (2.5), boost allows much higher (6.0)
+- Boost makes significant difference and is limited resource - strategic use required
 - Takes a long time to reach top speed for realistic space flight feel
 - Turning gradually slows ship down (97% speed multiplier per frame)
 - Added camera inertia with smooth lerp follow (cameraLerpFactor: 0.08) for more cinematic flight feel
