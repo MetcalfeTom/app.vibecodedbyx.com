@@ -7,6 +7,7 @@
 - Infinite stars: Replaced single star cloud with 3x3x3 tiling star cubes that wrap and reseed, plus distant hue points anchored to camera for skybox-like depth.
 - Big solids improved: Larger sizes, unique per-solid color, fewer cubes via irregular trig noise and decimation; low LOD uses bigger opaque cubes (no wireframe) so faces are visible from afar.
 - Twinkling sparks: Added variable-density tiling spark fields with per-point twinkle animation; tiles wrap and reseed based on area hash for varied density.
+- Smooth LOD: Big voxel solids now crossfade between low/high detail instead of popping at a distance threshold.
 - Background stars polish: Star tiles now additive; added very big, fuzzy background star sprites (camera-anchored) with gentle opacity pulse for depth.
 - Blocky ship redesign: Replaced cone ship with stacked box hull, block wings, and glassy canopy for Minecraft vibe.
 - Big solid voxel bodies: Added several large contiguous-cube planetoids with collision.
