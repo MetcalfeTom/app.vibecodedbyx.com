@@ -11,6 +11,8 @@
 - Scale pass: Increased sizes across the board — larger voxel asteroids (with random scale), longer/wider nebula cube strings (fewer but bigger), and much larger big solids with coarser steps to keep perf.
 - Subtler shading: Raised ambient and lowered directional sun for softer face contrast.
 - Per-cube collision on big solids so you can fly into holes; uses hashed cube sets and local AABB checks near the ship.
+- Sparser environment: Reduced asteroid and nebula counts; pushed farther out with distance-based opacity fade so they’re hinted at from far away without clutter.
+- Regional variation: Object placement varies by coarse space regions via hashed density, creating clusters and voids.
 - Background stars polish: Star tiles now additive; added very big, fuzzy background star sprites (camera-anchored) with gentle opacity pulse for depth.
 - Blocky ship redesign: Replaced cone ship with stacked box hull, block wings, and glassy canopy for Minecraft vibe.
 - Big solid voxel bodies: Added several large contiguous-cube planetoids with collision.
