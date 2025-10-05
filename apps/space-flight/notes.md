@@ -1,13 +1,14 @@
 # SpaceCraft Notes
 
 ## Log
+- **Boost acceleration boost**: Boost now accelerates 4x faster (0.008 vs 0.002) and reaches higher top speed (8.0 vs 6.0)
 - **Rotational inertia update**: Much slower rotation start (0.003) with gradual ramp-up, continues briefly after release for inertia feel
 - Rotation acceleration: now 0.0003 (was 0.0008) for much slower buildup
 - Max turn speed reduced to 0.025 (was 0.035) - slower overall rotation
 - Added turnDeceleration (0.0005) so rotation gradually stops instead of instant
 - Turning decelerates ship more aggressively (0.985 vs 0.995)
 - Limited boost fuel system (drains 0.5/frame, recharges 0.15/frame) with color-coded UI
-- Very gradual acceleration (0.002) from 0 to max cruising speed (2.5), boost allows much higher (6.0)
+- Very gradual acceleration (0.002) from 0 to max cruising speed (2.5)
 - Boost makes significant difference and is limited resource - strategic use required
 - Takes a long time to reach top speed for realistic space flight feel
 - Added camera inertia with smooth lerp follow (cameraLerpFactor: 0.08) for more cinematic flight feel
