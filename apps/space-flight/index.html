@@ -158,6 +158,43 @@
             transition: width 0.15s ease-out, background-color 0.2s ease-out;
         }
 
+        /* Health meter (top-left under speed) */
+        #healthMeter {
+            width: 220px;
+            height: 10px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.08);
+            margin-top: 8px;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        #healthFill {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #22ff55, #118833);
+            transition: width 0.12s ease-out, background-color 0.2s ease-out;
+        }
+
+        /* Death overlay */
+        #deathOverlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 0, 0, 0.2);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 28px;
+            text-shadow: 0 0 20px rgba(255,0,0,0.9);
+            z-index: 200;
+        }
+        #deathOverlay .inner {
+            background: rgba(0,0,0,0.5);
+            padding: 20px 28px;
+            border: 1px solid rgba(255,0,0,0.5);
+            border-radius: 10px;
+        }
+
         /* left/right containers removed in favor of diamond layout */
 
         @media (max-width: 768px) {
@@ -171,6 +208,7 @@
         <div>⛏️ SpaceCraft</div>
         <div id="speed">Speed: 0</div>
         <!-- old text boost removed in favor of subtle bar -->
+        <div id="healthMeter" aria-label="Hull integrity"><div id="healthFill" style="width: 100%"></div></div>
     </div>
 
     <div id="backlink">
@@ -190,6 +228,8 @@
         <button id="btn-right">→</button>
         <button id="btn-down">↓</button>
     </div>
+
+    <div id="deathOverlay"><div class="inner">Ship Destroyed — Tap or press R to respawn</div></div>
 
     <script type="importmap">
     {
@@ -216,37 +256,45 @@
         scene.background = new THREE.Color(0x000000);
         scene.fog = new THREE.FogExp2(0x000022, 0.0005);
 
-        // Spaceship
+        // Spaceship (Minecraft-style blocky)
         const shipGroup = new THREE.Group();
+        const blockMatCyan = new THREE.MeshPhongMaterial({ color: 0x00e6ff, emissive: 0x006688, flatShading: true });
+        const blockMatMag = new THREE.MeshPhongMaterial({ color: 0xff33ff, emissive: 0x660066, flatShading: true });
+        const blockMatDark = new THREE.MeshPhongMaterial({ color: 0x223344, emissive: 0x111111, flatShading: true });
 
-        // Main body
-        const bodyGeometry = new THREE.ConeGeometry(0.5, 2, 4);
-        const bodyMaterial = new THREE.MeshPhongMaterial({
-            color: 0x00ffff,
-            emissive: 0x0088ff,
-            shininess: 100
-        });
-        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        body.rotation.x = Math.PI / 2;
-        shipGroup.add(body);
+        // Hull made of stacked boxes
+        const hull = new THREE.Group();
+        const hullSegments = [
+            { w: 1.2, h: 0.7, d: 1.2, z: -0.4, mat: blockMatCyan },
+            { w: 1.0, h: 0.7, d: 1.2, z: -1.6, mat: blockMatCyan },
+            { w: 0.8, h: 0.7, d: 1.2, z: -2.6, mat: blockMatCyan }
+        ];
+        for (const seg of hullSegments) {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(seg.w, seg.h, seg.d), seg.mat);
+            m.position.set(0, 0, seg.z);
+            hull.add(m);
+        }
+        // Canopy block
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 0.7), new THREE.MeshPhongMaterial({ color: 0x88ffff, emissive: 0x224444, transparent: true, opacity: 0.9 }));
+        canopy.position.set(0, 0.4, -1.0);
+        hull.add(canopy);
+        // Tail block
+        const tail = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 0.6), blockMatDark);
+        tail.position.set(0, 0, 0.7);
+        hull.add(tail);
+        shipGroup.add(hull);
 
-        // Wings
-        const wingGeometry = new THREE.BoxGeometry(2, 0.1, 0.8);
-        const wingMaterial = new THREE.MeshPhongMaterial({
-            color: 0xff00ff,
-            emissive: 0x880088
-        });
-        const wings = new THREE.Mesh(wingGeometry, wingMaterial);
-        wings.position.z = 0.3;
-        shipGroup.add(wings);
+        // Blocky wings
+        const wingL = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.15, 0.7), blockMatMag);
+        wingL.position.set(-1.0, 0, -0.3);
+        const wingR = wingL.clone();
+        wingR.position.x *= -1;
+        shipGroup.add(wingL);
+        shipGroup.add(wingR);
 
         // Engine glow
         const engineGeometry = new THREE.SphereGeometry(0.3, 16, 16);
-        const engineMaterial = new THREE.MeshBasicMaterial({
-            color: 0xff6600,
-            transparent: true,
-            opacity: 0.8
-        });
+        const engineMaterial = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.8 });
         const engine = new THREE.Mesh(engineGeometry, engineMaterial);
         engine.position.z = 1.2;
         shipGroup.add(engine);
@@ -435,6 +483,47 @@
             aliens.push(ufo);
         }
 
+        // ===== Big solid voxel bodies (contiguous cubes) =====
+        const bigSolids = [];
+        function createVoxelSolid(radius = 60, step = 6) {
+            const g = new THREE.Group();
+            const matStone = new THREE.MeshPhongMaterial({ color: 0x6f6f6f, emissive: 0x1a1a1a, flatShading: true });
+            for (let x = -radius; x <= radius; x += step) {
+                for (let y = -radius; y <= radius; y += step) {
+                    for (let z = -radius; z <= radius; z += step) {
+                        const r2 = x*x + y*y + z*z;
+                        if (r2 <= (radius*radius)) {
+                            const cube = new THREE.Mesh(new THREE.BoxGeometry(step, step, step), matStone);
+                            cube.position.set(x, y, z);
+                            g.add(cube);
+                        }
+                    }
+                }
+            }
+            // slight surface noise lumps
+            for (let i = 0; i < 80; i++) {
+                const b = new THREE.Mesh(new THREE.BoxGeometry(step*2, step*2, step*2), matStone);
+                const ang = Math.random() * Math.PI * 2;
+                const elev = (Math.random()-0.5) * Math.PI;
+                const rr = radius + step*2;
+                b.position.set(Math.cos(ang)*Math.cos(elev)*rr, Math.sin(elev)*rr, Math.sin(ang)*Math.cos(elev)*rr);
+                g.add(b);
+            }
+            g.userData.collisionRadius = radius + step * 2.5;
+            return g;
+        }
+
+        for (let i = 0; i < 5; i++) {
+            const R = 60 + Math.random()*60; // 60-120
+            const solid = createVoxelSolid(R, 6);
+            const ang = Math.random()*Math.PI*2;
+            const dist = 2200 + Math.random()*3800;
+            const yy = (Math.random()-0.5) * ASTEROID_YSPAN;
+            solid.position.set(Math.cos(ang)*dist, yy, Math.sin(ang)*dist);
+            worldGroup.add(solid);
+            bigSolids.push(solid);
+        }
+
         // ===== Strange occasional anomalies =====
         const anomalies = [];
         function createAnomaly() {
@@ -528,6 +617,9 @@
         let currentSpeed = 0;
         const velocity = new THREE.Vector3();
         let physicsMode = false; // false = Arcade (current), true = Physics (inertial)
+        const shipRadius = 1.2; // approximate radius for collision
+        let shipHealth = 100;
+        let isDead = false;
 
         // Mode toggle helpers
         const modeBtn = document.getElementById('modeToggle');
@@ -599,6 +691,11 @@
         function animate() {
             requestAnimationFrame(animate);
 
+            if (isDead) {
+                renderer.render(scene, camera);
+                return;
+            }
+
             // ===== ROTATION: Apply rotations in ship's local space =====
             // Track if we're turning for speed slowdown
             const isTurning = keys['a'] || keys['arrowleft'] || keys['d'] || keys['arrowright'] ||
@@ -651,6 +748,9 @@
                 boostFuel = Math.min(maxBoostFuel, boostFuel + boostRechargeRate);
             }
 
+            // Remember previous world position for solid collision resolution
+            const lastWorldPos = worldGroup.position.clone();
+
             if (physicsMode) {
                 // Inertial physics: rotation doesn't change velocity. Boost applies thrust along facing.
                 if (isBoosting) {
@@ -680,6 +780,41 @@
                 }
 
                 worldGroup.position.add(forward.multiplyScalar(-currentSpeed));
+            }
+
+            // ===== COLLISIONS with big solids =====
+            let collided = false;
+            for (const solid of bigSolids) {
+                const wx = solid.position.x + worldGroup.position.x;
+                const wy = solid.position.y + worldGroup.position.y;
+                const wz = solid.position.z + worldGroup.position.z;
+                const d = Math.sqrt(wx*wx + wy*wy + wz*wz);
+                const r = solid.userData.collisionRadius + shipRadius;
+                if (d < r) {
+                    collided = true;
+                    break;
+                }
+            }
+            if (collided) {
+                // revert position to prevent penetration
+                worldGroup.position.copy(lastWorldPos);
+                // apply damage based on speed
+                const speedScalar = physicsMode ? velocity.length() : currentSpeed;
+                const impact = Math.max(0.6, Math.min(3.0, speedScalar * 1.2 + (isBoosting ? 0.8 : 0)));
+                shipHealth = Math.max(0, shipHealth - impact);
+                // slow down
+                if (physicsMode) {
+                    velocity.multiplyScalar(0.3);
+                } else {
+                    currentSpeed *= 0.4;
+                }
+                // show quick engine flare down
+                engine.material.opacity = 0.3;
+                if (shipHealth <= 0) {
+                    isDead = true;
+                    const overlay = document.getElementById('deathOverlay');
+                    if (overlay) overlay.style.display = 'flex';
+                }
             }
 
             // ===== CAMERA: Smooth follow with inertia =====
@@ -768,11 +903,35 @@
                 boostFill.style.background = `linear-gradient(90deg, ${color}, ${color === '#00ffff' ? '#00b3b3' : color})`;
             }
 
+            // Update health UI
+            const healthFill = document.getElementById('healthFill');
+            if (healthFill) {
+                healthFill.style.width = `${shipHealth}%`;
+                const hcolor = shipHealth < 25 ? '#ff3333' : (shipHealth < 60 ? '#ffaa00' : '#22ff55');
+                healthFill.style.background = `linear-gradient(90deg, ${hcolor}, ${hcolor})`;
+            }
+
             // Render
             renderer.render(scene, camera);
         }
 
         animate();
+
+        // Respawn handler
+        const deathOverlay = document.getElementById('deathOverlay');
+        function respawn() {
+            if (!isDead) return;
+            isDead = false;
+            shipHealth = 100;
+            currentSpeed = 0;
+            velocity.set(0,0,0);
+            worldGroup.position.set(0,0,0);
+            if (deathOverlay) deathOverlay.style.display = 'none';
+        }
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'r') respawn();
+        });
+        window.addEventListener('pointerdown', () => respawn());
     </script>
 </body>
 </html>

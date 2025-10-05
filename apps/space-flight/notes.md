@@ -1,6 +1,9 @@
 # SpaceCraft Notes
 
 ## Log
+- Blocky ship redesign: Replaced cone ship with stacked box hull, block wings, and glassy canopy for Minecraft vibe.
+- Big solid voxel bodies: Added several large contiguous-cube planetoids with collision.
+- Collision + damage: Hull takes damage on impact with big solids; on 0% you "die" and can respawn (R or tap). Velocity/speed dampens on impact.
 - UI polish: Moved Mode toggle under stream link (top-right) and replaced Boost text with a subtle progress bar below it; bar color shifts from cyan→amber→red as fuel lowers.
 - Environment overhaul: Fewer nebulas but now as Minecraft-like cube strings spread in wide space (1.8–4km out), with gentle drift and infinite wrapping.
 - Generative objects further out: Increased voxel asteroids (140) and UFOs (35), placed in distant cylindrical shell (1.5–5km), with X/Z/Y wrapping to maintain density everywhere.
@@ -33,6 +36,8 @@
 - Could add more voxel object variety
 - Potential for shooting mechanics
  - Procedural chunking for spawn/despawn instead of wrapping if perf dips on mobile
+ - Per-face greedy meshing on solids to reduce draw calls
+ - Screen shake and impact sparks on collision
 
 ## Technical Notes
 - Uses THREE.js with importmap
