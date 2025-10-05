@@ -387,6 +387,76 @@
         const farHues = new THREE.Points(farGeom, farMat);
         camera.add(farHues);
 
+        // ===== Sparse twinkling spark tiles (variable density) =====
+        const SPARK_TILE = STAR_TILE;
+        const SPARK_GRID = STAR_GRID;
+        const sparkTiles = [];
+        const sparkBaseCount = 140; // not too dense
+        function hash01(ix, iy, iz) {
+            const h = ((ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)) >>> 0;
+            return (h % 1000) / 1000;
+        }
+        function tileDensity(ix, iy, iz) {
+            // Vary density by area; keep within 0.3–1.0
+            return 0.3 + 0.7 * hash01(ix, iy, iz);
+        }
+        function createSparkTile(ix, iy, iz) {
+            const density = tileDensity(ix, iy, iz);
+            const count = Math.floor(40 + sparkBaseCount * density);
+            const geom = new THREE.BufferGeometry();
+            const positions = new Float32Array(count * 3);
+            const colors = new Float32Array(count * 3);
+            const phases = new Float32Array(count);
+            const speeds = new Float32Array(count);
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            const mat = new THREE.PointsMaterial({ size: 0.9, vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+            const pts = new THREE.Points(geom, mat);
+            // internal buffers for animation
+            const baseColors = new Float32Array(count * 3);
+            function reseed(nx = ix, ny = iy, nz = iz) {
+                // update grid index
+                pts.userData.grid = { ix: nx, iy: ny, iz: nz };
+                const dens = tileDensity(nx, ny, nz);
+                // reuse existing count; fill new random positions and base colors
+                for (let i = 0; i < count; i++) {
+                    positions[i*3 + 0] = (Math.random() - 0.5) * SPARK_TILE;
+                    positions[i*3 + 1] = (Math.random() - 0.5) * SPARK_TILE;
+                    positions[i*3 + 2] = (Math.random() - 0.5) * SPARK_TILE;
+                    // slightly brighter in denser tiles
+                    const hue = 0.55 + Math.random() * 0.2;
+                    const sat = 0.35 + dens * 0.2;
+                    const light = 0.75 + Math.random() * 0.18;
+                    const c = new THREE.Color().setHSL(hue, sat, light);
+                    baseColors[i*3 + 0] = c.r;
+                    baseColors[i*3 + 1] = c.g;
+                    baseColors[i*3 + 2] = c.b;
+                    // initialize animated color with base
+                    colors[i*3 + 0] = baseColors[i*3 + 0];
+                    colors[i*3 + 1] = baseColors[i*3 + 1];
+                    colors[i*3 + 2] = baseColors[i*3 + 2];
+                    // twinkle params
+                    phases[i] = Math.random() * Math.PI * 2;
+                    speeds[i] = 0.008 + Math.random() * 0.02;
+                }
+                geom.getAttribute('position').needsUpdate = true;
+                geom.getAttribute('color').needsUpdate = true;
+            }
+            pts.userData = { baseColors, phases, speeds, reseed, grid: { ix, iy, iz } };
+            reseed(ix, iy, iz);
+            return pts;
+        }
+        for (let ix = -1; ix <= 1; ix++) {
+            for (let iy = -1; iy <= 1; iy++) {
+                for (let iz = -1; iz <= 1; iz++) {
+                    const tile = createSparkTile(ix, iy, iz);
+                    tile.position.set(ix * SPARK_TILE, iy * SPARK_TILE, iz * SPARK_TILE);
+                    worldGroup.add(tile);
+                    sparkTiles.push(tile);
+                }
+            }
+        }
+
         // ===== Nebula strings (Minecraft-like cube chains) =====
         const NEBULA_SPAN = 6000; // wide wrap span for infinite effect
         const NEBULA_YSPAN = 1600;
@@ -983,6 +1053,45 @@
                 if (dz > STAR_TILE * 1.5) { tile.position.z -= STAR_TILE * STAR_GRID; reseeded = true; }
                 else if (dz < -STAR_TILE * 1.5) { tile.position.z += STAR_TILE * STAR_GRID; reseeded = true; }
                 if (reseeded && tile.userData.reseed) tile.userData.reseed();
+            }
+
+            // Wrap + reseed spark tiles, and animate twinkle
+            for (const tile of sparkTiles) {
+                let reseeded = false;
+                const dx = tile.position.x + worldGroup.position.x;
+                const dy = tile.position.y + worldGroup.position.y;
+                const dz = tile.position.z + worldGroup.position.z;
+                if (dx > SPARK_TILE * 1.5) { tile.position.x -= SPARK_TILE * SPARK_GRID; reseeded = true; }
+                else if (dx < -SPARK_TILE * 1.5) { tile.position.x += SPARK_TILE * SPARK_GRID; reseeded = true; }
+                if (dy > SPARK_TILE * 1.5) { tile.position.y -= SPARK_TILE * SPARK_GRID; reseeded = true; }
+                else if (dy < -SPARK_TILE * 1.5) { tile.position.y += SPARK_TILE * SPARK_GRID; reseeded = true; }
+                if (dz > SPARK_TILE * 1.5) { tile.position.z -= SPARK_TILE * SPARK_GRID; reseeded = true; }
+                else if (dz < -SPARK_TILE * 1.5) { tile.position.z += SPARK_TILE * SPARK_GRID; reseeded = true; }
+
+                if (reseeded && tile.userData && tile.userData.reseed) {
+                    const gi = Math.round(tile.position.x / SPARK_TILE);
+                    const gj = Math.round(tile.position.y / SPARK_TILE);
+                    const gk = Math.round(tile.position.z / SPARK_TILE);
+                    tile.userData.reseed(gi, gj, gk);
+                }
+
+                // Twinkle animation: modulate RGB by sinus factor
+                const geom = tile.geometry;
+                const col = geom.getAttribute('color');
+                const base = tile.userData.baseColors;
+                const phases = tile.userData.phases;
+                const speeds = tile.userData.speeds;
+                if (col && base && phases && speeds) {
+                    for (let i = 0; i < phases.length; i++) {
+                        phases[i] += speeds[i];
+                        let f = 0.65 + 0.35 * Math.sin(phases[i]);
+                        const j = i * 3;
+                        col.array[j + 0] = base[j + 0] * f;
+                        col.array[j + 1] = base[j + 1] * f;
+                        col.array[j + 2] = base[j + 2] * f;
+                    }
+                    col.needsUpdate = true;
+                }
             }
 
             // LOD switching for big solids (far = vague low detail, near = high detail)
