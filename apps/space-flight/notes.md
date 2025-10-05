@@ -1,8 +1,11 @@
 # SpaceCraft Notes
 
 ## Log
-- Rotation acceleration: starts slow (0.008) and speeds up to max (0.035) when held
-- Turning slows ship down more gradually now (0.995 vs 0.97 - 6x gentler)
+- **Rotational inertia update**: Much slower rotation start (0.003) with gradual ramp-up, continues briefly after release for inertia feel
+- Rotation acceleration: now 0.0003 (was 0.0008) for much slower buildup
+- Max turn speed reduced to 0.025 (was 0.035) - slower overall rotation
+- Added turnDeceleration (0.0005) so rotation gradually stops instead of instant
+- Turning decelerates ship more aggressively (0.985 vs 0.995)
 - Limited boost fuel system (drains 0.5/frame, recharges 0.15/frame) with color-coded UI
 - Very gradual acceleration (0.002) from 0 to max cruising speed (2.5), boost allows much higher (6.0)
 - Boost makes significant difference and is limited resource - strategic use required
