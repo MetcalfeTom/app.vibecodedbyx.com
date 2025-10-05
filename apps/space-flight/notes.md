@@ -16,7 +16,7 @@
 - Nebulas/rocks sparser + farther: dropped nebula targets to ~10 and asteroids to ~50 (later ~30); moved placement out to 3–11km+ and added far-hint sprites + distance fades for early subtle visibility.
 - Big solids: reduced count to ~2, increased size, shared holes across LODs so low-res approximates high-res shape; crossfade tuned for smoother, earlier transition.
 - Near-dust particles: Spark tiles now fade strongly with distance to the ship so they pop only when you fly through them, while remaining very subtle at range.
-- Nebulas farther + denser (fewer): Reduced count (~6), increased per-string density and far-hint sprite size/opacity; crossfade distances increased (up to ~13k) so they’re visible from much further.
+- Nebulas reverted: Switched back to additive sphere cloud clusters (no flare sprites), placed far (12–24km) with gentle drift and large wrap span. Visible from much further while staying subtle.
 - Camera inertia: Added acceleration-aware camera follow (more lag when speeding up) for a weightier feel.
  - Collisions: Impact with big solids now kills instantly; per-cube collision still allows flying through holes.
  - Rocks update: Much rarer (~30), larger scale, slower rotation, and matte material with slightly higher emissive to reduce harsh light contrast across faces.
