@@ -1,6 +1,7 @@
 # SpaceCraft Notes
 
 ## Log
+- Added speed inertia (speedLerpFactor: 0.1) for smooth boost acceleration/deceleration
 - Added camera inertia with smooth lerp follow (cameraLerpFactor: 0.08) for more cinematic flight feel
 - Ship rotates in place, world moves relative to ship
 - Voxel asteroids and blocky UFOs in dark starfield
