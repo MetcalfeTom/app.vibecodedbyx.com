@@ -1,7 +1,8 @@
 # SpaceCraft Notes
 
 ## Log
-- Added speed inertia (speedLerpFactor: 0.1) for smooth boost acceleration/deceleration
+- Gradual acceleration from 0 to max cruising speed (0.7), boost allows higher (1.3)
+- Turning gradually slows ship down (97% speed multiplier per frame)
 - Added camera inertia with smooth lerp follow (cameraLerpFactor: 0.08) for more cinematic flight feel
 - Ship rotates in place, world moves relative to ship
 - Voxel asteroids and blocky UFOs in dark starfield
