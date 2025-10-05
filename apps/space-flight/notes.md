@@ -8,6 +8,7 @@
 - Big solids improved: Larger sizes, unique per-solid color, fewer cubes via irregular trig noise and decimation; low LOD uses bigger opaque cubes (no wireframe) so faces are visible from afar.
 - Twinkling sparks: Added variable-density tiling spark fields with per-point twinkle animation; tiles wrap and reseed based on area hash for varied density.
 - Smooth LOD: Big voxel solids now crossfade between low/high detail instead of popping at a distance threshold.
+- Scale pass: Increased sizes across the board — larger voxel asteroids (with random scale), longer/wider nebula cube strings (fewer but bigger), and much larger big solids with coarser steps to keep perf.
 - Background stars polish: Star tiles now additive; added very big, fuzzy background star sprites (camera-anchored) with gentle opacity pulse for depth.
 - Blocky ship redesign: Replaced cone ship with stacked box hull, block wings, and glassy canopy for Minecraft vibe.
 - Big solid voxel bodies: Added several large contiguous-cube planetoids with collision.
