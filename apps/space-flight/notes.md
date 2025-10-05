@@ -1,6 +1,7 @@
 # SpaceCraft Notes
 
 ## Log
+- Boost stronger: increased maxBoostSpeed to 12.0 and boostAcceleration to 0.02 for a snappier, faster boost.
 - **Boost acceleration boost**: Boost now accelerates 4x faster (0.008 vs 0.002) and reaches higher top speed (8.0 vs 6.0)
 - **Rotational inertia update**: Much slower rotation start (0.003) with gradual ramp-up, continues briefly after release for inertia feel
 - Rotation acceleration: now 0.0003 (was 0.0008) for much slower buildup
