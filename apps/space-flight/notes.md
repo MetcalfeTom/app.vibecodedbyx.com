@@ -18,6 +18,7 @@
 - Near-dust particles: Spark tiles now fade strongly with distance to the ship so they pop only when you fly through them, while remaining very subtle at range.
 - Nebulas farther + denser (fewer): Reduced count (~6), increased per-string density and far-hint sprite size/opacity; crossfade distances increased (up to ~13k) so they’re visible from much further.
 - Camera inertia: Added acceleration-aware camera follow (more lag when speeding up) for a weightier feel.
+ - Collisions: Impact with big solids now kills instantly; per-cube collision still allows flying through holes.
  - Rocks update: Much rarer (~30), larger scale, slower rotation, and matte material with slightly higher emissive to reduce harsh light contrast across faces.
 - Background stars polish: Star tiles now additive; added very big, fuzzy background star sprites (camera-anchored) with gentle opacity pulse for depth.
 - Blocky ship redesign: Replaced cone ship with stacked box hull, block wings, and glassy canopy for Minecraft vibe.
