@@ -1,6 +1,7 @@
 # SpaceCraft Notes
 
 ## Log
+- Added Physics mode (inertial): turning doesn't affect velocity; ship coasts until you boost. Boost applies thrust along facing, so it can accelerate, decelerate (retro-burn), or curve your trajectory naturally. Toggle via Mode button (top-left) or UI.
 - Mobile UX: Inverted up/down mapping (↑=S, ↓=W), moved Boost to right side of diamond, and ensured on-screen controls hidden on desktop and shown on mobile only.
 - Mobile controls: Replaced split bars with centered diamond grid (↑, ←, ⚡, →, ↓) for better fit.
 - Boost stronger: increased maxBoostSpeed to 12.0 and boostAcceleration to 0.02 for a snappier, faster boost.
@@ -32,3 +33,4 @@
 - Camera smoothly follows ship using lerp for position and up vector
 - World group contains all objects that move relative to ship
 - Ship stays at origin and rotates, world translates
+ - Physics mode uses a velocity vector; arcade mode uses scalar speed with forward direction

@@ -41,6 +41,19 @@
             z-index: 100;
             pointer-events: none;
         }
+        /* Allow clicking the mode toggle while keeping UI overlay non-interactive */
+        #modeToggle {
+            pointer-events: auto;
+            margin-top: 8px;
+            font-size: 12px;
+            color: #001a1a;
+            background: #00ffff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+        }
+        #modeToggle:hover { filter: brightness(0.9); }
 
         #controls {
             position: fixed;
@@ -139,6 +152,7 @@
         <div>⛏️ SpaceCraft</div>
         <div id="speed">Speed: 0</div>
         <div id="boost">Boost: 100%</div>
+        <button id="modeToggle" title="Toggle Arcade/Physics">Mode: Arcade</button>
     </div>
 
     <div id="backlink">
@@ -373,6 +387,7 @@
         const maxBoostSpeed = 12.0; // Stronger boost top speed
         const acceleration = 0.002;
         const boostAcceleration = 0.02; // Stronger acceleration when boosting
+        const maxPhysicsSpeed = 20.0; // Cap for realistic mode
         const minTurnSpeed = 0.003; // Much slower start
         const maxTurnSpeed = 0.025; // Lower max rotation speed
         const turnAcceleration = 0.0003; // Slower acceleration = more rotational inertia
@@ -391,8 +406,31 @@
         // Camera inertia
         const cameraLerpFactor = 0.08; // Lower = more lag, higher = more responsive
 
-        // Speed inertia
+        // Speed/velocity
         let currentSpeed = 0;
+        const velocity = new THREE.Vector3();
+        let physicsMode = false; // false = Arcade (current), true = Physics (inertial)
+
+        // Mode toggle helpers
+        const modeBtn = document.getElementById('modeToggle');
+        function updateModeUI() {
+            modeBtn.textContent = `Mode: ${physicsMode ? 'Physics' : 'Arcade'}`;
+        }
+        function setMode(next) {
+            if (next === physicsMode) return;
+            physicsMode = next;
+            // Translate scalar speed to vector and back on mode switches
+            const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+            if (physicsMode) {
+                velocity.copy(fwd.multiplyScalar(currentSpeed));
+            } else {
+                currentSpeed = velocity.length();
+                velocity.set(0, 0, 0);
+            }
+            updateModeUI();
+        }
+        updateModeUI();
+        modeBtn.addEventListener('click', () => setMode(!physicsMode));
 
         // Input handling
         window.addEventListener('keydown', (e) => {
@@ -495,25 +533,36 @@
                 boostFuel = Math.min(maxBoostFuel, boostFuel + boostRechargeRate);
             }
 
-            // Gradual acceleration with max speed
-            const maxSpeed = isBoosting ? maxBoostSpeed : maxCruisingSpeed;
-            const currentAcceleration = isBoosting ? boostAcceleration : acceleration;
+            if (physicsMode) {
+                // Inertial physics: rotation doesn't change velocity. Boost applies thrust along facing.
+                if (isBoosting) {
+                    const thrust = forward.clone().multiplyScalar(boostAcceleration);
+                    velocity.add(thrust);
+                }
+                // Clamp max speed for stability
+                const vLen = velocity.length();
+                if (vLen > maxPhysicsSpeed) {
+                    velocity.setLength(maxPhysicsSpeed);
+                }
+                // Move world opposite to velocity
+                worldGroup.position.add(velocity.clone().multiplyScalar(-1));
+            } else {
+                // Arcade mode: gradual auto-accel + boost, turning slows
+                const maxSpeed = isBoosting ? maxBoostSpeed : maxCruisingSpeed;
+                const currentAcceleration = isBoosting ? boostAcceleration : acceleration;
 
-            // Accelerate up to max speed
-            if (currentSpeed < maxSpeed) {
-                currentSpeed = Math.min(currentSpeed + currentAcceleration, maxSpeed);
-            } else if (currentSpeed > maxSpeed) {
-                // Decelerate if we were boosting and released
-                currentSpeed = Math.max(currentSpeed - acceleration, maxSpeed);
+                if (currentSpeed < maxSpeed) {
+                    currentSpeed = Math.min(currentSpeed + currentAcceleration, maxSpeed);
+                } else if (currentSpeed > maxSpeed) {
+                    currentSpeed = Math.max(currentSpeed - acceleration, maxSpeed);
+                }
+
+                if (isTurning) {
+                    currentSpeed *= turnSlowdown;
+                }
+
+                worldGroup.position.add(forward.multiplyScalar(-currentSpeed));
             }
-
-            // Turning slows you down
-            if (isTurning) {
-                currentSpeed *= turnSlowdown;
-            }
-
-            // Move world in opposite direction to ship's forward
-            worldGroup.position.add(forward.multiplyScalar(-currentSpeed));
 
             // ===== CAMERA: Smooth follow with inertia =====
             // Calculate target camera position in ship's local space
@@ -563,7 +612,8 @@
             }
 
             // Update UI
-            const speedDisplay = Math.round(currentSpeed * 50);
+            const speedScalar = physicsMode ? velocity.length() : currentSpeed;
+            const speedDisplay = Math.round(speedScalar * 50);
             document.getElementById('speed').textContent = `Speed: ${speedDisplay} ${isBoosting ? '⚡' : ''}`;
 
             const boostPercent = Math.round(boostFuel);
