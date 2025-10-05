@@ -13,11 +13,12 @@
 - Per-cube collision on big solids so you can fly into holes; uses hashed cube sets and local AABB checks near the ship.
 - Sparser environment: Reduced asteroid and nebula counts; pushed farther out with distance-based opacity fade so they’re hinted at from far away without clutter.
 - Regional variation: Object placement varies by coarse space regions via hashed density, creating clusters and voids.
-- Nebulas/rocks sparser + farther: dropped nebula targets to ~10 and asteroids to ~50; moved placement out to 3–11km and added far-hint sprites + distance fades for early subtle visibility.
+- Nebulas/rocks sparser + farther: dropped nebula targets to ~10 and asteroids to ~50 (later ~30); moved placement out to 3–11km+ and added far-hint sprites + distance fades for early subtle visibility.
 - Big solids: reduced count to ~2, increased size, shared holes across LODs so low-res approximates high-res shape; crossfade tuned for smoother, earlier transition.
 - Near-dust particles: Spark tiles now fade strongly with distance to the ship so they pop only when you fly through them, while remaining very subtle at range.
 - Nebulas farther + denser (fewer): Reduced count (~6), increased per-string density and far-hint sprite size/opacity; crossfade distances increased (up to ~13k) so they’re visible from much further.
 - Camera inertia: Added acceleration-aware camera follow (more lag when speeding up) for a weightier feel.
+ - Rocks update: Much rarer (~30), larger scale, slower rotation, and matte material with slightly higher emissive to reduce harsh light contrast across faces.
 - Background stars polish: Star tiles now additive; added very big, fuzzy background star sprites (camera-anchored) with gentle opacity pulse for depth.
 - Blocky ship redesign: Replaced cone ship with stacked box hull, block wings, and glassy canopy for Minecraft vibe.
 - Big solid voxel bodies: Added several large contiguous-cube planetoids with collision.
