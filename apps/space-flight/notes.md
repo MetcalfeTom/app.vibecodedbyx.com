@@ -1,6 +1,9 @@
 # SpaceCraft Notes
 
 ## Log
+- Minecraft-only shapes: Removed round meshes (spheres/torus). Engine glow now boxy; anomalies rebuilt as square ring, step pyramid, cube ribbon, and cube clusters.
+- Big solids LOD: Far-away view shows a vague, sparser cube shell that swaps to a detailed shell when close.
+- Slower speeds: Reduced cruise/boost accel and top speeds; Physics max speed capped lower for a calmer pace.
 - Blocky ship redesign: Replaced cone ship with stacked box hull, block wings, and glassy canopy for Minecraft vibe.
 - Big solid voxel bodies: Added several large contiguous-cube planetoids with collision.
 - Collision + damage: Hull takes damage on impact with big solids; on 0% you "die" and can respawn (R or tap). Velocity/speed dampens on impact.
