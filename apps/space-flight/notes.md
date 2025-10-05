@@ -66,3 +66,4 @@
 - Ship stays at origin and rotates, world translates
 - Physics mode uses a velocity vector; arcade mode uses scalar speed with forward direction
  - Asteroids/UFOs/nebula strings wrap over large spans (X/Z: 6–7km, Y: ~1.6km)
+- Generative streaming: Asteroids, nebulas, UFOs, and anomalies now reseed on wrap so flying far continuously yields fresh variations of all object types.
