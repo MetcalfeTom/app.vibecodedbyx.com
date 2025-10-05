@@ -4,6 +4,8 @@
 - UI polish: Moved Mode toggle under stream link (top-right) and replaced Boost text with a subtle progress bar below it; bar color shifts from cyan→amber→red as fuel lowers.
 - Environment overhaul: Fewer nebulas but now as Minecraft-like cube strings spread in wide space (1.8–4km out), with gentle drift and infinite wrapping.
 - Generative objects further out: Increased voxel asteroids (140) and UFOs (35), placed in distant cylindrical shell (1.5–5km), with X/Z/Y wrapping to maintain density everywhere.
+- More stars: Increased starfield density to ~22k points for richer backdrop.
+- Occasional anomalies: Added rare, strange objects (monoliths, glowing rings, pyramids, torus knots, orb clusters) far out with slow spin/bob and full wrapping.
 - Added Physics mode (inertial): turning doesn't affect velocity; ship coasts until you boost. Boost applies thrust along facing, so it can accelerate, decelerate (retro-burn), or curve your trajectory naturally. Toggle via Mode button (top-left) or UI.
 - Mobile UX: Inverted up/down mapping (↑=S, ↓=W), moved Boost to right side of diamond, and ensured on-screen controls hidden on desktop and shown on mobile only.
 - Mobile controls: Replaced split bars with centered diamond grid (↑, ←, ⚡, →, ↓) for better fit.
