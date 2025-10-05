@@ -1,6 +1,7 @@
 # SpaceCraft Notes
 
 ## Log
+- Mobile UX: Inverted up/down mapping (↑=S, ↓=W), moved Boost to right side of diamond, and ensured on-screen controls hidden on desktop and shown on mobile only.
 - Mobile controls: Replaced split bars with centered diamond grid (↑, ←, ⚡, →, ↓) for better fit.
 - Boost stronger: increased maxBoostSpeed to 12.0 and boostAcceleration to 0.02 for a snappier, faster boost.
 - **Boost acceleration boost**: Boost now accelerates 4x faster (0.008 vs 0.002) and reaches higher top speed (8.0 vs 6.0)
