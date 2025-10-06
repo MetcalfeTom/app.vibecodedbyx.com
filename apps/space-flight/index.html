@@ -209,6 +209,7 @@
         <div id="speed">Speed: 0</div>
         <!-- old text boost removed in favor of subtle bar -->
         <div id="healthMeter" aria-label="Hull integrity"><div id="healthFill" style="width: 100%"></div></div>
+        <div id="score">Score: 0</div>
     </div>
 
     <div id="backlink">
@@ -970,6 +971,59 @@
             anomalies.push(anomaly);
         }
 
+        // ===== Square hoops for scoring =====
+        const hoops = [];
+        const HOOP_TARGET = 12;
+        const HOOP_NEAR_RADIUS = 15000;
+        const HOOP_FAR_DESPAWN = 24000;
+        let score = 0;
+        function updateScoreUI() {
+            const el = document.getElementById('score');
+            if (el) el.textContent = `Score: ${score}`;
+        }
+        function createHoop(size = 10, thickness = 0.6) {
+            const g = new THREE.Group();
+            const mat = new THREE.MeshBasicMaterial({ color: 0x33ffcc, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
+            const barLong = size;
+            const barShort = thickness;
+            // four sides (aligned to local X/Y plane)
+            const geoH = new THREE.BoxGeometry(barLong, barShort, barShort);
+            const geoV = new THREE.BoxGeometry(barShort, barLong, barShort);
+            const top = new THREE.Mesh(geoH, mat.clone()); top.position.y = size/2;
+            const bottom = new THREE.Mesh(geoH, mat.clone()); bottom.position.y = -size/2;
+            const left = new THREE.Mesh(geoV, mat.clone()); left.position.x = -size/2;
+            const right = new THREE.Mesh(geoV, mat.clone()); right.position.x = size/2;
+            g.add(top); g.add(bottom); g.add(left); g.add(right);
+            // Random yaw/pitch rotation
+            g.quaternion.setFromEuler(new THREE.Euler(
+                (Math.random()-0.5) * Math.PI,
+                (Math.random()-0.5) * Math.PI,
+                0
+            ));
+            g.userData.size = size;
+            g.userData.lastSide = null;
+            g.userData.cooldown = 0;
+            return g;
+        }
+        function spawnHoopAhead() {
+            const hoop = createHoop(8 + Math.random()*8, 0.5 + Math.random()*0.4);
+            // place ahead of ship within a cone
+            const ahead = new THREE.Vector3(0,0,-1).applyQuaternion(shipGroup.quaternion).normalize();
+            const upNow = new THREE.Vector3(0,1,0).applyQuaternion(shipGroup.quaternion).normalize();
+            const rightNow = new THREE.Vector3().crossVectors(ahead, upNow).normalize();
+            const dist = 2000 + Math.random() * (HOOP_NEAR_RADIUS - 2000);
+            const lat = (Math.random()-0.5) * HOOP_NEAR_RADIUS * 0.6;
+            const vert = (Math.random()-0.5) * HOOP_NEAR_RADIUS * 0.4;
+            const pos = ahead.clone().multiplyScalar(dist)
+                .add(rightNow.clone().multiplyScalar(lat))
+                .add(upNow.clone().multiplyScalar(vert));
+            hoop.position.copy(pos);
+            worldGroup.add(hoop);
+            hoops.push(hoop);
+        }
+        for (let i = 0; i < HOOP_TARGET; i++) spawnHoopAhead();
+        updateScoreUI();
+
         // Movement variables - SPACE PHYSICS: ship is reference frame
         const keys = {};
         const maxCruisingSpeed = 1.5; // slower baseline
@@ -1421,6 +1475,65 @@
                     const elapsed = performance.now() - launchTime;
                     const doCull = elapsed < 15000; // 15s
                     a.visible = doCull ? (d > CLEAR_RADIUS) : (d < SHOW_AST_RADIUS);
+                }
+            }
+
+            // Hoops: cull far, respawn ahead, and detect fly-throughs for scoring
+            {
+                const nAxis = new THREE.Vector3(0,0,1);
+                const xAxis = new THREE.Vector3(1,0,0);
+                const yAxis = new THREE.Vector3(0,1,0);
+                const ahead = new THREE.Vector3(0,0,-1).applyQuaternion(shipGroup.quaternion).normalize();
+                const upNow = new THREE.Vector3(0,1,0).applyQuaternion(shipGroup.quaternion).normalize();
+                const rightNow = new THREE.Vector3().crossVectors(ahead, upNow).normalize();
+                for (const h of hoops) {
+                    // Cull/respawn
+                    const rp = new THREE.Vector3(
+                        h.position.x + worldGroup.position.x,
+                        h.position.y + worldGroup.position.y,
+                        h.position.z + worldGroup.position.z
+                    );
+                    const d = rp.length();
+                    if (d > HOOP_FAR_DESPAWN) {
+                        // respawn ahead
+                        const dist = 4000 + Math.random() * (HOOP_NEAR_RADIUS - 2000);
+                        const lat = (Math.random()-0.5) * HOOP_NEAR_RADIUS * 0.6;
+                        const vert = (Math.random()-0.5) * HOOP_NEAR_RADIUS * 0.4;
+                        const pos = ahead.clone().multiplyScalar(dist)
+                            .add(rightNow.clone().multiplyScalar(lat))
+                            .add(upNow.clone().multiplyScalar(vert));
+                        h.position.copy(pos);
+                        h.userData.lastSide = null;
+                        continue;
+                    }
+                    // Detection
+                    const n = nAxis.clone().applyQuaternion(h.quaternion);
+                    const hx = xAxis.clone().applyQuaternion(h.quaternion);
+                    const hy = yAxis.clone().applyQuaternion(h.quaternion);
+                    const dotN = rp.dot(n);
+                    const u = rp.dot(hx); // in-plane x
+                    const v = rp.dot(hy); // in-plane y
+                    const half = (h.userData.size || 10) * 0.5;
+                    const inside = Math.abs(u) <= half && Math.abs(v) <= half;
+                    if (h.userData.cooldown > 0) h.userData.cooldown--;
+                    if (h.userData.lastSide === null) {
+                        h.userData.lastSide = dotN;
+                    } else if (inside && h.userData.cooldown === 0) {
+                        // crossed the plane?
+                        if ((h.userData.lastSide > 0 && dotN < 0) || (h.userData.lastSide < 0 && dotN > 0)) {
+                            score += 10;
+                            updateScoreUI();
+                            h.userData.cooldown = 30; // debounce
+                            // visual flash
+                            h.traverse((m)=>{ if (m.material){ m.material.color.setHex(0xffff55); m.material.opacity = 1.0; }});
+                            setTimeout(()=>{
+                                h.traverse((m)=>{ if (m.material){ m.material.color.setHex(0x33ffcc); m.material.opacity = 0.9; }});
+                            }, 150);
+                        }
+                        h.userData.lastSide = dotN;
+                    } else {
+                        h.userData.lastSide = dotN;
+                    }
                 }
             }
 
