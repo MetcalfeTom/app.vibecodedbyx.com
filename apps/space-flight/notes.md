@@ -1,6 +1,7 @@
 # SpaceCraft Notes
 
 ## Log
+- Tighter space clustering: Reduced wrap spans and spawn distances (asteroids, UFOs, nebulas, anomalies, hoops) so objects appear closer together; tightened dust and spark fade ranges; lowered CLEAR_RADIUS to keep action near the ship.
 - Minecraft-only shapes: Removed round meshes (spheres/torus). Engine glow now boxy; anomalies rebuilt as square ring, step pyramid, cube ribbon, and cube clusters.
 - Big solids LOD: Far-away view shows a vague, sparser cube shell that swaps to a detailed shell when close.
 - Slower speeds: Reduced cruise/boost accel and top speeds; Physics max speed capped lower for a calmer pace.
