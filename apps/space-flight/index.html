@@ -1070,6 +1070,7 @@
         let lastGenWorldPos = worldGroup.position.clone();
         const GEN_ASTEROID_FRACTION = 0.12; // reseed ~12% of asteroids per step
         const GEN_NEBULA_FRACTION = 0.08;   // reseed ~8% of nebulas per step
+        const GEN_SOLID_FRACTION = 0.5;     // reseed ~50% of solids per step (there are only a few)
         const launchTime = performance.now();
         // Keep immediate starting area emptier
         const CLEAR_RADIUS = 1800;
@@ -1278,6 +1279,19 @@
                         .add(shipUpNow.clone().multiplyScalar(verticalN));
                     n.position.copy(posN);
                     if (n.userData && typeof n.userData.reseed === 'function') n.userData.reseed();
+                }
+                // Reposition some big solids ahead to avoid empty stretches
+                const solidCount = Math.max(1, Math.floor(bigSolids.length * GEN_SOLID_FRACTION));
+                for (let i = 0; i < solidCount; i++) {
+                    const idx = Math.floor(Math.random() * bigSolids.length);
+                    const s = bigSolids[idx];
+                    const distS = 5000 + Math.random() * 5000; // 5k–10k
+                    const lateralS = (Math.random() - 0.5) * 2500;
+                    const verticalS = (Math.random() - 0.5) * 1500;
+                    const posS = ahead.clone().multiplyScalar(distS)
+                        .add(right.clone().multiplyScalar(lateralS))
+                        .add(shipUpNow.clone().multiplyScalar(verticalS));
+                    s.position.copy(posS);
                 }
             }
             }
@@ -1647,6 +1661,21 @@
                 if (solid.userData.low) solid.userData.low.visible = true;
             }
 
+            // Wrap big solids so they never get left behind when traveling far
+            for (const solid of bigSolids) {
+                const wx = solid.position.x + worldGroup.position.x;
+                const wy = solid.position.y + worldGroup.position.y;
+                const wz = solid.position.z + worldGroup.position.z;
+                let wrappedS = false;
+                if (wx >  ASTEROID_SPAN / 2) { solid.position.x -= ASTEROID_SPAN; wrappedS = true; } else if (wx < -ASTEROID_SPAN / 2) { solid.position.x += ASTEROID_SPAN; wrappedS = true; }
+                if (wz >  ASTEROID_SPAN / 2) { solid.position.z -= ASTEROID_SPAN; wrappedS = true; } else if (wz < -ASTEROID_SPAN / 2) { solid.position.z += ASTEROID_SPAN; wrappedS = true; }
+                if (wy >  ASTEROID_YSPAN / 2) solid.position.y -= ASTEROID_YSPAN; else if (wy < -ASTEROID_YSPAN / 2) solid.position.y += ASTEROID_YSPAN;
+                if (wrappedS) {
+                    // small random yaw on wrap for variety
+                    solid.rotation.y += (Math.random() - 0.5) * 0.5;
+                }
+            }
+
             // Animate anomalies (spin, bob) + wrap + slight variation on wrap
             for (const an of anomalies) {
                 an.children[0].rotation.x += an.userData.spin.x;
@@ -1704,6 +1733,77 @@
                 spr.userData.phase += spr.userData.speed;
                 const f = 0.75 + 0.25 * Math.sin(spr.userData.phase);
                 spr.material.opacity = spr.userData.baseOpacity * f;
+            }
+
+            // Ensure a minimum of nearby points of interest by respawning a few ahead if counts are low
+            {
+                const now = performance.now();
+                window.__ensureTick = window.__ensureTick || 0;
+                if (now - window.__ensureTick > 2000) { // every ~2s
+                    window.__ensureTick = now;
+                    const ahead = new THREE.Vector3(0,0,-1).applyQuaternion(shipGroup.quaternion).normalize();
+                    const upNow = new THREE.Vector3(0,1,0).applyQuaternion(shipGroup.quaternion).normalize();
+                    const rightNow = new THREE.Vector3().crossVectors(ahead, upNow).normalize();
+
+                    const countNear = (arr, radius) => {
+                        let c = 0;
+                        for (const o of arr) {
+                            const dx = o.position.x + worldGroup.position.x;
+                            const dy = o.position.y + worldGroup.position.y;
+                            const dz = o.position.z + worldGroup.position.z;
+                            if (dx*dx + dy*dy + dz*dz < radius*radius) c++;
+                        }
+                        return c;
+                    };
+
+                    // Targets and radii
+                    const AST_TARGET_NEAR = 10;
+                    const UFO_TARGET_NEAR = 10;
+                    const ANOM_TARGET_NEAR = 4;
+                    const NEAR_RADIUS = 9000;
+
+                    // Helper to place ahead
+                    const placeAhead = (obj, distMin, distMax, latMax, vertMax) => {
+                        const dist = distMin + Math.random() * (distMax - distMin);
+                        const lat = (Math.random()-0.5) * (latMax*2);
+                        const vert = (Math.random()-0.5) * (vertMax*2);
+                        const p = ahead.clone().multiplyScalar(dist)
+                            .add(rightNow.clone().multiplyScalar(lat))
+                            .add(upNow.clone().multiplyScalar(vert));
+                        obj.position.copy(p);
+                        if (obj.userData && typeof obj.userData.reseed === 'function') obj.userData.reseed();
+                    };
+
+                    // Asteroids
+                    const cAst = countNear(voxelAsteroids, NEAR_RADIUS);
+                    if (cAst < AST_TARGET_NEAR && voxelAsteroids.length) {
+                        const need = Math.min(AST_TARGET_NEAR - cAst, Math.max(1, Math.floor(voxelAsteroids.length * 0.15)));
+                        for (let i = 0; i < need; i++) {
+                            const a = voxelAsteroids[Math.floor(Math.random()*voxelAsteroids.length)];
+                            placeAhead(a, 4000, 9000, 2500, 1500);
+                        }
+                    }
+
+                    // UFOs
+                    const cUfo = countNear(aliens, NEAR_RADIUS);
+                    if (cUfo < UFO_TARGET_NEAR && aliens.length) {
+                        const need = Math.min(UFO_TARGET_NEAR - cUfo, Math.max(1, Math.floor(aliens.length * 0.2)));
+                        for (let i = 0; i < need; i++) {
+                            const u = aliens[Math.floor(Math.random()*aliens.length)];
+                            placeAhead(u, 3500, 8000, 2200, 1200);
+                        }
+                    }
+
+                    // Anomalies
+                    const cAn = countNear(anomalies, NEAR_RADIUS);
+                    if (cAn < ANOM_TARGET_NEAR && anomalies.length) {
+                        const need = Math.min(ANOM_TARGET_NEAR - cAn, Math.max(1, Math.floor(anomalies.length * 0.25)));
+                        for (let i = 0; i < need; i++) {
+                            const an = anomalies[Math.floor(Math.random()*anomalies.length)];
+                            placeAhead(an, 5000, 10000, 2500, 1200);
+                        }
+                    }
+                }
             }
 
             // Update UI
