@@ -5,6 +5,7 @@
 - Small-world mode: Removed generative wrapping/reseeding and periodic density ensure; added world boundary clamp so everything stays together in a compact area; disabled far-despawn for hoops and visibility culling.
 - Camera speed lines: Disabled world near-dust and added camera-attached line segments that elongate and brighten with speed to convey motion without placing actual dust in space.
 - Code split: Extracted camera speed-lines overlay into `speedlines.js` and imported from the main module.
+- Code split 2: Moved input handling (keyboard/mouse/touch helpers) into `controls.js`.
 - Minecraft-only shapes: Removed round meshes (spheres/torus). Engine glow now boxy; anomalies rebuilt as square ring, step pyramid, cube ribbon, and cube clusters.
 - Big solids LOD: Far-away view shows a vague, sparser cube shell that swaps to a detailed shell when close.
 - Slower speeds: Reduced cruise/boost accel and top speeds; Physics max speed capped lower for a calmer pace.
