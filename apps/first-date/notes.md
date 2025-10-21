@@ -11,6 +11,9 @@
 - 2025-10-21: Added Spicy category
   - Added 15 spicy/flirty questions for more adventurous conversations
   - Now 6 categories total with 65+ questions
+- 2025-10-21: Expanded Spicy category
+  - Added 15 more bold/intimate questions
+  - Total of 30 spicy questions now (80+ questions total)
 
 ## Issues
 - None yet
