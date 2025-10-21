@@ -8,6 +8,9 @@
   - Category filtering: Ice Breakers, Fun & Light, Getting Deep, Lifestyle, Future & Dreams
   - Mobile and desktop responsive design
   - Pink/purple gradient theme for romantic vibe
+- 2025-10-21: Added Spicy category
+  - Added 15 spicy/flirty questions for more adventurous conversations
+  - Now 6 categories total with 65+ questions
 
 ## Issues
 - None yet
