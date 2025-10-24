@@ -8,6 +8,13 @@
   - Controls to regenerate, toggle animation, and save images
   - Mobile and desktop responsive (canvas resizes)
   - Dark theme with glassmorphism UI
+- 2025-10-21: Made fully parametric with seed-based generation
+  - Added seeded random number generator for deterministic output
+  - All patterns now controlled by 20+ hierarchical parameters
+  - Parameters include: colors, counts, speeds, sizes, frequencies, etc.
+  - Seed input field allows reproducing exact same art
+  - Same seed always generates same output across all pattern types
+  - Saved images include seed in filename
 
 ## Issues
 - None yet
@@ -28,4 +35,8 @@
 - Each pattern has its own drawing function
 - Time variable used for animation
 - Particles and flow field use arrays for state management
-- Save function exports as PNG
+- Save function exports as PNG with seed in filename
+- Seeded RNG using Math.sin for deterministic random values
+- Parameter generation happens once per seed, creating hierarchy
+- Each pattern type has 5-8 specific parameters plus global color params
+- Input accepts both numbers and strings (strings converted via char codes)
