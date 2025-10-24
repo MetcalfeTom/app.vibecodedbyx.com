@@ -15,6 +15,14 @@
   - Seed input field allows reproducing exact same art
   - Same seed always generates same output across all pattern types
   - Saved images include seed in filename
+- 2025-10-21: Massively expanded parameter variations
+  - Increased to 50+ parameters with extreme ranges
+  - Added global params: symmetry, rotation, scale, complexity, chaos
+  - Added per-pattern params: noise, distortion, glow, trails, turbulence
+  - Background brightness, alpha transparency, pulse speed all vary
+  - Color ranges: full 360° hue, 30-100 saturation, 50-100 brightness
+  - Counts: 1-20 spirals, 3-40 waves, 20-500 particles, 2-15 flower grids, etc.
+  - Creates wildly different aesthetics from single seed
 
 ## Issues
 - None yet
@@ -38,5 +46,11 @@
 - Save function exports as PNG with seed in filename
 - Seeded RNG using Math.sin for deterministic random values
 - Parameter generation happens once per seed, creating hierarchy
-- Each pattern type has 5-8 specific parameters plus global color params
+- 50+ parameters total: ~12 global + ~6-10 per pattern type
 - Input accepts both numbers and strings (strings converted via char codes)
+- Extreme parameter ranges create massive variation:
+  - Spiral noise, wave chaos, particle glow, flower distortion
+  - Background can be near-black or bright
+  - Transparency from 20-100%
+  - Animation speeds vary 10x
+  - Scales from 0.3x to 2.5x
