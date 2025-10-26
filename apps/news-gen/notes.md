@@ -10,6 +10,12 @@
   - Share functionality for generated articles
   - Mobile and desktop responsive
   - Clear disclaimer about fictional content
+- 2025-10-21: Added custom word inputs
+  - Users can add custom nouns, verbs, adjectives, and people names
+  - Custom words mixed with default word banks
+  - Comma-separated input for easy entry
+  - Collapsible custom input section
+  - Custom words apply across all categories
 
 ## Issues
 - None yet
@@ -33,3 +39,11 @@
 - Category badges color-coded
 - Auto-generates article on page load
 - Share API integration for mobile sharing
+- Custom words system:
+  - Deep copy of templates to avoid mutation
+  - Merges custom arrays with default arrays
+  - Applies to things, devices, foods, animals (nouns)
+  - Applies to actions, activities (verbs)
+  - Applies to adjectives
+  - Applies to subjects, celebrities (people)
+  - Comma parsing with trim and filter
