@@ -10,12 +10,13 @@
   - Share functionality for generated articles
   - Mobile and desktop responsive
   - Clear disclaimer about fictional content
-- 2025-10-21: Added custom word inputs
-  - Users can add custom nouns, verbs, adjectives, and people names
-  - Custom words mixed with default word banks
-  - Comma-separated input for easy entry
-  - Collapsible custom input section
-  - Custom words apply across all categories
+- 2025-10-21: Added predefined extra word banks
+  - Added modern/internet culture words to all categories
+  - Extra nouns: Memes, Bitcoin, NFTs, TikTok, Zoom, Air Fryers, etc.
+  - Extra verbs: Vibe, Manifest, Speedrun, Go Viral, Rizz Up, etc.
+  - Extra adjectives: Based, Cringe, Sus, Bussin, Slay, Unhinged, etc.
+  - Extra people: Influencer, Content Creator, Streamer, TikToker, etc.
+  - Automatically merged with default word banks for variety
 
 ## Issues
 - None yet
@@ -39,11 +40,12 @@
 - Category badges color-coded
 - Auto-generates article on page load
 - Share API integration for mobile sharing
-- Custom words system:
+- Extra words system:
   - Deep copy of templates to avoid mutation
-  - Merges custom arrays with default arrays
-  - Applies to things, devices, foods, animals (nouns)
-  - Applies to actions, activities (verbs)
-  - Applies to adjectives
-  - Applies to subjects, celebrities (people)
-  - Comma parsing with trim and filter
+  - Predefined extraWords object with modern/internet slang
+  - Merges with things, devices, foods, animals (nouns)
+  - Merges with actions, activities (verbs)
+  - Merges with adjectives
+  - Merges with subjects, celebrities (people)
+  - 15 extra nouns, 10 extra verbs, 11 extra adjectives, 8 extra people
+  - Creates more varied and modern-sounding headlines
