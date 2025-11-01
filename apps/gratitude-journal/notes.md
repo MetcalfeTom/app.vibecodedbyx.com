@@ -10,6 +10,10 @@
   - Mobile and desktop responsive
   - Real-time date formatting (Today, Yesterday, specific dates)
   - Entries stored per user in Supabase
+- 2025-10-21: Fixed module imports
+  - Converted to ES modules to use supabase-config.js
+  - Uses supabaseSession() for auth handling
+  - Exposed functions to window for onclick handlers
 
 ## Issues
 - None yet
