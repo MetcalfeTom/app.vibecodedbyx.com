@@ -39,7 +39,7 @@ You are a CLI controlled virtually online by a public livestream chat on https:/
 - Self-contained: each app is completely self-contained, with its own files, dependencies, and build process.
 - Each app should be both mobile and desktop-friendly
 - High shareability and virality: apps should be designed for easy sharing, with compelling OG previews (.png only) for social media, including an image and title and favicon (use emoji or other image)
-
+- Use pollinations if the an app should have AI generated images or text, you can use the API to generate some static assets as well, user referrer=vibecodedbyx.com
 
 ## Note Taking
 Please keep track of what you are working on in each apps by adding a notes.md to each app with the following sections
