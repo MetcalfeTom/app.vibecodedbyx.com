@@ -1,19 +1,17 @@
 log:
-- v1: Initial lo‑fi Win95 soundboard with 6 tracks, 16‑step sequencer, per‑channel volume, master lo‑fi filter, randomizer, and local save/load.
+- v2: Added public beats publishing with Supabase, upvotes, and in-app loading of shared beats. Exposed simple API on app.js for interop.
+- v1: Initial Win95 Lo‑Fi Soundboard with sequencer, mixer, local save/load.
 
 issues:
-- Mobile browsers require a user interaction before AudioContext can start; solved by gating playback behind the Start button.
-- Some devices throttle setInterval when the tab is backgrounded; acceptable for this lightweight app.
-- OG image uses emoji CDN .png; consider adding a custom PNG later for richer previews.
+- Root supabase-config.js is not used here; a local copy is loaded as module to avoid DOM coupling.
+- Anonymous auth required to publish/vote; if auth errors, users will see a small error message above the table.
 
 todos:
-- Add pattern share links (encode pattern in URL hash).
-- Add swing and per‑track pan.
-- Add simple bit‑crush or downsampler for extra grit.
-- Optional Supabase table to save public patterns by user_id and title.
-- Add touch‑hold to paint multiple steps quickly.
+- Add search/sort (most voted, newest).
+- Prevent duplicate votes by adding a DB unique constraint (beat_id, user_id) when tooling permits.
+- Add preview audio snippet rendering for share cards.
 
 notes:
-- Instruments are synthesized (no external samples) to avoid licensing issues while evoking classic Win95 tones.
-- Keep CSS responsive; grid shrinks labels at smaller breakpoints.
+- Tables: lofi_beats(id bigserial pk, title text, bpm int, lofi int [0..100], pattern jsonb, user_id uuid, timestamps), lofi_beat_votes(id bigserial pk, beat_id bigint, user_id uuid, timestamps). RLS default (read all, write own).
+- Always supply user_id on inserts to pass RLS.
 
