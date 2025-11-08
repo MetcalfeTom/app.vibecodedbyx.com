@@ -382,5 +382,29 @@
   buildMixer();
   bpmValEl.textContent = bpmEl.value;
   setStatus('Ready. Tap Start to begin.');
-})();
 
+  // Expose a tiny API for public sharing module
+  window.Win95App = {
+    getPattern: () => JSON.parse(JSON.stringify(pattern)),
+    setPattern: (p) => {
+      try {
+        if (!p || !p.kick || !Array.isArray(p.kick) || p.kick.length !== STEPS) throw new Error('Invalid pattern');
+        pattern = p; buildGrid(); persistDraft(); setStatus('Loaded public beat.');
+      } catch(e) { setStatus('Failed to load beat.'); }
+    },
+    getBpm: () => Number(bpmEl.value),
+    setBpm: (v) => {
+      const val = Math.min(140, Math.max(60, Math.round(v||92)));
+      bpmEl.value = String(val); bpmValEl.textContent = String(val);
+      // if playing, retime interval
+      if (ticking) {
+        clearInterval(timer);
+        const intervalMs = (60 / (+bpmEl.value) / 4) * 1000;
+        timer = setInterval(() => { scheduleStep(step); step = (step + 1) % STEPS; }, intervalMs);
+      }
+    },
+    getLofi: () => Number(lofiEl.value),
+    setLofi: (v) => { const val = Math.max(0, Math.min(1, Number(v))); lofiEl.value = String(val); if (ctx) { lofi.frequency.value = mapLofi(val); } },
+    start, stop,
+  };
+})();
