@@ -2,13 +2,18 @@
 
 ## Log
 - Initial creation: Luxurious French-themed poo palace with fancy accessories
+- Added: 20 floating poos across the page, poo parade with 5 clickable poos
+- Added: Fecal Symphony - looping melodic music using Web Audio API
+- Added: Le Toot button - synthesized fart sound with brown noise
 - Features: Royal throne (clickable), 12 French accessories, 5 luxury services
 - Theme: Over-the-top French luxury with gold, elegance, and sophistication
-- Interactive elements: Clickable throne with celebration animations
+- Interactive elements: Multiple clickable poos with celebration animations
 - Floating sparkles throughout the page
 - Stats tracking: Royal visits counter
 - French quotes from Louis XIV and Napoleon
 - Full mobile responsive design
+- Music controls: Fixed position bottom-right with play/stop and fart button
+- Clicking accessories plays musical notes
 
 ## Issues
 - None yet
