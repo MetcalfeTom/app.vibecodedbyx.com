@@ -15,6 +15,8 @@
 - Time-based stat decay (continues when away)
 - Colorful gradient design with device frame aesthetic
 - 6 action buttons with icons and labels
+- Added grumpy wake-up mechanic: waking pet before energy reaches 60% makes them lose 20 happiness
+- Clicking on sleeping pet now wakes them up (with grumpy penalty if under 60% energy)
 
 ## Issues
 - None yet
