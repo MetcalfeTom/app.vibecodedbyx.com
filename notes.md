@@ -3,6 +3,7 @@
 ## log
 - 2025-10-07: SpaceFlight — clustered objects closer (shorter spans and spawn ranges), tightened dust/spark fades, lowered clear radius for denser feel.
 - 2025-11-08: Added Icy Tower Online app with Supabase leaderboard and mobile controls.
+- 2025-11-08: Added Mouse Mood Reader app with heuristic mood detection and Supabase feedback capture.
 
 ## issues
 - CDN-based modules (three.js) mean JS console errors only surface in browser; rely on minimal syntax-only diffs for quick tweaks.
