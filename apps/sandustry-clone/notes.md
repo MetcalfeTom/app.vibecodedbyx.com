@@ -16,16 +16,19 @@ Sandustry is a mining and factory automation game where every pixel is a simulat
 - Boss fights and puzzle solving
 
 ## Features Implemented
-- **💣 TNT EXPLOSIONS**: Place TNT and blow up huge areas!
+- **💣 TNT EXPLOSIONS**: Place 2x2 TNT blocks that FALL with gravity!
 - **🔥 Particle Effects**: Beautiful explosion effects with camera shake
 - **⛓️ Chain Reactions**: TNT triggers nearby TNT for massive explosions
+- **🎯 TNT Physics**: TNT falls like an entity, bounces, and explodes on command
+- **💥 Destructible Terrain**: TNT deletes blocks in 8-tile radius
 - **Falling Sand Physics**: Sand particles fall and slide realistically
 - **Mining System**: Click to mine blocks within range
-- **Resource Types**: Sand, Stone, Gold, Bedrock, TNT
+- **Resource Types**: Sand, Stone, Gold, Bedrock
 - **Player Movement**: Arrow keys with jumping
-- **TNT Placement**: Right-click to place TNT blocks
+- **TNT Placement**: Right-click to place 2x2 TNT entity
 - **Explosion Radius**: 8-tile radius destroys everything (except bedrock)
 - **Resource Collection**: Explosions auto-collect all destroyed materials
+- **TNT Disappears**: TNT entities are destroyed after exploding
 - **Resource Counter**: Track collected materials including TNT
 - **Depth Meter**: Shows how deep you've mined
 - **Camera Follow**: Smooth camera that follows player
@@ -63,14 +66,20 @@ Sandustry is a mining and factory automation game where every pixel is a simulat
 - Update runs every 100ms
 - Player has gravity and collision detection
 
-## Explosion Mechanics
-- Circular explosion radius (8 tiles)
-- Destroys all blocks except bedrock
-- Auto-collects resources from destroyed blocks
-- Particle effects with red/orange/yellow colors
-- Camera shake for impact feel
-- Chain reactions when TNT hits TNT
-- 100ms delay on chain reactions for cascading effect
+## TNT & Explosion Mechanics
+- **TNT is 2x2 entity**: Not a block, but a physics object!
+- **Gravity**: TNT falls down until it hits terrain
+- **Bounces**: TNT has 0.3 bounce coefficient
+- **Collision**: Checks 2x2 area for terrain to land on
+- **Detonation**: Press T or middle-click to explode all placed TNT
+- **Circular explosion radius**: 8 tiles from center
+- **Destroys all blocks**: Except bedrock
+- **Auto-collects resources**: From destroyed blocks
+- **Particle effects**: Red/orange/yellow fire colors
+- **Camera shake**: For impact feel
+- **Chain reactions**: Explosion triggers nearby TNT entities
+- **100ms delay**: On chain reactions for cascading effect
+- **TNT disappears**: After explosion, sprite is destroyed
 
 ## Issues
 - No automation/factory building yet (simplified version)

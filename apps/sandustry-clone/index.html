@@ -192,7 +192,7 @@
                 this.world = [];
                 this.resources = { sand: 0, gold: 0, stone: 0, tnt: 5 };
                 this.playerDepth = 0;
-                this.tntPositions = [];
+                this.tntEntities = []; // TNT as physics objects instead of blocks
 
                 // Generate world
                 this.generateWorld();
@@ -286,15 +286,34 @@
                 }
             }
 
+            spawnTNT(x, y) {
+                // Create a 2x2 TNT sprite
+                const tnt = this.add.rectangle(x, y, TILE_SIZE * 2, TILE_SIZE * 2, 0xff0000);
+                this.physics.add.existing(tnt);
+                tnt.body.setGravityY(600);
+                tnt.body.setBounce(0.3);
+
+                // Add white fuse marker
+                const fuse = this.add.rectangle(x, y - 8, 4, 4, 0xffffff);
+
+                this.tntEntities.push({ sprite: tnt, fuse: fuse });
+            }
+
             detonateAllTNT() {
-                if (this.tntPositions.length === 0) return;
+                if (this.tntEntities.length === 0) return;
 
                 // Create explosions at each TNT position
-                for (const pos of this.tntPositions) {
-                    this.createExplosion(pos.x, pos.y);
+                for (const tntData of this.tntEntities) {
+                    const gridX = Math.floor(tntData.sprite.x / TILE_SIZE);
+                    const gridY = Math.floor(tntData.sprite.y / TILE_SIZE);
+                    this.createExplosion(gridX, gridY);
+
+                    // Destroy TNT sprites
+                    tntData.sprite.destroy();
+                    tntData.fuse.destroy();
                 }
 
-                this.tntPositions = [];
+                this.tntEntities = [];
                 this.renderWorld();
             }
 
@@ -322,6 +341,33 @@
                     particles.destroy();
                 });
 
+                // Check for chain reactions with other TNT entities
+                const explosionWorldX = centerX * TILE_SIZE;
+                const explosionWorldY = centerY * TILE_SIZE;
+                const explosionWorldRadius = explosionRadius * TILE_SIZE;
+
+                for (let i = this.tntEntities.length - 1; i >= 0; i--) {
+                    const tntData = this.tntEntities[i];
+                    const dist = Phaser.Math.Distance.Between(
+                        explosionWorldX, explosionWorldY,
+                        tntData.sprite.x, tntData.sprite.y
+                    );
+
+                    if (dist <= explosionWorldRadius) {
+                        // Chain reaction!
+                        const tntGridX = Math.floor(tntData.sprite.x / TILE_SIZE);
+                        const tntGridY = Math.floor(tntData.sprite.y / TILE_SIZE);
+
+                        tntData.sprite.destroy();
+                        tntData.fuse.destroy();
+                        this.tntEntities.splice(i, 1);
+
+                        this.time.delayedCall(100, () => {
+                            this.createExplosion(tntGridX, tntGridY);
+                        });
+                    }
+                }
+
                 // Destroy blocks in explosion radius
                 for (let dy = -explosionRadius; dy <= explosionRadius; dy++) {
                     for (let dx = -explosionRadius; dx <= explosionRadius; dx++) {
@@ -332,30 +378,18 @@
                         if (dist <= explosionRadius && x >= 0 && x < WORLD_WIDTH && y >= 0 && y < WORLD_HEIGHT) {
                             const material = this.world[y][x];
 
-                            // Don't destroy bedrock
-                            if (material !== MATERIALS.BEDROCK) {
+                            // Don't destroy bedrock or TNT blocks
+                            if (material !== MATERIALS.BEDROCK && material !== MATERIALS.TNT) {
                                 // Collect resources before destroying
                                 if (material === MATERIALS.SAND) this.resources.sand++;
                                 else if (material === MATERIALS.STONE) this.resources.stone++;
                                 else if (material === MATERIALS.GOLD) this.resources.gold++;
-                                else if (material === MATERIALS.TNT) {
-                                    // Chain reaction!
-                                    this.resources.tnt++;
-                                    this.time.delayedCall(100, () => {
-                                        this.createExplosion(x, y);
-                                    });
-                                }
 
                                 this.world[y][x] = MATERIALS.AIR;
                             }
                         }
                     }
                 }
-
-                // Remove exploded TNT from positions list
-                this.tntPositions = this.tntPositions.filter(pos =>
-                    !(pos.x === centerX && pos.y === centerY)
-                );
             }
 
             update() {
@@ -376,6 +410,39 @@
 
                 // Check collisions with terrain
                 this.handleTerrainCollision();
+
+                // Update TNT entities
+                for (let i = this.tntEntities.length - 1; i >= 0; i--) {
+                    const tntData = this.tntEntities[i];
+
+                    // Update fuse position to follow TNT
+                    tntData.fuse.x = tntData.sprite.x;
+                    tntData.fuse.y = tntData.sprite.y - 8;
+
+                    // Check collision with terrain
+                    const gridX = Math.floor(tntData.sprite.x / TILE_SIZE);
+                    const gridY = Math.floor((tntData.sprite.y + TILE_SIZE) / TILE_SIZE);
+
+                    // Check 2x2 area below TNT
+                    let hasGround = false;
+                    for (let dx = 0; dx < 2; dx++) {
+                        const checkX = gridX + dx;
+                        if (checkX >= 0 && checkX < WORLD_WIDTH && gridY >= 0 && gridY < WORLD_HEIGHT) {
+                            const material = this.world[gridY][checkX];
+                            if (material !== MATERIALS.AIR) {
+                                hasGround = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (hasGround) {
+                        // Stop TNT
+                        tntData.sprite.body.setVelocityY(0);
+                        // Snap to grid
+                        tntData.sprite.y = (gridY - 1) * TILE_SIZE + TILE_SIZE;
+                    }
+                }
 
                 // Update depth
                 this.playerDepth = Math.max(0, Math.floor((this.player.y / TILE_SIZE) - 10));
@@ -428,30 +495,36 @@
                 if (pointer.leftButtonDown()) {
                     // Mine block
                     const material = this.world[gridY][gridX];
-                    if (material !== MATERIALS.AIR && material !== MATERIALS.BEDROCK) {
+                    if (material !== MATERIALS.AIR && material !== MATERIALS.BEDROCK && material !== MATERIALS.TNT) {
                         this.world[gridY][gridX] = MATERIALS.AIR;
 
                         // Add to resources
                         if (material === MATERIALS.SAND) this.resources.sand++;
                         else if (material === MATERIALS.STONE) this.resources.stone++;
                         else if (material === MATERIALS.GOLD) this.resources.gold++;
-                        else if (material === MATERIALS.TNT) {
-                            this.resources.tnt++;
-                            // Remove from TNT positions
-                            this.tntPositions = this.tntPositions.filter(pos =>
-                                !(pos.x === gridX && pos.y === gridY)
-                            );
-                        }
 
                         this.renderWorld();
                     }
                 } else if (pointer.rightButtonDown()) {
-                    // Place TNT block
-                    if (this.resources.tnt > 0 && this.world[gridY][gridX] === MATERIALS.AIR) {
-                        this.world[gridY][gridX] = MATERIALS.TNT;
-                        this.resources.tnt--;
-                        this.tntPositions.push({ x: gridX, y: gridY });
-                        this.renderWorld();
+                    // Place TNT entity (2x2)
+                    if (this.resources.tnt > 0) {
+                        // Check if there's space for 2x2 TNT
+                        let canPlace = true;
+                        for (let dy = 0; dy < 2; dy++) {
+                            for (let dx = 0; dx < 2; dx++) {
+                                const checkX = gridX + dx;
+                                const checkY = gridY + dy;
+                                if (checkX >= WORLD_WIDTH || checkY >= WORLD_HEIGHT ||
+                                    this.world[checkY][checkX] !== MATERIALS.AIR) {
+                                    canPlace = false;
+                                }
+                            }
+                        }
+
+                        if (canPlace) {
+                            this.resources.tnt--;
+                            this.spawnTNT(worldX, worldY);
+                        }
                     }
                 } else if (pointer.button === 1) {
                     // Middle click - detonate
