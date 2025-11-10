@@ -3,6 +3,7 @@
 ## Log
 - 2025-11-10: Created Sandustry-inspired mining game with Phaser 3
 - 2025-11-10: MAJOR UPDATE - Added TNT explosions! Minecraft-style bombing
+- 2025-11-10: TNT now spawns naturally throughout the world (5% spawn rate)
 - Features falling sand physics, mining, and EXPLOSIONS!
 - Blow up terrain with TNT for massive resource collection
 - Live at https://app.vibecodedbyx.com/sandustry-clone
@@ -53,10 +54,11 @@ Sandustry is a mining and factory automation game where every pixel is a simulat
 
 ## World Generation
 - Sky: Air (top 10 rows)
-- Surface: Random sand/stone/gold distribution
-  - 70% Sand
-  - 25% Stone
-  - 5% Gold
+- Surface: Random distribution with TNT spawns
+  - 5% TNT entities (spawn naturally and fall)
+  - 50% Sand
+  - 30% Stone
+  - 15% Gold
 - Bedrock layer at bottom (unbreakable)
 - Starting clearing around spawn point
 
