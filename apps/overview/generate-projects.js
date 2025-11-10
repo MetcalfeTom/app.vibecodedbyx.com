@@ -65,7 +65,7 @@ function scanApps() {
                     description: metadata.description,
                     icon: metadata.icon,
                     category: metadata.category,
-                    url: `/apps/${folder}/`
+                    url: `/${folder}/`
                 });
             } catch (err) {
                 console.error(`Error processing ${folder}:`, err.message);
