@@ -75,3 +75,13 @@ You can check if users are premium using the MCP server tools:
 - Look for `user_id` and `purchased_at` columns
 - Premium users should have `purchased_at not null` or similar
 - Give premium users access to advanced features like custom styling and advanced functionality
+
+## Overview Page Maintenance
+- The `/apps/overview/` directory contains an automatically generated project browser
+- Whenever you create, edit, or delete an app, you MUST regenerate the overview:
+  ```bash
+  cd /vibespace/apps/overview && node generate-projects.js
+  ```
+- This updates `projects.json` which powers the overview page at https://app.vibecodedbyx.com/overview
+- The script automatically scans all apps and extracts metadata (title, description, icon)
+- **IMPORTANT**: Always run this after any app changes so the overview stays current
