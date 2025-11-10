@@ -85,3 +85,29 @@ You can check if users are premium using the MCP server tools:
 - This updates `projects.json` which powers the overview page at https://app.vibecodedbyx.com/overview
 - The script automatically scans all apps and extracts metadata (title, description, icon)
 - **IMPORTANT**: Always run this after any app changes so the overview stays current
+
+## MCP Servers Available
+### Supabase MCP Server
+- **Status**: ✅ Installed and working
+- **Tools**: create_table, list_tables, delete_table, get_schema
+- **Use**: Database operations for apps that need persistent storage
+
+### Context7 MCP Server
+- **Status**: ❌ Not installed
+- **Purpose**: Fetches up-to-date documentation for libraries/frameworks
+- **How to install**: Requires configuration in Claude Desktop settings
+- **Config location**: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+- **Installation**:
+  ```json
+  {
+    "mcpServers": {
+      "context7": {
+        "url": "https://mcp.context7.com/mcp",
+        "headers": {
+          "CONTEXT7_API_KEY": "YOUR_API_KEY"
+        }
+      }
+    }
+  }
+  ```
+- **Note**: This must be configured by the system admin, not installable via CLI
