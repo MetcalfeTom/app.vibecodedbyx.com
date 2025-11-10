@@ -19,15 +19,24 @@
 - **No Manual Updates**: Never needs to be manually updated when new apps are added!
 
 ## Technical Implementation
-- Fetches the /apps/ directory listing
-- Parses HTML to extract folder names
-- For each folder, fetches index.html and extracts:
+- Uses a pre-generated `projects.json` file
+- Generation script `generate-projects.js` scans /apps/ directory
+- For each folder, reads index.html and extracts:
   - `<title>` tag for project name
   - `meta[property="og:description"]` for description
   - `link[rel="icon"]` for emoji favicon (from emojicdn.elk.sh)
 - Auto-categorizes based on keyword matching
 - Client-side filtering and search with no backend needed
-- Uses fetch API with Promise.all for parallel loading
+- Fast loading - single JSON fetch vs 100+ HTML fetches
+
+## Regenerating Projects List
+When new apps are added, regenerate the projects.json:
+```bash
+cd /vibespace/apps/overview
+node generate-projects.js
+```
+
+This should be automated in the deployment process or run whenever a new app is committed.
 
 ## Categorization Logic
 - **Game**: Keywords like "game", "play", "puzzle", "arcade", "adventure", "rpg", "battle", "catch", "quest"
@@ -36,9 +45,9 @@
 - **Other**: Everything else
 
 ## Issues
-- Depends on nginx serving directory listings for /apps/
+- Requires manual regeneration of projects.json when new apps are added
 - Some projects may not have proper og:description tags
-- Loading all projects can be slow with many apps (currently ~100+)
+- Need to remember to run generate-projects.js after adding new apps
 
 ## Todos
 - Consider caching projects list in localStorage
