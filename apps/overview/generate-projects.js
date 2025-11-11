@@ -58,6 +58,7 @@ function scanApps() {
             try {
                 const htmlContent = fs.readFileSync(indexPath, 'utf8');
                 const metadata = extractMetadata(htmlContent, folder);
+                const stats = fs.statSync(indexPath);
 
                 projects.push({
                     folder,
@@ -65,7 +66,9 @@ function scanApps() {
                     description: metadata.description,
                     icon: metadata.icon,
                     category: metadata.category,
-                    url: `/${folder}/`
+                    url: `/${folder}/`,
+                    created: stats.birthtime.toISOString(),
+                    modified: stats.mtime.toISOString()
                 });
             } catch (err) {
                 console.error(`Error processing ${folder}:`, err.message);
