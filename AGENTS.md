@@ -80,8 +80,18 @@ You can check if users are premium using the MCP server tools:
 - The `/apps/overview/` directory contains an automatically generated project browser
 - Whenever you create, edit, or delete an app, you MUST regenerate the overview:
   ```bash
-  cd /vibespace/apps/overview && node generate-projects.js
+  node apps/overview/generate-projects.js
   ```
 - This updates `projects.json` which powers the overview page at https://app.vibecodedbyx.com/overview
-- The script automatically scans all apps and extracts metadata (title, description, icon)
-- **IMPORTANT**: Always run this after any app changes so the overview stays current
+- The script automatically:
+  - Scans all apps in `/apps/` directory
+  - Extracts metadata (title, description, icon, category) from each index.html
+  - Captures file modification timestamps (created, modified) from filesystem
+  - Generates sortable project list with all metadata
+- **File timestamps are automatic**: When you edit an app's index.html, the filesystem automatically updates the `modified` timestamp
+- **IMPORTANT**: Always run `node apps/overview/generate-projects.js` after any app changes so the overview stays current with latest timestamps and metadata
+- The overview page features:
+  - Search functionality
+  - Category filters (Games, Tools, Art, Other)
+  - Sorting: Name (A-Z/Z-A), Recently Created, Recently Modified
+  - All sorting and filtering work together
