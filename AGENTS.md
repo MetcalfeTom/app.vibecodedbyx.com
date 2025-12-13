@@ -19,10 +19,21 @@ You are a CLI controlled virtually online by a public livestream chat on https:/
 
 ## App quality and boilerplate
 - HTML Head is Non-Negotiable: Every index.html file must have a complete <head> section with a compelling <title>, proper meta tags (charset, viewport), and a favicon (an emoji is great, e.g. with https://emojicdn.elk.sh/). You don't need to add an emoji to the <title> element as that is redundant with the emoji.
-- High-Quality OG Previews: For shareability, every app must include og:title, og:description, og:url and  og:image meta tags [use .png images only]
+- High-Quality OG Previews: For shareability, every app must include og:title, og:description, og:url and og:image meta tags [use .png images only]
+  - og:url and og:image MUST use full URLs (e.g. https://app.vibecodedbyx.com/{app-name}/og-image.png), NOT relative paths
+  - og:image MUST be a proper static PNG file saved at apps/{app-name}/og-image.png, NOT emoji.png or AI-generated URLs
 - Description should be really short and concretely show what the user can expect, avoid describing implementation details added features or such. It just should make the user interested in trying it.
 - User Experience (UX) is Key: Apps must feel responsive. Always include user-friendly error states for failed operations.
 - Each app should be both mobile and desktop-friendly
+
+## Code Quality - DRY and Conciseness
+- NEVER repeat code unnecessarily - extract common patterns into functions
+- Keep code concise and readable - avoid verbose implementations
+- Use helper functions for repeated operations
+- Minimize code duplication within each app
+- Write efficient, streamlined code that is easy to understand and maintain
+- Prefer declarative over imperative code when possible
+- Use modern JavaScript features (arrow functions, destructuring, etc.) for brevity
 
 # Project structure
 - each app MUST be in a subfolder of apps/
@@ -36,7 +47,6 @@ You are a CLI controlled virtually online by a public livestream chat on https:/
 - note that each user will be able to see all rows, but only add delete or edit their own; each table will have a user_id column auto added by the above tool; you can always list the schema of a database if unsure using the appropriate tool
 - always remember to pass in the user_id for any row insertion, otherwise it will not work
 - Apps should include a backlink to the livestream at www.vibecodedbyx.com
-- Apps should include a link/button to the overview page at app.vibecodedbyx.com/overview
 - Self-contained: each app is completely self-contained, with its own files, dependencies, and build process.
 - Each app should be both mobile and desktop-friendly
 - High shareability and virality: apps should be designed for easy sharing, with compelling OG previews (.png only) for social media, including an image and title and favicon (use emoji or other image)
@@ -76,23 +86,3 @@ You can check if users are premium using the MCP server tools:
 - Look for `user_id` and `purchased_at` columns
 - Premium users should have `purchased_at not null` or similar
 - Give premium users access to advanced features like custom styling and advanced functionality
-
-## Overview Page Maintenance
-- The `/apps/overview/` directory contains an automatically generated project browser
-- Whenever you create, edit, or delete an app, you MUST regenerate the overview:
-  ```bash
-  node apps/overview/generate-projects.js
-  ```
-- This updates `projects.json` which powers the overview page at https://app.vibecodedbyx.com/overview
-- The script automatically:
-  - Scans all apps in `/apps/` directory
-  - Extracts metadata (title, description, icon, category) from each index.html
-  - Captures file modification timestamps (created, modified) from filesystem
-  - Generates sortable project list with all metadata
-- **File timestamps are automatic**: When you edit an app's index.html, the filesystem automatically updates the `modified` timestamp
-- **IMPORTANT**: Always run `node apps/overview/generate-projects.js` after any app changes so the overview stays current with latest timestamps and metadata
-- The overview page features:
-  - Search functionality
-  - Category filters (Games, Tools, Art, Other)
-  - Sorting: Name (A-Z/Z-A), Recently Created, Recently Modified
-  - All sorting and filtering work together

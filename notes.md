@@ -1,6 +1,8 @@
 # VibeSpace Notes
 
 ## log
+- 2025-12-05: breakout-terminal — added real PNG OG image, share button, and head improvements; verified live.
+ - 2025-12-05: breakout-terminal — added Supabase leaderboard (anon auth), submit UI, and pause ribbon; verified live.
 - 2025-10-07: SpaceFlight — clustered objects closer (shorter spans and spawn ranges), tightened dust/spark fades, lowered clear radius for denser feel.
 - 2025-11-08: Added Icy Tower Online app with Supabase leaderboard and mobile controls.
 - 2025-11-08: Added Mouse Mood Reader app with heuristic mood detection and Supabase feedback capture.
@@ -11,6 +13,7 @@
  - WebAudio requires a user gesture to start on mobile; always add a Start button to unlock audio.
  - OG tags must include a .png image URL; emojicdn works in a pinch but custom PNGs look better.
  - Root supabase-config.js may expect premium UI nodes; prefer per-app copy with null checks.
+ - Some app hosts fall back to `index.html` for unknown asset paths; ensure `og-image.png` actually exists to avoid OG preview failures.
 
 ## todos
 - Add quick sanity page to each app for basic asset checks (script tags, OG image presence, favicon URL).
