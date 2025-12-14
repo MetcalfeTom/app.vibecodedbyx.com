@@ -6,6 +6,10 @@
     { key: 'ding',  label: 'Ding',  color: '#b99ad6' },
     { key: 'chord', label: 'Chord', color: '#9bd2de' },
     { key: 'error', label: 'Error', color: '#f2a6a6' },
+    { key: 'startup', label: 'Startup', color: '#ffd700' },
+    { key: 'shutdown', label: 'Shutdown', color: '#ff6347' },
+    { key: 'notify', label: 'Notify', color: '#87ceeb' },
+    { key: 'tada', label: 'Tada', color: '#ff69b4' },
   ];
   const STEPS = 16;
 
@@ -174,6 +178,77 @@
     o.start(time);
     o.stop(time+0.28);
   }
+  function playStartup(time){
+    const g = channels.get('startup').gain;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.0001, time);
+    eg.gain.exponentialRampToValueAtTime(0.6, time+0.05);
+    eg.gain.exponentialRampToValueAtTime(0.0001, time+1.2);
+    // Windows startup jingle inspired melody
+    const notes = [392, 523, 659, 784]; // G4, C5, E5, G5
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      o.connect(eg);
+      o.start(time + i * 0.25);
+      o.stop(time + i * 0.25 + 0.35);
+    });
+    eg.connect(g);
+  }
+  function playShutdown(time){
+    const g = channels.get('shutdown').gain;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.0001, time);
+    eg.gain.exponentialRampToValueAtTime(0.6, time+0.05);
+    eg.gain.exponentialRampToValueAtTime(0.0001, time+1.0);
+    // Windows shutdown inspired (descending)
+    const notes = [659, 523, 392, 294]; // E5, C5, G4, D4
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      o.connect(eg);
+      o.start(time + i * 0.2);
+      o.stop(time + i * 0.2 + 0.3);
+    });
+    eg.connect(g);
+  }
+  function playNotify(time){
+    const g = channels.get('notify').gain;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.0001, time);
+    eg.gain.exponentialRampToValueAtTime(0.5, time+0.01);
+    eg.gain.exponentialRampToValueAtTime(0.0001, time+0.3);
+    // Simple notification beep
+    [1047, 1319].forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      o.connect(eg);
+      o.start(time + i * 0.08);
+      o.stop(time + i * 0.08 + 0.12);
+    });
+    eg.connect(g);
+  }
+  function playTada(time){
+    const g = channels.get('tada').gain;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.0001, time);
+    eg.gain.exponentialRampToValueAtTime(0.7, time+0.05);
+    eg.gain.exponentialRampToValueAtTime(0.0001, time+1.5);
+    // Tada inspired fanfare
+    const melody = [523, 659, 784, 1047]; // C5, E5, G5, C6
+    melody.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      o.connect(eg);
+      o.start(time + i * 0.15);
+      o.stop(time + i * 0.15 + 0.4);
+    });
+    eg.connect(g);
+  }
 
   // Noise buffer cache
   let _noiseBuf=null;
@@ -204,6 +279,10 @@
           case 'ding':  playDing(when); break;
           case 'chord': playChord(when); break;
           case 'error': playError(when); break;
+          case 'startup': playStartup(when); break;
+          case 'shutdown': playShutdown(when); break;
+          case 'notify': playNotify(when); break;
+          case 'tada': playTada(when); break;
         }
       } catch (e) {
         console.error('Audio error', e);
