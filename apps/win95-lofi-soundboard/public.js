@@ -1,7 +1,9 @@
 import supabase, { supabaseSession } from './supabase-config.js';
 
 const beatsBody = document.getElementById('beatsBody');
+const myBeatsBody = document.getElementById('myBeatsBody');
 const publishBtn = document.getElementById('publishBtn');
+const saveMyBeatBtn = document.getElementById('saveMyBeatBtn');
 const beatTitle = document.getElementById('beatTitle');
 const pubError = document.getElementById('pubError');
 const pubStatus = document.getElementById('pubStatus');
@@ -14,7 +16,7 @@ async function init(){
   try {
     const { user } = await supabaseSession();
     currentUser = user;
-    await loadBeats();
+    await Promise.all([loadBeats(), loadMyBeats()]);
   } catch (e) {
     showError('Auth failed: ' + e.message);
   }
@@ -34,7 +36,7 @@ publishBtn.addEventListener('click', async () => {
 
     const { error } = await supabase
       .from('lofi_beats')
-      .insert([{ title, bpm, lofi, pattern, user_id: currentUser.id }]);
+      .insert([{ title, bpm, lofi, pattern, user_id: currentUser.id, is_public: true }]);
     if (error) throw error;
 
     pubStatus.textContent = 'Published!';
@@ -42,6 +44,31 @@ publishBtn.addEventListener('click', async () => {
     await loadBeats();
   } catch (e) {
     showError('Publish failed: ' + e.message);
+  }
+});
+
+saveMyBeatBtn.addEventListener('click', async () => {
+  clearMsg();
+  try {
+    if (!currentUser) { await init(); }
+    const title = (beatTitle.value || 'My Beat').slice(0, 60);
+    const app = window.Win95App;
+    if (!app) throw new Error('App API unavailable');
+    const pattern = app.getPattern();
+    const bpm = Math.round(app.getBpm() || 92);
+    const lofi = Math.round((app.getLofi() || 0) * 100);
+    if (!hasAnyStep(pattern)) throw new Error('Empty pattern — add some steps first');
+
+    const { error } = await supabase
+      .from('lofi_beats')
+      .insert([{ title, bpm, lofi, pattern, user_id: currentUser.id, is_public: false }]);
+    if (error) throw error;
+
+    pubStatus.textContent = 'Saved privately!';
+    beatTitle.value = '';
+    await loadMyBeats();
+  } catch (e) {
+    showError('Save failed: ' + e.message);
   }
 });
 
@@ -63,6 +90,7 @@ async function loadBeats(){
     const { data, error } = await supabase
       .from('lofi_beats')
       .select('id, title, bpm, lofi, pattern, user_id, created_at')
+      .eq('is_public', true)
       .order('created_at', { ascending: false })
       .limit(20);
     if (error) throw error;
@@ -86,6 +114,74 @@ async function loadBeats(){
   } catch (e) {
     showError('Failed to load beats: ' + e.message);
   }
+}
+
+async function loadMyBeats(){
+  try {
+    if (!currentUser) return;
+    myBeatsBody.innerHTML = '<tr><td colspan="3" class="muted">Loading…</td></tr>';
+    const { data, error } = await supabase
+      .from('lofi_beats')
+      .select('id, title, bpm, lofi, pattern, created_at')
+      .eq('user_id', currentUser.id)
+      .eq('is_public', false)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      myBeatsBody.innerHTML = '<tr><td colspan="3" class="muted">No saved beats yet.</td></tr>';
+      return;
+    }
+
+    const rows = data.map(b => renderMyBeatRow(b));
+    myBeatsBody.innerHTML = rows.join('');
+    bindMyBeatActions();
+  } catch (e) {
+    showError('Failed to load your beats: ' + e.message);
+  }
+}
+
+function renderMyBeatRow(b){
+  const title = escapeHtml(b.title || 'Untitled Beat');
+  return `<tr>
+    <td>${title}</td>
+    <td>${b.bpm}</td>
+    <td>
+      <button class="btn primary" data-load="${b.id}">Load</button>
+      <button class="btn" data-delete="${b.id}">Delete</button>
+    </td>
+  </tr>`;
+}
+
+function bindMyBeatActions(){
+  myBeatsBody.querySelectorAll('[data-load]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      clearMsg();
+      const id = Number(btn.dataset.load);
+      const { data, error } = await supabase.from('lofi_beats').select('*').eq('id', id).single();
+      if (error) { showError('Load failed: ' + error.message); return; }
+      try {
+        window.Win95App.setPattern(data.pattern);
+        window.Win95App.setBpm(data.bpm);
+        window.Win95App.setLofi((data.lofi || 0)/100);
+        pubStatus.textContent = 'Loaded your beat.';
+      } catch (e) { showError('Apply failed: ' + e.message); }
+    });
+  });
+
+  myBeatsBody.querySelectorAll('[data-delete]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      clearMsg();
+      const id = Number(btn.dataset.delete);
+      if (!confirm('Delete this beat?')) return;
+      try {
+        const { error } = await supabase.from('lofi_beats').delete().eq('id', id).eq('user_id', currentUser.id);
+        if (error) throw error;
+        await loadMyBeats();
+        pubStatus.textContent = 'Deleted.';
+      } catch (e) { showError('Delete failed: ' + e.message); }
+    });
+  });
 }
 
 async function getMyVotes(){

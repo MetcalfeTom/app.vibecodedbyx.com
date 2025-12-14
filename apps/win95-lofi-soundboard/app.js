@@ -6,10 +6,14 @@
     { key: 'ding',  label: 'Ding',  color: '#b99ad6' },
     { key: 'chord', label: 'Chord', color: '#9bd2de' },
     { key: 'error', label: 'Error', color: '#f2a6a6' },
-    { key: 'startup', label: 'Startup', color: '#ffd700' },
-    { key: 'shutdown', label: 'Shutdown', color: '#ff6347' },
+    { key: 'startup95', label: '95 Start', color: '#ffd700' },
+    { key: 'shutdown95', label: '95 Stop', color: '#ff6347' },
     { key: 'notify', label: 'Notify', color: '#87ceeb' },
     { key: 'tada', label: 'Tada', color: '#ff69b4' },
+    { key: 'startup98', label: '98 Start', color: '#90ee90' },
+    { key: 'shutdown98', label: '98 Stop', color: '#ff8c69' },
+    { key: 'startupXP', label: 'XP Start', color: '#add8e6' },
+    { key: 'shutdownXP', label: 'XP Stop', color: '#ffb6c1' },
   ];
   const STEPS = 32;
 
@@ -178,13 +182,13 @@
     o.start(time);
     o.stop(time+0.28);
   }
-  function playStartup(time){
-    const g = channels.get('startup').gain;
+  function playStartup95(time){
+    const g = channels.get('startup95').gain;
     const eg = ctx.createGain();
     eg.gain.setValueAtTime(0.0001, time);
     eg.gain.exponentialRampToValueAtTime(0.6, time+0.05);
     eg.gain.exponentialRampToValueAtTime(0.0001, time+1.2);
-    // Windows startup jingle inspired melody
+    // Win95 startup jingle inspired melody
     const notes = [392, 523, 659, 784]; // G4, C5, E5, G5
     notes.forEach((f, i) => {
       const o = ctx.createOscillator();
@@ -196,13 +200,13 @@
     });
     eg.connect(g);
   }
-  function playShutdown(time){
-    const g = channels.get('shutdown').gain;
+  function playShutdown95(time){
+    const g = channels.get('shutdown95').gain;
     const eg = ctx.createGain();
     eg.gain.setValueAtTime(0.0001, time);
     eg.gain.exponentialRampToValueAtTime(0.6, time+0.05);
     eg.gain.exponentialRampToValueAtTime(0.0001, time+1.0);
-    // Windows shutdown inspired (descending)
+    // Win95 shutdown inspired (descending)
     const notes = [659, 523, 392, 294]; // E5, C5, G4, D4
     notes.forEach((f, i) => {
       const o = ctx.createOscillator();
@@ -211,6 +215,86 @@
       o.connect(eg);
       o.start(time + i * 0.2);
       o.stop(time + i * 0.2 + 0.3);
+    });
+    eg.connect(g);
+  }
+  function playStartup98(time){
+    const g = channels.get('startup98').gain;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.0001, time);
+    eg.gain.exponentialRampToValueAtTime(0.65, time+0.08);
+    eg.gain.exponentialRampToValueAtTime(0.0001, time+1.4);
+    // Win98 style - brighter, more hopeful
+    const notes = [330, 440, 523, 659, 784]; // E4, A4, C5, E5, G5
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      o.connect(eg);
+      o.start(time + i * 0.22);
+      o.stop(time + i * 0.22 + 0.4);
+    });
+    eg.connect(g);
+  }
+  function playShutdown98(time){
+    const g = channels.get('shutdown98').gain;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.0001, time);
+    eg.gain.exponentialRampToValueAtTime(0.65, time+0.06);
+    eg.gain.exponentialRampToValueAtTime(0.0001, time+1.1);
+    // Win98 shutdown - gentle fade
+    const notes = [659, 523, 440, 330, 262]; // E5, C5, A4, E4, C4
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      o.connect(eg);
+      o.start(time + i * 0.18);
+      o.stop(time + i * 0.18 + 0.35);
+    });
+    eg.connect(g);
+  }
+  function playStartupXP(time){
+    const g = channels.get('startupXP').gain;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.0001, time);
+    eg.gain.exponentialRampToValueAtTime(0.7, time+0.1);
+    eg.gain.exponentialRampToValueAtTime(0.0001, time+1.8);
+    // WinXP style - iconic bright major chord arpeggio
+    const notes = [523, 659, 784, 1047]; // C5, E5, G5, C6
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const o2 = ctx.createOscillator();
+      o2.type = 'sine';
+      o2.frequency.value = f * 1.5; // add harmonic
+      const gMix = ctx.createGain();
+      gMix.gain.value = 0.5;
+      o.connect(eg);
+      o2.connect(gMix).connect(eg);
+      o.start(time + i * 0.15);
+      o.stop(time + i * 0.15 + 0.5);
+      o2.start(time + i * 0.15);
+      o2.stop(time + i * 0.15 + 0.5);
+    });
+    eg.connect(g);
+  }
+  function playShutdownXP(time){
+    const g = channels.get('shutdownXP').gain;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.0001, time);
+    eg.gain.exponentialRampToValueAtTime(0.7, time+0.08);
+    eg.gain.exponentialRampToValueAtTime(0.0001, time+1.5);
+    // WinXP shutdown - descending peaceful
+    const notes = [784, 659, 523, 392]; // G5, E5, C5, G4
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      o.connect(eg);
+      o.start(time + i * 0.25);
+      o.stop(time + i * 0.25 + 0.45);
     });
     eg.connect(g);
   }
@@ -279,10 +363,14 @@
           case 'ding':  playDing(when); break;
           case 'chord': playChord(when); break;
           case 'error': playError(when); break;
-          case 'startup': playStartup(when); break;
-          case 'shutdown': playShutdown(when); break;
+          case 'startup95': playStartup95(when); break;
+          case 'shutdown95': playShutdown95(when); break;
           case 'notify': playNotify(when); break;
           case 'tada': playTada(when); break;
+          case 'startup98': playStartup98(when); break;
+          case 'shutdown98': playShutdown98(when); break;
+          case 'startupXP': playStartupXP(when); break;
+          case 'shutdownXP': playShutdownXP(when); break;
         }
       } catch (e) {
         console.error('Audio error', e);
@@ -456,24 +544,78 @@
   }
 
   // Preset buttons
-  document.getElementById('presetStartup')?.addEventListener('click', () => {
+  document.getElementById('presetStartup95')?.addEventListener('click', () => {
     pattern = createEmptyPattern();
-    pattern.startup[0] = true;
+    pattern.startup95[0] = true;
     pattern.chord[0] = true;
     pattern.kick[0] = true;
     buildGrid();
     persistDraft();
-    setStatus('Loaded Startup preset.');
+    setStatus('Loaded Win95 Startup preset.');
   });
 
-  document.getElementById('presetShutdown')?.addEventListener('click', () => {
+  document.getElementById('presetShutdown95')?.addEventListener('click', () => {
     pattern = createEmptyPattern();
-    pattern.shutdown[0] = true;
+    pattern.shutdown95[0] = true;
     pattern.snare[8] = true;
     pattern.chord[0] = true;
     buildGrid();
     persistDraft();
-    setStatus('Loaded Shutdown preset.');
+    setStatus('Loaded Win95 Shutdown preset.');
+  });
+
+  document.getElementById('presetStartup98')?.addEventListener('click', () => {
+    pattern = createEmptyPattern();
+    pattern.startup98[0] = true;
+    pattern.chord[0] = true;
+    pattern.chord[8] = true;
+    pattern.kick[0] = true;
+    pattern.kick[16] = true;
+    for(let i=0; i<32; i+=4) pattern.hat[i] = true;
+    buildGrid();
+    persistDraft();
+    setStatus('Loaded Win98 Startup preset.');
+  });
+
+  document.getElementById('presetShutdown98')?.addEventListener('click', () => {
+    pattern = createEmptyPattern();
+    pattern.shutdown98[0] = true;
+    pattern.snare[8] = true;
+    pattern.ding[12] = true;
+    buildGrid();
+    persistDraft();
+    setStatus('Loaded Win98 Shutdown preset.');
+  });
+
+  document.getElementById('presetStartupXP')?.addEventListener('click', () => {
+    pattern = createEmptyPattern();
+    pattern.startupXP[0] = true;
+    pattern.kick[0] = true;
+    pattern.kick[8] = true;
+    pattern.kick[16] = true;
+    pattern.kick[24] = true;
+    pattern.snare[4] = true;
+    pattern.snare[12] = true;
+    pattern.snare[20] = true;
+    pattern.snare[28] = true;
+    for(let i=0; i<32; i+=2) pattern.hat[i] = true;
+    pattern.chord[0] = true;
+    pattern.chord[16] = true;
+    buildGrid();
+    persistDraft();
+    setStatus('Loaded WinXP Startup preset.');
+  });
+
+  document.getElementById('presetShutdownXP')?.addEventListener('click', () => {
+    pattern = createEmptyPattern();
+    pattern.shutdownXP[0] = true;
+    pattern.kick[0] = true;
+    pattern.snare[8] = true;
+    pattern.chord[0] = true;
+    for(let i=0; i<16; i+=4) pattern.hat[i] = true;
+    buildGrid();
+    persistDraft();
+    setStatus('Loaded WinXP Shutdown preset.');
   });
 
   document.getElementById('presetNotify')?.addEventListener('click', () => {
