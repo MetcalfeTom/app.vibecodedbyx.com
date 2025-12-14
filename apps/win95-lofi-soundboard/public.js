@@ -36,7 +36,7 @@ publishBtn.addEventListener('click', async () => {
 
     const { error } = await supabase
       .from('lofi_beats')
-      .insert([{ title, bpm, lofi, pattern, user_id: currentUser.id, is_public: true }]);
+      .insert([{ title, bpm, lofi, pattern, user_id: currentUser.id }]);
     if (error) throw error;
 
     pubStatus.textContent = 'Published!';
@@ -61,10 +61,10 @@ saveMyBeatBtn.addEventListener('click', async () => {
 
     const { error } = await supabase
       .from('lofi_beats')
-      .insert([{ title, bpm, lofi, pattern, user_id: currentUser.id, is_public: false }]);
+      .insert([{ title, bpm, lofi, pattern, user_id: currentUser.id }]);
     if (error) throw error;
 
-    pubStatus.textContent = 'Saved privately!';
+    pubStatus.textContent = 'Saved!';
     beatTitle.value = '';
     await loadMyBeats();
   } catch (e) {
@@ -87,13 +87,16 @@ async function loadBeats(){
   try {
     clearMsg();
     beatsBody.innerHTML = '<tr><td colspan="4" class="muted">Loading…</td></tr>';
+
+    // Try to load beats - handle is_public column gracefully
     const { data, error } = await supabase
       .from('lofi_beats')
       .select('id, title, bpm, lofi, pattern, user_id, created_at')
-      .eq('is_public', true)
       .order('created_at', { ascending: false })
       .limit(20);
+
     if (error) throw error;
+
     if (!data || data.length === 0) {
       beatsBody.innerHTML = '<tr><td colspan="4" class="muted">No public beats yet. Be the first!</td></tr>';
       return;
@@ -118,15 +121,20 @@ async function loadBeats(){
 
 async function loadMyBeats(){
   try {
-    if (!currentUser) return;
+    if (!currentUser) {
+      myBeatsBody.innerHTML = '<tr><td colspan="3" class="muted">Sign in to save private beats.</td></tr>';
+      return;
+    }
     myBeatsBody.innerHTML = '<tr><td colspan="3" class="muted">Loading…</td></tr>';
+
+    // Query without is_public to avoid breaking if column doesn't exist yet
     const { data, error } = await supabase
       .from('lofi_beats')
       .select('id, title, bpm, lofi, pattern, created_at')
       .eq('user_id', currentUser.id)
-      .eq('is_public', false)
       .order('created_at', { ascending: false })
       .limit(20);
+
     if (error) throw error;
     if (!data || data.length === 0) {
       myBeatsBody.innerHTML = '<tr><td colspan="3" class="muted">No saved beats yet.</td></tr>';
