@@ -11,7 +11,7 @@
     { key: 'notify', label: 'Notify', color: '#87ceeb' },
     { key: 'tada', label: 'Tada', color: '#ff69b4' },
   ];
-  const STEPS = 16;
+  const STEPS = 32;
 
   // DOM
   const gridEl = document.getElementById('grid');
@@ -454,6 +454,54 @@
     // error occasional fill
     [11].forEach(i => { if (Math.random()>0.7) pattern.error[i] = true; });
   }
+
+  // Preset buttons
+  document.getElementById('presetStartup')?.addEventListener('click', () => {
+    pattern = createEmptyPattern();
+    pattern.startup[0] = true;
+    pattern.chord[0] = true;
+    pattern.kick[0] = true;
+    buildGrid();
+    persistDraft();
+    setStatus('Loaded Startup preset.');
+  });
+
+  document.getElementById('presetShutdown')?.addEventListener('click', () => {
+    pattern = createEmptyPattern();
+    pattern.shutdown[0] = true;
+    pattern.snare[8] = true;
+    pattern.chord[0] = true;
+    buildGrid();
+    persistDraft();
+    setStatus('Loaded Shutdown preset.');
+  });
+
+  document.getElementById('presetNotify')?.addEventListener('click', () => {
+    pattern = createEmptyPattern();
+    pattern.notify[0] = true;
+    pattern.notify[4] = true;
+    pattern.notify[8] = true;
+    pattern.hat[2] = true;
+    pattern.hat[6] = true;
+    pattern.hat[10] = true;
+    buildGrid();
+    persistDraft();
+    setStatus('Loaded Notify preset.');
+  });
+
+  document.getElementById('presetTada')?.addEventListener('click', () => {
+    pattern = createEmptyPattern();
+    pattern.tada[0] = true;
+    pattern.kick[0] = true;
+    pattern.kick[8] = true;
+    pattern.snare[4] = true;
+    pattern.chord[0] = true;
+    pattern.chord[8] = true;
+    for(let i=0; i<32; i+=2) pattern.hat[i] = true;
+    buildGrid();
+    persistDraft();
+    setStatus('Loaded Tada preset.');
+  });
 
   // Initialize UI
   loadDraft();
