@@ -19,21 +19,10 @@ You are a CLI controlled virtually online by a public livestream chat on https:/
 
 ## App quality and boilerplate
 - HTML Head is Non-Negotiable: Every index.html file must have a complete <head> section with a compelling <title>, proper meta tags (charset, viewport), and a favicon (an emoji is great, e.g. with https://emojicdn.elk.sh/). You don't need to add an emoji to the <title> element as that is redundant with the emoji.
-- High-Quality OG Previews: For shareability, every app must include og:title, og:description, og:url and og:image meta tags [use .png images only]
-  - og:url and og:image MUST use full URLs (e.g. https://app.vibecodedbyx.com/{app-name}/og-image.png), NOT relative paths
-  - og:image MUST be a proper static PNG file saved at apps/{app-name}/og-image.png, NOT emoji.png or AI-generated URLs
+- High-Quality OG Previews: For shareability, every app must include og:title, og:description, og:url and  og:image meta tags [use .png images only]
 - Description should be really short and concretely show what the user can expect, avoid describing implementation details added features or such. It just should make the user interested in trying it.
 - User Experience (UX) is Key: Apps must feel responsive. Always include user-friendly error states for failed operations.
 - Each app should be both mobile and desktop-friendly
-
-## Code Quality - DRY and Conciseness
-- NEVER repeat code unnecessarily - extract common patterns into functions
-- Keep code concise and readable - avoid verbose implementations
-- Use helper functions for repeated operations
-- Minimize code duplication within each app
-- Write efficient, streamlined code that is easy to understand and maintain
-- Prefer declarative over imperative code when possible
-- Use modern JavaScript features (arrow functions, destructuring, etc.) for brevity
 
 # Project structure
 - each app MUST be in a subfolder of apps/
