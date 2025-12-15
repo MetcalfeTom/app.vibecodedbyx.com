@@ -354,7 +354,8 @@
 
     // Play any active cells
     TRACKS.forEach((tr,i)=>{
-      if (!pattern[tr.key][s]) return;
+      // Safety check: ensure pattern has this track and step
+      if (!pattern[tr.key] || !pattern[tr.key][s]) return;
       try {
         switch(tr.key){
           case 'kick':  playKick(when); break;
@@ -409,6 +410,20 @@
   function setStatus(msg){ statusEl.textContent = msg; }
 
   function buildGrid(){
+    // Ensure pattern has all tracks with correct length
+    TRACKS.forEach(t => {
+      if (!pattern[t.key]) {
+        pattern[t.key] = Array(STEPS).fill(false);
+      } else if (pattern[t.key].length !== STEPS) {
+        // Resize pattern to match STEPS
+        const newArr = Array(STEPS).fill(false);
+        for (let i = 0; i < Math.min(pattern[t.key].length, STEPS); i++) {
+          newArr[i] = pattern[t.key][i];
+        }
+        pattern[t.key] = newArr;
+      }
+    });
+
     gridEl.innerHTML = '';
     TRACKS.forEach((t, rIndex) => {
       const row = document.createElement('div');
