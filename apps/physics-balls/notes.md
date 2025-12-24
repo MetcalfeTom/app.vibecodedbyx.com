@@ -1,6 +1,7 @@
 # Physics Balls - Neon Ball Chaos
 
 ## Log
+- 2025-12-24: Added black hole feature (hold mouse to attract balls), slowed simulation speed
 - 2025-12-24: Initial creation - 100 neon balls with physics, ball-to-ball collision, gravity shifting on click
 
 ## Features
