@@ -69,8 +69,34 @@ class IcyTower {
         this.container.querySelector('#icy-pause').addEventListener('click', () => this.togglePause());
         this.container.querySelector('#icy-restart').addEventListener('click', () => this.restart());
 
+        // Canvas click handler for start/game over buttons
+        this.clickHandler = this.handleClick.bind(this);
+        this.canvas.addEventListener('click', this.clickHandler);
+
         this.resetGame();
         this.showStart();
+    }
+
+    handleClick(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = this.width / rect.width;
+        const scaleY = this.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+
+        // Start button area: (100, 195, 100, 24)
+        if (!this.running && !this.gameOver) {
+            if (x >= 100 && x <= 200 && y >= 195 && y <= 219) {
+                this.start();
+            }
+        }
+
+        // Game over "Try Again" button area: (100, 210, 100, 28)
+        if (this.gameOver) {
+            if (x >= 100 && x <= 200 && y >= 210 && y <= 238) {
+                this.restart();
+            }
+        }
     }
 
     handleKey(e) {
@@ -167,8 +193,8 @@ class IcyTower {
         this.ctx.fillText('Climb as high as you can!', this.width / 2, 160);
         this.ctx.fillText('Don\'t fall off the screen.', this.width / 2, 175);
 
-        // Start button
-        this.drawWin95Button(100, 195, 100, 24, 'Press SPACE');
+        // Start button - clickable
+        this.drawWin95Button(100, 195, 100, 24, 'Start Game');
         this.ctx.textAlign = 'left';
     }
 
@@ -376,7 +402,8 @@ class IcyTower {
         this.gameOver = true;
         this.running = false;
 
-        if (this.floor > this.best) {
+        const isNewBest = this.floor > this.best;
+        if (isNewBest) {
             this.best = this.floor;
             localStorage.setItem('win95-icytower-best', this.best);
             this.bestEl.textContent = this.best;
@@ -384,27 +411,49 @@ class IcyTower {
 
         if (window.playSound) window.playSound('error');
 
-        // Draw game over
+        // Draw game over with distinct red tint
         this.draw();
-        this.ctx.fillStyle = 'rgba(0, 0, 128, 0.85)';
+        this.ctx.fillStyle = 'rgba(128, 0, 0, 0.85)';
         this.ctx.fillRect(0, 0, this.width, this.height);
 
-        this.drawWin95Box(50, 130, 200, 100);
+        // Larger dialog for game over
+        this.drawWin95Box(30, 100, 240, 160);
 
-        this.ctx.fillStyle = '#000080';
-        this.ctx.fillRect(52, 132, 196, 16);
+        // Red title bar for game over
+        this.ctx.fillStyle = '#800000';
+        this.ctx.fillRect(32, 102, 236, 18);
         this.ctx.fillStyle = '#fff';
-        this.ctx.font = 'bold 11px MS Sans Serif, sans-serif';
+        this.ctx.font = 'bold 12px MS Sans Serif, sans-serif';
         this.ctx.textAlign = 'left';
-        this.ctx.fillText('Game Over', 56, 143);
+        this.ctx.fillText('Game Over!', 38, 115);
 
+        // X button decoration
+        this.ctx.fillStyle = '#c0c0c0';
+        this.ctx.fillRect(250, 104, 14, 14);
         this.ctx.fillStyle = '#000';
-        this.ctx.font = '11px MS Sans Serif, sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(`You reached floor ${this.floor}!`, this.width / 2, 170);
-        this.ctx.fillText(`Best: ${this.best}`, this.width / 2, 185);
+        this.ctx.font = 'bold 10px MS Sans Serif, sans-serif';
+        this.ctx.fillText('X', 253, 114);
 
-        this.drawWin95Button(100, 200, 100, 20, 'New Game');
+        // Content
+        this.ctx.fillStyle = '#000';
+        this.ctx.font = 'bold 14px MS Sans Serif, sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('YOU FELL!', this.width / 2, 145);
+
+        this.ctx.font = '12px MS Sans Serif, sans-serif';
+        this.ctx.fillText(`Floor reached: ${this.floor}`, this.width / 2, 170);
+
+        if (isNewBest) {
+            this.ctx.fillStyle = '#008000';
+            this.ctx.font = 'bold 12px MS Sans Serif, sans-serif';
+            this.ctx.fillText('NEW HIGH SCORE!', this.width / 2, 190);
+        } else {
+            this.ctx.fillStyle = '#000';
+            this.ctx.fillText(`Your best: ${this.best}`, this.width / 2, 190);
+        }
+
+        // Larger, more prominent button
+        this.drawWin95Button(100, 210, 100, 28, 'Try Again');
         this.ctx.textAlign = 'left';
     }
 
@@ -430,6 +479,7 @@ class IcyTower {
         this.running = false;
         document.removeEventListener('keydown', this.keyHandler);
         document.removeEventListener('keyup', this.keyUpHandler);
+        this.canvas.removeEventListener('click', this.clickHandler);
     }
 }
 
