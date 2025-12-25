@@ -107,18 +107,37 @@ class IcyTower {
         // Ground platform
         this.platforms.push({ x: 0, y: this.height * 0.85, w: this.width, h: 12, type: 'ground' });
 
-        // Generate platforms
+        // Generate platforms with progressive difficulty
         let y = this.height * 0.7;
         for (let i = 0; i < 30; i++) {
-            y -= 40 + Math.random() * 25;
+            y -= this.getPlatformGap(y);
             this.addPlatform(y);
         }
 
         this.updateUI();
     }
 
+    getDifficulty(y) {
+        // Calculate difficulty based on height (more negative y = higher = harder)
+        const startY = this.height * 0.7;
+        const height = Math.max(0, startY - y);
+        return Math.min(1, height / 4000); // Max difficulty at ~4000 pixels up
+    }
+
+    getPlatformGap(y) {
+        const difficulty = this.getDifficulty(y);
+        // Gap starts at 40-65, increases to 55-95 at max difficulty
+        const baseGap = 40 + difficulty * 15;
+        const variance = 25 + difficulty * 20;
+        return baseGap + Math.random() * variance;
+    }
+
     addPlatform(y) {
-        const w = 50 + Math.random() * 40;
+        const difficulty = this.getDifficulty(y);
+        // Platform width: starts at 50-90, shrinks to 35-55 at max difficulty
+        const minW = 50 - difficulty * 15;
+        const maxW = 90 - difficulty * 35;
+        const w = Math.max(35, minW + Math.random() * (maxW - minW));
         const x = Math.random() * (this.width - w);
         const type = Math.random() < 0.1 ? 'gold' : 'normal';
         this.platforms.push({ x, y, w, h: 10, type });
@@ -265,11 +284,12 @@ class IcyTower {
         const targetCam = Math.min(this.cameraY, p.y - this.height * 0.4);
         this.cameraY += (targetCam - this.cameraY) * 0.1;
 
-        // Remove old platforms and generate new ones
+        // Remove old platforms and generate new ones with progressive difficulty
         this.platforms = this.platforms.filter(plat => plat.y < this.cameraY + this.height + 50);
         while (this.platforms.length < 25) {
             const topY = Math.min(...this.platforms.map(p => p.y));
-            this.addPlatform(topY - (40 + Math.random() * 25));
+            const newY = topY - this.getPlatformGap(topY);
+            this.addPlatform(newY);
         }
 
         // Death check
