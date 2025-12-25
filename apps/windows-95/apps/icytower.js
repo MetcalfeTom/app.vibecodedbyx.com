@@ -91,9 +91,9 @@ class IcyTower {
             }
         }
 
-        // Game over "Try Again" button area: (100, 210, 100, 28)
+        // Game over "Try Again" button area: (100, 205, 100, 28)
         if (this.gameOver) {
-            if (x >= 100 && x <= 200 && y >= 210 && y <= 238) {
+            if (x >= 100 && x <= 200 && y >= 205 && y <= 233) {
                 this.restart();
             }
         }
@@ -105,7 +105,10 @@ class IcyTower {
         }
 
         if (e.key === ' ' || e.key === 'Space' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
-            if (!this.running && !this.gameOver) {
+            if (this.gameOver) {
+                // Allow restart from game over with Space/Enter
+                this.restart();
+            } else if (!this.running) {
                 this.start();
             } else {
                 this.keys.jump = true;
@@ -453,7 +456,13 @@ class IcyTower {
         }
 
         // Larger, more prominent button
-        this.drawWin95Button(100, 210, 100, 28, 'Try Again');
+        this.drawWin95Button(100, 205, 100, 28, 'Try Again');
+
+        // Hint text
+        this.ctx.fillStyle = '#808080';
+        this.ctx.font = '10px MS Sans Serif, sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Click or press SPACE', this.width / 2, 248);
         this.ctx.textAlign = 'left';
     }
 
