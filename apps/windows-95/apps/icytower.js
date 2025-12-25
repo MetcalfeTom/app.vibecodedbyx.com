@@ -107,9 +107,13 @@ class IcyTower {
         // Ground platform
         this.platforms.push({ x: 0, y: this.height * 0.85, w: this.width, h: 12, type: 'ground' });
 
-        // Generate platforms with progressive difficulty
-        let y = this.height * 0.7;
-        for (let i = 0; i < 30; i++) {
+        // First platform at fixed height above ground (easily reachable with basic jump)
+        const groundY = this.height * 0.85;
+        let y = groundY - 50; // ~50px above ground, well within jump range
+        this.addPlatform(y);
+
+        // Generate remaining platforms with progressive difficulty
+        for (let i = 0; i < 29; i++) {
             y -= this.getPlatformGap(y);
             this.addPlatform(y);
         }
