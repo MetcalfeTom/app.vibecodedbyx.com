@@ -78,7 +78,7 @@ class IcyTower {
             e.preventDefault();
         }
 
-        if (e.key === ' ' || e.key === 'Space') {
+        if (e.key === ' ' || e.key === 'Space' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
             if (!this.running && !this.gameOver) {
                 this.start();
             } else {
@@ -91,7 +91,7 @@ class IcyTower {
     }
 
     handleKeyUp(e) {
-        if (e.key === ' ' || e.key === 'Space') this.keys.jump = false;
+        if (e.key === ' ' || e.key === 'Space' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') this.keys.jump = false;
         if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.keys.left = false;
         if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.keys.right = false;
     }
