@@ -3,6 +3,7 @@
 Festive Christmas tree decoration game where players throw snowballs at a wobbly tree.
 
 ## log
+- 2025-12-25: Added rare golden star that triggers massive screen shake + rainbow particle explosion
 - 2025-12-25: Initial creation with wobbly tree physics, snowball throwing, ornament placement
 - Features: spring physics for tree wobble, drag-to-throw aiming, collision detection, particle effects
 
