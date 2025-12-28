@@ -6,7 +6,7 @@
 - TOON (Token-Oriented Object Notation) is an AI-optimized data format that reduces tokens by 30-60%
 - Added full UI with copy, swap, and clear functionality
 - Generated OG image for social sharing
-- App tested and working at https://app.vibecodedbyx.com/json-toon-converter
+- App tested and working at https://sloppy.live/json-toon-converter
 
 ## Features
 - JSON to TOON conversion

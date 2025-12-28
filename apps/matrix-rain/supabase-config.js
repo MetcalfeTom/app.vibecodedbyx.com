@@ -7,11 +7,11 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const getCookieDomain = () => {
   const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const isProduction = hostname === 'vibecodedbyx.com' || hostname === 'www.vibecodedbyx.com';
+  const isProduction = hostname === 'sloppy.live' || hostname === 'sloppy.live';
   
   // For cross-subdomain cookie sharing, we need to set the domain to the root domain
   if (isProduction) {
-    return '.vibecodedbyx.com';
+    return '.sloppy.live';
   } else {
     return '.youreabsolutelyright.xyz'; // Enable cross-subdomain sharing for staging
   }

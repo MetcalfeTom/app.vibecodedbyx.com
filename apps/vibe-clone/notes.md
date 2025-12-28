@@ -22,6 +22,6 @@
 
 ## Notes
 - This is a tribute page, not meant to replace the original
-- All CTAs link back to www.vibecodedbyx.com
+- All CTAs link back to sloppy.live
 - Explains the concept for new visitors
 - Mobile responsive design

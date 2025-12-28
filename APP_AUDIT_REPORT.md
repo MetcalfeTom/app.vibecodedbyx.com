@@ -42,8 +42,8 @@ Most apps follow CLAUDE.md guidelines well, with proper head sections, favicons,
 
 **Fix Required**: Use full URLs:
 ```html
-<meta property="og:url" content="https://app.vibecodedbyx.com/{app-name}">
-<meta property="og:image" content="https://app.vibecodedbyx.com/{app-name}/og-image.png">
+<meta property="og:url" content="https://sloppy.live/{app-name}">
+<meta property="og:image" content="https://sloppy.live/{app-name}/og-image.png">
 ```
 
 ---
@@ -75,7 +75,7 @@ Most apps follow CLAUDE.md guidelines well, with proper head sections, favicons,
 
 ### Immediate (High Priority)
 - [ ] Create proper og-image.png files for apps using emoji.png or AI URLs
-- [ ] Fix relative URLs to use full `https://app.vibecodedbyx.com/` paths
+- [ ] Fix relative URLs to use full `https://sloppy.live/` paths
 
 ### Short-term (Medium Priority)
 - [ ] Standardize all favicons to use emojicdn.elk.sh

@@ -720,6 +720,6 @@ MIT License - Free to use in all VibeCodedByX projects
 
 ## Support
 
-Questions or issues? Create an issue at [github.com/MetcalfeTom/app.vibecodedbyx.com](https://github.com/MetcalfeTom/app.vibecodedbyx.com)
+Questions or issues? Create an issue at [github.com/MetcalfeTom/sloppy.live](https://github.com/MetcalfeTom/sloppy.live)
 
-Built live at [VibeCodedByX.com](https://www.vibecodedbyx.com) 🎬
+Built live at [sloppy.live](https://sloppy.live) 🎬

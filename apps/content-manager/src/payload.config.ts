@@ -108,7 +108,7 @@ export default buildConfig({
                   unique: true,
                   label: 'App Slug (folder name)',
                   admin: {
-                    description: 'Used in URL: app.vibecodedbyx.com/[slug]',
+                    description: 'Used in URL: sloppy.live/[slug]',
                   },
                 },
                 {

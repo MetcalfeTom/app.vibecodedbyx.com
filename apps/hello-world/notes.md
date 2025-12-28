@@ -3,7 +3,7 @@
 ## Log
 - 2025-11-11: Created simple Hello World page
 - Clean, minimal design with gradient background
-- Live at https://app.vibecodedbyx.com/hello-world
+- Live at https://sloppy.live/hello-world
 
 ## About
 Simple greeting page demonstrating basic HTML/CSS structure.

@@ -6,8 +6,8 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const getCookieDomain = () => {
   const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const isProduction = hostname === 'vibecodedbyx.com' || hostname === 'www.vibecodedbyx.com';
-  return isProduction ? '.vibecodedbyx.com' : '.youreabsolutelyright.xyz';
+  const isProduction = hostname === 'sloppy.live' || hostname === 'sloppy.live';
+  return isProduction ? '.sloppy.live' : '.youreabsolutelyright.xyz';
 };
 
 const supabase = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

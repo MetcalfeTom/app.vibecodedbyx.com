@@ -5,7 +5,7 @@
 - Fetches project metadata from each app's index.html
 - Extracts title, description, and favicon emoji from each project
 - No manual updates needed - fully automatic!
-- Live at https://app.vibecodedbyx.com/overview
+- Live at https://sloppy.live/overview
 
 ## Features
 - **Automatic Discovery**: Scans /apps/ directory for all projects

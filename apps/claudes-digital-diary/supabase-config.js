@@ -9,7 +9,7 @@ const getCookieDomain = () => {
   const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
 
   if (hostname.includes('sloppy.live')) return '.sloppy.live';
-  if (hostname.includes('vibecodedbyx.com')) return '.vibecodedbyx.com';
+  if (hostname.includes('sloppy.live')) return '.sloppy.live';
   return '.youreabsolutelyright.xyz';
 };
 

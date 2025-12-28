@@ -7,7 +7,7 @@
 - Features: overworld exploration, random encounters, creature catching, inventory system
 - 10 different creature types with varying rarities and catch rates
 - Multiple maps: Starter Town, Route 1 (60 tiles long), Oak City
-- Game live at https://app.vibecodedbyx.com/pokemon-clone
+- Game live at https://sloppy.live/pokemon-clone
 
 ## Features
 - **Overworld Exploration**: Arrow key movement through a tile-based map

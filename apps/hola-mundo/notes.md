@@ -3,7 +3,7 @@
 ## Log
 - 2025-11-11: Created Spanish Hello World page
 - Pink/red gradient background with festive emojis
-- Live at https://app.vibecodedbyx.com/hola-mundo
+- Live at https://sloppy.live/hola-mundo
 
 ## About
 Simple greeting page in Spanish with bouncing animations.

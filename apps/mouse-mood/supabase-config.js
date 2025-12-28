@@ -6,8 +6,8 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const getCookieDomain = () => {
   const h = typeof window !== 'undefined' ? window.location.hostname : '';
-  const prod = h === 'vibecodedbyx.com' || h === 'www.vibecodedbyx.com';
-  return prod ? '.vibecodedbyx.com' : '.youreabsolutelyright.xyz';
+  const prod = h === 'sloppy.live' || h === 'sloppy.live';
+  return prod ? '.sloppy.live' : '.youreabsolutelyright.xyz';
 };
 
 const supabase = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, { cookieOptions: { name:'sb-auth-token', domain:getCookieDomain(), path:'/', sameSite:'lax' } });

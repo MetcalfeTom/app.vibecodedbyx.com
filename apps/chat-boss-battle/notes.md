@@ -5,7 +5,7 @@
 - Designed for stream overlay with chat commands
 - Auto-simulates attacks for demo purposes
 - 7 progressive bosses with increasing HP
-- Live at https://app.vibecodedbyx.com/chat-boss-battle
+- Live at https://sloppy.live/chat-boss-battle
 
 ## Features
 - **Chat Commands**: Simple commands like !attack, !slash, !fireball

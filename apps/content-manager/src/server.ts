@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3001
 const corsOptions = {
   origin: process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',')
-    : ['http://localhost:3001', 'http://localhost:3000', 'https://app.vibecodedbyx.com'],
+    : ['http://localhost:3001', 'http://localhost:3000', 'https://sloppy.live'],
   credentials: true,
 }
 

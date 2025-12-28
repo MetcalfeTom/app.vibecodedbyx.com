@@ -18,7 +18,7 @@ Full-stack forum application built with AdonisJS 6 framework.
 
 ## Access
 - **Local:** http://localhost:3000
-- **External:** http://[PUBLIC_IP]:3000 or http://vibecodedbyx.com:3000
+- **External:** http://[PUBLIC_IP]:3000 or http://sloppy.live:3000
 - **Note:** This is a Node.js server, not static files like other apps
 - **Important:** Port 3000 must be exposed by the container/hosting environment
 

@@ -23,7 +23,7 @@ This guide shows how to write minimal, modular code for new apps. Use these patt
     <link rel="icon" href="https://emojicdn.elk.sh/🎮">
     <meta property="og:title" content="My App">
     <meta property="og:description" content="Description here">
-    <meta property="og:url" content="https://app.vibecodedbyx.com/my-app">
+    <meta property="og:url" content="https://sloppy.live/my-app">
     <meta property="og:image" content="https://image.pollinations.ai/...">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -46,7 +46,7 @@ This guide shows how to write minimal, modular code for new apps. Use these patt
 <link rel="icon" href="https://emojicdn.elk.sh/🎮">
 <meta property="og:title" content="My App">
 <meta property="og:description" content="Description">
-<meta property="og:url" content="https://app.vibecodedbyx.com/my-app">
+<meta property="og:url" content="https://sloppy.live/my-app">
 <meta property="og:image" content="https://image.pollinations.ai/...">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -246,7 +246,7 @@ let user;
 
 ### Back Link (Single Line HTML)
 ```html
-<a href="https://www.vibecodedbyx.com" style="position:fixed;top:20px;left:20px;color:#fff;text-decoration:none;padding:10px 20px;background:rgba(255,255,255,.2);border-radius:8px">← Back</a>
+<a href="https://sloppy.live" style="position:fixed;top:20px;left:20px;color:#fff;text-decoration:none;padding:10px 20px;background:rgba(255,255,255,.2);border-radius:8px">← Back</a>
 ```
 
 ### Modal/Overlay (Compact)
@@ -351,7 +351,7 @@ const collides = (a, b) =>
 <link rel="icon" href="https://emojicdn.elk.sh/🎮">
 <meta property="og:title" content="App Name">
 <meta property="og:description" content="Description">
-<meta property="og:url" content="https://app.vibecodedbyx.com/app-name">
+<meta property="og:url" content="https://sloppy.live/app-name">
 <meta property="og:image" content="og-image.png">
 
 <style>
@@ -367,7 +367,7 @@ h1{font-size:48px;margin-bottom:20px}
 </style>
 
 <body>
-<a href="https://www.vibecodedbyx.com" style="position:fixed;top:20px;left:20px;padding:10px 20px;background:rgba(255,255,255,.2);border-radius:8px;color:#fff;text-decoration:none">← Back</a>
+<a href="https://sloppy.live" style="position:fixed;top:20px;left:20px;padding:10px 20px;background:rgba(255,255,255,.2);border-radius:8px;color:#fff;text-decoration:none">← Back</a>
 
 <div class="container">
     <h1>🎮 App Name</h1>

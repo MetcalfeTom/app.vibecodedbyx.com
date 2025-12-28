@@ -3,7 +3,7 @@
 ## Log
 - 2025-11-11: Created geolocation API demo app in Spanish
 - Shows all available Geolocation API data
-- Live at https://app.vibecodedbyx.com/ubicacion-geografica
+- Live at https://sloppy.live/ubicacion-geografica
 
 ## About
 Demonstrates the JavaScript Geolocation API with all available data fields displayed in Spanish.

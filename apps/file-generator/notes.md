@@ -4,7 +4,7 @@
 - 2025-11-11: Created file generator tool
 - Generates multiple text files with customizable content
 - Downloads as ZIP file
-- Live at https://app.vibecodedbyx.com/file-generator
+- Live at https://sloppy.live/file-generator
 
 ## About
 Web tool to generate and download multiple text files at once, packaged in a ZIP file.

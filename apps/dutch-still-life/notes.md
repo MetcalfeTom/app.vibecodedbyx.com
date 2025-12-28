@@ -31,4 +31,4 @@
 - Ctrl+Enter keyboard shortcut to generate
 - New paintings added to top of gallery
 - Ornate CSS frames with gold borders and shadow effects
-- Uses referrer=vibecodedbyx.com for Pollinations
+- Uses referrer=sloppy.live for Pollinations

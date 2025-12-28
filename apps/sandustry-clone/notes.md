@@ -6,7 +6,7 @@
 - 2025-11-10: TNT now spawns naturally throughout the world (5% spawn rate)
 - Features falling sand physics, mining, and EXPLOSIONS!
 - Blow up terrain with TNT for massive resource collection
-- Live at https://app.vibecodedbyx.com/sandustry-clone
+- Live at https://sloppy.live/sandustry-clone
 
 ## About Sandustry
 Sandustry is a mining and factory automation game where every pixel is a simulated resource. It combines:

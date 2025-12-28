@@ -1,6 +1,6 @@
 # VibeCodedByX Apps
 
-Monorepo of small, self-contained, pure HTML + JavaScript apps. Each app lives under `apps/<project_name>/` and is directly accessible at `https://app.vibecodedbyx.com/<project_name>/`.
+Monorepo of small, self-contained, pure HTML + JavaScript apps. Each app lives under `apps/<project_name>/` and is directly accessible at `https://sloppy.live/<project_name>/`.
 
 This README summarizes how the repo works and key operating rules pulled from AGENTS.md.
 
@@ -15,7 +15,7 @@ This README summarizes how the repo works and key operating rules pulled from AG
 - Favor straightforward, simple approaches over complex setups.
 - Duplicate code across apps if needed to avoid coupling.
 - Every app should be mobile- and desktop-friendly.
-- Include a visible backlink to the livestream: `https://www.vibecodedbyx.com`.
+- Include a visible backlink to the livestream: `https://sloppy.live`.
 - Make apps shareable: add compelling Open Graph meta tags (title, image) and a favicon (emoji images work great).
 
 ## Database (Supabase)
@@ -40,20 +40,20 @@ This README summarizes how the repo works and key operating rules pulled from AG
 - Don’t claim certainty when uncertain—call out uncertainties and next steps.
 
 ## Version Control
-- Commit and push to the GitHub repo `MetcalfeTom/app.vibecodedbyx.com` after every change, with clear messages.
+- Commit and push to the GitHub repo `MetcalfeTom/sloppy.live` after every change, with clear messages.
 - Revert changes when needed instead of accumulating broken code.
 
 ## Local Testing
 - No Docker or Node setup required for these apps.
 - Open `apps/<project_name>/index.html` in a browser for quick checks.
-- For remote testing, visit `https://app.vibecodedbyx.com/<project_name>/`.
+- For remote testing, visit `https://sloppy.live/<project_name>/`.
 
 ## Adding a New App
 1. Create a new folder: `apps/my-new-app/`.
 2. Add `index.html` (entry), optional `style.css`, and `app.js`.
 3. Use only relative paths.
 4. Include OG meta tags and a favicon.
-5. Add a backlink to `https://www.vibecodedbyx.com`.
+5. Add a backlink to `https://sloppy.live`.
 6. If using Supabase, include `supabase-config.js` via a relative path and ensure inserts set `user_id`.
 
 ## Troubleshooting

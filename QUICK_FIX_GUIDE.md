@@ -32,39 +32,39 @@ Apps needing og:url tag (add after og:image tag):
 - pho-game
 - pong-terminal
 
-Format: `<meta property="og:url" content="https://app.vibecodedbyx.com/APP_NAME" />`
+Format: `<meta property="og:url" content="https://sloppy.live/APP_NAME" />`
 
 ## Individual App Fixes
 
 ### breakout-terminal
 Needs:
 1. Favicon: `<link rel="icon" href="https://emojicdn.elk.sh/🧱" />`
-2. OG URL: `<meta property="og:url" content="https://app.vibecodedbyx.com/breakout-terminal" />`
+2. OG URL: `<meta property="og:url" content="https://sloppy.live/breakout-terminal" />`
 
 ### pong-terminal
 Needs:
 1. Favicon: `<link rel="icon" href="https://emojicdn.elk.sh/🏓" />`
-2. OG URL: `<meta property="og:url" content="https://app.vibecodedbyx.com/pong-terminal" />`
+2. OG URL: `<meta property="og:url" content="https://sloppy.live/pong-terminal" />`
 
 ### aurora-lab
 Needs:
-- OG URL: `<meta property="og:url" content="https://app.vibecodedbyx.com/aurora-lab" />`
+- OG URL: `<meta property="og:url" content="https://sloppy.live/aurora-lab" />`
 
 ### cosmic-cat-quest-pp
 Needs:
-- OG URL: `<meta property="og:url" content="https://app.vibecodedbyx.com/cosmic-cat-quest-pp" />`
+- OG URL: `<meta property="og:url" content="https://sloppy.live/cosmic-cat-quest-pp" />`
 
 ### gemini-puzzle
 Needs:
-- OG URL: `<meta property="og:url" content="https://app.vibecodedbyx.com/gemini-puzzle" />`
+- OG URL: `<meta property="og:url" content="https://sloppy.live/gemini-puzzle" />`
 
 ### golden-game
 Needs:
-- OG URL: `<meta property="og:url" content="https://app.vibecodedbyx.com/golden-game" />`
+- OG URL: `<meta property="og:url" content="https://sloppy.live/golden-game" />`
 
 ### pho-game
 Needs:
-- OG URL: `<meta property="og:url" content="https://app.vibecodedbyx.com/pho-game" />`
+- OG URL: `<meta property="og:url" content="https://sloppy.live/pho-game" />`
 
 ## After Fixing
 

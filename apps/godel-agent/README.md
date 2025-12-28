@@ -84,8 +84,8 @@ This is a simplified demonstration. A true Gödel Machine would:
 
 ## Live Demo
 
-Visit: `https://app.vibecodedbyx.com/godel-agent`
+Visit: `https://sloppy.live/godel-agent`
 
 ## License
 
-Built live on VibeCodedByX.com
+Built live on sloppy.live
