@@ -11,6 +11,12 @@
   - Almendra font for rustic tavern feel
   - Warm amber/brown color palette
   - Mobile responsive
+- 2025-12-28: Kaiser branding + German characters
+  - Added Kaiser beer branding (sign + mug logos with crown)
+  - 4 animated background characters (sway animation)
+  - Characters randomly shout German complaints every 8-15 seconds
+  - Complaints about weather and beer prices with English translations
+  - Speech bubbles appear near characters
 
 ## issues
 - None so far
@@ -43,3 +49,8 @@
 - `munch`: Eating pretzel
 - `clink`: Cheers glass clink
 - `pour`: New beer ordered
+
+### German Complaints:
+- Weather: rain, cold, wind, lack of sun
+- Prices: 5€, 6.50€ for beer, inflation
+- Beer quality: too watery, not cold enough, too much foam
