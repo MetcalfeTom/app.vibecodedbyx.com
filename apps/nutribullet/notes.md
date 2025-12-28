@@ -1,6 +1,14 @@
 # Nutribullet Simulator
 
 ## log
+- 2025-12-28: Polished ingredient UI
+  - Replaced scrolling category list with tabbed navigation
+  - Each tab shows category icon with tooltip on hover
+  - Ingredient buttons now have name tooltips
+  - Category-specific border colors on hover
+  - Smoother animations and transitions
+  - Better mobile layout (6 columns, ingredients panel first)
+  - Cleaner glassmorphism design with backdrop blur
 - 2025-12-28: Added gamification system
   - 10 achievements: First Sip, Cursed Chef, Mad Scientist, Arsonist, Warranty Voided, Health Nut, Chaos Agent, Maximum Capacity, Serial Blender, Cursed Master
   - 4 color quests: Green Machine, Sunset Blend, Berry Blast, Metallic Madness
