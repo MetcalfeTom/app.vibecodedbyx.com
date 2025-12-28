@@ -8,9 +8,15 @@
   - Event log shows mysterious happenings
   - Elegant dark aesthetic with Cormorant Garamond font
   - Trail effect creates ethereal atmosphere
+- 2025-12-28: Bug fixes
+  - Changed favicon to 🦠 for biological theme
+  - Added localStorage persistence
+  - Increased reproduction rates, lowered cooldowns
+  - Added debug overlay with population counts and reproduction log
+  - Fixed child size calculation: children were dying immediately due to multiplicative size decay below death threshold (5). Added Math.max(10, ...) floor
 
 ## issues
-- None so far
+- Child size decay was causing multi-generational population collapse (FIXED)
 
 ## todos
 - Could add environmental factors (food sources, obstacles)
