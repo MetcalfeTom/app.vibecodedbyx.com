@@ -186,6 +186,13 @@
       mix-blend-mode: screen;
     }
 
+    .droplet {
+      position: absolute;
+      border-radius: 50%;
+      mix-blend-mode: screen;
+      pointer-events: none;
+    }
+
     .scanlines {
       position: fixed;
       inset: 0;
@@ -338,17 +345,88 @@
 
   <script>
     const neonColors = [
-      { h: 320, s: 100, l: 50, name: 'hotpink' },    // Hot pink
-      { h: 180, s: 100, l: 50, name: 'cyan' },       // Cyan
-      { h: 280, s: 100, l: 60, name: 'purple' },     // Purple
-      { h: 30, s: 100, l: 55, name: 'orange' },      // Orange
-      { h: 160, s: 100, l: 45, name: 'teal' },       // Teal
-      { h: 340, s: 100, l: 55, name: 'magenta' }     // Magenta
+      { h: 320, s: 100, l: 50, name: 'hotpink' },
+      { h: 180, s: 100, l: 50, name: 'cyan' },
+      { h: 280, s: 100, l: 60, name: 'purple' },
+      { h: 30, s: 100, l: 55, name: 'orange' },
+      { h: 160, s: 100, l: 45, name: 'teal' },
+      { h: 340, s: 100, l: 55, name: 'magenta' }
     ];
 
     const container = document.getElementById('blobContainer');
     const blobs = [];
+    const droplets = [];
     const blobCount = 10;
+    const maxDroplets = 60;
+
+    // Mouse state
+    let mouseX = 50, mouseY = 50;
+    let mouseDown = false;
+    let containerRect = null;
+
+    function updateContainerRect() {
+      const lampBody = document.querySelector('.lamp-body');
+      containerRect = lampBody.getBoundingClientRect();
+    }
+    updateContainerRect();
+    window.addEventListener('resize', updateContainerRect);
+
+    // Droplet class for splatter effect
+    class Droplet {
+      constructor(x, y, colorIndex, angle) {
+        this.el = document.createElement('div');
+        this.el.className = 'droplet';
+        container.appendChild(this.el);
+
+        this.colorIndex = colorIndex;
+        this.x = x;
+        this.y = y;
+        this.size = 4 + Math.random() * 8;
+        this.vx = Math.cos(angle) * (1 + Math.random() * 2);
+        this.vy = Math.sin(angle) * (0.5 + Math.random() * 1.5);
+        this.life = 1;
+        this.decay = 0.008 + Math.random() * 0.012;
+        this.gravity = 0.02;
+
+        this.render();
+      }
+
+      update() {
+        this.vy += this.gravity;
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= this.decay;
+
+        // Bounce off walls
+        if (this.x < 5) { this.x = 5; this.vx *= -0.5; }
+        if (this.x > 95) { this.x = 95; this.vx *= -0.5; }
+
+        this.vx *= 0.98;
+        this.render();
+        return this.life > 0 && this.y < 120;
+      }
+
+      render() {
+        const color = neonColors[this.colorIndex];
+        const h = color.h;
+        const alpha = this.life;
+        const coreColor = `hsla(${h}, ${color.s}%, ${color.l}%, ${alpha})`;
+
+        this.el.style.cssText = `
+          width: ${this.size * this.life}px;
+          height: ${this.size * this.life}px;
+          left: ${this.x}%;
+          top: ${this.y}%;
+          transform: translate(-50%, -50%);
+          background: radial-gradient(circle, ${coreColor} 0%, transparent 70%);
+          box-shadow: 0 0 ${this.size}px ${coreColor};
+        `;
+      }
+
+      destroy() {
+        this.el.remove();
+      }
+    }
 
     class Blob {
       constructor(index) {
@@ -367,6 +445,7 @@
         this.pulseSpeed = 0.015 + Math.random() * 0.02;
         this.wobbleAmp = 0.08 + Math.random() * 0.08;
         this.hueShift = 0;
+        this.hasSplit = false;
 
         this.render();
       }
@@ -375,13 +454,27 @@
         this.phase += this.pulseSpeed;
         this.hueShift = Math.sin(time * 0.0003 + this.phase) * 15;
 
+        // Mouse gravity when clicked
+        if (mouseDown && containerRect) {
+          const dx = mouseX - this.x;
+          const dy = mouseY - this.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 5) {
+            const force = Math.min(0.15, 50 / (dist * dist));
+            this.vx += (dx / dist) * force;
+            this.vy += (dy / dist) * force;
+          }
+        }
+
         // Organic movement
         this.x += this.vx + Math.sin(this.phase * 1.5) * this.wobbleAmp;
         this.y += this.vy + Math.cos(this.phase * 0.8) * 0.03;
 
         // Slower at top (cooling), faster at bottom (heating)
-        const heatFactor = this.y / 100;
-        this.vy = -0.1 - heatFactor * 0.2 + Math.sin(this.phase * 0.5) * 0.05;
+        if (!mouseDown) {
+          const heatFactor = this.y / 100;
+          this.vy += (-0.1 - heatFactor * 0.2 + Math.sin(this.phase * 0.5) * 0.05 - this.vy) * 0.05;
+        }
 
         // Soft wall bounce
         if (this.x < 12) {
@@ -391,21 +484,40 @@
           this.vx -= 0.03;
           this.x = 88;
         }
-        this.vx *= 0.995;
+        this.vx *= 0.98;
+        this.vy *= 0.98;
+
+        // Split into droplets when hitting top
+        if (this.y < 5 && !this.hasSplit) {
+          this.spawnDroplets();
+          this.hasSplit = true;
+        }
 
         // Wrap with smooth respawn
         if (this.y < -15) {
           this.y = 115;
           this.x = 20 + Math.random() * 60;
           this.colorIndex = Math.floor(Math.random() * neonColors.length);
+          this.hasSplit = false;
         } else if (this.y > 115) {
           this.y = -15;
+          this.hasSplit = false;
         }
 
         // Pulsating size
         this.size = this.baseSize * (1 + Math.sin(this.phase) * 0.25);
 
         this.render();
+      }
+
+      spawnDroplets() {
+        const numDroplets = 5 + Math.floor(Math.random() * 6);
+        for (let i = 0; i < numDroplets; i++) {
+          if (droplets.length < maxDroplets) {
+            const angle = -Math.PI/2 + (Math.random() - 0.5) * Math.PI * 0.8;
+            droplets.push(new Droplet(this.x, this.y, this.colorIndex, angle));
+          }
+        }
       }
 
       render() {
@@ -440,27 +552,62 @@
     }
 
     // Animation loop
-    let lastTime = 0;
     function animate(time) {
       blobs.forEach(blob => blob.update(time));
+
+      // Update droplets
+      for (let i = droplets.length - 1; i >= 0; i--) {
+        if (!droplets[i].update()) {
+          droplets[i].destroy();
+          droplets.splice(i, 1);
+        }
+      }
+
       requestAnimationFrame(animate);
     }
     animate(0);
 
-    // Fade title after delay
-    setTimeout(() => {
-      document.querySelector('.title').classList.add('hidden');
-    }, 4000);
+    // Mouse tracking
+    function updateMouse(e) {
+      if (!containerRect) return;
+      const x = (e.clientX || e.touches?.[0]?.clientX) - containerRect.left;
+      const y = (e.clientY || e.touches?.[0]?.clientY) - containerRect.top;
+      mouseX = (x / containerRect.width) * 100;
+      mouseY = (y / containerRect.height) * 100;
+    }
 
-    // Show cursor on movement, hide after idle
-    let cursorTimeout;
-    document.addEventListener('mousemove', () => {
+    document.addEventListener('mousemove', (e) => {
+      updateMouse(e);
       document.body.classList.add('show-cursor');
       clearTimeout(cursorTimeout);
       cursorTimeout = setTimeout(() => {
         document.body.classList.remove('show-cursor');
       }, 2000);
     });
+
+    document.addEventListener('mousedown', (e) => {
+      mouseDown = true;
+      updateMouse(e);
+    });
+    document.addEventListener('mouseup', () => mouseDown = false);
+    document.addEventListener('mouseleave', () => mouseDown = false);
+
+    // Touch support
+    document.addEventListener('touchstart', (e) => {
+      mouseDown = true;
+      updateMouse(e);
+    });
+    document.addEventListener('touchmove', (e) => {
+      updateMouse(e);
+    });
+    document.addEventListener('touchend', () => mouseDown = false);
+
+    // Fade title after delay
+    setTimeout(() => {
+      document.querySelector('.title').classList.add('hidden');
+    }, 4000);
+
+    let cursorTimeout;
 
     // Fullscreen on double-click
     document.addEventListener('dblclick', () => {
