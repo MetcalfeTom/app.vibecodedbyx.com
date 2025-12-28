@@ -1,6 +1,13 @@
 # Nutribullet Simulator
 
 ## log
+- 2025-12-28: Added hazard effects for dangerous items
+  - Glass cracking when blending hard items (keys, phone, coins, moai, bones)
+  - Smoke particles rising when blending hazardous items (uranium, lightning, fire, battery, skull, brain)
+  - Fire flames when blending fire/electric/uranium items
+  - Explosion effect specifically for uranium
+  - Danger flash animation on blender container
+  - All effects properly reset on clearing blender
 - 2025-12-28: Initial creation - chaotic blender simulator
   - Physics-based ingredient bouncing
   - 4 ingredient categories: Normal, Questionable, Weird, Cursed
