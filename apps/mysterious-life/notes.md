@@ -17,6 +17,7 @@
 
 ## issues
 - Child size decay was causing multi-generational population collapse (FIXED)
+- **Array mutation during filter bug (FIXED)**: `creatures.push(child)` during `.filter()` loop added children to the OLD array, but filter returns a NEW array - all newborns were discarded immediately. Fix: use separate `newborns[]` array, add after filter completes.
 
 ## todos
 - Could add environmental factors (food sources, obstacles)
