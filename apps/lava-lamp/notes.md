@@ -1,20 +1,28 @@
 # Lava Lamp
 
 ## Log
+- 2025-12-28: Transformed into synthwave screensaver - neon colors, grid floor, sun, scanlines, pulsating effects
 - 2025-12-18: Initial creation - mesmerizing lava lamp simulator with floating blobs, 6 color themes, ambient glow effects
 
 ## Features
-- Smooth blob physics with heat simulation (faster at bottom, slower at top)
-- 6 color themes: orange, purple, blue, pink, green, gold
-- Ambient glow that follows mouse cursor
-- Wobbly blob animations with glossy highlights
-- Wavy liquid pool at the bottom
+- Synthwave/retro 80s aesthetic
+- Neon blob colors: hot pink, cyan, purple, orange, teal, magenta
+- Pulsating glow effects on blobs with hue shifting
+- Perspective grid floor with pulse animation
+- Striped synthwave sun in background
+- CRT scanlines and horizontal sweep lines
+- Twinkling stars
+- Vignette for atmosphere
+- Title fades after 4 seconds for immersive screensaver mode
+- Hidden cursor that appears on mouse movement
+- Double-click for fullscreen mode
+- SVG goo filter for blob merging effect
 - Mobile responsive
 
 ## Issues
 - None yet
 
 ## Todos
-- Could add blob merging/splitting effect
-- Sound toggle option (ambient sounds)
-- Slow motion / speed controls
+- Could add ambient synthwave music toggle
+- Multiple lamp option
+- Color palette presets (vapor, outrun, miami)
