@@ -1,43 +1,46 @@
 # Neon Zen
 
 ## log
-- 2025-12-29: Initial creation
-  - Cyberpunk spa aesthetic
-  - SVG robotic hand follows cursor with smooth easing
-  - Hand tilts based on movement direction
-  - Glowing steam particles from floor vents
-  - Ambient floating particles
-  - Click anywhere for massage effect
-  - Expanding neon rings on massage
-  - Particle burst on click
-  - Soft chime sound effect
-  - Relaxation meter that fills up
-  - Grid background pattern
-  - Custom cursor (hand replaces cursor)
-  - Touch support for mobile
+- 2025-12-29: Converted to reflex tapping game
+  - Tap glowing orbs before they fade
+  - Level-based progression (level up every 10 hits)
+  - Difficulty increases: faster fade, more spawns
+  - Steam clouds start at level 3 to obscure view
+  - Combo system for consecutive hits
+  - 3 lives - lose one when orb fades
+  - Score based on remaining time + combo multiplier
+  - Ring indicator shows time remaining
+  - Particle burst on hit
+  - Sound effects: hit, miss, level up
+  - Game over screen with final score
+
+- 2025-12-29: Initial creation (spa version - replaced)
+  - Was a relaxation app with robotic hand
 
 ## issues
 - None so far
 
 ## todos
-- Could add ambient background music
-- Could add different massage intensity modes
-- Could add hand gesture animations
-- Could add achievement system for relaxation
+- Could add high score persistence
+- Could add different game modes
+- Could add power-ups
+- Could add leaderboard
 
 ## notes
-### Hand behavior:
-- Follows mouse with 0.08 lerp factor (smooth lag)
-- Tilts up to ±15 degrees based on velocity
-- SVG with animated LED indicators
-- Cyan and magenta color scheme
+### Difficulty scaling:
+- Level 1: 3 second orb lifespan, 1.5-2s spawn rate
+- Each level: -8 frames lifespan (min 60 frames = 1s)
+- Each level: -100ms spawn delay (min 400ms)
+- Steam clouds start level 3, increase density
 
-### Particles:
-- Steam: rises from 5 floor vents, expands as it rises
-- Ambient: slow floating particles throughout
-- Massage: burst outward on click, fade quickly
+### Scoring:
+- Base: 10 points per hit
+- Life bonus: up to 50 points for fast hits
+- Combo multiplier: up to x10
+- Formula: (10 + lifeBonus) * min(combo, 10)
 
-### Audio:
-- Sine wave chime (600-1000Hz to 300Hz)
-- 0.4 second decay
-- Triggered on each click
+### Lives system:
+- Start with 3 lives
+- Lose 1 life when orb fades (not tapped)
+- Miss resets combo to 0
+- Game over at 0 lives
