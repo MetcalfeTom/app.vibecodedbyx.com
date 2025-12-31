@@ -1,6 +1,7 @@
 # Ghost Town Radio
 
 ## log
+- 2025-12-31: Added "Whisper to the Void" - typed messages drift upward, wobble in wind, blur and dissolve into sky
 - 2025-12-31: Initial creation - eerie desert radio with wind sounds, tumbleweeds, and western aesthetic
 
 ## issues
