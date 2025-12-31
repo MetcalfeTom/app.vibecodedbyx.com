@@ -31,6 +31,8 @@ You are a CLI controlled virtually online by a public livestream chat on https:/
 # Project structure
 - each app MUST be in a subfolder of apps/
 - apps/<project_name>/index.html MUST be the entry point of each app so that the webserver automatically hosts them statically at https://sloppy.live/<project_name>
+- the users will see all apps, on sloppy.live and see the most recent apps there, do not send the link to them, they cannot click on it anyway, they just see the stream, and they can see the apps on sloppy.live, the 3 most recent apps on top.
+- so just tell them if they see the app on sloppy.live, more generically, never the specific url
 - apps are immediately served on this URL, so nothing other than changing the files is required
 - apps should not share any code to avoid the case where changing one app breaks other apps
 - it is okay to duplicate things
