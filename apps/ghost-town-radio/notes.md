@@ -1,6 +1,7 @@
 # Ghost Town Radio
 
 ## log
+- 2025-12-31: Added rare shooting stars - streak across sky with glowing trail every 2-4 minutes
 - 2025-12-31: Added cactus planting - click ground to plant, 6 designs, persists in localStorage (max 50)
 - 2025-12-31: Added distant train whistle (every 5 min) with rhythmic track vibration rumble
 - 2025-12-31: Added lonely traveler with flickering lantern - walks across horizon every 30-60 seconds
