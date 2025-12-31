@@ -1,6 +1,7 @@
 # Ghost Town Radio
 
 ## log
+- 2025-12-31: Added cactus planting - click ground to plant, 6 designs, persists in localStorage (max 50)
 - 2025-12-31: Added distant train whistle (every 5 min) with rhythmic track vibration rumble
 - 2025-12-31: Added lonely traveler with flickering lantern - walks across horizon every 30-60 seconds
 - 2025-12-31: Added "Whisper to the Void" - typed messages drift upward, wobble in wind, blur and dissolve into sky
