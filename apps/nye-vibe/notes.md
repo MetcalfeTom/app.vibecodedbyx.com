@@ -1,6 +1,7 @@
 # NYE Vibe
 
 ## log
+- 2025-12-31: Added Fireworks button - massive firework show with trails, explosions, particle physics, glow effects
 - 2025-12-31: Added "Shut Up & Dance" button - hides chat, intensifies disco with extra beams, colored lights, faster animations
 - 2025-12-31: Added auto confetti cannon every 60 seconds
 - 2025-12-31: Added philosopher guest Plato with deep toasts about time
