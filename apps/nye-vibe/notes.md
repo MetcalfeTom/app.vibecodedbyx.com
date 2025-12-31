@@ -1,6 +1,9 @@
 # NYE Vibe
 
 ## log
+- 2025-12-31: Added "Shut Up & Dance" button - hides chat, intensifies disco with extra beams, colored lights, faster animations
+- 2025-12-31: Added auto confetti cannon every 60 seconds
+- 2025-12-31: Added philosopher guest Plato with deep toasts about time
 - 2025-12-31: Initial creation - NYE party simulator with countdown, virtual guests, toast feature, confetti
 
 ## issues
