@@ -1,6 +1,7 @@
 # Ghost Town Radio
 
 ## log
+- 2025-12-31: Added vintage radio tuner - 3 channels: Static (66.6 FM), Morse (73.1 FM), Piano (88.5 FM)
 - 2025-12-31: Added marshmallow roasting - hover over fire, progresses through warming/golden/perfect/burnt stages
 - 2025-12-31: Added crackling campfire - flickering flames, warm glow on sand, floating sparks, crackle sound
 - 2025-12-31: Added rare shooting stars - streak across sky with glowing trail every 2-4 minutes
