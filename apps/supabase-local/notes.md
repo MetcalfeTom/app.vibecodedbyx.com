@@ -1,6 +1,7 @@
 # Supabase Local Dashboard
 
 ## log
+- 2026-01-02: Added table filtering, column sorting, pagination, and data search with highlighting
 - 2025-01-02: Initial creation - secure local-only Supabase manager
 
 ## features
@@ -12,6 +13,10 @@
 - Add new rows with form modal
 - Edit existing rows
 - Delete rows with confirmation
+- Table filtering in sidebar (search by table name)
+- Column sorting (click headers, asc/desc toggle)
+- Pagination with page size selector (10/25/50/100)
+- Data search with match highlighting
 - Disconnect and clear credentials button
 - Security notice explaining local-only storage
 
@@ -40,12 +45,9 @@
 
 ## issues
 - RLS policies may hide some data from anon key
-- No pagination yet (limited to 100 rows)
 
 ## todos
-- Add pagination for large tables
 - Add column type detection
 - Add SQL query interface
 - Add table creation UI
 - Add export to CSV/JSON
-- Add search/filter
