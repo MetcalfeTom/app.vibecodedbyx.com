@@ -1,7 +1,8 @@
 # Dungeon Crawler
 
 ## log
-- 2026-01-03: Major update - added party system with 4 character classes
+- 2026-01-03: Major expansion - 6-member recruitable party, inventory, 12 spells
+- 2026-01-03: Added party system with 4 character classes
 - 2026-01-02: Initial creation - retro first-person dungeon crawler
 
 ## features
