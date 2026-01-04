@@ -1,6 +1,7 @@
 # Deutsch Dash
 
 ## log
+- 2026-01-04: Expanded vocabulary to 388 words - 50+ added to B2 and C1 levels
 - 2026-01-04: Added Hans the Tutor - snarky German teacher who zaps wrong answers
 - 2026-01-04: Fixed word repetition - deck system ensures no repeats until exhausted
 - 2026-01-04: CEFR system - modular word banks A1-C1 with neon certificate
