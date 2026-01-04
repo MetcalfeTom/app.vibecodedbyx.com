@@ -1,6 +1,7 @@
 # SID Emulator
 
 ## log
+- 2026-01-04: Disabled all smoothing on visualizer - raw jagged pixels
 - 2026-01-04: Added 8-bit crusher for authentic lo-fi jaggedness
 - 2026-01-04: Initial creation - custom SID chip emulator from scratch
 
