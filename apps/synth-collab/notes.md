@@ -1,6 +1,7 @@
 # Synth Collab
 
 ## log
+- 2026-01-04: Added drum sequencer with kick, snare, hi-hat
 - 2026-01-03: Initial creation - collaborative neon synthesizer
 
 ## features
@@ -16,6 +17,11 @@
 - Player presence tracking
 - Activity log
 - Keyboard and touch input
+- 16-step drum sequencer
+- Kick, snare, hi-hat drum synthesis
+- Adjustable BPM (60-200)
+- Shared pattern changes in real-time
+- Default four-on-the-floor beat
 
 ## pads
 - Row 1 (Cyan): C4-F4, keys 1-4
