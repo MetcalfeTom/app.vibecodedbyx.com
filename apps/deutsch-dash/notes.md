@@ -1,6 +1,7 @@
 # Deutsch Dash
 
 ## log
+- 2026-01-04: CEFR system - modular word banks A1-C1 with neon certificate
 - 2026-01-04: ELITE MODE - tricky distractors, false friends, compound words
 - 2026-01-04: Initial creation - neon German learning app with vocabulary games
 
