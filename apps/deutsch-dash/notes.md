@@ -1,11 +1,16 @@
 # Deutsch Dash
 
 ## log
+- 2026-01-04: ELITE MODE - tricky distractors, false friends, compound words
 - 2026-01-04: Initial creation - neon German learning app with vocabulary games
 
 ## features
+- ELITE MODE - designed for serious learners like Kriegsschiff
 - 3 game modes: Flash Cards, Quiz, Speed Dash
-- 6 vocabulary categories: Basics, Food, Animals, Colors, Numbers, Verbs
+- 8 vocabulary categories: Basics, Food, Animals, Colors, Numbers, Verbs, False Friends, Compounds
+- Tricky distractor system - each word has hand-crafted similar-sounding wrong answers
+- False friends category - German words that look like English but mean different things
+- Compound words category - German's famous long words
 - Score tracking with streak multiplier
 - Visual feedback for correct/incorrect answers
 - Keyboard support for Speed Dash (Enter to submit)
