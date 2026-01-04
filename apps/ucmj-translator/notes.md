@@ -1,6 +1,7 @@
 # UCMJ Translator
 
 ## log
+- 2026-01-04: Added historical case examples for all 12 articles
 - 2026-01-04: Initial creation - UCMJ translation tool with 6 languages
 
 ## features
