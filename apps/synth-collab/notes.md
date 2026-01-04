@@ -1,6 +1,7 @@
 # Synth Collab
 
 ## log
+- 2026-01-04: Added CHAOS MODE - slider accelerates to 1024 Hz, decays to silence
 - 2026-01-04: Extended sequencer to 1024 steps and 256 BPM max
 - 2026-01-04: Added drum sequencer with kick, snare, hi-hat
 - 2026-01-03: Initial creation - collaborative neon synthesizer
@@ -24,6 +25,8 @@
 - Auto-scrolling playhead with step counter
 - Shared pattern changes in real-time
 - Default four-on-the-floor beat
+- CHAOS MODE: accelerates rhythm to 1024 Hz (becomes pitched tone!)
+- Pitch decay on slider release (rhythm → pitch → silence)
 
 ## pads
 - Row 1 (Cyan): C4-F4, keys 1-4
