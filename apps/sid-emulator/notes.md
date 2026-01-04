@@ -1,7 +1,7 @@
 # SID Emulator
 
 ## log
-- 2026-01-04: Translated UI to Russian with Cyrillic fonts (Russo One, PT Mono)
+- 2026-01-04: Reverted UI to English (Russian translation removed)
 - 2026-01-04: Disabled all smoothing on visualizer - raw jagged pixels
 - 2026-01-04: Added 8-bit crusher for authentic lo-fi jaggedness
 - 2026-01-04: Initial creation - custom SID chip emulator from scratch
@@ -49,6 +49,35 @@
 - Green phosphor CRT aesthetic
 - Orange accent for filter section
 - Scanline overlay
+
+## math audit (NO SINE INTERPOLATION)
+
+### Oscillator Audit
+- `Math.sin`: 0 matches - NO SINE WAVES
+- `Math.cos`: 0 matches
+- Pulse wave: sawtooth + waveshaper threshold (hard edges)
+- Noise: LFSR bitwise operations only (>>, ^, <<, &)
+
+### Bit Crusher Audit
+- Quantization: `Math.round(sample / step) * step` - HARD ROUND
+- Clamping: `Math.max(-1, Math.min(1, lastSample))` - HARD CLAMP
+- Sample hold: direct assignment, zero interpolation
+
+### Visualizer Audit
+- `imageSmoothingEnabled = false`
+- `image-rendering: pixelated`
+- `fillRect()` per pixel, no `lineTo()` interpolation
+- Sample stepping for extra jaggedness
+
+### Math Functions Used
+| Function | Count | Usage |
+|----------|-------|-------|
+| Math.round | 1 | Hard quantization |
+| Math.floor | 6 | Integer truncation |
+| Math.pow | 2 | Bit levels, detune |
+| Math.max/min | 2 | Hard clamping |
+
+VERDICT: **CLEAN** - No sine interpolation anywhere
 
 ## issues
 - None yet
