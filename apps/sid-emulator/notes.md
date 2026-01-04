@@ -1,6 +1,7 @@
 # SID Emulator
 
 ## log
+- 2026-01-04: Added 8-bit crusher for authentic lo-fi jaggedness
 - 2026-01-04: Initial creation - custom SID chip emulator from scratch
 
 ## features
@@ -13,6 +14,8 @@
 - Adjustable cutoff (20Hz - 20kHz)
 - High resonance (Q up to 30)
 - Per-voice filter routing
+- 8-BIT CRUSHER: strict bit depth reduction (1-16 bits)
+- Sample rate reduction for extra crunch
 - Real-time waveform visualizer
 - Keyboard input (A-K keys)
 - CRT scanline effect
