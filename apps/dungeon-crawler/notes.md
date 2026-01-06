@@ -57,12 +57,20 @@
 - Wraith: ghostly purple specter
 - Dragon: large dark winged creature
 
+## juice effects
+- **Screen shake** on damage (intensity scales with damage)
+- **Floating numbers** - red for damage, green for heals/XP
+- **Blood particles** - spray on hit, big burst on kills
+- Extra shake on player death
+- Healing shows green floating +HP
+
 ## technical
 - Canvas 2D isometric rendering
 - A* pathfinding algorithm
 - Screen-to-iso coordinate conversion
 - Back-to-front rendering order
 - Smooth camera lerping
+- Particle system for blood effects
 
 ## todos
 - Add blood splatter effects
