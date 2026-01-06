@@ -1,47 +1,57 @@
-# Mesh Relaxation
+# Mesh Relaxation - Manifolds
 
 ## log
 - 2026-01-05: Initial creation - mesh deformation with equilateral constraints
+- 2026-01-05: Major rewrite - 3D manifold surfaces with Three.js
 
 ## features
-- Delaunay triangulation (Bowyer-Watson algorithm)
-- Spring-based edge relaxation toward ideal lengths
-- Laplacian smoothing component toward centroids
-- Real-time quality visualization (triangle coloring)
-- Quality metric: ratio of actual area to ideal equilateral area
-- Click to add vertices
-- Drag to move vertices
-- Step-by-step or continuous relaxation
-- Adjustable speed and strength
+- Multiple parametric surfaces:
+  - Plane (open boundary)
+  - Cylinder (U-wrapped)
+  - Torus (U+V wrapped, orientable)
+  - Möbius Strip (non-orientable, 180° twist)
+  - Klein Bottle (non-orientable, self-intersecting)
+  - Sphere (closed surface)
+- Proper topology: vertices identified across seams
+- Spring-based edge relaxation toward uniform length
+- Laplacian smoothing toward neighbor centroids
+- Quality visualization (red→green triangle coloring)
+- Distort button to randomize vertex positions
+- OrbitControls for 3D camera navigation
 
 ## algorithm
-The relaxation works by:
-1. For each edge, calculate ideal length (average of connected triangle edges)
-2. Apply spring force: F = (current - ideal) * strength
-3. Add Laplacian smoothing: pull vertices toward triangle centroids
-4. Apply forces with boundary constraints
-5. Re-triangulate to maintain Delaunay property
+The relaxation preserves manifold topology:
+1. Topology is fixed at generation time (vertex identification at seams)
+2. Neighbors list captures connectivity across seams
+3. Spring forces pull edges toward average length
+4. Laplacian smoothing moves vertices toward neighbor centroid
+5. Forces applied in 3D space
+6. Mesh rebuilt each frame but topology unchanged
+
+## topology handling
+- Möbius: u=1 identified with u=0 but v is flipped (180° twist)
+- Torus: both u and v wrap around
+- Klein: u wraps with v-flip, v also wraps
+- Sphere: v=0 and v=1 collapse to poles
 
 ## design
-- Dark theme with quality-based triangle coloring
-- Red triangles = poor quality (far from equilateral)
-- Green triangles = high quality (near equilateral)
-- Blue vertex nodes
-- Quality progress bar at bottom
+- Three.js 3D rendering
+- Quality-based HSL coloring per face
+- Semi-transparent mesh with wireframe overlay
+- Surface description info box
 
 ## technical
-- Vanilla JavaScript + Canvas 2D
-- Bowyer-Watson Delaunay triangulation
-- Spring force model for edge constraints
-- Laplacian smoothing for vertex positions
-- Real-time re-triangulation
+- Three.js with ES modules
+- OrbitControls for camera
+- BufferGeometry rebuilt each step
+- Vertex neighbors stored in Set for O(1) lookup
 
 ## issues
-- Very high vertex counts may slow down
-- Triangulation must be recalculated each step
+- Klein bottle self-intersects in 3D embedding
+- Very fast relaxation can cause instability
 
 ## todos
-- Add vertex pinning (lock positions)
-- Add constrained edges
-- Add mesh import/export
-- Add 3D visualization option
+- Add mesh subdivision
+- Add boundary constraints for open surfaces
+- Add volume preservation for closed surfaces
+- Add edge collapse/split for adaptive meshing
