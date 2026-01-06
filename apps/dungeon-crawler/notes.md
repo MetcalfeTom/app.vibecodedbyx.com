@@ -40,12 +40,22 @@
 
 ## design
 - Gothic color palette (dark reds, blacks, browns)
+- **Pixel art sprites** for player and all enemies
 - Isometric diamond tiles with wall height
 - Checker pattern floor
-- Gradient entity rendering
+- Pre-rendered sprite canvases for performance
 - Path preview line
 - Enemy health bar overlay
 - Combat log panel
+
+## sprites
+- Player: hooded wanderer in dark cloak
+- Rat: small gray rodent
+- Skeleton: bone-white humanoid
+- Ghoul: hunched greenish undead
+- Demon: horned red beast
+- Wraith: ghostly purple specter
+- Dragon: large dark winged creature
 
 ## technical
 - Canvas 2D isometric rendering
