@@ -35,9 +35,13 @@ For discrete meshes, Gaussian curvature at vertex v:
 - Sphere: χ=2, so ∫K dA = 4π
 - Torus: χ=0, so ∫K dA = 0
 
-## LUT System
-- 11-stop color gradients
-- Linear interpolation between stops
+## LUT Texture System (Jack's request)
+- 256×1 RGBA DataTexture for GPU sampling
+- Custom ShaderMaterial samples LUT in fragment shader
+- Curvature values stored as vertex attribute [0,1]
+- GPU-side texture lookup for smooth color mapping
+- Linear filtering for smooth interpolation
+- 5 LUTs: Viridis, Plasma, Coolwarm, Spectral, Turbo
 - Symmetric range for curvature (centered at 0)
 - [0, max] range for geodesic distances
 

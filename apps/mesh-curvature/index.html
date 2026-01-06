@@ -253,6 +253,10 @@
       <span class="stat-label">∫K dA:</span>
       <span class="stat-value" id="kTotal">0</span>
     </div>
+    <div class="stat-row" style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #2a2a35;">
+      <span class="stat-label">LUT Texture:</span>
+      <span class="stat-value" style="color: #00d4aa;">256×1 RGBA</span>
+    </div>
   </div>
 
   <div class="click-hint">
@@ -261,7 +265,7 @@
   </div>
 
   <div class="lut-preview">
-    <div class="lut-title">Color Map: <span id="lutName">Viridis</span></div>
+    <div class="lut-title">LUT Texture: <span id="lutName">Viridis</span> (GPU sampled)</div>
     <canvas id="lutBar" class="lut-bar" width="300" height="20"></canvas>
     <div class="lut-labels">
       <span id="lutMin">-1.0</span>
@@ -324,6 +328,94 @@
     let currentLUT = 'viridis';
     let mode = 'gaussian'; // 'gaussian' or 'geodesic'
     let geodesicSource = null;
+    let lutTexture = null;
+
+    // Create LUT DataTexture (256 samples)
+    function createLUTTexture(lutName) {
+      const size = 256;
+      const data = new Uint8Array(size * 4);
+      const lut = LUTs[lutName];
+
+      for (let i = 0; i < size; i++) {
+        const t = i / (size - 1);
+        const idx = t * (lut.length - 1);
+        const li = Math.floor(idx);
+        const f = idx - li;
+
+        let r, g, b;
+        if (li >= lut.length - 1) {
+          [r, g, b] = lut[lut.length - 1];
+        } else {
+          r = lut[li][0] + f * (lut[li + 1][0] - lut[li][0]);
+          g = lut[li][1] + f * (lut[li + 1][1] - lut[li][1]);
+          b = lut[li][2] + f * (lut[li + 1][2] - lut[li][2]);
+        }
+
+        data[i * 4] = Math.round(r * 255);
+        data[i * 4 + 1] = Math.round(g * 255);
+        data[i * 4 + 2] = Math.round(b * 255);
+        data[i * 4 + 3] = 255;
+      }
+
+      const texture = new THREE.DataTexture(data, size, 1, THREE.RGBAFormat);
+      texture.needsUpdate = true;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+
+      return texture;
+    }
+
+    // Custom shader material using LUT texture
+    function createLUTMaterial() {
+      return new THREE.ShaderMaterial({
+        uniforms: {
+          lutTexture: { value: lutTexture },
+          lightDir: { value: new THREE.Vector3(0.5, 0.5, 0.5).normalize() },
+          ambientStrength: { value: 0.4 },
+          diffuseStrength: { value: 0.6 }
+        },
+        vertexShader: `
+          attribute float curvatureValue;
+          varying float vCurvatureValue;
+          varying vec3 vNormal;
+          varying vec3 vPosition;
+
+          void main() {
+            vCurvatureValue = curvatureValue;
+            vNormal = normalize(normalMatrix * normal);
+            vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D lutTexture;
+          uniform vec3 lightDir;
+          uniform float ambientStrength;
+          uniform float diffuseStrength;
+
+          varying float vCurvatureValue;
+          varying vec3 vNormal;
+          varying vec3 vPosition;
+
+          void main() {
+            // Sample LUT texture using curvature value as U coordinate
+            vec3 lutColor = texture2D(lutTexture, vec2(vCurvatureValue, 0.5)).rgb;
+
+            // Simple lighting
+            vec3 normal = normalize(vNormal);
+            float diff = max(dot(normal, lightDir), 0.0);
+            diff = max(diff, max(dot(-normal, lightDir), 0.0)); // Double-sided
+
+            vec3 ambient = ambientStrength * lutColor;
+            vec3 diffuse = diffuseStrength * diff * lutColor;
+
+            gl_FragColor = vec4(ambient + diffuse, 1.0);
+          }
+        `,
+        side: THREE.DoubleSide
+      });
+    }
 
     // Scene setup
     const scene = new THREE.Scene();
@@ -612,13 +704,13 @@
       }
     }
 
-    // Update mesh colors
+    // Update mesh colors using LUT texture
     function updateMeshColors() {
       if (!mesh) return;
 
       const geometry = mesh.geometry;
       const pos = geometry.attributes.position;
-      const colors = new Float32Array(pos.count * 3);
+      const curvatureValues = new Float32Array(pos.count);
 
       let values, minVal, maxVal;
 
@@ -647,40 +739,47 @@
 
       const range = maxVal - minVal || 1;
 
-      // Get index mapping
-      const index = geometry.index;
+      // Build vertex position lookup for faster matching
+      const vertexLookup = new Map();
       const epsilon = 0.0001;
+      for (let j = 0; j < vertices.length; j++) {
+        const key = `${Math.round(vertices[j].x / epsilon)},${Math.round(vertices[j].y / epsilon)},${Math.round(vertices[j].z / epsilon)}`;
+        vertexLookup.set(key, j);
+      }
 
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const y = pos.getY(i);
         const z = pos.getZ(i);
 
-        // Find matching vertex
-        let vertIdx = 0;
-        let minDist = Infinity;
-        for (let j = 0; j < vertices.length; j++) {
-          const d = vertices[j].distanceToSquared(new THREE.Vector3(x, y, z));
-          if (d < minDist) {
-            minDist = d;
-            vertIdx = j;
+        // Find matching vertex using lookup
+        const key = `${Math.round(x / epsilon)},${Math.round(y / epsilon)},${Math.round(z / epsilon)}`;
+        let vertIdx = vertexLookup.get(key);
+
+        // Fallback to distance search if not found
+        if (vertIdx === undefined) {
+          let minDist = Infinity;
+          vertIdx = 0;
+          for (let j = 0; j < vertices.length; j++) {
+            const d = vertices[j].distanceToSquared(new THREE.Vector3(x, y, z));
+            if (d < minDist) {
+              minDist = d;
+              vertIdx = j;
+            }
           }
         }
 
         let val = values[vertIdx];
         if (!isFinite(val)) val = maxVal;
 
-        const t = (val - minVal) / range;
-        const [r, g, b] = sampleLUT(t);
-
-        colors[i * 3] = r;
-        colors[i * 3 + 1] = g;
-        colors[i * 3 + 2] = b;
+        // Normalize to [0, 1] for LUT texture sampling
+        const t = Math.max(0, Math.min(1, (val - minVal) / range));
+        curvatureValues[i] = t;
       }
 
-      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      mesh.material.vertexColors = true;
-      mesh.material.needsUpdate = true;
+      // Set curvature values as attribute for shader
+      geometry.setAttribute('curvatureValue', new THREE.BufferAttribute(curvatureValues, 1));
+      geometry.attributes.curvatureValue.needsUpdate = true;
     }
 
     // Update stats display
@@ -737,11 +836,9 @@
       geodesicSource = 0;
       calculateGeodesicDistances(geodesicSource);
 
-      const material = new THREE.MeshPhongMaterial({
-        vertexColors: true,
-        side: THREE.DoubleSide,
-        shininess: 30
-      });
+      // Create LUT texture and material
+      lutTexture = createLUTTexture(currentLUT);
+      const material = createLUTMaterial();
 
       mesh = new THREE.Mesh(geometry, material);
       scene.add(mesh);
@@ -800,7 +897,13 @@
     document.getElementById('lutSelect').addEventListener('change', (e) => {
       currentLUT = e.target.value;
       drawLUTBar();
-      updateMeshColors();
+
+      // Update LUT texture
+      lutTexture = createLUTTexture(currentLUT);
+      if (mesh && mesh.material.uniforms) {
+        mesh.material.uniforms.lutTexture.value = lutTexture;
+        mesh.material.needsUpdate = true;
+      }
     });
 
     document.getElementById('resSelect').addEventListener('change', () => {
