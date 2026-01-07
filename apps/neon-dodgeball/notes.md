@@ -1,11 +1,13 @@
 # Neon Dodgeball
 
 ## log
+- 2026-01-07: Added custom SVG seahorse power-up (grants extra life)
 - 2026-01-07: Initial creation - neon arena with bouncing spheres and rhythmic obstacles
 
 ## features
 - Player controlled by mouse/touch with smooth following
 - Bouncing neon light spheres that ricochet off walls
+- Custom SVG seahorse power-up (rare spawn, grants +1 life)
 - Three rhythmic obstacle types:
   - Horizontal bars (slide side to side)
   - Vertical bars (slide up and down)
