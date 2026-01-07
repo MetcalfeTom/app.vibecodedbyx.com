@@ -1,26 +1,27 @@
-# TicTacToe Pro
+# Pirate's Plunder - X Marks the Spot
 
 ## log
+- 2026-01-07: Pirate theme applied - gold/teal colors, Pirata One font, pirate-themed UI text
 - 2026-01-06: Initial creation - full-featured TicTacToe for Slayen's class upgrade
 
 ## features
-- Local multiplayer (VS Human mode)
-- AI opponent with 3 difficulty levels
-- Minimax algorithm for unbeatable Hard AI
-- Persistent leaderboard via Supabase
-- Player statistics tracking
-- Session score tracking
+- Local multiplayer (VS Mate mode)
+- Captain AI opponent with 3 difficulty levels (Cabin Boy, First Mate, Captain)
+- Minimax algorithm for unbeatable Captain AI
+- Persistent Hall of Pirates leaderboard via Supabase
+- Player statistics tracking (Victories, Defeats, Standoffs)
+- Session plunder tracking
 - Win animations and highlights
-- Neon cyberpunk aesthetic
+- Pirate gold/teal aesthetic
 
 ## game modes
-- VS AI: Play against computer
-- VS Human: Local 2-player
+- VS CAPTAIN: Battle against computer
+- VS MATE: Local 2-player duel
 
-## AI difficulty
-- Easy: Random moves
-- Medium: 60% optimal, 40% random
-- Hard: Minimax algorithm (unbeatable)
+## Captain's Skill levels
+- Cabin Boy: Random moves
+- First Mate: 60% optimal, 40% random
+- Captain: Minimax algorithm (unbeatable)
 
 ## statistics tracked
 - Wins, Losses, Draws
@@ -36,12 +37,14 @@
 - RLS: Read all, write own
 
 ## design
-- Neon cyan (X) and magenta (O) colors
+- Pirate gold (X) and teal (O) colors
 - Glowing text shadows
 - Animated piece placement
 - Pulsing win highlight
-- Orbitron + Roboto Mono fonts
-- Dark gradient background
+- Pirata One + Orbitron + Roboto Mono fonts
+- Dark wood/parchment gradient background
+- Golden board border
+- Pirate-themed UI text throughout
 
 ## technical
 - Minimax with depth scoring
