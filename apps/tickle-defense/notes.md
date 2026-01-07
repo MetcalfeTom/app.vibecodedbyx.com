@@ -1,38 +1,42 @@
 # Tickle Defense
 
 ## log
-- 2026-01-05: Initial creation - neon tickle defense game
+- 2026-01-07: Initial creation - chaotic feather dodging game
 
 ## features
-- Click floating feathers before they tickle you
-- Giggle meter fills when feathers reach you
-- Game over at 100% giggle meter
-- Wave progression system
-- Different feather types with varying points
-- Pop particles and sound effects
-- Danger mode visual warning at 70%+
-- Score tracking
+- Cute pink blob character to control
+- Feathers coming from all directions
+- Wiggling feather physics
+- Tickle meter that fills when hit
+- Screen shake on impact
+- Giggle text particles ("hehe!", "teehee!", etc)
+- Character wobbles and blushes when tickled
+- Golden feathers - more dangerous but worth more points
+- Chaos increases over time
+
+## controls
+- Arrow keys / WASD: Move
+- Touch: Drag to move
+- Space: Start game
+
+## game mechanics
+- Dodge feathers to score points
+- Each feather dodged = 1 point (golden = 5)
+- Getting hit fills tickle meter
+- Game over when tickle meter reaches 100%
+- Feather spawn rate increases with score
+- Character expression changes based on tickle level
 
 ## design
-- Cyan/magenta neon color scheme
-- Grid background pattern
-- Glowing feather particles
-- Righteous + Orbitron fonts
-- Pulsing danger effects
-- Crosshair cursor
-
-## gameplay
-- Feathers spawn randomly on screen
-- Each has a lifetime before it "tickles" you
-- Clicking destroys feathers and earns points
-- Waves get faster with higher scores
-- Meter slowly decreases when doing well
-
-## issues
-- None yet
+- Soft pink/purple gradient aesthetic
+- Fredoka One + Nunito fonts
+- Cute bouncy UI with 3D button shadows
+- Particle effects on tickle impact
+- Floating giggle text
+- Subtle background pattern animation
 
 ## todos
-- Add power-ups (freeze time, clear all)
+- Add powerups (shields, tickle resistance)
+- Add different game modes
 - Add leaderboard
-- Add combo multiplier
-- Add boss feathers
+- Add sound effects (giggles, whoosh)
