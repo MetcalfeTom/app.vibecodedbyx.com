@@ -1,6 +1,7 @@
 # Simple Platformer
 
 ## log
+- 2026-01-07: Refined physics (snappier gravity/jump) and added double-jump
 - 2026-01-07: Added poetic pirate-themed intro screen with twinkling stars
 - 2026-01-07: Added treasure chests with gold particle effects and scoring
 - 2026-01-06: Initial creation - simple 2D platformer with random obstacles
@@ -11,6 +12,7 @@
 - Random square obstacles (orange)
 - Floating purple platforms
 - **Treasure chests** - shiny gold, jump on to collect (+100 points)
+- **Double-jump** - press jump again mid-air for extra height
 - Player with cute face and eyes that follow movement
 - Smooth camera following
 - Gravity and collision physics
