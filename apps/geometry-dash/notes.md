@@ -1,51 +1,48 @@
-# Neon Dash
+# Cannonball Dash
 
 ## log
+- 2026-01-07: Converted to pirate theme "Cannonball Dash"
+  - Cube → Rolling iron cannonball with metallic gradient and fuse hole
+  - Spikes → Jagged reef rocks with sharp silhouette
+  - Moving blocks → Floating barrels with bobbing animation
+  - Cyber grid → Ocean waves with animated crests
+  - Neon trail → Water splash effects
+  - "GAME OVER" → "SHIPWRECKED!"
 - 2026-01-06: Initial creation - Geometry Dash clone with neon aesthetics for Jackson
 
 ## features
-- Jumping square player with rotation
-- Spike obstacles (single, double, triple)
-- Block obstacles
-- Auto-scrolling ground
-- Neon cyan/pink/yellow color scheme
-- Glowing effects on everything
-- Particle effects on jump and death
-- Score tracking
+- Rolling iron cannonball player
+- Jagged reef obstacles (sharp rock formations)
+- Floating barrel obstacles with bob animation
+- Ocean night sky with moon and stars
+- Animated wave background
+- Water splash effect under cannonball
 - Best score saved to localStorage
-- Pulsing background grid
 - Touch and keyboard controls
 
-## controls
-- **Click/Tap**: Jump
-- **Space/Up/W**: Jump
-- One jump while on ground only
-
-## obstacles
-- Spike: Pink triangle, instant death
-- Double spike: Two spikes in a row
-- Triple spike: Three spikes
-- Block: Yellow square obstacle
+## interactions
+- Click/tap/space: Jump
+- Avoid reefs and barrels
+- Score increases with distance
 
 ## design
-- Dark purple/blue gradient background
-- Scrolling cyan grid lines
-- Neon glow on player, obstacles, ground
-- Orbitron font for UI
-- Particle burst on jump (cyan)
-- Particle explosion on death (pink/red)
+- Ocean night background (#0d1a2a to #1a2d4a gradient)
+- Sandy ocean floor (#c2a066)
+- Dark reef rocks (#2a1810)
+- Wooden barrels (#8b4513) with iron bands
+- Iron cannonball with metallic sheen
+- Pirata One / IM Fell English SC fonts
 
 ## technical
 - Canvas 2D rendering
-- Simple box collision with reduced hitbox
-- Gravity-based physics
-- Score increases with distance
-- Gap between obstacles decreases with score
-- 60fps game loop
+- RequestAnimationFrame game loop
+- Physics-based jumping (gravity, velocity)
+- Collision detection with hitbox reduction
+- Increasing difficulty over time
+- localStorage for persistent high score
 
 ## todos
-- Add music sync/beat detection
-- Add more obstacle types (platforms, portals)
-- Add multiple game modes
-- Add ship/UFO mode
-- Add level editor
+- Add treasure coin pickups for bonus points
+- Add kraken tentacle obstacles
+- Add ship wreckage scenery
+- Add combo multiplier for close calls
