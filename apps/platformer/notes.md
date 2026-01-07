@@ -31,6 +31,15 @@
 - Ground with grid pattern
 - World boundary indicators
 
+## multiplayer presence
+- Live player counter using Supabase
+- Anonymous auth for each visitor
+- Heartbeat every 10 seconds
+- Counts players active in last 30 seconds
+- Polls count every 5 seconds
+- Cleanup on page unload
+- Table: platformer_presence
+
 ## technical
 - Canvas 2D rendering
 - AABB collision for squares
@@ -38,6 +47,7 @@
 - Smooth camera lerping
 - Pre-generated world on load
 - 60fps game loop
+- Supabase for presence tracking
 
 ## todos
 - Add collectibles
