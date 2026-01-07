@@ -1,6 +1,7 @@
 # Neon Lighthouse
 
 ## log
+- 2026-01-07: Added fog-destroyed counter and global leaderboard with Supabase
 - 2026-01-07: Initial creation - fight back encroaching fog with light beam
 
 ## features
@@ -11,6 +12,8 @@
 - Fog drains light power when it reaches lighthouse
 - Light power regenerates when fog is kept at bay
 - Survival time counter
+- Fog-destroyed counter
+- Global leaderboard (Supabase)
 - Twinkling star background
 - Ocean wave animation
 

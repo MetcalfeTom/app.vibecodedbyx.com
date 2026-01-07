@@ -10,6 +10,10 @@
   <meta property="og:url" content="https://sloppy.live/lighthouse">
   <meta property="og:image" content="https://emojicdn.elk.sh/🌫️?style=apple&size=512">
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <script type="module">
+    import { supabaseSession } from '/supabase-config.js';
+    window.supabaseSession = supabaseSession;
+  </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -43,10 +47,19 @@
       text-shadow: 0 0 20px #0ff;
       letter-spacing: 0.15em;
     }
+    .stats {
+      text-align: right;
+    }
     .score {
       font-size: 1rem;
       color: #ff0;
       text-shadow: 0 0 15px #ff0;
+    }
+    .fog-count {
+      font-size: 0.8rem;
+      color: #0ff;
+      text-shadow: 0 0 10px #0ff;
+      margin-top: 5px;
     }
     .power-bar {
       position: absolute;
@@ -118,8 +131,61 @@
       font-size: 3rem;
       color: #ff0;
       text-shadow: 0 0 20px #ff0;
-      margin: 10px 0 20px;
+      margin: 10px 0 5px;
     }
+    .final-fog {
+      font-size: 1rem;
+      color: #0ff;
+      margin-bottom: 15px;
+    }
+    .submit-section {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    .name-input {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.9rem;
+      padding: 10px 15px;
+      background: rgba(0,0,0,0.5);
+      border: 2px solid #0ff;
+      color: #0ff;
+      width: 140px;
+      outline: none;
+    }
+    .name-input::placeholder { color: #066; }
+    .btn-small {
+      font-size: 0.8rem;
+      padding: 10px 20px;
+    }
+    .leaderboard {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid #0ff;
+      padding: 10px 15px;
+      margin-bottom: 15px;
+      min-width: 280px;
+    }
+    .lb-title {
+      font-size: 0.8rem;
+      color: #0ff;
+      letter-spacing: 0.15em;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .lb-list {
+      font-size: 0.75rem;
+      color: #aaa;
+    }
+    .lb-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(0,255,255,0.1);
+    }
+    .lb-row:last-child { border-bottom: none; }
+    .lb-name { color: #ff0; }
+    .lb-time { color: #0ff; }
+    .lb-fog { color: #888; font-size: 0.65rem; }
     .back-link {
       position: fixed;
       bottom: 5px;
@@ -136,7 +202,10 @@
     <canvas id="canvas"></canvas>
     <div class="hud">
       <div class="title">🗼 NEON LIGHTHOUSE</div>
-      <div class="score">SURVIVED: <span id="time">0</span>s</div>
+      <div class="stats">
+        <div class="score">SURVIVED: <span id="time">0</span>s</div>
+        <div class="fog-count">FOG CLEARED: <span id="fogCount">0</span></div>
+      </div>
     </div>
     <div class="power-label">LIGHT POWER</div>
     <div class="power-bar">
@@ -150,6 +219,15 @@
     <div class="overlay hidden" id="gameOverOverlay">
       <div class="overlay-title">THE FOG CONSUMES</div>
       <div class="final-score" id="finalTime">0s</div>
+      <div class="final-fog">Fog Cleared: <span id="finalFog">0</span></div>
+      <div class="submit-section" id="submitSection">
+        <input type="text" id="playerName" class="name-input" placeholder="Your name" maxlength="12">
+        <button class="btn btn-small" id="submitBtn">SUBMIT SCORE</button>
+      </div>
+      <div class="leaderboard" id="leaderboard">
+        <div class="lb-title">TOP KEEPERS</div>
+        <div class="lb-list" id="lbList"></div>
+      </div>
       <button class="btn" id="restartBtn">TRY AGAIN</button>
     </div>
   </div>
@@ -166,6 +244,9 @@ let lightPower = 100;
 let beamAngle = 0;
 let targetAngle = 0;
 let mouseX = 0, mouseY = 0;
+let fogDestroyed = 0;
+let supabaseClient = null;
+let userId = null;
 
 const lighthouse = { x: 0, y: 0 };
 const FOG_PARTICLES = [];
@@ -272,6 +353,8 @@ function update() {
       
       if (fog.alpha <= 0 || fog.size <= 5) {
         FOG_PARTICLES.splice(i, 1);
+        fogDestroyed++;
+        document.getElementById('fogCount').textContent = fogDestroyed;
         continue;
       }
     }
@@ -495,29 +578,101 @@ function gameLoop() {
 function startGame() {
   document.getElementById('startOverlay').classList.add('hidden');
   document.getElementById('gameOverOverlay').classList.add('hidden');
-  
+
   FOG_PARTICLES.length = 0;
   LIGHT_PARTICLES.length = 0;
   frameCount = 0;
   survivalTime = 0;
   lightPower = 100;
   beamAngle = -Math.PI / 2;
-  
+  fogDestroyed = 0;
+
   document.getElementById('time').textContent = '0';
+  document.getElementById('fogCount').textContent = '0';
   document.getElementById('powerFill').style.width = '100%';
-  
+  document.getElementById('submitSection').style.display = 'flex';
+
   gameRunning = true;
 }
 
 function gameOver() {
   gameRunning = false;
   document.getElementById('finalTime').textContent = survivalTime + 's';
+  document.getElementById('finalFog').textContent = fogDestroyed;
   document.getElementById('gameOverOverlay').classList.remove('hidden');
+  loadLeaderboard();
+}
+
+async function loadLeaderboard() {
+  const lbList = document.getElementById('lbList');
+  lbList.innerHTML = '<div style="color:#666">Loading...</div>';
+
+  try {
+    if (!supabaseClient) {
+      const session = await window.supabaseSession();
+      supabaseClient = session.client;
+      userId = session.user.id;
+    }
+
+    const { data, error } = await supabaseClient
+      .from('lighthouse_scores')
+      .select('player_name, survival_time, fog_destroyed')
+      .order('survival_time', { ascending: false })
+      .limit(5);
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      lbList.innerHTML = '<div style="color:#666">No scores yet - be the first!</div>';
+      return;
+    }
+
+    lbList.innerHTML = data.map((row, i) => `
+      <div class="lb-row">
+        <span class="lb-name">${i+1}. ${row.player_name || 'Anonymous'}</span>
+        <span><span class="lb-time">${row.survival_time}s</span> <span class="lb-fog">(${row.fog_destroyed} fog)</span></span>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Leaderboard error:', e);
+    lbList.innerHTML = '<div style="color:#666">Could not load scores</div>';
+  }
+}
+
+async function submitScore() {
+  const nameInput = document.getElementById('playerName');
+  const name = nameInput.value.trim() || 'Anonymous';
+
+  try {
+    if (!supabaseClient) {
+      const session = await window.supabaseSession();
+      supabaseClient = session.client;
+      userId = session.user.id;
+    }
+
+    const { error } = await supabaseClient
+      .from('lighthouse_scores')
+      .insert({
+        player_name: name,
+        survival_time: survivalTime,
+        fog_destroyed: fogDestroyed,
+        user_id: userId
+      });
+
+    if (error) throw error;
+
+    document.getElementById('submitSection').style.display = 'none';
+    loadLeaderboard();
+  } catch (e) {
+    console.error('Submit error:', e);
+    alert('Could not save score');
+  }
 }
 
 // Events
 document.getElementById('startBtn').addEventListener('click', startGame);
 document.getElementById('restartBtn').addEventListener('click', startGame);
+document.getElementById('submitBtn').addEventListener('click', submitScore);
 
 canvas.addEventListener('mousemove', e => {
   mouseX = e.clientX;
