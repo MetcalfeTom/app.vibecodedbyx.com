@@ -1,38 +1,48 @@
-# Berry Plate for Foxes
+# Treasure Platter for Scallywags
 
 ## log
-- 2026-01-07: Initial creation - cozy berry plate with visiting foxes
+- 2026-01-07: Converted to pirate theme "Treasure Platter for Scallywags"
+  - Berries → Gold doubloons, silver coins, rubies, emeralds
+  - Ceramic plate → Wooden platter with gold rim and skull
+  - Foxes → Detailed pirates with randomized features
+  - Forest → Ship deck with planks, ropes, moon, stars
+  - Fireflies → Flickering lantern glows
 
 ## features
-- Wooden plate with digital berries
-- 4 berry types: raspberry, blueberry, strawberry, blackberry
-- Click anywhere to add berries (they land on plate)
-- Foxes spawn and approach when berries are plentiful
-- Foxes eat berries with particle effects
-- Foxes leave when satisfied or berries run out
-- Ambient fireflies and grass animation
-- Tail wagging and ear twitching animations
+- Wooden platter with treasure
+- 4 treasure types: gold doubloons, silver coins, rubies, emeralds
+- Click anywhere to add treasure (lands on platter)
+- Pirates spawn when treasure is plentiful
+- Pirates grab treasure with particle effects
+- Pirates leave when satisfied or treasure runs out
+- Randomized pirate features:
+  - Hat types: tricorn, bandana, captain's hat
+  - Optional eyepatch
+  - Optional pegleg
+  - Golden hook hand (if eyepatch)
 
 ## interactions
-- Click/tap: Add berry
-- Berries wobble gently
-- Foxes approach, eat, and leave
+- Click/tap: Add treasure
+- Treasure wobbles and shines
+- Pirates approach, grab, and leave
 
 ## design
-- Forest floor gradient background
-- Ceramic/wooden plate aesthetic
-- Cute stylized foxes with expressive animations
-- Soft woodland color palette
-- Firefly ambient lighting
+- Ship deck with wooden planks
+- Ocean night sky with moon and stars
+- Wooden platter with gold band and skull emblem
+- Detailed pirate characters with walking animation
+- Flickering lantern ambient lighting
+- Pirata One / IM Fell English SC fonts
 
 ## technical
 - Canvas 2D rendering
-- Depth sorting for berries and foxes
-- State machine for fox behavior (approaching, eating, leaving)
-- Particle system for berry eating effects
+- Depth sorting for treasure and pirates
+- State machine for pirate behavior (approaching, grabbing, leaving)
+- Particle system with glow effects
+- Animated shining on coins/gems
 
 ## todos
-- Add more animals (rabbits, birds)
-- Add different plate styles
-- Add seasons/weather
-- Add berry counter achievements
+- Add more pirate types (captain, parrot on shoulder)
+- Add treasure chest platter variant
+- Add day/night cycle
+- Add doubloon counter achievements
