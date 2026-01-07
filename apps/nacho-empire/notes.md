@@ -1,6 +1,7 @@
 # Nacho Empire
 
 ## log
+- 2026-01-07: Added rare seahorse companion - glowing bonus creature
 - 2026-01-07: Initial creation - infinite clicker with golden chip and 10 upgrades
 
 ## features
@@ -9,6 +10,11 @@
 - Exponential cost scaling (1.15x per purchase)
 - Click power scales with production
 - Cheese/nacho particle effects
+- Rare seahorse companion (spawns every 30-90 seconds)
+  - Glowing cyan/magenta mystical creature
+  - Click to catch for 10 seconds worth of production bonus
+  - Swims away after 12 seconds if not caught
+  - Counter tracks total seahorses caught
 - Auto-save to localStorage every 10 seconds
 - Number formatting (K, M, B, T, Q)
 - Mobile responsive layout
