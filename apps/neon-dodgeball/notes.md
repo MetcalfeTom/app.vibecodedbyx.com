@@ -1,46 +1,51 @@
-# Neon Dodgeball
+# Cannonball Cove
 
 ## log
+- 2026-01-07: Converted to pirate theme "Cannonball Cove"
+  - Player → Pirate with bandana, eyepatch, walking animation
+  - Bouncing spheres → Rolling wooden barrels with iron bands
+  - Rhythmic bars/spinners → Swinging anchor chains from pivot points
+  - Arena → Ship deck with wooden planks and nails
+  - Power-up → Grog bottle (heals)
+  - "GAME OVER" → "OVERBOARD!"
 - 2026-01-07: Added custom SVG seahorse power-up (grants extra life)
 - 2026-01-07: Initial creation - neon arena with bouncing spheres and rhythmic obstacles
 
 ## features
-- Player controlled by mouse/touch with smooth following
-- Bouncing neon light spheres that ricochet off walls
-- Custom SVG seahorse power-up (rare spawn, grants +1 life)
-- Three rhythmic obstacle types:
-  - Horizontal bars (slide side to side)
-  - Vertical bars (slide up and down)
-  - Spinning arms (rotate around center)
-- All obstacles pulse to a 120 BPM beat
-- 3 lives with invulnerability frames on hit
-- Particle explosions on collision
-- Survival time scoring
-- Progressive difficulty (faster spawns over time)
+- Pirate character with red bandana and eyepatch
+- Walking animation that responds to movement
+- Rolling barrels that bounce off walls
+- Swinging anchor chains from corners and edges
+- Ship deck with wooden planks and nail details
+- Subtle ship rocking motion
+- Grog bottle power-up restores health
+- 3 lives with pirate flag indicators
 
-## controls
-- Mouse movement / Touch drag: Move player
-- Player smoothly follows cursor
+## interactions
+- Mouse/touch: Move pirate around deck
+- Avoid rolling barrels
+- Avoid swinging anchor chains
+- Collect grog for extra life
 
 ## design
-- Dark synthwave aesthetic
-- Cyan player with white core
-- Multi-color neon balls and obstacles
-- Pulsing grid background synced to beat
-- Glow effects on all elements
-- Vignette for atmosphere
+- Wooden deck planks with varying shades
+- Iron nails and rope coil decorations
+- Rolling barrels with wood grain and metal bands
+- Heavy iron anchors on chains
+- Pirate character with vest, shirt, bandana, eyepatch
+- Pegleg appears when on last life
+- Pirata One / IM Fell English SC fonts
 
 ## technical
 - Canvas 2D rendering
-- Beat-synced animations (120 BPM)
-- Circle-circle collision for balls
-- Rectangle-circle collision for bars
-- Point-to-line distance for spinners
-- Smooth player movement with lerping
+- Physics-based barrel bouncing with friction
+- Pendulum swing physics for anchors
+- Collision detection along chain length
+- Ship rock animation via canvas rotation
+- Walking animation tied to movement
 
 ## todos
-- Add audio with beat sync
-- Add power-ups (shield, slow-mo, shrink)
-- Add combo scoring for near misses
-- Add leaderboard
-- Add different arena themes
+- Add cannon fire from edges
+- Add treasure coins for bonus score
+- Add sea shanty background music
+- Add different pirate character options
