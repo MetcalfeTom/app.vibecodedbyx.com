@@ -1,7 +1,6 @@
-# Stormy Seas Dash
+# Neon Dash
 
 ## log
-- 2026-01-07: Pirate theme applied - gold/teal colors, Pirata One font, sea-themed UI
 - 2026-01-06: Initial creation - Geometry Dash clone with neon aesthetics for Jackson
 
 ## features
@@ -9,7 +8,7 @@
 - Spike obstacles (single, double, triple)
 - Block obstacles
 - Auto-scrolling ground
-- Pirate gold/teal color scheme
+- Neon cyan/pink/yellow color scheme
 - Glowing effects on everything
 - Particle effects on jump and death
 - Score tracking
@@ -29,14 +28,12 @@
 - Block: Yellow square obstacle
 
 ## design
-- Dark stormy sea gradient background
-- Scrolling teal wave-like grid lines
-- Golden glow on ground (shore effect)
-- Wooden plank tiles for ground
-- Pirata One font for titles, Orbitron for UI
-- Pirate themed UI text (SET SAIL, YE SANK!, SAIL AGAIN)
-- Particle burst on jump (teal)
-- Particle explosion on death (red)
+- Dark purple/blue gradient background
+- Scrolling cyan grid lines
+- Neon glow on player, obstacles, ground
+- Orbitron font for UI
+- Particle burst on jump (cyan)
+- Particle explosion on death (pink/red)
 
 ## technical
 - Canvas 2D rendering
