@@ -1,6 +1,7 @@
 # Simple Platformer
 
 ## log
+- 2026-01-07: Added poetic pirate-themed intro screen with twinkling stars
 - 2026-01-07: Added treasure chests with gold particle effects and scoring
 - 2026-01-06: Initial creation - simple 2D platformer with random obstacles
 
