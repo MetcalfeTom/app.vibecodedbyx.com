@@ -1,43 +1,48 @@
-# Sloppy Hunt
+# Treasure Hunt
 
 ## log
-- 2026-01-07: Initial creation - neon crosshair hunting game with tickle mode
+- 2026-01-07: Converted to pirate theme "Treasure Hunt"
+  - Grape → Treasure chest with skull emblem
+  - Neon crosshair → Brass spyglass with compass points
+  - Tickle Mode → Kraken's Curse mode (teal/green)
+  - Feathers → Flying gold doubloons
+  - Map grid background with compass rose
 
 ## features
-- Neon crosshair follows mouse/touch
-- Moving grape target that bounces around
-- Click to hit the grape for points
-- Combo system (consecutive hits multiply score)
-- Angel's Tickle Mode toggle:
-  - Pink theme and effects
-  - Floating feathers on hit
-  - Giggle text popups ("TICKLE!", "HEHE!", "ANGEL GIGGLES!")
-  - Pink particle explosions
-- Grape cluster with multiple berries
-- Speed increases as score grows
+- Brass spyglass crosshair with N/S/E/W markers
+- Moving treasure chest target
+- Click to claim treasure for doubloons
+- Streak system (consecutive hits multiply score)
+- Kraken's Curse Mode toggle:
+  - Teal/green cursed theme
+  - Cursed coin explosions
+  - Pirate text popups ("CURSED!", "DAVY JONES!", "KRAKEN STIRS!")
+- Detailed treasure chest with lid, bands, lock, rivets
+- Compass rose decoration in corner
 
 ## controls
-- Mouse movement / Touch: Aim crosshair
-- Click / Tap: Shoot
+- Mouse movement / Touch: Aim spyglass
+- Click / Tap: Claim treasure
 
 ## design
-- Dark cyber grid background
-- Green neon in normal mode
-- Pink neon in tickle mode
-- Retro pixel font (Press Start 2P)
-- Glowing crosshair and grape
-- Particle effects on hit/miss
+- Ocean night background with map grid
+- Gold/brown pirate palette in normal mode
+- Teal cursed palette in Kraken mode
+- Pirata One / IM Fell English SC fonts
+- Glowing spyglass and chest
+- Flying doubloon effects on hit
 
 ## technical
 - Canvas 2D rendering
 - Circle collision detection
 - Particle system for effects
-- Feather physics with rotation
-- Combo multiplier system
+- Coin physics with rotation
+- Streak multiplier system
+- Compass rose drawing
 
 ## todos
-- Add sound effects
-- Add difficulty levels
-- Add power-ups (slow-mo, multi-shot)
+- Add cannon sound effects
+- Add difficulty levels (faster chest)
+- Add power-ups (anchor slow-mo)
 - Add leaderboard
-- Add more targets (different fruits)
+- Add more treasure types (gems, pearls)
