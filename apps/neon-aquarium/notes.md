@@ -1,6 +1,13 @@
 # Neon Aquarium
 
 ## log
+- 2026-01-08: Added Rave Whales with Laser Eyes
+  - Massive neon whales swimming across screen
+  - LASER BEAMS shooting from eyes
+  - Wagging tails and bobbing animation
+  - Neon stripe rave patterns on body
+  - 4 color schemes with matching laser colors
+  - Whales swim left/right and wrap around
 - 2026-01-08: Added DJ Octopuses
   - Neon DJ octopuses with headphones
   - 8 tentacles dancing to the beat
