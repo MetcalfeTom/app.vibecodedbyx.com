@@ -1,28 +1,43 @@
-# Neon Snake
+# Sea Serpent - Ocean Hunter
 
-## Log
-- 2025-12-24: Changed theme to deep amber/gold neon with glowing dark background and golden trails
-- 2025-12-24: Initial creation - neon snake with trails, background color shifts, speed increases
+## log
+- 2026-01-07: Converted to pirate theme "Sea Serpent"
+  - Neon snake → Sea serpent with scales and fangs
+  - Food → Gold doubloons, fish, treasure chests
+  - Background → Deep ocean with light rays
+  - Added bubble particles when eating
+  - Serpent head with glowing yellow eyes
+  - Ocean teal/green color palette
+- 2025-12-24: Initial creation - neon snake with trails
 
-## Features
-- Classic snake gameplay with wrap-around edges
-- Golden neon glowing snake segments
-- Persistent golden trails that fade over time
-- Background color shifts through amber tones when eating
-- Speed increases with each food eaten
+## features
+- Sea serpent with detailed head, eyes, fangs
+- Three food types: doubloons (10), fish (20), chests (50)
+- Deep ocean background with underwater light rays
+- Rising bubble particles when eating
+- Serpent body with scale pattern
+- Speed increases with each meal
 - Mobile controls and touch swipe support
-- Pulsing food with glow effect
 
-## Issues
-- None yet
+## controls
+- Arrow keys / WASD: Control serpent
+- Swipe on mobile
 
-## Todos
-- Could add power-ups
-- Could add high score persistence
-- Could add sound effects
+## design
+- Deep ocean atmosphere (#051520)
+- Teal/green serpent scales
+- Gold doubloons, blue fish, brown chests
+- Pirata One / IM Fell English SC fonts
+- Underwater light ray effects
 
-## Tech Notes
-- Grid-based movement with interval timer
-- HSL color system for golden gradient
-- Canvas trails with alpha fade
-- Touch swipe detection for mobile
+## technical
+- Grid-based movement
+- Canvas 2D rendering
+- Bubble particle system
+- Touch swipe detection
+
+## todos
+- Add kraken boss encounters
+- Add whirlpool hazards
+- Add leaderboard
+- Add sound effects
