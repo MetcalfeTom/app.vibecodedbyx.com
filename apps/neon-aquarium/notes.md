@@ -1,6 +1,16 @@
 # Neon Aquarium
 
 ## log
+- 2026-01-08: Added Player-Controlled Yellow Submarine
+  - Neon yellow submarine with laser headlights
+  - Control panel UI (arrow buttons) in bottom-left
+  - Keyboard controls: Arrow keys or WASD
+  - Touch/click controls for mobile
+  - Propeller spins based on speed
+  - Submarine spawns bubbles when moving
+  - Laser headlights sweep and pulse
+  - Cyan portholes with shine effect
+  - Periscope and conning tower
 - 2026-01-08: Added Disco Crabs with Glowing Party Hats
   - Neon crabs sidestepping along the sea floor
   - Snapping claws synchronized to the beat
