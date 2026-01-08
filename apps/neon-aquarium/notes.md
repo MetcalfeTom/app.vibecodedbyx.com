@@ -1,6 +1,13 @@
 # Neon Aquarium
 
 ## log
+- 2026-01-08: Added Disco Crabs with Glowing Party Hats
+  - Neon crabs sidestepping along the sea floor
+  - Snapping claws synchronized to the beat
+  - Glowing party hats with color-cycling stripes
+  - Eyes on stalks, 6 legs per crab
+  - All crabs dance together to beatPhase
+  - 5 color schemes with matching hat colors
 - 2026-01-08: Added Rave Whales with Laser Eyes
   - Massive neon whales swimming across screen
   - LASER BEAMS shooting from eyes
