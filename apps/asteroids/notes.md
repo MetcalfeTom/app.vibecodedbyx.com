@@ -1,36 +1,53 @@
-# Asteroids Game
+# Sea Scourge - Pirate Ship Combat
 
-Classic arcade space shooter with modern neon graphics.
+## log
+- 2026-01-07: Converted to pirate theme "Sea Scourge"
+  - Spaceship → Pirate ship with sail, mast, cannons
+  - Asteroids → Enemy ships and krakens
+  - Bullets → Cannonballs with smoke trails
+  - Space → Ocean night with waves and moon
+  - Score → Doubloons, Lives → Fleet
+- 2025-11-09: Initial creation - classic asteroids arcade game
 
-## Log
-- 2025-11-09: Initial creation with full game mechanics
-  - Implemented ship movement with rotation and thrust
-  - Added shooting mechanics with rate limiting
-  - Created asteroid spawning and breaking system
-  - Built particle effects for explosions and thrust
-  - Added score system and level progression
-  - Implemented lives system with invincibility frames
-  - Created neon cyberpunk visual style (cyan/orange)
-  - Added starfield background
-  - Responsive design for mobile and desktop
-  - Pause functionality
-  - Game over screen with stats
+## features
+- Pirate ship with detailed hull, sail, mast, cannons
+- Enemy ships with red sails
+- Kraken sea monsters with animated tentacles
+- Cannonballs with smoke trails
+- Ocean background with animated waves
+- Moon and stars in night sky
+- Ship bobbing animation
+- Explosion particles on destroy
+- Wave-based progression
 
-## Issues
-- None reported yet
+## controls
+- Arrow keys: Steer and sail
+- Space: Fire cannons
+- P: Pause
 
-## Todos
-- Could add sound effects (explosions, thrust, shooting)
-- Could add power-ups (shield, rapid fire, spread shot)
-- Could integrate with leaderboard system
-- Could add UFO enemy ships for bonus points
-- Could add combo system for consecutive hits
-- Could add screen shake on explosions
+## mechanics
+- Destroy enemy ships and krakens for doubloons
+- Large enemies split into smaller ones
+- Krakens worth more points
+- Collision damages your ship
+- 3 lives (fleet ships)
 
-## Technical Details
-- Pure vanilla JavaScript, no dependencies
-- Canvas-based rendering with glow effects
-- 60fps game loop
-- Collision detection using distance calculations
-- Progressive difficulty through level system
-- Particle system for visual effects
+## design
+- Ocean night atmosphere
+- Gold/brown pirate palette
+- Pirata One / IM Fell English SC fonts
+- Animated wave patterns
+- Ship wake particles
+
+## technical
+- Canvas 2D rendering
+- Physics-based movement
+- Screen wrapping
+- Collision detection
+- Particle systems
+
+## todos
+- Add treasure pickups
+- Add boss kraken
+- Add ship upgrades
+- Add leaderboard
