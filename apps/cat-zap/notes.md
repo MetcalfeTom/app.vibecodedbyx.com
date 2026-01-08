@@ -1,6 +1,14 @@
 # CAT-ZAP - Neon Laser Chase
 
 ## log
+- 2026-01-08: Added purr meter and feline disco lights
+  - Neon purr meter UI in top right corner
+  - Cats purr when close to laser (fills meter)
+  - Disco mode activates at high purr levels
+  - 8 rotating colored spotlight beams
+  - Everything changes colors in disco mode
+  - 2x points during disco mode
+  - Purr vibration rings around purring cats
 - 2026-01-08: Initial creation
   - Neon laser pointer controlled by mouse/touch
   - Cats with personality chase the laser
