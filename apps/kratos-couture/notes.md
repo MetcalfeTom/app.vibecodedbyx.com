@@ -1,6 +1,12 @@
 # Kratos Couture
 
 ## log
+- 2026-01-08: Added divine lightning storm effects
+  - Thunder and lightning on pose (SPACE)
+  - Triple thunder storm on pirouette (P)
+  - Screen shake effect
+  - Divine aura and spark particles
+  - Random lightning on heel clicks
 - 2026-01-07: Initial creation - Kratos walks the runway in designer fashion
   - Red-soled Prada stiletto heels that CLICK like thunder
   - Leather handbag carrying his Blades of Chaos
@@ -19,6 +25,11 @@
 - Roses thrown when posing
 - Applause meter - keep the crowd entertained!
 - Fashion runway with spotlights
+- DIVINE LIGHTNING STORM on pose (screen shakes!)
+- Triple thunder storm on pirouette
+- Random lightning strikes on heel clicks
+- Divine aura glow effect
+- ⚡ spark particle effects
 
 ## controls
 - LEFT/RIGHT: Strut the runway (heels click!)
