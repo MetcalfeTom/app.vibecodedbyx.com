@@ -1,6 +1,12 @@
 # Treasure Calculator
 
 ## log
+- 2026-01-08: Added real-time leaderboard with Supabase
+  - Anonymous auth for users
+  - Score submission with pirate name
+  - Top 10 pirates displayed
+  - Gold/silver/bronze ranking colors
+  - Tracks level reached and best streak
 - 2026-01-08: MAJOR UPDATE - Full 3D with Three.js!
   - 3D ocean with animated water shader
   - 3D treasure chest with opening lid animation
@@ -18,6 +24,9 @@
   - Streak multiplier for gold
 
 ## features
+- **REAL-TIME LEADERBOARD** with Supabase backend
+- Compete for top pirate rankings
+- Submit score with custom pirate name
 - **FULL 3D ENVIRONMENT** with Three.js
 - Realistic animated ocean water
 - 3D treasure chest with hinged lid that opens
