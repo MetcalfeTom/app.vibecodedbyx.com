@@ -1,6 +1,14 @@
 # Neon Aquarium
 
 ## log
+- 2026-01-08: Added Neon Green Skeleton Fish
+  - Ghostly skeleton fish haunting the deep
+  - Full bone structure: spine, ribs, skull, fins
+  - Animated jaw that opens and closes
+  - Glowing eye sockets
+  - Eerie flickering opacity effect
+  - Stay in the lower/deeper parts of aquarium
+  - 4 neon green color variants
 - 2026-01-08: Added Player-Controlled Yellow Submarine
   - Neon yellow submarine with laser headlights
   - Control panel UI (arrow buttons) in bottom-left
