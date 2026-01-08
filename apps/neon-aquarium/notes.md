@@ -1,6 +1,13 @@
 # Neon Aquarium
 
 ## log
+- 2026-01-08: Added DJ Octopuses
+  - Neon DJ octopuses with headphones
+  - 8 tentacles dancing to the beat
+  - Spinning turntables with records
+  - Mixer with animated faders and LEDs
+  - Bobbing/bouncing to beat animation
+  - Multiple color schemes
 - 2026-01-08: Initial creation
   - Pulsing jellyfish with wavy tentacles
   - Swaying neon seaweed with fronds
