@@ -1,6 +1,14 @@
 # Sea Scourge - Pirate Ship Combat
 
 ## log
+- 2026-01-09: Major update - Boss Kraken & Leaderboard
+  - Added BOSS KRAKEN every 5 waves
+  - 3 boss variants: Leviathan, Depths Terror, Abyssal Horror
+  - Boss attacks: ink spray, spawn minions, tentacle swipe
+  - Boss health bar with dramatic entrance
+  - Added Supabase leaderboard with top 10 scores
+  - Track ships sunk AND krakens slain
+  - Boss warning animation before fight
 - 2026-01-07: Converted to pirate theme "Sea Scourge"
   - Spaceship → Pirate ship with sail, mast, cannons
   - Asteroids → Enemy ships and krakens
@@ -48,6 +56,6 @@
 
 ## todos
 - Add treasure pickups
-- Add boss kraken
 - Add ship upgrades
-- Add leaderboard
+- Add power-ups (speed boost, rapid fire)
+- Add sound effects
