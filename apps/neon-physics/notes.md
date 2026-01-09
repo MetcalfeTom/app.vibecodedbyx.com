@@ -1,6 +1,12 @@
 # Neon Physics - Glass Breaker
 
 ## log
+- 2026-01-09: Added UNLEASH 100 button
+  - Spawns 100 balls at once in staggered burst
+  - Balls spawn from top, center explosion, and sides
+  - Auto-enables giggle mode for maximum chaos
+  - Extra velocity on spawned balls
+  - Burst of chaos text: "UNLEASHED!!!", "100 BALLS!!!", etc
 - 2026-01-09: Added giggle-shake mode
   - GIGGLE MODE button toggles wild gravity chaos
   - Gravity jitters randomly in all directions
