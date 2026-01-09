@@ -1,6 +1,12 @@
 # Neon Physics - Glass Breaker
 
 ## log
+- 2026-01-09: Added lightning strikes
+  - Random neon lightning bolts strike falling shards
+  - Zapped shards explode into electric sparks
+  - Jagged bolt paths with branch effects
+  - Yellow/electric spark particles with tails
+  - Zapped counter in stats
 - 2026-01-09: Initial creation
   - Click anywhere to spawn glowing balls
   - Glass tiles grid that shatters on impact
