@@ -1,6 +1,14 @@
 # Neon Physics - Glass Breaker
 
 ## log
+- 2026-01-09: Added EMERGENCY STOP circuit breaker
+  - Giant red pulsing button appears during giggle mode
+  - Yellow/black warning stripes background
+  - Stops all tickling chaos immediately
+  - Freezes ball velocities
+  - Red screen flash effect
+  - "EMERGENCY STOP" text animation
+  - Relief messages: "Phew!", "Sweet relief!", "No more tickles!"
 - 2026-01-09: Added UNLEASH 100 button
   - Spawns 100 balls at once in staggered burst
   - Balls spawn from top, center explosion, and sides
