@@ -1,6 +1,14 @@
 # Neon Physics - Glass Breaker
 
 ## log
+- 2026-01-09: Added giggle-shake mode
+  - GIGGLE MODE button toggles wild gravity chaos
+  - Gravity jitters randomly in all directions
+  - Sometimes reverses gravity briefly
+  - Random horizontal kicks on balls
+  - Random bounce impulses
+  - Screen shake effect
+  - Floating "Gah!", "Ehehehe!!", "Yee Yow!" text popups
 - 2026-01-09: Added lightning strikes
   - Random neon lightning bolts strike falling shards
   - Zapped shards explode into electric sparks
