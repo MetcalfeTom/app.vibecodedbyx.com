@@ -1,21 +1,27 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Replaced Florida Man Dragon with NEON 67 boss
+  - Massive glowing neon "67" with cyan/magenta gradient
+  - Pulsing neon glow effect animation
+  - Red laser eyes that glow
+  - Shoots random laser digits (0-9) in cyan/magenta/yellow
+  - All powerups now spawn during NEON 67 fight
 - 2026-01-10: Added TNT powerup with 74 pokeball explosion
-  - Red TNT box spawns during Florida Man Dragon fight
+  - Red TNT box spawns during NEON 67 fight
   - Type !tnt to detonate
   - Triggers massive explosion effect
   - Launches 74 pokeballs at the boss
   - Each pokeball deals 5-15 damage
   - Total potential damage: 370-1110 HP!
 - 2026-01-10: Added Cosmic Donut with berry shield orbs
-  - Spinning cosmic donut spawns during Florida Man fight
+  - Spinning cosmic donut spawns during NEON 67 fight
   - Type !donut to collect it
   - Spawns 3 floating shield orbs filled with berries (🍓🫐🍇)
   - Each orb adds +25 bonus damage to attacks
   - Orbs float and pop when used
 - 2026-01-10: Added Butterfinger powerup for orlando
-  - Collectible powerup that spawns during Florida Man Dragon fight
+  - Collectible powerup that spawns during NEON 67 fight
   - Type !grab to collect it
   - Grants 2x damage on next attack
   - Floating orange candy bar with neon glow
@@ -51,20 +57,20 @@
 
 ## Boss List
 1. 👹 Demon Lord (1000 HP)
-2. 🐊 FLORIDA MAN DRAGON (1500 HP) - Special boss with neon AK-47 and glowing beer!
+2. 🔢 NEON 67 (1500 HP) - Massive glowing neon number that shoots laser digits!
 3. ❄️ Ice Titan (2000 HP)
 4. 👻 Shadow Fiend (2500 HP)
 5. 🔥 Lava Golem (3000 HP)
 6. 👾 Cosmic Horror (4000 HP)
 7. 🌟 Ancient God (5000 HP)
 
-## Florida Man Dragon Features
-- Custom multi-sprite boss (gator + gun + beer)
-- Neon cyan/magenta glowing AK-47
-- Glowing golden beer
-- Shoots liquid bullets (💧💦🌊) when attacked
-- Pet gator companion
-- Special attack messages
+## NEON 67 Features
+- Massive glowing "67" with CSS gradient (cyan/magenta)
+- Neon pulse animation alternating glow colors
+- Red laser eyes with glow effect
+- Shoots laser digits (0-9) in random neon colors
+- Cyan, magenta, and yellow digit projectiles
+- All special powerups spawn during this fight
 
 ## Technical Implementation
 - Pure HTML/CSS/JS - no external dependencies
