@@ -1,6 +1,14 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added NEON REVOLVER with butter jam mechanic
+  - Spawns during THE ALMIGHTY LOAF fight
+  - !grab to pick up the revolver (6 shots)
+  - !shoot to fire radioactive bullets for 3x DAMAGE!
+  - 15% jam chance normally, 55% JAM CHANCE when butter is on floor!
+  - Shaking "JAMMED!" text effect when gun jams
+  - Radioactive bullet animation with explosion impact
+  - High risk, high reward weapon against the Loaf
 - 2026-01-10: Added NEON DANCING POLE dodge mechanic
   - Glowing neon pole appears during THE ALMIGHTY LOAF fight
   - !spin command to spin on the pole
