@@ -1,6 +1,16 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added NEON GUN CURSOR
+  - Custom gun cursor (🔫) follows mouse
+  - Click anywhere to fire neon bullets at the boss!
+  - Bullets auto-aim toward the boss
+  - Cyan/magenta/yellow bullet colors
+  - Recoil animation and muzzle flash
+  - Pew sound effect on each shot
+  - 5-15 damage per bullet hit
+  - 150ms cooldown between shots
+  - Hidden default cursor for immersion
 - 2026-01-10: Added PURPLE GUY rare spawn (FNAF reference!)
   - RARE 5% chance to spawn during Shrek fight
   - !grab to become "the man behind the slaughter"
