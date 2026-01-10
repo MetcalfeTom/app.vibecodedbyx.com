@@ -1,6 +1,17 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added PURPLE GUY rare spawn (FNAF reference!)
+  - RARE 5% chance to spawn during Shrek fight
+  - !grab to become "the man behind the slaughter"
+  - 5 floating souls spawn around the screen
+  - Click souls to collect them (👻)
+  - Collecting all 5 triggers SPRINGLOCK FAILURE!
+  - 30 second cutscene with blood drips and creepy text
+  - "IT'S ME...", "I ALWAYS COME BACK...", etc.
+  - Creepy mechanical grinding sound effect
+  - After surviving: PERMANENT 2x DAMAGE BOOST!
+  - Boost persists through all future boss fights
 - 2026-01-10: Added background bird and WALUIGI power-up
   - Simple bird (🐦) flies across the background on loop
   - Random vertical position for variety
