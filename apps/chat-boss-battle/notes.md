@@ -1,6 +1,13 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added $19 Fortnite Card powerup
+  - Rare powerup that spawns during THE ALMIGHTY LOAF fight
+  - Type !card to use it
+  - INSTANTLY defeats THE ALMIGHTY LOAF!
+  - Triggers special V-BUCKS VICTORY screen
+  - V-Bucks rain down from the sky (💰🪙💵💎⭐)
+  - Blue/cyan gradient celebration screen
 - 2026-01-10: Added THE ALMIGHTY LOAF as final boss
   - Ultimate final boss with 6666 HP
   - Giant bread loaf with floating crown and blinking eyes
