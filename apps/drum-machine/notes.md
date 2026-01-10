@@ -1,6 +1,14 @@
-# SYNTH DRUM MACHINE
+# SYNTH STATION
 
 ## log
+- 2026-01-10: Added detuned saw lead synth with piano roll
+  - Piano roll sequencer (2 octaves C3-B4)
+  - 5 detuned sawtooth oscillators for thick sound
+  - Sub oscillator one octave down
+  - Portamento/glide control between notes
+  - Detune amount slider
+  - Filter cutoff with envelope
+  - Routes through reverb/chorus FX
 - 2026-01-10: Added massive reverb and thick chorus FX
   - Global reverb with 3.5s tail, convolver-based
   - 4-voice stereo chorus with LFO modulation
@@ -20,12 +28,16 @@
 ## features
 - 16-step sequencer grid
 - 8 synthesized drum tracks
+- Piano roll lead synth (2 octaves)
+- 5 detuned saw oscillators + sub osc
+- Glide/portamento between notes
 - Play/pause with step highlighting
 - BPM adjustment
 - Swing timing
 - Massive convolver reverb (3.5s tail)
 - Thick 4-voice chorus with LFO
 - FX wet/dry sliders
+- Lead synth controls (glide, detune, filter)
 - Preset patterns
 - Clear all / Randomize
 - Click to preview individual sounds
