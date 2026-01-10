@@ -1,88 +1,61 @@
-# Neon Inventory Manager
+# Stock Manager
 
 ## log
+- 2026-01-10: Simplified to focus on stock levels and transfers
+  - Removed vendors, barcodes, complex categories
+  - Added Transfer Log section
+  - Added On Order amounts
+  - Added detailed descriptions
+  - Stock level bars with visual indicators
+  - Quick transfer button per item
 - 2026-01-10: Initial creation
-  - Dashboard with stats
-  - Products/SKUs management
-  - Vendors management
-  - Barcodes management
-  - Supabase backend
-  - Search and filtering
-  - Category tabs
-  - CRUD operations
 
 ## features
-- Dashboard overview with key metrics
-- Products/SKUs with full CRUD
-- Vendors with contact info
-- Barcode tracking (UPC, EAN, QR, etc.)
-- Search across all tables
-- Category filtering for products
+- Stock Levels view with visual bars
+- Transfer Log for all movements
+- On Order tracking
 - Low stock alerts
-- Inventory value calculation
-- Recent activity feed
-- Modal forms for data entry
-- Responsive design
+- Detailed product descriptions
+- Quick transfer from stock list
+- Search and filtering
+- Transfer types: In, Out, Transfer, Adjustment
 
 ## database tables
 ### inventory_products
-- sku, name, description, category
-- vendor_name, cost_price, sell_price
-- quantity, min_stock, unit, location
-- expiry_date, user_id, timestamps
-
-### inventory_vendors
-- name, contact_name, email, phone
-- address, category, notes
+- sku, name, description
+- quantity, min_stock, location
+- sell_price (used as on_order)
 - user_id, timestamps
 
-### inventory_barcodes
-- barcode, sku, product_name
-- barcode_type, notes
-- user_id, timestamps
+### inventory_transfers
+- sku, product_name, quantity
+- transfer_type (in/out/transfer/adjustment)
+- from_location, to_location
+- notes, user_id, timestamps
 
-## product categories
-- Food
-- Beverage
-- Retail
-- Other
+## stats
+- Total Items
+- Low Stock count
+- On Order count
+- Total Units
 
-## vendor categories
-- Food Supplier
-- Beverage Supplier
-- Retail Supplier
-- Distributor
-- Other
-
-## barcode types
-- UPC-A, UPC-E
-- EAN-13, EAN-8
-- Code 128
-- QR Code
-- Custom
-
-## dashboard stats
-- Total Products
-- Total Vendors
-- Low Stock Items
-- Total Inventory Value
+## transfer types
+- Stock In: Receiving inventory
+- Stock Out: Shipping/using
+- Internal Transfer: Between locations
+- Adjustment: Corrections
 
 ## design
-- Dark neon theme
-- Cyan accent color
-- Inter font family
-- Sidebar navigation
-- Card-based stats
-- Table views with actions
-- Modal forms
-- Badge indicators
+- Simplified 2-tab layout
+- Stock Levels + Transfer Log
+- Neon cyan theme
+- Visual stock level bars
+- Badge indicators (Low/OK/On Order)
+- Clean transfer log with icons
 
 ## todos
-- Add barcode scanner using camera
-- Add CSV import/export
-- Add purchase order tracking
-- Add inventory movements log
-- Add expiry date alerts
-- Add reporting/analytics
-- Add multi-user collaboration
-- Add print labels feature
+- Auto-update stock on transfer
+- Add receiving PO numbers
+- Add export to CSV
+- Add low stock notifications
+- Add reorder suggestions
