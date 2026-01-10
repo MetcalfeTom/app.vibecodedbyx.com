@@ -1,6 +1,10 @@
 # Stock Manager
 
 ## log
+- 2026-01-10: Added dimension fields for size and color
+  - Size and Color fields in add/edit modal
+  - Size/Color column in stock table
+  - Uses existing unit and category db columns
 - 2026-01-10: Simplified to focus on stock levels and transfers
   - Removed vendors, barcodes, complex categories
   - Added Transfer Log section
