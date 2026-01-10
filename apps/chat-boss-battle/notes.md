@@ -1,6 +1,13 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added TNT powerup with 74 pokeball explosion
+  - Red TNT box spawns during Florida Man Dragon fight
+  - Type !tnt to detonate
+  - Triggers massive explosion effect
+  - Launches 74 pokeballs at the boss
+  - Each pokeball deals 5-15 damage
+  - Total potential damage: 370-1110 HP!
 - 2026-01-10: Added Cosmic Donut with berry shield orbs
   - Spinning cosmic donut spawns during Florida Man fight
   - Type !donut to collect it
