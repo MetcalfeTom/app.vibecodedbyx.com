@@ -1,6 +1,11 @@
 # RAPTOR & GASSY
 
 ## log
+- 2026-01-10: Added Burping Mole Rat enemy
+  - Pink wrinkly mole rat that chases raptor
+  - Burps feather clouds that stun raptor for 2 seconds
+  - Dizzy star effect when stunned
+  - Gas clouds can destroy mole rats and feather clouds
 - 2026-01-10: Initial creation
   - Utahraptor pet that eats peanut butter to grow
   - The Incredible Gassy ally sprays toxic gas clouds
@@ -70,8 +75,20 @@
 - Particle effects for explosions
 - Glowing effects on items and attacks
 
+## enemies
+### Burping Mole Rat
+- Pink wrinkly naked mole rat creature
+- Spawns from screen edges, max 3 at a time
+- Chases raptor's x position along the ground
+- Burps feather clouds toward raptor
+- Feather clouds stun raptor for 2 seconds
+- Gas clouds can destroy mole rats (2 HP each)
+- Gas clouds also destroy feather clouds
+- 200 points for defeating a mole rat
+- 25 points for destroying feather clouds
+- Sloppy's Clothes grants immunity to stun
+
 ## todos
-- Add more enemy types
 - Add boss battles
 - Add raptor special abilities
 - Add leaderboard
