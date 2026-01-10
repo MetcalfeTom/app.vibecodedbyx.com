@@ -1,6 +1,13 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added BLUEPRINT CARD from Balatro
+  - Spawns during THE ALMIGHTY LOAF fight
+  - !grab to pick up the Blueprint
+  - !blueprint to copy the last item effect used by anyone!
+  - Can copy: BIKINI (lucky crits), SPIN (dodge), REVOLVER (3 shots), BET (bonus points), BUTTERFINGER (2x damage)
+  - Blue schematic aesthetic with grid pattern
+  - "COPYING: X!" effect when used
 - 2026-01-10: Added NEON REVOLVER with butter jam mechanic
   - Spawns during THE ALMIGHTY LOAF fight
   - !grab to pick up the revolver (6 shots)
