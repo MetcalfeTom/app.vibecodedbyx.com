@@ -1,6 +1,14 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added NEON DANCING POLE dodge mechanic
+  - Glowing neon pole appears during THE ALMIGHTY LOAF fight
+  - !spin command to spin on the pole
+  - Spinning grants 70% dodge chance for 5 seconds
+  - Dodging skips the Loaf's burning toast counterattack!
+  - Confuses THE LOAF (wobble animation) while spinning
+  - "DODGED!" floating text when attacks are avoided
+  - Only one player can spin at a time
 - 2026-01-10: Added 500 NEON POKER CHIPS and LOAF CASINO
   - 500 floating neon poker chips spawn during THE ALMIGHTY LOAF fight
   - 5 chip colors: red, blue, green, gold, purple with spinning animation
