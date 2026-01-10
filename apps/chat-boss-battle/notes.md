@@ -1,6 +1,13 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added FLORIDA MAN DRAGON boss for explodingcheeseorb
+  - Replaced Dragon Emperor with peak Florida energy
+  - Neon glowing AK-47 with cyan/magenta pulse
+  - Glowing Bud Light (beer) accessory
+  - Shoots liquid bullets when attacked
+  - Pet gator companion underneath
+  - Special attack messages
 - 2025-11-10: Created chat-playable boss battle game for stream
 - Designed for stream overlay with chat commands
 - Auto-simulates attacks for demo purposes
@@ -26,12 +33,20 @@
 
 ## Boss List
 1. 👹 Demon Lord (1000 HP)
-2. 🐉 Dragon Emperor (1500 HP)
+2. 🐊 FLORIDA MAN DRAGON (1500 HP) - Special boss with neon AK-47 and glowing beer!
 3. ❄️ Ice Titan (2000 HP)
 4. 👻 Shadow Fiend (2500 HP)
 5. 🔥 Lava Golem (3000 HP)
 6. 👾 Cosmic Horror (4000 HP)
 7. 🌟 Ancient God (5000 HP)
+
+## Florida Man Dragon Features
+- Custom multi-sprite boss (gator + gun + beer)
+- Neon cyan/magenta glowing AK-47
+- Glowing golden beer
+- Shoots liquid bullets (💧💦🌊) when attacked
+- Pet gator companion
+- Special attack messages
 
 ## Technical Implementation
 - Pure HTML/CSS/JS - no external dependencies
