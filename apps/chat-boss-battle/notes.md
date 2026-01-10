@@ -1,6 +1,14 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added ethereal ambient music and spiked Druddigon
+  - Ethereal Workshop-style ambient music using Web Audio API
+  - Procedurally generated haunting chords with harmonics
+  - Low drone bass note for atmosphere
+  - Toggle button to enable/disable music
+  - Spiked dragon (Druddigon-inspired) lurking in background
+  - Dragon has glowing red/yellow eyes
+  - Subtle lurking animation
 - 2026-01-10: Replaced Florida Man Dragon with NEON 67 boss
   - Massive glowing neon "67" with cyan/magenta gradient
   - Pulsing neon glow effect animation
