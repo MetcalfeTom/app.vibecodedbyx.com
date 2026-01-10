@@ -1,6 +1,13 @@
 # BEEF CLICKER
 
 ## log
+- 2026-01-10: Added Grandma's Kitchen update
+  - Added rare Grandma's Kitchen upgrade (25% multiplier per level, max 20)
+  - Made all upgrades significantly cheaper
+  - Added Grandma Boost stat display
+  - Added 2 new Grandma achievements
+  - Pink glow styling for special upgrade
+  - Sizzle celebration on Grandma purchase
 - 2026-01-10: Initial creation
   - Golden cow clicker
   - 8 production upgrades
