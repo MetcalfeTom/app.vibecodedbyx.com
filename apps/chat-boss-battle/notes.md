@@ -1,6 +1,14 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added STONE Q throwable for crushing damage
+  - Massive stone letter Q spawns during THE ALMIGHTY LOAF fight
+  - !grab to pick up the Stone Q
+  - !throw to hurl it at the Loaf for 200-400 CRUSHING DAMAGE!
+  - Flying stone animation with spinning
+  - "CRUSHED!" text and debris explosion on impact
+  - Double boss shake effect for extra impact
+  - One-time use high damage item
 - 2026-01-10: Added BLUEPRINT CARD from Balatro
   - Spawns during THE ALMIGHTY LOAF fight
   - !grab to pick up the Blueprint
