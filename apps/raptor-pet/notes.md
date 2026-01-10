@@ -1,6 +1,11 @@
 # RAPTOR & GASSY
 
 ## log
+- 2026-01-10: Added Farting Giraffe enemy
+  - Tall spotted giraffe with lethal pink lick attack
+  - Releases brown/yellow fart clouds that kill on contact
+  - Player gas clouds neutralize enemy fart clouds
+  - 3 HP, 350 points on defeat
 - 2026-01-10: Added Burping Mole Rat enemy
   - Pink wrinkly mole rat that chases raptor
   - Burps feather clouds that stun raptor for 2 seconds
@@ -76,6 +81,19 @@
 - Glowing effects on items and attacks
 
 ## enemies
+### Farting Giraffe
+- Tall yellow giraffe with brown spots
+- Spawns from screen edges, max 2 at a time
+- Chases raptor's x position
+- LETHAL LICK ATTACK: Pink tongue strikes at raptor when close
+- GAS CLOUD MECHANIC: Releases brown/yellow fart clouds
+- Fart clouds are lethal to raptor on contact
+- Player gas clouds neutralize giraffe farts
+- Gas clouds can destroy giraffes (3 HP each)
+- 350 points for defeating a giraffe
+- 30 points for neutralizing fart clouds
+- Sloppy's Clothes grants immunity to both attacks
+
 ### Burping Mole Rat
 - Pink wrinkly naked mole rat creature
 - Spawns from screen edges, max 3 at a time
