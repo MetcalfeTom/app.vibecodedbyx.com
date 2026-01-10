@@ -1,6 +1,12 @@
 # SYNTH STATION
 
 ## log
+- 2026-01-10: Added arpeggiator to lead synth
+  - 6 modes: Up, Down, Up-Down, Down-Up, Random, Chord
+  - Rate control: whole to 32nd notes + triplets
+  - Octave range: 1-3 octaves
+  - Toggle on/off with glowing button
+  - Syncs to sequencer playback
 - 2026-01-10: Added detuned saw lead synth with piano roll
   - Piano roll sequencer (2 octaves C3-B4)
   - 5 detuned sawtooth oscillators for thick sound
@@ -31,6 +37,7 @@
 - Piano roll lead synth (2 octaves)
 - 5 detuned saw oscillators + sub osc
 - Glide/portamento between notes
+- Arpeggiator (6 modes, rate control, octave range)
 - Play/pause with step highlighting
 - BPM adjustment
 - Swing timing
