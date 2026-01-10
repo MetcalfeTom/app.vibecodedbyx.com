@@ -1,6 +1,15 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added BIKINI DURABILITY and Walter vs Peter animation
+  - Bikini now has durability meter (starts at 100%)
+  - Each lucky crit attack reduces durability by 15-25%
+  - Color changes: normal → low (50%) → critical (30%)
+  - If durability hits 0, BIKINI BREAKS!
+  - Player loses ALL their damage points when bikini breaks (humiliation!)
+  - Walter White vs Peter Griffin on Horse background animation
+  - Shows during bikini usage with punching animation
+  - "meanwhile... walter vs peter on horse" label
 - 2026-01-10: Added STONE Q throwable for crushing damage
   - Massive stone letter Q spawns during THE ALMIGHTY LOAF fight
   - !grab to pick up the Stone Q
