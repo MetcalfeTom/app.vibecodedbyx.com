@@ -1,6 +1,21 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added SHREK THE OGRELORD as TRUE final boss
+  - Emerges after defeating THE ALMIGHTY LOAF (9999 HP!)
+  - Giant green ogre with onion ears and floating onion
+  - Swamp effect at bottom of screen during fight
+  - Hurls onion layers when attacked
+  - Spawns swamp bubbles (20% chance per attack)
+  - "GET OUT OF MY SWAMP!" entrance message
+- 2026-01-10: Added CUTAWAY NUKE power-up
+  - Family Guy style cutaway gag nuke
+  - !grab to pick up, !nuke to trigger
+  - Random Peter Griffin cutaway scenes with jokes
+  - 3 second cutaway animation plays
+  - DEVASTATING 2000-3000 nuclear damage!
+  - Triple boss shake on impact
+  - Only spawns during Shrek fight
 - 2026-01-10: Added BIKINI DURABILITY and Walter vs Peter animation
   - Bikini now has durability meter (starts at 100%)
   - Each lucky crit attack reduces durability by 15-25%
@@ -151,7 +166,8 @@
 5. 🔥 Lava Golem (3000 HP)
 6. 👾 Cosmic Horror (4000 HP)
 7. 🌟 Ancient God (5000 HP)
-8. 🍞 THE ALMIGHTY LOAF (6666 HP) - FINAL BOSS! Shoots burning toast and rains crumbs!
+8. 🍞 THE ALMIGHTY LOAF (6666 HP) - Shoots burning toast and rains crumbs!
+9. 🟢 SHREK THE OGRELORD (9999 HP) - TRUE FINAL BOSS! Hurls onion layers from his swamp!
 
 ## NEON 67 Features
 - Massive glowing "67" with CSS gradient (cyan/magenta)
