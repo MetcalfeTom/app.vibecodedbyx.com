@@ -1,6 +1,12 @@
 # Sea Scourge - Pirate Ship Combat
 
 ## log
+- 2026-01-09: Added mobile touch controls
+  - Left/Right turn buttons
+  - Thrust button
+  - Fire button with auto-fire on hold
+  - Tap canvas to fire
+  - Responsive button layout
 - 2026-01-09: Major update - Boss Kraken & Leaderboard
   - Added BOSS KRAKEN every 5 waves
   - 3 boss variants: Leviathan, Depths Terror, Abyssal Horror
