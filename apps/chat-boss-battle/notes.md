@@ -1,6 +1,15 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added FARTING GIRAFFE
+  - Giraffe randomly appears and walks across the screen
+  - Farts green poison clouds every 3-5 seconds
+  - Poison clouds grant 1.5x DAMAGE BONUS to all attacks!
+  - "☠️ POISONED 1.5x!" message appears on hits
+  - Low rumbling fart sound effect
+  - Poison warning banner when clouds are active
+  - Giraffe stays for 30 seconds then leaves
+  - 15% spawn chance every 10 seconds
 - 2026-01-10: Added BANANA BIKINI DROP
   - Hit the banana 10 times to spawn a GLOWING NEON BIKINI!
   - Hit counter shows progress: "🍌 BANANA HITS: X/10 👙"
