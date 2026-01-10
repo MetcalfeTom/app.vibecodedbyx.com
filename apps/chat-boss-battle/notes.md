@@ -1,6 +1,12 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added Cosmic Donut with berry shield orbs
+  - Spinning cosmic donut spawns during Florida Man fight
+  - Type !donut to collect it
+  - Spawns 3 floating shield orbs filled with berries (🍓🫐🍇)
+  - Each orb adds +25 bonus damage to attacks
+  - Orbs float and pop when used
 - 2026-01-10: Added Butterfinger powerup for orlando
   - Collectible powerup that spawns during Florida Man Dragon fight
   - Type !grab to collect it
