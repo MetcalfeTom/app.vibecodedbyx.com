@@ -1,0 +1,58 @@
+# SYNTH DRUM MACHINE
+
+## log
+- 2026-01-10: Initial creation for slowflood
+  - 16-step sequencer with 8 tracks
+  - Heavy synthesized drums via Web Audio API
+  - 808-style kick, snare, hi-hat, clap, tom, crash, bass, perc
+  - BPM control (60-200)
+  - Swing control for groove
+  - 5 preset patterns (Basic, House, Trap, D&B, Techno)
+  - Clear and randomize functions
+  - Visualizer bars
+  - Neon magenta/cyan theme
+
+## features
+- 16-step sequencer grid
+- 8 synthesized drum tracks
+- Play/pause with step highlighting
+- BPM adjustment
+- Swing timing
+- Preset patterns
+- Clear all / Randomize
+- Click to preview individual sounds
+- Beat markers every 4 steps
+- Visualizer animation
+
+## sounds (all Web Audio synthesized)
+- KICK: Heavy 808-style with sine + triangle layers
+- SNARE: Noise burst with highpass + body tone
+- HI-HAT: Metallic filtered noise
+- CLAP: Layered noise bursts with bandpass
+- TOM: Pitched sine sweep
+- CRASH: Long filtered noise
+- BASS: Sub bass sine + square
+- PERC: Metallic square/saw hit
+
+## presets
+- BASIC: Simple 4-on-floor
+- HOUSE: Offbeat hats, claps
+- TRAP: Rolling hats, syncopated kick
+- D&B: Breakbeat pattern
+- TECHNO: Driving 4/4 with percs
+
+## design
+- Orbitron font
+- Magenta/cyan gradient title
+- Color-coded tracks
+- Glowing active steps
+- Step highlight on playback
+- Responsive for mobile
+
+## todos
+- Add save/load patterns to localStorage
+- Add track mute/solo
+- Add pattern length options (8/16/32)
+- Add individual track volume sliders
+- Add export to WAV
+- Add more presets
