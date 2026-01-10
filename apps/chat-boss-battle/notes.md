@@ -1,6 +1,15 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added FARTING WHALE
+  - Massive whale floats across the sky
+  - Deep rumbling fart sound with bubbly overlay
+  - Drops TOXIC BLUE RAIN when it farts!
+  - Toxic rain deals 5 DAMAGE PER SECOND to the boss!
+  - Blue rain drops (💧🔵💎🫧) fall across the screen
+  - Rain lasts 8 seconds per fart
+  - Whale stays for 40 seconds
+  - 10% spawn chance every 15 seconds
 - 2026-01-10: Added FARTING GIRAFFE
   - Giraffe randomly appears and walks across the screen
   - Farts green poison clouds every 3-5 seconds
