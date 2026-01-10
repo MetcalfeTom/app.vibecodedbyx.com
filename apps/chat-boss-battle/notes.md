@@ -1,6 +1,13 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added THE ALMIGHTY LOAF as final boss
+  - Ultimate final boss with 6666 HP
+  - Giant bread loaf with floating crown and blinking eyes
+  - Shoots burning toast projectiles when attacked
+  - Crumb rain attack (15% chance per hit)
+  - 30 crumbs rain down from the sky
+  - Crumb storm warning indicator
 - 2026-01-10: Added ethereal ambient music and spiked Druddigon
   - Ethereal Workshop-style ambient music using Web Audio API
   - Procedurally generated haunting chords with harmonics
@@ -48,7 +55,7 @@
 
 ## Features
 - **Chat Commands**: Simple commands like !attack, !slash, !fireball
-- **Boss Battles**: 7 bosses with escalating difficulty (1000 HP → 5000 HP)
+- **Boss Battles**: 8 bosses with escalating difficulty (1000 HP → 6666 HP)
 - **Visual Effects**: Floating damage numbers, boss shake animations
 - **Statistics Tracking**: Total attacks, total damage, top attacker
 - **Activity Feed**: Real-time feed of all actions
@@ -71,6 +78,7 @@
 5. 🔥 Lava Golem (3000 HP)
 6. 👾 Cosmic Horror (4000 HP)
 7. 🌟 Ancient God (5000 HP)
+8. 🍞 THE ALMIGHTY LOAF (6666 HP) - FINAL BOSS! Shoots burning toast and rains crumbs!
 
 ## NEON 67 Features
 - Massive glowing "67" with CSS gradient (cyan/magenta)
@@ -79,6 +87,16 @@
 - Shoots laser digits (0-9) in random neon colors
 - Cyan, magenta, and yellow digit projectiles
 - All special powerups spawn during this fight
+
+## THE ALMIGHTY LOAF Features
+- Giant bread loaf (🍞) with pulsing golden glow
+- Floating crown (👑) above the loaf
+- Blinking eyes with CSS animation
+- Shoots burning toast (🍞🔥) projectiles when attacked
+- 15% chance to trigger CRUMB RAIN on each attack
+- Crumb rain drops 30 crumbs from the sky
+- Different colored crumb particles (🟤🟫⬛🟡)
+- Crumb storm warning indicator during rain
 
 ## Technical Implementation
 - Pure HTML/CSS/JS - no external dependencies
