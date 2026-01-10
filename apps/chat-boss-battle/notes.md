@@ -1,6 +1,16 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added 500 NEON POKER CHIPS and LOAF CASINO
+  - 500 floating neon poker chips spawn during THE ALMIGHTY LOAF fight
+  - 5 chip colors: red, blue, green, gold, purple with spinning animation
+  - LOAF CASINO panel appears with coin flip gambling
+  - !bet [amount] command to gamble damage points
+  - Minimum bet: 10 damage points
+  - 50/50 coin flip: WIN doubles bet, LOSE forfeits bet
+  - Coin flip animation with win/lose result effects
+  - Chips rain down on wins
+  - High-stakes gambling against THE LOAF!
 - 2026-01-10: Added NEON BIKINI powerup
   - Spawns during THE ALMIGHTY LOAF fight
   - Type !bikini to wear it
