@@ -1,6 +1,11 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added Butterfinger powerup for orlando
+  - Collectible powerup that spawns during Florida Man Dragon fight
+  - Type !grab to collect it
+  - Grants 2x damage on next attack
+  - Floating orange candy bar with neon glow
 - 2026-01-10: Added FLORIDA MAN DRAGON boss for explodingcheeseorb
   - Replaced Dragon Emperor with peak Florida energy
   - Neon glowing AK-47 with cyan/magenta pulse
