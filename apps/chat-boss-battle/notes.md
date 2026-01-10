@@ -15,6 +15,10 @@
 - 2026-01-10: Added background bird and WALUIGI power-up
   - Simple bird (🐦) flies across the background on loop
   - Random vertical position for variety
+  - CLICK THE BIRD to explode it for 50-100 bonus damage!
+  - Feathers scatter on explosion
+  - Bird respawns after 8 seconds
+  - Hover effect highlights the bird
   - WALUIGI power-up spawns during Shrek fight
   - !grab to pick up Waluigi, !wah to use
   - Massive "WAAAAAAH!" text explosion
