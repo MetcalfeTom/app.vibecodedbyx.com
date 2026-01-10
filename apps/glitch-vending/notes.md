@@ -1,6 +1,13 @@
 # Neon Glitch Vending Machine
 
 ## Log
+- 2026-01-10: Refactored into modular structure
+  - Separated into 4 files: index.html, styles.css, audio.js, effects.js, vending.js
+  - audio.js: Reusable Web Audio API utilities (scream, static, beep sounds)
+  - effects.js: Reusable visual effects (glitch, particles, shake, drop)
+  - vending.js: Core vending machine logic (credits, snacks, dispensing)
+  - styles.css: All CSS moved to separate stylesheet
+  - Uses ES6 modules for clean imports
 - 2026-01-10: Initial creation
   - Interactive neon vending machine with radioactive snacks
   - Glitch visual effects when dispensing
