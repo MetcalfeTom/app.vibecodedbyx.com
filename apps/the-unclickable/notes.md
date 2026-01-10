@@ -1,6 +1,15 @@
 # THE UNCLICKABLE
 
 ## Log
+- 2026-01-10: Added Vite build setup
+  - Modular source code in src/ folder
+  - messages.js: All gaslighting and UI messages
+  - console.js: Styled console logging utilities
+  - game.js: Core game logic
+  - style.css: All styles separated
+  - Custom build.js script (sandbox-friendly, no native binaries)
+  - Run `node build.js` to bundle into dist/
+  - Production index.html is the bundled output
 - 2026-01-10: Initial creation
   - Frustration simulator with evasive update button
   - Button dodges cursor with increasing difficulty
