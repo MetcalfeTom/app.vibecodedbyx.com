@@ -282,18 +282,21 @@
       min-height: 4px;
     }
 
-    .swing-control {
+    .swing-control, .fx-control {
       display: flex;
       align-items: center;
       gap: 10px;
     }
 
-    .swing-control label {
+    .swing-control label, .fx-control label {
       color: var(--orange);
       font-size: 0.8em;
     }
 
-    .swing-slider {
+    .fx-control.reverb label { color: var(--magenta); }
+    .fx-control.chorus label { color: var(--cyan); }
+
+    .swing-slider, .fx-slider {
       -webkit-appearance: none;
       width: 80px;
       height: 8px;
@@ -302,7 +305,7 @@
       outline: none;
     }
 
-    .swing-slider::-webkit-slider-thumb {
+    .swing-slider::-webkit-slider-thumb, .fx-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
       width: 18px;
       height: 18px;
@@ -310,6 +313,36 @@
       border-radius: 50%;
       cursor: pointer;
       box-shadow: 0 0 10px var(--orange);
+    }
+
+    .fx-control.reverb .fx-slider::-webkit-slider-thumb {
+      background: var(--magenta);
+      box-shadow: 0 0 10px var(--magenta);
+    }
+
+    .fx-control.chorus .fx-slider::-webkit-slider-thumb {
+      background: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan);
+    }
+
+    .fx-row {
+      display: flex;
+      justify-content: center;
+      gap: 25px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      padding: 12px 20px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 10px;
+      border: 1px solid #222;
+    }
+
+    .fx-row .fx-label {
+      font-size: 0.7em;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-right: 10px;
     }
 
     .backlink {
@@ -381,6 +414,18 @@
       </div>
     </div>
 
+    <div class="fx-row">
+      <span class="fx-label">FX</span>
+      <div class="fx-control reverb">
+        <label>REVERB</label>
+        <input type="range" class="fx-slider" id="reverbSlider" min="0" max="100" value="40">
+      </div>
+      <div class="fx-control chorus">
+        <label>CHORUS</label>
+        <input type="range" class="fx-slider" id="chorusSlider" min="0" max="100" value="30">
+      </div>
+    </div>
+
     <div class="sequencer" id="sequencer"></div>
 
     <div class="presets">
@@ -403,6 +448,15 @@
     let currentStep = 0;
     let intervalId = null;
     let bpm = 120;
+
+    // FX nodes
+    let masterGain = null;
+    let dryGain = null;
+    let reverbGain = null;
+    let chorusGain = null;
+    let convolver = null;
+    let chorusDelays = [];
+    let chorusLFOs = [];
 
     // Tracks config
     const tracks = [
@@ -469,7 +523,135 @@
 
     function initAudio() {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      // Master output
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.8;
+      masterGain.connect(audioCtx.destination);
+
+      // Dry signal path
+      dryGain = audioCtx.createGain();
+      dryGain.connect(masterGain);
+
+      // === MASSIVE REVERB ===
+      reverbGain = audioCtx.createGain();
+      convolver = audioCtx.createConvolver();
+      convolver.buffer = createReverbImpulse(3.5, 4.0); // Long, massive reverb
+
+      const reverbFilter = audioCtx.createBiquadFilter();
+      reverbFilter.type = 'lowpass';
+      reverbFilter.frequency.value = 6000;
+
+      const reverbPreDelay = audioCtx.createDelay(0.1);
+      reverbPreDelay.delayTime.value = 0.03;
+
+      reverbGain.connect(reverbPreDelay);
+      reverbPreDelay.connect(convolver);
+      convolver.connect(reverbFilter);
+      reverbFilter.connect(masterGain);
+
+      // === THICK CHORUS ===
+      chorusGain = audioCtx.createGain();
+
+      // Create 4 voices for thick chorus
+      const chorusVoices = [
+        { delay: 0.020, rate: 0.5, depth: 0.003 },
+        { delay: 0.025, rate: 0.6, depth: 0.004 },
+        { delay: 0.030, rate: 0.4, depth: 0.005 },
+        { delay: 0.035, rate: 0.7, depth: 0.003 }
+      ];
+
+      const chorusMix = audioCtx.createGain();
+      chorusMix.gain.value = 0.5;
+      chorusMix.connect(masterGain);
+
+      chorusVoices.forEach(voice => {
+        const delay = audioCtx.createDelay(0.1);
+        delay.delayTime.value = voice.delay;
+
+        const lfo = audioCtx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = voice.rate;
+
+        const lfoGain = audioCtx.createGain();
+        lfoGain.gain.value = voice.depth;
+
+        const voiceGain = audioCtx.createGain();
+        voiceGain.gain.value = 0.4;
+
+        // Subtle pitch variation via feedback
+        const feedback = audioCtx.createGain();
+        feedback.gain.value = 0.2;
+
+        lfo.connect(lfoGain);
+        lfoGain.connect(delay.delayTime);
+
+        chorusGain.connect(delay);
+        delay.connect(voiceGain);
+        delay.connect(feedback);
+        feedback.connect(delay);
+        voiceGain.connect(chorusMix);
+
+        lfo.start();
+        chorusDelays.push(delay);
+        chorusLFOs.push(lfo);
+      });
+
+      updateFXLevels();
     }
+
+    // Generate reverb impulse response
+    function createReverbImpulse(duration, decay) {
+      const length = audioCtx.sampleRate * duration;
+      const impulse = audioCtx.createBuffer(2, length, audioCtx.sampleRate);
+
+      for (let channel = 0; channel < 2; channel++) {
+        const channelData = impulse.getChannelData(channel);
+        for (let i = 0; i < length; i++) {
+          // Exponential decay with some early reflections
+          const env = Math.pow(1 - i / length, decay);
+          // Add some randomness and early reflections
+          let sample = (Math.random() * 2 - 1) * env;
+
+          // Early reflections at specific times
+          if (i < audioCtx.sampleRate * 0.1) {
+            const earlyEnv = Math.pow(1 - i / (audioCtx.sampleRate * 0.1), 1);
+            sample += (Math.random() * 2 - 1) * earlyEnv * 0.5;
+          }
+
+          channelData[i] = sample;
+        }
+      }
+      return impulse;
+    }
+
+    function updateFXLevels() {
+      if (!audioCtx) return;
+
+      const reverbAmount = parseInt(document.getElementById('reverbSlider').value) / 100;
+      const chorusAmount = parseInt(document.getElementById('chorusSlider').value) / 100;
+
+      // Dry level decreases as effects increase
+      const dryLevel = 1 - (reverbAmount * 0.3 + chorusAmount * 0.2);
+      dryGain.gain.value = Math.max(0.4, dryLevel);
+
+      // Reverb wet level - make it massive
+      if (convolver) {
+        const reverbWet = reverbAmount * 0.8;
+        // Smooth transition
+        reverbGain.gain.setTargetAtTime(reverbWet, audioCtx.currentTime, 0.1);
+      }
+
+      // Chorus wet level - thick and lush
+      if (chorusGain) {
+        const chorusWet = chorusAmount * 0.7;
+        chorusGain.gain.setTargetAtTime(chorusWet, audioCtx.currentTime, 0.1);
+      }
+    }
+
+    // Add event listeners for FX sliders
+    document.getElementById('reverbSlider').addEventListener('input', updateFXLevels);
+    document.getElementById('chorusSlider').addEventListener('input', updateFXLevels);
 
     function togglePlay() {
       if (!audioCtx) initAudio();
@@ -527,39 +709,45 @@
       });
     }
 
-    // Heavy synth drum sounds
+    // Heavy synth drum sounds - routed through FX
     function playSound(type, volume = 1) {
       if (!audioCtx) initAudio();
 
       const now = audioCtx.currentTime;
-      const master = audioCtx.createGain();
-      master.gain.value = volume * 0.7;
-      master.connect(audioCtx.destination);
+
+      // Create sound output that routes to all FX chains
+      const soundOut = audioCtx.createGain();
+      soundOut.gain.value = volume * 0.7;
+
+      // Route to dry, reverb, and chorus
+      soundOut.connect(dryGain);
+      soundOut.connect(reverbGain);
+      soundOut.connect(chorusGain);
 
       switch(type) {
         case 'kick':
-          playKick(now, master);
+          playKick(now, soundOut);
           break;
         case 'snare':
-          playSnare(now, master);
+          playSnare(now, soundOut);
           break;
         case 'hihat':
-          playHiHat(now, master);
+          playHiHat(now, soundOut);
           break;
         case 'clap':
-          playClap(now, master);
+          playClap(now, soundOut);
           break;
         case 'tom':
-          playTom(now, master);
+          playTom(now, soundOut);
           break;
         case 'crash':
-          playCrash(now, master);
+          playCrash(now, soundOut);
           break;
         case 'bass':
-          playBass(now, master);
+          playBass(now, soundOut);
           break;
         case 'perc':
-          playPerc(now, master);
+          playPerc(now, soundOut);
           break;
       }
     }

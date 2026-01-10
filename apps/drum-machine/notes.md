@@ -1,6 +1,11 @@
 # SYNTH DRUM MACHINE
 
 ## log
+- 2026-01-10: Added massive reverb and thick chorus FX
+  - Global reverb with 3.5s tail, convolver-based
+  - 4-voice stereo chorus with LFO modulation
+  - FX sliders for wet/dry control
+  - All sounds route through FX chain
 - 2026-01-10: Initial creation for slowflood
   - 16-step sequencer with 8 tracks
   - Heavy synthesized drums via Web Audio API
@@ -18,6 +23,9 @@
 - Play/pause with step highlighting
 - BPM adjustment
 - Swing timing
+- Massive convolver reverb (3.5s tail)
+- Thick 4-voice chorus with LFO
+- FX wet/dry sliders
 - Preset patterns
 - Clear all / Randomize
 - Click to preview individual sounds
