@@ -764,6 +764,32 @@
       background: #cc0;
     }
 
+    /* Legato note spans */
+    .note-cell.note-start {
+      border-radius: 3px 0 0 3px;
+      border-right: none;
+    }
+
+    .note-cell.note-middle {
+      border-radius: 0;
+      border-left: none;
+      border-right: none;
+    }
+
+    .note-cell.note-end {
+      border-radius: 0 3px 3px 0;
+      border-left: none;
+    }
+
+    .note-cell.note-single {
+      border-radius: 3px;
+    }
+
+    .note-cell.dragging {
+      background: rgba(255, 255, 0, 0.5);
+      border-color: var(--yellow);
+    }
+
     @media (max-width: 700px) {
       h1 { font-size: 1.5em; }
       .step { width: 30px; height: 30px; }
@@ -1007,6 +1033,14 @@
 
     // Lead pattern: each step can have one note (index into leadNotes) or -1 for none
     const leadPattern = Array(16).fill(-1);
+    // Note lengths: how many steps each note sustains (1 = single step, 2+ = legato)
+    const leadNoteLengths = Array(16).fill(1);
+
+    // Drag state for legato
+    let isDragging = false;
+    let dragStartStep = -1;
+    let dragNoteIdx = -1;
+    let dragCurrentStep = -1;
 
     // Tracks config
     const tracks = [
@@ -1048,28 +1082,171 @@
             <div class="note-cell ${stepIdx % 4 === 0 ? 'beat-marker' : ''}"
                  data-note="${noteIdx}"
                  data-step="${stepIdx}"
-                 onclick="toggleLeadNote(${noteIdx}, ${stepIdx})"></div>
+                 onmousedown="startNoteDrag(event, ${noteIdx}, ${stepIdx})"
+                 onmouseenter="updateNoteDrag(${noteIdx}, ${stepIdx})"
+                 ontouchstart="startNoteDrag(event, ${noteIdx}, ${stepIdx})"
+                 ontouchmove="handleTouchMove(event)"></div>
           `).join('')}
         </div>
       `).join('');
+
+      // Add global mouse up listener
+      document.addEventListener('mouseup', endNoteDrag);
+      document.addEventListener('touchend', endNoteDrag);
     }
 
-    function toggleLeadNote(noteIdx, stepIdx) {
+    // === DRAG-BASED NOTE ENTRY FOR LEGATO ===
+    function startNoteDrag(event, noteIdx, stepIdx) {
+      event.preventDefault();
       if (!audioCtx) initAudio();
 
-      // If this note is already active at this step, clear it
+      // If clicking on an existing note, remove it
       if (leadPattern[stepIdx] === noteIdx) {
-        leadPattern[stepIdx] = -1;
-      } else {
-        // Clear any other note at this step first
-        const oldNote = leadPattern[stepIdx];
-        if (oldNote >= 0) {
-          updateLeadNoteUI(oldNote, stepIdx, false);
-        }
-        leadPattern[stepIdx] = noteIdx;
-        previewLeadNote(noteIdx);
+        clearNoteAt(stepIdx);
+        return;
       }
-      updateLeadNoteUI(noteIdx, stepIdx, leadPattern[stepIdx] === noteIdx);
+
+      // Clear any existing note at this step
+      if (leadPattern[stepIdx] >= 0) {
+        clearNoteAt(stepIdx);
+      }
+
+      // Also check if this step is part of a longer note from a previous step
+      for (let i = 0; i < stepIdx; i++) {
+        if (leadPattern[i] >= 0) {
+          const noteEnd = i + leadNoteLengths[i];
+          if (noteEnd > stepIdx) {
+            // Truncate the previous note
+            leadNoteLengths[i] = stepIdx - i;
+            refreshNoteDisplay();
+          }
+        }
+      }
+
+      isDragging = true;
+      dragStartStep = stepIdx;
+      dragNoteIdx = noteIdx;
+      dragCurrentStep = stepIdx;
+
+      // Set initial note
+      leadPattern[stepIdx] = noteIdx;
+      leadNoteLengths[stepIdx] = 1;
+
+      previewLeadNote(noteIdx);
+      refreshNoteDisplay();
+      showDragPreview();
+    }
+
+    function updateNoteDrag(noteIdx, stepIdx) {
+      if (!isDragging || noteIdx !== dragNoteIdx) return;
+
+      // Only allow dragging to the right
+      if (stepIdx >= dragStartStep) {
+        dragCurrentStep = stepIdx;
+        showDragPreview();
+      }
+    }
+
+    function handleTouchMove(event) {
+      if (!isDragging) return;
+
+      const touch = event.touches[0];
+      const element = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (element && element.classList.contains('note-cell')) {
+        const noteIdx = parseInt(element.dataset.note);
+        const stepIdx = parseInt(element.dataset.step);
+        updateNoteDrag(noteIdx, stepIdx);
+      }
+    }
+
+    function endNoteDrag() {
+      if (!isDragging) return;
+
+      // Finalize the note length
+      const length = dragCurrentStep - dragStartStep + 1;
+      leadNoteLengths[dragStartStep] = length;
+
+      // Clear any notes that this new note overlaps
+      for (let i = dragStartStep + 1; i <= dragCurrentStep; i++) {
+        if (leadPattern[i] >= 0) {
+          leadPattern[i] = -1;
+          leadNoteLengths[i] = 1;
+        }
+      }
+
+      isDragging = false;
+      dragStartStep = -1;
+      dragNoteIdx = -1;
+      dragCurrentStep = -1;
+
+      clearDragPreview();
+      refreshNoteDisplay();
+    }
+
+    function showDragPreview() {
+      clearDragPreview();
+      for (let s = dragStartStep; s <= dragCurrentStep; s++) {
+        const cell = document.querySelector(`.note-cell[data-note="${dragNoteIdx}"][data-step="${s}"]`);
+        if (cell) {
+          cell.classList.add('dragging');
+        }
+      }
+    }
+
+    function clearDragPreview() {
+      document.querySelectorAll('.note-cell.dragging').forEach(c => c.classList.remove('dragging'));
+    }
+
+    function clearNoteAt(stepIdx) {
+      // Find if this step is the start of a note or part of a longer note
+      if (leadPattern[stepIdx] >= 0) {
+        // It's the start of a note, clear it
+        leadPattern[stepIdx] = -1;
+        leadNoteLengths[stepIdx] = 1;
+      } else {
+        // Check if it's part of a previous note
+        for (let i = 0; i < stepIdx; i++) {
+          if (leadPattern[i] >= 0) {
+            const noteEnd = i + leadNoteLengths[i] - 1;
+            if (noteEnd >= stepIdx) {
+              // Truncate the note to end before this step
+              leadNoteLengths[i] = stepIdx - i;
+              break;
+            }
+          }
+        }
+      }
+      refreshNoteDisplay();
+    }
+
+    function refreshNoteDisplay() {
+      // Clear all active states and classes
+      document.querySelectorAll('.note-cell').forEach(c => {
+        c.classList.remove('active', 'note-start', 'note-middle', 'note-end', 'note-single');
+      });
+
+      // Redraw all notes with their lengths
+      for (let step = 0; step < 16; step++) {
+        const noteIdx = leadPattern[step];
+        if (noteIdx >= 0) {
+          const length = leadNoteLengths[step];
+          for (let s = step; s < step + length && s < 16; s++) {
+            const cell = document.querySelector(`.note-cell[data-note="${noteIdx}"][data-step="${s}"]`);
+            if (cell) {
+              cell.classList.add('active');
+              if (length === 1) {
+                cell.classList.add('note-single');
+              } else if (s === step) {
+                cell.classList.add('note-start');
+              } else if (s === step + length - 1) {
+                cell.classList.add('note-end');
+              } else {
+                cell.classList.add('note-middle');
+              }
+            }
+          }
+        }
+      }
     }
 
     function updateLeadNoteUI(noteIdx, stepIdx, active) {
@@ -1081,7 +1258,10 @@
 
     function clearLead() {
       leadPattern.fill(-1);
-      document.querySelectorAll('.note-cell.active').forEach(c => c.classList.remove('active'));
+      leadNoteLengths.fill(1);
+      document.querySelectorAll('.note-cell.active').forEach(c => {
+        c.classList.remove('active', 'note-start', 'note-middle', 'note-end', 'note-single');
+      });
     }
 
     function previewLeadNote(noteIdx) {
@@ -1327,20 +1507,24 @@
         }
       });
 
-      // Play lead note if present
+      // Play lead note if present (with legato support)
       const noteIdx = leadPattern[step];
       if (noteIdx >= 0) {
         if (arpEnabled) {
           // Start arpeggiator on this note
           startArp(noteIdx);
         } else {
-          const stepDuration = (60 / bpm) / 4; // Duration in seconds
-          playLeadNote(leadNotes[noteIdx].freq, stepDuration * 0.9);
+          const stepDuration = (60 / bpm) / 4; // Duration per step in seconds
+          const noteLength = leadNoteLengths[step]; // How many steps this note spans
+          const totalDuration = stepDuration * noteLength * 0.95; // 95% gate for legato
+          playLeadNote(leadNotes[noteIdx].freq, totalDuration);
         }
       } else if (arpEnabled) {
         // No note at this step, stop arpeggiator
         stopArp();
       }
+      // If this step is part of a sustained note from a previous step, don't trigger again
+      // (The note is already playing from when it started)
 
       // Visualizer
       updateVisualizer();
@@ -1889,15 +2073,30 @@
       const validNotes = getScaleNotes(scaleName, rootOffset);
       if (validNotes.length === 0) return;
 
-      // Generate random melody
-      for (let step = 0; step < 16; step++) {
+      // Generate random melody with varying note lengths
+      let step = 0;
+      while (step < 16) {
         if (Math.random() < density) {
           // Pick a random note from the scale
           const noteIdx = validNotes[Math.floor(Math.random() * validNotes.length)];
           leadPattern[step] = noteIdx;
-          updateLeadNoteUI(noteIdx, step, true);
+
+          // Random note length (1-4 steps, weighted toward shorter)
+          const maxLen = Math.min(4, 16 - step);
+          const lenRoll = Math.random();
+          let noteLen = 1;
+          if (lenRoll > 0.7 && maxLen >= 2) noteLen = 2;
+          if (lenRoll > 0.85 && maxLen >= 3) noteLen = 3;
+          if (lenRoll > 0.95 && maxLen >= 4) noteLen = 4;
+
+          leadNoteLengths[step] = noteLen;
+          step += noteLen; // Skip steps covered by this note
+        } else {
+          step++;
         }
       }
+
+      refreshNoteDisplay();
     }
 
     function updateBPM() {

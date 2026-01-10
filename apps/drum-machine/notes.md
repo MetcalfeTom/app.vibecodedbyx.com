@@ -1,6 +1,12 @@
 # SYNTH STATION
 
 ## log
+- 2026-01-10: Added legato/dragging notes for longer sustain
+  - Click and drag to create notes spanning multiple steps
+  - Notes sustain for their full length (95% gate)
+  - Visual display shows note start, middle, end segments
+  - Randomizer now generates variable-length notes
+  - Touch support for mobile
 - 2026-01-10: Added sidechain compressor and melody randomizer
   - Sidechain ducks lead synth when kick hits
   - Adjustable amount, attack, and release
@@ -42,6 +48,7 @@
 - 16-step sequencer grid
 - 8 synthesized drum tracks
 - Piano roll lead synth (2 octaves)
+- Drag-to-extend legato notes
 - 5 detuned saw oscillators + sub osc
 - Glide/portamento between notes
 - Arpeggiator (6 modes, rate control, octave range)
