@@ -1,6 +1,16 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added background bird and WALUIGI power-up
+  - Simple bird (🐦) flies across the background on loop
+  - Random vertical position for variety
+  - WALUIGI power-up spawns during Shrek fight
+  - !grab to pick up Waluigi, !wah to use
+  - Massive "WAAAAAAH!" text explosion
+  - WAH sound effect using Web Audio API
+  - STUNS Shrek for 5 seconds!
+  - 2x damage bonus while Shrek is stunned
+  - Spinning stun stars above Shrek's head
 - 2026-01-10: Added SHREK THE OGRELORD as TRUE final boss
   - Emerges after defeating THE ALMIGHTY LOAF (9999 HP!)
   - Giant green ogre with onion ears and floating onion
