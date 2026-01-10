@@ -1,6 +1,13 @@
 # SYNTH STATION
 
 ## log
+- 2026-01-10: Added sidechain compressor and melody randomizer
+  - Sidechain ducks lead synth when kick hits
+  - Adjustable amount, attack, and release
+  - Melody randomizer with scale support
+  - 6 scales: Chromatic, Major, Minor, Pentatonic, Blues, Dorian
+  - Root note selection (C through B)
+  - Density control for note probability
 - 2026-01-10: Added arpeggiator to lead synth
   - 6 modes: Up, Down, Up-Down, Down-Up, Random, Chord
   - Rate control: whole to 32nd notes + triplets
@@ -38,6 +45,8 @@
 - 5 detuned saw oscillators + sub osc
 - Glide/portamento between notes
 - Arpeggiator (6 modes, rate control, octave range)
+- Sidechain compressor (kick-triggered ducking)
+- Melody randomizer with 6 scales
 - Play/pause with step highlighting
 - BPM adjustment
 - Swing timing
