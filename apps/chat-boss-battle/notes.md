@@ -1,6 +1,22 @@
 # Chat Boss Battle
 
 ## Log
+- 2026-01-10: Added NEON BIKINI powerup
+  - Spawns during THE ALMIGHTY LOAF fight
+  - Type !bikini to wear it
+  - Grants 5 attacks with LUCKY CRITS (50% chance for 2x-4x damage!)
+  - BUT increases butter slip chance from 35% to 60%!
+  - High risk, high reward gambling mechanic
+  - Floating "LUCKY Xx CRIT!" effect on crits
+  - Neon magenta/cyan glow effect on powerup
+- 2026-01-10: Added butter slip mechanic to THE ALMIGHTY LOAF
+  - Loaf drops slippery butter puddles (12% chance per attack)
+  - Butter lasts 8 seconds on the floor
+  - 35% chance to slip when butter is active - attack misses!
+  - "SLIPPED!" floating text when someone slips
+  - Visual butter drop animation and puddle
+  - Warning indicator when butter is active
+  - Loaf still fires burning toast when you slip!
 - 2026-01-10: Added $19 Fortnite Card powerup
   - Rare powerup that spawns during THE ALMIGHTY LOAF fight
   - Type !card to use it
