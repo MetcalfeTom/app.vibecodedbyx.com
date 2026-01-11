@@ -2,9 +2,14 @@
 
 ## log
 - 2026-01-11: Created 1987 birthday pizzeria with farting hippo animatronic
+- 2026-01-11: Added party pooper pig enemy that drops mess to lower score
 
 ## features
 - Purple animatronic hippo with party hat and bowtie
+- Party pooper pig enemy walks across screen dropping mess
+- Pig mess makes kids cry "GROSS!" and lowers score (-15 points)
+- Pigs oink and have "PARTY POOPER" label
+- Kids show tears when hit by mess
 - VHS overlay with scanlines and REC indicator
 - 1987 date stamp aesthetic
 - Click/tap to make hippo fart green clouds
