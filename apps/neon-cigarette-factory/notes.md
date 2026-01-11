@@ -1,6 +1,13 @@
 # Neon Cigarette Factory
 
 ## Log
+- 2026-01-11: Added GOLDEN SPRINGLOCK SUIT
+  - FNAF-inspired animatronic suit on factory floor
+  - Opens invitingly, then SNAPS SHUT periodically
+  - Eyes glow red when triggered
+  - Shakes violently during snap animation
+  - Red warning light flashes when triggered
+  - Resets after 3 seconds to snap again
 - 2026-01-11: Replaced giraffe with MASSIVE NEON GODZILLA
   - Towering green kaiju built from primitives
   - Iconic cyan dorsal spines that glow
@@ -31,6 +38,7 @@
 - **Orbit Controls**: Drag to rotate, scroll to zoom
 - **MASSIVE NEON GODZILLA**: Towering green kaiju with cyan dorsal spines
 - **Dual Gas Blasts**: Green toxic gas from both mouth AND tail
+- **GOLDEN SPRINGLOCK SUIT**: FNAF animatronic that snaps shut with red glowing eyes
 
 ## Design
 - Orbitron font for industrial feel
