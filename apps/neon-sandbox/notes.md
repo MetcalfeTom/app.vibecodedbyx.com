@@ -9,6 +9,8 @@
 - 2026-01-11: Replaced claw with sawshark mouth
 - 2026-01-11: Transformed entire arm into chain of glowing neon sharks
 - 2026-01-11: Renamed to "Shark Arm Sandbox"
+- 2026-01-11: Shark teeth now point inward to bite objects
+- 2026-01-11: Pig screams when grabbed by shark arm
 
 ## features
 - Click/drag to spawn shapes
@@ -16,6 +18,7 @@
 - Shark arm: chain of 3 glowing neon shark bodies with sawshark head
 - Sawshark head with serrated saw blade jaws that snap shut
 - Giraffe farts when grabbed (green cloud particles + sound)
+- Pig screams when grabbed (high-pitched squeal sound)
 - Physics: gravity, bounce, friction, collisions
 - Neon glow trail effect
 - Clear all, toggle gravity, shake buttons
