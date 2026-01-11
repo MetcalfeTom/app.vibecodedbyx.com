@@ -1,6 +1,14 @@
 # Neon Cigarette Factory
 
 ## Log
+- 2026-01-11: Added NEON TAX AUDITOR
+  - Menacing figure in dark suit with neon red tie
+  - 24 SHARP TEETH in a sinister grin + large fangs
+  - Glowing red eyes behind cyan neon glasses
+  - Holding clipboard (taking notes on violations)
+  - Briefcase with glowing "IRS" label
+  - Head slowly turns watching everything
+  - Eyes pulse menacingly
 - 2026-01-11: Added GOLDEN SPRINGLOCK SUIT
   - FNAF-inspired animatronic suit on factory floor
   - Opens invitingly, then SNAPS SHUT periodically
@@ -39,6 +47,7 @@
 - **MASSIVE NEON GODZILLA**: Towering green kaiju with cyan dorsal spines
 - **Dual Gas Blasts**: Green toxic gas from both mouth AND tail
 - **GOLDEN SPRINGLOCK SUIT**: FNAF animatronic that snaps shut with red glowing eyes
+- **NEON TAX AUDITOR**: Sharp-toothed menace with clipboard and IRS briefcase
 
 ## Design
 - Orbitron font for industrial feel
