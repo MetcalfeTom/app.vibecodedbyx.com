@@ -1,6 +1,14 @@
 # The Purple Trap
 
 ## Log
+- 2026-01-11: Added GOLDEN MASK power-up
+  - Floating golden mask spawns once per level
+  - Collect for 10 seconds of invisibility and invincibility
+  - Player becomes ghostly golden figure with flickering effect
+  - Glowing cyan eyes and magenta forehead gem
+  - Timer bar shows remaining time
+  - Magical chime sound on pickup
+  - +250 bonus points per mask
 - 2026-01-11: Made d-pad always visible
   - Forced display:block and z-index:9999 with !important
   - Controls now visible on all devices, not just mobile
