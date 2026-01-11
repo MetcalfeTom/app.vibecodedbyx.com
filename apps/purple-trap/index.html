@@ -646,6 +646,89 @@
       }
     }
 
+    // Mangle radio static sound
+    function startMangleStatic(intensity) {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      // Stop existing static
+      stopMangleStatic();
+
+      // Create white noise
+      const bufferSize = audioCtx.sampleRate * 2;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      noise.loop = true;
+
+      // Bandpass filter for radio effect
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 1000 + Math.random() * 500;
+      filter.Q.value = 5;
+
+      // Gain based on intensity
+      const gain = audioCtx.createGain();
+      gain.gain.value = Math.min(0.15, intensity * 0.2);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+      noise.start();
+
+      mangleStaticNode = { noise, gain, filter };
+    }
+
+    function updateMangleStaticVolume(intensity) {
+      if (mangleStaticNode && mangleStaticNode.gain) {
+        mangleStaticNode.gain.gain.value = Math.min(0.15, intensity * 0.2);
+        mangleStaticNode.filter.frequency.value = 800 + intensity * 400 + Math.random() * 200;
+      }
+    }
+
+    function stopMangleStatic() {
+      if (mangleStaticNode) {
+        try {
+          mangleStaticNode.noise.stop();
+        } catch (e) {}
+        mangleStaticNode = null;
+      }
+    }
+
+    function playMangleAttackSound() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const now = audioCtx.currentTime;
+
+      // Distorted screech
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.linearRampToValueAtTime(1200, now + 0.1);
+      osc.frequency.linearRampToValueAtTime(400, now + 0.3);
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.linearRampToValueAtTime(0.01, now + 0.4);
+
+      const distortion = audioCtx.createWaveShaper();
+      const curve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) {
+        const x = (i - 128) / 128;
+        curve[i] = Math.tanh(x * 3);
+      }
+      distortion.curve = curve;
+
+      osc.connect(distortion);
+      distortion.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 0.4);
+    }
+
     // Ghost children (the 5 victims)
     const ghostData = [
       { color: '#00ffff', name: 'Gabriel' },
@@ -658,6 +741,23 @@
     let ghosts = [];
     let springlocks = [];
     let goldenMasks = [];
+
+    // Mangle - ceiling crawler
+    const mangle = {
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 40,
+      active: false,
+      targetX: 0,
+      targetY: 0,
+      speed: 2,
+      attackMode: false,
+      staticIntensity: 0,
+      legPhase: 0,
+      headAngle: 0
+    };
+    let mangleStaticNode = null;
 
     // Input handling
     const keys = {};
@@ -982,6 +1082,16 @@
       springlocks = [];
       goldenMasks = [];
 
+      // Initialize Mangle on ceiling
+      mangle.active = true;
+      mangle.x = Math.random() * (canvas.width - 100) + 50;
+      mangle.y = 20; // Ceiling position
+      mangle.targetX = mangle.x;
+      mangle.targetY = mangle.y;
+      mangle.attackMode = false;
+      mangle.staticIntensity = 0;
+      stopMangleStatic();
+
       // Spawn initial ghosts based on level
       for (let i = 0; i < Math.min(level + 2, 5); i++) {
         ghosts.push(createGhost(i));
@@ -1170,6 +1280,242 @@
         // Flicker alpha
         ghost.alpha = 0.6 + Math.sin(frameCount * 0.1 + ghost.wobble) * 0.3;
       });
+    }
+
+    function updateMangle() {
+      if (!mangle.active || !gameRunning) return;
+
+      // Animate leg phase
+      mangle.legPhase += 0.15;
+      mangle.headAngle = Math.sin(frameCount * 0.05) * 0.3;
+
+      // Calculate distance to player
+      const dx = player.x - mangle.x;
+      const dy = player.y - mangle.y;
+      const distToPlayer = Math.sqrt(dx * dx + dy * dy);
+
+      // Check if music box is low - Mangle gets aggressive
+      const musicBoxLow = player.musicBoxTimer < player.musicBoxMaxTime * 0.4;
+
+      if (musicBoxLow && !mangle.attackMode) {
+        // Enter attack mode!
+        mangle.attackMode = true;
+        mangle.speed = 4 + level * 0.5;
+      } else if (!musicBoxLow && mangle.attackMode) {
+        // Return to ceiling patrol
+        mangle.attackMode = false;
+        mangle.speed = 2;
+      }
+
+      // Radio static based on proximity
+      const maxStaticDist = 200;
+      if (distToPlayer < maxStaticDist) {
+        mangle.staticIntensity = 1 - (distToPlayer / maxStaticDist);
+
+        if (!mangleStaticNode) {
+          startMangleStatic(mangle.staticIntensity);
+        } else {
+          updateMangleStaticVolume(mangle.staticIntensity);
+        }
+      } else {
+        mangle.staticIntensity = 0;
+        stopMangleStatic();
+      }
+
+      if (mangle.attackMode) {
+        // Chase player from above!
+        mangle.targetX = player.x;
+        mangle.targetY = player.y - 30; // Slightly above player
+
+        // Move toward player
+        const tdx = mangle.targetX - mangle.x;
+        const tdy = mangle.targetY - mangle.y;
+        const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+        if (tdist > 5) {
+          mangle.x += (tdx / tdist) * mangle.speed;
+          mangle.y += (tdy / tdist) * mangle.speed;
+        }
+
+        // Check collision with player (attack!)
+        if (distToPlayer < 40 && !player.isInvincible) {
+          // Mangle attacks!
+          playMangleAttackSound();
+          lives--;
+          document.getElementById('lives').textContent = `LIVES: ${lives}`;
+          glitchIntensity = 40;
+
+          if (lives <= 0) {
+            stopMangleStatic();
+            gameOver();
+            return;
+          }
+
+          // Reset player
+          player.x = canvas.width / 2;
+          player.y = canvas.height / 2;
+          player.musicBoxTimer = player.musicBoxMaxTime;
+
+          // Push Mangle back to ceiling
+          mangle.y = 20;
+          mangle.attackMode = false;
+
+          // Push ghosts away
+          ghosts.forEach(g => {
+            g.x = g.x < canvas.width / 2 ? -30 : canvas.width + 30;
+            g.y = g.y < canvas.height / 2 ? -30 : canvas.height + 30;
+          });
+        }
+      } else {
+        // Patrol ceiling - pick random targets
+        if (frameCount % 120 === 0 || Math.abs(mangle.x - mangle.targetX) < 5) {
+          mangle.targetX = 50 + Math.random() * (canvas.width - 100);
+        }
+        mangle.targetY = 20 + Math.sin(frameCount * 0.02) * 10;
+
+        // Move toward ceiling target
+        const tdx = mangle.targetX - mangle.x;
+        const tdy = mangle.targetY - mangle.y;
+        const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+        if (tdist > 2) {
+          mangle.x += (tdx / tdist) * mangle.speed * 0.5;
+          mangle.y += (tdy / tdist) * mangle.speed * 0.5;
+        }
+      }
+
+      // Keep in bounds
+      mangle.x = Math.max(30, Math.min(canvas.width - 30, mangle.x));
+      mangle.y = Math.max(15, Math.min(canvas.height - 30, mangle.y));
+    }
+
+    function drawMangle() {
+      if (!mangle.active) return;
+
+      ctx.save();
+
+      const mx = mangle.x;
+      const my = mangle.y;
+
+      // Flicker when attacking
+      if (mangle.attackMode) {
+        ctx.globalAlpha = 0.8 + Math.sin(frameCount * 0.5) * 0.2;
+      }
+
+      // Glow effect - red when attacking
+      ctx.shadowColor = mangle.attackMode ? '#ff0000' : '#ff69b4';
+      ctx.shadowBlur = mangle.attackMode ? 25 : 15;
+
+      // Mangled body (white/pink animatronic)
+      ctx.fillStyle = '#fff0f5';
+
+      // Tangled mess of parts (body)
+      ctx.beginPath();
+      ctx.ellipse(mx, my, 25, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Second head (the endo head)
+      ctx.fillStyle = '#333';
+      ctx.beginPath();
+      ctx.arc(mx + 20, my - 5, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Main fox head
+      ctx.fillStyle = '#fff0f5';
+      ctx.save();
+      ctx.translate(mx - 15, my - 10);
+      ctx.rotate(mangle.headAngle);
+
+      // Fox head shape
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 18, 15, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Snout
+      ctx.fillStyle = '#ffb6c1';
+      ctx.beginPath();
+      ctx.ellipse(12, 5, 10, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eye (one eye exposed)
+      ctx.fillStyle = '#ffff00';
+      ctx.shadowColor = '#ffff00';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(-5, -3, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pupil
+      ctx.fillStyle = '#000';
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(-5, -3, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Missing piece / exposed endo
+      ctx.fillStyle = '#444';
+      ctx.beginPath();
+      ctx.arc(5, -8, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+
+      // Endo head red eye
+      ctx.fillStyle = '#ff0000';
+      ctx.shadowColor = '#ff0000';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(mx + 20, my - 7, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Legs/wires hanging down (animated)
+      ctx.strokeStyle = '#666';
+      ctx.lineWidth = 3;
+      ctx.shadowBlur = 0;
+
+      for (let i = 0; i < 6; i++) {
+        const legOffset = (i - 2.5) * 12;
+        const legWave = Math.sin(mangle.legPhase + i * 0.8) * 8;
+
+        ctx.beginPath();
+        ctx.moveTo(mx + legOffset, my + 15);
+        ctx.quadraticCurveTo(
+          mx + legOffset + legWave,
+          my + 35,
+          mx + legOffset + legWave * 0.5,
+          my + 50
+        );
+        ctx.stroke();
+
+        // Claw/hook at end
+        ctx.fillStyle = '#888';
+        ctx.beginPath();
+        ctx.arc(mx + legOffset + legWave * 0.5, my + 50, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // "MANGLE" label when attacking
+      if (mangle.attackMode) {
+        ctx.font = '10px "Press Start 2P"';
+        ctx.fillStyle = `rgba(255, 0, 0, ${0.5 + Math.sin(frameCount * 0.3) * 0.3})`;
+        ctx.textAlign = 'center';
+        ctx.fillText('MANGLE', mx, my - 35);
+      }
+
+      // Static visual effect when close
+      if (mangle.staticIntensity > 0.3) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${mangle.staticIntensity * 0.1})`;
+        for (let i = 0; i < 10; i++) {
+          ctx.fillRect(
+            mx - 40 + Math.random() * 80,
+            my - 30 + Math.random() * 80,
+            2 + Math.random() * 4,
+            1
+          );
+        }
+      }
+
+      ctx.restore();
     }
 
     function checkCollisions() {
@@ -1403,6 +1749,7 @@
       gameRunning = false;
       glitchIntensity = 30;
       goldenFreddyActive = false; // Cancel any Golden Freddy encounter
+      stopMangleStatic(); // Stop Mangle's radio static
 
       // 5% chance of jumpscare
       if (Math.random() < 0.05) {
@@ -2339,12 +2686,14 @@
 
       updatePlayer();
       updateGhosts();
+      updateMangle();
       updateGoldenFreddy();
       checkCollisions();
 
       drawBackground();
       drawSpringlocks();
       drawGoldenMasks();
+      drawMangle();
       drawPlayer();
       drawGhosts();
       drawGoldenFreddy();

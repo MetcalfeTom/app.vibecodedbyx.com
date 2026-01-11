@@ -1,6 +1,14 @@
 # The Purple Trap
 
 ## Log
+- 2026-01-11: Added MANGLE ceiling enemy
+  - Crawls on ceiling, patrols back and forth
+  - White/pink mangled animatronic with two heads
+  - Emits radio static sound when player is nearby
+  - Attacks when music box timer is below 40%
+  - Animated dangling legs/wires
+  - Distorted screech sound on attack
+  - Flickers and glows red in attack mode
 - 2026-01-11: Added GOLDEN FREDDY encounter
   - Rare random spawn during gameplay
   - Click on Golden Freddy within 5 seconds or lose a life
