@@ -1,6 +1,12 @@
 # The Purple Trap
 
 ## Log
+- 2026-01-11: Added looping death audio
+  - Agonizing screams loop every ~1 second
+  - Wet crunch/bone snap sounds every ~0.5 seconds
+  - Gurgling noise underneath screams
+  - Random extra crunches for variation
+  - Audio stops when restart button appears
 - 2026-01-11: Enhanced game over sequence
   - 10-second death animation before restart appears
   - Golden suit with player trapped inside
