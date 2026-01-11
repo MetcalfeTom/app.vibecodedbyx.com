@@ -1,6 +1,12 @@
 # Neon Cigarette Factory
 
 ## Log
+- 2026-01-11: Added TAX DEMAND CHAT BUBBLES
+  - Floating speech bubbles spawn every 3 seconds
+  - 15 different tax demands: "$47,832.69", "PRISON TIME: 5YRS", etc
+  - Pop in, float up, wobble, fade out
+  - Billboard effect - always face camera
+  - Glowing red text on dark background
 - 2026-01-11: Added NEON TAX AUDITOR
   - Menacing figure in dark suit with neon red tie
   - 24 SHARP TEETH in a sinister grin + large fangs
