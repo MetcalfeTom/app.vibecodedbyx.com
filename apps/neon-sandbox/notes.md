@@ -12,6 +12,7 @@
 - 2026-01-11: Shark teeth now point inward to bite objects
 - 2026-01-11: Pig screams when grabbed by shark arm
 - 2026-01-11: Added neon William Afton character with creepy scream
+- 2026-01-11: Afton springlock failure after 100 bites with crunching audio and blood
 
 ## features
 - Click/drag to spawn shapes
@@ -20,7 +21,7 @@
 - Sawshark head with serrated saw blade jaws that snap shut
 - Giraffe farts when grabbed (green cloud particles + sound)
 - Pig screams when grabbed (high-pitched squeal sound)
-- Afton screams when grabbed (creepy distorted sound)
+- Afton springlock failure after 100 bites (crunching + blood + scream)
 - Physics: gravity, bounce, friction, collisions
 - Neon glow trail effect
 - Clear all, toggle gravity, shake buttons
