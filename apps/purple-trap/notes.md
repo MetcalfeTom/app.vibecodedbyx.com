@@ -1,6 +1,27 @@
 # The Purple Trap
 
 ## Log
+- 2026-01-11: Added GOLDEN FREDDY encounter
+  - Rare random spawn during gameplay
+  - Click on Golden Freddy within 5 seconds or lose a life
+  - "IT'S ME" text and countdown timer displayed
+  - Eerie drone sound when appears
+  - +500 bonus points if clicked in time
+  - Always triggers jumpscare if timer runs out
+- 2026-01-11: Added 5% JUMPSCARE on death
+  - Giant golden animatronic face with sharp teeth
+  - Screen shake and flashing
+  - Loud screech sound
+  - 0.75 second duration before normal game over
+- 2026-01-11: Added MUSIC BOX mechanic (FNAF style)
+  - Must wind every 10 seconds or die
+  - Press R key or cyan WIND button on mobile
+  - Timer bar in top-right corner
+  - Warning sound at 3 seconds remaining
+  - Flashing "WIND THE BOX!" text when critical
+  - Creaky wind-up sound effect
+- 2026-01-11: Fixed golden mask dash bug
+  - Dashing while masked no longer removes invincibility
 - 2026-01-11: Added GOLDEN MASK power-up
   - Floating golden mask spawns once per level
   - Collect for 10 seconds of invisibility and invincibility
