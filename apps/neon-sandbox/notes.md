@@ -11,14 +11,16 @@
 - 2026-01-11: Renamed to "Shark Arm Sandbox"
 - 2026-01-11: Shark teeth now point inward to bite objects
 - 2026-01-11: Pig screams when grabbed by shark arm
+- 2026-01-11: Added neon William Afton character with creepy scream
 
 ## features
 - Click/drag to spawn shapes
-- 8 shape types: circle, square, triangle, star, hexagon, pig, giraffe
+- 9 shape types: circle, square, triangle, star, hexagon, pig, giraffe, afton
 - Shark arm: chain of 3 glowing neon shark bodies with sawshark head
 - Sawshark head with serrated saw blade jaws that snap shut
 - Giraffe farts when grabbed (green cloud particles + sound)
 - Pig screams when grabbed (high-pitched squeal sound)
+- Afton screams when grabbed (creepy distorted sound)
 - Physics: gravity, bounce, friction, collisions
 - Neon glow trail effect
 - Clear all, toggle gravity, shake buttons
