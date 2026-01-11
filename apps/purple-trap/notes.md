@@ -1,6 +1,9 @@
 # The Purple Trap
 
 ## Log
+- 2026-01-11: Made d-pad always visible
+  - Forced display:block and z-index:9999 with !important
+  - Controls now visible on all devices, not just mobile
 - 2026-01-11: Added high-contrast neon mobile controls
   - Neon magenta d-pad with glow effects on left side
   - Large green DASH button on right side
