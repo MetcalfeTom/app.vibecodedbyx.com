@@ -1,31 +1,26 @@
-# Lava Lamp
+# Neon Lava Lamp
 
-## Log
-- 2025-12-28: Added droplet splatter when blobs hit top, mouse gravity on click/tap
-- 2025-12-28: Transformed into synthwave screensaver - neon colors, grid floor, sun, scanlines, pulsating effects
-- 2025-12-18: Initial creation - mesmerizing lava lamp simulator with floating blobs, 6 color themes, ambient glow effects
+## log
+- 2026-01-11: Created high-fidelity neon lava lamp with gooey metaball physics
 
-## Features
-- Synthwave/retro 80s aesthetic
-- Neon blob colors: hot pink, cyan, purple, orange, teal, magenta
-- Pulsating glow effects on blobs with hue shifting
-- **Droplet splatter**: blobs burst into tiny neon droplets when hitting the top
-- **Mouse gravity**: click/tap to make blobs swarm toward cursor
-- Perspective grid floor with pulse animation
-- Striped synthwave sun in background
-- CRT scanlines and horizontal sweep lines
-- Twinkling stars
-- Vignette for atmosphere
-- Title fades after 4 seconds for immersive screensaver mode
-- Hidden cursor that appears on mouse movement
-- Double-click for fullscreen mode
-- SVG goo filter for blob merging effect
-- Mobile responsive with touch support
+## features
+- Metaball rendering for smooth gooey blob visuals
+- Heat-based buoyancy physics (blobs rise when hot, sink when cool)
+- 6 color schemes with smooth transitions
+- 8 initial blobs (up to 15 max)
+- Blob pulsing and wobble animation
+- Blob-to-blob repulsion for organic movement
+- Realistic lamp container with cap, glass, and base
+- Glass reflection highlights
+- Dynamic glow effect matching current color
+- Controls: change colors, add blobs, toggle heat intensity
+- Auto color change every ~100 seconds (10% chance)
+- Mobile and desktop friendly
 
-## Issues
+## issues
 - None yet
 
-## Todos
-- Could add ambient synthwave music toggle
-- Multiple lamp option
-- Color palette presets (vapor, outrun, miami)
+## todos
+- Could add touch/click interaction to push blobs
+- Could add ambient background music
+- Could add more lamp styles
