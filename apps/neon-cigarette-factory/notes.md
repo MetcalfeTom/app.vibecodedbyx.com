@@ -1,6 +1,13 @@
 # Neon Cigarette Factory
 
 ## Log
+- 2026-01-11: Added FIVE CHILD GHOSTS after springlock failure
+  - Gabriel (cyan), Jeremy (magenta), Susie (yellow), Fritz (red), Cassidy (white)
+  - Appear one by one after Afton is crushed
+  - Orbit around the suit with ghostly bobbing
+  - Tear streaks, hollow eyes, wispy trails
+  - Arms reaching toward their killer
+  - Status: "IT'S ME"
 - 2026-01-11: Added WILLIAM AFTON emergence at 500 cigarettes
   - Purple Guy emerges from neon haze when production completes
   - Menacing walk animation toward springlock suit
@@ -72,6 +79,7 @@
 - **NEON TAX AUDITOR**: Sharp-toothed menace with clipboard and IRS briefcase
 - **ICE SCORPION**: Purple patrol scorpion with glowing green stinger and ICE badge
 - **WILLIAM AFTON**: Purple Guy emerges at 500 cigs, walks to suit, gets CRUSHED
+- **FIVE CHILD GHOSTS**: Gabriel, Jeremy, Susie, Fritz, Cassidy orbit the suit haunting Afton
 
 ## Design
 - Orbitron font for industrial feel
