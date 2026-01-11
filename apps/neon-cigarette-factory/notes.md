@@ -1,6 +1,12 @@
 # Neon Cigarette Factory
 
 ## Log
+- 2026-01-11: Added massive neon giraffe
+  - Towering yellow giraffe built from primitives
+  - Green neon rings on neck
+  - Glowing cyan eyes, magenta hooves and horns
+  - Emits green toxic gas clouds from rear
+  - Subtle swaying animation
 - 2026-01-11: Initial creation
   - 3D factory scene with Three.js
   - Spawns exactly 500 glowing cigarette sticks
@@ -15,6 +21,8 @@
 - **Neon Glow**: Bloom post-processing for that neon look
 - **Pulsing Tips**: Each cigarette has a glowing ember tip
 - **Orbit Controls**: Drag to rotate, scroll to zoom
+- **MASSIVE NEON GIRAFFE**: Towering yellow giraffe with glowing spots
+- **Toxic Gas Clouds**: Green glowing gas clouds emit from the giraffe
 
 ## Design
 - Orbitron font for industrial feel
