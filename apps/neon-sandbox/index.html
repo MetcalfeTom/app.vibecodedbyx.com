@@ -569,28 +569,73 @@
     }
 
     function solveIK() {
-      const dx = robotArm.targetX - robotArm.baseX;
-      const dy = robotArm.targetY - robotArm.baseY;
-      const targetAngle = Math.atan2(dy, dx);
-      const targetDist = Math.min(
-        Math.sqrt(dx * dx + dy * dy),
-        robotArm.segments.reduce((sum, s) => sum + s.length, 0) - 10
-      );
+      // FABRIK inverse kinematics for flexible arm
+      const segments = robotArm.segments;
+      const totalLength = segments.reduce((sum, s) => sum + s.length, 0);
 
-      // Simple FABRIK-like solve
-      let currentAngle = targetAngle;
-      let remainingDist = targetDist;
+      // Get joint positions
+      let joints = [{ x: robotArm.baseX, y: robotArm.baseY }];
+      let angle = 0;
+      for (let i = 0; i < segments.length; i++) {
+        angle += segments[i].angle;
+        joints.push({
+          x: joints[i].x + Math.cos(angle) * segments[i].length,
+          y: joints[i].y + Math.sin(angle) * segments[i].length
+        });
+      }
 
-      robotArm.segments.forEach((seg, i) => {
-        if (i === 0) {
-          seg.angle = currentAngle;
-        } else {
-          // Bend towards target
-          const bendAmount = Math.sin(remainingDist / 100) * 0.3;
-          seg.angle = bendAmount;
+      // Target position (accounting for claw length)
+      let targetX = robotArm.targetX;
+      let targetY = robotArm.targetY;
+
+      // Clamp target to reachable distance
+      const dx = targetX - robotArm.baseX;
+      const dy = targetY - robotArm.baseY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > totalLength - 5) {
+        const scale = (totalLength - 5) / dist;
+        targetX = robotArm.baseX + dx * scale;
+        targetY = robotArm.baseY + dy * scale;
+      }
+
+      // FABRIK iterations
+      for (let iter = 0; iter < 5; iter++) {
+        // Backward pass - start from end effector
+        joints[joints.length - 1] = { x: targetX, y: targetY };
+        for (let i = joints.length - 2; i >= 0; i--) {
+          const segLen = segments[i].length;
+          const ddx = joints[i].x - joints[i + 1].x;
+          const ddy = joints[i].y - joints[i + 1].y;
+          const d = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
+          joints[i] = {
+            x: joints[i + 1].x + (ddx / d) * segLen,
+            y: joints[i + 1].y + (ddy / d) * segLen
+          };
         }
-        remainingDist -= seg.length * 0.7;
-      });
+
+        // Forward pass - start from base
+        joints[0] = { x: robotArm.baseX, y: robotArm.baseY };
+        for (let i = 0; i < segments.length; i++) {
+          const segLen = segments[i].length;
+          const ddx = joints[i + 1].x - joints[i].x;
+          const ddy = joints[i + 1].y - joints[i].y;
+          const d = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
+          joints[i + 1] = {
+            x: joints[i].x + (ddx / d) * segLen,
+            y: joints[i].y + (ddy / d) * segLen
+          };
+        }
+      }
+
+      // Convert joint positions back to angles
+      let prevAngle = 0;
+      for (let i = 0; i < segments.length; i++) {
+        const ddx = joints[i + 1].x - joints[i].x;
+        const ddy = joints[i + 1].y - joints[i].y;
+        const absoluteAngle = Math.atan2(ddy, ddx);
+        segments[i].angle = absoluteAngle - prevAngle;
+        prevAngle = absoluteAngle;
+      }
     }
 
     function getRobotArmEndPos() {
