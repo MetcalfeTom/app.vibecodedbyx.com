@@ -1,7 +1,8 @@
-# Gorilla Fart Attack
+# Farting Gorilla
 
 ## log
 - 2026-01-11: Created neon gorilla game that clears void with farts
+- 2026-01-11: Renamed to "Farting Gorilla" - hey guys it's me farting gorilla
 
 ## features
 - Giant neon gorilla follows mouse/touch
