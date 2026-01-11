@@ -1,6 +1,14 @@
 # The Purple Trap
 
 ## Log
+- 2026-01-11: Enhanced game over sequence
+  - 10-second death animation before restart appears
+  - Golden suit with player trapped inside
+  - Red liquid pouring from suit seams
+  - Growing blood pool on floor
+  - Creepy messages: "THE SUIT ALWAYS FINDS ITS OWNER", "I ALWAYS COME BACK", "IT'S ME"
+  - Screen shake and glitch effects
+  - Final score display during animation
 - 2026-01-11: Initial creation
   - 2D arcade game inspired by FNAF
   - Purple Guy player dodges 5 ghost children
