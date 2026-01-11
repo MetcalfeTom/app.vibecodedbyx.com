@@ -1,6 +1,14 @@
 # Neon Cigarette Factory
 
 ## Log
+- 2026-01-11: Added WILLIAM AFTON emergence at 500 cigarettes
+  - Purple Guy emerges from neon haze when production completes
+  - Menacing walk animation toward springlock suit
+  - Purple aura glowing around him
+  - Springlock SNAPS SHUT crushing him inside
+  - Suit permanently closed with glowing red eyes
+  - Occasional twitches showing "something alive inside"
+  - Status updates: "INTRUDER DETECTED" → "SPRINGLOCK FAILURE"
 - 2026-01-11: Added NEON PURPLE ICE SCORPION
   - Purple glowing scorpion with 8 red eyes
   - ICE badge with gold star on body
@@ -63,6 +71,7 @@
 - **GOLDEN SPRINGLOCK SUIT**: FNAF animatronic that snaps shut with red glowing eyes
 - **NEON TAX AUDITOR**: Sharp-toothed menace with clipboard and IRS briefcase
 - **ICE SCORPION**: Purple patrol scorpion with glowing green stinger and ICE badge
+- **WILLIAM AFTON**: Purple Guy emerges at 500 cigs, walks to suit, gets CRUSHED
 
 ## Design
 - Orbitron font for industrial feel
