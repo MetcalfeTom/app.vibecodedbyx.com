@@ -1,6 +1,14 @@
 # Neon Cigarette Factory
 
 ## Log
+- 2026-01-11: Added NEON PURPLE ICE SCORPION
+  - Purple glowing scorpion with 8 red eyes
+  - ICE badge with gold star on body
+  - Glowing green stinger dripping venom
+  - Pincers that snap periodically
+  - Patrols factory floor in circular path
+  - Scuttling leg animation
+  - Tail sways menacingly
 - 2026-01-11: Added TAX DEMAND CHAT BUBBLES
   - Floating speech bubbles spawn every 3 seconds
   - 15 different tax demands: "$47,832.69", "PRISON TIME: 5YRS", etc
@@ -54,6 +62,7 @@
 - **Dual Gas Blasts**: Green toxic gas from both mouth AND tail
 - **GOLDEN SPRINGLOCK SUIT**: FNAF animatronic that snaps shut with red glowing eyes
 - **NEON TAX AUDITOR**: Sharp-toothed menace with clipboard and IRS briefcase
+- **ICE SCORPION**: Purple patrol scorpion with glowing green stinger and ICE badge
 
 ## Design
 - Orbitron font for industrial feel
