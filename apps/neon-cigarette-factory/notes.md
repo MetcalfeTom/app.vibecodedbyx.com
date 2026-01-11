@@ -1,7 +1,15 @@
 # Neon Cigarette Factory
 
 ## Log
-- 2026-01-11: Added massive neon giraffe
+- 2026-01-11: Replaced giraffe with MASSIVE NEON GODZILLA
+  - Towering green kaiju built from primitives
+  - Iconic cyan dorsal spines that glow
+  - Menacing red glowing eyes
+  - Massive segmented tail with spines
+  - T-rex style arms, huge legs with claws
+  - Blasts green toxic gas from MOUTH and TAIL
+  - Breathing animation and tail sway
+- 2026-01-11: Added massive neon giraffe (replaced)
   - Towering yellow giraffe built from primitives
   - Green neon rings on neck
   - Glowing cyan eyes, magenta hooves and horns
@@ -21,8 +29,8 @@
 - **Neon Glow**: Bloom post-processing for that neon look
 - **Pulsing Tips**: Each cigarette has a glowing ember tip
 - **Orbit Controls**: Drag to rotate, scroll to zoom
-- **MASSIVE NEON GIRAFFE**: Towering yellow giraffe with glowing spots
-- **Toxic Gas Clouds**: Green glowing gas clouds emit from the giraffe
+- **MASSIVE NEON GODZILLA**: Towering green kaiju with cyan dorsal spines
+- **Dual Gas Blasts**: Green toxic gas from both mouth AND tail
 
 ## Design
 - Orbitron font for industrial feel
