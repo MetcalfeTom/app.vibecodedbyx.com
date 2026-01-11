@@ -1,6 +1,15 @@
 # The Purple Trap
 
 ## Log
+- 2026-01-11: Added high-contrast neon mobile controls
+  - Neon magenta d-pad with glow effects on left side
+  - Large green DASH button on right side
+  - Touch-friendly with active state feedback
+  - Dash mechanic: invincibility frames during dash
+  - Green trail effect when dashing
+  - Cooldown indicator bar below player
+  - Spacebar support for desktop
+  - Whoosh sound effect on dash
 - 2026-01-11: Added looping death audio
   - Agonizing screams loop every ~1 second
   - Wet crunch/bone snap sounds every ~0.5 seconds
