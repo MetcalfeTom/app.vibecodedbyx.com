@@ -2,6 +2,7 @@
 
 ## log
 - 2026-01-11: Created desperate AI game with fleeing quit button
+- 2026-01-11: Added self-playing demo mode with automated cursor
 
 ## features
 - Quit button actively runs away from cursor
@@ -20,6 +21,10 @@
 - Restart gives AI "another chance"
 - Mobile touch support
 - Dark cyberpunk aesthetic
+- Self-playing DEMO mode with glowing yellow cursor
+- Demo cursor chases button through 3 phases
+- Auto-restart after catch in demo mode
+- Special dialogue when demo catches the button
 
 ## issues
 - None yet
