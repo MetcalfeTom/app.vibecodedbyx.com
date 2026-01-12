@@ -1,6 +1,7 @@
 # Neon Comedy Club
 
 ## log
+- 2026-01-12: Added tomato throwing with neon splat effects
 - 2026-01-12: Created neon comedy club with laugh-meter and pun generator
 
 ## features
@@ -19,6 +20,8 @@
 - Random category selection per pun
 - Spacebar shortcut for quick puns
 - Neon pink/cyan aesthetic
+- Click stage to throw tomatoes with splat effects
+- Tomato count tracked in stats
 
 ## issues
 - None yet
