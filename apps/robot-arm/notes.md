@@ -5,6 +5,7 @@
 - 2026-01-12: Added feather item that tickles dinosaurs
 - 2026-01-12: Added coconut that causes death animation on dino head hit
 - 2026-01-12: Added mouse/touch controls with inverse kinematics
+- 2026-01-12: Added 180° base rotation and third bending segment
 
 ## features
 - 3-segment articulated robot arm with inverse kinematics
