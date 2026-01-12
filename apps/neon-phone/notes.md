@@ -1,35 +1,44 @@
 # Neon Phone
 
 ## log
+- 2026-01-12: Updated to Android style with Play Store, Chrome, Drive, installable apps
 - 2026-01-12: Created virtual neon smartphone simulator
 
 ## features
-- Realistic phone frame with notch and rounded corners
+- Android-style phone frame with punch-hole camera
 - Status bar with time, signal, battery
-- Home screen with 12 app icons in grid
+- Home screen with app grid
 - Dock with 4 quick access apps
-- Home indicator to return to home screen
+- Android navigation bar (back, home, recent)
 - Interactive apps:
+  - Chrome browser (Google search page)
+  - Google Drive (cloud storage UI)
   - Calculator (fully working)
   - Notes (saves to localStorage)
   - Weather (mock data display)
-  - Music player (mock with play/pause)
+  - Music/YouTube player (mock with play/pause)
   - Camera (viewfinder with flash effect)
   - Messages (mock conversation list)
   - Settings (mock settings list)
   - Clock (live time display)
-  - Photos, Browser, Games, Store (placeholder screens)
+  - Photos (placeholder)
+- Play Store with installable apps:
+  - Instagram
+  - TikTok
+  - Spotify
+  - X (Twitter)
+- Installation simulation with progress bar
+- Installed apps appear on home screen
+- Installation persists in localStorage
 - Smooth slide-up app transitions
 - Neon cyberpunk color scheme
-- Pulsing and glowing effects
 
 ## issues
 - None yet
 
 ## todos
-- Could add working Snake game
+- Could add more installable apps
 - Could add lock screen
 - Could add notification badges
-- Could add more weather data
-- Could add actual photo capture (webcam)
+- Could add app uninstall feature
 - Could add swipe gestures
