@@ -1,42 +1,39 @@
 # Tickle Defense
 
 ## log
-- 2026-01-07: Initial creation - chaotic feather dodging game
+- 2026-01-14: Initial creation
+  - Grumpy robot in center with animated face
+  - Giant hands with wiggly animated fingers spawn from edges
+  - Multiple skin tones for diversity
+  - Click/tap hands to swat them away
+  - Grump meter depletes when hands reach robot
+  - Robot shakes and laughs when tickled
+  - Difficulty increases over time (hands spawn faster)
+  - Score: 10 points per swat, 50 points if hand was tickling
+  - "SWAT!" effect on successful hits
+  - Laugh bubbles ("AHAHA!", "*bzzt*", "ERROR!") when tickled
+  - Mobile responsive with touch support
 
 ## features
-- Cute pink blob character to control
-- Feathers coming from all directions
-- Wiggling feather physics
-- Tickle meter that fills when hit
-- Screen shake on impact
-- Giggle text particles ("hehe!", "teehee!", etc)
-- Character wobbles and blushes when tickled
-- Golden feathers - more dangerous but worth more points
-- Chaos increases over time
+- CSS-only robot with animations
+- SVG hands with animated wiggly fingers
+- Grump meter with gradient colors
+- Increasing difficulty over time
+- Score tracking
+- Start/game over screens
+- Bangers font for comic book feel
 
 ## controls
-- Arrow keys / WASD: Move
-- Touch: Drag to move
-- Space: Start game
-
-## game mechanics
-- Dodge feathers to score points
-- Each feather dodged = 1 point (golden = 5)
-- Getting hit fills tickle meter
-- Game over when tickle meter reaches 100%
-- Feather spawn rate increases with score
-- Character expression changes based on tickle level
-
-## design
-- Soft pink/purple gradient aesthetic
-- Fredoka One + Nunito fonts
-- Cute bouncy UI with 3D button shadows
-- Particle effects on tickle impact
-- Floating giggle text
-- Subtle background pattern animation
+- Click/tap on hands to swat them
+- Hands approaching = 10 points
+- Hands tickling = 50 points
 
 ## todos
-- Add powerups (shields, tickle resistance)
-- Add different game modes
+- Add sound effects
+- Add combo system for rapid swats
+- Add power-ups (shield, freeze, multi-swat)
 - Add leaderboard
-- Add sound effects (giggles, whoosh)
+- Add different robot expressions
+
+## issues
+- None yet
