@@ -1,6 +1,7 @@
 # SLOPPY Community Site
 
 ## log
+- 2026-01-14: Added giant neon "CODED BY SLOPPY" credit section
 - 2026-01-14: Added purple moon theme and purple accents throughout
 - 2026-01-14: Added official logo support (fetches from Dexscreener)
 - 2026-01-14: Switched to Dexscreener API, added embedded chart iframe
