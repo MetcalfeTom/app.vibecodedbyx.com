@@ -1,6 +1,11 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Updated units to AI agent types
+  - Claude (orange), Gemini (blue), Codex (green), Cursor (purple)
+  - Legend updated to show agent types
+  - Agent info panel shows type
+  - Units named by their AI type (CLAUDE-001, GEMINI-002, etc.)
 - 2026-01-15: Added low-poly terrain, neon trees, character units
   - Procedural low-poly terrain with hills/valleys
   - Cyan wireframe overlay on dark purple terrain
