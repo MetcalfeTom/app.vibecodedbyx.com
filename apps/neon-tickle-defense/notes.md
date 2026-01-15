@@ -1,6 +1,18 @@
 # Neon Tickle Defense
 
 ## log
+- 2026-01-15: Added orbital laser and power-up system
+  - Giant orbital laser weapon that sweeps across screen
+  - Laser charge meter - fills by collecting ⚡ power-ups
+  - Press SPACE when full to fire sweeping death beam
+  - Satellite visual at top of laser beam
+  - 4 Power-up types:
+    - ⚡ Laser Charge: +35% to orbital laser
+    - 🛡️ Shield: Blocks feathers for 5 seconds
+    - ⏰ Slow Motion: Slows all feathers to 30% speed
+    - 💥 Multi-Blast: Click destroys feathers in 100px radius
+  - Power-ups spawn randomly and can be clicked or collected by robot
+  - Active power-ups shown in UI panel
 - 2026-01-15: Initial creation
   - Central laughing robot that gets tickled by feathers
   - Neon glowing feathers fall from sky with wobble motion
