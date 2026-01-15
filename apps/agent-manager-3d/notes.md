@@ -1,6 +1,12 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added class-specific weapons and armor
+  - Warriors: Massive glowing broadsword with crossguard and edge glow
+  - Ninjas: Large glowing bow with nocked arrow and arrowhead
+  - Suras: Dark magic staff with orbiting rune and glowing orb
+  - Shamans: Nature staff with crystal and leaf decorations
+  - Unique armor sets: heavy plates for warriors, scarves for ninjas, robes for suras, leaf pads for shamans
 - 2026-01-15: Added command terminal with fake AI activity
   - Terminal panel with scrolling logs
   - Auto-generated fake activity (scanning, syncing, errors, etc.)
