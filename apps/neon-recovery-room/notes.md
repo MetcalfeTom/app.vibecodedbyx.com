@@ -1,6 +1,13 @@
 # Neon Recovery Room
 
 ## log
+- 2026-01-15: Added high-voltage Revive Shock button
+  - Big yellow pulsing shock button in top-right corner
+  - Screen flash and shake effect on activation
+  - Electric bolt particles shoot from center
+  - Burst of yellow/orange energized particles
+  - "REVIVED!" text animation
+  - Zap sound effect if audio enabled
 - 2026-01-15: Initial creation
   - Soothing ambient waves with layered sine curves
   - Floating healing particles with soft glow
