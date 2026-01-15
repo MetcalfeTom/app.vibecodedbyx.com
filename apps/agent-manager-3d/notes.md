@@ -1,6 +1,13 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added clickable chat modal for AI agents
+  - Click speech bubbles to open retro MMO-style chat window
+  - Chat history preserved per agent
+  - Class-specific AI responses (warrior battle talk, ninja stealth speak, etc.)
+  - Retro MMO UI: gold/brown borders, dark gradients, medieval styling
+  - Short bubble text for main view, full responses in chat
+  - Typing simulation with delay before responses
 - 2026-01-15: Added class-specific weapons and armor
   - Warriors: Massive glowing broadsword with crossguard and edge glow
   - Ninjas: Large glowing bow with nocked arrow and arrowhead
