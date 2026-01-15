@@ -1,6 +1,14 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added command terminal with fake AI activity
+  - Terminal panel with scrolling logs
+  - Auto-generated fake activity (scanning, syncing, errors, etc.)
+  - Commands: status, task, list, ping, heal, broadcast, clear
+  - Status updates change agent indicator colors
+  - Task assignment puts agents in processing mode
+  - Ping triggers speech bubbles
+  - Mobile toggle button
 - 2026-01-15: Added Metin2 classes and speech bubbles
   - Claude = Warrior ⚔️, Gemini = Ninja 🗡️, Codex = Sura 🔮, Cursor = Shaman 🪄
   - Floating class labels above each unit
