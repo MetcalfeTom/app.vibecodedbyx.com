@@ -1,6 +1,15 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added quest log and treasure chest system
+  - Quest Log UI with 7 quests of varying rarities
+  - Click quests to reveal technical coding tips
+  - 3D treasure chests spawn on terrain (5 at a time)
+  - Click chests to open and receive random tips
+  - Rarity system: common, rare, epic, legendary
+  - Chests fade out when opened, respawn elsewhere
+  - Glowing ring animation on chests
+  - Technical tips cover JS, CSS, Three.js, and advanced patterns
 - 2026-01-15: Overhauled to medieval fantasy RPG aesthetic
   - Cinzel + Almendra fonts for fantasy feel
   - Gold/brown medieval UI panels with scroll-style borders
