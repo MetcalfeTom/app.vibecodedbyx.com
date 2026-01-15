@@ -1,6 +1,13 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added unit test suite for combat and quest systems
+  - TestSuite object with assert, assertEqual, assertRange methods
+  - Combat logic tests: boss health, damage calculation, defeat flag
+  - Quest reward tests: rarities, tips, XP values, chest count
+  - Projectile system tests: types, speeds, durations
+  - Run tests via window.runTests() in browser console
+  - 25+ test cases to prevent regressions
 - 2026-01-15: Replaced neon beams with medieval projectiles
   - Warriors fire orange/red fireballs with pulsing glow
   - Ninjas shoot wooden arrows with metal arrowheads
