@@ -1,6 +1,22 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Replaced neon beams with medieval projectiles
+  - Warriors fire orange/red fireballs with pulsing glow
+  - Ninjas shoot wooden arrows with metal arrowheads
+  - Suras cast dark magic orbs with purple swirling aura
+  - Shamans launch nature orbs with spinning leaves
+  - Projectiles travel through air and hit boss with impact effects
+  - Class-specific particle explosions on impact
+- 2026-01-15: Stone/parchment UI overhaul
+  - Terminal renamed to "Scribe's Chronicle" with parchment styling
+  - Brown/tan stone colors replace neon green digital look
+  - Boss health bar styled as carved stone with earth tones
+  - Earth-toned log colors (muted greens, browns, tans)
+- 2026-01-15: Added click-to-damage boss mechanic
+  - Click the boss to deal 10 damage
+  - Debug particle effects spawn at click location
+  - Floating text labels ("DEBUG!", "FIXED!", "-10 HP", etc.)
 - 2026-01-15: Added GLITCH_OVERLORD boss battle
   - Massive low-poly glitch boss spawns in map center
   - Distorted icosahedron body with wireframe effect
