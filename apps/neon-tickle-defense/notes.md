@@ -1,6 +1,16 @@
 # Neon Tickle Defense
 
 ## log
+- 2026-01-15: Made game easier + giant nuke button
+  - Giant red nuke button clears ALL feathers on screen
+  - 10 second cooldown between nuke uses
+  - Screen flash effect when nuke fires
+  - Nuke also reduces tickle meter by 20%
+  - EASIER: Feathers spawn slower (0.012 vs 0.02 base rate)
+  - EASIER: Feathers fall slower (0.5-1.7 vs 1-3 base speed)
+  - EASIER: Tickle damage reduced (5 vs 10 per hit)
+  - EASIER: Tickle decay faster (0.2 vs 0.1 per frame)
+  - EASIER: More power-ups spawn (0.012 vs 0.005)
 - 2026-01-15: Added orbital laser and power-up system
   - Giant orbital laser weapon that sweeps across screen
   - Laser charge meter - fills by collecting ⚡ power-ups
