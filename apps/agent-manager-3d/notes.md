@@ -1,6 +1,16 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added guild/faction system with territory control
+  - 4 factions: Warrior Guild, Ninja Clan, Sura Order, Shaman Circle
+  - Faction selection modal on first visit (persisted to localStorage)
+  - 4 territory zones: Northern Peaks, Eastern Woods, Southern Plains, Western Marsh
+  - Visual territory markers with colored ground circles and pillars
+  - Click pillars to capture territory (+5 control points per click)
+  - Faction with most points (min 10) owns the territory
+  - Territory ownership persisted to Supabase database
+  - Territory panel shows current ownership status
+  - Faction badge displays your chosen guild
 - 2026-01-15: Added unit test suite for combat and quest systems
   - TestSuite object with assert, assertEqual, assertRange methods
   - Combat logic tests: boss health, damage calculation, defeat flag
