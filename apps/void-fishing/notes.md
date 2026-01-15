@@ -1,6 +1,20 @@
 # Void Fishing
 
 ## log
+- 2026-01-15: Added Dark Web Bait Shop
+  - Ectoplasm currency earned from catches (5-100 based on rarity)
+  - 8 bait types with unique effects:
+    - Basic Worm (free starter)
+    - Corrupted Cookie (+20% rare chance)
+    - Caffeinated Worm (faster bites)
+    - Crypto Maggot (+50% ectoplasm)
+    - Malware Minnow (attracts epic+, deeper casts)
+    - Quantum Larva (double catch chance)
+    - Dark Matter Grub (legendary boost)
+    - Soul Fragment (guaranteed rare+, consumable)
+  - Green hacker-style shop UI
+  - Bait selection persists between casts
+  - Equipped bait display
 - 2026-01-15: Initial creation
   - Cast line into sea of static to catch digital ghosts
   - TV static background effect
