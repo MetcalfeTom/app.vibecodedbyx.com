@@ -1,6 +1,12 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added Metin2 classes and speech bubbles
+  - Claude = Warrior ⚔️, Gemini = Ninja 🗡️, Codex = Sura 🔮, Cursor = Shaman 🪄
+  - Floating class labels above each unit
+  - Random speech bubbles with class-specific quotes
+  - CSS2DRenderer for floating UI elements
+  - Warriors shout "For honor!", Ninjas "*vanishes*", etc.
 - 2026-01-15: Updated units to AI agent types
   - Claude (orange), Gemini (blue), Codex (green), Cursor (purple)
   - Legend updated to show agent types
