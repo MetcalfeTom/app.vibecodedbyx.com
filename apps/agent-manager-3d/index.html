@@ -330,9 +330,10 @@
     const container = document.getElementById('canvas-container');
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x050510);
+    scene.fog = new THREE.Fog(0x050510, 20, 60);
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 5, 15);
+    camera.position.set(15, 12, 15);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -346,9 +347,7 @@
 
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.5, // strength
-      0.4, // radius
-      0.85 // threshold
+      1.2, 0.4, 0.85
     );
     composer.addPass(bloomPass);
 
@@ -356,12 +355,117 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.minDistance = 5;
+    controls.minDistance = 8;
     controls.maxDistance = 50;
+    controls.maxPolarAngle = Math.PI / 2.2;
 
-    // Grid helper
-    const gridHelper = new THREE.GridHelper(30, 30, 0x004444, 0x002222);
-    scene.add(gridHelper);
+    // Terrain size
+    const TERRAIN_SIZE = 40;
+    const TERRAIN_SEGMENTS = 30;
+
+    // Generate low-poly terrain
+    function createTerrain() {
+      const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS);
+      geometry.rotateX(-Math.PI / 2);
+
+      const positions = geometry.attributes.position;
+      const heightMap = [];
+
+      for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        const z = positions.getZ(i);
+        // Simplex-like noise using sine waves
+        let height = Math.sin(x * 0.3) * Math.cos(z * 0.3) * 1.5;
+        height += Math.sin(x * 0.15 + 1) * Math.cos(z * 0.2 + 2) * 2;
+        height += Math.random() * 0.3;
+        positions.setY(i, height);
+        heightMap.push(height);
+      }
+
+      geometry.computeVertexNormals();
+
+      // Dark purple/blue terrain with neon edges
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x1a0a2a,
+        wireframe: false,
+        side: THREE.DoubleSide
+      });
+
+      const terrain = new THREE.Mesh(geometry, material);
+      scene.add(terrain);
+
+      // Add wireframe overlay for neon effect
+      const wireMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.15
+      });
+      const wireframe = new THREE.Mesh(geometry.clone(), wireMaterial);
+      wireframe.position.y = 0.02;
+      scene.add(wireframe);
+
+      return { geometry, heightMap };
+    }
+
+    const terrainData = createTerrain();
+
+    // Get terrain height at position
+    function getTerrainHeight(x, z) {
+      const halfSize = TERRAIN_SIZE / 2;
+      const segSize = TERRAIN_SIZE / TERRAIN_SEGMENTS;
+
+      const gridX = Math.floor((x + halfSize) / segSize);
+      const gridZ = Math.floor((z + halfSize) / segSize);
+
+      const idx = gridZ * (TERRAIN_SEGMENTS + 1) + gridX;
+      if (idx >= 0 && idx < terrainData.heightMap.length) {
+        return terrainData.heightMap[idx];
+      }
+      return 0;
+    }
+
+    // Create neon tree
+    function createTree(x, z) {
+      const group = new THREE.Group();
+      const baseHeight = getTerrainHeight(x, z);
+
+      // Tree trunk - simple cylinder
+      const trunkGeo = new THREE.CylinderGeometry(0.1, 0.15, 1.5, 6);
+      const trunkMat = new THREE.MeshBasicMaterial({ color: 0x4a2a6a });
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.position.y = 0.75;
+      group.add(trunk);
+
+      // Neon color options
+      const treeColors = [0x00ff88, 0xff00ff, 0x00ffff, 0xffee00];
+      const color = treeColors[Math.floor(Math.random() * treeColors.length)];
+
+      // Low-poly cone foliage layers
+      for (let i = 0; i < 3; i++) {
+        const coneGeo = new THREE.ConeGeometry(0.8 - i * 0.2, 1.2 - i * 0.2, 6);
+        const coneMat = new THREE.MeshBasicMaterial({
+          color: color,
+          transparent: true,
+          opacity: 0.7
+        });
+        const cone = new THREE.Mesh(coneGeo, coneMat);
+        cone.position.y = 1.5 + i * 0.6;
+        group.add(cone);
+      }
+
+      group.position.set(x, baseHeight, z);
+      scene.add(group);
+      return group;
+    }
+
+    // Create trees
+    const trees = [];
+    for (let i = 0; i < 25; i++) {
+      const x = (Math.random() - 0.5) * (TERRAIN_SIZE - 5);
+      const z = (Math.random() - 0.5) * (TERRAIN_SIZE - 5);
+      trees.push(createTree(x, z));
+    }
 
     // Agent data
     const agents = [];
@@ -378,44 +482,66 @@
     let selectedAgent = null;
     let agentCounter = 0;
 
-    // Create agent node
-    function createAgent(position) {
-      const status = statuses[Math.floor(Math.random() * 3)]; // Mostly active/idle
+    // Create simple character unit
+    function createAgent(x, z) {
+      const status = statuses[Math.floor(Math.random() * 3)];
       const color = statusColors[status];
+      const baseHeight = getTerrainHeight(x, z);
 
-      // Core sphere
-      const geometry = new THREE.SphereGeometry(0.5, 32, 32);
-      const material = new THREE.MeshBasicMaterial({ color: color });
-      const sphere = new THREE.Mesh(geometry, material);
-      sphere.position.copy(position);
+      const group = new THREE.Group();
 
-      // Outer glow ring
-      const ringGeometry = new THREE.TorusGeometry(0.7, 0.05, 16, 100);
-      const ringMaterial = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.6 });
-      const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+      // Body - low poly capsule shape
+      const bodyGeo = new THREE.CapsuleGeometry(0.25, 0.5, 4, 6);
+      const bodyMat = new THREE.MeshBasicMaterial({ color: color });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.y = 0.6;
+      group.add(body);
+
+      // Head - simple sphere
+      const headGeo = new THREE.IcosahedronGeometry(0.2, 0);
+      const headMat = new THREE.MeshBasicMaterial({ color: color });
+      const head = new THREE.Mesh(headGeo, headMat);
+      head.position.y = 1.2;
+      group.add(head);
+
+      // Glow ring around unit
+      const ringGeo = new THREE.TorusGeometry(0.5, 0.03, 8, 16);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.6
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.rotation.x = Math.PI / 2;
-      sphere.add(ring);
+      ring.position.y = 0.1;
+      group.add(ring);
 
-      // Second ring
-      const ring2 = new THREE.Mesh(ringGeometry, ringMaterial.clone());
-      ring2.rotation.x = 0;
-      ring2.rotation.y = Math.PI / 4;
-      sphere.add(ring2);
+      // Status indicator above head
+      const indicatorGeo = new THREE.OctahedronGeometry(0.12, 0);
+      const indicatorMat = new THREE.MeshBasicMaterial({ color: color });
+      const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
+      indicator.position.y = 1.6;
+      group.add(indicator);
 
-      scene.add(sphere);
+      group.position.set(x, baseHeight, z);
+      scene.add(group);
 
       agentCounter++;
       const agent = {
         id: agentCounter,
         name: `${agentNames[Math.floor(Math.random() * agentNames.length)]}-${String(agentCounter).padStart(3, '0')}`,
-        mesh: sphere,
+        mesh: group,
+        body: body,
         ring: ring,
-        ring2: ring2,
+        indicator: indicator,
         status: status,
         color: color,
         tasks: Math.floor(Math.random() * 100),
         uptime: Math.floor(Math.random() * 3600),
-        connections: []
+        connections: [],
+        targetX: x,
+        targetZ: z,
+        walkSpeed: 0.02 + Math.random() * 0.02
       };
 
       agents.push(agent);
@@ -427,52 +553,48 @@
     function createConnection(agent1, agent2) {
       if (agent1.connections.includes(agent2.id) || agent1 === agent2) return;
 
-      const material = new THREE.LineBasicMaterial({ 
-        color: 0x00ffff, 
-        transparent: true, 
-        opacity: 0.4 
+      const material = new THREE.LineBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.4
       });
 
-      const points = [agent1.mesh.position, agent2.mesh.position];
+      const points = [
+        new THREE.Vector3(agent1.mesh.position.x, agent1.mesh.position.y + 1, agent1.mesh.position.z),
+        new THREE.Vector3(agent2.mesh.position.x, agent2.mesh.position.y + 1, agent2.mesh.position.z)
+      ];
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
       const line = new THREE.Line(geometry, material);
 
       scene.add(line);
 
-      const connection = {
-        line: line,
-        agent1: agent1,
-        agent2: agent2
-      };
-
+      const connection = { line, agent1, agent2 };
       connections.push(connection);
       agent1.connections.push(agent2.id);
       agent2.connections.push(agent1.id);
-
       updateStats();
     }
 
-    // Update connection lines
+    // Update connection lines to follow agents
     function updateConnections() {
       connections.forEach(conn => {
         const positions = conn.line.geometry.attributes.position;
-        positions.setXYZ(0, conn.agent1.mesh.position.x, conn.agent1.mesh.position.y, conn.agent1.mesh.position.z);
-        positions.setXYZ(1, conn.agent2.mesh.position.x, conn.agent2.mesh.position.y, conn.agent2.mesh.position.z);
+        positions.setXYZ(0, conn.agent1.mesh.position.x, conn.agent1.mesh.position.y + 1, conn.agent1.mesh.position.z);
+        positions.setXYZ(1, conn.agent2.mesh.position.x, conn.agent2.mesh.position.y + 1, conn.agent2.mesh.position.z);
         positions.needsUpdate = true;
       });
     }
 
     // Remove agent
     function removeAgent(agent) {
-      // Remove connections
-      connections.forEach((conn, index) => {
+      for (let i = connections.length - 1; i >= 0; i--) {
+        const conn = connections[i];
         if (conn.agent1 === agent || conn.agent2 === agent) {
           scene.remove(conn.line);
-          connections.splice(index, 1);
+          connections.splice(i, 1);
         }
-      });
+      }
 
-      // Remove from other agents' connection lists
       agents.forEach(a => {
         a.connections = a.connections.filter(id => id !== agent.id);
       });
@@ -485,7 +607,6 @@
         selectedAgent = null;
         document.getElementById('agentInfo').classList.remove('visible');
       }
-
       updateStats();
     }
 
@@ -499,7 +620,6 @@
 
     // Select agent
     function selectAgent(agent) {
-      // Deselect previous
       if (selectedAgent) {
         selectedAgent.mesh.scale.set(1, 1, 1);
       }
@@ -510,7 +630,7 @@
       const info = document.getElementById('agentInfo');
       info.classList.add('visible');
       document.getElementById('agentName').textContent = agent.name;
-      
+
       const statusEl = document.getElementById('agentStatus');
       statusEl.textContent = agent.status.toUpperCase();
       statusEl.className = 'agent-status status-' + agent.status;
@@ -534,31 +654,27 @@
       mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
       raycaster.setFromCamera(mouse, camera);
-      const meshes = agents.map(a => a.mesh);
+      const meshes = agents.map(a => a.body);
       const intersects = raycaster.intersectObjects(meshes);
 
       if (intersects.length > 0) {
         const clickedMesh = intersects[0].object;
-        const agent = agents.find(a => a.mesh === clickedMesh);
+        const agent = agents.find(a => a.body === clickedMesh);
         if (agent) selectAgent(agent);
       }
     });
 
     // UI button handlers
     document.getElementById('addAgent').addEventListener('click', () => {
-      const pos = new THREE.Vector3(
-        (Math.random() - 0.5) * 15,
-        Math.random() * 5 + 1,
-        (Math.random() - 0.5) * 15
-      );
-      const agent = createAgent(pos);
+      const x = (Math.random() - 0.5) * (TERRAIN_SIZE - 5);
+      const z = (Math.random() - 0.5) * (TERRAIN_SIZE - 5);
+      const agent = createAgent(x, z);
       selectAgent(agent);
     });
 
     document.getElementById('connectAgents').addEventListener('click', () => {
       if (agents.length < 2) return;
-      
-      // Connect random agents or selected to random
+
       if (selectedAgent) {
         const others = agents.filter(a => a !== selectedAgent && !selectedAgent.connections.includes(a.id));
         if (others.length > 0) {
@@ -587,20 +703,55 @@
     function animate() {
       requestAnimationFrame(animate);
 
-      // Animate agent rings
-      agents.forEach((agent, i) => {
-        agent.ring.rotation.z += 0.02;
-        agent.ring2.rotation.z -= 0.015;
-        agent.ring2.rotation.x += 0.01;
+      const time = Date.now() * 0.001;
 
-        // Subtle floating motion
-        agent.mesh.position.y += Math.sin(Date.now() * 0.001 + i) * 0.002;
+      // Animate agents
+      agents.forEach((agent, i) => {
+        // Ring rotation
+        agent.ring.rotation.z += 0.03;
+
+        // Indicator bobbing
+        agent.indicator.rotation.y += 0.05;
+        agent.indicator.position.y = 1.6 + Math.sin(time * 3 + i) * 0.1;
+
+        // Random walking
+        if (Math.random() < 0.01) {
+          agent.targetX = (Math.random() - 0.5) * (TERRAIN_SIZE - 8);
+          agent.targetZ = (Math.random() - 0.5) * (TERRAIN_SIZE - 8);
+        }
+
+        // Move toward target
+        const dx = agent.targetX - agent.mesh.position.x;
+        const dz = agent.targetZ - agent.mesh.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist > 0.5) {
+          agent.mesh.position.x += (dx / dist) * agent.walkSpeed;
+          agent.mesh.position.z += (dz / dist) * agent.walkSpeed;
+
+          // Update Y to follow terrain
+          agent.mesh.position.y = getTerrainHeight(agent.mesh.position.x, agent.mesh.position.z);
+
+          // Face direction of movement
+          agent.mesh.rotation.y = Math.atan2(dx, dz);
+
+          // Walking bob
+          agent.body.position.y = 0.6 + Math.abs(Math.sin(time * 10)) * 0.08;
+        }
       });
+
+      // Update connection lines
+      updateConnections();
 
       // Pulse connections
       connections.forEach((conn, i) => {
-        const pulse = (Math.sin(Date.now() * 0.003 + i) + 1) / 2;
+        const pulse = (Math.sin(time * 3 + i) + 1) / 2;
         conn.line.material.opacity = 0.2 + pulse * 0.4;
+      });
+
+      // Animate trees slightly
+      trees.forEach((tree, i) => {
+        tree.rotation.y = Math.sin(time * 0.5 + i) * 0.05;
       });
 
       controls.update();
@@ -609,12 +760,9 @@
 
     // Initialize with some agents
     for (let i = 0; i < 5; i++) {
-      const pos = new THREE.Vector3(
-        (Math.random() - 0.5) * 12,
-        Math.random() * 4 + 1,
-        (Math.random() - 0.5) * 12
-      );
-      createAgent(pos);
+      const x = (Math.random() - 0.5) * 15;
+      const z = (Math.random() - 0.5) * 15;
+      createAgent(x, z);
     }
 
     // Create some initial connections
@@ -622,7 +770,6 @@
       createConnection(agents[0], agents[1]);
       if (agents.length >= 3) createConnection(agents[1], agents[2]);
       if (agents.length >= 4) createConnection(agents[2], agents[3]);
-      if (agents.length >= 5) createConnection(agents[0], agents[4]);
     }
 
     // Handle resize

@@ -1,6 +1,15 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added low-poly terrain, neon trees, character units
+  - Procedural low-poly terrain with hills/valleys
+  - Cyan wireframe overlay on dark purple terrain
+  - 25 neon trees (cone foliage in green/pink/cyan/yellow)
+  - Character units with body, head, ring, status indicator
+  - Units walk around terrain following height map
+  - Walking bob animation
+  - Units face direction of movement
+  - Fog for depth/atmosphere
 - 2026-01-15: Initial creation
   - Three.js 3D visualization
   - Neon glowing agent nodes with spinning rings
@@ -12,15 +21,15 @@
   - Orbit controls (drag to rotate, scroll to zoom)
   - Stats panel showing total agents, active count, connections
   - Agent info panel when selected
-  - Floating animation for agents
-  - Grid floor helper
-  - Starts with 5 connected agents
   - Orbitron font for sci-fi feel
 
 ## features
-- 3D scene with Three.js
-- Neon glowing spheres as agent nodes
-- Spinning ring animations around each agent
+- Low-poly procedural terrain with height variation
+- Neon wireframe overlay on terrain
+- 25 neon trees with cone foliage (4 colors)
+- Character units (body + head + ring + indicator)
+- Units autonomously walk around terrain
+- Terrain height following for units
 - Bloom post-processing for glow effect
 - OrbitControls for camera
 - Agent status colors (green/yellow/red/cyan)
