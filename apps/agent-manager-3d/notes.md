@@ -1,6 +1,17 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Added GLITCH_OVERLORD boss battle
+  - Massive low-poly glitch boss spawns in map center
+  - Distorted icosahedron body with wireframe effect
+  - 8 orbiting glitch cubes in neon colors
+  - 12 floating error symbols
+  - 6 corruption tendrils
+  - Agents automatically shoot neon beams at boss
+  - Health bar UI with corruption status messages
+  - Class-specific combat phrases ("Debug!", "Silent fix!", etc.)
+  - Explosion effect when defeated, respawns after 10 seconds
+  - 1000 HP, deals 2-5 damage per beam hit
 - 2026-01-15: Added quest log and treasure chest system
   - Quest Log UI with 7 quests of varying rarities
   - Click quests to reveal technical coding tips
