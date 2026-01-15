@@ -1,6 +1,16 @@
 # 3D Agent Manager
 
 ## log
+- 2026-01-15: Overhauled to medieval fantasy RPG aesthetic
+  - Cinzel + Almendra fonts for fantasy feel
+  - Gold/brown medieval UI panels with scroll-style borders
+  - RPG-style buttons with gradients and shadows
+  - Fantasy terrain with vertex colors (grass, mud, rocky)
+  - Natural tree colors (greens, autumn golds, mystical purples)
+  - Dark twilight sky background
+  - Updated title to "Realm of Agents"
+  - Fantasy-themed button labels (Summon, Link, Banish)
+  - Inspiration from Metin2/Ragnarok/itch.io low-poly assets
 - 2026-01-15: Added clickable chat modal for AI agents
   - Click speech bubbles to open retro MMO-style chat window
   - Chat history preserved per agent
