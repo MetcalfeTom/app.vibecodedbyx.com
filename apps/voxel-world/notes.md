@@ -7,11 +7,12 @@
   - 6 block types: Grass, Dirt, Stone, Wood, Brick, Gold
   - First-person controls with pointer lock
   - Block placing and breaking mechanics
-  - 12 achievements to unlock:
+  - 15 achievements to unlock:
     - First Steps, Builder, Architect, Master Builder
     - Destruction, Miner, Demolition Expert
     - Explorer, Mountaineer, Sky High
     - Gold Rush, Variety Pack
+    - Punching Air, Into the Void, First Dirt
   - Achievement popup notifications
   - Hotbar with number key selection
   - HUD with stats and position
