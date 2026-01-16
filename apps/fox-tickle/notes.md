@@ -1,6 +1,14 @@
 # Fox Tickle
 
 ## log
+- 2026-01-16: Added fire extinguisher with cooling foam
+  - Red fire extinguisher button in bottom-right corner
+  - Sprays white/blue foam particles toward the fox
+  - Foam cools down the giggle meter
+  - Fox gets a cool blue glow when hit by foam
+  - Spray sound effect (white noise)
+  - 3 second cooldown between sprays
+  - Floating foam emojis (bubbles, clouds, snowflakes)
 - 2026-01-16: Added giant paw stomp mechanic
   - Click/tap to summon a giant fox paw from above
   - Paw slams down with gravity and squashes all grapes in range
@@ -37,11 +45,14 @@
 - Web Audio API sound synthesis
 - Giant paw stomp mechanic with screen shake
 - Shockwave effect on stomp impact
+- Fire extinguisher button with cooling foam spray
+- Cool blue glow effect when fox is cooled
 
 ## controls
 - Mouse/Touch: Move over fox to tickle
 - Move over grapes to catch them
 - Click/Tap: Summon giant paw stomp
+- Fire Extinguisher Button: Spray cooling foam
 - Grapes that hit the fox also tickle it
 
 ## todos
