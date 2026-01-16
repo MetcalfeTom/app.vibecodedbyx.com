@@ -1,6 +1,16 @@
 # Fox Tickle
 
 ## log
+- 2026-01-16: Added giant paw stomp mechanic
+  - Click/tap to summon a giant fox paw from above
+  - Paw slams down with gravity and squashes all grapes in range
+  - Screen shake on impact
+  - Deep thud sound effect
+  - Shockwave visual effect
+  - Bonus purple particles for multi-squash (3+ grapes)
+  - Stomp counter in UI
+  - 1 second cooldown between stomps
+  - Stomping near fox triggers tickles
 - 2026-01-16: Initial creation
   - Adorable fox character with animated fluffy tail
   - Falling grapes that tickle the fox on contact
@@ -25,10 +35,13 @@
 - Blush effect when tickled
 - Happy/laughing expressions
 - Web Audio API sound synthesis
+- Giant paw stomp mechanic with screen shake
+- Shockwave effect on stomp impact
 
 ## controls
 - Mouse/Touch: Move over fox to tickle
 - Move over grapes to catch them
+- Click/Tap: Summon giant paw stomp
 - Grapes that hit the fox also tickle it
 
 ## todos
