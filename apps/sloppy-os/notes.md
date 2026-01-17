@@ -8,15 +8,21 @@
   - Top bar with logo, status, clock
   - Taskbar with quick launch icons
   - Start menu with app list
-  - 12 app icons included:
+  - 13 app icons included:
     - Secret Shredder, Bug Zap, Tech Church
     - Neon Weather, Neon Aquarium, Pixel Bonfire
     - Terminal Escape, Candle Sailor
     - SLOPPY Dashboard, BAGS Tracker
-    - Rugpull Simulator, Cowsay
+    - Rugpull Simulator, Cowsay, Twitch Stream
   - Ambient floating particles
   - Grid background pattern
   - CRT scanlines overlay
+- 2026-01-17: Added draggable Twitch stream window
+  - Purple-themed window with sloppy_live stream
+  - Drag by titlebar with viewport bounds
+  - Minimize/close controls
+  - Toggle from desktop and taskbar icons
+  - Mobile touch support
 
 ## features
 - Boot sequence with 6-step animation
@@ -28,6 +34,12 @@
 - Taskbar with pinned apps
 - Responsive for mobile
 - Ambient particle effects
+- Draggable Twitch stream window
+  - Embedded Twitch player (sloppy_live channel)
+  - Drag by titlebar (mouse & touch)
+  - Minimize/close buttons
+  - Toggle from desktop icon or taskbar
+  - Stays within viewport bounds
 
 ## design
 - Orbitron + Share Tech Mono fonts
