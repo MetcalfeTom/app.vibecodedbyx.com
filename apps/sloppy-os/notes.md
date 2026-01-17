@@ -17,12 +17,12 @@
   - Ambient floating particles
   - Grid background pattern
   - CRT scanlines overlay
-- 2026-01-17: Added draggable Twitch stream window
-  - Purple-themed window with sloppy_live stream
-  - Drag by titlebar with viewport bounds
-  - Minimize/close controls
-  - Toggle from desktop and taskbar icons
-  - Mobile touch support
+- 2026-01-17: Replaced Twitch window with neon stream button + virtual pet
+  - Floating neon LIVE button links to Twitch
+  - Virtual pet egg in taskbar
+  - Pet hatches after 10 clicks, evolves with care
+  - Pet/Feed actions, happiness system
+  - Progress saved to localStorage
 
 ## features
 - Boot sequence with 6-step animation
@@ -34,12 +34,13 @@
 - Taskbar with pinned apps
 - Responsive for mobile
 - Ambient particle effects
-- Draggable Twitch stream window
-  - Embedded Twitch player (sloppy_live channel)
-  - Drag by titlebar (mouse & touch)
-  - Minimize/close buttons
-  - Toggle from desktop icon or taskbar
-  - Stays within viewport bounds
+- Neon LIVE stream button (links to Twitch)
+- Virtual pet system in taskbar
+  - Egg hatches after 10 clicks
+  - 5 evolution stages (egg -> chicken)
+  - Pet and Feed buttons
+  - Happiness decreases over time
+  - Progress saved to localStorage
 
 ## design
 - Orbitron + Share Tech Mono fonts
