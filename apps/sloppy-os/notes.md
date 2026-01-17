@@ -34,6 +34,10 @@
   - Sneaker Room now accessed via special door
   - Room switching system (hallway <-> sneaker room)
   - Preserved boot sequence, HUD, pet, stream button
+- 2026-01-17: Updated to 3D-only apps
+  - Removed 2D apps from hallway doors
+  - Left: Space Flight, Moon Explorer, Minecraft, Doom 3D, Motorbike Racing, Neon Bowling
+  - Right: Voxel World, Disco Ball, Space Chess, Bikini Brawl, Eggcraft, Sneaker Room
 
 ## features
 - 3D first-person navigation (WASD + mouse)
@@ -75,22 +79,22 @@
 - Colored door glows match app themes
 - Mansion/corridor aesthetic
 
-## apps included (door layout)
+## apps included (door layout - 3D only)
 Left wall:
-1. Secret Shredder - red
-2. Bug Zap - cyan
-3. Tech Church - gold
-4. Neon Weather - blue
-5. Neon Aquarium - magenta
-6. Pixel Bonfire - orange
+1. Space Flight - cyan (3D space exploration)
+2. Moon Explorer - purple (3D moon walking)
+3. Minecraft - green (3D block building)
+4. Doom 3D - red (3D shooter)
+5. Motorbike Racing - orange (3D racing)
+6. Neon Bowling - magenta (3D bowling)
 
 Right wall:
-7. Terminal Escape - green
-8. Candle Sailor - blue
-9. SLOPPY Dashboard - magenta
-10. BAGS Tracker - green
-11. Rugpull Simulator - red
-12. Sneaker Room - magenta (special portal)
+7. Voxel World - green (3D voxel building)
+8. Disco Ball - yellow (3D dance party)
+9. Space Chess - blue (3D chess game)
+10. Bikini Brawl - orange (3D fighting)
+11. Eggcraft - tan (3D egg crafting)
+12. Sneaker Room - magenta (special 3D portal)
 
 ## todos
 - Add more rooms behind doors (not just links)
