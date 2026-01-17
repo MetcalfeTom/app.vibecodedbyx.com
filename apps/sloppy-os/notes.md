@@ -15,6 +15,14 @@
   - Preserved pet and LIVE stream button
   - Mobile touch controls
   - Boot sequence and HUD overlay
+- 2026-01-17: Added Sneaker Room
+  - Magenta portal door in main arena
+  - Enclosed room with neon walls and grid floor
+  - 6 glowing 3D sneaker models on pedestals
+  - Sneakers rotate and float
+  - Each sneaker has unique color scheme and name
+  - Exit portal to return to main arena
+  - Neon strips on walls
 
 ## features
 - 3D first-person navigation (WASD + mouse)
@@ -28,6 +36,11 @@
 - Raycasting for app detection
 - App info popup when looking at monolith
 - Click to launch apps
+- Sneaker Room with portal door
+  - 6 unique 3D sneaker models
+  - Glowing pedestals with color rings
+  - Floating/rotating animation
+  - Exit portal back to main
 - Boot sequence with 3D-themed messages
 - HUD with clock and logo
 - Crosshair overlay
