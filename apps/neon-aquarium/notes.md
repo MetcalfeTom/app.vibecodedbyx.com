@@ -1,6 +1,16 @@
 # Neon Aquarium
 
 ## log
+- 2026-01-17: Added Logic Fish (Boids-style schooling AI fish)
+  - Neon glowing fish with circuit board patterns
+  - Boids algorithm: separation, alignment, cohesion
+  - School together and react as a group
+  - Flee from the submarine when it gets close
+  - 5 color schemes with contrasting accent colors
+  - Animated tail fins and pulsing circuit nodes
+  - Sleek futuristic body shape
+  - Glowing eyes matching accent color
+  - Click "+ Logic Fish" button adds 5 fish at once
 - 2026-01-08: Added Neon Green Skeleton Fish
   - Ghostly skeleton fish haunting the deep
   - Full bone structure: spine, ribs, skull, fins
