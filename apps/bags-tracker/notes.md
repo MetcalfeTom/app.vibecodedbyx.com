@@ -1,6 +1,13 @@
 # BAGS Tracker
 
 ## log
+- 2026-01-17: Added specific CA and neon green chart
+  - Uses specific contract address: 3rGXbgLAsFueaZmb6Dgt5QtdQPmDUVBh66WUXZPeBAGS
+  - Added canvas-based neon green price chart
+  - Chart shows live session price history (last 30 data points)
+  - Glow effect on price line
+  - Gradient fill under chart
+  - Displays full contract address
 - 2026-01-17: Redesigned with neon terminal aesthetic
   - Command-line style interface
   - ASCII art BAGS title banner
