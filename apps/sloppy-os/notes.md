@@ -75,6 +75,15 @@
   - Trefoil tracery decorations
   - Boss keystones at vault intersections
   - Alternating cyan/magenta glowing accents
+- 2026-01-17: Added patrolling knight
+  - Dark metal armor with cyan/magenta neon accents
+  - Full articulated body (torso, limbs, helmet)
+  - Sword and shield equipment
+  - Walking animation with arm/leg swing
+  - Purple cape with wave animation
+  - Glowing visor with flicker effect
+  - Patrols full length of hallway
+  - Seamless looping patrol movement
 
 ## features
 - 3D first-person navigation (WASD + mouse)
