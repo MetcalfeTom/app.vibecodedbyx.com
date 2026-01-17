@@ -9,6 +9,13 @@
   - Ping log showing blocked/deflected IPs
   - Threat level indicator
   - Shield integrity bar
+- 2026-01-17: Added neon green scanner gate
+  - Security gate at mansion entrance
+  - Two pillars with neon green strips
+  - Animated scanner beam moves up/down
+  - Translucent force field with grid lines
+  - "SECURITY SCAN" label at top
+  - Green point lights on pillars
 
 ## features
 - 3D mansion interior view
