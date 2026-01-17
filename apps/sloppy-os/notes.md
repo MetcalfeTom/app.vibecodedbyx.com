@@ -1,46 +1,42 @@
 # SloppyOS
 
 ## log
-- 2026-01-17: Initial creation
-  - Unified neon desktop dashboard for all apps
-  - Boot sequence with progress bar and messages
-  - Desktop with app icons in grid layout
-  - Top bar with logo, status, clock
-  - Taskbar with quick launch icons
-  - Start menu with app list
-  - 13 app icons included:
-    - Secret Shredder, Bug Zap, Tech Church
-    - Neon Weather, Neon Aquarium, Pixel Bonfire
-    - Terminal Escape, Candle Sailor
-    - SLOPPY Dashboard, BAGS Tracker
-    - Rugpull Simulator, Cowsay, Twitch Stream
+- 2026-01-17: Initial creation (2D desktop version)
+- 2026-01-17: Added stream button and virtual pet
+- 2026-01-17: Transformed into 3D first-person world
+  - Three.js powered 3D environment
+  - First-person controls (WASD + mouse look)
+  - Pointer lock for immersive navigation
+  - 12 floating app monoliths in a circle
+  - Neon grid floor with fog
   - Ambient floating particles
-  - Grid background pattern
-  - CRT scanlines overlay
-- 2026-01-17: Replaced Twitch window with neon stream button + virtual pet
-  - Floating neon LIVE button links to Twitch
-  - Virtual pet egg in taskbar
-  - Pet hatches after 10 clicks, evolves with care
-  - Pet/Feed actions, happiness system
-  - Progress saved to localStorage
+  - Click monoliths to launch apps
+  - App info popup on hover
+  - Preserved pet and LIVE stream button
+  - Mobile touch controls
+  - Boot sequence and HUD overlay
 
 ## features
-- Boot sequence with 6-step animation
-- Live clock in top bar
-- Status indicators (connected, battery)
-- Click icons to launch apps
-- Hover effects with glow
-- Start menu toggle
-- Taskbar with pinned apps
-- Responsive for mobile
-- Ambient particle effects
-- Neon LIVE stream button (links to Twitch)
-- Virtual pet system in taskbar
+- 3D first-person navigation (WASD + mouse)
+- Pointer lock for immersive controls
+- 12 floating app monoliths arranged in circle
+- Monoliths bob and rotate with animations
+- Emoji icons on sprite labels
+- Neon grid floor with cyan lines
+- Fog effect for depth
+- 500 ambient neon particles
+- Raycasting for app detection
+- App info popup when looking at monolith
+- Click to launch apps
+- Boot sequence with 3D-themed messages
+- HUD with clock and logo
+- Crosshair overlay
+- Neon LIVE stream button (Twitch link)
+- Virtual pet (bottom right)
   - Egg hatches after 10 clicks
-  - 5 evolution stages (egg -> chicken)
-  - Pet and Feed buttons
-  - Happiness decreases over time
-  - Progress saved to localStorage
+  - 5 evolution stages
+  - Pet and Feed interactions
+  - Happiness system with localStorage
 
 ## design
 - Orbitron + Share Tech Mono fonts
