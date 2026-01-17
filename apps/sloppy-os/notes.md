@@ -50,6 +50,11 @@
   - Placed on glowing yellow pedestal at hallway center
   - Gentle bobbing and rotating animation
   - Yellow spotlight illumination
+- 2026-01-17: Added Poly Haven stone textures
+  - Dark weathered stone texture (rock_wall_16) from Poly Haven CC0
+  - Applied to floor, walls, and ceiling
+  - Tiled seamlessly across all surfaces
+  - Dimmed neon grid overlay for gothic atmosphere
 
 ## features
 - 3D first-person navigation (WASD + mouse)
