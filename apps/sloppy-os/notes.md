@@ -55,6 +55,12 @@
   - Applied to floor, walls, and ceiling
   - Tiled seamlessly across all surfaces
   - Dimmed neon grid overlay for gothic atmosphere
+- 2026-01-17: Added screenshot capture feature
+  - SNAP button captures current 3D view
+  - Camera flash effect on capture
+  - Preview popup with save/close options
+  - Downloads as PNG with timestamp
+  - Press P key for quick snapshot
 
 ## features
 - 3D first-person navigation (WASD + mouse)
