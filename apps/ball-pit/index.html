@@ -6,7 +6,7 @@
   <title>Neon Ball Pit</title>
   <link rel="icon" href="https://emojicdn.elk.sh/🔮">
   <meta property="og:title" content="Neon Ball Pit">
-  <meta property="og:description" content="Dive into a physics-powered neon ball pit with gravity toggles">
+  <meta property="og:description" content="Run and jump through a physics-powered neon ball pit">
   <meta property="og:url" content="https://sloppy.live/ball-pit">
   <meta property="og:image" content="https://emojicdn.elk.sh/🔮?style=apple&size=512">
   <script src="https://cdn.babylonjs.com/babylon.js"></script>
@@ -106,12 +106,66 @@
       color: #666;
       font-size: 0.65rem;
       text-align: center;
+      line-height: 1.6;
+    }
+
+    /* Mobile joystick */
+    .mobile-controls {
+      display: none;
+      position: fixed;
+      bottom: 100px;
+      left: 20px;
+      z-index: 100;
+    }
+    .joystick {
+      width: 120px;
+      height: 120px;
+      background: rgba(0, 255, 255, 0.1);
+      border: 2px solid rgba(0, 255, 255, 0.4);
+      border-radius: 50%;
+      position: relative;
+    }
+    .joystick-knob {
+      width: 50px;
+      height: 50px;
+      background: rgba(0, 255, 255, 0.5);
+      border-radius: 50%;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .jump-btn {
+      position: fixed;
+      bottom: 130px;
+      right: 30px;
+      width: 80px;
+      height: 80px;
+      background: rgba(255, 0, 255, 0.2);
+      border: 3px solid #ff00ff;
+      border-radius: 50%;
+      color: #ff00ff;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.7rem;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
     }
 
     @media (max-width: 600px) {
       .title { font-size: 1rem; }
       .btn { padding: 10px 16px; font-size: 0.7rem; }
       .stats { font-size: 0.65rem; padding: 10px; }
+      .mobile-controls { display: block; }
+      .jump-btn { display: flex; }
+      .instructions { bottom: 240px; font-size: 0.6rem; }
+    }
+
+    @media (pointer: coarse) {
+      .mobile-controls { display: block; }
+      .jump-btn { display: flex; }
     }
   </style>
 </head>
@@ -127,7 +181,14 @@
 
   <a href="https://sloppy.live" class="back-link">sloppy.live</a>
 
-  <div class="instructions">Click/tap to spawn balls | Drag to rotate view</div>
+  <div class="instructions">WASD/Arrows to move | SPACE to jump | Mouse to look</div>
+
+  <div class="mobile-controls">
+    <div class="joystick" id="joystick">
+      <div class="joystick-knob" id="joystick-knob"></div>
+    </div>
+  </div>
+  <button class="jump-btn" id="jump-btn">JUMP</button>
 
   <div class="controls">
     <button class="btn add" onclick="spawnBalls(10)">+10 Balls</button>
@@ -146,6 +207,18 @@
     let gravityOn = true;
     let chaosMode = false;
     let chaosInterval = null;
+
+    // Character variables
+    let character, characterBody;
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let canJump = true;
+    let cameraAngle = 0;
+    const moveSpeed = 8;
+    const jumpForce = 12;
+
+    // Mobile joystick
+    let joystickActive = false;
+    let joystickX = 0, joystickY = 0;
 
     const neonColors = [
       new BABYLON.Color3(0, 1, 1),      // Cyan
@@ -166,11 +239,16 @@
       scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), new BABYLON.CannonJSPlugin());
       physicsPlugin = scene.getPhysicsEngine();
 
-      // Camera
-      camera = new BABYLON.ArcRotateCamera('camera', Math.PI / 4, Math.PI / 3, 25, BABYLON.Vector3.Zero(), scene);
+      // Create character first
+      createCharacter();
+
+      // Third-person camera following character
+      camera = new BABYLON.ArcRotateCamera('camera', Math.PI, Math.PI / 3, 12, character.position, scene);
       camera.attachControl(canvas, true);
-      camera.lowerRadiusLimit = 10;
-      camera.upperRadiusLimit = 50;
+      camera.lowerRadiusLimit = 5;
+      camera.upperRadiusLimit = 20;
+      camera.lowerBetaLimit = 0.3;
+      camera.upperBetaLimit = Math.PI / 2.2;
 
       // Ambient light
       const ambient = new BABYLON.HemisphericLight('ambient', new BABYLON.Vector3(0, 1, 0), scene);
@@ -191,15 +269,169 @@
       // Spawn initial balls
       spawnBalls(30);
 
-      // Click to spawn
-      scene.onPointerDown = (evt, pickInfo) => {
-        if (pickInfo.hit && evt.button === 0) {
-          const pos = pickInfo.pickedPoint;
-          spawnBall(pos.x + (Math.random() - 0.5) * 2, 8, pos.z + (Math.random() - 0.5) * 2);
-        }
-      };
+      // Character movement update
+      scene.registerBeforeRender(() => {
+        updateCharacter();
+        camera.target = character.position.clone();
+      });
 
       return scene;
+    }
+
+    function createCharacter() {
+      // Character group
+      character = new BABYLON.TransformNode('character', scene);
+      character.position = new BABYLON.Vector3(0, 0, 0);
+
+      // Neon material for character
+      const bodyMat = new BABYLON.StandardMaterial('bodyMat', scene);
+      bodyMat.diffuseColor = new BABYLON.Color3(1, 0, 1);
+      bodyMat.emissiveColor = new BABYLON.Color3(0.5, 0, 0.5);
+
+      const headMat = new BABYLON.StandardMaterial('headMat', scene);
+      headMat.diffuseColor = new BABYLON.Color3(0, 1, 1);
+      headMat.emissiveColor = new BABYLON.Color3(0, 0.5, 0.5);
+
+      const limbMat = new BABYLON.StandardMaterial('limbMat', scene);
+      limbMat.diffuseColor = new BABYLON.Color3(1, 1, 0);
+      limbMat.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0);
+
+      // Body (cylinder)
+      const body = BABYLON.MeshBuilder.CreateCylinder('body', { height: 1.2, diameter: 0.7 }, scene);
+      body.material = bodyMat;
+      body.parent = character;
+      body.position.y = 0.6;
+
+      // Head (sphere)
+      const head = BABYLON.MeshBuilder.CreateSphere('head', { diameter: 0.6 }, scene);
+      head.material = headMat;
+      head.parent = character;
+      head.position.y = 1.5;
+
+      // Eyes
+      const eyeMat = new BABYLON.StandardMaterial('eyeMat', scene);
+      eyeMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+
+      const leftEye = BABYLON.MeshBuilder.CreateSphere('leftEye', { diameter: 0.12 }, scene);
+      leftEye.material = eyeMat;
+      leftEye.parent = head;
+      leftEye.position = new BABYLON.Vector3(-0.12, 0.05, 0.25);
+
+      const rightEye = BABYLON.MeshBuilder.CreateSphere('rightEye', { diameter: 0.12 }, scene);
+      rightEye.material = eyeMat;
+      rightEye.parent = head;
+      rightEye.position = new BABYLON.Vector3(0.12, 0.05, 0.25);
+
+      // Arms
+      const leftArm = BABYLON.MeshBuilder.CreateCylinder('leftArm', { height: 0.8, diameter: 0.2 }, scene);
+      leftArm.material = limbMat;
+      leftArm.parent = character;
+      leftArm.position = new BABYLON.Vector3(-0.5, 0.8, 0);
+      leftArm.rotation.z = Math.PI / 6;
+
+      const rightArm = BABYLON.MeshBuilder.CreateCylinder('rightArm', { height: 0.8, diameter: 0.2 }, scene);
+      rightArm.material = limbMat;
+      rightArm.parent = character;
+      rightArm.position = new BABYLON.Vector3(0.5, 0.8, 0);
+      rightArm.rotation.z = -Math.PI / 6;
+
+      // Legs
+      const leftLeg = BABYLON.MeshBuilder.CreateCylinder('leftLeg', { height: 0.7, diameter: 0.25 }, scene);
+      leftLeg.material = limbMat;
+      leftLeg.parent = character;
+      leftLeg.position = new BABYLON.Vector3(-0.2, -0.1, 0);
+
+      const rightLeg = BABYLON.MeshBuilder.CreateCylinder('rightLeg', { height: 0.7, diameter: 0.25 }, scene);
+      rightLeg.material = limbMat;
+      rightLeg.parent = character;
+      rightLeg.position = new BABYLON.Vector3(0.2, -0.1, 0);
+
+      // Physics body (invisible capsule)
+      characterBody = BABYLON.MeshBuilder.CreateCylinder('charBody', { height: 1.8, diameter: 0.8 }, scene);
+      characterBody.position.y = 0.9;
+      characterBody.visibility = 0;
+      characterBody.physicsImpostor = new BABYLON.PhysicsImpostor(
+        characterBody,
+        BABYLON.PhysicsImpostor.CylinderImpostor,
+        { mass: 5, restitution: 0.1, friction: 0.5 },
+        scene
+      );
+
+      // Prevent rotation on physics body
+      characterBody.physicsImpostor.physicsBody.angularDamping = 1;
+      characterBody.physicsImpostor.physicsBody.fixedRotation = true;
+      characterBody.physicsImpostor.physicsBody.updateMassProperties();
+    }
+
+    function updateCharacter() {
+      if (!characterBody || !characterBody.physicsImpostor) return;
+
+      const velocity = characterBody.physicsImpostor.getLinearVelocity();
+
+      // Get camera forward direction (flattened to XZ plane)
+      const forward = camera.getForwardRay().direction;
+      forward.y = 0;
+      forward.normalize();
+
+      const right = BABYLON.Vector3.Cross(BABYLON.Axis.Y, forward).normalize();
+
+      let moveDir = BABYLON.Vector3.Zero();
+
+      // Keyboard input
+      if (moveForward) moveDir.addInPlace(forward);
+      if (moveBackward) moveDir.subtractInPlace(forward);
+      if (moveLeft) moveDir.addInPlace(right);
+      if (moveRight) moveDir.subtractInPlace(right);
+
+      // Joystick input
+      if (joystickActive) {
+        moveDir.addInPlace(forward.scale(-joystickY));
+        moveDir.addInPlace(right.scale(-joystickX));
+      }
+
+      if (moveDir.length() > 0) {
+        moveDir.normalize();
+
+        // Apply movement
+        characterBody.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(
+          moveDir.x * moveSpeed,
+          velocity.y,
+          moveDir.z * moveSpeed
+        ));
+
+        // Rotate character to face movement direction
+        const targetAngle = Math.atan2(moveDir.x, moveDir.z);
+        character.rotation.y = targetAngle;
+      } else {
+        // Apply friction when not moving
+        characterBody.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(
+          velocity.x * 0.9,
+          velocity.y,
+          velocity.z * 0.9
+        ));
+      }
+
+      // Sync visual character with physics body
+      character.position.x = characterBody.position.x;
+      character.position.y = characterBody.position.y - 0.9;
+      character.position.z = characterBody.position.z;
+
+      // Check if grounded (can jump)
+      if (Math.abs(velocity.y) < 0.5) {
+        canJump = true;
+      }
+    }
+
+    function jump() {
+      if (canJump && characterBody && characterBody.physicsImpostor) {
+        const velocity = characterBody.physicsImpostor.getLinearVelocity();
+        characterBody.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(
+          velocity.x,
+          jumpForce,
+          velocity.z
+        ));
+        canJump = false;
+      }
     }
 
     function createPit() {
@@ -213,17 +445,17 @@
       floorMat.emissiveColor = new BABYLON.Color3(0, 0.05, 0.05);
 
       // Floor
-      const floor = BABYLON.MeshBuilder.CreateBox('floor', { width: 12, height: 0.5, depth: 12 }, scene);
+      const floor = BABYLON.MeshBuilder.CreateBox('floor', { width: 16, height: 0.5, depth: 16 }, scene);
       floor.position.y = -3;
       floor.material = floorMat;
       floor.physicsImpostor = new BABYLON.PhysicsImpostor(floor, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, restitution: 0.6 }, scene);
 
-      // Walls
+      // Walls (larger pit)
       const wallConfigs = [
-        { w: 12, h: 6, d: 0.3, x: 0, y: 0, z: 6 },
-        { w: 12, h: 6, d: 0.3, x: 0, y: 0, z: -6 },
-        { w: 0.3, h: 6, d: 12, x: 6, y: 0, z: 0 },
-        { w: 0.3, h: 6, d: 12, x: -6, y: 0, z: 0 },
+        { w: 16, h: 8, d: 0.3, x: 0, y: 0, z: 8 },
+        { w: 16, h: 8, d: 0.3, x: 0, y: 0, z: -8 },
+        { w: 0.3, h: 8, d: 16, x: 8, y: 0, z: 0 },
+        { w: 0.3, h: 8, d: 16, x: -8, y: 0, z: 0 },
       ];
 
       wallConfigs.forEach((cfg, i) => {
@@ -234,16 +466,15 @@
       });
 
       // Neon edge lines
-      const edgeColor = new BABYLON.Color3(0, 1, 1);
       const edges = [
-        [[-6, -2.75, -6], [6, -2.75, -6]],
-        [[6, -2.75, -6], [6, -2.75, 6]],
-        [[6, -2.75, 6], [-6, -2.75, 6]],
-        [[-6, -2.75, 6], [-6, -2.75, -6]],
-        [[-6, 3, -6], [6, 3, -6]],
-        [[6, 3, -6], [6, 3, 6]],
-        [[6, 3, 6], [-6, 3, 6]],
-        [[-6, 3, 6], [-6, 3, -6]],
+        [[-8, -2.75, -8], [8, -2.75, -8]],
+        [[8, -2.75, -8], [8, -2.75, 8]],
+        [[8, -2.75, 8], [-8, -2.75, 8]],
+        [[-8, -2.75, 8], [-8, -2.75, -8]],
+        [[-8, 4, -8], [8, 4, -8]],
+        [[8, 4, -8], [8, 4, 8]],
+        [[8, 4, 8], [-8, 4, 8]],
+        [[-8, 4, 8], [-8, 4, -8]],
       ];
 
       edges.forEach((edge, i) => {
@@ -258,7 +489,6 @@
       const ball = BABYLON.MeshBuilder.CreateSphere(`ball${balls.length}`, { diameter: radius * 2 }, scene);
       ball.position = new BABYLON.Vector3(x, y, z);
 
-      // Random neon material
       const mat = new BABYLON.StandardMaterial(`ballMat${balls.length}`, scene);
       const color = neonColors[Math.floor(Math.random() * neonColors.length)];
       mat.diffuseColor = color;
@@ -266,7 +496,6 @@
       mat.specularColor = new BABYLON.Color3(1, 1, 1);
       ball.material = mat;
 
-      // Physics
       ball.physicsImpostor = new BABYLON.PhysicsImpostor(
         ball,
         BABYLON.PhysicsImpostor.SphereImpostor,
@@ -274,7 +503,6 @@
         scene
       );
 
-      // Random initial velocity
       ball.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(
         (Math.random() - 0.5) * 5,
         Math.random() * 2,
@@ -287,9 +515,9 @@
 
     function spawnBalls(count) {
       for (let i = 0; i < count; i++) {
-        const x = (Math.random() - 0.5) * 8;
+        const x = (Math.random() - 0.5) * 10;
         const y = 5 + Math.random() * 5;
-        const z = (Math.random() - 0.5) * 8;
+        const z = (Math.random() - 0.5) * 10;
         spawnBall(x, y, z);
       }
     }
@@ -337,26 +565,28 @@
     }
 
     function resetPit() {
-      // Remove all balls
       balls.forEach(ball => {
         ball.physicsImpostor.dispose();
         ball.dispose();
       });
       balls = [];
 
-      // Reset gravity
       gravityOn = true;
       physicsPlugin.setGravity(new BABYLON.Vector3(0, -9.81, 0));
       document.getElementById('gravity-btn').textContent = 'Gravity: ON';
       document.getElementById('gravity-btn').classList.add('active');
       document.getElementById('antigrav-btn').classList.remove('active');
 
-      // Reset chaos
       chaosMode = false;
       clearInterval(chaosInterval);
       document.getElementById('chaos-btn').classList.remove('active');
 
-      // Spawn fresh balls
+      // Reset character position
+      if (characterBody) {
+        characterBody.position = new BABYLON.Vector3(0, 2, 0);
+        characterBody.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
+      }
+
       spawnBalls(30);
       updateStats();
     }
@@ -365,6 +595,71 @@
       document.getElementById('ball-count').textContent = balls.length;
       document.getElementById('gravity-status').textContent = gravityOn ? 'ON' : 'OFF';
     }
+
+    // Keyboard controls
+    document.addEventListener('keydown', (e) => {
+      switch (e.code) {
+        case 'KeyW': case 'ArrowUp': moveForward = true; break;
+        case 'KeyS': case 'ArrowDown': moveBackward = true; break;
+        case 'KeyA': case 'ArrowLeft': moveLeft = true; break;
+        case 'KeyD': case 'ArrowRight': moveRight = true; break;
+        case 'Space': jump(); e.preventDefault(); break;
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      switch (e.code) {
+        case 'KeyW': case 'ArrowUp': moveForward = false; break;
+        case 'KeyS': case 'ArrowDown': moveBackward = false; break;
+        case 'KeyA': case 'ArrowLeft': moveLeft = false; break;
+        case 'KeyD': case 'ArrowRight': moveRight = false; break;
+      }
+    });
+
+    // Mobile joystick
+    const joystick = document.getElementById('joystick');
+    const joystickKnob = document.getElementById('joystick-knob');
+    const jumpBtn = document.getElementById('jump-btn');
+
+    joystick.addEventListener('touchstart', (e) => {
+      joystickActive = true;
+      e.preventDefault();
+    });
+
+    joystick.addEventListener('touchmove', (e) => {
+      if (!joystickActive) return;
+      const touch = e.touches[0];
+      const rect = joystick.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      let dx = touch.clientX - centerX;
+      let dy = touch.clientY - centerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const maxDist = rect.width / 2 - 25;
+
+      if (dist > maxDist) {
+        dx = (dx / dist) * maxDist;
+        dy = (dy / dist) * maxDist;
+      }
+
+      joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+      joystickX = dx / maxDist;
+      joystickY = dy / maxDist;
+      e.preventDefault();
+    });
+
+    joystick.addEventListener('touchend', () => {
+      joystickActive = false;
+      joystickX = 0;
+      joystickY = 0;
+      joystickKnob.style.transform = 'translate(-50%, -50%)';
+    });
+
+    jumpBtn.addEventListener('touchstart', (e) => {
+      jump();
+      e.preventDefault();
+    });
 
     // Initialize
     createScene();
