@@ -1,6 +1,12 @@
 # Pixel Bonfire
 
 ## log
+- 2026-01-17: Added flame color selection
+  - 6 color options: Orange, Blue, Green, Purple, Pink, White
+  - Circular color picker buttons
+  - Each color has matching ember particles
+  - Glow effect updates to match flame color
+  - Smooth transitions between colors
 - 2026-01-17: Initial creation
   - Standalone ambient pixel art bonfire
   - Doom-style fire algorithm for realistic flames
