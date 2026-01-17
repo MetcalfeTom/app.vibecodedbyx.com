@@ -1,6 +1,9 @@
 # Neon Aquarium
 
 ## log
+- 2026-01-17: Slowed Logic Fish by 30%
+  - Reduced maxSpeed from 2-3 to 1.4-2.1
+  - More relaxed, zen-like schooling behavior
 - 2026-01-17: Added Logic Fish (Boids-style schooling AI fish)
   - Neon glowing fish with circuit board patterns
   - Boids algorithm: separation, alignment, cohesion
