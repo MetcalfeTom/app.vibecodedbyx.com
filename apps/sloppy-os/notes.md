@@ -38,6 +38,13 @@
   - Removed 2D apps from hallway doors
   - Left: Space Flight, Moon Explorer, Minecraft, Doom 3D, Motorbike Racing, Neon Bowling
   - Right: Voxel World, Disco Ball, Space Chess, Bikini Brawl, Eggcraft, Sneaker Room
+- 2026-01-17: Added gothic chandeliers
+  - 5 chandeliers spaced along hallway ceiling
+  - 6 arms with candles and glowing flame orbs
+  - Central haunting purple orb on each chandelier
+  - Animated flames with flickering glow
+  - Gentle swaying motion
+  - Point lights for real illumination
 
 ## features
 - 3D first-person navigation (WASD + mouse)
