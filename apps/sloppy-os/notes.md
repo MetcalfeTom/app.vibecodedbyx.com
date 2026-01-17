@@ -45,6 +45,11 @@
   - Animated flames with flickering glow
   - Gentle swaying motion
   - Point lights for real illumination
+- 2026-01-17: Added Khronos Duck model
+  - Official glTF sample duck from KhronosGroup repository
+  - Placed on glowing yellow pedestal at hallway center
+  - Gentle bobbing and rotating animation
+  - Yellow spotlight illumination
 
 ## features
 - 3D first-person navigation (WASD + mouse)
