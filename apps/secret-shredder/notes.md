@@ -1,6 +1,22 @@
 # Secret Shredder
 
 ## log
+- 2026-01-17: Added leak detection with git cleanup commands
+  - Detects 20+ sensitive patterns:
+    - private_key, .env, api_key, api_secret
+    - access_token, auth_token, bearer tokens
+    - password, passwd, database_url
+    - AWS keys, RSA/SSH private keys
+    - GitHub tokens (ghp_), OpenAI keys (sk-)
+    - Slack tokens, MongoDB/PostgreSQL/MySQL URLs
+  - Shows neon warning panel when leaks detected
+  - Provides git commands to clean repo history:
+    - git filter-branch to remove files from history
+    - git push --force to update remote
+    - git reflog/gc to purge local traces
+  - Copy buttons for each command
+  - Proceed or Cancel buttons
+  - Escape key to dismiss warning
 - 2026-01-17: Initial creation
   - Neon cyberpunk aesthetic with red/orange theme
   - Paste text and watch it get vaporized
