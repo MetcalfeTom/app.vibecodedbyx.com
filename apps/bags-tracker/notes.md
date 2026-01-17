@@ -1,30 +1,39 @@
 # BAGS Tracker
 
 ## log
+- 2026-01-17: Redesigned with neon terminal aesthetic
+  - Command-line style interface
+  - ASCII art BAGS title banner
+  - Terminal prompt styling ($)
+  - CRT scanline and vignette effects
+  - Mini ASCII chart for 24h movement
+  - System time display
+  - Countdown timer for auto-refresh
+  - Fira Code + VT323 fonts
+  - Green/cyan terminal colors
+  - Blinking cursor effect
+  - Loading bar animation
 - 2026-01-16: Initial creation
-  - Neon cyberpunk aesthetic with animated grid background
   - Fetches real-time data from DexScreener API
   - Displays price, 24h change, market cap, liquidity, volume
   - Auto-refresh every 30 seconds
-  - Manual refresh button
-  - Floating particle effects
-  - Scanline overlay for retro CRT feel
-  - Orbitron + Share Tech Mono fonts
-  - Glowing neon text effects
-  - Link to DexScreener for full chart
 
 ## features
 - Real-time price tracking via DexScreener API
-- Neon green/cyan color scheme
-- Animated background grid
-- Floating particles
-- Price change indicator (green/red)
-- Market cap, liquidity, and volume stats
-- Chain identification
+- Neon green terminal aesthetic
+- ASCII art title banner
+- Command-line style output
+- Mini ASCII chart showing price movement
+- CRT scanline and vignette effects
+- System time and countdown display
+- Price change indicators (1h, 6h, 24h)
+- Market cap, liquidity, volume stats
+- Chain and DEX identification
+- Pair address display
 - Auto-refresh (30 second intervals)
 - Manual refresh button
 - Mobile responsive design
-- CRT scanline effect
+- Blinking cursor effect
 
 ## api
 - Uses DexScreener public API (no auth required)
