@@ -61,6 +61,20 @@
   - Preview popup with save/close options
   - Downloads as PNG with timestamp
   - Press P key for quick snapshot
+- 2026-01-17: Extended hallway to 400 units with 60 doors
+  - 30 doors on left, 30 on right
+  - All available apps accessible
+  - Grand foyer spawn point
+- 2026-01-17: Neo-Gothic Cathedral upgrade
+  - Raised ceiling from 6 to 14 units
+  - Raised foyer ceiling to 16 units
+  - Gothic pilasters along walls with neon accents
+  - Pointed ribbed vault arches across ceiling
+  - Diagonal groin vault ribs between sections
+  - Gothic window frames with pointed arches
+  - Trefoil tracery decorations
+  - Boss keystones at vault intersections
+  - Alternating cyan/magenta glowing accents
 
 ## features
 - 3D first-person navigation (WASD + mouse)
