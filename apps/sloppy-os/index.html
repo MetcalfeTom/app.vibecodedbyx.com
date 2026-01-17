@@ -291,6 +291,108 @@
     let knight = null;
     let knightParts = {};
 
+    // Spatial Audio System
+    let audioCtx = null;
+    let audioInitialized = false;
+    let playerFootstepTime = 0;
+    let knightFootstepTime = 0;
+    let lastKnightWalkPhase = 0;
+
+    function initAudio() {
+      if (audioInitialized) return;
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioInitialized = true;
+        console.log('Spatial audio initialized');
+      } catch (e) {
+        console.warn('Web Audio not supported');
+      }
+    }
+
+    function playFootstep(x, z, isHeavy = false) {
+      if (!audioCtx || audioCtx.state === 'suspended') return;
+
+      const now = audioCtx.currentTime;
+
+      // Create oscillator for footstep sound
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+
+      // Spatial panner for 3D positioning
+      const panner = audioCtx.createPanner();
+      panner.panningModel = 'HRTF';
+      panner.distanceModel = 'inverse';
+      panner.refDistance = 1;
+      panner.maxDistance = 50;
+      panner.rolloffFactor = 1;
+      panner.positionX.setValueAtTime(x, now);
+      panner.positionY.setValueAtTime(0, now);
+      panner.positionZ.setValueAtTime(z, now);
+
+      // Update listener position to camera
+      if (audioCtx.listener.positionX) {
+        audioCtx.listener.positionX.setValueAtTime(camera.position.x, now);
+        audioCtx.listener.positionY.setValueAtTime(camera.position.y, now);
+        audioCtx.listener.positionZ.setValueAtTime(camera.position.z, now);
+      }
+
+      if (isHeavy) {
+        // Knight's heavy metallic footstep
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(60, now);
+        osc.frequency.exponentialRampToValueAtTime(30, now + 0.15);
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(200, now);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+        // Add a second osc for metallic clank
+        const clank = audioCtx.createOscillator();
+        const clankGain = audioCtx.createGain();
+        clank.type = 'square';
+        clank.frequency.setValueAtTime(180, now);
+        clank.frequency.exponentialRampToValueAtTime(80, now + 0.05);
+        clankGain.gain.setValueAtTime(0.15, now);
+        clankGain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        clank.connect(clankGain);
+        clankGain.connect(panner);
+        clank.start(now);
+        clank.stop(now + 0.1);
+      } else {
+        // Player's lighter footstep
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(100, now);
+        osc.frequency.exponentialRampToValueAtTime(50, now + 0.08);
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(400, now);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+      }
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(panner);
+      panner.connect(audioCtx.destination);
+
+      osc.start(now);
+      osc.stop(now + (isHeavy ? 0.2 : 0.1));
+    }
+
+    function playAmbientHum() {
+      if (!audioCtx) return;
+      // Subtle ambient drone for atmosphere
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(55, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      return { osc, gain };
+    }
+
     const hallwayLength = 400;
     const hallwayWidth = 8;
     const hallwayHeight = 14;
@@ -1574,6 +1676,15 @@
       const walkPhase = Math.sin(data.walkCycle);
       const walkPhase2 = Math.cos(data.walkCycle);
 
+      // Knight heavy footstep sounds - triggers when foot hits ground (phase crosses zero)
+      if (audioCtx && audioCtx.state === 'running') {
+        // Detect zero crossing (foot touchdown)
+        if ((lastKnightWalkPhase > 0 && walkPhase <= 0) || (lastKnightWalkPhase < 0 && walkPhase >= 0)) {
+          playFootstep(knight.position.x, knight.position.z, true); // Heavy footstep
+        }
+        lastKnightWalkPhase = walkPhase;
+      }
+
       // Bob up and down while walking
       knight.position.y = Math.abs(walkPhase) * 0.06;
 
@@ -1694,6 +1805,12 @@
     }
 
     function onClick(e) {
+      // Initialize audio on first user interaction
+      initAudio();
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+
       if (e.target.closest('.stream-link-btn') || e.target.closest('.pet-container') || e.target.closest('.mobile-controls') || e.target.closest('.snapshot-btn') || e.target.closest('.snapshot-preview')) return;
 
       if (!isLocked) {
@@ -1882,6 +1999,15 @@
 
         camera.translateX(-velocity.x * 0.016);
         camera.translateZ(velocity.z * 0.016);
+
+        // Player footstep sounds
+        if ((moveForward || moveBackward || moveLeft || moveRight) && audioCtx) {
+          playerFootstepTime += 0.016;
+          if (playerFootstepTime > 0.35) { // Footstep every 0.35 seconds when walking
+            playFootstep(camera.position.x, camera.position.z, false);
+            playerFootstepTime = 0;
+          }
+        }
 
         // Hallway and foyer bounds
         if (currentRoom === 'hallway') {
