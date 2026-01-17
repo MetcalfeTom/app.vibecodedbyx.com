@@ -1,6 +1,12 @@
 # SLOPPY Token Dashboard
 
 ## log
+- 2026-01-17: Enhanced explorer links
+  - Added 4 links per token: DexScreener, Solscan, Holders, Birdeye
+  - Direct link to Solscan #holders tab
+  - Color-coded hover states for each explorer
+  - Icons for each link type
+  - 2x2 grid layout for links
 - 2026-01-17: Initial creation
   - Live dashboard tracking all SLOPPY tokens
   - DexScreener API integration
