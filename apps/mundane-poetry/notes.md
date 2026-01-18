@@ -1,6 +1,11 @@
 # Mundane Poetry Generator
 
 ## log
+- 2026-01-18: Rebuilt with local poetry engine
+  - Removed Pollinations API dependency entirely
+  - Built sophisticated template-based generator
+  - Uses word banks and poetic structures
+  - 100% reliable, no external API needed
 - 2026-01-18: Fixed deprecation notice
   - Removed model parameter which was triggering deprecation warning
   - Using simple GET endpoint without model= param
@@ -16,10 +21,12 @@
   - History with localStorage
 
 ## features
-- AI poetry generation via Pollinations
-  - Free verse, 4-8 lines
-  - Contemplative, melancholic tone
-  - Finds beauty in ordinary moments
+- Local poetry generation engine (no API)
+  - Template-based with word banks
+  - Openings, middles, turns, endings structure
+  - Contemplative, wistful tone
+  - Free verse, 4-7 lines
+  - Categories: adj, time, nature, abstract, emotion, action, object, verb, plural, relative
 - Text-to-speech
   - Web Speech API
   - Voice selection dropdown
