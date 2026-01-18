@@ -24,6 +24,8 @@
   - Toggle between female/male TTS voices
   - Defaults to female
   - Attempts to find matching Japanese voice by name
+- 2026-01-18: Updated quiz mode to show romaji
+  - Romaji now displays directly beneath Japanese text in quiz
 
 ## features
 - Categories:
