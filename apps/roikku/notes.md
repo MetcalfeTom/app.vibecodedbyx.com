@@ -26,6 +26,10 @@
   - Blue-to-pink gradient slider
 - 2026-01-18: Updated quiz mode to show romaji
   - Romaji now displays directly beneath Japanese text in quiz
+- 2026-01-18: Fixed TTS to not read metadata/labels
+  - Explicitly finds Japanese voice before speaking
+  - Falls back to reading romaji in English if no Japanese voice
+  - All speak calls now pass romaji as fallback
 
 ## features
 - Categories:
