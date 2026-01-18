@@ -30,6 +30,10 @@
   - Explicitly finds Japanese voice before speaking
   - Falls back to reading romaji in English if no Japanese voice
   - All speak calls now pass romaji as fallback
+- 2026-01-18: Added volume slider below pitch slider
+  - Granular volume control (0 to 1)
+  - Gray-to-cyan gradient slider
+  - Voice controls grouped together
 
 ## features
 - Categories:
@@ -45,7 +49,7 @@
   - English translation
   - Pronunciation tip
   - Usage context
-- Text-to-speech (Japanese voice, pitch slider)
+- Text-to-speech (Japanese voice, pitch + volume sliders)
 - Quick phrases section
 - Progress bar per category
 - Keyboard navigation (arrows + space)
