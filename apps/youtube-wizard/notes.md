@@ -7,6 +7,10 @@
   - Channel preview card
   - Save/copy functionality
   - Stats tracking
+- 2026-01-17: Added AI features
+  - Script generator with Pollinations AI
+  - AI thumbnail previewer with 4 style options
+  - Download thumbnails feature
 
 ## features
 - Channel name generator
@@ -23,6 +27,16 @@
 - Copy to clipboard
 - Stats tracking (generated, saved, copied)
 - Toast notifications
+- Script Generator (AI-powered)
+  - 4 styles: Tutorial, Review, Vlog, Top 10
+  - Structured output: Hook, Intro, Main Points, CTA, Outro
+  - Copy script feature
+  - Uses Pollinations text API
+- AI Thumbnail Previewer
+  - 4 styles: Vibrant, Minimal, Dramatic, Retro
+  - Generates 4 variations per request
+  - Download thumbnails
+  - Uses Pollinations image API
 
 ## design
 - Inter font family
@@ -41,7 +55,6 @@
 ## todos
 - Add AI-powered name suggestions (Pollinations)
 - Add channel description generator
-- Add thumbnail style suggestions
 - Add niche analysis
 - Add name availability checker
 - Add branding color suggestions
