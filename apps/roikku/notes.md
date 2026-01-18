@@ -53,7 +53,7 @@
   - All 12 months (grouped in 4 cards by quarter)
   - "What day is it today?" phrase
   - Four seasons (spring, summer, fall, winter)
-  - Yesterday and tomorrow
+  - Yesterday, tomorrow, day after tomorrow, day before yesterday
 
 ## features
 - Difficulty levels:
@@ -63,7 +63,7 @@
 - Categories (by difficulty):
   - Greetings (8 phrases)
   - Basics (6 phrases)
-  - Calendar (11 phrases)
+  - Calendar (13 phrases)
   - Pets (6 phrases)
   - Shopping (6 phrases)
   - Restaurant (7 phrases)
