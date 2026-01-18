@@ -20,10 +20,10 @@
   - Full hiragana + katakana charts with romaji
   - Includes voiced and half-voiced rows
   - Click any character to hear pronunciation
-- 2026-01-18: Added voice gender toggle
-  - Toggle between female/male TTS voices
-  - Defaults to female
-  - Attempts to find matching Japanese voice by name
+- 2026-01-18: Replaced voice gender toggle with pitch slider
+  - Granular pitch control (0.5 to 1.5)
+  - Defaults to 1.1 for clear pronunciation
+  - Blue-to-pink gradient slider
 - 2026-01-18: Updated quiz mode to show romaji
   - Romaji now displays directly beneath Japanese text in quiz
 
@@ -41,7 +41,7 @@
   - English translation
   - Pronunciation tip
   - Usage context
-- Text-to-speech (Japanese voice, female/male toggle)
+- Text-to-speech (Japanese voice, pitch slider)
 - Quick phrases section
 - Progress bar per category
 - Keyboard navigation (arrows + space)
