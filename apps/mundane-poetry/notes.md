@@ -1,6 +1,10 @@
 # Mundane Poetry Generator
 
 ## log
+- 2026-01-18: Fixed deprecation notice
+  - Removed model parameter which was triggering deprecation warning
+  - Using simple GET endpoint without model= param
+  - Added response cleanup for markdown artifacts
 - 2026-01-18: Fixed Pollinations API
   - Updated to POST to /openai endpoint with chat completions format
   - Added fallback to GET endpoint if POST fails
