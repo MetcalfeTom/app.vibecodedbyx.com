@@ -1,6 +1,14 @@
 # Costeo Gastronómico
 
 ## log
+- 2026-01-18: Added random recipe generator
+  - 35+ creative Spanish dish names
+  - 60+ ingredient database with cost ranges
+  - Smart ingredient selection by recipe type
+  - Seafood, meat, and dessert detection
+  - Randomized quantities and prices
+  - Auto-calculated selling price with markup
+  - Animated magic button with shimmer effect
 - 2026-01-18: Initial creation
   - Spanish language interface
   - Neon magenta/cyan aesthetic
