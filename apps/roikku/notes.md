@@ -20,6 +20,10 @@
   - Full hiragana + katakana charts with romaji
   - Includes voiced and half-voiced rows
   - Click any character to hear pronunciation
+- 2026-01-18: Added voice gender toggle
+  - Toggle between female/male TTS voices
+  - Defaults to female
+  - Attempts to find matching Japanese voice by name
 
 ## features
 - Categories:
@@ -35,7 +39,7 @@
   - English translation
   - Pronunciation tip
   - Usage context
-- Text-to-speech (Japanese voice)
+- Text-to-speech (Japanese voice, female/male toggle)
 - Quick phrases section
 - Progress bar per category
 - Keyboard navigation (arrows + space)
