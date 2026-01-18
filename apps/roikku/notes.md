@@ -48,15 +48,20 @@
 - 2026-01-18: Added Pets and School categories
   - Pets (6 phrases) in Beginner: dog/cat phrases, kawaii, pet commands
   - School (6 phrases) in Intermediate: classroom, homework, test phrases
+- 2026-01-18: Added Calendar category to Beginner
+  - Days of the week (Mon-Sun grouped in 3 cards)
+  - All 12 months (grouped in 4 cards by quarter)
+  - "What day is it today?" phrase
 
 ## features
 - Difficulty levels:
-  - Beginner: Greetings, Basics, Pets
+  - Beginner: Greetings, Basics, Calendar, Pets
   - Intermediate: Shopping, Restaurant, Directions, School
   - Expert: Social, Emergency, Business
 - Categories (by difficulty):
   - Greetings (8 phrases)
   - Basics (6 phrases)
+  - Calendar (8 phrases)
   - Pets (6 phrases)
   - Shopping (6 phrases)
   - Restaurant (7 phrases)
