@@ -14,6 +14,12 @@
   - Track correct/wrong/streak stats
   - Feedback with romaji after answer
   - Mode toggle between Learn and Quiz
+- 2026-01-18: Added hiragana/katakana reference panel
+  - Slide-out panel on right side
+  - Toggle button on screen edge
+  - Full hiragana + katakana charts with romaji
+  - Includes voiced and half-voiced rows
+  - Click any character to hear pronunciation
 
 ## features
 - Categories:
@@ -36,6 +42,7 @@
 - Search bar (filters Japanese, romaji, English)
 - Quiz mode with multiple choice
 - Score tracking (correct/wrong/streak)
+- Hiragana/Katakana reference panel (toggle from side)
 
 ## design
 - Zen Maru Gothic + Noto Sans JP fonts
