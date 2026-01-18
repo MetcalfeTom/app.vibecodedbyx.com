@@ -1,6 +1,12 @@
 # Holiday Luck Calculator
 
 ## log
+- 2026-01-18: Added checkbox selector for holidays
+  - Expanded to 21 holidays (11 federal + 10 popular)
+  - Added floating holidays (Labor Day, Memorial Day, etc.)
+  - Checkbox grid to select which holidays count
+  - Select All / Clear All / Federal Only buttons
+  - Easter calculation with Computus algorithm
 - 2026-01-18: Initial creation
   - Year categorization based on holiday placement
   - 9 fixed-date holidays tracked
