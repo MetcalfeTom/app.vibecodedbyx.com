@@ -54,12 +54,16 @@
   - "What day is it today?" phrase
   - Four seasons (spring, summer, fall, winter)
   - Yesterday, tomorrow, day after tomorrow, day before yesterday
+- 2026-01-18: Added Culture category to Expert
+  - Festivals: Matsuri, Obon, Hatsumoude
+  - Seasonal: Hanami (cherry blossoms), Momijigari (autumn leaves)
+  - Shrine/temple, omikuji, yukata phrases
 
 ## features
 - Difficulty levels:
   - Beginner: Greetings, Basics, Calendar, Pets
   - Intermediate: Shopping, Restaurant, Directions, School
-  - Expert: Social, Emergency, Business
+  - Expert: Social, Emergency, Business, Culture
 - Categories (by difficulty):
   - Greetings (8 phrases)
   - Basics (6 phrases)
@@ -72,6 +76,7 @@
   - Social (8 phrases)
   - Emergency (6 phrases)
   - Business (6 phrases)
+  - Culture (8 phrases)
 - Each phrase includes:
   - Japanese text (kanji/hiragana)
   - Romaji pronunciation
