@@ -1,6 +1,13 @@
 # Lint Roller: Fox Edition
 
 ## log
+- 2026-01-18: Added combo multiplier system
+  - Score tracking with multiplier
+  - Combo increases with consecutive scrubs
+  - Multiplier caps at x10 (every 5 hits)
+  - Floating score text on scrubs
+  - Big combo display on right side
+  - Combo decays after 500ms of no scrubbing
 - 2026-01-18: Initial creation
   - Neon lint roller game
   - Scrub fuzzy foxes off the server
