@@ -1,6 +1,9 @@
 # Brain Rot 67 OS
 
 ## log
+- 2026-01-18: Added Skibidi Browser and Sigma Soundboard
+  - Functional browser with 6 meme sites
+  - Web Audio API soundboard with 9 sounds
 - 2026-01-18: Initial creation
   - Skibidi taskbar with gradient animation
   - Draggable nonsensical windows
@@ -25,6 +28,8 @@
 - Gyatt Logger: Log your gyatts
 - NPC Mode: Become an NPC
 - Brainrot Settings: Configure your brainrot
+- Skibidi Browser: Fake browser with meme URLs (sigma.grind, gyatt.log, ohio.news, etc.)
+- Sigma Soundboard: Web Audio synth sounds (boom, bruh, vine boom, oof, airhorn, rizz, sigma, ohio, gyatt)
 
 ## design
 - Bangers + Comic Neue fonts
