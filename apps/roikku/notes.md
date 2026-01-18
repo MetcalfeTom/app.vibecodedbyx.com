@@ -34,22 +34,39 @@
   - Granular volume control (0 to 1)
   - Gray-to-cyan gradient slider
   - Voice controls grouped together
+- 2026-01-18: Added difficulty tabs (Beginner/Intermediate/Expert)
+  - Green/yellow/red color-coded tabs
+  - Categories organized by difficulty:
+    - Beginner: Greetings, Basics (14 phrases)
+    - Intermediate: Shopping, Restaurant, Directions (20 phrases)
+    - Expert: Social, Emergency, Business (22 phrases)
+  - Dynamic category rendering based on difficulty
+- 2026-01-18: Added voice gender toggle (Female/Male)
+  - Attempts to detect voice gender from name patterns
+  - Defaults to female voice
+  - Browser disclaimer for voice feature variability
 
 ## features
-- Categories:
+- Difficulty levels:
+  - Beginner: Greetings, Basics
+  - Intermediate: Shopping, Restaurant, Directions
+  - Expert: Social, Emergency, Business
+- Categories (by difficulty):
   - Greetings (8 phrases)
+  - Basics (6 phrases)
   - Shopping (6 phrases)
-  - Restaurant (8 phrases)
+  - Restaurant (7 phrases)
   - Directions (7 phrases)
   - Social (8 phrases)
   - Emergency (6 phrases)
+  - Business (6 phrases)
 - Each phrase includes:
   - Japanese text (kanji/hiragana)
   - Romaji pronunciation
   - English translation
   - Pronunciation tip
   - Usage context
-- Text-to-speech (Japanese voice, pitch + volume sliders)
+- Text-to-speech (Japanese voice, pitch + volume sliders, gender toggle)
 - Quick phrases section
 - Progress bar per category
 - Keyboard navigation (arrows + space)
@@ -66,17 +83,19 @@
 - Soft rounded corners
 
 ## controls
-- Category buttons: switch topics
+- Difficulty tabs: switch between skill levels
+- Category buttons: switch topics within difficulty
 - Arrow buttons: prev/next phrase
 - Listen button: play pronunciation
+- Gender toggle: switch between female/male voice
 - Keyboard: ← → to navigate, space to speak
 - Quick phrases: click to hear
 
 ## todos
 - Add favorites/bookmarks
 - Add spaced repetition
-- Add more categories (travel, work, etc.)
 - Add writing practice
+- Add audio playback speed control
 
 ## issues
 - None yet
