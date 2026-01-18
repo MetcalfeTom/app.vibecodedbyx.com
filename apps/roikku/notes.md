@@ -63,6 +63,9 @@
   - General counter (hitotsu, futatsu...)
   - People counter (hitori, futari...)
   - "How many?" questions
+- 2026-01-18: Quiz mode now filters by current category
+  - Questions only from selected difficulty + category
+  - Focused study sessions per topic
 
 ## features
 - Difficulty levels:
