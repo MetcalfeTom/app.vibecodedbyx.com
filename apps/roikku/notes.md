@@ -8,6 +8,12 @@
   - Context/usage guidance
   - Text-to-speech with Web Speech API
   - Warm neon aesthetic
+- 2026-01-18: Added search and quiz mode
+  - Search bar filters all phrases by Japanese, romaji, or English
+  - Quiz mode with 4-option multiple choice
+  - Track correct/wrong/streak stats
+  - Feedback with romaji after answer
+  - Mode toggle between Learn and Quiz
 
 ## features
 - Categories:
@@ -27,6 +33,9 @@
 - Quick phrases section
 - Progress bar per category
 - Keyboard navigation (arrows + space)
+- Search bar (filters Japanese, romaji, English)
+- Quiz mode with multiple choice
+- Score tracking (correct/wrong/streak)
 
 ## design
 - Zen Maru Gothic + Noto Sans JP fonts
@@ -43,7 +52,6 @@
 - Quick phrases: click to hear
 
 ## todos
-- Add quiz mode
 - Add favorites/bookmarks
 - Add spaced repetition
 - Add more categories (travel, work, etc.)
