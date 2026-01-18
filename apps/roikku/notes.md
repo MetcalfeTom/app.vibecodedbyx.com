@@ -58,15 +58,21 @@
   - Festivals: Matsuri, Obon, Hatsumoude
   - Seasonal: Hanami (cherry blossoms), Momijigari (autumn leaves)
   - Shrine/temple, omikuji, yukata phrases
+- 2026-01-18: Added Numbers category to Beginner
+  - Numbers 1-10, 100, 1000, 10000
+  - General counter (hitotsu, futatsu...)
+  - People counter (hitori, futari...)
+  - "How many?" questions
 
 ## features
 - Difficulty levels:
-  - Beginner: Greetings, Basics, Calendar, Pets
+  - Beginner: Greetings, Basics, Numbers, Calendar, Pets
   - Intermediate: Shopping, Restaurant, Directions, School
   - Expert: Social, Emergency, Business, Culture
 - Categories (by difficulty):
   - Greetings (8 phrases)
   - Basics (6 phrases)
+  - Numbers (8 phrases)
   - Calendar (17 phrases)
   - Pets (6 phrases)
   - Shopping (6 phrases)
