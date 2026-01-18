@@ -1,6 +1,12 @@
 # Bouncy Berry
 
 ## log
+- 2026-01-18: Fixed UI and added score multiplier
+  - Moved stats to top-left corner (no overlap)
+  - Score multiplier up to x10 for fast clicks
+  - Multiplier bar shows current combo level
+  - Multiplier decays after 1.5s of no clicks
+  - 10 base points per click, multiplied by combo
 - 2026-01-18: Initial creation
   - Neon glowing strawberry emoji
   - Click to jump to random position
