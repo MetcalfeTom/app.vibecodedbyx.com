@@ -45,18 +45,23 @@
   - Attempts to detect voice gender from name patterns
   - Defaults to female voice
   - Browser disclaimer for voice feature variability
+- 2026-01-18: Added Pets and School categories
+  - Pets (6 phrases) in Beginner: dog/cat phrases, kawaii, pet commands
+  - School (6 phrases) in Intermediate: classroom, homework, test phrases
 
 ## features
 - Difficulty levels:
-  - Beginner: Greetings, Basics
-  - Intermediate: Shopping, Restaurant, Directions
+  - Beginner: Greetings, Basics, Pets
+  - Intermediate: Shopping, Restaurant, Directions, School
   - Expert: Social, Emergency, Business
 - Categories (by difficulty):
   - Greetings (8 phrases)
   - Basics (6 phrases)
+  - Pets (6 phrases)
   - Shopping (6 phrases)
   - Restaurant (7 phrases)
   - Directions (7 phrases)
+  - School (6 phrases)
   - Social (8 phrases)
   - Emergency (6 phrases)
   - Business (6 phrases)
