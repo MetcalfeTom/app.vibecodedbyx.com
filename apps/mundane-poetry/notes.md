@@ -1,6 +1,9 @@
 # Mundane Poetry Generator
 
 ## log
+- 2026-01-18: Fixed Pollinations API
+  - Updated to POST to /openai endpoint with chat completions format
+  - Added fallback to GET endpoint if POST fails
 - 2026-01-18: Initial creation
   - AI-generated free verse poetry
   - Text-to-speech with voice selection
