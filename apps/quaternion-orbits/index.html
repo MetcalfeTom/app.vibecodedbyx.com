@@ -209,6 +209,89 @@
       text-align: center;
     }
 
+    /* Ternary state indicator */
+    .ternary-indicator {
+      background: rgba(255, 0, 0, 0.2);
+      border: 1px solid rgba(255, 0, 0, 0.5);
+      border-radius: 8px;
+      padding: 8px;
+      margin-top: 10px;
+      font-size: 0.7rem;
+      text-align: center;
+      display: none;
+    }
+
+    .ternary-indicator.active {
+      display: block;
+      animation: ternary-pulse 0.2s ease-in-out infinite alternate;
+    }
+
+    .ternary-indicator .state {
+      color: #ff0;
+      font-family: 'Orbitron', sans-serif;
+      font-weight: bold;
+    }
+
+    @keyframes ternary-pulse {
+      0% { background: rgba(255, 0, 0, 0.2); border-color: rgba(255, 0, 0, 0.5); }
+      100% { background: rgba(255, 255, 0, 0.3); border-color: rgba(255, 255, 0, 0.7); }
+    }
+
+    /* Glitch overlay */
+    .glitch-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 50;
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+
+    .glitch-overlay.active {
+      opacity: 1;
+    }
+
+    .glitch-line {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: rgba(255, 0, 255, 0.8);
+      box-shadow: 0 0 10px #f0f, 0 0 20px #0ff;
+    }
+
+    .glitch-block {
+      position: absolute;
+      background: rgba(0, 255, 255, 0.1);
+      border: 1px solid rgba(255, 0, 255, 0.3);
+    }
+
+    /* Screen shake */
+    @keyframes shake {
+      0%, 100% { transform: translate(0, 0); }
+      10% { transform: translate(-5px, -3px); }
+      20% { transform: translate(5px, 3px); }
+      30% { transform: translate(-3px, 5px); }
+      40% { transform: translate(3px, -5px); }
+      50% { transform: translate(-5px, 3px); }
+      60% { transform: translate(5px, -3px); }
+      70% { transform: translate(-3px, -5px); }
+      80% { transform: translate(3px, 5px); }
+      90% { transform: translate(-5px, -3px); }
+    }
+
+    #canvas-container.glitching {
+      animation: shake 0.15s ease-in-out;
+    }
+
+    /* Chromatic aberration effect */
+    #canvas-container.glitching canvas {
+      filter: url(#chromatic);
+    }
+
     @media (max-width: 600px) {
       .ui-panel {
         top: 10px;
@@ -289,7 +372,29 @@
     <div class="formula">
       q' = q₁ × q₂ (Hamilton Product)
     </div>
+
+    <div class="ternary-indicator" id="ternary-indicator">
+      ⚠️ TERNARY STATE: <span class="state" id="ternary-state">UNKNOWN</span>
+    </div>
   </div>
+
+  <!-- Glitch overlay -->
+  <div class="glitch-overlay" id="glitch-overlay"></div>
+
+  <!-- SVG filter for chromatic aberration -->
+  <svg style="position:absolute;width:0;height:0;">
+    <defs>
+      <filter id="chromatic">
+        <feColorMatrix type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red"/>
+        <feOffset in="red" dx="3" dy="0" result="red-shifted"/>
+        <feColorMatrix type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="green"/>
+        <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="blue"/>
+        <feOffset in="blue" dx="-3" dy="0" result="blue-shifted"/>
+        <feBlend mode="screen" in="red-shifted" in2="green"/>
+        <feBlend mode="screen" in2="blue-shifted"/>
+      </filter>
+    </defs>
+  </svg>
 
   <div class="stats">
     <div>FPS: <span id="fps">60</span></div>
@@ -351,15 +456,36 @@
 
         scene.add(this.mesh);
 
-        // Trail
+        // Trail with vertex colors for w-based opacity
         this.trailLength = 200;
         this.trailPositions = [];
+        this.trailWValues = []; // Store w component for each position
         this.trailGeometry = new THREE.BufferGeometry();
-        this.trailMaterial = new THREE.LineBasicMaterial({
-          color: this.color,
+
+        // Use shader material for per-vertex opacity based on w
+        this.trailMaterial = new THREE.ShaderMaterial({
+          uniforms: {
+            color: { value: new THREE.Color(this.color) }
+          },
+          vertexShader: `
+            attribute float wValue;
+            varying float vOpacity;
+            void main() {
+              vOpacity = abs(wValue) * 0.8 + 0.2;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform vec3 color;
+            varying float vOpacity;
+            void main() {
+              gl_FragColor = vec4(color, vOpacity);
+            }
+          `,
           transparent: true,
-          opacity: 0.8
+          blending: THREE.AdditiveBlending
         });
+
         this.trail = new THREE.Line(this.trailGeometry, this.trailMaterial);
         scene.add(this.trail);
 
@@ -402,20 +528,33 @@
 
         this.mesh.position.copy(basePos);
 
-        // Update trail
+        // Update trail with w values
         this.trailPositions.push(basePos.clone());
+        this.trailWValues.push(this.quaternion.w);
+
         if (this.trailPositions.length > this.trailLength) {
           this.trailPositions.shift();
+          this.trailWValues.shift();
         }
 
-        // Update trail geometry
+        // Update trail geometry with positions and w values
         const positions = new Float32Array(this.trailPositions.length * 3);
+        const wValues = new Float32Array(this.trailPositions.length);
+
         this.trailPositions.forEach((pos, i) => {
           positions[i * 3] = pos.x;
           positions[i * 3 + 1] = pos.y;
           positions[i * 3 + 2] = pos.z;
+          wValues[i] = this.trailWValues[i];
         });
+
         this.trailGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        this.trailGeometry.setAttribute('wValue', new THREE.BufferAttribute(wValues, 1));
+
+        // Update sphere opacity based on w
+        const wOpacity = Math.abs(this.quaternion.w) * 0.7 + 0.3;
+        this.mesh.material.opacity = wOpacity;
+        this.glow.material.opacity = wOpacity * 0.4;
 
         return this.quaternion;
       }
@@ -424,6 +563,7 @@
         this.trailLength = length;
         while (this.trailPositions.length > length) {
           this.trailPositions.shift();
+          this.trailWValues.shift();
         }
       }
 
@@ -613,10 +753,73 @@
 
     container.addEventListener('touchend', () => isDragging = false);
 
+    // Glitch effect state
+    const glitchOverlay = document.getElementById('glitch-overlay');
+    const ternaryIndicator = document.getElementById('ternary-indicator');
+    const ternaryState = document.getElementById('ternary-state');
+    let isGlitching = false;
+    let glitchIntensity = 0;
+    let lastGlitchTime = 0;
+
+    // Ternary state thresholds
+    const TERNARY_THRESHOLD = 0.15; // When |w| is below this, enter ternary state
+    const ternaryStates = ['NULL', 'UNDEFINED', 'NaN', 'VOID', 'LIMINAL', '???', 'ERROR', 'UNKNOWN'];
+
+    function createGlitchElements() {
+      glitchOverlay.innerHTML = '';
+
+      // Create scan lines
+      for (let i = 0; i < 5; i++) {
+        const line = document.createElement('div');
+        line.className = 'glitch-line';
+        line.style.top = (Math.random() * 100) + '%';
+        line.style.opacity = Math.random() * 0.8 + 0.2;
+        line.style.height = (Math.random() * 3 + 1) + 'px';
+        glitchOverlay.appendChild(line);
+      }
+
+      // Create glitch blocks
+      for (let i = 0; i < 8; i++) {
+        const block = document.createElement('div');
+        block.className = 'glitch-block';
+        block.style.left = (Math.random() * 100) + '%';
+        block.style.top = (Math.random() * 100) + '%';
+        block.style.width = (Math.random() * 200 + 50) + 'px';
+        block.style.height = (Math.random() * 30 + 10) + 'px';
+        block.style.transform = `skewX(${Math.random() * 20 - 10}deg)`;
+        glitchOverlay.appendChild(block);
+      }
+    }
+
+    function triggerGlitch(intensity) {
+      if (Date.now() - lastGlitchTime < 100) return;
+      lastGlitchTime = Date.now();
+
+      isGlitching = true;
+      glitchIntensity = intensity;
+
+      container.classList.add('glitching');
+      glitchOverlay.classList.add('active');
+      createGlitchElements();
+
+      // Random ternary state
+      ternaryState.textContent = ternaryStates[Math.floor(Math.random() * ternaryStates.length)];
+      ternaryIndicator.classList.add('active');
+
+      // End glitch after short duration
+      setTimeout(() => {
+        container.classList.remove('glitching');
+        glitchOverlay.classList.remove('active');
+        isGlitching = false;
+      }, 100 + intensity * 150);
+    }
+
     // Animation
     let lastTime = performance.now();
     let frameCount = 0;
     let fps = 60;
+    let inTernaryState = false;
+    let ternaryEnterTime = 0;
 
     function animate(time) {
       requestAnimationFrame(animate);
@@ -638,9 +841,11 @@
 
       // Update orbits
       let displayQuat = null;
+      let minW = 1;
       orbits.forEach((orbit, i) => {
         const q = orbit.update(time * 0.001, speed, axes);
         if (i === 0) displayQuat = q;
+        minW = Math.min(minW, Math.abs(q.w));
       });
 
       // Update quaternion display
@@ -649,10 +854,44 @@
         document.getElementById('q-x').textContent = displayQuat.x.toFixed(2);
         document.getElementById('q-y').textContent = displayQuat.y.toFixed(2);
         document.getElementById('q-z').textContent = displayQuat.z.toFixed(2);
+
+        // Style w based on ternary proximity
+        const wEl = document.getElementById('q-w');
+        if (Math.abs(displayQuat.w) < TERNARY_THRESHOLD) {
+          wEl.style.color = '#ff0';
+          wEl.style.textShadow = '0 0 10px #ff0';
+        } else {
+          wEl.style.color = '#fff';
+          wEl.style.textShadow = 'none';
+        }
       }
 
-      // Pulse center sphere
-      centerSphere.scale.setScalar(1 + Math.sin(time * 0.003) * 0.1);
+      // Check for ternary state (when w approaches 0 - the undefined rotation zone)
+      if (minW < TERNARY_THRESHOLD) {
+        if (!inTernaryState) {
+          inTernaryState = true;
+          ternaryEnterTime = time;
+          triggerGlitch(1 - minW / TERNARY_THRESHOLD);
+        } else if (Math.random() < 0.1) {
+          // Random glitches while in ternary state
+          triggerGlitch((1 - minW / TERNARY_THRESHOLD) * 0.5);
+        }
+      } else {
+        if (inTernaryState) {
+          inTernaryState = false;
+          ternaryIndicator.classList.remove('active');
+        }
+      }
+
+      // Pulse center sphere - more erratic in ternary state
+      if (inTernaryState) {
+        const glitchScale = 1 + Math.sin(time * 0.01) * 0.3 + (Math.random() - 0.5) * 0.2;
+        centerSphere.scale.setScalar(glitchScale);
+        centerSphere.material.color.setHex(Math.random() > 0.5 ? 0xff00ff : 0x00ffff);
+      } else {
+        centerSphere.scale.setScalar(1 + Math.sin(time * 0.003) * 0.1);
+        centerSphere.material.color.setHex(0xffffff);
+      }
 
       renderer.render(scene, camera);
     }

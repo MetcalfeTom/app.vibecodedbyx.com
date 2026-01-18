@@ -1,6 +1,12 @@
 # Quaternion Orbit Visualizer
 
 ## log
+- 2026-01-18: Added w-opacity mapping and ternary glitch effect
+  - Trail opacity now maps to |w| component
+  - Shader-based per-vertex opacity
+  - Glitch effect triggers when w < 0.15 (ternary state)
+  - Screen shake, chromatic aberration, scan lines
+  - Random ternary state labels (NULL, VOID, NaN, etc.)
 - 2026-01-18: Initial creation
   - 3D quaternion rotation visualization
   - Neon orbital trails
