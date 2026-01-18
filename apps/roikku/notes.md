@@ -67,7 +67,7 @@
 - Categories (by difficulty):
   - Greetings (8 phrases)
   - Basics (6 phrases)
-  - Calendar (13 phrases)
+  - Calendar (17 phrases)
   - Pets (6 phrases)
   - Shopping (6 phrases)
   - Restaurant (7 phrases)
