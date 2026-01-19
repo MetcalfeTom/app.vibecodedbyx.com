@@ -1,6 +1,7 @@
 # Neon Synth
 
 ## log
+- 2026-01-19: Added tickle mode with synthesized speech saying ticklish phrases
 - 2026-01-19: Added comedy mode with 12 funny sounds (honks, laughs, boings, farts, quacks, etc.)
 - 2026-01-03: Initial creation - neon synthesizer with pulsing keys
 
@@ -9,7 +10,7 @@
 - Neon glow effects when pressed
 - Color-coded keys (magenta, cyan, yellow, lime, etc.)
 - Pulsing animation on active keys
-- Two modes: Synth and Comedy
+- Three modes: Synth, Comedy, and Tickle
 - Synth mode:
   - Web Audio oscillator synthesis
   - 4 waveforms: sine, square, sawtooth, triangle
@@ -20,6 +21,12 @@
   - Fart (whoopee cushion), Slide whistle, Bonk
   - Giggle, Bicycle horn, Splat, Sad trombone (wah wah)
   - Party horn
+- Tickle mode (12 phrases via Web Speech API):
+  - "Gah!", "Ehehehehe!!", "Yee Yow!", "I am so ticklish!"
+  - "Stop it! Hahaha!", "Nohoho not there!", "Eeek!"
+  - "That tickles so much!", "Ahaha I can't!", "Mercy! Mercy!"
+  - "Heeheehee!", "I'm gonna pee!"
+  - Wiggly title animation, pink theme
 - Real-time frequency visualizer
 - Keyboard input (A-L, ;, ')
 - Z/X for octave shift
