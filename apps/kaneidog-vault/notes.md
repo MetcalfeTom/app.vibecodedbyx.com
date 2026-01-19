@@ -1,6 +1,7 @@
 # Kaneidog Music Vault
 
 ## log
+- 2026-01-19: Added YouTube tab with Kaneidog channel link and video embedding
 - 2026-01-19: Initial creation - retro music player with visualizer (requested by radiokanelive)
 
 ## features
