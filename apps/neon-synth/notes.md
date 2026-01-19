@@ -1,6 +1,7 @@
 # Neon Synth
 
 ## log
+- 2026-01-19: Added comedy mode with 12 funny sounds (honks, laughs, boings, farts, quacks, etc.)
 - 2026-01-03: Initial creation - neon synthesizer with pulsing keys
 
 ## features
@@ -8,10 +9,17 @@
 - Neon glow effects when pressed
 - Color-coded keys (magenta, cyan, yellow, lime, etc.)
 - Pulsing animation on active keys
-- Web Audio oscillator synthesis
-- 4 waveforms: sine, square, sawtooth, triangle
-- 4 octave ranges: low, mid, high, ultra
-- Attack and release envelope controls
+- Two modes: Synth and Comedy
+- Synth mode:
+  - Web Audio oscillator synthesis
+  - 4 waveforms: sine, square, sawtooth, triangle
+  - 4 octave ranges: low, mid, high, ultra
+  - Attack and release envelope controls
+- Comedy mode (12 sounds):
+  - Honk, Laugh (ha ha ha), Boing, Duck quack
+  - Fart (whoopee cushion), Slide whistle, Bonk
+  - Giggle, Bicycle horn, Splat, Sad trombone (wah wah)
+  - Party horn
 - Real-time frequency visualizer
 - Keyboard input (A-L, ;, ')
 - Z/X for octave shift
