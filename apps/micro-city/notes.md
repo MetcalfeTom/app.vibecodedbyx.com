@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: REBALANCE v2 - Ran economy simulations, fixed power plant killing early game. Now profitable from the start!
 - 2026-01-20: MAJOR REBALANCE - Much more forgiving! Lower costs, higher income, less disasters, mayors can thrive!
 - 2026-01-20: Economy rebalance - higher taxes, lower base maintenance, random maintenance surges, pollution drift
 - 2026-01-20: Improved tooltips with 450ms hover delay and comprehensive game mechanic explanations
@@ -71,30 +72,31 @@
 - Income scales with happiness
 - Bankruptcy at -$1,000
 
-## costs (REBALANCED - more affordable!)
+## costs (REBALANCED v2 - very affordable!)
 - Residential: $100
 - Commercial: $150
 - Industrial: $200
 - Road: $50
-- Power Plant: $400
-- Police Station: $600
-- Fire Station: $600
-- Park: $200
+- Power Plant: $300
+- Police Station: $500
+- Fire Station: $500
+- Park: $150
 - Bulldoze: $10
 - Starting Money: $10,000!
 
-## maintenance (per year - very low!)
-- Residential: $2
-- Commercial: $3
-- Industrial: $4
-- Power Plant: $25
-- Police/Fire: $50 each
-- Park: $10
+## maintenance (per year - minimal!)
+- Residential: $1
+- Commercial: $2
+- Industrial: $3
+- Power Plant: $10 (was killing early game at $25!)
+- Police/Fire: $30 each
+- Park: $5
 
-## tax income (per level - generous!)
-- Commercial: ~$10/year (at 100% happiness)
-- Industrial: ~$7/year (at 100% happiness)
-- Tax rate: 12%
+## tax income (per level - very generous!)
+- Commercial: ~$18/year (at 60% happiness)
+- Industrial: ~$14/year (at 60% happiness)
+- Tax rate: 15%
+- Population bonus: $0.02 per citizen per year!
 
 ## maintenance surges (mild and rare)
 - After year 10, only ~6% chance per year
