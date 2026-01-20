@@ -1,7 +1,7 @@
 # Micro City
 
 ## log
-- 2026-01-20: Added hover tooltips showing detailed stats for zones and buildings
+- 2026-01-20: Improved tooltips with 450ms hover delay and comprehensive game mechanic explanations
 - 2026-01-20: Added zoom controls (50%-200%) and land expansion ($2000 for +6 tiles, max 60x60)
 - 2026-01-20: Added 5 named save slots + New Game button with save prompt
 - 2026-01-20: Added autosave every 30 seconds + on window close
@@ -27,7 +27,7 @@
 - **NEW: Save/Load** - 5 named slots, autosave, New Game button
 - **NEW: Zoom** - 50% to 200% zoom controls
 - **NEW: Land Expansion** - Buy more land for $2000 (max 60x60)
-- **NEW: Hover Tooltips** - Detailed stats when hovering over any cell
+- **NEW: Hover Tooltips** - Delayed tooltips (450ms) with full mechanic explanations
 - Harder development requirements
 
 ## challenge mechanics
