@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: Added autosave every 30 seconds + on window close
 - 2026-01-20: Added save/load feature using localStorage (auto-loads on start)
 - 2026-01-20: MAJOR OVERHAUL - Added challenging mechanics (fires, crime, pollution, power, services, bankruptcy)
 - 2026-01-19: Initial creation - SimCity style city builder
@@ -20,7 +21,7 @@
 - **NEW: Building decay** - Low happiness causes abandonment
 - **NEW: Bankruptcy** - Game over at -$1000
 - **NEW: Maintenance costs** - All buildings cost upkeep
-- **NEW: Save/Load** - localStorage persistence with auto-load
+- **NEW: Save/Load** - localStorage with autosave (30s + on close)
 - Harder development requirements
 
 ## challenge mechanics
