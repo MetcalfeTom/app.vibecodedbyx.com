@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: Added exponential speed controls (1x, 2x, 4x, 8x), loan system with 5% interest, monthly income ticker, and budget breakdown modal
 - 2026-01-20: REBALANCE v2 - Ran economy simulations, fixed power plant killing early game. Now profitable from the start!
 - 2026-01-20: MAJOR REBALANCE - Much more forgiving! Lower costs, higher income, less disasters, mayors can thrive!
 - 2026-01-20: Economy rebalance - higher taxes, lower base maintenance, random maintenance surges, pollution drift
@@ -31,6 +32,10 @@
 - **NEW: Zoom** - 50% to 200% zoom controls
 - **NEW: Land Expansion** - Buy more land for $2000 (max 60x60)
 - **NEW: Hover Tooltips** - Delayed tooltips (450ms) with full mechanic explanations
+- **NEW: Exponential Speed** - 1x, 2x, 4x, 8x speed controls
+- **NEW: Loan System** - Borrow up to $10k at 5% annual interest
+- **NEW: Income Ticker** - Floating +/- animations when yearly income is applied
+- **NEW: Budget Modal** - Click treasury for detailed income/expense breakdown
 - Harder development requirements
 
 ## challenge mechanics
