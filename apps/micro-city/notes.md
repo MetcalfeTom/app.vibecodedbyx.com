@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: Economy rebalance - higher taxes, lower base maintenance, random maintenance surges, pollution drift
 - 2026-01-20: Improved tooltips with 450ms hover delay and comprehensive game mechanic explanations
 - 2026-01-20: Added zoom controls (50%-200%) and land expansion ($2000 for +6 tiles, max 60x60)
 - 2026-01-20: Added 5 named save slots + New Game button with save prompt
@@ -80,13 +81,31 @@
 - Park: $300
 - Bulldoze: $25
 
-## maintenance (per year)
-- Residential: $5
-- Commercial: $8
-- Industrial: $10
-- Power Plant: $50
-- Police/Fire: $100 each
-- Park: $20
+## maintenance (per year, base)
+- Residential: $4
+- Commercial: $6
+- Industrial: $8
+- Power Plant: $40
+- Police/Fire: $80 each
+- Park: $15
+
+## tax income (per level)
+- Commercial: $6/year (at 100% happiness)
+- Industrial: $4.5/year (at 100% happiness)
+
+## maintenance surges
+- After year 5, ~12% chance per year of maintenance surge
+- Surges increase all maintenance by 30-60% for 2-4 years
+- Types: Power Grid Strain, Infrastructure Decay, Labor Shortage, Equipment Failure, Material Costs
+- Alert shown when surge starts, income shows ⚠️ during surge
+- Good players build cash reserves to weather surges
+
+## pollution system
+- Industrial creates pollution that scales with building level
+- Pollution now drifts to adjacent tiles over time
+- Natural decay is slower (97% vs 95% per tick)
+- Parks actively clean pollution in 1-tile radius
+- Without parks, pollution accumulates and spreads!
 
 ## strategy tips
 - Build power first!
