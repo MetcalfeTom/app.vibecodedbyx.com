@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: Added 5 named save slots + New Game button with save prompt
 - 2026-01-20: Added autosave every 30 seconds + on window close
 - 2026-01-20: Added save/load feature using localStorage (auto-loads on start)
 - 2026-01-20: MAJOR OVERHAUL - Added challenging mechanics (fires, crime, pollution, power, services, bankruptcy)
@@ -21,7 +22,7 @@
 - **NEW: Building decay** - Low happiness causes abandonment
 - **NEW: Bankruptcy** - Game over at -$1000
 - **NEW: Maintenance costs** - All buildings cost upkeep
-- **NEW: Save/Load** - localStorage with autosave (30s + on close)
+- **NEW: Save/Load** - 5 named slots, autosave, New Game button
 - Harder development requirements
 
 ## challenge mechanics
