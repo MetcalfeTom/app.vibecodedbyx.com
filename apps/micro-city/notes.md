@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: MAJOR REBALANCE - Much more forgiving! Lower costs, higher income, less disasters, mayors can thrive!
 - 2026-01-20: Economy rebalance - higher taxes, lower base maintenance, random maintenance surges, pollution drift
 - 2026-01-20: Improved tooltips with 450ms hover delay and comprehensive game mechanic explanations
 - 2026-01-20: Added zoom controls (50%-200%) and land expansion ($2000 for +6 tiles, max 60x60)
@@ -70,42 +71,48 @@
 - Income scales with happiness
 - Bankruptcy at -$1,000
 
-## costs
-- Residential: $150
-- Commercial: $200
-- Industrial: $250
-- Road: $75
-- Power Plant: $500
-- Police Station: $750
-- Fire Station: $750
-- Park: $300
-- Bulldoze: $25
+## costs (REBALANCED - more affordable!)
+- Residential: $100
+- Commercial: $150
+- Industrial: $200
+- Road: $50
+- Power Plant: $400
+- Police Station: $600
+- Fire Station: $600
+- Park: $200
+- Bulldoze: $10
+- Starting Money: $10,000!
 
-## maintenance (per year, base)
-- Residential: $4
-- Commercial: $6
-- Industrial: $8
-- Power Plant: $40
-- Police/Fire: $80 each
-- Park: $15
+## maintenance (per year - very low!)
+- Residential: $2
+- Commercial: $3
+- Industrial: $4
+- Power Plant: $25
+- Police/Fire: $50 each
+- Park: $10
 
-## tax income (per level)
-- Commercial: $6/year (at 100% happiness)
-- Industrial: $4.5/year (at 100% happiness)
+## tax income (per level - generous!)
+- Commercial: ~$10/year (at 100% happiness)
+- Industrial: ~$7/year (at 100% happiness)
+- Tax rate: 12%
 
-## maintenance surges
-- After year 5, ~12% chance per year of maintenance surge
-- Surges increase all maintenance by 30-60% for 2-4 years
-- Types: Power Grid Strain, Infrastructure Decay, Labor Shortage, Equipment Failure, Material Costs
-- Alert shown when surge starts, income shows ⚠️ during surge
-- Good players build cash reserves to weather surges
+## maintenance surges (mild and rare)
+- After year 10, only ~6% chance per year
+- Surges only increase maintenance by 15-25% for 2-3 years
+- Much more manageable than before!
 
-## pollution system
-- Industrial creates pollution that scales with building level
-- Pollution now drifts to adjacent tiles over time
-- Natural decay is slower (97% vs 95% per tick)
-- Parks actively clean pollution in 1-tile radius
-- Without parks, pollution accumulates and spreads!
+## pollution system (forgiving)
+- Industrial creates pollution but it decays FAST (92% per tick)
+- Minimal drift to neighbors
+- Parks still clean pollution effectively
+- Pollution tolerance raised to 50% for residential growth
+
+## growth conditions (easier!)
+- Demand threshold lowered from 45% to 35%
+- Pollution tolerance: 50% (was 40%)
+- Crime tolerance: 70% (was 60%)
+- Faster growth rate
+- Decay only at <20% happiness (was 30%)
 
 ## strategy tips
 - Build power first!
