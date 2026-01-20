@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: REBALANCE v3 - Anti-capitalist nightmare edition: nerfed commercial, buffed residential & industrial, cheaper services
 - 2026-01-20: Added exponential speed controls (1x, 2x, 4x, 8x), loan system with 5% interest, monthly income ticker, and budget breakdown modal
 - 2026-01-20: REBALANCE v2 - Ran economy simulations, fixed power plant killing early game. Now profitable from the start!
 - 2026-01-20: MAJOR REBALANCE - Much more forgiving! Lower costs, higher income, less disasters, mayors can thrive!
@@ -77,7 +78,7 @@
 - Income scales with happiness
 - Bankruptcy at -$1,000
 
-## costs (REBALANCED v2 - very affordable!)
+## costs (REBALANCED v3)
 - Residential: $100
 - Commercial: $150
 - Industrial: $200
@@ -89,19 +90,32 @@
 - Bulldoze: $10
 - Starting Money: $10,000!
 
-## maintenance (per year - minimal!)
+## maintenance (per year - v3)
 - Residential: $1
 - Commercial: $2
 - Industrial: $3
-- Power Plant: $10 (was killing early game at $25!)
-- Police/Fire: $30 each
+- Power Plant: $10
+- Police/Fire: $20 each (reduced from $30!)
 - Park: $5
 
-## tax income (per level - very generous!)
-- Commercial: ~$18/year (at 60% happiness)
-- Industrial: ~$14/year (at 60% happiness)
+## tax income (per level - v3 rebalanced)
+- Commercial: ~$14.4/year at L3 (nerfed from $18 - TAX_COM 100->80)
+- Industrial: ~$18/year at L3 (buffed from $14 - TAX_IND 80->100)
 - Tax rate: 15%
-- Population bonus: $0.02 per citizen per year!
+- Population bonus: $0.05 per citizen per year! (buffed from $0.02)
+- Residential L3 now earns $12/yr from pop bonus alone!
+
+## v3 ROI analysis (at 60% happiness)
+| Building    | Cost | Maint | Income/yr (L3) | Net/yr | Payback |
+|-------------|------|-------|----------------|--------|---------|
+| Commercial  | $150 | $2    | $43            | $41    | ~4 yrs  |
+| Industrial  | $200 | $3    | $54            | $51    | ~4 yrs  |
+| Residential | $100 | $1    | $12            | $11    | ~9 yrs  |
+
+## pollution (v3 - less punishing)
+- Industrial pollution output reduced 40% (0.25+0.05 -> 0.15+0.03)
+- Decay rate increased (0.92 -> 0.88) - clears faster
+- Industrial is now viable without park spam!
 
 ## maintenance surges (mild and rare)
 - After year 10, only ~6% chance per year
