@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: REBALANCE v4 - Perfect scaling: crime/fire/happiness now scale with city size, diminishing returns on parks
 - 2026-01-20: REBALANCE v3 - Anti-capitalist nightmare edition: nerfed commercial, buffed residential & industrial, cheaper services
 - 2026-01-20: Added exponential speed controls (1x, 2x, 4x, 8x), loan system with 5% interest, monthly income ticker, and budget breakdown modal
 - 2026-01-20: REBALANCE v2 - Ran economy simulations, fixed power plant killing early game. Now profitable from the start!
@@ -116,6 +117,30 @@
 - Industrial pollution output reduced 40% (0.25+0.05 -> 0.15+0.03)
 - Decay rate increased (0.92 -> 0.88) - clears faster
 - Industrial is now viable without park spam!
+
+## v4 scaling mechanics (scales with city size)
+
+### Crime Scaling
+- Base crime = min(100, totalBuildings × 2)
+- Each police station reduces crime by 30% (multiplicative)
+- Each park reduces crime by 5% (multiplicative)
+- Example: 50 buildings + 3 police + 5 parks = 50×2 × 0.7³ × 0.95⁵ = 27% crime
+
+### Fire Risk Scaling
+- Fire chance = min(20%, 5% + buildings × 0.3%)
+- Small city (10 buildings): 8% fire chance
+- Medium city (30 buildings): 14% fire chance
+- Large city (50+): 20% fire chance (capped)
+
+### Happiness Diminishing Returns
+- Parks: 5% each but diminishing (cap at 30% total)
+- Commercial: sqrt(levels) × 4 (cap at 20% total)
+- Prevents happiness spam at large scale
+
+### Infrastructure Overhead
+- $1 per 10 building levels
+- Represents bureaucracy, roads, utilities
+- Small cities barely notice, large cities feel the cost
 
 ## maintenance surges (mild and rare)
 - After year 10, only ~6% chance per year
