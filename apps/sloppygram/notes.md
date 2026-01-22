@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-22: Added doodle leaderboard with global voting - star your favorite drawings!
 - 2026-01-22: Fixed auth persistence - added explicit session storage options and auth state listener
 - 2026-01-22: Added posts system with image URLs, local file preview, likes, and comments
 - 2026-01-22: Added custom avatar URL, custom background URL, and profile reset
@@ -33,12 +34,16 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Posts feed with image URLs and local file upload
 - Like and unlike posts
 - Comment on posts
+- Doodle leaderboard with global voting
+- Vote on drawings with star button
+- Ranked doodle display (gold/silver/bronze)
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
 - sloppygram_profiles: username, avatar, bio, color
 - sloppygram_posts: username, avatar, avatar_url, caption, image_url, image_data, likes_count
 - sloppygram_post_likes: post_id, username
+- sloppygram_doodle_votes: message_id, voter_username
 - sloppygram_post_comments: post_id, username, avatar, content
 
 ## avatars
