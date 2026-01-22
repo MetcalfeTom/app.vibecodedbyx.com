@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-22: Added nested symbolic tagging system - hierarchical tags with parent/child, filter by tag, trending tags sidebar
 - 2026-01-22: Added emoji reactions to posts (8 emojis) and global shared backgrounds
 - 2026-01-22: Replaced URL inputs with file uploads for avatar and background images
 - 2026-01-22: Added doodle leaderboard with global voting - star your favorite drawings!
@@ -41,6 +42,9 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Ranked doodle display (gold/silver/bronze)
 - Emoji reactions on posts (😂🔥❤️😮😢👏🙌💀)
 - Global shared backgrounds (upload and share with everyone)
+- Nested symbolic tagging (use "/" for hierarchies like meme/cursed, art/pixel)
+- Filter posts by clicking tags
+- Trending tags sidebar showing most popular tags
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
@@ -51,6 +55,7 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - sloppygram_post_comments: post_id, username, avatar, content
 - sloppygram_post_reactions: post_id, emoji, username
 - sloppygram_global_backgrounds: image_data, username, name
+- sloppygram_post_tags: post_id, tag, parent_tag
 
 ## avatars
 😀 😎 🤖 👽 🐱 🐶 🦊 🐼 🐸 🦄 🐲 👻 💀 🎃 🤡 👾 🥷 🧙
