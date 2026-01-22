@@ -3,11 +3,18 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-22: Major redesign - dark 1990s cyber aesthetic, online users, public feed, AI roast bot
 - 2026-01-22: Rewrote real-time with hybrid broadcast+postgres_changes - instant updates for all users
 - 2026-01-22: Fixed drawing offset (canvas scaling), improved real-time subscription with status indicator
 - 2026-01-22: Initial creation with full chat, images, avatars, and drawing tool
 
 ## features
+- Dark 1990s cyber aesthetic with neon colors and scanlines
+- VT323 monospace font, CRT scanline overlay
+- Marquee header with visitor counter
+- Online user list with Supabase Presence
+- Public activity feed sidebar
+- RoastBot3000 AI assistant (type /roast or click 🔥)
 - Global real-time chatroom via Supabase
 - Anonymous authentication
 - Custom username and avatar
