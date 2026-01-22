@@ -792,33 +792,77 @@
             container.scrollTop = container.scrollHeight;
         }
 
-        // Subscribe to new messages
-        function subscribeToMessages() {
-            const channel = supabase
-                .channel('sloppygram_realtime')
-                .on('postgres_changes', {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'sloppygram_messages'
-                }, (payload) => {
-                    // Avoid duplicate messages
-                    if (seenMessageIds.has(payload.new.id)) return;
-                    seenMessageIds.add(payload.new.id);
+        // Real-time channel reference
+        let realtimeChannel = null;
 
-                    addMessageToUI(payload.new);
-                    const container = document.getElementById('messagesContainer');
-                    container.scrollTop = container.scrollHeight;
-                })
-                .subscribe((status) => {
-                    console.log('Realtime subscription status:', status);
-                    if (status === 'SUBSCRIBED') {
-                        document.getElementById('onlineCount').textContent = 'Live 🟢';
-                    } else if (status === 'CHANNEL_ERROR') {
-                        document.getElementById('onlineCount').textContent = 'Reconnecting...';
-                        // Retry subscription after a delay
-                        setTimeout(subscribeToMessages, 3000);
-                    }
+        // Subscribe to new messages using hybrid approach
+        function subscribeToMessages() {
+            // Clean up existing channel if any
+            if (realtimeChannel) {
+                supabase.removeChannel(realtimeChannel);
+            }
+
+            realtimeChannel = supabase.channel('sloppygram-global', {
+                config: {
+                    broadcast: { self: false } // Don't receive own broadcasts
+                }
+            });
+
+            // Listen for broadcast messages (instant delivery)
+            realtimeChannel.on('broadcast', { event: 'new_message' }, (payload) => {
+                const msg = payload.payload;
+                if (!msg || seenMessageIds.has(msg.id)) return;
+                seenMessageIds.add(msg.id);
+                addMessageToUI(msg);
+                scrollToBottom();
+            });
+
+            // Also listen for postgres changes (backup/consistency)
+            realtimeChannel.on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'sloppygram_messages'
+            }, (payload) => {
+                if (seenMessageIds.has(payload.new.id)) return;
+                seenMessageIds.add(payload.new.id);
+                addMessageToUI(payload.new);
+                scrollToBottom();
+            });
+
+            // Subscribe and handle status
+            realtimeChannel.subscribe((status, err) => {
+                console.log('Realtime status:', status, err || '');
+                const statusEl = document.getElementById('onlineCount');
+
+                if (status === 'SUBSCRIBED') {
+                    statusEl.textContent = 'Live 🟢';
+                    statusEl.style.color = '#4caf50';
+                } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    statusEl.textContent = 'Reconnecting...';
+                    statusEl.style.color = '#ff9800';
+                    // Retry after delay
+                    setTimeout(subscribeToMessages, 3000);
+                } else if (status === 'CLOSED') {
+                    statusEl.textContent = 'Offline 🔴';
+                    statusEl.style.color = '#f44336';
+                }
+            });
+        }
+
+        // Broadcast message to all connected users instantly
+        function broadcastMessage(msg) {
+            if (realtimeChannel) {
+                realtimeChannel.send({
+                    type: 'broadcast',
+                    event: 'new_message',
+                    payload: msg
                 });
+            }
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('messagesContainer');
+            container.scrollTop = container.scrollHeight;
         }
 
         // Add message to UI
@@ -878,27 +922,60 @@
 
             if (!content && !selectedImage) return;
 
+            // Generate temp ID for immediate display
+            const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
             const msg = {
+                id: tempId,
                 username: profile.username,
                 avatar: profile.avatar,
                 content: content || null,
                 image_data: selectedImage || null,
                 drawing_data: null,
                 message_type: selectedImage ? 'image' : 'text',
-                user_id: currentUser?.id
+                user_id: currentUser?.id,
+                created_at: new Date().toISOString()
             };
 
-            const { error } = await supabase.from('sloppygram_messages').insert(msg);
+            // Clear input immediately for responsive feel
+            input.value = '';
+            input.style.height = 'auto';
+            const sentImage = selectedImage;
+            removeImage();
+
+            // Show own message instantly
+            seenMessageIds.add(tempId);
+            addMessageToUI(msg);
+            scrollToBottom();
+
+            // Broadcast to other users instantly
+            broadcastMessage(msg);
+
+            // Save to database
+            const { data, error } = await supabase
+                .from('sloppygram_messages')
+                .insert({
+                    username: msg.username,
+                    avatar: msg.avatar,
+                    content: msg.content,
+                    image_data: msg.image_data,
+                    drawing_data: msg.drawing_data,
+                    message_type: msg.message_type,
+                    user_id: msg.user_id
+                })
+                .select('id')
+                .single();
 
             if (error) {
                 console.error('Send error:', error);
-                alert('Failed to send message');
+                // Message already shown, just log the error
                 return;
             }
 
-            input.value = '';
-            input.style.height = 'auto';
-            removeImage();
+            // Track real ID to prevent duplicate from postgres_changes
+            if (data?.id) {
+                seenMessageIds.add(data.id);
+            }
         };
 
         // Send drawing
@@ -906,26 +983,57 @@
             const canvas = document.getElementById('drawingCanvas');
             const drawingData = canvas.toDataURL('image/png');
 
+            // Generate temp ID for immediate display
+            const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
             const msg = {
+                id: tempId,
                 username: profile.username,
                 avatar: profile.avatar,
                 content: null,
                 image_data: null,
                 drawing_data: drawingData,
                 message_type: 'drawing',
-                user_id: currentUser?.id
+                user_id: currentUser?.id,
+                created_at: new Date().toISOString()
             };
 
-            const { error } = await supabase.from('sloppygram_messages').insert(msg);
+            // Close modal immediately for responsive feel
+            closeDrawingModal();
+            clearCanvas();
+
+            // Show own drawing instantly
+            seenMessageIds.add(tempId);
+            addMessageToUI(msg);
+            scrollToBottom();
+
+            // Broadcast to other users instantly
+            broadcastMessage(msg);
+
+            // Save to database
+            const { data, error } = await supabase
+                .from('sloppygram_messages')
+                .insert({
+                    username: msg.username,
+                    avatar: msg.avatar,
+                    content: msg.content,
+                    image_data: msg.image_data,
+                    drawing_data: msg.drawing_data,
+                    message_type: msg.message_type,
+                    user_id: msg.user_id
+                })
+                .select('id')
+                .single();
 
             if (error) {
                 console.error('Send error:', error);
-                alert('Failed to send drawing');
-                return;
+                // Drawing already shown, just log the error
             }
 
-            closeDrawingModal();
-            clearCanvas();
+            // Track real ID to prevent duplicate from postgres_changes
+            if (data?.id) {
+                seenMessageIds.add(data.id);
+            }
         };
 
         // Image handling
