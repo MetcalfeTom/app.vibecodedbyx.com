@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-22: Fixed auth persistence - added explicit session storage options and auth state listener
 - 2026-01-22: Added posts system with image URLs, local file preview, likes, and comments
 - 2026-01-22: Added custom avatar URL, custom background URL, and profile reset
 - 2026-01-22: Removed RoastBot and neon borders - cleaner muted aesthetic
