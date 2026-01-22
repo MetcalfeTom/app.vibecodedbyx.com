@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-01-20: Road connectivity matters! Buildings without road access generate no income/population, red corner indicator
 - 2026-01-20: REBALANCE v4 - Perfect scaling: crime/fire/happiness now scale with city size, diminishing returns on parks
 - 2026-01-20: REBALANCE v3 - Anti-capitalist nightmare edition: nerfed commercial, buffed residential & industrial, cheaper services
 - 2026-01-20: Added exponential speed controls (1x, 2x, 4x, 8x), loan system with 5% interest, monthly income ticker, and budget breakdown modal
