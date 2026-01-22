@@ -1,13 +1,15 @@
-# Windows 95 (Tropical 95)
+# Windows 95
 
-A nostalgic Windows 95 desktop experience with a tropical sunset theme.
+A nostalgic Windows 95 desktop experience with classic teal background.
 
 ## log
+- 2026-01-22: Changed to classic solid teal (#008080) background, removed tropical theme
+- 2026-01-22: Updated title bars and menus to classic Windows 95 blue
 - 2026-01-22: Fixed Paint app bug - variable named 'window' was shadowing global window object
 - 2026-01-22: Added OG image via Pollinations for social sharing
 - 2026-01-22: Added Recycle Bin and Control Panel desktop icons
 - 2026-01-22: Improved mobile responsive layout (icon grid, window sizing)
-- Original: Tropical 95 desktop simulator with multiple apps
+- Original: Desktop simulator with multiple apps
 
 ## features
 - Desktop icons: My Computer, Notepad, Paint, Calculator, Browser
