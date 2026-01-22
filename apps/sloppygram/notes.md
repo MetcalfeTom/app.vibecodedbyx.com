@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-22: Added emoji reactions to posts (8 emojis) and global shared backgrounds
 - 2026-01-22: Replaced URL inputs with file uploads for avatar and background images
 - 2026-01-22: Added doodle leaderboard with global voting - star your favorite drawings!
 - 2026-01-22: Fixed auth persistence - added explicit session storage options and auth state listener
@@ -38,6 +39,8 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Doodle leaderboard with global voting
 - Vote on drawings with star button
 - Ranked doodle display (gold/silver/bronze)
+- Emoji reactions on posts (😂🔥❤️😮😢👏🙌💀)
+- Global shared backgrounds (upload and share with everyone)
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
@@ -46,6 +49,8 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - sloppygram_post_likes: post_id, username
 - sloppygram_doodle_votes: message_id, voter_username
 - sloppygram_post_comments: post_id, username, avatar, content
+- sloppygram_post_reactions: post_id, emoji, username
+- sloppygram_global_backgrounds: image_data, username, name
 
 ## avatars
 😀 😎 🤖 👽 🐱 🐶 🦊 🐼 🐸 🦄 🐲 👻 💀 🎃 🤡 👾 🥷 🧙
