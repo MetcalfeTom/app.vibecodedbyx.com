@@ -604,6 +604,7 @@
         let drawingCtx = null;
         let isDrawing = false;
         let brushColor = '#000000';
+        const seenMessageIds = new Set();
 
         // Load saved profile
         const savedProfile = localStorage.getItem('sloppygram_profile');
@@ -709,29 +710,46 @@
                 e.preventDefault();
                 const touch = e.touches[0];
                 const rect = canvas.getBoundingClientRect();
-                startDrawing({ offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top });
-            });
+                const offsetX = touch.clientX - rect.left;
+                const offsetY = touch.clientY - rect.top;
+                startDrawing({ offsetX, offsetY });
+            }, { passive: false });
 
             canvas.addEventListener('touchmove', (e) => {
                 e.preventDefault();
                 const touch = e.touches[0];
                 const rect = canvas.getBoundingClientRect();
-                draw({ offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top });
-            });
+                const offsetX = touch.clientX - rect.left;
+                const offsetY = touch.clientY - rect.top;
+                draw({ offsetX, offsetY });
+            }, { passive: false });
 
             canvas.addEventListener('touchend', stopDrawing);
         }
 
+        function getCanvasCoords(e) {
+            const canvas = document.getElementById('drawingCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: e.offsetX * scaleX,
+                y: e.offsetY * scaleY
+            };
+        }
+
         function startDrawing(e) {
             isDrawing = true;
+            const coords = getCanvasCoords(e);
             drawingCtx.beginPath();
-            drawingCtx.moveTo(e.offsetX, e.offsetY);
+            drawingCtx.moveTo(coords.x, coords.y);
         }
 
         function draw(e) {
             if (!isDrawing) return;
+            const coords = getCanvasCoords(e);
             drawingCtx.strokeStyle = brushColor;
-            drawingCtx.lineTo(e.offsetX, e.offsetY);
+            drawingCtx.lineTo(coords.x, coords.y);
             drawingCtx.stroke();
         }
 
@@ -767,24 +785,40 @@
             }
 
             emptyState.style.display = 'none';
-            data.forEach(msg => addMessageToUI(msg));
+            data.forEach(msg => {
+                seenMessageIds.add(msg.id);
+                addMessageToUI(msg);
+            });
             container.scrollTop = container.scrollHeight;
         }
 
         // Subscribe to new messages
         function subscribeToMessages() {
-            supabase
-                .channel('sloppygram_messages')
+            const channel = supabase
+                .channel('sloppygram_realtime')
                 .on('postgres_changes', {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'sloppygram_messages'
                 }, (payload) => {
+                    // Avoid duplicate messages
+                    if (seenMessageIds.has(payload.new.id)) return;
+                    seenMessageIds.add(payload.new.id);
+
                     addMessageToUI(payload.new);
                     const container = document.getElementById('messagesContainer');
                     container.scrollTop = container.scrollHeight;
                 })
-                .subscribe();
+                .subscribe((status) => {
+                    console.log('Realtime subscription status:', status);
+                    if (status === 'SUBSCRIBED') {
+                        document.getElementById('onlineCount').textContent = 'Live 🟢';
+                    } else if (status === 'CHANNEL_ERROR') {
+                        document.getElementById('onlineCount').textContent = 'Reconnecting...';
+                        // Retry subscription after a delay
+                        setTimeout(subscribeToMessages, 3000);
+                    }
+                });
         }
 
         // Add message to UI
