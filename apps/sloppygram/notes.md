@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-22: Added posts system with image URLs, local file preview, likes, and comments
 - 2026-01-22: Added custom avatar URL, custom background URL, and profile reset
 - 2026-01-22: Removed RoastBot and neon borders - cleaner muted aesthetic
 - 2026-01-22: Toned down neon glow effects, improved RoastBot with POST endpoint + timeout + more fallbacks
@@ -28,10 +29,16 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Message timestamps
 - Own messages highlighted
 - Mobile-friendly responsive design
+- Posts feed with image URLs and local file upload
+- Like and unlike posts
+- Comment on posts
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
 - sloppygram_profiles: username, avatar, bio, color
+- sloppygram_posts: username, avatar, avatar_url, caption, image_url, image_data, likes_count
+- sloppygram_post_likes: post_id, username
+- sloppygram_post_comments: post_id, username, avatar, content
 
 ## avatars
 😀 😎 🤖 👽 🐱 🐶 🦊 🐼 🐸 🦄 🐲 👻 💀 🎃 🤡 👾 🥷 🧙
