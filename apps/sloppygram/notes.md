@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-22: Toned down neon glow effects, improved RoastBot with POST endpoint + timeout + more fallbacks
 - 2026-01-22: Major redesign - dark 1990s cyber aesthetic, online users, public feed, AI roast bot
 - 2026-01-22: Rewrote real-time with hybrid broadcast+postgres_changes - instant updates for all users
 - 2026-01-22: Fixed drawing offset (canvas scaling), improved real-time subscription with status indicator
