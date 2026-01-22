@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-22: Added custom avatar URL, custom background URL, and profile reset
 - 2026-01-22: Removed RoastBot and neon borders - cleaner muted aesthetic
 - 2026-01-22: Toned down neon glow effects, improved RoastBot with POST endpoint + timeout + more fallbacks
 - 2026-01-22: Major redesign - dark 1990s cyber aesthetic, online users, public feed, AI roast bot
