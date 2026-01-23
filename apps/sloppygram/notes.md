@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Mobile flexbox refactor - replaced 100dvh calc() with flex:1, added safe-area-inset padding
 - 2026-01-23: Removed profile card cache - stats now always fetched fresh from database
 - 2026-01-23: Profile cards now show upvotes/downvotes from user's posts (green ▲ / red ▼)
 - 2026-01-23: Added eraser tool to collaborative canvas (🧽 button, wider brush, syncs with other users)
