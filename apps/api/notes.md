@@ -3,6 +3,7 @@
 Read-only API endpoint for fetching Sloppygram data.
 
 ## log
+- 2026-01-23: Added strict date filtering on fetchFeed combined array, documented direct REST access for CORS-enabled crawling
 - 2026-01-23: Added query param routing (?endpoint=X) for programmatic access - hash routing only works in browsers
 - 2026-01-23: Added stats endpoint, doodles endpoint, vote scores, avatar_url fields
 - 2026-01-23: Initial creation - read-only endpoints for messages, posts, manifestos, events
