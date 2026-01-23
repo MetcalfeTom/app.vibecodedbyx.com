@@ -1590,6 +1590,63 @@
             background: var(--accent);
         }
 
+        /* Threaded Comments */
+        .comment-thread {
+            margin-left: 28px;
+            border-left: 2px solid var(--border-color);
+            padding-left: 8px;
+        }
+
+        .comment-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 4px;
+        }
+
+        .comment-reply-btn {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-family: inherit;
+            font-size: 0.8rem;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .comment-reply-btn:hover {
+            color: var(--accent);
+        }
+
+        .reply-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: rgba(124, 152, 133, 0.1);
+            border-left: 3px solid var(--accent);
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+        }
+
+        .reply-indicator .cancel-reply {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0 4px;
+        }
+
+        .reply-indicator .cancel-reply:hover {
+            color: #ff6b6b;
+        }
+
+        .comment-time {
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            margin-left: 8px;
+        }
+
         /* Create Post Button */
         .create-post-btn {
             position: fixed;
@@ -1971,6 +2028,8 @@
         let postTags = {}; // { postId: [{ tag, parent_tag }, ...] }
         let pendingTags = []; // tags being added to new post
         let activeTagFilter = null; // current tag filter
+        let commentThreads = {}; // { commentId: parentCommentId }
+        let replyingTo = null; // { postId, commentId, username } when replying to a comment
 
         // Load saved profile
         const savedProfile = localStorage.getItem('sloppygram_profile');
@@ -2802,6 +2861,17 @@
                     if (!postTags[t.post_id]) postTags[t.post_id] = [];
                     postTags[t.post_id].push({ tag: t.tag, parent_tag: t.parent_tag });
                 });
+
+                // Load comment thread relationships
+                const { data: threadsData } = await supabase
+                    .from('sloppygram_comment_threads')
+                    .select('*')
+                    .eq('comment_type', 'post')
+                    .in('post_id', postIds);
+
+                (threadsData || []).forEach(t => {
+                    commentThreads[t.comment_id] = t.parent_comment_id;
+                });
             }
 
             renderPosts();
@@ -2822,6 +2892,46 @@
             container.innerHTML = posts.map(post => renderPostCard(post)).join('');
         }
 
+        // Render threaded comments with replies
+        function renderThreadedComments(comments, postId, type = 'post') {
+            // Build a map of comment threads
+            const threads = {}; // parentId -> [children]
+            const rootComments = [];
+
+            comments.forEach(c => {
+                const parentId = commentThreads[c.id];
+                if (parentId) {
+                    if (!threads[parentId]) threads[parentId] = [];
+                    threads[parentId].push(c);
+                } else {
+                    rootComments.push(c);
+                }
+            });
+
+            function renderComment(c, depth = 0) {
+                const time = c.created_at ? new Date(c.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                const replies = threads[c.id] || [];
+                const isNested = depth > 0;
+
+                return `
+                    <div class="comment ${isNested ? 'comment-thread' : ''}" data-comment-id="${c.id}">
+                        <span class="comment-avatar">${c.avatar || '👤'}</span>
+                        <div class="comment-content">
+                            <span class="comment-username">${escapeHtml(c.username)}</span>
+                            <span class="comment-time">${time}</span>
+                            <div class="comment-text">${escapeHtml(c.content)}</div>
+                            <div class="comment-actions">
+                                <button class="comment-reply-btn" onclick="startReply(${postId}, ${c.id}, '${escapeHtml(c.username)}', '${type}')">↩ reply</button>
+                            </div>
+                        </div>
+                    </div>
+                    ${replies.map(r => renderComment(r, depth + 1)).join('')}
+                `;
+            }
+
+            return rootComments.map(c => renderComment(c, 0)).join('');
+        }
+
         function renderPostCard(post) {
             const time = new Date(post.created_at).toLocaleString();
             const liked = postLikes[post.id];
@@ -2838,15 +2948,15 @@
                 ? `<img class="post-image" src="${post.image_url}" onerror="this.style.display='none'">`
                 : (post.image_data ? `<img class="post-image" src="${post.image_data}">` : '');
 
-            const commentsHtml = comments.map(c => `
-                <div class="comment">
-                    <span class="comment-avatar">${c.avatar || '👤'}</span>
-                    <div class="comment-content">
-                        <span class="comment-username">${escapeHtml(c.username)}</span>
-                        <span class="comment-text">${escapeHtml(c.content)}</span>
-                    </div>
-                </div>
-            `).join('');
+            const commentsHtml = renderThreadedComments(comments, post.id, 'post');
+
+            // Reply indicator if replying to a comment on this post
+            const replyIndicatorHtml = (replyingTo && replyingTo.postId === post.id && replyingTo.type === 'post')
+                ? `<div class="reply-indicator">
+                    <span>↩ Replying to <strong>${escapeHtml(replyingTo.username)}</strong></span>
+                    <button class="cancel-reply" onclick="cancelReply()">✕</button>
+                </div>`
+                : '';
 
             // Build reactions HTML
             const reactionsHtml = Object.entries(reactions)
@@ -2904,8 +3014,9 @@
                     <div class="post-comments" id="comments-${post.id}">
                         ${commentsHtml}
                     </div>
+                    ${replyIndicatorHtml}
                     <div class="comment-input-row">
-                        <input class="comment-input" id="comment-input-${post.id}" placeholder="Add a comment..." onkeydown="if(event.key==='Enter')addComment(${post.id})">
+                        <input class="comment-input" id="comment-input-${post.id}" placeholder="${replyingTo && replyingTo.postId === post.id ? 'Write a reply...' : 'Add a comment...'}" onkeydown="if(event.key==='Enter')addComment(${post.id})">
                         <button class="comment-send" onclick="addComment(${post.id})">POST</button>
                     </div>
                 </div>
@@ -2954,6 +3065,35 @@
             document.getElementById(`comment-input-${postId}`).focus();
         };
 
+        // Start replying to a specific comment
+        window.startReply = function(postId, commentId, username, type = 'post') {
+            replyingTo = { postId, commentId, username, type };
+            if (type === 'post') {
+                renderPosts();
+                setTimeout(() => {
+                    const input = document.getElementById(`comment-input-${postId}`);
+                    if (input) input.focus();
+                }, 50);
+            } else {
+                renderManifestos();
+                setTimeout(() => {
+                    const input = document.getElementById(`manifesto-comment-input-${postId}`);
+                    if (input) input.focus();
+                }, 50);
+            }
+        };
+
+        // Cancel replying
+        window.cancelReply = function() {
+            const wasType = replyingTo?.type;
+            replyingTo = null;
+            if (wasType === 'post') {
+                renderPosts();
+            } else if (wasType === 'manifesto') {
+                renderManifestos();
+            }
+        };
+
         window.addComment = async function(postId) {
             const input = document.getElementById(`comment-input-${postId}`);
             const content = input.value.trim();
@@ -2967,19 +3107,36 @@
                 user_id: currentUser.id
             };
 
-            const { error } = await supabase
+            const { data, error } = await supabase
                 .from('sloppygram_post_comments')
-                .insert(comment);
+                .insert(comment)
+                .select()
+                .single();
 
             if (error) {
                 console.error('Error adding comment:', error);
                 return;
             }
 
+            // If this is a reply, save the thread relationship
+            if (replyingTo && replyingTo.postId === postId && replyingTo.type === 'post' && data) {
+                await supabase
+                    .from('sloppygram_comment_threads')
+                    .insert({
+                        comment_id: data.id,
+                        parent_comment_id: replyingTo.commentId,
+                        comment_type: 'post',
+                        post_id: postId,
+                        user_id: currentUser.id
+                    });
+                commentThreads[data.id] = replyingTo.commentId;
+            }
+
             if (!postComments[postId]) postComments[postId] = [];
-            postComments[postId].push({ ...comment, created_at: new Date().toISOString() });
+            postComments[postId].push({ ...comment, id: data?.id, created_at: new Date().toISOString() });
 
             input.value = '';
+            replyingTo = null;
             renderPosts();
         };
 
@@ -3507,6 +3664,17 @@
                     if (!manifestoTags[t.manifesto_id]) manifestoTags[t.manifesto_id] = [];
                     manifestoTags[t.manifesto_id].push({ tag: t.tag, parent_tag: t.parent_tag });
                 });
+
+                // Load comment thread relationships for manifestos
+                const { data: threadsData } = await supabase
+                    .from('sloppygram_comment_threads')
+                    .select('*')
+                    .eq('comment_type', 'manifesto')
+                    .in('post_id', manifestoIds);
+
+                (threadsData || []).forEach(t => {
+                    commentThreads[t.comment_id] = t.parent_comment_id;
+                });
             }
 
             renderManifestos();
@@ -3549,15 +3717,15 @@
                 `<button onclick="toggleManifestoReaction(${m.id}, '${emoji}')">${emoji}</button>`
             ).join('');
 
-            const commentsHtml = comments.map(c => `
-                <div class="comment">
-                    <span class="comment-avatar">${c.avatar || '👤'}</span>
-                    <div class="comment-content">
-                        <span class="comment-username">${escapeHtml(c.username)}</span>
-                        <span class="comment-text">${escapeHtml(c.content)}</span>
-                    </div>
-                </div>
-            `).join('');
+            const commentsHtml = renderThreadedComments(comments, m.id, 'manifesto');
+
+            // Reply indicator if replying to a comment on this manifesto
+            const replyIndicatorHtml = (replyingTo && replyingTo.postId === m.id && replyingTo.type === 'manifesto')
+                ? `<div class="reply-indicator">
+                    <span>↩ Replying to <strong>${escapeHtml(replyingTo.username)}</strong></span>
+                    <button class="cancel-reply" onclick="cancelReply()">✕</button>
+                </div>`
+                : '';
 
             const tagsHtml = tags.length > 0 ? `
                 <div class="post-tags">
@@ -3599,8 +3767,9 @@
                     <div class="post-comments" id="manifesto-comments-${m.id}">
                         ${commentsHtml}
                     </div>
+                    ${replyIndicatorHtml}
                     <div class="comment-input-row">
-                        <input class="comment-input" id="manifesto-comment-input-${m.id}" placeholder="Add a comment..." onkeydown="if(event.key==='Enter')addManifestoComment(${m.id})">
+                        <input class="comment-input" id="manifesto-comment-input-${m.id}" placeholder="${replyingTo && replyingTo.postId === m.id && replyingTo.type === 'manifesto' ? 'Write a reply...' : 'Add a comment...'}" onkeydown="if(event.key==='Enter')addManifestoComment(${m.id})">
                         <button class="comment-send" onclick="addManifestoComment(${m.id})">POST</button>
                     </div>
                 </div>
@@ -3690,7 +3859,7 @@
         window.addManifestoComment = async function(manifestoId) {
             const input = document.getElementById(`manifesto-comment-input-${manifestoId}`);
             const content = input.value.trim();
-            if (!content) return;
+            if (!content || !currentUser) return;
 
             const comment = {
                 manifesto_id: manifestoId,
@@ -3700,19 +3869,36 @@
                 user_id: currentUser.id
             };
 
-            const { error } = await supabase
+            const { data, error } = await supabase
                 .from('sloppygram_manifesto_comments')
-                .insert(comment);
+                .insert(comment)
+                .select()
+                .single();
 
             if (error) {
                 console.error('Error adding comment:', error);
                 return;
             }
 
+            // If this is a reply, save the thread relationship
+            if (replyingTo && replyingTo.postId === manifestoId && replyingTo.type === 'manifesto' && data) {
+                await supabase
+                    .from('sloppygram_comment_threads')
+                    .insert({
+                        comment_id: data.id,
+                        parent_comment_id: replyingTo.commentId,
+                        comment_type: 'manifesto',
+                        post_id: manifestoId,
+                        user_id: currentUser.id
+                    });
+                commentThreads[data.id] = replyingTo.commentId;
+            }
+
             if (!manifestoComments[manifestoId]) manifestoComments[manifestoId] = [];
-            manifestoComments[manifestoId].push({ ...comment, created_at: new Date().toISOString() });
+            manifestoComments[manifestoId].push({ ...comment, id: data?.id, created_at: new Date().toISOString() });
 
             input.value = '';
+            replyingTo = null;
             renderManifestos();
         };
 

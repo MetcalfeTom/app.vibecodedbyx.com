@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added threaded comments - reply directly to existing comments with nested display
 - 2026-01-23: Enhanced Manifesto with emoji reactions, comments, and tags (like posts)
 - 2026-01-23: Added Manifesto section - declare your ideas, vote for visions you support
 - 2026-01-22: Added nested symbolic tagging system - hierarchical tags with parent/child, filter by tag, trending tags sidebar
@@ -39,6 +40,7 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Posts feed with image URLs and local file upload
 - Like and unlike posts
 - Comment on posts
+- Threaded comments - reply directly to comments with nested display
 - Doodle leaderboard with global voting
 - Vote on drawings with star button
 - Ranked doodle display (gold/silver/bronze)
@@ -65,6 +67,7 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - sloppygram_manifesto_reactions: manifesto_id, emoji, username
 - sloppygram_manifesto_comments: manifesto_id, username, avatar, content
 - sloppygram_manifesto_tags: manifesto_id, tag, parent_tag
+- sloppygram_comment_threads: comment_id, parent_comment_id, comment_type, post_id
 
 ## avatars
 😀 😎 🤖 👽 🐱 🐶 🦊 🐼 🐸 🦄 🐲 👻 💀 🎃 🤡 👾 🥷 🧙
