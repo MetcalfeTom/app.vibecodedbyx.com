@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added AI event logging - logs post_created and vote_cast events to ai_events table
 - 2026-01-23: Simplified voting - removed reputation system, added delete buttons for messages/doodles
 - 2026-01-23: Added up/down voting (▲/▼) for posts, doodles, chat - prevents self-voting, shows net scores
 - 2026-01-23: Enhanced power system - vote on chat messages (🔥), doodles (⭐), posts, manifestos; all contribute to user power score
@@ -78,6 +79,7 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - sloppygram_manifesto_comments: manifesto_id, username, avatar, content
 - sloppygram_manifesto_tags: manifesto_id, tag, parent_tag
 - sloppygram_comment_threads: comment_id, parent_comment_id, comment_type, post_id
+- ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast)
 
 ## avatars
 😀 😎 🤖 👽 🐱 🐶 🦊 🐼 🐸 🦄 🐲 👻 💀 🎃 🤡 👾 🥷 🧙
