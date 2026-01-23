@@ -2740,7 +2740,7 @@
                         <button class="collab-color-btn" data-color="#000000" style="background:#000000;border:1px solid #333" onclick="setCollabColor('#000000')"></button>
                     </div>
                     <div class="collab-actions">
-                        <button class="cyber-btn collab-clear-btn" onclick="clearCollabCanvas()">🗑️ CLEAR ALL</button>
+                        <button class="cyber-btn collab-clear-btn" onclick="clearCollabCanvas()">🧹 CLEAR MINE</button>
                     </div>
                 </div>
             </div>
@@ -7349,6 +7349,10 @@
         const COLLAB_THROTTLE = 16; // ~60fps
         let lastCollabBroadcast = 0;
 
+        // Stroke history for selective clearing
+        let collabStrokes = []; // Array of {x1, y1, x2, y2, color, username}
+        const COLLAB_MAX_STROKES = 10000; // Limit history size
+
         // Zoom/pan state
         let collabZoom = 1;
         const COLLAB_ZOOM_MIN = 0.25;
@@ -7455,6 +7459,13 @@
             collabCtx.beginPath();
             collabCtx.moveTo(x, y);
 
+            // Store stroke in history
+            const stroke = { x1: collabLastX, y1: collabLastY, x2: x, y2: y, color: collabColor, username: profile.username };
+            collabStrokes.push(stroke);
+            if (collabStrokes.length > COLLAB_MAX_STROKES) {
+                collabStrokes.shift(); // Remove oldest
+            }
+
             // Broadcast stroke
             broadcastCollabStroke(collabLastX, collabLastY, x, y, collabColor);
 
@@ -7522,8 +7533,15 @@
                 updateRemoteCursor(payload);
             });
 
-            // Listen for clear events
-            collabChannel.on('broadcast', { event: 'clear' }, () => {
+            // Listen for clear_user events (remove specific user's strokes)
+            collabChannel.on('broadcast', { event: 'clear_user' }, ({ payload }) => {
+                collabStrokes = collabStrokes.filter(s => s.username !== payload.username);
+                redrawCollabCanvas();
+            });
+
+            // Listen for clear_all events (wipe entire canvas)
+            collabChannel.on('broadcast', { event: 'clear_all' }, () => {
+                collabStrokes = [];
                 collabCtx.fillStyle = '#0a0a0a';
                 collabCtx.fillRect(0, 0, collabCanvas.width, collabCanvas.height);
             });
@@ -7581,7 +7599,15 @@
         }
 
         function drawRemoteStroke(payload) {
-            const { x1, y1, x2, y2, color } = payload;
+            const { x1, y1, x2, y2, color, username } = payload;
+
+            // Store in history
+            collabStrokes.push({ x1, y1, x2, y2, color, username });
+            if (collabStrokes.length > COLLAB_MAX_STROKES) {
+                collabStrokes.shift();
+            }
+
+            // Draw
             collabCtx.save();
             collabCtx.strokeStyle = color;
             collabCtx.lineWidth = 3;
@@ -7634,15 +7660,58 @@
             }
         };
 
-        window.clearCollabCanvas = function() {
+        // Redraw all strokes from history
+        function redrawCollabCanvas() {
             if (!collabCtx) return;
+            // Clear canvas
             collabCtx.fillStyle = '#0a0a0a';
             collabCtx.fillRect(0, 0, collabCanvas.width, collabCanvas.height);
-            // Broadcast clear to others
+
+            // Redraw all strokes
+            collabCtx.save();
+            collabCtx.lineWidth = 3;
+            collabCtx.lineCap = 'round';
+            collabStrokes.forEach(stroke => {
+                collabCtx.strokeStyle = stroke.color;
+                collabCtx.beginPath();
+                collabCtx.moveTo(stroke.x1, stroke.y1);
+                collabCtx.lineTo(stroke.x2, stroke.y2);
+                collabCtx.stroke();
+            });
+            collabCtx.restore();
+        }
+
+        // Clear only the current user's strokes
+        window.clearCollabCanvas = function() {
+            if (!collabCtx) return;
+            const myUsername = profile.username;
+
+            // Remove user's strokes from history
+            collabStrokes = collabStrokes.filter(s => s.username !== myUsername);
+
+            // Redraw canvas with remaining strokes
+            redrawCollabCanvas();
+
+            // Broadcast clear_user to others so they remove this user's strokes
             if (collabChannel) {
                 collabChannel.send({
                     type: 'broadcast',
-                    event: 'clear',
+                    event: 'clear_user',
+                    payload: { username: myUsername }
+                });
+            }
+        };
+
+        // Clear entire canvas (all users) - admin function
+        window.clearCollabCanvasAll = function() {
+            if (!collabCtx) return;
+            collabStrokes = [];
+            collabCtx.fillStyle = '#0a0a0a';
+            collabCtx.fillRect(0, 0, collabCanvas.width, collabCanvas.height);
+            if (collabChannel) {
+                collabChannel.send({
+                    type: 'broadcast',
+                    event: 'clear_all',
                     payload: { username: profile.username }
                 });
             }
