@@ -2675,6 +2675,52 @@
             }
         });
 
+        // Storage bucket name
+        const STORAGE_BUCKET = 'sloppygram';
+
+        // Upload image to Supabase Storage, returns public URL or null on failure
+        async function uploadToStorage(blob, folder = 'images') {
+            try {
+                const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+                const filename = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
+                const { data, error } = await supabase.storage
+                    .from(STORAGE_BUCKET)
+                    .upload(filename, blob, {
+                        contentType: blob.type,
+                        cacheControl: '3600',
+                        upsert: false
+                    });
+
+                if (error) {
+                    console.error('Storage upload error:', error);
+                    return null;
+                }
+
+                // Get public URL
+                const { data: urlData } = supabase.storage
+                    .from(STORAGE_BUCKET)
+                    .getPublicUrl(data.path);
+
+                return urlData?.publicUrl || null;
+            } catch (err) {
+                console.error('Upload failed:', err);
+                return null;
+            }
+        }
+
+        // Convert base64 data URL to Blob
+        function dataURLtoBlob(dataURL) {
+            const parts = dataURL.split(',');
+            const mime = parts[0].match(/:(.*?);/)[1];
+            const binary = atob(parts[1]);
+            const array = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                array[i] = binary.charCodeAt(i);
+            }
+            return new Blob([array], { type: mime });
+        }
+
         // Avatar options
         const AVATARS = ['😀', '😎', '🤖', '👽', '🐱', '🐶', '🦊', '🐼', '🐸', '🦄', '🐲', '👻', '💀', '🎃', '🤡', '👾', '🥷', '🧙'];
         const COLORS = ['#00ff41', '#00ffff', '#ff00ff', '#ffff00', '#ff4444', '#ff8800', '#8844ff', '#44ff88', '#ff44aa', '#44aaff'];
@@ -3412,6 +3458,8 @@
             if (!content && !selectedImage) return;
 
             const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            const hasImage = !!selectedImage;
+            const localImageData = selectedImage; // keep reference for optimistic UI
 
             const msg = {
                 id: tempId,
@@ -3419,9 +3467,9 @@
                 avatar: profile.avatar,
                 avatarUrl: profile.avatarUrl || null,
                 content: content || null,
-                image_data: selectedImage || null,
+                image_data: localImageData || null, // temp local preview
                 drawing_data: null,
-                message_type: selectedImage ? 'image' : 'text',
+                message_type: hasImage ? 'image' : 'text',
                 user_id: currentUser?.id,
                 created_at: new Date().toISOString()
             };
@@ -3433,7 +3481,15 @@
             seenMessageIds.add(tempId);
             addMessageToUI(msg, true); // prepend at top
             broadcastMessage(msg);
-            addToFeed(profile.username, msg.image_data ? 'shared an image' : 'sent a message');
+            addToFeed(profile.username, hasImage ? 'shared an image' : 'sent a message');
+
+            // Upload image to storage if present
+            let finalImageData = null;
+            if (localImageData) {
+                const blob = dataURLtoBlob(localImageData);
+                const storageUrl = await uploadToStorage(blob, 'chat');
+                finalImageData = storageUrl || localImageData; // fallback to base64
+            }
 
             const { data, error } = await supabase
                 .from('sloppygram_messages')
@@ -3441,7 +3497,7 @@
                     username: msg.username,
                     avatar: msg.avatar,
                     content: msg.content,
-                    image_data: msg.image_data,
+                    image_data: finalImageData,
                     drawing_data: msg.drawing_data,
                     message_type: msg.message_type,
                     user_id: msg.user_id
@@ -3490,10 +3546,11 @@
         // Send drawing
         window.sendDrawing = async function() {
             const canvas = document.getElementById('drawingCanvas');
-            const drawingData = canvas.toDataURL('image/png');
+            const drawingDataUrl = canvas.toDataURL('image/png');
 
             const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
+            // Show optimistic UI with local data URL first
             const msg = {
                 id: tempId,
                 username: profile.username,
@@ -3501,7 +3558,7 @@
                 avatarUrl: profile.avatarUrl || null,
                 content: null,
                 image_data: null,
-                drawing_data: drawingData,
+                drawing_data: drawingDataUrl, // temporary local preview
                 message_type: 'drawing',
                 user_id: currentUser?.id,
                 created_at: new Date().toISOString()
@@ -3515,6 +3572,13 @@
             broadcastMessage(msg);
             addToFeed(profile.username, 'shared a drawing');
 
+            // Upload to storage instead of saving base64
+            const blob = dataURLtoBlob(drawingDataUrl);
+            const storageUrl = await uploadToStorage(blob, 'doodles');
+
+            // Use storage URL if upload succeeded, otherwise fallback to base64
+            const finalDrawingData = storageUrl || drawingDataUrl;
+
             const { data, error } = await supabase
                 .from('sloppygram_messages')
                 .insert({
@@ -3522,7 +3586,7 @@
                     avatar: msg.avatar,
                     content: msg.content,
                     image_data: msg.image_data,
-                    drawing_data: msg.drawing_data,
+                    drawing_data: finalDrawingData,
                     message_type: msg.message_type,
                     user_id: msg.user_id
                 })
@@ -4931,13 +4995,28 @@
                 return;
             }
 
+            // Upload local image to storage instead of saving base64
+            let finalImageUrl = imageUrl || null;
+            let finalImageData = null;
+
+            if (postImageData && !imageUrl) {
+                const blob = dataURLtoBlob(postImageData);
+                const storageUrl = await uploadToStorage(blob, 'posts');
+                if (storageUrl) {
+                    finalImageUrl = storageUrl;
+                } else {
+                    // Fallback to base64 if storage fails
+                    finalImageData = postImageData;
+                }
+            }
+
             const post = {
                 username: profile.username,
                 avatar: profile.avatar,
                 avatar_url: profile.avatarUrl || null,
                 caption: caption || null,
-                image_url: imageUrl || null,
-                image_data: postImageData || null,
+                image_url: finalImageUrl,
+                image_data: finalImageData,
                 likes_count: 0,
                 user_id: currentUser.id
             };
@@ -4976,7 +5055,7 @@
             // Log AI event for new post
             if (insertedPost) {
                 logAiEvent('post_created', 'post', insertedPost.id, {
-                    has_image: !!(imageUrl || postImageData),
+                    has_image: !!(finalImageUrl || finalImageData),
                     has_caption: !!caption,
                     tag_count: pendingTags.length
                 });

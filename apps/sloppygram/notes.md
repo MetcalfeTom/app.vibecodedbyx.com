@@ -3,7 +3,8 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
-- 2026-01-23: Added global settings sync - backgrounds, sounds synced to database in real-time
+- 2026-01-23: Migrated to Supabase Storage for images/doodles - no more base64 in database (requires 'sloppygram' bucket)
+- 2026-01-23: Reverted settings sync/debug features for clean slate
 - 2026-01-23: Updated all feed containers to use full viewport width on mobile
 - 2026-01-23: Added touch swipe navigation for mobile - swipe left/right to switch tabs
 - 2026-01-23: Removed donate button and tip jar (per chat request)
@@ -132,7 +133,9 @@ Pink, Purple, Deep Purple, Indigo, Blue, Cyan, Teal, Green, Orange, Deep Orange
 ## storage
 - Profile saved to localStorage
 - Messages stored in Supabase
-- Images stored as base64 (limited to 500KB)
+- Images/doodles uploaded to Supabase Storage bucket 'sloppygram'
+- Falls back to base64 if storage bucket unavailable
+- Requires 'sloppygram' bucket with public access in Supabase dashboard
 
 ## todos
 - Add private messaging
