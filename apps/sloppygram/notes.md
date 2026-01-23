@@ -3,6 +3,8 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added profile cards - click any username to see stats (messages, posts, doodles, manifestos, likes)
+- 2026-01-23: Added lazy-loading optimizer with Intersection Observer for images (100px rootMargin preload)
 - 2026-01-23: Added rate limiting (sliding window) - 5 msgs/10s, 3 posts/min, 20 votes/min, 10 comments/min, 3 drawings/30s
 - 2026-01-23: Added canvas undo/redo with 20-state history (Ctrl+Z/Y, ↶/↷ buttons)
 - 2026-01-23: Added system-toast notification styles and fixed memory leaks (cleanup channels on unload)
@@ -98,6 +100,8 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Sounds saved to localStorage
 - Rate limiting on all actions (sliding window algorithm)
 - Canvas undo/redo with keyboard shortcuts
+- Profile cards - click usernames to see user stats
+- Lazy-loading images with Intersection Observer
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type

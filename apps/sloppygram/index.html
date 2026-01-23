@@ -2320,12 +2320,136 @@
             color: var(--text-dim);
         }
 
+        /* Profile Card */
+        .profile-card {
+            position: fixed;
+            z-index: 10000;
+            background: var(--dark-bg);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 16px;
+            min-width: 220px;
+            max-width: 280px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            display: none;
+            animation: profileCardIn 0.15s ease-out;
+        }
+
+        @keyframes profileCardIn {
+            from { opacity: 0; transform: translateY(-8px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .profile-card.visible {
+            display: block;
+        }
+
+        .profile-card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .profile-card-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            background: var(--panel-bg);
+            border: 2px solid var(--accent);
+            overflow: hidden;
+        }
+
+        .profile-card-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .profile-card-name {
+            font-size: 1.2rem;
+            color: var(--accent-light);
+            font-weight: bold;
+        }
+
+        .profile-card-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+
+        .profile-card-stat {
+            background: var(--panel-bg);
+            padding: 8px 4px;
+            border-radius: 4px;
+        }
+
+        .profile-card-stat-value {
+            font-size: 1.1rem;
+            color: var(--highlight);
+            font-weight: bold;
+        }
+
+        .profile-card-stat-label {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .profile-card-loading {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-dim);
+        }
+
+        .username-clickable {
+            cursor: pointer;
+            transition: color 0.15s;
+        }
+
+        .username-clickable:hover {
+            color: var(--highlight);
+            text-decoration: underline;
+        }
+
+        /* Lazy loading placeholder */
+        .lazy-image {
+            background: var(--panel-bg);
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .lazy-image.loading::after {
+            content: '◌';
+            font-size: 24px;
+            color: var(--text-dim);
+            animation: lazyPulse 1s infinite;
+        }
+
+        @keyframes lazyPulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 </head>
 <body>
     <!-- Toast notification container -->
     <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Profile card popup -->
+    <div class="profile-card" id="profileCard">
+        <div class="profile-card-loading">Loading...</div>
+    </div>
 
     <div class="app">
         <div class="header">
@@ -3001,6 +3125,204 @@
         window.undoCanvas = undoCanvas;
         window.redoCanvas = redoCanvas;
 
+        // === PROFILE CARD SYSTEM ===
+        const userProfileCache = new Map(); // Cache user stats
+        const PROFILE_CACHE_TTL = 60000; // 1 minute cache
+        let profileCardTimeout = null;
+
+        async function getUserStats(username) {
+            // Check cache first
+            const cached = userProfileCache.get(username);
+            if (cached && Date.now() - cached.timestamp < PROFILE_CACHE_TTL) {
+                return cached.data;
+            }
+
+            // Fetch user stats from various tables
+            const [messagesRes, postsRes, doodlesRes, manifestosRes] = await Promise.all([
+                supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('username', username),
+                supabase.from('sloppygram_posts').select('id, likes_count', { count: 'exact' }).eq('username', username),
+                supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('username', username).eq('message_type', 'drawing'),
+                supabase.from('sloppygram_manifestos').select('id', { count: 'exact', head: true }).eq('username', username)
+            ]);
+
+            const totalPosts = postsRes.count || 0;
+            const totalMessages = messagesRes.count || 0;
+            const totalDoodles = doodlesRes.count || 0;
+            const totalManifestos = manifestosRes.count || 0;
+            const totalLikes = (postsRes.data || []).reduce((sum, p) => sum + (p.likes_count || 0), 0);
+
+            const stats = {
+                messages: totalMessages,
+                posts: totalPosts,
+                doodles: totalDoodles,
+                manifestos: totalManifestos,
+                likes: totalLikes
+            };
+
+            // Cache the result
+            userProfileCache.set(username, { data: stats, timestamp: Date.now() });
+            return stats;
+        }
+
+        function findUserInfo(username) {
+            // Search messages and posts for avatar info
+            const msg = messages.find(m => m.username === username);
+            if (msg) return { avatar: msg.avatar, avatarUrl: msg.avatarUrl };
+
+            const post = posts.find(p => p.username === username);
+            if (post) return { avatar: post.avatar, avatarUrl: post.avatar_url };
+
+            return { avatar: '👤', avatarUrl: null };
+        }
+
+        async function showProfileCard(username, event) {
+            const card = document.getElementById('profileCard');
+            if (!card) return;
+
+            // Clear any pending hide timeout
+            if (profileCardTimeout) {
+                clearTimeout(profileCardTimeout);
+                profileCardTimeout = null;
+            }
+
+            // Position card near click
+            const rect = event.target.getBoundingClientRect();
+            const cardWidth = 250;
+            const cardHeight = 180;
+
+            let left = rect.left;
+            let top = rect.bottom + 8;
+
+            // Keep card within viewport
+            if (left + cardWidth > window.innerWidth) {
+                left = window.innerWidth - cardWidth - 16;
+            }
+            if (top + cardHeight > window.innerHeight) {
+                top = rect.top - cardHeight - 8;
+            }
+
+            card.style.left = Math.max(8, left) + 'px';
+            card.style.top = Math.max(8, top) + 'px';
+
+            // Show loading state
+            card.innerHTML = '<div class="profile-card-loading">Loading...</div>';
+            card.classList.add('visible');
+
+            try {
+                const stats = await getUserStats(username);
+                const userInfo = findUserInfo(username);
+
+                const safeAvatarUrl = sanitizeUrl(userInfo.avatarUrl);
+                const avatarContent = safeAvatarUrl
+                    ? `<img src="${safeAvatarUrl}" alt="${escapeHtml(username)}">`
+                    : (userInfo.avatar || '👤');
+
+                card.innerHTML = `
+                    <div class="profile-card-header">
+                        <div class="profile-card-avatar">${avatarContent}</div>
+                        <div class="profile-card-name">${escapeHtml(username)}</div>
+                    </div>
+                    <div class="profile-card-stats">
+                        <div class="profile-card-stat">
+                            <div class="profile-card-stat-value">${stats.messages}</div>
+                            <div class="profile-card-stat-label">Messages</div>
+                        </div>
+                        <div class="profile-card-stat">
+                            <div class="profile-card-stat-value">${stats.posts}</div>
+                            <div class="profile-card-stat-label">Posts</div>
+                        </div>
+                        <div class="profile-card-stat">
+                            <div class="profile-card-stat-value">${stats.doodles}</div>
+                            <div class="profile-card-stat-label">Doodles</div>
+                        </div>
+                    </div>
+                    <div class="profile-card-stats" style="margin-bottom:0;">
+                        <div class="profile-card-stat">
+                            <div class="profile-card-stat-value">${stats.manifestos}</div>
+                            <div class="profile-card-stat-label">Manifestos</div>
+                        </div>
+                        <div class="profile-card-stat" style="grid-column: span 2;">
+                            <div class="profile-card-stat-value">${stats.likes >= 0 ? '+' : ''}${stats.likes}</div>
+                            <div class="profile-card-stat-label">Total Likes</div>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                console.error('Error loading profile:', err);
+                card.innerHTML = '<div class="profile-card-loading">Could not load profile</div>';
+            }
+        }
+
+        function hideProfileCard() {
+            const card = document.getElementById('profileCard');
+            if (card) {
+                card.classList.remove('visible');
+            }
+        }
+
+        function scheduleHideProfileCard() {
+            profileCardTimeout = setTimeout(hideProfileCard, 300);
+        }
+
+        // Close profile card on click outside
+        document.addEventListener('click', (e) => {
+            const card = document.getElementById('profileCard');
+            if (card && !card.contains(e.target) && !e.target.classList.contains('username-clickable')) {
+                hideProfileCard();
+            }
+        });
+
+        // Expose profile card functions
+        window.showProfileCard = showProfileCard;
+        window.hideProfileCard = hideProfileCard;
+
+        // === LAZY LOADING OPTIMIZER ===
+        let imageObserver = null;
+
+        function initLazyLoading() {
+            if (!('IntersectionObserver' in window)) {
+                // Fallback: load all images immediately
+                document.querySelectorAll('img[data-src]').forEach(img => {
+                    img.src = img.dataset.src;
+                });
+                return;
+            }
+
+            imageObserver = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const img = entry.target;
+                        if (img.dataset.src) {
+                            img.src = img.dataset.src;
+                            img.removeAttribute('data-src');
+                            img.classList.remove('loading');
+                        }
+                        observer.unobserve(img);
+                    }
+                });
+            }, {
+                rootMargin: '100px 0px', // Start loading 100px before visible
+                threshold: 0.01
+            });
+        }
+
+        function observeLazyImage(img) {
+            if (imageObserver && img.dataset.src) {
+                img.classList.add('loading');
+                imageObserver.observe(img);
+            }
+        }
+
+        function lazyLoadNewImages() {
+            document.querySelectorAll('img[data-src]:not(.observed)').forEach(img => {
+                img.classList.add('observed');
+                observeLazyImage(img);
+            });
+        }
+
+        // Initialize lazy loading on page load
+        initLazyLoading();
+
         // Helper function to log AI events
         async function logAiEvent(eventType, entityType, entityId, metadata = {}) {
             if (!currentUser) return;
@@ -3357,7 +3679,7 @@
             const item = document.createElement('div');
             item.className = 'feed-item';
             item.innerHTML = `
-                <span class="feed-user">${escapeHtml(user)}</span>
+                <span class="feed-user username-clickable" onclick="showProfileCard('${escapeHtml(user)}', event)">${escapeHtml(user)}</span>
                 <span class="feed-action">${action}</span>
                 <div class="feed-time">${time}</div>
             `;
@@ -3907,7 +4229,7 @@
                 <div class="avatar">${avatarContent}</div>
                 <div class="message-bubble">
                     <div class="message-header">
-                        <span class="message-username">${escapeHtml(msg.username || 'Anonymous')}</span>
+                        <span class="message-username username-clickable" onclick="showProfileCard('${escapeHtml(msg.username || 'Anonymous')}', event)">${escapeHtml(msg.username || 'Anonymous')}</span>
                         <span class="message-time">${time}</span>
                         ${deleteBtn}
                     </div>
@@ -5081,6 +5403,9 @@
 
             emptyState.style.display = 'none';
             container.innerHTML = posts.map(post => renderPostCard(post)).join('');
+
+            // Trigger lazy loading for new images
+            lazyLoadNewImages();
         }
 
         // Render threaded comments with replies
@@ -5112,7 +5437,7 @@
                     <div class="comment ${isNested ? 'comment-thread' : ''}" data-comment-id="${c.id}" data-depth="${depth}">
                         <span class="comment-avatar">${c.avatar || '👤'}</span>
                         <div class="comment-content">
-                            <span class="comment-username">${escapeHtml(c.username)}</span>
+                            <span class="comment-username username-clickable" onclick="showProfileCard('${escapeHtml(c.username)}', event)">${escapeHtml(c.username)}</span>
                             <span class="comment-time">${time}</span>
                             <div class="comment-text">${escapeHtml(c.content)}</div>
                             <div class="comment-actions">
@@ -5154,8 +5479,8 @@
             const safeImageUrl = sanitizeUrl(post.image_url);
             const safeImageData = sanitizeUrl(post.image_data);
             const imageHtml = safeImageUrl
-                ? `<img class="post-image" src="${safeImageUrl}" onerror="this.style.display='none'">`
-                : (safeImageData ? `<img class="post-image" src="${safeImageData}">` : '');
+                ? `<img class="post-image lazy-image" loading="lazy" data-src="${safeImageUrl}" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onerror="this.style.display='none'">`
+                : (safeImageData ? `<img class="post-image" loading="lazy" src="${safeImageData}">` : '');
 
             const commentsHtml = renderThreadedComments(comments, post.id, 'post');
 
@@ -5197,7 +5522,7 @@
                 <div class="post-card" data-post-id="${post.id}">
                     <div class="post-header">
                         <div class="post-avatar">${avatarContent}</div>
-                        <span class="post-username">${escapeHtml(post.username || 'Anonymous')}</span>
+                        <span class="post-username username-clickable" onclick="showProfileCard('${escapeHtml(post.username || 'Anonymous')}', event)">${escapeHtml(post.username || 'Anonymous')}</span>
                         <span class="post-time">${time}</span>
                         ${isOwnPost ? `<button class="post-delete-btn" onclick="deletePost(${post.id})" title="Delete post">delete</button>` : ''}
                     </div>
@@ -6058,7 +6383,7 @@
                 <div class="manifesto-card" data-manifesto-id="${m.id}">
                     <div class="manifesto-card-header">
                         <div class="manifesto-avatar">${m.avatar || '👤'}</div>
-                        <span class="manifesto-author">${escapeHtml(m.username || 'Anonymous')}</span>
+                        <span class="manifesto-author username-clickable" onclick="showProfileCard('${escapeHtml(m.username || 'Anonymous')}', event)">${escapeHtml(m.username || 'Anonymous')}</span>
                         <span class="manifesto-time">${time}</span>
                     </div>
                     <h3 class="manifesto-title">${escapeHtml(m.title)}</h3>
@@ -6720,12 +7045,12 @@
                 card.innerHTML = `
                     <div class="doodle-rank">
                         <span class="rank-badge ${rankClass}">${rank}</span>
-                        <span class="doodle-artist">${escapeHtml(doodle.username || 'Anonymous')}</span>
+                        <span class="doodle-artist username-clickable" onclick="showProfileCard('${escapeHtml(doodle.username || 'Anonymous')}', event)">${escapeHtml(doodle.username || 'Anonymous')}</span>
                         <span class="doodle-votes ${scoreClass}">${doodle.votes > 0 ? '+' : ''}${doodle.votes}</span>
                         ${deleteBtn}
                     </div>
                     <div class="doodle-thumbnail">
-                        <img src="${safeDrawingData}" onclick="window.open(this.src)">
+                        <img loading="lazy" src="${safeDrawingData}" onclick="window.open(this.src)">
                     </div>
                     <div class="doodle-card-actions">
                         <span class="doodle-time">${time}</span>
