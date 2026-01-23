@@ -3126,7 +3126,7 @@
         window.redoCanvas = redoCanvas;
 
         // === PROFILE CARD SYSTEM ===
-        const userProfileCache = new Map(); // Cache user stats
+        const userProfileCache = new Map(); // Cache user stats and avatar
         const PROFILE_CACHE_TTL = 60000; // 1 minute cache
         let profileCardTimeout = null;
 
@@ -3137,42 +3137,72 @@
                 return cached.data;
             }
 
-            // Fetch user stats from various tables
-            const [messagesRes, postsRes, doodlesRes, manifestosRes] = await Promise.all([
-                supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('username', username),
-                supabase.from('sloppygram_posts').select('id, likes_count', { count: 'exact' }).eq('username', username),
-                supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('username', username).eq('message_type', 'drawing'),
-                supabase.from('sloppygram_manifestos').select('id', { count: 'exact', head: true }).eq('username', username)
-            ]);
+            try {
+                // Fetch user stats and avatar from database in parallel
+                const [messagesRes, postsRes, doodlesRes, manifestosRes, avatarMsgRes, avatarPostRes] = await Promise.all([
+                    supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('username', username),
+                    supabase.from('sloppygram_posts').select('id, likes_count', { count: 'exact' }).eq('username', username),
+                    supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('username', username).eq('message_type', 'drawing'),
+                    supabase.from('sloppygram_manifestos').select('id', { count: 'exact', head: true }).eq('username', username),
+                    // Fetch most recent message with avatar info
+                    supabase.from('sloppygram_messages').select('avatar, avatarUrl').eq('username', username).order('created_at', { ascending: false }).limit(1),
+                    // Fetch most recent post with avatar info
+                    supabase.from('sloppygram_posts').select('avatar, avatar_url').eq('username', username).order('created_at', { ascending: false }).limit(1)
+                ]);
 
-            const totalPosts = postsRes.count || 0;
-            const totalMessages = messagesRes.count || 0;
-            const totalDoodles = doodlesRes.count || 0;
-            const totalManifestos = manifestosRes.count || 0;
-            const totalLikes = (postsRes.data || []).reduce((sum, p) => sum + (p.likes_count || 0), 0);
+                const totalPosts = postsRes.count || 0;
+                const totalMessages = messagesRes.count || 0;
+                const totalDoodles = doodlesRes.count || 0;
+                const totalManifestos = manifestosRes.count || 0;
+                const totalLikes = (postsRes.data || []).reduce((sum, p) => sum + (p.likes_count || 0), 0);
 
-            const stats = {
-                messages: totalMessages,
-                posts: totalPosts,
-                doodles: totalDoodles,
-                manifestos: totalManifestos,
-                likes: totalLikes
-            };
+                // Get avatar from most recent activity
+                let avatar = '👤';
+                let avatarUrl = null;
 
-            // Cache the result
-            userProfileCache.set(username, { data: stats, timestamp: Date.now() });
-            return stats;
+                const latestMsg = avatarMsgRes.data?.[0];
+                const latestPost = avatarPostRes.data?.[0];
+
+                if (latestMsg) {
+                    avatar = latestMsg.avatar || avatar;
+                    avatarUrl = latestMsg.avatarUrl || avatarUrl;
+                }
+                if (latestPost) {
+                    avatar = latestPost.avatar || avatar;
+                    avatarUrl = latestPost.avatar_url || avatarUrl;
+                }
+
+                const stats = {
+                    messages: totalMessages,
+                    posts: totalPosts,
+                    doodles: totalDoodles,
+                    manifestos: totalManifestos,
+                    likes: totalLikes,
+                    avatar: avatar,
+                    avatarUrl: avatarUrl
+                };
+
+                // Cache the result
+                userProfileCache.set(username, { data: stats, timestamp: Date.now() });
+                return stats;
+            } catch (err) {
+                console.error('Error fetching user stats:', err);
+                return {
+                    messages: 0,
+                    posts: 0,
+                    doodles: 0,
+                    manifestos: 0,
+                    likes: 0,
+                    avatar: '👤',
+                    avatarUrl: null
+                };
+            }
         }
 
-        function findUserInfo(username) {
-            // Search messages and posts for avatar info
-            const msg = messages.find(m => m.username === username);
-            if (msg) return { avatar: msg.avatar, avatarUrl: msg.avatarUrl };
-
-            const post = posts.find(p => p.username === username);
-            if (post) return { avatar: post.avatar, avatarUrl: post.avatar_url };
-
-            return { avatar: '👤', avatarUrl: null };
+        // Kept for backwards compatibility but now uses cached data from getUserStats
+        async function findUserInfo(username) {
+            const stats = await getUserStats(username);
+            return { avatar: stats.avatar, avatarUrl: stats.avatarUrl };
         }
 
         async function showProfileCard(username, event) {
@@ -3210,12 +3240,12 @@
 
             try {
                 const stats = await getUserStats(username);
-                const userInfo = findUserInfo(username);
 
-                const safeAvatarUrl = sanitizeUrl(userInfo.avatarUrl);
+                // Avatar is now included in stats from database
+                const safeAvatarUrl = sanitizeUrl(stats.avatarUrl);
                 const avatarContent = safeAvatarUrl
                     ? `<img src="${safeAvatarUrl}" alt="${escapeHtml(username)}">`
-                    : (userInfo.avatar || '👤');
+                    : (stats.avatar || '👤');
 
                 card.innerHTML = `
                     <div class="profile-card-header">
