@@ -3,6 +3,8 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added settings menu with tabs (Profile, Sounds) - replaced profile button
+- 2026-01-23: Added notification sounds library with 7 procedural sounds (Web Audio API)
 - 2026-01-23: Reorganized chat layout - input at bottom, messages flow top-to-bottom (traditional chat style)
 - 2026-01-23: Added comment voting - up/down votes on comments with ▲/▼ buttons
 - 2026-01-23: Added AI event logging - logs post_created and vote_cast events to ai_events table
@@ -63,6 +65,10 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Self-voting prevention - cannot vote on own content
 - Net score display (green positive, red negative)
 - Delete your own posts, messages, and doodles
+- Settings menu with tabbed interface (Profile, Sounds)
+- Notification sounds library (blip, chime, pop, retro, cyber, whoosh, ding)
+- Volume control for notification sounds
+- Sounds saved to localStorage
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
