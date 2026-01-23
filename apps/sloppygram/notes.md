@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Fixed all mobile overflow - removed fixed widths, added word-break, max-width 100%
 - 2026-01-23: Fixed mobile layout - full width, smooth scrolling, input stays at top
 - 2026-01-23: Moved message input form to top of interface (under header/tabs)
 - 2026-01-23: Fixed mobile viewport - disabled auto-zoom on inputs, added viewport-fit=cover
