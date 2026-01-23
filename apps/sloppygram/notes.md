@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added user reputation system - earn badges from post likes and manifesto votes (👑⭐✨🌟)
 - 2026-01-23: Added Supabase realtime listeners for posts, comments, reactions, likes, manifestos - auto-refresh feed
 - 2026-01-23: Added threaded comments - reply directly to existing comments with nested display
 - 2026-01-23: Enhanced Manifesto with emoji reactions, comments, and tags (like posts)
@@ -52,6 +53,8 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Trending tags sidebar showing most popular tags
 - Manifesto board for declaring ideas and visions
 - Vote for manifestos you support
+- User reputation system with badges (👑100+ ⭐50+ ✨20+ 🌟5+)
+- Delete your own posts
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
