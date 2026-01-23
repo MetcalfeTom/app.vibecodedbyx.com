@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Collab canvas now persists strokes to database - new users see existing art on load
 - 2026-01-23: Collab canvas clear now only removes user's own strokes - stroke history tracks ownership, broadcasts clear_user event
 - 2026-01-23: Enhanced collab canvas - fixed coordinate offset, increased to 1600x1000, added zoom (scroll/buttons) and pan (scroll overflow)
 - 2026-01-23: Added real-time collaborative canvas - draw together with other users, see cursors and strokes live
@@ -126,6 +127,7 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - sloppygram_global_settings: setting_type, setting_value, username, extra_data (syncs backgrounds/sounds globally)
 - sloppygram_comment_threads: comment_id, parent_comment_id, comment_type, post_id
 - sloppygram_comment_votes: comment_id, voter_username, vote_type
+- sloppygram_collab_strokes: start_x, start_y, end_x, end_y, color, username (persisted collaborative canvas)
 - ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast)
 
 ## avatars

@@ -7353,13 +7353,19 @@
         let collabStrokes = []; // Array of {x1, y1, x2, y2, color, username}
         const COLLAB_MAX_STROKES = 10000; // Limit history size
 
+        // Database persistence
+        let collabStrokeBatch = []; // Batch queue for saving
+        const COLLAB_BATCH_SIZE = 10; // Save every N strokes
+        const COLLAB_BATCH_DELAY = 1000; // Or after 1 second
+        let collabBatchTimeout = null;
+
         // Zoom/pan state
         let collabZoom = 1;
         const COLLAB_ZOOM_MIN = 0.25;
         const COLLAB_ZOOM_MAX = 4;
         const COLLAB_ZOOM_STEP = 0.25;
 
-        function initCollabCanvas() {
+        async function initCollabCanvas() {
             if (collabInitialized) return;
             collabInitialized = true;
 
@@ -7393,6 +7399,43 @@
 
             // Apply initial zoom
             updateCollabZoom();
+
+            // Load existing strokes from database
+            await loadCollabStrokes();
+        }
+
+        // Load persisted strokes from database
+        async function loadCollabStrokes() {
+            try {
+                const { data, error } = await supabase
+                    .from('sloppygram_collab_strokes')
+                    .select('start_x, start_y, end_x, end_y, color, username')
+                    .order('created_at', { ascending: true })
+                    .limit(COLLAB_MAX_STROKES);
+
+                if (error) {
+                    console.error('Error loading collab strokes:', error);
+                    return;
+                }
+
+                if (data && data.length > 0) {
+                    // Convert DB format to local format
+                    collabStrokes = data.map(s => ({
+                        x1: s.start_x,
+                        y1: s.start_y,
+                        x2: s.end_x,
+                        y2: s.end_y,
+                        color: s.color,
+                        username: s.username
+                    }));
+
+                    // Redraw all strokes
+                    redrawCollabCanvas();
+                    console.log(`Loaded ${data.length} strokes from database`);
+                }
+            } catch (err) {
+                console.error('Failed to load collab strokes:', err);
+            }
         }
 
         function getCollabCoords(clientX, clientY) {
@@ -7466,6 +7509,9 @@
                 collabStrokes.shift(); // Remove oldest
             }
 
+            // Queue stroke for database persistence
+            queueCollabStroke(stroke);
+
             // Broadcast stroke
             broadcastCollabStroke(collabLastX, collabLastY, x, y, collabColor);
 
@@ -7475,6 +7521,59 @@
 
         function collabStopDraw() {
             collabDrawing = false;
+            // Flush any pending strokes when user stops drawing
+            flushCollabStrokes();
+        }
+
+        // Batch save strokes to database
+        function queueCollabStroke(stroke) {
+            collabStrokeBatch.push(stroke);
+
+            // Clear existing timeout
+            if (collabBatchTimeout) {
+                clearTimeout(collabBatchTimeout);
+            }
+
+            // Save immediately if batch is full, otherwise wait
+            if (collabStrokeBatch.length >= COLLAB_BATCH_SIZE) {
+                flushCollabStrokes();
+            } else {
+                collabBatchTimeout = setTimeout(flushCollabStrokes, COLLAB_BATCH_DELAY);
+            }
+        }
+
+        async function flushCollabStrokes() {
+            if (collabStrokeBatch.length === 0) return;
+
+            const batch = collabStrokeBatch.slice();
+            collabStrokeBatch = [];
+
+            if (collabBatchTimeout) {
+                clearTimeout(collabBatchTimeout);
+                collabBatchTimeout = null;
+            }
+
+            try {
+                const rows = batch.map(s => ({
+                    start_x: Math.round(s.x1),
+                    start_y: Math.round(s.y1),
+                    end_x: Math.round(s.x2),
+                    end_y: Math.round(s.y2),
+                    color: s.color,
+                    username: s.username,
+                    user_id: currentUser?.id
+                }));
+
+                const { error } = await supabase
+                    .from('sloppygram_collab_strokes')
+                    .insert(rows);
+
+                if (error) {
+                    console.error('Error saving strokes:', error);
+                }
+            } catch (err) {
+                console.error('Failed to save strokes:', err);
+            }
         }
 
         // Zoom functions
@@ -7682,7 +7781,7 @@
         }
 
         // Clear only the current user's strokes
-        window.clearCollabCanvas = function() {
+        window.clearCollabCanvas = async function() {
             if (!collabCtx) return;
             const myUsername = profile.username;
 
@@ -7691,6 +7790,20 @@
 
             // Redraw canvas with remaining strokes
             redrawCollabCanvas();
+
+            // Delete user's strokes from database
+            try {
+                const { error } = await supabase
+                    .from('sloppygram_collab_strokes')
+                    .delete()
+                    .eq('user_id', currentUser?.id);
+
+                if (error) {
+                    console.error('Error deleting strokes from DB:', error);
+                }
+            } catch (err) {
+                console.error('Failed to delete strokes:', err);
+            }
 
             // Broadcast clear_user to others so they remove this user's strokes
             if (collabChannel) {
@@ -7703,11 +7816,15 @@
         };
 
         // Clear entire canvas (all users) - admin function
-        window.clearCollabCanvasAll = function() {
+        window.clearCollabCanvasAll = async function() {
             if (!collabCtx) return;
             collabStrokes = [];
             collabCtx.fillStyle = '#0a0a0a';
             collabCtx.fillRect(0, 0, collabCanvas.width, collabCanvas.height);
+
+            // Note: Can't delete all strokes due to RLS - only own strokes
+            // This just clears visually and broadcasts
+
             if (collabChannel) {
                 collabChannel.send({
                     type: 'broadcast',
