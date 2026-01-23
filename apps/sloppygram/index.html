@@ -397,6 +397,39 @@
             border-color: var(--highlight);
         }
 
+        /* Chat message voting */
+        .message-footer {
+            margin-top: 6px;
+            padding-top: 4px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .chat-vote-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-dim);
+            padding: 2px 8px;
+            font-family: inherit;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            transition: all 0.2s;
+            border-radius: 12px;
+        }
+
+        .chat-vote-btn:hover {
+            border-color: #ff6b35;
+            color: #ff6b35;
+        }
+
+        .chat-vote-btn.voted {
+            color: #ff6b35;
+            border-color: #ff6b35;
+            background: rgba(255, 107, 53, 0.1);
+        }
+
         /* Doodle Leaderboard */
         .doodles-container {
             flex: 1;
@@ -2048,6 +2081,8 @@
         let postImageData = null;
         let doodleVotes = {}; // { messageId: voteCount }
         let myDoodleVotes = {}; // { messageId: true } for votes I've cast
+        let messageVotes = {}; // { messageId: voteCount } for chat messages
+        let myMessageVotes = {}; // { messageId: true } for my chat votes
         let postTags = {}; // { postId: [{ tag, parent_tag }, ...] }
         let pendingTags = []; // tags being added to new post
         let activeTagFilter = null; // current tag filter
@@ -2088,6 +2123,7 @@
             setupBrushColors();
             setupDrawingCanvas();
             await loadDoodleVotes();
+            await loadMessageVotes();
             await loadReputations();
             loadMessages();
             subscribeToMessages();
@@ -2556,6 +2592,17 @@
                 globalBackgrounds.unshift(payload.new);
             });
 
+            // Listen for chat message votes
+            postsChannel.on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'sloppygram_message_votes'
+            }, (payload) => {
+                console.log('Message vote change:', payload);
+                loadMessageVotes();
+                loadReputations();
+            });
+
             postsChannel.subscribe((status) => {
                 console.log('Posts realtime subscription status:', status);
             });
@@ -2612,6 +2659,19 @@
                     </div>`;
             }
 
+            // Vote button for non-doodle messages
+            const msgId = msg.id;
+            const isRealId = typeof msgId === 'number' || (typeof msgId === 'string' && !msgId.startsWith('temp_'));
+            const chatVoteCount = messageVotes[msgId] || 0;
+            const hasChatVoted = myMessageVotes[msgId] || false;
+            const chatVotedClass = hasChatVoted ? 'voted' : '';
+            const chatVoteBtn = (isRealId && !msg.drawing_data) ? `
+                <div class="message-footer">
+                    <button class="chat-vote-btn ${chatVotedClass}" onclick="toggleMessageVote('${msgId}', this)" data-chat-id="${msgId}">
+                        🔥 <span class="vote-count">${chatVoteCount}</span>
+                    </button>
+                </div>` : '';
+
             const avatarContent = msg.avatarUrl
                 ? `<img src="${msg.avatarUrl}" alt="avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
                 : (msg.avatar || '👤');
@@ -2619,10 +2679,11 @@
                 <div class="avatar">${avatarContent}</div>
                 <div class="message-bubble">
                     <div class="message-header">
-                        <span class="message-username">${escapeHtml(msg.username || 'Anonymous')}</span>
+                        <span class="message-username">${escapeHtml(msg.username || 'Anonymous')}${getReputationBadge(msg.username)}</span>
                         <span class="message-time">${time}</span>
                     </div>
                     ${contentHTML}
+                    ${chatVoteBtn}
                 </div>
             `;
 
@@ -4175,7 +4236,6 @@
                 }
             });
 
-            // Count votes for each user's manifestos
             const manifestoVotesByUser = {};
             for (const [username, manifestoIds] of Object.entries(manifestosByUser)) {
                 if (manifestoIds.length > 0) {
@@ -4187,16 +4247,67 @@
                 }
             }
 
+            // Calculate reputation from chat message votes
+            const { data: messagesData } = await supabase
+                .from('sloppygram_messages')
+                .select('username, id');
+
+            const messagesByUser = {};
+            (messagesData || []).forEach(m => {
+                if (m.username) {
+                    if (!messagesByUser[m.username]) messagesByUser[m.username] = [];
+                    messagesByUser[m.username].push(m.id);
+                }
+            });
+
+            const { data: chatVotesData } = await supabase
+                .from('sloppygram_message_votes')
+                .select('message_id');
+
+            const chatVotesByMessage = {};
+            (chatVotesData || []).forEach(v => {
+                chatVotesByMessage[v.message_id] = (chatVotesByMessage[v.message_id] || 0) + 1;
+            });
+
+            const chatVotesByUser = {};
+            for (const [username, msgIds] of Object.entries(messagesByUser)) {
+                chatVotesByUser[username] = msgIds.reduce((sum, id) => sum + (chatVotesByMessage[id] || 0), 0);
+            }
+
+            // Calculate reputation from doodle votes
+            const { data: doodleVotesData } = await supabase
+                .from('sloppygram_doodle_votes')
+                .select('message_id');
+
+            const doodleVotesByMessage = {};
+            (doodleVotesData || []).forEach(v => {
+                doodleVotesByMessage[v.message_id] = (doodleVotesByMessage[v.message_id] || 0) + 1;
+            });
+
+            const doodleVotesByUser = {};
+            for (const [username, msgIds] of Object.entries(messagesByUser)) {
+                doodleVotesByUser[username] = msgIds.reduce((sum, id) => sum + (doodleVotesByMessage[id] || 0), 0);
+            }
+
             // Combine into reputation scores
-            const allUsers = new Set([...Object.keys(postLikesByUser), ...Object.keys(manifestoVotesByUser)]);
+            const allUsers = new Set([
+                ...Object.keys(postLikesByUser),
+                ...Object.keys(manifestoVotesByUser),
+                ...Object.keys(chatVotesByUser),
+                ...Object.keys(doodleVotesByUser)
+            ]);
             userReputations = {};
             allUsers.forEach(username => {
                 const postLikes = postLikesByUser[username] || 0;
                 const manifestoVotes = manifestoVotesByUser[username] || 0;
+                const chatVotes = chatVotesByUser[username] || 0;
+                const doodleVotes = doodleVotesByUser[username] || 0;
                 userReputations[username] = {
                     postLikes,
                     manifestoVotes,
-                    total: postLikes + (manifestoVotes * 2) // Manifesto votes worth 2x
+                    chatVotes,
+                    doodleVotes,
+                    total: postLikes + (manifestoVotes * 2) + chatVotes + (doodleVotes * 2)
                 };
             });
 
@@ -4208,7 +4319,12 @@
             if (!rep || rep.total === 0) return '';
 
             let badge = '';
-            let title = `${rep.total} reputation (${rep.postLikes} post likes, ${rep.manifestoVotes} manifesto votes)`;
+            const parts = [];
+            if (rep.postLikes > 0) parts.push(`${rep.postLikes} post`);
+            if (rep.manifestoVotes > 0) parts.push(`${rep.manifestoVotes} manifesto`);
+            if (rep.chatVotes > 0) parts.push(`${rep.chatVotes} chat`);
+            if (rep.doodleVotes > 0) parts.push(`${rep.doodleVotes} doodle`);
+            let title = `⚡${rep.total} power (${parts.join(', ')})`;
 
             if (rep.total >= 100) {
                 badge = '👑';
@@ -4217,11 +4333,11 @@
             } else if (rep.total >= 20) {
                 badge = '✨';
             } else if (rep.total >= 5) {
-                badge = '🌟';
+                badge = '🔥';
             }
 
             return badge ? `<span class="rep-badge" title="${title}">${badge}${rep.total}</span>` :
-                          `<span class="rep-badge small" title="${title}">${rep.total}</span>`;
+                          `<span class="rep-badge small" title="${title}">⚡${rep.total}</span>`;
         }
 
         // === DOODLE LEADERBOARD FUNCTIONALITY ===
@@ -4295,6 +4411,70 @@
                 b.classList.toggle('voted', myDoodleVotes[messageId]);
                 b.querySelector('.vote-count').textContent = doodleVotes[messageId] || 0;
             });
+
+            // Update reputation
+            loadReputations();
+        };
+
+        // === CHAT MESSAGE VOTING ===
+
+        async function loadMessageVotes() {
+            const { data: votes } = await supabase
+                .from('sloppygram_message_votes')
+                .select('message_id, voter_username');
+
+            if (votes) {
+                messageVotes = {};
+                votes.forEach(v => {
+                    messageVotes[v.message_id] = (messageVotes[v.message_id] || 0) + 1;
+                });
+
+                myMessageVotes = {};
+                votes.filter(v => v.voter_username === profile.username).forEach(v => {
+                    myMessageVotes[v.message_id] = true;
+                });
+            }
+        }
+
+        window.toggleMessageVote = async function(messageId, btn) {
+            if (!currentUser) return;
+
+            const hasVoted = myMessageVotes[messageId];
+
+            if (hasVoted) {
+                await supabase
+                    .from('sloppygram_message_votes')
+                    .delete()
+                    .eq('message_id', messageId)
+                    .eq('user_id', currentUser.id);
+
+                myMessageVotes[messageId] = false;
+                messageVotes[messageId] = Math.max(0, (messageVotes[messageId] || 1) - 1);
+            } else {
+                await supabase
+                    .from('sloppygram_message_votes')
+                    .insert({
+                        message_id: messageId,
+                        voter_username: profile.username,
+                        user_id: currentUser.id
+                    });
+
+                myMessageVotes[messageId] = true;
+                messageVotes[messageId] = (messageVotes[messageId] || 0) + 1;
+            }
+
+            // Update button UI
+            btn.classList.toggle('voted', myMessageVotes[messageId]);
+            btn.querySelector('.vote-count').textContent = messageVotes[messageId] || 0;
+
+            // Update all buttons with same message ID
+            document.querySelectorAll(`[data-chat-id="${messageId}"]`).forEach(b => {
+                b.classList.toggle('voted', myMessageVotes[messageId]);
+                b.querySelector('.vote-count').textContent = messageVotes[messageId] || 0;
+            });
+
+            // Update reputation
+            loadReputations();
         };
 
         async function loadDoodleLeaderboard() {
