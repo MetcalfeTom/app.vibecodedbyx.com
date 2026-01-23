@@ -3,6 +3,8 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Updated donate modal with Bitcoin address (copy to clipboard) and Stripe placeholder
+- 2026-01-23: Added Donate button with gold coin icon to sidebar
 - 2026-01-23: Fixed posts/doodles not loading (removed reference to deleted transparencyBar)
 - 2026-01-23: Fixed theme to cover entire UI - panel background now updates dark-bg and border-color
 - 2026-01-23: Added full interface theme customization - accent color, highlight color, panel background (10 options each)
