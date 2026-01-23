@@ -7853,57 +7853,55 @@
                 return;
             }
 
-            // Check rate limit
-            if (!checkRateLimit('drawing')) {
-                showToast('Too many snapshots! Wait a moment.', 'error');
+            // Check rate limit (returns object with {allowed, waitTime, message})
+            const rateCheck = checkRateLimit('drawing');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message || 'Too many snapshots! Wait a moment.', 'warning');
+                return;
+            }
+            recordAction('drawing');
+
+            // Check if canvas has any strokes (prevent white/empty image)
+            if (collabStrokes.length === 0) {
+                showToast('Canvas is empty - draw something first!', 'warning');
                 return;
             }
 
             try {
-                // Get canvas data as PNG
-                const dataUrl = collabCanvas.toDataURL('image/png');
+                // Ensure canvas has dark background before capture (fix white-image issue)
+                // Create a temp canvas with proper background
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = collabCanvas.width;
+                tempCanvas.height = collabCanvas.height;
+                const tempCtx = tempCanvas.getContext('2d');
 
-                // Try to upload to Supabase storage first
-                let finalUrl = dataUrl;
-                try {
-                    const blob = await (await fetch(dataUrl)).blob();
-                    const filename = `collab_snapshot_${Date.now()}.png`;
-                    const { data: uploadData, error: uploadError } = await supabase.storage
-                        .from('sloppygram')
-                        .upload(filename, blob, { contentType: 'image/png' });
+                // Fill with dark background first
+                tempCtx.fillStyle = '#0a0a0a';
+                tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
 
-                    if (!uploadError && uploadData) {
-                        const { data: urlData } = supabase.storage
-                            .from('sloppygram')
-                            .getPublicUrl(filename);
-                        if (urlData?.publicUrl) {
-                            finalUrl = urlData.publicUrl;
-                        }
-                    }
-                } catch (storageErr) {
-                    console.log('Storage upload failed, using base64:', storageErr);
-                }
+                // Draw the collab canvas on top
+                tempCtx.drawImage(collabCanvas, 0, 0);
 
-                // Create message with drawing
-                const msg = {
-                    username: profile.username,
-                    avatar: profile.avatar,
-                    avatarUrl: profile.avatarUrl,
-                    content: '📸 Collab Canvas Snapshot',
-                    drawing_data: finalUrl,
-                    message_type: 'drawing'
-                };
+                // Get canvas data as PNG from temp canvas
+                const dataUrl = tempCanvas.toDataURL('image/png');
+
+                // Convert to blob for upload
+                const blob = await (await fetch(dataUrl)).blob();
+
+                // Use uploadToStorage helper (with fallback to base64)
+                const storageUrl = await uploadToStorage(blob, 'collab_snapshots');
+                const finalDrawingData = storageUrl || dataUrl;
 
                 // Insert into messages table
                 const { data, error } = await supabase
                     .from('sloppygram_messages')
                     .insert({
-                        username: msg.username,
-                        avatar: msg.avatar,
-                        avatar_url: msg.avatarUrl,
-                        content: msg.content,
-                        drawing_data: msg.drawing_data,
-                        message_type: msg.message_type,
+                        username: profile.username,
+                        avatar: profile.avatar,
+                        avatar_url: profile.avatarUrl || null,
+                        content: '📸 Collab Canvas Snapshot',
+                        drawing_data: finalDrawingData,
+                        message_type: 'drawing',
                         user_id: currentUser?.id
                     })
                     .select()
@@ -7933,7 +7931,7 @@
                     realtimeChannel.send({
                         type: 'broadcast',
                         event: 'new_message',
-                        payload: { ...data, avatar_url: msg.avatarUrl }
+                        payload: { ...data, avatar_url: profile.avatarUrl }
                     });
                 }
 
