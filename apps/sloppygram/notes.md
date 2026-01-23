@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Fixed mobile sidebar CSS - sidebars now completely hidden when closed (CSS cascade fix)
 - 2026-01-23: Added hamburger menu toggle for left sidebar on mobile (animated X when open)
 - 2026-01-23: Updated donate modal with Bitcoin address (copy to clipboard) and Stripe placeholder
 - 2026-01-23: Added Donate button with gold coin icon to sidebar
