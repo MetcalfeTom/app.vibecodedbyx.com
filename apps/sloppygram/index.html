@@ -1896,6 +1896,16 @@
                 </div>
             </div>
 
+            <div class="form-group">
+                <label>TAGS (use parent/child for nested):</label>
+                <div class="tag-input-container" id="manifestoTagInputContainer">
+                    <input type="text" class="tag-input" id="manifestoTagInput" placeholder="Type tag and press Enter... (e.g. philosophy/ethics)" onkeydown="handleManifestoTagInput(event)">
+                </div>
+                <div style="font-size:0.75rem;color:var(--text-dim);margin-top:4px;">
+                    Tip: Use "/" for nested tags like "tech/ai" or "society/future"
+                </div>
+            </div>
+
             <button class="modal-btn" onclick="submitManifesto()">[ DECLARE IT ]</button>
         </div>
     </div>
@@ -3295,12 +3305,19 @@
         let manifestos = [];
         let manifestoVotes = {}; // { manifestoId: count }
         let myManifestoVotes = {}; // { manifestoId: true }
+        let manifestoReactions = {}; // { manifestoId: { emoji: count } }
+        let myManifestoReactions = {}; // { manifestoId: Set of emojis }
+        let manifestoComments = {}; // { manifestoId: [comments] }
+        let manifestoTags = {}; // { manifestoId: [tags] }
+        let pendingManifestoTags = []; // tags being added to new manifesto
 
         window.openManifestoModal = function() {
             document.getElementById('manifestoModal').classList.add('active');
             document.getElementById('manifestoTitle').value = '';
             document.getElementById('manifestoContent').value = '';
             document.getElementById('manifestoCharCount').textContent = '0';
+            pendingManifestoTags = [];
+            renderPendingManifestoTags();
         };
 
         window.closeManifestoModal = function() {
@@ -3316,6 +3333,51 @@
                 });
             }
         });
+
+        // Manifesto tag input handling
+        window.handleManifestoTagInput = function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const input = document.getElementById('manifestoTagInput');
+                const value = input.value.trim();
+                if (!value) return;
+
+                let tag, parent_tag = null;
+                if (value.includes('/')) {
+                    const parts = value.split('/');
+                    parent_tag = parts[0].trim();
+                    tag = parts.slice(1).join('/').trim();
+                } else {
+                    tag = value;
+                }
+
+                const exists = pendingManifestoTags.some(t => t.tag === tag && t.parent_tag === parent_tag);
+                if (!exists) {
+                    pendingManifestoTags.push({ tag, parent_tag });
+                    renderPendingManifestoTags();
+                }
+                input.value = '';
+            }
+        };
+
+        function renderPendingManifestoTags() {
+            const container = document.getElementById('manifestoTagInputContainer');
+            const input = document.getElementById('manifestoTagInput');
+            container.querySelectorAll('.tag-chip').forEach(el => el.remove());
+
+            pendingManifestoTags.forEach((t, idx) => {
+                const displayTag = t.parent_tag ? `${t.parent_tag}/${t.tag}` : t.tag;
+                const chip = document.createElement('span');
+                chip.className = `tag-chip ${t.parent_tag ? 'nested' : ''}`;
+                chip.innerHTML = `#${escapeHtml(displayTag)} <button onclick="removeManifestoTag(${idx})">×</button>`;
+                container.insertBefore(chip, input);
+            });
+        }
+
+        window.removeManifestoTag = function(idx) {
+            pendingManifestoTags.splice(idx, 1);
+            renderPendingManifestoTags();
+        };
 
         window.submitManifesto = async function() {
             const title = document.getElementById('manifestoTitle').value.trim();
@@ -3335,14 +3397,27 @@
                 user_id: currentUser.id
             };
 
-            const { error } = await supabase
+            const { data: insertedManifesto, error } = await supabase
                 .from('sloppygram_manifestos')
-                .insert(manifesto);
+                .insert(manifesto)
+                .select()
+                .single();
 
             if (error) {
                 console.error('Error creating manifesto:', error);
                 alert('Failed to create manifesto: ' + error.message);
                 return;
+            }
+
+            // Save tags if any
+            if (pendingManifestoTags.length > 0 && insertedManifesto) {
+                const tagInserts = pendingManifestoTags.map(t => ({
+                    manifesto_id: insertedManifesto.id,
+                    tag: t.tag,
+                    parent_tag: t.parent_tag || null,
+                    user_id: currentUser.id
+                }));
+                await supabase.from('sloppygram_manifesto_tags').insert(tagInserts);
             }
 
             closeManifestoModal();
@@ -3364,9 +3439,10 @@
 
             manifestos = data || [];
 
-            // Load votes
             if (manifestos.length > 0) {
                 const manifestoIds = manifestos.map(m => m.id);
+
+                // Load votes
                 const { data: votesData } = await supabase
                     .from('sloppygram_manifesto_votes')
                     .select('*')
@@ -3379,6 +3455,48 @@
                     if (v.username === profile.username) {
                         myManifestoVotes[v.manifesto_id] = true;
                     }
+                });
+
+                // Load reactions
+                const { data: reactionsData } = await supabase
+                    .from('sloppygram_manifesto_reactions')
+                    .select('*')
+                    .in('manifesto_id', manifestoIds);
+
+                manifestoReactions = {};
+                myManifestoReactions = {};
+                (reactionsData || []).forEach(r => {
+                    if (!manifestoReactions[r.manifesto_id]) manifestoReactions[r.manifesto_id] = {};
+                    manifestoReactions[r.manifesto_id][r.emoji] = (manifestoReactions[r.manifesto_id][r.emoji] || 0) + 1;
+                    if (r.username === profile.username) {
+                        if (!myManifestoReactions[r.manifesto_id]) myManifestoReactions[r.manifesto_id] = new Set();
+                        myManifestoReactions[r.manifesto_id].add(r.emoji);
+                    }
+                });
+
+                // Load comments
+                const { data: commentsData } = await supabase
+                    .from('sloppygram_manifesto_comments')
+                    .select('*')
+                    .in('manifesto_id', manifestoIds)
+                    .order('created_at', { ascending: true });
+
+                manifestoComments = {};
+                (commentsData || []).forEach(c => {
+                    if (!manifestoComments[c.manifesto_id]) manifestoComments[c.manifesto_id] = [];
+                    manifestoComments[c.manifesto_id].push(c);
+                });
+
+                // Load tags
+                const { data: tagsData } = await supabase
+                    .from('sloppygram_manifesto_tags')
+                    .select('*')
+                    .in('manifesto_id', manifestoIds);
+
+                manifestoTags = {};
+                (tagsData || []).forEach(t => {
+                    if (!manifestoTags[t.manifesto_id]) manifestoTags[t.manifesto_id] = [];
+                    manifestoTags[t.manifesto_id].push({ tag: t.tag, parent_tag: t.parent_tag });
                 });
             }
 
@@ -3404,6 +3522,43 @@
             const time = new Date(m.created_at).toLocaleString();
             const voteCount = manifestoVotes[m.id] || m.upvotes || 0;
             const hasVoted = myManifestoVotes[m.id];
+            const reactions = manifestoReactions[m.id] || {};
+            const myReacts = myManifestoReactions[m.id] || new Set();
+            const comments = manifestoComments[m.id] || [];
+            const tags = manifestoTags[m.id] || [];
+
+            const reactionsHtml = Object.entries(reactions)
+                .sort((a, b) => b[1] - a[1])
+                .map(([emoji, count]) => {
+                    const isActive = myReacts.has(emoji);
+                    return `<button class="reaction-btn ${isActive ? 'active' : ''}" onclick="toggleManifestoReaction(${m.id}, '${emoji}')">
+                        ${emoji} <span class="reaction-count">${count}</span>
+                    </button>`;
+                }).join('');
+
+            const reactionPickerHtml = REACTION_EMOJIS.map(emoji =>
+                `<button onclick="toggleManifestoReaction(${m.id}, '${emoji}')">${emoji}</button>`
+            ).join('');
+
+            const commentsHtml = comments.map(c => `
+                <div class="comment">
+                    <span class="comment-avatar">${c.avatar || '👤'}</span>
+                    <div class="comment-content">
+                        <span class="comment-username">${escapeHtml(c.username)}</span>
+                        <span class="comment-text">${escapeHtml(c.content)}</span>
+                    </div>
+                </div>
+            `).join('');
+
+            const tagsHtml = tags.length > 0 ? `
+                <div class="post-tags">
+                    ${tags.map(t => {
+                        const isNested = t.parent_tag != null;
+                        const displayTag = isNested ? `${t.parent_tag}/${t.tag}` : t.tag;
+                        return `<span class="tag ${isNested ? 'nested' : ''}">#${escapeHtml(displayTag)}</span>`;
+                    }).join('')}
+                </div>
+            ` : '';
 
             return `
                 <div class="manifesto-card" data-manifesto-id="${m.id}">
@@ -3414,10 +3569,30 @@
                     </div>
                     <h3 class="manifesto-title">${escapeHtml(m.title)}</h3>
                     <div class="manifesto-text">${escapeHtml(m.content)}</div>
+                    ${tagsHtml}
                     <div class="manifesto-actions">
                         <button class="manifesto-vote-btn ${hasVoted ? 'voted' : ''}" onclick="voteManifesto(${m.id})">
-                            ${hasVoted ? '⭐' : '☆'} <span>${voteCount}</span> ${voteCount === 1 ? 'supporter' : 'supporters'}
+                            ${hasVoted ? '⭐' : '☆'} <span>${voteCount}</span>
                         </button>
+                        <button class="post-action-btn" onclick="focusManifestoComment(${m.id})">
+                            💬 ${comments.length}
+                        </button>
+                    </div>
+                    <div class="post-reactions" id="manifesto-reactions-${m.id}">
+                        ${reactionsHtml}
+                        <div style="position:relative;display:inline-block;">
+                            <button class="add-reaction-btn" onclick="toggleManifestoReactionPicker(${m.id})">+ 😀</button>
+                            <div class="reaction-picker" id="manifesto-picker-${m.id}">
+                                ${reactionPickerHtml}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="post-comments" id="manifesto-comments-${m.id}">
+                        ${commentsHtml}
+                    </div>
+                    <div class="comment-input-row">
+                        <input class="comment-input" id="manifesto-comment-input-${m.id}" placeholder="Add a comment..." onkeydown="if(event.key==='Enter')addManifestoComment(${m.id})">
+                        <button class="comment-send" onclick="addManifestoComment(${m.id})">POST</button>
                     </div>
                 </div>
             `;
@@ -3429,7 +3604,6 @@
             const hasVoted = myManifestoVotes[manifestoId];
 
             if (hasVoted) {
-                // Remove vote
                 await supabase
                     .from('sloppygram_manifesto_votes')
                     .delete()
@@ -3439,7 +3613,6 @@
                 myManifestoVotes[manifestoId] = false;
                 manifestoVotes[manifestoId] = Math.max(0, (manifestoVotes[manifestoId] || 0) - 1);
             } else {
-                // Add vote
                 await supabase
                     .from('sloppygram_manifesto_votes')
                     .insert({
@@ -3452,6 +3625,85 @@
                 manifestoVotes[manifestoId] = (manifestoVotes[manifestoId] || 0) + 1;
             }
 
+            renderManifestos();
+        };
+
+        window.toggleManifestoReactionPicker = function(manifestoId) {
+            const picker = document.getElementById(`manifesto-picker-${manifestoId}`);
+            document.querySelectorAll('.reaction-picker').forEach(p => {
+                if (p !== picker) p.classList.remove('active');
+            });
+            picker.classList.toggle('active');
+        };
+
+        window.toggleManifestoReaction = async function(manifestoId, emoji) {
+            if (!currentUser) return;
+
+            const myReacts = myManifestoReactions[manifestoId] || new Set();
+            const hasReacted = myReacts.has(emoji);
+
+            if (hasReacted) {
+                await supabase
+                    .from('sloppygram_manifesto_reactions')
+                    .delete()
+                    .eq('manifesto_id', manifestoId)
+                    .eq('emoji', emoji)
+                    .eq('user_id', currentUser.id);
+
+                myReacts.delete(emoji);
+                if (!manifestoReactions[manifestoId]) manifestoReactions[manifestoId] = {};
+                manifestoReactions[manifestoId][emoji] = Math.max(0, (manifestoReactions[manifestoId][emoji] || 0) - 1);
+                if (manifestoReactions[manifestoId][emoji] === 0) delete manifestoReactions[manifestoId][emoji];
+            } else {
+                await supabase
+                    .from('sloppygram_manifesto_reactions')
+                    .insert({
+                        manifesto_id: manifestoId,
+                        emoji,
+                        username: profile.username,
+                        user_id: currentUser.id
+                    });
+
+                myReacts.add(emoji);
+                if (!manifestoReactions[manifestoId]) manifestoReactions[manifestoId] = {};
+                manifestoReactions[manifestoId][emoji] = (manifestoReactions[manifestoId][emoji] || 0) + 1;
+            }
+
+            myManifestoReactions[manifestoId] = myReacts;
+            document.querySelectorAll('.reaction-picker').forEach(p => p.classList.remove('active'));
+            renderManifestos();
+        };
+
+        window.focusManifestoComment = function(manifestoId) {
+            document.getElementById(`manifesto-comment-input-${manifestoId}`).focus();
+        };
+
+        window.addManifestoComment = async function(manifestoId) {
+            const input = document.getElementById(`manifesto-comment-input-${manifestoId}`);
+            const content = input.value.trim();
+            if (!content) return;
+
+            const comment = {
+                manifesto_id: manifestoId,
+                username: profile.username,
+                avatar: profile.avatar,
+                content,
+                user_id: currentUser.id
+            };
+
+            const { error } = await supabase
+                .from('sloppygram_manifesto_comments')
+                .insert(comment);
+
+            if (error) {
+                console.error('Error adding comment:', error);
+                return;
+            }
+
+            if (!manifestoComments[manifestoId]) manifestoComments[manifestoId] = [];
+            manifestoComments[manifestoId].push({ ...comment, created_at: new Date().toISOString() });
+
+            input.value = '';
             renderManifestos();
         };
 
