@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added auto-scroll to most recent message on app load
 - 2026-01-23: Fixed mobile feed height - main content now uses 100dvh minus header height
 - 2026-01-23: Fixed mobile sidebar CSS - sidebars now completely hidden when closed (CSS cascade fix)
 - 2026-01-23: Added hamburger menu toggle for left sidebar on mobile (animated X when open)
