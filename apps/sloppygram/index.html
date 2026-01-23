@@ -731,6 +731,23 @@
             color: var(--text-dim);
         }
 
+        .doodle-comments {
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 8px 12px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .doodle-card .comment-input-row {
+            padding: 8px 12px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .doodle-card .reply-indicator {
+            padding: 4px 12px;
+            border-top: 1px solid var(--border-color);
+        }
+
         /* Manifesto Section */
         .manifesto-container {
             flex: 1;
@@ -3209,6 +3226,9 @@
         let postImageData = null;
         let doodleVotes = {}; // { messageId: netScore }
         let myDoodleVotes = {}; // { messageId: 1 or -1 } for my vote type
+        let doodleComments = {}; // { doodleId: [comments] }
+        let doodleCommentThreads = {}; // { commentId: parentCommentId }
+        let replyingToDoodle = null; // { doodleId, commentId, username }
         let messageVotes = {}; // { messageId: netScore } for chat messages
         let myMessageVotes = {}; // { messageId: 1 or -1 } for my vote type
         let postVotes = {}; // { postId: netScore }
@@ -4377,6 +4397,28 @@
             }, (payload) => {
                 console.log('Comment vote change:', payload);
                 loadCommentVotes().then(() => renderPosts());
+            });
+
+            // Listen for doodle comments
+            postsChannel.on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'sloppygram_doodle_comments'
+            }, (payload) => {
+                const comment = payload.new;
+                if (comment) {
+                    if (!doodleComments[comment.doodle_id]) doodleComments[comment.doodle_id] = [];
+                    // Avoid duplicates
+                    if (!doodleComments[comment.doodle_id].find(c => c.id === comment.id)) {
+                        doodleComments[comment.doodle_id].push(comment);
+                        if (comment.parent_comment_id) {
+                            doodleCommentThreads[comment.id] = comment.parent_comment_id;
+                        }
+                        if (currentView === 'doodles') {
+                            loadDoodleLeaderboard();
+                        }
+                    }
+                }
             });
 
             postsChannel.subscribe((status) => {
@@ -6592,6 +6634,7 @@
             const myReacts = myManifestoReactions[m.id] || new Set();
             const comments = manifestoComments[m.id] || [];
             const tags = manifestoTags[m.id] || [];
+            const isOwnManifesto = m.username === profile.username;
 
             const reactionsHtml = Object.entries(reactions)
                 .sort((a, b) => b[1] - a[1])
@@ -6632,6 +6675,7 @@
                         <div class="manifesto-avatar">${m.avatar || '👤'}</div>
                         <span class="manifesto-author username-clickable" onclick="showProfileCard('${escapeHtml(m.username || 'Anonymous')}', event)">${escapeHtml(m.username || 'Anonymous')}</span>
                         <span class="manifesto-time">${time}</span>
+                        ${isOwnManifesto ? `<button class="msg-delete-btn" onclick="deleteManifesto(${m.id})" title="Delete manifesto">delete</button>` : ''}
                     </div>
                     <h3 class="manifesto-title">${escapeHtml(m.title)}</h3>
                     <div class="manifesto-text">${escapeHtml(m.content)}</div>
@@ -6692,6 +6736,36 @@
                 manifestoVotes[manifestoId] = (manifestoVotes[manifestoId] || 0) + 1;
             }
 
+            renderManifestos();
+        };
+
+        window.deleteManifesto = async function(manifestoId) {
+            if (!currentUser) return;
+            if (!confirm('Delete this manifesto?')) return;
+
+            const { error } = await supabase
+                .from('sloppygram_manifestos')
+                .delete()
+                .eq('id', manifestoId)
+                .eq('user_id', currentUser.id);
+
+            if (error) {
+                console.error('Error deleting manifesto:', error);
+                showToast('Failed to delete manifesto', 'error');
+                return;
+            }
+
+            // Remove from local array
+            manifestos = manifestos.filter(m => m.id !== manifestoId);
+            // Clean up related data
+            delete manifestoVotes[manifestoId];
+            delete myManifestoVotes[manifestoId];
+            delete manifestoReactions[manifestoId];
+            delete myManifestoReactions[manifestoId];
+            delete manifestoComments[manifestoId];
+            delete manifestoTags[manifestoId];
+
+            showToast('Manifesto deleted', 'success');
             renderManifestos();
         };
 
@@ -7224,8 +7298,8 @@
             const container = document.getElementById('doodlesContainer');
             const emptyState = document.getElementById('doodlesEmptyState');
 
-            // Batch both queries in parallel
-            const [doodlesResult, votesResult] = await Promise.all([
+            // Batch queries in parallel
+            const [doodlesResult, votesResult, commentsResult] = await Promise.all([
                 supabase
                     .from('sloppygram_messages')
                     .select('*')
@@ -7233,11 +7307,26 @@
                     .order('created_at', { ascending: false }),
                 supabase
                     .from('sloppygram_doodle_votes')
-                    .select('message_id, vote_type')
+                    .select('message_id, vote_type'),
+                supabase
+                    .from('sloppygram_doodle_comments')
+                    .select('*')
+                    .order('created_at', { ascending: true })
             ]);
 
             const doodles = doodlesResult.data;
             const error = doodlesResult.error;
+
+            // Process comments into lookup by doodle_id
+            doodleComments = {};
+            doodleCommentThreads = {};
+            (commentsResult.data || []).forEach(c => {
+                if (!doodleComments[c.doodle_id]) doodleComments[c.doodle_id] = [];
+                doodleComments[c.doodle_id].push(c);
+                if (c.parent_comment_id) {
+                    doodleCommentThreads[c.id] = c.parent_comment_id;
+                }
+            });
 
             if (error || !doodles || doodles.length === 0) {
                 emptyState.style.display = 'block';
@@ -7284,8 +7373,20 @@
                 const scoreClass = doodle.votes > 0 ? 'positive' : doodle.votes < 0 ? 'negative' : 'neutral';
                 const isTop3 = rank <= 3;
                 const safeDrawingData = sanitizeUrl(doodle.drawing_data);
+                const comments = doodleComments[doodle.id] || [];
 
                 const deleteBtn = isOwnDoodle ? `<button class="msg-delete-btn" onclick="deleteMessage('${doodle.id}')" title="Delete doodle">delete</button>` : '';
+
+                // Render threaded comments for this doodle
+                const commentsHtml = renderDoodleComments(comments, doodle.id);
+
+                // Reply indicator
+                const replyIndicatorHtml = (replyingToDoodle && replyingToDoodle.doodleId === doodle.id)
+                    ? `<div class="reply-indicator">
+                        <span>↩ Replying to <strong>${escapeHtml(replyingToDoodle.username)}</strong></span>
+                        <button class="cancel-reply" onclick="cancelDoodleReply()">✕</button>
+                    </div>`
+                    : '';
 
                 const card = document.createElement('div');
                 card.className = `doodle-card${isTop3 ? ' top-3' : ''}`;
@@ -7301,6 +7402,9 @@
                     </div>
                     <div class="doodle-card-actions">
                         <span class="doodle-time">${time}</span>
+                        <button class="post-action-btn" onclick="focusDoodleComment('${doodle.id}')">
+                            💬 ${comments.length}
+                        </button>
                         <div class="vote-controls" data-doodle-id="${doodle.id}">
                             <button class="vote-btn upvote ${myVote === 1 ? 'active' : ''} ${isOwnDoodle ? 'disabled' : ''}"
                                 onclick="${isOwnDoodle ? '' : `voteDoodle('${doodle.id}', 1, '${escapeHtml(doodle.username)}')`}"
@@ -7311,12 +7415,133 @@
                                 title="${isOwnDoodle ? 'Cannot vote on own doodle' : 'Downvote'}">▼</button>
                         </div>
                     </div>
+                    <div class="post-comments doodle-comments" id="doodle-comments-${doodle.id}">
+                        ${commentsHtml}
+                    </div>
+                    ${replyIndicatorHtml}
+                    <div class="comment-input-row">
+                        <input class="comment-input" id="doodle-comment-input-${doodle.id}" placeholder="${replyingToDoodle && replyingToDoodle.doodleId === doodle.id ? 'Write a reply...' : 'Add a comment...'}" onkeydown="if(event.key==='Enter')addDoodleComment('${doodle.id}')">
+                        <button class="comment-send" onclick="addDoodleComment('${doodle.id}')">POST</button>
+                    </div>
                 `;
                 grid.appendChild(card);
             });
 
             container.appendChild(grid);
         }
+
+        // Render threaded comments for doodles
+        function renderDoodleComments(comments, doodleId) {
+            const threads = {};
+            const rootComments = [];
+
+            comments.forEach(c => {
+                const parentId = doodleCommentThreads[c.id];
+                if (parentId) {
+                    if (!threads[parentId]) threads[parentId] = [];
+                    threads[parentId].push(c);
+                } else {
+                    rootComments.push(c);
+                }
+            });
+
+            function renderComment(c, depth = 0) {
+                const time = c.created_at ? new Date(c.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                const replies = threads[c.id] || [];
+                const isNested = depth > 0;
+
+                return `
+                    <div class="comment ${isNested ? 'comment-thread' : ''}" data-comment-id="${c.id}" data-depth="${depth}">
+                        <span class="comment-avatar">${c.avatar || '👤'}</span>
+                        <div class="comment-content">
+                            <span class="comment-username username-clickable" onclick="showProfileCard('${escapeHtml(c.username)}', event)">${escapeHtml(c.username)}</span>
+                            <span class="comment-time">${time}</span>
+                            <div class="comment-text">${escapeHtml(c.content)}</div>
+                            <div class="comment-actions">
+                                <button class="comment-reply-btn" onclick="startDoodleReply('${doodleId}', ${c.id}, '${escapeHtml(c.username)}')">↩ reply</button>
+                            </div>
+                        </div>
+                        ${replies.length > 0 ? `<div class="comment-replies">${replies.map(r => renderComment(r, depth + 1)).join('')}</div>` : ''}
+                    </div>
+                `;
+            }
+
+            return rootComments.map(c => renderComment(c, 0)).join('');
+        }
+
+        window.focusDoodleComment = function(doodleId) {
+            const input = document.getElementById(`doodle-comment-input-${doodleId}`);
+            if (input) {
+                input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                input.focus();
+            }
+        };
+
+        window.startDoodleReply = function(doodleId, commentId, username) {
+            replyingToDoodle = { doodleId, commentId, username };
+            loadDoodleLeaderboard();
+            setTimeout(() => {
+                const input = document.getElementById(`doodle-comment-input-${doodleId}`);
+                if (input) input.focus();
+            }, 50);
+        };
+
+        window.cancelDoodleReply = function() {
+            replyingToDoodle = null;
+            loadDoodleLeaderboard();
+        };
+
+        window.addDoodleComment = async function(doodleId) {
+            if (!currentUser) return;
+
+            const input = document.getElementById(`doodle-comment-input-${doodleId}`);
+            const content = input?.value?.trim();
+            if (!content) return;
+
+            // Rate limit check
+            const rateCheck = checkRateLimit('comment');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message || 'Too many comments! Slow down.', 'warning');
+                return;
+            }
+            recordAction('comment');
+
+            const commentData = {
+                doodle_id: doodleId,
+                username: profile.username,
+                avatar: profile.avatar,
+                content,
+                user_id: currentUser.id
+            };
+
+            // If replying to a comment, add parent reference
+            if (replyingToDoodle && replyingToDoodle.doodleId === doodleId && replyingToDoodle.commentId) {
+                commentData.parent_comment_id = replyingToDoodle.commentId;
+            }
+
+            const { data, error } = await supabase
+                .from('sloppygram_doodle_comments')
+                .insert(commentData)
+                .select()
+                .single();
+
+            if (error) {
+                console.error('Error adding doodle comment:', error);
+                showToast('Failed to add comment', 'error');
+                return;
+            }
+
+            // Add to local state
+            if (!doodleComments[doodleId]) doodleComments[doodleId] = [];
+            doodleComments[doodleId].push(data);
+            if (replyingToDoodle?.commentId) {
+                doodleCommentThreads[data.id] = replyingToDoodle.commentId;
+            }
+
+            input.value = '';
+            replyingToDoodle = null;
+            loadDoodleLeaderboard();
+        };
 
         // Mobile sidebar toggle
         window.toggleSidebar = function(side) {

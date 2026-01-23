@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added delete for manifestos and nested comments for doodles
 - 2026-01-23: Fixed snapshot: rate limit bug (was ignoring return object), use uploadToStorage helper, fix white-image with temp canvas
 - 2026-01-23: Added snapshot function to collab canvas - captures canvas and posts to doodles feed, logs ai_event
 - 2026-01-23: Collab canvas now persists strokes to database - new users see existing art on load
