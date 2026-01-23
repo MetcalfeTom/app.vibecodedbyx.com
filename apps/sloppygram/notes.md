@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Simplified voting - removed reputation system, added delete buttons for messages/doodles
 - 2026-01-23: Added up/down voting (▲/▼) for posts, doodles, chat - prevents self-voting, shows net scores
 - 2026-01-23: Enhanced power system - vote on chat messages (🔥), doodles (⭐), posts, manifestos; all contribute to user power score
 - 2026-01-23: Added user reputation system - earn badges from post likes and manifesto votes (👑⭐✨🌟)
@@ -55,11 +56,10 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Trending tags sidebar showing most popular tags
 - Manifesto board for declaring ideas and visions
 - Vote for manifestos you support
-- Power system with badges (👑100+ ⭐50+ ✨20+ 🔥5+)
 - Up/down voting (▲/▼) on posts, doodles, and chat messages
 - Self-voting prevention - cannot vote on own content
 - Net score display (green positive, red negative)
-- Delete your own posts
+- Delete your own posts, messages, and doodles
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
