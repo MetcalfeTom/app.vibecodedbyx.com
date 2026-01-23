@@ -1475,6 +1475,20 @@
             margin-bottom: 16px;
         }
 
+        /* Infinite scroll loading indicator */
+        .loading-indicator {
+            text-align: center;
+            padding: 16px;
+            color: var(--accent);
+            font-size: 0.85rem;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
         #imageInput {
             display: none;
         }
@@ -2766,6 +2780,15 @@
         let replyingTo = null; // { postId, commentId, username } when replying to a comment
         let userReputations = {}; // { username: { postLikes, manifestoVotes, total } }
 
+        // Pagination state
+        const PAGE_SIZE = 30;
+        let messagesPage = 0;
+        let messagesHasMore = true;
+        let messagesLoading = false;
+        let postsPage = 0;
+        let postsHasMore = true;
+        let postsLoading = false;
+
         // Helper function to log AI events
         async function logAiEvent(eventType, entityType, entityId, metadata = {}) {
             if (!currentUser) return;
@@ -2851,6 +2874,112 @@
                     e.preventDefault();
                     sendMessage();
                 }
+            });
+
+            // Infinite scroll for messages (load older messages when scrolling down)
+            const messagesContainer = document.getElementById('messagesContainer');
+            messagesContainer.addEventListener('scroll', () => {
+                const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
+                // Load more when near bottom (older messages are at bottom)
+                if (scrollHeight - scrollTop - clientHeight < 200) {
+                    loadMessages(true);
+                }
+            });
+
+            // Infinite scroll for posts
+            const postsContainer = document.getElementById('postsContainer');
+            postsContainer.addEventListener('scroll', () => {
+                const { scrollTop, scrollHeight, clientHeight } = postsContainer;
+                if (scrollHeight - scrollTop - clientHeight < 200) {
+                    loadMorePosts();
+                }
+            });
+        }
+
+        // Load more posts for infinite scroll
+        async function loadMorePosts() {
+            if (postsLoading || !postsHasMore) return;
+            postsLoading = true;
+
+            const container = document.getElementById('postsContainer');
+            const loader = document.createElement('div');
+            loader.className = 'loading-indicator';
+            loader.id = 'postsLoader';
+            loader.textContent = 'Loading more posts...';
+            container.appendChild(loader);
+
+            const from = postsPage * PAGE_SIZE;
+            const to = from + PAGE_SIZE - 1;
+
+            const { data, error } = await supabase
+                .from('sloppygram_posts')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .range(from, to);
+
+            document.getElementById('postsLoader')?.remove();
+            postsLoading = false;
+
+            if (error || !data) return;
+
+            postsHasMore = data.length === PAGE_SIZE;
+            postsPage++;
+
+            // Add new posts to existing array and re-render
+            posts = [...posts, ...data];
+
+            // Need to reload related data for new posts
+            const newPostIds = data.map(p => p.id);
+            if (newPostIds.length > 0) {
+                await loadPostRelatedData(newPostIds);
+            }
+
+            renderPosts();
+        }
+
+        // Load related data (votes, comments, etc.) for specific post IDs
+        async function loadPostRelatedData(postIds) {
+            const [votesResult, commentsResult, reactionsResult, tagsResult, threadsResult] = await Promise.all([
+                supabase.from('sloppygram_post_likes').select('post_id, username, vote_type').in('post_id', postIds),
+                supabase.from('sloppygram_post_comments').select('*').in('post_id', postIds).order('created_at', { ascending: true }),
+                supabase.from('sloppygram_post_reactions').select('*').in('post_id', postIds),
+                supabase.from('sloppygram_post_tags').select('*').in('post_id', postIds),
+                supabase.from('sloppygram_comment_threads').select('*').eq('comment_type', 'post').in('post_id', postIds)
+            ]);
+
+            // Process and merge votes
+            (votesResult.data || []).forEach(vote => {
+                postVotes[vote.post_id] = (postVotes[vote.post_id] || 0) + (vote.vote_type || 1);
+                if (vote.username === profile.username) {
+                    myPostVotes[vote.post_id] = vote.vote_type || 1;
+                }
+            });
+
+            // Process comments
+            (commentsResult.data || []).forEach(comment => {
+                if (!postComments[comment.post_id]) postComments[comment.post_id] = [];
+                postComments[comment.post_id].push(comment);
+            });
+
+            // Process reactions
+            (reactionsResult.data || []).forEach(r => {
+                if (!postReactions[r.post_id]) postReactions[r.post_id] = {};
+                postReactions[r.post_id][r.emoji] = (postReactions[r.post_id][r.emoji] || 0) + 1;
+                if (r.username === profile.username) {
+                    if (!myReactions[r.post_id]) myReactions[r.post_id] = new Set();
+                    myReactions[r.post_id].add(r.emoji);
+                }
+            });
+
+            // Process tags
+            (tagsResult.data || []).forEach(t => {
+                if (!postTags[t.post_id]) postTags[t.post_id] = [];
+                postTags[t.post_id].push({ tag: t.tag, parent_tag: t.parent_tag });
+            });
+
+            // Process comment threads
+            (threadsResult.data || []).forEach(t => {
+                commentThreads[t.comment_id] = t.parent_comment_id;
             });
         }
 
@@ -3051,34 +3180,70 @@
         };
 
         // Load messages (newest first, at top)
-        async function loadMessages() {
+        async function loadMessages(loadMore = false) {
+            if (messagesLoading) return;
+            if (loadMore && !messagesHasMore) return;
+
+            messagesLoading = true;
+            const container = document.getElementById('messagesContainer');
+
+            // Show loading indicator
+            if (loadMore) {
+                const loader = document.createElement('div');
+                loader.className = 'loading-indicator';
+                loader.id = 'messagesLoader';
+                loader.textContent = 'Loading...';
+                container.appendChild(loader);
+            }
+
+            const from = loadMore ? messagesPage * PAGE_SIZE : 0;
+            const to = from + PAGE_SIZE - 1;
+
             const { data, error } = await supabase
                 .from('sloppygram_messages')
                 .select('*')
                 .order('created_at', { ascending: false })
-                .limit(100);
+                .range(from, to);
+
+            // Remove loading indicator
+            const loader = document.getElementById('messagesLoader');
+            if (loader) loader.remove();
+
+            messagesLoading = false;
 
             if (error) {
                 console.error('Load error:', error);
                 return;
             }
 
-            const container = document.getElementById('messagesContainer');
             const emptyState = document.getElementById('emptyState');
 
-            if (data.length === 0) {
+            if (!loadMore && data.length === 0) {
                 emptyState.style.display = 'block';
                 return;
             }
 
             emptyState.style.display = 'none';
+
+            // Check if there are more messages
+            messagesHasMore = data.length === PAGE_SIZE;
+            if (loadMore) {
+                messagesPage++;
+            } else {
+                messagesPage = 1;
+            }
+
             data.forEach(msg => {
-                seenMessageIds.add(msg.id);
-                addMessageToUI(msg, false); // append in order (newest first from query)
+                if (!seenMessageIds.has(msg.id)) {
+                    seenMessageIds.add(msg.id);
+                    addMessageToUI(msg, false); // append at end (older messages)
+                }
             });
 
-            // Scroll to top to show most recent messages
-            container.scrollTop = 0;
+            // Scroll to top only on initial load
+            if (!loadMore) {
+                container.scrollTop = 0;
+            }
         }
 
         // Subscribe to new messages
@@ -4470,11 +4635,16 @@
         };
 
         async function loadPosts() {
+            // Reset pagination state for fresh load
+            postsPage = 0;
+            postsHasMore = true;
+            postsLoading = false;
+
             const { data, error } = await supabase
                 .from('sloppygram_posts')
                 .select('*')
                 .order('created_at', { ascending: false })
-                .limit(50);
+                .range(0, PAGE_SIZE - 1);
 
             if (error) {
                 console.error('Error loading posts:', error);
@@ -4546,6 +4716,10 @@
             (threadsResult.data || []).forEach(t => {
                 commentThreads[t.comment_id] = t.parent_comment_id;
             });
+
+            // Update pagination state
+            postsHasMore = posts.length === PAGE_SIZE;
+            postsPage = 1;
 
             renderPosts();
         }
