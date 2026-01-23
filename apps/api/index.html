@@ -20,6 +20,7 @@
         }
         .container { max-width: 800px; margin: 0 auto; }
         h1 { font-size: 1.5rem; margin-bottom: 20px; }
+        h2 { font-size: 1.1rem; margin: 24px 0 12px; color: #00ffff; }
         .endpoint {
             background: #111;
             border: 1px solid #222;
@@ -27,7 +28,7 @@
             margin-bottom: 16px;
             border-radius: 4px;
         }
-        .endpoint h3 { color: #00ffff; margin-bottom: 8px; }
+        .endpoint h3 { color: #00ffff; margin-bottom: 8px; font-size: 0.95rem; }
         .endpoint code {
             background: #1a1a1a;
             padding: 2px 6px;
@@ -35,17 +36,37 @@
             color: #ff00ff;
         }
         .endpoint p { color: #888; font-size: 0.85rem; margin-top: 8px; }
+        .endpoint .new {
+            background: #0f3;
+            color: #000;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            margin-left: 8px;
+        }
         pre {
             background: #111;
             padding: 16px;
             overflow-x: auto;
             border-radius: 4px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             color: #ccc;
+            max-height: 400px;
         }
         .params { margin-top: 8px; font-size: 0.8rem; color: #666; }
+        .fields { margin-top: 4px; font-size: 0.75rem; color: #555; }
         a { color: #00ff41; }
         .back { margin-top: 20px; font-size: 0.85rem; }
+        .status {
+            padding: 8px 12px;
+            background: #111;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            font-size: 0.85rem;
+        }
+        .status.loading { color: #ff0; }
+        .status.success { color: #0f0; }
+        .status.error { color: #f00; }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
@@ -53,38 +74,62 @@
     <div class="container">
         <h1>🔌 Sloppygram Read-Only API</h1>
 
+        <h2>📊 Aggregate</h2>
+
+        <div class="endpoint">
+            <h3>GET /api/#stats <span class="new">NEW</span></h3>
+            <p>Returns aggregate statistics for the platform</p>
+            <div class="fields">Fields: total_messages, total_posts, total_doodles, total_manifestos, total_events, active_users_24h</div>
+        </div>
+
         <div class="endpoint">
             <h3>GET /api/#feed</h3>
             <p>Returns the latest activity feed (messages, posts, manifestos combined)</p>
             <div class="params">Params: <code>limit</code> (default 50), <code>since</code> (ISO timestamp)</div>
         </div>
 
+        <h2>💬 Content</h2>
+
         <div class="endpoint">
             <h3>GET /api/#messages</h3>
-            <p>Returns recent chat messages</p>
+            <p>Returns recent chat messages with avatars</p>
             <div class="params">Params: <code>limit</code> (default 50), <code>since</code> (ISO timestamp)</div>
+            <div class="fields">Fields: id, username, avatar, avatar_url, content, message_type, vote_score, created_at</div>
         </div>
 
         <div class="endpoint">
             <h3>GET /api/#posts</h3>
-            <p>Returns recent posts with metadata</p>
+            <p>Returns recent posts with images and vote scores</p>
             <div class="params">Params: <code>limit</code> (default 50), <code>since</code> (ISO timestamp)</div>
+            <div class="fields">Fields: id, username, avatar, avatar_url, caption, image_url, likes_count, vote_score, created_at</div>
+        </div>
+
+        <div class="endpoint">
+            <h3>GET /api/#doodles <span class="new">NEW</span></h3>
+            <p>Returns drawings/doodles ranked by votes</p>
+            <div class="params">Params: <code>limit</code> (default 50), <code>since</code> (ISO timestamp)</div>
+            <div class="fields">Fields: id, username, avatar, avatar_url, drawing_data, vote_score, created_at</div>
         </div>
 
         <div class="endpoint">
             <h3>GET /api/#manifestos</h3>
-            <p>Returns manifestos</p>
+            <p>Returns manifestos with vote counts</p>
             <div class="params">Params: <code>limit</code> (default 50), <code>since</code> (ISO timestamp)</div>
+            <div class="fields">Fields: id, title, content, username, avatar, upvotes, created_at</div>
         </div>
+
+        <h2>🤖 System</h2>
 
         <div class="endpoint">
             <h3>GET /api/#events</h3>
             <p>Returns AI events log</p>
             <div class="params">Params: <code>limit</code> (default 100), <code>since</code> (ISO timestamp)</div>
+            <div class="fields">Fields: id, event_type, entity_type, entity_id, username, metadata, created_at</div>
         </div>
 
-        <h2 style="margin: 24px 0 12px; font-size: 1.1rem;">Live Data Preview</h2>
-        <div id="output">Loading...</div>
+        <h2>Live Data Preview</h2>
+        <div class="status loading" id="status">⏳ Loading...</div>
+        <div id="output"></div>
 
         <div class="back"><a href="https://sloppy.live">← Back to sloppy.live</a></div>
     </div>
@@ -97,7 +142,7 @@
 
         const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // Parse URL hash for endpoint routing
+        // Parse URL params
         const getParams = () => {
             const params = new URLSearchParams(window.location.search);
             return {
@@ -110,44 +155,155 @@
             return window.location.hash.slice(1) || 'feed';
         };
 
-        // Fetch functions (read-only)
+        // === FETCH FUNCTIONS ===
+
+        async function fetchStats() {
+            const now = new Date();
+            const yesterday = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+
+            const [messages, posts, doodles, manifestos, events, activeUsers] = await Promise.all([
+                supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }),
+                supabase.from('sloppygram_posts').select('id', { count: 'exact', head: true }),
+                supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('message_type', 'drawing'),
+                supabase.from('sloppygram_manifestos').select('id', { count: 'exact', head: true }),
+                supabase.from('ai_events').select('id', { count: 'exact', head: true }),
+                supabase.from('sloppygram_messages').select('username').gte('created_at', yesterday)
+            ]);
+
+            // Count unique active users
+            const uniqueUsers = new Set((activeUsers.data || []).map(m => m.username));
+
+            return {
+                data: {
+                    total_messages: messages.count || 0,
+                    total_posts: posts.count || 0,
+                    total_doodles: doodles.count || 0,
+                    total_manifestos: manifestos.count || 0,
+                    total_events: events.count || 0,
+                    active_users_24h: uniqueUsers.size
+                },
+                error: messages.error || posts.error || manifestos.error,
+                type: 'stats'
+            };
+        }
+
         async function fetchMessages(limit = 50, since = null) {
+            // Fetch messages
             let query = supabase
                 .from('sloppygram_messages')
-                .select('id, username, avatar, content, message_type, created_at')
+                .select('id, username, avatar, avatar_url, content, message_type, created_at')
                 .order('created_at', { ascending: false })
                 .limit(limit);
 
             if (since) query = query.gte('created_at', since);
 
-            const { data, error } = await query;
+            const { data: messages, error } = await query;
+            if (error || !messages) return { data: [], error, type: 'messages' };
+
+            // Fetch vote scores
+            const messageIds = messages.map(m => m.id);
+            const { data: votes } = await supabase
+                .from('sloppygram_message_votes')
+                .select('message_id, vote_type')
+                .in('message_id', messageIds);
+
+            // Calculate net scores
+            const voteScores = {};
+            (votes || []).forEach(v => {
+                voteScores[v.message_id] = (voteScores[v.message_id] || 0) + (v.vote_type || 0);
+            });
+
+            // Merge vote scores
+            const data = messages.map(m => ({
+                ...m,
+                vote_score: voteScores[m.id] || 0
+            }));
+
             return { data, error, type: 'messages' };
         }
 
         async function fetchPosts(limit = 50, since = null) {
             let query = supabase
                 .from('sloppygram_posts')
-                .select('id, username, caption, likes_count, created_at')
+                .select('id, username, avatar, avatar_url, caption, image_url, likes_count, created_at')
                 .order('created_at', { ascending: false })
                 .limit(limit);
 
             if (since) query = query.gte('created_at', since);
 
-            const { data, error } = await query;
+            const { data: posts, error } = await query;
+            if (error || !posts) return { data: [], error, type: 'posts' };
+
+            // Fetch vote scores
+            const postIds = posts.map(p => p.id);
+            const { data: votes } = await supabase
+                .from('sloppygram_post_likes')
+                .select('post_id, vote_type')
+                .in('post_id', postIds);
+
+            // Calculate net scores
+            const voteScores = {};
+            (votes || []).forEach(v => {
+                voteScores[v.post_id] = (voteScores[v.post_id] || 0) + (v.vote_type || 1);
+            });
+
+            // Merge vote scores
+            const data = posts.map(p => ({
+                ...p,
+                vote_score: voteScores[p.id] || p.likes_count || 0
+            }));
+
             return { data, error, type: 'posts' };
+        }
+
+        async function fetchDoodles(limit = 50, since = null) {
+            // Fetch doodles (drawings)
+            let query = supabase
+                .from('sloppygram_messages')
+                .select('id, username, avatar, avatar_url, drawing_data, created_at')
+                .eq('message_type', 'drawing')
+                .not('drawing_data', 'is', null)
+                .order('created_at', { ascending: false })
+                .limit(limit);
+
+            if (since) query = query.gte('created_at', since);
+
+            const { data: doodles, error } = await query;
+            if (error || !doodles) return { data: [], error, type: 'doodles' };
+
+            // Fetch vote scores
+            const doodleIds = doodles.map(d => d.id);
+            const { data: votes } = await supabase
+                .from('sloppygram_doodle_votes')
+                .select('message_id, vote_type')
+                .in('message_id', doodleIds);
+
+            // Calculate net scores
+            const voteScores = {};
+            (votes || []).forEach(v => {
+                voteScores[v.message_id] = (voteScores[v.message_id] || 0) + (v.vote_type || 1);
+            });
+
+            // Merge and sort by votes
+            const data = doodles.map(d => ({
+                ...d,
+                vote_score: voteScores[d.id] || 0
+            })).sort((a, b) => b.vote_score - a.vote_score);
+
+            return { data, error, type: 'doodles' };
         }
 
         async function fetchManifestos(limit = 50, since = null) {
             let query = supabase
                 .from('sloppygram_manifestos')
-                .select('id, title, username, upvotes, created_at')
+                .select('id, title, content, username, avatar, upvotes, created_at')
                 .order('created_at', { ascending: false })
                 .limit(limit);
 
             if (since) query = query.gte('created_at', since);
 
             const { data, error } = await query;
-            return { data, error, type: 'manifestos' };
+            return { data: data || [], error, type: 'manifestos' };
         }
 
         async function fetchEvents(limit = 100, since = null) {
@@ -160,15 +316,17 @@
             if (since) query = query.gte('created_at', since);
 
             const { data, error } = await query;
-            return { data, error, type: 'events' };
+            return { data: data || [], error, type: 'events' };
         }
 
         async function fetchFeed(limit = 50, since = null) {
-            // Combine recent activity from all sources
+            // Fetch more from each source to ensure good coverage
+            const perSource = Math.ceil(limit / 2);
+
             const [messages, posts, manifestos] = await Promise.all([
-                fetchMessages(Math.ceil(limit / 3), since),
-                fetchPosts(Math.ceil(limit / 3), since),
-                fetchManifestos(Math.ceil(limit / 3), since)
+                fetchMessages(perSource, since),
+                fetchPosts(perSource, since),
+                fetchManifestos(perSource, since)
             ]);
 
             const feed = [
@@ -189,45 +347,65 @@
             };
         }
 
-        // Main
+        // === MAIN ===
         async function main() {
             const endpoint = getEndpoint();
             const { limit, since } = getParams();
             const output = document.getElementById('output');
+            const status = document.getElementById('status');
+
+            status.className = 'status loading';
+            status.textContent = `⏳ Fetching ${endpoint}...`;
 
             let result;
-            switch (endpoint) {
-                case 'messages':
-                    result = await fetchMessages(limit, since);
-                    break;
-                case 'posts':
-                    result = await fetchPosts(limit, since);
-                    break;
-                case 'manifestos':
-                    result = await fetchManifestos(limit, since);
-                    break;
-                case 'events':
-                    result = await fetchEvents(limit, since);
-                    break;
-                case 'feed':
-                default:
-                    result = await fetchFeed(limit, since);
+            try {
+                switch (endpoint) {
+                    case 'stats':
+                        result = await fetchStats();
+                        break;
+                    case 'messages':
+                        result = await fetchMessages(limit, since);
+                        break;
+                    case 'posts':
+                        result = await fetchPosts(limit, since);
+                        break;
+                    case 'doodles':
+                        result = await fetchDoodles(limit, since);
+                        break;
+                    case 'manifestos':
+                        result = await fetchManifestos(limit, since);
+                        break;
+                    case 'events':
+                        result = await fetchEvents(limit, since);
+                        break;
+                    case 'feed':
+                    default:
+                        result = await fetchFeed(limit, since);
+                }
+
+                const response = {
+                    ok: !result.error,
+                    endpoint: endpoint,
+                    timestamp: new Date().toISOString(),
+                    ...(result.type !== 'stats' && { count: Array.isArray(result.data) ? result.data.length : 1 }),
+                    ...(result.counts && { counts: result.counts }),
+                    data: result.data || [],
+                    ...(result.error && { error: result.error.message })
+                };
+
+                status.className = result.error ? 'status error' : 'status success';
+                status.textContent = result.error
+                    ? `❌ Error: ${result.error.message}`
+                    : `✅ ${endpoint} — ${Array.isArray(result.data) ? result.data.length + ' items' : 'loaded'}`;
+
+                output.innerHTML = `<pre>${JSON.stringify(response, null, 2)}</pre>`;
+                window.API_RESPONSE = response;
+
+            } catch (err) {
+                status.className = 'status error';
+                status.textContent = `❌ Error: ${err.message}`;
+                output.innerHTML = `<pre>${JSON.stringify({ ok: false, error: err.message }, null, 2)}</pre>`;
             }
-
-            const response = {
-                ok: !result.error,
-                endpoint: endpoint,
-                timestamp: new Date().toISOString(),
-                count: result.data?.length || 0,
-                ...(result.counts && { counts: result.counts }),
-                data: result.data || [],
-                ...(result.error && { error: result.error.message })
-            };
-
-            output.innerHTML = `<pre>${JSON.stringify(response, null, 2)}</pre>`;
-
-            // Also expose as window.API_RESPONSE for programmatic access
-            window.API_RESPONSE = response;
         }
 
         // Re-run on hash change
