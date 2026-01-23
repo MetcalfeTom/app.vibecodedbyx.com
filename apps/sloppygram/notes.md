@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added doodle debug/metadata bridge - console functions (debugDoodles, showDoodle, exportDoodles) + UI debug button
 - 2026-01-23: Added delete button for manifestos (own content only)
 - 2026-01-23: Added nested comments for doodles with reply functionality
 - 2026-01-23: Added global light/dark mode toggle in settings - syncs to everyone in real-time
