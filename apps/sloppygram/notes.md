@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added Supabase realtime listeners for posts, comments, reactions, likes, manifestos - auto-refresh feed
 - 2026-01-23: Added threaded comments - reply directly to existing comments with nested display
 - 2026-01-23: Enhanced Manifesto with emoji reactions, comments, and tags (like posts)
 - 2026-01-23: Added Manifesto section - declare your ideas, vote for visions you support
