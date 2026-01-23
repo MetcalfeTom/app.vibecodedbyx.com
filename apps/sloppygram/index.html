@@ -1718,6 +1718,37 @@
             color: var(--accent);
         }
 
+        .comment-vote-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            margin-left: 8px;
+        }
+
+        .comment-vote-btn {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            cursor: pointer;
+            padding: 0 2px;
+            opacity: 0.7;
+        }
+
+        .comment-vote-btn:hover { opacity: 1; }
+        .comment-vote-btn.upvote:hover, .comment-vote-btn.upvote.active { color: #00ff41; opacity: 1; }
+        .comment-vote-btn.downvote:hover, .comment-vote-btn.downvote.active { color: #ff4444; opacity: 1; }
+        .comment-vote-btn.disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .comment-vote-score {
+            font-size: 0.75rem;
+            min-width: 16px;
+            text-align: center;
+            color: var(--text-dim);
+        }
+        .comment-vote-score.positive { color: #00ff41; }
+        .comment-vote-score.negative { color: #ff4444; }
+
         .reply-indicator {
             display: flex;
             align-items: center;
@@ -2129,6 +2160,8 @@
         let myMessageVotes = {}; // { messageId: 1 or -1 } for my vote type
         let postVotes = {}; // { postId: netScore }
         let myPostVotes = {}; // { postId: 1 or -1 } for my vote type
+        let commentVotes = {}; // { commentId: netScore }
+        let myCommentVotes = {}; // { commentId: 1 or -1 } for my vote type
         let postTags = {}; // { postId: [{ tag, parent_tag }, ...] }
         let pendingTags = []; // tags being added to new post
         let activeTagFilter = null; // current tag filter
@@ -2187,6 +2220,7 @@
             setupDrawingCanvas();
             await loadDoodleVotes();
             await loadMessageVotes();
+            await loadCommentVotes();
             loadMessages();
             subscribeToMessages();
             subscribeToPostsAndComments();
@@ -2660,6 +2694,16 @@
             }, (payload) => {
                 console.log('Message vote change:', payload);
                 loadMessageVotes();
+            });
+
+            // Listen for comment votes
+            postsChannel.on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'sloppygram_comment_votes'
+            }, (payload) => {
+                console.log('Comment vote change:', payload);
+                loadCommentVotes().then(() => renderPosts());
             });
 
             postsChannel.subscribe((status) => {
@@ -3297,6 +3341,10 @@
                 const time = c.created_at ? new Date(c.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
                 const replies = threads[c.id] || [];
                 const isNested = depth > 0;
+                const isOwnComment = c.username === profile.username;
+                const myVote = myCommentVotes[c.id] || 0;
+                const voteScore = commentVotes[c.id] || 0;
+                const scoreClass = voteScore > 0 ? 'positive' : voteScore < 0 ? 'negative' : '';
 
                 return `
                     <div class="comment ${isNested ? 'comment-thread' : ''}" data-comment-id="${c.id}" data-depth="${depth}">
@@ -3307,6 +3355,15 @@
                             <div class="comment-text">${escapeHtml(c.content)}</div>
                             <div class="comment-actions">
                                 <button class="comment-reply-btn" onclick="startReply(${postId}, ${c.id}, '${escapeHtml(c.username)}', '${type}')">↩ reply</button>
+                                <span class="comment-vote-controls" data-comment-id="${c.id}">
+                                    <button class="comment-vote-btn upvote ${myVote === 1 ? 'active' : ''} ${isOwnComment ? 'disabled' : ''}"
+                                        onclick="${isOwnComment ? '' : `voteComment('${c.id}', 1, '${escapeHtml(c.username)}')`}"
+                                        title="${isOwnComment ? 'Cannot vote on own comment' : 'Upvote'}">▲</button>
+                                    <span class="comment-vote-score ${scoreClass}">${voteScore}</span>
+                                    <button class="comment-vote-btn downvote ${myVote === -1 ? 'active' : ''} ${isOwnComment ? 'disabled' : ''}"
+                                        onclick="${isOwnComment ? '' : `voteComment('${c.id}', -1, '${escapeHtml(c.username)}')`}"
+                                        title="${isOwnComment ? 'Cannot vote on own comment' : 'Downvote'}">▼</button>
+                                </span>
                             </div>
                         </div>
                         ${replies.length > 0 ? `<div class="comment-replies">${replies.map(r => renderComment(r, depth + 1)).join('')}</div>` : ''}
@@ -4693,6 +4750,77 @@
                 if (downBtn) downBtn.classList.toggle('active', myVote === -1);
             });
         }
+
+        // === COMMENT VOTING ===
+
+        async function loadCommentVotes() {
+            const { data: votes } = await supabase
+                .from('sloppygram_comment_votes')
+                .select('comment_id, voter_username, vote_type');
+
+            if (votes) {
+                commentVotes = {};
+                votes.forEach(v => {
+                    commentVotes[v.comment_id] = (commentVotes[v.comment_id] || 0) + (v.vote_type || 1);
+                });
+
+                myCommentVotes = {};
+                votes.filter(v => v.voter_username === profile.username).forEach(v => {
+                    myCommentVotes[v.comment_id] = v.vote_type || 1;
+                });
+            }
+        }
+
+        window.voteComment = async function(commentId, voteType, ownerUsername) {
+            if (!currentUser) return;
+            if (ownerUsername === profile.username) return; // Can't vote on own comment
+
+            const currentVote = myCommentVotes[commentId] || 0;
+
+            if (currentVote === voteType) {
+                // Remove vote if clicking same button
+                await supabase
+                    .from('sloppygram_comment_votes')
+                    .delete()
+                    .eq('comment_id', commentId)
+                    .eq('user_id', currentUser.id);
+
+                myCommentVotes[commentId] = 0;
+                commentVotes[commentId] = (commentVotes[commentId] || 0) - voteType;
+            } else {
+                // Remove existing vote first
+                if (currentVote !== 0) {
+                    await supabase
+                        .from('sloppygram_comment_votes')
+                        .delete()
+                        .eq('comment_id', commentId)
+                        .eq('user_id', currentUser.id);
+                    commentVotes[commentId] = (commentVotes[commentId] || 0) - currentVote;
+                }
+
+                // Add new vote
+                await supabase
+                    .from('sloppygram_comment_votes')
+                    .insert({
+                        comment_id: commentId,
+                        voter_username: profile.username,
+                        vote_type: voteType,
+                        user_id: currentUser.id
+                    });
+
+                myCommentVotes[commentId] = voteType;
+                commentVotes[commentId] = (commentVotes[commentId] || 0) + voteType;
+            }
+
+            // Log AI event for comment vote
+            logAiEvent('vote_cast', 'comment', commentId, {
+                vote_type: myCommentVotes[commentId] || 0,
+                net_score: commentVotes[commentId] || 0
+            });
+
+            // Update UI - re-render posts to reflect vote changes
+            renderPosts();
+        };
 
         async function loadDoodleLeaderboard() {
             const container = document.getElementById('doodlesContainer');
