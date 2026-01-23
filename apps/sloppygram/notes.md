@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added DOMPurify for XSS protection - sanitizes all user content, URLs blocked for javascript:/data: protocols
 - 2026-01-23: Optimized queries with Promise.all batching - solved N+1 problem in loadPosts, loadManifestos, loadDoodleLeaderboard
 - 2026-01-23: Migrated to Supabase Storage for images/doodles - no more base64 in database (requires 'sloppygram' bucket)
 - 2026-01-23: Reverted settings sync/debug features for clean slate
