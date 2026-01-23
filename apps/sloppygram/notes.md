@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added global settings sync - backgrounds, sounds synced to database in real-time
 - 2026-01-23: Updated all feed containers to use full viewport width on mobile
 - 2026-01-23: Added touch swipe navigation for mobile - swipe left/right to switch tabs
 - 2026-01-23: Removed donate button and tip jar (per chat request)
@@ -105,6 +106,7 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - sloppygram_manifesto_reactions: manifesto_id, emoji, username
 - sloppygram_manifesto_comments: manifesto_id, username, avatar, content
 - sloppygram_manifesto_tags: manifesto_id, tag, parent_tag
+- sloppygram_global_settings: setting_type, setting_value, username, extra_data (syncs backgrounds/sounds globally)
 - sloppygram_comment_threads: comment_id, parent_comment_id, comment_type, post_id
 - sloppygram_comment_votes: comment_id, voter_username, vote_type
 - ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast)

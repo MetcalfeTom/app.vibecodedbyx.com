@@ -2784,6 +2784,10 @@
             setupPresence();
             applyCustomBackground();
 
+            // Load and subscribe to global settings (backgrounds, sounds, avatars)
+            subscribeToGlobalSettings();
+            loadGlobalSettings();
+
             // Random visitor count for 90s vibes
             document.getElementById('visitorCount').textContent = Math.floor(10000 + Math.random() * 90000);
 
@@ -3793,6 +3797,10 @@
 
         window.saveSoundSettings = function() {
             localStorage.setItem('sloppygram_sounds', JSON.stringify(soundSettings));
+
+            // Broadcast sound setting globally
+            broadcastGlobalSetting('sound', soundSettings.sound, soundSettings.customData || '');
+
             closeSettingsModal();
         };
 
@@ -3812,6 +3820,113 @@
                     document.getElementById('clearSoundBtn').style.display = 'inline-block';
                 }
             }
+        }
+
+        // === GLOBAL SETTINGS SYNC ===
+        let globalSettingsChannel = null;
+
+        async function broadcastGlobalSetting(settingType, settingValue, extraData = '') {
+            if (!currentUser) return;
+
+            // Broadcast via realtime channel for instant update
+            if (globalSettingsChannel) {
+                globalSettingsChannel.send({
+                    type: 'broadcast',
+                    event: 'global_setting',
+                    payload: {
+                        setting_type: settingType,
+                        setting_value: settingValue,
+                        username: profile.username,
+                        extra_data: extraData
+                    }
+                });
+            }
+
+            // Also save to database for persistence
+            try {
+                await supabase.from('sloppygram_global_settings').insert({
+                    setting_type: settingType,
+                    setting_value: settingValue,
+                    username: profile.username,
+                    extra_data: extraData,
+                    user_id: currentUser.id
+                });
+            } catch (e) {
+                console.error('Error saving global setting:', e);
+            }
+        }
+
+        function applyGlobalSetting(settingType, settingValue, username, extraData) {
+            const notification = `🌐 ${username} changed global ${settingType}!`;
+
+            switch (settingType) {
+                case 'background':
+                    const msgContainer = document.getElementById('messagesContainer');
+                    if (msgContainer && settingValue) {
+                        msgContainer.style.backgroundImage = `url(${settingValue})`;
+                        msgContainer.style.backgroundSize = 'cover';
+                        msgContainer.style.backgroundPosition = 'center';
+                        msgContainer.style.backgroundAttachment = 'fixed';
+                        addToFeed(username, 'set global background');
+                    }
+                    break;
+
+                case 'sound':
+                    soundSettings.sound = settingValue;
+                    if (extraData) {
+                        soundSettings.customData = extraData;
+                    }
+                    document.querySelectorAll('.sound-option').forEach(opt => opt.classList.remove('selected'));
+                    const selectedOpt = document.querySelector(`.sound-option[onclick*="'${settingValue}'"]`);
+                    if (selectedOpt) selectedOpt.classList.add('selected');
+                    addToFeed(username, `set global sound to ${settingValue}`);
+                    // Play the sound so everyone hears it
+                    playNotificationSound();
+                    break;
+
+                case 'avatar':
+                    // Show notification that someone changed their avatar globally
+                    addToFeed(username, 'updated their avatar');
+                    break;
+            }
+        }
+
+        async function loadGlobalSettings() {
+            // Load most recent global settings from database
+            const { data: bgData } = await supabase
+                .from('sloppygram_global_settings')
+                .select('*')
+                .eq('setting_type', 'background')
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            if (bgData && bgData[0] && bgData[0].setting_value) {
+                applyGlobalSetting('background', bgData[0].setting_value, bgData[0].username, '');
+            }
+
+            const { data: soundData } = await supabase
+                .from('sloppygram_global_settings')
+                .select('*')
+                .eq('setting_type', 'sound')
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            if (soundData && soundData[0]) {
+                applyGlobalSetting('sound', soundData[0].setting_value, soundData[0].username, soundData[0].extra_data);
+            }
+        }
+
+        function subscribeToGlobalSettings() {
+            globalSettingsChannel = supabase.channel('sloppygram-global-settings', {
+                config: { broadcast: { self: false } }
+            });
+
+            globalSettingsChannel.on('broadcast', { event: 'global_setting' }, (payload) => {
+                const { setting_type, setting_value, username, extra_data } = payload.payload;
+                applyGlobalSetting(setting_type, setting_value, username, extra_data);
+            });
+
+            globalSettingsChannel.subscribe();
         }
 
         window.switchSettingsTab = function(tab) {
@@ -4173,6 +4288,16 @@
             profile.bgUrl = pendingBgData || '';
             localStorage.setItem('sloppygram_profile', JSON.stringify(profile));
             applyCustomBackground();
+
+            // Broadcast background globally if set
+            if (profile.bgUrl) {
+                broadcastGlobalSetting('background', profile.bgUrl);
+            }
+            // Broadcast avatar change globally if set
+            if (profile.avatarUrl) {
+                broadcastGlobalSetting('avatar', profile.avatarUrl);
+            }
+
             closeSettingsModal();
         };
 
