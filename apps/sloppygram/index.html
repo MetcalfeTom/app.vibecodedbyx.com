@@ -1422,6 +1422,22 @@
             color: white;
         }
 
+        .tool-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .tool-btn:disabled:hover {
+            background: transparent;
+            color: var(--accent);
+        }
+
+        .canvas-actions {
+            display: flex;
+            gap: 6px;
+            margin-left: auto;
+        }
+
         .brush-colors {
             display: flex;
             gap: 6px;
@@ -2671,7 +2687,11 @@
 
             <div class="canvas-tools">
                 <div class="brush-colors" id="brushColors"></div>
-                <button class="tool-btn" onclick="clearCanvas()">CLEAR</button>
+                <div class="canvas-actions">
+                    <button class="tool-btn" id="undoBtn" onclick="undoCanvas()" disabled title="Undo (Ctrl+Z)">↩ UNDO</button>
+                    <button class="tool-btn" id="redoBtn" onclick="redoCanvas()" disabled title="Redo (Ctrl+Y)">↪ REDO</button>
+                    <button class="tool-btn" onclick="clearCanvas()">CLEAR</button>
+                </div>
             </div>
 
             <div class="canvas-container">
@@ -2875,6 +2895,111 @@
         let postsPage = 0;
         let postsHasMore = true;
         let postsLoading = false;
+
+        // === RATE LIMITING ===
+        const rateLimits = {
+            message: { limit: 5, window: 10000 },    // 5 messages per 10 seconds
+            post: { limit: 3, window: 60000 },       // 3 posts per minute
+            vote: { limit: 20, window: 60000 },      // 20 votes per minute
+            comment: { limit: 10, window: 60000 },   // 10 comments per minute
+            drawing: { limit: 3, window: 30000 }     // 3 drawings per 30 seconds
+        };
+        const actionTimestamps = {};  // { actionType: [timestamps] }
+
+        function checkRateLimit(actionType) {
+            const config = rateLimits[actionType];
+            if (!config) return { allowed: true };
+
+            const now = Date.now();
+            const timestamps = actionTimestamps[actionType] || [];
+
+            // Remove expired timestamps
+            const validTimestamps = timestamps.filter(t => now - t < config.window);
+            actionTimestamps[actionType] = validTimestamps;
+
+            if (validTimestamps.length >= config.limit) {
+                const oldestValid = validTimestamps[0];
+                const waitTime = Math.ceil((config.window - (now - oldestValid)) / 1000);
+                return { allowed: false, waitTime, message: `Rate limited. Wait ${waitTime}s` };
+            }
+
+            return { allowed: true };
+        }
+
+        function recordAction(actionType) {
+            if (!actionTimestamps[actionType]) {
+                actionTimestamps[actionType] = [];
+            }
+            actionTimestamps[actionType].push(Date.now());
+        }
+
+        // === CANVAS UNDO/REDO ===
+        const MAX_HISTORY = 20;
+        let canvasHistory = [];
+        let canvasHistoryIndex = -1;
+
+        function saveCanvasState() {
+            const canvas = document.getElementById('drawingCanvas');
+            if (!canvas) return;
+
+            // Remove any states after current index (for redo overwrite)
+            canvasHistory = canvasHistory.slice(0, canvasHistoryIndex + 1);
+
+            // Save current state
+            canvasHistory.push(canvas.toDataURL());
+
+            // Limit history size
+            if (canvasHistory.length > MAX_HISTORY) {
+                canvasHistory.shift();
+            } else {
+                canvasHistoryIndex++;
+            }
+
+            updateUndoRedoButtons();
+        }
+
+        function undoCanvas() {
+            if (canvasHistoryIndex <= 0) return;
+            canvasHistoryIndex--;
+            restoreCanvasState(canvasHistory[canvasHistoryIndex]);
+            updateUndoRedoButtons();
+        }
+
+        function redoCanvas() {
+            if (canvasHistoryIndex >= canvasHistory.length - 1) return;
+            canvasHistoryIndex++;
+            restoreCanvasState(canvasHistory[canvasHistoryIndex]);
+            updateUndoRedoButtons();
+        }
+
+        function restoreCanvasState(dataUrl) {
+            const canvas = document.getElementById('drawingCanvas');
+            if (!canvas || !dataUrl) return;
+
+            const img = new Image();
+            img.onload = function() {
+                drawingCtx.clearRect(0, 0, canvas.width, canvas.height);
+                drawingCtx.drawImage(img, 0, 0);
+            };
+            img.src = dataUrl;
+        }
+
+        function updateUndoRedoButtons() {
+            const undoBtn = document.getElementById('undoBtn');
+            const redoBtn = document.getElementById('redoBtn');
+            if (undoBtn) undoBtn.disabled = canvasHistoryIndex <= 0;
+            if (redoBtn) redoBtn.disabled = canvasHistoryIndex >= canvasHistory.length - 1;
+        }
+
+        function resetCanvasHistory() {
+            canvasHistory = [];
+            canvasHistoryIndex = -1;
+            saveCanvasState(); // Save initial blank state
+        }
+
+        // Expose undo/redo globally
+        window.undoCanvas = undoCanvas;
+        window.redoCanvas = redoCanvas;
 
         // Helper function to log AI events
         async function logAiEvent(eventType, entityType, entityId, metadata = {}) {
@@ -3353,13 +3478,17 @@
         }
 
         function stopDrawing() {
-            isDrawing = false;
+            if (isDrawing) {
+                isDrawing = false;
+                saveCanvasState(); // Save state after each stroke
+            }
         }
 
         window.clearCanvas = function() {
             const canvas = document.getElementById('drawingCanvas');
             drawingCtx.fillStyle = '#111';
             drawingCtx.fillRect(0, 0, canvas.width, canvas.height);
+            resetCanvasHistory(); // Reset undo history on clear
         };
 
         // Load messages (newest first, at top)
@@ -3839,6 +3968,14 @@
 
             if (!content && !selectedImage) return;
 
+            // Rate limiting check
+            const rateCheck = checkRateLimit('message');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('message');
+
             const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             const hasImage = !!selectedImage;
             const localImageData = selectedImage; // keep reference for optimistic UI
@@ -3927,6 +4064,14 @@
 
         // Send drawing
         window.sendDrawing = async function() {
+            // Rate limiting check
+            const rateCheck = checkRateLimit('drawing');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('drawing');
+
             const canvas = document.getElementById('drawingCanvas');
             const drawingDataUrl = canvas.toDataURL('image/png');
 
@@ -4783,11 +4928,30 @@
         window.openDrawingModal = function() {
             clearCanvas();
             document.getElementById('drawingModal').classList.add('active');
+
+            // Add keyboard shortcuts for undo/redo when modal is open
+            document.addEventListener('keydown', handleDrawingKeyboard);
         };
 
         window.closeDrawingModal = function() {
             document.getElementById('drawingModal').classList.remove('active');
+            document.removeEventListener('keydown', handleDrawingKeyboard);
         };
+
+        function handleDrawingKeyboard(e) {
+            // Only handle if drawing modal is open
+            if (!document.getElementById('drawingModal').classList.contains('active')) return;
+
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'z' && !e.shiftKey) {
+                    e.preventDefault();
+                    undoCanvas();
+                } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+                    e.preventDefault();
+                    redoCanvas();
+                }
+            }
+        }
 
         // === POSTS FUNCTIONALITY ===
 
@@ -5103,6 +5267,14 @@
         window.votePost = async function(postId, voteType) {
             if (!currentUser) return;
 
+            // Rate limiting check
+            const rateCheck = checkRateLimit('vote');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('vote');
+
             // Check if own post
             const post = posts.find(p => p.id === postId);
             if (post && (post.user_id === currentUser.id || post.username === profile.username)) return;
@@ -5213,6 +5385,14 @@
             const input = document.getElementById(`comment-input-${postId}`);
             const content = input.value.trim();
             if (!content || !currentUser) return;
+
+            // Rate limiting check
+            const rateCheck = checkRateLimit('comment');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('comment');
 
             const comment = {
                 post_id: postId,
@@ -5371,9 +5551,17 @@
             const caption = document.getElementById('postCaption').value.trim();
 
             if (!imageUrl && !postImageData && !caption) {
-                alert('Add an image or caption!');
+                showToast('Add an image or caption!', 'warning');
                 return;
             }
+
+            // Rate limiting check
+            const rateCheck = checkRateLimit('post');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('post');
 
             // Upload local image to storage instead of saving base64
             let finalImageUrl = imageUrl || null;
@@ -5990,6 +6178,14 @@
             const content = input.value.trim();
             if (!content || !currentUser) return;
 
+            // Rate limiting check
+            const rateCheck = checkRateLimit('comment');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('comment');
+
             const comment = {
                 manifesto_id: manifestoId,
                 username: profile.username,
@@ -6202,6 +6398,14 @@
             if (!currentUser) return;
             if (ownerUsername === profile.username) return; // Can't vote on own doodle
 
+            // Rate limiting check
+            const rateCheck = checkRateLimit('vote');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('vote');
+
             const currentVote = myDoodleVotes[messageId] || 0;
 
             if (currentVote === voteType) {
@@ -6290,6 +6494,14 @@
 
         window.voteMessage = async function(messageId, voteType) {
             if (!currentUser) return;
+
+            // Rate limiting check
+            const rateCheck = checkRateLimit('vote');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('vote');
 
             const currentVote = myMessageVotes[messageId] || 0;
 
@@ -6380,6 +6592,14 @@
         window.voteComment = async function(commentId, voteType, ownerUsername) {
             if (!currentUser) return;
             if (ownerUsername === profile.username) return; // Can't vote on own comment
+
+            // Rate limiting check
+            const rateCheck = checkRateLimit('vote');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('vote');
 
             const currentVote = myCommentVotes[commentId] || 0;
 

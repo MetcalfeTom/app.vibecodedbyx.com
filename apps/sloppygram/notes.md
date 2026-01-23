@@ -3,6 +3,8 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added rate limiting (sliding window) - 5 msgs/10s, 3 posts/min, 20 votes/min, 10 comments/min, 3 drawings/30s
+- 2026-01-23: Added canvas undo/redo with 20-state history (Ctrl+Z/Y, ↶/↷ buttons)
 - 2026-01-23: Added system-toast notification styles and fixed memory leaks (cleanup channels on unload)
 - 2026-01-23: Implemented infinite scroll pagination for chat messages and posts (PAGE_SIZE=30)
 - 2026-01-23: Added DOMPurify for XSS protection - sanitizes all user content, URLs blocked for javascript:/data: protocols
@@ -94,6 +96,8 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Notification sounds library (blip, chime, pop, retro, cyber, whoosh, ding)
 - Volume control for notification sounds
 - Sounds saved to localStorage
+- Rate limiting on all actions (sliding window algorithm)
+- Canvas undo/redo with keyboard shortcuts
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
@@ -125,6 +129,7 @@ Pink, Purple, Deep Purple, Indigo, Blue, Cyan, Teal, Green, Orange, Deep Orange
 ## drawing tool
 - Canvas-based drawing
 - 8 brush colors (black, pink, purple, blue, green, orange, red, white)
+- Undo/redo with 20-state history (Ctrl+Z, Ctrl+Y)
 - Clear button
 - Send as PNG
 - Touch support for mobile
