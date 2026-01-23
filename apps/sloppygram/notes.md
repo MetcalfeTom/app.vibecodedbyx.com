@@ -3,7 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
-- 2026-01-23: Added tip jar button in header with Bitcoin address (click to copy) and Stripe placeholder
+- 2026-01-23: Full support modal system - CSS grid layout, donate button, improved clipboard logic with toast
 - 2026-01-23: Mobile flexbox refactor - replaced 100dvh calc() with flex:1, added safe-area-inset padding
 - 2026-01-23: Removed profile card cache - stats now always fetched fresh from database
 - 2026-01-23: Profile cards now show upvotes/downvotes from user's posts (green ▲ / red ▼)
