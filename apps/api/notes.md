@@ -3,12 +3,13 @@
 Read-only API endpoint for fetching Sloppygram data.
 
 ## log
+- 2026-01-23: Added query param routing (?endpoint=X) for programmatic access - hash routing only works in browsers
 - 2026-01-23: Added stats endpoint, doodles endpoint, vote scores, avatar_url fields
 - 2026-01-23: Initial creation - read-only endpoints for messages, posts, manifestos, events
 
 ## endpoints
 
-All endpoints are accessed via URL hash:
+Endpoints accessible via hash (browser) or query param (programmatic):
 
 ### Aggregate
 - `#stats` - Platform statistics (total counts, active users)
@@ -48,12 +49,19 @@ Query string parameters:
 
 ## examples
 
+Browser (hash routing):
 ```
 /api/#stats
 /api/#feed?limit=20
 /api/#messages?since=2026-01-23T00:00:00Z
-/api/#doodles?limit=10
-/api/#events?limit=100
+```
+
+Programmatic (query routing - for curl, fetch, LLMs):
+```
+/api/?endpoint=schema
+/api/?endpoint=stats
+/api/?endpoint=feed&limit=20
+/api/?endpoint=doodles&limit=10
 ```
 
 ## security
