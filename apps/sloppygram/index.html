@@ -900,6 +900,17 @@
             padding: 8px 16px;
         }
 
+        .collab-snapshot-btn {
+            font-size: 0.8rem;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, var(--accent), var(--highlight));
+            border-color: var(--accent);
+        }
+
+        .collab-snapshot-btn:hover {
+            box-shadow: 0 0 15px var(--accent);
+        }
+
         @media (max-width: 768px) {
             .collab-canvas-wrapper {
                 width: 100%;
@@ -2740,6 +2751,7 @@
                         <button class="collab-color-btn" data-color="#000000" style="background:#000000;border:1px solid #333" onclick="setCollabColor('#000000')"></button>
                     </div>
                     <div class="collab-actions">
+                        <button class="cyber-btn collab-snapshot-btn" onclick="snapshotCollabCanvas()">📸 SNAPSHOT</button>
                         <button class="cyber-btn collab-clear-btn" onclick="clearCollabCanvas()">🧹 CLEAR MINE</button>
                     </div>
                 </div>
@@ -7831,6 +7843,106 @@
                     event: 'clear_all',
                     payload: { username: profile.username }
                 });
+            }
+        };
+
+        // Snapshot collab canvas and post to main feed as a doodle
+        window.snapshotCollabCanvas = async function() {
+            if (!collabCanvas || !collabCtx) {
+                showToast('Canvas not ready', 'error');
+                return;
+            }
+
+            // Check rate limit
+            if (!checkRateLimit('drawing')) {
+                showToast('Too many snapshots! Wait a moment.', 'error');
+                return;
+            }
+
+            try {
+                // Get canvas data as PNG
+                const dataUrl = collabCanvas.toDataURL('image/png');
+
+                // Try to upload to Supabase storage first
+                let finalUrl = dataUrl;
+                try {
+                    const blob = await (await fetch(dataUrl)).blob();
+                    const filename = `collab_snapshot_${Date.now()}.png`;
+                    const { data: uploadData, error: uploadError } = await supabase.storage
+                        .from('sloppygram')
+                        .upload(filename, blob, { contentType: 'image/png' });
+
+                    if (!uploadError && uploadData) {
+                        const { data: urlData } = supabase.storage
+                            .from('sloppygram')
+                            .getPublicUrl(filename);
+                        if (urlData?.publicUrl) {
+                            finalUrl = urlData.publicUrl;
+                        }
+                    }
+                } catch (storageErr) {
+                    console.log('Storage upload failed, using base64:', storageErr);
+                }
+
+                // Create message with drawing
+                const msg = {
+                    username: profile.username,
+                    avatar: profile.avatar,
+                    avatarUrl: profile.avatarUrl,
+                    content: '📸 Collab Canvas Snapshot',
+                    drawing_data: finalUrl,
+                    message_type: 'drawing'
+                };
+
+                // Insert into messages table
+                const { data, error } = await supabase
+                    .from('sloppygram_messages')
+                    .insert({
+                        username: msg.username,
+                        avatar: msg.avatar,
+                        avatar_url: msg.avatarUrl,
+                        content: msg.content,
+                        drawing_data: msg.drawing_data,
+                        message_type: msg.message_type,
+                        user_id: currentUser?.id
+                    })
+                    .select()
+                    .single();
+
+                if (error) {
+                    console.error('Error saving snapshot:', error);
+                    showToast('Failed to save snapshot', 'error');
+                    return;
+                }
+
+                // Log AI event
+                await supabase.from('ai_events').insert({
+                    event_type: 'collab_snapshot',
+                    entity_type: 'drawing',
+                    entity_id: data.id,
+                    username: profile.username,
+                    metadata: { source: 'collab_canvas', stroke_count: collabStrokes.length },
+                    user_id: currentUser?.id
+                });
+
+                // Show success and switch to doodles tab
+                showToast('📸 Snapshot saved to doodles!', 'success');
+
+                // Broadcast to realtime so others see it
+                if (realtimeChannel) {
+                    realtimeChannel.send({
+                        type: 'broadcast',
+                        event: 'new_message',
+                        payload: { ...data, avatar_url: msg.avatarUrl }
+                    });
+                }
+
+                // Switch to doodles view to show the snapshot
+                switchView('doodles');
+
+            } catch (err) {
+                console.error('Snapshot failed:', err);
+                showToast('Snapshot failed: ' + err.message, 'error');
             }
         };
 
