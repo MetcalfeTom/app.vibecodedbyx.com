@@ -3,6 +3,8 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added rebootSystem function with glitchy overlay, flushes all memory caches and reinitializes
+- 2026-01-23: Added System tab in settings with reboot button and hacker markup reference
 - 2026-01-23: Added [spoiler] tag - click to reveal hidden text
 - 2026-01-23: Added hacker markup tags - [shake], [rainbow], [matrix], [glitch], [pulse], [wave] for animated text in chat
 - 2026-01-23: Added delete for manifestos and nested comments for doodles
