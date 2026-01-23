@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added real-time collaborative canvas - draw together with other users, see cursors and strokes live
 - 2026-01-23: Added profile cards - click any username to see stats (messages, posts, doodles, manifestos, likes)
 - 2026-01-23: Added lazy-loading optimizer with Intersection Observer for images (100px rootMargin preload)
 - 2026-01-23: Added rate limiting (sliding window) - 5 msgs/10s, 3 posts/min, 20 votes/min, 10 comments/min, 3 drawings/30s
@@ -102,6 +103,7 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Canvas undo/redo with keyboard shortcuts
 - Profile cards - click usernames to see user stats
 - Lazy-loading images with Intersection Observer
+- Real-time collaborative canvas - draw together, see other users' cursors live
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
