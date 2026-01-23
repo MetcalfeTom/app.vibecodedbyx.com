@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Moved message input form to top of interface (under header/tabs)
 - 2026-01-23: Fixed mobile viewport - disabled auto-zoom on inputs, added viewport-fit=cover
 - 2026-01-23: Added auto-scroll to most recent message on app load
 - 2026-01-23: Fixed mobile feed height - main content now uses 100dvh minus header height
