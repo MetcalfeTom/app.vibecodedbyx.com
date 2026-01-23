@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added global light/dark mode toggle in settings - syncs to everyone in real-time
 - 2026-01-23: Added global settings sync - backgrounds, sounds synced to database in real-time
 - 2026-01-23: Updated all feed containers to use full viewport width on mobile
 - 2026-01-23: Added touch swipe navigation for mobile - swipe left/right to switch tabs
