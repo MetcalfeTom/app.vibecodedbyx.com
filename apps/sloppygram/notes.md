@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added system-toast notification styles and fixed memory leaks (cleanup channels on unload)
 - 2026-01-23: Implemented infinite scroll pagination for chat messages and posts (PAGE_SIZE=30)
 - 2026-01-23: Added DOMPurify for XSS protection - sanitizes all user content, URLs blocked for javascript:/data: protocols
 - 2026-01-23: Optimized queries with Promise.all batching - solved N+1 problem in loadPosts, loadManifestos, loadDoodleLeaderboard

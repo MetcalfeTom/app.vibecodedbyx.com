@@ -1489,6 +1489,90 @@
             50% { opacity: 1; }
         }
 
+        /* System Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+        .system-toast {
+            background: var(--panel-bg, #1a1a2e);
+            border: 1px solid var(--border-color, #333);
+            border-left: 4px solid var(--accent, #00ff41);
+            padding: 12px 16px;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            max-width: 320px;
+            font-size: 0.85rem;
+            color: var(--text-light, #e0e0e0);
+            pointer-events: auto;
+            animation: slideIn 0.3s ease-out;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .system-toast.success { border-left-color: #00ff41; }
+        .system-toast.error { border-left-color: #ff4444; }
+        .system-toast.warning { border-left-color: #ffaa00; }
+        .system-toast.info { border-left-color: #00aaff; }
+
+        .system-toast .toast-icon {
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .system-toast .toast-message {
+            flex: 1;
+        }
+
+        .system-toast .toast-close {
+            background: none;
+            border: none;
+            color: var(--text-dim, #888);
+            cursor: pointer;
+            padding: 0;
+            font-size: 1rem;
+            line-height: 1;
+            opacity: 0.7;
+        }
+
+        .system-toast .toast-close:hover {
+            opacity: 1;
+        }
+
+        .system-toast.fade-out {
+            animation: slideOut 0.3s ease-in forwards;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+
+        @media (max-width: 600px) {
+            .toast-container {
+                top: auto;
+                bottom: 80px;
+                right: 10px;
+                left: 10px;
+            }
+            .system-toast {
+                max-width: none;
+            }
+        }
+
         #imageInput {
             display: none;
         }
@@ -2224,6 +2308,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 </head>
 <body>
+    <!-- Toast notification container -->
+    <div class="toast-container" id="toastContainer"></div>
+
     <div class="app">
         <div class="header">
             <div class="logo">
@@ -2812,6 +2899,97 @@
             profile = JSON.parse(savedProfile);
         }
 
+        // === TOAST NOTIFICATION SYSTEM ===
+        const toastTimers = new Map(); // Track active toast timers for cleanup
+
+        function showToast(message, type = 'info', duration = 4000) {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+
+            const icons = {
+                success: '✓',
+                error: '✕',
+                warning: '⚠',
+                info: 'ℹ'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `system-toast ${type}`;
+            const toastId = 'toast_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            toast.id = toastId;
+
+            toast.innerHTML = `
+                <span class="toast-icon">${icons[type] || icons.info}</span>
+                <span class="toast-message">${escapeHtml(message)}</span>
+                <button class="toast-close" onclick="dismissToast('${toastId}')">&times;</button>
+            `;
+
+            container.appendChild(toast);
+
+            // Auto-dismiss after duration
+            const timerId = setTimeout(() => {
+                dismissToast(toastId);
+            }, duration);
+
+            toastTimers.set(toastId, timerId);
+
+            return toastId;
+        }
+
+        window.dismissToast = function(toastId) {
+            const toast = document.getElementById(toastId);
+            if (!toast) return;
+
+            // Clear the timer
+            const timerId = toastTimers.get(toastId);
+            if (timerId) {
+                clearTimeout(timerId);
+                toastTimers.delete(toastId);
+            }
+
+            // Animate out
+            toast.classList.add('fade-out');
+            setTimeout(() => {
+                toast.remove();
+            }, 300);
+        };
+
+        // Expose globally for use in other functions
+        window.showToast = showToast;
+
+        // === MEMORY LEAK PREVENTION ===
+        let presenceChannel = null;
+        let postsChannel = null;
+        let globalSettingsChannel = null;
+
+        function cleanupChannels() {
+            console.log('Cleaning up Supabase channels...');
+            if (realtimeChannel) {
+                supabase.removeChannel(realtimeChannel);
+                realtimeChannel = null;
+            }
+            if (presenceChannel) {
+                supabase.removeChannel(presenceChannel);
+                presenceChannel = null;
+            }
+            if (postsChannel) {
+                supabase.removeChannel(postsChannel);
+                postsChannel = null;
+            }
+            if (globalSettingsChannel) {
+                supabase.removeChannel(globalSettingsChannel);
+                globalSettingsChannel = null;
+            }
+
+            // Clear all toast timers
+            toastTimers.forEach((timerId) => clearTimeout(timerId));
+            toastTimers.clear();
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', cleanupChannels);
+        window.addEventListener('pagehide', cleanupChannels);
+
         // Initialize
         async function init() {
             // Listen for auth state changes
@@ -2985,7 +3163,12 @@
 
         // Presence for online users
         function setupPresence() {
-            const presenceChannel = supabase.channel('sloppygram_presence', {
+            // Clean up existing presence channel if any
+            if (presenceChannel) {
+                supabase.removeChannel(presenceChannel);
+            }
+
+            presenceChannel = supabase.channel('sloppygram_presence', {
                 config: {
                     presence: { key: currentUser?.id || 'anon_' + Math.random() }
                 }
@@ -3304,7 +3487,6 @@
         }
 
         // Subscribe to posts and comments for real-time updates
-        let postsChannel = null;
         function subscribeToPostsAndComments() {
             if (postsChannel) {
                 supabase.removeChannel(postsChannel);
@@ -4087,8 +4269,6 @@
         }
 
         // === GLOBAL SETTINGS SYNC ===
-        let globalSettingsChannel = null;
-
         async function broadcastGlobalSetting(settingType, settingValue, extraData = '') {
             if (!currentUser) return;
 
