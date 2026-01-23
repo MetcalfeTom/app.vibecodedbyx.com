@@ -3,6 +3,9 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added full interface theme customization - accent color, highlight color, panel background (10 options each)
+- 2026-01-23: Added custom sound file upload (base64, max 500KB) with preview and clear buttons
+- 2026-01-23: Fixed notification sounds - audio context resume for browser autoplay policy
 - 2026-01-23: Added Themes tab in settings - message opacity slider, message color customization (10 colors each)
 - 2026-01-23: Replaced trash icons with simple "delete" text for cleaner look
 - 2026-01-23: Added settings menu with tabs (Profile, Themes, Sounds) - replaced profile button
