@@ -3,6 +3,8 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Fixed posts/doodles not loading (removed reference to deleted transparencyBar)
+- 2026-01-23: Fixed theme to cover entire UI - panel background now updates dark-bg and border-color
 - 2026-01-23: Added full interface theme customization - accent color, highlight color, panel background (10 options each)
 - 2026-01-23: Added custom sound file upload (base64, max 500KB) with preview and clear buttons
 - 2026-01-23: Fixed notification sounds - audio context resume for browser autoplay policy
