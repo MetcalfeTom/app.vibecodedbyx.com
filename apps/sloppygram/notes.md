@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added up/down voting (▲/▼) for posts, doodles, chat - prevents self-voting, shows net scores
 - 2026-01-23: Enhanced power system - vote on chat messages (🔥), doodles (⭐), posts, manifestos; all contribute to user power score
 - 2026-01-23: Added user reputation system - earn badges from post likes and manifesto votes (👑⭐✨🌟)
 - 2026-01-23: Added Supabase realtime listeners for posts, comments, reactions, likes, manifestos - auto-refresh feed
@@ -55,7 +56,9 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Manifesto board for declaring ideas and visions
 - Vote for manifestos you support
 - Power system with badges (👑100+ ⭐50+ ✨20+ 🔥5+)
-- Vote on chat messages (🔥) to boost user power
+- Up/down voting (▲/▼) on posts, doodles, and chat messages
+- Self-voting prevention - cannot vote on own content
+- Net score display (green positive, red negative)
 - Delete your own posts
 
 ## database tables
