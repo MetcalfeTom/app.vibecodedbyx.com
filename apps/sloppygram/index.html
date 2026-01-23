@@ -4445,15 +4445,29 @@
             }
 
             posts = data || [];
+            const postIds = posts.map(p => p.id);
 
-            // Load all post votes and calculate net scores
-            const { data: allVotesData } = await supabase
-                .from('sloppygram_post_likes')
-                .select('post_id, username, vote_type');
+            // Batch all related queries in parallel to solve N+1 problem
+            const [votesResult, commentsResult, reactionsResult, tagsResult, threadsResult] = await Promise.all([
+                supabase.from('sloppygram_post_likes').select('post_id, username, vote_type'),
+                postIds.length > 0
+                    ? supabase.from('sloppygram_post_comments').select('*').in('post_id', postIds).order('created_at', { ascending: true })
+                    : { data: [] },
+                postIds.length > 0
+                    ? supabase.from('sloppygram_post_reactions').select('*').in('post_id', postIds)
+                    : { data: [] },
+                postIds.length > 0
+                    ? supabase.from('sloppygram_post_tags').select('*').in('post_id', postIds)
+                    : { data: [] },
+                postIds.length > 0
+                    ? supabase.from('sloppygram_comment_threads').select('*').eq('comment_type', 'post').in('post_id', postIds)
+                    : { data: [] }
+            ]);
 
+            // Process votes
             postVotes = {};
             myPostVotes = {};
-            (allVotesData || []).forEach(vote => {
+            (votesResult.data || []).forEach(vote => {
                 postVotes[vote.post_id] = (postVotes[vote.post_id] || 0) + (vote.vote_type || 1);
                 if (vote.username === profile.username) {
                     myPostVotes[vote.post_id] = vote.vote_type || 1;
@@ -4465,65 +4479,36 @@
                 p.likes_count = postVotes[p.id] || 0;
             });
 
-            // Load comments for all posts
-            const postIds = posts.map(p => p.id);
-            if (postIds.length > 0) {
-                const { data: commentsData } = await supabase
-                    .from('sloppygram_post_comments')
-                    .select('*')
-                    .in('post_id', postIds)
-                    .order('created_at', { ascending: true });
+            // Process comments
+            postComments = {};
+            (commentsResult.data || []).forEach(comment => {
+                if (!postComments[comment.post_id]) postComments[comment.post_id] = [];
+                postComments[comment.post_id].push(comment);
+            });
 
-                postComments = {};
-                (commentsData || []).forEach(comment => {
-                    if (!postComments[comment.post_id]) {
-                        postComments[comment.post_id] = [];
-                    }
-                    postComments[comment.post_id].push(comment);
-                });
+            // Process reactions
+            postReactions = {};
+            myReactions = {};
+            (reactionsResult.data || []).forEach(r => {
+                if (!postReactions[r.post_id]) postReactions[r.post_id] = {};
+                postReactions[r.post_id][r.emoji] = (postReactions[r.post_id][r.emoji] || 0) + 1;
+                if (r.username === profile.username) {
+                    if (!myReactions[r.post_id]) myReactions[r.post_id] = new Set();
+                    myReactions[r.post_id].add(r.emoji);
+                }
+            });
 
-                // Load reactions for all posts
-                const { data: reactionsData } = await supabase
-                    .from('sloppygram_post_reactions')
-                    .select('*')
-                    .in('post_id', postIds);
+            // Process tags
+            postTags = {};
+            (tagsResult.data || []).forEach(t => {
+                if (!postTags[t.post_id]) postTags[t.post_id] = [];
+                postTags[t.post_id].push({ tag: t.tag, parent_tag: t.parent_tag });
+            });
 
-                postReactions = {};
-                myReactions = {};
-                (reactionsData || []).forEach(r => {
-                    if (!postReactions[r.post_id]) postReactions[r.post_id] = {};
-                    postReactions[r.post_id][r.emoji] = (postReactions[r.post_id][r.emoji] || 0) + 1;
-
-                    // Track my reactions
-                    if (r.username === profile.username) {
-                        if (!myReactions[r.post_id]) myReactions[r.post_id] = new Set();
-                        myReactions[r.post_id].add(r.emoji);
-                    }
-                });
-
-                // Load tags for all posts
-                const { data: tagsData } = await supabase
-                    .from('sloppygram_post_tags')
-                    .select('*')
-                    .in('post_id', postIds);
-
-                postTags = {};
-                (tagsData || []).forEach(t => {
-                    if (!postTags[t.post_id]) postTags[t.post_id] = [];
-                    postTags[t.post_id].push({ tag: t.tag, parent_tag: t.parent_tag });
-                });
-
-                // Load comment thread relationships
-                const { data: threadsData } = await supabase
-                    .from('sloppygram_comment_threads')
-                    .select('*')
-                    .eq('comment_type', 'post')
-                    .in('post_id', postIds);
-
-                (threadsData || []).forEach(t => {
-                    commentThreads[t.comment_id] = t.parent_comment_id;
-                });
-            }
+            // Process comment threads
+            (threadsResult.data || []).forEach(t => {
+                commentThreads[t.comment_id] = t.parent_comment_id;
+            });
 
             renderPosts();
         }
@@ -5364,78 +5349,67 @@
             }
 
             manifestos = data || [];
+            const manifestoIds = manifestos.map(m => m.id);
 
-            if (manifestos.length > 0) {
-                const manifestoIds = manifestos.map(m => m.id);
+            // Batch all related queries in parallel to solve N+1 problem
+            const [votesResult, reactionsResult, commentsResult, tagsResult, threadsResult] = await Promise.all([
+                manifestoIds.length > 0
+                    ? supabase.from('sloppygram_manifesto_votes').select('*').in('manifesto_id', manifestoIds)
+                    : { data: [] },
+                manifestoIds.length > 0
+                    ? supabase.from('sloppygram_manifesto_reactions').select('*').in('manifesto_id', manifestoIds)
+                    : { data: [] },
+                manifestoIds.length > 0
+                    ? supabase.from('sloppygram_manifesto_comments').select('*').in('manifesto_id', manifestoIds).order('created_at', { ascending: true })
+                    : { data: [] },
+                manifestoIds.length > 0
+                    ? supabase.from('sloppygram_manifesto_tags').select('*').in('manifesto_id', manifestoIds)
+                    : { data: [] },
+                manifestoIds.length > 0
+                    ? supabase.from('sloppygram_comment_threads').select('*').eq('comment_type', 'manifesto').in('post_id', manifestoIds)
+                    : { data: [] }
+            ]);
 
-                // Load votes
-                const { data: votesData } = await supabase
-                    .from('sloppygram_manifesto_votes')
-                    .select('*')
-                    .in('manifesto_id', manifestoIds);
+            // Process votes
+            manifestoVotes = {};
+            myManifestoVotes = {};
+            (votesResult.data || []).forEach(v => {
+                manifestoVotes[v.manifesto_id] = (manifestoVotes[v.manifesto_id] || 0) + 1;
+                if (v.username === profile.username) {
+                    myManifestoVotes[v.manifesto_id] = true;
+                }
+            });
 
-                manifestoVotes = {};
-                myManifestoVotes = {};
-                (votesData || []).forEach(v => {
-                    manifestoVotes[v.manifesto_id] = (manifestoVotes[v.manifesto_id] || 0) + 1;
-                    if (v.username === profile.username) {
-                        myManifestoVotes[v.manifesto_id] = true;
-                    }
-                });
+            // Process reactions
+            manifestoReactions = {};
+            myManifestoReactions = {};
+            (reactionsResult.data || []).forEach(r => {
+                if (!manifestoReactions[r.manifesto_id]) manifestoReactions[r.manifesto_id] = {};
+                manifestoReactions[r.manifesto_id][r.emoji] = (manifestoReactions[r.manifesto_id][r.emoji] || 0) + 1;
+                if (r.username === profile.username) {
+                    if (!myManifestoReactions[r.manifesto_id]) myManifestoReactions[r.manifesto_id] = new Set();
+                    myManifestoReactions[r.manifesto_id].add(r.emoji);
+                }
+            });
 
-                // Load reactions
-                const { data: reactionsData } = await supabase
-                    .from('sloppygram_manifesto_reactions')
-                    .select('*')
-                    .in('manifesto_id', manifestoIds);
+            // Process comments
+            manifestoComments = {};
+            (commentsResult.data || []).forEach(c => {
+                if (!manifestoComments[c.manifesto_id]) manifestoComments[c.manifesto_id] = [];
+                manifestoComments[c.manifesto_id].push(c);
+            });
 
-                manifestoReactions = {};
-                myManifestoReactions = {};
-                (reactionsData || []).forEach(r => {
-                    if (!manifestoReactions[r.manifesto_id]) manifestoReactions[r.manifesto_id] = {};
-                    manifestoReactions[r.manifesto_id][r.emoji] = (manifestoReactions[r.manifesto_id][r.emoji] || 0) + 1;
-                    if (r.username === profile.username) {
-                        if (!myManifestoReactions[r.manifesto_id]) myManifestoReactions[r.manifesto_id] = new Set();
-                        myManifestoReactions[r.manifesto_id].add(r.emoji);
-                    }
-                });
+            // Process tags
+            manifestoTags = {};
+            (tagsResult.data || []).forEach(t => {
+                if (!manifestoTags[t.manifesto_id]) manifestoTags[t.manifesto_id] = [];
+                manifestoTags[t.manifesto_id].push({ tag: t.tag, parent_tag: t.parent_tag });
+            });
 
-                // Load comments
-                const { data: commentsData } = await supabase
-                    .from('sloppygram_manifesto_comments')
-                    .select('*')
-                    .in('manifesto_id', manifestoIds)
-                    .order('created_at', { ascending: true });
-
-                manifestoComments = {};
-                (commentsData || []).forEach(c => {
-                    if (!manifestoComments[c.manifesto_id]) manifestoComments[c.manifesto_id] = [];
-                    manifestoComments[c.manifesto_id].push(c);
-                });
-
-                // Load tags
-                const { data: tagsData } = await supabase
-                    .from('sloppygram_manifesto_tags')
-                    .select('*')
-                    .in('manifesto_id', manifestoIds);
-
-                manifestoTags = {};
-                (tagsData || []).forEach(t => {
-                    if (!manifestoTags[t.manifesto_id]) manifestoTags[t.manifesto_id] = [];
-                    manifestoTags[t.manifesto_id].push({ tag: t.tag, parent_tag: t.parent_tag });
-                });
-
-                // Load comment thread relationships for manifestos
-                const { data: threadsData } = await supabase
-                    .from('sloppygram_comment_threads')
-                    .select('*')
-                    .eq('comment_type', 'manifesto')
-                    .in('post_id', manifestoIds);
-
-                (threadsData || []).forEach(t => {
-                    commentThreads[t.comment_id] = t.parent_comment_id;
-                });
-            }
+            // Process comment threads
+            (threadsResult.data || []).forEach(t => {
+                commentThreads[t.comment_id] = t.parent_comment_id;
+            });
 
             renderManifestos();
         }
@@ -6063,30 +6037,31 @@
             const container = document.getElementById('doodlesContainer');
             const emptyState = document.getElementById('doodlesEmptyState');
 
-            // Get all doodles with their vote counts
-            const { data: doodles, error } = await supabase
-                .from('sloppygram_messages')
-                .select('*')
-                .not('drawing_data', 'is', null)
-                .order('created_at', { ascending: false });
+            // Batch both queries in parallel
+            const [doodlesResult, votesResult] = await Promise.all([
+                supabase
+                    .from('sloppygram_messages')
+                    .select('*')
+                    .not('drawing_data', 'is', null)
+                    .order('created_at', { ascending: false }),
+                supabase
+                    .from('sloppygram_doodle_votes')
+                    .select('message_id, vote_type')
+            ]);
+
+            const doodles = doodlesResult.data;
+            const error = doodlesResult.error;
 
             if (error || !doodles || doodles.length === 0) {
                 emptyState.style.display = 'block';
                 return;
             }
 
-            // Get vote counts with vote_type
-            const { data: votes } = await supabase
-                .from('sloppygram_doodle_votes')
-                .select('message_id, vote_type');
-
             // Count net votes
             const voteCounts = {};
-            if (votes) {
-                votes.forEach(v => {
-                    voteCounts[v.message_id] = (voteCounts[v.message_id] || 0) + (v.vote_type || 1);
-                });
-            }
+            (votesResult.data || []).forEach(v => {
+                voteCounts[v.message_id] = (voteCounts[v.message_id] || 0) + (v.vote_type || 1);
+            });
 
             // Sort by votes (descending), then by date
             const sortedDoodles = doodles
