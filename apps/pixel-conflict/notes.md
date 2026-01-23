@@ -3,6 +3,7 @@
 Hex-based territory war game where players click to claim hexes for their team.
 
 ## log
+- 2026-01-23: Added GlitchBot - claims random hexes every 3-8 seconds with flash effect
 - 2026-01-23: Initial creation - 6 teams, 20x15 hex grid, real-time sync
 
 ## features
