@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Reorganized chat layout - input at bottom, messages flow top-to-bottom (traditional chat style)
 - 2026-01-23: Added comment voting - up/down votes on comments with ▲/▼ buttons
 - 2026-01-23: Added AI event logging - logs post_created and vote_cast events to ai_events table
 - 2026-01-23: Simplified voting - removed reputation system, added delete buttons for messages/doodles
