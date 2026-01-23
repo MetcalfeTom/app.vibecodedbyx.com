@@ -3,7 +3,9 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
-- 2026-01-23: Added settings menu with tabs (Profile, Sounds) - replaced profile button
+- 2026-01-23: Added Themes tab in settings - message opacity slider, message color customization (10 colors each)
+- 2026-01-23: Replaced trash icons with simple "delete" text for cleaner look
+- 2026-01-23: Added settings menu with tabs (Profile, Themes, Sounds) - replaced profile button
 - 2026-01-23: Added notification sounds library with 7 procedural sounds (Web Audio API)
 - 2026-01-23: Reorganized chat layout - input at bottom, messages flow top-to-bottom (traditional chat style)
 - 2026-01-23: Added comment voting - up/down votes on comments with ▲/▼ buttons
