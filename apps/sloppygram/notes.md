@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Added Manifesto section - declare your ideas, vote for visions you support
 - 2026-01-22: Added nested symbolic tagging system - hierarchical tags with parent/child, filter by tag, trending tags sidebar
 - 2026-01-22: Added emoji reactions to posts (8 emojis) and global shared backgrounds
 - 2026-01-22: Replaced URL inputs with file uploads for avatar and background images
@@ -45,6 +46,8 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - Nested symbolic tagging (use "/" for hierarchies like meme/cursed, art/pixel)
 - Filter posts by clicking tags
 - Trending tags sidebar showing most popular tags
+- Manifesto board for declaring ideas and visions
+- Vote for manifestos you support
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
@@ -56,6 +59,8 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - sloppygram_post_reactions: post_id, emoji, username
 - sloppygram_global_backgrounds: image_data, username, name
 - sloppygram_post_tags: post_id, tag, parent_tag
+- sloppygram_manifestos: title, content, username, avatar, upvotes
+- sloppygram_manifesto_votes: manifesto_id, username
 
 ## avatars
 😀 😎 🤖 👽 🐱 🐶 🦊 🐼 🐸 🦄 🐲 👻 💀 🎃 🤡 👾 🥷 🧙
