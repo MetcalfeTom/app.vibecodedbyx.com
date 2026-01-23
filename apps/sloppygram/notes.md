@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-23: Enhanced collab canvas - fixed coordinate offset, increased to 1600x1000, added zoom (scroll/buttons) and pan (scroll overflow)
 - 2026-01-23: Added real-time collaborative canvas - draw together with other users, see cursors and strokes live
 - 2026-01-23: Added profile cards - click any username to see stats (messages, posts, doodles, manifestos, likes)
 - 2026-01-23: Added lazy-loading optimizer with Intersection Observer for images (100px rootMargin preload)

@@ -785,7 +785,8 @@
             gap: 8px;
         }
 
-        .collab-user-count {
+        .collab-user-count,
+        .collab-zoom-level {
             background: rgba(0,255,65,0.1);
             border: 1px solid var(--accent);
             padding: 4px 12px;
@@ -799,15 +800,28 @@
             border: 2px solid var(--accent);
             box-shadow: 0 0 20px rgba(0,255,65,0.2);
             background: #0a0a0a;
-            max-width: 100%;
-            overflow: hidden;
+            width: 100%;
+            max-width: 900px;
+            height: 500px;
+            overflow: auto;
         }
 
         #collabCanvas {
             display: block;
-            max-width: 100%;
-            height: auto;
             cursor: crosshair;
+            transform-origin: 0 0;
+            transition: transform 0.1s ease-out;
+        }
+
+        .collab-zoom-controls {
+            display: flex;
+            gap: 4px;
+        }
+
+        .collab-zoom-btn {
+            padding: 6px 12px;
+            font-size: 0.9rem;
+            min-width: 36px;
         }
 
         .collab-cursors {
@@ -2699,16 +2713,22 @@
             <div class="collab-container" id="collabContainer">
                 <div class="collab-header">
                     <h2>🎨 COLLABORATIVE CANVAS 🎨</h2>
-                    <p class="collab-subtitle">Draw together in real-time. Everyone sees your strokes live!</p>
+                    <p class="collab-subtitle">Draw together in real-time. Scroll to zoom, drag to pan!</p>
                     <div class="collab-users" id="collabUsers">
                         <span class="collab-user-count">👥 <span id="collabUserCount">0</span> drawing</span>
+                        <span class="collab-zoom-level">🔍 <span id="collabZoomLevel">100</span>%</span>
                     </div>
                 </div>
-                <div class="collab-canvas-wrapper">
-                    <canvas id="collabCanvas" width="800" height="500"></canvas>
+                <div class="collab-canvas-wrapper" id="collabCanvasWrapper">
+                    <canvas id="collabCanvas" width="1600" height="1000"></canvas>
                     <div class="collab-cursors" id="collabCursors"></div>
                 </div>
                 <div class="collab-controls">
+                    <div class="collab-zoom-controls">
+                        <button class="cyber-btn collab-zoom-btn" onclick="collabZoomIn()">➕</button>
+                        <button class="cyber-btn collab-zoom-btn" onclick="collabZoomReset()">⟲</button>
+                        <button class="cyber-btn collab-zoom-btn" onclick="collabZoomOut()">➖</button>
+                    </div>
                     <div class="collab-colors">
                         <button class="collab-color-btn active" data-color="#ff00ff" style="background:#ff00ff" onclick="setCollabColor('#ff00ff')"></button>
                         <button class="collab-color-btn" data-color="#00ffff" style="background:#00ffff" onclick="setCollabColor('#00ffff')"></button>
@@ -7319,7 +7339,7 @@
         };
 
         // === COLLABORATIVE CANVAS ===
-        let collabCanvas, collabCtx;
+        let collabCanvas, collabCtx, collabWrapper;
         let collabChannel = null;
         let collabColor = '#ff00ff';
         let collabDrawing = false;
@@ -7329,12 +7349,19 @@
         const COLLAB_THROTTLE = 16; // ~60fps
         let lastCollabBroadcast = 0;
 
+        // Zoom/pan state
+        let collabZoom = 1;
+        const COLLAB_ZOOM_MIN = 0.25;
+        const COLLAB_ZOOM_MAX = 4;
+        const COLLAB_ZOOM_STEP = 0.25;
+
         function initCollabCanvas() {
             if (collabInitialized) return;
             collabInitialized = true;
 
             collabCanvas = document.getElementById('collabCanvas');
             collabCtx = collabCanvas.getContext('2d');
+            collabWrapper = document.getElementById('collabCanvasWrapper');
 
             // Fill with dark background
             collabCtx.fillStyle = '#0a0a0a';
@@ -7344,85 +7371,139 @@
             collabCtx.lineWidth = 3;
 
             // Mouse events
-            collabCanvas.addEventListener('mousedown', collabStartDraw);
-            collabCanvas.addEventListener('mousemove', collabDraw);
+            collabCanvas.addEventListener('mousedown', collabMouseDown);
+            collabCanvas.addEventListener('mousemove', collabMouseMove);
             collabCanvas.addEventListener('mouseup', collabStopDraw);
-            collabCanvas.addEventListener('mouseout', collabStopDraw);
+            collabCanvas.addEventListener('mouseleave', collabStopDraw);
 
-            // Touch events
-            collabCanvas.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                const touch = e.touches[0];
-                const coords = getCollabCoords(touch);
-                collabStartDraw({ offsetX: coords.x, offsetY: coords.y });
-            }, { passive: false });
-
-            collabCanvas.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                const touch = e.touches[0];
-                const coords = getCollabCoords(touch);
-                collabDraw({ offsetX: coords.x, offsetY: coords.y });
-            }, { passive: false });
-
+            // Touch events (2 fingers = pan, 1 finger = draw)
+            collabCanvas.addEventListener('touchstart', collabTouchStart, { passive: false });
+            collabCanvas.addEventListener('touchmove', collabTouchMove, { passive: false });
             collabCanvas.addEventListener('touchend', collabStopDraw);
+
+            // Wheel zoom
+            collabWrapper.addEventListener('wheel', collabWheelZoom, { passive: false });
 
             // Setup realtime channel
             setupCollabChannel();
+
+            // Apply initial zoom
+            updateCollabZoom();
         }
 
-        function getCollabCoords(e) {
+        function getCollabCoords(clientX, clientY) {
             const rect = collabCanvas.getBoundingClientRect();
-            const scaleX = collabCanvas.width / rect.width;
-            const scaleY = collabCanvas.height / rect.height;
+            // Account for zoom: rect size changes with CSS transform
+            // Canvas internal size stays constant, so we need to map display coords to canvas coords
+            const x = (clientX - rect.left) * (collabCanvas.width / rect.width);
+            const y = (clientY - rect.top) * (collabCanvas.height / rect.height);
+            return { x, y };
+        }
 
-            if (e.clientX !== undefined) {
-                return {
-                    x: (e.clientX - rect.left) * scaleX,
-                    y: (e.clientY - rect.top) * scaleY
-                };
+        function collabMouseDown(e) {
+            e.preventDefault();
+            const coords = getCollabCoords(e.clientX, e.clientY);
+            collabStartDraw(coords.x, coords.y);
+        }
+
+        function collabMouseMove(e) {
+            const coords = getCollabCoords(e.clientX, e.clientY);
+            collabDraw(coords.x, coords.y);
+        }
+
+        function collabTouchStart(e) {
+            e.preventDefault();
+            if (e.touches.length === 1) {
+                const touch = e.touches[0];
+                const coords = getCollabCoords(touch.clientX, touch.clientY);
+                collabStartDraw(coords.x, coords.y);
             }
-            return {
-                x: e.offsetX * scaleX,
-                y: e.offsetY * scaleY
-            };
         }
 
-        function collabStartDraw(e) {
+        function collabTouchMove(e) {
+            e.preventDefault();
+            if (e.touches.length === 1) {
+                const touch = e.touches[0];
+                const coords = getCollabCoords(touch.clientX, touch.clientY);
+                collabDraw(coords.x, coords.y);
+            }
+        }
+
+        function collabStartDraw(x, y) {
             collabDrawing = true;
-            const coords = getCollabCoords(e);
-            collabLastX = coords.x;
-            collabLastY = coords.y;
+            collabLastX = x;
+            collabLastY = y;
             collabCtx.beginPath();
-            collabCtx.moveTo(coords.x, coords.y);
+            collabCtx.moveTo(x, y);
         }
 
-        function collabDraw(e) {
-            const coords = getCollabCoords(e);
-
+        function collabDraw(x, y) {
             // Broadcast cursor position (throttled)
             const now = Date.now();
             if (now - lastCollabBroadcast > COLLAB_THROTTLE) {
                 lastCollabBroadcast = now;
-                broadcastCollabCursor(coords.x, coords.y);
+                broadcastCollabCursor(x, y);
             }
 
             if (!collabDrawing) return;
 
             // Draw locally
             collabCtx.strokeStyle = collabColor;
-            collabCtx.lineTo(coords.x, coords.y);
+            collabCtx.lineWidth = 3;
+            collabCtx.lineTo(x, y);
             collabCtx.stroke();
+            collabCtx.beginPath();
+            collabCtx.moveTo(x, y);
 
             // Broadcast stroke
-            broadcastCollabStroke(collabLastX, collabLastY, coords.x, coords.y, collabColor);
+            broadcastCollabStroke(collabLastX, collabLastY, x, y, collabColor);
 
-            collabLastX = coords.x;
-            collabLastY = coords.y;
+            collabLastX = x;
+            collabLastY = y;
         }
 
         function collabStopDraw() {
             collabDrawing = false;
         }
+
+        // Zoom functions
+        function collabWheelZoom(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -COLLAB_ZOOM_STEP : COLLAB_ZOOM_STEP;
+            setCollabZoom(collabZoom + delta);
+        }
+
+        function setCollabZoom(newZoom) {
+            collabZoom = Math.max(COLLAB_ZOOM_MIN, Math.min(COLLAB_ZOOM_MAX, newZoom));
+            updateCollabZoom();
+        }
+
+        function updateCollabZoom() {
+            collabCanvas.style.transform = `scale(${collabZoom})`;
+            document.getElementById('collabZoomLevel').textContent = Math.round(collabZoom * 100);
+
+            // Update cursor overlay to match zoom
+            const cursors = document.getElementById('collabCursors');
+            cursors.style.transform = `scale(${collabZoom})`;
+            cursors.style.transformOrigin = '0 0';
+        }
+
+        window.collabZoomIn = function() {
+            setCollabZoom(collabZoom + COLLAB_ZOOM_STEP);
+        };
+
+        window.collabZoomOut = function() {
+            setCollabZoom(collabZoom - COLLAB_ZOOM_STEP);
+        };
+
+        window.collabZoomReset = function() {
+            setCollabZoom(1);
+            // Reset scroll position
+            if (collabWrapper) {
+                collabWrapper.scrollLeft = 0;
+                collabWrapper.scrollTop = 0;
+            }
+        };
 
         function setupCollabChannel() {
             if (collabChannel) return;
@@ -7528,13 +7609,9 @@
                 document.getElementById('collabCursors').appendChild(cursor);
             }
 
-            // Scale position to match canvas display size
-            const rect = collabCanvas.getBoundingClientRect();
-            const scaleX = rect.width / collabCanvas.width;
-            const scaleY = rect.height / collabCanvas.height;
-
-            cursor.style.left = (x * scaleX) + 'px';
-            cursor.style.top = (y * scaleY) + 'px';
+            // Position in canvas coordinates (cursors container is scaled with CSS transform)
+            cursor.style.left = x + 'px';
+            cursor.style.top = y + 'px';
             cursor.querySelector('.collab-cursor-dot').style.background = color;
             cursor.querySelector('.collab-cursor-dot').style.color = color;
 
