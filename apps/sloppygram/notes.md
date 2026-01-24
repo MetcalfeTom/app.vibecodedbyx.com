@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: Text-to-speech for chat messages - 🔊 button on each text message, strips hacker markup for clean speech
 - 2026-01-24: Text-to-speech for posts - 🔊 button reads post captions aloud using Web Speech API, click to toggle
 - 2026-01-24: IDEAS tab real-time subscriptions - new ideas, votes, updates, and deletions appear instantly via Supabase postgres_changes
 - 2026-01-24: Feedback Hub integration - new IDEAS tab with voting, submission, category filtering; uses shared feedback tables
