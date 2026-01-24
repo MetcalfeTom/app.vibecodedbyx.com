@@ -2721,6 +2721,35 @@
             color: #ff6666;
         }
 
+        /* Chat Filter Bar */
+        .chat-filter-bar {
+            display: none;
+            padding: 8px 12px;
+            background: linear-gradient(135deg, rgba(124, 152, 133, 0.15) 0%, rgba(124, 152, 133, 0.05) 100%);
+            border-bottom: 1px solid var(--border-color);
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .chat-filter-bar.active {
+            display: flex;
+        }
+
+        .chat-filter-value {
+            display: inline-block;
+            background: var(--accent);
+            color: var(--dark-bg);
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .chat-filter-value.mention {
+            background: linear-gradient(135deg, #ff00ff 0%, #ff88ff 100%);
+        }
+
         /* Trending Tags */
         .trending-tags {
             padding: 12px;
@@ -3577,6 +3606,11 @@
                     <button class="send-btn" onclick="sendMessage()">SEND</button>
                 </div>
             </div>
+            <div class="chat-filter-bar" id="chatFilterBar">
+                <span style="color:var(--text-dim);font-size:0.85rem;">Filtering by:</span>
+                <span class="chat-filter-value" id="activeChatFilter"></span>
+                <button class="clear-filter" onclick="clearChatFilter()">×</button>
+            </div>
             <div class="messages-container" id="messagesContainer">
                 <div class="empty-state" id="emptyState">
                     <div class="icon">💾</div>
@@ -4317,7 +4351,8 @@
         let myCommentVotes = {}; // { commentId: 1 or -1 } for my vote type
         let postTags = {}; // { postId: [{ tag, parent_tag }, ...] }
         let pendingTags = []; // tags being added to new post
-        let activeTagFilter = null; // current tag filter
+        let activeTagFilter = null; // current tag filter for posts
+        let activeChatFilter = null; // { type: 'tag'|'mention', value: string } for chat
         let commentThreads = {}; // { commentId: parentCommentId }
         let replyingTo = null; // { postId, commentId, username } when replying to a comment
         let userReputations = {}; // { username: { postLikes, manifestoVotes, total } }
@@ -5327,9 +5362,14 @@
                 messagesPage = 1;
             }
 
+            // Cache messages for filtering (reset on initial load)
+            if (!loadMore) window.cachedMessages = [];
+            if (!window.cachedMessages) window.cachedMessages = [];
+
             data.forEach(msg => {
                 if (!seenMessageIds.has(msg.id)) {
                     seenMessageIds.add(msg.id);
+                    window.cachedMessages.push(msg);
                     addMessageToUI(msg, false); // append at end (older messages)
                 }
             });
@@ -5356,6 +5396,9 @@
                 const msg = payload.payload;
                 if (!msg || seenMessageIds.has(msg.id)) return;
                 seenMessageIds.add(msg.id);
+                // Cache for filtering
+                if (!window.cachedMessages) window.cachedMessages = [];
+                window.cachedMessages.unshift(msg);
                 addMessageToUI(msg, true); // prepend new messages at top
                 addToFeed(msg.username, 'sent a message');
                 // Play sound for messages from others
@@ -5388,6 +5431,9 @@
             }, (payload) => {
                 if (seenMessageIds.has(payload.new.id)) return;
                 seenMessageIds.add(payload.new.id);
+                // Cache for filtering
+                if (!window.cachedMessages) window.cachedMessages = [];
+                window.cachedMessages.unshift(payload.new);
                 addMessageToUI(payload.new, true); // prepend new messages at top
                 // Play sound for messages from others
                 var currentUserId2 = (currentUser && currentUser.id) ? currentUser.id : null;
@@ -5880,10 +5926,101 @@
             return escaped;
         }
 
-        // Filter chat by tag (placeholder - could filter messages)
+        // Filter chat by tag
         window.filterChatByTag = function(tag) {
-            showToast('Tag: #' + tag, 'info');
-            // Could implement actual filtering here
+            activeChatFilter = { type: 'tag', value: tag };
+            var filterBar = document.getElementById('chatFilterBar');
+            var filterValue = document.getElementById('activeChatFilter');
+
+            if (filterBar) filterBar.classList.add('active');
+            if (filterValue) {
+                filterValue.textContent = '#' + tag;
+                filterValue.classList.remove('mention');
+            }
+
+            renderFilteredMessages();
+            showToast('Filtering by #' + tag, 'info');
+        };
+
+        // Filter chat by mention (show messages from/mentioning user)
+        window.filterChatByMention = function(username) {
+            activeChatFilter = { type: 'mention', value: username };
+            var filterBar = document.getElementById('chatFilterBar');
+            var filterValue = document.getElementById('activeChatFilter');
+
+            if (filterBar) filterBar.classList.add('active');
+            if (filterValue) {
+                filterValue.textContent = '@' + username;
+                filterValue.classList.add('mention');
+            }
+
+            renderFilteredMessages();
+            showToast('Showing messages from @' + username, 'info');
+        };
+
+        // Clear chat filter
+        window.clearChatFilter = function() {
+            activeChatFilter = null;
+            var filterBar = document.getElementById('chatFilterBar');
+            if (filterBar) filterBar.classList.remove('active');
+            renderMessages();
+        };
+
+        // Show user profile (for @mention clicks)
+        window.showUserProfile = function(username) {
+            // Show their profile card
+            showProfileCard(username);
+        };
+
+        // Render messages with active filter applied
+        function renderFilteredMessages() {
+            if (!activeChatFilter) {
+                renderMessages();
+                return;
+            }
+
+            var container = document.getElementById('messagesContainer');
+            var emptyState = document.getElementById('emptyState');
+            if (!container) return;
+
+            // Get cached messages from the container's data or global state
+            var allMessages = window.cachedMessages || [];
+
+            var filtered = allMessages.filter(function(msg) {
+                var content = msg.content || '';
+
+                if (activeChatFilter.type === 'tag') {
+                    // Check if message contains this hashtag
+                    var tagRegex = new RegExp('#' + activeChatFilter.value + '\\b', 'i');
+                    return tagRegex.test(content);
+                } else if (activeChatFilter.type === 'mention') {
+                    // Check if message is from this user OR mentions them
+                    var mentionRegex = new RegExp('@' + activeChatFilter.value + '\\b', 'i');
+                    return msg.username === activeChatFilter.value || mentionRegex.test(content);
+                }
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                if (emptyState) {
+                    var filterText = activeChatFilter.type === 'tag'
+                        ? '#' + activeChatFilter.value
+                        : '@' + activeChatFilter.value;
+                    emptyState.innerHTML = '<div class="icon">🔍</div><p>No messages with ' + escapeHtml(filterText) + '</p>';
+                    emptyState.style.display = 'block';
+                }
+                container.innerHTML = '';
+                if (emptyState) container.appendChild(emptyState);
+                return;
+            }
+
+            if (emptyState) emptyState.style.display = 'none';
+
+            // Render filtered messages
+            container.innerHTML = '';
+            filtered.forEach(function(msg) {
+                renderMessage(msg);
+            });
         };
 
         // Extract tags from message content
