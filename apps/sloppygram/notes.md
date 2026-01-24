@@ -3,6 +3,9 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: Created sloppygram_message_tags table with RLS policies for chat tagging system
+- 2026-01-24: Added Ralph Wiggum bot, Gold Master dataURLtoBlob and Share URL upgrades
+- 2026-01-24: Chat tagging system (#tags, @mentions) and enhanced mobile menu logic
 - 2026-01-24: Legacy syntax refactor - replaced 37 optional chaining instances with && checks for older browser support
 - 2026-01-23: Added fiat section to support modal - Ko-fi, PayPal, Patreon buttons above crypto grid
 - 2026-01-23: Multi-crypto support modal - Bitcoin, Ethereum, Solana, Monero + Stripe (2x2 grid layout)
@@ -143,6 +146,7 @@ Global chatroom social network with image uploads, avatars, and a drawing tool.
 - sloppygram_comment_threads: comment_id, parent_comment_id, comment_type, post_id
 - sloppygram_comment_votes: comment_id, voter_username, vote_type
 - sloppygram_collab_strokes: start_x, start_y, end_x, end_y, color, username (persisted collaborative canvas)
+- sloppygram_message_tags: message_id, tag, parent_tag (chat message tagging system)
 - ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast)
 
 ## avatars
