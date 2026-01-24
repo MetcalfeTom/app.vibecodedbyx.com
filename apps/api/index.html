@@ -149,6 +149,22 @@
             <div class="fields">Fields: tag, parent_tag, count, sources (message/post/manifesto)</div>
         </div>
 
+        <h2>👤 Profiles</h2>
+
+        <div class="endpoint">
+            <h3>GET /api/#profiles <span class="new">NEW</span></h3>
+            <p>Returns user profiles with metadata (avatar, color, bio, activity stats)</p>
+            <div class="params">Params: <code>limit</code> (default 50), <code>username</code> (filter by specific user)</div>
+            <div class="fields">Fields: username, avatar, avatar_url, avatar_color, bio, post_count, message_count, first_seen, last_seen</div>
+        </div>
+
+        <div class="endpoint">
+            <h3>GET /api/#user-tags <span class="new">NEW</span></h3>
+            <p>Returns tags used by a specific user across all content types</p>
+            <div class="params">Params: <code>username</code> (required), <code>limit</code> (default 50)</div>
+            <div class="fields">Fields: tag, count, sources (message/post/manifesto)</div>
+        </div>
+
         <h2>🤖 System</h2>
 
         <div class="endpoint">
@@ -184,7 +200,8 @@
             const params = new URLSearchParams(window.location.search);
             return {
                 limit: parseInt(params.get('limit')) || 50,
-                since: params.get('since') || null
+                since: params.get('since') || null,
+                username: params.get('username') || null
             };
         };
 
@@ -204,7 +221,7 @@
             const schema = {
                 api: {
                     name: "Sloppygram API",
-                    version: "1.3.0",
+                    version: "1.4.0",
                     description: "Read-only API for Sloppygram social platform data",
                     base_url: "https://sloppy.live/api/",
                     routing: "hash-based (#endpoint) or query param (?endpoint=X)"
@@ -315,6 +332,32 @@
                             tag: { type: "string", description: "Tag name (without # prefix)" },
                             parent_tag: { type: "string|null", description: "Parent tag for hierarchical tags" },
                             count: { type: "integer", description: "Total usage count across all sources" },
+                            sources: { type: "object", description: "Breakdown by source type { message, post, manifesto }" }
+                        }
+                    },
+                    profiles: {
+                        description: "User profiles with metadata (avatar, color, bio)",
+                        params: ["limit", "username"],
+                        returns: "array",
+                        fields: {
+                            username: { type: "string", description: "User's display name" },
+                            avatar: { type: "string", description: "Emoji avatar" },
+                            avatar_url: { type: "string|null", description: "Custom avatar image URL" },
+                            avatar_color: { type: "string|null", description: "User's chosen avatar/theme color" },
+                            bio: { type: "string|null", description: "User's bio/description" },
+                            post_count: { type: "integer", description: "Number of posts by user" },
+                            message_count: { type: "integer", description: "Number of messages by user" },
+                            first_seen: { type: "timestamp", description: "First activity timestamp" },
+                            last_seen: { type: "timestamp", description: "Most recent activity timestamp" }
+                        }
+                    },
+                    "user-tags": {
+                        description: "Tags used by a specific user across all content types",
+                        params: ["username", "limit"],
+                        returns: "array",
+                        fields: {
+                            tag: { type: "string", description: "Tag name (without # prefix)" },
+                            count: { type: "integer", description: "Times used by this user" },
                             sources: { type: "object", description: "Breakdown by source type { message, post, manifesto }" }
                         }
                     },
@@ -560,6 +603,145 @@
             return { data, error, type: 'tags' };
         }
 
+        async function fetchProfiles(limit = 50, username = null) {
+            // If specific username requested, filter by it
+            let messagesQuery = supabase
+                .from('sloppygram_messages')
+                .select('username, avatar, avatar_url, avatar_color, bio, created_at');
+
+            let postsQuery = supabase
+                .from('sloppygram_posts')
+                .select('username, avatar, avatar_url, avatar_color, bio, created_at');
+
+            if (username) {
+                messagesQuery = messagesQuery.eq('username', username);
+                postsQuery = postsQuery.eq('username', username);
+            }
+
+            const [messages, posts] = await Promise.all([
+                messagesQuery,
+                postsQuery
+            ]);
+
+            // Build profile map from activity
+            const profileMap = {};
+
+            (messages.data || []).forEach(m => {
+                const key = m.username;
+                if (!profileMap[key]) {
+                    profileMap[key] = {
+                        username: m.username,
+                        avatar: m.avatar,
+                        avatar_url: m.avatar_url,
+                        avatar_color: m.avatar_color,
+                        bio: m.bio,
+                        post_count: 0,
+                        message_count: 0,
+                        first_seen: m.created_at,
+                        last_seen: m.created_at
+                    };
+                }
+                profileMap[key].message_count++;
+                // Update avatar/bio if newer and not null
+                if (m.avatar_url && new Date(m.created_at) > new Date(profileMap[key].last_seen)) {
+                    profileMap[key].avatar_url = m.avatar_url;
+                }
+                if (m.avatar_color) profileMap[key].avatar_color = m.avatar_color;
+                if (m.bio) profileMap[key].bio = m.bio;
+                // Track first/last seen
+                if (new Date(m.created_at) < new Date(profileMap[key].first_seen)) {
+                    profileMap[key].first_seen = m.created_at;
+                }
+                if (new Date(m.created_at) > new Date(profileMap[key].last_seen)) {
+                    profileMap[key].last_seen = m.created_at;
+                }
+            });
+
+            (posts.data || []).forEach(p => {
+                const key = p.username;
+                if (!profileMap[key]) {
+                    profileMap[key] = {
+                        username: p.username,
+                        avatar: p.avatar,
+                        avatar_url: p.avatar_url,
+                        avatar_color: p.avatar_color,
+                        bio: p.bio,
+                        post_count: 0,
+                        message_count: 0,
+                        first_seen: p.created_at,
+                        last_seen: p.created_at
+                    };
+                }
+                profileMap[key].post_count++;
+                // Update avatar/bio if newer and not null
+                if (p.avatar_url && new Date(p.created_at) > new Date(profileMap[key].last_seen)) {
+                    profileMap[key].avatar_url = p.avatar_url;
+                }
+                if (p.avatar_color) profileMap[key].avatar_color = p.avatar_color;
+                if (p.bio) profileMap[key].bio = p.bio;
+                // Track first/last seen
+                if (new Date(p.created_at) < new Date(profileMap[key].first_seen)) {
+                    profileMap[key].first_seen = p.created_at;
+                }
+                if (new Date(p.created_at) > new Date(profileMap[key].last_seen)) {
+                    profileMap[key].last_seen = p.created_at;
+                }
+            });
+
+            // Sort by last_seen (most recent first) and limit
+            const data = Object.values(profileMap)
+                .sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen))
+                .slice(0, limit);
+
+            const error = messages.error || posts.error;
+            return { data, error, type: 'profiles' };
+        }
+
+        async function fetchUserTags(username, limit = 50) {
+            if (!username) {
+                return { data: [], error: { message: 'username parameter is required' }, type: 'user-tags' };
+            }
+
+            // Fetch tags for this user from all sources
+            const [messageTags, postTags, manifestoTags] = await Promise.all([
+                supabase.from('sloppygram_message_tags').select('tag, message_id').eq('username', username),
+                supabase.from('sloppygram_post_tags').select('tag, post_id').eq('username', username),
+                supabase.from('sloppygram_manifesto_tags').select('tag, manifesto_id').eq('username', username)
+            ]);
+
+            // Aggregate tag counts
+            const tagMap = {};
+
+            (messageTags.data || []).forEach(t => {
+                const key = t.tag.toLowerCase();
+                if (!tagMap[key]) tagMap[key] = { tag: t.tag, count: 0, sources: { message: 0, post: 0, manifesto: 0 } };
+                tagMap[key].count++;
+                tagMap[key].sources.message++;
+            });
+
+            (postTags.data || []).forEach(t => {
+                const key = t.tag.toLowerCase();
+                if (!tagMap[key]) tagMap[key] = { tag: t.tag, count: 0, sources: { message: 0, post: 0, manifesto: 0 } };
+                tagMap[key].count++;
+                tagMap[key].sources.post++;
+            });
+
+            (manifestoTags.data || []).forEach(t => {
+                const key = t.tag.toLowerCase();
+                if (!tagMap[key]) tagMap[key] = { tag: t.tag, count: 0, sources: { message: 0, post: 0, manifesto: 0 } };
+                tagMap[key].count++;
+                tagMap[key].sources.manifesto++;
+            });
+
+            // Sort by count and limit
+            const data = Object.values(tagMap)
+                .sort((a, b) => b.count - a.count)
+                .slice(0, limit);
+
+            const error = messageTags.error || postTags.error || manifestoTags.error;
+            return { data, error, type: 'user-tags' };
+        }
+
         async function fetchFeed(limit = 50, since = null) {
             // Fetch more from each source to ensure good coverage
             const perSource = Math.ceil(limit / 2);
@@ -600,7 +782,7 @@
         // === MAIN ===
         async function main() {
             const endpoint = getEndpoint();
-            const { limit, since } = getParams();
+            const { limit, since, username } = getParams();
             const output = document.getElementById('output');
             const status = document.getElementById('status');
 
@@ -633,6 +815,12 @@
                         break;
                     case 'tags':
                         result = await fetchTags(limit);
+                        break;
+                    case 'profiles':
+                        result = await fetchProfiles(limit, username);
+                        break;
+                    case 'user-tags':
+                        result = await fetchUserTags(username, limit);
                         break;
                     case 'feed':
                     default:
