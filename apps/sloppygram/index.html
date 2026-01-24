@@ -5711,6 +5711,7 @@
         var sloppyfmVisualizerInterval = null;
         var sloppyfmQueue = [];
         var sloppyfmSyncInterval = null;
+        var sloppyfmChannel = null;
 
         // Default tracks (YouTube IDs) - can be expanded via queue
         var sloppyfmDefaultTracks = [
@@ -5765,6 +5766,41 @@
             sloppyfmPlayer.setVolume(sloppyfmVolume);
             loadSloppyFMQueue();
             syncSloppyFMState();
+            setupSloppyFMRealtime();
+        }
+
+        // Set up realtime channel for SloppyFM sync
+        function setupSloppyFMRealtime() {
+            if (sloppyfmChannel) {
+                supabase.removeChannel(sloppyfmChannel);
+            }
+
+            sloppyfmChannel = supabase.channel('sloppyfm-radio', {
+                config: { broadcast: { self: false } }
+            });
+
+            sloppyfmChannel.on('broadcast', { event: 'track_change' }, function(msg) {
+                var payload = msg.payload;
+                if (payload && payload.youtube_id && sloppyfmReady && sloppyfmPlayer) {
+                    // Calculate seek position from started_at
+                    var startedAt = new Date(payload.started_at).getTime();
+                    var elapsed = Math.floor((Date.now() - startedAt) / 1000);
+
+                    sloppyfmCurrentTrack = payload;
+                    sloppyfmPlayer.loadVideoById({
+                        videoId: payload.youtube_id,
+                        startSeconds: Math.max(0, elapsed)
+                    });
+                    updateSloppyFMUI();
+                    loadSloppyFMQueue(); // Refresh playlist
+                }
+            });
+
+            sloppyfmChannel.on('broadcast', { event: 'queue_update' }, function() {
+                loadSloppyFMQueue();
+            });
+
+            sloppyfmChannel.subscribe();
         }
 
         function onSloppyFMStateChange(event) {
@@ -5844,6 +5880,8 @@
         async function broadcastSloppyFMTrack(track) {
             if (!currentUser) return;
 
+            var startedAt = new Date().toISOString();
+
             // Clear any existing playing tracks
             await supabase
                 .from('sloppygram_radio')
@@ -5854,7 +5892,7 @@
             if (track.id && !String(track.id).startsWith('default-')) {
                 await supabase
                     .from('sloppygram_radio')
-                    .update({ is_playing: true, started_at: new Date().toISOString() })
+                    .update({ is_playing: true, started_at: startedAt })
                     .eq('id', track.id);
             } else {
                 // Insert new track for defaults
@@ -5866,10 +5904,24 @@
                         artist: track.artist,
                         duration: track.duration || 0,
                         added_by: profile.username,
-                        started_at: new Date().toISOString(),
+                        started_at: startedAt,
                         is_playing: true,
                         user_id: currentUser.id
                     });
+            }
+
+            // Send realtime broadcast to sync all clients
+            if (sloppyfmChannel) {
+                sloppyfmChannel.send({
+                    type: 'broadcast',
+                    event: 'track_change',
+                    payload: {
+                        youtube_id: track.youtube_id,
+                        title: track.title,
+                        artist: track.artist,
+                        started_at: startedAt
+                    }
+                });
             }
         }
 
@@ -6055,6 +6107,14 @@
                     var playlist = document.getElementById('sloppyfmPlaylist');
                     if (playlist) {
                         playlist.scrollTop = playlist.scrollHeight;
+                    }
+                    // Broadcast queue update to other clients
+                    if (sloppyfmChannel) {
+                        sloppyfmChannel.send({
+                            type: 'broadcast',
+                            event: 'queue_update',
+                            payload: {}
+                        });
                     }
                 }
             } catch(e) {
