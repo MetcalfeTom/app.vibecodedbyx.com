@@ -3,14 +3,18 @@
 The social feed for your throne time.
 
 ## log
+- 2026-01-24: Added global radio player, audio upload, and profile editing (nickname + avatar color)
 - 2026-01-24: Replaced emoji avatars with canvas-generated identicons, made all nav tabs functional
 - 2026-01-24: Replaced sidebar with 2015 maximalist blue-purple-pink gradient header
 - 2026-01-24: Added responsive desktop layout, dark mode toggle, Instagram-style nav bar
 - 2026-01-24: Initial creation - mobile-first feed with toilet theme
 
 ## features
-- Canvas-generated identicons (symmetric 5x5 pattern from username hash)
-- Fully functional navigation: Home feed, Search, Post, Activity, Profile
+- Global loopable radio player with prev/play/next controls
+- Audio upload to shared playlist (max 5MB, base64 stored)
+- Profile editing: change nickname and avatar color
+- Canvas-generated identicons with customizable color
+- Fully functional navigation: Home, Search, Post, Radio, Profile
 - Clean blue header with Lobster font
 - Dark mode toggle with localStorage persistence
 - Instagram-style navigation (Home, Search, Create, Reels, Profile)
@@ -29,6 +33,7 @@ The social feed for your throne time.
 
 ## database
 - toiletgram_posts: username, avatar, content, image_url, flush_count, stink_count
+- toiletgram_radio: title, artist, audio_url, duration, username, play_count
 
 ## color palette
 - Porcelain: #f5f0e8
