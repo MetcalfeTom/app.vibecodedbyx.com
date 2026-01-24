@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: Tag filter now works across all sources - clicking a tag filters posts, messages, and manifestos simultaneously with result counts
 - 2026-01-24: Tag Explorer fix - now queries all 3 tag tables directly via Supabase (messages, posts, manifestos) instead of broken API fetch
 - 2026-01-24: Text-to-speech for chat messages - 🔊 button on each text message, strips hacker markup for clean speech
 - 2026-01-24: Text-to-speech for posts - 🔊 button reads post captions aloud using Web Speech API, click to toggle
