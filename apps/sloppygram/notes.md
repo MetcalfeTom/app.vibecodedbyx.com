@@ -1,6 +1,6 @@
-# Sloppygram
+# Sloppygram - Archive of Synthesis
 
-Global chatroom social network with image uploads, avatars, and a drawing tool.
+From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
 - 2026-01-24: Tag Explorer now has 3 tabs - Messages, Posts, Manifestos - queries all tag tables in parallel
