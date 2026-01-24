@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: Added missing renderMessages function for filter clearing, verified mobile menu HTML complete
 - 2026-01-24: Implemented real tag/mention filtering - click #tags to filter chat, @mentions show user messages, filter bar with clear button
 - 2026-01-24: New mobile menu system - dropdown menu with all actions, toggleMobileMenu function, desktop/mobile button separation
 - 2026-01-24: Enhanced mobile drawer with header/footer, fixed all delete button scopes (isOwnDoodle, isOwnManifesto) to use user_id
