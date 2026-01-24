@@ -3,13 +3,15 @@
 The social feed for your throne time.
 
 ## log
+- 2026-01-24: Replaced emoji avatars with canvas-generated identicons, made all nav tabs functional
 - 2026-01-24: Replaced sidebar with 2015 maximalist blue-purple-pink gradient header
 - 2026-01-24: Added responsive desktop layout, dark mode toggle, Instagram-style nav bar
 - 2026-01-24: Initial creation - mobile-first feed with toilet theme
 
 ## features
-- 2015 maximalist blue-purple-pink gradient header with Lobster font
-- In-header navigation tabs (Home, Search, Post, Activity, Profile)
+- Canvas-generated identicons (symmetric 5x5 pattern from username hash)
+- Fully functional navigation: Home feed, Search, Post, Activity, Profile
+- Clean blue header with Lobster font
 - Dark mode toggle with localStorage persistence
 - Instagram-style navigation (Home, Search, Create, Reels, Profile)
 - Compose modal with image upload preview
