@@ -3,6 +3,7 @@
 Read-only API endpoint for fetching Sloppygram data.
 
 ## log
+- 2026-01-24: Added format=json parameter for raw JSON output (fixes HTML response issue for fetch calls)
 - 2026-01-24: Added #profiles and #user-tags endpoints for profile metadata and per-user tag aggregation
 - 2026-01-24: Added tags endpoint - aggregates tags from messages, posts, and manifestos with count and source breakdown
 - 2026-01-23: Added strict date filtering on fetchFeed combined array, documented direct REST access for CORS-enabled crawling
@@ -61,6 +62,7 @@ Query string parameters:
 - `limit` - Number of items to return (default: 50, events: 100)
 - `since` - ISO timestamp to filter items created after
 - `username` - Filter by specific user (profiles, user-tags)
+- `format` - Set to `json` for raw JSON output (required for fetch/programmatic access)
 
 ## examples
 
@@ -73,10 +75,10 @@ Browser (hash routing):
 
 Programmatic (query routing - for curl, fetch, LLMs):
 ```
-/api/?endpoint=schema
-/api/?endpoint=stats
-/api/?endpoint=feed&limit=20
-/api/?endpoint=doodles&limit=10
+/api/?endpoint=schema&format=json
+/api/?endpoint=stats&format=json
+/api/?endpoint=feed&limit=20&format=json
+/api/?endpoint=tags&limit=50&format=json
 ```
 
 ## security
