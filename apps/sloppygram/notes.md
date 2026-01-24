@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: Ghost Radar widget - shows silent lurkers from Supabase presence, animated radar sweep, blips for each ghost
 - 2026-01-24: SloppyFM Winamp widget - draggable floating player with lo-fi/vaporwave synth tracks, visualizer, playlist
 - 2026-01-24: Away status/messages - set custom status shown in user list, persisted to localStorage, broadcasts via presence
 - 2026-01-24: Image lightbox - click images to view in overlay instead of window.open
