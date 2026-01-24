@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: New mobile menu system - dropdown menu with all actions, toggleMobileMenu function, desktop/mobile button separation
 - 2026-01-24: Enhanced mobile drawer with header/footer, fixed all delete button scopes (isOwnDoodle, isOwnManifesto) to use user_id
 - 2026-01-24: Fixed isOwnMessage to use user_id check, fixed handleTagInput function collision, enhanced tag-input CSS
 - 2026-01-24: Created sloppygram_message_tags table with RLS policies for chat tagging system
