@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: Fixed isOwnMessage to use user_id check, fixed handleTagInput function collision, enhanced tag-input CSS
 - 2026-01-24: Created sloppygram_message_tags table with RLS policies for chat tagging system
 - 2026-01-24: Added Ralph Wiggum bot, Gold Master dataURLtoBlob and Share URL upgrades
 - 2026-01-24: Chat tagging system (#tags, @mentions) and enhanced mobile menu logic
