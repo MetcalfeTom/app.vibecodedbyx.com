@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: Legacy syntax refactor - replaced 37 optional chaining instances with && checks for older browser support
 - 2026-01-23: Added fiat section to support modal - Ko-fi, PayPal, Patreon buttons above crypto grid
 - 2026-01-23: Multi-crypto support modal - Bitcoin, Ethereum, Solana, Monero + Stripe (2x2 grid layout)
 - 2026-01-23: Full support modal system - CSS grid layout, donate button, improved clipboard logic with toast
