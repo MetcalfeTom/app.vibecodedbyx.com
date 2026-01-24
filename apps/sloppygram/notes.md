@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: Tag Explorer now has 3 tabs - Messages, Posts, Manifestos - queries all tag tables in parallel
 - 2026-01-24: SloppyFM realtime sync - broadcast channel for instant track/queue updates, RLS policies for user ownership
 - 2026-01-24: SloppyFM v2.0 - synchronized YouTube radio with Supabase queue, auto-seek playback, hidden YouTube player, add tracks via URL input
 - 2026-01-24: Tag Explorer modal now renders actual post/manifesto cards with tabbed interface (Posts/Manifestos tabs)
