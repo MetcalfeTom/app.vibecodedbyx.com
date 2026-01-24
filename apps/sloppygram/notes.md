@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: IDEAS tab real-time subscriptions - new ideas, votes, updates, and deletions appear instantly via Supabase postgres_changes
 - 2026-01-24: Feedback Hub integration - new IDEAS tab with voting, submission, category filtering; uses shared feedback tables
 - 2026-01-24: Cross-app profile stats - profile cards now show game high scores from Breakout, Icy Tower, Tetris, Star Catcher
 - 2026-01-24: Tag Explorer upgrade - uses API for aggregated tag data, modal shows source breakdown (msgs/posts/manifestos), top users, recent content
