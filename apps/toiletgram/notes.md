@@ -3,9 +3,14 @@
 The social feed for your throne time.
 
 ## log
+- 2026-01-24: Added responsive desktop layout, dark mode toggle, Instagram-style nav bar
 - 2026-01-24: Initial creation - mobile-first feed with toilet theme
 
 ## features
+- Responsive layout: mobile bottom nav + desktop sidebar
+- Dark mode toggle with localStorage persistence
+- Instagram-style navigation (Home, Search, Create, Reels, Profile)
+- Compose modal with image upload preview
 - Mobile-first phone-frame design (max 420px)
 - Brown and porcelain white color palette
 - Toilet paper edge decorations with perforated lines
