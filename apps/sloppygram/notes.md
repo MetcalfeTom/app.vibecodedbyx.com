@@ -3,6 +3,7 @@
 Global chatroom social network with image uploads, avatars, and a drawing tool.
 
 ## log
+- 2026-01-24: SloppyFM v2.0 - synchronized YouTube radio with Supabase queue, auto-seek playback, hidden YouTube player
 - 2026-01-24: Tag Explorer modal now renders actual post/manifesto cards with tabbed interface (Posts/Manifestos tabs)
 - 2026-01-24: Tag filter now works across all sources - clicking a tag filters posts, messages, and manifestos simultaneously with result counts
 - 2026-01-24: Tag Explorer fix - now queries all 3 tag tables directly via Supabase (messages, posts, manifestos) instead of broken API fetch

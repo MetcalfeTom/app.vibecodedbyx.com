@@ -4705,11 +4705,11 @@
     <!-- Toast notification container -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <!-- SloppyFM Winamp Widget -->
+    <!-- SloppyFM Winamp Widget with YouTube Sync -->
     <button class="sloppyfm-toggle" id="sloppyfmToggle" onclick="toggleSloppyFM()" title="SloppyFM Radio">🎵</button>
     <div class="sloppyfm-widget" id="sloppyfmWidget">
         <div class="sloppyfm-titlebar" id="sloppyfmTitlebar">
-            <span class="sloppyfm-title">SLOPPYFM v1.0</span>
+            <span class="sloppyfm-title">SLOPPYFM v2.0 📡</span>
             <button class="sloppyfm-close" onclick="toggleSloppyFM()">×</button>
         </div>
         <div class="sloppyfm-display">
@@ -4722,7 +4722,7 @@
                 <div class="sloppyfm-bar"></div>
             </div>
             <div class="sloppyfm-trackinfo">
-                <span class="sloppyfm-trackname" id="sloppyfmTrackName">[ NO TRACK LOADED ]</span>
+                <span class="sloppyfm-trackname" id="sloppyfmTrackName">[ SYNCED RADIO ]</span>
             </div>
             <div class="sloppyfm-time" id="sloppyfmTime">00:00</div>
         </div>
@@ -4738,6 +4738,8 @@
             <input type="range" class="sloppyfm-volume-slider" id="sloppyfmVolume" min="0" max="100" value="70" onchange="sloppyfmSetVolume(this.value)">
         </div>
         <div class="sloppyfm-playlist" id="sloppyfmPlaylist"></div>
+        <!-- Hidden YouTube Player -->
+        <div id="sloppyfmYTPlayer" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;"></div>
     </div>
 
     <!-- Ghost Radar Widget -->
@@ -5667,27 +5669,176 @@
         let postsLoading = false;
 
         // === SLOPPYFM WINAMP PLAYER ===
-        var sloppyfmAudioCtx = null;
-        var sloppyfmCurrentTrack = -1;
+        // === SLOPPYFM v2.0 - SYNCHRONIZED YOUTUBE RADIO ===
+        var sloppyfmPlayer = null;
+        var sloppyfmReady = false;
+        var sloppyfmCurrentTrack = null;
         var sloppyfmIsPlaying = false;
-        var sloppyfmOscillators = [];
-        var sloppyfmGainNode = null;
-        var sloppyfmVolume = 0.7;
-        var sloppyfmStartTime = 0;
+        var sloppyfmVolume = 70;
         var sloppyfmVisualizerInterval = null;
+        var sloppyfmQueue = [];
+        var sloppyfmSyncInterval = null;
 
-        var sloppyfmTracks = [
-            { name: 'Lo-Fi Dreams', genre: 'lo-fi', freq: 220, type: 'sine' },
-            { name: 'Vaporwave Sunset', genre: 'vaporwave', freq: 180, type: 'triangle' },
-            { name: 'Chill Beats', genre: 'lo-fi', freq: 196, type: 'sine' },
-            { name: 'Mall Memories', genre: 'vaporwave', freq: 165, type: 'triangle' },
-            { name: 'Rainy Afternoon', genre: 'lo-fi', freq: 247, type: 'sine' },
-            { name: 'Neon Nights', genre: 'vaporwave', freq: 147, type: 'sawtooth' },
-            { name: 'Study Session', genre: 'lo-fi', freq: 262, type: 'sine' },
-            { name: 'Retrowave Drive', genre: 'vaporwave', freq: 131, type: 'triangle' },
-            { name: 'Coffee Shop', genre: 'lo-fi', freq: 294, type: 'sine' },
-            { name: 'Digital Love', genre: 'vaporwave', freq: 175, type: 'sawtooth' }
+        // Default tracks (YouTube IDs) - can be expanded via queue
+        var sloppyfmDefaultTracks = [
+            { youtube_id: 'jfKfPfyJRdk', title: 'lofi hip hop radio', artist: 'Lofi Girl', duration: 0 },
+            { youtube_id: '5qap5aO4i9A', title: 'chillhop radio', artist: 'Chillhop Music', duration: 0 },
+            { youtube_id: 'rUxyKA_-grg', title: 'synthwave radio', artist: 'Synthwave', duration: 0 },
+            { youtube_id: 'kgx4WGK0oNU', title: 'jazz vibes', artist: 'Cafe Music BGM', duration: 0 }
         ];
+
+        // Load YouTube IFrame API
+        function loadYouTubeAPI() {
+            if (window.YT && window.YT.Player) {
+                initSloppyFMPlayer();
+                return;
+            }
+            var tag = document.createElement('script');
+            tag.src = 'https://www.youtube.com/iframe_api';
+            var firstScript = document.getElementsByTagName('script')[0];
+            firstScript.parentNode.insertBefore(tag, firstScript);
+        }
+
+        // Called by YouTube API when ready
+        window.onYouTubeIframeAPIReady = function() {
+            initSloppyFMPlayer();
+        };
+
+        function initSloppyFMPlayer() {
+            var container = document.getElementById('sloppyfmYTPlayer');
+            if (!container || sloppyfmPlayer) return;
+
+            sloppyfmPlayer = new YT.Player('sloppyfmYTPlayer', {
+                height: '1',
+                width: '1',
+                playerVars: {
+                    autoplay: 0,
+                    controls: 0,
+                    disablekb: 1,
+                    fs: 0,
+                    modestbranding: 1,
+                    playsinline: 1
+                },
+                events: {
+                    onReady: onSloppyFMReady,
+                    onStateChange: onSloppyFMStateChange,
+                    onError: onSloppyFMError
+                }
+            });
+        }
+
+        function onSloppyFMReady(event) {
+            sloppyfmReady = true;
+            sloppyfmPlayer.setVolume(sloppyfmVolume);
+            loadSloppyFMQueue();
+            syncSloppyFMState();
+        }
+
+        function onSloppyFMStateChange(event) {
+            if (event.data === YT.PlayerState.PLAYING) {
+                sloppyfmIsPlaying = true;
+                sloppyfmStartVisualizer();
+                updateSloppyFMUI();
+            } else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
+                sloppyfmIsPlaying = false;
+                stopSloppyFMVisualizer();
+                updateSloppyFMUI();
+                if (event.data === YT.PlayerState.ENDED) {
+                    sloppyfmNext();
+                }
+            }
+        }
+
+        function onSloppyFMError(event) {
+            console.error('[SloppyFM] YouTube error:', event.data);
+            showToast('Track unavailable, skipping...', 'warning');
+            setTimeout(sloppyfmNext, 1000);
+        }
+
+        // Load queue from Supabase
+        async function loadSloppyFMQueue() {
+            var result = await supabase
+                .from('sloppygram_radio')
+                .select('*')
+                .order('created_at', { ascending: true })
+                .limit(50);
+
+            if (result.data && result.data.length > 0) {
+                sloppyfmQueue = result.data;
+            } else {
+                // Use defaults if queue is empty
+                sloppyfmQueue = sloppyfmDefaultTracks.map(function(t, i) {
+                    return { id: 'default-' + i, ...t };
+                });
+            }
+            sloppyfmRenderPlaylist();
+        }
+
+        // Sync playback state from Supabase
+        async function syncSloppyFMState() {
+            var result = await supabase
+                .from('sloppygram_radio')
+                .select('*')
+                .eq('is_playing', true)
+                .limit(1)
+                .single();
+
+            if (result.data && result.data.started_at) {
+                var track = result.data;
+                var startedAt = new Date(track.started_at).getTime();
+                var now = Date.now();
+                var elapsed = Math.floor((now - startedAt) / 1000);
+
+                // Find track in queue or use directly
+                sloppyfmCurrentTrack = track;
+
+                if (sloppyfmReady && sloppyfmPlayer) {
+                    sloppyfmPlayer.loadVideoById({
+                        videoId: track.youtube_id,
+                        startSeconds: elapsed
+                    });
+                    updateSloppyFMTrackInfo();
+                }
+            }
+
+            // Set up periodic sync
+            if (!sloppyfmSyncInterval) {
+                sloppyfmSyncInterval = setInterval(syncSloppyFMState, 30000); // Sync every 30s
+            }
+        }
+
+        // Broadcast current track to all users
+        async function broadcastSloppyFMTrack(track) {
+            if (!currentUser) return;
+
+            // Clear any existing playing tracks
+            await supabase
+                .from('sloppygram_radio')
+                .update({ is_playing: false })
+                .eq('is_playing', true);
+
+            // Set new playing track
+            if (track.id && !String(track.id).startsWith('default-')) {
+                await supabase
+                    .from('sloppygram_radio')
+                    .update({ is_playing: true, started_at: new Date().toISOString() })
+                    .eq('id', track.id);
+            } else {
+                // Insert new track for defaults
+                await supabase
+                    .from('sloppygram_radio')
+                    .insert({
+                        youtube_id: track.youtube_id,
+                        title: track.title,
+                        artist: track.artist,
+                        duration: track.duration || 0,
+                        added_by: profile.username,
+                        started_at: new Date().toISOString(),
+                        is_playing: true,
+                        user_id: currentUser.id
+                    });
+            }
+        }
 
         window.toggleSloppyFM = function() {
             var widget = document.getElementById('sloppyfmWidget');
@@ -5698,6 +5849,8 @@
             } else {
                 widget.classList.add('visible');
                 toggle.classList.add('hidden');
+                // Load YouTube API on first open
+                if (!sloppyfmReady) loadYouTubeAPI();
                 sloppyfmRenderPlaylist();
             }
         };
@@ -5705,169 +5858,106 @@
         function sloppyfmRenderPlaylist() {
             var playlist = document.getElementById('sloppyfmPlaylist');
             if (!playlist) return;
-            playlist.innerHTML = sloppyfmTracks.map(function(track, idx) {
-                var activeClass = idx === sloppyfmCurrentTrack ? 'active' : '';
+            var tracks = sloppyfmQueue.length > 0 ? sloppyfmQueue : sloppyfmDefaultTracks;
+            playlist.innerHTML = tracks.map(function(track, idx) {
+                var isActive = sloppyfmCurrentTrack && sloppyfmCurrentTrack.youtube_id === track.youtube_id;
+                var activeClass = isActive ? 'active' : '';
                 return '<div class="sloppyfm-track ' + activeClass + '" onclick="sloppyfmSelectTrack(' + idx + ')">' +
-                    (idx + 1) + '. ' + track.name +
-                    '<span class="sloppyfm-genre">[' + track.genre + ']</span></div>';
+                    (idx + 1) + '. ' + escapeHtml(track.title) +
+                    '<span class="sloppyfm-genre">[' + escapeHtml(track.artist || 'Unknown') + ']</span></div>';
             }).join('');
         }
 
-        window.sloppyfmSelectTrack = function(idx) {
-            sloppyfmCurrentTrack = idx;
-            sloppyfmRenderPlaylist();
-            if (sloppyfmIsPlaying) {
-                sloppyfmStop();
-                sloppyfmPlay();
-            } else {
-                var nameEl = document.getElementById('sloppyfmTrackName');
-                if (nameEl) nameEl.textContent = sloppyfmTracks[idx].name + ' - ' + sloppyfmTracks[idx].genre;
+        function updateSloppyFMUI() {
+            var playBtn = document.getElementById('sloppyfmPlayBtn');
+            if (playBtn) {
+                playBtn.textContent = sloppyfmIsPlaying ? '⏸' : '▶';
+                if (sloppyfmIsPlaying) playBtn.classList.add('playing');
+                else playBtn.classList.remove('playing');
             }
+            sloppyfmRenderPlaylist();
+        }
+
+        function updateSloppyFMTrackInfo() {
+            if (!sloppyfmCurrentTrack) return;
+            var nameEl = document.getElementById('sloppyfmTrackName');
+            if (nameEl) nameEl.textContent = sloppyfmCurrentTrack.title + ' - ' + (sloppyfmCurrentTrack.artist || 'Radio');
+        }
+
+        window.sloppyfmSelectTrack = function(idx) {
+            var tracks = sloppyfmQueue.length > 0 ? sloppyfmQueue : sloppyfmDefaultTracks;
+            if (idx < 0 || idx >= tracks.length) return;
+            sloppyfmCurrentTrack = tracks[idx];
+            if (sloppyfmReady && sloppyfmPlayer) {
+                sloppyfmPlayer.loadVideoById(sloppyfmCurrentTrack.youtube_id);
+                broadcastSloppyFMTrack(sloppyfmCurrentTrack);
+            }
+            updateSloppyFMTrackInfo();
+            sloppyfmRenderPlaylist();
         };
 
         window.sloppyfmPlay = function() {
-            if (sloppyfmCurrentTrack < 0) sloppyfmCurrentTrack = 0;
-            if (sloppyfmIsPlaying) return;
-
-            // Initialize audio context on user interaction
-            if (!sloppyfmAudioCtx) {
-                sloppyfmAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (!sloppyfmReady || !sloppyfmPlayer) {
+                loadYouTubeAPI();
+                return;
             }
-            if (sloppyfmAudioCtx.state === 'suspended') {
-                sloppyfmAudioCtx.resume();
+            if (sloppyfmIsPlaying) {
+                sloppyfmPlayer.pauseVideo();
+            } else {
+                if (!sloppyfmCurrentTrack) {
+                    sloppyfmSelectTrack(0);
+                } else {
+                    sloppyfmPlayer.playVideo();
+                }
             }
-
-            var track = sloppyfmTracks[sloppyfmCurrentTrack];
-            sloppyfmGainNode = sloppyfmAudioCtx.createGain();
-            sloppyfmGainNode.gain.value = sloppyfmVolume * 0.3;
-            sloppyfmGainNode.connect(sloppyfmAudioCtx.destination);
-
-            // Create lo-fi/vaporwave sound with multiple oscillators
-            var baseFreq = track.freq;
-            var oscTypes = track.type;
-
-            // Main oscillator
-            var osc1 = sloppyfmAudioCtx.createOscillator();
-            osc1.type = oscTypes;
-            osc1.frequency.value = baseFreq;
-            osc1.connect(sloppyfmGainNode);
-            osc1.start();
-            sloppyfmOscillators.push(osc1);
-
-            // Chord oscillators for richness
-            var osc2 = sloppyfmAudioCtx.createOscillator();
-            osc2.type = 'sine';
-            osc2.frequency.value = baseFreq * 1.25; // Major third
-            var gain2 = sloppyfmAudioCtx.createGain();
-            gain2.gain.value = sloppyfmVolume * 0.15;
-            osc2.connect(gain2);
-            gain2.connect(sloppyfmAudioCtx.destination);
-            osc2.start();
-            sloppyfmOscillators.push(osc2);
-
-            var osc3 = sloppyfmAudioCtx.createOscillator();
-            osc3.type = 'sine';
-            osc3.frequency.value = baseFreq * 1.5; // Perfect fifth
-            var gain3 = sloppyfmAudioCtx.createGain();
-            gain3.gain.value = sloppyfmVolume * 0.1;
-            osc3.connect(gain3);
-            gain3.connect(sloppyfmAudioCtx.destination);
-            osc3.start();
-            sloppyfmOscillators.push(osc3);
-
-            // LFO for lo-fi wobble
-            var lfo = sloppyfmAudioCtx.createOscillator();
-            lfo.type = 'sine';
-            lfo.frequency.value = track.genre === 'vaporwave' ? 0.3 : 0.5;
-            var lfoGain = sloppyfmAudioCtx.createGain();
-            lfoGain.gain.value = 3;
-            lfo.connect(lfoGain);
-            lfoGain.connect(osc1.frequency);
-            lfo.start();
-            sloppyfmOscillators.push(lfo);
-
-            sloppyfmIsPlaying = true;
-            sloppyfmStartTime = Date.now();
-            sloppyfmRenderPlaylist();
-
-            var nameEl = document.getElementById('sloppyfmTrackName');
-            if (nameEl) nameEl.textContent = track.name + ' - ' + track.genre;
-
-            var playBtn = document.getElementById('sloppyfmPlayBtn');
-            if (playBtn) {
-                playBtn.textContent = '⏸';
-                playBtn.classList.add('playing');
-            }
-
-            // Start visualizer
-            sloppyfmStartVisualizer();
-            sloppyfmUpdateTime();
         };
 
         window.sloppyfmStop = function() {
-            sloppyfmOscillators.forEach(function(osc) {
-                try { osc.stop(); } catch(e) {}
-            });
-            sloppyfmOscillators = [];
+            if (sloppyfmPlayer && sloppyfmReady) {
+                sloppyfmPlayer.stopVideo();
+            }
             sloppyfmIsPlaying = false;
-
-            var playBtn = document.getElementById('sloppyfmPlayBtn');
-            if (playBtn) {
-                playBtn.textContent = '▶';
-                playBtn.classList.remove('playing');
-            }
-
-            if (sloppyfmVisualizerInterval) {
-                clearInterval(sloppyfmVisualizerInterval);
-                sloppyfmVisualizerInterval = null;
-            }
-
-            // Reset visualizer bars
-            var bars = document.querySelectorAll('.sloppyfm-bar');
-            bars.forEach(function(bar) {
-                bar.style.height = '2px';
-                bar.className = 'sloppyfm-bar';
-            });
+            updateSloppyFMUI();
+            stopSloppyFMVisualizer();
         };
 
         window.sloppyfmNext = function() {
-            var wasPlaying = sloppyfmIsPlaying;
-            sloppyfmStop();
-            sloppyfmCurrentTrack = (sloppyfmCurrentTrack + 1) % sloppyfmTracks.length;
-            sloppyfmRenderPlaylist();
-            if (wasPlaying) sloppyfmPlay();
+            var tracks = sloppyfmQueue.length > 0 ? sloppyfmQueue : sloppyfmDefaultTracks;
+            var currentIdx = tracks.findIndex(function(t) {
+                return sloppyfmCurrentTrack && t.youtube_id === sloppyfmCurrentTrack.youtube_id;
+            });
+            var nextIdx = (currentIdx + 1) % tracks.length;
+            sloppyfmSelectTrack(nextIdx);
         };
 
         window.sloppyfmPrev = function() {
-            var wasPlaying = sloppyfmIsPlaying;
-            sloppyfmStop();
-            sloppyfmCurrentTrack = sloppyfmCurrentTrack <= 0 ? sloppyfmTracks.length - 1 : sloppyfmCurrentTrack - 1;
-            sloppyfmRenderPlaylist();
-            if (wasPlaying) sloppyfmPlay();
+            var tracks = sloppyfmQueue.length > 0 ? sloppyfmQueue : sloppyfmDefaultTracks;
+            var currentIdx = tracks.findIndex(function(t) {
+                return sloppyfmCurrentTrack && t.youtube_id === sloppyfmCurrentTrack.youtube_id;
+            });
+            var prevIdx = currentIdx <= 0 ? tracks.length - 1 : currentIdx - 1;
+            sloppyfmSelectTrack(prevIdx);
         };
 
         window.sloppyfmShuffle = function() {
-            var wasPlaying = sloppyfmIsPlaying;
-            sloppyfmStop();
-            sloppyfmCurrentTrack = Math.floor(Math.random() * sloppyfmTracks.length);
-            sloppyfmRenderPlaylist();
-            if (wasPlaying) sloppyfmPlay();
-            showToast('Shuffled to: ' + sloppyfmTracks[sloppyfmCurrentTrack].name);
+            var tracks = sloppyfmQueue.length > 0 ? sloppyfmQueue : sloppyfmDefaultTracks;
+            var randomIdx = Math.floor(Math.random() * tracks.length);
+            sloppyfmSelectTrack(randomIdx);
+            showToast('Shuffled to: ' + tracks[randomIdx].title);
         };
 
         window.sloppyfmSetVolume = function(val) {
-            sloppyfmVolume = val / 100;
-            if (sloppyfmGainNode) {
-                sloppyfmGainNode.gain.value = sloppyfmVolume * 0.3;
+            sloppyfmVolume = parseInt(val);
+            if (sloppyfmPlayer && sloppyfmReady) {
+                sloppyfmPlayer.setVolume(sloppyfmVolume);
             }
         };
 
-        // SloppyFM cache for performance
+        // SloppyFM visualizer
         var sloppyfmCache = { bars: null, timeEl: null, lastBarClasses: [] };
 
         function sloppyfmStartVisualizer() {
             if (sloppyfmVisualizerInterval) clearInterval(sloppyfmVisualizerInterval);
-            // Cache bars array
             if (!sloppyfmCache.bars) {
                 sloppyfmCache.bars = Array.from(document.querySelectorAll('.sloppyfm-bar'));
                 sloppyfmCache.lastBarClasses = sloppyfmCache.bars.map(function() { return ''; });
@@ -5880,7 +5970,6 @@
                 for (var i = 0; i < bars.length; i++) {
                     var height = Math.random() * 18 + 2;
                     bars[i].style.height = height + 'px';
-                    // Only update class if changed
                     var newClass = height > 15 ? 'high' : (height > 10 ? 'mid' : '');
                     if (lastClasses[i] !== newClass) {
                         bars[i].className = 'sloppyfm-bar' + (newClass ? ' ' + newClass : '');
@@ -5888,20 +5977,36 @@
                     }
                 }
             }, 100);
+
+            // Update time display
+            sloppyfmUpdateTime();
+        }
+
+        function stopSloppyFMVisualizer() {
+            if (sloppyfmVisualizerInterval) {
+                clearInterval(sloppyfmVisualizerInterval);
+                sloppyfmVisualizerInterval = null;
+            }
+            var bars = document.querySelectorAll('.sloppyfm-bar');
+            bars.forEach(function(bar) {
+                bar.style.height = '2px';
+                bar.className = 'sloppyfm-bar';
+            });
         }
 
         function sloppyfmUpdateTime() {
-            if (!sloppyfmIsPlaying) return;
-            var elapsed = Math.floor((Date.now() - sloppyfmStartTime) / 1000);
-            var mins = Math.floor(elapsed / 60);
-            var secs = elapsed % 60;
-            // Cache timeEl reference
-            if (!sloppyfmCache.timeEl) {
-                sloppyfmCache.timeEl = document.getElementById('sloppyfmTime');
-            }
-            if (sloppyfmCache.timeEl) {
-                sloppyfmCache.timeEl.textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
-            }
+            if (!sloppyfmIsPlaying || !sloppyfmPlayer || !sloppyfmReady) return;
+            try {
+                var currentTime = sloppyfmPlayer.getCurrentTime() || 0;
+                var mins = Math.floor(currentTime / 60);
+                var secs = Math.floor(currentTime % 60);
+                if (!sloppyfmCache.timeEl) {
+                    sloppyfmCache.timeEl = document.getElementById('sloppyfmTime');
+                }
+                if (sloppyfmCache.timeEl) {
+                    sloppyfmCache.timeEl.textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+                }
+            } catch(e) {}
             setTimeout(sloppyfmUpdateTime, 1000);
         }
 
