@@ -3,6 +3,7 @@
 The social feed for your throne time.
 
 ## log
+- 2026-01-24: Fixed media uploads in compose modal, added CRT scanline filter overlay
 - 2026-01-24: Moved radio player to Radio tab only, added shuffle/random track selection
 - 2026-01-24: Added global radio player, audio upload, and profile editing (nickname + avatar color)
 - 2026-01-24: Replaced emoji avatars with canvas-generated identicons, made all nav tabs functional
