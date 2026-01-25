@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: DNA Signature system - unique genetic identifiers for manifestos (lineage code, generation, structural marker, nucleotide sequence), color-coded ATCG display
 - 2026-01-25: Manifesto upvote/downvote system - ▲/▼ controls with net score display, localStorage vote direction tracking, links to Confidence Monitor
 - 2026-01-25: Confidence Monitor v2 - 100% real metrics from database (votes, reactions, manifestos, upvotes), no random values, 10s cache
 - 2026-01-25: Confidence Monitor widget - live certainty percentage display with 3 modes (System/Engage/Synth), spinning rings, color-coded status
