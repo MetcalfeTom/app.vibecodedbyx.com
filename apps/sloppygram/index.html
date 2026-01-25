@@ -2638,6 +2638,41 @@
             color: var(--dark-bg);
         }
 
+        /* Upvote/Downvote System */
+        .manifesto-vote-controls {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 2px;
+        }
+        .manifesto-upvote, .manifesto-downvote {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            font-size: 16px;
+            padding: 4px 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            line-height: 1;
+        }
+        .manifesto-upvote:hover { color: #0f0; transform: scale(1.2); }
+        .manifesto-downvote:hover { color: #f44; transform: scale(1.2); }
+        .manifesto-upvote.active { color: #0f0; text-shadow: 0 0 8px #0f0; }
+        .manifesto-downvote.active { color: #f44; text-shadow: 0 0 8px #f44; }
+        .manifesto-vote-score {
+            min-width: 30px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 0 4px;
+        }
+        .manifesto-vote-score.positive { color: #0f0; }
+        .manifesto-vote-score.negative { color: #f44; }
+        .manifesto-vote-score.neutral { color: var(--text-dim); }
+
         .manifesto-modal {
             max-width: 600px;
         }
@@ -8084,12 +8119,13 @@
 
             try {
                 // Query real metrics from database in parallel
-                var [votesRes, reactionsRes, manifestosRes, msgVotesRes, msgReactionsRes] = await Promise.all([
+                var [votesRes, reactionsRes, manifestosRes, msgVotesRes, msgReactionsRes, manifestoVotesRes] = await Promise.all([
                     supabase.from('sloppygram_post_likes').select('post_id', { count: 'exact', head: true }),
                     supabase.from('sloppygram_post_reactions').select('id', { count: 'exact', head: true }),
                     supabase.from('sloppygram_manifestos').select('id, upvotes'),
                     supabase.from('sloppygram_message_votes').select('message_id', { count: 'exact', head: true }),
-                    supabase.from('sloppygram_message_reactions').select('id', { count: 'exact', head: true })
+                    supabase.from('sloppygram_message_reactions').select('id', { count: 'exact', head: true }),
+                    supabase.from('sloppygram_manifesto_votes').select('manifesto_id', { count: 'exact', head: true })
                 ]);
 
                 var totalVotes = (votesRes.count || 0) + (msgVotesRes.count || 0);
@@ -8098,12 +8134,15 @@
                 if (manifestosRes.data) {
                     manifestosRes.data.forEach(function(m) { totalManifestoUpvotes += (m.upvotes || 0); });
                 }
+                // Add live manifesto vote count
+                var manifestoVoteCount = manifestoVotesRes.count || 0;
 
                 confidenceCache = {
                     votes: totalVotes,
                     reactions: totalReactions,
                     manifestos: manifestosRes.data ? manifestosRes.data.length : 0,
-                    manifestoUpvotes: totalManifestoUpvotes,
+                    manifestoUpvotes: totalManifestoUpvotes + manifestoVoteCount,
+                    manifestoVoteCount: manifestoVoteCount,
                     lastFetch: Date.now()
                 };
             } catch (e) {
@@ -8196,6 +8235,14 @@
                 statusEl.textContent = 'uncertain';
             }
         }
+
+        // Global function to update confidence on vote changes
+        window.updateConfidenceMonitor = function() {
+            // Clear cache to force fresh data on next calculation
+            confidenceCache.lastFetch = 0;
+            // Recalculate immediately
+            calculateConfidence();
+        };
 
         window.cycleConfidenceMode = function() {
             confidenceMode = (confidenceMode + 1) % 3;
@@ -13506,8 +13553,8 @@
         // === MANIFESTO FUNCTIONALITY ===
 
         let manifestos = [];
-        let manifestoVotes = {}; // { manifestoId: count }
-        let myManifestoVotes = {}; // { manifestoId: true }
+        let manifestoVotes = {}; // { manifestoId: netScore }
+        let myManifestoVotes = {}; // { manifestoId: 1 (up) | -1 (down) | 0 (none) }
         let manifestoReactions = {}; // { manifestoId: { emoji: count } }
         let myManifestoReactions = {}; // { manifestoId: Set of emojis }
         let manifestoComments = {}; // { manifestoId: [comments] }
@@ -13663,13 +13710,22 @@
                     : { data: [] }
             ]);
 
-            // Process votes
+            // Process votes with direction support
             manifestoVotes = {};
             myManifestoVotes = {};
             (votesResult.data || []).forEach(v => {
-                manifestoVotes[v.manifesto_id] = (manifestoVotes[v.manifesto_id] || 0) + 1;
-                if (v.username === profile.username) {
-                    myManifestoVotes[v.manifesto_id] = true;
+                // Check localStorage for vote direction (defaults to +1 for legacy upvotes)
+                let direction = 1;
+                if (v.user_id && currentUser) {
+                    const voteKey = `manifesto_vote_${v.manifesto_id}_${v.user_id}`;
+                    const storedDir = localStorage.getItem(voteKey);
+                    if (storedDir) {
+                        direction = parseInt(storedDir, 10);
+                    }
+                }
+                manifestoVotes[v.manifesto_id] = (manifestoVotes[v.manifesto_id] || 0) + direction;
+                if (v.user_id === (currentUser && currentUser.id)) {
+                    myManifestoVotes[v.manifesto_id] = direction;
                 }
             });
 
@@ -13725,7 +13781,7 @@
         function renderManifestoCard(m) {
             const time = new Date(m.created_at).toLocaleString();
             const voteCount = manifestoVotes[m.id] || m.upvotes || 0;
-            const hasVoted = myManifestoVotes[m.id];
+            const myVoteDir = myManifestoVotes[m.id] || 0; // 1=up, -1=down, 0=none
             const reactions = manifestoReactions[m.id] || {};
             const myReacts = myManifestoReactions[m.id] || new Set();
             const comments = manifestoComments[m.id] || [];
@@ -13779,9 +13835,11 @@
                     <div class="manifesto-text">${escapeHtml(m.content)}</div>
                     ${tagsHtml}
                     <div class="manifesto-actions">
-                        <button class="manifesto-vote-btn ${hasVoted ? 'voted' : ''}" onclick="voteManifesto(${m.id})">
-                            ${hasVoted ? '⭐' : '☆'} <span>${voteCount}</span>
-                        </button>
+                        <div class="manifesto-vote-controls">
+                            <button class="manifesto-upvote ${myVoteDir === 1 ? 'active' : ''}" onclick="voteManifesto(${m.id}, 1)" title="Upvote">▲</button>
+                            <span class="manifesto-vote-score ${voteCount > 0 ? 'positive' : voteCount < 0 ? 'negative' : 'neutral'}">${voteCount}</span>
+                            <button class="manifesto-downvote ${myVoteDir === -1 ? 'active' : ''}" onclick="voteManifesto(${m.id}, -1)" title="Downvote">▼</button>
+                        </div>
                         <button class="post-action-btn" onclick="focusManifestoComment(${m.id})">
                             💬 ${comments.length}
                         </button>
@@ -13807,21 +13865,37 @@
             `;
         }
 
-        window.voteManifesto = async function(manifestoId) {
+        window.voteManifesto = async function(manifestoId, direction) {
             if (!currentUser) return;
 
-            const hasVoted = myManifestoVotes[manifestoId];
+            const currentVote = myManifestoVotes[manifestoId] || 0;
 
-            if (hasVoted) {
+            const voteKey = `manifesto_vote_${manifestoId}_${currentUser.id}`;
+
+            // If clicking same direction as current vote, remove vote
+            if (direction === currentVote) {
                 await supabase
                     .from('sloppygram_manifesto_votes')
                     .delete()
                     .eq('manifesto_id', manifestoId)
                     .eq('user_id', currentUser.id);
 
-                myManifestoVotes[manifestoId] = false;
-                manifestoVotes[manifestoId] = Math.max(0, (manifestoVotes[manifestoId] || 0) - 1);
+                myManifestoVotes[manifestoId] = 0;
+                manifestoVotes[manifestoId] = (manifestoVotes[manifestoId] || 0) - direction;
+                localStorage.removeItem(voteKey);
             } else {
+                // If had previous vote, adjust score
+                if (currentVote !== 0) {
+                    manifestoVotes[manifestoId] = (manifestoVotes[manifestoId] || 0) - currentVote;
+                    // Delete old vote first
+                    await supabase
+                        .from('sloppygram_manifesto_votes')
+                        .delete()
+                        .eq('manifesto_id', manifestoId)
+                        .eq('user_id', currentUser.id);
+                }
+
+                // Add new vote (store direction in localStorage since DB doesn't have vote_type)
                 await supabase
                     .from('sloppygram_manifesto_votes')
                     .insert({
@@ -13830,8 +13904,16 @@
                         user_id: currentUser.id
                     });
 
-                myManifestoVotes[manifestoId] = true;
-                manifestoVotes[manifestoId] = (manifestoVotes[manifestoId] || 0) + 1;
+                myManifestoVotes[manifestoId] = direction;
+                manifestoVotes[manifestoId] = (manifestoVotes[manifestoId] || 0) + direction;
+
+                // Store vote direction in localStorage for persistence
+                localStorage.setItem(voteKey, direction.toString());
+            }
+
+            // Update Confidence Monitor if available
+            if (typeof updateConfidenceMonitor === 'function') {
+                updateConfidenceMonitor();
             }
 
             renderManifestos();
