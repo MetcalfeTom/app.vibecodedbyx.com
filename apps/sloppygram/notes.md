@@ -3,7 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
-- 2026-01-25: Ghost text prediction - haunting recursive phrases appear as you type, TAB to accept, 60+ trigger words with philosophical/recursive suggestions
+- 2026-01-25: Ghost text prediction - constructive wisdom and creative prompts appear as you type, TAB to accept, 60+ trigger words with encouraging/collaborative suggestions
 - 2026-01-25: SloppyFM timestamp sync fix - position broadcasts every 5s, drift correction (3s tolerance), 10s DB sync, manual resync button (🔄)
 - 2026-01-25: SloppyFM canvas visualizer - 32-bar frequency visualizer with peak indicators, color gradients (green/yellow/red), smooth animations
 - 2026-01-25: WelcomeBot - greets new users with random friendly messages when they join, UI-only (not saved to DB)
