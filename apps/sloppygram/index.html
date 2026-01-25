@@ -5033,6 +5033,7 @@
             <button class="sloppyfm-btn" id="sloppyfmPlayBtn" onclick="sloppyfmPlay()" title="Play">▶</button>
             <button class="sloppyfm-btn" onclick="sloppyfmNext()" title="Next">⏭</button>
             <button class="sloppyfm-btn" onclick="sloppyfmShuffle()" title="Shuffle">🔀</button>
+            <button class="sloppyfm-btn" onclick="sloppyfmResync()" title="Sync with others">🔄</button>
         </div>
         <div class="sloppyfm-volume">
             <span class="sloppyfm-volume-label">VOL</span>
@@ -6006,6 +6007,9 @@
         var sloppyfmQueue = [];
         var sloppyfmSyncInterval = null;
         var sloppyfmChannel = null;
+        var sloppyfmPositionBroadcastInterval = null;
+        var sloppyfmLastSyncTime = 0;
+        var sloppyfmSyncTolerance = 3; // seconds - resync if off by more than this
 
         // Default tracks (YouTube IDs) - can be expanded via queue
         var sloppyfmDefaultTracks = [
@@ -6081,12 +6085,33 @@
                     var elapsed = Math.floor((Date.now() - startedAt) / 1000);
 
                     sloppyfmCurrentTrack = payload;
+                    sloppyfmCurrentTrack.started_at = payload.started_at;
                     sloppyfmPlayer.loadVideoById({
                         videoId: payload.youtube_id,
                         startSeconds: Math.max(0, elapsed)
                     });
                     updateSloppyFMUI();
                     loadSloppyFMQueue(); // Refresh playlist
+                }
+            });
+
+            // Position sync - receive current timestamp from other clients
+            sloppyfmChannel.on('broadcast', { event: 'position_sync' }, function(msg) {
+                var payload = msg.payload;
+                if (!payload || !sloppyfmReady || !sloppyfmPlayer || !sloppyfmIsPlaying) return;
+
+                // Only sync if same track
+                if (sloppyfmCurrentTrack && payload.youtube_id === sloppyfmCurrentTrack.youtube_id) {
+                    var myPosition = sloppyfmPlayer.getCurrentTime() || 0;
+                    var theirPosition = payload.position;
+                    var diff = Math.abs(myPosition - theirPosition);
+
+                    // If more than tolerance seconds off, resync
+                    if (diff > sloppyfmSyncTolerance) {
+                        console.log('[SloppyFM] Position drift detected: ' + diff.toFixed(1) + 's, resyncing...');
+                        sloppyfmPlayer.seekTo(theirPosition, true);
+                        showToast('Radio synced', 'system');
+                    }
                 }
             });
 
@@ -6097,14 +6122,60 @@
             sloppyfmChannel.subscribe();
         }
 
+        // Broadcast current position to sync other clients
+        function broadcastSloppyFMPosition() {
+            if (!sloppyfmChannel || !sloppyfmIsPlaying || !sloppyfmPlayer || !sloppyfmCurrentTrack) return;
+
+            var currentTime = sloppyfmPlayer.getCurrentTime();
+            if (currentTime > 0) {
+                sloppyfmChannel.send({
+                    type: 'broadcast',
+                    event: 'position_sync',
+                    payload: {
+                        youtube_id: sloppyfmCurrentTrack.youtube_id,
+                        position: currentTime,
+                        timestamp: Date.now()
+                    }
+                });
+            }
+        }
+
+        // Start position broadcasting when playing
+        function startSloppyFMPositionBroadcast() {
+            if (sloppyfmPositionBroadcastInterval) return;
+            // Broadcast position every 5 seconds
+            sloppyfmPositionBroadcastInterval = setInterval(broadcastSloppyFMPosition, 5000);
+        }
+
+        // Stop position broadcasting
+        function stopSloppyFMPositionBroadcast() {
+            if (sloppyfmPositionBroadcastInterval) {
+                clearInterval(sloppyfmPositionBroadcastInterval);
+                sloppyfmPositionBroadcastInterval = null;
+            }
+        }
+
+        // Manual resync function
+        window.sloppyfmResync = async function() {
+            if (!sloppyfmReady || !sloppyfmPlayer) {
+                showToast('Player not ready', 'error');
+                return;
+            }
+            showToast('Syncing radio...', 'system');
+            await syncSloppyFMState();
+            showToast('Radio synced!', 'success');
+        };
+
         function onSloppyFMStateChange(event) {
             if (event.data === YT.PlayerState.PLAYING) {
                 sloppyfmIsPlaying = true;
                 sloppyfmStartVisualizer();
+                startSloppyFMPositionBroadcast(); // Start syncing position
                 updateSloppyFMUI();
             } else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
                 sloppyfmIsPlaying = false;
                 stopSloppyFMVisualizer();
+                stopSloppyFMPositionBroadcast(); // Stop syncing position
                 updateSloppyFMUI();
                 if (event.data === YT.PlayerState.ENDED) {
                     sloppyfmNext();
@@ -6152,21 +6223,35 @@
                 var now = Date.now();
                 var elapsed = Math.floor((now - startedAt) / 1000);
 
-                // Find track in queue or use directly
+                // Check if we need to switch tracks or just correct position
+                var needsTrackChange = !sloppyfmCurrentTrack ||
+                    sloppyfmCurrentTrack.youtube_id !== track.youtube_id;
+
                 sloppyfmCurrentTrack = track;
 
                 if (sloppyfmReady && sloppyfmPlayer) {
-                    sloppyfmPlayer.loadVideoById({
-                        videoId: track.youtube_id,
-                        startSeconds: elapsed
-                    });
+                    if (needsTrackChange) {
+                        // Different track - load it
+                        sloppyfmPlayer.loadVideoById({
+                            videoId: track.youtube_id,
+                            startSeconds: Math.max(0, elapsed)
+                        });
+                    } else if (sloppyfmIsPlaying) {
+                        // Same track - check if position needs correction
+                        var currentTime = sloppyfmPlayer.getCurrentTime() || 0;
+                        var drift = Math.abs(currentTime - elapsed);
+                        if (drift > sloppyfmSyncTolerance) {
+                            console.log('[SloppyFM] Correcting drift of ' + drift.toFixed(1) + 's');
+                            sloppyfmPlayer.seekTo(elapsed, true);
+                        }
+                    }
                     updateSloppyFMTrackInfo();
                 }
             }
 
-            // Set up periodic sync
+            // Set up periodic sync (every 10 seconds for tighter sync)
             if (!sloppyfmSyncInterval) {
-                sloppyfmSyncInterval = setInterval(syncSloppyFMState, 30000); // Sync every 30s
+                sloppyfmSyncInterval = setInterval(syncSloppyFMState, 10000);
             }
         }
 
