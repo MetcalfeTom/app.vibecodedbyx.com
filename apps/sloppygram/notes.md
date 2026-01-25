@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: Manifesto Lineage/Forking - parent_id tracking via sloppygram_manifesto_lineage table, Fork button on cards, lineage shown in DNA signature, quotes parent content
 - 2026-01-25: DNA Signature system - unique genetic identifiers for manifestos (lineage code, generation, structural marker, nucleotide sequence), color-coded ATCG display
 - 2026-01-25: Manifesto upvote/downvote system - ▲/▼ controls with net score display, localStorage vote direction tracking, links to Confidence Monitor
 - 2026-01-25: Confidence Monitor v2 - 100% real metrics from database (votes, reactions, manifestos, upvotes), no random values, 10s cache
@@ -189,6 +190,7 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - sloppygram_comment_votes: comment_id, voter_username, vote_type
 - sloppygram_collab_strokes: start_x, start_y, end_x, end_y, color, username (persisted collaborative canvas)
 - sloppygram_message_tags: message_id, tag, parent_tag (chat message tagging system)
+- sloppygram_manifesto_lineage: manifesto_id, parent_id, fork_type (tracks forking/ancestry)
 - ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast)
 
 ## avatars

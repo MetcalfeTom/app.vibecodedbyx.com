@@ -2724,6 +2724,40 @@
             text-transform: uppercase;
             letter-spacing: 1px;
         }
+        .dna-parent {
+            color: #f80;
+            font-size: 9px;
+            margin-left: auto;
+            padding-left: 8px;
+            border-left: 1px solid rgba(255,136,0,0.3);
+        }
+        .dna-parent::before {
+            content: '↑ ';
+            opacity: 0.6;
+        }
+
+        /* Fork Button */
+        .manifesto-fork-btn {
+            background: transparent;
+            border: 1px solid rgba(0,255,136,0.3);
+            color: #0f8;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .manifesto-fork-btn:hover {
+            background: rgba(0,255,136,0.1);
+            border-color: #0f8;
+            transform: scale(1.05);
+        }
+        .manifesto-fork-btn .fork-icon {
+            font-size: 14px;
+        }
 
         .manifesto-modal {
             max-width: 600px;
@@ -6908,6 +6942,8 @@
                 <span>📜</span> WRITE YOUR MANIFESTO
                 <button class="modal-close" onclick="closeManifestoModal()">×</button>
             </h2>
+
+            <div id="forkIndicator" style="display:none;padding:8px 12px;margin-bottom:12px;background:rgba(255,136,0,0.1);border:1px solid rgba(255,136,0,0.3);border-radius:4px;font-size:12px;"></div>
 
             <div class="form-group">
                 <label>TITLE:</label>
@@ -13655,19 +13691,46 @@
         let myManifestoReactions = {}; // { manifestoId: Set of emojis }
         let manifestoComments = {}; // { manifestoId: [comments] }
         let manifestoTags = {}; // { manifestoId: [tags] }
+        let manifestoLineage = {}; // { manifestoId: { parentId, forkType } }
         let pendingManifestoTags = []; // tags being added to new manifesto
+        let forkingFromId = null; // ID of manifesto being forked
 
-        window.openManifestoModal = function() {
+        window.openManifestoModal = function(prefillTitle, prefillContent) {
             document.getElementById('manifestoModal').classList.add('active');
-            document.getElementById('manifestoTitle').value = '';
-            document.getElementById('manifestoContent').value = '';
-            document.getElementById('manifestoCharCount').textContent = '0';
+            document.getElementById('manifestoTitle').value = prefillTitle || '';
+            document.getElementById('manifestoContent').value = prefillContent || '';
+            document.getElementById('manifestoCharCount').textContent = (prefillContent || '').length;
             pendingManifestoTags = [];
             renderPendingManifestoTags();
+
+            // Show fork indicator if forking
+            const forkIndicator = document.getElementById('forkIndicator');
+            if (forkIndicator) {
+                if (forkingFromId) {
+                    const parent = manifestos.find(m => m.id === forkingFromId);
+                    forkIndicator.innerHTML = `<span style="color:#f80">🔀 Forking from: "${escapeHtml(parent ? parent.title : 'Unknown')}"</span>`;
+                    forkIndicator.style.display = 'block';
+                } else {
+                    forkIndicator.style.display = 'none';
+                }
+            }
         };
 
         window.closeManifestoModal = function() {
             document.getElementById('manifestoModal').classList.remove('active');
+            forkingFromId = null; // Clear fork state
+        };
+
+        // Fork a manifesto - creates a new one based on parent
+        window.forkManifesto = function(manifestoId) {
+            const parent = manifestos.find(m => m.id === manifestoId);
+            if (!parent) return;
+
+            forkingFromId = manifestoId;
+            const forkTitle = `RE: ${parent.title}`;
+            const forkContent = `> ${parent.content.split('\n').join('\n> ')}\n\n[Your synthesis here...]`;
+
+            openManifestoModal(forkTitle, forkContent);
         };
 
         // Character count for manifesto content
@@ -13766,8 +13829,20 @@
                 await supabase.from('sloppygram_manifesto_tags').insert(tagInserts);
             }
 
+            // Record lineage if this is a fork
+            if (forkingFromId && insertedManifesto) {
+                await supabase.from('sloppygram_manifesto_lineage').insert({
+                    manifesto_id: insertedManifesto.id,
+                    parent_id: forkingFromId,
+                    fork_type: 'synthesis',
+                    user_id: currentUser.id
+                });
+                addToFeed(profile.username, `forked "${insertedManifesto.title}" from lineage`);
+            } else {
+                addToFeed(profile.username, 'declared a new manifesto');
+            }
+
             closeManifestoModal();
-            addToFeed(profile.username, 'declared a new manifesto');
             loadManifestos();
         };
 
@@ -13788,7 +13863,7 @@
             const manifestoIds = manifestos.map(m => m.id);
 
             // Batch all related queries in parallel to solve N+1 problem
-            const [votesResult, reactionsResult, commentsResult, tagsResult, threadsResult] = await Promise.all([
+            const [votesResult, reactionsResult, commentsResult, tagsResult, threadsResult, lineageResult] = await Promise.all([
                 manifestoIds.length > 0
                     ? supabase.from('sloppygram_manifesto_votes').select('*').in('manifesto_id', manifestoIds)
                     : { data: [] },
@@ -13803,6 +13878,9 @@
                     : { data: [] },
                 manifestoIds.length > 0
                     ? supabase.from('sloppygram_comment_threads').select('*').eq('comment_type', 'manifesto').in('post_id', manifestoIds)
+                    : { data: [] },
+                manifestoIds.length > 0
+                    ? supabase.from('sloppygram_manifesto_lineage').select('*').in('manifesto_id', manifestoIds)
                     : { data: [] }
             ]);
 
@@ -13854,6 +13932,15 @@
             // Process comment threads
             (threadsResult.data || []).forEach(t => {
                 commentThreads[t.comment_id] = t.parent_comment_id;
+            });
+
+            // Process lineage
+            manifestoLineage = {};
+            (lineageResult.data || []).forEach(l => {
+                manifestoLineage[l.manifesto_id] = {
+                    parentId: l.parent_id,
+                    forkType: l.fork_type || 'synthesis'
+                };
             });
 
             renderManifestos();
@@ -13926,14 +14013,22 @@
                 return `<span class="nucleotide-${char}">${char}</span>`;
             }).join('');
 
+            // Check for lineage
+            const lineage = manifestoLineage[m.id];
+            const parentManifesto = lineage ? manifestos.find(p => p.id === lineage.parentId) : null;
+            const parentHtml = parentManifesto
+                ? `<span class="dna-parent" title="Forked from: ${escapeHtml(parentManifesto.title)}">G${String(lineage.parentId).padStart(3, '0')}</span>`
+                : '';
+
             const dnaHtml = `
-                <div class="manifesto-dna" title="Structural DNA: ${dna.full}">
+                <div class="manifesto-dna" title="Structural DNA: ${dna.full}${lineage ? ' | Parent: G' + String(lineage.parentId).padStart(3, '0') : ''}">
                     <span class="dna-helix">🧬</span>
                     <span class="dna-label">DNA</span>
                     <span class="dna-lineage">${dna.lineage}</span>
                     <span class="dna-generation">${dna.generation}</span>
                     <span class="dna-marker">${dna.marker}</span>
                     <span class="dna-sequence">${coloredSequence}</span>
+                    ${parentHtml}
                 </div>
             `;
 
@@ -13955,6 +14050,9 @@
                             <span class="manifesto-vote-score ${voteCount > 0 ? 'positive' : voteCount < 0 ? 'negative' : 'neutral'}">${voteCount}</span>
                             <button class="manifesto-downvote ${myVoteDir === -1 ? 'active' : ''}" onclick="voteManifesto(${m.id}, -1)" title="Downvote">▼</button>
                         </div>
+                        <button class="manifesto-fork-btn" onclick="forkManifesto(${m.id})" title="Fork this manifesto">
+                            <span class="fork-icon">🔀</span> Fork
+                        </button>
                         <button class="post-action-btn" onclick="focusManifestoComment(${m.id})">
                             💬 ${comments.length}
                         </button>
