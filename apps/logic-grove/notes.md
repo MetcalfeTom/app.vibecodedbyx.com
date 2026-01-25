@@ -3,6 +3,14 @@
 Bioluminescent digital terrarium where chat messages grow into glowing fractal plants.
 
 ## log
+- 2026-01-25: Added real-time sync
+  - Supabase table: logic_grove_plants (message, x_position)
+  - Real-time subscription for instant plant growth across all viewers
+  - Deterministic plant generation (same message+position = same plant everywhere)
+  - Connection status indicator (live/connecting/offline)
+  - Existing plants load fully grown, new plants animate growth
+  - Clear button only clears local view (doesn't delete from DB)
+  - Plants persist and are shared across all users
 - 2026-01-25: Initial creation
   - Canvas-based fractal plant generation
   - L-system inspired branching algorithm
@@ -38,7 +46,6 @@ Bioluminescent digital terrarium where chat messages grow into glowing fractal p
 - Minimalist controls
 
 ## todos
-- Add Supabase persistence for shared grove
 - Add plant clicking to reveal message
 - Add more plant varieties (ferns, mushrooms)
 - Add ambient sound toggle

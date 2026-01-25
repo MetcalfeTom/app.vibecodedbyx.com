@@ -279,6 +279,43 @@
             color: var(--glow-cyan);
         }
 
+        /* Connection status */
+        .connection-status {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            color: rgba(255, 255, 255, 0.4);
+            z-index: 20;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #666;
+            transition: all 0.3s;
+        }
+
+        .status-dot.connected {
+            background: var(--glow-cyan);
+            box-shadow: 0 0 10px var(--glow-cyan);
+        }
+
+        .status-dot.connecting {
+            background: var(--glow-orange);
+            animation: pulse-status 1s infinite;
+        }
+
+        @keyframes pulse-status {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
         /* Particle overlay */
         .particles {
             position: absolute;
@@ -342,8 +379,13 @@
                 <div class="title">The Logic Grove</div>
                 <div class="subtitle">bioluminescent terrarium</div>
             </div>
-            <div class="plant-count" id="plantCount">0 plants</div>
+            <div class="plant-count" id="plantCount">connecting...</div>
         </header>
+
+        <div class="connection-status">
+            <div class="status-dot connecting" id="statusDot"></div>
+            <span id="statusText">connecting</span>
+        </div>
 
         <div class="preview-text" id="previewText"></div>
 
@@ -362,25 +404,37 @@
 
     <a href="https://sloppy.live" class="back-link">← sloppy.live</a>
 
-    <script>
+    <script type="module">
+        import supabase, { supabaseSession } from '../../supabase-config.js';
+
         // Canvas setup
         const canvas = document.getElementById('groveCanvas');
         const ctx = canvas.getContext('2d');
         let plants = [];
         let particles = [];
         let animationId;
+        let currentUser = null;
+        let realtimeChannel = null;
 
         // Bioluminescent color palette
         const GLOW_COLORS = [
-            { h: 165, s: 100, l: 50, name: 'cyan' },      // Cyan
-            { h: 320, s: 100, l: 50, name: 'magenta' },   // Magenta
-            { h: 260, s: 100, l: 65, name: 'violet' },    // Violet
-            { h: 75, s: 100, l: 50, name: 'lime' },       // Lime
-            { h: 30, s: 100, l: 50, name: 'orange' },     // Orange
-            { h: 180, s: 100, l: 45, name: 'teal' },      // Teal
-            { h: 280, s: 80, l: 60, name: 'purple' },     // Purple
-            { h: 120, s: 100, l: 45, name: 'green' }      // Green
+            { h: 165, s: 100, l: 50, name: 'cyan' },
+            { h: 320, s: 100, l: 50, name: 'magenta' },
+            { h: 260, s: 100, l: 65, name: 'violet' },
+            { h: 75, s: 100, l: 50, name: 'lime' },
+            { h: 30, s: 100, l: 50, name: 'orange' },
+            { h: 180, s: 100, l: 45, name: 'teal' },
+            { h: 280, s: 80, l: 60, name: 'purple' },
+            { h: 120, s: 100, l: 45, name: 'green' }
         ];
+
+        // Update connection status UI
+        function setConnectionStatus(status, text) {
+            const dot = document.getElementById('statusDot');
+            const label = document.getElementById('statusText');
+            dot.className = 'status-dot ' + status;
+            label.textContent = text;
+        }
 
         // Initialize canvas
         function initCanvas() {
@@ -388,7 +442,7 @@
             canvas.height = window.innerHeight;
         }
 
-        // Seed random from string
+        // Seed random from string (deterministic)
         function seedRandom(str) {
             let hash = 0;
             for (let i = 0; i < str.length; i++) {
@@ -405,8 +459,6 @@
         function getColorFromMessage(msg, rand) {
             const charSum = msg.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0);
             const baseColor = GLOW_COLORS[charSum % GLOW_COLORS.length];
-
-            // Add variation
             const hueShift = (rand() - 0.5) * 30;
             return {
                 h: (baseColor.h + hueShift + 360) % 360,
@@ -415,24 +467,25 @@
             };
         }
 
-        // Create fractal plant from message
-        function createPlant(message, x = null) {
-            const rand = seedRandom(message + Date.now());
+        // Create fractal plant from message + position (deterministic)
+        function createPlant(message, xPos) {
+            // Use message + xPos for deterministic seeding so all clients see same plant
+            const rand = seedRandom(message + xPos);
             const color = getColorFromMessage(message, rand);
 
-            // Plant properties derived from message
             const complexity = Math.min(8, Math.max(4, Math.floor(message.length / 8) + 4));
             const maxBranches = Math.min(5, Math.max(2, Math.floor(message.length / 15) + 2));
             const baseHeight = Math.min(250, Math.max(80, message.length * 3 + 50));
             const swayAmount = 0.3 + rand() * 0.4;
 
-            // Position
             const groundY = canvas.height - 60;
-            const plantX = x !== null ? x : 50 + rand() * (canvas.width - 100);
+            // Scale x position to current canvas width
+            const plantX = (xPos / 10000) * (canvas.width - 100) + 50;
 
             return {
                 message: message,
                 x: plantX,
+                xNormalized: xPos,
                 y: groundY,
                 color: color,
                 complexity: complexity,
@@ -448,11 +501,20 @@
             };
         }
 
+        // Create plant from DB record
+        function createPlantFromDb(record, instant = false) {
+            const plant = createPlant(record.message, record.x_position);
+            if (instant) {
+                plant.growthProgress = 1; // Already grown for existing plants
+            }
+            return plant;
+        }
+
         // Generate branch structure
         function generateBranches(depth, maxBranches, height, rand) {
             const branches = [];
 
-            function addBranch(startAngle, length, level, parentAngle) {
+            function addBranch(startAngle, length, level) {
                 if (level > depth || length < 5) return;
 
                 const angleVariation = (rand() - 0.5) * 0.6;
@@ -467,23 +529,20 @@
                     hasLeaf: level > depth - 2 && rand() > 0.3
                 });
 
-                // Add child branches
                 const numChildren = level < depth - 1 ? Math.floor(rand() * maxBranches) + 1 : 0;
                 for (let i = 0; i < numChildren; i++) {
                     const childAngle = angle + (rand() - 0.5) * 1.2;
-                    addBranch(childAngle, branchLength * 0.7, level + 1, angle);
+                    addBranch(childAngle, branchLength * 0.7, level + 1);
                 }
             }
 
-            // Start with main trunk
-            addBranch(-Math.PI / 2, height, 0, -Math.PI / 2);
+            addBranch(-Math.PI / 2, height, 0);
 
-            // Add some side branches from trunk
             const sideBranches = Math.floor(rand() * 3) + 2;
             for (let i = 0; i < sideBranches; i++) {
                 const sideAngle = -Math.PI / 2 + (rand() - 0.5) * 0.8;
                 const startHeight = height * (0.3 + rand() * 0.5);
-                addBranch(sideAngle, startHeight * 0.6, 1, -Math.PI / 2);
+                addBranch(sideAngle, startHeight * 0.6, 1);
             }
 
             return branches;
@@ -493,21 +552,16 @@
         function drawPlant(plant, time) {
             const { x, y, color, branches, growthProgress, swayAmount, swayOffset, glowIntensity, pulseOffset } = plant;
 
-            // Sway calculation
             const sway = Math.sin(time * 0.001 + swayOffset) * swayAmount;
-
-            // Pulse glow
             const pulse = 0.7 + Math.sin(time * 0.002 + pulseOffset) * 0.3;
             const currentGlow = glowIntensity * pulse;
 
-            // HSL color string
             const hsl = `hsl(${color.h}, ${color.s}%, ${color.l}%)`;
             const glowHsl = `hsla(${color.h}, ${color.s}%, ${color.l + 20}%, ${currentGlow})`;
 
             ctx.save();
             ctx.translate(x, y);
 
-            // Draw branches
             let currentX = 0;
             let currentY = 0;
 
@@ -523,11 +577,9 @@
                 const endX = currentX + Math.cos(swayedAngle) * length;
                 const endY = currentY + Math.sin(swayedAngle) * length;
 
-                // Glow effect
                 ctx.shadowColor = glowHsl;
                 ctx.shadowBlur = 15 + currentGlow * 10;
 
-                // Draw branch
                 ctx.beginPath();
                 ctx.moveTo(currentX, currentY);
                 ctx.lineTo(endX, endY);
@@ -536,7 +588,6 @@
                 ctx.lineCap = 'round';
                 ctx.stroke();
 
-                // Draw leaf/bud at end
                 if (branch.hasLeaf && branchProgress > 0.8) {
                     ctx.beginPath();
                     ctx.arc(endX, endY, 2 + currentGlow * 2, 0, Math.PI * 2);
@@ -544,7 +595,6 @@
                     ctx.fill();
                 }
 
-                // Reset position for next main branch
                 if (branch.level === 0) {
                     currentX = endX;
                     currentY = endY;
@@ -553,7 +603,6 @@
 
             ctx.restore();
 
-            // Emit particles occasionally
             if (Math.random() < 0.02 * currentGlow && growthProgress > 0.5) {
                 emitParticle(x, y - plant.baseHeight * 0.5, color);
             }
@@ -573,14 +622,13 @@
             });
         }
 
-        // Update and draw particles
         function updateParticles() {
             particles = particles.filter(p => p.life > 0);
 
             particles.forEach(p => {
                 p.x += p.vx;
                 p.y += p.vy;
-                p.vy -= 0.01; // Float up
+                p.vy -= 0.01;
                 p.life -= p.decay;
 
                 const alpha = p.life * 0.6;
@@ -597,32 +645,41 @@
         function animate(time) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Update and draw plants
             plants.forEach(plant => {
-                // Grow the plant
                 if (plant.growthProgress < 1) {
                     plant.growthProgress = Math.min(1, plant.growthProgress + 0.008);
                 }
                 drawPlant(plant, time);
             });
 
-            // Update particles
             updateParticles();
-
             animationId = requestAnimationFrame(animate);
         }
 
-        // Add a new plant
-        function addPlant(message) {
-            if (!message.trim()) return;
+        // Plant a message (insert to DB, realtime will handle visual)
+        async function plantMessage(message) {
+            if (!message.trim() || !currentUser) return;
 
-            const plant = createPlant(message.trim());
-            plants.push(plant);
-            updatePlantCount();
+            const cleanMessage = message.trim().slice(0, 100);
+            const xPosition = Math.floor(Math.random() * 10000); // Normalized position
 
-            // Clear input
-            document.getElementById('messageInput').value = '';
-            document.getElementById('previewText').classList.remove('visible');
+            try {
+                const { error } = await supabase
+                    .from('logic_grove_plants')
+                    .insert({
+                        message: cleanMessage,
+                        x_position: xPosition,
+                        user_id: currentUser.id
+                    });
+
+                if (error) throw error;
+
+                // Clear input
+                document.getElementById('messageInput').value = '';
+                document.getElementById('previewText').classList.remove('visible');
+            } catch (err) {
+                console.error('Failed to plant:', err);
+            }
         }
 
         // Update plant count display
@@ -632,15 +689,61 @@
                 count === 1 ? '1 plant' : `${count} plants`;
         }
 
-        // Clear all plants
-        function clearGrove() {
+        // Clear local view (doesn't delete from DB)
+        function clearLocalView() {
             plants = [];
             particles = [];
             updatePlantCount();
         }
 
+        // Load existing plants from DB
+        async function loadExistingPlants() {
+            try {
+                const { data, error } = await supabase
+                    .from('logic_grove_plants')
+                    .select('*')
+                    .order('created_at', { ascending: true })
+                    .limit(100); // Limit for performance
+
+                if (error) throw error;
+
+                // Create plants from DB records (fully grown)
+                data.forEach(record => {
+                    const plant = createPlantFromDb(record, true);
+                    plants.push(plant);
+                });
+
+                updatePlantCount();
+            } catch (err) {
+                console.error('Failed to load plants:', err);
+            }
+        }
+
+        // Subscribe to real-time plant inserts
+        function subscribeToRealtime() {
+            realtimeChannel = supabase
+                .channel('logic_grove_realtime')
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'logic_grove_plants'
+                }, (payload) => {
+                    // New plant from any user - grow it!
+                    const plant = createPlantFromDb(payload.new, false);
+                    plants.push(plant);
+                    updatePlantCount();
+                })
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        setConnectionStatus('connected', 'live');
+                    } else if (status === 'CHANNEL_ERROR') {
+                        setConnectionStatus('', 'disconnected');
+                    }
+                });
+        }
+
         // Add random plant
-        function addRandomPlant() {
+        async function addRandomPlant() {
             const phrases = [
                 'digital nature blooms',
                 'light finds a way',
@@ -654,17 +757,44 @@
                 'neon chlorophyll'
             ];
             const phrase = phrases[Math.floor(Math.random() * phrases.length)];
-            addPlant(phrase);
+            await plantMessage(phrase);
+        }
+
+        // Initialize app
+        async function init() {
+            setConnectionStatus('connecting', 'connecting');
+            initCanvas();
+
+            try {
+                // Get or create session
+                const { user } = await supabaseSession();
+                currentUser = user;
+
+                // Load existing plants
+                await loadExistingPlants();
+
+                // Subscribe to real-time updates
+                subscribeToRealtime();
+
+                // Start animation
+                animate(0);
+
+            } catch (err) {
+                console.error('Init failed:', err);
+                setConnectionStatus('', 'offline');
+                // Still start animation for offline mode
+                animate(0);
+            }
         }
 
         // Event listeners
         document.getElementById('plantBtn').addEventListener('click', () => {
-            addPlant(document.getElementById('messageInput').value);
+            plantMessage(document.getElementById('messageInput').value);
         });
 
         document.getElementById('messageInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                addPlant(document.getElementById('messageInput').value);
+                plantMessage(document.getElementById('messageInput').value);
             }
         });
 
@@ -678,21 +808,20 @@
             }
         });
 
-        document.getElementById('clearBtn').addEventListener('click', clearGrove);
+        document.getElementById('clearBtn').addEventListener('click', clearLocalView);
         document.getElementById('randomBtn').addEventListener('click', addRandomPlant);
 
-        // Handle resize
         window.addEventListener('resize', () => {
             initCanvas();
+            // Recalculate plant positions on resize
+            plants.forEach(p => {
+                p.x = (p.xNormalized / 10000) * (canvas.width - 100) + 50;
+                p.y = canvas.height - 60;
+            });
         });
 
-        // Initialize
-        initCanvas();
-        animate(0);
-
-        // Start with a few seed plants
-        setTimeout(() => addPlant('welcome to the grove'), 500);
-        setTimeout(() => addPlant('thoughts become light'), 1500);
+        // Start
+        init();
     </script>
 </body>
 </html>
