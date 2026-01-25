@@ -8067,15 +8067,53 @@
         var confidenceMode = 0; // 0: system, 1: engagement, 2: synthesis
         var confidenceModes = ['SYSTEM', 'ENGAGE', 'SYNTH'];
         var confidenceInterval = null;
+        var confidenceCache = { votes: 0, reactions: 0, manifestos: 0, lastFetch: 0 };
 
         function initConfidenceMonitor() {
             updateConfidenceDisplay();
-            // Update confidence every 3 seconds
-            confidenceInterval = setInterval(calculateConfidence, 3000);
+            // Update confidence every 5 seconds (async queries need more time)
+            confidenceInterval = setInterval(calculateConfidence, 5000);
             calculateConfidence();
         }
 
-        function calculateConfidence() {
+        async function fetchConfidenceMetrics() {
+            // Cache for 10 seconds to avoid excessive queries
+            if (Date.now() - confidenceCache.lastFetch < 10000) {
+                return confidenceCache;
+            }
+
+            try {
+                // Query real metrics from database in parallel
+                var [votesRes, reactionsRes, manifestosRes, msgVotesRes, msgReactionsRes] = await Promise.all([
+                    supabase.from('sloppygram_post_likes').select('post_id', { count: 'exact', head: true }),
+                    supabase.from('sloppygram_post_reactions').select('id', { count: 'exact', head: true }),
+                    supabase.from('sloppygram_manifestos').select('id, upvotes'),
+                    supabase.from('sloppygram_message_votes').select('message_id', { count: 'exact', head: true }),
+                    supabase.from('sloppygram_message_reactions').select('id', { count: 'exact', head: true })
+                ]);
+
+                var totalVotes = (votesRes.count || 0) + (msgVotesRes.count || 0);
+                var totalReactions = (reactionsRes.count || 0) + (msgReactionsRes.count || 0);
+                var totalManifestoUpvotes = 0;
+                if (manifestosRes.data) {
+                    manifestosRes.data.forEach(function(m) { totalManifestoUpvotes += (m.upvotes || 0); });
+                }
+
+                confidenceCache = {
+                    votes: totalVotes,
+                    reactions: totalReactions,
+                    manifestos: manifestosRes.data ? manifestosRes.data.length : 0,
+                    manifestoUpvotes: totalManifestoUpvotes,
+                    lastFetch: Date.now()
+                };
+            } catch (e) {
+                console.warn('Confidence metrics fetch failed:', e);
+            }
+
+            return confidenceCache;
+        }
+
+        async function calculateConfidence() {
             var factors = [];
             var weights = [];
 
@@ -8084,34 +8122,46 @@
             var safePosts = (typeof posts !== 'undefined') ? posts : [];
             var safeOnlineUsers = (typeof onlineUsers !== 'undefined') ? onlineUsers : {};
 
-            if (confidenceMode === 0) {
-                // System mode: based on connection health and activity
-                var connectionHealth = navigator.onLine ? 95 : 20;
-                var recentActivity = (safeMessages.length > 0) ? 85 : 50;
-                var presenceCount = Object.keys(safeOnlineUsers).length;
-                var presenceScore = Math.min(100, 60 + presenceCount * 5);
+            // Fetch real metrics from database
+            var metrics = await fetchConfidenceMetrics();
 
-                factors = [connectionHealth, recentActivity, presenceScore];
+            if (confidenceMode === 0) {
+                // SYSTEM mode: connection health, data loaded, presence
+                var connectionHealth = navigator.onLine ? 95 : 20;
+                var dataLoaded = (safeMessages.length > 0 && safePosts.length >= 0) ? 90 : 40;
+                var presenceCount = Object.keys(safeOnlineUsers).length;
+                var presenceScore = Math.min(100, 50 + presenceCount * 10);
+
+                factors = [connectionHealth, dataLoaded, presenceScore];
                 weights = [0.4, 0.3, 0.3];
             } else if (confidenceMode === 1) {
-                // Engagement mode: based on user interactions
+                // ENGAGE mode: real engagement metrics from database
                 var msgCount = safeMessages.length;
                 var postCount = safePosts.length;
-                var engagementScore = Math.min(100, 40 + msgCount * 2 + postCount * 5);
-                var voteActivity = Math.min(100, 50 + Math.random() * 30);
-                var reactionScore = Math.min(100, 60 + Math.random() * 25);
+                var contentScore = Math.min(100, 30 + msgCount + postCount * 3);
 
-                factors = [engagementScore, voteActivity, reactionScore];
-                weights = [0.5, 0.25, 0.25];
+                // Real vote activity score (scaled: 0 votes = 40%, 50+ votes = 100%)
+                var voteActivity = Math.min(100, 40 + metrics.votes * 1.2);
+
+                // Real reaction score (scaled: 0 reactions = 50%, 30+ reactions = 100%)
+                var reactionScore = Math.min(100, 50 + metrics.reactions * 1.67);
+
+                factors = [contentScore, voteActivity, reactionScore];
+                weights = [0.4, 0.3, 0.3];
             } else {
-                // Synthesis mode: abstract certainty measurement
-                var timeOfDay = new Date().getHours();
-                var temporalCertainty = 70 + Math.sin(timeOfDay / 24 * Math.PI * 2) * 20;
-                var entropyFactor = 75 + Math.random() * 20;
-                var coherenceFactor = 80 + Math.sin(Date.now() / 10000) * 15;
+                // SYNTH mode: synthesis health - manifestos, upvotes, content ratio
+                var manifestoScore = Math.min(100, 40 + metrics.manifestos * 20);
+                var upvoteScore = Math.min(100, 50 + metrics.manifestoUpvotes * 5);
 
-                factors = [temporalCertainty, entropyFactor, coherenceFactor];
-                weights = [0.33, 0.33, 0.34];
+                // Content diversity ratio (messages to posts balance)
+                var totalContent = safeMessages.length + safePosts.length;
+                var diversityRatio = totalContent > 0
+                    ? Math.min(safeMessages.length, safePosts.length * 3) / Math.max(safeMessages.length, safePosts.length * 3)
+                    : 0.5;
+                var diversityScore = 50 + diversityRatio * 50;
+
+                factors = [manifestoScore, upvoteScore, diversityScore];
+                weights = [0.35, 0.35, 0.3];
             }
 
             // Calculate weighted average
@@ -8121,7 +8171,7 @@
             }
 
             // Smooth transition
-            confidenceScore = confidenceScore * 0.7 + newScore * 0.3;
+            confidenceScore = confidenceScore * 0.6 + newScore * 0.4;
             updateConfidenceDisplay();
         }
 
