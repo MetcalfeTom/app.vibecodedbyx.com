@@ -9036,8 +9036,8 @@
             }
         };
 
-        // Initialize on load
-        setTimeout(initConfidenceMonitor, 1500);
+        // Initialize on load (tracked timeout for cleanup)
+        registerTimeout('confidence-monitor-init', initConfidenceMonitor, 1500);
 
         // === GHOST RADAR (optimized) ===
         var ghostRadarUsers = [];
@@ -9228,8 +9228,8 @@
             }
         });
 
-        // Subscribe to oracle log changes
-        supabase
+        // Subscribe to oracle log changes (store reference for cleanup)
+        oracleLogChannel = supabase
             .channel('oracle_log_changes')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'oracle_log' }, function(payload) {
                 if (payload.eventType === 'INSERT') {
@@ -9249,8 +9249,8 @@
                     oracleQuestions = oracleQuestions.filter(function(q) { return q.id !== payload.old.id; });
                     renderOracleQuestions();
                 }
-            })
-            .subscribe();
+            });
+        oracleLogChannel.subscribe();
 
         // Load oracle questions on init
         loadOracleQuestions();
@@ -9711,6 +9711,7 @@
         let presenceChannel = null;
         let postsChannel = null;
         let globalSettingsChannel = null;
+        let oracleLogChannel = null;
 
         function cleanupChannels() {
             console.log('[Cleanup] Starting full memory cleanup...');
@@ -9749,7 +9750,25 @@
                 globalSettingsChannel = null;
             }
 
-            console.log('[Cleanup] Supabase channels removed');
+            // Clean up SloppyFM channel (CRITICAL fix)
+            if (sloppyfmChannel) {
+                try {
+                    sloppyfmChannel.unsubscribe();
+                } catch(e) { /* ignore */ }
+                supabase.removeChannel(sloppyfmChannel);
+                sloppyfmChannel = null;
+            }
+
+            // Clean up Oracle Log channel (CRITICAL fix)
+            if (oracleLogChannel) {
+                try {
+                    oracleLogChannel.unsubscribe();
+                } catch(e) { /* ignore */ }
+                supabase.removeChannel(oracleLogChannel);
+                oracleLogChannel = null;
+            }
+
+            console.log('[Cleanup] Supabase channels removed (including SloppyFM & Oracle Log)');
         }
 
         // Cleanup on page unload
@@ -11068,12 +11087,14 @@
                     var emoji = entry[0];
                     var count = entry[1];
                     var isActive = myMsgReactions.has ? myMsgReactions.has(emoji) : false;
-                    return '<button class="reaction-btn ' + (isActive ? 'active' : '') + '" onclick="toggleMessageReaction(\'' + msgId + '\', \'' + emoji + '\')">' +
-                        emoji + ' <span class="reaction-count">' + count + '</span></button>';
+                    // Use escapeAttr to prevent XSS in onclick handler
+                    return '<button class="reaction-btn ' + (isActive ? 'active' : '') + '" onclick="toggleMessageReaction(\'' + escapeAttr(msgId) + '\', \'' + escapeAttr(emoji) + '\')">' +
+                        escapeHtml(emoji) + ' <span class="reaction-count">' + count + '</span></button>';
                 }).join('');
 
             const msgReactionPickerHtml = REACTION_EMOJIS.map(function(emoji) {
-                return '<button onclick="toggleMessageReaction(\'' + msgId + '\', \'' + emoji + '\')">' + emoji + '</button>';
+                // REACTION_EMOJIS is hardcoded so safe, but escape for consistency
+                return '<button onclick="toggleMessageReaction(\'' + escapeAttr(msgId) + '\', \'' + escapeAttr(emoji) + '\')">' + emoji + '</button>';
             }).join('');
 
             const chatVoteBtn = (isRealId && !msg.drawing_data) ? `
@@ -11129,6 +11150,18 @@
             if (!text) return '';
             // Use DOMPurify to strip all HTML tags, keeping only text
             return DOMPurify.sanitize(String(text), { ALLOWED_TAGS: [] });
+        }
+
+        // Escape string for safe use in HTML attributes (onclick handlers, etc.)
+        function escapeAttr(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/'/g, '&#39;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\\/g, '&#92;');
         }
 
         // Parse hacker markup tags like [shake]text[/shake], [rainbow]text[/rainbow], etc.
@@ -15787,24 +15820,25 @@
             var msgReacts = messageReactions[messageId] || {};
             var myReacts = myMessageReactions[messageId] || new Set();
 
+            // Use escapeAttr to prevent XSS in onclick handlers
             var reactionsHtml = Object.entries(msgReacts)
                 .sort(function(a, b) { return b[1] - a[1]; })
                 .map(function(entry) {
                     var emoji = entry[0];
                     var count = entry[1];
                     var isActive = myReacts.has ? myReacts.has(emoji) : false;
-                    return '<button class="reaction-btn ' + (isActive ? 'active' : '') + '" onclick="toggleMessageReaction(\'' + messageId + '\', \'' + emoji + '\')">' +
-                        emoji + ' <span class="reaction-count">' + count + '</span></button>';
+                    return '<button class="reaction-btn ' + (isActive ? 'active' : '') + '" onclick="toggleMessageReaction(\'' + escapeAttr(messageId) + '\', \'' + escapeAttr(emoji) + '\')">' +
+                        escapeHtml(emoji) + ' <span class="reaction-count">' + count + '</span></button>';
                 }).join('');
 
             var pickerHtml = REACTION_EMOJIS.map(function(emoji) {
-                return '<button onclick="toggleMessageReaction(\'' + messageId + '\', \'' + emoji + '\')">' + emoji + '</button>';
+                return '<button onclick="toggleMessageReaction(\'' + escapeAttr(messageId) + '\', \'' + escapeAttr(emoji) + '\')">' + emoji + '</button>';
             }).join('');
 
             container.innerHTML = reactionsHtml +
                 '<div style="position:relative;display:inline-block;">' +
-                    '<button class="add-reaction-btn" onclick="toggleMsgReactionPicker(\'' + messageId + '\')">+😀</button>' +
-                    '<div class="reaction-picker" id="msg-picker-' + messageId + '">' + pickerHtml + '</div>' +
+                    '<button class="add-reaction-btn" onclick="toggleMsgReactionPicker(\'' + escapeAttr(messageId) + '\')">+😀</button>' +
+                    '<div class="reaction-picker" id="msg-picker-' + escapeAttr(messageId) + '">' + pickerHtml + '</div>' +
                 '</div>';
         }
 
