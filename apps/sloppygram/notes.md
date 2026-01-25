@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: DOM null checks and robust patterns - safeSetDisplay() helper for safe style access, visitorCount null check, avatar/background preview null checks, canvas context null check, findColorOption() helper for color matching (handles RGB and hex formats), updateThemeUI() refactored from fragile onclick selectors
 - 2026-01-25: Drag handler refactor - centralized makeDraggable() system with registerListener() tracking, all 16 widgets now use cleanup-ready handlers, clearAllTimers() clears all listeners
 - 2026-01-25: Critical bug fixes - SloppyFM channel cleanup added, Oracle Log channel tracked for cleanup, escapeAttr() XSS fix for reaction onclick handlers, Confidence Monitor timeout tracked with registerTimeout()
 - 2026-01-25: Mobile help mode - toggle in hamburger menu enables tap-to-show tooltips for phone users, banner indicator, tap again to dismiss
