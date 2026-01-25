@@ -3,13 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Neon Graffiti Wall</title>
+  <title>Graffiti Wall - Draw Together</title>
   <link rel="icon" href="https://emojicdn.elk.sh/🎨">
-  <meta property="og:title" content="Neon Graffiti Wall">
-  <meta property="og:description" content="Spray paint your digital art on the wall!">
+  <meta property="og:title" content="Graffiti Wall - Draw Together">
+  <meta property="og:description" content="Collaborative graffiti wall - spray paint with everyone in realtime!">
   <meta property="og:url" content="https://sloppy.live/graffiti-wall">
   <meta property="og:image" content="https://emojicdn.elk.sh/🎨?style=apple&size=512">
   <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Bebas+Neue&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="/supabase-config.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -231,6 +233,61 @@
       50% { transform: scale(1.1); }
     }
 
+    /* Other artists' cursors */
+    .other-cursor {
+      position: fixed;
+      pointer-events: none;
+      z-index: 999;
+      transform: translate(-50%, -50%);
+      transition: left 0.05s, top 0.05s;
+    }
+
+    .other-cursor-ring {
+      border: 2px solid;
+      border-radius: 50%;
+      opacity: 0.7;
+    }
+
+    .other-cursor-name {
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.7rem;
+      color: #fff;
+      background: rgba(0,0,0,0.6);
+      padding: 2px 6px;
+      border-radius: 3px;
+      white-space: nowrap;
+      margin-top: 5px;
+    }
+
+    .artists-online {
+      position: fixed;
+      top: 15px;
+      left: 15px;
+      color: #0ff;
+      font-size: 0.8rem;
+      z-index: 100;
+      letter-spacing: 2px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: #0f0;
+      border-radius: 50%;
+      animation: pulseDot 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; box-shadow: 0 0 5px #0f0; }
+      50% { opacity: 0.5; box-shadow: 0 0 15px #0f0; }
+    }
+
     @media (max-width: 600px) {
       .title { font-size: 1.5rem; }
       .toolbar {
@@ -251,8 +308,13 @@
   </div>
 
   <div class="header" id="header">
-    <h1 class="title">NEON GRAFFITI WALL</h1>
-    <p class="subtitle">SPRAY YOUR ART</p>
+    <h1 class="title">GRAFFITI WALL</h1>
+    <p class="subtitle">DRAW TOGETHER</p>
+  </div>
+
+  <div class="artists-online" id="artistsOnline">
+    <div class="pulse-dot"></div>
+    <span id="artistCount">1 artist</span>
   </div>
 
   <div class="toolbar">
@@ -294,6 +356,7 @@
     const sprayCursor = document.getElementById('sprayCursor');
     const sprayRing = document.getElementById('sprayRing');
     const header = document.getElementById('header');
+    const artistCountEl = document.getElementById('artistCount');
 
     let currentColor = '#ff00ff';
     let brushSize = 30;
@@ -301,6 +364,20 @@
     let lastX = 0;
     let lastY = 0;
     let hasDrawn = false;
+
+    // Supabase & collaboration state
+    var supabase = null;
+    var channel = null;
+    var myArtistId = 'artist_' + Math.random().toString(36).substr(2, 9);
+    var myArtistName = generateArtistName();
+    var otherArtists = {};
+    var otherCursors = {};
+
+    function generateArtistName() {
+      var adjectives = ['Neon', 'Cyber', 'Rad', 'Funky', 'Wild', 'Cosmic', 'Electric', 'Mystic', 'Urban', 'Shadow'];
+      var nouns = ['Painter', 'Bomber', 'Artist', 'Sprayer', 'Writer', 'Creator', 'Vandal', 'Master', 'Wizard', 'Ghost'];
+      return adjectives[Math.floor(Math.random() * adjectives.length)] + nouns[Math.floor(Math.random() * nouns.length)];
+    }
 
     // Set canvas size
     function resizeCanvas() {
@@ -341,7 +418,7 @@
     }
 
     // Spray paint effect
-    function spray(x, y) {
+    function spray(x, y, broadcast) {
       const density = brushSize * 2;
 
       for (let i = 0; i < density; i++) {
@@ -373,6 +450,12 @@
       ctx.beginPath();
       ctx.arc(x, y, brushSize * 0.3, 0, Math.PI * 2);
       ctx.fill();
+
+      // Broadcast and save if this is a local spray
+      if (broadcast !== false) {
+        broadcastSpray(x, y);
+        saveStroke(x, y, currentColor, brushSize);
+      }
     }
 
     function hexToRgba(hex, alpha) {
@@ -383,6 +466,7 @@
     }
 
     // Interpolate spray between points for smooth lines
+    // Only the last point broadcasts/saves to reduce overhead
     function sprayLine(x1, y1, x2, y2) {
       const dist = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
       const steps = Math.max(1, Math.floor(dist / 5));
@@ -391,7 +475,8 @@
         const t = i / steps;
         const x = x1 + (x2 - x1) * t;
         const y = y1 + (y2 - y1) * t;
-        spray(x, y);
+        // Only broadcast/save final point of line segment
+        spray(x, y, i === steps);
       }
     }
 
@@ -402,6 +487,13 @@
       sprayRing.style.width = brushSize + 'px';
       sprayRing.style.height = brushSize + 'px';
       sprayRing.style.borderColor = currentColor;
+
+      // Throttled cursor broadcast
+      var now = Date.now();
+      if (now - lastCursorBroadcast > cursorBroadcastInterval) {
+        broadcastCursor(x, y);
+        lastCursorBroadcast = now;
+      }
     }
 
     // Event handlers
@@ -490,14 +582,224 @@
     // Save button
     document.getElementById('saveBtn').addEventListener('click', () => {
       const link = document.createElement('a');
-      link.download = 'neon-graffiti-' + Date.now() + '.png';
+      link.download = 'graffiti-collab-' + Date.now() + '.png';
       link.href = canvas.toDataURL('image/png');
       link.click();
     });
 
+    // ========== REALTIME COLLABORATION ==========
+
+    function initSupabase() {
+      if (typeof window.SUPABASE_URL === 'undefined') {
+        console.log('Supabase config not found, running in local mode');
+        return;
+      }
+
+      supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+
+      // Set up realtime channel
+      channel = supabase.channel('graffiti-wall', {
+        config: { presence: { key: myArtistId } }
+      });
+
+      // Handle presence (who's online)
+      channel.on('presence', { event: 'sync' }, function() {
+        var state = channel.presenceState();
+        var count = Object.keys(state).length;
+        artistCountEl.textContent = count + (count === 1 ? ' artist' : ' artists');
+
+        // Update tracked artists
+        var currentIds = {};
+        Object.keys(state).forEach(function(key) {
+          var presences = state[key];
+          if (presences && presences.length > 0) {
+            var artist = presences[0];
+            currentIds[artist.id] = true;
+            if (artist.id !== myArtistId) {
+              otherArtists[artist.id] = artist;
+            }
+          }
+        });
+
+        // Remove cursors for artists who left
+        Object.keys(otherCursors).forEach(function(id) {
+          if (!currentIds[id]) {
+            if (otherCursors[id]) {
+              otherCursors[id].remove();
+              delete otherCursors[id];
+            }
+            delete otherArtists[id];
+          }
+        });
+      });
+
+      // Handle broadcast messages (spray strokes and cursor moves)
+      channel.on('broadcast', { event: 'spray' }, function(payload) {
+        var data = payload.payload;
+        if (data.artistId !== myArtistId) {
+          sprayRemote(data.x, data.y, data.color, data.size);
+        }
+      });
+
+      channel.on('broadcast', { event: 'cursor' }, function(payload) {
+        var data = payload.payload;
+        if (data.artistId !== myArtistId) {
+          updateOtherCursor(data.artistId, data.name, data.x, data.y, data.color, data.size);
+        }
+      });
+
+      // Subscribe to channel
+      channel.subscribe(function(status) {
+        if (status === 'SUBSCRIBED') {
+          channel.track({
+            id: myArtistId,
+            name: myArtistName,
+            color: currentColor
+          });
+        }
+      });
+
+      // Load existing strokes from database
+      loadExistingStrokes();
+    }
+
+    function loadExistingStrokes() {
+      if (!supabase) return;
+
+      supabase
+        .from('graffiti_strokes')
+        .select('*')
+        .order('created_at', { ascending: true })
+        .then(function(response) {
+          if (response.error) {
+            console.log('Error loading strokes:', response.error);
+            return;
+          }
+          if (response.data && response.data.length > 0) {
+            hasDrawn = true;
+            header.classList.add('hidden');
+            response.data.forEach(function(stroke) {
+              sprayRemote(stroke.x, stroke.y, stroke.color, stroke.size);
+            });
+          }
+        });
+    }
+
+    function saveStroke(x, y, color, size) {
+      if (!supabase) return;
+
+      supabase
+        .from('graffiti_strokes')
+        .insert({
+          x: Math.round(x),
+          y: Math.round(y),
+          color: color,
+          size: size,
+          artist_name: myArtistName
+        })
+        .then(function(response) {
+          if (response.error) {
+            console.log('Error saving stroke:', response.error);
+          }
+        });
+    }
+
+    function broadcastSpray(x, y) {
+      if (!channel) return;
+
+      channel.send({
+        type: 'broadcast',
+        event: 'spray',
+        payload: {
+          artistId: myArtistId,
+          x: x,
+          y: y,
+          color: currentColor,
+          size: brushSize
+        }
+      });
+    }
+
+    function broadcastCursor(x, y) {
+      if (!channel) return;
+
+      channel.send({
+        type: 'broadcast',
+        event: 'cursor',
+        payload: {
+          artistId: myArtistId,
+          name: myArtistName,
+          x: x,
+          y: y,
+          color: currentColor,
+          size: brushSize
+        }
+      });
+    }
+
+    function sprayRemote(x, y, color, size) {
+      // Spray effect for remote artists
+      var density = size * 1.5;
+
+      for (var i = 0; i < density; i++) {
+        var angle = Math.random() * Math.PI * 2;
+        var radius = Math.random() * size * 0.5 + Math.random() * size * 0.5;
+
+        var px = x + Math.cos(angle) * radius;
+        var py = y + Math.sin(angle) * radius;
+
+        var particleSize = Math.random() * 3 + 1;
+
+        var dist = Math.sqrt((px - x) * (px - x) + (py - y) * (py - y));
+        var alpha = Math.max(0, 1 - dist / size) * 0.3;
+
+        ctx.beginPath();
+        ctx.arc(px, py, particleSize, 0, Math.PI * 2);
+        ctx.fillStyle = hexToRgba(color, alpha);
+        ctx.fill();
+      }
+
+      // Glow effect
+      var glowGradient = ctx.createRadialGradient(x, y, 0, x, y, size * 0.3);
+      glowGradient.addColorStop(0, hexToRgba(color, 0.1));
+      glowGradient.addColorStop(1, hexToRgba(color, 0));
+      ctx.fillStyle = glowGradient;
+      ctx.beginPath();
+      ctx.arc(x, y, size * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function updateOtherCursor(artistId, name, x, y, color, size) {
+      var cursor = otherCursors[artistId];
+
+      if (!cursor) {
+        // Create new cursor element
+        cursor = document.createElement('div');
+        cursor.className = 'other-cursor';
+        cursor.innerHTML = '<div class="other-cursor-ring"></div><div class="other-cursor-name">' + name + '</div>';
+        document.body.appendChild(cursor);
+        otherCursors[artistId] = cursor;
+      }
+
+      cursor.style.left = x + 'px';
+      cursor.style.top = y + 'px';
+
+      var ring = cursor.querySelector('.other-cursor-ring');
+      ring.style.width = size + 'px';
+      ring.style.height = size + 'px';
+      ring.style.borderColor = color;
+    }
+
+    // Throttle cursor broadcasts
+    var lastCursorBroadcast = 0;
+    var cursorBroadcastInterval = 50; // ms
+
+    // ========== END REALTIME ==========
+
     // Initialize
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
+    initSupabase();
 
     // Hide cursor when outside window
     document.addEventListener('mouseleave', () => {
