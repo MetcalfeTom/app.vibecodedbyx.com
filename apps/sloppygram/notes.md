@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: Message reactions - emoji reactions on chat messages (😂🔥❤️😮😢👏🙌💀), click +😀 to react, real-time sync
 - 2026-01-24: Tag Explorer now has 3 tabs - Messages, Posts, Manifestos - queries all tag tables in parallel
 - 2026-01-24: SloppyFM realtime sync - broadcast channel for instant track/queue updates, RLS policies for user ownership
 - 2026-01-24: SloppyFM v2.0 - synchronized YouTube radio with Supabase queue, auto-seek playback, hidden YouTube player, add tracks via URL input
@@ -128,7 +129,7 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - Doodle leaderboard with global voting
 - Vote on drawings with star button
 - Ranked doodle display (gold/silver/bronze)
-- Emoji reactions on posts (😂🔥❤️😮😢👏🙌💀)
+- Emoji reactions on posts and chat messages (😂🔥❤️😮😢👏🙌💀)
 - Global shared backgrounds (upload and share with everyone)
 - Nested symbolic tagging (use "/" for hierarchies like meme/cursed, art/pixel)
 - Filter posts by clicking tags
@@ -156,6 +157,7 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - sloppygram_post_likes: post_id, username
 - sloppygram_doodle_votes: message_id, voter_username
 - sloppygram_message_votes: message_id, voter_username
+- sloppygram_message_reactions: message_id, emoji, username (chat message emoji reactions)
 - sloppygram_post_comments: post_id, username, avatar, content
 - sloppygram_post_reactions: post_id, emoji, username
 - sloppygram_global_backgrounds: image_data, username, name

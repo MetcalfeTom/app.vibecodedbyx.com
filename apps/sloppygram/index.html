@@ -3944,6 +3944,36 @@
             background: rgba(255,255,255,0.1);
         }
 
+        /* Message Reactions - compact for chat */
+        .msg-reactions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 6px;
+        }
+
+        .msg-reactions .reaction-btn {
+            padding: 2px 6px;
+            font-size: 0.75rem;
+            border-radius: 12px;
+        }
+
+        .msg-reactions .reaction-count {
+            font-size: 0.7rem;
+        }
+
+        .msg-reactions .add-reaction-btn {
+            padding: 2px 6px;
+            font-size: 0.75rem;
+            border-radius: 12px;
+        }
+
+        .msg-reactions .reaction-picker {
+            bottom: auto;
+            top: 100%;
+            max-width: 180px;
+        }
+
         .post-comments {
             border-top: 1px solid var(--border-color);
             max-height: 200px;
@@ -5799,6 +5829,8 @@
         let replyingToDoodle = null; // { doodleId, commentId, username }
         let messageVotes = {}; // { messageId: netScore } for chat messages
         let myMessageVotes = {}; // { messageId: 1 or -1 } for my vote type
+        let messageReactions = {}; // { messageId: { emoji: count } }
+        let myMessageReactions = {}; // { messageId: Set of emojis }
         let postVotes = {}; // { postId: netScore }
         let myPostVotes = {}; // { postId: 1 or -1 } for my vote type
         let commentVotes = {}; // { commentId: netScore }
@@ -6959,6 +6991,7 @@
             // Reload fresh data
             await loadDoodleVotes();
             await loadMessageVotes();
+            await loadMessageReactions();
             await loadCommentVotes();
             loadMessages();
             loadPosts();
@@ -7053,6 +7086,7 @@
             }
             await loadDoodleVotes();
             await loadMessageVotes();
+            await loadMessageReactions();
             await loadCommentVotes();
             loadMessages();
             subscribeToMessages();
@@ -7785,6 +7819,21 @@
                 loadMessageVotes();
             });
 
+            // Listen for message reactions
+            postsChannel.on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'sloppygram_message_reactions'
+            }, (payload) => {
+                console.log('Message reaction change:', payload);
+                var msgId = (payload.new && payload.new.message_id) || (payload.old && payload.old.message_id);
+                if (msgId) {
+                    loadMessageReactions().then(function() {
+                        updateMessageReactionsUI(msgId);
+                    });
+                }
+            });
+
             // Listen for comment votes
             postsChannel.on('postgres_changes', {
                 event: '*',
@@ -7962,6 +8011,24 @@
             const myVoteType = myMessageVotes[msgId] || 0;
             const scoreClass = chatVoteScore > 0 ? 'positive' : chatVoteScore < 0 ? 'negative' : 'neutral';
             const ttsBtn = (msg.content && !msg.drawing_data) ? `<button class="msg-tts-btn" id="msg-tts-${msgId}" onclick="speakMessage('${msgId}')" title="Read aloud">🔊</button>` : '';
+
+            // Build message reactions HTML
+            const msgReactions = messageReactions[msgId] || {};
+            const myMsgReactions = myMessageReactions[msgId] || new Set();
+            const msgReactionsHtml = Object.entries(msgReactions)
+                .sort((a, b) => b[1] - a[1])
+                .map(function(entry) {
+                    var emoji = entry[0];
+                    var count = entry[1];
+                    var isActive = myMsgReactions.has ? myMsgReactions.has(emoji) : false;
+                    return '<button class="reaction-btn ' + (isActive ? 'active' : '') + '" onclick="toggleMessageReaction(\'' + msgId + '\', \'' + emoji + '\')">' +
+                        emoji + ' <span class="reaction-count">' + count + '</span></button>';
+                }).join('');
+
+            const msgReactionPickerHtml = REACTION_EMOJIS.map(function(emoji) {
+                return '<button onclick="toggleMessageReaction(\'' + msgId + '\', \'' + emoji + '\')">' + emoji + '</button>';
+            }).join('');
+
             const chatVoteBtn = (isRealId && !msg.drawing_data) ? `
                 <div class="message-footer">
                     <div class="vote-controls" data-chat-id="${msgId}">
@@ -7972,6 +8039,15 @@
                             onclick="${isOwnMessage ? '' : `voteMessage('${msgId}', -1)`}" title="${isOwnMessage ? 'Cannot vote on own content' : 'Downvote'}">▼</button>
                     </div>
                     ${ttsBtn}
+                    <div class="msg-reactions" id="msg-reactions-${msgId}">
+                        ${msgReactionsHtml}
+                        <div style="position:relative;display:inline-block;">
+                            <button class="add-reaction-btn" onclick="toggleMsgReactionPicker('${msgId}')">+😀</button>
+                            <div class="reaction-picker" id="msg-picker-${msgId}">
+                                ${msgReactionPickerHtml}
+                            </div>
+                        </div>
+                    </div>
                 </div>` : '';
 
             const safeAvatarUrl = sanitizeUrl(msg.avatar_url || msg.avatarUrl);
@@ -12090,6 +12166,120 @@
                 if (upBtn) upBtn.classList.toggle('active', myVote === 1);
                 if (downBtn) downBtn.classList.toggle('active', myVote === -1);
             });
+        }
+
+        // === MESSAGE REACTIONS ===
+
+        async function loadMessageReactions() {
+            var result = await supabase
+                .from('sloppygram_message_reactions')
+                .select('message_id, emoji, username');
+
+            if (result.data) {
+                messageReactions = {};
+                myMessageReactions = {};
+
+                result.data.forEach(function(r) {
+                    // Count reactions per message
+                    if (!messageReactions[r.message_id]) messageReactions[r.message_id] = {};
+                    messageReactions[r.message_id][r.emoji] = (messageReactions[r.message_id][r.emoji] || 0) + 1;
+
+                    // Track my reactions
+                    if (r.username === profile.username) {
+                        if (!myMessageReactions[r.message_id]) myMessageReactions[r.message_id] = new Set();
+                        myMessageReactions[r.message_id].add(r.emoji);
+                    }
+                });
+            }
+        }
+
+        window.toggleMsgReactionPicker = function(messageId) {
+            var picker = document.getElementById('msg-picker-' + messageId);
+            if (picker) {
+                picker.classList.toggle('active');
+            }
+        };
+
+        window.toggleMessageReaction = async function(messageId, emoji) {
+            if (!currentUser) return;
+
+            // Rate limiting check
+            var rateCheck = checkRateLimit('vote');
+            if (!rateCheck.allowed) {
+                showToast(rateCheck.message, 'warning');
+                return;
+            }
+            recordAction('vote');
+
+            // Close the picker
+            var picker = document.getElementById('msg-picker-' + messageId);
+            if (picker) picker.classList.remove('active');
+
+            // Check if I already reacted with this emoji
+            var myReacts = myMessageReactions[messageId] || new Set();
+            var hasReaction = myReacts.has ? myReacts.has(emoji) : false;
+
+            if (hasReaction) {
+                // Remove reaction
+                await supabase
+                    .from('sloppygram_message_reactions')
+                    .delete()
+                    .eq('message_id', messageId)
+                    .eq('emoji', emoji)
+                    .eq('user_id', currentUser.id);
+
+                if (myMessageReactions[messageId]) myMessageReactions[messageId].delete(emoji);
+                if (messageReactions[messageId] && messageReactions[messageId][emoji]) {
+                    messageReactions[messageId][emoji]--;
+                    if (messageReactions[messageId][emoji] <= 0) delete messageReactions[messageId][emoji];
+                }
+            } else {
+                // Add reaction
+                await supabase
+                    .from('sloppygram_message_reactions')
+                    .insert({
+                        message_id: messageId,
+                        emoji: emoji,
+                        username: profile.username,
+                        user_id: currentUser.id
+                    });
+
+                if (!myMessageReactions[messageId]) myMessageReactions[messageId] = new Set();
+                myMessageReactions[messageId].add(emoji);
+                if (!messageReactions[messageId]) messageReactions[messageId] = {};
+                messageReactions[messageId][emoji] = (messageReactions[messageId][emoji] || 0) + 1;
+            }
+
+            // Update UI
+            updateMessageReactionsUI(messageId);
+        };
+
+        function updateMessageReactionsUI(messageId) {
+            var container = document.getElementById('msg-reactions-' + messageId);
+            if (!container) return;
+
+            var msgReacts = messageReactions[messageId] || {};
+            var myReacts = myMessageReactions[messageId] || new Set();
+
+            var reactionsHtml = Object.entries(msgReacts)
+                .sort(function(a, b) { return b[1] - a[1]; })
+                .map(function(entry) {
+                    var emoji = entry[0];
+                    var count = entry[1];
+                    var isActive = myReacts.has ? myReacts.has(emoji) : false;
+                    return '<button class="reaction-btn ' + (isActive ? 'active' : '') + '" onclick="toggleMessageReaction(\'' + messageId + '\', \'' + emoji + '\')">' +
+                        emoji + ' <span class="reaction-count">' + count + '</span></button>';
+                }).join('');
+
+            var pickerHtml = REACTION_EMOJIS.map(function(emoji) {
+                return '<button onclick="toggleMessageReaction(\'' + messageId + '\', \'' + emoji + '\')">' + emoji + '</button>';
+            }).join('');
+
+            container.innerHTML = reactionsHtml +
+                '<div style="position:relative;display:inline-block;">' +
+                    '<button class="add-reaction-btn" onclick="toggleMsgReactionPicker(\'' + messageId + '\')">+😀</button>' +
+                    '<div class="reaction-picker" id="msg-picker-' + messageId + '">' + pickerHtml + '</div>' +
+                '</div>';
         }
 
         // === COMMENT VOTING ===
