@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: Mobile help mode - toggle in hamburger menu enables tap-to-show tooltips for phone users, banner indicator, tap again to dismiss
 - 2026-01-25: Tooltip system for new users - hover tooltips on header buttons (USERS, FEED, SETTINGS, etc), view tabs (CHAT, POSTS, DOODLES, etc), chat input actions (camera, drawing, GIF), improved title descriptions on floating widgets (SloppyFM, Twitch, Ghost Radar, Oracle Log, App Launcher, Confidence Monitor)
 - 2026-01-25: Oracle Log widget - persistent question storage for defining questions, expandable UI, real-time sync, importance stars, purple mystic aesthetic
 - 2026-01-25: Wiki Scout integration - added Wikipedia explorer to app launcher (13 apps total), exocortex knowledge bridge
