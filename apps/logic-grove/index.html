@@ -311,16 +311,21 @@
 
     <a href="https://sloppy.live" class="back-link">← sloppy.live</a>
 
-    <script>
+    <script type="module">
+        import supabase, { supabaseSession } from '../../supabase-config.js';
+
         const canvas = document.getElementById('groveCanvas');
         const ctx = canvas.getContext('2d');
         let plants = [];
         let particles = [];
         let lastTime = 0;
-        let mouseX = -1000, mouseY = -1000; // Off-screen initially
-        const GROWTH_SPEED = 0.5; // Growth per second (0 to 1 in ~2 seconds)
-        const MOUSE_INFLUENCE = 150; // Pixels radius of mouse effect
-        const MOUSE_STRENGTH = 0.3; // How much plants lean toward mouse
+        let mouseX = -1000, mouseY = -1000;
+        let currentUser = null;
+        let isOnline = false;
+
+        const GROWTH_SPEED = 0.5;
+        const MOUSE_INFLUENCE = 150;
+        const MOUSE_STRENGTH = 0.3;
 
         const GLOW_COLORS = [
             { h: 165, s: 100, l: 50 },  // cyan
@@ -361,8 +366,11 @@
             };
         }
 
-        function createPlant(message) {
-            const rand = seedRandom(message + Date.now());
+        // Create plant - xPos from DB (0-10000) or generate new
+        function createPlant(message, xPos = null, startGrown = false) {
+            // Use xPos for deterministic seeding if from DB
+            const seedStr = xPos !== null ? message + xPos : message + Date.now();
+            const rand = seedRandom(seedStr);
             const color = getColorFromMessage(message, rand);
 
             const complexity = Math.min(8, Math.max(4, Math.floor(message.length / 8) + 4));
@@ -370,19 +378,22 @@
             const baseHeight = Math.min(250, Math.max(80, message.length * 3 + 50));
             const swayAmount = 0.3 + rand() * 0.4;
 
-            // Store normalized x position (0-1) for resize handling
-            const xNormalized = 0.05 + rand() * 0.9;
+            // Normalize x position (0-1 range)
+            const xNormalized = xPos !== null
+                ? (xPos / 10000) * 0.9 + 0.05
+                : 0.05 + rand() * 0.9;
 
             return {
                 message: message,
                 xNormalized: xNormalized,
+                xPosition: xPos !== null ? xPos : Math.floor(xNormalized * 10000),
                 color: color,
                 complexity: complexity,
                 maxBranches: maxBranches,
                 baseHeight: baseHeight,
                 swayAmount: swayAmount,
                 swayOffset: rand() * Math.PI * 2,
-                growthProgress: 0,
+                growthProgress: startGrown ? 1 : 0,
                 rand: rand,
                 branches: generateBranches(complexity, maxBranches, baseHeight, rand),
                 glowIntensity: 0.5 + rand() * 0.5,
@@ -561,7 +572,8 @@
             requestAnimationFrame(animate);
         }
 
-        function addPlant(message) {
+        // Add plant locally and optionally save to DB
+        async function addPlant(message, saveToDb = true) {
             if (!message.trim()) return;
 
             const plant = createPlant(message.trim());
@@ -570,12 +582,74 @@
 
             document.getElementById('messageInput').value = '';
             document.getElementById('previewText').classList.remove('visible');
+
+            // Save to database if online
+            if (saveToDb && isOnline && currentUser) {
+                try {
+                    await supabase.from('logic_grove_plants').insert({
+                        message: plant.message,
+                        x_position: plant.xPosition,
+                        user_id: currentUser.id
+                    });
+                } catch (err) {
+                    console.warn('Failed to save plant:', err);
+                }
+            }
+        }
+
+        // Load existing plants from DB
+        async function loadPlantsFromDb() {
+            try {
+                const { data, error } = await supabase
+                    .from('logic_grove_plants')
+                    .select('message, x_position')
+                    .order('created_at', { ascending: true })
+                    .limit(50);
+
+                if (error) throw error;
+
+                data.forEach(row => {
+                    const plant = createPlant(row.message, row.x_position, true);
+                    plants.push(plant);
+                });
+
+                updatePlantCount();
+                console.log('Loaded', data.length, 'plants from DB');
+            } catch (err) {
+                console.warn('Failed to load plants:', err);
+            }
+        }
+
+        // Subscribe to real-time inserts
+        function subscribeToRealtime() {
+            supabase
+                .channel('logic_grove')
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'logic_grove_plants'
+                }, (payload) => {
+                    // Check if we already have this plant (from our own insert)
+                    const exists = plants.some(p =>
+                        p.message === payload.new.message &&
+                        p.xPosition === payload.new.x_position
+                    );
+                    if (!exists) {
+                        const plant = createPlant(payload.new.message, payload.new.x_position, false);
+                        plants.push(plant);
+                        updatePlantCount();
+                    }
+                })
+                .subscribe((status) => {
+                    console.log('Realtime:', status);
+                });
         }
 
         function updatePlantCount() {
             const count = plants.length;
+            const status = isOnline ? '' : ' (offline)';
             document.getElementById('plantCount').textContent =
-                count === 1 ? '1 plant' : `${count} plants`;
+                (count === 1 ? '1 plant' : `${count} plants`) + status;
         }
 
         function clearGrove() {
@@ -584,7 +658,7 @@
             updatePlantCount();
         }
 
-        function addRandomPlant() {
+        async function addRandomPlant() {
             const phrases = [
                 'digital nature blooms',
                 'light finds a way',
@@ -598,7 +672,7 @@
                 'neon chlorophyll'
             ];
             const phrase = phrases[Math.floor(Math.random() * phrases.length)];
-            addPlant(phrase);
+            await addPlant(phrase);
         }
 
         // Event listeners
@@ -652,12 +726,40 @@
         });
 
         // Initialize
-        initCanvas();
-        animate(0);
+        async function init() {
+            initCanvas();
+            animate(0);
 
-        // Welcome plants
-        setTimeout(() => addPlant('welcome to the grove'), 300);
-        setTimeout(() => addPlant('thoughts become light'), 900);
+            // Try to connect to Supabase
+            try {
+                const sessionPromise = supabaseSession();
+                const timeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), 3000)
+                );
+                const { user } = await Promise.race([sessionPromise, timeout]);
+                currentUser = user;
+                isOnline = true;
+
+                // Load existing plants
+                await loadPlantsFromDb();
+
+                // Subscribe to real-time updates
+                subscribeToRealtime();
+
+                updatePlantCount();
+                console.log('Connected to grove');
+            } catch (err) {
+                console.warn('Offline mode:', err.message);
+                isOnline = false;
+                updatePlantCount();
+
+                // Add welcome plants in offline mode
+                setTimeout(() => addPlant('welcome to the grove', false), 300);
+                setTimeout(() => addPlant('thoughts become light', false), 900);
+            }
+        }
+
+        init();
     </script>
 </body>
 </html>
