@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: Confidence Monitor widget - live certainty percentage display with 3 modes (System/Engage/Synth), spinning rings, color-coded status
 - 2026-01-25: Rebranded to "The Archive of Synthesis" - updated title, meta tags, logo, welcome messages, share text
 - 2026-01-25: App Launcher crypto apps - added BTC Tracker, Solana Tracker, Sloppy Coin, Crypto Tools, Sloppy Dashboard (12 apps total)
 - 2026-01-25: App Launcher expanded - added World Monitor, Toiletgram, Neon Tetris, Neon Synth, Pixel Editor to launcher (7 apps total)
