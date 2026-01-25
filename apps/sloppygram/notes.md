@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: Drag handler refactor - centralized makeDraggable() system with registerListener() tracking, all 16 widgets now use cleanup-ready handlers, clearAllTimers() clears all listeners
 - 2026-01-25: Critical bug fixes - SloppyFM channel cleanup added, Oracle Log channel tracked for cleanup, escapeAttr() XSS fix for reaction onclick handlers, Confidence Monitor timeout tracked with registerTimeout()
 - 2026-01-25: Mobile help mode - toggle in hamburger menu enables tap-to-show tooltips for phone users, banner indicator, tap again to dismiss
 - 2026-01-25: Tooltip system for new users - hover tooltips on header buttons (USERS, FEED, SETTINGS, etc), view tabs (CHAT, POSTS, DOODLES, etc), chat input actions (camera, drawing, GIF), improved title descriptions on floating widgets (SloppyFM, Twitch, Ghost Radar, Oracle Log, App Launcher, Confidence Monitor)
@@ -230,7 +231,6 @@ Pink, Purple, Deep Purple, Indigo, Blue, Cyan, Teal, Green, Orange, Deep Orange
 
 ## todos
 - Add private messaging
-- Refactor drag handlers to use named functions with cleanup registry (currently leaks ~52 event listeners on embedded apps)
 - Remove dead code: sloppyfmPositionBroadcastInterval, sloppyfmSyncInterval variables (now using registerInterval)
 
 ## completed (from old todos)
