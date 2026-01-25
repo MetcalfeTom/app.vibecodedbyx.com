@@ -3,6 +3,11 @@
 Procedural neon mandalas that pulse with chat energy, built on sacred geometry mathematics.
 
 ## log
+- 2026-01-25: Tooltip System
+  - Hover tooltips on all control buttons
+  - Info panel (?) with sacred geometry explanations
+  - PHI, Fibonacci, TAU constants display
+  - Geometry mode descriptions with symbols
 - 2026-01-25: Sacred Geometry Update
   - Added PHI (golden ratio) constants
   - Fibonacci sequence for spacing
@@ -19,6 +24,8 @@ Procedural neon mandalas that pulse with chat energy, built on sacred geometry m
 ## features
 - Procedural mandala generation with noise functions
 - Multiple layers with varying complexity
+- Hover tooltips explaining each control
+- Info panel with sacred geometry mathematics
 
 ## sacred geometry
 - PHI (φ) = 1.6180339887 (Golden Ratio)
