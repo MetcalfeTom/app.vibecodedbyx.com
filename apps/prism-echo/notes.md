@@ -1,8 +1,15 @@
 # Prism Echo
 
-Procedural neon mandalas that pulse with chat energy.
+Procedural neon mandalas that pulse with chat energy, built on sacred geometry mathematics.
 
 ## log
+- 2026-01-25: Sacred Geometry Update
+  - Added PHI (golden ratio) constants
+  - Fibonacci sequence for spacing
+  - 4 sacred geometry modes: Flower of Life, Metatron's Cube, Sri Yantra, Golden Spiral
+  - Vesica Piscis, Seed of Life patterns
+  - PHI-ratio petal overlays with golden angle spacing
+  - Fibonacci-spaced orbital rings
 - 2026-01-25: Initial creation
   - Canvas-based procedural mandala generator
   - Real-time chat frequency monitoring
@@ -12,6 +19,24 @@ Procedural neon mandalas that pulse with chat energy.
 ## features
 - Procedural mandala generation with noise functions
 - Multiple layers with varying complexity
+
+## sacred geometry
+- PHI (φ) = 1.6180339887 (Golden Ratio)
+- PHI_INV = 0.6180339887 (1/φ)
+- Fibonacci sequence: 1, 1, 2, 3, 5, 8, 13, 21, 34, 55...
+- TAU (τ) = 2π
+
+### geometry modes
+1. **Flower of Life** - overlapping circles in hexagonal pattern
+2. **Metatron's Cube** - 13 circles with 78 connecting lines
+3. **Sri Yantra** - interlocking triangles with PHI scaling
+4. **Golden Spiral** - Fibonacci arcs and golden rectangles
+
+### sacred elements
+- Seed of Life (7 circles)
+- Vesica Piscis (2 overlapping circles)
+- Golden angle petal spacing (τ/φ²)
+- Fibonacci-spaced orbital rings
 - Symmetry adapts to chat activity (8-16 fold)
 - Real-time pulse on new messages
 - Smooth frequency interpolation
