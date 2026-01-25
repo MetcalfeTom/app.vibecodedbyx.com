@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: App Launcher - modular launcher (🚀) with embedded Graffiti Wall and Manifesto Generator in draggable windows, diamond aesthetic, lazy iframe loading
 - 2026-01-25: Twitch chat widget - second floating draggable window for sloppy_ai chat, diamond aesthetic, dark theme
 - 2026-01-25: Twitch embed widget - floating draggable window for sloppy_ai channel, diamond aesthetic, lazy-loads iframe, mobile touch support
 - 2026-01-25: Ghost text prediction - constructive wisdom and creative prompts appear as you type, TAB to accept, 60+ trigger words with encouraging/collaborative suggestions
