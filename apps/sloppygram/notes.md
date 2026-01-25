@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: App Launcher crypto apps - added BTC Tracker, Solana Tracker, Sloppy Coin, Crypto Tools, Sloppy Dashboard (12 apps total)
 - 2026-01-25: App Launcher expanded - added World Monitor, Toiletgram, Neon Tetris, Neon Synth, Pixel Editor to launcher (7 apps total)
 - 2026-01-25: App Launcher - modular launcher (🚀) with embedded Graffiti Wall and Manifesto Generator in draggable windows, diamond aesthetic, lazy iframe loading
 - 2026-01-25: Twitch chat widget - second floating draggable window for sloppy_ai chat, diamond aesthetic, dark theme
