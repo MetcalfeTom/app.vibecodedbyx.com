@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: GIF search - Giphy-powered GIF search modal, click GIF button to browse trending or search, sends as chat message
 - 2026-01-25: Message reactions - emoji reactions on chat messages (😂🔥❤️😮😢👏🙌💀), click +😀 to react, real-time sync
 - 2026-01-24: Tag Explorer now has 3 tabs - Messages, Posts, Manifestos - queries all tag tables in parallel
 - 2026-01-24: SloppyFM realtime sync - broadcast channel for instant track/queue updates, RLS policies for user ownership
@@ -117,6 +118,7 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - 18 emoji avatar options
 - 10 avatar background colors
 - Image uploads (base64, max 500KB)
+- GIF search and posting (Giphy-powered, trending + search)
 - Drawing tool with 8 brush colors
 - Real-time message updates
 - Message timestamps
