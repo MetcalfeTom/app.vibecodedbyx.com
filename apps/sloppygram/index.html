@@ -7074,6 +7074,91 @@
             toastTimers.clear();
         }
 
+        // === CHANNEL SUBSCRIPTION STATE TRACKING ===
+        // Ensures channels are ready before operations depend on them
+        const channelState = {
+            realtime: { ready: false, pending: null },
+            presence: { ready: false, pending: null },
+            posts: { ready: false, pending: null },
+            feedback: { ready: false, pending: null },
+            globalSettings: { ready: false, pending: null },
+            collab: { ready: false, pending: null },
+            sloppyfm: { ready: false, pending: null }
+        };
+
+        // Promise-based subscription wrapper
+        function subscribeWithPromise(channel, channelName) {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    console.warn('[Channel] Subscription timeout:', channelName);
+                    channelState[channelName].ready = false;
+                    resolve(false); // Don't reject, just resolve with failure
+                }, 10000); // 10s timeout
+
+                channel.subscribe((status) => {
+                    clearTimeout(timeout);
+                    if (status === 'SUBSCRIBED') {
+                        console.log('[Channel] Ready:', channelName);
+                        channelState[channelName].ready = true;
+                        channelState[channelName].pending = null;
+                        resolve(true);
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                        console.error('[Channel] Error:', channelName, status);
+                        channelState[channelName].ready = false;
+                        channelState[channelName].pending = null;
+                        resolve(false);
+                    }
+                });
+            });
+        }
+
+        // Wait for channel to be ready before operations
+        async function waitForChannel(channelName, timeoutMs = 5000) {
+            if (channelState[channelName].ready) return true;
+            if (channelState[channelName].pending) {
+                return await channelState[channelName].pending;
+            }
+            // Channel not yet initialized
+            const start = Date.now();
+            while (!channelState[channelName].ready && (Date.now() - start) < timeoutMs) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+            return channelState[channelName].ready;
+        }
+
+        // Reset all channel states (for reboot)
+        function resetChannelStates() {
+            Object.keys(channelState).forEach(key => {
+                channelState[key].ready = false;
+                channelState[key].pending = null;
+            });
+        }
+
+        // === DATA LOAD STATE TRACKING ===
+        // Prevents race conditions between load and real-time updates
+        const dataLoadState = {
+            messages: { loaded: false, loading: false },
+            posts: { loaded: false, loading: false },
+            manifestos: { loaded: false, loading: false },
+            doodles: { loaded: false, loading: false },
+            votes: { loaded: false, loading: false }
+        };
+
+        function markDataLoading(type) {
+            dataLoadState[type].loading = true;
+            dataLoadState[type].loaded = false;
+        }
+
+        function markDataLoaded(type) {
+            dataLoadState[type].loading = false;
+            dataLoadState[type].loaded = true;
+            console.log('[Data] Loaded:', type);
+        }
+
+        function isDataReady(type) {
+            return dataLoadState[type].loaded && !dataLoadState[type].loading;
+        }
+
         // Upload image to Supabase Storage, returns public URL or null on failure
         async function uploadToStorage(blob, folder = 'images') {
             try {
@@ -9013,19 +9098,37 @@
             // Remove overlay and reinitialize
             overlay.remove();
 
-            // Reload fresh data
-            await loadDoodleVotes();
-            await loadMessageVotes();
-            await loadMessageReactions();
-            await loadCommentVotes();
-            loadMessages();
+            // Reset channel and data states
+            resetChannelStates();
+            Object.keys(dataLoadState).forEach(key => {
+                dataLoadState[key].loaded = false;
+                dataLoadState[key].loading = false;
+            });
+
+            // Reload with proper sequencing (mirror init() pattern)
+            console.log('[Reboot] Phase 1: Loading vote data...');
+            await Promise.all([
+                loadDoodleVotes(),
+                loadMessageVotes(),
+                loadMessageReactions(),
+                loadCommentVotes()
+            ]);
+            markDataLoaded('votes');
+
+            console.log('[Reboot] Phase 2: Loading data...');
+            await loadMessages();
             loadPosts();
             loadManifestos();
             loadDoodleLeaderboard();
-            subscribeToMessages();
-            subscribeToPostsAndComments();
-            setupPresence();
 
+            console.log('[Reboot] Phase 3: Starting subscriptions...');
+            await Promise.all([
+                subscribeToMessages(),
+                subscribeToPostsAndComments(),
+                setupPresence()
+            ]);
+
+            console.log('[Reboot] Complete');
             showToast('System rebooted successfully', 'success');
         };
 
@@ -9076,6 +9179,74 @@
             return { passed: passed, failed: failed, total: checks.length, details: results };
         };
 
+        // === BOOT AUDIT ===
+        // Verifies system state after initialization
+        window.bootAudit = function() {
+            console.log('\n=== SYSTEM BOOT AUDIT ===\n');
+
+            var results = [];
+            var passed = 0;
+            var failed = 0;
+
+            // Channel State Checks
+            var channelChecks = [
+                { name: 'Realtime Channel', check: () => channelState.realtime.ready },
+                { name: 'Presence Channel', check: () => channelState.presence.ready },
+                { name: 'Posts Channel', check: () => channelState.posts.ready },
+                { name: 'Feedback Channel', check: () => channelState.feedback.ready },
+                { name: 'Global Settings Channel', check: () => channelState.globalSettings.ready }
+            ];
+
+            console.log('[Channels]');
+            channelChecks.forEach(c => {
+                var ok = c.check();
+                if (ok) passed++; else failed++;
+                var status = ok ? '✓' : '✗';
+                console.log('  [' + status + '] ' + c.name + ': ' + (ok ? 'SUBSCRIBED' : 'NOT READY'));
+                results.push({ type: 'channel', name: c.name, ok: ok });
+            });
+
+            // Data State Checks
+            var dataChecks = [
+                { name: 'Messages', check: () => dataLoadState.messages.loaded },
+                { name: 'Posts', check: () => dataLoadState.posts.loaded },
+                { name: 'Votes', check: () => dataLoadState.votes.loaded }
+            ];
+
+            console.log('\n[Data]');
+            dataChecks.forEach(c => {
+                var ok = c.check();
+                if (ok) passed++; else failed++;
+                var status = ok ? '✓' : '✗';
+                console.log('  [' + status + '] ' + c.name + ': ' + (ok ? 'LOADED' : 'NOT LOADED'));
+                results.push({ type: 'data', name: c.name, ok: ok });
+            });
+
+            // Memory Registry Checks
+            console.log('\n[Memory Registry]');
+            console.log('  Active Intervals: ' + activeIntervals.size);
+            console.log('  Active Timeouts: ' + activeTimeouts.size);
+            console.log('  Toast Timers: ' + toastTimers.size);
+
+            // Swipe Listeners
+            console.log('\n[Event Listeners]');
+            console.log('  Swipe Initialized: ' + (swipeListenersInitialized ? 'Yes' : 'No'));
+            console.log('  Swipe Cleanup Fns: ' + swipeCleanupFns.length);
+
+            // Summary
+            var total = passed + failed;
+            console.log('\n=== AUDIT SUMMARY ===');
+            console.log('Passed: ' + passed + '/' + total);
+            if (failed > 0) {
+                console.log('FAILED: ' + failed + ' check(s)');
+            } else {
+                console.log('All systems nominal.');
+            }
+
+            showToast('Boot Audit: ' + passed + '/' + total + ' OK', failed > 0 ? 'warning' : 'success');
+            return { passed: passed, failed: failed, total: total, results: results };
+        };
+
         // Initialize
         async function init() {
             // Listen for auth state changes
@@ -9109,18 +9280,35 @@
             if (savedSounds) {
                 soundSettings = JSON.parse(savedSounds);
             }
-            await loadDoodleVotes();
-            await loadMessageVotes();
-            await loadMessageReactions();
-            await loadCommentVotes();
-            loadMessages();
-            subscribeToMessages();
-            subscribeToPostsAndComments();
-            setupPresence();
+            // === PHASE 1: Load vote/reaction data (needed before rendering) ===
+            console.log('[Boot] Phase 1: Loading vote data...');
+            await Promise.all([
+                loadDoodleVotes(),
+                loadMessageVotes(),
+                loadMessageReactions(),
+                loadCommentVotes()
+            ]);
+            markDataLoaded('votes');
+            console.log('[Boot] Phase 1 complete: votes loaded');
+
+            // === PHASE 2: Load initial data ===
+            console.log('[Boot] Phase 2: Loading initial data...');
+            await loadMessages(); // This now marks messages as loaded
+            console.log('[Boot] Phase 2 complete: messages loaded');
+
+            // === PHASE 3: Start real-time subscriptions (after data is loaded) ===
+            console.log('[Boot] Phase 3: Starting real-time subscriptions...');
+            await Promise.all([
+                subscribeToMessages(),
+                subscribeToPostsAndComments(),
+                setupPresence(),
+                subscribeToGlobalSettings()
+            ]);
+            console.log('[Boot] Phase 3 complete: all channels subscribed');
+
             applyCustomBackground();
 
-            // Load and subscribe to global settings (backgrounds, sounds, avatars)
-            subscribeToGlobalSettings();
+            // Load global settings (non-blocking)
             loadGlobalSettings();
 
             // Random visitor count for 90s vibes
@@ -9250,9 +9438,11 @@
         }
 
         // Presence for online users
-        function setupPresence() {
+        async function setupPresence() {
             // Clean up existing presence channel if any
             if (presenceChannel) {
+                channelState.presence.ready = false;
+                presenceChannel.unsubscribe();
                 supabase.removeChannel(presenceChannel);
             }
 
@@ -9277,9 +9467,14 @@
                 .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
                     var leftUser = (leftPresences && leftPresences[0] && leftPresences[0].username) ? leftPresences[0].username : 'Someone';
                     addToFeed(leftUser, 'left the chat');
-                })
-                .subscribe(async (status) => {
+                });
+
+            // Use Promise-based subscription with state tracking and track user
+            return new Promise((resolve) => {
+                presenceChannel.subscribe(async (status) => {
                     if (status === 'SUBSCRIBED') {
+                        console.log('[Channel] Ready: presence');
+                        channelState.presence.ready = true;
                         await presenceChannel.track({
                             username: profile.username,
                             avatar: profile.avatar,
@@ -9288,8 +9483,14 @@
                             status: profile.status || '',
                             online_at: new Date().toISOString()
                         });
+                        resolve(true);
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                        console.error('[Channel] Error: presence', status);
+                        channelState.presence.ready = false;
+                        resolve(false);
                     }
                 });
+            });
         }
 
         // === WELCOME BOT ===
@@ -9583,6 +9784,7 @@
             if (loadMore && !messagesHasMore) return;
 
             messagesLoading = true;
+            if (!loadMore) markDataLoading('messages');
             const container = document.getElementById('messagesContainer');
 
             // Show loading indicator
@@ -9611,6 +9813,7 @@
 
             if (error) {
                 console.error('Load error:', error);
+                if (!loadMore) markDataLoaded('messages'); // Mark loaded even on error
                 return;
             }
 
@@ -9618,6 +9821,7 @@
 
             if (!loadMore && data.length === 0) {
                 if (emptyState) emptyState.style.display = 'block';
+                markDataLoaded('messages'); // Mark loaded even if empty
                 return;
             }
 
@@ -9646,12 +9850,16 @@
             // Scroll to top only on initial load
             if (!loadMore) {
                 container.scrollTop = 0;
+                markDataLoaded('messages');
             }
         }
 
         // Subscribe to new messages
-        function subscribeToMessages() {
+        async function subscribeToMessages() {
+            // Clean up existing channel
             if (realtimeChannel) {
+                channelState.realtime.ready = false;
+                realtimeChannel.unsubscribe();
                 supabase.removeChannel(realtimeChannel);
             }
 
@@ -9662,6 +9870,11 @@
             });
 
             realtimeChannel.on('broadcast', { event: 'new_message' }, (payload) => {
+                // Guard: only process if messages data is loaded
+                if (!isDataReady('messages')) {
+                    console.log('[RT] Ignoring broadcast - messages not loaded yet');
+                    return;
+                }
                 const msg = payload.payload;
                 if (!msg || seenMessageIds.has(msg.id)) return;
                 seenMessageIds.add(msg.id);
@@ -9698,6 +9911,11 @@
                 schema: 'public',
                 table: 'sloppygram_messages'
             }, (payload) => {
+                // Guard: only process if messages data is loaded
+                if (!isDataReady('messages')) {
+                    console.log('[RT] Ignoring postgres_changes - messages not loaded yet');
+                    return;
+                }
                 if (seenMessageIds.has(payload.new.id)) return;
                 seenMessageIds.add(payload.new.id);
                 // Cache for filtering
@@ -9711,12 +9929,17 @@
                 }
             });
 
-            realtimeChannel.subscribe();
+            // Use Promise-based subscription with state tracking
+            channelState.realtime.pending = subscribeWithPromise(realtimeChannel, 'realtime');
+            await channelState.realtime.pending;
         }
 
         // Subscribe to posts and comments for real-time updates
-        function subscribeToPostsAndComments() {
+        async function subscribeToPostsAndComments() {
+            // Clean up existing channel
             if (postsChannel) {
+                channelState.posts.ready = false;
+                postsChannel.unsubscribe();
                 supabase.removeChannel(postsChannel);
             }
 
@@ -9728,6 +9951,11 @@
                 schema: 'public',
                 table: 'sloppygram_posts'
             }, (payload) => {
+                // Guard: only process if posts data is loaded
+                if (!isDataReady('posts')) {
+                    console.log('[RT] Ignoring new post - posts not loaded yet');
+                    return;
+                }
                 console.log('New post received:', payload.new);
                 // Add to posts array if not already there
                 if (!posts.find(p => p.id === payload.new.id)) {
@@ -9958,9 +10186,9 @@
                 }
             });
 
-            postsChannel.subscribe((status) => {
-                console.log('Posts realtime subscription status:', status);
-            });
+            // Use Promise-based subscription with state tracking
+            channelState.posts.pending = subscribeWithPromise(postsChannel, 'posts');
+            await channelState.posts.pending;
 
             // === FEEDBACK REALTIME SUBSCRIPTION ===
             var feedbackChannel = supabase.channel('sloppygram-feedback-realtime');
@@ -10027,9 +10255,9 @@
                 }
             });
 
-            feedbackChannel.subscribe(function(status) {
-                console.log('[Feedback] Realtime subscription status:', status);
-            });
+            // Use Promise-based subscription with state tracking
+            channelState.feedback.pending = subscribeWithPromise(feedbackChannel, 'feedback');
+            await channelState.feedback.pending;
         }
 
         function broadcastMessage(msg) {
@@ -11866,7 +12094,14 @@
             }
         }
 
-        function subscribeToGlobalSettings() {
+        async function subscribeToGlobalSettings() {
+            // Clean up existing channel
+            if (globalSettingsChannel) {
+                channelState.globalSettings.ready = false;
+                globalSettingsChannel.unsubscribe();
+                supabase.removeChannel(globalSettingsChannel);
+            }
+
             globalSettingsChannel = supabase.channel('sloppygram-global-settings', {
                 config: { broadcast: { self: false } }
             });
@@ -11876,7 +12111,9 @@
                 applyGlobalSetting(setting_type, setting_value, username, extra_data);
             });
 
-            globalSettingsChannel.subscribe();
+            // Use Promise-based subscription with state tracking
+            channelState.globalSettings.pending = subscribeWithPromise(globalSettingsChannel, 'globalSettings');
+            await channelState.globalSettings.pending;
         }
 
         window.switchSettingsTab = function(tab) {
@@ -12696,6 +12933,7 @@
             postsPage = 0;
             postsHasMore = true;
             postsLoading = false;
+            markDataLoading('posts');
 
             const { data, error } = await supabase
                 .from('sloppygram_posts')
@@ -12779,6 +13017,7 @@
             postsHasMore = posts.length === PAGE_SIZE;
             postsPage = 1;
 
+            markDataLoaded('posts');
             renderPosts();
         }
 

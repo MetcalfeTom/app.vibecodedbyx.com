@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-25: Week 2 Race Condition Protocol - channelState tracking (7 channels), dataLoadState tracking (5 data types), subscribeWithPromise wrapper with 10s timeout, async guards on all RT handlers (isDataReady checks), 3-phase boot sequence (votes→data→subscriptions), bootAudit() diagnostic function
 - 2026-01-25: Memory Stabilization Protocol - centralized interval registry (registerInterval/clearRegisteredInterval), proper Supabase channel unsubscription, clearAllTimers on cleanup, initialization guards for canvas listeners
 - 2026-01-25: Manifesto Lineage/Forking - parent_id tracking via sloppygram_manifesto_lineage table, Fork button on cards, lineage shown in DNA signature, quotes parent content
 - 2026-01-25: DNA Signature system - unique genetic identifiers for manifestos (lineage code, generation, structural marker, nucleotide sequence), color-coded ATCG display
