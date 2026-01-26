@@ -481,30 +481,44 @@
     async function getCacheFromDB(query) {
       try {
         const normalizedQuery = query.toLowerCase().trim();
-        const { data, error } = await supabase
+
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('DB cache timeout')), 3000)
+        );
+
+        const queryPromise = supabase
           .from('wiki_scout_cache')
           .select('*')
           .eq('query', normalizedQuery)
           .order('fetched_at', { ascending: false })
-          .limit(1)
-          .single();
+          .limit(1);
 
-        if (error || !data) return null;
+        const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+
+        // Handle empty results or errors gracefully
+        if (error) {
+          console.warn('[DB Cache] Query error:', error.message);
+          return null;
+        }
+        if (!data || data.length === 0) return null;
+
+        const entry = data[0];
 
         // Check if expired (24 hours)
-        const fetchedAt = new Date(data.fetched_at).getTime();
+        const fetchedAt = new Date(entry.fetched_at).getTime();
         if (Date.now() - fetchedAt > CACHE_TTL) {
           return null;
         }
 
         // Convert DB format back to Wikipedia API format
         return {
-          title: data.title,
-          extract: data.extract,
-          extract_html: data.extract_html,
-          description: data.description,
-          thumbnail: data.thumbnail_url ? { source: data.thumbnail_url } : null,
-          content_urls: { desktop: { page: data.page_url } }
+          title: entry.title,
+          extract: entry.extract,
+          extract_html: entry.extract_html,
+          description: entry.description,
+          thumbnail: entry.thumbnail_url ? { source: entry.thumbnail_url } : null,
+          content_urls: { desktop: { page: entry.page_url } }
         };
       } catch (e) {
         console.warn('[DB Cache] Read error:', e);
@@ -835,11 +849,28 @@
       document.getElementById('searchBtn').disabled = true;
       cacheSource = null;
 
-      // Check cache first (local + database)
-      const cached = await getCachedResult(query);
-      if (cached) {
-        console.log('[Cache] Hit:', cacheSource, query);
-        renderArticle(cached);
+      // Show loading immediately
+      showLoading();
+
+      // Check local cache first (instant, no async)
+      const localCached = getLocalCache(query);
+      if (localCached) {
+        cacheSource = 'local';
+        console.log('[Cache] Local hit:', query);
+        renderArticle(localCached);
+        showCacheSource();
+        document.getElementById('searchBtn').disabled = false;
+        return;
+      }
+
+      // Check database cache (async but with loading shown)
+      const dbCached = await getCacheFromDB(query);
+      if (dbCached) {
+        cacheSource = 'database';
+        console.log('[Cache] Database hit:', query);
+        // Also save to local for faster future access
+        setLocalCache(query, dbCached);
+        renderArticle(dbCached);
         showCacheSource();
         document.getElementById('searchBtn').disabled = false;
         return;
@@ -851,8 +882,6 @@
         document.getElementById('searchBtn').disabled = false;
         return;
       }
-
-      showLoading();
 
       try {
         // Try direct fetch first
