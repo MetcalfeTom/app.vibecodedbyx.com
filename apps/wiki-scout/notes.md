@@ -4,7 +4,7 @@ Wikipedia explorer with instant article summaries.
 
 ## log
 - 2026-01-26: Added shared database cache
-  - Supabase wiki_scout_cache table for shared results
+  - Supabase wiki_cache table with JSONB for flexible result storage
   - Local cache as fast fallback
   - 24-hour TTL for cached articles
   - Visual indicator when result is from cache
