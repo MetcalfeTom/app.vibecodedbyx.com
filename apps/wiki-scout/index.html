@@ -12,6 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;600&family=Source+Sans+3:wght@300;400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
       --bg-cream: #faf8f5;
@@ -349,6 +350,46 @@
       gap: 0.5rem;
     }
 
+    .cache-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      background: var(--accent-green);
+      color: white;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      margin-left: 0.5rem;
+    }
+
+    .cache-stats {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .clear-cache-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .clear-cache-btn:hover {
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+
     @media (max-width: 640px) {
       .main { padding: 1rem; }
       .article-body { flex-direction: column; }
@@ -398,6 +439,10 @@
       <span>🔒</span>
       <span>Fetches from Wikipedia API only (en.wikipedia.org). All content sanitized with DOMPurify.</span>
     </div>
+    <div class="cache-stats" id="cacheStats">
+      <span id="cacheInfo">Shared cache: loading...</span>
+      <span id="cacheSource" style="font-size: 0.7rem; color: var(--accent-green);"></span>
+    </div>
   </main>
 
   <script>
@@ -412,6 +457,193 @@
 
     let rateCount = 0;
     let rateResetTime = Date.now() + RATE_WINDOW;
+
+    // ==========================================
+    // SUPABASE CONFIGURATION
+    // ==========================================
+    const SUPABASE_URL = 'https://oqzadskweapoqnukasxo.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xemFkc2t3ZWFwb3FudWthc3hvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMTY0NjQsImV4cCI6MjA2MzU5MjQ2NH0.L5_ZFOi78Jr9jlhMfADCfxp4QVvlFy9U3AsS7zXSVqM';
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ==========================================
+    // CACHE CONFIGURATION
+    // ==========================================
+    const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
+    const LOCAL_CACHE_KEY = 'wiki_scout_local_cache';
+
+    // Track cache source for current result
+    let cacheSource = null; // 'database', 'local', or null
+
+    // ==========================================
+    // DATABASE CACHE FUNCTIONS
+    // ==========================================
+    async function getCacheFromDB(query) {
+      try {
+        const normalizedQuery = query.toLowerCase().trim();
+        const { data, error } = await supabase
+          .from('wiki_scout_cache')
+          .select('*')
+          .eq('query', normalizedQuery)
+          .order('fetched_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (error || !data) return null;
+
+        // Check if expired (24 hours)
+        const fetchedAt = new Date(data.fetched_at).getTime();
+        if (Date.now() - fetchedAt > CACHE_TTL) {
+          return null;
+        }
+
+        // Convert DB format back to Wikipedia API format
+        return {
+          title: data.title,
+          extract: data.extract,
+          extract_html: data.extract_html,
+          description: data.description,
+          thumbnail: data.thumbnail_url ? { source: data.thumbnail_url } : null,
+          content_urls: { desktop: { page: data.page_url } }
+        };
+      } catch (e) {
+        console.warn('[DB Cache] Read error:', e);
+        return null;
+      }
+    }
+
+    async function saveCacheToDB(query, data) {
+      try {
+        // First sign in anonymously if not already
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          await supabase.auth.signInAnonymously();
+        }
+
+        const normalizedQuery = query.toLowerCase().trim();
+        const { error } = await supabase
+          .from('wiki_scout_cache')
+          .insert({
+            query: normalizedQuery,
+            title: data.title || '',
+            extract: data.extract || '',
+            extract_html: data.extract_html || '',
+            description: data.description || '',
+            thumbnail_url: data.thumbnail?.source || null,
+            page_url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(data.title)}`,
+            fetched_at: new Date().toISOString()
+          });
+
+        if (error) {
+          console.warn('[DB Cache] Write error:', error);
+        } else {
+          console.log('[DB Cache] Saved:', normalizedQuery);
+          updateCacheStats();
+        }
+      } catch (e) {
+        console.warn('[DB Cache] Save error:', e);
+      }
+    }
+
+    // ==========================================
+    // LOCAL CACHE (fast fallback)
+    // ==========================================
+    function getLocalCache(query) {
+      try {
+        const raw = localStorage.getItem(LOCAL_CACHE_KEY);
+        if (!raw) return null;
+        const cache = JSON.parse(raw);
+        const key = query.toLowerCase().trim();
+        const entry = cache[key];
+        if (!entry) return null;
+        if (Date.now() - entry.timestamp > CACHE_TTL) return null;
+        return entry.data;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function setLocalCache(query, data) {
+      try {
+        const raw = localStorage.getItem(LOCAL_CACHE_KEY);
+        const cache = raw ? JSON.parse(raw) : {};
+        const key = query.toLowerCase().trim();
+
+        // Limit local cache size
+        const keys = Object.keys(cache);
+        if (keys.length >= 50) {
+          const oldest = keys.sort((a, b) => cache[a].timestamp - cache[b].timestamp)[0];
+          delete cache[oldest];
+        }
+
+        cache[key] = { data, timestamp: Date.now() };
+        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
+      } catch (e) {
+        console.warn('[Local Cache] Write error:', e);
+      }
+    }
+
+    // ==========================================
+    // COMBINED CACHE LOOKUP
+    // ==========================================
+    async function getCachedResult(query) {
+      // Try local cache first (instant)
+      const local = getLocalCache(query);
+      if (local) {
+        cacheSource = 'local';
+        return local;
+      }
+
+      // Try database cache (shared across users)
+      const db = await getCacheFromDB(query);
+      if (db) {
+        cacheSource = 'database';
+        // Also save to local cache for faster future access
+        setLocalCache(query, db);
+        return db;
+      }
+
+      cacheSource = null;
+      return null;
+    }
+
+    async function cacheResult(query, data) {
+      // Save to both local and database
+      setLocalCache(query, data);
+      await saveCacheToDB(query, data);
+    }
+
+    // ==========================================
+    // CACHE STATS
+    // ==========================================
+    async function updateCacheStats() {
+      try {
+        const { count, error } = await supabase
+          .from('wiki_scout_cache')
+          .select('*', { count: 'exact', head: true });
+
+        const el = document.getElementById('cacheInfo');
+        if (el) {
+          if (error) {
+            el.textContent = 'Shared cache: offline';
+          } else {
+            el.textContent = `Shared cache: ${count || 0} article${count !== 1 ? 's' : ''} saved`;
+          }
+        }
+      } catch (e) {
+        const el = document.getElementById('cacheInfo');
+        if (el) el.textContent = 'Shared cache: offline';
+      }
+    }
+
+    function showCacheSource() {
+      const el = document.getElementById('cacheSource');
+      if (el && cacheSource) {
+        el.textContent = cacheSource === 'database' ? '⚡ from shared cache' : '⚡ from local cache';
+      } else if (el) {
+        el.textContent = '';
+      }
+    }
 
     // ==========================================
     // SANITIZATION
@@ -599,13 +831,27 @@
         return;
       }
 
-      if (!checkRateLimit()) {
-        showError('Too many requests. Please wait a moment.');
+      document.getElementById('queryInput').value = query;
+      document.getElementById('searchBtn').disabled = true;
+      cacheSource = null;
+
+      // Check cache first (local + database)
+      const cached = await getCachedResult(query);
+      if (cached) {
+        console.log('[Cache] Hit:', cacheSource, query);
+        renderArticle(cached);
+        showCacheSource();
+        document.getElementById('searchBtn').disabled = false;
         return;
       }
 
-      document.getElementById('queryInput').value = query;
-      document.getElementById('searchBtn').disabled = true;
+      // No cache hit - check rate limit before API call
+      if (!checkRateLimit()) {
+        showError('Too many requests. Please wait a moment.');
+        document.getElementById('searchBtn').disabled = false;
+        return;
+      }
+
       showLoading();
 
       try {
@@ -613,7 +859,10 @@
         const data = await fetchWikiSummary(query);
 
         if (data && data.type !== 'disambiguation') {
+          // Cache the result
+          await cacheResult(query, data);
           renderArticle(data);
+          showCacheSource();
         } else {
           // No direct match, try search
           const searchResults = await searchWiki(query);
@@ -623,7 +872,11 @@
             // Try first suggestion
             const firstResult = await fetchWikiSummary(suggestions[0]);
             if (firstResult) {
+              // Cache both the original query and the suggestion
+              await cacheResult(query, firstResult);
+              await cacheResult(suggestions[0], firstResult);
               renderArticle(firstResult);
+              showCacheSource();
             } else {
               showNotFound(query, suggestions);
             }
@@ -664,6 +917,10 @@
     console.log('[Wiki Scout] Initialized');
     console.log('[Security] DOMPurify:', typeof DOMPurify !== 'undefined' ? 'ACTIVE' : 'MISSING');
     console.log('[Security] API Domain: en.wikipedia.org only');
+    console.log('[Cache] Shared database cache enabled');
+
+    // Load cache stats on init
+    updateCacheStats();
   </script>
 </body>
 </html>

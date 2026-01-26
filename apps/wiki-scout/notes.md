@@ -3,6 +3,12 @@
 Wikipedia explorer with instant article summaries.
 
 ## log
+- 2026-01-26: Added shared database cache
+  - Supabase wiki_scout_cache table for shared results
+  - Local cache as fast fallback
+  - 24-hour TTL for cached articles
+  - Visual indicator when result is from cache
+  - Saves API calls when multiple users search same topics
 - 2026-01-25: Initial creation
   - Wikipedia REST API integration
   - DOMPurify sanitization
@@ -13,6 +19,8 @@ Wikipedia explorer with instant article summaries.
 ## features
 - Fetch article summaries from Wikipedia REST API
 - Search with OpenSearch API fallback
+- **Shared database cache** - results saved to Supabase for all users
+- **Local cache fallback** - instant results for repeat searches
 - Article display with thumbnail images
 - Direct links to full Wikipedia articles
 - Topic suggestions for quick exploration
@@ -41,10 +49,10 @@ Wikipedia explorer with instant article summaries.
 - Wikipedia-inspired aesthetics
 
 ## todos
-- Add search history
 - Add language selection (other Wikipedia editions)
 - Add random article button
 - Add "related articles" section
+- Add cache stats page showing most searched topics
 
 ## issues
 - None yet
