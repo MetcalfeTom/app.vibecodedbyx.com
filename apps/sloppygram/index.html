@@ -7966,9 +7966,9 @@
         var sloppyfmSyncInterval = null;
         var sloppyfmChannel = null;
         var sloppyfmPositionBroadcastInterval = null;
-        var sloppyfmSyncTolerance = 4; // seconds - resync if off by more than this
-        var sloppyfmLastSyncTime = 0; // timestamp of last position sync
-        var sloppyfmSyncDebounce = 10000; // minimum ms between position syncs
+        var sloppyfmSyncTolerance = 5; // seconds - resync if off by more than this
+        var sloppyfmSyncLock = false; // prevent sync loops
+        var sloppyfmSyncLockTimeout = null;
 
         // Default tracks (YouTube IDs) - can be expanded via queue
         var sloppyfmDefaultTracks = [
@@ -8039,11 +8039,22 @@
             sloppyfmChannel.on('broadcast', { event: 'track_change' }, function(msg) {
                 var payload = msg.payload;
                 if (payload && payload.youtube_id && sloppyfmReady && sloppyfmPlayer) {
+                    // Skip if sync locked (prevents reload loops)
+                    if (sloppyfmSyncLock) {
+                        console.log('[SloppyFM] Sync locked, ignoring track_change');
+                        return;
+                    }
+
                     // Skip if same track is already playing
                     if (sloppyfmCurrentTrack && sloppyfmCurrentTrack.youtube_id === payload.youtube_id) {
                         console.log('[SloppyFM] Same track already playing, skipping reload');
                         return;
                     }
+
+                    // Lock sync to prevent loops
+                    sloppyfmSyncLock = true;
+                    clearTimeout(sloppyfmSyncLockTimeout);
+                    sloppyfmSyncLockTimeout = setTimeout(function() { sloppyfmSyncLock = false; }, 5000);
 
                     // Calculate seek position from started_at
                     var startedAt = new Date(payload.started_at).getTime();
@@ -8051,39 +8062,18 @@
 
                     sloppyfmCurrentTrack = payload;
                     sloppyfmCurrentTrack.started_at = payload.started_at;
+                    console.log('[SloppyFM] Loading track from broadcast:', payload.title);
                     sloppyfmPlayer.loadVideoById({
                         videoId: payload.youtube_id,
                         startSeconds: Math.max(0, elapsed)
                     });
                     updateSloppyFMUI();
-                    loadSloppyFMQueue(); // Refresh playlist
+                    loadSloppyFMQueue();
                 }
             });
 
-            // Position sync - receive current timestamp from other clients
-            sloppyfmChannel.on('broadcast', { event: 'position_sync' }, function(msg) {
-                var payload = msg.payload;
-                if (!payload || !sloppyfmReady || !sloppyfmPlayer || !sloppyfmIsPlaying) return;
-
-                // Debounce - don't sync more than once per debounce period
-                var now = Date.now();
-                if (now - sloppyfmLastSyncTime < sloppyfmSyncDebounce) return;
-
-                // Only sync if same track
-                if (sloppyfmCurrentTrack && payload.youtube_id === sloppyfmCurrentTrack.youtube_id) {
-                    var myPosition = sloppyfmPlayer.getCurrentTime() || 0;
-                    var theirPosition = payload.position;
-                    var diff = Math.abs(myPosition - theirPosition);
-
-                    // If more than tolerance seconds off, resync
-                    if (diff > sloppyfmSyncTolerance) {
-                        console.log('[SloppyFM] Position drift detected: ' + diff.toFixed(1) + 's, resyncing...');
-                        sloppyfmPlayer.seekTo(theirPosition, true);
-                        sloppyfmLastSyncTime = now;
-                        showToast('Radio synced', 'system');
-                    }
-                }
-            });
+            // Position sync disabled - using Supabase started_at as single source of truth
+            // Peer-to-peer position sync caused reload loops when multiple clients conflicted
 
             sloppyfmChannel.on('broadcast', { event: 'queue_update' }, function() {
                 loadSloppyFMQueue();
@@ -8092,35 +8082,11 @@
             sloppyfmChannel.subscribe();
         }
 
-        // Broadcast current position to sync other clients
-        function broadcastSloppyFMPosition() {
-            if (!sloppyfmChannel || !sloppyfmIsPlaying || !sloppyfmPlayer || !sloppyfmCurrentTrack) return;
-
-            var currentTime = sloppyfmPlayer.getCurrentTime();
-            if (currentTime > 0) {
-                sloppyfmChannel.send({
-                    type: 'broadcast',
-                    event: 'position_sync',
-                    payload: {
-                        youtube_id: sloppyfmCurrentTrack.youtube_id,
-                        position: currentTime,
-                        timestamp: Date.now()
-                    }
-                });
-            }
-        }
-
-        // Start position broadcasting when playing
-        function startSloppyFMPositionBroadcast() {
-            if (activeIntervals.has('sloppyfm-position')) return;
-            // Broadcast position every 5 seconds
-            registerInterval('sloppyfm-position', broadcastSloppyFMPosition, 5000);
-        }
-
-        // Stop position broadcasting
-        function stopSloppyFMPositionBroadcast() {
-            clearRegisteredInterval('sloppyfm-position');
-        }
+        // Position broadcasting disabled - caused sync conflicts
+        // Using Supabase started_at as single source of truth instead
+        function broadcastSloppyFMPosition() { /* disabled */ }
+        function startSloppyFMPositionBroadcast() { /* disabled */ }
+        function stopSloppyFMPositionBroadcast() { /* disabled */ }
 
         // Manual resync function
         window.sloppyfmResync = async function() {
@@ -8181,8 +8147,14 @@
             sloppyfmRenderPlaylist();
         }
 
-        // Sync playback state from Supabase
+        // Sync playback state from Supabase (single source of truth)
         async function syncSloppyFMState() {
+            // Skip if sync is locked (prevents loops)
+            if (sloppyfmSyncLock) {
+                console.log('[SloppyFM] Sync locked, skipping periodic sync');
+                return;
+            }
+
             var result = await supabase
                 .from('sloppygram_radio')
                 .select('*')
@@ -8200,21 +8172,30 @@
                 var needsTrackChange = !sloppyfmCurrentTrack ||
                     sloppyfmCurrentTrack.youtube_id !== track.youtube_id;
 
-                sloppyfmCurrentTrack = track;
-
                 if (sloppyfmReady && sloppyfmPlayer) {
                     if (needsTrackChange) {
-                        // Different track - load it
+                        // Lock before loading to prevent broadcast handler conflicts
+                        sloppyfmSyncLock = true;
+                        clearTimeout(sloppyfmSyncLockTimeout);
+                        sloppyfmSyncLockTimeout = setTimeout(function() { sloppyfmSyncLock = false; }, 5000);
+
+                        sloppyfmCurrentTrack = track;
+                        console.log('[SloppyFM] Loading track from Supabase:', track.title);
                         sloppyfmPlayer.loadVideoById({
                             videoId: track.youtube_id,
                             startSeconds: Math.max(0, elapsed)
                         });
                     } else if (sloppyfmIsPlaying) {
-                        // Same track - check if position needs correction
+                        // Same track - only correct if REALLY drifted (increased threshold)
                         var currentTime = sloppyfmPlayer.getCurrentTime() || 0;
                         var drift = Math.abs(currentTime - elapsed);
-                        if (drift > sloppyfmSyncTolerance) {
-                            console.log('[SloppyFM] Correcting drift of ' + drift.toFixed(1) + 's');
+                        if (drift > sloppyfmSyncTolerance * 2) {
+                            // Lock before seeking
+                            sloppyfmSyncLock = true;
+                            clearTimeout(sloppyfmSyncLockTimeout);
+                            sloppyfmSyncLockTimeout = setTimeout(function() { sloppyfmSyncLock = false; }, 3000);
+
+                            console.log('[SloppyFM] Correcting large drift of ' + drift.toFixed(1) + 's');
                             sloppyfmPlayer.seekTo(elapsed, true);
                         }
                     }
@@ -8222,9 +8203,9 @@
                 }
             }
 
-            // Set up periodic sync (every 10 seconds for tighter sync)
+            // Set up periodic sync (every 30 seconds - less aggressive)
             if (!activeIntervals.has('sloppyfm-sync')) {
-                registerInterval('sloppyfm-sync', syncSloppyFMState, 10000);
+                registerInterval('sloppyfm-sync', syncSloppyFMState, 30000);
             }
         }
 
