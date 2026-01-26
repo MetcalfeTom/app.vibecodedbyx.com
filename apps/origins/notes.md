@@ -3,6 +3,11 @@
 Visual timeline tracing Sloppygram's primordial evolution from "fart" to "AI Substrate".
 
 ## log
+- 2026-01-26: Added Deterministic Shift milestone
+  - Now fetches first two manifestos (AI Substrate + Deterministic Cognitive Engine)
+  - New "directive" event type with blue accent color
+  - Updated epoch label to 0 → 1 → 2
+  - Updated conclusion text for three-phase evolution
 - 2026-01-26: Initial creation
   - Fetches earliest messages and first manifesto from Supabase
   - Animated timeline with staggered fade-in
