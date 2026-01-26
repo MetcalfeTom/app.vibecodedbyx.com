@@ -7160,6 +7160,15 @@
 
             <!-- Themes Tab -->
             <div class="settings-panel" id="themesPanel">
+                <div class="form-group" style="background: rgba(124, 152, 133, 0.1); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="localThemeToggle" onchange="toggleLocalThemeMode(this.checked)" style="width: 18px; height: 18px; cursor: pointer;">
+                        <span>LOCAL ONLY MODE</span>
+                        <span style="font-size: 0.7rem; color: #888; margin-left: auto;" id="themeModeLabel">🌍 Global</span>
+                    </label>
+                    <p style="font-size: 0.7rem; color: #666; margin-top: 6px;">When enabled, your theme &amp; background only affect your view, not everyone's.</p>
+                </div>
+
                 <div class="form-group">
                     <label>MESSAGE OPACITY:</label>
                     <div class="theme-slider-row">
@@ -9985,6 +9994,7 @@
             setupDrawingCanvas();
             loadMessageOpacity();
             loadThemeSettings();
+            initLocalThemeMode(); // Restore local theme mode toggle and apply local background
             // Load saved sound settings (uses secure storage with obfuscation)
             const savedSounds = secureStorageGet('sloppygram_sounds');
             if (savedSounds) {
@@ -10618,6 +10628,13 @@
             realtimeChannel.on('broadcast', { event: 'global_background' }, (payload) => {
                 const bgData = payload.payload;
                 if (bgData && bgData.image_data) {
+                    // Skip if user has local mode enabled
+                    if (isLocalThemeMode && localBackground) {
+                        console.log('[Local Mode] Ignoring global background change from', bgData.username);
+                        addToFeed(bgData.username || 'Someone', 'changed the chat background (you have local override)');
+                        return;
+                    }
+
                     // Anti-strobe protection: throttle rapid incoming visual changes
                     const now = Date.now();
                     if (now - lastVisualChangeTime < VISUAL_CHANGE_COOLDOWN) {
@@ -12900,6 +12917,13 @@
 
             switch (settingType) {
                 case 'background':
+                    // Skip if user has local mode enabled (their local background takes precedence)
+                    if (isLocalThemeMode && localBackground) {
+                        console.log('[Local Mode] Ignoring global background change from', username);
+                        addToFeed(username, 'set global background (you have local override)');
+                        return;
+                    }
+
                     // Anti-strobe protection: throttle rapid incoming visual changes
                     const now = Date.now();
                     if (now - lastVisualChangeTime < VISUAL_CHANGE_COOLDOWN) {
@@ -13375,9 +13399,18 @@
             await loadGlobalBackgrounds();
         };
 
-        // Broadcast background to ALL users in real-time
+        // Set background - respects local mode toggle
         window.setGlobalBackground = function() {
-            if (!pendingBgData || !realtimeChannel) return;
+            if (!pendingBgData) return;
+
+            // If local mode, save locally only
+            if (isLocalThemeMode) {
+                setLocalOnlyBackground(pendingBgData);
+                return;
+            }
+
+            // Global mode - broadcast to everyone
+            if (!realtimeChannel) return;
 
             // Anti-strobe protection: rate limit global visual changes
             const rateCheck = checkRateLimit('global_visual');
@@ -13409,6 +13442,27 @@
             addToFeed(profile.username, 'set a new chat background');
         };
 
+        // Set background locally only (does not affect other users)
+        window.setLocalOnlyBackground = function(imageData) {
+            const data = imageData || pendingBgData;
+            if (!data) return;
+
+            // Save to localStorage
+            saveLocalBackground(data);
+
+            // Apply to UI
+            const msgContainer = getCachedElement('messagesContainer');
+            if (msgContainer) {
+                msgContainer.style.backgroundImage = `url(${data})`;
+                msgContainer.style.backgroundSize = 'cover';
+                msgContainer.style.backgroundPosition = 'center';
+                msgContainer.style.backgroundAttachment = 'fixed';
+                msgContainer.style.backgroundRepeat = 'no-repeat';
+            }
+
+            showToast('Background set (local only)', 'success');
+        };
+
         // Message opacity control
         window.setMessageOpacity = function(value) {
             const opacity = value / 100;
@@ -13437,6 +13491,53 @@
             highlightColor: '#c9a87c',
             panelBg: '#12121a'
         };
+
+        // Local theme mode - when enabled, themes/backgrounds only affect this user
+        let isLocalThemeMode = localStorage.getItem('sloppygram_local_theme_mode') === 'true';
+        let localBackground = localStorage.getItem('sloppygram_local_background') || null;
+
+        // Toggle local theme mode
+        window.toggleLocalThemeMode = function(enabled) {
+            isLocalThemeMode = enabled;
+            localStorage.setItem('sloppygram_local_theme_mode', enabled ? 'true' : 'false');
+            const label = document.getElementById('themeModeLabel');
+            if (label) {
+                label.textContent = enabled ? '🔒 Local' : '🌍 Global';
+                label.style.color = enabled ? '#7c9885' : '#888';
+            }
+            // Update Set Global button visibility
+            const setGlobalBtn = document.getElementById('setGlobalBgBtn');
+            if (setGlobalBtn) {
+                setGlobalBtn.style.display = enabled ? 'none' : 'block';
+            }
+            showToast(enabled ? 'Local mode: Your changes only affect you' : 'Global mode: Changes affect everyone', 'info');
+        };
+
+        // Apply local background override (called on init)
+        function applyLocalBackgroundOverride() {
+            if (isLocalThemeMode && localBackground) {
+                const msgContainer = getCachedElement('messagesContainer');
+                if (msgContainer) {
+                    msgContainer.style.backgroundImage = `url(${localBackground})`;
+                    msgContainer.style.backgroundSize = 'cover';
+                    msgContainer.style.backgroundPosition = 'center';
+                    msgContainer.style.backgroundAttachment = 'fixed';
+                    msgContainer.style.backgroundRepeat = 'no-repeat';
+                }
+            }
+        }
+
+        // Save local background (used when local mode is on)
+        function saveLocalBackground(imageData) {
+            localBackground = imageData;
+            try {
+                localStorage.setItem('sloppygram_local_background', imageData);
+            } catch (e) {
+                console.warn('[Local Theme] Could not save background to localStorage:', e);
+                // Try to compress or skip if too large
+                showToast('Background too large for local storage', 'warning');
+            }
+        }
 
         // Helper to find color option by matching background style (more robust than onclick matching)
         function findColorOption(gridId, colorValue) {
@@ -13569,6 +13670,25 @@
                     // Use selectPanelBg to properly update all related variables
                     selectPanelBg(themeSettings.panelBg);
                 }
+            }
+        }
+
+        // Initialize local theme mode UI state
+        function initLocalThemeMode() {
+            const toggle = document.getElementById('localThemeToggle');
+            const label = document.getElementById('themeModeLabel');
+
+            if (toggle) {
+                toggle.checked = isLocalThemeMode;
+            }
+            if (label) {
+                label.textContent = isLocalThemeMode ? '🔒 Local' : '🌍 Global';
+                label.style.color = isLocalThemeMode ? '#7c9885' : '#888';
+            }
+
+            // Apply local background if in local mode
+            if (isLocalThemeMode && localBackground) {
+                applyLocalBackgroundOverride();
             }
         }
 
