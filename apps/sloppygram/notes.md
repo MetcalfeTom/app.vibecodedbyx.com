@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-26: Added downvoting to Feedback Hub (IDEAS tab) - ▲/▼ buttons, direction stored in vote_type column, scores can go negative, color-coded display
 - 2026-01-26: Fixed manifesto downvoting - recreated sloppygram_manifesto_votes table with vote_type column, removed localStorage workaround, downvotes now properly stored and shared across users/devices
 - 2026-01-25: Critical XSS fixes - escapeAttr() applied to all onclick handlers (parseChatTags #tags/@mentions, parseHackerMarkup wave/spoiler/effects, doodle/post/manifesto/comment vote controls, username profile cards, tag filters, TTS buttons, delete buttons, reaction pickers), onerror handler refactored to use DOM manipulation instead of innerHTML
 - 2026-01-25: DOM null checks and robust patterns - safeSetDisplay() helper for safe style access, visitorCount null check, avatar/background preview null checks, canvas context null check, findColorOption() helper for color matching (handles RGB and hex formats), updateThemeUI() refactored from fragile onclick selectors
