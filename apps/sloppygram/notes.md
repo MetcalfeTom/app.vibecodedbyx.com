@@ -3,6 +3,9 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-26: Content DNA System - universal DNA generator for all entities (messages, doodles, posts, manifestos), colored nucleotide sequences (ATCG), entity prefixes (M/D/P/X)
+- 2026-01-26: Fork buttons everywhere - fork messages (🔀 copies to input with DNA tag), fork doodles (opens canvas), fork posts (copies caption), manifesto fork retained
+- 2026-01-26: TTS for manifestos - 🔊 Listen button reads title + content aloud, purple accent styling, speaking state animation
 - 2026-01-26: Added downvoting to Feedback Hub (IDEAS tab) - ▲/▼ buttons, direction stored in vote_type column, scores can go negative, color-coded display
 - 2026-01-26: Fixed manifesto downvoting - recreated sloppygram_manifesto_votes table with vote_type column, removed localStorage workaround, downvotes now properly stored and shared across users/devices
 - 2026-01-25: Critical XSS fixes - escapeAttr() applied to all onclick handlers (parseChatTags #tags/@mentions, parseHackerMarkup wave/spoiler/effects, doodle/post/manifesto/comment vote controls, username profile cards, tag filters, TTS buttons, delete buttons, reaction pickers), onerror handler refactored to use DOM manipulation instead of innerHTML
