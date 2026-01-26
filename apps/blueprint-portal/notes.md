@@ -1,36 +1,26 @@
 # Blueprint Portal
 
-Heavy-duty manifesto submission for code and blueprints.
+Minimal manifesto submission. Title + textarea.
 
 ## log
+- 2026-01-26: Simplified per o's request
+  - Removed: templates, author field, char stats, recent list, copy button, hints
+  - Kept: title input, big textarea, submit button, tab indentation, Ctrl+Enter
 - 2026-01-26: Initial creation
-  - Massive 50,000 character textarea for code submissions
-  - Direct Supabase upload to sloppygram_manifestos table
-  - JetBrains Mono code editor styling
-  - Live character/line count with limit bar
-  - Templates: React, Vanilla JS, Manifesto format
-  - Recent submissions list with click-to-load
-  - Tab key indentation support
-  - Ctrl+Enter to submit, Esc to clear
-  - Copy to clipboard button
-  - GitHub-inspired dark theme
+  - 50,000 character textarea
+  - Direct Supabase upload
+  - JetBrains Mono font
 
 ## features
-- **50,000 character limit** - handles full code files
-- **Code editor UX** - monospace font, tab indentation
-- **Live stats** - character count, line count, percentage bar
-- **Templates** - quick-start for React, Vanilla JS, Manifesto
-- **Recent blueprints** - see and load recent submissions
-- **Direct upload** - straight to Supabase, no middleware
-- **Keyboard shortcuts** - Tab, Ctrl+Enter, Esc
-- **Anonymous auth** - auto sign-in for submissions
+- Title input
+- 50,000 char textarea
+- Tab indentation
+- Ctrl+Enter to submit
+- Toast notifications
+- Anonymous auth
 
 ## todos
-- Add syntax highlighting (CodeMirror/Monaco)
-- Add file drag-and-drop upload
-- Add manifesto categories/tags
-- Add edit existing manifesto feature
-- Add share link generation
+- None - it's minimal now
 
 ## issues
-- None yet
+- None
