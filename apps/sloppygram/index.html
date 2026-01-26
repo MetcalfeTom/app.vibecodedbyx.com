@@ -9228,9 +9228,14 @@
             post: { limit: 3, window: 60000 },       // 3 posts per minute
             vote: { limit: 20, window: 60000 },      // 20 votes per minute
             comment: { limit: 10, window: 60000 },   // 10 comments per minute
-            drawing: { limit: 3, window: 30000 }     // 3 drawings per 30 seconds
+            drawing: { limit: 3, window: 30000 },    // 3 drawings per 30 seconds
+            global_visual: { limit: 1, window: 10000 }  // 1 global visual change per 10s (anti-strobe protection)
         };
         const actionTimestamps = {};  // { actionType: [timestamps] }
+
+        // Anti-strobe protection: throttle incoming visual changes (receiver-side)
+        let lastVisualChangeTime = 0;
+        const VISUAL_CHANGE_COOLDOWN = 3000; // 3 second minimum between visual changes
 
         function checkRateLimit(actionType) {
             const config = rateLimits[actionType];
@@ -10613,6 +10618,14 @@
             realtimeChannel.on('broadcast', { event: 'global_background' }, (payload) => {
                 const bgData = payload.payload;
                 if (bgData && bgData.image_data) {
+                    // Anti-strobe protection: throttle rapid incoming visual changes
+                    const now = Date.now();
+                    if (now - lastVisualChangeTime < VISUAL_CHANGE_COOLDOWN) {
+                        console.warn('[Anti-strobe] Blocked rapid background change from', bgData.username);
+                        return;
+                    }
+                    lastVisualChangeTime = now;
+
                     const msgContainer = getCachedElement('messagesContainer');
                     if (msgContainer) {
                         msgContainer.style.backgroundImage = 'url(' + bgData.image_data + ')';
@@ -12844,6 +12857,16 @@
         async function broadcastGlobalSetting(settingType, settingValue, extraData = '') {
             if (!currentUser) return;
 
+            // Anti-strobe protection: rate limit global visual changes (backgrounds, themes)
+            if (settingType === 'background' || settingType === 'theme') {
+                const rateCheck = checkRateLimit('global_visual');
+                if (!rateCheck.allowed) {
+                    showToast(`Cooldown active. Wait ${rateCheck.waitTime}s before changing visuals again.`, 'warning');
+                    return;
+                }
+                recordAction('global_visual');
+            }
+
             // Broadcast via realtime channel for instant update
             if (globalSettingsChannel) {
                 globalSettingsChannel.send({
@@ -12877,6 +12900,14 @@
 
             switch (settingType) {
                 case 'background':
+                    // Anti-strobe protection: throttle rapid incoming visual changes
+                    const now = Date.now();
+                    if (now - lastVisualChangeTime < VISUAL_CHANGE_COOLDOWN) {
+                        console.warn('[Anti-strobe] Blocked rapid visual change from', username);
+                        return; // Silently ignore rapid changes
+                    }
+                    lastVisualChangeTime = now;
+
                     const msgContainer = getCachedElement('messagesContainer');
                     if (msgContainer && settingValue) {
                         msgContainer.style.backgroundImage = `url(${settingValue})`;
@@ -13347,6 +13378,14 @@
         // Broadcast background to ALL users in real-time
         window.setGlobalBackground = function() {
             if (!pendingBgData || !realtimeChannel) return;
+
+            // Anti-strobe protection: rate limit global visual changes
+            const rateCheck = checkRateLimit('global_visual');
+            if (!rateCheck.allowed) {
+                showToast(`Cooldown active. Wait ${rateCheck.waitTime}s before changing visuals again.`, 'warning');
+                return;
+            }
+            recordAction('global_visual');
 
             realtimeChannel.send({
                 type: 'broadcast',
