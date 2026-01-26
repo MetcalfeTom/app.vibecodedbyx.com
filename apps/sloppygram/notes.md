@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-26: Fixed manifesto downvoting - recreated sloppygram_manifesto_votes table with vote_type column, removed localStorage workaround, downvotes now properly stored and shared across users/devices
 - 2026-01-25: Critical XSS fixes - escapeAttr() applied to all onclick handlers (parseChatTags #tags/@mentions, parseHackerMarkup wave/spoiler/effects, doodle/post/manifesto/comment vote controls, username profile cards, tag filters, TTS buttons, delete buttons, reaction pickers), onerror handler refactored to use DOM manipulation instead of innerHTML
 - 2026-01-25: DOM null checks and robust patterns - safeSetDisplay() helper for safe style access, visitorCount null check, avatar/background preview null checks, canvas context null check, findColorOption() helper for color matching (handles RGB and hex formats), updateThemeUI() refactored from fragile onclick selectors
 - 2026-01-25: Drag handler refactor - centralized makeDraggable() system with registerListener() tracking, all 16 widgets now use cleanup-ready handlers, clearAllTimers() clears all listeners
@@ -193,7 +194,7 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - sloppygram_global_backgrounds: image_data, username, name
 - sloppygram_post_tags: post_id, tag, parent_tag
 - sloppygram_manifestos: title, content, username, avatar, upvotes
-- sloppygram_manifesto_votes: manifesto_id, username
+- sloppygram_manifesto_votes: manifesto_id, username, vote_type (1=up, -1=down)
 - sloppygram_manifesto_reactions: manifesto_id, emoji, username
 - sloppygram_manifesto_comments: manifesto_id, username, avatar, content
 - sloppygram_manifesto_tags: manifesto_id, tag, parent_tag
