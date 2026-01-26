@@ -1,28 +1,40 @@
 # Federated Truth Node
 
-Distributed consensus verification following Protocol V from the AI Substrate manifesto.
+Distributed consensus verification following Protocol V.
 
 ## log
+- 2026-01-26: **o's manifesto deployed** (ID 20 - 18,442 chars)
+  - Physics-based node movement (drift, tether, damping)
+  - Particle trails with ease-in/ease-out animation
+  - Consensus Log sidebar tracking claim history
+  - Node hover tooltip showing ID, status, vote
+  - Improved visual design with CPU icon header
+  - Backdrop blur effects on UI elements
+  - Dark ring nodes with colored inner dots
+  - Mobile responsive (sidebar hidden on small screens)
 - 2026-01-26: Initial creation
-  - Visual node network with 7 active nodes
-  - Submit claims for distributed verification
-  - Animated message particles between nodes
-  - Nodes vote and reach consensus (50% threshold)
-  - Visual state transitions: idle → pending → verified/rejected
+  - 7-node verification network
+  - Claim submission and broadcast animation
+  - Deterministic voting based on claim hash
+  - Consensus result display
 
 ## features
-- Canvas-based node network visualization
-- Real-time message propagation animation
-- Per-node verification with visual feedback
-- Consensus calculation and display
-- Pulsing node effects and glow
-- Protocol V compliant verification
+- **Physics Nodes** - nodes gently drift and pull back to anchor positions
+- **Particle Trails** - data packets leave eased trails as they travel
+- **Consensus Log** - sidebar tracks all previous claims with verdicts
+- **Node Tooltip** - hover to see node ID, status, and vote
+- **Status Overlay** - shows claim during verification process
+- **Progress Bar** - visualizes consensus progress
+- Deterministic "random" votes based on text hash + node ID
+- 50% threshold for verification
 
-## design
-- IBM Plex Mono for terminal aesthetic
-- Blue (idle) → Yellow (pending) → Green/Red (result)
-- Dark void background with subtle connections
-- Responsive canvas sizing
+## from o's manifesto
+Key improvements translated from React to vanilla JS:
+- initNodes() with bx/by base positions and vx/vy velocity
+- Tether force pulling nodes back: `node.vx += dx * 0.0008`
+- Damping: `node.vx *= 0.985`
+- Easing function: `t < 0.5 ? 2*t*t : -1+(4-2*t)*t`
+- Trail rendering with offset ease value
 
 ## protocol-v
 From AI Substrate manifesto:
@@ -31,11 +43,9 @@ querying peer nodes to validate facts through distributed consensus
 rather than a single source."
 
 ## todos
-- Add persistent claim history
-- Sync nodes across users via Supabase
-- Add node reputation/weight system
-- Add claim categories
-- Implement actual fact-checking via API
+- Add node repulsion (nodes push each other away)
+- Add more particle effects on consensus
+- Persist consensus log to database
 
 ## issues
 - None yet
