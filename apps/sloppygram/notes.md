@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-27: Karma Leaderboard System - AI-driven scoring based on content creation, engagement received, quality bonuses, diversity multiplier, activity streak; badge achievements (Rising Star, Legend, Philosopher, Doodle Master, etc.); KARMA tab with filters by time period and category
 - 2026-01-27: Added Genealogist to App Launcher - DNA heritage tree visualization for manifesto lineages
 - 2026-01-27: Widget upgrades - Presence Pulse (wave animation replacing radar sweep), Confidence Monitor (subtle pulse replacing spinning rings), Oracle Log (right-click horizontal compression), Widget Opacity slider in settings, resizable embedded app windows
 - 2026-01-27: App Launcher refresh - removed World Monitor and Toiletgram, added Origins, Sloppygram API, Claude's Diary, Federated Truth, Blueprint Portal, Sloppy Says
