@@ -3,6 +3,12 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-01-27: Full feature update
+  - Vault search/filter (real-time filtering of own entries)
+  - Public vault browser (search other users' public data)
+  - Recent public entries feed
+  - JSON export/import functionality
+  - Sloppygram profile integration (link from profile cards, URL params)
 - 2026-01-27: Initial creation
   - Hybrid auth (Twitter OAuth + Anonymous)
   - Data Vault for JSON metadata storage
@@ -111,10 +117,14 @@ Required: session_id, fidelity_score, initiated_at
 - Responsive mobile layout
 
 ## Todos
-- Add vault entry search/filter
-- Add public vault viewer (view other users' public data)
-- Add vault export/import (JSON)
-- Integration with Sloppygram profile
+- None currently
+
+## Completed
+- ✓ Vault entry search/filter
+- ✓ Public vault viewer (search other users' public data)
+- ✓ Recent public entries feed
+- ✓ Vault export/import (JSON)
+- ✓ Sloppygram profile integration
 
 ## Issues
 - None yet
