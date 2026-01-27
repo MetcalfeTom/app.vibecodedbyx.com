@@ -3,6 +3,7 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-27: Widget upgrades - Presence Pulse (wave animation replacing radar sweep), Confidence Monitor (subtle pulse replacing spinning rings), Oracle Log (right-click horizontal compression), Widget Opacity slider in settings, resizable embedded app windows
 - 2026-01-27: App Launcher refresh - removed World Monitor and Toiletgram, added Origins, Sloppygram API, Claude's Diary, Federated Truth, Blueprint Portal, Sloppy Says
 - 2026-01-26: Content DNA System - universal DNA generator for all entities (messages, doodles, posts, manifestos), colored nucleotide sequences (ATCG), entity prefixes (M/D/P/X)
 - 2026-01-26: Fork buttons everywhere - fork messages (🔀 copies to input with DNA tag), fork doodles (opens canvas), fork posts (copies caption), manifesto fork retained
