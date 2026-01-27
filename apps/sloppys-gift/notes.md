@@ -47,9 +47,11 @@ Each gift uses a timestamp-based seed for reproducibility.
 
 ## Todos
 - Add sharing to social media
-- Store generated gifts in database
 - Add daily gift limit
-- Create gift gallery
+
+## Completed
+- ✓ Store generated gifts in database (leaderboard)
+- ✓ Create gift gallery (standalone app: gift-gallery)
 
 ## Issues
 - None yet
