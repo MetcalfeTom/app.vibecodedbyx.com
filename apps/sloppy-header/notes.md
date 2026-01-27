@@ -3,6 +3,11 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-01-27: Added Random Teleport feature
+  - 🌀 Teleport button sends users to random app from 60+ curated picks
+  - Excludes current app from selection
+  - Fun scale/glow effect on click
+  - Spinning icon animation
 - 2026-01-27: Initial creation
   - Proposal document with full design spec
   - Working sloppy-bar.js component (~3KB)
@@ -14,6 +19,7 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
 - **Karma Badge**: Real-time karma from sloppygram_karma
 - **Premium Status**: Crown badge for premium users
 - **Quick Links**: Karma, Vault, Apps, Health
+- **Random Teleport**: 🌀 button sends to random app from 60+ curated picks
 - **Minimizable**: Collapse to single icon
 - **Responsive**: Mobile-friendly design
 - **Single File**: One script tag integration

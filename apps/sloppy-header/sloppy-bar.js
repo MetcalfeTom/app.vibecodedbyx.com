@@ -29,6 +29,25 @@
     hideLinks: script?.getAttribute('data-hide-links') === 'true'
   };
 
+  // Curated app list for random teleport (mix of games, tools, creative apps)
+  const TELEPORT_APPS = [
+    'neon-tetris', 'breakout-terminal', 'icy-tower', 'star-catcher', 'neon-flappy',
+    'snake', 'asteroids', 'space-invaders', 'platformer', 'minecraft',
+    'sloppygram', 'sloppy-spectrum', 'graffiti-wall', 'pixel-editor', 'confession-wall',
+    'wiki-scout', 'cosmic-chat', 'chat-buddy', 'knowledge-chaos', 'oracle-log',
+    'neon-synth', 'lofi-beats', 'ghost-town-radio', 'oscillator', 'kaleidoscope',
+    'generative-art', 'lava-lamp', 'fluid-sim', 'chrome-sphere', 'aurora-lab',
+    'btc-tracker', 'solana-tracker', 'sloppy-coin-info', 'crypto-tools',
+    'claudes-digital-diary', 'federated-truth', 'future-news', 'comedy-club',
+    'toilet-run', 'coin-pusher', 'bouldering-game', 'candle-jumper', 'bug-zap',
+    'cozy-pet', 'fish-tank', 'plant-cli', 'void-fishing', 'pancake-stack',
+    'neon-casino', 'sloppy-slots', 'golden-game', 'treasure-calculator',
+    'crt-calculator', 'chaos-organizer', 'tombstone-todo', 'cyber-vault',
+    'text-effects', 'cowsay', 'ascii-art', 'quine-viz', 'deadfish',
+    'romance-quest', 'medieval-romance', 'love-sloppy', 'horny-jail',
+    'neon-guestbook', 'guestbook', 'the-last-word', 'lost-found'
+  ];
+
   // State
   let supabase = null;
   let currentUser = null;
@@ -190,6 +209,35 @@
     .sloppy-bar:not(.minimized) .sloppy-bar-minimized-icon {
       display: none;
     }
+    .sloppy-bar-teleport {
+      background: linear-gradient(135deg, #aa66ff, #ff66aa);
+      color: #fff;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: inherit;
+    }
+    .sloppy-bar-teleport:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 12px rgba(170, 102, 255, 0.5);
+    }
+    .sloppy-bar-teleport:active {
+      transform: scale(0.95);
+    }
+    .sloppy-bar-teleport-icon {
+      animation: sloppy-bar-spin 2s linear infinite;
+    }
+    @keyframes sloppy-bar-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
     @media (max-width: 600px) {
       .sloppy-bar-center { display: none; }
       .sloppy-bar-username { max-width: 80px; }
@@ -316,6 +364,9 @@
       </div>
       ` : ''}
       <div class="sloppy-bar-right">
+        <button class="sloppy-bar-teleport" onclick="window.sloppyBarTeleport()" title="Random app adventure!">
+          <span class="sloppy-bar-teleport-icon">🌀</span> Teleport
+        </button>
         ${isAnon && isLoggedIn ? `
           <a href="/sloppy-id" class="sloppy-bar-auth-btn">Connect Twitter</a>
         ` : ''}
@@ -348,6 +399,31 @@
     isMinimized = !isMinimized;
     render();
     // Prevent event bubbling
+    event?.stopPropagation();
+  };
+
+  // Global teleport function - random app adventure!
+  window.sloppyBarTeleport = function() {
+    // Get current app path to avoid teleporting to same app
+    const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
+
+    // Filter out current app
+    const availableApps = TELEPORT_APPS.filter(app => app !== currentPath);
+
+    // Pick a random app
+    const randomApp = availableApps[Math.floor(Math.random() * availableApps.length)];
+
+    // Navigate with a fun effect
+    const btn = document.querySelector('.sloppy-bar-teleport');
+    if (btn) {
+      btn.style.transform = 'scale(1.2)';
+      btn.style.boxShadow = '0 0 20px rgba(170, 102, 255, 0.8)';
+    }
+
+    setTimeout(() => {
+      window.location.href = '/' + randomApp;
+    }, 200);
+
     event?.stopPropagation();
   };
 
