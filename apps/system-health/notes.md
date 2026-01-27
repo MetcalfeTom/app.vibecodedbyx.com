@@ -56,5 +56,38 @@ Real-time monitoring of sloppy.live database tables and services.
 ## Todos
 - None currently
 
+## Next Development Phase: HEALTH v2.0
+**Theme: Predictive Monitoring & Automated Response**
+
+1. **Advanced Metrics**
+   - Query performance tracking
+   - Storage usage per table
+   - Real-time error rate monitoring
+   - Response time histograms
+
+2. **Alerting System**
+   - Threshold-based alerts
+   - Anomaly detection (ML-based)
+   - Slack/Discord notifications
+   - Alert history and acknowledgment
+
+3. **Historical Analysis**
+   - 30-day trend charts per table
+   - Growth rate projections
+   - Capacity planning tools
+   - Database optimization suggestions
+
+4. **Automated Health Checks**
+   - Scheduled integrity scans
+   - Dead row detection
+   - Index health monitoring
+   - RLS policy verification
+
+5. **Admin Actions**
+   - One-click table maintenance
+   - Backup status visibility
+   - Migration tracking
+   - Emergency procedures dashboard
+
 ## Issues
 - None yet

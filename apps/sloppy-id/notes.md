@@ -119,6 +119,39 @@ Required: session_id, fidelity_score, initiated_at
 ## Todos
 - None currently
 
+## Next Development Phase: IDENTITY v2.0
+**Theme: Decentralized Identity & Cross-Platform Portability**
+
+1. **Identity Verification Tiers**
+   - Email verification badge
+   - Social proof connections (GitHub, Discord)
+   - Web3 wallet linking
+   - Trust score calculation
+
+2. **Portable Identity**
+   - QR code identity sharing
+   - Deep link profile imports
+   - Identity backup/restore encryption
+   - Cross-device sync
+
+3. **Privacy Controls**
+   - Granular visibility settings per vault key
+   - Anonymous mode toggle
+   - Data retention controls
+   - Activity history management
+
+4. **Enhanced Vault**
+   - Rich media support (images, files)
+   - Vault templates for common use cases
+   - Version history for entries
+   - Collaborative vault sharing
+
+5. **Integration Hub**
+   - OAuth provider for third-party apps
+   - API key management
+   - Webhook notifications
+   - Activity audit logs
+
 ## Completed
 - ✓ Vault entry search/filter
 - ✓ Public vault viewer (search other users' public data)

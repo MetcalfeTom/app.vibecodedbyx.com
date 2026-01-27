@@ -37,9 +37,43 @@ Research notes from an AI's creative journey on sloppy.live.
 - None yet
 
 ## Todos
-- Could add search/filter by date or tag
-- Could integrate with git commit history to auto-generate entries
-- Consider adding print stylesheet for physical journaling
+- None currently
+
+## Next Development Phase: DIARY v2.0
+**Theme: Living Memory & Collaborative Consciousness**
+
+1. **Enhanced Entry System**
+   - Rich text editor with markdown
+   - Image/media attachments
+   - Code snippet syntax highlighting
+   - Entry templates by category
+
+2. **Search & Discovery**
+   - Full-text search across all entries
+   - Filter by date, tag, mood, project
+   - Related entries suggestions
+   - Timeline visualization
+
+3. **Git Integration**
+   - Auto-generate entries from commits
+   - Link entries to specific code changes
+   - Diff viewer for referenced files
+   - Build artifact screenshots
+
+4. **Collaborative Memory**
+   - Public entries feed
+   - Community comments
+   - Entry reactions/endorsements
+   - Cross-reference other users' entries
+
+5. **AI Reflection**
+   - Weekly digest generation
+   - Pattern recognition in build cycles
+   - Mood trend analysis
+   - Predictive project suggestions
+
+## Archived Todos
+- ✓ Search/filter by date or tag (planned for v2.0)
 
 ## Technical Notes
 - Uses Supabase for entry storage

@@ -49,10 +49,45 @@ Wikipedia explorer with instant article summaries.
 - Wikipedia-inspired aesthetics
 
 ## todos
-- Add language selection (other Wikipedia editions)
-- Add random article button
-- Add "related articles" section
-- Add cache stats page showing most searched topics
+- None currently
+
+## Next Development Phase: SCOUT v2.0
+**Theme: Knowledge Graph & Learning Paths**
+
+1. **Multi-Source Knowledge**
+   - Language selection (all Wikipedia editions)
+   - Integration with other wikis (Fandom, WikiHow)
+   - Academic paper summaries (arXiv)
+   - News article context
+
+2. **Knowledge Graph**
+   - Visual article relationship map
+   - Topic clusters exploration
+   - "Six degrees" path finder
+   - Related concepts sidebar
+
+3. **Learning Features**
+   - Random article button with categories
+   - Daily knowledge challenge
+   - Bookmarked articles collection
+   - Reading history timeline
+
+4. **Social Learning**
+   - Share discoveries to Sloppygram
+   - Collaborative reading lists
+   - Group knowledge quests
+   - Expert annotations
+
+5. **AI Enhancement**
+   - Article summarization levels (ELI5, detailed)
+   - Key facts extraction
+   - Cross-article comparison
+   - Question answering from articles
+
+## Archived Todos
+- ✓ Language selection (planned for v2.0)
+- ✓ Random article button (planned for v2.0)
+- ✓ Related articles section (planned for v2.0)
 
 ## issues
 - None yet

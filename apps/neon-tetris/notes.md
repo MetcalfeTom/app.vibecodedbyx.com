@@ -20,10 +20,40 @@
 - None so far
 
 ## todos
-- Could add hold piece feature
-- Could add high score persistence
-- Could add sound effects
-- Could add T-spin detection
+- None currently
+
+## Next Development Phase: TETRIS v2.0
+**Theme: Competitive Multiplayer & Modern Features**
+
+1. **Hold & Preview**
+   - Hold piece feature (swap current)
+   - Extended preview (next 3-5 pieces)
+   - Piece statistics tracker
+   - Perfect clear detection
+
+2. **Scoring & Persistence**
+   - Global leaderboard (Supabase)
+   - Personal best tracking
+   - T-spin detection and bonus
+   - Combo system with multipliers
+
+3. **Multiplayer Mode**
+   - 1v1 real-time battles
+   - Garbage line sending
+   - Matchmaking system
+   - Ranked ladder
+
+4. **Audio & Effects**
+   - Procedural sound effects
+   - Background music tracks
+   - Line clear celebrations
+   - Perfect clear animations
+
+5. **Customization**
+   - Custom color themes
+   - Block skins/textures
+   - Ghost piece styles
+   - Board size options (10x20, 10x40)
 
 ## notes
 ### Controls:

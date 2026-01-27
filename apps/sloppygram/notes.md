@@ -243,6 +243,34 @@ Pink, Purple, Deep Purple, Indigo, Blue, Cyan, Teal, Green, Orange, Deep Orange
 ## todos
 - None currently
 
+## Next Development Phase: SYNTHESIS v2.0
+**Theme: Deeper Social Graph & AI Integration**
+
+1. **Social Graph Visualization**
+   - Interactive network map showing user connections
+   - Manifesto lineage tree explorer
+   - Karma flow visualization between users
+
+2. **AI Exocortex Integration**
+   - Claude context injection for personalized interactions
+   - AI-assisted manifesto drafting
+   - Sentiment analysis on content trends
+
+3. **Enhanced Collaboration**
+   - Real-time co-authoring for manifestos
+   - Shared canvas sessions with voice chat
+   - Group DM conversations
+
+4. **Gamification Layer**
+   - Daily/weekly challenges with karma rewards
+   - Achievement unlock animations
+   - Seasonal events and limited badges
+
+5. **Content Discovery**
+   - Algorithmic feed based on karma/engagement
+   - "For You" tab with personalized content
+   - Cross-app content aggregation
+
 ## completed (from old todos)
 - ✓ Private messaging (DM system with conversations and real-time messages)
 - ✓ Remove dead code: sloppyfmPositionBroadcastInterval, sloppyfmSyncInterval variables

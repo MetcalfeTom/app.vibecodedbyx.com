@@ -53,10 +53,41 @@ Global collaborative graffiti wall. Spray paint together with everyone in realti
 - Save button to download artwork
 
 ## todos
-- Add undo functionality
-- Add more colors or color picker
-- Add stencil shapes
-- Add clear all button (admin only)
+- None currently
+
+## Next Development Phase: GRAFFITI v2.0
+**Theme: Advanced Tools & Community Curation**
+
+1. **Enhanced Drawing Tools**
+   - Full color picker with custom hex
+   - Undo/redo with 50-state history
+   - Brush opacity/transparency
+   - Spray pattern variations (splatter, drip)
+   - Shape stencils (circles, squares, stars)
+
+2. **Layer System**
+   - Multiple canvas layers
+   - Layer opacity controls
+   - Background layer presets
+   - Import image as layer
+
+3. **Community Features**
+   - Gallery of saved walls
+   - Wall voting/likes
+   - Featured artist spotlight
+   - Time-lapse replays of creation
+
+4. **Collaboration Modes**
+   - Private rooms with invite links
+   - Turn-based collaborative mode
+   - Artist battle mode
+   - Themed wall challenges
+
+5. **Export & Sharing**
+   - High-res export options
+   - Animated GIF export (creation replay)
+   - Direct share to Sloppygram
+   - Print-ready poster generation
 
 ## issues
 - None yet
