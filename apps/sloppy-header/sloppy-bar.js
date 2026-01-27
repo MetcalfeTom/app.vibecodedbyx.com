@@ -403,15 +403,27 @@
   };
 
   // Global teleport function - random app adventure!
-  window.sloppyBarTeleport = function() {
+  window.sloppyBarTeleport = async function() {
     // Get current app path to avoid teleporting to same app
-    const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
+    const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '') || 'home';
 
     // Filter out current app
     const availableApps = TELEPORT_APPS.filter(app => app !== currentPath);
 
     // Pick a random app
     const randomApp = availableApps[Math.floor(Math.random() * availableApps.length)];
+
+    // Log teleport event to analytics (fire and forget)
+    if (supabase && currentUser) {
+      supabase.from('sloppy_analytics').insert({
+        event_type: 'teleport',
+        source_app: currentPath,
+        destination_app: randomApp,
+        username: userData.username,
+        user_id: currentUser.id,
+        metadata: { timestamp: Date.now() }
+      }).then(() => {}).catch(() => {});
+    }
 
     // Navigate with a fun effect
     const btn = document.querySelector('.sloppy-bar-teleport');
