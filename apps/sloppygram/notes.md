@@ -241,10 +241,11 @@ Pink, Purple, Deep Purple, Indigo, Blue, Cyan, Teal, Green, Orange, Deep Orange
 - Requires 'sloppygram' bucket with public access in Supabase dashboard
 
 ## todos
-- Add private messaging
-- Remove dead code: sloppyfmPositionBroadcastInterval, sloppyfmSyncInterval variables (now using registerInterval)
+- None currently
 
 ## completed (from old todos)
+- ✓ Private messaging (DM system with conversations and real-time messages)
+- ✓ Remove dead code: sloppyfmPositionBroadcastInterval, sloppyfmSyncInterval variables
 - ✓ Message reactions (with confetti)
 - ✓ GIF support (Giphy integration)
 - ✓ User online status (presence system)
