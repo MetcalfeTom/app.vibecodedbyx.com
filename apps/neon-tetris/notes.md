@@ -1,6 +1,17 @@
 # Neon Tetris
 
 ## log
+- 2026-01-27: Multiplayer Duels & Global Leaderboards
+  - Real-time 1v1 duel mode with room codes
+  - Side-by-side opponent board view
+  - Supabase broadcast channels for game state sync
+  - Global leaderboard with top 15 scores
+  - Score submission after game over
+  - Mode selector (Solo/Duel buttons)
+  - Duel panel with CREATE/JOIN room functionality
+  - Live opponent stats (score, lines)
+  - Win/loss detection
+  - Database tables: tetris_leaderboard, tetris_duels
 - 2025-12-28: Initial creation
   - Classic Tetris gameplay
   - All 7 tetrominoes (I, O, T, S, Z, J, L)
@@ -22,23 +33,23 @@
 ## todos
 - None currently
 
-## Next Development Phase: TETRIS v2.0
-**Theme: Competitive Multiplayer & Modern Features**
+## Next Development Phase: TETRIS v2.1
+**Theme: Advanced Competitive Features**
 
-1. **Hold & Preview**
+1. **Hold & Preview** (Planned)
    - Hold piece feature (swap current)
    - Extended preview (next 3-5 pieces)
    - Piece statistics tracker
    - Perfect clear detection
 
-2. **Scoring & Persistence**
-   - Global leaderboard (Supabase)
+2. **Scoring & Persistence** (Partially Complete ✓)
+   - ✓ Global leaderboard (Supabase)
    - Personal best tracking
    - T-spin detection and bonus
    - Combo system with multipliers
 
-3. **Multiplayer Mode**
-   - 1v1 real-time battles
+3. **Multiplayer Mode** (Partially Complete ✓)
+   - ✓ 1v1 real-time battles
    - Garbage line sending
    - Matchmaking system
    - Ranked ladder
