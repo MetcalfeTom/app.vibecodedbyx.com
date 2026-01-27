@@ -3,6 +3,17 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-27: Faction Wars System
+  - 5 digital clans: Phoenix Order, Shadow Collective, Cyber Nexus, Verdant Grove, Cosmic Void
+  - 5x5 territory grid (25 territories) with defense ratings
+  - Pledge allegiance to join a faction
+  - Territory battles with attack/defense power rolls
+  - Attack power based on karma + contribution score
+  - Battle log showing recent conquests
+  - Clan leaderboard ranked by territory control
+  - Member contribution tracking (battles won/lost)
+  - Database tables: sloppygram_factions, sloppygram_faction_members, sloppygram_territories, sloppygram_faction_battles
+  - FACTIONS tab in header
 - 2026-01-27: Social Graph - Follows & Mentions
   - sloppygram_follows table for follower/following relationships
   - sloppygram_mentions table for @mention notifications
@@ -224,7 +235,11 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - sloppygram_manifesto_lineage: manifesto_id, parent_id, fork_type (tracks forking/ancestry)
 - sloppygram_follows: follower_username, followed_username, follower_id, followed_id (social graph)
 - sloppygram_mentions: mentioned_username, source_type, source_id, source_username, seen (mention notifications)
-- ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast, follow)
+- sloppygram_factions: faction_id, name, emoji, color, description, member_count, territory_count, power_score
+- sloppygram_faction_members: username, faction_id, contribution_score, battles_won, battles_lost
+- sloppygram_territories: territory_id, name, grid_x, grid_y, controlling_faction, defense_power, captured_at, captured_by
+- sloppygram_faction_battles: attacker_faction, defender_faction, territory_id, attacker_username, attacker_power, defender_power, winner_faction, status
+- ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast, follow, faction_join, faction_battle)
 
 ## avatars
 😀 😎 🤖 👽 🐱 🐶 🦊 🐼 🐸 🦄 🐲 👻 💀 🎃 🤡 👾 🥷 🧙
