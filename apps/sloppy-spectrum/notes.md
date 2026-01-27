@@ -3,6 +3,13 @@
 Interactive visualization of the sloppy.live digital domains and guiding principles.
 
 ## Log
+- 2026-01-27: Full feature update
+  - Click-through to related apps (all apps have URL mappings)
+  - Principle endorsement system with Supabase persistence
+  - Karma integration (+1 karma per endorsement)
+  - User bar showing username and karma
+  - Anonymous auth for quick endorsing
+  - Created spectrum_endorsements table
 - 2026-01-27: Initial creation
   - Radial spectrum visualization with 6 domains
   - 4 principles per domain (24 total)
@@ -71,10 +78,23 @@ Interactive visualization of the sloppy.live digital domains and guiding princip
 - Canvas-based rendering for smooth animation
 - Responsive mobile layout
 
+## Database
+Table: `spectrum_endorsements`
+- username (text)
+- principle_key (text) - e.g., "0-2" for Identity domain, 3rd principle
+- domain_name (text)
+- principle_text (text)
+- user_id (uuid)
+
+RLS: Read all, write own.
+
 ## Todos
-- Add click-through to related apps
-- Add principle voting/endorsement
-- Connect to Sloppygram karma system
+- None currently
+
+## Completed
+- ✓ Click-through to related apps (URL mappings)
+- ✓ Principle voting/endorsement system
+- ✓ Sloppygram karma integration (+1 karma per endorsement)
 
 ## Issues
 - None yet
