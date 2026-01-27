@@ -3,6 +3,16 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-27: Social Graph - Follows & Mentions
+  - sloppygram_follows table for follower/following relationships
+  - sloppygram_mentions table for @mention notifications
+  - Follow/unfollow buttons on profile cards
+  - Follower/following counts displayed on profiles
+  - Self-mentions highlighted with gold pulse animation
+  - Mention notifications when someone @mentions you
+  - Rate limiting on follows (10/minute)
+  - Mentions auto-saved when posting messages
+  - Periodic mention checking (every 30 seconds)
 - 2026-01-27: Karma Leaderboard System - AI-driven scoring based on content creation, engagement received, quality bonuses, diversity multiplier, activity streak; badge achievements (Rising Star, Legend, Philosopher, Doodle Master, etc.); KARMA tab with filters by time period and category
 - 2026-01-27: Added Genealogist to App Launcher - DNA heritage tree visualization for manifesto lineages
 - 2026-01-27: Widget upgrades - Presence Pulse (wave animation replacing radar sweep), Confidence Monitor (subtle pulse replacing spinning rings), Oracle Log (right-click horizontal compression), Widget Opacity slider in settings, resizable embedded app windows
@@ -212,7 +222,9 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - sloppygram_collab_strokes: start_x, start_y, end_x, end_y, color, username (persisted collaborative canvas)
 - sloppygram_message_tags: message_id, tag, parent_tag (chat message tagging system)
 - sloppygram_manifesto_lineage: manifesto_id, parent_id, fork_type (tracks forking/ancestry)
-- ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast)
+- sloppygram_follows: follower_username, followed_username, follower_id, followed_id (social graph)
+- sloppygram_mentions: mentioned_username, source_type, source_id, source_username, seen (mention notifications)
+- ai_events: event_type, entity_type, entity_id, username, metadata (logs post_created, vote_cast, follow)
 
 ## avatars
 😀 😎 🤖 👽 🐱 🐶 🦊 🐼 🐸 🦄 🐲 👻 💀 🎃 🤡 👾 🥷 🧙
