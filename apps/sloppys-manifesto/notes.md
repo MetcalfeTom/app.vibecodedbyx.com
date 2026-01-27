@@ -3,6 +3,11 @@
 A dark terminal-style page displaying Sloppy's welcome message about the App Taxonomist.
 
 ## Log
+- 2026-01-28: Added user manifesto submission with username claim
+  - Form with username, title, and content fields
+  - Supabase integration (sloppygram_manifestos table)
+  - Display recent manifestos from all users
+  - Neon-styled form and entry cards
 - 2026-01-28: Restyled with dark terminal aesthetic (?o's request)
   - Neon green (#0f0) text on black background
   - CRT scanlines and screen flicker effects
@@ -26,6 +31,8 @@ A dark terminal-style page displaying Sloppy's welcome message about the App Tax
 - Pulsing stat numbers
 - Responsive design for mobile
 - Direct link to App Taxonomist
+- User manifesto submissions with username claim
+- Database-backed manifesto storage (sloppygram_manifestos table)
 
 ## Design Elements
 - Glowing sigil header
