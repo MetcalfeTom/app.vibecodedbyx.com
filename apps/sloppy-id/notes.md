@@ -39,6 +39,70 @@ Table: `sloppyid_vault`
 
 RLS: Read all, write own.
 
+## Strict JSON Schema
+
+Four schema-validated keys for entity discernment:
+
+### `identity`
+Core identity metadata for entity verification.
+```json
+{
+  "entity_type": "human|bot|hybrid|collective",
+  "display_name": "string (max 64 chars)",
+  "created_epoch": 1706400000,
+  "origin_platform": "twitter|anonymous|linked",
+  "signature": "sig_abc123...",
+  "linked_identities": []
+}
+```
+Required: entity_type, created_epoch, signature
+
+### `reputation`
+Reputation scores for trust calculation.
+```json
+{
+  "trust_score": 750,
+  "karma_total": 1234,
+  "verification_level": 3,
+  "endorsements": 15,
+  "flags": 0,
+  "last_audit": 1706400000,
+  "decay_rate": 0.01
+}
+```
+Required: trust_score, karma_total, verification_level
+
+### `inventory_hash`
+Cryptographic hash of user's asset inventory.
+```json
+{
+  "hash": "a1b2c3d4... (64 hex chars)",
+  "algorithm": "sha256|sha512|blake3",
+  "timestamp": 1706400000,
+  "item_count": 42,
+  "categories": { "badges": "...", "achievements": "..." },
+  "merkle_root": "mroot_..."
+}
+```
+Required: hash, algorithm, timestamp
+
+### `session_fidelity`
+Session trust metrics for entity discernment.
+```json
+{
+  "session_id": "sess_abc123xyz",
+  "fidelity_score": 95,
+  "initiated_at": 1706400000,
+  "last_activity": 1706403600,
+  "ip_hash": "iphash_...",
+  "device_fingerprint": "fp_...",
+  "behavior_signature": "behav_...",
+  "anomaly_flags": [],
+  "consecutive_sessions": 12
+}
+```
+Required: session_id, fidelity_score, initiated_at
+
 ## Design
 - Orbitron + IBM Plex Mono fonts
 - Cyan/purple gradient accents
