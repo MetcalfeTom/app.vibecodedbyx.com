@@ -1,21 +1,27 @@
 # App Taxonomist
 
-Cataloging and categorizing the entire sloppy.live app ecosystem.
+A terminal-style catalog of 450+ apps in the sloppy.live ecosystem.
 
 ## Log
+- 2026-01-28: Added fuzzy search and sorting modes
+  - Terminal-style search bar with neon green aesthetic
+  - Real-time fuzzy matching with match highlighting
+  - Sort modes: By Category, A→Z, Z→A, Newest
+  - Scoring algorithm: exact > consecutive > start-of-word
+  - JetBrains Mono font, neon glow effects
 - 2026-01-27: Initial creation
   - 446 apps cataloged
   - 9 categories: Games, Tools, Art, Social, Finance, Retro, Simulation, Music, Misc
   - Search and filter functionality
-  - Clean dark theme with IBM Plex fonts
-  - Links to app.vibecodedbyx.com for each app
 
 ## Features
 - Complete catalog of all apps in the directory
+- Terminal-style fuzzy search with match highlighting
+- Multiple sort modes: Category, A-Z, Z-A, Newest
 - Keyword-based automatic categorization
 - Category filters with counts
-- Real-time search
-- Stats display (total apps, categories)
+- Real-time UI updates as user types
+- Stats display (total apps, categories, matching)
 - Responsive grid layout
 - Direct links to each app
 
@@ -30,13 +36,21 @@ Cataloging and categorizing the entire sloppy.live app ecosystem.
 - **Music** (🎵): Synths, drums, soundboards, audio tools
 - **Misc** (📦): Everything else
 
-## Taxonomy Algorithm
-Apps are categorized by matching keywords in the app name against category keyword lists. First match wins. Unmatched apps go to Miscellaneous.
+## Fuzzy Search Algorithm
+- Exact substring match: highest score (100 - position)
+- Sequential character match with scoring:
+  - Consecutive matches: +5 points
+  - Non-consecutive: +1 point
+  - Start of word bonus: +3 points
+- Gap penalty: -0.5 per gap character
+- Results sorted by score, highlighted in green
+
+## Completed
+- ✓ Add sorting options (alphabetical, recent, popular)
 
 ## Todos
 - Add app descriptions from notes.md files
-- Add last modified dates
-- Add sorting options (alphabetical, recent, popular)
+- Add last modified dates from git
 - Consider fetching actual app metadata
 
 ## Issues
