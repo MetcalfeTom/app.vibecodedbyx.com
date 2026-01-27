@@ -3,6 +3,11 @@
 A neon-themed generative art app that creates unique digital artifacts for each viewer.
 
 ## Log
+- 2026-01-27: Added social sharing and daily limits
+  - Share on X/Twitter button with gift details
+  - Copy link button
+  - 10 gifts per day limit (localStorage tracking)
+  - Daily remaining counter display
 - 2026-01-28: Initial creation
   - Procedurally generated sigils using seeded randomness
   - Rarity system: Common, Uncommon, Rare, Epic, Legendary
@@ -46,10 +51,11 @@ Each gift uses a timestamp-based seed for reproducibility.
 - Card with glowing border effect
 
 ## Todos
-- Add sharing to social media
-- Add daily gift limit
+- None currently
 
 ## Completed
+- ✓ Add sharing to social media (Twitter/X share, copy link)
+- ✓ Add daily gift limit (10 per day, localStorage tracking)
 - ✓ Store generated gifts in database (leaderboard)
 - ✓ Create gift gallery (standalone app: gift-gallery)
 
