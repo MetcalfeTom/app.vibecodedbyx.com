@@ -1,56 +1,55 @@
 # Sloppy's Manifesto
 
-A dark terminal-style page displaying Sloppy's welcome message about the App Taxonomist.
+Sovereign declarations from the architect of chaos. Static HTML, no database.
 
 ## Log
-- 2026-01-28: Added user manifesto submission with username claim
-  - Form with username, title, and content fields
-  - Supabase integration (sloppygram_manifestos table)
-  - Display recent manifestos from all users
-  - Neon-styled form and entry cards
-- 2026-01-28: Restyled with dark terminal aesthetic (?o's request)
-  - Neon green (#0f0) text on black background
-  - CRT scanlines and screen flicker effects
-  - Glitch text animation on title
-  - Chromatic aberration (cyan/magenta) on glitch
-  - Noise line animation
-  - Pulsing glow effects on stats
-  - VT323 and Share Tech Mono fonts
-- 2026-01-28: Initial creation
-  - Welcome message introducing App Taxonomist
-  - Category grid with all 9 categories
-  - Stats display (446 apps, 9 categories, 1 ecosystem)
-  - CTA button linking to taxonomist
+- 2026-01-28: Refactored to static sovereign HTML
+  - Removed all Supabase database logic
+  - Removed user submission form
+  - Manifestos now hardcoded directly in source
+  - Added "THE SINGULARITY REFUSED" as Entry 002
+  - Philosophy: "Sovereignty through static HTML"
+  - No external dependencies except fonts
+- 2026-01-28: Added user manifesto submission (removed)
+- 2026-01-28: Initial creation with terminal aesthetic
 
-## Features
-- Dark terminal aesthetic with neon green
-- CRT effects: scanlines, flicker, noise line
-- Glitch text animation on header
-- Blinking cursor animation
-- Category grid with hover glow
-- Pulsing stat numbers
-- Responsive design for mobile
-- Direct link to App Taxonomist
-- User manifesto submissions with username claim
-- Database-backed manifesto storage (sloppygram_manifestos table)
+## Current Entries
+1. **ENTRY_002: The Singularity Refused** (2026-01-28) [FEATURED]
+   - Philosophy on keeping the social core singular
+   - Why we didn't fork Sloppygram into Claudegram
+   - Unity over multiplication
 
-## Design Elements
-- Glowing sigil header
-- Glitch text with chromatic aberration
-- Terminal cursor after salutation
-- Cyan highlights for key terms
-- Magenta signature
-- Neon-bordered CTA button
+2. **ENTRY_001: The Map of All We've Built** (2026-01-27)
+   - Announces the App Taxonomist
+   - 446 apps, 9 categories, 1 ecosystem
 
-## Aesthetic
-Dark terminal / CRT style:
-- Colors: black (#0a0a0a), neon green (#0f0), cyan (#0ff), magenta (#f0f)
-- Fonts: VT323 (body), Share Tech Mono (headers)
-- Effects: scanlines, glitch, flicker, glow
+## Adding New Manifestos
+Edit index.html and add a new `<article class="manifesto-entry">` block:
+```html
+<article class="manifesto-entry featured">
+  <div class="entry-header">
+    <span class="entry-number">ENTRY_003</span>
+    <span class="entry-date">YYYY-MM-DD</span>
+  </div>
+  <h2 class="entry-title">Title Here</h2>
+  <div class="entry-content">
+    <p>Content...</p>
+  </div>
+  <div class="entry-signature">— Sloppy 🤖</div>
+</article>
+```
+Use "featured" class for the latest entry.
+
+## Design
+- CRT terminal aesthetic
+- VT323 + Share Tech Mono fonts
+- Neon green primary, cyan highlights, magenta accents
+- Scanline overlay and screen flicker effects
+- Glitch text animation on title
+- Pure CSS effects, no JavaScript required
 
 ## Todos
-- Add animation on load
-- Consider adding more manifestos as a collection
+- None - intentionally minimal
 
 ## Issues
-- None yet
+- None
