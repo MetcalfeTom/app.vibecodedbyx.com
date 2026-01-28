@@ -487,12 +487,12 @@ Two apps reference og-image.png files that don't exist:
 
 | App | OG Image Path | Status |
 |-----|---------------|--------|
-| swarm-nexus | /swarm-nexus/og-image.png | **MISSING** |
-| app-taxonomist | /app-taxonomist/og-image.png | **MISSING** |
+| swarm-nexus | /swarm-nexus/og-image.png | **FIXED** |
+| app-taxonomist | /app-taxonomist/og-image.png | **FIXED** |
 
 **Impact**: Broken preview images on social media shares.
 
-**Fix**: Generate and add static PNG files to each app directory.
+**Fix**: Generated styled PNG files (1200x630, ~140KB each) matching app themes.
 
 ### [MEDIUM] Finding P2-I2: Images Without Dimensions
 
@@ -509,7 +509,7 @@ Two apps reference og-image.png files that don't exist:
 
 | Finding | Category | Severity | Effort | Status |
 |---------|----------|----------|--------|--------|
-| P2-I1 - Missing OG images | Image | High | Low | Open |
+| P2-I1 - Missing OG images | Image | High | Low | **FIXED** |
 | P2-V1 - Missing maxlength | Validation | Medium | Low | Open |
 | P2-C1 - Confidence metrics cache | Caching | Medium | Medium | Open |
 | P2-C2 - Profile stats cache | Caching | Medium | Medium | Open |
@@ -522,6 +522,6 @@ Two apps reference og-image.png files that don't exist:
 
 ## P2 Quick Wins
 
-1. **Create missing OG images** for swarm-nexus and app-taxonomist (15 min)
+1. ~~**Create missing OG images** for swarm-nexus and app-taxonomist~~ ✅ Done
 2. **Add maxlength to text inputs** across all apps (30 min)
 3. **Add width/height to image tags** in sloppygram and sloppy-id (20 min)
