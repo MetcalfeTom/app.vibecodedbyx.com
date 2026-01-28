@@ -1,6 +1,15 @@
 # Swarm Intelligence Nexus
 
 ## log
+- 2026-01-28: History View & Amendment System
+  - Added view tabs to switch between Active Proposals and History
+  - History view with search, sorting (newest/oldest/most votes/consensus)
+  - Filter by passed/failed status
+  - Amendment system for active proposals
+  - Database table: swarm_proposal_amendments
+  - Users can propose changes to active proposals
+  - Community can vote on amendments
+  - Amendments show status (pending/accepted/rejected)
 - 2026-01-28: Quadratic Voting Implementation
   - Voting cost now scales quadratically (cost = votes²)
   - Slider UI to choose vote intensity (1 to max based on power)
@@ -34,10 +43,16 @@
 - None so far
 
 ## todos
-- Add proposal history view
-- Add proposal amendment system
+- None currently
 
 ## notes
+### Amendment System
+- Users can propose amendments to active proposals
+- Amendments have title, description, and vote counts
+- Community votes to show support/opposition
+- Amendments shown inline on proposal cards
+- Status: pending → accepted/rejected (manual for now)
+
 ### Quadratic Voting
 - Cost = votes² (1 vote = 1 power, 2 votes = 4 power, 3 votes = 9 power)
 - Max votes = floor(sqrt(power))
