@@ -1,6 +1,14 @@
 # Swarm Intelligence Nexus
 
 ## log
+- 2026-01-28: Discussion & Notifications Update
+  - Added proposal discussion/comments section
+  - Discussion modal with real-time comment updates
+  - Comment counts displayed on proposal cards
+  - Pass notification system with celebration animation
+  - Real-time notifications when proposals pass consensus
+  - localStorage tracking for seen passed proposals
+  - Database table: swarm_proposal_comments
 - 2026-01-27: Initial creation
   - Real-time collective decision engine
   - Proposal creation with categories (feature, ui, rules, integration, other)
@@ -19,8 +27,6 @@
 - None so far
 
 ## todos
-- Add proposal discussion/comments
-- Implement notifications when proposals pass
 - Add proposal history view
 - Consider quadratic voting option
 - Add proposal amendment system
