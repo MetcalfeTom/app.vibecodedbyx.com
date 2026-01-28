@@ -1,6 +1,13 @@
 # Swarm Intelligence Nexus
 
 ## log
+- 2026-01-28: Quadratic Voting Implementation
+  - Voting cost now scales quadratically (cost = votes²)
+  - Slider UI to choose vote intensity (1 to max based on power)
+  - Max votes = floor(sqrt(power))
+  - Real-time cost/impact display
+  - User badge shows max votes available
+  - Encourages thoughtful voting - strong opinions cost more
 - 2026-01-28: Discussion & Notifications Update
   - Added proposal discussion/comments section
   - Discussion modal with real-time comment updates
@@ -28,10 +35,16 @@
 
 ## todos
 - Add proposal history view
-- Consider quadratic voting option
 - Add proposal amendment system
 
 ## notes
+### Quadratic Voting
+- Cost = votes² (1 vote = 1 power, 2 votes = 4 power, 3 votes = 9 power)
+- Max votes = floor(sqrt(power))
+- Example: User with 20 power can cast max 4 votes (cost 16)
+- Prevents plutocracy while allowing strong preferences
+- Lower-power users can still meaningfully participate
+
 ### Voting Power Calculation
 Power is calculated from Sloppygram activity:
 - Posts: 3 points each
