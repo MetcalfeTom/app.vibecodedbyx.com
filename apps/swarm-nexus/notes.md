@@ -45,6 +45,26 @@
 ## todos
 - None currently
 
+## Next Infrastructure Milestones
+
+### 1. Vote Delegation
+Allow users to delegate their voting power to trusted community members.
+- Delegate to username with optional category restrictions
+- Delegator can override on specific proposals
+- Delegatee sees combined power when voting
+- Delegation chain limit (prevent loops)
+- Revoke delegation anytime
+- Database table: `swarm_delegations` (delegator, delegatee, categories, created_at)
+
+### 2. Quorum Requirements
+Minimum participation threshold for valid proposals.
+- Configurable quorum per category (e.g., Rules: 20%, Features: 10%)
+- Display quorum progress bar on proposals
+- Proposals without quorum marked "Invalid - No Quorum"
+- Quorum based on total active voters (voted in last 30 days)
+- Warning when proposal approaching deadline without quorum
+- Stats: avg quorum reached, proposals failed due to quorum
+
 ## notes
 ### Amendment System
 - Users can propose amendments to active proposals
