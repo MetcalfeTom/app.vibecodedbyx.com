@@ -3,6 +3,16 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-01-28: Identity Verification Tiers v1.0
+  - New verification section with trust score display
+  - Email verification with 6-digit code system
+  - GitHub profile linking via public API
+  - Twitter auto-detected from OAuth
+  - Trust score calculation: Twitter (+100), Email (+150), GitHub (+200)
+  - Verification levels: 0 (Unverified) → 3 (Fully Verified)
+  - Verification badges on profile card
+  - Database table: sloppyid_verifications
+  - Discord placeholder (coming soon)
 - 2026-01-27: Full feature update
   - Vault search/filter (real-time filtering of own entries)
   - Public vault browser (search other users' public data)
@@ -117,16 +127,19 @@ Required: session_id, fidelity_score, initiated_at
 - Responsive mobile layout
 
 ## Todos
-- None currently
+- Add Discord OAuth integration
+- Add Web3 wallet linking
+- Add real email sending (currently demo mode)
 
 ## Next Development Phase: IDENTITY v2.0
 **Theme: Decentralized Identity & Cross-Platform Portability**
 
-1. **Identity Verification Tiers**
-   - Email verification badge
-   - Social proof connections (GitHub, Discord)
-   - Web3 wallet linking
-   - Trust score calculation
+1. **Identity Verification Tiers** ✅ IMPLEMENTED
+   - ✓ Email verification badge
+   - ✓ GitHub linking
+   - ✓ Trust score calculation
+   - Discord OAuth (placeholder ready)
+   - Web3 wallet linking (future)
 
 2. **Portable Identity**
    - QR code identity sharing
