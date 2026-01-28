@@ -3,6 +3,7 @@
 Surreal convenience store with spectrum-themed impossible items.
 
 ## Log
+- 2026-01-28: Added mystery box feature with dramatic reveal animation
 - 2026-01-28: Populated with 12 surreal convenience store items by color
 - 2026-01-28: Added vibrant spectrum (white, yellow, orange, crimson, purple)
 - 2026-01-28: Rebranded from Lonewolf to Redwork Ecommerce
@@ -12,8 +13,9 @@ Surreal convenience store with spectrum-themed impossible items.
 ## Features
 - Vibrant spectrum aesthetic cycling through white, yellow, orange, crimson, purple
 - Product grid with 12 surreal convenience store items
+- Mystery Box with dramatic reveal animation (random item)
 - Animated logo, cart button, and checkout with pulse effects
-- Slide-in cart sidebar with crimson border
+- Slide-in cart sidebar with spectrum border
 - Add/remove cart functionality
 - Checkout flow (demo alert)
 
