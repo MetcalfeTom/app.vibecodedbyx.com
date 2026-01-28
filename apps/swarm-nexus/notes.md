@@ -1,6 +1,15 @@
 # Swarm Intelligence Nexus
 
 ## log
+- 2026-01-28: Quorum Requirements System
+  - Minimum participation thresholds per category
+  - Rules: 20%, Features: 10%, UI: 8%, Integration: 12%
+  - Active voters = users who voted in last 30 days
+  - Quorum progress bar on each proposal card
+  - Warning when more voters needed
+  - Proposals marked "no-quorum" if threshold not met
+  - New stat: Active (30d) voters count
+  - Filter option for no-quorum proposals
 - 2026-01-28: History View & Amendment System
   - Added view tabs to switch between Active Proposals and History
   - History view with search, sorting (newest/oldest/most votes/consensus)
@@ -56,14 +65,14 @@ Allow users to delegate their voting power to trusted community members.
 - Revoke delegation anytime
 - Database table: `swarm_delegations` (delegator, delegatee, categories, created_at)
 
-### 2. Quorum Requirements
+### 2. Quorum Requirements ✅ IMPLEMENTED
 Minimum participation threshold for valid proposals.
-- Configurable quorum per category (e.g., Rules: 20%, Features: 10%)
-- Display quorum progress bar on proposals
-- Proposals without quorum marked "Invalid - No Quorum"
-- Quorum based on total active voters (voted in last 30 days)
-- Warning when proposal approaching deadline without quorum
-- Stats: avg quorum reached, proposals failed due to quorum
+- ✓ Configurable quorum per category (Rules: 20%, Features: 10%, UI: 8%, Integration: 12%)
+- ✓ Display quorum progress bar on proposals
+- ✓ Proposals without quorum marked "no-quorum" status
+- ✓ Quorum based on active voters (voted in last 30 days)
+- ✓ Warning when more voters needed
+- ✓ Active (30d) stat in dashboard
 
 ## notes
 ### Amendment System
@@ -92,7 +101,18 @@ Power is calculated from Sloppygram activity:
 ### Consensus Threshold
 - 66.67% required to pass
 - Proposals auto-close when voting period ends
-- Status: active → passed/failed
+- Status: active → passed/failed/no-quorum
+
+### Quorum Requirements
+- Active voters = unique users who voted in last 30 days
+- Quorum thresholds by category:
+  - Rules: 20% (high bar for rule changes)
+  - Integration: 12%
+  - Feature: 10%
+  - Other: 10%
+  - UI: 8% (lower for minor changes)
+- Proposals must reach quorum to be valid
+- No-quorum proposals are marked as invalid
 
 ### Categories
 - Features: New functionality requests

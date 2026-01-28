@@ -369,6 +369,80 @@
             font-weight: 600;
         }
 
+        /* Quorum Bar */
+        .quorum-section {
+            margin-bottom: 12px;
+            padding: 10px;
+            background: rgba(139, 92, 246, 0.05);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+        }
+
+        .quorum-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .quorum-label {
+            color: var(--purple);
+        }
+
+        .quorum-count {
+            color: var(--text-dim);
+        }
+
+        .quorum-count.met {
+            color: var(--success);
+        }
+
+        .quorum-bar {
+            height: 6px;
+            background: var(--border);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .quorum-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--purple), #a78bfa);
+            transition: width 0.5s ease;
+        }
+
+        .quorum-fill.met {
+            background: linear-gradient(90deg, var(--success), #4ade80);
+        }
+
+        .quorum-threshold-marker {
+            position: absolute;
+            top: -2px;
+            bottom: -2px;
+            width: 2px;
+            background: var(--accent);
+        }
+
+        .quorum-warning {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 6px;
+            font-size: 0.7rem;
+            color: var(--accent);
+        }
+
+        .proposal-status.no-quorum {
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            color: var(--purple);
+        }
+
+        .proposal-card.no-quorum {
+            border-color: var(--purple);
+            opacity: 0.8;
+        }
+
         /* Vote Buttons */
         .vote-actions {
             display: flex;
@@ -1329,6 +1403,10 @@
                 <div class="stat-label">Total Voters</div>
             </div>
             <div class="stat-card">
+                <div class="stat-value" id="statActiveVoters">0</div>
+                <div class="stat-label">Active (30d)</div>
+            </div>
+            <div class="stat-card">
                 <div class="stat-value" id="statConsensus">0%</div>
                 <div class="stat-label">Avg Consensus</div>
             </div>
@@ -1348,6 +1426,7 @@
                     <button class="filter-btn" data-filter="active" onclick="filterProposals('active')">🔵 Active</button>
                     <button class="filter-btn" data-filter="passed" onclick="filterProposals('passed')">✅ Passed</button>
                     <button class="filter-btn" data-filter="failed" onclick="filterProposals('failed')">❌ Failed</button>
+                    <button class="filter-btn" data-filter="no-quorum" onclick="filterProposals('no-quorum')">👥 No Quorum</button>
                 </div>
                 <div class="filter-group">
                     <button class="filter-btn" data-category="feature" onclick="filterByCategory('feature')">🚀 Features</button>
@@ -1502,12 +1581,25 @@
         let currentAmendmentProposal = null;
         let amendments = {}; // proposalId -> [amendments]
 
+        // Quorum Configuration
+        // Percentage of active voters required per category
+        const QUORUM_THRESHOLDS = {
+            rules: 0.20,       // 20% - high bar for rule changes
+            feature: 0.10,     // 10% - moderate for new features
+            ui: 0.08,          // 8% - lower for UI changes
+            integration: 0.12, // 12% - moderate for integrations
+            other: 0.10        // 10% - default
+        };
+        let activeVoterCount = 0; // Users who voted in last 30 days
+        let proposalVoterCounts = {}; // proposalId -> unique voter count
+
         // Initialize
         async function init() {
             await initAuth();
             await loadUserPower();
             await loadCommentCounts();
             await loadAmendments();
+            await loadActiveVoters();
             await loadProposals();
             initSwarmParticles();
             startTimerUpdates();
@@ -1621,16 +1713,30 @@
                     });
                 }
 
-                // Load all votes for stats
+                // Load all votes for stats and quorum tracking
                 const { data: allVotes } = await supabase
                     .from('swarm_votes')
                     .select('proposal_id, username');
 
                 votes = {};
+                proposalVoterCounts = {}; // Reset voter counts per proposal
                 const uniqueVoters = new Set();
+                const proposalVoterSets = {}; // Track unique voters per proposal
+
                 (allVotes || []).forEach(v => {
                     votes[v.proposal_id] = (votes[v.proposal_id] || 0) + 1;
                     uniqueVoters.add(v.username);
+
+                    // Track unique voters per proposal for quorum
+                    if (!proposalVoterSets[v.proposal_id]) {
+                        proposalVoterSets[v.proposal_id] = new Set();
+                    }
+                    proposalVoterSets[v.proposal_id].add(v.username);
+                });
+
+                // Convert sets to counts
+                Object.keys(proposalVoterSets).forEach(pid => {
+                    proposalVoterCounts[pid] = proposalVoterSets[pid].size;
                 });
 
                 updateStats(uniqueVoters.size);
@@ -1660,6 +1766,7 @@
             document.getElementById('statActive').textContent = active;
             document.getElementById('statPassed').textContent = passed;
             document.getElementById('statVoters').textContent = voterCount;
+            document.getElementById('statActiveVoters').textContent = activeVoterCount;
             document.getElementById('statConsensus').textContent = consensusCount > 0
                 ? Math.round(totalConsensus / consensusCount) + '%'
                 : '0%';
@@ -1704,7 +1811,12 @@
 
             const myVote = myVotes[p.proposal_id];
             const isActive = p.status === 'active';
+            const isNoQuorum = p.status === 'no-quorum';
             const hasVoted = !!myVote;
+
+            // Calculate quorum progress
+            const quorum = getQuorumProgress(p.proposal_id, p.category);
+            const quorumThresholdPct = (QUORUM_THRESHOLDS[p.category] || QUORUM_THRESHOLDS.other) * 100;
 
             // Calculate time remaining
             let timerHtml = '';
@@ -1731,11 +1843,14 @@
                 other: '💡'
             };
 
+            // Determine display status for no-quorum
+            const displayStatus = p.status === 'no-quorum' ? 'No Quorum' : p.status;
+
             return `
                 <div class="proposal-card ${p.status}">
                     <div class="proposal-header">
                         <span class="proposal-category">${categoryEmojis[p.category] || '💡'} ${p.category}</span>
-                        <span class="proposal-status ${p.status}">${p.status}</span>
+                        <span class="proposal-status ${p.status}">${displayStatus}</span>
                     </div>
                     <h3 class="proposal-title">${escapeHtml(p.title)}</h3>
                     <p class="proposal-desc">${escapeHtml(p.description)}</p>
@@ -1752,6 +1867,26 @@
                         <span class="vote-for">✓ ${votesFor} for</span>
                         <span class="vote-against">✗ ${votesAgainst} against</span>
                     </div>
+                    <div class="quorum-section">
+                        <div class="quorum-header">
+                            <span class="quorum-label">👥 Quorum (${quorumThresholdPct}% of active voters)</span>
+                            <span class="quorum-count ${quorum.met ? 'met' : ''}">${quorum.current}/${quorum.required} voters</span>
+                        </div>
+                        <div class="quorum-bar">
+                            <div class="quorum-fill ${quorum.met ? 'met' : ''}" style="width: ${quorum.percentage}%"></div>
+                        </div>
+                        ${!quorum.met && isActive ? `
+                            <div class="quorum-warning">⚠️ ${quorum.required - quorum.current} more voters needed for valid result</div>
+                        ` : ''}
+                        ${quorum.met ? `
+                            <div style="margin-top:6px;font-size:0.7rem;color:var(--success);">✓ Quorum reached</div>
+                        ` : ''}
+                    </div>
+                    ${isNoQuorum ? `
+                        <div style="text-align:center;font-size:0.8rem;color:var(--purple);padding:10px;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);margin-bottom:10px;">
+                            ⚠️ Invalid - Did not reach quorum requirement
+                        </div>
+                    ` : ''}
                     ${isActive ? (hasVoted ? `
                         <div style="text-align:center;font-size:0.85rem;padding:15px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);">
                             ✓ You voted <strong>${myVote}</strong> with <strong>${myVotes[p.proposal_id + '_power'] || userPower}</strong> effective votes
@@ -1967,8 +2102,27 @@
             const votesAgainst = proposal.votes_against || 0;
             const total = votesFor + votesAgainst;
 
-            if (total === 0) return;
+            if (total === 0) {
+                // No votes at all = no quorum
+                await supabase
+                    .from('swarm_proposals')
+                    .update({ status: 'no-quorum' })
+                    .eq('proposal_id', proposalId);
+                return;
+            }
 
+            // Check quorum requirement
+            const quorum = getQuorumProgress(proposalId, proposal.category);
+            if (!quorum.met) {
+                // Quorum not reached
+                await supabase
+                    .from('swarm_proposals')
+                    .update({ status: 'no-quorum' })
+                    .eq('proposal_id', proposalId);
+                return;
+            }
+
+            // Quorum met - check consensus
             const forPct = votesFor / total;
             const newStatus = forPct >= 0.6667 ? 'passed' : 'failed'; // 66.67% threshold
 
@@ -2186,6 +2340,49 @@
             } catch (err) {
                 console.error('Error loading comment counts:', err);
             }
+        }
+
+        // Load active voter count (users who voted in last 30 days)
+        async function loadActiveVoters() {
+            try {
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                const { data, error } = await supabase
+                    .from('swarm_votes')
+                    .select('username, created_at')
+                    .gte('created_at', thirtyDaysAgo.toISOString());
+
+                if (error) throw error;
+
+                // Count unique voters in last 30 days
+                const uniqueVoters = new Set();
+                (data || []).forEach(v => uniqueVoters.add(v.username));
+                activeVoterCount = Math.max(1, uniqueVoters.size); // Min 1 to avoid division by zero
+
+            } catch (err) {
+                console.error('Error loading active voters:', err);
+                activeVoterCount = 10; // Default fallback
+            }
+        }
+
+        // Get quorum requirement for a category
+        function getQuorumRequired(category) {
+            const threshold = QUORUM_THRESHOLDS[category] || QUORUM_THRESHOLDS.other;
+            return Math.max(1, Math.ceil(activeVoterCount * threshold));
+        }
+
+        // Get quorum progress for a proposal
+        function getQuorumProgress(proposalId, category) {
+            const voterCount = proposalVoterCounts[proposalId] || 0;
+            const required = getQuorumRequired(category);
+            const percentage = Math.min(100, (voterCount / required) * 100);
+            return {
+                current: voterCount,
+                required: required,
+                percentage: percentage,
+                met: voterCount >= required
+            };
         }
 
         // Discussion modal functions
