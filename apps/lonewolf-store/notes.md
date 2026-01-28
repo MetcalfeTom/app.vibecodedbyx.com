@@ -1,14 +1,15 @@
 # Redwork Ecommerce
 
-Pulsing crimson-themed ecommerce storefront for bold buyers.
+Vibrant spectrum-themed ecommerce storefront for bold buyers.
 
 ## Log
+- 2026-01-28: Added vibrant spectrum (white, yellow, orange, crimson, purple)
 - 2026-01-28: Rebranded from Lonewolf to Redwork Ecommerce
 - 2026-01-28: Applied pulsing crimson theme throughout
 - 2026-01-28: Initial creation with product grid, glowing cart, cyber fuel items
 
 ## Features
-- Pulsing crimson aesthetic with animated glow effects
+- Vibrant spectrum aesthetic cycling through white, yellow, orange, crimson, purple
 - Product grid with 16 items (cyber fuel + streetwear)
 - Animated logo, cart button, and checkout with pulse effects
 - Slide-in cart sidebar with crimson border
