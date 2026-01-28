@@ -3,6 +3,12 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-01-28: Recent Apps Dropdown
+  - Apps link now shows dropdown with recent app history
+  - Tracks last 8 visited apps in localStorage
+  - Shows app icon, name, and time since visit
+  - Click outside to close dropdown
+  - Links to App Directory at bottom
 - 2026-01-27: Added Random Teleport feature
   - 🌀 Teleport button sends users to random app from 60+ curated picks
   - Excludes current app from selection
@@ -18,7 +24,8 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
 - **Identity Display**: Username + avatar (emoji or Twitter)
 - **Karma Badge**: Real-time karma from sloppygram_karma
 - **Premium Status**: Crown badge for premium users
-- **Quick Links**: Karma, Vault, Apps, Health
+- **Quick Links**: Karma, Vault, Apps (with dropdown), Health
+- **Recent Apps Dropdown**: Click Apps to see last 8 visited apps with timestamps
 - **Random Teleport**: 🌀 button sends to random app from 60+ curated picks
 - **Minimizable**: Collapse to single icon
 - **Responsive**: Mobile-friendly design
@@ -65,7 +72,7 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
 1. **Smart Context Awareness**
    - App-specific quick actions
    - Context-sensitive link suggestions
-   - Recent apps history dropdown
+   - ✓ Recent apps history dropdown
    - Favorites/pinned apps
 
 2. **Personalization**

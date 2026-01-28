@@ -16,6 +16,8 @@
 
   // Configuration
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  const RECENT_APPS_KEY = 'sloppy_recent_apps';
+  const MAX_RECENT_APPS = 8;
   const SUPABASE_URL = 'https://dtfaplmockmwvgyqxbep.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0ZmFwbG1vY2ttd3ZneXF4YmVwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQzODMxMjUsImV4cCI6MjA0OTk1OTEyNX0.gV1oTVJCfQ-eTvzlB2i4drf5Xv4NBzmBQUCTl76ufZE';
 
@@ -54,6 +56,7 @@
   let userData = { karma: 0, rank: null, premium: false, username: 'Guest' };
   let isMinimized = options.minimized;
   let cacheTimestamp = 0;
+  let dropdownOpen = false;
 
   // Inject styles
   const styles = `
@@ -242,6 +245,102 @@
       .sloppy-bar-center { display: none; }
       .sloppy-bar-username { max-width: 80px; }
     }
+    /* Recent Apps Dropdown */
+    .sloppy-bar-dropdown-wrapper {
+      position: relative;
+    }
+    .sloppy-bar-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-top: 8px;
+      background: ${options.theme === 'light' ? 'rgba(255,255,255,0.98)' : 'rgba(15,15,20,0.98)'};
+      border: 1px solid ${options.theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'};
+      border-radius: 8px;
+      padding: 8px 0;
+      min-width: 200px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+      z-index: 100000;
+      display: none;
+    }
+    .sloppy-bar-dropdown.open {
+      display: block;
+      animation: sloppy-dropdown-in 0.15s ease-out;
+    }
+    @keyframes sloppy-dropdown-in {
+      from { opacity: 0; transform: translateX(-50%) translateY(-5px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    .sloppy-bar-dropdown-header {
+      padding: 6px 14px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: ${options.theme === 'light' ? '#888' : '#666'};
+      border-bottom: 1px solid ${options.theme === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'};
+      margin-bottom: 4px;
+    }
+    .sloppy-bar-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      color: ${options.theme === 'light' ? '#333' : '#ddd'};
+      text-decoration: none;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+    .sloppy-bar-dropdown-item:hover {
+      background: ${options.theme === 'light' ? 'rgba(0,221,255,0.1)' : 'rgba(0,221,255,0.15)'};
+      color: #00ddff;
+    }
+    .sloppy-bar-dropdown-item-icon {
+      font-size: 14px;
+      width: 20px;
+      text-align: center;
+    }
+    .sloppy-bar-dropdown-item-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sloppy-bar-dropdown-item-time {
+      font-size: 10px;
+      color: ${options.theme === 'light' ? '#999' : '#666'};
+    }
+    .sloppy-bar-dropdown-empty {
+      padding: 12px 14px;
+      font-size: 11px;
+      color: ${options.theme === 'light' ? '#999' : '#666'};
+      text-align: center;
+    }
+    .sloppy-bar-dropdown-footer {
+      padding: 8px 14px;
+      border-top: 1px solid ${options.theme === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'};
+      margin-top: 4px;
+    }
+    .sloppy-bar-dropdown-footer a {
+      display: block;
+      text-align: center;
+      font-size: 11px;
+      color: #00ddff;
+      text-decoration: none;
+    }
+    .sloppy-bar-dropdown-footer a:hover {
+      text-decoration: underline;
+    }
+    .sloppy-bar-apps-trigger {
+      cursor: pointer;
+      position: relative;
+    }
+    .sloppy-bar-apps-trigger::after {
+      content: '▾';
+      margin-left: 3px;
+      font-size: 9px;
+      opacity: 0.6;
+    }
   `;
 
   const styleEl = document.createElement('style');
@@ -359,7 +458,12 @@
       <div class="sloppy-bar-center">
         <a href="/sloppygram#karma" class="sloppy-bar-link" title="Karma Leaderboard">📊 Karma</a>
         <a href="/sloppy-id" class="sloppy-bar-link" title="Your Data Vault">🪪 Vault</a>
-        <a href="/app-directory" class="sloppy-bar-link" title="Browse Apps">🚀 Apps</a>
+        <div class="sloppy-bar-dropdown-wrapper">
+          <span class="sloppy-bar-link sloppy-bar-apps-trigger" onclick="window.sloppyBarToggleDropdown(event)" title="Recent Apps">🚀 Apps</span>
+          <div class="sloppy-bar-dropdown ${dropdownOpen ? 'open' : ''}" id="sloppy-bar-dropdown">
+            ${renderDropdown()}
+          </div>
+        </div>
         <a href="/system-health" class="sloppy-bar-link" title="System Status">🩺 Health</a>
       </div>
       ` : ''}
@@ -394,12 +498,132 @@
     return num.toString();
   }
 
+  // Recent apps management
+  function getRecentApps() {
+    try {
+      const stored = localStorage.getItem(RECENT_APPS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function trackCurrentApp() {
+    const path = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
+    if (!path || path === '' || path === 'index.html') return;
+
+    // Get friendly name from path
+    const appName = path.split('/')[0];
+    if (!appName) return;
+
+    const recentApps = getRecentApps();
+
+    // Remove if already exists (will re-add at front)
+    const filtered = recentApps.filter(app => app.path !== appName);
+
+    // Add to front with timestamp
+    filtered.unshift({
+      path: appName,
+      name: formatAppName(appName),
+      timestamp: Date.now()
+    });
+
+    // Keep only MAX_RECENT_APPS
+    const trimmed = filtered.slice(0, MAX_RECENT_APPS);
+
+    try {
+      localStorage.setItem(RECENT_APPS_KEY, JSON.stringify(trimmed));
+    } catch {
+      // localStorage might be full or disabled
+    }
+  }
+
+  function formatAppName(path) {
+    // Convert path like "neon-tetris" to "Neon Tetris"
+    return path
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  function getTimeAgo(timestamp) {
+    const diff = Date.now() - timestamp;
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (mins < 1) return 'now';
+    if (mins < 60) return mins + 'm';
+    if (hours < 24) return hours + 'h';
+    return days + 'd';
+  }
+
+  function getAppIcon(appName) {
+    // Map common app types to icons
+    const lower = appName.toLowerCase();
+    if (lower.includes('tetris') || lower.includes('game') || lower.includes('snake') || lower.includes('tower')) return '🎮';
+    if (lower.includes('music') || lower.includes('synth') || lower.includes('beats') || lower.includes('radio')) return '🎵';
+    if (lower.includes('art') || lower.includes('pixel') || lower.includes('draw') || lower.includes('paint')) return '🎨';
+    if (lower.includes('chat') || lower.includes('gram') || lower.includes('social')) return '💬';
+    if (lower.includes('crypto') || lower.includes('btc') || lower.includes('coin') || lower.includes('tracker')) return '📈';
+    if (lower.includes('pet') || lower.includes('fish') || lower.includes('plant')) return '🐾';
+    if (lower.includes('health') || lower.includes('system')) return '🩺';
+    if (lower.includes('diary') || lower.includes('journal') || lower.includes('note')) return '📓';
+    if (lower.includes('vault') || lower.includes('id') || lower.includes('identity')) return '🪪';
+    return '🚀';
+  }
+
+  function renderDropdown() {
+    const recentApps = getRecentApps();
+    const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '').split('/')[0];
+
+    // Filter out current app
+    const filtered = recentApps.filter(app => app.path !== currentPath);
+
+    if (filtered.length === 0) {
+      return `
+        <div class="sloppy-bar-dropdown-header">Recent Apps</div>
+        <div class="sloppy-bar-dropdown-empty">No recent apps yet<br>Start exploring!</div>
+        <div class="sloppy-bar-dropdown-footer">
+          <a href="/app-directory">Browse All Apps →</a>
+        </div>
+      `;
+    }
+
+    const items = filtered.slice(0, 6).map(app => `
+      <a href="/${app.path}" class="sloppy-bar-dropdown-item">
+        <span class="sloppy-bar-dropdown-item-icon">${getAppIcon(app.name)}</span>
+        <span class="sloppy-bar-dropdown-item-name">${app.name}</span>
+        <span class="sloppy-bar-dropdown-item-time">${getTimeAgo(app.timestamp)}</span>
+      </a>
+    `).join('');
+
+    return `
+      <div class="sloppy-bar-dropdown-header">Recent Apps</div>
+      ${items}
+      <div class="sloppy-bar-dropdown-footer">
+        <a href="/app-directory">Browse All Apps →</a>
+      </div>
+    `;
+  }
+
   // Global toggle function
   window.sloppyBarToggle = function() {
     isMinimized = !isMinimized;
     render();
     // Prevent event bubbling
     event?.stopPropagation();
+  };
+
+  // Global dropdown toggle function
+  window.sloppyBarToggleDropdown = function(e) {
+    e?.preventDefault();
+    e?.stopPropagation();
+    dropdownOpen = !dropdownOpen;
+    const dropdown = document.getElementById('sloppy-bar-dropdown');
+    if (dropdown) {
+      dropdown.className = 'sloppy-bar-dropdown' + (dropdownOpen ? ' open' : '');
+    }
   };
 
   // Global teleport function - random app adventure!
@@ -448,8 +672,21 @@
 
   async function init() {
     render(); // Show placeholder immediately
+    trackCurrentApp(); // Track this app visit
     await initSupabase();
     render(); // Update with real data
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+      if (dropdownOpen) {
+        const dropdown = document.getElementById('sloppy-bar-dropdown');
+        const trigger = e.target.closest('.sloppy-bar-apps-trigger');
+        if (!trigger && dropdown && !dropdown.contains(e.target)) {
+          dropdownOpen = false;
+          dropdown.className = 'sloppy-bar-dropdown';
+        }
+      }
+    });
   }
 
 })();
