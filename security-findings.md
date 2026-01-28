@@ -195,3 +195,197 @@ Accept as designed behavior - verification badges are meant to be public trust i
   - Audited: sloppyid_verifications, sloppyid_vault, swarm_predictions, swarm_prediction_bets, sloppygram_karma, users
   - XSS checked: sloppygram, swarm-oracle, confession-wall
   - Findings: 2 Medium, 1 Low (accepted)
+- 2026-01-28: P1 performance audit completed
+  - Audited: sloppygram, swarm-nexus, sloppy-id, app-taxonomist, swarm-oracle
+  - Findings: 2 High, 2 Medium performance issues
+
+---
+
+# P1 Performance Audit Findings
+
+Audit Date: 2026-01-28
+
+---
+
+## Executive Summary
+
+Audited top 5 apps for query optimization, memory leaks, and subscription cleanup. Found **2 high-severity** and **2 medium-severity** performance issues. Primary concerns: unbounded SELECT * queries and missing subscription cleanup.
+
+| App | Lines | SELECT * Count | Intervals | Subscription Cleanup |
+|-----|-------|----------------|-----------|---------------------|
+| Sloppygram | 21,837 | 35+ | 3 (managed) | ✅ Yes |
+| Swarm Nexus | 3,321 | 5 | 1 (no cleanup) | ❌ No |
+| SloppyID | 2,446 | 1 (fixed) | 0 | N/A |
+| App Taxonomist | 938 | 0 | 0 | N/A |
+| Swarm Oracle | 1,577 | 3 | 1 (no cleanup) | ❌ No |
+
+---
+
+## [HIGH] Finding P001: Excessive SELECT * Queries in Sloppygram
+
+- **App**: sloppygram
+- **File**: apps/sloppygram/index.html (multiple locations)
+- **Impact**: Database load, bandwidth, slow page loads
+
+### Description
+Sloppygram contains 35+ `SELECT *` queries, many without LIMIT clauses. This fetches unnecessary columns and unlimited rows.
+
+### Examples
+```javascript
+// Line 10332 - No LIMIT
+.select('*')
+
+// Lines 12587-12590 - Batch SELECT * on related tables
+supabase.from('sloppygram_post_comments').select('*').in('post_id', postIds)
+supabase.from('sloppygram_post_reactions').select('*').in('post_id', postIds)
+supabase.from('sloppygram_post_tags').select('*').in('post_id', postIds)
+```
+
+### Impact
+- Slower page loads (especially on mobile)
+- Higher Supabase bandwidth usage
+- Memory pressure from large result sets
+
+### Recommendation
+1. Replace `select('*')` with specific columns needed
+2. Add `.limit()` to all feed/list queries
+3. Implement pagination for large datasets
+
+### Status: Open - High Priority
+
+---
+
+## [HIGH] Finding P002: Missing Subscription Cleanup
+
+- **App**: swarm-nexus, swarm-oracle
+- **Files**:
+  - apps/swarm-nexus/index.html:2477-2501
+  - apps/swarm-oracle/index.html:1132-1134
+
+### Description
+Both apps create postgres_changes subscriptions but never clean them up on page unload. This can cause:
+- Memory leaks on long sessions
+- Orphaned connections
+- Stale data handlers
+
+### Swarm Nexus Code
+```javascript
+// Line 2477-2501 - Creates subscriptions, never cleaned up
+.on('postgres_changes', { event: '*', schema: 'public', table: 'swarm_proposals' }, ...)
+.on('postgres_changes', { event: '*', schema: 'public', table: 'swarm_votes' }, ...)
+.subscribe();
+// NO beforeunload/pagehide cleanup
+```
+
+### Swarm Oracle Code
+```javascript
+// Line 1132-1134 - Same issue
+.on('postgres_changes', { event: '*', schema: 'public', table: 'swarm_predictions' }, ...)
+.on('postgres_changes', { event: '*', schema: 'public', table: 'swarm_prediction_bets' }, ...)
+.subscribe();
+// NO cleanup
+```
+
+### Recommendation
+Add cleanup handlers:
+```javascript
+let channel;
+// ... create channel and subscribe ...
+
+window.addEventListener('beforeunload', () => {
+  if (channel) {
+    channel.unsubscribe();
+    supabase.removeChannel(channel);
+  }
+});
+```
+
+### Status: **FIXED** - Added cleanupResources() with beforeunload/pagehide handlers
+
+---
+
+## [MEDIUM] Finding P003: Uncleaned setInterval in Swarm Nexus
+
+- **App**: swarm-nexus
+- **File**: apps/swarm-nexus/index.html:2506
+- **Impact**: Potential memory leak
+
+### Description
+```javascript
+setInterval(() => {
+  // ... code ...
+}, interval);
+```
+No corresponding `clearInterval` found. If the component is re-initialized, intervals accumulate.
+
+### Recommendation
+Store interval ID and clear on cleanup:
+```javascript
+let refreshInterval;
+refreshInterval = setInterval(...);
+// On cleanup:
+clearInterval(refreshInterval);
+```
+
+### Status: **FIXED** - timerInterval now tracked and cleared
+
+---
+
+## [MEDIUM] Finding P004: Swarm Oracle setInterval Without Cleanup
+
+- **App**: swarm-oracle
+- **File**: apps/swarm-oracle/index.html:870
+- **Impact**: Minor - runs until tab close
+
+### Description
+```javascript
+setInterval(checkExpiredPredictions, 60000);
+```
+No cleanup on page unload. Less critical since it's a single interval that runs until page close.
+
+### Recommendation
+Add cleanup for consistency:
+```javascript
+const expiredCheckInterval = setInterval(checkExpiredPredictions, 60000);
+window.addEventListener('beforeunload', () => clearInterval(expiredCheckInterval));
+```
+
+### Status: **FIXED** - expiredCheckInterval now tracked and cleared
+
+---
+
+## [PASS] Good Practices Found
+
+### Sloppygram
+- ✅ Proper channel cleanup via `cleanupChannels()` function
+- ✅ beforeunload/pagehide event handlers
+- ✅ Managed intervals with `activeIntervals` Map
+- ✅ Google Fonts with `display=swap`
+
+### Swarm Nexus
+- ✅ Font preconnect optimization
+- ✅ Google Fonts with `display=swap`
+
+### App Taxonomist
+- ✅ No database queries (static app list)
+- ✅ No memory leak risks
+- ✅ Minimal bundle size (938 lines)
+
+---
+
+## Performance Remediation Priority
+
+| Finding | Severity | Effort | Status |
+|---------|----------|--------|--------|
+| P001 - SELECT * queries | High | High | Open |
+| P002 - Subscription cleanup | High | Low | **FIXED** |
+| P003 - setInterval (Nexus) | Medium | Low | **FIXED** |
+| P004 - setInterval (Oracle) | Medium | Low | **FIXED** |
+
+---
+
+## Quick Wins (Low Effort, High Impact)
+
+1. **Add subscription cleanup to Swarm Nexus and Swarm Oracle** (30 min)
+2. **Add LIMIT to top 10 most-used queries in Sloppygram** (1 hour)
+3. **Clear setInterval on page unload** (15 min)
