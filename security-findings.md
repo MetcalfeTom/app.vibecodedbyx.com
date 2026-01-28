@@ -448,16 +448,18 @@ Audit Date: 2026-01-28
 
 Multiple apps have text inputs without maxlength constraints:
 
-| App | Field | Current Limit | Recommended |
-|-----|-------|---------------|-------------|
-| sloppygram | Post caption | None (JS: 1000) | `maxlength="1000"` |
-| sloppygram | Manifesto title | None (JS: 200) | `maxlength="200"` |
-| sloppygram | Manifesto content | None (JS: 5000) | `maxlength="5000"` |
-| swarm-nexus | Proposal description | None | `maxlength="3000"` |
-| sloppy-id | Vault key | None | `maxlength="100"` |
-| sloppy-id | Vault value | None | `maxlength="10000"` |
+| App | Field | Limit Applied | Status |
+|-----|-------|---------------|--------|
+| sloppygram | Post caption | `maxlength="1000"` | **FIXED** |
+| sloppygram | Manifesto title | `maxlength="200"` | **FIXED** |
+| sloppygram | Manifesto content | `maxlength="5000"` | **FIXED** |
+| swarm-nexus | Proposal description | `maxlength="3000"` | **FIXED** |
+| sloppy-id | Vault key | `maxlength="100"` | **FIXED** |
+| sloppy-id | Vault value | `maxlength="10000"` | **FIXED** |
 
 **Risk**: Users can bypass JS validation; database bloat; potential DoS via large payloads.
+
+**Fix Applied**: Added HTML maxlength attributes to all 6 inputs, aligned with JS validation limits.
 
 ### [LOW] Finding P2-V2: Tags Without Length Validation
 
@@ -510,7 +512,7 @@ Two apps reference og-image.png files that don't exist:
 | Finding | Category | Severity | Effort | Status |
 |---------|----------|----------|--------|--------|
 | P2-I1 - Missing OG images | Image | High | Low | **FIXED** |
-| P2-V1 - Missing maxlength | Validation | Medium | Low | Open |
+| P2-V1 - Missing maxlength | Validation | Medium | Low | **FIXED** |
 | P2-C1 - Confidence metrics cache | Caching | Medium | Medium | Open |
 | P2-C2 - Profile stats cache | Caching | Medium | Medium | Open |
 | P2-I2 - Images without dimensions | Image | Medium | Low | Open |
@@ -523,5 +525,5 @@ Two apps reference og-image.png files that don't exist:
 ## P2 Quick Wins
 
 1. ~~**Create missing OG images** for swarm-nexus and app-taxonomist~~ ✅ Done
-2. **Add maxlength to text inputs** across all apps (30 min)
+2. ~~**Add maxlength to text inputs** across all apps~~ ✅ Done (6 inputs)
 3. **Add width/height to image tags** in sloppygram and sloppy-id (20 min)
