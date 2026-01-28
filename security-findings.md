@@ -407,26 +407,37 @@ Audit Date: 2026-01-28
 ### [MEDIUM] Finding P2-C1: Sloppygram Confidence Metrics - No Persistent Cache
 
 - **App**: sloppygram
-- **File**: apps/sloppygram/index.html:10967-11006
+- **File**: apps/sloppygram/index.html:10967-11025
 - **Function**: `fetchConfidenceMetrics()`
 
 **Description**: 6 parallel Supabase queries fetch global metrics on every state change. Has 10-second memory cache but loses data on page reload.
 
-**Recommendation**: Add sessionStorage with 5-10 minute TTL for cross-reload persistence.
+**Fix Applied**:
+- Added sessionStorage persistence with 5-minute TTL (`CONFIDENCE_CACHE_TTL`)
+- Layered caching: 10s memory → 5min sessionStorage → database
+- Cache survives page reloads within same browser session
 
 **Impact**: ~80-90% query reduction
+
+**Status**: **FIXED**
 
 ### [MEDIUM] Finding P2-C2: User Profile Stats Repeatedly Fetched
 
 - **App**: sloppygram
-- **File**: apps/sloppygram/index.html:11470-11479
-- **Function**: `fetchUserStats()`
+- **File**: apps/sloppygram/index.html:11487-11593
+- **Function**: `getUserStats()`
 
-**Description**: Profile views trigger 4-5 queries per user (messages, posts, doodles). No caching between views.
+**Description**: Profile views trigger 6 queries per user (messages, posts, doodles, manifestos, avatar). No caching between views.
 
-**Recommendation**: localStorage with 30-minute TTL keyed by username.
+**Fix Applied**:
+- Added localStorage persistence with 30-minute TTL (`USER_STATS_CACHE_TTL`)
+- Added in-memory Map cache for rapid re-renders (1-minute TTL)
+- Layered caching: 1min memory → 30min localStorage → database
+- Cache keyed by username: `userStats_${username}`
 
 **Impact**: ~70% query reduction
+
+**Status**: **FIXED**
 
 ### [LOW] Finding P2-C3: App Taxonomist Recategorizes 458 Apps Every Load
 
@@ -520,8 +531,8 @@ Two apps reference og-image.png files that don't exist:
 |---------|----------|----------|--------|--------|
 | P2-I1 - Missing OG images | Image | High | Low | **FIXED** |
 | P2-V1 - Missing maxlength | Validation | Medium | Low | **FIXED** |
-| P2-C1 - Confidence metrics cache | Caching | Medium | Medium | Open |
-| P2-C2 - Profile stats cache | Caching | Medium | Medium | Open |
+| P2-C1 - Confidence metrics cache | Caching | Medium | Medium | **FIXED** |
+| P2-C2 - Profile stats cache | Caching | Medium | Medium | **FIXED** |
 | P2-I2 - Images without dimensions | Image | Medium | Low | **FIXED** |
 | P2-V2 - Tag length validation | Validation | Low | Low | Open |
 | P2-V3 - Theme enum validation | Validation | Low | Low | Open |
