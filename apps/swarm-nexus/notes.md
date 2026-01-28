@@ -1,6 +1,14 @@
 # Swarm Intelligence Nexus
 
 ## log
+- 2026-01-28: Vote Delegation System
+  - Database table: swarm_delegations
+  - Delegate voting power to trusted users
+  - Category-specific delegations (feature, ui, rules, integration, other)
+  - View incoming and outgoing delegations in modal
+  - Revoke delegations anytime
+  - Delegated power shown in user badge (+X delegated)
+  - "Delegate" button in controls
 - 2026-01-28: Quorum Requirements System
   - Minimum participation thresholds per category
   - Rules: 20%, Features: 10%, UI: 8%, Integration: 12%
@@ -56,14 +64,15 @@
 
 ## Next Infrastructure Milestones
 
-### 1. Vote Delegation
+### 1. Vote Delegation ✅ IMPLEMENTED
 Allow users to delegate their voting power to trusted community members.
-- Delegate to username with optional category restrictions
-- Delegator can override on specific proposals
-- Delegatee sees combined power when voting
-- Delegation chain limit (prevent loops)
-- Revoke delegation anytime
-- Database table: `swarm_delegations` (delegator, delegatee, categories, created_at)
+- ✓ Delegate to username with category restrictions
+- ✓ Delegatee sees combined power (+X delegated badge)
+- ✓ Revoke delegation anytime
+- ✓ Database table: swarm_delegations
+- ✓ Delegation modal with create/view/revoke
+- Delegation chain limit (future enhancement)
+- Delegator override on specific proposals (future enhancement)
 
 ### 2. Quorum Requirements ✅ IMPLEMENTED
 Minimum participation threshold for valid proposals.
@@ -113,6 +122,14 @@ Power is calculated from Sloppygram activity:
   - UI: 8% (lower for minor changes)
 - Proposals must reach quorum to be valid
 - No-quorum proposals are marked as invalid
+
+### Vote Delegation
+- Users can delegate their voting power to trusted community members
+- Delegations can be category-specific (e.g., only for UI proposals)
+- Delegated power adds to the delegatee's effective voting power
+- Delegators can revoke delegations at any time
+- Multiple users can delegate to the same person
+- Delegation modal shows outgoing and incoming delegations
 
 ### Categories
 - Features: New functionality requests
