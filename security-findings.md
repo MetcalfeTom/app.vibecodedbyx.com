@@ -503,7 +503,14 @@ Two apps reference og-image.png files that don't exist:
 
 **Impact**: Cumulative Layout Shift (CLS) when images load.
 
-**Recommendation**: Add explicit width/height attributes or CSS-based dimensions.
+**Fix Applied**:
+- GIF picker: Added `width="100" height="100"` with object-fit
+- Post images: Added `aspect-ratio:4/3; min-height:200px` for consistent sizing
+- Doodle thumbnails: Added `width="300" height="225"` (4:3 ratio)
+- Profile card avatars: Added `width="48" height="48"`
+- Sloppy-ID avatar: Added `width="80" height="80"`
+
+**Status**: **FIXED**
 
 ---
 
@@ -515,7 +522,7 @@ Two apps reference og-image.png files that don't exist:
 | P2-V1 - Missing maxlength | Validation | Medium | Low | **FIXED** |
 | P2-C1 - Confidence metrics cache | Caching | Medium | Medium | Open |
 | P2-C2 - Profile stats cache | Caching | Medium | Medium | Open |
-| P2-I2 - Images without dimensions | Image | Medium | Low | Open |
+| P2-I2 - Images without dimensions | Image | Medium | Low | **FIXED** |
 | P2-V2 - Tag length validation | Validation | Low | Low | Open |
 | P2-V3 - Theme enum validation | Validation | Low | Low | Open |
 | P2-C3 - Taxonomist cache | Caching | Low | Low | Open |
@@ -526,4 +533,4 @@ Two apps reference og-image.png files that don't exist:
 
 1. ~~**Create missing OG images** for swarm-nexus and app-taxonomist~~ ✅ Done
 2. ~~**Add maxlength to text inputs** across all apps~~ ✅ Done (6 inputs)
-3. **Add width/height to image tags** in sloppygram and sloppy-id (20 min)
+3. ~~**Add width/height to image tags** in sloppygram and sloppy-id~~ ✅ Done (5 image types)
