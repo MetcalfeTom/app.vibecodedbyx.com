@@ -3,6 +3,17 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-01-28: Social Graph Visualization
+  - Interactive force-directed network map showing user connections
+  - Visualizes follows (blue), delegations (purple), faction members (green)
+  - Node size based on karma, verified users glow cyan
+  - Canvas-based physics simulation with zoom/pan controls
+  - Filter by relationship type (All/Follows/Delegations/Factions)
+  - Hover tooltips show username, karma, rank
+  - Click nodes to open profile cards
+  - Stats display: nodes, edges, cluster count
+  - New GRAPH tab in header
+  - Data from: sloppygram_follows, swarm_delegations, sloppygram_faction_members, sloppygram_karma, sloppyid_verifications
 - 2026-01-27: Faction Wars System
   - 5 digital clans: Phoenix Order, Shadow Collective, Cyber Nexus, Verdant Grove, Cosmic Void
   - 5x5 territory grid (25 territories) with defense ratings
@@ -273,10 +284,12 @@ Pink, Purple, Deep Purple, Indigo, Blue, Cyan, Teal, Green, Orange, Deep Orange
 ## Next Development Phase: SYNTHESIS v2.0
 **Theme: Deeper Social Graph & AI Integration**
 
-1. **Social Graph Visualization**
-   - Interactive network map showing user connections
-   - Manifesto lineage tree explorer
-   - Karma flow visualization between users
+1. **Social Graph Visualization** ✅ IMPLEMENTED
+   - ✓ Interactive network map showing user connections
+   - ✓ Force-directed graph with follows, delegations, factions
+   - ✓ Karma-based node sizing, verified user glow
+   - Manifesto lineage tree explorer (future)
+   - Karma flow visualization between users (future)
 
 2. **AI Exocortex Integration**
    - Claude context injection for personalized interactions
