@@ -534,9 +534,9 @@ Two apps reference og-image.png files that don't exist:
 | P2-C1 - Confidence metrics cache | Caching | Medium | Medium | **FIXED** |
 | P2-C2 - Profile stats cache | Caching | Medium | Medium | **FIXED** |
 | P2-I2 - Images without dimensions | Image | Medium | Low | **FIXED** |
-| P2-V2 - Tag length validation | Validation | Low | Low | Open |
-| P2-V3 - Theme enum validation | Validation | Low | Low | Open |
-| P2-C3 - Taxonomist cache | Caching | Low | Low | Open |
+| P2-V2 - Tag length validation | Validation | Low | Low | **FIXED** |
+| P2-V3 - Theme enum validation | Validation | Low | Low | **FIXED** |
+| P2-C3 - Taxonomist cache | Caching | Low | Low | **FIXED** |
 
 ---
 
@@ -545,3 +545,6 @@ Two apps reference og-image.png files that don't exist:
 1. ~~**Create missing OG images** for swarm-nexus and app-taxonomist~~ ✅ Done
 2. ~~**Add maxlength to text inputs** across all apps~~ ✅ Done (6 inputs)
 3. ~~**Add width/height to image tags** in sloppygram and sloppy-id~~ ✅ Done (5 image types)
+4. ~~**Add tag length validation** in sloppygram post/manifesto tags~~ ✅ Done (100 char limit)
+5. ~~**Add theme enum whitelist** in confession-wall~~ ✅ Done (7 valid themes)
+6. ~~**Add sessionStorage cache** to App Taxonomist~~ ✅ Done (1hr TTL)
