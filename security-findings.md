@@ -393,3 +393,135 @@ window.addEventListener('beforeunload', () => clearInterval(expiredCheckInterval
 1. ~~**Add subscription cleanup to Swarm Nexus and Swarm Oracle**~~ ✅ Done
 2. ~~**Replace SELECT * with column-specific selects in Sloppygram**~~ ✅ Done (35+ queries)
 3. ~~**Clear setInterval on page unload**~~ ✅ Done
+
+---
+
+# P2 Audit Findings
+
+Audit Date: 2026-01-28
+
+---
+
+## P2 Category: Caching Strategy
+
+### [MEDIUM] Finding P2-C1: Sloppygram Confidence Metrics - No Persistent Cache
+
+- **App**: sloppygram
+- **File**: apps/sloppygram/index.html:10967-11006
+- **Function**: `fetchConfidenceMetrics()`
+
+**Description**: 6 parallel Supabase queries fetch global metrics on every state change. Has 10-second memory cache but loses data on page reload.
+
+**Recommendation**: Add sessionStorage with 5-10 minute TTL for cross-reload persistence.
+
+**Impact**: ~80-90% query reduction
+
+### [MEDIUM] Finding P2-C2: User Profile Stats Repeatedly Fetched
+
+- **App**: sloppygram
+- **File**: apps/sloppygram/index.html:11470-11479
+- **Function**: `fetchUserStats()`
+
+**Description**: Profile views trigger 4-5 queries per user (messages, posts, doodles). No caching between views.
+
+**Recommendation**: localStorage with 30-minute TTL keyed by username.
+
+**Impact**: ~70% query reduction
+
+### [LOW] Finding P2-C3: App Taxonomist Recategorizes 458 Apps Every Load
+
+- **App**: app-taxonomist
+- **File**: apps/app-taxonomist/index.html:745-750
+- **Function**: `initAppData()`
+
+**Description**: Runs categorization logic on 458 apps every page load. Data is static.
+
+**Recommendation**: sessionStorage cache for categorized app list.
+
+**Impact**: ~200ms faster page load
+
+---
+
+## P2 Category: Input Validation
+
+### [MEDIUM] Finding P2-V1: Missing HTML maxlength Attributes
+
+Multiple apps have text inputs without maxlength constraints:
+
+| App | Field | Current Limit | Recommended |
+|-----|-------|---------------|-------------|
+| sloppygram | Post caption | None (JS: 1000) | `maxlength="1000"` |
+| sloppygram | Manifesto title | None (JS: 200) | `maxlength="200"` |
+| sloppygram | Manifesto content | None (JS: 5000) | `maxlength="5000"` |
+| swarm-nexus | Proposal description | None | `maxlength="3000"` |
+| sloppy-id | Vault key | None | `maxlength="100"` |
+| sloppy-id | Vault value | None | `maxlength="10000"` |
+
+**Risk**: Users can bypass JS validation; database bloat; potential DoS via large payloads.
+
+### [LOW] Finding P2-V2: Tags Without Length Validation
+
+- **App**: sloppygram
+- **File**: apps/sloppygram/index.html:17372-17378, 17910-17916
+
+**Description**: Post and manifesto tags passed directly to database without max length check.
+
+**Recommendation**: Validate `tag.length <= 100` before insert.
+
+### [LOW] Finding P2-V3: Theme Enum Not Whitelisted
+
+- **App**: confession-wall
+- **File**: apps/confession-wall/index.html:204
+
+**Description**: Theme from dataset passed to DB without enum validation.
+
+**Recommendation**: Validate theme is in allowed list before insert.
+
+---
+
+## P2 Category: Image Optimization
+
+### [HIGH] Finding P2-I1: Missing OG Image Files
+
+Two apps reference og-image.png files that don't exist:
+
+| App | OG Image Path | Status |
+|-----|---------------|--------|
+| swarm-nexus | /swarm-nexus/og-image.png | **MISSING** |
+| app-taxonomist | /app-taxonomist/og-image.png | **MISSING** |
+
+**Impact**: Broken preview images on social media shares.
+
+**Fix**: Generate and add static PNG files to each app directory.
+
+### [MEDIUM] Finding P2-I2: Images Without Dimensions
+
+- **App**: sloppygram, sloppy-id
+- **Issue**: Lazy-loaded and avatar images missing width/height attributes
+
+**Impact**: Cumulative Layout Shift (CLS) when images load.
+
+**Recommendation**: Add explicit width/height attributes or CSS-based dimensions.
+
+---
+
+## P2 Remediation Priority
+
+| Finding | Category | Severity | Effort | Status |
+|---------|----------|----------|--------|--------|
+| P2-I1 - Missing OG images | Image | High | Low | Open |
+| P2-V1 - Missing maxlength | Validation | Medium | Low | Open |
+| P2-C1 - Confidence metrics cache | Caching | Medium | Medium | Open |
+| P2-C2 - Profile stats cache | Caching | Medium | Medium | Open |
+| P2-I2 - Images without dimensions | Image | Medium | Low | Open |
+| P2-V2 - Tag length validation | Validation | Low | Low | Open |
+| P2-V3 - Theme enum validation | Validation | Low | Low | Open |
+| P2-C3 - Taxonomist cache | Caching | Low | Low | Open |
+
+---
+
+## P2 Quick Wins
+
+1. **Create missing OG images** for swarm-nexus and app-taxonomist (15 min)
+2. **Add maxlength to text inputs** across all apps (30 min)
+3. **Add width/height to image tags** in sloppygram and sloppy-id (20 min)
