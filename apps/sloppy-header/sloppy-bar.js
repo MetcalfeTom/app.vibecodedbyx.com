@@ -26,28 +26,14 @@
   const options = {
     position: script?.getAttribute('data-position') || 'top',
     theme: script?.getAttribute('data-theme') || 'dark',
-    minimized: script?.getAttribute('data-minimized') === 'true',
+    minimized: script?.getAttribute('data-minimized') !== 'false',
     hideKarma: script?.getAttribute('data-hide-karma') === 'true',
     hideLinks: script?.getAttribute('data-hide-links') === 'true'
   };
 
-  // Curated app list for random teleport (mix of games, tools, creative apps)
+  // All apps available for teleport
   const TELEPORT_APPS = [
-    'neon-tetris', 'breakout-terminal', 'icy-tower', 'star-catcher', 'neon-flappy',
-    'snake', 'asteroids', 'space-invaders', 'platformer', 'minecraft',
-    'sloppygram', 'sloppy-spectrum', 'graffiti-wall', 'pixel-editor', 'confession-wall',
-    'wiki-scout', 'cosmic-chat', 'chat-buddy', 'knowledge-chaos', 'oracle-log',
-    'neon-synth', 'lofi-beats', 'ghost-town-radio', 'oscillator', 'kaleidoscope',
-    'generative-art', 'lava-lamp', 'fluid-sim', 'chrome-sphere', 'aurora-lab',
-    'btc-tracker', 'solana-tracker', 'sloppy-coin-info', 'crypto-tools',
-    'claudes-digital-diary', 'federated-truth', 'future-news', 'comedy-club',
-    'toilet-run', 'coin-pusher', 'bouldering-game', 'candle-jumper', 'bug-zap',
-    'cozy-pet', 'fish-tank', 'plant-cli', 'void-fishing', 'pancake-stack',
-    'neon-casino', 'sloppy-slots', 'golden-game', 'treasure-calculator',
-    'crt-calculator', 'chaos-organizer', 'tombstone-todo', 'cyber-vault',
-    'text-effects', 'cowsay', 'ascii-art', 'quine-viz', 'deadfish',
-    'romance-quest', 'medieval-romance', 'love-sloppy', 'horny-jail',
-    'neon-guestbook', 'guestbook', 'the-last-word', 'lost-found'
+    '6502-emulator','abstract-tower-defense','access-denied','accountability-hub','activity-overlay','aegis-protocol','agent-manager-3d','akash-portfolio','alien-artillery','alpha-blast','analog-dash','angry-cookie','api','app-directory','app-roulette','app-taxonomist','ascii-art','ascii-fish','asteroids','audit-report','aurora-lab','bad-advice','bags-tracker','ball-pit','batsman','bear-cycle','beef-clicker','beer-garden','bikini-bottom-brawl','black-hole-vortex','bladder-blast','blue-box','blueprint-portal','boss-blocker','bouldering-game','bouncy-berry','brainrot-os','breakfast-game','breakout-terminal','breath-visualizer','btc-tracker','bug-zap','butter-physics','calorie-tracker','candle-jumper','candle-sailor','cat-pics','cat-zap','chaos-blocks','chaos-organizer','chart-comparison','chat-boss-battle','chat-buddy','chat-pulse-monitor','chat-suggestions','chatcloud','chess-advice','chrome-sphere','claude-love','claude-status','claudes-digital-diary','cli-poem','cloud-jumper','code-sprint','code-unlock','coffee-facts','coin-pusher','color-cycler','color-match','comedy-club','confession-wall','confetti-cannon','content-manager','cosmic-cat-quest-pp','cosmic-chat','cosmic-shapes','costeo-gastro','cowsay','cozy-pet','crisis-dashboard','crt-calculator','crypto-tools','cube-escape','cute-duck','cyber-notes','cyber-shield','cyber-vault','cybercall','dan-detector','dancing-whales','deadfish','deprecated-trivia','desperate-ai','detective-board','deutsch-dash','diamond-drill','digit-brain','disco-ball','discord-clone','doom-3d','doom-port','dos-anime-dream','dp-pathfinder','dreamy-sleep','drum-machine','dungeon-crawler','dunny-dash','dutch-still-life','eggcraft','eggnet-sentinel','elite-landing','emo-shrine','emo-slash','emoji-shooter','evidence-board','evo-sandbox','existential-autocorrect','fake-reviews','fake-shutdown','feather-vault','federated-truth','fee-watchtower','feedback','fema-portal','fighting-game','file-generator','finance-shorts','first-date','fish-tank','fluid-sim','fly-simulator','focus-buddy','fox-berries','fox-den','fox-playground','fox-security','fox-tickle-sim','fox-tickle','fox-trap','fractal-dance','future-news','gas-delivery','gemini-puzzle','genealogist','generative-art','geometry-dash','ghost-runner','ghost-town-radio','gift-gallery','gigglesound','git-sim','gitscope','glitch-vending','glitchmon','glove-box','goblin-loot','godel-agent','golden-game','golden-stopwatch','gorilla-fart','graffiti-wall','grape-duel','grape-vault','grapple-bot','gratitude-journal','grave-generator','gravity-flip','gravity-surfer','gravity-vortex','hacker-terminal','hello-world','hex-conquest','hippo-pizzeria','hobbit-trip','hola-mundo','holiday-luck','hydraulic-press','icy-tower','impossible-platform','indie-hacker','infinite-abyss','interactive-novel','inventory-manager','jellyfish-abyss','json-toon-converter','judgmental-cat','kaleidoscope','kanban','kaneidog-vault','karma-board','karma-feed','knowledge-chaos','kratos-couture','laptop-fire','laughter-fractals','laughter-meter','lava-lamp','lighthouse','lil-sloppy','lint-roller','live-scanner','livestream-hub','logic-grove','lonewolf-store','lost-found','love-sloppy','mac-os9','malloc-madness','manifesto-generator','mansion-butler','mate-clicker','matrix-friends','matrix-rain','maxz00m-tictactoe','maze-pathfinder','mech-suit','mechanical-calculator','medieval-romance','mesh-curvature','mesh-relax','micro-city','minecraft-guide','minecraft','modern-node-typescript-developer','monster-mash','moodmouse','moon-explorer','motorbike-racing','mouse-mood','mundane-adventure','mundane-poetry','mysterious-life','nacho-empire','narnia-map','nda-redactor','neon-alarm-clock','neon-aquarium','neon-asteroids','neon-bonsai','neon-bowling','neon-casino','neon-cigarette-factory','neon-cocktails','neon-crash','neon-dodgeball','neon-donut','neon-dream-visualizer','neon-drift','neon-drill','neon-fireworks','neon-flap','neon-flappy','neon-flower','neon-fluid','neon-fox-chaos','neon-giftcard','neon-giraffe-clicker','neon-guestbook','neon-heist','neon-invaders','neon-lava-lamp','neon-life','neon-maelstrom','neon-particles','neon-pet','neon-phone','neon-physics','neon-pong','neon-racer','neon-rave','neon-recovery-room','neon-sandbox','neon-slice','neon-snake','neon-soundboard','neon-speech','neon-storm','neon-synth','neon-terminal','neon-tetris','neon-tickle-defense','neon-vault','neon-water','neon-weather','neon-zen','network-scan','neural-gateway','neural-viz','news-gen','night-watch','not-human-cult','nuclear-pizza','nuke-sim','nullify','nutribullet','nye-vibe','obsidian-security','orbital-strike','origins','ornament-toss','oscillator','ouija-board-v2','ouija-board','overview','p5-art','page-of-nothingness','pancake-stack','phaser-platformer','pho-game','physics-balls','pirate-captcha','pirate-laser','pixel-bonfire','pixel-conflict','pixel-editor','planets','plant-cli','platformer','pokemon-clone','pokevault','polybius','pong-terminal','poo-palace','portal','prank-names','prism-echo','purple-scanner','purple-trap','quarantine-pinball','quaternion-orbits','quine-viz','random-greeting','raptor-pet','recursive-agent','redact-o-matic','relativistic','robo-arm','robot-arm','rocketship','roikku','romance-quest','rugpull-simulator','sand-sandbox','sandbox','sandustry-clone','sandwich-stack','seahorse','search-bridge','secret-shredder','sensible-soccer','shenzhen-spa-finder','sid-emulator','silence-collector','silence-meter','simon-says','simp-meter','simple-chat','simpsons-road-rage','sky-unlimited','slap-battle','sleep-space','sloppy-analytics','sloppy-civ','sloppy-coin-info','sloppy-community','sloppy-dashboard','sloppy-flow','sloppy-hunt','sloppy-id','sloppy-lance','sloppy-os','sloppy-says','sloppy-slots','sloppy-spectrum','sloppy-xp','sloppygram','sloppys-gift','sloppys-manifesto','snake','snark-terminal','snowball-fight','solana-tracker','south-park-creator','space-chess','space-flight','space-invaders','space-taco','space-xmas-blocks','sploppy','sql-towers','star-catcher','starship-bridge','status-dashboard','sticker-workshop','submarine-craft','swarm-nexus','swarm-oracle','synth-collab','synth-player','synth','system-health','tag-explorer','tech-church','terminal-escape','tetris-mobile','tetris-terminal','tetris','text-effects','text-to-speech','the-last-word','the-singularity','the-unclickable','the-void','thiel-soundboard','throne-rater','tic-tac-toe','tickle-defense','tickle-explosion','tickle-grape','tickle-reactor','tictactoe','toilet-run','toiletgram','tombstone-todo','train-scheduler','train-signals','trash-compactor','treasure-calculator','trope-mixer','truchet-tiles','trump-truth','tsp-genetic','tune-scout','ubicacion-geografica','ucmj-translator','uk-pub-finder','valkyrae-revenge','vhs-deck','vibe-clone','void-fishing','voxel-terrain','voxel-world','wasm-dedup','web-archive','web-os','webgl-text','whiteboard','who-is-gary','wichteln','wiki-scout','win95-lofi-soundboard','win95','windows-95','witness-protection','word-bricks','world-monitor','writer','xp-desktop','yoga','yorkie-stacker','youtube-wizard','zen-garden'
   ];
 
   // State
@@ -66,10 +52,10 @@
       left: 0;
       right: 0;
       height: 36px;
-      background: ${options.theme === 'light' ? 'rgba(255,255,255,0.95)' : 'rgba(10,10,15,0.95)'};
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border-${options.position === 'top' ? 'bottom' : 'top'}: 1px solid ${options.theme === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'};
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border: none;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -83,19 +69,25 @@
     }
     .sloppy-bar * { box-sizing: border-box; }
     .sloppy-bar.minimized {
-      width: 40px;
-      height: 40px;
-      ${options.position}: 10px;
-      left: 10px;
+      width: auto;
+      height: 32px;
+      ${options.position}: 8px;
+      left: 8px;
       right: auto;
-      border-radius: 8px;
-      border: 1px solid ${options.theme === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.15)'};
+      border-radius: 6px;
+      background: rgba(10,10,15,0.6);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.08);
       justify-content: center;
       cursor: pointer;
+      padding: 0 10px;
+      gap: 6px;
     }
     .sloppy-bar.minimized:hover {
-      transform: scale(1.1);
-      border-color: #00ddff;
+      transform: scale(1.03);
+      border-color: rgba(255,255,255,0.15);
+      background: rgba(10,10,15,0.8);
     }
     .sloppy-bar-left {
       display: flex;
@@ -202,12 +194,31 @@
       opacity: 0.9;
     }
     .sloppy-bar-minimized-icon {
-      font-size: 18px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .sloppy-bar-logo-s {
+      font-size: 14px;
+      background: linear-gradient(135deg, #ff6b9d, #c44dff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 900;
     }
     .sloppy-bar.minimized .sloppy-bar-left,
     .sloppy-bar.minimized .sloppy-bar-center,
     .sloppy-bar.minimized .sloppy-bar-right {
       display: none;
+    }
+    .sloppy-bar:not(.minimized) {
+      background: rgba(10,10,15,0.7);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
     }
     .sloppy-bar:not(.minimized) .sloppy-bar-minimized-icon {
       display: none;
@@ -442,10 +453,10 @@
     const isAnon = currentUser?.app_metadata?.provider === 'anonymous' || !currentUser?.user_metadata?.user_name;
 
     bar.innerHTML = `
-      <span class="sloppy-bar-minimized-icon">🪪</span>
+      <span class="sloppy-bar-minimized-icon"><span class="sloppy-bar-logo-s">S</span> sloppy.live</span>
       <div class="sloppy-bar-left">
         <a href="/sloppy-id" class="sloppy-bar-identity" title="View your SloppyID profile">
-          <span class="sloppy-bar-avatar">${userData.isTwitter ? '🐦' : '🪪'}</span>
+          <span class="sloppy-bar-avatar">${userData.isTwitter ? '🐦' : '<span class="sloppy-bar-logo-s">S</span>'}</span>
           <span class="sloppy-bar-username">${userData.username}</span>
           ${!options.hideKarma && userData.karma > 0 ? `<span class="sloppy-bar-karma">⚡${formatNumber(userData.karma)}</span>` : ''}
         </a>
