@@ -3,6 +3,12 @@
 High-speed neon racing game with procedural obstacles and near-miss mechanics.
 
 ## log
+- 2026-02-01: Proximity mines
+  - New mine obstacle type with pulsing red core and expanding danger rings
+  - Explodes when player gets within proximity radius (70 units)
+  - Warning beep when approaching, massive particle burst on detonation
+  - Red/orange/yellow spark cascade, screen shake, flash
+  - Custom mine rendering: radial glow, double pulse rings, inner dot
 - 2026-02-01: Initial creation
   - Perspective road with animated lane markers and cross-lines
   - 5-lane steering with smooth interpolation
@@ -21,7 +27,7 @@ High-speed neon racing game with procedural obstacles and near-miss mechanics.
 
 ## features
 - Perspective 3D road rendering with vanishing point
-- Procedural obstacle generation (5 types, increasing clusters)
+- Procedural obstacle generation (6 types including proximity mines, increasing clusters)
 - Near-miss multiplier rewards close dodges
 - Boost system with regenerating fuel
 - Particle effects: exhaust, sparks, speed lines
