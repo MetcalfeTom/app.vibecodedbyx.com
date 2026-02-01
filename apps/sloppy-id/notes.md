@@ -3,6 +3,14 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-01: Identity v2.0 — Portable Identity & Privacy Controls
+  - QR code sharing: generates QR with deep link containing public vault entries (qrcode-generator CDN)
+  - Deep link import: ?import=<base64> URL param triggers preview modal, user confirms to merge entries
+  - Encrypted backup: Web Crypto AES-GCM with PBKDF2 key derivation, exports .sloppy files with passphrase
+  - Encrypted restore: upload .sloppy file, enter passphrase, decrypt and import entries
+  - Privacy Controls section: anonymous mode toggle (localStorage), make-all-private, purge entries >30d, delete all data
+  - Activity log: shows last 10 vault modifications by updated_at timestamp
+  - All modals: QR display, import preview, passphrase entry — all with click-outside-to-close
 - 2026-02-01: Communications Hub (DM inbox + mentions)
   - Added Communications Hub section between Profile Editor and Data Vault
   - DM inbox: lists all conversations, open thread view, send/receive messages
@@ -166,17 +174,17 @@ Required: session_id, fidelity_score, initiated_at
    - Discord OAuth (placeholder ready)
    - Web3 wallet linking (future)
 
-2. **Portable Identity**
-   - QR code identity sharing
-   - Deep link profile imports
-   - Identity backup/restore encryption
-   - Cross-device sync
+2. **Portable Identity** ✅ IMPLEMENTED
+   - ✓ QR code identity sharing
+   - ✓ Deep link profile imports
+   - ✓ Identity backup/restore encryption
+   - Cross-device sync (future)
 
-3. **Privacy Controls**
-   - Granular visibility settings per vault key
-   - Anonymous mode toggle
-   - Data retention controls
-   - Activity history management
+3. **Privacy Controls** ✅ IMPLEMENTED
+   - ✓ Bulk visibility (make all private)
+   - ✓ Anonymous mode toggle
+   - ✓ Data retention controls (purge old, delete all)
+   - ✓ Activity history log
 
 4. **Enhanced Vault**
    - Rich media support (images, files)
