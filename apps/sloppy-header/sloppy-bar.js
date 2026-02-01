@@ -24,7 +24,7 @@
   // Get script options
   const script = document.currentScript;
   const options = {
-    position: script?.getAttribute('data-position') || 'top',
+    position: script?.getAttribute('data-position') || 'bottom',
     theme: script?.getAttribute('data-theme') || 'dark',
     minimized: script?.getAttribute('data-minimized') !== 'false',
     hideKarma: script?.getAttribute('data-hide-karma') === 'true',
@@ -270,7 +270,7 @@
       background: rgba(10,10,15,0.7);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
-      border-bottom: 1px solid rgba(255,255,255,0.06);
+      border-top: 1px solid rgba(255,255,255,0.06);
     }
     .sloppy-bar:not(.minimized) .sloppy-bar-minimized-icon {
       display: none;
@@ -314,10 +314,10 @@
     }
     .sloppy-bar-dropdown {
       position: absolute;
-      top: 100%;
+      bottom: 100%;
       left: 50%;
       transform: translateX(-50%);
-      margin-top: 8px;
+      margin-bottom: 8px;
       background: ${options.theme === 'light' ? 'rgba(255,255,255,0.98)' : 'rgba(15,15,20,0.98)'};
       border: 1px solid ${options.theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'};
       border-radius: 8px;
@@ -332,7 +332,7 @@
       animation: sloppy-dropdown-in 0.15s ease-out;
     }
     @keyframes sloppy-dropdown-in {
-      from { opacity: 0; transform: translateX(-50%) translateY(-5px); }
+      from { opacity: 0; transform: translateX(-50%) translateY(5px); }
       to { opacity: 1; transform: translateX(-50%) translateY(0); }
     }
     .sloppy-bar-dropdown-header {
