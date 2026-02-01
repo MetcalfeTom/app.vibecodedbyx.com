@@ -60,7 +60,7 @@ Key design choices:
   a separate badge-awarding service.
 
 ## roadmap status — 2026-02-01
-### Extracted today (15 apps/features):
+### Extracted today (16 apps/features):
 1. Ghost Radar Hub — presence radar
 2. Oracle Forum — Q&A board
 3. Trust Metrics Dashboard — trust/verification visualizer
@@ -75,13 +75,17 @@ Key design choices:
 12. Sloppy Feed — global timeline + posts
 13. Sloppy Alerts — universal grid notifications
 14. Sloppy Wallet — karma ledger + badges (this app)
+15. Sloppy Feedback — idea board + bug tracker (feedback + feedback_votes tables)
+
+### Next priority: Tag Explorer (~800 lines)
+Standalone discovery tool for browsing the hierarchical tag system across posts and manifestos.
+Tables: sloppygram_post_tags, sloppygram_manifesto_tags. Self-contained, no write dependencies.
 
 ### Remaining in Sloppygram monolith (unextracted):
 - Messaging/Chat (~2000 lines) — public chat rooms, message reactions, tag system
 - DMs (~800 lines, partially surfaced in SloppyID Comms Hub)
 - Karma calculation engine (~800 lines, read-only view here but compute still in monolith)
-- Tag Explorer (~800 lines)
-- Feedback Hub (~700 lines)
+- Tag Explorer (~800 lines) ← NEXT
 - Doodle Canvas (~500 lines, collab canvas extracted but doodle creation not)
 - Profile Cards (~500 lines)
 - Comment Threading (~400 lines, used by Feed but thread UI lives in monolith)
