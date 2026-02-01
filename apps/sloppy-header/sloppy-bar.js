@@ -4,7 +4,7 @@
  * Usage: <script src="/sloppy-header/sloppy-bar.js"></script>
  *
  * Options (via data attributes on script tag):
- *   data-position="top|bottom" (default: top)
+ *   data-position="top|bottom" (default: bottom)
  *   data-theme="dark|light|auto" (default: dark)
  *   data-minimized="true|false" (default: false)
  *   data-hide-karma="true|false" (default: false)
