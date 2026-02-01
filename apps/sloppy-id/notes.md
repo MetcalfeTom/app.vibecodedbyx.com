@@ -3,6 +3,13 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-01: Unified profile data — sloppygram_profiles as single source of truth
+  - Profile save now upserts to sloppygram_profiles instead of sloppyid_vault
+  - Profile load reads from sloppygram_profiles (avatar URL vs emoji detected by prefix)
+  - Public profile search and recent profiles now query sloppygram_profiles
+  - Removed PROFILE_VAULT_KEY constant (no longer needed)
+  - sloppyid_vault still used for non-profile key-value entries
+  - Bio field repurposed for status text
 - 2026-02-01: Identity v2.0 — Portable Identity & Privacy Controls
   - QR code sharing: generates QR with deep link containing public vault entries (qrcode-generator CDN)
   - Deep link import: ?import=<base64> URL param triggers preview modal, user confirms to merge entries
@@ -30,10 +37,9 @@ Central identity hub for the sloppy.live ecosystem.
   - 10 neon color options (same palette as Sloppygram)
   - Display name input (max 20 chars)
   - Status message input (max 60 chars)
-  - Profile saved to sloppyid_vault with reserved key 'sloppy_profile'
-  - Profile is public in vault (other apps can read it)
+  - Profile saved to sloppygram_profiles (single source of truth)
   - Profile card updates live on save (avatar, name, color)
-  - Profile loads from vault on init (persists across sessions)
+  - Profile loads from sloppygram_profiles on init (persists across sessions)
   - Reset button restores defaults
   - Phase 1 of unified identity manager
 - 2026-01-28: Identity Verification Tiers v1.0

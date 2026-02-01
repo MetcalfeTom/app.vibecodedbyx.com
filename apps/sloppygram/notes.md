@@ -3,6 +3,12 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-01: Unified profile data — sloppygram_profiles as single source of truth
+  - Init profile load reads from sloppygram_profiles instead of sloppyid_vault
+  - Profile save syncs to sloppygram_profiles via upsert (fire-and-forget)
+  - Avatar URL vs emoji detected by http/data: prefix
+  - Bio field used for status text
+  - No more vault reads/writes for profile data
 - 2026-01-28: Social Graph Visualization
   - Interactive force-directed network map showing user connections
   - Visualizes follows (blue), delegations (purple), faction members (green)
