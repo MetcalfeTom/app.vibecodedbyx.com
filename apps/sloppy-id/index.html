@@ -2348,15 +2348,20 @@
 
     // Initialize
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        currentUser = session.user;
-        await loadUserProfile();
-        await loadVerifications();
-        updateUI();
-        loadVaultEntries();
-        loadProfileFromVault();
-        initCommsHub();
+      try {
+        const sessionRes = await supabase.auth.getSession();
+        const session = sessionRes?.data?.session;
+        if (session) {
+          currentUser = session.user;
+          await loadUserProfile();
+          await loadVerifications();
+          updateUI();
+          loadVaultEntries();
+          loadProfileFromVault();
+          initCommsHub();
+        }
+      } catch (err) {
+        console.warn('Session restore failed (non-fatal):', err);
       }
 
       // Load recent public entries for everyone
@@ -2375,19 +2380,25 @@
 
       // Listen for auth changes
       supabase.auth.onAuthStateChange(async (event, session) => {
-        if (session) {
-          currentUser = session.user;
-          await loadUserProfile();
-          await loadVerifications();
-          updateUI();
-          loadVaultEntries();
-          loadProfileFromVault();
-          initCommsHub();
-        } else {
-          currentUser = null;
-          userProfile = { username: 'Anonymous', avatar: '👤', isTwitter: false };
-          verifications = {};
-          updateUI();
+        try {
+          if (session) {
+            currentUser = session.user;
+            await loadUserProfile();
+            await loadVerifications();
+            updateUI();
+            loadVaultEntries();
+            loadProfileFromVault();
+            initCommsHub();
+          } else {
+            currentUser = null;
+            userProfile = { username: 'Anonymous', avatar: '👤', isTwitter: false };
+            verifications = {};
+            updateUI();
+          }
+        } catch (err) {
+          console.error('Auth state change handler error:', err);
+          // Still try to update UI even if some sub-calls failed
+          try { updateUI(); } catch (_) {}
         }
       });
     }
@@ -2403,14 +2414,21 @@
         isTwitter: currentUser.app_metadata?.provider === 'twitter'
       };
 
-      // Check if premium
-      const { data } = await supabase
-        .from('users')
-        .select('purchased_at')
-        .eq('user_id', currentUser.id)
-        .single();
+      // Check if premium — wrapped in try-catch since users table may not
+      // have a row for fresh anonymous users, and .single() errors on no rows.
+      // Network failures here must not kill the auth flow.
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('purchased_at')
+          .eq('user_id', currentUser.id)
+          .single();
 
-      userProfile.isPremium = data?.purchased_at != null;
+        userProfile.isPremium = data?.purchased_at != null;
+      } catch (err) {
+        console.warn('Premium check failed (non-fatal):', err);
+        userProfile.isPremium = false;
+      }
     }
 
     // Update UI based on auth state
@@ -2523,11 +2541,16 @@
     };
 
     window.signInAnonymously = async function() {
-      const { data, error } = await supabase.auth.signInAnonymously();
-      if (error) {
-        showToast('Failed to sign in: ' + error.message, 'error');
-      } else {
-        showToast('Signed in anonymously!', 'success');
+      try {
+        const { data, error } = await supabase.auth.signInAnonymously();
+        if (error) {
+          showToast('Failed to sign in: ' + error.message, 'error');
+        } else {
+          showToast('Signed in anonymously!', 'success');
+        }
+      } catch (err) {
+        console.error('Anonymous sign-in network error:', err);
+        showToast('Network error — check your connection and try again', 'error');
       }
     };
 
@@ -4017,34 +4040,50 @@
       // Auth with Sloppygram Supabase for DM access
       try {
         const sgSessRes = await sgClient.auth.getSession();
-        if (!sgSessRes.data.session) {
+        if (!sgSessRes.data?.session) {
           await sgClient.auth.signInAnonymously();
         }
-        sgSession = (await sgClient.auth.getSession()).data.session;
+        sgSession = (await sgClient.auth.getSession()).data?.session;
       } catch (e) {
         console.warn('[Comms] Sloppygram auth failed:', e);
+        updateIntegrityBar(false);
+        return; // Don't attempt DM/mention loads without a session
       }
 
-      loadConversations();
-      loadMentions();
+      if (!sgSession) {
+        console.warn('[Comms] No Sloppygram session, skipping comms');
+        updateIntegrityBar(false);
+        return;
+      }
+
+      try {
+        loadConversations();
+        loadMentions();
+      } catch (e) {
+        console.warn('[Comms] Failed to load conversations/mentions:', e);
+      }
 
       // Real-time DM subscription
-      sgClient.channel('sloppyid-dm-updates')
-        .on('postgres_changes', {
-          event: 'INSERT', schema: 'public', table: 'sloppygram_dm_messages',
-          filter: `recipient_id=eq.${currentUser.id}`
-        }, () => {
-          loadConversations();
-          document.getElementById('inboxDot').classList.add('show');
-          if (currentDmConvId) loadDmMessages(currentDmConvId);
-        })
-        .on('postgres_changes', {
-          event: 'INSERT', schema: 'public', table: 'sloppygram_mentions'
-        }, () => {
-          loadMentions();
-          document.getElementById('mentionsDot').classList.add('show');
-        })
-        .subscribe();
+      try {
+        sgClient.channel('sloppyid-dm-updates')
+          .on('postgres_changes', {
+            event: 'INSERT', schema: 'public', table: 'sloppygram_dm_messages',
+            filter: `recipient_id=eq.${currentUser.id}`
+          }, () => {
+            loadConversations();
+            document.getElementById('inboxDot').classList.add('show');
+            if (currentDmConvId) loadDmMessages(currentDmConvId);
+          })
+          .on('postgres_changes', {
+            event: 'INSERT', schema: 'public', table: 'sloppygram_mentions'
+          }, () => {
+            loadMentions();
+            document.getElementById('mentionsDot').classList.add('show');
+          })
+          .subscribe();
+      } catch (e) {
+        console.warn('[Comms] Real-time subscription failed:', e);
+      }
 
       updateIntegrityBar(true);
     }
