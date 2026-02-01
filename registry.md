@@ -135,7 +135,7 @@ Tables not yet extracted to standalone apps:
 | sloppygram_global_backgrounds | **OWNER** (R,W) | Hub-only assets |
 | sloppygram_reputation | ORPHANED | Only read by sloppy-wallet, never written |
 
-sloppygram also retains **secondary write access** to many tables now owned by standalone apps. These are legacy paths from the monolith.
+As of 2026-02-01, all legacy write paths to sovereign-owned tables have been removed. sloppygram is now read-only for tables it does not own. Posts/manifestos created in sloppygram still insert into sloppygram_posts/sloppygram_manifestos (which sloppygram co-creates) but tags, lineage, radio tracks, faction seeding, battles, and faction membership are deferred to their sovereign apps.
 
 ---
 
