@@ -162,10 +162,36 @@
       text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
     }
 
-    #nextCanvas {
+    #nextCanvas, #holdCanvas {
       display: block;
       margin: 0 auto;
       background: rgba(0, 0, 0, 0.4);
+    }
+
+    #holdCanvas.used {
+      opacity: 0.35;
+    }
+
+    .combo-val {
+      color: #ff0 !important;
+      text-shadow: 0 0 10px rgba(255, 255, 0, 0.5) !important;
+    }
+
+    .combo-popup {
+      position: absolute;
+      font-family: 'Orbitron', monospace;
+      font-weight: 900;
+      font-size: 1.4rem;
+      color: #ff0;
+      text-shadow: 0 0 15px rgba(255, 255, 0, 0.8);
+      pointer-events: none;
+      animation: comboFade 1s ease-out forwards;
+      z-index: 20;
+    }
+
+    @keyframes comboFade {
+      0% { opacity: 1; transform: translateY(0) scale(1); }
+      100% { opacity: 0; transform: translateY(-40px) scale(1.3); }
     }
 
     .controls {
@@ -534,6 +560,7 @@
             <button class="mobile-btn" id="btnRight">→</button>
           </div>
           <div class="mobile-row">
+            <button class="mobile-btn" id="btnHold" style="width:55px; font-size:0.7rem;">HOLD</button>
             <button class="mobile-btn" id="btnDrop" style="width:125px;">DROP</button>
           </div>
         </div>
@@ -553,6 +580,14 @@
           <div class="panel-title">Lines</div>
           <div class="panel-value" id="lines">0</div>
         </div>
+        <div class="panel-box" id="comboBox" style="display:none;">
+          <div class="panel-title">Combo</div>
+          <div class="panel-value combo-val" id="comboDisplay">0</div>
+        </div>
+        <div class="panel-box">
+          <div class="panel-title">Hold <span style="font-size:0.5rem;opacity:0.5">[C]</span></div>
+          <canvas id="holdCanvas" width="100" height="80"></canvas>
+        </div>
         <div class="panel-box">
           <div class="panel-title">Next</div>
           <canvas id="nextCanvas" width="100" height="80"></canvas>
@@ -562,6 +597,7 @@
           <span>↑</span> Rotate<br>
           <span>↓</span> Soft Drop<br>
           <span>Space</span> Hard Drop<br>
+          <span>C</span> Hold<br>
           <span>P</span> Pause
         </div>
       </div>
@@ -586,6 +622,8 @@
     const oppCanvas = document.getElementById('opponentCanvas');
     const oppCtx = oppCanvas.getContext('2d');
 
+    const holdCanvas = document.getElementById('holdCanvas');
+    const holdCtx = holdCanvas.getContext('2d');
     const COLS = 10, ROWS = 20, BLOCK_SIZE = 30, NEXT_BLOCK_SIZE = 20;
 
     const COLORS = [
@@ -605,7 +643,9 @@
 
     // Game state
     let board = [], currentPiece = null, nextPiece = null;
+    let holdPieceData = null, holdUsed = false;
     let score = 0, lines = 0, level = 1;
+    let combo = 0; // consecutive line clears
     let gameOver = false, paused = false, gameStarted = false;
     let lastTime = 0, dropCounter = 0, dropInterval = 1000;
     let animatingLines = [];
@@ -639,6 +679,7 @@
       loadLeaderboard();
       drawBoard();
       drawNext();
+      drawHold();
       showOverlay('TETRIS', 'Press PLAY to start');
     }
 
@@ -1057,6 +1098,54 @@
       });
     }
 
+    function drawHold() {
+      holdCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      holdCtx.fillRect(0, 0, holdCanvas.width, holdCanvas.height);
+      if (!holdPieceData) return;
+      const shape = SHAPES[holdPieceData.type];
+      const offsetX = (holdCanvas.width - shape[0].length * NEXT_BLOCK_SIZE) / 2;
+      const offsetY = (holdCanvas.height - shape.length * NEXT_BLOCK_SIZE) / 2;
+      shape.forEach((row, r) => {
+        row.forEach((val, c) => {
+          if (val) {
+            drawBlock(holdCtx, offsetX / NEXT_BLOCK_SIZE + c, offsetY / NEXT_BLOCK_SIZE + r, COLORS[val], NEXT_BLOCK_SIZE);
+          }
+        });
+      });
+      holdCanvas.classList.toggle('used', holdUsed);
+    }
+
+    function holdCurrentPiece() {
+      if (holdUsed || !currentPiece || gameOver || paused) return;
+      holdUsed = true;
+
+      if (holdPieceData) {
+        // Swap hold and current
+        const prevHold = holdPieceData;
+        holdPieceData = { type: currentPiece.type };
+        currentPiece = createPiece(prevHold.type);
+      } else {
+        // First hold — store current, spawn next
+        holdPieceData = { type: currentPiece.type };
+        currentPiece = nextPiece || randomPiece();
+        nextPiece = randomPiece();
+        drawNext();
+      }
+      drawHold();
+    }
+
+    function showComboPopup(comboCount, points) {
+      const popup = document.createElement('div');
+      popup.className = 'combo-popup';
+      popup.textContent = `COMBO x${comboCount}! +${points}`;
+      const board = document.querySelector('.game-board:not(.opponent)');
+      popup.style.left = '50%';
+      popup.style.top = '40%';
+      popup.style.transform = 'translateX(-50%)';
+      board.appendChild(popup);
+      setTimeout(() => popup.remove(), 1000);
+    }
+
     function collision(shape, offsetX, offsetY) {
       for (let r = 0; r < shape.length; r++) {
         for (let c = 0; c < shape[r].length; c++) {
@@ -1125,14 +1214,29 @@
           animatingLines = [];
         }, 200);
 
+        // Combo system
+        combo++;
         lines += cleared;
         const points = [0, 100, 300, 500, 800];
-        score += points[cleared] * level;
+        let basePoints = points[cleared] * level;
+
+        // Combo bonus: 50% extra per combo level (starting from combo 2)
+        let comboBonus = 0;
+        if (combo >= 2) {
+          comboBonus = Math.floor(basePoints * (combo - 1) * 0.5);
+          showComboPopup(combo, comboBonus);
+        }
+
+        score += basePoints + comboBonus;
         level = Math.floor(lines / 10) + 1;
         dropInterval = Math.max(100, 1000 - (level - 1) * 100);
         updateUI();
 
         if (duelMode) broadcastGameState();
+      } else {
+        // No lines cleared — reset combo
+        combo = 0;
+        updateUI();
       }
     }
 
@@ -1140,6 +1244,13 @@
       document.getElementById('score').textContent = score;
       document.getElementById('level').textContent = level;
       document.getElementById('lines').textContent = lines;
+      const comboBox = document.getElementById('comboBox');
+      if (combo >= 2) {
+        comboBox.style.display = 'block';
+        document.getElementById('comboDisplay').textContent = 'x' + combo;
+      } else {
+        comboBox.style.display = 'none';
+      }
     }
 
     function move(dir) {
@@ -1176,7 +1287,9 @@
     function spawnPiece() {
       currentPiece = nextPiece || randomPiece();
       nextPiece = randomPiece();
+      holdUsed = false;
       drawNext();
+      drawHold();
       if (collision(currentPiece.shape, currentPiece.x, currentPiece.y)) {
         gameOver = true;
         if (duelMode) {
@@ -1202,11 +1315,13 @@
 
     function startGame() {
       createBoard();
-      score = 0; lines = 0; level = 1;
+      score = 0; lines = 0; level = 1; combo = 0;
+      holdPieceData = null; holdUsed = false;
       dropInterval = 1000;
       gameOver = false; paused = false;
       animatingLines = [];
       updateUI();
+      drawHold();
       hideOverlay();
       spawnPiece();
       lastTime = performance.now();
@@ -1242,6 +1357,7 @@
         case 'ArrowDown': drop(); score += 1; updateUI(); break;
         case 'ArrowUp': rotate(); break;
         case ' ': e.preventDefault(); hardDrop(); break;
+        case 'c': case 'C': case 'Shift': holdCurrentPiece(); break;
         case 'p': case 'P':
           paused = !paused;
           if (paused) showOverlay('PAUSED', 'Press P to resume');
@@ -1255,6 +1371,7 @@
     document.getElementById('btnRight').addEventListener('click', () => move(1));
     document.getElementById('btnDown').addEventListener('click', () => { drop(); score += 1; updateUI(); });
     document.getElementById('btnRotate').addEventListener('click', () => rotate());
+    document.getElementById('btnHold').addEventListener('click', () => holdCurrentPiece());
     document.getElementById('btnDrop').addEventListener('click', () => hardDrop());
 
     // Mode buttons

@@ -1,6 +1,15 @@
 # Neon Tetris
 
 ## log
+- 2026-02-01: Hold Piece & Combo System
+  - Hold piece: press C or Shift to store current piece, swap on next hold
+  - Hold display panel with dimmed state when already used this turn
+  - Resets each new piece spawn (one hold per piece)
+  - Combo system: consecutive line clears build combo multiplier
+  - Combo bonus: +50% per combo level (x2 = +50%, x3 = +100%, etc.)
+  - Animated combo popup on game board
+  - Combo counter in side panel (shows at x2+)
+  - Mobile hold button added
 - 2026-01-27: Multiplayer Duels & Global Leaderboards
   - Real-time 1v1 duel mode with room codes
   - Side-by-side opponent board view
@@ -36,17 +45,17 @@
 ## Next Development Phase: TETRIS v2.1
 **Theme: Advanced Competitive Features**
 
-1. **Hold & Preview** (Planned)
-   - Hold piece feature (swap current)
+1. **Hold & Preview** (Partially Complete ✓)
+   - ✓ Hold piece feature (swap current)
    - Extended preview (next 3-5 pieces)
    - Piece statistics tracker
    - Perfect clear detection
 
 2. **Scoring & Persistence** (Partially Complete ✓)
    - ✓ Global leaderboard (Supabase)
+   - ✓ Combo system with multipliers
    - Personal best tracking
    - T-spin detection and bonus
-   - Combo system with multipliers
 
 3. **Multiplayer Mode** (Partially Complete ✓)
    - ✓ 1v1 real-time battles
@@ -72,6 +81,7 @@
 - ↑: Rotate
 - ↓: Soft drop (+1 point)
 - Space: Hard drop (+2 points per row)
+- C / Shift: Hold piece
 - P: Pause
 
 ### Scoring:
