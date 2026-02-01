@@ -12492,6 +12492,45 @@
             }
             currentUser = (session && session.user) ? session.user : null;
 
+            // Try to load profile from SloppyID vault (canonical source)
+            if (currentUser) {
+                try {
+                    var { data: vaultProfile, error: vaultErr } = await supabase
+                        .from('sloppyid_vault')
+                        .select('vault_value')
+                        .eq('user_id', currentUser.id)
+                        .eq('vault_key', 'sloppy_profile')
+                        .single();
+
+                    if (!vaultErr && vaultProfile && vaultProfile.vault_value) {
+                        var vp = vaultProfile.vault_value;
+                        if (vp.username) profile.username = vp.username;
+                        if (vp.avatar) profile.avatar = vp.avatar;
+                        if (vp.avatarUrl) profile.avatarUrl = vp.avatarUrl;
+                        if (vp.color) profile.color = vp.color;
+                        if (vp.status !== undefined) profile.status = vp.status;
+                        console.log('[SloppyID] Profile loaded from vault:', profile.username);
+
+                        // Sync to localStorage so offline fallback stays current
+                        secureStorageSet('sloppygram_profile', profile);
+
+                        // Restore status UI if set
+                        if (profile.status) {
+                            setTimeout(function() {
+                                var statusCurrent = document.getElementById('awayStatusCurrent');
+                                var statusText = document.getElementById('currentStatusText');
+                                if (statusCurrent && statusText) {
+                                    statusCurrent.style.display = 'flex';
+                                    statusText.textContent = profile.status;
+                                }
+                            }, 100);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[SloppyID] Vault profile load failed, using localStorage fallback:', e);
+                }
+            }
+
             setupAvatarGrid();
             setupColorOptions();
             setupBrushColors();
@@ -16335,6 +16374,42 @@
             // Broadcast avatar change globally if set
             if (profile.avatarUrl) {
                 broadcastGlobalSetting('avatar', profile.avatarUrl);
+            }
+
+            // Sync profile to SloppyID vault (fire-and-forget)
+            if (currentUser) {
+                var vaultData = {
+                    username: profile.username,
+                    avatar: profile.avatar,
+                    avatarUrl: profile.avatarUrl,
+                    color: profile.color,
+                    status: profile.status || ''
+                };
+                (async function() {
+                    try {
+                        var { data: existing } = await supabase
+                            .from('sloppyid_vault')
+                            .select('vault_key')
+                            .eq('user_id', currentUser.id)
+                            .eq('vault_key', 'sloppy_profile')
+                            .single();
+
+                        if (existing) {
+                            await supabase
+                                .from('sloppyid_vault')
+                                .update({ vault_value: vaultData, is_public: true, updated_at: new Date().toISOString() })
+                                .eq('user_id', currentUser.id)
+                                .eq('vault_key', 'sloppy_profile');
+                        } else {
+                            await supabase
+                                .from('sloppyid_vault')
+                                .insert({ user_id: currentUser.id, username: profile.username, vault_key: 'sloppy_profile', vault_value: vaultData, is_public: true });
+                        }
+                        console.log('[SloppyID] Profile synced to vault');
+                    } catch (e) {
+                        console.warn('[SloppyID] Vault sync failed:', e);
+                    }
+                })();
             }
 
             closeSettingsModal();
