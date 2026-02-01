@@ -3,6 +3,19 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-01: Profile Editor (Phase 1 - Sloppygram extraction)
+  - Added full profile editor section between Auth and Verification
+  - 18 emoji avatar picker grid (same as Sloppygram)
+  - Custom image upload with base64 preview (max 200KB)
+  - 10 neon color options (same palette as Sloppygram)
+  - Display name input (max 20 chars)
+  - Status message input (max 60 chars)
+  - Profile saved to sloppyid_vault with reserved key 'sloppy_profile'
+  - Profile is public in vault (other apps can read it)
+  - Profile card updates live on save (avatar, name, color)
+  - Profile loads from vault on init (persists across sessions)
+  - Reset button restores defaults
+  - Phase 1 of unified identity manager
 - 2026-01-28: Identity Verification Tiers v1.0
   - New verification section with trust score display
   - Email verification with 6-digit code system
@@ -171,6 +184,7 @@ Required: session_id, fidelity_score, initiated_at
 - ✓ Recent public entries feed
 - ✓ Vault export/import (JSON)
 - ✓ Sloppygram profile integration
+- ✓ Profile editor with avatar/color/status (Phase 1 extraction)
 
 ## Issues
 - None yet
