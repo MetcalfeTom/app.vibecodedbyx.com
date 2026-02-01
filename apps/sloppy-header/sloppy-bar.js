@@ -100,7 +100,8 @@
   const styles = `
     .sloppy-bar {
       position: fixed;
-      ${options.position}: 0;
+      ${options.position}: 0 !important;
+      ${options.position === 'bottom' ? 'top' : 'bottom'}: auto !important;
       left: 0;
       right: 0;
       height: 36px;
@@ -123,7 +124,8 @@
     .sloppy-bar.minimized {
       width: auto;
       height: 32px;
-      ${options.position}: 8px;
+      ${options.position}: 8px !important;
+      ${options.position === 'bottom' ? 'top' : 'bottom'}: auto !important;
       left: 8px;
       right: auto;
       border-radius: 6px;
