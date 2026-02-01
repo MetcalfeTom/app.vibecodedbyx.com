@@ -5826,6 +5826,62 @@
             display: block;
         }
 
+        .profile-trust-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+            padding: 6px 10px;
+            background: rgba(168, 85, 247, 0.1);
+            border: 1px solid rgba(168, 85, 247, 0.25);
+            border-radius: 6px;
+            font-size: 11px;
+        }
+        .profile-trust-score {
+            font-family: 'Orbitron', 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: #a855f7;
+        }
+        .profile-trust-label {
+            color: #8a7a9a;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .profile-verify-badges {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+        }
+        .verify-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .verify-badge.twitter { background: rgba(29, 161, 242, 0.2); color: #1da1f2; }
+        .verify-badge.email { background: rgba(0, 212, 255, 0.2); color: #00d4ff; }
+        .verify-badge.github { background: rgba(255, 255, 255, 0.1); color: #ccc; }
+        .sloppyid-link {
+            display: block;
+            text-align: center;
+            margin-top: 10px;
+            padding: 10px;
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(168, 85, 247, 0.1));
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 6px;
+            color: #00d4ff;
+            font-size: 12px;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .sloppyid-link:hover {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(168, 85, 247, 0.2));
+            border-color: #00d4ff;
+        }
+
         .profile-card-header {
             display: flex;
             align-items: center;
@@ -9189,6 +9245,8 @@
 
             <!-- Profile Tab -->
             <div class="settings-panel active" id="profilePanel">
+                <a href="/sloppy-id" target="_blank" class="sloppyid-link">🪪 Edit Full Profile on SloppyID — Verify identity, manage trust score &amp; vault</a>
+
                 <div class="form-group">
                     <label>USERNAME:</label>
                     <input type="text" id="usernameInput" placeholder="Enter handle..." maxlength="20">
@@ -11598,6 +11656,45 @@
             return { avatar: stats.avatar, avatarUrl: stats.avatarUrl };
         }
 
+        // === SLOPPYID VERIFICATION LOOKUP ===
+        var verificationCache = {}; // { username: { data, fetchedAt } }
+
+        async function getUserVerifications(username) {
+            // Check cache (2 minute TTL)
+            var cached = verificationCache[username];
+            if (cached && Date.now() - cached.fetchedAt < 120000) {
+                return cached.data;
+            }
+
+            try {
+                var { data, error } = await supabase
+                    .from('sloppyid_verifications')
+                    .select('verification_type, is_verified, verification_value')
+                    .eq('username', username)
+                    .eq('is_verified', true);
+
+                if (error || !data) {
+                    verificationCache[username] = { data: { verifications: [], trustScore: 0 }, fetchedAt: Date.now() };
+                    return verificationCache[username].data;
+                }
+
+                var trustScore = 0;
+                var verifications = [];
+                data.forEach(function(v) {
+                    if (v.verification_type === 'twitter') { trustScore += 100; verifications.push({ type: 'twitter', label: '𝕏' }); }
+                    else if (v.verification_type === 'email') { trustScore += 150; verifications.push({ type: 'email', label: '📧' }); }
+                    else if (v.verification_type === 'github') { trustScore += 200; verifications.push({ type: 'github', label: '@' + (v.verification_value || '') }); }
+                });
+
+                var result = { verifications: verifications, trustScore: trustScore };
+                verificationCache[username] = { data: result, fetchedAt: Date.now() };
+                return result;
+            } catch (e) {
+                console.warn('[SloppyID] Verification lookup failed:', e);
+                return { verifications: [], trustScore: 0 };
+            }
+        }
+
         async function showProfileCard(username, event) {
             const card = document.getElementById('profileCard');
             if (!card) return;
@@ -11632,13 +11729,14 @@
             card.classList.add('visible');
 
             try {
-                // Fetch sloppygram stats, cross-app stats, karma, and follow data in parallel
-                const [stats, gameScores, karmaData, followCounts, following] = await Promise.all([
+                // Fetch sloppygram stats, cross-app stats, karma, follow data, and verifications in parallel
+                const [stats, gameScores, karmaData, followCounts, following, verifyData] = await Promise.all([
                     getUserStats(username),
                     getCrossAppStats(username),
                     typeof calculateUserKarma === 'function' ? calculateUserKarma(username) : Promise.resolve(null),
                     typeof getFollowCounts === 'function' ? getFollowCounts(username) : Promise.resolve({ followers: 0, following: 0 }),
-                    typeof isFollowing === 'function' ? isFollowing(username) : Promise.resolve(false)
+                    typeof isFollowing === 'function' ? isFollowing(username) : Promise.resolve(false),
+                    getUserVerifications(username)
                 ]);
 
                 // Avatar is now included in stats from database
@@ -11698,11 +11796,25 @@
                     </button>
                 ` : '';
 
+                // Build trust/verification row
+                var trustHtml = '';
+                if (verifyData && (verifyData.trustScore > 0 || verifyData.verifications.length > 0)) {
+                    var badgeChips = verifyData.verifications.map(function(v) {
+                        return '<span class="verify-badge ' + v.type + '">' + escapeHtml(v.label) + '</span>';
+                    }).join('');
+                    trustHtml = '<div class="profile-trust-row">' +
+                        '<span class="profile-trust-score">⚡' + verifyData.trustScore + '</span>' +
+                        '<span class="profile-trust-label">Trust</span>' +
+                        '<div class="profile-verify-badges">' + badgeChips + '</div>' +
+                        '</div>';
+                }
+
                 card.innerHTML = `
                     <div class="profile-card-header">
                         <div class="profile-card-avatar">${avatarContent}</div>
                         <div class="profile-card-name">${escapeHtml(username)}</div>
                     </div>
+                    ${trustHtml}
                     ${followStatsHtml}
                     ${karmaHtml}
                     <div class="profile-card-stats">
