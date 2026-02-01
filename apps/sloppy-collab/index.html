@@ -147,23 +147,36 @@ let lastBroadcastContent = '';
 
 // ── Init ──
 async function init() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user) {
-    document.getElementById('doc-list').innerHTML = '<div style="padding:16px;font-size:.7rem;color:var(--dim)">Sign in on sloppy.live to collaborate.</div>';
+  try {
+    const sessionRes = await supabase.auth.getSession();
+    const session = sessionRes?.data?.session;
+    if (!session?.user) {
+      document.getElementById('doc-list').innerHTML = '<div style="padding:16px;font-size:.7rem;color:var(--dim)">Sign in on sloppy.live to collaborate.</div>';
+      return;
+    }
+    currentUser = session.user;
+  } catch (err) {
+    console.error('Auth failed:', err);
+    document.getElementById('doc-list').innerHTML = '<div style="padding:16px;font-size:.7rem;color:var(--dim)">Connection error. Refresh to retry.</div>';
     return;
   }
-  currentUser = session.user;
   myColor = COLORS[Math.abs(hashStr(currentUser.id)) % COLORS.length];
 
-  const { data: prof } = await supabase.from('sloppygram_profiles').select('username,avatar').eq('user_id', currentUser.id).single();
-  profile = prof || { username: 'anon' };
+  try {
+    const { data: prof } = await supabase.from('sloppygram_profiles').select('username,avatar').eq('user_id', currentUser.id).single();
+    profile = prof || { username: 'anon' };
+  } catch (err) {
+    console.warn('Profile load failed, using fallback:', err);
+    profile = { username: 'anon' };
+  }
 
   await loadDocs();
 
   // Check URL for doc id
   const params = new URLSearchParams(location.search);
   const docId = params.get('doc');
-  if (docId) openDoc(parseInt(docId));
+  const parsed = docId ? parseInt(docId, 10) : NaN;
+  if (!isNaN(parsed)) openDoc(parsed);
 }
 
 function hashStr(s) {
@@ -174,12 +187,18 @@ function hashStr(s) {
 
 // ── Load documents ──
 async function loadDocs() {
-  const { data } = await supabase.from('sloppygram_collab_documents')
-    .select('id,title,created_by_username,last_edited_at,is_public,user_id')
-    .eq('is_public', true)
-    .order('last_edited_at', { ascending: false, nullsFirst: false })
-    .limit(50);
-  docs = data || [];
+  try {
+    const { data, error } = await supabase.from('sloppygram_collab_documents')
+      .select('id,title,created_by_username,last_edited_at,is_public,user_id')
+      .eq('is_public', true)
+      .order('last_edited_at', { ascending: false, nullsFirst: false })
+      .limit(50);
+    if (error) throw error;
+    docs = data || [];
+  } catch (err) {
+    console.error('Failed to load documents:', err);
+    docs = [];
+  }
   renderDocList();
 }
 
@@ -204,23 +223,30 @@ function renderDocList() {
 // ── Create document ──
 window.createDoc = async function() {
   if (!currentUser || !profile) return;
-  const { data, error } = await supabase.from('sloppygram_collab_documents').insert({
-    title: 'Untitled',
-    content: '',
-    created_by_username: profile.username,
-    last_edited_by: profile.username,
-    last_edited_at: new Date().toISOString(),
-    is_public: true,
-    user_id: currentUser.id
-  }).select().single();
+  try {
+    const { data, error } = await supabase.from('sloppygram_collab_documents').insert({
+      title: 'Untitled',
+      content: '',
+      created_by_username: profile.username,
+      last_edited_by: profile.username,
+      last_edited_at: new Date().toISOString(),
+      is_public: true,
+      user_id: currentUser.id
+    }).select().single();
 
-  if (error || !data) { console.error('Create doc failed', error); return; }
-  await loadDocs();
-  openDoc(data.id);
+    if (error || !data) throw error || new Error('No data returned');
+    await loadDocs();
+    openDoc(data.id);
+  } catch (err) {
+    console.error('Create doc failed:', err);
+    alert('Failed to create document. Try again.');
+  }
 };
 
 // ── Open document ──
 window.openDoc = async function(docId) {
+  if (!docId || !currentUser) return;
+
   // Cleanup previous
   if (channel) { supabase.removeChannel(channel); channel = null; }
   remoteCursors = {};
@@ -232,11 +258,19 @@ window.openDoc = async function(docId) {
   document.getElementById('sidebar').classList.add('hidden');
 
   // Load full document
-  const { data: doc } = await supabase.from('sloppygram_collab_documents')
-    .select('*').eq('id', docId).single();
+  let doc = null;
+  try {
+    const { data, error } = await supabase.from('sloppygram_collab_documents')
+      .select('*').eq('id', docId).single();
+    if (error) throw error;
+    doc = data;
+  } catch (err) {
+    console.error('Failed to load document:', err);
+  }
 
   if (!doc) {
-    document.getElementById('editor-area').innerHTML = '<div class="empty-editor">Document not found</div>';
+    activeDocId = null;
+    document.getElementById('editor-area').innerHTML = '<div class="empty-editor">Document not found or failed to load</div>';
     return;
   }
   activeDoc = doc;
@@ -378,18 +412,22 @@ async function saveDoc() {
   }
 
   setSaveState('saving');
-  const { error } = await supabase.from('sloppygram_collab_documents')
-    .update({
-      content: editor.value,
-      title: titleInput?.value || activeDoc.title,
-      last_edited_by: profile.username,
-      last_edited_at: new Date().toISOString()
-    }).eq('id', activeDocId);
+  try {
+    const { error } = await supabase.from('sloppygram_collab_documents')
+      .update({
+        content: editor.value,
+        title: titleInput?.value || activeDoc.title,
+        last_edited_by: profile.username,
+        last_edited_at: new Date().toISOString()
+      }).eq('id', activeDocId);
 
-  setSaveState(error ? 'unsaved' : 'saved');
-  if (!error) {
+    if (error) throw error;
+    setSaveState('saved');
     activeDoc.content = editor.value;
     activeDoc.title = titleInput?.value || activeDoc.title;
+  } catch (err) {
+    console.error('Save failed:', err);
+    setSaveState('unsaved');
   }
 }
 
@@ -533,12 +571,19 @@ window.copyLink = function() {
 
 window.deleteDoc = async function() {
   if (!isOwner || !activeDocId) return;
-  await supabase.from('sloppygram_collab_documents').delete().eq('id', activeDocId).eq('user_id', currentUser.id);
-  if (channel) { supabase.removeChannel(channel); channel = null; }
-  activeDocId = null;
-  activeDoc = null;
-  document.getElementById('editor-area').innerHTML = '<div class="empty-editor">Document deleted. Select or create another.</div>';
-  await loadDocs();
+  if (!confirm('Delete this document? This cannot be undone.')) return;
+  try {
+    const { error } = await supabase.from('sloppygram_collab_documents').delete().eq('id', activeDocId).eq('user_id', currentUser.id);
+    if (error) throw error;
+    if (channel) { supabase.removeChannel(channel); channel = null; }
+    activeDocId = null;
+    activeDoc = null;
+    document.getElementById('editor-area').innerHTML = '<div class="empty-editor">Document deleted. Select or create another.</div>';
+    await loadDocs();
+  } catch (err) {
+    console.error('Delete failed:', err);
+    alert('Failed to delete document.');
+  }
 };
 
 window.showSidebar = function() { document.getElementById('sidebar').classList.remove('hidden'); };

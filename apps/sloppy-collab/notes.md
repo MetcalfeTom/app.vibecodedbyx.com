@@ -38,7 +38,14 @@ Standalone real-time co-authoring text editor with live cursors and shared docum
 - Non-owners can edit live (via broadcast) but only owner persists to DB
 
 ## issues
-- None yet
+- Fixed: init() getSession destructuring crashed on network failure (now safe with optional chaining + try-catch)
+- Fixed: parseInt(docId) passed NaN to openDoc when URL param was non-numeric (now validated with isNaN check)
+- Fixed: openDoc() didn't check Supabase error on .single(), null doc caused cascading null pointer on doc.user_id
+- Fixed: loadDocs() had no error handling — network failure left docs array stale
+- Fixed: createDoc() only console.errored on failure, no user feedback (now alerts)
+- Fixed: deleteDoc() had no confirmation dialog and no error handling
+- Fixed: saveDoc() didn't catch thrown exceptions from Supabase client
+- Fixed: profile load failure in init() crashed entire app (now falls back to { username: 'anon' })
 - Note: concurrent editing uses last-write-wins, not OT/CRDT — acceptable for small groups
 
 ## todos
