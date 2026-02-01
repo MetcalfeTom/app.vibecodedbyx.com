@@ -218,44 +218,80 @@ function canSend() {
   return msgTimes.length < 15;
 }
 
+// ── Toast ──
+function showToast(msg, type = 'info') {
+  let t = document.getElementById('_toast');
+  if (!t) { t = document.createElement('div'); t.id = '_toast'; t.style.cssText =
+    'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:8px;font-size:.75rem;z-index:9999;transition:opacity .3s;pointer-events:none;font-family:inherit;';
+    document.body.appendChild(t); }
+  t.style.background = type === 'error' ? '#dc2626' : type === 'success' ? '#16a34a' : 'var(--surface2)';
+  t.style.color = '#fff'; t.style.border = '1px solid ' + (type === 'error' ? '#ef4444' : type === 'success' ? '#22c55e' : 'var(--border)');
+  t.textContent = msg; t.style.opacity = '1';
+  clearTimeout(t._tm); t._tm = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+}
+
 // ── Init ──
 async function init() {
-  const { data: { session } } = await supabase.auth.getSession();
+  let session;
+  try {
+    const res = await supabase.auth.getSession();
+    session = res?.data?.session;
+  } catch (err) {
+    console.error('Auth failed:', err);
+    document.getElementById('group-list').innerHTML = '<div style="padding:16px;font-size:.75rem;color:var(--dim)">Connection error. Refresh to retry.</div>';
+    return;
+  }
   if (!session?.user) {
     document.getElementById('group-list').innerHTML = '<div style="padding:16px;font-size:.75rem;color:var(--dim)">Sign in on sloppy.live to use group chat.</div>';
     return;
   }
   currentUser = session.user;
 
-  const { data: prof } = await supabase.from('sloppygram_profiles').select('username,avatar').eq('user_id', currentUser.id).single();
-  profile = prof || { username: 'anon', avatar: '👤' };
+  try {
+    const { data: prof } = await supabase.from('sloppygram_profiles').select('username,avatar').eq('user_id', currentUser.id).single();
+    profile = prof || { username: 'anon', avatar: '👤' };
+  } catch (err) {
+    console.warn('Profile load failed, using fallback:', err);
+    profile = { username: 'anon', avatar: '👤' };
+  }
 
   await loadGroups();
 }
 
 // ── Load groups I'm a member of ──
 async function loadGroups() {
-  const { data: memberships } = await supabase.from('sloppygram_group_members')
-    .select('group_id').eq('user_id', currentUser.id);
+  try {
+    const { data: memberships, error: memErr } = await supabase.from('sloppygram_group_members')
+      .select('group_id').eq('user_id', currentUser.id);
 
-  if (!memberships || memberships.length === 0) {
+    if (memErr) throw memErr;
+
+    if (!memberships || memberships.length === 0) {
+      groups = [];
+      renderGroupList();
+      return;
+    }
+
+    const gids = memberships.map(m => m.group_id);
+    const { data: convs, error: convErr } = await supabase.from('sloppygram_group_conversations')
+      .select('*').in('id', gids).order('last_message_at', { ascending: false, nullsFirst: false });
+
+    if (convErr) throw convErr;
+    groups = convs || [];
+  } catch (err) {
+    console.error('Failed to load groups:', err);
     groups = [];
-    renderGroupList();
-    return;
   }
-
-  const gids = memberships.map(m => m.group_id);
-  const { data: convs } = await supabase.from('sloppygram_group_conversations')
-    .select('*').in('id', gids).order('last_message_at', { ascending: false, nullsFirst: false });
-
-  groups = convs || [];
   renderGroupList();
 
-  // Listen for new groups (when invited)
-  supabase.channel('my-groups-' + currentUser.id)
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sloppygram_group_members',
-      filter: `user_id=eq.${currentUser.id}` }, () => { loadGroups(); })
-    .subscribe();
+  // Listen for new groups (when invited) — only subscribe once
+  if (!window._groupSubActive) {
+    window._groupSubActive = true;
+    supabase.channel('my-groups-' + currentUser.id)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sloppygram_group_members',
+        filter: `user_id=eq.${currentUser.id}` }, () => { loadGroups(); })
+      .subscribe();
+  }
 }
 
 function renderGroupList() {
@@ -281,8 +317,18 @@ function renderGroupList() {
 
 // ── Open a group chat ──
 window.openGroup = async function(gid) {
+  if (!gid || !currentUser) return;
+
   activeGroupId = gid;
   activeGroupMeta = groups.find(g => g.id === gid);
+
+  // Guard: if group was deleted or not in our list, bail
+  if (!activeGroupMeta) {
+    showToast('Group not found — it may have been deleted', 'error');
+    activeGroupId = null;
+    return;
+  }
+
   messages = [];
   allLoaded = false;
   renderGroupList();
@@ -294,7 +340,7 @@ window.openGroup = async function(gid) {
   document.getElementById('chat-area').innerHTML = `
     <div class="chat-header">
       <button class="mobile-back" onclick="showSidebar()">←</button>
-      <div class="name">${activeGroupMeta?.group_icon || '👥'} ${ESC(activeGroupMeta?.group_name || 'Group')}</div>
+      <div class="name">${activeGroupMeta.group_icon || '👥'} ${ESC(activeGroupMeta.group_name || 'Group')}</div>
       <div class="members" id="member-count"></div>
       <button class="info-btn" onclick="openInfoModal()">Info</button>
     </div>
@@ -313,20 +359,31 @@ window.openGroup = async function(gid) {
 };
 
 async function loadMembers() {
-  const { data } = await supabase.from('sloppygram_group_members')
-    .select('username,role,user_id').eq('group_id', activeGroupId);
-  members = data || [];
+  try {
+    const { data, error } = await supabase.from('sloppygram_group_members')
+      .select('username,role,user_id').eq('group_id', activeGroupId);
+    if (error) throw error;
+    members = data || [];
+  } catch (err) {
+    console.error('Failed to load members:', err);
+    members = [];
+  }
   const countEl = document.getElementById('member-count');
   if (countEl) countEl.textContent = members.length + ' member' + (members.length !== 1 ? 's' : '');
 }
 
 async function loadMessages() {
-  const { data } = await supabase.from('sloppygram_group_messages')
-    .select('*').eq('group_id', activeGroupId)
-    .order('created_at', { ascending: false }).limit(PAGE_SIZE);
-
-  messages = (data || []).reverse();
-  if ((data || []).length < PAGE_SIZE) allLoaded = true;
+  try {
+    const { data, error } = await supabase.from('sloppygram_group_messages')
+      .select('*').eq('group_id', activeGroupId)
+      .order('created_at', { ascending: false }).limit(PAGE_SIZE);
+    if (error) throw error;
+    messages = (data || []).reverse();
+    if ((data || []).length < PAGE_SIZE) allLoaded = true;
+  } catch (err) {
+    console.error('Failed to load messages:', err);
+    messages = [];
+  }
   renderMessages();
   scrollToBottom();
 }
@@ -334,17 +391,31 @@ async function loadMessages() {
 async function loadOlderMessages() {
   if (loadingOlder || allLoaded || messages.length === 0) return;
   loadingOlder = true;
-  const oldest = messages[0].created_at;
-  const { data } = await supabase.from('sloppygram_group_messages')
-    .select('*').eq('group_id', activeGroupId)
-    .lt('created_at', oldest).order('created_at', { ascending: false }).limit(PAGE_SIZE);
 
-  if (!data || data.length < PAGE_SIZE) allLoaded = true;
-  if (data && data.length > 0) {
-    messages = [...data.reverse(), ...messages];
-    renderMessages();
+  // Capture the group ID at call time to detect stale results
+  const groupAtCall = activeGroupId;
+  const oldest = messages[0].created_at;
+
+  try {
+    const { data, error } = await supabase.from('sloppygram_group_messages')
+      .select('*').eq('group_id', activeGroupId)
+      .lt('created_at', oldest).order('created_at', { ascending: false }).limit(PAGE_SIZE);
+
+    // If user switched groups while we were loading, discard
+    if (activeGroupId !== groupAtCall) return;
+
+    if (error) throw error;
+
+    if (!data || data.length < PAGE_SIZE) allLoaded = true;
+    if (data && data.length > 0) {
+      messages = [...data.reverse(), ...messages];
+      renderMessages();
+    }
+  } catch (err) {
+    console.error('Failed to load older messages:', err);
+  } finally {
+    loadingOlder = false;
   }
-  loadingOlder = false;
 }
 
 function renderMessages() {
@@ -396,25 +467,32 @@ window.sendMessage = async function() {
   const input = document.getElementById('msg-input');
   const text = (input?.value || '').trim();
   if (!text || !activeGroupId || !profile) return;
-  if (text.length > MAX_MSG) return;
-  if (!canSend()) return;
+  if (text.length > MAX_MSG) { showToast('Message too long', 'error'); return; }
+  if (!canSend()) { showToast('Slow down — rate limit reached', 'error'); return; }
 
+  const savedText = text;
   input.value = '';
   input.style.height = 'auto';
   msgTimes.push(Date.now());
 
-  const { error } = await supabase.from('sloppygram_group_messages').insert({
-    group_id: activeGroupId,
-    sender_username: profile.username,
-    content: text,
-    user_id: currentUser.id
-  });
+  try {
+    const { error } = await supabase.from('sloppygram_group_messages').insert({
+      group_id: activeGroupId,
+      sender_username: profile.username,
+      content: savedText,
+      user_id: currentUser.id
+    });
+    if (error) throw error;
 
-  if (!error) {
     // Update conversation preview
     await supabase.from('sloppygram_group_conversations')
-      .update({ last_message_at: new Date().toISOString(), last_message_preview: text.slice(0, 80) })
+      .update({ last_message_at: new Date().toISOString(), last_message_preview: savedText.slice(0, 80) })
       .eq('id', activeGroupId);
+  } catch (err) {
+    console.error('Send failed:', err);
+    showToast('Failed to send message', 'error');
+    // Restore text so user doesn't lose their message
+    if (input) input.value = savedText;
   }
 };
 
@@ -460,27 +538,33 @@ window.closeCreateModal = function() { document.getElementById('create-modal').c
 window.createGroup = async function() {
   const name = document.getElementById('cg-name').value.trim();
   const icon = document.getElementById('cg-icon').value.trim() || '👥';
-  if (!name) return;
-  if (name.length > 50) return;
+  if (!name) { showToast('Enter a group name', 'error'); return; }
+  if (name.length > 50) { showToast('Name too long (max 50)', 'error'); return; }
 
-  const { data, error } = await supabase.from('sloppygram_group_conversations').insert({
-    group_name: name, group_icon: icon,
-    created_by_username: profile.username,
-    user_id: currentUser.id
-  }).select().single();
+  try {
+    const { data, error } = await supabase.from('sloppygram_group_conversations').insert({
+      group_name: name, group_icon: icon,
+      created_by_username: profile.username,
+      user_id: currentUser.id
+    }).select().single();
 
-  if (error || !data) { console.error('Create group failed', error); return; }
+    if (error || !data) throw error || new Error('No data returned');
 
-  // Add self as admin member
-  await supabase.from('sloppygram_group_members').insert({
-    group_id: data.id, username: profile.username, role: 'admin', user_id: currentUser.id
-  });
+    // Add self as admin member
+    const { error: memErr } = await supabase.from('sloppygram_group_members').insert({
+      group_id: data.id, username: profile.username, role: 'admin', user_id: currentUser.id
+    });
+    if (memErr) console.error('Failed to add self as admin:', memErr);
 
-  closeCreateModal();
-  document.getElementById('cg-name').value = '';
-  document.getElementById('cg-icon').value = '';
-  await loadGroups();
-  openGroup(data.id);
+    closeCreateModal();
+    document.getElementById('cg-name').value = '';
+    document.getElementById('cg-icon').value = '';
+    await loadGroups();
+    openGroup(data.id);
+  } catch (err) {
+    console.error('Create group failed:', err);
+    showToast('Failed to create group', 'error');
+  }
 };
 
 // ── Group Info Modal ──
@@ -514,42 +598,76 @@ window.searchInvite = function(q) {
   clearTimeout(searchTimeout);
   if (q.length < 2) { document.getElementById('invite-results').innerHTML = ''; return; }
   searchTimeout = setTimeout(async () => {
-    const { data } = await supabase.from('sloppygram_profiles')
-      .select('username,user_id').ilike('username', `%${q}%`).limit(10);
-    const existing = new Set(members.map(m => m.username));
-    const results = (data || []).filter(u => !existing.has(u.username));
-    document.getElementById('invite-results').innerHTML = results.map(u =>
-      `<div class="invite-row" onclick="inviteUser('${ESC(u.username)}','${u.user_id}')">
-        <span>@${ESC(u.username)}</span><span style="color:var(--accent);font-size:.6rem">+ Invite</span>
-      </div>`
-    ).join('') || '<div style="font-size:.65rem;color:var(--dim);padding:6px">No users found</div>';
+    try {
+      const { data, error } = await supabase.from('sloppygram_profiles')
+        .select('username,user_id').ilike('username', `%${q}%`).limit(10);
+      if (error) throw error;
+      const existing = new Set(members.map(m => m.username));
+      const results = (data || []).filter(u => !existing.has(u.username));
+      document.getElementById('invite-results').innerHTML = results.map(u =>
+        `<div class="invite-row" onclick="inviteUser('${ESC(u.username)}','${u.user_id}')">
+          <span>@${ESC(u.username)}</span><span style="color:var(--accent);font-size:.6rem">+ Invite</span>
+        </div>`
+      ).join('') || '<div style="font-size:.65rem;color:var(--dim);padding:6px">No users found</div>';
+    } catch (err) {
+      console.error('Search failed:', err);
+      document.getElementById('invite-results').innerHTML = '<div style="font-size:.65rem;color:var(--dim);padding:6px">Search failed</div>';
+    }
   }, 300);
 };
 
 window.inviteUser = async function(username, uid) {
-  await supabase.from('sloppygram_group_members').insert({
-    group_id: activeGroupId, username, role: 'member', user_id: uid
-  });
-  await loadMembers();
-  openInfoModal();
+  // Check if already a member
+  if (members.find(m => m.user_id === uid)) {
+    showToast('Already a member', 'error');
+    return;
+  }
+  try {
+    const { error } = await supabase.from('sloppygram_group_members').insert({
+      group_id: activeGroupId, username, role: 'member', user_id: uid
+    });
+    if (error) throw error;
+    showToast(`Invited @${username}`, 'success');
+    await loadMembers();
+    openInfoModal();
+  } catch (err) {
+    console.error('Invite failed:', err);
+    showToast('Failed to invite user', 'error');
+  }
 };
 
 window.removeMember = async function(username, uid) {
-  await supabase.from('sloppygram_group_members')
-    .delete().eq('group_id', activeGroupId).eq('user_id', uid);
-  await loadMembers();
-  openInfoModal();
+  if (!confirm(`Remove @${username} from the group?`)) return;
+  try {
+    const { error } = await supabase.from('sloppygram_group_members')
+      .delete().eq('group_id', activeGroupId).eq('user_id', uid);
+    if (error) throw error;
+    showToast(`Removed @${username}`, 'success');
+    await loadMembers();
+    openInfoModal();
+  } catch (err) {
+    console.error('Remove failed:', err);
+    showToast('Failed to remove member', 'error');
+  }
 };
 
 window.leaveGroup = async function() {
   if (!activeGroupId) return;
-  await supabase.from('sloppygram_group_members')
-    .delete().eq('group_id', activeGroupId).eq('user_id', currentUser.id);
-  closeInfoModal();
-  activeGroupId = null;
-  document.getElementById('chat-area').innerHTML = '<div class="empty-chat">Select a group or create one to start chatting</div>';
-  if (msgChannel) { supabase.removeChannel(msgChannel); msgChannel = null; }
-  await loadGroups();
+  if (!confirm('Leave this group?')) return;
+  try {
+    const { error } = await supabase.from('sloppygram_group_members')
+      .delete().eq('group_id', activeGroupId).eq('user_id', currentUser.id);
+    if (error) throw error;
+    closeInfoModal();
+    activeGroupId = null;
+    activeGroupMeta = null;
+    document.getElementById('chat-area').innerHTML = '<div class="empty-chat">Select a group or create one to start chatting</div>';
+    if (msgChannel) { supabase.removeChannel(msgChannel); msgChannel = null; }
+    await loadGroups();
+  } catch (err) {
+    console.error('Leave failed:', err);
+    showToast('Failed to leave group', 'error');
+  }
 };
 
 window.loadOlderMessages = loadOlderMessages;

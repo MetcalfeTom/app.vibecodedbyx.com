@@ -32,7 +32,21 @@ Standalone group DM system — multi-user chat rooms with persistent history.
 - sloppygram_profiles (username search for invites)
 
 ## issues
-- None yet
+- Fixed: init() getSession destructuring crashed on network failure (safe optional chaining + try-catch)
+- Fixed: profile load had no fallback (now falls back to { username: 'anon' })
+- Fixed: loadGroups() had no error handling on either membership or conversation query
+- Fixed: loadGroups() re-subscribed to real-time channel on every call (now guards with flag)
+- Fixed: openGroup() null pointer crash when group deleted while sidebar open (null check + user toast)
+- Fixed: loadMembers() had no error handling
+- Fixed: loadMessages() had no error handling
+- Fixed: loadOlderMessages() race condition — double-click left allLoaded inconsistent; loadingOlder never reset on error (now uses finally block + stale group detection)
+- Fixed: sendMessage() no user feedback on failure; now restores message text to input on error
+- Fixed: createGroup() admin member insert had no error check
+- Fixed: inviteUser() no error handling, no duplicate check (now checks existing members)
+- Fixed: removeMember() no confirmation dialog, no error handling
+- Fixed: leaveGroup() no confirmation dialog, no error handling; now also nulls activeGroupMeta
+- Fixed: searchInvite() no error handling on search query
+- Added: toast notification system for user-facing feedback
 
 ## todos
 - Could add typing indicators via broadcast channel
