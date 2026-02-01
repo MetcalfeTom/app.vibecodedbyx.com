@@ -6,6 +6,8 @@
 - 2025-10-07: SpaceFlight — clustered objects closer (shorter spans and spawn ranges), tightened dust/spark fades, lowered clear radius for denser feel.
 - 2025-11-08: Added Icy Tower Online app with Supabase leaderboard and mobile controls.
 - 2025-11-08: Added Mouse Mood Reader app with heuristic mood detection and Supabase feedback capture.
+- 2026-02-01: Added Sloppy Radio — synchronized community radio extracted from Sloppygram's SloppyFM. YouTube IFrame API player, synced playback via started_at timestamps, playlist from sloppygram_radio table, 4 default fallback tracks, add tracks via YouTube URL with oEmbed title fetch, duplicate detection, simulated frequency visualizer (32 bars, bass boost, peak tracking, RGB coloring), volume slider, presence listener count, anti-loop sync lock (5s timeout), real-time broadcast on sloppyfm-radio channel. Anybody + JetBrains Mono typography, green terminal/retro radio palette with CRT scanline overlay.
+- 2026-02-01: Added Sloppy Feed — standalone global timeline extracted from Sloppygram's post/feed system. Full post creation with captions (1000 chars), image URLs, hierarchical tags (parent/child via slash). Directional voting (up/down) on posts and comments, 8 emoji reactions with toggle, threaded comments with parent tracking, 3 sort modes (Newest, Top, Discussed), tag filtering. PAGE_SIZE=20 with manual load more for performance. Text-to-speech, delete own posts (RLS-safe). Real-time new posts/comments/threads via postgres_changes, presence for online count. Rate limiting across all actions. DM Serif Text + Geist Mono typography, purple/dark editorial aesthetic.
 
 ## issues
 - CDN-based modules (three.js) mean JS console errors only surface in browser; rely on minimal syntax-only diffs for quick tweaks.
