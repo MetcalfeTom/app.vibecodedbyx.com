@@ -45,6 +45,50 @@ Standalone karma ledger and achievements hub extracted from Sloppygram's economy
 - Popular (100 upvotes), Beloved (50 reactions)
 - Diverse Creator (all 4 content categories)
 
+## synthesis — 2026-02-01
+Sloppy Wallet is the 15th app built today as part of the Sloppygram Phase 1+ modularization sprint.
+It extracts the full economy/karma/badge/faction-contribution layer from the ~22K-line monolith into
+a standalone read-only dashboard. The wallet shares all database tables with Sloppygram — any karma
+earned in the monolith, in Sloppy Factions, or anywhere else is reflected here immediately.
+
+Key design choices:
+- Read-only: wallet displays state, doesn't mutate it. Karma is earned through actions in other apps.
+- Parallel loading: 5 queries fire simultaneously to minimize load time.
+- Aggregated ledger: since there's no per-transaction log table, the ledger reconstructs totals from
+  karma counts × weights, plus timestamped battle records from sloppygram_faction_battles.
+- Badge computation is client-side (same thresholds as Sloppygram) so badges stay in sync without
+  a separate badge-awarding service.
+
+## roadmap status — 2026-02-01
+### Extracted today (15 apps/features):
+1. Ghost Radar Hub — presence radar
+2. Oracle Forum — Q&A board
+3. Trust Metrics Dashboard — trust/verification visualizer
+4. SloppyID Profile Editor — profile management
+5. Sloppy Stats — universal scoreboard (11 games)
+6. Sloppy Network — force-directed social graph
+7. Sloppy Factions — territory wars
+8. Sloppy Canvas — infinite whiteboard
+9. Sloppy Manifestos — publishing + forking platform
+10. SloppyID Comms Hub — DM inbox + mentions
+11. Sloppy Radio — synchronized community radio
+12. Sloppy Feed — global timeline + posts
+13. Sloppy Alerts — universal grid notifications
+14. Sloppy Wallet — karma ledger + badges (this app)
+
+### Remaining in Sloppygram monolith (unextracted):
+- Messaging/Chat (~2000 lines) — public chat rooms, message reactions, tag system
+- DMs (~800 lines, partially surfaced in SloppyID Comms Hub)
+- Karma calculation engine (~800 lines, read-only view here but compute still in monolith)
+- Tag Explorer (~800 lines)
+- Feedback Hub (~700 lines)
+- Doodle Canvas (~500 lines, collab canvas extracted but doodle creation not)
+- Profile Cards (~500 lines)
+- Comment Threading (~400 lines, used by Feed but thread UI lives in monolith)
+- Presence System (~400 lines, Ghost Radar reads it but monolith writes it)
+
+The monolith remains fully functional — extractions are additive standalone views, not destructive removals.
+
 ## issues
 - None yet
 
@@ -54,3 +98,4 @@ Standalone karma ledger and achievements hub extracted from Sloppygram's economy
 - Could add transfer/gift karma between users
 - Could add karma breakdown by individual content piece
 - Could add faction contribution leaderboard within faction
+- Could add a per-transaction log table for proper ledger history
