@@ -31,10 +31,62 @@
     hideLinks: script?.getAttribute('data-hide-links') === 'true'
   };
 
-  // All apps available for teleport
-  const TELEPORT_APPS = [
-    '6502-emulator','abstract-tower-defense','access-denied','accountability-hub','activity-overlay','aegis-protocol','agent-manager-3d','akash-portfolio','alien-artillery','alpha-blast','analog-dash','angry-cookie','api','app-directory','app-roulette','app-taxonomist','ascii-art','ascii-fish','asteroids','audit-report','aurora-lab','bad-advice','bags-tracker','ball-pit','batsman','bear-cycle','beef-clicker','beer-garden','bikini-bottom-brawl','black-hole-vortex','bladder-blast','blue-box','blueprint-portal','boss-blocker','bouldering-game','bouncy-berry','brainrot-os','breakfast-game','breakout-terminal','breath-visualizer','btc-tracker','bug-zap','butter-physics','calorie-tracker','candle-jumper','candle-sailor','cat-pics','cat-zap','chaos-blocks','chaos-organizer','chart-comparison','chat-boss-battle','chat-buddy','chat-pulse-monitor','chat-suggestions','chatcloud','chess-advice','chrome-sphere','claude-love','claude-status','claudes-digital-diary','cli-poem','cloud-jumper','code-sprint','code-unlock','coffee-facts','coin-pusher','color-cycler','color-match','comedy-club','confession-wall','confetti-cannon','content-manager','cosmic-cat-quest-pp','cosmic-chat','cosmic-shapes','costeo-gastro','cowsay','cozy-pet','crisis-dashboard','crt-calculator','crypto-tools','cube-escape','cute-duck','cyber-notes','cyber-shield','cyber-vault','cybercall','dan-detector','dancing-whales','deadfish','deprecated-trivia','desperate-ai','detective-board','deutsch-dash','diamond-drill','digit-brain','disco-ball','discord-clone','doom-3d','doom-port','dos-anime-dream','dp-pathfinder','dreamy-sleep','drum-machine','dungeon-crawler','dunny-dash','dutch-still-life','eggcraft','eggnet-sentinel','elite-landing','emo-shrine','emo-slash','emoji-shooter','evidence-board','evo-sandbox','existential-autocorrect','fake-reviews','fake-shutdown','feather-vault','federated-truth','fee-watchtower','feedback','fema-portal','fighting-game','file-generator','finance-shorts','first-date','fish-tank','fluid-sim','fly-simulator','focus-buddy','fox-berries','fox-den','fox-playground','fox-security','fox-tickle-sim','fox-tickle','fox-trap','fractal-dance','future-news','gas-delivery','gemini-puzzle','genealogist','generative-art','geometry-dash','ghost-runner','ghost-town-radio','gift-gallery','gigglesound','git-sim','gitscope','glitch-vending','glitchmon','glove-box','goblin-loot','godel-agent','golden-game','golden-stopwatch','gorilla-fart','graffiti-wall','grape-duel','grape-vault','grapple-bot','gratitude-journal','grave-generator','gravity-flip','gravity-surfer','gravity-vortex','hacker-terminal','hello-world','hex-conquest','hippo-pizzeria','hobbit-trip','hola-mundo','holiday-luck','hydraulic-press','icy-tower','impossible-platform','indie-hacker','infinite-abyss','interactive-novel','inventory-manager','jellyfish-abyss','json-toon-converter','judgmental-cat','kaleidoscope','kanban','kaneidog-vault','karma-board','karma-feed','knowledge-chaos','kratos-couture','laptop-fire','laughter-fractals','laughter-meter','lava-lamp','lighthouse','lil-sloppy','lint-roller','live-scanner','livestream-hub','logic-grove','lonewolf-store','lost-found','love-sloppy','mac-os9','malloc-madness','manifesto-generator','mansion-butler','mate-clicker','matrix-friends','matrix-rain','maxz00m-tictactoe','maze-pathfinder','mech-suit','mechanical-calculator','medieval-romance','mesh-curvature','mesh-relax','micro-city','minecraft-guide','minecraft','modern-node-typescript-developer','monster-mash','moodmouse','moon-explorer','motorbike-racing','mouse-mood','mundane-adventure','mundane-poetry','mysterious-life','nacho-empire','narnia-map','nda-redactor','neon-alarm-clock','neon-aquarium','neon-asteroids','neon-bonsai','neon-bowling','neon-casino','neon-cigarette-factory','neon-cocktails','neon-crash','neon-dodgeball','neon-donut','neon-dream-visualizer','neon-drift','neon-drill','neon-fireworks','neon-flap','neon-flappy','neon-flower','neon-fluid','neon-fox-chaos','neon-giftcard','neon-giraffe-clicker','neon-guestbook','neon-heist','neon-invaders','neon-lava-lamp','neon-life','neon-maelstrom','neon-particles','neon-pet','neon-phone','neon-physics','neon-pong','neon-racer','neon-rave','neon-recovery-room','neon-sandbox','neon-slice','neon-snake','neon-soundboard','neon-speech','neon-storm','neon-synth','neon-terminal','neon-tetris','neon-tickle-defense','neon-vault','neon-water','neon-weather','neon-zen','network-scan','neural-gateway','neural-viz','news-gen','night-watch','not-human-cult','nuclear-pizza','nuke-sim','nullify','nutribullet','nye-vibe','obsidian-security','orbital-strike','origins','ornament-toss','oscillator','ouija-board-v2','ouija-board','overview','p5-art','page-of-nothingness','pancake-stack','phaser-platformer','pho-game','physics-balls','pirate-captcha','pirate-laser','pixel-bonfire','pixel-conflict','pixel-editor','planets','plant-cli','platformer','pokemon-clone','pokevault','polybius','pong-terminal','poo-palace','portal','prank-names','prism-echo','purple-scanner','purple-trap','quarantine-pinball','quaternion-orbits','quine-viz','random-greeting','raptor-pet','recursive-agent','redact-o-matic','relativistic','robo-arm','robot-arm','rocketship','roikku','romance-quest','rugpull-simulator','sand-sandbox','sandbox','sandustry-clone','sandwich-stack','seahorse','search-bridge','secret-shredder','sensible-soccer','shenzhen-spa-finder','sid-emulator','silence-collector','silence-meter','simon-says','simp-meter','simple-chat','simpsons-road-rage','sky-unlimited','slap-battle','sleep-space','sloppy-analytics','sloppy-civ','sloppy-coin-info','sloppy-community','sloppy-dashboard','sloppy-flow','sloppy-hunt','sloppy-id','sloppy-lance','sloppy-os','sloppy-says','sloppy-slots','sloppy-spectrum','sloppy-xp','sloppygram','sloppys-gift','sloppys-manifesto','snake','snark-terminal','snowball-fight','solana-tracker','south-park-creator','space-chess','space-flight','space-invaders','space-taco','space-xmas-blocks','sploppy','sql-towers','star-catcher','starship-bridge','status-dashboard','sticker-workshop','submarine-craft','swarm-nexus','swarm-oracle','synth-collab','synth-player','synth','system-health','tag-explorer','tech-church','terminal-escape','tetris-mobile','tetris-terminal','tetris','text-effects','text-to-speech','the-last-word','the-singularity','the-unclickable','the-void','thiel-soundboard','throne-rater','tic-tac-toe','tickle-defense','tickle-explosion','tickle-grape','tickle-reactor','tictactoe','toilet-run','toiletgram','tombstone-todo','train-scheduler','train-signals','trash-compactor','treasure-calculator','trope-mixer','truchet-tiles','trump-truth','tsp-genetic','tune-scout','ubicacion-geografica','ucmj-translator','uk-pub-finder','valkyrae-revenge','vhs-deck','vibe-clone','void-fishing','voxel-terrain','voxel-world','wasm-dedup','web-archive','web-os','webgl-text','whiteboard','who-is-gary','wichteln','wiki-scout','win95-lofi-soundboard','win95','windows-95','witness-protection','word-bricks','world-monitor','writer','xp-desktop','yoga','yorkie-stacker','youtube-wizard','zen-garden'
-  ];
+  // App categories for discovery mode
+  const APP_CATEGORIES = {
+    'Games': ['6502-emulator','abstract-tower-defense','alien-artillery','alpha-blast','angry-cookie','asteroids','ball-pit','batsman','beef-clicker','bikini-bottom-brawl','bladder-blast','boss-blocker','bouldering-game','bouncy-berry','breakfast-game','breakout-terminal','candle-jumper','candle-sailor','cat-zap','chaos-blocks','cloud-jumper','code-sprint','code-unlock','coin-pusher','color-match','cosmic-cat-quest-pp','cube-escape','diamond-drill','digit-brain','doom-3d','doom-port','dungeon-crawler','dunny-dash','eggcraft','emoji-shooter','fighting-game','fly-simulator','gemini-puzzle','geometry-dash','ghost-runner','glitchmon','goblin-loot','golden-game','grape-duel','grapple-bot','gravity-flip','gravity-surfer','hex-conquest','hippo-pizzeria','hydraulic-press','icy-tower','impossible-platform','mate-clicker','maze-pathfinder','maxz00m-tictactoe','mech-suit','minecraft','monster-mash','motorbike-racing','nacho-empire','neon-asteroids','neon-bowling','neon-casino','neon-crash','neon-dodgeball','neon-drift','neon-drill','neon-flap','neon-flappy','neon-heist','neon-invaders','neon-pong','neon-racer','neon-slice','neon-snake','neon-tetris','neon-tickle-defense','nuke-sim','orbital-strike','ornament-toss','pancake-stack','phaser-platformer','pho-game','physics-balls','pirate-laser','platformer','pokemon-clone','polybius','pong-terminal','quarantine-pinball','romance-quest','sandwich-stack','sandustry-clone','sensible-soccer','simon-says','simpsons-road-rage','sky-unlimited','slap-battle','sloppy-civ','sloppy-hunt','sloppy-lance','sloppy-slots','snake','snowball-fight','space-chess','space-invaders','space-taco','space-xmas-blocks','sql-towers','star-catcher','submarine-craft','terminal-escape','tetris-mobile','tetris-terminal','tetris','the-unclickable','tic-tac-toe','tickle-defense','tictactoe','toilet-run','train-signals','void-fishing','word-bricks','yorkie-stacker'],
+    'Creative': ['ascii-art','ascii-fish','aurora-lab','chrome-sphere','confetti-cannon','cosmic-shapes','dancing-whales','disco-ball','dos-anime-dream','dutch-still-life','fractal-dance','generative-art','gigglesound','graffiti-wall','kaleidoscope','laughter-fractals','lava-lamp','neon-bonsai','neon-donut','neon-dream-visualizer','neon-fireworks','neon-flower','neon-fluid','neon-lava-lamp','neon-life','neon-maelstrom','neon-particles','neon-storm','neon-water','neon-zen','p5-art','pixel-bonfire','pixel-editor','prism-echo','quaternion-orbits','quine-viz','sand-sandbox','south-park-creator','sticker-workshop','text-effects','truchet-tiles','voxel-terrain','voxel-world','webgl-text'],
+    'Music': ['drum-machine','neon-rave','neon-soundboard','neon-synth','oscillator','sid-emulator','synth-collab','synth-player','synth','thiel-soundboard','tune-scout','win95-lofi-soundboard','ghost-town-radio'],
+    'Social': ['chat-buddy','chat-boss-battle','chatcloud','comedy-club','confession-wall','cosmic-chat','discord-clone','feedback','karma-board','karma-feed','manifesto-generator','neon-guestbook','prank-names','simple-chat','sloppygram','sloppys-manifesto','toiletgram','love-sloppy','simp-meter'],
+    'Tools': ['analog-dash','bags-tracker','btc-tracker','calorie-tracker','chart-comparison','chaos-organizer','crt-calculator','crypto-tools','dp-pathfinder','file-generator','finance-shorts','focus-buddy','git-sim','gitscope','golden-stopwatch','gratitude-journal','inventory-manager','json-toon-converter','kanban','lint-roller','mechanical-calculator','solana-tracker','tombstone-todo','train-scheduler','treasure-calculator','tsp-genetic','ubicacion-geografica','world-monitor','writer'],
+    'Weird': ['bad-advice','brainrot-os','cowsay','dan-detector','deadfish','desperate-ai','existential-autocorrect','fake-reviews','fake-shutdown','future-news','gorilla-fart','grave-generator','judgmental-cat','knowledge-chaos','laughter-meter','mundane-adventure','mundane-poetry','mysterious-life','not-human-cult','nuclear-pizza','ouija-board-v2','ouija-board','page-of-nothingness','poo-palace','rugpull-simulator','silence-collector','silence-meter','snark-terminal','the-last-word','the-singularity','the-void','throne-rater','trope-mixer','trump-truth'],
+    'Sim': ['bear-cycle','butter-physics','cozy-pet','cute-duck','evo-sandbox','fish-tank','fluid-sim','fox-berries','fox-den','fox-playground','fox-tickle-sim','fox-tickle','gravity-vortex','jellyfish-abyss','lil-sloppy','micro-city','moon-explorer','neon-aquarium','neon-fox-chaos','neon-pet','neon-weather','planets','plant-cli','raptor-pet','seahorse','sloppy-os','space-flight','swarm-nexus','tickle-explosion','tickle-grape','tickle-reactor','zen-garden'],
+    'Retro': ['black-hole-vortex','blue-box','glitch-vending','hacker-terminal','mac-os9','malloc-madness','matrix-friends','matrix-rain','neon-alarm-clock','neon-phone','neon-terminal','vhs-deck','web-os','win95','windows-95','xp-desktop'],
+    'Security': ['access-denied','aegis-protocol','audit-report','cyber-notes','cyber-shield','cyber-vault','detective-board','eggnet-sentinel','evidence-board','fox-security','fox-trap','live-scanner','nda-redactor','network-scan','night-watch','obsidian-security','purple-scanner','purple-trap','redact-o-matic','secret-shredder','witness-protection'],
+    'Explore': ['app-directory','app-roulette','app-taxonomist','breath-visualizer','coffee-facts','deprecated-trivia','deutsch-dash','dreamy-sleep','genealogist','hobbit-trip','interactive-novel','lighthouse','logic-grove','minecraft-guide','narnia-map','random-greeting','search-bridge','shenzhen-spa-finder','tag-explorer','uk-pub-finder','wiki-scout','yoga'],
+    'Sloppy': ['activity-overlay','chat-pulse-monitor','chat-suggestions','content-manager','crisis-dashboard','federated-truth','fee-watchtower','overview','sloppy-analytics','sloppy-coin-info','sloppy-community','sloppy-dashboard','sloppy-flow','sloppy-id','sloppy-says','sloppy-spectrum','sloppy-xp','sloppys-gift','sploppy','status-dashboard','swarm-oracle','system-health']
+  };
+
+  // Build flat list + reverse lookup
+  const TELEPORT_APPS = [...new Set(Object.values(APP_CATEGORIES).flat())];
+  const APP_TO_CATEGORY = {};
+  for (const [cat, apps] of Object.entries(APP_CATEGORIES)) {
+    for (const app of apps) APP_TO_CATEGORY[app] = APP_TO_CATEGORY[app] || cat;
+  }
+
+  // Visited apps tracking for weighted random
+  const VISITED_KEY = 'sloppy_visited_apps';
+  function getVisitedApps() {
+    try { return JSON.parse(localStorage.getItem(VISITED_KEY) || '{}'); } catch { return {}; }
+  }
+  function markVisited(app) {
+    const v = getVisitedApps();
+    v[app] = Date.now();
+    try { localStorage.setItem(VISITED_KEY, JSON.stringify(v)); } catch {}
+  }
+  // Mark current app as visited on load
+  const _curApp = window.location.pathname.replace(/^\//, '').replace(/\/$/, '').split('/')[0];
+  if (_curApp) markVisited(_curApp);
+
+  function weightedRandomPick(apps) {
+    const visited = getVisitedApps();
+    const now = Date.now();
+    // Weights: unvisited = 10, visited >7d ago = 5, visited >1d ago = 2, visited recently = 1
+    const weighted = apps.map(app => {
+      const ts = visited[app];
+      if (!ts) return { app, weight: 10 };
+      const daysAgo = (now - ts) / 86400000;
+      if (daysAgo > 7) return { app, weight: 5 };
+      if (daysAgo > 1) return { app, weight: 2 };
+      return { app, weight: 1 };
+    });
+    const totalWeight = weighted.reduce((s, w) => s + w.weight, 0);
+    let r = Math.random() * totalWeight;
+    for (const w of weighted) {
+      r -= w.weight;
+      if (r <= 0) return w.app;
+    }
+    return weighted[weighted.length - 1].app;
+  }
 
   // State
   let supabase = null;
@@ -352,6 +404,145 @@
       font-size: 9px;
       opacity: 0.6;
     }
+    /* Teleport Discovery Panel */
+    .sloppy-bar-teleport-panel {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.9);
+      background: rgba(8,8,14,0.97);
+      border: 1px solid rgba(170,102,255,0.3);
+      border-radius: 14px;
+      padding: 24px;
+      min-width: 340px;
+      max-width: 420px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.7), 0 0 40px rgba(170,102,255,0.15);
+      z-index: 100001;
+      display: none;
+      font-family: 'JetBrains Mono', 'SF Mono', monospace;
+      color: #e0e0e0;
+      animation: sloppy-tp-in 0.2s ease-out;
+    }
+    .sloppy-bar-teleport-panel.open {
+      display: block;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    @keyframes sloppy-tp-in {
+      from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+      to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+    .sloppy-tp-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      background: linear-gradient(135deg, #aa66ff, #ff66aa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .sloppy-tp-stats {
+      font-size: 10px;
+      color: #666;
+      margin-bottom: 16px;
+    }
+    .sloppy-tp-stats span { color: #00ff88; }
+    .sloppy-tp-cats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .sloppy-tp-cat {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: #ccc;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .sloppy-tp-cat:hover {
+      border-color: rgba(170,102,255,0.5);
+      background: rgba(170,102,255,0.15);
+      color: #fff;
+    }
+    .sloppy-tp-cat.active {
+      background: linear-gradient(135deg, #aa66ff, #ff66aa);
+      color: #fff;
+      border-color: transparent;
+    }
+    .sloppy-tp-cat .sloppy-tp-cat-count {
+      font-size: 9px;
+      opacity: 0.6;
+      margin-left: 4px;
+    }
+    .sloppy-tp-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .sloppy-tp-go {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      background: linear-gradient(135deg, #aa66ff, #ff66aa);
+      color: #fff;
+      transition: all 0.2s;
+    }
+    .sloppy-tp-go:hover {
+      transform: scale(1.03);
+      box-shadow: 0 0 20px rgba(170,102,255,0.4);
+    }
+    .sloppy-tp-close {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: transparent;
+      color: #888;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .sloppy-tp-close:hover {
+      border-color: rgba(255,255,255,0.3);
+      color: #fff;
+    }
+    .sloppy-tp-discovery {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 10px;
+      color: #555;
+    }
+    .sloppy-tp-progress {
+      height: 4px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 2px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .sloppy-tp-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00ff88, #00ddff);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+    .sloppy-bar-tp-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100000;
+      display: none;
+    }
+    .sloppy-bar-tp-overlay.open { display: block; }
   `;
 
   const styleEl = document.createElement('style');
@@ -637,42 +828,120 @@
     }
   };
 
-  // Global teleport function - random app adventure!
-  window.sloppyBarTeleport = async function() {
-    // Get current app path to avoid teleporting to same app
-    const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '') || 'home';
+  // Teleport state
+  let teleportCategory = null; // null = all categories
+  let teleportPanelOpen = false;
 
-    // Filter out current app
-    const availableApps = TELEPORT_APPS.filter(app => app !== currentPath);
+  // Open the teleport discovery panel
+  window.sloppyBarTeleport = function() {
+    teleportPanelOpen = true;
+    renderTeleportPanel();
+    event?.stopPropagation();
+  };
 
-    // Pick a random app
-    const randomApp = availableApps[Math.floor(Math.random() * availableApps.length)];
+  // Execute the teleport
+  window.sloppyBarTeleportGo = function() {
+    const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '').split('/')[0] || 'home';
+    const pool = teleportCategory
+      ? (APP_CATEGORIES[teleportCategory] || TELEPORT_APPS).filter(a => a !== currentPath)
+      : TELEPORT_APPS.filter(a => a !== currentPath);
 
-    // Log teleport event to analytics (fire and forget)
+    const picked = weightedRandomPick(pool);
+
+    // Log to analytics
     if (supabase && currentUser) {
       supabase.from('sloppy_analytics').insert({
         event_type: 'teleport',
         source_app: currentPath,
-        destination_app: randomApp,
+        destination_app: picked,
         username: userData.username,
         user_id: currentUser.id,
-        metadata: { timestamp: Date.now() }
+        metadata: { timestamp: Date.now(), category: teleportCategory || 'all' }
       }).then(() => {}).catch(() => {});
     }
 
-    // Navigate with a fun effect
-    const btn = document.querySelector('.sloppy-bar-teleport');
-    if (btn) {
-      btn.style.transform = 'scale(1.2)';
-      btn.style.boxShadow = '0 0 20px rgba(170, 102, 255, 0.8)';
+    // Navigate
+    const btn = document.querySelector('.sloppy-tp-go');
+    if (btn) { btn.textContent = '⚡ Warping...'; btn.style.opacity = '0.6'; }
+    setTimeout(() => { window.location.href = '/' + picked; }, 250);
+  };
+
+  window.sloppyBarTeleportClose = function() {
+    teleportPanelOpen = false;
+    const panel = document.getElementById('sloppy-tp-panel');
+    const overlay = document.getElementById('sloppy-tp-overlay');
+    if (panel) panel.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
+  };
+
+  window.sloppyBarSetCategory = function(cat) {
+    teleportCategory = teleportCategory === cat ? null : cat;
+    renderTeleportPanel();
+  };
+
+  function renderTeleportPanel() {
+    let panel = document.getElementById('sloppy-tp-panel');
+    let overlay = document.getElementById('sloppy-tp-overlay');
+
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'sloppy-tp-panel';
+      panel.className = 'sloppy-bar-teleport-panel';
+      document.body.appendChild(panel);
+    }
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'sloppy-tp-overlay';
+      overlay.className = 'sloppy-bar-tp-overlay';
+      overlay.onclick = window.sloppyBarTeleportClose;
+      document.body.appendChild(overlay);
     }
 
-    setTimeout(() => {
-      window.location.href = '/' + randomApp;
-    }, 200);
+    const visited = getVisitedApps();
+    const visitedCount = Object.keys(visited).filter(k => TELEPORT_APPS.includes(k)).length;
+    const totalApps = TELEPORT_APPS.length;
+    const pct = Math.round((visitedCount / totalApps) * 100);
 
-    event?.stopPropagation();
-  };
+    const catEmojis = { Games:'🎮', Creative:'🎨', Music:'🎵', Social:'💬', Tools:'🛠', Weird:'🤪', Sim:'🌿', Retro:'💾', Security:'🔒', Explore:'🧭', Sloppy:'🟣' };
+
+    const catChips = Object.entries(APP_CATEGORIES).map(([cat, apps]) => {
+      const unvisited = apps.filter(a => !visited[a]).length;
+      const active = teleportCategory === cat ? 'active' : '';
+      return `<button class="sloppy-tp-cat ${active}" onclick="window.sloppyBarSetCategory('${cat}')">${catEmojis[cat] || '📦'} ${cat}<span class="sloppy-tp-cat-count">${apps.length}</span></button>`;
+    }).join('');
+
+    const poolSize = teleportCategory
+      ? (APP_CATEGORIES[teleportCategory] || []).length
+      : totalApps;
+
+    const poolVisited = teleportCategory
+      ? (APP_CATEGORIES[teleportCategory] || []).filter(a => visited[a]).length
+      : visitedCount;
+
+    const poolNew = poolSize - poolVisited;
+
+    panel.innerHTML = `
+      <div class="sloppy-tp-title">🌀 Teleport Discovery</div>
+      <div class="sloppy-tp-stats">
+        ${teleportCategory
+          ? `<strong>${teleportCategory}</strong> &middot; ${poolSize} apps &middot; <span>${poolNew} undiscovered</span>`
+          : `${totalApps} apps &middot; <span>${totalApps - visitedCount} undiscovered</span>`
+        }
+      </div>
+      <div class="sloppy-tp-cats">${catChips}</div>
+      <div class="sloppy-tp-actions">
+        <button class="sloppy-tp-go" onclick="window.sloppyBarTeleportGo()">🌀 ${teleportCategory ? teleportCategory : 'Random'} Teleport</button>
+        <button class="sloppy-tp-close" onclick="window.sloppyBarTeleportClose()">✕</button>
+      </div>
+      <div class="sloppy-tp-discovery">
+        Explorer progress: ${visitedCount}/${totalApps} discovered (${pct}%)
+        <div class="sloppy-tp-progress"><div class="sloppy-tp-progress-fill" style="width:${pct}%"></div></div>
+      </div>
+    `;
+
+    panel.classList.add('open');
+    overlay.classList.add('open');
+  }
 
   // Initialize on DOM ready
   if (document.readyState === 'loading') {

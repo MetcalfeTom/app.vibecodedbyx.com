@@ -3,6 +3,12 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-01: Advanced Teleport Discovery Mode
+  - 11 category chips (Games, Creative, Music, Social, Tools, Weird, Sim, Retro, Security, Explore, Sloppy)
+  - Weighted random: unvisited apps 10x, old visits 5x, recent visits 1x
+  - Discovery panel with modal overlay, category filtering, explorer progress bar
+  - Tracks all visited apps in localStorage for discovery %
+  - Analytics logs category with each teleport event
 - 2026-01-28: Recent Apps Dropdown
   - Apps link now shows dropdown with recent app history
   - Tracks last 8 visited apps in localStorage
@@ -26,7 +32,7 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
 - **Premium Status**: Crown badge for premium users
 - **Quick Links**: Karma, Vault, Apps (with dropdown), Health
 - **Recent Apps Dropdown**: Click Apps to see last 8 visited apps with timestamps
-- **Random Teleport**: 🌀 button sends to random app from 60+ curated picks
+- **Teleport Discovery**: Category-based teleport with weighted random favoring unvisited apps, explorer progress tracking
 - **Minimizable**: Collapse to single icon
 - **Responsive**: Mobile-friendly design
 - **Single File**: One script tag integration
@@ -88,10 +94,10 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
    - Achievement popup notifications
 
 4. **Advanced Teleport**
-   - Category-based teleport (games only, creative only)
-   - Weighted random (favor unvisited apps)
+   - ✓ Category-based teleport (11 categories)
+   - ✓ Weighted random (favor unvisited apps)
+   - ✓ Discovery mode (progress tracking)
    - Teleport chain challenges
-   - Discovery mode (guided tours)
 
 5. **Performance & Reliability**
    - Service worker for offline support
