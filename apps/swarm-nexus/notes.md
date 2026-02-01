@@ -59,6 +59,17 @@
 ## issues
 - None so far
 
+## Ecosystem Pulse
+Real-time cross-app activity feed added as a third view tab. Subscribes to:
+- **ai_events** (INSERT) — shows event_type, entity_type, username, metadata.message
+- **14 leaderboard tables** (INSERT) — breakout_terminal_scores, tetris_leaderboard, icy_tower_scores, bouldering_scores, pho_scores, sea_scourge_leaderboard, lighthouse_scores, toiletrun_leaderboard, star_catcher_leaderboard, laptop_fire_scores, treasure_calculator_scores, sloppys_gift_leaderboard, space_invaders_scores, golden_game_scores
+- On init, loads last 20 ai_events and 3 most recent scores per leaderboard table
+- Real-time inserts stream into the feed with slide-in animation
+- Filter by: All, AI Events, Leaderboards
+- Max 100 entries in memory, capped at 50 rendered
+- Single Supabase channel 'ecosystem-pulse' with 15 postgres_changes listeners
+- Cleanup on page unload
+
 ## todos
 - None currently
 
