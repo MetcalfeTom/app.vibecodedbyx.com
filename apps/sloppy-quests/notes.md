@@ -3,6 +3,16 @@
 Standalone daily challenge and karma rewards hub.
 
 ## log
+- 2026-02-01: Randomizer overhaul & karma multiplier fix
+  - Replaced weak djb2 hash with FNV-1a for date seeding (better distribution on short strings)
+  - Each quest now gets its own difficulty via continued LCG steps (was uniform for all 5)
+  - earn_upvotes/earn_karma progress now uses daily deltas instead of lifetime totals
+  - Tags/mentions progress uses actual table counts (sloppygram_post_tags, sloppygram_mentions)
+  - Completion bonus (1.5x) now persists to sloppygram_karma table on transition
+  - Karma refreshed each cycle for accurate display
+  - Error handling added to init(), ensureTodayQuests(), refreshProgress(), loadHistory()
+  - Safe getSession destructuring with optional chaining + try-catch
+  - Profile load fallback to { username: 'anon' }
 - 2026-02-01: Initial creation
   - 5 daily quests per day, deterministically selected from 12 templates via date seed
   - 3 difficulty tiers (easy/medium/hard) cycling by day
@@ -48,7 +58,15 @@ Standalone daily challenge and karma rewards hub.
 | earn_karma | ✨ | 10 | 25 | 50 | 10-40 |
 
 ## issues
-- None yet
+- Fixed: seedFromDate() used weak djb2 hash with poor distribution on short date strings (replaced with FNV-1a)
+- Fixed: getQuestsForDate() assigned uniform difficulty to all 5 quests (now per-quest via LCG continuation)
+- Fixed: earn_upvotes/earn_karma used lifetime totals instead of daily activity
+- Fixed: use_tags/mention_users counted messages instead of actual tags/mentions tables
+- Fixed: 1.5x completion bonus was display-only, never persisted to karma
+- Fixed: init() getSession destructuring crashed on network failure
+- Fixed: ensureTodayQuests() had no error handling
+- Fixed: refreshProgress() had no error handling, silent failures
+- Fixed: loadHistory() had no error handling
 
 ## todos
 - Could add weekly mega-quests with bigger rewards

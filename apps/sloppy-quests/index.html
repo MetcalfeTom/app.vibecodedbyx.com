@@ -207,25 +207,37 @@ function getTodayStr() {
 }
 
 // Deterministic quest selection from date
+// Uses FNV-1a for better bit distribution on short strings
 function seedFromDate(dateStr) {
-  let h = 0;
-  for (let i = 0; i < dateStr.length; i++) { h = ((h << 5) - h + dateStr.charCodeAt(i)) | 0; }
-  return Math.abs(h);
+  let h = 2166136261; // FNV offset basis
+  for (let i = 0; i < dateStr.length; i++) {
+    h ^= dateStr.charCodeAt(i);
+    h = Math.imul(h, 16777619); // FNV prime
+  }
+  return (h >>> 0); // unsigned 32-bit
+}
+
+// LCG next step (same constants as glibc)
+function lcgNext(s) {
+  return ((s * 1103515245 + 12345) & 0x7fffffff) >>> 0;
 }
 
 function getQuestsForDate(dateStr) {
-  const seed = seedFromDate(dateStr);
+  let s = seedFromDate(dateStr);
   const indices = [];
   const pool = [...QUEST_TEMPLATES.keys()];
-  let s = seed;
+
   while (indices.length < DAILY_QUEST_COUNT && pool.length > 0) {
-    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    s = lcgNext(s);
     const pick = s % pool.length;
     indices.push(pool.splice(pick, 1)[0]);
   }
-  // Difficulty varies by day
-  const diffIdx = seed % 3;
+
+  // Each quest gets its own difficulty (0=easy, 1=med, 2=hard)
+  // derived from continued LCG steps — not uniform across the day
   return indices.map(i => {
+    s = lcgNext(s);
+    const diffIdx = s % 3;
     const t = QUEST_TEMPLATES[i];
     return {
       type: t.type,
@@ -233,7 +245,8 @@ function getQuestsForDate(dateStr) {
       title: t.title,
       desc: t.desc,
       target: t.targets[diffIdx],
-      reward: t.rewards[diffIdx]
+      reward: t.rewards[diffIdx],
+      difficulty: diffIdx
     };
   });
 }
@@ -248,7 +261,15 @@ let totalCompleted = 0;
 
 // ── Auth ──
 async function init() {
-  const { data: { session } } = await supabase.auth.getSession();
+  let session;
+  try {
+    const res = await supabase.auth.getSession();
+    session = res?.data?.session;
+  } catch (err) {
+    console.error('Auth failed:', err);
+    document.getElementById('quest-list').innerHTML = '<div class="empty">Connection error. Refresh to retry.</div>';
+    return;
+  }
   if (!session?.user) {
     document.getElementById('quest-list').innerHTML = '<div class="empty">Sign in on sloppy.live to begin your quest journey.</div>';
     document.getElementById('history-list').innerHTML = '';
@@ -257,12 +278,18 @@ async function init() {
   currentUser = session.user;
 
   // Load profile + karma in parallel
-  const [profRes, karmaRes] = await Promise.all([
-    supabase.from('sloppygram_profiles').select('username,avatar_url').eq('user_id', currentUser.id).single(),
-    supabase.from('sloppygram_karma').select('*').eq('user_id', currentUser.id).single()
-  ]);
-  profile = profRes.data || { username: 'anon' };
-  myKarma = karmaRes.data;
+  try {
+    const [profRes, karmaRes] = await Promise.all([
+      supabase.from('sloppygram_profiles').select('username,avatar_url').eq('user_id', currentUser.id).single(),
+      supabase.from('sloppygram_karma').select('*').eq('user_id', currentUser.id).single()
+    ]);
+    profile = profRes.data || { username: 'anon' };
+    myKarma = karmaRes.data;
+  } catch (err) {
+    console.warn('Profile/karma load failed:', err);
+    profile = { username: 'anon' };
+    myKarma = null;
+  }
 
   document.getElementById('s-karma').textContent = myKarma ? myKarma.karma_total.toLocaleString() : '0';
 
@@ -276,91 +303,143 @@ async function init() {
 // ── Ensure today's quests exist in DB ──
 async function ensureTodayQuests() {
   const today = getTodayStr();
-  const { data: existing } = await supabase
-    .from('daily_quests')
-    .select('*')
-    .eq('user_id', currentUser.id)
-    .eq('quest_date', today);
+  try {
+    const { data: existing, error: fetchErr } = await supabase
+      .from('daily_quests')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .eq('quest_date', today);
 
-  if (existing && existing.length >= DAILY_QUEST_COUNT) {
-    todayQuests = existing;
-    return;
+    if (fetchErr) throw fetchErr;
+
+    if (existing && existing.length >= DAILY_QUEST_COUNT) {
+      todayQuests = existing;
+      return;
+    }
+
+    // Generate and insert today's quests
+    const templates = getQuestsForDate(today);
+    const existingTypes = new Set((existing || []).map(q => q.quest_type));
+    const toInsert = templates
+      .filter(t => !existingTypes.has(t.type))
+      .map(t => ({
+        quest_type: t.type,
+        quest_target: t.target,
+        quest_progress: 0,
+        quest_completed: false,
+        quest_date: today,
+        reward_points: t.reward,
+        user_id: currentUser.id
+      }));
+
+    if (toInsert.length > 0) {
+      const { error: insertErr } = await supabase.from('daily_quests').insert(toInsert);
+      if (insertErr) console.error('Quest insert error:', insertErr);
+    }
+
+    const { data: fresh, error: freshErr } = await supabase
+      .from('daily_quests')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .eq('quest_date', today);
+
+    if (freshErr) throw freshErr;
+    todayQuests = fresh || [];
+  } catch (err) {
+    console.error('Failed to ensure today quests:', err);
+    todayQuests = [];
   }
-
-  // Generate and insert today's quests
-  const templates = getQuestsForDate(today);
-  const existingTypes = new Set((existing || []).map(q => q.quest_type));
-  const toInsert = templates
-    .filter(t => !existingTypes.has(t.type))
-    .map(t => ({
-      quest_type: t.type,
-      quest_target: t.target,
-      quest_progress: 0,
-      quest_completed: false,
-      quest_date: today,
-      reward_points: t.reward,
-      user_id: currentUser.id
-    }));
-
-  if (toInsert.length > 0) {
-    await supabase.from('daily_quests').insert(toInsert);
-  }
-
-  const { data: fresh } = await supabase
-    .from('daily_quests')
-    .select('*')
-    .eq('user_id', currentUser.id)
-    .eq('quest_date', today);
-
-  todayQuests = fresh || [];
 }
 
 // ── Refresh progress from actual activity ──
 async function refreshProgress() {
-  if (!currentUser || !profile) return;
+  if (!currentUser || !profile || todayQuests.length === 0) return;
   const today = getTodayStr();
   const todayStart = today + 'T00:00:00.000Z';
 
-  // Count today's actual activity
-  const [msgRes, postRes, manRes, voteRes, reactRes, commentRes, doodleRes] = await Promise.all([
-    supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
-    supabase.from('sloppygram_posts').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
-    supabase.from('sloppygram_manifestos').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
-    supabase.from('sloppygram_message_votes').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
-    supabase.from('sloppygram_message_reactions').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
-    supabase.from('sloppygram_post_comments').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
-    supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).eq('message_type', 'drawing').gte('created_at', todayStart),
-  ]);
+  try {
+    // Count today's actual activity
+    const [msgRes, postRes, manRes, voteRes, reactRes, commentRes, doodleRes, tagRes, mentionRes] = await Promise.all([
+      supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
+      supabase.from('sloppygram_posts').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
+      supabase.from('sloppygram_manifestos').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
+      supabase.from('sloppygram_message_votes').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
+      supabase.from('sloppygram_message_reactions').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
+      supabase.from('sloppygram_post_comments').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
+      supabase.from('sloppygram_messages').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).eq('message_type', 'drawing').gte('created_at', todayStart),
+      // Tags: count posts that have tags created today
+      supabase.from('sloppygram_post_tags').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).gte('created_at', todayStart),
+      // Mentions: count mentions authored today
+      supabase.from('sloppygram_mentions').select('id', { count: 'exact', head: true }).eq('mentioned_by', profile.username).gte('created_at', todayStart),
+    ]);
 
-  const counts = {
-    send_messages: msgRes.count || 0,
-    create_post: postRes.count || 0,
-    write_manifesto: manRes.count || 0,
-    cast_votes: voteRes.count || 0,
-    give_reactions: reactRes.count || 0,
-    leave_comments: commentRes.count || 0,
-    make_doodle: doodleRes.count || 0,
-    visit_apps: 1, // they're here
-    use_tags: msgRes.count || 0, // approximate
-    mention_users: Math.floor((msgRes.count || 0) / 3), // approximate
-    earn_upvotes: myKarma ? myKarma.upvotes_received : 0, // lifetime, checked against daily delta
-    earn_karma: myKarma ? myKarma.karma_total : 0, // checked as daily total
-  };
+    // Refresh karma for accurate daily tracking
+    try {
+      const { data: freshKarma } = await supabase.from('sloppygram_karma').select('*').eq('user_id', currentUser.id).single();
+      myKarma = freshKarma;
+      document.getElementById('s-karma').textContent = myKarma ? myKarma.karma_total.toLocaleString() : '0';
+    } catch (_) {}
 
-  // Update progress for each quest
-  for (const quest of todayQuests) {
-    const progress = Math.min(counts[quest.quest_type] || 0, quest.quest_target);
-    const completed = progress >= quest.quest_target;
+    // Daily karma earned = sum of completed quest rewards today (stored in DB)
+    const dailyKarmaEarned = todayQuests.filter(q => q.quest_completed).reduce((s, q) => s + q.reward_points, 0);
 
-    if (progress !== quest.quest_progress || completed !== quest.quest_completed) {
-      await supabase.from('daily_quests')
-        .update({ quest_progress: progress, quest_completed: completed })
-        .eq('user_id', currentUser.id)
-        .eq('quest_type', quest.quest_type)
-        .eq('quest_date', quest.quest_date);
-      quest.quest_progress = progress;
-      quest.quest_completed = completed;
+    const counts = {
+      send_messages: msgRes.count || 0,
+      create_post: postRes.count || 0,
+      write_manifesto: manRes.count || 0,
+      cast_votes: voteRes.count || 0,
+      give_reactions: reactRes.count || 0,
+      leave_comments: commentRes.count || 0,
+      make_doodle: doodleRes.count || 0,
+      visit_apps: 1, // they're here
+      use_tags: tagRes.count || 0,
+      mention_users: mentionRes.count || 0,
+      // earn_upvotes: count today's upvotes received on user's content
+      earn_upvotes: (voteRes.count || 0) + (postRes.count || 0), // approximate: activity today
+      // earn_karma: use today's completed quest rewards as a proxy
+      earn_karma: dailyKarmaEarned,
+    };
+
+    // Update progress for each quest
+    const wasAllDone = todayQuests.every(q => q.quest_completed);
+
+    for (const quest of todayQuests) {
+      const progress = Math.min(counts[quest.quest_type] || 0, quest.quest_target);
+      const completed = progress >= quest.quest_target;
+
+      if (progress !== quest.quest_progress || completed !== quest.quest_completed) {
+        const { error } = await supabase.from('daily_quests')
+          .update({ quest_progress: progress, quest_completed: completed })
+          .eq('user_id', currentUser.id)
+          .eq('quest_type', quest.quest_type)
+          .eq('quest_date', quest.quest_date);
+        if (!error) {
+          quest.quest_progress = progress;
+          quest.quest_completed = completed;
+        }
+      }
     }
+
+    // Check if all quests just became complete — award bonus
+    const nowAllDone = todayQuests.every(q => q.quest_completed);
+    if (nowAllDone && !wasAllDone && todayQuests.length > 0) {
+      const totalReward = todayQuests.reduce((s, q) => s + q.reward_points, 0);
+      const bonus = Math.floor(totalReward * (BONUS_MULTIPLIER - 1));
+      showToast(`All quests complete! +${bonus} bonus karma ✨`);
+
+      // Persist bonus to karma table
+      if (myKarma) {
+        try {
+          await supabase.from('sloppygram_karma')
+            .update({ karma_total: myKarma.karma_total + bonus })
+            .eq('user_id', currentUser.id);
+          myKarma.karma_total += bonus;
+          document.getElementById('s-karma').textContent = myKarma.karma_total.toLocaleString();
+        } catch (e) { console.warn('Bonus karma persist failed:', e); }
+      }
+    }
+  } catch (err) {
+    console.error('Progress refresh failed:', err);
   }
 
   renderQuests();
@@ -425,14 +504,19 @@ function renderStats() {
 let historyData = [];
 
 async function loadHistory() {
-  const { data } = await supabase
-    .from('daily_quests')
-    .select('quest_date,quest_completed,reward_points')
-    .eq('user_id', currentUser.id)
-    .order('quest_date', { ascending: false })
-    .limit(200);
-
-  historyData = data || [];
+  try {
+    const { data, error } = await supabase
+      .from('daily_quests')
+      .select('quest_date,quest_completed,reward_points')
+      .eq('user_id', currentUser.id)
+      .order('quest_date', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    historyData = data || [];
+  } catch (err) {
+    console.error('Failed to load history:', err);
+    historyData = [];
+  }
 
   // Compute streak
   const dateMap = {};
