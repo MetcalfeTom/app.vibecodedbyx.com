@@ -3,6 +3,18 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-01: Communications Hub (DM inbox + mentions)
+  - Added Communications Hub section between Profile Editor and Data Vault
+  - DM inbox: lists all conversations, open thread view, send/receive messages
+  - Mentions feed: shows @mentions from Sloppygram (messages, posts, manifestos)
+  - Second Supabase client for Sloppygram tables (DMs + mentions on main instance)
+  - Content sanitization: HTML entity escaping on all rendered content
+  - Input validation: length limits, script injection detection
+  - Integrity bar: visual status indicator for connection/sanitization state
+  - Real-time updates via postgres_changes on dm_messages and mentions
+  - Notification dots on tabs for new incoming messages/mentions
+  - Read status tracking: marks DMs as read when thread opened
+  - Tabbed interface (Inbox / Mentions) with tab switching
 - 2026-02-01: Profile Editor (Phase 1 - Sloppygram extraction)
   - Added full profile editor section between Auth and Verification
   - 18 emoji avatar picker grid (same as Sloppygram)
