@@ -337,6 +337,98 @@
 
     .related-link:hover { text-decoration: underline; }
 
+    /* View toggle tabs */
+    .view-tabs {
+      display: flex;
+      gap: 0.3rem;
+      margin-bottom: 1rem;
+    }
+    .view-tab {
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.45rem 1rem;
+      font-size: 0.8rem;
+      font-family: 'Source Sans 3', sans-serif;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .view-tab:hover { color: var(--text-dark); border-color: var(--accent-blue); }
+    .view-tab.active { background: var(--accent-blue); color: white; border-color: var(--accent-blue); }
+
+    /* Graph view */
+    .graph-container {
+      position: relative;
+      background: #1a1a2e;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px var(--shadow);
+    }
+    .graph-canvas {
+      display: block;
+      width: 100%;
+      cursor: grab;
+    }
+    .graph-canvas:active { cursor: grabbing; }
+    .graph-hint {
+      position: absolute;
+      bottom: 0.75rem;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.3);
+      pointer-events: none;
+      transition: opacity 0.5s;
+    }
+    .graph-controls {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      display: flex;
+      gap: 0.3rem;
+    }
+    .graph-btn {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.5);
+      font-size: 0.65rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'Source Sans 3', sans-serif;
+      transition: all 0.15s;
+    }
+    .graph-btn:hover { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8); }
+    .graph-legend {
+      position: absolute;
+      top: 0.75rem;
+      left: 0.75rem;
+      font-size: 0.6rem;
+      color: rgba(255,255,255,0.4);
+      line-height: 1.6;
+    }
+    .graph-legend span { margin-right: 0.5rem; }
+    .graph-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(26,26,46,0.9);
+      color: rgba(255,255,255,0.5);
+      font-size: 0.85rem;
+      z-index: 2;
+    }
+    .graph-loading .loading-spinner {
+      border-color: rgba(255,255,255,0.1);
+      border-top-color: var(--accent-blue);
+      width: 24px; height: 24px;
+      margin: 0 auto 0.5rem;
+    }
+
     .security-note {
       background: var(--bg-sidebar);
       border: 1px solid var(--border);
@@ -424,6 +516,28 @@
         <span class="suggestion-chip" data-query="Renaissance art">Renaissance art</span>
         <span class="suggestion-chip" data-query="Climate change">Climate change</span>
         <span class="suggestion-chip" data-query="Ancient Rome">Ancient Rome</span>
+      </div>
+    </section>
+
+    <div class="view-tabs">
+      <button class="view-tab active" id="tabArticle" onclick="switchView('article')">📖 Article</button>
+      <button class="view-tab" id="tabGraph" onclick="switchView('graph')">🔗 Knowledge Graph</button>
+    </div>
+
+    <section class="graph-container" id="graphSection" style="display:none">
+      <canvas class="graph-canvas" id="graphCanvas" width="860" height="500"></canvas>
+      <div class="graph-legend">
+        <span>🟢 Root</span>
+        <span>🔵 Linked</span>
+        <span>🟣 2nd degree</span>
+      </div>
+      <div class="graph-controls">
+        <button class="graph-btn" onclick="graphExpandSelected()">Expand</button>
+        <button class="graph-btn" onclick="graphReset()">Reset</button>
+      </div>
+      <div class="graph-hint" id="graphHint">Search for a topic, then switch to Graph to explore connections</div>
+      <div class="graph-loading" id="graphLoading" style="display:none">
+        <div style="text-align:center"><div class="loading-spinner"></div><br>Building knowledge graph...</div>
       </div>
     </section>
 
@@ -876,6 +990,12 @@
       document.getElementById('queryInput').value = query;
       document.getElementById('searchBtn').disabled = true;
       cacheSource = null;
+      lastSearchQuery = query;
+
+      // If graph is visible, rebuild it
+      if (currentView === 'graph') {
+        buildGraph(query);
+      }
 
       // Show loading immediately
       showLoading();
@@ -948,6 +1068,463 @@
         document.getElementById('searchBtn').disabled = false;
       }
     }
+
+    // ==========================================
+    // VIEW SWITCHING
+    // ==========================================
+    let currentView = 'article';
+    let lastSearchQuery = '';
+
+    window.switchView = function(view) {
+      currentView = view;
+      document.getElementById('tabArticle').classList.toggle('active', view === 'article');
+      document.getElementById('tabGraph').classList.toggle('active', view === 'graph');
+      document.getElementById('resultsSection').style.display = view === 'article' ? '' : 'none';
+      document.getElementById('graphSection').style.display = view === 'graph' ? '' : 'none';
+
+      if (view === 'graph' && lastSearchQuery && graphNodes.length === 0) {
+        buildGraph(lastSearchQuery);
+      }
+    };
+
+    // ==========================================
+    // KNOWLEDGE GRAPH ENGINE
+    // ==========================================
+    const graphCanvas = document.getElementById('graphCanvas');
+    const gctx = graphCanvas.getContext('2d');
+    let graphNodes = [];
+    let graphEdges = [];
+    let graphSelectedNode = null;
+    let graphHoveredNode = null;
+    let graphDragging = null;
+    let graphPan = { x: 0, y: 0 };
+    let graphDragStart = null;
+    let graphAnimId = null;
+    let graphBuilding = false;
+
+    const GRAPH_COLORS = {
+      root: '#22cc77',
+      linked: '#3388ee',
+      second: '#9955dd',
+      edge: 'rgba(255,255,255,0.06)',
+      edgeHighlight: 'rgba(100,180,255,0.25)',
+      text: 'rgba(255,255,255,0.8)',
+      textDim: 'rgba(255,255,255,0.4)',
+      bg: '#1a1a2e'
+    };
+
+    function resizeGraphCanvas() {
+      const container = document.getElementById('graphSection');
+      if (!container || container.style.display === 'none') return;
+      const rect = container.getBoundingClientRect();
+      graphCanvas.width = rect.width;
+      graphCanvas.height = Math.max(400, Math.min(rect.width * 0.6, 550));
+    }
+
+    class GraphNode {
+      constructor(title, x, y, depth) {
+        this.title = title;
+        this.x = x;
+        this.y = y;
+        this.vx = 0;
+        this.vy = 0;
+        this.depth = depth; // 0=root, 1=linked, 2=second
+        this.radius = depth === 0 ? 20 : depth === 1 ? 12 : 8;
+        this.color = depth === 0 ? GRAPH_COLORS.root : depth === 1 ? GRAPH_COLORS.linked : GRAPH_COLORS.second;
+        this.expanded = false;
+        this.description = '';
+      }
+    }
+
+    class GraphEdge {
+      constructor(from, to) {
+        this.from = from;
+        this.to = to;
+      }
+    }
+
+    function findNode(title) {
+      return graphNodes.find(n => n.title.toLowerCase() === title.toLowerCase());
+    }
+
+    async function fetchLinkedArticles(title) {
+      try {
+        const params = new URLSearchParams({
+          action: 'query',
+          titles: title,
+          prop: 'links',
+          pllimit: '20',
+          plnamespace: '0',
+          format: 'json',
+          origin: '*'
+        });
+        const resp = await fetch(`https://en.wikipedia.org/w/api.php?${params}`);
+        if (!resp.ok) return [];
+        const data = await resp.json();
+        const pages = data.query?.pages || {};
+        for (const pageId in pages) {
+          const links = pages[pageId].links || [];
+          return links.map(l => l.title).filter(t =>
+            !t.includes(':') && t.length > 1 && t.length < 60
+          ).slice(0, 15);
+        }
+        return [];
+      } catch (e) {
+        console.warn('[Graph] Fetch links error:', e);
+        return [];
+      }
+    }
+
+    async function fetchNodeDescription(title) {
+      try {
+        const resp = await fetch(`${WIKI_API}${encodeURIComponent(title)}`, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) return '';
+        const data = await resp.json();
+        return data.description || '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    async function buildGraph(query) {
+      if (graphBuilding) return;
+      graphBuilding = true;
+      document.getElementById('graphLoading').style.display = 'flex';
+      document.getElementById('graphHint').style.opacity = '0';
+
+      resizeGraphCanvas();
+      const cx = graphCanvas.width / 2;
+      const cy = graphCanvas.height / 2;
+
+      graphNodes = [];
+      graphEdges = [];
+
+      // Root node
+      const root = new GraphNode(query, cx, cy, 0);
+      root.expanded = true;
+      graphNodes.push(root);
+
+      // Fetch linked articles
+      const links = await fetchLinkedArticles(query);
+
+      // Add linked nodes in a circle
+      links.forEach((title, i) => {
+        const angle = (Math.PI * 2 / links.length) * i;
+        const dist = 120 + Math.random() * 40;
+        const node = new GraphNode(title, cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist, 1);
+        graphNodes.push(node);
+        graphEdges.push(new GraphEdge(root, node));
+      });
+
+      // Fetch descriptions for root
+      root.description = await fetchNodeDescription(query);
+
+      // Expand 3 random linked nodes to get second-degree connections
+      const toExpand = links.sort(() => Math.random() - 0.5).slice(0, 3);
+      for (const title of toExpand) {
+        const parentNode = findNode(title);
+        if (!parentNode) continue;
+        parentNode.expanded = true;
+
+        const subLinks = await fetchLinkedArticles(title);
+        const filtered = subLinks.filter(t => !findNode(t)).slice(0, 5);
+
+        filtered.forEach((subTitle, i) => {
+          const angle = Math.atan2(parentNode.y - cy, parentNode.x - cx) + (Math.random() - 0.5) * 1.5;
+          const dist = 60 + Math.random() * 40;
+          const node = new GraphNode(subTitle, parentNode.x + Math.cos(angle) * dist, parentNode.y + Math.sin(angle) * dist, 2);
+          graphNodes.push(node);
+          graphEdges.push(new GraphEdge(parentNode, node));
+        });
+      }
+
+      document.getElementById('graphLoading').style.display = 'none';
+      graphBuilding = false;
+
+      if (!graphAnimId) graphAnimate();
+    }
+
+    window.graphExpandSelected = async function() {
+      const node = graphSelectedNode;
+      if (!node || node.expanded || graphBuilding) return;
+      graphBuilding = true;
+      node.expanded = true;
+
+      const links = await fetchLinkedArticles(node.title);
+      const newLinks = links.filter(t => !findNode(t)).slice(0, 8);
+
+      newLinks.forEach((title, i) => {
+        const angle = (Math.PI * 2 / newLinks.length) * i + Math.random() * 0.5;
+        const dist = 80 + Math.random() * 30;
+        const newNode = new GraphNode(title, node.x + Math.cos(angle) * dist, node.y + Math.sin(angle) * dist, Math.min(node.depth + 1, 2));
+        graphNodes.push(newNode);
+        graphEdges.push(new GraphEdge(node, newNode));
+      });
+
+      graphBuilding = false;
+    };
+
+    window.graphReset = function() {
+      graphNodes = [];
+      graphEdges = [];
+      graphSelectedNode = null;
+      graphHoveredNode = null;
+      graphPan = { x: 0, y: 0 };
+      document.getElementById('graphHint').style.opacity = '1';
+      if (lastSearchQuery) buildGraph(lastSearchQuery);
+    };
+
+    // Force-directed physics
+    function graphPhysicsStep() {
+      const REPULSION = 3000;
+      const SPRING_K = 0.008;
+      const SPRING_REST = 100;
+      const DAMPING = 0.85;
+      const CENTER_PULL = 0.002;
+      const cx = graphCanvas.width / 2;
+      const cy = graphCanvas.height / 2;
+
+      // Repulsion between all nodes
+      for (let i = 0; i < graphNodes.length; i++) {
+        for (let j = i + 1; j < graphNodes.length; j++) {
+          const a = graphNodes[i];
+          const b = graphNodes[j];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = REPULSION / (dist * dist);
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          a.vx -= fx;
+          a.vy -= fy;
+          b.vx += fx;
+          b.vy += fy;
+        }
+      }
+
+      // Spring attraction along edges
+      for (const edge of graphEdges) {
+        const dx = edge.to.x - edge.from.x;
+        const dy = edge.to.y - edge.from.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = (dist - SPRING_REST) * SPRING_K;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        edge.from.vx += fx;
+        edge.from.vy += fy;
+        edge.to.vx -= fx;
+        edge.to.vy -= fy;
+      }
+
+      // Center pull
+      for (const node of graphNodes) {
+        node.vx += (cx - node.x) * CENTER_PULL;
+        node.vy += (cy - node.y) * CENTER_PULL;
+      }
+
+      // Apply velocities
+      for (const node of graphNodes) {
+        if (node === graphDragging) continue;
+        node.vx *= DAMPING;
+        node.vy *= DAMPING;
+        node.x += node.vx;
+        node.y += node.vy;
+      }
+    }
+
+    function graphDraw() {
+      const w = graphCanvas.width;
+      const h = graphCanvas.height;
+      gctx.clearRect(0, 0, w, h);
+      gctx.fillStyle = GRAPH_COLORS.bg;
+      gctx.fillRect(0, 0, w, h);
+
+      gctx.save();
+      gctx.translate(graphPan.x, graphPan.y);
+
+      // Edges
+      for (const edge of graphEdges) {
+        const isHighlight = graphHoveredNode && (edge.from === graphHoveredNode || edge.to === graphHoveredNode);
+        gctx.strokeStyle = isHighlight ? GRAPH_COLORS.edgeHighlight : GRAPH_COLORS.edge;
+        gctx.lineWidth = isHighlight ? 1.5 : 0.8;
+        gctx.beginPath();
+        gctx.moveTo(edge.from.x, edge.from.y);
+        gctx.lineTo(edge.to.x, edge.to.y);
+        gctx.stroke();
+      }
+
+      // Nodes
+      for (const node of graphNodes) {
+        const isHovered = node === graphHoveredNode;
+        const isSelected = node === graphSelectedNode;
+
+        // Glow
+        if (isHovered || isSelected || node.depth === 0) {
+          gctx.beginPath();
+          gctx.arc(node.x, node.y, node.radius * 2.5, 0, Math.PI * 2);
+          gctx.fillStyle = node.color.replace(')', ',0.08)').replace('rgb', 'rgba');
+          gctx.fill();
+        }
+
+        // Node circle
+        gctx.beginPath();
+        gctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        gctx.fillStyle = node.color;
+        gctx.globalAlpha = isHovered ? 1 : 0.8;
+        gctx.fill();
+        gctx.globalAlpha = 1;
+
+        // Border
+        if (isSelected) {
+          gctx.strokeStyle = '#ffffff';
+          gctx.lineWidth = 2;
+          gctx.stroke();
+        }
+
+        // Label
+        const maxLen = node.depth === 0 ? 30 : node.depth === 1 ? 20 : 15;
+        const label = node.title.length > maxLen ? node.title.slice(0, maxLen) + '…' : node.title;
+        gctx.font = node.depth === 0 ? '600 11px Source Sans 3, sans-serif' : '10px Source Sans 3, sans-serif';
+        gctx.textAlign = 'center';
+        gctx.fillStyle = isHovered || node.depth === 0 ? GRAPH_COLORS.text : GRAPH_COLORS.textDim;
+        gctx.fillText(label, node.x, node.y + node.radius + 14);
+      }
+
+      // Tooltip for hovered node
+      if (graphHoveredNode && graphHoveredNode.description) {
+        const n = graphHoveredNode;
+        const text = n.description;
+        gctx.font = '11px Source Sans 3, sans-serif';
+        const tw = gctx.measureText(text).width;
+        const tx = n.x - tw / 2 - 6;
+        const ty = n.y - n.radius - 30;
+        gctx.fillStyle = 'rgba(0,0,0,0.8)';
+        gctx.beginPath();
+        gctx.roundRect(tx, ty, tw + 12, 22, 4);
+        gctx.fill();
+        gctx.fillStyle = '#ddd';
+        gctx.textAlign = 'left';
+        gctx.fillText(text, tx + 6, ty + 15);
+      }
+
+      gctx.restore();
+    }
+
+    function graphAnimate() {
+      if (graphNodes.length === 0) { graphAnimId = null; return; }
+      graphPhysicsStep();
+      graphDraw();
+      graphAnimId = requestAnimationFrame(graphAnimate);
+    }
+
+    // Graph mouse interaction
+    function getGraphNodeAt(mx, my) {
+      const x = mx - graphPan.x;
+      const y = my - graphPan.y;
+      for (let i = graphNodes.length - 1; i >= 0; i--) {
+        const n = graphNodes[i];
+        const dx = x - n.x;
+        const dy = y - n.y;
+        if (dx * dx + dy * dy < (n.radius + 5) * (n.radius + 5)) return n;
+      }
+      return null;
+    }
+
+    graphCanvas.addEventListener('mousedown', function(e) {
+      const rect = graphCanvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const node = getGraphNodeAt(mx, my);
+      if (node) {
+        graphDragging = node;
+        graphSelectedNode = node;
+        // Fetch description if missing
+        if (!node.description) fetchNodeDescription(node.title).then(d => { node.description = d; });
+      } else {
+        graphDragStart = { x: e.clientX - graphPan.x, y: e.clientY - graphPan.y };
+      }
+    });
+
+    graphCanvas.addEventListener('mousemove', function(e) {
+      const rect = graphCanvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      if (graphDragging) {
+        graphDragging.x = mx - graphPan.x;
+        graphDragging.y = my - graphPan.y;
+        graphDragging.vx = 0;
+        graphDragging.vy = 0;
+      } else if (graphDragStart) {
+        graphPan.x = e.clientX - graphDragStart.x;
+        graphPan.y = e.clientY - graphDragStart.y;
+      } else {
+        graphHoveredNode = getGraphNodeAt(mx, my);
+        graphCanvas.style.cursor = graphHoveredNode ? 'pointer' : 'grab';
+      }
+    });
+
+    graphCanvas.addEventListener('mouseup', function() {
+      graphDragging = null;
+      graphDragStart = null;
+    });
+
+    graphCanvas.addEventListener('mouseleave', function() {
+      graphDragging = null;
+      graphDragStart = null;
+      graphHoveredNode = null;
+    });
+
+    graphCanvas.addEventListener('dblclick', function(e) {
+      const rect = graphCanvas.getBoundingClientRect();
+      const node = getGraphNodeAt(e.clientX - rect.left, e.clientY - rect.top);
+      if (node) {
+        // Search for this article
+        document.getElementById('queryInput').value = node.title;
+        executeSearch(node.title);
+        switchView('article');
+      }
+    });
+
+    // Touch support for graph
+    graphCanvas.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      const rect = graphCanvas.getBoundingClientRect();
+      const t = e.touches[0];
+      const mx = t.clientX - rect.left;
+      const my = t.clientY - rect.top;
+      const node = getGraphNodeAt(mx, my);
+      if (node) {
+        graphDragging = node;
+        graphSelectedNode = node;
+        if (!node.description) fetchNodeDescription(node.title).then(d => { node.description = d; });
+      } else {
+        graphDragStart = { x: t.clientX - graphPan.x, y: t.clientY - graphPan.y };
+      }
+    }, { passive: false });
+
+    graphCanvas.addEventListener('touchmove', function(e) {
+      e.preventDefault();
+      const t = e.touches[0];
+      const rect = graphCanvas.getBoundingClientRect();
+      if (graphDragging) {
+        graphDragging.x = t.clientX - rect.left - graphPan.x;
+        graphDragging.y = t.clientY - rect.top - graphPan.y;
+        graphDragging.vx = 0;
+        graphDragging.vy = 0;
+      } else if (graphDragStart) {
+        graphPan.x = t.clientX - graphDragStart.x;
+        graphPan.y = t.clientY - graphDragStart.y;
+      }
+    }, { passive: false });
+
+    graphCanvas.addEventListener('touchend', function() {
+      graphDragging = null;
+      graphDragStart = null;
+    });
+
+    // Resize graph canvas when view changes
+    window.addEventListener('resize', resizeGraphCanvas);
 
     // ==========================================
     // EVENT HANDLERS & INIT (DOMContentLoaded)

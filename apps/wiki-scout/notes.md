@@ -3,6 +3,15 @@
 Wikipedia explorer with instant article summaries.
 
 ## log
+- 2026-02-01: Knowledge Graph visualization
+  - Canvas-based force-directed layout showing article connections
+  - Root (green), linked (blue), 2nd-degree (purple) nodes
+  - Auto-expands 3 random branches to 2nd-degree depth
+  - Click-to-select, drag nodes, pan canvas, double-click to search
+  - Expand button to grow selected node's connections
+  - Touch support for mobile
+  - Tooltip shows article description on hover
+  - Article/Graph view tab switcher
 - 2026-01-26: Added shared database cache
   - Supabase wiki_cache table with JSONB for flexible result storage
   - Local cache as fast fallback
