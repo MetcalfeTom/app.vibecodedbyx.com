@@ -18,7 +18,7 @@ Legend: **R**=Read **W**=Write **U**=Update **D**=Delete **S**=Subscribe(realtim
 | sloppygram_dm_conversations | CO-OWNER (R,U) | Shared with sloppygram |
 | sloppygram_dm_messages | CO-OWNER (R,W,S) | Shared with sloppygram |
 
-**17 apps** read sloppygram_profiles. Only sloppy-id and sloppygram write.
+**17 apps** read sloppygram_profiles. Only sloppy-id writes (sloppygram profile editor removed 2026-02-01).
 
 ---
 
