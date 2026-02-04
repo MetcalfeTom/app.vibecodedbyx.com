@@ -3,6 +3,15 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Post/Feed system to iframe embed of /sloppy-feed/
+  - Replaced ~1546 lines of post JS/CSS/HTML with ~190 lines iframe stub + message bridge
+  - Posts tab now loads sloppy-feed/?embed=true in iframe (same pattern as canvas/graph)
+  - postMessage bridge: username clicks → showProfileCard, new post → addToFeed
+  - Removed: post CSS (~690 lines), postModal + FAB HTML (~50 lines), loadPosts/renderPosts/votePost/addComment/submitPost etc (~800 lines)
+  - Removed 6 post-specific realtime handlers from postsChannel (kept manifesto/doodle/chat handlers)
+  - Preserved shared functions: speakMessage, speakManifesto, startReply, cancelReply, generateContentDNA, forkMessage, forkDoodle, filterByTag, clearTagFilter
+  - Chaos engine reboot reloads iframe
+  - Total reduction: 20,475 → 19,119 lines (1,356 lines, 6.6%)
 - 2026-02-04: Extracted Collab Canvas and Social Graph to iframe embeds
   - Replaced ~715 lines of collab canvas JS, ~185 lines CSS, ~36 lines HTML with iframe stub (~110 lines)
   - Replaced ~425 lines of social graph JS, ~168 lines CSS, ~38 lines HTML with iframe stub (~25 lines)
@@ -240,6 +249,7 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - Lazy-loading images with Intersection Observer
 - Real-time collaborative canvas - iframe embed of /sloppy-canvas/ (draw together, see other users' cursors live)
 - Social graph visualization - iframe embed of /sloppy-network/ (node clicks open profile cards in monolith)
+- Posts feed - iframe embed of /sloppy-feed/ (full post/vote/react/comment/tag, username clicks open profile cards in monolith)
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type

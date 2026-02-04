@@ -3,6 +3,12 @@
 Standalone global timeline extracted from Sloppygram's post/feed system.
 
 ## log
+- 2026-02-04: Added embed mode for Sloppygram iframe integration
+  - ?embed=true hides app header, backlink, stats row
+  - Exposes window.supabase for error catcher
+  - postMessage to parent on username clicks (triggers showProfileCard in monolith)
+  - postMessage to parent on new post creation (triggers addToFeed in monolith)
+  - Username click handlers added to post cards and comment cards
 - 2026-02-01: Initial creation
   - Full post creation with caption (1000 chars), image URL, tags
   - Hierarchical tags (parent/child via slash syntax)
@@ -34,12 +40,12 @@ Standalone global timeline extracted from Sloppygram's post/feed system.
 - sloppygram_profiles (username/avatar lookup)
 
 ## issues
-- None yet
+- Username click in embed mode relies on postMessage to parent for profile cards (no local profile card UI)
 
 ## todos
 - Could add image upload (file → storage → URL)
-- Could add post forking with lineage
-- Could add user profile cards on username click
+- Could add post forking with DNA lineage (currently monolith-only feature dropped in extraction)
+- Could add DNA badges on posts (currently monolith-only feature dropped in extraction)
 - Could add infinite scroll option
 - Could add search by caption/tag
 - Could add post bookmarks/saves
