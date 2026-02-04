@@ -3,6 +3,12 @@
 Standalone global timeline extracted from Sloppygram's post/feed system.
 
 ## log
+- 2026-02-04: Migrated to header sync hub
+  - Profile from sloppyBarGetContext() instead of direct sloppygram_profiles query
+  - Listens for identity-changed + context-ready for cross-tab profile sync
+  - Listens for theme-changed in standalone mode for cross-tab theme sync
+  - Fallback: direct DB query if header not loaded
+  - Third app on sync hub (after sloppy-chat, sloppy-id)
 - 2026-02-04: Added embed mode for Sloppygram iframe integration
   - ?embed=true hides app header, backlink, stats row
   - Exposes window.supabase for error catcher
