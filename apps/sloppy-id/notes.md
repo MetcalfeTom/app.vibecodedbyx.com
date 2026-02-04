@@ -3,6 +3,12 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-04: Fixed dead buttons — inlined both Supabase clients, removed broken import
+  - `import sgClient from '/supabase-config-fixed.js'` was 404ing, killing entire module script silently
+  - All window.* function assignments died = every button unresponsive
+  - Fix: inlined sgClient (yjyxteqzhhmtrgcaekgz) with createBrowserClient + proper cookie domain
+  - Same fix applied to sloppy-chat and sloppy-feed (also had broken import)
+  - Lesson: never use local file imports in module scripts — CDN imports or inline only
 - 2026-02-04: Fixed session dropping — 3 vectors patched
   - Switched primary client from createClient (localStorage-only) to createBrowserClient (proper cookies)
   - Unique cookie name 'sb-auth-token-id' avoids collision with other apps' 'sb-auth-token' cookie
