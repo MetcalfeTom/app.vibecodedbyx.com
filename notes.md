@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## log
+- 2026-02-04: Extracted SloppyFM Radio from Sloppygram monolith into /sloppy-radio/ widget iframe. Floating draggable widget with iframe to sloppy-radio embed mode. YouTube player, visualizer, playlist, realtime sync all in iframe. Removed ~796 lines. Monolith: 14,522 → 13,726 lines (-796, 5.5%). Eleventh extraction. Total reduction from original: 33.0%.
 - 2026-02-04: Extracted Direct Messages system from Sloppygram monolith into /sloppy-dms/ tab iframe. Conversation list, threaded DM view, user search, new DM modal. Real-time via postgres_changes. postMessage bridge for username clicks and notification sounds. Removed ~763 lines. Monolith: 15,285 → 14,522 lines (-763, 5.0%). Tenth extraction. Total reduction from original: 29.1%.
 - 2026-02-04: Extracted notification sound settings UI from Sloppygram monolith into /sloppy-notifications/ panel iframe. Sound grid, preview, custom upload, volume. Sound playback kept in monolith (AudioContext). Removed ~209 lines. Monolith: 15,494 → 15,285 lines (-209, 1.3%). Ninth extraction. Total reduction from original: 25.3%.
 - 2026-02-04: Extracted Support/Donate Modal from Sloppygram monolith into /sloppy-support/ overlay iframe. Crypto addresses (BTC/ETH/SOL/XMR), fiat links (Ko-fi/PayPal/Patreon), copy-to-clipboard. Removed ~380 lines. Monolith: 15,874 → 15,494 lines (-380, 2.4%). Eighth extraction. Total reduction from original: 24.3%.

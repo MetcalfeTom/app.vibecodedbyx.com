@@ -3,6 +3,10 @@
 Synchronized community radio extracted from Sloppygram's SloppyFM system.
 
 ## log
+- 2026-02-04: Added embed mode (?embed=true) for iframe embedding in Sloppygram
+  - Hides header, backlink, listeners pill in embed mode
+  - Compact layout with reduced padding for widget iframe
+  - Sloppygram now embeds sloppy-radio in floating widget instead of inline player
 - 2026-02-01: Initial creation
   - YouTube IFrame API player (hidden 1x1)
   - Synchronized playback: all listeners hear same track at same time via started_at timestamp

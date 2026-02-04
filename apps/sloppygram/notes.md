@@ -3,6 +3,12 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted SloppyFM Radio to iframe embed of /sloppy-radio/
+  - Floating widget pattern: fixed-position draggable widget with iframe inside
+  - Replaced ~212 lines SloppyFM CSS + ~36 lines HTML (widget + controls + visualizer + playlist + YT player) + ~548 lines JS (player, sync, realtime, visualizer, controls) with ~30 lines CSS + ~9 lines HTML + ~12 lines JS stubs
+  - Removed sloppyfm channel from channelState, warmDomCache, and cleanup handler
+  - Widget chrome (toggle button, titlebar, draggable) kept in monolith; all radio logic in iframe
+  - Total reduction: 14,522 → 13,726 lines (796 lines, 5.5%, 33.0% total from original 20,475)
 - 2026-02-04: Extracted Direct Messages system to iframe embed of /sloppy-dms/
   - Tab iframe pattern: iframe within DM tab (?embed=true), same as feed/manifestos/karma/factions
   - Replaced ~401 lines DM CSS + ~50 lines DM HTML (container + new DM modal) + ~355 lines DM JS with ~6 lines CSS + ~3 lines HTML + ~22 lines JS stubs
