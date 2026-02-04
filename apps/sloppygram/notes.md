@@ -3,6 +3,15 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Collab Canvas and Social Graph to iframe embeds
+  - Replaced ~715 lines of collab canvas JS, ~185 lines CSS, ~36 lines HTML with iframe stub (~110 lines)
+  - Replaced ~425 lines of social graph JS, ~168 lines CSS, ~38 lines HTML with iframe stub (~25 lines)
+  - Collab Canvas now embeds /sloppy-canvas/?embed=true — same Supabase tables and broadcast channels
+  - Social Graph now embeds /sloppy-network/?embed=true — node clicks trigger showProfileCard via postMessage
+  - Snapshot button uses postMessage to request canvas dataURL from iframe, then uploads to doodles
+  - Chaos engine reboot reloads iframes instead of clearing canvas memory
+  - Total reduction: 21,857 -> 20,475 lines (1,382 lines, 6.3%)
+  - Drawing Canvas (84 lines), Undo/Redo (66 lines), SloppyFM Visualizer (133 lines) NOT extracted — too coupled
 - 2026-02-01: Profile editor removed — redirected to SloppyID
   - Removed inline username, avatar, and color editing from settings modal
   - Added SloppyID profile card showing current username, avatar, trust score, and verification badges
@@ -229,7 +238,8 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - Canvas undo/redo with keyboard shortcuts
 - Profile cards - click usernames to see user stats
 - Lazy-loading images with Intersection Observer
-- Real-time collaborative canvas - draw together, see other users' cursors live
+- Real-time collaborative canvas - iframe embed of /sloppy-canvas/ (draw together, see other users' cursors live)
+- Social graph visualization - iframe embed of /sloppy-network/ (node clicks open profile cards in monolith)
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type
