@@ -3,6 +3,16 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Karma/Reputation system to iframe embed of /karma-board/
+  - Replaced ~696 lines of karma/reputation JS/CSS/HTML with ~70 lines iframe stub + postMessage bridge
+  - KARMA tab now loads karma-board/?embed=true in iframe (same pattern as posts/canvas/graph/manifestos)
+  - postMessage bridge: username clicks → showProfileCard, calculate-karma request/response for profile cards
+  - Removed: karma CSS (~233 lines), karmaContainer HTML (~55 lines), loadKarmaLeaderboard/calculateUserKarma/loadReputations/getReputationBadge etc (~408 lines)
+  - Preserved lightweight getEarnedBadges locally (pure function, ~15 lines) for profile card badge rendering
+  - Dead code removed: loadReputations() and full getReputationBadge() were never called
+  - calculateUserKarma now delegates to iframe via postMessage with requestId pattern + 8s timeout fallback
+  - Chaos engine reboot reloads karma iframe
+  - Total reduction: 17,991 → 17,295 lines (696 lines, 3.9%, 15.5% total from original 20,475)
 - 2026-02-04: Extracted Manifesto system to iframe embed of /sloppy-manifestos/
   - Replaced ~1,128 lines of manifesto JS/CSS/HTML with ~60 lines iframe stub + message bridge
   - MANIFESTO tab now loads sloppy-manifestos/?embed=true in iframe (same pattern as posts/canvas/graph)

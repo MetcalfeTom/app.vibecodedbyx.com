@@ -3,6 +3,11 @@
 Federated karma leaderboard aggregating engagement data across the sloppy.live ecosystem. Read-only — does not modify any Sloppygram data.
 
 ## log
+- 2026-02-04: Added embed mode for Sloppygram iframe integration
+  - ?embed=true hides top-bar, backlink, reduces padding
+  - postMessage bridge: username clicks on leaderboard entries send to parent
+  - calculate-karma listener: parent sends { type: 'calculate-karma', username, requestId }, responds with { type: 'karma-result', requestId, karma, badges }
+  - Exposed supabase on window for error catcher
 - 2026-02-01: Initial creation — standalone karma calculator, 10 badge types, time/category filters, personal stats card, batched parallel queries
 
 ## architecture

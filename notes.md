@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## log
+- 2026-02-04: Extracted Karma/Reputation system from Sloppygram monolith into iframe embed of /karma-board/. Added embed mode (?embed=true), postMessage bridge for username clicks and async calculateUserKarma delegation with requestId pattern. Removed ~696 lines of karma/reputation CSS/HTML/JS. Dead code removed (loadReputations, getReputationBadge never called). Monolith: 17,991 → 17,295 lines (-696, 3.9%). Fifth iframe extraction (after canvas, network, feed, manifestos). Total reduction from original: 15.5%.
 - 2026-02-04: Extracted Manifesto system from Sloppygram monolith into iframe embed of /sloppy-manifestos/. Added embed mode (?embed=true), postMessage bridge for username clicks, new manifestos, and vote notifications. Removed ~1,128 lines of manifesto CSS/HTML/JS/realtime. Fixed renderThreadedComments bug. Monolith: 19,119 → 17,991 lines (-1,128, 5.9%). Fourth iframe extraction (after canvas, network, feed). Total reduction from original: 12.1%.
 - 2026-02-04: Extracted Post/Feed from Sloppygram monolith into iframe embed of /sloppy-feed/. Added embed mode to sloppy-feed (?embed=true), postMessage bridge for username clicks and new posts. Monolith: 20,475 → 19,119 lines (-1,356, 6.6%). Third iframe extraction (after canvas and network).
 - 2025-12-05: breakout-terminal — added real PNG OG image, share button, and head improvements; verified live.
