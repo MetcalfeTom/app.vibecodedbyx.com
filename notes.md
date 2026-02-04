@@ -51,7 +51,8 @@
 - Large single-file apps: careful with 250-line output limits when inspecting; use targeted greps.
  - WebAudio requires a user gesture to start on mobile; always add a Start button to unlock audio.
  - OG tags must include a .png image URL; emojicdn works in a pinch but custom PNGs look better.
- - Root supabase-config.js may expect premium UI nodes; prefer per-app copy with null checks.
+ - Root supabase-config.js may expect premium UI nodes; prefer per-app copy with null checks. Fixed version at /supabase-config-fixed.js (localhost cookie domain + null-safe DOM).
+ - Root supabase-config.js is a read-only bind mount — cannot be edited directly. Use /supabase-config-fixed.js for new apps.
  - Some app hosts fall back to `index.html` for unknown asset paths; ensure `og-image.png` actually exists to avoid OG preview failures.
 
 ## todos
