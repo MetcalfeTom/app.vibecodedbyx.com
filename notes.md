@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## log
+- 2026-02-04: Migrated sloppy-factions to header sync hub. Username + karma from sloppyBarGetContext(), karma-changed listener for battle power. Fourth app on sync hub, first to use karma sync path.
 - 2026-02-04: Migrated sloppy-feed to header sync hub. Profile from sloppyBarGetContext(), identity-changed + theme-changed listeners. Third app on sync hub.
 - 2026-02-04: Migrated sloppy-id to primary identity broadcaster. Profile saves broadcast identity-changed to all tabs via sloppyBarEmit(), writes to shared localStorage for cross-tab sync. Premium from header context. Listens for cross-tab identity changes. Second app on sync hub (after sloppy-chat).
 - 2026-02-04: Migrated sloppy-chat to header sync hub. Profile from sloppyBarGetContext() instead of DB query. Listens for identity-changed + theme-changed. First app on sync hub.

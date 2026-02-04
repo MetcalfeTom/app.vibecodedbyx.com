@@ -3,6 +3,12 @@
 Standalone territory wars app extracted and expanded from Sloppygram's faction system.
 
 ## log
+- 2026-02-04: Migrated to header sync hub (karma + profile)
+  - Username from sloppyBarGetContext() instead of sloppygram_profiles + sloppygram_karma queries
+  - Karma for battle power bonus from header context instead of separate DB query in loadAllData()
+  - Listens for identity-changed, context-ready, karma-changed, theme-changed events
+  - DB fallback preserved if header not loaded; karma query skipped when context has data
+  - Fourth app on sync hub; first to use karma sync path
 - 2026-02-04: Added embed mode for Sloppygram iframe integration
   - ?embed=true hides header, backlink, reduces padding
   - postMessage bridge: username clicks on warrior names and battle log attacker names send to parent
