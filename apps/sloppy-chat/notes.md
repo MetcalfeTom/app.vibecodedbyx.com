@@ -3,6 +3,13 @@
 Standalone global chatroom extracted from Sloppygram's messaging system.
 
 ## log
+- 2026-02-04: Migrated to header sync hub
+  - Added sloppy-bar.js (minimized, hidden in embed mode)
+  - Profile data now comes from sloppyBarGetContext() instead of direct sloppygram_profiles query
+  - Listens for identity-changed + context-ready events for live profile updates
+  - Listens for theme-changed events in standalone mode for cross-tab theme sync
+  - Fallback: direct DB query if header not loaded, embed set-profile postMessage still works
+  - First app migrated to header sync pattern
 - 2026-02-01: Initial creation
   - Full chat with text, image, drawing message types
   - Hacker markup: [shake], [rainbow], [glitch], [pulse], [neon], [fire], [ice], [bounce], [wave], [spoiler]
