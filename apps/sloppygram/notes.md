@@ -3,6 +3,13 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Direct Messages system to iframe embed of /sloppy-dms/
+  - Tab iframe pattern: iframe within DM tab (?embed=true), same as feed/manifestos/karma/factions
+  - Replaced ~401 lines DM CSS + ~50 lines DM HTML (container + new DM modal) + ~355 lines DM JS with ~6 lines CSS + ~3 lines HTML + ~22 lines JS stubs
+  - postMessage bridge: username-click → showProfileCard, dm-notification → playNotificationSound
+  - startDMWithUser() sends start-dm postMessage to iframe (used by profile card DM button)
+  - Removed DM realtime handler from postsChannel (iframe has own subscription)
+  - Total reduction: 15,285 → 14,522 lines (763 lines, 5.0%, 29.1% total from original 20,475)
 - 2026-02-04: Extracted notification sound settings UI to iframe embed of /sloppy-notifications/
   - Panel iframe pattern: iframe within settings modal tab (?embed=true&panel=true)
   - Replaced ~69 lines sound CSS + ~70 lines sound HTML + ~75 lines sound control functions with ~10 lines iframe stub
