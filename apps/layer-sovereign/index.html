@@ -141,33 +141,61 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
 const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
 
-const cookieDomain = location.hostname.includes('sloppy.live') ? '.sloppy.live'
-  : location.hostname.includes('vibecodedbyx.com') ? '.vibecodedbyx.com'
-  : location.hostname;
+// Cookie domain: must match supabase-config.js canonical pattern exactly.
+// .sloppy.live covers app.sloppy.live + www.sloppy.live (SSO).
+// .youreabsolutelyright.xyz is the Cloudflare origin domain.
+const getCookieDomain = () => {
+  const h = location.hostname;
+  if (h.includes('sloppy.live')) return '.sloppy.live';
+  if (h.includes('vibecodedbyx.com')) return '.vibecodedbyx.com';
+  if (h.includes('youreabsolutelyright.xyz')) return '.youreabsolutelyright.xyz';
+  return h; // localhost or unknown
+};
+
+const cookieDomain = getCookieDomain();
+console.log('[layer-sovereign] hostname:', location.hostname, '→ cookie domain:', cookieDomain);
 
 const sb = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   cookieOptions: { name: 'sb-auth-token', domain: cookieDomain, path: '/', sameSite: 'lax' }
 });
 
-// Ensure session — retries once on failure
+// Ensure session — validates JWT is usable
 async function ensureSession() {
   try {
     const { data, error } = await sb.auth.getSession();
-    if (error) console.warn('getSession error:', error.message);
-    if (data?.session) return data.session;
+    if (error) console.warn('[auth] getSession error:', error.message);
+    if (data?.session?.access_token) {
+      console.log('[auth] existing session, user:', data.session.user?.id?.slice(0, 8));
+      return data.session;
+    }
 
+    console.log('[auth] no existing session, signing in anonymously...');
     const { data: signData, error: signErr } = await sb.auth.signInAnonymously();
-    if (signErr) throw signErr;
-    return signData?.session || null;
+    if (signErr) {
+      console.error('[auth] signInAnonymously error:', signErr.message, signErr.status);
+      throw signErr;
+    }
+    if (signData?.session?.access_token) {
+      console.log('[auth] anon session created, user:', signData.session.user?.id?.slice(0, 8));
+      return signData.session;
+    }
+    console.warn('[auth] signInAnonymously returned no session/token');
+    return null;
   } catch (e) {
-    console.error('Auth failed:', e.message);
+    console.error('[auth] failed:', e.message);
     // Retry once after brief delay
     try {
-      await new Promise(r => setTimeout(r, 1000));
-      const { data } = await sb.auth.signInAnonymously();
-      return data?.session || null;
+      await new Promise(r => setTimeout(r, 1500));
+      console.log('[auth] retrying signInAnonymously...');
+      const { data, error } = await sb.auth.signInAnonymously();
+      if (error) console.error('[auth] retry error:', error.message);
+      if (data?.session?.access_token) {
+        console.log('[auth] retry succeeded, user:', data.session.user?.id?.slice(0, 8));
+        return data.session;
+      }
+      return null;
     } catch (e2) {
-      console.error('Auth retry failed:', e2.message);
+      console.error('[auth] retry failed:', e2.message);
       return null;
     }
   }
@@ -583,19 +611,21 @@ async function init() {
   window.addEventListener('resize', resizeCanvas);
 
   document.getElementById('statusText').textContent = 'Authenticating...';
-  const session = await ensureSession();
+  let session = await ensureSession();
 
   if (!session) {
     document.getElementById('statusText').textContent = 'Auth failed — retrying...';
-    // Wait and try one more time
     await new Promise(r => setTimeout(r, 2000));
-    const retry = await ensureSession();
-    if (!retry) {
-      document.getElementById('statusText').textContent = 'No auth — counts may be incomplete';
-    }
+    session = await ensureSession();
   }
 
-  document.getElementById('statusText').textContent = 'Scanning layers...';
+  if (session?.access_token) {
+    document.getElementById('statusText').textContent = 'Scanning layers...';
+    console.log('[init] auth OK, scanning with JWT');
+  } else {
+    document.getElementById('statusText').textContent = 'No auth — read-only tables only';
+    console.warn('[init] no JWT — RLS-protected tables will return 0');
+  }
 
   await Promise.all([fetchAllCounts(), fetchPulseEvents()]);
 
