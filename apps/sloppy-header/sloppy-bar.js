@@ -694,14 +694,32 @@
   styleEl.textContent = styles;
   document.head.appendChild(styleEl);
 
+  // Cookie domain helper (matches supabase-config-fixed.js logic)
+  function _getCookieDomain() {
+    var h = window.location.hostname;
+    if (h.includes('sloppy.live')) return '.sloppy.live';
+    if (h.includes('vibecodedbyx.com')) return '.vibecodedbyx.com';
+    if (h.includes('youreabsolutelyright.xyz')) return '.youreabsolutelyright.xyz';
+    return undefined; // localhost or unknown — let browser use current hostname
+  }
+
   // Initialize Supabase
   async function initSupabase() {
     if (window.supabase) {
       supabase = window.supabase;
     } else {
-      // Dynamically import Supabase
-      const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-      supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      // Use createBrowserClient for proper cookie handling
+      var cookieDomain = _getCookieDomain();
+      var cookieOpts = { name: 'sb-auth-token', path: '/', sameSite: 'lax' };
+      if (cookieDomain) cookieOpts.domain = cookieDomain;
+      try {
+        const { createBrowserClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/ssr@0.7.0/+esm');
+        supabase = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, { cookieOptions: cookieOpts });
+      } catch (e) {
+        // Fallback to createClient if SSR module unavailable
+        const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+        supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
     }
 
     // Get session

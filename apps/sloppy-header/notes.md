@@ -3,6 +3,11 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-04: Fixed Supabase client — createBrowserClient with proper cookie domain
+  - Switched from createClient (no cookies) to createBrowserClient from @supabase/ssr
+  - Cookie domain helper matches supabase-config-fixed.js logic (localhost returns undefined)
+  - Fallback to createClient if SSR module unavailable
+  - Header uses dtfaplmockmwvgyqxbep instance (different from apps' yjyxteqzhhmtrgcaekgz)
 - 2026-02-04: Phase 1 — Central Sync Hub
   - Added BroadcastChannel('sloppy-sync') for cross-tab event communication across all 481 apps
   - Added enriched userContext object (userId, username, karma, rank, premium, avatar, theme, bio, color, etc.)
