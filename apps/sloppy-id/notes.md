@@ -3,6 +3,14 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-04: Consolidated to single Supabase instance — killed dead primary
+  - Primary instance (gfzaoppypyaatzglamjv) was completely unreachable (DNS failure, HTTP 000)
+  - This caused all "Failed to fetch" errors — every auth call, vault query, profile load hit a dead endpoint
+  - All tables (sloppyid_vault, sloppyid_verifications, sloppygram_profiles, DMs, etc.) exist on working instance (yjyxteqzhhmtrgcaekgz)
+  - Consolidated from 2 clients to 1: removed sgClient, ensureSgSession(), sgSession variable
+  - Cookie name now 'sb-auth-token' (shared with other ecosystem apps = shared session)
+  - sloppy_identities mirror upsert now uses same client with currentUser.id
+  - initCommsHub() simplified: no separate auth step needed
 - 2026-02-04: Fixed dead buttons — inlined both Supabase clients, removed broken import
   - `import sgClient from '/supabase-config-fixed.js'` was 404ing, killing entire module script silently
   - All window.* function assignments died = every button unresponsive
