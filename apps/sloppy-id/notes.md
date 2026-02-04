@@ -3,6 +3,12 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-04: Fixed session dropping — 3 vectors patched
+  - Switched primary client from createClient (localStorage-only) to createBrowserClient (proper cookies)
+  - Unique cookie name 'sb-auth-token-id' avoids collision with other apps' 'sb-auth-token' cookie
+  - Cookie domain follows fixed config pattern (localhost returns undefined)
+  - Added anonymous session recovery in init() — if getSession() returns nothing, auto-creates anon session
+  - Previously: no session = silently show logged-out state, user had to click Sign In manually
 - 2026-02-04: Primary identity broadcaster via header sync hub
   - Profile save now broadcasts identity-changed to all tabs via sloppyBarEmit()
   - Writes profile to shared localStorage (sloppygram_profile key) for cross-tab sync
