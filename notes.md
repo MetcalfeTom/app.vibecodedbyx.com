@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## log
+- 2026-02-04: Extracted Post/Feed from Sloppygram monolith into iframe embed of /sloppy-feed/. Added embed mode to sloppy-feed (?embed=true), postMessage bridge for username clicks and new posts. Monolith: 20,475 → 19,119 lines (-1,356, 6.6%). Third iframe extraction (after canvas and network).
 - 2025-12-05: breakout-terminal — added real PNG OG image, share button, and head improvements; verified live.
  - 2025-12-05: breakout-terminal — added Supabase leaderboard (anon auth), submit UI, and pause ribbon; verified live.
 - 2025-10-07: SpaceFlight — clustered objects closer (shorter spans and spawn ranges), tightened dust/spark fades, lowered clear radius for denser feel.
