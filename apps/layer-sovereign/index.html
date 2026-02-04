@@ -141,22 +141,35 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
 const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
 
-const getCookieDomain = () => {
-  const h = window.location.hostname;
-  if (h.includes('sloppy.live')) return '.sloppy.live';
-  if (h.includes('vibecodedbyx.com')) return '.vibecodedbyx.com';
-  return '.youreabsolutelyright.xyz';
-};
+const cookieDomain = location.hostname.includes('sloppy.live') ? '.sloppy.live'
+  : location.hostname.includes('vibecodedbyx.com') ? '.vibecodedbyx.com'
+  : location.hostname;
 
 const sb = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  cookieOptions: { name: 'sb-auth-token', domain: getCookieDomain(), path: '/', sameSite: 'lax' }
+  cookieOptions: { name: 'sb-auth-token', domain: cookieDomain, path: '/', sameSite: 'lax' }
 });
 
-// Ensure session
+// Ensure session — retries once on failure
 async function ensureSession() {
-  const { data } = await sb.auth.getSession();
-  if (!data.session) {
-    await sb.auth.signInAnonymously();
+  try {
+    const { data, error } = await sb.auth.getSession();
+    if (error) console.warn('getSession error:', error.message);
+    if (data?.session) return data.session;
+
+    const { data: signData, error: signErr } = await sb.auth.signInAnonymously();
+    if (signErr) throw signErr;
+    return signData?.session || null;
+  } catch (e) {
+    console.error('Auth failed:', e.message);
+    // Retry once after brief delay
+    try {
+      await new Promise(r => setTimeout(r, 1000));
+      const { data } = await sb.auth.signInAnonymously();
+      return data?.session || null;
+    } catch (e2) {
+      console.error('Auth retry failed:', e2.message);
+      return null;
+    }
   }
 }
 
@@ -243,8 +256,14 @@ async function fetchAllCounts() {
     for (const t of layer.tables) {
       promises.push(
         sb.from(t.name).select('*', { count: 'exact', head: true })
-          .then(res => ({ layer: layerKey, table: t.name, count: res.count || 0 }))
-          .catch(() => ({ layer: layerKey, table: t.name, count: 0 }))
+          .then(res => {
+            if (res.error) console.warn(`Count error [${t.name}]:`, res.error.message);
+            return { layer: layerKey, table: t.name, count: res.count ?? 0 };
+          })
+          .catch(err => {
+            console.warn(`Fetch error [${t.name}]:`, err.message);
+            return { layer: layerKey, table: t.name, count: 0 };
+          })
       );
     }
   }
@@ -539,17 +558,27 @@ function subscribePulse() {
 // ── Init ──
 async function init() {
   resizeCanvas();
-  window.addEventListener('resize', () => {
-    resizeCanvas();
-  });
+  window.addEventListener('resize', resizeCanvas);
 
-  await ensureSession();
+  document.getElementById('statusText').textContent = 'Authenticating...';
+  const session = await ensureSession();
 
-  document.getElementById('statusText').textContent = 'Scanning...';
+  if (!session) {
+    document.getElementById('statusText').textContent = 'Auth failed — retrying...';
+    // Wait and try one more time
+    await new Promise(r => setTimeout(r, 2000));
+    const retry = await ensureSession();
+    if (!retry) {
+      document.getElementById('statusText').textContent = 'No auth — counts may be incomplete';
+    }
+  }
+
+  document.getElementById('statusText').textContent = 'Scanning layers...';
 
   await Promise.all([fetchAllCounts(), fetchPulseEvents()]);
 
-  document.getElementById('statusText').textContent = 'Online';
+  const statusLabel = totalRows > 0 ? 'Online' : 'Online (0 rows — check auth)';
+  document.getElementById('statusText').textContent = statusLabel;
   document.getElementById('totalBadge').textContent = totalRows.toLocaleString() + ' rows';
 
   renderCards();
@@ -572,7 +601,7 @@ async function init() {
 
 init().catch(err => {
   console.error('Layer Sovereign init error:', err);
-  document.getElementById('statusText').textContent = 'Error';
+  document.getElementById('statusText').textContent = 'Error: ' + (err.message || 'init failed');
 });
 </script>
 </body>
