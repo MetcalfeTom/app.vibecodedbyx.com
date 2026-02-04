@@ -3,6 +3,12 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Oracle Log to iframe embed of /sloppy-oracle/
+  - Floating widget pattern: fixed-position expandable widget with iframe inside
+  - Replaced ~165 lines Oracle CSS + ~16 lines HTML (body, input, questions) + ~167 lines JS (load, render, submit, realtime, channel) with ~25 lines CSS + ~8 lines HTML + ~15 lines JS stubs
+  - Removed oracleLogChannel from cleanup handler and hoisted variable
+  - Widget chrome (header, expand/collapse, right-click minimize) kept in monolith
+  - Total reduction: 13,726 → 13,438 lines (288 lines, 2.1%, 34.4% total from original 20,475)
 - 2026-02-04: Extracted SloppyFM Radio to iframe embed of /sloppy-radio/
   - Floating widget pattern: fixed-position draggable widget with iframe inside
   - Replaced ~212 lines SloppyFM CSS + ~36 lines HTML (widget + controls + visualizer + playlist + YT player) + ~548 lines JS (player, sync, realtime, visualizer, controls) with ~30 lines CSS + ~9 lines HTML + ~12 lines JS stubs
