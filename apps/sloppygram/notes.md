@@ -3,6 +3,16 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Image Lightbox + Share Modal + GIF Search to iframe embed of /sloppy-media/
+  - New extraction pattern: full-viewport overlay iframe (position:fixed, inset:0, z-index:10000)
+  - Replaced ~500 lines of lightbox/share/GIF CSS/HTML/JS with ~50 lines iframe stub + postMessage bridge
+  - Lightbox CSS (~56 lines), Share Modal CSS (~140 lines), GIF Modal CSS (~75 lines) → 4 lines
+  - Lightbox HTML (5 lines), Share HTML (23 lines), GIF HTML (17 lines) → 2 lines
+  - Share/Lightbox JS (~140 lines), GIF search/render JS (~127 lines) → ~45 lines stubs
+  - postMessage: open-lightbox/open-share/open-gif → media iframe shows overlay, media-close/gif-selected/link-copied → monolith handles
+  - sendGif kept in monolith (DB writes, rate limiting, optimistic UI, addMessageToUI)
+  - Kept .message-gif CSS for chat message rendering
+  - Total reduction: 16,374 → 15,874 lines (500 lines, 3.1%, 22.5% total from original 20,475)
 - 2026-02-04: Extracted Faction Wars system to iframe embed of /sloppy-factions/
   - Replaced ~921 lines of faction CSS/HTML/JS with ~35 lines iframe stub + postMessage bridge
   - FACTIONS tab now loads sloppy-factions/?embed=true in iframe (same pattern as posts/canvas/graph/manifestos/karma)
