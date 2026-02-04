@@ -3,6 +3,14 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-04: Primary identity broadcaster via header sync hub
+  - Profile save now broadcasts identity-changed to all tabs via sloppyBarEmit()
+  - Writes profile to shared localStorage (sloppygram_profile key) for cross-tab sync
+  - Premium status from header context (sloppyBarGetContext) instead of DB query
+  - Profile editor pre-fills from header context (fast path), then authoritative DB query
+  - Listens for context-ready (late header load) and identity-changed (cross-tab edits)
+  - Fallback preserved: direct DB query if header not loaded
+  - sloppy-id is now the canonical producer of identity events for the ecosystem
 - 2026-02-01: Unified profile data — sloppygram_profiles as single source of truth
   - Profile save now upserts to sloppygram_profiles instead of sloppyid_vault
   - Profile load reads from sloppygram_profiles (avatar URL vs emoji detected by prefix)

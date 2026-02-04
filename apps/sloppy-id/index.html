@@ -2381,6 +2381,32 @@
       // Check for deep link import
       handleDeepLinkImport(urlParams);
 
+      // Header sync: listen for context-ready (late header load) and cross-tab identity changes
+      if (window.sloppyBarOn) {
+        window.sloppyBarOn('context-ready', (e) => {
+          if (!currentUser || !e.data) return;
+          if (e.data.premium !== undefined) userProfile.isPremium = !!e.data.premium;
+          updateUI();
+        });
+        window.sloppyBarOn('identity-changed', (e) => {
+          if (!currentUser || !e.data) return;
+          // Another tab changed the profile — refresh editor and card
+          if (e.data.username) editorProfile.username = e.data.username;
+          if (e.data.avatar) editorProfile.avatar = e.data.avatar;
+          if (e.data.avatarUrl) editorProfile.avatarUrl = e.data.avatarUrl;
+          if (e.data.bio !== undefined) editorProfile.status = e.data.bio;
+          if (e.data.color) editorProfile.color = e.data.color;
+          // Update editor UI
+          const un = document.getElementById('editorUsername');
+          const st = document.getElementById('editorStatus');
+          if (un) un.value = editorProfile.username || '';
+          if (st) st.value = editorProfile.status || '';
+          setupAvatarGrid();
+          setupColorGrid();
+          applyProfileToCard();
+        });
+      }
+
       // Listen for auth changes
       supabase.auth.onAuthStateChange(async (event, session) => {
         try {
@@ -2406,7 +2432,7 @@
       });
     }
 
-    // Load user profile from metadata
+    // Load user profile from metadata + header sync context
     async function loadUserProfile() {
       if (!currentUser) return;
 
@@ -2417,20 +2443,32 @@
         isTwitter: currentUser.app_metadata?.provider === 'twitter'
       };
 
-      // Check if premium — wrapped in try-catch since users table may not
-      // have a row for fresh anonymous users, and .single() errors on no rows.
-      // Network failures here must not kill the auth flow.
-      try {
-        const { data } = await supabase
-          .from('users')
-          .select('purchased_at')
-          .eq('user_id', currentUser.id)
-          .single();
-
-        userProfile.isPremium = data?.purchased_at != null;
-      } catch (err) {
-        console.warn('Premium check failed (non-fatal):', err);
-        userProfile.isPremium = false;
+      // Use header sync context for premium status instead of direct DB query
+      if (window.sloppyBarGetContext) {
+        const ctx = window.sloppyBarGetContext();
+        userProfile.isPremium = !!ctx.premium;
+        // Enrich from context if available
+        if (ctx.username && ctx.username !== 'Guest') {
+          userProfile.username = ctx.username;
+        }
+        if (ctx.avatarUrl) {
+          userProfile.avatar = ctx.avatarUrl;
+        } else if (ctx.avatar) {
+          userProfile.avatar = ctx.avatar;
+        }
+      } else {
+        // Fallback: direct DB query if header not loaded
+        try {
+          const { data } = await supabase
+            .from('users')
+            .select('purchased_at')
+            .eq('user_id', currentUser.id)
+            .single();
+          userProfile.isPremium = data?.purchased_at != null;
+        } catch (err) {
+          console.warn('Premium check failed (non-fatal):', err);
+          userProfile.isPremium = false;
+        }
       }
     }
 
@@ -3849,10 +3887,23 @@
       setupAvatarGrid();
     };
 
-    // Load profile from sloppygram_profiles (single source of truth)
+    // Load profile from header context + sloppygram_profiles (DB is source of truth for editor)
     async function loadProfileFromVault() {
       if (!currentUser) return;
 
+      // Fast path: pre-fill from header sync context (shared localStorage)
+      if (window.sloppyBarGetContext) {
+        const ctx = window.sloppyBarGetContext();
+        if (ctx.username && ctx.username !== 'Guest') {
+          editorProfile.username = ctx.username;
+          editorProfile.avatar = ctx.avatar || '😀';
+          editorProfile.avatarUrl = ctx.avatarUrl || '';
+          editorProfile.color = ctx.color || '#00ff41';
+          editorProfile.status = ctx.bio || '';
+        }
+      }
+
+      // Authoritative path: DB query for editor (may override context)
       try {
         const { data, error } = await supabase
           .from('sloppygram_profiles')
@@ -3868,13 +3919,15 @@
             color: data.color || '#00ff41',
             status: data.bio || ''
           };
-        } else {
-          // Default from auth metadata
+        } else if (!editorProfile.username) {
+          // Default from auth metadata if no context and no DB data
           editorProfile.username = userProfile.username !== 'Anonymous' ? userProfile.username : '';
         }
       } catch (e) {
-        // No saved profile yet, use defaults
-        editorProfile.username = userProfile.username !== 'Anonymous' ? userProfile.username : '';
+        // DB query failed — header context pre-fill (if any) is still applied
+        if (!editorProfile.username) {
+          editorProfile.username = userProfile.username !== 'Anonymous' ? userProfile.username : '';
+        }
       }
 
       // Populate editor UI
@@ -3957,6 +4010,30 @@
         }
 
         applyProfileToCard();
+
+        // Broadcast identity change to entire ecosystem via header sync hub
+        const savedAvatar = editorProfile.avatarUrl || editorProfile.avatar;
+        const isAvatarUrl = savedAvatar && (savedAvatar.startsWith('http') || savedAvatar.startsWith('data:'));
+        if (window.sloppyBarEmit) {
+          window.sloppyBarEmit('identity-changed', {
+            username: editorProfile.username,
+            avatar: isAvatarUrl ? null : savedAvatar,
+            avatarUrl: isAvatarUrl ? savedAvatar : null,
+            bio: editorProfile.status || '',
+            color: editorProfile.color
+          });
+        }
+        // Write to shared localStorage so header sync context picks it up
+        try {
+          localStorage.setItem('sloppygram_profile', JSON.stringify({
+            username: editorProfile.username,
+            avatar: isAvatarUrl ? null : savedAvatar,
+            avatarUrl: isAvatarUrl ? savedAvatar : null,
+            bio: editorProfile.status || '',
+            color: editorProfile.color,
+            bgUrl: null
+          }));
+        } catch (e) {}
 
         // Flash saved indicator
         const indicator = document.getElementById('savedIndicator');
