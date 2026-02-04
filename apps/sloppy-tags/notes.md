@@ -3,6 +3,12 @@
 Standalone tag universe explorer extracted from Sloppygram's tag cloud, tag explorer, and trending tags systems.
 
 ## log
+- 2026-02-04: Added embed mode for Sloppygram sidebar iframe
+  - Embed mode (?embed=true): hides header/search/backlink, compact padding
+  - postMessage: tag-filter → parent calls filterByTag for global tag filtering
+  - postMessage: username-click → parent calls showProfileCard for profile cards
+  - window.supabase exposed for error catcher
+  - Thirteenth iframe extraction from Sloppygram monolith
 - 2026-02-01: Initial creation
   - Loads all tags from 3 sources in parallel: message_tags, post_tags, manifesto_tags (limit 1000 each)
   - Tag cloud: top 30 tags with 5 size levels, 6 neon colors, staggered pulse animation

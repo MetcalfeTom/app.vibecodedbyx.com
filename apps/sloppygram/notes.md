@@ -3,6 +3,12 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Tag Cloud + Explorer to iframe embed of /sloppy-tags/
+  - Sidebar iframe pattern: iframe within sidebar tag cloud section (?embed=true)
+  - Replaced ~465 lines Tag Cloud/Explorer CSS + ~19 lines HTML (cloud section + explorer modal) + ~336 lines JS (cloud load/render/realtime, explorer modal with tabbed content) with ~7 lines CSS + ~4 lines HTML + ~22 lines JS stubs
+  - postMessage bridge: tag-filter → filterByTag, username-click → showProfileCard
+  - Kept: extractTags, persistMessageTags (called by message send), filterByTag/clearTagFilter (cross-system), tag filter bar CSS/HTML
+  - Total reduction: 13,438 → 12,658 lines (780 lines, 5.8%, 38.2% total from original 20,475)
 - 2026-02-04: Extracted Oracle Log to iframe embed of /sloppy-oracle/
   - Floating widget pattern: fixed-position expandable widget with iframe inside
   - Replaced ~165 lines Oracle CSS + ~16 lines HTML (body, input, questions) + ~167 lines JS (load, render, submit, realtime, channel) with ~25 lines CSS + ~8 lines HTML + ~15 lines JS stubs

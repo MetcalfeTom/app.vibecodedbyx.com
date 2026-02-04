@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## log
+- 2026-02-04: Extracted Tag Cloud + Explorer from Sloppygram monolith into /sloppy-tags/ sidebar iframe. Tag cloud, hierarchy, trending, explorer detail view with tabbed content. postMessage bridge for tag-filter and username-click. Kept extractTags/persistMessageTags/filterByTag in monolith. Removed ~780 lines. Monolith: 13,438 → 12,658 lines (-780, 5.8%). Thirteenth extraction. Total reduction from original: 38.2%.
 - 2026-02-04: Extracted Oracle Log from Sloppygram monolith into /sloppy-oracle/ widget iframe. Question submission, importance stars, answered state, real-time updates. Removed ~288 lines. Monolith: 13,726 → 13,438 lines (-288, 2.1%). Twelfth extraction. Total reduction from original: 34.4%.
 - 2026-02-04: Extracted SloppyFM Radio from Sloppygram monolith into /sloppy-radio/ widget iframe. Floating draggable widget with iframe to sloppy-radio embed mode. YouTube player, visualizer, playlist, realtime sync all in iframe. Removed ~796 lines. Monolith: 14,522 → 13,726 lines (-796, 5.5%). Eleventh extraction. Total reduction from original: 33.0%.
 - 2026-02-04: Extracted Direct Messages system from Sloppygram monolith into /sloppy-dms/ tab iframe. Conversation list, threaded DM view, user search, new DM modal. Real-time via postgres_changes. postMessage bridge for username clicks and notification sounds. Removed ~763 lines. Monolith: 15,285 → 14,522 lines (-763, 5.0%). Tenth extraction. Total reduction from original: 29.1%.
