@@ -96,6 +96,149 @@
   let cacheTimestamp = 0;
   let dropdownOpen = false;
 
+  // === SYNC HUB (Phase 1) ===
+  // BroadcastChannel for cross-tab communication
+  let syncChannel = null;
+  try { syncChannel = new BroadcastChannel('sloppy-sync'); } catch (e) { /* BroadcastChannel not supported */ }
+
+  // Event bus for same-page subscribers
+  const _eventListeners = {};
+
+  // Enriched user context (shared across ecosystem)
+  const userContext = {
+    // Identity (from DB + auth)
+    userId: null,
+    username: 'Guest',
+    isTwitter: false,
+    avatar: null,
+    avatarUrl: null,
+    // Scores (from DB)
+    karma: 0,
+    rank: null,
+    premium: false,
+    // Profile (from shared localStorage)
+    bio: null,
+    color: null,
+    bgUrl: null,
+    // Theme (from shared localStorage)
+    theme: null,
+    // State
+    currentApp: _curApp || null,
+    ready: false,
+    timestamp: 0
+  };
+
+  // SecureStorage reader (compatible with monolith's XOR+Base64 encoding)
+  const _SK = 'sl0ppy_2024';
+  const _SV = 'v1:';
+  function _ssGet(key) {
+    try {
+      var stored = localStorage.getItem(key);
+      if (!stored) return null;
+      if (!stored.startsWith(_SV)) return JSON.parse(stored);
+      var b64 = stored.slice(_SV.length);
+      var obf = decodeURIComponent(escape(atob(b64)));
+      var json = '';
+      for (var i = 0; i < obf.length; i++) {
+        json += String.fromCharCode(obf.charCodeAt(i) ^ _SK.charCodeAt(i % _SK.length));
+      }
+      return JSON.parse(json);
+    } catch (e) { return null; }
+  }
+
+  // Read profile + theme from shared localStorage
+  function enrichContextFromLocalStorage() {
+    var profile = _ssGet('sloppygram_profile');
+    if (profile) {
+      if (profile.username && !userContext.isTwitter) userContext.username = profile.username;
+      userContext.avatar = profile.avatar || null;
+      userContext.avatarUrl = profile.avatarUrl || null;
+      userContext.bio = profile.bio || null;
+      userContext.color = profile.color || null;
+      userContext.bgUrl = profile.bgUrl || null;
+    }
+    var theme = _ssGet('sloppygram_theme');
+    if (theme) {
+      userContext.theme = theme;
+    } else {
+      userContext.theme = null;
+    }
+    // Opacity settings
+    var msgOpacity = localStorage.getItem('sloppygram_msg_opacity');
+    var widgetOpacity = localStorage.getItem('sloppygram_widget_opacity');
+    if (msgOpacity || widgetOpacity) {
+      userContext.theme = userContext.theme || {};
+      if (msgOpacity) userContext.theme.msgOpacity = parseInt(msgOpacity);
+      if (widgetOpacity) userContext.theme.widgetOpacity = parseInt(widgetOpacity);
+    }
+  }
+
+  // Sync context object with current userData
+  function syncContext() {
+    userContext.userId = currentUser ? currentUser.id : null;
+    userContext.username = userData.username;
+    userContext.isTwitter = !!userData.isTwitter;
+    userContext.karma = userData.karma;
+    userContext.rank = userData.rank;
+    userContext.premium = userData.premium;
+    userContext.currentApp = _curApp || null;
+    userContext.timestamp = Date.now();
+    enrichContextFromLocalStorage();
+  }
+
+  // Broadcast an event to all tabs + same-page listeners
+  function broadcastEvent(eventName, data) {
+    var payload = { event: eventName, data: data || {}, source: _curApp, timestamp: Date.now() };
+    // BroadcastChannel (cross-tab)
+    if (syncChannel) {
+      try { syncChannel.postMessage(payload); } catch (e) {}
+    }
+    // Same-page listeners
+    _fireLocal(eventName, payload);
+  }
+
+  function _fireLocal(eventName, payload) {
+    var listeners = _eventListeners[eventName];
+    if (listeners) {
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](payload); } catch (e) { console.warn('[SloppyBar] Event listener error:', e); }
+      }
+    }
+    // Also fire wildcard listeners
+    var wild = _eventListeners['*'];
+    if (wild) {
+      for (var j = 0; j < wild.length; j++) {
+        try { wild[j](payload); } catch (e) {}
+      }
+    }
+  }
+
+  // Listen for cross-tab events
+  if (syncChannel) {
+    syncChannel.onmessage = function(e) {
+      if (!e.data || !e.data.event) return;
+      // Don't re-fire events we sent from this tab
+      if (e.data.source === _curApp && e.data.timestamp && Date.now() - e.data.timestamp < 100) return;
+      _fireLocal(e.data.event, e.data);
+
+      // Auto-apply theme changes from other tabs
+      if (e.data.event === 'theme-changed' && e.data.data && e.data.data.vars) {
+        var vars = e.data.data.vars;
+        for (var key in vars) {
+          if (vars.hasOwnProperty(key)) {
+            document.documentElement.style.setProperty(key, vars[key]);
+          }
+        }
+      }
+
+      // Refresh context cache when identity changes in another tab
+      if (e.data.event === 'identity-changed' || e.data.event === 'karma-changed') {
+        cacheTimestamp = 0;
+        enrichContextFromLocalStorage();
+      }
+    };
+  }
+
   // Inject styles
   const styles = `
     .sloppy-bar {
@@ -620,9 +763,14 @@
       }
 
       cacheTimestamp = Date.now();
+      syncContext();
+      userContext.ready = true;
+      broadcastEvent('context-ready', { context: userContext });
       render();
     } catch (e) {
       console.warn('SloppyBar: Error fetching user data', e);
+      // Still sync what we have
+      syncContext();
     }
   }
 
@@ -945,6 +1093,95 @@
     overlay.classList.add('open');
   }
 
+  // === PUBLIC API ===
+
+  /**
+   * Get the current user context object.
+   * If context isn't ready yet, calls back when it is.
+   * @param {Function} [callback] - Optional callback. If provided, called immediately with current context
+   *                                 AND called again when context becomes ready (if not yet ready).
+   * @returns {Object} Current context snapshot (may have ready=false if still loading)
+   *
+   * Usage:
+   *   var ctx = window.sloppyBarGetContext();
+   *   // or with callback:
+   *   window.sloppyBarGetContext(function(ctx) { console.log(ctx.username); });
+   */
+  window.sloppyBarGetContext = function(callback) {
+    if (callback) {
+      callback(Object.assign({}, userContext));
+      if (!userContext.ready) {
+        // Call again when ready
+        var onReady = function() {
+          callback(Object.assign({}, userContext));
+          window.sloppyBarOff('context-ready', onReady);
+        };
+        window.sloppyBarOn('context-ready', onReady);
+      }
+    }
+    return Object.assign({}, userContext);
+  };
+
+  /**
+   * Subscribe to sync events.
+   * @param {string} eventName - Event to listen for, or '*' for all events
+   * @param {Function} callback - Called with { event, data, source, timestamp }
+   *
+   * Events:
+   *   'context-ready'     - User context loaded (fires once per tab)
+   *   'identity-changed'  - Profile updated (username, avatar, etc.)
+   *   'karma-changed'     - Karma score updated
+   *   'theme-changed'     - Theme/colors changed (auto-applied to CSS vars)
+   *   'presence-update'   - User activity changed
+   *   '*'                 - All events
+   *
+   * Usage:
+   *   window.sloppyBarOn('karma-changed', function(e) { console.log('New karma:', e.data); });
+   */
+  window.sloppyBarOn = function(eventName, callback) {
+    if (!eventName || typeof callback !== 'function') return;
+    if (!_eventListeners[eventName]) _eventListeners[eventName] = [];
+    _eventListeners[eventName].push(callback);
+  };
+
+  /**
+   * Unsubscribe from sync events.
+   * @param {string} eventName
+   * @param {Function} callback - The same function reference passed to sloppyBarOn
+   */
+  window.sloppyBarOff = function(eventName, callback) {
+    var listeners = _eventListeners[eventName];
+    if (!listeners) return;
+    _eventListeners[eventName] = listeners.filter(function(fn) { return fn !== callback; });
+  };
+
+  /**
+   * Emit an event to all tabs + same-page listeners.
+   * @param {string} eventName
+   * @param {Object} [data] - Event payload
+   *
+   * Usage:
+   *   window.sloppyBarEmit('karma-changed', { karma: 150, delta: +5 });
+   *   window.sloppyBarEmit('theme-changed', { vars: { '--accent': '#ff0000' } });
+   */
+  window.sloppyBarEmit = function(eventName, data) {
+    if (!eventName) return;
+    broadcastEvent(eventName, data || {});
+  };
+
+  /**
+   * Force-refresh the user context from DB + localStorage.
+   * Useful after profile edits or karma changes.
+   * @param {Function} [callback] - Called with updated context when done
+   */
+  window.sloppyBarRefresh = function(callback) {
+    cacheTimestamp = 0; // Invalidate cache
+    fetchUserData().then(function() {
+      syncContext();
+      if (callback) callback(Object.assign({}, userContext));
+    });
+  };
+
   // Initialize on DOM ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -953,6 +1190,7 @@
   }
 
   async function init() {
+    enrichContextFromLocalStorage(); // Pre-populate from localStorage before DB
     render(); // Show placeholder immediately
     trackCurrentApp(); // Track this app visit
     await initSupabase();
@@ -966,6 +1204,24 @@
         if (!trigger && dropdown && !dropdown.contains(e.target)) {
           dropdownOpen = false;
           dropdown.className = 'sloppy-bar-dropdown';
+        }
+      }
+    });
+
+    // Listen for postMessage events from parent page (iframe apps can emit to header)
+    window.addEventListener('message', function(e) {
+      if (!e.data || !e.data.type) return;
+      // Allow apps to emit sync events via postMessage
+      if (e.data.type === 'sloppy-sync-emit' && e.data.event) {
+        broadcastEvent(e.data.event, e.data.data || {});
+      }
+      // Allow apps to request context via postMessage
+      if (e.data.type === 'sloppy-sync-get-context') {
+        var source = e.source;
+        if (source) {
+          try {
+            source.postMessage({ type: 'sloppy-sync-context', context: userContext }, '*');
+          } catch (err) {}
         }
       }
     });

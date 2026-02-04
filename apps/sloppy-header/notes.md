@@ -3,6 +3,17 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-04: Phase 1 — Central Sync Hub
+  - Added BroadcastChannel('sloppy-sync') for cross-tab event communication across all 481 apps
+  - Added enriched userContext object (userId, username, karma, rank, premium, avatar, theme, bio, color, etc.)
+  - Added event bus with wildcard '*' support for same-page subscribers
+  - Added secureStorage reader (_ssGet) compatible with monolith's XOR+Base64 encoding (key: sl0ppy_2024)
+  - Added enrichContextFromLocalStorage() — reads profile + theme from shared localStorage (same origin)
+  - Added public API: sloppyBarGetContext, sloppyBarOn, sloppyBarOff, sloppyBarEmit, sloppyBarRefresh
+  - Added postMessage bridge for iframe apps (sloppy-sync-emit, sloppy-sync-get-context)
+  - Auto-applies theme-changed CSS vars from other tabs
+  - Auto-refreshes on identity-changed and karma-changed events
+  - File: 975 → 1230 lines (+255 lines)
 - 2026-02-01: Advanced Teleport Discovery Mode
   - 11 category chips (Games, Creative, Music, Social, Tools, Weird, Sim, Retro, Security, Explore, Sloppy)
   - Weighted random: unvisited apps 10x, old visits 5x, recent visits 1x
@@ -64,8 +75,23 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
 2. Phase 2: Add to high-traffic apps (sloppygram, sloppy-id)
 3. Phase 3: Gradual rollout to all apps
 
+## Sync Hub Architecture
+- **BroadcastChannel('sloppy-sync')**: Cross-tab events between all apps loading sloppy-bar.js
+- **Event bus**: Same-page event system with `_fireLocal()` dispatch, supports wildcard '*' listeners
+- **Context cache**: `userContext` object enriched from DB + shared localStorage
+- **secureStorage decode**: Reads monolith's XOR+Base64-encoded localStorage keys (profile, theme)
+- **postMessage bridge**: iframe apps can emit events and request context via `window.parent.postMessage`
+- **Public API**:
+  - `sloppyBarGetContext(cb)` — snapshot of current user context
+  - `sloppyBarOn(event, cb)` — subscribe to sync events
+  - `sloppyBarOff(event, cb)` — unsubscribe
+  - `sloppyBarEmit(event, data)` — broadcast to all tabs + same-page listeners
+  - `sloppyBarRefresh(cb)` — force re-fetch from DB + localStorage
+
 ## Todos
-- None currently
+- Phase 2: Migrate 2-3 pilot apps to consume context from header instead of own DB queries
+- Phase 3: Add SharedWorker for persistent background sync
+- Phase 4: Ecosystem-wide adoption — eliminate duplicate auth/karma/profile fetches across 481 apps
 
 ## Completed
 - ✓ Pilot on 11 apps (system-health, games, social, creative)
@@ -106,4 +132,5 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
    - Error boundary with graceful fallback
 
 ## Issues
-- None yet
+- Two Supabase instances: header uses dtfaplmockmwvgyqxbep, monolith uses yjyxteqzhhmtrgcaekgz. Profile/theme data bridged via shared localStorage (same origin) rather than cross-instance DB queries.
+- BroadcastChannel not supported in all contexts (e.g. some WebViews); graceful try/catch fallback to no-op.
