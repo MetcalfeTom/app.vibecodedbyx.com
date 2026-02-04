@@ -3,6 +3,10 @@
 Standalone territory wars app extracted and expanded from Sloppygram's faction system.
 
 ## log
+- 2026-02-04: Added embed mode for Sloppygram iframe integration
+  - ?embed=true hides header, backlink, reduces padding
+  - postMessage bridge: username clicks on warrior names and battle log attacker names send to parent
+  - Exposed supabase on window for error catcher
 - 2026-02-01: Initial creation
   - Full faction system: 5 factions (Phoenix, Shadow, Cyber, Verdant, Cosmic)
   - 5x5 territory grid (25 territories) with colored ownership

@@ -3,6 +3,14 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Faction Wars system to iframe embed of /sloppy-factions/
+  - Replaced ~921 lines of faction CSS/HTML/JS with ~35 lines iframe stub + postMessage bridge
+  - FACTIONS tab now loads sloppy-factions/?embed=true in iframe (same pattern as posts/canvas/graph/manifestos/karma)
+  - postMessage bridge: username clicks on warrior names and battle log → showProfileCard
+  - Removed: faction CSS (~508 lines), factionsContainer HTML (~68 lines), loadFactionsData/renderFactionsUI/renderFactionSelection/renderMyFactionBanner/renderTerritoryMap/renderFactionLeaderboard/renderBattleLog/updateWarStats/pledgeToFaction/leaveFaction/attackTerritory/showBattleModal/closeBattleModal/executeBattle/showBattleResult/selectTerritory/initializeFactions (~345 lines)
+  - Removed FACTIONS and TERRITORY_NAMES constants (only used by removed render functions)
+  - Chaos engine reboot reloads factions iframe
+  - Total reduction: 17,295 → 16,374 lines (921 lines, 5.3%, 20.0% total from original 20,475)
 - 2026-02-04: Extracted Karma/Reputation system to iframe embed of /karma-board/
   - Replaced ~696 lines of karma/reputation JS/CSS/HTML with ~70 lines iframe stub + postMessage bridge
   - KARMA tab now loads karma-board/?embed=true in iframe (same pattern as posts/canvas/graph/manifestos)
