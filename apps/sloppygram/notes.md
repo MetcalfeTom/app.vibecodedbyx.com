@@ -3,6 +3,12 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Feedback Hub to iframe embed of /sloppy-feedback/
+  - Tab iframe pattern: iframe within IDEAS tab (?embed=true)
+  - Replaced ~273 lines Feedback CSS + ~42 lines HTML (stats, form, filters, list) + ~243 lines JS (load, render, vote, submit, delete, filter) + ~68 lines realtime (INSERT/UPDATE/DELETE on feedback + feedback_votes) with ~6 lines CSS + ~3 lines HTML + ~12 lines JS stubs
+  - Removed feedback realtime channel (iframe has own subscription)
+  - channelState.feedback.ready set to true immediately (no channel needed)
+  - Total reduction: 12,658 → 12,059 lines (599 lines, 4.7%, 41.1% total from original 20,475)
 - 2026-02-04: Extracted Tag Cloud + Explorer to iframe embed of /sloppy-tags/
   - Sidebar iframe pattern: iframe within sidebar tag cloud section (?embed=true)
   - Replaced ~465 lines Tag Cloud/Explorer CSS + ~19 lines HTML (cloud section + explorer modal) + ~336 lines JS (cloud load/render/realtime, explorer modal with tabbed content) with ~7 lines CSS + ~4 lines HTML + ~22 lines JS stubs

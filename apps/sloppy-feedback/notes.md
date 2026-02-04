@@ -3,6 +3,10 @@
 Standalone idea board and bug tracker extracted from Sloppygram's feedback hub.
 
 ## log
+- 2026-02-04: Added embed mode for Sloppygram IDEAS tab iframe
+  - Embed mode (?embed=true): hides header/backlink, compact toolbar/feed padding
+  - window.supabase exposed for error catcher
+  - Fourteenth iframe extraction from Sloppygram monolith
 - 2026-02-01: Initial creation
   - Submit ideas with title (100 chars), description (500 chars), category
   - 4 categories: Apps, Sloppy/AI, Streamer, General
