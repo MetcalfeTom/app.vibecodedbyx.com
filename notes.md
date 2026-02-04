@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## log
+- 2026-02-04: Extracted Friends/Social system from Sloppygram monolith into /sloppy-friends/ sidebar iframe. Online users list, away status, activity feed, followers/following, mentions feed. Presence channel stays in monolith (ghost radar dependency), forwards data via postMessage. Removed ~320 lines. Monolith: 10,908 → 10,588 lines (-320, 2.9%). Seventeenth extraction. Total reduction from original: 48.3%.
 - 2026-02-04: Extracted Doodle Leaderboard from Sloppygram monolith into /sloppy-doodles/ tab iframe. Leaderboard grid, voting, threaded comments, rank badges, realtime updates. Drawing tool and chat inline doodle display stay in monolith. Removed ~417 lines. Monolith: 11,325 → 10,908 lines (-417, 3.7%). Sixteenth extraction. Total reduction from original: 46.7%.
 - 2026-02-04: Extracted Profile Card system from Sloppygram monolith into /sloppy-profiles/ overlay iframe. Stats, karma, verifications, follow system, cross-app game scores. Overlay pattern (same as sloppy-media). postMessage bridge for show/hide/DM/follow/karma. Removed ~734 lines. Monolith: 12,059 → 11,325 lines (-734, 6.1%). Fifteenth extraction. Total reduction from original: 44.7%.
 - 2026-02-04: Extracted Feedback Hub from Sloppygram monolith into /sloppy-feedback/ tab iframe. Idea submission, voting, filtering, sorting, delete, real-time. Removed ~599 lines. Monolith: 12,658 → 12,059 lines (-599, 4.7%). Fourteenth extraction. Total reduction from original: 41.1%.
