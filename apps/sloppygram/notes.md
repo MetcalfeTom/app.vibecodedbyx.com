@@ -3,6 +3,13 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Support/Donate Modal to iframe embed of /sloppy-support/
+  - Overlay iframe pattern (same as sloppy-media): position:fixed, inset:0, z-index:10000
+  - Replaced ~281 lines support modal CSS + ~72 lines HTML + ~114 lines JS with ~20 lines iframe stubs
+  - Crypto addresses (BTC/ETH/SOL/XMR), fiat links (Ko-fi/PayPal/Patreon), Stripe placeholder all in iframe
+  - postMessage: open-support → iframe shows overlay, support-close/address-copied → monolith handles
+  - Kept .donate-btn CSS for header button styling
+  - Total reduction: 15,874 → 15,494 lines (380 lines, 2.4%, 24.3% total from original 20,475)
 - 2026-02-04: Extracted Image Lightbox + Share Modal + GIF Search to iframe embed of /sloppy-media/
   - New extraction pattern: full-viewport overlay iframe (position:fixed, inset:0, z-index:10000)
   - Replaced ~500 lines of lightbox/share/GIF CSS/HTML/JS with ~50 lines iframe stub + postMessage bridge
