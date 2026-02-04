@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## log
+- 2026-02-04: Extracted Profile Card system from Sloppygram monolith into /sloppy-profiles/ overlay iframe. Stats, karma, verifications, follow system, cross-app game scores. Overlay pattern (same as sloppy-media). postMessage bridge for show/hide/DM/follow/karma. Removed ~734 lines. Monolith: 12,059 → 11,325 lines (-734, 6.1%). Fifteenth extraction. Total reduction from original: 44.7%.
 - 2026-02-04: Extracted Feedback Hub from Sloppygram monolith into /sloppy-feedback/ tab iframe. Idea submission, voting, filtering, sorting, delete, real-time. Removed ~599 lines. Monolith: 12,658 → 12,059 lines (-599, 4.7%). Fourteenth extraction. Total reduction from original: 41.1%.
 - 2026-02-04: Extracted Tag Cloud + Explorer from Sloppygram monolith into /sloppy-tags/ sidebar iframe. Tag cloud, hierarchy, trending, explorer detail view with tabbed content. postMessage bridge for tag-filter and username-click. Kept extractTags/persistMessageTags/filterByTag in monolith. Removed ~780 lines. Monolith: 13,438 → 12,658 lines (-780, 5.8%). Thirteenth extraction. Total reduction from original: 38.2%.
 - 2026-02-04: Extracted Oracle Log from Sloppygram monolith into /sloppy-oracle/ widget iframe. Question submission, importance stars, answered state, real-time updates. Removed ~288 lines. Monolith: 13,726 → 13,438 lines (-288, 2.1%). Twelfth extraction. Total reduction from original: 34.4%.
