@@ -3921,7 +3921,7 @@
       editorProfile.status = document.getElementById('editorStatus').value.trim();
 
       try {
-        // Save to sloppygram_profiles (single source of truth)
+        // Save to sloppygram_profiles (primary source)
         const { error } = await supabase
           .from('sloppygram_profiles')
           .upsert({
@@ -3933,6 +3933,28 @@
             updated_at: new Date().toISOString()
           }, { onConflict: 'user_id' });
         if (error) throw error;
+
+        // Mirror to sloppy_identities on yjyxteqzhhmtrgcaekgz (open read-all table for Layer Sovereign)
+        try {
+          const sg = await ensureSgSession();
+          if (sg) {
+            const avatarVal = editorProfile.avatarUrl || editorProfile.avatar;
+            const isUrl = avatarVal && (avatarVal.startsWith('http') || avatarVal.startsWith('data:'));
+            await sgClient.from('sloppy_identities').upsert({
+              user_id: sg.user.id,
+              username: editorProfile.username,
+              avatar: isUrl ? '' : avatarVal,
+              avatar_url: isUrl ? avatarVal : '',
+              color: editorProfile.color,
+              bio: editorProfile.status || '',
+              source_table: 'sloppygram_profiles',
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' });
+            console.log('[Identity] Mirrored to sloppy_identities');
+          }
+        } catch (mirrorErr) {
+          console.warn('[Identity] Mirror to sloppy_identities failed (non-fatal):', mirrorErr.message);
+        }
 
         applyProfileToCard();
 
@@ -3986,10 +4008,9 @@
       return { valid: true };
     }
 
-    async function initCommsHub() {
-      if (!currentUser) return;
-
-      // Auth with Sloppygram Supabase for DM access
+    // Ensure sgClient (yjyxteqzhhmtrgcaekgz) has an auth session
+    async function ensureSgSession() {
+      if (sgSession) return sgSession;
       try {
         const sgSessRes = await sgClient.auth.getSession();
         if (!sgSessRes.data?.session) {
@@ -3997,11 +4018,16 @@
         }
         sgSession = (await sgClient.auth.getSession()).data?.session;
       } catch (e) {
-        console.warn('[Comms] Sloppygram auth failed:', e);
-        updateIntegrityBar(false);
-        return; // Don't attempt DM/mention loads without a session
+        console.warn('[sgClient] Auth failed:', e);
       }
+      return sgSession;
+    }
 
+    async function initCommsHub() {
+      if (!currentUser) return;
+
+      // Auth with Sloppygram Supabase for DM access
+      await ensureSgSession();
       if (!sgSession) {
         console.warn('[Comms] No Sloppygram session, skipping comms');
         updateIntegrityBar(false);
