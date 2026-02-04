@@ -249,25 +249,47 @@ let totalRows = 0;
 let pulseItems = [];
 const MAX_PULSE = 30;
 
-// ── Fetch counts ──
+// ── Single table count with GET fallback ──
+async function countTable(tableName) {
+  // Primary: HEAD-based count (zero data transfer)
+  const res = await sb.from(tableName).select('*', { count: 'exact', head: true });
+  if (!res.error && res.count != null) return res.count;
+
+  // Log the HEAD failure
+  if (res.error) console.warn(`HEAD count error [${tableName}]:`, res.error.message, res.error.code);
+  else console.warn(`HEAD count null [${tableName}], falling back to GET`);
+
+  // Fallback: GET-based count (returns 1 row max but accurate total count)
+  const res2 = await sb.from(tableName).select('user_id', { count: 'exact' }).limit(1);
+  if (!res2.error && res2.count != null) return res2.count;
+
+  if (res2.error) console.error(`GET count error [${tableName}]:`, res2.error.message, res2.error.code);
+  return 0;
+}
+
+// ── Fetch counts in batches to avoid connection pool exhaustion ──
 async function fetchAllCounts() {
-  const promises = [];
+  // Build flat list of { layerKey, table }
+  const jobs = [];
   for (const [layerKey, layer] of Object.entries(LAYERS)) {
     for (const t of layer.tables) {
-      promises.push(
-        sb.from(t.name).select('*', { count: 'exact', head: true })
-          .then(res => {
-            if (res.error) console.warn(`Count error [${t.name}]:`, res.error.message);
-            return { layer: layerKey, table: t.name, count: res.count ?? 0 };
-          })
-          .catch(err => {
-            console.warn(`Fetch error [${t.name}]:`, err.message);
-            return { layer: layerKey, table: t.name, count: 0 };
-          })
-      );
+      jobs.push({ layer: layerKey, table: t.name });
     }
   }
-  const results = await Promise.all(promises);
+
+  const results = [];
+  const BATCH = 8;
+  for (let i = 0; i < jobs.length; i += BATCH) {
+    const batch = jobs.slice(i, i + BATCH);
+    const batchResults = await Promise.all(
+      batch.map(j =>
+        countTable(j.table)
+          .then(count => ({ layer: j.layer, table: j.table, count }))
+          .catch(() => ({ layer: j.layer, table: j.table, count: 0 }))
+      )
+    );
+    results.push(...batchResults);
+  }
 
   layerCounts = {};
   totalRows = 0;

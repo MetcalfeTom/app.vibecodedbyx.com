@@ -3,6 +3,7 @@
 ## log
 - 2026-02-04: Initial build — neon cyberpunk dashboard for 5 universal database layers (identity, social, economy, gov, world). 38 sloppygram_* tables mapped. Canvas pentagon ring topology with flowing particles, live Supabase row counts, expand/collapse layer cards with per-table detail, ecosystem pulse feed from ai_events. Chakra Petch + Azeret Mono typography, cyan/black Tron aesthetic.
 - 2026-02-04: Fix anon login failure + empty identity layer. Root cause: cookie domain fallback was hardcoded `.youreabsolutelyright.xyz` instead of `location.hostname` (broke auth on non-sloppy domains). Also: ensureSession() had no error handling — auth failure killed all count queries silently. Fixed: cookie domain uses `location.hostname` fallback, ensureSession retries once with delay, fetchAllCounts logs errors instead of swallowing, init shows auth status.
+- 2026-02-04: Fix identity layer still showing 0 after auth fix. Root cause: 38 simultaneous HEAD requests caused connection pool exhaustion; identity layer (1 table) is fragile since any single failure zeroes it. Also: HEAD-based count can return null count on some proxy configs. Fixed: batched queries (8 at a time), GET-based fallback if HEAD count returns null, detailed per-table error logging with error codes.
 
 ## issues
 - +Cookie domain fallback must use `location.hostname`, never a hardcoded unrelated domain — this pattern recurs across apps.
