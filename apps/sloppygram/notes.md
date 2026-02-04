@@ -3,6 +3,17 @@
 From chaos to crystalline harmony. A living archive where ideas converge, synthesize, and transcend. Global chatroom with image uploads, avatars, manifestos, and collaborative canvas.
 
 ## log
+- 2026-02-04: Extracted Manifesto system to iframe embed of /sloppy-manifestos/
+  - Replaced ~1,128 lines of manifesto JS/CSS/HTML with ~60 lines iframe stub + message bridge
+  - MANIFESTO tab now loads sloppy-manifestos/?embed=true in iframe (same pattern as posts/canvas/graph)
+  - postMessage bridge: username clicks → showProfileCard, new manifesto → addToFeed, vote → updateConfidenceMonitor
+  - Removed: manifesto CSS (~378 lines), manifestoContainer + manifestoModal HTML (~49 lines), loadManifestos/renderManifestos/renderManifestoCard/voteManifesto/deleteManifesto/etc (~632 lines), speakManifesto (~55 lines), parseManifestoMarkdown (~32 lines), generateDNASignature (~42 lines)
+  - Removed 5 manifesto-specific realtime handlers from postsChannel (kept doodle/chat/background handlers)
+  - Preserved shared functions: startReply, cancelReply, filterByTag, clearTagFilter (manifesto branches become no-ops)
+  - Tag Explorer and karma calculations still work (query DB directly)
+  - Chaos engine reboot reloads iframe
+  - Fixed renderThreadedComments bug (was called by manifesto code but already removed in post extraction)
+  - Total reduction: 19,119 → 17,991 lines (1,128 lines, 5.9%, 12.1% total from original 20,475)
 - 2026-02-04: Extracted Post/Feed system to iframe embed of /sloppy-feed/
   - Replaced ~1546 lines of post JS/CSS/HTML with ~190 lines iframe stub + message bridge
   - Posts tab now loads sloppy-feed/?embed=true in iframe (same pattern as canvas/graph)
@@ -250,6 +261,7 @@ From chaos to crystalline harmony. A living archive where ideas converge, synthe
 - Real-time collaborative canvas - iframe embed of /sloppy-canvas/ (draw together, see other users' cursors live)
 - Social graph visualization - iframe embed of /sloppy-network/ (node clicks open profile cards in monolith)
 - Posts feed - iframe embed of /sloppy-feed/ (full post/vote/react/comment/tag, username clicks open profile cards in monolith)
+- Manifesto board - iframe embed of /sloppy-manifestos/ (creation, forking, DNA, voting, reactions, comments, tags, username clicks open profile cards in monolith)
 
 ## database tables
 - sloppygram_messages: username, avatar, content, image_data, drawing_data, message_type

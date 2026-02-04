@@ -3,6 +3,11 @@
 Standalone publishing platform extracted from Sloppygram's manifesto system.
 
 ## log
+- 2026-02-04: Added embed mode for Sloppygram iframe integration
+  - ?embed=true hides header, backlink, reduces padding
+  - postMessage bridge: username clicks, new manifesto notifications, vote notifications
+  - Username clicks on card authors and comment authors send to parent
+  - Exposed supabase on window for error catcher
 - 2026-02-01: Initial creation
   - Full manifesto creation with title, markdown content, tags
   - Forking system: fork any manifesto as "synthesis" with lineage tracking
