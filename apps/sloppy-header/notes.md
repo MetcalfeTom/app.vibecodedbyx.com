@@ -3,6 +3,12 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-05: Added auth state to sync hub context API
+  - New context fields: isAuthenticated (boolean), authProvider ('twitter' | 'anonymous' | null)
+  - New event: 'auth-changed' — broadcasts on login/logout/token refresh with isAuthenticated, authProvider, userId, event
+  - syncContext() populates auth fields from currentUser metadata
+  - authProvider derived from user_metadata.user_name presence (Twitter) vs anonymous
+  - Backwards-compatible: existing apps ignore new fields, new apps can use them
 - 2026-02-04: Fixed Supabase client — createBrowserClient with proper cookie domain
   - Switched from createClient (no cookies) to createBrowserClient from @supabase/ssr
   - Cookie domain helper matches supabase-config-fixed.js logic (localhost returns undefined)

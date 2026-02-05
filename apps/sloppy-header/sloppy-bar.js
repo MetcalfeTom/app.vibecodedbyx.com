@@ -106,6 +106,9 @@
 
   // Enriched user context (shared across ecosystem)
   const userContext = {
+    // Auth state
+    isAuthenticated: false,
+    authProvider: null, // 'twitter' | 'anonymous' | null
     // Identity (from DB + auth)
     userId: null,
     username: 'Guest',
@@ -175,6 +178,10 @@
 
   // Sync context object with current userData
   function syncContext() {
+    userContext.isAuthenticated = !!currentUser;
+    userContext.authProvider = currentUser
+      ? (currentUser.user_metadata?.user_name ? 'twitter' : 'anonymous')
+      : null;
     userContext.userId = currentUser ? currentUser.id : null;
     userContext.username = userData.username;
     userContext.isTwitter = !!userData.isTwitter;
@@ -734,8 +741,22 @@
 
     // Listen for auth changes
     supabase.auth.onAuthStateChange((event, session) => {
+      var prevAuth = userContext.isAuthenticated;
+      var prevProvider = userContext.authProvider;
       currentUser = session?.user;
       cacheTimestamp = 0; // Force refresh
+      syncContext(); // Update auth fields immediately
+      // Broadcast auth state change if it actually changed
+      var nowAuth = userContext.isAuthenticated;
+      var nowProvider = userContext.authProvider;
+      if (prevAuth !== nowAuth || prevProvider !== nowProvider) {
+        broadcastEvent('auth-changed', {
+          isAuthenticated: nowAuth,
+          authProvider: nowProvider,
+          userId: userContext.userId,
+          event: event // 'SIGNED_IN', 'SIGNED_OUT', 'TOKEN_REFRESHED', etc.
+        });
+      }
       fetchUserData();
     });
 
@@ -1146,6 +1167,8 @@
    * @param {Function} callback - Called with { event, data, source, timestamp }
    *
    * Events:
+   *   'auth-changed'      - Auth state changed (login/logout/token refresh)
+   *                         data: { isAuthenticated, authProvider, userId, event }
    *   'context-ready'     - User context loaded (fires once per tab)
    *   'identity-changed'  - Profile updated (username, avatar, etc.)
    *   'karma-changed'     - Karma score updated
