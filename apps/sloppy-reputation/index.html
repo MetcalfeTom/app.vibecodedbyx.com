@@ -379,6 +379,91 @@
       text-align: right;
     }
 
+    /* Karma History Graph */
+    .graph-section { margin-bottom: 20px; }
+
+    .graph-card {
+      background: var(--surface);
+      border: 1px solid #152830;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .graph-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .graph-range-btns {
+      display: flex;
+      gap: 4px;
+    }
+
+    .graph-range-btn {
+      background: none;
+      border: 1px solid #1a3040;
+      color: var(--text-dim);
+      font-family: 'Red Hat Mono', monospace;
+      font-size: 0.55rem;
+      padding: 2px 7px;
+      border-radius: 3px;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+
+    .graph-range-btn:hover {
+      color: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .graph-range-btn.active {
+      background: rgba(0,229,204,0.12);
+      color: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .graph-canvas-wrap {
+      position: relative;
+      width: 100%;
+      height: 180px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .graph-canvas-wrap canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .graph-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 180px;
+      color: var(--text-dim);
+      font-size: 0.7rem;
+    }
+
+    .graph-tooltip {
+      position: absolute;
+      background: #0e2028;
+      border: 1px solid var(--primary);
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 0.58rem;
+      color: var(--text);
+      pointer-events: none;
+      z-index: 5;
+      white-space: nowrap;
+      display: none;
+      box-shadow: 0 0 8px rgba(0,229,204,0.2);
+    }
+
     /* Leaderboard */
     .lb-section { margin-bottom: 20px; }
 
@@ -746,6 +831,27 @@
             <div class="tier-bar-fill" id="tierBar" style="width:0%"></div>
           </div>
           <div class="tier-progress-label" id="tierProgress"></div>
+        </div>
+      </div>
+
+      <!-- Karma History Graph -->
+      <div class="graph-section fade-in fade-in-d5">
+        <div class="section-label">Karma History</div>
+        <div class="graph-card">
+          <div class="graph-header">
+            <span style="font-size:0.58rem;color:var(--text-dim);letter-spacing:0.1em;text-transform:uppercase;">Your karma over time</span>
+            <div class="graph-range-btns" id="graphRangeBtns">
+              <button class="graph-range-btn active" data-range="24h">24H</button>
+              <button class="graph-range-btn" data-range="7d">7D</button>
+              <button class="graph-range-btn" data-range="30d">30D</button>
+              <button class="graph-range-btn" data-range="all">All</button>
+            </div>
+          </div>
+          <div class="graph-canvas-wrap" id="graphWrap">
+            <canvas id="graphCanvas"></canvas>
+            <div class="graph-tooltip" id="graphTooltip"></div>
+            <div class="graph-empty" id="graphEmpty">Recording karma history...</div>
+          </div>
         </div>
       </div>
 
@@ -1151,7 +1257,319 @@
     window._lbRefresh = function() { loadLeaderboard(); };
 
     // =========================================================
-    //  Init — sync hub + leaderboard
+    //  Karma History Graph (canvas)
+    // =========================================================
+
+    var $graphCanvas = document.getElementById('graphCanvas');
+    var $graphWrap   = document.getElementById('graphWrap');
+    var $graphEmpty  = document.getElementById('graphEmpty');
+    var $graphTooltip = document.getElementById('graphTooltip');
+    var $graphRangeBtns = document.getElementById('graphRangeBtns');
+    var graphCtx = $graphCanvas.getContext('2d');
+    var graphData = [];
+    var graphRange = '7d';
+    var lastSnapshotTime = 0;
+    var SNAPSHOT_INTERVAL = 5 * 60 * 1000; // min 5 min between snapshots
+
+    // Range buttons
+    $graphRangeBtns.addEventListener('click', function(e) {
+      var btn = e.target.closest('.graph-range-btn');
+      if (!btn) return;
+      $graphRangeBtns.querySelectorAll('.graph-range-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      graphRange = btn.getAttribute('data-range');
+      drawGraph();
+    });
+
+    function rangeFilter(range) {
+      var now = Date.now();
+      if (range === '24h') return now - 24 * 60 * 60 * 1000;
+      if (range === '7d')  return now - 7 * 24 * 60 * 60 * 1000;
+      if (range === '30d') return now - 30 * 24 * 60 * 60 * 1000;
+      return 0; // all
+    }
+
+    function loadHistory() {
+      var sb = window._sbRep;
+      if (!sb) {
+        window.addEventListener('sb-rep-ready', function() { loadHistory(); }, { once: true });
+        return;
+      }
+
+      var myId = null;
+      if (window.sloppyBarGetContext) {
+        var ctx = window.sloppyBarGetContext();
+        if (ctx) myId = ctx.userId;
+      }
+      if (!myId) return;
+
+      sb.from('karma_history')
+        .select('karma_total, karma_content, karma_engagement, karma_social, karma_trust, recorded_at')
+        .eq('user_id', myId)
+        .order('recorded_at', { ascending: true })
+        .limit(500)
+        .then(function(res) {
+          if (res.error || !res.data) return;
+          graphData = res.data.map(function(r) {
+            return {
+              time: new Date(r.recorded_at).getTime(),
+              total: r.karma_total || 0,
+              content: r.karma_content || 0,
+              engagement: r.karma_engagement || 0,
+              social: r.karma_social || 0,
+              trust: r.karma_trust || 0
+            };
+          });
+          drawGraph();
+        });
+    }
+
+    function recordSnapshot(karma, ctx) {
+      var sb = window._sbRep;
+      if (!sb) return;
+      var now = Date.now();
+      if (now - lastSnapshotTime < SNAPSHOT_INTERVAL) return;
+
+      var myId = null;
+      if (ctx && ctx.userId) myId = ctx.userId;
+      else if (window.sloppyBarGetContext) {
+        var c = window.sloppyBarGetContext();
+        if (c) myId = c.userId;
+      }
+      if (!myId) return;
+
+      lastSnapshotTime = now;
+      var ts = new Date().toISOString();
+
+      // Get component breakdown from leaderboard data or default
+      sb.from('sloppygram_karma')
+        .select('karma_total, karma_content, karma_engagement, karma_social, karma_trust, username')
+        .eq('user_id', myId)
+        .single()
+        .then(function(res) {
+          var row = (res.data) || {};
+          var snapshot = {
+            user_id: myId,
+            karma_total: row.karma_total || karma || 0,
+            karma_content: row.karma_content || 0,
+            karma_engagement: row.karma_engagement || 0,
+            karma_social: row.karma_social || 0,
+            karma_trust: row.karma_trust || 0,
+            username: row.username || (ctx && ctx.username) || '',
+            recorded_at: ts
+          };
+
+          sb.from('karma_history').insert(snapshot).then(function(ins) {
+            if (!ins.error) {
+              graphData.push({
+                time: now,
+                total: snapshot.karma_total,
+                content: snapshot.karma_content,
+                engagement: snapshot.karma_engagement,
+                social: snapshot.karma_social,
+                trust: snapshot.karma_trust
+              });
+              drawGraph();
+            }
+          });
+        });
+    }
+
+    function drawGraph() {
+      var cutoff = rangeFilter(graphRange);
+      var pts = graphData.filter(function(p) { return p.time >= cutoff; });
+
+      var dpr = window.devicePixelRatio || 1;
+      var rect = $graphWrap.getBoundingClientRect();
+      var w = rect.width;
+      var h = rect.height;
+      $graphCanvas.width = w * dpr;
+      $graphCanvas.height = h * dpr;
+      graphCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      if (pts.length < 2) {
+        $graphEmpty.style.display = 'flex';
+        $graphCanvas.style.display = 'none';
+        $graphEmpty.textContent = pts.length === 0 ? 'No history yet — check back soon' : 'Need more data points...';
+        return;
+      }
+
+      $graphEmpty.style.display = 'none';
+      $graphCanvas.style.display = 'block';
+
+      var PAD_L = 42, PAD_R = 12, PAD_T = 14, PAD_B = 24;
+      var gw = w - PAD_L - PAD_R;
+      var gh = h - PAD_T - PAD_B;
+
+      var minT = pts[0].time, maxT = pts[pts.length - 1].time;
+      var tSpan = maxT - minT || 1;
+
+      var vals = pts.map(function(p) { return p.total; });
+      var minV = Math.min.apply(null, vals);
+      var maxV = Math.max.apply(null, vals);
+      var vPad = Math.max(1, Math.ceil((maxV - minV) * 0.1));
+      minV = Math.max(0, minV - vPad);
+      maxV = maxV + vPad;
+      var vSpan = maxV - minV || 1;
+
+      function px(p) {
+        return {
+          x: PAD_L + ((p.time - minT) / tSpan) * gw,
+          y: PAD_T + gh - ((p.total - minV) / vSpan) * gh
+        };
+      }
+
+      // Background
+      graphCtx.fillStyle = '#080f14';
+      graphCtx.fillRect(0, 0, w, h);
+
+      // Grid lines
+      graphCtx.strokeStyle = '#101e26';
+      graphCtx.lineWidth = 1;
+      var gridLines = 4;
+      for (var gi = 0; gi <= gridLines; gi++) {
+        var gy = PAD_T + (gi / gridLines) * gh;
+        graphCtx.beginPath();
+        graphCtx.moveTo(PAD_L, gy);
+        graphCtx.lineTo(w - PAD_R, gy);
+        graphCtx.stroke();
+
+        // Y-axis labels
+        var yVal = maxV - (gi / gridLines) * vSpan;
+        graphCtx.fillStyle = '#3a5a6a';
+        graphCtx.font = '9px "Red Hat Mono", monospace';
+        graphCtx.textAlign = 'right';
+        graphCtx.fillText(Math.round(yVal).toLocaleString(), PAD_L - 6, gy + 3);
+      }
+
+      // X-axis labels
+      graphCtx.fillStyle = '#3a5a6a';
+      graphCtx.textAlign = 'center';
+      var xLabels = Math.min(5, pts.length);
+      for (var xi = 0; xi < xLabels; xi++) {
+        var idx = Math.floor(xi * (pts.length - 1) / (xLabels - 1));
+        var pt = pts[idx];
+        var xp = px(pt);
+        var d = new Date(pt.time);
+        var label;
+        if (graphRange === '24h') {
+          label = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+        } else {
+          label = (d.getMonth()+1) + '/' + d.getDate();
+        }
+        graphCtx.fillText(label, xp.x, h - 4);
+      }
+
+      // Gradient fill under line
+      var grad = graphCtx.createLinearGradient(0, PAD_T, 0, PAD_T + gh);
+      grad.addColorStop(0, 'rgba(0,229,204,0.18)');
+      grad.addColorStop(1, 'rgba(0,229,204,0)');
+
+      graphCtx.beginPath();
+      var first = px(pts[0]);
+      graphCtx.moveTo(first.x, first.y);
+      for (var fi = 1; fi < pts.length; fi++) {
+        var fp = px(pts[fi]);
+        graphCtx.lineTo(fp.x, fp.y);
+      }
+      var last = px(pts[pts.length - 1]);
+      graphCtx.lineTo(last.x, PAD_T + gh);
+      graphCtx.lineTo(first.x, PAD_T + gh);
+      graphCtx.closePath();
+      graphCtx.fillStyle = grad;
+      graphCtx.fill();
+
+      // Line
+      graphCtx.beginPath();
+      graphCtx.moveTo(first.x, first.y);
+      for (var li = 1; li < pts.length; li++) {
+        var lp = px(pts[li]);
+        graphCtx.lineTo(lp.x, lp.y);
+      }
+      graphCtx.strokeStyle = '#00e5cc';
+      graphCtx.lineWidth = 2;
+      graphCtx.lineJoin = 'round';
+      graphCtx.stroke();
+
+      // Glow line
+      graphCtx.shadowColor = 'rgba(0,229,204,0.5)';
+      graphCtx.shadowBlur = 6;
+      graphCtx.beginPath();
+      graphCtx.moveTo(first.x, first.y);
+      for (var si = 1; si < pts.length; si++) {
+        var sp = px(pts[si]);
+        graphCtx.lineTo(sp.x, sp.y);
+      }
+      graphCtx.strokeStyle = 'rgba(0,229,204,0.4)';
+      graphCtx.lineWidth = 4;
+      graphCtx.stroke();
+      graphCtx.shadowBlur = 0;
+
+      // Dots on data points (if not too many)
+      if (pts.length <= 50) {
+        for (var di = 0; di < pts.length; di++) {
+          var dp = px(pts[di]);
+          graphCtx.beginPath();
+          graphCtx.arc(dp.x, dp.y, 3, 0, Math.PI * 2);
+          graphCtx.fillStyle = '#00e5cc';
+          graphCtx.fill();
+          graphCtx.strokeStyle = '#060d10';
+          graphCtx.lineWidth = 1.5;
+          graphCtx.stroke();
+        }
+      }
+
+      // Store pts for hover
+      $graphCanvas._pts = pts;
+      $graphCanvas._px = px;
+    }
+
+    // Tooltip on hover
+    $graphCanvas.addEventListener('mousemove', function(e) {
+      var pts = $graphCanvas._pts;
+      var pxFn = $graphCanvas._px;
+      if (!pts || pts.length < 2 || !pxFn) return;
+
+      var rect = $graphCanvas.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+
+      var closest = null, closestDist = Infinity;
+      for (var i = 0; i < pts.length; i++) {
+        var p = pxFn(pts[i]);
+        var dist = Math.abs(p.x - mx);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = { pt: pts[i], px: p };
+        }
+      }
+
+      if (closest && closestDist < 30) {
+        var d = new Date(closest.pt.time);
+        var dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+        $graphTooltip.innerHTML = '<strong>' + formatNum(closest.pt.total) + '</strong> karma<br>' + dateStr;
+        $graphTooltip.style.display = 'block';
+        var tx = closest.px.x + 10;
+        var ty = closest.px.y - 30;
+        if (tx + 120 > rect.width) tx = closest.px.x - 120;
+        if (ty < 0) ty = closest.px.y + 10;
+        $graphTooltip.style.left = tx + 'px';
+        $graphTooltip.style.top = ty + 'px';
+      } else {
+        $graphTooltip.style.display = 'none';
+      }
+    });
+
+    $graphCanvas.addEventListener('mouseleave', function() {
+      $graphTooltip.style.display = 'none';
+    });
+
+    // Redraw on resize
+    window.addEventListener('resize', function() {
+      if (graphData.length >= 2) drawGraph();
+    });
+
+    // =========================================================
+    //  Init — sync hub + leaderboard + graph
     // =========================================================
 
     function init() {
@@ -1161,11 +1579,16 @@
           if (readyCtx && readyCtx.ready) {
             renderAll(readyCtx);
             addFeedEvent('context-ready', readyCtx);
+            // Record initial snapshot + load history
+            recordSnapshot(readyCtx.karma || 0, readyCtx);
+            loadHistory();
           }
         });
         if (ctx && ctx.ready) {
           renderAll(ctx);
           addFeedEvent('context-ready', ctx);
+          recordSnapshot(ctx.karma || 0, ctx);
+          loadHistory();
         }
       }
 
@@ -1185,6 +1608,8 @@
           animateKarmaDelta(delta);
           renderTier(newKarma, (window.sloppyBarGetContext && window.sloppyBarGetContext().verificationLevel) || 0);
           addFeedEvent('karma-changed', d);
+          // Record snapshot for graph
+          recordSnapshot(newKarma, null);
         });
 
         window.sloppyBarOn('verification-changed', function(e) {
