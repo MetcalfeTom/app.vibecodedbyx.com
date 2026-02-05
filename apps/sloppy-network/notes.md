@@ -3,6 +3,10 @@
 Live force-directed social graph visualization of the sloppy.live community.
 
 ## log
+- 2026-02-05: Phase 4 — Added sync hub integration
+  - Auth delegation: checks sloppyBarGetContext() before signInAnonymously() (skips round-trip if header has auth)
+  - Sync hub listeners: identity-changed (update node color), karma-changed (update node size live)
+  - Bulk data queries (6 parallel, 500 users each) kept — graph needs all-user data, not current-user
 - 2026-02-01: Initial creation
   - Canvas-based force-directed graph with repulsion + attraction physics
   - Nodes from sloppygram_follows edges + top karma users

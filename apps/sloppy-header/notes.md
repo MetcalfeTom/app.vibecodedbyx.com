@@ -3,6 +3,12 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-05: Phase 4 — First 3 app migrations to sync hub context
+  - swarm-oracle: 6 current-user DB queries eliminated (profile, karma, trust, 3 username lookups)
+  - sloppy-quests: 2 current-user DB queries eliminated (profile, karma on init)
+  - sloppy-network: auth delegation added (skip signInAnonymously), live graph node updates via events
+  - All 3 apps now listen for karma-changed, identity-changed, verification-changed, context-ready
+  - DB fallbacks preserved in all apps for graceful degradation
 - 2026-02-05: Three architectural bridges — Trust + Notifications + Auth Delegation
   - Bridge A: Trust badges in header context
     - New verification query in fetchUserData() (sloppyid_verifications, parallel with karma/premium)

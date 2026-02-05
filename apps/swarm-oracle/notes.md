@@ -3,6 +3,13 @@
 Prediction market where users bet karma on outcomes. The collective wisdom of the swarm.
 
 ## Log
+- 2026-02-05: Phase 4 — Migrated to header sync hub context
+  - loadUserProfile() uses sloppyBarGetContext() as fast path (profile, karma, trust) — 3 DB queries eliminated
+  - loadUserTrustScore() extracted renderUserTrustBadge() for reuse
+  - 3 duplicate username lookups (submitPrediction, placeBet, resolvePrediction) replaced with cachedUsername
+  - Sync hub listeners: karma-changed, verification-changed, identity-changed, context-ready
+  - DB queries kept: getCreatorTrustScore() (other-user lookups), all prediction/bet table queries
+  - Net: ~6 current-user DB queries eliminated per page load
 - 2026-01-28: Major feature update
   - Admin resolution interface: creators can resolve their predictions
   - Payout distribution: marks bets as won/lost on resolution

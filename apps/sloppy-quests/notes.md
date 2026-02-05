@@ -3,6 +3,12 @@
 Standalone daily challenge and karma rewards hub.
 
 ## log
+- 2026-02-05: Phase 4 — Migrated to header sync hub context
+  - init() uses sloppyBarGetContext() as fast path for profile + karma (2 DB queries eliminated)
+  - DB fallback preserved if header context not ready
+  - Sync hub listeners: karma-changed (live karma display), identity-changed (username sync), context-ready (late load)
+  - Activity count queries (9 parallel) kept — app-specific data not in header context
+  - refreshProgress() karma re-fetch kept — needs authoritative total for quest reward tracking
 - 2026-02-01: Randomizer overhaul & karma multiplier fix
   - Replaced weak djb2 hash with FNV-1a for date seeding (better distribution on short strings)
   - Each quest now gets its own difficulty via continued LCG steps (was uniform for all 5)

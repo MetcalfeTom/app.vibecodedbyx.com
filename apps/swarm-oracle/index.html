@@ -858,6 +858,7 @@
     let currentCategory = 'all';
     let selectedOptions = {};
     let creatorTrustScores = {}; // cache of creator trust scores
+    let cachedUsername = null; // cached from header context or DB
 
     async function init() {
       await initAuth();
@@ -866,8 +867,47 @@
       await checkExpiredPredictions();
       setupRealtimeSubscription();
       updateStats();
-      // Check for expired predictions periodically
       expiredCheckInterval = setInterval(checkExpiredPredictions, 60000);
+
+      // Sync hub listeners — live updates from other tabs
+      if (window.sloppyBarOn) {
+        window.sloppyBarOn('karma-changed', function(data) {
+          if (data && typeof data.karma === 'number') {
+            userKarma = data.karma;
+            document.getElementById('userKarma').textContent = userKarma;
+          }
+        });
+        window.sloppyBarOn('verification-changed', function(data) {
+          if (data) {
+            userTrustScore = data.trustScore || 0;
+            userVerifications = (data.verifiedProviders || []).map(function(p) { return { verification_type: p, is_verified: true }; });
+            renderUserTrustBadge();
+          }
+        });
+        window.sloppyBarOn('identity-changed', function(data) {
+          if (data && data.username) {
+            cachedUsername = data.username;
+            document.getElementById('userName').textContent = cachedUsername;
+          }
+          if (data && data.avatar) {
+            document.getElementById('userAvatar').textContent = data.avatar;
+          }
+        });
+        // Late header load — context may arrive after init
+        window.sloppyBarOn('context-ready', function() {
+          if (!currentUser) return;
+          if (window.sloppyBarGetContext) {
+            var ctx = window.sloppyBarGetContext();
+            if (ctx && ctx.ready && ctx.userId) {
+              cachedUsername = ctx.username || cachedUsername;
+              document.getElementById('userName').textContent = cachedUsername;
+              document.getElementById('userAvatar').textContent = ctx.avatar || '👤';
+              if (ctx.karma) { userKarma = ctx.karma; document.getElementById('userKarma').textContent = userKarma; }
+              if (ctx.trustScore) { userTrustScore = ctx.trustScore; renderUserTrustBadge(); }
+            }
+          }
+        });
+      }
     }
 
     async function initAuth() {
@@ -893,31 +933,54 @@
     async function loadUserProfile() {
       if (!currentUser) return;
 
-      const { data: profile } = await supabase
-        .from('sloppygram_profiles')
-        .select('username, avatar')
-        .eq('user_id', currentUser.id)
-        .single();
-
-      const { data: karma } = await supabase
-        .from('sloppygram_karma')
-        .select('karma_total')
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (profile) {
-        document.getElementById('userName').textContent = profile.username || 'Anonymous';
-        document.getElementById('userAvatar').textContent = profile.avatar || '👤';
+      // Fast path: header sync hub context
+      if (window.sloppyBarGetContext) {
+        const ctx = window.sloppyBarGetContext();
+        if (ctx && ctx.ready && ctx.userId) {
+          cachedUsername = ctx.username || 'Anonymous';
+          document.getElementById('userName').textContent = cachedUsername;
+          document.getElementById('userAvatar').textContent = ctx.avatar || '👤';
+          userKarma = ctx.karma || 0;
+          document.getElementById('userKarma').textContent = userKarma;
+          userTrustScore = ctx.trustScore || 0;
+          userVerifications = (ctx.verifiedProviders || []).map(p => ({ verification_type: p, is_verified: true }));
+          renderUserTrustBadge();
+          return;
+        }
       }
 
-      userKarma = karma?.karma_total || 0;
+      // Fallback: direct DB queries
+      const [profileResult, karmaResult] = await Promise.all([
+        supabase.from('sloppygram_profiles').select('username, avatar').eq('user_id', currentUser.id).single(),
+        supabase.from('sloppygram_karma').select('karma_total').eq('user_id', currentUser.id).single()
+      ]);
+
+      if (profileResult.data) {
+        cachedUsername = profileResult.data.username || 'Anonymous';
+        document.getElementById('userName').textContent = cachedUsername;
+        document.getElementById('userAvatar').textContent = profileResult.data.avatar || '👤';
+      }
+
+      userKarma = karmaResult.data?.karma_total || 0;
       document.getElementById('userKarma').textContent = userKarma;
 
       // Load trust score from SloppyID
       await loadUserTrustScore(currentUser.id);
     }
 
-    // Load user trust score from SloppyID verifications
+    function renderUserTrustBadge() {
+      const userBar = document.getElementById('userBar');
+      const existing = userBar.querySelector('.trust-badge');
+      if (existing) existing.remove();
+      if (userTrustScore > 0) {
+        const badge = document.createElement('span');
+        badge.className = `trust-badge ${userTrustScore >= 300 ? 'verified' : userTrustScore >= 150 ? 'high' : ''}`;
+        badge.innerHTML = `⚡ ${userTrustScore}`;
+        userBar.appendChild(badge);
+      }
+    }
+
+    // Load user trust score from SloppyID verifications (DB fallback)
     async function loadUserTrustScore(userId) {
       try {
         const { data: verifications } = await supabase
@@ -936,22 +999,11 @@
           }
         });
 
-        // Check if Twitter auth
         if (currentUser?.app_metadata?.provider === 'twitter') {
           userTrustScore += 100;
         }
 
-        // Display trust badge in user bar
-        const userBar = document.getElementById('userBar');
-        const existing = userBar.querySelector('.trust-badge');
-        if (existing) existing.remove();
-
-        if (userTrustScore > 0) {
-          const badge = document.createElement('span');
-          badge.className = `trust-badge ${userTrustScore >= 300 ? 'verified' : userTrustScore >= 150 ? 'high' : ''}`;
-          badge.innerHTML = `⚡ ${userTrustScore}`;
-          userBar.appendChild(badge);
-        }
+        renderUserTrustBadge();
       } catch (err) {
         console.log('Could not load trust score:', err);
       }
@@ -1031,14 +1083,10 @@
       const pred = predictions.find(p => p.prediction_id === predictionId);
       if (!pred || pred.status === 'resolved') return;
 
-      // Verify current user is the creator
-      const { data: profile } = await supabase
-        .from('sloppygram_profiles')
-        .select('username')
-        .eq('user_id', currentUser.id)
-        .single();
+      // Verify current user is the creator (use cached username)
+      const resolveUsername = cachedUsername || 'Anonymous';
 
-      if (profile?.username !== pred.creator_username) {
+      if (resolveUsername !== pred.creator_username) {
         showToast('Only the creator can resolve this prediction', 'error');
         return;
       }
@@ -1380,20 +1428,13 @@
       const odds = parseFloat(calculateOdds(pred, selectedOption));
       const potentialPayout = Math.floor(amount * odds);
 
-      // Get username
-      const { data: profile } = await supabase
-        .from('sloppygram_profiles')
-        .select('username')
-        .eq('user_id', currentUser.id)
-        .single();
-
-      // Insert bet
+      // Insert bet (use cached username)
       const { error } = await supabase
         .from('swarm_prediction_bets')
         .insert({
           bet_id: crypto.randomUUID(),
           prediction_id: predictionId,
-          username: profile?.username || 'Anonymous',
+          username: cachedUsername || 'Anonymous',
           selected_option: selectedOption,
           karma_amount: amount,
           potential_payout: potentialPayout,
@@ -1530,12 +1571,6 @@
         return;
       }
 
-      const { data: profile } = await supabase
-        .from('sloppygram_profiles')
-        .select('username')
-        .eq('user_id', currentUser.id)
-        .single();
-
       const { error } = await supabase
         .from('swarm_predictions')
         .insert({
@@ -1543,7 +1578,7 @@
           title,
           description,
           options,
-          creator_username: profile?.username || 'Anonymous',
+          creator_username: cachedUsername || 'Anonymous',
           deadline: new Date(deadline).toISOString(),
           status: 'active',
           total_pool: 0,
