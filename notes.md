@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## log
+- 2026-02-05: Added Sloppy Reputation — live reputation dashboard, first app built entirely on sync hub API (zero direct DB queries). Trust ring SVG (0-450), karma gauge with delta animations, verification badges (Twitter/Email/GitHub), 6-tier reputation system with verification bonus, live event feed. Lexend Mega + Red Hat Mono typography, "Ice Circuit" cyan/teal aesthetic with circuit-board CSS background.
 - 2026-02-05: Three sync hub bridges — Trust badges in header context (sloppyid_verifications query, ✓/✓✓/✓✓✓ badge in bar), notification relay (pulsing red dot on Vault link from sloppy-id unread DMs/mentions), auth delegation (sloppy-id skips signInAnonymously when header already has session). New events: unread-changed, verification-changed. sloppy-id broadcasts on verify complete + DM/mention arrive.
 - 2026-02-05: Phase 3 SharedWorker — Added sloppy-sync-worker.js to sloppy-header. Leader election (one tab does DB queries, all others served from worker cache), event relay (deduped with BroadcastChannel), heartbeat cleanup. Graceful degradation when SharedWorker unavailable. 5 tabs = 2-3 DB queries instead of 10-15.
 - 2026-02-04: Migrated sloppy-factions to header sync hub. Username + karma from sloppyBarGetContext(), karma-changed listener for battle power. Fourth app on sync hub, first to use karma sync path.
