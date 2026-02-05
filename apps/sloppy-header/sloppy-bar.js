@@ -788,17 +788,32 @@
       if (karmaResult.data) {
         userData.karma = karmaResult.data.karma_total || 0;
         userData.rank = karmaResult.data.rank;
-        userData.username = karmaResult.data.username || generateUsername();
-      } else {
-        userData.username = generateUsername();
+        if (karmaResult.data.username) userData.username = karmaResult.data.username;
       }
 
       userData.premium = !!premiumResult.data?.purchased_at;
 
-      // Check for Twitter username
+      // Check for Twitter username (highest priority)
       if (currentUser.user_metadata?.user_name) {
         userData.username = '@' + currentUser.user_metadata.user_name;
         userData.isTwitter = true;
+      }
+
+      // If still no username, try sloppygram_profiles
+      if (userData.username === 'Guest' && !userData.isTwitter) {
+        try {
+          var profResult = await supabase
+            .from('sloppygram_profiles')
+            .select('username')
+            .eq('user_id', currentUser.id)
+            .single();
+          if (profResult.data?.username) userData.username = profResult.data.username;
+        } catch (e) { /* non-fatal */ }
+      }
+
+      // Stable fallback: deterministic from user ID (never random)
+      if (userData.username === 'Guest') {
+        userData.username = 'Anon_' + currentUser.id.slice(0, 6);
       }
 
       cacheTimestamp = Date.now();
@@ -813,9 +828,6 @@
     }
   }
 
-  function generateUsername() {
-    return 'Anon' + Math.floor(Math.random() * 9999);
-  }
 
   // Render the bar
   function render() {

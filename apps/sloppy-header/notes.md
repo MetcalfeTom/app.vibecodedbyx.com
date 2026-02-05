@@ -3,6 +3,12 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-05: Eliminated random guest names from sync hub
+  - Removed generateUsername() which created 'Anon' + Math.random() on every page load
+  - Username resolution order: Twitter metadata → karma table → sloppygram_profiles → stable Anon_ + userId prefix
+  - Added sloppygram_profiles query as fallback (only runs if karma table has no username)
+  - Stable fallback: Anon_ + first 6 chars of user ID (deterministic, same across reloads)
+  - Previously: new random Anon#### every page load → broadcast to all apps → inconsistent identity
 - 2026-02-05: Added auth state to sync hub context API
   - New context fields: isAuthenticated (boolean), authProvider ('twitter' | 'anonymous' | null)
   - New event: 'auth-changed' — broadcasts on login/logout/token refresh with isAuthenticated, authProvider, userId, event
