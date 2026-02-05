@@ -97,6 +97,14 @@
   let cacheTimestamp = 0;
   let dropdownOpen = false;
 
+  // === SharedWorker state (Phase 3) ===
+  let syncWorker = null;
+  let syncWorkerReady = false;
+  let isLeaderTab = false;
+  let _workerTabCount = 0;
+  const _tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const _seenEvents = new Set(); // dedup fingerprints with TTL
+
   // === SYNC HUB (Phase 1) ===
   // BroadcastChannel for cross-tab communication
   let syncChannel = null;
@@ -177,6 +185,135 @@
     }
   }
 
+  // === SharedWorker init + handlers ===
+
+  function initSyncWorker() {
+    if (typeof SharedWorker === 'undefined') return;
+    try {
+      syncWorker = new SharedWorker('/sloppy-header/sloppy-sync-worker.js', { name: 'sloppy-sync' });
+      syncWorker.port.onmessage = handleWorkerMessage;
+      syncWorker.onerror = function(err) {
+        console.warn('[SloppyBar] SharedWorker error, falling back to BroadcastChannel', err);
+        syncWorker = null;
+        syncWorkerReady = false;
+      };
+      syncWorker.port.postMessage({ type: 'register', tabId: _tabId, app: _curApp });
+      // 3-second timeout: if no registered response, proceed without worker
+      var timeout = setTimeout(function() {
+        if (!syncWorkerReady) {
+          console.warn('[SloppyBar] SharedWorker timeout, falling back');
+          syncWorker = null;
+        }
+      }, 3000);
+      // Stash timeout so we can clear it on success
+      syncWorker._initTimeout = timeout;
+    } catch (e) {
+      console.warn('[SloppyBar] SharedWorker unavailable:', e.message);
+      syncWorker = null;
+    }
+  }
+
+  function handleWorkerMessage(e) {
+    var msg = e.data;
+    if (!msg || !msg.type) return;
+
+    switch (msg.type) {
+      case 'registered':
+        syncWorkerReady = true;
+        isLeaderTab = msg.isLeader;
+        _workerTabCount = msg.tabCount || 1;
+        if (syncWorker && syncWorker._initTimeout) clearTimeout(syncWorker._initTimeout);
+        // Apply cached context from worker if available
+        if (msg.cachedContext) {
+          applyWorkerContext(msg.cachedContext);
+        }
+        break;
+
+      case 'context-cached':
+        if (msg.context) {
+          applyWorkerContext(msg.context);
+        }
+        break;
+
+      case 'event-relay':
+        // Dedup check — skip if already received via BroadcastChannel
+        if (dedupeEvent(msg)) return;
+        _fireLocal(msg.event, {
+          event: msg.event,
+          data: msg.data || {},
+          source: msg.source,
+          timestamp: msg.timestamp
+        });
+        // Auto-apply theme changes
+        if (msg.event === 'theme-changed' && msg.data && msg.data.vars) {
+          var vars = msg.data.vars;
+          for (var key in vars) {
+            if (vars.hasOwnProperty(key)) {
+              document.documentElement.style.setProperty(key, vars[key]);
+            }
+          }
+        }
+        // Refresh context on identity/karma changes
+        if (msg.event === 'identity-changed' || msg.event === 'karma-changed') {
+          cacheTimestamp = 0;
+          enrichContextFromLocalStorage();
+        }
+        break;
+
+      case 'leader-assigned':
+        isLeaderTab = msg.isLeader;
+        // If newly elected leader and cache might be stale, fetch
+        if (isLeaderTab && (!cacheTimestamp || Date.now() - cacheTimestamp > CACHE_DURATION)) {
+          fetchUserData();
+        }
+        break;
+
+      case 'fetch-context':
+        // Worker is asking this tab (leader) to run DB queries
+        if (isLeaderTab) {
+          cacheTimestamp = 0; // Force fresh fetch
+          fetchUserData();
+        }
+        break;
+
+      case 'tab-count':
+        _workerTabCount = msg.count || 0;
+        break;
+    }
+  }
+
+  function applyWorkerContext(ctx) {
+    // Merge worker-cached context into local userContext
+    var keys = ['isAuthenticated','authProvider','userId','username','isTwitter','avatar','avatarUrl',
+                'karma','rank','premium','bio','color','bgUrl','theme','currentApp','ready','timestamp'];
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (ctx[k] !== undefined && k !== 'currentApp') {
+        userContext[k] = ctx[k];
+      }
+    }
+    // Also update userData for render
+    if (ctx.karma !== undefined) userData.karma = ctx.karma;
+    if (ctx.rank !== undefined) userData.rank = ctx.rank;
+    if (ctx.premium !== undefined) userData.premium = ctx.premium;
+    if (ctx.username) userData.username = ctx.username;
+    if (ctx.isTwitter !== undefined) userData.isTwitter = ctx.isTwitter;
+    // Enrich from local storage (worker can't read it)
+    enrichContextFromLocalStorage();
+    cacheTimestamp = Date.now();
+    render();
+  }
+
+  // Dedup: prevent same event from being processed via both worker and BroadcastChannel
+  function dedupeEvent(payload) {
+    var fingerprint = (payload.event || '') + ':' + (payload.source || '') + ':' + (payload.timestamp || 0);
+    if (_seenEvents.has(fingerprint)) return true; // already seen
+    _seenEvents.add(fingerprint);
+    // Auto-expire after 500ms
+    setTimeout(function() { _seenEvents.delete(fingerprint); }, 500);
+    return false;
+  }
+
   // Sync context object with current userData
   function syncContext() {
     userContext.isAuthenticated = !!currentUser;
@@ -196,8 +333,23 @@
 
   // Broadcast an event to all tabs + same-page listeners
   function broadcastEvent(eventName, data) {
-    var payload = { event: eventName, data: data || {}, source: _curApp, timestamp: Date.now() };
-    // BroadcastChannel (cross-tab)
+    var ts = Date.now();
+    var payload = { event: eventName, data: data || {}, source: _curApp, timestamp: ts, tabId: _tabId };
+    // Mark as seen for dedup
+    dedupeEvent(payload);
+    // SharedWorker relay (cross-tab, deduped at receiver)
+    if (syncWorker && syncWorkerReady) {
+      try {
+        syncWorker.port.postMessage({
+          type: 'event-broadcast',
+          event: eventName,
+          data: data || {},
+          source: _curApp,
+          timestamp: ts
+        });
+      } catch (e) {}
+    }
+    // BroadcastChannel (cross-tab fallback / secondary)
     if (syncChannel) {
       try { syncChannel.postMessage(payload); } catch (e) {}
     }
@@ -225,8 +377,11 @@
   if (syncChannel) {
     syncChannel.onmessage = function(e) {
       if (!e.data || !e.data.event) return;
-      // Don't re-fire events we sent from this tab
-      if (e.data.source === _curApp && e.data.timestamp && Date.now() - e.data.timestamp < 100) return;
+      // Don't re-fire events we sent from this tab (use tabId for accurate dedup)
+      if (e.data.tabId === _tabId) return;
+      if (!e.data.tabId && e.data.source === _curApp && e.data.timestamp && Date.now() - e.data.timestamp < 100) return;
+      // Skip if already received via SharedWorker
+      if (dedupeEvent(e.data)) return;
       _fireLocal(e.data.event, e.data);
 
       // Auto-apply theme changes from other tabs
@@ -771,6 +926,12 @@
     // Check cache
     if (Date.now() - cacheTimestamp < CACHE_DURATION) return;
 
+    // If worker active and this tab is NOT the leader, request from worker instead of DB
+    if (syncWorker && syncWorkerReady && !isLeaderTab) {
+      syncWorker.port.postMessage({ type: 'request-context' });
+      return;
+    }
+
     try {
       // Parallel queries
       const [karmaResult, premiumResult] = await Promise.all([
@@ -820,6 +981,12 @@
       cacheTimestamp = Date.now();
       syncContext();
       userContext.ready = true;
+      // Push context to worker so all tabs get it
+      if (syncWorker && syncWorkerReady && isLeaderTab) {
+        try {
+          syncWorker.port.postMessage({ type: 'context-update', context: Object.assign({}, userContext) });
+        } catch (e) {}
+      }
       broadcastEvent('context-ready', { context: userContext });
       render();
     } catch (e) {
@@ -1230,8 +1397,18 @@
    */
   window.sloppyBarRefresh = function(callback) {
     cacheTimestamp = 0; // Invalidate cache
+    // Temporarily act as leader to force DB fetch even if not leader
+    var wasLeader = isLeaderTab;
+    isLeaderTab = true;
     fetchUserData().then(function() {
+      isLeaderTab = wasLeader;
       syncContext();
+      // Push fresh context to worker
+      if (syncWorker && syncWorkerReady) {
+        try {
+          syncWorker.port.postMessage({ type: 'context-update', context: Object.assign({}, userContext) });
+        } catch (e) {}
+      }
       if (callback) callback(Object.assign({}, userContext));
     });
   };
@@ -1245,10 +1422,25 @@
 
   async function init() {
     enrichContextFromLocalStorage(); // Pre-populate from localStorage before DB
+    initSyncWorker(); // Start SharedWorker before DB queries
     render(); // Show placeholder immediately
     trackCurrentApp(); // Track this app visit
     await initSupabase();
     render(); // Update with real data
+
+    // SharedWorker heartbeat (30s interval)
+    setInterval(function() {
+      if (syncWorker && syncWorkerReady) {
+        try { syncWorker.port.postMessage({ type: 'heartbeat', tabId: _tabId }); } catch (e) {}
+      }
+    }, 30000);
+
+    // Clean up on tab close
+    window.addEventListener('beforeunload', function() {
+      if (syncWorker && syncWorkerReady) {
+        try { syncWorker.port.postMessage({ type: 'unregister' }); } catch (e) {}
+      }
+    });
 
     // Close dropdown when clicking outside
     document.addEventListener('click', function(e) {

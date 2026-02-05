@@ -3,6 +3,18 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-05: Phase 3 — SharedWorker sync coordinator
+  - New file: sloppy-sync-worker.js (~150 lines) — persistent cross-tab cache + event relay
+  - Leader election: lowest portId fetches from DB, all other tabs served from worker cache
+  - Event relay: broadcasts from any tab forwarded to all others via worker (+ BroadcastChannel fallback)
+  - Dedup: fingerprint-based (event+source+timestamp) with 500ms TTL prevents double-fire from worker + BC
+  - Heartbeat: 30s keep-alive, 45s stale timeout for port cleanup
+  - Graceful degradation: if SharedWorker unavailable (old browsers, WebViews), behavior identical to Phase 1
+  - 3-second init timeout: if worker doesn't respond, falls back silently
+  - Tab ID: unique per-tab identifier fixes same-app-path BroadcastChannel dedup bug
+  - sloppyBarRefresh() temporarily forces DB fetch regardless of leader status, pushes to worker
+  - Result: 5 tabs open = 2-3 DB queries instead of 10-15 (leader-only fetching)
+  - sloppy-bar.js: 1284 → ~1400 lines (+~120 lines)
 - 2026-02-05: Consolidated to single Supabase instance (yjyxteqzhhmtrgcaekgz)
   - Previous header instance (dtfaplmockmwvgyqxbep) was dead/unreachable (DNS failure, HTTP 000)
   - Sync hub was effectively broken — no karma, premium, or username DB queries could execute
@@ -99,8 +111,15 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
 3. Phase 3: Gradual rollout to all apps
 
 ## Sync Hub Architecture
-- **BroadcastChannel('sloppy-sync')**: Cross-tab events between all apps loading sloppy-bar.js
+- **SharedWorker ('sloppy-sync-worker.js')**: Persistent cross-tab coordinator (Phase 3)
+  - Central context cache with 5-min TTL — one DB fetch serves all tabs
+  - Leader election: lowest portId wins, re-elects on disconnect
+  - Event relay: any tab broadcasts, worker forwards to all others
+  - Heartbeat: 30s interval, 45s stale timeout for cleanup
+  - Graceful degradation: falls back to BroadcastChannel if unavailable
+- **BroadcastChannel('sloppy-sync')**: Cross-tab events (fallback + secondary relay)
 - **Event bus**: Same-page event system with `_fireLocal()` dispatch, supports wildcard '*' listeners
+- **Dedup layer**: Fingerprint-based (event+source+timestamp) prevents double-fire from worker + BC
 - **Context cache**: `userContext` object enriched from DB + shared localStorage
 - **secureStorage decode**: Reads monolith's XOR+Base64-encoded localStorage keys (profile, theme)
 - **postMessage bridge**: iframe apps can emit events and request context via `window.parent.postMessage`
@@ -112,9 +131,12 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
   - `sloppyBarRefresh(cb)` — force re-fetch from DB + localStorage
 
 ## Todos
-- Phase 2: Migrate 2-3 pilot apps to consume context from header instead of own DB queries
-- Phase 3: Add SharedWorker for persistent background sync
 - Phase 4: Ecosystem-wide adoption — eliminate duplicate auth/karma/profile fetches across 481 apps
+
+## Completed
+- ✓ Phase 1: Central Sync Hub (BroadcastChannel + event bus + context cache)
+- ✓ Phase 2: Pilot app migrations (sloppy-chat, sloppy-id, sloppy-feed, sloppy-factions)
+- ✓ Phase 3: SharedWorker for persistent background sync (leader election, central cache, event relay)
 
 ## Completed
 - ✓ Pilot on 11 apps (system-health, games, social, creative)
@@ -156,4 +178,6 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Issues
 - ✓ RESOLVED: Two Supabase instances consolidated to single yjyxteqzhhmtrgcaekgz. Old header instance (dtfaplmockmwvgyqxbep) was dead.
+- ✓ RESOLVED: Same-app-path BroadcastChannel dedup bug — tabs with same app path dropped each other's events. Fixed with per-tab `_tabId`.
 - BroadcastChannel not supported in all contexts (e.g. some WebViews); graceful try/catch fallback to no-op.
+- SharedWorker not supported in all browsers (no Firefox Android, no older iOS). Graceful fallback to BroadcastChannel-only mode.
