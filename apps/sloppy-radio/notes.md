@@ -3,6 +3,11 @@
 Synchronized community radio extracted from Sloppygram's SloppyFM system.
 
 ## log
+- 2026-02-05: Phase 4 — Migrated to header sync hub context
+  - Auth delegation: checks sloppyBarGetContext() before signInAnonymously()
+  - Username from header context fast path (1 DB query eliminated)
+  - Sync hub listeners: identity-changed (username sync), context-ready (late load)
+  - DB fallback preserved for profile query
 - 2026-02-04: Added embed mode (?embed=true) for iframe embedding in Sloppygram
   - Hides header, backlink, listeners pill in embed mode
   - Compact layout with reduced padding for widget iframe

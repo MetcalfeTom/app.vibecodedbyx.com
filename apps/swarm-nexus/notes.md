@@ -1,6 +1,12 @@
 # Swarm Intelligence Nexus
 
 ## log
+- 2026-02-05: Phase 4 — Migrated to header sync hub context
+  - Auth delegation: checks sloppyBarGetContext() before signInAnonymously()
+  - loadUserProfile() uses header context fast path for username + avatar (1 DB query eliminated)
+  - Sync hub listeners: identity-changed (profile + badge update), karma-changed (recalc power), context-ready
+  - Activity power queries (3 parallel count queries) kept — app-specific voting power calc
+  - DB fallbacks preserved for profile query
 - 2026-01-28: Vote Delegation System
   - Database table: swarm_delegations
   - Delegate voting power to trusted users

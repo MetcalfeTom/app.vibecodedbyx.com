@@ -3,7 +3,12 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
-- 2026-02-05: Phase 4 — First 3 app migrations to sync hub context
+- 2026-02-05: Phase 4 — Second batch: sloppy-radio, karma-board, swarm-nexus
+  - sloppy-radio: 1 profile query eliminated, auth delegation added
+  - karma-board: sloppy-bar.js added (was missing), 1 profile query eliminated, auth delegation
+  - swarm-nexus: 1 profile query eliminated, auth delegation, voting power recalc on karma events
+  - All 3 listen for identity-changed, karma-changed, context-ready
+- 2026-02-05: Phase 4 — First batch: swarm-oracle, sloppy-quests, sloppy-network
   - swarm-oracle: 6 current-user DB queries eliminated (profile, karma, trust, 3 username lookups)
   - sloppy-quests: 2 current-user DB queries eliminated (profile, karma on init)
   - sloppy-network: auth delegation added (skip signInAnonymously), live graph node updates via events

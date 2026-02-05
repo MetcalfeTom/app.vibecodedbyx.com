@@ -3,6 +3,12 @@
 Federated karma leaderboard aggregating engagement data across the sloppy.live ecosystem. Read-only — does not modify any Sloppygram data.
 
 ## log
+- 2026-02-05: Phase 4 — Migrated to header sync hub context
+  - Added sloppy-bar.js script tag (was missing)
+  - Auth delegation: checks sloppyBarGetContext() before signInAnonymously()
+  - renderMyCard() uses header context username as fast path (1 DB query eliminated)
+  - Sync hub listeners: identity-changed (re-render card), karma-changed (reload board), context-ready
+  - Bulk leaderboard queries (12+ tables) kept — app-specific aggregation
 - 2026-02-04: Added embed mode for Sloppygram iframe integration
   - ?embed=true hides top-bar, backlink, reduces padding
   - postMessage bridge: username clicks on leaderboard entries send to parent
