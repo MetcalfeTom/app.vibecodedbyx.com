@@ -3,6 +3,26 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-05: Three architectural bridges — Trust + Notifications + Auth Delegation
+  - Bridge A: Trust badges in header context
+    - New verification query in fetchUserData() (sloppyid_verifications, parallel with karma/premium)
+    - New context fields: trustScore, verificationLevel, verifiedProviders[]
+    - Trust badge rendered in bar: ✓ (basic), ✓✓ (verified), ✓✓✓ (fully verified) with color tiers
+    - Trust scores: Twitter +100, Email +150, GitHub +200 (matches sloppy-id calculation)
+    - Propagated through SharedWorker cache → all tabs show badge without DB queries
+  - Bridge B: Notification badge relay
+    - New context field: unreadCount (DMs + mentions combined)
+    - Pulsing red notification dot on Vault link when unread > 0
+    - New event: 'unread-changed' { dms, mentions } — broadcast by sloppy-id on DM/mention arrive
+    - sloppy-id broadcasts when: real-time insert detected, initial load finds unseen, user clears tabs
+    - Auto-handled in both BroadcastChannel and SharedWorker relay paths
+  - Bridge C: Auth delegation
+    - sloppy-id checks sloppyBarGetContext() auth state before signInAnonymously()
+    - If header has auth (shared cookies), skip anonymous sign-in round-trip
+    - sloppy-id pulls trust data from header context (avoids redundant sloppyid_verifications query when fresh)
+    - Verification changes broadcast via 'verification-changed' event → header refreshes cache
+  - New event: 'verification-changed' { trustScore, verificationLevel, verifiedProviders }
+  - sloppy-bar.js: 1476 → 1589 lines (+113)
 - 2026-02-05: Phase 3 — SharedWorker sync coordinator
   - New file: sloppy-sync-worker.js (~150 lines) — persistent cross-tab cache + event relay
   - Leader election: lowest portId fetches from DB, all other tabs served from worker cache

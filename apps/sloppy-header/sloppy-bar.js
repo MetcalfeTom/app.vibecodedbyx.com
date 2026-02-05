@@ -92,7 +92,7 @@
   // State
   let supabase = null;
   let currentUser = null;
-  let userData = { karma: 0, rank: null, premium: false, username: 'Guest' };
+  let userData = { karma: 0, rank: null, premium: false, username: 'Guest', trustScore: 0, verificationLevel: 0, verifiedProviders: [] };
   let isMinimized = options.minimized;
   let cacheTimestamp = 0;
   let dropdownOpen = false;
@@ -132,6 +132,12 @@
     bio: null,
     color: null,
     bgUrl: null,
+    // Trust & Verification (from sloppyid_verifications)
+    trustScore: 0,
+    verificationLevel: 0, // 0=none, 1=basic, 2=verified, 3=fully verified
+    verifiedProviders: [], // ['twitter','email','github']
+    // Notifications (from unread-changed events)
+    unreadCount: 0,
     // Theme (from shared localStorage)
     theme: null,
     // State
@@ -258,6 +264,14 @@
           cacheTimestamp = 0;
           enrichContextFromLocalStorage();
         }
+        // Update notification dot
+        if (msg.event === 'unread-changed' && msg.data) {
+          _applyUnreadCount(msg.data);
+        }
+        // Update trust badges
+        if (msg.event === 'verification-changed' && msg.data) {
+          _applyVerification(msg.data);
+        }
         break;
 
       case 'leader-assigned':
@@ -285,7 +299,8 @@
   function applyWorkerContext(ctx) {
     // Merge worker-cached context into local userContext
     var keys = ['isAuthenticated','authProvider','userId','username','isTwitter','avatar','avatarUrl',
-                'karma','rank','premium','bio','color','bgUrl','theme','currentApp','ready','timestamp'];
+                'karma','rank','premium','trustScore','verificationLevel','verifiedProviders',
+                'unreadCount','bio','color','bgUrl','theme','currentApp','ready','timestamp'];
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
       if (ctx[k] !== undefined && k !== 'currentApp') {
@@ -298,6 +313,9 @@
     if (ctx.premium !== undefined) userData.premium = ctx.premium;
     if (ctx.username) userData.username = ctx.username;
     if (ctx.isTwitter !== undefined) userData.isTwitter = ctx.isTwitter;
+    if (ctx.trustScore !== undefined) userData.trustScore = ctx.trustScore;
+    if (ctx.verificationLevel !== undefined) userData.verificationLevel = ctx.verificationLevel;
+    if (ctx.verifiedProviders) userData.verifiedProviders = ctx.verifiedProviders;
     // Enrich from local storage (worker can't read it)
     enrichContextFromLocalStorage();
     cacheTimestamp = Date.now();
@@ -326,6 +344,9 @@
     userContext.karma = userData.karma;
     userContext.rank = userData.rank;
     userContext.premium = userData.premium;
+    userContext.trustScore = userData.trustScore || 0;
+    userContext.verificationLevel = userData.verificationLevel || 0;
+    userContext.verifiedProviders = userData.verifiedProviders || [];
     userContext.currentApp = _curApp || null;
     userContext.timestamp = Date.now();
     enrichContextFromLocalStorage();
@@ -398,6 +419,16 @@
       if (e.data.event === 'identity-changed' || e.data.event === 'karma-changed') {
         cacheTimestamp = 0;
         enrichContextFromLocalStorage();
+      }
+
+      // Update notification dot when unread count changes
+      if (e.data.event === 'unread-changed' && e.data.data) {
+        _applyUnreadCount(e.data.data);
+      }
+
+      // Update trust data when verification changes
+      if (e.data.event === 'verification-changed' && e.data.data) {
+        _applyVerification(e.data.data);
       }
     };
   }
@@ -490,6 +521,32 @@
     .sloppy-bar-badge {
       font-size: 12px;
     }
+    .sloppy-bar-badge-trust {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .sloppy-bar-badge-trust.lvl1 { background: rgba(0,200,255,0.2); color: #00c8ff; }
+    .sloppy-bar-badge-trust.lvl2 { background: rgba(0,255,136,0.2); color: #00ff88; }
+    .sloppy-bar-badge-trust.lvl3 { background: rgba(255,215,0,0.25); color: #ffd700; }
+    .sloppy-bar-notif-dot {
+      width: 7px; height: 7px;
+      background: #ff4466;
+      border-radius: 50%;
+      display: none;
+      position: absolute;
+      top: 1px; right: 1px;
+      box-shadow: 0 0 6px rgba(255,68,102,0.6);
+      animation: sloppy-bar-pulse 1.5s ease-in-out infinite;
+    }
+    .sloppy-bar-notif-dot.show { display: block; }
+    @keyframes sloppy-bar-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.8); }
+    }
+    .sloppy-bar-vault-wrap { position: relative; }
     .sloppy-bar-center {
       display: flex;
       align-items: center;
@@ -933,8 +990,8 @@
     }
 
     try {
-      // Parallel queries
-      const [karmaResult, premiumResult] = await Promise.all([
+      // Parallel queries (karma + premium + verifications)
+      const [karmaResult, premiumResult, verifyResult] = await Promise.all([
         supabase
           .from('sloppygram_karma')
           .select('karma_total, rank, username')
@@ -944,7 +1001,11 @@
           .from('users')
           .select('purchased_at')
           .eq('user_id', currentUser.id)
-          .single()
+          .single(),
+        supabase
+          .from('sloppyid_verifications')
+          .select('verification_type, is_verified')
+          .eq('user_id', currentUser.id)
       ]);
 
       if (karmaResult.data) {
@@ -954,6 +1015,26 @@
       }
 
       userData.premium = !!premiumResult.data?.purchased_at;
+
+      // Calculate trust score from verifications
+      userData.verifiedProviders = [];
+      userData.trustScore = 0;
+      if (verifyResult.data) {
+        for (var vi = 0; vi < verifyResult.data.length; vi++) {
+          var v = verifyResult.data[vi];
+          if (!v.is_verified) continue;
+          userData.verifiedProviders.push(v.verification_type);
+          if (v.verification_type === 'twitter') userData.trustScore += 100;
+          else if (v.verification_type === 'email') userData.trustScore += 150;
+          else if (v.verification_type === 'github') userData.trustScore += 200;
+        }
+      }
+      // Twitter from auth metadata also counts
+      if (currentUser.user_metadata?.user_name && userData.verifiedProviders.indexOf('twitter') === -1) {
+        userData.verifiedProviders.push('twitter');
+        userData.trustScore += 100;
+      }
+      userData.verificationLevel = Math.min(userData.verifiedProviders.length, 3);
 
       // Check for Twitter username (highest priority)
       if (currentUser.user_metadata?.user_name) {
@@ -1023,12 +1104,13 @@
         <div class="sloppy-bar-badges">
           ${userData.premium ? '<span class="sloppy-bar-badge" title="Premium">👑</span>' : ''}
           ${userData.rank && userData.rank <= 10 ? '<span class="sloppy-bar-badge" title="Top 10">🏆</span>' : ''}
+          ${renderTrustBadge()}
         </div>
       </div>
       ${!options.hideLinks ? `
       <div class="sloppy-bar-center">
         <a href="/sloppygram#karma" class="sloppy-bar-link" title="Karma Leaderboard">📊 Karma</a>
-        <a href="/sloppy-id" class="sloppy-bar-link" title="Your Data Vault">🪪 Vault</a>
+        <span class="sloppy-bar-vault-wrap"><a href="/sloppy-id" class="sloppy-bar-link" title="Your Data Vault">🪪 Vault</a><span class="sloppy-bar-notif-dot ${userContext.unreadCount > 0 ? 'show' : ''}" id="sloppy-bar-notif"></span></span>
         <div class="sloppy-bar-dropdown-wrapper">
           <span class="sloppy-bar-link sloppy-bar-apps-trigger" onclick="window.sloppyBarToggleDropdown(event)" title="Recent Apps">🚀 Apps</span>
           <div class="sloppy-bar-dropdown ${dropdownOpen ? 'open' : ''}" id="sloppy-bar-dropdown">
@@ -1061,6 +1143,33 @@
     } else {
       bar.onclick = null;
     }
+  }
+
+  // Update notification dot from unread-changed events
+  function _applyUnreadCount(data) {
+    var count = (data.dms || 0) + (data.mentions || 0);
+    userContext.unreadCount = count;
+    var dot = document.getElementById('sloppy-bar-notif');
+    if (dot) {
+      if (count > 0) dot.classList.add('show');
+      else dot.classList.remove('show');
+    }
+  }
+
+  // Update trust/verification from verification-changed events
+  function _applyVerification(data) {
+    if (data.trustScore !== undefined) { userData.trustScore = data.trustScore; userContext.trustScore = data.trustScore; }
+    if (data.verificationLevel !== undefined) { userData.verificationLevel = data.verificationLevel; userContext.verificationLevel = data.verificationLevel; }
+    if (data.verifiedProviders) { userData.verifiedProviders = data.verifiedProviders; userContext.verifiedProviders = data.verifiedProviders; }
+    render();
+  }
+
+  function renderTrustBadge() {
+    var lvl = userData.verificationLevel || 0;
+    if (lvl <= 0) return '';
+    var labels = ['', '✓', '✓✓', '✓✓✓'];
+    var titles = ['', 'Basic Verified', 'Verified', 'Fully Verified'];
+    return '<span class="sloppy-bar-badge-trust lvl' + lvl + '" title="' + titles[lvl] + ' (Trust: ' + (userData.trustScore || 0) + ')">' + labels[lvl] + '</span>';
   }
 
   function formatNumber(num) {
@@ -1353,6 +1462,10 @@
    *   'identity-changed'  - Profile updated (username, avatar, etc.)
    *   'karma-changed'     - Karma score updated
    *   'theme-changed'     - Theme/colors changed (auto-applied to CSS vars)
+   *   'unread-changed'    - Unread DMs/mentions count changed
+   *                         data: { dms, mentions }
+   *   'verification-changed' - Trust/verification updated
+   *                         data: { trustScore, verificationLevel, verifiedProviders }
    *   'presence-update'   - User activity changed
    *   '*'                 - All events
    *

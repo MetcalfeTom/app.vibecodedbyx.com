@@ -3,6 +3,20 @@
 Central identity hub for the sloppy.live ecosystem.
 
 ## Log
+- 2026-02-05: Three sync hub bridges — Trust broadcast, Notification relay, Auth delegation
+  - Bridge A: Broadcasts 'verification-changed' event after email/GitHub verification completes
+    - Payload: { trustScore, verificationLevel, verifiedProviders } — header re-caches, all tabs see badges
+    - Calls sloppyBarRefresh() to force header cache invalidation
+  - Bridge B: Broadcasts 'unread-changed' event when DMs/mentions arrive or are cleared
+    - _broadcastUnreadCount() reads DOM state (inboxDot, mentionsDot) for actual counts
+    - Fires on: real-time INSERT (DMs/mentions), initial load unseen detection, tab switch (clear)
+  - Bridge C: Auth delegation from header context
+    - init() checks sloppyBarGetContext() for existing auth before signInAnonymously()
+    - Skips anonymous sign-in round-trip when header already has auth via shared cookies
+    - loadUserProfile() pulls trustScore, verificationLevel, verifiedProviders from header context
+    - context-ready listener enriches trust data from header (late load path)
+  - sloppy-id still runs its own loadVerifications() for authoritative display (editor needs full data)
+  - Header context used as fast path / cache; DB is fallback for authoritative writes
 - 2026-02-04: Consolidated to single Supabase instance — killed dead primary
   - Primary instance (gfzaoppypyaatzglamjv) was completely unreachable (DNS failure, HTTP 000)
   - This caused all "Failed to fetch" errors — every auth call, vault query, profile load hit a dead endpoint
