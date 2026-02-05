@@ -18,8 +18,9 @@
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
   const RECENT_APPS_KEY = 'sloppy_recent_apps';
   const MAX_RECENT_APPS = 8;
-  const SUPABASE_URL = 'https://dtfaplmockmwvgyqxbep.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0ZmFwbG1vY2ttd3ZneXF4YmVwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQzODMxMjUsImV4cCI6MjA0OTk1OTEyNX0.gV1oTVJCfQ-eTvzlB2i4drf5Xv4NBzmBQUCTl76ufZE';
+  // Consolidated to primary instance — previous header instance (dtfaplmockmwvgyqxbep) is dead/unreachable
+  const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
 
   // Get script options
   const script = document.currentScript;

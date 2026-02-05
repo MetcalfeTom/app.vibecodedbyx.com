@@ -3,6 +3,12 @@
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
 ## Log
+- 2026-02-05: Consolidated to single Supabase instance (yjyxteqzhhmtrgcaekgz)
+  - Previous header instance (dtfaplmockmwvgyqxbep) was dead/unreachable (DNS failure, HTTP 000)
+  - Sync hub was effectively broken — no karma, premium, or username DB queries could execute
+  - All required tables (sloppygram_karma, users, sloppygram_profiles, sloppy_analytics) exist on working instance
+  - Shared cookie name (sb-auth-token) means header automatically gets same session as all apps
+  - Eliminated the two-instance architecture entirely — one instance for the entire ecosystem
 - 2026-02-05: Eliminated random guest names from sync hub
   - Removed generateUsername() which created 'Anon' + Math.random() on every page load
   - Username resolution order: Twitter metadata → karma table → sloppygram_profiles → stable Anon_ + userId prefix
@@ -149,5 +155,5 @@ Universal header component connecting all 454 sloppy.live apps to SloppyID.
    - Error boundary with graceful fallback
 
 ## Issues
-- Two Supabase instances: header uses dtfaplmockmwvgyqxbep, monolith uses yjyxteqzhhmtrgcaekgz. Profile/theme data bridged via shared localStorage (same origin) rather than cross-instance DB queries.
+- ✓ RESOLVED: Two Supabase instances consolidated to single yjyxteqzhhmtrgcaekgz. Old header instance (dtfaplmockmwvgyqxbep) was dead.
 - BroadcastChannel not supported in all contexts (e.g. some WebViews); graceful try/catch fallback to no-op.
