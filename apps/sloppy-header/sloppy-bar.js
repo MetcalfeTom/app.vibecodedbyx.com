@@ -96,6 +96,7 @@
   let isMinimized = options.minimized;
   let cacheTimestamp = 0;
   let dropdownOpen = false;
+  let onlineCount = 1;
 
   // === SharedWorker state (Phase 3) ===
   let syncWorker = null;
@@ -143,7 +144,9 @@
     // State
     currentApp: _curApp || null,
     ready: false,
-    timestamp: 0
+    timestamp: 0,
+    // Presence
+    onlineCount: 1
   };
 
   // SecureStorage reader (compatible with monolith's XOR+Base64 encoding)
@@ -942,6 +945,9 @@
       }
     }
 
+    // Initialize Presence (Global Live Count)
+    initPresence();
+
     // Get session
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
@@ -974,6 +980,26 @@
     });
 
     await fetchUserData();
+  }
+
+  // Initialize Presence
+  function initPresence() {
+    if (!supabase) return;
+
+    const channel = supabase.channel('global_presence');
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        onlineCount = Object.keys(state).length || 1;
+        render(); // Re-render to show count
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+           const presenceKey = currentUser ? currentUser.id : ('anon-' + Math.random().toString(36).slice(2));
+           await channel.track({ online_at: new Date().toISOString(), user_id: presenceKey });
+        }
+      });
   }
 
   // Fetch user data
@@ -1096,7 +1122,7 @@
     bar.innerHTML = `
       <span class="sloppy-bar-minimized-icon"><span class="sloppy-bar-logo-s">S</span> sloppy.live</span>
       <div class="sloppy-bar-left">
-        <a href="/sloppy-id" class="sloppy-bar-identity" title="View your SloppyID profile">
+        <a href="/apps/sloppy-id" class="sloppy-bar-identity" title="View your SloppyID profile">
           <span class="sloppy-bar-avatar">${userData.isTwitter ? '🐦' : '<span class="sloppy-bar-logo-s">S</span>'}</span>
           <span class="sloppy-bar-username">${userData.username}</span>
           ${!options.hideKarma && userData.karma > 0 ? `<span class="sloppy-bar-karma">⚡${formatNumber(userData.karma)}</span>` : ''}
@@ -1109,8 +1135,10 @@
       </div>
       ${!options.hideLinks ? `
       <div class="sloppy-bar-center">
-        <a href="/sloppygram#karma" class="sloppy-bar-link" title="Karma Leaderboard">📊 Karma</a>
-        <span class="sloppy-bar-vault-wrap"><a href="/sloppy-id" class="sloppy-bar-link" title="Your Data Vault">🪪 Vault</a><span class="sloppy-bar-notif-dot ${userContext.unreadCount > 0 ? 'show' : ''}" id="sloppy-bar-notif"></span></span>
+        <a href="/apps/sloppy-karma" class="sloppy-bar-link" title="Karma Leaderboard">📊 Stats</a>
+        <a href="/apps/sloppy-desktop/index.html" class="sloppy-bar-link" title="Launch Desktop OS">🖥️ Desktop</a>
+        <span class="sloppy-bar-link" title="Online Users">🟢 ${onlineCount} Live</span>
+        <span class="sloppy-bar-vault-wrap"><a href="/apps/sloppy-id" class="sloppy-bar-link" title="Your Data Vault">🪪 Vault</a><span class="sloppy-bar-notif-dot ${userContext.unreadCount > 0 ? 'show' : ''}" id="sloppy-bar-notif"></span></span>
         <div class="sloppy-bar-dropdown-wrapper">
           <span class="sloppy-bar-link sloppy-bar-apps-trigger" onclick="window.sloppyBarToggleDropdown(event)" title="Recent Apps">🚀 Apps</span>
           <div class="sloppy-bar-dropdown ${dropdownOpen ? 'open' : ''}" id="sloppy-bar-dropdown">
@@ -1125,7 +1153,7 @@
           <span class="sloppy-bar-teleport-icon">🌀</span> Teleport
         </button>
         ${isAnon && isLoggedIn ? `
-          <a href="/sloppy-id" class="sloppy-bar-auth-btn">Connect Twitter</a>
+          <a href="/apps/sloppy-id" class="sloppy-bar-auth-btn">Connect Twitter</a>
         ` : ''}
         <a href="https://sloppy.live" class="sloppy-bar-home">← sloppy.live</a>
         <button class="sloppy-bar-toggle" onclick="window.sloppyBarToggle()" title="${isMinimized ? 'Expand' : 'Minimize'}">
@@ -1534,6 +1562,18 @@
   }
 
   async function init() {
+    // Mission 3: Injection Logic
+    if (!window.VibeLib?.Economy) {
+      const script = document.createElement('script');
+      script.src = '/vibelib-extended.js';
+      document.head.appendChild(script);
+      // Wait for load
+      await new Promise(resolve => {
+        script.onload = resolve;
+        script.onerror = resolve; // Proceed anyway to avoid blocking
+      });
+    }
+
     enrichContextFromLocalStorage(); // Pre-populate from localStorage before DB
     initSyncWorker(); // Start SharedWorker before DB queries
     render(); // Show placeholder immediately
