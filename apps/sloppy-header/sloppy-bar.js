@@ -180,12 +180,14 @@
       render();
   }
 
-  window.toggleNotifDropdown = function() {
+  window.toggleNotifDropdown = async function() {
       notifDropdownOpen = !notifDropdownOpen;
+      render(); // Toggle UI state immediately
+
       if (notifDropdownOpen) {
-          loadNotifList();
+          await loadNotifList();
+          markAllRead(); // Mark as read after viewing
       }
-      render();
   };
 
   window.clearNotifs = function(e) {
