@@ -279,6 +279,47 @@
     }
   };
 
-  console.log('VibeLib: Extensions loaded (Identity, Economy, Desktop, Auth)');
+  // VibeLib.Audio (Simple Synth)
+  window.VibeLib.Audio = {
+      ctx: null,
+      init() {
+          if (!this.ctx) {
+              const AudioContext = window.AudioContext || window.webkitAudioContext;
+              if (AudioContext) this.ctx = new AudioContext();
+          }
+      },
+      playEffect(name) {
+          this.init();
+          if (!this.ctx) return;
+
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+
+          if (name === 'coin') {
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
+              osc.frequency.exponentialRampToValueAtTime(1800, this.ctx.currentTime + 0.1);
+              gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+              osc.start();
+              osc.stop(this.ctx.currentTime + 0.3);
+          } else {
+              // Default beep
+              osc.type = 'square';
+              osc.frequency.setValueAtTime(440, this.ctx.currentTime);
+              gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+              osc.start();
+              osc.stop(this.ctx.currentTime + 0.1);
+          }
+      }
+  };
+
+  // Expose as lowercase too for compatibility with prompt "VibeLib.audio"
+  window.VibeLib.audio = window.VibeLib.Audio;
+
+  console.log('VibeLib: Extensions loaded (Identity, Economy, Desktop, Auth, Audio)');
 
 })();
