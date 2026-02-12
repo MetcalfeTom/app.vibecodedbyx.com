@@ -8,7 +8,7 @@
   let client;
 
   try {
-    const { createBrowserClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/ssr@0.7.0/+esm');
+    const { createBrowserClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/ssr@0.1.0/+esm');
     const cookieDomain = window.location.hostname.includes('sloppy.live') ? '.sloppy.live' : undefined;
 
     client = createBrowserClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -49,9 +49,10 @@
 
       if (error && error.code !== 'PGRST116') { // PGRST116 is "Row not found"
         console.error('VibeLib.Identity.get error:', error);
-        throw error;
+        // Fallback to empty profile if not found, to avoid breaking callers
+        return { user_id: id };
       }
-      return data;
+      return data || { user_id: id };
     },
 
     async update(data) {
@@ -85,7 +86,7 @@
           user_id: user.id,
           domain,
           amount,
-          reason
+          reason: reason || 'app_action'
         });
 
       if (error) {
@@ -98,15 +99,33 @@
   // VibeLib.Desktop
   window.VibeLib.Desktop = {
     openWindow(appUrl, title) {
-      console.log('VibeLib.Desktop.openWindow (Stub):', title, appUrl);
-      // In the future, this will communicate with the Desktop Window Manager
-      // For now, if we are in the Desktop environment, we might dispatch an event
-      window.dispatchEvent(new CustomEvent('sloppy-desktop-open', {
-        detail: { url: appUrl, title: title }
-      }));
+      console.log('VibeLib.Desktop.openWindow:', title, appUrl);
+      window.parent.postMessage({ type: 'OPEN_WINDOW', url: appUrl, title: title }, '*');
     }
   };
 
-  console.log('VibeLib: Extensions loaded (Identity, Economy, Desktop)');
+  // VibeLib.Auth
+  window.VibeLib.Auth = {
+    async login(provider = 'google') {
+        const { error } = await client.auth.signInWithOAuth({
+            provider: provider,
+            options: {
+              redirectTo: window.location.origin + window.location.pathname
+            }
+        });
+        if (error) throw error;
+    },
+    async logout() {
+        const { error } = await client.auth.signOut();
+        if (error) throw error;
+        window.location.reload();
+    },
+    async getUser() {
+        const { data: { user } } = await client.auth.getUser();
+        return user;
+    }
+  };
+
+  console.log('VibeLib: Extensions loaded (Identity, Economy, Desktop, Auth)');
 
 })();
