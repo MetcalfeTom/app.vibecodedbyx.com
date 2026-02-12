@@ -25,8 +25,11 @@
   let userData = { karma: 0, rank: null, premium: false, username: 'Guest', avatar: null, trustScore: 0, verificationLevel: 0 };
   let isMinimized = options.minimized;
   let dropdownOpen = false;
+  let notifDropdownOpen = false;
   let onlineCount = 1;
   let currentUser = null;
+  let unreadCount = 0;
+  let notifications = [];
 
   // Initialize on DOM ready
   if (document.readyState === 'loading') {
@@ -63,6 +66,7 @@
 
     // Fetch initial data
     await fetchUserData();
+    await fetchNotifications();
 
     // Render
     render();
@@ -74,8 +78,20 @@
     window.supabase.auth.onAuthStateChange(async (event, session) => {
         currentUser = session?.user;
         await fetchUserData();
+        await fetchNotifications();
         render();
     });
+
+    // Realtime Notifications
+    if (currentUser) {
+        window.supabase.channel('my_notifications')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'universal_notifications', filter: `user_id=eq.${currentUser.id}` }, payload => {
+                unreadCount++;
+                render(); // Update badge
+                // Optionally show toast?
+            })
+            .subscribe();
+    }
   }
 
   function initPresence() {
@@ -108,7 +124,6 @@
           if (profile) {
               userData.username = profile.username || 'Anon_' + currentUser.id.slice(0, 4);
               userData.avatar = profile.avatar_url || profile.avatar || '👤';
-              // Check for theme colors if needed
           }
       } catch (e) {
           console.warn('SloppyBar: Failed to fetch profile', e);
@@ -122,6 +137,61 @@
           console.warn('SloppyBar: Failed to fetch economy', e);
       }
   }
+
+  async function fetchNotifications() {
+      if (!currentUser) return;
+      try {
+          // Count unread
+          const { count, error } = await window.supabase
+             .from('universal_notifications')
+             .select('*', { count: 'exact', head: true })
+             .eq('user_id', currentUser.id)
+             .eq('is_read', false);
+
+          unreadCount = count || 0;
+      } catch (e) {
+          console.warn('SloppyBar: Notifs fetch failed', e);
+      }
+  }
+
+  async function loadNotifList() {
+      if (!currentUser) return;
+      const { data } = await window.supabase
+          .from('universal_notifications')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .order('created_at', { ascending: false })
+          .limit(8);
+      notifications = data || [];
+      render();
+  }
+
+  async function markAllRead() {
+      if (!currentUser) return;
+      await window.supabase
+          .from('universal_notifications')
+          .update({ is_read: true })
+          .eq('user_id', currentUser.id)
+          .eq('is_read', false);
+
+      unreadCount = 0;
+      // Optimistically update list
+      notifications.forEach(n => n.is_read = true);
+      render();
+  }
+
+  window.toggleNotifDropdown = function() {
+      notifDropdownOpen = !notifDropdownOpen;
+      if (notifDropdownOpen) {
+          loadNotifList();
+      }
+      render();
+  };
+
+  window.clearNotifs = function(e) {
+      e.stopPropagation();
+      markAllRead();
+  };
 
   function render() {
     let bar = document.getElementById('sloppy-bar');
@@ -170,6 +240,7 @@
                 text-decoration: none;
                 color: inherit;
                 transition: color 0.2s;
+                position: relative;
             }
             .sloppy-bar-item:hover { color: #fff; }
             .sloppy-avatar {
@@ -200,6 +271,55 @@
                 cursor: pointer;
             }
             .sloppy-login-btn:hover { background: #00dd77; }
+
+            /* Notification Styles */
+            .sloppy-bell-dot {
+                position: absolute;
+                top: 2px; right: 2px;
+                width: 8px; height: 8px;
+                background: #ff4444;
+                border-radius: 50%;
+                border: 1px solid #1a1a2e;
+            }
+            .sloppy-notif-dropdown {
+                position: absolute;
+                bottom: 45px; right: 10px; /* Assuming bottom bar */
+                width: 300px;
+                background: #1a1a2e;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .sloppy-notif-header {
+                padding: 10px;
+                background: #252538;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+                display: flex;
+                justify-content: space-between;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            .sloppy-notif-list {
+                max-height: 300px;
+                overflow-y: auto;
+            }
+            .sloppy-notif-item {
+                padding: 10px;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
+                font-size: 12px;
+                line-height: 1.4;
+                color: #ccc;
+            }
+            .sloppy-notif-item.unread { background: rgba(0,255,136,0.05); color: #fff; }
+            .sloppy-notif-item:last-child { border-bottom: none; }
+            .sloppy-clear-btn {
+                background: none; border: none; color: #00ff88;
+                font-size: 10px; cursor: pointer; text-transform: uppercase;
+            }
+            .sloppy-clear-btn:hover { text-decoration: underline; }
         `;
         document.head.appendChild(style);
     }
@@ -225,6 +345,30 @@
             <a href="/apps/sloppy-desktop/index.html" class="sloppy-bar-item">🖥️ Desktop</a>
             <a href="/apps/sloppy-id/index.html" class="sloppy-bar-item">🪪 Profile</a>
             <a href="/apps/sloppy-karma/index.html" class="sloppy-bar-item">📊 Stats</a>
+
+            <!-- Notifications -->
+            <div class="sloppy-bar-item" onclick="toggleNotifDropdown()">
+                🔔
+                ${unreadCount > 0 ? `<div class="sloppy-bell-dot"></div>` : ''}
+                ${notifDropdownOpen ? `
+                    <div class="sloppy-notif-dropdown" onclick="event.stopPropagation()">
+                        <div class="sloppy-notif-header">
+                            <span>Notifications</span>
+                            <button class="sloppy-clear-btn" onclick="clearNotifs(event)">Clear</button>
+                        </div>
+                        <div class="sloppy-notif-list">
+                            ${notifications.length === 0 ? '<div style="padding:15px;text-align:center;color:#666">No recent notifications</div>' : ''}
+                            ${notifications.map(n => `
+                                <div class="sloppy-notif-item ${!n.is_read ? 'unread' : ''}">
+                                    ${n.content}
+                                    <div style="font-size:10px;opacity:0.5;margin-top:4px;">${new Date(n.created_at).toLocaleTimeString()}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+
             ${!currentUser ?
                 `<button class="sloppy-login-btn" onclick="VibeLib.Auth.login('google')">Login</button>` :
                 `<button class="sloppy-bar-item" style="background:none;border:none;" onclick="VibeLib.Auth.logout()">🚪</button>`

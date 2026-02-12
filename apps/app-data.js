@@ -11,7 +11,7 @@
     tools: {
       icon: '🔧',
       name: 'Tools',
-      keywords: ['tool', 'calculator', 'tracker', 'manager', 'editor', 'generator', 'finder', 'scanner', 'monitor', 'dashboard', 'audit', 'convert', 'schedule', 'vault', 'security', 'protocol', 'bridge', 'api', 'tests', 'detector', 'redact', 'translator', 'explorer', 'scout', 'search', 'taxonomist']
+      keywords: ['tool', 'calculator', 'tracker', 'manager', 'editor', 'generator', 'finder', 'scanner', 'monitor', 'dashboard', 'audit', 'convert', 'schedule', 'vault', 'security', 'protocol', 'bridge', 'api', 'tests', 'detector', 'redact', 'translator', 'explorer', 'scout', 'search', 'taxonomist', 'gov']
     },
     art: {
       icon: '🎨',
@@ -134,7 +134,7 @@
     'silence-collector', 'silence-meter', 'simon-says', 'simp-meter',
     'simple-chat', 'simpsons-road-rage', 'sky-unlimited', 'slap-battle',
     'sleep-space', 'sloppy-analytics', 'sloppy-civ', 'sloppy-coin-info',
-    'sloppy-community', 'sloppy-dashboard', 'sloppy-flow', 'sloppy-hunt',
+    'sloppy-community', 'sloppy-dashboard', 'sloppy-flow', 'sloppy-gov', 'sloppy-hunt',
     'sloppy-id', 'sloppy-lance', 'sloppy-os', 'sloppy-says', 'sloppy-slots',
     'sloppy-spectrum', 'sloppy-xp', 'sloppygram', 'sloppys-gift', 'sloppys-manifesto',
     'snake', 'snark-terminal', 'snowball-fight', 'solana-tracker',
