@@ -93,6 +93,71 @@
         console.error('VibeLib.Economy.track error:', error);
         // Non-blocking, don't throw
       }
+    },
+
+    async get(userId = null) {
+      if (!userId) {
+        const { data: { user } } = await client.auth.getUser();
+        if (!user) return { balance: 0, inventory: [] };
+        userId = user.id;
+      }
+
+      const { data, error } = await client
+        .from('economy_balances')
+        .select('participation_score, inventory')
+        .eq('user_id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('VibeLib.Economy.get error:', error);
+        return { balance: 0, inventory: [] };
+      }
+
+      return {
+        balance: data?.participation_score || 0,
+        inventory: data?.inventory || []
+      };
+    },
+
+    async purchase(itemId, cost) {
+      const { data: { user } } = await client.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // 1. Fetch current state
+      const { data: current, error: fetchError } = await client
+        .from('economy_balances')
+        .select('participation_score, inventory')
+        .eq('user_id', user.id)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+
+      const balance = current?.participation_score || 0;
+      const inventory = current?.inventory || [];
+
+      // 2. Validate
+      if (balance < cost) throw new Error('Insufficient funds');
+      if (inventory.includes(itemId)) throw new Error('Item already owned');
+
+      // 3. Update
+      const newBalance = balance - cost;
+      const newInventory = [...inventory, itemId];
+
+      const { error: updateError } = await client
+        .from('economy_balances')
+        .upsert({
+          user_id: user.id,
+          participation_score: newBalance,
+          inventory: newInventory,
+          updated_at: new Date().toISOString()
+        });
+
+      if (updateError) throw updateError;
+
+      // 4. Track Purchase in Ledger
+      await this.track('purchase', -cost, `Bought ${itemId}`);
+
+      return { success: true, balance: newBalance, inventory: newInventory };
     }
   };
 

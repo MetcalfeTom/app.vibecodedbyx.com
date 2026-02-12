@@ -114,21 +114,12 @@
           console.warn('SloppyBar: Failed to fetch profile', e);
       }
 
-      // Fetch Karma/Stats (Legacy table or new ledger? User said migrate to universal tables but karma might still be in old tables or calculated from ledger)
-      // For now we use participation_score from economy_balances if possible, or fallback.
-      // Let's check economy_balances
+      // Fetch Karma/Stats using Universal Bridge
       try {
-          const { data: balance } = await window.supabase
-            .from('economy_balances')
-            .select('participation_score')
-            .eq('user_id', currentUser.id)
-            .single();
-
-          if (balance) {
-              userData.karma = balance.participation_score || 0;
-          }
+          const { balance } = await window.VibeLib.Economy.get(currentUser.id);
+          userData.karma = balance;
       } catch (e) {
-          // Fallback to 0
+          console.warn('SloppyBar: Failed to fetch economy', e);
       }
   }
 
