@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Neon Slime</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🟢">
+<meta property="og:title" content="Neon Slime">
+<meta property="og:description" content="Fling glowing slime blobs that stretch, bounce, and stick to walls.">
+<meta property="og:url" content="https://app.sloppy.live/neon-slime/">
+<meta property="og:image" content="https://emojicdn.elk.sh/🟢?style=google">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#06060a}
+canvas{display:block;position:fixed;top:0;left:0;cursor:crosshair}
+
+.hud{
+  position:fixed;top:12px;left:12px;z-index:10;
+  font-family:'Chakra Petch',sans-serif;font-weight:300;
+  color:rgba(255,255,255,0.4);font-size:0.65rem;
+  pointer-events:none;line-height:1.6;
+}
+.hud .val{color:rgba(57,255,170,0.7);font-weight:600}
+
+.toolbar{
+  position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+  z-index:10;display:flex;gap:6px;
+  background:rgba(6,6,10,0.85);border:1px solid rgba(255,255,255,0.08);
+  border-radius:12px;padding:6px 10px;
+  font-family:'Chakra Petch',sans-serif;
+  backdrop-filter:blur(8px);
+}
+.tool-btn{
+  padding:7px 14px;border:1px solid rgba(255,255,255,0.08);
+  border-radius:8px;background:transparent;color:rgba(255,255,255,0.45);
+  font-family:inherit;font-size:0.65rem;font-weight:600;
+  cursor:pointer;transition:all 0.2s;text-transform:uppercase;
+  letter-spacing:0.06em;
+}
+.tool-btn:hover{border-color:rgba(57,255,170,0.3);color:rgba(57,255,170,0.7)}
+.tool-btn.active{
+  border-color:rgba(57,255,170,0.5);color:#39ffaa;
+  background:rgba(57,255,170,0.08);
+  box-shadow:0 0 12px rgba(57,255,170,0.1);
+}
+
+.color-dot{
+  width:10px;height:10px;border-radius:50%;display:inline-block;
+  vertical-align:middle;margin-right:4px;
+  box-shadow:0 0 6px currentColor;
+}
+
+.back-link{
+  position:fixed;bottom:16px;right:16px;z-index:10;
+  font-family:'Chakra Petch',sans-serif;
+}
+.back-link a{color:rgba(255,255,255,0.2);text-decoration:none;font-size:0.55rem;font-weight:300}
+.back-link a:hover{color:rgba(57,255,170,0.5)}
+
+.hint{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  z-index:20;font-family:'Chakra Petch',sans-serif;
+  color:rgba(255,255,255,0.25);font-size:0.8rem;font-weight:300;
+  text-align:center;pointer-events:none;
+  transition:opacity 1s;
+}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div class="hud">
+  blobs: <span class="val" id="h-blobs">0</span><br>
+  particles: <span class="val" id="h-parts">0</span>
+</div>
+
+<div class="toolbar">
+  <button class="tool-btn active" data-tool="spawn" onclick="setTool('spawn',this)">Spawn</button>
+  <button class="tool-btn" data-tool="fling" onclick="setTool('fling',this)">Fling</button>
+  <button class="tool-btn" data-tool="gravity" onclick="setTool('gravity',this)">Pull</button>
+  <button class="tool-btn" data-tool="cut" onclick="setTool('cut',this)">Cut</button>
+  <button class="tool-btn" data-tool="clear" onclick="clearAll()">Clear</button>
+</div>
+
+<div class="back-link"><a href="https://sloppy.live">sloppy.live</a></div>
+<div class="hint" id="hint">click or drag to spawn slime</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, dpr;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Colors
+const SLIME_COLORS = [
+  { h: 155, s: 100, l: 62, hex: '#39ffaa' },  // green
+  { h: 280, s: 85, l: 65, hex: '#c466ff' },   // purple
+  { h: 195, s: 100, l: 60, hex: '#33ccff' },   // cyan
+  { h: 340, s: 100, l: 65, hex: '#ff4d8a' },   // pink
+  { h: 45, s: 100, l: 58, hex: '#ffbb29' },    // gold
+];
+let colorIdx = 0;
+
+// Physics constants
+const GRAVITY = 0.35;
+const DAMPING = 0.985;
+const SPRING_K = 0.08;
+const SPRING_DAMP = 0.92;
+const REST_LEN_MULT = 1.0;
+const STIFFNESS = 0.04;
+const WALL_STICK = 0.6;
+const WALL_BOUNCE = 0.3;
+const PARTICLE_R = 6;
+const MAX_PARTICLES = 1200;
+
+let tool = 'spawn';
+let blobs = [];
+let stuckParticles = []; // particles stuck to walls
+
+class Particle {
+  constructor(x, y, color) {
+    this.x = x; this.y = y;
+    this.px = x; this.py = y;
+    this.vx = 0; this.vy = 0;
+    this.r = PARTICLE_R;
+    this.color = color;
+    this.stuck = false;
+    this.stuckWall = null; // 'top','bottom','left','right'
+    this.life = 1;
+  }
+}
+
+class Spring {
+  constructor(a, b, restLen) {
+    this.a = a; this.b = b;
+    this.restLen = restLen;
+    this.broken = false;
+  }
+}
+
+class Blob {
+  constructor(cx, cy, radius, numParts, colorObj) {
+    this.particles = [];
+    this.springs = [];
+    this.color = colorObj;
+    this.center = null;
+
+    // Create particles in a circle + center
+    const center = new Particle(cx, cy, colorObj);
+    this.center = center;
+    this.particles.push(center);
+
+    for (let i = 0; i < numParts; i++) {
+      const ang = (Math.PI * 2 / numParts) * i;
+      const px = cx + Math.cos(ang) * radius;
+      const py = cy + Math.sin(ang) * radius;
+      const p = new Particle(px, py, colorObj);
+      this.particles.push(p);
+    }
+
+    // Connect ring
+    for (let i = 1; i <= numParts; i++) {
+      const next = i < numParts ? i + 1 : 1;
+      const dx = this.particles[i].x - this.particles[next].x;
+      const dy = this.particles[i].y - this.particles[next].y;
+      this.springs.push(new Spring(this.particles[i], this.particles[next], Math.sqrt(dx*dx+dy*dy)));
+    }
+
+    // Connect to center
+    for (let i = 1; i <= numParts; i++) {
+      const dx = this.particles[i].x - center.x;
+      const dy = this.particles[i].y - center.y;
+      this.springs.push(new Spring(center, this.particles[i], Math.sqrt(dx*dx+dy*dy)));
+    }
+
+    // Cross braces for stability
+    for (let i = 1; i <= numParts; i++) {
+      const opp = ((i - 1 + Math.floor(numParts / 2)) % numParts) + 1;
+      if (opp !== i) {
+        const dx = this.particles[i].x - this.particles[opp].x;
+        const dy = this.particles[i].y - this.particles[opp].y;
+        this.springs.push(new Spring(this.particles[i], this.particles[opp], Math.sqrt(dx*dx+dy*dy)));
+      }
+    }
+  }
+}
+
+function spawnBlob(x, y, vx, vy, size) {
+  const totalParts = blobs.reduce((s, b) => s + b.particles.length, 0);
+  if (totalParts > MAX_PARTICLES) return null;
+
+  const col = SLIME_COLORS[colorIdx % SLIME_COLORS.length];
+  colorIdx++;
+  const numParts = Math.max(8, Math.min(20, Math.round(size / 3)));
+  const radius = Math.max(15, Math.min(50, size));
+  const blob = new Blob(x, y, radius, numParts, col);
+
+  // Apply initial velocity
+  for (const p of blob.particles) {
+    p.vx = vx; p.vy = vy;
+  }
+
+  blobs.push(blob);
+  return blob;
+}
+
+function updatePhysics() {
+  for (const blob of blobs) {
+    // Springs
+    for (const s of blob.springs) {
+      if (s.broken) continue;
+      const dx = s.b.x - s.a.x;
+      const dy = s.b.y - s.a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+
+      // Break if stretched too far
+      if (dist > s.restLen * 4) {
+        s.broken = true;
+        continue;
+      }
+
+      const force = (dist - s.restLen) * SPRING_K;
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+
+      if (!s.a.stuck) { s.a.vx += fx; s.a.vy += fy; }
+      if (!s.b.stuck) { s.b.vx -= fx; s.b.vy -= fy; }
+    }
+
+    // Pressure (push particles outward from center)
+    const c = blob.center;
+    for (let i = 1; i < blob.particles.length; i++) {
+      const p = blob.particles[i];
+      if (p.stuck) continue;
+      const dx = p.x - c.x;
+      const dy = p.y - c.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      if (dist < 10) {
+        p.vx += (dx / dist) * STIFFNESS * 5;
+        p.vy += (dy / dist) * STIFFNESS * 5;
+      }
+    }
+
+    // Update particles
+    for (const p of blob.particles) {
+      if (p.stuck) continue;
+
+      p.vy += GRAVITY;
+      p.vx *= DAMPING;
+      p.vy *= DAMPING;
+
+      p.px = p.x; p.py = p.y;
+      p.x += p.vx;
+      p.y += p.vy;
+
+      // Wall collisions with sticking
+      const margin = p.r;
+      if (p.y > H - margin) {
+        p.y = H - margin;
+        if (Math.abs(p.vy) < 2.5) {
+          p.stuck = true; p.stuckWall = 'bottom';
+          p.vx = 0; p.vy = 0;
+        } else {
+          p.vy *= -WALL_BOUNCE;
+          p.vx *= WALL_STICK;
+        }
+      }
+      if (p.y < margin) {
+        p.y = margin;
+        if (Math.abs(p.vy) < 2.5) {
+          p.stuck = true; p.stuckWall = 'top';
+          p.vx = 0; p.vy = 0;
+        } else {
+          p.vy *= -WALL_BOUNCE;
+          p.vx *= WALL_STICK;
+        }
+      }
+      if (p.x < margin) {
+        p.x = margin;
+        if (Math.abs(p.vx) < 2.5) {
+          p.stuck = true; p.stuckWall = 'left';
+          p.vx = 0; p.vy = 0;
+        } else {
+          p.vx *= -WALL_BOUNCE;
+          p.vy *= WALL_STICK;
+        }
+      }
+      if (p.x > W - margin) {
+        p.x = W - margin;
+        if (Math.abs(p.vx) < 2.5) {
+          p.stuck = true; p.stuckWall = 'right';
+          p.vx = 0; p.vy = 0;
+        } else {
+          p.vx *= -WALL_BOUNCE;
+          p.vy *= WALL_STICK;
+        }
+      }
+    }
+  }
+
+  // Blob-blob collision (particle-particle repulsion)
+  for (let i = 0; i < blobs.length; i++) {
+    for (let j = i + 1; j < blobs.length; j++) {
+      const ci = blobs[i].center, cj = blobs[j].center;
+      const ddx = ci.x - cj.x, ddy = ci.y - cj.y;
+      if (Math.abs(ddx) > 120 || Math.abs(ddy) > 120) continue;
+      for (const a of blobs[i].particles) {
+        for (const b of blobs[j].particles) {
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const dist = Math.sqrt(dx*dx+dy*dy) || 0.01;
+          const minD = a.r + b.r;
+          if (dist < minD) {
+            const push = (minD - dist) * 0.3;
+            const nx = dx/dist, ny = dy/dist;
+            if (!a.stuck) { a.x += nx*push*0.5; a.y += ny*push*0.5; a.vx += nx*push*0.2; a.vy += ny*push*0.2; }
+            if (!b.stuck) { b.x -= nx*push*0.5; b.y -= ny*push*0.5; b.vx -= nx*push*0.2; b.vy -= ny*push*0.2; }
+          }
+        }
+      }
+    }
+  }
+}
+
+// Gravity well (pull tool)
+let gravWell = null;
+
+function applyGravityWell() {
+  if (!gravWell) return;
+  for (const blob of blobs) {
+    for (const p of blob.particles) {
+      if (p.stuck) { p.stuck = false; p.stuckWall = null; }
+      const dx = gravWell.x - p.x, dy = gravWell.y - p.y;
+      const dist = Math.sqrt(dx*dx+dy*dy) || 1;
+      const force = Math.min(3, 300 / (dist + 20));
+      p.vx += (dx/dist) * force;
+      p.vy += (dy/dist) * force;
+    }
+  }
+}
+
+// Cut tool
+function cutAt(x, y, radius) {
+  for (const blob of blobs) {
+    for (const s of blob.springs) {
+      if (s.broken) continue;
+      const mx = (s.a.x + s.b.x) / 2;
+      const my = (s.a.y + s.b.y) / 2;
+      const dx = mx - x, dy = my - y;
+      if (dx*dx+dy*dy < radius*radius) {
+        s.broken = true;
+      }
+    }
+    // Unstick nearby particles
+    for (const p of blob.particles) {
+      const dx = p.x - x, dy = p.y - y;
+      if (dx*dx+dy*dy < radius*radius && p.stuck) {
+        p.stuck = false;
+        p.stuckWall = null;
+        p.vx = (Math.random()-0.5)*3;
+        p.vy = -3;
+      }
+    }
+  }
+}
+
+// Drawing
+function drawBlob(blob) {
+  const { h, s, l } = blob.color;
+  const parts = blob.particles;
+
+  // Draw springs (stretchy connections)
+  for (const sp of blob.springs) {
+    if (sp.broken) continue;
+    const dx = sp.b.x - sp.a.x, dy = sp.b.y - sp.a.y;
+    const dist = Math.sqrt(dx*dx+dy*dy);
+    const stretch = Math.min(1, Math.max(0, (dist / sp.restLen - 1) / 2));
+    const alpha = 0.15 - stretch * 0.1;
+    if (alpha <= 0) continue;
+    ctx.strokeStyle = `hsla(${h},${s}%,${l}%,${alpha})`;
+    ctx.lineWidth = Math.max(0.5, 3 - stretch * 2);
+    ctx.beginPath();
+    ctx.moveTo(sp.a.x, sp.a.y);
+    ctx.lineTo(sp.b.x, sp.b.y);
+    ctx.stroke();
+  }
+
+  // Draw filled body
+  const ring = parts.slice(1);
+  if (ring.length > 2) {
+    ctx.beginPath();
+    // Smooth curve through ring particles
+    ctx.moveTo(
+      (ring[ring.length-1].x + ring[0].x)/2,
+      (ring[ring.length-1].y + ring[0].y)/2
+    );
+    for (let i = 0; i < ring.length; i++) {
+      const next = ring[(i+1) % ring.length];
+      const mx = (ring[i].x + next.x) / 2;
+      const my = (ring[i].y + next.y) / 2;
+      ctx.quadraticCurveTo(ring[i].x, ring[i].y, mx, my);
+    }
+    ctx.closePath();
+
+    // Glow fill
+    const cx = blob.center.x, cy = blob.center.y;
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
+    grad.addColorStop(0, `hsla(${h},${s}%,${l+15}%,0.35)`);
+    grad.addColorStop(0.6, `hsla(${h},${s}%,${l}%,0.18)`);
+    grad.addColorStop(1, `hsla(${h},${s}%,${l}%,0.02)`);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Neon edge
+    ctx.strokeStyle = `hsla(${h},${s}%,${l}%,0.6)`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Outer glow
+    ctx.shadowColor = `hsl(${h},${s}%,${l}%)`;
+    ctx.shadowBlur = 20;
+    ctx.strokeStyle = `hsla(${h},${s}%,${l}%,0.3)`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Draw particles
+  for (const p of parts) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * 0.6, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${h},${s}%,${l+10}%,${p.stuck ? 0.7 : 0.4})`;
+    ctx.fill();
+
+    if (p.stuck) {
+      // Wall stick glow
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${h},${s}%,${l}%,0.1)`;
+      ctx.fill();
+    }
+  }
+
+  // Eye/core highlight on center
+  const c = blob.center;
+  ctx.beginPath();
+  ctx.arc(c.x, c.y, 3, 0, Math.PI * 2);
+  ctx.fillStyle = `hsla(${h},${s}%,${Math.min(95, l+30)}%,0.8)`;
+  ctx.fill();
+}
+
+function drawWallGlow() {
+  // Glow on walls where particles are stuck
+  const wallGlows = { top: [], bottom: [], left: [], right: [] };
+  for (const blob of blobs) {
+    for (const p of blob.particles) {
+      if (p.stuck && p.stuckWall) {
+        wallGlows[p.stuckWall].push(p);
+      }
+    }
+  }
+
+  for (const p of wallGlows.bottom) {
+    const grad = ctx.createRadialGradient(p.x, H, 0, p.x, H, 30);
+    grad.addColorStop(0, `hsla(${p.color.h},${p.color.s}%,${p.color.l}%,0.15)`);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(p.x-30, H-30, 60, 30);
+  }
+  for (const p of wallGlows.top) {
+    const grad = ctx.createRadialGradient(p.x, 0, 0, p.x, 0, 30);
+    grad.addColorStop(0, `hsla(${p.color.h},${p.color.s}%,${p.color.l}%,0.15)`);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(p.x-30, 0, 60, 30);
+  }
+  for (const p of wallGlows.left) {
+    const grad = ctx.createRadialGradient(0, p.y, 0, 0, p.y, 30);
+    grad.addColorStop(0, `hsla(${p.color.h},${p.color.s}%,${p.color.l}%,0.15)`);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, p.y-30, 30, 60);
+  }
+  for (const p of wallGlows.right) {
+    const grad = ctx.createRadialGradient(W, p.y, 0, W, p.y, 30);
+    grad.addColorStop(0, `hsla(${p.color.h},${p.color.s}%,${p.color.l}%,0.15)`);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(W-30, p.y-30, 30, 60);
+  }
+}
+
+// Interaction state
+let pointer = { x: 0, y: 0, down: false };
+let dragStart = null;
+let spawnTimer = null;
+let hintVisible = true;
+
+function getPos(e) {
+  if (e.touches) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  return { x: e.clientX, y: e.clientY };
+}
+
+function onDown(e) {
+  e.preventDefault();
+  const pos = getPos(e);
+  pointer.x = pos.x; pointer.y = pos.y;
+  pointer.down = true;
+  dragStart = { x: pos.x, y: pos.y, t: Date.now() };
+
+  if (hintVisible) {
+    document.getElementById('hint').style.opacity = '0';
+    hintVisible = false;
+  }
+
+  if (tool === 'spawn') {
+    // Spawn one immediately, then more on drag
+    spawnBlob(pos.x, pos.y, 0, 0, 25 + Math.random() * 15);
+    spawnTimer = setInterval(() => {
+      if (pointer.down) {
+        spawnBlob(
+          pointer.x + (Math.random()-0.5)*20,
+          pointer.y + (Math.random()-0.5)*20,
+          (Math.random()-0.5)*2, (Math.random()-0.5)*2,
+          20 + Math.random() * 15
+        );
+      }
+    }, 250);
+  } else if (tool === 'gravity') {
+    gravWell = { x: pos.x, y: pos.y };
+  }
+}
+
+function onMove(e) {
+  e.preventDefault();
+  const pos = e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY };
+  pointer.x = pos.x; pointer.y = pos.y;
+
+  if (pointer.down && tool === 'gravity') {
+    gravWell = { x: pos.x, y: pos.y };
+  }
+  if (pointer.down && tool === 'cut') {
+    cutAt(pos.x, pos.y, 25);
+  }
+}
+
+function onUp(e) {
+  if (tool === 'fling' && dragStart && pointer.down) {
+    const vx = (dragStart.x - pointer.x) * 0.15;
+    const vy = (dragStart.y - pointer.y) * 0.15;
+    const size = 25 + Math.min(40, Math.sqrt(vx*vx+vy*vy) * 3);
+    spawnBlob(dragStart.x, dragStart.y, vx, vy, size);
+  }
+
+  pointer.down = false;
+  dragStart = null;
+  gravWell = null;
+  if (spawnTimer) { clearInterval(spawnTimer); spawnTimer = null; }
+}
+
+canvas.addEventListener('mousedown', onDown);
+canvas.addEventListener('mousemove', onMove);
+window.addEventListener('mouseup', onUp);
+canvas.addEventListener('touchstart', onDown, { passive: false });
+canvas.addEventListener('touchmove', onMove, { passive: false });
+window.addEventListener('touchend', onUp);
+
+function setTool(t, el) {
+  tool = t;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function clearAll() {
+  blobs = [];
+}
+
+// Main loop
+function loop() {
+  // Background fade
+  ctx.fillStyle = 'rgba(6,6,10,0.3)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.015)';
+  ctx.lineWidth = 0.5;
+  const gs = 60;
+  for (let x = gs; x < W; x += gs) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = gs; y < H; y += gs) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  applyGravityWell();
+  updatePhysics();
+  drawWallGlow();
+
+  for (const blob of blobs) {
+    drawBlob(blob);
+  }
+
+  // Fling preview line
+  if (tool === 'fling' && pointer.down && dragStart) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(dragStart.x, dragStart.y);
+    ctx.lineTo(pointer.x, pointer.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Arrow at start showing launch direction
+    const vx = (dragStart.x - pointer.x) * 0.15;
+    const vy = (dragStart.y - pointer.y) * 0.15;
+    const mag = Math.sqrt(vx*vx+vy*vy);
+    if (mag > 2) {
+      const ax = dragStart.x + vx * 2, ay = dragStart.y + vy * 2;
+      ctx.beginPath();
+      ctx.arc(ax, ay, 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fill();
+    }
+  }
+
+  // Gravity well indicator
+  if (gravWell) {
+    const t = Date.now() * 0.003;
+    for (let i = 0; i < 3; i++) {
+      const r = 20 + i * 15 + Math.sin(t + i) * 5;
+      ctx.strokeStyle = `rgba(57,255,170,${0.2 - i * 0.05})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(gravWell.x, gravWell.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // Cut tool cursor
+  if (tool === 'cut' && pointer.down) {
+    ctx.strokeStyle = 'rgba(255,77,138,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(pointer.x, pointer.y, 25, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Clean up blobs with all springs broken
+  blobs = blobs.filter(b => {
+    const alive = b.springs.some(s => !s.broken);
+    return alive || b.particles.length <= 2;
+  });
+
+  // HUD
+  const totalParts = blobs.reduce((s, b) => s + b.particles.length, 0);
+  document.getElementById('h-blobs').textContent = blobs.length;
+  document.getElementById('h-parts').textContent = totalParts;
+
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
