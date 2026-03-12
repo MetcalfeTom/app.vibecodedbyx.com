@@ -329,9 +329,12 @@ async function init() {
   try {
     const { user } = await supabaseSession();
     userId = user.id;
+    console.log('[door-access] authed as', userId);
 
     // Check for existing row
-    const { data } = await supabase.from('door_elo').select('*').eq('user_id', userId).limit(1);
+    const { data, error: selErr } = await supabase.from('door_elo').select('*').eq('user_id', userId).limit(1);
+    if (selErr) console.warn('[door-access] select error:', selErr.message);
+
     if (!data || data.length === 0) {
       // Resolve username
       let username = 'Anon';
@@ -346,9 +349,17 @@ async function init() {
         } catch(e) {}
       }
 
-      await supabase.from('door_elo').insert({
+      const { error: insErr } = await supabase.from('door_elo').insert({
         user_id: userId, username, elo: 1000, wins: 0, losses: 0, challenges: 0
       });
+      if (insErr) {
+        console.error('[door-access] insert error:', insErr.message);
+        // If insert failed due to duplicate, that's fine — row exists from another tab/session
+        if (!insErr.message.includes('duplicate')) {
+          document.getElementById('loading').textContent = 'Error creating profile: ' + insErr.message;
+          return;
+        }
+      }
     }
 
     await refresh();
@@ -360,14 +371,17 @@ async function init() {
     document.getElementById('app').style.display = 'block';
     loadRiddle();
   } catch(e) {
+    console.error('[door-access] init error:', e);
     document.getElementById('loading').textContent = 'Error: ' + e.message;
   }
 }
 
 async function refresh() {
-  const { data: all } = await supabase.from('door_elo').select('*').order('elo', { ascending: false });
+  const { data: all, error: refErr } = await supabase.from('door_elo').select('*').order('elo', { ascending: false });
+  if (refErr) { console.error('[door-access] refresh error:', refErr.message); return; }
   allPlayers = all || [];
   myRow = allPlayers.find(p => p.user_id === userId);
+  if (!myRow) { console.warn('[door-access] user row not found in leaderboard'); }
 
   const totalPlayers = allPlayers.length;
   const myRank = allPlayers.findIndex(p => p.user_id === userId) + 1;
@@ -467,7 +481,8 @@ document.getElementById('name-input').addEventListener('keydown', e => {
 
 window.challenge = async function() {
   if (Date.now() < cooldownEnd) return;
-  if (!myRow || allPlayers.length < 2) return;
+  if (!myRow) { await refresh(); if (!myRow) return; }
+  if (allPlayers.length < 2) return;
 
   const btn = document.getElementById('challenge-btn');
   btn.disabled = true;
@@ -500,7 +515,8 @@ window.challenge = async function() {
     challenges: myRow.challenges + 1,
     last_challenge: new Date().toISOString()
   };
-  await supabase.from('door_elo').update(myFields).eq('user_id', userId);
+  const { error: updErr } = await supabase.from('door_elo').update(myFields).eq('user_id', userId);
+  if (updErr) { console.error('[door-access] challenge update error:', updErr.message); btn.disabled = false; btn.textContent = 'Find Opponent'; return; }
 
   // Show result
   const delta = myNew - myElo;
@@ -561,7 +577,8 @@ function loadRiddle() {
 }
 
 async function answerRiddle(idx) {
-  if (!currentRiddle || !myRow) return;
+  if (!currentRiddle) return;
+  if (!myRow) { await refresh(); if (!myRow) return; }
   const correct = idx === currentRiddle.answer;
   const btns = document.querySelectorAll('.riddle-opt');
   btns.forEach((b, i) => {
@@ -574,13 +591,14 @@ async function answerRiddle(idx) {
   const eloChange = correct ? 15 : -8;
   const newElo = myRow.elo + eloChange;
 
-  await supabase.from('door_elo').update({
+  const { error: rUpdErr } = await supabase.from('door_elo').update({
     elo: newElo,
     wins: myRow.wins + (correct ? 1 : 0),
     losses: myRow.losses + (correct ? 0 : 1),
     challenges: myRow.challenges + 1,
     last_challenge: new Date().toISOString()
   }).eq('user_id', userId);
+  if (rUpdErr) console.error('[door-access] riddle update error:', rUpdErr.message);
 
   fb.style.display = 'block';
   if (correct) {
