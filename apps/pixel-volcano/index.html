@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Volcano</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🌋">
+<meta property="og:title" content="Pixel Volcano">
+<meta property="og:description" content="Click to erupt a pixel volcano and watch lava rain from the sky.">
+<meta property="og:url" content="https://sloppy.live/pixel-volcano">
+<meta property="og:image" content="https://sloppy.live/pixel-volcano/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen&family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0408;overflow:hidden;cursor:crosshair}
+canvas{display:block}
+#hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Silkscreen',monospace;font-size:clamp(14px,3vw,20px);color:rgba(255,120,40,0.6);text-shadow:0 0 12px rgba(255,60,0,0.4);pointer-events:none;z-index:10;transition:opacity 1s;letter-spacing:2px}
+#stats{position:fixed;top:10px;right:14px;font-family:'DotGothic16',monospace;font-size:12px;color:rgba(255,160,60,0.4);pointer-events:none;z-index:10;text-align:right;line-height:1.8}
+#backlink{position:fixed;bottom:6px;left:50%;transform:translateX(-50%);font-size:10px;z-index:10;opacity:0.2}
+#backlink a{color:#f84;text-decoration:none;font-family:'DotGothic16',monospace}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">CLICK THE VOLCANO</div>
+<div id="stats"></div>
+<div id="backlink"><a href="https://sloppy.live">sloppy.live</a></div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  buildVolcano();
+}
+
+// Volcano geometry
+let volcanoPoints = [];
+let craterLeft, craterRight, craterY;
+const PIXEL = 3;
+
+function buildVolcano() {
+  const baseW = W * 0.55;
+  const peakH = H * 0.38;
+  const baseY = H;
+  craterY = baseY - peakH;
+  const cx = W / 2;
+  const craterW = baseW * 0.12;
+  craterLeft = cx - craterW;
+  craterRight = cx + craterW;
+
+  volcanoPoints = [];
+  // Left slope
+  volcanoPoints.push({ x: cx - baseW / 2, y: baseY });
+  volcanoPoints.push({ x: cx - baseW * 0.3, y: baseY - peakH * 0.4 });
+  volcanoPoints.push({ x: cx - baseW * 0.15, y: baseY - peakH * 0.75 });
+  volcanoPoints.push({ x: craterLeft, y: craterY });
+  // Crater dip
+  volcanoPoints.push({ x: cx, y: craterY + peakH * 0.06 });
+  // Right slope
+  volcanoPoints.push({ x: craterRight, y: craterY });
+  volcanoPoints.push({ x: cx + baseW * 0.15, y: baseY - peakH * 0.75 });
+  volcanoPoints.push({ x: cx + baseW * 0.3, y: baseY - peakH * 0.4 });
+  volcanoPoints.push({ x: cx + baseW / 2, y: baseY });
+}
+
+resize();
+addEventListener('resize', resize);
+
+// Lava particles
+const lavaParticles = [];
+const MAX_LAVA = 6000;
+const smokeParticles = [];
+const MAX_SMOKE = 400;
+const settledLava = []; // Cooled lava that piles up
+const MAX_SETTLED = 3000;
+
+let erupting = false;
+let eruptTimer = 0;
+let eruptPower = 0;
+let totalEruptions = 0;
+let totalLava = 0;
+let hintShown = true;
+
+// Audio
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let rumbleNode = null;
+
+function startRumble() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  // Low rumble
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  const o2 = audioCtx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(35, audioCtx.currentTime);
+  o2.type = 'triangle';
+  o2.frequency.setValueAtTime(55, audioCtx.currentTime);
+  g.gain.setValueAtTime(0, audioCtx.currentTime);
+  g.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.3);
+  o.connect(g); o2.connect(g); g.connect(audioCtx.destination);
+  o.start(); o2.start();
+  rumbleNode = { o, o2, g };
+}
+
+function stopRumble() {
+  if (!rumbleNode) return;
+  const t = audioCtx.currentTime;
+  rumbleNode.g.gain.linearRampToValueAtTime(0.001, t + 0.5);
+  rumbleNode.o.stop(t + 0.6);
+  rumbleNode.o2.stop(t + 0.6);
+  rumbleNode = null;
+}
+
+function eruptBurst() {
+  // Pop sound
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = 'square';
+  o.frequency.setValueAtTime(80 + Math.random() * 40, audioCtx.currentTime);
+  g.gain.setValueAtTime(0.06, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + 0.15);
+}
+
+// Eruption
+function triggerErupt(power) {
+  if (hintShown) {
+    document.getElementById('hint').style.opacity = 0;
+    hintShown = false;
+  }
+  erupting = true;
+  eruptTimer = 60 + power * 40;
+  eruptPower = 0.5 + power * 0.5;
+  totalEruptions++;
+  startRumble();
+}
+
+// Spawn lava from crater
+function spawnLava(count, power) {
+  const cx = (craterLeft + craterRight) / 2;
+  for (let i = 0; i < count; i++) {
+    if (lavaParticles.length >= MAX_LAVA) break;
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.2;
+    const speed = (6 + Math.random() * 10) * power;
+    const size = PIXEL + Math.floor(Math.random() * 3) * PIXEL;
+
+    // Color temperature
+    const temp = Math.random();
+    let r, g, b;
+    if (temp > 0.7) { r = 255; g = 220 + Math.random()*35; b = 50 + Math.random()*80; } // White-yellow hot
+    else if (temp > 0.3) { r = 255; g = 80 + Math.random()*100; b = 0; } // Orange
+    else { r = 200 + Math.random()*55; g = 20 + Math.random()*40; b = 0; } // Dark red
+
+    lavaParticles.push({
+      x: cx + (Math.random() - 0.5) * (craterRight - craterLeft),
+      y: craterY,
+      vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 3,
+      vy: Math.sin(angle) * speed,
+      size,
+      r, g, b,
+      life: 200 + Math.random() * 150,
+      maxLife: 350,
+      cooling: 0.992 + Math.random() * 0.005,
+      onGround: false
+    });
+    totalLava++;
+  }
+}
+
+function spawnSmoke(x, y, count) {
+  for (let i = 0; i < count; i++) {
+    if (smokeParticles.length >= MAX_SMOKE) break;
+    smokeParticles.push({
+      x: x + (Math.random()-0.5) * 20,
+      y: y - Math.random() * 10,
+      vx: (Math.random()-0.5) * 0.8,
+      vy: -0.5 - Math.random() * 1.5,
+      size: 4 + Math.random() * 8,
+      life: 80 + Math.random() * 60,
+      maxLife: 140,
+      alpha: 0.2 + Math.random() * 0.2
+    });
+  }
+}
+
+// Point in volcano check
+function isInsideVolcano(x, y) {
+  // Simple: below crater line and within slopes
+  if (y < craterY - 10) return false;
+  // Find x bounds at this y level by interpolating volcano edges
+  const cx = W / 2;
+  const baseW = W * 0.55;
+  const peakH = H * 0.38;
+  const progress = (y - craterY) / (H - craterY); // 0 at crater, 1 at base
+  const halfWidth = (baseW * 0.12) + progress * (baseW / 2 - baseW * 0.12);
+  return x > cx - halfWidth && x < cx + halfWidth;
+}
+
+// Ground collision (volcano surface or screen bottom)
+function getGroundY(x) {
+  const cx = W / 2;
+  const baseW = W * 0.55;
+  const peakH = H * 0.38;
+  const dist = Math.abs(x - cx);
+  const maxDist = baseW / 2;
+  if (dist > maxDist) return H;
+  const t = dist / maxDist;
+  // Approximate slope
+  return H - peakH * Math.pow(1 - t, 1.3);
+}
+
+// Input
+canvas.addEventListener('mousedown', e => {
+  const power = 1;
+  triggerErupt(power);
+});
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  triggerErupt(1);
+}, { passive: false });
+
+// Held click = continuous eruption
+let mouseDown = false;
+canvas.addEventListener('mousedown', () => { mouseDown = true; });
+canvas.addEventListener('mouseup', () => { mouseDown = false; });
+canvas.addEventListener('touchstart', () => { mouseDown = true; });
+canvas.addEventListener('touchend', () => { mouseDown = false; });
+
+let frame = 0;
+let shakes = [];
+
+function update() {
+  frame++;
+
+  // Eruption
+  if (erupting) {
+    eruptTimer--;
+    const burstSize = Math.ceil(8 * eruptPower);
+    spawnLava(burstSize, eruptPower);
+    if (frame % 3 === 0) spawnSmoke((craterLeft+craterRight)/2, craterY, 2);
+    if (frame % 8 === 0) eruptBurst();
+    shakes.push(eruptPower * 3);
+
+    if (eruptTimer <= 0 && !mouseDown) {
+      erupting = false;
+      stopRumble();
+    }
+    // Sustained hold
+    if (mouseDown && eruptTimer <= 0) {
+      eruptTimer = 10;
+    }
+  }
+
+  // Ambient smoke from crater
+  if (!erupting && frame % 30 === 0) {
+    spawnSmoke((craterLeft+craterRight)/2, craterY, 1);
+  }
+
+  // Ambient lava glow in crater
+  if (!erupting && frame % 60 === 0 && lavaParticles.length < 20) {
+    spawnLava(1, 0.15);
+  }
+
+  // Lava physics
+  const gravity = 0.18;
+  for (let i = lavaParticles.length - 1; i >= 0; i--) {
+    const p = lavaParticles[i];
+    if (p.onGround) {
+      p.life -= 2;
+      p.r *= p.cooling;
+      p.g *= p.cooling * 0.98;
+      p.b *= 0.95;
+      if (p.life <= 0) {
+        // Settle as cooled lava
+        if (settledLava.length < MAX_SETTLED) {
+          settledLava.push({ x: p.x, y: p.y, size: p.size });
+        }
+        lavaParticles.splice(i, 1);
+      }
+      continue;
+    }
+
+    p.vy += gravity;
+    p.vx *= 0.998;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+
+    // Cool down colors over time
+    p.r *= p.cooling;
+    p.g *= p.cooling * 0.995;
+
+    // Ground collision
+    const groundY = getGroundY(p.x);
+    if (p.y >= groundY) {
+      p.y = groundY;
+      p.vy *= -0.3;
+      p.vx *= 0.7;
+      if (Math.abs(p.vy) < 0.5) {
+        p.onGround = true;
+        p.vy = 0;
+        p.vx = 0;
+      }
+      // Splash particles
+      if (Math.abs(p.vy) > 2) {
+        for (let j = 0; j < 2; j++) {
+          if (lavaParticles.length < MAX_LAVA) {
+            lavaParticles.push({
+              x: p.x, y: p.y,
+              vx: (Math.random()-0.5) * 3,
+              vy: -Math.random() * 3,
+              size: PIXEL, r: p.r, g: p.g, b: p.b,
+              life: 40, maxLife: 40,
+              cooling: 0.98, onGround: false
+            });
+          }
+        }
+      }
+    }
+
+    // Screen bounds
+    if (p.x < 0 || p.x > W) { lavaParticles.splice(i, 1); continue; }
+    if (p.y > H + 20 || p.life <= 0) { lavaParticles.splice(i, 1); }
+  }
+
+  // Smoke
+  for (let i = smokeParticles.length - 1; i >= 0; i--) {
+    const s = smokeParticles[i];
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vx += (Math.random()-0.5) * 0.1;
+    s.size += 0.05;
+    s.life--;
+    if (s.life <= 0) smokeParticles.splice(i, 1);
+  }
+
+  // Shakes
+  shakes = shakes.map(s => s * 0.88).filter(s => s > 0.2);
+
+  // Trim settled lava
+  while (settledLava.length > MAX_SETTLED) settledLava.shift();
+
+  // Stats
+  if (frame % 15 === 0) {
+    document.getElementById('stats').innerHTML =
+      `ERUPTIONS ${totalEruptions}<br>` +
+      `PARTICLES ${lavaParticles.length}<br>` +
+      `LAVA ${totalLava}`;
+  }
+}
+
+function draw() {
+  // Sky gradient
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+  skyGrad.addColorStop(0, '#0a0408');
+  skyGrad.addColorStop(0.4, '#120610');
+  skyGrad.addColorStop(0.7, '#1a0a0e');
+  skyGrad.addColorStop(1, '#0a0408');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  for (let i = 0; i < 60; i++) {
+    const sx = (i * 137.5 + 42) % W;
+    const sy = (i * 73.1 + 13) % (H * 0.4);
+    const twinkle = 0.2 + Math.sin(frame * 0.02 + i) * 0.15;
+    ctx.globalAlpha = twinkle;
+    ctx.fillRect(sx, sy, 1, 1);
+  }
+  ctx.globalAlpha = 1;
+
+  // Shake
+  const sx = shakes.reduce((a,s) => a + (Math.random()-0.5)*s, 0);
+  const sy = shakes.reduce((a,s) => a + (Math.random()-0.5)*s, 0);
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  // Crater glow
+  const cx = (craterLeft + craterRight) / 2;
+  const glowIntensity = erupting ? 0.6 : 0.15 + Math.sin(frame * 0.03) * 0.05;
+  const craterGlow = ctx.createRadialGradient(cx, craterY, 5, cx, craterY - 30, 150);
+  craterGlow.addColorStop(0, `rgba(255,100,0,${glowIntensity})`);
+  craterGlow.addColorStop(0.3, `rgba(255,40,0,${glowIntensity * 0.4})`);
+  craterGlow.addColorStop(1, 'transparent');
+  ctx.fillStyle = craterGlow;
+  ctx.fillRect(cx - 200, craterY - 200, 400, 250);
+
+  // Draw volcano
+  ctx.beginPath();
+  ctx.moveTo(volcanoPoints[0].x, volcanoPoints[0].y);
+  for (let i = 1; i < volcanoPoints.length; i++) {
+    ctx.lineTo(volcanoPoints[i].x, volcanoPoints[i].y);
+  }
+  ctx.closePath();
+
+  // Volcano gradient
+  const vGrad = ctx.createLinearGradient(0, craterY, 0, H);
+  vGrad.addColorStop(0, '#2a1a12');
+  vGrad.addColorStop(0.3, '#1e120c');
+  vGrad.addColorStop(0.7, '#14100a');
+  vGrad.addColorStop(1, '#0e0a06');
+  ctx.fillStyle = vGrad;
+  ctx.fill();
+
+  // Volcano edge highlight
+  ctx.strokeStyle = 'rgba(255,80,20,0.15)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Rock texture lines
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 12; i++) {
+    const rx = cx + (Math.random()-0.5) * W * 0.4;
+    const ry = craterY + Math.random() * (H - craterY);
+    ctx.beginPath();
+    ctx.moveTo(rx, ry);
+    ctx.lineTo(rx + (Math.random()-0.5) * 40, ry + Math.random() * 20);
+    ctx.stroke();
+  }
+
+  // Settled lava (cooled, dark red/black)
+  settledLava.forEach(s => {
+    ctx.fillStyle = '#1a0800';
+    ctx.fillRect(Math.floor(s.x / PIXEL) * PIXEL, Math.floor(s.y / PIXEL) * PIXEL, s.size, s.size);
+  });
+
+  // Lava particles
+  for (let i = 0; i < lavaParticles.length; i++) {
+    const p = lavaParticles[i];
+    const r = Math.floor(Math.max(0, Math.min(255, p.r)));
+    const g = Math.floor(Math.max(0, Math.min(255, p.g)));
+    const b = Math.floor(Math.max(0, Math.min(255, p.b)));
+    const px = Math.floor(p.x / PIXEL) * PIXEL;
+    const py = Math.floor(p.y / PIXEL) * PIXEL;
+
+    // Glow
+    if (r > 150) {
+      ctx.fillStyle = `rgba(${r},${g},${b},0.15)`;
+      ctx.fillRect(px - 4, py - 4, p.size + 8, p.size + 8);
+    }
+
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(px, py, p.size, p.size);
+  }
+
+  // Smoke
+  smokeParticles.forEach(s => {
+    const alpha = (s.life / s.maxLife) * s.alpha;
+    ctx.fillStyle = `rgba(80,60,50,${alpha})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Lava glow in crater mouth
+  const mouthGlow = ctx.createRadialGradient(cx, craterY + 5, 2, cx, craterY + 5, craterRight - craterLeft);
+  mouthGlow.addColorStop(0, `rgba(255,140,20,${erupting ? 0.9 : 0.4})`);
+  mouthGlow.addColorStop(0.5, `rgba(255,50,0,${erupting ? 0.4 : 0.15})`);
+  mouthGlow.addColorStop(1, 'transparent');
+  ctx.fillStyle = mouthGlow;
+  ctx.fillRect(craterLeft - 20, craterY - 15, (craterRight-craterLeft) + 40, 35);
+
+  ctx.restore();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
