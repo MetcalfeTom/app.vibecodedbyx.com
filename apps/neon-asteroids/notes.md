@@ -1,57 +1,23 @@
 # Neon Asteroids
 
+Blast neon asteroids with retro vector graphics and screen-shaking explosions.
+
 ## log
-- 2026-01-09: Initial creation
-  - Classic asteroids gameplay
-  - Neon glow effects on everything
-  - Glowing particle explosions
-  - Multiple asteroid colors
-  - 3 asteroid sizes that split
-  - Mobile touch controls
-  - Level progression
+- 2026-03-14: Initial build. Classic asteroids with neon vector wireframe aesthetic. Jagged asteroids with random vertices, 3 sizes (large=50px, medium=28px, small=14px). Asteroids split into 2 smaller on destroy. Scoring: large=20, medium=50, small=100. Screen shake on hits (scales with asteroid size). Line+dot particle explosions with random neon colors. Wave system (3+level asteroids per wave, speed scales). 3 lives with invincibility flicker on respawn. Thrust flame with orange particles. Wrap-around edges. Web Audio sounds. Mobile touch buttons. Press Start 2P + Share Tech Mono typography, cyan/teal/pink neon palette with motion trails.
 
-## features
-- Ship with rotation and thrust
-- Wrap-around screen edges
-- 3 asteroid sizes: large, medium, small
-- Asteroids split into smaller ones when hit
-- Colorful neon glow effects
-- Particle explosions on destruction
-- Thrust trail particles
-- Trail effect for motion blur
-- Lives system with invincibility
-- Level progression
-- Mobile touch controls with auto-fire
-
-## controls
-- WASD or Arrow keys: Rotate and thrust
-- Space: Fire
-- Mobile: Touch buttons for left/right/thrust/fire
-
-## scoring
-- Large asteroid: 100 points
-- Medium asteroid: 200 points
-- Small asteroid: 300 points
-
-## design
-- Pure black background
-- Cyan ship with glow
-- Multi-color asteroids (magenta, cyan, green, yellow, orange)
-- White bullets
-- Particle explosions match asteroid color
-- Orbitron font
-- Trail/motion blur effect
-
-## physics
-- Ship momentum and friction
-- Screen wrapping for all objects
-- Random asteroid vertices for organic shapes
-- Asteroid rotation
+## issues
+- None yet
 
 ## todos
-- Add UFO enemies
-- Add hyperspace jump
-- Add shield power-up
-- Add high score leaderboard
-- Add sound effects
-- Add screen shake on explosion
+- High score in localStorage
+- UFO enemy that flies across screen
+- Shield power-up
+- Hyperspace teleport (random position)
+
+## notes
+- No database — pure frontend
+- Ship speed capped at 8, friction 0.995
+- Fire cooldown: 8 frames, bullet life: 55 frames
+- Asteroid speed: (1.2 + level*0.15) * (4 - size) * 0.5
+- Invincibility: 120 frames on respawn
+- Canvas uses 0.25 alpha clear for motion trails
