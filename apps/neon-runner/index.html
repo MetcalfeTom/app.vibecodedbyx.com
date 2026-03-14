@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Neon Runner</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🏃">
+<meta property="og:title" content="Neon Runner">
+<meta property="og:description" content="Dodge glowing obstacles in this endless neon sprint. Tap to jump, swipe to slide.">
+<meta property="og:url" content="https://sloppy.live/neon-runner">
+<meta property="og:image" content="https://sloppy.live/neon-runner/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:#050510;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block}
+#ui{position:fixed;top:14px;left:0;width:100%;padding:0 18px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;z-index:10}
+#score{font-family:'Audiowide',sans-serif;font-size:22px;color:#0ff;text-shadow:0 0 12px #0ff}
+#hi{font-family:'Share Tech Mono',monospace;font-size:12px;color:rgba(0,255,255,0.4);margin-top:4px}
+#multi{font-family:'Audiowide',sans-serif;font-size:14px;color:#f0a;text-shadow:0 0 8px #f0a;opacity:0;transition:opacity .3s}
+.overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(5,5,16,0.9);z-index:20}
+.overlay h1{font-family:'Audiowide',sans-serif;font-size:clamp(26px,7vw,48px);color:#0ff;text-shadow:0 0 30px #0ff,0 0 60px rgba(0,240,255,0.3);margin-bottom:8px}
+.overlay .sub{font-family:'Share Tech Mono',monospace;font-size:13px;color:rgba(255,45,149,0.6);margin-bottom:30px;letter-spacing:2px}
+.overlay .controls-hint{font-family:'Share Tech Mono',monospace;font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:24px;text-align:center;line-height:2}
+.overlay button{font-family:'Audiowide',sans-serif;font-size:16px;background:none;border:2px solid #0ff;color:#0ff;padding:14px 40px;cursor:pointer;text-shadow:0 0 8px #0ff;transition:all .2s;border-radius:4px}
+.overlay button:hover{background:rgba(0,255,255,0.1)}
+#game-over-screen{display:none}
+#game-over-screen h1{color:#f44;text-shadow:0 0 30px #f44}
+#game-over-screen .final-score{font-family:'Audiowide',sans-serif;font-size:20px;color:#0ff;margin-bottom:6px}
+#game-over-screen .final-dist{font-family:'Share Tech Mono',monospace;font-size:13px;color:rgba(255,255,255,0.4);margin-bottom:24px}
+#backlink{position:fixed;bottom:6px;left:50%;transform:translateX(-50%);font-size:10px;z-index:10;opacity:0.25}
+#backlink a{color:#0ff;text-decoration:none;font-family:'Share Tech Mono',monospace}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div>
+    <div id="score">0</div>
+    <div id="hi"></div>
+  </div>
+  <div id="multi"></div>
+</div>
+<div class="overlay" id="start-screen">
+  <h1>NEON RUNNER</h1>
+  <div class="sub">// ENDLESS SPRINT //</div>
+  <div class="controls-hint">TAP / SPACE — Jump<br>SWIPE DOWN / S — Slide<br>LEFT / RIGHT — Lane switch</div>
+  <button onclick="startGame()">RUN</button>
+</div>
+<div class="overlay" id="game-over-screen">
+  <h1>CRASHED</h1>
+  <div class="final-score" id="final-score"></div>
+  <div class="final-dist" id="final-dist"></div>
+  <button onclick="startGame()">RETRY</button>
+</div>
+<div id="backlink"><a href="https://sloppy.live">sloppy.live</a></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, GROUND_Y, LANE_W, LANES_X;
+const NUM_LANES = 3;
+
+function resize() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  GROUND_Y = H * 0.72;
+  LANE_W = Math.min(W * 0.22, 90);
+  LANES_X = [W/2 - LANE_W, W/2, W/2 + LANE_W];
+}
+resize();
+addEventListener('resize', resize);
+
+// Audio
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function sfx(freq, dur, type, vol) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type || 'square';
+  o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  g.gain.setValueAtTime(vol || 0.06, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + dur);
+}
+
+// State
+let player, obstacles, particles, gridLines, pickups;
+let speed, score, distance, gameRunning, gameOver;
+let hiScore = parseInt(localStorage.getItem('neon-runner-hi') || '0');
+let frame, shakes, multiplier, multiTimer;
+
+const PLAYER_W = 22, PLAYER_H = 44, SLIDE_H = 18;
+const GRAVITY = 0.55, JUMP_VEL = -11;
+
+function initPlayer() {
+  return {
+    lane: 1, targetLane: 1,
+    x: LANES_X[1], y: GROUND_Y,
+    vy: 0, jumping: false, sliding: false, slideTimer: 0,
+    laneX: LANES_X[1], invincible: 0,
+    height: PLAYER_H, width: PLAYER_W
+  };
+}
+
+// Obstacle types
+function spawnObstacle() {
+  const lane = Math.floor(Math.random() * 3);
+  const types = ['block', 'tall', 'low', 'double'];
+  // Weight toward simpler types early
+  const typePool = distance < 500 ? ['block', 'block', 'low', 'tall'] : types;
+  const type = typePool[Math.floor(Math.random() * typePool.length)];
+  const colors = ['#0ff', '#f0a', '#0f8', '#f80', '#a0f', '#ff0'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+
+  const obs = { lane, x: LANES_X[lane], y: GROUND_Y, type, color, z: H + 100, passed: false };
+
+  if (type === 'block') { obs.w = 36; obs.h = 36; obs.y = GROUND_Y - 36; }
+  else if (type === 'tall') { obs.w = 28; obs.h = 70; obs.y = GROUND_Y - 70; }
+  else if (type === 'low') { obs.w = 50; obs.h = 20; obs.y = GROUND_Y - 48; obs.floating = true; }
+  else if (type === 'double') {
+    obs.w = 32; obs.h = 32; obs.y = GROUND_Y - 32;
+    // Add a second obstacle in different lane
+    const lane2 = (lane + 1 + Math.floor(Math.random() * 2)) % 3;
+    obstacles.push({ lane: lane2, x: LANES_X[lane2], y: GROUND_Y - 32, type: 'block', color, z: H + 100, w: 32, h: 32, passed: false });
+  }
+  obstacles.push(obs);
+}
+
+function spawnPickup() {
+  const lane = Math.floor(Math.random() * 3);
+  pickups.push({
+    lane, x: LANES_X[lane], z: H + 100,
+    y: GROUND_Y - 50 - Math.random() * 30,
+    type: Math.random() > 0.7 ? 'multi' : 'point',
+    collected: false
+  });
+}
+
+function startGame() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('game-over-screen').style.display = 'none';
+  player = initPlayer();
+  obstacles = []; particles = []; pickups = [];
+  gridLines = [];
+  for (let i = 0; i < 20; i++) gridLines.push({ z: i * (H * 0.08) });
+  speed = 4; score = 0; distance = 0; frame = 0;
+  shakes = []; multiplier = 1; multiTimer = 0;
+  gameRunning = true; gameOver = false;
+  updateUI();
+}
+
+function endGame() {
+  gameRunning = false; gameOver = true;
+  if (score > hiScore) { hiScore = score; localStorage.setItem('neon-runner-hi', hiScore); }
+  document.getElementById('final-score').textContent = 'SCORE: ' + score;
+  document.getElementById('final-dist').textContent = Math.floor(distance) + 'm';
+  document.getElementById('game-over-screen').style.display = 'flex';
+  sfx(200, 0.4, 'sawtooth', 0.1);
+  shakes.push(10);
+}
+
+function updateUI() {
+  document.getElementById('score').textContent = score;
+  document.getElementById('hi').textContent = hiScore > 0 ? 'HI ' + hiScore : '';
+  const m = document.getElementById('multi');
+  if (multiplier > 1) { m.textContent = 'x' + multiplier; m.style.opacity = 1; }
+  else { m.style.opacity = 0; }
+}
+
+// Input
+let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+
+function jump() {
+  if (!player.jumping && !player.sliding) {
+    player.vy = JUMP_VEL;
+    player.jumping = true;
+    sfx(300, 0.1, 'sine', 0.05);
+  }
+}
+
+function slide() {
+  if (!player.jumping && !player.sliding) {
+    player.sliding = true;
+    player.slideTimer = 30;
+    player.height = SLIDE_H;
+    sfx(150, 0.08, 'square', 0.04);
+  }
+}
+
+function moveLane(dir) {
+  const newLane = player.targetLane + dir;
+  if (newLane >= 0 && newLane < 3) {
+    player.targetLane = newLane;
+    sfx(500 + newLane * 100, 0.05, 'sine', 0.03);
+  }
+}
+
+addEventListener('keydown', e => {
+  if (!gameRunning) return;
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') { e.preventDefault(); jump(); }
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') { e.preventDefault(); slide(); }
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') moveLane(-1);
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') moveLane(1);
+});
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  touchStartX = t.clientX;
+  touchStartY = t.clientY;
+  touchStartTime = Date.now();
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!gameRunning) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStartX;
+  const dy = t.clientY - touchStartY;
+  const dt = Date.now() - touchStartTime;
+  const dist = Math.hypot(dx, dy);
+
+  if (dist < 20 && dt < 300) {
+    // Tap = jump
+    jump();
+  } else if (dist > 30) {
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // Horizontal swipe = lane change
+      moveLane(dx > 0 ? 1 : -1);
+    } else if (dy > 0) {
+      // Swipe down = slide
+      slide();
+    } else {
+      // Swipe up = jump
+      jump();
+    }
+  }
+}, { passive: false });
+
+// Particles
+function spawnParticles(x, y, count, color, spd) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = Math.random() * (spd || 3);
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s - 1, life: 25 + Math.random()*20, maxLife: 45, color, size: 1 + Math.random()*2 });
+  }
+}
+
+// Perspective helpers
+function perspY(z) { return GROUND_Y + (z - GROUND_Y) * 0.3; }
+function perspScale(z) { return Math.max(0.1, 1 - (H - z) / (H * 2)); }
+
+function update() {
+  if (!gameRunning) return;
+  frame++;
+
+  // Speed ramp
+  speed = 4 + distance * 0.003;
+  if (speed > 14) speed = 14;
+  distance += speed * 0.05;
+
+  // Player lane lerp
+  player.laneX += (LANES_X[player.targetLane] - player.laneX) * 0.18;
+  player.lane = player.targetLane;
+
+  // Jump physics
+  if (player.jumping) {
+    player.vy += GRAVITY;
+    player.y += player.vy;
+    if (player.y >= GROUND_Y) {
+      player.y = GROUND_Y;
+      player.vy = 0;
+      player.jumping = false;
+      // Land particles
+      spawnParticles(player.laneX, GROUND_Y, 4, '#0ff', 2);
+    }
+  }
+
+  // Slide
+  if (player.sliding) {
+    player.slideTimer--;
+    if (player.slideTimer <= 0) {
+      player.sliding = false;
+      player.height = PLAYER_H;
+    }
+  }
+
+  // Invincible
+  if (player.invincible > 0) player.invincible--;
+
+  // Obstacles
+  if (frame % Math.max(18, 55 - Math.floor(distance * 0.02)) === 0) spawnObstacle();
+  if (frame % 80 === 0) spawnPickup();
+
+  obstacles.forEach(o => { o.z -= speed; });
+  obstacles = obstacles.filter(o => o.z > -50);
+
+  // Pickups
+  pickups.forEach(p => { p.z -= speed; });
+  pickups = pickups.filter(p => p.z > -50 && !p.collected);
+
+  // Collision detection
+  const pH = player.height;
+  const pTop = player.y - pH;
+  const pLeft = player.laneX - PLAYER_W/2;
+  const pRight = player.laneX + PLAYER_W/2;
+
+  obstacles.forEach(o => {
+    if (o.passed) return;
+    // Only check when obstacle is at player depth
+    if (o.z > 10 || o.z < -20) return;
+    if (o.lane !== player.lane) return;
+
+    const oLeft = o.x - o.w/2;
+    const oRight = o.x + o.w/2;
+    const oTop = o.y;
+    const oBottom = o.y + o.h;
+
+    // AABB overlap
+    if (pRight > oLeft && pLeft < oRight && player.y > oTop && pTop < oBottom) {
+      // Floating obstacles can be slid under
+      if (o.floating && player.sliding) {
+        // Safe
+      } else if (player.invincible > 0) {
+        // Invincible - smash through
+        o.passed = true;
+        spawnParticles(o.x, o.y + o.h/2, 10, o.color, 4);
+        sfx(400, 0.1, 'sine', 0.04);
+      } else {
+        endGame();
+        spawnParticles(player.laneX, player.y - pH/2, 20, '#f44', 5);
+        return;
+      }
+    }
+
+    // Score for passing
+    if (o.z < -5 && !o.passed) {
+      o.passed = true;
+      score += 10 * multiplier;
+      updateUI();
+    }
+  });
+
+  // Pickup collection
+  pickups.forEach(p => {
+    if (p.collected) return;
+    if (p.z > 10 || p.z < -15) return;
+    if (p.lane !== player.lane) return;
+    p.collected = true;
+    if (p.type === 'multi') {
+      multiplier = Math.min(multiplier + 1, 5);
+      multiTimer = 300;
+      sfx(700, 0.15, 'sine', 0.06);
+      sfx(900, 0.15, 'sine', 0.04);
+    } else {
+      score += 25 * multiplier;
+      sfx(600, 0.08, 'sine', 0.04);
+    }
+    spawnParticles(p.x, p.y, 8, p.type === 'multi' ? '#f0a' : '#ff0', 3);
+    updateUI();
+  });
+
+  // Multiplier timer
+  if (multiTimer > 0) {
+    multiTimer--;
+    if (multiTimer <= 0) { multiplier = 1; updateUI(); }
+  }
+
+  // Distance score
+  if (frame % 10 === 0) {
+    score += multiplier;
+    updateUI();
+  }
+
+  // Grid lines
+  gridLines.forEach(g => {
+    g.z -= speed * 0.5;
+    if (g.z < 0) g.z += H * 0.08 * 20;
+  });
+
+  // Particles
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.life--; });
+  particles = particles.filter(p => p.life > 0);
+
+  // Shakes
+  shakes = shakes.map(s => s * 0.85).filter(s => s > 0.3);
+}
+
+function draw() {
+  // Clear
+  ctx.fillStyle = '#050510';
+  ctx.fillRect(0, 0, W, H);
+
+  const sx = shakes.reduce((a,s) => a + (Math.random()-0.5)*s, 0);
+  const sy = shakes.reduce((a,s) => a + (Math.random()-0.5)*s, 0);
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  // Horizon gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  grad.addColorStop(0, '#050510');
+  grad.addColorStop(0.6, '#0a0a20');
+  grad.addColorStop(1, '#0c0818');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, GROUND_Y);
+
+  // Stars
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  for (let i = 0; i < 40; i++) {
+    const sx2 = ((i * 137.5 + frame * 0.02) % W);
+    const sy2 = ((i * 73.1) % (GROUND_Y * 0.6));
+    ctx.fillRect(sx2, sy2, 1, 1);
+  }
+
+  // Sun/moon
+  const sunY = GROUND_Y * 0.35;
+  const sunGrad = ctx.createRadialGradient(W/2, sunY, 10, W/2, sunY, 80);
+  sunGrad.addColorStop(0, 'rgba(255,45,149,0.4)');
+  sunGrad.addColorStop(0.5, 'rgba(179,71,234,0.1)');
+  sunGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = sunGrad;
+  ctx.fillRect(0, 0, W, GROUND_Y);
+
+  // Grid floor
+  ctx.strokeStyle = 'rgba(0,255,255,0.08)';
+  ctx.lineWidth = 1;
+  // Horizontal grid lines
+  gridLines.forEach(g => {
+    const gy = GROUND_Y + g.z * 0.4;
+    if (gy < GROUND_Y || gy > H) return;
+    const fade = 1 - (gy - GROUND_Y) / (H - GROUND_Y);
+    ctx.globalAlpha = fade * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(0, gy);
+    ctx.lineTo(W, gy);
+    ctx.stroke();
+  });
+  // Vertical grid (vanishing point)
+  ctx.globalAlpha = 0.15;
+  const vpX = W/2, vpY = GROUND_Y;
+  for (let i = -8; i <= 8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(vpX, vpY);
+    ctx.lineTo(vpX + i * LANE_W * 3, H);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Ground line
+  ctx.strokeStyle = '#0ff';
+  ctx.shadowColor = '#0ff';
+  ctx.shadowBlur = 8;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  ctx.lineTo(W, GROUND_Y);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Lane markers
+  ctx.setLineDash([8, 12]);
+  ctx.strokeStyle = 'rgba(0,255,255,0.12)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(LANES_X[i], GROUND_Y);
+    ctx.lineTo(LANES_X[i], GROUND_Y + 4);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  if (!gameRunning && !gameOver) { ctx.restore(); return; }
+
+  // Draw obstacles (sorted by z for depth)
+  const sortedObs = obstacles.filter(o => o.z < H + 50).sort((a,b) => b.z - a.z);
+  sortedObs.forEach(o => {
+    const depthFactor = Math.max(0, Math.min(1, 1 - o.z / H));
+    const scale = 0.3 + depthFactor * 0.7;
+    const drawY = GROUND_Y - o.h * scale;
+    const drawX = W/2 + (o.x - W/2) * scale;
+    const drawW = o.w * scale;
+    const drawH = o.h * scale;
+
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, depthFactor * 2);
+    ctx.strokeStyle = o.color;
+    ctx.shadowColor = o.color;
+    ctx.shadowBlur = 12 * scale;
+    ctx.lineWidth = 2;
+
+    // Glowing block
+    ctx.strokeRect(drawX - drawW/2, drawY, drawW, drawH);
+    // Inner glow
+    ctx.fillStyle = o.color.replace(')', ',0.08)').replace('rgb', 'rgba').replace('#', '');
+    // Approximate fill
+    ctx.globalAlpha *= 0.15;
+    ctx.fillStyle = o.color;
+    ctx.fillRect(drawX - drawW/2, drawY, drawW, drawH);
+
+    // Cross pattern for tall obstacles
+    if (o.type === 'tall') {
+      ctx.globalAlpha = depthFactor * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(drawX - drawW/2, drawY);
+      ctx.lineTo(drawX + drawW/2, drawY + drawH);
+      ctx.moveTo(drawX + drawW/2, drawY);
+      ctx.lineTo(drawX - drawW/2, drawY + drawH);
+      ctx.stroke();
+    }
+    // Floating indicator
+    if (o.floating) {
+      ctx.globalAlpha = depthFactor * 0.4;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(drawX - drawW/2, drawY + drawH);
+      ctx.lineTo(drawX - drawW/2, GROUND_Y);
+      ctx.moveTo(drawX + drawW/2, drawY + drawH);
+      ctx.lineTo(drawX + drawW/2, GROUND_Y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  });
+
+  // Draw pickups
+  pickups.forEach(p => {
+    if (p.collected) return;
+    const depthFactor = Math.max(0, Math.min(1, 1 - p.z / H));
+    const scale = 0.3 + depthFactor * 0.7;
+    const drawX = W/2 + (p.x - W/2) * scale;
+    const drawY = GROUND_Y - (GROUND_Y - p.y) * scale;
+    const size = 8 * scale;
+    const bob = Math.sin(frame * 0.08 + p.x) * 3 * scale;
+    const color = p.type === 'multi' ? '#f0a' : '#ff0';
+
+    ctx.save();
+    ctx.globalAlpha = depthFactor;
+    ctx.translate(drawX, drawY + bob);
+    ctx.rotate(frame * 0.04);
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 2;
+    // Diamond shape
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.lineTo(size, 0);
+    ctx.lineTo(0, size);
+    ctx.lineTo(-size, 0);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.globalAlpha *= 0.2;
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // Draw player
+  if (player && (gameRunning || gameOver)) {
+    const px = player.laneX;
+    const py = player.y;
+    const pH = player.height;
+    const flicker = player.invincible > 0 && Math.floor(player.invincible / 3) % 2;
+
+    if (!flicker) {
+      ctx.save();
+      ctx.shadowColor = '#0ff';
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = '#0ff';
+      ctx.lineWidth = 2;
+
+      if (player.sliding) {
+        // Sliding pose - low rectangle
+        ctx.strokeRect(px - 14, py - SLIDE_H, 28, SLIDE_H);
+        ctx.fillStyle = 'rgba(0,255,255,0.08)';
+        ctx.fillRect(px - 14, py - SLIDE_H, 28, SLIDE_H);
+        // Speed lines
+        ctx.strokeStyle = 'rgba(0,255,255,0.3)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+          const ly = py - SLIDE_H/2 + (i-1) * 5;
+          ctx.beginPath();
+          ctx.moveTo(px - 20 - Math.random()*10, ly);
+          ctx.lineTo(px - 30 - Math.random()*15, ly);
+          ctx.stroke();
+        }
+      } else {
+        // Running figure - body
+        ctx.strokeRect(px - 8, py - pH, 16, pH * 0.55);
+        // Head
+        ctx.beginPath();
+        ctx.arc(px, py - pH - 5, 7, 0, Math.PI * 2);
+        ctx.stroke();
+        // Legs - animated
+        const legPhase = Math.sin(frame * 0.3) * 8;
+        ctx.beginPath();
+        ctx.moveTo(px, py - pH * 0.45);
+        ctx.lineTo(px + legPhase, py);
+        ctx.moveTo(px, py - pH * 0.45);
+        ctx.lineTo(px - legPhase, py);
+        ctx.stroke();
+        // Arms
+        const armPhase = Math.sin(frame * 0.3 + Math.PI) * 6;
+        ctx.beginPath();
+        ctx.moveTo(px, py - pH * 0.75);
+        ctx.lineTo(px + armPhase + 8, py - pH * 0.5);
+        ctx.moveTo(px, py - pH * 0.75);
+        ctx.lineTo(px - armPhase - 8, py - pH * 0.5);
+        ctx.stroke();
+        // Glow fill
+        ctx.fillStyle = 'rgba(0,255,255,0.05)';
+        ctx.fillRect(px - 8, py - pH, 16, pH * 0.55);
+      }
+
+      // Trail
+      ctx.globalAlpha = 0.15;
+      ctx.strokeStyle = '#0ff';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 3; i++) {
+        ctx.globalAlpha = 0.1 / i;
+        ctx.strokeRect(px - 8 - i*2, py - pH + i, 16 + i*4, (player.sliding ? SLIDE_H : pH * 0.55));
+      }
+      ctx.restore();
+    }
+  }
+
+  // Particles
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life / p.maxLife;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 4;
+    ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+  });
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+
+  // Distance meter
+  if (gameRunning) {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.font = '11px "Share Tech Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.floor(distance) + 'm', W/2, H - 12);
+  }
+
+  ctx.restore();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+if (hiScore > 0) document.getElementById('hi').textContent = 'HI ' + hiScore;
+</script>
+</body>
+</html>
