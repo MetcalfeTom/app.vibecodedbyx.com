@@ -5,6 +5,8 @@ Trade ADI and BORSH in a chaotic retro stock terminal. Buy the dip or ride the c
 ## log
 - 2026-03-14: Initial build. Simulated stock market with $ADI (Adidas Digital Index, start $100) and $BORSH (Borscht Protocol, start $50). Random walk with momentum, mean reversion, volatility spikes, and mega events. Real-time canvas price charts (200-tick history). Scrolling ticker tape with 8 symbols (2 real + 6 decorative). Trading terminal: buy/sell/YOLO all-in. Portfolio tracker with cash, holdings, total value, P/L. Event log with timestamped entries. Chaos events (1% per tick): correlated crashes, volatility spikes, sector rotations, new session days. Breaking news flashes for bull/bear/chaos events. CRT aesthetic: scanlines, vignette, screen flicker. VT323 + IBM Plex Mono typography, green/red/amber terminal palette.
 
+- 2026-03-14: Added Chaos Tax system. Inactivity meter builds after 15s of no interaction (clicks, keys, touches, trades). 4 levels: Dormant (green) < Building (amber) < Draining (red) < Critical (pulsing red). Tax drains 0.5%-2.5% of total portfolio value at escalating frequency. Force-liquidates shares if cash runs out. Warning messages at 25/50/75% thresholds. Breaking news flash at 50%. Activity resets the meter. Visual progress bar in portfolio section.
+
 ## issues
 - None yet
 
