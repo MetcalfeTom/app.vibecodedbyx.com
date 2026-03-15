@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Neon Sand</title>
+<link rel="icon" href="https://emojicdn.elk.sh/⏳">
+<meta property="og:title" content="Neon Sand">
+<meta property="og:description" content="Draw with falling neon sand. Watch glowing grains pile up, stack, and cascade in a pixel physics sim.">
+<meta property="og:url" content="https://app.sloppy.live/neon-sand/">
+<meta property="og:image" content="https://image.pollinations.ai/prompt/neon%20sand%20falling%20pixel%20physics%20simulation%20glowing%20particles%20dark%20background%20colorful?width=1200&height=630&nologo=true&referrer=sloppy.live">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#060608;font-family:'DotGothic16',monospace;user-select:none;touch-action:none}
+canvas{display:block;image-rendering:pixelated;cursor:crosshair}
+#ui{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;flex-wrap:wrap;justify-content:center;align-items:center}
+.btn{font-family:'Silkscreen',monospace;font-size:10px;padding:6px 12px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:#888;cursor:pointer;transition:all .2s;border-radius:3px}
+.btn:hover{background:rgba(255,255,255,0.08);color:#fff}
+.btn.active{border-color:var(--c,#0ff);color:var(--c,#0ff);background:rgba(255,255,255,0.05)}
+.color-btn{width:24px;height:24px;border-radius:50%;border:2px solid rgba(255,255,255,0.1);cursor:pointer;transition:all .15s}
+.color-btn:hover{transform:scale(1.2)}
+.color-btn.active{border-color:#fff;transform:scale(1.25);box-shadow:0 0 8px var(--c)}
+#stats{position:absolute;top:8px;right:12px;font-family:'Silkscreen',monospace;font-size:10px;color:#333;z-index:10}
+#stats span{color:#666}
+#brush-size{width:60px;accent-color:#0ff;cursor:pointer}
+#backlink{position:absolute;top:8px;left:12px;font-size:9px;color:#222;text-decoration:none;z-index:10}
+#backlink:hover{color:#0ff}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="stats">Grains: <span id="s-count">0</span> | FPS: <span id="s-fps">0</span></div>
+<div id="ui">
+  <div class="color-btn active" style="--c:#00ffff;background:#00ffff" data-r="0" data-g="255" data-b="255"></div>
+  <div class="color-btn" style="--c:#ff00ff;background:#ff00ff" data-r="255" data-g="0" data-b="255"></div>
+  <div class="color-btn" style="--c:#ff3300;background:#ff3300" data-r="255" data-g="51" data-b="0"></div>
+  <div class="color-btn" style="--c:#00ff66;background:#00ff66" data-r="0" data-g="255" data-b="102"></div>
+  <div class="color-btn" style="--c:#ffcc00;background:#ffcc00" data-r="255" data-g="204" data-b="0"></div>
+  <div class="color-btn" style="--c:#ff6699;background:#ff6699" data-r="255" data-g="102" data-b="153"></div>
+  <div class="color-btn" style="--c:#6644ff;background:#6644ff" data-r="102" data-g="68" data-b="255"></div>
+  <div class="color-btn" style="--c:#ffffff;background:#ffffff" data-r="255" data-g="255" data-b="255"></div>
+  <input type="range" id="brush-size" min="1" max="8" value="3" title="Brush size">
+  <button class="btn" id="btn-rain">Rain</button>
+  <button class="btn" id="btn-wall">Wall</button>
+  <button class="btn" id="btn-erase">Erase</button>
+  <button class="btn" id="btn-clear">Clear</button>
+</div>
+<a id="backlink" href="https://sloppy.live" target="_blank">sloppy.live</a>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// Grid resolution
+const PX = 3;
+let GW, GH;
+let grid; // 0 = empty, otherwise packed RGBA
+let imageData;
+
+function resize() {
+  GW = Math.floor(window.innerWidth / PX);
+  GH = Math.floor(window.innerHeight / PX);
+  canvas.width = GW;
+  canvas.height = GH;
+  canvas.style.width = GW * PX + 'px';
+  canvas.style.height = GH * PX + 'px';
+  const newGrid = new Uint32Array(GW * GH);
+  if (grid) {
+    const copyW = Math.min(GW, prevGW || 0);
+    const copyH = Math.min(GH, prevGH || 0);
+    for (let y = 0; y < copyH; y++) {
+      for (let x = 0; x < copyW; x++) {
+        newGrid[y * GW + x] = grid[y * (prevGW || GW) + x];
+      }
+    }
+  }
+  prevGW = GW; prevGH = GH;
+  grid = newGrid;
+  imageData = ctx.createImageData(GW, GH);
+}
+let prevGW = 0, prevGH = 0;
+resize();
+window.addEventListener('resize', resize);
+
+// Cell types encoded in Uint32:
+// 0 = empty
+// Bit 31 = wall flag
+// Bits 0-23 = RGB color
+// Bit 24-30 = reserved
+const WALL_BIT = 0x80000000;
+
+function packColor(r, g, b) { return (r << 16) | (g << 8) | b; }
+function unpackR(v) { return (v >> 16) & 0xFF; }
+function unpackG(v) { return (v >> 8) & 0xFF; }
+function unpackB(v) { return v & 0xFF; }
+function isWall(v) { return (v & WALL_BIT) !== 0; }
+function isSand(v) { return v !== 0 && !isWall(v); }
+
+let currentR = 0, currentG = 255, currentB = 255;
+let brushSize = 3;
+let mode = 'sand'; // sand, wall, erase, rain
+let raining = false;
+let drawing = false;
+let mouseX = -1, mouseY = -1;
+let grainCount = 0;
+
+// Sand physics
+function simulate() {
+  // Bottom-up so sand falls correctly
+  for (let y = GH - 2; y >= 0; y--) {
+    // Alternate scan direction for natural spreading
+    const startX = (y & 1) ? 0 : GW - 1;
+    const endX = (y & 1) ? GW : -1;
+    const stepX = (y & 1) ? 1 : -1;
+
+    for (let x = startX; x !== endX; x += stepX) {
+      const idx = y * GW + x;
+      const v = grid[idx];
+      if (v === 0 || isWall(v)) continue;
+
+      const below = (y + 1) * GW + x;
+      // Fall down
+      if (grid[below] === 0) {
+        grid[below] = v;
+        grid[idx] = 0;
+        continue;
+      }
+      // Slide diagonals
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const dl = (y + 1) * GW + (x + dir);
+      const dr = (y + 1) * GW + (x - dir);
+      if (x + dir >= 0 && x + dir < GW && grid[dl] === 0) {
+        grid[dl] = v;
+        grid[idx] = 0;
+      } else if (x - dir >= 0 && x - dir < GW && grid[dr] === 0) {
+        grid[dr] = v;
+        grid[idx] = 0;
+      }
+    }
+  }
+}
+
+function spawnGrains(cx, cy, size, r, g, b, wall) {
+  for (let dy = -size; dy <= size; dy++) {
+    for (let dx = -size; dx <= size; dx++) {
+      if (dx*dx + dy*dy > size*size) continue;
+      const gx = cx + dx, gy = cy + dy;
+      if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) continue;
+      const idx = gy * GW + gx;
+      if (mode === 'erase') {
+        grid[idx] = 0;
+      } else if (grid[idx] === 0) {
+        if (Math.random() < 0.6) {
+          // Slight color variation
+          const vr = Math.max(0, Math.min(255, r + Math.floor((Math.random()-0.5)*30)));
+          const vg = Math.max(0, Math.min(255, g + Math.floor((Math.random()-0.5)*30)));
+          const vb = Math.max(0, Math.min(255, b + Math.floor((Math.random()-0.5)*30)));
+          grid[idx] = packColor(vr, vg, vb) | (wall ? WALL_BIT : 0);
+        }
+      }
+    }
+  }
+}
+
+function render() {
+  const data = imageData.data;
+  grainCount = 0;
+  for (let i = 0; i < GW * GH; i++) {
+    const v = grid[i];
+    const di = i * 4;
+    if (v === 0) {
+      data[di] = 6; data[di+1] = 6; data[di+2] = 8; data[di+3] = 255;
+    } else {
+      const raw = v & 0x7FFFFFFF;
+      let r = unpackR(raw), g = unpackG(raw), b = unpackB(raw);
+      if (isWall(v)) {
+        // Walls slightly dimmer
+        r = Math.floor(r * 0.4);
+        g = Math.floor(g * 0.4);
+        b = Math.floor(b * 0.4);
+      }
+      data[di] = r; data[di+1] = g; data[di+2] = b; data[di+3] = 255;
+      grainCount++;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+// Rain
+function doRain() {
+  if (!raining) return;
+  for (let i = 0; i < Math.ceil(GW / 12); i++) {
+    const rx = Math.floor(Math.random() * GW);
+    if (grid[rx] === 0) {
+      const vr = Math.max(0, Math.min(255, currentR + Math.floor((Math.random()-0.5)*40)));
+      const vg = Math.max(0, Math.min(255, currentG + Math.floor((Math.random()-0.5)*40)));
+      const vb = Math.max(0, Math.min(255, currentB + Math.floor((Math.random()-0.5)*40)));
+      grid[rx] = packColor(vr, vg, vb);
+    }
+  }
+}
+
+// Drawing
+function handleDraw() {
+  if (!drawing || mouseX < 0) return;
+  const isWallMode = mode === 'wall';
+  spawnGrains(mouseX, mouseY, brushSize, currentR, currentG, currentB, isWallMode);
+}
+
+// Input
+function getGridPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX);
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY);
+  return {
+    x: Math.floor((cx - rect.left) / PX),
+    y: Math.floor((cy - rect.top) / PX)
+  };
+}
+
+canvas.addEventListener('mousedown', e => { drawing = true; const p = getGridPos(e); mouseX = p.x; mouseY = p.y; handleDraw(); });
+canvas.addEventListener('mousemove', e => { const p = getGridPos(e); mouseX = p.x; mouseY = p.y; if (drawing) handleDraw(); });
+canvas.addEventListener('mouseup', () => drawing = false);
+canvas.addEventListener('mouseleave', () => drawing = false);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; const p = getGridPos(e); mouseX = p.x; mouseY = p.y; handleDraw(); }, {passive:false});
+canvas.addEventListener('touchmove', e => { e.preventDefault(); const p = getGridPos(e); mouseX = p.x; mouseY = p.y; if (drawing) handleDraw(); }, {passive:false});
+canvas.addEventListener('touchend', () => drawing = false);
+
+// Color buttons
+document.querySelectorAll('.color-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentR = parseInt(btn.dataset.r);
+    currentG = parseInt(btn.dataset.g);
+    currentB = parseInt(btn.dataset.b);
+    if (mode === 'erase') mode = 'sand';
+    updateModeButtons();
+  });
+});
+
+document.getElementById('brush-size').addEventListener('input', e => { brushSize = parseInt(e.target.value); });
+
+document.getElementById('btn-rain').addEventListener('click', () => {
+  raining = !raining;
+  updateModeButtons();
+});
+document.getElementById('btn-wall').addEventListener('click', () => {
+  mode = mode === 'wall' ? 'sand' : 'wall';
+  updateModeButtons();
+});
+document.getElementById('btn-erase').addEventListener('click', () => {
+  mode = mode === 'erase' ? 'sand' : 'erase';
+  updateModeButtons();
+});
+document.getElementById('btn-clear').addEventListener('click', () => {
+  grid.fill(0);
+  raining = false;
+  updateModeButtons();
+});
+
+function updateModeButtons() {
+  document.getElementById('btn-rain').classList.toggle('active', raining);
+  document.getElementById('btn-wall').classList.toggle('active', mode === 'wall');
+  document.getElementById('btn-erase').classList.toggle('active', mode === 'erase');
+}
+
+// FPS counter
+let lastTime = performance.now(), frames = 0, fps = 0;
+
+function loop() {
+  simulate();
+  doRain();
+  handleDraw();
+  render();
+
+  frames++;
+  const now = performance.now();
+  if (now - lastTime >= 1000) {
+    fps = frames;
+    frames = 0;
+    lastTime = now;
+  }
+  document.getElementById('s-count').textContent = grainCount;
+  document.getElementById('s-fps').textContent = fps;
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
