@@ -1,98 +1,29 @@
 # Neon Aquarium
 
+A glowing 3D aquarium where neon fish change color every time you type. Watch them swim and pulse.
+
 ## log
-- 2026-01-17: Slowed Logic Fish by 30%
-  - Reduced maxSpeed from 2-3 to 1.4-2.1
-  - More relaxed, zen-like schooling behavior
-- 2026-01-17: Added Logic Fish (Boids-style schooling AI fish)
-  - Neon glowing fish with circuit board patterns
-  - Boids algorithm: separation, alignment, cohesion
-  - School together and react as a group
-  - Flee from the submarine when it gets close
-  - 5 color schemes with contrasting accent colors
-  - Animated tail fins and pulsing circuit nodes
-  - Sleek futuristic body shape
-  - Glowing eyes matching accent color
-  - Click "+ Logic Fish" button adds 5 fish at once
-- 2026-01-08: Added Neon Green Skeleton Fish
-  - Ghostly skeleton fish haunting the deep
-  - Full bone structure: spine, ribs, skull, fins
-  - Animated jaw that opens and closes
-  - Glowing eye sockets
-  - Eerie flickering opacity effect
-  - Stay in the lower/deeper parts of aquarium
-  - 4 neon green color variants
-- 2026-01-08: Added Player-Controlled Yellow Submarine
-  - Neon yellow submarine with laser headlights
-  - Control panel UI (arrow buttons) in bottom-left
-  - Keyboard controls: Arrow keys or WASD
-  - Touch/click controls for mobile
-  - Propeller spins based on speed
-  - Submarine spawns bubbles when moving
-  - Laser headlights sweep and pulse
-  - Cyan portholes with shine effect
-  - Periscope and conning tower
-- 2026-01-08: Added Disco Crabs with Glowing Party Hats
-  - Neon crabs sidestepping along the sea floor
-  - Snapping claws synchronized to the beat
-  - Glowing party hats with color-cycling stripes
-  - Eyes on stalks, 6 legs per crab
-  - All crabs dance together to beatPhase
-  - 5 color schemes with matching hat colors
-- 2026-01-08: Added Rave Whales with Laser Eyes
-  - Massive neon whales swimming across screen
-  - LASER BEAMS shooting from eyes
-  - Wagging tails and bobbing animation
-  - Neon stripe rave patterns on body
-  - 4 color schemes with matching laser colors
-  - Whales swim left/right and wrap around
-- 2026-01-08: Added DJ Octopuses
-  - Neon DJ octopuses with headphones
-  - 8 tentacles dancing to the beat
-  - Spinning turntables with records
-  - Mixer with animated faders and LEDs
-  - Bobbing/bouncing to beat animation
-  - Multiple color schemes
-- 2026-01-08: Initial creation
-  - Pulsing jellyfish with wavy tentacles
-  - Swaying neon seaweed with fronds
-  - Rising bubbles with wobble
-  - Ambient floating particles
-  - Light rays from above
-  - Click anywhere to spawn jellyfish
-  - Control buttons for adding creatures
+- 2026-03-15: Initial build. 3D aquarium using Three.js with 12 neon fish. Glass tank with edge wireframe, sand floor (displaced plane), 18 seaweed plants with sway animation, 10 rocks (dodecahedron). Fish: ellipsoid body + cone tail + dorsal fin + eyes, each with emissive material and point light for glow effect. Fish AI: random target points, smooth steering, tail wagging, speed variation, gentle bobbing. Chat input at bottom — typing a message hashes the text to a new hue and all fish smoothly transition to new color palette. Color flash overlay on send. Fish get an excitement burst (speed boost + new targets) on each message. Auto-chat: random bot messages trigger color changes every 8-20s. Bubbles rise from random points with wobble. Caustic spotlight drifts across sand. Camera gently orbits. Anybody + IBM Plex Mono typography, deep ocean dark palette with bioluminescent accents.
 
-## features
-- 6 different jellyfish color schemes
-- Jellyfish with pulsing bells and flowing tentacles
-- Seaweed with multiple segments and leaf fronds
-- Bubbles rising with realistic wobble
-- Ambient particle system
-- Light ray effects
-- Sandy bottom gradient
-
-## controls
-- Click canvas: spawn jellyfish at click location
-- + Jellyfish button: add random jellyfish
-- + Seaweed button: add random seaweed
-- Bubbles button: toggle bubbles on/off
-
-## design
-- Deep sea gradient background
-- Multiple neon colors (magenta, cyan, pink, purple, green, gold)
-- Glow effects on all creatures
-- Quicksand font for ethereal feel
-- Semi-transparent UI
-
-## technical
-- Canvas 2D rendering
-- Sine wave animations for pulsing and swaying
-- Quadratic curves for tentacles and leaves
-- Particle system for ambient effect
+## issues
+- importmap + ES module gives expected "new Function" validation errors (works in browser)
 
 ## todos
-- Add fish swimming between seaweed
-- Add coral decorations
-- Add ambient ocean sounds
-- Add day/night cycle
-- Add touch drag to guide jellyfish
+- Different fish species/shapes
+- Click fish to see info
+- Feed the fish (click to drop food, fish chase it)
+- Day/night cycle
+- Supabase chat for real multiplayer color changes
+- Treasure chest decoration with bubbles
+
+## notes
+- No database — local chat only with auto-bot messages
+- Three.js 0.163.0 via CDN importmap
+- 12 fish, each with unique hue offset from global hue
+- Color hash: char code accumulation, modulo 1000, mapped to 0..1 hue
+- Fish speed: 0.3-0.8 base, +0.2 burst on chat, decays at 0.998/frame
+- Retarget: every 150-400 frames, fish picks new random point in tank
+- Tank: 30x14x16 units, glass MeshPhysicalMaterial, BackSide rendering
+- Plants: 5-11 blades per cluster, sine-wave sway
+- Bubbles: spheres rising at 0.01-0.03/frame, removed at tank top
+- Camera: gentle sinusoidal orbit around center
