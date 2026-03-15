@@ -1,58 +1,28 @@
 # Neon Invaders
 
+Blast waves of neon pixel invaders in this retro arcade shooter.
+
 ## log
-- 2026-01-10: Initial creation
-  - Classic space invaders gameplay
-  - Rainbow gradient laser beams
-  - Screen shake on explosions
-  - Shield barriers that degrade
-  - Wave progression system
-  - Mobile touch controls
-  - Particle explosions
+- 2026-01-10: Original build — emoji-based invaders, rainbow gradient lasers, CSS screen shake, Orbitron font.
+- 2026-03-15: Complete rebuild as retro pixel art version. 240x320 native resolution with crisp pixel scaling. 3 invader types with hand-drawn 8x8 sprites (crab/squid/octopus), 2 animation frames each. Player ship pixel sprite with engine glow. Classic formation march with edge-drop and speed ramp. Enemy aimed shots at wave 3+. 4 destructible shield barriers (3HP per block). 4 powerup types (rapid, shield, triple, bomb). Scrolling starfield. Hi-score localStorage. Title screen with animated demo. Mobile touch controls. Full Web Audio (shoot/hit/explosion/death/wave chime/powerup). Press Start 2P typography, pure black + neon palette.
 
-## features
-- 5 rows x 11 columns of invaders
-- 3 invader types with different emojis (👾, 👽, 🛸)
-- Rainbow laser beams using HSL gradient
-- Screen shake effect via CSS transform
-- 4 shield barriers that degrade pixel by pixel
-- Enemy bullets that damage shields
-- Wave progression with speed increase
-- Particle explosions on death
-- Lives system (3 lives)
-- Local high score storage
-- Mobile touch controls
-
-## controls
-- Left/Right Arrow or A/D: Move ship
-- Space: Fire rainbow laser
-- Mobile: Touch buttons for left/right/fire
-
-## scoring
-- Bottom row (👾): 10 points
-- Middle rows (👽): 20 points
-- Top rows (🛸): 30 points
-
-## design
-- Dark background (#0a0a0f)
-- Cyan player ship with neon glow
-- Rainbow gradient bullets (rotating hue)
-- Multi-color invaders with glow
-- Green shields with pixel damage
-- Magenta enemy bullets
-- Screen shake intensity based on explosion
-- Orbitron font
-
-## mechanics
-- Invaders move left/right, drop down at edges
-- Speed increases as invaders are destroyed
-- Shields absorb bullets from both sides
-- Player has brief invincibility after death
-- Wave complete when all invaders destroyed
+## issues
+- None yet
 
 ## todos
-- Add UFO bonus enemy across top
-- Add sound effects
-- Add power-ups (spread shot, shield)
-- Add Supabase leaderboard
-- Add boss waves every 5 levels
+- UFO bonus (flies across top)
+- Boss invaders every 5 waves
+- Leaderboard via Supabase
+- Screen-clear bomb animation
+
+## notes
+- No database — localStorage for hi-score key: neon-invaders-hi
+- Native resolution: 240x320 with pixel scaling (up to 3x)
+- Sprites: 8x8 string arrays, drawn as 2px filled squares
+- 3 invader types: crab 10pts, squid 20pts, octopus 30pts (score * wave)
+- Invader speed: max(0.3, 1.2-wave*0.06)s base, scales inversely with alive count
+- Enemy shoot: 0.3+wave*0.05 chance per step, 10% aimed at wave 3+
+- Shields: 4 barriers, 5x4 pixel blocks, 3HP each
+- Powerup drop: 5% per kill (rapid/shield/triple/bomb)
+- Rows: min(5, 3+wave/3), Cols: min(10, 7+wave/4)
+- Player speed: 120px/s, bullet: 200px/s up, shoot cooldown: 0.25s
