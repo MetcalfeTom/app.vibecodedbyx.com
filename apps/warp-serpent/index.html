@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Warp Serpent — Snake with Gravity & Portals</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🐍">
+<meta property="og:title" content="Warp Serpent">
+<meta property="og:description" content="Neon snake with gravity wells that pull you and portals that warp you.">
+<meta property="og:url" content="https://app.sloppy.live/warp-serpent/">
+<meta property="og:image" content="https://emojicdn.elk.sh/🐍?style=google">
+<link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#04060a;color:#88ccff;font-family:'Share Tech Mono',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow:hidden}
+h1{font-family:'Audiowide',sans-serif;font-size:clamp(14px,3vw,22px);color:#22ddff;text-shadow:0 0 12px rgba(34,221,255,0.5);letter-spacing:3px;margin:6px 0 2px}
+canvas{display:block;border:1px solid #0a1520}
+.hud{font-family:'Audiowide',sans-serif;font-size:clamp(11px,2vw,14px);display:flex;gap:16px;padding:4px;letter-spacing:1px}
+.hud .sc{color:#22ddff}.hud .hi{color:#ff44aa}.hud .len{color:#44ffaa}
+.dpad{display:grid;grid-template-columns:44px 44px 44px;gap:2px;padding:4px}
+.dpad button{width:44px;height:44px;background:rgba(34,221,255,0.06);color:#22ddff;border:1px solid rgba(34,221,255,0.2);font-size:18px;cursor:pointer;border-radius:6px;-webkit-tap-highlight-color:transparent}
+.dpad button:active{background:rgba(34,221,255,0.2)}
+.dpad .e{background:transparent;border:none}
+.info{font-size:9px;color:#1a3040;padding:2px}
+.info a{color:#1a3040;text-decoration:none}.info a:hover{color:#22ddff}
+@media(min-width:600px){.dpad{display:none}}
+</style>
+</head>
+<body>
+<h1>WARP SERPENT</h1>
+<canvas id="c"></canvas>
+<div class="hud">
+<span class="sc" id="scoreText">0</span>
+<span class="hi" id="hiText">HI: 0</span>
+<span class="len" id="lenText">LEN: 3</span>
+</div>
+<div class="dpad">
+<div class="e"></div><button ontouchstart="setDir(0,-1)">▲</button><div class="e"></div>
+<button ontouchstart="setDir(-1,0)">◄</button><div class="e"></div><button ontouchstart="setDir(1,0)">►</button>
+<div class="e"></div><button ontouchstart="setDir(0,1)">▼</button><div class="e"></div>
+</div>
+<div class="info">WASD/Arrows — <a href="https://sloppy.live">sloppy.live</a></div>
+
+<script>
+const C=document.getElementById('c');
+const ctx=C.getContext('2d');
+const CELL=16,COLS=26,ROWS=26;
+C.width=COLS*CELL;C.height=ROWS*CELL;
+const SC=Math.min((window.innerWidth-4)/C.width,(window.innerHeight-120)/C.height,2);
+C.style.width=C.width*SC+'px';C.style.height=C.height*SC+'px';
+
+let snake,dir,nextDir,food,score,hiScore=0,alive,frame,speed;
+let gravWells,portals,particles,trailParticles;
+let gravPullActive=false;
+
+// Audio
+let audioCtx;
+function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();return audioCtx;}
+function playEat(){const c=ensureAudio(),n=c.currentTime;[440,660,880].forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0.04,n+i*0.04);g.gain.linearRampToValueAtTime(0,n+i*0.04+0.08);o.connect(g);g.connect(c.destination);o.start(n+i*0.04);o.stop(n+i*0.04+0.08);});}
+function playWarp(){const c=ensureAudio(),n=c.currentTime;const o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.setValueAtTime(200,n);o.frequency.exponentialRampToValueAtTime(1200,n+0.15);o.frequency.exponentialRampToValueAtTime(400,n+0.25);g.gain.setValueAtTime(0.06,n);g.gain.linearRampToValueAtTime(0,n+0.25);o.connect(g);g.connect(c.destination);o.start(n);o.stop(n+0.25);}
+function playGrav(){const c=ensureAudio(),n=c.currentTime;const o=c.createOscillator(),g=c.createGain();o.type='triangle';o.frequency.setValueAtTime(80,n);o.frequency.linearRampToValueAtTime(60,n+0.2);g.gain.setValueAtTime(0.03,n);g.gain.linearRampToValueAtTime(0,n+0.2);o.connect(g);g.connect(c.destination);o.start(n);o.stop(n+0.2);}
+function playDie(){const c=ensureAudio(),n=c.currentTime;[400,300,200,100].forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain();o.type='square';o.frequency.value=f;g.gain.setValueAtTime(0.05,n+i*0.08);g.gain.linearRampToValueAtTime(0,n+i*0.08+0.12);o.connect(g);g.connect(c.destination);o.start(n+i*0.08);o.stop(n+i*0.08+0.12);});}
+
+function isOccupied(x,y){
+  if(snake.some(s=>s.x===x&&s.y===y))return true;
+  if(gravWells.some(g=>g.x===x&&g.y===y))return true;
+  if(portals.some(p=>p.x===x&&p.y===y))return true;
+  return false;
+}
+
+function randFree(){
+  let x,y,tries=0;
+  do{x=1+Math.floor(Math.random()*(COLS-2));y=1+Math.floor(Math.random()*(ROWS-2));tries++;}
+  while(isOccupied(x,y)&&tries<200);
+  return{x,y};
+}
+
+function spawnFood(){
+  const p=randFree();food={x:p.x,y:p.y,hue:Math.random()*360,pulse:0};
+}
+
+function spawnGravWell(){
+  if(gravWells.length>=3)return;
+  const p=randFree();
+  gravWells.push({x:p.x,y:p.y,strength:0.8+Math.random()*0.6,radius:4+Math.floor(Math.random()*3),phase:Math.random()*Math.PI*2,hue:260+Math.random()*60,life:400+Math.random()*300});
+}
+
+function spawnPortalPair(){
+  if(portals.length>=4)return;
+  const a=randFree();
+  const b=randFree();
+  const hue=Math.random()*360;
+  const id=Date.now();
+  portals.push({x:a.x,y:a.y,hue,pairId:id,phase:0});
+  portals.push({x:b.x,y:b.y,hue,pairId:id,phase:Math.PI});
+}
+
+function init(){
+  snake=[{x:Math.floor(COLS/2),y:Math.floor(ROWS/2)},{x:Math.floor(COLS/2)-1,y:Math.floor(ROWS/2)},{x:Math.floor(COLS/2)-2,y:Math.floor(ROWS/2)}];
+  dir={x:1,y:0};nextDir={x:1,y:0};
+  score=0;alive=true;frame=0;speed=8;
+  gravWells=[];portals=[];particles=[];trailParticles=[];
+  spawnFood();
+  spawnGravWell();
+  spawnPortalPair();
+}
+
+function setDir(dx,dy){
+  if(dx===-dir.x&&dy===-dir.y)return;
+  if(dx===dir.x&&dy===dir.y)return;
+  nextDir={x:dx,y:dy};
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowUp'||e.key==='w')setDir(0,-1);
+  else if(e.key==='ArrowDown'||e.key==='s')setDir(0,1);
+  else if(e.key==='ArrowLeft'||e.key==='a')setDir(-1,0);
+  else if(e.key==='ArrowRight'||e.key==='d')setDir(1,0);
+  else if(e.key===' '&&!alive){init();}
+});
+C.addEventListener('click',()=>{if(!alive)init();});
+
+function applyGravity(){
+  // Gravity wells influence nextDir — pull snake head toward them
+  const hx=snake[0].x,hy=snake[0].y;
+  let pullX=0,pullY=0;
+  gravPullActive=false;
+  gravWells.forEach(g=>{
+    const dx=g.x-hx,dy=g.y-hy;
+    const dist=Math.hypot(dx,dy);
+    if(dist<g.radius&&dist>0){
+      gravPullActive=true;
+      const force=g.strength/dist;
+      pullX+=dx*force;pullY+=dy*force;
+    }
+  });
+  if(gravPullActive&&Math.hypot(pullX,pullY)>0.6){
+    // Override direction toward gravity well
+    if(Math.abs(pullX)>Math.abs(pullY)){
+      const nd={x:pullX>0?1:-1,y:0};
+      if(nd.x!==-dir.x||nd.y!==-dir.y){nextDir=nd;}
+    }else{
+      const nd={x:0,y:pullY>0?1:-1};
+      if(nd.x!==-dir.x||nd.y!==-dir.y){nextDir=nd;}
+    }
+    if(frame%20===0)playGrav();
+  }
+}
+
+function update(){
+  if(!alive)return;
+  frame++;
+
+  // Gravity wells decay
+  gravWells.forEach(g=>{g.life--;g.phase+=0.04;});
+  gravWells=gravWells.filter(g=>g.life>0);
+
+  // Portal animation
+  portals.forEach(p=>p.phase+=0.06);
+
+  // Spawn new hazards periodically
+  if(frame%200===0&&gravWells.length<3)spawnGravWell();
+  if(frame%350===0&&portals.length<4)spawnPortalPair();
+
+  if(frame%speed!==0)return;
+
+  applyGravity();
+  dir={...nextDir};
+
+  const head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+
+  // Wrap
+  head.x=((head.x%COLS)+COLS)%COLS;
+  head.y=((head.y%ROWS)+ROWS)%ROWS;
+
+  // Portal check
+  for(const p of portals){
+    if(p.x===head.x&&p.y===head.y){
+      const pair=portals.find(pp=>pp.pairId===p.pairId&&pp!==p);
+      if(pair){
+        head.x=pair.x+dir.x;head.y=pair.y+dir.y;
+        head.x=((head.x%COLS)+COLS)%COLS;
+        head.y=((head.y%ROWS)+ROWS)%ROWS;
+        playWarp();
+        for(let i=0;i<10;i++){
+          particles.push({x:(p.x+0.5)*CELL,y:(p.y+0.5)*CELL,vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4,life:20,maxLife:20,hue:p.hue,size:3});
+          particles.push({x:(pair.x+0.5)*CELL,y:(pair.y+0.5)*CELL,vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4,life:20,maxLife:20,hue:pair.hue,size:3});
+        }
+      }
+      break;
+    }
+  }
+
+  // Self collision
+  if(snake.some(s=>s.x===head.x&&s.y===head.y)){
+    alive=false;playDie();
+    if(score>hiScore)hiScore=score;
+    for(const s of snake){
+      for(let i=0;i<3;i++)particles.push({x:(s.x+0.5)*CELL,y:(s.y+0.5)*CELL,vx:(Math.random()-0.5)*5,vy:(Math.random()-0.5)*5,life:30,maxLife:30,hue:180+Math.random()*60,size:2});
+    }
+    return;
+  }
+
+  // Gravity well collision (deadly)
+  if(gravWells.some(g=>g.x===head.x&&g.y===head.y)){
+    alive=false;playDie();
+    if(score>hiScore)hiScore=score;
+    return;
+  }
+
+  snake.unshift(head);
+
+  // Eat food
+  if(head.x===food.x&&head.y===food.y){
+    score+=10*(1+Math.floor(snake.length/8));
+    playEat();
+    for(let i=0;i<8;i++){
+      particles.push({x:(food.x+0.5)*CELL,y:(food.y+0.5)*CELL,vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4,life:20,maxLife:20,hue:food.hue,size:3});
+    }
+    spawnFood();
+    if(speed>3&&snake.length%5===0)speed--;
+  }else{
+    snake.pop();
+  }
+
+  // Trail particles from head
+  trailParticles.push({x:(head.x+0.5)*CELL,y:(head.y+0.5)*CELL,life:15,maxLife:15,hue:190});
+
+  // HUD
+  document.getElementById('scoreText').textContent=score;
+  document.getElementById('hiText').textContent='HI: '+hiScore;
+  document.getElementById('lenText').textContent='LEN: '+snake.length;
+}
+
+function render(){
+  ctx.fillStyle='#04060a';
+  ctx.fillRect(0,0,C.width,C.height);
+
+  // Grid
+  ctx.strokeStyle='#080e14';ctx.lineWidth=0.5;
+  for(let x=0;x<COLS;x++){ctx.beginPath();ctx.moveTo(x*CELL,0);ctx.lineTo(x*CELL,C.height);ctx.stroke();}
+  for(let y=0;y<ROWS;y++){ctx.beginPath();ctx.moveTo(0,y*CELL);ctx.lineTo(C.width,y*CELL);ctx.stroke();}
+
+  // Gravity wells — field lines
+  gravWells.forEach(g=>{
+    const cx=(g.x+0.5)*CELL,cy=(g.y+0.5)*CELL;
+    const rPx=g.radius*CELL;
+    const fadeA=Math.min(1,g.life/60);
+
+    // Field rings
+    for(let r=1;r<=g.radius;r++){
+      ctx.beginPath();
+      ctx.arc(cx,cy,r*CELL,0,Math.PI*2);
+      ctx.strokeStyle=`hsla(${g.hue},70%,40%,${(1-r/g.radius)*0.15*fadeA})`;
+      ctx.lineWidth=1;
+      ctx.stroke();
+    }
+
+    // Swirl particles
+    for(let i=0;i<6;i++){
+      const a=g.phase+i*Math.PI/3;
+      const r2=rPx*0.3+Math.sin(g.phase*2+i)*rPx*0.2;
+      const px=cx+Math.cos(a)*r2,py=cy+Math.sin(a)*r2;
+      ctx.beginPath();ctx.arc(px,py,1.5,0,Math.PI*2);
+      ctx.fillStyle=`hsla(${g.hue},80%,60%,${0.4*fadeA})`;
+      ctx.fill();
+    }
+
+    // Core
+    ctx.beginPath();ctx.arc(cx,cy,CELL*0.4,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${g.hue},60%,20%,${0.8*fadeA})`;
+    ctx.shadowColor=`hsla(${g.hue},80%,50%,0.5)`;ctx.shadowBlur=12;
+    ctx.fill();
+    ctx.strokeStyle=`hsla(${g.hue},80%,60%,${0.6*fadeA})`;ctx.lineWidth=1.5;ctx.stroke();
+    ctx.shadowBlur=0;
+
+    // Warning symbol
+    ctx.font='8px Share Tech Mono';ctx.fillStyle=`hsla(${g.hue},70%,60%,${0.5*fadeA})`;ctx.textAlign='center';
+    ctx.fillText('G',cx,cy+3);
+  });
+
+  // Portals
+  portals.forEach(p=>{
+    const cx=(p.x+0.5)*CELL,cy=(p.y+0.5)*CELL;
+    const pulse=0.8+Math.sin(p.phase)*0.2;
+
+    // Outer ring
+    ctx.beginPath();ctx.arc(cx,cy,CELL*0.6*pulse,0,Math.PI*2);
+    ctx.strokeStyle=`hsla(${p.hue},90%,60%,0.7)`;ctx.lineWidth=2;
+    ctx.shadowColor=`hsla(${p.hue},90%,60%,0.6)`;ctx.shadowBlur=10;
+    ctx.stroke();ctx.shadowBlur=0;
+
+    // Inner swirl
+    for(let i=0;i<4;i++){
+      const a=p.phase+i*Math.PI/2;
+      const r=CELL*0.3*pulse;
+      ctx.beginPath();
+      ctx.arc(cx+Math.cos(a)*r*0.3,cy+Math.sin(a)*r*0.3,2,0,Math.PI*2);
+      ctx.fillStyle=`hsla(${p.hue+30},90%,70%,0.5)`;
+      ctx.fill();
+    }
+
+    // Center
+    ctx.beginPath();ctx.arc(cx,cy,CELL*0.2,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${p.hue},80%,30%,0.6)`;ctx.fill();
+
+    // Connection line between pairs (subtle)
+    const pair=portals.find(pp=>pp.pairId===p.pairId&&pp!==p);
+    if(pair){
+      const pcx=(pair.x+0.5)*CELL,pcy=(pair.y+0.5)*CELL;
+      ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(pcx,pcy);
+      ctx.strokeStyle=`hsla(${p.hue},60%,40%,0.04)`;ctx.lineWidth=1;ctx.setLineDash([4,8]);
+      ctx.stroke();ctx.setLineDash([]);
+    }
+  });
+
+  // Food
+  if(food){
+    const cx=(food.x+0.5)*CELL,cy=(food.y+0.5)*CELL;
+    food.pulse+=0.08;
+    const pulse=1+Math.sin(food.pulse)*0.15;
+    ctx.beginPath();ctx.arc(cx,cy,CELL*0.35*pulse,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${food.hue},90%,60%,0.9)`;
+    ctx.shadowColor=`hsla(${food.hue},90%,60%,0.6)`;ctx.shadowBlur=10;
+    ctx.fill();ctx.shadowBlur=0;
+    // Orbiting dot
+    const oa=food.pulse*2;
+    ctx.beginPath();ctx.arc(cx+Math.cos(oa)*CELL*0.5,cy+Math.sin(oa)*CELL*0.5,1.5,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${food.hue+60},90%,70%,0.5)`;ctx.fill();
+  }
+
+  // Trail particles
+  trailParticles.forEach(p=>{
+    const a=p.life/p.maxLife;
+    ctx.beginPath();ctx.arc(p.x,p.y,CELL*0.2*a,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${p.hue},60%,40%,${a*0.2})`;ctx.fill();
+    p.life--;
+  });
+  trailParticles=trailParticles.filter(p=>p.life>0);
+
+  // Snake
+  snake.forEach((s,i)=>{
+    const cx=(s.x+0.5)*CELL,cy=(s.y+0.5)*CELL;
+    const ratio=i/snake.length;
+    const hue=180+ratio*60; // cyan to blue gradient
+    const size=i===0?CELL*0.45:CELL*0.38-ratio*CELL*0.08;
+
+    ctx.beginPath();ctx.arc(cx,cy,size,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${hue},80%,${55-ratio*20}%,1)`;
+    if(i===0){ctx.shadowColor=`hsla(${hue},90%,60%,0.6)`;ctx.shadowBlur=8;}
+    ctx.fill();
+    ctx.shadowBlur=0;
+
+    // Head details
+    if(i===0){
+      // Eyes
+      const ex=dir.x*CELL*0.15,ey=dir.y*CELL*0.15;
+      ctx.fillStyle='#fff';
+      ctx.beginPath();ctx.arc(cx+ex-dir.y*3,cy+ey+dir.x*3,2,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(cx+ex+dir.y*3,cy+ey-dir.x*3,2,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#111';
+      ctx.beginPath();ctx.arc(cx+ex-dir.y*3+dir.x,cy+ey+dir.x*3+dir.y,1,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(cx+ex+dir.y*3+dir.x,cy+ey-dir.x*3+dir.y,1,0,Math.PI*2);ctx.fill();
+
+      // Gravity pull indicator on head
+      if(gravPullActive){
+        ctx.beginPath();ctx.arc(cx,cy,CELL*0.6,0,Math.PI*2);
+        ctx.strokeStyle=`rgba(180,100,255,${0.3+Math.sin(frame*0.2)*0.15})`;
+        ctx.lineWidth=1;ctx.stroke();
+      }
+    }
+  });
+
+  // Particles
+  particles.forEach(p=>{
+    p.x+=p.vx;p.y+=p.vy;p.vx*=0.95;p.vy*=0.95;p.life--;
+    const a=p.life/p.maxLife;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size*a,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${p.hue},90%,70%,${a})`;ctx.fill();
+  });
+  particles=particles.filter(p=>p.life>0);
+
+  // Game over overlay
+  if(!alive){
+    ctx.fillStyle='rgba(4,6,10,0.6)';
+    ctx.fillRect(0,0,C.width,C.height);
+    ctx.font='20px Audiowide';ctx.fillStyle='#ff4466';ctx.textAlign='center';
+    ctx.shadowColor='#ff4466';ctx.shadowBlur=10;
+    ctx.fillText('WRECKED',C.width/2,C.height/2-10);
+    ctx.shadowBlur=0;
+    ctx.font='12px Share Tech Mono';ctx.fillStyle='#668899';
+    ctx.fillText('Score: '+score+'  |  Length: '+snake.length,C.width/2,C.height/2+15);
+    ctx.fillText('Click or SPACE to retry',C.width/2,C.height/2+35);
+  }
+}
+
+function loop(){
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+
+init();
+loop();
+</script>
+</body>
+</html>
