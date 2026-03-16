@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heartbeat Sim — Anatomical Heart</title>
+<link rel="icon" href="https://emojicdn.elk.sh/❤️">
+<meta property="og:title" content="Heartbeat Sim">
+<meta property="og:description" content="A glowing anatomical heart that beats. Feel the rhythm.">
+<meta property="og:url" content="https://app.sloppy.live/heartbeat-sim/">
+<meta property="og:image" content="https://emojicdn.elk.sh/❤️?style=google">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=IBM+Plex+Mono:wght@300;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0406;color:#cc8888;font-family:'IBM Plex Mono',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow:hidden}
+canvas#heart{display:block;touch-action:none}
+.overlay{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1;display:flex;flex-direction:column;justify-content:space-between;padding:16px}
+.top-bar{display:flex;justify-content:space-between;align-items:flex-start;pointer-events:auto}
+h1{font-family:'Playfair Display',serif;font-weight:700;font-size:clamp(20px,4vw,32px);color:#cc2020;text-shadow:0 0 20px rgba(204,32,32,0.5);letter-spacing:1px}
+.bpm-display{text-align:right}
+.bpm-number{font-size:clamp(36px,8vw,56px);font-weight:700;color:#ee3030;text-shadow:0 0 25px rgba(238,48,48,0.6);line-height:1}
+.bpm-label{font-size:10px;font-weight:300;color:#664444;letter-spacing:3px}
+.bottom-bar{pointer-events:auto;display:flex;flex-direction:column;align-items:center;gap:8px}
+.ecg-container{width:100%;max-width:500px;height:60px;position:relative}
+canvas#ecg{width:100%;height:100%;border:1px solid #1a0808;border-radius:4px;background:rgba(10,4,6,0.8)}
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center}
+.ctrl-label{font-size:10px;color:#664444;letter-spacing:1px}
+.ctrl-btn{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;background:#1a0808;color:#cc4040;border:1px solid #442020;padding:6px 12px;cursor:pointer;border-radius:4px;letter-spacing:1px}
+.ctrl-btn:hover{background:#cc2020;color:#0a0406}
+.ctrl-btn.active{background:#cc2020;color:#0a0406;box-shadow:0 0 10px rgba(204,32,32,0.4)}
+input[type=range]{accent-color:#cc2020;width:100px}
+.state-label{font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase}
+.state-rest{color:#44aa66}.state-exercise{color:#ccaa20}.state-panic{color:#ff2020}.state-calm{color:#6688cc}
+a.back{font-size:9px;color:#332222;text-decoration:none}a.back:hover{color:#cc2020}
+</style>
+</head>
+<body>
+<canvas id="heart"></canvas>
+<div class="overlay">
+<div class="top-bar">
+<h1>HEARTBEAT</h1>
+<div class="bpm-display">
+<div class="bpm-number" id="bpmNum">72</div>
+<div class="bpm-label">BPM</div>
+</div>
+</div>
+<div class="bottom-bar">
+<div class="ecg-container"><canvas id="ecg"></canvas></div>
+<div class="controls">
+<button class="ctrl-btn active" id="btnRest" onclick="setState('rest')">Rest</button>
+<button class="ctrl-btn" id="btnExercise" onclick="setState('exercise')">Exercise</button>
+<button class="ctrl-btn" id="btnPanic" onclick="setState('panic')">Panic</button>
+<button class="ctrl-btn" id="btnCalm" onclick="setState('calm')">Calm</button>
+<label class="ctrl-label">BPM <input type="range" id="bpmSlider" min="40" max="200" value="72" oninput="setManualBPM(this.value)"></label>
+</div>
+<a class="back" href="https://sloppy.live">sloppy.live</a>
+</div>
+</div>
+
+<script>
+const HC = document.getElementById('heart');
+const hctx = HC.getContext('2d');
+const EC = document.getElementById('ecg');
+const ectx = EC.getContext('2d');
+
+let W, H;
+function resize() {
+  W = HC.width = window.innerWidth;
+  H = HC.height = window.innerHeight;
+  EC.width = EC.parentElement.clientWidth;
+  EC.height = 60;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// State
+let bpm = 72;
+let targetBpm = 72;
+let state = 'rest';
+let beatPhase = 0; // 0..1
+let beatScale = 1;
+let frame = 0;
+let lastBeatTime = 0;
+let bloodParticles = [];
+let veinPulses = [];
+let ecgData = new Float32Array(300);
+let ecgIndex = 0;
+let ecgPhase = 0;
+
+const STATES = {
+  rest:     { bpm: 72,  color: '#44aa66', label: 'RESTING' },
+  exercise: { bpm: 140, color: '#ccaa20', label: 'EXERCISING' },
+  panic:    { bpm: 180, color: '#ff2020', label: 'PANICKING' },
+  calm:     { bpm: 55,  color: '#6688cc', label: 'DEEP CALM' }
+};
+
+function setState(s) {
+  state = s;
+  targetBpm = STATES[s].bpm;
+  document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn' + s.charAt(0).toUpperCase() + s.slice(1)).classList.add('active');
+  document.getElementById('bpmSlider').value = targetBpm;
+}
+
+function setManualBPM(v) {
+  targetBpm = parseInt(v);
+  document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+}
+
+// --- Audio ---
+let audioCtx;
+function ensureAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); return audioCtx; }
+
+function playHeartbeat() {
+  const ctx = ensureAudio();
+  const now = ctx.currentTime;
+  const intensity = bpm / 120; // louder when faster
+
+  // LUB (S1) — low thump
+  const o1 = ctx.createOscillator();
+  const g1 = ctx.createGain();
+  const f1 = ctx.createBiquadFilter();
+  o1.type = 'sine';
+  o1.frequency.setValueAtTime(55, now);
+  o1.frequency.exponentialRampToValueAtTime(30, now + 0.1);
+  f1.type = 'lowpass'; f1.frequency.value = 120;
+  g1.gain.setValueAtTime(0.25 * Math.min(intensity, 1.2), now);
+  g1.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+  o1.connect(f1); f1.connect(g1); g1.connect(ctx.destination);
+  o1.start(now); o1.stop(now + 0.12);
+
+  // Sub thud
+  const o1b = ctx.createOscillator();
+  const g1b = ctx.createGain();
+  o1b.type = 'sine';
+  o1b.frequency.setValueAtTime(35, now);
+  g1b.gain.setValueAtTime(0.15 * Math.min(intensity, 1.2), now);
+  g1b.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+  o1b.connect(g1b); g1b.connect(ctx.destination);
+  o1b.start(now); o1b.stop(now + 0.08);
+
+  // DUB (S2) — slightly higher, delayed
+  const delay = 0.12;
+  const o2 = ctx.createOscillator();
+  const g2 = ctx.createGain();
+  const f2 = ctx.createBiquadFilter();
+  o2.type = 'sine';
+  o2.frequency.setValueAtTime(70, now + delay);
+  o2.frequency.exponentialRampToValueAtTime(40, now + delay + 0.08);
+  f2.type = 'lowpass'; f2.frequency.value = 150;
+  g2.gain.setValueAtTime(0, now);
+  g2.gain.setValueAtTime(0.18 * Math.min(intensity, 1.2), now + delay);
+  g2.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.1);
+  o2.connect(f2); f2.connect(g2); g2.connect(ctx.destination);
+  o2.start(now + delay); o2.stop(now + delay + 0.1);
+}
+
+// --- Heart drawing ---
+function drawHeart(cx, cy, size, scale) {
+  const s = size * scale;
+  const ctx = hctx;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  const glowIntensity = (scale - 1) * 8 + 1;
+  const r = Math.floor(180 + (scale - 1) * 400);
+  const g = Math.floor(20 + (scale - 1) * 80);
+  const b = Math.floor(30 + (scale - 1) * 60);
+  const mainColor = `rgb(${Math.min(255,r)},${Math.min(255,g)},${Math.min(255,b)})`;
+  const darkColor = `rgb(${Math.floor(r*0.4)},${Math.floor(g*0.3)},${Math.floor(b*0.3)})`;
+  const highlightColor = `rgb(${Math.min(255,r+40)},${Math.min(255,g+30)},${Math.min(255,b+20)})`;
+
+  // Outer glow
+  ctx.shadowColor = `rgba(${Math.min(255,r)},${Math.min(60,g+40)},${Math.min(60,b+30)},${0.3 + glowIntensity*0.08})`;
+  ctx.shadowBlur = 30 + glowIntensity * 15;
+
+  // Main heart shape — anatomical style
+  ctx.beginPath();
+
+  // Left ventricle
+  ctx.moveTo(0, s * 0.35);
+  ctx.bezierCurveTo(-s*0.05, s*0.15, -s*0.25, s*0.05, -s*0.3, -s*0.1);
+  // Left atrium bulge
+  ctx.bezierCurveTo(-s*0.35, -s*0.25, -s*0.35, -s*0.38, -s*0.22, -s*0.42);
+  // Aortic arch
+  ctx.bezierCurveTo(-s*0.12, -s*0.46, -s*0.02, -s*0.48, s*0.02, -s*0.42);
+  // Right atrium
+  ctx.bezierCurveTo(s*0.08, -s*0.48, s*0.25, -s*0.46, s*0.3, -s*0.38);
+  ctx.bezierCurveTo(s*0.36, -s*0.28, s*0.35, -s*0.12, s*0.3, -s*0.02);
+  // Right ventricle
+  ctx.bezierCurveTo(s*0.25, s*0.1, s*0.12, s*0.25, s*0.02, s*0.35);
+  // Apex
+  ctx.bezierCurveTo(s*0.01, s*0.38, -s*0.01, s*0.38, 0, s*0.35);
+  ctx.closePath();
+
+  // Fill with gradient
+  const grad = ctx.createRadialGradient(-s*0.05, -s*0.05, 0, 0, 0, s*0.45);
+  grad.addColorStop(0, highlightColor);
+  grad.addColorStop(0.4, mainColor);
+  grad.addColorStop(1, darkColor);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+
+  // Surface detail — ventricle divide line
+  ctx.beginPath();
+  ctx.moveTo(-s*0.02, -s*0.3);
+  ctx.bezierCurveTo(-s*0.01, -s*0.1, s*0.01, s*0.1, 0, s*0.33);
+  ctx.strokeStyle = `rgba(0,0,0,0.3)`;
+  ctx.lineWidth = s * 0.015;
+  ctx.stroke();
+
+  // Coronary arteries
+  ctx.beginPath();
+  ctx.moveTo(-s*0.08, -s*0.35);
+  ctx.bezierCurveTo(-s*0.18, -s*0.2, -s*0.22, -s*0.05, -s*0.15, s*0.15);
+  ctx.strokeStyle = `rgba(${Math.min(255,r+30)},${Math.floor(g*0.5)},${Math.floor(b*0.5)},0.5)`;
+  ctx.lineWidth = s * 0.012;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(s*0.06, -s*0.38);
+  ctx.bezierCurveTo(s*0.18, -s*0.22, s*0.22, -s*0.05, s*0.18, s*0.12);
+  ctx.stroke();
+
+  // Aorta pipe at top
+  ctx.beginPath();
+  ctx.moveTo(-s*0.06, -s*0.42);
+  ctx.bezierCurveTo(-s*0.06, -s*0.55, s*0.1, -s*0.58, s*0.15, -s*0.5);
+  ctx.bezierCurveTo(s*0.18, -s*0.45, s*0.15, -s*0.38, s*0.12, -s*0.35);
+  ctx.strokeStyle = mainColor;
+  ctx.lineWidth = s * 0.06;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  // Aorta inner
+  ctx.strokeStyle = darkColor;
+  ctx.lineWidth = s * 0.03;
+  ctx.stroke();
+
+  // Pulmonary artery
+  ctx.beginPath();
+  ctx.moveTo(-s*0.15, -s*0.4);
+  ctx.bezierCurveTo(-s*0.2, -s*0.52, -s*0.1, -s*0.55, -s*0.05, -s*0.5);
+  ctx.strokeStyle = `rgb(${Math.floor(r*0.6)},${Math.floor(g*0.3+20)},${Math.floor(b*0.6+40)})`;
+  ctx.lineWidth = s * 0.04;
+  ctx.stroke();
+
+  // Vena cava stubs
+  ctx.fillStyle = darkColor;
+  ctx.beginPath();
+  ctx.ellipse(s*0.22, -s*0.42, s*0.04, s*0.06, 0.2, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(-s*0.25, -s*0.38, s*0.035, s*0.05, -0.2, 0, Math.PI*2);
+  ctx.fill();
+
+  // Specular highlight
+  ctx.beginPath();
+  ctx.ellipse(-s*0.12, -s*0.18, s*0.06, s*0.1, -0.4, 0, Math.PI*2);
+  ctx.fillStyle = `rgba(255,200,200,${0.06 + (scale-1)*0.15})`;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// --- ECG ---
+function generateECG(phase) {
+  // Simplified PQRST waveform
+  const p = phase % 1;
+  if (p < 0.1) return Math.sin(p / 0.1 * Math.PI) * 0.15; // P wave
+  if (p < 0.15) return 0; // PR segment
+  if (p < 0.17) return -0.1; // Q
+  if (p < 0.22) return Math.sin((p - 0.17) / 0.05 * Math.PI) * 1.0; // R spike
+  if (p < 0.25) return -0.15; // S
+  if (p < 0.35) return 0; // ST segment
+  if (p < 0.5) return Math.sin((p - 0.35) / 0.15 * Math.PI) * 0.2; // T wave
+  return 0; // baseline
+}
+
+function drawECG() {
+  const w = EC.width, h = EC.height;
+  ectx.fillStyle = 'rgba(10,4,6,0.15)';
+  ectx.fillRect(0, 0, w, h);
+
+  // Grid
+  ectx.strokeStyle = '#1a0c0c';
+  ectx.lineWidth = 0.5;
+  for (let x = 0; x < w; x += 20) { ectx.beginPath(); ectx.moveTo(x, 0); ectx.lineTo(x, h); ectx.stroke(); }
+  for (let y = 0; y < h; y += 15) { ectx.beginPath(); ectx.moveTo(0, y); ectx.lineTo(w, y); ectx.stroke(); }
+
+  // Waveform
+  ectx.beginPath();
+  ectx.strokeStyle = '#ee3030';
+  ectx.lineWidth = 1.5;
+  ectx.shadowColor = '#ee3030';
+  ectx.shadowBlur = 4;
+  const len = ecgData.length;
+  for (let i = 0; i < len; i++) {
+    const x = (i / len) * w;
+    const y = h / 2 - ecgData[(ecgIndex + i) % len] * h * 0.4;
+    if (i === 0) ectx.moveTo(x, y); else ectx.lineTo(x, y);
+  }
+  ectx.stroke();
+  ectx.shadowBlur = 0;
+
+  // Scan line
+  const scanX = ((ecgIndex % len) / len) * w;
+  ectx.fillStyle = 'rgba(10,4,6,0.95)';
+  ectx.fillRect(scanX, 0, 30, h);
+}
+
+// --- Blood particles ---
+function spawnBloodBurst(cx, cy, size) {
+  for (let i = 0; i < 12; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const spd = 0.5 + Math.random() * 2;
+    bloodParticles.push({
+      x: cx + (Math.random()-0.5) * size * 0.3,
+      y: cy + (Math.random()-0.5) * size * 0.3,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd,
+      life: 30 + Math.random() * 30,
+      maxLife: 60,
+      size: 1 + Math.random() * 3
+    });
+  }
+}
+
+// --- Vein pulse ring ---
+function spawnVeinPulse(cx, cy) {
+  veinPulses.push({ x: cx, y: cy, radius: 30, maxRadius: Math.max(W, H) * 0.7, life: 40, maxLife: 40 });
+}
+
+// --- Main loop ---
+let prevBeatTriggered = false;
+
+function update() {
+  frame++;
+
+  // Lerp BPM
+  bpm += (targetBpm - bpm) * 0.02;
+  document.getElementById('bpmNum').textContent = Math.round(bpm);
+
+  // Beat timing
+  const beatInterval = 60 / bpm; // seconds
+  const now = performance.now() / 1000;
+
+  // Phase within beat cycle
+  beatPhase = ((now % beatInterval) / beatInterval);
+
+  // Pulse scale — double bump (lub-dub)
+  let pulse = 0;
+  if (beatPhase < 0.08) {
+    pulse = Math.sin(beatPhase / 0.08 * Math.PI) * 0.12; // lub
+  } else if (beatPhase > 0.12 && beatPhase < 0.2) {
+    pulse = Math.sin((beatPhase - 0.12) / 0.08 * Math.PI) * 0.07; // dub
+  }
+  beatScale = 1 + pulse;
+
+  // Trigger beat events
+  const inBeatWindow = beatPhase < 0.05;
+  if (inBeatWindow && !prevBeatTriggered) {
+    prevBeatTriggered = true;
+    playHeartbeat();
+    const heartSize = Math.min(W, H) * 0.35;
+    spawnBloodBurst(W/2, H/2, heartSize);
+    spawnVeinPulse(W/2, H/2);
+  }
+  if (beatPhase > 0.5) prevBeatTriggered = false;
+
+  // ECG
+  const ecgSpeed = bpm / 60 * 3; // cycles per second scaled
+  ecgPhase += ecgSpeed / 60;
+  ecgData[ecgIndex % ecgData.length] = generateECG(ecgPhase);
+  ecgIndex++;
+
+  // Particles
+  bloodParticles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.96; p.vy *= 0.96;
+    p.life--;
+  });
+  bloodParticles = bloodParticles.filter(p => p.life > 0);
+
+  // Vein pulses
+  veinPulses.forEach(p => {
+    p.radius += (p.maxRadius - 30) / p.maxLife;
+    p.life--;
+  });
+  veinPulses = veinPulses.filter(p => p.life > 0);
+}
+
+function render() {
+  hctx.clearRect(0, 0, W, H);
+
+  // Dark vignette background
+  const bgGrad = hctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.7);
+  bgGrad.addColorStop(0, '#120608');
+  bgGrad.addColorStop(1, '#060204');
+  hctx.fillStyle = bgGrad;
+  hctx.fillRect(0, 0, W, H);
+
+  // Vein pulse rings
+  veinPulses.forEach(p => {
+    const a = p.life / p.maxLife;
+    hctx.beginPath();
+    hctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    hctx.strokeStyle = `rgba(180,20,30,${a * 0.08})`;
+    hctx.lineWidth = 3;
+    hctx.stroke();
+  });
+
+  // Ambient pulsing background glow
+  const ambientPulse = (beatScale - 1) * 5;
+  const ambGrad = hctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.min(W,H)*0.5);
+  ambGrad.addColorStop(0, `rgba(200,20,30,${0.03 + ambientPulse * 0.04})`);
+  ambGrad.addColorStop(1, 'transparent');
+  hctx.fillStyle = ambGrad;
+  hctx.fillRect(0, 0, W, H);
+
+  // Heart
+  const heartSize = Math.min(W, H) * 0.35;
+  drawHeart(W/2, H/2 + heartSize * 0.05, heartSize, beatScale);
+
+  // Blood particles
+  bloodParticles.forEach(p => {
+    const a = p.life / p.maxLife;
+    hctx.beginPath();
+    hctx.arc(p.x, p.y, p.size * a, 0, Math.PI * 2);
+    hctx.fillStyle = `rgba(200,20,30,${a * 0.7})`;
+    hctx.shadowColor = 'rgba(255,40,40,0.5)';
+    hctx.shadowBlur = 6;
+    hctx.fill();
+  });
+  hctx.shadowBlur = 0;
+
+  // State label
+  const st = STATES[state];
+  if (st) {
+    const stateEl = document.querySelector('.bpm-label');
+    stateEl.textContent = st.label;
+    stateEl.style.color = st.color;
+  }
+
+  // ECG
+  drawECG();
+}
+
+function loop() {
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+
+// Click to trigger manual beat
+HC.addEventListener('click', () => {
+  playHeartbeat();
+  const heartSize = Math.min(W, H) * 0.35;
+  spawnBloodBurst(W/2, H/2, heartSize);
+  spawnVeinPulse(W/2, H/2);
+  beatScale = 1.15;
+});
+
+loop();
+</script>
+</body>
+</html>
