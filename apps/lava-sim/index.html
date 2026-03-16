@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lava Sim — 2D Lava Physics</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🌋">
+<meta property="og:title" content="Lava Sim">
+<meta property="og:description" content="Realistic 2D lava simulation with fluid physics, heat, and particles.">
+<meta property="og:url" content="https://app.sloppy.live/lava-sim/">
+<meta property="og:image" content="https://emojicdn.elk.sh/🌋?style=google">
+<link href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0604;color:#c8a070;font-family:'Share Tech Mono',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow:hidden}
+h1{font-family:'Saira Stencil One',sans-serif;font-size:clamp(18px,4vw,28px);color:#ff6020;text-shadow:0 0 20px rgba(255,96,32,0.6);letter-spacing:3px;margin:10px 0 4px;text-align:center}
+canvas{display:block;border:1px solid #1a1008;cursor:crosshair;touch-action:none;max-width:100vw;max-height:calc(100vh - 100px)}
+.controls{display:flex;gap:8px;padding:6px 12px;flex-wrap:wrap;justify-content:center;align-items:center;font-size:11px}
+.btn{font-family:'Share Tech Mono',monospace;font-size:11px;background:#1a0e06;color:#ff8040;border:1px solid #ff6020;padding:5px 10px;cursor:pointer;letter-spacing:1px;border-radius:3px}
+.btn:hover{background:#ff6020;color:#0a0604}
+.btn.active{background:#ff6020;color:#0a0604;box-shadow:0 0 8px rgba(255,96,32,0.4)}
+label{color:#886040;font-size:10px;letter-spacing:1px}
+input[type=range]{width:80px;accent-color:#ff6020}
+.info{font-size:9px;color:#553820;text-align:center;padding:2px}
+a{color:#553820;text-decoration:none}a:hover{color:#ff6020}
+</style>
+</head>
+<body>
+<h1>LAVA SIM</h1>
+<canvas id="c"></canvas>
+<div class="controls">
+<button class="btn active" id="btnPour" onclick="setTool('pour')">Pour</button>
+<button class="btn" id="btnRock" onclick="setTool('rock')">Rock</button>
+<button class="btn" id="btnCool" onclick="setTool('cool')">Cool</button>
+<button class="btn" id="btnBomb" onclick="setTool('bomb')">Bomb</button>
+<label>Flow <input type="range" id="flowRate" min="1" max="8" value="3"></label>
+<label>Viscosity <input type="range" id="viscosity" min="1" max="10" value="5"></label>
+<button class="btn" onclick="clearAll()">Clear</button>
+</div>
+<div class="info"><a href="https://sloppy.live">sloppy.live</a> — click/drag to interact</div>
+
+<script>
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+
+// Grid-based fluid simulation
+const CELL = 4;
+let COLS, ROWS;
+let grid, tempGrid, velX, velY; // cell types: 0=air, 1=lava, 2=rock, 3=cooling, 4=obsidian
+let heatMap;
+let particles = [];
+let embers = [];
+let smokeParticles = [];
+let tool = 'pour';
+let mouseDown = false;
+let mouseX = 0, mouseY = 0;
+let frame = 0;
+
+function resize() {
+  const w = Math.min(window.innerWidth - 4, 800);
+  const h = Math.min(window.innerHeight - 100, 560);
+  C.width = Math.floor(w / CELL) * CELL;
+  C.height = Math.floor(h / CELL) * CELL;
+  COLS = C.width / CELL;
+  ROWS = C.height / CELL;
+  grid = new Uint8Array(COLS * ROWS);
+  tempGrid = new Uint8Array(COLS * ROWS);
+  heatMap = new Float32Array(COLS * ROWS);
+  velX = new Float32Array(COLS * ROWS);
+  velY = new Float32Array(COLS * ROWS);
+}
+
+function idx(x, y) { return y * COLS + x; }
+function inBounds(x, y) { return x >= 0 && x < COLS && y >= 0 && y < ROWS; }
+
+function setTool(t) {
+  tool = t;
+  document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('btn' + t.charAt(0).toUpperCase() + t.slice(1));
+  if (btn) btn.classList.add('active');
+}
+
+// --- Input ---
+function getPos(e) {
+  const r = C.getBoundingClientRect();
+  const sx = C.width / r.width;
+  const sy = C.height / r.height;
+  const t = e.touches ? e.touches[0] : e;
+  return { x: (t.clientX - r.left) * sx, y: (t.clientY - r.top) * sy };
+}
+
+C.addEventListener('mousedown', e => { mouseDown = true; const p = getPos(e); mouseX = p.x; mouseY = p.y; applyTool(p.x, p.y); });
+C.addEventListener('mousemove', e => { const p = getPos(e); mouseX = p.x; mouseY = p.y; if (mouseDown) applyTool(p.x, p.y); });
+C.addEventListener('mouseup', () => mouseDown = false);
+C.addEventListener('mouseleave', () => mouseDown = false);
+C.addEventListener('touchstart', e => { e.preventDefault(); mouseDown = true; const p = getPos(e); mouseX = p.x; mouseY = p.y; applyTool(p.x, p.y); }, { passive: false });
+C.addEventListener('touchmove', e => { e.preventDefault(); const p = getPos(e); mouseX = p.x; mouseY = p.y; if (mouseDown) applyTool(p.x, p.y); }, { passive: false });
+C.addEventListener('touchend', () => mouseDown = false);
+
+function applyTool(px, py) {
+  const cx = Math.floor(px / CELL);
+  const cy = Math.floor(py / CELL);
+  const rate = parseInt(document.getElementById('flowRate').value);
+
+  if (tool === 'pour') {
+    for (let i = 0; i < rate; i++) {
+      const ox = cx + Math.floor((Math.random() - 0.5) * rate * 2);
+      const oy = cy + Math.floor((Math.random() - 0.5) * rate);
+      if (inBounds(ox, oy) && grid[idx(ox, oy)] === 0) {
+        grid[idx(ox, oy)] = 1;
+        heatMap[idx(ox, oy)] = 1.0;
+        velY[idx(ox, oy)] = 0.5 + Math.random() * 0.5;
+        velX[idx(ox, oy)] = (Math.random() - 0.5) * 0.3;
+      }
+    }
+  } else if (tool === 'rock') {
+    const r = rate + 1;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx*dx + dy*dy <= r*r) {
+          const nx = cx + dx, ny = cy + dy;
+          if (inBounds(nx, ny)) { grid[idx(nx, ny)] = 2; heatMap[idx(nx, ny)] = 0; }
+        }
+      }
+    }
+  } else if (tool === 'cool') {
+    const r = rate + 2;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx*dx + dy*dy <= r*r) {
+          const nx = cx + dx, ny = cy + dy;
+          if (inBounds(nx, ny) && grid[idx(nx, ny)] === 1) {
+            heatMap[idx(nx, ny)] = Math.max(0, heatMap[idx(nx, ny)] - 0.15);
+            if (heatMap[idx(nx, ny)] < 0.1) { grid[idx(nx, ny)] = 4; }
+          }
+        }
+      }
+    }
+  } else if (tool === 'bomb') {
+    const r = 8 + rate * 2;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const d2 = dx*dx + dy*dy;
+        if (d2 <= r*r) {
+          const nx = cx + dx, ny = cy + dy;
+          if (inBounds(nx, ny)) {
+            const i = idx(nx, ny);
+            if (grid[i] === 1) {
+              const dist = Math.sqrt(d2) + 0.1;
+              velX[i] += (dx / dist) * 3;
+              velY[i] += (dy / dist) * 3 - 2;
+              heatMap[i] = Math.min(1, heatMap[i] + 0.3);
+            }
+            if (grid[i] === 2 || grid[i] === 4) {
+              if (Math.random() < 0.4) { grid[i] = 0; }
+            }
+          }
+        }
+      }
+    }
+    // explosion embers
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spd = 2 + Math.random() * 4;
+      embers.push({ x: px, y: py, vx: Math.cos(a)*spd, vy: Math.sin(a)*spd - 2, life: 40 + Math.random()*40, maxLife: 80 });
+    }
+    // explosion sound
+    playBoom();
+  }
+}
+
+function clearAll() {
+  grid.fill(0); heatMap.fill(0); velX.fill(0); velY.fill(0);
+  particles = []; embers = []; smokeParticles = [];
+}
+
+// --- Audio ---
+let audioCtx;
+function ensureAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); return audioCtx; }
+function playBoom() {
+  const ctx = ensureAudio(); const now = ctx.currentTime;
+  const o = ctx.createOscillator(); const g = ctx.createGain();
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(80, now); o.frequency.exponentialRampToValueAtTime(20, now + 0.4);
+  g.gain.setValueAtTime(0.2, now); g.gain.linearRampToValueAtTime(0, now + 0.4);
+  o.connect(g); g.connect(ctx.destination); o.start(now); o.stop(now + 0.4);
+  // noise crackle
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.06));
+  const s = ctx.createBufferSource(); const g2 = ctx.createGain();
+  s.buffer = buf; g2.gain.setValueAtTime(0.12, now);
+  s.connect(g2); g2.connect(ctx.destination); s.start(now);
+}
+
+// --- Simulation ---
+function simulate() {
+  const visc = parseInt(document.getElementById('viscosity').value);
+  const viscFactor = visc / 10; // 0.1 to 1.0 — higher = thicker
+  const gravity = 0.15;
+  const spread = 1.0 - viscFactor * 0.6; // how eagerly it spreads sideways
+
+  tempGrid.set(grid);
+
+  // Process bottom-up for gravity
+  for (let y = ROWS - 2; y >= 0; y--) {
+    // Alternate left-right scan to prevent bias
+    const leftToRight = frame % 2 === 0;
+    for (let xi = 0; xi < COLS; xi++) {
+      const x = leftToRight ? xi : COLS - 1 - xi;
+      const i = idx(x, y);
+      if (tempGrid[i] !== 1) continue;
+
+      const heat = heatMap[i];
+      let vx = velX[i];
+      let vy = velY[i] + gravity;
+
+      // Damping (viscosity)
+      vx *= (1 - viscFactor * 0.15);
+      vy *= (1 - viscFactor * 0.05);
+
+      velX[i] = vx;
+      velY[i] = vy;
+
+      // Try to move down
+      const below = idx(x, y + 1);
+      if (y + 1 < ROWS && tempGrid[below] === 0) {
+        tempGrid[below] = 1;
+        tempGrid[i] = 0;
+        heatMap[below] = heat;
+        heatMap[i] = 0;
+        velX[below] = vx;
+        velY[below] = vy;
+        velX[i] = 0; velY[i] = 0;
+        continue;
+      }
+
+      // Try diagonal down
+      const dirPref = Math.random() < 0.5 ? -1 : 1;
+      let moved = false;
+      for (const dir of [dirPref, -dirPref]) {
+        const nx = x + dir, ny = y + 1;
+        if (inBounds(nx, ny) && tempGrid[idx(nx, ny)] === 0) {
+          const ni = idx(nx, ny);
+          tempGrid[ni] = 1;
+          tempGrid[i] = 0;
+          heatMap[ni] = heat;
+          heatMap[i] = 0;
+          velX[ni] = vx + dir * spread * 0.3;
+          velY[ni] = vy * 0.7;
+          velX[i] = 0; velY[i] = 0;
+          moved = true;
+          break;
+        }
+      }
+      if (moved) continue;
+
+      // Spread sideways (liquid behavior)
+      if (Math.random() < spread * 0.5) {
+        const sdir = vx > 0.1 ? 1 : vx < -0.1 ? -1 : (Math.random() < 0.5 ? -1 : 1);
+        for (const dir of [sdir, -sdir]) {
+          const nx = x + dir;
+          if (inBounds(nx, y) && tempGrid[idx(nx, y)] === 0) {
+            const ni = idx(nx, y);
+            tempGrid[ni] = 1;
+            tempGrid[i] = 0;
+            heatMap[ni] = heat;
+            heatMap[i] = 0;
+            velX[ni] = dir * spread * 0.5;
+            velY[ni] = 0;
+            velX[i] = 0; velY[i] = 0;
+            break;
+          }
+        }
+      }
+
+      // Velocity-based displacement for bomb
+      if (Math.abs(vx) > 1 || vy < -1) {
+        const tx = x + Math.sign(vx);
+        const ty = y + Math.round(Math.min(vy, 0));
+        if (inBounds(tx, ty) && tempGrid[idx(tx, ty)] === 0) {
+          const ni = idx(tx, ty);
+          tempGrid[ni] = 1;
+          tempGrid[i] = 0;
+          heatMap[ni] = heat;
+          heatMap[i] = 0;
+          velX[ni] = vx * 0.8;
+          velY[ni] = vy * 0.8;
+          velX[i] = 0; velY[i] = 0;
+        }
+      }
+    }
+  }
+
+  grid.set(tempGrid);
+
+  // Heat dissipation and cooling
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const i = idx(x, y);
+      if (grid[i] === 1) {
+        // Slow cooling
+        heatMap[i] -= 0.0003;
+        // Contact with air above cools faster
+        if (y > 0 && grid[idx(x, y-1)] === 0) heatMap[i] -= 0.0005;
+        // Solidify when cold
+        if (heatMap[i] <= 0.05) {
+          grid[i] = 4; // obsidian
+          heatMap[i] = 0;
+          // spawn smoke
+          if (Math.random() < 0.3) {
+            smokeParticles.push({ x: x*CELL + CELL/2, y: y*CELL, vx: (Math.random()-0.5)*0.5, vy: -0.5-Math.random(), life: 60+Math.random()*40, maxLife: 100 });
+          }
+        }
+        // Spawn embers from hot surface lava
+        if (heatMap[i] > 0.7 && y > 0 && grid[idx(x, y-1)] === 0 && Math.random() < 0.003) {
+          embers.push({
+            x: x*CELL + Math.random()*CELL,
+            y: y*CELL,
+            vx: (Math.random()-0.5)*1.5,
+            vy: -1.5 - Math.random()*2,
+            life: 30 + Math.random()*30,
+            maxLife: 60
+          });
+        }
+        // Spawn glow particles on very hot lava
+        if (heatMap[i] > 0.85 && Math.random() < 0.008) {
+          particles.push({
+            x: x*CELL + Math.random()*CELL,
+            y: y*CELL - Math.random()*4,
+            vx: (Math.random()-0.5)*0.8,
+            vy: -0.3 - Math.random()*0.5,
+            life: 20 + Math.random()*20,
+            maxLife: 40,
+            type: 'glow'
+          });
+        }
+      }
+    }
+  }
+}
+
+// --- Render ---
+const imgData = () => ctx.createImageData(C.width, C.height);
+let frameBuffer;
+
+function render() {
+  if (!frameBuffer || frameBuffer.width !== C.width) frameBuffer = ctx.createImageData(C.width, C.height);
+  const fb = frameBuffer;
+  const d = fb.data;
+
+  // Background — dark gradient baked in
+  for (let py = 0; py < C.height; py++) {
+    const bgR = 8 + py * 0.01;
+    const bgG = 4 + py * 0.005;
+    const bgB = 2;
+    for (let px = 0; px < C.width; px++) {
+      const pi = (py * C.width + px) * 4;
+      d[pi] = bgR; d[pi+1] = bgG; d[pi+2] = bgB; d[pi+3] = 255;
+    }
+  }
+
+  // Draw cells
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const i = idx(x, y);
+      const cell = grid[i];
+      if (cell === 0) continue;
+
+      let r, g, b;
+      if (cell === 1) {
+        const h = heatMap[i];
+        const flicker = 0.9 + Math.sin(frame * 0.1 + x * 0.5 + y * 0.3) * 0.1;
+        if (h > 0.75) {
+          // White-yellow hot
+          r = 255; g = 200 + h * 55; b = 80 + (1-h) * 60;
+        } else if (h > 0.45) {
+          // Orange
+          r = 255; g = 80 + h * 180; b = 10 + h * 40;
+        } else if (h > 0.2) {
+          // Dark red
+          r = 150 + h * 200; g = 20 + h * 60; b = 5;
+        } else {
+          // Cooling — very dark red/brown
+          r = 60 + h * 400; g = 10 + h * 40; b = 5;
+        }
+        r = Math.min(255, r * flicker);
+        g = Math.min(255, g * flicker);
+        b = Math.min(255, b * flicker);
+      } else if (cell === 2) {
+        // Rock — dark gray with texture
+        const tex = ((x * 7 + y * 13) % 5) * 4;
+        r = 35 + tex; g = 30 + tex; b = 28 + tex;
+      } else if (cell === 4) {
+        // Obsidian — very dark with slight sheen
+        const tex = ((x * 11 + y * 7) % 4) * 2;
+        r = 18 + tex; g = 16 + tex; b = 22 + tex;
+      }
+
+      const px0 = x * CELL, py0 = y * CELL;
+      for (let dy = 0; dy < CELL; dy++) {
+        for (let dx = 0; dx < CELL; dx++) {
+          const pi = ((py0 + dy) * C.width + px0 + dx) * 4;
+          d[pi] = r; d[pi+1] = g; d[pi+2] = b; d[pi+3] = 255;
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(fb, 0, 0);
+
+  // Glow pass — draw additive glow on top of hot lava regions
+  ctx.globalCompositeOperation = 'lighter';
+  for (let y = 0; y < ROWS; y += 2) {
+    for (let x = 0; x < COLS; x += 2) {
+      const i = idx(x, y);
+      if (grid[i] === 1 && heatMap[i] > 0.5) {
+        const h = heatMap[i];
+        const glow = (h - 0.5) * 2;
+        ctx.beginPath();
+        ctx.arc(x*CELL + CELL, y*CELL + CELL, CELL * 3 * glow, 0, Math.PI*2);
+        ctx.fillStyle = `rgba(255,${Math.floor(120*glow)},20,${glow*0.06})`;
+        ctx.fill();
+      }
+    }
+  }
+
+  // Embers
+  embers.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.06; p.life--;
+    const a = p.life / p.maxLife;
+    const r = 255, g = 100 + Math.random()*100, b = 20;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 1.5 * a, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(${r},${g|0},${b},${a})`;
+    ctx.shadowColor = `rgba(255,150,30,${a*0.8})`;
+    ctx.shadowBlur = 6;
+    ctx.fill();
+  });
+  ctx.shadowBlur = 0;
+
+  // Glow particles
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.life--;
+    const a = p.life / p.maxLife;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2 * a, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,220,100,${a*0.5})`;
+    ctx.shadowColor = `rgba(255,200,50,${a})`;
+    ctx.shadowBlur = 8;
+    ctx.fill();
+  });
+  ctx.shadowBlur = 0;
+
+  // Smoke
+  smokeParticles.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.vx *= 0.99; p.life--;
+    const a = (p.life / p.maxLife) * 0.25;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3 + (1 - p.life/p.maxLife) * 6, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(60,50,45,${a})`;
+    ctx.fill();
+  });
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Cleanup dead particles
+  embers = embers.filter(p => p.life > 0);
+  particles = particles.filter(p => p.life > 0);
+  smokeParticles = smokeParticles.filter(p => p.life > 0);
+}
+
+// --- Loop ---
+function loop() {
+  frame++;
+  if (mouseDown) applyTool(mouseX, mouseY);
+  simulate();
+  render();
+  requestAnimationFrame(loop);
+}
+
+resize();
+window.addEventListener('resize', () => {
+  const oldGrid = grid.slice();
+  const oldHeat = heatMap.slice();
+  const oldCols = COLS, oldRows = ROWS;
+  resize();
+  // Preserve what fits
+  for (let y = 0; y < Math.min(oldRows, ROWS); y++) {
+    for (let x = 0; x < Math.min(oldCols, COLS); x++) {
+      grid[idx(x, y)] = oldGrid[y * oldCols + x];
+      heatMap[idx(x, y)] = oldHeat[y * oldCols + x];
+    }
+  }
+});
+
+loop();
+</script>
+</body>
+</html>
