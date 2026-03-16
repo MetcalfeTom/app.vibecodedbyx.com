@@ -32,6 +32,22 @@ canvas{position:absolute;top:0;left:0;width:100%;height:100%}
 #win-overlay button:hover{background:rgba(255,215,0,.3)}
 .back-link{position:fixed;bottom:4px;left:8px;font-size:9px;color:rgba(255,255,255,.15);text-decoration:none;z-index:10}
 .back-link:hover{color:rgba(255,255,255,.3)}
+#lb-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:90;flex-direction:column}
+#lb-overlay.show{display:flex}
+#lb-box{background:#1a3a1a;border:2px solid rgba(255,215,0,.3);border-radius:10px;padding:20px;width:90%;max-width:380px;max-height:80vh;overflow-y:auto}
+#lb-box h2{font-family:'Crimson Pro',serif;font-size:20px;color:#ffd700;margin-bottom:12px;text-align:center}
+#lb-box .lb-close{position:absolute;top:8px;right:12px;background:none;border:none;color:rgba(255,255,255,.5);font-size:18px;cursor:pointer}
+#lb-table{width:100%;border-collapse:collapse;font-family:'DM Mono',monospace;font-size:12px}
+#lb-table th{text-align:left;color:rgba(255,255,255,.4);font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:4px 6px;border-bottom:1px solid rgba(255,255,255,.1)}
+#lb-table td{padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.05);color:rgba(255,255,255,.7)}
+#lb-table tr:nth-child(-n+3) td:first-child{color:#ffd700;font-weight:bold}
+#lb-table .you{color:#4f4;font-weight:bold}
+#lb-msg{text-align:center;color:rgba(255,255,255,.3);font-size:12px;padding:16px 0}
+#submit-row{display:flex;gap:6px;margin-top:12px}
+#submit-row input{flex:1;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.15);color:#fff;padding:6px 8px;border-radius:4px;font-family:'DM Mono',monospace;font-size:12px}
+#submit-row button{background:rgba(255,215,0,.15);border:1px solid #ffd700;color:#ffd700;padding:6px 14px;border-radius:4px;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer}
+#submit-row button:hover{background:rgba(255,215,0,.3)}
+#submit-row button:disabled{opacity:.4;cursor:default}
 </style>
 </head>
 <body>
@@ -42,12 +58,25 @@ canvas{position:absolute;top:0;left:0;width:100%;height:100%}
   <span id="timer-display">Time: <b id="time-ct">0:00</b></span>
   <span class="spacer"></span>
   <button id="undo-btn">Undo</button>
+  <button id="lb-btn">Scores</button>
   <button id="new-btn">New Game</button>
 </div>
 <div id="win-overlay">
   <h1>You Win!</h1>
   <p id="win-stats"></p>
-  <button id="win-new-btn">Play Again</button>
+  <div id="submit-row">
+    <input type="text" id="name-input" placeholder="Your name" maxlength="20">
+    <button id="submit-btn" onclick="submitScore()">Submit</button>
+  </div>
+  <p id="submit-msg" style="color:rgba(255,255,255,.4);font-size:11px;margin-top:4px"></p>
+  <button id="win-new-btn" style="margin-top:12px">Play Again</button>
+</div>
+<div id="lb-overlay">
+  <div id="lb-box" style="position:relative">
+    <button class="lb-close" onclick="closeLB()">&times;</button>
+    <h2>Leaderboard</h2>
+    <div id="lb-content"><div id="lb-msg">Loading...</div></div>
+  </div>
 </div>
 <a href="https://sloppy.live" class="back-link" target="_blank">sloppy.live</a>
 
@@ -635,12 +664,106 @@ document.getElementById('undo-btn').onclick=undo;
 document.getElementById('new-btn').onclick=()=>{deal();};
 document.getElementById('win-new-btn').onclick=()=>{deal();};
 
+// --- SUPABASE LEADERBOARD ---
+let sbClient=null,sbUser=null,scoreSubmitted=false;
+
+async function initSupabase(){
+  try{
+    const{createBrowserClient}=await import('https://cdn.jsdelivr.net/npm/@supabase/ssr@0.7.0/+esm');
+    sbClient=createBrowserClient(
+      'https://yjyxteqzhhmtrgcaekgz.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU',
+      {cookieOptions:{name:'sb-auth-token',domain:location.hostname.includes('sloppy.live')?'.sloppy.live':location.hostname.includes('vibecodedbyx.com')?'.vibecodedbyx.com':location.hostname,path:'/',sameSite:'lax'}}
+    );
+    let{data:{session}}=await sbClient.auth.getSession();
+    if(!session){
+      let res=await sbClient.auth.signInAnonymously();
+      session=res.data?.session;
+    }
+    sbUser=session?.user||null;
+  }catch(e){console.warn('Supabase init failed:',e);}
+}
+
+async function fetchLeaderboard(){
+  if(!sbClient)return[];
+  let{data,error}=await sbClient.from('solitaire_scores').select('username,score,moves,time_seconds,created_at').order('score',{ascending:false}).order('time_seconds',{ascending:true}).limit(20);
+  if(error){console.warn('LB fetch error:',error);return[];}
+  return data||[];
+}
+
+function renderLB(entries){
+  let el=document.getElementById('lb-content');
+  if(entries.length===0){el.innerHTML='<div id="lb-msg">No scores yet. Be the first!</div>';return;}
+  let html='<table id="lb-table"><tr><th>#</th><th>Name</th><th>Score</th><th>Moves</th><th>Time</th></tr>';
+  entries.forEach((e,i)=>{
+    let ts=e.time_seconds||0;
+    let m=Math.floor(ts/60),s=ts%60;
+    let time=m+':'+(s<10?'0':'')+s;
+    html+='<tr><td>'+(i+1)+'</td><td>'+esc(e.username||'Anon')+'</td><td>'+e.score+'</td><td>'+e.moves+'</td><td>'+time+'</td></tr>';
+  });
+  html+='</table>';
+  el.innerHTML=html;
+}
+
+function esc(s){let d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+async function openLB(){
+  document.getElementById('lb-overlay').classList.add('show');
+  document.getElementById('lb-content').innerHTML='<div id="lb-msg">Loading...</div>';
+  let entries=await fetchLeaderboard();
+  renderLB(entries);
+}
+function closeLB(){document.getElementById('lb-overlay').classList.remove('show');}
+
+document.getElementById('lb-btn').onclick=openLB;
+document.getElementById('lb-overlay').addEventListener('click',e=>{if(e.target.id==='lb-overlay')closeLB();});
+
+async function submitScore(){
+  if(scoreSubmitted||!sbClient||!sbUser)return;
+  let name=(document.getElementById('name-input').value||'').trim().slice(0,20)||'Anon';
+  let elapsed=Math.floor((Date.now()-startTime)/1000);
+  let btn=document.getElementById('submit-btn');
+  btn.disabled=true;btn.textContent='...';
+  let{error}=await sbClient.from('solitaire_scores').insert({
+    username:name,score:score,moves:moves,time_seconds:elapsed,user_id:sbUser.id
+  });
+  if(error){
+    document.getElementById('submit-msg').textContent='Error: '+error.message;
+    btn.disabled=false;btn.textContent='Retry';
+  } else {
+    scoreSubmitted=true;
+    document.getElementById('submit-msg').textContent='Score submitted!';
+    btn.textContent='Done';
+    localStorage.setItem('solitaire_name',name);
+  }
+}
+window.submitScore=submitScore;
+window.closeLB=closeLB;
+
+// Restore last name
+let savedName=localStorage.getItem('solitaire_name');
+
+// Patch checkWin to reset submit state
+let origCheckWin=checkWin;
+checkWin=function(){
+  origCheckWin();
+  if(gameWon){
+    scoreSubmitted=false;
+    let btn=document.getElementById('submit-btn');
+    if(btn){btn.disabled=false;btn.textContent='Submit';}
+    let msg=document.getElementById('submit-msg');if(msg)msg.textContent='';
+    let inp=document.getElementById('name-input');
+    if(inp&&savedName)inp.value=savedName;
+  }
+};
+
 // Init
 resize();
 window.addEventListener('resize',resize);
 deal();
 timerInterval=setInterval(updateTimer,1000);
 render();
+initSupabase();
 </script>
 </body>
 </html>
