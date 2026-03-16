@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Solitaire</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🃏">
+<meta property="og:title" content="Solitaire">
+<meta property="og:description" content="Classic Klondike Solitaire with smooth drag and drop on green felt.">
+<meta property="og:url" content="https://app.sloppy.live/solitaire/">
+<meta property="og:image" content="https://app.sloppy.live/solitaire/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none}
+html,body{height:100%;overflow:hidden}
+body{background:#1a6b3c;font-family:'Crimson Pro',serif}
+#felt{position:fixed;inset:0;background:
+  radial-gradient(ellipse at 50% 40%,#1e7a42 0%,#165e32 50%,#0e4424 100%);
+  overflow:hidden}
+#felt::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='8' height='8' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='8' height='8' fill='none'/%3E%3Ccircle cx='4' cy='4' r='.4' fill='rgba(0,0,0,.06)'/%3E%3C/svg%3E");opacity:.5}
+canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;right:0;height:36px;background:rgba(0,0,0,.25);display:flex;align-items:center;padding:0 12px;gap:16px;z-index:10;font-family:'DM Mono',monospace;font-size:12px;color:rgba(255,255,255,.7)}
+#hud b{color:#fff}
+#hud .spacer{flex:1}
+#hud button{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.7);padding:4px 12px;border-radius:4px;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer}
+#hud button:hover{background:rgba(255,255,255,.2);color:#fff}
+#win-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100;flex-direction:column}
+#win-overlay.show{display:flex}
+#win-overlay h1{font-family:'Crimson Pro',serif;font-size:42px;color:#ffd700;margin-bottom:8px;text-shadow:0 2px 20px rgba(255,215,0,.5)}
+#win-overlay p{color:rgba(255,255,255,.6);font-size:14px;margin-bottom:20px}
+#win-overlay button{background:rgba(255,215,0,.15);border:2px solid #ffd700;color:#ffd700;padding:10px 28px;font-family:'Crimson Pro',serif;font-size:16px;cursor:pointer;border-radius:6px}
+#win-overlay button:hover{background:rgba(255,215,0,.3)}
+.back-link{position:fixed;bottom:4px;left:8px;font-size:9px;color:rgba(255,255,255,.15);text-decoration:none;z-index:10}
+.back-link:hover{color:rgba(255,255,255,.3)}
+</style>
+</head>
+<body>
+<div id="felt"><canvas id="c"></canvas></div>
+<div id="hud">
+  <span>Moves: <b id="move-ct">0</b></span>
+  <span>Score: <b id="score-ct">0</b></span>
+  <span id="timer-display">Time: <b id="time-ct">0:00</b></span>
+  <span class="spacer"></span>
+  <button id="undo-btn">Undo</button>
+  <button id="new-btn">New Game</button>
+</div>
+<div id="win-overlay">
+  <h1>You Win!</h1>
+  <p id="win-stats"></p>
+  <button id="win-new-btn">Play Again</button>
+</div>
+<a href="https://sloppy.live" class="back-link" target="_blank">sloppy.live</a>
+
+<script>
+const CV=document.getElementById('c'),X=CV.getContext('2d');
+let W,H,CW,CH,SCALE;
+
+// Card dimensions
+let cardW=72,cardH=100,gap=12,stackGap=20,faceDownGap=12;
+let topY=46;
+
+const SUITS=['♠','♥','♦','♣'];
+const SUIT_COLOR={'\u2660':'#1a1a2e','♥':'#c0392b','♦':'#c0392b','♣':'#1a1a2e'};
+const RANKS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+
+// Game state
+let stock=[],waste=[],foundations=[[],[],[],[]],tableau=[[],[],[],[],[],[],[]];
+let moves=0,score=0,startTime=0,timerInterval=null,gameWon=false;
+let undoStack=[];
+let dragCards=null,dragFrom=null,dragFromIdx=-1,dragOffX=0,dragOffY=0,dragX=0,dragY=0;
+
+function resize(){
+  let dpr=window.devicePixelRatio||1;
+  W=window.innerWidth;H=window.innerHeight;
+  CV.width=W*dpr;CV.height=H*dpr;
+  CV.style.width=W+'px';CV.style.height=H+'px';
+  X.setTransform(dpr,0,0,dpr,0,0);
+  // Scale cards to fit
+  let totalW=7*cardW+8*gap;
+  if(totalW>W-20){
+    let s=(W-20)/(7*cardW+8*gap);
+    cardW=Math.floor(72*s);cardH=Math.floor(100*s);gap=Math.floor(12*s);
+    stackGap=Math.floor(20*s);faceDownGap=Math.floor(12*s);
+  }
+}
+
+function makeCard(suit,rank,faceUp){
+  return{suit,rank,faceUp,val:RANKS.indexOf(rank)+1,isRed:suit==='♥'||suit==='♦'};
+}
+
+function makeDeck(){
+  let d=[];
+  SUITS.forEach(s=>RANKS.forEach(r=>d.push(makeCard(s,r,false))));
+  for(let i=d.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]];}
+  return d;
+}
+
+function deal(){
+  let deck=makeDeck();
+  tableau=[[],[],[],[],[],[],[]];
+  foundations=[[],[],[],[]];
+  stock=[];waste=[];
+  for(let i=0;i<7;i++){
+    for(let j=i;j<7;j++){
+      let c=deck.pop();
+      c.faceUp=(j===i);
+      tableau[j].push(c);
+    }
+  }
+  stock=deck;stock.forEach(c=>c.faceUp=false);
+  waste=[];moves=0;score=0;gameWon=false;undoStack=[];
+  startTime=Date.now();
+  document.getElementById('win-overlay').classList.remove('show');
+  updateHUD();
+}
+
+function saveState(){
+  return JSON.stringify({
+    stock:stock.map(c=>({s:c.suit,r:c.rank,f:c.faceUp})),
+    waste:waste.map(c=>({s:c.suit,r:c.rank,f:c.faceUp})),
+    foundations:foundations.map(f=>f.map(c=>({s:c.suit,r:c.rank,f:c.faceUp}))),
+    tableau:tableau.map(t=>t.map(c=>({s:c.suit,r:c.rank,f:c.faceUp}))),
+    moves,score
+  });
+}
+
+function loadState(json){
+  let st=JSON.parse(json);
+  let rc=o=>makeCard(o.s,o.r,o.f);
+  stock=st.stock.map(rc);waste=st.waste.map(rc);
+  foundations=st.foundations.map(f=>f.map(rc));
+  tableau=st.tableau.map(t=>t.map(rc));
+  moves=st.moves;score=st.score;
+}
+
+function pushUndo(){undoStack.push(saveState());if(undoStack.length>50)undoStack.shift();}
+
+function undo(){
+  if(undoStack.length===0)return;
+  loadState(undoStack.pop());
+  updateHUD();
+}
+
+// --- POSITIONS ---
+function stockPos(){return{x:gap,y:topY};}
+function wastePos(){return{x:gap+cardW+gap,y:topY};}
+function foundPos(i){return{x:gap+(3+i)*(cardW+gap),y:topY};}
+function tabPos(i){return{x:gap+i*(cardW+gap),y:topY+cardH+gap+10};}
+
+function cardInTableau(col,idx){
+  let p=tabPos(col);
+  let c=tableau[col][idx];
+  let yOff=0;
+  for(let k=0;k<idx;k++) yOff+=(tableau[col][k].faceUp?stackGap:faceDownGap);
+  return{x:p.x,y:p.y+yOff};
+}
+
+// --- DRAWING ---
+function drawCard(card,x,y,w,h){
+  // Shadow
+  X.fillStyle='rgba(0,0,0,.18)';
+  roundRect(x+2,y+3,w,h,5,true,false);
+  if(!card.faceUp){
+    // Card back
+    X.fillStyle='#1a3a8a';
+    roundRect(x,y,w,h,5,true,false);
+    X.strokeStyle='#2a5aba';X.lineWidth=1;
+    roundRect(x,y,w,h,5,false,true);
+    // Pattern
+    X.fillStyle='rgba(255,255,255,.06)';
+    for(let py=y+6;py<y+h-4;py+=6){
+      for(let px=x+6;px<x+w-4;px+=6){
+        X.fillRect(px,py,2,2);
+      }
+    }
+    X.fillStyle='rgba(255,255,255,.08)';
+    roundRect(x+4,y+4,w-8,h-8,3,true,false);
+    X.strokeStyle='rgba(255,255,255,.1)';X.lineWidth=.5;
+    roundRect(x+4,y+4,w-8,h-8,3,false,true);
+    return;
+  }
+  // Face
+  X.fillStyle='#f5f0e8';
+  roundRect(x,y,w,h,5,true,false);
+  X.strokeStyle='rgba(0,0,0,.12)';X.lineWidth=1;
+  roundRect(x,y,w,h,5,false,true);
+
+  let color=SUIT_COLOR[card.suit];
+  X.fillStyle=color;
+  X.font='bold '+Math.floor(w*.22)+'px Crimson Pro';
+  X.textAlign='left';
+  X.fillText(card.rank,x+4,y+Math.floor(w*.24));
+  X.font=Math.floor(w*.2)+'px serif';
+  X.fillText(card.suit,x+4,y+Math.floor(w*.42));
+
+  // Center suit
+  X.font=Math.floor(w*.4)+'px serif';
+  X.textAlign='center';
+  X.fillStyle=color;
+  X.fillText(card.suit,x+w/2,y+h*.58);
+
+  // Bottom right (inverted)
+  X.save();
+  X.translate(x+w-4,y+h-4);X.rotate(Math.PI);
+  X.textAlign='left';
+  X.font='bold '+Math.floor(w*.22)+'px Crimson Pro';
+  X.fillStyle=color;
+  X.fillText(card.rank,0,Math.floor(w*.24));
+  X.font=Math.floor(w*.2)+'px serif';
+  X.fillText(card.suit,0,Math.floor(w*.42));
+  X.restore();
+}
+
+function drawEmptySlot(x,y,w,h,label){
+  X.strokeStyle='rgba(255,255,255,.12)';
+  X.lineWidth=1.5;
+  X.setLineDash([4,4]);
+  roundRect(x,y,w,h,5,false,true);
+  X.setLineDash([]);
+  if(label){
+    X.fillStyle='rgba(255,255,255,.1)';
+    X.font='bold '+Math.floor(w*.28)+'px Crimson Pro';
+    X.textAlign='center';
+    X.fillText(label,x+w/2,y+h/2+Math.floor(w*.1));
+  }
+}
+
+function roundRect(x,y,w,h,r,fill,stroke){
+  X.beginPath();
+  X.moveTo(x+r,y);X.arcTo(x+w,y,x+w,y+h,r);X.arcTo(x+w,y+h,x,y+h,r);
+  X.arcTo(x,y+h,x,y,r);X.arcTo(x,y,x+w,y,r);X.closePath();
+  if(fill)X.fill();if(stroke)X.stroke();
+}
+
+function render(){
+  X.clearRect(0,0,W,H);
+
+  // Stock
+  let sp=stockPos();
+  if(stock.length>0){
+    // Stack effect
+    if(stock.length>4){drawCard(stock[0],sp.x+2,sp.y+2,cardW,cardH);}
+    if(stock.length>2){drawCard(stock[0],sp.x+1,sp.y+1,cardW,cardH);}
+    drawCard(stock[stock.length-1],sp.x,sp.y,cardW,cardH);
+  } else {
+    drawEmptySlot(sp.x,sp.y,cardW,cardH,'↺');
+  }
+
+  // Waste
+  let wp=wastePos();
+  if(waste.length>0){
+    let show=Math.min(waste.length,3);
+    for(let i=Math.max(0,waste.length-show);i<waste.length;i++){
+      let off=(i-Math.max(0,waste.length-show))*Math.floor(cardW*.3);
+      if(dragFrom==='waste'&&i===waste.length-1&&dragCards)continue;
+      drawCard(waste[i],wp.x+off,wp.y,cardW,cardH);
+    }
+  } else {
+    drawEmptySlot(wp.x,wp.y,cardW,cardH);
+  }
+
+  // Foundations
+  for(let i=0;i<4;i++){
+    let fp=foundPos(i);
+    if(foundations[i].length>0){
+      let top=foundations[i][foundations[i].length-1];
+      if(dragFrom==='foundation'&&dragFromIdx===i&&dragCards)
+        top=foundations[i].length>1?foundations[i][foundations[i].length-2]:null;
+      if(top) drawCard(top,fp.x,fp.y,cardW,cardH);
+      else drawEmptySlot(fp.x,fp.y,cardW,cardH,SUITS[i]);
+    } else {
+      drawEmptySlot(fp.x,fp.y,cardW,cardH,'A');
+    }
+  }
+
+  // Tableau
+  for(let i=0;i<7;i++){
+    let tp=tabPos(i);
+    if(tableau[i].length===0){
+      drawEmptySlot(tp.x,tp.y,cardW,cardH,'K');
+      continue;
+    }
+    let yOff=0;
+    for(let j=0;j<tableau[i].length;j++){
+      if(dragFrom==='tableau'&&dragFromIdx===i&&dragCards&&j>=tableau[i].length-dragCards.length+
+        (tableau[i].indexOf(dragCards[0])>=0?0:dragCards.length)){
+        // Skip dragged cards - handled differently
+      }
+      let skip=false;
+      if(dragFrom==='tableau'&&dragFromIdx===i&&dragCards){
+        let startIdx=tableau[i].length;// cards are already removed from source during drag? No, we remove on drop
+        // dragCards are removed temporarily
+      }
+      drawCard(tableau[i][j],tp.x,tp.y+yOff,cardW,cardH);
+      yOff+=(tableau[i][j].faceUp?stackGap:faceDownGap);
+    }
+  }
+
+  // Dragged cards
+  if(dragCards){
+    for(let i=0;i<dragCards.length;i++){
+      drawCard(dragCards[i],dragX+dragOffX,dragY+dragOffY+i*stackGap,cardW,cardH);
+    }
+  }
+
+  requestAnimationFrame(render);
+}
+
+// --- GAME LOGIC ---
+function drawFromStock(){
+  pushUndo();
+  if(stock.length===0){
+    // Recycle waste
+    if(waste.length===0)return;
+    stock=waste.reverse();
+    stock.forEach(c=>c.faceUp=false);
+    waste=[];
+    score=Math.max(0,score-100);
+  } else {
+    let c=stock.pop();
+    c.faceUp=true;
+    waste.push(c);
+  }
+  moves++;updateHUD();
+}
+
+function canPlaceOnFoundation(card,fi){
+  let f=foundations[fi];
+  if(f.length===0) return card.val===1;
+  let top=f[f.length-1];
+  return top.suit===card.suit&&card.val===top.val+1;
+}
+
+function canPlaceOnTableau(card,ti){
+  let t=tableau[ti];
+  if(t.length===0) return card.val===13; // King
+  let top=t[t.length-1];
+  if(!top.faceUp)return false;
+  return card.isRed!==top.isRed&&card.val===top.val-1;
+}
+
+function tryAutoFoundation(card,source,sourceIdx){
+  for(let i=0;i<4;i++){
+    if(canPlaceOnFoundation(card,i)){
+      pushUndo();
+      if(source==='waste') waste.pop();
+      else if(source==='tableau'){
+        tableau[sourceIdx].pop();
+        flipTopCard(sourceIdx);
+      }
+      foundations[i].push(card);
+      score+=10;moves++;updateHUD();checkWin();
+      return true;
+    }
+  }
+  return false;
+}
+
+function flipTopCard(ti){
+  let t=tableau[ti];
+  if(t.length>0&&!t[t.length-1].faceUp){
+    t[t.length-1].faceUp=true;
+    score+=5;
+  }
+}
+
+function checkWin(){
+  if(foundations.every(f=>f.length===13)){
+    gameWon=true;
+    clearInterval(timerInterval);
+    let elapsed=Math.floor((Date.now()-startTime)/1000);
+    let m=Math.floor(elapsed/60),s=elapsed%60;
+    document.getElementById('win-stats').textContent=
+      'Score: '+score+' | Moves: '+moves+' | Time: '+m+':'+(s<10?'0':'')+s;
+    document.getElementById('win-overlay').classList.add('show');
+  }
+}
+
+function updateHUD(){
+  document.getElementById('move-ct').textContent=moves;
+  document.getElementById('score-ct').textContent=score;
+}
+
+function updateTimer(){
+  if(gameWon)return;
+  let elapsed=Math.floor((Date.now()-startTime)/1000);
+  let m=Math.floor(elapsed/60),s=elapsed%60;
+  document.getElementById('time-ct').textContent=m+':'+(s<10?'0':'')+s;
+}
+
+// --- INPUT ---
+function getCardAt(mx,my){
+  // Check waste
+  if(waste.length>0){
+    let wp=wastePos();
+    let show=Math.min(waste.length,3);
+    let off=(show-1)*Math.floor(cardW*.3);
+    if(mx>=wp.x+off&&mx<=wp.x+off+cardW&&my>=wp.y&&my<=wp.y+cardH){
+      return{source:'waste',card:waste[waste.length-1],cards:[waste[waste.length-1]],idx:-1,cx:wp.x+off,cy:wp.y};
+    }
+  }
+  // Check foundations
+  for(let i=0;i<4;i++){
+    let fp=foundPos(i);
+    if(foundations[i].length>0&&mx>=fp.x&&mx<=fp.x+cardW&&my>=fp.y&&my<=fp.y+cardH){
+      let c=foundations[i][foundations[i].length-1];
+      return{source:'foundation',card:c,cards:[c],idx:i,cx:fp.x,cy:fp.y};
+    }
+  }
+  // Check tableau (top to bottom, check from bottom card up)
+  for(let i=0;i<7;i++){
+    let t=tableau[i];
+    if(t.length===0)continue;
+    let tp=tabPos(i);
+    let yOff=0;
+    // Calculate positions
+    let positions=[];
+    for(let j=0;j<t.length;j++){
+      positions.push({x:tp.x,y:tp.y+yOff});
+      yOff+=(t[j].faceUp?stackGap:faceDownGap);
+    }
+    // Check from bottom to top (last card first for overlap priority)
+    for(let j=t.length-1;j>=0;j--){
+      let cp=positions[j];
+      let h=(j===t.length-1)?cardH:((t[j].faceUp?stackGap:faceDownGap));
+      if(mx>=cp.x&&mx<=cp.x+cardW&&my>=cp.y&&my<=cp.y+h){
+        if(!t[j].faceUp)return null;
+        let cards=t.slice(j);
+        return{source:'tableau',card:t[j],cards:cards,idx:i,cardIdx:j,cx:cp.x,cy:cp.y};
+      }
+    }
+  }
+  // Check stock
+  let sp=stockPos();
+  if(mx>=sp.x&&mx<=sp.x+cardW&&my>=sp.y&&my<=sp.y+cardH){
+    return{source:'stock'};
+  }
+  return null;
+}
+
+function getDropTarget(mx,my){
+  // Foundations (single card only)
+  if(dragCards&&dragCards.length===1){
+    for(let i=0;i<4;i++){
+      let fp=foundPos(i);
+      if(mx>=fp.x-10&&mx<=fp.x+cardW+10&&my>=fp.y-10&&my<=fp.y+cardH+10){
+        if(canPlaceOnFoundation(dragCards[0],i)) return{type:'foundation',idx:i};
+      }
+    }
+  }
+  // Tableau
+  for(let i=0;i<7;i++){
+    let tp=tabPos(i);
+    let t=tableau[i];
+    let bottomY=tp.y;
+    if(t.length>0){
+      let yOff=0;
+      for(let j=0;j<t.length;j++) yOff+=(t[j].faceUp?stackGap:faceDownGap);
+      bottomY=tp.y+yOff;
+    }
+    if(mx>=tp.x-5&&mx<=tp.x+cardW+5&&my>=tp.y-10&&my<=bottomY+cardH+10){
+      if(canPlaceOnTableau(dragCards[0],i)) return{type:'tableau',idx:i};
+    }
+  }
+  return null;
+}
+
+let isDragging=false;
+let clickStart={x:0,y:0,time:0};
+let dragSource=null;
+
+function pointerDown(mx,my){
+  if(gameWon)return;
+  let hit=getCardAt(mx,my);
+  if(!hit)return;
+  clickStart={x:mx,y:my,time:Date.now()};
+
+  if(hit.source==='stock'){
+    drawFromStock();
+    return;
+  }
+  if(!hit.card||!hit.card.faceUp)return;
+
+  dragSource=hit;
+  dragCards=hit.cards;
+  dragFrom=hit.source;
+  dragFromIdx=hit.idx;
+  dragX=mx;dragY=my;
+  dragOffX=hit.cx-mx;
+  dragOffY=hit.cy-my;
+  isDragging=false;
+
+  // Remove from source visually
+  if(hit.source==='tableau'){
+    let ci=hit.cardIdx||tableau[hit.idx].length-1;
+    dragCards=tableau[hit.idx].splice(ci);
+  } else if(hit.source==='waste'){
+    dragCards=[waste.pop()];
+  } else if(hit.source==='foundation'){
+    dragCards=[foundations[hit.idx].pop()];
+  }
+}
+
+function pointerMove(mx,my){
+  if(!dragCards)return;
+  isDragging=true;
+  dragX=mx;dragY=my;
+}
+
+function pointerUp(mx,my){
+  if(!dragCards){return;}
+
+  let wasClick=!isDragging&&(Date.now()-clickStart.time)<300;
+
+  if(wasClick&&dragCards.length===1){
+    // Return cards first
+    returnDrag();
+    // Try auto-foundation on click
+    let card=dragSource.card;
+    if(dragSource.source==='waste'){
+      tryAutoFoundation(card,'waste',-1);
+    } else if(dragSource.source==='tableau'){
+      tryAutoFoundation(card,'tableau',dragSource.idx);
+    }
+    dragCards=null;dragFrom=null;
+    return;
+  }
+
+  let target=getDropTarget(mx,my);
+  if(target){
+    pushUndo();
+    if(target.type==='foundation'){
+      foundations[target.idx].push(...dragCards);
+      score+=10;
+    } else if(target.type==='tableau'){
+      tableau[target.idx].push(...dragCards);
+      if(dragFrom==='foundation')score=Math.max(0,score-15);
+      else if(dragFrom==='waste')score+=5;
+      else score+=3;
+    }
+    if(dragFrom==='tableau')flipTopCard(dragFromIdx);
+    moves++;updateHUD();checkWin();
+  } else {
+    returnDrag();
+  }
+  dragCards=null;dragFrom=null;isDragging=false;
+}
+
+function returnDrag(){
+  if(!dragCards)return;
+  if(dragFrom==='tableau') tableau[dragFromIdx].push(...dragCards);
+  else if(dragFrom==='waste') waste.push(...dragCards);
+  else if(dragFrom==='foundation') foundations[dragFromIdx].push(...dragCards);
+}
+
+// Mouse events
+CV.addEventListener('mousedown',e=>{
+  let r=CV.getBoundingClientRect();
+  pointerDown(e.clientX-r.left,e.clientY-r.top);
+});
+CV.addEventListener('mousemove',e=>{
+  let r=CV.getBoundingClientRect();
+  pointerMove(e.clientX-r.left,e.clientY-r.top);
+});
+CV.addEventListener('mouseup',e=>{
+  let r=CV.getBoundingClientRect();
+  pointerUp(e.clientX-r.left,e.clientY-r.top);
+});
+
+// Touch events
+CV.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  let t=e.touches[0],r=CV.getBoundingClientRect();
+  pointerDown(t.clientX-r.left,t.clientY-r.top);
+},{passive:false});
+CV.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  let t=e.touches[0],r=CV.getBoundingClientRect();
+  pointerMove(t.clientX-r.left,t.clientY-r.top);
+},{passive:false});
+CV.addEventListener('touchend',e=>{
+  e.preventDefault();
+  let t=e.changedTouches[0],r=CV.getBoundingClientRect();
+  pointerUp(t.clientX-r.left,t.clientY-r.top);
+},{passive:false});
+
+// Double click for auto-foundation
+CV.addEventListener('dblclick',e=>{
+  let r=CV.getBoundingClientRect();
+  let mx=e.clientX-r.left,my=e.clientY-r.top;
+  let hit=getCardAt(mx,my);
+  if(!hit||!hit.card||hit.source==='stock')return;
+  if(hit.cards&&hit.cards.length===1){
+    tryAutoFoundation(hit.card,hit.source,hit.idx);
+  }
+});
+
+// Buttons
+document.getElementById('undo-btn').onclick=undo;
+document.getElementById('new-btn').onclick=()=>{deal();};
+document.getElementById('win-new-btn').onclick=()=>{deal();};
+
+// Init
+resize();
+window.addEventListener('resize',resize);
+deal();
+timerInterval=setInterval(updateTimer,1000);
+render();
+</script>
+</body>
+</html>
