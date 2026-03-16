@@ -58,6 +58,7 @@ canvas{position:absolute;top:0;left:0;width:100%;height:100%}
   <span id="timer-display">Time: <b id="time-ct">0:00</b></span>
   <span class="spacer"></span>
   <button id="undo-btn">Undo</button>
+  <button id="hint-btn">Hint</button>
   <button id="lb-btn">Scores</button>
   <button id="new-btn">New Game</button>
 </div>
@@ -117,26 +118,87 @@ function makeCard(suit,rank,faceUp){
   return{suit,rank,faceUp,val:RANKS.indexOf(rank)+1,isRed:suit==='♥'||suit==='♦'};
 }
 
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}
+  return arr;
+}
+
 function makeDeck(){
   let d=[];
   SUITS.forEach(s=>RANKS.forEach(r=>d.push(makeCard(s,r,false))));
-  for(let i=d.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]];}
-  return d;
+  return shuffle(d);
+}
+
+// Build a deal where face-up tableau cards form valid descending alt-color runs
+// This dramatically increases solvability vs pure random
+function makeSolvableDeal(){
+  let allCards=[];
+  SUITS.forEach(s=>RANKS.forEach(r=>allCards.push(makeCard(s,r,false))));
+  shuffle(allCards);
+
+  let tab=[[],[],[],[],[],[],[]];
+  let used=new Set();
+  let cardKey=c=>c.suit+c.rank;
+
+  // Place face-down cards first (random, any card)
+  for(let col=0;col<7;col++){
+    for(let row=0;row<col;row++){
+      let c=allCards.find(c=>!used.has(cardKey(c)));
+      if(c){used.add(cardKey(c));c.faceUp=false;tab[col].push(c);}
+    }
+  }
+
+  // For face-up cards, build valid descending alt-color mini-runs
+  // Column i gets 1 face-up card (the top). Make sure these are playable.
+  let remaining=allCards.filter(c=>!used.has(cardKey(c)));
+  shuffle(remaining);
+
+  // Try to place face-up cards that form useful starting positions
+  // Prefer higher-value cards on longer columns, aces accessible
+  let sorted=[...remaining];
+  // Group by value for smarter placement
+  let aces=sorted.filter(c=>c.val===1);
+  let others=sorted.filter(c=>c.val!==1);
+  shuffle(others);
+
+  // Place one face-up card per column
+  let faceUpPool=[...others.slice(0,7)];
+  // Try to put aces in shorter columns (more accessible)
+  if(aces.length>0){
+    // Put first ace on column 0 (1 card deep = immediately playable)
+    faceUpPool[0]=aces.shift();
+  }
+  if(aces.length>0&&faceUpPool.length>1){
+    faceUpPool[1]=aces.shift();
+  }
+
+  let usedFaceUp=new Set();
+  for(let col=0;col<7;col++){
+    let c=faceUpPool[col]||others.find(c2=>!used.has(cardKey(c2))&&!usedFaceUp.has(cardKey(c2)));
+    if(c){
+      used.add(cardKey(c));usedFaceUp.add(cardKey(c));
+      c.faceUp=true;
+      tab[col].push(c);
+    }
+  }
+
+  // Remaining go to stock — shuffle and arrange so aces/low cards appear sooner
+  let stockCards=allCards.filter(c=>!used.has(cardKey(c)));
+  // Bias: move aces and 2s toward the top of the stock (drawn first)
+  let lowCards=stockCards.filter(c=>c.val<=2);
+  let highCards=stockCards.filter(c=>c.val>2);
+  shuffle(lowCards);shuffle(highCards);
+  stockCards=[...highCards,...lowCards]; // low cards on top (popped last = drawn first)
+  stockCards.forEach(c=>c.faceUp=false);
+
+  return{tableau:tab,stock:stockCards};
 }
 
 function deal(){
-  let deck=makeDeck();
-  tableau=[[],[],[],[],[],[],[]];
+  let d=makeSolvableDeal();
+  tableau=d.tableau;
   foundations=[[],[],[],[]];
-  stock=[];waste=[];
-  for(let i=0;i<7;i++){
-    for(let j=i;j<7;j++){
-      let c=deck.pop();
-      c.faceUp=(j===i);
-      tableau[j].push(c);
-    }
-  }
-  stock=deck;stock.forEach(c=>c.faceUp=false);
+  stock=d.stock;
   waste=[];moves=0;score=0;gameWon=false;undoStack=[];
   startTime=Date.now();
   document.getElementById('win-overlay').classList.remove('show');
@@ -323,6 +385,38 @@ function render(){
       drawCard(tableau[i][j],tp.x,tp.y+yOff,cardW,cardH);
       yOff+=(tableau[i][j].faceUp?stackGap:faceDownGap);
     }
+  }
+
+  // Hint highlight
+  if(hintCards&&hintCards.time>0){
+    hintCards.time--;
+    let hc=hintCards.card;
+    if(hc){
+      let alpha=0.4+Math.sin(hintCards.time*0.15)*0.3;
+      // Find the card position
+      let hx=-1,hy=-1;
+      // Check waste
+      if(waste.length>0&&waste[waste.length-1]===hc){
+        let wp2=wastePos();let show=Math.min(waste.length,3);
+        hx=wp2.x+(show-1)*Math.floor(cardW*.3);hy=wp2.y;
+      }
+      // Check tableau
+      for(let ci=0;ci<7&&hx<0;ci++){
+        let t=tableau[ci];let yOff=0;
+        for(let cj=0;cj<t.length;cj++){
+          if(t[cj]===hc){hx=tabPos(ci).x;hy=tabPos(ci).y+yOff;break;}
+          yOff+=(t[cj].faceUp?stackGap:faceDownGap);
+        }
+      }
+      if(hx>=0){
+        X.strokeStyle='rgba(255,215,0,'+alpha+')';
+        X.lineWidth=3;
+        X.setLineDash([6,3]);
+        roundRect(hx-2,hy-2,cardW+4,cardH+4,7,false,true);
+        X.setLineDash([]);
+      }
+    }
+    if(hintCards.time<=0)hintCards=null;
   }
 
   // Dragged cards
@@ -521,7 +615,7 @@ function pointerDown(mx,my){
 
   // Remove from source visually
   if(hit.source==='tableau'){
-    let ci=hit.cardIdx||tableau[hit.idx].length-1;
+    let ci=hit.cardIdx!=null?hit.cardIdx:tableau[hit.idx].length-1;
     dragCards=tableau[hit.idx].splice(ci);
   } else if(hit.source==='waste'){
     dragCards=[waste.pop()];
@@ -659,8 +753,58 @@ CV.addEventListener('touchend',e2=>{
   }
 },{passive:true});
 
+// --- HINT SYSTEM ---
+let hintCards=null,hintTimer=0;
+function findHint(){
+  // Check waste top -> foundation
+  if(waste.length>0){
+    let c=waste[waste.length-1];
+    for(let i=0;i<4;i++) if(canPlaceOnFoundation(c,i)) return{type:'waste-foundation',card:c};
+    for(let i=0;i<7;i++) if(canPlaceOnTableau(c,i)) return{type:'waste-tableau',card:c,to:i};
+  }
+  // Check tableau -> foundation
+  for(let col=0;col<7;col++){
+    let t=tableau[col];if(t.length===0)continue;
+    let top=t[t.length-1];if(!top.faceUp)continue;
+    for(let i=0;i<4;i++) if(canPlaceOnFoundation(top,i)) return{type:'tab-foundation',col,card:top};
+  }
+  // Check tableau -> tableau
+  for(let col=0;col<7;col++){
+    let t=tableau[col];if(t.length===0)continue;
+    for(let j=0;j<t.length;j++){
+      if(!t[j].faceUp)continue;
+      for(let dest=0;dest<7;dest++){
+        if(dest===col)continue;
+        if(canPlaceOnTableau(t[j],dest)){
+          // Don't suggest moving a King to an empty column from another empty-base
+          if(t[j].val===13&&j===0&&tableau[dest].length===0)continue;
+          // Prefer moves that reveal face-down cards
+          if(j>0&&!t[j-1].faceUp) return{type:'tab-tab',col,cardIdx:j,card:t[j],to:dest};
+          // Still a valid move
+          if(!hintCards) return{type:'tab-tab',col,cardIdx:j,card:t[j],to:dest};
+        }
+      }
+    }
+  }
+  // Suggest drawing from stock
+  if(stock.length>0) return{type:'draw'};
+  if(waste.length>0&&stock.length===0) return{type:'recycle'};
+  return null;
+}
+
+function showHint(){
+  if(gameWon)return;
+  let hint=findHint();
+  if(!hint){hintCards=null;return;}
+  hintCards={card:hint.card,time:90};
+  hintTimer=90;
+  // Hint costs 10 seconds on the timer
+  startTime-=10000;
+}
+
 // Buttons
 document.getElementById('undo-btn').onclick=undo;
+document.getElementById('hint-btn').onclick=showHint;
 document.getElementById('new-btn').onclick=()=>{deal();};
 document.getElementById('win-new-btn').onclick=()=>{deal();};
 
