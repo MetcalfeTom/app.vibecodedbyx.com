@@ -7,12 +7,15 @@ Fly your bee, collect pollen from flowers, and grow the ultimate hive.
 
 - 2026-03-17: Added 7 flower types (Daisy, Poppy, Lavender, Sunflower, Bluebell, Rose, Royal Orchid), rare golden orchids with glow that yield rare honey (crown icon). Weighted random spawning. Different petal counts/sizes/colors per type. localStorage persistence for honey, rare honey, hive level, bees. Slowed clouds. Compact HUD with emoji-only labels.
 
+- 2026-03-17: Added 13 hive levels (up from 7) with increasing costs up to 12000 honey. Bee skins per level: Classic (1-8), Fire (9), Frost (10), Royal (11), Golden (12), Emerald (13). Honey multiplier based on unique flowers visited per trip (each unique flower +0.25x). Petals repositioned closer to stems. Flowers respawn as random new type when picked.
+
+- 2026-03-17: Dynamic weather system. State machine cycles sunny/cloudy/rain with 15-35s durations. Cloud overlay with smooth alpha transitions. Rain: animated raindrop particles, 3x flower regrowth speed, darker ground. Cloudy: 1.5x regrowth. Weather icon in top-right corner. Gentle atmospheric effect without disrupting gameplay.
+
 ## issues
 - None yet
 
 ## todos
 - Predators (wasps/spiders) that chase the bee
-- Weather effects (rain slows movement, sun boosts pollen)
 - Hive customization/decoration
 - Sound effects
 
