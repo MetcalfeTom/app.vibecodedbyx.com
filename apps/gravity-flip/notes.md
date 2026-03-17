@@ -1,65 +1,27 @@
-# Gravity Flip - Pastel Puzzles
+# Gravity Flip
+
+Neon physics sandbox where gravity reverses every 5 seconds.
 
 ## log
-- 2026-01-09: Initial creation
-  - Minimalist pastel puzzle game
-  - 8 handcrafted levels
-  - Gravity flip mechanic (space/click/tap)
-  - Cute player character with face
-  - Wall, platform, goal, and hazard tiles
-  - Level completion flow
-  - Mobile flip button
+- 2026-03-17: Initial build. Canvas physics sandbox with auto-reversing gravity every 5 seconds. 3 shape types (circle, square, triangle) + random mode. Click to spawn, drag to fling. Rain mode spawns continuous stream. Object-object collisions with mass-based impulse resolution. Bounce sparks on wall/floor impacts. Screen shake + color flash on gravity flip. Gravity field arrows on background. Motion trails via semi-transparent clear. Drag line with arrow indicator for fling direction. Up to 200 objects. Chakra Petch + Fira Code typography, dark void with neon glow.
 
-## features
-- Flip gravity up/down to navigate puzzles
-- 8 progressively challenging levels
-- Cute pastel player blob with eyes
-- Solid walls (border), platforms, hazards
-- Goal star to reach each level
-- Level name and progress display
-- Gravity indicator arrow
-- Touch and keyboard controls
-- Mobile-friendly flip button
-
-## controls
-- Arrow keys or A/D to move
-- Space bar to flip gravity
-- Click canvas to flip gravity
-- Mobile: tap flip button or canvas
-
-## level design
-1. First Steps - basic intro
-2. The Gap - jumping across
-3. Up and Over - using flip to go over walls
-4. Danger Zone - avoiding hazards
-5. Tight Squeeze - narrow passages
-6. Hazard Maze - multiple hazard areas
-7. The Climb - vertical progression
-8. Final Test - combining all mechanics
-
-## tiles
-- 1 = Wall (border tiles)
-- 2 = Platform (solid, pastel purple)
-- 3 = Hazard (resets level)
-- 4 = Goal (star to reach)
-- P = Player spawn
-- . = Empty space
-
-## design
-- Background: warm off-white (#f8f6f4)
-- Player: soft pink (#e8b4b8)
-- Platform: light purple (#d4c4e8)
-- Goal: soft mint green (#c8e6d4)
-- Hazard: peachy (#f5d5c8)
-- Wall: light gray (#e8e4e0)
-- Nunito font for friendly feel
-- Rounded corners on everything
-- NO neon or glow effects
+## issues
+- None yet
 
 ## todos
-- Add more levels
-- Add collectible stars
-- Add moving platforms
-- Add time trial mode
-- Add level select screen
-- Add sound effects
+- Add gravity well attractors (click to place)
+- Adjustable flip interval slider
+- Object size slider
+- Sound effects on flip and collision
+- Black hole mode (center attractor)
+
+## notes
+- No database — pure frontend
+- Gravity: 700 px/s^2, reverses every 5s
+- Restitution: 0.6
+- Max 200 objects, oldest removed when exceeded
+- Shapes: circle, square, triangle (+ mix random)
+- Rain mode: spawns one object per 150ms from top/bottom edge
+- Fling: drag distance > 15px triggers velocity fling at 3x drag distance
+- 8 neon colors in palette
+- Sparks spawned on wall bounce (velocity > 80) and object collision (relSpeed > 40)
