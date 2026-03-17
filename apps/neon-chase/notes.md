@@ -1,24 +1,27 @@
 # Neon Chase
 
-Fast-paced neon obstacle course. Dodge glowing barriers at increasing speed and chase the highest score.
+High-speed arcade tunnel racer. Dodge neon obstacles at hyperspeed.
 
 ## log
-- 2026-03-14: Initial build. 5-lane obstacle course with ship dodging neon hazards. 5 obstacle types: bar (horizontal with gap), diamond (rotating), zigzag (bouncing side-to-side), pulse (expanding/contracting circles), sweep (fast horizontal sweeper). 3 pickup types: point orb (+25*combo), combo multiplier (up to x10), shield (2s immunity). Speed ramps continuously (2.5 + frame*0.0012). Score from surviving + dodging + pickups, multiplied by combo. Player ship with trail, engine glow, shield ring. Course borders with neon gradient, dashed lane lines, speed lines. Web Audio tones for dodge/crash/pickup/combo. Touch controls (half-screen zones) + keyboard (arrows/AD) + device tilt. Shift for focus mode (slower, tighter). Death screen with score, best, retry. localStorage high score. Orbitron + Share Tech Mono typography, cyan/magenta/yellow neon palette.
+- 2026-03-17: Initial build. Pseudo-3D tunnel with perspective projection, 80 segments with random curves. 5-lane system, lane-switching controls. Obstacle types: block (1 lane) and wide (2 lanes) with random hue. Shield and boost powerups. Combo system for near-misses (up to x10). Speed ramps from 80km/h to 280km/h. Screen shake on hits, explosion particles, red flash on death. Speed lines intensity scales with velocity. Tunnel hue shifts over time. Hi-score in localStorage. Touch: swipe to change lanes. Orbitron + Share Tech Mono typography, dark void with cycling neon tunnel.
 
 ## issues
 - None yet
 
 ## todos
-- Power-ups (slow-mo, magnet, double points)
-- Boss waves with pattern sequences
-- Leaderboard via Supabase
-- Unlockable ship skins
+- Add sound effects (engine hum, collision, powerup collect)
+- Boss obstacles (moving barriers)
+- Multiple tunnel themes/environments
+- Supabase leaderboard
+- Power-up: time slow
 
 ## notes
-- No database — localStorage for best score only
-- Speed formula: 2.5 + frame * 0.0012 (endless ramp)
-- Spawn rate: max(12, 40 - speed*3) frames between obstacles
-- Combo: earned from combo pickups, decays after 300 frames (5s), max x10
-- 5 obstacle types unlocked by speed thresholds (3 at start, 4 at speed 4, all 5 at speed 6)
-- Collision uses 70% of player hitbox for forgiving feel
-- Focus mode (shift): 3.5 move speed vs 7 normal
+- No database — localStorage hi-score only
+- Canvas fullscreen, pseudo-3D via z-projection (scale=300/depth)
+- 5 lanes, discrete lane switching (not continuous)
+- Obstacle spawn rate increases with speed
+- Near-miss scoring: +20*combo when adjacent lane has obstacle
+- Shield absorbs one hit, lasts 8 seconds
+- Boost adds +3 speed instantly
+- Speed: BASE_SPEED=4 to MAX_SPEED=14, ACCEL=0.008/frame
+- Collision: checks z-distance < 2 segments AND same lane
