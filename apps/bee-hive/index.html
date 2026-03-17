@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bee Hive</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🐝">
+<meta property="og:title" content="Bee Hive">
+<meta property="og:description" content="Fly your bee, collect pollen from flowers, and grow the ultimate hive.">
+<meta property="og:url" content="https://sloppy.live/bee-hive/">
+<meta property="og:image" content="https://sloppy.live/bee-hive/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{background:#87ceeb;font-family:'Fredoka',sans-serif}
+canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;right:0;padding:8px 16px;display:flex;align-items:center;gap:16px;z-index:10;font-size:14px;color:#4a3520;pointer-events:none}
+#hud>div{background:rgba(255,240,200,.85);padding:4px 12px;border-radius:20px;display:flex;align-items:center;gap:6px;border:2px solid rgba(180,140,60,.3);pointer-events:auto}
+.spacer{flex:1}
+#hint{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);color:rgba(74,53,32,.5);font-size:13px;pointer-events:none;transition:opacity 1.5s;letter-spacing:.5px}
+.back-link{position:fixed;bottom:4px;right:8px;font-size:9px;color:rgba(0,0,0,.2);text-decoration:none;z-index:10}
+.back-link:hover{color:rgba(0,0,0,.4)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div>🌼 Pollen: <b id="pollen-ct">0</b></div>
+  <div>🍯 Honey: <b id="honey-ct">0</b></div>
+  <div>🏠 Hive Lv: <b id="hive-lv">1</b></div>
+  <div>🐝 Bees: <b id="bee-ct">1</b></div>
+  <span class="spacer"></span>
+  <div id="deposit-hint" style="opacity:0;transition:opacity .3s">Fly to hive to deposit!</div>
+</div>
+<div id="hint">Arrow keys / WASD / tap to fly</div>
+<a class="back-link" href="https://sloppy.live">sloppy.live</a>
+<script>
+const CV=document.getElementById('c'),X=CV.getContext('2d');
+let W,H;
+
+function resize(){
+  let dpr=window.devicePixelRatio||1;
+  W=window.innerWidth;H=window.innerHeight;
+  CV.width=W*dpr;CV.height=H*dpr;
+  CV.style.width=W+'px';CV.style.height=H+'px';
+  X.setTransform(dpr,0,0,dpr,0,0);
+}
+resize();
+window.addEventListener('resize',resize);
+
+// Game state
+let pollen=0, honey=0, hiveLevel=1, totalBees=1;
+let interacted=false;
+const HIVE_COSTS=[0,10,25,50,100,200,400,800];
+const BEE_COST=15;
+
+// Bee
+const bee={x:0,y:0,vx:0,vy:0,angle:0,wingPhase:0,pollenCarried:0,maxPollen:5};
+bee.x=W/2; bee.y=H/2;
+
+// Helper bees (auto-collect)
+let helperBees=[];
+
+// Flowers
+let flowers=[];
+const FLOWER_COLORS=['#ff6b9d','#ffd93d','#ff8c42','#c77dff','#72ddf7','#f08080','#98d8c8'];
+
+function spawnFlowers(){
+  flowers=[];
+  let count=12+hiveLevel*3;
+  let groundY=H*0.65;
+  for(let i=0;i<count;i++){
+    flowers.push({
+      x:40+Math.random()*(W-80),
+      y:groundY+Math.random()*(H*0.25),
+      color:FLOWER_COLORS[Math.floor(Math.random()*FLOWER_COLORS.length)],
+      pollen:3+Math.floor(Math.random()*4),
+      maxPollen:3+Math.floor(Math.random()*4),
+      swayPhase:Math.random()*Math.PI*2,
+      size:12+Math.random()*8,
+      regrowTimer:0
+    });
+  }
+}
+
+// Hive position
+let hive={x:W/2, y:H*0.18, w:80, h:60};
+
+// Particles
+let particles=[];
+
+function spawnParticle(x,y,color,type){
+  particles.push({x,y,vx:(Math.random()-.5)*2,vy:-Math.random()*2-1,life:1,color,size:3+Math.random()*3,type});
+}
+
+// Input
+const keys={};
+let touchTarget=null;
+document.addEventListener('keydown',e=>{
+  keys[e.key]=true;
+  if(!interacted){interacted=true;document.getElementById('hint').style.opacity='0';}
+});
+document.addEventListener('keyup',e=>{keys[e.key]=false;});
+
+CV.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  let t=e.touches[0];
+  touchTarget={x:t.clientX,y:t.clientY};
+  if(!interacted){interacted=true;document.getElementById('hint').style.opacity='0';}
+},{passive:false});
+CV.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  let t=e.touches[0];
+  touchTarget={x:t.clientX,y:t.clientY};
+},{passive:false});
+CV.addEventListener('touchend',()=>{touchTarget=null;},{passive:false});
+
+function updateBee(dt){
+  let ax=0,ay=0;
+  let spd=280;
+  if(keys['ArrowLeft']||keys['a']||keys['A']) ax=-spd;
+  if(keys['ArrowRight']||keys['d']||keys['D']) ax=spd;
+  if(keys['ArrowUp']||keys['w']||keys['W']) ay=-spd;
+  if(keys['ArrowDown']||keys['s']||keys['S']) ay=spd;
+
+  if(touchTarget){
+    let dx=touchTarget.x-bee.x, dy=touchTarget.y-bee.y;
+    let dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist>10){
+      ax=dx/dist*spd;
+      ay=dy/dist*spd;
+    }
+  }
+
+  // Gravity-lite (bee floats but slowly sinks)
+  ay+=40;
+
+  bee.vx+=ax*dt;
+  bee.vy+=ay*dt;
+
+  // Damping
+  bee.vx*=0.92;
+  bee.vy*=0.92;
+
+  bee.x+=bee.vx*dt;
+  bee.y+=bee.vy*dt;
+
+  // Bounds
+  bee.x=Math.max(15,Math.min(W-15,bee.x));
+  bee.y=Math.max(15,Math.min(H-15,bee.y));
+
+  // Angle
+  if(Math.abs(bee.vx)>5) bee.angle=bee.vx>0?0:Math.PI;
+  bee.wingPhase+=dt*25;
+
+  // Collect pollen from flowers
+  for(let f of flowers){
+    if(f.pollen<=0) continue;
+    let dx=bee.x-f.x, dy=bee.y-f.y;
+    if(dx*dx+dy*dy<(f.size+12)*(f.size+12)){
+      if(bee.pollenCarried<bee.maxPollen){
+        f.pollen--;
+        bee.pollenCarried++;
+        pollen++;
+        for(let i=0;i<3;i++) spawnParticle(f.x,f.y-f.size,'#ffd93d','pollen');
+        if(bee.pollenCarried>=bee.maxPollen){
+          document.getElementById('deposit-hint').style.opacity='1';
+        }
+      }
+    }
+  }
+
+  // Deposit at hive
+  let dx=bee.x-hive.x, dy=bee.y-(hive.y+hive.h/2);
+  if(dx*dx+dy*dy<(hive.w)*(hive.w)&&bee.pollenCarried>0){
+    honey+=bee.pollenCarried;
+    for(let i=0;i<bee.pollenCarried*2;i++) spawnParticle(hive.x,hive.y+hive.h,'#ffaa00','honey');
+    bee.pollenCarried=0;
+    document.getElementById('deposit-hint').style.opacity='0';
+    checkUpgrades();
+  }
+}
+
+function checkUpgrades(){
+  // Auto hive upgrade
+  let cost=HIVE_COSTS[hiveLevel]||999999;
+  if(honey>=cost&&hiveLevel<HIVE_COSTS.length-1){
+    honey-=cost;
+    hiveLevel++;
+    bee.maxPollen=5+hiveLevel*2;
+    hive.w=80+hiveLevel*10;
+    hive.h=60+hiveLevel*8;
+    spawnFlowers();
+    for(let i=0;i<20;i++) spawnParticle(hive.x,hive.y+hive.h,'#ffd700','honey');
+  }
+  // Auto buy helper bee
+  if(honey>=BEE_COST&&helperBees.length<hiveLevel*2){
+    honey-=BEE_COST;
+    totalBees++;
+    helperBees.push({
+      x:hive.x,y:hive.y+hive.h,
+      vx:0,vy:0,
+      target:null,pollenCarried:0,maxPollen:2+hiveLevel,
+      returning:false,wingPhase:Math.random()*10,angle:0
+    });
+  }
+}
+
+function updateHelpers(dt){
+  for(let h of helperBees){
+    h.wingPhase+=dt*20;
+    if(h.returning){
+      // Fly to hive
+      let dx=hive.x-h.x, dy=(hive.y+hive.h/2)-h.y;
+      let dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<20){
+        honey+=h.pollenCarried;
+        for(let i=0;i<h.pollenCarried;i++) spawnParticle(hive.x,hive.y+hive.h,'#ffaa00','honey');
+        h.pollenCarried=0;
+        h.returning=false;
+        h.target=null;
+        checkUpgrades();
+      } else {
+        h.vx+=(dx/dist*180)*dt;
+        h.vy+=(dy/dist*180)*dt;
+      }
+    } else {
+      // Find flower
+      if(!h.target||h.target.pollen<=0){
+        let best=null,bestD=Infinity;
+        for(let f of flowers){
+          if(f.pollen<=0) continue;
+          let dx=f.x-h.x,dy=f.y-h.y;
+          let d=dx*dx+dy*dy;
+          if(d<bestD){bestD=d;best=f;}
+        }
+        h.target=best;
+      }
+      if(h.target){
+        let dx=h.target.x-h.x, dy=h.target.y-h.y;
+        let dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<15){
+          if(h.target.pollen>0&&h.pollenCarried<h.maxPollen){
+            h.target.pollen--;
+            h.pollenCarried++;
+            pollen++;
+            spawnParticle(h.target.x,h.target.y-h.target.size,'#ffd93d','pollen');
+          }
+          if(h.pollenCarried>=h.maxPollen||h.target.pollen<=0){
+            h.returning=true;
+          }
+        } else {
+          h.vx+=(dx/dist*160)*dt;
+          h.vy+=(dy/dist*160)*dt;
+        }
+      } else {
+        // No flowers, wander
+        h.vx+=(Math.random()-.5)*100*dt;
+        h.vy+=(Math.random()-.5)*100*dt;
+      }
+    }
+    h.vx*=0.94;h.vy*=0.94;
+    h.x+=h.vx*dt;h.y+=h.vy*dt;
+    h.x=Math.max(10,Math.min(W-10,h.x));
+    h.y=Math.max(10,Math.min(H-10,h.y));
+    if(Math.abs(h.vx)>3) h.angle=h.vx>0?0:Math.PI;
+  }
+}
+
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    let p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;
+    p.vy+=0.05;
+    p.life-=dt*2;
+    if(p.life<=0) particles.splice(i,1);
+  }
+}
+
+function regrowFlowers(dt){
+  for(let f of flowers){
+    if(f.pollen<f.maxPollen){
+      f.regrowTimer+=dt;
+      if(f.regrowTimer>4){
+        f.pollen++;
+        f.regrowTimer=0;
+      }
+    }
+  }
+}
+
+// Drawing
+function drawSky(){
+  let grad=X.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#4fc3f7');
+  grad.addColorStop(0.5,'#81d4fa');
+  grad.addColorStop(0.7,'#a5d6a7');
+  grad.addColorStop(1,'#66bb6a');
+  X.fillStyle=grad;
+  X.fillRect(0,0,W,H);
+
+  // Clouds
+  let t=performance.now()*0.00005;
+  X.fillStyle='rgba(255,255,255,.5)';
+  for(let i=0;i<5;i++){
+    let cx=((i*W/3+t*W*200)%(W+200))-100;
+    let cy=40+i*30;
+    X.beginPath();
+    X.ellipse(cx,cy,60+i*10,20+i*3,0,0,Math.PI*2);
+    X.fill();
+    X.beginPath();
+    X.ellipse(cx-30,cy+5,35,15,0,0,Math.PI*2);
+    X.fill();
+    X.beginPath();
+    X.ellipse(cx+35,cy+5,40,15,0,0,Math.PI*2);
+    X.fill();
+  }
+
+  // Ground
+  X.fillStyle='#4caf50';
+  X.fillRect(0,H*0.65,W,H*0.35);
+  X.fillStyle='#43a047';
+  X.fillRect(0,H*0.65,W,4);
+}
+
+function drawFlower(f){
+  let t=performance.now()*0.001;
+  let sway=Math.sin(t+f.swayPhase)*3;
+  let s=f.size;
+  let fx=f.x+sway, fy=f.y;
+
+  // Stem
+  X.strokeStyle='#2e7d32';
+  X.lineWidth=2;
+  X.beginPath();
+  X.moveTo(fx,fy);
+  X.lineTo(fx-sway*0.3,fy+s*2);
+  X.stroke();
+
+  // Petals
+  if(f.pollen>0){
+    let petalCount=6;
+    for(let i=0;i<petalCount;i++){
+      let a=i/petalCount*Math.PI*2+t*0.3;
+      X.fillStyle=f.color;
+      X.beginPath();
+      X.ellipse(fx+Math.cos(a)*s*0.5,fy-s+Math.sin(a)*s*0.5,s*0.4,s*0.25,a,0,Math.PI*2);
+      X.fill();
+    }
+    // Center
+    X.fillStyle='#ffd93d';
+    X.beginPath();
+    X.arc(fx,fy-s,s*0.25,0,Math.PI*2);
+    X.fill();
+    // Pollen indicator
+    X.fillStyle='rgba(255,217,61,'+(0.3+f.pollen/f.maxPollen*0.7)+')';
+    X.beginPath();
+    X.arc(fx,fy-s,s*0.15*(f.pollen/f.maxPollen),0,Math.PI*2);
+    X.fill();
+  } else {
+    // Wilted
+    X.fillStyle='rgba(150,150,130,.4)';
+    X.beginPath();
+    X.arc(fx,fy-s,s*0.3,0,Math.PI*2);
+    X.fill();
+  }
+}
+
+function drawHive(){
+  let hx=hive.x,hy=hive.y,hw=hive.w,hh=hive.h;
+  // Hive body (hexagonal-ish)
+  X.fillStyle='#d4a030';
+  X.beginPath();
+  X.moveTo(hx,hy);
+  X.bezierCurveTo(hx-hw*0.6,hy,hx-hw*0.7,hy+hh*0.5,hx-hw*0.4,hy+hh);
+  X.lineTo(hx+hw*0.4,hy+hh);
+  X.bezierCurveTo(hx+hw*0.7,hy+hh*0.5,hx+hw*0.6,hy,hx,hy);
+  X.fill();
+
+  // Stripes
+  X.strokeStyle='#c49025';
+  X.lineWidth=2;
+  for(let i=1;i<4;i++){
+    let sy=hy+hh*i/4;
+    let sw=hw*0.3*(1+Math.sin(i*1.2)*0.3);
+    X.beginPath();
+    X.moveTo(hx-sw,sy);
+    X.lineTo(hx+sw,sy);
+    X.stroke();
+  }
+
+  // Entrance
+  X.fillStyle='#5d4037';
+  X.beginPath();
+  X.ellipse(hx,hy+hh*0.85,hw*0.12,hh*0.1,0,0,Math.PI*2);
+  X.fill();
+
+  // Level text
+  X.fillStyle='rgba(93,64,55,.6)';
+  X.font='bold 11px Fredoka';
+  X.textAlign='center';
+  X.fillText('Lv.'+hiveLevel,hx,hy+hh+16);
+
+  // Glow when bee is near with pollen
+  let dx=bee.x-hx, dy=bee.y-(hy+hh/2);
+  if(dx*dx+dy*dy<hw*hw*4&&bee.pollenCarried>0){
+    let grad=X.createRadialGradient(hx,hy+hh/2,0,hx,hy+hh/2,hw);
+    grad.addColorStop(0,'rgba(255,200,50,.15)');
+    grad.addColorStop(1,'rgba(255,200,50,0)');
+    X.fillStyle=grad;
+    X.fillRect(hx-hw,hy-hw/2,hw*2,hh+hw);
+  }
+}
+
+function drawBee(bx,by,angle,wingPhase,size,carried,max){
+  X.save();
+  X.translate(bx,by);
+  let facing=Math.cos(angle)<0?-1:1;
+  X.scale(facing,1);
+  let s=size||1;
+
+  // Wings
+  let wingA=Math.sin(wingPhase)*0.4;
+  X.fillStyle='rgba(200,220,255,.5)';
+  X.beginPath();
+  X.ellipse(-2*s,-8*s+wingA*3,6*s,10*s,-.3+wingA,0,Math.PI*2);
+  X.fill();
+  X.beginPath();
+  X.ellipse(4*s,-7*s-wingA*3,5*s,8*s,.3-wingA,0,Math.PI*2);
+  X.fill();
+
+  // Body
+  X.fillStyle='#ffc107';
+  X.beginPath();
+  X.ellipse(0,0,10*s,7*s,0,0,Math.PI*2);
+  X.fill();
+
+  // Stripes
+  X.fillStyle='#212121';
+  for(let i=-1;i<=1;i++){
+    X.fillRect(-3*s+i*6*s,-5*s,3*s,10*s);
+  }
+
+  // Head
+  X.fillStyle='#212121';
+  X.beginPath();
+  X.arc(10*s,0,5*s,0,Math.PI*2);
+  X.fill();
+
+  // Eyes
+  X.fillStyle='#fff';
+  X.beginPath();
+  X.arc(12*s,-2*s,2*s,0,Math.PI*2);
+  X.fill();
+  X.fillStyle='#000';
+  X.beginPath();
+  X.arc(12.5*s,-2*s,1*s,0,Math.PI*2);
+  X.fill();
+
+  // Stinger
+  X.fillStyle='#5d4037';
+  X.beginPath();
+  X.moveTo(-10*s,0);
+  X.lineTo(-14*s,-1*s);
+  X.lineTo(-14*s,1*s);
+  X.closePath();
+  X.fill();
+
+  // Pollen bags
+  if(carried>0){
+    let fill=carried/max;
+    X.fillStyle='rgba(255,200,50,'+(0.4+fill*0.6)+')';
+    X.beginPath();
+    X.arc(-4*s,6*s,3*s*fill+1,0,Math.PI*2);
+    X.fill();
+    X.beginPath();
+    X.arc(4*s,6*s,3*s*fill+1,0,Math.PI*2);
+    X.fill();
+  }
+
+  X.restore();
+}
+
+function drawParticles(){
+  for(let p of particles){
+    X.globalAlpha=p.life;
+    X.fillStyle=p.color;
+    X.beginPath();
+    X.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);
+    X.fill();
+  }
+  X.globalAlpha=1;
+}
+
+function updateHUD(){
+  document.getElementById('pollen-ct').textContent=pollen;
+  document.getElementById('honey-ct').textContent=honey;
+  document.getElementById('hive-lv').textContent=hiveLevel;
+  document.getElementById('bee-ct').textContent=totalBees;
+}
+
+// Main loop
+spawnFlowers();
+let lastTime=performance.now();
+
+function loop(now){
+  let dt=Math.min((now-lastTime)/1000,0.05);
+  lastTime=now;
+
+  updateBee(dt);
+  updateHelpers(dt);
+  updateParticles(dt);
+  regrowFlowers(dt);
+
+  // Reposition hive on resize
+  hive.x=W/2;
+  hive.y=H*0.18;
+
+  // Draw
+  drawSky();
+  drawHive();
+  for(let f of flowers) drawFlower(f);
+  drawParticles();
+
+  // Draw helpers
+  for(let h of helperBees){
+    drawBee(h.x,h.y,h.angle,h.wingPhase,0.7,h.pollenCarried,h.maxPollen);
+  }
+
+  // Draw player bee
+  drawBee(bee.x,bee.y,bee.angle,bee.wingPhase,1,bee.pollenCarried,bee.maxPollen);
+
+  // Pollen carried indicator near bee
+  if(bee.pollenCarried>0){
+    X.fillStyle='rgba(255,200,50,.8)';
+    X.font='bold 11px Fredoka';
+    X.textAlign='center';
+    X.fillText(bee.pollenCarried+'/'+bee.maxPollen,bee.x,bee.y-18);
+  }
+
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
