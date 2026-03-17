@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pirate Ship</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🏴‍☠️">
+<meta property="og:title" content="Pirate Ship">
+<meta property="og:description" content="Steer your pirate ship and blast sea monsters with cannons.">
+<meta property="og:url" content="https://sloppy.live/pirate-ship/">
+<meta property="og:image" content="https://sloppy.live/pirate-ship/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{background:#0a1628;font-family:'Pirata One',cursive}
+canvas{display:block}
+#hud{position:fixed;top:0;left:0;right:0;padding:6px 16px;display:flex;align-items:center;gap:16px;z-index:10;font-size:15px;color:#d4a64a;pointer-events:none}
+#hud>div{background:rgba(10,22,40,.8);padding:4px 14px;border-radius:6px;border:1px solid rgba(212,166,74,.2);pointer-events:auto}
+.spacer{flex:1}
+#hint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:rgba(212,166,74,.4);font-family:'JetBrains Mono',monospace;font-size:12px;pointer-events:none;transition:opacity 1.5s;letter-spacing:.5px;text-align:center}
+.back-link{position:fixed;bottom:4px;right:8px;font-size:9px;color:rgba(255,255,255,.12);text-decoration:none;z-index:10}
+.back-link:hover{color:rgba(255,255,255,.3)}
+#wheel-wrap{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;pointer-events:none;opacity:.6}
+#mobile-btns{position:fixed;bottom:16px;z-index:10;display:none;gap:12px;width:100%;justify-content:space-between;padding:0 16px}
+#mobile-btns button{background:rgba(212,166,74,.15);border:2px solid rgba(212,166,74,.3);color:#d4a64a;font-family:'Pirata One',cursive;font-size:18px;padding:14px 22px;border-radius:10px;cursor:pointer;pointer-events:auto}
+@media(max-width:700px){#mobile-btns{display:flex}#wheel-wrap{bottom:80px;opacity:.4}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div>⚓ Score: <span id="score-ct">0</span></div>
+  <div>💀 Kills: <span id="kill-ct">0</span></div>
+  <div>❤️ Hull: <span id="hull-ct">100</span>%</div>
+  <div>🔥 Cannons: <span id="ammo-ct">∞</span></div>
+  <span class="spacer"></span>
+  <div>Wave <span id="wave-ct">1</span></div>
+</div>
+<div id="wheel-wrap"><canvas id="wheel" width="100" height="100"></canvas></div>
+<div id="mobile-btns">
+  <button id="m-left">◀ Port</button>
+  <button id="m-fire">💥 FIRE</button>
+  <button id="m-right">Starboard ▶</button>
+</div>
+<div id="hint">A/D or ←/→ to steer · SPACE to fire cannons · W to speed up</div>
+<a class="back-link" href="https://sloppy.live">sloppy.live</a>
+<script>
+const CV=document.getElementById('c'),X=CV.getContext('2d');
+const WC=document.getElementById('wheel'),WX=WC.getContext('2d');
+let W,H;
+
+function resize(){
+  let dpr=window.devicePixelRatio||1;
+  W=window.innerWidth;H=window.innerHeight;
+  CV.width=W*dpr;CV.height=H*dpr;
+  CV.style.width=W+'px';CV.style.height=H+'px';
+  X.setTransform(dpr,0,0,dpr,0,0);
+}
+resize();
+window.addEventListener('resize',resize);
+
+// Game state
+let score=0, kills=0, hull=100, wave=1, waveTimer=0;
+let interacted=false;
+
+// Ship
+const ship={
+  x:0,y:0,angle:-Math.PI/2,
+  speed:0,turnRate:0,
+  maxSpeed:120,turnSpeed:1.8,
+  reloadTime:0,reloadMax:0.4,
+  wake:[]
+};
+
+// Camera follows ship
+let camX=0,camY=0;
+
+// Cannonballs
+let balls=[];
+// Monsters
+let monsters=[];
+// Explosions
+let explosions=[];
+// Floating debris
+let debris=[];
+// Ocean waves (visual)
+let waveOffset=0;
+
+// Input
+const keys={};
+document.addEventListener('keydown',e=>{
+  keys[e.key]=true;
+  keys[e.code]=true;
+  if(!interacted){interacted=true;document.getElementById('hint').style.opacity='0';}
+});
+document.addEventListener('keyup',e=>{keys[e.key]=false;keys[e.code]=false;});
+
+// Mobile buttons
+let mLeft=false,mRight=false,mFire=false;
+function mb(id,flag){
+  let el=document.getElementById(id);
+  el.addEventListener('touchstart',e=>{e.preventDefault();if(id==='m-left')mLeft=true;if(id==='m-right')mRight=true;if(id==='m-fire')mFire=true;if(!interacted){interacted=true;document.getElementById('hint').style.opacity='0';}},{passive:false});
+  el.addEventListener('touchend',e=>{e.preventDefault();if(id==='m-left')mLeft=false;if(id==='m-right')mRight=false;if(id==='m-fire')mFire=false;},{passive:false});
+}
+mb('m-left');mb('m-right');mb('m-fire');
+
+function spawnMonster(){
+  let angle=Math.random()*Math.PI*2;
+  let dist=500+Math.random()*300;
+  let types=['kraken','serpent','shark'];
+  let type=types[Math.floor(Math.random()*types.length)];
+  let hp=type==='kraken'?8+wave*2:type==='serpent'?5+wave:3+Math.floor(wave/2);
+  let spd=type==='shark'?80+wave*5:type==='serpent'?50+wave*3:30+wave*2;
+  let sz=type==='kraken'?40:type==='serpent'?30:20;
+  monsters.push({
+    x:ship.x+Math.cos(angle)*dist,
+    y:ship.y+Math.sin(angle)*dist,
+    type,hp,maxHp:hp,speed:spd,size:sz,
+    angle:0,phase:Math.random()*Math.PI*2,
+    attackTimer:0,attackRate:type==='kraken'?2:type==='serpent'?1.5:1,
+    damageFlash:0
+  });
+}
+
+function spawnWave(){
+  let count=2+wave*2;
+  for(let i=0;i<count;i++) setTimeout(()=>spawnMonster(),i*400);
+  waveTimer=0;
+}
+
+function fireCannon(){
+  if(ship.reloadTime>0) return;
+  ship.reloadTime=ship.reloadMax;
+  // Fire both sides
+  let cos=Math.cos(ship.angle),sin=Math.sin(ship.angle);
+  let perp=Math.PI/2;
+  for(let side of[-1,1]){
+    let sa=ship.angle+side*perp;
+    balls.push({
+      x:ship.x+Math.cos(ship.angle+side*perp*0.8)*20,
+      y:ship.y+Math.sin(ship.angle+side*perp*0.8)*20,
+      vx:Math.cos(sa)*300+ship.speed*cos*0.3,
+      vy:Math.sin(sa)*300+ship.speed*sin*0.3,
+      life:2,size:4
+    });
+  }
+  // Recoil smoke
+  for(let i=0;i<6;i++){
+    let a=ship.angle+(Math.random()-.5)*Math.PI;
+    explosions.push({x:ship.x,y:ship.y,r:5,maxR:15+Math.random()*10,life:0.4,color:'rgba(180,180,180,'});
+  }
+}
+
+function update(dt){
+  // Steering
+  let steerL=keys['ArrowLeft']||keys['a']||keys['A']||mLeft;
+  let steerR=keys['ArrowRight']||keys['d']||keys['D']||mRight;
+  let thrust=keys['ArrowUp']||keys['w']||keys['W'];
+  let fire=keys[' ']||keys['Space']||mFire;
+
+  if(steerL) ship.turnRate-=ship.turnSpeed*dt;
+  if(steerR) ship.turnRate+=ship.turnSpeed*dt;
+  ship.turnRate*=0.9;
+  ship.angle+=ship.turnRate*dt;
+
+  // Speed
+  let targetSpd=thrust?ship.maxSpeed:ship.maxSpeed*0.4;
+  ship.speed+=(targetSpd-ship.speed)*dt*2;
+
+  ship.x+=Math.cos(ship.angle)*ship.speed*dt;
+  ship.y+=Math.sin(ship.angle)*ship.speed*dt;
+
+  // Wake trail
+  if(Math.random()<0.3){
+    ship.wake.push({x:ship.x-Math.cos(ship.angle)*25,y:ship.y-Math.sin(ship.angle)*25,life:1.5,size:4+Math.random()*4});
+  }
+  for(let i=ship.wake.length-1;i>=0;i--){
+    ship.wake[i].life-=dt;
+    ship.wake[i].size+=dt*3;
+    if(ship.wake[i].life<=0) ship.wake.splice(i,1);
+  }
+
+  // Fire
+  ship.reloadTime=Math.max(0,ship.reloadTime-dt);
+  if(fire) fireCannon();
+
+  // Cannonballs
+  for(let i=balls.length-1;i>=0;i--){
+    let b=balls[i];
+    b.x+=b.vx*dt;b.y+=b.vy*dt;
+    b.life-=dt;
+    if(b.life<=0){balls.splice(i,1);continue;}
+    // Hit monsters
+    for(let j=monsters.length-1;j>=0;j--){
+      let m=monsters[j];
+      let dx=b.x-m.x,dy=b.y-m.y;
+      if(dx*dx+dy*dy<(m.size+b.size)*(m.size+b.size)){
+        m.hp--;
+        m.damageFlash=0.2;
+        balls.splice(i,1);
+        // Hit explosion
+        for(let k=0;k<4;k++){
+          explosions.push({x:b.x,y:b.y,r:2,maxR:12+Math.random()*8,life:0.3,color:'rgba(255,150,50,'});
+        }
+        if(m.hp<=0){
+          kills++;
+          score+=m.type==='kraken'?30:m.type==='serpent'?20:10;
+          // Death explosion
+          for(let k=0;k<10;k++){
+            explosions.push({x:m.x+(Math.random()-.5)*m.size,y:m.y+(Math.random()-.5)*m.size,
+              r:3,maxR:20+Math.random()*15,life:0.5+Math.random()*0.3,
+              color:Math.random()>.5?'rgba(255,100,30,':'rgba(100,200,100,'});
+          }
+          // Debris
+          for(let k=0;k<5;k++){
+            debris.push({x:m.x,y:m.y,vx:(Math.random()-.5)*80,vy:(Math.random()-.5)*80,life:3,size:3+Math.random()*4,
+              color:m.type==='kraken'?'#4a7c50':m.type==='serpent'?'#2e7d9e':'#5a6a7a'});
+          }
+          monsters.splice(j,1);
+        }
+        break;
+      }
+    }
+  }
+
+  // Monster AI
+  for(let m of monsters){
+    m.damageFlash=Math.max(0,m.damageFlash-dt);
+    m.phase+=dt*2;
+    // Move toward ship
+    let dx=ship.x-m.x,dy=ship.y-m.y;
+    let dist=Math.sqrt(dx*dx+dy*dy);
+    m.angle=Math.atan2(dy,dx);
+    let wobble=Math.sin(m.phase)*0.3;
+    m.x+=Math.cos(m.angle+wobble)*m.speed*dt;
+    m.y+=Math.sin(m.angle+wobble)*m.speed*dt;
+
+    // Attack ship
+    if(dist<m.size+30){
+      m.attackTimer+=dt;
+      if(m.attackTimer>=m.attackRate){
+        m.attackTimer=0;
+        let dmg=m.type==='kraken'?8:m.type==='serpent'?5:3;
+        hull-=dmg;
+        // Impact
+        for(let k=0;k<5;k++){
+          explosions.push({x:ship.x+(Math.random()-.5)*20,y:ship.y+(Math.random()-.5)*20,
+            r:2,maxR:10,life:0.3,color:'rgba(255,50,50,'});
+        }
+      }
+    }
+  }
+
+  // Explosions
+  for(let i=explosions.length-1;i>=0;i--){
+    let e=explosions[i];
+    e.life-=dt;
+    e.r+=(e.maxR-e.r)*dt*8;
+    if(e.life<=0) explosions.splice(i,1);
+  }
+
+  // Debris
+  for(let i=debris.length-1;i>=0;i--){
+    let d=debris[i];
+    d.x+=d.vx*dt;d.y+=d.vy*dt;
+    d.vx*=0.98;d.vy*=0.98;
+    d.life-=dt;
+    if(d.life<=0) debris.splice(i,1);
+  }
+
+  // Wave management
+  if(monsters.length===0){
+    waveTimer+=dt;
+    if(waveTimer>2){
+      wave++;
+      spawnWave();
+    }
+  }
+
+  // Hull check
+  if(hull<=0){
+    hull=0;
+    // Game over — reset
+    setTimeout(()=>{
+      hull=100;score=0;kills=0;wave=1;
+      monsters=[];balls=[];explosions=[];debris=[];
+      ship.x=0;ship.y=0;ship.angle=-Math.PI/2;ship.speed=0;
+      spawnWave();
+    },2000);
+  }
+
+  // Camera
+  camX+=(ship.x-camX)*dt*3;
+  camY+=(ship.y-camY)*dt*3;
+
+  waveOffset+=dt*30;
+}
+
+// Drawing
+function drawOcean(){
+  // Deep ocean gradient
+  let grad=X.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#0a1e3d');
+  grad.addColorStop(0.5,'#0d2847');
+  grad.addColorStop(1,'#0a1628');
+  X.fillStyle=grad;
+  X.fillRect(0,0,W,H);
+
+  // Wave lines
+  X.strokeStyle='rgba(60,120,180,.08)';
+  X.lineWidth=1.5;
+  let offX=(-camX*0.3)%60;
+  let offY=(-camY*0.3)%60;
+  for(let y=-60;y<H+60;y+=30){
+    X.beginPath();
+    for(let x=-60;x<W+60;x+=5){
+      let wx=x+Math.sin((y+waveOffset)*0.04)*12+offX;
+      let wy=y+Math.cos((x+waveOffset*0.7)*0.03)*6+offY;
+      if(x===-60) X.moveTo(wx,wy);
+      else X.lineTo(wx,wy);
+    }
+    X.stroke();
+  }
+}
+
+function toScreen(wx,wy){
+  return{x:wx-camX+W/2,y:wy-camY+H/2};
+}
+
+function drawShip(){
+  let p=toScreen(ship.x,ship.y);
+  X.save();
+  X.translate(p.x,p.y);
+  X.rotate(ship.angle);
+
+  // Hull
+  X.fillStyle='#5d3a1a';
+  X.beginPath();
+  X.moveTo(30,0);
+  X.bezierCurveTo(25,-14,10,-16,-25,-12);
+  X.lineTo(-28,0);
+  X.lineTo(-25,12);
+  X.bezierCurveTo(10,16,25,14,30,0);
+  X.fill();
+  X.strokeStyle='#3e2510';X.lineWidth=1.5;X.stroke();
+
+  // Deck
+  X.fillStyle='#7a4f2a';
+  X.beginPath();
+  X.moveTo(22,0);
+  X.bezierCurveTo(18,-10,5,-12,-20,-9);
+  X.lineTo(-22,0);
+  X.lineTo(-20,9);
+  X.bezierCurveTo(5,12,18,10,22,0);
+  X.fill();
+
+  // Mast
+  X.fillStyle='#4a3015';
+  X.fillRect(-2,-2,4,-35);
+
+  // Sail
+  let sailBillow=2+Math.sin(performance.now()*0.002)*1.5;
+  X.fillStyle='#f5e6d0';
+  X.beginPath();
+  X.moveTo(-8,-35);
+  X.quadraticCurveTo(5+sailBillow,-22,12,-8);
+  X.lineTo(-8,-8);
+  X.closePath();
+  X.fill();
+  X.strokeStyle='rgba(0,0,0,.15)';X.lineWidth=0.5;X.stroke();
+
+  // Skull on sail
+  X.fillStyle='rgba(0,0,0,.2)';
+  X.font='14px serif';
+  X.textAlign='center';
+  X.fillText('☠',2,-20);
+
+  // Cannons
+  X.fillStyle='#333';
+  X.fillRect(-5,-14,8,3);
+  X.fillRect(-5,11,8,3);
+
+  // Bowsprit
+  X.strokeStyle='#4a3015';X.lineWidth=2;
+  X.beginPath();X.moveTo(28,0);X.lineTo(38,0);X.stroke();
+
+  // Flag
+  X.fillStyle='#1a1a1a';
+  X.beginPath();
+  X.moveTo(-1,-35);X.lineTo(-1,-42);X.lineTo(10,-39);X.closePath();
+  X.fill();
+
+  X.restore();
+
+  // Damage flash
+  if(hull<30){
+    X.fillStyle='rgba(255,0,0,'+(0.1+Math.sin(performance.now()*0.01)*0.05)+')';
+    X.beginPath();X.arc(p.x,p.y,40,0,Math.PI*2);X.fill();
+  }
+}
+
+function drawWake(){
+  for(let w of ship.wake){
+    let p=toScreen(w.x,w.y);
+    X.strokeStyle='rgba(150,200,255,'+w.life*0.15+')';
+    X.lineWidth=1;
+    X.beginPath();
+    X.arc(p.x,p.y,w.size,0,Math.PI*2);
+    X.stroke();
+  }
+}
+
+function drawMonster(m){
+  let p=toScreen(m.x,m.y);
+  X.save();
+  X.translate(p.x,p.y);
+  X.rotate(m.angle);
+
+  let flash=m.damageFlash>0;
+
+  if(m.type==='kraken'){
+    // Tentacles
+    for(let i=0;i<6;i++){
+      let a=-Math.PI*0.8+i*Math.PI*0.32;
+      let wave=Math.sin(m.phase+i)*5;
+      X.strokeStyle=flash?'#ff6666':'#2d6b3f';
+      X.lineWidth=4;
+      X.beginPath();
+      X.moveTo(Math.cos(a)*15,Math.sin(a)*15);
+      X.quadraticCurveTo(
+        Math.cos(a)*25+wave,Math.sin(a)*25+wave,
+        Math.cos(a)*m.size+wave*2,Math.sin(a)*m.size+wave*2
+      );
+      X.stroke();
+    }
+    // Body
+    X.fillStyle=flash?'#ff8888':'#3a8a50';
+    X.beginPath();X.arc(0,0,18,0,Math.PI*2);X.fill();
+    // Eyes
+    X.fillStyle='#ff0';
+    X.beginPath();X.arc(8,-6,4,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(8,6,4,0,Math.PI*2);X.fill();
+    X.fillStyle='#000';
+    X.beginPath();X.arc(9,-6,2,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(9,6,2,0,Math.PI*2);X.fill();
+
+  } else if(m.type==='serpent'){
+    // Segmented body
+    for(let i=4;i>=0;i--){
+      let sx=-i*10+Math.sin(m.phase+i*0.8)*6;
+      let sy=Math.cos(m.phase+i*0.6)*4;
+      X.fillStyle=flash?'#ff8888':(i%2===0?'#2e7d9e':'#236a87');
+      X.beginPath();X.arc(sx,sy,8-i*0.5,0,Math.PI*2);X.fill();
+    }
+    // Head
+    X.fillStyle=flash?'#ffaaaa':'#35a0c4';
+    X.beginPath();X.arc(5,0,10,0,Math.PI*2);X.fill();
+    // Eyes
+    X.fillStyle='#e74c3c';
+    X.beginPath();X.arc(10,-4,3,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(10,4,3,0,Math.PI*2);X.fill();
+    // Fangs
+    X.fillStyle='#fff';
+    X.beginPath();X.moveTo(14,-2);X.lineTo(18,-1);X.lineTo(14,0);X.fill();
+    X.beginPath();X.moveTo(14,0);X.lineTo(18,1);X.lineTo(14,2);X.fill();
+
+  } else { // shark
+    // Body
+    X.fillStyle=flash?'#ff8888':'#5a6a7a';
+    X.beginPath();
+    X.moveTo(m.size,0);
+    X.bezierCurveTo(m.size*0.6,-m.size*0.4,-m.size*0.3,-m.size*0.3,-m.size,0);
+    X.bezierCurveTo(-m.size*0.3,m.size*0.3,m.size*0.6,m.size*0.4,m.size,0);
+    X.fill();
+    // Fin
+    X.fillStyle=flash?'#ff6666':'#4a5a6a';
+    X.beginPath();
+    X.moveTo(-2,-5);X.lineTo(0,-m.size*0.7);X.lineTo(8,-3);X.closePath();
+    X.fill();
+    // Eye
+    X.fillStyle='#ff4444';
+    X.beginPath();X.arc(m.size*0.5,-3,2.5,0,Math.PI*2);X.fill();
+    // Tail
+    let tailWag=Math.sin(m.phase*2)*4;
+    X.fillStyle=flash?'#ff6666':'#4a5a6a';
+    X.beginPath();
+    X.moveTo(-m.size+2,0);
+    X.lineTo(-m.size-8,-8+tailWag);
+    X.lineTo(-m.size-4,tailWag);
+    X.lineTo(-m.size-8,8+tailWag);
+    X.closePath();
+    X.fill();
+  }
+
+  X.restore();
+
+  // HP bar
+  if(m.hp<m.maxHp){
+    let barW=m.size*1.5;
+    X.fillStyle='rgba(0,0,0,.5)';
+    X.fillRect(p.x-barW/2,p.y-m.size-10,barW,4);
+    X.fillStyle='#e74c3c';
+    X.fillRect(p.x-barW/2,p.y-m.size-10,barW*(m.hp/m.maxHp),4);
+  }
+}
+
+function drawBalls(){
+  for(let b of balls){
+    let p=toScreen(b.x,b.y);
+    X.fillStyle='#222';
+    X.beginPath();X.arc(p.x,p.y,b.size,0,Math.PI*2);X.fill();
+    // Trail
+    X.fillStyle='rgba(255,150,50,.3)';
+    X.beginPath();X.arc(p.x,p.y,b.size+2,0,Math.PI*2);X.fill();
+  }
+}
+
+function drawExplosions(){
+  for(let e of explosions){
+    let p=toScreen(e.x,e.y);
+    X.fillStyle=e.color+(e.life*2).toFixed(2)+')';
+    X.beginPath();X.arc(p.x,p.y,e.r,0,Math.PI*2);X.fill();
+  }
+}
+
+function drawDebris(){
+  for(let d of debris){
+    let p=toScreen(d.x,d.y);
+    X.fillStyle=d.color;
+    X.globalAlpha=Math.min(1,d.life);
+    X.fillRect(p.x-d.size/2,p.y-d.size/2,d.size,d.size);
+  }
+  X.globalAlpha=1;
+}
+
+function drawWheel(){
+  let s=50;
+  WX.clearRect(0,0,100,100);
+  WX.save();
+  WX.translate(50,50);
+  WX.rotate(ship.angle+Math.PI/2);
+
+  // Outer ring
+  WX.strokeStyle='rgba(212,166,74,.6)';
+  WX.lineWidth=3;
+  WX.beginPath();WX.arc(0,0,38,0,Math.PI*2);WX.stroke();
+
+  // Spokes
+  for(let i=0;i<8;i++){
+    let a=i*Math.PI/4;
+    WX.beginPath();
+    WX.moveTo(Math.cos(a)*15,Math.sin(a)*15);
+    WX.lineTo(Math.cos(a)*38,Math.sin(a)*38);
+    WX.stroke();
+    // Handle
+    WX.fillStyle='rgba(212,166,74,.5)';
+    WX.beginPath();WX.arc(Math.cos(a)*38,Math.sin(a)*38,4,0,Math.PI*2);WX.fill();
+  }
+
+  // Center
+  WX.fillStyle='rgba(212,166,74,.3)';
+  WX.beginPath();WX.arc(0,0,8,0,Math.PI*2);WX.fill();
+
+  // Top marker (always points up in screen space)
+  WX.restore();
+  WX.fillStyle='rgba(255,80,80,.6)';
+  WX.beginPath();WX.moveTo(50,8);WX.lineTo(46,15);WX.lineTo(54,15);WX.closePath();WX.fill();
+}
+
+function drawGameOver(){
+  if(hull<=0){
+    X.fillStyle='rgba(0,0,0,.6)';
+    X.fillRect(0,0,W,H);
+    X.fillStyle='#e74c3c';
+    X.font='bold 48px Pirata One';
+    X.textAlign='center';
+    X.fillText('Ye Ship Be Sunk!',W/2,H/2-20);
+    X.fillStyle='#d4a64a';
+    X.font='24px Pirata One';
+    X.fillText('Score: '+score+'  Kills: '+kills+'  Wave: '+wave,W/2,H/2+25);
+    X.font='16px JetBrains Mono';
+    X.fillStyle='rgba(255,255,255,.4)';
+    X.fillText('Respawning...',W/2,H/2+60);
+  }
+}
+
+function updateHUD(){
+  document.getElementById('score-ct').textContent=score;
+  document.getElementById('kill-ct').textContent=kills;
+  document.getElementById('hull-ct').textContent=Math.max(0,hull);
+  document.getElementById('wave-ct').textContent=wave;
+}
+
+// Init
+spawnWave();
+let lastTime=performance.now();
+
+function loop(now){
+  let dt=Math.min((now-lastTime)/1000,0.05);
+  lastTime=now;
+
+  if(hull>0) update(dt);
+
+  drawOcean();
+  drawWake();
+  drawDebris();
+  drawBalls();
+  for(let m of monsters) drawMonster(m);
+  drawShip();
+  drawExplosions();
+  drawWheel();
+  drawGameOver();
+  updateHUD();
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
