@@ -191,7 +191,7 @@ const SUIT_COLOR={'\u2660':'#1a1a2e','♥':'#c0392b','♦':'#c0392b','♣':'#1a1
 const RANKS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
 
 // Game state
-let stock=[],waste=[],foundations=[[],[],[],[]],tableau=[[],[],[],[],[],[],[]];
+let stock=[],waste=[],foundations=[[],[],[],[]],tableau=[[],[],[],[],[],[],[]],freeCells=[null,null];
 let moves=0,score=0,startTime=0,timerInterval=null,gameWon=false;
 let undoStack=[];
 let drawCount=parseInt(localStorage.getItem('sol_drawCount'))||1;
@@ -317,6 +317,7 @@ function deal(seed){
   let d=makeSolvableDeal();
   tableau=d.tableau;
   foundations=[[],[],[],[]];
+  freeCells=[null,null];
   stock=d.stock;
   waste=[];moves=0;score=0;gameWon=false;undoStack=[];lastMove=null;autoCompleting=false;hideStuckModal();
   startTime=Date.now();
@@ -333,6 +334,7 @@ function saveState(){
     waste:waste.map(c=>({s:c.suit,r:c.rank,f:c.faceUp})),
     foundations:foundations.map(f=>f.map(c=>({s:c.suit,r:c.rank,f:c.faceUp}))),
     tableau:tableau.map(t=>t.map(c=>({s:c.suit,r:c.rank,f:c.faceUp}))),
+    freeCells:freeCells.map(c=>c?{s:c.suit,r:c.rank,f:c.faceUp}:null),
     moves,score
   });
 }
@@ -343,6 +345,7 @@ function loadState(json){
   stock=st.stock.map(rc);waste=st.waste.map(rc);
   foundations=st.foundations.map(f=>f.map(rc));
   tableau=st.tableau.map(t=>t.map(rc));
+  freeCells=st.freeCells?st.freeCells.map(c=>c?rc(c):null):[null,null];
   moves=st.moves;score=st.score;
 }
 
@@ -358,7 +361,8 @@ function undo(){
 // --- POSITIONS ---
 function stockPos(){return{x:gap,y:topY};}
 function wastePos(){return{x:gap+cardW+gap,y:topY};}
-function foundPos(i){return{x:gap+(3+i)*(cardW+gap),y:topY};}
+function freeCellPos(i){return{x:gap+(2+i)*(cardW+gap),y:topY};}
+function foundPos(i){return{x:gap+(4.5+i)*(cardW+gap),y:topY};}
 function tabPos(i){return{x:gap+i*(cardW+gap),y:topY+cardH+gap+10};}
 
 function cardInTableau(col,idx){
@@ -472,6 +476,19 @@ function render(){
     }
   } else {
     drawEmptySlot(wp.x,wp.y,cardW,cardH);
+  }
+
+  // Free cells
+  for(let i=0;i<2;i++){
+    let fp=freeCellPos(i);
+    if(freeCells[i]){
+      if(dragFrom==='freecell'&&dragFromIdx===i&&dragCards)
+        drawEmptySlot(fp.x,fp.y,cardW,cardH,'FC');
+      else
+        drawCard(freeCells[i],fp.x,fp.y,cardW,cardH);
+    } else {
+      drawEmptySlot(fp.x,fp.y,cardW,cardH,'FC');
+    }
   }
 
   // Foundations
@@ -666,6 +683,7 @@ function canAutoComplete(){
   // Must have at least some cards to move
   let remaining=waste.length+stock.length;
   for(let i=0;i<7;i++) remaining+=tableau[i].length;
+  for(let i=0;i<2;i++) if(freeCells[i]) remaining++;
   return remaining>0;
 }
 function tryAutoComplete(){
@@ -686,6 +704,19 @@ function autoCompleteStep(){
         foundations[fi].push(c);
         score+=10;moves++;updateHUD();
         checkWin();
+        if(!gameWon) setTimeout(autoCompleteStep,60);
+        return;
+      }
+    }
+  }
+  // Try free cells -> foundation
+  for(let fc=0;fc<2;fc++){
+    if(!freeCells[fc])continue;
+    let c=freeCells[fc];
+    for(let fi=0;fi<4;fi++){
+      if(canPlaceOnFoundation(c,fi)){
+        freeCells[fc]=null;foundations[fi].push(c);
+        score+=10;moves++;updateHUD();checkWin();
         if(!gameWon) setTimeout(autoCompleteStep,60);
         return;
       }
@@ -735,12 +766,28 @@ function countValidMoves(){
     let c=waste[waste.length-1];
     for(let i=0;i<4;i++) if(canPlaceOnFoundation(c,i)) n++;
     for(let i=0;i<7;i++) if(canPlaceOnTableau(c,i)) n++;
+    for(let i=0;i<2;i++) if(!freeCells[i]) n++;
     if(stock.length===0) n++; // recycle
+  }
+  // Free cells -> foundation or tableau
+  for(let fc=0;fc<2;fc++){
+    if(!freeCells[fc])continue;
+    let c=freeCells[fc];
+    for(let i=0;i<4;i++) if(canPlaceOnFoundation(c,i)) n++;
+    for(let i=0;i<7;i++) if(canPlaceOnTableau(c,i)) n++;
   }
   for(let col=0;col<7;col++){
     let t=tableau[col];if(t.length===0)continue;
     let top=t[t.length-1];if(!top.faceUp)continue;
     for(let i=0;i<4;i++) if(canPlaceOnFoundation(top,i)) n++;
+  }
+  // Tableau top -> free cell
+  let emptyFC=freeCells.filter(c=>!c).length;
+  if(emptyFC>0){
+    for(let col=0;col<7;col++){
+      let t=tableau[col];if(t.length===0)continue;
+      if(t[t.length-1].faceUp) n++;
+    }
   }
   for(let col=0;col<7;col++){
     let t=tableau[col];if(t.length===0)continue;
@@ -785,6 +832,21 @@ function autoMoveToFoundations(){
         for(let i=0;i<4;i++){
           if(canPlaceOnFoundation(c,i)){
             pushUndo();waste.pop();foundations[i].push(c);
+            score+=10;moves++;moved=true;checkWin();
+            if(gameWon)return;
+            break;
+          }
+        }
+      }
+    }
+    // Check free cells
+    for(let fc=0;fc<2;fc++){
+      if(!freeCells[fc])continue;
+      let c=freeCells[fc];
+      if(isSafeForFoundation(c)){
+        for(let i=0;i<4;i++){
+          if(canPlaceOnFoundation(c,i)){
+            pushUndo();freeCells[fc]=null;foundations[i].push(c);
             score+=10;moves++;moved=true;checkWin();
             if(gameWon)return;
             break;
@@ -877,6 +939,17 @@ function getCardAt(mx,my){
       return{source:'waste',card:waste[waste.length-1],cards:[waste[waste.length-1]],idx:-1,cx:wp.x+off,cy:wp.y};
     }
   }
+  // Check free cells
+  for(let i=0;i<2;i++){
+    let fp=freeCellPos(i);
+    if(mx>=fp.x&&mx<=fp.x+cardW&&my>=fp.y&&my<=fp.y+cardH){
+      if(freeCells[i]){
+        return{source:'freecell',card:freeCells[i],cards:[freeCells[i]],idx:i,cx:fp.x,cy:fp.y};
+      } else {
+        return{source:'freecell-empty',idx:i,cx:fp.x,cy:fp.y};
+      }
+    }
+  }
   // Check foundations
   for(let i=0;i<4;i++){
     let fp=foundPos(i);
@@ -917,6 +990,15 @@ function getCardAt(mx,my){
 }
 
 function getDropTarget(mx,my){
+  // Free cells (single card only)
+  if(dragCards&&dragCards.length===1){
+    for(let i=0;i<2;i++){
+      let fp=freeCellPos(i);
+      if(mx>=fp.x-10&&mx<=fp.x+cardW+10&&my>=fp.y-10&&my<=fp.y+cardH+10){
+        if(!freeCells[i]) return{type:'freecell',idx:i};
+      }
+    }
+  }
   // Foundations (single card only)
   if(dragCards&&dragCards.length===1){
     for(let i=0;i<4;i++){
@@ -974,6 +1056,11 @@ function pointerDown(mx,my){
     dragCards=tableau[hit.idx].splice(ci);
   } else if(hit.source==='waste'){
     dragCards=[waste.pop()];
+  } else if(hit.source==='freecell'){
+    dragCards=[freeCells[hit.idx]];
+    freeCells[hit.idx]=null;
+  } else if(hit.source==='freecell-empty'){
+    return;
   } else if(hit.source==='foundation'){
     // Cards in foundation cannot be moved back
     return;
@@ -1001,7 +1088,9 @@ function pointerUp(mx,my){
   let target=getDropTarget(mx,my);
   if(target){
     pushUndo();
-    if(target.type==='foundation'){
+    if(target.type==='freecell'){
+      freeCells[target.idx]=dragCards[0];
+    } else if(target.type==='foundation'){
       foundations[target.idx].push(...dragCards);
       score+=10;
     } else if(target.type==='tableau'){
@@ -1025,7 +1114,7 @@ function returnDrag(){
   if(!dragCards)return;
   if(dragFrom==='tableau') tableau[dragFromIdx].push(...dragCards);
   else if(dragFrom==='waste') waste.push(...dragCards);
-  // foundation drag-back no longer possible
+  else if(dragFrom==='freecell') freeCells[dragFromIdx]=dragCards[0];
 }
 
 // Mouse events
@@ -1106,6 +1195,23 @@ function handleDoubleAction(mx,my){
       if(canPlaceOnTableau(card,i)){
         pushUndo();waste.pop();tableau[i].push(card);
         lastMove=null;score+=5;moves++;updateHUD();return;
+      }
+    }
+  } else if(source==='freecell'){
+    if(!freeCells[idx])return;
+    let card=freeCells[idx];
+    // Try foundation
+    for(let i=0;i<4;i++){
+      if(canPlaceOnFoundation(card,i)){
+        pushUndo();freeCells[idx]=null;foundations[i].push(card);
+        score+=10;moves++;updateHUD();checkWin();return;
+      }
+    }
+    // Try tableau
+    for(let i=0;i<7;i++){
+      if(canPlaceOnTableau(card,i)){
+        pushUndo();freeCells[idx]=null;tableau[i].push(card);
+        score+=3;moves++;updateHUD();return;
       }
     }
   } else if(source==='foundation'){
@@ -1210,6 +1316,20 @@ function hasAnyMoves(){
     for(let i=0;i<7;i++) if(canPlaceOnTableau(c,i)) return true;
     // Recycling waste back to stock is a meaningful move
     return true;
+  }
+  // Free cells -> foundation/tableau
+  for(let fc=0;fc<2;fc++){
+    if(!freeCells[fc])continue;
+    let c=freeCells[fc];
+    for(let i=0;i<4;i++) if(canPlaceOnFoundation(c,i)) return true;
+    for(let i=0;i<7;i++) if(canPlaceOnTableau(c,i)) return true;
+  }
+  // Tableau -> free cell
+  if(freeCells.some(c=>!c)){
+    for(let col=0;col<7;col++){
+      let t=tableau[col];if(t.length===0)continue;
+      if(t[t.length-1].faceUp) return true;
+    }
   }
   // Tableau -> foundation
   for(let col=0;col<7;col++){
