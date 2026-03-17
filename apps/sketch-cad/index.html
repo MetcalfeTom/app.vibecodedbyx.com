@@ -49,6 +49,12 @@ canvas{display:block;cursor:crosshair}
 #dim-input{position:absolute;background:var(--panel);border:1px solid var(--accent);color:var(--accent);padding:3px 6px;font-family:'IBM Plex Mono',monospace;font-size:12px;border-radius:3px;outline:none;display:none;z-index:50;width:80px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 #backlink{color:var(--dim);text-decoration:none;font-size:10px;margin-left:auto}
 #backlink:hover{color:var(--accent)}
+.constraint-item{padding:5px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--green);display:flex;align-items:center;gap:6px;cursor:pointer}
+.constraint-item:hover{background:var(--hover)}
+.constraint-item .c-icon{font-size:12px;width:14px;text-align:center}
+.constraint-item .c-del{margin-left:auto;color:var(--accent2);opacity:.4;cursor:pointer;font-size:10px}
+.constraint-item .c-del:hover{opacity:1}
+#constraints-header{padding:8px 12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--green);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 @media(max-width:700px){#sidebar{width:200px}.hist-item{padding:5px 8px;font-size:11px}}
 @media(max-width:500px){#sidebar{display:none}}
 </style>
@@ -62,7 +68,13 @@ canvas{display:block;cursor:crosshair}
   <button id="t-circle" title="Circle (C)">◯ Circle</button>
   <button id="t-arc" title="Arc (A)">◠ Arc</button>
   <span class="sep"></span>
+  <button id="t-trim" title="Trim at intersection (T)">✂ Trim</button>
   <button id="t-dim" title="Add dimension (D)">↔ Dim</button>
+  <span class="sep"></span>
+  <button id="t-horiz" title="Horizontal constraint (H)">— Horiz</button>
+  <button id="t-vert" title="Vertical constraint">| Vert</button>
+  <button id="t-perp" title="Perpendicular (select 2 lines)">⊥ Perp</button>
+  <button id="t-para" title="Parallel (select 2 lines)">∥ Para</button>
   <span class="sep"></span>
   <button id="t-undo" title="Undo (Ctrl+Z)">↩ Undo</button>
   <button id="t-redo" title="Redo (Ctrl+Y)">↪ Redo</button>
@@ -76,6 +88,8 @@ canvas{display:block;cursor:crosshair}
   <div id="sidebar">
     <div id="sidebar-header">Feature History</div>
     <div id="history"></div>
+    <div id="constraints-header">Constraints</div>
+    <div id="constraints-list"></div>
     <div id="props"><div id="props-title">Properties</div><div id="props-content"></div></div>
   </div>
 </div>
@@ -114,6 +128,9 @@ let tool='select';
 let snapGrid=10;
 let snapEnabled=true;
 let nextId=1;
+let constraints=[];
+let constraintNextId=1;
+let constraintPickFirst=null; // for 2-feature constraints
 
 // Drawing state
 let drawing=false;
@@ -347,6 +364,11 @@ function render(){
 
   X.restore();
 
+  // Constraint indicators
+  drawConstraintIndicators();
+  // Trim preview
+  drawTrimPreview(mouseWorldX,mouseWorldY);
+
   // Origin marker
   const o=toScreen(0,0);
   X.strokeStyle='rgba(255,100,100,.3)';X.lineWidth=1;
@@ -442,6 +464,7 @@ function drawDimLabel(x1,y1,x2,y2,val){
 }
 
 let arcRadius=0,arcRadiusPt=null;
+let mouseWorldX=0,mouseWorldY=0;
 
 // Input
 function getPos(e){
@@ -493,12 +516,34 @@ CV.addEventListener('mousedown',e=>{
       }
       drawing=false;arcPhase=0;drawStart=null;drawCurrent=null;
     }
+  } else if(tool==='trim'){
+    doTrim(w.x,w.y);
   } else if(tool==='dim'){
     const hit=hitTest(w.x,w.y);
     if(hit){
       selectedId=hit.feature.id;
       showDimEditor(hit.feature,sx,sy);
       updateUI();
+    }
+  } else if(tool==='horiz'||tool==='vert'){
+    const hit=hitTest(w.x,w.y);
+    if(hit&&hit.feature.type==='line'){
+      addConstraint(tool==='horiz'?'horizontal':'vertical',[hit.feature.id]);
+      setTool('select');
+    }
+  } else if(tool==='perp'||tool==='para'){
+    const hit=hitTest(w.x,w.y);
+    if(hit&&hit.feature.type==='line'){
+      if(!constraintPickFirst){
+        constraintPickFirst=hit.feature.id;
+        selectedId=hit.feature.id;
+        document.getElementById('s-tool').textContent=(tool==='perp'?'Perp':'Para')+': pick 2nd line';
+        updateUI();
+      } else if(hit.feature.id!==constraintPickFirst){
+        addConstraint(tool==='perp'?'perpendicular':'parallel',[constraintPickFirst,hit.feature.id]);
+        constraintPickFirst=null;
+        setTool('select');
+      }
     }
   }
   render();
@@ -509,6 +554,7 @@ CV.addEventListener('mousemove',e=>{
   const w=toWorld(sx,sy);
   const ws={x:snap(w.x),y:snap(w.y)};
 
+  mouseWorldX=w.x;mouseWorldY=w.y;
   document.getElementById('s-pos').textContent=ws.x.toFixed(0)+', '+ws.y.toFixed(0);
 
   if(panning&&panStart){
@@ -560,6 +606,7 @@ CV.addEventListener('mouseup',e=>{
       undoStack.push({action:'modify',id:dragTarget.id,before:null,after:JSON.parse(JSON.stringify(dragTarget))});
     }
     dragTarget=null;dragHandle=null;
+    applyAllConstraints();
     updateUI();return;
   }
 
@@ -686,7 +733,9 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='r'||e.key==='R')setTool('rect');
   else if(e.key==='c'&&!e.ctrlKey&&!e.metaKey)setTool('circle');
   else if(e.key==='a'||e.key==='A')setTool('arc');
+  else if(e.key==='t'||e.key==='T')setTool('trim');
   else if(e.key==='d'||e.key==='D')setTool('dim');
+  else if(e.key==='h'||e.key==='H')setTool('horiz');
   else if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo();}
   else if((e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Z')){e.preventDefault();redo();}
   else if(e.key==='Delete'||e.key==='Backspace'){
@@ -704,7 +753,8 @@ function setTool(t){
   tool=t;
   drawing=false;drawStart=null;drawCurrent=null;arcPhase=0;
   document.querySelectorAll('#toolbar button').forEach(b=>b.classList.remove('active'));
-  const map={select:'t-select',line:'t-line',rect:'t-rect',circle:'t-circle',arc:'t-arc',dim:'t-dim'};
+  constraintPickFirst=null;
+  const map={select:'t-select',line:'t-line',rect:'t-rect',circle:'t-circle',arc:'t-arc',trim:'t-trim',dim:'t-dim',horiz:'t-horiz',vert:'t-vert',perp:'t-perp',para:'t-para'};
   if(map[t])document.getElementById(map[t]).classList.add('active');
   document.getElementById('s-tool').textContent=t.charAt(0).toUpperCase()+t.slice(1);
   CV.style.cursor=t==='select'?'default':'crosshair';
@@ -716,7 +766,12 @@ document.getElementById('t-line').onclick=()=>setTool('line');
 document.getElementById('t-rect').onclick=()=>setTool('rect');
 document.getElementById('t-circle').onclick=()=>setTool('circle');
 document.getElementById('t-arc').onclick=()=>setTool('arc');
+document.getElementById('t-trim').onclick=()=>setTool('trim');
 document.getElementById('t-dim').onclick=()=>setTool('dim');
+document.getElementById('t-horiz').onclick=()=>setTool('horiz');
+document.getElementById('t-vert').onclick=()=>setTool('vert');
+document.getElementById('t-perp').onclick=()=>setTool('perp');
+document.getElementById('t-para').onclick=()=>setTool('para');
 document.getElementById('t-undo').onclick=undo;
 document.getElementById('t-redo').onclick=redo;
 document.getElementById('t-grid').onclick=()=>{
@@ -726,13 +781,14 @@ document.getElementById('t-grid').onclick=()=>{
 };
 document.getElementById('t-grid').classList.add('active');
 document.getElementById('t-clear').onclick=()=>{
-  features=[];undoStack=[];redoStack=[];selectedId=null;nextId=1;updateUI();
+  features=[];undoStack=[];redoStack=[];constraints=[];constraintNextId=1;selectedId=null;nextId=1;updateUI();
 };
 document.getElementById('t-export').onclick=exportSVG;
 
 // UI updates
 function updateUI(){
   renderHistory();
+  renderConstraintsList();
   updateProps();
   document.getElementById('s-count').textContent=features.length+' feature'+(features.length!==1?'s':'');
   render();
@@ -811,6 +867,238 @@ function updateProps(){
     });
     row.appendChild(lbl);row.appendChild(inp);
     el.appendChild(row);
+  }
+}
+
+// --- TRIM TOOL ---
+function lineLineIntersect(ax1,ay1,ax2,ay2,bx1,by1,bx2,by2){
+  const d=(ax1-ax2)*(by1-by2)-(ay1-ay2)*(bx1-bx2);
+  if(Math.abs(d)<1e-10)return null;
+  const t=((ax1-bx1)*(by1-by2)-(ay1-by1)*(bx1-bx2))/d;
+  const u=-((ax1-ax2)*(ay1-by1)-(ay1-ay2)*(ax1-bx1))/d;
+  if(t>=0&&t<=1&&u>=0&&u<=1){
+    return{x:ax1+t*(ax2-ax1),y:ay1+t*(ay2-ay1),t,u};
+  }
+  return null;
+}
+
+function findIntersectionsOnLine(lineF){
+  const pts=[];
+  for(const f of features){
+    if(f.id===lineF.id)continue;
+    if(f.type==='line'){
+      const ix=lineLineIntersect(lineF.x1,lineF.y1,lineF.x2,lineF.y2,f.x1,f.y1,f.x2,f.y2);
+      if(ix)pts.push({x:ix.x,y:ix.y,t:ix.t});
+    } else if(f.type==='circle'){
+      const hits=lineCircleIntersect(lineF.x1,lineF.y1,lineF.x2,lineF.y2,f.cx,f.cy,f.r);
+      for(const h of hits)pts.push(h);
+    }
+  }
+  pts.sort((a,b)=>a.t-b.t);
+  return pts;
+}
+
+function lineCircleIntersect(x1,y1,x2,y2,cx,cy,r){
+  const dx=x2-x1,dy=y2-y1;
+  const fx=x1-cx,fy=y1-cy;
+  const a=dx*dx+dy*dy;
+  const b=2*(fx*dx+fy*dy);
+  const c=fx*fx+fy*fy-r*r;
+  let disc=b*b-4*a*c;
+  if(disc<0)return[];
+  disc=Math.sqrt(disc);
+  const results=[];
+  for(const sign of[-1,1]){
+    const t=(-b+sign*disc)/(2*a);
+    if(t>=0&&t<=1)results.push({x:x1+t*dx,y:y1+t*dy,t});
+  }
+  return results;
+}
+
+function doTrim(wx,wy){
+  // Find the closest line to click point
+  const t=8/zoom;
+  let bestLine=null,bestDist=Infinity;
+  for(const f of features){
+    if(f.type!=='line')continue;
+    const d=distToSegment(wx,wy,f.x1,f.y1,f.x2,f.y2);
+    if(d<t&&d<bestDist){bestDist=d;bestLine=f;}
+  }
+  if(!bestLine)return;
+
+  const intersections=findIntersectionsOnLine(bestLine);
+  if(intersections.length===0)return; // nothing to trim
+
+  // Find click t-parameter on the line
+  const dx=bestLine.x2-bestLine.x1,dy=bestLine.y2-bestLine.y1;
+  const lenSq=dx*dx+dy*dy;
+  const clickT=lenSq>0?((wx-bestLine.x1)*dx+(wy-bestLine.y1)*dy)/lenSq:0;
+
+  // Find the segment the click falls in
+  const allT=[0,...intersections.map(p=>p.t),1];
+  let segIdx=0;
+  for(let i=0;i<allT.length-1;i++){
+    if(clickT>=allT[i]&&clickT<=allT[i+1]){segIdx=i;break;}
+  }
+
+  // Remove the clicked segment, keep the others as new lines
+  const origId=bestLine.id;
+  const idx=features.findIndex(f=>f.id===origId);
+  if(idx<0)return;
+
+  const before=JSON.parse(JSON.stringify(bestLine));
+  features.splice(idx,1);
+  undoStack.push({action:'delete',feature:before,index:idx});
+
+  // Create remaining segments
+  for(let i=0;i<allT.length-1;i++){
+    if(i===segIdx)continue; // skip the trimmed segment
+    const t0=allT[i],t1=allT[i+1];
+    if(Math.abs(t1-t0)<0.001)continue;
+    const nx1=bestLine.x1+t0*dx,ny1=bestLine.y1+t0*dy;
+    const nx2=bestLine.x1+t1*dx,ny2=bestLine.y1+t1*dy;
+    addFeature(createLine(nx1,ny1,nx2,ny2));
+  }
+
+  if(selectedId===origId)selectedId=null;
+  updateUI();
+}
+
+// --- CONSTRAINTS ---
+function addConstraint(type,featureIds){
+  const c={id:constraintNextId++,type,featureIds:[...featureIds]};
+  constraints.push(c);
+  applyConstraint(c);
+  updateUI();
+}
+
+function removeConstraint(cid){
+  constraints=constraints.filter(c=>c.id!==cid);
+  updateUI();
+}
+
+function applyConstraint(c){
+  if(c.type==='horizontal'){
+    const f=features.find(f=>f.id===c.featureIds[0]);
+    if(!f||f.type!=='line')return;
+    const midY=(f.y1+f.y2)/2;
+    f.y1=midY;f.y2=midY;
+    recalcDims(f);
+  } else if(c.type==='vertical'){
+    const f=features.find(f=>f.id===c.featureIds[0]);
+    if(!f||f.type!=='line')return;
+    const midX=(f.x1+f.x2)/2;
+    f.x1=midX;f.x2=midX;
+    recalcDims(f);
+  } else if(c.type==='perpendicular'){
+    const f1=features.find(f=>f.id===c.featureIds[0]);
+    const f2=features.find(f=>f.id===c.featureIds[1]);
+    if(!f1||!f2||f1.type!=='line'||f2.type!=='line')return;
+    // Rotate f2 to be perpendicular to f1
+    const dx1=f1.x2-f1.x1,dy1=f1.y2-f1.y1;
+    const angle1=Math.atan2(dy1,dx1);
+    const targetAngle=angle1+Math.PI/2;
+    const len2=dist(f2.x1,f2.y1,f2.x2,f2.y2);
+    const mx=(f2.x1+f2.x2)/2,my=(f2.y1+f2.y2)/2;
+    f2.x1=mx-Math.cos(targetAngle)*len2/2;
+    f2.y1=my-Math.sin(targetAngle)*len2/2;
+    f2.x2=mx+Math.cos(targetAngle)*len2/2;
+    f2.y2=my+Math.sin(targetAngle)*len2/2;
+    recalcDims(f2);
+  } else if(c.type==='parallel'){
+    const f1=features.find(f=>f.id===c.featureIds[0]);
+    const f2=features.find(f=>f.id===c.featureIds[1]);
+    if(!f1||!f2||f1.type!=='line'||f2.type!=='line')return;
+    // Rotate f2 to be parallel to f1
+    const dx1=f1.x2-f1.x1,dy1=f1.y2-f1.y1;
+    const angle1=Math.atan2(dy1,dx1);
+    const len2=dist(f2.x1,f2.y1,f2.x2,f2.y2);
+    const mx=(f2.x1+f2.x2)/2,my=(f2.y1+f2.y2)/2;
+    f2.x1=mx-Math.cos(angle1)*len2/2;
+    f2.y1=my-Math.sin(angle1)*len2/2;
+    f2.x2=mx+Math.cos(angle1)*len2/2;
+    f2.y2=my+Math.sin(angle1)*len2/2;
+    recalcDims(f2);
+  }
+}
+
+function applyAllConstraints(){
+  for(const c of constraints)applyConstraint(c);
+}
+
+function drawConstraintIndicators(){
+  for(const c of constraints){
+    if(c.type==='horizontal'){
+      const f=features.find(f=>f.id===c.featureIds[0]);
+      if(!f||f.type!=='line')continue;
+      const mx=(f.x1+f.x2)/2,my=(f.y1+f.y2)/2;
+      const s=toScreen(mx,my);
+      X.fillStyle='rgba(74,255,139,.6)';X.font='bold 10px "IBM Plex Mono"';X.textAlign='center';
+      X.fillText('H',s.x,s.y-10);
+    } else if(c.type==='vertical'){
+      const f=features.find(f=>f.id===c.featureIds[0]);
+      if(!f||f.type!=='line')continue;
+      const mx=(f.x1+f.x2)/2,my=(f.y1+f.y2)/2;
+      const s=toScreen(mx,my);
+      X.fillStyle='rgba(74,255,139,.6)';X.font='bold 10px "IBM Plex Mono"';X.textAlign='center';
+      X.fillText('V',s.x+10,s.y);
+    } else if(c.type==='perpendicular'||c.type==='parallel'){
+      const f1=features.find(f=>f.id===c.featureIds[0]);
+      const f2=features.find(f=>f.id===c.featureIds[1]);
+      if(!f1||!f2)continue;
+      const mx1=(f1.type==='line')?(f1.x1+f1.x2)/2:0;
+      const my1=(f1.type==='line')?(f1.y1+f1.y2)/2:0;
+      const mx2=(f2.type==='line')?(f2.x1+f2.x2)/2:0;
+      const my2=(f2.type==='line')?(f2.y1+f2.y2)/2:0;
+      const s1=toScreen(mx1,my1),s2=toScreen(mx2,my2);
+      X.strokeStyle='rgba(74,255,139,.25)';X.lineWidth=1;X.setLineDash([3,3]);
+      X.beginPath();X.moveTo(s1.x,s1.y);X.lineTo(s2.x,s2.y);X.stroke();X.setLineDash([]);
+      const ms={x:(s1.x+s2.x)/2,y:(s1.y+s2.y)/2};
+      X.fillStyle='rgba(74,255,139,.6)';X.font='bold 10px "IBM Plex Mono"';X.textAlign='center';
+      X.fillText(c.type==='perpendicular'?'⊥':'∥',ms.x,ms.y-5);
+    }
+  }
+}
+
+// Draw intersection dots for trim preview
+function drawTrimPreview(wx,wy){
+  if(tool!=='trim')return;
+  const t=8/zoom;
+  let bestLine=null,bestDist=Infinity;
+  for(const f of features){
+    if(f.type!=='line')continue;
+    const d=distToSegment(wx,wy,f.x1,f.y1,f.x2,f.y2);
+    if(d<t&&d<bestDist){bestDist=d;bestLine=f;}
+  }
+  if(!bestLine)return;
+  // Highlight the line
+  const s1=toScreen(bestLine.x1,bestLine.y1),s2=toScreen(bestLine.x2,bestLine.y2);
+  X.strokeStyle='rgba(255,107,74,.6)';X.lineWidth=3;X.setLineDash([]);
+  X.beginPath();X.moveTo(s1.x,s1.y);X.lineTo(s2.x,s2.y);X.stroke();
+
+  // Show intersection points
+  const ixs=findIntersectionsOnLine(bestLine);
+  for(const ix of ixs){
+    const sp=toScreen(ix.x,ix.y);
+    X.beginPath();X.arc(sp.x,sp.y,5,0,Math.PI*2);
+    X.fillStyle='#ff6b4a';X.fill();
+    X.strokeStyle='#fff';X.lineWidth=1;X.stroke();
+  }
+}
+
+function renderConstraintsList(){
+  const el=document.getElementById('constraints-list');
+  el.innerHTML='';
+  const icons={horizontal:'—',vertical:'|',perpendicular:'⊥',parallel:'∥'};
+  for(const c of constraints){
+    const ids=c.featureIds.map(id=>'#'+id).join(', ');
+    const div=document.createElement('div');
+    div.className='constraint-item';
+    div.innerHTML='<span class="c-icon">'+icons[c.type]+'</span>'+
+      c.type.charAt(0).toUpperCase()+c.type.slice(1)+' ('+ids+')'+
+      '<span class="c-del" title="Remove constraint">✕</span>';
+    div.querySelector('.c-del').onclick=(e)=>{e.stopPropagation();removeConstraint(c.id);};
+    el.appendChild(div);
   }
 }
 
