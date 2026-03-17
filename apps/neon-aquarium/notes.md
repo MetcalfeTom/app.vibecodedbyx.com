@@ -1,29 +1,26 @@
 # Neon Aquarium
 
-A glowing 3D aquarium where neon fish change color every time you type. Watch them swim and pulse.
+Neon fish that evolve legs and walk on the sea floor.
 
 ## log
-- 2026-03-15: Initial build. 3D aquarium using Three.js with 12 neon fish. Glass tank with edge wireframe, sand floor (displaced plane), 18 seaweed plants with sway animation, 10 rocks (dodecahedron). Fish: ellipsoid body + cone tail + dorsal fin + eyes, each with emissive material and point light for glow effect. Fish AI: random target points, smooth steering, tail wagging, speed variation, gentle bobbing. Chat input at bottom — typing a message hashes the text to a new hue and all fish smoothly transition to new color palette. Color flash overlay on send. Fish get an excitement burst (speed boost + new targets) on each message. Auto-chat: random bot messages trigger color changes every 8-20s. Bubbles rise from random points with wobble. Caustic spotlight drifts across sand. Camera gently orbits. Anybody + IBM Plex Mono typography, deep ocean dark palette with bioluminescent accents.
+- 2026-03-17: Initial build. Canvas aquarium with 8 neon fish species. 5 evolution stages: fish → thickened fins → nubs → small legs → full walking legs with feet. XP from eating food (tap to drop). Evolved fish walk on sea floor with 4-legged gait animation, can jump back in water for food. Underwater environment with light rays, bumpy sea floor, swaying plants. Bubbles on eating and random idle. Evolution sparkle particles. Fish chase nearest food, idle wander when none. Anybody + IBM Plex Mono typography, deep ocean palette.
 
 ## issues
-- importmap + ES module gives expected "new Function" validation errors (works in browser)
+- None yet
 
 ## todos
-- Different fish species/shapes
-- Click fish to see info
-- Feed the fish (click to drop food, fish chase it)
+- Different fish species with unique shapes
+- Predator fish that eat smaller fish
 - Day/night cycle
-- Supabase chat for real multiplayer color changes
-- Treasure chest decoration with bubbles
+- Decorations (coral, rocks) the fish interact with
+- Sound effects (bubbles, eating, evolution chime)
 
 ## notes
-- No database — local chat only with auto-bot messages
-- Three.js 0.163.0 via CDN importmap
-- 12 fish, each with unique hue offset from global hue
-- Color hash: char code accumulation, modulo 1000, mapped to 0..1 hue
-- Fish speed: 0.3-0.8 base, +0.2 burst on chat, decays at 0.998/frame
-- Retarget: every 150-400 frames, fish picks new random point in tank
-- Tank: 30x14x16 units, glass MeshPhysicalMaterial, BackSide rendering
-- Plants: 5-11 blades per cluster, sine-wave sway
-- Bubbles: spheres rising at 0.01-0.03/frame, removed at tank top
-- Camera: gentle sinusoidal orbit around center
+- No database — pure frontend
+- Max 25 fish, 15% chance to spawn new on tap
+- Evolution XP thresholds: 0, 15, 35, 60, 100
+- Food gives 3-5 XP per piece, drops 2-3 per tap
+- Walking speed: 20-35 px/s
+- Stage 0: basic fish. Stage 1: thick pectoral fins. Stage 2: leg nubs. Stage 3: jointed small legs. Stage 4: full 4-legged walk with feet
+- Evolved fish sink to floor, walk with alternating leg phases
+- Floor at 82% of canvas height
