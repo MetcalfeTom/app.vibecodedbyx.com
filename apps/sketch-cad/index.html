@@ -26,7 +26,16 @@ body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-ser
 #toolbar .sep{width:1px;height:24px;background:var(--border);margin:0 4px}
 #toolbar .title{font-weight:600;color:var(--accent);font-size:13px;margin-right:8px;letter-spacing:.5px}
 #main{display:flex;flex:1;overflow:hidden}
-#canvas-wrap{flex:1;position:relative;overflow:hidden}
+#view-split{display:flex;flex:1;overflow:hidden}
+#canvas-wrap{flex:1;position:relative;overflow:hidden;min-width:0}
+#view3d-wrap{flex:1;position:relative;overflow:hidden;min-width:0;border-left:1px solid var(--border);display:none}
+#view3d-wrap.show{display:block}
+#view3d-wrap canvas{width:100%;height:100%}
+#view3d-label{position:absolute;top:8px;left:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--dim);pointer-events:none;z-index:2}
+#extrude-bar{position:absolute;bottom:8px;left:8px;right:8px;display:flex;gap:6px;align-items:center;z-index:2}
+#extrude-bar label{font-size:10px;color:var(--dim);font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+#extrude-bar input[type=range]{flex:1;accent-color:var(--accent)}
+#extrude-bar span{font-size:11px;color:var(--accent);font-family:'IBM Plex Mono',monospace;min-width:32px}
 canvas{display:block;cursor:crosshair}
 #sidebar{width:260px;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
 #sidebar-header{padding:10px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--dim);border-bottom:1px solid var(--border)}
@@ -82,9 +91,21 @@ canvas{display:block;cursor:crosshair}
   <button id="t-grid" title="Toggle grid snap">⊞ Snap</button>
   <button id="t-clear" title="Clear all">✕ Clear</button>
   <button id="t-export" title="Export SVG">↓ SVG</button>
+  <span class="sep"></span>
+  <button id="t-3d" title="Toggle 3D viewport">◆ 3D</button>
 </div>
 <div id="main">
-  <div id="canvas-wrap"><canvas id="c"></canvas><input id="dim-input" type="text"></div>
+  <div id="view-split">
+    <div id="canvas-wrap"><canvas id="c"></canvas><input id="dim-input" type="text"></div>
+    <div id="view3d-wrap">
+      <div id="view3d-label">3D Preview</div>
+      <div id="extrude-bar">
+        <label>Depth:</label>
+        <input id="extrude-slider" type="range" min="1" max="100" value="20">
+        <span id="extrude-val">20</span>
+      </div>
+    </div>
+  </div>
   <div id="sidebar">
     <div id="sidebar-header">Feature History</div>
     <div id="history"></div>
@@ -1148,6 +1169,205 @@ function exportSVG(){
 // Init
 resize();
 updateUI();
+
+// --- 3D VIEWPORT ---
+let show3D=false;
+let scene3d,camera3d,renderer3d,controls3d,meshGroup;
+let extrudeDepth=20;
+let three3dReady=false;
+
+document.getElementById('t-3d').onclick=()=>{
+  show3D=!show3D;
+  document.getElementById('t-3d').classList.toggle('active',show3D);
+  document.getElementById('view3d-wrap').classList.toggle('show',show3D);
+  if(show3D&&!three3dReady) init3D();
+  else if(show3D) update3D();
+  setTimeout(()=>{resize();if(three3dReady)resize3D();},50);
+};
+
+document.getElementById('extrude-slider').oninput=function(){
+  extrudeDepth=+this.value;
+  document.getElementById('extrude-val').textContent=extrudeDepth;
+  if(three3dReady)update3D();
+};
+
+function init3D(){
+  const wrap=document.getElementById('view3d-wrap');
+  const script=document.createElement('script');
+  script.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+  script.onload=()=>{
+    scene3d=new THREE.Scene();
+    scene3d.background=new THREE.Color(0x1a1c22);
+
+    camera3d=new THREE.PerspectiveCamera(50,wrap.clientWidth/wrap.clientHeight,0.1,5000);
+    camera3d.position.set(100,120,200);
+    camera3d.lookAt(0,0,0);
+
+    renderer3d=new THREE.WebGLRenderer({antialias:true});
+    renderer3d.setSize(wrap.clientWidth,wrap.clientHeight);
+    renderer3d.setPixelRatio(window.devicePixelRatio);
+    wrap.insertBefore(renderer3d.domElement,wrap.firstChild);
+
+    // Lights
+    const amb=new THREE.AmbientLight(0x404060,0.6);
+    scene3d.add(amb);
+    const dir=new THREE.DirectionalLight(0xffffff,0.8);
+    dir.position.set(100,200,150);
+    scene3d.add(dir);
+    const dir2=new THREE.DirectionalLight(0x4a9eff,0.3);
+    dir2.position.set(-80,-50,100);
+    scene3d.add(dir2);
+
+    // Grid
+    const grid=new THREE.GridHelper(400,40,0x2d3040,0x22242c);
+    grid.rotation.x=0;
+    scene3d.add(grid);
+
+    meshGroup=new THREE.Group();
+    scene3d.add(meshGroup);
+
+    // Simple orbit via mouse
+    let dragging3d=false,prevMx=0,prevMy=0;
+    let theta=0.6,phi=0.8,radius=250;
+    function updateCam(){
+      camera3d.position.x=radius*Math.sin(phi)*Math.cos(theta);
+      camera3d.position.y=radius*Math.cos(phi);
+      camera3d.position.z=radius*Math.sin(phi)*Math.sin(theta);
+      camera3d.lookAt(0,0,0);
+    }
+    updateCam();
+
+    renderer3d.domElement.addEventListener('mousedown',e=>{dragging3d=true;prevMx=e.clientX;prevMy=e.clientY;});
+    renderer3d.domElement.addEventListener('mousemove',e=>{
+      if(!dragging3d)return;
+      theta+=(e.clientX-prevMx)*0.01;
+      phi=Math.max(0.1,Math.min(Math.PI-0.1,phi-(e.clientY-prevMy)*0.01));
+      prevMx=e.clientX;prevMy=e.clientY;
+      updateCam();
+    });
+    renderer3d.domElement.addEventListener('mouseup',()=>{dragging3d=false;});
+    renderer3d.domElement.addEventListener('wheel',e=>{
+      e.preventDefault();
+      radius=Math.max(30,Math.min(800,radius+e.deltaY*0.5));
+      updateCam();
+    },{passive:false});
+
+    // Touch orbit
+    let lastT3d=null;
+    renderer3d.domElement.addEventListener('touchstart',e=>{
+      if(e.touches.length===1){dragging3d=true;prevMx=e.touches[0].clientX;prevMy=e.touches[0].clientY;}
+      e.preventDefault();
+    },{passive:false});
+    renderer3d.domElement.addEventListener('touchmove',e=>{
+      if(dragging3d&&e.touches.length===1){
+        theta+=(e.touches[0].clientX-prevMx)*0.01;
+        phi=Math.max(0.1,Math.min(Math.PI-0.1,phi-(e.touches[0].clientY-prevMy)*0.01));
+        prevMx=e.touches[0].clientX;prevMy=e.touches[0].clientY;
+        updateCam();
+      }
+      e.preventDefault();
+    },{passive:false});
+    renderer3d.domElement.addEventListener('touchend',()=>{dragging3d=false;});
+
+    three3dReady=true;
+    update3D();
+    animate3D();
+  };
+  document.head.appendChild(script);
+}
+
+function resize3D(){
+  if(!three3dReady)return;
+  const wrap=document.getElementById('view3d-wrap');
+  const w=wrap.clientWidth,h=wrap.clientHeight;
+  camera3d.aspect=w/h;
+  camera3d.updateProjectionMatrix();
+  renderer3d.setSize(w,h);
+}
+window.addEventListener('resize',()=>{if(three3dReady&&show3D)resize3D();});
+
+function update3D(){
+  if(!three3dReady)return;
+  // Clear old meshes
+  while(meshGroup.children.length)meshGroup.remove(meshGroup.children[0]);
+
+  const mat=new THREE.MeshPhongMaterial({color:0x4a9eff,transparent:true,opacity:0.7,side:THREE.DoubleSide});
+  const wireMat=new THREE.LineBasicMaterial({color:0x6ab0ff});
+  const d=extrudeDepth;
+
+  for(const f of features){
+    if(f.type==='rect'){
+      const geo=new THREE.BoxGeometry(f.w,d,f.h);
+      const mesh=new THREE.Mesh(geo,mat.clone());
+      mesh.position.set(f.x+f.w/2,d/2,f.y+f.h/2);
+      meshGroup.add(mesh);
+      const edges=new THREE.EdgesGeometry(geo);
+      const wire=new THREE.LineSegments(edges,wireMat);
+      wire.position.copy(mesh.position);
+      meshGroup.add(wire);
+    } else if(f.type==='circle'){
+      const geo=new THREE.CylinderGeometry(f.r,f.r,d,32);
+      const mesh=new THREE.Mesh(geo,mat.clone());
+      mesh.position.set(f.cx,d/2,f.cy);
+      meshGroup.add(mesh);
+      const edges=new THREE.EdgesGeometry(geo);
+      const wire=new THREE.LineSegments(edges,wireMat);
+      wire.position.copy(mesh.position);
+      meshGroup.add(wire);
+    } else if(f.type==='line'){
+      // Extrude line as a thin wall
+      const dx=f.x2-f.x1,dz=f.y2-f.y1;
+      const len=Math.sqrt(dx*dx+dz*dz);
+      if(len<1)continue;
+      const geo=new THREE.BoxGeometry(len,d,2);
+      const mesh=new THREE.Mesh(geo,mat.clone());
+      const mx=(f.x1+f.x2)/2,mz=(f.y1+f.y2)/2;
+      mesh.position.set(mx,d/2,mz);
+      mesh.rotation.y=-Math.atan2(dz,dx);
+      meshGroup.add(mesh);
+      const edges=new THREE.EdgesGeometry(geo);
+      const wire=new THREE.LineSegments(edges,wireMat);
+      wire.position.copy(mesh.position);
+      wire.rotation.copy(mesh.rotation);
+      meshGroup.add(wire);
+    } else if(f.type==='arc'){
+      // Extrude arc as a curved wall
+      const sweep=f.endAngle-f.startAngle;
+      const segments=Math.max(8,Math.floor(Math.abs(sweep)*10));
+      const shape=new THREE.Shape();
+      shape.moveTo(Math.cos(f.startAngle)*f.r,Math.sin(f.startAngle)*f.r);
+      for(let i=1;i<=segments;i++){
+        const a=f.startAngle+sweep*i/segments;
+        shape.lineTo(Math.cos(a)*f.r,Math.sin(a)*f.r);
+      }
+      // Close by going inward slightly
+      for(let i=segments;i>=0;i--){
+        const a=f.startAngle+sweep*i/segments;
+        shape.lineTo(Math.cos(a)*(f.r-2),Math.sin(a)*(f.r-2));
+      }
+      shape.closePath();
+      const extSettings={depth:d,bevelEnabled:false};
+      const geo=new THREE.ExtrudeGeometry(shape,extSettings);
+      const mesh=new THREE.Mesh(geo,mat.clone());
+      mesh.position.set(f.cx,0,f.cy);
+      mesh.rotation.x=-Math.PI/2;
+      meshGroup.add(mesh);
+    }
+  }
+}
+
+function animate3D(){
+  if(!three3dReady)return;
+  requestAnimationFrame(animate3D);
+  if(show3D) renderer3d.render(scene3d,camera3d);
+}
+
+// Hook into updateUI to refresh 3D
+const origUpdateUI=updateUI;
+updateUI=function(){
+  origUpdateUI();
+  if(show3D&&three3dReady) update3D();
+};
 </script>
 </body>
 </html>

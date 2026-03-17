@@ -7,6 +7,8 @@ Parametric 2D sketcher with feature history, inspired by Onshape.
 
 - 2026-03-17: Added trim tool and geometric constraints. Trim: click on a line near intersections to remove the clicked segment, keeping the rest. Finds line-line and line-circle intersections, splits at all intersection t-parameters, removes segment under cursor. Visual preview: hovered line highlights orange, intersection dots shown. Constraints: Horizontal (H), Vertical (V) for single lines; Perpendicular, Parallel for line pairs. Two-step picking for pair constraints. Constraint indicators drawn on canvas (H/V labels, dashed connector lines with symbols). Constraints sidebar section with delete buttons. Constraints re-applied after drag. Keyboard: T=trim, H=horiz.
 
+- 2026-03-17: Added Three.js 3D viewport. Split-view layout: 2D canvas left, 3D viewport right, toggled via toolbar button. Lazy loads Three.js r128 from CDN. PerspectiveCamera with manual orbit controls (drag to rotate, scroll to zoom). Features extruded into 3D: rect→BoxGeometry, circle→CylinderGeometry, line→thin wall, arc→ExtrudeGeometry. Adjustable extrude depth slider (1-100 units). 3D meshes auto-refresh when features change. Ambient + directional lighting. Grid helper in 3D scene.
+
 ## issues
 - None yet
 
