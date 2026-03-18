@@ -1,32 +1,22 @@
-# Neon Zen Garden
+# Zen Garden
+
+Calm zen garden with cherry blossoms, a pond, and raked sand.
 
 ## log
-- 2026-01-13: Redesigned with sand raking tools, fractal trees, glowing stones, and cherry blossoms
-- 2026-01-11: Created zen neon garden with glowing seed planting
-
-## features
-- Sand raking with neon glow effects
-- Tools:
-  - Rake: draws parallel lines perpendicular to drag direction
-  - Circle: creates concentric ring patterns
-  - Smooth: soft glowing brush effect
-  - Tree: plants fractal trees with animated growth
-- Color picker (cyan, magenta, gold, green)
-- 5 decorative stones that glow on click
-- Fractal trees grow with recursive branching animation
-- Leaves appear at branch tips
-- Cherry blossom petals drift across the screen
-- Canvas-based sand drawing
-- Clear garden button resets everything
-- Dark meditative aesthetic
-- Mobile touch support
+- 2026-03-18: Initial build. Cherry blossom petals (3 shapes: round, teardrop, 5-point) drift down with wobble physics and mouse wind repulsion. Land on pond (create ripples) or sand. Calm pond with wave lines, lily pads with lotus flowers, moon reflection. Raked sand pattern with lines curving around rocks. Two cherry trees with blossom clusters. Click/tap on pond for ripples. Ambient random ripples. Cycling zen koans fade in/out. Moonlit sky with vignette. Noto Serif JP typography.
 
 ## issues
 - None yet
 
 ## todos
-- Could add ambient nature sounds
-- Could add wind animation for trees
-- Could add rock garden patterns
-- Could save garden state to localStorage
-- Could add more tree varieties
+- Ambient wind/water sounds (WebAudio)
+- Koi fish in pond
+- Day/night cycle
+- Fireflies at dusk
+
+## notes
+- No database — pure frontend
+- 120 max petals, recycled on landing/fade
+- Petals land on pond (drift) vs sand (stop)
+- Rocks influence sand rake line curvature
+- Koans cycle every 22 seconds with fade transitions
