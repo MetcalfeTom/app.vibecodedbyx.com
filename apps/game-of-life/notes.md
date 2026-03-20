@@ -11,6 +11,8 @@ N-state cellular automata with clickable transition matrix editor.
 
 - 2026-03-20: Fixed neighbor counting bug. countNeighbors was counting ALL non-zero states as alive, breaking Brian's Brain (refractory cells wrongly counted) and Star Wars (dying cells wrongly counted). Added per-state aliveStates[] boolean array with "N" checkbox in color editor. Presets now specify which states count. Also persisted aliveStates to localStorage.
 
+- 2026-03-20: Added Expression mode. Matrix/Expr toggle — expression mode gives each state a text input for boolean neighbor expressions. Variables: n (alive neighbors), s0-s7 (per-state counts), c (current state). Safe compiler with character whitelist and assignment blocking. All presets include equivalent expressions. Persisted to localStorage.
+
 ## issues
 - None yet
 
@@ -29,7 +31,10 @@ N-state cellular automata with clickable transition matrix editor.
 - Outer totalistic with aliveStates filter: only states with aliveStates[s]=true count as neighbors
 - "N" checkbox per state in color editor controls this
 - transMatrix is array of arrays: transMatrix[state][0..8] = nextState
-- Presets are functions that return {n: numStates, m: matrix, a: aliveStates}
+- Presets are functions that return {n: numStates, m: matrix, a: aliveStates, e: expressions}
+- Expression mode: compileExpr() validates with char whitelist, blocks assignment, uses new Function
+- Expression vars: n=total alive, s0-s7=per-state counts, c=current state; return next state number
+- _sc[] array reused per cell to avoid GC pressure in expression mode
 - Up to 8 states, colors defined in ALL_COLORS array (9 entries: dead + 8 alive)
 - Brian's Brain: firing→refractory→dead, dead+2 neighbors→firing
 - Star Wars: alive survives on 3-5, else decays through 2 dying states

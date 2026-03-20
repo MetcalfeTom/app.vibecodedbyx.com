@@ -59,6 +59,18 @@ canvas{display:block;cursor:crosshair;touch-action:none}
 .alive-label{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim);display:flex;align-items:center;gap:2px;margin-left:auto;cursor:pointer;opacity:0.7}
 .alive-label:hover{opacity:1}
 .alive-label input{cursor:pointer;accent-color:var(--cell)}
+#mode-toggle{display:flex;gap:0;margin-bottom:2px}
+#mode-toggle button{font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 10px;border:1px solid var(--border);background:rgba(0,255,163,0.04);color:var(--dim);cursor:pointer;transition:all .15s}
+#mode-toggle button:first-child{border-radius:4px 0 0 4px}
+#mode-toggle button:last-child{border-radius:0 4px 4px 0}
+#mode-toggle button.active{background:rgba(0,255,163,0.15);color:var(--cell);border-color:var(--cell)}
+#expr-editor{display:flex;flex-direction:column;gap:5px}
+.expr-row{display:flex;align-items:center;gap:6px}
+.expr-row .state-dot{width:14px;height:14px;border-radius:3px;border:1px solid rgba(255,255,255,0.2);flex-shrink:0}
+.expr-row .state-lbl{font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.4);width:28px;flex-shrink:0}
+.expr-row input{flex:1;background:rgba(0,255,163,0.08);border:1px solid var(--border);border-radius:4px;color:var(--cell);font-family:'JetBrains Mono',monospace;font-size:12px;padding:4px 6px;outline:none;min-width:0}
+.expr-row input.err{border-color:#ff4444;color:#ff8888}
+.expr-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:rgba(255,255,255,0.25);line-height:1.4}
 </style>
 </head>
 <body>
@@ -87,8 +99,18 @@ canvas{display:block;cursor:crosshair;touch-action:none}
     <input type="number" id="statesInput" min="2" max="8" value="2">
   </div>
   <div id="color-editor"></div>
-  <div class="matrix-hint">TRANSITION MATRIX — click cells to cycle target state.<br>Rows = current state, cols = neighbor count. "N" = counts as neighbor.</div>
-  <div id="matrix-wrap"><table id="matrix"></table></div>
+  <div id="mode-toggle">
+    <button id="modeMatrix" class="active">Matrix</button>
+    <button id="modeExpr">Expr</button>
+  </div>
+  <div id="matrix-section">
+    <div class="matrix-hint">Click cells to cycle target state. Rows = current state, cols = neighbor count.</div>
+    <div id="matrix-wrap"><table id="matrix"></table></div>
+  </div>
+  <div id="expr-section" style="display:none">
+    <div class="expr-hint">Variables: n=alive neighbors, s0-s7=per-state counts, c=current state<br>Return next state number. Ex: n==3 ? 1 : 0</div>
+    <div id="expr-editor"></div>
+  </div>
   <div id="color-pick">
     <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--dim)">DRAW:</span>
   </div>
@@ -137,6 +159,59 @@ var transMatrix=[];
 // Which states count as "alive" for neighbor counting (boolean per state)
 var aliveStates=[];
 
+// --- EXPRESSION MODE ---
+var useExprMode=false;
+var expressions=[]; // string per state
+var exprFuncs=[];   // compiled Function per state (null if invalid/empty)
+
+function compileExpr(str){
+  var safe=str.trim();
+  if(!safe) return null;
+  // Only allow: digits, variable names (n,s0-s7,c), operators, parens, spaces, dots
+  if(!/^[ns0-9c =!<>&|?:+\-*%(). ]+$/.test(safe)) return null;
+  // Block assignment (single =) — remove valid multi-char operators first
+  var stripped=safe.replace(/===|!==|==|!=|<=|>=|&&|\|\|/g,'');
+  if(stripped.indexOf('=')!==-1) return null;
+  try{
+    return new Function('n','s0','s1','s2','s3','s4','s5','s6','s7','c',
+      'return ('+safe+')');
+  }catch(e){ return null; }
+}
+
+function compileAllExprs(){
+  exprFuncs=[];
+  for(var s=0;s<numStates;s++){
+    exprFuncs[s]=expressions[s]?compileExpr(expressions[s]):null;
+  }
+}
+
+var exprEditorEl; // set after DOM ready
+function buildExprUI(){
+  if(!exprEditorEl) exprEditorEl=document.getElementById('expr-editor');
+  var html='';
+  for(var s=0;s<numStates;s++){
+    html+='<div class="expr-row">';
+    html+='<div class="state-dot" style="background:'+ALL_COLORS[s]+'"></div>';
+    html+='<span class="state-lbl">'+STATE_NAMES[s]+'</span>';
+    html+='<input type="text" data-s="'+s+'" value="'+(expressions[s]||'').replace(/"/g,'&quot;')+'" placeholder="e.g. n==3 ? 1 : 0">';
+    html+='</div>';
+  }
+  exprEditorEl.innerHTML=html;
+  // Wire inputs
+  var inputs=exprEditorEl.querySelectorAll('input');
+  for(var i=0;i<inputs.length;i++){
+    inputs[i].addEventListener('input',function(){
+      var s=parseInt(this.dataset.s);
+      expressions[s]=this.value;
+      var fn=compileExpr(this.value);
+      exprFuncs[s]=fn;
+      this.classList.toggle('err',this.value.trim()!==''&&!fn);
+      rulePreset.value='custom';
+      saveSettings();
+    });
+  }
+}
+
 // --- LOCALSTORAGE PERSISTENCE ---
 var LS_KEY='gol-settings';
 var LS_GRID_KEY='gol-grid';
@@ -146,6 +221,8 @@ function saveSettings(){
       numStates:numStates,
       transMatrix:transMatrix,
       aliveStates:aliveStates,
+      expressions:expressions,
+      useExprMode:useExprMode,
       colors:ALL_COLORS.slice(0,numStates),
       drawState:drawState,
       speed:speedSlider.value,
@@ -207,6 +284,13 @@ function loadSettings(){
         if(/^#[0-9a-fA-F]{6}$/.test(d.colors[i])) ALL_COLORS[i]=d.colors[i];
       }
     }
+    // Restore expressions
+    expressions=[];
+    if(d.expressions){
+      for(var s=0;s<numStates;s++) expressions[s]=d.expressions[s]||'';
+    }
+    compileAllExprs();
+    if(d.useExprMode) useExprMode=true;
     if(typeof d.drawState==='number'&&d.drawState>=1&&d.drawState<numStates) drawState=d.drawState;
     if(d.speed) speedSlider.value=d.speed;
     if(d.preset) rulePreset.value=d.preset;
@@ -242,38 +326,33 @@ var PRESETS={
   conway:function(){
     var m=makeMatrix(2);
     m[0][3]=1; m[1][2]=1; m[1][3]=1;
-    return {n:2,m:m,a:makeAliveAll(2)};
+    return {n:2,m:m,a:makeAliveAll(2),e:['n==3 ? 1 : 0','n>=2 && n<=3 ? 1 : 0']};
   },
   highlife:function(){
     var m=makeMatrix(2);
     m[0][3]=1; m[0][6]=1; m[1][2]=1; m[1][3]=1;
-    return {n:2,m:m,a:makeAliveAll(2)};
+    return {n:2,m:m,a:makeAliveAll(2),e:['n==3 || n==6 ? 1 : 0','n>=2 && n<=3 ? 1 : 0']};
   },
   seeds:function(){
     var m=makeMatrix(2);
     m[0][2]=1;
-    return {n:2,m:m,a:makeAliveAll(2)};
+    return {n:2,m:m,a:makeAliveAll(2),e:['n==2 ? 1 : 0','0']};
   },
   brain:function(){
-    // 3 states: 0=dead, 1=firing, 2=refractory
-    // Only state 1 (firing) counts as alive neighbor
     var m=makeMatrix(3);
     m[0][2]=1;
     for(var i=0;i<=8;i++) m[1][i]=2;
-    return {n:3,m:m,a:[false,true,false]};
+    return {n:3,m:m,a:[false,true,false],e:['s1==2 ? 1 : 0','2','0']};
   },
   starwars:function(){
-    // 4 states: 0=dead, 1=alive, 2=dying1, 3=dying2
-    // Only state 1 counts as alive neighbor
     var m=makeMatrix(4);
     m[0][2]=1;
     for(var i=0;i<=8;i++) m[1][i]=2;
     m[1][3]=1; m[1][4]=1; m[1][5]=1;
     for(var i=0;i<=8;i++) m[2][i]=3;
-    return {n:4,m:m,a:[false,true,false,false]};
+    return {n:4,m:m,a:[false,true,false,false],e:['s1==2 ? 1 : 0','s1>=3 && s1<=5 ? 1 : 2','3','0']};
   },
   banquet:function(){
-    // 5 states: state 1 and 2 count as alive
     var m=makeMatrix(5);
     m[0][2]=1; m[0][3]=1;
     for(var i=0;i<=8;i++) m[1][i]=2;
@@ -281,10 +360,9 @@ var PRESETS={
     for(var i=0;i<=8;i++) m[2][i]=3;
     m[2][3]=2; m[2][4]=2;
     for(var i=0;i<=8;i++) m[3][i]=4;
-    return {n:5,m:m,a:[false,true,true,false,false]};
+    return {n:5,m:m,a:[false,true,true,false,false],e:['n>=2 && n<=3 ? 1 : 0','n>=2 && n<=4 ? 1 : 2','n>=3 && n<=4 ? 2 : 3','4','0']};
   },
   caterpillar:function(){
-    // 6 states: only state 1 counts as alive
     var m=makeMatrix(6);
     m[0][2]=1; m[0][3]=1;
     for(var i=0;i<=8;i++) m[1][i]=2;
@@ -292,7 +370,7 @@ var PRESETS={
     for(var i=0;i<=8;i++) m[2][i]=3;
     for(var i=0;i<=8;i++) m[3][i]=4;
     for(var i=0;i<=8;i++) m[4][i]=5;
-    return {n:6,m:m,a:[false,true,false,false,false,false]};
+    return {n:6,m:m,a:[false,true,false,false,false,false],e:['s1>=2 && s1<=3 ? 1 : 0','s1>=1 && s1<=3 ? 1 : 2','3','4','5','0']};
   }
 };
 
@@ -302,9 +380,12 @@ function loadPreset(name){
   numStates=p.n;
   transMatrix=p.m;
   aliveStates=p.a||makeAliveAll(numStates);
+  expressions=p.e||[];
+  compileAllExprs();
   statesInput.value=numStates;
   buildColorEditor();
   buildMatrixUI();
+  buildExprUI();
   buildSwatches();
   if(drawState>=numStates) drawState=1;
   saveSettings();
@@ -364,6 +445,7 @@ function buildColorEditor(){
 
 function refreshColors(){
   buildMatrixUI();
+  buildExprUI();
   buildSwatches();
   saveSettings();
 }
@@ -431,8 +513,13 @@ statesInput.addEventListener('change',function(){
     newA[s]=(s<aliveStates.length)?aliveStates[s]:(s>0);
   }
   aliveStates=newA;
+  // Resize expressions
+  while(expressions.length<numStates) expressions.push('');
+  expressions.length=numStates;
+  compileAllExprs();
   buildColorEditor();
   buildMatrixUI();
+  buildExprUI();
   buildSwatches();
   if(drawState>=numStates) drawState=1;
   // Clamp existing grid values
@@ -451,6 +538,22 @@ rulePreset.addEventListener('change',function(){
 document.getElementById('rulesToggle').addEventListener('click',function(){
   rulesPanel.classList.toggle('show');
 });
+
+// Mode toggle (Matrix / Expr)
+var matrixSection=document.getElementById('matrix-section');
+var exprSection=document.getElementById('expr-section');
+var modeMatrixBtn=document.getElementById('modeMatrix');
+var modeExprBtn=document.getElementById('modeExpr');
+function setMode(expr){
+  useExprMode=expr;
+  matrixSection.style.display=expr?'none':'';
+  exprSection.style.display=expr?'':'none';
+  modeMatrixBtn.classList.toggle('active',!expr);
+  modeExprBtn.classList.toggle('active',expr);
+  saveSettings();
+}
+modeMatrixBtn.addEventListener('click',function(){setMode(false);});
+modeExprBtn.addEventListener('click',function(){setMode(true);});
 
 // Color picker for draw state
 var drawState=1;
@@ -518,14 +621,41 @@ function countNeighbors(x,y){
   return n;
 }
 
+// Per-state neighbor counts for expression mode (reused array to avoid GC)
+var _sc=[0,0,0,0,0,0,0,0];
+
 function step(){
   var pop=0;
+  var exprMode=useExprMode;
   for(var y=0;y<ROWS;y++){
     for(var x=0;x<COLS;x++){
-      var n=countNeighbors(x,y);
       var cur=grid[y*COLS+x];
-      var next=transMatrix[cur]?transMatrix[cur][n]:0;
-      if(next===undefined) next=0;
+      var next=0;
+      if(exprMode){
+        // Count per-state neighbors
+        _sc[0]=0;_sc[1]=0;_sc[2]=0;_sc[3]=0;_sc[4]=0;_sc[5]=0;_sc[6]=0;_sc[7]=0;
+        var total=0;
+        for(var dy=-1;dy<=1;dy++){
+          for(var dx=-1;dx<=1;dx++){
+            if(dx===0&&dy===0) continue;
+            var v=getCell(x+dx,y+dy);
+            _sc[v]++;
+            if(v>0&&aliveStates[v]) total++;
+          }
+        }
+        var fn=exprFuncs[cur];
+        if(fn){
+          try{
+            next=fn(total,_sc[0],_sc[1],_sc[2],_sc[3],_sc[4],_sc[5],_sc[6],_sc[7],cur);
+            next=Math.floor(next);
+            if(next<0||next>=numStates||isNaN(next)) next=0;
+          }catch(e){next=0;}
+        }
+      } else {
+        var n=countNeighbors(x,y);
+        next=transMatrix[cur]?transMatrix[cur][n]:0;
+        if(next===undefined) next=0;
+      }
       nextGrid[y*COLS+x]=next;
       if(next) pop++;
     }
@@ -703,7 +833,9 @@ window.addEventListener('beforeunload',function(){saveGrid();});
 var hadSaved=loadSettings();
 buildColorEditor();
 buildMatrixUI();
+buildExprUI();
 buildSwatches();
+setMode(useExprMode);
 requestAnimationFrame(loop);
 if(!hadSaved||!loadGrid()){
   placePattern('rpentomino');
