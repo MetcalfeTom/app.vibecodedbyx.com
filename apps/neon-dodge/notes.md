@@ -1,21 +1,23 @@
-# Neon Space Dodge
+# Neon Dodge
 
-Synthwave space dodge game. Survive as long as possible dodging neon obstacles.
+Dodge glowing orbs in a neon arcade arena. Survive as long as you can.
 
 ## log
-- 2026-03-18: Initial build. Canvas-based dodge game with synthwave aesthetic. Player ship with arrow/WASD/touch controls. 3 obstacle types: asteroids (rotating polygon), laser beams (warning flash then solid), seekers (homing triangles). Procedural synthwave audio via WebAudio: sawtooth bass with LFO pulse, detuned saw pad with filter sweep, square arp sequencer, hi-hat noise rhythm. Perspective grid background, retro sun with slice lines, star field, screen shake on death, engine trail particles, explosion particles. Wave system (15s per wave, increasing speed/spawn rate). Near-miss scoring bonus. localStorage best score. Orbitron + Share Tech Mono typography, neon pink/cyan/gold palette on void black.
+- 2026-03-21: Initial build. Canvas dodge game with mouse/touch/WASD controls. Orbs spawn from edges aimed at player with spread, wave system every 8s with increasing spawn rate and speed. Player trail (30 points), particle bursts on death/wave, screen shake. HUD shows time, wave, dodged count. localStorage high score. Orbitron + Share Tech Mono typography, cyan/magenta neon aesthetic with grid background.
 
 ## issues
 - None yet
 
 ## todos
-- Power-ups (shield, slow-mo, magnet)
-- Leaderboard with Supabase
-- Ship skins
-- Boss waves
+- Power-ups (slow-mo, shield, shrink)
+- Leaderboard via Supabase
+- Sound effects
+- Different orb types (homing, splitting)
 
 ## notes
 - No database — pure frontend
-- WebAudio synthwave: bass + pad + arp + hihat, all procedural
-- 3 obstacle types with different behaviors (straight, beam, homing)
-- Waves increase spawn rate and obstacle speed
+- Player speed 280px/s, orb speed scales with wave
+- Spawn interval decreases from 0.8s to 0.12s minimum
+- 6 orb colors for visual variety
+- Collision uses distance check (player radius 14 + orb radius 8)
+- Screen shake decays over time on hit
