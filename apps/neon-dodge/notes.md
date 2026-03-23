@@ -8,14 +8,15 @@ Dodge glowing orbs in a neon arcade arena. Survive as long as you can.
 ## issues
 - None yet
 
+- 2026-03-23: Added Supabase leaderboard. neon_dodge_scores table (username, score, wave, dodged). Name prompt on first death, cached in localStorage. Top 10 board shown on death screen. Highlights your own scores.
+
 ## todos
 - Power-ups (slow-mo, shield, shrink)
-- Leaderboard via Supabase
 - Sound effects
 - Different orb types (homing, splitting)
 
 ## notes
-- No database — pure frontend
+- Supabase table: neon_dodge_scores (username, score, wave, dodged, user_id)
 - Player speed 280px/s, orb speed scales with wave
 - Spawn interval decreases from 0.8s to 0.12s minimum
 - 6 orb colors for visual variety

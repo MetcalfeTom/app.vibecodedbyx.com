@@ -7,6 +7,8 @@ Local 2-player Bomberman clone with neon aesthetics. Plant bombs, dodge blasts, 
 
 - 2026-03-23: Added mobile touch d-pads. Two d-pad overlays (P1 cyan left, P2 pink right) with directional buttons + bomb button. Shown on touch devices via (pointer:coarse). Canvas resizes smaller on mobile to leave room for d-pads. Touch uses elementFromPoint for multi-touch support.
 
+- 2026-03-23: Added Supabase leaderboard. neon_bomber_scores table (username, wins). Submits every 3 round wins. Top 10 panel shown during gameplay. Name cached in localStorage.
+
 ## issues
 - None yet
 
@@ -17,7 +19,7 @@ Local 2-player Bomberman clone with neon aesthetics. Plant bombs, dodge blasts, 
 - Sound effects
 
 ## notes
-- No database — pure frontend
+- Supabase table: neon_bomber_scores (username, wins, user_id)
 - Grid-based movement with speed-controlled step timing
 - Bomb timer 2.5s, explosion duration 0.4s
 - Chain explosions: blast hitting another bomb triggers it immediately

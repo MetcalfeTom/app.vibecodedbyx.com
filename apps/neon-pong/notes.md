@@ -7,17 +7,18 @@ Classic pong with neon glow effects. Play vs AI or local 2-player.
 
 - 2026-03-23: Added full-screen touch zones. Left/right halves of screen control P1/P2 paddles. Visual indicators: vertical guide line + "DRAG P1/P2" labels that appear on touch. Works anywhere on screen, not just canvas.
 
+- 2026-03-23: Added Supabase leaderboard. neon_pong_scores table (username, score, mode). Submits P1 score when winning vs AI. Top 10 shown on win screen. Name cached in localStorage.
+
 ## issues
 - None yet
 
 ## todos
 - Ball spin from paddle edge hits
 - Power-ups (big paddle, multi-ball)
-- Online multiplayer via Supabase realtime
 - Sound effects
 
 ## notes
-- No database — pure frontend
+- Supabase table: neon_pong_scores (username, score, mode, user_id)
 - Paddle speed 360px/s, AI speed 280px/s
 - Ball speed starts at 5, +0.3 per hit, max 10
 - Bounce angle based on hit position on paddle (±1.1 rad)
