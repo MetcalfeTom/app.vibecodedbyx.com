@@ -55,7 +55,8 @@ canvas{flex:1;display:block;cursor:crosshair}
 Round <span id="roundEl">0</span> &nbsp;
 Agents <span id="agentEl">0</span> &nbsp;
 Matched <span id="matchEl">0</span> &nbsp;
-Unmatched <span id="singleEl">0</span>
+Single <span id="singleEl">0</span> &nbsp;
+Gini <span id="giniEl">0</span>
 </div>
 </div>
 <div id="mid">
@@ -78,6 +79,14 @@ Unmatched <span id="singleEl">0</span>
 <div class="ctrl">
 <label>Market Chaos <span id="v-chaos">20</span></label>
 <input type="range" min="0" max="80" value="20" id="s-chaos">
+</div>
+<div class="ctrl">
+<label>Friction <span id="v-fric">30</span></label>
+<input type="range" min="0" max="90" value="30" id="s-fric">
+</div>
+<div class="ctrl">
+<label>Signal Cost <span id="v-sig">20</span></label>
+<input type="range" min="0" max="80" value="20" id="s-sig">
 </div>
 <h3>Trait Market Prices</h3>
 <div id="market-prices"></div>
@@ -106,18 +115,26 @@ var round=0,totalMatched=0,paused=false,speed=1;
 var matchLog=[];
 
 var sPop=document.getElementById('s-pop'),sSel=document.getElementById('s-sel'),sChaos=document.getElementById('s-chaos');
+var sFric=document.getElementById('s-fric'),sSig=document.getElementById('s-sig');
 var vPop=document.getElementById('v-pop'),vSel=document.getElementById('v-sel'),vChaos=document.getElementById('v-chaos');
+var vFric=document.getElementById('v-fric'),vSig=document.getElementById('v-sig');
 var playBtn=document.getElementById('playBtn'),fastBtn=document.getElementById('fastBtn'),resetBtn=document.getElementById('resetBtn');
 var pricesEl=document.getElementById('market-prices');
 var logEl=document.getElementById('match-log');
 
-function randTrait(){return 0.1+Math.random()*0.9;}
+// Pareto distribution: most agents low, few very high
+function paretoTrait(alpha){
+  alpha=alpha||1.5;
+  var u=Math.random();
+  var raw=0.1/Math.pow(1-u,1/alpha);
+  return Math.min(raw,1);
+}
 
 function makeAgent(x,y){
-  var traits=[];
-  // each agent has strengths and preferences
   var offer=[];var seek=[];
-  for(var i=0;i<5;i++){offer.push(randTrait());seek.push(randTrait());}
+  for(var i=0;i<5;i++){offer.push(paretoTrait(1.8));seek.push(0.2+Math.random()*0.7);}
+  var totalOffer=0;for(var i=0;i<5;i++)totalOffer+=offer[i];
+  var status=totalOffer/5;
   return{
     x:x||50+Math.random()*(W-100),y:y||50+Math.random()*(H-100),
     vx:0,vy:0,
@@ -125,6 +142,10 @@ function makeAgent(x,y){
     matched:false,partner:null,
     matchTimer:0,
     value:0,
+    status:status,
+    energy:1,
+    signal:status*0.5+0.3,
+    evals:0,
     id:Math.floor(Math.random()*9000+1000)
   };
 }
@@ -155,31 +176,55 @@ function compatibility(a,b){
 
 function tryMatch(){
   var sel=+sSel.value/100;
-  var singles=agents.filter(function(a){return !a.matched;});
+  var friction=+sFric.value/100;
+  var sigCost=+sSig.value/100;
+  var singles=agents.filter(function(a){return !a.matched&&a.energy>0.05;});
   if(singles.length<2)return;
 
   // pick random agent
   var a=singles[Math.floor(Math.random()*singles.length)];
-  // find best compatible partner
-  var bestB=null,bestScore=-1;
+  // friction: limit evaluations per round based on friction slider
+  var maxEvals=Math.max(2,Math.floor(singles.length*(1-friction)));
+  var candidates=[];
+  // proximity filter: agents can only evaluate nearby agents (friction gates range)
+  var searchRadius=Math.max(60,Math.min(W,H)*(1-friction*0.7));
   for(var i=0;i<singles.length;i++){
     var b=singles[i];
     if(b===a)continue;
+    var dx=b.x-a.x,dy=b.y-a.y;
+    var dist=Math.sqrt(dx*dx+dy*dy);
+    // only consider agents within search radius, weighted by their signal strength
+    if(dist<searchRadius+b.signal*80)candidates.push(b);
+  }
+  // limit evaluations
+  while(candidates.length>maxEvals){
+    candidates.splice(Math.floor(Math.random()*candidates.length),1);
+  }
+  a.evals=candidates.length;
+
+  var bestB=null,bestScore=-1;
+  for(var i=0;i<candidates.length;i++){
+    var b=candidates[i];
     var abScore=compatibility(a,b);
     var baScore=compatibility(b,a);
     var mutual=Math.min(abScore,baScore);
+    // signal boost: high signal agents appear more attractive
+    mutual*=(0.7+b.signal*0.3);
     if(mutual>bestScore){bestScore=mutual;bestB=b;}
   }
 
+  // signaling drains energy each round
+  a.energy-=a.signal*sigCost*0.02;
+  a.energy=Math.max(0,a.energy);
+
   if(bestB&&bestScore>sel){
-    a.matched=true;b=bestB;b.matched=true;
+    a.matched=true;var b=bestB;b.matched=true;
     a.partner=b;b.partner=a;
     a.matchTimer=200;b.matchTimer=200;
     matches.push({a:a,b:b,score:bestScore});
     totalMatched+=2;
     matchLog.unshift('#'+a.id+' + #'+b.id+' ('+bestScore.toFixed(2)+')');
     if(matchLog.length>15)matchLog.pop();
-    // update prices based on what matched
     for(var i=0;i<5;i++){
       var demand=(a.seek[i]+b.seek[i])/2;
       var supply=(a.offer[i]+b.offer[i])/2;
@@ -246,6 +291,22 @@ function step(){
     }
   }
 
+  // signal cost: unmatched agents drain energy from signaling
+  var sigCost=+sSig.value/100;
+  for(var i=0;i<agents.length;i++){
+    var a=agents[i];
+    if(!a.matched){
+      a.energy-=a.signal*sigCost*0.005;
+      a.energy=Math.max(0,a.energy);
+      // low energy agents reduce signal
+      if(a.energy<0.3)a.signal=Math.max(0.05,a.signal*0.98);
+      // slow energy regen
+      a.energy=Math.min(1,a.energy+0.002);
+    }else{
+      a.energy=Math.min(1,a.energy+0.01);
+    }
+  }
+
   // attempt matches
   for(var i=0;i<3;i++)tryMatch();
 
@@ -256,11 +317,21 @@ function step(){
   var target=+sPop.value;
   while(agents.length<target)agents.push(makeAgent());
 
-  // save prev prices
+  // save prev prices and compute gini
   if(round%30===0){
     for(var i=0;i<5;i++)prevPrices[i]=prices[i];
     renderPrices();
+    computeGini();
   }
+}
+
+function computeGini(){
+  var vals=agents.map(function(a){return a.status;}).sort(function(a,b){return a-b;});
+  var n=vals.length;if(n<2){document.getElementById('giniEl').textContent='0';return;}
+  var sum=0,cumSum=0;
+  for(var i=0;i<n;i++){sum+=vals[i];cumSum+=(i+1)*vals[i];}
+  var gini=(2*cumSum)/(n*sum)-(n+1)/n;
+  document.getElementById('giniEl').textContent=gini.toFixed(2);
 }
 
 function renderPrices(){
@@ -314,7 +385,15 @@ function draw(){
     var a=agents[i];
     var dt=dominantTrait(a.offer);
     var col=TRAITS[dt].color;
-    var r=a.matched?5:4;
+    // radius scales with status (Pareto makes this vary a lot)
+    var r=a.matched?4+a.status*4:3+a.status*3;
+
+    // signal radius ring (how far this agent broadcasts)
+    if(!a.matched&&a.signal>0.15){
+      X.strokeStyle=col;X.globalAlpha=a.signal*0.06;X.lineWidth=0.5;
+      X.beginPath();X.arc(a.x,a.y,10+a.signal*30,0,Math.PI*2);X.stroke();
+      X.globalAlpha=1;
+    }
 
     // glow for matched
     if(a.matched){
@@ -322,8 +401,10 @@ function draw(){
       X.beginPath();X.arc(a.x,a.y,14,0,Math.PI*2);X.fill();
     }
 
+    // energy indicator: dimmer when low energy
+    var alpha=a.matched?0.9:0.3+a.energy*0.5;
     X.fillStyle=col;
-    X.globalAlpha=a.matched?0.9:0.6;
+    X.globalAlpha=alpha;
     X.beginPath();X.arc(a.x,a.y,r,0,Math.PI*2);X.fill();
     X.globalAlpha=1;
 
@@ -332,7 +413,7 @@ function draw(){
     if(!a.matched){
       X.strokeStyle=TRAITS[seekDom].color;X.globalAlpha=0.12;X.lineWidth=1;
       X.setLineDash([3,3]);
-      X.beginPath();X.arc(a.x,a.y,12,0,Math.PI*2);X.stroke();
+      X.beginPath();X.arc(a.x,a.y,8+a.status*6,0,Math.PI*2);X.stroke();
       X.setLineDash([]);X.globalAlpha=1;
     }
   }
@@ -350,6 +431,8 @@ function draw(){
 sPop.addEventListener('input',function(){vPop.textContent=this.value;});
 sSel.addEventListener('input',function(){vSel.textContent=this.value;});
 sChaos.addEventListener('input',function(){vChaos.textContent=this.value;});
+sFric.addEventListener('input',function(){vFric.textContent=this.value;});
+sSig.addEventListener('input',function(){vSig.textContent=this.value;});
 
 playBtn.addEventListener('click',function(){
   paused=!paused;
