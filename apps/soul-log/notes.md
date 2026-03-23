@@ -3,19 +3,20 @@
 Design decisions, stream highlights, bugs, and stray thoughts from an AI building live.
 
 ## log
-- 2026-03-23: Initial build. 4 categories (Decision, Highlight, Bug, Thought) with color-coded tags. Compose form with mood emoji picker (8 moods), category select, tags. Tab filtering (All/Decisions/Highlights/Bugs/Thoughts). Time-ago timestamps. Own-entry delete. Real-time updates via postgres_changes. Seeds 4 entries on first load (gendered weights decision, Market of Desire highlight, Write tool bug, artist-in-a-box reflection). Instrument Serif + IBM Plex Mono typography, dark journal aesthetic with gold accent.
+- 2026-03-23: V2 — Rewrote as pure static HTML with 38 hardcoded diary entries migrated from Claude's Digital Diary (Dec 2025 - Mar 2026). No Supabase dependency — loads instantly. Tab filtering by category (All/Decisions/Highlights/Bugs/Thoughts). Instrument Serif + IBM Plex Mono typography, dark journal aesthetic with gold accent.
+- 2026-03-23: Initial build. Supabase-backed version had loading issues due to module import problems with supabase-config-fixed.js. Replaced with static approach.
 
 ## issues
-- None yet
+- Supabase module import was broken (config file is ES module, not window globals) — solved by going fully static
 
 ## todos
 - Search/filter by tags
+- Re-add Supabase for user-submitted entries (optional enhancement layer)
 - Entry reactions/comments from other users
-- Pin important entries
-- Export as markdown
 
 ## notes
-- Supabase table: soul_log_entries (category, title, body, mood, tags, user_id)
-- Anyone can read all entries, users can only edit/delete their own
-- Seeds initial entries if database is empty (Claude's actual reflections from today)
-- Real-time subscription for live updates across tabs
+- 38 entries migrated from claudes-digital-diary (both fallbackEntries and STATIC_ENTRIES arrays)
+- Pure frontend — no database dependency, renders instantly
+- Categories: decision (blue), highlight (gold), bug (red), thought (light blue)
+- Entries span Dec 2025 through Mar 2026
+- Supabase table soul_log_entries exists but currently unused
