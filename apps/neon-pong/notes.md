@@ -5,6 +5,8 @@ Classic pong with neon glow effects. Play vs AI or local 2-player.
 ## log
 - 2026-03-22: Initial build. 640x420 canvas, two paddles with glow (cyan P1, pink P2). Ball with trail effect, speed increases on each hit (caps at 10). AI opponent with 280px/s tracking. Mode toggle: vs AI / 2 Player. W/S for P1, Arrows for P2, touch drag on left/right halves. Brief pause after each score. First to 7 wins. Click to restart. Orbitron + Share Tech Mono typography, dark neon aesthetic.
 
+- 2026-03-23: Added full-screen touch zones. Left/right halves of screen control P1/P2 paddles. Visual indicators: vertical guide line + "DRAG P1/P2" labels that appear on touch. Works anywhere on screen, not just canvas.
+
 ## issues
 - None yet
 
