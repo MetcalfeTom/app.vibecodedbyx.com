@@ -1,25 +1,28 @@
 # Neon Aquarium
 
-Glowing fish that grow every time someone chats. Feed the tank together.
+Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and placeable decor.
 
 ## log
-- 2026-03-23: Initial build. Canvas-based aquarium with 7 fish species (Tetra, Angel, Guppy, Betta, Neon, Molly, Danio). Each species has unique body proportions, tail size, fin size, speed, and glow color. Fish swim with sine-wave motion, blink randomly, breathe (scale pulse). Environment: light rays, seaweed with sway, sandy bottom with pebbles, dust particles, surface caustics. Chat input at bottom — messages grow a random fish. Tap canvas to feed (smaller growth). Supabase realtime: other users' chats also grow fish. New fish spawn every 8 chats (max 30). Feed particles burst on growth, screen flash. Anybody + Fira Code typography, deep ocean aesthetic.
+- 2026-03-23: V3 — Removed chat bar, added species selector sidebar with all 7 fish types. Added 4 placeable decor types (Coral, Rock, Anemone, Crystal) with neon glow rendering. localStorage persistence for fish, decor, and feed count. Auto-saves every 10 seconds. Clear Tank button. Toggle sidebar with +Fish button.
+- 2026-03-23: V2 — Added predator-prey system (fish size 16+ hunt smaller ones), neon lightning strikes on click (branching bolts scare predators away, shrink them). Predators have red-tinted aura and red pupils.
+- 2026-03-23: Initial build. 7 species, canvas aquarium, chat-based feeding, Supabase realtime.
 
 ## issues
-- Supabase module may fail on some setups — aquarium works fully offline, chat/realtime is enhancement layer
+- None currently
 
 ## todos
 - Fish breeding (two large fish produce a baby)
-- Predator fish that appear at high biomass
 - Day/night cycle
 - Sound effects (bubbles, ambient)
+- Double-click decor to remove it
 
 ## notes
-- Supabase table: neon_aquarium_chat (message, username, user_id)
-- 7 species with distinct visual profiles (hue, body ratio, tail, fin, speed)
-- Growth is smooth (lerp toward growTarget at 0.02/frame)
-- Max fish size: 60, max fish count: 30
-- Tap grows 0.3-0.6, chat grows 0.6-1.2
-- New fish every 8 chats
-- Bridge: window._aquaGrow() exposed from IIFE for module script realtime
-- Fish sorted by size for depth layering
+- 7 species: Tetra, Angel, Guppy, Betta, Neon, Molly, Danio
+- 4 decor types: Coral (branching), Rock (ellipse), Anemone (tentacles), Crystal (faceted)
+- Predator threshold: size >= 16 (red aura, red pupils, chases smaller fish)
+- Big predators (35+) sluggish, lightning shrinks them by 1.5
+- Lightning: branching bolt from surface to click, flickers for 0.6s, pushes fish away
+- localStorage key: neon_aquarium (fish positions/sizes/species + decor + totalChats)
+- Auto-save every 10s, save on add fish / place decor / clear
+- Population floor: 6 fish minimum (auto-replenish if overhunted)
+- Max fish: 30
