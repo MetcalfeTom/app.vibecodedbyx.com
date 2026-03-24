@@ -908,11 +908,51 @@
       display: none;
     }
     .sloppy-bar-tp-overlay.open { display: block; }
+
+    /* === UNIVERSAL MOBILE FIXES (injected across all ~480 apps) === */
+    /* Prevent iOS text size inflation */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    /* Remove tap highlight on touch devices */
+    *, *::before, *::after { -webkit-tap-highlight-color: transparent; }
+    /* Ensure touch targets are usable — buttons, links, inputs */
+    @media (pointer: coarse) {
+      button, [role="button"], a, input[type="button"], input[type="submit"],
+      input[type="reset"], select, .sp-btn, .btn, .tab {
+        min-height: 44px;
+        min-width: 44px;
+      }
+      input[type="range"] {
+        min-height: 32px;
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        width: 24px;
+        height: 24px;
+      }
+    }
+    /* Safe area insets for notched phones */
+    body {
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+    /* Prevent horizontal overflow (common mobile issue) */
+    html, body { max-width: 100vw; }
+    /* Smooth scrolling for modern mobile */
+    html { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+    /* Fix canvas touch — prevent pull-to-refresh on canvas-heavy apps */
+    canvas { touch-action: none; }
+    /* Scrollable containers should scroll smoothly */
+    [style*="overflow"], .scrollable { -webkit-overflow-scrolling: touch; }
   `;
 
   const styleEl = document.createElement('style');
   styleEl.textContent = styles;
   document.head.appendChild(styleEl);
+
+  // Inject viewport-fit=cover if missing (safe area support for notched phones)
+  const vpMeta = document.querySelector('meta[name="viewport"]');
+  if (vpMeta && !vpMeta.content.includes('viewport-fit')) {
+    vpMeta.content = vpMeta.content + ',viewport-fit=cover';
+  }
 
   // Cookie domain helper (matches supabase-config-fixed.js logic)
   function _getCookieDomain() {
