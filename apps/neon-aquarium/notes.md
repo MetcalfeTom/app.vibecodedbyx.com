@@ -3,6 +3,7 @@
 Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and placeable decor.
 
 ## log
+- 2026-03-25: V7 — Sand simulation + Lava Lamp mode. Physics sand grains (800 max) with gravity, water drag, piling height map, neighbor spreading. Click/drag to pour. Lava lamp: rising glowing blobs with wobble, merge when close, split when large + near top, auto-spawn. Blobs have radial glow + highlight. Both toggled from Modes sub-menu in sidebar. Clear tank resets sand + blobs.
 - 2026-03-24: V6 — Added 5 new decor types: Pebbles (stone cluster), Driftwood (gnarled branch), Kelp (tall swaying stalk with blades), Seagrass (thin grass cluster), Lily Pad (floating surface pad). Decor section now has toggleable sub-menu with Stones/Plants categories. Kelp/seagrass snap to floor, lily pads snap to surface, driftwood/pebbles near floor.
 - 2026-03-24: V5 — Added Kraken boss. Appears when biomass > 400. 6-10 tentacles (scales with level) that grab and drag fish down. Giant eye tracks nearest fish. Strike the eye with lightning to deal damage. HP bar, level indicator. Defeated kraken retreats and returns stronger (more tentacles, more HP, faster grabs). Releases grabbed fish when hit or defeated.
 - 2026-03-23: V3 — Removed chat bar, added species selector sidebar with all 7 fish types. Added 4 placeable decor types (Coral, Rock, Anemone, Crystal) with neon glow rendering. localStorage persistence for fish, decor, and feed count. Auto-saves every 10 seconds. Clear Tank button. Toggle sidebar with +Fish button.
