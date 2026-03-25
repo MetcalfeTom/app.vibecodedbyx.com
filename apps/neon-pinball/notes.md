@@ -1,7 +1,8 @@
 # Neon Pinball
 
 ## log
-- 2026-03-25: V1 — Neon pinball with magnetic beam paddles, gravity-distorting orb. 6 bumpers, 5 lane targets, 2 slingshots, combo scoring up to x5. Distortion grid warps around ball based on gravity well charge. Orb shifts from cyan to purple as gravity builds. Touch controls, keyboard (A/D, arrows, space). Orbitron + Fira Code typography.
+- 2026-03-25: V2 — Spring plunger launcher (hold to charge, release to fire). Heavy tension feel with vibration at max charge, red charge bar. Deep radioactive violet gravity well with inner pulse. Supabase leaderboard UI (neon_pinball_scores table needs creation via MCP). Name persistence in localStorage.
+- 2026-03-25: V1 — Neon pinball with magnetic beam paddles, gravity-distorting orb. 6 bumpers, 5 lane targets, 2 slingshots, combo scoring up to x5. Distortion grid warps around ball based on gravity well charge. Orb shifts from cyan to violet as gravity builds. Touch controls, keyboard (A/D, arrows, space). Orbitron + Fira Code typography.
 
 ## features
 - Magnetic beam paddles with field line animations and pull physics
@@ -19,4 +20,5 @@
 - Multiball power-up
 - Ramps / orbit lanes
 - Sound effects (WebAudio)
-- Leaderboard (Supabase)
+- Leaderboard table creation: needs `neon_pinball_scores` table via MCP (columns: id, score, display_name, user_id, created_at)
+- Multiball power-up
