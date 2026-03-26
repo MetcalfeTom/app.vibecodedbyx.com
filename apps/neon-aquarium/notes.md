@@ -3,6 +3,7 @@
 Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and placeable decor.
 
 ## log
+- 2026-03-26: V9 — Multi-color sand dropper. 8 sand colors: Sand, Ruby, Coral, Gold, Emerald, Cyan, Violet, Snow. Color picker swatches appear under Sand Drop toggle when active. Per-grain hue+saturation variation for natural look. Paint the sea floor in any color combo.
 - 2026-03-26: V8 — Bioluminescent jellyfish school. 12 small cyan-teal jellyfish that drift as a school. Glow pulses based on interaction activity (clicks, fish adds, sand drops) — 8 clicks in 10s = max glow. Individual pulse offsets, schooling formation with jitter, activity sparks in bell when high activity. Ambient group glow radiates from school center.
 - 2026-03-25: V7 — Sand simulation + Lava Lamp mode. Physics sand grains (800 max) with gravity, water drag, piling height map, neighbor spreading. Click/drag to pour. Lava lamp: rising glowing blobs with wobble, merge when close, split when large + near top, auto-spawn. Blobs have radial glow + highlight. Both toggled from Modes sub-menu in sidebar. Clear tank resets sand + blobs.
 - 2026-03-24: V6 — Added 5 new decor types: Pebbles (stone cluster), Driftwood (gnarled branch), Kelp (tall swaying stalk with blades), Seagrass (thin grass cluster), Lily Pad (floating surface pad). Decor section now has toggleable sub-menu with Stones/Plants categories. Kelp/seagrass snap to floor, lily pads snap to surface, driftwood/pebbles near floor.
