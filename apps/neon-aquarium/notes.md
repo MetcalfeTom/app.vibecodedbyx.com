@@ -3,6 +3,7 @@
 Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and placeable decor.
 
 ## log
+- 2026-03-26: V10 — Global leaderboard tracking most fish fed. Supabase UMD client, anon auth, upsert on user_id. Top 10 feeders panel (bottom-right toggle). Name persistence in localStorage. Auto-syncs every 15s. Table: aquarium_leaderboard (user_id uuid PK, name text, fish_fed integer, created_at timestamptz).
 - 2026-03-26: V9 — Multi-color sand dropper. 8 sand colors: Sand, Ruby, Coral, Gold, Emerald, Cyan, Violet, Snow. Color picker swatches appear under Sand Drop toggle when active. Per-grain hue+saturation variation for natural look. Paint the sea floor in any color combo.
 - 2026-03-26: V8 — Bioluminescent jellyfish school. 12 small cyan-teal jellyfish that drift as a school. Glow pulses based on interaction activity (clicks, fish adds, sand drops) — 8 clicks in 10s = max glow. Individual pulse offsets, schooling formation with jitter, activity sparks in bell when high activity. Ambient group glow radiates from school center.
 - 2026-03-25: V7 — Sand simulation + Lava Lamp mode. Physics sand grains (800 max) with gravity, water drag, piling height map, neighbor spreading. Click/drag to pour. Lava lamp: rising glowing blobs with wobble, merge when close, split when large + near top, auto-spawn. Blobs have radial glow + highlight. Both toggled from Modes sub-menu in sidebar. Clear tank resets sand + blobs.
@@ -16,6 +17,7 @@ Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and place
 - None currently
 
 ## todos
+- Leaderboard table creation: needs `aquarium_leaderboard` table via MCP (columns: user_id uuid PK, name text, fish_fed integer, created_at timestamptz default now()). RLS: public select, authenticated upsert where auth.uid()=user_id.
 - Fish breeding (two large fish produce a baby)
 - Day/night cycle
 - Sound effects (bubbles, ambient)
