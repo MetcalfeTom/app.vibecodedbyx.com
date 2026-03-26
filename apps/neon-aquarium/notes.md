@@ -3,6 +3,7 @@
 Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and placeable decor.
 
 ## log
+- 2026-03-26: V8 — Bioluminescent jellyfish school. 12 small cyan-teal jellyfish that drift as a school. Glow pulses based on interaction activity (clicks, fish adds, sand drops) — 8 clicks in 10s = max glow. Individual pulse offsets, schooling formation with jitter, activity sparks in bell when high activity. Ambient group glow radiates from school center.
 - 2026-03-25: V7 — Sand simulation + Lava Lamp mode. Physics sand grains (800 max) with gravity, water drag, piling height map, neighbor spreading. Click/drag to pour. Lava lamp: rising glowing blobs with wobble, merge when close, split when large + near top, auto-spawn. Blobs have radial glow + highlight. Both toggled from Modes sub-menu in sidebar. Clear tank resets sand + blobs.
 - 2026-03-24: V6 — Added 5 new decor types: Pebbles (stone cluster), Driftwood (gnarled branch), Kelp (tall swaying stalk with blades), Seagrass (thin grass cluster), Lily Pad (floating surface pad). Decor section now has toggleable sub-menu with Stones/Plants categories. Kelp/seagrass snap to floor, lily pads snap to surface, driftwood/pebbles near floor.
 - 2026-03-24: V5 — Added Kraken boss. Appears when biomass > 400. 6-10 tentacles (scales with level) that grab and drag fish down. Giant eye tracks nearest fish. Strike the eye with lightning to deal damage. HP bar, level indicator. Defeated kraken retreats and returns stronger (more tentacles, more HP, faster grabs). Releases grabbed fish when hit or defeated.
@@ -28,6 +29,9 @@ Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and place
 - Kraken grabs fish (not jellyfish), drags them down, lightning to eye deals 1 damage
 - Defeated kraken retreats for 20-35s then returns at level+1 (more HP, tentacles, rage)
 - Kraken eye pupil tracks nearest fish, slit pupil design
+- Bio-school: 12 small jellyfish (size 3-7), hue 170-210, school around drifting center point
+- Bio-school glow: base 0.15, +0.6 from activity (clicks in last 10s / 8), +0.15 individual pulse
+- Activity tracking: logActivity() called on click, fish add, sand drop — timestamps in activityLog[]
 - Predator threshold: size >= 16 (red aura, red pupils, chases smaller fish)
 - Big predators (35+) sluggish, lightning shrinks them by 1.5
 - Lightning: branching bolt from surface to click, flickers for 0.6s, pushes fish away
