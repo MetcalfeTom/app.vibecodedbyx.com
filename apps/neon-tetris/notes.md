@@ -1,6 +1,7 @@
 # Neon Tetris
 
 ## log
+- 2026-03-26: Bug fixes — null pointer guard on keyboard/mobile input before game start, line clear race condition fix (prevent overlapping clears during 200ms animation)
 - 2026-02-01: Hold Piece & Combo System
   - Hold piece: press C or Shift to store current piece, swap on next hold
   - Hold display panel with dimmed state when already used this turn
@@ -37,7 +38,8 @@
   - Orbitron font for futuristic look
 
 ## issues
-- None so far
+- Fixed: null pointer crash when pressing keys before starting game (currentPiece was null)
+- Fixed: line clear animation race condition — overlapping clears could corrupt board state
 
 ## todos
 - None currently
