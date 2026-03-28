@@ -3,14 +3,14 @@
 Full-page neon lava lamp with keyboard-reactive blobs.
 
 ## log
-- 2026-03-17: Initial build. Metaball-based lava lamp. 12 blobs with per-pixel field calculation on 1/3-res offscreen buffer, composited with 'lighter' blend mode. 8 color palettes that cycle on keypress. Each key press: shifts palette, boosts pulse energy, kicks blob velocities, triggers screen flash. Lava physics: buoyancy zones (sink at top, rise at bottom), wobble via sinusoidal forces, speed cap, soft damping. Lamp shape: bezier glass outline with cap/base ellipses, glass reflection gradient. Ambient glow: radial gradient per blob on main canvas. Pulse energy affects blob radius oscillation amplitude, decays at 0.97/frame. Touch support for mobile. No external fonts — minimal aesthetic. Dark void background, neon blob colors.
+- 2026-03-28: V2 — Added full pointer interaction. Drag blobs to fling them, tap empty space to spawn new blobs (max 20), double-tap blobs to split them into two smaller ones. Crosshair cursor, grabbing cursor while dragging. Fling momentum on release. Replaced touch-only palette cycle with pointer events. Updated hint text.
+- 2026-03-17: V1 — Metaball-based lava lamp. 12 blobs with per-pixel field calculation on 1/3-res offscreen buffer, composited with 'lighter' blend mode. 8 color palettes that cycle on keypress. Each key press: shifts palette, boosts pulse energy, kicks blob velocities, triggers screen flash. Lava physics: buoyancy zones (sink at top, rise at bottom), wobble via sinusoidal forces, speed cap, soft damping. Lamp shape: bezier glass outline with cap/base ellipses, glass reflection gradient. Ambient glow: radial gradient per blob on main canvas. Pulse energy affects blob radius oscillation amplitude, decays at 0.97/frame. No external fonts — minimal aesthetic. Dark void background, neon blob colors.
 
 ## issues
 - None yet
 
 ## todos
 - Audio reactive mode (microphone input drives blob behavior)
-- Mouse/touch position attracts nearest blob
 - Configurable blob count
 - Full-screen mode button
 
