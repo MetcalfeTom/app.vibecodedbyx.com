@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Ant Farm</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🐜">
+<meta property="og:title" content="Ant Farm">
+<meta property="og:description" content="Watch ants dig tunnels, find food, and leave glowing pheromone trails.">
+<meta property="og:url" content="https://sloppy.live/ant-farm">
+<meta property="og:image" content="https://emojicdn.elk.sh/🐜?style=apple&size=512">
+<meta property="og:type" content="website">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#1a1008;user-select:none;touch-action:none}
+canvas{display:block;position:absolute;top:0;left:0}
+
+#hud{
+  position:fixed;top:8px;left:12px;z-index:10;
+  font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,200,100,0.4);
+  pointer-events:none;
+}
+#controls{
+  position:fixed;top:8px;right:12px;z-index:10;
+  display:flex;gap:5px;
+}
+.ctrl{
+  font-family:'DM Mono',monospace;font-size:10px;
+  background:rgba(255,200,100,0.06);border:1px solid rgba(255,200,100,0.12);
+  color:rgba(255,200,100,0.45);padding:4px 10px;border-radius:3px;
+  cursor:pointer;transition:all .12s;
+}
+.ctrl:hover{background:rgba(255,200,100,0.12);color:rgba(255,200,100,0.7)}
+.ctrl.active{border-color:rgba(255,200,100,0.3);color:rgba(255,200,100,0.7)}
+
+#tool-bar{
+  position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:10;
+  display:flex;gap:5px;
+}
+.tool-btn{
+  font-family:'Silkscreen',monospace;font-size:10px;
+  background:rgba(255,200,100,0.06);border:1px solid rgba(255,200,100,0.12);
+  color:rgba(255,200,100,0.45);padding:5px 12px;border-radius:3px;
+  cursor:pointer;transition:all .12s;
+}
+.tool-btn:hover{background:rgba(255,200,100,0.12)}
+.tool-btn.active{border-color:rgba(255,200,100,0.4);color:rgba(255,200,100,0.8);background:rgba(255,200,100,0.1)}
+
+a#back{position:fixed;bottom:10px;left:10px;font-size:9px;opacity:0.12;color:#888;text-decoration:none;z-index:5}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="stats"></div>
+</div>
+
+<div id="controls">
+  <button class="ctrl" id="speed-btn">1x</button>
+  <button class="ctrl" id="pheromone-btn">TRAILS</button>
+  <button class="ctrl" id="reset-btn">RESET</button>
+</div>
+
+<div id="tool-bar">
+  <button class="tool-btn active" data-tool="dig">DIG</button>
+  <button class="tool-btn" data-tool="fill">FILL</button>
+  <button class="tool-btn" data-tool="food">FOOD</button>
+  <button class="tool-btn" data-tool="water">WATER</button>
+</div>
+
+<a id="back" href="https://sloppy.live">sloppy.live</a>
+
+<script>
+(function(){
+'use strict';
+
+var canvas=document.getElementById('c');
+var ctx=canvas.getContext('2d');
+var W,H,dpr;
+var GW,GH; // grid size
+var CELL=4; // cell pixel size
+
+function resize(){
+  dpr=window.devicePixelRatio||1;
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.imageSmoothingEnabled=false;
+}
+resize();window.addEventListener('resize',function(){resize();initWorld()});
+
+// World grid
+var EMPTY=0,DIRT=1,SAND=2,FOOD=3,TUNNEL=4,SURFACE=5,WATER=6,NEST=7;
+var grid=[];
+var pheromoneHome=[];
+var pheromoneFood=[];
+var ants=[];
+var foodCollected=0;
+var tunnelsDug=0;
+var tool='dig';
+var showTrails=true;
+var speed=1;
+var time=0;
+var nestX=0,nestY=0;
+
+function initWorld(){
+  GW=Math.floor(W/CELL);
+  GH=Math.floor(H/CELL);
+  grid=new Uint8Array(GW*GH);
+  pheromoneHome=new Float32Array(GW*GH);
+  pheromoneFood=new Float32Array(GW*GH);
+
+  var surfaceY=Math.floor(GH*0.22);
+
+  for(var y=0;y<GH;y++){
+    for(var x=0;x<GW;x++){
+      var i=y*GW+x;
+      if(y<surfaceY){
+        grid[i]=EMPTY;
+      }else if(y===surfaceY){
+        grid[i]=SURFACE;
+      }else{
+        // Dirt with some variation
+        var depth=(y-surfaceY)/GH;
+        if(Math.random()<0.02+depth*0.03){
+          grid[i]=SAND; // rocks/sand pockets
+        }else{
+          grid[i]=DIRT;
+        }
+      }
+    }
+  }
+
+  // Nest entrance
+  nestX=Math.floor(GW/2);
+  nestY=surfaceY;
+  // Dig initial nest chamber
+  for(var dy=-1;dy<=2;dy++){
+    for(var dx=-2;dx<=2;dx++){
+      var nx=nestX+dx,ny=nestY+dy;
+      if(nx>=0&&nx<GW&&ny>=0&&ny<GH){
+        grid[ny*GW+nx]=(dy<=0)?EMPTY:TUNNEL;
+        if(dx===0&&dy===0)grid[ny*GW+nx]=NEST;
+      }
+    }
+  }
+  // Small starter tunnel
+  for(var dy=1;dy<=6;dy++){
+    var tx=nestX+Math.floor(Math.sin(dy*0.5)*2);
+    if(tx>=0&&tx<GW&&nestY+dy<GH){
+      grid[(nestY+dy)*GW+tx]=TUNNEL;
+      if(tx+1<GW)grid[(nestY+dy)*GW+tx+1]=TUNNEL;
+    }
+  }
+
+  // Scatter food on surface
+  for(var i=0;i<8;i++){
+    var fx=Math.floor(Math.random()*GW);
+    var fy=surfaceY-1;
+    if(fx>=0&&fx<GW&&fy>=0)grid[fy*GW+fx]=FOOD;
+  }
+
+  // Create ants
+  ants=[];
+  for(var i=0;i<40;i++){
+    ants.push(createAnt(nestX,nestY+1));
+  }
+
+  foodCollected=0;tunnelsDug=0;
+}
+
+function createAnt(x,y){
+  return{
+    x:x+Math.random()*2-1,
+    y:y+Math.random()*2-1,
+    vx:(Math.random()-0.5)*0.8,
+    vy:(Math.random()-0.5)*0.8,
+    carrying:false, // carrying food
+    state:'explore', // explore, returnHome, dig
+    digCooldown:0,
+    life:3000+Math.random()*2000,
+    turnBias:(Math.random()-0.5)*0.3,
+  };
+}
+
+function getCell(x,y){
+  var gx=Math.floor(x),gy=Math.floor(y);
+  if(gx<0||gy<0||gx>=GW||gy>=GH)return EMPTY;
+  return grid[gy*GW+gx];
+}
+
+function setCell(x,y,v){
+  var gx=Math.floor(x),gy=Math.floor(y);
+  if(gx<0||gy<0||gx>=GW||gy>=GH)return;
+  grid[gy*GW+gx]=v;
+}
+
+function isPassable(x,y){
+  var c=getCell(x,y);
+  return c===EMPTY||c===TUNNEL||c===SURFACE||c===NEST||c===FOOD||c===WATER;
+}
+
+function updateAnt(ant){
+  ant.life--;
+  if(ant.life<=0){
+    // Respawn at nest
+    ant.x=nestX;ant.y=nestY+1;
+    ant.life=3000+Math.random()*2000;
+    ant.carrying=false;ant.state='explore';
+    return;
+  }
+  if(ant.digCooldown>0)ant.digCooldown--;
+
+  var gx=Math.floor(ant.x),gy=Math.floor(ant.y);
+  var idx=gy*GW+gx;
+
+  // Deposit pheromones
+  if(gx>=0&&gx<GW&&gy>=0&&gy<GH){
+    if(ant.carrying){
+      pheromoneFood[idx]=Math.min(1,pheromoneFood[idx]+0.15);
+    }else{
+      pheromoneHome[idx]=Math.min(1,pheromoneHome[idx]+0.08);
+    }
+  }
+
+  // Check for food pickup
+  if(!ant.carrying&&getCell(ant.x,ant.y)===FOOD){
+    ant.carrying=true;
+    setCell(ant.x,ant.y,TUNNEL);
+    ant.state='returnHome';
+  }
+
+  // Check if at nest and carrying
+  if(ant.carrying&&getCell(ant.x,ant.y)===NEST){
+    ant.carrying=false;
+    foodCollected++;
+    ant.state='explore';
+  }
+
+  // Movement logic
+  if(ant.state==='returnHome'){
+    // Follow home pheromones or move toward nest
+    var dx=nestX-ant.x,dy=nestY-ant.y;
+    var d=Math.sqrt(dx*dx+dy*dy)+0.01;
+    ant.vx+=(dx/d)*0.12;
+    ant.vy+=(dy/d)*0.12;
+
+    // Also follow home pheromone gradient
+    followPheromone(ant,pheromoneHome,0.06);
+  }else{
+    // Explore — follow food pheromones or wander
+    var foodPh=senseAhead(ant,pheromoneFood);
+    if(foodPh>0.05){
+      followPheromone(ant,pheromoneFood,0.08);
+    }else{
+      // Random wander with turn bias
+      ant.vx+=(Math.random()-0.5+ant.turnBias)*0.15;
+      ant.vy+=(Math.random()-0.5)*0.15;
+    }
+
+    // Slight downward bias for digging exploration
+    ant.vy+=0.01;
+
+    // Dig if facing solid ground
+    if(ant.digCooldown<=0){
+      var ahead=getCell(ant.x+ant.vx*2,ant.y+ant.vy*2);
+      if(ahead===DIRT&&Math.random()<0.08){
+        var dx=Math.floor(ant.x+ant.vx*2);
+        var dy=Math.floor(ant.y+ant.vy*2);
+        if(dx>=0&&dx<GW&&dy>=0&&dy<GH){
+          grid[dy*GW+dx]=TUNNEL;
+          tunnelsDug++;
+          ant.digCooldown=15;
+          // Sand physics — check above
+          checkSandFall(dx,dy-1);
+        }
+      }
+    }
+  }
+
+  // Gravity (light — ants can climb but prefer surfaces)
+  if(!isPassable(ant.x,ant.y+1)){
+    // On ground
+  }else{
+    ant.vy+=0.02; // slight gravity
+  }
+
+  // Damping
+  var spd=Math.sqrt(ant.vx*ant.vx+ant.vy*ant.vy);
+  if(spd>1.2){ant.vx*=1.2/spd;ant.vy*=1.2/spd}
+  ant.vx*=0.92;ant.vy*=0.92;
+
+  // Try move
+  var nx=ant.x+ant.vx;
+  var ny=ant.y+ant.vy;
+
+  if(isPassable(nx,ny)){
+    ant.x=nx;ant.y=ny;
+  }else{
+    // Try sliding
+    if(isPassable(nx,ant.y)){
+      ant.x=nx;ant.vy*=-0.5;
+    }else if(isPassable(ant.x,ny)){
+      ant.y=ny;ant.vx*=-0.5;
+    }else{
+      ant.vx=-ant.vx*0.5+(Math.random()-0.5)*0.3;
+      ant.vy=-ant.vy*0.5+(Math.random()-0.5)*0.3;
+    }
+  }
+
+  // Keep in bounds
+  ant.x=Math.max(0.5,Math.min(GW-0.5,ant.x));
+  ant.y=Math.max(0.5,Math.min(GH-0.5,ant.y));
+}
+
+function followPheromone(ant,phMap,strength){
+  var best=0,bx=0,by=0;
+  for(var dy=-2;dy<=2;dy++){
+    for(var dx=-2;dx<=2;dx++){
+      if(dx===0&&dy===0)continue;
+      var gx=Math.floor(ant.x)+dx,gy=Math.floor(ant.y)+dy;
+      if(gx>=0&&gx<GW&&gy>=0&&gy<GH&&isPassable(gx,gy)){
+        var v=phMap[gy*GW+gx];
+        if(v>best){best=v;bx=dx;by=dy}
+      }
+    }
+  }
+  if(best>0){
+    var d=Math.sqrt(bx*bx+by*by)+0.01;
+    ant.vx+=(bx/d)*strength;
+    ant.vy+=(by/d)*strength;
+  }
+}
+
+function senseAhead(ant,phMap){
+  var gx=Math.floor(ant.x),gy=Math.floor(ant.y);
+  var total=0;
+  for(var dy=-1;dy<=1;dy++){
+    for(var dx=-1;dx<=1;dx++){
+      var nx=gx+dx,ny=gy+dy;
+      if(nx>=0&&nx<GW&&ny>=0&&ny<GH)total+=phMap[ny*GW+nx];
+    }
+  }
+  return total;
+}
+
+function checkSandFall(x,y){
+  // Simple sand physics — if dirt above a tunnel, it may fall
+  for(var cy=y;cy>=0;cy--){
+    var c=grid[cy*GW+x];
+    if(c===DIRT||c===SAND){
+      // Check if below is empty/tunnel
+      if(cy+1<GH&&(grid[(cy+1)*GW+x]===TUNNEL||grid[(cy+1)*GW+x]===EMPTY)){
+        grid[(cy+1)*GW+x]=c;
+        grid[cy*GW+x]=TUNNEL;
+      }
+    }else{
+      break;
+    }
+  }
+}
+
+function decayPheromones(){
+  for(var i=0;i<GW*GH;i++){
+    pheromoneHome[i]*=0.997;
+    pheromoneFood[i]*=0.995;
+    if(pheromoneHome[i]<0.001)pheromoneHome[i]=0;
+    if(pheromoneFood[i]<0.001)pheromoneFood[i]=0;
+  }
+}
+
+// Sand/dirt physics step
+function physicsStep(){
+  for(var y=GH-2;y>=0;y--){
+    for(var x=0;x<GW;x++){
+      var i=y*GW+x;
+      var c=grid[i];
+      if(c===SAND){
+        var below=grid[(y+1)*GW+x];
+        if(below===EMPTY||below===TUNNEL||below===WATER){
+          grid[(y+1)*GW+x]=SAND;
+          grid[i]=below===WATER?WATER:TUNNEL;
+        }else if(x>0&&(grid[(y+1)*GW+x-1]===EMPTY||grid[(y+1)*GW+x-1]===TUNNEL)){
+          grid[(y+1)*GW+x-1]=SAND;grid[i]=TUNNEL;
+        }else if(x<GW-1&&(grid[(y+1)*GW+x+1]===EMPTY||grid[(y+1)*GW+x+1]===TUNNEL)){
+          grid[(y+1)*GW+x+1]=SAND;grid[i]=TUNNEL;
+        }
+      }
+      // Water flows
+      if(c===WATER){
+        var below=grid[(y+1)*GW+x];
+        if(below===EMPTY||below===TUNNEL){
+          grid[(y+1)*GW+x]=WATER;grid[i]=EMPTY;
+        }else{
+          // Flow sideways
+          var dir=Math.random()<0.5?-1:1;
+          var sx=x+dir;
+          if(sx>=0&&sx<GW&&(grid[y*GW+sx]===EMPTY||grid[y*GW+sx]===TUNNEL)){
+            grid[y*GW+sx]=WATER;grid[i]=EMPTY;
+          }
+        }
+      }
+    }
+  }
+}
+
+// Drawing
+var COLORS={};
+COLORS[EMPTY]='#1a1008';
+COLORS[DIRT]='#4a3520';
+COLORS[SAND]='#8a7550';
+COLORS[FOOD]='#44cc44';
+COLORS[TUNNEL]='#2a1a0a';
+COLORS[SURFACE]='#5a4a30';
+COLORS[WATER]='#2244aa';
+COLORS[NEST]='#664422';
+
+function draw(){
+  time+=0.016;
+
+  // Update
+  for(var s=0;s<speed;s++){
+    for(var i=0;i<ants.length;i++)updateAnt(ants[i]);
+    if(time*60%3<1)physicsStep();
+    if(time*60%5<1)decayPheromones();
+  }
+
+  // Spawn food occasionally
+  if(Math.random()<0.002){
+    var fx=Math.floor(Math.random()*GW);
+    var surfY=0;
+    for(var y=0;y<GH;y++){if(grid[y*GW+fx]===SURFACE){surfY=y;break}}
+    if(surfY>0&&grid[(surfY-1)*GW+fx]===EMPTY){
+      grid[(surfY-1)*GW+fx]=FOOD;
+    }
+  }
+
+  ctx.clearRect(0,0,W,H);
+
+  // Draw grid
+  var imgData=ctx.createImageData(GW,GH);
+  var d=imgData.data;
+
+  for(var y=0;y<GH;y++){
+    for(var x=0;x<GW;x++){
+      var i=y*GW+x;
+      var pi=(y*GW+x)*4;
+      var c=grid[i];
+
+      // Base color
+      var r,g,b;
+      if(c===EMPTY){r=26;g=16;b=8}
+      else if(c===DIRT){
+        var v=0.85+Math.sin(x*0.7+y*0.5)*0.15;
+        r=Math.floor(74*v);g=Math.floor(53*v);b=Math.floor(32*v);
+      }
+      else if(c===SAND){r=138;g=117;b=80}
+      else if(c===FOOD){r=68;g=204;b=68}
+      else if(c===TUNNEL){r=32;g=20;b=8}
+      else if(c===SURFACE){
+        r=90;g=74;b=48;
+        // Grass tint
+        if(y>0&&grid[(y-1)*GW+x]===EMPTY){r=50;g=90;b=35}
+      }
+      else if(c===WATER){r=34;g=68;b=170}
+      else if(c===NEST){r=102;g=68;b=34}
+      else{r=26;g=16;b=8}
+
+      // Pheromone overlay
+      if(showTrails){
+        var ph=pheromoneHome[i];
+        var pf=pheromoneFood[i];
+        if(ph>0.01){
+          r=Math.min(255,r+Math.floor(ph*60));
+          b=Math.min(255,b+Math.floor(ph*120));
+        }
+        if(pf>0.01){
+          g=Math.min(255,g+Math.floor(pf*100));
+          r=Math.min(255,r+Math.floor(pf*40));
+        }
+      }
+
+      d[pi]=r;d[pi+1]=g;d[pi+2]=b;d[pi+3]=255;
+    }
+  }
+
+  // Scale up
+  var tmpCanvas=document.createElement('canvas');
+  tmpCanvas.width=GW;tmpCanvas.height=GH;
+  tmpCanvas.getContext('2d').putImageData(imgData,0,0);
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(tmpCanvas,0,0,W,H);
+
+  // Draw ants
+  var scaleX=W/GW,scaleY=H/GH;
+  for(var i=0;i<ants.length;i++){
+    var a=ants[i];
+    var ax=a.x*scaleX,ay=a.y*scaleY;
+    ctx.fillStyle=a.carrying?'#ffcc00':'#cc4400';
+    ctx.fillRect(ax-1.5,ay-1.5,3,3);
+    // Tiny direction line
+    var spd=Math.sqrt(a.vx*a.vx+a.vy*a.vy)+0.01;
+    ctx.strokeStyle=a.carrying?'rgba(255,204,0,0.5)':'rgba(200,60,0,0.4)';
+    ctx.lineWidth=0.5;
+    ctx.beginPath();
+    ctx.moveTo(ax,ay);
+    ctx.lineTo(ax+(a.vx/spd)*3,ay+(a.vy/spd)*3);
+    ctx.stroke();
+  }
+
+  // HUD
+  document.getElementById('stats').textContent=
+    ants.length+' ants | '+foodCollected+' food | '+tunnelsDug+' dug';
+
+  requestAnimationFrame(draw);
+}
+
+// Tools
+var painting=false;
+var brushSize=3;
+
+function paint(mx,my){
+  var gx=Math.floor(mx/W*GW),gy=Math.floor(my/H*GH);
+  for(var dy=-brushSize;dy<=brushSize;dy++){
+    for(var dx=-brushSize;dx<=brushSize;dx++){
+      if(dx*dx+dy*dy>brushSize*brushSize)continue;
+      var nx=gx+dx,ny=gy+dy;
+      if(nx<0||ny<0||nx>=GW||ny>=GH)continue;
+      var i=ny*GW+nx;
+      if(tool==='dig'){
+        if(grid[i]===DIRT||grid[i]===SAND||grid[i]===SURFACE){
+          grid[i]=TUNNEL;tunnelsDug++;
+        }
+      }else if(tool==='fill'){
+        if(grid[i]===TUNNEL||grid[i]===EMPTY){
+          grid[i]=DIRT;
+        }
+      }else if(tool==='food'){
+        if(grid[i]===TUNNEL||grid[i]===EMPTY){
+          grid[i]=FOOD;
+        }
+      }else if(tool==='water'){
+        if(grid[i]===TUNNEL||grid[i]===EMPTY){
+          grid[i]=WATER;
+        }
+      }
+    }
+  }
+}
+
+canvas.addEventListener('mousedown',function(e){painting=true;paint(e.clientX,e.clientY)});
+canvas.addEventListener('mousemove',function(e){if(painting)paint(e.clientX,e.clientY)});
+canvas.addEventListener('mouseup',function(){painting=false});
+canvas.addEventListener('touchstart',function(e){
+  e.preventDefault();painting=true;
+  paint(e.touches[0].clientX,e.touches[0].clientY);
+},{passive:false});
+canvas.addEventListener('touchmove',function(e){
+  e.preventDefault();
+  paint(e.touches[0].clientX,e.touches[0].clientY);
+},{passive:false});
+canvas.addEventListener('touchend',function(){painting=false});
+
+// Tool buttons
+var toolBtns=document.querySelectorAll('.tool-btn');
+for(var i=0;i<toolBtns.length;i++){
+  toolBtns[i].addEventListener('click',function(e){
+    e.stopPropagation();
+    for(var j=0;j<toolBtns.length;j++)toolBtns[j].classList.remove('active');
+    this.classList.add('active');
+    tool=this.dataset.tool;
+  });
+}
+
+// Speed
+var speedBtn=document.getElementById('speed-btn');
+speedBtn.addEventListener('click',function(e){
+  e.stopPropagation();
+  speed=speed===1?2:speed===2?4:1;
+  this.textContent=speed+'x';
+});
+
+// Trails toggle
+var trailBtn=document.getElementById('pheromone-btn');
+trailBtn.classList.add('active');
+trailBtn.addEventListener('click',function(e){
+  e.stopPropagation();
+  showTrails=!showTrails;
+  this.classList.toggle('active',showTrails);
+});
+
+// Reset
+document.getElementById('reset-btn').addEventListener('click',function(e){
+  e.stopPropagation();initWorld();
+});
+
+initWorld();
+draw();
+
+})();
+</script>
+<script src="/sloppy-header/sloppy-bar.js"></script>
+</body>
+</html>
