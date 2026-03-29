@@ -1,6 +1,7 @@
 # Shard Storm
 
 ## log
+- 2026-03-29: V2 — Added Supabase leaderboard. Module script for auth + DB queries, exposed via window._lbLoad/_lbSave globals. Leaderboard panel shows top 15. Auto-opens on game over with name submit. Stores display_name, score, wave, shards. Name saved to localStorage. Table: shard_storm_scores (needs admin creation: id, display_name, score, wave, shards, user_id, created_at).
 - 2026-03-29: V1 — Twin-stick asteroid shooter focused on shard collection. WASD move, mouse aim, click/space fire. Rocks split into smaller pieces (large→3 medium→2 small). Destroyed rocks explode into glowing diamond shards that drift and get magnetically attracted to player. Combo system (3+ kills in 90 frames = multiplier). Multi-colored rocks with hue variety, damage cracks. Pickups: heart (extra life), diamond shard (bonus). Motion trails (0.3 alpha clear). Screen shake scaled to rock size. 5 lives max. Wave system with escalating count/speed. Mobile: virtual joystick + fire button + touch aim. Audiowide + Share Tech Mono typography, dark with colorful neon rocks.
 
 ## features
@@ -31,7 +32,6 @@
 - Shield powerup
 - Weapon upgrades (spread, laser, homing)
 - Boss asteroids
-- Supabase leaderboard
 
 ## notes
 - Distinct from neon-asteroids: twin-stick vs classic rotation, shard collection mechanic, combo system, no wrapping ship rotation
