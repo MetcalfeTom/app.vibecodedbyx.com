@@ -324,15 +324,31 @@ function sfxLose(){
 // --- PVP MULTIPLAYER ---
 var pvpMode=false,isHost=false,roomCode='',pvpCh=null,sb=null,myTurn=true;
 
+var sbReady=false;
 function initSB(){
-  if(sb)return sb;
+  if(sb&&sbReady)return sb;
   try{
     var x=new XMLHttpRequest();x.open('GET','/supabase-config.js',false);x.send();
     var t=x.responseText;
     var u=t.match(/SUPABASE_URL\s*=\s*['"]([^'"]+)/);
     var k=t.match(/SUPABASE_ANON_KEY\s*=\s*['"]([^'"]+)/);
-    if(u&&k&&window.supabase)sb=window.supabase.createClient(u[1],k[1]);
-  }catch(e){}
+    if(u&&k&&window.supabase){
+      sb=window.supabase.createClient(u[1],k[1],{
+        realtime:{params:{eventsPerSecond:10}}
+      });
+      // Auth required for Realtime — sign in anonymously
+      sb.auth.getSession().then(function(res){
+        if(!res.data.session){
+          sb.auth.signInAnonymously().then(function(r){
+            console.log('[PVP] anon auth:',r.error?r.error.message:'ok');
+            sbReady=true;
+          });
+        }else{
+          sbReady=true;
+        }
+      });
+    }
+  }catch(e){console.error('[PVP] initSB error:',e)}
   return sb;
 }
 
@@ -352,6 +368,29 @@ function showPvp(){
   if(h.length===4)document.getElementById('join-code').value=h;
 }
 
+function waitForAuth(cb){
+  if(sbReady)return cb();
+  var checks=0;
+  var iv=setInterval(function(){
+    checks++;
+    if(sbReady){clearInterval(iv);cb();}
+    else if(checks>30){clearInterval(iv);alert('Auth timeout — try again');}
+  },200);
+}
+
+function connectChannel(code,onReady){
+  pvpCh=sb.channel('card-clash-'+code,{config:{broadcast:{self:false}}});
+  pvpCh.on('broadcast',{event:'gm'},function(msg){handlePvp(msg.payload)});
+  pvpCh.subscribe(function(s){
+    console.log('[PVP] subscribe status:',s);
+    if(s==='SUBSCRIBED'&&onReady)onReady();
+    if(s==='CHANNEL_ERROR'){
+      console.warn('[PVP] channel error, retrying...');
+      setTimeout(function(){pvpCh.subscribe()},2000);
+    }
+  });
+}
+
 function pvpCreate(){
   if(!initSB()){alert('Connection failed');return;}
   roomCode=genCode();isHost=true;
@@ -364,11 +403,7 @@ function pvpCreate(){
     try{navigator.clipboard.writeText(roomCode)}catch(e){}
     this.textContent='COPIED!';this.style.borderColor='#40c080';this.style.color='#40c080';
   });
-  pvpCh=sb.channel('card-clash-'+roomCode,{config:{broadcast:{self:false}}});
-  pvpCh.on('broadcast',{event:'gm'},function(msg){handlePvp(msg.payload)});
-  pvpCh.subscribe(function(s){
-    console.log('[PVP Host] subscribe status:',s);
-  });
+  waitForAuth(function(){connectChannel(roomCode)});
 }
 
 function pvpJoin(){
@@ -381,16 +416,13 @@ function pvpJoin(){
   document.getElementById('pvp-join-sec').style.display='none';
   document.getElementById('pvp-waiting').style.display='block';
   document.getElementById('pvp-wait-text').textContent='Joining '+roomCode+'...';
-  pvpCh=sb.channel('card-clash-'+roomCode,{config:{broadcast:{self:false}}});
-  pvpCh.on('broadcast',{event:'gm'},function(msg){handlePvp(msg.payload)});
-  pvpCh.subscribe(function(s){
-    console.log('[PVP Join] subscribe status:',s);
-    if(s==='SUBSCRIBED'){
+  waitForAuth(function(){
+    connectChannel(roomCode,function(){
       // Send join signal with retries in case host isn't ready
       pvpSend({type:'join'});
-      setTimeout(function(){pvpSend({type:'join'})},1000);
-      setTimeout(function(){pvpSend({type:'join'})},3000);
-    }
+      setTimeout(function(){pvpSend({type:'join'})},1500);
+      setTimeout(function(){pvpSend({type:'join'})},4000);
+    });
   });
 }
 
