@@ -2,6 +2,7 @@
 
 ## log
 - 2026-03-29: V1 — Neon typing speed test. 4 duration modes (15/30/60/120s). ~180 common English words randomly shuffled into continuous text. Characters highlight cyan for correct, pink for wrong with underline. Blinking cursor. Live WPM and accuracy during test. Results screen with 6 stat cards: net WPM, raw WPM, accuracy, characters, correct, errors. WPM calculation: (keystrokes/5)/minutes. Backspace support. Tab/Esc to restart. Auto-generates more text as you type. Auto-scroll to cursor. Best score per duration in localStorage. Megrim + Fira Code typography, cyan neon on dark aesthetic.
+- 2026-03-29: V2 — Added live player counter via Supabase Realtime Presence. Pulsing cyan dot + count in top-right corner. Channel: neon-type-presence. Anonymous auth for websocket connection.
 
 ## features
 - 4 test durations: 15s, 30s, 60s, 120s
@@ -16,6 +17,7 @@
 - Auto-scroll to keep cursor visible
 - Best WPM per duration in localStorage
 - Click anywhere to focus input
+- Live player counter via Supabase Presence (pulsing dot + count)
 
 ## issues
 - None currently
