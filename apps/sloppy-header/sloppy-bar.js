@@ -97,6 +97,21 @@
   let cacheTimestamp = 0;
   let dropdownOpen = false;
 
+  // === Vote state ===
+  let _sloppyVoteSlug = null;
+  let _sloppyVoteCount = 0;
+  let _sloppyVoteUserVoted = false;
+
+  // Detect current app slug from URL path
+  (function() {
+    try {
+      const path = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0];
+      if (path && path !== '' && path !== 'sloppy-header' && path !== 'index.html') {
+        _sloppyVoteSlug = path;
+      }
+    } catch (e) {}
+  })();
+
   // === SharedWorker state (Phase 3) ===
   let syncWorker = null;
   let syncWorkerReady = false;
@@ -665,6 +680,34 @@
     .sloppy-bar-teleport-icon {
       animation: sloppy-bar-spin 2s linear infinite;
     }
+    .sloppy-bar-vote {
+      background: transparent;
+      border: 1px solid rgba(0,255,136,0.2);
+      color: rgba(0,255,136,0.5);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .sloppy-bar-vote:hover {
+      border-color: rgba(0,255,136,0.4);
+      color: #0f8;
+      background: rgba(0,255,136,0.06);
+    }
+    .sloppy-bar-vote.voted {
+      border-color: rgba(0,255,136,0.5);
+      color: #0f8;
+      background: rgba(0,255,136,0.1);
+      text-shadow: 0 0 6px rgba(0,255,136,0.3);
+    }
+    .sloppy-bar-vote .sloppy-vote-arrow { font-size: 13px; line-height: 1; }
+    .sloppy-bar-vote .sloppy-vote-count { font-size: 10px; opacity: 0.7; }
     @keyframes sloppy-bar-spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
@@ -1161,6 +1204,9 @@
       </div>
       ` : ''}
       <div class="sloppy-bar-right">
+        ${_sloppyVoteSlug ? `<button class="sloppy-bar-vote${_sloppyVoteUserVoted ? ' voted' : ''}" onclick="window.sloppyBarVote()" title="${_sloppyVoteUserVoted ? 'Remove vote' : 'Upvote this app'}">
+          <span class="sloppy-vote-arrow">${_sloppyVoteUserVoted ? '▲' : '△'}</span>${_sloppyVoteCount > 0 ? `<span class="sloppy-vote-count">${_sloppyVoteCount}</span>` : ''}
+        </button>` : ''}
         <button class="sloppy-bar-teleport" onclick="window.sloppyBarTeleport()" title="Random app adventure!">
           <span class="sloppy-bar-teleport-icon">🌀</span> Teleport
         </button>
@@ -1347,6 +1393,42 @@
   };
 
   // Teleport state
+  // === Vote functions ===
+  async function _sloppyLoadVote() {
+    if (!_sloppyVoteSlug || !supabase) return;
+    try {
+      // Get vote count for this app
+      const { data } = await supabase.from('app_votes').select('vote').eq('app_slug', _sloppyVoteSlug);
+      _sloppyVoteCount = data ? data.reduce((s, r) => s + (r.vote || 1), 0) : 0;
+
+      // Check if current user voted
+      if (currentUser) {
+        const { data: uv } = await supabase.from('app_votes').select('app_slug').eq('user_id', currentUser.id).eq('app_slug', _sloppyVoteSlug);
+        _sloppyVoteUserVoted = !!(uv && uv.length > 0);
+      }
+      render();
+    } catch (e) {}
+  }
+
+  window.sloppyBarVote = async function() {
+    if (!_sloppyVoteSlug || !supabase || !currentUser) return;
+    try {
+      if (_sloppyVoteUserVoted) {
+        await supabase.from('app_votes').delete().eq('user_id', currentUser.id).eq('app_slug', _sloppyVoteSlug);
+        _sloppyVoteUserVoted = false;
+        _sloppyVoteCount = Math.max(0, _sloppyVoteCount - 1);
+      } else {
+        const { error } = await supabase.from('app_votes').insert({ app_slug: _sloppyVoteSlug, vote: 1, user_id: currentUser.id });
+        if (error) {
+          await supabase.from('app_votes').upsert({ app_slug: _sloppyVoteSlug, vote: 1, user_id: currentUser.id }, { onConflict: 'user_id,app_slug' });
+        }
+        _sloppyVoteUserVoted = true;
+        _sloppyVoteCount++;
+      }
+      render();
+    } catch (e) {}
+  };
+
   let teleportCategory = null; // null = all categories
   let teleportPanelOpen = false;
 
@@ -1579,6 +1661,7 @@
     render(); // Show placeholder immediately
     trackCurrentApp(); // Track this app visit
     await initSupabase();
+    _sloppyLoadVote(); // Load vote state for current app
     render(); // Update with real data
 
     // SharedWorker heartbeat (30s interval)
