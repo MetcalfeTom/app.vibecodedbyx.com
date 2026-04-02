@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Flying Burger — Neon Topping Catcher</title>
+  <link rel="icon" href="https://emojicdn.elk.sh/🍔" type="image/png">
+  <meta name="description" content="Catch falling toppings with your giant neon bun and build the tallest burger ever!">
+  <meta property="og:title" content="Flying Burger — Neon Topping Catcher">
+  <meta property="og:description" content="Catch falling toppings with your giant neon bun and build the tallest burger!">
+  <meta property="og:url" content="https://sloppy.live/flying-burger">
+  <meta property="og:image" content="https://emojicdn.elk.sh/🍔?style=google&size=512.png">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Fredoka:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a12;
+      overflow: hidden;
+      font-family: 'Fredoka', sans-serif;
+      color: #fff;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    #backlink {
+      position: fixed;
+      bottom: 8px;
+      left: 10px;
+      font-size: 11px;
+      color: #555;
+      text-decoration: none;
+      z-index: 999;
+      font-family: 'Fredoka', sans-serif;
+    }
+    #backlink:hover { color: #ff6b00; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <a id="backlink" href="https://sloppy.live" target="_blank">sloppy.live</a>
+
+  <script>
+(function() {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  // --- Resize ---
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // --- Constants ---
+  const LIVES_MAX = 3;
+  const MISS_LIMIT = 10;
+  const BASE_FALL_SPEED = 2.2;
+  const SPEED_INCREASE = 0.0004;
+  const SPAWN_INTERVAL_BASE = 900;
+  const SPAWN_INTERVAL_MIN = 320;
+  const BUN_WIDTH_RATIO = 0.18;
+  const BUN_HEIGHT_RATIO = 0.045;
+  const BUN_Y_OFFSET = 80;
+
+  // Topping definitions
+  const TOPPINGS = [
+    { name: 'lettuce',  color: '#39ff14', glow: '#39ff14', shape: 'leaf',    points: 10 },
+    { name: 'tomato',   color: '#ff3131', glow: '#ff4444', shape: 'circle',  points: 10 },
+    { name: 'cheese',   color: '#ffe135', glow: '#ffe135', shape: 'square',  points: 15 },
+    { name: 'patty',    color: '#8B4513', glow: '#ff8c00', shape: 'oval',    points: 20 },
+    { name: 'onion',    color: '#e6b8ff', glow: '#d580ff', shape: 'rings',   points: 10 },
+    { name: 'pickles',  color: '#7cfc00', glow: '#7cfc00', shape: 'ovals',   points: 10 },
+    { name: 'bacon',    color: '#ff6347', glow: '#ff4500', shape: 'strip',   points: 25 },
+    { name: 'ketchup',  color: '#ff0000', glow: '#ff2222', shape: 'blob',    points: 5 },
+    { name: 'mustard',  color: '#ffdb00', glow: '#ffdb00', shape: 'blob',    points: 5 },
+    { name: 'egg',      color: '#fffacd', glow: '#ffe066', shape: 'egg',     points: 30 },
+  ];
+  const BAD_ITEMS = [
+    { name: 'hot pepper', color: '#ff1a1a', glow: '#ff0000', shape: 'pepper', points: -1 },
+    { name: 'rotten fish', color: '#5a8a3c', glow: '#3aff3a', shape: 'fish', points: -1 },
+  ];
+
+  // --- State ---
+  let state = 'start'; // start | play | over
+  let score, combo, maxCombo, lives, missed, toppingsStack, fallingItems, particles, trail;
+  let bunX, bunY, bunW, bunH, bunFloat;
+  let fallSpeed, spawnTimer, spawnInterval, elapsed;
+  let inputX = null;
+  let touchActive = false;
+
+  function initGame() {
+    score = 0; combo = 0; maxCombo = 0; lives = LIVES_MAX; missed = 0;
+    toppingsStack = [];
+    fallingItems = [];
+    particles = [];
+    trail = [];
+    bunW = Math.max(80, canvas.width * BUN_WIDTH_RATIO);
+    bunH = Math.max(30, canvas.height * BUN_HEIGHT_RATIO);
+    bunX = canvas.width / 2;
+    bunY = canvas.height - BUN_Y_OFFSET;
+    bunFloat = 0;
+    fallSpeed = BASE_FALL_SPEED;
+    spawnTimer = 0;
+    spawnInterval = SPAWN_INTERVAL_BASE;
+    elapsed = 0;
+    inputX = null;
+  }
+
+  // --- Input ---
+  function getInputX(e) {
+    if (e.touches) return e.touches[0].clientX;
+    return e.clientX;
+  }
+  canvas.addEventListener('mousemove', e => { if (state === 'play') inputX = e.clientX; });
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    touchActive = true;
+    if (state === 'start') { initGame(); state = 'play'; return; }
+    if (state === 'over') { initGame(); state = 'play'; return; }
+    inputX = getInputX(e);
+  }, { passive: false });
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (state === 'play') inputX = getInputX(e);
+  }, { passive: false });
+  canvas.addEventListener('touchend', e => { touchActive = false; });
+  canvas.addEventListener('click', e => {
+    if (state === 'start') { initGame(); state = 'play'; return; }
+    if (state === 'over') { initGame(); state = 'play'; return; }
+  });
+
+  // --- Spawning ---
+  function spawnItem() {
+    const isBad = Math.random() < 0.18;
+    const def = isBad
+      ? BAD_ITEMS[Math.floor(Math.random() * BAD_ITEMS.length)]
+      : TOPPINGS[Math.floor(Math.random() * TOPPINGS.length)];
+    const size = 22 + Math.random() * 14;
+    fallingItems.push({
+      x: size + Math.random() * (canvas.width - size * 2),
+      y: -size,
+      size,
+      speed: fallSpeed * (0.8 + Math.random() * 0.5),
+      def,
+      isBad,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.04,
+    });
+  }
+
+  // --- Particles ---
+  function emitParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1.5 + Math.random() * 3;
+      particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 2,
+        life: 1,
+        decay: 0.02 + Math.random() * 0.03,
+        color,
+        size: 2 + Math.random() * 4,
+      });
+    }
+  }
+
+  // --- Drawing helpers ---
+  function drawNeonCircle(x, y, r, color, glowColor) {
+    ctx.save();
+    ctx.shadowColor = glowColor || color;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = glowColor || color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTopping(x, y, size, def, rot) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot || 0);
+    ctx.shadowColor = def.glow;
+    ctx.shadowBlur = 14;
+    const s = size;
+    switch (def.shape) {
+      case 'leaf':
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.moveTo(-s, 0);
+        ctx.quadraticCurveTo(-s * 0.3, -s * 0.9, s, -s * 0.2);
+        ctx.quadraticCurveTo(s * 0.3, s * 0.9, -s, 0);
+        ctx.fill();
+        ctx.strokeStyle = def.glow; ctx.lineWidth = 1.5; ctx.stroke();
+        break;
+      case 'circle':
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, s * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = def.glow; ctx.lineWidth = 1.5; ctx.stroke();
+        break;
+      case 'square':
+        ctx.fillStyle = def.color;
+        ctx.fillRect(-s * 0.55, -s * 0.25, s * 1.1, s * 0.5);
+        ctx.strokeStyle = def.glow; ctx.lineWidth = 1.5;
+        ctx.strokeRect(-s * 0.55, -s * 0.25, s * 1.1, s * 0.5);
+        break;
+      case 'oval':
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, s * 0.7, s * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = def.glow; ctx.lineWidth = 2; ctx.stroke();
+        break;
+      case 'rings':
+        ctx.strokeStyle = def.color;
+        ctx.lineWidth = 2.5;
+        ctx.shadowBlur = 10;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc((i - 1) * s * 0.35, 0, s * 0.22, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        break;
+      case 'ovals':
+        ctx.fillStyle = def.color;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.ellipse((i - 1) * s * 0.4, 0, s * 0.18, s * 0.3, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.strokeStyle = def.glow; ctx.lineWidth = 1; ctx.stroke();
+        break;
+      case 'strip':
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.7, -s * 0.15);
+        ctx.lineTo(s * 0.7, -s * 0.25);
+        ctx.lineTo(s * 0.7, s * 0.1);
+        ctx.quadraticCurveTo(0, s * 0.4, -s * 0.7, s * 0.15);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = def.glow; ctx.lineWidth = 1.5; ctx.stroke();
+        break;
+      case 'blob':
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, s * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.beginPath();
+        ctx.arc(-s * 0.08, -s * 0.08, s * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      case 'egg':
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, s * 0.55, s * 0.42, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, s * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = def.glow; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, s * 0.55, s * 0.42, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      case 'pepper':
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.6);
+        ctx.quadraticCurveTo(s * 0.5, -s * 0.2, s * 0.3, s * 0.5);
+        ctx.quadraticCurveTo(0, s * 0.7, -s * 0.3, s * 0.5);
+        ctx.quadraticCurveTo(-s * 0.5, -s * 0.2, 0, -s * 0.6);
+        ctx.fill();
+        ctx.strokeStyle = '#ff6600'; ctx.lineWidth = 2; ctx.stroke();
+        // stem
+        ctx.fillStyle = '#22aa22';
+        ctx.fillRect(-s * 0.08, -s * 0.75, s * 0.16, s * 0.2);
+        break;
+      case 'fish':
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, s * 0.6, s * 0.28, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // tail
+        ctx.beginPath();
+        ctx.moveTo(s * 0.5, 0);
+        ctx.lineTo(s * 0.85, -s * 0.3);
+        ctx.lineTo(s * 0.85, s * 0.3);
+        ctx.closePath();
+        ctx.fill();
+        // x eye
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(-s * 0.25, -s * 0.08); ctx.lineTo(-s * 0.15, s * 0.05); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-s * 0.15, -s * 0.08); ctx.lineTo(-s * 0.25, s * 0.05); ctx.stroke();
+        // stink lines
+        ctx.strokeStyle = '#aaff44'; ctx.lineWidth = 1;
+        for (let i = -1; i <= 1; i++) {
+          ctx.beginPath();
+          ctx.moveTo(i * s * 0.25, -s * 0.35);
+          ctx.quadraticCurveTo(i * s * 0.25 + 4, -s * 0.55, i * s * 0.25, -s * 0.7);
+          ctx.stroke();
+        }
+        break;
+    }
+    ctx.restore();
+  }
+
+  function drawBun(x, y, w, h, floatY) {
+    const by = y + floatY;
+    ctx.save();
+    ctx.shadowColor = '#ff8c00';
+    ctx.shadowBlur = 25;
+    // bottom bun
+    ctx.fillStyle = '#d4882a';
+    ctx.beginPath();
+    ctx.ellipse(x, by, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // top highlight
+    ctx.fillStyle = '#f0a830';
+    ctx.beginPath();
+    ctx.ellipse(x, by - h * 0.15, w * 0.42, h * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // neon outline
+    ctx.strokeStyle = '#ff6b00';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(x, by, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // sesame seeds
+    ctx.fillStyle = '#fffbe6';
+    ctx.shadowBlur = 0;
+    for (let i = 0; i < 5; i++) {
+      const sx = x - w * 0.3 + i * w * 0.15;
+      const sy = by - h * 0.1 + Math.sin(i * 1.3) * h * 0.12;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 3, 1.5, i * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawStackedBurger(cx, baseY, stack, w, h) {
+    // Draw bottom bun
+    drawBun(cx, baseY, w, h, 0);
+    // Draw stacked toppings
+    const toppingH = h * 0.55;
+    for (let i = 0; i < stack.length; i++) {
+      const ty = baseY - (i + 1) * toppingH;
+      drawTopping(cx, ty, w * 0.3, stack[i].def, 0);
+    }
+    // Top bun if stack has items
+    if (stack.length > 0) {
+      const topY = baseY - (stack.length + 0.5) * toppingH;
+      drawBun(cx, topY, w * 0.9, h * 0.8, 0);
+    }
+  }
+
+  // --- Trail ---
+  function updateTrail(x, y) {
+    trail.push({ x, y, life: 1 });
+    if (trail.length > 18) trail.shift();
+  }
+
+  function drawTrail() {
+    for (let i = 0; i < trail.length; i++) {
+      const t = trail[i];
+      ctx.save();
+      ctx.globalAlpha = t.life * 0.35;
+      ctx.shadowColor = '#ff6b00';
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = '#ff8c00';
+      ctx.beginPath();
+      ctx.ellipse(t.x, t.y, bunW * 0.25 * t.life, bunH * 0.2 * t.life, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      t.life -= 0.06;
+    }
+    trail = trail.filter(t => t.life > 0);
+  }
+
+  // --- HUD ---
+  function drawHUD() {
+    ctx.save();
+    ctx.font = '600 22px Fredoka, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.shadowColor = '#ff6b00';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillText('Score: ' + score, 16, 36);
+    ctx.fillStyle = combo > 1 ? '#39ff14' : '#888';
+    ctx.fillText('Combo: x' + combo, 16, 62);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ff4444';
+    let hearts = '';
+    for (let i = 0; i < LIVES_MAX; i++) hearts += i < lives ? '❤️' : '🖤';
+    ctx.font = '20px sans-serif';
+    ctx.fillText(hearts, canvas.width - 16, 36);
+    ctx.font = '600 18px Fredoka, sans-serif';
+    ctx.fillStyle = '#ff8c00';
+    ctx.fillText('Burger: ' + toppingsStack.length + ' layers', canvas.width - 16, 62);
+    ctx.restore();
+  }
+
+  // --- Screens ---
+  function drawStartScreen() {
+    ctx.save();
+    // Background
+    ctx.fillStyle = '#0a0a12';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Animated background dots
+    const t = Date.now() * 0.001;
+    for (let i = 0; i < 40; i++) {
+      const dx = (Math.sin(i * 7.3 + t * 0.5) * 0.5 + 0.5) * canvas.width;
+      const dy = (Math.cos(i * 4.1 + t * 0.3) * 0.5 + 0.5) * canvas.height;
+      ctx.globalAlpha = 0.15 + Math.sin(t + i) * 0.1;
+      ctx.fillStyle = ['#ff6b00', '#39ff14', '#ff3131', '#ffe135', '#d580ff'][i % 5];
+      ctx.beginPath();
+      ctx.arc(dx, dy, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // Title
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff6b00';
+    ctx.shadowBlur = 30;
+    ctx.font = '900 56px "Lilita One", Fredoka, sans-serif';
+    ctx.fillStyle = '#ff8c00';
+    ctx.fillText('FLYING BURGER', canvas.width / 2, canvas.height * 0.28);
+    ctx.shadowBlur = 0;
+    ctx.font = '600 22px Fredoka, sans-serif';
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillText('Catch toppings. Build burgers. Avoid the bad stuff.', canvas.width / 2, canvas.height * 0.37);
+    // Draw a demo burger in center
+    drawStackedBurger(canvas.width / 2, canvas.height * 0.62, [
+      { def: TOPPINGS[0] }, { def: TOPPINGS[3] }, { def: TOPPINGS[2] },
+      { def: TOPPINGS[1] }, { def: TOPPINGS[6] }, { def: TOPPINGS[9] },
+    ], bunW, bunH);
+    // Controls
+    ctx.font = '400 18px Fredoka, sans-serif';
+    ctx.fillStyle = '#aaa';
+    const isMobile = 'ontouchstart' in window;
+    ctx.fillText(isMobile ? 'Drag to move the bun' : 'Move mouse to catch toppings', canvas.width / 2, canvas.height * 0.82);
+    // CTA
+    ctx.shadowColor = '#39ff14';
+    ctx.shadowBlur = 15;
+    ctx.font = '600 28px Fredoka, sans-serif';
+    ctx.fillStyle = '#39ff14';
+    ctx.fillText(isMobile ? 'TAP TO START' : 'CLICK TO START', canvas.width / 2, canvas.height * 0.91);
+    ctx.restore();
+  }
+
+  function drawGameOverScreen() {
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,10,18,0.88)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff3131';
+    ctx.shadowBlur = 25;
+    ctx.font = '900 50px "Lilita One", Fredoka, sans-serif';
+    ctx.fillStyle = '#ff3131';
+    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height * 0.15);
+    ctx.shadowBlur = 0;
+    ctx.font = '600 26px Fredoka, sans-serif';
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillText('Score: ' + score, canvas.width / 2, canvas.height * 0.23);
+    ctx.fillStyle = '#39ff14';
+    ctx.fillText('Max Combo: x' + maxCombo, canvas.width / 2, canvas.height * 0.29);
+    ctx.fillStyle = '#ff8c00';
+    ctx.fillText('Burger Height: ' + toppingsStack.length + ' layers', canvas.width / 2, canvas.height * 0.35);
+    // Final burger
+    const stackH = Math.min(toppingsStack.length, 20);
+    const displayStack = toppingsStack.slice(-stackH);
+    const burgerBaseY = canvas.height * 0.75;
+    const bw = Math.min(bunW * 0.8, 120);
+    const bh = Math.min(bunH * 0.8, 28);
+    drawStackedBurger(canvas.width / 2, burgerBaseY, displayStack, bw, bh);
+    // CTA
+    ctx.shadowColor = '#39ff14';
+    ctx.shadowBlur = 12;
+    ctx.font = '600 24px Fredoka, sans-serif';
+    ctx.fillStyle = '#39ff14';
+    ctx.fillText('CLICK / TAP TO PLAY AGAIN', canvas.width / 2, canvas.height * 0.93);
+    ctx.restore();
+  }
+
+  // --- Main loop ---
+  let lastTime = 0;
+  function gameLoop(time) {
+    requestAnimationFrame(gameLoop);
+    const dt = Math.min(time - lastTime, 50);
+    lastTime = time;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Starfield background
+    ctx.save();
+    const bgT = time * 0.0003;
+    for (let i = 0; i < 60; i++) {
+      const sx = (Math.sin(i * 13.7 + bgT) * 0.5 + 0.5) * canvas.width;
+      const sy = (Math.cos(i * 9.3 + bgT * 0.7) * 0.5 + 0.5) * canvas.height;
+      ctx.globalAlpha = 0.08 + Math.sin(bgT * 2 + i) * 0.06;
+      ctx.fillStyle = '#ff6b00';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    if (state === 'start') {
+      drawStartScreen();
+      return;
+    }
+
+    if (state === 'over') {
+      drawGameOverScreen();
+      return;
+    }
+
+    // --- Play state ---
+    elapsed += dt;
+    fallSpeed = BASE_FALL_SPEED + elapsed * SPEED_INCREASE;
+    spawnInterval = Math.max(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_BASE - elapsed * 0.08);
+
+    // Bun float
+    bunFloat = Math.sin(time * 0.004) * 5;
+
+    // Move bun
+    bunW = Math.max(80, canvas.width * BUN_WIDTH_RATIO);
+    bunH = Math.max(30, canvas.height * BUN_HEIGHT_RATIO);
+    bunY = canvas.height - BUN_Y_OFFSET;
+    if (inputX !== null) {
+      const targetX = Math.max(bunW / 2, Math.min(canvas.width - bunW / 2, inputX));
+      bunX += (targetX - bunX) * 0.15;
+    }
+
+    // Spawn
+    spawnTimer += dt;
+    if (spawnTimer >= spawnInterval) {
+      spawnTimer = 0;
+      spawnItem();
+    }
+
+    // Update falling items
+    for (let i = fallingItems.length - 1; i >= 0; i--) {
+      const item = fallingItems[i];
+      item.y += item.speed * (dt / 16);
+      item.rot += item.rotSpeed;
+
+      // Check catch
+      const catchY = bunY + bunFloat;
+      if (
+        item.y + item.size > catchY - bunH / 2 &&
+        item.y - item.size < catchY + bunH / 2 &&
+        item.x > bunX - bunW / 2 - item.size * 0.5 &&
+        item.x < bunX + bunW / 2 + item.size * 0.5
+      ) {
+        if (item.isBad) {
+          lives--;
+          combo = 0;
+          emitParticles(item.x, item.y, '#ff3131', 12);
+          if (lives <= 0) { state = 'over'; }
+        } else {
+          score += item.def.points * (1 + Math.floor(combo / 5));
+          combo++;
+          if (combo > maxCombo) maxCombo = combo;
+          toppingsStack.push({ def: item.def });
+          emitParticles(item.x, item.y, item.def.glow, 10);
+        }
+        fallingItems.splice(i, 1);
+        continue;
+      }
+
+      // Fell off screen
+      if (item.y > canvas.height + item.size) {
+        if (!item.isBad) {
+          missed++;
+          combo = 0;
+          if (missed >= MISS_LIMIT) { state = 'over'; }
+        }
+        fallingItems.splice(i, 1);
+      }
+    }
+
+    // Update particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.08;
+      p.life -= p.decay;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // --- Draw ---
+    // Trail
+    updateTrail(bunX, bunY + bunFloat);
+    drawTrail();
+
+    // Falling items
+    for (const item of fallingItems) {
+      drawTopping(item.x, item.y, item.size, item.def, item.rot);
+    }
+
+    // Stacked toppings on bun (show last few above bun)
+    const visibleStack = Math.min(toppingsStack.length, 12);
+    const tH = bunH * 0.45;
+    for (let i = 0; i < visibleStack; i++) {
+      const si = toppingsStack.length - visibleStack + i;
+      const ty = bunY + bunFloat - (i + 1) * tH;
+      drawTopping(bunX, ty, bunW * 0.25, toppingsStack[si].def, 0);
+    }
+    // Top bun cap if stacked
+    if (toppingsStack.length > 0) {
+      const topCapY = bunY + bunFloat - (visibleStack + 0.5) * tH;
+      drawBun(bunX, topCapY, bunW * 0.85, bunH * 0.65, 0);
+    }
+
+    // Bun
+    drawBun(bunX, bunY, bunW, bunH, bunFloat);
+
+    // Particles
+    for (const p of particles) {
+      ctx.save();
+      ctx.globalAlpha = p.life;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // HUD
+    drawHUD();
+  }
+
+  initGame();
+  requestAnimationFrame(gameLoop);
+})();
+  </script>
+  <script src="/sloppy-header/sloppy-bar.js"></script>
+</body>
+</html>
