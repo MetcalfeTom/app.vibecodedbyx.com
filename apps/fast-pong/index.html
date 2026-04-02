@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Fast Pong</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🏓">
+<meta property="og:title" content="Fast Pong">
+<meta property="og:description" content="Ultra-fast pong. How long can you keep up?">
+<meta property="og:url" content="https://sloppy.live/fast-pong">
+<meta property="og:image" content="https://emojicdn.elk.sh/🏓?style=apple&size=512">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100dvh;overflow:hidden;background:#000;font-family:'Space Mono',monospace;color:#0ff;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block;position:absolute;top:0;left:0}
+#hud{position:fixed;top:12px;left:0;right:0;display:flex;justify-content:center;gap:40px;font-size:28px;font-weight:700;letter-spacing:4px;z-index:2;pointer-events:none}
+#hud span{text-shadow:0 0 6px #0ff4}
+#stats{position:fixed;top:48px;left:0;right:0;display:flex;justify-content:center;gap:24px;font-size:11px;font-weight:400;opacity:0.5;z-index:2;pointer-events:none;letter-spacing:1px}
+#controls{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:13px;opacity:0.6;z-index:3;text-align:center;line-height:2;pointer-events:none;transition:opacity 0.5s}
+#controls.hidden{opacity:0}
+#serve-msg{position:fixed;top:60%;left:50%;transform:translate(-50%,-50%);font-size:14px;opacity:0;z-index:3;pointer-events:none;transition:opacity 0.3s;letter-spacing:2px}
+#serve-msg.show{opacity:0.6}
+#win-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;background:rgba(0,0,0,0.85);z-index:10}
+#win-overlay h1{font-size:clamp(24px,5vw,40px);font-weight:700;letter-spacing:6px}
+#win-overlay button{font-family:'Space Mono',monospace;font-size:14px;padding:10px 24px;background:transparent;border:1px solid #0ff;color:#0ff;cursor:pointer;letter-spacing:2px}
+#win-overlay button:hover{background:#0ff1}
+#back{position:fixed;bottom:8px;left:12px;font-size:10px;opacity:0.2;color:#0ff;text-decoration:none;z-index:5;letter-spacing:1px}
+#back:hover{opacity:0.5}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><span id="s1">0</span><span id="s2">0</span></div>
+<div id="stats"><span id="spd">SPD 8.0</span><span id="rally">RALLY 0</span></div>
+<div id="controls">MOVE: MOUSE / TOUCH / W,S<br>SERVE: SPACE / TAP</div>
+<div id="serve-msg">SPACE / TAP TO SERVE</div>
+<div id="win-overlay"><h1 id="win-text"></h1><button id="restart-btn">PLAY AGAIN</button></div>
+<a id="back" href="https://sloppy.live">sloppy.live</a>
+
+<script>
+(function(){
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const s1El=document.getElementById('s1'),s2El=document.getElementById('s2');
+const spdEl=document.getElementById('spd'),rallyEl=document.getElementById('rally');
+const ctrlEl=document.getElementById('controls'),serveEl=document.getElementById('serve-msg');
+const winOverlay=document.getElementById('win-overlay'),winText=document.getElementById('win-text');
+const restartBtn=document.getElementById('restart-btn');
+
+let W,H,dpr;
+const PAD_W=8,PAD_H_RATIO=0.12,BALL_SIZE=6;
+const INIT_SPEED=8,MAX_SPEED=25,ACCEL=1.05;
+const WIN_SCORE=11;
+const TRAIL_LEN=5;
+
+let padH,padMargin;
+let p1y,p2y,ballX,ballY,ballVX,ballVY;
+let score1=0,score2=0,rallyCount=0,currentSpeed=INIT_SPEED;
+let serving=true,serveDir=1;
+let flashFrames=0,shakeFrames=0,shakeX=0,shakeY=0;
+let trail=[];
+let gameOver=false;
+let lastTime=0;
+let ctrlTimer=null;
+let mouseY=null;
+let keysDown={};
+
+function resize(){
+  dpr=window.devicePixelRatio||1;
+  W=window.innerWidth;H=window.innerHeight;
+  cv.width=W*dpr;cv.height=H*dpr;
+  cv.style.width=W+'px';cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  padH=Math.max(50,H*PAD_H_RATIO);
+  padMargin=20;
+  if(p1y===undefined){p1y=H/2;p2y=H/2}
+}
+resize();
+window.addEventListener('resize',resize);
+
+function resetBall(dir){
+  ballX=W/2;ballY=H/2;
+  currentSpeed=INIT_SPEED;
+  rallyCount=0;
+  trail=[];
+  serving=true;
+  serveDir=dir;
+  ballVX=0;ballVY=0;
+  serveEl.classList.add('show');
+  updateStats();
+}
+
+function serveBall(){
+  if(!serving||gameOver)return;
+  serving=false;
+  serveEl.classList.remove('show');
+  let angle=(Math.random()*0.8-0.4);
+  ballVX=Math.cos(angle)*currentSpeed*serveDir;
+  ballVY=Math.sin(angle)*currentSpeed;
+  hideControls();
+}
+
+function hideControls(){
+  if(ctrlTimer)return;
+  ctrlTimer=setTimeout(()=>{ctrlEl.classList.add('hidden')},100);
+}
+
+function updateStats(){
+  spdEl.textContent='SPD '+currentSpeed.toFixed(1);
+  rallyEl.textContent='RALLY '+rallyCount;
+}
+
+function pointScored(who){
+  if(who===1)score1++;else score2++;
+  s1El.textContent=score1;s2El.textContent=score2;
+  shakeFrames=3;
+  if(score1>=WIN_SCORE||score2>=WIN_SCORE){
+    gameOver=true;
+    winText.textContent=score1>=WIN_SCORE?'YOU WIN':'AI WINS';
+    winOverlay.style.display='flex';
+    return;
+  }
+  resetBall(who===1?1:-1);
+}
+
+function restartGame(){
+  score1=0;score2=0;
+  s1El.textContent='0';s2El.textContent='0';
+  gameOver=false;
+  winOverlay.style.display='none';
+  resetBall(1);
+}
+restartBtn.addEventListener('click',restartGame);
+
+// Input
+window.addEventListener('mousemove',e=>{mouseY=e.clientY});
+window.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  mouseY=e.touches[0].clientY;
+},{passive:false});
+window.addEventListener('touchstart',e=>{
+  mouseY=e.touches[0].clientY;
+  if(serving)serveBall();
+},{passive:false});
+window.addEventListener('keydown',e=>{
+  keysDown[e.key]=true;
+  if(e.key===' '||e.key==='Enter'){serveBall();e.preventDefault()}
+});
+window.addEventListener('keyup',e=>{keysDown[e.key]=false});
+window.addEventListener('click',()=>{if(serving)serveBall()});
+
+function updatePaddles(dt){
+  // Player paddle — raw position for minimum latency
+  const kbSpeed=600*dt;
+  if(mouseY!==null){
+    p1y=mouseY;
+  }
+  if(keysDown['w']||keysDown['W']||keysDown['ArrowUp']){p1y-=kbSpeed}
+  if(keysDown['s']||keysDown['S']||keysDown['ArrowDown']){p1y+=kbSpeed}
+  p1y=Math.max(padH/2,Math.min(H-padH/2,p1y));
+
+  // AI paddle — tracks ball with prediction, beatable
+  if(!serving){
+    let targetY=ballY;
+    if(ballVX>0){
+      let timeToReach=(W-padMargin-PAD_W-ballX)/Math.max(Math.abs(ballVX),0.1);
+      targetY=ballY+ballVY*timeToReach*0.6;
+      // Bounce predict
+      while(targetY<0||targetY>H){
+        if(targetY<0)targetY=-targetY;
+        if(targetY>H)targetY=2*H-targetY;
+      }
+    }
+    let aiSpeed=Math.min(currentSpeed*0.85,18)*60*dt;
+    let diff=targetY-p2y;
+    if(Math.abs(diff)>2){
+      p2y+=Math.sign(diff)*Math.min(Math.abs(diff),aiSpeed);
+    }
+  }
+  p2y=Math.max(padH/2,Math.min(H-padH/2,p2y));
+}
+
+function updateBall(dt){
+  if(serving)return;
+  const steps=Math.ceil(Math.abs(ballVX)*dt*60/PAD_W);
+  const subDt=dt/steps;
+  for(let i=0;i<steps;i++){
+    let nx=ballX+ballVX*subDt*60;
+    let ny=ballY+ballVY*subDt*60;
+
+    // Top/bottom walls
+    if(ny-BALL_SIZE/2<0){ny=BALL_SIZE/2;ballVY=-ballVY}
+    if(ny+BALL_SIZE/2>H){ny=H-BALL_SIZE/2;ballVY=-ballVY}
+
+    // Left paddle collision (player)
+    let px1=padMargin+PAD_W;
+    if(ballX>=px1&&nx<px1&&ballVX<0){
+      let t=(ballX-px1)/(ballX-nx);
+      let hitY=ballY+(ny-ballY)*t;
+      if(hitY>=p1y-padH/2-BALL_SIZE/2&&hitY<=p1y+padH/2+BALL_SIZE/2){
+        nx=px1+BALL_SIZE/2;
+        let rel=(hitY-p1y)/(padH/2);
+        let angle=rel*Math.PI*0.35;
+        currentSpeed=Math.min(currentSpeed*ACCEL,MAX_SPEED);
+        ballVX=Math.cos(angle)*currentSpeed;
+        ballVY=Math.sin(angle)*currentSpeed;
+        rallyCount++;flashFrames=2;
+        updateStats();
+      }
+    }
+
+    // Right paddle collision (AI)
+    let px2=W-padMargin-PAD_W;
+    if(ballX<=px2&&nx>px2&&ballVX>0){
+      let t=(px2-ballX)/(nx-ballX);
+      let hitY=ballY+(ny-ballY)*t;
+      if(hitY>=p2y-padH/2-BALL_SIZE/2&&hitY<=p2y+padH/2+BALL_SIZE/2){
+        nx=px2-BALL_SIZE/2;
+        let rel=(hitY-p2y)/(padH/2);
+        let angle=Math.PI-rel*Math.PI*0.35;
+        currentSpeed=Math.min(currentSpeed*ACCEL,MAX_SPEED);
+        ballVX=Math.cos(angle)*currentSpeed;
+        ballVY=Math.sin(angle)*currentSpeed;
+        rallyCount++;flashFrames=2;
+        updateStats();
+      }
+    }
+
+    ballX=nx;ballY=ny;
+
+    // Score
+    if(ballX<-BALL_SIZE){pointScored(2);return}
+    if(ballX>W+BALL_SIZE){pointScored(1);return}
+  }
+
+  // Trail
+  trail.push({x:ballX,y:ballY});
+  if(trail.length>TRAIL_LEN)trail.shift();
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  // Screen shake offset
+  let ox=0,oy=0;
+  if(shakeFrames>0){
+    ox=(Math.random()-0.5)*4;oy=(Math.random()-0.5)*4;
+    shakeFrames--;
+  }
+  ctx.save();
+  ctx.translate(ox,oy);
+
+  // Dashed center line
+  ctx.strokeStyle='#0ff2';
+  ctx.lineWidth=1;
+  ctx.setLineDash([6,8]);
+  ctx.beginPath();ctx.moveTo(W/2,0);ctx.lineTo(W/2,H);ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Flash
+  let col=flashFrames>0?'#fff':'#0ff';
+  if(flashFrames>0)flashFrames--;
+
+  // Paddles
+  ctx.shadowColor=col;ctx.shadowBlur=6;
+  ctx.fillStyle=col;
+  ctx.fillRect(padMargin,p1y-padH/2,PAD_W,padH);
+  ctx.fillRect(W-padMargin-PAD_W,p2y-padH/2,PAD_W,padH);
+
+  // Ball trail
+  ctx.shadowBlur=0;
+  for(let i=0;i<trail.length-1;i++){
+    let a=(i+1)/trail.length*0.3;
+    ctx.fillStyle='rgba(0,255,255,'+a+')';
+    let s=BALL_SIZE*(0.5+0.5*(i+1)/trail.length);
+    ctx.fillRect(trail[i].x-s/2,trail[i].y-s/2,s,s);
+  }
+
+  // Ball
+  if(!serving){
+    ctx.shadowColor=col;ctx.shadowBlur=8;
+    ctx.fillStyle=col;
+    ctx.fillRect(ballX-BALL_SIZE/2,ballY-BALL_SIZE/2,BALL_SIZE,BALL_SIZE);
+  }
+
+  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
+function loop(time){
+  if(!lastTime)lastTime=time;
+  let dt=Math.min((time-lastTime)/1000,0.05);
+  lastTime=time;
+
+  if(!gameOver){
+    updatePaddles(dt);
+    updateBall(dt);
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+resetBall(1);
+requestAnimationFrame(loop);
+
+// Fade controls after 3s
+setTimeout(()=>{ctrlEl.classList.add('hidden')},3000);
+})();
+</script>
+<script src="/sloppy-header/sloppy-bar.js"></script>
+</body>
+</html>
