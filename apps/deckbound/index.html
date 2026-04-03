@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Deckbound</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🃏" type="image/png">
+<meta property="og:title" content="Deckbound — Cyberpunk Driving Roguelike">
+<meta property="og:description" content="Drive neon streets, play cards to survive. Procedural roads, pit stops, and escalating chaos.">
+<meta property="og:url" content="https://sloppy.live/deckbound">
+<meta property="og:image" content="https://sloppy.live/deckbound/og-image.png">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a12;font-family:'Share Tech Mono',monospace;color:#ccc;touch-action:none;user-select:none}
+canvas{display:block;width:100%;height:100%}
+#backlink{position:fixed;bottom:6px;left:8px;font-size:11px;color:#333;text-decoration:none;z-index:999;font-family:'Share Tech Mono',monospace}
+#backlink:hover{color:#00ffff}
+</style>
+</head>
+<body>
+<canvas id="g"></canvas>
+<a id="backlink" href="https://sloppy.live" target="_blank">sloppy.live</a>
+<script>
+(function(){
+const C=document.getElementById('g');
+const X=C.getContext('2d');
+let W,H;
+function resize(){W=C.width=window.innerWidth;H=C.height=window.innerHeight}
+resize();
+window.addEventListener('resize',resize);
+
+// --- CONSTANTS ---
+const LANE_COUNT=3;
+const CAR_W=30,CAR_H=50;
+const BASE_SPEED=2.5;
+const MAX_SPEED=8;
+const SPEED_RAMP=0.003;
+const BOOST_SPEED_MULT=1.8;
+const BOOST_DUR=3000;
+const SHIELD_DUR=5000;
+const SLOWMO_DUR=4000;
+const MAGNET_DUR=5000;
+const CARD_COOLDOWN=2000;
+const PIT_STOP_EVERY=500;
+const BIOME_EVERY=30000;
+const MAX_HEALTH=3;
+const MAX_HAND=3;
+const OBSTACLE_MIN_GAP=120;
+
+// --- CARD TYPES ---
+const CARD_TYPES=['BOOST','SHIELD','EMP','REPAIR','SLOW-MO','MAGNET'];
+const CARD_COLORS={BOOST:'#ff6622',SHIELD:'#2288ff',EMP:'#ff00ff','REPAIR':'#22ff66','SLOW-MO':'#00ccff',MAGNET:'#ffcc00'};
+const CARD_ICONS={BOOST:'⚡',SHIELD:'🛡',EMP:'💥','REPAIR':'💚','SLOW-MO':'⏳',MAGNET:'🧲'};
+
+// --- BIOMES ---
+const BIOMES=[
+  {name:'NEON CITY',barrier:'#00ffff',bg:'#0a0a12',road:'#1a1a2e',lane:'#00ffff'},
+  {name:'INDUSTRIAL',barrier:'#ff8800',bg:'#0d0a06',road:'#1e1a14',lane:'#ff8800'},
+  {name:'UNDERGROUND',barrier:'#cc44ff',bg:'#0a0610',road:'#1a142e',lane:'#cc44ff'}
+];
+
+// --- GAME STATE ---
+let state='title'; // title, play, pitstop, gameover
+let distance=0;
+let speed=BASE_SPEED;
+let health=MAX_HEALTH;
+let playerLane=1; // 0,1,2
+let playerX=0,playerTargetX=0;
+let playerTilt=0;
+let hand=[];
+let cardsUsed=0;
+let lastCardTime=0;
+let boostEnd=0,shieldEnd=0,slowmoEnd=0,magnetEnd=0;
+let biomeIdx=0,biomeStart=0;
+let nextPitStop=PIT_STOP_EVERY;
+let pitStopCards=[];
+let pitStopDiscardIdx=-1;
+let obstacles=[];
+let pickups=[];
+let particles=[];
+let bgStars=[];
+let empWave=null;
+let scrollY=0;
+let gameTime=0;
+let lastTime=0;
+let titleAnim=0;
+let biomeFlashAlpha=0;
+let biomeFlashName='';
+let roadChunks=[];
+let chunkY=0;
+const CHUNK_H=200;
+
+// --- ROAD CHUNKS ---
+// Each chunk: {type, offsetX (road center shift from prev), widthMult}
+function randChunk(){
+  const types=['straight','straight','straight','curve-left','curve-right','wide','narrow'];
+  const t=types[Math.floor(Math.random()*types.length)];
+  let ox=0,wm=1;
+  if(t==='curve-left')ox=-40;
+  if(t==='curve-right')ox=40;
+  if(t==='wide')wm=1.3;
+  if(t==='narrow')wm=0.75;
+  return{type:t,offsetX:ox,widthMult:wm}
+}
+
+function initRoadChunks(){
+  roadChunks=[];
+  let y=0;
+  for(let i=0;i<20;i++){
+    const ch=i===0?{type:'straight',offsetX:0,widthMult:1}:randChunk();
+    roadChunks.push({...ch,y:y});
+    y-=CHUNK_H;
+  }
+  chunkY=y;
+}
+
+// --- INIT ---
+function initStars(){
+  bgStars=[];
+  for(let i=0;i<80;i++){
+    bgStars.push({x:Math.random()*2000-500,y:Math.random()*2000-500,s:Math.random()*1.5+0.5,b:Math.random()});
+  }
+}
+
+function initGame(){
+  distance=0;speed=BASE_SPEED;health=MAX_HEALTH;
+  playerLane=1;playerTilt=0;
+  hand=[];cardsUsed=0;lastCardTime=0;
+  boostEnd=0;shieldEnd=0;slowmoEnd=0;magnetEnd=0;
+  biomeIdx=0;biomeStart=gameTime;
+  nextPitStop=PIT_STOP_EVERY;
+  obstacles=[];pickups=[];particles=[];
+  empWave=null;scrollY=0;
+  pitStopCards=[];pitStopDiscardIdx=-1;
+  // Give 3 random starting cards
+  for(let i=0;i<3;i++)hand.push(randCard());
+  initRoadChunks();
+}
+
+function randCard(){return CARD_TYPES[Math.floor(Math.random()*CARD_TYPES.length)]}
+
+// --- ROAD GEOMETRY ---
+function getRoadWidth(){return Math.min(W*0.55,260)}
+function getRoadCenterAtY(sy){
+  // Walk chunks to find center offset at screen-y
+  let cx=W/2;
+  let cumOffset=0;
+  for(let i=0;i<roadChunks.length;i++){
+    const ch=roadChunks[i];
+    const cy=ch.y+scrollY;
+    const cy2=cy+CHUNK_H;
+    if(sy>=cy&&sy<cy2){
+      const t=(sy-cy)/CHUNK_H;
+      cumOffset+=ch.offsetX*t;
+      const prevOff=i>0?roadChunks.slice(0,i).reduce((a,c)=>a+c.offsetX,0):0;
+      cx=W/2+prevOff+ch.offsetX*t;
+      return{cx:cx,wm:ch.widthMult};
+    }
+  }
+  return{cx:W/2,wm:1};
+}
+
+function getLaneX(lane,sy){
+  const r=getRoadWidth();
+  const info=getRoadCenterAtY(sy);
+  const rw=r*info.wm;
+  const laneW=rw/LANE_COUNT;
+  return info.cx-rw/2+laneW*lane+laneW/2;
+}
+
+// --- SPAWN ---
+let spawnTimer=0;
+function spawnObstacles(dt){
+  spawnTimer-=dt*speed;
+  if(spawnTimer>0)return;
+  spawnTimer=OBSTACLE_MIN_GAP+Math.random()*80;
+  const lane=Math.floor(Math.random()*LANE_COUNT);
+  const sy=-60+scrollY;
+  if(Math.random()<0.3){
+    // Pickup
+    pickups.push({lane:lane,y:-60,collected:false});
+  } else {
+    // Obstacle
+    const isOil=Math.random()<0.3;
+    obstacles.push({lane:lane,y:-60,type:isOil?'oil':'barrier'});
+  }
+}
+
+// --- PARTICLES ---
+function addParticle(x,y,color,vx,vy,life,size){
+  particles.push({x,y,color,vx:vx||0,vy:vy||0,life,maxLife:life,size:size||3});
+}
+
+function addBoostFlame(){
+  const py=playerScreenY()+CAR_H/2;
+  const px=playerX;
+  for(let i=0;i<3;i++){
+    addParticle(px+(Math.random()-0.5)*12,py,Math.random()<0.5?'#ff6622':'#ffcc00',(Math.random()-0.5)*1.5,2+Math.random()*2,400+Math.random()*300,4+Math.random()*3);
+  }
+}
+
+function playerScreenY(){return H*0.72}
+
+// --- INPUT ---
+const keys={};
+window.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(state==='title'&&(e.code==='Space'||e.code==='Enter')){startGame();e.preventDefault()}
+  if(state==='play'){
+    if(e.code==='Digit1'||e.code==='Numpad1')useCard(0);
+    if(e.code==='Digit2'||e.code==='Numpad2')useCard(1);
+    if(e.code==='Digit3'||e.code==='Numpad3')useCard(2);
+  }
+  if(state==='pitstop'){
+    if(e.code==='Digit1'||e.code==='Numpad1')pickPitCard(0);
+    if(e.code==='Digit2'||e.code==='Numpad2')pickPitCard(1);
+    if(e.code==='Digit3'||e.code==='Numpad3')pickPitCard(2);
+  }
+  if(state==='gameover'&&(e.code==='Space'||e.code==='Enter')){startGame();e.preventDefault()}
+  e.preventDefault();
+});
+window.addEventListener('keyup',e=>{keys[e.code]=false});
+
+let touchStartX=null;
+C.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const t=e.touches[0];
+  touchStartX=t.clientX;
+  if(state==='title'){startGame();return}
+  if(state==='gameover'){startGame();return}
+  if(state==='pitstop'){
+    // Check pit card taps
+    const cy=H*0.45;
+    const cw=100,ch=140,gap=20;
+    const totalW=pitStopCards.length*(cw+gap)-gap;
+    const sx=(W-totalW)/2;
+    for(let i=0;i<pitStopCards.length;i++){
+      const cx=sx+i*(cw+gap);
+      if(t.clientX>=cx&&t.clientX<=cx+cw&&t.clientY>=cy&&t.clientY<=cy+ch){
+        pickPitCard(i);return;
+      }
+    }
+    return;
+  }
+  if(state==='play'){
+    // Check card taps at bottom
+    const cardY=H-70;
+    const cardW=70,cardH2=50,cardGap=10;
+    const totalCW=hand.length*(cardW+cardGap)-cardGap;
+    const startCX=(W-totalCW)/2;
+    for(let i=0;i<hand.length;i++){
+      const cx=startCX+i*(cardW+cardGap);
+      if(t.clientX>=cx&&t.clientX<=cx+cardW&&t.clientY>=cardY&&t.clientY<=cardY+cardH2){
+        useCard(i);return;
+      }
+    }
+    // Boost if double tap center
+    // Left/right movement
+    if(t.clientX<W/3)movePlayer(-1);
+    else if(t.clientX>W*2/3)movePlayer(1);
+    else{boostEnd=gameTime+BOOST_DUR} // center tap = boost
+  }
+});
+C.addEventListener('touchmove',e=>{e.preventDefault()});
+C.addEventListener('touchend',e=>{e.preventDefault()});
+
+// Click support for desktop
+C.addEventListener('click',e=>{
+  if(state==='title'){startGame();return}
+  if(state==='gameover'){startGame();return}
+  if(state==='pitstop'){
+    const cy=H*0.45;
+    const cw=100,ch=140,gap=20;
+    const totalW=pitStopCards.length*(cw+gap)-gap;
+    const sx=(W-totalW)/2;
+    for(let i=0;i<pitStopCards.length;i++){
+      const cx=sx+i*(cw+gap);
+      if(e.clientX>=cx&&e.clientX<=cx+cw&&e.clientY>=cy&&e.clientY<=cy+ch){
+        pickPitCard(i);return;
+      }
+    }
+  }
+  if(state==='play'){
+    const cardY=H-70;
+    const cardW=70,cardH2=50,cardGap=10;
+    const totalCW=hand.length*(cardW+cardGap)-cardGap;
+    const startCX=(W-totalCW)/2;
+    for(let i=0;i<hand.length;i++){
+      const cx=startCX+i*(cardW+cardGap);
+      if(e.clientX>=cx&&e.clientX<=cx+cardW&&e.clientY>=cardY&&e.clientY<=cardY+cardH2){
+        useCard(i);return;
+      }
+    }
+  }
+});
+
+function movePlayer(dir){
+  const nl=playerLane+dir;
+  if(nl>=0&&nl<LANE_COUNT){
+    playerLane=nl;
+    playerTilt=dir*0.3;
+  }
+}
+
+function startGame(){
+  state='play';
+  initGame();
+}
+
+// --- CARDS ---
+function useCard(idx){
+  if(idx>=hand.length)return;
+  if(gameTime-lastCardTime<CARD_COOLDOWN)return;
+  const card=hand[idx];
+  hand.splice(idx,1);
+  lastCardTime=gameTime;
+  cardsUsed++;
+  switch(card){
+    case'BOOST':boostEnd=gameTime+BOOST_DUR;break;
+    case'SHIELD':shieldEnd=gameTime+SHIELD_DUR;break;
+    case'EMP':
+      empWave={x:playerX,y:playerScreenY(),r:0,maxR:Math.max(W,H)};
+      obstacles=[];
+      break;
+    case'REPAIR':health=Math.min(MAX_HEALTH,health+1);
+      for(let i=0;i<15;i++)addParticle(playerX+(Math.random()-0.5)*40,playerScreenY()+(Math.random()-0.5)*40,'#22ff66',(Math.random()-0.5)*3,(Math.random()-0.5)*3,600,4);
+      break;
+    case'SLOW-MO':slowmoEnd=gameTime+SLOWMO_DUR;break;
+    case'MAGNET':magnetEnd=gameTime+MAGNET_DUR;break;
+  }
+}
+
+// --- PIT STOP ---
+function enterPitStop(){
+  state='pitstop';
+  pitStopCards=[];
+  for(let i=0;i<3;i++)pitStopCards.push(randCard());
+  pitStopDiscardIdx=-1;
+}
+
+function pickPitCard(idx){
+  if(idx>=pitStopCards.length)return;
+  const card=pitStopCards[idx];
+  if(hand.length<MAX_HAND){
+    hand.push(card);
+    state='play';
+    nextPitStop=distance+PIT_STOP_EVERY;
+  } else {
+    // Need to discard first — for simplicity, just replace oldest
+    hand.shift();
+    hand.push(card);
+    state='play';
+    nextPitStop=distance+PIT_STOP_EVERY;
+  }
+}
+
+// --- UPDATE ---
+function update(dt){
+  if(state==='title'){titleAnim+=dt;return}
+  if(state!=='play')return;
+
+  const now=gameTime;
+  const isBoosted=now<boostEnd;
+  const isSlowmo=now<slowmoEnd;
+  const isMagnet=now<magnetEnd;
+
+  // Speed ramp
+  let curSpeed=Math.min(BASE_SPEED+distance*SPEED_RAMP,MAX_SPEED);
+  if(isBoosted)curSpeed*=BOOST_SPEED_MULT;
+  if(isSlowmo)curSpeed*=0.5;
+  speed=curSpeed;
+
+  // Keyboard movement
+  if(keys['ArrowLeft']||keys['KeyA']){if(!keys._lp){movePlayer(-1);keys._lp=true}}else{keys._lp=false}
+  if(keys['ArrowRight']||keys['KeyD']){if(!keys._rp){movePlayer(1);keys._rp=true}}else{keys._rp=false}
+  if(keys['Space'])boostEnd=Math.max(boostEnd,now+100);
+
+  // Scroll
+  const scrollAmt=speed*dt*0.06;
+  scrollY+=scrollAmt*60;
+  distance+=scrollAmt*10;
+
+  // Player position
+  const targetX=getLaneX(playerLane,playerScreenY());
+  playerX+=(targetX-playerX)*0.15;
+  playerTilt*=0.92;
+
+  // Biome
+  const biomeTime=(now-biomeStart)/BIOME_EVERY;
+  if(biomeTime>=1){
+    biomeIdx=(biomeIdx+1)%BIOMES.length;
+    biomeStart=now;
+    biomeFlashAlpha=1;
+    biomeFlashName=BIOMES[biomeIdx].name;
+  }
+  if(biomeFlashAlpha>0)biomeFlashAlpha-=dt*0.001;
+
+  // Spawn
+  spawnObstacles(dt);
+
+  // Update obstacles
+  for(let i=obstacles.length-1;i>=0;i--){
+    obstacles[i].y+=scrollAmt*60;
+    if(obstacles[i].y>H+100){obstacles.splice(i,1);continue}
+    // Collision
+    const ox=getLaneX(obstacles[i].lane,obstacles[i].y+scrollY*0);
+    const oy=obstacles[i].y;
+    const py=playerScreenY();
+    if(Math.abs(ox-playerX)<CAR_W*0.8&&Math.abs(oy-py)<CAR_H*0.6){
+      if(now<shieldEnd){
+        shieldEnd=0;
+        obstacles.splice(i,1);
+        for(let j=0;j<10;j++)addParticle(playerX+(Math.random()-0.5)*30,py,'#2288ff',(Math.random()-0.5)*4,(Math.random()-0.5)*4,400,5);
+      } else {
+        health--;
+        obstacles.splice(i,1);
+        for(let j=0;j<12;j++)addParticle(playerX+(Math.random()-0.5)*30,py,'#ff3344',(Math.random()-0.5)*5,(Math.random()-0.5)*5,500,4);
+        if(health<=0){state='gameover';return}
+      }
+    }
+  }
+
+  // Update pickups
+  for(let i=pickups.length-1;i>=0;i--){
+    pickups[i].y+=scrollAmt*60;
+    if(pickups[i].collected){pickups.splice(i,1);continue}
+    if(pickups[i].y>H+100){pickups.splice(i,1);continue}
+    const px2=getLaneX(pickups[i].lane,pickups[i].y);
+    const py2=pickups[i].y;
+    const ppy=playerScreenY();
+    let collectDist=isMagnet?200:35;
+    if(isMagnet){
+      // Pull toward player
+      const dx=playerX-px2,dy=ppy-py2;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<collectDist&&d>1){
+        pickups[i].y+=dy/d*5;
+        // Also shift lane conceptually
+      }
+    }
+    if(Math.abs(px2-playerX)<40&&Math.abs(py2-ppy)<40){
+      pickups[i].collected=true;
+      if(hand.length<MAX_HAND){
+        hand.push(randCard());
+      }
+      for(let j=0;j<8;j++)addParticle(px2+(Math.random()-0.5)*20,py2,'#ffcc00',(Math.random()-0.5)*3,(Math.random()-0.5)*3,400,3);
+    }
+  }
+
+  // EMP wave
+  if(empWave){
+    empWave.r+=dt*1.2;
+    if(empWave.r>empWave.maxR)empWave=null;
+  }
+
+  // Boost particles
+  if(isBoosted)addBoostFlame();
+
+  // Particles
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;
+    p.life-=dt;
+    if(p.life<=0)particles.splice(i,1);
+  }
+
+  // Road chunks — recycle
+  for(let i=roadChunks.length-1;i>=0;i--){
+    if(roadChunks[i].y+scrollY>H+CHUNK_H){
+      roadChunks.splice(i,1);
+    }
+  }
+  while(roadChunks.length<20){
+    const last=roadChunks[roadChunks.length-1];
+    const ny=last?last.y-CHUNK_H:chunkY-CHUNK_H;
+    const ch=randChunk();
+    roadChunks.push({...ch,y:ny});
+    chunkY=ny;
+  }
+
+  // Stars
+  for(const s of bgStars){
+    s.y+=scrollAmt*30*s.s;
+    if(s.y>H+20){s.y=-20;s.x=Math.random()*W}
+  }
+
+  // Pit stop check
+  if(distance>=nextPitStop){
+    enterPitStop();
+  }
+}
+
+// --- DRAW ---
+function drawBg(){
+  const b=BIOMES[biomeIdx];
+  X.fillStyle=b.bg;
+  X.fillRect(0,0,W,H);
+  // Stars
+  for(const s of bgStars){
+    X.globalAlpha=0.3+s.b*0.4;
+    X.fillStyle='#ffffff';
+    X.fillRect(s.x,s.y,s.s,s.s);
+  }
+  X.globalAlpha=1;
+  // Subtle scanlines
+  X.fillStyle='rgba(0,0,0,0.06)';
+  for(let y=0;y<H;y+=3){
+    X.fillRect(0,y,W,1);
+  }
+}
+
+function drawRoad(){
+  const b=BIOMES[biomeIdx];
+  const rw=getRoadWidth();
+  // Draw road surface per chunk
+  for(const ch of roadChunks){
+    const sy=ch.y+scrollY;
+    if(sy>H+CHUNK_H||sy+CHUNK_H<-CHUNK_H)continue;
+    // Get road geometry at top and bottom of chunk
+    const info1=getRoadCenterAtY(sy);
+    const info2=getRoadCenterAtY(sy+CHUNK_H);
+    const w1=rw*info1.wm,w2=rw*info2.wm;
+    // Road surface
+    X.fillStyle=b.road;
+    X.beginPath();
+    X.moveTo(info1.cx-w1/2,sy);
+    X.lineTo(info1.cx+w1/2,sy);
+    X.lineTo(info2.cx+w2/2,sy+CHUNK_H);
+    X.lineTo(info2.cx-w2/2,sy+CHUNK_H);
+    X.closePath();
+    X.fill();
+    // Barrier walls
+    X.strokeStyle=b.barrier;
+    X.lineWidth=3;
+    X.shadowColor=b.barrier;
+    X.shadowBlur=8;
+    X.beginPath();
+    X.moveTo(info1.cx-w1/2,sy);X.lineTo(info2.cx-w2/2,sy+CHUNK_H);
+    X.stroke();
+    X.beginPath();
+    X.moveTo(info1.cx+w1/2,sy);X.lineTo(info2.cx+w2/2,sy+CHUNK_H);
+    X.stroke();
+    X.shadowBlur=0;
+    // Lane markings (dashed)
+    X.strokeStyle=b.lane;
+    X.globalAlpha=0.3;
+    X.lineWidth=1;
+    X.setLineDash([15,20]);
+    for(let l=1;l<LANE_COUNT;l++){
+      const frac=l/LANE_COUNT;
+      const x1=info1.cx-w1/2+w1*frac;
+      const x2=info2.cx-w2/2+w2*frac;
+      X.beginPath();
+      X.moveTo(x1,sy);X.lineTo(x2,sy+CHUNK_H);
+      X.stroke();
+    }
+    X.setLineDash([]);
+    X.globalAlpha=1;
+  }
+}
+
+function drawCar(){
+  const px=playerX;
+  const py=playerScreenY();
+  const b=BIOMES[biomeIdx];
+  X.save();
+  X.translate(px,py);
+  X.rotate(playerTilt);
+  // Glow
+  const glowColor=gameTime<shieldEnd?'#2288ff':gameTime<boostEnd?'#ff6622':b.barrier;
+  X.shadowColor=glowColor;
+  X.shadowBlur=15;
+  // Body
+  X.fillStyle='#222233';
+  X.beginPath();
+  X.moveTo(-CAR_W/2,CAR_H/2);
+  X.lineTo(-CAR_W/2,-CAR_H/4);
+  X.lineTo(-CAR_W/4,-CAR_H/2);
+  X.lineTo(CAR_W/4,-CAR_H/2);
+  X.lineTo(CAR_W/2,-CAR_H/4);
+  X.lineTo(CAR_W/2,CAR_H/2);
+  X.closePath();
+  X.fill();
+  // Outline
+  X.strokeStyle=glowColor;
+  X.lineWidth=2;
+  X.stroke();
+  // Headlights
+  X.fillStyle='#ffffff';
+  X.shadowColor='#ffffff';
+  X.shadowBlur=10;
+  X.fillRect(-CAR_W/3-2,-CAR_H/2+2,5,8);
+  X.fillRect(CAR_W/3-3,-CAR_H/2+2,5,8);
+  X.shadowBlur=0;
+  // Shield visual
+  if(gameTime<shieldEnd){
+    X.strokeStyle='rgba(34,136,255,0.5)';
+    X.lineWidth=3;
+    X.beginPath();
+    X.arc(0,0,CAR_W*0.9,0,Math.PI*2);
+    X.stroke();
+  }
+  X.restore();
+}
+
+function drawObstacles(){
+  const b=BIOMES[biomeIdx];
+  for(const ob of obstacles){
+    const ox=getLaneX(ob.lane,ob.y);
+    const oy=ob.y;
+    if(oy<-60||oy>H+60)continue;
+    if(ob.type==='barrier'){
+      X.fillStyle='#ff3344';
+      X.shadowColor='#ff3344';
+      X.shadowBlur=8;
+      X.fillRect(ox-18,oy-8,36,16);
+      X.shadowBlur=0;
+    } else {
+      // Oil slick
+      X.fillStyle='rgba(30,30,50,0.8)';
+      X.beginPath();
+      X.arc(ox,oy,14,0,Math.PI*2);
+      X.fill();
+      X.strokeStyle='#334';
+      X.lineWidth=1;
+      X.stroke();
+    }
+  }
+}
+
+function drawPickups(){
+  for(const pk of pickups){
+    if(pk.collected)continue;
+    const px2=getLaneX(pk.lane,pk.y);
+    const py2=pk.y;
+    if(py2<-60||py2>H+60)continue;
+    // Diamond
+    X.fillStyle='#ffcc00';
+    X.shadowColor='#ffcc00';
+    X.shadowBlur=10;
+    X.save();
+    X.translate(px2,py2);
+    X.rotate(Math.PI/4);
+    X.fillRect(-7,-7,14,14);
+    X.restore();
+    X.shadowBlur=0;
+    // Magnet lines
+    if(gameTime<magnetEnd){
+      X.strokeStyle='rgba(255,204,0,0.3)';
+      X.lineWidth=1;
+      X.beginPath();
+      X.moveTo(px2,py2);
+      X.lineTo(playerX,playerScreenY());
+      X.stroke();
+    }
+  }
+}
+
+function drawParticles(){
+  for(const p of particles){
+    const a=p.life/p.maxLife;
+    X.globalAlpha=a;
+    X.fillStyle=p.color;
+    X.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  }
+  X.globalAlpha=1;
+}
+
+function drawEMP(){
+  if(!empWave)return;
+  const a=1-empWave.r/empWave.maxR;
+  X.strokeStyle=`rgba(255,0,255,${a})`;
+  X.lineWidth=3;
+  X.shadowColor='#ff00ff';
+  X.shadowBlur=15;
+  X.beginPath();
+  X.arc(empWave.x,empWave.y,empWave.r,0,Math.PI*2);
+  X.stroke();
+  X.shadowBlur=0;
+}
+
+function drawHUD(){
+  const b=BIOMES[biomeIdx];
+  // Distance
+  X.font='700 20px Orbitron, monospace';
+  X.fillStyle='#fff';
+  X.textAlign='left';
+  X.fillText(Math.floor(distance)+'m',15,35);
+  // Speed
+  X.textAlign='right';
+  X.font='16px "Share Tech Mono", monospace';
+  X.fillStyle=b.barrier;
+  X.fillText(speed.toFixed(1)+'x',W-15,35);
+  // Health
+  X.textAlign='center';
+  X.font='22px "Share Tech Mono", monospace';
+  let healthStr='';
+  for(let i=0;i<MAX_HEALTH;i++){
+    healthStr+=i<health?'◆':'◇';
+  }
+  X.fillStyle=health<=1?'#ff3344':'#00ffff';
+  X.fillText(healthStr,W/2,32);
+  // Biome flash
+  if(biomeFlashAlpha>0){
+    X.globalAlpha=biomeFlashAlpha;
+    X.font='700 28px Orbitron, monospace';
+    X.fillStyle=b.barrier;
+    X.textAlign='center';
+    X.fillText(biomeFlashName,W/2,H*0.3);
+    X.globalAlpha=1;
+  }
+  // Slow-mo overlay
+  if(gameTime<slowmoEnd){
+    X.fillStyle='rgba(0,100,200,0.08)';
+    X.fillRect(0,0,W,H);
+  }
+  // Cards
+  drawCards();
+}
+
+function drawCards(){
+  const cardW=70,cardH=50,gap=10;
+  const total=hand.length*(cardW+gap)-gap;
+  const sx=(W-total)/2;
+  const cy=H-70;
+  for(let i=0;i<hand.length;i++){
+    const card=hand[i];
+    const cx=sx+i*(cardW+gap);
+    const col=CARD_COLORS[card]||'#888';
+    // Card bg
+    X.fillStyle='rgba(10,10,20,0.9)';
+    X.strokeStyle=col;
+    X.lineWidth=2;
+    X.shadowColor=col;
+    X.shadowBlur=6;
+    X.fillRect(cx,cy,cardW,cardH);
+    X.strokeRect(cx,cy,cardW,cardH);
+    X.shadowBlur=0;
+    // Icon
+    X.font='18px "Share Tech Mono"';
+    X.textAlign='center';
+    X.fillStyle='#fff';
+    X.fillText(CARD_ICONS[card]||'?',cx+cardW/2,cy+22);
+    // Name
+    X.font='9px "Share Tech Mono"';
+    X.fillStyle=col;
+    X.fillText(card,cx+cardW/2,cy+38);
+    // Hotkey
+    X.font='10px "Share Tech Mono"';
+    X.fillStyle='#555';
+    X.fillText('['+(i+1)+']',cx+cardW/2,cy+48);
+  }
+  // Cooldown indicator
+  const cdLeft=CARD_COOLDOWN-(gameTime-lastCardTime);
+  if(cdLeft>0){
+    X.font='12px "Share Tech Mono"';
+    X.fillStyle='#ff3344';
+    X.textAlign='center';
+    X.fillText('CD '+(cdLeft/1000).toFixed(1)+'s',W/2,H-78);
+  }
+}
+
+function drawTitle(){
+  drawBg();
+  // Title
+  const pulse=Math.sin(titleAnim*0.003)*0.15+0.85;
+  X.font='900 '+Math.floor(48*pulse)+'px Orbitron, monospace';
+  X.textAlign='center';
+  X.fillStyle='#00ffff';
+  X.shadowColor='#00ffff';
+  X.shadowBlur=20;
+  X.fillText('DECKBOUND',W/2,H*0.35);
+  X.shadowBlur=0;
+  // Subtitle
+  X.font='16px "Share Tech Mono", monospace';
+  X.fillStyle='#ff00ff';
+  X.fillText('CYBERPUNK DRIVING ROGUELIKE',W/2,H*0.35+40);
+  // Prompt
+  const blink=Math.sin(titleAnim*0.005)>0;
+  if(blink){
+    X.font='18px "Share Tech Mono", monospace';
+    X.fillStyle='#ffcc00';
+    X.fillText('PRESS SPACE / TAP TO DRIVE',W/2,H*0.55);
+  }
+  // Card fan
+  const cards=['BOOST','SHIELD','EMP','REPAIR','SLOW-MO','MAGNET'];
+  const fanW=50,fanH=70;
+  X.save();
+  X.translate(W/2,H*0.72);
+  for(let i=0;i<cards.length;i++){
+    const angle=(i-2.5)*0.18+Math.sin(titleAnim*0.002+i)*0.05;
+    X.save();
+    X.rotate(angle);
+    X.translate(0,-60);
+    const col=CARD_COLORS[cards[i]];
+    X.fillStyle='rgba(10,10,20,0.95)';
+    X.strokeStyle=col;
+    X.lineWidth=2;
+    X.shadowColor=col;
+    X.shadowBlur=6;
+    X.fillRect(-fanW/2,-fanH/2,fanW,fanH);
+    X.strokeRect(-fanW/2,-fanH/2,fanW,fanH);
+    X.shadowBlur=0;
+    X.font='20px "Share Tech Mono"';
+    X.textAlign='center';
+    X.fillStyle='#fff';
+    X.fillText(CARD_ICONS[cards[i]],0,0);
+    X.font='8px "Share Tech Mono"';
+    X.fillStyle=col;
+    X.fillText(cards[i],0,16);
+    X.restore();
+  }
+  X.restore();
+  // Controls hint
+  X.font='12px "Share Tech Mono", monospace';
+  X.fillStyle='#444';
+  X.textAlign='center';
+  X.fillText('A/D or ←/→ to steer  |  1/2/3 for cards  |  SPACE to boost',W/2,H*0.92);
+}
+
+function drawPitStop(){
+  // Dim overlay
+  X.fillStyle='rgba(0,0,0,0.6)';
+  X.fillRect(0,0,W,H);
+  // Title
+  X.font='900 36px Orbitron, monospace';
+  X.textAlign='center';
+  X.fillStyle='#ffcc00';
+  X.shadowColor='#ffcc00';
+  X.shadowBlur=15;
+  X.fillText('PIT STOP',W/2,H*0.3);
+  X.shadowBlur=0;
+  X.font='14px "Share Tech Mono", monospace';
+  X.fillStyle='#aaa';
+  X.fillText('Choose a card (1/2/3 or tap)',W/2,H*0.3+30);
+  // Cards
+  const cw=100,ch=140,gap=20;
+  const total=pitStopCards.length*(cw+gap)-gap;
+  const sx=(W-total)/2;
+  const cy=H*0.45;
+  for(let i=0;i<pitStopCards.length;i++){
+    const card=pitStopCards[i];
+    const col=CARD_COLORS[card];
+    const cx=sx+i*(cw+gap);
+    X.fillStyle='rgba(10,10,20,0.95)';
+    X.strokeStyle=col;
+    X.lineWidth=3;
+    X.shadowColor=col;
+    X.shadowBlur=10;
+    X.fillRect(cx,cy,cw,ch);
+    X.strokeRect(cx,cy,cw,ch);
+    X.shadowBlur=0;
+    X.font='32px "Share Tech Mono"';
+    X.textAlign='center';
+    X.fillStyle='#fff';
+    X.fillText(CARD_ICONS[card],cx+cw/2,cy+50);
+    X.font='14px "Share Tech Mono"';
+    X.fillStyle=col;
+    X.fillText(card,cx+cw/2,cy+80);
+    X.font='11px "Share Tech Mono"';
+    X.fillStyle='#666';
+    X.fillText('['+(i+1)+']',cx+cw/2,cy+100);
+  }
+  if(hand.length>=MAX_HAND){
+    X.font='12px "Share Tech Mono"';
+    X.fillStyle='#ff6622';
+    X.fillText('Hand full — oldest card will be replaced',W/2,cy+ch+25);
+  }
+}
+
+function drawGameOver(){
+  X.fillStyle='rgba(0,0,0,0.75)';
+  X.fillRect(0,0,W,H);
+  X.font='900 42px Orbitron, monospace';
+  X.textAlign='center';
+  X.fillStyle='#ff3344';
+  X.shadowColor='#ff3344';
+  X.shadowBlur=20;
+  X.fillText('WRECKED',W/2,H*0.35);
+  X.shadowBlur=0;
+  X.font='20px "Share Tech Mono", monospace';
+  X.fillStyle='#fff';
+  X.fillText('Distance: '+Math.floor(distance)+'m',W/2,H*0.45);
+  X.fillStyle='#ffcc00';
+  X.fillText('Cards used: '+cardsUsed,W/2,H*0.52);
+  const blink=Math.sin(gameTime*0.005)>0;
+  if(blink){
+    X.font='16px "Share Tech Mono", monospace';
+    X.fillStyle='#00ffff';
+    X.fillText('PRESS SPACE / TAP TO RETRY',W/2,H*0.65);
+  }
+}
+
+// --- MAIN LOOP ---
+initStars();
+function loop(ts){
+  const dt=lastTime?ts-lastTime:16;
+  lastTime=ts;
+  gameTime+=dt;
+  update(dt);
+  // Draw
+  if(state==='title'){drawTitle()}
+  else{
+    drawBg();
+    drawRoad();
+    drawObstacles();
+    drawPickups();
+    drawCar();
+    drawParticles();
+    drawEMP();
+    drawHUD();
+    if(state==='pitstop')drawPitStop();
+    if(state==='gameover')drawGameOver();
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+<script src="/sloppy-header/sloppy-bar.js"></script>
+</body>
+</html>
