@@ -10,27 +10,81 @@
 <meta property="og:url" content="https://sloppy.live/glitch-pinball">
 <meta property="og:image" content="https://sloppy.live/glitch-pinball/og-image.png">
 <meta property="og:type" content="website">
-<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Fira Code',monospace}
+html,body{width:100%;height:100%;overflow:hidden;background:#0d0d1a;font-family:'Press Start 2P',monospace}
+#game-wrap{position:relative;width:100%;height:100%}
 canvas{display:block;margin:0 auto;touch-action:none}
-#backlink{position:fixed;bottom:6px;left:8px;font-size:11px;color:#334;text-decoration:none;z-index:99;font-family:'Fira Code',monospace}
-#backlink:hover{color:#0ff}
+#crt-overlay{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
+#crt-overlay::before{
+  content:'';position:absolute;top:0;left:0;width:100%;height:100%;
+  background:repeating-linear-gradient(
+    0deg,
+    rgba(0,0,0,0.15) 0px,
+    rgba(0,0,0,0.15) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  z-index:11;
+}
+#crt-overlay::after{
+  content:'';position:absolute;top:0;left:0;width:100%;height:100%;
+  background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%);
+  z-index:12;
+}
+#backlink{position:fixed;bottom:6px;left:8px;font-size:8px;color:#3a3a4e;text-decoration:none;z-index:99;font-family:'Press Start 2P',monospace}
+#backlink:hover{color:#5bc0be}
 </style>
 </head>
 <body>
+<div id="game-wrap">
 <a id="backlink" href="https://sloppy.live">sloppy.live</a>
 <canvas id="c"></canvas>
+<div id="crt-overlay"></div>
+</div>
 <script>
 (function(){
 const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d');
 
+/* Offscreen buffer for pixel scaling */
+const offCanvas=document.createElement('canvas');
+const offCtx=offCanvas.getContext('2d');
+const OFF_W=290, OFF_H=450;
+offCanvas.width=OFF_W; offCanvas.height=OFF_H;
+offCtx.imageSmoothingEnabled=false;
+
+/* Pixel font loaded flag */
+let pixelFontReady=false;
+document.fonts.ready.then(()=>{pixelFontReady=true;});
+
+/* Retro color palette */
+const PAL={
+  cyan:'#5bc0be',
+  magenta:'#c45baa',
+  yellow:'#d4a843',
+  green:'#6bba62',
+  white:'#e0d6c8',
+  bg:'#1a1a2e',
+  bgDark:'#0d0d1a',
+  wallColor:'#2a3a5a',
+  dimWall:'#1e2a40',
+  gridColor:'#222240',
+  warpPurple:'#8b5fbf',
+  warpLight:'#b88ad8',
+  red:'#c0503a',
+  blue:'#4a6fb5',
+};
+
 /* ============================
    LAYOUT & SCALING
    ============================ */
 let W,H,SCALE,TX,TY,TW,TH;
+/* We use a half-res approach: render to offscreen at 290x450, draw scaled to main canvas */
+let usePixelScale=true;
+let renderW, renderH, renderScale;
+
 function resize(){
   W=window.innerWidth; H=window.innerHeight;
   canvas.width=W; canvas.height=H;
@@ -39,6 +93,9 @@ function resize(){
   else{TH=H*0.94;TW=TH*aspect;}
   TX=(W-TW)/2; TY=(H-TH)/2;
   SCALE=TH/900;
+  renderScale=0.5;
+  renderW=Math.floor(TW*renderScale);
+  renderH=Math.floor(TH*renderScale);
 }
 resize();
 window.addEventListener('resize',resize);
@@ -54,16 +111,22 @@ const FLIPPER_LEN=75;
 const FLIPPER_REST=0.45;
 const FLIPPER_UP=-0.55;
 const FLIPPER_SPEED=0.28;
-const LAUNCHER_CHANNEL_X=510; // left edge of launcher channel
-const LAUNCHER_OUTER_X=575;   // outer wall of launcher
-const LAUNCHER_BALL_X=542;    // ball center X in launcher
-const LAUNCHER_TOP_Y=60;      // top of launcher channel
-const LAUNCHER_BOT_Y=860;     // bottom of launcher
+const LAUNCHER_CHANNEL_X=510;
+const LAUNCHER_OUTER_X=575;
+const LAUNCHER_BALL_X=542;
+const LAUNCHER_TOP_Y=60;
+const LAUNCHER_BOT_Y=860;
 
 /* ============================
-   COORDINATE TRANSFORMS
+   COORDINATE TRANSFORMS (for offscreen half-res canvas)
    ============================ */
 let shakeX=0, shakeY=0, shakeMag=0;
+/* These transform design coords to offscreen pixel coords */
+function otx(x){return (x/DW)*OFF_W + shakeX*0.5;}
+function oty(y){return (y/DH)*OFF_H + shakeY*0.5;}
+function ots(s){return s*OFF_W/DW;}
+
+/* These transform design coords to main canvas coords (for start/gameover screens) */
 function tx(x){return TX+x*TW/DW+shakeX;}
 function ty(y){return TY+y*TH/DH+shakeY;}
 function ts(s){return s*SCALE;}
@@ -106,19 +169,19 @@ let touchL=false, touchR=false, touchLaunch=false;
    BUMPERS
    ============================ */
 const bumpers=[
-  {x:155, y:230, r:28, color:'#0ff'},
-  {x:385, y:210, r:28, color:'#f0f'},
-  {x:270, y:310, r:26, color:'#ff0'},
-  {x:115, y:390, r:22, color:'#0f0'},
-  {x:410, y:370, r:22, color:'#0ff'},
-  {x:270, y:175, r:22, color:'#f0f'},
-  {x:185, y:490, r:20, color:'#ff0'},
-  {x:365, y:480, r:20, color:'#0f0'},
+  {x:155, y:230, r:28, color:PAL.cyan},
+  {x:385, y:210, r:28, color:PAL.magenta},
+  {x:270, y:310, r:26, color:PAL.yellow},
+  {x:115, y:390, r:22, color:PAL.green},
+  {x:410, y:370, r:22, color:PAL.cyan},
+  {x:270, y:175, r:22, color:PAL.magenta},
+  {x:185, y:490, r:20, color:PAL.yellow},
+  {x:365, y:480, r:20, color:PAL.green},
 ];
 bumpers.forEach(b=>{b.flash=0; b.baseR=b.r;});
 
 /* Space-time bumper */
-const stBumper={x:270, y:285, r:36, baseR:36, color:'#fff', flash:0, distort:0, distortAngle:0, hits:0};
+const stBumper={x:270, y:285, r:36, baseR:36, color:PAL.white, flash:0, distort:0, distortAngle:0, hits:0};
 
 /* ============================
    DROP TARGETS
@@ -134,8 +197,8 @@ function resetDropTargets(){dropTargets.forEach(t=>t.alive=true);}
    SLINGSHOTS
    ============================ */
 const slingshots=[
-  {x1:100, y1:DH-170, x2:165, y2:DH-95, color:'#f0f'},
-  {x1:360, y1:DH-170, x2:425, y2:DH-95, color:'#0ff'},
+  {x1:100, y1:DH-170, x2:165, y2:DH-95, color:PAL.magenta},
+  {x1:360, y1:DH-170, x2:425, y2:DH-95, color:PAL.cyan},
 ];
 
 /* ============================
@@ -153,12 +216,8 @@ const GLITCHES=['GRAVITY FLIP','MULTI-BALL','SLOW-MO','TELEPORT','MEGA BALL','ZE
    ============================ */
 function buildWalls(){
   const walls=[];
-
-  /* --- Curved dome top: half-ellipse, 18 segments --- */
-  /* Dome centered over playfield, opens on right side for launcher gap */
   const domeCX=250, domeCY=115, domeRX=225, domeRY=95;
   const domeSegs=18;
-  /* Go from PI (left) to ~0.05*PI (near right), leaving gap for launcher */
   for(let i=0;i<domeSegs;i++){
     let a1=Math.PI - i*(Math.PI*0.90/domeSegs);
     let a2=Math.PI - (i+1)*(Math.PI*0.90/domeSegs);
@@ -169,30 +228,15 @@ function buildWalls(){
       y2: domeCY+Math.sin(a2)*domeRY
     });
   }
-
-  /* --- Left wall: straight from dome bottom-left to near bottom --- */
-  let leftX=domeCX+Math.cos(Math.PI)*domeRX; // ~25
+  let leftX=domeCX+Math.cos(Math.PI)*domeRX;
   walls.push({x1:leftX, y1:domeCY, x2:leftX, y2:DH-30});
-
-  /* --- Right playfield wall: starts below launcher exit (~y=350) to bottom area --- */
-  let rightX=LAUNCHER_CHANNEL_X; // 510
+  let rightX=LAUNCHER_CHANNEL_X;
   walls.push({x1:rightX, y1:350, x2:rightX, y2:DH-30});
-
-  /* --- Launcher deflector at top: angled wall that kicks ball LEFT --- */
-  /* Ball comes up the launcher channel and hits this angled piece */
   walls.push({x1:rightX, y1:80, x2:LAUNCHER_OUTER_X, y2:LAUNCHER_TOP_Y});
-
-  /* --- Launcher channel outer wall --- */
   walls.push({x1:LAUNCHER_OUTER_X, y1:LAUNCHER_TOP_Y, x2:LAUNCHER_OUTER_X, y2:DH-5});
-
-  /* --- Launcher channel inner wall (only below the playfield entry) --- */
-  /* This prevents ball from re-entering launcher from the playfield side */
   walls.push({x1:rightX, y1:LAUNCHER_BOT_Y-160, x2:rightX, y2:DH-5});
-
-  /* --- Bottom drain: angled gutters converging to center drain hole --- */
   walls.push({x1:leftX, y1:DH-30, x2:170, y2:DH-60});
   walls.push({x1:rightX, y1:DH-30, x2:350, y2:DH-60});
-
   return walls;
 }
 const WALLS=buildWalls();
@@ -209,7 +253,7 @@ function clampSpeed(b){
 }
 
 function addPopup(x,y,text,color){
-  scorePopups.push({x,y,text,color:color||'#fff',life:1.0});
+  scorePopups.push({x,y,text,color:color||PAL.white,life:1.0});
 }
 
 function addShake(amount){
@@ -220,7 +264,6 @@ function addShake(amount){
 
 /* ============================
    COLLISION: BALL vs LINE SEGMENT
-   Swept collision with substeps to prevent tunneling
    ============================ */
 function pointLineClosest(px,py,x1,y1,x2,y2){
   let dx=x2-x1, dy=y2-y1;
@@ -236,16 +279,13 @@ function collideBallLine(b, r, x1, y1, x2, y2, restitution, isFlipper, flipAngVe
   let d=dist(b.x,b.y,c.x,c.y);
   if(d<r && d>0.001){
     let nx=(b.x-c.x)/d, ny=(b.y-c.y)/d;
-    /* Push ball out of wall */
     b.x=c.x+nx*(r+0.5);
     b.y=c.y+ny*(r+0.5);
-    /* Reflect velocity */
     let dot=b.vx*nx+b.vy*ny;
-    if(dot<0){ /* only if moving into wall */
+    if(dot<0){
       b.vx-=(1+restitution)*dot*nx;
       b.vy-=(1+restitution)*dot*ny;
     }
-    /* Flipper kick */
     if(isFlipper && flipAngVel){
       let rawKick=Math.abs(flipAngVel)*FLIPPER_LEN;
       let kick=Math.pow(rawKick,1.6)*0.16;
@@ -257,14 +297,11 @@ function collideBallLine(b, r, x1, y1, x2, y2, restitution, isFlipper, flipAngVe
   return false;
 }
 
-/* Swept ball-line: check substeps along motion vector */
 function sweptBallLine(b, r, x1, y1, x2, y2, restitution, isFlipper, flipAngVel){
   let spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
-  /* If speed is low, single check suffices */
   if(spd<r*0.5){
     return collideBallLine(b,r,x1,y1,x2,y2,restitution,isFlipper,flipAngVel);
   }
-  /* Substep: check at current position and at previous position */
   let hit=collideBallLine(b,r,x1,y1,x2,y2,restitution,isFlipper,flipAngVel);
   return hit;
 }
@@ -330,7 +367,7 @@ function pickGlitch(){
 function endGlitch(){
   if(glitchActive==='MULTI-BALL') ghostBalls=[];
   if(glitchActive==='MEGA BALL') delete ball._megaR;
-  score+=300; addPopup(DW/2,DH/2,'+300 GLITCH SURVIVED','#0f0');
+  score+=300; addPopup(DW/2,DH/2,'+300 GLITCH SURVIVED',PAL.green);
   glitchActive=null;
   glitchTimer=10+Math.random()*5;
 }
@@ -348,7 +385,6 @@ function updateBall(b, dt, isGhost){
     b.vx*=0.999; b.vy*=0.999;
   }
 
-  /* Substep motion for tunneling prevention */
   let steps=1;
   let spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
   if(spd*dt>BALL_R*0.8) steps=Math.ceil(spd*dt/(BALL_R*0.8));
@@ -362,12 +398,10 @@ function updateBall(b, dt, isGhost){
     let r=b._megaR||BALL_R;
     let isMega=glitchActive==='MEGA BALL'&&!isGhost;
 
-    /* Wall collisions */
     for(let w of WALLS){
       collideBallLine(b,r,w.x1,w.y1,w.x2,w.y2,0.4,false,0);
     }
 
-    /* Flipper collisions */
     let flippers=[flipperL,flipperR];
     for(let f of flippers){
       let fl=getFlipperLine(f);
@@ -375,7 +409,6 @@ function updateBall(b, dt, isGhost){
       collideBallLine(b,r,fl.x1,fl.y1,fl.x2,fl.y2,0.5,true,angVel);
     }
 
-    /* Bumper collisions */
     for(let bmp of bumpers){
       if(isMega){
         let d2=dist(b.x,b.y,bmp.x,bmp.y);
@@ -394,31 +427,28 @@ function updateBall(b, dt, isGhost){
       }
     }
 
-    /* Space-time bumper */
     if(collideBallCircle(b,r,stBumper.x,stBumper.y,stBumper.baseR,1.4)){
       stBumper.flash=1; stBumper.distort=1; stBumper.hits++;
       stBumper.distortAngle=Math.atan2(b.vy,b.vx);
-      score+=250; addPopup(stBumper.x,stBumper.y,'+250 WARP!','#e0c0ff');
+      score+=250; addPopup(stBumper.x,stBumper.y,'+250 WARP!',PAL.warpLight);
       addShake(10);
     }
 
-    /* Drop targets */
     for(let t of dropTargets){
       if(!t.alive) continue;
       let tcx=t.x+t.w/2, tcy=t.y+t.h/2;
       if(Math.abs(b.x-tcx)<t.w/2+r && Math.abs(b.y-tcy)<t.h/2+r){
         t.alive=false; score+=200;
-        addPopup(t.x,t.y,'+200','#ff0');
+        addPopup(t.x,t.y,'+200',PAL.yellow);
         b.vy=-Math.abs(b.vy)*0.8-2;
         if(dropTargets.every(d=>!d.alive)){
           score+=1000;
-          addPopup(DW/2,500,'+1000 CLEAR BONUS!','#f0f');
+          addPopup(DW/2,500,'+1000 CLEAR!',PAL.magenta);
           setTimeout(resetDropTargets,2000);
         }
       }
     }
 
-    /* Slingshots */
     for(let s of slingshots){
       if(collideBallLine(b,r,s.x1,s.y1,s.x2,s.y2,1.5,false,0)){
         score+=50;
@@ -426,15 +456,13 @@ function updateBall(b, dt, isGhost){
       }
     }
 
-    /* Spinner */
     if(Math.abs(b.x-spinner.x)<spinner.w/2+r && Math.abs(b.y-spinner.y)<r+4){
       let spdS=Math.abs(b.vx)+Math.abs(b.vy);
       spinnerSpeed+=spdS*0.3;
       let rots=Math.floor(spdS/2);
-      if(rots>0){score+=25*rots; addPopup(spinner.x,spinner.y,'+'+25*rots,'#0ff');}
+      if(rots>0){score+=25*rots; addPopup(spinner.x,spinner.y,'+'+25*rots,PAL.cyan);}
     }
 
-    /* Hard boundary clamps */
     if(b.x<25+r){b.x=25+r; b.vx=Math.abs(b.vx)*0.6;}
     if(b.x>LAUNCHER_OUTER_X-r){b.x=LAUNCHER_OUTER_X-r; b.vx=-Math.abs(b.vx)*0.6;}
     if(b.y<20+r){b.y=20+r; b.vy=Math.abs(b.vy)*0.6;}
@@ -442,7 +470,6 @@ function updateBall(b, dt, isGhost){
 
   clampSpeed(b);
 
-  /* Drain detection */
   if(b.y>DH+20){
     if(!isGhost){
       balls--;
@@ -454,7 +481,6 @@ function updateBall(b, dt, isGhost){
     }
   }
 
-  /* Trail */
   b.trail.push({x:b.x,y:b.y});
   if(b.trail.length>12) b.trail.shift();
 }
@@ -465,7 +491,6 @@ function updateBall(b, dt, isGhost){
 function update(dt){
   if(state!=='play') return;
 
-  /* Flipper input */
   let leftActive=keys['ArrowLeft']||keys['KeyA']||touchL;
   let rightActive=keys['ArrowRight']||keys['KeyD']||touchR;
   if(glitchActive==='INVERT CONTROLS'){
@@ -479,7 +504,6 @@ function update(dt){
   flipperL.angle+=(flipperL.target-flipperL.angle)*FLIPPER_SPEED*dt;
   flipperR.angle+=(flipperR.target-flipperR.angle)*FLIPPER_SPEED*dt;
 
-  /* Launcher */
   if(!ballInPlay){
     if(keys['Space']||touchLaunch){
       launching=true;
@@ -492,7 +516,6 @@ function update(dt){
     return;
   }
 
-  /* Glitch timer */
   if(glitchActive){
     glitchCountdown-=dt/60;
     if(glitchCountdown<=0) endGlitch();
@@ -501,24 +524,20 @@ function update(dt){
     if(glitchTimer<=0) pickGlitch();
   }
 
-  /* Update balls */
   updateBall(ball,dt,false);
   for(let g of ghostBalls) updateBall(g,dt,true);
 
-  /* Spinner decay */
   spinnerAngle+=spinnerSpeed*dt;
   spinnerSpeed*=0.97;
 
-  /* Bumper flash decay */
-  for(let b of bumpers){if(b.flash>0) b.flash-=0.05*dt;}
-  if(stBumper.flash>0) stBumper.flash-=0.04*dt;
+  /* Bumper flash: instant on/off (stepped) */
+  for(let b of bumpers){if(b.flash>0) b.flash-=0.08*dt; if(b.flash<0.3) b.flash=0;}
+  if(stBumper.flash>0) stBumper.flash-=0.06*dt; if(stBumper.flash<0.3) stBumper.flash=0;
   if(stBumper.distort>0) stBumper.distort-=0.012*dt;
 
-  /* Popups */
   for(let p of scorePopups){p.y-=0.8*dt; p.life-=0.015*dt;}
   scorePopups=scorePopups.filter(p=>p.life>0);
 
-  /* Shake decay */
   if(shakeMag>0){
     shakeMag*=0.85;
     shakeX=(Math.random()-0.5)*shakeMag;
@@ -528,73 +547,76 @@ function update(dt){
 }
 
 /* ============================
-   DRAWING HELPERS
+   PIXEL DRAWING HELPERS (offscreen)
    ============================ */
-function drawNeonLine(x1,y1,x2,y2,color,width){
-  ctx.save();
-  ctx.shadowColor=color; ctx.shadowBlur=ts(10);
-  ctx.strokeStyle=color; ctx.lineWidth=ts(width||2);
-  ctx.beginPath(); ctx.moveTo(tx(x1),ty(y1)); ctx.lineTo(tx(x2),ty(y2)); ctx.stroke();
-  ctx.restore();
+const C=offCtx; /* shorthand for offscreen context */
+
+function pixLine(x1,y1,x2,y2,color,width){
+  C.strokeStyle=color; C.lineWidth=ots(width||2);
+  C.beginPath(); C.moveTo(otx(x1),oty(y1)); C.lineTo(otx(x2),oty(y2)); C.stroke();
 }
 
-function drawNeonCircle(cx2,cy2,r,color,fill){
-  ctx.save();
-  ctx.shadowColor=color; ctx.shadowBlur=ts(12);
-  ctx.strokeStyle=color; ctx.lineWidth=ts(2);
-  if(fill) ctx.fillStyle=fill;
-  ctx.beginPath(); ctx.arc(tx(cx2),ty(cy2),ts(r),0,Math.PI*2);
-  if(fill) ctx.fill();
-  ctx.stroke(); ctx.restore();
+function pixRect(x,y,w,h,color,fill){
+  if(fill){
+    C.fillStyle=fill;
+    C.fillRect(Math.floor(otx(x)),Math.floor(oty(y)),Math.ceil(ots(w)),Math.ceil(ots(h)));
+  }
+  C.strokeStyle=color; C.lineWidth=ots(2);
+  C.strokeRect(Math.floor(otx(x)),Math.floor(oty(y)),Math.ceil(ots(w)),Math.ceil(ots(h)));
 }
 
-function drawNeonRect(x,y,w,h,color){
-  ctx.save();
-  ctx.shadowColor=color; ctx.shadowBlur=ts(8);
-  ctx.strokeStyle=color; ctx.lineWidth=ts(2);
-  ctx.strokeRect(tx(x),ty(y),ts(w),ts(h));
-  ctx.restore();
+function pixCircle(cx2,cy2,r,color,fill){
+  /* Draw blocky circle: outline with hard pixels */
+  let px=otx(cx2), py=oty(cy2), pr=ots(r);
+  if(fill){
+    C.fillStyle=fill;
+    C.beginPath(); C.arc(px,py,pr,0,Math.PI*2); C.fill();
+  }
+  /* Hard 2px outline */
+  C.strokeStyle=color; C.lineWidth=ots(2);
+  C.beginPath(); C.arc(px,py,pr,0,Math.PI*2); C.stroke();
 }
 
 /* ============================
-   DRAW TABLE
+   DRAW TABLE (offscreen)
    ============================ */
 function drawTable(){
   /* Background */
-  ctx.fillStyle='#0a0e14';
-  ctx.fillRect(tx(20),ty(20),ts(DW-40),ts(DH-40));
+  C.fillStyle=PAL.bg;
+  C.fillRect(otx(20),oty(20),ots(DW-40),ots(DH-40));
 
-  /* Circuit board pattern */
-  ctx.save(); ctx.globalAlpha=0.06; ctx.strokeStyle='#0ff'; ctx.lineWidth=1;
-  for(let i=0;i<20;i++){
-    let y=60+i*42;
-    ctx.beginPath(); ctx.moveTo(tx(30),ty(y)); ctx.lineTo(tx(DW-80),ty(y)); ctx.stroke();
+  /* Subtle grid pattern */
+  C.save(); C.globalAlpha=0.08; C.strokeStyle=PAL.gridColor; C.lineWidth=1;
+  for(let i=0;i<22;i++){
+    let y=40+i*40;
+    C.beginPath(); C.moveTo(otx(30),oty(y)); C.lineTo(otx(DW-80),oty(y)); C.stroke();
   }
-  for(let i=0;i<12;i++){
-    let x=50+i*38;
-    ctx.beginPath(); ctx.moveTo(tx(x),ty(30)); ctx.lineTo(tx(x),ty(DH-30)); ctx.stroke();
+  for(let i=0;i<14;i++){
+    let x=40+i*36;
+    C.beginPath(); C.moveTo(otx(x),oty(30)); C.lineTo(otx(x),oty(DH-30)); C.stroke();
   }
-  ctx.restore();
+  C.restore();
 
-  /* Walls */
+  /* Walls — flat hard lines */
   for(let w of WALLS){
-    drawNeonLine(w.x1,w.y1,w.x2,w.y2,'#1a3a5a',3);
+    pixLine(w.x1,w.y1,w.x2,w.y2,PAL.wallColor,3);
   }
 
   /* Slingshots */
   for(let s of slingshots){
-    drawNeonLine(s.x1,s.y1,s.x2,s.y2,s.color,3);
+    pixLine(s.x1,s.y1,s.x2,s.y2,s.color,3);
   }
 
-  /* Bumpers */
+  /* Bumpers — flat circles with hard outlines */
   for(let b of bumpers){
-    let r=b.baseR+(b.flash>0?b.flash*6:0);
-    let c=b.flash>0.5?'#fff':b.color;
-    drawNeonCircle(b.x,b.y,r,c);
+    let r=b.baseR;
     if(b.flash>0){
-      ctx.save(); ctx.globalAlpha=b.flash*0.4;
-      ctx.fillStyle='#fff'; ctx.beginPath();
-      ctx.arc(tx(b.x),ty(b.y),ts(r),0,Math.PI*2); ctx.fill(); ctx.restore();
+      /* Instant flash: bright fill */
+      pixCircle(b.x,b.y,r+2,PAL.white,PAL.white);
+    } else {
+      /* Outline circle + darker fill */
+      let darkFill=b.color+'33';
+      pixCircle(b.x,b.y,r,b.color,darkFill);
     }
   }
 
@@ -603,305 +625,275 @@ function drawTable(){
 
   /* Drop targets */
   for(let t of dropTargets){
-    if(t.alive) drawNeonRect(t.x,t.y,t.w,t.h,'#ff0');
-    else{
-      ctx.save(); ctx.globalAlpha=0.15;
-      drawNeonRect(t.x,t.y,t.w,t.h,'#440');
-      ctx.restore();
+    if(t.alive){
+      pixRect(t.x,t.y,t.w,t.h,PAL.yellow,PAL.yellow+'44');
+    } else {
+      C.save(); C.globalAlpha=0.2;
+      pixRect(t.x,t.y,t.w,t.h,PAL.yellow+'55');
+      C.restore();
     }
   }
 
   /* Spinner */
-  ctx.save();
-  ctx.translate(tx(spinner.x),ty(spinner.y));
-  ctx.rotate(spinnerAngle);
-  ctx.shadowColor='#0ff'; ctx.shadowBlur=ts(6);
-  ctx.strokeStyle='#0ff'; ctx.lineWidth=ts(2);
-  ctx.beginPath(); ctx.moveTo(ts(-spinner.w/2),0); ctx.lineTo(ts(spinner.w/2),0); ctx.stroke();
-  ctx.restore();
+  C.save();
+  C.translate(otx(spinner.x),oty(spinner.y));
+  C.rotate(spinnerAngle);
+  C.strokeStyle=PAL.cyan; C.lineWidth=ots(2);
+  C.beginPath(); C.moveTo(ots(-spinner.w/2),0); C.lineTo(ots(spinner.w/2),0); C.stroke();
+  C.restore();
 
   /* Launcher area */
-  drawNeonRect(LAUNCHER_CHANNEL_X+5,LAUNCHER_BOT_Y-160,LAUNCHER_OUTER_X-LAUNCHER_CHANNEL_X-10,170,'#334');
+  pixRect(LAUNCHER_CHANNEL_X+5,LAUNCHER_BOT_Y-160,LAUNCHER_OUTER_X-LAUNCHER_CHANNEL_X-10,170,PAL.dimWall);
   if(launching){
-    let h=launchPower*(LAUNCHER_BOT_Y-LAUNCHER_BOT_Y+150);
-    h=launchPower*150;
-    ctx.fillStyle='hsl('+(1-launchPower)*120+',100%,50%)';
-    ctx.fillRect(tx(LAUNCHER_CHANNEL_X+8),ty(LAUNCHER_BOT_Y-h),ts(LAUNCHER_OUTER_X-LAUNCHER_CHANNEL_X-16),ts(h));
+    let h=launchPower*150;
+    let hue=(1-launchPower)*120;
+    C.fillStyle='hsl('+hue+',70%,45%)';
+    C.fillRect(otx(LAUNCHER_CHANNEL_X+8),oty(LAUNCHER_BOT_Y-h),ots(LAUNCHER_OUTER_X-LAUNCHER_CHANNEL_X-16),ots(h));
   }
 }
 
 /* ============================
-   SPACE-TIME BUMPER DRAWING
+   SPACE-TIME BUMPER DRAWING (offscreen)
    ============================ */
 function drawSpaceTimeBumper(){
   let st=stBumper;
-  let r=st.baseR+(st.flash>0?st.flash*10:0);
+  let r=st.baseR;
 
-  /* Distortion ripples */
+  /* Distortion ripples — simplified pixel version */
   if(st.distort>0){
     let d=st.distort;
-    ctx.save();
-    for(let i=1;i<=5;i++){
-      let ripR=r+i*(1-d)*120;
-      let a=d*(0.3-i*0.05); if(a<=0) continue;
-      ctx.globalAlpha=a;
-      ctx.strokeStyle=i%2===0?'#c060ff':'#8020ff';
-      ctx.lineWidth=ts(2+d*3);
-      ctx.beginPath();
-      ctx.arc(tx(st.x),ty(st.y),ts(ripR),0,Math.PI*2);
-      ctx.stroke();
+    C.save();
+    for(let i=1;i<=3;i++){
+      let ripR=r+i*(1-d)*80;
+      let a=d*(0.3-i*0.08); if(a<=0) continue;
+      C.globalAlpha=a;
+      C.strokeStyle=i%2===0?PAL.warpLight:PAL.warpPurple;
+      C.lineWidth=ots(2);
+      C.beginPath();
+      C.arc(otx(st.x),oty(st.y),ots(ripR),0,Math.PI*2);
+      C.stroke();
     }
-    /* Warped grid overlay */
-    ctx.globalAlpha=d*0.25;
-    ctx.strokeStyle='#a040ff'; ctx.lineWidth=1;
-    let gridStep=30;
-    for(let gy=-3;gy<=3;gy++){
-      ctx.beginPath();
-      for(let gx=st.x-150;gx<=st.x+150;gx+=4){
-        let baseY=st.y+gy*gridStep;
-        let dx2=gx-st.x, dy2=baseY-st.y;
-        let dd=Math.sqrt(dx2*dx2+dy2*dy2);
-        let warp=dd<120?d*25*Math.sin(dd*0.05-d*8)/(dd*0.04+1):0;
-        if(gx===st.x-150) ctx.moveTo(tx(gx),ty(baseY+warp));
-        else ctx.lineTo(tx(gx),ty(baseY+warp));
-      }
-      ctx.stroke();
-    }
-    for(let gx2=-3;gx2<=3;gx2++){
-      ctx.beginPath();
-      for(let gy2=st.y-150;gy2<=st.y+150;gy2+=4){
-        let baseX=st.x+gx2*gridStep;
-        let dx3=baseX-st.x, dy3=gy2-st.y;
-        let dd2=Math.sqrt(dx3*dx3+dy3*dy3);
-        let warp2=dd2<120?d*25*Math.sin(dd2*0.05-d*8)/(dd2*0.04+1):0;
-        if(gy2===st.y-150) ctx.moveTo(tx(baseX+warp2),ty(gy2));
-        else ctx.lineTo(tx(baseX+warp2),ty(gy2));
-      }
-      ctx.stroke();
-    }
-    ctx.restore();
+    C.restore();
   }
 
-  /* Core bumper: vortex spiral + pulsing orb */
-  let pulse=0.7+0.3*Math.sin(Date.now()*0.005);
-  ctx.save();
-  ctx.shadowColor='#a040ff'; ctx.shadowBlur=ts(20+st.flash*15);
-  let scx=tx(st.x), scy=ty(st.y);
+  /* Core bumper */
+  if(st.flash>0){
+    pixCircle(st.x,st.y,r+3,PAL.white,PAL.white);
+  } else {
+    let pulse=Math.sin(Date.now()*0.004)>0?PAL.warpPurple:PAL.warpLight;
+    pixCircle(st.x,st.y,r,pulse,PAL.warpPurple+'33');
+  }
+
+  /* Spiral arms — simplified */
   let spin=Date.now()*0.003;
-  ctx.strokeStyle='rgba(160,64,255,'+(0.3+st.flash*0.5)+')';
-  ctx.lineWidth=ts(1.5);
+  C.save();
+  C.strokeStyle=PAL.warpPurple+'88'; C.lineWidth=ots(1);
+  let scx=otx(st.x), scy=oty(st.y);
   for(let arm=0;arm<3;arm++){
-    ctx.beginPath();
-    for(let a=0;a<Math.PI*2;a+=0.1){
-      let sr=ts(8+a*r*0.12);
+    C.beginPath();
+    for(let a=0;a<Math.PI*2;a+=0.2){
+      let sr=ots(6+a*r*0.1);
       let sx2=scx+Math.cos(a+spin+arm*Math.PI*2/3)*sr;
       let sy2=scy+Math.sin(a+spin+arm*Math.PI*2/3)*sr;
-      if(a===0) ctx.moveTo(sx2,sy2); else ctx.lineTo(sx2,sy2);
+      if(a===0) C.moveTo(sx2,sy2); else C.lineTo(sx2,sy2);
     }
-    ctx.stroke();
+    C.stroke();
   }
-  /* Outer ring */
-  ctx.strokeStyle=st.flash>0.5?'#fff':'hsl('+(280+st.hits*15)%360+',100%,70%)';
-  ctx.lineWidth=ts(3);
-  ctx.beginPath(); ctx.arc(scx,scy,ts(r),0,Math.PI*2); ctx.stroke();
-  /* Inner glow gradient */
-  let grd=ctx.createRadialGradient(scx,scy,0,scx,scy,ts(r));
-  grd.addColorStop(0,'rgba(200,120,255,'+(0.4*pulse+st.flash*0.4)+')');
-  grd.addColorStop(0.6,'rgba(120,40,200,'+(0.15*pulse)+')');
-  grd.addColorStop(1,'rgba(60,0,120,0)');
-  ctx.fillStyle=grd;
-  ctx.beginPath(); ctx.arc(scx,scy,ts(r),0,Math.PI*2); ctx.fill();
+  C.restore();
+
   /* Label */
-  ctx.font='700 '+ts(8)+'px "Fira Code",monospace';
-  ctx.textAlign='center';
-  ctx.fillStyle='rgba(200,160,255,'+(0.6+st.flash*0.4)+')';
-  ctx.fillText('S P A C E T I M E',scx,scy+ts(r+14));
-  ctx.restore();
+  C.font=ots(7)+'px "Press Start 2P",monospace';
+  C.textAlign='center';
+  C.fillStyle=PAL.warpLight+'aa';
+  C.fillText('SPACETIME',otx(st.x),oty(st.y)+ots(r+12));
 }
 
 /* ============================
-   DRAW FLIPPER
+   DRAW FLIPPER (offscreen)
    ============================ */
 function drawFlipper(f,color){
   let fl=getFlipperLine(f);
-  ctx.save();
-  ctx.shadowColor=color; ctx.shadowBlur=ts(10);
-  ctx.strokeStyle=color; ctx.lineWidth=ts(8); ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(tx(fl.x1),ty(fl.y1)); ctx.lineTo(tx(fl.x2),ty(fl.y2)); ctx.stroke();
-  ctx.restore();
+  /* Hard-edged thick line */
+  C.strokeStyle=color; C.lineWidth=ots(8); C.lineCap='butt';
+  C.beginPath(); C.moveTo(otx(fl.x1),oty(fl.y1)); C.lineTo(otx(fl.x2),oty(fl.y2)); C.stroke();
+  /* Outline */
+  C.strokeStyle=PAL.white+'44'; C.lineWidth=ots(10); C.lineCap='butt';
+  C.beginPath(); C.moveTo(otx(fl.x1),oty(fl.y1)); C.lineTo(otx(fl.x2),oty(fl.y2)); C.stroke();
+  /* Foreground */
+  C.strokeStyle=color; C.lineWidth=ots(7); C.lineCap='butt';
+  C.beginPath(); C.moveTo(otx(fl.x1),oty(fl.y1)); C.lineTo(otx(fl.x2),oty(fl.y2)); C.stroke();
 }
 
 /* ============================
-   DRAW BALL
+   DRAW BALL (offscreen)
    ============================ */
 function drawBallObj(b,alpha,isMega){
   let r=isMega?(b._megaR||BALL_R):BALL_R;
 
-  /* Trail */
-  ctx.save();
+  /* Trail — square blocks */
+  C.save();
   for(let i=0;i<b.trail.length;i++){
-    let a=(i/b.trail.length)*0.4*alpha;
-    let tr=r*(0.3+0.7*i/b.trail.length);
-    ctx.globalAlpha=a; ctx.fillStyle='#0ff';
-    ctx.beginPath(); ctx.arc(tx(b.trail[i].x),ty(b.trail[i].y),ts(tr),0,Math.PI*2); ctx.fill();
+    let a=(i/b.trail.length)*0.5*alpha;
+    let sz=ots(r*(0.3+0.7*i/b.trail.length))*2;
+    C.globalAlpha=a; C.fillStyle=PAL.cyan;
+    C.fillRect(otx(b.trail[i].x)-sz/2, oty(b.trail[i].y)-sz/2, sz, sz);
   }
-  ctx.restore();
+  C.restore();
 
-  /* RGB split during any glitch */
+  /* RGB offset during glitch */
   if(glitchActive){
-    ctx.save(); ctx.globalAlpha=0.3*alpha;
-    ctx.fillStyle='#f00'; ctx.beginPath(); ctx.arc(tx(b.x-2),ty(b.y),ts(r),0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#00f'; ctx.beginPath(); ctx.arc(tx(b.x+2),ty(b.y),ts(r),0,Math.PI*2); ctx.fill();
-    ctx.restore();
+    C.save(); C.globalAlpha=0.35*alpha;
+    let sz=ots(r)*2;
+    C.fillStyle=PAL.red;
+    C.fillRect(otx(b.x-3)-sz/2, oty(b.y)-sz/2, sz, sz);
+    C.fillStyle=PAL.blue;
+    C.fillRect(otx(b.x+3)-sz/2, oty(b.y)-sz/2, sz, sz);
+    C.restore();
   }
 
-  /* Ball core */
-  ctx.save(); ctx.globalAlpha=alpha;
-  drawNeonCircle(b.x,b.y,r,'#0ff','rgba(0,255,255,0.3)');
-  ctx.restore();
+  /* Ball core: square pixel ball */
+  C.save(); C.globalAlpha=alpha;
+  let sz=ots(r)*2;
+  /* Outline */
+  C.fillStyle=PAL.white;
+  C.fillRect(otx(b.x)-sz/2-1, oty(b.y)-sz/2-1, sz+2, sz+2);
+  /* Fill */
+  C.fillStyle=PAL.cyan;
+  C.fillRect(otx(b.x)-sz/2, oty(b.y)-sz/2, sz, sz);
+  /* Inner highlight */
+  let hl=sz*0.3;
+  C.fillStyle=PAL.white+'88';
+  C.fillRect(otx(b.x)-sz/2+1, oty(b.y)-sz/2+1, hl, hl);
+  C.restore();
 }
 
 /* ============================
-   GLITCH OVERLAY
+   GLITCH OVERLAY (offscreen)
    ============================ */
 function drawGlitchOverlay(){
   if(!glitchActive) return;
 
-  /* Scanlines */
-  ctx.save(); ctx.globalAlpha=0.08; ctx.fillStyle='#000';
-  for(let y=0;y<H;y+=3) ctx.fillRect(0,y,W,1);
-  ctx.restore();
-
   /* Random pixel blocks */
-  ctx.save(); ctx.globalAlpha=0.12;
-  let colors=['#f00','#0f0','#00f','#ff0','#f0f','#0ff'];
-  for(let i=0;i<8;i++){
-    let bx=Math.random()*W, by=Math.random()*H;
-    let bw=10+Math.random()*40, bh=3+Math.random()*15;
-    ctx.fillStyle=colors[Math.floor(Math.random()*6)];
-    ctx.fillRect(bx,by,bw,bh);
+  C.save(); C.globalAlpha=0.15;
+  let colors=[PAL.red,PAL.green,PAL.blue,PAL.yellow,PAL.magenta,PAL.cyan];
+  for(let i=0;i<6;i++){
+    let bx=Math.random()*OFF_W, by=Math.random()*OFF_H;
+    let bw=4+Math.random()*20, bh=2+Math.random()*6;
+    C.fillStyle=colors[Math.floor(Math.random()*6)];
+    C.fillRect(bx,by,bw,bh);
   }
-  ctx.restore();
+  C.restore();
 
-  /* Glitch name flashing */
-  ctx.save();
-  ctx.font='900 '+ts(28)+'px "Fira Code",monospace';
-  ctx.textAlign='center';
-  if(Math.sin(Date.now()*0.01)>0){
-    ctx.shadowColor='#f0f'; ctx.shadowBlur=20;
-    ctx.fillStyle='#f0f';
-    ctx.fillText('\u26A1 '+glitchActive+' \u26A1',W/2,ty(DH/2-60));
+  /* Glitch name — stepped flash (on/off) */
+  if(Math.floor(Date.now()/200)%2===0){
+    C.save();
+    C.font=ots(20)+'px "Press Start 2P",monospace';
+    C.textAlign='center';
+    C.fillStyle=PAL.magenta;
+    C.fillText(glitchActive,OFF_W/2,oty(DH/2-70));
+    C.restore();
   }
-  ctx.restore();
 }
 
 /* ============================
-   HUD
+   HUD (offscreen)
    ============================ */
 function drawHUD(){
   /* Score - top center */
-  ctx.save();
-  ctx.font='900 '+ts(36)+'px "Fira Code",monospace';
-  ctx.textAlign='center';
-  ctx.shadowColor='#0ff'; ctx.shadowBlur=10;
-  ctx.fillStyle='#0ff';
-  ctx.fillText(score.toLocaleString(),W/2,ty(-5));
-  ctx.restore();
+  C.save();
+  C.font=ots(22)+'px "Press Start 2P",monospace';
+  C.textAlign='center';
+  C.fillStyle=PAL.cyan;
+  C.fillText(score.toLocaleString(),OFF_W/2,oty(-8));
+  C.restore();
 
-  /* Balls remaining - top right */
-  ctx.save();
-  ctx.font='700 '+ts(16)+'px "Fira Code",monospace';
-  ctx.textAlign='right';
-  ctx.fillStyle='#f0f';
+  /* Balls remaining */
+  C.save();
+  C.font=ots(12)+'px "Press Start 2P",monospace';
+  C.textAlign='right';
+  C.fillStyle=PAL.magenta;
   let ballText='';
-  for(let i=0;i<balls;i++) ballText+='\u25CF';
-  ctx.fillText(ballText,tx(DW-10),ty(-5));
-  ctx.restore();
+  for(let i=0;i<balls;i++) ballText+='\u25A0';
+  C.fillText(ballText,otx(DW-15),oty(-8));
+  C.restore();
 
   /* Glitch countdown */
   if(!glitchActive && ballInPlay){
-    ctx.save();
-    ctx.font='400 '+ts(12)+'px "Fira Code",monospace';
-    ctx.textAlign='left';
-    ctx.fillStyle='#446';
-    ctx.fillText('GLITCH IN: '+Math.max(0,glitchTimer*60/60).toFixed(0)+'s',tx(35),ty(-5));
-    ctx.restore();
+    C.save();
+    C.font=ots(8)+'px "Press Start 2P",monospace';
+    C.textAlign='left';
+    C.fillStyle=PAL.dimWall;
+    C.fillText('GLITCH:'+Math.max(0,glitchTimer*60/60).toFixed(0)+'s',otx(35),oty(-8));
+    C.restore();
   }
 
   /* Score popups */
   for(let p of scorePopups){
-    ctx.save(); ctx.globalAlpha=p.life;
-    ctx.font='700 '+ts(16)+'px "Fira Code",monospace';
-    ctx.textAlign='center'; ctx.fillStyle=p.color;
-    ctx.shadowColor=p.color; ctx.shadowBlur=6;
-    ctx.fillText(p.text,tx(p.x),ty(p.y));
-    ctx.restore();
+    C.save(); C.globalAlpha=p.life;
+    C.font=ots(10)+'px "Press Start 2P",monospace';
+    C.textAlign='center'; C.fillStyle=p.color;
+    C.fillText(p.text,otx(p.x),oty(p.y));
+    C.restore();
   }
 }
 
 /* ============================
-   START SCREEN
+   START SCREEN (main canvas, full res)
    ============================ */
 function drawStartScreen(){
-  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=PAL.bgDark; ctx.fillRect(0,0,W,H);
 
   let t=Date.now()*0.001;
   ctx.save();
   ctx.textAlign='center';
 
-  let sz=Math.min(ts(52),W*0.09);
-  ctx.font='900 '+sz+'px "Fira Code",monospace';
-  let yPos=H*0.38;
+  let sz=Math.min(ts(42),W*0.07);
+  ctx.font=sz+'px "Press Start 2P",monospace';
+  let yPos=H*0.36;
 
-  /* RGB split "GLITCH" */
-  ctx.globalAlpha=0.5; ctx.fillStyle='#f00';
-  ctx.fillText('GLITCH',W/2+Math.sin(t*3)*4,yPos-2);
-  ctx.fillStyle='#00f';
-  ctx.fillText('GLITCH',W/2-Math.sin(t*3)*4,yPos+2);
-  ctx.globalAlpha=1; ctx.fillStyle='#fff';
+  /* Stepped RGB split */
+  let off=Math.floor(Date.now()/150)%2===0?3:0;
+  ctx.globalAlpha=0.4; ctx.fillStyle=PAL.red;
+  ctx.fillText('GLITCH',W/2+off,yPos-off);
+  ctx.fillStyle=PAL.blue;
+  ctx.fillText('GLITCH',W/2-off,yPos+off);
+  ctx.globalAlpha=1; ctx.fillStyle=PAL.white;
   ctx.fillText('GLITCH',W/2,yPos);
 
-  /* RGB split "PINBALL" */
-  ctx.globalAlpha=0.5; ctx.fillStyle='#f00';
-  ctx.fillText('PINBALL',W/2+Math.cos(t*2.7)*3,yPos+sz+8-2);
-  ctx.fillStyle='#0ff';
-  ctx.fillText('PINBALL',W/2-Math.cos(t*2.7)*3,yPos+sz+8+2);
-  ctx.globalAlpha=1; ctx.fillStyle='#0ff';
-  ctx.shadowColor='#0ff'; ctx.shadowBlur=20;
-  ctx.fillText('PINBALL',W/2,yPos+sz+8);
+  ctx.fillStyle=PAL.cyan;
+  ctx.fillText('PINBALL',W/2,yPos+sz+12);
 
-  /* Prompt */
-  ctx.globalAlpha=0.5+0.5*Math.sin(t*3);
-  ctx.font='400 '+ts(16)+'px "Fira Code",monospace';
-  ctx.fillStyle='#f0f'; ctx.shadowColor='#f0f'; ctx.shadowBlur=10;
-  ctx.fillText('PRESS SPACE / TAP TO START',W/2,H*0.62);
+  /* Prompt — blink on/off */
+  if(Math.floor(Date.now()/500)%2===0){
+    ctx.font=Math.max(ts(10),10)+'px "Press Start 2P",monospace';
+    ctx.fillStyle=PAL.magenta;
+    ctx.fillText('PRESS SPACE / TAP',W/2,H*0.60);
+  }
 
-  /* Scanlines */
-  ctx.globalAlpha=0.04; ctx.fillStyle='#fff';
-  for(let y=0;y<H;y+=2) ctx.fillRect(0,y,W,1);
   ctx.restore();
 }
 
 /* ============================
-   GAME OVER SCREEN
+   GAME OVER SCREEN (main canvas)
    ============================ */
 function drawGameOver(){
   ctx.save();
-  ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(13,13,26,0.8)'; ctx.fillRect(0,0,W,H);
 
   ctx.textAlign='center';
-  ctx.font='900 '+ts(40)+'px "Fira Code",monospace';
-  ctx.shadowColor='#f00'; ctx.shadowBlur=20; ctx.fillStyle='#f00';
+  ctx.font=ts(30)+'px "Press Start 2P",monospace';
+  ctx.fillStyle=PAL.red;
   ctx.fillText('GAME OVER',W/2,H*0.35);
 
-  ctx.font='700 '+ts(28)+'px "Fira Code",monospace';
-  ctx.shadowColor='#0ff'; ctx.shadowBlur=15; ctx.fillStyle='#0ff';
+  ctx.font=ts(22)+'px "Press Start 2P",monospace';
+  ctx.fillStyle=PAL.cyan;
   ctx.fillText(score.toLocaleString(),W/2,H*0.48);
 
-  ctx.globalAlpha=0.5+0.5*Math.sin(Date.now()*0.003);
-  ctx.font='400 '+ts(16)+'px "Fira Code",monospace';
-  ctx.fillStyle='#f0f'; ctx.shadowColor='#f0f'; ctx.shadowBlur=10;
-  ctx.fillText('INSERT COIN (SPACE / TAP)',W/2,H*0.6);
+  if(Math.floor(Date.now()/500)%2===0){
+    ctx.font=Math.max(ts(10),10)+'px "Press Start 2P",monospace';
+    ctx.fillStyle=PAL.magenta;
+    ctx.fillText('INSERT COIN',W/2,H*0.6);
+  }
   ctx.restore();
 }
 
@@ -910,13 +902,19 @@ function drawGameOver(){
    ============================ */
 function draw(){
   ctx.clearRect(0,0,W,H);
-  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=PAL.bgDark; ctx.fillRect(0,0,W,H);
 
   if(state==='start'){drawStartScreen(); return;}
 
+  /* Render game to offscreen at half res */
+  C.imageSmoothingEnabled=false;
+  C.clearRect(0,0,OFF_W,OFF_H);
+  C.fillStyle=PAL.bgDark;
+  C.fillRect(0,0,OFF_W,OFF_H);
+
   drawTable();
-  drawFlipper(flipperL,'#f0f');
-  drawFlipper(flipperR,'#0ff');
+  drawFlipper(flipperL,PAL.magenta);
+  drawFlipper(flipperR,PAL.cyan);
 
   let isMega=glitchActive==='MEGA BALL';
   drawBallObj(ball,1,isMega);
@@ -924,6 +922,10 @@ function draw(){
 
   drawGlitchOverlay();
   drawHUD();
+
+  /* Scale offscreen to main canvas — chunky pixels */
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(offCanvas, TX, TY, TW, TH);
 
   if(state==='gameover') drawGameOver();
 }
