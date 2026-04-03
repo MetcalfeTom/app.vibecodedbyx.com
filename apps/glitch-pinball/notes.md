@@ -1,6 +1,7 @@
 # Glitch Pinball
 
 ## log
+- 2026-04-02: Complete rebuild from scratch — clean wall geometry (half-ellipse dome 18 segments, straight left/right walls, angled deflector, center drain gutters), substep physics (up to 8 substeps for tunneling prevention), robust ball-line and ball-circle collision with proper normal calculation and restitution, exponential flipper kick (pow 1.6). All features preserved: 8 bumpers, space-time bumper with vortex/ripple/warped grid, 3 drop targets, 2 slingshots, spinner, 7 glitch types, score popups, ball trail, launcher. Launcher channel 65px wide (510-575), ball starts at x=542. Previous version had accumulated wall/physics bugs from iterations.
 - 2026-04-02: Initial build — neon pinball machine with physics-based glitch mechanics. Canvas-based, single-file, Fira Code typography, cyan/magenta/yellow neon aesthetic on dark circuit-board background.
 
 ## features
