@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bot Sweeper</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🧹">
+<meta property="og:title" content="Bot Sweeper">
+<meta property="og:description" content="Swat falling spam bots with a pixel broom — retro arcade action">
+<meta property="og:url" content="https://sloppy.live/bot-sweeper">
+<meta property="og:image" content="https://sloppy.live/bot-sweeper/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;image-rendering:pixelated}
+body{background:#0a0c14;overflow:hidden;font-family:'Press Start 2P',monospace;touch-action:none;user-select:none}
+canvas{display:block}
+.back-link{position:fixed;top:6px;left:6px;color:#4a6a5a;font-size:8px;text-decoration:none;z-index:100;font-family:'Press Start 2P',monospace}
+.back-link:hover{color:#8aff8a}
+</style>
+</head>
+<body>
+<a class="back-link" href="https://sloppy.live">← sloppy.live</a>
+<canvas id="cv"></canvas>
+<script>
+var C=document.getElementById('cv'),X=C.getContext('2d');
+var W,H,SCALE;
+var GW=240,GH=320; // game resolution
+X.imageSmoothingEnabled=false;
+
+function resize(){
+  var r=GW/GH;
+  if(window.innerWidth/window.innerHeight>r){
+    H=window.innerHeight;W=Math.floor(H*r);
+  }else{
+    W=window.innerWidth;H=Math.floor(W/r);
+  }
+  C.width=W;C.height=H;
+  SCALE=W/GW;
+  X.imageSmoothingEnabled=false;
+}
+window.addEventListener('resize',resize);
+resize();
+
+// Game state
+var STATE='title'; // title, play, gameover
+var score=0,highScore=0,lives=3,level=1,combo=0,maxCombo=0;
+var bots=[],particles=[],popups=[],powerups=[];
+var broomX=GW/2,broomY=GH-40,broomSwing=0,broomDir=1;
+var spawnTimer=0,spawnRate=60,levelTimer=0;
+var shakeX=0,shakeY=0;
+var frame=0;
+
+// Bot types — pixel art 8x8
+var BOT_TYPES=[
+  {name:'spambot',pixels:[
+    '..XXXX..',
+    '.X....X.',
+    'X.X..X.X',
+    'X......X',
+    'X.XXXX.X',
+    'X......X',
+    '.X....X.',
+    '..XXXX..'
+  ],color:'#ff4a4a',points:10,speed:1,hp:1},
+  {name:'phisher',pixels:[
+    '...XX...',
+    '..XXXX..',
+    '.XX..XX.',
+    'XXXXXXXX',
+    'X..XX..X',
+    'X......X',
+    '.XXXXXX.',
+    '..X..X..'
+  ],color:'#4aff4a',points:20,speed:1.3,hp:1},
+  {name:'crawler',pixels:[
+    'X......X',
+    '.X.XX.X.',
+    '..XXXX..',
+    '.XXXXXX.',
+    'XXXXXXXX',
+    '.XXXXXX.',
+    '..X..X..',
+    '.X....X.'
+  ],color:'#ffaa4a',points:15,speed:0.8,hp:1},
+  {name:'trojan',pixels:[
+    '..XXXX..',
+    '.XXXXXX.',
+    'XXXXXXXX',
+    'XX.XX.XX',
+    'XXXXXXXX',
+    'XXXXXXXX',
+    '.XX..XX.',
+    '.XX..XX.'
+  ],color:'#ff4aff',points:30,speed:0.6,hp:2},
+  {name:'ddos',pixels:[
+    'XXXXXXXX',
+    'X.X..X.X',
+    'XXXXXXXX',
+    'X......X',
+    'XXXXXXXX',
+    '.X.XX.X.',
+    '..XXXX..',
+    '...XX...'
+  ],color:'#4af0ff',points:25,speed:1.5,hp:1},
+  {name:'worm',pixels:[
+    '........',
+    '..XXXX..',
+    '.XX..XX.',
+    'XX....XX',
+    '.XX..XX.',
+    '..XX.XX.',
+    '...XX...',
+    '........'
+  ],color:'#aaff4a',points:15,speed:1.1,hp:1}
+];
+
+// Broom pixel art (12x16)
+var BROOM_HANDLE=[
+  '....XX..',
+  '....XX..',
+  '....XX..',
+  '....XX..',
+  '....XX..',
+  '....XX..',
+  '....XX..',
+  '....XX..'
+];
+var BROOM_HEAD=[
+  '.XXXXXX.',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'X.X.X.X.',
+  'X.X.X.X.',
+  '........'
+];
+
+function drawPixels(px,py,pattern,color,pxSize){
+  X.fillStyle=color;
+  for(var r=0;r<pattern.length;r++){
+    for(var c=0;c<pattern[r].length;c++){
+      if(pattern[r][c]==='X'){
+        X.fillRect(Math.floor((px+c*pxSize)*SCALE),Math.floor((py+r*pxSize)*SCALE),
+          Math.ceil(pxSize*SCALE),Math.ceil(pxSize*SCALE));
+      }
+    }
+  }
+}
+
+function spawnBot(){
+  var tier=Math.min(Math.floor(level/2),BOT_TYPES.length-1);
+  var typeIdx=Math.floor(Math.random()*(tier+1));
+  if(Math.random()<0.2&&tier>0)typeIdx=tier; // bias toward harder bots
+  var bt=BOT_TYPES[typeIdx];
+  var bot={
+    x:8+Math.random()*(GW-24),
+    y:-16,
+    type:typeIdx,
+    hp:bt.hp+Math.floor(level/5),
+    speed:bt.speed*(0.8+level*0.05)*(0.9+Math.random()*0.2),
+    wobble:Math.random()*Math.PI*2,
+    wobbleAmp:0.3+Math.random()*0.5,
+    flash:0,
+    w:16,h:16
+  };
+  bots.push(bot);
+}
+
+function spawnPowerup(){
+  var types=['shield','slow','multi'];
+  powerups.push({
+    x:16+Math.random()*(GW-32),
+    y:-12,
+    type:types[Math.floor(Math.random()*types.length)],
+    speed:0.5
+  });
+}
+
+function addParticles(x,y,color,count){
+  for(var i=0;i<count;i++){
+    particles.push({
+      x:x,y:y,
+      vx:(Math.random()-0.5)*3,
+      vy:-Math.random()*2-1,
+      life:15+Math.random()*15,
+      color:color,
+      size:1+Math.floor(Math.random()*3)
+    });
+  }
+}
+
+function addPopup(x,y,text,color){
+  popups.push({x:x,y:y,text:text,color:color,life:40});
+}
+
+// Hit detection — broom swings in an arc
+function checkBroomHit(bot){
+  if(broomSwing<=0)return false;
+  var dx=bot.x+8-broomX;
+  var dy=bot.y+8-broomY;
+  var dist=Math.sqrt(dx*dx+dy*dy);
+  return dist<28&&dy<0&&dy>-40;
+}
+
+function swingBroom(){
+  if(broomSwing>0)return;
+  broomSwing=12;
+}
+
+// Powerup effects
+var slowTimer=0,shieldTimer=0,multiHit=false,multiTimer=0;
+
+function activatePowerup(type){
+  if(type==='slow'){slowTimer=300;addPopup(GW/2,GH/2,'SLOW!','#4af0ff');}
+  if(type==='shield'){shieldTimer=300;addPopup(GW/2,GH/2,'SHIELD!','#4aff4a');}
+  if(type==='multi'){multiHit=true;multiTimer=300;addPopup(GW/2,GH/2,'MULTI!','#ffaa4a');}
+}
+
+function update(){
+  frame++;
+  if(STATE!=='play')return;
+
+  // Shake decay
+  shakeX*=0.8;shakeY*=0.8;
+
+  // Timers
+  if(slowTimer>0)slowTimer--;
+  if(shieldTimer>0)shieldTimer--;
+  if(multiTimer>0)multiTimer--;
+  else multiHit=false;
+
+  // Spawn bots
+  spawnTimer++;
+  var rate=Math.max(15,spawnRate-level*3);
+  if(spawnTimer>=rate){spawnTimer=0;spawnBot();}
+
+  // Level up
+  levelTimer++;
+  if(levelTimer>=600){levelTimer=0;level++;spawnRate=Math.max(12,spawnRate-2);}
+
+  // Powerup spawn
+  if(frame%500===0&&Math.random()<0.5)spawnPowerup();
+
+  // Broom swing
+  if(broomSwing>0)broomSwing--;
+
+  // Update bots
+  var speedMult=slowTimer>0?0.4:1;
+  for(var i=bots.length-1;i>=0;i--){
+    var b=bots[i];
+    b.wobble+=0.05;
+    b.x+=Math.sin(b.wobble)*b.wobbleAmp;
+    b.y+=b.speed*speedMult;
+    if(b.flash>0)b.flash--;
+
+    // Hit by broom
+    if(broomSwing>6&&broomSwing<11&&checkBroomHit(b)){
+      b.hp--;
+      b.flash=4;
+      if(b.hp<=0){
+        var bt=BOT_TYPES[b.type];
+        combo++;
+        if(combo>maxCombo)maxCombo=combo;
+        var pts=bt.points*(1+Math.floor(combo/5)*0.5);
+        score+=Math.floor(pts);
+        addParticles(b.x+8,b.y+8,bt.color,8);
+        addPopup(b.x,b.y-4,'+'+Math.floor(pts),bt.color);
+        bots.splice(i,1);
+        // Multi-hit: damage nearby bots
+        if(multiHit){
+          for(var j=bots.length-1;j>=0;j--){
+            var ob=bots[j];
+            var ddx=ob.x-b.x,ddy=ob.y-b.y;
+            if(Math.sqrt(ddx*ddx+ddy*ddy)<40){
+              ob.hp--;ob.flash=4;
+              if(ob.hp<=0){
+                score+=BOT_TYPES[ob.type].points;
+                addParticles(ob.x+8,ob.y+8,BOT_TYPES[ob.type].color,6);
+                bots.splice(j,1);
+                if(j<i)i--;
+              }
+            }
+          }
+        }
+        continue;
+      }else{
+        shakeX=(Math.random()-0.5)*3;
+        shakeY=(Math.random()-0.5)*3;
+      }
+    }
+
+    // Bot reaches bottom
+    if(b.y>GH){
+      bots.splice(i,1);
+      combo=0;
+      if(shieldTimer<=0){
+        lives--;
+        shakeX=(Math.random()-0.5)*6;
+        shakeY=(Math.random()-0.5)*6;
+        if(lives<=0){
+          STATE='gameover';
+          if(score>highScore)highScore=score;
+        }
+      }
+    }
+  }
+
+  // Powerups
+  for(var i=powerups.length-1;i>=0;i--){
+    var p=powerups[i];
+    p.y+=p.speed;
+    var dx=p.x+6-broomX,dy=p.y+6-broomY;
+    if(Math.sqrt(dx*dx+dy*dy)<20){
+      activatePowerup(p.type);
+      powerups.splice(i,1);continue;
+    }
+    if(p.y>GH){powerups.splice(i,1);}
+  }
+
+  // Particles
+  for(var i=particles.length-1;i>=0;i--){
+    var p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.vy+=0.15;p.life--;
+    if(p.life<=0)particles.splice(i,1);
+  }
+
+  // Popups
+  for(var i=popups.length-1;i>=0;i--){
+    popups[i].y-=0.5;popups[i].life--;
+    if(popups[i].life<=0)popups.splice(i,1);
+  }
+}
+
+function draw(){
+  X.setTransform(1,0,0,1,0,0);
+  // Background
+  X.fillStyle='#0a0c14';
+  X.fillRect(0,0,W,H);
+
+  // Apply shake
+  X.setTransform(1,0,0,1,shakeX*SCALE,shakeY*SCALE);
+
+  if(STATE==='title'){
+    drawTitle();
+  }else if(STATE==='play'||STATE==='gameover'){
+    drawGame();
+    if(STATE==='gameover')drawGameOver();
+  }
+}
+
+function drawTitle(){
+  // Grid background
+  X.strokeStyle='#1a2a1a';
+  X.lineWidth=1;
+  for(var y=0;y<GH;y+=16){
+    var sy=y*SCALE;
+    X.beginPath();X.moveTo(0,sy);X.lineTo(W,sy);X.stroke();
+  }
+  for(var x=0;x<GW;x+=16){
+    var sx=x*SCALE;
+    X.beginPath();X.moveTo(sx,0);X.lineTo(sx,H);X.stroke();
+  }
+
+  // Falling bots in background
+  var t=frame*0.02;
+  for(var i=0;i<6;i++){
+    var bx=(50+i*35)%GW;
+    var by=((t*30+i*60)%GH);
+    var bt=BOT_TYPES[i%BOT_TYPES.length];
+    X.globalAlpha=0.2;
+    drawPixels(bx,by,bt.pixels,bt.color,2);
+    X.globalAlpha=1;
+  }
+
+  // Title
+  X.fillStyle='#8aff8a';
+  X.font=Math.floor(14*SCALE)+'px "Press Start 2P"';
+  X.textAlign='center';
+  X.fillText('BOT',GW/2*SCALE,90*SCALE);
+  X.fillText('SWEEPER',GW/2*SCALE,110*SCALE);
+
+  // Broom
+  drawPixels(GW/2-6,130,BROOM_HANDLE,'#a07040',2);
+  drawPixels(GW/2-8,146,BROOM_HEAD,'#d4a843',2);
+
+  X.fillStyle='#4a6a5a';
+  X.font=Math.floor(6*SCALE)+'px "Press Start 2P"';
+  X.fillText('SWAT THE SPAM BOTS',GW/2*SCALE,185*SCALE);
+  X.fillText('WITH YOUR MIGHTY BROOM',GW/2*SCALE,197*SCALE);
+
+  // Blink
+  if(Math.floor(frame/30)%2===0){
+    X.fillStyle='#8aff8a';
+    X.font=Math.floor(7*SCALE)+'px "Press Start 2P"';
+    X.fillText('TAP / CLICK TO START',GW/2*SCALE,240*SCALE);
+  }
+
+  if(highScore>0){
+    X.fillStyle='#d4a843';
+    X.font=Math.floor(6*SCALE)+'px "Press Start 2P"';
+    X.fillText('HIGH: '+highScore,GW/2*SCALE,275*SCALE);
+  }
+}
+
+function drawGame(){
+  // Subtle grid
+  X.strokeStyle='#0e1018';
+  X.lineWidth=1;
+  for(var y=0;y<GH;y+=16){
+    X.beginPath();X.moveTo(0,y*SCALE);X.lineTo(W,y*SCALE);X.stroke();
+  }
+
+  // Danger zone at bottom
+  X.fillStyle='rgba(255,40,40,0.04)';
+  X.fillRect(0,(GH-30)*SCALE,W,30*SCALE);
+  X.strokeStyle='rgba(255,40,40,0.15)';
+  X.setLineDash([4*SCALE,4*SCALE]);
+  X.beginPath();X.moveTo(0,(GH-30)*SCALE);X.lineTo(W,(GH-30)*SCALE);X.stroke();
+  X.setLineDash([]);
+
+  // Shield indicator
+  if(shieldTimer>0){
+    X.strokeStyle='rgba(74,255,74,'+(0.15+Math.sin(frame*0.1)*0.1)+')';
+    X.lineWidth=2*SCALE;
+    X.beginPath();X.moveTo(0,(GH-2)*SCALE);X.lineTo(W,(GH-2)*SCALE);X.stroke();
+  }
+
+  // Draw powerups
+  for(var i=0;i<powerups.length;i++){
+    var p=powerups[i];
+    var cols={shield:'#4aff4a',slow:'#4af0ff',multi:'#ffaa4a'};
+    var chars={shield:'S',slow:'T',multi:'M'};
+    X.fillStyle=cols[p.type];
+    X.fillRect(Math.floor(p.x*SCALE),Math.floor(p.y*SCALE),Math.ceil(12*SCALE),Math.ceil(12*SCALE));
+    X.fillStyle='#0a0c14';
+    X.font=Math.floor(7*SCALE)+'px "Press Start 2P"';
+    X.textAlign='center';
+    X.fillText(chars[p.type],Math.floor((p.x+6)*SCALE),Math.floor((p.y+9)*SCALE));
+  }
+
+  // Draw bots
+  for(var i=0;i<bots.length;i++){
+    var b=bots[i];
+    var bt=BOT_TYPES[b.type];
+    var col=b.flash>0?'#fff':bt.color;
+    drawPixels(b.x,b.y,bt.pixels,col,2);
+    // HP bar for multi-hp bots
+    if(b.hp>1){
+      X.fillStyle='#300';
+      X.fillRect(Math.floor(b.x*SCALE),Math.floor((b.y-3)*SCALE),Math.ceil(16*SCALE),Math.ceil(2*SCALE));
+      X.fillStyle=bt.color;
+      var maxHp=bt.hp+Math.floor(level/5);
+      X.fillRect(Math.floor(b.x*SCALE),Math.floor((b.y-3)*SCALE),Math.ceil(16*(b.hp/maxHp)*SCALE),Math.ceil(2*SCALE));
+    }
+  }
+
+  // Draw broom
+  var swingAngle=0;
+  if(broomSwing>0){
+    swingAngle=Math.sin((12-broomSwing)/12*Math.PI)*30*broomDir;
+  }
+  X.save();
+  X.translate(Math.floor(broomX*SCALE),Math.floor(broomY*SCALE));
+  X.rotate(swingAngle*Math.PI/180);
+  // Handle
+  drawPixels(-6,-30,BROOM_HANDLE,'#a07040',2);
+  // Head
+  drawPixels(-8,-30+16,BROOM_HEAD,broomSwing>6?'#ffe080':'#d4a843',2);
+  // Swing arc indicator
+  if(broomSwing>6){
+    X.strokeStyle='rgba(212,168,67,0.3)';
+    X.lineWidth=2*SCALE;
+    X.beginPath();
+    X.arc(0,-10*SCALE,20*SCALE,-Math.PI*0.8,-Math.PI*0.2);
+    X.stroke();
+  }
+  X.restore();
+
+  // Particles
+  for(var i=0;i<particles.length;i++){
+    var p=particles[i];
+    X.fillStyle=p.color;
+    X.globalAlpha=p.life/30;
+    X.fillRect(Math.floor(p.x*SCALE),Math.floor(p.y*SCALE),Math.ceil(p.size*SCALE),Math.ceil(p.size*SCALE));
+  }
+  X.globalAlpha=1;
+
+  // Popups
+  X.textAlign='center';
+  for(var i=0;i<popups.length;i++){
+    var p=popups[i];
+    X.globalAlpha=Math.min(1,p.life/20);
+    X.fillStyle=p.color;
+    X.font=Math.floor(6*SCALE)+'px "Press Start 2P"';
+    X.fillText(p.text,Math.floor(p.x*SCALE),Math.floor(p.y*SCALE));
+  }
+  X.globalAlpha=1;
+
+  // HUD
+  X.textAlign='left';
+  X.fillStyle='#8aff8a';
+  X.font=Math.floor(6*SCALE)+'px "Press Start 2P"';
+  X.fillText('SCORE '+score,4*SCALE,10*SCALE);
+  X.textAlign='right';
+  X.fillText('LV'+level,236*SCALE,10*SCALE);
+
+  // Lives
+  X.textAlign='left';
+  X.fillStyle='#ff4a4a';
+  for(var i=0;i<lives;i++){
+    X.fillRect((4+i*10)*SCALE,14*SCALE,6*SCALE,6*SCALE);
+  }
+
+  // Combo
+  if(combo>2){
+    X.textAlign='center';
+    X.fillStyle='#d4a843';
+    X.font=Math.floor(5*SCALE)+'px "Press Start 2P"';
+    X.fillText('COMBO x'+combo,GW/2*SCALE,24*SCALE);
+  }
+
+  // Active powerup indicators
+  X.textAlign='right';
+  var py=24;
+  if(slowTimer>0){X.fillStyle='#4af0ff';X.font=Math.floor(5*SCALE)+'px "Press Start 2P"';X.fillText('SLOW',236*SCALE,py*SCALE);py+=10;}
+  if(shieldTimer>0){X.fillStyle='#4aff4a';X.font=Math.floor(5*SCALE)+'px "Press Start 2P"';X.fillText('SHIELD',236*SCALE,py*SCALE);py+=10;}
+  if(multiHit){X.fillStyle='#ffaa4a';X.font=Math.floor(5*SCALE)+'px "Press Start 2P"';X.fillText('MULTI',236*SCALE,py*SCALE);}
+}
+
+function drawGameOver(){
+  X.fillStyle='rgba(10,12,20,0.75)';
+  X.fillRect(0,0,W,H);
+  X.textAlign='center';
+  X.fillStyle='#ff4a4a';
+  X.font=Math.floor(12*SCALE)+'px "Press Start 2P"';
+  X.fillText('OVERRUN!',GW/2*SCALE,110*SCALE);
+  X.fillStyle='#b8a8c8';
+  X.font=Math.floor(6*SCALE)+'px "Press Start 2P"';
+  X.fillText('SCORE: '+score,GW/2*SCALE,140*SCALE);
+  X.fillText('LEVEL: '+level,GW/2*SCALE,155*SCALE);
+  X.fillText('MAX COMBO: '+maxCombo,GW/2*SCALE,170*SCALE);
+  if(score>=highScore&&score>0){
+    X.fillStyle='#d4a843';
+    X.fillText('NEW HIGH SCORE!',GW/2*SCALE,190*SCALE);
+  }
+  if(Math.floor(frame/30)%2===0){
+    X.fillStyle='#8aff8a';
+    X.font=Math.floor(6*SCALE)+'px "Press Start 2P"';
+    X.fillText('TAP TO RETRY',GW/2*SCALE,220*SCALE);
+  }
+}
+
+// Input
+var inputX=GW/2;
+function handleMove(px){
+  var rect=C.getBoundingClientRect();
+  inputX=((px-rect.left)/rect.width)*GW;
+  broomX=Math.max(12,Math.min(GW-12,inputX));
+}
+function handleTap(px,py){
+  if(STATE==='title'){
+    STATE='play';score=0;lives=3;level=1;combo=0;maxCombo=0;
+    bots=[];particles=[];popups=[];powerups=[];
+    spawnTimer=0;spawnRate=60;levelTimer=0;
+    broomX=GW/2;
+    return;
+  }
+  if(STATE==='gameover'){
+    STATE='title';return;
+  }
+  handleMove(px);
+  broomDir=px<C.getBoundingClientRect().left+C.getBoundingClientRect().width/2?-1:1;
+  swingBroom();
+}
+
+C.addEventListener('mousemove',function(e){if(STATE==='play')handleMove(e.clientX);});
+C.addEventListener('mousedown',function(e){handleTap(e.clientX,e.clientY);});
+C.addEventListener('touchmove',function(e){e.preventDefault();if(STATE==='play')handleMove(e.touches[0].clientX);},{passive:false});
+C.addEventListener('touchstart',function(e){
+  e.preventDefault();
+  var t=e.touches[0];
+  handleTap(t.clientX,t.clientY);
+  if(STATE==='play')handleMove(t.clientX);
+},{passive:false});
+
+// Keyboard
+document.addEventListener('keydown',function(e){
+  if(e.code==='Space'||e.key==='Enter'){
+    e.preventDefault();
+    if(STATE==='title'){handleTap(0,0);return;}
+    if(STATE==='gameover'){handleTap(0,0);return;}
+    swingBroom();
+  }
+  if(STATE==='play'){
+    if(e.key==='ArrowLeft'||e.key==='a'){broomX=Math.max(12,broomX-16);broomDir=-1;}
+    if(e.key==='ArrowRight'||e.key==='d'){broomX=Math.min(GW-12,broomX+16);broomDir=1;}
+  }
+});
+
+// Game loop
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
