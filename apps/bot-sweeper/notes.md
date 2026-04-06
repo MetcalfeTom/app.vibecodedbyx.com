@@ -1,6 +1,7 @@
 # Bot Sweeper
 
 ## log
+- 2026-04-06: Upgraded broom to giant red fly swatter — bigger pixel art head with mesh pattern, wider hit detection (34px radius, 48px reach), red impact flash on swing, updated title screen.
 - 2026-04-05: Initial build — retro arcade game where you swat falling spam bot icons with a pixel broom. 6 bot types (spambot, phisher, crawler, trojan, ddos, worm) with unique pixel art and stats. 3 powerups, combo system, level progression, screen shake, particle effects. 240x320 game resolution scaled to fit screen. Press Start 2P font, green/dark terminal palette.
 
 ## features
