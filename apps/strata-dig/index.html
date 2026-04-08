@@ -693,6 +693,9 @@ initAuth();
     armedTool: null,  // key of EXPLOSIVES or null
     shockwaves: [],
     totalValue: 0,    // lifetime gem value collected (never decreases on spend)
+    bombs: [],        // { x, y, t (remaining sec), max: 3 }
+    jammedUntil: 0,   // performance.now() timestamp — mining disabled until
+    nextBombAt: 0,    // next spawn time
   };
   for (const k of Object.keys(GEMS)) state.gemCounts[k] = 0;
 
@@ -917,9 +920,39 @@ initAuth();
     const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
     return { x: cx - offsetX, y: cy + state.camY };
   }
+  function tryClickBomb(wx, wy) {
+    // Click radius ~22px
+    for (let i = 0; i < state.bombs.length; i++) {
+      const b = state.bombs[i];
+      const dx = wx - b.x, dy = wy - b.y;
+      if (dx*dx + dy*dy < 26*26) {
+        state.bombs.splice(i, 1);
+        // reward + celebration
+        const reward = 15 + Math.floor(state.totalValue * 0.005);
+        state.gold += reward;
+        state.totalValue += reward;
+        state.floaters.push({ x: b.x, y: b.y, text: 'DEFUSED +' + reward, col: '#7dff9a', life: 60 });
+        for (let k = 0; k < 14; k++) {
+          const a = Math.random() * Math.PI * 2;
+          state.particles.push({
+            x: b.x, y: b.y,
+            vx: Math.cos(a)*2.5, vy: Math.sin(a)*2.5,
+            life: 32, col: '#7dff9a', size: 2, glow: true,
+          });
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
   function tryDig(e) {
     const { x, y } = eventToWorld(e);
     if (x < 0 || x > COLS * CELL) return;
+    // Bomb click takes priority — even if tool armed
+    if (e._armClick && tryClickBomb(x, y)) { renderHUD(); return; }
+    // Mining jammed
+    if (performance.now() < state.jammedUntil && !state.armedTool) return;
     if (state.armedTool) {
       // require fresh click (not drag) for explosives
       if (!e._armClick) return;
@@ -1103,6 +1136,8 @@ initAuth();
     ctx.globalAlpha = 1;
     ctx.textAlign = 'left';
 
+    renderBombs();
+
     ctx.restore();
 
     // depth fog at bottom
@@ -1234,6 +1269,118 @@ initAuth();
     showToast._t = setTimeout(() => toast.classList.remove('show'), 1800);
   }
 
+  // ---------- time bombs ----------
+  function maybeSpawnBomb(now) {
+    if (state.nextBombAt === 0) {
+      state.nextBombAt = now + 22000 + Math.random() * 12000;
+      return;
+    }
+    if (now < state.nextBombAt) return;
+    // require enough dug tiles before bombs appear
+    if (state.dug.size < 15) {
+      state.nextBombAt = now + 5000;
+      return;
+    }
+    // pick a dug tile currently in view
+    const inView = [];
+    const topY = state.camY;
+    const botY = state.camY + viewH;
+    for (const k of state.dug) {
+      const [gx, gy] = k.split(',').map(Number);
+      const py = gy * CELL + CELL/2;
+      if (py > topY + 30 && py < botY - 30) inView.push([gx, gy]);
+    }
+    if (inView.length === 0) {
+      state.nextBombAt = now + 3000;
+      return;
+    }
+    const [gx, gy] = inView[Math.floor(Math.random() * inView.length)];
+    state.bombs.push({
+      x: gx * CELL + CELL/2,
+      y: gy * CELL + CELL/2,
+      t: 3,
+      max: 3,
+    });
+    state.nextBombAt = now + 18000 + Math.random() * 14000;
+  }
+
+  function tickBombs(dt) {
+    const now = performance.now();
+    maybeSpawnBomb(now);
+    for (let i = state.bombs.length - 1; i >= 0; i--) {
+      const b = state.bombs[i];
+      b.t -= dt / 1000;
+      if (b.t <= 0) {
+        // explode — jam mining
+        state.bombs.splice(i, 1);
+        state.jammedUntil = now + 5000;
+        showToast('MINING JAMMED — 5s');
+        state.floaters.push({ x: b.x, y: b.y, text: '⚠ JAMMED', col: '#ff3a3a', life: 80 });
+        for (let k = 0; k < 30; k++) {
+          const a = Math.random() * Math.PI * 2;
+          state.particles.push({
+            x: b.x, y: b.y,
+            vx: Math.cos(a)*4, vy: Math.sin(a)*4,
+            life: 40, col: Math.random() < 0.5 ? '#ff3a3a' : '#ffbc4a',
+            size: 3, glow: true,
+          });
+        }
+        state.shockwaves.push({ x: b.x, y: b.y, r: 6, max: 120, life: 24 });
+      }
+    }
+  }
+
+  function renderBombs() {
+    const now = performance.now();
+    for (const b of state.bombs) {
+      const pct = b.t / b.max;
+      const pulse = 1 + Math.sin(now * 0.015 * (2 - pct)) * 0.18;
+      const baseR = 14 * pulse;
+      // outer glow
+      ctx.save();
+      ctx.shadowColor = '#ff3a3a';
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = pct > 0.33 ? '#ff3a3a' : '#ff1a1a';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, baseR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // ring (countdown arc)
+      ctx.strokeStyle = '#ffea7a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, baseR + 4, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * pct);
+      ctx.stroke();
+      // fuse icon
+      ctx.fillStyle = '#120906';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, baseR - 3, 0, Math.PI * 2);
+      ctx.fill();
+      // countdown number
+      ctx.fillStyle = '#ffea7a';
+      ctx.font = 'bold 13px "Rubik Mono One", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(Math.ceil(b.t).toString(), b.x, b.y + 1);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  function renderJamOverlay() {
+    const now = performance.now();
+    if (now >= state.jammedUntil) return;
+    const remain = (state.jammedUntil - now) / 5000;
+    const pulse = 0.5 + Math.sin(now * 0.02) * 0.1;
+    ctx.fillStyle = `rgba(255, 58, 58, ${0.08 * pulse})`;
+    ctx.fillRect(0, 0, viewW, viewH);
+    ctx.font = 'bold 14px "Rubik Mono One", sans-serif';
+    ctx.fillStyle = '#ff3a3a';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠ MINING JAMMED ' + (remain * 5).toFixed(1) + 's', viewW/2, 30);
+    ctx.textAlign = 'left';
+  }
+
   // ---------- auto-drill ----------
   let autoAcc = 0;
   function tickAuto(dt) {
@@ -1273,7 +1420,9 @@ initAuth();
     const dt = Math.min(60, t - lastT);
     lastT = t;
     tickAuto(dt);
+    tickBombs(dt);
     render(dt);
+    renderJamOverlay();
     hudAcc += dt;
     if (hudAcc >= 120) {
       renderHUD();
