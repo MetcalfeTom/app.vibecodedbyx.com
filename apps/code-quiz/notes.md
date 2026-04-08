@@ -1,24 +1,26 @@
 # Code Quiz
 
 ## log
-- 2026-04-08: Fix — removed `response_format` and `referrer` from the POST body. Those fields were pushing the request into Pollinations' deprecated authenticated path, which returns a plain-English deprecation notice instead of the quiz. Anonymous requests without those fields return normally (confirmed via curl). Also rewrote JSON extraction: new `extractJson()` helper strips ```json fences, does a direct parse, then falls back to scanning for the first balanced `{...}` or `[...]` block (handles models that leak prose around the JSON). Normalizer now accepts `questions` / `quiz` / `items` / bare array, and per-question accepts `q`/`question`/`prompt`, `options`/`choices`/`answers`, numeric `correct`/`correctIndex`/`answer` or letter form ("A"/"B"/"C"/"D"), and `explain`/`explanation`/`reason`. Better error messages at each failure point.
-- 2026-04-08: Initial build — paste a code snippet, pick language/level/question count, click Generate. POSTs to `https://text.pollinations.ai/openai` with `response_format: json_object` and a strict schema prompt. Parses returned JSON (fence-stripped) into `{questions:[{q,options,correct,explain}]}`, filters to 4-option well-formed entries. One question at a time with progress bars, letter-labeled options (A/B/C/D), correct/wrong marking, explanation box, score screen with copy based on %. JetBrains Mono + Bricolage Grotesque, dark panel/editor aesthetic with red/yellow/green window dots header. Auto file extension based on selected language. Sample Fibonacci placeholder in the textarea.
+- 2026-04-08: Full concept pivot. Dropped the paste-your-code + LLM generation flow and replaced it with a "guess which sloppy app this code is from" game. On each of 10 rounds: shuffles a curated pool of 61 apps under /apps/, fetches the index.html (relative URL so it works on sloppy.live), extracts inline `<script>` bodies (skips external src), picks an "interesting" 3-14 line block (preferring those with function/const/class/addEventListener keywords), scrubs the app name out of the snippet, then presents 4 options (1 correct + 3 random distractors from the pool). Basic JS syntax highlighter for keywords/strings/numbers/comments. Progress bars + explanation box with clickable link to the real app after each answer. Skip button to pass on a snippet. Final score screen with tiered copy. In-memory cache per fetched app to avoid re-downloading.
+- 2026-04-08: (prior build) Fix — removed `response_format` and `referrer` from the Pollinations POST body. Those fields were pushing the request into Pollinations' deprecated authenticated path. Also added robust `extractJson()` helper that strips fences and scans for the first balanced block.
+- 2026-04-08: (prior build) Initial build — paste a code snippet, pick language/level/question count, call Pollinations openai endpoint with JSON mode prompt.
 
 ## features
-- Paste any code, 16 languages + auto-detect
-- 3 difficulty levels (beginner / intermediate / advanced)
-- 3 question counts (3 / 5 / 8)
-- Pollinations JSON-mode API for structured quiz output
-- Progress bars update as you answer (green = right, red = wrong, yellow = current)
-- Explanation shown after answering each question
-- Score screen with percentage and level-based encouragement
-- Mobile-friendly responsive grid (stacks on narrow viewports)
+- 61-app curated pool (editable APP_POOL constant)
+- Runtime fetch + inline-script extraction (no pre-baked snippets, stays fresh as apps change)
+- Heuristic "interesting block" picker with blank-line block segmentation + keyword scoring
+- App-name scrubbing in the displayed snippet (case-insensitive, replaces with asterisks)
+- Basic JS syntax highlighting (keywords, strings, numbers, comments)
+- 10-round session with progress bars, live score tracking, skip option
+- Clickable link to the real app in the explanation after each round
+- Cached fetches so the same app isn't re-downloaded within a session
 
 ## issues
-- None yet
+- Only works from the sloppy.live origin (relative fetch) — local dev preview won't see other apps.
+- Minified or externally-sourced scripts won't yield usable snippets — fetcher tries up to 8 apps per round.
 
 ## todos
-- Share score button (copy result link)
-- Save favorite snippets to localStorage
-- Supabase leaderboard for highest scores across sessions
-- Syntax highlighting in the code textarea (currently plain mono)
+- Weight the pool toward more-recently-added apps for freshness
+- Add a "too easy" toggle that doesn't scrub the app name
+- Share score to Twitter / copy result card
+- Supabase leaderboard for 10/10 streaks
