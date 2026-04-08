@@ -530,6 +530,19 @@ function saveTracked(list) {
 }
 let trackedRefs = loadTracked();
 
+// Default-track the SLOPPY pump.fun token so it's always visible.
+const DEFAULT_TRACKED = [
+  { id: 'dex-j16vnwycy1ucf384bekl18mvlki37yvkzo1f3g31pump',
+    platform: 'solana',
+    contract: 'J16vnwycY1UCF384bEkL18MVLki37YvkZo1F3g31pump' },
+];
+for (const d of DEFAULT_TRACKED) {
+  if (!trackedRefs.some(t => t.contract.toLowerCase() === d.contract.toLowerCase())) {
+    trackedRefs.unshift(d);
+  }
+}
+saveTracked(trackedRefs);
+
 // ---------- Utilities ----------
 function fmtPrice(p) {
   if (p == null) return '—';
@@ -572,30 +585,68 @@ async function fetchCoins() {
 }
 
 // Look up a coin by contract address on a given platform (chain).
-// CoinGecko endpoint: /coins/{platform}/contract/{contract}
+// First try CoinGecko (best data incl. chart), then fall back to
+// DexScreener which covers DEX-only tokens like pump.fun launches.
 async function fetchContract(platform, contract) {
-  const url = `${API}/coins/${platform}/contract/${encodeURIComponent(contract)}`;
-  const r = await fetch(url);
-  if (r.status === 404) throw new Error('Token not found on ' + platform);
-  if (!r.ok) throw new Error('API error ' + r.status);
-  const d = await r.json();
-  // normalize into the same shape as /coins/markets rows
-  const md = d.market_data || {};
+  // 1. CoinGecko attempt
+  try {
+    const url = `${API}/coins/${platform}/contract/${encodeURIComponent(contract)}`;
+    const r = await fetch(url);
+    if (r.ok) {
+      const d = await r.json();
+      const md = d.market_data || {};
+      return {
+        id: d.id,
+        symbol: (d.symbol || '').toUpperCase(),
+        name: d.name || d.id,
+        image: (d.image && (d.image.small || d.image.thumb || d.image.large)) || '',
+        current_price: md.current_price?.usd ?? null,
+        market_cap:    md.market_cap?.usd ?? null,
+        market_cap_rank: d.market_cap_rank ?? null,
+        total_volume:  md.total_volume?.usd ?? null,
+        high_24h:      md.high_24h?.usd ?? null,
+        low_24h:       md.low_24h?.usd ?? null,
+        price_change_percentage_24h: md.price_change_percentage_24h ?? 0,
+        _tracked: true, _source: 'gecko',
+        _platform: platform, _contract: contract,
+      };
+    }
+    if (r.status !== 404) throw new Error('CoinGecko ' + r.status);
+  } catch (e) {
+    // fall through to dex
+    console.warn('gecko lookup failed, trying dex:', e.message);
+  }
+
+  // 2. DexScreener fallback — works for pump.fun, raydium, uniswap, etc.
+  const dxUrl = `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(contract)}`;
+  const dxR = await fetch(dxUrl);
+  if (!dxR.ok) throw new Error('DexScreener ' + dxR.status);
+  const dx = await dxR.json();
+  const pairs = dx.pairs || [];
+  if (pairs.length === 0) throw new Error('Token not found on any DEX');
+  // pick the highest-liquidity pair
+  pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+  const p = pairs[0];
+  const base = p.baseToken || {};
+  const price = parseFloat(p.priceUsd || '0');
+  const pc24 = p.priceChange?.h24 ?? 0;
   return {
-    id: d.id,
-    symbol: (d.symbol || '').toUpperCase(),
-    name: d.name || d.id,
-    image: (d.image && (d.image.small || d.image.thumb || d.image.large)) || '',
-    current_price: md.current_price?.usd ?? null,
-    market_cap:    md.market_cap?.usd ?? null,
-    market_cap_rank: d.market_cap_rank ?? null,
-    total_volume:  md.total_volume?.usd ?? null,
-    high_24h:      md.high_24h?.usd ?? null,
-    low_24h:       md.low_24h?.usd ?? null,
-    price_change_percentage_24h: md.price_change_percentage_24h ?? 0,
-    _tracked: true,
-    _platform: platform,
-    _contract: contract,
+    id: 'dex-' + contract.toLowerCase(),
+    symbol: (base.symbol || '').toUpperCase(),
+    name: base.name || contract.slice(0, 6),
+    image: p.info?.imageUrl || '',
+    current_price: price,
+    market_cap: p.marketCap || p.fdv || null,
+    market_cap_rank: null,
+    total_volume: p.volume?.h24 ?? null,
+    high_24h: null,
+    low_24h: null,
+    price_change_percentage_24h: pc24,
+    _tracked: true, _source: 'dex',
+    _platform: platform, _contract: contract,
+    _dexUrl: p.url,
+    _pairAddress: p.pairAddress,
+    _dexChainId: p.chainId,
   };
 }
 
@@ -782,6 +833,10 @@ function drawChart() {
   ctx.stroke();
 }
 
+// Rolling client-side history for DEX tokens that have no chart API.
+// { id -> [[ts, price], ...] }
+const dexHistory = {};
+
 // ---------- Selection ----------
 async function selectCoin(id) {
   state.selectedId = id;
@@ -789,7 +844,20 @@ async function selectCoin(id) {
   renderCoinList();
   renderChartHead();
   chartLoadingEl.style.display = 'flex';
+  chartLoadingEl.textContent = '◆ LOADING CHART ◆';
   drawChart();
+
+  const c = allCoins().find(x => x.id === id);
+  if (c && c._source === 'dex') {
+    // DEX-only token: use our rolling samples
+    state.chartData = dexHistory[id] || [];
+    if (state.chartData.length < 2) {
+      chartLoadingEl.textContent = 'DEX-TRACKED · CHART BUILDS LIVE';
+    }
+    drawChart();
+    return;
+  }
+
   try {
     state.chartData = await fetchChart(id, 1);
     drawChart();
@@ -942,6 +1010,7 @@ async function addContract(platform, contract) {
   caBtn.textContent = '…FETCHING…';
   try {
     const row = await fetchContract(platform, contract);
+    recordDexSample(row);
     // dedupe by id
     const existing = state.tracked.findIndex(c => c.id === row.id);
     if (existing >= 0) state.tracked[existing] = row;
@@ -975,6 +1044,7 @@ async function rehydrateTracked() {
   for (const t of trackedRefs) {
     try {
       const row = await fetchContract(t.platform, t.contract);
+      recordDexSample(row);
       state.tracked.push(row);
       renderCoinList();
     } catch (e) {
@@ -983,11 +1053,23 @@ async function rehydrateTracked() {
   }
 }
 
+// Record a DEX-token sample into the rolling history
+function recordDexSample(row) {
+  if (row._source !== 'dex' || row.current_price == null) return;
+  const arr = dexHistory[row.id] || (dexHistory[row.id] = []);
+  arr.push([Date.now(), row.current_price]);
+  // keep last 6 hours of samples, max 240 points
+  const cutoff = Date.now() - 6 * 3600 * 1000;
+  while (arr.length > 0 && arr[0][0] < cutoff) arr.shift();
+  while (arr.length > 240) arr.shift();
+}
+
 // Periodically refresh tracked tokens too (every 60s, offset from markets)
 setInterval(async () => {
   for (const t of trackedRefs) {
     try {
       const row = await fetchContract(t.platform, t.contract);
+      recordDexSample(row);
       const i = state.tracked.findIndex(c => c.id === row.id);
       if (i >= 0) state.tracked[i] = row;
       else state.tracked.push(row);
@@ -996,6 +1078,13 @@ setInterval(async () => {
   renderCoinList();
   if (state.selectedId && state.tracked.some(c => c.id === state.selectedId)) {
     renderChartHead();
+    // if viewing a dex token, refresh the rolling chart
+    const sel = state.tracked.find(c => c.id === state.selectedId);
+    if (sel && sel._source === 'dex') {
+      state.chartData = dexHistory[sel.id] || [];
+      if (state.chartData.length >= 2) chartLoadingEl.style.display = 'none';
+      drawChart();
+    }
   }
 }, 60 * 1000);
 
