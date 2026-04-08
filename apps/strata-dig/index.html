@@ -195,6 +195,67 @@ main {
   color: var(--accent-2);
   float: right;
 }
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tool:hover { border-color: var(--accent); }
+.tool.armed {
+  border-color: var(--accent-2);
+  background: rgba(255, 106, 46, 0.18);
+  box-shadow: 0 0 12px rgba(255, 106, 46, 0.4);
+}
+.tool .ic { font-size: 18px; }
+.tool .body { flex: 1; min-width: 0; }
+.tool .name { font-size: 10px; color: var(--ink); }
+.tool .meta { font-size: 9px; color: var(--ink-dim); }
+.tool .count {
+  font-family: 'Rubik Mono One', sans-serif;
+  font-size: 13px;
+  color: var(--accent);
+  min-width: 18px;
+  text-align: right;
+}
+.tool .buybtn {
+  font-size: 9px;
+  padding: 3px 7px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.5px;
+}
+.tool .buybtn:hover:not(:disabled) { background: var(--accent); color: #120906; }
+.tool .buybtn:disabled { opacity: 0.35; cursor: not-allowed; }
+.arm-banner {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 106, 46, 0.15);
+  border: 1px solid var(--accent-2);
+  padding: 6px 14px;
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--accent-2);
+  pointer-events: none;
+  animation: armpulse 1.2s infinite;
+}
+@keyframes armpulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 106, 46, 0.3); }
+  50% { box-shadow: 0 0 24px rgba(255, 106, 46, 0.7); }
+}
 .overlay-hint {
   position: absolute;
   top: 14px;
@@ -296,10 +357,15 @@ footer a { color: var(--accent); text-decoration: none; }
     <canvas id="shaft"></canvas>
     <div class="overlay-hint">⛏  click or drag on the dirt to dig</div>
     <div class="toast" id="toast"></div>
+    <div class="arm-banner" id="armBanner" style="display:none"></div>
     <aside class="side">
       <div class="section">
         <h3>Gems Found</h3>
         <div class="gem-list" id="gemList"></div>
+      </div>
+      <div class="section">
+        <h3>Explosives</h3>
+        <div id="tools"></div>
       </div>
       <div class="section">
         <h3>Upgrades</h3>
@@ -359,9 +425,38 @@ footer a { color: var(--accent); text-decoration: none; }
     voidgem:   { name: 'Void Gem',  col: '#c040ff', price: 6000, glow: true },
   };
 
+  // drill tiers — label derived from pick.lv
+  const DRILL_TIERS = [
+    { min: 1,  name: 'ROCK PICK',      desc: '+1 damage per strike' },
+    { min: 5,  name: 'IRON DRILL',     desc: '+1 damage per strike' },
+    { min: 10, name: 'STEEL DRILL',    desc: '+1 damage per strike' },
+    { min: 16, name: 'DIAMOND DRILL',  desc: '+1 damage, faster swing' },
+    { min: 24, name: 'PLASMA DRILL',   desc: '+1 damage, vaporizes rock' },
+  ];
+  function drillTier(lv) {
+    let t = DRILL_TIERS[0];
+    for (const d of DRILL_TIERS) if (lv >= d.min) t = d;
+    return t;
+  }
+
+  const EXPLOSIVES = {
+    dynamite: {
+      name: 'Dynamite', icon: '🧨', radius: 1.8, cost: 220,
+      meta: '3×3 blast · breaks any rock'
+    },
+    tnt: {
+      name: 'TNT Crate', icon: '💥', radius: 2.8, cost: 900,
+      meta: '5×5 blast · 2× gem yield'
+    },
+    mega: {
+      name: 'Mega Bomb', icon: '☢', radius: 4.2, cost: 3800,
+      meta: '9×9 blast · 3× gem yield'
+    },
+  };
+
   const UPGRADES = {
     pick: {
-      name: 'PICK POWER', desc: '+1 damage per strike', lv: 1,
+      name: 'DRILL', desc: '+1 damage per strike', lv: 1,
       base: 50, mul: 1.8
     },
     reach: {
@@ -393,11 +488,14 @@ footer a { color: var(--accent); text-decoration: none; }
     particles: [],
     floaters: [],
     sparkles: [],
+    explosives: { dynamite: 0, tnt: 0, mega: 0 },
+    armedTool: null,  // key of EXPLOSIVES or null
+    shockwaves: [],
   };
   for (const k of Object.keys(GEMS)) state.gemCounts[k] = 0;
 
   // ---------- save / load ----------
-  const SAVE_KEY = 'strata-dig-save-v1';
+  const SAVE_KEY = 'strata-dig-save-v2';
   function save() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
@@ -407,6 +505,7 @@ footer a { color: var(--accent); text-decoration: none; }
         dug: Array.from(state.dug),
         camY: state.camY,
         upgrades: Object.fromEntries(Object.entries(UPGRADES).map(([k,v]) => [k, v.lv])),
+        explosives: state.explosives,
       }));
     } catch (e) {}
   }
@@ -421,6 +520,7 @@ footer a { color: var(--accent); text-decoration: none; }
       state.dug = new Set(d.dug || []);
       state.camY = d.camY || 0;
       if (d.upgrades) for (const k in d.upgrades) if (UPGRADES[k]) UPGRADES[k].lv = d.upgrades[k];
+      if (d.explosives) state.explosives = { ...state.explosives, ...d.explosives };
     } catch (e) {}
   }
   load();
@@ -535,6 +635,58 @@ footer a { color: var(--accent); text-decoration: none; }
       state.camY = Math.max(state.camY, tileBottom - viewH + CELL * 3);
     }
   }
+  function detonate(worldX, worldY, key) {
+    const def = EXPLOSIVES[key];
+    if (!def) return;
+    const gx = Math.floor(worldX / CELL);
+    const gy = Math.floor(worldY / CELL);
+    const r = def.radius;
+    const gemMul = key === 'mega' ? 3 : key === 'tnt' ? 2 : 1;
+    const rInt = Math.ceil(r);
+    for (let dy = -rInt; dy <= rInt; dy++) {
+      for (let dx = -rInt; dx <= rInt; dx++) {
+        if (dx*dx + dy*dy > r*r) continue;
+        const x = gx + dx, y = gy + dy;
+        if (x < 0 || x >= COLS || y < 0) continue;
+        const k2 = x + ',' + y;
+        if (state.dug.has(k2)) continue;
+        const t = getTile(x, y);
+        if (!t) continue;
+        // bonus gem value multiplier on explosion
+        if (t.gem && gemMul > 1) {
+          // temp boost via direct gold credit + floater, then destroy without gem
+          const g = GEMS[t.gem];
+          const baseVal = Math.round(g.price * (1 + 0.2 * UPGRADES.value.lv));
+          const bonus = baseVal * (gemMul - 1);
+          state.gold += bonus;
+          state.floaters.push({
+            x: x * CELL + CELL/2, y: y * CELL + CELL/2,
+            text: '×' + gemMul, col: '#ff6a2e', life: 55
+          });
+        }
+        t.hp = 0;
+        destroyTile(x, y, t);
+      }
+    }
+    // shockwave ring + fireball particles
+    const wx = gx * CELL + CELL/2;
+    const wy = gy * CELL + CELL/2;
+    state.shockwaves.push({ x: wx, y: wy, r: CELL * 0.5, max: r * CELL * 1.4, life: 28 });
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 5;
+      state.particles.push({
+        x: wx, y: wy,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: 30 + Math.random() * 30,
+        col: Math.random() < 0.5 ? '#ffbc4a' : '#ff6a2e',
+        size: 3 + Math.random() * 3,
+        glow: true,
+      });
+    }
+    showToast(def.name.toUpperCase() + '!');
+  }
+
   function hitSpark(x, y) {
     const cx = x * CELL + CELL/2;
     const cy = y * CELL + CELL/2;
@@ -560,18 +712,46 @@ footer a { color: var(--accent); text-decoration: none; }
     return { x: cx - offsetX, y: cy + state.camY };
   }
   function tryDig(e) {
-    const now = performance.now();
-    if (now - lastDig < 40) return;
-    lastDig = now;
     const { x, y } = eventToWorld(e);
     if (x < 0 || x > COLS * CELL) return;
+    if (state.armedTool) {
+      // require fresh click (not drag) for explosives
+      if (!e._armClick) return;
+      const key = state.armedTool;
+      if ((state.explosives[key] || 0) <= 0) { disarm(); return; }
+      state.explosives[key] -= 1;
+      detonate(x, y, key);
+      if (state.explosives[key] <= 0) disarm();
+      renderHUD();
+      return;
+    }
+    const now = performance.now();
+    if (now - lastDig < Math.max(18, 40 - UPGRADES.pick.lv * 1.2)) return;
+    lastDig = now;
     const power = UPGRADES.pick.lv;
     digAt(x, y, power);
   }
-  canvas.addEventListener('mousedown', (e) => { dragging = true; tryDig(e); });
+
+  function arm(key) {
+    if ((state.explosives[key] || 0) <= 0) return;
+    state.armedTool = key;
+    canvas.style.cursor = 'cell';
+    const banner = document.getElementById('armBanner');
+    banner.style.display = 'block';
+    banner.textContent = '⚠ ' + EXPLOSIVES[key].name.toUpperCase() + ' ARMED — CLICK TO DETONATE · ESC TO CANCEL';
+    renderHUD();
+  }
+  function disarm() {
+    state.armedTool = null;
+    canvas.style.cursor = 'crosshair';
+    document.getElementById('armBanner').style.display = 'none';
+    renderHUD();
+  }
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') disarm(); });
+  canvas.addEventListener('mousedown', (e) => { dragging = true; e._armClick = true; tryDig(e); });
   canvas.addEventListener('mousemove', (e) => { if (dragging) tryDig(e); });
   window.addEventListener('mouseup', () => dragging = false);
-  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); dragging = true; tryDig(e); }, { passive: false });
+  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); dragging = true; e._armClick = true; tryDig(e); }, { passive: false });
   canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if (dragging) tryDig(e); }, { passive: false });
   canvas.addEventListener('touchend', () => dragging = false);
 
@@ -680,6 +860,25 @@ footer a { color: var(--accent); text-decoration: none; }
     }
     ctx.globalAlpha = 1;
 
+    // shockwaves
+    for (let i = state.shockwaves.length - 1; i >= 0; i--) {
+      const s = state.shockwaves[i];
+      s.r += (s.max - s.r) * 0.22;
+      s.life -= 1;
+      if (s.life <= 0) { state.shockwaves.splice(i, 1); continue; }
+      const a = s.life / 28;
+      ctx.strokeStyle = 'rgba(255, 188, 74,' + a + ')';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255, 106, 46,' + (a * 0.6) + ')';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * 0.75, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     // floaters
     ctx.font = 'bold 12px "Space Mono", monospace';
     ctx.textAlign = 'center';
@@ -715,6 +914,7 @@ footer a { color: var(--accent); text-decoration: none; }
   const tilesEl = document.getElementById('tilesDug');
   const gemListEl = document.getElementById('gemList');
   const upgradesEl = document.getElementById('upgrades');
+  const toolsEl = document.getElementById('tools');
 
   function formatNum(n) {
     if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
@@ -757,10 +957,16 @@ footer a { color: var(--accent); text-decoration: none; }
     for (const [k, u] of Object.entries(UPGRADES)) {
       const cost = Math.floor(u.base * Math.pow(u.mul, u.lv));
       const disabled = state.gold < cost;
+      let name = u.name, desc = u.desc;
+      if (k === 'pick') {
+        const t = drillTier(u.lv);
+        name = t.name;
+        desc = t.desc;
+      }
       uh += `<div class="upgrade${disabled ? ' disabled' : ''}" data-k="${k}">
         <span class="lv">Lv ${u.lv}</span>
-        <div class="name">${u.name}</div>
-        <div class="desc">${u.desc}</div>
+        <div class="name">${name}</div>
+        <div class="desc">${desc}</div>
         <div class="cost">${formatNum(cost)} gold</div>
       </div>`;
     }
@@ -774,6 +980,43 @@ footer a { color: var(--accent); text-decoration: none; }
         state.gold -= cost;
         u.lv += 1;
         renderHUD();
+      });
+    });
+
+    // tools (explosives)
+    let th = '';
+    for (const [k, def] of Object.entries(EXPLOSIVES)) {
+      const count = state.explosives[k] || 0;
+      const canBuy = state.gold >= def.cost;
+      const armed = state.armedTool === k;
+      th += `<div class="tool${armed ? ' armed' : ''}" data-k="${k}">
+        <span class="ic">${def.icon}</span>
+        <div class="body">
+          <div class="name">${def.name}</div>
+          <div class="meta">${def.meta}</div>
+        </div>
+        <span class="count">${count}</span>
+        <button class="buybtn" data-buy="${k}" ${canBuy ? '' : 'disabled'}>${formatNum(def.cost)}</button>
+      </div>`;
+    }
+    toolsEl.innerHTML = th;
+    toolsEl.querySelectorAll('.buybtn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const k = btn.dataset.buy;
+        const def = EXPLOSIVES[k];
+        if (state.gold < def.cost) return;
+        state.gold -= def.cost;
+        state.explosives[k] = (state.explosives[k] || 0) + 1;
+        renderHUD();
+      });
+    });
+    toolsEl.querySelectorAll('.tool').forEach(el => {
+      el.addEventListener('click', () => {
+        const k = el.dataset.k;
+        if ((state.explosives[k] || 0) <= 0) return;
+        if (state.armedTool === k) disarm();
+        else arm(k);
       });
     });
   }
