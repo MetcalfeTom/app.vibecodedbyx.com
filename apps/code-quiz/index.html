@@ -517,6 +517,8 @@ CODE:
 ${code}
 \`\`\``;
 
+  // NOTE: do NOT send response_format or referrer in the body — those push the
+  // request into the deprecated authenticated path. Anonymous requests work fine.
   const res = await fetch('https://text.pollinations.ai/openai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -526,28 +528,94 @@ ${code}
         { role: 'system', content: sys },
         { role: 'user', content: user },
       ],
-      response_format: { type: 'json_object' },
-      referrer: 'sloppy.live',
     }),
   });
 
   if (!res.ok) throw new Error('api ' + res.status);
-  const body = await res.json();
-  const text = body?.choices?.[0]?.message?.content || '';
-  // parse — strip possible fences just in case
-  let jsonText = text.trim();
-  const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) jsonText = fenceMatch[1].trim();
-  let parsed;
-  try { parsed = JSON.parse(jsonText); }
-  catch (e) { throw new Error('invalid JSON from model'); }
-  // sanitize
-  if (!parsed.questions && Array.isArray(parsed)) parsed = { questions: parsed };
-  parsed.questions = (parsed.questions || []).filter(q =>
-    q && typeof q.q === 'string' && Array.isArray(q.options) && q.options.length === 4 &&
-    typeof q.correct === 'number' && q.correct >= 0 && q.correct < 4
-  );
-  return parsed;
+
+  // the response is an OpenAI-shape object
+  let body;
+  try { body = await res.json(); }
+  catch (e) { throw new Error('api returned non-JSON envelope'); }
+
+  const msg = body && body.choices && body.choices[0] && body.choices[0].message;
+  let text = (msg && msg.content) || '';
+  if (!text && msg && typeof msg.reasoning_content === 'string') text = msg.reasoning_content;
+  if (!text) throw new Error('empty response from model');
+
+  const parsed = extractJson(text);
+  if (!parsed) throw new Error('could not parse JSON from model response');
+
+  // normalize shape — accept {questions:[...]}, {quiz:[...]}, or bare array
+  let questions = null;
+  if (Array.isArray(parsed)) questions = parsed;
+  else if (Array.isArray(parsed.questions)) questions = parsed.questions;
+  else if (Array.isArray(parsed.quiz)) questions = parsed.quiz;
+  else if (Array.isArray(parsed.items)) questions = parsed.items;
+  if (!questions) throw new Error('response JSON had no questions array');
+
+  // normalize each question — accept variants (answer/correctIndex/etc)
+  const clean = [];
+  for (const raw of questions) {
+    if (!raw || typeof raw !== 'object') continue;
+    const q = raw.q || raw.question || raw.prompt || raw.text;
+    const options = raw.options || raw.choices || raw.answers;
+    let correct = raw.correct;
+    if (typeof correct !== 'number') correct = raw.correctIndex;
+    if (typeof correct !== 'number') correct = raw.answer;
+    // support letter form "A"/"B"/...
+    if (typeof correct === 'string') {
+      const letter = correct.trim().toUpperCase().charCodeAt(0) - 65;
+      if (letter >= 0 && letter < 4) correct = letter;
+    }
+    const explain = raw.explain || raw.explanation || raw.reason || '';
+    if (typeof q !== 'string') continue;
+    if (!Array.isArray(options) || options.length !== 4) continue;
+    if (typeof correct !== 'number' || correct < 0 || correct > 3) continue;
+    if (!options.every(o => typeof o === 'string')) continue;
+    clean.push({ q, options, correct, explain: String(explain) });
+  }
+  if (clean.length === 0) throw new Error('no well-formed questions in response');
+  return { questions: clean };
+}
+
+// Robust JSON extractor — strips markdown fences, then scans for the first
+// balanced {...} or [...] block and parses it. Handles models that leak prose.
+function extractJson(text) {
+  let t = String(text).trim();
+  // strip markdown fences ```json ... ``` or ``` ... ```
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+
+  // try direct parse first
+  try { return JSON.parse(t); } catch (_) {}
+
+  // scan for first { or [ and try to find the matching close
+  for (let start = 0; start < t.length; start++) {
+    const ch = t[start];
+    if (ch !== '{' && ch !== '[') continue;
+    const open = ch, close = ch === '{' ? '}' : ']';
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < t.length; i++) {
+      const c = t[i];
+      if (inStr) {
+        if (esc) { esc = false; continue; }
+        if (c === '\\') { esc = true; continue; }
+        if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') { inStr = true; continue; }
+      if (c === open) depth++;
+      else if (c === close) {
+        depth--;
+        if (depth === 0) {
+          const candidate = t.slice(start, i + 1);
+          try { return JSON.parse(candidate); } catch (_) { break; }
+        }
+      }
+    }
+  }
+  return null;
 }
 
 // ---------- RENDER ----------
