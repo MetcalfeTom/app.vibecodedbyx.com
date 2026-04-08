@@ -1,6 +1,7 @@
 # Neon Lava Lamp
 
 ## log
+- 2026-04-08: Full customization pass. Replaced the preset-cycling COLORS button with three `<input type="color">` pickers (WAX, GLOW, FLUID) + a horizontal row of 8 preset chips (magenta, cyan, orange, violet, emerald, amber, blood, classic) that auto-fill the pickers. Added a HEAT slider 0-200% (instead of 3-state toggle). Replaced color schemes array with hexToRgb helper + targetColors object driven from inputs. Glassmorphism controls panel (blur backdrop). Metaball renderer gained light-from-below shading (bottom hemisphere of each blob brighter) and a bulb-warmth gradient at the fluid bottom so the whole lamp feels lit from the base. Tuned physics: gravity 0.022, heat force 0.085, damping 0.985, repulsion 0.6. Removed the 10s auto-color-change interval since users now pick their own.
 - 2026-01-11: Created high-fidelity neon lava lamp with gooey metaball physics
 - 2026-01-18: Added click/touch interaction
   - Click inside lamp creates 2-4 bubbles at position
