@@ -26,9 +26,9 @@
     .lamp-container { position: relative; width: 280px; height: 500px; }
     #lavaCanvas {
       position: absolute;
-      top: 50px; left: 40px;
-      width: 200px; height: 380px;
-      border-radius: 100px / 30px;
+      inset: 0;
+      width: 100%;
+      height: 100%;
     }
     .lamp-glass {
       position: absolute;
@@ -234,10 +234,13 @@
     const canvas = document.getElementById('lavaCanvas');
     const ctx = canvas.getContext('2d');
     const glow = document.getElementById('glow');
-    const scale = 2;
-    canvas.width = 200 * scale;
-    canvas.height = 380 * scale;
-    ctx.scale(scale, scale);
+    // Canvas now fills the whole .lamp-container (280x500). Blob physics still
+    // lives in a 200x380 "fluid" subspace at offset (FLUID_X, FLUID_Y).
+    // NOTE: do NOT ctx.scale() — putImageData ignores transforms.
+    const CONTAINER_W = 280, CONTAINER_H = 500;
+    const FLUID_X = 40, FLUID_Y = 50, FLUID_W = 200, FLUID_H = 380;
+    canvas.width = CONTAINER_W;
+    canvas.height = CONTAINER_H;
 
     // Custom colors: wax (primary), glow (secondary/highlight), bg (fluid)
     const presets = [
@@ -262,10 +265,10 @@
     let currentColors = JSON.parse(JSON.stringify(targetColors));
 
     let heatIntensity = 1;
-    const GRAVITY = 0.022;
-    const HEAT_FORCE = 0.085;
-    const DAMPING = 0.985;
-    const BLOB_REPEL = 0.6;
+    const GRAVITY = 0.028;
+    const HEAT_FORCE = 0.11;
+    const DAMPING = 0.975;
+    const BLOB_REPEL = 0.22;
 
     const blobs = [];
 
@@ -283,34 +286,65 @@
       }
       update() {
         this.pulsePhase += 0.02;
-        this.wobblePhase += 0.03;
-        this.radius = this.baseRadius + Math.sin(this.pulsePhase) * 3;
-        const normalizedY = this.y / 380;
-        if (normalizedY > 0.8) this.temperature += 0.01 * heatIntensity;
-        else if (normalizedY < 0.2) this.temperature -= 0.008;
-        else this.temperature -= 0.002;
+        this.wobblePhase += 0.025;
+        this.radius = this.baseRadius + Math.sin(this.pulsePhase) * 2.5;
+
+        // Thermal gradient: lamp bulb is hot at the bottom, air cool at the top.
+        // Heating / cooling scale with distance from the respective end,
+        // so a blob slowly swaps temperature as it rises/sinks.
+        const normalizedY = this.y / FLUID_H; // 0 = top, 1 = bottom
+        const heatAbsorb = Math.max(0, normalizedY - 0.45) * 0.045 * heatIntensity;
+        const cooling   = Math.max(0, 0.55 - normalizedY) * 0.035;
+        this.temperature += heatAbsorb - cooling;
         this.temperature = Math.max(0, Math.min(1, this.temperature));
-        const buoyancy = (this.temperature - 0.5) * HEAT_FORCE * heatIntensity;
-        this.vy -= buoyancy;
-        this.vy += GRAVITY * (1 - this.temperature * 0.5);
+
+        // Buoyancy: stronger asymmetry so hot blobs really do climb and cool ones drop.
+        const netBuoyancy = (this.temperature - 0.5) * HEAT_FORCE * heatIntensity;
+        this.vy -= netBuoyancy;
+        // Gravity, weakened a lot when hot so hot blobs aren't dragged back down.
+        this.vy += GRAVITY * (1 - this.temperature * 0.85);
+
+        // gentle horizontal wobble drift
+        this.vx += Math.sin(this.wobblePhase + this.colorOffset * 6) * 0.02;
+
+        // integrate
         this.x += this.vx;
         this.y += this.vy;
         this.vx *= DAMPING;
         this.vy *= DAMPING;
-        this.x += Math.sin(this.wobblePhase) * 0.3;
-        const centerX = 100;
+
+        // walls
+        const centerX = FLUID_W / 2;
         const width = this.getWidthAtY(this.y);
         const minX = centerX - width / 2 + this.radius;
         const maxX = centerX + width / 2 - this.radius;
-        if (this.x < minX) { this.x = minX; this.vx *= -0.5; }
-        if (this.x > maxX) { this.x = maxX; this.vx *= -0.5; }
-        if (this.y < this.radius + 10) { this.y = this.radius + 10; this.vy *= -0.3; this.temperature -= 0.05; }
-        if (this.y > 370 - this.radius) { this.y = 370 - this.radius; this.vy *= -0.3; this.temperature += 0.1; }
+        if (this.x < minX) { this.x = minX; this.vx = Math.abs(this.vx) * 0.35; }
+        if (this.x > maxX) { this.x = maxX; this.vx = -Math.abs(this.vx) * 0.35; }
+
+        // Floor — heat up and ALWAYS leave with a tiny upward nudge so we can't
+        // sit there forever. Also kill any lingering downward velocity.
+        const floorY = FLUID_H - 12 - this.radius;
+        if (this.y > floorY) {
+          this.y = floorY;
+          if (this.vy > 0) this.vy = 0;
+          this.vy -= 0.08;                 // unconditional pop-off force
+          this.temperature = Math.min(1, this.temperature + 0.06);
+        }
+        // Ceiling — cool off and sink
+        const ceilY = this.radius + 12;
+        if (this.y < ceilY) {
+          this.y = ceilY;
+          if (this.vy < 0) this.vy = 0;
+          this.vy += 0.05;
+          this.temperature = Math.max(0, this.temperature - 0.06);
+        }
       }
       getWidthAtY(y) {
-        const normalized = y / 380;
-        if (normalized < 0.1) return 120 + normalized * 600;
-        else if (normalized > 0.9) return 180 - (normalized - 0.9) * 600;
+        // Lamp profile — narrower top/bottom, wider middle, but not too squeezed
+        // at the bottom so clumps can actually separate.
+        const n = y / FLUID_H;
+        if (n < 0.08) return 140 + n * 500;       // 140..180
+        if (n > 0.92) return 180 - (n - 0.92) * 500; // 180..140
         return 180;
       }
       getColor() {
@@ -341,11 +375,19 @@
         for (let j = i + 1; j < blobs.length; j++) {
           const b1 = blobs[i], b2 = blobs[j];
           const dx = b2.x - b1.x, dy = b2.y - b1.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const minDist = b1.radius + b2.radius;
-          if (dist < minDist * 1.5) {
-            const force = (minDist * 1.5 - dist) * BLOB_REPEL / dist;
-            const fx = dx * force * 0.01, fy = dy * force * 0.01;
+          const distSq = dx * dx + dy * dy;
+          const minDist = (b1.radius + b2.radius) * 1.05;
+          if (distSq < minDist * minDist && distSq > 0.0001) {
+            const dist = Math.sqrt(distSq);
+            const overlap = (minDist - dist) / minDist; // 0..1
+            // quadratic falloff so touching blobs push hard, far ones barely nudge
+            const force = overlap * overlap * BLOB_REPEL;
+            // Slight vertical bias when clumped at floor: preferentially push
+            // the upper blob up and the lower one further down-sideways so
+            // they separate vertically instead of just jittering.
+            const nx = dx / dist, ny = dy / dist;
+            const fx = nx * force;
+            const fy = ny * force;
             b1.vx -= fx; b1.vy -= fy;
             b2.vx += fx; b2.vy += fy;
           }
@@ -354,28 +396,28 @@
     }
 
     function renderMetaballs() {
-      const width = 200, height = 380, threshold = 1;
-      const imageData = ctx.createImageData(width, height);
+      const threshold = 1;
+      const imageData = ctx.createImageData(CONTAINER_W, CONTAINER_H);
       const data = imageData.data;
       const bgR = currentColors.bg[0], bgG = currentColors.bg[1], bgB = currentColors.bg[2];
-      // precompute a warm tint for the bulb bottom (lamp light from below)
+      // warm tint for the bulb bottom (lamp light from below)
       const bulbR = Math.min(255, bgR + 80), bulbG = Math.min(255, bgG + 40), bulbB = Math.min(255, bgB + 20);
 
-      for (let y = 0; y < height; y++) {
-        // vertical fluid gradient — bottom is warmer/brighter from the lamp bulb
-        const ty = y / height;
+      // Fluid area only — [FLUID_X .. FLUID_X+FLUID_W) x [FLUID_Y .. FLUID_Y+FLUID_H)
+      for (let fy = 0; fy < FLUID_H; fy++) {
+        const ty = fy / FLUID_H;
         const bulbFall = Math.max(0, Math.pow(1 - Math.max(0, ty - 0.4) / 0.6, 2));
         const lineBgR = bgR + (bulbR - bgR) * bulbFall * 0.7;
         const lineBgG = bgG + (bulbG - bgG) * bulbFall * 0.7;
         const lineBgB = bgB + (bulbB - bgB) * bulbFall * 0.7;
+        const cy = fy + FLUID_Y;
 
-        for (let x = 0; x < width; x++) {
+        for (let fx = 0; fx < FLUID_W; fx++) {
           let sum = 0, colorR = 0, colorG = 0, colorB = 0, totalWeight = 0;
-          // find nearest blob center for specular light-from-below highlight
           let nearestDy = 0, nearestR = 20, hasNearest = false;
           let nearestDist = Infinity;
           for (const blob of blobs) {
-            const dx = x - blob.x, dy = y - blob.y;
+            const dx = fx - blob.x, dy = fy - blob.y;
             const distSq = dx * dx + dy * dy;
             const r = blob.radius * 1.5;
             const contribution = (r * r) / (distSq + 1);
@@ -391,21 +433,19 @@
               }
             }
           }
-          const idx = (y * width + x) * 4;
+          const cx = fx + FLUID_X;
+          const idx = (cy * CONTAINER_W + cx) * 4;
           if (sum > threshold) {
             if (totalWeight > 0) { colorR /= totalWeight; colorG /= totalWeight; colorB /= totalWeight; }
             const edgeFactor = Math.min((sum - threshold) * 2, 1);
-            // light-from-below shading: bottom hemisphere of each blob is brighter
             let shade = 0.85;
             if (hasNearest) {
               const ny = nearestDy / nearestR; // -1 top, +1 bottom relative to blob
-              shade = 0.55 + 0.65 * Math.max(0, 0.5 - ny * 0.5); // bottom (ny=1) dim, top (ny=-1) lit from below? actually light comes from below so bottom face lit
-              shade = 0.55 + 0.6 * Math.max(0, (ny + 1) * 0.5); // 0.55 at top, 1.15 at bottom
+              shade = 0.55 + 0.6 * Math.max(0, (ny + 1) * 0.5); // lit from below
             }
             let rOut = colorR * shade;
             let gOut = colorG * shade;
             let bOut = colorB * shade;
-            // soft rim from edgeFactor
             const rim = (1 - edgeFactor) * 0.55;
             rOut += (255 - rOut) * rim * 0.5;
             gOut += (255 - gOut) * rim * 0.5;
@@ -427,6 +467,7 @@
           }
         }
       }
+      // Outside the fluid region, leave alpha = 0 (cap/base/glass sit above anyway).
       ctx.putImageData(imageData, 0, 0);
     }
 
@@ -491,10 +532,17 @@
     const hint = document.getElementById('hint');
     let clickCount = 0;
 
-    canvas.addEventListener('click', (e) => {
+    function canvasToFluid(clientX, clientY) {
       const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * (200 / rect.width);
-      const y = (e.clientY - rect.top) * (380 / rect.height);
+      const x = (clientX - rect.left) * (CONTAINER_W / rect.width) - FLUID_X;
+      const y = (clientY - rect.top)  * (CONTAINER_H / rect.height) - FLUID_Y;
+      return { x, y, inside: x >= 0 && x < FLUID_W && y >= 0 && y < FLUID_H };
+    }
+
+    canvas.addEventListener('click', (e) => {
+      const p = canvasToFluid(e.clientX, e.clientY);
+      if (!p.inside) return;
+      const x = p.x, y = p.y;
 
       clickCount++;
       if (clickCount >= 2) hint.classList.add('hidden');
@@ -533,9 +581,9 @@
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       const touch = e.touches[0];
-      const rect = canvas.getBoundingClientRect();
-      const x = (touch.clientX - rect.left) * (200 / rect.width);
-      const y = (touch.clientY - rect.top) * (380 / rect.height);
+      const p = canvasToFluid(touch.clientX, touch.clientY);
+      if (!p.inside) return;
+      const x = p.x, y = p.y;
 
       const count = 2 + Math.floor(Math.random() * 3);
       for (let i = 0; i < count; i++) {
