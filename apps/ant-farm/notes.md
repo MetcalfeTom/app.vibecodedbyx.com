@@ -1,6 +1,7 @@
 # Ant Farm
 
 ## log
+- 2026-04-08: Beauty pass. Rewrote rendering with: twilight sky gradient above the surface (indigo→amber with horizon glow + twinkling stars baked into imgData), pre-baked sine-layered noise for warm earth texture, depth darkening on dirt/tunnels (fades from surface to bottom), wavy animated grass tufts on surface edges, pulsing bright-yellow food grains (not green), golden pulsing nest with radial glow halo overlay, animated shimmer on water tiles. Pheromones recolored: home = cyan, food = amber (replacing blue/green wash). Ants redrawn as proper 3-segment insects (abdomen+thorax+head) with antennae, 6 wiggling legs, drop shadows, and a glowing grain sprite when carrying food. New header with 'ANT FARM / pheromone colony sim' Silkscreen title and soft vignette overlay.
 - 2026-03-29: V1 — Digital ant farm with digging physics and pheromone trails. Pixel grid world (4px cells) with dirt, sand, tunnels, surface, food, water, nest. 40 ants with state machine (explore/returnHome). Pheromone system: home trail (blue-ish) and food trail (green-ish) with decay. Ants dig through dirt randomly, follow food pheromones, carry food back to nest. Sand falls when tunnels are dug beneath it. Water flows down and sideways. 4 tools: dig, fill, food, water. Speed control (1x/2x/4x). Pheromone trail visibility toggle. Food spawns on surface periodically. Dirt has sine-wave color variation. Grass tint on surface tiles. Silkscreen + DM Mono typography, earthy brown aesthetic.
 
 ## features
