@@ -684,6 +684,7 @@ let tagKeyHeld = false;
 let finKeyHeld = false;
 let finisher = null;
 let introFrame = 0;
+let clash = null; // beam clash state
 
 const projectiles = [];
 const particles = [];
@@ -979,6 +980,202 @@ function isFinisherHitStop() {
   return finisher && finisher.frame >= 54 && finisher.frame < 78;
 }
 
+// ---------- BEAM CLASH ----------
+function updateClash() {
+  if (!player || !enemy || finisher) { clash = null; return; }
+  // Require both beams active and facing each other, in roughly same vertical band
+  const facing =
+    player.beamActive && enemy.beamActive &&
+    Math.sign(enemy.x - player.x) === player.dir &&
+    Math.sign(player.x - enemy.x) === enemy.dir &&
+    Math.abs(player.y - enemy.y) < 44;
+
+  if (!facing) {
+    if (clash) {
+      // End clash cleanly
+      clash = null;
+    }
+    return;
+  }
+
+  if (!clash) {
+    clash = {
+      midX: (player.x + enemy.x) / 2,
+      pMash: 0,
+      eMash: 0,
+      zPrev: false,
+      frame: 0,
+      decided: false
+    };
+    announceText = 'BEAM CLASH!';
+    announceTimer = 60;
+    shake = Math.max(shake, 6);
+  }
+  clash.frame++;
+
+  // Player mashes Z (punch key) to push
+  const zDown = !!keys['z'];
+  if (zDown && !clash.zPrev) clash.pMash += 1;
+  clash.zPrev = zDown;
+
+  // AI mashes based on difficulty (random + more mashing when losing)
+  const losing = clash.midX < (player.x + enemy.x) / 2 ? 1.4 : 0.8;
+  if (Math.random() < 0.42 * losing) clash.eMash += 1;
+
+  // Compute target mid based on combined stats
+  const pPower = (player.ki * 0.6) + clash.pMash * 7 + (player.spec.blastDmg * 0.7) + player.maxKi * 0.15;
+  const ePower = (enemy.ki  * 0.6) + clash.eMash * 7 + (enemy.spec.blastDmg  * 0.7) + enemy.maxKi  * 0.15;
+  const ratio = pPower / (pPower + ePower);
+  const targetMidX = player.x + (enemy.x - player.x) * ratio;
+  clash.midX += (targetMidX - clash.midX) * 0.07;
+
+  // Drain ki from both (on top of normal beam drain)
+  player.ki = Math.max(0, player.ki - 0.35);
+  enemy.ki  = Math.max(0, enemy.ki  - 0.35);
+
+  // Rumble
+  shake = Math.max(shake, 2.5 + Math.sin(clash.frame * 0.4) * 1.2);
+
+  // Particles around collision point
+  const midY = (player.y + enemy.y) / 2 - 10;
+  for (let i = 0; i < 4; i++) {
+    addParticle(
+      clash.midX + (Math.random()-0.5)*26,
+      midY + (Math.random()-0.5)*20,
+      i % 2 ? (player.spec.auraColor || player.spec.accent) : (enemy.spec.auraColor || enemy.spec.accent),
+      22,
+      (Math.random()-0.5)*6,
+      (Math.random()-0.5)*6,
+      3
+    );
+  }
+
+  // Decide winner when midpoint reaches a fighter
+  if (clash.decided) return;
+  const winDist = 30;
+  if (clash.midX >= enemy.x - winDist) {
+    clash.decided = true;
+    clashResolve('player');
+  } else if (clash.midX <= player.x + winDist) {
+    clash.decided = true;
+    clashResolve('enemy');
+  }
+}
+
+function clashResolve(winner) {
+  const winF = winner === 'player' ? player : enemy;
+  const loseF = winner === 'player' ? enemy : player;
+  const dmg = 38;
+  loseF.hp -= dmg;
+  loseF.vx += (winner === 'player' ? 1 : -1) * 8;
+  loseF.vy -= 5;
+  loseF.hurtTime = 50;
+  loseF.flashing = 26;
+  loseF.beamActive = false;
+  loseF.beamCharge = 0;
+  loseF.ki = 0;
+  winF.beamActive = false;
+  winF.beamCharge = 0;
+  winF.ki = Math.max(0, winF.ki - 10);
+  shake = Math.max(shake, 18);
+  // Big explosion at loser
+  for (let k = 0; k < 90; k++) {
+    addParticle(loseF.x, loseF.y - 14,
+      ['#ffd84a','#ffffff','#ff8820','#ff3a4a'][k % 4], 48,
+      (Math.random()-0.5)*12, (Math.random()-0.5)*12, 3 + (k % 3));
+  }
+  for (let k = 0; k < 40; k++) {
+    const a = (k / 40) * Math.PI * 2;
+    addParticle(loseF.x, loseF.y - 14, '#ffffff', 28,
+      Math.cos(a) * 5, Math.sin(a) * 5, 2);
+  }
+  announceText = winner === 'player' ? 'OVERPOWERED!' : 'BLASTED!';
+  announceTimer = 90;
+  clash = null;
+}
+
+function drawClash() {
+  if (!clash || !player || !enemy) return;
+  const midY = (player.y + enemy.y) / 2 - 10;
+  const t = clash.frame;
+  const rBase = 16;
+  const r = rBase + Math.sin(t * 0.5) * 5;
+
+  // Outer halo
+  ctx.save();
+  const halo = ctx.createRadialGradient(clash.midX, midY, 2, clash.midX, midY, r + 28);
+  halo.addColorStop(0, '#ffffff');
+  halo.addColorStop(0.25, '#ffd84a');
+  halo.addColorStop(0.65, 'rgba(255, 100, 40, 0.6)');
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(clash.midX, midY, r + 28, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Main orb
+  const orb = ctx.createRadialGradient(clash.midX, midY, 1, clash.midX, midY, r);
+  orb.addColorStop(0, '#ffffff');
+  orb.addColorStop(0.6, '#ffd84a');
+  orb.addColorStop(1, '#ff6020');
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = orb;
+  ctx.beginPath();
+  ctx.arc(clash.midX, midY, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hot core
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(clash.midX + Math.sin(t * 0.9) * 2, midY, r * 0.42, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Jagged arcs radiating outward
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.8;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + t * 0.08;
+    ctx.beginPath();
+    ctx.moveTo(clash.midX + Math.cos(a) * (r + 4), midY + Math.sin(a) * (r + 4));
+    const jagged = 8 + Math.sin(t * 0.4 + i) * 4;
+    ctx.lineTo(clash.midX + Math.cos(a) * (r + 4 + jagged), midY + Math.sin(a) * (r + 4 + jagged));
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Power tug indicator (top of screen bar showing position between fighters)
+  const barX = 80, barY = 52, barW = W - 160, barH = 6;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+  ctx.fillStyle = '#2a1a10';
+  ctx.fillRect(barX, barY, barW, barH);
+  // Player side fill
+  const rel = (clash.midX - player.x) / (enemy.x - player.x);
+  const clamped = Math.max(0.02, Math.min(0.98, rel));
+  const split = barX + barW * clamped;
+  ctx.fillStyle = player.spec.accent;
+  ctx.fillRect(barX, barY, split - barX, barH);
+  ctx.fillStyle = enemy.spec.accent;
+  ctx.fillRect(split, barY, (barX + barW) - split, barH);
+  // Marker
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(split - 1, barY - 3, 3, barH + 6);
+
+  // Mash prompt
+  ctx.save();
+  ctx.font = '10px "Press Start 2P", monospace';
+  ctx.textAlign = 'center';
+  const blink = Math.sin(t * 0.35) * 0.4 + 0.6;
+  ctx.globalAlpha = blink;
+  ctx.fillStyle = '#ffd84a';
+  ctx.shadowColor = '#ff3a00';
+  ctx.shadowBlur = 10;
+  ctx.fillText('MASH  Z  !', W/2, 76);
+  ctx.restore();
+}
+
 function dash(f) {
   const s = f.spec;
   if (f.dashCd > 0 || f.ki < s.dashCost) return;
@@ -1042,6 +1239,10 @@ function updateFighter(f, other) {
     if (f.ki > 60 && dist > 70 && dist < 260 && (f.beamCharge > 0 || Math.random() < 0.008)) {
       wantBlast = true;
     }
+    // Counter-beam: if the opponent is firing a beam at us, retaliate with our own
+    if (other.beamActive && f.ki > 30 && dist < 320 && Math.abs(dy) < 40) {
+      wantBlast = true;
+    }
   }
 
   if (moveX !== 0) f.dir = Math.sign(moveX);
@@ -1077,7 +1278,7 @@ function updateFighter(f, other) {
         shake = Math.max(shake, 3);
         // Continuous damage to target in beam path
         const dxB = other.x - f.x;
-        if (Math.sign(dxB) === f.dir && Math.abs(other.y - (f.y - 10)) < 34 && Math.abs(dxB) < 360 && other.tagInvuln === 0) {
+        if (Math.sign(dxB) === f.dir && Math.abs(other.y - (f.y - 10)) < 34 && Math.abs(dxB) < 360 && other.tagInvuln === 0 && !clash) {
           other.hp -= 0.9;
           other.hurtTime = 6;
           other.flashing = 3;
@@ -1604,7 +1805,12 @@ function drawBeam(f) {
   if (!f.beamActive) return;
   const sx = f.x + f.dir * 14;
   const sy = f.y - 10;
-  const ex = f.dir > 0 ? W + 20 : -20;
+  let ex;
+  if (clash) {
+    ex = clash.midX;
+  } else {
+    ex = f.dir > 0 ? W + 20 : -20;
+  }
   const len = Math.abs(ex - sx);
   const s = f.spec;
   const wobble = Math.sin(frameT * 0.8) * 1.5;
@@ -2144,6 +2350,7 @@ function loop() {
       updateFighter(player, enemy);
       updateFighter(enemy, player);
       updateProjectiles();
+      updateClash();
       updateParticles();
       if (roundTimer > 0) roundTimer--;
       // Reserve slow regen
@@ -2232,6 +2439,7 @@ function loop() {
     drawFighter(enemy);
     drawBeam(player);
     drawBeam(enemy);
+    drawClash();
     // Shockwave rings drawn above fighters
     if (finisher && finisher.shockRings.length) drawShockRings();
   }
