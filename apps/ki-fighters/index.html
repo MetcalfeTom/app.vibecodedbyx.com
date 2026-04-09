@@ -713,7 +713,10 @@ function makeFighter(x, spec, isAI) {
     beamActive: false,
     beamHand: { x: 0, y: 0 },
     tagCd: 0,
-    tagInvuln: 0
+    tagInvuln: 0,
+    pendingHit: null,
+    transformed: false,
+    transformFrame: 0
   };
 }
 
@@ -730,6 +733,7 @@ let finKeyHeld = false;
 let finisher = null;
 let introFrame = 0;
 let clash = null; // beam clash state
+let meleeClash = null; // physical fist-clash state
 const DIFFICULTIES = {
   easy:   { label: 'EASY',        punch: 0.45, blast: 0.4,  counter: 0.25, dash: 0.3, charge: 1.3, moveMul: 0.72, chaseAggro: 0.6, tagThreshold: 0.15 },
   normal: { label: 'NORMAL',      punch: 1.0,  blast: 1.0,  counter: 0.85, dash: 1.0, charge: 1.0, moveMul: 1.0,  chaseAggro: 1.0, tagThreshold: 0.28 },
@@ -764,10 +768,10 @@ function fireBlast(f) {
     vx: f.dir * s.blastSpeed,
     vy: 0,
     owner: f,
-    size: s.blastSize,
+    size: s.blastSize * (f.transformed ? 1.25 : 1),
     life: 110,
-    power: s.blastDmg,
-    knock: s.blastKnock,
+    power: s.blastDmg * (f.transformed ? 1.5 : 1),
+    knock: s.blastKnock * (f.transformed ? 1.3 : 1),
     color1: s.accent, color2: s.color,
     t: 0
   });
@@ -779,6 +783,7 @@ function fireBlast(f) {
 }
 
 function punch(f, other) {
+  if (meleeClash || finisher) return;
   const s = f.spec;
   if (f.punchCd > 0) return;
   f.punchCd = s.punchCd;
@@ -790,19 +795,49 @@ function punch(f, other) {
   const dy = other.y - f.y;
   const range = isKick ? s.punchRange + 6 : s.punchRange;
   if (Math.abs(dx) < range && Math.abs(dy) < 28 && Math.sign(dx) === f.dir && other.tagInvuln === 0) {
-    const dmg = isKick ? s.punchDmg * 1.35 : s.punchDmg;
-    other.hp -= dmg;
-    other.vx += f.dir * (2 + dmg * 0.22);
-    other.vy -= isKick ? 3.2 : 2;
-    other.hurtTime = isKick ? 16 : 12;
-    other.flashing = isKick ? 9 : 6;
-    f.ki = Math.min(f.maxKi, f.ki + (isKick ? 5 : 4));
-    shake = Math.max(shake, isKick ? 4 : 1.5);
-    for (let i = 0; i < (isKick ? 14 : 8); i++) {
-      addParticle(other.x, other.y - 8, i % 2 ? '#ffffff' : s.accent, 16,
-        (Math.random()-0.5)*4, (Math.random()-0.5)*4, 2);
-    }
+    // Buffer hit — resolveMeleeHits() decides individual vs clash
+    f.pendingHit = { isKick, range };
   }
+}
+
+function applyPendingHit(f, other) {
+  const h = f.pendingHit;
+  f.pendingHit = null;
+  if (!h || !other || other.tagInvuln > 0) return;
+  const s = f.spec;
+  const transformMul = f.transformed ? 1.5 : 1;
+  const dmg = (h.isKick ? s.punchDmg * 1.35 : s.punchDmg) * transformMul;
+  other.hp -= dmg;
+  other.vx += f.dir * (2 + dmg * 0.22);
+  other.vy -= h.isKick ? 3.2 : 2;
+  other.hurtTime = h.isKick ? 16 : 12;
+  other.flashing = h.isKick ? 9 : 6;
+  f.ki = Math.min(f.maxKi, f.ki + (h.isKick ? 5 : 4));
+  shake = Math.max(shake, h.isKick ? 4 : 1.5);
+  for (let i = 0; i < (h.isKick ? 14 : 8); i++) {
+    addParticle(other.x, other.y - 8, i % 2 ? '#ffffff' : s.accent, 16,
+      (Math.random()-0.5)*4, (Math.random()-0.5)*4, 2);
+  }
+}
+
+function resolveMeleeHits() {
+  if (!player || !enemy) return;
+  if (finisher || clash || meleeClash) {
+    applyPendingHit(player, enemy);
+    applyPendingHit(enemy, player);
+    return;
+  }
+  const ph = player.pendingHit;
+  const eh = enemy.pendingHit;
+  if (ph && eh) {
+    // Simultaneous mutual hits → melee clash
+    player.pendingHit = null;
+    enemy.pendingHit = null;
+    startMeleeClash();
+    return;
+  }
+  applyPendingHit(player, enemy);
+  applyPendingHit(enemy, player);
 }
 
 function tagBurst(f) {
@@ -1227,6 +1262,172 @@ function drawClash() {
   ctx.restore();
 }
 
+// ---------- MELEE CLASH ----------
+function startMeleeClash() {
+  meleeClash = {
+    pMash: 0,
+    eMash: 0,
+    zPrev: false,
+    frame: 0,
+    duration: 90,
+    decided: false
+  };
+  // Zero velocity and lock positions
+  player.vx = 0; player.vy = 0;
+  enemy.vx = 0; enemy.vy = 0;
+  player.state = 'punch'; player.stateTime = 12;
+  enemy.state = 'punch'; enemy.stateTime = 12;
+  announceText = 'FIST CLASH!';
+  announceTimer = 50;
+  shake = Math.max(shake, 10);
+  const mx = (player.x + enemy.x) / 2;
+  const my = (player.y + enemy.y) / 2 - 10;
+  for (let i = 0; i < 40; i++) {
+    addParticle(mx, my, i%2 ? '#ffffff' : '#ffd84a', 30,
+      (Math.random()-0.5)*9, (Math.random()-0.5)*9, 3);
+  }
+}
+
+function updateMeleeClash() {
+  if (!meleeClash || !player || !enemy || finisher) { meleeClash = null; return; }
+  meleeClash.frame++;
+  // Hold fighters in place, face each other
+  player.dir = Math.sign(enemy.x - player.x) || 1;
+  enemy.dir = Math.sign(player.x - enemy.x) || -1;
+  player.vx *= 0.3; player.vy *= 0.3;
+  enemy.vx *= 0.3; enemy.vy *= 0.3;
+  // Struggle jitter
+  const jitter = 0.6;
+  player.x += (Math.random()-0.5) * jitter;
+  enemy.x += (Math.random()-0.5) * jitter;
+  // Refresh punch sprite
+  if (meleeClash.frame % 6 === 0) {
+    player.state = 'punch'; player.stateTime = 6;
+    enemy.state = 'punch'; enemy.stateTime = 6;
+  }
+
+  // Player mashes Z
+  const zDown = !!keys['z'];
+  if (zDown && !meleeClash.zPrev) meleeClash.pMash += 1;
+  meleeClash.zPrev = zDown;
+  // AI mash speed scaled by difficulty
+  const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
+  if (Math.random() < 0.32 * diff.punch) meleeClash.eMash += 1;
+
+  // Sparks at contact point every frame
+  const mx = (player.x + enemy.x) / 2;
+  const my = (player.y + enemy.y) / 2 - 12;
+  for (let i = 0; i < 3; i++) {
+    addParticle(mx + (Math.random()-0.5)*16, my + (Math.random()-0.5)*16,
+      ['#ffffff','#ffd84a','#ff8820'][i%3], 14,
+      (Math.random()-0.5)*6, (Math.random()-0.5)*6, 2);
+  }
+  shake = Math.max(shake, 2.2 + Math.sin(meleeClash.frame * 0.6));
+
+  if (meleeClash.decided) return;
+  if (meleeClash.frame >= meleeClash.duration) {
+    const winner =
+      meleeClash.pMash > meleeClash.eMash ? 'player' :
+      meleeClash.eMash > meleeClash.pMash ? 'enemy' :
+      (Math.random() < 0.5 ? 'player' : 'enemy');
+    meleeClash.decided = true;
+    meleeClashResolve(winner);
+  }
+}
+
+function meleeClashResolve(winner) {
+  const winF = winner === 'player' ? player : enemy;
+  const loseF = winner === 'player' ? enemy : player;
+  const combo = 24 * (winF.transformed ? 1.4 : 1);
+  loseF.hp -= combo;
+  loseF.vx += (winner === 'player' ? 1 : -1) * 7.5;
+  loseF.vy -= 4.5;
+  loseF.hurtTime = 44;
+  loseF.flashing = 24;
+  winF.ki = Math.min(winF.maxKi, winF.ki + 14);
+  shake = Math.max(shake, 15);
+  for (let k = 0; k < 60; k++) {
+    addParticle(loseF.x, loseF.y - 14,
+      ['#ffffff','#ffd84a','#ff5020','#ff3040'][k % 4], 40,
+      (Math.random()-0.5)*10, (Math.random()-0.5)*10, 3);
+  }
+  for (let k = 0; k < 20; k++) {
+    const a = (k / 20) * Math.PI * 2;
+    addParticle(loseF.x, loseF.y - 14, '#ffffff', 24,
+      Math.cos(a) * 4.5, Math.sin(a) * 4.5, 2);
+  }
+  announceText = winner === 'player' ? 'BROKE THROUGH!' : 'OUTFOUGHT!';
+  announceTimer = 80;
+  meleeClash = null;
+}
+
+function drawMeleeClash() {
+  if (!meleeClash || !player || !enemy) return;
+  const mx = (player.x + enemy.x) / 2;
+  const my = (player.y + enemy.y) / 2 - 12;
+  const t = meleeClash.frame;
+  const r = 14 + Math.sin(t * 0.6) * 4;
+
+  ctx.save();
+  // Shock halo
+  const halo = ctx.createRadialGradient(mx, my, 1, mx, my, r + 22);
+  halo.addColorStop(0, '#ffffff');
+  halo.addColorStop(0.35, '#ffd84a');
+  halo.addColorStop(0.75, 'rgba(255, 80, 32, 0.55)');
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(mx, my, r + 22, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Star spikes
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + t * 0.12;
+    const r1 = r + 2;
+    const r2 = r + 10 + Math.sin(t * 0.45 + i) * 5;
+    ctx.beginPath();
+    ctx.moveTo(mx + Math.cos(a) * r1, my + Math.sin(a) * r1);
+    ctx.lineTo(mx + Math.cos(a) * r2, my + Math.sin(a) * r2);
+    ctx.stroke();
+  }
+
+  // Hot core
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(mx + Math.sin(t * 0.9) * 2, my, r * 0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Advantage bar
+  const total = meleeClash.pMash + meleeClash.eMash + 1;
+  const pRatio = (meleeClash.pMash + 0.5) / total;
+  const barX = 90, barY = 52, barW = W - 180, barH = 5;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+  ctx.fillStyle = player.spec.accent;
+  ctx.fillRect(barX, barY, barW * pRatio, barH);
+  ctx.fillStyle = enemy.spec.accent;
+  ctx.fillRect(barX + barW * pRatio, barY, barW * (1 - pRatio), barH);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(barX + barW * pRatio - 1, barY - 2, 3, barH + 4);
+
+  // Mash prompt
+  ctx.save();
+  ctx.font = '9px "Press Start 2P", monospace';
+  ctx.textAlign = 'center';
+  const blink = Math.sin(t * 0.4) * 0.4 + 0.6;
+  ctx.globalAlpha = blink;
+  ctx.fillStyle = '#ffd84a';
+  ctx.shadowColor = '#ff3a00';
+  ctx.shadowBlur = 10;
+  ctx.fillText('MASH  Z  !', W/2, 74);
+  ctx.restore();
+}
+
 function dash(f) {
   const s = f.spec;
   if (f.dashCd > 0 || f.ki < s.dashCost) return;
@@ -1255,6 +1456,41 @@ function updateFighter(f, other) {
   f.tagInvuln = Math.max(0, f.tagInvuln - 1);
 
   if (f.hp <= 0) return;
+
+  // Transformation trigger — ki reaches max
+  if (!f.transformed && f.ki >= f.maxKi - 0.5) {
+    f.transformed = true;
+    f.transformFrame = 0;
+    shake = Math.max(shake, 12);
+    const aura = f.spec.auraColor || f.spec.accent;
+    for (let i = 0; i < 60; i++) {
+      addParticle(f.x, f.y - 14, i % 3 === 0 ? '#ffffff' : (i % 3 === 1 ? '#ffe96a' : aura),
+        40, (Math.random()-0.5)*7, -Math.random()*5 - 1, 3);
+    }
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      addParticle(f.x, f.y - 14, '#ffffff', 28, Math.cos(a) * 4, Math.sin(a) * 4, 2);
+    }
+    if (!f.isAI) { announceText = 'ASCENSION!'; announceTimer = 80; }
+    else { announceText = 'RIVAL ASCENDS!'; announceTimer = 80; }
+  }
+  if (f.transformed) {
+    f.transformFrame++;
+    // Ki drain while transformed
+    f.ki = Math.max(0, f.ki - 0.22);
+    // Persistent aura
+    f.aura = Math.max(f.aura, 0.7);
+    if (Math.random() < 0.55) {
+      addParticle(f.x + (Math.random()-0.5)*14, f.y - 10 + (Math.random()-0.5)*22,
+        Math.random() < 0.5 ? '#ffe96a' : '#ffffff', 20,
+        (Math.random()-0.5)*1.4, -Math.random()*2.2, 2);
+    }
+    if (f.ki < 8) {
+      f.transformed = false;
+      f.aura = 0;
+      if (!f.isAI) { announceText = 'POWER FADES'; announceTimer = 60; }
+    }
+  }
 
   let moveX = 0, moveY = 0;
   let wantPunch = false, wantBlast = false, wantCharge = false, wantDash = false;
@@ -1345,7 +1581,7 @@ function updateFighter(f, other) {
         // Continuous damage to target in beam path
         const dxB = other.x - f.x;
         if (Math.sign(dxB) === f.dir && Math.abs(other.y - (f.y - 10)) < 34 && Math.abs(dxB) < 360 && other.tagInvuln === 0 && !clash) {
-          other.hp -= 0.9;
+          other.hp -= 0.9 * (f.transformed ? 1.5 : 1);
           other.hurtTime = 6;
           other.flashing = 3;
           other.vx += f.dir * 0.8;
@@ -1373,7 +1609,7 @@ function updateFighter(f, other) {
   // Flight physics — stage-dependent
   const stage = STAGES[stageIdx];
   if (f.state !== 'dash' || f.stateTime === 0) {
-    const accel = 0.6 * f.spec.moveSpeed;
+    const accel = 0.6 * f.spec.moveSpeed * (f.transformed ? 1.35 : 1);
     f.vx += moveX * accel;
     f.vy += moveY * accel;
     f.vx *= 0.86;
@@ -1728,17 +1964,53 @@ function drawFighter(f) {
   const fx = Math.round(f.x);
   const fy = Math.round(f.y);
 
+  // Transformation color override — gold hair, white/gold accent
+  const _acc = f.accent, _hair = f.hairColor;
+  if (f.transformed) {
+    f.accent = '#ffe96a';
+    f.hairColor = '#ffe96a';
+  }
+
   ctx.save();
   if (f.flashing > 0 && f.flashing % 2 === 0) {
     ctx.globalAlpha = 0.3;
+  }
+
+  // Transformed mega-aura (larger + pulsing gold)
+  if (f.transformed) {
+    const tp = Math.sin(Date.now() * 0.02) * 4;
+    const bigR = 30 + tp;
+    const bigG = ctx.createRadialGradient(fx, fy - 16, 2, fx, fy - 16, bigR);
+    bigG.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+    bigG.addColorStop(0.3, 'rgba(255, 233, 106, 0.7)');
+    bigG.addColorStop(0.7, 'rgba(255, 150, 30, 0.3)');
+    bigG.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = bigG;
+    ctx.beginPath();
+    ctx.arc(fx, fy - 16, bigR, 0, Math.PI * 2);
+    ctx.fill();
+    // Vertical energy streaks
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.7;
+    for (let k = 0; k < 5; k++) {
+      const sx = fx + (Math.random()-0.5) * 20;
+      const sy = fy - 20 + (Math.random()-0.5) * 18;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy - 6 - Math.random() * 6);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
 
   // Aura
   if (f.aura > 0.1 || f.state === 'charge') {
     const ar = 18 + Math.sin(Date.now() * 0.02) * 3;
     const aGrad = ctx.createRadialGradient(fx, fy - 16, 2, fx, fy - 16, ar);
-    aGrad.addColorStop(0, f.spec.auraGlow || 'rgba(255, 216, 74, 0.6)');
-    aGrad.addColorStop(0.5, f.spec.auraColor || f.spec.accent);
+    aGrad.addColorStop(0, f.transformed ? 'rgba(255, 255, 255, 0.85)' : (f.spec.auraGlow || 'rgba(255, 216, 74, 0.6)'));
+    aGrad.addColorStop(0.5, f.transformed ? '#ffe96a' : (f.spec.auraColor || f.spec.accent));
     aGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.globalAlpha = 0.6;
     ctx.fillStyle = aGrad;
@@ -1821,6 +2093,9 @@ function drawFighter(f) {
   p(2, -25, 1, 1, '#fff');
 
   ctx.restore();
+  // Restore original colors after transform swap
+  f.accent = _acc;
+  f.hairColor = _hair;
 }
 
 function drawProjectile(p) {
@@ -2379,6 +2654,8 @@ function reset() {
   particles.length = 0;
   roundTimer = ROUND_FRAMES;
   finisher = null;
+  clash = null;
+  meleeClash = null;
   announceText = '';
   announceTimer = 0;
   gameState = 'intro';
@@ -2412,9 +2689,13 @@ function loop() {
     if (finisher) {
       updateFinisher();
       if (!isFinisherHitStop()) updateParticles();
+    } else if (meleeClash) {
+      updateMeleeClash();
+      updateParticles();
     } else {
       updateFighter(player, enemy);
       updateFighter(enemy, player);
+      resolveMeleeHits();
       updateProjectiles();
       updateClash();
       updateParticles();
@@ -2507,6 +2788,7 @@ function loop() {
     drawBeam(player);
     drawBeam(enemy);
     drawClash();
+    drawMeleeClash();
     // Shockwave rings drawn above fighters
     if (finisher && finisher.shockRings.length) drawShockRings();
   }
