@@ -316,6 +316,25 @@
   .diff-buttons button[data-diff="easy"]   { color: #4aff9a; }
   .diff-buttons button[data-diff="normal"] { color: #ffd84a; }
   .diff-buttons button[data-diff="kai"]    { color: #ff3a4a; font-size: 8px; padding: 10px 10px; }
+  #gauntletToggle {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 9px;
+    padding: 8px 14px;
+    background: rgba(0,0,0,0.6);
+    color: #ff8820;
+    border: 2px solid #2a1a10;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 4px;
+  }
+  #gauntletToggle:hover { border-color: #ff8820; }
+  #gauntletToggle.active {
+    border-color: #ff8820;
+    box-shadow: 0 0 14px #ff8820, inset 0 0 12px rgba(255, 136, 32, 0.2);
+    background: rgba(30, 10, 0, 0.9);
+    color: #ffd84a;
+  }
   #stageRoster {
     display: flex;
     gap: 14px;
@@ -514,6 +533,7 @@
       <button data-diff="normal" class="active">NORMAL</button>
       <button data-diff="kai">SUPREME KAI</button>
     </div>
+    <button id="gauntletToggle" title="Damage persists across matches. Endless enemy rotation.">GAUNTLET : OFF</button>
   </div>
   <div id="roster"></div>
   <div id="stageRoster" style="display:none;"></div>
@@ -740,6 +760,8 @@ const DIFFICULTIES = {
   kai:    { label: 'SUPREME KAI', punch: 3.2,  blast: 4.0,  counter: 1.0,  dash: 3.2, charge: 0.8, moveMul: 1.55, chaseAggro: 1.7, tagThreshold: 0.45 }
 };
 let difficulty = 'normal';
+let gauntletMode = false;
+let gauntletStreak = 0;
 
 const projectiles = [];
 const particles = [];
@@ -2630,6 +2652,23 @@ function drawUI() {
     ctx.restore();
   }
 
+  // Gauntlet streak badge
+  if (gauntletMode) {
+    ctx.save();
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#000';
+    ctx.fillRect(W/2 - 44, 44, 88, 14);
+    ctx.strokeStyle = '#ff8820';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(W/2 - 44, 44, 88, 14);
+    ctx.fillStyle = '#ffd84a';
+    ctx.shadowColor = '#ff8820';
+    ctx.shadowBlur = 6;
+    ctx.fillText('GAUNTLET  x ' + gauntletStreak, W/2, 54);
+    ctx.restore();
+  }
+
   // Center fight timer
   const secs = Math.ceil(roundTimer / 60);
   const tStr = String(secs).padStart(2, '0');
@@ -2678,6 +2717,7 @@ function drawBar(x, y, w, h, pct, fill, bg) {
 
 // ---------- LOOP ----------
 function reset() {
+  gauntletStreak = 0;
   playerTeam = playerTeamSpecs.map((s, i) => {
     const f = makeFighter(100 + i * 6, s, false);
     f.teamIdx = i;
@@ -2698,6 +2738,52 @@ function reset() {
   finisher = null;
   clash = null;
   meleeClash = null;
+  announceText = '';
+  announceTimer = 0;
+  gameState = 'intro';
+  introFrame = 0;
+}
+
+function advanceGauntlet() {
+  gauntletStreak++;
+  // Snapshot player team survival state
+  const savedHp = playerTeam.map(f => Math.max(0, f.hp));
+  const savedKi = playerTeam.map(f => f.ki);
+  // Roll a fresh random enemy team (no duplicates if possible)
+  const pool = FIGHTERS.slice();
+  const pick1 = pool[Math.floor(Math.random() * pool.length)];
+  const pool2 = pool.filter(s => s !== pick1);
+  const pick2 = pool2.length ? pool2[Math.floor(Math.random() * pool2.length)] : pick1;
+  enemyTeamSpecs = [pick1, pick2];
+  enemyTeam = enemyTeamSpecs.map((s, i) => {
+    const f = makeFighter(380 - i * 6, s, true);
+    f.teamIdx = i;
+    return f;
+  });
+  enemyIdx = 0;
+  enemy = enemyTeam[0];
+  // Rebuild the player team spawn state WITHOUT healing (HP persists from savedHp)
+  playerTeam.forEach((f, i) => {
+    f.x = 100 + i * 6;
+    f.y = GROUND_Y - 40;
+    f.vx = 0; f.vy = 0;
+    f.hp = savedHp[i];
+    f.ki = Math.min(f.maxKi, savedKi[i] + 15); // small ki top-up between matches
+    f.state = 'idle'; f.stateTime = 0;
+    f.punchCd = 0; f.blastCd = 0; f.dashCd = 0;
+    f.hurtTime = 0; f.flashing = 0;
+    f.beamCharge = 0; f.beamActive = false;
+    f.tagCd = 0; f.tagInvuln = 40;
+    f.pendingHit = null;
+    f.transformed = false; f.transformFrame = 0; f.aura = 0;
+  });
+  // Ensure active player is alive
+  playerIdx = playerTeam[0].hp > 0 ? 0 : 1;
+  player = playerTeam[playerIdx];
+  projectiles.length = 0;
+  particles.length = 0;
+  roundTimer = ROUND_FRAMES;
+  finisher = null; clash = null; meleeClash = null;
   announceText = '';
   announceTimer = 0;
   gameState = 'intro';
@@ -2757,16 +2843,24 @@ function loop() {
     if (player.hp <= 0) {
       const reserve = playerTeam[1 - playerIdx];
       if (reserve && reserve.hp > 0) { performTag('player', true); }
-      else { gameState = 'lost'; announceText = 'DEFEAT'; announceTimer = 240; }
+      else {
+        gameState = 'lost';
+        announceText = gauntletMode ? ('GAUNTLET ENDED  ' + gauntletStreak) : 'DEFEAT';
+        announceTimer = 240;
+      }
     } else if (enemy.hp <= 0 && !finisher) {
       const reserve = enemyTeam[1 - enemyIdx];
       if (reserve && reserve.hp > 0) { performTag('enemy', true); }
-      else { gameState = 'won'; announceText = 'VICTORY!'; announceTimer = 240; }
+      else {
+        gameState = 'won';
+        announceText = gauntletMode ? ('MATCH ' + (gauntletStreak + 1) + ' CLEAR') : 'VICTORY!';
+        announceTimer = 240;
+      }
     } else if (roundTimer === 0) {
       const pTotal = playerTeam.reduce((s,f) => s + Math.max(0, f.hp), 0);
       const eTotal = enemyTeam.reduce((s,f) => s + Math.max(0, f.hp), 0);
-      if (pTotal > eTotal) { gameState = 'won'; announceText = 'TIME!  YOU WIN'; }
-      else if (eTotal > pTotal) { gameState = 'lost'; announceText = 'TIME!  DEFEAT'; }
+      if (pTotal > eTotal) { gameState = 'won'; announceText = gauntletMode ? ('MATCH ' + (gauntletStreak + 1) + ' CLEAR') : 'TIME!  YOU WIN'; }
+      else if (eTotal > pTotal) { gameState = 'lost'; announceText = gauntletMode ? ('GAUNTLET ENDED  ' + gauntletStreak) : 'TIME!  DEFEAT'; }
       else { gameState = 'lost'; announceText = 'DRAW'; }
       announceTimer = 240;
     }
@@ -2778,7 +2872,14 @@ function loop() {
     }
   } else if (gameState === 'won' || gameState === 'lost') {
     updateParticles();
-    if (keys['z'] || keys[' ']) reset();
+    if (keys['z'] || keys[' ']) {
+      if (gameState === 'won' && gauntletMode) {
+        advanceGauntlet();
+      } else {
+        if (gameState === 'lost') gauntletStreak = 0;
+        reset();
+      }
+    }
     if (keys['Escape'] || keys['escape']) {
       openSelect();
       selectedTeam = [];
@@ -3100,6 +3201,22 @@ try {
 document.querySelectorAll('.diff-buttons button').forEach(b => {
   b.addEventListener('click', () => setDifficulty(b.dataset.diff));
 });
+
+// Gauntlet toggle
+function setGauntlet(on) {
+  gauntletMode = !!on;
+  const btn = document.getElementById('gauntletToggle');
+  if (btn) {
+    btn.textContent = 'GAUNTLET : ' + (gauntletMode ? 'ON' : 'OFF');
+    btn.classList.toggle('active', gauntletMode);
+  }
+  try { localStorage.setItem('kifighters_gauntlet', gauntletMode ? '1' : '0'); } catch (e) {}
+}
+try {
+  const savedG = localStorage.getItem('kifighters_gauntlet');
+  if (savedG === '1') setGauntlet(true); else setGauntlet(false);
+} catch (e) { setGauntlet(false); }
+document.getElementById('gauntletToggle').addEventListener('click', () => setGauntlet(!gauntletMode));
 
 renderRoster();
 gameState = 'select';
