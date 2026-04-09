@@ -808,68 +808,175 @@ function startFinisher() {
   if (gameState !== 'playing') return;
   if (!enemy || enemy.hp <= 0) return;
   if (enemy.hp / enemy.maxHp > 0.22) return;
-  finisher = { frame: 0, x0: player.x, y0: player.y };
+  finisher = {
+    frame: 0,
+    x0: player.x, y0: player.y,
+    ex0: enemy.x, ey0: enemy.y,
+    afterimages: [],
+    zoom: 1,
+    shockRings: [],
+    banner: null
+  };
   announceText = '';
   announceTimer = 0;
-  enemy.hurtTime = 400;
+  enemy.hurtTime = 600;
   enemy.beamActive = false;
   enemy.beamCharge = 0;
+  player.beamActive = false;
+  player.beamCharge = 0;
 }
 
+// Finisher phase table (all frame offsets from finisher start):
+//   0- 28  charge   — player glows, ground cracks, zoom drifts in
+//  28- 34  vanish   — player blinks out, afterimage burst
+//  34- 54  dash     — curved trajectory toward enemy, afterimages spawn
+//  54      impact   — enemy hp=0, shockwave, 150 particles, shake=26, zoom peak
+//  54- 78  hit-stop — hard freeze (no particle motion, no enemy movement)
+//  78- 92  slow-mo  — enemy starts flight, slow launch
+//  92-150  launch   — enemy ragdolls offscreen
+// 150-180  settle   — zoom back out, fade to K.O.
 function updateFinisher() {
   const f = finisher;
   f.frame++;
-  if (f.frame < 30) {
-    // charge-up — player holds pose
+  const fr = f.frame;
+
+  // ---- Zoom curve ----
+  let targetZoom = 1;
+  if (fr < 28)      targetZoom = 1 + (fr / 28) * 0.35;         // 1.00 → 1.35
+  else if (fr < 54) targetZoom = 1.35 + ((fr - 28) / 26) * 0.55; // 1.35 → 1.90
+  else if (fr < 78) targetZoom = 2.10;                          // punched in, hit-stop
+  else if (fr < 150) targetZoom = 2.10 - ((fr - 78) / 72) * 0.95; // 2.10 → 1.15
+  else              targetZoom = 1.15 - ((fr - 150) / 30) * 0.15;  // 1.15 → 1.00
+  f.zoom += (targetZoom - f.zoom) * 0.35;
+
+  // ---- Phase 1: charge ----
+  if (fr < 28) {
     player.state = 'charge';
     player.aura = 1;
-    if (f.frame % 2 === 0) {
-      addParticle(player.x + (Math.random()-0.5)*10, player.y - 14,
-        player.spec.auraColor || player.spec.accent, 28,
-        (Math.random()-0.5)*2, -Math.random()*2, 3);
+    if (fr % 2 === 0) {
+      addParticle(player.x + (Math.random()-0.5)*16, player.y - 14,
+        player.spec.auraColor || player.spec.accent, 32,
+        (Math.random()-0.5)*2, -Math.random()*2.5, 3);
     }
-  } else if (f.frame < 58) {
-    // dash toward enemy
-    const t = (f.frame - 30) / 28;
-    const targetX = enemy.x - Math.sign(enemy.x - f.x0) * 26;
-    player.x = f.x0 + (targetX - f.x0) * t;
-    player.y = f.y0 + (enemy.y - f.y0) * t;
+    if (fr % 3 === 0) {
+      addParticle(player.x + (Math.random()-0.5)*22, player.y + 4,
+        '#ffffff', 18, (Math.random()-0.5)*3, -Math.random()*3.5, 2);
+    }
+    shake = Math.max(shake, 1.2 + fr * 0.05);
+  }
+  // ---- Phase 2: vanish ----
+  else if (fr < 34) {
+    if (fr === 28) {
+      for (let i = 0; i < 34; i++) {
+        addParticle(player.x, player.y - 14,
+          player.spec.auraColor || player.spec.accent, 24,
+          (Math.random()-0.5)*9, (Math.random()-0.5)*9, 3);
+      }
+      shake = Math.max(shake, 9);
+    }
+  }
+  // ---- Phase 3: dash ----
+  else if (fr < 54) {
+    const t = (fr - 34) / 20;
+    const ease = 1 - Math.pow(1 - t, 3);
+    const tgtSide = Math.sign(enemy.x - f.x0) || 1;
+    const targetX = enemy.x - tgtSide * 26;
+    // Slight arc
+    const arcY = Math.sin(t * Math.PI) * -16;
+    player.x = f.x0 + (targetX - f.x0) * ease;
+    player.y = f.y0 + (enemy.y - f.y0) * ease + arcY;
     player.state = 'dash';
-    player.dir = Math.sign(enemy.x - player.x) || player.dir;
+    player.dir = tgtSide;
+    // Afterimages every frame
+    f.afterimages.push({
+      x: player.x, y: player.y, dir: player.dir,
+      life: 14, maxLife: 14
+    });
     addParticle(player.x, player.y - 14,
-      player.spec.auraColor || player.spec.accent, 22,
-      -player.dir * 2, (Math.random()-0.5)*2, 3);
-  } else if (f.frame === 58) {
-    // impact
-    shake = 16;
-    for (let k = 0; k < 90; k++) {
+      player.spec.auraColor || player.spec.accent, 24,
+      -player.dir * 3, (Math.random()-0.5)*2, 3);
+  }
+  // ---- Phase 4: impact ----
+  else if (fr === 54) {
+    shake = 26;
+    f.shockRings.push({ x: enemy.x, y: enemy.y - 14, r: 4, maxR: 180, life: 30 });
+    f.shockRings.push({ x: enemy.x, y: enemy.y - 14, r: 2, maxR: 120, life: 22 });
+    for (let k = 0; k < 150; k++) {
       addParticle(enemy.x, enemy.y - 14,
-        ['#ffd84a','#ffffff','#ff8820','#ff3a4a'][k % 4], 50,
-        (Math.random()-0.5)*12, (Math.random()-0.5)*12, 3 + (k % 3));
+        ['#ffd84a','#ffffff','#ff8820','#ff3a4a'][k % 4], 64,
+        (Math.random()-0.5)*20, (Math.random()-0.5)*20, 3 + (k % 3));
     }
-    for (let k = 0; k < 40; k++) {
-      const a = (k / 40) * Math.PI * 2;
-      addParticle(enemy.x, enemy.y - 14, '#ffffff', 30,
-        Math.cos(a) * 5, Math.sin(a) * 5, 2);
+    for (let k = 0; k < 80; k++) {
+      const a = (k / 80) * Math.PI * 2;
+      addParticle(enemy.x, enemy.y - 14, '#ffffff', 40,
+        Math.cos(a) * 7, Math.sin(a) * 7, 2);
+    }
+    // Debris shards flying outward
+    for (let k = 0; k < 24; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 4 + Math.random() * 6;
+      addParticle(enemy.x, enemy.y - 14, k % 2 ? '#ffd84a' : '#ff3a4a', 60,
+        Math.cos(a) * sp, Math.sin(a) * sp, 4);
     }
     enemy.hp = 0;
-    enemy.vx = (player.dir || 1) * 4;
-    enemy.vy = -4;
-    enemy.flashing = 40;
+    enemy.flashing = 60;
     player.state = 'punch';
-    player.stateTime = 30;
-  } else if (f.frame < 130) {
+    player.stateTime = 50;
+    f.banner = 'K.O.';
+  }
+  // ---- Phase 5: hit-stop (54-78) ----
+  else if (fr < 78) {
+    // Freeze everything. Shake decays gently from 26 to ~6.
+    shake = Math.max(shake, 20 - (fr - 54) * 0.5);
+  }
+  // ---- Phase 6: slow-mo launch (78-92) ----
+  else if (fr === 78) {
+    enemy.vx = (player.dir || 1) * 3;
+    enemy.vy = -2.5;
+    shake = 10;
+  }
+  else if (fr < 92) {
+    enemy.x += enemy.vx * 0.4; // slow-mo
+    enemy.y += enemy.vy * 0.4;
+    enemy.vy += 0.08;
+    if (fr % 2 === 0) {
+      addParticle(enemy.x - enemy.vx, enemy.y - 14,
+        '#ff8820', 30, -enemy.vx * 0.3, -enemy.vy * 0.3, 2);
+    }
+  }
+  // ---- Phase 7: full launch (92-150) ----
+  else if (fr === 92) {
+    enemy.vx *= 2.5;
+    enemy.vy *= 2.5;
+  }
+  else if (fr < 150) {
     enemy.x += enemy.vx;
     enemy.y += enemy.vy;
-    enemy.vy += 0.2;
+    enemy.vy += 0.25;
+    if (fr % 3 === 0) {
+      addParticle(enemy.x - enemy.vx, enemy.y - 14,
+        '#ff8820', 26, -enemy.vx * 0.2, -enemy.vy * 0.2, 2);
+    }
   }
-  if (f.frame >= 140) {
+
+  // Decay afterimages
+  for (const ai of f.afterimages) ai.life--;
+  f.afterimages = f.afterimages.filter(ai => ai.life > 0);
+  // Update shock rings
+  for (const r of f.shockRings) { r.r += (r.maxR - r.r) * 0.15; r.life--; }
+  f.shockRings = f.shockRings.filter(r => r.life > 0);
+
+  if (fr >= 180) {
     finisher = null;
     player.state = 'idle';
     player.stateTime = 0;
     player.vx = 0;
     player.vy = 0;
   }
+}
+
+function isFinisherHitStop() {
+  return finisher && finisher.frame >= 54 && finisher.frame < 78;
 }
 
 function dash(f) {
@@ -1720,24 +1827,71 @@ function drawIntro() {
   }
 }
 
+function drawAfterimages() {
+  if (!finisher || !player) return;
+  const origX = player.x, origY = player.y, origDir = player.dir;
+  const origFlash = player.flashing, origState = player.state, origAura = player.aura;
+  for (const ai of finisher.afterimages) {
+    const a = (ai.life / ai.maxLife) * 0.5;
+    ctx.save();
+    ctx.globalAlpha = a;
+    player.x = ai.x; player.y = ai.y; player.dir = ai.dir;
+    player.flashing = 0; player.state = 'dash'; player.aura = 0;
+    drawFighter(player);
+    ctx.restore();
+  }
+  player.x = origX; player.y = origY; player.dir = origDir;
+  player.flashing = origFlash; player.state = origState; player.aura = origAura;
+}
+
+function drawShockRings() {
+  if (!finisher) return;
+  ctx.save();
+  for (const r of finisher.shockRings) {
+    const a = r.life / 30;
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = '#ffd84a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r * 0.85, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawFinisherFX() {
   if (!finisher) return;
   const f = finisher;
-  // Darken
-  const dark = Math.min(0.6, f.frame * 0.025);
-  ctx.fillStyle = `rgba(0, 0, 0, ${dark})`;
-  ctx.fillRect(0, 0, W, H);
+  const fr = f.frame;
 
-  // Charge lines converging on enemy
-  if (f.frame < 60 && enemy) {
+  // Vignette (darken edges, not center on enemy)
+  const vignetteAlpha = fr < 54
+    ? Math.min(0.55, fr * 0.02)
+    : fr < 78 ? 0.65
+    : Math.max(0, 0.65 - (fr - 78) * 0.008);
+  if (vignetteAlpha > 0 && enemy) {
+    const vg = ctx.createRadialGradient(enemy.x, enemy.y - 14, 20, enemy.x, enemy.y - 14, 220);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, `rgba(0,0,0,${vignetteAlpha})`);
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Charge lines converging on enemy (phase 1)
+  if (fr < 28 && enemy) {
     ctx.save();
     ctx.strokeStyle = '#ffd84a';
     ctx.lineWidth = 2;
     ctx.globalAlpha = 0.9;
     for (let i = 0; i < 14; i++) {
-      const ang = (i / 14) * Math.PI * 2 + f.frame * 0.05;
-      const r1 = Math.max(10, 180 - f.frame * 2.8);
-      const r2 = Math.max(6, 70 - f.frame * 1.1);
+      const ang = (i / 14) * Math.PI * 2 + fr * 0.08;
+      const r1 = Math.max(10, 180 - fr * 5);
+      const r2 = Math.max(6, 70 - fr * 2.2);
       if (r1 <= r2) continue;
       ctx.beginPath();
       ctx.moveTo(enemy.x + Math.cos(ang) * r1, (enemy.y - 14) + Math.sin(ang) * r1);
@@ -1747,13 +1901,13 @@ function drawFinisherFX() {
     ctx.restore();
   }
 
-  // Speed lines during dash
-  if (f.frame >= 30 && f.frame < 58) {
+  // Horizontal speed lines during dash (phase 3)
+  if (fr >= 34 && fr < 54) {
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
     ctx.lineWidth = 2;
-    for (let i = 0; i < 18; i++) {
-      const y = (i * 17 + f.frame * 4) % H;
+    for (let i = 0; i < 22; i++) {
+      const y = (i * 14 + fr * 6) % H;
       ctx.beginPath();
       ctx.moveTo(0, y); ctx.lineTo(W, y);
       ctx.stroke();
@@ -1761,30 +1915,79 @@ function drawFinisherFX() {
     ctx.restore();
   }
 
-  // Impact flash
-  if (f.frame >= 55 && f.frame < 74) {
-    const a = 1 - Math.abs(f.frame - 62) / 10;
+  // Impact flash — hard white pulse + chromatic tint residue
+  if (fr >= 54 && fr < 72) {
+    const off = fr - 54;
+    let a;
+    if (off < 3) a = 1;                // hard white 3 frames
+    else if (off < 8) a = 1 - (off - 3) / 5; // fade to 0
+    else a = 0;
     if (a > 0) {
       ctx.fillStyle = `rgba(255, 255, 255, ${a})`;
       ctx.fillRect(0, 0, W, H);
     }
+    // Residual red tint for 12 frames after
+    if (off >= 3 && off < 16) {
+      const t = Math.max(0, 0.22 - (off - 3) * 0.018);
+      ctx.fillStyle = `rgba(255, 50, 30, ${t})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  // Hit-stop radial impact burst streaks (static star)
+  if (fr >= 54 && fr < 78 && enemy) {
+    ctx.save();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    const t = (fr - 54) / 24;
+    const len = 50 + (1 - t) * 60;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      ctx.globalAlpha = 1 - t;
+      ctx.beginPath();
+      ctx.moveTo(enemy.x + Math.cos(a) * 14, (enemy.y - 14) + Math.sin(a) * 14);
+      ctx.lineTo(enemy.x + Math.cos(a) * (14 + len), (enemy.y - 14) + Math.sin(a) * (14 + len));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Letterbox bars slide in for cinematic feel
+  const barH = fr < 10 ? fr * 2.4
+    : fr < 170 ? 24
+    : Math.max(0, 24 - (fr - 170) * 2.4);
+  if (barH > 0) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, barH);
+    ctx.fillRect(0, H - barH, W, barH);
   }
 
   // Banner
   let txt = null;
-  if (f.frame >= 6 && f.frame < 55) txt = 'FINISHING MOVE';
-  else if (f.frame >= 60 && f.frame < 140) txt = 'K.O.';
+  let bannerY = 42;
+  if (fr >= 4 && fr < 52) txt = 'FINISHING MOVE';
+  else if (fr >= 54 && fr < 170) { txt = 'K.O.'; bannerY = 58; }
   if (txt) {
     ctx.save();
-    ctx.font = '18px "Press Start 2P", monospace';
     ctx.textAlign = 'center';
+    const isKO = txt === 'K.O.';
+    let scale = 1;
+    if (isKO) {
+      const koFr = fr - 54;
+      if (koFr < 6) scale = 1 + (6 - koFr) * 0.4;  // punch-in
+      else if (koFr < 120) scale = 1 + Math.sin(koFr * 0.2) * 0.06;
+      else scale = Math.max(0, 1 - (koFr - 120) / 40);
+    }
+    ctx.translate(W/2, bannerY);
+    ctx.scale(scale, scale);
+    ctx.font = (isKO ? '32px' : '18px') + ' "Press Start 2P", monospace';
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = 4;
-    ctx.shadowColor = '#ff3a00';
-    ctx.shadowBlur = 14;
-    ctx.strokeText(txt, W/2, 70);
+    ctx.lineWidth = 5;
+    ctx.shadowColor = isKO ? '#ff0030' : '#ff3a00';
+    ctx.shadowBlur = 18;
+    ctx.strokeText(txt, 0, 0);
     ctx.fillStyle = '#ffd84a';
-    ctx.fillText(txt, W/2, 70);
+    ctx.fillText(txt, 0, 0);
     ctx.restore();
   }
 }
@@ -1936,8 +2139,7 @@ function loop() {
   } else if (gameState === 'playing') {
     if (finisher) {
       updateFinisher();
-      updateParticles();
-      // Still advance shake and frameT
+      if (!isFinisherHitStop()) updateParticles();
     } else {
       updateFighter(player, enemy);
       updateFighter(enemy, player);
@@ -2001,21 +2203,37 @@ function loop() {
   if (announceTimer > 0) announceTimer--;
   frameT++;
 
-  // Screen shake
+  // Screen shake + cinematic zoom
   ctx.save();
+  if (finisher && finisher.zoom > 1.005 && enemy) {
+    const z = finisher.zoom;
+    const halfW = W / (2 * z);
+    const halfH = H / (2 * z);
+    const fx = Math.max(halfW, Math.min(W - halfW, enemy.x));
+    const fy = Math.max(halfH, Math.min(H - halfH, enemy.y - 14));
+    ctx.translate(W/2, H/2);
+    ctx.scale(z, z);
+    ctx.translate(-fx, -fy);
+  }
   if (shake > 0) {
     ctx.translate((Math.random()-0.5) * shake, (Math.random()-0.5) * shake);
-    shake *= 0.85;
-    if (shake < 0.3) shake = 0;
+    if (!isFinisherHitStop()) {
+      shake *= 0.85;
+      if (shake < 0.3) shake = 0;
+    }
   }
 
   drawSky();
   if (gameState !== 'intro' && player && enemy) {
     for (const p of projectiles) drawProjectile(p);
+    // Finisher afterimages drawn behind player
+    if (finisher && finisher.afterimages.length) drawAfterimages();
     drawFighter(player);
     drawFighter(enemy);
     drawBeam(player);
     drawBeam(enemy);
+    // Shockwave rings drawn above fighters
+    if (finisher && finisher.shockRings.length) drawShockRings();
   }
   drawParticles();
   ctx.restore();
