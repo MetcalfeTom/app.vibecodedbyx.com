@@ -188,6 +188,42 @@
   #mobileControls .x-btn { border-color: var(--red); color: var(--red); }
   #mobileControls .c-btn { border-color: var(--blue); color: var(--blue); }
   #mobileControls .dash-btn { border-color: #c06aff; color: #c06aff; font-size: 9px; }
+  #mobileControls .extras {
+    grid-template-columns: 56px;
+    grid-template-rows: repeat(2, 56px);
+    align-self: end;
+    gap: 6px;
+  }
+  #mobileControls .tag-btn { border-color: #4aff9a; color: #4aff9a; font-size: 9px; }
+  #mobileControls .fin-btn {
+    border-color: #ffd84a;
+    color: #ffd84a;
+    background: rgba(255, 216, 74, 0.12);
+    font-size: 9px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  #mobileControls .fin-btn.ready {
+    opacity: 1;
+    pointer-events: auto;
+    animation: finPulse 0.8s infinite;
+  }
+  @keyframes finPulse {
+    0%, 100% { box-shadow: 0 0 10px #ffd84a, inset 0 0 8px rgba(255, 216, 74, 0.4); }
+    50%      { box-shadow: 0 0 24px #ffd84a, 0 0 40px #ff8820, inset 0 0 16px rgba(255, 216, 74, 0.6); }
+  }
+  .fighter-card .slot-badge {
+    position: absolute;
+    top: 4px; right: 4px;
+    background: currentColor;
+    color: #000;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7px;
+    padding: 3px 5px;
+    letter-spacing: 1px;
+    z-index: 2;
+  }
 
   /* Character select overlay */
   #charSelect {
@@ -421,21 +457,22 @@
     #joystick { width: 120px; height: 120px; }
     #joystick .knob { width: 52px; height: 52px; margin-left: -26px; margin-top: -26px; }
     #mobileControls .actions { grid-template-columns: repeat(2, 52px); grid-template-rows: repeat(2, 52px); }
+    #mobileControls .extras { grid-template-columns: 46px; grid-template-rows: repeat(2, 46px); }
     #mobileControls button { font-size: 9px; }
   }
 </style>
 </head>
 <body>
 <div id="charSelect">
-  <h2 id="selectTitle">CHOOSE YOUR FIGHTER</h2>
-  <div class="sub" id="selectSub">the fate of the sky is in your hands</div>
+  <h2 id="selectTitle">BUILD YOUR TAG TEAM</h2>
+  <div class="sub" id="selectSub">pick 2 fighters to rotate mid-battle</div>
   <div id="nameRow">
     <label for="nameInput">YOUR NAME</label>
     <input id="nameInput" type="text" maxlength="12" placeholder="ENTER NAME" spellcheck="false" autocomplete="off">
   </div>
   <div id="roster"></div>
   <div id="stageRoster" style="display:none;"></div>
-  <button id="confirmBtn" disabled>SELECT A FIGHTER</button>
+  <button id="confirmBtn" disabled>PICK 2 FIGHTERS</button>
 </div>
 <div id="title">KI  FIGHTERS</div>
 <div id="stage"><canvas id="c" width="480" height="270"></canvas></div>
@@ -445,6 +482,10 @@
   <div id="joystick">
     <div class="base"></div>
     <div class="knob"></div>
+  </div>
+  <div class="cluster extras">
+    <button class="tag-btn" data-key="t">TAG</button>
+    <button class="fin-btn" data-key="f" id="finBtn">FIN</button>
   </div>
   <div class="cluster actions">
     <button class="c-btn"    data-key="c">KI</button>
@@ -625,14 +666,24 @@ function makeFighter(x, spec, isAI) {
     flashing: 0,
     beamCharge: 0,
     beamActive: false,
-    beamHand: { x: 0, y: 0 }
+    beamHand: { x: 0, y: 0 },
+    tagCd: 0,
+    tagInvuln: 0
   };
 }
 
-let playerSpec = FIGHTERS[0];
-let enemySpec  = FIGHTERS[1];
-let player = makeFighter(100, playerSpec, false);
-let enemy  = makeFighter(380, enemySpec, true);
+let playerTeamSpecs = [FIGHTERS[0], FIGHTERS[1]];
+let enemyTeamSpecs  = [FIGHTERS[2], FIGHTERS[1]];
+let playerTeam = [];
+let enemyTeam = [];
+let playerIdx = 0;
+let enemyIdx = 0;
+let player = null;
+let enemy = null;
+let tagKeyHeld = false;
+let finKeyHeld = false;
+let finisher = null;
+let introFrame = 0;
 
 const projectiles = [];
 const particles = [];
@@ -686,7 +737,7 @@ function punch(f, other) {
   const dx = other.x - f.x;
   const dy = other.y - f.y;
   const range = isKick ? s.punchRange + 6 : s.punchRange;
-  if (Math.abs(dx) < range && Math.abs(dy) < 28 && Math.sign(dx) === f.dir) {
+  if (Math.abs(dx) < range && Math.abs(dy) < 28 && Math.sign(dx) === f.dir && other.tagInvuln === 0) {
     const dmg = isKick ? s.punchDmg * 1.35 : s.punchDmg;
     other.hp -= dmg;
     other.vx += f.dir * (2 + dmg * 0.22);
@@ -699,6 +750,125 @@ function punch(f, other) {
       addParticle(other.x, other.y - 8, i % 2 ? '#ffffff' : s.accent, 16,
         (Math.random()-0.5)*4, (Math.random()-0.5)*4, 2);
     }
+  }
+}
+
+function tagBurst(f) {
+  shake = Math.max(shake, 6);
+  for (let i = 0; i < 26; i++) {
+    addParticle(f.x, f.y - 16, i % 2 ? '#ffffff' : (f.spec.auraColor || f.spec.accent), 26,
+      (Math.random()-0.5)*6, (Math.random()-0.5)*6, 3);
+  }
+}
+
+function performTag(side, instant) {
+  if (side === 'player') {
+    if (playerTeam.length < 2) return;
+    const reserve = playerTeam[1 - playerIdx];
+    if (!reserve || reserve.hp <= 0) return;
+    if (!instant && player.tagCd > 0) return;
+    const old = player;
+    playerIdx = 1 - playerIdx;
+    const neu = playerTeam[playerIdx];
+    neu.x = old.x; neu.y = old.y - (instant ? 20 : 0);
+    neu.vx = 0; neu.vy = 0;
+    neu.dir = old.dir;
+    neu.tagCd = 240;
+    neu.tagInvuln = instant ? 60 : 40;
+    neu.flashing = instant ? 30 : 20;
+    if (!instant) old.tagCd = 240;
+    player = neu;
+    tagBurst(neu);
+    if (instant) { announceText = neu.spec.name + ' TAGS IN!'; announceTimer = 90; }
+  } else {
+    if (enemyTeam.length < 2) return;
+    const reserve = enemyTeam[1 - enemyIdx];
+    if (!reserve || reserve.hp <= 0) return;
+    if (!instant && enemy.tagCd > 0) return;
+    const old = enemy;
+    enemyIdx = 1 - enemyIdx;
+    const neu = enemyTeam[enemyIdx];
+    neu.x = old.x; neu.y = old.y - (instant ? 20 : 0);
+    neu.vx = 0; neu.vy = 0;
+    neu.dir = old.dir;
+    neu.tagCd = 240;
+    neu.tagInvuln = instant ? 60 : 40;
+    neu.flashing = instant ? 30 : 20;
+    if (!instant) old.tagCd = 240;
+    enemy = neu;
+    tagBurst(neu);
+    if (instant) { announceText = neu.spec.name + ' TAGS IN!'; announceTimer = 90; }
+  }
+}
+function tagPlayer() { if (finisher) return; performTag('player', false); }
+function tagEnemy()  { if (finisher) return; performTag('enemy',  false); }
+
+function startFinisher() {
+  if (finisher) return;
+  if (gameState !== 'playing') return;
+  if (!enemy || enemy.hp <= 0) return;
+  if (enemy.hp / enemy.maxHp > 0.22) return;
+  finisher = { frame: 0, x0: player.x, y0: player.y };
+  announceText = '';
+  announceTimer = 0;
+  enemy.hurtTime = 400;
+  enemy.beamActive = false;
+  enemy.beamCharge = 0;
+}
+
+function updateFinisher() {
+  const f = finisher;
+  f.frame++;
+  if (f.frame < 30) {
+    // charge-up — player holds pose
+    player.state = 'charge';
+    player.aura = 1;
+    if (f.frame % 2 === 0) {
+      addParticle(player.x + (Math.random()-0.5)*10, player.y - 14,
+        player.spec.auraColor || player.spec.accent, 28,
+        (Math.random()-0.5)*2, -Math.random()*2, 3);
+    }
+  } else if (f.frame < 58) {
+    // dash toward enemy
+    const t = (f.frame - 30) / 28;
+    const targetX = enemy.x - Math.sign(enemy.x - f.x0) * 26;
+    player.x = f.x0 + (targetX - f.x0) * t;
+    player.y = f.y0 + (enemy.y - f.y0) * t;
+    player.state = 'dash';
+    player.dir = Math.sign(enemy.x - player.x) || player.dir;
+    addParticle(player.x, player.y - 14,
+      player.spec.auraColor || player.spec.accent, 22,
+      -player.dir * 2, (Math.random()-0.5)*2, 3);
+  } else if (f.frame === 58) {
+    // impact
+    shake = 16;
+    for (let k = 0; k < 90; k++) {
+      addParticle(enemy.x, enemy.y - 14,
+        ['#ffd84a','#ffffff','#ff8820','#ff3a4a'][k % 4], 50,
+        (Math.random()-0.5)*12, (Math.random()-0.5)*12, 3 + (k % 3));
+    }
+    for (let k = 0; k < 40; k++) {
+      const a = (k / 40) * Math.PI * 2;
+      addParticle(enemy.x, enemy.y - 14, '#ffffff', 30,
+        Math.cos(a) * 5, Math.sin(a) * 5, 2);
+    }
+    enemy.hp = 0;
+    enemy.vx = (player.dir || 1) * 4;
+    enemy.vy = -4;
+    enemy.flashing = 40;
+    player.state = 'punch';
+    player.stateTime = 30;
+  } else if (f.frame < 130) {
+    enemy.x += enemy.vx;
+    enemy.y += enemy.vy;
+    enemy.vy += 0.2;
+  }
+  if (f.frame >= 140) {
+    finisher = null;
+    player.state = 'idle';
+    player.stateTime = 0;
+    player.vx = 0;
+    player.vy = 0;
   }
 }
 
@@ -726,6 +896,8 @@ function updateFighter(f, other) {
   f.dashCd = Math.max(0, f.dashCd - 1);
   f.hurtTime = Math.max(0, f.hurtTime - 1);
   f.flashing = Math.max(0, f.flashing - 1);
+  f.tagCd = Math.max(0, f.tagCd - 1);
+  f.tagInvuln = Math.max(0, f.tagInvuln - 1);
 
   if (f.hp <= 0) return;
 
@@ -741,6 +913,8 @@ function updateFighter(f, other) {
     wantBlast = keys['x'];
     wantCharge = keys['c'];
     wantDash = keys['Shift'] || keys['shift'];
+    if (keys['t']) { if (!tagKeyHeld) { tagKeyHeld = true; tagPlayer(); } } else tagKeyHeld = false;
+    if (keys['f']) { if (!finKeyHeld) { finKeyHeld = true; startFinisher(); } } else finKeyHeld = false;
   } else {
     // AI: basic behavior
     const dx = other.x - f.x;
@@ -796,7 +970,7 @@ function updateFighter(f, other) {
         shake = Math.max(shake, 3);
         // Continuous damage to target in beam path
         const dxB = other.x - f.x;
-        if (Math.sign(dxB) === f.dir && Math.abs(other.y - (f.y - 10)) < 34 && Math.abs(dxB) < 360) {
+        if (Math.sign(dxB) === f.dir && Math.abs(other.y - (f.y - 10)) < 34 && Math.abs(dxB) < 360 && other.tagInvuln === 0) {
           other.hp -= 0.9;
           other.hurtTime = 6;
           other.flashing = 3;
@@ -873,7 +1047,7 @@ function updateProjectiles() {
     const dx = target.x - p.x;
     const dy = (target.y - 16) - p.y;
     const hitR = p.size + 8;
-    if (Math.abs(dx) < hitR && Math.abs(dy) < hitR + 4) {
+    if (Math.abs(dx) < hitR && Math.abs(dy) < hitR + 4 && target.tagInvuln === 0) {
       target.hp -= p.power;
       target.vx += p.vx * (p.knock || 0.9);
       target.vy -= 3.5;
@@ -1374,21 +1548,294 @@ function drawParticles() {
   ctx.globalAlpha = 1;
 }
 
+// ---------- INTRO CINEMATIC ----------
+function drawSideSprite(spec, cx, cy, scale, flip) {
+  const px = (x, y, w, h, c) => {
+    ctx.fillStyle = c;
+    const rx = flip ? -1 : 1;
+    const drawX = cx + (flip ? (-x - w) : x) * scale;
+    ctx.fillRect(drawX, cy + y * scale, w * scale, h * scale);
+  };
+  // Legs
+  px(-4, -8, 3, 8, spec.color);
+  px(1, -8, 3, 8, spec.color);
+  px(-5, -2, 4, 3, '#2a1a10');
+  px(1, -2, 4, 3, '#2a1a10');
+  // Torso
+  px(-5, -20, 10, 12, spec.color);
+  px(-5, -20, 10, 2, spec.accent);
+  px(-5, -10, 10, 2, spec.accent);
+  px(-1, -16, 2, 2, spec.accent);
+  // Arms
+  px(-7, -18, 3, 8, spec.color);
+  px(4, -18, 3, 8, spec.color);
+  px(-7, -11, 3, 3, '#f0c090');
+  px(4, -11, 3, 3, '#f0c090');
+  // Head
+  px(-4, -28, 8, 8, '#f0c090');
+  px(-5, -30, 10, 3, spec.hair);
+  px(-6, -28, 2, 2, spec.hair);
+  px(4, -28, 2, 2, spec.hair);
+  px(-3, -32, 2, 2, spec.hair);
+  px(1, -32, 2, 2, spec.hair);
+  px(3, -33, 2, 2, spec.hair);
+  px(-3, -25, 2, 2, '#000');
+  px(1, -25, 2, 2, '#000');
+  px(-2, -25, 1, 1, '#fff');
+  px(2, -25, 1, 1, '#fff');
+}
+
+function drawTeamCard(side, teamSpecs, label, phaseFrame) {
+  // side: 'left' = slides from left, 'right' = slides from right
+  // phaseFrame: 0..110 (within this team's phase)
+  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  const slideT = Math.min(1, phaseFrame / 18);
+  const outT = phaseFrame > 92 ? Math.min(1, (phaseFrame - 92) / 18) : 0;
+  const offRaw = (1 - ease(slideT)) * (side === 'left' ? -W : W) + ease(outT) * (side === 'left' ? -W : W);
+  const offY = 0;
+
+  ctx.save();
+  ctx.translate(offRaw, offY);
+
+  // Dark vertical band
+  const bandX = side === 'left' ? 20 : W - 220;
+  const bandW = 200;
+  const bandY = 40;
+  const bandH = 180;
+
+  // Diagonal accent slash behind card
+  const main = teamSpecs[0];
+  ctx.save();
+  ctx.fillStyle = main.auraGlow || (main.accent + '44');
+  ctx.beginPath();
+  if (side === 'left') {
+    ctx.moveTo(0, bandY - 10);
+    ctx.lineTo(bandX + bandW + 30, bandY - 10);
+    ctx.lineTo(bandX + bandW - 10, bandY + bandH + 20);
+    ctx.lineTo(0, bandY + bandH + 20);
+  } else {
+    ctx.moveTo(W, bandY - 10);
+    ctx.lineTo(bandX - 30, bandY - 10);
+    ctx.lineTo(bandX + 10, bandY + bandH + 20);
+    ctx.lineTo(W, bandY + bandH + 20);
+  }
+  ctx.fill();
+  ctx.restore();
+
+  // Main card background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
+  ctx.fillRect(bandX, bandY, bandW, bandH);
+  ctx.strokeStyle = main.accent;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(bandX, bandY, bandW, bandH);
+
+  // Label (PLAYER / CHALLENGER)
+  ctx.font = '9px "Press Start 2P", monospace';
+  ctx.textAlign = side === 'left' ? 'left' : 'right';
+  ctx.fillStyle = main.accent;
+  ctx.fillText(label, side === 'left' ? bandX + 10 : bandX + bandW - 10, bandY + 20);
+
+  // Team names stacked
+  ctx.font = '11px "Press Start 2P", monospace';
+  ctx.fillStyle = '#fff8e2';
+  const name1 = teamSpecs[0].name;
+  const name2 = teamSpecs[1] ? teamSpecs[1].name : '';
+  // Character reveal: letter by letter during first 24 frames
+  const charsShown = Math.min(name1.length + name2.length + 2, Math.floor(phaseFrame * 1.2));
+  const shown1 = name1.slice(0, Math.min(name1.length, charsShown));
+  const shown2 = charsShown > name1.length + 1 ? name2.slice(0, charsShown - name1.length - 1) : '';
+  ctx.shadowColor = main.color;
+  ctx.shadowBlur = 8;
+  ctx.fillText(shown1, side === 'left' ? bandX + 10 : bandX + bandW - 10, bandY + 50);
+  ctx.font = '8px "Press Start 2P", monospace';
+  ctx.fillStyle = '#c8b890';
+  ctx.fillText('& ' + shown2, side === 'left' ? bandX + 10 : bandX + bandW - 10, bandY + 68);
+  ctx.shadowBlur = 0;
+
+  // Class
+  if (phaseFrame > 28) {
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.fillStyle = teamSpecs[0].accent;
+    ctx.fillText(teamSpecs[0].class, side === 'left' ? bandX + 10 : bandX + bandW - 10, bandY + 86);
+  }
+
+  // Sprites inside card
+  ctx.textAlign = 'left';
+  const spriteScale = 2;
+  const baseY = bandY + bandH - 20;
+  const flipMain = side === 'right';
+  drawSideSprite(teamSpecs[0], bandX + (side === 'left' ? bandW - 56 : 56), baseY, spriteScale, flipMain);
+  if (phaseFrame > 30 && teamSpecs[1]) {
+    ctx.globalAlpha = 0.6;
+    drawSideSprite(teamSpecs[1], bandX + (side === 'left' ? bandW - 108 : 108), baseY - 2, spriteScale - 0.4, flipMain);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+}
+
+function drawIntro() {
+  // Darken background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Scanlines for drama
+  ctx.fillStyle = 'rgba(255, 216, 74, 0.04)';
+  for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+
+  if (introFrame < 110) {
+    drawTeamCard('left', playerTeamSpecs, playerName.toUpperCase(), introFrame);
+  } else if (introFrame < 220) {
+    drawTeamCard('right', enemyTeamSpecs, 'CHALLENGER', introFrame - 110);
+  } else {
+    // VS / READY / FIGHT build-up
+    const rf = introFrame - 220;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = '28px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffd84a';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 4;
+    ctx.shadowColor = '#ff3a00';
+    ctx.shadowBlur = 16;
+    const scale = 1 + Math.sin(rf * 0.3) * 0.05;
+    ctx.translate(W/2, H/2);
+    ctx.scale(scale, scale);
+    ctx.strokeText('READY?', 0, 0);
+    ctx.fillText('READY?', 0, 0);
+    ctx.restore();
+  }
+
+  // Title banner sliding across
+  if (introFrame > 14 && introFrame < 226) {
+    ctx.save();
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffd84a';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff3a00';
+    ctx.shadowBlur = 6;
+    ctx.fillText(STAGES[stageIdx].name + ' — ROUND 1', W/2, 24);
+    ctx.restore();
+  }
+}
+
+function drawFinisherFX() {
+  if (!finisher) return;
+  const f = finisher;
+  // Darken
+  const dark = Math.min(0.6, f.frame * 0.025);
+  ctx.fillStyle = `rgba(0, 0, 0, ${dark})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Charge lines converging on enemy
+  if (f.frame < 60 && enemy) {
+    ctx.save();
+    ctx.strokeStyle = '#ffd84a';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.9;
+    for (let i = 0; i < 14; i++) {
+      const ang = (i / 14) * Math.PI * 2 + f.frame * 0.05;
+      const r1 = Math.max(10, 180 - f.frame * 2.8);
+      const r2 = Math.max(6, 70 - f.frame * 1.1);
+      if (r1 <= r2) continue;
+      ctx.beginPath();
+      ctx.moveTo(enemy.x + Math.cos(ang) * r1, (enemy.y - 14) + Math.sin(ang) * r1);
+      ctx.lineTo(enemy.x + Math.cos(ang) * r2, (enemy.y - 14) + Math.sin(ang) * r2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Speed lines during dash
+  if (f.frame >= 30 && f.frame < 58) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 18; i++) {
+      const y = (i * 17 + f.frame * 4) % H;
+      ctx.beginPath();
+      ctx.moveTo(0, y); ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Impact flash
+  if (f.frame >= 55 && f.frame < 74) {
+    const a = 1 - Math.abs(f.frame - 62) / 10;
+    if (a > 0) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${a})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  // Banner
+  let txt = null;
+  if (f.frame >= 6 && f.frame < 55) txt = 'FINISHING MOVE';
+  else if (f.frame >= 60 && f.frame < 140) txt = 'K.O.';
+  if (txt) {
+    ctx.save();
+    ctx.font = '18px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 4;
+    ctx.shadowColor = '#ff3a00';
+    ctx.shadowBlur = 14;
+    ctx.strokeText(txt, W/2, 70);
+    ctx.fillStyle = '#ffd84a';
+    ctx.fillText(txt, W/2, 70);
+    ctx.restore();
+  }
+}
+
 function drawUI() {
+  if (!player || !enemy) return;
   // Player bars (left)
   drawBar(8, 8, 180, 10, player.hp / player.maxHp, '#ff3a4a', '#5a0a10');
   drawBar(8, 20, 180, 6, player.ki / player.maxKi, '#3fa9ff', '#0a1a40');
   ctx.fillStyle = '#fff8e2';
   ctx.font = '8px "Press Start 2P", monospace';
-  ctx.fillText(playerName + ' / ' + playerSpec.name, 8, 38);
+  ctx.fillText(playerName + ' / ' + player.spec.name, 8, 38);
 
   // Enemy bars (right)
   drawBar(W - 188, 8, 180, 10, enemy.hp / enemy.maxHp, '#ff3a4a', '#5a0a10');
   drawBar(W - 188, 20, 180, 6, enemy.ki / enemy.maxKi, '#3fa9ff', '#0a1a40');
-  const enText = 'CPU / ' + enemySpec.name;
+  const enText = 'CPU / ' + enemy.spec.name;
   ctx.textAlign = 'right';
   ctx.fillText(enText, W - 8, 38);
   ctx.textAlign = 'left';
+
+  // Reserve bars
+  const pRes = playerTeam[1 - playerIdx];
+  if (pRes && pRes !== player) {
+    drawBar(8, 48, 120, 4, Math.max(0, pRes.hp) / pRes.maxHp, '#b04a4a', '#3a0a10');
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillStyle = pRes.hp > 0 ? '#c8b890' : '#5a3a3a';
+    ctx.fillText('RES ' + pRes.spec.name, 8, 60);
+  }
+  const eRes = enemyTeam[1 - enemyIdx];
+  if (eRes && eRes !== enemy) {
+    drawBar(W - 128, 48, 120, 4, Math.max(0, eRes.hp) / eRes.maxHp, '#b04a4a', '#3a0a10');
+    ctx.textAlign = 'right';
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillStyle = eRes.hp > 0 ? '#c8b890' : '#5a3a3a';
+    ctx.fillText('RES ' + eRes.spec.name, W - 8, 60);
+    ctx.textAlign = 'left';
+  }
+
+  // Finisher prompt
+  if (!finisher && gameState === 'playing' && enemy.hp > 0 && enemy.hp / enemy.maxHp <= 0.22) {
+    ctx.save();
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    const pulse = Math.sin(frameT * 0.2) * 0.3 + 0.7;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#ffd84a';
+    ctx.shadowColor = '#ff3a00';
+    ctx.shadowBlur = 10;
+    ctx.fillText('PRESS F - FINISH!', W/2, H - 14);
+    ctx.restore();
+  }
 
   // Center fight timer
   const secs = Math.ceil(roundTimer / 60);
@@ -1438,14 +1885,28 @@ function drawBar(x, y, w, h, pct, fill, bg) {
 
 // ---------- LOOP ----------
 function reset() {
-  player = makeFighter(100, playerSpec, false);
-  enemy  = makeFighter(380, enemySpec, true);
+  playerTeam = playerTeamSpecs.map((s, i) => {
+    const f = makeFighter(100 + i * 6, s, false);
+    f.teamIdx = i;
+    return f;
+  });
+  enemyTeam = enemyTeamSpecs.map((s, i) => {
+    const f = makeFighter(380 - i * 6, s, true);
+    f.teamIdx = i;
+    return f;
+  });
+  playerIdx = 0;
+  enemyIdx = 0;
+  player = playerTeam[0];
+  enemy = enemyTeam[0];
   projectiles.length = 0;
   particles.length = 0;
   roundTimer = ROUND_FRAMES;
-  gameState = 'playing';
-  announceText = 'FIGHT!';
-  announceTimer = 60;
+  finisher = null;
+  announceText = '';
+  announceTimer = 0;
+  gameState = 'intro';
+  introFrame = 0;
 }
 
 function openSelect() {
@@ -1454,25 +1915,83 @@ function openSelect() {
 }
 
 function loop() {
-  if (gameState === 'playing') {
-    updateFighter(player, enemy);
-    updateFighter(enemy, player);
-    updateProjectiles();
+  if (gameState === 'intro') {
+    introFrame++;
     updateParticles();
-    if (roundTimer > 0) roundTimer--;
-
-    if (player.hp <= 0) { gameState = 'lost'; announceText = 'DEFEAT'; announceTimer = 240; }
-    else if (enemy.hp <= 0) { gameState = 'won'; announceText = 'VICTORY!'; announceTimer = 240; }
-    else if (roundTimer === 0) {
-      if (player.hp > enemy.hp) { gameState = 'won'; announceText = 'TIME!  YOU WIN'; }
-      else if (enemy.hp > player.hp) { gameState = 'lost'; announceText = 'TIME!  DEFEAT'; }
+    // Entrance aura sparkles for the fighter currently on screen
+    const introPhase = introFrame < 110 ? 0 : 1; // 0 = player team, 1 = enemy team
+    const focal = introPhase === 0 ? playerTeam[0] : enemyTeam[0];
+    if (focal && introFrame % 2 === 0) {
+      addParticle(W/2 + (introPhase === 0 ? -60 : 60) + (Math.random()-0.5)*30,
+                  H/2 + 20 + (Math.random()-0.5)*30,
+                  focal.spec.auraColor || focal.spec.accent, 30,
+                  (Math.random()-0.5)*1.5, -Math.random()*2, 3);
+    }
+    if (introFrame >= 240) {
+      gameState = 'playing';
+      announceText = 'FIGHT!';
+      announceTimer = 60;
+    }
+  } else if (gameState === 'playing') {
+    if (finisher) {
+      updateFinisher();
+      updateParticles();
+      // Still advance shake and frameT
+    } else {
+      updateFighter(player, enemy);
+      updateFighter(enemy, player);
+      updateProjectiles();
+      updateParticles();
+      if (roundTimer > 0) roundTimer--;
+      // Reserve slow regen
+      for (const f of playerTeam) if (f !== player && f.hp > 0) { f.hp = Math.min(f.maxHp, f.hp + 0.18); f.ki = Math.min(f.maxKi, f.ki + 0.3); }
+      for (const f of enemyTeam)  if (f !== enemy  && f.hp > 0) { f.hp = Math.min(f.maxHp, f.hp + 0.18); f.ki = Math.min(f.maxKi, f.ki + 0.3); }
+      // AI tag when low
+      if (enemy.hp > 0 && enemy.hp < enemy.maxHp * 0.28 && enemy.tagCd === 0) {
+        const res = enemyTeam[1 - enemyIdx];
+        if (res && res.hp > enemy.hp * 1.2) tagEnemy();
+      }
+    }
+    // KO handling (runs even if finisher just zeroed enemy.hp)
+    if (player.hp <= 0) {
+      const reserve = playerTeam[1 - playerIdx];
+      if (reserve && reserve.hp > 0) { performTag('player', true); }
+      else { gameState = 'lost'; announceText = 'DEFEAT'; announceTimer = 240; }
+    } else if (enemy.hp <= 0 && !finisher) {
+      const reserve = enemyTeam[1 - enemyIdx];
+      if (reserve && reserve.hp > 0) { performTag('enemy', true); }
+      else { gameState = 'won'; announceText = 'VICTORY!'; announceTimer = 240; }
+    } else if (roundTimer === 0) {
+      const pTotal = playerTeam.reduce((s,f) => s + Math.max(0, f.hp), 0);
+      const eTotal = enemyTeam.reduce((s,f) => s + Math.max(0, f.hp), 0);
+      if (pTotal > eTotal) { gameState = 'won'; announceText = 'TIME!  YOU WIN'; }
+      else if (eTotal > pTotal) { gameState = 'lost'; announceText = 'TIME!  DEFEAT'; }
       else { gameState = 'lost'; announceText = 'DRAW'; }
       announceTimer = 240;
+    }
+    // Finish button visibility
+    const finBtnEl = document.getElementById('finBtn');
+    if (finBtnEl) {
+      const avail = !finisher && enemy && enemy.hp > 0 && enemy.hp / enemy.maxHp <= 0.22;
+      finBtnEl.classList.toggle('ready', avail);
     }
   } else if (gameState === 'won' || gameState === 'lost') {
     updateParticles();
     if (keys['z'] || keys[' ']) reset();
-    if (keys['Escape'] || keys['escape']) { openSelect(); selectedIdx = -1; document.getElementById('confirmBtn').disabled = true; document.getElementById('confirmBtn').textContent = 'SELECT A FIGHTER'; document.querySelectorAll('.fighter-card').forEach(c => c.classList.remove('selected')); }
+    if (keys['Escape'] || keys['escape']) {
+      openSelect();
+      selectedTeam = [];
+      selectStep = 'fighter';
+      document.getElementById('selectTitle').textContent = 'BUILD YOUR TAG TEAM';
+      document.getElementById('selectSub').textContent = 'pick 2 fighters to rotate mid-battle';
+      document.getElementById('roster').style.display = 'flex';
+      document.getElementById('nameRow').style.display = 'flex';
+      document.getElementById('stageRoster').style.display = 'none';
+      const cb = document.getElementById('confirmBtn');
+      cb.disabled = true;
+      cb.textContent = 'PICK 2 FIGHTERS';
+      document.querySelectorAll('.fighter-card').forEach(c => { c.classList.remove('selected'); const b = c.querySelector('.slot-badge'); if (b) b.remove(); });
+    }
   } else {
     // select state — don't update sim
     updateParticles();
@@ -1490,16 +2009,20 @@ function loop() {
   }
 
   drawSky();
-  for (const p of projectiles) drawProjectile(p);
-  drawFighter(player);
-  drawFighter(enemy);
-  drawBeam(player);
-  drawBeam(enemy);
+  if (gameState !== 'intro') {
+    for (const p of projectiles) drawProjectile(p);
+    drawFighter(player);
+    drawFighter(enemy);
+    drawBeam(player);
+    drawBeam(enemy);
+  }
   drawParticles();
   ctx.restore();
+  if (gameState === 'intro') drawIntro();
+  if (finisher) drawFinisherFX();
   drawUI();
 
-  if (gameState !== 'playing' && announceTimer < 200) {
+  if (gameState !== 'playing' && gameState !== 'intro' && announceTimer < 200) {
     ctx.fillStyle = '#fff8e2';
     ctx.font = '10px "Press Start 2P", monospace';
     ctx.textAlign = 'center';
@@ -1592,18 +2115,43 @@ function renderRoster() {
 }
 
 let selectStep = 'fighter'; // 'fighter' | 'stage'
-let selectedIdx = -1;
+let selectedTeam = []; // indices into FIGHTERS, max 2
 let selectedStageIdx = -1;
 let playerName = 'PLAYER';
 
 function selectFighter(i) {
-  selectedIdx = i;
+  const pos = selectedTeam.indexOf(i);
+  if (pos >= 0) {
+    selectedTeam.splice(pos, 1);
+  } else if (selectedTeam.length >= 2) {
+    selectedTeam.shift();
+    selectedTeam.push(i);
+  } else {
+    selectedTeam.push(i);
+  }
   document.querySelectorAll('.fighter-card').forEach((c, idx) => {
-    c.classList.toggle('selected', idx === i);
+    const slot = selectedTeam.indexOf(idx);
+    c.classList.toggle('selected', slot >= 0);
+    let badge = c.querySelector('.slot-badge');
+    if (slot >= 0) {
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'slot-badge';
+        c.appendChild(badge);
+      }
+      badge.textContent = slot === 0 ? 'MAIN' : 'RESERVE';
+    } else if (badge) {
+      badge.remove();
+    }
   });
   const btn = document.getElementById('confirmBtn');
-  btn.disabled = false;
-  btn.textContent = 'CHOOSE STAGE →';
+  if (selectedTeam.length === 2) {
+    btn.disabled = false;
+    btn.textContent = 'CHOOSE STAGE →';
+  } else {
+    btn.disabled = true;
+    btn.textContent = 'PICK ' + (2 - selectedTeam.length) + ' MORE';
+  }
 }
 
 function selectStage(i) {
@@ -1666,7 +2214,7 @@ function advanceToStageStep() {
 
 function confirmSelection() {
   if (selectStep === 'fighter') {
-    if (selectedIdx < 0) return;
+    if (selectedTeam.length < 2) return;
     // Capture name
     const rawName = (document.getElementById('nameInput').value || '').trim();
     if (rawName) playerName = rawName.toUpperCase().slice(0, 12);
@@ -1675,10 +2223,14 @@ function confirmSelection() {
   }
   // Stage step
   if (selectedStageIdx < 0) return;
-  playerSpec = FIGHTERS[selectedIdx];
   stageIdx = selectedStageIdx;
-  const opts = FIGHTERS.filter((_, i) => i !== selectedIdx);
-  enemySpec = opts[Math.floor(Math.random() * opts.length)];
+  playerTeamSpecs = selectedTeam.map(i => FIGHTERS[i]);
+  // Enemy picks 2 random specs (may repeat)
+  enemyTeamSpecs = [];
+  const pool = [...FIGHTERS];
+  const first = pool[Math.floor(Math.random() * pool.length)];
+  const second = pool.filter(s => s.id !== first.id)[Math.floor(Math.random() * (pool.length - 1))] || pool[Math.floor(Math.random() * pool.length)];
+  enemyTeamSpecs = [first, second];
   document.getElementById('charSelect').classList.add('hidden');
   reset();
 }
@@ -1692,6 +2244,7 @@ window.addEventListener('keydown', e => {
       else if (e.key === '2') selectFighter(1);
       else if (e.key === '3') selectFighter(2);
       else if (e.key === 'Enter') confirmSelection();
+      return;
     } else {
       if (e.key === '1') selectStage(0);
       else if (e.key === '2') selectStage(1);
