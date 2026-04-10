@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shape Fryer — Catch & Cook Terrified Shapes</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🍟">
+<meta property="og:title" content="Shape Fryer">
+<meta property="og:description" content="Grab screaming shapes and toss them into the air fryer. Crispy!">
+<meta property="og:url" content="https://sloppy.live/shape-fryer">
+<meta property="og:image" content="https://sloppy.live/shape-fryer/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Bungee+Shade&family=Azeret+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#1c1014;--fryer:#2a2024;--gold:#ffb833;
+  --red:#ff4455;--crispy:#e8a020;--green:#55dd66;
+}
+body{
+  min-height:100vh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  background:var(--bg);overflow:hidden;
+  font-family:'Azeret Mono',monospace;color:#eee;
+  background-image:radial-gradient(ellipse at 50% 90%,rgba(255,184,51,.06),transparent 50%);
+}
+canvas{display:block;touch-action:none;image-rendering:pixelated;border-radius:8px}
+#hud{
+  position:fixed;top:0;left:0;width:100%;
+  display:flex;justify-content:space-between;align-items:center;
+  padding:10px 18px;z-index:10;pointer-events:none;
+}
+#score-label{font-family:'Bungee Shade',cursive;font-size:20px;color:var(--gold);text-shadow:0 0 10px rgba(255,184,51,.3)}
+#timer{font-size:14px;color:rgba(255,255,255,.5)}
+#combo{font-size:14px;color:var(--red);opacity:0;transition:opacity .3s}
+#msg{
+  position:fixed;top:45%;left:50%;transform:translate(-50%,-50%);
+  font-family:'Bungee Shade',cursive;font-size:32px;
+  color:var(--gold);pointer-events:none;z-index:20;opacity:0;
+  transition:opacity .4s;text-shadow:0 0 20px rgba(255,184,51,.4);
+  text-align:center;
+}
+#start-overlay{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(28,16,20,.97);z-index:30;gap:10px;
+}
+#start-overlay h1{font-family:'Bungee Shade',cursive;font-size:28px;color:var(--gold);text-shadow:0 2px 15px rgba(255,184,51,.3)}
+#start-overlay p{font-size:14px;color:rgba(255,255,255,.5);max-width:300px;text-align:center;line-height:1.5}
+#start-btn{
+  margin-top:10px;padding:12px 32px;
+  background:var(--red);color:#fff;border:none;border-radius:8px;
+  font-family:'Bungee Shade',cursive;font-size:18px;cursor:pointer;
+  box-shadow:0 0 20px rgba(255,68,85,.3);transition:transform .15s;
+}
+#start-btn:hover{transform:scale(1.05)}
+.backlink{position:fixed;bottom:8px;right:14px;z-index:10;font-size:11px;opacity:.3}
+.backlink a{color:#aaa;text-decoration:none}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="hud">
+  <span id="score-label">0</span>
+  <span id="combo"></span>
+  <span id="timer">60s</span>
+</div>
+<div id="msg"></div>
+<div id="start-overlay">
+  <h1>🍟 Shape Fryer</h1>
+  <p>Click shapes to grab them, then drag &amp; drop them into the air fryer. They're scared — they'll try to run!</p>
+  <button id="start-btn">FRY 'EM</button>
+</div>
+<canvas id="c"></canvas>
+<div class="backlink"><a href="https://sloppy.live">sloppy.live</a></div>
+
+<script>
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score-label');
+const timerEl=document.getElementById('timer');
+const comboEl=document.getElementById('combo');
+const msgEl=document.getElementById('msg');
+
+let W,H;
+function resize(){
+  W=canvas.width=Math.min(window.innerWidth,600);
+  H=canvas.height=Math.min(window.innerHeight-20,700);
+}
+resize();window.addEventListener('resize',resize);
+
+// ── Audio ──
+let audioCtx=null;
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)()}
+function playTone(freq,dur,type,vol){
+  if(!audioCtx)return;
+  const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  o.connect(g);g.connect(audioCtx.destination);
+  o.type=type||'square';o.frequency.value=freq;
+  g.gain.setValueAtTime(vol||.08,audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+dur);
+  o.start();o.stop(audioCtx.currentTime+dur);
+}
+function sndGrab(){playTone(330,.1,'square',.06);playTone(440,.1,'square',.05)}
+function sndFry(){
+  playTone(220,.3,'sawtooth',.07);
+  setTimeout(()=>playTone(330,.2,'square',.06),100);
+  setTimeout(()=>playTone(440,.15,'triangle',.05),200);
+}
+function sndSizzle(){
+  if(!audioCtx)return;
+  const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*.3,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*.04*Math.exp(-i/d.length*3);
+  const src=audioCtx.createBufferSource();src.buffer=buf;src.connect(audioCtx.destination);src.start();
+}
+
+// ── Constants ──
+const COLORS=['#ff4455','#5599ff','#aa66ee','#ff8833','#44ddbb','#ffcc22','#ff66aa','#66dd55'];
+const SHAPE_TYPES=['circle','square','triangle','diamond','star','hex'];
+const FRYER_W=110,FRYER_H=130;
+const GAME_TIME=60;
+
+// ── State ──
+let shapes=[],particles=[],steamParts=[],friedShapes=[];
+let score=0,combo=0,comboTimer=0,timeLeft=GAME_TIME;
+let playing=false,gameOver=false,frame=0;
+let grabbed=null,grabOff={x:0,y:0};
+let mx=-999,my=-999;
+let fryerX,fryerY;
+
+function updateFryer(){fryerX=W/2;fryerY=H-FRYER_H/2-10;}
+updateFryer();window.addEventListener('resize',updateFryer);
+
+// ── Shape ──
+function spawnShape(){
+  const edge=Math.floor(Math.random()*4);
+  let x,y;
+  if(edge===0){x=Math.random()*W;y=-30}
+  else if(edge===1){x=W+30;y=Math.random()*H*.6}
+  else if(edge===2){x=Math.random()*W;y=-30}
+  else{x=-30;y=Math.random()*H*.6}
+  const idx=shapes.length;
+  shapes.push({
+    x,y,vx:(Math.random()-.5)*1.5,vy:Math.random()*0.5+0.3,
+    size:14+Math.random()*10,
+    color:COLORS[idx%COLORS.length],
+    type:SHAPE_TYPES[idx%SHAPE_TYPES.length],
+    rot:Math.random()*Math.PI*2,rotSpd:(Math.random()-.5)*.04,
+    scared:0,eyeDir:0,
+    shakeX:0,shakeY:0,
+    alive:true,grabbed:false,
+    speed:1+Math.random()*1.5,
+    phase:Math.random()*Math.PI*2,
+    screamTimer:0,
+  });
+}
+
+// ── Draw pixel-art air fryer ──
+function drawFryer(){
+  const x=fryerX,y=fryerY;
+  const hw=FRYER_W/2,hh=FRYER_H/2;
+
+  // body
+  ctx.fillStyle='#3a3035';
+  roundRect(ctx,x-hw,y-hh,FRYER_W,FRYER_H,10);ctx.fill();
+  ctx.strokeStyle='#4a4045';ctx.lineWidth=2;
+  roundRect(ctx,x-hw,y-hh,FRYER_W,FRYER_H,10);ctx.stroke();
+
+  // basket opening (top)
+  ctx.fillStyle='#1a1518';
+  roundRect(ctx,x-hw+8,y-hh+8,FRYER_W-16,FRYER_H*0.55,6);ctx.fill();
+
+  // grill lines
+  ctx.strokeStyle='#2a2528';ctx.lineWidth=2;
+  for(let i=0;i<6;i++){
+    const ly=y-hh+14+i*8;
+    ctx.beginPath();ctx.moveTo(x-hw+12,ly);ctx.lineTo(x+hw-12,ly);ctx.stroke();
+  }
+
+  // heat glow
+  const glowA=0.15+Math.sin(frame*.05)*.05;
+  const grd=ctx.createRadialGradient(x,y-10,5,x,y-10,hw);
+  grd.addColorStop(0,`rgba(255,120,40,${glowA})`);
+  grd.addColorStop(1,'transparent');
+  ctx.fillStyle=grd;
+  ctx.fillRect(x-hw,y-hh,FRYER_W,FRYER_H*0.6);
+
+  // control panel
+  ctx.fillStyle='#2a2528';
+  roundRect(ctx,x-hw+8,y+hh*0.2,FRYER_W-16,FRYER_H*0.28,4);ctx.fill();
+
+  // dial
+  ctx.fillStyle='#ffb833';
+  ctx.beginPath();ctx.arc(x-12,y+hh*0.35,6,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#ff4455';
+  ctx.beginPath();ctx.arc(x+12,y+hh*0.35,4,0,Math.PI*2);ctx.fill();
+
+  // label
+  ctx.fillStyle='rgba(255,184,51,.4)';
+  ctx.font='bold 8px "Azeret Mono"';ctx.textAlign='center';
+  ctx.fillText('FRY ZONE',x,y+hh-8);
+  ctx.textAlign='left';
+
+  // fried shapes inside
+  friedShapes.forEach((fs,i)=>{
+    if(fs.timer>0){
+      const fa=Math.min(1,fs.timer/20);
+      ctx.globalAlpha=fa;
+      const fx=x-hw+15+((i*17)%(FRYER_W-30));
+      const fy=y-hh+15+Math.floor((i*17)/(FRYER_W-30))*14;
+      ctx.fillStyle=fs.crispColor;
+      ctx.beginPath();ctx.arc(fx,fy,5,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=1;
+      fs.timer--;
+    }
+  });
+}
+
+// ── Draw shape ──
+function drawShape(s){
+  ctx.save();
+  ctx.translate(s.x+s.shakeX,s.y+s.shakeY);
+  ctx.rotate(s.rot);
+  const sz=s.size;
+
+  // shadow
+  ctx.fillStyle='rgba(0,0,0,0.2)';
+  ctx.beginPath();ctx.ellipse(2,3,sz*.7,sz*.25,0,0,Math.PI*2);ctx.fill();
+
+  // pixelated body (draw at integer coords)
+  ctx.fillStyle=s.color;
+  ctx.strokeStyle='rgba(0,0,0,0.2)';ctx.lineWidth=1.5;
+  switch(s.type){
+    case'circle':ctx.beginPath();ctx.arc(0,0,sz,0,Math.PI*2);ctx.fill();ctx.stroke();break;
+    case'square':ctx.fillRect(-sz,-sz,sz*2,sz*2);ctx.strokeRect(-sz,-sz,sz*2,sz*2);break;
+    case'triangle':
+      ctx.beginPath();ctx.moveTo(0,-sz);ctx.lineTo(sz,sz*.8);ctx.lineTo(-sz,sz*.8);ctx.closePath();ctx.fill();ctx.stroke();break;
+    case'diamond':
+      ctx.beginPath();ctx.moveTo(0,-sz*1.2);ctx.lineTo(sz*.8,0);ctx.lineTo(0,sz*1.2);ctx.lineTo(-sz*.8,0);ctx.closePath();ctx.fill();ctx.stroke();break;
+    case'star':
+      ctx.beginPath();
+      for(let i=0;i<10;i++){const a=i/10*Math.PI*2-Math.PI/2;const r=i%2?sz*.4:sz;i?ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r):ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r)}
+      ctx.closePath();ctx.fill();ctx.stroke();break;
+    case'hex':
+      ctx.beginPath();
+      for(let i=0;i<6;i++){const a=i/6*Math.PI*2;i?ctx.lineTo(Math.cos(a)*sz,Math.sin(a)*sz):ctx.moveTo(Math.cos(a)*sz,Math.sin(a)*sz)}
+      ctx.closePath();ctx.fill();ctx.stroke();break;
+  }
+
+  // face (unrotate)
+  ctx.rotate(-s.rot);
+  const es=Math.min(1,sz/18);
+  const esp=sz*.3;
+  const ey=-sz*.1;
+
+  // eyes — wide with fear
+  ctx.fillStyle='#fff';
+  ctx.beginPath();ctx.ellipse(-esp,ey,4*es,5*es,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(esp,ey,4*es,5*es,0,0,Math.PI*2);ctx.fill();
+
+  const lx=Math.cos(s.eyeDir)*1.5*es;
+  const ly=Math.sin(s.eyeDir)*1.5*es;
+  const ps=(2+s.scared*2)*es;
+  ctx.fillStyle='#1c1014';
+  ctx.beginPath();ctx.arc(-esp+lx,ey+ly,ps,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(esp+lx,ey+ly,ps,0,Math.PI*2);ctx.fill();
+
+  // mouth — screaming
+  if(s.scared>.4||s.grabbed){
+    const mo=(s.scared+.2)*4*es;
+    ctx.fillStyle='rgba(0,0,0,0.3)';
+    ctx.beginPath();ctx.ellipse(0,ey+9*es,3*es,mo,0,0,Math.PI*2);ctx.fill();
+  } else {
+    // worried line
+    ctx.strokeStyle='rgba(0,0,0,0.2)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(-3*es,ey+7*es);ctx.lineTo(3*es,ey+7*es);ctx.stroke();
+  }
+
+  // sweat when grabbed
+  if(s.grabbed){
+    const sy=-sz*.6+Math.sin(frame*.15)*2;
+    ctx.fillStyle='rgba(80,160,255,0.6)';
+    ctx.beginPath();
+    ctx.moveTo(esp+5*es,sy);
+    ctx.quadraticCurveTo(esp+8*es,sy+6*es,esp+5*es,sy+9*es);
+    ctx.quadraticCurveTo(esp+2*es,sy+6*es,esp+5*es,sy);
+    ctx.fill();
+  }
+
+  // scream text
+  if(s.screamTimer>0){
+    s.screamTimer--;
+    const screams=['AAAH!','NOOO!','HELP!','EEK!','WHY?!','OH NO!','YIKES!'];
+    ctx.globalAlpha=Math.min(1,s.screamTimer/15);
+    ctx.fillStyle='#fff';
+    ctx.font=`bold ${10*es}px "Azeret Mono"`;
+    ctx.textAlign='center';
+    ctx.fillText(screams[Math.floor(s.phase*10)%screams.length],0,-sz-8*es);
+    ctx.textAlign='left';
+    ctx.globalAlpha=1;
+  }
+
+  ctx.restore();
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+}
+
+// ── Particles ──
+function spawnFryParticles(x,y,color){
+  for(let i=0;i<15;i++){
+    const a=Math.random()*Math.PI*2;
+    particles.push({
+      x,y,vx:Math.cos(a)*(1+Math.random()*3),vy:-2-Math.random()*4,
+      life:25+Math.random()*20,max:45,
+      color:Math.random()>.5?'#ffb833':color,size:3+Math.random()*4,
+    });
+  }
+  // crispy bits
+  for(let i=0;i<6;i++){
+    particles.push({
+      x:x+(Math.random()-.5)*30,y,
+      vx:(Math.random()-.5)*2,vy:-1-Math.random()*2,
+      life:35,max:35,color:'#e8a020',size:2,
+    });
+  }
+}
+
+function spawnSteam(x,y){
+  for(let i=0;i<3;i++){
+    steamParts.push({
+      x:x+(Math.random()-.5)*40,y:y-FRYER_H/2,
+      vy:-.5-Math.random()*.5,vx:(Math.random()-.5)*.3,
+      life:40+Math.random()*30,max:70,size:8+Math.random()*12,
+    });
+  }
+}
+
+// ── Physics ──
+function updateShape(s,dt){
+  if(!s.alive||s.grabbed) return;
+
+  // fear of cursor
+  const dx=s.x-mx,dy=s.y-my;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  let fear=0;
+  if(dist<130) fear=1-dist/130;
+  s.scared+=(fear-s.scared)*.1;
+  s.eyeDir=Math.atan2(my-s.y,mx-s.x);
+
+  // flee from cursor
+  if(dist<130&&dist>1){
+    const f=(1-dist/130)*s.speed*.6;
+    s.vx+=dx/dist*f;
+    s.vy+=dy/dist*f;
+  }
+
+  // fear of fryer — shapes also avoid the fryer!
+  const fdx=s.x-fryerX,fdy=s.y-fryerY;
+  const fdist=Math.sqrt(fdx*fdx+fdy*fdy);
+  if(fdist<FRYER_W&&fdist>1){
+    const ff=(1-fdist/FRYER_W)*s.speed*.8;
+    s.vx+=fdx/fdist*ff;
+    s.vy+=fdy/fdist*ff;
+    s.scared=Math.min(1,s.scared+.02);
+  }
+
+  // random wander
+  s.vx+=Math.sin(frame*.02+s.phase)*s.speed*.03;
+  s.vy+=Math.cos(frame*.015+s.phase*2)*s.speed*.02;
+
+  // gravity (gentle)
+  s.vy+=0.02;
+
+  // walls
+  const pad=s.size+4;
+  if(s.x<pad){s.vx+=(pad-s.x)*.15;s.x=pad}
+  if(s.x>W-pad){s.vx-=(s.x-(W-pad))*.15;s.x=W-pad}
+  if(s.y<pad){s.vy+=(pad-s.y)*.15;s.y=pad}
+  if(s.y>H-FRYER_H-30-pad){s.vy-=(s.y-(H-FRYER_H-30-pad))*.1}
+
+  s.vx*=.9;s.vy*=.9;
+  s.x+=s.vx;s.y+=s.vy;
+  s.rot+=s.rotSpd+s.vx*.015;
+
+  // shake when scared
+  if(s.scared>.6){
+    s.shakeX=(Math.random()-.5)*s.scared*3;
+    s.shakeY=(Math.random()-.5)*s.scared*3;
+  } else {s.shakeX*=.8;s.shakeY*=.8}
+}
+
+function isInFryer(x,y){
+  return Math.abs(x-fryerX)<FRYER_W/2-5 && Math.abs(y-fryerY)<FRYER_H/2-5;
+}
+
+function fryShape(s){
+  s.alive=false;
+  score+=10*(1+combo);
+  combo++;comboTimer=120;
+  spawnFryParticles(s.x,s.y,s.color);
+  spawnSteam(fryerX,fryerY);
+  sndFry();
+  setTimeout(sndSizzle,150);
+  friedShapes.push({crispColor:darken(s.color),timer:300});
+  scoreEl.textContent=score;
+  if(combo>1){
+    comboEl.textContent=combo+'x COMBO!';comboEl.style.opacity='1';
+  }
+  if(combo===3)showMsg('🔥 CRISPY!',1000);
+  if(combo===5)showMsg('🍟 GOLDEN!',1200);
+  if(combo===8)showMsg('💀 DEEP FRIED!',1500);
+}
+
+function darken(hex){
+  const r=parseInt(hex.slice(1,3),16)*.6|0;
+  const g=parseInt(hex.slice(3,5),16)*.5|0;
+  const b=parseInt(hex.slice(5,7),16)*.3|0;
+  return`rgb(${r},${g},${b})`;
+}
+
+// ── Input ──
+function getPos(e){
+  const r=canvas.getBoundingClientRect();
+  return{x:(e.clientX-r.left)*(W/r.width),y:(e.clientY-r.top)*(H/r.height)};
+}
+function getTouchPos(e){
+  const t=e.touches[0]||e.changedTouches[0];
+  return getPos(t);
+}
+
+function tryGrab(px,py){
+  initAudio();
+  mx=px;my=py;
+  // find closest ungrabbed shape
+  let best=null,bestD=40;
+  shapes.forEach(s=>{
+    if(!s.alive||s.grabbed) return;
+    const d=Math.sqrt((s.x-px)**2+(s.y-py)**2);
+    if(d<s.size+10&&d<bestD){bestD=d;best=s}
+  });
+  if(best){
+    best.grabbed=true;
+    best.screamTimer=25;
+    grabbed=best;
+    grabOff.x=best.x-px;
+    grabOff.y=best.y-py;
+    sndGrab();
+  }
+}
+
+function moveTo(px,py){
+  mx=px;my=py;
+  if(grabbed){
+    grabbed.x=px+grabOff.x;
+    grabbed.y=py+grabOff.y;
+    grabbed.vx=0;grabbed.vy=0;
+  }
+}
+
+function release(){
+  if(grabbed){
+    if(isInFryer(grabbed.x,grabbed.y)){
+      fryShape(grabbed);
+    } else {
+      grabbed.grabbed=false;
+      // fling away from fryer in terror
+      const dx=grabbed.x-fryerX,dy=grabbed.y-fryerY;
+      const d=Math.sqrt(dx*dx+dy*dy)||1;
+      grabbed.vx+=dx/d*4;grabbed.vy+=dy/d*3;
+      grabbed.screamTimer=20;
+    }
+    grabbed=null;
+  }
+}
+
+canvas.addEventListener('mousedown',e=>{const p=getPos(e);tryGrab(p.x,p.y)});
+canvas.addEventListener('mousemove',e=>{const p=getPos(e);moveTo(p.x,p.y)});
+canvas.addEventListener('mouseup',release);
+canvas.addEventListener('mouseleave',()=>{mx=-999;my=-999;release()});
+canvas.addEventListener('touchstart',e=>{e.preventDefault();const p=getTouchPos(e);tryGrab(p.x,p.y)},{passive:false});
+canvas.addEventListener('touchmove',e=>{e.preventDefault();const p=getTouchPos(e);moveTo(p.x,p.y)},{passive:false});
+canvas.addEventListener('touchend',e=>{e.preventDefault();release()},{passive:false});
+
+// ── Messages ──
+let msgTO;
+function showMsg(t,d){msgEl.textContent=t;msgEl.style.opacity='1';clearTimeout(msgTO);msgTO=setTimeout(()=>{msgEl.style.opacity='0'},d||1200)}
+
+// ── Start ──
+const startOverlay=document.getElementById('start-overlay');
+document.getElementById('start-btn').onclick=()=>{
+  initAudio();startOverlay.classList.add('hidden');
+  playing=true;gameOver=false;score=0;combo=0;timeLeft=GAME_TIME;
+  shapes=[];friedShapes=[];particles=[];steamParts=[];
+  scoreEl.textContent='0';
+  for(let i=0;i<6;i++) spawnShape();
+};
+
+// ── Render ──
+function drawBG(){
+  // dark kitchen bg
+  ctx.fillStyle='#1c1014';
+  ctx.fillRect(0,0,W,H);
+
+  // tile pattern
+  ctx.fillStyle='rgba(255,255,255,.012)';
+  const ts=40;
+  for(let x=0;x<W;x+=ts)for(let y=0;y<H;y+=ts){
+    if((Math.floor(x/ts)+Math.floor(y/ts))%2===0) ctx.fillRect(x,y,ts,ts);
+  }
+
+  // counter surface under fryer
+  ctx.fillStyle='#1a1418';
+  ctx.fillRect(0,H-FRYER_H-25,W,FRYER_H+35);
+  ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,H-FRYER_H-25);ctx.lineTo(W,H-FRYER_H-25);ctx.stroke();
+}
+
+function drawCursor(){
+  if(mx<0)return;
+  ctx.fillStyle=grabbed?'rgba(255,68,85,.3)':'rgba(255,184,51,.15)';
+  ctx.beginPath();ctx.arc(mx,my,grabbed?8:5,0,Math.PI*2);ctx.fill();
+}
+
+function drawSteam(){
+  steamParts=steamParts.filter(p=>{
+    p.x+=p.vx;p.y+=p.vy;p.life--;
+    const a=p.life/p.max*.15;
+    ctx.fillStyle=`rgba(200,200,200,${a})`;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size*(1-p.life/p.max*.3),0,Math.PI*2);ctx.fill();
+    return p.life>0;
+  });
+}
+
+function drawParticles(){
+  particles=particles.filter(p=>{
+    p.x+=p.vx;p.y+=p.vy;p.vy+=.08;p.life--;
+    ctx.globalAlpha=p.life/p.max;
+    ctx.fillStyle=p.color;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size*(p.life/p.max),0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;
+    return p.life>0;
+  });
+}
+
+function loop(){
+  frame++;
+
+  if(playing&&!gameOver){
+    // timer
+    timeLeft-=1/60;
+    if(timeLeft<=0){timeLeft=0;gameOver=true;showMsg('⏰ TIME! Score: '+score,5000)}
+    timerEl.textContent=Math.ceil(timeLeft)+'s';
+
+    // combo decay
+    if(comboTimer>0){comboTimer--;if(comboTimer===0){combo=0;comboEl.style.opacity='0'}}
+
+    // spawn
+    const alive=shapes.filter(s=>s.alive).length;
+    if(alive<4+Math.floor(score/50)&&frame%40===0) spawnShape();
+
+    // continuous steam from fryer
+    if(frame%12===0) spawnSteam(fryerX,fryerY);
+
+    shapes.forEach(s=>updateShape(s,1/60));
+  }
+
+  drawBG();
+  drawSteam();
+  drawFryer();
+  shapes.forEach(s=>{if(s.alive&&!s.grabbed) drawShape(s)});
+  // draw grabbed on top
+  if(grabbed&&grabbed.alive) drawShape(grabbed);
+  drawParticles();
+  drawCursor();
+
+  // game over overlay
+  if(gameOver){
+    ctx.fillStyle='rgba(28,16,20,.6)';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#ffb833';ctx.font='28px "Bungee Shade"';ctx.textAlign='center';
+    ctx.fillText('FRIED: '+score,W/2,H/2-20);
+    ctx.fillStyle='rgba(255,255,255,.4)';ctx.font='14px "Azeret Mono"';
+    ctx.fillText('tap to fry again',W/2,H/2+20);
+    ctx.textAlign='left';
+    canvas.onclick=()=>{
+      if(!gameOver)return;
+      gameOver=false;score=0;combo=0;timeLeft=GAME_TIME;
+      shapes=[];friedShapes=[];particles=[];steamParts=[];
+      scoreEl.textContent='0';
+      for(let i=0;i<6;i++) spawnShape();
+      canvas.onclick=null;
+    };
+  }
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
