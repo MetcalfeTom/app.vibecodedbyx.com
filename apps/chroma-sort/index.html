@@ -442,6 +442,12 @@
             <option value="god">GOD MODE — 400 colors [MAXIMUM CARNAGE]</option>
           </select>
         </div>
+        <div style="margin-bottom:8px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <label style="font-family:'DM Mono',monospace;font-size:12px;color:var(--dim);cursor:pointer;display:flex;align-items:center;gap:4px">
+            <input type="checkbox" id="zenToggle" style="accent-color:var(--good)"> Zen Mode
+          </label>
+          <button id="dailyBtn" style="font-family:'DM Mono',monospace;font-size:12px;background:none;border:1px solid var(--border);color:var(--warn);padding:4px 12px;border-radius:4px;cursor:pointer;letter-spacing:0.08em">☀ Daily Challenge</button>
+        </div>
       </div>
       <div class="stats" id="overlayStats" style="display:none"></div>
       <div id="arcadeEntry" style="display:none">
@@ -906,7 +912,44 @@
     nextIdx: 0,       // which sorted color to click next
     timerRAF: null,
     mistakes: 0,
+    zen: false,       // zen mode — no timer, no penalties
+    daily: false,     // daily challenge mode
   };
+
+  // Seeded PRNG for daily challenge (mulberry32)
+  function seededRng(seed) {
+    let t = seed | 0;
+    return function() {
+      t = (t + 0x6D2B79F5) | 0;
+      let x = Math.imul(t ^ (t >>> 15), 1 | t);
+      x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function getDailySeed() {
+    const d = new Date();
+    return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  }
+
+  function seededSample(arr, n, rng) {
+    const pool = [...arr];
+    const out = [];
+    for (let i = 0; i < n && pool.length; i++) {
+      const idx = Math.floor(rng() * pool.length);
+      out.push(pool.splice(idx, 1)[0]);
+    }
+    return out;
+  }
+
+  function seededShuffle(arr, rng) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
 
   const boardEl = document.getElementById('board');
   const orderBarEl = document.getElementById('orderBar');
@@ -923,6 +966,8 @@
   const overlaySettingsEl = document.getElementById('overlaySettings');
   const difficultySelectEl = document.getElementById('difficultySelect');
   const flashEl = document.getElementById('flash');
+  const zenToggleEl = document.getElementById('zenToggle');
+  const dailyBtnEl = document.getElementById('dailyBtn');
 
   // Audio
   let audioCtx = null;
@@ -1569,7 +1614,7 @@
       if (state.phase !== 'playing') return;
       const elapsed = (performance.now() - state.roundStart) / 1000;
       timerNumEl.textContent = elapsed.toFixed(1);
-      timerNumEl.classList.toggle('danger', elapsed > 15);
+      timerNumEl.classList.toggle('danger', !state.zen && elapsed > 15);
       state.timerRAF = requestAnimationFrame(tick);
     }
     tick();
@@ -1627,14 +1672,21 @@
       }
     } else {
       // Wrong!
-      state.streak = 0;
       state.mistakes++;
-      const diff = DIFFICULTIES[state.difficulty];
-      state.score = Math.max(0, state.score - diff.penalty * 5);
-      tileEl.classList.add('wrong');
-      setTimeout(() => tileEl.classList.remove('wrong'), 300);
-      flash('bad');
-      beep(150, 0.15, 'sawtooth', 0.1);
+      if (state.zen) {
+        // Zen: no score penalty, just gentle nudge, keep streak
+        tileEl.classList.add('wrong');
+        setTimeout(() => tileEl.classList.remove('wrong'), 300);
+        beep(300, 0.08, 'sine', 0.04);
+      } else {
+        state.streak = 0;
+        const diff = DIFFICULTIES[state.difficulty];
+        state.score = Math.max(0, state.score - diff.penalty * 5);
+        tileEl.classList.add('wrong');
+        setTimeout(() => tileEl.classList.remove('wrong'), 300);
+        flash('bad');
+        beep(150, 0.15, 'sawtooth', 0.1);
+      }
       updateHud();
     }
   }
@@ -1644,8 +1696,13 @@
     state.phase = 'playing';
     const diff = DIFFICULTIES[state.difficulty];
 
-    // Pick random colors, shuffle for board, sort alphabetically for target
-    state.colors = shuffle(sample(COLOR_POOL, diff.count));
+    if (state.daily) {
+      // Daily challenge: seeded RNG ensures same colors for everyone today
+      const rng = seededRng(getDailySeed() + state.round);
+      state.colors = seededShuffle(seededSample(COLOR_POOL, diff.count, rng), rng);
+    } else {
+      state.colors = shuffle(sample(COLOR_POOL, diff.count));
+    }
     state.sortedOrder = [...state.colors].sort((a, b) => a.name.localeCompare(b.name));
     state.nextIdx = 0;
 
@@ -1655,8 +1712,15 @@
     startTimer();
   }
 
-  function startGame() {
-    state.difficulty = difficultySelectEl.value;
+  function startGame(isDaily) {
+    state.daily = !!isDaily;
+    state.zen = !isDaily && zenToggleEl.checked;
+    if (isDaily) {
+      state.difficulty = 'hard';
+      zenToggleEl.checked = false;
+    } else {
+      state.difficulty = difficultySelectEl.value;
+    }
     state.round = 0;
     state.score = 0;
     state.streak = 0;
@@ -1665,6 +1729,13 @@
     state.mistakes = 0;
     state.totalRounds = DIFFICULTIES[state.difficulty].rounds;
     overlayEl.classList.add('hidden');
+
+    // Update HUD labels for mode
+    const hudEl = document.querySelector('.hud');
+    if (state.zen) hudEl.style.color = 'var(--good)';
+    else if (state.daily) hudEl.style.color = 'var(--warn)';
+    else hudEl.style.color = '';
+
     newRound();
   }
 
@@ -1762,10 +1833,11 @@
   arcadeSubmitEl.addEventListener('click', () => {
     const name = getArcadeName();
     localStorage.setItem('chromasort_name', name);
-    const idx = addToLB(state.difficulty, name, state.score, state.totalTime);
+    const lbKey = state.daily ? 'daily_' + getDailySeed() : state.difficulty;
+    const idx = addToLB(lbKey, name, state.score, state.totalTime);
     lastSubmittedIdx = idx;
     arcadeEntryEl.style.display = 'none';
-    renderLB(state.difficulty, idx);
+    renderLB(lbKey, idx);
     beep(880, 0.08, 'square', 0.06);
     setTimeout(() => beep(1100, 0.1, 'square', 0.06), 80);
   });
@@ -1773,8 +1845,13 @@
   function endGame() {
     state.phase = 'done';
     overlayEl.classList.remove('hidden');
-    overlayTitleEl.textContent = 'Sorted!';
-    overlayMsgEl.textContent = `${state.totalRounds} round${state.totalRounds === 1 ? '' : 's'} complete.`;
+    const modeLabel = state.zen ? 'Zen Complete' : state.daily ? '☀ Daily Complete' : 'Sorted!';
+    overlayTitleEl.textContent = modeLabel;
+    overlayMsgEl.textContent = state.zen
+      ? `${state.totalRounds} round${state.totalRounds === 1 ? '' : 's'}. No rush. Pure flow.`
+      : state.daily
+      ? `Today's challenge complete! Same colors for everyone.`
+      : `${state.totalRounds} round${state.totalRounds === 1 ? '' : 's'} complete.`;
     overlayStatsEl.style.display = 'flex';
     overlayStatsEl.innerHTML = `
       <div>${state.score}<span>score</span></div>
@@ -1786,8 +1863,11 @@
     overlayBtnEl.textContent = 'Play Again';
     lastSubmittedIdx = -1;
 
-    // Show arcade entry if qualifies
-    if (qualifiesForLB(state.difficulty, state.score) && state.score > 0) {
+    // Daily uses its own leaderboard key
+    const lbKey = state.daily ? 'daily_' + getDailySeed() : state.difficulty;
+
+    // Show arcade entry if qualifies (not in zen)
+    if (!state.zen && qualifiesForLB(lbKey, state.score) && state.score > 0) {
       arcadeEntryEl.style.display = '';
       updateArcadeDisplay();
     } else {
@@ -1795,13 +1875,19 @@
     }
 
     // Always show leaderboard if there are entries
-    renderLB(state.difficulty, -1);
+    renderLB(lbKey, -1);
   }
 
   overlayBtnEl.addEventListener('click', () => {
     arcadeEntryEl.style.display = 'none';
     leaderboardEl.style.display = 'none';
-    startGame();
+    startGame(false);
+  });
+
+  dailyBtnEl.addEventListener('click', () => {
+    arcadeEntryEl.style.display = 'none';
+    leaderboardEl.style.display = 'none';
+    startGame(true);
   });
 
   // Keyboard: press first letter of color name as shortcut
@@ -1811,7 +1897,7 @@
         if (arcadeEntryEl.style.display !== 'none') {
           arcadeSubmitEl.click();
         } else {
-          startGame();
+          startGame(false);
         }
       }
       return;
