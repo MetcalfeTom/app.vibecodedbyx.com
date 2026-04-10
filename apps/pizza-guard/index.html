@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Pizza Guard</title>
+<link rel="icon" href="https://emojicdn.elk.sh/%F0%9F%8D%95" />
+<meta name="description" content="Defend your pizza from raining pineapple. Aim the laser. Save the slice." />
+<meta property="og:title" content="Pizza Guard" />
+<meta property="og:description" content="Defend your pizza from raining pineapple. Aim the laser. Save the slice." />
+<meta property="og:url" content="https://sloppy.live/pizza-guard" />
+<meta property="og:image" content="https://sloppy.live/screenshots/pizza-guard.jpg" />
+<meta property="og:type" content="website" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bungee+Shade&family=Lexend+Mega:wght@400;800&display=swap" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #1a0a22; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+  #overlay {
+    position: fixed; inset: 0; background: rgba(26,10,34,0.92);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 20; font-family: 'Lexend Mega', sans-serif;
+  }
+  #overlay.hidden { display: none; }
+  .card {
+    text-align: center; color: #ffe0a0; max-width: 380px; padding: 30px 24px;
+    background: #220e30; border: 2px solid #442244;
+    box-shadow: 0 0 60px rgba(255,180,60,0.15);
+  }
+  .card h2 {
+    font-family: 'Bungee Shade', sans-serif; font-size: clamp(28px, 6vw, 42px);
+    color: #ff6b3a; margin-bottom: 8px;
+  }
+  .card p { font-size: 13px; color: #aa8899; line-height: 1.5; margin-bottom: 16px; }
+  .card .stats { display: flex; gap: 18px; justify-content: center; margin-bottom: 16px; }
+  .card .stats div { font-size: 22px; font-weight: 800; color: #ffcc44; }
+  .card .stats div span { display: block; font-size: 10px; color: #886688; letter-spacing: 0.2em; }
+  .card button {
+    font-family: 'Lexend Mega', sans-serif; font-weight: 800;
+    font-size: 16px; padding: 12px 28px; border: 2px solid #ff6b3a;
+    background: transparent; color: #ff6b3a; cursor: pointer;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    transition: background 0.15s, color 0.15s;
+  }
+  .card button:hover { background: #ff6b3a; color: #1a0a22; }
+  .back-link {
+    position: fixed; bottom: 10px; right: 16px; z-index: 10;
+    font-family: 'Lexend Mega', sans-serif; font-size: 10px;
+    color: #553355; text-decoration: none; letter-spacing: 0.15em;
+  }
+  .back-link:hover { color: #ff6b3a; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay">
+  <div class="card">
+    <h2 id="oTitle">Pizza Guard</h2>
+    <p id="oMsg">Pineapple is falling from the sky.<br/>Aim the laser to vaporize it before it hits your pizza.<br/>Mouse / touch to aim. Auto-fires.</p>
+    <div class="stats" id="oStats" style="display:none"></div>
+    <button id="oBtn">Defend the Slice</button>
+  </div>
+</div>
+<a class="back-link" href="https://sloppy.live">← sloppy.live</a>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W, H;
+  function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+  addEventListener('resize', resize); resize();
+
+  // audio
+  let actx;
+  function audio() { if (!actx) try { actx = new (AudioContext || webkitAudioContext)(); } catch {} return actx; }
+  function beep(f, d, t = 'square', g = 0.06) {
+    const c = audio(); if (!c) return;
+    const o = c.createOscillator(), gn = c.createGain();
+    o.type = t; o.frequency.value = f;
+    gn.gain.setValueAtTime(g, c.currentTime);
+    gn.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + d);
+    o.connect(gn).connect(c.destination); o.start(); o.stop(c.currentTime + d);
+  }
+
+  // mouse
+  let mx = 0, my = 0;
+  canvas.addEventListener('pointermove', e => { mx = e.clientX; my = e.clientY; });
+  canvas.addEventListener('pointerdown', e => { mx = e.clientX; my = e.clientY; });
+
+  // state
+  let phase = 'idle', pizza, pineapples, particles, laserCd, score, integrity, waveTimer, waveNum, gameTime;
+
+  const PIZZA_R = 55;
+  const LASER_CD = 120; // ms between auto-fires
+  const PINEAPPLE_R = 12;
+
+  function init() {
+    pizza = { x: W / 2, y: H - 90, r: PIZZA_R };
+    pineapples = [];
+    particles = [];
+    laserCd = 0;
+    score = 0;
+    integrity = 100;
+    waveTimer = 0;
+    waveNum = 1;
+    gameTime = 0;
+    phase = 'playing';
+  }
+
+  function spawnPineapple() {
+    const speed = 1.2 + waveNum * 0.15 + Math.random() * 0.8;
+    // aim roughly at pizza with spread
+    const sx = Math.random() * W;
+    const dx = pizza.x + (Math.random() - 0.5) * 120 - sx;
+    const dy = H - sx; // rough
+    const a = Math.atan2(pizza.y - (-20), sx > pizza.x ? pizza.x + 40 - sx : pizza.x - 40 - sx);
+    pineapples.push({
+      x: sx, y: -20,
+      vx: (Math.random() - 0.5) * 1.2,
+      vy: speed,
+      r: PINEAPPLE_R + Math.random() * 4,
+      rot: Math.random() * Math.PI * 2,
+      rotV: (Math.random() - 0.5) * 0.08,
+    });
+  }
+
+  function addParticle(x, y, color, count, speed) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = 0.5 + Math.random() * speed;
+      particles.push({
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        life: 18 + Math.random() * 18, maxLife: 36, color, r: 1.5 + Math.random() * 2.5,
+      });
+    }
+  }
+
+  // laser state
+  let laserTarget = null, laserAlpha = 0;
+
+  function fireLaser(dt) {
+    laserCd -= dt;
+    if (laserCd > 0) return;
+    // find nearest pineapple to crosshair
+    let best = null, bestD = Infinity;
+    for (const p of pineapples) {
+      const d = Math.hypot(p.x - mx, p.y - my);
+      if (d < 80 + p.r && d < bestD) { bestD = d; best = p; }
+    }
+    if (!best) { laserTarget = null; laserAlpha *= 0.8; return; }
+    laserCd = LASER_CD;
+    // destroy it
+    laserTarget = { x: best.x, y: best.y };
+    laserAlpha = 1;
+    addParticle(best.x, best.y, '#ffcc00', 8, 3);
+    addParticle(best.x, best.y, '#ff6b3a', 4, 2);
+    score += 10 + waveNum;
+    beep(1800, 0.04, 'sawtooth', 0.05);
+    beep(600, 0.06, 'square', 0.03);
+    pineapples.splice(pineapples.indexOf(best), 1);
+  }
+
+  function update(dt) {
+    if (phase !== 'playing') return;
+    gameTime += dt;
+
+    // spawn
+    waveTimer -= dt;
+    if (waveTimer <= 0) {
+      const count = 3 + waveNum * 2;
+      for (let i = 0; i < count; i++) {
+        setTimeout(() => { if (phase === 'playing') spawnPineapple(); }, i * (400 / Math.sqrt(waveNum)));
+      }
+      waveTimer = Math.max(3000, 8000 - waveNum * 300);
+      waveNum++;
+    }
+
+    fireLaser(dt);
+    laserAlpha *= 0.88;
+
+    // pineapples fall
+    for (let i = pineapples.length - 1; i >= 0; i--) {
+      const p = pineapples[i];
+      p.x += p.vx; p.y += p.vy; p.rot += p.rotV;
+      // hit pizza?
+      if (Math.hypot(p.x - pizza.x, p.y - pizza.y) < pizza.r + p.r) {
+        integrity -= 8 + Math.floor(waveNum * 0.5);
+        addParticle(p.x, p.y, '#ffee55', 6, 2);
+        beep(150, 0.12, 'sawtooth', 0.08);
+        pineapples.splice(i, 1);
+        if (integrity <= 0) { integrity = 0; gameOver(); return; }
+        continue;
+      }
+      // off screen bottom
+      if (p.y > H + 40) pineapples.splice(i, 1);
+    }
+
+    // particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx; p.y += p.vy; p.life--;
+      p.vx *= 0.95; p.vy *= 0.95;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function gameOver() {
+    phase = 'dead';
+    beep(80, 0.5, 'sawtooth', 0.12);
+    const el = document.getElementById('overlay');
+    document.getElementById('oTitle').textContent = 'Pineappled!';
+    document.getElementById('oMsg').textContent = 'The pizza has been contaminated.';
+    document.getElementById('oStats').style.display = 'flex';
+    document.getElementById('oStats').innerHTML = `
+      <div>${score}<span>score</span></div>
+      <div>${waveNum - 1}<span>waves</span></div>
+      <div>${Math.floor(gameTime / 1000)}s<span>survived</span></div>
+    `;
+    document.getElementById('oBtn').textContent = 'Try Again';
+    el.classList.remove('hidden');
+  }
+
+  // draw
+  function drawPizza() {
+    const { x, y, r } = pizza;
+    // crust
+    ctx.fillStyle = '#d4a040';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    // sauce
+    ctx.fillStyle = '#cc3322';
+    ctx.beginPath(); ctx.arc(x, y, r - 8, 0, Math.PI * 2); ctx.fill();
+    // cheese
+    ctx.fillStyle = '#ffdd55';
+    ctx.beginPath(); ctx.arc(x, y, r - 12, 0, Math.PI * 2); ctx.fill();
+    // pepperoni
+    const pepPos = [[12, -15], [-18, 8], [6, 20], [-10, -22], [22, 5], [-5, 12]];
+    ctx.fillStyle = '#aa2211';
+    for (const [px, py] of pepPos) {
+      ctx.beginPath(); ctx.arc(x + px, y + py, 6, 0, Math.PI * 2); ctx.fill();
+    }
+    // integrity bar
+    const bw = r * 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(x - bw / 2, y + r + 10, bw, 6);
+    const hpColor = integrity > 50 ? '#4ade80' : integrity > 25 ? '#fbbf24' : '#ff4444';
+    ctx.fillStyle = hpColor;
+    ctx.fillRect(x - bw / 2, y + r + 10, bw * (integrity / 100), 6);
+  }
+
+  function drawPineapple(p) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    // chunk body
+    ctx.fillStyle = '#ffcc33';
+    ctx.beginPath();
+    ctx.moveTo(0, -p.r);
+    ctx.lineTo(p.r * 0.8, p.r * 0.4);
+    ctx.lineTo(-p.r * 0.8, p.r * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    // ring pattern
+    ctx.strokeStyle = '#cc9900';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, p.r * 0.45, p.r * 0.3, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // leaf
+    ctx.fillStyle = '#44aa22';
+    ctx.beginPath();
+    ctx.ellipse(0, -p.r - 3, 3, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function draw() {
+    // sky gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#0e0618');
+    grad.addColorStop(0.7, '#1a0a22');
+    grad.addColorStop(1, '#2a1232');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // stars
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    for (let i = 0; i < 40; i++) {
+      const sx = (i * 137.5 + 42) % W;
+      const sy = (i * 89.3 + 17) % (H * 0.6);
+      ctx.fillRect(sx, sy, 1.5, 1.5);
+    }
+
+    // particles (behind pizza)
+    for (const p of particles) {
+      ctx.globalAlpha = p.life / p.maxLife;
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (p.life / p.maxLife), 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    drawPizza();
+
+    // pineapples
+    for (const p of pineapples) drawPineapple(p);
+
+    // laser beam
+    if (laserAlpha > 0.05 && laserTarget) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 60, 30, ${laserAlpha})`;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#ff3a1e'; ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.moveTo(pizza.x, pizza.y - 20);
+      ctx.lineTo(laserTarget.x, laserTarget.y);
+      ctx.stroke();
+      // inner bright core
+      ctx.strokeStyle = `rgba(255, 220, 180, ${laserAlpha * 0.8})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pizza.x, pizza.y - 20);
+      ctx.lineTo(laserTarget.x, laserTarget.y);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    // crosshair
+    ctx.strokeStyle = 'rgba(255,107,58,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(mx, my, 18, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mx - 24, my); ctx.lineTo(mx - 12, my);
+    ctx.moveTo(mx + 12, my); ctx.lineTo(mx + 24, my);
+    ctx.moveTo(mx, my - 24); ctx.lineTo(mx, my - 12);
+    ctx.moveTo(mx, my + 12); ctx.lineTo(mx, my + 24);
+    ctx.stroke();
+
+    // HUD
+    ctx.font = '800 14px "Lexend Mega", sans-serif';
+    ctx.fillStyle = '#ffe0a0';
+    ctx.textAlign = 'left';
+    ctx.fillText(`SCORE ${score}`, 16, 28);
+    ctx.fillText(`WAVE ${waveNum}`, 16, 48);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = integrity > 50 ? '#4ade80' : integrity > 25 ? '#fbbf24' : '#ff4444';
+    ctx.fillText(`PIZZA ${integrity}%`, W - 16, 28);
+  }
+
+  let last = 0;
+  function loop(ts) {
+    const dt = Math.min(33, ts - last); last = ts;
+    if (phase === 'playing') update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  document.getElementById('oBtn').addEventListener('click', () => {
+    audio();
+    document.getElementById('overlay').classList.add('hidden');
+    init();
+  });
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
