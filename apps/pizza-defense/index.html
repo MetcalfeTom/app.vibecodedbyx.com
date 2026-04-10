@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pizza Defense — Slap Away the Pineapples</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🍕">
+<meta property="og:title" content="Pizza Defense">
+<meta property="og:description" content="Protect your pizza dough from incoming pineapples. Slap them away!">
+<meta property="og:url" content="https://sloppy.live/pizza-defense">
+<meta property="og:image" content="https://sloppy.live/pizza-defense/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Azeret+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#2a1508;--dough:#f5d89a;--sauce:#cc3322;--crust:#c4922a;--pine:#e8c820;--leaf:#3a8830;--slap:#ff4466}
+body{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:var(--bg);overflow:hidden;cursor:none;
+  font-family:'Azeret Mono',monospace;
+  background-image:
+    radial-gradient(ellipse at 50% 60%,rgba(196,146,42,.08),transparent 60%),
+    repeating-conic-gradient(rgba(255,255,255,.008) 0% 25%,transparent 0% 50%) 0 0/40px 40px;
+}
+canvas{display:block;touch-action:none}
+#hud{
+  position:fixed;top:0;left:0;width:100%;
+  display:flex;justify-content:space-between;align-items:center;
+  padding:10px 18px;z-index:10;pointer-events:none;
+}
+#score{font-family:'Lilita One',sans-serif;font-size:24px;color:var(--dough);text-shadow:2px 2px 0 rgba(0,0,0,.3)}
+#lives-wrap{display:flex;gap:4px}
+.heart{font-size:18px;transition:transform .2s}
+.heart.lost{opacity:.2;transform:scale(.7)}
+#wave{font-size:13px;color:var(--crust);opacity:.7}
+#msg{
+  position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);
+  font-family:'Lilita One',sans-serif;font-size:36px;color:var(--dough);
+  pointer-events:none;z-index:20;opacity:0;transition:opacity .3s;
+  text-shadow:3px 3px 0 rgba(0,0,0,.4);text-align:center;
+}
+#overlay{
+  position:fixed;top:0;left:0;width:100%;height:100%;z-index:30;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(42,21,8,.96);gap:12px;
+}
+#overlay h1{font-family:'Lilita One',sans-serif;font-size:34px;color:var(--dough);text-shadow:3px 3px 0 rgba(0,0,0,.3)}
+#overlay p{font-size:14px;color:rgba(245,216,154,.5);max-width:300px;text-align:center;line-height:1.5}
+#play-btn{
+  margin-top:6px;padding:14px 36px;
+  background:var(--sauce);color:#fff;border:none;border-radius:10px;
+  font-family:'Lilita One',sans-serif;font-size:20px;cursor:pointer;
+  box-shadow:0 4px 15px rgba(204,51,34,.4);transition:transform .15s;
+}
+#play-btn:hover{transform:scale(1.06)}
+.bl{position:fixed;bottom:6px;right:12px;z-index:10;font-size:10px;opacity:.25}
+.bl a{color:#c4922a;text-decoration:none}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="hud">
+  <span id="score">0</span>
+  <div id="lives-wrap"></div>
+  <span id="wave">Wave 1</span>
+</div>
+<div id="msg"></div>
+<div id="overlay">
+  <h1>🍕 Pizza Defense</h1>
+  <p>Pineapples are attacking your pizza! Click or tap them to slap them away before they hit the dough.</p>
+  <button id="play-btn">DEFEND!</button>
+</div>
+<canvas id="c"></canvas>
+<div class="bl"><a href="https://sloppy.live">sloppy.live</a></div>
+
+<script>
+const C=document.getElementById('c'),X=C.getContext('2d');
+const scoreEl=document.getElementById('score'),waveEl=document.getElementById('wave');
+const livesWrap=document.getElementById('lives-wrap'),msgEl=document.getElementById('msg');
+const overlay=document.getElementById('overlay');
+
+let W,H,cx,cy;
+function resize(){
+  W=C.width=Math.min(window.innerWidth,600);
+  H=C.height=Math.min(window.innerHeight-10,750);
+  cx=W/2;cy=H/2;
+}
+resize();window.addEventListener('resize',resize);
+
+// ── Audio ──
+let ac=null;
+function ia(){if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)()}
+function tone(f,d,t,v){
+  if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();
+  o.connect(g);g.connect(ac.destination);o.type=t||'sine';o.frequency.value=f;
+  g.gain.setValueAtTime(v||.07,ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);
+  o.start();o.stop(ac.currentTime+d);
+}
+function sndSlap(){tone(200,.08,'square',.08);tone(400,.06,'triangle',.05)}
+function sndHit(){tone(80,.3,'sawtooth',.1)}
+function sndWave(){[440,550,660,880].forEach((f,i)=>setTimeout(()=>tone(f,.15,'triangle',.06),i*80))}
+function sndGameOver(){tone(200,.3,'sawtooth',.08);setTimeout(()=>tone(150,.4,'sawtooth',.06),200)}
+
+// ── State ──
+const PIZZA_R=70;
+let pineapples=[],particles=[],splatters=[];
+let score=0,lives=5,wave=1,playing=false,gameOver=false,frame=0;
+let mx=-999,my=-999;
+let waveTimer=0,spawned=0,waveTotal=0;
+let slapAnim={x:0,y:0,timer:0};
+let comboCount=0,comboTimer=0;
+
+function resetGame(){
+  score=0;lives=5;wave=1;gameOver=false;frame=0;
+  pineapples=[];particles=[];splatters=[];
+  comboCount=0;comboTimer=0;
+  startWave(1);
+  renderLives();
+  scoreEl.textContent='0';
+}
+
+function renderLives(){
+  livesWrap.innerHTML='';
+  for(let i=0;i<5;i++){
+    const s=document.createElement('span');
+    s.className='heart'+(i>=lives?' lost':'');
+    s.textContent='🍕';
+    livesWrap.appendChild(s);
+  }
+}
+
+// ── Waves ──
+function startWave(w){
+  wave=w;
+  waveEl.textContent='Wave '+w;
+  spawned=0;
+  waveTotal=5+w*3;
+  waveTimer=0;
+}
+
+function spawnPineapple(){
+  const angle=Math.random()*Math.PI*2;
+  const dist=Math.max(W,H)*0.55+30;
+  const speed=1.2+wave*0.15+Math.random()*0.5;
+  // aim at pizza center with some variance
+  const aimX=cx+(Math.random()-.5)*30;
+  const aimY=cy+(Math.random()-.5)*30;
+  const sx=cx+Math.cos(angle)*dist;
+  const sy=cy+Math.sin(angle)*dist;
+  const dx=aimX-sx,dy=aimY-sy;
+  const d=Math.sqrt(dx*dx+dy*dy);
+
+  const isGolden=Math.random()<0.08+wave*0.005;
+
+  pineapples.push({
+    x:sx,y:sy,
+    vx:dx/d*speed,vy:dy/d*speed,
+    size:isGolden?16:12+Math.random()*4,
+    rot:Math.random()*Math.PI*2,
+    rotSpd:(Math.random()-.5)*.08,
+    alive:true,
+    golden:isGolden,
+    wobble:Math.random()*Math.PI*2,
+    hit:false,hitTimer:0,
+  });
+}
+
+// ── Slap detection ──
+function trySlap(px,py){
+  ia();
+  let hit=false;
+  pineapples.forEach(p=>{
+    if(!p.alive||p.hit) return;
+    const dx=p.x-px,dy=p.y-py;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<p.size+22){
+      // slapped!
+      p.hit=true;p.hitTimer=20;
+      const away=Math.atan2(dy,dx);
+      p.vx=Math.cos(away)*8;p.vy=Math.sin(away)*8;
+      p.rotSpd=(Math.random()-.5)*.3;
+
+      const pts=p.golden?50:10;
+      comboCount++;comboTimer=60;
+      const multi=Math.min(5,1+Math.floor(comboCount/3));
+      score+=pts*multi;
+      scoreEl.textContent=score;
+
+      spawnBurst(p.x,p.y,p.golden?'#ffe033':'#e8c820',6);
+      sndSlap();
+      hit=true;
+
+      if(multi>=2){
+        spawnText(p.x,p.y-20,multi+'x',multi>=3?'#ff4466':'#ffe033');
+      }
+      if(comboCount===5) showMsg('SLAP COMBO!',700);
+      if(comboCount===10) showMsg('🖐️ SLAP MASTER!',900);
+    }
+  });
+  if(hit){
+    slapAnim.x=px;slapAnim.y=py;slapAnim.timer=10;
+  }
+}
+
+function spawnBurst(x,y,color,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2;
+    particles.push({
+      x,y,vx:Math.cos(a)*(2+Math.random()*3),vy:Math.sin(a)*(2+Math.random()*3),
+      life:18+Math.random()*12,max:30,color,size:3+Math.random()*3,type:'dot',
+    });
+  }
+}
+
+function spawnText(x,y,text,color){
+  particles.push({x,y,vx:0,vy:-1.5,life:35,max:35,color,size:0,type:'text',text});
+}
+
+function spawnSplat(x,y){
+  splatters.push({x,y,size:8+Math.random()*8,alpha:.5,color:'#e8c820'});
+  // juice drops
+  for(let i=0;i<4;i++){
+    const a=Math.random()*Math.PI*2;
+    particles.push({
+      x,y,vx:Math.cos(a)*1.5,vy:Math.sin(a)*1.5,
+      life:20,max:20,color:'#ccaa10',size:2,type:'dot',
+    });
+  }
+}
+
+// ── Input ──
+C.addEventListener('mousedown',e=>{
+  const r=C.getBoundingClientRect();
+  trySlap((e.clientX-r.left)*(W/r.width),(e.clientY-r.top)*(H/r.height));
+});
+C.addEventListener('mousemove',e=>{
+  const r=C.getBoundingClientRect();
+  mx=(e.clientX-r.left)*(W/r.width);my=(e.clientY-r.top)*(H/r.height);
+});
+C.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const r=C.getBoundingClientRect();
+  const t=e.touches[0];
+  const px=(t.clientX-r.left)*(W/r.width),py=(t.clientY-r.top)*(H/r.height);
+  mx=px;my=py;trySlap(px,py);
+},{passive:false});
+C.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const r=C.getBoundingClientRect();
+  const t=e.touches[0];
+  mx=(t.clientX-r.left)*(W/r.width);my=(t.clientY-r.top)*(H/r.height);
+},{passive:false});
+C.addEventListener('mouseleave',()=>{mx=-999;my=-999});
+
+// ── Messages ──
+let msgTO;
+function showMsg(t,d){msgEl.textContent=t;msgEl.style.opacity='1';clearTimeout(msgTO);msgTO=setTimeout(()=>msgEl.style.opacity='0',d||1000)}
+
+// ── Start ──
+document.getElementById('play-btn').onclick=()=>{
+  ia();overlay.classList.add('hidden');playing=true;resetGame();
+};
+
+// ── Update ──
+function update(){
+  if(!playing||gameOver) return;
+  frame++;
+
+  // combo decay
+  if(comboTimer>0){comboTimer--;if(comboTimer===0)comboCount=0}
+
+  // spawn
+  const interval=Math.max(15,50-wave*3);
+  waveTimer++;
+  if(waveTimer>=interval&&spawned<waveTotal){
+    spawnPineapple();spawned++;waveTimer=0;
+  }
+
+  // next wave
+  const aliveP=pineapples.filter(p=>p.alive).length;
+  if(spawned>=waveTotal&&aliveP===0){
+    wave++;
+    showMsg('Wave '+wave+'!',1200);
+    sndWave();
+    startWave(wave);
+  }
+
+  // update pineapples
+  pineapples.forEach(p=>{
+    if(!p.alive) return;
+    p.x+=p.vx;p.y+=p.vy;
+    p.rot+=p.rotSpd;
+    p.wobble+=.07;
+
+    if(p.hit){
+      p.hitTimer--;
+      p.vy+=.15; // gravity on slapped ones
+      if(p.hitTimer<=0||(p.x<-50||p.x>W+50||p.y<-50||p.y>H+50)){
+        p.alive=false;
+      }
+      return;
+    }
+
+    // check if hit pizza
+    const dx=p.x-cx,dy=p.y-cy;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<PIZZA_R-5){
+      p.alive=false;
+      lives--;
+      renderLives();
+      sndHit();
+      spawnSplat(p.x,p.y);
+      // screen shake
+      shakeTimer=12;
+      if(lives<=0){
+        gameOver=true;
+        sndGameOver();
+        showMsg('PIZZA RUINED!\nScore: '+score,5000);
+      }
+    }
+  });
+
+  pineapples=pineapples.filter(p=>p.alive);
+
+  // slap anim
+  if(slapAnim.timer>0) slapAnim.timer--;
+
+  // splatter fade
+  splatters.forEach(s=>s.alpha=Math.max(0,s.alpha-.002));
+  splatters=splatters.filter(s=>s.alpha>0);
+}
+
+// ── Drawing ──
+let shakeTimer=0;
+
+function drawPizza(){
+  // dough base
+  X.fillStyle='#d4a43a';
+  X.beginPath();X.arc(cx,cy,PIZZA_R+6,0,Math.PI*2);X.fill();
+  // crust ring
+  X.fillStyle='#c4922a';
+  X.beginPath();X.arc(cx,cy,PIZZA_R+6,0,Math.PI*2);X.fill();
+  // inner dough
+  X.fillStyle='#f5d89a';
+  X.beginPath();X.arc(cx,cy,PIZZA_R-4,0,Math.PI*2);X.fill();
+  // sauce
+  X.fillStyle='rgba(204,51,34,.35)';
+  X.beginPath();X.arc(cx,cy,PIZZA_R-12,0,Math.PI*2);X.fill();
+  // cheese spots
+  X.fillStyle='rgba(245,216,154,.4)';
+  for(let i=0;i<8;i++){
+    const a=i/8*Math.PI*2+.3;
+    const r=PIZZA_R*(.3+Math.sin(i*2.3)*.2);
+    X.beginPath();X.arc(cx+Math.cos(a)*r,cy+Math.sin(a)*r,6+Math.sin(i*1.7)*3,0,Math.PI*2);X.fill();
+  }
+  // pepperoni
+  X.fillStyle='#aa2218';
+  const pepPos=[[-.3,-.2],[.2,-.35],[-.15,.25],[.3,.1],[0,-.05],[-.35,.05]];
+  pepPos.forEach(([px,py])=>{
+    X.beginPath();X.arc(cx+px*PIZZA_R*1.2,cy+py*PIZZA_R*1.2,5,0,Math.PI*2);X.fill();
+  });
+  // splatters on pizza
+  splatters.forEach(s=>{
+    X.globalAlpha=s.alpha;X.fillStyle=s.color;
+    X.beginPath();X.arc(s.x,s.y,s.size,0,Math.PI*2);X.fill();
+    X.globalAlpha=1;
+  });
+}
+
+function drawPineapple(p){
+  X.save();X.translate(p.x,p.y);X.rotate(p.rot);
+  const s=p.size;
+  const wobX=p.hit?0:Math.sin(p.wobble)*1.5;
+
+  // body
+  X.fillStyle=p.golden?'#ffe033':'#e8c820';
+  X.beginPath();X.ellipse(wobX,0,s*.8,s,0,0,Math.PI*2);X.fill();
+  // diamond pattern
+  X.strokeStyle='rgba(180,140,20,.4)';X.lineWidth=1;
+  for(let r=-2;r<=2;r++){
+    for(let c=-1;c<=1;c++){
+      const dx=wobX+c*s*.45+((r%2)?.22*s:0);
+      const dy=r*s*.35;
+      if(dx*dx/(s*.6)**2+dy*dy/(s*.8)**2<1){
+        X.beginPath();
+        X.moveTo(dx,dy-3);X.lineTo(dx+3,dy);X.lineTo(dx,dy+3);X.lineTo(dx-3,dy);X.closePath();
+        X.stroke();
+      }
+    }
+  }
+  // crown (leaves)
+  X.fillStyle=p.golden?'#55cc33':'#3a8830';
+  for(let i=0;i<5;i++){
+    const la=-Math.PI/2+(i-2)*.3;
+    const lx=wobX+Math.cos(la)*2;
+    const ly=-s+Math.sin(la)*2;
+    X.beginPath();
+    X.moveTo(lx,ly);
+    X.quadraticCurveTo(lx+Math.cos(la)*s*.4,ly+Math.sin(la)*s*.7-4,lx+Math.cos(la)*s*.15,ly-s*.6);
+    X.quadraticCurveTo(lx-Math.cos(la)*s*.2,ly+Math.sin(la)*s*.3-2,lx,ly);
+    X.fill();
+  }
+  // scared face
+  if(!p.hit){
+    const ey=-2,esp=s*.25;
+    X.fillStyle='#fff';
+    X.beginPath();X.ellipse(-esp+wobX,ey,3,3.5,0,0,Math.PI*2);X.fill();
+    X.beginPath();X.ellipse(esp+wobX,ey,3,3.5,0,0,Math.PI*2);X.fill();
+    X.fillStyle='#222';
+    X.beginPath();X.arc(-esp+wobX,ey,1.5,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(esp+wobX,ey,1.5,0,Math.PI*2);X.fill();
+    // mouth
+    X.fillStyle='rgba(0,0,0,.3)';
+    X.beginPath();X.ellipse(wobX,5,2.5,3,0,0,Math.PI*2);X.fill();
+  } else {
+    // X eyes when slapped
+    const ey=-2,esp=s*.25;
+    X.strokeStyle='#222';X.lineWidth=1.5;
+    [[-esp,ey],[esp,ey]].forEach(([ex,ey2])=>{
+      X.beginPath();X.moveTo(ex+wobX-2,ey2-2);X.lineTo(ex+wobX+2,ey2+2);X.stroke();
+      X.beginPath();X.moveTo(ex+wobX+2,ey2-2);X.lineTo(ex+wobX-2,ey2+2);X.stroke();
+    });
+  }
+
+  // golden sparkle
+  if(p.golden&&!p.hit){
+    X.fillStyle='rgba(255,255,200,.6)';
+    const sa=frame*.1+p.wobble;
+    X.beginPath();X.arc(wobX+Math.cos(sa)*s*.6,Math.sin(sa)*s*.6,1.5,0,Math.PI*2);X.fill();
+  }
+
+  X.restore();
+}
+
+function drawParticles(){
+  particles=particles.filter(p=>{
+    p.x+=p.vx;p.y+=p.vy;p.life--;
+    const a=p.life/p.max;
+    if(p.type==='text'){
+      X.globalAlpha=a;X.fillStyle=p.color;
+      X.font='bold 14px "Lilita One"';X.textAlign='center';
+      X.fillText(p.text,p.x,p.y);X.textAlign='left';
+      X.globalAlpha=1;
+    } else {
+      X.globalAlpha=a;X.fillStyle=p.color;
+      X.beginPath();X.arc(p.x,p.y,Math.max(0,p.size*a),0,Math.PI*2);X.fill();
+      X.globalAlpha=1;
+    }
+    return p.life>0;
+  });
+}
+
+function drawCursor(){
+  if(mx<0) return;
+  // hand cursor
+  X.save();X.translate(mx,my);
+  X.fillStyle='rgba(255,220,180,.8)';
+  // palm
+  X.beginPath();X.ellipse(0,0,12,10,0,0,Math.PI*2);X.fill();
+  // fingers
+  X.fillStyle='rgba(255,210,170,.7)';
+  for(let i=0;i<4;i++){
+    const fa=-.5+i*.3;
+    X.beginPath();
+    X.ellipse(Math.cos(fa)*14,-6+Math.sin(fa)*4,3.5,6,.1*i,0,Math.PI*2);
+    X.fill();
+  }
+  // thumb
+  X.beginPath();X.ellipse(-12,-2,6,3.5,-.6,0,Math.PI*2);X.fill();
+
+  // slap flash
+  if(slapAnim.timer>0){
+    const sa=slapAnim.timer/10;
+    X.fillStyle=`rgba(255,68,102,${sa*.3})`;
+    X.beginPath();X.arc(0,0,20+10*(1-sa),0,Math.PI*2);X.fill();
+    // SLAP text
+    X.fillStyle=`rgba(255,68,102,${sa})`;
+    X.font='bold 16px "Lilita One"';X.textAlign='center';
+    X.fillText('SLAP!',0,-25);X.textAlign='left';
+  }
+  X.restore();
+}
+
+function drawBG(){
+  X.fillStyle='#2a1508';X.fillRect(0,0,W,H);
+  // table surface
+  X.fillStyle='#3a2010';
+  X.fillRect(0,H*.2,W,H*.7);
+  // wood grain
+  X.strokeStyle='rgba(80,50,20,.15)';X.lineWidth=1;
+  for(let i=0;i<12;i++){
+    const y=H*.2+i*(H*.7/12);
+    X.beginPath();X.moveTo(0,y+Math.sin(i)*3);
+    for(let x=0;x<W;x+=20) X.lineTo(x,y+Math.sin(x*.02+i)*2);
+    X.stroke();
+  }
+  // checkered cloth under pizza
+  X.save();X.globalAlpha=.06;
+  const ts=16;
+  for(let gx=cx-PIZZA_R-20;gx<cx+PIZZA_R+20;gx+=ts){
+    for(let gy=cy-PIZZA_R-20;gy<cy+PIZZA_R+20;gy+=ts){
+      if((Math.floor(gx/ts)+Math.floor(gy/ts))%2===0){
+        X.fillStyle='#cc3322';X.fillRect(gx,gy,ts,ts);
+      }
+    }
+  }
+  X.restore();
+}
+
+function render(){
+  update();
+
+  // screen shake
+  X.save();
+  if(shakeTimer>0){
+    shakeTimer--;
+    X.translate((Math.random()-.5)*shakeTimer*.8,(Math.random()-.5)*shakeTimer*.8);
+  }
+
+  drawBG();
+  drawPizza();
+
+  // draw pineapples
+  pineapples.forEach(p=>{if(p.alive)drawPineapple(p)});
+
+  drawParticles();
+  drawCursor();
+
+  X.restore();
+
+  // game over overlay
+  if(gameOver){
+    X.fillStyle='rgba(42,21,8,.7)';X.fillRect(0,0,W,H);
+    X.fillStyle='#f5d89a';X.font='30px "Lilita One"';X.textAlign='center';
+    X.fillText('PIZZA RUINED!',W/2,H/2-30);
+    X.fillStyle='rgba(255,255,255,.5)';X.font='16px "Azeret Mono"';
+    X.fillText('Score: '+score+' | Wave: '+wave,W/2,H/2+10);
+    X.fillText('tap to try again',W/2,H/2+40);
+    X.textAlign='left';
+    C.onclick=()=>{
+      if(!gameOver)return;
+      resetGame();C.onclick=null;
+    };
+  }
+
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
