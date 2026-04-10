@@ -377,7 +377,10 @@
 <body>
   <header>
     <h1>Chroma Sort</h1>
-    <a href="https://sloppy.live">← sloppy.live</a>
+    <div style="display:flex;align-items:center;gap:12px">
+      <button id="musicBtn" title="Toggle music" style="background:none;border:1px solid var(--border);color:var(--dim);font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer;letter-spacing:0.08em;transition:color .15s,border-color .15s">♪ OFF</button>
+      <a href="https://sloppy.live">← sloppy.live</a>
+    </div>
   </header>
 
   <div class="hud">
@@ -605,6 +608,190 @@
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
     o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + dur);
   }
+
+  // === Procedural Music Engine ===
+  const musicBtn = document.getElementById('musicBtn');
+  let musicPlaying = false;
+  let musicGain = null;
+  let musicInterval = null;
+  let currentTrack = 0;
+
+  const SCALES = {
+    major:    [0, 2, 4, 5, 7, 9, 11],
+    minor:    [0, 2, 3, 5, 7, 8, 10],
+    penta:    [0, 2, 4, 7, 9],
+    dorian:   [0, 2, 3, 5, 7, 9, 10],
+    mixo:     [0, 2, 4, 5, 7, 9, 10],
+  };
+
+  const TRACKS = [
+    { name: 'Neon Rush',   bpm: 140, key: 60, scale: 'major',  wave: 'square',   bassWave: 'sawtooth', feel: 'driving' },
+    { name: 'Cyber Pulse', bpm: 128, key: 57, scale: 'minor',  wave: 'sawtooth', bassWave: 'square',   feel: 'dark' },
+    { name: 'Pixel Bounce',bpm: 150, key: 64, scale: 'penta',  wave: 'square',   bassWave: 'triangle', feel: 'bouncy' },
+    { name: 'Chroma Wave', bpm: 135, key: 62, scale: 'dorian', wave: 'triangle', bassWave: 'sawtooth', feel: 'smooth' },
+    { name: 'Glitch Grid', bpm: 160, key: 55, scale: 'mixo',   wave: 'square',   bassWave: 'square',   feel: 'chaotic' },
+  ];
+
+  function midiToFreq(n) { return 440 * Math.pow(2, (n - 69) / 12); }
+
+  function scaleNote(scale, degree, octaveShift) {
+    const s = SCALES[scale];
+    const oct = Math.floor(degree / s.length);
+    const idx = ((degree % s.length) + s.length) % s.length;
+    return s[idx] + (oct + octaveShift) * 12;
+  }
+
+  function playNote(ctx, dest, freq, start, dur, type, vol) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, start);
+    g.gain.setValueAtTime(vol, start);
+    g.gain.setValueAtTime(vol, start + dur * 0.7);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    o.connect(g).connect(dest);
+    o.start(start);
+    o.stop(start + dur);
+  }
+
+  let beatCount = 0;
+  let melodyPos = 0;
+  let melodySeq = [];
+
+  function generateMelody(track) {
+    const len = 16;
+    const seq = [];
+    let pos = Math.floor(Math.random() * 5);
+    for (let i = 0; i < len; i++) {
+      if (Math.random() < 0.15) { seq.push(null); continue; } // rest
+      const step = Math.floor(Math.random() * 5) - 2;
+      pos = Math.max(-2, Math.min(8, pos + step));
+      seq.push(pos);
+    }
+    return seq;
+  }
+
+  function scheduleBeat() {
+    const ctx = audio();
+    if (!ctx || !musicGain) return;
+    const track = TRACKS[currentTrack];
+    const beatDur = 60 / track.bpm;
+    const now = ctx.currentTime;
+
+    // Bass — plays on beats 0 and 2 of each 4-beat bar
+    const barBeat = beatCount % 4;
+    if (barBeat === 0 || barBeat === 2) {
+      const bassNote = track.key - 12 + (barBeat === 2 ? (Math.random() < 0.3 ? 5 : 0) : 0);
+      playNote(ctx, musicGain, midiToFreq(bassNote), now, beatDur * 1.8, track.bassWave, 0.07);
+    }
+
+    // Kick drum (noise burst) on every beat
+    const kickO = ctx.createOscillator();
+    const kickG = ctx.createGain();
+    kickO.frequency.setValueAtTime(150, now);
+    kickO.frequency.exponentialRampToValueAtTime(30, now + 0.08);
+    kickG.gain.setValueAtTime(barBeat === 0 ? 0.09 : 0.05, now);
+    kickG.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+    kickO.connect(kickG).connect(musicGain);
+    kickO.start(now); kickO.stop(now + 0.1);
+
+    // Hi-hat on off-beats
+    if (barBeat === 1 || barBeat === 3) {
+      const bufSize = ctx.sampleRate * 0.03;
+      const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+      const hat = ctx.createBufferSource();
+      const hatG = ctx.createGain();
+      const hatF = ctx.createBiquadFilter();
+      hat.buffer = buf;
+      hatF.type = 'highpass'; hatF.frequency.value = 8000;
+      hatG.gain.setValueAtTime(0.04, now);
+      hatG.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+      hat.connect(hatF).connect(hatG).connect(musicGain);
+      hat.start(now);
+    }
+
+    // Melody — two notes per beat (eighth notes)
+    for (let sub = 0; sub < 2; sub++) {
+      const mIdx = melodyPos % melodySeq.length;
+      const deg = melodySeq[mIdx];
+      melodyPos++;
+      if (deg === null) continue;
+      const note = track.key + scaleNote(track.scale, deg, 1);
+      const t = now + sub * (beatDur / 2);
+      playNote(ctx, musicGain, midiToFreq(note), t, beatDur * 0.4, track.wave, 0.035);
+    }
+
+    // Arpeggio accent every 8 beats
+    if (beatCount % 8 === 0) {
+      const arpNotes = [0, 2, 4, 7].map(d => track.key + scaleNote(track.scale, d, 2));
+      arpNotes.forEach((n, i) => {
+        playNote(ctx, musicGain, midiToFreq(n), now + i * 0.06, 0.15, 'sine', 0.025);
+      });
+    }
+
+    beatCount++;
+
+    // Generate new melody every 16 beats
+    if (beatCount % 16 === 0 && Math.random() < 0.5) {
+      melodySeq = generateMelody(track);
+      melodyPos = 0;
+    }
+  }
+
+  function startMusic() {
+    const ctx = audio();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    musicGain = ctx.createGain();
+    musicGain.gain.value = 0.6;
+    musicGain.connect(ctx.destination);
+
+    beatCount = 0;
+    melodyPos = 0;
+    melodySeq = generateMelody(TRACKS[currentTrack]);
+
+    const beatDur = 60 / TRACKS[currentTrack].bpm;
+    musicInterval = setInterval(scheduleBeat, beatDur * 1000);
+    musicPlaying = true;
+    musicBtn.textContent = '♪ ' + TRACKS[currentTrack].name;
+    musicBtn.style.color = 'var(--accent)';
+    musicBtn.style.borderColor = 'var(--accent)';
+  }
+
+  function stopMusic() {
+    if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+    if (musicGain) {
+      try { musicGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.3); } catch {}
+      musicGain = null;
+    }
+    musicPlaying = false;
+    musicBtn.textContent = '♪ OFF';
+    musicBtn.style.color = 'var(--dim)';
+    musicBtn.style.borderColor = 'var(--border)';
+  }
+
+  function nextTrack() {
+    const wasPlaying = musicPlaying;
+    if (wasPlaying) stopMusic();
+    currentTrack = (currentTrack + 1) % TRACKS.length;
+    if (wasPlaying) setTimeout(startMusic, 100);
+  }
+
+  musicBtn.addEventListener('click', (e) => {
+    if (e.shiftKey || e.ctrlKey) { nextTrack(); return; }
+    if (musicPlaying) stopMusic(); else startMusic();
+  });
+
+  // Double-click or long press to skip track
+  let pressTimer = null;
+  musicBtn.addEventListener('pointerdown', () => {
+    pressTimer = setTimeout(() => { nextTrack(); pressTimer = null; }, 500);
+  });
+  musicBtn.addEventListener('pointerup', () => { if (pressTimer) clearTimeout(pressTimer); });
+  musicBtn.addEventListener('dblclick', (e) => { e.preventDefault(); nextTrack(); });
 
   function sample(arr, n) {
     const pool = [...arr];
