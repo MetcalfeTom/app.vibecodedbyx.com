@@ -193,18 +193,20 @@
     border: 1px solid var(--frame);
     color: var(--ink);
     background: rgba(255, 180, 60, 0.03);
-    transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.2s;
+    transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
   }
+  /* sequence glyph inherits the wire color */
+  .sequence-glyphs .glyph.c-red    { color: #ff2f4d; border-color: rgba(255,47,77,0.55); text-shadow: 0 0 6px rgba(255,47,77,0.7); }
+  .sequence-glyphs .glyph.c-blue   { color: #2fd8ff; border-color: rgba(47,216,255,0.55); text-shadow: 0 0 6px rgba(47,216,255,0.7); }
+  .sequence-glyphs .glyph.c-green  { color: #5cff7a; border-color: rgba(92,255,122,0.55); text-shadow: 0 0 6px rgba(92,255,122,0.7); }
+  .sequence-glyphs .glyph.c-amber  { color: #ffc04a; border-color: rgba(255,192,74,0.55); text-shadow: 0 0 6px rgba(255,192,74,0.7); }
   .sequence-glyphs .glyph.done {
-    background: rgba(74, 222, 128, 0.12);
-    border-color: var(--good);
-    color: var(--good);
+    opacity: 0.35;
     text-decoration: line-through;
   }
   .sequence-glyphs .glyph.next {
-    border-color: var(--hot);
-    color: var(--hot);
     animation: nextPulse 0.8s infinite;
+    box-shadow: 0 0 14px currentColor;
   }
   @keyframes nextPulse {
     0%, 100% { transform: scale(1); }
@@ -419,7 +421,7 @@
       </div>
 
       <div class="sequence">
-        <div class="sequence-label">→ enter sequence</div>
+        <div class="sequence-label">→ decode: match glyph + wire color</div>
         <div class="sequence-glyphs" id="sequenceGlyphs"></div>
       </div>
 
@@ -438,7 +440,7 @@
   <div class="overlay" id="overlay">
     <div class="card">
       <h2 id="overlayTitle">Cipher Snap</h2>
-      <p id="overlayMsg">4x4 glyph keypad. Match the sequence in order.<br/>Symbols shift. Clock ticks. Wrong press costs time.</p>
+      <p id="overlayMsg">Decode the hidden sequence.<br/>Every step: match the <strong>glyph</strong> AND the <strong>wire color</strong>.<br/>Traps share a glyph but not the color. Keypad shifts. Clock ticks.</p>
       <div class="stats" id="overlayStats" style="display:none"></div>
       <button id="overlayBtn">Arm Device</button>
     </div>
@@ -461,7 +463,7 @@
     wave: 1,
     score: 0,
     defused: 0,
-    keypadGlyphs: [],
+    keypadSlots: [],
     sequence: [],
     sequenceIdx: 0,
     shiftTimer: null,
@@ -535,15 +537,14 @@
   const KEY_COLORS = ['c-red', 'c-blue', 'c-green', 'c-amber'];
   function renderKeypad(animate = false) {
     keypadEl.innerHTML = '';
-    state.keypadGlyphs.forEach((g, i) => {
+    state.keypadSlots.forEach((slot, i) => {
       const btn = document.createElement('button');
-      const color = KEY_COLORS[Math.floor(Math.random() * KEY_COLORS.length)];
-      btn.className = 'key ' + color + (animate ? ' shifting' : '');
-      btn.textContent = g;
+      btn.className = 'key ' + slot.color + (animate ? ' shifting' : '');
+      btn.textContent = slot.glyph;
       btn.dataset.idx = i;
       btn.addEventListener('pointerdown', (e) => {
         e.preventDefault();
-        handleKeyPress(g, btn);
+        handleKeyPress(slot, btn);
       });
       keypadEl.appendChild(btn);
     });
@@ -551,12 +552,12 @@
 
   function renderSequence() {
     sequenceEl.innerHTML = '';
-    state.sequence.forEach((g, i) => {
+    state.sequence.forEach((slot, i) => {
       const el = document.createElement('div');
-      el.className = 'glyph';
+      el.className = 'glyph ' + slot.color;
       if (i < state.sequenceIdx) el.classList.add('done');
       else if (i === state.sequenceIdx) el.classList.add('next');
-      el.textContent = g;
+      el.textContent = slot.glyph;
       sequenceEl.appendChild(el);
     });
   }
@@ -575,31 +576,72 @@
   }
 
   // ---------- game ----------
+  function randColor() {
+    return KEY_COLORS[Math.floor(Math.random() * KEY_COLORS.length)];
+  }
+  function slotKey(s) { return s.glyph + '|' + s.color; }
+  function slotsEqual(a, b) { return a.glyph === b.glyph && a.color === b.color; }
+
+  function buildKeypadSlots(requiredSlots) {
+    // requiredSlots: array of {glyph, color} that MUST appear on the keypad
+    const slots = requiredSlots.map(s => ({ ...s }));
+    const usedKeys = new Set(slots.map(slotKey));
+    // Add "trap" distractors: for each required slot, ~50% chance of a same-glyph-different-color decoy
+    requiredSlots.forEach(r => {
+      if (Math.random() < 0.55 && slots.length < KEYPAD_SIZE) {
+        const otherColors = KEY_COLORS.filter(c => c !== r.color);
+        const trapColor = otherColors[Math.floor(Math.random() * otherColors.length)];
+        const trap = { glyph: r.glyph, color: trapColor };
+        if (!usedKeys.has(slotKey(trap))) {
+          slots.push(trap);
+          usedKeys.add(slotKey(trap));
+        }
+      }
+    });
+    // Fill remaining with random glyph+color pairs, avoiding duplicates
+    const pool = GLYPH_POOL.filter(g => !requiredSlots.some(r => r.glyph === g));
+    while (slots.length < KEYPAD_SIZE && pool.length) {
+      const gIdx = Math.floor(Math.random() * pool.length);
+      const glyph = pool[gIdx];
+      const color = randColor();
+      const key = glyph + '|' + color;
+      if (!usedKeys.has(key)) {
+        slots.push({ glyph, color });
+        usedKeys.add(key);
+      }
+      // Only remove if we placed it (keeps fill deterministic)
+      pool.splice(gIdx, 1);
+    }
+    // If still short (pool exhausted), pad with random color on any glyph
+    while (slots.length < KEYPAD_SIZE) {
+      const glyph = GLYPH_POOL[Math.floor(Math.random() * GLYPH_POOL.length)];
+      slots.push({ glyph, color: randColor() });
+    }
+    // Shuffle positions
+    for (let i = slots.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [slots[i], slots[j]] = [slots[j], slots[i]];
+    }
+    return slots;
+  }
+
   function newSequence() {
-    // sequence length grows with wave, harder with each defuse
     const len = Math.min(7, 3 + Math.floor(state.wave / 2));
-    // keypad must contain all sequence glyphs
-    state.keypadGlyphs = sample(GLYPH_POOL, KEYPAD_SIZE);
-    state.sequence = sample(state.keypadGlyphs, len);
+    // Pick unique glyphs, each paired with a random color — this is the hidden code
+    const glyphs = sample(GLYPH_POOL, len);
+    state.sequence = glyphs.map(g => ({ glyph: g, color: randColor() }));
+    state.keypadSlots = buildKeypadSlots(state.sequence);
     state.sequenceIdx = 0;
     renderKeypad(true);
     renderSequence();
-    statusEl.textContent = `wave ${state.wave} — ${len} glyphs`;
+    statusEl.textContent = `wave ${state.wave} — decode ${len} glyphs`;
   }
 
   function shiftKeypad() {
     if (state.phase !== 'playing') return;
-    // shuffle keypad but keep remaining sequence glyphs included
+    // Rebuild keypad: keep remaining sequence pairs, refresh distractors, reshuffle positions
     const remaining = state.sequence.slice(state.sequenceIdx);
-    const pool = GLYPH_POOL.filter(g => !remaining.includes(g));
-    const fillers = sample(pool, KEYPAD_SIZE - remaining.length);
-    const combined = [...remaining, ...fillers];
-    // shuffle
-    for (let i = combined.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [combined[i], combined[j]] = [combined[j], combined[i]];
-    }
-    state.keypadGlyphs = combined;
+    state.keypadSlots = buildKeypadSlots(remaining);
     renderKeypad(true);
     shiftSound();
   }
@@ -615,10 +657,10 @@
     }, base + jitter);
   }
 
-  function handleKeyPress(glyph, btnEl) {
+  function handleKeyPress(slot, btnEl) {
     if (state.phase !== 'playing') return;
     const expected = state.sequence[state.sequenceIdx];
-    if (glyph === expected) {
+    if (slotsEqual(slot, expected)) {
       state.sequenceIdx++;
       state.score += 10 + state.wave * 2;
       correctSound();
@@ -729,7 +771,7 @@
     if (e.code in map) {
       const idx = map[e.code];
       const btn = keypadEl.children[idx];
-      if (btn) handleKeyPress(state.keypadGlyphs[idx], btn);
+      if (btn) handleKeyPress(state.keypadSlots[idx], btn);
     }
   });
 
