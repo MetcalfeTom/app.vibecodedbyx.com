@@ -226,50 +226,75 @@ totalNum.textContent = ROUNDS;
 // Fetch a good pool of messages from active chatters
 async function fetchPool() {
   try {
-    await supabaseSession();
+    // Auth — best effort; query may still work with anon key if session fails
+    try { await supabaseSession(); } catch (authErr) {
+      console.warn('Auth failed (continuing with anon key):', authErr.message);
+    }
 
-    // Grab recent messages that are text-only, decent length, from real usernames
-    const { data, error } = await supabase
+    // Try fetching text messages first, then fall back to all types
+    let data, error;
+    ({ data, error } = await supabase
       .from('sloppygram_messages')
-      .select('username, avatar, content, created_at')
-      .eq('message_type', 'text')
-      .not('username', 'is', null)
+      .select('username, avatar, content, message_type, created_at')
       .order('created_at', { ascending: false })
-      .limit(800);
+      .limit(1000));
 
-    if (error) throw error;
-    if (!data || data.length < 10) throw new Error('Not enough chat data');
+    if (error) {
+      console.error('Query error:', error);
+      throw new Error(`DB query failed: ${error.message}`);
+    }
+    if (!data || data.length === 0) throw new Error('No messages found in chat logs');
 
-    // Filter: reasonable length, not links, not just emojis, from named users
-    const filtered = data.filter(m =>
-      m.content &&
-      m.username &&
-      m.username !== 'anon' &&
-      m.username !== 'sloppy_ai' &&
-      m.content.length >= MIN_MSG_LEN &&
-      m.content.length < 300 &&
+    console.log(`Fetched ${data.length} raw messages`);
+
+    // Filter progressively — try strict first, relax if too few
+    const strict = data.filter(m =>
+      m.content && m.username &&
+      m.username !== 'anon' && m.username !== 'sloppy_ai' &&
+      m.message_type === 'text' &&
+      m.content.length >= MIN_MSG_LEN && m.content.length < 300 &&
       !m.content.startsWith('http') &&
       !/^[\p{Emoji}\s]+$/u.test(m.content)
     );
 
-    // Group by username, keep only users with 3+ messages (so they're recognizable)
-    const byUser = {};
-    for (const m of filtered) {
-      if (!byUser[m.username]) byUser[m.username] = [];
-      byUser[m.username].push(m);
+    // Relaxed: shorter messages OK, any message_type with content
+    const relaxed = data.filter(m =>
+      m.content && m.username &&
+      m.username !== 'anon' && m.username !== 'sloppy_ai' &&
+      m.content.length >= 6 && m.content.length < 400 &&
+      !m.content.startsWith('http')
+    );
+
+    console.log(`Strict: ${strict.length}, relaxed: ${relaxed.length}`);
+
+    // Pick whichever set has enough active users
+    let filtered = strict;
+    let minMsgs = 3;
+    let byUser = groupByUser(filtered);
+    let activeUsers = Object.keys(byUser).filter(u => byUser[u].length >= minMsgs);
+
+    if (activeUsers.length < CHOICE_COUNT) {
+      filtered = relaxed;
+      minMsgs = 2;
+      byUser = groupByUser(filtered);
+      activeUsers = Object.keys(byUser).filter(u => byUser[u].length >= minMsgs);
     }
-    const activeUsers = Object.keys(byUser).filter(u => byUser[u].length >= 3);
 
-    if (activeUsers.length < CHOICE_COUNT) throw new Error('Not enough active chatters');
+    // Last resort: any user with 1+ message
+    if (activeUsers.length < CHOICE_COUNT) {
+      minMsgs = 1;
+      activeUsers = Object.keys(byUser).filter(u => byUser[u].length >= minMsgs);
+    }
 
-    // Build pool: pick messages from active users
+    if (activeUsers.length < CHOICE_COUNT) {
+      throw new Error(`Only ${activeUsers.length} active chatters found (need ${CHOICE_COUNT}). Chat more on sloppy.live!`);
+    }
+
+    // Build pool
     const pool = [];
     for (const u of activeUsers) {
-      for (const m of byUser[u]) {
-        pool.push(m);
-      }
+      for (const m of byUser[u]) pool.push(m);
     }
-    // Shuffle
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -277,12 +302,22 @@ async function fetchPool() {
 
     state.pool = pool;
     state.usernames = activeUsers;
+    console.log(`Pool ready: ${pool.length} messages from ${activeUsers.length} users`);
     return true;
   } catch (e) {
     console.error('Fetch failed:', e);
-    contentEl.innerHTML = `<div class="loading" style="animation:none">Could not load chat logs. ${e.message || 'Try refreshing.'}</div>`;
+    contentEl.innerHTML = `<div class="loading" style="animation:none">Could not load chat logs.<br/><br/><span style="color:var(--red);font-size:12px">${escapeHtml(e.message || 'Unknown error')}</span><br/><br/><span style="cursor:pointer;color:var(--pop)" onclick="location.reload()">↻ Retry</span></div>`;
     return false;
   }
+}
+
+function groupByUser(msgs) {
+  const byUser = {};
+  for (const m of msgs) {
+    if (!byUser[m.username]) byUser[m.username] = [];
+    byUser[m.username].push(m);
+  }
+  return byUser;
 }
 
 function pickRound() {
