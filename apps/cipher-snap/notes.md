@@ -3,7 +3,7 @@
 Bomb defusal mini-game. Match the glyph sequence on a 4x4 keypad whose symbols shuffle under a ticking clock.
 
 ## log
-- 2026-04-10: Rainbow wire-cutting phase. ~25% chance on wave 15+ (non-grayscale). 7 ROYGBIV-colored wires on keypad mixed with 9 grayscale decoys. Must cut in R→O→Y→G→B→I→V order — hitting grays or wrong color = time penalty. Keypad shifts during rainbow phase (slower interval). Shimmer rainbow gradient text indicator + ROYGBIV pip tracker. After rainbow → code entry as normal. Keyboard shortcuts work in rainbow phase.
+- 2026-04-10: Replaced wire-cutting with 8-letter spelling phase. Every 10th wave (10, 20, 30...) skips glyph phase and enters spelling mode — player must find letters on the shuffling 4x4 keypad to spell a random 8-letter word (30 bomb-themed words: DEFUSING, OVERRIDE, PROTOCOL, SHUTDOWN, etc.). Unique letters on keypad + decoy letters, keypad reshuffles after each correct letter and on timer. Wrong letter = -4s penalty. ~25% chance on wave 10+ after glyph phase too. Boss spelling waves have multiple words. Shimmer gradient indicator + letter pip tracker. Old ROYGBIV wire-cutting fully removed.
 - 2026-04-10: Boss bombs every 5th wave — multi-sequence challenge (2+ sequences, scales with wave). Boss visual: pulsing red briefcase border, progress pips, alarm SFX, extra score/time on defuse. Added 6 new wire colors (coral/gold/ice/blood/neon/violet, total 20). Expanded glyph pool to ~100 symbols across 10 families (added Greek lowercase, more math ops, alchemical/esoteric). Added unlockable lore snippets: classified file fragments shown between even waves, 20 snippets cycling.
 - 2026-04-10: Sequence is now (glyph, color) pairs — every step must match both the symbol and the wire color. Refactored state.keypadGlyphs → state.keypadSlots (array of {glyph, color}). buildKeypadSlots() seeds the keypad with required sequence pairs, ~55% chance per required slot of adding a same-glyph-different-color TRAP decoy, fills rest with unique random glyph+color pairs, then shuffles positions. Shift rebuilds using only the remaining sequence pairs so prior distractors re-roll. Sequence display colors each glyph by its wire. Overlay reframed as "decode the hidden code".
 - 2026-04-10: Neon-wire keypad variants (red / blue / green / amber).
@@ -25,5 +25,5 @@ Bomb defusal mini-game. Match the glyph sequence on a 4x4 keypad whose symbols s
 
 ## todos
 - Supabase leaderboard (score + waves + defused)
-- Special wires module (cut the right color based on a clue) as alt challenge type
+- More spelling words / difficulty scaling on word length
 - OG preview PNG
