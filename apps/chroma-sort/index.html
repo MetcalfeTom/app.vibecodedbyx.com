@@ -771,7 +771,11 @@
         <button id="arcadeSubmit" style="font-size:13px;padding:8px 24px;margin-top:4px">Submit Score</button>
       </div>
       <div class="leaderboard" id="leaderboard" style="display:none">
-        <div class="lb-title">Top Scores</div>
+        <div style="display:flex;gap:6px;justify-content:center;margin-bottom:8px">
+          <button class="lb-tab active" id="lbTabGlobal" style="font-family:'DM Mono',monospace;font-size:10px;padding:4px 12px;background:rgba(255,51,102,0.12);border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer;letter-spacing:0.06em">🌐 Global</button>
+          <button class="lb-tab" id="lbTabLocal" style="font-family:'DM Mono',monospace;font-size:10px;padding:4px 12px;background:var(--surface);border:1px solid var(--border);color:var(--dim);border-radius:4px;cursor:pointer;letter-spacing:0.06em">💾 Local</button>
+        </div>
+        <div class="lb-title" id="lbTitle">Global Top 15</div>
         <div id="lbRows"></div>
       </div>
       <button id="overlayBtn">Start</button>
@@ -780,6 +784,51 @@
 
 <script>
 (() => {
+  // === Supabase Global Leaderboard ===
+  let sb = null, sbUser = null;
+  async function sbInit(){
+    try {
+      const mod = await import('./supabase-config.js');
+      sb = mod.default;
+      const sess = await sb.auth.getSession();
+      if(!sess.data.session) await sb.auth.signInAnonymously();
+      const s2 = await sb.auth.getSession();
+      sbUser = s2.data.session?.user || null;
+    } catch(e){ console.warn('Supabase init failed:',e.message); sb=null; }
+  }
+  sbInit();
+
+  async function sbLoadGlobal(difficulty, palette){
+    if(!sb) return null;
+    try {
+      let q = sb.from('chroma_sort_scores')
+        .select('display_name,score,total_time,difficulty,palette')
+        .order('score',{ascending:false}).limit(15);
+      if(difficulty) q = q.eq('difficulty', difficulty);
+      const {data,error} = await q;
+      if(error) throw error;
+      return data;
+    } catch(e){ console.warn('LB load failed:',e.message); return null; }
+  }
+
+  async function sbSaveScore(name, score, totalTime, difficulty, palette, streak, mistakes){
+    if(!sb || !sbUser) return false;
+    try {
+      const {error} = await sb.from('chroma_sort_scores').insert({
+        display_name: name,
+        score: score,
+        total_time: +totalTime.toFixed(1),
+        difficulty: difficulty,
+        palette: palette || 'classic',
+        best_streak: streak || 0,
+        mistakes: mistakes || 0,
+        user_id: sbUser.id,
+      });
+      if(error) throw error;
+      return true;
+    } catch(e){ console.warn('Score save failed:',e.message); return false; }
+  }
+
   // All available colors — name must be unique, sorted alphabetically for verification
   const COLOR_POOL = [
     { name: 'Absinthe',  hex: '#7fdd4c' },
@@ -3083,10 +3132,34 @@
   const arcadeSubmitEl = document.getElementById('arcadeSubmit');
   const leaderboardEl = document.getElementById('leaderboard');
   const lbRowsEl = document.getElementById('lbRows');
+  const lbTitleEl = document.getElementById('lbTitle');
+  const lbTabGlobal = document.getElementById('lbTabGlobal');
+  const lbTabLocal = document.getElementById('lbTabLocal');
   const arcadeSlots = arcadeNameEl.querySelectorAll('.arcade-slot');
   let arcadeLetters = [0, 0, 0]; // indices into ALPHA
   let lastSubmittedIdx = -1; // track which entry was just submitted
+  let lbMode = 'global'; // 'global' or 'local'
+  let cachedGlobalLB = null; // cache last loaded global board
 
+  // Tab switching
+  lbTabGlobal.addEventListener('click', () => { lbMode='global'; updateTabStyles(); showCurrentLB(); });
+  lbTabLocal.addEventListener('click', () => { lbMode='local'; updateTabStyles(); showCurrentLB(); });
+  function updateTabStyles(){
+    lbTabGlobal.style.background = lbMode==='global' ? 'rgba(255,51,102,0.12)' : 'var(--surface)';
+    lbTabGlobal.style.borderColor = lbMode==='global' ? 'var(--accent)' : 'var(--border)';
+    lbTabGlobal.style.color = lbMode==='global' ? 'var(--accent)' : 'var(--dim)';
+    lbTabLocal.style.background = lbMode==='local' ? 'rgba(255,51,102,0.12)' : 'var(--surface)';
+    lbTabLocal.style.borderColor = lbMode==='local' ? 'var(--accent)' : 'var(--border)';
+    lbTabLocal.style.color = lbMode==='local' ? 'var(--accent)' : 'var(--dim)';
+  }
+
+  function showCurrentLB(){
+    const lbKey = state.daily ? 'daily_' + getDailySeed() : state.difficulty;
+    if(lbMode==='global') renderGlobalLB(lbKey);
+    else renderLB(lbKey, lastSubmittedIdx);
+  }
+
+  // --- Local leaderboard ---
   function getLBKey(diff) { return `chromasort_lb_${diff}`; }
 
   function loadLB(diff) {
@@ -3101,8 +3174,7 @@
   }
 
   function qualifiesForLB(diff, score) {
-    const board = loadLB(diff);
-    return board.length < 10 || score > (board[board.length - 1]?.score ?? 0);
+    return score > 0;
   }
 
   function addToLB(diff, name, score, time) {
@@ -3116,16 +3188,39 @@
   }
 
   function renderLB(diff, highlightIdx) {
+    lbTitleEl.textContent = 'Local Top 10';
     const board = loadLB(diff);
-    leaderboardEl.style.display = board.length ? '' : 'none';
-    if (!board.length) { lbRowsEl.innerHTML = ''; return; }
-
+    if (!board.length) {
+      lbRowsEl.innerHTML = '<div style="text-align:center;color:var(--dim);font-size:11px;padding:8px">No local scores yet</div>';
+      return;
+    }
     lbRowsEl.innerHTML = board.slice(0, 10).map((e, i) => {
       const cls = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
       const you = i === highlightIdx ? ' you' : '';
       return `<div class="lb-row ${cls}${you}">
         <span class="rank">${i + 1}.</span>
         <span class="lb-name">${escHTML(e.name)}</span>
+        <span class="lb-score">${e.score}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // --- Global leaderboard ---
+  async function renderGlobalLB(diff){
+    lbTitleEl.textContent = 'Global Top 15';
+    lbRowsEl.innerHTML = '<div style="text-align:center;color:var(--dim);font-size:11px;padding:8px">Loading...</div>';
+    const data = await sbLoadGlobal(diff);
+    cachedGlobalLB = data;
+    if(!data || data.length === 0){
+      lbRowsEl.innerHTML = '<div style="text-align:center;color:var(--dim);font-size:11px;padding:8px">' +
+        (sb ? 'No global scores yet for this mode' : 'Global board unavailable') + '</div>';
+      return;
+    }
+    lbRowsEl.innerHTML = data.map((e, i) => {
+      const cls = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+      return `<div class="lb-row ${cls}">
+        <span class="rank">${i + 1}.</span>
+        <span class="lb-name">${escHTML(e.display_name||'???')}</span>
         <span class="lb-score">${e.score}</span>
       </div>`;
     }).join('');
@@ -3167,16 +3262,32 @@
     beep(600 + arcadeLetters[slot] * 15, 0.03, 'square', 0.04);
   });
 
-  arcadeSubmitEl.addEventListener('click', () => {
+  arcadeSubmitEl.addEventListener('click', async () => {
     const name = getArcadeName();
     localStorage.setItem('chromasort_name', name);
     const lbKey = state.daily ? 'daily_' + getDailySeed() : state.difficulty;
+
+    // Save to local
     const idx = addToLB(lbKey, name, state.score, state.totalTime);
     lastSubmittedIdx = idx;
     arcadeEntryEl.style.display = 'none';
-    renderLB(lbKey, idx);
     beep(880, 0.08, 'square', 0.06);
     setTimeout(() => beep(1100, 0.1, 'square', 0.06), 80);
+
+    // Save to global Supabase
+    const saved = await sbSaveScore(name, state.score, state.totalTime, lbKey, state.palette, state.bestStreak, state.mistakes);
+
+    // Show global board if save succeeded, otherwise local
+    leaderboardEl.style.display = '';
+    if(saved){
+      lbMode = 'global';
+      updateTabStyles();
+      await renderGlobalLB(lbKey);
+    } else {
+      lbMode = 'local';
+      updateTabStyles();
+      renderLB(lbKey, idx);
+    }
   });
 
   function endGame() {
@@ -3216,8 +3327,11 @@
       arcadeEntryEl.style.display = 'none';
     }
 
-    // Always show leaderboard if there are entries
-    renderLB(lbKey, -1);
+    // Show leaderboard — try global first, fall back to local
+    leaderboardEl.style.display = '';
+    lbMode = 'global';
+    updateTabStyles();
+    renderGlobalLB(lbKey);
   }
 
   overlayBtnEl.addEventListener('click', () => {
