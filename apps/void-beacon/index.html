@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Void Beacon — Cursed Lighthouse Sim</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🔦">
+<meta property="og:title" content="Void Beacon">
+<meta property="og:description" content="Sweep your cursed lighthouse beam across black waters. What lurks beneath?">
+<meta property="og:url" content="https://sloppy.live/void-beacon">
+<meta property="og:image" content="https://sloppy.live/void-beacon/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Creepster&family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#020408;cursor:none}
+canvas{display:block;width:100%;height:100%}
+#ui{
+  position:fixed;top:0;left:0;width:100%;padding:14px 20px;
+  display:flex;justify-content:space-between;align-items:flex-start;
+  pointer-events:none;z-index:10;
+}
+#sanity-wrap{display:flex;align-items:center;gap:8px}
+#sanity-label{
+  font-family:'Special Elite',monospace;font-size:13px;
+  color:rgba(180,200,220,.6);letter-spacing:1px;
+}
+#sanity-bar{
+  width:120px;height:8px;background:rgba(255,255,255,.06);
+  border-radius:4px;overflow:hidden;border:1px solid rgba(255,255,255,.08);
+}
+#sanity-fill{height:100%;width:100%;background:linear-gradient(90deg,#ff3355,#ffaa33,#55ff88);border-radius:3px;transition:width .3s}
+#score{
+  font-family:'Creepster',cursive;font-size:22px;
+  color:rgba(100,220,180,.7);letter-spacing:2px;
+  text-shadow:0 0 12px rgba(100,220,180,.3);
+}
+#msg{
+  position:fixed;bottom:40px;left:50%;transform:translateX(-50%);
+  font-family:'Special Elite',monospace;font-size:15px;
+  color:rgba(200,180,160,.7);text-align:center;
+  pointer-events:none;z-index:10;transition:opacity .5s;
+  text-shadow:0 0 8px rgba(0,0,0,.8);max-width:90vw;
+}
+#restart{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-family:'Creepster',cursive;font-size:28px;
+  color:#ff3355;background:rgba(0,0,0,.7);border:1px solid rgba(255,51,85,.3);
+  padding:16px 40px;border-radius:12px;cursor:pointer;
+  pointer-events:auto;z-index:20;display:none;
+  text-shadow:0 0 15px rgba(255,51,85,.5);
+}
+#restart:hover{background:rgba(255,51,85,.15);border-color:rgba(255,51,85,.6)}
+#backlink{
+  position:fixed;bottom:10px;right:14px;z-index:10;
+  font-family:'Special Elite',monospace;font-size:11px;
+  opacity:.3;pointer-events:auto;
+}
+#backlink a{color:#8899aa;text-decoration:none}
+</style>
+</head>
+<body>
+<div id="ui">
+  <div id="sanity-wrap">
+    <span id="sanity-label">SANITY</span>
+    <div id="sanity-bar"><div id="sanity-fill"></div></div>
+  </div>
+  <div id="score">0</div>
+</div>
+<div id="msg">Move to sweep the beam. Find what hides in the dark.</div>
+<canvas id="c"></canvas>
+<button id="restart">RELIGHT THE BEACON</button>
+<div id="backlink"><a href="https://sloppy.live">sloppy.live</a></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const msgEl = document.getElementById('msg');
+const scoreEl = document.getElementById('score');
+const sanityFill = document.getElementById('sanity-fill');
+const restartBtn = document.getElementById('restart');
+
+let W, H;
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State ──
+let mouseX = W/2, mouseY = H/2;
+let beamAngle = 0;
+let sanity = 100;
+let score = 0;
+let gameOver = false;
+let frame = 0;
+let lastReveal = 0;
+let shakeX = 0, shakeY = 0;
+let flashAlpha = 0;
+
+// lighthouse position (bottom center)
+const LH = {x: 0, y: 0};
+function updateLH(){ LH.x = W*0.5; LH.y = H*0.88; }
+updateLH();
+window.addEventListener('resize', updateLH);
+
+// ── Monsters ──
+const MONSTER_TYPES = [
+  {
+    name:'Abyssal Eel', w:120, h:20, color:'#2a4a3a', eyeColor:'#44ffaa',
+    draw(ctx,m,f){
+      const seg=8;
+      ctx.strokeStyle=m.color||this.color;ctx.lineWidth=this.h*m.scale;ctx.lineCap='round';
+      ctx.beginPath();
+      for(let i=0;i<=seg;i++){
+        const t=i/seg;
+        const sx=m.x-this.w*m.scale*0.5+t*this.w*m.scale;
+        const sy=m.y+Math.sin(f*0.04+t*4+m.phase)*12*m.scale;
+        i===0?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);
+      }
+      ctx.stroke();
+      // eye
+      ctx.fillStyle=this.eyeColor;
+      ctx.beginPath();ctx.arc(m.x-this.w*m.scale*0.45,m.y,3*m.scale,0,Math.PI*2);ctx.fill();
+    }
+  },
+  {
+    name:'Kraken Tentacle', w:30, h:100, color:'#3a2244', eyeColor:'#ff55aa',
+    draw(ctx,m,f){
+      ctx.strokeStyle=m.color||this.color;ctx.lineWidth=8*m.scale;ctx.lineCap='round';
+      ctx.beginPath();
+      const segs=6;
+      for(let i=0;i<=segs;i++){
+        const t=i/segs;
+        const sx=m.x+Math.sin(f*0.03+t*3+m.phase)*20*m.scale;
+        const sy=m.y-t*this.h*m.scale;
+        i===0?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);
+      }
+      ctx.stroke();
+      // suckers
+      ctx.fillStyle='rgba(180,100,160,0.4)';
+      for(let i=1;i<segs;i++){
+        const t=i/segs;
+        const sx=m.x+Math.sin(f*0.03+t*3+m.phase)*20*m.scale+5*m.scale;
+        const sy=m.y-t*this.h*m.scale;
+        ctx.beginPath();ctx.arc(sx,sy,2.5*m.scale,0,Math.PI*2);ctx.fill();
+      }
+    }
+  },
+  {
+    name:'Deep One', w:50, h:60, color:'#1a3322', eyeColor:'#ffdd33',
+    draw(ctx,m,f){
+      const bob=Math.sin(f*0.025+m.phase)*5;
+      // body
+      ctx.fillStyle=m.color||this.color;
+      ctx.beginPath();
+      ctx.ellipse(m.x,m.y+bob,this.w*0.5*m.scale,this.h*0.5*m.scale,0,0,Math.PI*2);
+      ctx.fill();
+      // head
+      ctx.beginPath();
+      ctx.ellipse(m.x,m.y-this.h*0.35*m.scale+bob,this.w*0.35*m.scale,this.w*0.35*m.scale,0,0,Math.PI*2);
+      ctx.fill();
+      // eyes - big and glowing
+      const ew=8*m.scale;
+      ctx.fillStyle=this.eyeColor;
+      ctx.beginPath();ctx.arc(m.x-ew,m.y-this.h*0.35*m.scale+bob,4*m.scale,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(m.x+ew,m.y-this.h*0.35*m.scale+bob,4*m.scale,0,Math.PI*2);ctx.fill();
+      // pupil
+      ctx.fillStyle='#000';
+      ctx.beginPath();ctx.arc(m.x-ew,m.y-this.h*0.35*m.scale+bob,2*m.scale,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(m.x+ew,m.y-this.h*0.35*m.scale+bob,2*m.scale,0,Math.PI*2);ctx.fill();
+    }
+  },
+  {
+    name:'Leviathan Eye', w:70, h:70, color:'#221133', eyeColor:'#ff2244',
+    draw(ctx,m,f){
+      const pulse=1+Math.sin(f*0.02+m.phase)*0.1;
+      const r=this.w*0.5*m.scale*pulse;
+      // outer
+      ctx.fillStyle=m.color||this.color;
+      ctx.beginPath();ctx.arc(m.x,m.y,r,0,Math.PI*2);ctx.fill();
+      // iris
+      ctx.fillStyle=this.eyeColor;
+      ctx.beginPath();ctx.arc(m.x,m.y,r*0.6,0,Math.PI*2);ctx.fill();
+      // pupil slit
+      ctx.fillStyle='#000';
+      ctx.save();ctx.translate(m.x,m.y);ctx.rotate(m.phase);
+      ctx.beginPath();ctx.ellipse(0,0,r*0.1,r*0.5,0,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+      // veins
+      ctx.strokeStyle='rgba(255,50,80,0.3)';ctx.lineWidth=1;
+      for(let i=0;i<6;i++){
+        const a=i/6*Math.PI*2+f*0.005;
+        ctx.beginPath();ctx.moveTo(m.x+Math.cos(a)*r*0.6,m.y+Math.sin(a)*r*0.6);
+        ctx.lineTo(m.x+Math.cos(a)*r,m.y+Math.sin(a)*r);ctx.stroke();
+      }
+    }
+  },
+  {
+    name:'Shadow Maw', w:90, h:40, color:'#0a0a0a', eyeColor:'#aaeeff',
+    draw(ctx,m,f){
+      const open=0.5+Math.sin(f*0.015+m.phase)*0.5;
+      const hw=this.w*0.5*m.scale;
+      const hh=this.h*0.5*m.scale*open;
+      // jaw
+      ctx.fillStyle='#0a0812';
+      ctx.beginPath();
+      ctx.ellipse(m.x,m.y,hw,hh+5*m.scale,0,0,Math.PI*2);
+      ctx.fill();
+      // teeth
+      ctx.fillStyle='rgba(200,210,220,0.7)';
+      const teeth=8;
+      for(let i=0;i<teeth;i++){
+        const t=i/(teeth-1);
+        const tx=m.x-hw*0.8+t*hw*1.6;
+        // top teeth
+        ctx.beginPath();
+        ctx.moveTo(tx-3*m.scale,m.y-hh);
+        ctx.lineTo(tx,m.y-hh+8*m.scale*open);
+        ctx.lineTo(tx+3*m.scale,m.y-hh);
+        ctx.fill();
+        // bottom teeth
+        ctx.beginPath();
+        ctx.moveTo(tx-3*m.scale,m.y+hh);
+        ctx.lineTo(tx,m.y+hh-8*m.scale*open);
+        ctx.lineTo(tx+3*m.scale,m.y+hh);
+        ctx.fill();
+      }
+      // inner void
+      ctx.fillStyle='rgba(0,0,0,0.9)';
+      ctx.beginPath();
+      ctx.ellipse(m.x,m.y,hw*0.6,hh*0.5,0,0,Math.PI*2);
+      ctx.fill();
+    }
+  },
+  {
+    name:'Jellybloom', w:50, h:60, color:'#2a1a4a', eyeColor:'#cc88ff',
+    draw(ctx,m,f){
+      const bob=Math.sin(f*0.02+m.phase)*6;
+      // bell
+      ctx.fillStyle=m.color||'rgba(80,40,120,0.6)';
+      ctx.beginPath();
+      ctx.arc(m.x,m.y+bob,this.w*0.4*m.scale,Math.PI,0);
+      ctx.quadraticCurveTo(m.x+this.w*0.4*m.scale,m.y+bob+10*m.scale,m.x,m.y+bob+15*m.scale);
+      ctx.quadraticCurveTo(m.x-this.w*0.4*m.scale,m.y+bob+10*m.scale,m.x-this.w*0.4*m.scale,m.y+bob);
+      ctx.fill();
+      // glow
+      ctx.fillStyle='rgba(200,140,255,0.15)';
+      ctx.beginPath();ctx.arc(m.x,m.y+bob,this.w*0.5*m.scale,0,Math.PI*2);ctx.fill();
+      // tendrils
+      ctx.strokeStyle='rgba(160,100,220,0.4)';ctx.lineWidth=1.5*m.scale;
+      for(let i=0;i<5;i++){
+        const tx=m.x-12*m.scale+i*6*m.scale;
+        ctx.beginPath();ctx.moveTo(tx,m.y+bob+15*m.scale);
+        ctx.quadraticCurveTo(
+          tx+Math.sin(f*0.03+i+m.phase)*8*m.scale,
+          m.y+bob+40*m.scale,
+          tx+Math.sin(f*0.02+i*2+m.phase)*12*m.scale,
+          m.y+bob+55*m.scale
+        );ctx.stroke();
+      }
+    }
+  },
+];
+
+let monsters = [];
+let revealedMonsters = new Set();
+
+function spawnMonster(){
+  const type = Math.floor(Math.random()*MONSTER_TYPES.length);
+  const side = Math.random();
+  let x, y;
+  // spawn in the water area (upper ~80% of screen, away from lighthouse)
+  if(side < 0.25){
+    x = -80; y = Math.random()*H*0.7+20;
+  } else if(side < 0.5){
+    x = W+80; y = Math.random()*H*0.7+20;
+  } else {
+    x = Math.random()*W; y = Math.random()*H*0.6+20;
+  }
+  // don't spawn too close to lighthouse
+  const dx=x-LH.x, dy=y-LH.y;
+  if(Math.sqrt(dx*dx+dy*dy) < 150) y -= 200;
+
+  monsters.push({
+    type, x, y,
+    vx: (Math.random()-0.5)*0.4,
+    vy: (Math.random()-0.5)*0.2,
+    scale: 0.7+Math.random()*0.8,
+    phase: Math.random()*Math.PI*2,
+    color: null,
+    revealed: false,
+    revealTimer: 0,
+    alive: true,
+    spawnFrame: frame,
+    hp: 1,
+  });
+}
+
+// ── Waves ──
+let wavePhase = 0;
+
+function drawWater(f){
+  // dark water base
+  ctx.fillStyle='#030810';
+  ctx.fillRect(0,0,W,H);
+
+  // wave layers
+  for(let layer=0;layer<3;layer++){
+    const alpha=0.02+layer*0.01;
+    const amp=3+layer*2;
+    const freq=0.008-layer*0.002;
+    const speed=0.02+layer*0.005;
+    ctx.strokeStyle=`rgba(40,80,100,${alpha})`;
+    ctx.lineWidth=1;
+    for(let row=0;row<H;row+=20+layer*10){
+      ctx.beginPath();
+      for(let x=0;x<W;x+=4){
+        const y=row+Math.sin(x*freq+f*speed+layer*2)*amp;
+        x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+  }
+}
+
+function drawLighthouse(f){
+  const x=LH.x, y=LH.y;
+  // tower
+  const tw=18, th=70;
+  ctx.fillStyle='#1a1520';
+  ctx.fillRect(x-tw/2,y-th,tw,th);
+  // stripes
+  for(let i=0;i<5;i++){
+    ctx.fillStyle=i%2===0?'#2a1a1a':'#1a1520';
+    ctx.fillRect(x-tw/2,y-th+i*14,tw,14);
+  }
+  // lamp room
+  ctx.fillStyle='#2a2030';
+  ctx.fillRect(x-tw/2-4,y-th-12,tw+8,14);
+  // light source glow
+  const glow=0.6+Math.sin(f*0.05)*0.15;
+  const rg=ctx.createRadialGradient(x,y-th-5,2,x,y-th-5,30);
+  rg.addColorStop(0,`rgba(255,240,180,${glow})`);
+  rg.addColorStop(1,'transparent');
+  ctx.fillStyle=rg;
+  ctx.fillRect(x-30,y-th-35,60,60);
+  // roof
+  ctx.fillStyle='#2a1a1a';
+  ctx.beginPath();ctx.moveTo(x-tw/2-6,y-th-12);ctx.lineTo(x,y-th-24);ctx.lineTo(x+tw/2+6,y-th-12);ctx.fill();
+  // base rocks
+  ctx.fillStyle='#0f0d12';
+  ctx.beginPath();
+  ctx.ellipse(x,y+5,40,10,0,0,Math.PI*2);
+  ctx.fill();
+}
+
+function drawBeam(f){
+  const bx=LH.x, by=LH.y-75;
+  const angle=beamAngle;
+  const beamLen=Math.max(W,H)*1.2;
+  const spread=0.18; // beam width in radians
+
+  ctx.save();
+  // main beam cone
+  const grd=ctx.createRadialGradient(bx,by,5,bx,by,beamLen);
+  grd.addColorStop(0,'rgba(255,245,200,0.25)');
+  grd.addColorStop(0.3,'rgba(255,240,180,0.08)');
+  grd.addColorStop(0.7,'rgba(255,235,160,0.02)');
+  grd.addColorStop(1,'transparent');
+
+  ctx.fillStyle=grd;
+  ctx.beginPath();
+  ctx.moveTo(bx,by);
+  ctx.lineTo(bx+Math.cos(angle-spread)*beamLen,by+Math.sin(angle-spread)*beamLen);
+  ctx.lineTo(bx+Math.cos(angle+spread)*beamLen,by+Math.sin(angle+spread)*beamLen);
+  ctx.closePath();
+  ctx.fill();
+
+  // inner bright core
+  const grd2=ctx.createRadialGradient(bx,by,2,bx,by,beamLen*0.5);
+  grd2.addColorStop(0,'rgba(255,250,220,0.15)');
+  grd2.addColorStop(1,'transparent');
+  ctx.fillStyle=grd2;
+  ctx.beginPath();
+  ctx.moveTo(bx,by);
+  ctx.lineTo(bx+Math.cos(angle-spread*0.3)*beamLen*0.5,by+Math.sin(angle-spread*0.3)*beamLen*0.5);
+  ctx.lineTo(bx+Math.cos(angle+spread*0.3)*beamLen*0.5,by+Math.sin(angle+spread*0.3)*beamLen*0.5);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+
+  // return beam info for monster reveal checks
+  return {ox:bx, oy:by, angle, spread};
+}
+
+function isInBeam(mx,my,beam){
+  const dx=mx-beam.ox, dy=my-beam.oy;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist<20) return false; // too close to source
+  const mAngle=Math.atan2(dy,dx);
+  let diff=mAngle-beam.angle;
+  while(diff>Math.PI)diff-=Math.PI*2;
+  while(diff<-Math.PI)diff+=Math.PI*2;
+  return Math.abs(diff)<beam.spread*1.2;
+}
+
+// ── Messages ──
+const REVEAL_MSGS = [
+  "Something stirs beneath...",
+  "Eyes in the dark...",
+  "It knows you're watching.",
+  "The deep gazes back.",
+  "You shouldn't have looked.",
+  "It's been waiting.",
+  "The water remembers.",
+  "Don't blink.",
+  "They're closer than you think.",
+  "The beam trembles.",
+];
+
+const GONE_MSGS = [
+  "It slipped back into the void.",
+  "Gone... for now.",
+  "The darkness swallowed it whole.",
+  "Was it ever really there?",
+];
+
+let msgTimer = 0;
+function showMsg(text, duration){
+  msgEl.textContent = text;
+  msgEl.style.opacity = '1';
+  msgTimer = duration || 180;
+}
+
+// ── Audio ──
+let audioCtx = null;
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+}
+
+function playRevealSound(){
+  if(!audioCtx) return;
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.connect(gain);gain.connect(audioCtx.destination);
+  osc.type='sine';
+  osc.frequency.setValueAtTime(80,audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(40,audioCtx.currentTime+1.5);
+  gain.gain.setValueAtTime(0.15,audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+1.5);
+  osc.start();osc.stop(audioCtx.currentTime+1.5);
+}
+
+function playLoseSound(){
+  if(!audioCtx) return;
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.connect(gain);gain.connect(audioCtx.destination);
+  osc.type='sawtooth';
+  osc.frequency.setValueAtTime(200,audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(30,audioCtx.currentTime+2);
+  gain.gain.setValueAtTime(0.12,audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+2);
+  osc.start();osc.stop(audioCtx.currentTime+2);
+}
+
+// ── Input ──
+function onMove(px,py){
+  if(gameOver) return;
+  initAudio();
+  mouseX=px; mouseY=py;
+  beamAngle=Math.atan2(py-(LH.y-75),px-LH.x);
+}
+canvas.addEventListener('mousemove',e=>onMove(e.clientX,e.clientY));
+canvas.addEventListener('touchmove',e=>{e.preventDefault();onMove(e.touches[0].clientX,e.touches[0].clientY)},{passive:false});
+canvas.addEventListener('touchstart',e=>{e.preventDefault();initAudio();onMove(e.touches[0].clientX,e.touches[0].clientY)},{passive:false});
+
+restartBtn.onclick=()=>{
+  sanity=100; score=0; gameOver=false; frame=0;
+  monsters=[]; revealedMonsters.clear();
+  restartBtn.style.display='none';
+  showMsg("The beacon burns again...",120);
+};
+
+// ── Fog particles ──
+let fogParticles = [];
+function initFog(){
+  for(let i=0;i<30;i++){
+    fogParticles.push({
+      x:Math.random()*W, y:Math.random()*H,
+      vx:0.2+Math.random()*0.3, size:60+Math.random()*100,
+      alpha:0.02+Math.random()*0.03,
+    });
+  }
+}
+initFog();
+
+function drawFog(f){
+  fogParticles.forEach(p=>{
+    p.x+=p.vx;
+    if(p.x>W+p.size) p.x=-p.size;
+    ctx.fillStyle=`rgba(15,20,30,${p.alpha})`;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();
+  });
+}
+
+// ── Main Loop ──
+function update(){
+  if(gameOver) return;
+  frame++;
+
+  // spawn monsters
+  const spawnRate = Math.max(60, 200 - score*2);
+  if(frame%spawnRate===0 && monsters.length<12+Math.floor(score/5)){
+    spawnMonster();
+  }
+
+  // move monsters
+  monsters.forEach(m=>{
+    m.x+=m.vx;
+    m.y+=m.vy;
+    // gentle drift toward lighthouse
+    const dx=LH.x-m.x, dy=LH.y-m.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist>100){
+      m.vx+=dx/dist*0.003;
+      m.vy+=dy/dist*0.002;
+    }
+    // clamp velocity
+    m.vx=Math.max(-1,Math.min(1,m.vx));
+    m.vy=Math.max(-0.5,Math.min(0.5,m.vy));
+    // remove if too far off screen
+    if(m.x<-200||m.x>W+200||m.y<-200||m.y>H+200) m.alive=false;
+    // reduce reveal timer
+    if(m.revealTimer>0) m.revealTimer--;
+  });
+
+  monsters=monsters.filter(m=>m.alive);
+
+  // sanity drain from too many revealed
+  const visibleCount = monsters.filter(m=>m.revealTimer>0).length;
+  if(visibleCount>0){
+    sanity -= 0.02 * visibleCount;
+  }
+  // slow sanity regen
+  if(visibleCount===0) sanity = Math.min(100, sanity+0.01);
+
+  // screen shake from low sanity
+  if(sanity<30){
+    const intensity=(30-sanity)/30*3;
+    shakeX=(Math.random()-0.5)*intensity;
+    shakeY=(Math.random()-0.5)*intensity;
+  } else {
+    shakeX*=0.9; shakeY*=0.9;
+  }
+
+  if(sanity<=0){
+    sanity=0;
+    gameOver=true;
+    restartBtn.style.display='block';
+    showMsg("Your mind shatters. The void consumes all.",300);
+    playLoseSound();
+  }
+
+  // message timer
+  if(msgTimer>0){
+    msgTimer--;
+    if(msgTimer===0) msgEl.style.opacity='0';
+  }
+}
+
+function draw(){
+  ctx.save();
+  ctx.translate(shakeX,shakeY);
+
+  drawWater(frame);
+  drawFog(frame);
+
+  // draw monsters (behind beam, dimly visible only if revealed)
+  const beam = drawBeam(frame);
+
+  monsters.forEach(m=>{
+    const inBeam = isInBeam(m.x, m.y, beam);
+    if(inBeam && m.revealTimer<=0){
+      // newly revealed!
+      m.revealTimer = 120;
+      if(!revealedMonsters.has(m)){
+        revealedMonsters.add(m);
+        score++;
+        scoreEl.textContent=score;
+        sanity=Math.max(0,sanity-3-Math.floor(score/10));
+        flashAlpha=0.08;
+        playRevealSound();
+        if(Math.random()<0.6){
+          showMsg(REVEAL_MSGS[Math.floor(Math.random()*REVEAL_MSGS.length)],100);
+        }
+      }
+    }
+    if(inBeam) m.revealTimer=Math.max(m.revealTimer,30);
+
+    // draw if revealed or in beam
+    let alpha=0;
+    if(m.revealTimer>0) alpha=Math.min(1,m.revealTimer/30);
+    if(inBeam) alpha=Math.max(alpha,0.8);
+
+    if(alpha>0){
+      ctx.globalAlpha=alpha;
+      MONSTER_TYPES[m.type].draw(ctx,m,frame);
+      ctx.globalAlpha=1;
+    }
+  });
+
+  drawLighthouse(frame);
+
+  // vignette
+  const vig=ctx.createRadialGradient(W/2,H/2,W*0.2,W/2,H/2,W*0.7);
+  vig.addColorStop(0,'transparent');
+  vig.addColorStop(1,'rgba(0,0,0,0.6)');
+  ctx.fillStyle=vig;
+  ctx.fillRect(0,0,W,H);
+
+  // sanity visual distortion
+  if(sanity<40){
+    const da=(40-sanity)/40*0.08;
+    ctx.fillStyle=`rgba(${sanity<20?'80,0,0':'40,0,40'},${da})`;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  // reveal flash
+  if(flashAlpha>0){
+    ctx.fillStyle=`rgba(255,250,220,${flashAlpha})`;
+    ctx.fillRect(0,0,W,H);
+    flashAlpha*=0.92;
+  }
+
+  ctx.restore();
+
+  // UI
+  sanityFill.style.width=Math.max(0,sanity)+'%';
+  if(sanity<30) sanityFill.style.background=`linear-gradient(90deg,#ff3355,#ff5533)`;
+  else sanityFill.style.background=`linear-gradient(90deg,#ff3355,#ffaa33,#55ff88)`;
+}
+
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+// initial spawn
+setTimeout(()=>{for(let i=0;i<3;i++) spawnMonster()},1500);
+</script>
+</body>
+</html>
