@@ -26,6 +26,7 @@
 - 3 lives, respawn on death
 
 - 2026-04-11: Added double jump (press jump again in air, 85% force, gold sparkle particles) and dash (Shift+direction, 6-frame burst at 12px/s, 30-frame cooldown, orange afterimage trail, particle burst). Touch dash button added. Controls text updated.
+- 2026-04-11: Rewrote fox sprite to be bipedal/anthropomorphic — stands upright on two legs, green vest with V-neck and buttons, tiny brown boots with green trim, arms that swing while running, head centered above body. Hitbox adjusted from 24x30 to 20x34 for taller upright pose.
 
 ## issues
 - None yet
