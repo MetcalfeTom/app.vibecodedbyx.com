@@ -1169,24 +1169,67 @@ function drawPlay() {
 
 /* ─────────────────────────────────────────────────────
    10. SHARE / LOAD LEVELS VIA URL HASH
-   Compact binary encoding — packs two cells per byte
-   since tile IDs are 0-6 (fits in 3 bits each).
+   Uses run-length encoding (RLE) + Base64 for very
+   compact URLs. Grids with large empty/wall areas
+   compress extremely well.
 
-   Format v2: #v2.<sizeIdx>.<base64 of packed bytes>
-     - Each byte stores 2 cells: (cell1 * 7) + cell2
-     - If odd number of cells, last byte has cell * 7
-     - ~3x shorter URLs than the old digit-per-cell format
+   Format v3 (current): #v3.<sizeIdx>.<base64 of RLE bytes>
+     RLE scheme: each run is 1 byte.
+       - Tile IDs are 0-6 (7 values), so we use:
+         byte = tileId + (runLength - 1) * 7
+       - Max run per byte: floor(255/7) = 36 cells
+         (longer runs split into multiple bytes)
+       - Typical 20×14 grid (mostly empty + floor):
+         ~8-15 bytes → ~12-20 chars Base64
 
-   Old format (v1) is still supported for backwards compat:
-     #<sizeIdx>:<base64 of ASCII digits>
+   Backwards compat:
+     v2: #v2.<sizeIdx>.<base64>  (pair-packed bytes)
+     v1: #<sizeIdx>:<base64>     (digit-per-cell)
    ───────────────────────────────────────────────────── */
 
 /**
+ * Run-length encode a flat array of tile IDs into bytes.
+ * Each byte = tileId + (runLen - 1) * 7.
+ * Max run per byte = 36 (since 6 + 35*7 = 251 < 256).
+ */
+function rleEncode(cells) {
+  const MAX_RUN = 36;  // Max cells per single RLE byte
+  const bytes = [];
+  let i = 0;
+  while (i < cells.length) {
+    const tile = cells[i];
+    let run = 1;
+    // Count consecutive identical tiles
+    while (i + run < cells.length && cells[i + run] === tile && run < MAX_RUN) {
+      run++;
+    }
+    // Pack: tileId + (run - 1) * 7
+    bytes.push(tile + (run - 1) * 7);
+    i += run;
+  }
+  return bytes;
+}
+
+/**
+ * Decode RLE bytes back into a flat array of tile IDs.
+ */
+function rleDecode(bytes) {
+  const cells = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    const tile = b % 7;          // Tile ID (0-6)
+    const run = Math.floor(b / 7) + 1;  // Run length (1-36)
+    for (let j = 0; j < run; j++) cells.push(tile);
+  }
+  return cells;
+}
+
+/**
  * Encode the current grid into a compact URL hash string.
- * Packs two tile IDs per byte for minimal URL length.
+ * Uses RLE + Base64 for maximum compression.
  */
 function encodeLevel() {
-  // Flatten grid to a 1D array of tile IDs (row-major)
+  // Flatten grid row-major
   const cells = [];
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -1194,27 +1237,62 @@ function encodeLevel() {
     }
   }
 
-  // Pack pairs of cells into bytes: byte = cell1 * 7 + cell2
-  // Values 0-6 → packed range 0-48, fits in one byte
+  // Run-length encode, then convert to binary string
+  const bytes = rleEncode(cells);
   let binary = '';
-  for (let i = 0; i < cells.length; i += 2) {
-    const a = cells[i];
-    const b = (i + 1 < cells.length) ? cells[i + 1] : 0;
-    binary += String.fromCharCode(a * 7 + b);
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
 
-  // Base64 encode the binary string
-  const encoded = btoa(binary);
-  return `v2.${sizeIdx}.${encoded}`;
+  // Base64 encode
+  return `v3.${sizeIdx}.${btoa(binary)}`;
 }
 
 /**
  * Decode a hash string and load it into the grid.
- * Supports both v2 (compact binary) and v1 (digit-per-cell) formats.
+ * Supports v3 (RLE), v2 (pair-packed), and v1 (digit-per-cell).
  * Returns true on success, false on invalid data.
  */
 function decodeLevel(hash) {
-  // ── Try v2 format first: v2.<sizeIdx>.<base64> ──
+  // ── v3 format: RLE + Base64 ──
+  if (hash.startsWith('v3.')) {
+    const parts = hash.split('.');
+    if (parts.length !== 3) return false;
+
+    const si = parseInt(parts[1]);
+    if (isNaN(si) || si < 0 || si >= GRID_SIZES.length) return false;
+
+    let binary;
+    try { binary = atob(parts[2]); } catch (e) { return false; }
+
+    // Convert binary string to byte array, then RLE decode
+    const bytes = [];
+    for (let i = 0; i < binary.length; i++) bytes.push(binary.charCodeAt(i));
+    const cells = rleDecode(bytes);
+
+    // Apply grid size
+    sizeIdx = si;
+    COLS = GRID_SIZES[sizeIdx][0];
+    ROWS = GRID_SIZES[sizeIdx][1];
+    document.getElementById('size-btn').textContent = `${COLS}×${ROWS}`;
+
+    const total = COLS * ROWS;
+    if (cells.length < total) return false;  // Not enough data
+
+    // Populate the grid
+    grid = [];
+    let idx = 0;
+    for (let r = 0; r < ROWS; r++) {
+      grid[r] = [];
+      for (let c = 0; c < COLS; c++) {
+        const v = cells[idx++];
+        grid[r][c] = (v >= 0 && v <= 6) ? v : 0;
+      }
+    }
+    return true;
+  }
+
+  // ── v2 format (backwards compat): pair-packed bytes ──
   if (hash.startsWith('v2.')) {
     const parts = hash.split('.');
     if (parts.length !== 3) return false;
@@ -1225,26 +1303,20 @@ function decodeLevel(hash) {
     let binary;
     try { binary = atob(parts[2]); } catch (e) { return false; }
 
-    // Apply grid size
     sizeIdx = si;
     COLS = GRID_SIZES[sizeIdx][0];
     ROWS = GRID_SIZES[sizeIdx][1];
     document.getElementById('size-btn').textContent = `${COLS}×${ROWS}`;
 
     const total = COLS * ROWS;
-    const expectedBytes = Math.ceil(total / 2);
-    if (binary.length !== expectedBytes) return false;
+    if (binary.length !== Math.ceil(total / 2)) return false;
 
-    // Unpack pairs of cells from each byte
     const cells = [];
     for (let i = 0; i < binary.length; i++) {
       const byte = binary.charCodeAt(i);
-      const a = Math.floor(byte / 7);
-      const b = byte % 7;
-      cells.push(a, b);
+      cells.push(Math.floor(byte / 7), byte % 7);
     }
 
-    // Populate the grid (trim to exact cell count)
     grid = [];
     let idx = 0;
     for (let r = 0; r < ROWS; r++) {
@@ -1257,7 +1329,7 @@ function decodeLevel(hash) {
     return true;
   }
 
-  // ── Fallback: v1 format (backwards compat): <sizeIdx>:<base64 of digits> ──
+  // ── v1 format (backwards compat): digit-per-cell ──
   const parts = hash.split(':');
   if (parts.length !== 2) return false;
 
