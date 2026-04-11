@@ -3,6 +3,7 @@
 Decode hidden words and phrases where each letter is represented by a unique color block.
 
 ## log
+- 2026-04-11: Added colorblind mode — toggleable A11y button overlays 26 distinct Unicode symbols (◆▲●■★ etc.) on each color block. Symbols shown on both puzzle blocks and color key swatches. Preference persists in localStorage.
 - 2026-04-11: Initial build. Each unique letter gets a distinct HSL color via golden angle distribution. 3 modes: Words (single words like "symphony", "labyrinth"), Phrases (idioms like "break the ice"), Quotes (famous sayings). Guess a letter correctly and ALL instances fill in automatically. Color key panel tracks decoded vs unknown letters. 3 hints per puzzle. Arrow key/tab navigation between inputs. Wrong guesses flash red and shake. Syne Mono + DM Sans typography, deep void/pink accent aesthetic.
 
 ## features
@@ -17,7 +18,6 @@ Decode hidden words and phrases where each letter is represented by a unique col
 - Streak tracking + stats persistence
 
 ## issues
-- Some similar hues possible with many unique letters (26 max)
 - No difficulty settings
 
 ## todos
