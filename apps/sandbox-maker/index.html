@@ -1169,33 +1169,95 @@ function drawPlay() {
 
 /* ─────────────────────────────────────────────────────
    10. SHARE / LOAD LEVELS VIA URL HASH
-   The grid is encoded as: #<sizeIdx>:<base64 of tile IDs>
-   Each cell is one character (0-6), packed into a string
-   then base64-encoded for a compact shareable URL.
+   Compact binary encoding — packs two cells per byte
+   since tile IDs are 0-6 (fits in 3 bits each).
+
+   Format v2: #v2.<sizeIdx>.<base64 of packed bytes>
+     - Each byte stores 2 cells: (cell1 * 7) + cell2
+     - If odd number of cells, last byte has cell * 7
+     - ~3x shorter URLs than the old digit-per-cell format
+
+   Old format (v1) is still supported for backwards compat:
+     #<sizeIdx>:<base64 of ASCII digits>
    ───────────────────────────────────────────────────── */
 
 /**
- * Encode the current grid state into a URL hash string.
- * Format: #<sizeIdx>:<base64(row-major tile IDs)>
+ * Encode the current grid into a compact URL hash string.
+ * Packs two tile IDs per byte for minimal URL length.
  */
 function encodeLevel() {
-  // Build a string of digit characters (one per cell, row-major)
-  let data = '';
+  // Flatten grid to a 1D array of tile IDs (row-major)
+  const cells = [];
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      data += grid[r][c].toString();
+      cells.push(grid[r][c]);
     }
   }
-  // Base64-encode for URL safety
-  const encoded = btoa(data);
-  return `${sizeIdx}:${encoded}`;
+
+  // Pack pairs of cells into bytes: byte = cell1 * 7 + cell2
+  // Values 0-6 → packed range 0-48, fits in one byte
+  let binary = '';
+  for (let i = 0; i < cells.length; i += 2) {
+    const a = cells[i];
+    const b = (i + 1 < cells.length) ? cells[i + 1] : 0;
+    binary += String.fromCharCode(a * 7 + b);
+  }
+
+  // Base64 encode the binary string
+  const encoded = btoa(binary);
+  return `v2.${sizeIdx}.${encoded}`;
 }
 
 /**
  * Decode a hash string and load it into the grid.
+ * Supports both v2 (compact binary) and v1 (digit-per-cell) formats.
  * Returns true on success, false on invalid data.
  */
 function decodeLevel(hash) {
+  // ── Try v2 format first: v2.<sizeIdx>.<base64> ──
+  if (hash.startsWith('v2.')) {
+    const parts = hash.split('.');
+    if (parts.length !== 3) return false;
+
+    const si = parseInt(parts[1]);
+    if (isNaN(si) || si < 0 || si >= GRID_SIZES.length) return false;
+
+    let binary;
+    try { binary = atob(parts[2]); } catch (e) { return false; }
+
+    // Apply grid size
+    sizeIdx = si;
+    COLS = GRID_SIZES[sizeIdx][0];
+    ROWS = GRID_SIZES[sizeIdx][1];
+    document.getElementById('size-btn').textContent = `${COLS}×${ROWS}`;
+
+    const total = COLS * ROWS;
+    const expectedBytes = Math.ceil(total / 2);
+    if (binary.length !== expectedBytes) return false;
+
+    // Unpack pairs of cells from each byte
+    const cells = [];
+    for (let i = 0; i < binary.length; i++) {
+      const byte = binary.charCodeAt(i);
+      const a = Math.floor(byte / 7);
+      const b = byte % 7;
+      cells.push(a, b);
+    }
+
+    // Populate the grid (trim to exact cell count)
+    grid = [];
+    let idx = 0;
+    for (let r = 0; r < ROWS; r++) {
+      grid[r] = [];
+      for (let c = 0; c < COLS; c++) {
+        const v = idx < cells.length ? cells[idx++] : 0;
+        grid[r][c] = (v >= 0 && v <= 6) ? v : 0;
+      }
+    }
+    return true;
+  }
+
+  // ── Fallback: v1 format (backwards compat): <sizeIdx>:<base64 of digits> ──
   const parts = hash.split(':');
   if (parts.length !== 2) return false;
 
@@ -1205,16 +1267,13 @@ function decodeLevel(hash) {
   let data;
   try { data = atob(parts[1]); } catch (e) { return false; }
 
-  // Apply the grid size
   sizeIdx = si;
   COLS = GRID_SIZES[sizeIdx][0];
   ROWS = GRID_SIZES[sizeIdx][1];
   document.getElementById('size-btn').textContent = `${COLS}×${ROWS}`;
 
-  // Verify data length matches grid dimensions
   if (data.length !== COLS * ROWS) return false;
 
-  // Populate the grid
   grid = [];
   let idx = 0;
   for (let r = 0; r < ROWS; r++) {
