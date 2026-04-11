@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixel Colony</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🐜">
+<meta property="og:title" content="Pixel Colony">
+<meta property="og:description" content="Watch colorful ant colonies dig tunnels, harvest sugar, and wage tiny wars.">
+<meta property="og:url" content="https://sloppy.live/pixel-colony">
+<meta property="og:image" content="https://sloppy.live/pixel-colony/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:#1a1410;font-family:'DM Mono',monospace}
+canvas{display:block;cursor:crosshair}
+
+/* HUD overlay */
+#hud{
+  position:fixed;top:0;left:0;right:0;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:6px 14px;
+  background:linear-gradient(180deg,rgba(10,8,6,.85) 0%,transparent 100%);
+  z-index:10;pointer-events:none;
+}
+#title{
+  font-family:'Silkscreen',cursive;font-size:14px;
+  color:#c8a060;letter-spacing:2px;
+}
+#title small{font-size:9px;color:#7a6a50;letter-spacing:1px;display:block;margin-top:1px}
+#stats{display:flex;gap:16px;font-size:11px;color:#8a7a60}
+#stats strong{color:#c8a060}
+.colony-stat{display:flex;align-items:center;gap:4px}
+.colony-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+/* Controls */
+#controls{
+  position:fixed;bottom:8px;left:0;right:0;
+  display:flex;justify-content:center;gap:8px;
+  z-index:10;pointer-events:none;
+}
+.ctrl{
+  font-family:'DM Mono',monospace;font-size:10px;
+  padding:5px 12px;border:1px solid rgba(200,160,96,.25);
+  border-radius:6px;background:rgba(10,8,6,.7);color:#c8a060;
+  cursor:pointer;pointer-events:auto;letter-spacing:1px;
+  transition:border-color .2s;
+}
+.ctrl:hover{border-color:rgba(200,160,96,.5)}
+.ctrl.active{border-color:#c8a060;color:#fff}
+
+#back-link{
+  position:fixed;bottom:8px;right:10px;font-size:9px;
+  color:#4a4030;text-decoration:none;z-index:10;
+}
+#back-link:hover{color:#8a7a60}
+
+/* Mobile */
+@media(max-width:600px){
+  #title{font-size:11px}
+  #title small{display:none}
+  #stats{gap:8px;font-size:9px}
+  .ctrl{font-size:9px;padding:4px 8px}
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="title">PIXEL COLONY<small>zero-player ant wars</small></div>
+  <div id="stats"></div>
+</div>
+
+<div id="controls">
+  <button class="ctrl" onclick="dropSugar()">+ Sugar</button>
+  <button class="ctrl" onclick="toggleSpeed()">Speed: <span id="speed-label">1x</span></button>
+  <button class="ctrl" onclick="toggleTrails()">Trails: <span id="trail-label">On</span></button>
+  <button class="ctrl" onclick="resetSim()">Reset</button>
+</div>
+
+<a id="back-link" href="https://sloppy.live">sloppy.live</a>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   PIXEL COLONY — Zero-Player Digital Ant Farm
+   Multiple colored ant colonies dig tunnels in a shared
+   underground world, harvest sugar from the surface,
+   and fight over resources. Fully autonomous simulation.
+   ═══════════════════════════════════════════════════════ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+
+/* ─────────────────────────────────────────────────────
+   1. WORLD CONFIGURATION
+   ───────────────────────────────────────────────────── */
+
+const CELL = 3;              // Pixel size per grid cell
+let GW, GH;                  // Grid dimensions (computed from viewport)
+let W, H;                    // Canvas pixel dimensions
+
+// Cell types
+const EMPTY = 0, DIRT = 1, SURFACE = 2, SUGAR = 3, NEST = 4, TUNNEL = 5;
+
+// Colony definitions — each has a unique hue and nest position
+const COLONY_DEFS = [
+  { name: 'Crimson',  hue: 0,   rgb: [220, 60, 60] },
+  { name: 'Azure',    hue: 210, rgb: [60, 130, 220] },
+  { name: 'Emerald',  hue: 140, rgb: [50, 190, 90] },
+  { name: 'Amber',    hue: 35,  rgb: [220, 160, 40] },
+];
+
+let grid;           // 2D array of cell types
+let pheromones;     // Per-colony pheromone layers [colony][y][x] = {home, food}
+let colonies;       // Colony state objects
+let ants;           // All ants array
+let battles;        // Active battle animations
+let sugarCount = 0;
+let frame = 0;
+let speed = 1;
+let showTrails = true;
+let imgData;        // ImageData for fast rendering
+
+// Surface Y line (underground starts below this)
+let SURFACE_Y;
+
+
+/* ─────────────────────────────────────────────────────
+   2. INITIALIZATION
+   ───────────────────────────────────────────────────── */
+
+function init() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  GW = Math.floor(W / CELL);
+  GH = Math.floor(H / CELL);
+  SURFACE_Y = Math.floor(GH * 0.18);
+
+  // Create grid — sky above surface, dirt below
+  grid = [];
+  for (let y = 0; y < GH; y++) {
+    grid[y] = new Uint8Array(GW);
+    for (let x = 0; x < GW; x++) {
+      if (y < SURFACE_Y) grid[y][x] = EMPTY;
+      else if (y === SURFACE_Y) grid[y][x] = SURFACE;
+      else grid[y][x] = DIRT;
+    }
+  }
+
+  // Place nests evenly spaced underground
+  colonies = [];
+  ants = [];
+  battles = [];
+  const spacing = Math.floor(GW / (COLONY_DEFS.length + 1));
+
+  for (let i = 0; i < COLONY_DEFS.length; i++) {
+    const nx = spacing * (i + 1);
+    const ny = SURFACE_Y + 6 + Math.floor(Math.random() * 4);
+
+    // Carve nest chamber (3x3)
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const cy = ny + dy, cx = nx + dx;
+        if (cy > 0 && cy < GH && cx > 0 && cx < GW) {
+          grid[cy][cx] = NEST;
+        }
+      }
+    }
+    // Carve tunnel to surface
+    for (let y = SURFACE_Y + 1; y < ny; y++) {
+      grid[y][nx] = TUNNEL;
+    }
+
+    // Init pheromone layer for this colony
+    const phLayer = [];
+    for (let y = 0; y < GH; y++) {
+      phLayer[y] = new Float32Array(GW); // Combined: positive = food trail, negative = home trail
+    }
+
+    const colony = {
+      id: i,
+      ...COLONY_DEFS[i],
+      nestX: nx, nestY: ny,
+      sugar: 0,
+      antCount: 0,
+      pheromones: phLayer,
+    };
+    colonies.push(colony);
+
+    // Spawn initial ants
+    for (let a = 0; a < 25; a++) {
+      spawnAnt(colony);
+    }
+  }
+
+  // Scatter initial sugar on surface
+  for (let i = 0; i < 12; i++) {
+    placeSugarClump(Math.floor(Math.random() * GW), SURFACE_Y - 1);
+  }
+
+  imgData = ctx.createImageData(GW, GH);
+  updateStatsUI();
+}
+
+
+/* ─────────────────────────────────────────────────────
+   3. ANT LOGIC
+   Each ant has: position, velocity, colony, state
+   (explore/returnHome/fight), and a carried flag.
+   ───────────────────────────────────────────────────── */
+
+function spawnAnt(colony) {
+  const ant = {
+    x: colony.nestX + (Math.random() - .5) * 3,
+    y: colony.nestY + (Math.random() - .5) * 2,
+    vx: (Math.random() - .5) * 1.5,
+    vy: (Math.random() - .5) * 1.5,
+    colony: colony.id,
+    state: 'explore',  // explore | returnHome | fight
+    carrying: false,
+    life: 600 + Math.floor(Math.random() * 400),
+    fightTimer: 0,
+    target: null,      // Enemy ant being fought
+  };
+  ants.push(ant);
+  colony.antCount++;
+}
+
+function updateAnt(ant) {
+  const col = colonies[ant.colony];
+  const ph = col.pheromones;
+  ant.life--;
+
+  // Death — respawn at nest if colony has sugar
+  if (ant.life <= 0) {
+    if (col.sugar > 0) {
+      col.sugar--;
+      ant.x = col.nestX + (Math.random() - .5) * 2;
+      ant.y = col.nestY;
+      ant.life = 600 + Math.floor(Math.random() * 400);
+      ant.state = 'explore';
+      ant.carrying = false;
+    } else {
+      ant.dead = true;
+      col.antCount--;
+    }
+    return;
+  }
+
+  const gx = Math.floor(ant.x), gy = Math.floor(ant.y);
+
+  // ── Fighting state ──
+  if (ant.state === 'fight') {
+    ant.fightTimer--;
+    if (ant.fightTimer <= 0 || !ant.target || ant.target.dead) {
+      ant.state = ant.carrying ? 'returnHome' : 'explore';
+      ant.target = null;
+    }
+    // Jitter in place while fighting
+    ant.x += (Math.random() - .5) * 0.6;
+    ant.y += (Math.random() - .5) * 0.6;
+    return;
+  }
+
+  // ── Check for enemy ants nearby ──
+  if (ant.fightTimer <= 0 && Math.random() < 0.02) {
+    for (let j = ants.length - 1; j >= 0; j--) {
+      const other = ants[j];
+      if (other.colony === ant.colony || other.dead || other.state === 'fight') continue;
+      const dx = other.x - ant.x, dy = other.y - ant.y;
+      if (dx * dx + dy * dy < 4) {
+        // Engage in combat
+        ant.state = 'fight';
+        ant.fightTimer = 30 + Math.floor(Math.random() * 30);
+        ant.target = other;
+        other.state = 'fight';
+        other.fightTimer = ant.fightTimer;
+        other.target = ant;
+        // Spawn battle effect
+        battles.push({ x: (ant.x + other.x) / 2, y: (ant.y + other.y) / 2, life: ant.fightTimer });
+        // Resolve: random winner
+        const loser = Math.random() < 0.5 ? ant : other;
+        loser.life = Math.min(loser.life, ant.fightTimer + 5);
+        if (loser.carrying) {
+          // Drop sugar
+          const sx = Math.floor(loser.x), sy = Math.floor(loser.y);
+          if (sx > 0 && sx < GW && sy > 0 && sy < GH && grid[sy][sx] !== DIRT) {
+            grid[sy][sx] = SUGAR;
+          }
+          loser.carrying = false;
+        }
+        break;
+      }
+    }
+  }
+
+  // ── Drop pheromones ──
+  if (gx > 0 && gx < GW && gy > 0 && gy < GH) {
+    if (ant.carrying) {
+      // Food trail: positive values
+      ph[gy][gx] = Math.min(ph[gy][gx] + 0.3, 1.0);
+    } else {
+      // Home trail: negative values
+      ph[gy][gx] = Math.max(ph[gy][gx] - 0.2, -1.0);
+    }
+  }
+
+  // ── Movement ──
+  if (ant.state === 'explore') {
+    // Wander + follow food pheromones
+    ant.vx += (Math.random() - .5) * 0.8;
+    ant.vy += (Math.random() - .5) * 0.8 + 0.05; // Slight downward bias
+
+    // Sniff for food pheromone (positive values from other ants)
+    if (gx > 1 && gx < GW - 1 && gy > 1 && gy < GH - 1) {
+      let bestPh = 0, bx = 0, by = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const py = gy + dy, px = gx + dx;
+          if (py >= 0 && py < GH && px >= 0 && px < GW) {
+            const v = ph[py][px];
+            if (v > bestPh) { bestPh = v; bx = dx; by = dy; }
+          }
+        }
+      }
+      if (bestPh > 0.05) {
+        ant.vx += bx * 0.15;
+        ant.vy += by * 0.15;
+      }
+    }
+
+    // Found sugar?
+    if (gx >= 0 && gx < GW && gy >= 0 && gy < GH && grid[gy][gx] === SUGAR) {
+      ant.carrying = true;
+      ant.state = 'returnHome';
+      grid[gy][gx] = gy === SURFACE_Y ? SURFACE : (gy < SURFACE_Y ? EMPTY : TUNNEL);
+      sugarCount--;
+    }
+
+  } else if (ant.state === 'returnHome') {
+    // Head toward nest + follow home pheromones (negative values)
+    const dx = col.nestX - ant.x, dy = col.nestY - ant.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    ant.vx += (dx / dist) * 0.4;
+    ant.vy += (dy / dist) * 0.4;
+
+    // Sniff for home pheromone
+    if (gx > 1 && gx < GW - 1 && gy > 1 && gy < GH - 1) {
+      let bestPh = 0, bx = 0, by = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const py = gy + dy, px = gx + dx;
+          if (py >= 0 && py < GH && px >= 0 && px < GW) {
+            const v = -ph[py][px]; // Home trail is negative
+            if (v > bestPh) { bestPh = v; bx = dx; by = dy; }
+          }
+        }
+      }
+      if (bestPh > 0.05) {
+        ant.vx += bx * 0.1;
+        ant.vy += by * 0.1;
+      }
+    }
+
+    // Reached nest?
+    if (dist < 3) {
+      ant.carrying = false;
+      ant.state = 'explore';
+      col.sugar++;
+      // Bonus ant every 5 sugar
+      if (col.sugar % 5 === 0 && col.antCount < 60) {
+        spawnAnt(col);
+      }
+    }
+  }
+
+  // ── Dig through dirt ──
+  const nx = Math.floor(ant.x + ant.vx), ny = Math.floor(ant.y + ant.vy);
+  if (nx > 0 && nx < GW - 1 && ny > SURFACE_Y && ny < GH - 1) {
+    if (grid[ny][nx] === DIRT && Math.random() < 0.12) {
+      grid[ny][nx] = TUNNEL;
+    }
+  }
+
+  // Speed limit + damping
+  const spd = Math.sqrt(ant.vx * ant.vx + ant.vy * ant.vy);
+  if (spd > 1.3) { ant.vx *= 1.3 / spd; ant.vy *= 1.3 / spd; }
+  ant.vx *= 0.92;
+  ant.vy *= 0.92;
+
+  // Move
+  ant.x += ant.vx;
+  ant.y += ant.vy;
+
+  // Collision with solid cells
+  const fx = Math.floor(ant.x), fy = Math.floor(ant.y);
+  if (fx <= 0 || fx >= GW - 1) { ant.vx *= -1; ant.x = Math.max(1, Math.min(GW - 2, ant.x)); }
+  if (fy <= 1) { ant.vy = Math.abs(ant.vy) * 0.5; ant.y = 2; }
+  if (fy >= GH - 1) { ant.vy *= -1; ant.y = GH - 2; }
+  if (fx > 0 && fx < GW && fy > 0 && fy < GH && grid[fy][fx] === DIRT) {
+    // Bounce off dirt
+    ant.vx *= -0.5;
+    ant.vy *= -0.5;
+    ant.x -= ant.vx;
+    ant.y -= ant.vy;
+  }
+}
+
+
+/* ─────────────────────────────────────────────────────
+   4. SUGAR & WORLD
+   ───────────────────────────────────────────────────── */
+
+function placeSugarClump(cx, cy) {
+  for (let i = 0; i < 3 + Math.floor(Math.random() * 4); i++) {
+    const sx = cx + Math.floor((Math.random() - .5) * 5);
+    const sy = cy + Math.floor((Math.random() - .5) * 2);
+    if (sx > 0 && sx < GW && sy >= 0 && sy < GH && grid[sy][sx] !== DIRT && grid[sy][sx] !== NEST) {
+      grid[sy][sx] = SUGAR;
+      sugarCount++;
+    }
+  }
+}
+
+function dropSugar() {
+  // Drop sugar at random surface position
+  const x = 10 + Math.floor(Math.random() * (GW - 20));
+  placeSugarClump(x, SURFACE_Y - 1);
+}
+
+
+/* ─────────────────────────────────────────────────────
+   5. PHEROMONE DECAY
+   ───────────────────────────────────────────────────── */
+
+function decayPheromones() {
+  for (const col of colonies) {
+    const ph = col.pheromones;
+    for (let y = 0; y < GH; y++) {
+      for (let x = 0; x < GW; x++) {
+        ph[y][x] *= 0.996;
+        if (Math.abs(ph[y][x]) < 0.005) ph[y][x] = 0;
+      }
+    }
+  }
+}
+
+
+/* ─────────────────────────────────────────────────────
+   6. RENDERING
+   Uses ImageData for fast pixel drawing, then overlays
+   ants and effects on the canvas context.
+   ───────────────────────────────────────────────────── */
+
+function render() {
+  const d = imgData.data;
+  const t = frame * 0.02;
+
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
+      const i = (y * GW + x) * 4;
+      const cell = grid[y][x];
+
+      if (cell === EMPTY) {
+        // Sky — dark gradient
+        const skyT = y / SURFACE_Y;
+        d[i]   = 12 + skyT * 8;
+        d[i+1] = 10 + skyT * 12;
+        d[i+2] = 20 + skyT * 15;
+      } else if (cell === SURFACE) {
+        // Grass surface
+        d[i] = 40 + ((x * 7 + y * 3) % 20);
+        d[i+1] = 75 + ((x * 11) % 25);
+        d[i+2] = 30;
+      } else if (cell === DIRT) {
+        // Earth — warm brown with depth darkening
+        const depth = (y - SURFACE_Y) / (GH - SURFACE_Y);
+        const noise = ((x * 13 + y * 7) % 30) - 15;
+        d[i]   = Math.max(0, 85 - depth * 40 + noise);
+        d[i+1] = Math.max(0, 55 - depth * 30 + noise * 0.5);
+        d[i+2] = Math.max(0, 30 - depth * 20);
+      } else if (cell === TUNNEL) {
+        // Dug tunnel — dark
+        const depth = (y - SURFACE_Y) / (GH - SURFACE_Y);
+        d[i]   = 18 - depth * 8;
+        d[i+1] = 14 - depth * 6;
+        d[i+2] = 12 - depth * 4;
+      } else if (cell === SUGAR) {
+        // Sugar crystals — bright white/yellow pulse
+        const pulse = Math.sin(t * 3 + x * 0.5 + y * 0.3) * 0.15 + 0.85;
+        d[i]   = Math.floor(255 * pulse);
+        d[i+1] = Math.floor(240 * pulse);
+        d[i+2] = Math.floor(180 * pulse);
+      } else if (cell === NEST) {
+        // Nest chamber — colony colored glow
+        // Find which colony this nest belongs to
+        let nestCol = null;
+        for (const c of colonies) {
+          if (Math.abs(x - c.nestX) <= 3 && Math.abs(y - c.nestY) <= 2) { nestCol = c; break; }
+        }
+        if (nestCol) {
+          const pulse = 0.6 + Math.sin(t * 2 + nestCol.id) * 0.2;
+          d[i]   = Math.floor(nestCol.rgb[0] * pulse);
+          d[i+1] = Math.floor(nestCol.rgb[1] * pulse);
+          d[i+2] = Math.floor(nestCol.rgb[2] * pulse);
+        } else {
+          d[i] = 50; d[i+1] = 40; d[i+2] = 30;
+        }
+      }
+      d[i+3] = 255;
+
+      // Pheromone overlay (blend trails from all colonies)
+      if (showTrails) {
+        for (const col of colonies) {
+          const pv = col.pheromones[y][x];
+          if (Math.abs(pv) > 0.02) {
+            const intensity = Math.min(Math.abs(pv), 1) * 0.3;
+            d[i]   = Math.min(255, d[i]   + col.rgb[0] * intensity);
+            d[i+1] = Math.min(255, d[i+1] + col.rgb[1] * intensity);
+            d[i+2] = Math.min(255, d[i+2] + col.rgb[2] * intensity);
+          }
+        }
+      }
+    }
+  }
+
+  // Blit grid to canvas (scaled up)
+  ctx.putImageData(imgData, 0, 0);
+
+  // Scale up
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(canvas, 0, 0, GW, GH, 0, 0, W, H);
+  // Clear the small-resolution data
+  ctx.clearRect(0, 0, GW, GH);
+
+  // ── Draw ants ──
+  for (const ant of ants) {
+    if (ant.dead) continue;
+    const col = colonies[ant.colony];
+    const px = ant.x * CELL, py = ant.y * CELL;
+
+    // Body
+    if (ant.carrying) {
+      // Carrying sugar — brighter
+      ctx.fillStyle = `rgb(${Math.min(255, col.rgb[0] + 60)},${Math.min(255, col.rgb[1] + 60)},${Math.min(255, col.rgb[2] + 60)})`;
+    } else if (ant.state === 'fight') {
+      // Fighting — flash white
+      ctx.fillStyle = frame % 4 < 2 ? '#fff' : `rgb(${col.rgb[0]},${col.rgb[1]},${col.rgb[2]})`;
+    } else {
+      ctx.fillStyle = `rgb(${col.rgb[0]},${col.rgb[1]},${col.rgb[2]})`;
+    }
+    ctx.fillRect(px - 1, py - 1, CELL, CELL);
+
+    // Sugar grain indicator
+    if (ant.carrying) {
+      ctx.fillStyle = '#ffe880';
+      ctx.fillRect(px, py - CELL, 2, 2);
+    }
+  }
+
+  // ── Battle sparks ──
+  for (let i = battles.length - 1; i >= 0; i--) {
+    const b = battles[i];
+    b.life--;
+    if (b.life <= 0) { battles.splice(i, 1); continue; }
+    ctx.fillStyle = `rgba(255,255,200,${b.life / 60})`;
+    const bx = b.x * CELL, by = b.y * CELL;
+    for (let s = 0; s < 3; s++) {
+      ctx.fillRect(
+        bx + (Math.random() - .5) * 8,
+        by + (Math.random() - .5) * 8,
+        1, 1
+      );
+    }
+  }
+}
+
+
+/* ─────────────────────────────────────────────────────
+   7. STATS UI
+   ───────────────────────────────────────────────────── */
+
+function updateStatsUI() {
+  const el = document.getElementById('stats');
+  let html = '';
+  for (const col of colonies) {
+    html += `<div class="colony-stat">
+      <span class="colony-dot" style="background:rgb(${col.rgb})"></span>
+      <span>${col.antCount}🐜 ${col.sugar}🍬</span>
+    </div>`;
+  }
+  html += `<span>Sugar: <strong>${sugarCount}</strong></span>`;
+  el.innerHTML = html;
+}
+
+
+/* ─────────────────────────────────────────────────────
+   8. CONTROLS
+   ───────────────────────────────────────────────────── */
+
+function toggleSpeed() {
+  speed = speed === 1 ? 2 : speed === 2 ? 4 : 1;
+  document.getElementById('speed-label').textContent = speed + 'x';
+}
+
+function toggleTrails() {
+  showTrails = !showTrails;
+  document.getElementById('trail-label').textContent = showTrails ? 'On' : 'Off';
+}
+
+function resetSim() {
+  ants = [];
+  battles = [];
+  sugarCount = 0;
+  init();
+}
+
+// Click/tap to drop sugar
+canvas.addEventListener('click', e => {
+  const gx = Math.floor(e.clientX / CELL);
+  const gy = Math.floor(e.clientY / CELL);
+  placeSugarClump(gx, gy);
+});
+
+
+/* ─────────────────────────────────────────────────────
+   9. MAIN LOOP
+   ───────────────────────────────────────────────────── */
+
+function loop() {
+  for (let s = 0; s < speed; s++) {
+    frame++;
+
+    // Update all ants
+    for (let i = ants.length - 1; i >= 0; i--) {
+      updateAnt(ants[i]);
+      if (ants[i].dead) ants.splice(i, 1);
+    }
+
+    // Pheromone decay (every 4 frames)
+    if (frame % 4 === 0) decayPheromones();
+
+    // Random sugar spawn (every ~8 seconds at 60fps)
+    if (frame % 500 === 0) {
+      const x = 10 + Math.floor(Math.random() * (GW - 20));
+      placeSugarClump(x, SURFACE_Y - 1);
+    }
+
+    // Stats update (every 60 frames)
+    if (frame % 60 === 0) updateStatsUI();
+  }
+
+  render();
+  requestAnimationFrame(loop);
+}
+
+init();
+window.addEventListener('resize', () => {
+  // Reinitialize on resize
+  init();
+});
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
