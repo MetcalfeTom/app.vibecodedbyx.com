@@ -25,6 +25,8 @@
 - Particle effects (jump dust, land dust, berry burst)
 - 3 lives, respawn on death
 
+- 2026-04-11: Added double jump (press jump again in air, 85% force, gold sparkle particles) and dash (Shift+direction, 6-frame burst at 12px/s, 30-frame cooldown, orange afterimage trail, particle burst). Touch dash button added. Controls text updated.
+
 ## issues
 - None yet
 
