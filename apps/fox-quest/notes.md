@@ -27,6 +27,7 @@
 
 - 2026-04-11: Added double jump (press jump again in air, 85% force, gold sparkle particles) and dash (Shift+direction, 6-frame burst at 12px/s, 30-frame cooldown, orange afterimage trail, particle burst). Touch dash button added. Controls text updated.
 - 2026-04-11: Rewrote fox sprite to be bipedal/anthropomorphic — stands upright on two legs, green vest with V-neck and buttons, tiny brown boots with green trim, arms that swing while running, head centered above body. Hitbox adjusted from 24x30 to 20x34 for taller upright pose.
+- 2026-04-11: Added grappling hook — press E to fire a hook at ~45° up-forward, latches onto platforms, pulls fox toward attach point with glowing green rope. Hold E to stay attached, release to let go. 20-frame cooldown. Rope drawn as glowing quadratic curve with bright core and spark particles at attachment. Touch button added.
 - 2026-04-11: Added skin selection system with 4 skins — Classic (green vest), Synthwave (neon purple/magenta with glow), Cyber-Pirate (dark vest, eye patch, pirate hat with skull), Detective (brown vest, monocle with chain). Skin picker on start screen with canvas previews. Selection saved to localStorage.
 
 ## issues
