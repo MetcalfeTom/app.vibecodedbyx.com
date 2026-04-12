@@ -3,6 +3,7 @@
 A digital pet that is a fuzzy cloud of static. Feed it misspelled words to make it grow. Perfect grammar makes it shrink.
 
 ## log
+- 2026-04-12: EARTHQUAKE trigger — 6-second quake with sustained screen shake (magnitude varies with sine waves), Fuzz tilts/wobbles losing balance, 150+ falling rock debris, 8 glowing ground cracks, all UI elements vibrate via CSS animation. Fades out gradually in last second.
 - 2026-04-12: PEESTORM trigger — typing "peestorm" causes 750 yellow particles (burst + rain), 15 puddles scattered, "CODE YELLOW. FUZZ HAS SPRUNG A LEAK."
 - 2026-04-12: POOPSTORM trigger — typing "poopstorm" causes a screen-wide explosion: 500 chaotic waste particles burst from Fuzz in all directions, 200 more rain from the top, 20 piles scatter everywhere over time, heavy sustained screen shake. Status: "CODE BROWN. THIS IS NOT A DRILL."
 - 2026-04-12: Cascade mode — 4+ potty words in one message triggers a massive waterfall of waste particles, staggered pile drops across the screen, heavy screen shake, and panicked mood. Status messages like "THE FLOODGATES HAVE OPENED" and "CATASTROPHIC WASTE EVENT DETECTED."
