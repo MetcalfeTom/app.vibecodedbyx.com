@@ -3,6 +3,7 @@
 First-person shooter where you blast misspelled words out of existence.
 
 ## log
+- 2026-04-12: Todos cleanup — (1) Weapon pickups: boss kills drop glowing powerups (Rapid Pen, Mega Pen, Heal Kit, Combo Lock) that float in 3D and drift toward player, collect on proximity, buff bars in HUD. (2) Supabase leaderboard: score submit on death with name input (localStorage), top 10 display on game-over, gold/silver/bronze styling. Table: lexical_looter_scores. (3) 3 boss types cycling every 5 waves: Snake (multi-segment serpent), Swarm (many small fast enemies), Splitter (splits into 2 halves on death). (4) OG preview PNG added.
 - 2026-04-12: Mouse-look camera + 3D background objects — camera yaw pans smoothly based on mouse X position (±17°, lerped). 3D projection now rotates world coords by camYaw. 2D background layers parallax at 3 depths (far mountains, mid ruins/fires, near lava cracks). 20 decorative 3D objects scattered around the world: burning pillars with fire tops, floating glowing runes, skull piles, broken swords, tall obelisks with pulsing tips, hanging cages with chains. All depth-sorted and projected through the 3D engine.
 - 2026-04-12: Custom words + language selector — custom word input on start screen (comma-separated, saved to localStorage). Auto-typo generator creates misspellings via letter swaps, doubling, dropping, vowel replacement, and common substitutions. 5 language packs (English/Spanish/French/German/Portuguese) with ~20 curated typo/correct pairs each. Custom+language words mix into spawn pool at 30% rate when present.
 - 2026-04-12: 50 tiered words + snake boss + difficulty selector — 5 tiers of 10 misspellings each (easy→nightmare) that unlock as waves progress. 25 matching decoys. Snake boss every 5 waves: multi-segment serpent where each segment is a misspelled word, segments follow the head in a chain. 3 snake sizes (4/5/6 segments). Difficulty selector on start screen (Easy/Normal/Hard) affects speed, tier unlock rate. Tightened screen-edge clamping for better word visibility. Narrowed spawn angle.
@@ -19,7 +20,9 @@ First-person shooter where you blast misspelled words out of existence.
 - 50 tiered misspelled words (5 tiers x 10) + 25 correctly-spelled decoys (no labels — true skill test!)
 - Tiers unlock with wave progression, weighted toward hardest available tier
 - Shooting correct words penalizes: -pts, -8HP, breaks combo
-- Snake boss every 5 waves: multi-segment serpent (4-6 words), segments follow head in a chain
+- 3 boss types every 5 waves: Snake serpent, Swarm rush, Splitter (splits on death)
+- Boss kills drop weapon pickups: Rapid Pen, Mega Pen, Heal Kit, Combo Lock
+- Supabase leaderboard with top 10 on game-over screen
 - Difficulty selector: Easy/Normal/Hard — affects speed, tier unlock rate
 - 3 pixel-art weapons: Red Pen, Spell Smasher, Syntax Shotgun (unlock at waves 3 & 6)
 - Combo multiplier system (x1-x5)
@@ -33,7 +36,4 @@ First-person shooter where you blast misspelled words out of existence.
 - None known
 
 ## todos
-- Weapon pickup drops from bosses
-- Leaderboard via Supabase
-- More boss types
-- OG preview PNG
+- None — all original todos completed!
