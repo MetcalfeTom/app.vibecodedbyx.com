@@ -50,7 +50,7 @@
   <h1>KINU</h1>
   <div class="sub">the dragon</div>
   <button class="play-btn" id="btn-play">PLAY</button>
-  <div class="instructions">WASD / Arrow keys to move &mdash; Space to jump<br>Collect gems, avoid spikes, reach the end</div>
+  <div class="instructions">WASD / Arrows to move &mdash; Space to jump &mdash; S/Down to crouch<br>Collect gems, avoid spikes, reach the end</div>
 </div>
 
 <div id="gameover-screen" class="hidden">
@@ -99,12 +99,13 @@ let goalX = 0;
 /* ── Dragon ── */
 const kinu = {
   x: 0, y: 0, vx: 0, vy: 0,
-  w: 20, h: 36,
+  w: 20, h: 36, hStand: 36, hCrouch: 22,
   onGround: false,
   facing: 1, // 1=right, -1=left
   wingPhase: 0,
   jumps: 0,
-  maxJumps: 2 // double jump
+  maxJumps: 2, // double jump
+  crouching: false
 };
 
 /* ── Level generation ── */
@@ -251,7 +252,7 @@ window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
     e.preventDefault();
-    if (state === 'playing' && kinu.jumps < kinu.maxJumps) {
+    if (state === 'playing' && kinu.jumps < kinu.maxJumps && !kinu.crouching) {
       kinu.vy = JUMP_POWER;
       kinu.jumps++;
       kinu.onGround = false;
@@ -322,11 +323,34 @@ function update() {
   if (state !== 'playing') return;
   frameCount++;
 
+  // Crouch
+  const wantCrouch = keys['KeyS'] || keys['ArrowDown'];
+  if (wantCrouch && kinu.onGround && !kinu.crouching) {
+    // Transition to crouch: shrink height, adjust y so feet stay planted
+    kinu.y += kinu.hStand - kinu.hCrouch;
+    kinu.h = kinu.hCrouch;
+    kinu.crouching = true;
+  } else if (!wantCrouch && kinu.crouching) {
+    // Check if there's room to stand
+    const newY = kinu.y - (kinu.hStand - kinu.hCrouch);
+    const c1 = Math.floor(kinu.x / T);
+    const c2 = Math.floor((kinu.x + kinu.w - 1) / T);
+    const rTop = Math.floor(newY / T);
+    let canStand = true;
+    for (let c = c1; c <= c2; c++) { if (isSolid(c, rTop)) canStand = false; }
+    if (canStand) {
+      kinu.y = newY;
+      kinu.h = kinu.hStand;
+      kinu.crouching = false;
+    }
+  }
+
   // Movement input
   let moveX = 0;
   if (keys['KeyA'] || keys['ArrowLeft'] || touchLeft) moveX = -1;
   if (keys['KeyD'] || keys['ArrowRight'] || touchRight) moveX = 1;
-  kinu.vx = moveX * MOVE_SPEED;
+  const speedMul = kinu.crouching ? 0.4 : 1;
+  kinu.vx = moveX * MOVE_SPEED * speedMul;
   if (moveX !== 0) kinu.facing = moveX;
 
   // Mobile jump
@@ -369,6 +393,12 @@ function update() {
   // Vertical movement + collision
   kinu.y += kinu.vy;
   kinu.onGround = false;
+  // Uncrouch when airborne
+  if (kinu.crouching && kinu.vy !== 0) {
+    kinu.y -= (kinu.hStand - kinu.hCrouch);
+    kinu.h = kinu.hStand;
+    kinu.crouching = false;
+  }
 
   const col1b = Math.floor(kinu.x / T);
   const col2b = Math.floor((kinu.x + kinu.w - 1) / T);
@@ -618,10 +648,28 @@ function drawGoal() {
   ctx.shadowBlur = 0;
 }
 
+/* ── Sneaker drawing helper ── */
+function drawSneaker(fx, fy, neonPulse) {
+  // Sole
+  ctx.fillStyle = '#222';
+  ctx.fillRect(fx - 2, fy - 1, 9, 4);
+  // Upper
+  ctx.fillStyle = '#111';
+  ctx.fillRect(fx - 1, fy - 4, 8, 4);
+  // Neon stripe
+  ctx.shadowColor = NEON_YELLOW;
+  ctx.shadowBlur = 6 + neonPulse * 3;
+  ctx.fillStyle = NEON_YELLOW;
+  ctx.fillRect(fx, fy - 3, 6, 1.5);
+  // Neon sole edge
+  ctx.fillStyle = `rgba(255,228,77,${0.5 + neonPulse * 0.3})`;
+  ctx.fillRect(fx - 2, fy + 2, 9, 1);
+  ctx.shadowBlur = 0;
+}
+
 function drawKinu() {
   const sx = kinu.x - camX;
   const sy = kinu.y;
-  // Anchor at feet (bottom center)
   const cx = sx + kinu.w / 2;
   const cy = sy + kinu.h;
 
@@ -630,37 +678,50 @@ function drawKinu() {
   ctx.scale(kinu.facing, 1);
 
   const running = Math.abs(kinu.vx) > 0.5;
-  const runCycle = frameCount * 0.25; // leg cycle speed
-  const bobY = running ? Math.sin(runCycle * 2) * 1.5 : 0;
+  const crouch = kinu.crouching;
+  const runCycle = frameCount * 0.25;
+  const bobY = running && !crouch ? Math.sin(runCycle * 2) * 1.5 : 0;
+  const neonPulse = Math.sin(frameCount * 0.08) * 0.5 + 0.5; // sneaker glow pulse
 
-  // ── Legs (behind body) ──
+  // Crouch squish factor: body draws lower and compressed
+  const sq = crouch ? 0.6 : 1; // squish
+  const crouchOff = crouch ? 6 : 0; // body drops down
+
+  // ── Legs ──
   ctx.strokeStyle = '#1a1a1a';
   ctx.lineWidth = 3.5;
   ctx.lineCap = 'round';
 
-  if (kinu.onGround && running) {
-    // Running animation — 2 legs with knee joints
-    const legA = Math.sin(runCycle) * 0.6; // phase for front leg
-    const legB = Math.sin(runCycle + Math.PI) * 0.6; // phase for back leg
+  if (crouch && kinu.onGround) {
+    // Crouch pose — legs bent wide, knees out
+    // Back leg
+    ctx.beginPath();
+    ctx.moveTo(-3, -2); ctx.lineTo(-7, 4); ctx.lineTo(-5, -1);
+    ctx.stroke();
+    drawSneaker(-8, -1, neonPulse);
+    // Front leg
+    ctx.beginPath();
+    ctx.moveTo(3, -2); ctx.lineTo(7, 4); ctx.lineTo(5, -1);
+    ctx.stroke();
+    drawSneaker(4, -1, neonPulse);
+  } else if (kinu.onGround && running) {
+    // Running — jointed legs
+    const legA = Math.sin(runCycle) * 0.6;
+    const legB = Math.sin(runCycle + Math.PI) * 0.6;
 
-    // Back leg (behind)
+    // Back leg
     const bHipX = -2, bHipY = -2;
     const bKneeX = bHipX + Math.sin(legB) * 5;
     const bKneeY = bHipY + 7;
     const bFootX = bKneeX + Math.sin(legB + 0.3) * 4;
-    const bFootY = 0;
+    const bFootY = -2;
     ctx.beginPath();
     ctx.moveTo(bHipX, bHipY);
     ctx.lineTo(bKneeX, bKneeY);
     ctx.lineTo(bFootX, bFootY);
     ctx.stroke();
-    // Foot claw
-    ctx.strokeStyle = '#ffe44d';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(bFootX, bFootY);
-    ctx.lineTo(bFootX + 3, bFootY);
-    ctx.stroke();
+    drawSneaker(bFootX - 2, bFootY, neonPulse);
+
     ctx.strokeStyle = '#1a1a1a';
     ctx.lineWidth = 3.5;
 
@@ -669,82 +730,75 @@ function drawKinu() {
     const fKneeX = fHipX + Math.sin(legA) * 5;
     const fKneeY = fHipY + 7;
     const fFootX = fKneeX + Math.sin(legA + 0.3) * 4;
-    const fFootY = 0;
+    const fFootY = -2;
     ctx.beginPath();
     ctx.moveTo(fHipX, fHipY);
     ctx.lineTo(fKneeX, fKneeY);
     ctx.lineTo(fFootX, fFootY);
     ctx.stroke();
-    ctx.strokeStyle = '#ffe44d';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(fFootX, fFootY);
-    ctx.lineTo(fFootX + 3, fFootY);
-    ctx.stroke();
+    drawSneaker(fFootX - 2, fFootY, neonPulse);
   } else if (kinu.onGround) {
     // Standing idle
     ctx.beginPath();
-    ctx.moveTo(-3, -2); ctx.lineTo(-4, 5); ctx.lineTo(-3, 0);
+    ctx.moveTo(-3, -2); ctx.lineTo(-4, 5); ctx.lineTo(-3, -2);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(3, -2); ctx.lineTo(4, 5); ctx.lineTo(3, 0);
+    ctx.moveTo(3, -2); ctx.lineTo(4, 5); ctx.lineTo(3, -2);
     ctx.stroke();
-    // Feet
-    ctx.strokeStyle = '#ffe44d';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-3, 0); ctx.lineTo(0, 0);
-    ctx.moveTo(3, 0); ctx.lineTo(6, 0);
-    ctx.stroke();
+    drawSneaker(-5, -2, neonPulse);
+    drawSneaker(2, -2, neonPulse);
   } else {
     // Airborne — legs tucked
     ctx.beginPath();
-    ctx.moveTo(-3, -3); ctx.lineTo(-5, -1); ctx.lineTo(-2, 0);
+    ctx.moveTo(-3, -3); ctx.lineTo(-5, 2); ctx.lineTo(-2, -1);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(3, -3); ctx.lineTo(5, -1); ctx.lineTo(2, 0);
+    ctx.moveTo(3, -3); ctx.lineTo(5, 2); ctx.lineTo(2, -1);
     ctx.stroke();
+    drawSneaker(-6, -2, neonPulse);
+    drawSneaker(3, -2, neonPulse);
   }
 
-  // ── Tail (behind body) ──
+  // ── Tail ──
   ctx.strokeStyle = '#1a1a1a';
   ctx.lineWidth = 3;
   ctx.shadowColor = NEON_YELLOW;
   ctx.shadowBlur = 5;
   const tailWag = Math.sin(frameCount * 0.07) * 4;
+  const tailBaseY = -6 * sq + crouchOff + bobY;
   ctx.beginPath();
-  ctx.moveTo(-4, -6 + bobY);
-  ctx.quadraticCurveTo(-14, -10 + tailWag + bobY, -20, -4 + tailWag + bobY);
+  ctx.moveTo(-4, tailBaseY);
+  ctx.quadraticCurveTo(-14, tailBaseY - 4 + tailWag, -20, tailBaseY + 2 + tailWag);
   ctx.stroke();
-  // Tail tip arrow
   ctx.fillStyle = '#ffe44d';
   ctx.shadowBlur = 0;
-  const tailTipX = -20 + Math.cos(frameCount * 0.07) * 1.5;
-  const tailTipY = -4 + tailWag + bobY;
+  const ttx = -20 + Math.cos(frameCount * 0.07) * 1.5;
+  const tty = tailBaseY + 2 + tailWag;
   ctx.beginPath();
-  ctx.moveTo(tailTipX, tailTipY - 3);
-  ctx.lineTo(tailTipX - 5, tailTipY);
-  ctx.lineTo(tailTipX, tailTipY + 3);
+  ctx.moveTo(ttx, tty - 3);
+  ctx.lineTo(ttx - 5, tty);
+  ctx.lineTo(ttx, tty + 3);
   ctx.fill();
 
-  // ── Torso (upright) ──
+  // ── Torso ──
+  const torsoY = -12 * sq + crouchOff + bobY;
   ctx.shadowColor = NEON_YELLOW;
   ctx.shadowBlur = 8;
   ctx.fillStyle = '#1a1a1a';
   ctx.beginPath();
-  ctx.ellipse(0, -12 + bobY, 8, 11, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, torsoY, 8, 11 * sq, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Belly plate
   ctx.fillStyle = '#3a3000';
   ctx.beginPath();
-  ctx.ellipse(1, -9 + bobY, 5, 7, 0, 0, Math.PI * 2);
+  ctx.ellipse(1, torsoY + 3 * sq, 5, 7 * sq, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Scale shimmer
   ctx.fillStyle = 'rgba(255,228,77,0.1)';
   ctx.beginPath();
-  ctx.ellipse(0, -16 + bobY, 6, 3, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, torsoY - 4 * sq, 6, 3 * sq, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // ── Arms ──
@@ -752,92 +806,92 @@ function drawKinu() {
   ctx.lineWidth = 2.5;
   ctx.lineCap = 'round';
   ctx.shadowBlur = 0;
-  const armSwing = running ? Math.sin(runCycle + Math.PI * 0.5) * 0.5 : 0;
-  // Back arm
+  const armSwing = running && !crouch ? Math.sin(runCycle + Math.PI * 0.5) * 0.5 : 0;
+  const armBaseY = torsoY - 1;
+  const armEndY = crouch ? armBaseY + 4 : armBaseY + 6;
   ctx.beginPath();
-  ctx.moveTo(-5, -13 + bobY);
-  ctx.lineTo(-9 - armSwing * 5, -7 + bobY);
+  ctx.moveTo(-5, armBaseY);
+  ctx.lineTo(-9 - armSwing * 5, armEndY);
   ctx.stroke();
-  // Front arm
   ctx.beginPath();
-  ctx.moveTo(5, -13 + bobY);
-  ctx.lineTo(9 + armSwing * 5, -7 + bobY);
+  ctx.moveTo(5, armBaseY);
+  ctx.lineTo(9 + armSwing * 5, armEndY);
   ctx.stroke();
-  // Claws
   ctx.strokeStyle = '#ffe44d';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(-9 - armSwing * 5, -7 + bobY);
-  ctx.lineTo(-10 - armSwing * 5, -5 + bobY);
-  ctx.moveTo(9 + armSwing * 5, -7 + bobY);
-  ctx.lineTo(10 + armSwing * 5, -5 + bobY);
+  ctx.moveTo(-9 - armSwing * 5, armEndY);
+  ctx.lineTo(-10 - armSwing * 5, armEndY + 2);
+  ctx.moveTo(9 + armSwing * 5, armEndY);
+  ctx.lineTo(10 + armSwing * 5, armEndY + 2);
   ctx.stroke();
 
-  // ── Wing (behind, one visible) ──
-  const wingFlap = Math.sin(kinu.wingPhase) * 6;
+  // ── Wing ──
+  const wingBaseY = torsoY - 4;
+  const wingFlap = Math.sin(kinu.wingPhase) * (crouch ? 3 : 6);
   ctx.fillStyle = 'rgba(255,228,77,0.3)';
   ctx.beginPath();
-  ctx.moveTo(-6, -16 + bobY);
-  ctx.quadraticCurveTo(-18, -28 + wingFlap + bobY, -22, -14 + wingFlap + bobY);
-  ctx.quadraticCurveTo(-14, -10 + bobY, -6, -11 + bobY);
+  ctx.moveTo(-6, wingBaseY);
+  ctx.quadraticCurveTo(-18, wingBaseY - 12 * sq + wingFlap, -22, wingBaseY + 2 + wingFlap);
+  ctx.quadraticCurveTo(-14, wingBaseY + 2, -6, wingBaseY + 1);
   ctx.fill();
-  // Wing bone
   ctx.strokeStyle = '#1a1a1a';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(-6, -15 + bobY);
-  ctx.lineTo(-18, -24 + wingFlap + bobY);
+  ctx.moveTo(-6, wingBaseY + 1);
+  ctx.lineTo(-18, wingBaseY - 9 * sq + wingFlap);
   ctx.stroke();
 
   // ── Head ──
+  const headY = torsoY - 12 * sq;
   ctx.fillStyle = '#1a1a1a';
   ctx.shadowColor = NEON_YELLOW;
   ctx.shadowBlur = 6;
   ctx.beginPath();
-  ctx.arc(2, -24 + bobY, 6.5, 0, Math.PI * 2);
+  ctx.arc(2, headY, 6.5, 0, Math.PI * 2);
   ctx.fill();
 
   // Snout
   ctx.fillStyle = '#151515';
   ctx.beginPath();
-  ctx.ellipse(7, -23 + bobY, 4, 3, 0, 0, Math.PI * 2);
+  ctx.ellipse(7, headY + 1, 4, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Nostril
   ctx.fillStyle = '#ffe44d';
   ctx.shadowBlur = 3;
   ctx.beginPath();
-  ctx.arc(9.5, -23 + bobY, 0.8, 0, Math.PI * 2);
+  ctx.arc(9.5, headY + 1, 0.8, 0, Math.PI * 2);
   ctx.fill();
 
-  // Eye — bright yellow
+  // Eye
   ctx.fillStyle = '#ffe44d';
   ctx.shadowColor = '#ffe44d';
   ctx.shadowBlur = 8;
   ctx.beginPath();
-  ctx.arc(5, -26 + bobY, 2.2, 0, Math.PI * 2);
+  ctx.arc(5, headY - 2, 2.2, 0, Math.PI * 2);
   ctx.fill();
 
-  // Pupil — slit
+  // Pupil
   ctx.fillStyle = '#000';
   ctx.shadowBlur = 0;
   ctx.beginPath();
-  ctx.ellipse(5.5, -26 + bobY, 0.5, 1.6, 0, 0, Math.PI * 2);
+  ctx.ellipse(5.5, headY - 2, 0.5, 1.6, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Horns
   ctx.strokeStyle = '#ffe44d';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(-1, -29 + bobY); ctx.lineTo(-3, -35 + bobY);
-  ctx.moveTo(3, -29 + bobY); ctx.lineTo(3, -36 + bobY);
+  ctx.moveTo(-1, headY - 5); ctx.lineTo(-3, headY - 11);
+  ctx.moveTo(3, headY - 5); ctx.lineTo(3, headY - 12);
   ctx.stroke();
 
   // Ear spines
   ctx.strokeStyle = '#ffe44d';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(-4, -26 + bobY); ctx.lineTo(-8, -28 + bobY);
+  ctx.moveTo(-4, headY - 2); ctx.lineTo(-8, headY - 4);
   ctx.stroke();
 
   ctx.shadowBlur = 0;
