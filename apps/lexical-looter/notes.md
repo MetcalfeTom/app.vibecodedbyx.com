@@ -3,6 +3,7 @@
 First-person shooter where you blast misspelled words out of existence.
 
 ## log
+- 2026-04-12: 50 tiered words + snake boss + difficulty selector — 5 tiers of 10 misspellings each (easy→nightmare) that unlock as waves progress. 25 matching decoys. Snake boss every 5 waves: multi-segment serpent where each segment is a misspelled word, segments follow the head in a chain. 3 snake sizes (4/5/6 segments). Difficulty selector on start screen (Easy/Normal/Hard) affects speed, tier unlock rate. Tightened screen-edge clamping for better word visibility. Narrowed spawn angle.
 - 2026-04-12: Audio & pause — WebAudio SFX (shoot, hit, kill, miss, penalty buzz, wave fanfare, reload, boss rumble, death). Dark ambient music (drone oscillators + filtered noise pad with LFO pulsing). ESC pause menu with SFX/Music volume sliders. Cursor visible on start screen. Pause button in HUD.
 - 2026-04-12: Spelling-only overhaul — removed grammar and punctuation enemies entirely. Expanded TYPOS from 10 to 30 commonly misspelled words (mispell, concensus, acquaintence, privlege, succesful, tommorrow, beleive, millenium, etc). Expanded DECOYS from 12 to 20 correctly-spelled single words. Updated bosses to spelling-themed. Renamed Grammar Hammer → Spell Smasher. spawnRandom now picks 78% typos / 22% decoys.
 - 2026-04-12: Click-on-word targeting — hit detection now uses text bounding box instead of radius, must click directly on the word. Enemies clamped to stay within visible camera area (steer back if projected off edges). Spawn arc narrowed to forward-facing ~216 degrees.
@@ -13,9 +14,11 @@ First-person shooter where you blast misspelled words out of existence.
 - Pixel art rendering at adaptive low-res (2x/3x scale) with image-rendering:pixelated
 - Apocalyptic hellscape background: burning sky, ruins, fire columns, lava cracks, embers, scanlines
 - 3D pseudo-FPS with mouse aim and click-to-shoot
-- 30 misspelled word enemies + 20 correctly-spelled decoys (no labels — true skill test!)
+- 50 tiered misspelled words (5 tiers x 10) + 25 correctly-spelled decoys (no labels — true skill test!)
+- Tiers unlock with wave progression, weighted toward hardest available tier
 - Shooting correct words penalizes: -pts, -8HP, breaks combo
-- 3 spelling-themed boss types every 5 waves
+- Snake boss every 5 waves: multi-segment serpent (4-6 words), segments follow head in a chain
+- Difficulty selector: Easy/Normal/Hard — affects speed, tier unlock rate
 - 3 pixel-art weapons: Red Pen, Spell Smasher, Syntax Shotgun (unlock at waves 3 & 6)
 - Combo multiplier system (x1-x5)
 - Letter explosion particles and correction text on kills
