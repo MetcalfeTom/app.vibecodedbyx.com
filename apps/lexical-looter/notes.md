@@ -3,6 +3,7 @@
 First-person shooter where you blast misspelled words out of existence.
 
 ## log
+- 2026-04-12: Audio & pause — WebAudio SFX (shoot, hit, kill, miss, penalty buzz, wave fanfare, reload, boss rumble, death). Dark ambient music (drone oscillators + filtered noise pad with LFO pulsing). ESC pause menu with SFX/Music volume sliders. Cursor visible on start screen. Pause button in HUD.
 - 2026-04-12: Spelling-only overhaul — removed grammar and punctuation enemies entirely. Expanded TYPOS from 10 to 30 commonly misspelled words (mispell, concensus, acquaintence, privlege, succesful, tommorrow, beleive, millenium, etc). Expanded DECOYS from 12 to 20 correctly-spelled single words. Updated bosses to spelling-themed. Renamed Grammar Hammer → Spell Smasher. spawnRandom now picks 78% typos / 22% decoys.
 - 2026-04-12: Click-on-word targeting — hit detection now uses text bounding box instead of radius, must click directly on the word. Enemies clamped to stay within visible camera area (steer back if projected off edges). Spawn arc narrowed to forward-facing ~216 degrees.
 - 2026-04-12: Retro pixel art hellscape overhaul. Canvas renders at low res (2x for 768p, 3x for larger) with image-rendering:pixelated. Apocalyptic background: gradient burning sky, mountain silhouettes, ruin columns with jagged tops, fire columns with flicker, lava crack ground, floating ember particles, CRT scanlines. Silkscreen + DotGothic16 pixel fonts. Pixel-art weapons (Red Pen, Grammar Hammer, Syntax Shotgun). Pixel crosshair and border-based enemy plates. Added 12 decoy enemies (correct words/phrases) — shooting them costs -20pts and -8HP, breaks combo. Removed type labels from all non-boss enemies for true skill test. Adaptive pixel scale for 768p resolution support.
@@ -29,6 +30,5 @@ First-person shooter where you blast misspelled words out of existence.
 ## todos
 - Weapon pickup drops from bosses
 - Leaderboard via Supabase
-- Sound effects (typing sounds, corrections)
 - More boss types
 - OG preview PNG
