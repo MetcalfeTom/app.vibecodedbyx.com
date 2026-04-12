@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Data Haven</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🌿">
+<meta property="og:title" content="Data Haven">
+<meta property="og:description" content="Drop text or files into a digital terrarium. Watch them bloom into neon plants.">
+<meta property="og:url" content="https://sloppy.live/data-haven/">
+<meta property="og:image" content="https://sloppy.live/data-haven/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#060d0a;overflow:hidden;font-family:'IBM Plex Mono',monospace;color:#8fa;user-select:none}
+canvas{display:block;width:100vw;height:100vh}
+
+#drop-hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:5;transition:opacity 1.5s}
+#drop-hint h1{font-family:'Cormorant Garamond',serif;font-weight:300;font-size:clamp(22px,4vw,38px);color:rgba(140,255,180,.12);letter-spacing:4px;margin-bottom:10px}
+#drop-hint p{font-size:11px;color:rgba(140,255,180,.08);font-weight:300;max-width:320px;line-height:1.7}
+
+#drop-overlay{position:fixed;inset:0;z-index:20;display:none;background:rgba(0,30,15,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;pointer-events:none}
+#drop-overlay .ring{width:180px;height:180px;border:2px solid rgba(140,255,180,.3);border-radius:50%;display:flex;align-items:center;justify-content:center;animation:pulse 1.5s infinite}
+#drop-overlay .ring span{font-family:'Cormorant Garamond',serif;font-size:16px;color:rgba(140,255,180,.5);letter-spacing:3px}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.08);opacity:1}}
+
+#info-bar{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:5;font-size:9px;color:rgba(140,255,180,.1);font-weight:300;text-align:center;pointer-events:none}
+#plant-count{position:fixed;top:12px;right:14px;z-index:5;font-family:'Cormorant Garamond',serif;font-weight:300;font-size:13px;color:rgba(140,255,180,.15)}
+
+#text-input{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;display:flex;gap:6px;align-items:center;opacity:.3;transition:opacity .3s}
+#text-input:hover,#text-input:focus-within{opacity:1}
+#text-input input{background:rgba(140,255,180,.04);border:1px solid rgba(140,255,180,.12);color:#8fa;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:300;padding:6px 12px;width:220px;outline:none}
+#text-input input::placeholder{color:rgba(140,255,180,.15)}
+#text-input input:focus{border-color:rgba(140,255,180,.3);background:rgba(140,255,180,.06)}
+#text-input button{background:rgba(140,255,180,.06);border:1px solid rgba(140,255,180,.15);color:rgba(140,255,180,.4);font-family:'Cormorant Garamond',serif;font-size:12px;padding:5px 14px;cursor:pointer;letter-spacing:1px}
+#text-input button:hover{color:#8fa;border-color:rgba(140,255,180,.4);background:rgba(140,255,180,.1)}
+
+a#backlink{position:fixed;bottom:10px;left:10px;color:rgba(140,255,180,.06);font-size:8px;text-decoration:none;z-index:5}
+a#backlink:hover{color:rgba(140,255,180,.25)}
+
+#clear-btn{position:fixed;top:12px;left:14px;z-index:5;font-family:'IBM Plex Mono',monospace;font-size:8px;color:rgba(140,255,180,.1);background:none;border:1px solid rgba(140,255,180,.06);padding:2px 8px;cursor:pointer}
+#clear-btn:hover{color:rgba(140,255,180,.4);border-color:rgba(140,255,180,.2)}
+</style>
+</head>
+<body>
+
+<div id="drop-hint">
+  <h1>DATA HAVEN</h1>
+  <p>drop text or files into this terrarium<br>each piece of data grows a unique plant</p>
+</div>
+
+<div id="drop-overlay"><div class="ring"><span>RELEASE</span></div></div>
+
+<canvas id="c"></canvas>
+
+<div id="plant-count"></div>
+
+<div id="text-input">
+  <input type="text" id="seed-input" placeholder="type something to plant..." maxlength="200">
+  <button id="plant-btn">plant</button>
+</div>
+
+<button id="clear-btn">clear garden</button>
+<a id="backlink" href="https://sloppy.live">sloppy.live</a>
+<div id="info-bar">drag text, images, or files into the terrarium</div>
+
+<script>
+const CV=document.getElementById('c'),X=CV.getContext('2d');
+let W,H;
+function resize(){W=CV.width=innerWidth;H=CV.height=innerHeight;}
+resize();addEventListener('resize',resize);
+
+// === HASH FUNCTION — deterministic plant traits from text ===
+function hash(str){
+  let h1=0xdeadbeef,h2=0x41c6ce57;
+  for(let i=0;i<str.length;i++){
+    const ch=str.charCodeAt(i);
+    h1=Math.imul(h1^ch,2654435761);
+    h2=Math.imul(h2^ch,1597334677);
+  }
+  h1=Math.imul(h1^(h1>>>16),2246822507);h1^=Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507);h2^=Math.imul(h1^(h1>>>13),3266489909);
+  return (h2>>>0)*4294967296+(h1>>>0);
+}
+function seededRand(seed){
+  let s=seed;
+  return function(){s=(s*16807+0)%2147483647;return(s-1)/2147483646;};
+}
+
+// === PLANT TYPES ===
+const PLANT_TYPES=['fern','flower','crystal','mushroom','vine','tree','succulent','coral'];
+
+function generatePlant(text,px,py){
+  const h=hash(text);
+  const rng=seededRand(h&0x7FFFFFFF);
+  const type=PLANT_TYPES[Math.floor(rng()*PLANT_TYPES.length)];
+  const hue=Math.floor(rng()*360);
+  const sat=50+rng()*40;
+  const baseH=40+rng()*80; // plant height
+  const segments=3+Math.floor(rng()*5);
+  const leafSize=4+rng()*12;
+  const branchAngle=0.2+rng()*0.6;
+  const glowIntensity=0.3+rng()*0.7;
+  const sway=0.3+rng()*1.2;
+  const thickness=1+rng()*3;
+
+  return{
+    text:text.slice(0,60),type,hue,sat,baseH,segments,leafSize,branchAngle,
+    glowIntensity,sway,thickness,
+    x:px,y:py,
+    growth:0, // 0 to 1
+    growSpeed:0.008+rng()*0.012,
+    age:0,
+    particles:[], // spore particles
+    rng:seededRand((h>>>8)&0x7FFFFFFF), // secondary rng for rendering variation
+  };
+}
+
+let plants=[];
+let motes=[]; // ambient floating motes
+let t=0;
+
+// restore from localStorage
+function savePlants(){
+  try{
+    const data=plants.map(p=>({text:p.text,x:p.x/W,y:p.y/H}));
+    localStorage.setItem('dh-plants',JSON.stringify(data));
+  }catch(e){}
+}
+function loadPlants(){
+  try{
+    const data=JSON.parse(localStorage.getItem('dh-plants'));
+    if(data&&data.length){
+      data.forEach(d=>{
+        const p=generatePlant(d.text,d.x*W,d.y*H);
+        p.growth=1;
+        plants.push(p);
+      });
+    }
+  }catch(e){}
+}
+loadPlants();
+
+// init motes
+for(let i=0;i<40;i++){
+  motes.push({
+    x:Math.random()*W,y:Math.random()*H,
+    vx:(Math.random()-0.5)*0.3,vy:-0.1-Math.random()*0.3,
+    size:0.5+Math.random()*1.5,
+    hue:90+Math.random()*60,
+    alpha:0.05+Math.random()*0.15,
+    phase:Math.random()*Math.PI*2,
+  });
+}
+
+function addPlant(text,px,py){
+  if(!text.trim())return;
+  // default position: random along bottom area
+  if(px===undefined)px=W*0.15+Math.random()*W*0.7;
+  if(py===undefined)py=H*0.7+Math.random()*H*0.15;
+  const p=generatePlant(text.trim(),px,py);
+  plants.push(p);
+  savePlants();
+  updateCount();
+  // fade hint after first plant
+  if(plants.length===1)document.getElementById('drop-hint').style.opacity='0';
+}
+
+function updateCount(){
+  const el=document.getElementById('plant-count');
+  el.textContent=plants.length?plants.length+' specimen'+(plants.length>1?'s':''):'';
+}
+updateCount();
+if(plants.length>0)document.getElementById('drop-hint').style.opacity='0';
+
+// === DRAG & DROP ===
+const dropOverlay=document.getElementById('drop-overlay');
+let dragCounter=0;
+
+addEventListener('dragenter',e=>{e.preventDefault();dragCounter++;dropOverlay.style.display='flex';});
+addEventListener('dragleave',e=>{e.preventDefault();dragCounter--;if(dragCounter<=0){dragCounter=0;dropOverlay.style.display='none';}});
+addEventListener('dragover',e=>e.preventDefault());
+addEventListener('drop',e=>{
+  e.preventDefault();dragCounter=0;dropOverlay.style.display='none';
+  const px=e.clientX,py=e.clientY;
+
+  // try text first
+  const text=e.dataTransfer.getData('text/plain');
+  if(text){addPlant(text,px,py);return;}
+
+  // try files
+  const files=e.dataTransfer.files;
+  if(files.length){
+    for(const file of files){
+      // read first 500 chars of any file as seed text
+      const reader=new FileReader();
+      reader.onload=function(){
+        const content=file.name+':'+reader.result.slice(0,500);
+        addPlant(content,px+(Math.random()-0.5)*40,py);
+      };
+      reader.readAsText(file);
+    }
+  }
+});
+
+// text input
+document.getElementById('plant-btn').addEventListener('click',()=>{
+  const inp=document.getElementById('seed-input');
+  if(inp.value.trim()){addPlant(inp.value);inp.value='';}
+});
+document.getElementById('seed-input').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    const inp=e.target;
+    if(inp.value.trim()){addPlant(inp.value);inp.value='';}
+  }
+});
+
+// clear
+document.getElementById('clear-btn').addEventListener('click',()=>{
+  plants=[];savePlants();updateCount();
+  document.getElementById('drop-hint').style.opacity='1';
+});
+
+// === RENDER ===
+function hsl(h,s,l,a){return'hsla('+h+','+s+'%,'+l+'%,'+(a||1)+')';}
+
+function drawPlant(p){
+  const g=p.growth;
+  if(g<=0)return;
+  const rng=seededRand((hash(p.text)>>>4)&0x7FFFFFFF);
+  const bx=p.x,by=p.y;
+  const h=p.baseH*g;
+  const sway=Math.sin(t*0.002*p.sway+p.x*0.01)*3*g;
+  const hue=p.hue,sat=p.sat;
+
+  X.save();
+
+  // glow beneath
+  const glowR=20+h*0.4;
+  const grad=X.createRadialGradient(bx,by,0,bx,by-h*0.3,glowR);
+  grad.addColorStop(0,hsl(hue,sat,50,0.06*p.glowIntensity*g));
+  grad.addColorStop(1,hsl(hue,sat,50,0));
+  X.fillStyle=grad;
+  X.fillRect(bx-glowR,by-h-glowR,glowR*2,glowR*2);
+
+  if(p.type==='fern'){
+    // central stem
+    X.strokeStyle=hsl(hue,sat,35,0.7*g);
+    X.lineWidth=p.thickness;
+    X.beginPath();X.moveTo(bx,by);
+    const tipX=bx+sway,tipY=by-h;
+    X.quadraticCurveTo(bx+sway*0.3,by-h*0.5,tipX,tipY);
+    X.stroke();
+    // fronds
+    for(let i=0;i<p.segments;i++){
+      const ft=0.15+i/(p.segments)*0.75;
+      if(ft>g)break;
+      const fx=bx+sway*ft*0.3+Math.sin(ft*3)*2;
+      const fy=by-h*ft;
+      const side=(i%2===0?1:-1);
+      const fLen=p.leafSize*(1-ft*0.4);
+      const fAngle=p.branchAngle+Math.sin(t*0.003+i)*0.1;
+      X.strokeStyle=hsl(hue,sat+10,40+ft*15,0.6*g);
+      X.lineWidth=Math.max(0.5,p.thickness*0.6);
+      X.beginPath();X.moveTo(fx,fy);
+      X.lineTo(fx+Math.cos(-Math.PI/2+side*fAngle)*fLen,fy+Math.sin(-Math.PI/2+side*fAngle)*fLen);
+      X.stroke();
+      // tiny leaflets
+      for(let j=1;j<=3;j++){
+        const lt=j/4;
+        const lx=fx+Math.cos(-Math.PI/2+side*fAngle)*fLen*lt;
+        const ly=fy+Math.sin(-Math.PI/2+side*fAngle)*fLen*lt;
+        X.fillStyle=hsl(hue,sat+15,45+j*5,0.5*g);
+        X.fillRect(lx-1,ly-1,2,2);
+      }
+    }
+  } else if(p.type==='flower'){
+    // stem
+    X.strokeStyle=hsl(hue+120,30,30,0.6*g);
+    X.lineWidth=p.thickness;
+    X.beginPath();X.moveTo(bx,by);
+    X.quadraticCurveTo(bx+sway*0.5,by-h*0.6,bx+sway,by-h);
+    X.stroke();
+    // leaves on stem
+    for(let i=0;i<2;i++){
+      const lt=0.3+i*0.25;
+      if(lt>g)break;
+      const lx=bx+sway*lt*0.5,ly=by-h*lt;
+      const side=i%2===0?1:-1;
+      X.fillStyle=hsl(hue+120,40,35,0.5*g);
+      X.beginPath();
+      X.ellipse(lx+side*6,ly,6,3,side*0.4,0,Math.PI*2);
+      X.fill();
+    }
+    // bloom
+    if(g>0.6){
+      const bloomG=Math.min(1,(g-0.6)/0.4);
+      const cx2=bx+sway,cy2=by-h;
+      const petals=Math.floor(p.segments+3);
+      const petalR=p.leafSize*0.6*bloomG;
+      for(let i=0;i<petals;i++){
+        const a=i*Math.PI*2/petals+Math.sin(t*0.002)*0.05;
+        const px2=cx2+Math.cos(a)*petalR;
+        const py2=cy2+Math.sin(a)*petalR;
+        X.fillStyle=hsl(hue,sat+10,55,0.5*bloomG*g);
+        X.beginPath();
+        X.ellipse(px2,py2,petalR*0.5,petalR*0.3,a,0,Math.PI*2);
+        X.fill();
+      }
+      // center
+      X.fillStyle=hsl(hue+40,sat,65,0.7*bloomG*g);
+      X.beginPath();X.arc(cx2,cy2,petalR*0.25,0,Math.PI*2);X.fill();
+      // glow
+      X.shadowColor=hsl(hue,sat,60,1);
+      X.shadowBlur=10*p.glowIntensity*bloomG;
+      X.fillStyle=hsl(hue,sat,60,0.3*bloomG);
+      X.beginPath();X.arc(cx2,cy2,petalR*0.15,0,Math.PI*2);X.fill();
+      X.shadowBlur=0;
+    }
+  } else if(p.type==='crystal'){
+    // crystalline spires
+    const spires=p.segments;
+    for(let i=0;i<spires;i++){
+      const st=i/spires;
+      if(st>g)break;
+      const ox=(i-spires/2)*p.thickness*2.5+sway*st;
+      const sh=h*(0.4+rng()*0.6);
+      const sw2=2+rng()*3;
+      const hueOff=rng()*40-20;
+      // crystal body
+      X.fillStyle=hsl(hue+hueOff,sat,40+rng()*20,0.4*g);
+      X.beginPath();
+      X.moveTo(bx+ox-sw2,by);
+      X.lineTo(bx+ox-sw2*0.3,by-sh*0.8);
+      X.lineTo(bx+ox,by-sh);
+      X.lineTo(bx+ox+sw2*0.3,by-sh*0.8);
+      X.lineTo(bx+ox+sw2,by);
+      X.closePath();X.fill();
+      // highlight edge
+      X.strokeStyle=hsl(hue+hueOff,sat+10,65,0.3*g);
+      X.lineWidth=0.5;
+      X.beginPath();X.moveTo(bx+ox,by-sh);X.lineTo(bx+ox+sw2*0.3,by-sh*0.8);X.stroke();
+      // tip glow
+      X.shadowColor=hsl(hue+hueOff,sat,70,1);
+      X.shadowBlur=8*p.glowIntensity;
+      X.fillStyle=hsl(hue+hueOff,sat,75,0.5*g);
+      X.fillRect(bx+ox-0.5,by-sh-1,1,2);
+      X.shadowBlur=0;
+    }
+  } else if(p.type==='mushroom'){
+    // stem
+    const stemW=p.thickness*2;
+    X.fillStyle=hsl(hue+20,sat*0.5,35,0.5*g);
+    X.fillRect(bx-stemW/2+sway*0.2,by-h*0.6*g,stemW,h*0.6*g);
+    // cap
+    if(g>0.3){
+      const capG=Math.min(1,(g-0.3)/0.7);
+      const capR=p.leafSize*capG;
+      const capY=by-h*0.6*g;
+      // cap shape
+      X.fillStyle=hsl(hue,sat,40,0.5*capG*g);
+      X.beginPath();
+      X.ellipse(bx+sway*0.2,capY,capR,capR*0.5,0,Math.PI,0);
+      X.fill();
+      // spots
+      for(let i=0;i<p.segments-1;i++){
+        const sa=-Math.PI+i*Math.PI/(p.segments-1)+0.3;
+        const sr=capR*0.6;
+        X.fillStyle=hsl(hue+30,sat-10,55,0.4*capG*g);
+        X.beginPath();
+        X.arc(bx+sway*0.2+Math.cos(sa)*sr,capY+Math.sin(sa)*sr*0.45,1.5+rng()*2,0,Math.PI*2);
+        X.fill();
+      }
+      // glow underneath
+      X.shadowColor=hsl(hue,sat,55,1);
+      X.shadowBlur=12*p.glowIntensity*capG;
+      X.fillStyle=hsl(hue,sat,50,0.15*capG);
+      X.fillRect(bx-capR+sway*0.2,capY,capR*2,capR*0.3);
+      X.shadowBlur=0;
+    }
+  } else if(p.type==='vine'){
+    // winding vine with leaves
+    const steps=Math.floor(p.segments*3);
+    let vx2=bx,vy2=by;
+    for(let i=0;i<steps;i++){
+      const vt=i/steps;
+      if(vt>g)break;
+      const nvx=bx+Math.sin(vt*p.branchAngle*8+t*0.001)*p.leafSize*1.5+sway*vt;
+      const nvy=by-h*vt;
+      X.strokeStyle=hsl(hue+60,sat*0.7,30+vt*15,0.6*g);
+      X.lineWidth=Math.max(0.5,p.thickness*(1-vt*0.5));
+      X.beginPath();X.moveTo(vx2,vy2);X.lineTo(nvx,nvy);X.stroke();
+      // leaf every 3rd segment
+      if(i%3===0&&i>0){
+        const lSize=p.leafSize*0.4*(1-vt*0.3);
+        const side=(i%6===0)?1:-1;
+        X.fillStyle=hsl(hue,sat+10,42+vt*15,0.45*g);
+        X.beginPath();
+        X.ellipse(nvx+side*lSize*0.7,nvy,lSize,lSize*0.4,side*0.6+Math.sin(t*0.002)*0.1,0,Math.PI*2);
+        X.fill();
+      }
+      vx2=nvx;vy2=nvy;
+    }
+    // tendril tip
+    if(g>0.8){
+      X.fillStyle=hsl(hue,sat,55,0.5*g);
+      X.beginPath();X.arc(vx2,vy2,2,0,Math.PI*2);X.fill();
+    }
+  } else if(p.type==='tree'){
+    // miniature bonsai-like tree
+    X.strokeStyle=hsl(hue+30,sat*0.3,25,0.6*g);
+    X.lineWidth=p.thickness*1.5;
+    // trunk
+    X.beginPath();X.moveTo(bx,by);
+    const trunkTop={x:bx+sway*0.4,y:by-h*0.5};
+    X.quadraticCurveTo(bx+sway*0.1,by-h*0.25,trunkTop.x,trunkTop.y);
+    X.stroke();
+    // branches
+    if(g>0.3){
+      const brG=Math.min(1,(g-0.3)/0.7);
+      for(let i=0;i<p.segments;i++){
+        const ba=(-0.8+i*1.6/(p.segments-1||1))+Math.sin(t*0.001+i)*0.05;
+        const bLen=(p.leafSize*1.5+rng()*10)*brG;
+        const bx2=trunkTop.x+Math.cos(ba-Math.PI/2)*bLen;
+        const by2=trunkTop.y+Math.sin(ba-Math.PI/2)*bLen;
+        X.strokeStyle=hsl(hue+30,sat*0.3,28,0.5*g);
+        X.lineWidth=Math.max(0.5,p.thickness*0.7);
+        X.beginPath();X.moveTo(trunkTop.x,trunkTop.y);X.lineTo(bx2,by2);X.stroke();
+        // foliage blob
+        const fR=4+rng()*6;
+        X.fillStyle=hsl(hue,sat,40+rng()*15,0.3*brG*g);
+        X.shadowColor=hsl(hue,sat,50,1);
+        X.shadowBlur=6*p.glowIntensity*brG;
+        X.beginPath();X.arc(bx2,by2,fR*brG,0,Math.PI*2);X.fill();
+        X.shadowBlur=0;
+      }
+    }
+  } else if(p.type==='succulent'){
+    // rosette of thick leaves
+    const leaves=p.segments+3;
+    for(let i=0;i<leaves;i++){
+      const lt=i/leaves;
+      if(lt>g)break;
+      const layer=Math.floor(i/5);
+      const posInLayer=i%5;
+      const a=posInLayer*Math.PI*2/5+layer*0.4+Math.sin(t*0.001)*0.02;
+      const r2=(8+layer*6)*g;
+      const lx=bx+Math.cos(a)*r2+sway*0.2;
+      const ly=by-5*g-layer*4*g+Math.sin(a)*r2*0.3;
+      const lw=p.leafSize*0.6,lh=p.leafSize*0.25;
+      X.fillStyle=hsl(hue+layer*15,sat,38+layer*8,0.5*g);
+      X.beginPath();
+      X.ellipse(lx,ly,lw,lh,a,0,Math.PI*2);
+      X.fill();
+      // highlight
+      X.fillStyle=hsl(hue+layer*15,sat-10,55,0.2*g);
+      X.beginPath();
+      X.ellipse(lx+Math.cos(a)*2,ly+Math.sin(a),lw*0.4,lh*0.3,a,0,Math.PI*2);
+      X.fill();
+    }
+    // center glow
+    X.shadowColor=hsl(hue,sat,55,1);
+    X.shadowBlur=8*p.glowIntensity*g;
+    X.fillStyle=hsl(hue+20,sat,50,0.4*g);
+    X.beginPath();X.arc(bx+sway*0.2,by-5*g,3*g,0,Math.PI*2);X.fill();
+    X.shadowBlur=0;
+  } else if(p.type==='coral'){
+    // branching coral structure
+    function drawBranch(x1,y1,len,angle,depth,maxDepth){
+      if(depth>maxDepth||len<3||depth/maxDepth>g)return;
+      const x2=x1+Math.cos(angle)*len;
+      const y2=y1+Math.sin(angle)*len;
+      X.strokeStyle=hsl(hue+depth*12,sat,40+depth*6,0.5*g);
+      X.lineWidth=Math.max(0.5,p.thickness*(1-depth/maxDepth*0.6));
+      X.beginPath();X.moveTo(x1,y1);X.lineTo(x2,y2);X.stroke();
+      // tip blob
+      if(depth===maxDepth-1||len<6){
+        X.fillStyle=hsl(hue+depth*12,sat+10,50,0.4*g);
+        X.beginPath();X.arc(x2,y2,1.5+rng()*2,0,Math.PI*2);X.fill();
+      }
+      const spread=p.branchAngle;
+      drawBranch(x2,y2,len*0.65,angle-spread+Math.sin(t*0.001+depth)*0.05,depth+1,maxDepth);
+      drawBranch(x2,y2,len*0.65,angle+spread+Math.sin(t*0.001+depth)*0.05,depth+1,maxDepth);
+    }
+    drawBranch(bx+sway*0.3,by,h*0.4,-Math.PI/2+sway*0.01,0,Math.min(6,p.segments));
+  }
+
+  // data label (faint)
+  if(g>0.8){
+    X.globalAlpha=0.08*g;
+    X.font='300 8px "IBM Plex Mono"';
+    X.fillStyle=hsl(hue,sat,60,1);
+    X.textAlign='center';
+    X.fillText(p.text,bx+sway*0.5,by+12);
+    X.globalAlpha=1;
+  }
+
+  X.restore();
+}
+
+// === GROUND ===
+function drawGround(){
+  // subtle gradient ground
+  const groundY=H*0.85;
+  const grad=X.createLinearGradient(0,groundY-20,0,H);
+  grad.addColorStop(0,'rgba(10,25,15,0)');
+  grad.addColorStop(0.3,'rgba(10,25,15,0.3)');
+  grad.addColorStop(1,'rgba(8,20,12,0.6)');
+  X.fillStyle=grad;
+  X.fillRect(0,groundY-20,W,H-groundY+20);
+
+  // faint grid lines
+  X.strokeStyle='rgba(140,255,180,0.015)';
+  X.lineWidth=0.5;
+  for(let x=0;x<W;x+=40){
+    X.beginPath();X.moveTo(x,groundY);X.lineTo(x,H);X.stroke();
+  }
+  for(let y=groundY;y<H;y+=20){
+    X.beginPath();X.moveTo(0,y);X.lineTo(W,y);X.stroke();
+  }
+}
+
+// === MOTES ===
+function updateMotes(){
+  for(const m of motes){
+    m.x+=m.vx+Math.sin(t*0.001+m.phase)*0.15;
+    m.y+=m.vy;
+    if(m.y<-10){m.y=H+10;m.x=Math.random()*W;}
+    if(m.x<-10)m.x=W+10;
+    if(m.x>W+10)m.x=-10;
+    X.fillStyle=hsl(m.hue,50,60,m.alpha*(0.5+Math.sin(t*0.003+m.phase)*0.5));
+    X.fillRect(m.x,m.y,m.size,m.size);
+  }
+}
+
+// === SPORE PARTICLES from plants ===
+function updateSpores(){
+  for(const p of plants){
+    if(p.growth<0.9)continue;
+    // occasionally emit a spore
+    if(Math.random()<0.01){
+      p.particles.push({
+        x:p.x+(Math.random()-0.5)*20,
+        y:p.y-p.baseH*0.5-Math.random()*p.baseH*0.3,
+        vx:(Math.random()-0.5)*0.4,
+        vy:-0.2-Math.random()*0.5,
+        life:80+Math.random()*60,
+        maxLife:140,
+        size:0.5+Math.random()*1.5,
+      });
+    }
+    for(let i=p.particles.length-1;i>=0;i--){
+      const sp=p.particles[i];
+      sp.x+=sp.vx+Math.sin(t*0.003+sp.x*0.01)*0.2;
+      sp.y+=sp.vy;
+      sp.life--;
+      if(sp.life<=0){p.particles.splice(i,1);continue;}
+      const a=(sp.life/sp.maxLife)*0.3;
+      X.fillStyle=hsl(p.hue,p.sat,60,a);
+      X.fillRect(sp.x,sp.y,sp.size,sp.size);
+    }
+  }
+}
+
+// === MAIN LOOP ===
+function loop(){
+  t++;
+  X.fillStyle='#060d0a';
+  X.fillRect(0,0,W,H);
+
+  // subtle vignette
+  const vig=X.createRadialGradient(W/2,H/2,W*0.3,W/2,H/2,W*0.8);
+  vig.addColorStop(0,'rgba(0,0,0,0)');
+  vig.addColorStop(1,'rgba(0,0,0,0.4)');
+  X.fillStyle=vig;
+  X.fillRect(0,0,W,H);
+
+  drawGround();
+  updateMotes();
+
+  // grow and draw plants (sorted by y for depth)
+  const sorted=[...plants].sort((a,b)=>a.y-b.y);
+  for(const p of sorted){
+    if(p.growth<1)p.growth=Math.min(1,p.growth+p.growSpeed);
+    p.age++;
+    drawPlant(p);
+  }
+
+  updateSpores();
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
