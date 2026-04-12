@@ -127,6 +127,8 @@ let level = [];
 let levelW = 0, levelH = 0;
 let gemList = [];
 let spikeList = [];
+let movingPlatforms = [];
+let portalPairs = [];
 let particles = [];
 let stars = [];
 let goalX = 0;
@@ -199,6 +201,53 @@ function generateLevel(seed) {
       const pw = Math.floor(Math.random() * 3) + 2;
       for (let i = 0; i < pw && c + i < cols; i++) {
         if (py >= 0 && py < rows) level[py][c + i] = 2;
+      }
+    }
+  }
+
+  // Trampolines (tile type 3) — placed on ground surfaces
+  for (let c = 20; c < cols - 15; c += Math.floor(Math.random() * 18) + 12) {
+    if (Math.random() < 0.5) {
+      for (let r = 1; r < rows; r++) {
+        if (level[r][c] === 1 && (r === 0 || level[r - 1][c] === 0)) {
+          level[r - 1][c] = 3; // trampoline sits on top of ground
+          break;
+        }
+      }
+    }
+  }
+
+  // Moving platforms
+  movingPlatforms = [];
+  for (let c = 25; c < cols - 20; c += Math.floor(Math.random() * 20) + 15) {
+    if (Math.random() < 0.4) {
+      const py = groundY - Math.floor(Math.random() * 4) - 3;
+      const dir = Math.random() < 0.5 ? 'h' : 'v';
+      movingPlatforms.push({
+        x: c * T, y: py * T,
+        w: T * 3, h: T * 0.6,
+        dir: dir,
+        range: dir === 'h' ? T * 3 : T * 2.5,
+        speed: 0.8 + Math.random() * 0.6,
+        phase: Math.random() * Math.PI * 2,
+        baseX: c * T, baseY: py * T
+      });
+    }
+  }
+
+  // Portals (paired)
+  portalPairs = [];
+  for (let c = 30; c < cols - 40; c += Math.floor(Math.random() * 35) + 25) {
+    if (Math.random() < 0.35) {
+      const y1 = (groundY - Math.floor(Math.random() * 3) - 2) * T;
+      const c2 = c + Math.floor(Math.random() * 15) + 8;
+      const y2 = (groundY - Math.floor(Math.random() * 4) - 3) * T;
+      if (c2 < cols - 10) {
+        portalPairs.push({
+          a: { x: c * T, y: y1, hue: 180 },
+          b: { x: c2 * T, y: y2, hue: 300 },
+          cooldown: 0
+        });
       }
     }
   }
@@ -447,7 +496,7 @@ function addParticles(x, y, color, count) {
 /* ── Tile collision helpers ── */
 function isSolid(c, r) {
   if (c < 0 || c >= levelW || r < 0 || r >= levelH) return r >= levelH;
-  return level[r][c] === 1 || level[r][c] === 2;
+  return level[r][c] === 1 || level[r][c] === 2 || level[r][c] === 3;
 }
 
 function rectCollide(ax, ay, aw, ah, bx, by, bw, bh) {
@@ -555,6 +604,67 @@ function update() {
           kinu.vy = 0;
         }
       }
+    }
+  }
+
+  // Trampoline bounce — check if Kinu just landed on a trampoline tile
+  if (kinu.onGround) {
+    const feetR = Math.floor((kinu.y + kinu.h) / T);
+    const feetC1 = Math.floor(kinu.x / T);
+    const feetC2 = Math.floor((kinu.x + kinu.w - 1) / T);
+    for (let c = feetC1; c <= feetC2; c++) {
+      if (feetR >= 0 && feetR < levelH && level[feetR][c] === 3) {
+        kinu.vy = JUMP_POWER * 1.7; // super bounce!
+        kinu.onGround = false;
+        kinu.jumps = 0; // reset jumps so you can double-jump after bounce
+        addParticles(kinu.x + kinu.w / 2 - camX, kinu.y + kinu.h, '#00ffaa', 10);
+        addParticles(kinu.x + kinu.w / 2 - camX, kinu.y + kinu.h, '#ffd700', 5);
+        break;
+      }
+    }
+  }
+
+  // Moving platforms
+  for (const mp of movingPlatforms) {
+    const t = frameCount * 0.02;
+    const oldX = mp.x, oldY = mp.y;
+    if (mp.dir === 'h') {
+      mp.x = mp.baseX + Math.sin(t * mp.speed + mp.phase) * mp.range;
+    } else {
+      mp.y = mp.baseY + Math.sin(t * mp.speed + mp.phase) * mp.range;
+    }
+    // Check if Kinu is standing on this platform
+    const onPlat = kinu.y + kinu.h >= mp.y && kinu.y + kinu.h <= mp.y + mp.h + 6 &&
+                   kinu.x + kinu.w > mp.x && kinu.x < mp.x + mp.w && kinu.vy >= 0;
+    if (onPlat) {
+      kinu.y = mp.y - kinu.h;
+      kinu.vy = 0;
+      kinu.onGround = true;
+      kinu.jumps = 0;
+      // Carry Kinu with platform
+      kinu.x += mp.x - oldX;
+      kinu.y += mp.y - oldY;
+    }
+  }
+
+  // Portal teleport
+  for (const pp of portalPairs) {
+    if (pp.cooldown > 0) { pp.cooldown--; continue; }
+    const kcx = kinu.x + kinu.w / 2, kcy = kinu.y + kinu.h / 2;
+    const dA = Math.sqrt((kcx - pp.a.x - T/2)**2 + (kcy - pp.a.y - T/2)**2);
+    const dB = Math.sqrt((kcx - pp.b.x - T/2)**2 + (kcy - pp.b.y - T/2)**2);
+    if (dA < T * 0.8) {
+      kinu.x = pp.b.x + T/2 - kinu.w/2;
+      kinu.y = pp.b.y - kinu.h;
+      pp.cooldown = 45;
+      addParticles(pp.a.x + T/2 - camX, pp.a.y + T/2, `hsl(${pp.a.hue},90%,65%)`, 12);
+      addParticles(pp.b.x + T/2 - camX, pp.b.y + T/2, `hsl(${pp.b.hue},90%,65%)`, 12);
+    } else if (dB < T * 0.8) {
+      kinu.x = pp.a.x + T/2 - kinu.w/2;
+      kinu.y = pp.a.y - kinu.h;
+      pp.cooldown = 45;
+      addParticles(pp.b.x + T/2 - camX, pp.b.y + T/2, `hsl(${pp.b.hue},90%,65%)`, 12);
+      addParticles(pp.a.x + T/2 - camX, pp.a.y + T/2, `hsl(${pp.a.hue},90%,65%)`, 12);
     }
   }
 
@@ -718,6 +828,34 @@ function drawTiles() {
         ctx.fillStyle = 'rgba(255,215,0,0.3)';
         ctx.fillRect(sx, sy, T, 2);
         ctx.shadowBlur = 0;
+      } else if (tile === 3) {
+        // Trampoline — springy green pad
+        const bounce = Math.sin(frameCount * 0.1 + c) * 2;
+        ctx.fillStyle = '#0a2a10';
+        ctx.fillRect(sx + 2, sy + T * 0.4, T - 4, T * 0.6);
+        // Spring coils
+        ctx.strokeStyle = '#30a050';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 3; i++) {
+          const cx = sx + 8 + i * 10;
+          ctx.beginPath();
+          ctx.moveTo(cx, sy + T);
+          ctx.quadraticCurveTo(cx + 5, sy + T * 0.6, cx, sy + T * 0.4 + bounce);
+          ctx.stroke();
+        }
+        // Bouncy pad on top
+        ctx.fillStyle = '#00ff88';
+        ctx.shadowColor = '#00ff88';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(sx + 1, sy + T * 0.3 + bounce, T - 2, 6);
+        ctx.shadowBlur = 0;
+        // Arrow indicator
+        ctx.fillStyle = 'rgba(0,255,136,0.4)';
+        ctx.beginPath();
+        ctx.moveTo(sx + T/2, sy + bounce);
+        ctx.lineTo(sx + T/2 - 6, sy + T * 0.25 + bounce);
+        ctx.lineTo(sx + T/2 + 6, sy + T * 0.25 + bounce);
+        ctx.fill();
       }
     }
   }
@@ -1119,12 +1257,108 @@ function drawMobileControls() {
 }
 
 /* ── Render ── */
+function drawMovingPlatforms() {
+  for (const mp of movingPlatforms) {
+    const sx = mp.x - camX;
+    const sy = mp.y;
+    if (sx + mp.w < -20 || sx > W + 20) continue;
+
+    // Platform body
+    ctx.fillStyle = '#1a1020';
+    ctx.fillRect(sx, sy, mp.w, mp.h);
+    // Gold top edge
+    ctx.fillStyle = '#8a6d20';
+    ctx.fillRect(sx, sy, mp.w, 3);
+    // Glow
+    ctx.shadowColor = '#ffa500';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = 'rgba(255,165,0,0.4)';
+    ctx.fillRect(sx, sy, mp.w, 2);
+    ctx.shadowBlur = 0;
+    // Direction indicator arrows
+    ctx.fillStyle = 'rgba(255,165,0,0.3)';
+    if (mp.dir === 'h') {
+      // Left/right arrows
+      ctx.beginPath();
+      ctx.moveTo(sx + 4, sy + mp.h/2);
+      ctx.lineTo(sx + 10, sy + mp.h/2 - 4);
+      ctx.lineTo(sx + 10, sy + mp.h/2 + 4);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(sx + mp.w - 4, sy + mp.h/2);
+      ctx.lineTo(sx + mp.w - 10, sy + mp.h/2 - 4);
+      ctx.lineTo(sx + mp.w - 10, sy + mp.h/2 + 4);
+      ctx.fill();
+    } else {
+      // Up/down arrows
+      const cx = sx + mp.w/2;
+      ctx.beginPath();
+      ctx.moveTo(cx, sy + 2);
+      ctx.lineTo(cx - 4, sy + 8);
+      ctx.lineTo(cx + 4, sy + 8);
+      ctx.fill();
+    }
+  }
+}
+
+function drawPortals() {
+  const t = frameCount * 0.04;
+  for (const pp of portalPairs) {
+    for (const portal of [pp.a, pp.b]) {
+      const sx = portal.x - camX + T/2;
+      const sy = portal.y + T/2;
+      if (sx < -T * 2 || sx > W + T * 2) continue;
+
+      // Outer glow
+      const grad = ctx.createRadialGradient(sx, sy, 2, sx, sy, T * 0.8);
+      grad.addColorStop(0, `hsla(${portal.hue}, 90%, 65%, 0.6)`);
+      grad.addColorStop(0.5, `hsla(${portal.hue}, 80%, 50%, 0.2)`);
+      grad.addColorStop(1, `hsla(${portal.hue}, 70%, 40%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(sx - T, sy - T, T * 2, T * 2);
+
+      // Spinning ring
+      ctx.strokeStyle = `hsla(${portal.hue}, 90%, 65%, 0.8)`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, T * 0.45, T * 0.45, t, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Inner ring
+      ctx.strokeStyle = `hsla(${(portal.hue + 40) % 360}, 85%, 70%, 0.5)`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, T * 0.3, T * 0.3, -t * 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Core
+      ctx.fillStyle = `hsla(${portal.hue}, 90%, 75%, ${0.5 + Math.sin(t * 3) * 0.3})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, T * 0.15, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Sparkle particles around edge
+      for (let i = 0; i < 4; i++) {
+        const a = t * 2 + i * Math.PI / 2;
+        const px = sx + Math.cos(a) * T * 0.4;
+        const py = sy + Math.sin(a) * T * 0.4;
+        ctx.fillStyle = `hsla(${portal.hue}, 90%, 80%, ${0.4 + Math.sin(t * 5 + i) * 0.3})`;
+        ctx.beginPath();
+        ctx.arc(px, py, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+}
+
 function draw() {
   ctx.clearRect(0, 0, W, H);
   drawBackground();
 
   if (state === 'playing' || state === 'dead') {
     drawTiles();
+    drawMovingPlatforms();
+    drawPortals();
     drawSpikes();
     drawGems();
     drawGoal();
