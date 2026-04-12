@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Gravity Chaos</title>
+  <link rel="icon" href="https://emojicdn.elk.sh/🌀">
+  <meta property="og:title" content="Gravity Chaos">
+  <meta property="og:description" content="Neon balls orbit, collide, and spiral around gravity wells you place. Pure physics chaos.">
+  <meta property="og:url" content="https://sloppy.live/gravity-chaos">
+  <meta property="og:image" content="https://sloppy.live/gravity-chaos/og-image.png">
+  <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #050508;
+      overflow: hidden;
+      height: 100dvh;
+      font-family: 'Share Tech Mono', monospace;
+      color: #667;
+      touch-action: none;
+      user-select: none;
+    }
+    canvas { display: block; position: fixed; inset: 0; }
+
+    #hud {
+      position: fixed; top: 8px; left: 0; right: 0;
+      display: flex; justify-content: center; gap: 20px;
+      font-size: 11px; z-index: 10; pointer-events: none;
+    }
+    .hv { font-family: 'Audiowide', cursive; }
+    .hv-balls { color: #44ffaa; }
+    .hv-wells { color: #ff44aa; }
+    .hv-col { color: #ffaa44; }
+    .hl { color: #334; }
+
+    #controls {
+      position: fixed; top: 8px; right: 12px;
+      display: flex; gap: 6px; z-index: 10;
+      flex-wrap: wrap; justify-content: flex-end;
+    }
+    .btn {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 10px; padding: 5px 10px;
+      border: 1px solid #222; background: rgba(10,10,15,0.85);
+      color: #556; cursor: pointer; letter-spacing: 0.5px;
+      transition: all .12s;
+    }
+    .btn:hover { border-color: #44ffaa; color: #44ffaa; }
+    .btn.active { border-color: #ff44aa; color: #ff44aa; background: rgba(255,68,170,0.08); }
+    .btn.warn:hover { border-color: #ffaa44; color: #ffaa44; }
+
+    #mode-info {
+      position: fixed; bottom: 12px; left: 0; right: 0;
+      text-align: center; font-size: 10px; color: #223;
+      z-index: 10; pointer-events: none;
+      transition: opacity .4s;
+    }
+
+    #backlink {
+      position: fixed; bottom: 4px; right: 8px;
+      font-size: 9px; color: #111; text-decoration: none; z-index: 10;
+    }
+    #backlink:hover { color: #44ffaa; }
+  </style>
+</head>
+<body>
+
+  <canvas id="c"></canvas>
+
+  <div id="hud">
+    <span><span class="hl">BALLS</span> <span class="hv hv-balls" id="h-balls">0</span></span>
+    <span><span class="hl">WELLS</span> <span class="hv hv-wells" id="h-wells">0</span></span>
+    <span><span class="hl">COLLISIONS</span> <span class="hv hv-col" id="h-col">0</span></span>
+  </div>
+
+  <div id="controls">
+    <button class="btn active" id="btn-ball" title="Click to spawn balls">+ BALL</button>
+    <button class="btn" id="btn-well" title="Click to place gravity wells">+ WELL</button>
+    <button class="btn" id="btn-repel" title="Click to place repulsors">+ REPEL</button>
+    <button class="btn warn" id="btn-explode" title="Explode everything outward">BOOM</button>
+    <button class="btn" id="btn-clear" title="Clear all">CLEAR</button>
+  </div>
+
+  <div id="mode-info">click to spawn &middot; drag to fling &middot; right-click wells to remove</div>
+
+  <a id="backlink" href="https://sloppy.live">sloppy.live</a>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+/* ── Config ── */
+const MAX_BALLS = 300;
+const GRAVITY_CONST = 2000;
+const REPEL_CONST = -1500;
+const DAMPING = 0.9995;
+const BALL_BOUNCE = 0.7;
+const BALL_MIN_R = 4;
+const BALL_MAX_R = 12;
+const WELL_MIN_R = 15;
+
+/* ── State ── */
+let balls = [];
+let wells = []; // { x, y, mass, radius, hue, repel }
+let trails = []; // fading trail dots
+let sparks = [];
+let collisions = 0;
+let frame = 0;
+let mode = 'ball'; // ball | well | repel
+
+/* ── Input ── */
+let dragStart = null;
+let dragCurrent = null;
+let infoTimer = 400;
+
+canvas.addEventListener('pointerdown', e => {
+  if (e.button === 2) {
+    // Right-click: remove nearest well
+    e.preventDefault();
+    removeNearestWell(e.clientX, e.clientY);
+    return;
+  }
+  dragStart = { x: e.clientX, y: e.clientY };
+  dragCurrent = { ...dragStart };
+  infoTimer = 0;
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (dragStart) dragCurrent = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener('pointerup', e => {
+  if (!dragStart) return;
+  const dx = dragCurrent.x - dragStart.x;
+  const dy = dragCurrent.y - dragStart.y;
+
+  if (mode === 'ball') {
+    spawnBall(dragStart.x, dragStart.y, -dx * 0.15, -dy * 0.15);
+  } else if (mode === 'well') {
+    spawnWell(dragStart.x, dragStart.y, false);
+  } else if (mode === 'repel') {
+    spawnWell(dragStart.x, dragStart.y, true);
+  }
+
+  dragStart = null;
+  dragCurrent = null;
+});
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// Buttons
+document.getElementById('btn-ball').onclick = () => setMode('ball');
+document.getElementById('btn-well').onclick = () => setMode('well');
+document.getElementById('btn-repel').onclick = () => setMode('repel');
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-ball').className = 'btn' + (m === 'ball' ? ' active' : '');
+  document.getElementById('btn-well').className = 'btn' + (m === 'well' ? ' active' : '');
+  document.getElementById('btn-repel').className = 'btn' + (m === 'repel' ? ' active' : '');
+}
+
+document.getElementById('btn-explode').onclick = () => {
+  const cx = W / 2, cy = H / 2;
+  for (const b of balls) {
+    const dx = b.x - cx, dy = b.y - cy;
+    const d = Math.hypot(dx, dy) + 1;
+    b.vx += (dx / d) * 20;
+    b.vy += (dy / d) * 20;
+  }
+  // Big spark burst
+  for (let i = 0; i < 40; i++) {
+    sparks.push({
+      x: cx, y: cy,
+      vx: (Math.random() - 0.5) * 25,
+      vy: (Math.random() - 0.5) * 25,
+      life: 30 + Math.random() * 20,
+      maxLife: 50,
+      hue: Math.random() * 360,
+      size: 2 + Math.random() * 3
+    });
+  }
+};
+
+document.getElementById('btn-clear').onclick = () => {
+  balls = []; wells = []; trails = []; sparks = []; collisions = 0;
+};
+
+/* ── Spawn ── */
+function spawnBall(x, y, vx, vy) {
+  if (balls.length >= MAX_BALLS) balls.shift();
+  const r = BALL_MIN_R + Math.random() * (BALL_MAX_R - BALL_MIN_R);
+  const hue = Math.random() * 360;
+  balls.push({
+    x, y, vx: vx || 0, vy: vy || 0,
+    r, mass: r * r * 0.1,
+    hue, trail: []
+  });
+}
+
+function spawnWell(x, y, repel) {
+  const mass = 40 + Math.random() * 60;
+  const radius = WELL_MIN_R + mass * 0.2;
+  const hue = repel ? 200 + Math.random() * 40 : 300 + Math.random() * 60;
+  wells.push({ x, y, mass, radius, hue, repel, pulse: 0 });
+}
+
+function removeNearestWell(mx, my) {
+  let bestD = 60, bestI = -1;
+  for (let i = 0; i < wells.length; i++) {
+    const d = Math.hypot(wells[i].x - mx, wells[i].y - my);
+    if (d < bestD) { bestD = d; bestI = i; }
+  }
+  if (bestI >= 0) {
+    // Destruction burst
+    const w = wells[bestI];
+    for (let i = 0; i < 20; i++) {
+      sparks.push({
+        x: w.x, y: w.y,
+        vx: (Math.random() - 0.5) * 10,
+        vy: (Math.random() - 0.5) * 10,
+        life: 20 + Math.random() * 15,
+        maxLife: 35, hue: w.hue,
+        size: 2 + Math.random() * 2
+      });
+    }
+    wells.splice(bestI, 1);
+  }
+}
+
+/* ── Seed some initial content ── */
+for (let i = 0; i < 3; i++) {
+  spawnWell(W * 0.2 + Math.random() * W * 0.6, H * 0.2 + Math.random() * H * 0.6, i === 2);
+}
+for (let i = 0; i < 20; i++) {
+  spawnBall(
+    Math.random() * W, Math.random() * H,
+    (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4
+  );
+}
+
+/* ── Physics ── */
+function update() {
+  frame++;
+
+  for (const b of balls) {
+    // Gravity from wells
+    for (const w of wells) {
+      const dx = w.x - b.x, dy = w.y - b.y;
+      const distSq = dx * dx + dy * dy;
+      const dist = Math.sqrt(distSq);
+      if (dist < 5) continue;
+
+      const G = w.repel ? REPEL_CONST : GRAVITY_CONST;
+      const force = G * w.mass / (distSq + 500);
+      b.vx += (dx / dist) * force * 0.016;
+      b.vy += (dy / dist) * force * 0.016;
+
+      // Absorbed if too close to attractor
+      if (!w.repel && dist < w.radius * 0.5) {
+        // Slingshot out with energy
+        const angle = Math.atan2(dy, dx) + Math.PI * (0.8 + Math.random() * 0.4);
+        const speed = Math.hypot(b.vx, b.vy) * 1.3 + 3;
+        b.vx = Math.cos(angle) * speed;
+        b.vy = Math.sin(angle) * speed;
+        b.x = w.x + Math.cos(angle) * w.radius;
+        b.y = w.y + Math.sin(angle) * w.radius;
+        w.pulse = 1;
+        // Sparks
+        for (let j = 0; j < 6; j++) {
+          sparks.push({
+            x: w.x, y: w.y,
+            vx: (Math.random() - 0.5) * 8,
+            vy: (Math.random() - 0.5) * 8,
+            life: 12 + Math.random() * 10,
+            maxLife: 22, hue: b.hue, size: 1.5 + Math.random()
+          });
+        }
+      }
+    }
+
+    // Damping
+    b.vx *= DAMPING;
+    b.vy *= DAMPING;
+
+    // Speed cap
+    const spd = Math.hypot(b.vx, b.vy);
+    if (spd > 20) { b.vx *= 20 / spd; b.vy *= 20 / spd; }
+
+    b.x += b.vx;
+    b.y += b.vy;
+
+    // Wall bounce
+    if (b.x - b.r < 0) { b.x = b.r; b.vx = Math.abs(b.vx) * BALL_BOUNCE; }
+    if (b.x + b.r > W) { b.x = W - b.r; b.vx = -Math.abs(b.vx) * BALL_BOUNCE; }
+    if (b.y - b.r < 0) { b.y = b.r; b.vy = Math.abs(b.vy) * BALL_BOUNCE; }
+    if (b.y + b.r > H) { b.y = H - b.r; b.vy = -Math.abs(b.vy) * BALL_BOUNCE; }
+
+    // Trail
+    b.trail.push({ x: b.x, y: b.y });
+    if (b.trail.length > 20) b.trail.shift();
+  }
+
+  // Ball-ball collisions
+  for (let i = 0; i < balls.length; i++) {
+    const a = balls[i];
+    for (let j = i + 1; j < balls.length; j++) {
+      const b = balls[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const minD = a.r + b.r;
+      if (dist < minD && dist > 0.1) {
+        collisions++;
+        const nx = dx / dist, ny = dy / dist;
+        // Separate
+        const overlap = minD - dist;
+        const totalMass = a.mass + b.mass;
+        a.x -= nx * overlap * (b.mass / totalMass);
+        a.y -= ny * overlap * (b.mass / totalMass);
+        b.x += nx * overlap * (a.mass / totalMass);
+        b.y += ny * overlap * (a.mass / totalMass);
+        // Elastic collision
+        const relVn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+        if (relVn > 0) {
+          const impulse = relVn / totalMass * 1.8;
+          a.vx -= impulse * b.mass * nx;
+          a.vy -= impulse * b.mass * ny;
+          b.vx += impulse * a.mass * nx;
+          b.vy += impulse * a.mass * ny;
+        }
+        // Collision sparks
+        if (Math.abs(relVn) > 1) {
+          const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+          for (let k = 0; k < 3; k++) {
+            sparks.push({
+              x: cx, y: cy,
+              vx: (Math.random() - 0.5) * 5,
+              vy: (Math.random() - 0.5) * 5,
+              life: 8 + Math.random() * 8,
+              maxLife: 16, hue: (a.hue + b.hue) / 2,
+              size: 1 + Math.random()
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Well pulse decay
+  for (const w of wells) {
+    w.pulse *= 0.92;
+  }
+
+  // Sparks
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.x += s.vx; s.y += s.vy;
+    s.vx *= 0.96; s.vy *= 0.96;
+    s.life--;
+    if (s.life <= 0) sparks.splice(i, 1);
+  }
+  if (sparks.length > 500) sparks.splice(0, sparks.length - 500);
+
+  // Info fade
+  if (infoTimer > 0) infoTimer--;
+  else document.getElementById('mode-info').style.opacity = '0';
+
+  // HUD
+  document.getElementById('h-balls').textContent = balls.length;
+  document.getElementById('h-wells').textContent = wells.length;
+  document.getElementById('h-col').textContent = collisions;
+}
+
+/* ── Render ── */
+function draw() {
+  // Fade trail
+  ctx.fillStyle = 'rgba(5,5,8,0.2)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Gravity field visualization (subtle)
+  if (wells.length > 0 && wells.length < 10) {
+    for (const w of wells) {
+      const rings = 4;
+      for (let i = rings; i > 0; i--) {
+        const r = w.radius + i * 35 + Math.sin(frame * 0.03 + i) * 5;
+        const alpha = 0.02 * (1 - i / rings) + w.pulse * 0.03;
+        ctx.strokeStyle = w.repel
+          ? `hsla(${w.hue}, 80%, 50%, ${alpha})`
+          : `hsla(${w.hue}, 80%, 50%, ${alpha})`;
+        ctx.lineWidth = 0.5;
+        ctx.setLineDash(w.repel ? [4, 6] : []);
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+  }
+
+  // Ball trails
+  for (const b of balls) {
+    if (b.trail.length < 2) continue;
+    ctx.beginPath();
+    ctx.moveTo(b.trail[0].x, b.trail[0].y);
+    for (let i = 1; i < b.trail.length; i++) {
+      ctx.lineTo(b.trail[i].x, b.trail[i].y);
+    }
+    const spd = Math.hypot(b.vx, b.vy);
+    const trailAlpha = Math.min(0.3, spd * 0.03);
+    ctx.strokeStyle = `hsla(${b.hue}, 90%, 60%, ${trailAlpha})`;
+    ctx.lineWidth = b.r * 0.6;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  // Wells
+  for (const w of wells) {
+    // Core glow
+    const grd = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, w.radius * 2);
+    const lit = 50 + w.pulse * 30;
+    grd.addColorStop(0, `hsla(${w.hue}, 90%, ${lit}%, ${0.25 + w.pulse * 0.4})`);
+    grd.addColorStop(0.5, `hsla(${w.hue}, 80%, ${lit - 10}%, ${0.08 + w.pulse * 0.15})`);
+    grd.addColorStop(1, 'transparent');
+    ctx.fillStyle = grd;
+    ctx.fillRect(w.x - w.radius * 2, w.y - w.radius * 2, w.radius * 4, w.radius * 4);
+
+    // Spinning core
+    ctx.save();
+    ctx.translate(w.x, w.y);
+    ctx.rotate(frame * (w.repel ? -0.04 : 0.04));
+
+    // Core ring
+    ctx.strokeStyle = `hsla(${w.hue}, 90%, ${55 + w.pulse * 25}%, ${0.5 + w.pulse * 0.4})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.radius * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Spiral arms
+    ctx.lineWidth = 1;
+    for (let arm = 0; arm < (w.repel ? 4 : 3); arm++) {
+      const startA = arm * Math.PI * 2 / (w.repel ? 4 : 3);
+      ctx.beginPath();
+      ctx.strokeStyle = `hsla(${w.hue}, 80%, 55%, ${0.3 + w.pulse * 0.3})`;
+      for (let t = 0; t < 20; t++) {
+        const frac = t / 20;
+        const a = startA + frac * Math.PI * (w.repel ? -2 : 2.5);
+        const r = w.radius * (0.3 + frac * 0.7);
+        const px = Math.cos(a) * r, py = Math.sin(a) * r;
+        t === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    // Center dot
+    ctx.fillStyle = `hsla(${w.hue}, 100%, ${70 + w.pulse * 20}%, ${0.8 + w.pulse * 0.2})`;
+    ctx.shadowColor = `hsla(${w.hue}, 100%, 60%, 0.6)`;
+    ctx.shadowBlur = 8 + w.pulse * 12;
+    ctx.beginPath();
+    ctx.arc(0, 0, 3 + w.pulse * 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Label
+    ctx.fillStyle = `hsla(${w.hue}, 60%, 55%, 0.4)`;
+    ctx.font = '8px "Share Tech Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(w.repel ? 'REPEL' : 'PULL', 0, w.radius + 14);
+
+    ctx.restore();
+  }
+
+  // Balls
+  for (const b of balls) {
+    const spd = Math.hypot(b.vx, b.vy);
+    const glow = Math.min(12, 4 + spd * 1.5);
+
+    ctx.shadowColor = `hsla(${b.hue}, 100%, 60%, 0.7)`;
+    ctx.shadowBlur = glow;
+    ctx.fillStyle = `hsla(${b.hue}, 90%, ${55 + spd * 2}%, 0.9)`;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Specular highlight
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `hsla(${b.hue}, 60%, 85%, ${0.3 + spd * 0.03})`;
+    ctx.beginPath();
+    ctx.arc(b.x - b.r * 0.25, b.y - b.r * 0.25, b.r * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // Sparks
+  for (const s of sparks) {
+    const alpha = s.life / s.maxLife;
+    ctx.fillStyle = `hsla(${s.hue}, 100%, 65%, ${alpha})`;
+    ctx.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size);
+  }
+
+  // Drag preview
+  if (dragStart && dragCurrent && mode === 'ball') {
+    const dx = dragCurrent.x - dragStart.x;
+    const dy = dragCurrent.y - dragStart.y;
+    ctx.strokeStyle = 'rgba(68,255,170,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(dragStart.x, dragStart.y);
+    ctx.lineTo(dragStart.x - dx * 0.3, dragStart.y - dy * 0.3);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Spawn point
+    ctx.fillStyle = 'rgba(68,255,170,0.5)';
+    ctx.beginPath();
+    ctx.arc(dragStart.x, dragStart.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (dragStart && (mode === 'well' || mode === 'repel')) {
+    ctx.strokeStyle = mode === 'well' ? 'rgba(255,68,170,0.3)' : 'rgba(68,170,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(dragStart.x, dragStart.y, WELL_MIN_R + 10, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+/* ── Loop ── */
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
