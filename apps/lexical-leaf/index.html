@@ -63,7 +63,7 @@ body{background:var(--soil);color:var(--text);font-family:'Bitter',serif;min-hei
 <div class="garden-wrap">
   <canvas class="garden-canvas" id="garden"></canvas>
 </div>
-<div class="controls">hover flowers to read their messages</div>
+<div class="controls">hover to read messages — move cursor near stems to bend them</div>
 <div class="input-area">
   <input type="text" id="msgInput" placeholder="Type a message to grow a flower..." maxlength="120" autocomplete="off">
   <button id="plantBtn">🌱 Plant</button>
@@ -81,6 +81,9 @@ const PX = 4; // pixel scale
 let W, H, GW, GH; // canvas dims and grid dims
 const flowers = JSON.parse(localStorage.getItem('lexical-flowers') || '[]');
 let hovered = null;
+let mouseGX = -999, mouseGY = -999; // mouse position in grid coords
+const MAGNET_RADIUS = 18; // grid cells radius of influence
+const MAGNET_STRENGTH = 3.5; // max pixel deflection
 
 function resize(){
   const rect = canvas.getBoundingClientRect();
@@ -195,52 +198,82 @@ function drawFlower(f, age){
   const stemDraw = Math.floor(f.stemH * grow);
   const petalGrow = Math.max(0, (grow - 0.4) / 0.6);
 
-  // Stem
-  const stemColor = hsl(f.stemHue, 40, 28 + Math.sin(Date.now()/2000 + f.x*10)*4);
-  const stemDark = hsl(f.stemHue, 35, 20);
+  // Copper wire stem with mouse magnet bending
+  // Calculate magnet deflection at each stem segment
+  const stemPoints = []; // actual drawn positions [gx, gy] for each stem pixel
   for(let i = 0; i < stemDraw; i++){
-    px(gx, groundY - i, stemColor);
+    const sy = groundY - i;
+    let sx = gx;
+    // Magnet bend: stronger near top, zero at base
+    const bendFactor = i / Math.max(1, stemDraw); // 0 at base, 1 at top
+    const dx = mouseGX - gx;
+    const dy = mouseGY - sy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if(dist < MAGNET_RADIUS && dist > 0){
+      const force = (1 - dist / MAGNET_RADIUS) * MAGNET_STRENGTH * bendFactor;
+      sx += Math.round(dx / dist * force);
+    }
+    // Natural sway on top of magnet
+    const sway = Math.sin(Date.now()/1800 + f.x * 20 + i * 0.3) * 0.4 * bendFactor;
+    sx += Math.round(sway);
+
+    stemPoints.push([sx, sy]);
+
+    // Copper wire colors: warm orange-brown with highlight/patina variation
+    const t = i / Math.max(1, stemDraw);
+    const shimmer = Math.sin(Date.now()/1200 + i * 1.7 + f.x * 30) * 8;
+    // Core copper: hue 20-30, sat 55-70, light varies for wire texture
+    const copperLight = 32 + shimmer + (i % 2 === 0 ? 4 : -2);
+    const copperHue = 22 + Math.sin(i * 2.1) * 6;
+    px(sx, sy, hsl(copperHue, 62, copperLight));
+    // Specular highlight on right edge
+    if(i % 3 === 0){
+      px(sx + 1, sy, hsl(35, 50, copperLight + 12));
+    }
+    // Oxidation patina (greenish) on random segments
+    if((hash(f.msg + i) % 7) === 0){
+      px(sx - 1, sy, hsl(160, 30, 22));
+    }
+    // Thorn as copper barb
     if(f.hasThorn && i === Math.floor(f.stemH/2)){
-      px(gx - 1, groundY - i - 1, stemDark);
+      px(sx - 1, sy - 1, hsl(25, 55, 28));
+      px(sx - 2, sy - 1, hsl(30, 45, 22));
     }
   }
 
-  // Leaves at stem midpoint
-  if(grow > 0.3){
-    const leafY = groundY - Math.floor(stemDraw * 0.5);
+  // Top of stem position (with bending)
+  const topPt = stemPoints.length > 0 ? stemPoints[stemPoints.length - 1] : [gx, groundY];
+  const topX = topPt[0], topY = topPt[1];
+
+  // Leaves at stem midpoint (follow bent stem)
+  if(grow > 0.3 && stemPoints.length > 1){
+    const midIdx = Math.floor(stemPoints.length * 0.5);
+    const [leafX, leafY] = stemPoints[midIdx];
     const leafColor = hsl(f.stemHue, 45, 32);
     const leaves = LEAF_SHAPES[f.leafIdx](f.stemH);
-    leaves.forEach(([dx, dy]) => px(gx + dx, leafY + dy, leafColor));
+    leaves.forEach(([ldx, ldy]) => px(leafX + ldx, leafY + ldy, leafColor));
   }
 
-  // Petals at top
+  // Petals at top (follow bent stem top)
   if(petalGrow > 0){
-    const flowerY = groundY - stemDraw;
     const r = Math.max(1, Math.floor(f.petalR * petalGrow));
     const petals = PETAL_SHAPES[f.shapeIdx](r);
     const rng2 = seededRng(hash(f.msg + 'petal'));
-    petals.forEach(([dx, dy]) => {
+    petals.forEach(([pdx, pdy]) => {
       let color;
       if(f.secondColor && rng2() < 0.4){
         color = hsl(f.petal2Hue, f.petalSat, f.petalLight + (rng2()*10-5));
       } else {
         color = hsl(f.petalHue, f.petalSat, f.petalLight + (rng2()*10-5));
       }
-      px(gx + dx, flowerY + dy, color);
+      px(topX + pdx, topY + pdy, color);
     });
     // Center
-    px(gx, flowerY, hsl(f.centerHue, 60, 55));
-
-    // Gentle sway
-    const sway = Math.sin(Date.now()/1500 + f.x * 20) * 0.3;
-    if(Math.abs(sway) > 0.2 && petalGrow >= 1){
-      const sx = sway > 0 ? 1 : -1;
-      px(gx + sx * (r+1), flowerY, hsl(f.petalHue, f.petalSat * 0.6, f.petalLight * 0.8));
-    }
+    px(topX, topY, hsl(f.centerHue, 60, 55));
   }
 
-  // Store hitbox for hover
-  f._gx = gx; f._gy = groundY - stemDraw; f._r = f.petalR + 1;
+  // Store hitbox for hover (at bent top position)
+  f._gx = topX; f._gy = topY; f._r = f.petalR + 1;
 }
 
 function drawGround(){
@@ -308,6 +341,11 @@ function findFlowerAt(mx, my){
 }
 
 canvas.addEventListener('mousemove', e => {
+  // Update magnet position in grid coords
+  const rect = canvas.getBoundingClientRect();
+  mouseGX = Math.floor((e.clientX - rect.left) / rect.width * GW);
+  mouseGY = Math.floor((e.clientY - rect.top) / rect.height * GH);
+
   const f = findFlowerAt(e.clientX, e.clientY);
   if(f){
     tooltip.style.display = 'block';
@@ -324,10 +362,18 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mouseleave', () => {
   tooltip.style.display = 'none';
   hovered = null;
+  mouseGX = -999; mouseGY = -999; // disable magnet when mouse leaves
 });
 
-// Touch support
+// Touch support with magnet
+function updateTouchMagnet(e){
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  mouseGX = Math.floor((t.clientX - rect.left) / rect.width * GW);
+  mouseGY = Math.floor((t.clientY - rect.top) / rect.height * GH);
+}
 canvas.addEventListener('touchstart', e => {
+  updateTouchMagnet(e);
   const t = e.touches[0];
   const f = findFlowerAt(t.clientX, t.clientY);
   if(f){
@@ -337,7 +383,8 @@ canvas.addEventListener('touchstart', e => {
     tooltip.textContent = `"${f.msg}"`;
   }
 });
-canvas.addEventListener('touchend', () => { tooltip.style.display = 'none'; });
+canvas.addEventListener('touchmove', e => { updateTouchMagnet(e); }, {passive:true});
+canvas.addEventListener('touchend', () => { tooltip.style.display = 'none'; mouseGX = -999; mouseGY = -999; });
 
 function plantFlower(msg){
   // Find a position that doesn't overlap too much
