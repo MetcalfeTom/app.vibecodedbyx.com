@@ -72,6 +72,11 @@ const COLORS=[
 ];
 
 let nodes=[],edges=[],level=1,moves=0,crossings=0,solved=false;
+// Jiggle physics — each edge gets control points that simulate bouncy wire
+const JIGGLE_PTS=5;// interior points per cable
+const JIGGLE_STIFF=12;// spring stiffness
+const JIGGLE_DAMP=4;// damping
+const JIGGLE_GRAVITY=40;// sag gravity
 let startTime=0,elapsed=0;
 let dragging=null,dragOff={x:0,y:0};
 let sparkParticles=[];
@@ -140,8 +145,66 @@ function generateLevel(lvl){
   edgeSet.add(key);
   edges.push({a,b,color:COLORS[edges.length%COLORS.length]});
  }
+ // Init jiggle physics on all edges
+ initJiggle();
  // Now scramble node positions into a tangled mess
  scramble();
+}
+
+function initJiggle(){
+ edges.forEach(e=>{
+  e.pts=[];
+  for(let i=0;i<JIGGLE_PTS;i++){
+   const t=(i+1)/(JIGGLE_PTS+1);
+   const na=nodes[e.a],nb=nodes[e.b];
+   e.pts.push({x:na.x+(nb.x-na.x)*t,y:na.y+(nb.y-na.y)*t,vx:0,vy:0});
+  }
+ });
+}
+
+function updateJiggle(dt){
+ const cdt=Math.min(dt,.016);// clamp for stability
+ edges.forEach(e=>{
+  if(!e.pts)return;
+  const na=nodes[e.a],nb=nodes[e.b];
+  const pts=e.pts;
+  const all=[{x:na.x,y:na.y},...pts,{x:nb.x,y:nb.y}];
+  for(let i=0;i<pts.length;i++){
+   const p=pts[i];
+   const prev=all[i],next=all[i+2];
+   // Rest position = lerp between endpoints
+   const t=(i+1)/(JIGGLE_PTS+1);
+   const restX=na.x+(nb.x-na.x)*t;
+   const restY=na.y+(nb.y-na.y)*t;
+   // Spring toward rest position
+   let fx=(restX-p.x)*JIGGLE_STIFF;
+   let fy=(restY-p.y)*JIGGLE_STIFF;
+   // Spring toward neighbors (keeps curve smooth)
+   fx+=(prev.x-p.x)*JIGGLE_STIFF*.3+(next.x-p.x)*JIGGLE_STIFF*.3;
+   fy+=(prev.y-p.y)*JIGGLE_STIFF*.3+(next.y-p.y)*JIGGLE_STIFF*.3;
+   // Gravity sag
+   fy+=JIGGLE_GRAVITY;
+   // Damping
+   fx-=p.vx*JIGGLE_DAMP;
+   fy-=p.vy*JIGGLE_DAMP;
+   // Integrate
+   p.vx+=fx*cdt;p.vy+=fy*cdt;
+   p.x+=p.vx*cdt;p.y+=p.vy*cdt;
+  }
+ });
+}
+
+function pokeJiggle(nodeIdx){
+ // When a node is dropped, give connected cables a velocity kick
+ edges.forEach(e=>{
+  if(e.a===nodeIdx||e.b===nodeIdx){
+   if(!e.pts)return;
+   e.pts.forEach(p=>{
+    p.vy+=(Math.random()-.3)*80;
+    p.vx+=(Math.random()-.5)*40;
+   });
+  }
+ });
 }
 
 function scramble(){
@@ -149,6 +212,16 @@ function scramble(){
  nodes.forEach(n=>{
   n.x=cx+(Math.random()-.5)*r*2;
   n.y=cy+(Math.random()-.5)*r*2;
+ });
+ // Reset jiggle points to new positions
+ edges.forEach(e=>{
+  if(!e.pts)return;
+  const na=nodes[e.a],nb=nodes[e.b];
+  e.pts.forEach((p,i)=>{
+   const t=(i+1)/(JIGGLE_PTS+1);
+   p.x=na.x+(nb.x-na.x)*t;p.y=na.y+(nb.y-na.y)*t;
+   p.vx=(Math.random()-.5)*30;p.vy=(Math.random()-.5)*30;// little initial bounce
+  });
  });
  solved=false;
  document.getElementById('win-msg').style.opacity='0';
@@ -252,6 +325,7 @@ C.addEventListener('mouseup',()=>{
   moves++;
   document.getElementById('move-count').textContent=moves;
   nodes[dragging].glow=1;
+  pokeJiggle(dragging);
   snapSound();
   countCrossings();
   dragging=null;
@@ -277,29 +351,48 @@ C.addEventListener('touchmove',e=>{
 },{passive:false});
 C.addEventListener('touchend',e=>{
  e.preventDefault();
- if(dragging!==null){moves++;document.getElementById('move-count').textContent=moves;nodes[dragging].glow=1;snapSound();countCrossings();dragging=null}
+ if(dragging!==null){moves++;document.getElementById('move-count').textContent=moves;nodes[dragging].glow=1;pokeJiggle(dragging);snapSound();countCrossings();dragging=null}
 },{passive:false});
 
 // Drawing
-function drawCable(x1,y1,x2,y2,color,crossing){
- // Thick cable with glow
+function drawCable(edge,color,crossing){
+ const na=nodes[edge.a],nb=nodes[edge.b];
+ const x1=na.x,y1=na.y,x2=nb.x,y2=nb.y;
  const alpha=crossing?.3:.7;
- // Glow
- X.strokeStyle=color;X.lineWidth=crossing?3:5;X.globalAlpha=alpha*.2;
- X.beginPath();X.moveTo(x1,y1);X.lineTo(x2,y2);X.stroke();
- // Cable body — catenary sag
- const mx=(x1+x2)/2,my=(y1+y2)/2;
- const dx=x2-x1,dy=y2-y1;
- const len=Math.sqrt(dx*dx+dy*dy);
- const sag=Math.min(len*.08,20);// slight droop
- const cx=mx,cy=my+sag;
- X.globalAlpha=alpha;
- X.lineWidth=crossing?2:4;X.lineCap='round';
- X.beginPath();X.moveTo(x1,y1);X.quadraticCurveTo(cx,cy,x2,y2);X.stroke();
+ const pts=edge.pts||[];
+ const all=[{x:x1,y:y1},...pts,{x:x2,y:y2}];
+ // Glow layer
+ X.strokeStyle=color;X.lineWidth=crossing?4:6;X.globalAlpha=alpha*.15;X.lineCap='round';X.lineJoin='round';
+ X.beginPath();X.moveTo(all[0].x,all[0].y);
+ for(let i=1;i<all.length;i++){
+  const prev=all[i-1],cur=all[i];
+  const mx=(prev.x+cur.x)/2,my=(prev.y+cur.y)/2;
+  X.quadraticCurveTo(prev.x,prev.y,mx,my);
+ }
+ X.lineTo(all[all.length-1].x,all[all.length-1].y);
+ X.stroke();
+ // Main cable body
+ X.globalAlpha=alpha;X.lineWidth=crossing?2:4;
+ X.beginPath();X.moveTo(all[0].x,all[0].y);
+ for(let i=1;i<all.length;i++){
+  const prev=all[i-1],cur=all[i];
+  const mx=(prev.x+cur.x)/2,my=(prev.y+cur.y)/2;
+  X.quadraticCurveTo(prev.x,prev.y,mx,my);
+ }
+ X.lineTo(all[all.length-1].x,all[all.length-1].y);
+ X.stroke();
  // Highlight stripe
- X.globalAlpha=alpha*.4;X.lineWidth=1;
+ const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy)||1;
  const offX=-dy/len*1.5,offY=dx/len*1.5;
- X.beginPath();X.moveTo(x1+offX,y1+offY);X.quadraticCurveTo(cx+offX,cy+offY,x2+offX,y2+offY);X.stroke();
+ X.globalAlpha=alpha*.35;X.lineWidth=1;
+ X.beginPath();X.moveTo(all[0].x+offX,all[0].y+offY);
+ for(let i=1;i<all.length;i++){
+  const prev=all[i-1],cur=all[i];
+  const mx=(prev.x+cur.x)/2,my=(prev.y+cur.y)/2;
+  X.quadraticCurveTo(prev.x+offX,prev.y+offY,mx+offX,my+offY);
+ }
+ X.lineTo(all[all.length-1].x+offX,all[all.length-1].y+offY);
+ X.stroke();
  X.globalAlpha=1;
 }
 
@@ -355,11 +448,11 @@ function draw(t){
  // Draw crossing cables first (behind), then clean ones on top
  edges.forEach((e,i)=>{
   if(!crossingSet.has(i))return;
-  drawCable(nodes[e.a].x,nodes[e.a].y,nodes[e.b].x,nodes[e.b].y,e.color,true);
+  drawCable(e,e.color,true);
  });
  edges.forEach((e,i)=>{
   if(crossingSet.has(i))return;
-  drawCable(nodes[e.a].x,nodes[e.a].y,nodes[e.b].x,nodes[e.b].y,e.color,false);
+  drawCable(e,e.color,false);
  });
  // Crossing flash X marks
  for(let i=0;i<edges.length;i++){
@@ -397,6 +490,8 @@ function draw(t){
 }
 
 function update(dt){
+ // Jiggle physics
+ updateJiggle(dt);
  // Node glow decay
  nodes.forEach(n=>{if(n.glow>0)n.glow=Math.max(0,n.glow-dt*3)});
  // Particles

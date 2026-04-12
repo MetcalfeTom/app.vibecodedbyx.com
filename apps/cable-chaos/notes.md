@@ -3,6 +3,7 @@
 Untangle a mess of colorful knotted power cables by dragging nodes apart until no cables cross.
 
 ## log
+- 2026-04-12: Added bouncy jiggle physics to cables. Each wire has 5 interior spring-damped control points. Points spring toward rest position (lerp between endpoints) and toward neighbors. Gravity sag pulls wires down. Cables render as smooth curves through all points. Dropping a node gives connected cables a velocity kick for satisfying bounce. Scramble gives random initial jiggle. Spring stiffness 12, damping 4, gravity 40.
 - 2026-04-12: Initial build. Planar graph untangle puzzle. Procedural level generation: nodes in circle (solvable layout), scrambled into tangled mess. Segment intersection detection for crossing count. 15 neon cable colors with glow/highlight/catenary sag rendering. Crossing cables drawn dimmed with pulsing red X marks at intersection points. Power socket styled nodes with colored rings and prong details. Level scaling: 6 nodes at level 1, +2 per level up to 30. Edge count ~1.5x nodes. Retry/Next/Scramble controls. Move counter, crossing counter, timer. Victory detection (0 crossings), celebration sparks, C-major arpeggio win SFX. Pickup and snap click SFX. Touch + mouse drag support. Subtle grid background, vignette. Chakra Petch + Share Tech Mono typography, dark blue/cyan aesthetic.
 
 ## features
