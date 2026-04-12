@@ -22,7 +22,7 @@ Untangle a mess of colorful knotted power cables by dragging nodes apart until n
 - Responsive layout
 
 ## issues
-- None known
+- Fixed: false victory on scramble — scramble could produce 0 crossings, instant win. Now re-scrambles until crossings exist, and victory requires moves > 0.
 
 ## todos
 - OG preview PNG
