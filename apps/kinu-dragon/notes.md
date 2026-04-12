@@ -3,6 +3,7 @@
 Side-scrolling flappy dragon game — fly through a neon forest collecting gems and dodging obsidian pillars.
 
 ## log
+- 2026-04-12: Rethemed to black & yellow palette — black dragon with yellow eyes/horns/wings, golden stars, amber trees, yellow crystal pillar edges, dark sky. Changed movement from flap-to-fly to smooth cursor/touch following with spring physics. Arrow keys/WASD as keyboard fallback.
 - 2026-04-12: Initial build. Flap-to-fly dragon with pixel-art-style canvas rendering (body, wings, horns, tail, eye). Neon forest background with parallax trees (2 layers), stars, ground glow. Obsidian pillars with purple crystal edges, gap narrows over distance. 5 gem colors with different point values (gold=30, pink=50, cyan/green/orange=20). Speed ramps with distance (3→8). Trail effect behind dragon. Particle bursts on gem collect and death. Score = pillar passes + gem value + distance bonus. Cinzel + Azeret Mono typography, deep forest neon aesthetic.
 
 ## features
