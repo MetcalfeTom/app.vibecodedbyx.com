@@ -45,8 +45,10 @@
       font-weight: 700; font-size: 22px;
       color: var(--accent); letter-spacing: 1px;
     }
-    .hud { display: flex; gap: 16px; font-size: 13px; color: var(--dim); }
+    .hud { display: flex; gap: 12px; font-size: 13px; color: var(--dim); flex-wrap: wrap; }
     .hud .val { color: var(--accent2); font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .hud .timer { color: var(--accent); }
+    .hud .score-val { color: var(--accent); }
 
     #main {
       display: flex; gap: 16px;
@@ -124,6 +126,58 @@
       padding: 4px 0;
     }
 
+    /* Level select overlay */
+    #overlay {
+      position: fixed; inset: 0;
+      background: rgba(58,53,48,0.6);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    #overlay.hidden { display: none; }
+    .overlay-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 32px;
+      box-shadow: 0 8px 40px rgba(60,50,40,0.2);
+      text-align: center;
+      max-width: 340px; width: 90%;
+    }
+    .overlay-box h2 {
+      font-size: 20px; font-weight: 700;
+      color: var(--accent); margin-bottom: 6px;
+    }
+    .overlay-box p {
+      font-size: 13px; color: var(--dim); margin-bottom: 16px;
+      line-height: 1.4;
+    }
+    .level-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px; margin-bottom: 12px;
+    }
+    .level-btn {
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px; font-weight: 500;
+      padding: 10px 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all .12s;
+      text-align: left;
+    }
+    .level-btn:hover { border-color: var(--accent); background: rgba(192,99,79,0.04); }
+    .level-btn .lnum { font-weight: 700; color: var(--accent); }
+    .level-btn .ldesc { font-size: 11px; color: var(--dim); display: block; margin-top: 2px; }
+    .level-btn.locked { opacity: 0.35; pointer-events: none; }
+    .level-btn.cleared .lnum { color: var(--accent2); }
+    .level-btn.cleared { border-color: rgba(79,138,122,0.3); }
+
+    .score-summary { margin-top: 10px; font-size: 13px; }
+    .score-summary .big { font-size: 28px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+
     #backlink {
       position: fixed; bottom: 4px; right: 8px;
       font-size: 10px; color: var(--dim); text-decoration: none; opacity: 0.4;
@@ -133,11 +187,17 @@
 </head>
 <body>
 
+  <div id="overlay" class="hidden">
+    <div class="overlay-box" id="overlay-content"></div>
+  </div>
+
   <div id="header">
     <h1>Pentominoes</h1>
     <div class="hud">
-      <span>Placed <span class="val" id="h-placed">0</span>/12</span>
-      <span>Cells <span class="val" id="h-cells">0</span>/60</span>
+      <span>Lv <span class="val" id="h-level">1</span></span>
+      <span>Placed <span class="val" id="h-placed">0</span>/<span id="h-target">4</span></span>
+      <span><span class="val timer" id="h-timer">0:00</span></span>
+      <span>Score <span class="val score-val" id="h-score">0</span></span>
     </div>
   </div>
 
@@ -176,56 +236,116 @@ const PENTOMINOES = [
   { name: 'Z', cells: [[0,0],[0,1],[1,1],[2,1],[2,2]], color: '#7a4f8a' },
 ];
 
-/* ── Board: 6×10 grid ── */
-const ROWS = 6, COLS = 10;
-const CELL = Math.min(Math.floor((Math.min(window.innerWidth - 180, 500)) / COLS), 44);
+/* ── Levels: pieceCount, rows, cols ── */
+const LEVELS = [
+  { pieces: 4,  rows: 4, cols: 5,  name: 'Tiny',     baseScore: 200 },
+  { pieces: 6,  rows: 5, cols: 6,  name: 'Small',    baseScore: 400 },
+  { pieces: 8,  rows: 5, cols: 8,  name: 'Medium',   baseScore: 700 },
+  { pieces: 10, rows: 5, cols: 10, name: 'Large',    baseScore: 1100 },
+  { pieces: 12, rows: 6, cols: 10, name: 'Classic',  baseScore: 1600 },
+];
+
+let currentLevel = 0;
+let totalScore = 0;
+let levelUndos = 0;
+let timerStart = 0;
+let timerInterval = null;
+let levelActive = false;
+let clearedLevels = new Set();
+
+// Try restore progress
+try {
+  const saved = JSON.parse(localStorage.getItem('pento_progress') || '{}');
+  if (saved.score) totalScore = saved.score;
+  if (saved.cleared) clearedLevels = new Set(saved.cleared);
+} catch(e) {}
+
+function saveProgress() {
+  localStorage.setItem('pento_progress', JSON.stringify({
+    score: totalScore,
+    cleared: [...clearedLevels]
+  }));
+}
+
+/* ── Board state ── */
+let ROWS, COLS, CELL;
 const boardCanvas = document.getElementById('board');
 const bctx = boardCanvas.getContext('2d');
-boardCanvas.width = COLS * CELL;
-boardCanvas.height = ROWS * CELL;
 
-let grid = []; // grid[r][c] = null or { pieceIdx, color }
-let placedPieces = []; // { pieceIdx, cells (board coords), color }
+let grid = [];
+let placedPieces = [];
 let selectedPiece = -1;
-let currentCells = []; // rotated/flipped cells of selected piece
+let currentCells = [];
 let hoverR = -1, hoverC = -1;
+let activePieceIndices = []; // which of the 12 pieces are in this level
 
 function initGrid() {
   grid = [];
-  for (let r = 0; r < ROWS; r++) {
-    grid.push(new Array(COLS).fill(null));
-  }
+  for (let r = 0; r < ROWS; r++) grid.push(new Array(COLS).fill(null));
 }
-initGrid();
+
+function resizeBoard() {
+  const maxW = Math.min(window.innerWidth - 180, 500);
+  CELL = Math.min(Math.floor(maxW / COLS), 44);
+  boardCanvas.width = COLS * CELL;
+  boardCanvas.height = ROWS * CELL;
+}
 
 /* ── Piece transforms ── */
 function rotateCW(cells) {
-  // (r,c) → (c, -r) then normalize
   const rotated = cells.map(([r, c]) => [c, -r]);
   return normalize(rotated);
 }
-
 function flipH(cells) {
   const flipped = cells.map(([r, c]) => [r, -c]);
   return normalize(flipped);
 }
-
 function normalize(cells) {
   const minR = Math.min(...cells.map(c => c[0]));
   const minC = Math.min(...cells.map(c => c[1]));
   return cells.map(([r, c]) => [r - minR, c - minC]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
 }
 
-/* ── Piece state per tray item ── */
-let pieceStates = PENTOMINOES.map((p, i) => ({
-  idx: i,
-  cells: normalize([...p.cells]),
-  placed: false
-}));
+let pieceStates = [];
 
-/* ── Select piece ── */
+function initPieceStates() {
+  pieceStates = PENTOMINOES.map((p, i) => ({
+    idx: i,
+    cells: normalize([...p.cells]),
+    placed: false,
+    active: activePieceIndices.includes(i)
+  }));
+}
+
+/* ── Timer ── */
+function startTimer() {
+  timerStart = Date.now();
+  levelUndos = 0;
+  levelActive = true;
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(updateTimerDisplay, 200);
+  updateTimerDisplay();
+}
+
+function stopTimer() {
+  levelActive = false;
+  if (timerInterval) clearInterval(timerInterval);
+}
+
+function getElapsedSec() {
+  return Math.floor((Date.now() - timerStart) / 1000);
+}
+
+function updateTimerDisplay() {
+  const s = getElapsedSec();
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  document.getElementById('h-timer').textContent = m + ':' + String(sec).padStart(2, '0');
+}
+
+/* ── Select / transform piece ── */
 function selectPiece(idx) {
-  if (pieceStates[idx].placed) return;
+  if (!pieceStates[idx].active || pieceStates[idx].placed) return;
   selectedPiece = idx;
   currentCells = [...pieceStates[idx].cells.map(c => [...c])];
   renderTray();
@@ -259,7 +379,7 @@ function canPlace(cells, br, bc) {
 }
 
 function placePiece(br, bc) {
-  if (selectedPiece < 0) return;
+  if (selectedPiece < 0 || !levelActive) return;
   if (!canPlace(currentCells, br, bc)) return;
 
   const color = PENTOMINOES[selectedPiece].color;
@@ -281,14 +401,13 @@ function placePiece(br, bc) {
 }
 
 function undoLast() {
-  if (placedPieces.length === 0) return;
+  if (placedPieces.length === 0 || !levelActive) return;
   const last = placedPieces.pop();
-  for (const [r, c] of last.cells) {
-    grid[r][c] = null;
-  }
+  for (const [r, c] of last.cells) grid[r][c] = null;
   pieceStates[last.pieceIdx].placed = false;
   selectedPiece = last.pieceIdx;
   currentCells = [...pieceStates[last.pieceIdx].cells.map(c => [...c])];
+  levelUndos++;
   updateHUD();
   renderTray();
   renderBoard();
@@ -296,11 +415,13 @@ function undoLast() {
 }
 
 function clearAll() {
+  if (!levelActive) return;
   initGrid();
   placedPieces = [];
   pieceStates.forEach(ps => { ps.placed = false; });
   selectedPiece = -1;
   currentCells = [];
+  levelUndos += 3; // penalty for full clear
   updateHUD();
   renderTray();
   renderBoard();
@@ -309,17 +430,46 @@ function clearAll() {
 
 /* ── HUD ── */
 function updateHUD() {
-  const placed = placedPieces.length;
-  const cells = placed * 5;
-  document.getElementById('h-placed').textContent = placed;
-  document.getElementById('h-cells').textContent = cells;
+  const lv = LEVELS[currentLevel];
+  document.getElementById('h-placed').textContent = placedPieces.length;
+  document.getElementById('h-target').textContent = lv.pieces;
+  document.getElementById('h-level').textContent = currentLevel + 1;
+  document.getElementById('h-score').textContent = totalScore;
 }
 
 function setMsg(txt) { document.getElementById('msg').textContent = txt; }
 
+function calculateScore() {
+  const lv = LEVELS[currentLevel];
+  const elapsed = getElapsedSec();
+
+  // Time bonus: full bonus under par time, decreasing after
+  const parTime = lv.pieces * 15; // 15 sec per piece is "par"
+  let timeBonus;
+  if (elapsed <= parTime) {
+    timeBonus = Math.round(lv.baseScore * 0.5); // max 50% time bonus
+  } else {
+    const overBy = elapsed - parTime;
+    timeBonus = Math.max(0, Math.round(lv.baseScore * 0.5 * Math.max(0, 1 - overBy / (parTime * 2))));
+  }
+
+  // Undo penalty: -5% per undo, min 0
+  const undoPenalty = Math.min(lv.baseScore, levelUndos * Math.round(lv.baseScore * 0.05));
+
+  const total = Math.max(50, lv.baseScore + timeBonus - undoPenalty);
+  return { base: lv.baseScore, timeBonus, undoPenalty, elapsed, total };
+}
+
 function checkWin() {
-  if (placedPieces.length === 12) {
-    setMsg('All 12 pentominoes placed! Puzzle complete!');
+  const lv = LEVELS[currentLevel];
+  if (placedPieces.length === lv.pieces) {
+    stopTimer();
+    const sc = calculateScore();
+    totalScore += sc.total;
+    clearedLevels.add(currentLevel);
+    saveProgress();
+    updateHUD();
+    showWinOverlay(sc);
   }
 }
 
@@ -328,27 +478,23 @@ function renderBoard() {
   const c = bctx;
   c.clearRect(0, 0, boardCanvas.width, boardCanvas.height);
 
-  // Empty cells
   for (let r = 0; r < ROWS; r++) {
     for (let col = 0; col < COLS; col++) {
       const x = col * CELL, y = r * CELL;
       if (grid[r][col]) {
         c.fillStyle = grid[r][col].color;
         c.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
-        // Inner highlight
         c.fillStyle = 'rgba(255,255,255,0.15)';
         c.fillRect(x + 1, y + 1, CELL - 2, 3);
         c.fillStyle = 'rgba(0,0,0,0.08)';
         c.fillRect(x + 1, y + CELL - 4, CELL - 2, 3);
       } else {
-        c.fillStyle = 'var(--cell-empty)';
         c.fillStyle = '#eeeae3';
         c.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
       }
     }
   }
 
-  // Grid lines
   c.strokeStyle = '#d5d0c8';
   c.lineWidth = 1;
   for (let r = 0; r <= ROWS; r++) {
@@ -358,7 +504,6 @@ function renderBoard() {
     c.beginPath(); c.moveTo(col * CELL, 0); c.lineTo(col * CELL, ROWS * CELL); c.stroke();
   }
 
-  // Piece borders (thicker lines between different pieces)
   c.strokeStyle = 'rgba(0,0,0,0.2)';
   c.lineWidth = 2;
   for (let r = 0; r < ROWS; r++) {
@@ -366,26 +511,21 @@ function renderBoard() {
       if (!grid[r][col]) continue;
       const me = grid[r][col].pieceIdx;
       const x = col * CELL, y = r * CELL;
-      // Right
       if (col === COLS - 1 || !grid[r][col + 1] || grid[r][col + 1].pieceIdx !== me) {
         c.beginPath(); c.moveTo(x + CELL, y); c.lineTo(x + CELL, y + CELL); c.stroke();
       }
-      // Bottom
       if (r === ROWS - 1 || !grid[r + 1][col] || grid[r + 1][col].pieceIdx !== me) {
         c.beginPath(); c.moveTo(x, y + CELL); c.lineTo(x + CELL, y + CELL); c.stroke();
       }
-      // Left
       if (col === 0 || !grid[r][col - 1] || grid[r][col - 1].pieceIdx !== me) {
         c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + CELL); c.stroke();
       }
-      // Top
       if (r === 0 || !grid[r - 1][col] || grid[r - 1][col].pieceIdx !== me) {
         c.beginPath(); c.moveTo(x, y); c.lineTo(x + CELL, y); c.stroke();
       }
     }
   }
 
-  // Ghost preview
   if (selectedPiece >= 0 && hoverR >= 0 && hoverC >= 0) {
     const valid = canPlace(currentCells, hoverR, hoverC);
     for (const [r, col] of currentCells) {
@@ -406,6 +546,7 @@ function renderTray() {
   for (let i = 0; i < PENTOMINOES.length; i++) {
     const p = PENTOMINOES[i];
     const ps = pieceStates[i];
+    if (!ps.active) continue;
     const cells = ps.cells;
 
     const maxR = Math.max(...cells.map(c => c[0])) + 1;
@@ -429,7 +570,6 @@ function renderTray() {
       tc.fillRect(c * tileSize + 1, r * tileSize + 1, tileSize - 1, 2);
     }
 
-    // Label
     tc.fillStyle = 'rgba(255,255,255,0.7)';
     tc.font = 'bold 9px "JetBrains Mono", monospace';
     tc.fillText(p.name, 2, maxR * tileSize - 1);
@@ -439,13 +579,107 @@ function renderTray() {
   }
 }
 
+/* ── Overlays ── */
+const overlay = document.getElementById('overlay');
+const overlayContent = document.getElementById('overlay-content');
+
+function showOverlay(html) {
+  overlayContent.innerHTML = html;
+  overlay.classList.remove('hidden');
+}
+function hideOverlay() {
+  overlay.classList.add('hidden');
+}
+
+function showLevelSelect() {
+  stopTimer();
+  let html = '<h2>Pentominoes</h2>';
+  html += `<p>Fit pentomino pieces into the grid. Total score: <strong style="color:var(--accent);font-family:'JetBrains Mono',monospace">${totalScore}</strong></p>`;
+  html += '<div class="level-grid">';
+  for (let i = 0; i < LEVELS.length; i++) {
+    const lv = LEVELS[i];
+    const cleared = clearedLevels.has(i);
+    const locked = i > 0 && !clearedLevels.has(i - 1) && !clearedLevels.has(i);
+    html += `<button class="level-btn${cleared ? ' cleared' : ''}${locked ? ' locked' : ''}" onclick="startLevel(${i})">
+      <span class="lnum">${cleared ? '&#10003; ' : ''}Level ${i + 1}</span>
+      <span class="ldesc">${lv.name} &mdash; ${lv.pieces} pieces, ${lv.rows}&times;${lv.cols}</span>
+    </button>`;
+  }
+  html += '</div>';
+  if (clearedLevels.size > 0) {
+    html += `<button class="btn" onclick="resetProgress()" style="font-size:11px;color:var(--dim)">Reset progress</button>`;
+  }
+  showOverlay(html);
+}
+
+function showWinOverlay(sc) {
+  const m = Math.floor(sc.elapsed / 60);
+  const s = sc.elapsed % 60;
+  const timeStr = m + ':' + String(s).padStart(2, '0');
+  const nextIdx = currentLevel + 1;
+  const hasNext = nextIdx < LEVELS.length;
+
+  let html = `<h2>Level ${currentLevel + 1} Complete!</h2>`;
+  html += '<div class="score-summary">';
+  html += `<div class="big">+${sc.total}</div>`;
+  html += `<p style="margin:8px 0 4px;font-size:12px;color:var(--dim)">`;
+  html += `Base: ${sc.base} &nbsp;|&nbsp; Time bonus: +${sc.timeBonus} &nbsp;|&nbsp; Undo penalty: -${sc.undoPenalty}`;
+  html += `</p>`;
+  html += `<p style="font-size:12px;color:var(--dim)">Time: ${timeStr} &nbsp;|&nbsp; Undos: ${levelUndos}</p>`;
+  html += '</div>';
+  html += '<div style="margin-top:16px;display:flex;gap:8px;justify-content:center">';
+  if (hasNext) {
+    html += `<button class="btn" onclick="startLevel(${nextIdx})" style="border-color:var(--accent);color:var(--accent);font-weight:700">Next level &rarr;</button>`;
+  }
+  html += `<button class="btn" onclick="startLevel(${currentLevel})">Replay</button>`;
+  html += `<button class="btn" onclick="showLevelSelect()">Levels</button>`;
+  html += '</div>';
+  showOverlay(html);
+}
+
+function resetProgress() {
+  totalScore = 0;
+  clearedLevels.clear();
+  saveProgress();
+  showLevelSelect();
+}
+
+/* ── Start a level ── */
+function startLevel(idx) {
+  hideOverlay();
+  currentLevel = idx;
+  const lv = LEVELS[idx];
+  ROWS = lv.rows;
+  COLS = lv.cols;
+
+  // Pick a random subset of pieces for this level
+  const indices = [];
+  for (let i = 0; i < 12; i++) indices.push(i);
+  // Shuffle
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  activePieceIndices = indices.slice(0, lv.pieces);
+
+  resizeBoard();
+  initGrid();
+  placedPieces = [];
+  selectedPiece = -1;
+  currentCells = [];
+  initPieceStates();
+  setMsg('');
+  startTimer();
+  updateHUD();
+  renderTray();
+  renderBoard();
+}
+
 /* ── Board interaction ── */
 boardCanvas.addEventListener('pointermove', e => {
   const rect = boardCanvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  hoverC = Math.floor(x / CELL);
-  hoverR = Math.floor(y / CELL);
+  hoverC = Math.floor((e.clientX - rect.left) / CELL);
+  hoverR = Math.floor((e.clientY - rect.top) / CELL);
   renderBoard();
 });
 
@@ -455,19 +689,16 @@ boardCanvas.addEventListener('pointerleave', () => {
 });
 
 boardCanvas.addEventListener('pointerdown', e => {
+  if (!levelActive) return;
   const rect = boardCanvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  const c = Math.floor(x / CELL);
-  const r = Math.floor(y / CELL);
+  const c = Math.floor((e.clientX - rect.left) / CELL);
+  const r = Math.floor((e.clientY - rect.top) / CELL);
 
   if (selectedPiece >= 0) {
     placePiece(r, c);
   } else {
-    // Click on placed piece to remove it
     if (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c]) {
       const pidx = grid[r][c].pieceIdx;
-      // Remove this piece
       const ppIdx = placedPieces.findIndex(pp => pp.pieceIdx === pidx);
       if (ppIdx >= 0) {
         const pp = placedPieces[ppIdx];
@@ -476,6 +707,7 @@ boardCanvas.addEventListener('pointerdown', e => {
         pieceStates[pidx].placed = false;
         selectedPiece = pidx;
         currentCells = [...pieceStates[pidx].cells.map(c => [...c])];
+        levelUndos++;
         updateHUD();
         renderTray();
         renderBoard();
@@ -485,7 +717,6 @@ boardCanvas.addEventListener('pointerdown', e => {
   }
 });
 
-/* Right click to deselect */
 boardCanvas.addEventListener('contextmenu', e => {
   e.preventDefault();
   selectedPiece = -1;
@@ -500,6 +731,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyF') flipPiece();
   if (e.code === 'KeyZ') undoLast();
   if (e.code === 'Escape') {
+    if (!overlay.classList.contains('hidden')) return;
     selectedPiece = -1; currentCells = [];
     renderTray(); renderBoard();
   }
@@ -511,10 +743,8 @@ document.getElementById('btn-flip').onclick = flipPiece;
 document.getElementById('btn-undo').onclick = undoLast;
 document.getElementById('btn-clear').onclick = clearAll;
 
-/* ── Init ── */
-renderTray();
-renderBoard();
-updateHUD();
+/* ── Init: show level select ── */
+showLevelSelect();
 </script>
 </body>
 </html>
