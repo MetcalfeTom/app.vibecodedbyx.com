@@ -3,6 +3,7 @@
 WASD keyboard platformer — run, jump, and double-jump through procedural levels collecting gems and dodging spikes.
 
 ## log
+- 2026-04-12: Added petting mechanic — click/tap Kinu to pat with hand animation and heart particles. totalPets stat tracked. 2 petting achievements (Good Boy, Dragon Whisperer).
 - 2026-04-12: Added 100-achievement hunter system. 12 categories (Distance, Gems, Score, Deaths, Levels, Jumps, Air, Crouch, Time, Runs, Records, Feats). Stats tracked in localStorage (totalGems, totalDist, totalScore, totalDeaths, totalJumps, totalDoubleJumps, totalCrouches, levelsCompleted, totalPlaySec, totalRuns, plus single-run records). Achievement panel overlay, toast notifications, progress bar, win screen at 100/100. Creative/weird milestone descriptions. Hooked into all game events (jump, gem collect, die, level complete, resetGame, update loop).
 - 2026-04-12: Converted to WASD platformer with gravity and ground tiles. Procedural level generation (120+ columns), obsidian ground tiles with yellow crystal highlights, floating platforms, red spike hazards, diamond gem pickups, goal marker. Double-jump, tile-based collision, camera follow. Mobile touch zones (left/middle/right). Level complete screen with bonus scoring.
 - 2026-04-12: Rethemed to black & yellow palette.
