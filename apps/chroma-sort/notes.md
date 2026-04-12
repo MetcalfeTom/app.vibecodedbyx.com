@@ -3,6 +3,7 @@
 Click color tiles in alphabetical order as fast as possible. 5 rounds per game, 9 difficulty levels.
 
 ## log
+- 2026-04-12: Added 5 new palettes — Synthwave (48 hot pink/cyan/purple 80s neon), Gemstone (44 rich jewel tones), Toxic (48 acid green/hazard yellow/radiation), Candy (48 saturated sweets), Neon Gradient (48 full-spectrum neon progression). Neon glow box-shadow effect on tiles for neon/synthwave/toxic/neongradient/abyssal palettes. Total 19 palettes now.
 - 2026-04-11: Added Prismatic Void mode — 16 procedurally generated shades from a single random hue with tiny lightness/saturation differences. Sort by lightness (dark→light). 3 rounds, penalty 5. Uses hslToHex helper for procedural color generation. Extreme difficulty since shades are nearly identical.
 - 2026-04-10: Added Supabase global leaderboard integration — dual Global/Local tabs, dynamic import of supabase-config.js, sbInit/sbLoadGlobal/sbSaveScore functions, submit saves to both local and Supabase, graceful fallback when Supabase unavailable. Table chroma_sort_scores needs to be created (schema.sql ready). Also added Abyssal Glow palette (48 bioluminescent blues/purples/cyans) and Mold palette (45 fungal greens/blacks/whites).
 - 2026-04-10: Added 5 new palettes — High Contrast (43 WCAG-friendly colors with max distinguishability), Earth (45 natural/organic tones), Retro (48 80s computing colors), Grayscale (43 shades of gray — ultimate challenge), Sunset (45 warm gradient colors). Total 12 palettes now.
