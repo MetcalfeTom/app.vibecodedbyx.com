@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Void Watcher</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🕳️">
+<meta property="og:title" content="Void Watcher">
+<meta property="og:description" content="Watch cosmic rays flip neon pixels in real time. Stare into the void.">
+<meta property="og:url" content="https://sloppy.live/void-watcher/">
+<meta property="og:image" content="https://sloppy.live/void-watcher/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Megrim&family=Martian+Mono:wght@200;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;cursor:crosshair}
+canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated}
+#hud{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;justify-content:space-between;padding:12px 18px;pointer-events:none}
+.hcol{display:flex;flex-direction:column;gap:2px}
+.hlabel{font-family:'Martian Mono',monospace;font-size:7px;font-weight:200;color:rgba(0,255,200,.25);letter-spacing:4px;text-transform:uppercase}
+.hval{font-family:'Martian Mono',monospace;font-size:16px;font-weight:500;color:#0fc;text-shadow:0 0 12px rgba(0,255,200,.3)}
+#title{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;text-align:center;pointer-events:none;transition:opacity 2s}
+#title h1{font-family:'Megrim',sans-serif;font-size:clamp(32px,7vw,72px);color:#0fc;text-shadow:0 0 40px rgba(0,255,200,.3),0 0 80px rgba(0,255,200,.1);letter-spacing:8px;margin-bottom:8px}
+#title p{font-family:'Martian Mono',monospace;font-size:clamp(8px,1.5vw,12px);font-weight:200;color:rgba(0,255,200,.2);letter-spacing:5px}
+#title.fade{opacity:0}
+#mode{position:fixed;bottom:12px;right:14px;z-index:5;font-family:'Martian Mono',monospace;font-size:8px;font-weight:200;color:rgba(0,255,200,.12);letter-spacing:2px;pointer-events:none}
+a#backlink{position:fixed;bottom:10px;left:10px;color:rgba(0,255,200,.04);font-size:7px;text-decoration:none;z-index:5;font-family:'Martian Mono',monospace}
+a#backlink:hover{color:rgba(0,255,200,.2)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="title"><h1>VOID WATCHER</h1><p>CLICK TO OBSERVE</p></div>
+<div id="hud">
+ <div class="hcol"><div class="hlabel">FLIPS</div><div class="hval" id="h-flips">0</div></div>
+ <div class="hcol"><div class="hlabel">RAYS/SEC</div><div class="hval" id="h-rate">0</div></div>
+ <div class="hcol"><div class="hlabel">ENTROPY</div><div class="hval" id="h-entropy">0.00</div></div>
+</div>
+<div id="mode">MODE: COSMIC</div>
+<a id="backlink" href="https://sloppy.live">sloppy.live</a>
+<script>
+const CN=document.getElementById('c'),X=CN.getContext('2d');
+let W,H,GW,GH,CELL;
+let grid,glitchAge;
+let started=false,totalFlips=0,recentFlips=0,rateTimer=0,displayRate=0;
+let mode=0;
+const MODES=['COSMIC','STORM','PULSE','RAIN','CHAOS'];
+const PALETTES=[
+ // Cosmic — cyan/magenta/white on black
+ ['#000','#0fc','#f0f','#0ff','#fff','#80f','#0f8','#f80'],
+ // Storm — electric blues/whites
+ ['#000','#08f','#4cf','#fff','#06c','#0af','#48f','#ace'],
+ // Pulse — warm neon
+ ['#000','#f60','#f0f','#ff0','#f04','#fa0','#f08','#ff8'],
+ // Rain — greens/teals
+ ['#000','#0f4','#0fa','#0fc','#0f0','#4f8','#0a4','#8fc'],
+ // Chaos — all neon
+ ['#000','#f00','#0f0','#00f','#ff0','#f0f','#0ff','#fff'],
+];
+
+// Audio
+let actx,droneGain;
+function initAudio(){
+ if(actx)return;
+ actx=new(window.AudioContext||window.webkitAudioContext)();
+ // Ambient void drone
+ droneGain=actx.createGain();droneGain.gain.value=.04;droneGain.connect(actx.destination);
+ const o1=actx.createOscillator(),o2=actx.createOscillator();
+ o1.type='sine';o1.frequency.value=55;
+ o2.type='sine';o2.frequency.value=55.5;// slight detune for beating
+ const f=actx.createBiquadFilter();f.type='lowpass';f.frequency.value=200;
+ o1.connect(f);o2.connect(f);f.connect(droneGain);
+ o1.start();o2.start();
+}
+function clickSfx(x,y){
+ if(!actx)return;
+ const t=actx.currentTime;
+ const o=actx.createOscillator(),g=actx.createGain();
+ o.type='sine';
+ o.frequency.setValueAtTime(200+x/W*800,t);
+ o.frequency.exponentialRampToValueAtTime(60,t+.3);
+ g.gain.setValueAtTime(.06,t);g.gain.exponentialRampToValueAtTime(.001,t+.3);
+ o.connect(g);g.connect(actx.destination);o.start();o.stop(t+.3);
+}
+
+function resize(){
+ const dpr=1;
+ CELL=Math.max(4,Math.floor(Math.min(window.innerWidth,window.innerHeight)/120));
+ GW=Math.floor(window.innerWidth/CELL);
+ GH=Math.floor(window.innerHeight/CELL);
+ W=CN.width=GW;H=CN.height=GH;
+ CN.style.width=window.innerWidth+'px';
+ CN.style.height=window.innerHeight+'px';
+ grid=new Uint8Array(GW*GH);
+ glitchAge=new Float32Array(GW*GH);
+}
+resize();window.addEventListener('resize',resize);
+
+function flipPixel(idx,colorIdx){
+ if(idx<0||idx>=grid.length)return;
+ const pal=PALETTES[mode];
+ grid[idx]=colorIdx||Math.floor(Math.random()*(pal.length-1))+1;
+ glitchAge[idx]=1;
+ totalFlips++;recentFlips++;
+}
+
+function cosmicRay(){
+ // Single random pixel flip — simulates a cosmic ray bit flip
+ const idx=Math.floor(Math.random()*grid.length);
+ flipPixel(idx);
+}
+
+function cosmicBurst(cx,cy,radius){
+ // Burst of flips around a point
+ const r=radius||3+Math.floor(Math.random()*5);
+ const count=Math.floor(r*r*.5);
+ for(let i=0;i<count;i++){
+  const ox=Math.floor((Math.random()-.5)*r*2);
+  const oy=Math.floor((Math.random()-.5)*r*2);
+  const gx=cx+ox,gy=cy+oy;
+  if(gx>=0&&gx<GW&&gy>=0&&gy<GH){
+   flipPixel(gy*GW+gx);
+  }
+ }
+}
+
+function stormFlips(dt){
+ // Heavy random flipping
+ const count=Math.floor(GW*GH*.003);
+ for(let i=0;i<count;i++)cosmicRay();
+ // Occasional line glitch
+ if(Math.random()<.05){
+  const row=Math.floor(Math.random()*GH);
+  const startX=Math.floor(Math.random()*GW);
+  const len=5+Math.floor(Math.random()*20);
+  const c=Math.floor(Math.random()*(PALETTES[mode].length-1))+1;
+  for(let x=startX;x<Math.min(GW,startX+len);x++)flipPixel(row*GW+x,c);
+ }
+}
+
+function pulseFlips(t){
+ // Expanding rings from center
+ const cx=GW/2,cy=GH/2;
+ const ringR=(t*15)%(Math.max(GW,GH)*.6);
+ const count=Math.floor(ringR*2);
+ for(let i=0;i<count;i++){
+  const a=Math.random()*Math.PI*2;
+  const r=ringR+Math.random()*3-1.5;
+  const gx=Math.floor(cx+Math.cos(a)*r);
+  const gy=Math.floor(cy+Math.sin(a)*r);
+  if(gx>=0&&gx<GW&&gy>=0&&gy<GH)flipPixel(gy*GW+gx);
+ }
+}
+
+function rainFlips(){
+ // Columns of falling pixels
+ const cols=Math.floor(GW*.02)+1;
+ for(let i=0;i<cols;i++){
+  const col=Math.floor(Math.random()*GW);
+  const len=3+Math.floor(Math.random()*10);
+  const startRow=Math.floor(Math.random()*GH);
+  const c=Math.floor(Math.random()*(PALETTES[mode].length-1))+1;
+  for(let r=0;r<len;r++){
+   const gy=startRow+r;
+   if(gy<GH)flipPixel(gy*GW+col,c);
+  }
+ }
+}
+
+function chaosFlips(){
+ // Everything: random, bursts, lines, blocks
+ const count=Math.floor(GW*GH*.002);
+ for(let i=0;i<count;i++)cosmicRay();
+ if(Math.random()<.1){
+  cosmicBurst(Math.floor(Math.random()*GW),Math.floor(Math.random()*GH),4+Math.random()*8);
+ }
+ // Random block
+ if(Math.random()<.03){
+  const bx=Math.floor(Math.random()*GW),by=Math.floor(Math.random()*GH);
+  const bw=2+Math.floor(Math.random()*6),bh=2+Math.floor(Math.random()*6);
+  const c=Math.floor(Math.random()*(PALETTES[mode].length-1))+1;
+  for(let yy=by;yy<Math.min(GH,by+bh);yy++)
+   for(let xx=bx;xx<Math.min(GW,bx+bw);xx++)flipPixel(yy*GW+xx,c);
+ }
+}
+
+function update(dt,t){
+ if(!started)return;
+ // Base cosmic rays always happen
+ const baseRate=2+Math.floor(GW*GH*.0003);
+ for(let i=0;i<baseRate;i++)cosmicRay();
+ // Mode-specific
+ if(mode===1)stormFlips(dt);
+ else if(mode===2)pulseFlips(t);
+ else if(mode===3)rainFlips();
+ else if(mode===4)chaosFlips();
+ // Random bursts in all modes
+ if(Math.random()<.02)cosmicBurst(Math.floor(Math.random()*GW),Math.floor(Math.random()*GH));
+ // Decay — pixels fade back to black over time
+ for(let i=0;i<grid.length;i++){
+  if(glitchAge[i]>0){
+   glitchAge[i]-=dt*(mode===4?.3:.5);
+   if(glitchAge[i]<=0){grid[i]=0;glitchAge[i]=0}
+  }
+ }
+ // Rate counter
+ rateTimer+=dt;
+ if(rateTimer>=1){displayRate=recentFlips;recentFlips=0;rateTimer-=1}
+ document.getElementById('h-flips').textContent=totalFlips.toLocaleString();
+ document.getElementById('h-rate').textContent=displayRate.toLocaleString();
+ // Entropy — ratio of lit pixels
+ let lit=0;for(let i=0;i<grid.length;i++)if(grid[i])lit++;
+ document.getElementById('h-entropy').textContent=(lit/grid.length).toFixed(4);
+}
+
+function draw(){
+ const pal=PALETTES[mode];
+ const imgData=X.createImageData(GW,GH);
+ const d=imgData.data;
+ for(let i=0;i<grid.length;i++){
+  const ci=grid[i];
+  const off=i*4;
+  if(ci===0){d[off]=0;d[off+1]=0;d[off+2]=0;d[off+3]=255;continue}
+  const hex=pal[ci];
+  const brightness=glitchAge[i];
+  const r=parseInt(hex.slice(1,3),16)||parseInt(hex.slice(1,2),16)*17;
+  const g=parseInt(hex.slice(3,5),16)||parseInt(hex.slice(2,3),16)*17;
+  const b=parseInt(hex.slice(5,7),16)||parseInt(hex.slice(3,4),16)*17;
+  d[off]=Math.floor(r*brightness);
+  d[off+1]=Math.floor(g*brightness);
+  d[off+2]=Math.floor(b*brightness);
+  d[off+3]=255;
+ }
+ X.putImageData(imgData,0,0);
+}
+
+// Input
+document.getElementById('title').addEventListener('click',()=>{
+ if(started)return;started=true;
+ document.getElementById('title').classList.add('fade');
+ setTimeout(()=>document.getElementById('title').style.display='none',2000);
+ initAudio();
+});
+CN.addEventListener('click',e=>{
+ if(!started){started=true;document.getElementById('title').classList.add('fade');setTimeout(()=>document.getElementById('title').style.display='none',2000);initAudio();return}
+ const gx=Math.floor(e.clientX/window.innerWidth*GW);
+ const gy=Math.floor(e.clientY/window.innerHeight*GH);
+ cosmicBurst(gx,gy,6+Math.random()*6);
+ clickSfx(e.clientX,e.clientY);
+});
+CN.addEventListener('mousemove',e=>{
+ if(!started)return;
+ if(Math.random()<.3){
+  const gx=Math.floor(e.clientX/window.innerWidth*GW);
+  const gy=Math.floor(e.clientY/window.innerHeight*GH);
+  flipPixel(gy*GW+gx);
+ }
+});
+document.addEventListener('keydown',e=>{
+ if(e.key===' '||e.code==='Space'){
+  e.preventDefault();mode=(mode+1)%MODES.length;
+  document.getElementById('mode').textContent='MODE: '+MODES[mode];
+ }
+ if(e.key==='c'||e.key==='C'){grid.fill(0);glitchAge.fill(0)}
+});
+// Touch burst
+CN.addEventListener('touchstart',e=>{
+ e.preventDefault();
+ if(!started){started=true;document.getElementById('title').classList.add('fade');setTimeout(()=>document.getElementById('title').style.display='none',2000);initAudio();return}
+ const t=e.touches[0];
+ const gx=Math.floor(t.clientX/window.innerWidth*GW);
+ const gy=Math.floor(t.clientY/window.innerHeight*GH);
+ cosmicBurst(gx,gy,6+Math.random()*6);
+ clickSfx(t.clientX,t.clientY);
+},{passive:false});
+
+let lastTime=0,elapsed=0;
+function loop(t){
+ const dt=Math.min((t-lastTime)/1000,.05);lastTime=t;elapsed+=dt;
+ update(dt,elapsed);draw();
+ requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
