@@ -3,6 +3,7 @@
 First-person shooter where you blast misspelled words out of existence.
 
 ## log
+- 2026-04-12: Spelling Bee mode (v1.2.0) — 4th difficulty option with 30 competition-level misspelled words (diphtheria, bougainvillea, chrysanthemum, etc) + 30 correctly-spelled decoys. 35% decoy rate (vs 22% normal). Shooting correct words costs 25 HP (vs 8). All tiers unlocked from wave 1. Rounds labeled "BEE ROUND" with unique banner text.
 - 2026-04-12: Cosmetic shop (v1.1.0) — spend combo points on 5 word skins (Default/Toxic/Frost/UV/Plasma) and 5 crosshair styles (Cross/Diamond/Circle/Skull/Star). Combo points earned from kills (multiplied by combo). All unlocks persisted in localStorage. Shop accessible from start screen + pause menu.
 - 2026-04-12: Version display + source download — v1.0.0 tag shown bottom-right, "source.zip" link downloads the full game as a single HTML file via Blob. Subtle styling that doesn't interfere with gameplay.
 - 2026-04-12: Todos cleanup — (1) Weapon pickups: boss kills drop glowing powerups (Rapid Pen, Mega Pen, Heal Kit, Combo Lock) that float in 3D and drift toward player, collect on proximity, buff bars in HUD. (2) Supabase leaderboard: score submit on death with name input (localStorage), top 10 display on game-over, gold/silver/bronze styling. Table: lexical_looter_scores. (3) 3 boss types cycling every 5 waves: Snake (multi-segment serpent), Swarm (many small fast enemies), Splitter (splits into 2 halves on death). (4) OG preview PNG added.
@@ -26,7 +27,7 @@ First-person shooter where you blast misspelled words out of existence.
 - Boss kills drop weapon pickups: Rapid Pen, Mega Pen, Heal Kit, Combo Lock
 - Cosmetic shop: 5 word skins + 5 crosshair styles, purchased with combo points earned from kills
 - Supabase leaderboard with top 10 on game-over screen
-- Difficulty selector: Easy/Normal/Hard — affects speed, tier unlock rate
+- Difficulty selector: Easy/Normal/Hard/Spelling Bee — affects speed, tier unlock, word pools
 - 3 pixel-art weapons: Red Pen, Spell Smasher, Syntax Shotgun (unlock at waves 3 & 6)
 - Combo multiplier system (x1-x5)
 - Letter explosion particles and correction text on kills
