@@ -3,6 +3,7 @@
 A digital pet that is a fuzzy cloud of static. Feed it misspelled words to make it grow. Perfect grammar makes it shrink.
 
 ## log
+- 2026-04-12: POOPSTORM trigger — typing "poopstorm" causes a screen-wide explosion: 500 chaotic waste particles burst from Fuzz in all directions, 200 more rain from the top, 20 piles scatter everywhere over time, heavy sustained screen shake. Status: "CODE BROWN. THIS IS NOT A DRILL."
 - 2026-04-12: Cascade mode — 4+ potty words in one message triggers a massive waterfall of waste particles, staggered pile drops across the screen, heavy screen shake, and panicked mood. Status messages like "THE FLOODGATES HAVE OPENED" and "CATASTROPHIC WASTE EVENT DETECTED."
 - 2026-04-12: Poop/pee piles + CleanBot — typing "poop" or "pee" (and variants) makes Fuzz embarrassedly drop a pixel-art brown pile or yellow puddle. Piles persist on screen. CLEAN button spawns a small cyan robot that drives to each pile, scrubs it with sparkle particles, then exits.
 - 2026-04-12: Toxicity kills Fuzz — swear words and toxic language trigger a 200-particle explosion, Fuzz dies, death overlay with random message shows. Revive button brings Fuzz back at half size as penalty. Detects ~40 toxic words/phrases including suffix variants.
