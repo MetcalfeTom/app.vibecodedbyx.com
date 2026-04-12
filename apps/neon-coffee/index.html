@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neon Coffee Machine</title>
+<link rel="icon" href="https://emojicdn.elk.sh/☕">
+<meta property="og:title" content="Neon Coffee Machine">
+<meta property="og:description" content="Watch a glowing coffee machine drip brew in neon. Pick your roast, hit brew, feel the pulse.">
+<meta property="og:url" content="https://sloppy.live/neon-coffee/">
+<meta property="og:image" content="https://sloppy.live/neon-coffee/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#080a0f;--neon:#ff6a00;--neon2:#ff9d40;--cyan:#00e5ff;--steam:rgba(200,220,255,.06)}
+html,body{height:100%;background:var(--bg);overflow:hidden;font-family:'Orbitron',sans-serif}
+canvas{display:block;position:fixed;inset:0}
+#ui{position:fixed;bottom:0;left:0;right:0;z-index:10;display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;pointer-events:none}
+#controls{display:flex;gap:8px;pointer-events:auto;flex-wrap:wrap;justify-content:center}
+#controls button{background:rgba(255,106,0,.06);border:1px solid rgba(255,106,0,.2);color:var(--neon);font-family:'Orbitron',sans-serif;font-size:10px;padding:8px 16px;cursor:pointer;border-radius:4px;letter-spacing:2px;text-transform:uppercase;transition:all .2s}
+#controls button:hover{background:rgba(255,106,0,.12);border-color:var(--neon);box-shadow:0 0 12px rgba(255,106,0,.2)}
+#controls button.active{background:rgba(255,106,0,.15);border-color:var(--neon);box-shadow:0 0 16px rgba(255,106,0,.3)}
+#controls button.brew-btn{font-size:13px;padding:10px 28px;font-weight:700;color:#fff;background:rgba(255,106,0,.15);border-color:var(--neon)}
+#controls button.brew-btn:hover{background:rgba(255,106,0,.25);box-shadow:0 0 24px rgba(255,106,0,.4)}
+#controls button.brew-btn.brewing{animation:brew-pulse .6s infinite alternate;pointer-events:none}
+@keyframes brew-pulse{from{box-shadow:0 0 12px rgba(255,106,0,.3)}to{box-shadow:0 0 30px rgba(255,106,0,.6)}}
+#status{font-family:'Share Tech Mono',monospace;font-size:11px;color:rgba(255,157,64,.4);letter-spacing:1px;text-align:center}
+#drip-count{font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(0,229,255,.3);letter-spacing:1px}
+#backlink{position:fixed;top:8px;right:12px;color:rgba(255,255,255,.08);font-size:9px;font-family:'Share Tech Mono',monospace;text-decoration:none;z-index:10}
+#backlink:hover{color:rgba(255,106,0,.3)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="status">SELECT ROAST & BREW</div>
+  <div id="drip-count"></div>
+  <div id="controls">
+    <button class="active" data-roast="light">Light</button>
+    <button data-roast="medium">Medium</button>
+    <button data-roast="dark">Dark</button>
+    <button data-roast="espresso">Espresso</button>
+    <button class="brew-btn" id="brew-btn">▶ BREW</button>
+  </div>
+</div>
+<a id="backlink" href="https://sloppy.live">sloppy.live</a>
+<script>
+const CV=document.getElementById('c'),X=CV.getContext('2d');
+let W,H;
+function resize(){W=CV.width=window.innerWidth;H=CV.height=window.innerHeight;}
+resize();window.addEventListener('resize',resize);
+
+const ROASTS={
+  light:{color:'#c89050',glow:'rgba(200,144,80,',name:'Light Roast',drips:35,speed:1.2,steamAmt:0.6},
+  medium:{color:'#8b5e34',glow:'rgba(139,94,52,',name:'Medium Roast',drips:30,speed:1,steamAmt:0.8},
+  dark:{color:'#4a2c15',glow:'rgba(74,44,21,',name:'Dark Roast',drips:25,speed:0.8,steamAmt:1},
+  espresso:{color:'#2a1508',glow:'rgba(42,21,8,',name:'Espresso',drips:18,speed:0.6,steamAmt:1.3},
+};
+
+let roast='light';
+let brewing=false;
+let brewProgress=0; // 0-1
+let cupFill=0; // 0-1
+let drips=[];
+let steam=[];
+let pulseT=0;
+let dripTimer=0;
+let totalDrips=0;
+let frame=0;
+let idlePulse=0;
+let audioCtx=null;
+
+// Machine geometry (responsive)
+function M(){
+  const cx=W/2, s=Math.min(W,H)*0.0028;
+  return{
+    cx, s,
+    // body
+    bx:cx-60*s, by:H*0.18, bw:120*s, bh:180*s,
+    // head (water tank)
+    hx:cx-50*s, hy:H*0.08, hw:100*s, hh:60*s,
+    // nozzle
+    nx:cx, ny:H*0.18+180*s, nw:12*s,
+    // cup
+    cupX:cx-30*s, cupY:H*0.18+210*s, cupW:60*s, cupH:55*s,
+    // drip point
+    dx:cx, dy:H*0.18+190*s,
+    // cup liquid top
+    cupLiqY:function(fill){return this.cupY+this.cupH*(1-fill*0.75)-5*s;},
+  };
+}
+
+// Audio
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+}
+function playDrip(){
+  if(!audioCtx)return;
+  try{
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type='sine';o.frequency.setValueAtTime(800+Math.random()*400,audioCtx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(200+Math.random()*100,audioCtx.currentTime+0.08);
+    g.gain.setValueAtTime(0.06,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.12);
+    o.connect(g);g.connect(audioCtx.destination);
+    o.start();o.stop(audioCtx.currentTime+0.15);
+  }catch(e){}
+}
+function playBrew(){
+  if(!audioCtx)return;
+  try{
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type='sawtooth';o.frequency.setValueAtTime(60,audioCtx.currentTime);
+    g.gain.setValueAtTime(0.03,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.5);
+    o.connect(g);g.connect(audioCtx.destination);
+    o.start();o.stop(audioCtx.currentTime+0.5);
+  }catch(e){}
+}
+
+function startBrew(){
+  initAudio();
+  if(brewing)return;
+  brewing=true;brewProgress=0;cupFill=0;drips=[];dripTimer=0;
+  totalDrips=0;
+  document.getElementById('brew-btn').classList.add('brewing');
+  document.getElementById('brew-btn').textContent='BREWING...';
+  document.getElementById('status').textContent=ROASTS[roast].name.toUpperCase()+' — BREWING';
+  playBrew();
+}
+
+function endBrew(){
+  brewing=false;
+  document.getElementById('brew-btn').classList.remove('brewing');
+  document.getElementById('brew-btn').textContent='▶ BREW';
+  document.getElementById('status').textContent=ROASTS[roast].name.toUpperCase()+' — READY ☕';
+}
+
+// Drip class
+function spawnDrip(){
+  const m=M();
+  const r=ROASTS[roast];
+  drips.push({
+    x:m.dx+(Math.random()-0.5)*4*m.s,
+    y:m.dy,
+    vy:1+Math.random()*0.5,
+    size:2+Math.random()*1.5,
+    color:r.color,
+    glow:r.glow,
+    life:1,
+    landed:false,
+  });
+  totalDrips++;
+  document.getElementById('drip-count').textContent='DRIPS: '+totalDrips;
+}
+
+function spawnSteam(){
+  const m=M();
+  const r=ROASTS[roast];
+  const amt=r.steamAmt*(brewing?1:cupFill>0.1?0.3:0);
+  if(amt<=0)return;
+  for(let i=0;i<2*amt;i++){
+    steam.push({
+      x:m.cx+(Math.random()-0.5)*30*m.s,
+      y:m.cupY-5*m.s,
+      vx:(Math.random()-0.5)*0.4,
+      vy:-0.5-Math.random()*0.8,
+      size:3+Math.random()*4,
+      life:1,
+    });
+  }
+}
+
+function update(){
+  frame++;
+  idlePulse=Math.sin(frame*0.02)*0.5+0.5;
+  const m=M();
+  const r=ROASTS[roast];
+
+  if(brewing){
+    pulseT+=0.15;
+    const speed=r.speed;
+    brewProgress+=0.0012*speed;
+    if(brewProgress>=1){brewProgress=1;endBrew();}
+
+    dripTimer+=speed;
+    const interval=3+Math.random()*2;
+    if(dripTimer>=interval){
+      dripTimer=0;
+      spawnDrip();
+      playDrip();
+    }
+
+    if(frame%8===0)spawnSteam();
+  } else {
+    pulseT+=0.03;
+    if(cupFill>0.1&&frame%20===0)spawnSteam();
+  }
+
+  // update drips
+  for(let i=drips.length-1;i>=0;i--){
+    const d=drips[i];
+    if(!d.landed){
+      d.vy+=0.12;
+      d.y+=d.vy;
+      // hit cup liquid surface
+      const surfY=m.cupY+m.cupH*(1-cupFill*0.75);
+      if(d.y>=surfY&&d.x>m.cupX&&d.x<m.cupX+m.cupW){
+        d.landed=true;d.life=1;
+        cupFill=Math.min(1,cupFill+1/r.drips);
+        // ripple particles
+        for(let j=0;j<3;j++){
+          drips.push({x:d.x+(Math.random()-0.5)*6,y:surfY,vy:-1-Math.random()*1.5,vx:(Math.random()-0.5)*2,
+            size:1+Math.random(),color:r.color,glow:r.glow,life:0.6,landed:true,splash:true});
+        }
+      }
+      if(d.y>H)drips.splice(i,1);
+    } else if(d.splash){
+      d.vy+=0.08;d.y+=d.vy;d.x+=(d.vx||0);
+      d.life-=0.03;
+      if(d.life<=0)drips.splice(i,1);
+    } else {
+      d.life-=0.05;
+      if(d.life<=0)drips.splice(i,1);
+    }
+  }
+
+  // steam
+  for(let i=steam.length-1;i>=0;i--){
+    const s=steam[i];
+    s.x+=s.vx+Math.sin(frame*0.05+i)*0.15;
+    s.y+=s.vy;s.vy-=0.002;
+    s.size+=0.02;s.life-=0.008;
+    if(s.life<=0)steam.splice(i,1);
+  }
+}
+
+function render(){
+  const m=M();
+  const r=ROASTS[roast];
+  const pulse=brewing?Math.sin(pulseT)*0.4+0.6:0.2+idlePulse*0.15;
+  const neonA=0.3+pulse*0.5;
+
+  X.fillStyle='#080a0f';X.fillRect(0,0,W,H);
+
+  // Ambient glow behind machine
+  const ag=X.createRadialGradient(m.cx,m.by+m.bh*0.5,0,m.cx,m.by+m.bh*0.5,m.bw*1.5);
+  ag.addColorStop(0,'rgba(255,106,0,'+(0.02+pulse*0.03)+')');
+  ag.addColorStop(1,'rgba(0,0,0,0)');
+  X.fillStyle=ag;X.fillRect(0,0,W,H);
+
+  // === MACHINE BODY ===
+  // Back panel
+  X.fillStyle='#0d1018';
+  roundRect(m.bx-4*m.s,m.by-4*m.s,m.bw+8*m.s,m.bh+8*m.s,8*m.s);X.fill();
+
+  // Main body
+  const bg=X.createLinearGradient(m.bx,m.by,m.bx+m.bw,m.by+m.bh);
+  bg.addColorStop(0,'#12161f');bg.addColorStop(0.5,'#181d28');bg.addColorStop(1,'#10141c');
+  X.fillStyle=bg;
+  roundRect(m.bx,m.by,m.bw,m.bh,6*m.s);X.fill();
+
+  // Neon trim — body outline
+  X.strokeStyle='rgba(255,106,0,'+neonA*0.4+')';X.lineWidth=1.5;
+  X.shadowColor='rgba(255,106,0,'+neonA+')';X.shadowBlur=12*pulse;
+  roundRect(m.bx,m.by,m.bw,m.bh,6*m.s);X.stroke();
+  X.shadowBlur=0;
+
+  // === WATER TANK (top) ===
+  X.fillStyle='rgba(0,229,255,0.03)';
+  roundRect(m.hx,m.hy,m.hw,m.hh,4*m.s);X.fill();
+  X.strokeStyle='rgba(0,229,255,'+(0.15+pulse*0.1)+')';X.lineWidth=1;
+  X.shadowColor='rgba(0,229,255,'+(0.3+pulse*0.3)+')';X.shadowBlur=6;
+  roundRect(m.hx,m.hy,m.hw,m.hh,4*m.s);X.stroke();X.shadowBlur=0;
+
+  // Water level in tank
+  const waterLevel=brewing?1-brewProgress:1;
+  const wh=m.hh*waterLevel*0.85;
+  const wy=m.hy+m.hh-wh-2*m.s;
+  X.fillStyle='rgba(0,180,220,'+(0.06+pulse*0.03)+')';
+  X.fillRect(m.hx+3*m.s,wy,m.hw-6*m.s,wh);
+
+  // === DISPLAY SCREEN ===
+  const dx=m.bx+15*m.s,dy=m.by+15*m.s,dw=m.bw-30*m.s,dh=40*m.s;
+  X.fillStyle='#060a10';
+  roundRect(dx,dy,dw,dh,3*m.s);X.fill();
+  X.strokeStyle='rgba(0,229,255,0.12)';X.lineWidth=1;
+  roundRect(dx,dy,dw,dh,3*m.s);X.stroke();
+  // Display text
+  X.font=(10*m.s)+'px "Share Tech Mono"';X.fillStyle='rgba(0,229,255,'+(0.5+pulse*0.3)+')';
+  X.textAlign='center';
+  if(brewing){
+    X.fillText(r.name.toUpperCase()+' — '+Math.round(brewProgress*100)+'%',m.cx,dy+16*m.s);
+    // progress bar
+    X.fillStyle='rgba(0,229,255,0.1)';
+    X.fillRect(dx+5*m.s,dy+24*m.s,dw-10*m.s,6*m.s);
+    X.fillStyle='rgba(0,229,255,'+(0.4+pulse*0.3)+')';
+    X.shadowColor='rgba(0,229,255,0.5)';X.shadowBlur=4;
+    X.fillRect(dx+5*m.s,dy+24*m.s,(dw-10*m.s)*brewProgress,6*m.s);
+    X.shadowBlur=0;
+  } else if(cupFill>0.5){
+    X.fillText('ENJOY YOUR '+r.name.toUpperCase(),m.cx,dy+18*m.s);
+  } else {
+    X.fillText('SELECT & BREW',m.cx,dy+18*m.s);
+  }
+
+  // === BREW GROUP / NOZZLE ===
+  const ny=m.ny;
+  X.fillStyle='#1a1e28';
+  X.fillRect(m.cx-m.nw/2,ny-10*m.s,m.nw,20*m.s);
+  X.strokeStyle='rgba(255,106,0,'+(0.2+pulse*0.2)+')';X.lineWidth=1;
+  X.shadowColor='rgba(255,106,0,'+(neonA*0.6)+')';X.shadowBlur=6;
+  X.strokeRect(m.cx-m.nw/2,ny-10*m.s,m.nw,20*m.s);X.shadowBlur=0;
+
+  // Nozzle drip tip
+  X.fillStyle='rgba(255,106,0,'+(0.3+pulse*0.4)+')';
+  X.shadowColor='rgba(255,106,0,'+(neonA)+')';X.shadowBlur=8;
+  X.beginPath();X.arc(m.dx,m.dy,3*m.s,0,Math.PI*2);X.fill();
+  X.shadowBlur=0;
+
+  // Drip forming
+  if(brewing&&dripTimer>1.5){
+    const dSize=2*m.s*(dripTimer/5);
+    X.fillStyle=r.color;
+    X.shadowColor=r.glow+neonA+')';X.shadowBlur=6;
+    X.beginPath();X.arc(m.dx,m.dy+4*m.s,dSize,0,Math.PI*2);X.fill();
+    X.shadowBlur=0;
+  }
+
+  // === BUTTONS on machine ===
+  const btnY=m.by+70*m.s;
+  for(let i=0;i<3;i++){
+    const bx=m.bx+20*m.s+i*30*m.s;
+    const active=i===0&&brewing;
+    X.fillStyle=active?'rgba(255,106,0,0.3)':'rgba(255,106,0,0.05)';
+    X.beginPath();X.arc(bx,btnY,5*m.s,0,Math.PI*2);X.fill();
+    X.strokeStyle='rgba(255,106,0,'+(active?0.6:0.15)+')';X.lineWidth=1;
+    if(active){X.shadowColor='rgba(255,106,0,0.6)';X.shadowBlur=8;}
+    X.beginPath();X.arc(bx,btnY,5*m.s,0,Math.PI*2);X.stroke();
+    X.shadowBlur=0;
+  }
+
+  // === GRILL / VENTS ===
+  for(let i=0;i<5;i++){
+    const vy=m.by+100*m.s+i*12*m.s;
+    X.strokeStyle='rgba(255,106,0,0.04)';X.lineWidth=1;
+    X.beginPath();X.moveTo(m.bx+15*m.s,vy);X.lineTo(m.bx+m.bw-15*m.s,vy);X.stroke();
+  }
+
+  // === DRIP TRAY ===
+  const trayY=m.cupY+m.cupH+8*m.s;
+  X.fillStyle='#0f1219';
+  X.fillRect(m.cx-45*m.s,trayY,90*m.s,8*m.s);
+  X.strokeStyle='rgba(255,106,0,0.08)';X.lineWidth=1;
+  X.strokeRect(m.cx-45*m.s,trayY,90*m.s,8*m.s);
+
+  // === CUP ===
+  const cupPath=()=>{
+    X.beginPath();
+    X.moveTo(m.cupX,m.cupY);
+    X.lineTo(m.cupX+5*m.s,m.cupY+m.cupH);
+    X.lineTo(m.cupX+m.cupW-5*m.s,m.cupY+m.cupH);
+    X.lineTo(m.cupX+m.cupW,m.cupY);
+    X.closePath();
+  };
+  // cup body
+  X.fillStyle='#14181f';cupPath();X.fill();
+  X.strokeStyle='rgba(255,255,255,0.06)';X.lineWidth=1.5;cupPath();X.stroke();
+
+  // Handle
+  X.strokeStyle='rgba(255,255,255,0.05)';X.lineWidth=2;
+  X.beginPath();
+  X.arc(m.cupX+m.cupW+8*m.s,m.cupY+m.cupH*0.45,10*m.s,Math.PI*-0.4,Math.PI*0.4);
+  X.stroke();
+
+  // Liquid in cup
+  if(cupFill>0.01){
+    const lh=m.cupH*cupFill*0.75;
+    const ly=m.cupY+m.cupH-lh;
+    const ltaper=5*m.s*(1-lh/m.cupH*0.5);
+    X.fillStyle=r.color;
+    X.shadowColor=r.glow+'0.3)';X.shadowBlur=8;
+    X.beginPath();
+    X.moveTo(m.cupX+ltaper+2*m.s,ly);
+    X.lineTo(m.cupX+5*m.s,m.cupY+m.cupH);
+    X.lineTo(m.cupX+m.cupW-5*m.s,m.cupY+m.cupH);
+    X.lineTo(m.cupX+m.cupW-ltaper-2*m.s,ly);
+    X.closePath();X.fill();
+    X.shadowBlur=0;
+
+    // Surface highlight
+    X.fillStyle='rgba(255,200,150,0.06)';
+    X.fillRect(m.cupX+ltaper+4*m.s,ly,m.cupW-2*ltaper-8*m.s,2);
+
+    // Neon cup rim glow (stronger when full)
+    X.strokeStyle='rgba(255,106,0,'+(cupFill*0.15)+')';X.lineWidth=1;
+    X.shadowColor='rgba(255,106,0,'+(cupFill*0.3)+')';X.shadowBlur=6;
+    X.beginPath();X.moveTo(m.cupX,m.cupY);X.lineTo(m.cupX+m.cupW,m.cupY);X.stroke();
+    X.shadowBlur=0;
+  }
+
+  // === DRIPS ===
+  for(const d of drips){
+    if(d.splash){
+      X.fillStyle=d.glow+(d.life*0.5)+')';
+      X.beginPath();X.arc(d.x,d.y,d.size*d.life,0,Math.PI*2);X.fill();
+    } else if(!d.landed){
+      X.fillStyle=d.color;
+      X.shadowColor=d.glow+'0.5)';X.shadowBlur=6;
+      X.beginPath();
+      // teardrop shape
+      X.ellipse(d.x,d.y,d.size*0.7,d.size*1.2,0,0,Math.PI*2);
+      X.fill();X.shadowBlur=0;
+    }
+  }
+
+  // === STEAM ===
+  for(const s of steam){
+    X.fillStyle='rgba(200,220,255,'+(s.life*0.035)+')';
+    X.beginPath();X.arc(s.x,s.y,s.size,0,Math.PI*2);X.fill();
+  }
+
+  // === PULSE RING on drip ===
+  if(brewing){
+    const pa=Math.sin(pulseT*2)*0.3+0.3;
+    const pr=10*m.s+Math.sin(pulseT)*5*m.s;
+    X.strokeStyle='rgba(255,106,0,'+pa*0.2+')';X.lineWidth=1;
+    X.beginPath();X.arc(m.dx,m.dy,pr,0,Math.PI*2);X.stroke();
+  }
+}
+
+function roundRect(x,y,w,h,r){
+  X.beginPath();
+  X.moveTo(x+r,y);X.lineTo(x+w-r,y);X.quadraticCurveTo(x+w,y,x+w,y+r);
+  X.lineTo(x+w,y+h-r);X.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  X.lineTo(x+r,y+h);X.quadraticCurveTo(x,y+h,x,y+h-r);
+  X.lineTo(x,y+r);X.quadraticCurveTo(x,y,x+r,y);
+  X.closePath();
+}
+
+// Controls
+document.querySelectorAll('[data-roast]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    if(brewing)return;
+    roast=btn.dataset.roast;
+    document.querySelectorAll('[data-roast]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('status').textContent=ROASTS[roast].name.toUpperCase()+' SELECTED';
+  });
+});
+document.getElementById('brew-btn').addEventListener('click',startBrew);
+
+function loop(){update();render();requestAnimationFrame(loop);}
+loop();
+</script>
+</body>
+</html>
