@@ -3,6 +3,7 @@
 WASD keyboard platformer — run, jump, and double-jump through procedural levels collecting gems and dodging spikes.
 
 ## log
+- 2026-04-12: Redesigned Kinu sprite — blue and white feathered dragon. Deep blue body (#1a3a6a), white feathered chest/cheeks, 3 white crest plumes with glowing cyan tips, feathered tail with 3-strand plume, feathered wing edges, blue taloned feet with glowing claw tips. Cyan glow accents on eye, nostril, wing tip, feather tips, claws. No sneakers — replaced with 3-toed talons.
 - 2026-04-12: Seed-based level generation. Mulberry32 seeded PRNG replaces all Math.random() in generateLevel (37 calls). Human-readable seed names (AdjectiveNoun###, e.g. "AncientFang742"). Seed displayed in HUD (click to copy). Seed shown on game over/level complete screens. Same seed = same level layout, gems, spikes, trampolines, moving platforms, portals.
 - 2026-04-12: Added trampolines (green bouncy pads, 1.7x jump power, spring coil animation), moving platforms (horizontal/vertical oscillation, carry Kinu, orange glow), and portal pairs (cyan/magenta spinning rings, bidirectional teleport with cooldown, sparkle FX). 8 petting/boop achievements (boop snoot mechanic with small hitbox).
 - 2026-04-12: Added petting mechanic — click/tap Kinu to pat with hand animation and heart particles. totalPets stat tracked. 2 petting achievements (Good Boy, Dragon Whisperer).
