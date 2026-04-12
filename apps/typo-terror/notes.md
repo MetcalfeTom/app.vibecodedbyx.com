@@ -3,6 +3,7 @@
 A digital pet that is a fuzzy cloud of static. Feed it misspelled words to make it grow. Perfect grammar makes it shrink.
 
 ## log
+- 2026-04-12: Named the creature "Fuzz" — name tag under body, all mood labels and status messages reference Fuzz by name. OG description updated.
 - 2026-04-12: Initial build. Canvas-based static cloud creature with 2000 noise particles forming body. Big expressive eyes with pupil tracking (mouse + input focus). Mouth expressions per mood (happy/excited/angry/sleepy/neutral). ~800 word dictionary for spell checking. Grows with typos, shrinks with correct words. Particle burst on feeding. Tiny arms appear at size 1.5+. Word history feed. Size persisted in localStorage. Anybody + Space Mono typography, deep purple/violet aesthetic.
 
 ## features
