@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Super Serial F — Jump the Pickles!</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🥒">
+<meta property="og:title" content="Super Serial F">
+<meta property="og:description" content="Control a giant letter F jumping over evil pickles. It's exactly as weird as it sounds.">
+<meta property="og:url" content="https://sloppy.live/super-serial-f">
+<meta property="og:image" content="https://sloppy.live/super-serial-f/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Bungee+Shade&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#180820;overflow:hidden;width:100vw;height:100vh;
+  display:flex;align-items:center;justify-content:center;user-select:none}
+canvas{display:block;image-rendering:pixelated}
+#start{position:fixed;inset:0;background:rgba(24,8,32,0.96);display:flex;
+  flex-direction:column;align-items:center;justify-content:center;z-index:20;cursor:pointer}
+#start h1{font-family:'Bungee Shade',cursive;font-size:clamp(28px,6vw,52px);
+  color:#f0e040;text-shadow:3px 3px 0 #804000;line-height:1.2;text-align:center}
+#start .sub{font-family:'Silkscreen',monospace;font-size:14px;color:#6a5a80;margin-top:10px}
+#start .blink{font-family:'Silkscreen',monospace;font-size:12px;color:#8a7a90;
+  margin-top:30px;animation:blink 1.2s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+.back-link{position:fixed;bottom:4px;right:8px;z-index:10}
+.back-link a{color:#2a1830;font-size:9px;text-decoration:none;font-family:'Silkscreen',monospace}
+.back-link a:hover{color:#6a5a80}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="start">
+  <h1>SUPER<br>SERIAL F</h1>
+  <div class="sub">🥒 Jump the pickles. Be the F. 🥒</div>
+  <div class="blink">TAP / SPACE TO START</div>
+</div>
+<div class="back-link"><a href="https://sloppy.live">← sloppy.live</a></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let GW, GH, GROUND_Y, SCALE;
+function resize(){
+  const asp = 16/9;
+  if(window.innerWidth / window.innerHeight > asp){
+    GH = window.innerHeight;
+    GW = Math.floor(GH * asp);
+  } else {
+    GW = window.innerWidth;
+    GH = Math.floor(GW / asp);
+  }
+  canvas.width = GW;
+  canvas.height = GH;
+  canvas.style.width = GW + 'px';
+  canvas.style.height = GH + 'px';
+  SCALE = GH / 480;
+  GROUND_Y = GH * 0.78;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// === GAME STATE ===
+let state = 'title'; // title, playing, dead
+let score = 0;
+let highScore = parseInt(localStorage.getItem('ssf_hi'))||0;
+let distance = 0;
+let scrollSpeed = 3.5;
+let speedIncrease = 0;
+let gameTime = 0;
+let deathTimer = 0;
+let screenFlash = 0;
+
+// === PLAYER (the letter F) ===
+const F = {
+  x: 0, y: 0, vy: 0, w: 0, h: 0,
+  grounded: true, jumping: false,
+  doubleJump: true, squash: 1, stretch: 1,
+  trail: [], invincible: 0, combo: 0,
+  particles: [],
+};
+
+function resetPlayer(){
+  F.x = GW * 0.18;
+  F.y = GROUND_Y;
+  F.vy = 0;
+  F.grounded = true;
+  F.jumping = false;
+  F.doubleJump = true;
+  F.squash = 1; F.stretch = 1;
+  F.trail = [];
+  F.invincible = 0;
+  F.combo = 0;
+  F.w = 36 * SCALE;
+  F.h = 52 * SCALE;
+}
+
+// === PICKLES ===
+const pickles = [];
+const PICKLE_TYPES = [
+  {name:'pickle',     w:24, h:32, speed:0, color:'#3a8830', jumpable:true},
+  {name:'gherkin',    w:18, h:22, speed:0, color:'#4aa840', jumpable:true},
+  {name:'big_dill',   w:36, h:48, speed:0, color:'#2a6820', jumpable:true},
+  {name:'flying',     w:22, h:26, speed:0, color:'#50b840', jumpable:true, flying:true},
+  {name:'roller',     w:28, h:28, speed:1.5, color:'#308828', jumpable:true, rolling:true},
+];
+
+function spawnPickle(){
+  const diff = Math.min(gameTime / 30, 1); // 0-1 over 30s
+  const types = PICKLE_TYPES.slice(0, 2 + Math.floor(diff * 3));
+  const type = types[Math.floor(Math.random() * types.length)];
+  const p = {
+    ...type,
+    x: GW + 50,
+    y: GROUND_Y,
+    w: type.w * SCALE,
+    h: type.h * SCALE,
+    scored: false,
+    angle: 0,
+    bobPhase: Math.random() * Math.PI * 2,
+  };
+  if(type.flying){
+    p.y = GROUND_Y - 60*SCALE - Math.random()*80*SCALE;
+  }
+  pickles.push(p);
+}
+
+// === PLATFORMS ===
+const platforms = [];
+function spawnPlatform(){
+  const w = (60 + Math.random()*80) * SCALE;
+  platforms.push({
+    x: GW + 50,
+    y: GROUND_Y - (100 + Math.random()*80) * SCALE,
+    w: w, h: 12 * SCALE,
+    hasPickle: Math.random() < 0.3,
+  });
+}
+
+// === COLLECTIBLES ===
+const serifs = []; // collect serif letters for bonus
+function spawnSerif(){
+  const letters = 'SERIF';
+  serifs.push({
+    x: GW + 50,
+    y: GROUND_Y - (50 + Math.random()*120) * SCALE,
+    letter: letters[Math.floor(Math.random()*letters.length)],
+    collected: false,
+    bob: Math.random()*Math.PI*2,
+  });
+}
+
+// === BACKGROUND ===
+const bgLayers = [];
+function initBG(){
+  bgLayers.length = 0;
+  // Distant city
+  for(let i = 0; i < 20; i++){
+    bgLayers.push({
+      x: i * GW * 0.12,
+      w: 20 + Math.random()*40,
+      h: 60 + Math.random()*120,
+      layer: 0,
+      hue: 260 + Math.random()*30,
+    });
+  }
+  // Mid buildings
+  for(let i = 0; i < 15; i++){
+    bgLayers.push({
+      x: i * GW * 0.1,
+      w: 30 + Math.random()*50,
+      h: 40 + Math.random()*80,
+      layer: 1,
+      hue: 270 + Math.random()*20,
+    });
+  }
+}
+
+function drawBG(t){
+  // Sky
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  skyGrad.addColorStop(0, '#0c0418');
+  skyGrad.addColorStop(0.5, '#1a0830');
+  skyGrad.addColorStop(1, '#2a1040');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, GW, GROUND_Y);
+
+  // Stars
+  ctx.fillStyle = '#fff';
+  for(let i = 0; i < 30; i++){
+    const sx = (i*173.7+20)%GW, sy = (i*61.3+10)%(GROUND_Y*0.5);
+    ctx.globalAlpha = 0.15 + Math.sin(t*2+i)*0.1;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  ctx.globalAlpha = 1;
+
+  // BG buildings
+  const spd = scrollSpeed + speedIncrease;
+  for(const b of bgLayers){
+    const parallax = b.layer === 0 ? 0.2 : 0.5;
+    b.x -= spd * parallax * 0.5;
+    if(b.x + b.w < -10) b.x += GW * 1.4;
+    const alpha = b.layer === 0 ? 0.15 : 0.25;
+    ctx.fillStyle = `hsla(${b.hue},40%,15%,${alpha})`;
+    ctx.fillRect(b.x * SCALE, GROUND_Y - b.h * SCALE, b.w * SCALE, b.h * SCALE);
+    // Windows
+    if(b.layer === 1){
+      ctx.fillStyle = `hsla(50,80%,70%,${0.1 + Math.sin(t+b.x)*0.05})`;
+      for(let wy = 0; wy < b.h - 20; wy += 15){
+        for(let wx = 5; wx < b.w - 5; wx += 12){
+          if(Math.sin(b.x+wx+wy)>0.2)
+            ctx.fillRect((b.x+wx)*SCALE, GROUND_Y-(b.h-wy)*SCALE, 4*SCALE, 6*SCALE);
+        }
+      }
+    }
+  }
+
+  // Ground
+  ctx.fillStyle = '#2a1840';
+  ctx.fillRect(0, GROUND_Y, GW, GH - GROUND_Y);
+  // Ground line
+  ctx.fillStyle = '#4a2860';
+  ctx.fillRect(0, GROUND_Y, GW, 3*SCALE);
+  // Ground pattern
+  ctx.fillStyle = '#221438';
+  for(let x = 0; x < GW; x += 30*SCALE){
+    const gx = (x - distance*0.5) % (GW + 60*SCALE);
+    ctx.fillRect(gx < 0 ? gx + GW + 60*SCALE : gx, GROUND_Y + 8*SCALE, 20*SCALE, 3*SCALE);
+  }
+}
+
+// === DRAW THE LETTER F ===
+function drawF(t){
+  if(F.invincible > 0 && Math.floor(F.invincible*12)%2) return;
+
+  const x = F.x, y = F.y;
+  const w = F.w * F.squash, h = F.h * F.stretch;
+  const bob = F.grounded ? Math.sin(t*8)*1.5*SCALE : 0;
+
+  // Trail
+  F.trail.push({x: x, y: y - h/2, alpha: 0.5});
+  if(F.trail.length > 8) F.trail.shift();
+  for(let i = 0; i < F.trail.length - 1; i++){
+    const tr = F.trail[i];
+    tr.alpha *= 0.85;
+    ctx.fillStyle = `rgba(240,224,64,${tr.alpha * 0.15})`;
+    ctx.fillRect(tr.x - w*0.3, tr.y - h*0.3, w*0.6, h*0.6);
+  }
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(x, GROUND_Y + 2*SCALE, w*0.6, 4*SCALE, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // F body — pixel letter F
+  ctx.save();
+  ctx.translate(x, y + bob);
+
+  // Main color
+  const fGrad = ctx.createLinearGradient(-w/2, -h, w/2, 0);
+  fGrad.addColorStop(0, '#ffe840');
+  fGrad.addColorStop(0.5, '#f0d020');
+  fGrad.addColorStop(1, '#d0a800');
+  ctx.fillStyle = fGrad;
+
+  const bw = w * 0.35; // bar width
+  const th = h * 0.15; // bar thickness
+
+  // Vertical bar (left side of F)
+  ctx.fillRect(-w/2, -h, bw, h);
+
+  // Top horizontal bar
+  ctx.fillRect(-w/2, -h, w, th);
+
+  // Middle horizontal bar
+  ctx.fillRect(-w/2, -h*0.52, w*0.75, th);
+
+  // Outline
+  ctx.strokeStyle = '#a08000';
+  ctx.lineWidth = 2 * SCALE;
+  // Vertical
+  ctx.strokeRect(-w/2, -h, bw, h);
+  // Top
+  ctx.strokeRect(-w/2, -h, w, th);
+  // Middle
+  ctx.strokeRect(-w/2, -h*0.52, w*0.75, th);
+
+  // Face on the F
+  const faceY = -h * 0.7;
+  // Eyes
+  ctx.fillStyle = '#222';
+  const eyeSize = 3.5 * SCALE;
+  const blink = Math.sin(t*3) > 0.97;
+  if(!blink){
+    ctx.beginPath(); ctx.arc(-w*0.05, faceY, eyeSize, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(w*0.2, faceY, eyeSize, 0, Math.PI*2); ctx.fill();
+    // Pupils
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-w*0.05+1.5*SCALE, faceY-1*SCALE, 1.5*SCALE, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(w*0.2+1.5*SCALE, faceY-1*SCALE, 1.5*SCALE, 0, Math.PI*2); ctx.fill();
+  } else {
+    ctx.fillRect(-w*0.12, faceY-1*SCALE, 5*SCALE, 2*SCALE);
+    ctx.fillRect(w*0.12, faceY-1*SCALE, 5*SCALE, 2*SCALE);
+  }
+
+  // Mouth
+  if(!F.grounded){
+    // Open mouth (scared/excited)
+    ctx.fillStyle = '#a06000';
+    ctx.beginPath();
+    ctx.ellipse(w*0.05, faceY + 10*SCALE, 4*SCALE, 5*SCALE, 0, 0, Math.PI*2);
+    ctx.fill();
+  } else {
+    // Smile
+    ctx.strokeStyle = '#805000';
+    ctx.lineWidth = 1.5*SCALE;
+    ctx.beginPath();
+    ctx.arc(w*0.05, faceY + 6*SCALE, 5*SCALE, 0.1*Math.PI, 0.9*Math.PI);
+    ctx.stroke();
+  }
+
+  // Legs (pixel feet at bottom)
+  const legOff = F.grounded ? Math.sin(t*12)*3*SCALE : 0;
+  ctx.fillStyle = '#d0a800';
+  ctx.fillRect(-w/2+2*SCALE, 0, bw*0.4, 5*SCALE + legOff);
+  ctx.fillRect(-w/2+bw-bw*0.4-2*SCALE, 0, bw*0.4, 5*SCALE - legOff);
+  // Shoes
+  ctx.fillStyle = '#804000';
+  ctx.fillRect(-w/2, 4*SCALE + legOff, bw*0.45, 4*SCALE);
+  ctx.fillRect(-w/2+bw-bw*0.45, 4*SCALE - legOff, bw*0.45, 4*SCALE);
+
+  ctx.restore();
+}
+
+// === DRAW PICKLE ===
+function drawPickle(p, t){
+  const x = p.x, y = p.y;
+  const w = p.w, h = p.h;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  if(p.rolling){
+    ctx.rotate(p.angle);
+  }
+  if(p.flying){
+    ctx.translate(0, Math.sin(t*4 + p.bobPhase)*10*SCALE);
+  }
+
+  // Shadow
+  if(!p.flying){
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(0, h/2 + 2*SCALE, w*0.5, 3*SCALE, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Pickle body
+  const pGrad = ctx.createRadialGradient(-w*0.15, -h*0.1, 0, 0, 0, Math.max(w,h)*0.6);
+  pGrad.addColorStop(0, '#5abb48');
+  pGrad.addColorStop(0.6, p.color);
+  pGrad.addColorStop(1, '#1a5510');
+  ctx.fillStyle = pGrad;
+
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w/2, h/2, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Bumps
+  ctx.fillStyle = 'rgba(80,180,60,0.4)';
+  for(let i = 0; i < 5; i++){
+    const bx = Math.sin(i*1.8+p.x*0.01)*w*0.25;
+    const by = Math.cos(i*2.3+p.x*0.01)*h*0.25;
+    ctx.beginPath();
+    ctx.arc(bx, by, 2*SCALE, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Angry face
+  ctx.fillStyle = '#111';
+  const eyeY = -h*0.1;
+  // Eyes
+  ctx.beginPath(); ctx.arc(-w*0.12, eyeY, 2.5*SCALE, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(w*0.12, eyeY, 2.5*SCALE, 0, Math.PI*2); ctx.fill();
+  // Angry eyebrows
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 2*SCALE;
+  ctx.beginPath(); ctx.moveTo(-w*0.22,eyeY-5*SCALE); ctx.lineTo(-w*0.05,eyeY-3*SCALE); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(w*0.22,eyeY-5*SCALE); ctx.lineTo(w*0.05,eyeY-3*SCALE); ctx.stroke();
+  // Frown
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 1.5*SCALE;
+  ctx.beginPath();
+  ctx.arc(0, eyeY+10*SCALE, 4*SCALE, 1.1*Math.PI, 1.9*Math.PI);
+  ctx.stroke();
+
+  // Wings if flying
+  if(p.flying){
+    ctx.fillStyle = 'rgba(200,255,180,0.5)';
+    const wingFlap = Math.sin(t*15+p.bobPhase)*8*SCALE;
+    // Left wing
+    ctx.beginPath();
+    ctx.moveTo(-w/2, -h*0.1);
+    ctx.quadraticCurveTo(-w/2-12*SCALE, -h*0.3+wingFlap, -w/2-4*SCALE, -h*0.5+wingFlap);
+    ctx.quadraticCurveTo(-w/2-2*SCALE, -h*0.2, -w/2, -h*0.1);
+    ctx.fill();
+    // Right wing
+    ctx.beginPath();
+    ctx.moveTo(w/2, -h*0.1);
+    ctx.quadraticCurveTo(w/2+12*SCALE, -h*0.3-wingFlap, w/2+4*SCALE, -h*0.5-wingFlap);
+    ctx.quadraticCurveTo(w/2+2*SCALE, -h*0.2, w/2, -h*0.1);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// === DRAW PLATFORM ===
+function drawPlatform(p){
+  ctx.fillStyle = '#3a2060';
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+  ctx.fillStyle = '#5a3880';
+  ctx.fillRect(p.x+2*SCALE, p.y, p.w-4*SCALE, 3*SCALE);
+  // Edge dots
+  ctx.fillStyle = '#8050c0';
+  ctx.fillRect(p.x+3*SCALE, p.y+2*SCALE, 3*SCALE, 3*SCALE);
+  ctx.fillRect(p.x+p.w-6*SCALE, p.y+2*SCALE, 3*SCALE, 3*SCALE);
+}
+
+// === DRAW SERIF COLLECTIBLE ===
+function drawSerif(s, t){
+  if(s.collected) return;
+  const bob = Math.sin(t*3 + s.bob)*6*SCALE;
+  // Glow
+  ctx.beginPath();
+  ctx.arc(s.x, s.y + bob, 14*SCALE, 0, Math.PI*2);
+  ctx.fillStyle = `rgba(240,100,255,${0.12 + Math.sin(t*4)*0.05})`;
+  ctx.fill();
+  // Letter
+  ctx.fillStyle = '#f070ff';
+  ctx.font = `bold ${Math.floor(18*SCALE)}px 'Bungee Shade',cursive`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(s.letter, s.x, s.y + bob);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+// === PARTICLES ===
+const particles = [];
+class Particle {
+  constructor(x,y,vx,vy,color,size,life){
+    this.x=x;this.y=y;this.vx=vx;this.vy=vy;
+    this.color=color;this.size=size;this.life=life;this.maxLife=life;
+  }
+  update(dt){
+    this.vy+=0.15;this.x+=this.vx;this.y+=this.vy;this.life-=dt;
+  }
+  draw(){
+    ctx.globalAlpha=Math.max(0,this.life/this.maxLife);
+    ctx.fillStyle=this.color;
+    ctx.fillRect(this.x,this.y,this.size,this.size);
+    ctx.globalAlpha=1;
+  }
+}
+
+function burstParticles(x,y,color,count){
+  for(let i=0;i<count;i++){
+    particles.push(new Particle(
+      x,y,(Math.random()-0.5)*5,-Math.random()*4,
+      color,2+Math.random()*3,0.5+Math.random()*0.5
+    ));
+  }
+}
+
+// === SPAWNING ===
+let spawnTimer = 0;
+let platformTimer = 0;
+let serifTimer = 0;
+
+function updateSpawns(dt){
+  const spd = scrollSpeed + speedIncrease;
+  const interval = Math.max(0.6, 1.8 - gameTime*0.01);
+
+  spawnTimer += dt;
+  if(spawnTimer > interval){
+    spawnTimer = 0;
+    spawnPickle();
+    // Sometimes double
+    if(Math.random() < 0.15 + gameTime*0.002){
+      setTimeout(()=>spawnPickle(), 200);
+    }
+  }
+
+  platformTimer += dt;
+  if(platformTimer > 4 - Math.min(gameTime*0.02, 2)){
+    platformTimer = 0;
+    if(Math.random() < 0.4) spawnPlatform();
+  }
+
+  serifTimer += dt;
+  if(serifTimer > 6){
+    serifTimer = 0;
+    if(Math.random() < 0.5) spawnSerif();
+  }
+}
+
+// === PHYSICS ===
+const GRAVITY = 0.55 * 60;
+const JUMP_FORCE = -12;
+const DOUBLE_JUMP_FORCE = -10;
+
+function jump(){
+  if(state !== 'playing') return;
+  if(F.grounded){
+    F.vy = JUMP_FORCE * SCALE;
+    F.grounded = false;
+    F.jumping = true;
+    F.squash = 0.7; F.stretch = 1.3;
+    burstParticles(F.x, F.y, '#ffe840', 6);
+  } else if(F.doubleJump){
+    F.vy = DOUBLE_JUMP_FORCE * SCALE;
+    F.doubleJump = false;
+    F.squash = 0.65; F.stretch = 1.35;
+    burstParticles(F.x, F.y, '#ff8040', 8);
+  }
+}
+
+function updatePlayer(dt){
+  F.vy += GRAVITY * SCALE * dt;
+  F.y += F.vy * dt * 60;
+
+  // Squash/stretch recovery
+  F.squash += (1 - F.squash) * 0.15;
+  F.stretch += (1 - F.stretch) * 0.15;
+
+  // Ground collision
+  if(F.y >= GROUND_Y){
+    F.y = GROUND_Y;
+    if(F.vy > 0){
+      F.vy = 0;
+      F.grounded = true;
+      F.doubleJump = true;
+      F.jumping = false;
+      F.squash = 1.2; F.stretch = 0.8;
+    }
+  }
+
+  // Platform collision
+  for(const p of platforms){
+    if(F.vy > 0 &&
+       F.x + F.w*0.3 > p.x && F.x - F.w*0.3 < p.x + p.w &&
+       F.y >= p.y && F.y - F.vy*dt*60 <= p.y + p.h){
+      F.y = p.y;
+      F.vy = 0;
+      F.grounded = true;
+      F.doubleJump = true;
+      F.squash = 1.15; F.stretch = 0.85;
+    }
+  }
+
+  F.invincible = Math.max(0, F.invincible - dt);
+
+  // Pickle collision
+  for(const p of pickles){
+    if(p.scored) continue;
+    const dx = F.x - p.x;
+    const dy = (F.y - F.h*0.5) - p.y;
+    const hitW = (F.w*0.3 + p.w*0.4);
+    const hitH = (F.h*0.4 + p.h*0.4);
+    if(Math.abs(dx) < hitW && Math.abs(dy) < hitH){
+      // Stomp from above?
+      if(F.vy > 0 && dy < -hitH*0.3){
+        // Bounce off pickle
+        p.scored = true;
+        F.vy = JUMP_FORCE * SCALE * 0.7;
+        F.doubleJump = true;
+        score += 50;
+        F.combo++;
+        burstParticles(p.x, p.y, '#3a8830', 12);
+        screenFlash = 0.1;
+      } else if(F.invincible <= 0){
+        // Hit! Game over
+        state = 'dead';
+        deathTimer = 0;
+        burstParticles(F.x, F.y - F.h/2, '#ffe840', 20);
+        burstParticles(p.x, p.y, '#3a8830', 10);
+        screenFlash = 0.3;
+        if(score > highScore){
+          highScore = score;
+          localStorage.setItem('ssf_hi', highScore);
+        }
+      }
+    }
+  }
+
+  // Serif collision
+  for(const s of serifs){
+    if(s.collected) continue;
+    const dx = F.x - s.x, dy = (F.y - F.h*0.5) - s.y;
+    if(dx*dx+dy*dy < (20*SCALE)*(20*SCALE)){
+      s.collected = true;
+      score += 200;
+      burstParticles(s.x, s.y, '#f070ff', 10);
+    }
+  }
+}
+
+// === SCROLLING ===
+function updateWorld(dt){
+  const spd = (scrollSpeed + speedIncrease) * SCALE * 60 * dt;
+  distance += spd;
+
+  for(const p of pickles){
+    p.x -= spd;
+    if(p.rolling) p.angle += 0.08;
+    if(p.speed) p.x -= p.speed * SCALE;
+    // Score for passing
+    if(!p.scored && p.x + p.w < F.x - F.w){
+      p.scored = true;
+      score += 10;
+    }
+  }
+  for(const p of platforms) p.x -= spd;
+  for(const s of serifs) s.x -= spd;
+
+  // Cleanup
+  for(let i = pickles.length-1; i >= 0; i--)
+    if(pickles[i].x < -50) pickles.splice(i, 1);
+  for(let i = platforms.length-1; i >= 0; i--)
+    if(platforms[i].x + platforms[i].w < -10) platforms.splice(i, 1);
+  for(let i = serifs.length-1; i >= 0; i--)
+    if(serifs[i].x < -30) serifs.splice(i, 1);
+
+  // Speed increase
+  speedIncrease = gameTime * 0.03;
+}
+
+// === HUD ===
+function drawHUD(){
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(0, 0, GW, 32*SCALE);
+
+  ctx.font = `${Math.floor(12*SCALE)}px 'Silkscreen',monospace`;
+  ctx.fillStyle = '#f0e040';
+  ctx.textAlign = 'left';
+  ctx.fillText('SCORE: ' + score, 10*SCALE, 20*SCALE);
+  ctx.fillStyle = '#8a7a90';
+  ctx.textAlign = 'center';
+  ctx.fillText('HI: ' + highScore, GW/2, 20*SCALE);
+  ctx.fillStyle = '#c0b0d0';
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.floor(distance/100) + 'm', GW - 10*SCALE, 20*SCALE);
+  ctx.textAlign = 'left';
+
+  // Combo
+  if(F.combo > 1){
+    ctx.fillStyle = '#ff8040';
+    ctx.font = `bold ${Math.floor(16*SCALE)}px 'Silkscreen'`;
+    ctx.textAlign = 'center';
+    ctx.fillText(F.combo + 'x STOMP!', F.x, F.y - F.h - 15*SCALE);
+    ctx.textAlign = 'left';
+  }
+}
+
+function drawDeathScreen(t){
+  ctx.fillStyle = `rgba(24,8,32,${Math.min(0.7, deathTimer*0.5)})`;
+  ctx.fillRect(0, 0, GW, GH);
+  if(deathTimer > 0.5){
+    ctx.font = `${Math.floor(28*SCALE)}px 'Bungee Shade',cursive`;
+    ctx.fillStyle = '#f0e040';
+    ctx.textAlign = 'center';
+    ctx.fillText('PICKLED!', GW/2, GH*0.38);
+    ctx.font = `${Math.floor(14*SCALE)}px 'Silkscreen',monospace`;
+    ctx.fillStyle = '#c0b0d0';
+    ctx.fillText('Score: ' + score + '  |  Distance: ' + Math.floor(distance/100) + 'm', GW/2, GH*0.48);
+    if(score >= highScore && score > 0){
+      ctx.fillStyle = '#ff8040';
+      ctx.fillText('NEW HIGH SCORE!', GW/2, GH*0.55);
+    }
+    if(deathTimer > 1.5){
+      ctx.fillStyle = '#8a7a90';
+      ctx.font = `${Math.floor(11*SCALE)}px 'Silkscreen',monospace`;
+      ctx.fillText('TAP / SPACE TO RETRY', GW/2, GH*0.65);
+    }
+    ctx.textAlign = 'left';
+  }
+}
+
+// === INPUT ===
+function handleInput(){
+  if(state === 'dead' && deathTimer > 1.5){
+    state = 'playing';
+    score = 0; distance = 0; gameTime = 0;
+    speedIncrease = 0;
+    pickles.length = 0; platforms.length = 0; serifs.length = 0;
+    particles.length = 0;
+    spawnTimer = 0; platformTimer = 0; serifTimer = 0;
+    resetPlayer();
+    return;
+  }
+  jump();
+}
+
+window.addEventListener('keydown', e => {
+  if(e.key === ' ' || e.key === 'ArrowUp' || e.key.toLowerCase() === 'w'){
+    e.preventDefault();
+    handleInput();
+  }
+});
+canvas.addEventListener('touchstart', e => { e.preventDefault(); handleInput(); }, {passive:false});
+canvas.addEventListener('mousedown', e => { handleInput(); });
+
+// Start
+document.getElementById('start').addEventListener('click', ()=>{
+  document.getElementById('start').style.display = 'none';
+  state = 'playing';
+  resetPlayer();
+  initBG();
+});
+
+// === MAIN LOOP ===
+let lastTime = 0;
+initBG();
+function frame(timestamp){
+  const dt = Math.min(0.05, (timestamp - lastTime) / 1000);
+  lastTime = timestamp;
+  const t = timestamp * 0.001;
+
+  if(state === 'playing'){
+    gameTime += dt;
+    updatePlayer(dt);
+    updateWorld(dt);
+    updateSpawns(dt);
+  }
+  if(state === 'dead'){
+    deathTimer += dt;
+  }
+
+  // Particles
+  for(const p of particles){ p.update(dt); p.draw(); }
+  for(let i=particles.length-1;i>=0;i--) if(particles[i].life<=0) particles.splice(i,1);
+
+  // Draw
+  drawBG(t);
+  for(const p of platforms) drawPlatform(p);
+  for(const s of serifs) drawSerif(s, t);
+  for(const p of pickles) if(!p.scored) drawPickle(p, t);
+  if(state !== 'title') drawF(t);
+  drawHUD();
+
+  // Screen flash
+  if(screenFlash > 0){
+    ctx.fillStyle = `rgba(255,255,255,${screenFlash})`;
+    ctx.fillRect(0, 0, GW, GH);
+    screenFlash = Math.max(0, screenFlash - dt * 3);
+  }
+
+  if(state === 'dead') drawDeathScreen(t);
+
+  // Particles on top
+  for(const p of particles) p.draw();
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
