@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixel Noita — Sand Sorcery</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🧙">
+<meta property="og:title" content="Pixel Noita">
+<meta property="og:description" content="Cast spells in a world where every pixel is simulated. Dig, burn, flood, and explode your way down.">
+<meta property="og:url" content="https://sloppy.live/pixel-noita">
+<meta property="og:image" content="https://sloppy.live/pixel-noita/og-image.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0e;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}
+canvas{display:block;image-rendering:pixelated;border:1px solid #1a1a2e;cursor:crosshair}
+#hud{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:14px;
+  font-family:'Courier New',monospace;font-size:11px;color:#8a8aaa;z-index:5}
+.hv{color:#e0c050;font-weight:bold}
+#wand-bar{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:4px;z-index:5}
+.spell-slot{width:32px;height:32px;border:2px solid #2a2a3e;border-radius:4px;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  background:#12121e;cursor:pointer;transition:border-color .15s}
+.spell-slot:hover{border-color:#5a5a8e}
+.spell-slot.active{border-color:#e0c050;box-shadow:0 0 8px rgba(224,192,80,.3)}
+#help{position:fixed;top:30px;left:50%;transform:translateX(-50%);
+  font-family:'Courier New',monospace;font-size:9px;color:#3a3a5e;z-index:5;text-align:center}
+.back{position:fixed;bottom:10px;right:10px;z-index:5}
+.back a{color:#2a2a3e;font-family:monospace;font-size:9px;text-decoration:none}
+.back a:hover{color:#5a5a8e}
+</style>
+</head>
+<body>
+<div id="hud">
+  <span>❤️ <span class="hv" id="hpVal">100</span></span>
+  <span>🧙 <span class="hv" id="depthVal">0</span>m</span>
+  <span>⚡ <span class="hv" id="manaVal">100</span></span>
+  <span>💀 <span class="hv" id="killVal">0</span></span>
+</div>
+<div id="help">WASD/arrows move · click to cast · 1-5 switch spells · R restart</div>
+<canvas id="c"></canvas>
+<div id="wand-bar"></div>
+<div class="back"><a href="https://sloppy.live">← sloppy.live</a></div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// World size (pixels = simulation cells)
+const PW = 320, PH = 240;
+const SCALE = Math.min(Math.floor(window.innerWidth/PW), Math.floor((window.innerHeight-80)/PH), 3);
+canvas.width = PW; canvas.height = PH;
+canvas.style.width = PW*SCALE+'px';
+canvas.style.height = PH*SCALE+'px';
+
+const imgData = ctx.createImageData(PW, PH);
+const buf = new Uint32Array(imgData.data.buffer);
+
+// Element types
+const EMPTY=0,SAND=1,STONE=2,WATER=3,FIRE=4,LAVA=5,WOOD=6,OIL=7,ACID=8,STEAM=9,SMOKE=10,EMBER=11;
+const grid = new Uint8Array(PW*PH);
+const moved = new Uint8Array(PW*PH); // prevent double-moves per frame
+let frameCount = 0;
+
+// Colors (slight variation applied)
+const COLORS = {
+  [EMPTY]:  [10,10,14],
+  [SAND]:   [194,178,128],
+  [STONE]:  [90,85,80],
+  [WATER]:  [40,80,180],
+  [FIRE]:   [240,120,20],
+  [LAVA]:   [220,60,20],
+  [WOOD]:   [100,70,40],
+  [OIL]:    [60,50,30],
+  [ACID]:   [80,220,60],
+  [STEAM]:  [180,180,200],
+  [SMOKE]:  [50,50,60],
+  [EMBER]:  [200,80,20],
+};
+
+function idx(x,y){ return y*PW+x; }
+function inBounds(x,y){ return x>=0&&x<PW&&y>=0&&y<PH; }
+function get(x,y){ return inBounds(x,y)?grid[idx(x,y)]:STONE; }
+function set(x,y,v){ if(inBounds(x,y))grid[idx(x,y)]=v; }
+function isEmpty(x,y){ return get(x,y)===EMPTY; }
+function isLiquid(x,y){ const g=get(x,y); return g===WATER||g===OIL||g===ACID||g===LAVA; }
+function isGas(x,y){ const g=get(x,y); return g===STEAM||g===SMOKE; }
+function swap(x1,y1,x2,y2){
+  if(!inBounds(x1,y1)||!inBounds(x2,y2))return;
+  const i1=idx(x1,y1),i2=idx(x2,y2);
+  const t=grid[i1];grid[i1]=grid[i2];grid[i2]=t;
+}
+
+// Spells
+const SPELLS = [
+  {name:'Fireball',emoji:'🔥',mana:8,color:[255,100,20]},
+  {name:'Water Bolt',emoji:'💧',mana:5,color:[60,120,255]},
+  {name:'Acid Shot',emoji:'🟢',mana:10,color:[80,255,60]},
+  {name:'Dig Ray',emoji:'⛏️',mana:3,color:[200,200,150]},
+  {name:'Bomb',emoji:'💣',mana:20,color:[255,60,60]},
+];
+let activeSpell = 0;
+
+// Player
+const player = {
+  x:PW/2, y:40, vx:0, vy:0, hp:100, mana:100, manaMax:100,
+  facing:1, grounded:false, kills:0,
+};
+
+// Enemies
+let enemies = [];
+const ENEMY_TYPES = [
+  {name:'Slime',hp:15,speed:0.3,color:[60,200,60],size:3,dmg:5},
+  {name:'Bat',hp:8,speed:0.8,color:[140,60,160],size:2,dmg:3,flies:true},
+  {name:'Worm',hp:25,speed:0.2,color:[180,120,80],size:4,dmg:8,digs:true},
+];
+
+// Projectiles
+let projectiles = [];
+
+// Input
+const keys = {};
+let mouseX=PW/2, mouseY=PH/2, mouseDown=false;
+window.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;
+  if(e.key>='1'&&e.key<='5'){activeSpell=parseInt(e.key)-1;renderWandBar();}
+  if(e.key.toLowerCase()==='r')restartGame();
+});
+window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+canvas.addEventListener('mousemove',e=>{
+  const r=canvas.getBoundingClientRect();
+  mouseX=(e.clientX-r.left)/SCALE;mouseY=(e.clientY-r.top)/SCALE;
+});
+canvas.addEventListener('mousedown',e=>{e.preventDefault();mouseDown=true;castSpell();});
+canvas.addEventListener('mouseup',()=>mouseDown=false);
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+// Touch
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const r=canvas.getBoundingClientRect();
+  mouseX=(e.touches[0].clientX-r.left)/SCALE;
+  mouseY=(e.touches[0].clientY-r.top)/SCALE;
+},{passive:false});
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault();mouseDown=true;
+  const r=canvas.getBoundingClientRect();
+  mouseX=(e.touches[0].clientX-r.left)/SCALE;
+  mouseY=(e.touches[0].clientY-r.top)/SCALE;
+  castSpell();
+},{passive:false});
+canvas.addEventListener('touchend',()=>mouseDown=false);
+
+// Generate terrain
+function generateWorld(){
+  grid.fill(EMPTY);
+  // Ground layer
+  for(let x=0;x<PW;x++){
+    // Surface with noise
+    const surfaceY = 60 + Math.floor(Math.sin(x*0.05)*8 + Math.sin(x*0.12)*4);
+    for(let y=surfaceY;y<PH;y++){
+      const depth = y - surfaceY;
+      if(depth < 3){
+        set(x,y,SAND);
+      } else {
+        // Mix of stone and sand with caves
+        const cave = Math.sin(x*0.08+y*0.06)*0.5 + Math.sin(x*0.15-y*0.1)*0.3 + Math.sin(x*0.03+y*0.04)*0.4;
+        if(cave > 0.35){
+          set(x,y,EMPTY); // cave
+        } else if(Math.random()<0.02){
+          set(x,y,WATER); // underground pools
+        } else if(depth > 40 && Math.random()<0.01){
+          set(x,y,LAVA);
+        } else if(Math.random()<0.05){
+          set(x,y,SAND);
+        } else if(Math.random()<0.02){
+          set(x,y,WOOD);
+        } else if(Math.random()<0.01){
+          set(x,y,OIL);
+        } else {
+          set(x,y,STONE);
+        }
+      }
+    }
+  }
+  // Borders
+  for(let x=0;x<PW;x++){set(x,0,STONE);set(x,PH-1,STONE);}
+  for(let y=0;y<PH;y++){set(0,y,STONE);set(PW-1,y,STONE);}
+}
+
+// Spawn enemies
+function spawnEnemies(){
+  enemies=[];
+  for(let i=0;i<8;i++){
+    const type=ENEMY_TYPES[Math.floor(Math.random()*ENEMY_TYPES.length)];
+    let ex,ey,attempts=0;
+    do{
+      ex=20+Math.floor(Math.random()*(PW-40));
+      ey=80+Math.floor(Math.random()*(PH-120));
+      attempts++;
+    }while(get(ex,ey)!==EMPTY&&attempts<50);
+    if(attempts<50){
+      enemies.push({...type,x:ex,y:ey,vx:0,vy:0,maxHp:type.hp,
+        dir:Math.random()>0.5?1:-1,timer:Math.floor(Math.random()*60)});
+    }
+  }
+}
+
+// Pixel physics
+function simulatePixels(){
+  moved.fill(0);
+  // Sweep bottom-up, alternating left/right
+  const leftToRight = frameCount%2===0;
+  for(let y=PH-2;y>=1;y--){
+    for(let i=1;i<PW-1;i++){
+      const x=leftToRight?i:PW-1-i;
+      const id=idx(x,y);
+      if(moved[id]||grid[id]===EMPTY||grid[id]===STONE)continue;
+      const type=grid[id];
+
+      if(type===SAND||type===EMBER){
+        if(isEmpty(x,y+1)||(isLiquid(x,y+1))){
+          if(isEmpty(x,y+1)){set(x,y,EMPTY);set(x,y+1,type);}
+          else{swap(x,y,x,y+1);}
+          moved[idx(x,y+1)]=1;
+        }else{
+          const dir=Math.random()>0.5?1:-1;
+          if(isEmpty(x+dir,y+1)||(isLiquid(x+dir,y+1))){
+            if(isEmpty(x+dir,y+1)){set(x,y,EMPTY);set(x+dir,y+1,type);}
+            else{swap(x,y,x+dir,y+1);}
+            moved[idx(x+dir,y+1)]=1;
+          }else if(isEmpty(x-dir,y+1)||(isLiquid(x-dir,y+1))){
+            if(isEmpty(x-dir,y+1)){set(x,y,EMPTY);set(x-dir,y+1,type);}
+            else{swap(x,y,x-dir,y+1);}
+            moved[idx(x-dir,y+1)]=1;
+          }
+        }
+        // Ember burns out
+        if(type===EMBER&&Math.random()<0.05)set(x,y,EMPTY);
+      }
+
+      else if(type===WATER||type===OIL||type===ACID||type===LAVA){
+        if(isEmpty(x,y+1)){
+          set(x,y,EMPTY);set(x,y+1,type);moved[idx(x,y+1)]=1;
+        }else{
+          const dir=Math.random()>0.5?1:-1;
+          if(isEmpty(x+dir,y+1)){set(x,y,EMPTY);set(x+dir,y+1,type);moved[idx(x+dir,y+1)]=1;}
+          else if(isEmpty(x-dir,y+1)){set(x,y,EMPTY);set(x-dir,y+1,type);moved[idx(x-dir,y+1)]=1;}
+          else if(isEmpty(x+dir,y)){set(x,y,EMPTY);set(x+dir,y,type);moved[idx(x+dir,y)]=1;}
+          else if(isEmpty(x-dir,y)){set(x,y,EMPTY);set(x-dir,y,type);moved[idx(x-dir,y)]=1;}
+        }
+        // Water + lava = stone
+        if(type===WATER){
+          for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+            if(get(x+dx,y+dy)===LAVA){set(x+dx,y+dy,STONE);set(x,y,STEAM);}
+          }
+        }
+        // Acid dissolves
+        if(type===ACID&&Math.random()<0.1){
+          for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+            const n=get(x+dx,y+dy);
+            if(n===STONE||n===SAND||n===WOOD){
+              if(Math.random()<0.15){set(x+dx,y+dy,EMPTY);set(x,y,SMOKE);break;}
+            }
+          }
+        }
+        // Lava ignites
+        if(type===LAVA){
+          for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+            const n=get(x+dx,y+dy);
+            if(n===WOOD||n===OIL){set(x+dx,y+dy,FIRE);}
+          }
+        }
+      }
+
+      else if(type===FIRE){
+        // Rise and spread
+        if(Math.random()<0.3&&isEmpty(x,y-1)){set(x,y,EMPTY);set(x,y-1,FIRE);moved[idx(x,y-1)]=1;}
+        else if(Math.random()<0.15){
+          const dx=Math.random()>0.5?1:-1;
+          if(isEmpty(x+dx,y-1)){set(x,y,EMPTY);set(x+dx,y-1,FIRE);moved[idx(x+dx,y-1)]=1;}
+        }
+        // Spread to flammable
+        for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+          const n=get(x+dx,y+dy);
+          if((n===WOOD||n===OIL)&&Math.random()<0.08)set(x+dx,y+dy,FIRE);
+        }
+        // Burn out
+        if(Math.random()<0.08){set(x,y,Math.random()<0.3?SMOKE:EMPTY);}
+        // Water extinguishes
+        for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+          if(get(x+dx,y+dy)===WATER){set(x,y,STEAM);break;}
+        }
+      }
+
+      else if(type===STEAM||type===SMOKE){
+        // Rise
+        if(isEmpty(x,y-1)&&Math.random()<0.6){set(x,y,EMPTY);set(x,y-1,type);moved[idx(x,y-1)]=1;}
+        else{
+          const dx=Math.random()>0.5?1:-1;
+          if(isEmpty(x+dx,y-1)){set(x,y,EMPTY);set(x+dx,y-1,type);}
+          else if(isEmpty(x+dx,y)){set(x,y,EMPTY);set(x+dx,y,type);}
+        }
+        // Dissipate
+        if(Math.random()<0.02)set(x,y,type===STEAM&&Math.random()<0.3?WATER:EMPTY);
+      }
+
+      else if(type===WOOD){
+        // Static, handled by fire spread
+      }
+    }
+  }
+  frameCount++;
+}
+
+// Player physics
+function updatePlayer(){
+  const spd=1.2, jump=-3, grav=0.15;
+  // Input
+  if(keys['a']||keys['arrowleft']){player.vx-=0.4;player.facing=-1;}
+  if(keys['d']||keys['arrowright']){player.vx+=0.4;player.facing=1;}
+  if((keys['w']||keys['arrowup']||keys[' '])&&player.grounded){player.vy=jump;player.grounded=false;}
+
+  player.vx*=0.85;
+  player.vy+=grav;
+  player.vy=Math.min(player.vy,3);
+  if(Math.abs(player.vx)>spd)player.vx=Math.sign(player.vx)*spd;
+
+  // Move X
+  const nx=Math.round(player.x+player.vx);
+  let canMoveX=true;
+  for(let dy=-3;dy<=0;dy++){
+    const g=get(nx,Math.round(player.y)+dy);
+    if(g===STONE||g===WOOD){canMoveX=false;break;}
+  }
+  if(canMoveX)player.x+=player.vx; else player.vx=0;
+
+  // Move Y
+  const ny=Math.round(player.y+player.vy);
+  let canMoveY=true;
+  player.grounded=false;
+  for(let dx=-1;dx<=1;dx++){
+    const g=get(Math.round(player.x)+dx,ny);
+    if(g===STONE||g===WOOD||g===SAND){
+      canMoveY=false;
+      if(player.vy>0)player.grounded=true;
+      break;
+    }
+  }
+  if(canMoveY)player.y+=player.vy; else player.vy=0;
+
+  // Clamp
+  player.x=Math.max(2,Math.min(PW-3,player.x));
+  player.y=Math.max(2,Math.min(PH-3,player.y));
+
+  // Environmental damage
+  const px=Math.round(player.x),py=Math.round(player.y);
+  for(let dx=-1;dx<=1;dx++)for(let dy=-2;dy<=0;dy++){
+    const g=get(px+dx,py+dy);
+    if(g===FIRE||g===LAVA){player.hp-=0.5;set(px+dx,py+dy,EMPTY);}
+    if(g===ACID){player.hp-=0.3;set(px+dx,py+dy,EMPTY);}
+  }
+
+  // Mana regen
+  player.mana=Math.min(player.manaMax,player.mana+0.08);
+
+  // Death
+  if(player.hp<=0){
+    player.hp=0;
+    // Show death briefly, then auto-restart
+    setTimeout(()=>restartGame(),1500);
+  }
+}
+
+// Enemies
+function updateEnemies(){
+  const px=Math.round(player.x),py=Math.round(player.y);
+  for(let i=enemies.length-1;i>=0;i--){
+    const e=enemies[i];
+    e.timer++;
+    const dx=px-e.x,dy=py-e.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+
+    if(dist<80){
+      // Chase player
+      e.vx=(e.vx||0)+Math.sign(dx)*e.speed*0.1;
+      if(e.flies)e.vy=(e.vy||0)+Math.sign(dy)*e.speed*0.1;
+    }else{
+      // Wander
+      if(e.timer%60===0)e.dir*=-1;
+      e.vx=(e.vx||0)+e.dir*e.speed*0.05;
+    }
+
+    e.vx=(e.vx||0)*0.9;
+    e.vy=(e.vy||0);
+    if(!e.flies)e.vy+=0.1;
+    e.vy=Math.min(e.vy||0,2);
+
+    // Move
+    const enx=Math.round(e.x+(e.vx||0));
+    const eny=Math.round(e.y+(e.vy||0));
+    const blocked=get(enx,eny);
+    if(blocked===EMPTY||blocked===WATER||(e.digs&&(blocked===SAND||blocked===STONE))){
+      if(e.digs&&blocked!==EMPTY&&blocked!==WATER)set(enx,eny,EMPTY);
+      e.x+=(e.vx||0);
+      e.y+=(e.vy||0);
+    }else{
+      e.vx=0;e.vy=0;e.dir*=-1;
+    }
+
+    e.x=Math.max(2,Math.min(PW-3,e.x));
+    e.y=Math.max(2,Math.min(PH-3,e.y));
+
+    // Damage player on contact
+    if(dist<4&&player.hp>0){
+      player.hp-=e.dmg*0.05;
+    }
+
+    // Death
+    if(e.hp<=0){
+      // Drop some sand
+      for(let j=0;j<8;j++){
+        const sx=Math.round(e.x)+(Math.random()*6-3)|0;
+        const sy=Math.round(e.y)+(Math.random()*4-2)|0;
+        if(isEmpty(sx,sy))set(sx,sy,SAND);
+      }
+      player.kills++;
+      enemies.splice(i,1);
+    }
+  }
+}
+
+// Projectiles
+function updateProjectiles(){
+  for(let i=projectiles.length-1;i>=0;i--){
+    const p=projectiles[i];
+    p.x+=p.vx;p.y+=p.vy;
+    p.life--;
+
+    const px=Math.round(p.x),py=Math.round(p.y);
+    if(!inBounds(px,py)||p.life<=0){projectiles.splice(i,1);continue;}
+
+    const hit=get(px,py);
+
+    // Hit terrain
+    if(hit!==EMPTY&&hit!==WATER&&hit!==STEAM&&hit!==SMOKE){
+      if(p.type==='fire'){
+        // Explode: small fire burst
+        for(let dx=-2;dx<=2;dx++)for(let dy=-2;dy<=2;dy++){
+          if(Math.random()<0.6&&inBounds(px+dx,py+dy)){
+            const g=get(px+dx,py+dy);
+            if(g===WOOD||g===OIL)set(px+dx,py+dy,FIRE);
+            else if(g===SAND)set(px+dx,py+dy,EMPTY);
+            else if(g===EMPTY)set(px+dx,py+dy,Math.random()<0.5?FIRE:EMBER);
+          }
+        }
+      }else if(p.type==='water'){
+        for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+          if(isEmpty(px+dx,py+dy))set(px+dx,py+dy,WATER);
+        }
+      }else if(p.type==='acid'){
+        for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+          if(inBounds(px+dx,py+dy)){
+            const g=get(px+dx,py+dy);
+            if(g!==EMPTY)set(px+dx,py+dy,ACID);
+          }
+        }
+      }else if(p.type==='dig'){
+        for(let dx=-2;dx<=2;dx++)for(let dy=-2;dy<=2;dy++){
+          if(dx*dx+dy*dy<=5&&inBounds(px+dx,py+dy)){
+            const g=get(px+dx,py+dy);
+            if(g!==EMPTY&&g!==LAVA)set(px+dx,py+dy,EMPTY);
+          }
+        }
+      }else if(p.type==='bomb'){
+        // Big explosion
+        const rad=12;
+        for(let dx=-rad;dx<=rad;dx++)for(let dy=-rad;dy<=rad;dy++){
+          if(dx*dx+dy*dy<=rad*rad&&inBounds(px+dx,py+dy)){
+            const g=get(px+dx,py+dy);
+            if(g!==EMPTY){
+              if(Math.random()<0.3)set(px+dx,py+dy,FIRE);
+              else if(Math.random()<0.2)set(px+dx,py+dy,EMBER);
+              else set(px+dx,py+dy,EMPTY);
+            }
+          }
+        }
+        // Damage enemies in radius
+        for(const e of enemies){
+          const ed=Math.sqrt((e.x-px)**2+(e.y-py)**2);
+          if(ed<rad)e.hp-=30*(1-ed/rad);
+        }
+      }
+      projectiles.splice(i,1);continue;
+    }
+
+    // Hit enemies
+    for(const e of enemies){
+      if(Math.abs(e.x-p.x)<e.size&&Math.abs(e.y-p.y)<e.size){
+        e.hp-=p.type==='bomb'?0:p.type==='fire'?8:p.type==='acid'?12:5;
+        if(p.type==='fire'){
+          // Set area on fire
+          for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+            if(isEmpty(Math.round(e.x)+dx,Math.round(e.y)+dy))
+              set(Math.round(e.x)+dx,Math.round(e.y)+dy,FIRE);
+          }
+        }
+        projectiles.splice(i,1);break;
+      }
+    }
+  }
+}
+
+function castSpell(){
+  if(player.hp<=0)return;
+  const spell=SPELLS[activeSpell];
+  if(player.mana<spell.mana)return;
+  player.mana-=spell.mana;
+
+  const dx=mouseX-player.x, dy=mouseY-player.y;
+  const dist=Math.sqrt(dx*dx+dy*dy)||1;
+  const speed=3;
+
+  const types=['fire','water','acid','dig','bomb'];
+  projectiles.push({
+    x:player.x, y:player.y-1,
+    vx:dx/dist*speed, vy:dy/dist*speed,
+    type:types[activeSpell],
+    color:spell.color,
+    life:80,
+  });
+}
+
+// Auto-cast while held
+let castTimer=0;
+
+// Render
+function render(){
+  // Draw pixel grid
+  for(let i=0;i<PW*PH;i++){
+    const type=grid[i];
+    const c=COLORS[type];
+    // Add slight variation
+    const v=type===EMPTY?0:(((i*7+frameCount)%5)-2)*3;
+    const r=Math.max(0,Math.min(255,c[0]+v));
+    const g=Math.max(0,Math.min(255,c[1]+v));
+    const b=Math.max(0,Math.min(255,c[2]+v));
+    buf[i]=(255<<24)|(b<<16)|(g<<8)|r;
+  }
+
+  // Draw player (small wizard)
+  const px=Math.round(player.x),py=Math.round(player.y);
+  const pcolor=player.hp>0?(255<<24)|(180<<16)|(120<<8)|200:(255<<24)|(40<<16)|(40<<8)|180;
+  for(let dy=-3;dy<=0;dy++)for(let dx=-1;dx<=1;dx++){
+    if(inBounds(px+dx,py+dy)){
+      if(dy===-3&&dx===0)buf[idx(px,py-3)]=(255<<24)|(60<<16)|(20<<8)|160; // hat
+      else buf[idx(px+dx,py+dy)]=pcolor;
+    }
+  }
+  // Wand arm
+  const wandDir=mouseX>player.x?1:-1;
+  if(inBounds(px+wandDir*2,py-1))buf[idx(px+wandDir*2,py-1)]=(255<<24)|(80<<16)|(200<<8)|230;
+
+  // Draw enemies
+  for(const e of enemies){
+    const ex=Math.round(e.x),ey=Math.round(e.y);
+    const hpRatio=e.hp/e.maxHp;
+    for(let dy=-e.size+1;dy<=0;dy++)for(let dx=-(e.size>>1);dx<=(e.size>>1);dx++){
+      if(inBounds(ex+dx,ey+dy)){
+        const er=Math.floor(e.color[0]*hpRatio);
+        const eg=Math.floor(e.color[1]*hpRatio);
+        const eb=Math.floor(e.color[2]*hpRatio);
+        buf[idx(ex+dx,ey+dy)]=(255<<24)|(eb<<16)|(eg<<8)|er;
+      }
+    }
+    // Eyes
+    if(inBounds(ex-1,ey-e.size+2))buf[idx(ex-1,ey-e.size+2)]=(255<<24)|(255<<16)|(255<<8)|255;
+    if(inBounds(ex+1,ey-e.size+2))buf[idx(ex+1,ey-e.size+2)]=(255<<24)|(255<<16)|(255<<8)|255;
+  }
+
+  // Draw projectiles
+  for(const p of projectiles){
+    const ppx=Math.round(p.x),ppy=Math.round(p.y);
+    if(inBounds(ppx,ppy)){
+      buf[idx(ppx,ppy)]=(255<<24)|(p.color[2]<<16)|(p.color[1]<<8)|p.color[0];
+      // Small glow
+      for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+        if(inBounds(ppx+dx,ppy+dy)&&(dx||dy)){
+          const gi=idx(ppx+dx,ppy+dy);
+          const existing=buf[gi];
+          const er=(existing&0xff),eg=((existing>>8)&0xff),eb=((existing>>16)&0xff);
+          const nr=Math.min(255,er+p.color[0]*0.2)|0;
+          const ng=Math.min(255,eg+p.color[1]*0.2)|0;
+          const nb=Math.min(255,eb+p.color[2]*0.2)|0;
+          buf[gi]=(255<<24)|(nb<<16)|(ng<<8)|nr;
+        }
+      }
+    }
+  }
+
+  // Crosshair
+  const mx=Math.round(mouseX),my=Math.round(mouseY);
+  for(const[dx,dy]of[[0,-2],[0,2],[-2,0],[2,0]]){
+    if(inBounds(mx+dx,my+dy))buf[idx(mx+dx,my+dy)]=(255<<24)|(200<<16)|(200<<8)|255;
+  }
+
+  ctx.putImageData(imgData,0,0);
+}
+
+function updateHUD(){
+  document.getElementById('hpVal').textContent=Math.ceil(player.hp);
+  document.getElementById('depthVal').textContent=Math.max(0,Math.floor((player.y-60)*0.5));
+  document.getElementById('manaVal').textContent=Math.ceil(player.mana);
+  document.getElementById('killVal').textContent=player.kills;
+}
+
+function renderWandBar(){
+  const bar=document.getElementById('wand-bar');
+  bar.innerHTML='';
+  SPELLS.forEach((s,i)=>{
+    const div=document.createElement('div');
+    div.className='spell-slot'+(i===activeSpell?' active':'');
+    div.textContent=s.emoji;
+    div.title=s.name+' ('+s.mana+' mana)';
+    div.onclick=()=>{activeSpell=i;renderWandBar();};
+    bar.appendChild(div);
+  });
+}
+
+function restartGame(){
+  player.x=PW/2;player.y=40;player.vx=0;player.vy=0;
+  player.hp=100;player.mana=100;player.kills=0;
+  projectiles=[];
+  generateWorld();
+  spawnEnemies();
+}
+
+function frame(){
+  simulatePixels();
+  if(player.hp>0){
+    updatePlayer();
+    // Auto-cast
+    castTimer++;
+    if(mouseDown&&castTimer%8===0)castSpell();
+  }
+  updateEnemies();
+  updateProjectiles();
+  render();
+  updateHUD();
+  requestAnimationFrame(frame);
+}
+
+generateWorld();
+spawnEnemies();
+renderWandBar();
+// Hide help after 5s
+setTimeout(()=>{document.getElementById('help').style.opacity='0';document.getElementById('help').style.transition='opacity 2s';},5000);
+frame();
+</script>
+</body>
+</html>
