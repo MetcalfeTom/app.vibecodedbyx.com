@@ -3,6 +3,7 @@
 Two yellow laser tracers race around your screen dropping falling sand particles.
 
 ## log
+- 2026-04-13: Reduced speed to ~15% multiplier (slow steady crawl), kept strictly yellow, removed color options per user request. Added mode toggle button.
 - 2026-04-13: Increased tracer speed 3x+ and longer trails for a constant visible border loop feel.
 - 2026-04-13: Initial build. Fullscreen canvas, two parallel laser tracers (clockwise + counter-clockwise) leaving glowing trails. Sand physics simulation on pixel grid — particles fall, slide left/right, pile up naturally. 3 tracer modes: border loop, diagonal bounce, spiral. Click to switch modes, scroll to adjust speed. Sand slowly dissolves at bottom to prevent infinite buildup. Yellow/gold color palette with glow effects. ImageData-based sand rendering for performance.
 
