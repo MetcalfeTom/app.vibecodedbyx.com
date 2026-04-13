@@ -54,6 +54,11 @@ canvas{display:block;width:100%;height:100%;cursor:url("data:image/svg+xml,<svg 
 #title-screen .blink{animation:blink 1s step-end infinite;color:#aaa;margin-top:30px;font-size:16px}
 @keyframes blink{50%{opacity:0}}
 
+#sound-toggle{position:absolute;top:6px;right:8px;z-index:25;
+  font-family:'Press Start 2P',monospace;font-size:8px;padding:4px 8px;
+  background:#222244;border:2px solid #444;color:#aaa;cursor:pointer;border-radius:2px}
+#sound-toggle:hover{background:#333366;color:#fff;border-color:#666}
+#sound-toggle.muted{color:#660;border-color:#660}
 .back-link{position:fixed;bottom:4px;right:8px;z-index:30}
 .back-link a{color:#333;font-size:9px;text-decoration:none;font-family:'VT323',monospace}
 .back-link a:hover{color:#888}
@@ -72,6 +77,7 @@ canvas{display:block;width:100%;height:100%;cursor:url("data:image/svg+xml,<svg 
     <button data-verb="push">Push</button>
     <button data-verb="open">Open</button>
   </div>
+  <button id="sound-toggle">🔊 SFX</button>
   <div id="title-screen">
     <h1>🐹 GALACTIC<br>HAMSTER QUEST</h1>
     <div class="sub">A POINT & CLICK ADVENTURE</div>
@@ -100,6 +106,324 @@ let hamsterX = 200, hamsterY = 310, hamsterDir = 1, hamsterFrame = 0;
 let walkTarget = null;
 let walkCallback = null;
 let animTimer = 0;
+
+// === AUDIO ENGINE ===
+let audioCtx = null;
+let masterGain = null;
+let musicGain = null;
+let sfxGain = null;
+let muted = false;
+let musicPlaying = false;
+let musicNodes = [];
+
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.6;
+  masterGain.connect(audioCtx.destination);
+  musicGain = audioCtx.createGain();
+  musicGain.gain.value = 0.12;
+  musicGain.connect(masterGain);
+  sfxGain = audioCtx.createGain();
+  sfxGain.gain.value = 0.5;
+  sfxGain.connect(masterGain);
+}
+
+document.getElementById('sound-toggle').onclick = () => {
+  muted = !muted;
+  const btn = document.getElementById('sound-toggle');
+  btn.textContent = muted ? '🔇 SFX' : '🔊 SFX';
+  btn.classList.toggle('muted', muted);
+  if(masterGain) masterGain.gain.value = muted ? 0 : 0.6;
+};
+
+// Voice profiles: pitch, speed, wave, vibrato
+const VOICES = {
+  nibbles:  {base:320, range:120, speed:0.035, wave:'square',   vibrato:8,  vibAmt:15},
+  guard:    {base:80,  range:30,  speed:0.08,  wave:'sawtooth', vibrato:3,  vibAmt:5},
+  robot:    {base:200, range:180, speed:0.025, wave:'square',   vibrato:20, vibAmt:40},
+  mouse:    {base:600, range:200, speed:0.02,  wave:'sine',     vibrato:12, vibAmt:30},
+  narrator: {base:180, range:60,  speed:0.04,  wave:'triangle', vibrato:5,  vibAmt:8},
+};
+
+function speakText(text, voiceId){
+  if(!audioCtx || muted) return;
+  const v = VOICES[voiceId] || VOICES.nibbles;
+  const chars = text.replace(/[^a-zA-Z ]/g,'');
+  const now = audioCtx.currentTime;
+  let t = now;
+  for(let i = 0; i < Math.min(chars.length, 60); i++){
+    const ch = chars[i];
+    if(ch === ' '){ t += v.speed * 2; continue; }
+    const charCode = ch.toLowerCase().charCodeAt(0) - 97;
+    const freq = v.base + (charCode / 26) * v.range;
+    const dur = v.speed + Math.random()*v.speed*0.3;
+    const osc = audioCtx.createOscillator();
+    osc.type = v.wave;
+    osc.frequency.setValueAtTime(freq, t);
+    // Vibrato
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.frequency.value = v.vibrato;
+    lfoGain.gain.value = v.vibAmt;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    lfo.start(t); lfo.stop(t + dur);
+    const env = audioCtx.createGain();
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(0.15, t + dur*0.1);
+    env.gain.linearRampToValueAtTime(0.12, t + dur*0.7);
+    env.gain.linearRampToValueAtTime(0, t + dur);
+    osc.connect(env);
+    env.connect(sfxGain);
+    osc.start(t); osc.stop(t + dur + 0.01);
+    t += dur;
+  }
+}
+
+// Detect voice from text content
+function detectVoice(text){
+  const t = text.toLowerCase();
+  if(t.includes('snooore') || t.includes('space tacos')) return 'guard';
+  if(t.includes('unit rx') || t.includes('analyzing') || t.includes('sustenance') || t.includes('happy beeps') || t.includes('organic')) return 'robot';
+  if(t.includes('beep boop bzz') || t.includes('sad beeping')) return 'mouse';
+  if(t.includes('wanted:') || t.includes('captain nibbles wakes')) return 'narrator';
+  return 'nibbles';
+}
+
+// SFX library
+function playSfx(type){
+  if(!audioCtx || muted) return;
+  const now = audioCtx.currentTime;
+  switch(type){
+    case 'pickup': {
+      const o = audioCtx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(500, now);
+      o.frequency.exponentialRampToValueAtTime(900, now+0.12);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.2, now);
+      g.gain.linearRampToValueAtTime(0, now+0.15);
+      o.connect(g); g.connect(sfxGain);
+      o.start(now); o.stop(now+0.16);
+      break;
+    }
+    case 'door': {
+      // Beep then swoosh
+      const o1 = audioCtx.createOscillator();
+      o1.type = 'square';
+      o1.frequency.value = 880;
+      const g1 = audioCtx.createGain();
+      g1.gain.setValueAtTime(0.12, now);
+      g1.gain.setValueAtTime(0, now+0.08);
+      o1.connect(g1); g1.connect(sfxGain);
+      o1.start(now); o1.stop(now+0.1);
+      // Swoosh (noise)
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*0.4, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/d.length*5);
+      const ns = audioCtx.createBufferSource();
+      ns.buffer = buf;
+      const gn = audioCtx.createGain();
+      gn.gain.setValueAtTime(0, now+0.1);
+      gn.gain.linearRampToValueAtTime(0.15, now+0.15);
+      gn.gain.linearRampToValueAtTime(0, now+0.5);
+      const flt = audioCtx.createBiquadFilter();
+      flt.type = 'bandpass'; flt.frequency.value = 2000; flt.Q.value = 0.5;
+      ns.connect(flt); flt.connect(gn); gn.connect(sfxGain);
+      ns.start(now+0.1); ns.stop(now+0.55);
+      break;
+    }
+    case 'metal': {
+      const o = audioCtx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(150, now);
+      o.frequency.exponentialRampToValueAtTime(60, now+0.3);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.15, now);
+      g.gain.linearRampToValueAtTime(0, now+0.35);
+      o.connect(g); g.connect(sfxGain);
+      o.start(now); o.stop(now+0.36);
+      break;
+    }
+    case 'beep': {
+      [660, 880].forEach((f,i) => {
+        const o = audioCtx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = f;
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(0.12, now+i*0.1);
+        g.gain.linearRampToValueAtTime(0, now+i*0.1+0.08);
+        o.connect(g); g.connect(sfxGain);
+        o.start(now+i*0.1); o.stop(now+i*0.1+0.1);
+      });
+      break;
+    }
+    case 'creak': {
+      const o = audioCtx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(200, now);
+      o.frequency.linearRampToValueAtTime(80, now+0.5);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.08, now);
+      g.gain.linearRampToValueAtTime(0, now+0.5);
+      o.connect(g); g.connect(sfxGain);
+      o.start(now); o.stop(now+0.55);
+      break;
+    }
+    case 'clunk': {
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*0.15, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/d.length*8);
+      const ns = audioCtx.createBufferSource();
+      ns.buffer = buf;
+      const g = audioCtx.createGain();
+      g.gain.value = 0.2;
+      const flt = audioCtx.createBiquadFilter();
+      flt.type = 'lowpass'; flt.frequency.value = 800;
+      ns.connect(flt); flt.connect(g); g.connect(sfxGain);
+      ns.start(now); ns.stop(now+0.2);
+      break;
+    }
+    case 'step': {
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*0.04, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/d.length*12);
+      const ns = audioCtx.createBufferSource();
+      ns.buffer = buf;
+      const g = audioCtx.createGain();
+      g.gain.value = 0.06;
+      const flt = audioCtx.createBiquadFilter();
+      flt.type = 'lowpass'; flt.frequency.value = 400;
+      ns.connect(flt); flt.connect(g); g.connect(sfxGain);
+      ns.start(now);
+      break;
+    }
+    case 'win': {
+      [523,659,784,1047].forEach((f,i) => {
+        const o = audioCtx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = f;
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(0, now+i*0.15);
+        g.gain.linearRampToValueAtTime(0.15, now+i*0.15+0.05);
+        g.gain.linearRampToValueAtTime(0, now+i*0.15+0.4);
+        o.connect(g); g.connect(sfxGain);
+        o.start(now+i*0.15); o.stop(now+i*0.15+0.45);
+      });
+      break;
+    }
+    case 'roomchange': {
+      const o = audioCtx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(300, now);
+      o.frequency.exponentialRampToValueAtTime(150, now+0.25);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.1, now);
+      g.gain.linearRampToValueAtTime(0, now+0.3);
+      o.connect(g); g.connect(sfxGain);
+      o.start(now); o.stop(now+0.31);
+      break;
+    }
+  }
+}
+
+// Background music — ambient space drone
+function startMusic(){
+  if(!audioCtx || musicPlaying) return;
+  musicPlaying = true;
+
+  // Base drone
+  const drone = audioCtx.createOscillator();
+  drone.type = 'sine';
+  drone.frequency.value = 55; // low A
+  drone.connect(musicGain);
+  drone.start();
+  musicNodes.push(drone);
+
+  // Pad chord
+  [82.4, 110, 164.8].forEach(f => {
+    const o = audioCtx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    const g = audioCtx.createGain();
+    g.gain.value = 0.4;
+    o.connect(g); g.connect(musicGain);
+    o.start();
+    musicNodes.push(o);
+  });
+
+  // Slow LFO on drone for movement
+  const lfo = audioCtx.createOscillator();
+  lfo.frequency.value = 0.08;
+  const lfoG = audioCtx.createGain();
+  lfoG.gain.value = 5;
+  lfo.connect(lfoG);
+  lfoG.connect(drone.frequency);
+  lfo.start();
+  musicNodes.push(lfo);
+
+  // Filtered noise bed
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*4, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*0.03;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buf; noise.loop = true;
+  const flt = audioCtx.createBiquadFilter();
+  flt.type = 'bandpass'; flt.frequency.value = 400; flt.Q.value = 2;
+  // LFO on filter
+  const fltLfo = audioCtx.createOscillator();
+  fltLfo.frequency.value = 0.05;
+  const fltLfoG = audioCtx.createGain();
+  fltLfoG.gain.value = 200;
+  fltLfo.connect(fltLfoG); fltLfoG.connect(flt.frequency);
+  fltLfo.start();
+  noise.connect(flt); flt.connect(musicGain);
+  noise.start();
+  musicNodes.push(noise, fltLfo);
+
+  // Random melodic pings
+  function ping(){
+    if(!musicPlaying || !audioCtx) return;
+    const notes = [220,261.6,329.6,392,440,523.3];
+    const f = notes[Math.floor(Math.random()*notes.length)];
+    const o = audioCtx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const g = audioCtx.createGain();
+    const t = audioCtx.currentTime;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.3, t+0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t+2);
+    const delay = audioCtx.createDelay(0.5);
+    delay.delayTime.value = 0.3;
+    const delayG = audioCtx.createGain();
+    delayG.gain.value = 0.3;
+    o.connect(g); g.connect(musicGain); g.connect(delay);
+    delay.connect(delayG); delayG.connect(musicGain);
+    o.start(t); o.stop(t+2.5);
+    setTimeout(ping, 3000 + Math.random()*5000);
+  }
+  setTimeout(ping, 2000);
+}
+
+// Room-specific music mood
+function updateMusicMood(room){
+  if(!musicGain) return;
+  const moods = {
+    cell: {gain:0.10, filterQ:1},
+    hallway: {gain:0.08, filterQ:3},
+    vents: {gain:0.14, filterQ:5},
+    hangar: {gain:0.12, filterQ:2},
+    ending: {gain:0.18, filterQ:1},
+  };
+  const m = moods[room] || moods.cell;
+  musicGain.gain.linearRampToValueAtTime(m.gain, audioCtx.currentTime + 1);
+}
+
+// Step sound throttle
+let lastStepTime = 0;
 
 // === ROOMS ===
 const rooms = {
@@ -146,6 +470,7 @@ const rooms = {
           if(inventory.includes('keycard')){
             removeItem('keycard');
             gameFlags.doorOpen = true;
+            playSfx('door');
             showText("*BEEP* The door slides open! The hallway stretches ahead...", ()=>{
               changeRoom('hallway');
             });
@@ -750,6 +1075,7 @@ function addItem(id, emoji){
   if(inventory.includes(id)) return;
   inventory.push(id);
   renderInventory();
+  playSfx('pickup');
 }
 function removeItem(id){
   inventory = inventory.filter(i => i !== id);
@@ -780,6 +1106,17 @@ function showText(text, callback){
   const el = document.getElementById('text-box');
   el.textContent = text;
   el.style.display = 'block';
+  // Speak with character voice
+  const voice = detectVoice(text);
+  speakText(text, voice);
+  // SFX triggers from text content
+  const tl = text.toLowerCase();
+  if(tl.includes('*creak*')) playSfx('creak');
+  else if(tl.includes('*beep*') || tl.includes('beep boop')) playSfx('beep');
+  else if(tl.includes('*scrreeech*') || tl.includes('*griiind*')) playSfx('metal');
+  else if(tl.includes('*clunk*') || tl.includes('*glug')) playSfx('clunk');
+  else if(tl.includes('*rattle')) playSfx('clunk');
+  else if(tl.includes('freedom')) playSfx('win');
   if(textTimer) clearTimeout(textTimer);
   textTimer = setTimeout(()=>{
     el.style.display = 'none';
@@ -792,6 +1129,9 @@ function changeRoom(id){
   currentRoom = id;
   const room = rooms[id];
   if(room.enter) room.enter();
+  playSfx('roomchange');
+  updateMusicMood(id);
+  if(id === 'ending') playSfx('win');
 }
 
 // === VERBS ===
@@ -879,6 +1219,8 @@ function interact(hotspot){
 document.getElementById('title-screen').addEventListener('click', ()=>{
   document.getElementById('title-screen').style.display = 'none';
   gameStarted = true;
+  initAudio();
+  startMusic();
   showText("Captain Nibbles wakes up in a detention cell on Starbase Omega-7. Time to escape!");
 });
 
@@ -896,6 +1238,9 @@ function frame(timestamp){
       if(walkCallback){ walkCallback(); walkCallback = null; }
     } else {
       hamsterX += Math.sign(dx) * speed;
+      // Footstep sound
+      const now = Date.now();
+      if(now - lastStepTime > 200){ lastStepTime = now; playSfx('step'); }
     }
   }
 
