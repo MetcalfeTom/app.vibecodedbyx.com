@@ -3,7 +3,8 @@
 A 90s point-and-click adventure. Help Captain Nibbles escape the space station.
 
 ## log
-- 2026-04-13: Added full audio system. 5 character voices (Nibbles=chirpy square, Guard=deep sawtooth, Robot=glitchy square, Mouse=high sine, Narrator=mellow triangle) with per-letter synthesis and vibrato. 9 SFX types (pickup, door, metal, beep, creak, clunk, step, win, roomchange). Ambient space background music (drone, pad chord, filtered noise, random melodic pings with delay). Room-specific mood changes. Auto-detects voice from dialogue text. Mute toggle button.
+- 2026-04-13: Upgraded to browser SpeechSynthesis API for character voices. Nibbles=high-pitch fast female, Guard=deep slow male, Robot=mid-pitch rapid, Mouse=highest pitch fastest, Narrator=normal calm male. Voice matching tries preferred voices then falls back to English. Cleans asterisk sound effects from spoken text. Cancels speech on new dialogue or mute.
+- 2026-04-13: Added full audio system. 9 SFX types (pickup, door, metal, beep, creak, clunk, step, win, roomchange). Ambient space background music (drone, pad chord, filtered noise, random melodic pings with delay). Room-specific mood changes. Auto-detects voice from dialogue text. Mute toggle button.
 - 2026-04-13: Initial build. 4 rooms (Detention Cell, Station Hallway, Ventilation Shafts, Hangar Bay) plus ending screen. 6 verbs (Look, Use, Pick up, Talk, Push, Open). 7 inventory items (screwdriver, keycard, string, coin, cheese, fuel, map). Multiple puzzle paths — escape via door (keycard) or vent (screwdriver+string). Canvas-rendered pixel-art scenes with animated elements (sleeping guard Zs, spinning fan, blinking console, nebula). Hamster character with walking animation. Classic verb bar + inventory strip UI. Press Start 2P + VT323 typography.
 
 ## features
