@@ -24,6 +24,25 @@ canvas{display:block;image-rendering:pixelated;border:1px solid #1a1a2e;cursor:c
 .spell-slot.active{border-color:#e0c050;box-shadow:0 0 8px rgba(224,192,80,.3)}
 #help{position:fixed;top:30px;left:50%;transform:translateX(-50%);
   font-family:'Courier New',monospace;font-size:9px;color:#3a3a5e;z-index:5;text-align:center}
+#wand-builder{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:#12121eee;border:2px solid #3a3a5e;border-radius:8px;padding:12px;
+  display:none;z-index:10;font-family:'Courier New',monospace;color:#8a8aaa;min-width:240px}
+#wand-builder.open{display:block}
+#wand-builder h3{color:#e0c050;font-size:14px;margin-bottom:8px;text-align:center}
+.wb-row{display:flex;gap:4px;margin-bottom:6px;align-items:center}
+.wb-label{font-size:10px;color:#666;width:50px}
+.wb-slots{display:flex;gap:3px;flex:1}
+.wb-slot{width:24px;height:24px;border:1px solid #2a2a3e;border-radius:3px;background:#0a0a12;
+  display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer}
+.wb-slot:hover{border-color:#5a5a8e}
+.wb-slot.filled{border-color:#e0c050}
+.wb-inv{display:flex;gap:3px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid #2a2a3e}
+.wb-inv-item{width:24px;height:24px;border:1px solid #2a2a3e;border-radius:3px;background:#0a0a12;
+  display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer}
+.wb-inv-item:hover{border-color:#e0c050}
+#wb-close{font-size:10px;color:#666;cursor:pointer;text-align:center;margin-top:6px}
+#wb-close:hover{color:#aaa}
+#wb-stats{font-size:9px;color:#555;margin-top:4px;text-align:center}
 .back{position:fixed;bottom:10px;right:10px;z-index:5}
 .back a{color:#2a2a3e;font-family:monospace;font-size:9px;text-decoration:none}
 .back a:hover{color:#5a5a8e}
@@ -34,11 +53,19 @@ canvas{display:block;image-rendering:pixelated;border:1px solid #1a1a2e;cursor:c
   <span>❤️ <span class="hv" id="hpVal">100</span></span>
   <span>🧙 <span class="hv" id="depthVal">0</span>m</span>
   <span>⚡ <span class="hv" id="manaVal">100</span></span>
+  <span>🚀 <span class="hv" id="fuelVal">100</span></span>
   <span>💀 <span class="hv" id="killVal">0</span></span>
 </div>
-<div id="help">WASD/arrows move · click to cast · 1-5 switch spells · R restart</div>
+<div id="help">WASD move · W=jetpack · click cast · 1-5 spells · E wand builder · R restart</div>
 <canvas id="c"></canvas>
 <div id="wand-bar"></div>
+<div id="wand-builder">
+  <h3>🔧 Wand Builder</h3>
+  <div class="wb-row"><span class="wb-label">Wand:</span><div class="wb-slots" id="wb-wand"></div></div>
+  <div id="wb-stats">Drag components from inventory to wand slots</div>
+  <div class="wb-inv" id="wb-inv"></div>
+  <div id="wb-close">[E] close</div>
+</div>
 <div class="back"><a href="https://sloppy.live">← sloppy.live</a></div>
 <script>
 const canvas = document.getElementById('c');
@@ -102,8 +129,24 @@ let activeSpell = 0;
 // Player
 const player = {
   x:PW/2, y:40, vx:0, vy:0, hp:100, mana:100, manaMax:100,
+  fuel:100, fuelMax:100,
   facing:1, grounded:false, kills:0,
 };
+
+// Wand building system
+const COMPONENTS = [
+  {name:'Fire Core',emoji:'🔴',type:'proj',stat:'fire',bonus:3},
+  {name:'Ice Shard',emoji:'🔵',type:'proj',stat:'water',bonus:3},
+  {name:'Venom Gland',emoji:'🟢',type:'proj',stat:'acid',bonus:4},
+  {name:'Mana Crystal',emoji:'💎',type:'mod',stat:'mana',bonus:-3},
+  {name:'Speed Rune',emoji:'⚡',type:'mod',stat:'speed',bonus:1},
+  {name:'Blast Powder',emoji:'💥',type:'mod',stat:'radius',bonus:2},
+  {name:'Focus Lens',emoji:'🔮',type:'mod',stat:'damage',bonus:5},
+  {name:'Chaos Orb',emoji:'🌀',type:'proj',stat:'multi',bonus:1},
+];
+let inventory = []; // collected components
+let wandSlots = [null,null,null]; // 3 wand slots
+let wandBuilderOpen = false;
 
 // Enemies
 let enemies = [];
@@ -122,6 +165,7 @@ let mouseX=PW/2, mouseY=PH/2, mouseDown=false;
 window.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;
   if(e.key>='1'&&e.key<='5'){activeSpell=parseInt(e.key)-1;renderWandBar();}
   if(e.key.toLowerCase()==='r')restartGame();
+  if(e.key.toLowerCase()==='e')toggleWandBuilder();
 });
 window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
 canvas.addEventListener('mousemove',e=>{
@@ -311,15 +355,29 @@ function simulatePixels(){
 
 // Player physics
 function updatePlayer(){
-  const spd=1.2, jump=-3, grav=0.15;
+  const spd=1.2, grav=0.15, jetForce=-0.35;
   // Input
   if(keys['a']||keys['arrowleft']){player.vx-=0.4;player.facing=-1;}
   if(keys['d']||keys['arrowright']){player.vx+=0.4;player.facing=1;}
-  if((keys['w']||keys['arrowup']||keys[' '])&&player.grounded){player.vy=jump;player.grounded=false;}
+
+  // Jetpack — hold W/up/space to fly
+  const jetting=(keys['w']||keys['arrowup']||keys[' '])&&player.fuel>0;
+  if(jetting){
+    player.vy+=jetForce;
+    player.fuel=Math.max(0,player.fuel-0.4);
+    // Emit fire/smoke particles below player
+    const px=Math.round(player.x),py=Math.round(player.y);
+    if(isEmpty(px,py+1))set(px,py+1,Math.random()<0.3?FIRE:SMOKE);
+    if(Math.random()<0.5&&isEmpty(px+(Math.random()>0.5?1:-1),py+1))
+      set(px+(Math.random()>0.5?1:-1),py+1,EMBER);
+  }
+
+  // Fuel recharges on ground
+  if(player.grounded)player.fuel=Math.min(player.fuelMax,player.fuel+0.6);
 
   player.vx*=0.85;
   player.vy+=grav;
-  player.vy=Math.min(player.vy,3);
+  player.vy=Math.max(-3,Math.min(player.vy,3));
   if(Math.abs(player.vx)>spd)player.vx=Math.sign(player.vx)*spd;
 
   // Move X
@@ -420,6 +478,11 @@ function updateEnemies(){
         const sy=Math.round(e.y)+(Math.random()*4-2)|0;
         if(isEmpty(sx,sy))set(sx,sy,SAND);
       }
+      // Drop a component (50% chance)
+      if(Math.random()<0.5&&inventory.length<12){
+        const comp={...COMPONENTS[Math.floor(Math.random()*COMPONENTS.length)]};
+        inventory.push(comp);
+      }
       player.kills++;
       enemies.splice(i,1);
     }
@@ -507,24 +570,43 @@ function updateProjectiles(){
   }
 }
 
+function getWandBonuses(){
+  const bonuses={mana:0,speed:0,radius:0,damage:0,multi:0};
+  for(const slot of wandSlots){
+    if(slot)bonuses[slot.stat]=(bonuses[slot.stat]||0)+slot.bonus;
+  }
+  return bonuses;
+}
+
 function castSpell(){
-  if(player.hp<=0)return;
+  if(player.hp<=0||wandBuilderOpen)return;
   const spell=SPELLS[activeSpell];
-  if(player.mana<spell.mana)return;
-  player.mana-=spell.mana;
+  const wb=getWandBonuses();
+  const manaCost=Math.max(1,spell.mana+wb.mana);
+  if(player.mana<manaCost)return;
+  player.mana-=manaCost;
 
   const dx=mouseX-player.x, dy=mouseY-player.y;
   const dist=Math.sqrt(dx*dx+dy*dy)||1;
-  const speed=3;
+  const speed=3+wb.speed;
+  const shots=1+wb.multi;
 
   const types=['fire','water','acid','dig','bomb'];
-  projectiles.push({
-    x:player.x, y:player.y-1,
-    vx:dx/dist*speed, vy:dy/dist*speed,
-    type:types[activeSpell],
-    color:spell.color,
-    life:80,
-  });
+  for(let s=0;s<shots;s++){
+    const spread=shots>1?(s-shots/2+0.5)*0.15:0;
+    const cos=Math.cos(spread),sin=Math.sin(spread);
+    const vx=(dx/dist*cos-dy/dist*sin)*speed;
+    const vy=(dx/dist*sin+dy/dist*cos)*speed;
+    projectiles.push({
+      x:player.x, y:player.y-1,
+      vx, vy,
+      type:types[activeSpell],
+      color:spell.color,
+      life:80,
+      dmgBonus:wb.damage,
+      radBonus:wb.radius,
+    });
+  }
 }
 
 // Auto-cast while held
@@ -607,7 +689,56 @@ function updateHUD(){
   document.getElementById('hpVal').textContent=Math.ceil(player.hp);
   document.getElementById('depthVal').textContent=Math.max(0,Math.floor((player.y-60)*0.5));
   document.getElementById('manaVal').textContent=Math.ceil(player.mana);
+  document.getElementById('fuelVal').textContent=Math.ceil(player.fuel);
   document.getElementById('killVal').textContent=player.kills;
+}
+
+function toggleWandBuilder(){
+  wandBuilderOpen=!wandBuilderOpen;
+  document.getElementById('wand-builder').classList.toggle('open',wandBuilderOpen);
+  if(wandBuilderOpen)renderWandBuilder();
+}
+
+function renderWandBuilder(){
+  // Wand slots
+  const wand=document.getElementById('wb-wand');
+  wand.innerHTML='';
+  wandSlots.forEach((s,i)=>{
+    const el=document.createElement('div');
+    el.className='wb-slot'+(s?' filled':'');
+    el.textContent=s?s.emoji:'';
+    el.title=s?`${s.name} (+${s.bonus} ${s.stat})`:'Empty slot';
+    el.onclick=()=>{
+      if(s){inventory.push(s);wandSlots[i]=null;renderWandBuilder();}
+    };
+    wand.appendChild(el);
+  });
+
+  // Inventory
+  const inv=document.getElementById('wb-inv');
+  inv.innerHTML='';
+  inventory.forEach((c,i)=>{
+    const el=document.createElement('div');
+    el.className='wb-inv-item';
+    el.textContent=c.emoji;
+    el.title=`${c.name} (+${c.bonus} ${c.stat})`;
+    el.onclick=()=>{
+      // Place in first empty wand slot
+      const empty=wandSlots.indexOf(null);
+      if(empty!==-1){wandSlots[empty]=c;inventory.splice(i,1);renderWandBuilder();}
+    };
+    inv.appendChild(el);
+  });
+
+  // Stats
+  const wb=getWandBonuses();
+  const parts=[];
+  if(wb.mana)parts.push(`Mana: ${wb.mana>0?'+':''}${wb.mana}`);
+  if(wb.speed)parts.push(`Speed: +${wb.speed}`);
+  if(wb.radius)parts.push(`Radius: +${wb.radius}`);
+  if(wb.damage)parts.push(`Damage: +${wb.damage}`);
+  if(wb.multi)parts.push(`Multi: +${wb.multi}`);
+  document.getElementById('wb-stats').textContent=parts.length?parts.join(' · '):'No modifiers — add components!';
 }
 
 function renderWandBar(){
@@ -625,8 +756,12 @@ function renderWandBar(){
 
 function restartGame(){
   player.x=PW/2;player.y=40;player.vx=0;player.vy=0;
-  player.hp=100;player.mana=100;player.kills=0;
+  player.hp=100;player.mana=100;player.fuel=100;player.kills=0;
   projectiles=[];
+  inventory=[];
+  wandSlots=[null,null,null];
+  wandBuilderOpen=false;
+  document.getElementById('wand-builder').classList.remove('open');
   generateWorld();
   spawnEnemies();
 }
@@ -646,6 +781,7 @@ function frame(){
   requestAnimationFrame(frame);
 }
 
+document.getElementById('wb-close').onclick=toggleWandBuilder;
 generateWorld();
 spawnEnemies();
 renderWandBar();
