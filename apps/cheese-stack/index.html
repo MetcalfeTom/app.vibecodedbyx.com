@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cheese Stack — Tower of Fromage</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🧀">
+<meta property="og:title" content="Cheese Stack">
+<meta property="og:description" content="Stack giant wobbly cheese blocks. One wrong move and it all comes crumbling down.">
+<meta property="og:url" content="https://sloppy.live/cheese-stack">
+<meta property="og:image" content="https://sloppy.live/cheese-stack/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#1c1a14;--sky:#2a2518;--ground:#3a3020;
+  --cheese1:#f0c830;--cheese2:#e0a820;--cheese3:#d49018;
+  --hole:#c8960a;--text:#8a7a5a;--bright:#f0e0b0;--dim:#4a4030;
+  --accent:#f05030;
+}
+body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow:hidden}
+#title{font-family:'Lilita One',sans-serif;font-size:clamp(24px,5vw,40px);
+  color:var(--cheese1);padding:10px 0 0;text-align:center;
+  text-shadow:0 2px 0 var(--cheese3),0 4px 8px rgba(0,0,0,.4)}
+#sub{font-size:10px;color:var(--dim);margin-bottom:4px}
+#hud{display:flex;gap:16px;justify-content:center;padding:4px;font-size:12px}
+.hv{color:var(--cheese1);font-weight:700}
+#wrap{position:relative;width:min(500px,96vw);height:min(600px,70vh);
+  border:2px solid var(--dim);border-radius:6px;overflow:hidden;cursor:pointer;
+  background:linear-gradient(180deg,#1a1810 0%,#2a2518 60%,var(--ground) 100%)}
+canvas{width:100%;height:100%;display:block}
+#msg{text-align:center;font-size:13px;color:var(--dim);padding:6px;min-height:22px}
+#msg.go{color:var(--cheese1)}
+#msg.bad{color:var(--accent)}
+#actions{display:flex;gap:8px;justify-content:center;padding:4px}
+#actions button{background:var(--ground);border:2px solid var(--dim);color:var(--bright);
+  font-family:'Lilita One',sans-serif;font-size:13px;padding:8px 18px;border-radius:4px;
+  cursor:pointer;transition:all .15s;letter-spacing:1px}
+#actions button:hover{border-color:var(--cheese1);background:var(--dim)}
+.back-link{padding:8px;text-align:center;margin-top:auto}
+.back-link a{color:var(--dim);font-size:9px;text-decoration:none}
+.back-link a:hover{color:var(--bright)}
+</style>
+</head>
+<body>
+<div id="title">🧀 CHEESE STACK</div>
+<div id="sub">stack giant cheese without toppling</div>
+<div id="hud">
+  <div>Height: <span class="hv" id="heightVal">0</span></div>
+  <div>Best: <span class="hv" id="bestVal">0</span></div>
+  <div>Score: <span class="hv" id="scoreVal">0</span></div>
+</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="msg" class="go">Click or tap to drop cheese!</div>
+<div id="actions"><button id="restartBtn">🔄 Restart</button></div>
+<div class="back-link"><a href="https://sloppy.live">← sloppy.live</a></div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('wrap');
+
+let CW, CH;
+function resize(){
+  const r = wrap.getBoundingClientRect();
+  CW = Math.floor(r.width * 1.5);
+  CH = Math.floor(r.height * 1.5);
+  canvas.width = CW; canvas.height = CH;
+}
+resize();
+window.addEventListener('resize', resize);
+
+const GRAVITY = 0.35;
+const FRICTION = 0.4;
+const BOUNCE = 0.25;
+const ROTATION_DAMPING = 0.92;
+const GROUND_Y_OFFSET = 40; // from bottom
+
+let blocks = [];
+let swingBlock = null; // the block swinging at the top
+let gameOver = false;
+let score = 0;
+let best = parseInt(localStorage.getItem('cheese-stack-best')||'0');
+let dropCount = 0;
+let cameraY = 0; // scroll up as stack grows
+let settled = false;
+let settleTimer = 0;
+
+// Cheese types
+const CHEESE_TYPES = [
+  {name:'Cheddar',    color:'#f0c830', dark:'#c8a020', holes:'#b89010', w:[70,110], h:[35,55]},
+  {name:'Gouda',      color:'#e8a828', dark:'#c08818', holes:'#a87010', w:[80,120], h:[30,50]},
+  {name:'Swiss',      color:'#f0d848', dark:'#d0b830', holes:'#c0a020', w:[75,115], h:[35,55]},
+  {name:'Brie',       color:'#f0e8d0', dark:'#d8d0b8', holes:'#c8c0a8', w:[65,100], h:[30,45]},
+  {name:'Parmesan',   color:'#e0c870', dark:'#c0a850', holes:'#a89040', w:[60,95],  h:[40,60]},
+  {name:'Muenster',   color:'#f0a030', dark:'#d08020', holes:'#b87018', w:[85,125], h:[30,48]},
+  {name:'Blue Cheese',color:'#d8d0a0', dark:'#b8b080', holes:'#7090a0', w:[70,105], h:[35,50]},
+  {name:'Pepper Jack', color:'#e8c040',dark:'#c8a028', holes:'#a03020', w:[75,110], h:[32,52]},
+];
+
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
+function rand(a,b){ return a+Math.random()*(b-a); }
+
+function makeBlock(x, y, dropping){
+  const type = pick(CHEESE_TYPES);
+  const w = rand(type.w[0], type.w[1]);
+  const h = rand(type.h[0], type.h[1]);
+  // Generate cheese holes
+  const holeCount = Math.floor(rand(2,6));
+  const holes = [];
+  for(let i=0;i<holeCount;i++){
+    holes.push({
+      ox: rand(-w*0.35, w*0.35),
+      oy: rand(-h*0.3, h*0.3),
+      r: rand(3, Math.min(w,h)*0.15),
+    });
+  }
+  return {
+    x, y, w, h, angle: 0,
+    vx: 0, vy: 0, va: 0, // velocity
+    color: type.color, dark: type.dark, holeColor: type.holes,
+    holes, name: type.name,
+    grounded: false,
+    dropping: dropping || false,
+    settled: false,
+    mass: w * h * 0.01,
+  };
+}
+
+function makeSwinger(){
+  const type = pick(CHEESE_TYPES);
+  const w = rand(type.w[0], type.w[1]);
+  const h = rand(type.h[0], type.h[1]);
+  const holeCount = Math.floor(rand(2,6));
+  const holes = [];
+  for(let i=0;i<holeCount;i++){
+    holes.push({
+      ox: rand(-w*0.35, w*0.35),
+      oy: rand(-h*0.3, h*0.3),
+      r: rand(3, Math.min(w,h)*0.15),
+    });
+  }
+  // Swing speed increases with height
+  const speed = 1.5 + Math.min(dropCount * 0.15, 3);
+  swingBlock = {
+    x: CW/2, y: 40 - cameraY,
+    w, h, angle: 0,
+    color: type.color, dark: type.dark, holeColor: type.holes,
+    holes, name: type.name,
+    swingPhase: Math.random() * Math.PI * 2,
+    swingSpeed: speed,
+    swingWidth: CW * 0.35,
+    mass: w * h * 0.01,
+  };
+}
+
+function drawBlock(b, yOffset){
+  const dy = yOffset || 0;
+  ctx.save();
+  ctx.translate(b.x, b.y + dy);
+  ctx.rotate(b.angle || 0);
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath();
+  roundRect(ctx, -b.w/2+3, -b.h/2+3, b.w, b.h, 4);
+  ctx.fill();
+
+  // Main cheese body
+  ctx.fillStyle = b.color;
+  ctx.beginPath();
+  roundRect(ctx, -b.w/2, -b.h/2, b.w, b.h, 4);
+  ctx.fill();
+
+  // Darker edge (bottom/right)
+  ctx.fillStyle = b.dark;
+  ctx.beginPath();
+  ctx.moveTo(b.w/2-4, -b.h/2+4);
+  ctx.lineTo(b.w/2, -b.h/2+4);
+  ctx.lineTo(b.w/2, b.h/2);
+  ctx.lineTo(-b.w/2, b.h/2);
+  ctx.lineTo(-b.w/2, b.h/2-4);
+  ctx.lineTo(b.w/2-4, b.h/2-4);
+  ctx.closePath();
+  ctx.fill();
+
+  // Cheese holes
+  for(const hole of b.holes){
+    ctx.fillStyle = b.holeColor;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.ellipse(hole.ox, hole.oy, hole.r, hole.r*0.8, 0.3, 0, Math.PI*2);
+    ctx.fill();
+    // Inner shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.beginPath();
+    ctx.ellipse(hole.ox+1, hole.oy+1, hole.r*0.7, hole.r*0.6, 0.3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Outline
+  ctx.strokeStyle = b.dark;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  roundRect(ctx, -b.w/2, -b.h/2, b.w, b.h, 4);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r){
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+}
+
+function groundY(){ return CH - GROUND_Y_OFFSET; }
+
+// Simple AABB collision for stacked blocks (axis-aligned approx)
+function getAABB(b){
+  const cos = Math.abs(Math.cos(b.angle||0));
+  const sin = Math.abs(Math.sin(b.angle||0));
+  const hw = (b.w*cos + b.h*sin)/2;
+  const hh = (b.w*sin + b.h*cos)/2;
+  return {left:b.x-hw, right:b.x+hw, top:b.y-hh, bottom:b.y+hh};
+}
+
+function physics(){
+  const gy = groundY();
+
+  for(let i=0; i<blocks.length; i++){
+    const b = blocks[i];
+    if(!b.dropping && !b.grounded) continue;
+
+    // Gravity
+    b.vy += GRAVITY;
+    b.x += b.vx;
+    b.y += b.vy;
+    b.angle += b.va;
+    b.va *= ROTATION_DAMPING;
+
+    // Friction on vx
+    b.vx *= 0.97;
+
+    const aabb = getAABB(b);
+
+    // Ground collision
+    if(aabb.bottom >= gy){
+      b.y -= (aabb.bottom - gy);
+      b.vy *= -BOUNCE;
+      b.vx *= FRICTION;
+      b.va *= 0.8;
+      if(Math.abs(b.vy) < 0.5) b.vy = 0;
+      b.grounded = true;
+    }
+
+    // Wall collision
+    if(aabb.left < 0){ b.x += (0 - aabb.left); b.vx = Math.abs(b.vx)*0.3; }
+    if(aabb.right > CW){ b.x -= (aabb.right - CW); b.vx = -Math.abs(b.vx)*0.3; }
+
+    // Block-on-block collision (simple: only with blocks below)
+    for(let j=0; j<blocks.length; j++){
+      if(i===j) continue;
+      const other = blocks[j];
+      const aabb2 = getAABB(other);
+
+      // Check overlap
+      const overlapX = Math.min(aabb.right, aabb2.right) - Math.max(aabb.left, aabb2.left);
+      const overlapY = Math.min(aabb.bottom, aabb2.bottom) - Math.max(aabb.top, aabb2.top);
+
+      if(overlapX > 0 && overlapY > 0){
+        // Resolve: push out vertically
+        if(b.y < other.y){
+          // b is on top
+          b.y -= overlapY;
+          if(b.vy > 0) b.vy *= -BOUNCE;
+          b.grounded = true;
+
+          // Transfer some momentum to block below
+          other.vx += b.vx * 0.1;
+          other.va += (b.x - other.x) * 0.0003 * b.mass;
+        }
+
+        // Add rotational instability based on offset
+        const offset = b.x - other.x;
+        const instability = offset / (other.w * 0.5);
+        b.va += instability * 0.003;
+        b.vx += instability * 0.08;
+      }
+    }
+
+    // Check if block fell off screen
+    if(b.y > CH + 100 || b.x < -100 || b.x > CW + 100){
+      // Fallen block
+    }
+  }
+
+  // Check if all blocks settled
+  let allSettled = true;
+  for(const b of blocks){
+    if(Math.abs(b.vx) > 0.1 || Math.abs(b.vy) > 0.3 || Math.abs(b.va) > 0.002){
+      allSettled = false;
+      break;
+    }
+  }
+  if(allSettled && blocks.length > 0){
+    settleTimer++;
+    if(settleTimer > 30){
+      settled = true;
+    }
+  } else {
+    settleTimer = 0;
+    settled = false;
+  }
+}
+
+function getStackHeight(){
+  if(blocks.length === 0) return 0;
+  const gy = groundY();
+  let topY = gy;
+  for(const b of blocks){
+    const aabb = getAABB(b);
+    if(aabb.top < topY) topY = aabb.top;
+  }
+  return Math.max(0, Math.round((gy - topY) / 40));
+}
+
+function checkGameOver(){
+  // Game over if a block falls completely off the sides or if stack collapses
+  const gy = groundY();
+  let toppled = 0;
+  for(const b of blocks){
+    if(b.y > gy + 50) toppled++;
+    if(b.x < -50 || b.x > CW + 50) toppled++;
+    // Extreme angle = fallen
+    const normAngle = Math.abs(((b.angle % Math.PI) + Math.PI) % Math.PI);
+    if(normAngle > 0.7 && normAngle < 2.4 && b.grounded) toppled++;
+  }
+  if(toppled >= 2 && settled){
+    gameOver = true;
+    setMsg('The cheese tower crumbled! 🧀💥', 'bad');
+    if(score > best){
+      best = score;
+      localStorage.setItem('cheese-stack-best', best);
+    }
+    updateHUD();
+  }
+}
+
+function dropBlock(){
+  if(gameOver || !swingBlock) return;
+  if(!settled && blocks.length > 0) return; // wait for settle
+
+  const sb = swingBlock;
+  blocks.push({
+    x: sb.x, y: sb.y, w: sb.w, h: sb.h,
+    angle: 0, vx: 0, vy: 2, va: rand(-0.02, 0.02),
+    color: sb.color, dark: sb.dark, holeColor: sb.holeColor,
+    holes: sb.holes, name: sb.name,
+    grounded: false, dropping: true, settled: false,
+    mass: sb.mass,
+  });
+
+  dropCount++;
+  score += 10;
+  settled = false;
+  settleTimer = 0;
+  swingBlock = null;
+
+  // After a short delay, spawn next swinger
+  setTimeout(() => {
+    if(!gameOver){
+      makeSwinger();
+      updateCamera();
+    }
+  }, 800);
+
+  updateHUD();
+}
+
+function updateCamera(){
+  const gy = groundY();
+  let topY = gy;
+  for(const b of blocks){
+    const aabb = getAABB(b);
+    if(aabb.top < topY) topY = aabb.top;
+  }
+  // Scroll up if stack is getting tall
+  const targetCamY = Math.min(0, -(gy - topY - CH * 0.55));
+  cameraY += (targetCamY - cameraY) * 0.05;
+}
+
+function updateHUD(){
+  document.getElementById('heightVal').textContent = getStackHeight();
+  document.getElementById('bestVal').textContent = best;
+  document.getElementById('scoreVal').textContent = score;
+}
+
+function setMsg(t, cls){
+  const el = document.getElementById('msg');
+  el.textContent = t;
+  el.className = cls || '';
+}
+
+function drawGround(camY){
+  const gy = groundY() + camY;
+  // Wooden table surface
+  ctx.fillStyle = '#3a3020';
+  ctx.fillRect(0, gy, CW, CH - gy + 50);
+  ctx.fillStyle = '#4a3828';
+  ctx.fillRect(0, gy, CW, 4);
+  // Table edge highlight
+  ctx.fillStyle = '#5a4838';
+  ctx.fillRect(0, gy, CW, 2);
+  // Some wood grain lines
+  for(let i=0;i<8;i++){
+    ctx.fillStyle = `rgba(90,72,56,${0.2+Math.random()*0.15})`;
+    const ly = gy + 8 + i * 6 + Math.random()*3;
+    ctx.fillRect(0, ly, CW, 1);
+  }
+}
+
+function drawSwinger(camY){
+  if(!swingBlock) return;
+  const sb = swingBlock;
+  sb.swingPhase += sb.swingSpeed * 0.02;
+  sb.x = CW/2 + Math.sin(sb.swingPhase) * sb.swingWidth;
+  const drawY = 35 + camY;
+
+  // Draw rope/line
+  ctx.strokeStyle = 'rgba(200,180,140,0.3)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();
+  ctx.moveTo(sb.x, 0);
+  ctx.lineTo(sb.x, drawY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw the block
+  drawBlock({...sb, y: drawY}, 0);
+
+  // Arrow indicator
+  ctx.fillStyle = 'rgba(240,200,48,0.5)';
+  ctx.beginPath();
+  ctx.moveTo(sb.x, drawY + sb.h/2 + 8);
+  ctx.lineTo(sb.x-6, drawY + sb.h/2 + 2);
+  ctx.lineTo(sb.x+6, drawY + sb.h/2 + 2);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawSettleIndicator(){
+  if(blocks.length > 0 && !settled && !gameOver){
+    ctx.fillStyle = 'rgba(240,80,48,0.6)';
+    ctx.font = '11px "DM Mono"';
+    ctx.textAlign = 'center';
+    ctx.fillText('settling...', CW/2, 18);
+  }
+}
+
+function frame(){
+  ctx.clearRect(0,0,CW,CH);
+
+  // Background gradient
+  const grad = ctx.createLinearGradient(0,0,0,CH);
+  grad.addColorStop(0,'#1a1810');
+  grad.addColorStop(0.6,'#2a2518');
+  grad.addColorStop(1,'#1c1a14');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,CW,CH);
+
+  if(!gameOver) {
+    physics();
+    updateCamera();
+    checkGameOver();
+  }
+
+  const camY = cameraY;
+
+  drawGround(camY);
+
+  // Draw stacked blocks
+  for(const b of blocks){
+    drawBlock(b, camY);
+  }
+
+  // Draw swinging block
+  if(!gameOver) drawSwinger(camY);
+  drawSettleIndicator();
+
+  // Ready indicator
+  if(settled && swingBlock && !gameOver){
+    ctx.fillStyle = 'rgba(90,224,122,0.6)';
+    ctx.font = '11px "DM Mono"';
+    ctx.textAlign = 'center';
+    ctx.fillText('ready — click to drop!', CW/2, 18);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function startGame(){
+  blocks = [];
+  swingBlock = null;
+  gameOver = false;
+  score = 0;
+  dropCount = 0;
+  cameraY = 0;
+  settled = true;
+  settleTimer = 999;
+  makeSwinger();
+  updateHUD();
+  setMsg('Click or tap to drop cheese!', 'go');
+}
+
+wrap.addEventListener('click', dropBlock);
+wrap.addEventListener('touchend', e => { e.preventDefault(); dropBlock(); });
+document.getElementById('restartBtn').onclick = startGame;
+
+startGame();
+frame();
+</script>
+</body>
+</html>
