@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timeline Stabilizer</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🕰️">
+<meta property="og:title" content="Timeline Stabilizer">
+<meta property="og:description" content="Drag the slider to stabilize the fractured timeline and align floating calendars.">
+<meta property="og:url" content="https://sloppy.live/timeline-stabilizer">
+<meta property="og:image" content="https://sloppy.live/timeline-stabilizer/og-image.png">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Fira+Code:wght@300;500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#0c0c1a;
+  min-height:100vh;
+  overflow:hidden;
+  font-family:'Fira Code',monospace;
+  color:#d4d4e8;
+}
+canvas{position:fixed;inset:0;z-index:0}
+
+#ui{
+  position:fixed;
+  bottom:0;left:0;right:0;
+  z-index:10;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:20px 24px 28px;
+  background:linear-gradient(to top,rgba(12,12,26,0.95),transparent);
+}
+
+#status{
+  font-family:'Instrument Serif',serif;
+  font-size:28px;
+  color:#8b5cf6;
+  text-shadow:0 0 20px rgba(139,92,246,0.4);
+  margin-bottom:6px;
+  transition:color 0.5s;
+}
+
+#readout{
+  font-size:12px;
+  color:rgba(212,212,232,0.5);
+  letter-spacing:3px;
+  margin-bottom:14px;
+}
+
+#slider-wrap{
+  width:min(90vw,600px);
+  position:relative;
+  padding:12px 0;
+}
+
+#slider{
+  -webkit-appearance:none;
+  appearance:none;
+  width:100%;
+  height:6px;
+  border-radius:3px;
+  background:linear-gradient(90deg,#ef4444,#f59e0b,#22c55e,#f59e0b,#ef4444);
+  outline:none;
+  cursor:grab;
+}
+#slider:active{cursor:grabbing}
+#slider::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  width:28px;height:28px;
+  border-radius:50%;
+  background:#8b5cf6;
+  border:3px solid #d4d4e8;
+  box-shadow:0 0 16px rgba(139,92,246,0.6);
+  cursor:grab;
+}
+#slider::-moz-range-thumb{
+  width:28px;height:28px;
+  border-radius:50%;
+  background:#8b5cf6;
+  border:3px solid #d4d4e8;
+  box-shadow:0 0 16px rgba(139,92,246,0.6);
+  cursor:grab;
+}
+
+#labels{
+  display:flex;
+  justify-content:space-between;
+  width:min(90vw,600px);
+  font-size:10px;
+  color:rgba(212,212,232,0.3);
+  letter-spacing:1px;
+  margin-top:4px;
+}
+
+#score-row{
+  position:fixed;
+  top:16px;right:20px;
+  z-index:10;
+  text-align:right;
+}
+#score{
+  font-family:'Instrument Serif',serif;
+  font-size:20px;
+  color:#8b5cf6;
+}
+#best{
+  font-size:11px;
+  color:rgba(212,212,232,0.35);
+  margin-top:2px;
+}
+
+#level-row{
+  position:fixed;
+  top:16px;left:20px;
+  z-index:10;
+}
+#level{
+  font-family:'Instrument Serif',serif;
+  font-size:20px;
+  color:#22c55e;
+}
+#level-hint{
+  font-size:11px;
+  color:rgba(212,212,232,0.35);
+  margin-top:2px;
+}
+
+/* Stabilized flash */
+.flash{
+  position:fixed;inset:0;
+  background:rgba(139,92,246,0.15);
+  pointer-events:none;
+  z-index:5;
+  animation:flash-out 0.6s ease-out forwards;
+}
+@keyframes flash-out{0%{opacity:1}100%{opacity:0}}
+
+@media(max-width:500px){
+  #status{font-size:22px}
+  #readout{font-size:10px;letter-spacing:2px}
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="level-row">
+  <div id="level">Level 1</div>
+  <div id="level-hint">Align the calendars</div>
+</div>
+
+<div id="score-row">
+  <div id="score">0</div>
+  <div id="best"></div>
+</div>
+
+<div id="ui">
+  <div id="status">Timeline Fractured</div>
+  <div id="readout">STABILITY: 0%</div>
+  <div id="slider-wrap">
+    <input type="range" id="slider" min="0" max="1000" value="0">
+  </div>
+  <div id="labels">
+    <span>PAST COLLAPSE</span>
+    <span>STABLE</span>
+    <span>FUTURE DRIFT</span>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const slider = document.getElementById('slider');
+const statusEl = document.getElementById('status');
+const readoutEl = document.getElementById('readout');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const levelEl = document.getElementById('level');
+const hintEl = document.getElementById('level-hint');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Game state
+let level = 1;
+let score = 0;
+let bestScore = parseInt(localStorage.getItem('timeline-best') || '0');
+let targetValue = 500;
+let tolerance = 80;
+let stabilized = false;
+let stabilizeTimer = 0;
+let holdTime = 1.5; // seconds to hold for stabilization
+let calendars = [];
+let particles = [];
+let gridLines = [];
+let lastTime = 0;
+let shakeAmount = 0;
+
+bestEl.textContent = bestScore > 0 ? `best: ${bestScore}` : '';
+
+// Months and days
+const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const DAYS = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+
+function initLevel() {
+  stabilized = false;
+  stabilizeTimer = 0;
+  targetValue = 150 + Math.floor(Math.random() * 700);
+  tolerance = Math.max(20, 80 - level * 5);
+  holdTime = Math.min(3, 1.5 + level * 0.15);
+  slider.value = Math.random() < 0.5 ? 0 : 1000;
+
+  // Generate calendars
+  const count = Math.min(12, 5 + level);
+  calendars = [];
+  for (let i = 0; i < count; i++) {
+    const baseDate = new Date(2026, Math.floor(Math.random() * 12), 1 + Math.floor(Math.random() * 28));
+    calendars.push({
+      x: 80 + Math.random() * (W - 160),
+      y: 60 + Math.random() * (H - 260),
+      targetX: 0, targetY: 0,
+      w: 90 + Math.random() * 30,
+      h: 100 + Math.random() * 30,
+      rotation: 0,
+      targetRotation: 0,
+      chaosRotation: (Math.random() - 0.5) * 2.5,
+      chaosX: (Math.random() - 0.5) * 300,
+      chaosY: (Math.random() - 0.5) * 200,
+      driftPhase: Math.random() * Math.PI * 2,
+      driftSpeed: 0.3 + Math.random() * 0.7,
+      driftAmp: 10 + Math.random() * 30,
+      month: MONTHS[baseDate.getMonth()],
+      day: baseDate.getDate(),
+      year: baseDate.getFullYear(),
+      dow: DAYS[baseDate.getDay()],
+      opacity: 1,
+      hue: Math.random() * 40 - 20, // slight color variation
+    });
+  }
+
+  // Set target positions: nice grid layout
+  const cols = Math.ceil(Math.sqrt(count * (W / H)));
+  const rows = Math.ceil(count / cols);
+  const cellW = (W - 120) / cols;
+  const cellH = (H - 280) / rows;
+  const startY = 80;
+  for (let i = 0; i < calendars.length; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    calendars[i].targetX = 60 + col * cellW + cellW / 2;
+    calendars[i].targetY = startY + row * cellH + cellH / 2;
+  }
+
+  // Grid lines
+  gridLines = [];
+  for (let i = 0; i < 8; i++) {
+    gridLines.push({
+      y: Math.random() * H,
+      targetY: (i + 1) * H / 9,
+      speed: 0.5 + Math.random(),
+    });
+  }
+
+  levelEl.textContent = `Level ${level}`;
+  hintEl.textContent = `Tolerance: ±${(tolerance / 10).toFixed(0)}%`;
+}
+
+function getStability(val) {
+  const dist = Math.abs(val - targetValue);
+  return Math.max(0, 1 - dist / 500);
+}
+
+function getAlignment(val) {
+  const dist = Math.abs(val - targetValue);
+  if (dist <= tolerance) return 1;
+  return Math.max(0, 1 - (dist - tolerance) / 400);
+}
+
+function isInZone(val) {
+  return Math.abs(val - targetValue) <= tolerance;
+}
+
+// Particles
+function spawnParticles(x, y, count, color) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 3;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      decay: 0.01 + Math.random() * 0.02,
+      size: 1 + Math.random() * 3,
+      color,
+    });
+  }
+}
+
+function drawCalendar(cal, chaos) {
+  const align = 1 - chaos;
+  // Interpolate position
+  const cx = cal.targetX + cal.chaosX * chaos + Math.sin(Date.now() * 0.001 * cal.driftSpeed + cal.driftPhase) * cal.driftAmp * chaos;
+  const cy = cal.targetY + cal.chaosY * chaos + Math.cos(Date.now() * 0.0008 * cal.driftSpeed + cal.driftPhase) * cal.driftAmp * 0.6 * chaos;
+  const rot = cal.chaosRotation * chaos;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+  ctx.globalAlpha = 0.4 + align * 0.6;
+
+  const w = cal.w;
+  const h = cal.h;
+
+  // Shadow
+  ctx.fillStyle = `rgba(0,0,0,${0.3 * align})`;
+  ctx.fillRect(-w/2 + 4, -h/2 + 4, w, h);
+
+  // Card background
+  const warmth = Math.floor(cal.hue);
+  const r = Math.min(255, 30 + align * 20 + warmth);
+  const g = Math.min(255, 28 + align * 15);
+  const b = Math.min(255, 50 + align * 30 - warmth);
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.fillRect(-w/2, -h/2, w, h);
+
+  // Top bar (month)
+  const barH = h * 0.22;
+  const hue = align > 0.8 ? 142 : align > 0.4 ? 45 : 0;
+  const sat = 60 + align * 20;
+  ctx.fillStyle = `hsl(${hue}, ${sat}%, ${35 + align * 15}%)`;
+  ctx.fillRect(-w/2, -h/2, w, barH);
+
+  // Month text
+  ctx.fillStyle = '#e8e8e8';
+  ctx.font = `bold ${Math.floor(barH * 0.7)}px 'Fira Code', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(cal.month, 0, -h/2 + barH/2);
+
+  // Day number
+  ctx.fillStyle = `rgba(212,212,232,${0.5 + align * 0.5})`;
+  ctx.font = `${Math.floor(h * 0.38)}px 'Instrument Serif', serif`;
+  ctx.fillText(String(cal.day), 0, h * 0.05);
+
+  // Day of week
+  ctx.fillStyle = `rgba(212,212,232,${0.3 + align * 0.4})`;
+  ctx.font = `${Math.floor(h * 0.1)}px 'Fira Code', monospace`;
+  ctx.fillText(cal.dow, 0, h/2 - h * 0.1);
+
+  // Year
+  ctx.font = `300 ${Math.floor(h * 0.08)}px 'Fira Code', monospace`;
+  ctx.fillStyle = `rgba(212,212,232,${0.2 + align * 0.3})`;
+  ctx.fillText(String(cal.year), 0, h/2 - h * 0.02);
+
+  // Border glow when aligned
+  if (align > 0.7) {
+    ctx.strokeStyle = `rgba(139,92,246,${(align - 0.7) * 2})`;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-w/2, -h/2, w, h);
+  }
+
+  ctx.restore();
+}
+
+function drawGridLines(chaos) {
+  ctx.save();
+  for (const line of gridLines) {
+    const y = line.targetY + (line.y - line.targetY) * chaos + Math.sin(Date.now() * 0.001 * line.speed) * 20 * chaos;
+    ctx.strokeStyle = `rgba(139,92,246,${0.03 + (1 - chaos) * 0.05})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawTimeline(chaos) {
+  // Central timeline beam when mostly stable
+  const align = 1 - chaos;
+  if (align < 0.3) return;
+  const alpha = (align - 0.3) * 0.15;
+  const centerX = W / 2;
+  const grad = ctx.createLinearGradient(centerX, 0, centerX, H);
+  grad.addColorStop(0, `rgba(139,92,246,0)`);
+  grad.addColorStop(0.3, `rgba(139,92,246,${alpha})`);
+  grad.addColorStop(0.7, `rgba(139,92,246,${alpha})`);
+  grad.addColorStop(1, `rgba(139,92,246,0)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(centerX - 1, 0, 2, H);
+}
+
+function drawParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.98;
+    p.vy *= 0.98;
+    p.life -= p.decay;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.globalAlpha = p.life * 0.8;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Stars background
+const stars = [];
+for (let i = 0; i < 80; i++) {
+  stars.push({
+    x: Math.random() * 3000,
+    y: Math.random() * 2000,
+    size: 0.3 + Math.random() * 1.2,
+    twinkle: Math.random() * Math.PI * 2,
+    speed: 0.5 + Math.random() * 2,
+  });
+}
+
+function drawStars(chaos) {
+  for (const s of stars) {
+    const flicker = 0.4 + Math.sin(Date.now() * 0.002 * s.speed + s.twinkle) * 0.3;
+    const drift = chaos * 40;
+    const sx = (s.x + Math.sin(Date.now() * 0.0003) * drift) % W;
+    const sy = (s.y + Math.cos(Date.now() * 0.0002) * drift * 0.5) % H;
+    ctx.globalAlpha = flicker;
+    ctx.fillStyle = '#8b7fc6';
+    ctx.beginPath();
+    ctx.arc(sx, sy, s.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Audio
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+document.addEventListener('click', initAudio, { once: true });
+document.addEventListener('touchstart', initAudio, { once: true });
+
+function playStabilize() {
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const now = audioCtx.currentTime;
+  // Rising chime
+  [400, 500, 600, 800].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now + i * 0.12);
+    gain.gain.setValueAtTime(0, now + i * 0.12);
+    gain.gain.linearRampToValueAtTime(0.12, now + i * 0.12 + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.5);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(now + i * 0.12);
+    osc.stop(now + i * 0.12 + 0.6);
+  });
+}
+
+function playHum(stability) {
+  // Subtle tick when entering zone
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(300 + stability * 400, now);
+  gain.gain.setValueAtTime(0.03, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + 0.12);
+}
+
+// Slider interaction
+let wasInZone = false;
+slider.addEventListener('input', () => {
+  const inZone = isInZone(parseInt(slider.value));
+  if (inZone && !wasInZone) playHum(getStability(parseInt(slider.value)));
+  wasInZone = inZone;
+});
+
+// Main loop
+function update(time) {
+  const dt = Math.min(0.05, (time - lastTime) / 1000);
+  lastTime = time;
+
+  const val = parseInt(slider.value);
+  const stability = getStability(val);
+  const chaos = 1 - stability;
+  const inZone = isInZone(val);
+
+  // Stabilization hold timer
+  if (!stabilized) {
+    if (inZone) {
+      stabilizeTimer += dt;
+      if (stabilizeTimer >= holdTime) {
+        // Stabilized!
+        stabilized = true;
+        const timeBonus = Math.max(0, Math.floor((1 - stabilizeTimer / (holdTime + 5)) * 100));
+        const accuracyBonus = Math.floor(stability * 100);
+        const levelScore = (accuracyBonus + timeBonus) * level;
+        score += levelScore;
+        scoreEl.textContent = score;
+        if (score > bestScore) {
+          bestScore = score;
+          localStorage.setItem('timeline-best', String(bestScore));
+          bestEl.textContent = `best: ${bestScore}`;
+        }
+        playStabilize();
+        // Burst particles from all calendars
+        for (const cal of calendars) {
+          spawnParticles(cal.targetX, cal.targetY, 15, '#8b5cf6');
+          spawnParticles(cal.targetX, cal.targetY, 8, '#22c55e');
+        }
+        // Flash
+        const flash = document.createElement('div');
+        flash.className = 'flash';
+        document.body.appendChild(flash);
+        flash.addEventListener('animationend', () => flash.remove());
+        // Next level after delay
+        setTimeout(() => {
+          level++;
+          initLevel();
+        }, 2000);
+      }
+    } else {
+      stabilizeTimer = Math.max(0, stabilizeTimer - dt * 2);
+    }
+  }
+
+  // Status text
+  const pct = Math.floor(stability * 100);
+  if (stabilized) {
+    statusEl.textContent = 'Timeline Stabilized';
+    statusEl.style.color = '#22c55e';
+    readoutEl.textContent = `LEVEL ${level} COMPLETE`;
+  } else if (inZone) {
+    const holdPct = Math.floor((stabilizeTimer / holdTime) * 100);
+    statusEl.textContent = 'Locking On...';
+    statusEl.style.color = '#f59e0b';
+    readoutEl.textContent = `HOLD STEADY: ${holdPct}%`;
+  } else {
+    if (pct > 70) {
+      statusEl.textContent = 'Almost There';
+      statusEl.style.color = '#f59e0b';
+    } else if (pct > 30) {
+      statusEl.textContent = 'Timeline Unstable';
+      statusEl.style.color = '#ef4444';
+    } else {
+      statusEl.textContent = 'Timeline Fractured';
+      statusEl.style.color = '#ef4444';
+    }
+    readoutEl.textContent = `STABILITY: ${pct}%`;
+  }
+
+  // Screen shake
+  shakeAmount = chaos * 3;
+  const sx = (Math.random() - 0.5) * shakeAmount;
+  const sy = (Math.random() - 0.5) * shakeAmount;
+
+  // Draw
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.clearRect(-10, -10, W + 20, H + 20);
+
+  // Background gradient based on stability
+  const bgR = Math.floor(12 + chaos * 15);
+  const bgG = Math.floor(12 + (1 - chaos) * 8);
+  const bgB = Math.floor(26 + (1 - chaos) * 20);
+  ctx.fillStyle = `rgb(${bgR},${bgG},${bgB})`;
+  ctx.fillRect(0, 0, W, H);
+
+  drawStars(chaos);
+  drawGridLines(chaos);
+  drawTimeline(chaos);
+
+  // Draw calendars
+  for (const cal of calendars) {
+    drawCalendar(cal, chaos);
+  }
+
+  // Progress ring around center when in zone
+  if (inZone && !stabilized) {
+    const cx = W / 2;
+    const cy = H / 2 - 40;
+    const r = 40;
+    const progress = stabilizeTimer / holdTime;
+    ctx.strokeStyle = `rgba(139,92,246,0.3)`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = '#8b5cf6';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+    ctx.stroke();
+    // Lock icon
+    ctx.fillStyle = `rgba(139,92,246,${0.4 + progress * 0.6})`;
+    ctx.font = `${24 + progress * 8}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(progress > 0.8 ? '🔒' : '🔓', cx, cy);
+  }
+
+  drawParticles(dt);
+
+  // Ambient spawn particles when chaotic
+  if (chaos > 0.3 && Math.random() < chaos * 0.15) {
+    spawnParticles(
+      Math.random() * W,
+      Math.random() * H,
+      1,
+      `rgba(${Math.floor(200 + Math.random()*55)},${Math.floor(50 + Math.random()*100)},${Math.floor(50 + Math.random()*100)},0.6)`
+    );
+  }
+
+  ctx.restore();
+  requestAnimationFrame(update);
+}
+
+initLevel();
+requestAnimationFrame(update);
+</script>
+</body>
+</html>
