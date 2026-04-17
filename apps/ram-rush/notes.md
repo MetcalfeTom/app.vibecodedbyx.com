@@ -3,6 +3,7 @@
 Stock market simulator themed around RAM and memory stocks with neon charts.
 
 ## log
+- 2026-04-17: Added "Download More RAM" button — fake progress bar with escalating messages, then spawns 12-20 bouncing dancing hamsters that bounce off screen edges and fade out after 5-8s. Button temporarily changes to "HAMSTERS DEPLOYED".
 - 2026-04-17: Initial build. 8 RAM/memory stocks (DDR4, DDR5, DIMM, VRAM, ECC, NAND, SRAM, HBM) with live price simulation. Mean reversion + momentum + random walk + event-driven pricing. Neon line charts with gradient fill. Buy/sell trading with qty input and MAX button. Portfolio tracking with P&L per holding. Random news events (bullish/bearish) affecting individual stocks. 3 speed settings (1x/3x/8x). Orbitron + Azeret Mono typography, dark neon trading terminal aesthetic.
 
 ## features
