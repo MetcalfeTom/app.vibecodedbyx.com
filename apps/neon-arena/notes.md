@@ -3,6 +3,7 @@
 Top-down 5v5 battle arena with black circle players and neon team colors.
 
 ## log
+- 2026-04-17: Added Divine Faith meter — builds from landing hits (+2) and kills (+18 player, +6 teammate). Slow decay when idle. 6 tiers (Forgotten → Divine). At 92+ faith, gold shimmer animation triggers and ethereal choral music plays (7-voice WebAudio chord with LFO vibrato). Fades out when faith drops. Resets each match.
 - 2026-04-17: Initial build. Canvas top-down shooter. 5v5 teams (Cyan vs Magenta). Player controls one unit, AI controls 9 others. WASD movement, mouse aim+shoot. 9 obstacles for cover and tactics. AI has LOS checking, wander behavior, strafing, accuracy spread. 18-25 damage bullets with knockback. Respawn after 1.5s. 2-minute matches. Kill feed, HP bars, team scores. Camera follows player. Mobile dual-touch (left stick + right tap). Rajdhani + Azeret Mono typography, dark arena with neon accents.
 
 ## features
