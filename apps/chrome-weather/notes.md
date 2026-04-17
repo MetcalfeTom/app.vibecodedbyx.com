@@ -3,6 +3,7 @@
 Weather app for Planet Chrome — a world made of mirror-finish metal with a giant LED sun.
 
 ## log
+- 2026-04-17: Added floating chrome moon that follows the mouse with laggy lerp (0.018 factor). Chrome sphere with radial gradient, craters, reflection bands, specular highlight, atmosphere ring, and outer glow. Responds to planet reflectivity.
 - 2026-04-17: Initial build. Chrome planet with interactive reflections (mouse-tracked specular highlight), LED sun with concentric ring segments and pulse glow, starfield background. 8 weather conditions: Clear Chrome, Mirror Haze, Liquid Metal Rain, Chrome Storm, Solar Flare Bounce, Mercury Fog, Prismatic Shower, Polished Calm. Each condition affects temperature, reflectivity, storms, particles. 6 data panels (surface temp, LED sun output, reflectivity, chrome wind, mirror storms, metal humidity). 8-cycle forecast strip, dynamic weather alerts. Chrome Time clock. Particle systems for metal rain and storm sparks. Orbitron + Azeret Mono typography, dark metallic aesthetic.
 
 ## features
