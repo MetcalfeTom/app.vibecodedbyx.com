@@ -66,6 +66,10 @@ body{
   color:var(--grape);background:#fff;border:2px solid var(--ink);padding:4px 10px;
   box-shadow:2px 2px 0 var(--ink);
 }
+.music-btn{cursor:pointer;transition:transform .08s, box-shadow .08s}
+.music-btn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.music-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+.music-btn.muted{color:var(--ink);opacity:.55;background:var(--cream)}
 
 .board{
   flex:1;position:relative;min-height:0;
@@ -262,6 +266,7 @@ body{
       <div class="brand">Sloppy<span>land</span></div>
       <div class="sub"><b>Hot-seat</b> · Pass the device · 2–6 players</div>
       <div class="spacer"></div>
+      <button class="hint music-btn" id="muteBtn" title="Toggle chiptune">🔊 MUSIC</button>
       <div class="hint" id="tileCount">56 tiles</div>
     </div>
     <div class="board" id="board">
@@ -1094,6 +1099,235 @@ function log(html){
   L.appendChild(e);
   L.scrollTop = L.scrollHeight;
 }
+
+// ── Chiptune background music ──
+// 8-bar upbeat loop in C major (I-V-vi-IV). Web Audio only, no assets.
+// Starts on first user gesture (AudioContext autoplay policy), toggle via 🔊 button.
+const Chip = (()=>{
+  let ctx = null, master = null, running = false, muted = false;
+  let schedTimer = null;
+  let nextStep = 0;        // 16th-note counter
+  let nextStepTime = 0;    // AudioContext time of next 16th
+  const BPM = 148;
+  const SEC_PER_16TH = 60 / BPM / 4;
+  // Bouncy swing: shift every odd 16th later so off-beats land late — classic "boing".
+  const SWING = 0.22; // 0 = straight, 0.33 = full shuffle
+  function swungOffset(step){
+    return (step % 2 === 1) ? SEC_PER_16TH * SWING : 0;
+  }
+  // Helper: MIDI note -> freq (A4=440)
+  const mf = n => 440 * Math.pow(2, (n - 69) / 12);
+  // Chord progression (bar-by-bar roots and triads): C G Am F C G F G
+  // Using MIDI numbers. 60 = C4.
+  const PROG = [
+    { bass:36, chord:[60,64,67] }, // C
+    { bass:43, chord:[59,62,67] }, // G
+    { bass:33, chord:[57,60,64] }, // Am
+    { bass:41, chord:[60,65,69] }, // F
+    { bass:36, chord:[60,64,67] }, // C
+    { bass:43, chord:[59,62,67] }, // G
+    { bass:41, chord:[60,65,69] }, // F
+    { bass:43, chord:[59,62,67] }, // G
+  ];
+  // Lead melody — 8 bars × 16 sixteenths = 128 steps. 0 = rest.
+  // Hook designed to loop and stay major/upbeat.
+  const LEAD = [
+    // Bar 1 (C)
+    72,0,72,74, 76,0,72,0,  67,0,72,0,  76,0,79,0,
+    // Bar 2 (G)
+    74,0,74,71, 74,0,71,0,  67,0,71,74, 76,0,74,0,
+    // Bar 3 (Am)
+    72,0,72,76, 77,0,76,0,  72,0,69,0,  72,76,77,76,
+    // Bar 4 (F)
+    72,0,72,0,  74,0,72,69, 65,0,69,72, 74,0,0,0,
+    // Bar 5 (C)
+    76,0,72,0,  76,79,76,72, 67,72,76,72, 79,0,76,0,
+    // Bar 6 (G)
+    74,0,71,74, 76,0,74,71, 67,71,74,71, 67,0,0,0,
+    // Bar 7 (F)
+    72,77,76,74, 72,0,74,72, 69,72,74,72, 69,77,72,0,
+    // Bar 8 (G) turnaround → back to C
+    74,76,74,72, 71,74,72,71, 67,71,74,76, 79,0,0,0,
+  ];
+  const TOTAL_STEPS = LEAD.length;
+
+  function barAtStep(step){ return Math.floor(step / 16) % PROG.length; }
+
+  function square(freqHz, when, dur, vol, bouncy){
+    const o = ctx.createOscillator(); o.type = 'square';
+    if(bouncy){
+      // Tiny upward "boing" pitch bend at the attack
+      o.frequency.setValueAtTime(freqHz * 0.82, when);
+      o.frequency.exponentialRampToValueAtTime(freqHz, when + 0.035);
+      // Sprinkle a little vibrato for cuteness
+      const lfo = ctx.createOscillator(); lfo.type='sine'; lfo.frequency.value = 7;
+      const lfoG = ctx.createGain(); lfoG.gain.value = freqHz * 0.014;
+      lfo.connect(lfoG); lfoG.connect(o.frequency);
+      lfo.start(when + 0.04); lfo.stop(when + dur);
+    } else {
+      o.frequency.setValueAtTime(freqHz, when);
+    }
+    const g = ctx.createGain();
+    // Punchier, staccato chiptune envelope
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol * 1.15, when + 0.003);
+    g.gain.setTargetAtTime(vol*0.55, when + 0.02, 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.85);
+    o.connect(g); g.connect(master);
+    o.start(when); o.stop(when + dur + 0.02);
+  }
+  function triangle(freqHz, when, dur, vol){
+    const o = ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(freqHz, when);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    o.connect(g); g.connect(master);
+    o.start(when); o.stop(when + dur + 0.02);
+  }
+  function noiseHat(when, dur, vol){
+    const len = Math.max(1, Math.floor(ctx.sampleRate * (dur + 0.01)));
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value = 6500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    src.connect(hp); hp.connect(g); g.connect(master);
+    src.start(when); src.stop(when + dur + 0.02);
+  }
+
+  function scheduleStep(step, when){
+    const stepInBar = step % 16;
+    const bar = barAtStep(step);
+    const ch = PROG[bar];
+    const swingWhen = when + swungOffset(step);
+
+    // Lead (square) — 16th-note grid, short & bouncy
+    const leadNote = LEAD[step % TOTAL_STEPS];
+    if(leadNote){
+      const isDownbeat = (stepInBar % 4) === 0;
+      square(mf(leadNote), swingWhen, SEC_PER_16TH * 1.1, 0.14, isDownbeat);
+      // Octave "boing" doubling on accent beats for extra sparkle
+      if(isDownbeat){
+        square(mf(leadNote + 12), swingWhen, SEC_PER_16TH * 0.7, 0.045, false);
+      }
+    }
+    // Harmony: arpeggiated chord tone on every 8th, one octave down — pluckier
+    if(stepInBar % 2 === 0){
+      const tone = ch.chord[(stepInBar/2) % ch.chord.length] - 12;
+      square(mf(tone), when, SEC_PER_16TH * 0.95, 0.05, false);
+    }
+    // Bouncy pluck bass — root / octave / fifth / octave pattern per bar
+    const bassPattern = [0, 12, 7, 12, 0, 12, 7, 12]; // 8 eighths in bar
+    if(stepInBar % 2 === 0){
+      const eighth = stepInBar / 2;
+      const offset = bassPattern[eighth];
+      triangle(mf(ch.bass + offset), when, SEC_PER_16TH * 1.3, 0.22);
+    }
+    // Hats every 16th now — ghost notes on odd 16ths, loud on off-beat eighths
+    const hatVol = (stepInBar % 4 === 2) ? 0.14 : (stepInBar % 2 === 0 ? 0.08 : 0.03);
+    noiseHat(swingWhen, 0.028, hatVol);
+    // Open hat accent on "and" of beat 4 for extra bounce
+    if(stepInBar === 14){
+      noiseHat(swingWhen, 0.12, 0.18);
+    }
+    // Kick: beats 1 & 3, plus a "heart-skip" pickup sixteenth before beat 1 of bar 2/4/…
+    const kickStep = (stepInBar === 0 || stepInBar === 8);
+    if(kickStep){
+      const k = ctx.createOscillator(); k.type='triangle';
+      k.frequency.setValueAtTime(140, when);
+      k.frequency.exponentialRampToValueAtTime(46, when + 0.08);
+      const kg = ctx.createGain();
+      kg.gain.setValueAtTime(0.0001, when);
+      kg.gain.exponentialRampToValueAtTime(0.42, when + 0.003);
+      kg.gain.exponentialRampToValueAtTime(0.0001, when + 0.15);
+      k.connect(kg); kg.connect(master);
+      k.start(when); k.stop(when + 0.18);
+    }
+    // Handclap-ish snare on beats 2 & 4 — gives a classic J-pop bounce
+    if(stepInBar === 4 || stepInBar === 12){
+      const len = Math.max(1, Math.floor(ctx.sampleRate * 0.12));
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0;i<len;i++) d[i] = (Math.random()*2-1) * (1 - i/len);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value = 1700; bp.Q.value = 0.9;
+      const sg = ctx.createGain();
+      sg.gain.setValueAtTime(0.0001, when);
+      sg.gain.exponentialRampToValueAtTime(0.24, when + 0.004);
+      sg.gain.exponentialRampToValueAtTime(0.0001, when + 0.11);
+      src.connect(bp); bp.connect(sg); sg.connect(master);
+      src.start(when); src.stop(when + 0.13);
+    }
+  }
+
+  function tick(){
+    if(!ctx) return;
+    const AHEAD = 0.15;
+    while(nextStepTime < ctx.currentTime + AHEAD){
+      scheduleStep(nextStep, nextStepTime);
+      nextStepTime += SEC_PER_16TH;
+      nextStep = (nextStep + 1) % TOTAL_STEPS;
+    }
+  }
+
+  function start(){
+    if(running || muted) return;
+    if(!ctx){
+      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch(e){ return; }
+      master = ctx.createGain(); master.gain.value = 0.24;
+      // Light lowpass for softer chip tone
+      const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 6500; lp.Q.value = 0.4;
+      master.connect(lp); lp.connect(ctx.destination);
+    }
+    if(ctx.state === 'suspended') ctx.resume();
+    nextStep = 0;
+    nextStepTime = ctx.currentTime + 0.08;
+    running = true;
+    schedTimer = setInterval(tick, 30);
+    tick();
+  }
+  function stop(){
+    running = false;
+    clearInterval(schedTimer); schedTimer = null;
+    if(ctx){
+      // Fade master to avoid clicks
+      try {
+        master.gain.cancelScheduledValues(ctx.currentTime);
+        master.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+        setTimeout(()=>{ if(master) master.gain.value = 0.24; }, 250);
+      } catch(e){}
+    }
+  }
+  function toggle(){
+    muted = !muted;
+    if(muted){ stop(); }
+    else { start(); }
+    return muted;
+  }
+  return { start, stop, toggle, isMuted: ()=>muted, isRunning: ()=>running };
+})();
+
+const muteBtn = document.getElementById('muteBtn');
+muteBtn.addEventListener('click', ()=>{
+  const nowMuted = Chip.toggle();
+  muteBtn.classList.toggle('muted', nowMuted);
+  muteBtn.textContent = nowMuted ? '🔇 MUSIC' : '🔊 MUSIC';
+});
+// Kick off music on first user gesture anywhere in the app.
+function armChiptune(){
+  if(!Chip.isMuted() && !Chip.isRunning()) Chip.start();
+  window.removeEventListener('pointerdown', armChiptune, true);
+  window.removeEventListener('keydown', armChiptune, true);
+}
+window.addEventListener('pointerdown', armChiptune, true);
+window.addEventListener('keydown', armChiptune, true);
 
 // Focus name field on load
 nameInput.focus();

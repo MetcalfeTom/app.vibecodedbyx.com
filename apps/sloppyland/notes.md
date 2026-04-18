@@ -1,6 +1,7 @@
 # Sloppyland
 
 ## log
+- 2026-04-18: Added looping chiptune backing track (Web Audio, no assets). 8-bar I-V-vi-IV progression in C major, 148 BPM with 22% swing. Square-wave lead with pitch-up "boing" and 7Hz vibrato on downbeats + octave doubling, arpeggiated chord tone layer, bouncy pluck triangle bass alternating root/octave/fifth, 16th-note hats with ghost notes + open-hat on "4-and", kick on 1&3, bandpass-filtered handclap snare on 2&4. Starts on first user gesture (autoplay policy); 🔊/🔇 toggle in header. ~170 lines of self-contained Chip module.
 - 2026-04-18: FIX CPU duplicate-name bug. Pool filter was comparing base names ("Gummy") against full suffixed names ("Gummy 🤖"), so no match → same name could be picked twice. Now compares candidate+suffix against taken set; fallback uses auto-incremented "Bot N 🤖" to guarantee uniqueness.
 - 2026-04-18: FIX soft lock when CPU crosses finish line. Bug: drawTurn sets state.finished → advanceTurn bailed early without calling updateTurnUI, so draw button stayed "🤖 CPU turn…" forever + no Game Over banner. Fix: advanceTurn now renders UI even when already finished.
 - 2026-04-18: Soda cards now only drop when player is within 10 tiles of FINAL_TILE (boss gate). Bumped rate to 22% when in range to keep it useful. Turn banner shows "🥤 in range" hint.
