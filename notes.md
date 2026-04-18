@@ -65,6 +65,7 @@
  - Root supabase-config.js may expect premium UI nodes; prefer per-app copy with null checks. Fixed version at /supabase-config-fixed.js (localhost cookie domain + null-safe DOM).
  - Root supabase-config.js is a read-only bind mount — cannot be edited directly. Use /supabase-config-fixed.js for new apps.
  - Some app hosts fall back to `index.html` for unknown asset paths; ensure `og-image.png` actually exists to avoid OG preview failures.
+ - +Pollinations image API: `image.pollinations.ai/prompt/...?referrer=sloppy.live` now returns HTTP 500 ("Authenticated users should use enter.pollinations.ai"). DROP the `referrer` param — use the plain anon endpoint. Cold generation ~60–90s per unique prompt; Cloudflare edge-caches it forever after first success. Always render an emoji/text fallback under the image so slow/failed loads stay invisible. (CLAUDE.md still advises using `referrer=sloppy.live` but the API rejects it as of 2026-04-18.)
 
 ## todos
 - Add quick sanity page to each app for basic asset checks (script tags, OG image presence, favicon URL).
