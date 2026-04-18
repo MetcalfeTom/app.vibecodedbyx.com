@@ -291,6 +291,19 @@ aside{
       </div>
     </div>
 
+    <div class="card-panel">
+      <h3>💬 Twitch Chat Plays</h3>
+      <div class="soloHint" style="margin-bottom:6px">
+        Viewers type <b>move</b>, <b>!move</b>, or <b>!draw</b> in chat to draw a sugar card.
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="twitchChannel" value="sloppy_ai" maxlength="25" autocomplete="off"
+          style="flex:1;font-family:'Fredoka',sans-serif;font-size:.9rem;background:var(--cream);border:2px solid var(--ink);padding:6px 8px;border-radius:8px;box-shadow:2px 2px 0 var(--ink);outline:none;color:var(--ink)">
+        <button class="btn mint" id="twitchToggleBtn" style="font-size:.9rem;padding:6px 10px">🔌 Connect</button>
+      </div>
+      <div id="twitchStatus" style="font-family:'Space Mono',monospace;font-size:.72rem;letter-spacing:.05em;color:var(--grape);margin-top:6px;opacity:.8">💤 disconnected</div>
+    </div>
+
     <div class="players-panel">
       <h3>🏁 Racers</h3>
       <div class="players-list" id="playersList"><div style="opacity:.5;font-size:.85rem;padding:6px">No one yet. Be the first marshmallow.</div></div>
@@ -468,7 +481,7 @@ let botTimer = null;
 const BOT_NAMES = ['Gummy Gus','Sprinkle Sal','Toffee Tom','Marshmallow Mia','Fudge Fox','Mint Mochi','Lollipop Lou','Caramel Kai'];
 const BOT_PIECE = ['🧁','🍩','🍫','🍰','🎂','🍬','🐰','🦄','🐙'];
 
-function allPlayers(){ return [...players.values(), ...bots.values()]; }
+function allPlayers(){ return [...players.values(), ...bots.values(), ...chatPlayers.values()]; }
 
 // ── Join UI ──
 function buildPiecePicker(){
@@ -883,6 +896,212 @@ document.getElementById('summonBotBtn').addEventListener('click', ()=>{
 });
 document.getElementById('clearBotsBtn').addEventListener('click', clearBots);
 
+// ── Twitch chat listener (anonymous IRC over WSS) ──
+const CHAT_PIECES = ['🍓','🫐','🍇','🍋','🍊','🍑','🍉','🥝','🍍','🍒','🥭','🧃','🍭','🧁','🍩','🍪'];
+const CHAT_COLORS = ['#ff6fae','#ffd94a','#3ed6b0','#8a4bff','#e3298a','#5b6cff','#ff8c42','#00c4b4','#ff5fb8','#b26cff','#ffca3a','#ff3e4e'];
+const CMD_RE = /^(?:\s*!?\s*)(move|draw)\b/i;
+const PER_USER_COOLDOWN_MS = 4000;
+
+let twitchWs = null;
+let twitchChannel = null;
+let twitchConnected = false;
+const chatPlayers = new Map();   // twitch_username_lc -> local chat player row
+const chatCooldown = new Map();  // username_lc -> last draw ts
+
+function setTwitchStatus(text, color){
+  const el = document.getElementById('twitchStatus');
+  if(!el) return;
+  el.textContent = text;
+  if(color) el.style.color = color;
+}
+
+function assignChatAvatar(usernameLc){
+  // Deterministic piece/color per user for stable identity
+  let h = 0;
+  for(let i=0;i<usernameLc.length;i++) h = (h*31 + usernameLc.charCodeAt(i)) >>> 0;
+  return {
+    piece: CHAT_PIECES[h % CHAT_PIECES.length],
+    color: CHAT_COLORS[(h>>4) % CHAT_COLORS.length],
+  };
+}
+
+function ensureChatPlayer(usernameLc, display){
+  if(chatPlayers.has(usernameLc)) return chatPlayers.get(usernameLc);
+  if(chatPlayers.size >= 12) return null; // cap
+  const {piece, color} = assignChatAvatar(usernameLc);
+  const row = {
+    user_id: 'chat:'+usernameLc,
+    username: (display || usernameLc).slice(0,16) + ' 💬',
+    piece, color,
+    position: 0,
+    skip_next: false,
+    finished_at: null,
+    _chat: true,
+    _bot: true, // piggyback on bot rendering/badge
+  };
+  chatPlayers.set(usernameLc, row);
+  return row;
+}
+
+function drawForChat(usernameLc, display){
+  if(gameOver) return;
+  const last = chatCooldown.get(usernameLc) || 0;
+  const now = Date.now();
+  if(now - last < PER_USER_COOLDOWN_MS) return;
+  chatCooldown.set(usernameLc, now);
+
+  const p = ensureChatPlayer(usernameLc, display);
+  if(!p){ return; }
+
+  if(p.finished_at) return;
+  if(p.skip_next){
+    p.skip_next = false;
+    addLogEntry({username:p.username, card:'🍯 (skip burned)', from_pos:p.position, to_pos:p.position, effect:'chat draw — stuck in toffee'});
+    renderPlayersList(); renderPieces();
+    return;
+  }
+  const card = generateCard();
+  const from = p.position;
+  const res = resolveCard(card, from);
+  p.position = res.to;
+  p.skip_next = res.skip && res.triggered==='sticky';
+  if(res.to === FINISH) p.finished_at = new Date().toISOString();
+  let effectText = card.effect;
+  if(res.triggered==='shortcut') effectText += ' · 🍫 SHORTCUT!';
+  if(res.triggered==='sticky')   effectText += ' · 🍯 stuck!';
+  if(res.to === FINISH)          effectText += ' · 🎂 WINNER!';
+  addLogEntry({
+    username: p.username,
+    card: card.label.replace(/<[^>]+>/g,'').slice(0,40),
+    from_pos: from, to_pos: res.to,
+    effect: '💬 ' + effectText,
+  });
+  renderPieces(); renderPlayersList();
+  checkWinner();
+}
+
+function parseIrcLine(line){
+  // Minimal parse — supports tags optional, prefix, command, params
+  if(!line) return null;
+  let rest = line;
+  let tags = null;
+  if(rest.startsWith('@')){
+    const sp = rest.indexOf(' ');
+    tags = rest.slice(1, sp);
+    rest = rest.slice(sp+1);
+  }
+  let prefix = null;
+  if(rest.startsWith(':')){
+    const sp = rest.indexOf(' ');
+    prefix = rest.slice(1, sp);
+    rest = rest.slice(sp+1);
+  }
+  const parts = rest.split(' ');
+  const command = parts.shift();
+  let params = [];
+  while(parts.length){
+    const p = parts.shift();
+    if(p.startsWith(':')){ params.push([p.slice(1), ...parts].join(' ')); break; }
+    params.push(p);
+  }
+  return {tags, prefix, command, params};
+}
+
+function nickFromPrefix(prefix){
+  if(!prefix) return null;
+  const bang = prefix.indexOf('!');
+  return (bang>0 ? prefix.slice(0,bang) : prefix).toLowerCase();
+}
+
+function displayNameFromTags(tags){
+  if(!tags) return null;
+  const m = tags.match(/(?:^|;)display-name=([^;]*)/);
+  return m ? decodeURIComponent(m[1].replace(/\\s/g,' ')) : null;
+}
+
+function twitchConnect(channel){
+  channel = channel.replace(/[^a-z0-9_]/gi,'').toLowerCase();
+  if(!channel){ toast('Invalid channel'); return; }
+  twitchDisconnect();
+  twitchChannel = channel;
+  setTwitchStatus('⏳ connecting…', 'var(--grape)');
+  let ws;
+  try {
+    ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+  } catch(e){
+    setTwitchStatus('❌ connect failed', 'var(--red)');
+    return;
+  }
+  twitchWs = ws;
+  const nick = 'justinfan' + ((Math.random()*90000 + 10000)|0);
+  ws.addEventListener('open', ()=>{
+    ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands\r\n');
+    ws.send('PASS SCHMOOPIIE\r\n');
+    ws.send('NICK ' + nick + '\r\n');
+    ws.send('JOIN #' + channel + '\r\n');
+  });
+  ws.addEventListener('message', (ev)=>{
+    const data = ev.data.split('\r\n');
+    for(const line of data){
+      if(!line) continue;
+      if(line.startsWith('PING ')){
+        try { ws.send('PONG ' + line.slice(5) + '\r\n'); } catch(e){}
+        continue;
+      }
+      const msg = parseIrcLine(line);
+      if(!msg) continue;
+      if(msg.command === '001'){
+        // welcome
+      } else if(msg.command === 'JOIN'){
+        if(nickFromPrefix(msg.prefix) === nick){
+          twitchConnected = true;
+          setTwitchStatus('✅ listening to #' + channel + ' · type "move" in chat', 'var(--mint)');
+          document.getElementById('twitchToggleBtn').textContent = '🔌 Disconnect';
+        }
+      } else if(msg.command === 'PRIVMSG'){
+        const user = nickFromPrefix(msg.prefix);
+        const text = msg.params[1] || '';
+        if(!user || !text) continue;
+        if(CMD_RE.test(text)){
+          const display = displayNameFromTags(msg.tags) || user;
+          drawForChat(user, display);
+        }
+      } else if(msg.command === 'NOTICE' && /login authentication failed|Improperly formatted auth/i.test(msg.params[1]||'')){
+        setTwitchStatus('❌ auth failed', 'var(--red)');
+      }
+    }
+  });
+  ws.addEventListener('close', ()=>{
+    if(twitchWs === ws){
+      twitchConnected = false;
+      setTwitchStatus('💤 disconnected', 'var(--grape)');
+      document.getElementById('twitchToggleBtn').textContent = '🔌 Connect';
+      twitchWs = null;
+    }
+  });
+  ws.addEventListener('error', ()=>{
+    setTwitchStatus('❌ connection error', 'var(--red)');
+  });
+}
+function twitchDisconnect(){
+  if(twitchWs){
+    try { twitchWs.close(); } catch(e){}
+    twitchWs = null;
+  }
+  twitchConnected = false;
+}
+
+document.getElementById('twitchToggleBtn').addEventListener('click', ()=>{
+  if(twitchConnected || twitchWs){
+    twitchDisconnect();
+    setTwitchStatus('💤 disconnected', 'var(--grape)');
+    document.getElementById('twitchToggleBtn').textContent = '🔌 Connect';
+  } else {
+    const ch = (document.getElementById('twitchChannel').value || 'sloppy_ai').trim();
+    twitchConnect(ch);
+  }
+});
+
 // ── Reset ──
 document.getElementById('resetBtn').addEventListener('click', async ()=>{
   if(!myUserId) await ensureAuth();
@@ -899,6 +1118,11 @@ document.getElementById('resetBtn').addEventListener('click', async ()=>{
   for(const bot of bots.values()){
     bot.position = 0; bot.skip_next=false; bot.finished_at=null;
   }
+  // Reset chat players
+  for(const cp of chatPlayers.values()){
+    cp.position = 0; cp.skip_next=false; cp.finished_at=null;
+  }
+  chatCooldown.clear();
   gameOver = false;
   document.getElementById('winover').classList.remove('show');
   document.getElementById('drawnCard').classList.add('empty');
