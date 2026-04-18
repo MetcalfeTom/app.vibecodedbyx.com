@@ -1,6 +1,7 @@
 # Sloppyland
 
 ## log
+- 2026-04-18: FIX CPU duplicate-name bug. Pool filter was comparing base names ("Gummy") against full suffixed names ("Gummy 🤖"), so no match → same name could be picked twice. Now compares candidate+suffix against taken set; fallback uses auto-incremented "Bot N 🤖" to guarantee uniqueness.
 - 2026-04-18: FIX soft lock when CPU crosses finish line. Bug: drawTurn sets state.finished → advanceTurn bailed early without calling updateTurnUI, so draw button stayed "🤖 CPU turn…" forever + no Game Over banner. Fix: advanceTurn now renders UI even when already finished.
 - 2026-04-18: Soda cards now only drop when player is within 10 tiles of FINAL_TILE (boss gate). Bumped rate to 22% when in range to keep it useful. Turn banner shows "🥤 in range" hint.
 - 2026-04-18: Added Gummy Bear Boss + SODA CANNON card + bigger square player pieces + Cookie anime girl (11th). Boss overlay top-right of board with 3 HP hearts, idle bob, glow ring. New 🥤 card (14% drop rate while boss alive) fires a flying soda projectile from player → boss, triggers hit-shake, decrements HP. Boss gate: nobody can cross FINAL_TILE until HP = 0 — otherwise bounces back 2 tiles with a taunt log. Boss melts (fade + rotate + shrink) on defeat with confetti burst. SVG pieces changed from 20r circles to 48px rounded squares (rx 10) with 42px image clipped through rounded-rect clipPath; sidebar/turn avatars mirrored to rounded squares. Boss state resets on newGame. Cookie girl: beige hair, chocolate chip pins, cream bg, seed 111.
