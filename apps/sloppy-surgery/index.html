@@ -315,6 +315,15 @@ body{
   background:rgba(4,19,26,.7);padding:4px 8px;border-radius:3px;
   pointer-events:none;
 }
+#musicBtn{
+  position:absolute;top:8px;left:8px;z-index:7;
+  font-family:'Unica One',sans-serif;font-size:11px;letter-spacing:.2em;
+  color:var(--mint);background:rgba(4,19,26,.8);
+  border:1px solid var(--gown);padding:5px 12px;border-radius:3px;
+  cursor:pointer;text-transform:uppercase;
+  transition:all .15s ease;
+}
+#musicBtn:hover{border-color:var(--mint);background:rgba(10,30,36,.95)}
 </style>
 </head>
 <body>
@@ -354,6 +363,7 @@ body{
     <div id="toast"></div>
     <div id="phase"><b>Select tool · Open incision</b></div>
     <div id="hint">1–5 tools · Click+drag · R retry</div>
+    <button id="musicBtn" title="Toggle background music (M)">♫ BGM On</button>
   </main>
 
   <aside id="tools">
@@ -470,6 +480,142 @@ function noiseBurst(dur=0.1, vol=0.12){
     src.start();
   }catch(e){}
 }
+/* ---- Hospital BGM (synthesized, looping) ---- */
+const MUSIC = {
+  playing: false,
+  master: null,
+  tNext: 0,
+  bar: 0,
+  chordIdx: 0,
+  schedId: null,
+  intensity: 0, // 0..1 — rises as vitality drops
+};
+// Dark chord progression in Am: Am – F – C – E (the "hospital drama" cadence)
+const CHORD_PROG = [
+  { root: 220.00, notes: [220.00, 261.63, 329.63] }, // Am (A, C, E)
+  { root: 174.61, notes: [174.61, 220.00, 261.63] }, // F  (F, A, C)
+  { root: 261.63, notes: [261.63, 329.63, 392.00] }, // C  (C, E, G)
+  { root: 164.81, notes: [164.81, 207.65, 246.94] }, // E  (E, G#, B) — dominant tension
+];
+
+function mPad(freq, tStart, dur, vol){
+  const a = audioCtx;
+  const o1 = a.createOscillator();
+  const o2 = a.createOscillator();
+  o1.type = 'sawtooth'; o1.frequency.value = freq;
+  o2.type = 'sawtooth'; o2.frequency.value = freq * 1.005; // subtle detune
+  const lp = a.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.5;
+  const g = a.createGain();
+  g.gain.setValueAtTime(0, tStart);
+  g.gain.linearRampToValueAtTime(vol, tStart + 0.8);
+  g.gain.setValueAtTime(vol, tStart + dur - 0.9);
+  g.gain.linearRampToValueAtTime(0, tStart + dur);
+  o1.connect(lp); o2.connect(lp);
+  lp.connect(g).connect(MUSIC.master);
+  o1.start(tStart); o2.start(tStart);
+  o1.stop(tStart + dur + 0.1);
+  o2.stop(tStart + dur + 0.1);
+}
+function mBass(freq, tStart, dur, vol){
+  const a = audioCtx;
+  const o = a.createOscillator();
+  o.type = 'triangle'; o.frequency.value = freq;
+  const g = a.createGain();
+  g.gain.setValueAtTime(0, tStart);
+  g.gain.linearRampToValueAtTime(vol, tStart + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, tStart + dur);
+  o.connect(g).connect(MUSIC.master);
+  o.start(tStart);
+  o.stop(tStart + dur + 0.05);
+}
+function mBell(freq, tStart, vol){
+  const a = audioCtx;
+  const o = a.createOscillator();
+  o.type = 'sine'; o.frequency.value = freq;
+  const g = a.createGain();
+  g.gain.setValueAtTime(0, tStart);
+  g.gain.linearRampToValueAtTime(vol, tStart + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, tStart + 2.5);
+  o.connect(g).connect(MUSIC.master);
+  o.start(tStart);
+  o.stop(tStart + 2.6);
+}
+
+function scheduleMusic(){
+  if (!MUSIC.playing || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  const barLen = 4.0; // 4s per chord (~60bpm feel)
+  while (MUSIC.tNext < now + 2.0){
+    const chord = CHORD_PROG[MUSIC.chordIdx % CHORD_PROG.length];
+    // intensity scales volume and adds extra layers when high
+    const I = MUSIC.intensity;
+    const padVol = 0.04 + I * 0.02;
+    const bassVol = 0.10 + I * 0.04;
+
+    // pad — sustain full chord across the bar
+    for (const f of chord.notes){
+      mPad(f, MUSIC.tNext, barLen, padVol);
+    }
+    // low drone underneath
+    mPad(chord.root * 0.5, MUSIC.tNext, barLen, 0.035);
+    // bass on beats 1 and 3
+    mBass(chord.root * 0.5, MUSIC.tNext, 0.7, bassVol);
+    mBass(chord.root * 0.5, MUSIC.tNext + 2.0, 0.7, bassVol * 0.85);
+    // high "piano" bell on the top note — delayed entry
+    if (MUSIC.bar % 2 === 0){
+      mBell(chord.notes[chord.notes.length-1] * 2, MUSIC.tNext + 1.0, 0.035 + I*0.02);
+      mBell(chord.notes[1] * 2, MUSIC.tNext + 2.5, 0.03 + I*0.02);
+    }
+    // urgency ticks when intensity is very high
+    if (I > 0.6){
+      for (let t=0; t<4; t++){
+        mBass(chord.root * 2, MUSIC.tNext + t * 1.0, 0.06, 0.05 * I);
+      }
+    }
+    MUSIC.tNext += barLen;
+    MUSIC.chordIdx++;
+    MUSIC.bar++;
+  }
+  MUSIC.schedId = setTimeout(scheduleMusic, 500);
+}
+
+function startMusic(){
+  if (MUSIC.playing) return;
+  ac();
+  if (!audioCtx) return;
+  MUSIC.master = audioCtx.createGain();
+  MUSIC.master.gain.value = 0;
+  MUSIC.master.connect(audioCtx.destination);
+  MUSIC.master.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 1.2);
+  MUSIC.playing = true;
+  MUSIC.tNext = audioCtx.currentTime + 0.1;
+  MUSIC.bar = 0;
+  MUSIC.chordIdx = 0;
+  scheduleMusic();
+}
+function stopMusic(){
+  if (!MUSIC.playing) return;
+  MUSIC.playing = false;
+  clearTimeout(MUSIC.schedId);
+  if (MUSIC.master && audioCtx){
+    const t = audioCtx.currentTime;
+    MUSIC.master.gain.cancelScheduledValues(t);
+    MUSIC.master.gain.setValueAtTime(MUSIC.master.gain.value, t);
+    MUSIC.master.gain.linearRampToValueAtTime(0, t + 0.6);
+    setTimeout(() => { try { MUSIC.master.disconnect(); } catch(e){} MUSIC.master = null; }, 700);
+  }
+}
+function toggleMusic(){
+  if (MUSIC.playing) stopMusic();
+  else startMusic();
+  updateMusicBtn();
+}
+function updateMusicBtn(){
+  const b = document.getElementById('musicBtn');
+  if (b) b.textContent = MUSIC.playing ? '♫ BGM On' : '♪ BGM Off';
+}
+
 const SFX = {
   tool:   () => beep(680, 0.05, 'square', 0.08),
   cut:    () => { beep(420, 0.1, 'sawtooth', 0.14); noiseBurst(0.08, 0.07); },
@@ -680,11 +826,13 @@ document.querySelectorAll('.tool').forEach(t => {
   });
 });
 document.addEventListener('keydown', e => {
+  if (e.key === 'm' || e.key === 'M'){ toggleMusic(); return; }
   if (e.key === 'r' || e.key === 'R'){ if (resultScreen.classList.contains('hidden') === false || !game.running) { retry(); return; } }
   if (!game.running) return;
   const map = {'1':'scalpel','2':'forceps','3':'gauze','4':'syringe','5':'suture'};
   if (map[e.key]) setTool(map[e.key]);
 });
+document.getElementById('musicBtn').addEventListener('click', toggleMusic);
 
 /* ---- Mouse / touch ---- */
 function canvasCoords(evt){
@@ -833,6 +981,8 @@ function nextPhase(){
   game.phaseIdx++;
   game.chain = Math.min(game.chain + 1, 9);
   game.chainTimer = 3;
+  // phase completion gives a meaningful vitality boost
+  game.vitality = Math.min(1, game.vitality + 0.12);
   addScore(400);
   toast('PHASE COMPLETE!', false, 1200);
   const c = CASES[game.caseIdx];
@@ -846,7 +996,11 @@ function nextPhase(){
 function addScore(n, chainable){
   const real = chainable ? Math.round(n * game.chain) : n;
   game.score += real;
-  if (chainable) game.chainTimer = 2.5;
+  if (chainable){
+    game.chainTimer = 2.5;
+    // small vitality bump on big chainable successes
+    game.vitality = Math.min(1, game.vitality + 0.015);
+  }
   elScore.textContent = game.score;
 }
 
@@ -876,6 +1030,8 @@ function startCase(idx){
   buildPhase(CASES[idx].phases[0]);
   titleScreen.classList.add('hidden');
   resultScreen.classList.add('hidden');
+  startMusic();
+  updateMusicBtn();
 }
 
 function finishCase(ok){
@@ -899,12 +1055,14 @@ function finishCase(ok){
       'D':'They lived. That\'s the important part.'
     }[rank] || 'Patient stable. The body will heal; the soul will remember.';
     SFX.win();
+    setTimeout(stopMusic, 800);
   } else {
     rTitle.textContent = 'FLATLINE';
     rTitle.className = 'fail';
     rTag.textContent = '— Procedure Failed —';
     rMsg.textContent = 'Vitality reached zero. Call the time of death. Try again.';
     SFX.fail();
+    setTimeout(stopMusic, 400);
   }
   resultScreen.classList.remove('hidden');
 }
@@ -1322,22 +1480,25 @@ function loop(now){
 
   // tick
   if (game.running){
-    // vitality drain based on current phase
-    const drainBase = 0.008 + game.caseIdx * 0.004;
-    let drain = drainBase * dt * 60;
+    // vitality drain per SECOND (tuned so patients last long enough to actually operate)
+    const drainPerSec = 0.010 + game.caseIdx * 0.005; // I:1%/s, II:1.5%/s, III:2%/s
+    let drain = drainPerSec * dt;
     // ruptures bleed extra if not sealed
     const phase = currentPhase();
     if (phase && phase.type === 'inject'){
       const unsealed = game.targets.filter(t => !t.sealed).length;
-      drain += unsealed * 0.004 * dt * 60;
+      drain += unsealed * 0.008 * dt;
     }
-    // case III after incision bleeds extra
+    // case III open wound bleeds extra
     if (game.caseIdx === 2 && game.phaseIdx > 0 && game.phaseIdx < 3){
-      drain += 0.006 * dt * 60;
+      drain += 0.012 * dt;
     }
     game.vitality = Math.max(0, game.vitality - drain);
-    // bpm follows vitality
-    game.bpm = 40 + game.vitality * 72 + Math.sin(performance.now()/400)*2;
+    // bpm follows vitality — low vitality = tachycardia (fast) then bradycardia (fail)
+    const targetBpm = game.vitality > 0.3
+      ? 70 + (1 - game.vitality) * 60          // 70 → 112 as vitality falls
+      : 30 + game.vitality * 140;               // plunge to 30 as it zeroes out
+    game.bpm = targetBpm + Math.sin(performance.now()/400)*2;
     // chain timer
     if (game.chainTimer > 0){
       game.chainTimer -= dt;
@@ -1350,6 +1511,9 @@ function loop(now){
   } else {
     game.bpm = Math.max(0, game.bpm - dt*30);
   }
+
+  // music intensity tracks danger level
+  MUSIC.intensity = game.running ? Math.max(0, 1 - game.vitality) : 0;
 
   // HUD
   elBpm.firstChild.nodeValue = Math.round(game.bpm);

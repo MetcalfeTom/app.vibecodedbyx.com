@@ -1,6 +1,8 @@
 # Sloppy Surgery
 
 ## log
+- 2026-04-21: Fixed vitality decay (was `drainBase * dt * 60` = ~0.48 vitality/sec → patient flatlined in ~2s). Now treats `drainPerSec` as a true per-second rate: 1%/s base for Case I, 1.5%/s Case II, 2%/s Case III, with +0.8%/s per unsealed rupture and +1.2%/s for Case III open wound. Added success regen: +1.5% on chainable extract/seal, +12% on phase complete. BPM curve now tachycardia-then-bradycardia: 70→112 as vitality drops to 0.3, then plunges to 30 near flatline (more dramatic than the linear 40+vitality×72 before).
+- 2026-04-21: Added synthesized hospital BGM. 4-chord loop (Am–F–C–E) at 4s/bar. Per bar: 3-note pad chord (detuned sawtooths through 900Hz LP, 0.8s attack/0.9s release), sub-octave drone, two triangle-bass pulses on beats 1 and 3 (0.7s), piano bell on top-note every other bar. Intensity (= 1 − vitality) scales volume and adds urgency 16ths above 0.6. Lookahead scheduler (500ms cycle, 2s ahead window). Auto-starts on case start, fades out on win (800ms later) or fail (400ms). Toggle button top-left + `M` key.
 - 2026-04-20: Created. Trauma-Center-inspired precision surgery sim on a 1200×820 canvas. 5 tools (scalpel/forceps/gauze/syringe/suture) selected via click or keys 1–5; wrong-tool clicks cost vitality. 3 cases with increasing complexity:
   - **Case I · Shards** — 4 glass shards around the abdomen, forceps-only. Each shard rendered as shaded glass polygon w/ highlight stroke and blood drip halo; pluck on click, 200 pts × chain.
   - **Case II · Burst** — phase 1 gauze-wipe 3 radial blood pools (drag to reduce `wet` by 0.07 per frame inside radius; wipe SFX throttled to 80ms), phase 2 syringe-seal 3 pulsing ruptures (pulse sin radius + warning dashed ring; sealed turns mint-green).
