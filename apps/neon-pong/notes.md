@@ -8,6 +8,7 @@ Classic pong with neon glow effects. Play vs AI or local 2-player.
 - 2026-03-23: Added full-screen touch zones. Left/right halves of screen control P1/P2 paddles. Visual indicators: vertical guide line + "DRAG P1/P2" labels that appear on touch. Works anywhere on screen, not just canvas.
 
 - 2026-03-23: Added Supabase leaderboard. neon_pong_scores table (username, score, mode). Submits P1 score when winning vs AI. Top 10 shown on win screen. Name cached in localStorage.
+- 2026-04-20: Added particle effects. Paddle hits spray 14–22 colored particles in a ±π/2 arc biased toward the outgoing ball direction (cyan for P1, magenta for P2) plus 5 white ember sparkles, scaled by paddle-edge hit factor. Wall bounces fire a smaller 0.4-intensity blue burst. Score events spawn a 2.2-intensity winner-color burst at the goal edge. Particles use gentle gravity (+0.05 vy/frame) and 0.98 air drag, shrink with life, draw with shadowBlur glow. Added screen shake (shake amount accumulates on bursts, up to 10px, decays at 30px/s) and per-event flash overlay (paddle hit = 0.6 intensity, score = 1.0, 25% max opacity). Both rendered inside shake transform except flash which is drawn after restore.
 
 ## issues
 - None yet
