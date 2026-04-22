@@ -1,6 +1,7 @@
 # Super Sloppy Bros
 
 ## log
+- 2026-04-22: Removed all spikes + pit hazards. `LEVEL.pits[]` emptied and the 4 ground segments merged into one continuous `{ x:0, y:490, w:3200 }` block. Spike-rendering loop iterates over empty array (no-op). Falling off the world (`y > H+80`) still triggers die() but is now effectively unreachable. Game is purely jumping-for-coins now.
 - 2026-04-22: Removed all enemies per chat request. Emptied `LEVEL.grumpies` and `LEVEL.hazards` arrays. Collision/render code still present and loops over empty arrays (no-ops) — easy to reintroduce by re-populating the arrays. Spike pits left as environmental hazards.
 - 2026-04-22: Second pass of platform accessibility tuning. **Jump force** bumped `JUMP_V -720 → -820` (max rise ~108px → ~140px, giving ~30% more air time with unchanged gravity=2400). **Platforms** lowered another ~20-30px across all tiers: bottom 440→460, mid 380→410, high 325→360, top 275→310. Goal approach now 445/385/320 (was 420/350/280). Vertical moving platform amp 40→30 so it doesn't drop into pit. Goal dropped 150→200. Coins and mushrooms shifted to stay seated on their platforms.
 - 2026-04-22: Lowered all floating platform heights by ~30–45px for easier mobile jumps. Bottom tier 410→440, mid 340→380, high 280→325, top 230→275. Staircase and goal approach shifted down equivalently (390→420, 310→350, 230→280). Coins and mushrooms shifted down to stay seated on their platforms. Moving vertical platform amp cut 50→40 so it stays in reachable range. Ground/pipes/grumpies unchanged.
