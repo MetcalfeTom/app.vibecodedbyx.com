@@ -1,6 +1,7 @@
 # Super Sloppy Bros
 
 ## log
+- 2026-04-22: Lowered all floating platform heights by ~30–45px for easier mobile jumps. Bottom tier 410→440, mid 340→380, high 280→325, top 230→275. Staircase and goal approach shifted down equivalently (390→420, 310→350, 230→280). Coins and mushrooms shifted down to stay seated on their platforms. Moving vertical platform amp cut 50→40 so it stays in reachable range. Ground/pipes/grumpies unchanged.
 - 2026-04-22: Title/win/lose overlays now have a chunky amber **▶ START / ▶ PLAY AGAIN / ▶ RESTART** button (Press Start 2P, 4px dark border, 6px offset drop-shadow, amber glow, `touch-action:manipulation`). Pressing it calls `ensureAudio()` + `startGame()` so mobile users can actually launch the game without needing a keyboard. Existing "press any key" path still works — button is additive.
 - 2026-04-22: Bumped touch controls again. Left/Right now 140×140, jump 170×170 (up from 108/130). 4px cyan/pink borders, beefier glow, `touch-action:none`. Sub-620px viewport scales down to 108/132 (up from 92/112 at 520px). D-pad and jump are now impossible to miss.
 - 2026-04-22: Added big-button mobile touch controls. Left/Right upped from 68→108px, jump from 86→130px; touch-action:none on buttons; stronger active-state feedback. Under 520px viewport scales down slightly to 92/112px. Three on-screen buttons (← → JUMP) always visible on coarse-pointer devices.
