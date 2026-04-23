@@ -1,6 +1,7 @@
 # Critter Crunch
 
 ## log
+- 2026-04-23: Added **🦋 Butterfly** (uncommon). Base 2 coins. **Multiplier pollinator** — adj Seeds ×3, adj Flowers & Trees ×2 (applied as final pass, so it scales sun/bee/rain bonuses too — a sun-fed seed next to a butterfly = huge payout). Visual: on spin reveal, butterfly flies in from a random off-grid angle (`butterflyIn` keyframe with CSS vars `--bx/--by` set per-spawn) then transitions into a gentle continuous `flutter` loop (translate + rotate + scale over 2.4s). Emits `✦` pollen burst (6 particles, staggered 70ms, drift outward + fade) on each pollinated cell. Connectors drawn as amber "feed" lines from butterfly to targets.
 - 2026-04-23: Created. Luck Be A Landlord-style slot-machine roguelike on a **5×4 grid** (20 cells). Food-chain theme. **Starting bag** (15 symbols): 4 🌱 Seed, 3 🐛 Worm, 2 🐦 Bird, 2 ☀️ Sun, 4 🪨 Rock. Every **3 spins** rent is due; **10-rent** schedule `[25, 50, 100, 175, 275, 425, 625, 900, 1300, 1900]`. Miss rent → EVICTED. Survive all 10 → THE CHAIN HOLDS. **Core loop**: click SPIN → grid fills from shuffled bag (without replacement, padded with empties if bag<20) → resolve adjacency (all 8 directions) → stagger-pulse each cell with floating `+N` coin → eaten symbols animate out → removed from bag AND grid → check rent → shop overlay. **Symbol effects** (implemented in one-pass `resolveGrid()`):
   - **Seed**: base 1, +2/adj Sun
   - **Worm**: base 2, +5/adj Seed (Seed destroyed, still pays this spin)
