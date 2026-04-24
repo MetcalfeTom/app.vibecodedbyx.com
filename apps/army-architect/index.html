@@ -341,6 +341,61 @@ body::before{
 }
 
 /* Help */
+.mode-toggle{
+  display:flex;gap:0;
+  border:1px solid var(--ink);
+  border-radius:2px;
+  overflow:hidden;
+  margin-bottom:4px;
+}
+.mode-btn{
+  flex:1;
+  font-family:'Cinzel Decorative',serif;
+  font-weight:700;
+  font-size:10px;
+  letter-spacing:0.12em;
+  padding:7px 4px;
+  background:transparent;
+  border:none;
+  color:var(--ink-soft);
+  cursor:pointer;
+  text-transform:uppercase;
+  transition:background 0.15s, color 0.15s;
+}
+.mode-btn:hover{background:rgba(168,122,40,0.12)}
+.mode-btn.active{
+  background:linear-gradient(180deg, var(--gold-light) 0%, var(--gold) 100%);
+  color:var(--ink);
+}
+.mode-btn + .mode-btn{border-left:1px solid var(--ink)}
+
+.pass-overlay{
+  position:fixed;inset:0;z-index:12;
+  background:var(--ink);
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;
+  transition:opacity 0.4s;
+  flex-direction:column;gap:22px;
+}
+.pass-overlay.show{opacity:1;pointer-events:auto}
+.pass-overlay h2{
+  font-family:'Cinzel Decorative',serif;
+  font-size:clamp(28px,5vw,54px);
+  color:var(--gold-light);
+  letter-spacing:0.08em;
+  text-align:center;
+  text-shadow:0 2px 0 rgba(147,40,32,0.5);
+}
+.pass-overlay p{
+  font-family:'IM Fell English',serif;
+  font-style:italic;
+  font-size:18px;
+  color:var(--parchment);
+  max-width:440px;
+  text-align:center;
+}
+.pass-overlay .btn{font-size:16px;padding:14px 26px}
+
 .help-toggle{
   position:fixed;bottom:14px;right:14px;
   z-index:5;
@@ -377,7 +432,11 @@ body::before{
 
   <!-- LEFT: Unit palette -->
   <aside class="panel">
-    <h3>Muster <small>choose, then place</small></h3>
+    <h3>Muster <small id="musterSubtitle">choose, then place</small></h3>
+    <div class="mode-toggle" id="modeToggle">
+      <button class="mode-btn active" data-mode="ai">vs AI</button>
+      <button class="mode-btn" data-mode="vs">vs Rival</button>
+    </div>
     <div id="palette"></div>
     <button id="clearArmy" class="btn ghost">Disband All</button>
     <button id="randomArmy" class="btn gold">Auto-Muster</button>
@@ -394,6 +453,7 @@ body::before{
       <canvas id="field" width="780" height="520"></canvas>
     </div>
     <div class="hudbar">
+      <button id="passBtn" class="btn gold" style="display:none">Pass to Rival ›</button>
       <button id="battleBtn" class="btn primary">⚔ Commence Battle</button>
       <span id="phaseLabel" style="font-family:'IM Fell English',serif;font-style:italic;color:var(--ink-soft)">Deployment phase — click to place selected unit</span>
       <button id="nextBtn" class="btn gold" style="display:none">Next Wave ›</button>
@@ -411,6 +471,12 @@ body::before{
 </main>
 
 <button class="help-toggle" title="how to play" id="helpBtn">?</button>
+
+<div class="pass-overlay" id="passOverlay">
+  <h2 id="passTitle">Rival, take the field</h2>
+  <p id="passBody">Shield your eyes from the left flank's disposition. When ready, muster your warriors on the right.</p>
+  <button class="btn gold" id="passContinue">I am ready</button>
+</div>
 
 <div class="overlay" id="overlay">
   <div class="card">
@@ -439,11 +505,14 @@ const UNIT_KEYS = Object.keys(UNITS);
 
 // ---- State ----
 const state = {
+  mode:'ai',        // 'ai' | 'vs'
   phase:'deploy',   // 'deploy' | 'battle' | 'over'
+  side:'player',    // in vs: which side is currently deploying
   wave:1,
   wins:0,
   goldMax:100,
   goldLeft:100,
+  goldLeftEnemy:100,// vs mode second pool
   selected:'sword',
   units:[],         // all units on field (player + enemy)
   particles:[],
@@ -467,8 +536,11 @@ const waveEl = document.getElementById('wave');
 const winsEl = document.getElementById('wins');
 const battleBtn = document.getElementById('battleBtn');
 const nextBtn = document.getElementById('nextBtn');
+const passBtn = document.getElementById('passBtn');
 const phaseLabel = document.getElementById('phaseLabel');
 const overlay = document.getElementById('overlay');
+const passOverlay = document.getElementById('passOverlay');
+const musterSubtitle = document.getElementById('musterSubtitle');
 
 // ---- Resize canvas to fit container (HiDPI-aware) ----
 function sizeCanvas(){
@@ -486,26 +558,46 @@ addEventListener('resize', sizeCanvas);
 // ---- Build palette UI ----
 function renderPalette(){
   palette.innerHTML = '';
-  for (const key of UNIT_KEYS){
+  UNIT_KEYS.forEach((key, idx) => {
     const u = UNITS[key];
     const row = document.createElement('div');
     row.className = 'unit' + (state.selected === key ? ' selected' : '');
+    row.dataset.key = key;
     row.innerHTML = `
       <div class="sprite" style="background:radial-gradient(circle at 30% 30%, #fff6dd, ${u.color});">${u.emoji}</div>
       <div>
-        <div class="name">${u.name}</div>
+        <div class="name">${u.name} <span style="opacity:0.4;font-size:10px;letter-spacing:0.1em">${idx+1}</span></div>
         <div class="stats">HP ${u.hp} · DMG ${u.dmg} · SPD ${u.speed}${u.range>30?' · RNG':''}</div>
       </div>
       <div class="cost">${u.cost}</div>
     `;
     row.title = u.note;
-    row.onclick = () => { state.selected = key; renderPalette(); };
+    row.addEventListener('click', () => selectUnit(key));
     palette.appendChild(row);
-  }
+  });
 }
 
+function selectUnit(key){
+  if (!UNITS[key]) return;
+  state.selected = key;
+  // update in-place; avoid re-rendering DOM so pointer focus isn't lost
+  palette.querySelectorAll('.unit').forEach(el => {
+    el.classList.toggle('selected', el.dataset.key === key);
+  });
+}
+
+// Keyboard 1-6 to quick-select
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  const n = parseInt(e.key, 10);
+  if (!isNaN(n) && n >= 1 && n <= UNIT_KEYS.length){
+    selectUnit(UNIT_KEYS[n-1]);
+  }
+});
+
 function renderDeployList(){
-  const mine = state.units.filter(u => u.side === 'player');
+  const side = state.mode === 'vs' ? state.side : 'player';
+  const mine = state.units.filter(u => u.side === side);
   if (!mine.length){
     deployList.innerHTML = '<div style="padding:10px;text-align:center;opacity:0.6;font-style:italic">No warriors mustered.</div>';
     return;
@@ -521,10 +613,19 @@ function renderDeployList(){
 }
 
 function updateHUD(){
-  goldEl.textContent = state.goldLeft;
-  deployedEl.textContent = state.units.filter(u=>u.side==='player').length;
-  const foe = state.units.filter(u=>u.side==='enemy').length;
-  foeEl.textContent = state.phase==='deploy' ? (state.waveEnemy?.total || '—') : foe;
+  if (state.mode === 'vs'){
+    goldEl.textContent = state.side === 'player' ? state.goldLeft : state.goldLeftEnemy;
+    // Show current side's own deployed count + opposing side count
+    const me = state.units.filter(u=>u.side===state.side).length;
+    const them = state.units.filter(u=>u.side!==state.side).length;
+    deployedEl.textContent = me;
+    foeEl.textContent = them;
+  } else {
+    goldEl.textContent = state.goldLeft;
+    deployedEl.textContent = state.units.filter(u=>u.side==='player').length;
+    const foe = state.units.filter(u=>u.side==='enemy').length;
+    foeEl.textContent = state.phase==='deploy' ? (state.waveEnemy?.total || '—') : foe;
+  }
   waveEl.textContent = state.wave;
   winsEl.textContent = state.wins;
 }
@@ -562,46 +663,92 @@ function makeUnit(key, x, y, side){
   };
 }
 
+// ---- Helpers for side geometry ----
+function sideZoneOK(x, side){
+  // left zone: x < midX - 20. right zone: x > midX + 20. center band is no-man's-land.
+  if (side === 'player') return x < state.midX - 20;
+  return x > state.midX + 20;
+}
+function spendGold(side, cost){
+  if (side === 'player'){ state.goldLeft -= cost; }
+  else { state.goldLeftEnemy -= cost; }
+}
+function refundGold(side, cost){
+  if (side === 'player'){ state.goldLeft += cost; }
+  else { state.goldLeftEnemy += cost; }
+}
+function goldFor(side){
+  return side === 'player' ? state.goldLeft : state.goldLeftEnemy;
+}
+function flashStatus(msg){
+  const prev = phaseLabel.textContent;
+  phaseLabel.textContent = msg;
+  phaseLabel.style.color = 'var(--blood)';
+  clearTimeout(flashStatus._t);
+  flashStatus._t = setTimeout(()=>{
+    phaseLabel.style.color = '';
+    phaseLabel.textContent = defaultPhaseLabel();
+  }, 1700);
+}
+function defaultPhaseLabel(){
+  if (state.phase !== 'deploy') return '';
+  if (state.mode === 'vs'){
+    return state.side === 'player'
+      ? 'Commander: muster on the left (right-click to refund)'
+      : 'Rival: muster on the right (right-click to refund)';
+  }
+  return `Deployment phase — ${state.waveEnemy?.total ?? 0} foes assembling on the right`;
+}
+
 // ---- Deployment (click to place) ----
 field.addEventListener('pointerdown', (e) => {
   if (state.phase !== 'deploy') return;
+  // only primary button
+  if (e.button !== undefined && e.button !== 0) return;
   const rect = field.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
-  // player can only place on left half
-  if (x > state.midX - 20){
-    phaseLabel.textContent = 'Your banners fly only on the left side of the field.';
-    phaseLabel.style.color = 'var(--blood)';
-    setTimeout(()=>{ phaseLabel.style.color = ''; phaseLabel.textContent = 'Deployment phase — click to place selected unit'; }, 1600);
+  const side = state.side;
+  if (!sideZoneOK(x, side)){
+    flashStatus(side === 'player'
+      ? 'Your banners fly only on the LEFT side.'
+      : 'Rival forces muster only on the RIGHT side.');
     return;
   }
   const proto = UNITS[state.selected];
-  if (state.goldLeft < proto.cost){
-    phaseLabel.textContent = 'Insufficient coin for this warrior.';
-    phaseLabel.style.color = 'var(--blood)';
-    setTimeout(()=>{ phaseLabel.style.color = ''; phaseLabel.textContent = 'Deployment phase — click to place selected unit'; }, 1600);
+  if (goldFor(side) < proto.cost){
+    flashStatus('Insufficient coin for this warrior.');
     return;
   }
-  // avoid overlap
-  const tooClose = state.units.find(u => u.side==='player' && Math.hypot(u.x-x, u.y-y) < u.r + proto.r + 2);
-  if (tooClose) return;
-  state.units.push(makeUnit(state.selected, x, y, 'player'));
-  state.goldLeft -= proto.cost;
+  // keep in bounds
+  if (y < proto.r + 2 || y > state.h - proto.r - 2) return;
+  if (side === 'player' && x < proto.r + 2) return;
+  if (side === 'enemy' && x > state.w - proto.r - 2) return;
+  // overlap check — any unit, not just same side
+  const tooClose = state.units.find(u => Math.hypot(u.x-x, u.y-y) < u.r + proto.r + 3);
+  if (tooClose){
+    flashStatus('Too close to another warrior.');
+    return;
+  }
+  state.units.push(makeUnit(state.selected, x, y, side));
+  spendGold(side, proto.cost);
   updateHUD();
   renderDeployList();
 });
 
-// Remove unit on right-click or clicking in deploy list
+// Remove unit on right-click
 field.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   if (state.phase !== 'deploy') return;
   const rect = field.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
-  const idx = state.units.findIndex(u => u.side==='player' && Math.hypot(u.x-x, u.y-y) <= u.r+4);
+  const side = state.side;
+  // only remove own side's units
+  const idx = state.units.findIndex(u => u.side===side && Math.hypot(u.x-x, u.y-y) <= u.r+6);
   if (idx >= 0){
     const u = state.units[idx];
-    state.goldLeft += UNITS[u.key].cost;
+    refundGold(side, UNITS[u.key].cost);
     state.units.splice(idx, 1);
     updateHUD();
     renderDeployList();
@@ -826,8 +973,15 @@ function endBattle(win){
   nextBtn.style.display = '';
   const bounty = win ? (40 + state.wave * 20) : 0;
   state.battleStats.bounty = bounty;
-  if (win){ state.wins++; log(`<em>Wave ${state.wave}:</em> <b>Victory.</b> ${state.battleStats.kills} foes felled, ${state.battleStats.lost} of yours fallen.`); }
-  else { log(`<em>Wave ${state.wave}:</em> <b>Defeat.</b> The banner falls.`); }
+  if (state.mode === 'vs'){
+    // win here means player side triumphed
+    log(win
+      ? `<em>Duel:</em> <b>Commander prevails.</b> ${state.battleStats.kills} rival troops felled.`
+      : `<em>Duel:</em> <b>Rival prevails.</b> The commander's banner falls.`);
+  } else {
+    if (win){ state.wins++; log(`<em>Wave ${state.wave}:</em> <b>Victory.</b> ${state.battleStats.kills} foes felled, ${state.battleStats.lost} of yours fallen.`); }
+    else { log(`<em>Wave ${state.wave}:</em> <b>Defeat.</b> The banner falls.`); }
+  }
   updateHUD();
   showOverlay(win);
 }
@@ -835,27 +989,40 @@ function endBattle(win){
 function showOverlay(win){
   overlay.classList.toggle('victory', win);
   overlay.classList.toggle('defeat', !win);
-  document.getElementById('overlayTitle').textContent = win ? 'Victorious' : 'Vanquished';
-  document.getElementById('overlayBody').textContent = win
-    ? 'The field is yours. Crows feast on broken standards.'
-    : 'Your banners lie trampled. The foe marches on.';
+  if (state.mode === 'vs'){
+    document.getElementById('overlayTitle').textContent = win ? 'Commander Wins' : 'Rival Wins';
+    document.getElementById('overlayBody').textContent = win
+      ? 'The left banner stands. The rival\u2019s line is broken.'
+      : 'The right banner stands. The commander is routed.';
+    document.getElementById('overlayNext').textContent = 'Rematch';
+  } else {
+    document.getElementById('overlayTitle').textContent = win ? 'Victorious' : 'Vanquished';
+    document.getElementById('overlayBody').textContent = win
+      ? 'The field is yours. Crows feast on broken standards.'
+      : 'Your banners lie trampled. The foe marches on.';
+    document.getElementById('overlayNext').textContent = win ? 'Next Wave \u203a' : 'Try Again';
+  }
   document.getElementById('statKills').textContent = state.battleStats.kills;
   document.getElementById('statLost').textContent = state.battleStats.lost;
   document.getElementById('statBounty').textContent = state.battleStats.bounty;
-  document.getElementById('overlayNext').textContent = win ? 'Next Wave ›' : 'Try Again';
   overlay.classList.add('show');
 }
 
 document.getElementById('overlayNext').onclick = () => {
   overlay.classList.remove('show');
-  if (state.battleStats.kills > 0 && state.battleStats.lost < state.units.length + 99 && overlay.classList.contains('victory')){
-    // next wave
-    state.wave++;
-    state.goldMax += 25;
+  if (state.mode === 'vs'){
+    // rematch — fresh 100g each, wave stays 1
+    state.goldMax = 100;
     state.goldLeft = state.goldMax;
+    state.goldLeftEnemy = state.goldMax;
   } else {
-    // retry same wave
-    state.goldLeft = state.goldMax;
+    if (overlay.classList.contains('victory')){
+      state.wave++;
+      state.goldMax += 25;
+      state.goldLeft = state.goldMax;
+    } else {
+      state.goldLeft = state.goldMax;
+    }
   }
   resetToDeploy();
 };
@@ -866,23 +1033,58 @@ function resetToDeploy(){
   state.projectiles = [];
   state.floatTexts = [];
   state.phase = 'deploy';
+  state.side = 'player';
   state.battleStats = { kills:0, lost:0, bounty:0 };
-  state.waveEnemy = generateEnemyWave(state.wave);
+  if (state.mode === 'vs'){
+    state.waveEnemy = null;
+    musterSubtitle.textContent = 'commander: deploy left';
+    battleBtn.textContent = '\u203a Pass to Rival';
+  } else {
+    state.waveEnemy = generateEnemyWave(state.wave);
+    musterSubtitle.textContent = 'choose, then place';
+    battleBtn.textContent = '\u2694 Commence Battle';
+  }
   field.classList.remove('battling');
   battleBtn.style.display = '';
   nextBtn.style.display = 'none';
-  phaseLabel.textContent = `Deployment phase — place your ${state.waveEnemy.total} foe opposition`;
+  phaseLabel.textContent = defaultPhaseLabel();
   updateHUD();
   renderDeployList();
 }
 
 // ---- Start battle ----
 battleBtn.onclick = () => {
+  if (state.mode === 'vs'){
+    // in vs, if currently on player side, pass control instead of fighting
+    if (state.side === 'player'){
+      if (state.units.filter(u=>u.side==='player').length === 0){
+        flashStatus('Commander, you must muster at least one warrior.');
+        return;
+      }
+      // show pass overlay
+      showPassOverlay('Rival, take the field', 'Shield your eyes. Now muster your warriors on the right half.');
+      return;
+    }
+    // side is enemy — commence battle
+    if (state.units.filter(u=>u.side==='enemy').length === 0){
+      flashStatus('Rival, you must muster at least one warrior.');
+      return;
+    }
+    state.phase = 'battle';
+    field.classList.add('battling');
+    battleBtn.style.display = 'none';
+    passBtn.style.display = 'none';
+    phaseLabel.textContent = 'Battle joined — horns of war sound.';
+    const pN = state.units.filter(u=>u.side==='player').length;
+    const eN = state.units.filter(u=>u.side==='enemy').length;
+    log(`<em>Duel:</em> Battle joined. ${pN} commanders vs ${eN} rivals.`);
+    updateHUD();
+    return;
+  }
+  // AI mode
   const myUnits = state.units.filter(u=>u.side==='player');
   if (myUnits.length === 0){
-    phaseLabel.textContent = 'You must muster at least one warrior.';
-    phaseLabel.style.color = 'var(--blood)';
-    setTimeout(()=>{ phaseLabel.style.color=''; phaseLabel.textContent = 'Deployment phase — click to place selected unit'; }, 1800);
+    flashStatus('You must muster at least one warrior.');
     return;
   }
   spawnEnemyWave();
@@ -899,8 +1101,11 @@ nextBtn.onclick = () => document.getElementById('overlayNext').click();
 // ---- Clear army ----
 document.getElementById('clearArmy').onclick = () => {
   if (state.phase !== 'deploy') return;
-  state.units = state.units.filter(u => u.side !== 'player');
-  state.goldLeft = state.goldMax;
+  const side = state.side;
+  const before = state.units.filter(u => u.side === side).length;
+  state.units = state.units.filter(u => u.side !== side);
+  if (side === 'player') state.goldLeft = state.goldMax;
+  else state.goldLeftEnemy = state.goldMax;
   updateHUD();
   renderDeployList();
 };
@@ -908,27 +1113,83 @@ document.getElementById('clearArmy').onclick = () => {
 // ---- Auto-Muster ----
 document.getElementById('randomArmy').onclick = () => {
   if (state.phase !== 'deploy') return;
-  state.units = state.units.filter(u => u.side !== 'player');
-  state.goldLeft = state.goldMax;
+  const side = state.side;
+  state.units = state.units.filter(u => u.side !== side);
+  if (side === 'player') state.goldLeft = state.goldMax;
+  else state.goldLeftEnemy = state.goldMax;
   const pool = ['sword','sword','sword','archer','archer','pike','cav','mage','shield'];
   let guard = 0;
-  while (state.goldLeft >= 10 && guard < 150){
+  while (goldFor(side) >= 10 && guard < 200){
     guard++;
     const key = pool[Math.floor(Math.random()*pool.length)];
     const proto = UNITS[key];
-    if (proto.cost > state.goldLeft) continue;
+    if (proto.cost > goldFor(side)) continue;
     let placed = false;
     for (let t = 0; t < 30 && !placed; t++){
-      const x = 30 + Math.random() * (state.midX - 60);
+      let x;
+      if (side === 'player'){
+        x = 30 + Math.random() * (state.midX - 60);
+      } else {
+        x = state.midX + 40 + Math.random() * (state.w - state.midX - 60);
+      }
       const y = 30 + Math.random() * (state.h - 60);
-      if (!state.units.find(u=>u.side==='player' && Math.hypot(u.x-x,u.y-y) < u.r+proto.r+3)){
-        state.units.push(makeUnit(key, x, y, 'player'));
-        state.goldLeft -= proto.cost;
+      if (!state.units.find(u=>Math.hypot(u.x-x,u.y-y) < u.r+proto.r+3)){
+        state.units.push(makeUnit(key, x, y, side));
+        spendGold(side, proto.cost);
         placed = true;
       }
     }
     if (!placed) break;
   }
+  updateHUD();
+  renderDeployList();
+};
+
+// ---- Mode toggle ----
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.onclick = () => {
+    if (state.phase !== 'deploy') return;
+    const mode = btn.dataset.mode;
+    if (mode === state.mode) return;
+    state.mode = mode;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    // hard reset the deploy board
+    state.units = [];
+    state.side = 'player';
+    state.goldMax = 100;
+    state.goldLeft = state.goldMax;
+    state.goldLeftEnemy = state.goldMax;
+    if (mode === 'ai'){
+      state.waveEnemy = generateEnemyWave(state.wave);
+      musterSubtitle.textContent = 'choose, then place';
+    } else {
+      state.waveEnemy = null;
+      musterSubtitle.textContent = 'commander: deploy left';
+      log(`<em>Duel mode:</em> two commanders, one field. ${state.goldMax}g each.`);
+    }
+    battleBtn.style.display = '';
+    battleBtn.textContent = state.mode === 'vs' ? '› Pass to Rival' : '⚔ Commence Battle';
+    passBtn.style.display = 'none';
+    nextBtn.style.display = 'none';
+    phaseLabel.textContent = defaultPhaseLabel();
+    updateHUD();
+    renderDeployList();
+  };
+});
+
+// ---- Pass overlay ----
+function showPassOverlay(title, body){
+  document.getElementById('passTitle').textContent = title;
+  document.getElementById('passBody').textContent = body;
+  passOverlay.classList.add('show');
+}
+document.getElementById('passContinue').onclick = () => {
+  passOverlay.classList.remove('show');
+  // flip to enemy side
+  state.side = 'enemy';
+  musterSubtitle.textContent = 'rival: deploy right';
+  battleBtn.textContent = '⚔ Commence Battle';
+  phaseLabel.textContent = defaultPhaseLabel();
   updateHUD();
   renderDeployList();
 };
@@ -959,13 +1220,18 @@ function draw(){
   // Zone labels (only in deploy)
   if (state.phase === 'deploy'){
     ctx.save();
-    ctx.globalAlpha = 0.35;
     ctx.font = 'italic 20px "IM Fell English", serif';
-    ctx.fillStyle = '#4b6a3a';
     ctx.textAlign = 'center';
-    ctx.fillText('your banners', (state.midX-20)/2, state.h - 14);
+    const leftActive = state.side === 'player';
+    const rightActive = state.side === 'enemy';
+    const leftLabel = state.mode === 'vs' ? 'commander' : 'your banners';
+    const rightLabel = state.mode === 'vs' ? 'rival' : 'enemy line';
+    ctx.globalAlpha = leftActive ? 0.6 : 0.28;
+    ctx.fillStyle = '#4b6a3a';
+    ctx.fillText(leftLabel, (state.midX-20)/2, state.h - 14);
+    ctx.globalAlpha = rightActive ? 0.6 : 0.28;
     ctx.fillStyle = '#932820';
-    ctx.fillText('enemy line', state.midX + 20 + (state.w - state.midX - 20)/2, state.h - 14);
+    ctx.fillText(rightLabel, state.midX + 20 + (state.w - state.midX - 20)/2, state.h - 14);
     ctx.restore();
   }
 
@@ -1009,15 +1275,23 @@ function draw(){
   // Hover preview during deploy
   if (state.phase === 'deploy' && state._hover){
     const h = state._hover;
-    if (h.x < state.midX - 20){
+    if (sideZoneOK(h.x, state.side)){
       const proto = UNITS[state.selected];
+      const canAfford = goldFor(state.side) >= proto.cost;
+      const overlap = state.units.some(u => Math.hypot(u.x-h.x, u.y-h.y) < u.r + proto.r + 3);
       ctx.save();
-      ctx.globalAlpha = 0.55;
-      ctx.fillStyle = proto.color;
+      ctx.globalAlpha = (canAfford && !overlap) ? 0.55 : 0.25;
+      ctx.fillStyle = (canAfford && !overlap) ? proto.color : '#932820';
       ctx.beginPath(); ctx.arc(h.x, h.y, proto.r, 0, Math.PI*2); ctx.fill();
+      // side ring
+      ctx.globalAlpha = 0.7;
+      ctx.strokeStyle = state.side === 'player' ? '#4b6a3a' : '#932820';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(h.x, h.y, proto.r, 0, Math.PI*2); ctx.stroke();
       ctx.globalAlpha = 0.3;
       ctx.strokeStyle = proto.color;
       ctx.setLineDash([3,3]);
+      ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(h.x, h.y, proto.range, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
     }
@@ -1121,7 +1395,7 @@ Rock/paper/scissors hints:
 sizeCanvas();
 renderPalette();
 state.waveEnemy = generateEnemyWave(1);
-phaseLabel.textContent = `Deployment phase — ${state.waveEnemy.total} foes assembling on the right`;
+phaseLabel.textContent = defaultPhaseLabel();
 log(`<em>Chronicle begins.</em> Wave 1. The scouts report <b>${state.waveEnemy.total}</b> foes.`);
 updateHUD();
 renderDeployList();
