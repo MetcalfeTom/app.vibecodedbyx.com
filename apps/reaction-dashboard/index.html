@@ -212,6 +212,35 @@
     letter-spacing:0.16em;
   }
   #hitCounter b{color:#fff;font-family:'Silkscreen',cursive;margin-left:4px;font-size:13px;letter-spacing:0.06em}
+  .live-pill{
+    display:inline-flex;align-items:center;gap:6px;
+    background:rgba(255,255,255,0.06);
+    border:1px solid var(--edge);
+    padding:6px 12px;border-radius:999px;
+    color:#a4ff3c;
+    letter-spacing:0.16em;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+  }
+  .live-pill .dot{
+    width:8px;height:8px;border-radius:50%;background:#a4ff3c;
+    box-shadow:0 0 8px #a4ff3c;
+    animation:livePulse 1.6s infinite;
+  }
+  .live-pill.connecting{color:#ffd23f}
+  .live-pill.connecting .dot{background:#ffd23f;box-shadow:0 0 8px #ffd23f}
+  .live-pill.offline{color:#ff5c8c}
+  .live-pill.offline .dot{background:#ff5c8c;box-shadow:none;animation:none}
+  .live-pill b{color:#fff;font-family:'Silkscreen',cursive;font-size:13px}
+  .live-pill small{font-size:9px;opacity:0.75}
+  @keyframes livePulse{0%,100%{opacity:1}50%{opacity:0.35}}
+  .rxn.remote-pressed{
+    animation:remotePress 0.6s ease-out;
+  }
+  @keyframes remotePress{
+    0%{box-shadow:0 6px 0 rgba(0,0,0,0.35), 0 0 0 0 rgba(164,255,60,0.9), 0 0 22px var(--glow)}
+    100%{box-shadow:0 6px 0 rgba(0,0,0,0.35), 0 0 0 24px transparent, 0 0 22px var(--glow)}
+  }
 
   @media (max-width:640px){
     #grid{grid-template-columns:repeat(2,1fr);gap:10px;max-width:400px}
@@ -239,11 +268,14 @@
     <span class="k">Q W E R · A S D F · Z X C V · 1 2 3 4</span>
     <span class="k">SPACE random</span>
     <span id="hitCounter">hits <b id="hits">0</b></span>
+    <span id="liveIndicator" class="live-pill" title="live viewers">
+      <span class="dot"></span><span id="liveCount">·</span> <small>live</small>
+    </span>
     <button id="muteBtn">♪ ON</button>
   </footer>
 </div>
 
-<script>
+<script type="module">
 // -------- reaction config --------
 const R = [
   { id:'fire',   key:'1', emoji:'🔥', label:'FIRE',     rain:['🔥','🔥','🧨','✨'],         c1:'#ff9632',c2:'#ff3c6b',glow:'rgba(255,90,40,0.45)',  sound:'whomp',  dir:'fall' },
@@ -597,14 +629,14 @@ function rain(emojis, count, dir){
 
 // -------- trigger --------
 let hits = 0;
-function trigger(id){
+function fireReaction(id, remote){
   const r = R.find(x=>x.id===id);
   if (!r) return;
   const btn = grid.querySelector(`[data-id="${id}"]`);
-  btn.classList.remove('pressed');
+  btn.classList.remove('pressed','remote-pressed');
   void btn.offsetWidth;
-  btn.classList.add('pressed');
-  setTimeout(()=>btn.classList.remove('pressed'), 600);
+  btn.classList.add(remote ? 'remote-pressed' : 'pressed');
+  setTimeout(()=>btn.classList.remove('pressed','remote-pressed'), 600);
   // bump count
   const countEl = btn.querySelector('.count');
   const n = parseInt(countEl.dataset.count,10) + 1;
@@ -620,6 +652,10 @@ function trigger(id){
   // rain
   const count = 26 + Math.floor(Math.random()*12);
   rain(r.rain, count, r.dir);
+}
+function trigger(id){
+  fireReaction(id, false);
+  broadcastReaction(id);
 }
 
 // -------- keyboard --------
@@ -654,6 +690,58 @@ muteBtn.addEventListener('click', toggleMute);
 
 // -------- unlock audio on first interaction --------
 addEventListener('pointerdown', ()=>ac(), {once:true});
+
+// -------- shared broadcast channel --------
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/+esm";
+const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth:{persistSession:false,autoRefreshToken:false}
+});
+
+const livePill = document.getElementById('liveIndicator');
+const liveCount = document.getElementById('liveCount');
+livePill.classList.add('connecting');
+
+const clientId = Math.random().toString(36).slice(2, 10);
+let channel = null;
+let lastBroadcastAt = 0;
+
+function broadcastReaction(id){
+  if (!channel) return;
+  const now = Date.now();
+  if (now - lastBroadcastAt < 50) return; // tiny debounce against key-repeat
+  lastBroadcastAt = now;
+  channel.send({ type:'broadcast', event:'reaction', payload:{ id, from:clientId } });
+}
+
+channel = supabase.channel('reaction-dashboard-v1', {
+  config:{ broadcast:{ self:false }, presence:{ key: clientId } }
+});
+
+channel.on('broadcast', { event:'reaction' }, ({ payload }) => {
+  if (!payload || !payload.id) return;
+  if (payload.from === clientId) return;
+  fireReaction(payload.id, true);
+});
+
+channel.on('presence', { event:'sync' }, () => {
+  const state = channel.presenceState();
+  const n = Object.keys(state).length;
+  liveCount.textContent = n;
+  livePill.classList.remove('connecting','offline');
+});
+
+channel.subscribe(async (status) => {
+  if (status === 'SUBSCRIBED'){
+    livePill.classList.remove('connecting');
+    await channel.track({ online_at: new Date().toISOString() });
+  } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT'){
+    livePill.classList.remove('connecting');
+    livePill.classList.add('offline');
+    liveCount.textContent = '—';
+  }
+});
 </script>
 </body>
 </html>
