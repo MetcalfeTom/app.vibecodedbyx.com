@@ -325,9 +325,9 @@ body::before{
   background-image:repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px);
 }
 #gardenCanvas{
-  display:block;width:100%;height:100%;
+  display:block;width:100%;height:calc(100% - 45px);
   cursor:default;
-  position:relative;z-index:1;
+  position:relative;z-index:1;top:45px;
 }
 #gardenCanvas.hover{cursor:pointer}
 #gardenCanvas.zapping{cursor:crosshair}
@@ -1536,15 +1536,18 @@ const LANG_GLYPHS = {
   py:  [':','λ','#','_','.','"',"'"],
   js:  ['{','}','=>',';','(',')','=','.'],
   cpp: ['*','&','::','++','<<','>>','->','&&'],
+  go:  ['~','`','→','¶',':=','<-','chan','defer','go'],
 };
 const LANG_COLORS = {
   py:  { main:'#5fc0e0', accent:'#9bdcff' }, // python blue
   js:  { main:'#f5b362', accent:'#ffd64a' }, // js yellow
   cpp: { main:'#c986e0', accent:'#e4b5f5' }, // c++ violet
+  go:  { main:'#00add8', accent:'#67e2f4' }, // go gopher cyan
 };
 const PLANT_REGROW_MIN = 22, PLANT_REGROW_MAX = 46; // seconds
+const LANG_KEYS = ['py','js','cpp','go'];
 function langOfChar(ch){
-  for (const k of ['py','js','cpp']){
+  for (const k of LANG_KEYS){
     if (LANG_GLYPHS[k].indexOf(ch) >= 0) return k;
   }
   return null;
@@ -1552,7 +1555,7 @@ function langOfChar(ch){
 function langOfText(text){
   // Heuristic: choose dominant language by counting language-specific tokens.
   const t = String(text || '');
-  let py = 0, js = 0, cpp = 0;
+  let py = 0, js = 0, cpp = 0, go = 0;
   if (/(^|\n)\s*def\s+\w+\s*\(/.test(t)) py += 4;
   if (/(^|\n)\s*class\s+\w+\s*[:(]/.test(t)) py += 2;
   if (/\bimport\s+\w+/.test(t)) py += 2;
@@ -1576,14 +1579,33 @@ function langOfText(text){
   if (/\btemplate\s*</.test(t)) cpp += 3;
   if (/::/.test(t)) cpp += 1;
   if (/\bint\s+main\s*\(/.test(t)) cpp += 4;
+  // Go — distinctive operators and keywords. `func`, `:=`, `<-`, `package`,
+  // `defer`, `chan`, and `go func` are all unambiguous Go signals.
+  if (/(^|\n)\s*package\s+\w+/.test(t)) go += 5;
+  if (/(^|\n)\s*func\s+(\(|\w)/.test(t)) go += 4;
+  if (/\bfunc\s*\(/.test(t)) go += 2;
+  if (/:=/.test(t)) go += 3;
+  if (/<-\s*\w|\w\s*<-/.test(t)) go += 4;     // channel send/recv
+  if (/\bgo\s+func\b/.test(t)) go += 4;
+  if (/\bgo\s+\w+\s*\(/.test(t)) go += 2;     // go someFn()
+  if (/\bdefer\s+/.test(t)) go += 4;
+  if (/\bchan\s+/.test(t)) go += 4;
+  if (/\binterface\s*\{\s*\}/.test(t)) go += 3;
+  if (/\bstruct\s*\{/.test(t)) go += 2;
+  if (/\bfmt\.\w+\(/.test(t)) go += 3;
+  if (/\bimport\s*\(\s*"/.test(t)) go += 3;
+  if (/\bimport\s+"/.test(t)) go += 2;
+  if (/\brange\s+\w+/.test(t)) go += 1;
+  if (/\bmake\s*\(/.test(t)) go += 1;
   // Glyph distribution as final tiebreaker
   for (const ch of t){
     const k = langOfChar(ch);
     if (k === 'py')  py  += 0.05;
     if (k === 'js')  js  += 0.05;
     if (k === 'cpp') cpp += 0.05;
+    if (k === 'go')  go  += 0.05;
   }
-  const score = { py, js, cpp };
+  const score = { py, js, cpp, go };
   let best = null, bestV = 0.5; // require minimum signal
   for (const k of Object.keys(score)){
     if (score[k] > bestV){ bestV = score[k]; best = k; }
@@ -1596,7 +1618,7 @@ function dominantLang(creature){
   // threshold; ties fall back to null (mixed creature uses base palette).
   const lang = creature && creature.lang;
   if (!lang) return null;
-  const order = ['py','js','cpp'];
+  const order = ['py','js','cpp','go'];
   let best = null, bestN = 1; // strict > 1
   for (const k of order){
     const n = lang[k] || 0;
@@ -1719,25 +1741,42 @@ function generateName(dna){
 }
 
 // ---- Storage ----
+// Dead creatures that were saved with alive:false but never cleaned up — the
+// 1700ms removal setTimeout doesn't survive a page refresh, so they linger in
+// the roster. We strip them on load and promote any that are missing from the
+// memorial wall (boot script does the promotion once memorial is loaded).
+let __orphanDead = [];
 function loadCreatures(){
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
+    const alive = [];
+    __orphanDead = [];
     // Migrate older creatures: ensure survival fields exist
     for (const c of arr){
+      if (c && c.alive === false){
+        __orphanDead.push(c);
+        continue;
+      }
       if (typeof c.hp !== 'number') c.hp = 100;
       if (typeof c.hunger !== 'number') c.hunger = 25;
       if (typeof c.alive !== 'boolean') c.alive = true;
       if (!c.born) c.born = new Date().toISOString();
       if (typeof c.infectedUntil !== 'number') c.infectedUntil = 0;
       if (typeof c.lastBredAt !== 'number') c.lastBredAt = 0;
-      if (!c.lang || typeof c.lang !== 'object') c.lang = { py:0, js:0, cpp:0 };
+      if (!c.lang || typeof c.lang !== 'object') c.lang = { py:0, js:0, cpp:0, go:0 };
       else {
         if (typeof c.lang.py !== 'number') c.lang.py = 0;
         if (typeof c.lang.js !== 'number') c.lang.js = 0;
         if (typeof c.lang.cpp !== 'number') c.lang.cpp = 0;
+        if (typeof c.lang.go !== 'number') c.lang.go = 0;
+      }
+      // hp=0 with no alive flag set yet → mark as dying so survivalTick picks
+      // it up and runs the proper death + memorial path on the next tick.
+      if (c.hp <= 0 && c.alive){
+        c.hp = 0;
       }
       // Migrate older saves: if a creature's age already exceeds the lifespan
       // (because aging didn't exist when they were born), rebase to a fresh life.
@@ -1747,8 +1786,9 @@ function loadCreatures(){
         c.hp = Math.max(c.hp, 80);
         c.hunger = Math.min(c.hunger, 30);
       }
+      alive.push(c);
     }
-    return arr;
+    return alive;
   } catch(e){ return []; }
 }
 function saveCreatures(){
@@ -2349,7 +2389,7 @@ function makeAgent(c, isGuest = false, ownerId = null){
     isGuest,
     ownerId,
     x: 80 + Math.random() * (garden.W - 160),
-    y: 200 + Math.random() * (garden.H - 320),
+    y: (garden.topY ?? 137) + 30 + Math.random() * Math.max(40, garden.floorY - (garden.topY ?? 137) - 110),
     vx: (Math.random()*2-1) * 14,
     vy: (Math.random()*2-1) * 8,
     facing: Math.random() < 0.5 ? -1 : 1,
@@ -2463,10 +2503,12 @@ function spawnHazard(){
   // Spawn from a random edge
   const side = Math.floor(Math.random() * 4);
   let x, y, vx, vy;
-  if (side === 0){ x = -20; y = 130 + Math.random() * (garden.H - 220); vx = cfg.speed; vy = (Math.random()*2-1)*10; }
-  else if (side === 1){ x = garden.W + 20; y = 130 + Math.random() * (garden.H - 220); vx = -cfg.speed; vy = (Math.random()*2-1)*10; }
-  else if (side === 2){ x = Math.random()*garden.W; y = 100; vx = (Math.random()*2-1)*20; vy = cfg.speed*0.7; }
-  else                { x = Math.random()*garden.W; y = garden.H - 90; vx = (Math.random()*2-1)*20; vy = -cfg.speed*0.7; }
+  const topY = (garden.topY ?? 137);
+  const playH = Math.max(40, garden.floorY - topY - 30);
+  if (side === 0){ x = -20; y = topY + Math.random() * playH; vx = cfg.speed; vy = (Math.random()*2-1)*10; }
+  else if (side === 1){ x = garden.W + 20; y = topY + Math.random() * playH; vx = -cfg.speed; vy = (Math.random()*2-1)*10; }
+  else if (side === 2){ x = Math.random()*garden.W; y = topY; vx = (Math.random()*2-1)*20; vy = cfg.speed*0.7; }
+  else                { x = Math.random()*garden.W; y = garden.floorY - 30; vx = (Math.random()*2-1)*20; vy = -cfg.speed*0.7; }
   garden.hazards.push({
     id: 'h_' + Date.now() + '_' + Math.floor(Math.random()*9999),
     type: types,
@@ -2486,7 +2528,7 @@ function placeFirewall(x, y){
     return false;
   }
   // Keep them inside the playable strip (skip top meta strip + ground)
-  y = Math.max(150, Math.min(garden.H - 80, y));
+  y = Math.max((garden.topY ?? 137) + 16, Math.min(garden.floorY - 20, y));
   x = Math.max(40, Math.min(garden.W - 40, x));
   garden.firewalls.push({
     id: 'fw_' + Date.now() + '_' + Math.floor(Math.random()*9999),
@@ -2549,7 +2591,8 @@ function spawnSnippetsFromText(text){
   const count = Math.max(1, Math.min(3, Math.round(cleaned.length / 16)));
   for (let i = 0; i < count; i++){
     const x = 80 + Math.random() * (garden.W - 160);
-    const y = 140 + Math.random() * (garden.H - 240);
+    const topY = (garden.topY ?? 137);
+    const y = topY + 10 + Math.random() * Math.max(40, garden.floorY - topY - 70);
     placeItem('snippet', x, y, { text: cleaned || '/* ok */', lang });
     const col = lang ? LANG_COLORS[lang].main : '#7ec97a';
     const tag = lang ? '✓ ' + lang.toUpperCase() + ' snippet' : '✓ snippet';
@@ -2563,7 +2606,8 @@ function spawnSnippetsFromText(text){
 function spawnErrorBlock(msg, atX, atY){
   if (!garden.W || !garden.H) return null;
   const x = atX != null ? atX : 80 + Math.random() * (garden.W - 160);
-  const y = atY != null ? atY : 160 + Math.random() * (garden.H - 280);
+  const _topY = (garden.topY ?? 137);
+  const y = atY != null ? atY : _topY + 30 + Math.random() * Math.max(40, garden.floorY - _topY - 90);
   const short = String(msg || 'SyntaxError').replace(/\s+/g, ' ').slice(0, 64);
   const block = {
     id: 'err_' + Date.now() + '_' + Math.floor(Math.random()*9999),
@@ -2624,7 +2668,7 @@ function nearestPlant(ag){
   for (const p of garden.plants){
     if (p.eaten) continue;
     const px = (p.x / 1000) * garden.W;
-    const py = Math.min(garden.H - 12, p.y);
+    const py = Math.min(garden.floorY, p.y);
     const d = (px - ag.x)*(px - ag.x) + (py - ag.y)*(py - ag.y);
     if (d < bestD){ bestD = d; best = p; }
   }
@@ -2638,7 +2682,7 @@ function eatPlant(c, plant){
   if (dna.length > 32) dna = dna.slice(dna.length - 32);
   c.dna = dna;
   // Track per-language taste counter — drives sprite palette + virus risk.
-  c.lang = c.lang || { py:0, js:0, cpp:0 };
+  c.lang = c.lang || { py:0, js:0, cpp:0, go:0 };
   if (plant.lang) c.lang[plant.lang] = (c.lang[plant.lang] || 0) + 1;
   // Hunger relief proportionate to plant size, with small XP nibble.
   feedCreature(c, 14, 4);
@@ -2667,7 +2711,8 @@ function spawnPlants(){
   garden.plants = [];
   const count = 28;
   // Plant glyphs are language syntax — Python (: λ #), JS ({ } => ;), C++ (* & :: ++ << >>).
-  const langPick = ['py','py','py','js','js','js','js','cpp','cpp','cpp','cpp','cpp','cpp'];
+  // Plant lang weights — Go is rare (gopher cyan) but feeds high reward.
+  const langPick = ['py','py','py','js','js','js','js','cpp','cpp','cpp','cpp','go','go'];
   const rng = mulberry32(0x100ddee);
   for (let i = 0; i < count; i++){
     const lang = langPick[Math.floor(rng() * langPick.length)];
@@ -2675,7 +2720,8 @@ function spawnPlants(){
     const ch = glyphs[Math.floor(rng() * glyphs.length)];
     garden.plants.push({
       x: rng() * garden.W,
-      y: garden.H - 8 - rng() * 70,
+      // Anchor plants on or just above the dotted soil line — never below it.
+      y: (garden.floorY ?? garden.H - 60) - 4 - rng() * 14,
       char: ch,
       lang,
       color: LANG_COLORS[lang].main,
@@ -2810,19 +2856,37 @@ function resizeGarden(){
   const wrap = gardenCanvas.parentElement;
   const rect = wrap.getBoundingClientRect();
   const dpr = Math.min(2, window.devicePixelRatio || 1);
+  // The canvas is shifted down 45px inside its wrap (CSS top:45px) so the
+  // logical canvas height = wrap height - 45.
+  const CANVAS_OFFSET_Y = 45;
+  const canvasH = Math.max(220, rect.height - CANVAS_OFFSET_Y);
   gardenCanvas.width = Math.floor(rect.width * dpr);
-  gardenCanvas.height = Math.floor(rect.height * dpr);
+  gardenCanvas.height = Math.floor(canvasH * dpr);
   gardenCanvas.style.width = rect.width + 'px';
-  gardenCanvas.style.height = rect.height + 'px';
+  gardenCanvas.style.height = canvasH + 'px';
   // The bottom-bar (chat input + how-to-play box) overlays the canvas at the
   // bottom — shrink the logical play height so spawned items, creatures, eggs,
-  // plants, projectiles, etc never land underneath the UI.
+  // plants, projectiles, etc never land underneath the UI. The bar has built-in
+  // top padding, so we let the floor dip 20px into that buffer to reclaim a bit
+  // of vertical play room without creatures slipping behind the chat input.
   const bb = wrap.querySelector('.bottom-bar');
   const bbRect = bb ? bb.getBoundingClientRect() : null;
-  const bottomReserve = bbRect && bbRect.height ? bbRect.height + 8 : 0;
+  const FLOOR_NUDGE = 20; // px of bar-padding the play area can borrow
+  const bottomReserve = bbRect && bbRect.height
+    ? Math.max(24, bbRect.height + 8 - FLOOR_NUDGE)
+    : 0;
   garden.W = rect.width;
-  garden.H = Math.max(220, rect.height - bottomReserve);
+  garden.H = Math.max(220, canvasH - bottomReserve);
   garden.bottomReserve = bottomReserve;
+  garden.canvasOffsetY = CANVAS_OFFSET_Y;
+  // Top physics boundary — pushed down 137px from the canvas origin so spawned
+  // creatures/items don't slip behind the floating action toolbar at the top.
+  garden.topY = 137;
+  // Single source of truth for the ground line — the dotted soil glyph is
+  // drawn here AND every physics floor (agents, items, plants, errors) is
+  // expressed as an offset from this value, so they stay aligned no matter
+  // how the canvas resizes.
+  garden.floorY = garden.H - 60;
   garden._dpr = dpr;
 }
 window.addEventListener('resize', () => { if (garden.active) resizeGarden(); });
@@ -2836,7 +2900,7 @@ function tickAgents(dt){
     if (dead){
       ag.deathT = (ag.deathT || 0) + dt;
       ag.vx *= 0.92;
-      ag.y = Math.min(garden.H - 64, ag.y + 30 * dt);
+      ag.y = Math.min(garden.floorY - 4, ag.y + 30 * dt);
       ag.bob += dt * 0.8;
       continue;
     }
@@ -2919,12 +2983,21 @@ function tickAgents(dt){
       // Eat / play on contact
       if (d < ITEM_TYPES[targetItem.type].radius + 18){
         const cfg = ITEM_TYPES[targetItem.type];
-        feedCreature(c, cfg.hungerOff, cfg.xp);
+        // Go is the most syntactically dense of the supported languages —
+        // valid Go snippets feed creatures 1.5× harder (more xp + more hunger
+        // relief) so players are rewarded for typing real Go.
+        const isGoSnippet = targetItem.type === 'snippet' && targetItem.lang === 'go';
+        const hOff = isGoSnippet ? Math.round(cfg.hungerOff * 1.5) : cfg.hungerOff;
+        const xpGain = isGoSnippet ? Math.round(cfg.xp * 1.5) : cfg.xp;
+        feedCreature(c, hOff, xpGain);
         // Typed snippets carry a language flavor — eating one teaches the
         // creature that language (counts as a few plant glyphs at once).
         if (targetItem.type === 'snippet' && targetItem.lang){
-          c.lang = c.lang || { py:0, js:0, cpp:0 };
-          c.lang[targetItem.lang] = (c.lang[targetItem.lang] || 0) + 2;
+          c.lang = c.lang || { py:0, js:0, cpp:0, go:0 };
+          // Go also grants 3 lang counts (vs 2 for other langs) since it's
+          // rarer in the wild and recognising it is a flex.
+          const langGain = targetItem.lang === 'go' ? 3 : 2;
+          c.lang[targetItem.lang] = (c.lang[targetItem.lang] || 0) + langGain;
           // Splice a representative glyph into the DNA so the sprite shifts.
           const glyphs = LANG_GLYPHS[targetItem.lang];
           const ch = glyphs[Math.floor(Math.random() * glyphs.length)];
@@ -2936,7 +3009,8 @@ function tickAgents(dt){
         ag.bounce = 1;
         const tag = targetItem._stolenBy === ag.id ? ' STOLEN' : '';
         const langTag = (targetItem.type === 'snippet' && targetItem.lang) ? ' · ' + targetItem.lang.toUpperCase() : '';
-        spawnGardenPop(targetItem.x, targetItem.y, '+' + cfg.xp + (cfg.kind === 'food' ? ' xp · -hunger' : ' xp') + tag + langTag, infected ? '#7ec97a' : cfg.color);
+        const goTag = isGoSnippet ? ' ×1.5' : '';
+        spawnGardenPop(targetItem.x, targetItem.y, '+' + xpGain + (cfg.kind === 'food' ? ' xp · -hunger' : ' xp') + tag + langTag + goTag, infected ? '#7ec97a' : cfg.color);
         saveCreatures();
       }
     } else if (targetEgg){
@@ -3003,7 +3077,7 @@ function tickAgents(dt){
     } else if (targetPlant){
       // Walk to the plant, graze it on contact — DNA mutates + sprite shifts.
       const px = (targetPlant.x / 1000) * garden.W;
-      const py = Math.min(garden.H - 12, targetPlant.y);
+      const py = Math.min(garden.floorY, targetPlant.y);
       const dx = px - ag.x;
       const dy = py - ag.y;
       const d = Math.sqrt(dx*dx + dy*dy) || 1;
@@ -3044,12 +3118,14 @@ function tickAgents(dt){
     ag.y += ag.vy * dt;
     ag.bob += dt * 2.2;
     if (ag.bounce) ag.bounce = Math.max(0, ag.bounce - dt * 2.4);
-    // bounds
+    // bounds — top respects the floating toolbar, bottom respects the soil line.
     const margin = 56;
+    const topClamp = (garden.topY ?? 137) + 24;
+    const floorClamp = garden.floorY - 20;
     if (ag.x < margin){ ag.x = margin; ag.vx = Math.abs(ag.vx); ag.facing = 1; }
     if (ag.x > garden.W - margin){ ag.x = garden.W - margin; ag.vx = -Math.abs(ag.vx); ag.facing = -1; }
-    if (ag.y < 120){ ag.y = 120; ag.vy = Math.abs(ag.vy); }
-    if (ag.y > garden.H - 80){ ag.y = garden.H - 80; ag.vy = -Math.abs(ag.vy); }
+    if (ag.y < topClamp){ ag.y = topClamp; ag.vy = Math.abs(ag.vy); }
+    if (ag.y > floorClamp){ ag.y = floorClamp; ag.vy = -Math.abs(ag.vy); }
     if (ag.fade < 1) ag.fade = Math.min(1, ag.fade + dt * 1.4);
   }
 
@@ -3060,7 +3136,7 @@ function tickAgents(dt){
   for (const p of garden.plants){
     if (!p.eaten) continue;
     if (nowSecPlant >= p.regrowAt){
-      const langPick = ['py','py','py','js','js','js','js','cpp','cpp','cpp','cpp','cpp','cpp'];
+      const langPick = ['py','py','py','js','js','js','js','cpp','cpp','cpp','cpp','go','go'];
       const lang = langPick[Math.floor(Math.random() * langPick.length)];
       const glyphs = LANG_GLYPHS[lang];
       p.lang = lang;
@@ -3069,7 +3145,7 @@ function tickAgents(dt){
       p.eaten = false;
       // Tiny sparkle to telegraph the regrowth.
       const px = (p.x / 1000) * garden.W;
-      const py = Math.min(garden.H - 12, p.y);
+      const py = Math.min(garden.floorY, p.y);
       spawnGardenPop(px, py - 8, '✦', p.color);
     }
   }
@@ -3084,19 +3160,27 @@ function tickAgents(dt){
       it.vy += 320 * dt;
       it.x += it.vx * dt;
       it.y += it.vy * dt;
-      const floor = garden.H - 70;
+      const floor = garden.floorY - 10;
+      const ceil  = (garden.topY ?? 137) + 8;
       if (it.y > floor){ it.y = floor; it.vy *= -0.62; it.vx *= 0.88; }
+      if (it.y < ceil){ it.y = ceil; it.vy = Math.abs(it.vy); }
       if (it.x < 30){ it.x = 30; it.vx = Math.abs(it.vx); }
       if (it.x > garden.W - 30){ it.x = garden.W - 30; it.vx = -Math.abs(it.vx); }
     } else if (it.type === 'snippet'){
       // Snippets drift sideways like the floating background, wrapping at edges.
       it.x += it.vx * dt;
       it.y += Math.sin(it.life * 1.4 + it.x * 0.012) * 6 * dt;
+      const ceil  = (garden.topY ?? 137) + 8;
+      const floor = garden.floorY - 10;
+      if (it.y < ceil){ it.y = ceil; }
+      if (it.y > floor){ it.y = floor; }
       if (it.x < 30){ it.x = 30; it.vx = Math.abs(it.vx); }
       if (it.x > garden.W - 30){ it.x = garden.W - 30; it.vx = -Math.abs(it.vx); }
     } else {
       // food: slight settle to ground
-      const floor = garden.H - 70;
+      const floor = garden.floorY - 10;
+      const ceil  = (garden.topY ?? 137) + 8;
+      if (it.y < ceil){ it.y = ceil; }
       if (it.y < floor){ it.y = Math.min(floor, it.y + 90 * dt); }
     }
   }
@@ -3111,10 +3195,12 @@ function tickAgents(dt){
     er.y += er.vy * dt;
     er.vx *= Math.pow(0.94, dt * 60);
     er.vy *= Math.pow(0.94, dt * 60);
+    const _topErr = (garden.topY ?? 137) + 6;
+    const _floorErr = garden.floorY - 30;
     if (er.x < 60){ er.x = 60; er.vx = Math.abs(er.vx); }
     if (er.x > garden.W - 60){ er.x = garden.W - 60; er.vx = -Math.abs(er.vx); }
-    if (er.y < 130){ er.y = 130; er.vy = Math.abs(er.vy); }
-    if (er.y > garden.H - 90){ er.y = garden.H - 90; er.vy = -Math.abs(er.vy); }
+    if (er.y < _topErr){ er.y = _topErr; er.vy = Math.abs(er.vy); }
+    if (er.y > _floorErr){ er.y = _floorErr; er.vy = -Math.abs(er.vy); }
   }
   garden.errors = garden.errors.filter(er => !er.cleared && er.life < er.maxLife);
 
@@ -3299,7 +3385,7 @@ function saveEggs(){
 function layEggInGarden(dna, parents){
   // Drop near the centre, jittered, on the soil line so it reads "nested".
   const cx = garden.W ? garden.W / 2 : 500;
-  const cy = garden.H ? (garden.H - 90) : 510;
+  const cy = garden.floorY ? (garden.floorY - 30) : 510;
   const egg = {
     id: 'e_' + Date.now() + '_' + Math.floor(Math.random()*9999),
     dna, parents,
@@ -3601,13 +3687,13 @@ function drawGarden(){
   }
   ctx.restore();
 
-  // Ground: dotted soil line
+  // Ground: dotted soil line — single source of truth for the floor.
   ctx.save();
   ctx.strokeStyle = 'rgba(126,201,122,0.18)';
   ctx.setLineDash([1, 5]);
   ctx.beginPath();
-  ctx.moveTo(0, garden.H - 60);
-  ctx.lineTo(garden.W, garden.H - 60);
+  ctx.moveTo(0, garden.floorY);
+  ctx.lineTo(garden.W, garden.floorY);
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.restore();
@@ -3626,7 +3712,7 @@ function drawGarden(){
     ctx.shadowColor = p.color;
     // scale plant to canvas width
     const px = (p.x / 1000) * garden.W;
-    const drawY = Math.min(garden.H - 12, p.y);
+    const drawY = Math.min(garden.floorY, p.y);
     ctx.fillText(p.char, px + sw, drawY);
   }
   ctx.restore();
@@ -4627,7 +4713,16 @@ function humanizeParseError(src, raw){
   if (/\bfn\s+\w+\s*\(/.test(src) && /->/.test(src)){
     return 'Rust detected · not valid JS · drops a polyglot error block';
   }
-  if (/(^|\n)\s*func\s+\w+\s*\(/.test(src) || /\bgo\s+func\b/.test(src)){
+  if (
+    /(^|\n)\s*package\s+\w+/.test(src) ||
+    /(^|\n)\s*func\s+(\(|\w)/.test(src) ||
+    /\bgo\s+func\b/.test(src) ||
+    /\bdefer\s+/.test(src) ||
+    /\bchan\s+/.test(src) ||
+    /:=/.test(src) && /\bfunc\b/.test(src) ||
+    /\bfmt\.\w+\(/.test(src) ||
+    /\binterface\s*\{\s*\}/.test(src)
+  ){
     return 'Go detected · not valid JS · drops a polyglot error block';
   }
   // Ruby before SQL — `.select { |n|` would otherwise trip a case-insensitive SELECT.
@@ -5046,6 +5141,26 @@ function renderMemorial(){
   }).join('');
 }
 state.memorial = loadMemorial();
+// Promote any orphaned dead creatures (saved with alive:false but missed the
+// removal-and-record path because the user refreshed mid-death). Without this,
+// names like "Durf the Third" would vanish from the roster but never surface in
+// the memorial wall.
+if (Array.isArray(__orphanDead) && __orphanDead.length){
+  const recorded = new Set(state.memorial.map(m => m.id));
+  let promoted = 0;
+  for (const c of __orphanDead){
+    if (!c || !c.id || recorded.has(c.id)) continue;
+    recordMemorial(c);
+    recorded.add(c.id);
+    promoted++;
+  }
+  if (promoted){
+    console.log('[code-creatures] promoted', promoted, 'orphan dead → memorial');
+  }
+  // Strip dead from disk now that memorial owns them.
+  saveCreatures();
+  __orphanDead = [];
+}
 renderMemorial();
 refreshDnaHud(false);
 
@@ -5061,7 +5176,7 @@ function runSurvival(){
     for (const c of died){
       const ag = garden.agents.get(c.id);
       const x = ag ? ag.x : (60 + Math.random() * (garden.W - 120));
-      const y = ag ? ag.y - 4 : (garden.H - 100);
+      const y = ag ? ag.y - 4 : (garden.floorY ? garden.floorY - 40 : 410);
       garden.graves.push({ x, y, name: c.name, born: c.born, diedAt: c.diedAt, cause: c.causeOfDeath, life: 0 });
       spawnGardenPop(x, y - 30, c.causeOfDeath === 'starvation' ? '✗ STARVED' : '✗ OLD AGE', '#ff5e6c');
       toast(`${c.name} died of ${c.causeOfDeath}`, 'warn');
