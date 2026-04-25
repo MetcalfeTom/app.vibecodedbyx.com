@@ -1887,11 +1887,21 @@ function loadCreatures(){
     }
     const alive = [];
     __orphanDead = [];
+    // Defensive: a corrupt save (or a future bug that double-pushes) could
+    // land the same creature id in the array twice. Building from a Map
+    // keyed by id means syncMyAgents can never see a phantom second slot
+    // and the "yours" counter can never disagree with the truth on disk.
+    const seenIds = new Set();
+    let duplicates = 0;
     // Migrate older creatures: ensure survival fields exist
     for (const c of arr){
       if (c && c.alive === false){
         __orphanDead.push(c);
         continue;
+      }
+      if (c && c.id){
+        if (seenIds.has(c.id)){ duplicates++; continue; }
+        seenIds.add(c.id);
       }
       if (typeof c.hp !== 'number') c.hp = 100;
       if (typeof c.hunger !== 'number') c.hunger = 25;
@@ -1928,7 +1938,7 @@ function loadCreatures(){
       }
       alive.push(c);
     }
-    __ccLog('loadCreatures:OK', { aliveCount: alive.length, orphanDeadCount: __orphanDead.length, ids: alive.map(c => c.id) });
+    __ccLog('loadCreatures:OK', { aliveCount: alive.length, orphanDeadCount: __orphanDead.length, duplicatesDropped: duplicates, ids: alive.map(c => c.id) });
     return alive;
   } catch(e){
     __ccLog('loadCreatures:FAILED', { err: String(e && e.message || e) });
@@ -2588,16 +2598,41 @@ function makeAgent(c, isGuest = false, ownerId = null){
 }
 
 function syncMyAgents(){
-  const have = new Set(state.creatures.map(c => c.id));
+  // Defensive dedup: if state.creatures ever ended up with two entries
+  // sharing an id (corrupt save, double-push during a race, etc.) the agent
+  // map would silently grow and the "yours" counter would inflate. Collapse
+  // by id BEFORE building the live set so the counter can never lie.
+  const byId = new Map();
+  let phantomDups = 0;
+  for (const c of state.creatures){
+    if (!c || !c.id) continue;
+    if (byId.has(c.id)){ phantomDups++; continue; }
+    byId.set(c.id, c);
+  }
+  if (phantomDups){
+    __ccLog('syncMyAgents:DUPLICATES_DROPPED', { dropped: phantomDups, ids: [...byId.keys()] });
+    state.creatures = [...byId.values()];
+  }
+  const have = byId;
   // remove agents whose creature is gone
   for (const id of [...garden.agents.keys()]){
     if (!have.has(id)) garden.agents.delete(id);
   }
   // add new
-  for (const c of state.creatures){
+  for (const c of have.values()){
     const ex = garden.agents.get(c.id);
     if (!ex) garden.agents.set(c.id, makeAgent(c, false, null));
     else ex.creature = c; // refresh creature data (xp etc)
+  }
+  // Tripwire: if the agent map ever drifts past the truth on disk, surface it
+  // in the persistence log so the next __cc_dump catches it red-handed.
+  if (garden.agents.size !== have.size){
+    __ccLog('syncMyAgents:SIZE_MISMATCH', {
+      agents: garden.agents.size,
+      creatures: have.size,
+      agentIds: [...garden.agents.keys()],
+      creatureIds: [...have.keys()],
+    });
   }
 }
 
@@ -3756,6 +3791,7 @@ function hatchEggToCreature(egg){
     infectedUntil: 0,
     lastBredAt: 0,
   };
+  __ccLog('hatchEggToCreature:push', { id: c.id, name: c.name, before: state.creatures.length });
   state.creatures.push(c);
   saveCreatures();
   notifyGardenStateChanged();
@@ -3854,6 +3890,7 @@ function autoBreedPair(A, B, nowSec){
     infectedUntil: 0,
     lastBredAt: 0,
   };
+  __ccLog('autoBreedPair:push', { id: child.id, name: child.name, parents: [a.id, b.id], before: state.creatures.length });
   state.creatures.push(child);
   saveCreatures();
   // Visual celebration: hearts at the parents, sparkle burst at the child
@@ -5314,6 +5351,14 @@ function saveMemorial(){
   try { localStorage.setItem(MEMORIAL_KEY, JSON.stringify(state.memorial)); } catch(e){}
 }
 function recordMemorial(c){
+  if (!c || !c.id) return;
+  // Internal dedup: a given creature id can only ever produce one tombstone,
+  // no matter how many times recordMemorial fires for it. Prevents the memorial
+  // wall from growing on every refresh when orphan promotion + survivalTick +
+  // pagehide flush all race over the same dying creature.
+  for (const m of state.memorial){
+    if (m && m.id === c.id) return;
+  }
   const lifespan = c.born ? (new Date(c.diedAt || Date.now()).getTime() - new Date(c.born).getTime()) / 60000 : 0;
   state.memorial.unshift({
     id: c.id,
