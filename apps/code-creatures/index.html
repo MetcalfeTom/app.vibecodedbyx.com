@@ -1485,14 +1485,118 @@ function getParental(creature){
   if (k === 'adolescent' || k === 'forager') return Math.round(base * 0.45);
   return 0;
 }
-// Intelligence — modulates self-care (food-seeking threshold, egg tending)
+// Intelligence — modulates self-care (food-seeking threshold, egg tending).
+// Eating language plants raises a creature's effective intel: each known
+// language adds a flat bonus, and language *diversity* compounds it.
 function getIntel(creature){
   if (!creature || creature.alive === false) return 0;
   const k = getStage(creature);
   const base = statsFromDna(creature.dna).intel;
-  if (k === 'adult' || k === 'elder') return base;
-  if (k === 'adolescent' || k === 'forager') return Math.round(base * 0.55);
-  return Math.round(base * 0.25);
+  let stageMult = 1;
+  if (k === 'adolescent' || k === 'forager') stageMult = 0.55;
+  else if (k !== 'adult' && k !== 'elder') stageMult = 0.25;
+  const langBoost = languageBoost(creature);
+  return Math.round(base * stageMult + langBoost);
+}
+
+// Language palette — Python (: λ #), JS ({ } => ;), C++ (* & :: ++ << >>).
+const LANG_GLYPHS = {
+  py:  [':','λ','#','_','.','"',"'"],
+  js:  ['{','}','=>',';','(',')','=','.'],
+  cpp: ['*','&','::','++','<<','>>','->','&&'],
+};
+const LANG_COLORS = {
+  py:  { main:'#5fc0e0', accent:'#9bdcff' }, // python blue
+  js:  { main:'#f5b362', accent:'#ffd64a' }, // js yellow
+  cpp: { main:'#c986e0', accent:'#e4b5f5' }, // c++ violet
+};
+const PLANT_REGROW_MIN = 22, PLANT_REGROW_MAX = 46; // seconds
+function langOfChar(ch){
+  for (const k of ['py','js','cpp']){
+    if (LANG_GLYPHS[k].indexOf(ch) >= 0) return k;
+  }
+  return null;
+}
+function langOfText(text){
+  // Heuristic: choose dominant language by counting language-specific tokens.
+  const t = String(text || '');
+  let py = 0, js = 0, cpp = 0;
+  if (/(^|\n)\s*def\s+\w+\s*\(/.test(t)) py += 4;
+  if (/(^|\n)\s*class\s+\w+\s*[:(]/.test(t)) py += 2;
+  if (/\bimport\s+\w+/.test(t)) py += 2;
+  if (/\bfrom\s+\w+\s+import\b/.test(t)) py += 3;
+  if (/\bself\b/.test(t)) py += 2;
+  if (/\bprint\(/.test(t)) py += 1;
+  if (/\blambda\b/.test(t)) py += 2;
+  if (/\bf"/.test(t)) py += 1;
+  if (/=>/.test(t)) js += 3;
+  if (/\bconst\s+|\blet\s+|\bvar\s+/.test(t)) js += 3;
+  if (/\bfunction\s*\(/.test(t)) js += 2;
+  if (/\basync\s+function\b/.test(t)) js += 2;
+  if (/\bawait\s+/.test(t)) js += 1;
+  if (/`[^`]*\${/.test(t)) js += 2;
+  if (/console\.\w+\(/.test(t)) js += 2;
+  if (/document\.|window\./.test(t)) js += 1;
+  if (/#include\s*</.test(t)) cpp += 5;
+  if (/\bstd::/.test(t)) cpp += 4;
+  if (/->/.test(t)) cpp += 1;
+  if (/<<|>>/.test(t)) cpp += 2;
+  if (/\btemplate\s*</.test(t)) cpp += 3;
+  if (/::/.test(t)) cpp += 1;
+  if (/\bint\s+main\s*\(/.test(t)) cpp += 4;
+  // Glyph distribution as final tiebreaker
+  for (const ch of t){
+    const k = langOfChar(ch);
+    if (k === 'py')  py  += 0.05;
+    if (k === 'js')  js  += 0.05;
+    if (k === 'cpp') cpp += 0.05;
+  }
+  const score = { py, js, cpp };
+  let best = null, bestV = 0.5; // require minimum signal
+  for (const k of Object.keys(score)){
+    if (score[k] > bestV){ bestV = score[k]; best = k; }
+  }
+  return best;
+}
+function dominantLang(creature){
+  // A creature "knows" a language once it has eaten ≥2 of its glyphs.
+  // The dominant language is the one with the highest count past that
+  // threshold; ties fall back to null (mixed creature uses base palette).
+  const lang = creature && creature.lang;
+  if (!lang) return null;
+  const order = ['py','js','cpp'];
+  let best = null, bestN = 1; // strict > 1
+  for (const k of order){
+    const n = lang[k] || 0;
+    if (n > bestN){ bestN = n; best = k; }
+  }
+  return best;
+}
+function languageDiversity(creature){
+  // How many distinct languages this creature has tasted (≥1 glyph each).
+  if (!creature || !creature.lang) return 0;
+  let n = 0;
+  for (const k of ['py','js','cpp']) if ((creature.lang[k] || 0) > 0) n++;
+  return n;
+}
+function languageBoost(creature){
+  // Raw intelligence boost from language knowledge — sum of glyph counts
+  // (capped) plus a diversity multiplier for polyglots.
+  if (!creature || !creature.lang) return 0;
+  const py = Math.min(8, creature.lang.py || 0);
+  const js = Math.min(8, creature.lang.js || 0);
+  const cpp = Math.min(8, creature.lang.cpp || 0);
+  const total = py + js + cpp;
+  const div = languageDiversity(creature); // 0..3
+  return total * 0.35 + (div >= 2 ? div * 1.2 : 0);
+}
+// Polyglots are smarter but their immune system can't keep up — every extra
+// language opens another attack surface. Returns 0..1 where 1 = max risk.
+function virusRiskBonus(creature){
+  if (!creature || !creature.lang) return 0;
+  const div = languageDiversity(creature);
+  const total = (creature.lang.py||0) + (creature.lang.js||0) + (creature.lang.cpp||0);
+  return Math.min(1, div * 0.18 + total * 0.025);
 }
 
 // ---- Survival tick ----
@@ -1597,6 +1701,12 @@ function loadCreatures(){
       if (!c.born) c.born = new Date().toISOString();
       if (typeof c.infectedUntil !== 'number') c.infectedUntil = 0;
       if (typeof c.lastBredAt !== 'number') c.lastBredAt = 0;
+      if (!c.lang || typeof c.lang !== 'object') c.lang = { py:0, js:0, cpp:0 };
+      else {
+        if (typeof c.lang.py !== 'number') c.lang.py = 0;
+        if (typeof c.lang.js !== 'number') c.lang.js = 0;
+        if (typeof c.lang.cpp !== 'number') c.lang.cpp = 0;
+      }
       // Migrate older saves: if a creature's age already exceeds the lifespan
       // (because aging didn't exist when they were born), rebase to a fresh life.
       const ageMs = Date.now() - new Date(c.born).getTime();
@@ -1769,7 +1879,19 @@ function drawCreatureBody(ctx, W, H, creature, stage, opts){
     ['cube',     dig, '#5fc0e0', ['[',']','=','#','■'],          '|', '#9bdcff'], // num-cyan
   ];
   palette.sort((a, b) => b[1] - a[1]);
-  const [shape, , mainColor, fillChars, outlineChar, accentColor] = palette[0];
+  let [shape, , mainColor, fillChars, outlineChar, accentColor] = palette[0];
+  // Language affinity overrides: if this creature has eaten enough of one
+  // language's syntax plants, its body now renders that language's glyphs
+  // and adopts its signature color (Python blue / JS yellow / C++ violet).
+  const lang = dominantLang(creature);
+  if (lang){
+    fillChars = LANG_GLYPHS[lang].slice();
+    mainColor = LANG_COLORS[lang].main;
+    accentColor = LANG_COLORS[lang].accent;
+    if (lang === 'cpp') outlineChar = '*';
+    else if (lang === 'py') outlineChar = ':';
+    else if (lang === 'js') outlineChar = ';';
+  }
 
   // Stage drives grid size
   let gridW, gridH;
@@ -2334,6 +2456,7 @@ function placeItem(type, x, y, extra){
     claimedBy: null,
     bounce: 0,
     text: extra && extra.text || null,
+    lang: extra && extra.lang || null,
   });
 }
 
@@ -2342,15 +2465,18 @@ function placeItem(type, x, y, extra){
 // "code-shaped" character classes.
 function spawnSnippetsFromText(text){
   const trimmed = (text || '').trim().slice(0, 60);
-  if (!garden.W || !garden.H) return 0;
+  if (!garden.W || !garden.H) return { count:0, lang:null };
+  const lang = langOfText(text || '');
   const count = Math.max(1, Math.min(3, Math.round(trimmed.length / 16)));
   for (let i = 0; i < count; i++){
     const x = 80 + Math.random() * (garden.W - 160);
     const y = 140 + Math.random() * (garden.H - 240);
-    placeItem('snippet', x, y, { text: trimmed || '/* ok */' });
-    spawnGardenPop(x, y - 22, '✓ snippet', '#7ec97a');
+    placeItem('snippet', x, y, { text: trimmed || '/* ok */', lang });
+    const col = lang ? LANG_COLORS[lang].main : '#7ec97a';
+    const tag = lang ? '✓ ' + lang.toUpperCase() + ' snippet' : '✓ snippet';
+    spawnGardenPop(x, y - 22, tag, col);
   }
-  return count;
+  return { count, lang };
 }
 
 // Spawn a red error block on bad syntax. It pollutes the garden until a
@@ -2410,6 +2536,38 @@ function nearestItem(ag, kind, ignoreClaim){
   return best;
 }
 
+// Plant grazing: creatures wander to language plants, consume them, and
+// the plant's glyph is appended to their DNA — which mutates their sprite
+// to render that language's syntax. Plants regrow at the same spot after
+// PLANT_REGROW seconds.
+function nearestPlant(ag){
+  let best = null, bestD = Infinity;
+  for (const p of garden.plants){
+    if (p.eaten) continue;
+    const px = (p.x / 1000) * garden.W;
+    const py = Math.min(garden.H - 12, p.y);
+    const d = (px - ag.x)*(px - ag.x) + (py - ag.y)*(py - ag.y);
+    if (d < bestD){ bestD = d; best = p; }
+  }
+  return best;
+}
+function eatPlant(c, plant){
+  if (!c.alive || !plant || plant.eaten) return;
+  // Append plant glyph to creature DNA, sliding-window cap at 32.
+  const ch = plant.char;
+  let dna = (c.dna || '') + ch;
+  if (dna.length > 32) dna = dna.slice(dna.length - 32);
+  c.dna = dna;
+  // Track per-language taste counter — drives sprite palette + virus risk.
+  c.lang = c.lang || { py:0, js:0, cpp:0 };
+  if (plant.lang) c.lang[plant.lang] = (c.lang[plant.lang] || 0) + 1;
+  // Hunger relief proportionate to plant size, with small XP nibble.
+  feedCreature(c, 14, 4);
+  plant.eaten = true;
+  plant.regrowAt = performance.now() / 1000 + (PLANT_REGROW_MIN + Math.random() * (PLANT_REGROW_MAX - PLANT_REGROW_MIN));
+  saveCreatures();
+}
+
 function nearestCreature(hz){
   // viruses/worms target nearest of mine (don't attack guests)
   let best = null, bestD = Infinity;
@@ -2430,18 +2588,23 @@ function spawnPlants(){
   garden.plants = [];
   const count = 28;
   // Plant glyphs are language syntax — Python (: λ #), JS ({ } => ;), C++ (* & :: ++ << >>).
-  const chars = [':','λ','#','{','}','=>',';','*','&','::','++','<<','>>'];
-  const palette = ['#7ec97a','#5fc0e0','#c986e0','#f5b362','#a8e89a'];
+  const langPick = ['py','py','py','js','js','js','js','cpp','cpp','cpp','cpp','cpp','cpp'];
   const rng = mulberry32(0x100ddee);
   for (let i = 0; i < count; i++){
+    const lang = langPick[Math.floor(rng() * langPick.length)];
+    const glyphs = LANG_GLYPHS[lang];
+    const ch = glyphs[Math.floor(rng() * glyphs.length)];
     garden.plants.push({
       x: rng() * garden.W,
       y: garden.H - 8 - rng() * 70,
-      char: chars[Math.floor(rng() * chars.length)],
-      color: palette[Math.floor(rng() * palette.length)],
+      char: ch,
+      lang,
+      color: LANG_COLORS[lang].main,
       size: 14 + rng() * 12,
       sway: rng() * Math.PI * 2,
       swaySpeed: 0.3 + rng() * 0.7,
+      eaten: false,
+      regrowAt: 0,
     });
   }
   garden.snippets = [];
@@ -2638,6 +2801,13 @@ function tickAgents(dt){
     if (isMine && !targetItem && !targetEgg && !targetError && !infected && Math.random() < 0.4 && c.hp > 60){
       targetItem = nearestItem(ag, 'toy');
     }
+    // Graze on syntax plants — only if no other targets, somewhat hungry,
+    // and the creature is at least past the cell stage.
+    let targetPlant = null;
+    if (isMine && !targetItem && !targetEgg && !targetError && !infected
+        && c.hunger > 24 && getStage(c) !== 'cell'){
+      targetPlant = nearestPlant(ag);
+    }
 
     if (targetItem){
       const dx = targetItem.x - ag.x;
@@ -2664,10 +2834,23 @@ function tickAgents(dt){
       if (d < ITEM_TYPES[targetItem.type].radius + 18){
         const cfg = ITEM_TYPES[targetItem.type];
         feedCreature(c, cfg.hungerOff, cfg.xp);
+        // Typed snippets carry a language flavor — eating one teaches the
+        // creature that language (counts as a few plant glyphs at once).
+        if (targetItem.type === 'snippet' && targetItem.lang){
+          c.lang = c.lang || { py:0, js:0, cpp:0 };
+          c.lang[targetItem.lang] = (c.lang[targetItem.lang] || 0) + 2;
+          // Splice a representative glyph into the DNA so the sprite shifts.
+          const glyphs = LANG_GLYPHS[targetItem.lang];
+          const ch = glyphs[Math.floor(Math.random() * glyphs.length)];
+          let dna = (c.dna || '') + ch;
+          if (dna.length > 32) dna = dna.slice(dna.length - 32);
+          c.dna = dna;
+        }
         targetItem.consumed = true;
         ag.bounce = 1;
         const tag = targetItem._stolenBy === ag.id ? ' STOLEN' : '';
-        spawnGardenPop(targetItem.x, targetItem.y, '+' + cfg.xp + (cfg.kind === 'food' ? ' xp · -hunger' : ' xp') + tag, infected ? '#7ec97a' : cfg.color);
+        const langTag = (targetItem.type === 'snippet' && targetItem.lang) ? ' · ' + targetItem.lang.toUpperCase() : '';
+        spawnGardenPop(targetItem.x, targetItem.y, '+' + cfg.xp + (cfg.kind === 'food' ? ' xp · -hunger' : ' xp') + tag + langTag, infected ? '#7ec97a' : cfg.color);
         saveCreatures();
       }
     } else if (targetEgg){
@@ -2731,6 +2914,25 @@ function tickAgents(dt){
           saveCreatures();
         }
       }
+    } else if (targetPlant){
+      // Walk to the plant, graze it on contact — DNA mutates + sprite shifts.
+      const px = (targetPlant.x / 1000) * garden.W;
+      const py = Math.min(garden.H - 12, targetPlant.y);
+      const dx = px - ag.x;
+      const dy = py - ag.y;
+      const d = Math.sqrt(dx*dx + dy*dy) || 1;
+      const sp = 56;
+      ag.vx = (dx/d) * sp;
+      ag.vy = (dy/d) * sp * 0.55;
+      ag.facing = ag.vx < 0 ? -1 : 1;
+      ag.wanderT = 0.6;
+      if (d < 18){
+        const lang = targetPlant.lang;
+        eatPlant(c, targetPlant);
+        ag.bounce = 1;
+        const col = lang ? LANG_COLORS[lang].main : '#7ec97a';
+        spawnGardenPop(px, py - 18, '+DNA · ' + (lang ? lang.toUpperCase() : ''), col);
+      }
     } else {
       ag.wanderT -= dt;
       ag.pauseT -= dt;
@@ -2763,6 +2965,27 @@ function tickAgents(dt){
     if (ag.y < 120){ ag.y = 120; ag.vy = Math.abs(ag.vy); }
     if (ag.y > garden.H - 80){ ag.y = garden.H - 80; ag.vy = -Math.abs(ag.vy); }
     if (ag.fade < 1) ag.fade = Math.min(1, ag.fade + dt * 1.4);
+  }
+
+  // Plants: regrow eaten plants once their cooldown elapses. The new plant
+  // re-rolls language + glyph from the same anchor so the garden's syntax
+  // mix shifts gradually over time.
+  const nowSecPlant = performance.now() / 1000;
+  for (const p of garden.plants){
+    if (!p.eaten) continue;
+    if (nowSecPlant >= p.regrowAt){
+      const langPick = ['py','py','py','js','js','js','js','cpp','cpp','cpp','cpp','cpp','cpp'];
+      const lang = langPick[Math.floor(Math.random() * langPick.length)];
+      const glyphs = LANG_GLYPHS[lang];
+      p.lang = lang;
+      p.char = glyphs[Math.floor(Math.random() * glyphs.length)];
+      p.color = LANG_COLORS[lang].main;
+      p.eaten = false;
+      // Tiny sparkle to telegraph the regrowth.
+      const px = (p.x / 1000) * garden.W;
+      const py = Math.min(garden.H - 12, p.y);
+      spawnGardenPop(px, py - 8, '✦', p.color);
+    }
   }
 
   // Items physics
@@ -2873,9 +3096,14 @@ function tickAgents(dt){
         // Natural immunity: a healthy adult/elder shrugs off the bite — virus
         // can't inject, worm only nicks them. Their immune system fries the
         // hazard on contact instead.
-        const immune = isFirewallStage(c) && c.alive
+        // Polyglot creatures are smart but fragile — every extra language
+        // they've ingested raises virus risk, sometimes failing immunity
+        // even on a healthy adult.
+        const risk = virusRiskBonus(c);
+        const baseImmune = isFirewallStage(c) && c.alive
           && c.hp >= IMMUNITY_HP && c.hunger <= IMMUNITY_HUNGER
           && (!c.infectedUntil || (performance.now()/1000) >= c.infectedUntil);
+        const immune = baseImmune && Math.random() > risk;
         if (immune){
           // small graze damage, no infection, hazard purged
           c.hp = Math.max(0, c.hp - Math.min(4, cfg.dmg * 0.2));
@@ -2887,10 +3115,12 @@ function tickAgents(dt){
           c.hp = Math.max(0, c.hp - cfg.dmg);
           c.hunger = Math.min(100, c.hunger + cfg.hungerKick);
           if (hz.type === 'virus'){
-            // INFECTION: virus injects, creature goes feral
-            const infectSec = cfg.infect || 14;
+            // INFECTION: virus injects, creature goes feral. Polyglot
+            // creatures suffer longer infections — more attack surface.
+            const infectSec = (cfg.infect || 14) * (1 + risk * 0.8);
             c.infectedUntil = (performance.now() / 1000) + infectSec;
-            spawnGardenPop(target.x, target.y - 28, 'INFECTED', '#7ec97a');
+            const tag = risk > 0.4 ? 'INFECTED · POLYGLOT' : 'INFECTED';
+            spawnGardenPop(target.x, target.y - 28, tag, '#7ec97a');
             spawnGardenPop(target.x, target.y - 12, '−' + cfg.dmg + ' hp', '#ff3b4a');
           } else {
             spawnGardenPop(target.x, target.y - 28, '−' + cfg.dmg + ' hp', '#ff9b3a');
@@ -3275,6 +3505,7 @@ function drawGarden(){
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (const p of garden.plants){
+    if (p.eaten) continue;
     const sw = Math.sin(t * p.swaySpeed + p.sway) * 4;
     ctx.font = `${Math.floor(p.size)}px 'JetBrains Mono', monospace`;
     ctx.fillStyle = p.color;
@@ -3283,8 +3514,7 @@ function drawGarden(){
     ctx.shadowColor = p.color;
     // scale plant to canvas width
     const px = (p.x / 1000) * garden.W;
-    const py = garden.H - 10 - (1000 - p.y) * 0; // p.y already grounded
-    const drawY = Math.min(garden.H - 12, p.y - (garden.H * 0) ); // keep simple
+    const drawY = Math.min(garden.H - 12, p.y);
     ctx.fillText(p.char, px + sw, drawY);
   }
   ctx.restore();
@@ -4282,8 +4512,9 @@ function runSyntax(text){
     errMsg = (e && e.message) || 'syntax error';
   }
   if (ok){
-    const n = spawnSnippetsFromText(src);
-    setSyntaxState('ok', `✓ valid · spawned ${n} snippet${n===1?'':'s'}`);
+    const { count, lang } = spawnSnippetsFromText(src);
+    const lt = lang ? ` · ${lang.toUpperCase()} flavor` : '';
+    setSyntaxState('ok', `✓ valid · spawned ${count} snippet${count===1?'':'s'}${lt}`);
   } else {
     spawnErrorBlock(errMsg);
     setSyntaxState('err', '✗ ' + errMsg.slice(0, 60));
