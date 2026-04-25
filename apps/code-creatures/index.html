@@ -3263,7 +3263,9 @@ function placeDormantEgg(x, y){
     dormant: true,           // waiting on DNA before incubation begins
   };
   garden.eggs.push(egg);
-  // Don't persist — dormant eggs are abandoned if user cancels
+  // Persist immediately so a dormant egg survives a page refresh —
+  // the player can come back and finish naming its DNA later.
+  saveEggs();
   spawnGardenPop(egg.x, egg.y - 22, '🥚 placed', '#ffd170');
   spawnGardenPop(egg.x, egg.y + 6,  'fill DNA…', '#5fc0e0');
   return egg;
@@ -3274,6 +3276,7 @@ function removeDormantEgg(eggId){
   const egg = garden.eggs[i];
   if (!egg.dormant) return;
   garden.eggs.splice(i, 1);
+  saveEggs();
   spawnGardenPop(egg.x, egg.y, '× cancelled', '#ff7e9a');
 }
 function tickEggs(dt){
@@ -4505,6 +4508,46 @@ function setSyntaxState(state, msg){
   if (state) syntaxStatus.classList.add(state);
   syntaxStatus.textContent = msg;
 }
+// Translate V8's cryptic parse errors into human-readable messages when the
+// snippet is obviously a different language. Otherwise the players see things
+// like `Private field '#include' must be declared in an enclosing class` for
+// a perfectly normal C++ #include directive, which is misleading.
+function humanizeParseError(src, raw){
+  const lang = langOfText(src);
+  // Strong language fingerprints — if any match, the V8 message is noise.
+  if (/#include\s*</.test(src) || /\bstd::/.test(src) || /\btemplate\s*</.test(src)){
+    return 'C++ detected · not valid JS · drops a polyglot error block';
+  }
+  if (/(^|\n)\s*def\s+\w+\s*\(/.test(src) || /\bself\b/.test(src) || /(^|\n)\s*from\s+\w+\s+import\b/.test(src)){
+    return 'Python detected · not valid JS · drops a polyglot error block';
+  }
+  if (/\bfn\s+\w+\s*\(/.test(src) && /->/.test(src)){
+    return 'Rust detected · not valid JS · drops a polyglot error block';
+  }
+  if (/(^|\n)\s*func\s+\w+\s*\(/.test(src) || /\bgo\s+func\b/.test(src)){
+    return 'Go detected · not valid JS · drops a polyglot error block';
+  }
+  // Ruby before SQL — `.select { |n|` would otherwise trip a case-insensitive SELECT.
+  if (/\.\w+\s*\{\s*\|/.test(src) || /\bdo\s*\|\w+\|/.test(src)){
+    return 'Ruby detected · not valid JS · drops a polyglot error block';
+  }
+  // Match SQL only when keywords are upper-case at a clause boundary, so we
+  // don't false-trigger on JS/Ruby method names like `.select`.
+  if (/(^|\n|\s)(SELECT|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+TABLE)\b/.test(src)){
+    return 'SQL detected · not valid JS · drops a polyglot error block';
+  }
+  if (/^\s*for\s+\w+\s+in\s+.*;\s*do\b/.test(src) || /^\s*curl\s+-/.test(src)){
+    return 'Bash detected · not valid JS · drops a polyglot error block';
+  }
+  if (/::\s*\w+\s*->/.test(src) || /^\s*factorial\s*::/.test(src)){
+    return 'Haskell detected · not valid JS · drops a polyglot error block';
+  }
+  if (lang && lang !== 'js'){
+    return `${lang.toUpperCase()} detected · not valid JS · drops a polyglot error block`;
+  }
+  // Otherwise, pass V8's message through but trim noisy prefixes.
+  return String(raw || 'syntax error').replace(/^SyntaxError:\s*/, '');
+}
 function runSyntax(text){
   const src = (text || '').trim();
   if (!src){
@@ -4514,20 +4557,21 @@ function runSyntax(text){
   // Try to parse as a JS function body. Real eval is NEVER performed —
   // we only check syntax. This is sandboxed: new Function() only constructs
   // the function object; we don't call it.
-  let ok = false, errMsg = '';
+  let ok = false, rawMsg = '';
   try {
     new Function(src);
     ok = true;
   } catch (e) {
-    errMsg = (e && e.message) || 'syntax error';
+    rawMsg = (e && e.message) || 'syntax error';
   }
   if (ok){
     const { count, lang } = spawnSnippetsFromText(src);
     const lt = lang ? ` · ${lang.toUpperCase()} flavor` : '';
     setSyntaxState('ok', `✓ valid · spawned ${count} snippet${count===1?'':'s'}${lt}`);
   } else {
-    spawnErrorBlock(errMsg);
-    setSyntaxState('err', '✗ ' + errMsg.slice(0, 60));
+    const friendly = humanizeParseError(src, rawMsg);
+    spawnErrorBlock(friendly);
+    setSyntaxState('err', '✗ ' + friendly.slice(0, 64));
   }
 }
 function autosizeSyntax(){
@@ -4714,17 +4758,53 @@ eggInput.addEventListener('keydown', (e) => {
 eggHatchBtn.onclick = hatchFromEggModal;
 eggCancelBtn.onclick = closeEggModal;
 eggModalClose.onclick = closeEggModal;
-// Random-snippet button: pulls a snippet from SX_SNIPPETS, strips whitespace,
-// trims to HATCH_TARGET, drops it into the egg input → DNA fills instantly.
+// Egg-modal snippet pool — distinct from the chat-bar SX_SNIPPETS (those are
+// full multi-line examples meant to spawn food/error blocks). These are tight
+// one-line JS gene-fragments that fit inside the 32-char DNA budget when their
+// whitespace is stripped, so a single click can seed a near-complete egg.
+const EGG_SNIPPETS = [
+  'Promise.all([fetchA(),fetchB()])',
+  'arr.reduce((a,b) => a*b, 1n)',
+  'Math.hypot(p.x-q.x, p.y-q.y)',
+  'Object.values(s).filter(Boolean)',
+  'Number.parseFloat(input) || 0',
+  'requestAnimationFrame(tick)',
+  'cells.flatMap(row => row.kids)',
+  'tokens.indexOf(needle) >>> 0',
+  'String.fromCharCode(0xfe, c)',
+  'Math.imul(seed, 0x9e3779b9)',
+  'parseInt(token.slice(2), 16)',
+  'Array.from(node.attributes)',
+  'arr.findLast(x => x.live) ?? 0',
+  'JSON.parse(state.snapshot)',
+  'cache.has(k) ? cache.get(k) : 0',
+  'tags.flat(Infinity).join("/")',
+  'cells[(i+1) % cells.length]',
+  'fetch(url).then(r => r.json())',
+  'navigator.clipboard.readText()',
+  'Object.freeze({...defaults})',
+  'globalThis.structuredClone(o)',
+  'list?.[0]?.children?.length',
+  'matrix[i][j] ^ matrix[j][i]',
+  'state.tick++; render(state)',
+  'while(--n) seed = seed*16807',
+  'new Map(new Set([...a, ...b]))',
+  'event.preventDefault(); return',
+  'crypto.getRandomValues(buf)',
+  'arr.toSorted((a,b) => a.h-b.h)',
+  'els.forEach(e => e.dispatch())',
+];
+// Random-snippet button: pulls from EGG_SNIPPETS, strips whitespace, caps at
+// HATCH_TARGET (every entry already fits) → drops it into the egg input.
 const eggSnippetBtn = document.getElementById('eggSnippetBtn');
 let lastEggSnipIdx = -1;
 eggSnippetBtn?.addEventListener('click', () => {
-  let i = Math.floor(Math.random() * SX_SNIPPETS.length);
-  if (SX_SNIPPETS.length > 1 && i === lastEggSnipIdx){
-    i = (i + 1) % SX_SNIPPETS.length;
+  let i = Math.floor(Math.random() * EGG_SNIPPETS.length);
+  if (EGG_SNIPPETS.length > 1 && i === lastEggSnipIdx){
+    i = (i + 1) % EGG_SNIPPETS.length;
   }
   lastEggSnipIdx = i;
-  const compact = SX_SNIPPETS[i].replace(/\s+/g, '').slice(0, HATCH_TARGET);
+  const compact = EGG_SNIPPETS[i].replace(/\s+/g, '').slice(0, HATCH_TARGET);
   eggInput.value = compact;
   eggInput.focus();
   refreshEggUI();
