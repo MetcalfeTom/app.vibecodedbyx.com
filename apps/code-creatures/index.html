@@ -1810,12 +1810,29 @@ function generateName(dna){
 // the roster. We strip them on load and promote any that are missing from the
 // memorial wall (boot script does the promotion once memorial is loaded).
 let __orphanDead = [];
+// --- Persistence diagnostics ---
+// A small in-memory ring of save/load events the user (or a debugger) can dump
+// from the console via `window.__cc_persistLog`. Each entry: { t, kind, info }.
+const __ccPersistLog = [];
+function __ccLog(kind, info){
+  const entry = { t: new Date().toISOString(), kind, info };
+  __ccPersistLog.push(entry);
+  if (__ccPersistLog.length > 200) __ccPersistLog.shift();
+  try { console.log('[code-creatures]', kind, info); } catch(e){}
+}
+try {
+  if (typeof window !== 'undefined') window.__cc_persistLog = __ccPersistLog;
+} catch(e){}
 function loadCreatures(){
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+    __ccLog('loadCreatures:read', { hasRaw: !!raw, length: raw ? raw.length : 0, preview: raw ? raw.slice(0, 80) : '' });
     if (!raw) return [];
     const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return [];
+    if (!Array.isArray(arr)){
+      __ccLog('loadCreatures:NOT_ARRAY', { typeofArr: typeof arr });
+      return [];
+    }
     const alive = [];
     __orphanDead = [];
     // Migrate older creatures: ensure survival fields exist
@@ -1859,8 +1876,10 @@ function loadCreatures(){
       }
       alive.push(c);
     }
+    __ccLog('loadCreatures:OK', { aliveCount: alive.length, orphanDeadCount: __orphanDead.length, ids: alive.map(c => c.id) });
     return alive;
   } catch(e){
+    __ccLog('loadCreatures:FAILED', { err: String(e && e.message || e) });
     console.error('[code-creatures] loadCreatures FAILED — roster lost:', e);
     return [];
   }
@@ -1869,19 +1888,41 @@ function loadCreatures(){
 // After this flag flips true (set at the bottom of the boot script), saves
 // are unrestricted — so a player who loses every creature can still see the
 // memorial. Inside the window, any rogue early save can't clobber disk.
+//
+// Refined check: we only block if disk currently has *more alive creatures*
+// than memory — the prior `existing !== '[]'` heuristic also blocked the
+// legitimate orphan-dead strip path, which left tombstones on disk forever
+// and forced their re-promotion every reload.
 let __bootComplete = false;
 function saveCreatures(){
   try {
     const arr = Array.isArray(state.creatures) ? state.creatures : [];
     if (arr.length === 0 && !__bootComplete){
       const existing = localStorage.getItem(STORAGE_KEY);
-      if (existing && existing !== '[]'){
-        console.warn('[code-creatures] saveCreatures BLOCKED during boot — refusing to clobber disk with empty memory');
+      let diskAlive = 0;
+      if (existing){
+        try {
+          const parsed = JSON.parse(existing);
+          if (Array.isArray(parsed)){
+            for (const c of parsed) if (c && c.alive !== false) diskAlive++;
+          }
+        } catch(e){
+          // If disk JSON is corrupt, default to *blocking* — we'd rather keep
+          // the bytes around for rescue than overwrite with [].
+          __ccLog('saveCreatures:BLOCKED_corrupt_disk', { len: existing.length });
+          return;
+        }
+      }
+      if (diskAlive > 0){
+        __ccLog('saveCreatures:BLOCKED_boot_empty', { diskAlive, existingLen: existing.length });
         return;
       }
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+    const payload = JSON.stringify(arr);
+    localStorage.setItem(STORAGE_KEY, payload);
+    __ccLog('saveCreatures:OK', { count: arr.length, bytes: payload.length, bootComplete: __bootComplete, ids: arr.map(c => c && c.id) });
   } catch(e){
+    __ccLog('saveCreatures:FAILED', { err: String(e && e.message || e) });
     console.error('[code-creatures] saveCreatures FAILED:', e);
   }
 }
@@ -5370,6 +5411,44 @@ function runSurvival(){
 // orphan dead promoted, memorial rendered. Open the gate so legitimate
 // "everyone died" saves are no longer blocked.
 __bootComplete = true;
+__ccLog('boot:COMPLETE', {
+  creatures: state.creatures.length,
+  ids: state.creatures.map(c => c.id),
+  eggs: (garden.eggs||[]).length,
+  firewalls: (garden.firewalls||[]).length,
+  memorial: state.memorial.length,
+  dna: state.dna,
+});
+
+// Console-friendly dump helper. Lets the user (or a chat debugger) call
+// `__cc_dump()` at any moment and get a snapshot of every persistence key
+// alongside the in-memory state, so we can diff disk vs memory directly.
+try {
+  if (typeof window !== 'undefined') window.__cc_dump = function(){
+    const dump = {
+      bootComplete: __bootComplete,
+      memory: {
+        creatures: state.creatures.map(c => ({ id:c.id, name:c.name, alive:c.alive, hp:c.hp, hunger:c.hunger })),
+        eggs:      (garden.eggs||[]).map(e => ({ id:e.id, dormant:!!e.dormant, dna:(e.dna||'').slice(0,16) })),
+        firewalls: (garden.firewalls||[]).map(f => ({ id:f.id, hp:f.hp })),
+        memorial:  state.memorial.length,
+        dna:       state.dna,
+      },
+      disk: {
+        [STORAGE_KEY]:  localStorage.getItem(STORAGE_KEY),
+        [EGG_KEY]:      localStorage.getItem(EGG_KEY),
+        [FIREWALL_KEY]: localStorage.getItem(FIREWALL_KEY),
+        [MEMORIAL_KEY]: localStorage.getItem(MEMORIAL_KEY),
+        [DNA_KEY]:      localStorage.getItem(DNA_KEY),
+      },
+      log: __ccPersistLog.slice(),
+    };
+    console.table(dump.memory.creatures);
+    console.log('[code-creatures] disk', dump.disk);
+    console.log('[code-creatures] log', dump.log);
+    return dump;
+  };
+} catch(e){}
 
 setInterval(runSurvival, 1000);
 
