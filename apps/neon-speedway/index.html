@@ -565,14 +565,17 @@ function makeRacer(user, display) {
 
 function boostRacer(user, display, magnitude) {
   let r = racers.get(user);
+  const wasNew = !r;
   if (!r) r = makeRacer(user, display);
   if (display) r.display = display;
-  // each chat message: +N boost (decays over time)
-  r.boost = Math.min(200, r.boost + magnitude);
+  // each chat message: +N boost (decays over time). Cap scales with base speed.
+  const cap = Math.max(220, baseSpeed() * 4);
+  r.boost = Math.min(cap, r.boost + magnitude);
   r.msgCount++;
   r.lastBoostAt = performance.now();
   // spawn a few sparks
   spawnSparks(r, 6);
+  if (wasNew) console.log('[neon-speedway] new racer', user, '→', r.color);
 }
 
 function spawnSparks(r, n) {
@@ -604,10 +607,11 @@ function laneOffsetPoint(r) {
 /* =========================================================
  * SIMULATION
  * ========================================================= */
-const BASE_SPEED = 38;          // baseline cruise speed (px/sec)
-const BOOST_DECAY = 0.78;       // per second
-const SPEED_LERP = 4.5;         // how fast actual speed approaches target
-const LANE_LERP = 1.6;
+// Speed scales with track perimeter so a lap stays ~28-32s on any viewport.
+function baseSpeed() { return Math.max(60, track.perimeter / 30); }
+const BOOST_DECAY = 0.85;       // per second (faster decay, snappier feel)
+const SPEED_LERP = 5.5;
+const LANE_LERP = 1.8;
 const FINISH_SPEED = 0;
 
 let prev = performance.now();
@@ -625,7 +629,7 @@ function tick(now) {
     } else {
       // boost decay
       r.boost *= Math.exp(-BOOST_DECAY * dt);
-      const targetSpeed = BASE_SPEED + r.boost;
+      const targetSpeed = baseSpeed() + r.boost;
       r.speed += (targetSpeed - r.speed) * Math.min(1, SPEED_LERP * dt);
       r.s += r.speed * dt;
       // check lap completion: each racer's `s` modulo perimeter, but we track completed laps
@@ -1082,6 +1086,7 @@ function handleChatMessage(user, display, text) {
 let twitchWs = null;
 let twitchChannel = null;
 let twitchConnected = false;
+const chatStats = { received: 0 };
 
 function setStatus(msg, cls) {
   const el = document.getElementById('connStatus');
@@ -1122,6 +1127,7 @@ function nickFromPrefix(prefix) {
 function displayNameFromTags(tags) {
   if (!tags) return null;
   const m = tags.match(/(?:^|;)display-name=([^;]*)/);
+  // Twitch escapes spaces in tag values as the literal two chars: backslash + s
   return m ? m[1].replace(/\\s/g, ' ') : null;
 }
 
@@ -1137,10 +1143,13 @@ function twitchConnect(channel) {
   twitchWs = ws;
   const nick = 'justinfan' + ((Math.random() * 90000 + 10000) | 0);
   ws.addEventListener('open', () => {
-    ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands\r\n');
-    ws.send('PASS SCHMOOPIIE\r\n');
-    ws.send('NICK ' + nick + '\r\n');
-    ws.send('JOIN #' + channel + '\r\n');
+    try {
+      ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands\r\n');
+      ws.send('PASS SCHMOOPIIE\r\n');
+      ws.send('NICK ' + nick + '\r\n');
+      ws.send('JOIN #' + channel + '\r\n');
+      console.log('[neon-speedway] WSS open, JOIN #' + channel + ' as ' + nick);
+    } catch(e){ console.warn('[neon-speedway] WSS handshake error', e); }
   });
   ws.addEventListener('message', (ev) => {
     const lines = ev.data.split('\r\n');
@@ -1152,14 +1161,17 @@ function twitchConnect(channel) {
       if (msg.command === 'JOIN') {
         if (nickFromPrefix(msg.prefix) === nick) {
           twitchConnected = true;
-          setStatus('✅ live · #' + channel, 'ok');
+          setStatus('✅ live · #' + channel + ' · waiting for chat', 'ok');
           document.getElementById('connectBtn').textContent = 'Disconnect';
           hideHint();
+          stopDemo(true);
         }
       } else if (msg.command === 'PRIVMSG') {
         const user = nickFromPrefix(msg.prefix);
         const text = msg.params[1] || '';
         const display = displayNameFromTags(msg.tags) || user;
+        chatStats.received++;
+        document.getElementById('connStatus').dataset.rate = chatStats.received;
         if (user && text) handleChatMessage(user, display, text);
       } else if (msg.command === 'NOTICE') {
         // ignore
@@ -1170,8 +1182,10 @@ function twitchConnect(channel) {
     if (twitchWs === ws) {
       twitchConnected = false;
       twitchWs = null;
-      setStatus('💤 disconnected', '');
+      setStatus('💤 disconnected · running demo', '');
       document.getElementById('connectBtn').textContent = 'Connect';
+      // resume demo so the track isn't blank
+      startDemo(true);
     }
   });
   ws.addEventListener('error', () => setStatus('❌ connection error', 'bad'));
@@ -1185,25 +1199,30 @@ function twitchDisconnect() {
 /* =========================================================
  * DEMO MODE
  * ========================================================= */
-const DEMO_NAMES = ['Sloppy_AI', 'PixelGremlin', 'NeonFox', 'turboWizard', 'glitch.io', 'datawitch', 'voidcrab', 'lazerllama', 'octobyte', 'modemKid', 'prismCat', 'syncFM', 'crtKnight', 'pinkParrot', 'biteSize'];
+const DEMO_NAMES = ['Sloppy_AI', 'PixelGremlin', 'NeonFox', 'turboWizard', 'glitch_io', 'datawitch', 'voidcrab', 'lazerllama', 'octobyte', 'modemKid', 'prismCat', 'syncFM', 'crtKnight', 'pinkParrot', 'biteSize'];
 const DEMO_MSGS = ['gogo', 'send it', 'vibes', 'go go go', 'speed', '🔥🔥', 'chargin', 'lfg', 'whoosh', 'turbo!', 'overtake', 'race', 'go!!!', 'zoom', 'gas it', 'lap me', 'wheee'];
 let demoTimer = null;
-function toggleDemo() {
-  if (demoTimer) {
-    clearInterval(demoTimer);
-    demoTimer = null;
-    document.getElementById('demoBtn').textContent = 'Demo';
-    setStatus('💤 demo stopped', '');
-    return;
-  }
+function startDemo(silent) {
+  if (demoTimer) return;
   document.getElementById('demoBtn').textContent = 'Stop Demo';
-  setStatus('🎲 demo running', 'warn');
+  if (!silent) setStatus('🎲 demo running · connect Twitch to take over', 'warn');
   hideHint();
   demoTimer = setInterval(() => {
     const u = DEMO_NAMES[Math.floor(Math.random() * DEMO_NAMES.length)];
     const msg = DEMO_MSGS[Math.floor(Math.random() * DEMO_MSGS.length)];
     handleChatMessage(u.toLowerCase(), u, msg);
-  }, 320);
+  }, 380);
+}
+function stopDemo(silent) {
+  if (!demoTimer) return;
+  clearInterval(demoTimer);
+  demoTimer = null;
+  document.getElementById('demoBtn').textContent = 'Demo';
+  if (!silent) setStatus('💤 demo stopped', '');
+}
+function toggleDemo() {
+  if (demoTimer) stopDemo();
+  else startDemo();
 }
 
 /* =========================================================
@@ -1266,6 +1285,14 @@ document.getElementById('demoBtn').addEventListener('click', toggleDemo);
 resize();
 lapsTarget = parseInt(document.getElementById('lapsInput').value, 10) || 5;
 requestAnimationFrame((t) => { prev = t; tick(t); });
+
+// Auto-start demo so the track is never empty when a viewer first lands.
+// Real Twitch chat takes over (and pauses the demo) the moment Connect succeeds.
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    if (racers.size === 0) startDemo();
+  }, 600);
+});
 </script>
 
 </body>
