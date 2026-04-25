@@ -355,6 +355,14 @@ body::before{
   box-shadow:0 0 16px rgba(90,240,122,0.55), 0 0 32px rgba(90,240,122,0.25);
 }
 .tama-item.zap-tool.active .glyph,.tama-item.zap-tool.active .cost{color:#08110a}
+.tama-item.firewall-tool{border-color:rgba(255,126,58,0.4)}
+.tama-item.firewall-tool:hover{border-color:#ff7e3a}
+.tama-item.firewall-tool.active{
+  background:linear-gradient(90deg, #ff7e3a 0%, #ff3b4a 100%);
+  color:#1a0a06;border-color:#ff7e3a;
+  box-shadow:0 0 16px rgba(255,126,58,0.55), 0 0 32px rgba(255,59,74,0.25);
+}
+.tama-item.firewall-tool.active .glyph,.tama-item.firewall-tool.active .cost{color:#1a0a06}
 .tama-item .glyph{
   font-family:'Major Mono Display',monospace;font-size:14px;
 }
@@ -1137,8 +1145,9 @@ body::before{
           </div>
           <div class="tb-sep"></div>
           <span class="tlabel vertical defend">GUARD</span>
-          <div class="tb-defend">
+          <div class="tb-stack tb-defend">
             <button class="tama-item zap-tool" data-tool="zap"><span class="glyph" style="color:#5af07a">⚡</span><span>Zap click hazard</span></button>
+            <button class="tama-item firewall-tool" data-tool="firewall"><span class="glyph" style="color:#ff7e3a">🔥🧱</span><span>Firewall</span><span class="cost">lure & burn</span></button>
           </div>
         </div>
         <div class="garden-empty" id="gardenEmpty" style="display:none">
@@ -2121,6 +2130,7 @@ function syncGuestAgents(){
 // Garden hazards: viruses + worms — drain creature hp on contact.
 // Adults emit a "firewall" radius that destroys hazards.
 garden.hazards = [];
+garden.firewalls = [];
 garden.eggs = loadEggs();
 const HAZARD_TYPES = {
   virus: { glyph:'Z',  char:'Z', color:'#5af07a', size:18, speed:42,  hp:14, dmg:14, hungerKick:6,  ttl:42, infect:14 },
@@ -2130,6 +2140,17 @@ const FIREWALL_RADIUS = 92;     // adults & elders project a firewall this big
 const FIREWALL_BURN_HP = 70;    // dmg/sec dealt to hazards inside firewall
 const HAZARD_SPAWN_GAP = [9, 17]; // seconds between hazard spawns
 let nextHazardAt = performance.now() / 1000 + HAZARD_SPAWN_GAP[0];
+
+// Placeable firewall structures: lure hazards from a wide radius and burn
+// them inside a smaller burn radius. Decay over time and absorb hits.
+const FW_TURRET_LURE_R   = 220;   // hazards within this distance redirect toward firewall
+const FW_TURRET_BURN_R   = 78;    // dmg dealt to hazards inside this radius
+const FW_TURRET_BURN_HP  = 110;   // dmg/sec
+const FW_TURRET_HP       = 240;   // structure HP — drained by burning + ttl
+const FW_TURRET_TTL      = 90;    // seconds, fails closed when expired
+const FW_TURRET_DECAY    = 1.2;   // base hp decay per second
+const FW_TURRET_BURN_COST= 6;     // hp lost per sec while actively burning
+const FW_TURRET_MAX      = 4;
 
 // Natural immunity threshold — a healthy adult shrugs off virus/worm bites
 const IMMUNITY_HP = 80;          // need at least this much hp to be immune
@@ -2181,6 +2202,41 @@ function spawnHazard(){
     maxLife: cfg.ttl,
     phase: Math.random() * Math.PI * 2,
   });
+}
+
+function placeFirewall(x, y){
+  if (!garden.W) return false;
+  // Cap concurrent firewalls so the field doesn't get carpeted
+  if (garden.firewalls.filter(f => f.hp > 0).length >= FW_TURRET_MAX){
+    spawnGardenPop(x, y - 18, 'max ' + FW_TURRET_MAX, '#ff7e3a');
+    return false;
+  }
+  // Keep them inside the playable strip (skip top meta strip + ground)
+  y = Math.max(150, Math.min(garden.H - 80, y));
+  x = Math.max(40, Math.min(garden.W - 40, x));
+  garden.firewalls.push({
+    id: 'fw_' + Date.now() + '_' + Math.floor(Math.random()*9999),
+    x, y,
+    hp: FW_TURRET_HP,
+    maxHp: FW_TURRET_HP,
+    life: 0,
+    maxLife: FW_TURRET_TTL,
+    burning: 0,           // pulses up while actively burning
+    flame: Math.random() * Math.PI * 2,
+  });
+  spawnGardenPop(x, y - 22, '🔥 firewall up', '#ff7e3a');
+  return true;
+}
+
+// Find the closest firewall within lure range of (x, y).
+function nearestFirewallLure(hzX, hzY){
+  let best = null, bestD = FW_TURRET_LURE_R * FW_TURRET_LURE_R;
+  for (const fw of garden.firewalls){
+    if (fw.hp <= 0) continue;
+    const d = (fw.x - hzX)*(fw.x - hzX) + (fw.y - hzY)*(fw.y - hzY);
+    if (d < bestD){ bestD = d; best = fw; }
+  }
+  return best;
 }
 
 // Drop an item into the garden
@@ -2599,12 +2655,50 @@ function tickAgents(dt){
     nextHazardAt = nowSec + HAZARD_SPAWN_GAP[0] + Math.random() * (HAZARD_SPAWN_GAP[1] - HAZARD_SPAWN_GAP[0]);
   }
 
-  // Hazards: target nearest creature, take firewall damage, deal contact damage
+  // Firewalls: tick decay + burn cost; let hazard loop deal damage to them
+  for (const fw of garden.firewalls){
+    fw.life += dt;
+    fw.flame += dt;
+    fw.burning = Math.max(0, fw.burning - dt * 1.4);
+    fw.hp -= FW_TURRET_DECAY * dt;
+    if (fw.life >= fw.maxLife){ fw.hp = 0; }
+  }
+
+  // Hazards: target nearest creature (or be lured by a firewall), take
+  // firewall damage, deal contact damage to creatures or firewalls.
   for (const hz of garden.hazards){
     hz.life += dt;
     hz.phase += dt;
+    const lure = nearestFirewallLure(hz.x, hz.y);
     const target = nearestCreature(hz);
     const cfg = HAZARD_TYPES[hz.type];
+    // Lure overrides creature targeting — hazards are drawn to firewalls.
+    if (lure){
+      const dx = lure.x - hz.x;
+      const dy = lure.y - hz.y;
+      const d  = Math.sqrt(dx*dx + dy*dy) || 1;
+      const sp = cfg.speed * 1.05;
+      hz.vx = (dx/d) * sp + Math.sin(hz.phase * 5) * 10;
+      hz.vy = (dy/d) * sp * 0.85;
+      // Contact with firewall: hazard damages the structure but takes a big
+      // burn back. Both lose hp; the firewall is meant to burn through them.
+      if (d < FW_TURRET_BURN_R){
+        const burnDmg = FW_TURRET_BURN_HP * dt;
+        hz.hp -= burnDmg;
+        lure.hp -= FW_TURRET_BURN_COST * dt;
+        lure.burning = Math.min(1.6, lure.burning + dt * 4);
+        if (Math.random() < 0.22){
+          spawnGardenPop(hz.x + (Math.random()*8-4), hz.y + (Math.random()*8-4),
+                         '×', '#ff7e3a');
+        }
+        if (hz.hp <= 0){
+          spawnGardenPop(hz.x, hz.y, 'BURN', '#ff7e3a');
+        }
+      }
+      hz.x += hz.vx * dt;
+      hz.y += hz.vy * dt;
+      continue; // skip creature contact while lured
+    }
     if (target){
       const dx = target.x - hz.x;
       const dy = (target.y - 18) - hz.y;
@@ -2665,6 +2759,20 @@ function tickAgents(dt){
   }
   garden.hazards = garden.hazards.filter(hz => hz.hp > 0 && hz.life < hz.maxLife
     && hz.x > -120 && hz.x < garden.W + 120 && hz.y > -120 && hz.y < garden.H + 120);
+
+  // Reap dead firewalls — emit a final puff of embers
+  for (let i = garden.firewalls.length - 1; i >= 0; i--){
+    const fw = garden.firewalls[i];
+    if (fw.hp <= 0){
+      for (let k = 0; k < 8; k++){
+        const ang = Math.random() * Math.PI * 2;
+        const r   = 6 + Math.random() * 18;
+        spawnGardenPop(fw.x + Math.cos(ang)*r, fw.y + Math.sin(ang)*r,
+                       '·', '#ffae5a');
+      }
+      garden.firewalls.splice(i, 1);
+    }
+  }
 
   // Autonomous breeding: when two of MY healthy adults stay near each other,
   // they court briefly + then spawn a child whose DNA is their crossover.
@@ -3171,6 +3279,73 @@ function drawGarden(){
   }
   ctx.restore();
 
+  // Firewall turrets (rendered below hazards so hazards burn on top of them)
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const fw of garden.firewalls){
+    const lifeFade = fw.life < 0.4 ? fw.life / 0.4
+                   : (fw.maxLife - fw.life < 4 ? (fw.maxLife - fw.life) / 4 : 1);
+    const alpha = Math.max(0.3, lifeFade);
+    const burnT = fw.flame;
+    const burnPulse = 0.6 + fw.burning * 0.5;
+    // Lure radius — outer dashed ring, slowly rotating dashes
+    ctx.globalAlpha = 0.18 * alpha;
+    ctx.strokeStyle = '#ff7e3a';
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([4, 8]);
+    ctx.lineDashOffset = -burnT * 14;
+    ctx.beginPath();
+    ctx.arc(fw.x, fw.y, FW_TURRET_LURE_R, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Burn radius — solid pulsing ring
+    ctx.globalAlpha = (0.32 + Math.sin(burnT * 5) * 0.1 + fw.burning * 0.25) * alpha;
+    ctx.strokeStyle = '#ff3b4a';
+    ctx.lineWidth = 1.6;
+    ctx.shadowBlur = 10 + fw.burning * 18;
+    ctx.shadowColor = '#ff3b4a';
+    ctx.beginPath();
+    ctx.arc(fw.x, fw.y, FW_TURRET_BURN_R + Math.sin(burnT * 7) * 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Brick base
+    ctx.globalAlpha = alpha;
+    ctx.font = "20px 'JetBrains Mono', monospace";
+    ctx.fillText('🧱', fw.x, fw.y + 4);
+    // Flame on top — bobs and scales with burn intensity
+    ctx.globalAlpha = alpha * (0.85 + Math.sin(burnT * 9) * 0.12);
+    const flameScale = burnPulse * (1 + Math.sin(burnT * 11) * 0.08);
+    ctx.save();
+    ctx.translate(fw.x, fw.y - 12 + Math.sin(burnT * 6) * 1.4);
+    ctx.scale(flameScale, flameScale);
+    ctx.shadowBlur = 14 + fw.burning * 22;
+    ctx.shadowColor = '#ff7e3a';
+    ctx.font = "18px 'JetBrains Mono', monospace";
+    ctx.fillText('🔥', 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    // Sparks while actively burning
+    if (fw.burning > 0.2 && Math.random() < 0.5){
+      ctx.globalAlpha = alpha * (0.5 + Math.random() * 0.4);
+      ctx.fillStyle = Math.random() < 0.5 ? '#ffae5a' : '#ff3b4a';
+      const sang = Math.random() * Math.PI * 2;
+      const sr   = 6 + Math.random() * 14;
+      ctx.beginPath();
+      ctx.arc(fw.x + Math.cos(sang)*sr, fw.y - 8 + Math.sin(sang)*sr - 6,
+              0.8 + Math.random() * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // HP pip
+    ctx.globalAlpha = alpha;
+    const pw = 30, ph = 3, hpFrac = Math.max(0, fw.hp / fw.maxHp);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(fw.x - pw/2, fw.y + 22, pw, ph);
+    ctx.fillStyle = hpFrac > 0.5 ? '#ff7e3a' : (hpFrac > 0.25 ? '#ffae5a' : '#ff3b4a');
+    ctx.fillRect(fw.x - pw/2, fw.y + 22, pw * hpFrac, ph);
+  }
+  ctx.restore();
+
   // Hazards (rendered above ground decor, below agents)
   ctx.save();
   ctx.textAlign = 'center';
@@ -3496,7 +3671,37 @@ function drawGarden(){
 
   // Drop preview when armed
   if (garden.placeMode && garden.cursor){
-    if (garden.placeMode === 'zap'){
+    if (garden.placeMode === 'firewall'){
+      ctx.save();
+      const cx = garden.cursor.x, cy = garden.cursor.y;
+      const atMax = garden.firewalls.filter(f => f.hp > 0).length >= FW_TURRET_MAX;
+      const col = atMax ? '#ff3b4a' : '#ff7e3a';
+      // lure ring
+      ctx.globalAlpha = 0.22;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 8]);
+      ctx.lineDashOffset = -t * 14;
+      ctx.beginPath(); ctx.arc(cx, cy, FW_TURRET_LURE_R, 0, Math.PI * 2); ctx.stroke();
+      // burn ring
+      ctx.globalAlpha = 0.45 + Math.sin(t * 6) * 0.2;
+      ctx.setLineDash([]);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(cx, cy, FW_TURRET_BURN_R, 0, Math.PI * 2); ctx.stroke();
+      // ghost glyph
+      ctx.globalAlpha = atMax ? 0.5 : 0.85;
+      ctx.font = "20px 'JetBrains Mono', monospace";
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowBlur = 12; ctx.shadowColor = col;
+      ctx.fillStyle = col;
+      ctx.fillText('🧱', cx, cy + 4);
+      ctx.font = "16px 'JetBrains Mono', monospace";
+      ctx.fillText('🔥', cx, cy - 12);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    } else if (garden.placeMode === 'zap'){
       // crosshair + ⚡ glyph; highlight the hazard nearest to cursor with a ring
       ctx.save();
       const zapCol = '#5af07a';
@@ -3717,6 +3922,11 @@ gardenCanvas.addEventListener('click', (e) => {
     }
     return;
   }
+  if (garden.placeMode === 'firewall'){
+    const ok = placeFirewall(px, py);
+    if (ok && !e.shiftKey) setPlaceMode(null);
+    return;
+  }
   if (garden.placeMode){
     placeItem(garden.placeMode, px, py);
     // shift-click leaves armed for rapid drops; plain click clears
@@ -3747,12 +3957,15 @@ function setPlaceMode(mode){
   document.querySelectorAll('#inGardenToolbar [data-tool]').forEach(b => {
     b.classList.toggle('active', b.dataset.tool === mode);
   });
-  gardenCanvas.classList.toggle('zapping', mode === 'zap');
+  gardenCanvas.classList.toggle('zapping', mode === 'zap' || mode === 'firewall');
   if (mode === 'zap'){
     const liveCount = garden.hazards ? garden.hazards.filter(h => h.hp > 0).length : 0;
     tamaHint.textContent = liveCount
       ? `${liveCount} hazard${liveCount===1?'':'s'} on the field · click to zap · shift to chain · ESC cancels`
       : 'no hazards right now · stay armed for the next intrusion · ESC cancels';
+  } else if (mode === 'firewall'){
+    const liveFw = garden.firewalls ? garden.firewalls.filter(f => f.hp > 0).length : 0;
+    tamaHint.textContent = `placing firewall (${liveFw}/${FW_TURRET_MAX}) · lures + burns viruses in range · shift+click to chain · ESC cancels`;
   } else if (mode){
     const cfg = ITEM_TYPES[mode];
     tamaHint.textContent = `dropping ${cfg.label} · click in garden · shift+click for many · ESC cancels`;
