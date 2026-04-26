@@ -1980,8 +1980,28 @@ function saveCreatures(){
         return;
       }
     }
-    const payload = JSON.stringify(arr);
-    localStorage.setItem(STORAGE_KEY, payload);
+    let payload;
+    try { payload = JSON.stringify(arr); }
+    catch(serErr){
+      __ccLog('saveCreatures:STRINGIFY_FAILED', { err: String(serErr && serErr.message || serErr), count: arr.length });
+      console.error('[code-creatures] saveCreatures STRINGIFY FAILED — likely circular ref:', serErr);
+      try { toast('save failed: serialization error', 'warn'); } catch(_){}
+      return;
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, payload);
+    } catch(quotaErr){
+      // Quota exceeded? Try shedding the heaviest byproduct first (sprite cache
+      // doesn't live here but other persistence keys might be hogging space).
+      __ccLog('saveCreatures:QUOTA_EXCEEDED', {
+        err: String(quotaErr && quotaErr.message || quotaErr),
+        bytes: payload.length,
+        count: arr.length,
+      });
+      console.error('[code-creatures] saveCreatures QUOTA — bytes=' + payload.length + ' count=' + arr.length, quotaErr);
+      try { toast('save failed: storage full · creatures may not persist', 'warn'); } catch(_){}
+      return;
+    }
     __ccLog('saveCreatures:OK', { count: arr.length, bytes: payload.length, bootComplete: __bootComplete, ids: arr.map(c => c && c.id) });
   } catch(e){
     __ccLog('saveCreatures:FAILED', { err: String(e && e.message || e) });
@@ -3793,8 +3813,21 @@ function tickEggs(dt){
   if (changed) saveEggs();
 }
 function hatchEggToCreature(egg){
+  // Stable creature id derived from the egg id. If the same egg ever re-hatches
+  // (e.g. saveCreatures lost the prior write but saveEggs survived, so the same
+  // ripe egg sits on disk and re-runs through tickEggs on the next refresh),
+  // the resulting creature gets the SAME id every time — and the loadCreatures
+  // dedup collapses it to a single roster slot. Belt: also short-circuit if a
+  // creature with this id already exists in memory, so a single session can't
+  // double-push from a race between tickEggs and a manual hatch.
+  const stableId = egg.creatureId || ('c_' + (egg.id || ('e_' + Date.now())).replace(/^e_/, ''));
+  egg.creatureId = stableId;
+  if (state.creatures.some(c => c && c.id === stableId)){
+    __ccLog('hatchEggToCreature:SKIP_already_exists', { id: stableId, eggId: egg.id });
+    return;
+  }
   const c = {
-    id: 'c_' + Date.now() + '_' + Math.floor(Math.random()*9999),
+    id: stableId,
     dna: egg.dna,
     name: generateName(egg.dna),
     xp: 0,
@@ -3807,7 +3840,7 @@ function hatchEggToCreature(egg){
     infectedUntil: 0,
     lastBredAt: 0,
   };
-  __ccLog('hatchEggToCreature:push', { id: c.id, name: c.name, before: state.creatures.length });
+  __ccLog('hatchEggToCreature:push', { id: c.id, name: c.name, eggId: egg.id, before: state.creatures.length });
   state.creatures.push(c);
   saveCreatures();
   notifyGardenStateChanged();
