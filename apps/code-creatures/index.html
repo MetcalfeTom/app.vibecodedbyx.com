@@ -1921,32 +1921,112 @@ function generateName(dna){
   return (a + b + c).slice(0, 14);
 }
 
-// ---- Storage ----
-// --- Persistence diagnostics ---
-// A small in-memory ring of save/load events the user (or a debugger) can dump
-// from the console via `window.__cc_persistLog`. Each entry: { t, kind, info }.
+// ===== Unified persistence =====
+// One key on disk: `code-creatures-state-v2`. One JSON blob containing every
+// piece of game state. One write function (`saveState`) that snapshots the
+// whole world atomically — so creatures and memorial can never be out of sync,
+// and there's no possibility of a half-applied write across multiple keys.
+// Saves are coalesced into a microtask so a burst of mutations within one
+// tick produces exactly one localStorage.setItem call.
+const UNIFIED_KEY = 'code-creatures-state-v2';
+const LEGACY_KEYS = {
+  creatures: 'code-creatures-v1',
+  eggs:      'code-creatures-eggs-v1',
+  firewalls: 'code-creatures-firewalls-v1',
+  memorial:  'code-creatures-memorial-v1',
+  dna:       'code-creatures-dna-v1',
+};
+
+function __readArr(key){
+  try {
+    const r = localStorage.getItem(key);
+    if (!r) return [];
+    const a = JSON.parse(r);
+    return Array.isArray(a) ? a : [];
+  } catch(_){ return []; }
+}
+
+// Hydrate once at boot. If unified blob is missing, migrate from legacy keys.
+const __bootSnap = (function loadState(){
+  let raw;
+  try { raw = localStorage.getItem(UNIFIED_KEY); } catch(_){ raw = null; }
+  if (raw){
+    try {
+      const obj = JSON.parse(raw);
+      return {
+        creatures: Array.isArray(obj.creatures) ? obj.creatures : [],
+        eggs:      Array.isArray(obj.eggs)      ? obj.eggs      : [],
+        firewalls: Array.isArray(obj.firewalls) ? obj.firewalls : [],
+        memorial:  Array.isArray(obj.memorial)  ? obj.memorial  : [],
+        dna:       Number.isFinite(obj.dna) && obj.dna >= 0 ? (obj.dna|0) : 0,
+      };
+    } catch(e){
+      console.error('[code-creatures] unified state JSON.parse failed — disk was', raw.slice(0,200), e);
+    }
+  }
+  const out = {
+    creatures: __readArr(LEGACY_KEYS.creatures),
+    eggs:      __readArr(LEGACY_KEYS.eggs),
+    firewalls: __readArr(LEGACY_KEYS.firewalls),
+    memorial:  __readArr(LEGACY_KEYS.memorial),
+    dna: 0,
+  };
+  try {
+    const n = parseInt(localStorage.getItem(LEGACY_KEYS.dna) || '0', 10);
+    out.dna = Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch(_){}
+  return out;
+})();
+
+let __saveScheduled = false;
+function saveState(){
+  if (__saveScheduled) return;
+  __saveScheduled = true;
+  Promise.resolve().then(() => {
+    __saveScheduled = false;
+    let payload;
+    try {
+      const snap = {
+        creatures: Array.isArray(state?.creatures) ? state.creatures : [],
+        eggs:      Array.isArray(garden?.eggs) ? garden.eggs : [],
+        firewalls: Array.isArray(garden?.firewalls)
+          ? garden.firewalls.filter(fw => fw && (fw.hp|0) > 0).map(fw => ({
+              id: fw.id, x: fw.x, y: fw.y,
+              hp: fw.hp, maxHp: fw.maxHp,
+              life: fw.life, maxLife: fw.maxLife,
+            }))
+          : [],
+        memorial: Array.isArray(state?.memorial) ? state.memorial : [],
+        dna: (state && Number.isFinite(state.dna)) ? (state.dna|0) : 0,
+        savedAt: Date.now(),
+      };
+      payload = JSON.stringify(snap);
+    } catch(e){
+      console.error('[code-creatures] saveState: stringify failed', e);
+      try { toast('save failed: serialization error', 'warn'); } catch(_){}
+      return;
+    }
+    try { localStorage.setItem(UNIFIED_KEY, payload); }
+    catch(e){
+      console.error('[code-creatures] saveState: setItem failed bytes=' + payload.length, e);
+      try { toast('save failed: storage full', 'warn'); } catch(_){}
+    }
+  });
+}
+try { if (typeof window !== 'undefined') window.__cc_saveState = saveState; } catch(_){}
+
+// Diagnostics ring — kept so existing __ccLog callers don't crash.
 const __ccPersistLog = [];
 function __ccLog(kind, info){
-  const entry = { t: new Date().toISOString(), kind, info };
-  __ccPersistLog.push(entry);
+  __ccPersistLog.push({ t: new Date().toISOString(), kind, info });
   if (__ccPersistLog.length > 200) __ccPersistLog.shift();
   try { console.log('[code-creatures]', kind, info); } catch(e){}
 }
-try {
-  if (typeof window !== 'undefined') window.__cc_persistLog = __ccPersistLog;
-} catch(e){}
+try { if (typeof window !== 'undefined') window.__cc_persistLog = __ccPersistLog; } catch(e){}
+
+// ---- Per-domain wrappers (read from boot snapshot, write via saveState) ----
 function loadCreatures(){
-  let raw;
-  try { raw = localStorage.getItem(STORAGE_KEY); } catch(e){
-    console.error('[code-creatures] loadCreatures: localStorage.getItem failed', e);
-    return [];
-  }
-  if (!raw) return [];
-  let arr;
-  try { arr = JSON.parse(raw); } catch(e){
-    console.error('[code-creatures] loadCreatures: JSON.parse failed — disk was', raw.slice(0,200), e);
-    return [];
-  }
+  const arr = __bootSnap.creatures;
   if (!Array.isArray(arr)) return [];
   const out = [];
   const seen = new Set();
@@ -1954,8 +2034,7 @@ function loadCreatures(){
     if (!c || typeof c !== 'object' || !c.id) continue;
     if (seen.has(c.id)) continue;
     seen.add(c.id);
-    if (c.alive === false) continue; // dead creatures live in memorial, not roster
-    // Minimal field defaults so legacy saves keep working.
+    if (c.alive === false) continue; // dead creatures belong to memorial, not roster
     if (typeof c.hp !== 'number') c.hp = 100;
     if (typeof c.hunger !== 'number') c.hunger = 25;
     c.alive = true;
@@ -1963,13 +2042,9 @@ function loadCreatures(){
     if (typeof c.infectedUntil !== 'number') c.infectedUntil = 0;
     if (typeof c.lastBredAt !== 'number') c.lastBredAt = 0;
     if (!c.lang || typeof c.lang !== 'object') c.lang = { py:0, js:0, cpp:0, go:0 };
-    else {
-      for (const k of ['py','js','cpp','go']) if (typeof c.lang[k] !== 'number') c.lang[k] = 0;
-    }
+    else for (const k of ['py','js','cpp','go']) if (typeof c.lang[k] !== 'number') c.lang[k] = 0;
     if (!c.bonus || typeof c.bonus !== 'object') c.bonus = { hp:0, atk:0, def:0, spd:0, par:0, intel:0 };
-    else {
-      for (const k of ['hp','atk','def','spd','par','intel']) if (typeof c.bonus[k] !== 'number') c.bonus[k] = 0;
-    }
+    else for (const k of ['hp','atk','def','spd','par','intel']) if (typeof c.bonus[k] !== 'number') c.bonus[k] = 0;
     if (c.hp <= 0) c.hp = 0;
     const ageMs = Date.now() - new Date(c.born).getTime();
     if (ageMs > MAX_AGE_MIN * 60000 * 0.95){
@@ -1981,37 +2056,9 @@ function loadCreatures(){
   }
   return out;
 }
-// Atomic save: always writes whatever's in state.creatures, no boot guards,
-// no recovery games. Read it back immediately to verify.
-function saveCreatures(){
-  const arr = Array.isArray(state.creatures) ? state.creatures : [];
-  let payload;
-  try { payload = JSON.stringify(arr); }
-  catch(e){
-    console.error('[code-creatures] saveCreatures: stringify failed', e);
-    try { toast('save failed: serialization error', 'warn'); } catch(_){}
-    return;
-  }
-  try { localStorage.setItem(STORAGE_KEY, payload); }
-  catch(e){
-    console.error('[code-creatures] saveCreatures: setItem failed bytes=' + payload.length, e);
-    try { toast('save failed: storage full', 'warn'); } catch(_){}
-    return;
-  }
-}
-
-// DNA currency — gained by zapping hazards, persists across sessions.
-const DNA_KEY = 'code-creatures-dna-v1';
-function loadDnaPoints(){
-  try {
-    const raw = localStorage.getItem(DNA_KEY);
-    const n = raw == null ? 0 : parseInt(raw, 10);
-    return Number.isFinite(n) && n >= 0 ? n : 0;
-  } catch(e){ return 0; }
-}
-function saveDnaPoints(){
-  try { localStorage.setItem(DNA_KEY, String(state.dna|0)); } catch(e){}
-}
+function saveCreatures(){ saveState(); }
+function loadDnaPoints(){ return __bootSnap.dna|0; }
+function saveDnaPoints(){ saveState(); }
 
 const state = {
   creatures: loadCreatures(),
@@ -2796,33 +2843,20 @@ function placeFirewall(x, y){
 }
 
 function loadFirewalls(){
-  try {
-    const raw = localStorage.getItem(FIREWALL_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return [];
-    return arr.filter(fw => fw && typeof fw.x === 'number' && typeof fw.y === 'number' && (fw.hp|0) > 0).map(fw => ({
-      id: fw.id || ('fw_' + Date.now() + '_' + Math.floor(Math.random()*9999)),
-      x: fw.x, y: fw.y,
-      hp: fw.hp,
-      maxHp: fw.maxHp || FW_TURRET_HP,
-      life: fw.life || 0,
-      maxLife: fw.maxLife || FW_TURRET_TTL,
-      burning: 0,
-      flame: Math.random() * Math.PI * 2,
-    }));
-  } catch(e){ return []; }
+  const arr = __bootSnap.firewalls;
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(fw => fw && typeof fw.x === 'number' && typeof fw.y === 'number' && (fw.hp|0) > 0).map(fw => ({
+    id: fw.id || ('fw_' + Date.now() + '_' + Math.floor(Math.random()*9999)),
+    x: fw.x, y: fw.y,
+    hp: fw.hp,
+    maxHp: fw.maxHp || FW_TURRET_HP,
+    life: fw.life || 0,
+    maxLife: fw.maxLife || FW_TURRET_TTL,
+    burning: 0,
+    flame: Math.random() * Math.PI * 2,
+  }));
 }
-function saveFirewalls(){
-  try {
-    const slim = (garden.firewalls || []).filter(fw => fw && (fw.hp|0) > 0).map(fw => ({
-      id: fw.id, x: fw.x, y: fw.y,
-      hp: fw.hp, maxHp: fw.maxHp,
-      life: fw.life, maxLife: fw.maxLife,
-    }));
-    localStorage.setItem(FIREWALL_KEY, JSON.stringify(slim));
-  } catch(e){}
-}
+function saveFirewalls(){ saveState(); }
 
 // Find the closest firewall within lure range of (x, y).
 function nearestFirewallLure(hzX, hzY){
@@ -3660,23 +3694,10 @@ function spawnGardenPop(x, y, txt, color){
 // keeps the egg warm by clicking it (or letting healthy adults nest nearby).
 // If the egg cools for too long, it fails.
 function loadEggs(){
-  try {
-    const raw = localStorage.getItem(EGG_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch(e){ return []; }
+  const arr = __bootSnap.eggs;
+  return Array.isArray(arr) ? arr : [];
 }
-function saveEggs(){
-  try {
-    const payload = JSON.stringify(garden.eggs);
-    localStorage.setItem(EGG_KEY, payload);
-    __ccLog('saveEggs:OK', { count: garden.eggs.length, bytes: payload.length });
-  } catch(e){
-    __ccLog('saveEggs:FAILED', { err: String(e && e.message || e), count: garden.eggs.length });
-    console.error('[code-creatures] saveEggs FAILED:', e);
-  }
-}
+function saveEggs(){ saveState(); }
 function layEggInGarden(dna, parents){
   // Drop near the centre, jittered, on the soil line so it reads "nested".
   const cx = garden.W ? garden.W / 2 : 500;
@@ -5387,16 +5408,10 @@ function formatAge(min){
 const MEMORIAL_KEY = 'code-creatures-memorial-v1';
 const MEMORIAL_CAP = 240;
 function loadMemorial(){
-  try {
-    const raw = localStorage.getItem(MEMORIAL_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch(e){ return []; }
+  const arr = __bootSnap.memorial;
+  return Array.isArray(arr) ? arr : [];
 }
-function saveMemorial(){
-  try { localStorage.setItem(MEMORIAL_KEY, JSON.stringify(state.memorial)); } catch(e){}
-}
+function saveMemorial(){ saveState(); }
 function recordMemorial(c){
   if (!c || !c.id) return;
   // Internal dedup: a given creature id can only ever produce one tombstone,
@@ -5554,11 +5569,7 @@ try {
         dna:       state.dna,
       },
       disk: {
-        [STORAGE_KEY]:  localStorage.getItem(STORAGE_KEY),
-        [EGG_KEY]:      localStorage.getItem(EGG_KEY),
-        [FIREWALL_KEY]: localStorage.getItem(FIREWALL_KEY),
-        [MEMORIAL_KEY]: localStorage.getItem(MEMORIAL_KEY),
-        [DNA_KEY]:      localStorage.getItem(DNA_KEY),
+        [UNIFIED_KEY]: localStorage.getItem(UNIFIED_KEY),
       },
       log: __ccPersistLog.slice(),
     };
