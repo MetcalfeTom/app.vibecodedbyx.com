@@ -259,26 +259,60 @@
     const KEY = 'code-creatures-mini-v1';
     const MAX_DNA = 32;
 
-    // --- Atomic persistence: one key, one JSON array, one save fn. ---
+    // --- Atomic persistence: one key, one JSON array, ONE synchronous write.
+    // Earlier V2 used microtask debouncing — that loses writes when the tab
+    // closes between schedule and flush. Now save() writes immediately, then
+    // verifies by reading back. pagehide/visibilitychange add a safety flush
+    // in case any future caller mutates state.creatures without calling save().
     function loadAll(){
       let raw;
-      try { raw = localStorage.getItem(KEY); } catch(_){ return []; }
-      if (!raw) return [];
-      try {
-        const arr = JSON.parse(raw);
-        return Array.isArray(arr) ? arr.filter(c => c && c.id && c.dna) : [];
-      } catch(_){ return []; }
+      try { raw = localStorage.getItem(KEY); } catch(e){
+        console.error('[code-creatures] loadAll: getItem failed', e);
+        return [];
+      }
+      if (!raw){ console.log('[code-creatures] loadAll: empty disk → []'); return []; }
+      let arr;
+      try { arr = JSON.parse(raw); } catch(e){
+        console.error('[code-creatures] loadAll: parse failed — disk was', raw.slice(0,200), e);
+        return [];
+      }
+      if (!Array.isArray(arr)){
+        console.error('[code-creatures] loadAll: not an array', typeof arr);
+        return [];
+      }
+      const out = arr.filter(c => c && c.id && c.dna);
+      console.log(`[code-creatures] loadAll: ${out.length} creatures from ${raw.length}B`);
+      return out;
     }
-    let saveScheduled = false;
     function save(){
-      if (saveScheduled) return;
-      saveScheduled = true;
-      Promise.resolve().then(() => {
-        saveScheduled = false;
-        try { localStorage.setItem(KEY, JSON.stringify(state.creatures)); }
-        catch(e){ console.error('[code-creatures] save failed', e); }
-      });
+      const arr = Array.isArray(state.creatures) ? state.creatures : [];
+      let payload;
+      try { payload = JSON.stringify(arr); }
+      catch(e){
+        console.error('[code-creatures] save: stringify failed', e);
+        return;
+      }
+      try { localStorage.setItem(KEY, payload); }
+      catch(e){
+        console.error('[code-creatures] save: setItem failed bytes=' + payload.length, e);
+        return;
+      }
+      // Verify-after-write: catch silent quota or storage failures.
+      let verify;
+      try { verify = localStorage.getItem(KEY); } catch(_){ verify = null; }
+      const ok = verify === payload;
+      console.log(`[code-creatures] save: ${arr.length} creatures, ${payload.length}B, verify=${ok ? 'OK' : 'MISMATCH'}`);
+      if (!ok){
+        console.error('[code-creatures] save: verify FAILED — disk has', verify ? verify.length + 'B' : 'null');
+      }
     }
+    // Safety flush on tab close / hide. localStorage is synchronous so this
+    // always lands before the page unloads.
+    window.addEventListener('pagehide',         () => save());
+    window.addEventListener('beforeunload',     () => save());
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') save(); });
+    // Console helper for live debugging.
+    try { window.__cc_dump = () => ({ memory: state.creatures, disk: localStorage.getItem(KEY) }); } catch(_){}
 
     // --- DNA → deterministic sprite + stats + name ---
     function fnv1a(str){
