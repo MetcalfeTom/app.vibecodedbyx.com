@@ -193,6 +193,33 @@
     }
     .note a { color: var(--fn); text-decoration: none; }
     .note a:hover { text-decoration: underline; }
+
+    .garden-wrap {
+      position: relative;
+      width: 100%;
+      height: 360px;
+      border-radius: 14px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 110%, rgba(95,192,224,0.10), transparent 55%),
+        linear-gradient(180deg, #0a0420 0%, #1a0d3a 70%, #2a1854 100%);
+      border: 1px solid var(--line);
+    }
+    #garden {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .garden-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--dim);
+      font-style: italic;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -209,6 +236,14 @@
         <div class="meter"><div id="meterFill"></div></div>
         <div class="count" id="dnaCount">0 / 32</div>
         <button id="hatchBtn" disabled>Hatch</button>
+      </div>
+    </section>
+
+    <section>
+      <div class="label">the garden</div>
+      <div class="garden-wrap">
+        <canvas id="garden"></canvas>
+        <div id="gardenEmpty" class="garden-empty">empty · hatch a creature to populate</div>
       </div>
     </section>
 
@@ -385,6 +420,7 @@
         drawCreature(card.querySelector('canvas'), c.dna);
         card.querySelector('.release').addEventListener('click', () => {
           state.creatures = state.creatures.filter(x => x.id !== c.id);
+          garden.agents.delete(c.id);
           save();
           refreshRoster();
         });
@@ -395,16 +431,18 @@
     function hatch(){
       const dna = dnaInput?.value.trim();
       if (!dna || dna.length < 3) return;
-      state.creatures.unshift({
+      const c = {
         id: 'c_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
         dna,
         name: nameFromDna(dna),
         born: new Date().toISOString(),
-      });
+      };
+      state.creatures.unshift(c);
       save();
       if (dnaInput) dnaInput.value = '';
       refreshInput();
       refreshRoster();
+      // syncAgents picks the new id up on the next frame.
     }
 
     dnaInput?.addEventListener('input', refreshInput);
@@ -413,8 +451,152 @@
     });
     hatchBtn?.addEventListener('click', hatch);
 
+    // ============================================================
+    // GARDEN — wandering canvas where each creature roams
+    // ============================================================
+    const gardenCanvas = document.getElementById('garden');
+    const gardenEmpty  = document.getElementById('gardenEmpty');
+    const garden = {
+      W: 0, H: 0,
+      ctx: gardenCanvas?.getContext('2d') || null,
+      dpr: 1,
+      agents: new Map(),  // creature.id → { x, y, vx, vy, facing, wanderT, bob, sprite }
+      spriteCache: new Map(),  // dna → offscreen canvas
+      lastTime: performance.now(),
+    };
+
+    function resizeGarden(){
+      if (!gardenCanvas || !garden.ctx) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = gardenCanvas.getBoundingClientRect();
+      garden.W = rect.width;
+      garden.H = rect.height;
+      garden.dpr = dpr;
+      gardenCanvas.width  = (rect.width * dpr) | 0;
+      gardenCanvas.height = (rect.height * dpr) | 0;
+      garden.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      garden.ctx.imageSmoothingEnabled = false;
+    }
+    resizeGarden();
+    window.addEventListener('resize', resizeGarden);
+
+    function spriteFor(dna){
+      let cv = garden.spriteCache.get(dna);
+      if (cv) return cv;
+      cv = document.createElement('canvas');
+      cv.width = 96; cv.height = 96;
+      drawCreature(cv, dna);
+      garden.spriteCache.set(dna, cv);
+      return cv;
+    }
+
+    function syncAgents(){
+      if (!garden.W) return;
+      const haveIds = new Set();
+      for (const c of state.creatures){
+        haveIds.add(c.id);
+        if (!garden.agents.has(c.id)){
+          garden.agents.set(c.id, {
+            x: 40 + Math.random() * Math.max(1, garden.W - 80),
+            y: 60 + Math.random() * Math.max(1, garden.H - 120),
+            vx: (Math.random() * 2 - 1) * 24,
+            vy: (Math.random() * 2 - 1) * 16,
+            facing: 1,
+            wanderT: 0,
+            bob: Math.random() * Math.PI * 2,
+          });
+        }
+      }
+      for (const id of garden.agents.keys()){
+        if (!haveIds.has(id)) garden.agents.delete(id);
+      }
+      if (gardenEmpty) gardenEmpty.style.display = state.creatures.length ? 'none' : '';
+    }
+
+    function tickGarden(now){
+      const dt = Math.min(0.05, (now - garden.lastTime) / 1000);
+      garden.lastTime = now;
+      syncAgents();
+      const ctx = garden.ctx;
+      if (!ctx || !garden.W) { requestAnimationFrame(tickGarden); return; }
+
+      // bg: faint horizon grid
+      ctx.clearRect(0, 0, garden.W, garden.H);
+      ctx.strokeStyle = 'rgba(201,134,224,0.10)';
+      ctx.lineWidth = 1;
+      const horizon = garden.H * 0.62;
+      ctx.beginPath();
+      ctx.moveTo(0, horizon); ctx.lineTo(garden.W, horizon);
+      ctx.stroke();
+      // perspective verticals
+      ctx.strokeStyle = 'rgba(95,192,224,0.09)';
+      for (let i = 0; i <= 12; i++){
+        const t = i / 12;
+        const x = t * garden.W;
+        ctx.beginPath();
+        ctx.moveTo(garden.W / 2 + (x - garden.W / 2) * 0.3, horizon);
+        ctx.lineTo(x, garden.H);
+        ctx.stroke();
+      }
+      // soil glow
+      ctx.fillStyle = 'rgba(126,201,122,0.05)';
+      ctx.fillRect(0, garden.H - 30, garden.W, 30);
+
+      // depth-sort agents by y so closer ones overlap farther ones
+      const sorted = [...garden.agents.entries()].sort((a, b) => a[1].y - b[1].y);
+      for (const [id, ag] of sorted){
+        const c = state.creatures.find(x => x.id === id);
+        if (!c) continue;
+
+        // wander: pick new vx/vy every 1.4–4s
+        ag.wanderT -= dt;
+        if (ag.wanderT <= 0){
+          ag.wanderT = 1.4 + Math.random() * 2.6;
+          const speed = 18 + Math.random() * 26;
+          const ang = Math.random() * Math.PI * 2;
+          ag.vx = Math.cos(ang) * speed;
+          ag.vy = Math.sin(ang) * speed * 0.5;
+        }
+        ag.x += ag.vx * dt;
+        ag.y += ag.vy * dt;
+        // soft bounds
+        const margin = 36;
+        if (ag.x < margin)            { ag.x = margin;             ag.vx = Math.abs(ag.vx); }
+        if (ag.x > garden.W - margin) { ag.x = garden.W - margin;  ag.vx = -Math.abs(ag.vx); }
+        if (ag.y < 40)                { ag.y = 40;                 ag.vy = Math.abs(ag.vy); }
+        if (ag.y > garden.H - 36)     { ag.y = garden.H - 36;      ag.vy = -Math.abs(ag.vy); }
+        if (Math.abs(ag.vx) > 4) ag.facing = ag.vx >= 0 ? 1 : -1;
+        ag.bob += dt * 4;
+
+        const sprite = spriteFor(c.dna);
+        const size = 56;
+        const yBob = Math.sin(ag.bob) * 2;
+        // shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.beginPath();
+        ctx.ellipse(ag.x, ag.y + size * 0.45, size * 0.32, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // sprite (mirror by facing)
+        ctx.save();
+        ctx.translate(ag.x, ag.y + yBob);
+        ctx.scale(ag.facing, 1);
+        ctx.drawImage(sprite, -size / 2, -size / 2, size, size);
+        ctx.restore();
+        // name plate
+        ctx.font = '10px "Silkscreen", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(ag.x - 30, ag.y - size * 0.55 - 12, 60, 14);
+        ctx.fillStyle = 'rgba(246,231,255,0.92)';
+        ctx.fillText(c.name.slice(0, 12), ag.x, ag.y - size * 0.55 - 2);
+      }
+
+      requestAnimationFrame(tickGarden);
+    }
+
     refreshInput();
     refreshRoster();
+    requestAnimationFrame(tickGarden);
   </script>
 </body>
 </html>
