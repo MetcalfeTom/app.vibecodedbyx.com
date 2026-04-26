@@ -1922,11 +1922,6 @@ function generateName(dna){
 }
 
 // ---- Storage ----
-// Dead creatures that were saved with alive:false but never cleaned up — the
-// 1700ms removal setTimeout doesn't survive a page refresh, so they linger in
-// the roster. We strip them on load and promote any that are missing from the
-// memorial wall (boot script does the promotion once memorial is loaded).
-let __orphanDead = [];
 // --- Persistence diagnostics ---
 // A small in-memory ring of save/load events the user (or a debugger) can dump
 // from the console via `window.__cc_persistLog`. Each entry: { t, kind, info }.
@@ -1941,136 +1936,67 @@ try {
   if (typeof window !== 'undefined') window.__cc_persistLog = __ccPersistLog;
 } catch(e){}
 function loadCreatures(){
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    __ccLog('loadCreatures:read', { hasRaw: !!raw, length: raw ? raw.length : 0, preview: raw ? raw.slice(0, 80) : '' });
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)){
-      __ccLog('loadCreatures:NOT_ARRAY', { typeofArr: typeof arr });
-      return [];
-    }
-    const alive = [];
-    __orphanDead = [];
-    // Defensive: a corrupt save (or a future bug that double-pushes) could
-    // land the same creature id in the array twice. Building from a Map
-    // keyed by id means syncMyAgents can never see a phantom second slot
-    // and the "yours" counter can never disagree with the truth on disk.
-    const seenIds = new Set();
-    let duplicates = 0;
-    // Migrate older creatures: ensure survival fields exist
-    for (const c of arr){
-      if (c && c.alive === false){
-        __orphanDead.push(c);
-        continue;
-      }
-      if (c && c.id){
-        if (seenIds.has(c.id)){ duplicates++; continue; }
-        seenIds.add(c.id);
-      }
-      if (typeof c.hp !== 'number') c.hp = 100;
-      if (typeof c.hunger !== 'number') c.hunger = 25;
-      if (typeof c.alive !== 'boolean') c.alive = true;
-      if (!c.born) c.born = new Date().toISOString();
-      if (typeof c.infectedUntil !== 'number') c.infectedUntil = 0;
-      if (typeof c.lastBredAt !== 'number') c.lastBredAt = 0;
-      if (!c.lang || typeof c.lang !== 'object') c.lang = { py:0, js:0, cpp:0, go:0 };
-      else {
-        if (typeof c.lang.py !== 'number') c.lang.py = 0;
-        if (typeof c.lang.js !== 'number') c.lang.js = 0;
-        if (typeof c.lang.cpp !== 'number') c.lang.cpp = 0;
-        if (typeof c.lang.go !== 'number') c.lang.go = 0;
-      }
-      // Permanent food bonuses (added on top of DNA-derived stats).
-      if (!c.bonus || typeof c.bonus !== 'object') c.bonus = { hp:0, atk:0, def:0, spd:0, par:0, intel:0 };
-      else {
-        for (const k of ['hp','atk','def','spd','par','intel']){
-          if (typeof c.bonus[k] !== 'number') c.bonus[k] = 0;
-        }
-      }
-      // hp=0 with no alive flag set yet → mark as dying so survivalTick picks
-      // it up and runs the proper death + memorial path on the next tick.
-      if (c.hp <= 0 && c.alive){
-        c.hp = 0;
-      }
-      // Migrate older saves: if a creature's age already exceeds the lifespan
-      // (because aging didn't exist when they were born), rebase to a fresh life.
-      const ageMs = Date.now() - new Date(c.born).getTime();
-      if (ageMs > MAX_AGE_MIN * 60000 * 0.95){
-        c.born = new Date(Date.now() - 60000).toISOString(); // 1 min old
-        c.hp = Math.max(c.hp, 80);
-        c.hunger = Math.min(c.hunger, 30);
-      }
-      alive.push(c);
-    }
-    __ccLog('loadCreatures:OK', { aliveCount: alive.length, orphanDeadCount: __orphanDead.length, duplicatesDropped: duplicates, ids: alive.map(c => c.id) });
-    return alive;
-  } catch(e){
-    __ccLog('loadCreatures:FAILED', { err: String(e && e.message || e) });
-    console.error('[code-creatures] loadCreatures FAILED — roster lost:', e);
+  let raw;
+  try { raw = localStorage.getItem(STORAGE_KEY); } catch(e){
+    console.error('[code-creatures] loadCreatures: localStorage.getItem failed', e);
     return [];
   }
+  if (!raw) return [];
+  let arr;
+  try { arr = JSON.parse(raw); } catch(e){
+    console.error('[code-creatures] loadCreatures: JSON.parse failed — disk was', raw.slice(0,200), e);
+    return [];
+  }
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const c of arr){
+    if (!c || typeof c !== 'object' || !c.id) continue;
+    if (seen.has(c.id)) continue;
+    seen.add(c.id);
+    if (c.alive === false) continue; // dead creatures live in memorial, not roster
+    // Minimal field defaults so legacy saves keep working.
+    if (typeof c.hp !== 'number') c.hp = 100;
+    if (typeof c.hunger !== 'number') c.hunger = 25;
+    c.alive = true;
+    if (!c.born) c.born = new Date().toISOString();
+    if (typeof c.infectedUntil !== 'number') c.infectedUntil = 0;
+    if (typeof c.lastBredAt !== 'number') c.lastBredAt = 0;
+    if (!c.lang || typeof c.lang !== 'object') c.lang = { py:0, js:0, cpp:0, go:0 };
+    else {
+      for (const k of ['py','js','cpp','go']) if (typeof c.lang[k] !== 'number') c.lang[k] = 0;
+    }
+    if (!c.bonus || typeof c.bonus !== 'object') c.bonus = { hp:0, atk:0, def:0, spd:0, par:0, intel:0 };
+    else {
+      for (const k of ['hp','atk','def','spd','par','intel']) if (typeof c.bonus[k] !== 'number') c.bonus[k] = 0;
+    }
+    if (c.hp <= 0) c.hp = 0;
+    const ageMs = Date.now() - new Date(c.born).getTime();
+    if (ageMs > MAX_AGE_MIN * 60000 * 0.95){
+      c.born = new Date(Date.now() - 60000).toISOString();
+      c.hp = Math.max(c.hp, 80);
+      c.hunger = Math.min(c.hunger, 30);
+    }
+    out.push(c);
+  }
+  return out;
 }
-// Boot guard: window during which an "empty roster" save is suspicious.
-// After this flag flips true (set at the bottom of the boot script), saves
-// are unrestricted — so a player who loses every creature can still see the
-// memorial. Inside the window, any rogue early save can't clobber disk.
-//
-// Refined check: we only block if disk currently has *more alive creatures*
-// than memory — the prior `existing !== '[]'` heuristic also blocked the
-// legitimate orphan-dead strip path, which left tombstones on disk forever
-// and forced their re-promotion every reload.
-let __bootComplete = false;
+// Atomic save: always writes whatever's in state.creatures, no boot guards,
+// no recovery games. Read it back immediately to verify.
 function saveCreatures(){
-  try {
-    const arr = Array.isArray(state.creatures) ? state.creatures : [];
-    if (arr.length === 0 && !__bootComplete){
-      const existing = localStorage.getItem(STORAGE_KEY);
-      let diskAlive = 0;
-      if (existing){
-        try {
-          const parsed = JSON.parse(existing);
-          if (Array.isArray(parsed)){
-            for (const c of parsed) if (c && c.alive !== false) diskAlive++;
-          }
-        } catch(e){
-          // If disk JSON is corrupt, default to *blocking* — we'd rather keep
-          // the bytes around for rescue than overwrite with [].
-          __ccLog('saveCreatures:BLOCKED_corrupt_disk', { len: existing.length });
-          return;
-        }
-      }
-      if (diskAlive > 0){
-        __ccLog('saveCreatures:BLOCKED_boot_empty', { diskAlive, existingLen: existing.length });
-        return;
-      }
-    }
-    let payload;
-    try { payload = JSON.stringify(arr); }
-    catch(serErr){
-      __ccLog('saveCreatures:STRINGIFY_FAILED', { err: String(serErr && serErr.message || serErr), count: arr.length });
-      console.error('[code-creatures] saveCreatures STRINGIFY FAILED — likely circular ref:', serErr);
-      try { toast('save failed: serialization error', 'warn'); } catch(_){}
-      return;
-    }
-    try {
-      localStorage.setItem(STORAGE_KEY, payload);
-    } catch(quotaErr){
-      // Quota exceeded? Try shedding the heaviest byproduct first (sprite cache
-      // doesn't live here but other persistence keys might be hogging space).
-      __ccLog('saveCreatures:QUOTA_EXCEEDED', {
-        err: String(quotaErr && quotaErr.message || quotaErr),
-        bytes: payload.length,
-        count: arr.length,
-      });
-      console.error('[code-creatures] saveCreatures QUOTA — bytes=' + payload.length + ' count=' + arr.length, quotaErr);
-      try { toast('save failed: storage full · creatures may not persist', 'warn'); } catch(_){}
-      return;
-    }
-    __ccLog('saveCreatures:OK', { count: arr.length, bytes: payload.length, bootComplete: __bootComplete, ids: arr.map(c => c && c.id) });
-  } catch(e){
-    __ccLog('saveCreatures:FAILED', { err: String(e && e.message || e) });
-    console.error('[code-creatures] saveCreatures FAILED:', e);
+  const arr = Array.isArray(state.creatures) ? state.creatures : [];
+  let payload;
+  try { payload = JSON.stringify(arr); }
+  catch(e){
+    console.error('[code-creatures] saveCreatures: stringify failed', e);
+    try { toast('save failed: serialization error', 'warn'); } catch(_){}
+    return;
+  }
+  try { localStorage.setItem(STORAGE_KEY, payload); }
+  catch(e){
+    console.error('[code-creatures] saveCreatures: setItem failed bytes=' + payload.length, e);
+    try { toast('save failed: storage full', 'warn'); } catch(_){}
+    return;
   }
 }
 
@@ -5565,26 +5491,6 @@ function renderMemorial(){
   }).join('');
 }
 state.memorial = loadMemorial();
-// Promote any orphaned dead creatures (saved with alive:false but missed the
-// removal-and-record path because the user refreshed mid-death). Without this,
-// names like "Durf the Third" would vanish from the roster but never surface in
-// the memorial wall.
-if (Array.isArray(__orphanDead) && __orphanDead.length){
-  const recorded = new Set(state.memorial.map(m => m.id));
-  let promoted = 0;
-  for (const c of __orphanDead){
-    if (!c || !c.id || recorded.has(c.id)) continue;
-    recordMemorial(c);
-    recorded.add(c.id);
-    promoted++;
-  }
-  if (promoted){
-    console.log('[code-creatures] promoted', promoted, 'orphan dead → memorial');
-  }
-  // Strip dead from disk now that memorial owns them.
-  saveCreatures();
-  __orphanDead = [];
-}
 renderMemorial();
 refreshDnaHud(false);
 
@@ -5625,10 +5531,6 @@ function runSurvival(){
     saveFirewalls();
   }
 }
-// Boot is fully complete: state.creatures hydrated, eggs/firewalls loaded,
-// orphan dead promoted, memorial rendered. Open the gate so legitimate
-// "everyone died" saves are no longer blocked.
-__bootComplete = true;
 __ccLog('boot:COMPLETE', {
   creatures: state.creatures.length,
   ids: state.creatures.map(c => c.id),
@@ -5644,7 +5546,6 @@ __ccLog('boot:COMPLETE', {
 try {
   if (typeof window !== 'undefined') window.__cc_dump = function(){
     const dump = {
-      bootComplete: __bootComplete,
       memory: {
         creatures: state.creatures.map(c => ({ id:c.id, name:c.name, alive:c.alive, hp:c.hp, hunger:c.hunger })),
         eggs:      (garden.eggs||[]).map(e => ({ id:e.id, dormant:!!e.dormant, dna:(e.dna||'').slice(0,16) })),
