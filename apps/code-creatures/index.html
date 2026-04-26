@@ -1476,6 +1476,82 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 // CODE CREATURES — single-file vanilla JS
 // ============================================================
 
+// ---- BOOT-TIME PERSISTENCE FORENSICS ----
+// Runs BEFORE any state init so we capture the disk exactly as it sits at the
+// moment the page loads. Also wraps localStorage.{setItem,removeItem,clear} so
+// every subsequent write logs key + bytes + a stack trace — that turns silent
+// overwrites (the suspected cause of "creatures vanish, eggs persist") into
+// loud, attributable noise in the console.
+(function bootForensics(){
+  try {
+    const KEYS = [
+      'code-creatures-v1',
+      'code-creatures-eggs-v1',
+      'code-creatures-firewalls-v1',
+      'code-creatures-memorial-v1',
+      'code-creatures-dna-v1',
+      'code-creatures-client-id-v1',
+    ];
+    const snap = {};
+    for (const k of KEYS){
+      const raw = localStorage.getItem(k);
+      snap[k] = raw == null ? null : { len: raw.length, preview: raw.slice(0, 200), value: raw };
+    }
+    console.log('%c[code-creatures] BOOT localStorage snapshot', 'color:#7ec97a;font-weight:bold');
+    console.table(Object.fromEntries(Object.entries(snap).map(([k,v]) => [k, v ? { len: v.len, preview: v.preview } : null])));
+    // Also parse the creatures + eggs payloads so we can SEE the shape mismatch
+    // the user is hunting for ("eggs persist but creatures don't").
+    try {
+      const c = snap['code-creatures-v1'];
+      if (c){
+        const parsed = JSON.parse(c.value);
+        console.log('[code-creatures] BOOT creatures parsed:', parsed);
+        if (Array.isArray(parsed)){
+          const live = parsed.filter(x => x && x.alive !== false);
+          const dead = parsed.filter(x => x && x.alive === false);
+          console.log(`[code-creatures] BOOT creatures: ${live.length} alive, ${dead.length} dead, ${parsed.length - live.length - dead.length} other`);
+        }
+      } else {
+        console.warn('[code-creatures] BOOT: code-creatures-v1 is EMPTY on disk — saveCreatures was never called or write failed');
+      }
+    } catch(e){ console.error('[code-creatures] BOOT creatures parse FAILED — corrupt JSON:', e); }
+    try {
+      const e = snap['code-creatures-eggs-v1'];
+      if (e){
+        const parsed = JSON.parse(e.value);
+        console.log('[code-creatures] BOOT eggs parsed:', parsed);
+      }
+    } catch(e){ console.error('[code-creatures] BOOT eggs parse FAILED:', e); }
+    // Hook every storage write so the next quiet wipe shows itself.
+    const _set = Storage.prototype.setItem;
+    const _del = Storage.prototype.removeItem;
+    const _clr = Storage.prototype.clear;
+    Storage.prototype.setItem = function(k, v){
+      if (typeof k === 'string' && k.startsWith('code-creatures-')){
+        const stack = (new Error().stack || '').split('\n').slice(2, 5).join(' / ');
+        const len = v == null ? 0 : String(v).length;
+        // Empty-array writes are the most likely "wipe" pattern — flag them loud.
+        if (v === '[]' || v === '""' || v === '{}'){
+          console.warn(`[code-creatures] EMPTY WRITE → ${k} = ${v}  ::  ${stack}`);
+        } else {
+          console.log(`[code-creatures] setItem(${k}) ${len}B  ::  ${stack}`);
+        }
+      }
+      return _set.call(this, k, v);
+    };
+    Storage.prototype.removeItem = function(k){
+      if (typeof k === 'string' && k.startsWith('code-creatures-')){
+        console.warn(`[code-creatures] removeItem(${k})  ::  ${(new Error().stack||'').split('\n').slice(2,4).join(' / ')}`);
+      }
+      return _del.call(this, k);
+    };
+    Storage.prototype.clear = function(){
+      console.error(`[code-creatures] localStorage.clear() called!  ::  ${(new Error().stack||'').split('\n').slice(2,4).join(' / ')}`);
+      return _clr.call(this);
+    };
+  } catch(e){ console.error('[code-creatures] bootForensics FAILED:', e); }
+})();
+
 const STORAGE_KEY = 'code-creatures-v1';
 const HATCH_TARGET = 32;
 
@@ -3666,7 +3742,14 @@ function loadEggs(){
   } catch(e){ return []; }
 }
 function saveEggs(){
-  try { localStorage.setItem(EGG_KEY, JSON.stringify(garden.eggs)); } catch(e){}
+  try {
+    const payload = JSON.stringify(garden.eggs);
+    localStorage.setItem(EGG_KEY, payload);
+    __ccLog('saveEggs:OK', { count: garden.eggs.length, bytes: payload.length });
+  } catch(e){
+    __ccLog('saveEggs:FAILED', { err: String(e && e.message || e), count: garden.eggs.length });
+    console.error('[code-creatures] saveEggs FAILED:', e);
+  }
 }
 function layEggInGarden(dna, parents){
   // Drop near the centre, jittered, on the soil line so it reads "nested".
