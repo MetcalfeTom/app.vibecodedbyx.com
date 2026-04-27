@@ -168,9 +168,12 @@
     gap:6px; padding:14px;
     transition:border-color .15s, background .15s;
     cursor:pointer; text-align:center;
+    position:relative;
   }
   .drop-zone:hover{ border-color:var(--cyan); background:rgba(95,200,224,0.04); }
   .drop-zone.over{ border-color:var(--cyan); border-style:solid; background:rgba(95,200,224,0.08); }
+  /* children are visually-only — events pass through to the drop zone */
+  .drop-zone > *{ pointer-events:none; }
   .drop-zone .head{
     font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:600;
     letter-spacing:0.18em; text-transform:uppercase; color:var(--cyan);
@@ -183,6 +186,13 @@
     font-family:'IBM Plex Mono', monospace; font-size:10px;
     color:var(--null); letter-spacing:0.1em;
   }
+  .upload-status{
+    margin-top:8px;
+    font-family:'IBM Plex Mono', monospace; font-size:11px;
+    color:var(--dim); letter-spacing:0.05em; min-height:16px;
+  }
+  .upload-status.ok{ color:var(--green); }
+  .upload-status.err{ color:var(--magenta); }
   .upload-actions{ display:flex; gap:8px; flex-direction:column; }
   .sample-pill{
     font-family:'IBM Plex Mono', monospace; font-size:10px; font-weight:500;
@@ -503,13 +513,13 @@
       <div class="info"><span id="corpusFiles">0</span> files · <span id="corpusChars">0</span> chars · <span id="corpusWords">0</span> words</div>
     </div>
     <div class="stage-body">
+      <input type="file" id="fileInput" multiple accept=".txt,.md,.markdown,.json,.csv,.log,.html,.htm,.xml,.rtf,.tex,.yaml,.yml,.toml,.ini,.conf,.py,.js,.ts,.tsx,.jsx,.go,.rs,.java,.c,.cpp,.h,.hpp,.cs,.rb,.php,.swift,.kt,.scala,.sh,.bash,.zsh,.sql,.r,.m,.lua,.pl,.dart" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
       <div class="upload-row">
-        <label class="drop-zone" id="dropZone">
-          <input type="file" id="fileInput" multiple accept=".txt,.md,.markdown,.json,.csv,.log,.html,.htm,.xml,.rtf,.tex,.yaml,.yml,.toml,.ini,.conf,.py,.js,.ts,.tsx,.jsx,.go,.rs,.java,.c,.cpp,.h,.hpp,.cs,.rb,.php,.swift,.kt,.scala,.sh,.bash,.zsh,.sql,.r,.m,.lua,.pl,.dart" style="display:none" />
+        <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Upload files">
           <div class="head">＋ drop files or click to upload</div>
           <div class="sub">multiple files okay — they'll all join one corpus</div>
           <div class="formats">.txt · .md · .json · .csv · .log · code files</div>
-        </label>
+        </div>
         <div class="upload-actions">
           <button class="sample-pill" data-sample="photosynthesis">↗ sample: science</button>
           <button class="sample-pill" data-sample="rust">↗ sample: tech</button>
@@ -518,6 +528,7 @@
           <button class="sample-pill" id="clearAllBtn" style="color:var(--magenta);border-color:rgba(232,90,138,0.3)">× clear corpus</button>
         </div>
       </div>
+      <div class="upload-status" id="uploadStatus"></div>
       <div class="file-list" id="fileList"></div>
       <textarea id="docInput" placeholder="…or paste raw text here as an extra document"></textarea>
       <div class="corpus-stats">
@@ -948,6 +959,13 @@ const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 const fileList = document.getElementById('fileList');
 const docInput = document.getElementById('docInput');
+const uploadStatus = document.getElementById('uploadStatus');
+
+function setStatus(msg, kind){
+  uploadStatus.textContent = msg || '';
+  uploadStatus.classList.remove('ok','err');
+  if (kind) uploadStatus.classList.add(kind);
+}
 const corpusFiles = document.getElementById('corpusFiles');
 const corpusFiles2 = document.getElementById('corpusFiles2');
 const corpusChars = document.getElementById('corpusChars');
@@ -969,46 +987,114 @@ function readFileAsText(file){
 }
 
 async function ingestFiles(fileList){
-  const arr = Array.from(fileList);
+  const arr = Array.from(fileList || []);
+  if (!arr.length){
+    setStatus('no files received', 'err');
+    return;
+  }
+  setStatus(`reading ${arr.length} file${arr.length === 1 ? '' : 's'}…`);
+  let added = 0, skipped = 0;
+  const errors = [];
   for (const f of arr){
+    if (f.size === 0){
+      errors.push(`${f.name}: empty file`); skipped++; continue;
+    }
     if (f.size > MAX_FILE_BYTES){
-      alert(`Skipped ${f.name} — over 2 MB. Try splitting it first.`);
-      continue;
+      errors.push(`${f.name}: over 2 MB cap`); skipped++; continue;
     }
     const totalSoFar = state.files.reduce((s,x) => s + x.size, 0);
     if (totalSoFar + f.size > MAX_TOTAL_BYTES){
-      alert(`Skipped ${f.name} — corpus would exceed 6 MB total.`);
-      continue;
+      errors.push(`${f.name}: corpus would exceed 6 MB`); skipped++; continue;
+    }
+    if (state.files.some(x => x.name === f.name && x.size === f.size)){
+      errors.push(`${f.name}: already in corpus`); skipped++; continue;
     }
     try {
       const text = await readFileAsText(f);
+      if (typeof text !== 'string' || text.length === 0){
+        errors.push(`${f.name}: read as empty / non-text`); skipped++; continue;
+      }
+      // Reject obvious binary content (lots of NULs in first 512 bytes)
+      const head = text.slice(0, 512);
+      let nulls = 0;
+      for (let i = 0; i < head.length; i++) if (head.charCodeAt(i) === 0) nulls++;
+      if (nulls > 8){
+        errors.push(`${f.name}: looks binary (skipped)`); skipped++; continue;
+      }
       state.files.push({ name: f.name, text, size: f.size });
+      added++;
     } catch (e) {
-      alert(`Could not read ${f.name}: ${e}`);
+      errors.push(`${f.name}: ${e && e.message ? e.message : e}`);
+      skipped++;
     }
   }
   renderFileList();
   updateCorpusStats();
   rechunk();
+  if (errors.length && !added){
+    setStatus(`failed: ${errors.join(' · ')}`, 'err');
+  } else if (errors.length){
+    setStatus(`added ${added} · skipped ${skipped}: ${errors.join(' · ')}`, 'err');
+  } else {
+    setStatus(`✓ added ${added} file${added === 1 ? '' : 's'}`, 'ok');
+    setTimeout(() => { if (uploadStatus.textContent.startsWith('✓')) setStatus(''); }, 3500);
+  }
 }
 
-dropZone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', e => {
-  ingestFiles(e.target.files);
-  fileInput.value = '';
+// Open the file picker on click or keyboard activation.
+function openFilePicker(){
+  // Reset value FIRST so that re-selecting the same file still fires `change`.
+  try { fileInput.value = ''; } catch(_){}
+  fileInput.click();
+}
+dropZone.addEventListener('click', e => {
+  e.preventDefault();
+  openFilePicker();
 });
-['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, e => {
+dropZone.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); openFilePicker(); }
+});
+fileInput.addEventListener('change', e => {
+  const files = e.target.files;
+  ingestFiles(files);
+});
+
+// Drag/drop: track enter/leave with a counter to avoid flicker from child elements.
+let dragDepth = 0;
+dropZone.addEventListener('dragenter', e => {
   e.preventDefault(); e.stopPropagation();
+  dragDepth++;
   dropZone.classList.add('over');
-}));
-['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => {
+});
+dropZone.addEventListener('dragover', e => {
   e.preventDefault(); e.stopPropagation();
-  dropZone.classList.remove('over');
-}));
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+});
+dropZone.addEventListener('dragleave', e => {
+  e.preventDefault(); e.stopPropagation();
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dropZone.classList.remove('over');
+});
 dropZone.addEventListener('drop', e => {
-  if (e.dataTransfer && e.dataTransfer.files){
-    ingestFiles(e.dataTransfer.files);
+  e.preventDefault(); e.stopPropagation();
+  dragDepth = 0;
+  dropZone.classList.remove('over');
+  const dt = e.dataTransfer;
+  if (!dt){ setStatus('drop event had no dataTransfer', 'err'); return; }
+  if (dt.files && dt.files.length){
+    ingestFiles(dt.files);
+  } else {
+    setStatus('no files in drop (try dragging from Finder/Explorer, not the browser)', 'err');
   }
+});
+
+// Prevent the browser from navigating away when files are dropped outside the zone.
+['dragover','drop'].forEach(ev => {
+  window.addEventListener(ev, e => {
+    if (!dropZone.contains(e.target)){
+      e.preventDefault();
+    }
+  });
 });
 
 function renderFileList(){
