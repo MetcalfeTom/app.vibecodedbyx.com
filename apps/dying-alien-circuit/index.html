@@ -482,6 +482,63 @@
     }
   }
 
+  // alien-bun fart — sawtooth + LFO wobble + lowpass gargle
+  function fartSfx(intensity = 1) {
+    if (!ac) return;
+    const t = ac.currentTime;
+    const dur = 0.22 + Math.random() * 0.6;
+    // body: detuned saws
+    const o1 = ac.createOscillator(); o1.type = 'sawtooth';
+    const o2 = ac.createOscillator(); o2.type = 'sawtooth';
+    const startF = 95 + Math.random() * 80;
+    const endF = 50 + Math.random() * 30;
+    o1.frequency.setValueAtTime(startF, t);
+    o1.frequency.exponentialRampToValueAtTime(endF, t + dur);
+    o2.frequency.setValueAtTime(startF * 0.95, t);
+    o2.frequency.exponentialRampToValueAtTime(endF * 0.96, t + dur);
+    // LFO wobble (sputter)
+    const lfo = ac.createOscillator(); lfo.type = 'square';
+    lfo.frequency.value = 14 + Math.random() * 22;
+    const lfoG = ac.createGain(); lfoG.gain.value = 28;
+    lfo.connect(lfoG); lfoG.connect(o1.frequency); lfoG.connect(o2.frequency);
+    // lowpass gargle
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(800, t);
+    lp.frequency.exponentialRampToValueAtTime(180, t + dur);
+    lp.Q.value = 4 + Math.random() * 4;
+    // shaper for goopy distortion
+    const ws = ac.createWaveShaper();
+    const curve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+      const x = (i / 128) - 1;
+      curve[i] = Math.tanh(x * 3.4);
+    }
+    ws.curve = curve;
+    // gain envelope
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.32 * intensity, t + 0.02);
+    g.gain.setValueAtTime(0.32 * intensity, t + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o1.connect(lp); o2.connect(lp);
+    lp.connect(ws); ws.connect(g); g.connect(master);
+    o1.start(t); o2.start(t); lfo.start(t);
+    o1.stop(t + dur + 0.05); o2.stop(t + dur + 0.05); lfo.stop(t + dur + 0.05);
+    // wet noise PFFT layer
+    const len = ac.sampleRate * dur;
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 0.7);
+    const ns = ac.createBufferSource(); ns.buffer = buf;
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 540; bp.Q.value = 0.9;
+    const ng = ac.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.18 * intensity, t + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    ns.connect(bp); bp.connect(ng); ng.connect(master);
+    ns.start(t);
+  }
+
   // ====================== STATE ======================
   const G = {
     canvas: document.getElementById('board'),
@@ -508,7 +565,10 @@
     timeMs: 0,
     lastT: 0,
     bgGlitchT: 0,
-    bgOffset: { x: 0, y: 0, t: 0 }
+    bgOffset: { x: 0, y: 0, t: 0 },
+    buns: [],         // pair of cheek meatballs
+    stinkPuffs: [],
+    lastFartAt: 0
   };
   const ctx = G.canvas.getContext('2d');
 
@@ -675,6 +735,17 @@
         alive: true
       });
     }
+    // alien BUNS — a pair of cheek meatballs that fart on pulse collisions.
+    // placed in the lower-middle so they're visible.
+    const bunCx = G.canvas.width / (window.devicePixelRatio || 1) * 0.5;
+    const bunCy = G.canvas.height / (window.devicePixelRatio || 1) * 0.74;
+    const bunR = 28 + rng() * 8;
+    G.buns = [
+      { x: bunCx - bunR * 1.05, y: bunCy, r: bunR, jiggle: 0, jiggleVx: 0, glow: 0 },
+      { x: bunCx + bunR * 1.05, y: bunCy, r: bunR, jiggle: 0, jiggleVx: 0, glow: 0 }
+    ];
+    G.stinkPuffs = [];
+
     // alien glyphs (silkscreen markings)
     const glyphChars = ['Λ', 'Ξ', 'Φ', 'Ψ', '∇', '⊕', '⊗', 'Ω', '∞', 'Ϟ', 'Ѫ', 'Ҩ', 'Ѳ'];
     for (let i = 0; i < 28; i++) {
@@ -927,6 +998,9 @@
 
     // sparks
     drawSparks(t);
+
+    // alien BUNS (over everything except the tint)
+    drawBuns(t);
 
     // overall vignette pulse + sickly tint
     drawSicklyTint(W, H, t);
@@ -1280,6 +1354,143 @@
         ctx.fillStyle = `rgba(151, 192, 32, 0.4)`;
         ctx.beginPath(); ctx.arc(sx, sy, 1, 0, Math.PI*2); ctx.fill();
       }
+    }
+  }
+
+  function drawBuns(t) {
+    // detect pulse-pulse collisions (any two pulses within 14 px) → trigger fart.
+    if (G.pulses.length >= 2 && G.timeMs - G.lastFartAt > 110) {
+      const positions = G.pulses.map(p => {
+        const tr = G.traces[p.traceIdx];
+        return tr ? traceXY(tr, p.pos) : null;
+      });
+      let collided = false, cX = 0, cY = 0;
+      outer:
+      for (let i = 0; i < positions.length; i++) {
+        if (!positions[i]) continue;
+        for (let j = i + 1; j < positions.length; j++) {
+          if (!positions[j]) continue;
+          const d = Math.hypot(positions[i].x - positions[j].x, positions[i].y - positions[j].y);
+          if (d < 16) {
+            collided = true;
+            cX = (positions[i].x + positions[j].x) / 2;
+            cY = (positions[i].y + positions[j].y) / 2;
+            break outer;
+          }
+        }
+      }
+      if (collided) {
+        G.lastFartAt = G.timeMs;
+        // pick the closer bun for that collision
+        const b0 = G.buns[0], b1 = G.buns[1];
+        const d0 = Math.hypot(cX - b0.x, cY - b0.y);
+        const d1 = Math.hypot(cX - b1.x, cY - b1.y);
+        const target = d0 < d1 ? b0 : b1;
+        const intensity = Math.min(1.6, 0.5 + Math.random() * 0.9);
+        target.jiggleVx = (Math.random() - 0.5) * 6;
+        target.glow = 1;
+        // stink puffs from the gap between buns
+        const gapX = (b0.x + b1.x) / 2;
+        const gapY = (b0.y + b1.y) / 2 + 6;
+        for (let i = 0; i < 14; i++) {
+          const ang = -Math.PI/2 + (Math.random() - 0.5) * 1.4;
+          const sp = 0.6 + Math.random() * 1.6;
+          G.stinkPuffs.push({
+            x: gapX + (Math.random() - 0.5) * 6,
+            y: gapY + (Math.random() - 0.5) * 4,
+            vx: Math.cos(ang) * sp + (Math.random() - 0.5) * 0.6,
+            vy: Math.sin(ang) * sp - 0.4,
+            r: 6 + Math.random() * 8,
+            life: 0,
+            maxLife: 90 + Math.random() * 50,
+            wob: Math.random() * Math.PI * 2
+          });
+        }
+        fartSfx(intensity);
+        terminalLog('BUN PRESSURE · PFFFT · ' + Math.floor(Math.random() * 99));
+      }
+    }
+
+    // update bun jiggle physics
+    for (const b of G.buns) {
+      b.jiggle += b.jiggleVx;
+      b.jiggleVx *= 0.78;
+      b.jiggle *= 0.82;
+      b.glow *= 0.92;
+    }
+
+    // draw stink puffs first (behind the buns visually for layering punch)
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (let i = G.stinkPuffs.length - 1; i >= 0; i--) {
+      const p = G.stinkPuffs[i];
+      p.life++;
+      p.x += p.vx + Math.sin((G.timeMs * 0.005) + p.wob) * 0.3;
+      p.y += p.vy;
+      p.vy -= 0.012;
+      p.vx *= 0.985;
+      const tt = p.life / p.maxLife;
+      if (tt >= 1) { G.stinkPuffs.splice(i, 1); continue; }
+      const r = p.r * (1 + tt * 1.4);
+      const a = Math.sin(tt * Math.PI) * 0.45;
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      grad.addColorStop(0, `rgba(151, 192, 32, ${a * 0.7})`);
+      grad.addColorStop(0.5, `rgba(110, 110, 24, ${a * 0.5})`);
+      grad.addColorStop(1, `rgba(60, 50, 12, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+
+    // draw the buns (cheeks)
+    for (const b of G.buns) {
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.scale(1 + b.glow * 0.06, 1 - b.glow * 0.04);
+      ctx.translate(b.jiggle * 0.5, 0);
+      // shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.beginPath();
+      ctx.ellipse(2, b.r * 0.55, b.r * 0.95, b.r * 0.28, 0, 0, Math.PI*2);
+      ctx.fill();
+      // cheek body — sickly pink alien flesh with green tint
+      const grad = ctx.createRadialGradient(-b.r * 0.3, -b.r * 0.4, 0, 0, 0, b.r * 1.05);
+      grad.addColorStop(0, `rgba(212, 200, 178, ${0.95 + b.glow * 0.05})`);
+      grad.addColorStop(0.4, '#9c8060');
+      grad.addColorStop(0.75, '#5a3820');
+      grad.addColorStop(1, '#2a1208');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, b.r, b.r * 1.05, 0, 0, Math.PI*2);
+      ctx.fill();
+      // outline
+      ctx.strokeStyle = `rgba(110, 59, 24, 0.85)`;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      // sickly green veins on top
+      ctx.strokeStyle = `rgba(151, 192, 32, ${0.45 + b.glow * 0.4})`;
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(-b.r * 0.4, -b.r * 0.6);
+      ctx.quadraticCurveTo(-b.r * 0.1, -b.r * 0.3, b.r * 0.3, -b.r * 0.55);
+      ctx.moveTo(-b.r * 0.5, -b.r * 0.2);
+      ctx.quadraticCurveTo(0, -b.r * 0.05, b.r * 0.5, -b.r * 0.15);
+      ctx.stroke();
+      // inner shine
+      ctx.fillStyle = `rgba(212, 200, 178, ${0.42 + b.glow * 0.4})`;
+      ctx.beginPath();
+      ctx.ellipse(-b.r * 0.32, -b.r * 0.42, b.r * 0.32, b.r * 0.18, -0.4, 0, Math.PI*2);
+      ctx.fill();
+      // glow halo on activation
+      if (b.glow > 0.04) {
+        ctx.globalCompositeOperation = 'lighter';
+        const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, b.r * 1.7);
+        halo.addColorStop(0, `rgba(151, 192, 32, ${0.5 * b.glow})`);
+        halo.addColorStop(1, 'rgba(151, 192, 32, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath(); ctx.arc(0, 0, b.r * 1.7, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
     }
   }
 
