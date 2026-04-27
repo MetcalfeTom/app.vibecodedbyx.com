@@ -1,0 +1,4 @@
+# hello-rust
+
+## log
+- 2026-04-27: Created. Minimal Rust hello-world demo. **Typewriter compile**: code types itself out character-by-character (28–68ms per token, randomized) into a panel styled like a VS Code header (3 traffic-light dots + filename). **Token-colored** via class spans: `kw` rust orange `#dea584`, `fn` bright `#f5b994`, `str` green `#7eb86b`, `macro` darker amber. Below: `cargo run` button triggers staged stdout — "Compiling hello v0.1.0" → "Finished dev" → "Running ./hello" → "🦀 Hello, world!" (each line appears 360/700/1100ms apart). Reset replays. **Aesthetic**: warm rust palette over near-black `#0a0807`, Fira Code throughout, Major Mono Display brand "hello,·rust" with bright orange accent. Footer creed: "borrow checked. heap free. greeting safe." Pollinations OG. Mobile @520px shrinks code 13px / pad 16px.
