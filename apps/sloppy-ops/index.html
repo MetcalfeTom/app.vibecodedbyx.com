@@ -14,6 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
 /* === OBSIDIAN PALETTE ===
    deep volcanic glass background, bone-white text, neon accents on near-black slabs */
@@ -493,6 +494,30 @@ body::before{
 .tot.pink .num{color:var(--pink);text-shadow:0 0 10px rgba(255,94,161,0.35)}
 .tot .tot-sub{font-family:'JetBrains Mono', monospace;font-size:9px;letter-spacing:0.08em;color:var(--dim);margin-top:2px;font-style:italic;opacity:0.78}
 
+/* ===== SYSTEM PULSE — three.js wireframe panel ===== */
+.pulse-panel{
+  margin-top:14px;padding:0;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 30%, rgba(123,228,255,0.06), transparent 70%), linear-gradient(165deg, var(--slab), var(--slab-2));
+  border:1px solid rgba(123,228,255,0.20);border-radius:2px;
+  position:relative;box-shadow:var(--shadow);
+}
+.pulse-head{
+  display:flex;justify-content:space-between;align-items:center;gap:14px;
+  padding:11px 16px;border-bottom:1px solid rgba(123,228,255,0.14);
+  flex-wrap:wrap;
+}
+.pulse-title{font-family:'JetBrains Mono', monospace;font-size:11px;letter-spacing:0.32em;color:var(--cyan)}
+.pulse-sub{font-family:'JetBrains Mono', monospace;font-size:10px;letter-spacing:0.14em;color:var(--dim);margin-left:10px;font-style:italic}
+.pulse-readout{display:flex;gap:14px;font-family:'JetBrains Mono', monospace;font-size:10px;letter-spacing:0.18em;color:var(--dim)}
+.pulse-readout span{display:flex;align-items:baseline;gap:5px}
+.pulse-readout b{font-family:'JetBrains Mono', monospace;font-size:14px;font-weight:700;letter-spacing:0;color:var(--ink)}
+.pulse-readout .cpu b{color:var(--amber);text-shadow:0 0 8px rgba(255,206,74,0.40)}
+.pulse-readout .mem b{color:var(--cyan);text-shadow:0 0 8px rgba(123,228,255,0.40)}
+.pulse-readout .load b{color:var(--green);text-shadow:0 0 8px rgba(93,255,179,0.40)}
+.pulse-stage{height:240px;position:relative;background:radial-gradient(ellipse at 50% 50%, rgba(255,94,161,0.05), transparent 60%)}
+.pulse-stage canvas{display:block}
+.pulse-stage.fallback{display:flex;align-items:center;justify-content:center;color:var(--dim);font-style:italic;font-size:11px}
+
 /* ===== USAGE TAB ===== */
 .usage-controls{
   display:flex;align-items:center;justify-content:space-between;gap:14px;
@@ -710,6 +735,23 @@ body::before{
             <span class="tot-sub">since last build</span>
           </div>
         </div>
+
+        <!-- ============ SYSTEM PULSE — three.js reactive wireframe ============ -->
+        <div class="pulse-panel">
+          <div class="pulse-head">
+            <div>
+              <span class="pulse-title">▰ SYSTEM PULSE</span>
+              <span class="pulse-sub">live wireframe · rotation = cpu · breath = mem · ring = load</span>
+            </div>
+            <div class="pulse-readout">
+              <span class="cpu" title="CPU pressure stall — % of last 10s at least one task waited on CPU">CPU PSI <b id="pulseCpu">—</b></span>
+              <span class="mem" title="Memory in use vs total (memtotal − memavailable)">MEM <b id="pulseMem">—</b></span>
+              <span class="load" title="1-minute load average from /proc/loadavg">LOAD <b id="pulseLoad">—</b></span>
+            </div>
+          </div>
+          <div class="pulse-stage" id="pulseStage"></div>
+        </div>
+
         <div class="grid" style="margin-top:14px;grid-template-columns:1.1fr 1fr">
           <div class="panel">
             <div class="panel-head">
@@ -1014,18 +1056,20 @@ body::before{
   function applyRealData(d) {
     // replace SERVICES with real top-30 by size
     SERVICES.length = 0;
+    // Use the largest app's size as the shared scale so every bar shows real
+    // proportional fill — small apps get tiny bars, big apps get full bars,
+    // instead of the old per-app "next-tier-up" rounding which made every bar
+    // pin near 70% regardless of actual size.
+    const maxMB = Math.max(1, ...d.sizes_top.map(s => s.bytes / (1024 * 1024)));
+    const allocCeil = Math.ceil(maxMB / 5) * 5; // round to nearest 5 MB
     d.sizes_top.forEach(s => {
-      // bytes → MB, then auto-pick "alloc" as the next round number above
       const mb = s.bytes / (1024 * 1024);
-      // alloc tier: 1, 5, 10, 25, 50, 100 MB headroom
-      const tiers = [1, 5, 10, 25, 50, 100, 250, 500];
-      const alloc = tiers.find(t => t > mb * 1.4) || Math.ceil(mb * 1.6);
       SERVICES.push({
         name: s.name,
-        alloc,            // MB
+        alloc: allocCeil,
         used: +mb.toFixed(2),
         base: mb,
-        drift: (Math.random() - 0.5) * 0.04, // tiny wobble
+        drift: 0,
         unit: 'MB',
       });
     });
@@ -1558,9 +1602,10 @@ body::before{
       `;
     }).join('');
     const totalUsed = SERVICES.reduce((s, x) => s + x.used, 0);
-    const totalAlloc = SERVICES.reduce((s, x) => s + x.alloc, 0);
+    const peak = SERVICES.reduce((m, x) => Math.max(m, x.used), 0);
     const unit = (SERVICES[0] && SERVICES[0].unit) || 'GB';
-    document.getElementById('storageMeta').textContent = `${totalUsed.toFixed(1)} / ${totalAlloc} ${unit} · ${(totalUsed/totalAlloc*100).toFixed(1)}%`;
+    document.getElementById('storageMeta').textContent =
+      `${SERVICES.length} apps · sum ${totalUsed.toFixed(1)} ${unit} · max ${peak.toFixed(1)} ${unit}`;
   }
 
   // ===== db connections — REMOVED. browser can't query the actual pgbouncer pool from anon role.
@@ -2002,11 +2047,127 @@ body::before{
     }).length;
   }
 
+  // ===== SYSTEM PULSE — three.js reactive wireframe =====
+  // Compact module: init(stage) builds scene once, update(metrics) feeds normalized
+  // 0..1 cpu/mem/load values, tick(t) is the per-frame render. Everything else is
+  // local helpers — keep this block self-contained so it can be ripped out cleanly.
+  const PulseViz = (function() {
+    const M = { cpu: 0, mem: 0, load: 0 };
+    const HUE_CALM = 0x7be4ff;   // cyan
+    const HUE_WARN = 0xffce4a;   // amber
+    const HUE_CRIT = 0xff5ea1;   // pink
+    let scene, camera, renderer, group, inner, outer, rim, stage, started = false;
+
+    function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function lerpHex(a, b, t) {
+      const ar=(a>>16)&255, ag=(a>>8)&255, ab=a&255;
+      const br=(b>>16)&255, bg=(b>>8)&255, bb=b&255;
+      return ((lerp(ar,br,t)|0)<<16) | ((lerp(ag,bg,t)|0)<<8) | (lerp(ab,bb,t)|0);
+    }
+    function wireMesh(geom, color, opacity) {
+      return new THREE.LineSegments(
+        new THREE.WireframeGeometry(geom),
+        new THREE.LineBasicMaterial({ color, transparent:true, opacity })
+      );
+    }
+    function init(el) {
+      if (!window.THREE || !el) return false;
+      stage = el;
+      const w = el.clientWidth || 600, h = el.clientHeight || 240;
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 100);
+      camera.position.z = 6;
+      renderer = new THREE.WebGLRenderer({ alpha:true, antialias:true });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(w, h);
+      el.appendChild(renderer.domElement);
+
+      group = new THREE.Group();
+      rim   = wireMesh(new THREE.OctahedronGeometry(0.85, 0), 0x5dffb3, 0.78);
+      inner = wireMesh(new THREE.IcosahedronGeometry(1.55, 2), HUE_CALM, 0.92);
+      outer = wireMesh(new THREE.IcosahedronGeometry(2.45, 1), HUE_CRIT, 0.42);
+      group.add(rim); group.add(inner); group.add(outer);
+      scene.add(group);
+
+      window.addEventListener('resize', onResize);
+      started = true;
+      return true;
+    }
+    function onResize() {
+      if (!started || !stage) return;
+      const w = stage.clientWidth, h = stage.clientHeight;
+      if (!w || !h) return;
+      camera.aspect = w/h; camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+    function update(m) {
+      if (m.cpu  != null) M.cpu  = clamp01(m.cpu  / 100);
+      if (m.mem  != null) M.mem  = clamp01(m.mem  / 100);
+      if (m.load != null) M.load = clamp01(m.load / 8);
+    }
+    function tick(t) {
+      if (!started) return;
+      // rotation: base + cpu (x) + load (y) + slow z wobble for life
+      group.rotation.x = t * (0.18 + M.cpu  * 1.2);
+      group.rotation.y = t * (0.26 + M.load * 0.9);
+      group.rotation.z = Math.sin(t * 0.4) * 0.18;
+      // breath scale modulates with memory pressure
+      const breathe = 1 + Math.sin(t * 1.6) * (0.04 + M.mem * 0.10);
+      group.scale.setScalar(breathe);
+      // inner color ramp: cyan → amber → pink as cpu climbs through 0,0.5,1
+      const c1 = lerpHex(HUE_CALM, HUE_WARN, M.cpu);
+      const c2 = lerpHex(c1,       HUE_CRIT, Math.max(0, M.cpu - 0.5) * 2);
+      inner.material.color.setHex(c2);
+      inner.material.opacity = 0.6 + M.cpu * 0.35;
+      // outer ring opacity tracks load; counter-rotates for parallax
+      outer.material.opacity = 0.18 + M.load * 0.55;
+      outer.rotation.z = -t * 0.18;
+      rim.rotation.x   = -t * (0.6 + M.cpu * 0.4);
+      renderer.render(scene, camera);
+    }
+    return { init, update, tick };
+  })();
+
+  function feedPulseMetrics() {
+    if (!realData) return;
+    const cpuPct = realData.runtime?.pressure?.cpu?.some?.avg10 ?? 0;
+    const mt = realData.runtime?.mem?.memtotal;
+    const ma = realData.runtime?.mem?.memavailable;
+    const memPct = (mt && ma) ? (1 - ma / mt) * 100 : 0;
+    const load = realData.system?.load_1 ?? 0;
+    PulseViz.update({ cpu: cpuPct, mem: memPct, load });
+    const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    setTxt('pulseCpu',  cpuPct.toFixed(0) + '%');
+    setTxt('pulseMem',  memPct.toFixed(0) + '%');
+    setTxt('pulseLoad', load.toFixed(2));
+  }
+
+  function bootPulse() {
+    const el = document.getElementById('pulseStage');
+    if (!el) return;
+    if (!window.THREE) {
+      el.classList.add('fallback');
+      el.textContent = 'three.js failed to load — check your network';
+      return;
+    }
+    if (!PulseViz.init(el)) return;
+    let t0 = performance.now();
+    function loop(now) {
+      PulseViz.tick((now - t0) / 1000);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+    feedPulseMetrics();
+    setInterval(feedPulseMetrics, 4000); // refresh on each data.json poll
+  }
+
   // ===== boot =====
   renderStorage();
   renderDeploys();
   renderTotals();
   tickClock();
+  bootPulse();
   setInterval(tickClock, 1000);
   // re-tick totals so the SNAPSHOT-AGE counter ticks up. Real values do NOT drift.
   setInterval(renderTotals, 1000);
