@@ -387,6 +387,7 @@ body::before{ content:''; }
       <div class="nav-head">▸ NAV</div>
       <button class="nav-item active" data-page="overview"><span class="icn">▤</span>OVERVIEW</button>
       <button class="nav-item" data-page="system"><span class="icn">▣</span>SYSTEM</button>
+      <button class="nav-item" data-page="runtime"><span class="icn">◌</span>RUNTIME<span class="badge" id="navProcCount"></span></button>
       <button class="nav-item" data-page="network"><span class="icn">⇄</span>NETWORK<span class="badge" id="navNetCount"></span></button>
       <button class="nav-item" data-page="storage"><span class="icn">⛁</span>STORAGE<span class="badge" id="navStorageCount"></span></button>
       <button class="nav-item" data-page="deployments"><span class="icn">▷</span>DEPLOYMENTS<span class="badge" id="navDeployCount"></span></button>
@@ -470,6 +471,47 @@ body::before{ content:''; }
               <span class="svc-stat" id="sysMemStat">—</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- ============ RUNTIME (PSI + CPU breakdown + processes) ============ -->
+      <section class="page" data-page="runtime">
+        <div class="page-head">
+          <h1><span class="accent">◌</span> RUNTIME</h1>
+          <span class="meta">/proc/pressure · /proc/stat · /proc/[pid]/stat · captured at snapshot</span>
+        </div>
+        <div class="user-stats" id="rtSummary"></div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ PRESSURE STALL · PSI</span>
+            <span class="meta">avg10 / avg60 / avg300 — % of time at least one task stalled on resource</span>
+          </div>
+          <div class="svc" id="psiList"></div>
+        </div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ CPU · TIME BREAKDOWN</span>
+            <span class="meta">since-boot proportions of jiffies across all cores</span>
+          </div>
+          <div class="svc" id="cpuBreakdown"></div>
+        </div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ TOP PROCESSES · BY RSS</span>
+            <span class="meta" id="procMeta">— processes</span>
+          </div>
+          <div class="svc-full" id="procList"></div>
+        </div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ NETWORK · INTERFACE TOTALS</span>
+            <span class="meta" id="netIfMeta">since boot</span>
+          </div>
+          <div class="user-stats" id="netStats"></div>
         </div>
       </section>
 
@@ -613,6 +655,102 @@ body::before{ content:''; }
     // === SYSTEM page render ===
     if (d.system) renderSystem(d.system);
     if (d.network) renderNetwork(d.network);
+    if (d.runtime) renderRuntime(d.runtime);
+  }
+  function renderRuntime(rt) {
+    // === Summary tiles ===
+    const sum = document.getElementById('rtSummary');
+    if (!sum) return;
+    const cpu10 = (rt.pressure && rt.pressure.cpu && rt.pressure.cpu.some) ? rt.pressure.cpu.some.avg10 : 0;
+    const mem10 = (rt.pressure && rt.pressure.memory && rt.pressure.memory.some) ? rt.pressure.memory.some.avg10 : 0;
+    const io10  = (rt.pressure && rt.pressure.io && rt.pressure.io.some) ? rt.pressure.io.some.avg10 : 0;
+    const card = (lbl, v, cls, sub) => `<div class="stat-card"><span class="lbl">${lbl}</span><span class="v ${cls||''}">${v}</span>${sub?`<span class="delta">${sub}</span>`:''}</div>`;
+    const memUsedMb = rt.mem && rt.mem.memtotal ? Math.round((rt.mem.memtotal - (rt.mem.memavailable || 0)) / 1024) : null;
+    sum.innerHTML = [
+      card('CPU PRESSURE', cpu10.toFixed(1) + '%', cpu10 > 60 ? 'pink' : (cpu10 > 30 ? 'amber' : 'green'), 'avg10s · stalled'),
+      card('MEM PRESSURE', mem10.toFixed(2) + '%', mem10 > 5 ? 'pink' : 'green', 'avg10s · stalled'),
+      card('IO PRESSURE',  io10.toFixed(2) + '%',  io10 > 10 ? 'amber' : 'green', 'avg10s · stalled'),
+      card('PROCESSES',    rt.proc_count != null ? rt.proc_count : '—', 'cyan', 'pids in /proc'),
+      card('MEM CACHED',   rt.mem && rt.mem.cached ? (rt.mem.cached/1024).toFixed(0) + ' MB' : '—', 'cyan', 'page cache'),
+      card('MEM USED·NET', memUsedMb != null ? (memUsedMb + ' MB') : '—', 'amber', 'excludes cache+buffers'),
+    ].join('');
+
+    // === PSI panel: 3 rows (cpu/memory/io) with bars for avg10/avg60/avg300 ===
+    const psi = document.getElementById('psiList');
+    if (psi && rt.pressure) {
+      const psiRow = (label, p) => {
+        if (!p || !p.some) return '';
+        const a10 = p.some.avg10, a60 = p.some.avg60, a300 = p.some.avg300;
+        const cls = (v) => v > 60 ? 'crit' : v > 20 ? 'warn' : '';
+        return `
+          <div class="svc-row">
+            <span class="svc-name">${label}</span>
+            <span class="svc-bar ${cls(a10)}"><span class="svc-fill" style="width:${Math.min(100,a10).toFixed(1)}%"></span></span>
+            <span class="svc-stat"><span class="used">${a10.toFixed(2)}%</span> / ${a60.toFixed(2)} / ${a300.toFixed(2)}</span>
+          </div>
+        `;
+      };
+      psi.innerHTML = psiRow('CPU', rt.pressure.cpu) + psiRow('MEMORY', rt.pressure.memory) + psiRow('IO', rt.pressure.io);
+    }
+
+    // === CPU breakdown panel ===
+    const cb = document.getElementById('cpuBreakdown');
+    if (cb && rt.cpu_pct) {
+      const order = ['user','system','idle','iowait','steal','irq','softirq','nice'];
+      cb.innerHTML = order.map(k => {
+        const v = rt.cpu_pct[k] || 0;
+        if (k === 'idle') return ''; // skip idle, shown in summary instead
+        const cls = k === 'iowait' ? 'warn' : (k === 'steal' ? 'crit' : '');
+        return `
+          <div class="svc-row">
+            <span class="svc-name">${k}</span>
+            <span class="svc-bar ${cls}"><span class="svc-fill" style="width:${Math.min(100, v * 4).toFixed(1)}%"></span></span>
+            <span class="svc-stat"><span class="used">${v.toFixed(2)}%</span></span>
+          </div>
+        `;
+      }).join('') + `
+        <div class="svc-row">
+          <span class="svc-name">idle</span>
+          <span class="svc-bar"><span class="svc-fill" style="width:${(rt.cpu_pct.idle || 0).toFixed(1)}%;background:#dde7f3"></span></span>
+          <span class="svc-stat"><span class="used">${(rt.cpu_pct.idle || 0).toFixed(2)}%</span></span>
+        </div>
+      `;
+    }
+
+    // === Top processes ===
+    const pl = document.getElementById('procList');
+    if (pl && rt.top_procs) {
+      const fmtUp = (sec) => {
+        const d = Math.floor(sec/86400), h = Math.floor((sec%86400)/3600), m = Math.floor((sec%3600)/60);
+        if (d > 0) return d + 'd ' + h + 'h';
+        if (h > 0) return h + 'h ' + m + 'm';
+        return m + 'm ' + (sec%60) + 's';
+      };
+      const maxRss = rt.top_procs[0] ? rt.top_procs[0].rss_kb : 1;
+      pl.innerHTML = rt.top_procs.map(p => `
+        <div class="svc-row">
+          <span class="svc-name">${escapeHtml(p.comm)} <span style="opacity:0.5;font-size:10px">·${p.pid}</span></span>
+          <span class="svc-bar"><span class="svc-fill" style="width:${(p.rss_kb / maxRss * 100).toFixed(1)}%"></span></span>
+          <span class="svc-stat"><span class="used">${(p.rss_kb/1024).toFixed(1)} MB</span> · ${fmtUp(p.uptime_sec)}</span>
+        </div>
+      `).join('');
+      document.getElementById('procMeta').textContent = `${rt.proc_count} processes total · top ${rt.top_procs.length} by RSS`;
+    }
+
+    // === Network interface totals ===
+    const ns = document.getElementById('netStats');
+    if (ns && rt.net) {
+      const fmtMB = (b) => (b / (1024*1024)).toFixed(1);
+      ns.innerHTML = [
+        `<div class="stat-card"><span class="lbl">IFACE</span><span class="v cyan">${rt.net.iface}</span></div>`,
+        `<div class="stat-card"><span class="lbl">RX · BYTES</span><span class="v green">${fmtMB(rt.net.rx_bytes)} MB</span><span class="delta">${rt.net.rx_packets.toLocaleString()} packets</span></div>`,
+        `<div class="stat-card"><span class="lbl">TX · BYTES</span><span class="v amber">${fmtMB(rt.net.tx_bytes)} MB</span><span class="delta">${rt.net.tx_packets.toLocaleString()} packets</span></div>`,
+      ].join('');
+    }
+
+    // sidebar nav badge
+    const navP = document.getElementById('navProcCount');
+    if (navP) navP.textContent = rt.proc_count;
   }
   function renderNetwork(n) {
     const sum = document.getElementById('netSummary');
