@@ -222,6 +222,8 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--void);color:va
   <span class="lbl">CHECKPOINT</span><span class="val" id="hCP">0/4</span>
   <span class="lbl">RACERS</span>    <span class="val" id="hPlayers">1</span>
   <span class="lbl">FUEL</span>      <span class="val warn" id="hFuel">100</span>
+  <span class="lbl">NITRO</span>     <span class="val gold" id="hNitro">100</span>
+  <span class="lbl">LASER</span>     <span class="val pink" id="hLaser">READY</span>
   <span class="lbl">STATUS</span>    <span class="val warn" id="hOff" style="display:none">OFF · TRACK</span>
 </div>
 
@@ -233,7 +235,8 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--void);color:va
 
 <div class="kbd">
   <b>W/↑</b> drive &nbsp; <b>S/↓</b> reverse &nbsp; <b>A/D ←/→</b> steer<br>
-  <b>SPACE</b> hop · low-gravity jump &nbsp; <b>SHIFT</b> boost &nbsp; <b>X</b> fire missile &nbsp; <b>R</b> reset
+  <b>SPACE</b> hop &nbsp; <b>SHIFT</b> boost &nbsp; <b>N</b> nitro &nbsp; <b>Z</b> laser &nbsp; <b>X</b> missile &nbsp; <b>R</b> reset<br>
+  <b>gamepad</b>: A hop · LB boost · Y nitro · X laser · B missile · Start reset · racing wheel auto-detected
 </div>
 
 <div class="touch" id="touch">
@@ -965,45 +968,46 @@ function buildTrack() {
     shortcutRamps.push({ x: rampMid.x, z: rampMid.z, dirX: nx, dirZ: nz, group: ramp });
   });
 
-  // BOOST PADS — fixed glowing arrows on the track between checkpoints (scaled)
-  const padPositions = [
-    { x: 60, z: 20 }, { x: 160, z: 60 }, { x: 140, z: 160 }, { x: 20, z: 180 },
-    { x: -140, z: 120 }, { x: -180, z: -20 }, { x: -100, z: -60 }, { x: -20, z: -20 },
-  ];
-  padPositions.forEach(p => {
-    const baseY = terrainHeight(p.x, p.z);
-    const ang = Math.atan2(0 - p.x, 0 - p.z); // point roughly inward — tweaked, but visual only
+  // BOOST PADS — sampled directly from the racing curve so they're guaranteed on the track.
+  // 8 pads at evenly-spaced offsets around the loop, oriented along the curve tangent.
+  const PAD_COUNT = 8;
+  for (let i = 0; i < PAD_COUNT; i++) {
+    const u = (i + 0.5) / PAD_COUNT;       // staggered between pickups
+    const here = racingCurve.getPointAt(u);
+    const tangent = racingCurve.getTangentAt(u).normalize();
+    const baseY = terrainHeight(here.x, here.z);
     const padGroup = new THREE.Group();
-    padGroup.position.set(p.x, baseY + 0.05, p.z);
-    // ground arrow plate
+    padGroup.position.set(here.x, baseY + 0.05, here.z);
+    // align plate's +z with the tangent direction (so chevrons point along the racing line)
+    padGroup.rotation.y = Math.atan2(tangent.x, tangent.z);
+    // ground plate
     const plate = new THREE.Mesh(
       new THREE.PlaneGeometry(6, 8),
       new THREE.MeshBasicMaterial({ color: 0x7be4ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
     );
     plate.rotation.x = -Math.PI / 2;
     padGroup.add(plate);
-    // arrow chevrons
+    // 3 chevron arrows pointing along the track
     for (let k = 0; k < 3; k++) {
       const arr = new THREE.Mesh(
         new THREE.ConeGeometry(1.6, 2, 3),
         new THREE.MeshBasicMaterial({ color: 0xffce4a })
       );
       arr.rotation.x = -Math.PI / 2;
-      arr.rotation.z = Math.PI; // point along +z (forward of pad)
       arr.position.set(0, 0.1, -1.5 + k * 1.5);
       padGroup.add(arr);
     }
-    padGroup.userData = { type: 'boostpad', x: p.x, z: p.z, cooldownUntil: 0, ang };
+    padGroup.userData = { type: 'boostpad', x: here.x, z: here.z, cooldownUntil: 0 };
     scene.add(padGroup);
     boostPads.push(padGroup);
-  });
+  }
 
-  // MISSILE PICKUP boxes — floating glowing cubes
-  const pickupPositions = [
-    { x: 80, z: -20 }, { x: 180, z: 80 }, { x: 60, z: 140 },
-    { x: -60, z: 140 }, { x: -160, z: 60 }, { x: -120, z: -40 },
-  ];
-  pickupPositions.forEach(p => {
+  // MISSILE PICKUP boxes — also sampled from the curve, interleaved with boost pads.
+  const PICKUP_COUNT = 6;
+  for (let i = 0; i < PICKUP_COUNT; i++) {
+    const u = i / PICKUP_COUNT + 0.04;     // tiny offset so first pickup isn't at the finish line
+    const here = racingCurve.getPointAt(u);
+    const p = { x: here.x, z: here.z };
     const baseY = terrainHeight(p.x, p.z);
     const grp = new THREE.Group();
     grp.position.set(p.x, baseY + 2.4, p.z);
@@ -1021,7 +1025,7 @@ function buildTrack() {
     grp.userData = { type: 'pickup', x: p.x, z: p.z, available: true, respawnAt: 0 };
     scene.add(grp);
     missilePickups.push(grp);
-  });
+  }
 
   // FINISH LINE on ground
   const lineCanvas = document.createElement('canvas');
@@ -1137,6 +1141,10 @@ function makeRover(hex, isPlayer) {
       hasMissile: false,
       spinOut: 0,         // seconds remaining of spin-out
       spinSign: 1,
+      laserCooldown: 0,   // sec until next laser shot allowed
+      laserHeat: 0,       // 0..1 overheat meter
+      nitro: 100,         // 0..100 nitro tank, refills slowly
+      nitroActive: 0,     // sec remaining of active nitro burst
     },
     color: hex,
   };
@@ -1185,6 +1193,8 @@ function setupInput() {
     if (e.code === 'Space') e.preventDefault();
     if (e.key === 'r' || e.key === 'R') resetPlayer();
     if (e.key === 'x' || e.key === 'X') firePlayerMissile();
+    if (e.key === 'z' || e.key === 'Z') firePlayerLaser();
+    if (e.key === 'n' || e.key === 'N') triggerNitro();
   });
   addEventListener('keyup', (e) => { keys[e.code] = false; });
 
@@ -1256,6 +1266,13 @@ function tickPlayer(dt) {
   if (touchInput.right) steer -= 1;
   if (touchInput.brake) brake = true;
 
+  // gamepad inputs
+  pollGamepad();
+  throttle += padState.throttle;
+  throttle -= padState.reverse;
+  steer += padState.steer;
+  if (padState.boost) boost = true;
+
   if (keys['Space'] && s.hopCooldown <= 0 && s.grounded) triggerJump();
   s.hopCooldown = Math.max(0, s.hopCooldown - dt);
 
@@ -1285,6 +1302,18 @@ function tickPlayer(dt) {
     s.vz += fz * throttle * power * 0.18 * dt;
   }
 
+  // === manual nitro burst ===
+  if (s.nitroActive > 0) {
+    s.nitroActive -= dt;
+    s.vx += fx * NITRO_POWER * dt;
+    s.vz += fz * NITRO_POWER * dt;
+  } else {
+    s.nitro = Math.min(100, s.nitro + NITRO_REGEN * dt);
+  }
+  // === laser cooldown / heat decay ===
+  s.laserCooldown = Math.max(0, s.laserCooldown - dt);
+  s.laserHeat = Math.max(0, s.laserHeat - 0.4 * dt);
+
   // brake
   if (brake) {
     s.vx *= 0.94;
@@ -1303,7 +1332,11 @@ function tickPlayer(dt) {
   const groundY = terrainHeight(s.x, s.z) + 1.0;
   if (s.y <= groundY) {
     s.y = groundY;
-    if (s.vy < -2 && !s.grounded) thumpSfx(Math.min(1, -s.vy / 18));
+    if (s.vy < -2 && !s.grounded) {
+      const intensity = Math.min(1, -s.vy / 18);
+      thumpSfx(intensity);
+      rumble(intensity * 0.85, intensity * 0.5, 160);
+    }
     s.vy = 0;
     s.grounded = true;
   } else {
@@ -2005,6 +2038,209 @@ function firePlayerMissile() {
   updatePowerupBadge();
 }
 
+// === LASER CANNON ===
+// Hitscan beam — instant, no projectile travel time. 0.55s cooldown + heat builds:
+// each shot adds 0.22 heat, decays 0.4/s. At heat ≥ 1.0 the gun overheats and locks until heat < 0.6.
+function firePlayerLaser() {
+  const s = player.state;
+  if (s.spinOut > 0 || s.laserCooldown > 0 || s.laserHeat >= 1.0) return;
+  s.laserCooldown = 0.55;
+  s.laserHeat = Math.min(1.2, s.laserHeat + 0.22);
+  const fx = Math.sin(s.yaw), fz = Math.cos(s.yaw);
+  const ox = s.x + fx * 3, oy = s.y + 0.7, oz = s.z + fz * 3;
+  // hit-scan: walk forward in 2u steps for 90u looking for a target rover
+  let hit = null, hitDist = 90;
+  const targets = aiRovers.map(a => ({ id: 'ai-' + a.name, state: a.state }));
+  for (const t of targets) {
+    const dx = t.state.x - ox, dz = t.state.z - oz;
+    const along = dx * fx + dz * fz;            // forward projection
+    if (along < 0 || along > 90) continue;
+    const perpDist = Math.abs(-fz * dx + fx * dz);  // perpendicular distance
+    const dyAbs = Math.abs(t.state.y - oy);
+    if (perpDist < 3.2 && dyAbs < 3 && along < hitDist) {
+      hit = t; hitDist = along;
+    }
+  }
+  // visual beam: pink line from origin to hit point (or 90u out)
+  const endX = ox + fx * hitDist;
+  const endY = oy;
+  const endZ = oz + fz * hitDist;
+  spawnLaserBeam(ox, oy, oz, endX, endY, endZ);
+  if (hit) {
+    hit.state.spinOut = 0.9;
+    hit.state.spinSign = Math.random() < 0.5 ? -1 : 1;
+    hit.state.vx *= 0.5; hit.state.vz *= 0.5;
+    explosionFx(endX, endY, endZ);
+    blastSfx();
+  }
+  laserSfx();
+  updatePowerupBadge();
+}
+
+const laserBeams = [];
+function spawnLaserBeam(ax, ay, az, bx, by, bz) {
+  const geom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(ax, ay, az),
+    new THREE.Vector3(bx, by, bz),
+  ]);
+  const mat = new THREE.LineBasicMaterial({ color: 0xff5ea1, transparent: true, opacity: 0.9 });
+  const line = new THREE.Line(geom, mat);
+  scene.add(line);
+  // a thicker glow tube around it via additional cylinder
+  const len = Math.hypot(bx - ax, by - ay, bz - az);
+  const cyl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, len, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xffce4a, transparent: true, opacity: 0.55 })
+  );
+  // place + orient cylinder along the beam
+  cyl.position.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+  cyl.lookAt(bx, by, bz);
+  cyl.rotateX(Math.PI / 2);
+  scene.add(cyl);
+  laserBeams.push({ line, cyl, life: 0.18 });
+}
+function tickLaserBeams(dt) {
+  for (let i = laserBeams.length - 1; i >= 0; i--) {
+    const b = laserBeams[i];
+    b.life -= dt;
+    const a = Math.max(0, b.life / 0.18);
+    b.line.material.opacity = a * 0.9;
+    b.cyl.material.opacity = a * 0.55;
+    if (b.life <= 0) {
+      scene.remove(b.line); scene.remove(b.cyl);
+      b.line.geometry.dispose(); b.line.material.dispose();
+      b.cyl.geometry.dispose(); b.cyl.material.dispose();
+      laserBeams.splice(i, 1);
+    }
+  }
+}
+function laserSfx() {
+  const ac = audio(); const t = ac.currentTime;
+  const o = ac.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(2200, t);
+  o.frequency.exponentialRampToValueAtTime(380, t + 0.18);
+  const bp = ac.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value = 1200; bp.Q.value = 6;
+  const g = ac.createGain(); g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(0.16, t+0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  o.connect(bp); bp.connect(g); g.connect(master); o.start(t); o.stop(t + 0.22);
+}
+
+// === MANUAL NITRO BURST ===
+// Press N → 1.5s burst of large forward acceleration. Drains 35 nitro per burst (so ~3 uses on a full tank).
+// Tank refills at 6/s when not active. Distinct from Shift-boost which is sustained but milder.
+const NITRO_DURATION = 1.5;
+const NITRO_COST = 35;
+const NITRO_REGEN = 6;
+const NITRO_POWER = 60;  // forward-direction force during burst (much stronger than ENGINE_POWER)
+function triggerNitro() {
+  const s = player.state;
+  if (s.spinOut > 0) return;
+  if (s.nitroActive > 0) return;
+  if (s.nitro < NITRO_COST) {
+    banner('NO NITRO', 700);
+    return;
+  }
+  s.nitro -= NITRO_COST;
+  s.nitroActive = NITRO_DURATION;
+  banner('▲ NITRO ▲', 900);
+  nitroSfx();
+  rumble(0.9, 0.6, NITRO_DURATION * 1000);
+}
+function nitroSfx() {
+  const ac = audio(); const t = ac.currentTime;
+  const o = ac.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(120, t);
+  o.frequency.linearRampToValueAtTime(420, t + NITRO_DURATION);
+  const bp = ac.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value = 600; bp.Q.value = 3;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.001, t);
+  g.gain.exponentialRampToValueAtTime(0.16, t + 0.04);
+  g.gain.linearRampToValueAtTime(0.16, t + NITRO_DURATION - 0.1);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + NITRO_DURATION);
+  o.connect(bp); bp.connect(g); g.connect(master); o.start(t); o.stop(t + NITRO_DURATION + 0.05);
+}
+
+// === GAMEPAD + RACING WHEEL + FORCE FEEDBACK ===
+// Standard layout: LX → steer, RT (7) → throttle, LT (6) → reverse,
+//   A(0) → hop, B(1) → missile, X(2) → laser, Y(3) → nitro, LB(4) → boost, Start(9) → reset.
+// Racing wheels with separate pedals usually expose: axis 0 = wheel (range -1..+1 with high resolution),
+//   axis 1 = throttle pedal (-1 idle, +1 floored — inverted on some), axis 2 = brake pedal, axis 3 = clutch.
+// We auto-detect wheel-style devices by id substring + presence of axis 1/2 outside the deadzone for >1s.
+const padState = { throttle: 0, reverse: 0, steer: 0, hop:false, fire:false, laser:false, nitro:false, boost:false };
+let detectedWheel = false;
+let lastPedalActivity = 0;
+function pollGamepad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let pad = null;
+  for (const p of pads) if (p && p.connected) { pad = p; break; }
+  if (!pad) {
+    padState.throttle = 0; padState.reverse = 0; padState.steer = 0;
+    padState.boost = false;
+    return;
+  }
+  // racing-wheel detection: id contains "wheel"/"g29"/"thrustmaster"/"fanatec"/"logitech"
+  const idLower = (pad.id || '').toLowerCase();
+  const wheelByName = /wheel|g29|g920|g923|driving|thrustmaster|fanatec|gt300|t300|mom/.test(idLower);
+  const ax1 = pad.axes[1] || 0, ax2 = pad.axes[2] || 0;
+  if (wheelByName || (Math.abs(ax1) > 0.2 && Math.abs(ax2) > 0.2)) {
+    detectedWheel = true;
+  }
+  const dz = (v, t = 0.10) => Math.abs(v) < t ? 0 : v;
+  // axes
+  const lx = dz(pad.axes[0] || 0);
+  padState.steer = -lx;
+  if (detectedWheel) {
+    // racing-wheel pedals: axis 1 throttle, axis 2 brake.
+    // Pedal idle is +1, fully pressed is -1 on most wheels — invert.
+    // Some wheels report 0..+1 — fall back to gracefully rescaling.
+    const rawT = pad.axes[1];
+    const rawB = pad.axes[2];
+    if (rawT !== undefined) {
+      const norm = (1 - rawT) / 2;       // map -1..+1 → +1..0
+      padState.throttle = Math.max(0, norm);
+    }
+    if (rawB !== undefined) {
+      padState.reverse = Math.max(0, (1 - rawB) / 2);
+    }
+  } else {
+    const rt = pad.buttons[7] ? pad.buttons[7].value : 0;
+    const lt = pad.buttons[6] ? pad.buttons[6].value : 0;
+    padState.throttle = rt;
+    padState.reverse = lt;
+  }
+  function edge(idx) {
+    const pressed = pad.buttons[idx] && pad.buttons[idx].pressed;
+    const wasPressed = padState['_was_' + idx];
+    padState['_was_' + idx] = pressed;
+    return pressed && !wasPressed;
+  }
+  if (edge(0)) triggerJump();
+  if (edge(1)) firePlayerMissile();
+  if (edge(2)) firePlayerLaser();
+  if (edge(3)) triggerNitro();
+  if (edge(9)) resetPlayer();
+  padState.boost = !!(pad.buttons[4] && pad.buttons[4].pressed);
+}
+
+// === Force feedback / rumble ===
+// Tries the standard `vibrationActuator.playEffect('dual-rumble', …)` first, falls back to
+// the older `hapticActuators[0].pulse(...)` API found on some controllers/wheels.
+function rumble(strong, weak, durationMs) {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const pad of pads) {
+    if (!pad || !pad.connected) continue;
+    if (pad.vibrationActuator && pad.vibrationActuator.playEffect) {
+      pad.vibrationActuator.playEffect('dual-rumble', {
+        startDelay: 0,
+        duration: Math.max(20, durationMs|0),
+        strongMagnitude: Math.max(0, Math.min(1, strong)),
+        weakMagnitude: Math.max(0, Math.min(1, weak)),
+      }).catch(() => {});
+    } else if (pad.hapticActuators && pad.hapticActuators[0] && pad.hapticActuators[0].pulse) {
+      pad.hapticActuators[0].pulse(Math.max(strong, weak), Math.max(20, durationMs|0)).catch(() => {});
+    }
+  }
+}
+
 function spawnMissile(x, y, z, fx, fz, ownerId) {
   const m = new THREE.Group();
   // body — bright pink torpedo
@@ -2104,10 +2340,13 @@ function tickPowerups(dt) {
       hit.state.spinSign = Math.random() < 0.5 ? -1 : 1;
       hit.state.vx *= 0.4;
       hit.state.vz *= 0.4;
-      hit.state.vy += 4;  // slight pop
+      hit.state.vy += 4;
       explosionFx(m.x, m.y, m.z);
       blastSfx();
-      if (hit.id === 'player') banner('SPUN OUT!', 1500);
+      if (hit.id === 'player') {
+        banner('SPUN OUT!', 1500);
+        rumble(1.0, 1.0, 600);
+      }
       scene.remove(m.mesh);
       missiles.splice(i, 1);
     }
@@ -2203,6 +2442,7 @@ function loop(now) {
   tickAI(dt);
   tickPowerups(dt);
   tickMeteors(dt);
+  tickLaserBeams(dt);
   // AI missile firing
   for (const ai of aiRovers) {
     if (ai.state.hasMissile && ai.state.aiFireAt && performance.now() > ai.state.aiFireAt) {
@@ -2245,6 +2485,11 @@ function loop(now) {
   document.getElementById('hCP').textContent = `${raceState.cp}/${checkpoints.length - 1}`;
   document.getElementById('hFuel').textContent = Math.round(player.state.fuel);
   if (player.state.fuel < 25) document.getElementById('hFuel').classList.add('warn'); else document.getElementById('hFuel').classList.remove('warn');
+  document.getElementById('hNitro').textContent = Math.round(player.state.nitro);
+  const laserEl = document.getElementById('hLaser');
+  if (player.state.laserHeat >= 1.0) { laserEl.textContent = 'OVERHEAT'; laserEl.classList.add('warn'); }
+  else if (player.state.laserCooldown > 0) { laserEl.textContent = 'COOLING'; laserEl.classList.remove('warn'); }
+  else { laserEl.textContent = 'READY'; laserEl.classList.remove('warn'); }
 
   // update player name sprite
   if (player.nameSprite && !player.nameSprite._init) {
