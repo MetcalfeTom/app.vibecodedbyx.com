@@ -1,0 +1,26 @@
+# tiny-c-lab
+
+## log
+- 2026-04-30: Created. **In-browser tiny C interpreter with live stack visualization + neon console.** Single-file vanilla JS. **Language subset**: `int` and `void` only, globals + functions w/ params, `if/else`, `while`, `return`, expression statements, recursive calls, single-line `//` and block `/* */` comments, string literals only valid as `printf` args. Operators with C-like precedence: `||` `&&` `==` `!=` `<` `>` `<=` `>=` `+` `-` `*` `/` `%` `!` `-`(unary). All ints are 32-bit (`v|0` coerce after every op so overflow wraps). **Built-ins**: `printf("...", args)` supports `%d %i %s %c %%` format specifiers; `putchar(int)` writes one ASCII char. **Pipeline**: `lex(src)` → tokens (number/string/identifier/keyword/punctuation) with `line` annotation, throws `line N: …` errors on bad chars; `parse(tokens)` → AST via recursive descent with a clean precedence ladder (`logicOr → logicAnd → equality → relation → addsub → muldiv → unary → primary`); `Interpreter.run(ast)` is fully async — every `execStmt` calls `await this.pause(line)` before executing, so the UI can step or auto-advance with delays. **Step modes**: `STEP` button toggles `stepMode=true` and the interpreter awaits a promise resolved by `advanceStep()` on each tick; otherwise the speed selector picks 0/40/120/320/700ms between statements. Pressing `→` arrow also advances when in step-mode. **Stack visualization**: every active call frame rendered as a card in `.stack-body` (which uses `flex-direction: column-reverse` so newest frames push up to the top — visually call-stack-like). Each card shows function name + depth + current line + a list of local variables with their integer values. Newly-pushed frames animate in via a `framePush` keyframe (translate + scale + blur ease-in). Top frame gets a phosphor-green border + glow ring vs. the cyan inactive frames. Recently-changed variable rows briefly flash green via a `varFlash` keyframe — the interpreter sets `lastVarChange = {fn, name}` after each assignment / declaration, the renderer consumes it as a one-shot. **Editor**: plain `<textarea>` with `tab-size:2`, Tab key inserts two spaces, Ctrl/Cmd+Enter runs. **Running-line highlighter**: a `<div class="running-line">` absolutely positioned over the editor at `top = padTop + (line-1)*lineHeight - scrollTop`, follows the current statement, scrolls in sync with the editor. **Neon console**: VT323 18px phosphor green on near-black `#020308`, scanlines via repeating-linear-gradient on `body::before`, blinking cursor `_` pseudo-element after the last line. Error lines render in `--hot` red, info in cyan, ok-results (program exited) in phosphor green. **Safety**: 1M-iteration `while` guard throws if the loop runs away. Division/modulo by zero throws. Aborts cleanly when STOP pressed (the interpreter throws on the next pause, frames pop). **Presets** (6 baked starter programs): hello, factorial (recursive), fibonacci (iterative loop), sum 1..n, gcd (Euclid), primes ≤ N. **Aesthetic**: Major Mono Display "TINY·C·LAB" brand with phosphor + cyan glow, dark obsidian panels, JetBrains Mono editor body, Audiowide pane headers in cyan with shadow. Mobile (≤880px): stacks the 3 panels vertically (50% editor / 25% stack / 25% console). Pollinations OG image. Headless symbol check: `lex`, `parse`, `Interpreter`, `run`, `pause` all defined.
+
+## issues
+- No pointer/array/struct support — by design (visualization is per-int-cell). Adding arrays would require rethinking the variable-row UI.
+- No `for` loop syntax yet — `while` covers the same ground but `for(...;...;...)` is a recognizable C feature; could desugar in the parser.
+- `break`/`continue` not implemented. Add later by throwing typed sentinels (similar to how `return` uses the `__return__` sentinel).
+- Multiple statements on one line still highlight only the last-touched line. The lexer attaches `line` to every token but the highlighter granularity is per-statement-start.
+- `printf` always emits to the console — no return-int-as-bytes-written semantic chase. (We do return `out.length` but that's the JS string length, not a C-conformant byte count.)
+- Globals declared with non-constant initializers run their `init` expr against `frame=null`, which means an init like `int x = foo();` would crash. Acceptable: most C globals use literal initializers; could be fixed by running globals inside a synthetic `<init>` frame.
+- Step-mode + `printf` inside a tight loop can flood the console; no rate-limiting on console line count yet.
+- No syntax highlighting in the editor — would need an overlay with token classes; defer for now.
+- Recursion is not tail-call optimized; deep recursion (>~5000 frames) will blow the JS call stack since `callFn` itself recurses through real JS calls. Practical programs are fine.
+
+## todos
+- Add `for` loop with desugaring to `while`.
+- `break` / `continue` via sentinel exceptions.
+- Syntax highlighter overlay (tokenize on input + render colored spans behind the textarea).
+- `char` type + arrays (would let us write classic `puts`, string ops).
+- A "compile-only" button that shows the AST as JSON in the console.
+- Inline error markers in the editor gutter.
+- Save current source to localStorage on every input.
+- Share-via-URL: gzip+base64 the source into a hash.
+- A "memory" panel next to the stack that visualizes globals.
