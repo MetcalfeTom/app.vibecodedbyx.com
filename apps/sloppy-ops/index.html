@@ -189,6 +189,47 @@ body::before{ content:''; }
 .hashlink:hover{text-decoration:underline}
 .hashlink code{background:rgba(58,137,201,0.10);padding:1px 5px;border-radius:3px;font-size:11px}
 
+/* === LIVE TRACE — terminal aesthetic, scrolls with newest at bottom === */
+.trace-term{
+  background:#0a0e18;
+  color:#cadc9f;
+  font-family:'JetBrains Mono', 'IBM Plex Mono', monospace;
+  font-size:11px;line-height:1.55;
+  padding:12px 14px;
+  border:1px solid #1d2940;
+  border-radius:3px;
+  max-height:420px;
+  min-height:200px;
+  overflow-y:auto;
+  white-space:pre-wrap;word-break:break-word;
+  margin:0;
+  position:relative;
+  box-shadow:inset 0 0 28px rgba(0,0,0,0.6);
+}
+.trace-term::-webkit-scrollbar{width:6px}
+.trace-term::-webkit-scrollbar-track{background:rgba(0,0,0,0.4)}
+.trace-term::-webkit-scrollbar-thumb{background:rgba(123,228,255,0.3);border-radius:3px}
+.trace-line{display:flex;gap:8px;margin:0;padding:1px 0;align-items:flex-start}
+.trace-line .ts{color:#5e6e88;width:64px;flex-shrink:0;font-size:10px}
+.trace-line .role{font-weight:700;width:60px;flex-shrink:0;letter-spacing:0.06em}
+.trace-line .role.user{color:#7be4ff}
+.trace-line .role.assistant{color:#ffce4a}
+.trace-line .role.system{color:#5dffb3}
+.trace-line .kind{
+  font-size:9px;letter-spacing:0.16em;color:#9bbc0f;
+  border:1px solid currentColor;padding:0 4px;border-radius:2px;margin-right:4px;
+  flex-shrink:0;
+}
+.trace-line .kind.thinking{color:#b27bff}
+.trace-line .kind.tool_use{color:#ff5ea1}
+.trace-line .kind.tool_result{color:#5dffb3}
+.trace-line .kind.text{color:#ffe184}
+.trace-line .body{color:#cadc9f;flex:1;min-width:0}
+.trace-cursor::after{
+  content:'_';color:#7be4ff;animation:traceBlink 1.0s step-end infinite;
+}
+@keyframes traceBlink{50%{opacity:0}}
+
 /* === HEADER BAR === */
 .topbar{
   display:flex;align-items:center;gap:18px;
@@ -569,6 +610,14 @@ body::before{ content:''; }
           </div>
           <div class="svc-full" id="sessList"></div>
         </div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ LIVE TRACE · REDACTED PREVIEW</span>
+            <span class="meta" id="traceMeta">— redacted at snapshot time —</span>
+          </div>
+          <pre id="traceTerm" class="trace-term"></pre>
+        </div>
       </section>
 
       <!-- ============ NETWORK (real listeners + external probes) ============ -->
@@ -635,16 +684,19 @@ body::before{ content:''; }
   // Falls back to mock if the file isn't present (e.g. local dev without the snapshot).
   let realData = null;
   let dataFetched = false;
-  fetch('./data.json', { cache: 'no-store' })
-    .then(r => r.ok ? r.json() : null)
-    .then(d => {
-      realData = d;
-      dataFetched = true;
-      if (d) {
-        applyRealData(d);
-      }
-    })
-    .catch(() => { dataFetched = true; });
+  function refreshSnapshot() {
+    fetch('./data.json?_=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d) { realData = d; applyRealData(d); }
+        dataFetched = true;
+      })
+      .catch(() => { dataFetched = true; });
+  }
+  refreshSnapshot();
+  // re-pull data.json every 5s so the live trace stays fresh as the snapshot script
+  // regenerates it server-side; if data.json is static, this is a cheap no-op
+  setInterval(refreshSnapshot, 5000);
 
   function applyRealData(d) {
     // replace SERVICES with real top-30 by size
@@ -788,6 +840,44 @@ body::before{ content:''; }
 
     const navL = document.getElementById('navLlmCount');
     if (navL) navL.textContent = claudeCount;
+
+    // === Live trace terminal ===
+    renderTraceTerminal(L.recent_messages || [], L.active_session);
+  }
+  function renderTraceTerminal(messages, activeSession) {
+    const term = document.getElementById('traceTerm');
+    if (!term) return;
+    const meta = document.getElementById('traceMeta');
+    if (meta) meta.textContent = activeSession
+      ? `${messages.length} entries · session ${activeSession.slice(0,8)}… · redacted at snapshot`
+      : `no active session detected`;
+    if (messages.length === 0) {
+      term.innerHTML = '<div class="trace-line"><span class="role system">SYSTEM</span><span class="body">no recent messages captured.</span></div><div class="trace-cursor"></div>';
+      return;
+    }
+    // remember scroll-stick: only auto-scroll if user was near the bottom
+    const wasAtBottom = (term.scrollTop + term.clientHeight) >= (term.scrollHeight - 8);
+    const lines = [];
+    for (const msg of messages) {
+      const ts = msg.ts ? new Date(msg.ts).toISOString().slice(11, 19) : '--:--:--';
+      const roleCls = (msg.role || 'system').toLowerCase();
+      const roleLabel = (msg.role || '?').toUpperCase().slice(0, 6).padEnd(6);
+      for (const block of (msg.blocks || [])) {
+        const kindCls = block.kind || 'text';
+        const kindLbl = (block.kind || 'text').toUpperCase().replace('_','-');
+        lines.push(
+          `<div class="trace-line">` +
+          `<span class="ts">${ts}</span>` +
+          `<span class="role ${escapeHtml(roleCls)}">${escapeHtml(roleLabel)}</span>` +
+          `<span class="kind ${escapeHtml(kindCls)}">${escapeHtml(kindLbl)}</span>` +
+          `<span class="body">${escapeHtml(block.preview || '')}</span>` +
+          `</div>`
+        );
+      }
+    }
+    lines.push('<div class="trace-cursor"></div>');
+    term.innerHTML = lines.join('');
+    if (wasAtBottom) term.scrollTop = term.scrollHeight;
   }
   function renderRuntime(rt) {
     // === Summary tiles ===
