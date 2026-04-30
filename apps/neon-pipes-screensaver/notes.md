@@ -1,0 +1,21 @@
+# neon-pipes-screensaver
+
+## log
+- 2026-04-30: Created. **Three.js neon pipes screensaver** in the spirit of the Win95 classic, but glowing on a deep void background. Single-file, vanilla JS, Three.js r128 from cdnjs. **Engine**: 22³ cell occupancy grid stored as a flat `Uint8Array` (10648 bits, 1 alloc, fast `idx(x,y,z) = (x+H) + N*((y+H) + N*(z+H))` lookup), `inBounds()` + `takeCell()` helpers. Each `Pipe` holds a Three.Group of cylinder segments + sphere joints + matching halo shells; `pickDir()` strongly biases continuing the same direction (`STRAIGHT_BIAS=0.74`) so you get long straight runs interrupted by 90° corners — exactly the classic pipe-screensaver rhythm. Step rate 80ms per pipe; up to 14 active pipes simultaneously. When a pipe is boxed in (`pickDir() === null`), it caps with a final joint and dies; new pipes spawn to fill in. **Glow**: each pipe has TWO meshes per segment — a hard cylinder (`MeshBasicMaterial`, neon color, no lighting) and an outer halo cylinder at `HALO_R=0.40` with `AdditiveBlending + opacity:0.25 + depthWrite:false`. Joints pair a `SphereGeometry(TUBE_R*1.55)` body with a halo sphere at slightly larger radius. Where pipes cluster the additive blending naturally bloom-saturates without needing a real post-processing pass — keeps the file lightweight (no UnrealBloomPass, no EffectComposer). **Animation**: every new segment & joint plays a 220ms cubic-ease grow tween (scale 0→1) handled by a tiny ad-hoc tween manager keyed on the mesh — no GSAP/Tween.js dep. **Camera**: slow 360° orbit (`now * 0.00012` angular rate × 35% vertical bob via sin) so the structure keeps revealing new sides. **Auto-flush**: when the grid hits 55% occupancy, a 280ms white radial flash plays and the scene wipes — pipes dispose their geometries + materials cleanly, occupancy resets, 4 fresh seed pipes spawn. **Palettes**: 5 cycleable — `cosmic` (cyan/magenta/lime/amber default), `aurora` (greens+cyans), `sunset` (red/orange/violet), `monochrome` (icy whites/blues), `biolab` (bright greens). Each has a custom bg color + neon glow set. **HUD**: 4 buttons top-right — PALETTE / FLUSH / PAUSE / FULL. Keyboard: `P` palette · `F` or `R` flush · `SPACE` pause · click anywhere also flushes. Tip line bottom-right with kbd hints. **Aesthetic**: deep `#03040a` void with cyan + magenta radial glows + center vignette. Major Mono Display "NEON · PIPES" brand bottom-left in cyan with phosphor shadow. Mobile: HUD shifts to bottom-right column, smaller text. Pollinations OG image. Tested headless: Three.js loads, canvas instantiates, all 4 HUD buttons wired, zero JS errors.
+
+## issues
+- Auto-flush threshold (`FILL_THRESHOLD=0.55`) is per-axis-cell-count, not visible occupancy — at 22³ that's ~5800 cells. Might feel too eager on slow devices that haven't had time to grow much. Could tune by visible-segment count instead.
+- No actual physics simulation — "glowing physics" interpreted as "cells pop in with eased grow tweens". Could add an extruded-along-curve TubeGeometry for a smoother organic look but that costs more vertices per pipe.
+- Camera orbits but never zooms. Could add scroll-wheel zoom (dolly) for desktop.
+- Auto-flush sometimes wipes a beautiful scene before users register it. A "snapshot" button (`canvas.toDataURL`) would let them save their favorite frames.
+- `MAX_PIPES=14` and step 80ms means peak rate ~175 segments/sec; on mid-range mobile this can drop frames. Could throttle to 8 pipes on coarse-pointer devices.
+- Each pipe shares its color material across all its segments — but each pipe gets its own material, so disposal is per-pipe. With 100+ pipes recycled, this allocates a lot. Could pool materials per (paletteIdx,colorIdx) for less GC churn.
+
+## todos
+- Sound-reactive mode: WebAudio mic input → step rate scales with input level.
+- Snapshot button → PNG download via `canvas.toDataURL`.
+- Density slider (controls `STRAIGHT_BIAS` and `MAX_PIPES`).
+- 2D top-down "blueprint" mode toggle.
+- Idle detection — speed up after 60s of no interaction (true screensaver behavior).
+- VR mode via WebXR (would just need `renderer.xr.enabled = true` + a VR button).
+- A "city of pipes" mode where pipes only grow up/down/forward (no backward) for cleaner skyline aesthetic.
