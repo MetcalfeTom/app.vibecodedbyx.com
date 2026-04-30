@@ -228,6 +228,60 @@ body::before{ content:''; }
 .hashlink:hover{text-decoration:underline}
 .hashlink code{background:rgba(58,137,201,0.10);padding:1px 5px;border-radius:3px;font-size:11px}
 
+/* === LLM trace expandable table === */
+.trace-mode-tabs{display:flex;gap:6px;margin-bottom:10px}
+.trace-mode-tab{
+  background:transparent;border:1px solid rgba(58,137,201,0.30);
+  color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.16em;
+  padding:5px 12px;border-radius:2px;cursor:pointer;
+}
+.trace-mode-tab.active{color:var(--cyan);border-color:var(--cyan);background:rgba(58,137,201,0.08)}
+.trace-table{
+  font-family:'JetBrains Mono', monospace;font-size:11px;line-height:1.5;
+  max-height:480px;overflow-y:auto;
+  border:1px solid rgba(58,137,201,0.18);border-radius:3px;
+  background:#fff;
+}
+.trace-table::-webkit-scrollbar{width:6px}
+.trace-table::-webkit-scrollbar-thumb{background:rgba(58,137,201,0.3);border-radius:3px}
+.trace-row{
+  display:grid;grid-template-columns:78px 60px 90px 1fr 18px;gap:8px;
+  padding:6px 10px;
+  border-bottom:1px dashed rgba(58,137,201,0.10);
+  cursor:pointer;user-select:none;
+  align-items:start;
+}
+.trace-row:hover{background:rgba(58,137,201,0.04)}
+.trace-row.expanded{background:rgba(58,137,201,0.06);grid-template-columns:78px 60px 90px 1fr 18px}
+.trace-row .ts{color:var(--dim);font-size:10px}
+.trace-row .role-tag{font-weight:700;font-size:10px;letter-spacing:0.06em;align-self:center}
+.trace-row .role-tag.user{color:var(--cyan)}
+.trace-row .role-tag.assistant{color:var(--amber)}
+.trace-row .role-tag.system{color:var(--green)}
+.trace-row .kind-tag{
+  font-size:9px;letter-spacing:0.16em;
+  padding:1px 6px;border-radius:2px;
+  border:1px solid currentColor;
+  width:fit-content;align-self:center;
+}
+.trace-row .kind-tag.text{color:#9b7e3a}
+.trace-row .kind-tag.thinking{color:var(--violet)}
+.trace-row .kind-tag.tool_use{color:var(--pink)}
+.trace-row .kind-tag.tool_result{color:var(--green)}
+.trace-row .preview{
+  color:var(--ink);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;
+}
+.trace-row.expanded .preview{
+  white-space:normal;word-break:break-word;
+  background:#f6f9fd;padding:6px 8px;border-radius:2px;font-family:'JetBrains Mono',monospace;
+}
+.trace-row .caret{color:var(--dim);transition:transform 0.15s ease;font-size:10px;align-self:center;text-align:right}
+.trace-row.expanded .caret{transform:rotate(90deg);color:var(--cyan)}
+@media (max-width:560px){
+  .trace-row{grid-template-columns:60px 50px 70px 1fr 16px;font-size:10px;gap:6px}
+}
+
 /* === LIVE TRACE — terminal aesthetic, scrolls with newest at bottom === */
 .trace-term{
   background:#0a0e18;
@@ -685,7 +739,12 @@ body::before{ content:''; }
             <span class="lbl">▸ LIVE TRACE · REDACTED PREVIEW</span>
             <span class="meta" id="traceMeta">— redacted at snapshot time —</span>
           </div>
+          <div class="trace-mode-tabs">
+            <button class="trace-mode-tab active" data-mode="term">▣ TERMINAL</button>
+            <button class="trace-mode-tab" data-mode="table">▤ TABLE · expandable</button>
+          </div>
           <pre id="traceTerm" class="trace-term"></pre>
+          <div id="traceTable" class="trace-table" style="display:none"></div>
         </div>
       </section>
 
@@ -887,8 +946,68 @@ body::before{ content:''; }
     const navL = document.getElementById('navLlmCount');
     if (navL) navL.textContent = claudeCount;
 
-    // === Live trace terminal ===
+    // === Live trace (terminal + expandable table) ===
     renderTraceTerminal(L.recent_messages || [], L.active_session);
+    renderTraceTable(L.recent_messages || []);
+  }
+  // mode toggle (one-time wireup; idempotent)
+  if (!window.__traceModeWired) {
+    window.__traceModeWired = true;
+    document.querySelectorAll('.trace-mode-tab').forEach(b => {
+      b.addEventListener('click', () => {
+        const mode = b.dataset.mode;
+        document.querySelectorAll('.trace-mode-tab').forEach(x => x.classList.toggle('active', x === b));
+        const term = document.getElementById('traceTerm');
+        const table = document.getElementById('traceTable');
+        if (term) term.style.display = mode === 'term' ? 'block' : 'none';
+        if (table) table.style.display = mode === 'table' ? 'block' : 'none';
+      });
+    });
+  }
+  function renderTraceTable(messages) {
+    const root = document.getElementById('traceTable');
+    if (!root) return;
+    if (!messages.length) {
+      root.innerHTML = '<div class="trace-row" style="grid-template-columns:1fr"><span style="opacity:0.55;font-style:italic">no recent messages captured.</span></div>';
+      return;
+    }
+    // remember which row indices were expanded so a re-render preserves them
+    const expanded = window.__traceExpanded = window.__traceExpanded || new Set();
+    const rows = [];
+    let idx = 0;
+    for (const msg of messages) {
+      const ts = msg.ts ? new Date(msg.ts).toISOString().slice(11, 19) : '--:--:--';
+      const roleCls = (msg.role || 'system').toLowerCase();
+      const roleLabel = (msg.role || '?').toUpperCase().slice(0, 6);
+      for (const block of (msg.blocks || [])) {
+        const i = idx++;
+        const kindCls = block.kind || 'text';
+        const kindLbl = (block.kind || 'text').toUpperCase().replace('_','·');
+        const isExp = expanded.has(i);
+        rows.push(
+          `<div class="trace-row${isExp ? ' expanded' : ''}" data-idx="${i}">` +
+          `<span class="ts">${ts}</span>` +
+          `<span class="role-tag ${escapeHtml(roleCls)}">${escapeHtml(roleLabel)}</span>` +
+          `<span class="kind-tag ${escapeHtml(kindCls)}">${escapeHtml(kindLbl)}</span>` +
+          `<span class="preview">${escapeHtml(block.preview || '')}</span>` +
+          `<span class="caret">▶</span>` +
+          `</div>`
+        );
+      }
+    }
+    root.innerHTML = rows.join('');
+    // delegated click → toggle expanded
+    if (!root.__wired) {
+      root.__wired = true;
+      root.addEventListener('click', (e) => {
+        const row = e.target.closest('.trace-row');
+        if (!row || !row.dataset.idx) return;
+        const i = +row.dataset.idx;
+        if (expanded.has(i)) expanded.delete(i);
+        else expanded.add(i);
+        row.classList.toggle('expanded');
+      });
+    }
   }
   function renderTraceTerminal(messages, activeSession) {
     const term = document.getElementById('traceTerm');
