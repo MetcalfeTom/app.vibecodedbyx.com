@@ -1751,26 +1751,20 @@ const meteors = [];
 let nextMeteorAt = performance.now() + 8000 + Math.random() * 6000;
 
 function spawnMeteor() {
-  // 80% of meteors lead the player's predicted position (so they're dodgeable),
-  // 20% strike random ground for atmosphere.
-  const aimAtPlayer = Math.random() < 0.8;
-  const fall = 3.4;            // travel time of meteor — used as the lead-time too
-  const leadTime = fall * 0.7; // aim ~2.4s into the future of the player's path
-  // jitter scales with predicted velocity — slow-moving rovers get tighter aim
-  const playerSpeed = Math.hypot(player.state.vx, player.state.vz);
-  const jitter = 14 + playerSpeed * 0.8;
+  // 85% of meteors land in the road AHEAD of the player so they actually have to dodge in lane.
+  // 15% strike random ground for atmospheric variety in the distance.
+  const aimAhead = Math.random() < 0.85;
+  const fall = 3.4;            // meteor travel time
   let tx, tz;
-  if (aimAtPlayer) {
-    // Lead-aim toward the predicted player position, then add a random landing offset
-    // (uniform random direction, radius 18-44) so impacts scatter around the target
-    // and players have actual dodge space even if they don't change velocity.
-    const aimX = player.state.x + player.state.vx * leadTime;
-    const aimZ = player.state.z + player.state.vz * leadTime;
-    const offsetAngle = Math.random() * Math.PI * 2;
-    const offsetRadius = 18 + Math.random() * 26;       // 18-44u random landing offset
-    const speedJitter = (Math.random() - 0.5) * jitter; // small extra wobble for fast targets
-    tx = aimX + Math.cos(offsetAngle) * offsetRadius + speedJitter;
-    tz = aimZ + Math.sin(offsetAngle) * offsetRadius + speedJitter;
+  if (aimAhead) {
+    // Forward-aim: pick a point along the player's facing direction (60-180u ahead),
+    // with a perpendicular jitter (±25u) so it lands somewhere in their lane / next corner.
+    const fx = Math.sin(player.state.yaw), fz = Math.cos(player.state.yaw);
+    const perpX = -fz, perpZ = fx;
+    const aheadDist = 60 + Math.random() * 120;        // 60-180u in front
+    const lateralOff = (Math.random() - 0.5) * 50;     // ±25u perpendicular
+    tx = player.state.x + fx * aheadDist + perpX * lateralOff;
+    tz = player.state.z + fz * aheadDist + perpZ * lateralOff;
   } else {
     tx = (Math.random() - 0.5) * 560;
     tz = (Math.random() - 0.5) * 560;
@@ -1786,6 +1780,38 @@ function spawnMeteor() {
   const dx = tx - sx, dy = tY - startY, dz = tz - sz;
   // (fall declared above when computing lead aim)
   const vx = dx / fall, vy = dy / fall, vz = dz / fall;
+  // === LANDING INDICATOR — glowing telegraphed circle on the ground at impact target ===
+  const indicator = new THREE.Group();
+  const indicatorY = terrainHeight(tx, tz) + 0.06;
+  indicator.position.set(tx, indicatorY, tz);
+  // outer ring — pulses
+  const indRing = new THREE.Mesh(
+    new THREE.RingGeometry(7, 9.5, 36),
+    new THREE.MeshBasicMaterial({ color: 0xff5a1a, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+  );
+  indRing.rotation.x = -Math.PI / 2;
+  indicator.add(indRing);
+  // inner disc — fills as the meteor approaches
+  const indDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(7, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffce4a, transparent: true, opacity: 0.18, side: THREE.DoubleSide })
+  );
+  indDisc.rotation.x = -Math.PI / 2;
+  indicator.add(indDisc);
+  // crosshair lines
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.85 });
+  const xLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-9, 0.05, 0), new THREE.Vector3(9, 0.05, 0)]),
+    lineMat
+  );
+  const zLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.05, -9), new THREE.Vector3(0, 0.05, 9)]),
+    lineMat.clone()
+  );
+  indicator.add(xLine);
+  indicator.add(zLine);
+  scene.add(indicator);
+
   // visible body — glowing rock with fire halo
   const grp = new THREE.Group();
   const r = 1.4 + Math.random() * 1.6;
@@ -1804,13 +1830,15 @@ function spawnMeteor() {
   scene.add(grp);
   // trail point cloud will be spawned each frame
   meteors.push({
-    mesh: grp, rock, halo,
+    mesh: grp, rock, halo, indicator, indRing, indDisc,
     x: sx, y: startY, z: sz,
     vx, vy, vz,
     r,
     targetX: tx, targetZ: tz,
+    targetY: indicatorY,
     life: 8,
     trailTimer: 0,
+    spawnedAt: performance.now(),
   });
   // optional whistle SFX as it spawns
   meteorWhistleSfx();
@@ -1839,6 +1867,24 @@ function tickMeteors(dt) {
     // pulse halo
     const ph = 0.85 + Math.sin(now * 0.02) * 0.15;
     m.halo.scale.setScalar(ph);
+    // === landing indicator: pulses + fills as the meteor descends ===
+    if (m.indicator) {
+      // progress 0 (just spawned, high in sky) → 1 (at ground)
+      const elapsed = (now - m.spawnedAt) / 1000;
+      const progress = Math.min(1, elapsed / 3.4);
+      // ring pulses faster as impact nears
+      const pulseRate = 4 + progress * 14;
+      const ringPulse = 0.85 + Math.sin(now * 0.001 * pulseRate) * 0.18;
+      m.indRing.scale.setScalar(ringPulse);
+      // ring opacity ramps up
+      m.indRing.material.opacity = 0.4 + progress * 0.5;
+      // disc fills its alpha as meteor closes in (red shifts toward gold)
+      m.indDisc.material.opacity = 0.12 + progress * 0.55;
+      const hue = 24 + (1 - progress) * 12; // amber → red
+      m.indDisc.material.color.setHSL(hue / 360, 0.95, 0.55 - progress * 0.18);
+      // gentle ring rotation for sci-fi vibe
+      m.indicator.rotation.y += dt * 0.8;
+    }
     // fire trail particles
     m.trailTimer += dt;
     while (m.trailTimer > 0.04) {
@@ -1862,6 +1908,17 @@ function tickMeteors(dt) {
       impactMeteor(m.x, groundY, m.z, m.r);
       scene.remove(m.mesh);
       m.mesh.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      // remove + dispose the landing indicator
+      if (m.indicator) {
+        scene.remove(m.indicator);
+        m.indicator.traverse(o => {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material) {
+            if (Array.isArray(o.material)) o.material.forEach(mat => mat.dispose());
+            else o.material.dispose();
+          }
+        });
+      }
       meteors.splice(i, 1);
     }
   }
