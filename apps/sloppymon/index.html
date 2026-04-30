@@ -178,16 +178,17 @@ body{
     'T,,,,,,,,FFF,,,,,p,,,,,T',
     'TTTTTTTTTTTTTTTTTTTTTTTT',
   ];
-  // SLOPPY TOWN — buildings with door tiles, portal back to route at top-center (`P`)
+  // SLOPPY TOWN — buildings with door tiles on the SOUTH face so the path can reach them.
+  // Doors C (Center) at (4,5) and M (Mart) at (15,5). Player approaches from the path tiles below.
   const RAW_TOWN = [
     'TTTTTTTTTTTTTTTTTTTT',
     'T,,,,,,,,,P,,,,,,,,T',
     'T,,,,,,,,...,,,,,,,T',
     'T,BBBBB,,...,,BBBBBT',
-    'T,B C B,,...,,B M BT',
     'T,BBBBB,,...,,BBBBBT',
-    'T,,...,,,...,,,,..,T',
-    'T,,...,,,...,,,,..,T',
+    'T,BBCBB,,...,,BBMBBT',
+    'T,,...,,,...,,,..,,T',
+    'T,,...,,,...,,,..,,T',
     'T,,..........,..,,,T',
     'T,,..............,,T',
     'T,FF,,,,,,,,,,,,FF,T',
@@ -195,23 +196,25 @@ body{
     'T,,,,,,,,,,,,,,,,,,T',
     'TTTTTTTTTTTTTTTTTTTT',
   ];
-  // Interior maps: small rooms entered via door tiles
+  // Interior maps — exit tile uses lowercase `p` (T_PORTAL_TOWN) which is rewired
+  // to "return to wherever the player came from" via state.lastWorld.
+  // All rows are padded to 12 cols so the grid is rectangular.
   const RAW_CENTER = [
     'BBBBBBBBBBBB',
-    'BfffffffffffB',
+    'BffffffffffB',
     'BfKKKKKKfffB',
-    'BfffffffffffB',
-    'BfffrfffffffB',
-    'BfffrfffffffB',
-    'BfffPffffffB',
+    'BffffffffffB',
+    'BfffrffffffB',
+    'BfffrffffffB',
+    'BBBBpBBBBBBB',
   ];
   const RAW_MART = [
     'BBBBBBBBBBBB',
-    'BfffffffffffB',
-    'BfKKKKKKKfffB',
-    'BfffffffffffB',
-    'BfffrfffffffB',
-    'BfffPffffffB',
+    'BffffffffffB',
+    'BfKKKKKKKffB',
+    'BffffffffffB',
+    'BfffrffffffB',
+    'BBBBpBBBBBBB',
   ];
   const MAPS = {
     route:  buildMap(RAW_ROUTE),
@@ -240,7 +243,22 @@ body{
   ];
   function pickWildMon() {
     const m = ROSTER[Math.floor(Math.random() * ROSTER.length)];
-    return { id:m.id, name:m.name, maxHp:m.hp, hp:m.hp, atk:m.atk, color:m, level: 1 + Math.floor(Math.random() * 5) };
+    return {
+      id:m.id, name:m.name, maxHp:m.hp, hp:m.hp, atk:m.atk, color:m,
+      level: 1 + Math.floor(Math.random() * 5),
+      dna: Math.floor(Math.random() * 0xffffffff),  // procedural-limb seed
+    };
+  }
+  // === PRNG seeded by dna for stable limb layout per creature ===
+  function mulberry32(seed) {
+    let s = seed >>> 0;
+    return function() {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
   }
 
   // === PLAYER ===
@@ -371,12 +389,33 @@ body{
     }
     return false;
   }
+  function rememberExit() {
+    // record where we came from so the interior's exit tile returns us here
+    state.lastWorld = { map: state.currentMap, x: player.tx, y: player.ty + 1 };
+  }
+  function returnFromInterior() {
+    if (state.lastWorld) {
+      const { map, x, y } = state.lastWorld;
+      state.lastWorld = null;
+      switchMap(map, x, y);
+    } else {
+      // fallback: default to town near the building doors
+      switchMap('town', 9, 7);
+    }
+  }
   function tryEnterDoor() {
     const t = tileAt(player.tx, player.ty);
-    if (t === T_DOOR_CENTER) { switchMap('center', 7, 6); openDialog(['NURSE FAYE:','your sloppymon','feel sticky.','— ALL HEALED —'], () => healTeam()); }
-    else if (t === T_DOOR_MART) { switchMap('mart', 7, 5); openShop(); }
-    else if (t === T_PORTAL_TOWN) { switchMap('town', 9, 1); }
-    else if (t === T_PORTAL_ROUTE) { switchMap('route', 17, 16); }
+    if (t === T_DOOR_CENTER) { rememberExit(); switchMap('center', 4, 5); openDialog(['NURSE FAYE:','your sloppymon','feel sticky.','— ALL HEALED —'], () => healTeam()); }
+    else if (t === T_DOOR_MART) { rememberExit(); switchMap('mart', 4, 4); openShop(); }
+    else if (t === T_PORTAL_TOWN) {
+      // route → town OR interior → town/wherever
+      if (state.currentMap === 'route') switchMap('town', 9, 1);
+      else returnFromInterior();
+    }
+    else if (t === T_PORTAL_ROUTE) {
+      if (state.currentMap === 'town') switchMap('route', 17, 16);
+      else returnFromInterior();
+    }
     else if (t === T_SIGN) { openDialog(['ROUTE 1','tall grass crawls','with sloppymon.','hold a direction','and walk in.']); }
   }
   function switchMap(id, tx, ty) {
@@ -408,9 +447,20 @@ body{
         if (here === T_TGRASS && (state.currentMap === 'route')) {
           if (Math.random() < 0.18) { startBattle(pickWildMon()); return; }
         }
-        // auto-step onto a portal triggers map transition
-        if (here === T_PORTAL_TOWN) { switchMap('town', 9, 2); return; }
-        if (here === T_PORTAL_ROUTE) { switchMap('route', 17, 15); return; }
+        // auto-step onto a portal triggers a contextual map transition
+        if (here === T_PORTAL_TOWN) {
+          if (state.currentMap === 'route') switchMap('town', 9, 2);
+          else returnFromInterior();
+          return;
+        }
+        if (here === T_PORTAL_ROUTE) {
+          if (state.currentMap === 'town') switchMap('route', 17, 15);
+          else returnFromInterior();
+          return;
+        }
+        // auto-step onto a door enters the building
+        if (here === T_DOOR_CENTER) { rememberExit(); switchMap('center', 4, 5); openDialog(['NURSE FAYE:','your sloppymon','feel sticky.','— ALL HEALED —'], () => healTeam()); return; }
+        if (here === T_DOOR_MART)   { rememberExit(); switchMap('mart',   4, 4); openShop(); return; }
         // trainer line-of-sight check
         if (checkTrainerLineOfSight()) return;
       }
@@ -828,7 +878,9 @@ body{
   function startTrainerBattle(trainer) {
     state.mode = 'battle';
     // give the trainer a fresh team copy so battle damage doesn't persist into the trainer record
-    const team = trainer.team.map(m => ({ ...m, hp: m.maxHp }));
+    // each member gets a stable per-trainer dna (derived from trainer id + slot) so layouts repeat
+    const dnaSeed = trainer.id.split('').reduce((a, c) => a * 131 + c.charCodeAt(0), 1);
+    const team = trainer.team.map((m, i) => ({ ...m, hp: m.maxHp, dna: m.dna != null ? m.dna : ((dnaSeed * 17 + i * 991) >>> 0) }));
     state.battle = {
       kind: 'trainer',
       trainer, trainerTeam: team, trainerIdx: 0,
@@ -884,7 +936,7 @@ body{
         if (b.wild.hp <= 0) {
           endBattle([b.wild.name, 'fled into the', 'tall grass.']);
         } else if (b.catchOutcome === 'success') {
-          state.team.push({ id: b.wild.id, name: b.wild.name, maxHp: b.wild.maxHp, hp: b.wild.maxHp, level: b.wild.level });
+          state.team.push({ id: b.wild.id, name: b.wild.name, maxHp: b.wild.maxHp, hp: b.wild.maxHp, level: b.wild.level, dna: b.wild.dna });
           updateTeamUI();
           persist();
           endBattle(['Caught', b.wild.name + '!']);
@@ -1055,7 +1107,7 @@ body{
     ctx.ellipse(VW * 0.72, 100, 60, 18, 0, 0, Math.PI * 2);
     ctx.fill();
     // wild mon sprite
-    drawMon(b.wild.id, VW * 0.72 - 16, 70, 1, time);
+    drawMon(b.wild.id, VW * 0.72 - 16, 70, 1, time, b.wild.dna);
     // wild mon HP box
     drawHpBox(20, 30, b.wild.name, b.wild.level, b.wild.hp, b.wild.maxHp);
     // bottom half: player mon platform — placeholder silhouette of "you" the trainer
@@ -1132,14 +1184,131 @@ body{
     ctx.fillText(hp + '/' + maxHp, x + 80, y + 30);
   }
 
+  // === PROCEDURAL LIMB GENERATION ===
+  // Each creature has a `dna` integer that seeds a stable PRNG, so the same wild instance
+  // shows the same mutant limbs across redraws.
+  // Limb kinds: tentacle, antenna, eyestalk, tail, fang, spike, leg
+  const LIMB_KINDS = ['tentacle','antenna','eyestalk','tail','fang','spike','leg'];
+  function drawLimbs(dna, time, primary, accent) {
+    if (dna == null) return;
+    const rnd = mulberry32(dna);
+    // 0-5 random limbs (skewed toward 1-3)
+    const count = Math.floor(rnd() * 6);
+    for (let i = 0; i < count; i++) {
+      const kind = LIMB_KINDS[Math.floor(rnd() * LIMB_KINDS.length)];
+      // attachment angle around the body (radians, 0=right, π/2=down)
+      const ang = rnd() * Math.PI * 2;
+      // body radius — limbs attach to a 10px ellipse around (16, 16) in 32×32 sprite space
+      const ax = 16 + Math.cos(ang) * 10;
+      const ay = 16 + Math.sin(ang) * 8;     // slightly squashed
+      const len = 4 + Math.floor(rnd() * 9); // 4-12px
+      const wob = Math.sin(time * 0.005 + i * 1.3 + dna * 0.001) * 1;
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(ang);
+      switch (kind) {
+        case 'tentacle': {
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          for (let s = 1; s <= 5; s++) {
+            const t = s / 5;
+            const x = len * t;
+            const y = Math.sin(t * 4 + time * 0.01 + i) * (3 + wob);
+            ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+          // suckers
+          ctx.fillStyle = accent;
+          ctx.fillRect(len * 0.5, -1, 1, 1);
+          ctx.fillRect(len * 0.8, 0, 1, 1);
+          break;
+        }
+        case 'antenna': {
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(len * 0.7 + wob, -len * 0.4);
+          ctx.lineTo(len + wob, -len * 0.6);
+          ctx.stroke();
+          // ball tip
+          ctx.fillStyle = accent;
+          ctx.fillRect(len - 1 + wob, -len * 0.6 - 1, 2, 2);
+          break;
+        }
+        case 'eyestalk': {
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.bezierCurveTo(len * 0.4, -len * 0.3, len * 0.6, -len * 0.5 + wob, len, -len * 0.5);
+          ctx.stroke();
+          // eye on the tip
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(len - 1, -len * 0.5 - 1, 3, 3);
+          ctx.fillStyle = '#000';
+          ctx.fillRect(len, -len * 0.5, 1, 1);
+          break;
+        }
+        case 'tail': {
+          ctx.fillStyle = primary;
+          for (let s = 0; s < 4; s++) {
+            const w = 3 - s * 0.6;
+            ctx.fillRect(s * (len/4), -w/2 + Math.sin(s + time * 0.01) * 0.5, len/4 + 1, w);
+          }
+          break;
+        }
+        case 'fang': {
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.moveTo(0, -1);
+          ctx.lineTo(len, 0);
+          ctx.lineTo(0, 1);
+          ctx.closePath(); ctx.fill();
+          break;
+        }
+        case 'spike': {
+          ctx.fillStyle = accent;
+          ctx.beginPath();
+          ctx.moveTo(0, -1);
+          ctx.lineTo(len, 0);
+          ctx.lineTo(0, 1);
+          ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+          break;
+        }
+        case 'leg': {
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(len * 0.5, len * 0.3);
+          ctx.lineTo(len, len * 0.6 + wob);
+          ctx.stroke();
+          // foot
+          ctx.fillStyle = '#1a1a1a';
+          ctx.fillRect(len - 1, len * 0.6 + wob - 1, 2, 2);
+          break;
+        }
+      }
+      ctx.restore();
+    }
+  }
+
   // === SLOPPYMON SPRITES (24x24, drawn procedurally) ===
-  function drawMon(id, x, y, scale, time) {
+  function drawMon(id, x, y, scale, time, dna) {
     const mon = ROSTER.find(m => m.id === id);
     if (!mon) return;
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
     ctx.imageSmoothingEnabled = false;
+    // limbs render BEHIND the body so they look like they're attached
+    drawLimbs(dna, time, mon.colorA, mon.colorB);
     const bob = Math.sin(time * 0.005) * 1;
     if (mon.face === 'mud') {
       ctx.fillStyle = mon.colorA;
