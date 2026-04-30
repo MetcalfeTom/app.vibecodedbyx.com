@@ -1,0 +1,23 @@
+# star-hourglass
+
+## log
+- 2026-04-30: Created. **3D star-studded hourglass that pours golden particles between two bulbs.** Three.js r0.160 via importmap. **Hourglass shell** built from a `LatheGeometry` profile sampled from `innerRadius(y)` — narrow at the waist (`NARROW_R = 1.3`), wide at the bulb tops (`WIDE_R = 9`), curve power `1/PINCH_K = 1/1.8` for that pinched-but-curvy shape. Material is a translucent gold-tinted `MeshStandardMaterial` (`opacity 0.18, depthWrite false`) so the sand inside is always visible. **Gold trim**: 2 large `TorusGeometry` rings at the top + bottom of the bulbs (radius=WIDE_R+0.4), one small ring at the waist (radius=NARROW_R+0.45), 4 vertical pillars connecting the rings (cylinders at 90° intervals on the outside), and 2 spheroidal caps that close the lid+base. **16 decorative 5-point stars** + 1 big crown star: each is a `THREE.ExtrudeGeometry` from a `Shape` traced at alternating outer/inner radii (10 vertices for points + valleys), with bevel for that thick gold-leaf look, gold emissive (`emissiveIntensity 0.9`). Stars are placed on the outside of each bulb at 8 evenly-spaced angles per bulb with random vertical offsets, oriented to face outward via `lookAt(0, y, 0) + rotateY(π)`. Each star spins independently at 0.4-0.9 rad/s. The crown star sits 2.4u above the top cap at 2× scale, spinning at 0.6 rad/s. **Sand particles** modeled as 3 separate `THREE.Points` clouds with `AdditiveBlending`: top-bulb settled (filled radially in the upper bulb up to `topCount/TOTAL`), bottom-bulb settled (mirror), and falling-in-transit (cap 200, `vy -= GRAVITY*dt`, radius-clamped to `innerRadius(y)` with bounce damping 0.3). **Spawn rate** 80 particles/sec from the bottom of the top bulb at radial position within `NARROW_R*0.7`, until the top bulb empties. Each falling particle is removed when it lands on the bottom-bulb pile-top (`y <= -HALF_H + (bottomCount/TOTAL)*HALF_H + 0.1`), incrementing `bottomCount`. **2400 total particles** so the simulation runs ~30 seconds end-to-end. Settled positions are rebuilt every frame (cheap — just `Float32Array` writes). **Drag-to-rotate**: pointer-drag yaws+pitches the hourglass with smoothing lerp toward target. **Click-to-flip**: short tap (<6px drift, <280ms) flips the hourglass 180° on x-axis with smoothstep ease over 0.9s, swaps the top/bottom counts, clears falling, and plays a 4-note ascending C-E-G-C chime (sine, 0.06s stagger). **HUD top-right**: TOP %, BOTTOM %, ELAPSED time in Major Mono Display. **Toolbar bottom-center** glassy pill with `⟲ FLIP` (gold) and `RESET` (cyan) buttons. **Lighting**: `AmbientLight` cool slate + warm `DirectionalLight` from upper-right + violet `PointLight` rim from lower-left for atmospheric body. **Background** is 1800 stars on a 200-280 sphere with random tinting. Pollinations OG.
+
+## issues
+- The radius constraint on falling particles is a hard clamp + reflection. If many particles cluster against the wall they can pulse visibly. Acceptable visual artifact, reads as "sand brushing the glass".
+- Particles passing the waist sometimes briefly clip the geometry at very narrow points; depth-write disabled on the glass so they always render visible. The visual is forgiving.
+- Settled sand positions are re-randomized every frame — sand "twinkles" in place rather than sitting still. This was intentional (reads as cosmic, magical) but a future opt would persist positions for stillness.
+- Physics is single-particle (no particle-particle collisions) so the bottom pile is a smooth conical fill driven by the `pileTopY` formula rather than emergent. With 2400 particles this looks fine; with denser sims you'd want spatial hashing.
+- Click-to-flip is gated behind a 6px / 280ms threshold to avoid flipping during drag — accidental flips while spinning are rare.
+- HUD time keeps counting after sand finishes draining (no cap). The rest button zeroes it.
+- Audio context only initializes on user gesture per browser policy. The chime plays from the first flip.
+
+## todos
+- Persistent sand positions: assign each particle a stable settled position once it lands so the bulb sand stops twinkling.
+- "Pour speed" slider — control how many particles per second fall.
+- Sound: subtle continuous "sand whoosh" while sand is falling, scaling with rate.
+- More star variations: 6-point, 7-point, magen-david, with shimmer that ripples in waves.
+- Color themes: cool blue sand on silver hourglass, magenta-on-bronze.
+- Time-set mode: enter a duration and the sand drains to match.
+- Mobile pinch-zoom for closer inspection of the gold filigree.
+- Scenes: nebula backdrop, supernova, on-a-table-in-a-tower.
