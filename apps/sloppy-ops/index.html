@@ -388,6 +388,7 @@ body::before{ content:''; }
       <button class="nav-item active" data-page="overview"><span class="icn">▤</span>OVERVIEW</button>
       <button class="nav-item" data-page="system"><span class="icn">▣</span>SYSTEM</button>
       <button class="nav-item" data-page="runtime"><span class="icn">◌</span>RUNTIME<span class="badge" id="navProcCount"></span></button>
+      <button class="nav-item" data-page="llm"><span class="icn">✦</span>LLM<span class="badge" id="navLlmCount"></span></button>
       <button class="nav-item" data-page="network"><span class="icn">⇄</span>NETWORK<span class="badge" id="navNetCount"></span></button>
       <button class="nav-item" data-page="storage"><span class="icn">⛁</span>STORAGE<span class="badge" id="navStorageCount"></span></button>
       <button class="nav-item" data-page="deployments"><span class="icn">▷</span>DEPLOYMENTS<span class="badge" id="navDeployCount"></span></button>
@@ -512,6 +513,39 @@ body::before{ content:''; }
             <span class="meta" id="netIfMeta">since boot</span>
           </div>
           <div class="user-stats" id="netStats"></div>
+        </div>
+      </section>
+
+      <!-- ============ LLM (MCP servers + active claude sessions) ============ -->
+      <section class="page" data-page="llm">
+        <div class="page-head">
+          <h1><span class="accent">✦</span> LLM</h1>
+          <span class="meta">.mcp.json · /proc · ~/.claude/projects · captured at snapshot</span>
+        </div>
+        <div class="user-stats" id="llmSummary"></div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ MCP SERVERS · CONFIGURED</span>
+            <span class="meta" id="mcpMeta">—</span>
+          </div>
+          <div class="svc" id="mcpList"></div>
+        </div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ ACTIVE LLM PROCESSES</span>
+            <span class="meta">claude + mcp-proxy from /proc</span>
+          </div>
+          <div class="svc-full" id="llmProcList"></div>
+        </div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ SESSION TRANSCRIPTS · METADATA ONLY</span>
+            <span class="meta" id="sessMeta">—</span>
+          </div>
+          <div class="svc-full" id="sessList"></div>
         </div>
       </section>
 
@@ -656,6 +690,82 @@ body::before{ content:''; }
     if (d.system) renderSystem(d.system);
     if (d.network) renderNetwork(d.network);
     if (d.runtime) renderRuntime(d.runtime);
+    if (d.llm) renderLlm(d.llm);
+  }
+  function renderLlm(L) {
+    const sum = document.getElementById('llmSummary');
+    if (!sum) return;
+    const claudeCount = (L.active_processes || []).filter(p => p.kind === 'claude').length;
+    const proxyCount = (L.active_processes || []).filter(p => p.kind === 'mcp-proxy').length;
+    const totalRss = (L.active_processes || []).reduce((a,p) => a + (p.rss_kb||0), 0);
+    sum.innerHTML = [
+      `<div class="stat-card"><span class="lbl">MCP SERVERS</span><span class="v cyan">${L.mcp_count}</span><span class="delta">in .mcp.json</span></div>`,
+      `<div class="stat-card"><span class="lbl">CLAUDE · ACTIVE</span><span class="v green">${claudeCount}</span><span class="delta">opus</span></div>`,
+      `<div class="stat-card"><span class="lbl">MCP · PROXIES</span><span class="v amber">${proxyCount}</span><span class="delta">stdio bridges</span></div>`,
+      `<div class="stat-card"><span class="lbl">SESSIONS · ON DISK</span><span class="v pink">${(L.sessions || []).length}</span><span class="delta">.jsonl files</span></div>`,
+      `<div class="stat-card"><span class="lbl">TRANSCRIPT TOTAL</span><span class="v">${(L.session_total_bytes / (1024*1024)).toFixed(1)} MB</span><span class="delta">across all sessions</span></div>`,
+      `<div class="stat-card"><span class="lbl">SUBAGENT JSONL</span><span class="v cyan">${L.subagent_count}</span><span class="delta">spawned helpers</span></div>`,
+    ].join('');
+
+    // MCP servers
+    const mcp = document.getElementById('mcpList');
+    if ((L.mcp_servers || []).length === 0) {
+      mcp.innerHTML = '<div class="svc-row" style="opacity:0.55;font-style:italic">no MCP servers configured.</div>';
+    } else {
+      mcp.innerHTML = L.mcp_servers.map(s => `
+        <div class="svc-row">
+          <span class="svc-name">${escapeHtml(s.name)}</span>
+          <span class="svc-bar"><span class="svc-fill" style="width:18%"></span></span>
+          <span class="svc-stat"><span class="used">${escapeHtml(s.type)}</span> · ${escapeHtml(s.host || '—')}</span>
+        </div>
+      `).join('');
+    }
+    document.getElementById('mcpMeta').textContent = `${L.mcp_count} server(s) · transports declared`;
+
+    // Active LLM processes
+    const fmtUp = (sec) => {
+      const d = Math.floor(sec/86400), h = Math.floor((sec%86400)/3600), m = Math.floor((sec%3600)/60);
+      if (d > 0) return d + 'd ' + h + 'h';
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm ' + (sec%60) + 's';
+    };
+    const pl = document.getElementById('llmProcList');
+    const procs = L.active_processes || [];
+    const maxRss = Math.max(1, ...procs.map(p => p.rss_kb || 0));
+    pl.innerHTML = procs.map(p => {
+      const tag = p.kind === 'claude'
+        ? (p.model ? p.model.toUpperCase() : '—') + (p.resumed ? ' · RESUMED' : ' · NEW')
+        : p.kind;
+      const cls = p.kind === 'claude' ? '' : 'warn';
+      return `
+        <div class="svc-row">
+          <span class="svc-name">${escapeHtml(p.kind)} <span style="opacity:0.5;font-size:10px">·${p.pid}</span></span>
+          <span class="svc-bar ${cls}"><span class="svc-fill" style="width:${(p.rss_kb / maxRss * 100).toFixed(1)}%"></span></span>
+          <span class="svc-stat"><span class="used">${(p.rss_kb/1024).toFixed(1)} MB</span> · ${escapeHtml(tag)} · ${fmtUp(p.uptime_sec)}</span>
+        </div>
+      `;
+    }).join('') || '<div class="svc-row" style="opacity:0.55;font-style:italic">no active LLM processes detected.</div>';
+
+    // Sessions (metadata only)
+    const sl = document.getElementById('sessList');
+    const sess = L.sessions || [];
+    const maxBytes = Math.max(1, ...sess.map(s => s.bytes));
+    sl.innerHTML = sess.map(s => {
+      const ageH = s.mtime_sec_ago / 3600;
+      const ageLbl = ageH < 1 ? Math.floor(s.mtime_sec_ago / 60) + 'm' : (ageH < 24 ? ageH.toFixed(1) + 'h' : (ageH/24).toFixed(1) + 'd');
+      const cls = s.mtime_sec_ago < 600 ? '' : 'warn';
+      return `
+        <div class="svc-row">
+          <span class="svc-name">${s.id.slice(0,8)}…</span>
+          <span class="svc-bar ${cls}"><span class="svc-fill" style="width:${(s.bytes / maxBytes * 100).toFixed(1)}%"></span></span>
+          <span class="svc-stat"><span class="used">${(s.bytes/(1024*1024)).toFixed(1)} MB</span> · ${ageLbl} ago</span>
+        </div>
+      `;
+    }).join('') || '<div class="svc-row" style="opacity:0.55;font-style:italic">no sessions on disk.</div>';
+    document.getElementById('sessMeta').textContent = `${sess.length} files · ${(L.session_total_bytes/(1024*1024)).toFixed(1)} MB total · file sizes only, no content read`;
+
+    const navL = document.getElementById('navLlmCount');
+    if (navL) navL.textContent = claudeCount;
   }
   function renderRuntime(rt) {
     // === Summary tiles ===
