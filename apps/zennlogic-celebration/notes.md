@@ -1,0 +1,22 @@
+# zennlogic-celebration
+
+## log
+- 2026-04-30: Created. **High-energy fireworks + confetti page dedicated to zennlogic.** Single fullscreen canvas, additive-blend particle system. **Fireworks**: rockets `launchRocket(tx, ty)` shoot from a random bottom point toward a target altitude (15-35% from top), using ballistic vx/vy with mild gravity (`ROCKET_G = 0.04`); each carries a `pattern` and `hue` and `fuse` countdown computed from travel distance. On fuse end, `explode(x, y, hue, pattern)` spawns a particle pattern: **5 patterns** picked at random per rocket — `burst` (uniform 70-spark sphere), `ring` (36 sparks evenly spaced on circle), `star` (5-point spoke pattern + gap fillers), `willow` (60 droplets with heavy gravity for that long-trail "weeping willow" effect), `crackle` (80 chaotic sparks + 30% chance per spark to split into 2 mini-sparks on death). Plus a per-explosion `shockwave` ring that expands from `r=0` to `r=90-150px` over 0.55s with the explosion's hue. **Sparks** integrate with `vy += 0.04 (or 0.08 for willow)`, drag `0.985^f`, fade out via age/life ratio. Rockets leave a fading `trail` particle every frame. **Confetti**: 120 starting + recycle pool, each is a 6-12px × 3-7px rotating rectangle with sin-sway (`swayRate 1.6-2.8 rad/s`), gravity-capped vy=4, recycled to top when off-bottom. Each piece drawn with a darker bottom-stripe so it reads as "spinning paper" not just a square. **Banner**: `Bungee Shade` 132px max title "ZENNLOGIC" with a 5-stop rainbow gradient (pink/amber/green/cyan/violet) animated via `bannerShine` 3.6s linear infinite background-position scroll, plus a `bannerPop` 0.9s entry keyframe (scale 0.6→1.06→1, rotate -4°→2°→0°). Subtitle "★ CELEBRATION ★ MMXXVI ★" in `Bungee` with letter-spacing entrance fade (0.6em → 0.32em). **Audio**: lazy-init on first interaction. `rocketSfx` is a 2400→180Hz saw whoosh through bandpass at 900Hz Q=4. `boomSfx` layers (1) 0.7s lowpass-swept noise burst (2200→150Hz), (2) 110→28Hz sine sub-thump, (3) 4 staggered triangle sparkle partials at 1800-3600Hz pitch-bending down. **Controls**: click anywhere → launches a rocket toward click point + spawns 20 confetti at click. Touch supported. **SPACE** → 28-frame barrage (fires a rocket every 4 frames). **C** → dump 150 fresh confetti from above. ♪ ON/OFF mute toggle bottom-right. **Auto-launch**: when fewer than 4 rockets are airborne, 4% chance per frame to spawn a new one — so the sky is always populated. **Boot sequence**: 6 staggered rockets fire 350ms apart on page load. **HUD top-right**: live FIREWORKS / CONFETTI / SPARKS counts. **Aesthetic**: deep void-violet background with 3 radial mood-glows (pink top, violet bottom, cyan left), motion-trail wash `rgba(4,2,14,0.30)` per frame for that bloom feel. Pollinations OG.
+
+## issues
+- `globalCompositeOperation = 'lighter'` is used for sparks/trails/shockwaves so colors saturate when they overlap (firework on top of firework looks amazing). The motion-trail wash is in `source-over` mode at 0.30 alpha — found a balance where individual sparks fade after ~1s while bright clusters bloom together.
+- Mobile performance: 80-spark crackle bursts × multiple rockets can hit 200+ live sparks. Tested ok on a mid-range phone but very high frame rates may strain. Throttling spark count by viewport area would help on weaker devices.
+- The banner z-index is 5; canvas is 2. So fireworks render BEHIND the banner. By design — gives the celebration a foreground/background hierarchy.
+- Click-to-launch fires from a random bottom point regardless of click x — the click sets the target, not the origin. So clicking left fires a rocket from left-ish bottom toward your click. Could make origin = click for a "fountain" mode.
+- Confetti recycles wraparound (left→right and bottom→top) so the count never drops below ~120. Pressing C adds another 150 each time, capped only by perf — could runaway if held.
+- No banner customization yet — name is hardcoded to "ZENNLOGIC". Trivial to expose via a URL `?name=` param.
+
+## todos
+- URL `?name=alice` to retitle the banner for any chat member.
+- `?msg=GG` for a custom subtitle.
+- Heart-shaped firework pattern on the 14th of February (date check).
+- Rainbow-trail willow pattern.
+- Ground-level "fountain" effect when fired from cursor exactly.
+- Save best-cluster screenshot via `canvas.toDataURL`.
+- Twitch chat hook: `!firework <color>` from chat fires a single-color burst.
+- Auto-detect when sloppy.live just got a new top score and trigger a celebration page automatically.
