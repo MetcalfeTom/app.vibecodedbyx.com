@@ -1,0 +1,27 @@
+# sloppymon
+
+## log
+- 2026-04-30: Created. **Pokémon-Red-style top-down 2D tile world with random encounters and a turn-based catch battle system.** Single 320×288 logical canvas (2× gameboy resolution), `image-rendering:pixelated`, scaled up to integer multiples to fit the viewport. Borders and box-shadow shape the canvas like a chunky cartridge LCD. **Tile world**: 24×18 hand-crafted ASCII map (8 tile types) — `T` tree (solid), `,` grass, `~` tall grass (encounter zone), `.` path, `W` water (solid), `F` flower, `R` rock (solid), `S` sign, `B` building. Each 16×16 tile is procedurally rendered with a tiny per-tile detail pass (pebble dots on path, sway-animated grass blades on tall grass via `sin(time)`, scrolling ripple bands on water, tri-color leaf clusters on trees, pink+yellow petal pixel-cluster on flowers). **Camera** follows the player smoothly, clamped to map bounds. **Player sprite**: 16×16 top-down trainer with red hat, fair skin, red shirt, jean legs, with a 2-frame walk-cycle (`walkAnim` cycles every 7 frames) and per-direction eye position so facing reads cleanly. Shadow oval underneath. **Movement**: rigid 4-way grid-snap movement keyed off the cursor at the start of each step. `tryStartMove(dx, dy, dir)` checks `isSolid(nx, ny)` and either bumps with a thump SFX or starts a 14-frame lerp from `fromX,fromY` → `toX,toY` (interpolated by `walkProgress / walkFrames`). Holding a direction chains continuous steps. **Encounters**: every step that lands on a tall-grass tile rolls 18% chance of triggering `startBattle(pickWildMon())` — picks one of 6 procedurally-drawn sloppymon at L1-5. **Roster**: MUDSLIME / SLOPDUCK / GARBAGER / RATRASH / CROWVER / GLITCHMITE — each a 24×24 pixel sprite drawn procedurally (no spritesheet) with bobbing `sin(time)` idle. GLITCHMITE has random per-frame jitter + chromatic-aberration scanline artifacts. **Battle system**: full-screen overlay with wild-mon platform up top + trainer silhouette bottom, a 3-option menu (FIGHT / CATCH / RUN) on the right of the dialog box. ↑/↓ moves cursor with `menuMoveSfx`, Z/Space confirms. **FIGHT** deals 4-9 dmg, plays `hitSfx` (filtered noise burst), shakes the screen for 6 frames. **CATCH** computes `chance = max(0.12, 1 - hpPct * 0.85)` so a full-HP wild has ~15% catch and a near-fainted one is ~95%; success message "Sloppy ball shakes… CLICK!" + 4-note ascending arp; failure says "broke free!". Successful catches push the wild into `state.team` and update the on-page team-bar UI (6 slots with emoji icon + name + level chip). **RUN** always succeeds with a flavor message. After an unsuccessful catch or a non-fatal FIGHT, the wild attacks back for `atk` damage range with screen shake. **HP bar** on the wild monster shows pct as a green→amber→red gradient. **Encounter SFX** is a 7-note descending+ascending sweep on play; **catch SFX** ascending arp on success, descending whomp on fail. **Audio** init lazy on first user input. **HUD**: Press Start 2P title "SLOPPYMON" with green+red gameboy palette, kbd hint underneath, team bar showing collected mon. **Color palette**: gameboy 4-shade green plus red/blue accents for trainer + battle UI. Pollinations OG.
+
+## issues
+- World is small (24×18 = 432 tiles). Adds enough to wander around for a few minutes before exhausting it — fine for a "rough clone" but a true Pokemon Red overworld would have hundreds of routes. Future: stitch multiple maps with portal tiles.
+- No HP for the player party — battles are one-sided. The wild fights back with a damage number for flavor but you can't faint. Acceptable for catching-focused gameplay; future would add a player team rotation.
+- Catch chance is purely HP-based; no ball quality, no status modifiers. Pokemon Red had a more complex formula with ~30 ball types and a status-bonus multiplier. We use one ball, one formula.
+- The grass-encounter check fires AFTER the move completes. If you're holding a direction and walk a long line through grass, you'll get one roll per tile entered, which can chain back-to-back battles. Acceptable; mirrors Pokemon Red's behavior.
+- Sprite drawing uses `Math.random()` inside `drawMon` for the GLITCHMITE jitter and scanline FX, which means the sprite jiggles every frame — intentional (it's a glitch creature) but means you can't screenshot a "definitive" frame.
+- No save/load — leaving the page wipes the team. Future: persist `state.team` to localStorage.
+- The map's bottom-left water pool is purely decorative — there's no swim or fish mechanic.
+- Audio context resumes on first key press; first encounter audio may have a 50ms warmup delay.
+
+## todos
+- localStorage persistence for caught team + step count.
+- Multiple maps with portal tiles (`P`) connecting them — start in town, leave via the path north into Route 1.
+- Bag/items: at minimum more ball types (basic / great / cursed) with different catch multipliers.
+- Player team has HP and battles back. FIGHT picks a move from caught mon's moveset.
+- Type effectiveness chart (5 types: trash / wet / cursed / glitch / normal) with 0.5/1.0/2.0× damage multipliers.
+- Trainer NPCs that block path tiles and force a battle.
+- Pokemon center building you can step into to heal.
+- Day/night cycle (background tint over time).
+- Twitch chat hook: `!catch` from chat lets viewers pick the next ball throw outcome.
+- Move animation flash on damage taken.
+- More monsters — target 12 in the roster.
