@@ -443,6 +443,9 @@ const missiles = [];   // active in-flight projectiles {mesh, vx, vz, vy, ownerI
 const shortcutRamps = []; // {x, z, dirX, dirZ, group}
 let trackLine = null;     // { curve, samples, offset }
 let offTrackTimer = 0;
+const gantryBeacons = [];
+const gantryStrips = [];
+let gantryMarquee = null;
 let raceState = {
   lap: 0, totalLaps: 3, cp: 0, time: 0, best: parseFloat(localStorage.getItem('moon-rover-best')) || null,
   finished: false, started: false,
@@ -757,6 +760,116 @@ function tickAI(dt) {
   }
 }
 
+// === LED marquee canvas helper (for the gantry banner) ===
+function drawMarquee(ctx, w, h, text) {
+  ctx.fillStyle = '#0a0d18';
+  ctx.fillRect(0, 0, w, h);
+  // dot-matrix LED panel — render text as bright cyan/pink dots on dark
+  ctx.font = 'bold 110px "Major Mono Display", monospace';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#7be4ff';
+  ctx.shadowColor = '#7be4ff';
+  ctx.shadowBlur = 18;
+  ctx.fillText(text, 30, h / 2);
+  ctx.shadowBlur = 0;
+  // pink accent stripe
+  ctx.fillStyle = 'rgba(255,94,161,0.5)';
+  ctx.fillRect(0, h - 4, w, 4);
+  ctx.fillRect(0, 0, w, 4);
+}
+
+// === procedural crater + dust textures for the terrain ===
+function makeCraterTexture(size) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const x = c.getContext('2d');
+  // base regolith fill
+  const base = x.createRadialGradient(size*0.4, size*0.4, size*0.1, size*0.5, size*0.5, size*0.7);
+  base.addColorStop(0, '#cfc6b8');
+  base.addColorStop(1, '#7a7166');
+  x.fillStyle = base;
+  x.fillRect(0, 0, size, size);
+  // dust grain
+  const img = x.getImageData(0, 0, size, size);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 36;
+    img.data[i]   = Math.max(0, Math.min(255, img.data[i]   + n));
+    img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + n * 0.95));
+    img.data[i+2] = Math.max(0, Math.min(255, img.data[i+2] + n * 0.9));
+  }
+  x.putImageData(img, 0, 0);
+  // crater impressions — radial light rims and dark bowls
+  const craterCount = 40;
+  for (let i = 0; i < craterCount; i++) {
+    const cx = Math.random() * size;
+    const cy = Math.random() * size;
+    const cr = 8 + Math.random() * 60;
+    // dark bowl
+    const bowlGrad = x.createRadialGradient(cx, cy, 1, cx, cy, cr);
+    bowlGrad.addColorStop(0, 'rgba(40,32,22,0.55)');
+    bowlGrad.addColorStop(0.7, 'rgba(70,62,50,0.35)');
+    bowlGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = bowlGrad;
+    x.beginPath(); x.arc(cx, cy, cr, 0, Math.PI*2); x.fill();
+    // bright rim
+    const rimGrad = x.createRadialGradient(cx, cy, cr * 0.85, cx, cy, cr * 1.05);
+    rimGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    rimGrad.addColorStop(0.5, 'rgba(220,210,190,0.5)');
+    rimGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = rimGrad;
+    x.beginPath(); x.arc(cx, cy, cr * 1.05, 0, Math.PI*2); x.fill();
+  }
+  // bright pebble dots scattered
+  x.fillStyle = 'rgba(255,250,235,0.4)';
+  for (let i = 0; i < 220; i++) {
+    x.beginPath();
+    x.arc(Math.random()*size, Math.random()*size, 0.6 + Math.random()*1.4, 0, Math.PI*2);
+    x.fill();
+  }
+  // dark specks (tiny rocks)
+  x.fillStyle = 'rgba(20,16,10,0.6)';
+  for (let i = 0; i < 320; i++) {
+    x.beginPath();
+    x.arc(Math.random()*size, Math.random()*size, 0.5 + Math.random()*1.2, 0, Math.PI*2);
+    x.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 8;
+  return tex;
+}
+// Procedural normal map matching the same crater dent pattern (low-res, tiled)
+function makeCraterNormal(size) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const x = c.getContext('2d');
+  // neutral normal (flat = #8080ff)
+  x.fillStyle = '#8080ff';
+  x.fillRect(0, 0, size, size);
+  // crater dents — radial gradient that pushes color toward red (left x) on one side, green (down y) on other
+  for (let i = 0; i < 30; i++) {
+    const cx = Math.random() * size;
+    const cy = Math.random() * size;
+    const cr = 20 + Math.random() * 80;
+    // top half lit, bottom half shadowed → simulates a bowl
+    const g = x.createRadialGradient(cx, cy, 1, cx, cy, cr);
+    g.addColorStop(0, 'rgba(180,180,255,0.5)');     // central pop into screen
+    g.addColorStop(0.7, 'rgba(110,110,200,0.3)');   // ringed
+    g.addColorStop(1, 'rgba(128,128,255,0)');
+    x.fillStyle = g;
+    x.beginPath(); x.arc(cx, cy, cr, 0, Math.PI*2); x.fill();
+  }
+  // grain noise
+  const img = x.getImageData(0, 0, size, size);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 10;
+    img.data[i]   = Math.max(0, Math.min(255, img.data[i]   + n));
+    img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + n));
+    // keep blue ~255 for upward normal
+  }
+  x.putImageData(img, 0, 0);
+  return new THREE.CanvasTexture(c);
+}
+
 // === terrain ===
 let terrainHeight = (x, z) => 0;
 let terrainMesh = null, terrainGeom = null;
@@ -822,7 +935,23 @@ function buildTerrain() {
     colors[i*3+2] = v * dust * 0.92;
   }
   geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.96 });
+  // === procedural crater texture for the terrain ===
+  // 1024x1024 canvas with grain + crater impressions + dust speckles, tiled across the plane.
+  const tx = makeCraterTexture(1024);
+  const tn = makeCraterNormal(512);
+  tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+  tn.wrapS = tn.wrapT = THREE.RepeatWrapping;
+  const repeat = 14;  // how many times the texture tiles across the 1400u plane
+  tx.repeat.set(repeat, repeat);
+  tn.repeat.set(repeat, repeat);
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    flatShading: false,    // smooth shading now that we have a normal map
+    roughness: 0.95,
+    map: tx,
+    normalMap: tn,
+    normalScale: new THREE.Vector2(0.6, 0.6),
+  });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.receiveShadow = true;
   scene.add(mesh);
@@ -898,39 +1027,178 @@ function buildTrack() {
     checkpoints.push({ x: cp.x, z: cp.z, idx: i, group: cpGroup });
   });
 
-  // FINISH BANNER at start (last entry)
+  // === MASSIVE NEON STARTING GANTRY ===
+  // Twin 28u-tall steel-blue towers, glowing neon-tube edge strips, an arched crossbeam,
+  // an LED marquee banner, and pulsing landing-strip lights along the road into the line.
   const start = cps[cps.length - 1];
   const baseY = terrainHeight(start.x, start.z);
-  const banner = new THREE.Group();
-  banner.position.set(start.x, baseY, start.z);
-  // posts
+  const gantry = new THREE.Group();
+  gantry.position.set(start.x, baseY, start.z);
+
+  // align gantry with track direction at start
+  const cp0 = cps[0];
+  const startDir = Math.atan2(cp0.x - start.x, cp0.z - start.z);
+  gantry.rotation.y = startDir + Math.PI / 2;  // crossbar perpendicular to racing direction
+
+  const TOWER_SPACING = 16;
+  const TOWER_H = 28;
+  const TOWER_W = 2.2;
+
+  // === towers ===
   [-1, 1].forEach(s => {
-    const post = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.5, 0.5, 12, 12),
-      new THREE.MeshStandardMaterial({ color: 0xeeeeee })
+    const tower = new THREE.Group();
+    tower.position.set(s * TOWER_SPACING, 0, 0);
+    // chassis box
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(TOWER_W, TOWER_H, TOWER_W),
+      new THREE.MeshStandardMaterial({ color: 0x1a2238, metalness: 0.6, roughness: 0.45 })
     );
-    post.position.set(s * 9, 6, 0);
-    post.castShadow = true;
-    banner.add(post);
+    body.position.y = TOWER_H / 2;
+    body.castShadow = true; body.receiveShadow = true;
+    tower.add(body);
+    // cyan neon tube edges (4 vertical strips)
+    const tubeColor = s > 0 ? 0xff5ea1 : 0x7be4ff; // mirror tower colors
+    [-TOWER_W/2, TOWER_W/2].forEach(xOff => {
+      [-TOWER_W/2, TOWER_W/2].forEach(zOff => {
+        const tube = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.10, 0.10, TOWER_H, 8),
+          new THREE.MeshBasicMaterial({ color: tubeColor })
+        );
+        tube.position.set(xOff, TOWER_H/2, zOff);
+        tower.add(tube);
+        // faint glow halo via a slightly-larger transparent cyl
+        const halo = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.32, 0.32, TOWER_H, 8),
+          new THREE.MeshBasicMaterial({ color: tubeColor, transparent: true, opacity: 0.18 })
+        );
+        halo.position.set(xOff, TOWER_H/2, zOff);
+        tower.add(halo);
+      });
+    });
+    // tower top cap with rotating beacon
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(TOWER_W * 1.4, 1, TOWER_W * 1.4),
+      new THREE.MeshStandardMaterial({ color: 0x2a3358, metalness: 0.7, roughness: 0.3 })
+    );
+    cap.position.y = TOWER_H + 0.5;
+    tower.add(cap);
+    const beaconBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.4, 0.5, 1.6, 10),
+      new THREE.MeshStandardMaterial({ color: 0x111522, metalness: 0.7 })
+    );
+    beaconBase.position.y = TOWER_H + 1.8;
+    tower.add(beaconBase);
+    const beaconBulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.65, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffce4a })
+    );
+    beaconBulb.position.y = TOWER_H + 2.9;
+    tower.add(beaconBulb);
+    beaconBulb.userData.beacon = true;
+    beaconBulb.userData.side = s;
+    gantryBeacons.push(beaconBulb);
+    // step decorations: 3 horizontal cyan rings around tower for sci-fi detail
+    for (let k = 0; k < 4; k++) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(TOWER_W * 0.85, 0.10, 8, 24),
+        new THREE.MeshBasicMaterial({ color: tubeColor, transparent: true, opacity: 0.85 })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 4 + k * 6;
+      tower.add(ring);
+    }
+    gantry.add(tower);
   });
-  // checkered banner
-  const bannerCanvas = document.createElement('canvas');
-  bannerCanvas.width = 256; bannerCanvas.height = 64;
-  const bctx = bannerCanvas.getContext('2d');
-  for (let yy = 0; yy < 4; yy++) {
-    for (let xx = 0; xx < 16; xx++) {
-      bctx.fillStyle = (xx + yy) % 2 === 0 ? '#fff' : '#111';
-      bctx.fillRect(xx*16, yy*16, 16, 16);
+
+  // === arched crossbeam ===
+  const arch = new THREE.Group();
+  arch.position.y = TOWER_H + 0.5;
+  // a horizontal beam that bows up slightly via 3 segments
+  const archCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-TOWER_SPACING, 0, 0),
+    new THREE.Vector3(-TOWER_SPACING * 0.5, 4, 0),
+    new THREE.Vector3(0, 5.5, 0),
+    new THREE.Vector3(TOWER_SPACING * 0.5, 4, 0),
+    new THREE.Vector3(TOWER_SPACING, 0, 0),
+  ], false);
+  const archGeom = new THREE.TubeGeometry(archCurve, 30, 0.55, 10, false);
+  const archMesh = new THREE.Mesh(
+    archGeom,
+    new THREE.MeshStandardMaterial({ color: 0x1a2238, metalness: 0.65, roughness: 0.4 })
+  );
+  archMesh.castShadow = true;
+  arch.add(archMesh);
+  // pink neon piping along the arch
+  const archGlowGeom = new THREE.TubeGeometry(archCurve, 30, 0.18, 8, false);
+  const archGlow = new THREE.Mesh(
+    archGlowGeom,
+    new THREE.MeshBasicMaterial({ color: 0xff5ea1 })
+  );
+  archGlow.position.y = 0.6;
+  arch.add(archGlow);
+  const archGlow2 = new THREE.Mesh(
+    archGlowGeom.clone(),
+    new THREE.MeshBasicMaterial({ color: 0x7be4ff })
+  );
+  archGlow2.position.y = -0.6;
+  arch.add(archGlow2);
+  gantry.add(arch);
+
+  // === LED marquee banner under the arch ===
+  const marqueeCanvas = document.createElement('canvas');
+  marqueeCanvas.width = 1024; marqueeCanvas.height = 192;
+  const mctx = marqueeCanvas.getContext('2d');
+  drawMarquee(mctx, marqueeCanvas.width, marqueeCanvas.height, 'MOON · ROVER · RALLY · START LINE · SECTOR 7G ·');
+  const marqueeTex = new THREE.CanvasTexture(marqueeCanvas);
+  marqueeTex.wrapS = THREE.RepeatWrapping;
+  marqueeTex.wrapT = THREE.ClampToEdgeWrapping;
+  marqueeTex.repeat.x = 1.6;
+  const marqueeMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(TOWER_SPACING * 2 - 2, 4.5),
+    new THREE.MeshBasicMaterial({ map: marqueeTex, side: THREE.DoubleSide, transparent: true })
+  );
+  marqueeMesh.position.set(0, TOWER_H - 4, 0);
+  marqueeMesh.userData.marqueeTex = marqueeTex;
+  gantry.add(marqueeMesh);
+  gantryMarquee = marqueeMesh;
+
+  // === ground LED strip leading INTO the start line ===
+  const stripGeom = new THREE.PlaneGeometry(TOWER_SPACING * 2, 1);
+  const stripMat = new THREE.MeshBasicMaterial({ color: 0x7be4ff, transparent: true, opacity: 0.8 });
+  for (let k = -3; k <= 0; k++) {
+    const strip = new THREE.Mesh(stripGeom, stripMat.clone());
+    strip.rotation.x = -Math.PI / 2;
+    // place behind the arch (in -racingDir from start)
+    strip.position.set(0, 0.05 + k * 0, 0);  // we'll position via parent translation below
+    // distribute along racing line
+    const offset = -8 - k * -6; // 8, 14, 20, 26 behind start (but after rotate, offset along racing dir)
+    strip.position.set(0, 0.05, offset);
+    gantry.add(strip);
+    gantryStrips.push({ mesh: strip, phase: k });
+  }
+
+  scene.add(gantry);
+
+  // === floor checkered finish line, separate object ===
+  const lineCanvas = document.createElement('canvas');
+  lineCanvas.width = 64; lineCanvas.height = 256;
+  const lctx = lineCanvas.getContext('2d');
+  for (let yy = 0; yy < 16; yy++) {
+    for (let xx = 0; xx < 4; xx++) {
+      lctx.fillStyle = (xx + yy) % 2 === 0 ? '#fff' : '#111';
+      lctx.fillRect(xx*16, yy*16, 16, 16);
     }
   }
-  const bannerTex = new THREE.CanvasTexture(bannerCanvas);
-  const bannerMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(18, 3.5),
-    new THREE.MeshBasicMaterial({ map: bannerTex, side: THREE.DoubleSide })
+  const lineTex = new THREE.CanvasTexture(lineCanvas);
+  const lineMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(TOWER_SPACING * 2 - 4, 5),
+    new THREE.MeshBasicMaterial({ map: lineTex, transparent: true, opacity: 0.95 })
   );
-  bannerMesh.position.set(0, 11, 0);
-  banner.add(bannerMesh);
-  scene.add(banner);
+  lineMesh.rotation.x = -Math.PI / 2;
+  // rotate the finish line to lay perpendicular to racing direction
+  lineMesh.rotation.z = startDir;
+  lineMesh.position.set(start.x, baseY + 0.06, start.z);
+  scene.add(lineMesh);
 
   // === TRACK BOUNDARY PYLONS — small cyan/gold posts running parallel to the racing line ===
   const racingPoints = cps.map(p => new THREE.Vector3(p.x, 0, p.z));
@@ -1132,27 +1400,8 @@ function buildTrack() {
     missilePickups.push(grp);
   }
 
-  // FINISH LINE on ground
-  const lineCanvas = document.createElement('canvas');
-  lineCanvas.width = 64; lineCanvas.height = 256;
-  const lctx = lineCanvas.getContext('2d');
-  for (let yy = 0; yy < 16; yy++) {
-    for (let xx = 0; xx < 4; xx++) {
-      lctx.fillStyle = (xx + yy) % 2 === 0 ? '#fff' : '#111';
-      lctx.fillRect(xx*16, yy*16, 16, 16);
-    }
-  }
-  const lineTex = new THREE.CanvasTexture(lineCanvas);
-  const lineMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(18, 5),
-    new THREE.MeshBasicMaterial({ map: lineTex, transparent: true, opacity: 0.92 })
-  );
-  lineMesh.rotation.x = -Math.PI / 2;
-  lineMesh.position.set(start.x, baseY + 0.05, start.z);
-  scene.add(lineMesh);
-
-  // also register the finish line as the final checkpoint
-  checkpoints.push({ x: start.x, z: start.z, idx: cps.length - 1, group: banner, isFinish: true });
+  // also register the finish line as the final checkpoint (gantry was built in the section above)
+  checkpoints.push({ x: start.x, z: start.z, idx: cps.length - 1, group: gantry, isFinish: true });
 }
 
 // === rover ===
@@ -2597,6 +2846,30 @@ function updatePowerupBadge() {
   }
 }
 
+// === gantry tick (beacons rotate/strobe + LED strips chase + marquee scrolls) ===
+function tickGantry(dt, now) {
+  // beacons: pulsing brightness + slow tilt
+  for (const b of gantryBeacons) {
+    const pulse = 0.6 + 0.4 * Math.sin(now * 0.004 + b.userData.side * 1.5);
+    b.material.opacity = pulse;
+    b.material.transparent = true;
+    const c = b.material.color;
+    if (b.userData.side > 0) c.setRGB(1.0, 0.5 + pulse * 0.4, 0.6);
+    else c.setRGB(0.5 + pulse * 0.4, 0.9, 1.0);
+  }
+  // ground strips chase
+  for (let i = 0; i < gantryStrips.length; i++) {
+    const s = gantryStrips[i];
+    const phaseOff = (now * 0.002 + i * 0.5) % 1.6;
+    const intensity = Math.max(0.18, 0.18 + Math.sin(phaseOff * Math.PI * 1.4) * 0.6);
+    s.mesh.material.opacity = Math.min(1, intensity);
+  }
+  // marquee scroll
+  if (gantryMarquee && gantryMarquee.userData.marqueeTex) {
+    gantryMarquee.userData.marqueeTex.offset.x -= dt * 0.18;
+  }
+}
+
 // === main loop ===
 let dustTimer = 0;
 function loop(now) {
@@ -2611,6 +2884,7 @@ function loop(now) {
   tickPowerups(dt);
   tickMeteors(dt);
   tickLaserBeams(dt);
+  tickGantry(dt, now);
   // AI missile firing
   for (const ai of aiRovers) {
     if (ai.state.hasMissile && ai.state.aiFireAt && performance.now() > ai.state.aiFireAt) {
