@@ -222,6 +222,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--void);color:va
   <span class="lbl">CHECKPOINT</span><span class="val" id="hCP">0/4</span>
   <span class="lbl">RACERS</span>    <span class="val" id="hPlayers">1</span>
   <span class="lbl">FUEL</span>      <span class="val warn" id="hFuel">100</span>
+  <span class="lbl">STATUS</span>    <span class="val warn" id="hOff" style="display:none">OFF · TRACK</span>
 </div>
 
 <div class="banner" id="banner"></div>
@@ -331,6 +332,9 @@ let track, checkpoints = [];
 const boostPads = [];
 const missilePickups = [];
 const missiles = [];   // active in-flight projectiles {mesh, vx, vz, vy, ownerId, life}
+const shortcutRamps = []; // {x, z, dirX, dirZ, group}
+let trackLine = null;     // { curve, samples, offset }
+let offTrackTimer = 0;
 let raceState = {
   lap: 0, totalLaps: 3, cp: 0, time: 0, best: parseFloat(localStorage.getItem('moon-rover-best')) || null,
   finished: false, started: false,
@@ -800,6 +804,147 @@ function buildTrack() {
   bannerMesh.position.set(0, 11, 0);
   banner.add(bannerMesh);
   scene.add(banner);
+
+  // === TRACK BOUNDARY PYLONS — small cyan/gold posts running parallel to the racing line ===
+  const racingPoints = cps.map(p => new THREE.Vector3(p.x, 0, p.z));
+  // Catmull-Rom through the checkpoints for a smooth racing line (closed loop)
+  const racingCurve = new THREE.CatmullRomCurve3(racingPoints, true, 'catmullrom', 0.4);
+  const samples = racingCurve.getPoints(160);
+  const BOUNDARY_OFFSET = 9;
+  for (let i = 0; i < samples.length; i++) {
+    const here = samples[i];
+    const next = samples[(i + 1) % samples.length];
+    const tx = next.x - here.x, tz = next.z - here.z;
+    const tlen = Math.hypot(tx, tz) || 1;
+    const nx = -tz / tlen, nz = tx / tlen; // unit normal in xz plane
+    [-1, 1].forEach(side => {
+      const px = here.x + nx * side * BOUNDARY_OFFSET;
+      const pz = here.z + nz * side * BOUNDARY_OFFSET;
+      const baseY = terrainHeight(px, pz);
+      // small pylon
+      const pylon = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.22, 1.6, 8),
+        new THREE.MeshStandardMaterial({ color: 0x7be4ff, emissive: 0x113a55, emissiveIntensity: 0.55 })
+      );
+      pylon.position.set(px, baseY + 0.8, pz);
+      scene.add(pylon);
+      // tip light
+      const tip = new THREE.Mesh(
+        new THREE.SphereGeometry(0.22, 6, 5),
+        new THREE.MeshBasicMaterial({ color: side > 0 ? 0xff5ea1 : 0x7be4ff })
+      );
+      tip.position.set(px, baseY + 1.7, pz);
+      scene.add(tip);
+    });
+  }
+  // remember the racing line + offset for the soft-boundary "off-track" detector
+  trackLine = { curve: racingCurve, samples, offset: BOUNDARY_OFFSET };
+
+  // === SHORTCUTS — risky alternate routes that skip some of the curve ===
+  // Each shortcut is a straight-line corridor between two points along the racing line,
+  // marked with magenta pylons and a glowing arrow gate.
+  // The path is shorter but goes over rougher terrain, with a jump ramp partway.
+  const shortcutDefs = [
+    // a chord from near CP1 to near CP2 (cuts the long upper curve)
+    { from: { x:  140, z:  100 }, to: { x:  -40, z:  170 }, name: 'PASS · I' },
+    // a chord from near CP3 to near the start (cuts the lower curve)
+    { from: { x: -160, z:  -40 }, to: { x:   30, z:  -10 }, name: 'PASS · II' },
+  ];
+  shortcutDefs.forEach(sc => {
+    const dx = sc.to.x - sc.from.x, dz = sc.to.z - sc.from.z;
+    const len = Math.hypot(dx, dz);
+    const nx = dx / len, nz = dz / len;
+    const perpX = -nz, perpZ = nx;
+    // entrance gate at sc.from
+    [-1, 1].forEach(side => {
+      const gx = sc.from.x + perpX * side * 7;
+      const gz = sc.from.z + perpZ * side * 7;
+      const baseY = terrainHeight(gx, gz);
+      const post = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 0.5, 6.2, 10),
+        new THREE.MeshStandardMaterial({ color: 0xff5ea1, emissive: 0x551033, emissiveIntensity: 0.7 })
+      );
+      post.position.set(gx, baseY + 3.1, gz);
+      post.castShadow = true;
+      scene.add(post);
+      const lamp = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0xffce4a })
+      );
+      lamp.position.set(gx, baseY + 6.4, gz);
+      scene.add(lamp);
+    });
+    // crossbar arrow / gate label at the gate
+    const gateCanvas = document.createElement('canvas');
+    gateCanvas.width = 384; gateCanvas.height = 96;
+    const gctx = gateCanvas.getContext('2d');
+    gctx.fillStyle = 'rgba(20,5,20,0.7)';
+    gctx.fillRect(0, 0, gateCanvas.width, gateCanvas.height);
+    gctx.fillStyle = '#ff5ea1';
+    gctx.font = 'bold 56px Orbitron, sans-serif';
+    gctx.textAlign = 'center';
+    gctx.textBaseline = 'middle';
+    gctx.fillText('▶ ' + sc.name + ' ▶', gateCanvas.width/2, gateCanvas.height/2);
+    gctx.strokeStyle = '#ffce4a';
+    gctx.lineWidth = 4;
+    gctx.strokeRect(2, 2, gateCanvas.width - 4, gateCanvas.height - 4);
+    const gateTex = new THREE.CanvasTexture(gateCanvas);
+    const gateBanner = new THREE.Mesh(
+      new THREE.PlaneGeometry(14, 3.5),
+      new THREE.MeshBasicMaterial({ map: gateTex, side: THREE.DoubleSide, transparent: true })
+    );
+    gateBanner.position.set(sc.from.x, terrainHeight(sc.from.x, sc.from.z) + 8.2, sc.from.z);
+    // face the perpendicular so racers see it as they approach
+    gateBanner.lookAt(sc.from.x + nx * 5, gateBanner.position.y, sc.from.z + nz * 5);
+    scene.add(gateBanner);
+
+    // pylons along the corridor (every 8u)
+    const steps = Math.max(2, Math.floor(len / 8));
+    for (let i = 1; i < steps; i++) {
+      const u = i / steps;
+      const cx = sc.from.x + nx * len * u;
+      const cz = sc.from.z + nz * len * u;
+      [-1, 1].forEach(side => {
+        const px = cx + perpX * side * 5;
+        const pz = cz + perpZ * side * 5;
+        const baseY = terrainHeight(px, pz);
+        const pylon = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.16, 0.2, 1.4, 6),
+          new THREE.MeshStandardMaterial({ color: 0xff5ea1, emissive: 0x33102a, emissiveIntensity: 0.5 })
+        );
+        pylon.position.set(px, baseY + 0.7, pz);
+        scene.add(pylon);
+      });
+    }
+
+    // jump ramp — a wedge halfway along the shortcut, oriented along it
+    const ramp = new THREE.Group();
+    const rampMid = { x: sc.from.x + nx * len * 0.55, z: sc.from.z + nz * len * 0.55 };
+    const baseY = terrainHeight(rampMid.x, rampMid.z);
+    ramp.position.set(rampMid.x, baseY, rampMid.z);
+    ramp.rotation.y = Math.atan2(nx, nz);
+    const wedge = new THREE.Mesh(
+      new THREE.BoxGeometry(7, 1.6, 7),
+      new THREE.MeshStandardMaterial({ color: 0x2a1228, metalness: 0.3, roughness: 0.5 })
+    );
+    // tilt by rotating a Z-axis around X to make a ramp
+    wedge.geometry.translate(0, 0.8, 0);
+    wedge.scale.set(1, 1, 1);
+    wedge.rotation.x = -0.32; // ramp tilts up on +z
+    wedge.position.z = 0.0;
+    wedge.castShadow = true;
+    ramp.add(wedge);
+    // pink stripe on top
+    const stripe = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.6, 6),
+      new THREE.MeshBasicMaterial({ color: 0xff5ea1, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+    );
+    stripe.rotation.x = -Math.PI / 2 - 0.32;
+    stripe.position.set(0, 1.05, 0);
+    ramp.add(stripe);
+    scene.add(ramp);
+    shortcutRamps.push({ x: rampMid.x, z: rampMid.z, dirX: nx, dirZ: nz, group: ramp });
+  });
 
   // BOOST PADS — fixed glowing arrows on the track between checkpoints (scaled)
   const padPositions = [
@@ -1771,6 +1916,57 @@ function meteorImpactSfx(intensity) {
   o.connect(g); g.connect(master); o.start(t); o.stop(t + 1.0);
 }
 
+// === ramps + off-track penalty ===
+function tickShortcutRamps(dt) {
+  if (shortcutRamps.length === 0) return;
+  const s = player.state;
+  for (const r of shortcutRamps) {
+    const dx = s.x - r.x, dz = s.z - r.z;
+    if (Math.hypot(dx, dz) < 4 && s.grounded) {
+      // ramp launches the player in the ramp's facing direction with strong vertical component
+      const launchSpeed = 18;
+      s.vx += r.dirX * launchSpeed * 0.6;
+      s.vz += r.dirZ * launchSpeed * 0.6;
+      s.vy = Math.max(s.vy, 14);    // big lunar hop
+      s.grounded = false;
+      banner('JUMP RAMP!', 900);
+      hopSfx();
+    }
+  }
+}
+
+function tickOffTrack(dt) {
+  if (!trackLine || raceState.finished) {
+    document.getElementById('hOff').style.display = 'none';
+    return;
+  }
+  // measure perpendicular distance from racing line: closest sample, ignoring the y axis
+  const s = player.state;
+  let bestD = Infinity;
+  for (const p of trackLine.samples) {
+    const dx = s.x - p.x, dz = s.z - p.z;
+    const d2 = dx*dx + dz*dz;
+    if (d2 < bestD) bestD = d2;
+  }
+  const dist = Math.sqrt(bestD);
+  // Inside the corridor (within boundary offset) → fine.
+  // Inside the soft-margin (offset .. offset+18) → fine, but warns.
+  // Past the soft margin → apply mild "regolith mud" friction.
+  const off = document.getElementById('hOff');
+  if (dist > trackLine.offset + 18) {
+    s.vx *= Math.pow(0.95, dt * 60);
+    s.vz *= Math.pow(0.95, dt * 60);
+    offTrackTimer += dt;
+    if (off) {
+      off.style.display = 'inline';
+      off.textContent = 'OFF · TRACK';
+    }
+  } else {
+    offTrackTimer = 0;
+    if (off) off.style.display = 'none';
+  }
+}
+
 // === powerups ===
 function firePlayerMissile() {
   const s = player.state;
@@ -1973,6 +2169,8 @@ function loop(now) {
   const dt = Math.min(0.05, clock.getDelta());
   tickPlayer(dt);
   tickCheckpoints(dt);
+  tickShortcutRamps(dt);
+  tickOffTrack(dt);
   tickDust(dt);
   tickOthers(dt);
   tickAI(dt);
