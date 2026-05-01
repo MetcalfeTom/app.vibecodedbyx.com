@@ -1097,7 +1097,56 @@ body::after{
       else                sfx.win(item.amount);
     },
   };
+  // ===== BACKGROUND-FRIENDLY GAMELOOP =====
+  // Per chat: stardust must accumulate even when the tab is hidden.
+  // Both rAF and main-thread setInterval are throttled to ~1Hz (or paused
+  // entirely) when a tab is backgrounded. setInterval running INSIDE a
+  // Web Worker is on a separate thread that's not subject to those
+  // throttles, so we offload the auto-spin tick clock to one. Falls back
+  // to plain setInterval if Workers are unavailable (CSP edge cases).
+  // Returns a `{ stop() }` handle for cleanup, replacing the bare
+  // setInterval id we used to clear with clearInterval.
+  function startBackgroundTimer(callback, intervalMs) {
+    try {
+      const workerSrc = `
+        let timer = null;
+        self.onmessage = (e) => {
+          if (e.data && e.data.type === 'start') {
+            if (timer) clearInterval(timer);
+            timer = setInterval(() => self.postMessage('tick'), e.data.interval);
+          } else if (e.data && e.data.type === 'stop') {
+            if (timer) { clearInterval(timer); timer = null; }
+          }
+        };
+      `;
+      const blob = new Blob([workerSrc], { type: 'application/javascript' });
+      const url  = URL.createObjectURL(blob);
+      const w    = new Worker(url);
+      w.onmessage = () => callback();
+      w.postMessage({ type: 'start', interval: intervalMs });
+      return {
+        kind: 'worker',
+        stop: () => {
+          try { w.postMessage({ type: 'stop' }); } catch (e) {}
+          try { w.terminate(); } catch (e) {}
+          try { URL.revokeObjectURL(url); } catch (e) {}
+        },
+      };
+    } catch (e) {
+      // Fallback: throttled setInterval (background slows but doesn't fully stop).
+      const id = setInterval(callback, intervalMs);
+      return { kind: 'interval', stop: () => clearInterval(id) };
+    }
+  }
+
+  // rAF heartbeat — every visible frame, fxLoop stamps `lastRafTime`.
+  // The worker auto-spin tick checks the staleness of this stamp to
+  // detect "rAF is paused (tab hidden)" — needed so an in-flight reel
+  // tween that can't complete (because rAF stopped) doesn't lock the
+  // `spinning` flag and stall auto-spin forever.
+  let lastRafTime = 0;
   function fxLoop(now) {
+    lastRafTime = now;
     FX.drain(now);
     requestAnimationFrame(fxLoop);
   }
@@ -1252,16 +1301,36 @@ body::after{
   // since the last spin elapsed under the current SPEED upgrade?". This
   // pattern keeps a single live interval and still adapts to speed upgrades
   // bought mid-run because the interval body re-reads effectOf(speed) each tick.
-  let autoTimer = null;
+  let autoTimer = null;        // { kind, stop() } from startBackgroundTimer
   let nextSpinAt = 0;
   function setupAuto() {
-    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    if (autoTimer) { autoTimer.stop(); autoTimer = null; }
     if (!state.autoOn) return;
     if (!effectOf(UPGRADES.find(x => x.k === 'auto'))) return;
     nextSpinAt = performance.now() + 200;
-    autoTimer = setInterval(() => {
-      if (!state.autoOn) { clearInterval(autoTimer); autoTimer = null; return; }
+    autoTimer = startBackgroundTimer(() => {
+      if (!state.autoOn) {
+        if (autoTimer) { autoTimer.stop(); autoTimer = null; }
+        return;
+      }
       const now = performance.now();
+      // ===== STALL DETECTION (rAF paused while spinning) =====
+      // When the tab is backgrounded, rAF pauses → reel tween ticker
+      // halts → reelOnComplete never fires → spinning stays true →
+      // every subsequent worker tick is gated by `!spinning` and no
+      // new spins fire. To keep auto-spin (and thus chip/stardust
+      // accumulation) running, we detect rAF staleness via lastRafTime
+      // and force-resolve the in-flight spin: invoke its resolve
+      // callback (HUD readouts + win-glow) and clear the tween array.
+      // Player gets full credit for the spin's payout even though the
+      // reel animation can't render — math was applied at click time.
+      if (spinning && lastRafTime > 0 && now - lastRafTime > 200) {
+        const cb = reelOnComplete;
+        reelOnComplete = null;
+        reelAnims.length = 0;
+        try { cb && cb(); } catch (e) {}
+        spinning = false;        // hard-clear in case the callback couldn't
+      }
       if (now >= nextSpinAt && !spinning) {
         spinOnce();
         const dt = effectOf(UPGRADES.find(x => x.k === 'speed')) * 1000;
@@ -1304,7 +1373,7 @@ body::after{
     spinning = false;
     // (reelAnims + reelOnComplete cleanup moved into buildReels itself,
     // so all rebuild paths — buy / prestige / init — share one cleanup.)
-    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    if (autoTimer) { autoTimer.stop(); autoTimer = null; }
     sfx.prestige();
     toast(`🌟 ascended · +${gain} stardust!`);
     save();
