@@ -516,6 +516,8 @@ body::after{
     <div class="prestige-panel">
       <h3>🌟 ASCEND</h3>
       <div class="prestige-info">
+        💀 rerolls so far · <b id="prestigeRerolls">0</b><br>
+        lifetime 🌟 earned · <b id="prestigeEarned">0</b><br>
         next stardust at <b id="prestigeTarget">10,000</b><br>
         current run · <b id="runTotal">0</b> 💫 earned<br>
         gain <b id="prestigeGain">+0</b> 🌟 stardust on reroll<br>
@@ -567,15 +569,23 @@ body::after{
     chips: 0,
     runChips: 0,
     totalChipsEver: 0,
-    stardust: 0,           // permanent multiplier (each = +50% payout)
+    stardust: 0,           // SPENDABLE 🌟 wallet — gets decremented when you buy stardust upgrades
+    stardustEarned: 0,     // LIFETIME 🌟 — never decreases, drives the prestige multiplier so spending doesn't lower your bonus
+    rerolls: 0,            // total ascensions (display-only counter on the ascend screen)
     spins: 0,
     upgrades: {
-      reels:    { lvl: 0 },   // 3 + lvl reels (cap +3 → 6)
-      multi:    { lvl: 0 },   // payout +0.2x per lvl
-      speed:    { lvl: 0 },   // auto-spin interval reduces 8% per lvl
-      luck:     { lvl: 0 },   // +1 per lvl, levels the symbol weights
-      auto:     { lvl: 0 },   // unlock + persistent auto-spin (binary 0/1)
-      jackpot:  { lvl: 0 },   // jackpot multiplier ×(1 + lvl*0.5) for full match
+      // chip-purchased (reset on prestige)
+      reels:    { lvl: 0 },
+      multi:    { lvl: 0 },
+      speed:    { lvl: 0 },
+      luck:     { lvl: 0 },
+      auto:     { lvl: 0 },
+      jackpot:  { lvl: 0 },
+      // stardust-purchased (PERSIST through prestige — meta progression)
+      ascentPower: { lvl: 0 },
+      starlight:   { lvl: 0 },
+      startSeed:   { lvl: 0 },
+      afterImage:  { lvl: 0 },
     },
     autoOn: false,
   };
@@ -585,45 +595,72 @@ body::after{
   // and STARDUST scale exponentially: 1.20^lvl for the upgrade and 2.0^stars
   // for prestige. Buying L20 PAYOUT ≈ 38× output; 5 stardust = 32× on top.
   // Cost growth bumped to keep the curve climbable without trivializing it.
+  // Each upgrade declares its `currency`. The tab is now keyed by currency
+  // so chat's request "two tabs by currency" is structurally enforced —
+  // the 💫 tab cannot show stardust upgrades, the 🌟 tab cannot show chip
+  // upgrades. costOf/buyUpgrade route to the right wallet automatically.
   const UPGRADES = [
-    // tabs: 'power' (raw payout), 'reels' (symbols/reels), 'auto' (automation)
-    { k: 'multi',   em: '×',  nm: 'PAYOUT',     desc: '×1.20 per level (compounds)',  base: 25,    grow: 1.65, max: 60, tab: 'power' },
-    { k: 'jackpot', em: '💰', nm: 'JACKPOT',    desc: '×1.5 full-match (compounds)',  base: 800,   grow: 1.85, max: 18, tab: 'power' },
-    { k: 'reels',   em: '▦',  nm: 'EXTRA REEL', desc: '+1 reel (max 6)',              base: 600,   grow: 6.0,  max: 3,  tab: 'reels' },
-    { k: 'luck',    em: '🍀', nm: 'LUCK',       desc: '+10% payout & better odds',    base: 120,   grow: 1.55, max: 25, tab: 'reels' },
-    { k: 'speed',   em: '⚡', nm: 'SPIN SPEED', desc: '−8% auto interval',            base: 50,    grow: 1.50, max: 25, tab: 'auto'  },
-    { k: 'auto',    em: '♾',  nm: 'AUTO-SPIN',  desc: 'unlock auto-spin',             base: 200,   grow: 1.00, max: 1,  tab: 'auto'  },
+    // ===== 💫 chip-purchased (in-run progression) =====
+    { k: 'multi',   em: '×',  nm: 'PAYOUT',     desc: '×1.20 per level (compounds)',  base: 25,    grow: 1.65, max: 60, currency: 'chips' },
+    { k: 'jackpot', em: '💰', nm: 'JACKPOT',    desc: '×1.5 full-match (compounds)',  base: 800,   grow: 1.85, max: 18, currency: 'chips' },
+    { k: 'luck',    em: '🍀', nm: 'LUCK',       desc: '+10% payout & better odds',    base: 120,   grow: 1.55, max: 25, currency: 'chips' },
+    { k: 'speed',   em: '⚡', nm: 'SPIN SPEED', desc: '−8% auto interval',            base: 50,    grow: 1.50, max: 25, currency: 'chips' },
+    { k: 'auto',    em: '♾',  nm: 'AUTO-SPIN',  desc: 'unlock auto-spin',             base: 200,   grow: 1.00, max: 1,  currency: 'chips' },
+    // ===== 🌟 stardust-purchased (permanent meta, survives every prestige) =====
+    { k: 'reels',       em: '▦',  nm: 'EXTRA REEL',   desc: '+1 reel (max 6) — permanent',                  base: 1, grow: 2.0, max: 3,  currency: 'stardust' },
+    { k: 'ascentPower', em: '🌟', nm: 'ASCENT POWER', desc: '+0.1× per 🌟 (compounds the prestige bonus)', base: 1, grow: 2.5, max: 10, currency: 'stardust' },
+    { k: 'starlight',   em: '✨', nm: 'STARLIGHT',    desc: '+10% global payout per level',                base: 3, grow: 2.0, max: 10, currency: 'stardust' },
+    { k: 'startSeed',   em: '💎', nm: 'QUANTUM SEED', desc: '+250 💫 to start every new run',              base: 2, grow: 2.2, max: 10, currency: 'stardust' },
+    { k: 'afterImage',  em: '👻', nm: 'AFTER-IMAGE',  desc: 'keep N PAYOUT levels through reroll',         base: 5, grow: 2.5, max: 5,  currency: 'stardust' },
   ];
   const TABS = [
-    { id: 'power', em: '⚡',  nm: 'POWER' },
-    { id: 'reels', em: '🛸', nm: 'REELS' },
-    { id: 'auto',  em: '♾',  nm: 'AUTO'  },
+    { id: 'chips',    em: '💫', nm: 'CHIPS'    },
+    { id: 'stardust', em: '🌟', nm: 'STARDUST' },
   ];
-  let activeTab = 'power';
+  let activeTab = 'chips';
   function costOf(u) {
-    return Math.floor(u.base * Math.pow(u.grow, state.upgrades[u.k].lvl));
+    // Stardust costs grow integer (base × grow^lvl, ceil) since stardust is
+    // an integer wallet; chip costs floor to keep the existing curve.
+    const raw = u.base * Math.pow(u.grow, state.upgrades[u.k].lvl);
+    return u.currency === 'stardust' ? Math.ceil(raw) : Math.floor(raw);
+  }
+  function walletFor(u)        { return u.currency === 'stardust' ? state.stardust : state.chips; }
+  function spendFromWallet(u, n) {
+    if (u.currency === 'stardust') state.stardust -= n;
+    else                            state.chips    -= n;
   }
   function effectOf(u) {
     const lvl = state.upgrades[u.k].lvl;
+    // chip upgrades
     if (u.k === 'multi')   return Math.pow(1.20, lvl);                          // exponential — compounding payout
     if (u.k === 'speed')   return Math.max(0.18, 2.4 * Math.pow(0.92, lvl));    // seconds per auto-spin
     if (u.k === 'reels')   return 3 + lvl;
     if (u.k === 'luck')    return lvl;
-    if (u.k === 'jackpot') return Math.pow(1.5, lvl);                           // exponential jackpot bonus
+    if (u.k === 'jackpot') return Math.pow(1.5, lvl);
     if (u.k === 'auto')    return lvl > 0;
+    // stardust meta upgrades
+    if (u.k === 'ascentPower') return lvl;        // adds 0.1 per stardust to the prestige bonus
+    if (u.k === 'starlight')   return lvl;        // +10% global per level
+    if (u.k === 'startSeed')   return lvl;        // +250 chips per level on new run
+    if (u.k === 'afterImage')  return lvl;        // keep N PAYOUT levels through reroll
     return 0;
   }
   function reelCount() { return effectOf(UPGRADES.find(x => x.k === 'reels')); }
-  // Per inisso: spin logic must follow BOTH luck and prestige multipliers.
-  // - PAYOUT compounds: 1.20^lvl (the core progression driver)
-  // - LUCK is also a payout-side multiplier: +10% per level (in addition to its
-  //   symbol-weight tilt), so each LUCK upgrade does double duty.
-  // - STARDUST: linear 1 + ✦ × 0.5 (inisso's exact formula).
+  // Multiplier core (per inisso, extended with stardust meta upgrades):
+  //   payout × luck × prestige × starlight
+  // - PAYOUT compounds 1.20^lvl
+  // - LUCK +10% per level (and tilts symbol weights)
+  // - PRESTIGE: 1 + stardust × (0.5 + ascentPower×0.1)   [ASCENT POWER buffs the per-stardust slope]
+  // - STARLIGHT: +10% global per level (flat meta multiplier)
   function multiplier() {
-    const m    = effectOf(UPGRADES.find(x => x.k === 'multi'));        // ×1.20^lvl
-    const luck = 1 + effectOf(UPGRADES.find(x => x.k === 'luck')) * 0.10;   // +10% per luck lvl
-    const star = 1 + state.stardust * 0.5;                              // 1 + ✦ × 0.5
-    return m * luck * star;
+    // Prestige bonus is locked to LIFETIME stardust earned, not the spendable
+    // wallet, so buying stardust upgrades never lowers your payout multiplier.
+    const m    = effectOf(UPGRADES.find(x => x.k === 'multi'));
+    const luck = 1 + effectOf(UPGRADES.find(x => x.k === 'luck')) * 0.10;
+    const ap   = effectOf(UPGRADES.find(x => x.k === 'ascentPower'));
+    const star = 1 + state.stardustEarned * (0.5 + ap * 0.1);
+    const sl   = 1 + effectOf(UPGRADES.find(x => x.k === 'starlight')) * 0.10;
+    return m * luck * star * sl;
   }
 
   // ===== PRESTIGE =====
@@ -631,12 +668,14 @@ body::after{
   // progress bar fills to 100% exactly when the REROLL button enables.
   // gain ≥ 1  ⟺  log2(runChips/10000) - stardust ≥ 1
   //          ⟺  runChips ≥ 10000 × 2^(stardust+1)
+  // Both keyed off lifetime earned, not the spendable wallet, so spending stardust
+  // doesn't make the next prestige look cheaper than it should.
   function prestigeTarget() {
-    return 10000 * Math.pow(2, state.stardust + 1);
+    return 10000 * Math.pow(2, state.stardustEarned + 1);
   }
   function prestigeGain() {
     if (state.runChips < prestigeTarget()) return 0;
-    return Math.floor(Math.log2(state.runChips / 10000) - state.stardust);
+    return Math.floor(Math.log2(state.runChips / 10000) - state.stardustEarned);
   }
 
   // ===== PERSIST =====
@@ -651,6 +690,10 @@ body::after{
         state.runChips = raw.runChips || 0;
         state.totalChipsEver = raw.totalChipsEver || 0;
         state.stardust = raw.stardust || 0;
+        // back-compat: pre-decoupling saves only had `stardust`. Treat that as lifetime
+        // earned so existing players don't lose their prestige bonus.
+        state.stardustEarned = raw.stardustEarned ?? raw.stardust ?? 0;
+        state.rerolls = raw.rerolls || 0;
         state.spins = raw.spins || 0;
         state.autoOn = raw.autoOn || false;
         if (raw.upgrades) {
@@ -728,19 +771,24 @@ body::after{
   function buildUpgrades() {
     const root = document.getElementById('upgradeList');
     root.innerHTML = '';
-    const visible = UPGRADES.filter(u => u.tab === activeTab);
+    // Filter by currency: each tab is a wallet, the buy logic in buyUpgrade
+    // routes to the matching wallet too — so a chip-tab purchase can never
+    // accidentally drain stardust and vice-versa.
+    const visible = UPGRADES.filter(u => u.currency === activeTab);
     for (const u of visible) {
       const lvl = state.upgrades[u.k].lvl;
       const cost = costOf(u);
       const maxed = lvl >= u.max;
+      const wallet = walletFor(u);
+      const icon = u.currency === 'stardust' ? '🌟' : '💫';
       const row = document.createElement('div');
-      row.className = 'upgrade' + (maxed ? ' maxed' : (state.chips >= cost ? ' affordable' : ''));
+      row.className = 'upgrade' + (maxed ? ' maxed' : (wallet >= cost ? ' affordable' : ''));
       row.innerHTML = `
         <span class="em">${u.em}</span>
         <span class="nm">${u.nm}<small>${u.desc}</small></span>
         <span>
           <span class="lvl ${maxed ? 'maxed' : ''}">${maxed ? 'MAX' : 'L' + lvl}</span>
-          <span class="cost">${maxed ? '✓' : fmt(cost) + 'c'}</span>
+          <span class="cost">${maxed ? '✓' : fmt(cost) + ' ' + icon}</span>
         </span>
       `;
       if (!maxed) row.addEventListener('click', () => buyUpgrade(u));
@@ -760,8 +808,11 @@ body::after{
   function buyUpgrade(u) {
     if (state.upgrades[u.k].lvl >= u.max) return;
     const cost = costOf(u);
-    if (state.chips < cost) { toast('not enough 💫'); return; }
-    state.chips -= cost;
+    if (walletFor(u) < cost) {
+      toast(u.currency === 'stardust' ? 'not enough 🌟' : 'not enough 💫');
+      return;
+    }
+    spendFromWallet(u, cost);
     state.upgrades[u.k].lvl++;
     sfx.buy();
     if (u.k === 'reels') buildReels();
@@ -796,6 +847,8 @@ body::after{
     document.getElementById('prestigeFill').style.width = pct.toFixed(1) + '%';
     document.getElementById('prestigeTarget').textContent = fmt(target);
     document.getElementById('runTotal').textContent = fmt(state.runChips);
+    document.getElementById('prestigeRerolls').textContent = state.rerolls;
+    document.getElementById('prestigeEarned').textContent = state.stardustEarned;
     const gain = prestigeGain();
     document.getElementById('prestigeGain').textContent = '+' + gain;
     document.getElementById('prestigeBtn').disabled = gain <= 0;
@@ -968,10 +1021,20 @@ body::after{
     if (!confirm(`Reroll: gain +${gain} 🌟 stardust (each = +50% payout) but reset 💫 and all upgrades?`)) return;
     // (kept per inisso spec: prestige bonus = 1 + stardust × 0.5)
     runEpoch++;     // invalidate any in-flight spin-resolve closures
-    state.stardust += gain;
-    state.chips = 0;
+    state.stardust       += gain;
+    state.stardustEarned += gain;     // lifetime — drives multiplier, never decreases
+    state.rerolls        += 1;
+    // AFTER-IMAGE keeps N PAYOUT levels through the reset (capped at current lvl)
+    const keepMulti = Math.min(state.upgrades.multi.lvl, effectOf(UPGRADES.find(x => x.k === 'afterImage')));
+    // QUANTUM SEED grants 250×lvl chips on every fresh run
+    const seedChips = effectOf(UPGRADES.find(x => x.k === 'startSeed')) * 250;
+    state.chips    = seedChips;
     state.runChips = 0;
-    for (const k of Object.keys(state.upgrades)) state.upgrades[k].lvl = 0;
+    // Reset only chip-purchased upgrades; stardust meta upgrades persist
+    for (const u of UPGRADES) {
+      if (u.currency === 'chips' && state.upgrades[u.k]) state.upgrades[u.k].lvl = 0;
+    }
+    state.upgrades.multi.lvl = keepMulti;
     state.autoOn = false;
     spinning = false;
     if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
