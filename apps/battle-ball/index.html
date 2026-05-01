@@ -497,7 +497,7 @@
     if (tbEl) tbEl.disabled = false;
     // pick a fresh bot personality + surface it on the rival HUD pill
     botPersonality = BOT_PERSONALITIES[Math.floor(Math.random() * BOT_PERSONALITIES.length)];
-    const pillLabel = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR' }[botPersonality];
+    const pillLabel = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR', sieger: 'SIEGER' }[botPersonality];
     const botPill = document.getElementById('botPersona');
     if (botPill) botPill.textContent = pillLabel;
   }
@@ -511,7 +511,7 @@
   // Bot personalities — declared BEFORE resetRound() runs at boot so its
   // assignment to `botPersonality` doesn't TDZ. Score functions live
   // further down (where the BOT AI block reads more cohesively).
-  const BOT_PERSONALITIES = ['rusher', 'hunter', 'collector'];
+  const BOT_PERSONALITIES = ['rusher', 'hunter', 'collector', 'sieger'];
   let botPersonality = 'rusher';
 
   const POWERUP_TYPES = ['speed', 'paint', 'refill', 'vacuum'];
@@ -899,11 +899,75 @@
   //  powerups state to keep them above the boot-time resetRound() call)
   let botPlanT = 0;
 
+  // ===== LOOP-CLOSURE LOOKAHEAD =====
+  // Per chat: bots should detect closing-loop opportunities. For any
+  // own-light tile (level 1), stepping on it would lock it (level 2)
+  // and could complete an enclosure. simulateCaptureGain runs the same
+  // flood-fill that checkEnclosedAreas uses, but with the candidate
+  // cell hypothetically promoted to a wall — returns how many tiles
+  // would be captured. Pure read-only; doesn't mutate grid.
+  // Cheap enough to run for every same-side level-1 candidate per think
+  // tick (BFS is O(N) on the existing 16x16/24x24 grids).
+  function simulateCaptureGain(candC, candR, side) {
+    const reached = Array.from({length: ROWS}, () => Array(COLS).fill(false));
+    const isHypoWall = (cc, rr) => {
+      if (cc === candC && rr === candR) return true;     // candidate now a wall
+      const cell = grid[rr][cc];
+      return cell.exists && cell.owner === side && cell.level === 2;
+    };
+    const q = [];
+    for (let r2 = 0; r2 < ROWS; r2++) {
+      for (let c2 = 0; c2 < COLS; c2++) {
+        const cell = grid[r2][c2];
+        if (!cell.exists) { reached[r2][c2] = true; q.push([c2, r2]); continue; }
+        const onBorder = c2 === 0 || c2 === COLS - 1 || r2 === 0 || r2 === ROWS - 1;
+        if (!onBorder) continue;
+        if (isHypoWall(c2, r2)) continue;
+        reached[r2][c2] = true; q.push([c2, r2]);
+      }
+    }
+    while (q.length) {
+      const [cc, rr] = q.shift();
+      for (const [dc, dr] of NB4) {
+        const nc = cc + dc, nr = rr + dr;
+        if (!inBounds(nc, nr)) continue;
+        if (reached[nr][nc]) continue;
+        const cell = grid[nr][nc];
+        if (cell.exists && isHypoWall(nc, nr)) continue;
+        reached[nr][nc] = true;
+        q.push([nc, nr]);
+      }
+    }
+    let captured = 0;
+    for (let r2 = 0; r2 < ROWS; r2++) {
+      for (let c2 = 0; c2 < COLS; c2++) {
+        const cell = grid[r2][c2];
+        if (!cell.exists) continue;
+        if (reached[r2][c2]) continue;
+        if (c2 === candC && r2 === candR) continue;            // the wall itself
+        if (cell.owner === side && cell.level === 2) continue;
+        if (cell.owner !== side && cell.level === 2) continue; // enemy lock — not captured
+        captured++;
+      }
+    }
+    return captured;
+  }
+
+  // Capture lookahead bonus shared by all personalities — only cells
+  // that lock to bot.side on next step (own-light) qualify, since those
+  // are the moves that could close a loop.
+  function captureBonus(c, r, cell, weight) {
+    if (cell.owner !== bot.side || cell.level !== 1) return 0;
+    const gain = simulateCaptureGain(c, r, bot.side);
+    return gain > 0 ? (weight + gain * weight * 0.5) : 0;
+  }
+
   function scoreCellRusher(c, r, cell) {
     let s = 0;
     if (cell.level === 0)                         s = 6;  // empty = prime target
     else if (cell.owner === 1 && cell.level === 1) s = 3; // steals are bonus, not focus
     else if (cell.owner === 2 && cell.level === 1) s = 2; // own-light → lock
+    s += captureBonus(c, r, cell, 4);
     return s;
   }
   function scoreCellHunter(c, r, cell) {
@@ -917,6 +981,7 @@
     if (pd <= 1)      s += 6;
     else if (pd <= 2) s += 3;
     else if (pd <= 3) s += 1;
+    s += captureBonus(c, r, cell, 4);
     return s;
   }
   function scoreCellCollector(c, r, cell) {
@@ -931,11 +996,41 @@
       else if (d === 1) s += 5;
       else if (d <= 2) s += 2;
     }
+    s += captureBonus(c, r, cell, 3);
+    return s;
+  }
+  // SIEGER — the strategist. Specifically scouts loop-closure
+  // opportunities and weights captures massively. Falls back to
+  // building toward a wall (doubling-up own-light into locks) when no
+  // close-the-loop tiles exist yet.
+  function scoreCellSieger(c, r, cell) {
+    let s = 0;
+    if (cell.level === 0)                         s = 2;
+    else if (cell.owner === 1 && cell.level === 1) s = 3; // steal-and-lock
+    else if (cell.owner === 2 && cell.level === 1) s = 5; // FILL a wall
+    // Capture lookahead — DOMINATES the score when a loop is one tile
+    // from closing. Each extra captured cell adds another 4 points so a
+    // 10-cell capture is worth ~50 points (vs ~5 for a normal target).
+    if (cell.owner === bot.side && cell.level === 1) {
+      const gain = simulateCaptureGain(c, r, bot.side);
+      if (gain > 0) s += 16 + gain * 4;
+    }
+    // Mild bias toward cells next to existing own-locks so the bot
+    // builds wall lines rather than scattering single locks.
+    let adjLocks = 0;
+    for (const [dc, dr] of NB4) {
+      const nc = c + dc, nr = r + dr;
+      if (!inBounds(nc, nr)) continue;
+      const ncell = grid[nr][nc];
+      if (ncell.exists && ncell.owner === bot.side && ncell.level === 2) adjLocks++;
+    }
+    s += adjLocks * 1.5;
     return s;
   }
   function scoreFor(personality) {
-    if (personality === 'rusher') return scoreCellRusher;
-    if (personality === 'hunter') return scoreCellHunter;
+    if (personality === 'rusher')    return scoreCellRusher;
+    if (personality === 'hunter')    return scoreCellHunter;
+    if (personality === 'sieger')    return scoreCellSieger;
     return scoreCellCollector;
   }
 
