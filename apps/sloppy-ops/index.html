@@ -507,6 +507,30 @@ body::before{
 .tot.pink .num{color:var(--pink);text-shadow:0 0 10px rgba(255,94,161,0.35)}
 .tot .tot-sub{font-family:'JetBrains Mono', monospace;font-size:9px;letter-spacing:0.08em;color:var(--dim);margin-top:2px;font-style:italic;opacity:0.78}
 
+/* ===== PSI live graph ===== */
+.psi-graph-wrap{position:relative;padding:6px 4px 10px}
+.psi-graph-wrap canvas{width:100%;display:block;border-radius:2px;background:rgba(123,228,255,0.04)}
+.psi-legend{
+  display:flex;gap:14px;font-family:'JetBrains Mono', monospace;font-size:10px;letter-spacing:0.18em;
+  margin-top:8px;color:var(--dim);flex-wrap:wrap;
+}
+.psi-legend .lg.cpu{color:var(--amber)}
+.psi-legend .lg.mem{color:var(--cyan)}
+.psi-legend .lg.io {color:var(--pink)}
+.psi-legend .lg-thresh{margin-left:auto;font-style:italic;opacity:0.6}
+@media (max-width:560px){
+  .psi-legend{font-size:9px;gap:8px}
+}
+.fire-flag{
+  display:inline-block;margin-left:6px;font-size:13px;line-height:1;
+  filter:drop-shadow(0 0 4px rgba(255,90,108,0.55));
+  animation:fireFlick 0.5s ease-in-out infinite alternate;
+}
+@keyframes fireFlick{
+  from{transform:translateY(0) scale(1)   rotate(-3deg);opacity:0.92}
+  to  {transform:translateY(-1px) scale(1.06) rotate(3deg);opacity:1}
+}
+
 /* ===== SYSTEM PULSE — three.js wireframe panel ===== */
 .pulse-panel{
   margin-top:14px;padding:0;overflow:hidden;
@@ -814,6 +838,7 @@ body::before{
       <div>REGION<span class="num" id="region">us-luna-1</span></div>
       <div>UPTIME<span class="num" id="uptime">42d 03h</span></div>
       <div class="clock" id="clock">--:--:--</div>
+      <span id="fireBadge" title="load oversubscribed indicator"></span>
       <div class="presence" title="live viewers right now (supabase realtime presence)">VIEWERS<span class="num" id="presenceCount">1</span></div>
       <button class="refresh-btn" id="refreshBtn" title="force re-fetch of data.json (cache-busted) and re-pull live supabase rows. doesn't regenerate the snapshot — that runs server-side."><span class="glyph">↻</span><span id="refreshLabel">REFRESH</span></button>
     </div>
@@ -992,6 +1017,22 @@ body::before{
             <span class="meta">avg10 / avg60 / avg300 — % of time at least one task stalled on resource</span>
           </div>
           <div class="svc" id="psiList"></div>
+        </div>
+
+        <div class="panel" style="margin-top:14px">
+          <div class="panel-head">
+            <span class="lbl">▸ PSI · LIVE GRAPH</span>
+            <span class="meta" id="psiGraphMeta">samples on every snapshot poll · last ~10 min</span>
+          </div>
+          <div class="psi-graph-wrap">
+            <canvas id="psiGraph" height="160"></canvas>
+            <div class="psi-legend">
+              <span class="lg cpu">● CPU</span>
+              <span class="lg mem">● MEM</span>
+              <span class="lg io">● I/O</span>
+              <span class="lg-thresh">100% line marks "fully stalled"</span>
+            </div>
+          </div>
         </div>
 
         <div class="panel" style="margin-top:14px">
@@ -2004,6 +2045,8 @@ body::before{
       const id = b.dataset.sub;
       document.querySelectorAll('.subnav-item').forEach(x => x.classList.toggle('active', x === b));
       document.querySelectorAll('.subpage').forEach(p => p.classList.toggle('active', p.dataset.sub === id));
+      // resize the PSI canvas now that the runtime subpage is visible
+      if (id === 'runtime') setTimeout(() => drawPsiGraph(), 30);
     });
   });
 
@@ -2547,18 +2590,145 @@ body::before{
     return { init, update, tick };
   })();
 
+  // ===== PSI ring buffer + live graph + fire-emoji thresholds =====
+  const PSI = {
+    cap: 120,
+    cpu: [],   // each: { t: ms, v: pct }
+    mem: [],
+    io:  [],
+    lastTs: 0,
+  };
+  function pushPSI(cpu, mem, io) {
+    const t = Date.now();
+    if (t - PSI.lastTs < 800) return;   // throttle: don't oversample on rapid refreshes
+    PSI.lastTs = t;
+    PSI.cpu.push({ t, v: cpu }); if (PSI.cpu.length > PSI.cap) PSI.cpu.shift();
+    PSI.mem.push({ t, v: mem }); if (PSI.mem.length > PSI.cap) PSI.mem.shift();
+    PSI.io .push({ t, v: io  }); if (PSI.io .length > PSI.cap) PSI.io .shift();
+    drawPsiGraph();
+  }
+  function drawPsiGraph() {
+    const c = document.getElementById('psiGraph');
+    if (!c) return;
+    // size canvas to its layout box (DPR-aware)
+    const rect = c.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (rect.width < 10) return;
+    if (c.width !== Math.round(rect.width * dpr)) {
+      c.width  = Math.round(rect.width * dpr);
+      c.height = Math.round(160 * dpr);
+    }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = rect.width, H = 160;
+    // bg + grid
+    ctx.fillStyle = 'rgba(123,228,255,0.04)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(123,228,255,0.10)';
+    ctx.lineWidth = 1;
+    for (let p = 0; p <= 100; p += 25) {
+      const y = H - (p / 100) * H + 0.5;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+    // 100% danger line
+    ctx.strokeStyle = 'rgba(255,90,108,0.30)';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(0, 0.5); ctx.lineTo(W, 0.5); ctx.stroke();
+    ctx.setLineDash([]);
+    // axis labels
+    ctx.fillStyle = 'rgba(245,241,230,0.30)';
+    ctx.font = '9px JetBrains Mono, monospace';
+    ['100%','75%','50%','25%','0%'].forEach((lbl, i) => {
+      const y = (i / 4) * H + 9;
+      ctx.fillText(lbl, 4, y);
+    });
+    // series
+    const series = [
+      { arr: PSI.cpu, color: '#ffce4a', glow: 'rgba(255,206,74,0.55)' },
+      { arr: PSI.mem, color: '#7be4ff', glow: 'rgba(123,228,255,0.55)' },
+      { arr: PSI.io,  color: '#ff5ea1', glow: 'rgba(255,94,161,0.55)'  },
+    ];
+    if (PSI.cpu.length < 2) {
+      ctx.fillStyle = 'rgba(245,241,230,0.45)';
+      ctx.font = 'italic 11px JetBrains Mono, monospace';
+      ctx.fillText('— gathering samples (1 per snapshot poll) —', 32, H / 2);
+      return;
+    }
+    const t0 = PSI.cpu[0].t;
+    const t1 = PSI.cpu[PSI.cpu.length - 1].t;
+    const span = Math.max(1, t1 - t0);
+    series.forEach(s => {
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 1.6;
+      ctx.shadowBlur = 6; ctx.shadowColor = s.glow;
+      ctx.beginPath();
+      s.arr.forEach((pt, i) => {
+        const x = ((pt.t - t0) / span) * W;
+        const y = H - Math.min(100, Math.max(0, pt.v)) / 100 * H;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // dot at the tip
+      const last = s.arr[s.arr.length - 1];
+      const x = W; const y = H - Math.min(100, last.v) / 100 * H;
+      ctx.fillStyle = s.color;
+      ctx.beginPath(); ctx.arc(x - 1, y, 2.4, 0, Math.PI * 2); ctx.fill();
+    });
+    // meta line
+    const cur = (s) => s[s.length - 1].v.toFixed(1) + '%';
+    document.getElementById('psiGraphMeta').textContent =
+      `${PSI.cpu.length} samples · cpu ${cur(PSI.cpu)} · mem ${cur(PSI.mem)} · io ${cur(PSI.io)}`;
+  }
+  // redraw on resize so the canvas refits
+  window.addEventListener('resize', () => drawPsiGraph());
+
+  // ===== fire-emoji thresholds =====
+  // Show 🔥 when load is high relative to cpu_count (real /proc/loadavg + /proc/cpuinfo).
+  // 1× cores → 🔥, 2× → 🔥🔥, 3× → 🌋. Pulse animation is handled by .fire-flag CSS.
+  function fireEmojiFor(load, cores) {
+    if (!cores || cores < 1) return '';
+    const ratio = load / cores;
+    if (ratio >= 3.0) return '🌋';
+    if (ratio >= 2.0) return '🔥🔥';
+    if (ratio >= 1.0) return '🔥';
+    return '';
+  }
+  function applyFireFlags(load, cores) {
+    const flag = fireEmojiFor(load, cores);
+    const html = flag ? `<span class="fire-flag" title="load ${load.toFixed(2)} on ${cores} cores · oversubscribed">${flag}</span>` : '';
+    // pulse panel LOAD readout
+    const lp = document.getElementById('pulseLoad');
+    if (lp) {
+      // remove any prior fire-flag siblings
+      let s = lp.nextElementSibling;
+      while (s && s.classList?.contains('fire-flag')) { const n = s.nextElementSibling; s.remove(); s = n; }
+      if (flag) lp.insertAdjacentHTML('afterend', html);
+    }
+    // overview totals: show on the SNAPSHOT-AGE tile? prefer DEPLOYS · 24H — no, on SERVICES so it's near top. Use a dedicated load-flag pill in the topbar.
+    const fb = document.getElementById('fireBadge');
+    if (fb) fb.innerHTML = html;
+  }
+
   function feedPulseMetrics() {
     if (!realData) return;
     const cpuPct = realData.runtime?.pressure?.cpu?.some?.avg10 ?? 0;
+    const memPctPSI = realData.runtime?.pressure?.memory?.some?.avg10 ?? 0;
+    const ioPctPSI  = realData.runtime?.pressure?.io?.some?.avg10 ?? 0;
     const mt = realData.runtime?.mem?.memtotal;
     const ma = realData.runtime?.mem?.memavailable;
-    const memPct = (mt && ma) ? (1 - ma / mt) * 100 : 0;
+    const memUsedPct = (mt && ma) ? (1 - ma / mt) * 100 : 0;
     const load = realData.system?.load_1 ?? 0;
-    PulseViz.update({ cpu: cpuPct, mem: memPct, load });
+    const cores = realData.system?.cpu_count ?? realData.system?.cpu_cores ?? 1;
+    PulseViz.update({ cpu: cpuPct, mem: memUsedPct, load });
     const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
     setTxt('pulseCpu',  cpuPct.toFixed(0) + '%');
-    setTxt('pulseMem',  memPct.toFixed(0) + '%');
+    setTxt('pulseMem',  memUsedPct.toFixed(0) + '%');
     setTxt('pulseLoad', load.toFixed(2));
+    // PSI ring buffer — feeds the live graph
+    pushPSI(cpuPct, memPctPSI, ioPctPSI);
+    // Fire emoji for load / cores ratio
+    applyFireFlags(load, cores);
   }
 
   function bootPulse() {
