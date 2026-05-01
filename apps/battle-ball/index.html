@@ -77,6 +77,14 @@
   .pill.you{border-color:var(--hot);color:var(--hot);text-shadow:0 0 8px var(--hot)}
   .pill.bot{border-color:var(--cool);color:var(--cool);text-shadow:0 0 8px var(--cool)}
   .pill.timer{border-color:var(--gold);color:var(--gold);text-shadow:0 0 8px var(--gold)}
+  .pill.trap{
+    border-color:var(--hot);color:var(--hot);text-shadow:0 0 8px var(--hot);
+    cursor:pointer;font:inherit;font-family:'Silkscreen',monospace;font-size:11px;letter-spacing:0.18em;
+    transition:transform 0.1s, filter 0.1s;
+  }
+  .pill.trap:hover:not(:disabled){filter:brightness(1.18);transform:translateY(-1px)}
+  .pill.trap:active:not(:disabled){transform:translateY(1px)}
+  .pill.trap:disabled{opacity:0.4;cursor:not-allowed}
   .pill .num{font-family:'Bungee',sans-serif;font-size:14px;letter-spacing:0.04em;color:var(--paper)}
   .stage{
     width:100%;
@@ -157,6 +165,7 @@
     <div class="pill you">YOU<span class="num" id="scoreYou">0</span></div>
     <div class="pill bot"><span id="botPersona">RIVAL</span><span class="num" id="scoreBot">0</span></div>
     <div class="pill timer">TIME<span class="num" id="timer">60</span>s</div>
+    <button class="pill trap" id="trapBtn" title="Drop a spray-paint trap on your current tile (Space). When the rival steps on it, the surrounding 3×3 area locks to your colour."><span>🪤</span><span>TRAP</span><span class="num" id="trapCount">2</span></button>
   </div>
 </header>
 
@@ -178,15 +187,14 @@
 <script>
 (() => {
   // ===== GRID + ISO PROJECTION =====
-  // 16×16 arena (per chat) — a slight bump over the original 8×8 (now
-  // 4× the cell count) without going 24×24 huge. Native canvas buffer
-  // at TW=64 / TH=32 lands around 1104×636, which CSS-shrinks to fit
-  // smaller viewports via max-width/max-height (no upscale → no blur).
-  // Tile aspect 2:1 is the classic isometric ratio.
-  const COLS = 16, ROWS = 16;
+  // 18×18 arena (per chat: ~10% bigger than 16×16 to fill more screen).
+  // Native canvas buffer at TW=64 / TH=32 lands around 1232×700, which
+  // CSS-shrinks to fit smaller viewports via max-width/max-height (no
+  // upscale → no blur). Tile aspect 2:1 is the classic isometric ratio.
+  const COLS = 18, ROWS = 18;
   const TW = 64, TH = 32;       // tile width / height in screen space (top face)
   const TZ = 14;                // tile prism depth (the "side" thickness)
-  const ROUND_S = 75;
+  const ROUND_S = 90;
 
   // canvas sized to fit the diamond grid + breathing room. Grid bbox:
   //   width  = (COLS + ROWS) * TW/2
@@ -399,6 +407,13 @@
     powerups.length = 0;
     spawnT = 3.0;       // first powerup arrives 3s in
     fx.length = 0;
+    // wipe traps + restock player charges
+    traps.length = 0;
+    youTrapCharges = TRAP_CHARGES_PER_ROUND;
+    const tcEl = document.getElementById('trapCount');
+    if (tcEl) tcEl.textContent = youTrapCharges;
+    const tbEl = document.getElementById('trapBtn');
+    if (tbEl) tbEl.disabled = false;
     // pick a fresh bot personality + surface it on the rival HUD pill
     botPersonality = BOT_PERSONALITIES[Math.floor(Math.random() * BOT_PERSONALITIES.length)];
     const pillLabel = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR' }[botPersonality];
@@ -425,6 +440,16 @@
   let spawnT = 3.0;                  // countdown to next spawn
   // FX queue — short-lived visual bursts on pickup (rings + glyphs)
   const fx = [];
+
+  // ===== SPRAY TRAPS =====
+  // Player drops a trap on their current cell via the TRAP button (or
+  // Space). When the rival walks onto that exact cell, the trap fires
+  // and the surrounding 3×3 area locks to the trap-owner's colour.
+  // Owners can't trigger their own traps. Limited charges per round so
+  // it's a strategic tool, not a default action.
+  const TRAP_CHARGES_PER_ROUND = 2;
+  const traps = [];                  // { c, r, side }
+  let youTrapCharges = TRAP_CHARGES_PER_ROUND;
 
   function trySpawnPowerup() {
     if (powerups.length >= POWERUP_CAP) return;
@@ -496,6 +521,44 @@
         powerups.splice(i, 1);
         return;
       }
+    }
+  }
+
+  function dropPlayerTrap() {
+    if (!gameActive) return false;
+    if (youTrapCharges <= 0) return false;
+    // can't stack 2 traps on the same cell
+    if (traps.some(t => t.c === you.c && t.r === you.r)) return false;
+    traps.push({ c: you.c, r: you.r, side: 1 });
+    youTrapCharges--;
+    const tcEl = document.getElementById('trapCount');
+    if (tcEl) tcEl.textContent = youTrapCharges;
+    const tbEl = document.getElementById('trapBtn');
+    if (tbEl && youTrapCharges <= 0) tbEl.disabled = true;
+    sfxTrapDrop();
+    return true;
+  }
+
+  function checkTrapTrigger(piece) {
+    for (let i = 0; i < traps.length; i++) {
+      const t = traps[i];
+      if (t.side === piece.side) continue;          // can't trigger your own
+      if (t.c !== piece.c || t.r !== piece.r) continue;
+      // FIRE — lock the 3×3 area to the trap-owner's colour at level 2
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const c = t.c + dc, r = t.r + dr;
+          if (!inBounds(c, r) || !grid[r][c].exists) continue;
+          grid[r][c].owner = t.side;
+          grid[r][c].level = 2;
+        }
+      }
+      const ringColor = t.side === 1 ? '#ff5c8a' : '#4ec9d6';
+      fx.push({ type: 'ring', c: t.c, r: t.r, t: 0, dur: 0.7,  color: ringColor });
+      fx.push({ type: 'ring', c: t.c, r: t.r, t: 0, dur: 0.95, color: ringColor });
+      sfxTrapFire();
+      traps.splice(i, 1);
+      return;
     }
   }
   resetRound();
@@ -615,6 +678,18 @@
   cvs.addEventListener('click', onClick);
   cvs.addEventListener('touchstart', (e) => { e.preventDefault(); onClick(e); }, { passive: false });
 
+  // Trap button + Space-to-drop shortcut.
+  document.getElementById('trapBtn').addEventListener('click', (e) => {
+    e.preventDefault();
+    dropPlayerTrap();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && !e.repeat) {
+      e.preventDefault();
+      dropPlayerTrap();
+    }
+  });
+
   // ===== BOT AI =====
   // Per chat: 3 personalities chosen at random each round, each with a
   // distinct cell-scoring function. They share the same plan-cycle
@@ -731,6 +806,7 @@
       piece.path.shift();
       claimCell(piece.c, piece.r, piece.side);
       checkPowerupPickup(piece);
+      checkTrapTrigger(piece);
       sfxStep(piece.side);
     } else {
       // tween between current cell origin and target
@@ -776,6 +852,16 @@
     blip(220, 0.18, 'sine', 0.14);
     setTimeout(() => blip(330, 0.18, 'sine', 0.12), 60);
     setTimeout(() => blip(440, 0.22, 'sine', 0.10), 120);
+  }
+  function sfxTrapDrop() {
+    blip(180, 0.08, 'square', 0.10);
+    setTimeout(() => blip(140, 0.10, 'square', 0.08), 50);
+  }
+  function sfxTrapFire() {
+    // gritty splat — low square thud + noise sweep
+    blip(90, 0.20, 'sawtooth', 0.18);
+    setTimeout(() => blip(160, 0.18, 'sawtooth', 0.16), 60);
+    setTimeout(() => blip(110, 0.30, 'sawtooth', 0.12), 130);
   }
   function sfxEnd() {
     blip(523, 0.18, 'triangle', 0.18);
@@ -971,6 +1057,36 @@
     ctx.restore();
   }
 
+  // Spray-paint trap marker — sits on the tile centre, pulses gently.
+  // Visible to both players so the rival has a fair chance to see it
+  // (and route around). Coloured to the trap-owner's side.
+  function drawTrap(t) {
+    const x = isoX(t.c, t.r);
+    const y = isoY(t.c, t.r) + TH/2;
+    const tNow = performance.now() / 1000;
+    const pulse = 0.55 + Math.sin(tNow * 4 + t.c + t.r) * 0.25;
+    const color = t.side === 1 ? '#ff5c8a' : '#4ec9d6';
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    // splatter halo
+    const grad = ctx.createRadialGradient(x, y, 2, x, y, 16);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // central glyph
+    ctx.save();
+    ctx.font = '14px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🪤', x, y);
+    ctx.restore();
+  }
+
   function drawFx(f) {
     if (f.type !== 'ring') return;
     const x = isoX(f.c, f.r);
@@ -1004,8 +1120,9 @@
     }
     drawList.push({ kind: 'piece', piece: you, depth: you.x + you.y + 0.001 });
     drawList.push({ kind: 'piece', piece: bot, depth: bot.x + bot.y + 0.001 });
-    // powerups + fx use the same depth pipeline so they correctly stack
-    // with adjacent pieces / tiles.
+    // powerups + traps + fx use the same depth pipeline so they correctly
+    // stack with adjacent pieces / tiles.
+    for (const t of traps)    drawList.push({ kind: 'trap',    t, depth: t.c + t.r + 0.0003 });
     for (const p of powerups) drawList.push({ kind: 'powerup', p, depth: p.c + p.r + 0.0005 });
     for (const f of fx)       drawList.push({ kind: 'fx',      f, depth: f.c + f.r + 0.0008 });
     drawList.sort((a, b) => a.depth - b.depth);
@@ -1016,6 +1133,8 @@
         drawTilePrism(item.c, item.r, paletteFor(cell), isHover);
       } else if (item.kind === 'powerup') {
         drawPowerup(item.p);
+      } else if (item.kind === 'trap') {
+        drawTrap(item.t);
       } else if (item.kind === 'fx') {
         drawFx(item.f);
       } else {
