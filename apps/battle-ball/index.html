@@ -209,13 +209,49 @@
   // iso projection — col + row → screen for the TOP of the tile
   function isoX(c, r) { return (c - r) * TW/2 + ORIGIN_X; }
   function isoY(c, r) { return (c + r) * TH/2 + ORIGIN_Y; }
-  // inverse projection — screen → fractional grid coords
+  // ===== HIT TEST =====
+  // Per chat: "unselectable tiles" came from the old shift-then-round
+  // heuristic — clicks near tile edges or on prism side-walls landed on
+  // the wrong cell. Replaced with a proper diamond hit-test that also
+  // claims the side-wall area below each top face, so the entire visual
+  // cube is clickable. Two passes:
+  //   PASS 1 — top-face diamond. Tiles tile perfectly so any hit is
+  //            unambiguous; first match wins.
+  //   PASS 2 — side-wall fallback. Iterates front-to-back so the closer
+  //            tile claims the overlap when prism walls peek out from
+  //            behind a forward neighbor.
+  // Both passes inflate the diamond by 1px to absorb rounding errors at
+  // the seams (no more dead-zones between adjacent diamonds).
+  function pointInDiamond(sx, sy, cx, cy, halfW, halfH, padding) {
+    const pad = padding || 0;
+    const dx = Math.abs(sx - cx) - pad;
+    const dy = Math.abs(sy - cy) - pad;
+    if (dx <= 0 && dy <= 0) return true;
+    return dx / halfW + dy / halfH <= 1;
+  }
   function screenToGrid(sx, sy) {
-    const dx = sx - ORIGIN_X;
-    const dy = sy - ORIGIN_Y;
-    const c = (dx / (TW/2) + dy / (TH/2)) / 2;
-    const r = (dy / (TH/2) - dx / (TW/2)) / 2;
-    return { c, r };
+    // PASS 1: top diamond
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cx = isoX(c, r);
+        const cy = isoY(c, r) + TH/2;
+        if (pointInDiamond(sx, sy, cx, cy, TW/2, TH/2, 1)) {
+          return { c, r };
+        }
+      }
+    }
+    // PASS 2: side-wall fallback (front-to-back so closer tile wins)
+    for (let r = ROWS - 1; r >= 0; r--) {
+      for (let c = COLS - 1; c >= 0; c--) {
+        const x = isoX(c, r);
+        const y = isoY(c, r);
+        if (sx >= x - TW/2 && sx <= x + TW/2 &&
+            sy >= y + TH/2 && sy <= y + TH + TZ) {
+          return { c, r };
+        }
+      }
+    }
+    return null;
   }
   function inBounds(c, r) { return c >= 0 && c < COLS && r >= 0 && r < ROWS; }
 
@@ -343,20 +379,18 @@
   }
 
   // ===== INPUT =====
-  // Click maps screen → grid (rounded). Then BFS from player → cell.
+  // Click maps screen → grid via diamond hit-test (no rounding heuristic).
+  // Then BFS from player → cell.
   function onClick(e) {
     if (!gameActive) return;
     const rect = cvs.getBoundingClientRect();
     // canvas may be CSS-scaled — convert client → canvas px
     const ev = e.touches ? e.touches[0] : e;
     const sx = (ev.clientX - rect.left) * (cvs.width  / rect.width);
-    const sy = (ev.clientY - rect.top)  * (cvs.height / rect.height) - TH/2;
-    // sy adjustment: clicks on the TOP face of the tile feel right when
-    // we offset by half tile-height (since iso tiles have height visual).
-    const { c, r } = screenToGrid(sx, sy);
-    const goalC = Math.round(c), goalR = Math.round(r);
-    if (!inBounds(goalC, goalR)) return;
-    const path = bfs(you, goalC, goalR);
+    const sy = (ev.clientY - rect.top)  * (cvs.height / rect.height);
+    const hit = screenToGrid(sx, sy);
+    if (!hit) return;
+    const path = bfs(you, hit.c, hit.r);
     if (!path || path.length === 0) return;
     you.path = path;
   }
@@ -591,11 +625,10 @@
   cvs.addEventListener('pointermove', (e) => {
     const rect = cvs.getBoundingClientRect();
     const sx = (e.clientX - rect.left) * (cvs.width  / rect.width);
-    const sy = (e.clientY - rect.top)  * (cvs.height / rect.height) - TH/2;
-    const { c, r } = screenToGrid(sx, sy);
-    const cc = Math.round(c), rr = Math.round(r);
-    if (inBounds(cc, rr) && !isBlocked(cc, rr, you.side)) {
-      hoverC = cc; hoverR = rr;
+    const sy = (e.clientY - rect.top)  * (cvs.height / rect.height);
+    const hit = screenToGrid(sx, sy);
+    if (hit) {
+      hoverC = hit.c; hoverR = hit.r;
     } else {
       hoverC = -1; hoverR = -1;
     }
