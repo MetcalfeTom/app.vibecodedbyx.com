@@ -489,8 +489,9 @@
     powerups.length = 0;
     spawnT = 3.0;       // first powerup arrives 3s in
     fx.length = 0;
-    // restock the player's bomb charges for the new round
+    // restock the player's bomb charges + clear any in-flight fuses
     youTrapCharges = TRAP_CHARGES_PER_ROUND;
+    bombFuses.length = 0;
     const tcEl = document.getElementById('trapCount');
     if (tcEl) tcEl.textContent = youTrapCharges;
     const tbEl = document.getElementById('trapBtn');
@@ -633,21 +634,36 @@
     }
   }
 
-  // Per chat: spraycans now behave as COLOR BOMBS — landing-triggered
-  // explosions that instantly lock a 3×3 area to the player's colour.
-  // No more "wait for enemy to step on it" — boom, locked, on the spot.
-  // Charges still come from the same wallet; refill powerup still tops
-  // them up. Enemy locks within the blast get overridden.
+  // Per chat: bombs now have a 3-SECOND FUSE between placement and
+  // explosion. Drop drops a ticking fuse on the player's tile; tickFuses
+  // counts each fuse down; once it expires, explodeColorBomb runs the
+  // 3×3 lock + ring fx + boom sfx + enclosure check. Charges spend at
+  // drop time so the player can't double-dip while a fuse is burning.
+  // Multiple fuses tick independently.
+  const BOMB_FUSE_S = 3.0;
+  const bombFuses = [];                 // { c, r, side, t (elapsed), dur }
   function dropPlayerTrap() {
     if (!gameActive) return false;
     if (youTrapCharges <= 0) return false;
-    explodeColorBomb(you.c, you.r, 1);
+    bombFuses.push({ c: you.c, r: you.r, side: 1, t: 0, dur: BOMB_FUSE_S });
     youTrapCharges--;
     const tcEl = document.getElementById('trapCount');
     if (tcEl) tcEl.textContent = youTrapCharges;
     const tbEl = document.getElementById('trapBtn');
     if (tbEl && youTrapCharges <= 0) tbEl.disabled = true;
+    sfxFuseStart();
     return true;
+  }
+  function tickBombFuses(dt) {
+    if (!gameActive) return;
+    for (let i = bombFuses.length - 1; i >= 0; i--) {
+      const f = bombFuses[i];
+      f.t += dt;
+      if (f.t >= f.dur) {
+        explodeColorBomb(f.c, f.r, f.side);
+        bombFuses.splice(i, 1);
+      }
+    }
   }
 
   function explodeColorBomb(centreC, centreR, side) {
@@ -1147,6 +1163,11 @@
     setTimeout(() => blip(95,  0.28, 'sawtooth', 0.16), 90);
     setTimeout(() => blip(220, 0.20, 'square',   0.12), 130);
   }
+  function sfxFuseStart() {
+    // soft click + low fizz — the wick lights
+    blip(420, 0.06, 'square', 0.10);
+    setTimeout(() => blip(180, 0.18, 'sawtooth', 0.06), 30);
+  }
   function sfxRefill() {
     // bright ascending arp — clearly different from speed/paint
     blip(440, 0.08, 'triangle', 0.14);
@@ -1371,6 +1392,44 @@
     ctx.restore();
   }
 
+  // Bomb fuse marker — pulsing colour halo + countdown digit. Pulse
+  // accelerates as the fuse runs down so the player feels the urgency
+  // (and the rival sees it coming).
+  function drawBombFuse(f) {
+    const x = isoX(f.c, f.r);
+    const y = isoY(f.c, f.r) + TH/2;
+    const remaining = Math.max(0, f.dur - f.t);
+    const urgency = 1 - remaining / f.dur;          // 0 → 1 over the fuse
+    const pulseRate = 4 + urgency * 14;
+    const pulseAmp = 0.20 + urgency * 0.30;
+    const pulse = 0.55 + Math.sin(performance.now() / 1000 * pulseRate) * pulseAmp;
+    const color = f.side === 1 ? '#ff5c8a' : '#4ec9d6';
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const radius = 18 + urgency * 4;
+    const grad = ctx.createRadialGradient(x, y, 2, x, y, radius);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // central glyph + countdown digit
+    ctx.save();
+    ctx.font = '16px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💣', x, y - 4);
+    ctx.font = 'bold 11px "Bungee", sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+    ctx.fillText(String(Math.ceil(remaining)), x, y + 12);
+    ctx.restore();
+  }
+
   function drawFx(f) {
     if (f.type !== 'ring') return;
     const x = isoX(f.c, f.r);
@@ -1404,11 +1463,12 @@
     }
     drawList.push({ kind: 'piece', piece: you, depth: you.x + you.y + 0.001 });
     drawList.push({ kind: 'piece', piece: bot, depth: bot.x + bot.y + 0.001 });
-    // powerups + fx use the same depth pipeline so they correctly stack
-    // with adjacent pieces / tiles. (Traps no longer linger — bombs
-    // explode on landing, leaving only fx rings.)
-    for (const p of powerups) drawList.push({ kind: 'powerup', p, depth: p.c + p.r + 0.0005 });
-    for (const f of fx)       drawList.push({ kind: 'fx',      f, depth: f.c + f.r + 0.0008 });
+    // powerups + ticking bomb fuses + fx use the same depth pipeline so
+    // they correctly stack with adjacent pieces / tiles. Fuses burn in
+    // place for 3s before exploding (see tickBombFuses).
+    for (const p of powerups)  drawList.push({ kind: 'powerup', p, depth: p.c + p.r + 0.0005 });
+    for (const f of bombFuses) drawList.push({ kind: 'fuse',    f, depth: f.c + f.r + 0.0006 });
+    for (const f of fx)        drawList.push({ kind: 'fx',      f, depth: f.c + f.r + 0.0008 });
     drawList.sort((a, b) => a.depth - b.depth);
     for (const item of drawList) {
       if (item.kind === 'tile') {
@@ -1417,6 +1477,8 @@
         drawTilePrism(item.c, item.r, paletteFor(cell), isHover);
       } else if (item.kind === 'powerup') {
         drawPowerup(item.p);
+      } else if (item.kind === 'fuse') {
+        drawBombFuse(item.f);
       } else if (item.kind === 'fx') {
         drawFx(item.f);
       } else {
@@ -1440,6 +1502,7 @@
       tickPiece(bot, dt);
       botThink(dt);
       tickPowerups(dt);
+      tickBombFuses(dt);
       timeLeft -= dt;
       if (timeLeft <= 0) {
         timeLeft = 0;
