@@ -898,9 +898,40 @@ body::after{
   }
 
   // ===== SPIN =====
+  // Payout is calculated AT THE START of the spin — chips, runChips, lastPayout,
+  // and combo badge all update on the first frame after the click. The reels
+  // animate purely as a visual flourish; their settle-timeout only triggers
+  // win-glow + clears the spinning lock. This makes auto-spin feel snappy and
+  // decouples math from visuals.
   const SLOT_H = 100;
   let spinning = false;
   let runEpoch = 0;   // bumped on prestige so in-flight spin-resolves can bail out
+
+  // ===== NOTIFICATION BUFFER =====
+  // Visual pops + win-sfx are queued, drained on a 90ms cadence by the rAF
+  // ticker below — under heavy auto-spin (multiple wins per second) this
+  // prevents the float-chip pop and audio from stacking into noise.
+  const FX = {
+    queue: [],         // [{ amount, isJackpot, sym, ts }]
+    cap: 12,           // hard cap to avoid runaway DOM
+    nextDrain: 0,
+    push(item)        { if (this.queue.length >= this.cap) this.queue.shift(); this.queue.push(item); },
+    drain(now) {
+      if (now < this.nextDrain) return;
+      const item = this.queue.shift();
+      if (!item) return;
+      this.nextDrain = now + 90;
+      spawnFloatPop(item);
+      if (item.isJackpot) sfx.jackpot();
+      else                sfx.win(item.amount);
+    },
+  };
+  function fxLoop(now) {
+    FX.drain(now);
+    requestAnimationFrame(fxLoop);
+  }
+  requestAnimationFrame(fxLoop);
+
   function spinOnce() {
     if (spinning) return;
     spinning = true;
@@ -911,13 +942,48 @@ body::after{
     const result = [];
     const luck = effectOf(UPGRADES.find(x => x.k === 'luck'));
     for (let i = 0; i < N; i++) result.push(pickSymbol(luck));
-    // Snapshot the reel DOM array RIGHT NOW so a mid-spin EXTRA-REEL purchase
-    // (which calls buildReels and replaces reelEls in place) doesn't desync
-    // the resolve closure — previously the closure walked the new reels but
-    // only had `result` for the old reel count, throwing on result[i].nm.
+    // Snapshot reel DOM right now so an EXTRA-REEL buy mid-spin doesn't desync.
     const reelsAtSpin = reelEls.slice();
 
-    // build/refresh strips with the landing symbol at index 21 (so reel scrolls 21 rows)
+    // ===== INSTANT PAYOUT — math happens before the reels even start moving =====
+    const counts = {};
+    for (const s of result) counts[s.nm] = (counts[s.nm] || 0) + 1;
+    let payout = 0, bestSym = null, bestCount = 0;
+    for (const s of SYMBOLS) {
+      const c = counts[s.nm] || 0;
+      if (c >= 2) {
+        payout += c * c * s.val;
+        if (c > bestCount) { bestCount = c; bestSym = s; }
+      }
+    }
+    const isFullMatch = Object.keys(counts).length === 1 && N >= 3;
+    if (isFullMatch) {
+      const sym = SYMBOLS.find(s => s.nm === Object.keys(counts)[0]);
+      const jp = effectOf(UPGRADES.find(x => x.k === 'jackpot'));
+      payout = N * N * sym.val * 5 * jp;
+    }
+    payout = Math.floor(payout * multiplier());
+    const isJackpot = isFullMatch && bestCount === N;
+
+    if (payout > 0) {
+      // Update wallet + run total + readouts IMMEDIATELY — no waiting for the
+      // animation to finish. The float-chip pop + win sfx go through the
+      // notification buffer so they don't pile up under fast auto-spin.
+      state.chips        += payout;
+      state.runChips     += payout;
+      state.totalChipsEver += payout;
+      document.getElementById('lastPayout').textContent = '+' + fmt(payout) + ' 💫';
+      document.getElementById('comboBadge').innerHTML = isJackpot ? `<span class="combo-badge">JACKPOT ${bestSym ? bestSym.em : ''}</span>` : '';
+      FX.push({ amount: payout, isJackpot, sym: bestSym, ts: performance.now() });
+      save();
+      buildUpgrades();
+      renderHUD();
+    } else {
+      document.getElementById('lastPayout').textContent = '—';
+      document.getElementById('comboBadge').textContent = '';
+    }
+
+    // ===== VISUAL: refresh + animate reels =====
     reelsAtSpin.forEach((r, i) => {
       const cells = r.strip.children;
       for (let k = 0; k < cells.length; k++) {
@@ -929,8 +995,6 @@ body::after{
       r.strip.style.transform = 'translateY(0)';
       r.wrap.classList.remove('win');
     });
-
-    // animate each reel landing on slot 21 with staggered timing
     reelsAtSpin.forEach((r, i) => {
       const dur = 700 + i * 220 + Math.random() * 100;
       requestAnimationFrame(() => {
@@ -939,66 +1003,33 @@ body::after{
       });
     });
 
-    // resolve after the longest reel lands
+    // ===== RESOLVE: visual-only — glow matched reels + clear lock =====
     const longest = 700 + (N - 1) * 220 + 240;
     setTimeout(() => {
-      // bail if the player prestiged mid-spin (would otherwise leak chips
-      // into the fresh run that the resolve closure was scheduled before)
+      // bail if a prestige happened during the animation
       if (epoch !== runEpoch) { spinning = false; return; }
-      // payout calc
-      const counts = {};
-      for (const s of result) counts[s.nm] = (counts[s.nm] || 0) + 1;
-      let payout = 0;
-      let bestSym = null, bestCount = 0;
-      let allSame = true;
-      for (const s of SYMBOLS) {
-        const c = counts[s.nm] || 0;
-        if (c >= 2) {
-          payout += c * c * s.val;
-          if (c > bestCount) { bestCount = c; bestSym = s; }
-        }
-      }
-      // all-N match → jackpot
-      if (Object.keys(counts).length === 1 && N >= 3) {
-        const sym = SYMBOLS.find(s => s.nm === Object.keys(counts)[0]);
-        const jp = effectOf(UPGRADES.find(x => x.k === 'jackpot'));
-        payout = N * N * sym.val * 5 * jp;
-      }
-      payout = Math.floor(payout * multiplier());
       if (payout > 0) {
-        award(payout, bestCount === N && Object.keys(counts).length === 1, bestSym);
-        // glow the matched reels — use the snapshot so we never index past
-        // the result array if EXTRA REEL was bought mid-spin
         reelsAtSpin.forEach((r, i) => {
           if (i < result.length && counts[result[i].nm] >= 2) r.wrap.classList.add('win');
         });
-      } else {
-        document.getElementById('lastPayout').textContent = '—';
-        document.getElementById('comboBadge').textContent = '';
       }
       spinning = false;
-      save();
-      buildUpgrades();
-      renderHUD();
     }, longest);
   }
 
-  function award(amount, isJackpot, sym) {
-    state.chips += amount;
-    state.runChips += amount;
-    state.totalChipsEver += amount;
-    document.getElementById('lastPayout').textContent = '+' + fmt(amount) + ' 💫';
-    document.getElementById('comboBadge').innerHTML = isJackpot ? `<span class="combo-badge">JACKPOT ${sym ? sym.em : ''}</span>` : '';
-    // floating chip pop
+  // Visual-only float-chip pop. Wallet + readouts are already updated in
+  // spinOnce; this fn is invoked from the FX buffer so spam-spinning doesn't
+  // overflow the DOM. Old `award()` (which mixed wallet write + readouts +
+  // visual + sfx) is gone — those concerns are split across spinOnce's
+  // immediate-payout block and the FX buffer.
+  function spawnFloatPop({ amount, isJackpot }) {
     const f = document.createElement('div');
     f.className = 'float-chip' + (isJackpot ? ' jackpot' : '');
     f.textContent = (isJackpot ? '🎰 +' : '+') + fmt(amount);
-    f.style.left = (40 + Math.random() * (reelDeck.clientWidth - 80)) + 'px';
+    f.style.left = Math.max(8, 40 + Math.random() * Math.max(0, reelDeck.clientWidth - 80)) + 'px';
     f.style.bottom = '50%';
     reelDeck.appendChild(f);
     setTimeout(() => f.remove(), 1300);
-    if (isJackpot) sfx.jackpot();
-    else sfx.win(amount);
   }
 
   // ===== AUTO-SPIN =====
