@@ -190,6 +190,7 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
 <div id="hud">
   Floor: 0 ·<br>
   Steps: <span id="stepCount">0</span><br>
+  Spooked: <span id="scaredCount">0</span><br>
   <span id="exitHint" style="color:var(--warning)"></span>
 </div>
 <div id="scan"></div>
@@ -378,6 +379,193 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
     }
   }
 
+  // ===== TUMBLEWEEDS — hostile rolling entities that chase the player =====
+  // Each tumbleweed has a world position, velocity, spin angle (drives the
+  // rotated bramble sprite), and an AI mode: 'idle' (random wander) or
+  // 'chase' (move toward player when within detection radius). On contact
+  // (< 0.45 units) the player is shoved back, the tumbleweed bounces off,
+  // a "scared" counter ticks up. The procedural sprite is a tangle of
+  // overlapping brown circles that all share the same rotation so the
+  // whole bramble looks like it's rolling. Drawn with z-buffer occlusion
+  // against the wall depth array so they vanish behind walls correctly.
+  const tumbleweeds = [];
+  let scaredCount = 0;
+  let zBuffer = null;     // wall distance per ray column, populated each frame
+  function spawnTumbleweeds(count) {
+    tumbleweeds.length = 0;
+    for (let i = 0; i < count; i++) {
+      let tx, ty, safety = 100;
+      do {
+        tx = 2 + Math.random() * (MAP_W - 4);
+        ty = 2 + Math.random() * (MAP_H - 4);
+      } while (cellAt(Math.floor(tx), Math.floor(ty)) !== 0
+               && safety-- > 0);
+      // ensure not too close to start
+      if (Math.hypot(tx - startX, ty - startY) < 6) { i--; continue; }
+      tumbleweeds.push({
+        x: tx, y: ty, vx: 0, vy: 0,
+        spin: Math.random() * Math.PI * 2,
+        spinSpeed: 0,
+        size: 0.32 + Math.random() * 0.18,    // world units (radius)
+        mode: 'idle',
+        wanderT: 1 + Math.random() * 3,
+        wanderDir: Math.random() * Math.PI * 2,
+        seed: Math.random() * 9999,
+        cooldown: 0,                          // post-bonk sleep
+      });
+    }
+  }
+  function tickTumbleweeds(dt) {
+    for (const t of tumbleweeds) {
+      t.cooldown = Math.max(0, t.cooldown - dt);
+      // distance to player (squared for speed)
+      const dx = player.x - t.x, dy = player.y - t.y;
+      const dSq = dx * dx + dy * dy;
+      const detectR = 8;
+      if (dSq < detectR * detectR && t.cooldown <= 0) {
+        t.mode = 'chase';
+      } else if (dSq > (detectR * 1.4) ** 2) {
+        t.mode = 'idle';
+      }
+      // movement
+      let mvx, mvy, speed;
+      if (t.mode === 'chase') {
+        const d = Math.sqrt(dSq);
+        speed = 1.7;        // chase speed (units/sec) — slower than player so you can outrun
+        mvx = dx / d;
+        mvy = dy / d;
+      } else {
+        // wander — keep current direction for wanderT seconds, then re-roll
+        t.wanderT -= dt;
+        if (t.wanderT <= 0) {
+          t.wanderDir = Math.random() * Math.PI * 2;
+          t.wanderT = 2 + Math.random() * 3;
+        }
+        speed = 0.45;
+        mvx = Math.cos(t.wanderDir);
+        mvy = Math.sin(t.wanderDir);
+      }
+      const nx = t.x + mvx * speed * dt;
+      const ny = t.y + mvy * speed * dt;
+      // collision against walls — bounce wander dir
+      const cx = cellAt(Math.floor(nx + 0.20 * Math.sign(mvx)), Math.floor(t.y));
+      const cy_ = cellAt(Math.floor(t.x), Math.floor(ny + 0.20 * Math.sign(mvy)));
+      if (cx !== 1 && cx !== 2) t.x = nx;
+      else if (t.mode === 'idle') t.wanderDir = Math.PI - t.wanderDir; // reflect x
+      if (cy_ !== 1 && cy_ !== 2) t.y = ny;
+      else if (t.mode === 'idle') t.wanderDir = -t.wanderDir;          // reflect y
+      // spin proportional to movement (so they look like they're rolling)
+      t.spinSpeed = (t.mode === 'chase' ? 8 : 2.5);
+      t.spin += t.spinSpeed * dt;
+      // contact with player — bonk + knockback
+      if (dSq < 0.45 * 0.45 && t.cooldown <= 0) {
+        // knockback player away from tumbleweed
+        const d = Math.max(0.001, Math.sqrt(dSq));
+        const knock = 0.6;
+        const nxp = player.x - (dx / d) * knock;
+        const nyp = player.y - (dy / d) * knock;
+        if (cellAt(Math.floor(nxp), Math.floor(player.y)) !== 1) player.x = nxp;
+        if (cellAt(Math.floor(player.x), Math.floor(nyp)) !== 1) player.y = nyp;
+        // push the tumbleweed away too
+        t.x += (dx / d) * 0.4;
+        t.y += (dy / d) * 0.4;
+        t.cooldown = 1.2;
+        scaredCount++;
+        document.getElementById('scaredCount').textContent = scaredCount;
+        flickerZap();
+      }
+    }
+  }
+  function drawTumbleweed(t) {
+    // transform world → camera space
+    const dx = t.x - player.x;
+    const dy = t.y - player.y;
+    // inverse rotation: camera depth = forward, camera lateral = side
+    const cosD = Math.cos(-player.dir), sinD = Math.sin(-player.dir);
+    // standard formula: camX is to the right, camY is forward (depth)
+    const camX = dx * Math.cos(-player.dir + Math.PI / 2) + dy * Math.sin(-player.dir + Math.PI / 2);
+    const camY = dx * Math.cos(-player.dir) - dy * Math.sin(-player.dir);
+    // simpler: rotate (dx, dy) by -player.dir → (forward, right)
+    const fwd  = dx * Math.cos(player.dir)  + dy * Math.sin(player.dir);
+    const side = dx * -Math.sin(player.dir) + dy * Math.cos(player.dir);
+    if (fwd <= 0.05) return;     // behind player or too close (would invert)
+    // projection
+    const projDist = (W / 2) / Math.tan(player.fov / 2);
+    const screenX = W / 2 + (side / fwd) * projDist;
+    const spriteSize = (t.size * 2 * H) / fwd;     // diameter in pixels
+    const screenY = H / 2 - spriteSize * 0.0;       // centered on horizon (rolling on floor)
+    // bottom-anchored: tumbleweed sits ON the floor so center is at horizon - spriteSize/2 *
+    // shift so bottom of bramble sits at floor projection
+    const floorY = H / 2 + (H / 2) / fwd * 0.15;   // bias slightly below horizon
+    const cx = screenX;
+    const cy = floorY - spriteSize * 0.4;
+    // bounce — sin-wave vertical wobble while moving
+    const bounce = Math.sin(t.spin * 0.8) * spriteSize * 0.04;
+    const drawCY = cy + bounce;
+    // distance fog tint — match the wall fade-out
+    const fogFade = Math.max(0, 1 - fwd / 14);
+    if (fogFade < 0.05) return;
+    // z-buffer occlusion — check the wall-distance for the closest column
+    // and skip the entire sprite if the wall is closer (full occlusion).
+    // Per-strip clip would be cleaner but adds complexity; this is good
+    // enough for chunky pixel-art entities.
+    const colCheck = Math.max(0, Math.min(W - 1, Math.floor(screenX)));
+    if (zBuffer && zBuffer[colCheck] && zBuffer[colCheck] < fwd - 0.1) return;
+    // draw the bramble sprite — 9 overlapping ovals all rotated by t.spin
+    // for that classic "tangled twigs rolling" look. NES-style ≤4-color
+    // sub-palette: dark ink + brown core + tan stem + light cream tip.
+    ctx.save();
+    ctx.translate(cx, drawCY);
+    ctx.rotate(t.spin);
+    const r = spriteSize / 2;
+    const lit = fogFade * (0.35 + lightLevel * 0.65);
+    // outer dark hull
+    ctx.fillStyle = `rgb(${(28 * lit) | 0}, ${(20 * lit) | 0}, ${(10 * lit) | 0})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    // tangled brambles — 12 small ovals at deterministic angles+radii
+    const brambles = 12;
+    for (let i = 0; i < brambles; i++) {
+      const ang = (i / brambles) * Math.PI * 2 + (t.seed * 0.001);
+      const dist = r * (0.45 + ((t.seed + i * 7) & 7) / 14);
+      const bx = Math.cos(ang) * dist;
+      const by = Math.sin(ang) * dist;
+      const bw = r * 0.55;
+      const bh = r * 0.10;
+      const colorR = ((110 + ((i * 17 + t.seed) & 31)) * lit) | 0;
+      const colorG = ((80  + ((i * 13 + t.seed) & 23)) * lit) | 0;
+      const colorB = ((35  + ((i * 11 + t.seed) & 15)) * lit) | 0;
+      ctx.fillStyle = `rgb(${colorR}, ${colorG}, ${colorB})`;
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(ang + Math.PI / 2);
+      ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+      ctx.restore();
+    }
+    // a few cream highlights for that dry-twig dust
+    ctx.fillStyle = `rgba(${(180 * lit) | 0}, ${(160 * lit) | 0}, ${(110 * lit) | 0}, 0.85)`;
+    for (let i = 0; i < 4; i++) {
+      const ang = ((t.seed + i * 73) & 31) / 31 * Math.PI * 2;
+      const dist = r * 0.6;
+      const bw = r * 0.18;
+      ctx.save();
+      ctx.translate(Math.cos(ang) * dist, Math.sin(ang) * dist);
+      ctx.rotate(ang);
+      ctx.fillRect(-bw / 2, -1, bw, 2);
+      ctx.restore();
+    }
+    // hostile glow when in chase mode (faint red ring at periphery)
+    if (t.mode === 'chase') {
+      ctx.strokeStyle = `rgba(255, 80, 60, ${0.45 * fogFade})`;
+      ctx.lineWidth = Math.max(1, r * 0.06);
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.95, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // ===== PLAYER + INPUT =====
   const player = {
     x: 0, y: 0, dir: 0,
@@ -547,18 +735,119 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
     return { dist, side, wallX, cell: hit };
   }
 
+  // ===== ACOUSTIC CEILING RENDERER =====
+  // Real perspective-projected ceiling tile grid: each screen pixel-block
+  // (4×3) raycasts to a world-XY at the ceiling plane (0.5 units above eye)
+  // and classifies as TILE-INTERIOR (pale cream noise), TILE-SEAM (dark
+  // gap), or LIGHT-FIXTURE (bright fluorescent rectangle, ~1 in 4 tiles).
+  // Light fixtures inherit `lightLevel` for the existing flicker, while
+  // tile interiors use a softened "reflected" curve so they don't flicker
+  // as hard. Distance fog dims everything past ~14 units.
+  // Buffer is reused across frames; reallocated on resize.
+  let ceilImg = null;
+  let ceilImgW = 0, ceilImgH = 0;
+  function renderCeiling() {
+    if (!ceilImg || ceilImgW !== W || ceilImgH !== halfH) {
+      ceilImg = ctx.createImageData(W, halfH);
+      ceilImgW = W; ceilImgH = halfH;
+    }
+    const data = ceilImg.data;
+    // projection plane distance (px) given fov
+    const projDist = (W / 2) / Math.tan(player.fov / 2);
+    const eyeAbove = 0.5;
+    const STRIDE_X = 4, STRIDE_Y = 3;
+    // pre-precomputed cosines for slight optimization
+    const cosD = Math.cos(player.dir);
+    const sinD = Math.sin(player.dir);
+    const halfFov2 = player.fov / 2;
+
+    for (let y = 0; y < halfH; y += STRIDE_Y) {
+      const p = halfH - y;
+      // distance to ceiling at this row
+      const dist = (eyeAbove * projDist) / Math.max(1, p);
+      const fogFade = Math.max(0, 1 - dist / 14);
+      // skip far rows — fill with near-black fog
+      if (fogFade < 0.04) {
+        for (let dy = 0; dy < STRIDE_Y && y + dy < halfH; dy++) {
+          const rowBase = (y + dy) * W * 4;
+          for (let x = 0; x < W; x++) {
+            const idx = rowBase + x * 4;
+            data[idx] = 8; data[idx + 1] = 6; data[idx + 2] = 4; data[idx + 3] = 255;
+          }
+        }
+        continue;
+      }
+
+      for (let x = 0; x < W; x += STRIDE_X) {
+        // ray angle for this column
+        const cameraX = (x - W / 2) / projDist;
+        const angle = player.dir + Math.atan(cameraX);
+        const wX = player.x + Math.cos(angle) * dist;
+        const wY = player.y + Math.sin(angle) * dist;
+        // tile-local fractional coords ([0,1) in each axis)
+        const fX = ((wX % 1) + 1) % 1;
+        const fY = ((wY % 1) + 1) % 1;
+        // tile-seam detection — small dark gutter at every grid edge
+        const SEAM = 0.05;
+        const onSeam = fX < SEAM || fX > 1 - SEAM || fY < SEAM || fY > 1 - SEAM;
+        // light fixture every 4th tile in a checkerboard pattern.
+        // Interior of fixture is a 60% × 40% rectangle in the middle of the tile.
+        const tileX = Math.floor(wX);
+        const tileY = Math.floor(wY);
+        const litTile = ((tileX + tileY * 2) & 3) === 0;
+        const inLightRect = fX > 0.20 && fX < 0.80 && fY > 0.30 && fY < 0.70;
+        const inLightFrame = !inLightRect &&
+                             fX > 0.16 && fX < 0.84 && fY > 0.26 && fY < 0.74;
+        const isLightFixture = litTile && inLightRect;
+        const isLightFrame = litTile && inLightFrame;
+        // determine pixel color
+        let r, g, b;
+        if (isLightFixture) {
+          // bright fluorescent panel — heavily modulated by lightLevel so
+          // flicker events visibly pulse the light.
+          const pulse = 0.85 + lightLevel * 0.15;
+          r = 255 * pulse * lightLevel;
+          g = 248 * pulse * lightLevel;
+          b = 200 * pulse * lightLevel;
+        } else if (isLightFrame) {
+          // dark fixture frame (dirty plastic diffuser edge)
+          r = 50; g = 38; b = 14;
+        } else if (onSeam) {
+          // tile-grid gap — dark line
+          r = 30; g = 22; b = 8;
+        } else {
+          // acoustic tile body — pale cream with deterministic speckle
+          // (the iconic dotted-acoustic-tile fleck). Reflected from
+          // fluorescents, so flickers softly.
+          const speck = ((wX * 31.7 + wY * 17.3) | 0) % 13 - 6;
+          const reflect = 0.55 + lightLevel * 0.45;
+          const baseLevel = (210 + speck) * reflect;
+          r = baseLevel * 1.00;
+          g = baseLevel * 0.96;
+          b = baseLevel * 0.78;
+        }
+        // distance fog
+        r *= fogFade; g *= fogFade; b *= fogFade;
+        const ri = r | 0, gi = g | 0, bi = b | 0;
+        // fill pixel block (STRIDE_X × STRIDE_Y rect) directly into data
+        for (let dy = 0; dy < STRIDE_Y && y + dy < halfH; dy++) {
+          const rowBase = (y + dy) * W * 4;
+          for (let dx = 0; dx < STRIDE_X && x + dx < W; dx++) {
+            const idx = rowBase + (x + dx) * 4;
+            data[idx]     = ri;
+            data[idx + 1] = gi;
+            data[idx + 2] = bi;
+            data[idx + 3] = 255;
+          }
+        }
+      }
+    }
+    ctx.putImageData(ceilImg, 0, 0);
+  }
+
   function render() {
-    // ===== CEILING =====
-    // Yellow-white fluorescent panels, modulated by lightLevel.
-    const baseCeiling = lightLevel;
-    const ceilingR = Math.floor(180 * baseCeiling);
-    const ceilingG = Math.floor(160 * baseCeiling);
-    const ceilingB = Math.floor( 90 * baseCeiling);
-    ctx.fillStyle = `rgb(${ceilingR}, ${ceilingG}, ${ceilingB})`;
-    ctx.fillRect(0, 0, W, halfH);
-    // ceiling tile pattern (horizontal stripes near top to suggest grid)
-    ctx.fillStyle = `rgba(${Math.floor(ceilingR * 0.7)}, ${Math.floor(ceilingG * 0.7)}, ${Math.floor(ceilingB * 0.6)}, 0.4)`;
-    for (let y = 4; y < halfH - 16; y += 14) ctx.fillRect(0, y, W, 1);
+    // ===== CEILING — acoustic tile grid + fluorescent fixtures =====
+    renderCeiling();
 
     // ===== FLOOR — damp brown carpet =====
     const floorGrad = ctx.createLinearGradient(0, halfH, 0, H);
@@ -569,12 +858,17 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
 
     // ===== WALLS =====
     // Cast rays; draw textured vertical strips. Apply distance fog +
-    // side-shading + lightLevel + bob offset.
+    // side-shading + lightLevel + bob offset. Each ray's corrected
+    // distance is stored in zBuffer so sprite entities (tumbleweeds)
+    // can occlude correctly behind walls.
     const colStep = 2;
+    if (!zBuffer || zBuffer.length !== W) zBuffer = new Float32Array(W);
     for (let i = 0; i < W; i += colStep) {
       const angle = player.dir + (i / W - 0.5) * player.fov;
       const r = castRay(angle);
       const corrDist = r.dist * Math.cos(angle - player.dir);
+      // populate zBuffer for the columns this strip covers
+      for (let cz = 0; cz < colStep && i + cz < W; cz++) zBuffer[i + cz] = corrDist;
       const lineH = Math.min(H * 4, (H / corrDist) * 0.85);
       const top = halfH - lineH / 2 + player.bob;
       // pick texture based on cell type
@@ -595,6 +889,16 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
         ctx.fillRect(i, top, colStep, lineH);
       }
     }
+
+    // ===== TUMBLEWEEDS — drawn after walls so they get z-buffer occlusion =====
+    // Sort by descending depth (back-to-front) so closer brambles overlap
+    // farther ones correctly.
+    const sorted = tumbleweeds.slice().sort((a, b) => {
+      const ad = (a.x - player.x) ** 2 + (a.y - player.y) ** 2;
+      const bd = (b.x - player.x) ** 2 + (b.y - player.y) ** 2;
+      return bd - ad;
+    });
+    for (const t of sorted) drawTumbleweed(t);
 
     // ===== ATMOSPHERE =====
     // Very subtle yellow haze over everything that intensifies with
@@ -620,6 +924,18 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
         mctx.fillRect(x * cell, y * cell, cell, cell);
       }
     }
+    // tumbleweeds — small brown dots, red ring when chasing
+    for (const t of tumbleweeds) {
+      mctx.fillStyle = '#a85f3d';
+      mctx.beginPath();
+      mctx.arc(t.x * cell, t.y * cell, cell * 0.6, 0, Math.PI * 2);
+      mctx.fill();
+      if (t.mode === 'chase') {
+        mctx.strokeStyle = 'rgba(255, 80, 60, 0.9)';
+        mctx.lineWidth = 1;
+        mctx.stroke();
+      }
+    }
     // player dot + direction
     mctx.fillStyle = '#fff5c0';
     mctx.beginPath();
@@ -641,6 +957,7 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
     lastT = now;
     if (running) {
       tickFlicker(now);
+      tickTumbleweeds(dt);
       // movement
       let mx = 0, my = 0, rot = 0;
       if (keys.has('w') || keys.has('arrowup'))    { mx += Math.cos(player.dir); my += Math.sin(player.dir); }
@@ -692,9 +1009,12 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
   function startGame() {
     generateMap();
     spawnPlayer();
+    spawnTumbleweeds(4 + Math.floor(Math.random() * 3));    // 4-6 brambles
+    scaredCount = 0;
     document.getElementById('title').style.display = 'none';
     document.getElementById('end').classList.remove('show');
     document.getElementById('stepCount').textContent = '0';
+    document.getElementById('scaredCount').textContent = '0';
     document.getElementById('exitHint').textContent = '';
     startHum();
     running = true;
