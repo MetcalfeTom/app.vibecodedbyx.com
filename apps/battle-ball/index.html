@@ -193,21 +193,24 @@
 <header>
   <div class="brand">BATTLE<span class="dot">·</span>BALL<small>walk · claim · lock the floor</small></div>
   <div class="meta">
-    <div class="pill timer">TIME<span class="num" id="timer">60</span>s</div>
     <div class="pill bot"><span id="botPersona">RIVAL</span></div>
   </div>
 </header>
 
 <div class="stage">
   <canvas id="game" width="640" height="540"></canvas>
-  <!-- score readouts kept off-screen — render() now paints YOUR TILES /
-       BOT'S TILES directly onto the canvas in world-corner overlays. -->
+  <!-- score + timer readouts kept off-screen — render() paints YOUR
+       TILES / TIME / BOT'S TILES directly onto the canvas. -->
   <span class="sr-only" id="scoreYou">0</span>
+  <span class="sr-only" id="timer">60</span>
   <span class="sr-only" id="scoreBot">0</span>
 </div>
 
 <div class="dashboard">
-  <button class="bomb-btn" id="trapBtn" title="Plant a color bomb on your tile (Space). 3-second fuse, then 3×3 lock to your colour overriding enemy locks.">
+  <!-- Bomb counter is now painted on-canvas at bottom-centre with its
+       own click hit-region. Hidden HTML button preserves sr-only access
+       (and any code paths that still touch the DOM). -->
+  <button class="bomb-btn sr-only" id="trapBtn">
     <span class="bomb-glyph">💣</span>
     <span class="bomb-label">COLOR BOMB</span>
     <span class="bomb-count" id="trapCount">2</span>
@@ -259,14 +262,18 @@
   const cvs = document.getElementById('game');
   const ctx = cvs.getContext('2d');
   const PAD = 40;
+  // Extra bottom space reserved for the in-world bomb-counter pill that
+  // floats at the canvas's bottom-centre (56px pill + 12px margin +
+  // 12px gap so the pill doesn't kiss the floor row).
+  const BOTTOM_HUD_H = 80;
   let cw = (COLS + ROWS) * TW/2 + PAD*2;
-  let ch = (COLS + ROWS) * TH/2 + PAD*2 + TZ + 30;
+  let ch = (COLS + ROWS) * TH/2 + PAD*2 + TZ + BOTTOM_HUD_H;
   let ORIGIN_X = cw / 2;
   let ORIGIN_Y = PAD;
   cvs.width = cw; cvs.height = ch;
   function recomputeCanvas() {
     cw = (COLS + ROWS) * TW/2 + PAD*2;
-    ch = (COLS + ROWS) * TH/2 + PAD*2 + TZ + 30;
+    ch = (COLS + ROWS) * TH/2 + PAD*2 + TZ + BOTTOM_HUD_H;
     ORIGIN_X = cw / 2;
     ORIGIN_Y = PAD;
     cvs.width = cw; cvs.height = ch;
@@ -883,6 +890,13 @@
     const ev = e.touches ? e.touches[0] : e;
     const sx = (ev.clientX - rect.left) * (cvs.width  / rect.width);
     const sy = (ev.clientY - rect.top)  * (cvs.height / rect.height);
+    // bottom-centre bomb pill click region intercepts before the floor
+    if (bombHit &&
+        sx >= bombHit.x && sx <= bombHit.x + bombHit.w &&
+        sy >= bombHit.y && sy <= bombHit.y + bombHit.h) {
+      dropPlayerTrap();
+      return;
+    }
     const hit = screenToGrid(sx, sy);
     if (!hit) return;
     const path = bfs(you, hit.c, hit.r);
@@ -1506,7 +1520,6 @@
       ctx.save();
       ctx.textAlign = anchor;
       ctx.textBaseline = 'top';
-      // backdrop pill
       const labelFont = '11px "Silkscreen", monospace';
       const numFont   = '900 28px "Bungee", sans-serif';
       ctx.font = labelFont;
@@ -1517,7 +1530,10 @@
       const padX = 14, padY = 10;
       const boxW = Math.max(labelW, numW) + padX * 2;
       const boxH = 14 + 30 + padY;
-      const boxX = anchor === 'right' ? x - boxW : x;
+      // anchor maps the supplied (x) to the pill's left/centre/right edge
+      const boxX = anchor === 'right'  ? x - boxW
+                 : anchor === 'center' ? x - boxW / 2
+                 :                       x;
       ctx.fillStyle = 'rgba(20,10,40,0.72)';
       ctx.beginPath();
       ctx.roundRect ? ctx.roundRect(boxX, y, boxW, boxH, 10) : ctx.rect(boxX, y, boxW, boxH);
@@ -1528,21 +1544,76 @@
       ctx.shadowBlur = 12;
       ctx.stroke();
       ctx.shadowBlur = 0;
-      // label
+      // text origin honours the anchor: left at boxX+padX, right at the
+      // far edge minus padX, center on the pill's midline.
+      const textX = anchor === 'right'  ? boxX + boxW - padX
+                  : anchor === 'center' ? boxX + boxW / 2
+                  :                       boxX + padX;
       ctx.font = labelFont;
       ctx.fillStyle = color;
-      const labelX = anchor === 'right' ? boxX + boxW - padX : boxX + padX;
-      ctx.fillText(text, labelX, y + 8);
-      // big number
+      ctx.fillText(text, textX, y + 8);
       ctx.font = numFont;
       ctx.fillStyle = '#f7eee0';
       ctx.shadowColor = color;
       ctx.shadowBlur = 14;
-      ctx.fillText(numStr, labelX, y + 22);
+      ctx.fillText(numStr, textX, y + 22);
       ctx.restore();
     };
-    drawCounter('YOUR TILES',  s.you, 12,        12, '#ff5c8a', 'left');
-    drawCounter("BOT'S TILES", s.bot, cw - 12,   12, '#4ec9d6', 'right');
+    drawCounter('YOUR TILES',  s.you,                 12,      12, '#ff5c8a', 'left');
+    drawCounter('TIME',         Math.ceil(timeLeft),   cw / 2,  12, '#ffce4a', 'center');
+    drawCounter("BOT'S TILES", s.bot,                 cw - 12, 12, '#4ec9d6', 'right');
+    drawBombCounter();
+  }
+
+  // Bomb counter — bottom-centre clickable pill. Hit-region stored on
+  // `bombHit` so onClick can route taps in this rect to dropPlayerTrap
+  // without HTML button machinery. Greys out when charges hit 0.
+  let bombHit = null;
+  function drawBombCounter() {
+    const enabled = youTrapCharges > 0 && gameActive;
+    const pillW = 200, pillH = 56;
+    const pillX = (cw - pillW) / 2;
+    const pillY = ch - pillH - 12;
+    bombHit = { x: pillX, y: pillY, w: pillW, h: pillH };
+    const accent = enabled ? '#ff5c8a' : '#7a4d63';
+    ctx.save();
+    ctx.fillStyle = enabled ? 'rgba(60,18,42,0.72)' : 'rgba(30,18,30,0.65)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(pillX, pillY, pillW, pillH, 12);
+    else                ctx.rect(pillX, pillY, pillW, pillH);
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = enabled ? 16 : 4;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // 💣 glyph
+    ctx.font = '26px serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = enabled ? 1 : 0.5;
+    ctx.fillText('💣', pillX + 14, pillY + pillH / 2);
+    // label
+    ctx.font = '11px "Silkscreen", monospace';
+    ctx.fillStyle = accent;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = enabled ? 8 : 0;
+    ctx.fillText('COLOR BOMB', pillX + 50, pillY + 18);
+    // count
+    ctx.font = '900 22px "Bungee", sans-serif';
+    ctx.fillStyle = '#f7eee0';
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = enabled ? 12 : 0;
+    ctx.fillText(String(youTrapCharges), pillX + 50, pillY + 38);
+    // SPACE hint
+    ctx.font = '9px "Silkscreen", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(247,238,224,0.55)';
+    ctx.shadowBlur = 0;
+    ctx.fillText('SPACE', pillX + pillW - 14, pillY + pillH / 2 - 6);
+    ctx.fillText('· CLICK', pillX + pillW - 14, pillY + pillH / 2 + 8);
+    ctx.restore();
   }
 
   // ===== TIMER + GAME LOOP =====
