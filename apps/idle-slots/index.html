@@ -476,6 +476,43 @@ body::after{
 }
 .toast.show{opacity:1;transform:translate(-50%, -8px)}
 
+/* ===== winning-line overlay (SVG over reel-deck) =====
+   Each line a different neon color so multi-line wins are visually
+   distinct. Lines fade in (10%) → hold → fade out over 2.4s. */
+.line-overlay{
+  position:absolute;inset:0;pointer-events:none;z-index:3;
+  width:100%;height:100%;
+}
+.line-overlay polyline{
+  fill:none;
+  stroke-width:5;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  filter:drop-shadow(0 0 8px currentColor) drop-shadow(0 0 16px currentColor);
+  opacity:0;
+  animation:lineFlash 2.4s ease-out forwards;
+}
+@keyframes lineFlash{
+  0%   {opacity:0}
+  10%  {opacity:1}
+  85%  {opacity:1}
+  100% {opacity:0}
+}
+.line-summary{
+  display:inline-block;font-family:'Bungee', sans-serif;font-size:11px;
+  letter-spacing:0.18em;
+  background:rgba(58,255,255,0.20);
+  border:2px solid var(--chrome);color:var(--cream);
+  padding:2px 8px;border-radius:3px;margin-left:6px;
+  text-shadow:0 0 6px rgba(58,255,255,0.6);
+  animation:bounce 0.4s ease-out;
+  text-transform:uppercase;
+}
+.line-summary.gold{
+  background:rgba(255,206,74,0.22);border-color:var(--gold);
+  color:#fff5c0;text-shadow:0 0 6px var(--gold);
+}
+
 /* ===== background catch-up summary popup =====
    When the tab regains visibility after auto-spin ran in the worker,
    this single big popup REPLACES the dozen individual float-chip pops
@@ -544,6 +581,7 @@ body::after{
         <small>last payout</small>
         <span id="lastPayout">—</span>
         <span id="comboBadge"></span>
+        <span id="lineSummary"></span>
       </div>
     </div>
   </div>
@@ -791,6 +829,59 @@ body::after{
   // ===== UI BUILD =====
   const reelDeck = document.getElementById('reelDeck');
   const reelEls = [];
+  // ===== WINNING LINE OVERLAY =====
+  // Single persistent SVG element re-appended at the end of every buildReels
+  // (since buildReels does innerHTML=''). Absolutely positioned over the
+  // reel-deck via .line-overlay CSS so it can draw colored polylines through
+  // winning cells without affecting the grid layout.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const lineOverlay = document.createElementNS(SVG_NS, 'svg');
+  lineOverlay.setAttribute('class', 'line-overlay');
+  lineOverlay.setAttribute('preserveAspectRatio', 'none');
+  // Per-line color palette. 8 colors covers max 8 lines (N=9 case w/ rows
+  // + cols + diagonals). Cycles modulo if more lines somehow happen.
+  const LINE_COLORS = [
+    '#3affff', '#ff3aff', '#ffce4a', '#7cf800',
+    '#ff5fd0', '#ff8a3a', '#9b5cff', '#ffffff',
+  ];
+  function showWinningLines(winningLines, reelsAtSpin) {
+    lineOverlay.innerHTML = '';
+    if (!winningLines || !winningLines.length) return;
+    // Sync SVG viewBox to current reel-deck pixel size so polyline coords
+    // match offsetLeft/Top values from the reel <wrap> elements.
+    const w = reelDeck.clientWidth, h = reelDeck.clientHeight;
+    lineOverlay.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    lineOverlay.setAttribute('width', w);
+    lineOverlay.setAttribute('height', h);
+    winningLines.forEach((ln, idx) => {
+      const color = LINE_COLORS[idx % LINE_COLORS.length];
+      const points = ln.idx.map(i => {
+        const r = reelsAtSpin[i] && reelsAtSpin[i].wrap;
+        if (!r) return null;
+        const cx = r.offsetLeft + r.offsetWidth  / 2;
+        const cy = r.offsetTop  + r.offsetHeight / 2;
+        return cx + ',' + cy;
+      }).filter(Boolean).join(' ');
+      if (!points) return;
+      const poly = document.createElementNS(SVG_NS, 'polyline');
+      poly.setAttribute('points', points);
+      poly.setAttribute('stroke', color);
+      poly.style.color = color;        // for the drop-shadow currentColor
+      poly.style.animationDelay = (idx * 80) + 'ms';
+      lineOverlay.appendChild(poly);
+    });
+  }
+  function showLineSummary(lineCount, multiLineMult, isJackpot) {
+    const el = document.getElementById('lineSummary');
+    if (!el) return;
+    if (lineCount === 0) { el.textContent = ''; el.className = ''; return; }
+    let text = lineCount + (lineCount === 1 ? ' WIN' : ' WINS');
+    if (multiLineMult > 1) text += ' · ×' + multiLineMult.toFixed(2);
+    el.textContent = text;
+    el.className = 'line-summary' + (isJackpot || multiLineMult >= 1.5 ? ' gold' : '');
+    // restart bounce animation
+    void el.offsetWidth;
+  }
   // Strict 3-reel max per row — single source of truth used by both
   // buildReels (DOM layout) and getLines (payline generator) so they
   // agree on grid shape for every N from 3 to 9. Replaces the legacy
@@ -828,6 +919,9 @@ body::after{
       reelDeck.appendChild(wrap);
       reelEls.push({ wrap, strip });
     }
+    // Re-append the SVG overlay at the end so it sits ON TOP of all reels
+    // (innerHTML='' above wiped any prior copy).
+    reelDeck.appendChild(lineOverlay);
   }
 
   function buildUpgradeTabs() {
@@ -1058,50 +1152,59 @@ body::after{
   //   N=7  → 2 rows + 1 col [0,3,6] + 1 anti-diag [2,4,6]           (4 lines)
   //   N=8  → 2 rows + 2 cols + 1 anti-diag [2,4,6]                  (5 lines)
   //   N=9  → 3 rows + 3 cols + 2 diagonals                          (8 lines)
-  const LINE_CACHE = {};
-  function getLines(N) {
-    if (LINE_CACHE[N]) return LINE_CACHE[N];
-    const cols = colCount(N);                // strict 3-reel-per-row max
-    const rows = Math.ceil(N / cols);
-    // Build the 2D grid: grid[r][c] = idx if it maps to a real reel, else null.
-    const grid = [];
-    for (let r = 0; r < rows; r++) {
-      const row = [];
-      for (let c = 0; c < cols; c++) {
-        const idx = r * cols + c;
-        row.push(idx < N ? idx : null);
-      }
-      grid.push(row);
-    }
-    const out = [];
-    // ROWS — fully-populated only (no partial-row wraps)
-    for (let r = 0; r < rows; r++) {
-      const row = grid[r];
-      if (row.length >= 2 && row.every(x => x !== null)) {
-        out.push({ idx: row.slice(), len: row.length });
-      }
-    }
-    // COLS — fully-populated only (every row has this column)
-    for (let c = 0; c < cols; c++) {
-      const col = [];
-      for (let r = 0; r < rows; r++) col.push(grid[r][c]);
-      if (col.length >= 2 && col.every(x => x !== null)) {
-        out.push({ idx: col.slice(), len: col.length });
-      }
-    }
-    // DIAGONALS — square grids only (rows === cols && rows ≥ 3)
-    if (rows === cols && rows >= 3) {
-      const d1 = [], d2 = [];
-      for (let i = 0; i < rows; i++) {
-        d1.push(grid[i][i]);
-        d2.push(grid[i][rows - 1 - i]);
-      }
-      if (d1.every(x => x !== null)) out.push({ idx: d1, len: d1.length });
-      if (d2.every(x => x !== null)) out.push({ idx: d2, len: d2.length });
-    }
-    LINE_CACHE[N] = out;
-    return out;
-  }
+  // ===== EXPLICIT PER-N PAYLINE TABLES =====
+  // Per chat: "rewrite to strictly check adjacent reels for each row, only
+  // allow diagonals if the board is square, no more phantom wins". Each
+  // payline is hand-written so there's zero ambiguity about which cells
+  // the scorer (and the SVG overlay visualizer) considers a "line". A
+  // board is "square" only when cols × rows === N, which (with the strict
+  // 3-col cap) is true ONLY at N=9 (3×3). All other N values get rows +
+  // partial cols, no diagonals — eliminates the false-positive diagonal
+  // wins that the old procedural generator could imply at N=7/8 (where
+  // rows === cols mathematically but the bottom row was incomplete).
+  const LINES_BY_N = {
+    3: [
+      { idx: [0,1,2], len: 3, kind: 'row' },
+    ],
+    4: [
+      { idx: [0,1,2], len: 3, kind: 'row' },
+      { idx: [0,3],   len: 2, kind: 'col' },
+    ],
+    5: [
+      { idx: [0,1,2], len: 3, kind: 'row' },
+      { idx: [0,3],   len: 2, kind: 'col' },
+      { idx: [1,4],   len: 2, kind: 'col' },
+    ],
+    6: [
+      { idx: [0,1,2], len: 3, kind: 'row' },
+      { idx: [3,4,5], len: 3, kind: 'row' },
+      { idx: [0,3],   len: 2, kind: 'col' },
+      { idx: [1,4],   len: 2, kind: 'col' },
+      { idx: [2,5],   len: 2, kind: 'col' },
+    ],
+    7: [
+      { idx: [0,1,2], len: 3, kind: 'row' },
+      { idx: [3,4,5], len: 3, kind: 'row' },
+      { idx: [0,3,6], len: 3, kind: 'col' },
+    ],
+    8: [
+      { idx: [0,1,2], len: 3, kind: 'row' },
+      { idx: [3,4,5], len: 3, kind: 'row' },
+      { idx: [0,3,6], len: 3, kind: 'col' },
+      { idx: [1,4,7], len: 3, kind: 'col' },
+    ],
+    9: [   // SQUARE (3×3) — only N where diagonals fire
+      { idx: [0,1,2], len: 3, kind: 'row' },
+      { idx: [3,4,5], len: 3, kind: 'row' },
+      { idx: [6,7,8], len: 3, kind: 'row' },
+      { idx: [0,3,6], len: 3, kind: 'col' },
+      { idx: [1,4,7], len: 3, kind: 'col' },
+      { idx: [2,5,8], len: 3, kind: 'col' },
+      { idx: [0,4,8], len: 3, kind: 'diag' },
+      { idx: [2,4,6], len: 3, kind: 'antidiag' },
+    ],
+  };
+  function getLines(N) { return LINES_BY_N[N] || []; }
 
   let spinning = false;
   let runEpoch = 0;   // bumped on prestige so in-flight spin-resolves can bail out
@@ -1279,56 +1382,47 @@ body::after{
     // Snapshot reel DOM right now so an EXTRA-REEL buy mid-spin doesn't desync.
     const reelsAtSpin = reelEls.slice();
 
-    // ===== INSTANT PAYOUT — math happens before the reels even start moving =====
-    // Three-tier scoring:
-    //   1. global symbol-frequency: count² × symbolValue (inisso's core formula)
-    //   2. paylines (when grid is 3×3): each row/col/diagonal of 3 matching = +9 × val
-    //   3. jackpot: every reel the same symbol → N² × val × 5 × jackpotMultiplier (replaces #1, additive with #2)
+    // ===== STRICT PAYLINE-ONLY SCORING (per chat: no phantom wins) =====
+    // Removed the legacy global `count² × val` formula that paid out for
+    // ANY symbol frequency across the grid regardless of cell adjacency
+    // (e.g. 3 nebulas on cells [0, 5, 8] used to pay even though they're
+    // not on any line). Scoring now ONLY recognizes wins where identical
+    // symbols sit on adjacent cells along an explicitly-defined payline
+    // from `LINES_BY_N`. Diagonals are gated to the SQUARE board (N=9)
+    // alone — non-square configurations get rows + cols only.
+    //
+    // Two reward tiers (no partial-line consolation — also a phantom):
+    //   - FULL line match:   len² × val   (e.g. 3-in-a-row → 9 × val)
+    //   - multi-line bonus:  × (1 + 0.25 × (lineCount − 1)) on the sum
+    //                         so 2 lines = ×1.25, 4 lines = ×1.75, 8 lines = ×2.75
+    // Jackpot bonus (every reel same symbol) replaces the line-bonus
+    // formula with `N² × val × 5 × jackpotMult`.
     const counts = {};
     for (const s of result) counts[s.nm] = (counts[s.nm] || 0) + 1;
-    let payout = 0, bestSym = null, bestCount = 0;
+    let bestSym = null, bestCount = 0;
     for (const s of SYMBOLS) {
       const c = counts[s.nm] || 0;
-      if (c >= 2) {
-        payout += c * c * s.val;
-        if (c > bestCount) { bestCount = c; bestSym = s; }
-      }
+      if (c > bestCount) { bestCount = c; bestSym = s; }
     }
-    // ===== PAYLINES — line + partial-line + multi-line multiplier =====
-    // Lines come from getLines(N), which walks the actual 2D grid and emits
-    // only fully-populated rows/cols/diagonals. This eliminates two prior
-    // bugs: silent gaps at N=3,4,5,7,8 (where the hardcoded table had no
-    // entries → no line bonus on a 3-reel base slot) and the structural risk
-    // of a wrap-around line crossing a grid boundary.
-    //
-    // Three reward tiers stack on top of inisso's global count² formula:
-    //   - FULL line match:   len² × val   (e.g. 3-in-a-row → 9 × val)
-    //   - 2-of-3 partial:    2 × val      (consolation on len-3 lines only)
-    //   - multi-line bonus:  ×(1 + 0.25 × (lineCount − 1)) on the full-match sum
-    //                         so 2 lines = ×1.25, 4 lines = ×1.75, 8 lines = ×2.75
-    let fullLineBonus = 0;          // sum of len²×val for fully-matched lines
-    let partialBonus  = 0;          // sum of 2×val for 2-of-3 near-misses
-    const winningLines = [];        // for win-glow
+    let fullLineBonus = 0;
+    const winningLines = [];
     const lines = getLines(N);
     for (const ln of lines) {
-      const symsOnLine = ln.idx.map(i => result[i]);
-      const lineCounts = {};
-      for (const s of symsOnLine) lineCounts[s.nm] = (lineCounts[s.nm] || 0) + 1;
-      const tops = Object.values(lineCounts).sort((a,b) => b-a);
-      if (tops[0] === ln.len) {
-        // every cell on the line matches (3-of-3 or 2-of-2)
-        fullLineBonus += ln.len * ln.len * symsOnLine[0].val;
+      const sym0 = result[ln.idx[0]];
+      // Strict adjacency check: every cell on the line is the SAME symbol
+      // as the first cell. No partial credit, no near-miss bonus.
+      let allMatch = true;
+      for (let i = 1; i < ln.idx.length; i++) {
+        if (result[ln.idx[i]].nm !== sym0.nm) { allMatch = false; break; }
+      }
+      if (allMatch) {
+        fullLineBonus += ln.len * ln.len * sym0.val;
         winningLines.push(ln);
-      } else if (ln.len === 3 && tops[0] === 2) {
-        // 2-of-3 near-miss → consolation bonus at the dominant symbol's value
-        const dominantNm = Object.keys(lineCounts).find(k => lineCounts[k] === 2);
-        const dom = symsOnLine.find(s => s.nm === dominantNm);
-        partialBonus += 2 * dom.val;
       }
     }
     const lineCount = winningLines.length;
     const multiLineMult = lineCount > 1 ? (1 + 0.25 * (lineCount - 1)) : 1;
-    const lineBonus = fullLineBonus * multiLineMult + partialBonus;
+    let payout = fullLineBonus * multiLineMult;
 
     const isFullMatch = Object.keys(counts).length === 1 && N >= 3;
     if (isFullMatch) {
@@ -1336,7 +1430,7 @@ body::after{
       const jp = effectOf(UPGRADES.find(x => x.k === 'jackpot'));
       payout = N * N * sym.val * 5 * jp;
     }
-    payout = Math.floor((payout + lineBonus) * multiplier());
+    payout = Math.floor(payout * multiplier());
     const isJackpot = isFullMatch && bestCount === N;
 
     // Reel animation duration — every spin takes exactly this long visually
@@ -1382,12 +1476,20 @@ body::after{
       if (payout > 0) {
         document.getElementById('lastPayout').textContent = '+' + fmt(payout) + ' 💫';
         document.getElementById('comboBadge').innerHTML = isJackpot ? `<span class="combo-badge">JACKPOT ${bestSym ? bestSym.em : ''}</span>` : '';
+        // Highlight every reel that's part of a winning line, draw the
+        // colored polylines, show the WIN COUNT badge.
+        const winCells = new Set();
+        for (const ln of winningLines) for (const i of ln.idx) winCells.add(i);
         reelsAtSpin.forEach((r, i) => {
-          if (i < result.length && counts[result[i].nm] >= 2) r.wrap.classList.add('win');
+          if (winCells.has(i)) r.wrap.classList.add('win');
         });
+        showWinningLines(winningLines, reelsAtSpin);
+        showLineSummary(lineCount, multiLineMult, isJackpot);
       } else {
         document.getElementById('lastPayout').textContent = '—';
         document.getElementById('comboBadge').textContent = '';
+        showWinningLines([], reelsAtSpin);
+        showLineSummary(0, 1, false);
       }
       spinning = false;
     };
