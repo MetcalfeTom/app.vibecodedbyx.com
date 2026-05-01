@@ -191,6 +191,7 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
   Floor: 0 ·<br>
   Steps: <span id="stepCount">0</span><br>
   Spooked: <span id="scaredCount">0</span><br>
+  Flares: <span id="flareCount">3</span> · <span style="color:#ff6840">[F]</span><br>
   <span id="exitHint" style="color:var(--warning)"></span>
 </div>
 <div id="scan"></div>
@@ -207,6 +208,7 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
   <div class="mc-look">
     <button data-key="a">↶</button>
     <button data-key="d">↷</button>
+    <button id="mobileFlareBtn" style="background:rgba(80,20,12,0.65);border-color:rgba(255,90,50,0.7);color:#ff8050">🔥</button>
   </div>
 </div>
 
@@ -222,6 +224,7 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
     <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move ·
     <kbd>←</kbd><kbd>→</kbd> turn ·
     <kbd>Q</kbd><kbd>E</kbd> strafe ·
+    <kbd>F</kbd> flare ·
     <kbd>ESC</kbd> exit
   </div>
 </div>
@@ -377,6 +380,239 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
       ex.fillStyle = 'rgba(0, 0, 0, ' + (0.04 + Math.random() * 0.10) + ')';
       ex.fillRect(x, y, 1, 1);
     }
+  }
+
+  // ===== FLARE GUN — 3 charges, lights up the hallway for 5s =====
+  // Hold F (or tap the FLARE button on mobile) to fire. Flare projectile
+  // travels ~0.4s along player.dir, stops on first wall, then "burns" for
+  // 5s with a 200ms fade-in and 1500ms fade-out. While burning, the
+  // existing lightLevel is boosted toward 1.0 weighted by flare intensity
+  // so the whole hallway brightens. A red muzzle flash + sustained warm
+  // bottom-screen tint provide visual feedback. Audio: pop + hiss.
+  const flare = {
+    count: 3,                  // charges remaining
+    burnStart: 0, burnUntil: 0,
+    duration: 5000,            // ms total burn
+    fadeIn: 200,
+    fadeOut: 1500,
+    projX: 0, projY: 0,
+    projDir: 0,
+    projT: 0,                  // seconds in flight
+    travelDur: 0.4,
+    landed: false,
+    muzzleUntil: 0,            // brief muzzle flash window
+  };
+  let hissNode = null, hissGain = null;
+  // ===== SMOKE OVERLAY — lingering haze that builds during flare burn =====
+  // Spawned as soft grey radial-gradient puffs at the lower half of the
+  // screen; drift upward, slowly expand, fade. Spawning continues for 3s
+  // after the flare expires so the room stays misty briefly before
+  // clearing. Also a portion of puffs get a red tint (smoldering soot).
+  const smokePuffs = [];
+  let smokeSpawnT = 0;
+  let smokeSpawnUntil = 0;     // timestamp until which we keep spawning
+  function spawnSmokePuff() {
+    smokePuffs.push({
+      x: W / 2 + (Math.random() - 0.5) * W * 0.7,
+      y: H * 0.55 + Math.random() * H * 0.30,
+      vx: (Math.random() - 0.5) * 18,
+      vy: -8 - Math.random() * 18,
+      age: 0,
+      life: 3.0 + Math.random() * 2.5,
+      size: 80 + Math.random() * 120,        // thicker — bigger puffs
+      redTint: Math.random() < 0.32,
+    });
+  }
+  function tickSmoke(dt, now) {
+    if (now < smokeSpawnUntil) {
+      smokeSpawnT += dt;
+      // ~22 puffs/sec while spawning — thick smoke per chat
+      while (smokeSpawnT > 0.045 && smokePuffs.length < 60) {
+        smokeSpawnT -= 0.045;
+        spawnSmokePuff();
+      }
+    }
+    for (let i = smokePuffs.length - 1; i >= 0; i--) {
+      const p = smokePuffs[i];
+      p.age += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy *= 0.985;        // slows as it rises
+      p.vx *= 0.98;
+      p.size += 22 * dt;
+      if (p.age > p.life) smokePuffs.splice(i, 1);
+    }
+  }
+  function drawSmoke() {
+    for (const p of smokePuffs) {
+      const t = p.age / p.life;
+      const alpha = (1 - t) * 0.62;          // thicker — was 0.42
+      if (alpha <= 0.01) continue;
+      const tintCore = p.redTint
+        ? `rgba(140, 60, 45, ${alpha * 0.95})`
+        : `rgba(60, 55, 52, ${alpha * 0.95})`;
+      const tintEdge = p.redTint ? 'rgba(140, 60, 45, 0)' : 'rgba(60, 55, 52, 0)';
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+      grad.addColorStop(0, tintCore);
+      grad.addColorStop(0.5, p.redTint
+        ? `rgba(120, 50, 40, ${alpha * 0.45})`
+        : `rgba(70, 65, 62, ${alpha * 0.50})`);
+      grad.addColorStop(1, tintEdge);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  function fireFlare() {
+    const now = performance.now();
+    if (flare.count <= 0) return;
+    if (flare.burnUntil > now) return;     // already burning
+    flare.count--;
+    flare.burnStart = now;
+    flare.burnUntil = now + flare.duration;
+    flare.muzzleUntil = now + 220;
+    flare.projX = player.x; flare.projY = player.y;
+    flare.projDir = player.dir;
+    flare.projT = 0;
+    flare.landed = false;
+    smokeSpawnUntil = now + flare.duration + 3000;   // smoke lingers 3s past burn
+    document.getElementById('flareCount').textContent = flare.count;
+    flarePop();
+    startHiss();
+  }
+  function tickFlare(dt, now) {
+    if (flare.burnUntil < now) {
+      // expired — silence the hiss if still running
+      stopHiss();
+      return;
+    }
+    if (!flare.landed) {
+      flare.projT += dt;
+      if (flare.projT < flare.travelDur) {
+        const speed = 6;
+        const nx = flare.projX + Math.cos(flare.projDir) * speed * dt;
+        const ny = flare.projY + Math.sin(flare.projDir) * speed * dt;
+        // wall collision — if next cell is solid, land at current
+        if (cellAt(Math.floor(nx), Math.floor(ny)) !== 0) {
+          flare.landed = true;
+        } else {
+          flare.projX = nx; flare.projY = ny;
+        }
+      } else {
+        flare.landed = true;
+      }
+    }
+  }
+  function flareIntensity(now) {
+    if (flare.burnUntil < now || flare.burnStart === 0) return 0;
+    const elapsed = now - flare.burnStart;
+    const remaining = flare.burnUntil - now;
+    if (elapsed < flare.fadeIn)   return elapsed / flare.fadeIn;
+    if (remaining < flare.fadeOut) return remaining / flare.fadeOut;
+    // chaotic flicker during steady burn
+    return 0.85 + Math.random() * 0.15;
+  }
+  function flarePop() {
+    if (muted) return;
+    const a = ctxA(); if (!a) return;
+    // pop = 80Hz square thump + noise burst through bandpass
+    const o = a.createOscillator();
+    o.type = 'square'; o.frequency.value = 80;
+    const og = a.createGain();
+    const t = a.currentTime;
+    og.gain.setValueAtTime(0.20, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    o.connect(og); og.connect(a.destination);
+    o.start(t); o.stop(t + 0.14);
+    // noise burst
+    const dur = 0.18;
+    const buf = a.createBuffer(1, Math.floor(a.sampleRate * dur), a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    const src = a.createBufferSource(); src.buffer = buf;
+    const f = a.createBiquadFilter(); f.type = 'bandpass';
+    f.frequency.value = 1200; f.Q.value = 1.4;
+    const ng = a.createGain(); ng.gain.value = 0.18;
+    src.connect(f); f.connect(ng); ng.connect(a.destination);
+    src.start(t);
+  }
+  function startHiss() {
+    // ===== DISTORTED WARPING SYNTH DRONE =====
+    // Per chat: when the flare fires we get a sub-bass sawtooth drone
+    // that warps via LFO frequency modulation, hard-clipped through a
+    // waveshaper for distortion, layered with a thin highpass-noise
+    // hiss for the burning-fuse texture. Stops via 0.5s fade-out.
+    const a = ctxA(); if (!a || hissNode) return;
+    // sawtooth sub-drone @ 80 Hz with ±22 Hz LFO wobble
+    const osc = a.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 80;
+    const lfo = a.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.55;             // slow warp
+    const lfoGain = a.createGain();
+    lfoGain.gain.value = 22;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    // waveshaper hard-clip distortion
+    const shaper = a.createWaveShaper();
+    const curve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+      const x = (i / 128) - 1;
+      curve[i] = Math.tanh(x * 4);          // soft clipper, drives the saw
+    }
+    shaper.curve = curve;
+    shaper.oversample = '2x';
+    // lowpass to keep it sub-rumble
+    const lp = a.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 360;
+    lp.Q.value = 1.2;
+    // master gain w/ fade-in
+    const g = a.createGain();
+    g.gain.value = 0.0001;
+    if (!muted) g.gain.linearRampToValueAtTime(0.07, a.currentTime + 0.35);
+    osc.connect(shaper); shaper.connect(lp); lp.connect(g); g.connect(a.destination);
+    // layered hissing noise — high-pass filtered burning-fuse sound
+    const len = a.sampleRate * 1;
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const dn = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) dn[i] = Math.random() * 2 - 1;
+    const noiseSrc = a.createBufferSource(); noiseSrc.buffer = buf; noiseSrc.loop = true;
+    const nf = a.createBiquadFilter(); nf.type = 'highpass'; nf.frequency.value = 2200;
+    const nf2 = a.createBiquadFilter(); nf2.type = 'lowpass'; nf2.frequency.value = 5500;
+    const ng = a.createGain();
+    ng.gain.value = 0.0001;
+    if (!muted) ng.gain.linearRampToValueAtTime(0.025, a.currentTime + 0.35);
+    noiseSrc.connect(nf); nf.connect(nf2); nf2.connect(ng); ng.connect(a.destination);
+    osc.start(); lfo.start(); noiseSrc.start();
+    hissNode = { osc, lfo, noiseSrc, g, ng };
+    hissGain = g;
+  }
+  function stopHiss() {
+    if (!hissNode) return;
+    const a = ctxA(); if (!a) {
+      try { hissNode.osc.stop(); hissNode.lfo.stop(); hissNode.noiseSrc.stop(); } catch (e) {}
+      hissNode = null; hissGain = null;
+      return;
+    }
+    const t = a.currentTime;
+    try {
+      hissNode.g.gain.cancelScheduledValues(t);
+      hissNode.g.gain.setValueAtTime(hissNode.g.gain.value, t);
+      hissNode.g.gain.linearRampToValueAtTime(0.0001, t + 0.5);
+      hissNode.ng.gain.cancelScheduledValues(t);
+      hissNode.ng.gain.setValueAtTime(hissNode.ng.gain.value, t);
+      hissNode.ng.gain.linearRampToValueAtTime(0.0001, t + 0.5);
+    } catch (e) {}
+    const node = hissNode;
+    hissNode = null; hissGain = null;
+    setTimeout(() => {
+      try { node.osc.stop(); } catch (e) {}
+      try { node.lfo.stop(); } catch (e) {}
+      try { node.noiseSrc.stop(); } catch (e) {}
+    }, 600);
   }
 
   // ===== TUMBLEWEEDS — hostile rolling entities that chase the player =====
@@ -588,9 +824,17 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
   document.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     if (k === 'escape') { showTitle(); return; }
+    if (k === 'f' && running) { fireFlare(); e.preventDefault(); return; }
     keys.add(k);
   });
   document.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+  // mobile flare button — single tap fires (separate from hold-to-press d-pad)
+  const mflare = document.getElementById('mobileFlareBtn');
+  if (mflare) {
+    const fire = (e) => { e.preventDefault(); if (running) fireFlare(); };
+    mflare.addEventListener('touchstart', fire, { passive: false });
+    mflare.addEventListener('mousedown',  fire);
+  }
   // mobile pads
   document.querySelectorAll('[data-key]').forEach(btn => {
     const k = btn.dataset.key;
@@ -704,6 +948,11 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
         nextFlicker = now + 4000 + Math.random() * 9000;
       }
     }
+    // ===== FLARE BRIGHTNESS BOOST =====
+    // Lift lightLevel toward 1.0 weighted by flare intensity. Even during
+    // a hard-flicker dim event, an active flare keeps the hallway lit.
+    const fI = flareIntensity(now);
+    if (fI > 0) lightLevel = Math.min(1.0, lightLevel + fI * (1.0 - lightLevel * 0.4));
   }
 
   // ===== RAYCAST RENDERER =====
@@ -900,6 +1149,35 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
     });
     for (const t of sorted) drawTumbleweed(t);
 
+    // ===== FLARE OVERLAY =====
+    // Red lighting tint while a flare burns + warm bottom-glow where the
+    // flare landed + brief muzzle flash window. All drawn after walls/
+    // sprites so they wash the entire frame.
+    const fI = flareIntensity(now);
+    if (fI > 0) {
+      // sustained red lighting — overlays a red wash across the scene
+      ctx.fillStyle = `rgba(210, 60, 40, ${fI * 0.20})`;
+      ctx.fillRect(0, 0, W, H);
+      // stronger red glow at the bottom (where the flare is on the floor)
+      const glowH = H * 0.45;
+      const glowGrad = ctx.createLinearGradient(0, H - glowH, 0, H);
+      glowGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      glowGrad.addColorStop(1, `rgba(255, 90, 50, ${fI * 0.40})`);
+      ctx.fillStyle = glowGrad;
+      ctx.fillRect(0, H - glowH, W, glowH);
+    }
+    // muzzle flash — first 220ms after fire
+    if (now < flare.muzzleUntil) {
+      const mt = (flare.muzzleUntil - now) / 220;     // 1 → 0
+      ctx.fillStyle = `rgba(255, 200, 100, ${mt * 0.55})`;
+      ctx.fillRect(0, H * 0.55, W, H * 0.45);
+      ctx.fillStyle = `rgba(255, 80, 30, ${mt * 0.35})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+    // ===== SMOKE PUFFS =====
+    // Drawn last so smoke obscures everything (including walls/tumbleweeds).
+    drawSmoke();
+
     // ===== ATMOSPHERE =====
     // Very subtle yellow haze over everything that intensifies with
     // distance fog effect (scaled by inverse lightLevel).
@@ -958,6 +1236,8 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
     if (running) {
       tickFlicker(now);
       tickTumbleweeds(dt);
+      tickFlare(dt, now);
+      tickSmoke(dt, now);
       // movement
       let mx = 0, my = 0, rot = 0;
       if (keys.has('w') || keys.has('arrowup'))    { mx += Math.cos(player.dir); my += Math.sin(player.dir); }
@@ -1011,10 +1291,14 @@ canvas{position:absolute;inset:0;display:block;cursor:none;image-rendering:pixel
     spawnPlayer();
     spawnTumbleweeds(4 + Math.floor(Math.random() * 3));    // 4-6 brambles
     scaredCount = 0;
+    flare.count = 3; flare.burnUntil = 0; flare.burnStart = 0; flare.muzzleUntil = 0;
+    smokePuffs.length = 0; smokeSpawnUntil = 0;
+    stopHiss();
     document.getElementById('title').style.display = 'none';
     document.getElementById('end').classList.remove('show');
     document.getElementById('stepCount').textContent = '0';
     document.getElementById('scaredCount').textContent = '0';
+    document.getElementById('flareCount').textContent = '3';
     document.getElementById('exitHint').textContent = '';
     startHum();
     running = true;
