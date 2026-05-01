@@ -156,17 +156,63 @@ body::after{
   display:flex;align-items:center;justify-content:center;
   min-height:380px;
 }
-#catCanvas{
+#catCanvas, #roomCanvas{
   cursor:pointer;
   filter:drop-shadow(0 0 24px rgba(255,95,191,0.35)) drop-shadow(0 6px 0 rgba(58,10,63,0.4));
   user-select:none;-webkit-user-select:none;
   touch-action:manipulation;
 }
+#roomCanvas{
+  display:none;
+  border-radius:14px;
+  border:3px solid rgba(255,133,208,0.4);
+  box-shadow:0 0 20px rgba(255,95,191,0.3), inset 0 0 30px rgba(255,133,208,0.05);
+}
+/* pixel-art mode — both canvases render at low res and CSS scales up
+   blocky. Backgrounds (gradients, sparkles) stay smooth — only the canvas
+   sprites get the retro chunky look so the room/cat read as pixel art
+   sitting in a softly glowing neon space rather than the whole page being
+   pixelated. */
+body.pixel-on #catCanvas,
+body.pixel-on #roomCanvas{
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+/* view-mode swap — only one canvas visible at a time */
+body.view-room #catCanvas,
+body.view-room .floor,
+body.view-room .click-hint{ display:none }
+body.view-room #roomCanvas{ display:block }
+body.view-pet  #roomCanvas{ display:none }
 .cat-stage .floor{
   position:absolute;bottom:14%;left:50%;transform:translateX(-50%);
   width:140px;height:18px;border-radius:50%;
   background:radial-gradient(ellipse, rgba(255,95,191,0.5), transparent 75%);
   filter:blur(2px);pointer-events:none;
+}
+/* view-toggle pill row above the cat-stage */
+.view-toggle{
+  display:flex;gap:6px;justify-content:center;margin:0 0 10px;flex-wrap:wrap;
+}
+.view-toggle button{
+  background:rgba(255,255,255,0.06);
+  border:2px solid rgba(255,133,208,0.3);
+  color:var(--bubble);
+  font-family:'Fredoka', sans-serif;font-weight:600;font-size:11px;
+  letter-spacing:0.18em;padding:5px 14px;border-radius:999px;
+  cursor:pointer;text-transform:uppercase;transition:all 0.14s;
+}
+.view-toggle button:hover{
+  background:rgba(255,133,208,0.18);color:var(--candy);
+  border-color:var(--hot-pink);
+}
+.view-toggle button.on{
+  background:rgba(255,133,208,0.28);
+  border-color:var(--hot-pink);
+  color:var(--candy);
+  box-shadow:0 0 10px rgba(255,95,191,0.5);
+  text-shadow:0 0 8px rgba(255,255,255,0.4);
 }
 .cat-stage .stage-name{
   position:absolute;top:6px;left:50%;transform:translateX(-50%);
@@ -353,9 +399,15 @@ body::after{
       <div class="label">pets · ♡</div>
       <div class="rate" id="rateLine">+0 ♡/click · 0/sec idle</div>
     </div>
+    <div class="view-toggle">
+      <button data-view="pet"  id="viewPetBtn">🐾 pet</button>
+      <button data-view="room" id="viewRoomBtn">🛏️ room</button>
+      <button id="pixelBtn">🟪 pixel</button>
+    </div>
     <div class="cat-stage" id="catStage">
       <div class="stage-name" id="evoLabel">kitten</div>
       <canvas id="catCanvas" width="320" height="320"></canvas>
+      <canvas id="roomCanvas" width="480" height="340"></canvas>
       <div class="floor" id="catFloor"></div>
       <div class="click-hint" id="clickHint">tap me uwu</div>
     </div>
@@ -398,6 +450,8 @@ body::after{
     muted: false,
     megaUwuUntil: 0,        // performance.now() timestamp; mega mode active while < this
     megaUwuCharges: 0,      // charges accumulated; every 100 clicks gives 1 charge
+    viewMode: 'pet',        // 'pet' (click-stage) | 'room' (passive bedroom scene — clicking optional)
+    pixel: false,           // retro pixel-art rendering — drops canvas internal res, CSS upscales blocky
   };
 
   // Persistent rate tracking — keep love streaming without storing per-tick deltas.
@@ -473,6 +527,7 @@ body::after{
       pets: state.pets, lifetime: state.lifetime, clicks: state.clicks,
       upgrades: state.upgrades, muted: state.muted,
       megaUwuCharges: state.megaUwuCharges,
+      viewMode: state.viewMode, pixel: state.pixel,
     })); } catch (e) {}
   }
   function load() {
@@ -484,6 +539,8 @@ body::after{
       state.clicks = raw.clicks || 0;
       state.muted = !!raw.muted;
       state.megaUwuCharges = raw.megaUwuCharges || 0;
+      if (raw.viewMode === 'room' || raw.viewMode === 'pet') state.viewMode = raw.viewMode;
+      if (typeof raw.pixel === 'boolean') state.pixel = raw.pixel;
       for (const u of UPGRADES) {
         if (raw.upgrades && raw.upgrades[u.k]) state.upgrades[u.k].lvl = raw.upgrades[u.k].lvl || 0;
       }
@@ -552,16 +609,424 @@ body::after{
   };
   function setupCat() {
     const c = cat.canvas;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    // CSS display size — same in both modes so layout doesn't reflow when
+    // toggling pixel-art on/off.
     const sz = Math.min(380, Math.max(280, Math.floor(c.parentElement.clientWidth * 0.85)));
-    c.width = sz * dpr; c.height = sz * dpr;
     c.style.width = sz + 'px'; c.style.height = sz + 'px';
-    cat.ctx = c.getContext('2d');
-    cat.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     cat.size = sz;
+    if (state.pixel) {
+      // Pixel-art mode — small physical framebuffer, CSS upscales with
+      // `image-rendering: pixelated`. Logical drawing coords still address
+      // a `sz × sz` region (we scale the ctx) so the same drawing code
+      // produces blocky output without changes to drawCat.
+      const PIX = 96;   // logical→physical: cat sprite quantized to ~96 px
+      c.width = PIX; c.height = PIX;
+      cat.ctx = c.getContext('2d');
+      cat.ctx.imageSmoothingEnabled = false;
+      cat.ctx.setTransform(PIX / sz, 0, 0, PIX / sz, 0, 0);
+    } else {
+      // Smooth (default) — DPR-aware crisp rendering.
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      c.width = sz * dpr; c.height = sz * dpr;
+      cat.ctx = c.getContext('2d');
+      cat.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
   }
   setupCat();
-  window.addEventListener('resize', () => { setupCat(); });
+  window.addEventListener('resize', () => { setupCat(); setupRoom(); });
+
+  // ===== ROOM VIEW =====
+  // A passive bedroom scene where the cat wanders between cozy stations
+  // (pillow / yarn / milk / sushi / sakura — each appears only if its
+  // upgrade is owned). Clicking is OPTIONAL: passive cps still credits
+  // pets every frame from the global tick regardless of which view is
+  // active. Tap-to-pet still works in room mode but isn't required.
+  const room = {
+    canvas: document.getElementById('roomCanvas'),
+    ctx: null,
+    w: 480, h: 340,
+    // wandering kitty — autonomous AI, no input required
+    cat: { x: 240, y: 280, vx: 0, facing: 1, walkPhase: 0, blinkT: 0, blinkNext: 5,
+           state: 'wander', stateT: 3, target: null, mouthOpen: 0, blush: 0, happyT: 0, age: 0 },
+    lastHeartT: 0,
+  };
+  function setupRoom() {
+    const c = room.canvas;
+    const wantW = Math.min(560, Math.max(320, Math.floor(c.parentElement.clientWidth * 0.96)));
+    const wantH = Math.floor(wantW * 0.70);
+    c.style.width = wantW + 'px'; c.style.height = wantH + 'px';
+    room.dispW = wantW; room.dispH = wantH;
+    if (state.pixel) {
+      // Low-res framebuffer → CSS upscales pixelated. 192×134 keeps the
+      // 1.42:1 aspect ratio of the display canvas and gives chunky pixels
+      // at typical desktop sizes (~3-5px per logical pixel).
+      const PW = 192, PH = 134;
+      c.width = PW; c.height = PH;
+      room.ctx = c.getContext('2d');
+      room.ctx.imageSmoothingEnabled = false;
+      room.ctx.setTransform(PW / room.w, 0, 0, PH / room.h, 0, 0);
+    } else {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      c.width = wantW * dpr; c.height = wantH * dpr;
+      room.ctx = c.getContext('2d');
+      room.ctx.setTransform((wantW / room.w) * dpr, 0, 0, (wantH / room.h) * dpr, 0, 0);
+    }
+  }
+  setupRoom();
+
+  // Stations the cat visits — only those whose upgrade is owned (lvl > 0)
+  // appear in the room. The cat's wander AI picks among visible stations.
+  function visibleStations() {
+    const out = [];
+    if (lvlOf('pillow') > 0) out.push({ kind:'pillow', em:'🛋️', x: 80,  y: 280, label:'nap',   sound:'snoring' });
+    if (lvlOf('yarn')   > 0) out.push({ kind:'yarn',   em:'🧶', x: 380, y: 282, label:'play',  sound:'pat' });
+    if (lvlOf('milk')   > 0) out.push({ kind:'milk',   em:'🥛', x: 200, y: 286, label:'sip',   sound:'lap' });
+    if (lvlOf('sushi')  > 0) out.push({ kind:'sushi',  em:'🍣', x: 300, y: 290, label:'munch', sound:'chew' });
+    if (lvlOf('sakura') > 0) out.push({ kind:'sakura', em:'🌸', x: 440, y: 240, label:'dream', sound:'breeze' });
+    return out;
+  }
+
+  function drawRoom(now) {
+    const ctx = room.ctx;
+    if (!ctx) return;
+    const W = room.w, H = room.h;
+    // ===== BG: back wall + floor =====
+    ctx.fillStyle = '#3a0858';
+    ctx.fillRect(0, 0, W, H);
+    // back wall (top portion)
+    const wallH = H * 0.62;
+    const wallGrad = ctx.createLinearGradient(0, 0, 0, wallH);
+    wallGrad.addColorStop(0, '#42095a');
+    wallGrad.addColorStop(1, '#5a0d70');
+    ctx.fillStyle = wallGrad;
+    ctx.fillRect(0, 0, W, wallH);
+    // window with stars (upper-left)
+    ctx.fillStyle = '#1a0028';
+    ctx.fillRect(48, 28, 120, 80);
+    ctx.strokeStyle = '#ffb5d8';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(48, 28, 120, 80);
+    // window cross
+    ctx.beginPath(); ctx.moveTo(108, 28); ctx.lineTo(108, 108); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(48, 68); ctx.lineTo(168, 68); ctx.stroke();
+    // stars in window — twinkle via age
+    ctx.fillStyle = '#fff';
+    const stars = [{x:70,y:48},{x:140,y:54},{x:90,y:84},{x:154,y:92},{x:60,y:96}];
+    stars.forEach((s, i) => {
+      const tw = 0.5 + 0.5 * Math.sin(now * 0.003 + i * 1.7);
+      ctx.globalAlpha = 0.4 + tw * 0.55;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 1.6, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    // moon
+    ctx.fillStyle = '#ffe0b0';
+    ctx.beginPath(); ctx.arc(150, 50, 9, 0, Math.PI * 2); ctx.fill();
+
+    // wall — picture frame (2nd accessory)
+    ctx.fillStyle = '#ffb5d8';
+    ctx.fillRect(220, 50, 56, 40);
+    ctx.fillStyle = '#fff5fa';
+    ctx.fillRect(224, 54, 48, 32);
+    // tiny heart in frame
+    ctx.fillStyle = '#ff5fbf';
+    drawHeart(ctx, 248, 70, 12);
+
+    // floor (lower portion) — pink wood-feel via stripes
+    ctx.fillStyle = '#7a2a8a';
+    ctx.fillRect(0, wallH, W, H - wallH);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let x = 0; x < W; x += 24) ctx.fillRect(x, wallH + 2, 1, H - wallH - 2);
+    // floor rug
+    ctx.fillStyle = '#ff7fb8';
+    ctx.beginPath();
+    ctx.ellipse(W / 2, H - 18, W * 0.42, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffe2f1';
+    ctx.beginPath();
+    ctx.ellipse(W / 2, H - 18, W * 0.34, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ff5fbf';
+    for (let x = -W * 0.32; x < W * 0.32; x += 18) {
+      ctx.beginPath();
+      ctx.arc(W / 2 + x, H - 18, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ===== STATIONS =====
+    const stations = visibleStations();
+    ctx.font = '32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const st of stations) {
+      // soft pink halo under each station
+      ctx.fillStyle = 'rgba(255,95,191,0.30)';
+      ctx.beginPath();
+      ctx.ellipse(st.x, st.y + 18, 22, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // little drop-shadow then the emoji glyph itself
+      ctx.fillText(st.em, st.x, st.y);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+
+    // ===== ROOM CAT AI tick =====
+    const dt = Math.min(0.05, (now - (room._lastT || now)) / 1000);
+    room._lastT = now;
+    const rc = room.cat;
+    rc.age += dt;
+    rc.stateT -= dt;
+    rc.mouthOpen *= 0.92;
+    rc.blush *= 0.96;
+    rc.happyT = Math.max(0, rc.happyT - dt);
+    if (rc.blinkT > 0) rc.blinkT = Math.max(0, rc.blinkT - dt * 6);
+    rc.blinkNext -= dt;
+    if (rc.blinkNext <= 0) { rc.blinkT = 1; rc.blinkNext = 4 + Math.random() * 5; }
+
+    if (rc.stateT <= 0) {
+      // pick a new behavior — 70% visit a station if any exist
+      if (stations.length > 0 && Math.random() < 0.75) {
+        const s = stations[Math.floor(Math.random() * stations.length)];
+        rc.target = { x: s.x, y: s.y, kind: s.kind };
+        rc.state  = 'walk_to';
+        rc.stateT = 7 + Math.random() * 5;
+      } else {
+        // random wander point on the floor
+        rc.target = { x: 60 + Math.random() * (W - 120), y: 280, kind: 'wander' };
+        rc.state  = 'walk_to';
+        rc.stateT = 4 + Math.random() * 3;
+      }
+    }
+    // walk toward target
+    if (rc.target) {
+      const dx = rc.target.x - rc.x;
+      const speed = 36;
+      if (Math.abs(dx) > 4) {
+        rc.facing = dx > 0 ? 1 : -1;
+        rc.x += Math.sign(dx) * Math.min(Math.abs(dx), speed * dt);
+        rc.walkPhase += dt * 8;
+      } else {
+        // arrived — switch to station-specific idle
+        if (rc.state === 'walk_to') {
+          rc.state = (rc.target.kind === 'wander') ? 'idle'
+                   : (rc.target.kind === 'pillow' || rc.target.kind === 'sakura') ? 'sleep'
+                   : (rc.target.kind === 'yarn') ? 'play'
+                   : (rc.target.kind === 'milk' || rc.target.kind === 'sushi') ? 'eat'
+                   : 'idle';
+          rc.stateT = 4 + Math.random() * 4;
+          if (rc.state === 'sleep' || rc.state === 'eat' || rc.state === 'play') {
+            rc.happyT = rc.stateT;       // sustained happy face during the activity
+            rc.blush  = 0.8;
+          }
+        }
+      }
+    }
+
+    // periodic floating heart from the cat (visual cps feedback,
+    // pulse-rate scales with cps so big idlers see lots of love).
+    const cpsNow = cps();
+    if (cpsNow > 0) {
+      const interval = Math.max(0.25, 1.4 - Math.log10(1 + cpsNow) * 0.18);
+      if (now - room.lastHeartT > interval * 1000) {
+        room.lastHeartT = now;
+        spawnRoomHeart(rc.x, rc.y - 28);
+      }
+    }
+
+    // ===== DRAW THE ROOM CAT =====
+    drawRoomCat(ctx, rc);
+
+    // ===== ROOM HEART PARTICLES =====
+    if (!room.hearts) room.hearts = [];
+    for (let i = room.hearts.length - 1; i >= 0; i--) {
+      const h = room.hearts[i];
+      h.t += dt;
+      if (h.t >= h.life) { room.hearts.splice(i, 1); continue; }
+      const p = h.t / h.life;
+      const yy = h.y - p * 36;
+      const xx = h.x + Math.sin(h.t * 4 + h.seed) * 6;
+      ctx.globalAlpha = (1 - p) * 0.95;
+      ctx.fillStyle = h.color;
+      drawHeart(ctx, xx, yy, 10);
+    }
+    ctx.globalAlpha = 1;
+
+    // mega uwu indicator
+    if (performance.now() < state.megaUwuUntil) {
+      const remaining = (state.megaUwuUntil - performance.now()) / 1000;
+      ctx.fillStyle = '#ffe082';
+      ctx.font = 'bold 11px DotGothic16, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('MEGA UWU ' + remaining.toFixed(1) + 's', W / 2, 24);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  function spawnRoomHeart(x, y) {
+    if (!room.hearts) room.hearts = [];
+    if (room.hearts.length > 24) room.hearts.shift();
+    const colors = ['#ff5fbf', '#ff7fb8', '#ffd1e8', '#ffe082'];
+    room.hearts.push({
+      x: x + (Math.random() - 0.5) * 12,
+      y, t: 0, life: 1.2 + Math.random() * 0.4,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      seed: Math.random() * 6.28,
+    });
+  }
+
+  function drawHeart(ctx, x, y, s) {
+    // s = full height (hearts are taller than wide-ish)
+    const w = s, h = s;
+    ctx.beginPath();
+    ctx.moveTo(x, y + h * 0.35);
+    ctx.bezierCurveTo(x, y, x - w * 0.55, y, x - w * 0.55, y + h * 0.30);
+    ctx.bezierCurveTo(x - w * 0.55, y + h * 0.55, x, y + h * 0.75, x, y + h);
+    ctx.bezierCurveTo(x, y + h * 0.75, x + w * 0.55, y + h * 0.55, x + w * 0.55, y + h * 0.30);
+    ctx.bezierCurveTo(x + w * 0.55, y, x, y, x, y + h * 0.35);
+    ctx.fill();
+  }
+
+  function drawRoomCat(ctx, rc) {
+    // Smaller variant of the pet-view cat, scaled & flippable, with simple
+    // walking bob and per-state expressions.
+    const s = 0.55;     // sprite scale
+    const bob = (rc.state === 'walk_to' && rc.target) ? Math.abs(Math.sin(rc.walkPhase)) * 2.5 : 0;
+    ctx.save();
+    ctx.translate(rc.x, rc.y - bob);
+    ctx.scale(rc.facing * s, s);
+
+    // tail (simpler 1-segment quadratic)
+    ctx.strokeStyle = '#ffb5d8';
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    const wag = Math.sin(rc.age * 4) * 10;
+    ctx.beginPath();
+    ctx.moveTo(-44, 18);
+    ctx.quadraticCurveTo(-72 + wag * 0.3, -4, -86 + wag * 0.6, -28 + wag);
+    ctx.stroke();
+
+    // body
+    const bg = ctx.createRadialGradient(0, 14, 6, 0, 18, 50);
+    bg.addColorStop(0, '#fff5fa');
+    bg.addColorStop(0.5, '#ffc8e5');
+    bg.addColorStop(1, '#ffaad2');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.ellipse(0, 24, 48, 40, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#c75ea0';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+
+    // paws
+    ctx.fillStyle = '#fff5fa';
+    [{x:-18, y:58}, {x:18, y:58}].forEach(p => {
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, 12, 8, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    });
+
+    // head
+    const headY = -32;
+    const hg = ctx.createRadialGradient(0, headY - 10, 8, 0, headY, 50);
+    hg.addColorStop(0, '#fff5fa');
+    hg.addColorStop(0.6, '#ffcce8');
+    hg.addColorStop(1, '#ffaad2');
+    ctx.fillStyle = hg;
+    ctx.beginPath();
+    ctx.ellipse(0, headY, 42, 38, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // ears
+    ctx.fillStyle = '#ffaad2';
+    ctx.beginPath(); ctx.moveTo(-32, headY - 20); ctx.lineTo(-18, headY - 48); ctx.lineTo(-10, headY - 26); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(32, headY - 20); ctx.lineTo(18, headY - 48); ctx.lineTo(10, headY - 26); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ff7fb8';
+    ctx.beginPath(); ctx.moveTo(-26, headY - 24); ctx.lineTo(-18, headY - 42); ctx.lineTo(-13, headY - 26); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(26, headY - 24); ctx.lineTo(18, headY - 42); ctx.lineTo(13, headY - 26); ctx.closePath(); ctx.fill();
+
+    // eyes — sleeping if state is sleep, otherwise normal/blink
+    const isHappy = rc.happyT > 0 && (rc.state === 'play' || rc.state === 'eat');
+    const isSleeping = rc.state === 'sleep';
+    const blinkAmt = rc.blinkT;
+    [-13, 13].forEach(ex => {
+      if (isSleeping) {
+        // sleeping closed-eye line ~ ~ ~
+        ctx.strokeStyle = '#3a0a3f';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(ex - 6, headY + 2);
+        ctx.quadraticCurveTo(ex, headY + 5, ex + 6, headY + 2);
+        ctx.stroke();
+      } else if (isHappy) {
+        ctx.strokeStyle = '#3a0a3f';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(ex - 6, headY + 4);
+        ctx.quadraticCurveTo(ex, headY - 4, ex + 6, headY + 4);
+        ctx.stroke();
+      } else if (blinkAmt > 0.3) {
+        ctx.strokeStyle = '#3a0a3f';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(ex - 6, headY + 2);
+        ctx.lineTo(ex + 6, headY + 2);
+        ctx.stroke();
+      } else {
+        const eyeH = 10 - blinkAmt * 7;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.ellipse(ex, headY + 2, 6, eyeH, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#3a0a3f';
+        ctx.beginPath();
+        ctx.ellipse(ex, headY + 3, 4, Math.max(1, eyeH - 3), 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(ex - 1, headY, 1.5, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+
+    // cheeks
+    const cheekA = 0.45 + rc.blush * 0.4;
+    ctx.fillStyle = `rgba(255,127,184,${cheekA})`;
+    ctx.beginPath(); ctx.ellipse(-22, headY + 12, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(22, headY + 12, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+
+    // mouth
+    if (rc.state === 'eat' || rc.mouthOpen > 0.2) {
+      ctx.fillStyle = '#3a0a3f';
+      ctx.beginPath(); ctx.ellipse(0, headY + 15, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff7fb8';
+      ctx.beginPath(); ctx.ellipse(0, headY + 16, 2.5, 1.4, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.strokeStyle = '#3a0a3f';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-5, headY + 11);
+      ctx.quadraticCurveTo(-2, headY + 15, 0, headY + 12);
+      ctx.quadraticCurveTo(2, headY + 15, 5, headY + 11);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // sleep z's float above head
+    if (rc.state === 'sleep') {
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = 'bold 18px Bagel Fat One, sans-serif';
+      ctx.textAlign = 'center';
+      const zSway = Math.sin(rc.age * 1.2) * 3;
+      ctx.fillText('z', rc.x + 22 + zSway, rc.y - 60);
+      ctx.fillText('z', rc.x + 30 + zSway, rc.y - 76);
+      ctx.fillText('Z', rc.x + 38 + zSway, rc.y - 94);
+      ctx.restore();
+    }
+  }
 
   function drawCat(now) {
     const ctx = cat.ctx, sz = cat.size;
@@ -1061,7 +1526,45 @@ body::after{
     petCat({ clientX: t.clientX, clientY: t.clientY });
   }, { passive: false });
 
+  // Room view — clicking is OPTIONAL but still rewarded if the player taps
+  // the kitty. Only the cat sprite area triggers a pet so the player can
+  // also click empty room space without earning anything (which would feel
+  // weird). We hit-test against the live roomCat position.
+  function roomCatHitTest(localX, localY) {
+    const rc = room.cat;
+    // Convert click in display coords → world (W=480, H=340) coords
+    const wx = (localX / room.dispW) * room.w;
+    const wy = (localY / room.dispH) * room.h;
+    return Math.hypot(wx - rc.x, wy - (rc.y - 30)) < 50;
+  }
+  function roomClickHandler(e, touch) {
+    const rect = room.canvas.getBoundingClientRect();
+    const lx = (touch ? touch.clientX : e.clientX) - rect.left;
+    const ly = (touch ? touch.clientY : e.clientY) - rect.top;
+    if (roomCatHitTest(lx, ly)) {
+      // bonus tap — react in room
+      const rc = room.cat;
+      rc.mouthOpen = 1;
+      rc.blush = 1;
+      rc.happyT = Math.max(rc.happyT, 0.6);
+      // synthesize a petCat call but anchor float text in the cat-stage
+      // so the floating reactions appear over the room canvas
+      petCat({ clientX: rect.left + lx, clientY: rect.top + ly });
+      // extra hearts at click point
+      spawnRoomHeart(rc.x, rc.y - 30);
+      spawnRoomHeart(rc.x + 10, rc.y - 24);
+    }
+  }
+  room.canvas.addEventListener('click', (e) => roomClickHandler(e, null));
+  room.canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    roomClickHandler(null, e.changedTouches[0]);
+  }, { passive: false });
+
   // ===== PASSIVE TICK =====
+  // Renders whichever view is active. cps() credit is unconditional — the
+  // room view explicitly says "clicking optional" so passive love must
+  // accrue identically regardless of which canvas the player is watching.
   function passiveTick() {
     const now = performance.now();
     const dt = Math.min(0.5, (now - lastTickT) / 1000);
@@ -1072,7 +1575,8 @@ body::after{
       state.lifetime += earned;
     }
     renderHUD();
-    drawCat(now);
+    if (state.viewMode === 'room') drawRoom(now);
+    else                            drawCat(now);
     requestAnimationFrame(passiveTick);
   }
   requestAnimationFrame(passiveTick);
@@ -1106,10 +1610,45 @@ body::after{
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); petCat(); }
   });
 
+  // ===== VIEW + PIXEL TOGGLES =====
+  // Two orthogonal display switches:
+  //   - viewMode: 'pet' (click-stage) | 'room' (passive bedroom scene)
+  //   - pixel: bool — drops canvas internal res so CSS upscales blocky
+  // Both persist to localStorage and re-apply on reload.
+  function applyViewMode() {
+    document.body.classList.toggle('view-pet',  state.viewMode === 'pet');
+    document.body.classList.toggle('view-room', state.viewMode === 'room');
+    document.getElementById('viewPetBtn') .classList.toggle('on', state.viewMode === 'pet');
+    document.getElementById('viewRoomBtn').classList.toggle('on', state.viewMode === 'room');
+    // hint only matters in pet view
+    const hint = document.getElementById('clickHint');
+    if (hint) hint.textContent = state.clicks === 0 ? 'tap me uwu' : '';
+  }
+  function applyPixel() {
+    document.body.classList.toggle('pixel-on', state.pixel);
+    document.getElementById('pixelBtn').classList.toggle('on', state.pixel);
+    document.getElementById('pixelBtn').textContent = state.pixel ? '🟪 pixel · on' : '🟪 pixel';
+    setupCat(); setupRoom();
+  }
+  document.getElementById('viewPetBtn').addEventListener('click', () => {
+    state.viewMode = 'pet'; applyViewMode(); save();
+  });
+  document.getElementById('viewRoomBtn').addEventListener('click', () => {
+    state.viewMode = 'room'; applyViewMode(); save();
+    // hide click hint forever once user enters room mode
+    const hint = document.getElementById('clickHint');
+    if (hint) hint.style.display = 'none';
+  });
+  document.getElementById('pixelBtn').addEventListener('click', () => {
+    state.pixel = !state.pixel; applyPixel(); save();
+  });
+
   // ===== INIT =====
   buildUpgrades();
   renderHUD();
   document.getElementById('muteBtn').textContent = state.muted ? '♪ off' : '♪ on';
+  applyViewMode();
+  applyPixel();
 })();
 </script>
 </body>
