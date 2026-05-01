@@ -187,14 +187,25 @@
 <script>
 (() => {
   // ===== GRID + ISO PROJECTION =====
-  // 18×18 arena (per chat: ~10% bigger than 16×16 to fill more screen).
-  // Native canvas buffer at TW=64 / TH=32 lands around 1232×700, which
-  // CSS-shrinks to fit smaller viewports via max-width/max-height (no
-  // upscale → no blur). Tile aspect 2:1 is the classic isometric ratio.
-  const COLS = 18, ROWS = 18;
+  // Per chat: arena dimensions vary per match. resizeArena() picks one
+  // of the SIZES below, recomputes the canvas buffer, and reallocates
+  // grid storage. Native pixel rendering (no CSS upscale) keeps the
+  // floor crisp; viewport shrinks via max-width/max-height when needed.
+  // Tile aspect 2:1 is the classic isometric ratio.
+  let COLS = 18, ROWS = 18;
   const TW = 64, TH = 32;       // tile width / height in screen space (top face)
   const TZ = 14;                // tile prism depth (the "side" thickness)
-  const ROUND_S = 90;
+  // Round time scales with cell count so a 24×24 huge stage gets ~125s
+  // while a 12×12 small one gets ~60s.
+  const ROUND_TIME_PER_CELL = 0.22;
+  const ROUND_TIME_MIN = 60;
+  let ROUND_S = ROUND_TIME_MIN;
+  const SIZES = [
+    { name: 'small',  c: 12, r: 12 },
+    { name: 'medium', c: 16, r: 16 },
+    { name: 'large',  c: 20, r: 20 },
+    { name: 'huge',   c: 24, r: 24 },
+  ];
 
   // canvas sized to fit the diamond grid + breathing room. Grid bbox:
   //   width  = (COLS + ROWS) * TW/2
@@ -202,15 +213,21 @@
   const cvs = document.getElementById('game');
   const ctx = cvs.getContext('2d');
   const PAD = 40;
-  const cw = (COLS + ROWS) * TW/2 + PAD*2;
-  const ch = (COLS + ROWS) * TH/2 + PAD*2 + TZ + 30;
+  let cw = (COLS + ROWS) * TW/2 + PAD*2;
+  let ch = (COLS + ROWS) * TH/2 + PAD*2 + TZ + 30;
+  let ORIGIN_X = cw / 2;
+  let ORIGIN_Y = PAD;
   cvs.width = cw; cvs.height = ch;
+  function recomputeCanvas() {
+    cw = (COLS + ROWS) * TW/2 + PAD*2;
+    ch = (COLS + ROWS) * TH/2 + PAD*2 + TZ + 30;
+    ORIGIN_X = cw / 2;
+    ORIGIN_Y = PAD;
+    cvs.width = cw; cvs.height = ch;
+  }
   // Canvas renders 1:1 at its native cw×ch buffer. CSS max-width/100% +
   // max-height/100% shrink it to fit smaller viewports without ever
   // upscaling — keeps pixel art crisp.
-  // origin places tile (0,0) at top of diamond
-  const ORIGIN_X = cw / 2;
-  const ORIGIN_Y = PAD;
 
   // iso projection — col + row → screen for the TOP of the tile
   function isoX(c, r) { return (c - r) * TW/2 + ORIGIN_X; }
@@ -272,31 +289,40 @@
   // in a single connected component (8-connectivity). A spawn-corner
   // helper falls back to the nearest existing cell if a layout chops
   // out the literal corner.
-  const _CX = (COLS - 1) / 2;
-  const _CY = (ROWS - 1) / 2;
-  // Predicates use COLS/ROWS-relative magic so the same shape catalog
-  // works at any grid size. Each layout is hand-validated to keep its
-  // walkable area in a single connected component.
-  const _T1 = Math.floor(COLS / 3);
-  const _T2 = COLS - _T1;
+  // Predicates compute COLS/ROWS-relative magic on each call so the
+  // same shape catalog scales to any grid size, including matches that
+  // pick a different size at random. Each layout is hand-validated to
+  // keep its walkable area in a single connected component.
   const LAYOUTS = [
     { name: 'arena',     test: (_c, _r) => true },
-    { name: 'donut',     test: (c, r) => !(c >= _T1 && c < _T2 && r >= _T1 && r < _T2) },
-    { name: 'plus',      test: (c, r) => (c >= _T1 - 1 && c < _T2 + 1) || (r >= _T1 - 1 && r < _T2 + 1) },
-    { name: 'octagon',   test: (c, r) => Math.abs(c - _CX) + Math.abs(r - _CY) <= COLS * 0.72 },
+    { name: 'donut',     test: (c, r) => {
+      const t1 = Math.floor(COLS / 3), t2 = COLS - t1;
+      return !(c >= t1 && c < t2 && r >= t1 && r < t2);
+    }},
+    { name: 'plus',      test: (c, r) => {
+      const t1 = Math.floor(COLS / 3), t2 = COLS - t1;
+      return (c >= t1 - 1 && c < t2 + 1) || (r >= t1 - 1 && r < t2 + 1);
+    }},
+    { name: 'octagon',   test: (c, r) => {
+      const cx = (COLS - 1) / 2, cy = (ROWS - 1) / 2;
+      return Math.abs(c - cx) + Math.abs(r - cy) <= COLS * 0.72;
+    }},
     { name: 'hourglass', test: (c, r) => {
       // narrow waist around the centre — half-width grows linearly out
       // to the edges from a min of (COLS/8) at the centre to full.
-      const distFromCenter = Math.abs(r - _CY);
+      const cx = (COLS - 1) / 2, cy = (ROWS - 1) / 2;
+      const distFromCenter = Math.abs(r - cy);
       const halfWidth = COLS / 8 + distFromCenter * 0.85;
-      return Math.abs(c - _CX) <= halfWidth;
+      return Math.abs(c - cx) <= halfWidth;
     }},
     { name: 'L-block',   test: (c, r) => (r >= ROWS / 2) || (c < COLS * 0.6) },
     { name: 'cross',     test: (c, r) => {
       // big plus + diagonal X combined — feels like a battle arena
-      const onCard = (c >= _T1 && c < _T2) || (r >= _T1 && r < _T2);
-      const onDiag = Math.abs((c - _CX) - (r - _CY)) <= 2 ||
-                     Math.abs((c - _CX) + (r - _CY)) <= 2;
+      const cx = (COLS - 1) / 2, cy = (ROWS - 1) / 2;
+      const t1 = Math.floor(COLS / 3), t2 = COLS - t1;
+      const onCard = (c >= t1 && c < t2) || (r >= t1 && r < t2);
+      const onDiag = Math.abs((c - cx) - (r - cy)) <= 2 ||
+                     Math.abs((c - cx) + (r - cy)) <= 2;
       return onCard || onDiag;
     }},
     { name: 'shards',    test: (c, r) => {
@@ -307,14 +333,16 @@
       if (inHole(COLS - q - 2, q, 2, 2)) return false;
       if (inHole(q, ROWS - q - 2, 2, 2)) return false;
       if (inHole(COLS - q - 2, ROWS - q - 2, 2, 2)) return false;
-      if (inHole(Math.floor(_CX), Math.floor(_CY), 2, 2)) return false;
+      const mc = Math.floor((COLS - 1) / 2), mr = Math.floor((ROWS - 1) / 2);
+      if (inHole(mc, mr, 2, 2)) return false;
       return true;
     }},
     { name: 'ring',      test: (c, r) => {
       // outer perimeter band + spine through middle (keeps connected).
+      const cx = (COLS - 1) / 2, cy = (ROWS - 1) / 2;
       const band = Math.max(2, Math.floor(COLS / 6));
       const inBand = c < band || c >= COLS - band || r < band || r >= ROWS - band;
-      const inSpine = (Math.abs(r - _CY) <= 0) || (Math.abs(c - _CX) <= 0);
+      const inSpine = (Math.abs(r - cy) <= 0) || (Math.abs(c - cx) <= 0);
       return inBand || inSpine;
     }},
   ];
@@ -325,12 +353,27 @@
   //   owner 0 = unclaimed, 1 = player, 2 = bot
   //   level 0 = empty, 1 = light claim, 2 = dark/locked
   const grid = [];
-  for (let r = 0; r < ROWS; r++) {
-    const row = [];
-    for (let c = 0; c < COLS; c++) row.push({ exists: true, owner: 0, level: 0 });
-    grid.push(row);
+  function rebuildGrid() {
+    grid.length = 0;
+    for (let r = 0; r < ROWS; r++) {
+      const row = [];
+      for (let c = 0; c < COLS; c++) row.push({ exists: true, owner: 0, level: 0 });
+      grid.push(row);
+    }
   }
+  rebuildGrid();
   let currentLayoutName = 'arena';
+  let currentSizeName = 'medium';
+  function pickRandomSize() {
+    return SIZES[Math.floor(Math.random() * SIZES.length)];
+  }
+  function resizeArena(size) {
+    currentSizeName = size.name;
+    COLS = size.c; ROWS = size.r;
+    recomputeCanvas();
+    rebuildGrid();
+    ROUND_S = Math.max(ROUND_TIME_MIN, Math.round(COLS * ROWS * ROUND_TIME_PER_CELL));
+  }
   function applyLayout(layout) {
     currentLayoutName = layout.name;
     for (let r = 0; r < ROWS; r++) {
@@ -395,6 +438,8 @@
   // Called at boot and from the PLAY AGAIN button so each round picks a
   // fresh random shape.
   function resetRound() {
+    // pick fresh arena dimensions + layout for each match (per chat).
+    resizeArena(pickRandomSize());
     applyLayout(pickRandomLayout());
     const ySpawn = nearestExistingCell(0, ROWS - 1);
     const bSpawn = nearestExistingCell(COLS - 1, 0);
@@ -1144,6 +1189,9 @@
   }
 
   // ===== TIMER + GAME LOOP =====
+  // ROUND_S is recomputed by resizeArena() each round (scales with cell
+  // count), so initialise from the current value after the boot-time
+  // resetRound() has already chosen a size.
   let timeLeft = ROUND_S;
   let gameActive = true;
   let lastT = performance.now();
