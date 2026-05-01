@@ -916,7 +916,72 @@ body::after{
   // animate purely as a visual flourish; their settle-timeout only triggers
   // win-glow + clears the spinning lock. This makes auto-spin feel snappy and
   // decouples math from visuals.
-  const SLOT_H = 100;
+  // ===== REEL ANIMATION (rAF ticker) =====
+  // Replaces the prior CSS-transition + setTimeout-race approach. Three bugs
+  // this fixes simultaneously:
+  //
+  //  1. **Mobile landing desync** — old code hard-coded SLOT_H=100 but the
+  //     mobile CSS breakpoint (.reel{height:80px} @ ≤560px) made the strip
+  //     overshoot the window by 5 cells. Cell height is now read from layout
+  //     (r.wrap.clientHeight) at spin-start so landing is always pixel-correct.
+  //  2. **Off-by-one painted vs. landed** — old code painted the result at
+  //     strip index 21 but translateY(-20*SLOT_H) centered cell 20 in the
+  //     window, so the symbol you saw at rest was a random filler, not the
+  //     computed result. LANDING_IDX is now the single source of truth for
+  //     both the painter and the translation magnitude.
+  //  3. **Resolve race** — `setTimeout(longest)` could fire before or after
+  //     the CSS transition finished if the browser was throttled. Resolve
+  //     now runs from the ticker's "all reels landed" callback, guaranteeing
+  //     visual + state sync on every spin.
+  const STRIP_LEN   = 24;   // cells per strip (matches buildReels)
+  const LANDING_IDX = 20;   // strip index where result lands
+  const reelAnims   = [];   // active per-reel tweens
+  let   reelTickerOn   = false;
+  let   reelOnComplete = null;
+  function easeOutCubic(t) { const u = 1 - t; return 1 - u * u * u; }
+  function startReelTween(r, landingSym, startTime, duration, fillerLuck) {
+    // Repaint every cell — landing symbol at LANDING_IDX, fresh random
+    // fillers everywhere else so old leftover cells never linger.
+    const cells = r.strip.children;
+    for (let k = 0; k < cells.length; k++) {
+      cells[k].textContent = (k === LANDING_IDX) ? landingSym.em : pickSymbol(fillerLuck).em;
+    }
+    const cellH = r.wrap.clientHeight;     // layout-driven, survives breakpoint
+    r.strip.style.transition = 'none';     // disable any leftover CSS transition
+    r.strip.style.transform  = 'translateY(0px)';
+    r.wrap.classList.remove('win');
+    reelAnims.push({ r, startTime, duration, endY: -LANDING_IDX * cellH });
+  }
+  function reelTicker(now) {
+    for (let i = 0; i < reelAnims.length; i++) {
+      const a = reelAnims[i];
+      const elapsed = now - a.startTime;
+      if (elapsed >= a.duration) {
+        a.r.strip.style.transform = `translateY(${a.endY}px)`;
+        a._done = true;
+      } else {
+        const t = Math.max(0, elapsed) / a.duration;
+        a.r.strip.style.transform = `translateY(${a.endY * easeOutCubic(t)}px)`;
+      }
+    }
+    for (let i = reelAnims.length - 1; i >= 0; i--) {
+      if (reelAnims[i]._done) reelAnims.splice(i, 1);
+    }
+    if (reelAnims.length > 0) {
+      requestAnimationFrame(reelTicker);
+    } else {
+      reelTickerOn = false;
+      const cb = reelOnComplete;
+      reelOnComplete = null;
+      if (cb) cb();
+    }
+  }
+  function ensureReelTicker() {
+    if (reelTickerOn) return;
+    reelTickerOn = true;
+    requestAnimationFrame(reelTicker);
+  }
+
   let spinning = false;
   let runEpoch = 0;   // bumped on prestige so in-flight spin-resolves can bail out
 
@@ -1032,8 +1097,11 @@ body::after{
     const isJackpot = isFullMatch && bestCount === N;
 
     // Reel animation duration — every spin takes exactly this long visually
-    // regardless of win/loss, so AUTO cadence stays constant.
-    const longest = 700 + (N - 1) * 220 + 240;
+    // regardless of win/loss, so AUTO cadence stays constant. Each reel runs
+    // for `BASE + i*STAGGER + SETTLE` ms; the last reel sets `longest` and the
+    // FX buffer's `readyAt` syncs the float-pop popup to the moment it lands.
+    const BASE_DUR = 700, STAGGER = 220, SETTLE = 120;
+    const longest = BASE_DUR + (N - 1) * STAGGER + SETTLE;
     const now = performance.now();
 
     if (payout > 0) {
@@ -1052,32 +1120,21 @@ body::after{
     }
     // (losses: no wallet change, no FX push — readout cleared in resolve below)
 
-    // ===== VISUAL: refresh + animate reels =====
+    // ===== VISUAL: rAF-driven reel animation =====
+    // Each reel's tween is registered with the central ticker. Strip cells
+    // are repainted inside startReelTween (result at LANDING_IDX, random
+    // fillers elsewhere), and the ticker drives translateY 0 → endY where
+    // endY = -LANDING_IDX × r.wrap.clientHeight (read from current layout).
     reelsAtSpin.forEach((r, i) => {
-      const cells = r.strip.children;
-      for (let k = 0; k < cells.length; k++) {
-        if (k === 21) cells[k].textContent = result[i].em;
-        else if (k === 22) cells[k].textContent = SYMBOLS[(i + k) % SYMBOLS.length].em;
-        else if (k > 18) cells[k].textContent = pickSymbol(luck).em;
-      }
-      r.strip.style.transition = 'none';
-      r.strip.style.transform = 'translateY(0)';
-      r.wrap.classList.remove('win');
-    });
-    reelsAtSpin.forEach((r, i) => {
-      const dur = 700 + i * 220 + Math.random() * 100;
-      requestAnimationFrame(() => {
-        r.strip.style.transition = `transform ${dur}ms cubic-bezier(.16,.84,.36,1)`;
-        r.strip.style.transform  = `translateY(-${20 * SLOT_H}px)`;
-      });
+      const dur = BASE_DUR + i * STAGGER + SETTLE;
+      startReelTween(r, result[i], now, dur, luck);
     });
 
-    // ===== RESOLVE: visual-only — readouts + win-glow + clear lock =====
-    // Fires at exactly `longest` ms regardless of win/loss so every spin has
-    // the same visual duration. Both branches update lastPayout + comboBadge
-    // here so the readout never appears before the reels stop.
-    setTimeout(() => {
-      // bail if a prestige happened during the animation
+    // ===== RESOLVE — fires from ticker when the last reel lands =====
+    // Replacing the previous setTimeout(longest) race. The ticker only calls
+    // this after every reel's translateY has reached endY, so readouts can
+    // never appear ahead of (or behind) the visual stop.
+    reelOnComplete = () => {
       if (epoch !== runEpoch) { spinning = false; return; }
       if (payout > 0) {
         document.getElementById('lastPayout').textContent = '+' + fmt(payout) + ' 💫';
@@ -1090,7 +1147,8 @@ body::after{
         document.getElementById('comboBadge').textContent = '';
       }
       spinning = false;
-    }, longest);
+    };
+    ensureReelTicker();
   }
 
   // Visual-only float-chip pop. Wallet + readouts are already updated in
@@ -1162,6 +1220,10 @@ body::after{
     state.upgrades.multi.lvl = keepMulti;
     state.autoOn = false;
     spinning = false;
+    // Drop any in-flight reel tweens — buildReels() below replaces the DOM
+    // refs they hold, and reelOnComplete is bumped via runEpoch guard anyway.
+    reelAnims.length = 0;
+    reelOnComplete = null;
     if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
     sfx.prestige();
     toast(`🌟 ascended · +${gain} stardust!`);
