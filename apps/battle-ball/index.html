@@ -158,7 +158,7 @@
   <div class="brand">BATTLE<span class="dot">·</span>BALL<small>walk · claim · lock the floor</small></div>
   <div class="meta">
     <div class="pill you">YOU<span class="num" id="scoreYou">0</span></div>
-    <div class="pill bot">RIVAL<span class="num" id="scoreBot">0</span></div>
+    <div class="pill bot"><span id="botPersona">RIVAL</span><span class="num" id="scoreBot">0</span></div>
     <div class="pill timer">TIME<span class="num" id="timer">60</span>s</div>
   </div>
 </header>
@@ -427,6 +427,11 @@
     powerups.length = 0;
     spawnT = 3.0;       // first powerup arrives 3s in
     fx.length = 0;
+    // pick a fresh bot personality + surface it on the rival HUD pill
+    botPersonality = BOT_PERSONALITIES[Math.floor(Math.random() * BOT_PERSONALITIES.length)];
+    const pillLabel = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR' }[botPersonality];
+    const botPill = document.getElementById('botPersona');
+    if (botPill) botPill.textContent = pillLabel;
   }
 
   // ===== POWERUPS =====
@@ -631,11 +636,65 @@
   cvs.addEventListener('touchstart', (e) => { e.preventDefault(); onClick(e); }, { passive: false });
 
   // ===== BOT AI =====
-  // Greedy goal-seeker that re-plans every ~1.2s. Picks a random
-  // *desirable* cell within a small radius — preferring untouched or
-  // your-light tiles (for steals) over its own light/dark cells. If
-  // nothing reachable, picks any random reachable cell.
+  // Per chat: 3 personalities chosen at random each round, each with a
+  // distinct cell-scoring function. They share the same plan-cycle
+  // (replan ~0.5–1.1s after path empties) and the same top-N weighted
+  // pick — only the priorities differ.
+  //
+  //   RUSHER   — frenzied claim-everything. Empty tiles dominate. Doesn't
+  //              chase the player or care about powerups.
+  //   HUNTER   — pathological tail. Heavily weights tiles ADJACENT to
+  //              the player so it stays in their face stealing lights.
+  //   COLLECTOR (powerup seeker) — beelines for ⚡ + 🎨 spawns. When no
+  //              powerups exist, falls back to opportunistic claims.
+  //
+  // Each personality keeps a small same-tier baseline so the bot never
+  // soft-locks on an unreachable target — there's always *some* tile
+  // worth pursuing.
+  const BOT_PERSONALITIES = ['rusher', 'hunter', 'collector'];
+  let botPersonality = 'rusher';
   let botPlanT = 0;
+
+  function scoreCellRusher(c, r, cell) {
+    let s = 0;
+    if (cell.level === 0)                         s = 6;  // empty = prime target
+    else if (cell.owner === 1 && cell.level === 1) s = 3; // steals are bonus, not focus
+    else if (cell.owner === 2 && cell.level === 1) s = 2; // own-light → lock
+    return s;
+  }
+  function scoreCellHunter(c, r, cell) {
+    let s = 0;
+    if (cell.level === 0)                         s = 2;
+    else if (cell.owner === 1 && cell.level === 1) s = 4;
+    else if (cell.owner === 2 && cell.level === 1) s = 1;
+    // PLAYER PROXIMITY BONUS — Chebyshev distance to `you`. Closer = more
+    // valuable. Within 2 cells of player gets a strong nudge.
+    const pd = Math.max(Math.abs(c - you.c), Math.abs(r - you.r));
+    if (pd <= 1)      s += 6;
+    else if (pd <= 2) s += 3;
+    else if (pd <= 3) s += 1;
+    return s;
+  }
+  function scoreCellCollector(c, r, cell) {
+    let s = 0;
+    if (cell.level === 0)                         s = 3;
+    else if (cell.owner === 1 && cell.level === 1) s = 3;
+    else if (cell.owner === 2 && cell.level === 1) s = 1;
+    // POWERUP MAGNET — sitting on or adjacent to a powerup is huge.
+    for (const p of powerups) {
+      const d = Math.max(Math.abs(c - p.c), Math.abs(r - p.r));
+      if (d === 0) s += 12;
+      else if (d === 1) s += 5;
+      else if (d <= 2) s += 2;
+    }
+    return s;
+  }
+  function scoreFor(personality) {
+    if (personality === 'rusher') return scoreCellRusher;
+    if (personality === 'hunter') return scoreCellHunter;
+    return scoreCellCollector;
+  }
+
   function botThink(dt) {
     if (!gameActive) return;
     botPlanT -= dt;
@@ -643,7 +702,7 @@
     if (botPlanT > 0) return;                    // idle pause
     botPlanT = 0.5 + Math.random() * 0.6;        // breathing room
 
-    // Score every reachable cell, pick weighted-random from top-N.
+    const scoreFn = scoreFor(botPersonality);
     const candidates = [];
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
@@ -651,12 +710,8 @@
         const cell = grid[r][c];
         if (!cell.exists) continue;
         if (isBlocked(c, r, bot.side)) continue;
-        let score = 0;
-        if (cell.level === 0) score = 4;                       // empty — prime real estate
-        else if (cell.owner === 1 && cell.level === 1) score = 5;  // steal!
-        else if (cell.owner === 2 && cell.level === 1) score = 2;  // double-step lock
-        else score = 0;                                        // already locked / nothing here
-        // mild bias toward closer cells so AI doesn't bee-line across
+        let score = scoreFn(c, r, cell);
+        // mild bias toward closer cells so the bot doesn't bee-line across
         const dist = Math.abs(c - bot.c) + Math.abs(r - bot.r);
         score -= dist * 0.18;
         if (score > 0) candidates.push({ c, r, score });
