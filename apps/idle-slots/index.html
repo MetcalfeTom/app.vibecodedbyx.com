@@ -887,16 +887,22 @@ body::after{
       lineOverlay.appendChild(poly);
     });
   }
-  function showLineSummary(lineCount, totalLineMult, isJackpot, isLWin) {
+  function showLineSummary(lineCount, totalLineMult, isJackpot, isLWin, maxOverlap) {
     const el = document.getElementById('lineSummary');
     if (!el) return;
     if (lineCount === 0) { el.textContent = ''; el.className = ''; return; }
     let text = lineCount + (lineCount === 1 ? ' WIN' : ' WINS');
     if (totalLineMult > 1) text += ' · ×' + totalLineMult.toFixed(2);
     if (isLWin) text += ' · L-WIN';
+    // Surface max-overlap from the multi-pass scan so the player can
+    // see when a single cell participated in multiple winning lines.
+    // Only shown when ≥ 3 (3+ lines through one cell is rare and feels
+    // like a discovery — 2 is already implied by L-WIN tag).
+    if (maxOverlap >= 3) text += ' · ' + maxOverlap + '× OVERLAP';
     el.textContent = text;
-    // gold-tier highlight for L-wins, jackpot, or any multiplier ≥ 1.5
-    el.className = 'line-summary' + ((isJackpot || isLWin || totalLineMult >= 1.5) ? ' gold' : '');
+    // gold-tier highlight for L-wins, jackpot, multiplier ≥ 1.5, or 3+ overlap
+    el.className = 'line-summary' +
+      ((isJackpot || isLWin || totalLineMult >= 1.5 || maxOverlap >= 3) ? ' gold' : '');
     // restart bounce animation
     void el.offsetWidth;
   }
@@ -1422,14 +1428,26 @@ body::after{
       const c = counts[s.nm] || 0;
       if (c > bestCount) { bestCount = c; bestSym = s; }
     }
-    let fullLineBonus = 0;
+    // ===== MULTI-PASS PAYLINE SCAN =====
+    // Per chat: "rewrite to perform a multi-pass scan across all eight
+    // canonical paylines, ensuring overlapping symbols are counted for
+    // every valid line match". Three explicit passes:
+    //   PASS 1 — MATCH: for each line in LINES_BY_N[N] (up to 8 at
+    //     N=9: 3 rows + 3 cols + 2 diagonals), check wild-aware match
+    //     and stash the dominant symbol so PASS 3 can score without
+    //     redoing the work.
+    //   PASS 2 — OVERLAP TALLY: for each cell, count how many winning
+    //     lines include it. Cells at intersections (the 3×3 center
+    //     participates in row 1 + col 1 + both diagonals = up to 4
+    //     wins simultaneously) accumulate higher tallies.
+    //   PASS 3 — SCORE: sum each winning line's len² × val (each line
+    //     counted INDEPENDENTLY — overlap NEVER dedupes a shared cell
+    //     out of any line's contribution). Multi-line and L-win
+    //     multipliers stack on top later.
     const winningLines = [];
     const lines = getLines(N);
-    // ===== WILD-AWARE LINE MATCH =====
-    // A line matches if every cell is either (a) the same non-wild
-    // symbol as the line's "dominant" symbol, OR (b) the wild (🌌).
-    // Pure-wild lines (every cell is wild) score at the wild's val.
-    // Mixed lines with two different non-wild symbols never match.
+
+    // ----- PASS 1: match detection -----
     for (const ln of lines) {
       const symsOnLine = ln.idx.map(i => result[i]);
       const nonWilds = symsOnLine.filter(s => s.nm !== WILD_NM);
@@ -1445,8 +1463,27 @@ body::after{
         }
         if (!allSame) continue;     // mixed non-wilds → no match
       }
-      fullLineBonus += ln.len * ln.len * dominantSym.val;
-      winningLines.push(ln);
+      winningLines.push({ idx: ln.idx, len: ln.len, kind: ln.kind, dominantSym });
+    }
+
+    // ----- PASS 2: overlap tally -----
+    // For each cell, how many winning lines include it. cellHits[i]
+    // can range from 0 (no winning line touches cell i) to 4 (the
+    // center cell on a fully-winning 3×3, participating in row 1 +
+    // col 1 + main diag + anti-diag).
+    const cellHits = new Array(result.length).fill(0);
+    for (const w of winningLines) {
+      for (const i of w.idx) cellHits[i]++;
+    }
+    let maxOverlap = 0;
+    for (const c of cellHits) if (c > maxOverlap) maxOverlap = c;
+
+    // ----- PASS 3: score -----
+    // Independent per-line summing — a cell on 4 winning lines
+    // contributes its symbol's val to all 4 line bonuses (no dedupe).
+    let fullLineBonus = 0;
+    for (const w of winningLines) {
+      fullLineBonus += w.len * w.len * w.dominantSym.val;
     }
     const lineCount = winningLines.length;
     const multiLineMult = lineCount > 1 ? (1 + 0.25 * (lineCount - 1)) : 1;
@@ -1596,12 +1633,12 @@ body::after{
           if (winCells.has(i)) r.wrap.classList.add('win');
         });
         showWinningLines(winningLines, reelsAtSpin);
-        showLineSummary(lineCount, totalLineMult, isJackpot, hasIntersection);
+        showLineSummary(lineCount, totalLineMult, isJackpot, hasIntersection, maxOverlap);
       } else {
         document.getElementById('lastPayout').textContent = '—';
         document.getElementById('comboBadge').textContent = '';
         showWinningLines([], reelsAtSpin);
-        showLineSummary(0, 1, false, false);
+        showLineSummary(0, 1, false, false, 0);
       }
       spinning = false;
     };
