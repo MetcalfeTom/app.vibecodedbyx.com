@@ -91,11 +91,10 @@
     image-rendering:pixelated;image-rendering:crisp-edges;
     border-radius:14px;
     box-shadow:0 0 30px rgba(255,92,138,0.18), 0 0 50px rgba(78,201,214,0.12), inset 0 0 0 2px rgba(247,238,224,0.06);
-    /* JS sets explicit CSS width/height each frame the stage resizes —
-       w/ width:auto only the native 640×540 buffer would render, never
-       scaling up. Default to 100% so the first paint isn't tiny if JS
-       hasn't run yet. */
-    width:100%;height:100%;
+    /* Canvas renders at its native pixel buffer (now ~1100×650 thanks
+       to the upsized tile dimensions) so it fills the stage without CSS
+       upscaling. max-* is the only constraint for small viewports. */
+    max-width:100%;max-height:100%;
     touch-action:none;
   }
 
@@ -179,13 +178,15 @@
 <script>
 (() => {
   // ===== GRID + ISO PROJECTION =====
-  // 8×8 grid is small enough to colour fully in a 60s round but big
-  // enough that pathfinding + AI feel meaningful. Tile aspect 2:1 is
-  // the classic isometric ratio.
-  const COLS = 8, ROWS = 8;
+  // 16×16 arena (per chat) — a slight bump over the original 8×8 (now
+  // 4× the cell count) without going 24×24 huge. Native canvas buffer
+  // at TW=64 / TH=32 lands around 1104×636, which CSS-shrinks to fit
+  // smaller viewports via max-width/max-height (no upscale → no blur).
+  // Tile aspect 2:1 is the classic isometric ratio.
+  const COLS = 16, ROWS = 16;
   const TW = 64, TH = 32;       // tile width / height in screen space (top face)
   const TZ = 14;                // tile prism depth (the "side" thickness)
-  const ROUND_S = 60;
+  const ROUND_S = 75;
 
   // canvas sized to fit the diamond grid + breathing room. Grid bbox:
   //   width  = (COLS + ROWS) * TW/2
@@ -196,32 +197,9 @@
   const cw = (COLS + ROWS) * TW/2 + PAD*2;
   const ch = (COLS + ROWS) * TH/2 + PAD*2 + TZ + 30;
   cvs.width = cw; cvs.height = ch;
-  // ===== STAGE FIT =====
-  // Canvas pixel buffer stays at cw×ch (so iso math stays integer-clean
-  // and crisp); CSS scales it to fill the .stage container while
-  // preserving aspect ratio. width:auto/height:auto in CSS doesn't
-  // actually upscale beyond the buffer, so we explicitly set the CSS
-  // size in JS each time the viewport changes.
-  function fitCanvas() {
-    const stage = cvs.parentElement;
-    if (!stage) return;
-    const rect = stage.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-    const aspect = cw / ch;
-    let w = rect.width;
-    let h = w / aspect;
-    if (h > rect.height) {
-      h = rect.height;
-      w = h * aspect;
-    }
-    cvs.style.width  = w + 'px';
-    cvs.style.height = h + 'px';
-  }
-  window.addEventListener('resize', fitCanvas);
-  // also refit after fonts load (header height can shift the stage)
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitCanvas);
-  // initial fit on next frame so the layout has settled
-  requestAnimationFrame(fitCanvas);
+  // Canvas renders 1:1 at its native cw×ch buffer. CSS max-width/100% +
+  // max-height/100% shrink it to fit smaller viewports without ever
+  // upscaling — keeps pixel art crisp.
   // origin places tile (0,0) at top of diamond
   const ORIGIN_X = cw / 2;
   const ORIGIN_Y = PAD;
@@ -280,83 +258,57 @@
 
   // ===== ROOM LAYOUTS =====
   // Per chat: rooms aren't always square — randomize shape each round.
-  // ASCII templates are easy to author/eyeball:
-  //   '#' = walkable tile
-  //   '.' = void (no tile drawn, not pathable, not click-targetable)
-  // Each layout must keep all '#'s in a single connected component
-  // (8-connectivity matches our pathfinder) and must include at least
-  // one tile near each corner so the player + bot have valid spawns.
+  // Layouts are now predicate functions `(c, r) → bool` so they scale
+  // to any grid size without hand-painting every cell. All shapes are
+  // designed for the 24×24 grid and chosen to keep their walkable area
+  // in a single connected component (8-connectivity). A spawn-corner
+  // helper falls back to the nearest existing cell if a layout chops
+  // out the literal corner.
+  const _CX = (COLS - 1) / 2;
+  const _CY = (ROWS - 1) / 2;
+  // Predicates use COLS/ROWS-relative magic so the same shape catalog
+  // works at any grid size. Each layout is hand-validated to keep its
+  // walkable area in a single connected component.
+  const _T1 = Math.floor(COLS / 3);
+  const _T2 = COLS - _T1;
   const LAYOUTS = [
-    { name: 'arena',     rows: [
-      '########',
-      '########',
-      '########',
-      '########',
-      '########',
-      '########',
-      '########',
-      '########',
-    ]},
-    { name: 'donut',     rows: [
-      '########',
-      '########',
-      '##....##',
-      '##....##',
-      '##....##',
-      '##....##',
-      '########',
-      '########',
-    ]},
-    { name: 'plus',      rows: [
-      '..####..',
-      '..####..',
-      '########',
-      '########',
-      '########',
-      '########',
-      '..####..',
-      '..####..',
-    ]},
-    { name: 'octagon',   rows: [
-      '..####..',
-      '.######.',
-      '########',
-      '########',
-      '########',
-      '########',
-      '.######.',
-      '..####..',
-    ]},
-    { name: 'hourglass', rows: [
-      '########',
-      '########',
-      '.######.',
-      '..####..',
-      '..####..',
-      '.######.',
-      '########',
-      '########',
-    ]},
-    { name: 'L-block',   rows: [
-      '####....',
-      '####....',
-      '####....',
-      '####....',
-      '########',
-      '########',
-      '########',
-      '########',
-    ]},
-    { name: 'shards',    rows: [
-      '########',
-      '###..###',
-      '########',
-      '##....##',
-      '##....##',
-      '########',
-      '###..###',
-      '########',
-    ]},
+    { name: 'arena',     test: (_c, _r) => true },
+    { name: 'donut',     test: (c, r) => !(c >= _T1 && c < _T2 && r >= _T1 && r < _T2) },
+    { name: 'plus',      test: (c, r) => (c >= _T1 - 1 && c < _T2 + 1) || (r >= _T1 - 1 && r < _T2 + 1) },
+    { name: 'octagon',   test: (c, r) => Math.abs(c - _CX) + Math.abs(r - _CY) <= COLS * 0.72 },
+    { name: 'hourglass', test: (c, r) => {
+      // narrow waist around the centre — half-width grows linearly out
+      // to the edges from a min of (COLS/8) at the centre to full.
+      const distFromCenter = Math.abs(r - _CY);
+      const halfWidth = COLS / 8 + distFromCenter * 0.85;
+      return Math.abs(c - _CX) <= halfWidth;
+    }},
+    { name: 'L-block',   test: (c, r) => (r >= ROWS / 2) || (c < COLS * 0.6) },
+    { name: 'cross',     test: (c, r) => {
+      // big plus + diagonal X combined — feels like a battle arena
+      const onCard = (c >= _T1 && c < _T2) || (r >= _T1 && r < _T2);
+      const onDiag = Math.abs((c - _CX) - (r - _CY)) <= 2 ||
+                     Math.abs((c - _CX) + (r - _CY)) <= 2;
+      return onCard || onDiag;
+    }},
+    { name: 'shards',    test: (c, r) => {
+      // small holes punched in each quadrant — irregular but symmetric.
+      const inHole = (a, b, w, h) => c >= a && c < a + w && r >= b && r < b + h;
+      const q = Math.floor(COLS / 4);
+      if (inHole(q, q, 2, 2)) return false;
+      if (inHole(COLS - q - 2, q, 2, 2)) return false;
+      if (inHole(q, ROWS - q - 2, 2, 2)) return false;
+      if (inHole(COLS - q - 2, ROWS - q - 2, 2, 2)) return false;
+      if (inHole(Math.floor(_CX), Math.floor(_CY), 2, 2)) return false;
+      return true;
+    }},
+    { name: 'ring',      test: (c, r) => {
+      // outer perimeter band + spine through middle (keeps connected).
+      const band = Math.max(2, Math.floor(COLS / 6));
+      const inBand = c < band || c >= COLS - band || r < band || r >= ROWS - band;
+      const inSpine = (Math.abs(r - _CY) <= 0) || (Math.abs(c - _CX) <= 0);
+      return inBand || inSpine;
+    }},
   ];
 
   // ===== STATE =====
@@ -375,7 +327,7 @@
     currentLayoutName = layout.name;
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        grid[r][c].exists = layout.rows[r][c] === '#';
+        grid[r][c].exists = !!layout.test(c, r);
         grid[r][c].owner = 0;
         grid[r][c].level = 0;
       }
@@ -516,14 +468,16 @@
       piece.boostT = Math.max(piece.boostT, 4.0);
       sfxBoost();
     } else if (type === 'paint') {
-      // splash-claim the 8 neighbours that exist and aren't already
-      // locked by someone else (locked stays locked).
+      // Splash-claim the 8 neighbours that exist. Per chat: paint can
+      // also UNLOCK enemy locked (level 2) tiles in the radius — they
+      // get downgraded to the picker's light claim. The picker's OWN
+      // locks stay intact (don't sabotage your own progress).
       for (const [dc, dr] of NB) {
         const nc = piece.c + dc, nr = piece.r + dr;
         if (!inBounds(nc, nr) || !grid[nr][nc].exists) continue;
         const cell = grid[nr][nc];
-        if (cell.level === 2) continue;                  // locked tiles untouched
-        cell.owner = piece.side; cell.level = 1;         // light claim
+        if (cell.owner === piece.side && cell.level === 2) continue; // own locks untouched
+        cell.owner = piece.side; cell.level = 1;         // light claim (resets enemy locks too)
       }
       sfxPaint();
     }
