@@ -1281,11 +1281,43 @@ body::before{
   // === GitHub repo URL (used to make commit hashes clickable) ===
   const REPO_URL = 'https://github.com/MetcalfeTom/app.vibecodedbyx.com';
 
+  // ===== CENTRAL STORE =====
+  // Single source of truth for every reactive slice on the page. Subpages
+  // subscribe to slices instead of polling renderers separately at different
+  // cadences. Set() fans out to all listeners synchronously and stamps a
+  // last-changed timestamp; Get() always returns the most-recent value, so
+  // a subpage activated mid-fetch still sees fresh data.
+  const Store = (() => {
+    const state = {};
+    const listeners = {};
+    return {
+      get(slice)   { return state[slice]; },
+      getTs(slice) { return state[slice + '__ts'] || 0; },
+      set(slice, value) {
+        state[slice] = value;
+        state[slice + '__ts'] = Date.now();
+        (listeners[slice] || []).forEach(fn => {
+          try { fn(value); } catch (e) { console.warn('[store]', slice, e); }
+        });
+      },
+      subscribe(slice, fn, opts = {}) {
+        (listeners[slice] = listeners[slice] || []).push(fn);
+        // fire-on-subscribe so late listeners catch up to the latest value
+        if (opts.fireNow !== false && state[slice] !== undefined) {
+          try { fn(state[slice]); } catch (e) { console.warn('[store]', slice, e); }
+        }
+      },
+    };
+  })();
+
   // ===== SNAPSHOT POLLER =====
   // Adaptive: fast when content changes, slows down when idle, pauses when the
   // tab is hidden, and skips re-render when ETag/content-hash matches the last
-  // fetch. Avoids redownloading the 250KB data.json every 5s on quiet streams.
+  // fetch. On real change, writes once to Store.set('snapshot', ...) — every
+  // subscriber (applyRealData, feedPulseMetrics, log emitter) wakes up from
+  // that single call. Avoids redownloading the 250KB data.json every 5s.
   let realData = null;
+  Store.subscribe('snapshot', d => { realData = d; }, { fireNow: false });   // back-compat mirror
   let dataFetched = false;
   const Poll = {
     baseMs: 5000,
@@ -1340,8 +1372,9 @@ body::before{
       }
       const d = JSON.parse(text);
       const isFirst = !realData;
-      realData = d;
-      applyRealData(d);
+      // Single store write — every subscriber (applyRealData, feedPulseMetrics,
+      // future renderers) wakes up exactly once for this change.
+      Store.set('snapshot', d);
       dataFetched = true;
       pushLog(isFirst ? 'info' : 'ok', 'snap', 'snapshot ' + (isFirst ? 'initial load' : 'refreshed') + ' · ' + (text.length / 1024).toFixed(0) + ' KB');
     } catch (e) {
@@ -1456,6 +1489,12 @@ body::before{
     if (d.runtime) renderRuntime(d.runtime);
     if (d.llm) renderLlm(d.llm);
   }
+  // Wire the central store: every snapshot change rebuilds all dependent
+  // panels (storage, deploys, system, network, runtime, llm) in a single
+  // synchronous pass. No more scattered renderers re-reading `realData` at
+  // independent cadences and disagreeing.
+  Store.subscribe('snapshot', d => applyRealData(d), { fireNow: false });
+
   function renderLlm(L) {
     const sum = document.getElementById('llmSummary');
     if (!sum) return;
@@ -2746,8 +2785,12 @@ body::before{
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
-    feedPulseMetrics();
-    setInterval(feedPulseMetrics, 4000); // refresh on each data.json poll
+    // Old: setInterval(feedPulseMetrics, 4000) — pulled from realData on a
+    // separate cadence than the snapshot poll, leading to occasional stale
+    // values right after a fast refresh. New: subscribe once to the Store so
+    // pulse metrics are pushed exactly when the snapshot changes (no drift,
+    // no redundant calls when data is unchanged).
+    Store.subscribe('snapshot', () => feedPulseMetrics(), { fireNow: true });
   }
 
   // ===== manual telemetry refresh =====
@@ -2766,11 +2809,12 @@ body::before{
       const r = await fetch('./data.json?_=' + Date.now(), { cache: 'no-store' });
       if (!r.ok) throw new Error('http ' + r.status);
       const d = await r.json();
-      realData = d;
+      // Single store write — applyRealData + feedPulseMetrics + any other
+      // snapshot subscriber fan out from this one call. No more imperative
+      // re-render chain that could miss a panel.
+      Store.set('snapshot', d);
       dataFetched = true;
-      applyRealData(d);
       renderTotals();
-      feedPulseMetrics();
       // re-pull supabase deployments so USAGE picks up any new commits
       if (supabaseClient) {
         const re = await supabaseClient
