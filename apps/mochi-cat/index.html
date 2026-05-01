@@ -420,6 +420,7 @@ body.view-pet  #roomCanvas{ display:none }
 
   <div class="footer">
     <button id="muteBtn">♪ on</button>
+    <button id="musicBtn">♫ off</button>
     <button id="resetBtn">↻ reset</button>
     <span>made with ♡</span>
   </div>
@@ -585,6 +586,171 @@ body.view-pet  #roomCanvas{ display:none }
     err: () => tone(180, 0.10, 'sine', 0.05),
   };
 
+  // ===== LO-FI MUSIC LOOP =====
+  // 4-bar Cmaj7 / Am7 / Fmaj7 / G7 progression at 78 BPM with triangle-wave
+  // melody, soft sine bass, brushed-noise hi-hat, sub-thump kick, and a
+  // sparse vinyl crackle layer. Everything routes through a 1800 Hz lowpass
+  // for that warm tape feel + a noise-impulse convolver reverb. Uses a
+  // look-ahead scheduler (60 ms tick, 0.5 s schedule horizon) so timing
+  // stays tight even under a busy main thread. ♫ button in footer toggles.
+  const NOTE = {
+    'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196.00,'A3':220.00,'Bb3':233.08,'B3':246.94,
+    'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'G4':392.00,'A4':440.00,'Bb4':466.16,'B4':493.88,
+    'C5':523.25,'D5':587.33,'E5':659.25,'F5':698.46,'G5':783.99,'A5':880.00,'B5':987.77,'C6':1046.50,
+  };
+  const lofi = {
+    on: false,
+    tempo: 78,                 // BPM
+    beat: 0,                   // monotonic beat counter
+    schedNext: 0,              // ctx-time of next beat to schedule
+    master: null, reverb: null, dry: null, wet: null, crackleSrc: null,
+    schedTimer: null,
+    // bass + chord notes per bar
+    chords: [
+      { bass: 'C3',  pad: ['C4', 'E4', 'G4', 'B4'] },   // Cmaj7
+      { bass: 'A3',  pad: ['A3', 'C4', 'E4', 'G4'] },   // Am7
+      { bass: 'F3',  pad: ['F3', 'A3', 'C4', 'E4'] },   // Fmaj7
+      { bass: 'G3',  pad: ['G3', 'B3', 'D4', 'F4'] },   // G7
+    ],
+    // 4-note melody per bar (one per beat) — simple, hummable
+    melody: [
+      ['E5', 'G5', 'C6', 'G5'],
+      ['A4', 'C5', 'E5', 'C5'],
+      ['F4', 'A4', 'C5', 'A4'],
+      ['G4', 'B4', 'D5', 'B4'],
+    ],
+  };
+  function makeReverb(a, dur = 2.4) {
+    const len = Math.floor(a.sampleRate * dur);
+    const buf = a.createBuffer(2, len, a.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.4);
+    }
+    return buf;
+  }
+  function makeCrackleBuffer(a, durSec = 4) {
+    const len = Math.floor(a.sampleRate * durSec);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      // sparse vinyl pops — only ~0.6% of samples carry a click
+      d[i] = Math.random() < 0.006 ? (Math.random() * 2 - 1) : 0;
+    }
+    return buf;
+  }
+  function lofiNote(t, freq, type, dur, vol, attack = 0.04) {
+    const a = ctx(); if (!a || !lofi.master) return;
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    osc.connect(g); g.connect(lofi.master);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  }
+  function lofiHat(t) {
+    const a = ctx(); if (!a || !lofi.master) return;
+    const dur = 0.10;
+    const len = Math.max(1, Math.floor(a.sampleRate * dur));
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1);
+    const src = a.createBufferSource(); src.buffer = buf;
+    const f = a.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 6500;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.045, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(lofi.master);
+    src.start(t);
+  }
+  function lofiKick(t) {
+    const a = ctx(); if (!a || !lofi.master) return;
+    const osc = a.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(38, t + 0.18);
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    osc.connect(g); g.connect(lofi.master);
+    osc.start(t); osc.stop(t + 0.20);
+  }
+  function lofiSchedule() {
+    if (!lofi.on) return;
+    const a = ctx(); if (!a) return;
+    const beatDur = 60 / lofi.tempo;
+    while (lofi.schedNext < a.currentTime + 0.5) {
+      const t = lofi.schedNext;
+      const beatInBar = lofi.beat % 4;
+      const bar = Math.floor(lofi.beat / 4) % lofi.chords.length;
+      // bass — once per bar on beat 0
+      if (beatInBar === 0) {
+        lofiNote(t, NOTE[lofi.chords[bar].bass] / 2, 'sine', beatDur * 3.85, 0.16, 0.06);
+        // chord pad — slightly staggered triangle stack
+        lofi.chords[bar].pad.forEach((n, i) => {
+          lofiNote(t + 0.018 * i, NOTE[n], 'triangle', beatDur * 3.7, 0.045, 0.10);
+        });
+      }
+      // melody — every beat
+      const melName = lofi.melody[bar][beatInBar];
+      lofiNote(t, NOTE[melName], 'triangle', beatDur * 0.92, 0.085, 0.025);
+      // kick on beats 0 and 2
+      if (beatInBar === 0 || beatInBar === 2) lofiKick(t);
+      // hi-hat on every offbeat
+      lofiHat(t + beatDur * 0.5);
+      lofi.beat++;
+      lofi.schedNext += beatDur;
+    }
+    lofi.schedTimer = setTimeout(lofiSchedule, 60);
+  }
+  function lofiStart() {
+    const a = ctx(); if (!a) return;
+    if (lofi.on) return;
+    lofi.on = true;
+    // master chain: osc → master gain → lowpass → split (dry + reverb wet) → output
+    const master = a.createGain(); master.gain.value = 0.0;
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; lp.Q.value = 0.7;
+    const conv = a.createConvolver(); conv.buffer = makeReverb(a, 2.4);
+    const dry = a.createGain(); dry.gain.value = 0.85;
+    const wet = a.createGain(); wet.gain.value = 0.42;
+    master.connect(lp);
+    lp.connect(dry); lp.connect(conv); conv.connect(wet);
+    dry.connect(a.destination); wet.connect(a.destination);
+    lofi.master = master; lofi.reverb = conv; lofi.dry = dry; lofi.wet = wet;
+    // sparse vinyl crackle — looping noise through highpass at low gain
+    const crSrc = a.createBufferSource();
+    crSrc.buffer = makeCrackleBuffer(a, 4);
+    crSrc.loop = true;
+    const crFilt = a.createBiquadFilter(); crFilt.type = 'highpass'; crFilt.frequency.value = 2400;
+    const crGain = a.createGain(); crGain.gain.value = 0.18;
+    crSrc.connect(crFilt); crFilt.connect(crGain); crGain.connect(master);
+    crSrc.start();
+    lofi.crackleSrc = crSrc;
+    // gentle fade-in
+    master.gain.linearRampToValueAtTime(0.42, a.currentTime + 1.2);
+    lofi.beat = 0;
+    lofi.schedNext = a.currentTime + 0.15;
+    lofiSchedule();
+  }
+  function lofiStop() {
+    if (!lofi.on) return;
+    lofi.on = false;
+    if (lofi.schedTimer) { clearTimeout(lofi.schedTimer); lofi.schedTimer = null; }
+    const a = ctx();
+    if (a && lofi.master) {
+      lofi.master.gain.cancelScheduledValues(a.currentTime);
+      lofi.master.gain.setValueAtTime(lofi.master.gain.value, a.currentTime);
+      lofi.master.gain.linearRampToValueAtTime(0.0001, a.currentTime + 0.4);
+    }
+    setTimeout(() => {
+      try { lofi.crackleSrc && lofi.crackleSrc.stop(); } catch (e) {}
+      try { lofi.master && lofi.master.disconnect(); } catch (e) {}
+      lofi.master = null; lofi.crackleSrc = null;
+    }, 500);
+  }
+
   // ===== CAT RENDERER =====
   // Pure-canvas chibi cat. Draws to offscreen-style raw canvas — no DOM
   // children — so we can re-render at 60fps cheaply. Sprite layout:
@@ -710,36 +876,100 @@ body.view-pet  #roomCanvas{ display:none }
     wallGrad.addColorStop(1, '#5a0d70');
     ctx.fillStyle = wallGrad;
     ctx.fillRect(0, 0, W, wallH);
-    // window with stars (upper-left)
-    ctx.fillStyle = '#1a0028';
-    ctx.fillRect(48, 28, 120, 80);
-    ctx.strokeStyle = '#ffb5d8';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(48, 28, 120, 80);
-    // window cross
-    ctx.beginPath(); ctx.moveTo(108, 28); ctx.lineTo(108, 108); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(48, 68); ctx.lineTo(168, 68); ctx.stroke();
-    // stars in window — twinkle via age
+    // ===== LARGE PIXELATED WINDOW WITH RAIN =====
+    // Centerpiece of the back wall. 2×2 pane grid, blue rain falling
+    // behind the glass, distant moon + softly twinkling cloud-veiled
+    // stars. Sized to dominate the wall — chat ask: "large pixelated
+    // window with rain animation".
+    const winX = 110, winY = 18, winW = 260, winH = 170;
+    // outer frame (chunky pink)
+    ctx.fillStyle = '#ff7fb8';
+    ctx.fillRect(winX - 6, winY - 6, winW + 12, winH + 12);
+    // sky (deep indigo gradient inside the pane)
+    const skyGrad = ctx.createLinearGradient(winX, winY, winX, winY + winH);
+    skyGrad.addColorStop(0, '#0a0428');
+    skyGrad.addColorStop(0.6, '#221450');
+    skyGrad.addColorStop(1, '#3a1670');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(winX, winY, winW, winH);
+    // distant cloud band (soft horizontal swipe)
+    ctx.fillStyle = 'rgba(180, 140, 220, 0.20)';
+    ctx.fillRect(winX, winY + winH * 0.42, winW, 18);
+    ctx.fillRect(winX, winY + winH * 0.62, winW, 12);
+    // moon (hazy, behind clouds)
+    const moonX = winX + winW * 0.78, moonY = winY + winH * 0.26;
+    ctx.fillStyle = 'rgba(255, 224, 176, 0.55)';
+    ctx.beginPath(); ctx.arc(moonX, moonY, 16, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe0b0';
+    ctx.beginPath(); ctx.arc(moonX, moonY, 10, 0, Math.PI * 2); ctx.fill();
+    // veiled stars
     ctx.fillStyle = '#fff';
-    const stars = [{x:70,y:48},{x:140,y:54},{x:90,y:84},{x:154,y:92},{x:60,y:96}];
+    const stars = [
+      {x:winX + 30, y:winY + 28}, {x:winX + 60, y:winY + 50},
+      {x:winX + 110, y:winY + 22}, {x:winX + 170, y:winY + 38},
+      {x:winX + 200, y:winY + 90}, {x:winX + 90, y:winY + 130},
+      {x:winX + 230, y:winY + 60}, {x:winX + 30, y:winY + 110},
+    ];
     stars.forEach((s, i) => {
       const tw = 0.5 + 0.5 * Math.sin(now * 0.003 + i * 1.7);
-      ctx.globalAlpha = 0.4 + tw * 0.55;
-      ctx.beginPath(); ctx.arc(s.x, s.y, 1.6, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = (0.25 + tw * 0.55) * 0.7;
+      ctx.fillRect(s.x, s.y, 1.5, 1.5);
     });
     ctx.globalAlpha = 1;
-    // moon
-    ctx.fillStyle = '#ffe0b0';
-    ctx.beginPath(); ctx.arc(150, 50, 9, 0, Math.PI * 2); ctx.fill();
-
-    // wall — picture frame (2nd accessory)
-    ctx.fillStyle = '#ffb5d8';
-    ctx.fillRect(220, 50, 56, 40);
-    ctx.fillStyle = '#fff5fa';
-    ctx.fillRect(224, 54, 48, 32);
-    // tiny heart in frame
+    // ===== RAIN — clipped to the window pane =====
+    if (!room.rain) {
+      room.rain = [];
+      for (let i = 0; i < 60; i++) {
+        room.rain.push({
+          x: Math.random() * winW,
+          y: Math.random() * winH,
+          v: 110 + Math.random() * 90,
+        });
+      }
+    }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(winX, winY, winW, winH); ctx.clip();
+    const rainDt = Math.min(0.05, (now - (room._rainT || now)) / 1000);
+    room._rainT = now;
+    ctx.fillStyle = '#9bd5ff';
+    for (const r of room.rain) {
+      r.y += r.v * rainDt;
+      r.x -= r.v * rainDt * 0.18;     // slight wind angle
+      if (r.y > winH || r.x < -4) {
+        r.x = Math.random() * (winW + 30);
+        r.y = -2 - Math.random() * 8;
+      }
+      // 1×3 vertical pixel drop — chunky in pixel mode, fine in smooth mode
+      ctx.fillRect(winX + r.x, winY + r.y, 1, 3);
+    }
+    // periodic puddle splashes at the bottom edge of the pane
+    if (Math.random() < 0.35) {
+      const sx = winX + Math.random() * winW;
+      ctx.fillStyle = 'rgba(155, 213, 255, 0.55)';
+      ctx.fillRect(sx, winY + winH - 1, 2, 1);
+    }
+    ctx.restore();
+    // window cross (4-pane grid)
+    ctx.strokeStyle = '#ffb5d8';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(winX, winY, winW, winH);
+    ctx.beginPath();
+    ctx.moveTo(winX + winW * 0.5, winY); ctx.lineTo(winX + winW * 0.5, winY + winH);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(winX, winY + winH * 0.5); ctx.lineTo(winX + winW, winY + winH * 0.5);
+    ctx.stroke();
+    // sill
     ctx.fillStyle = '#ff5fbf';
-    drawHeart(ctx, 248, 70, 12);
+    ctx.fillRect(winX - 12, winY + winH + 4, winW + 24, 8);
+
+    // small picture frame (kept, repositioned to lower-left to balance window)
+    ctx.fillStyle = '#ffb5d8';
+    ctx.fillRect(28, 130, 56, 44);
+    ctx.fillStyle = '#fff5fa';
+    ctx.fillRect(32, 134, 48, 36);
+    ctx.fillStyle = '#ff5fbf';
+    drawHeart(ctx, 56, 152, 12);
 
     // floor (lower portion) — pink wood-feel via stripes
     ctx.fillStyle = '#7a2a8a';
@@ -1884,6 +2114,12 @@ body.view-pet  #roomCanvas{ display:none }
     state.muted = !state.muted;
     e.target.textContent = state.muted ? '♪ off' : '♪ on';
     save();
+  });
+  document.getElementById('musicBtn').addEventListener('click', (e) => {
+    // ♫ is independent of ♪ (which only mutes sfx). Browser autoplay policy
+    // requires this click as the audio gesture — ctx() resumes inside lofiStart().
+    if (lofi.on) { lofiStop(); e.target.textContent = '♫ off'; }
+    else         { lofiStart(); e.target.textContent = '♫ on'; }
   });
   document.getElementById('resetBtn').addEventListener('click', () => {
     if (!confirm('reset all progress? this can\'t be undone uwu')) return;
