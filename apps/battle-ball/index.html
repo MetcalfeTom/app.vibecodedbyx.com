@@ -406,6 +406,7 @@
       stepDur: 0.22,  // seconds per step
       hopAmp: 6,      // visual hop height in px
       hopT: 0,        // hop phase animator
+      boostT: 0,      // remaining speed-boost seconds (⚡ powerup)
     };
   }
   const you = makePiece(0, ROWS - 1, 1);   // player starts bottom-left
@@ -417,11 +418,100 @@
     applyLayout(pickRandomLayout());
     const ySpawn = nearestExistingCell(0, ROWS - 1);
     const bSpawn = nearestExistingCell(COLS - 1, 0);
-    you.c = ySpawn.c; you.r = ySpawn.r; you.x = you.c; you.y = you.r; you.path = [];
-    bot.c = bSpawn.c; bot.r = bSpawn.r; bot.x = bot.c; bot.y = bot.r; bot.path = [];
+    you.c = ySpawn.c; you.r = ySpawn.r; you.x = you.c; you.y = you.r; you.path = []; you.boostT = 0;
+    bot.c = bSpawn.c; bot.r = bSpawn.r; bot.x = bot.c; bot.y = bot.r; bot.path = []; bot.boostT = 0;
     // claim the start tiles at light level so the round feels initialized
     grid[you.r][you.c].owner = 1; grid[you.r][you.c].level = 1;
     grid[bot.r][bot.c].owner = 2; grid[bot.r][bot.c].level = 1;
+    // wipe any powerups + reset spawn schedule
+    powerups.length = 0;
+    spawnT = 3.0;       // first powerup arrives 3s in
+    fx.length = 0;
+  }
+
+  // ===== POWERUPS =====
+  // Two flavours, both spawn on a random empty walkable tile every
+  // ~7–11s up to a cap of 3 simultaneous pickups:
+  //   ⚡ speed  — gives the picker a 4s ×2 movement boost (boostT)
+  //   🎨 paint  — splash-claims the picker's 8-neighbours as light tiles
+  // Pickup happens automatically when a piece arrives at a powerup's cell.
+  const POWERUP_TYPES = ['speed', 'paint'];
+  const POWERUP_TTL = 14;            // seconds before despawn if uncollected
+  const POWERUP_CAP = 3;
+  const powerups = [];
+  let spawnT = 3.0;                  // countdown to next spawn
+  // FX queue — short-lived visual bursts on pickup (rings + glyphs)
+  const fx = [];
+
+  function trySpawnPowerup() {
+    if (powerups.length >= POWERUP_CAP) return;
+    // candidate cells = exists, empty, no piece on it, no powerup on it
+    const cells = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cell = grid[r][c];
+        if (!cell.exists || cell.level !== 0) continue;
+        if ((c === you.c && r === you.r) || (c === bot.c && r === bot.r)) continue;
+        if (powerups.some(p => p.c === c && p.r === r)) continue;
+        cells.push({ c, r });
+      }
+    }
+    if (cells.length === 0) return;
+    const pick = cells[Math.floor(Math.random() * cells.length)];
+    const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+    powerups.push({ c: pick.c, r: pick.r, type, born: 0, ttl: POWERUP_TTL });
+  }
+
+  function tickPowerups(dt) {
+    if (!gameActive) return;
+    spawnT -= dt;
+    if (spawnT <= 0) {
+      trySpawnPowerup();
+      spawnT = 7 + Math.random() * 4;     // 7–11s cadence
+    }
+    for (let i = powerups.length - 1; i >= 0; i--) {
+      const p = powerups[i];
+      p.born += dt;
+      if (p.born > p.ttl) powerups.splice(i, 1);
+    }
+    for (let i = fx.length - 1; i >= 0; i--) {
+      fx[i].t += dt;
+      if (fx[i].t > fx[i].dur) fx.splice(i, 1);
+    }
+  }
+
+  function applyPowerup(piece, type) {
+    if (type === 'speed') {
+      piece.boostT = Math.max(piece.boostT, 4.0);
+      sfxBoost();
+    } else if (type === 'paint') {
+      // splash-claim the 8 neighbours that exist and aren't already
+      // locked by someone else (locked stays locked).
+      for (const [dc, dr] of NB) {
+        const nc = piece.c + dc, nr = piece.r + dr;
+        if (!inBounds(nc, nr) || !grid[nr][nc].exists) continue;
+        const cell = grid[nr][nc];
+        if (cell.level === 2) continue;                  // locked tiles untouched
+        cell.owner = piece.side; cell.level = 1;         // light claim
+      }
+      sfxPaint();
+    }
+    // pickup ring fx — color matches piece side
+    fx.push({
+      type: 'ring', c: piece.c, r: piece.r, t: 0, dur: 0.5,
+      color: piece.side === 1 ? '#ff5c8a' : '#4ec9d6',
+    });
+  }
+
+  function checkPowerupPickup(piece) {
+    for (let i = 0; i < powerups.length; i++) {
+      const p = powerups[i];
+      if (p.c === piece.c && p.r === piece.r) {
+        applyPowerup(piece, p.type);
+        powerups.splice(i, 1);
+        return;
+      }
+    }
   }
   resetRound();
 
@@ -582,6 +672,7 @@
 
   // ===== ANIMATION =====
   function tickPiece(piece, dt) {
+    if (piece.boostT > 0) piece.boostT = Math.max(0, piece.boostT - dt);
     if (piece.path.length === 0) {
       piece.x = piece.c; piece.y = piece.r;
       piece.stepT = 0;
@@ -594,7 +685,9 @@
     const dxc = target.c - piece.c;
     const dyc = target.r - piece.r;
     const stepDist = Math.hypot(dxc, dyc) || 1;
-    piece.stepT += dt / (piece.stepDur * stepDist);
+    // ⚡ speed boost halves the per-cell step duration while active
+    const boostScale = piece.boostT > 0 ? 0.5 : 1.0;
+    piece.stepT += dt / (piece.stepDur * stepDist * boostScale);
     if (piece.stepT >= 1) {
       // arrived at target cell — claim it
       piece.c = target.c; piece.r = target.r;
@@ -602,6 +695,7 @@
       piece.stepT = 0;
       piece.path.shift();
       claimCell(piece.c, piece.r, piece.side);
+      checkPowerupPickup(piece);
       sfxStep(piece.side);
     } else {
       // tween between current cell origin and target
@@ -638,6 +732,15 @@
   }
   function sfxStep(side) {
     blip(side === 1 ? 540 : 380, 0.06, 'square', 0.10);
+  }
+  function sfxBoost() {
+    blip(660, 0.08, 'sawtooth', 0.16);
+    setTimeout(() => blip(990, 0.10, 'sawtooth', 0.14), 40);
+  }
+  function sfxPaint() {
+    blip(220, 0.18, 'sine', 0.14);
+    setTimeout(() => blip(330, 0.18, 'sine', 0.12), 60);
+    setTimeout(() => blip(440, 0.22, 'sine', 0.10), 120);
   }
   function sfxEnd() {
     blip(523, 0.18, 'triangle', 0.18);
@@ -724,6 +827,22 @@
     ctx.fill();
     ctx.restore();
 
+    // ⚡ speed-boost aura — gold glow ring under the piece while active
+    if (piece.boostT > 0) {
+      const t = performance.now() / 1000;
+      const pulse = 0.55 + Math.sin(t * 12) * 0.20;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const grad = ctx.createRadialGradient(cx, y + TH/2 + 6, 4, cx, y + TH/2 + 6, 26);
+      grad.addColorStop(0, 'rgba(255,206,74,' + pulse + ')');
+      grad.addColorStop(1, 'rgba(255,206,74,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(cx, y + TH/2 + 6, 26, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     const body = piece.side === 1 ? PALETTE.you.dark : PALETTE.bot.dark;
     const accent = piece.side === 1 ? PALETTE.you.light : PALETTE.bot.light;
     const ink = '#1b1228';
@@ -785,6 +904,56 @@
   });
   cvs.addEventListener('pointerleave', () => { hoverC = -1; hoverR = -1; });
 
+  // ===== POWERUP + FX RENDER =====
+  function drawPowerup(p) {
+    const x = isoX(p.c, p.r);
+    const y = isoY(p.c, p.r) + TH/2;
+    const t = performance.now() / 1000;
+    const bob = Math.sin(t * 3 + (p.c + p.r) * 0.7) * 4;
+    // about-to-despawn: blink in the last 2.5 seconds
+    const remaining = p.ttl - p.born;
+    const blink = remaining < 2.5 ? (Math.sin(remaining * 18) * 0.5 + 0.5) : 1;
+    // soft pulsing halo
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const haloColor = p.type === 'speed' ? 'rgba(255,206,74,' : 'rgba(78,201,214,';
+    const pulse = 0.45 + Math.sin(t * 4 + p.c) * 0.18;
+    const grad = ctx.createRadialGradient(x, y - 6 + bob, 2, x, y - 6 + bob, 22);
+    grad.addColorStop(0, haloColor + (pulse * blink) + ')');
+    grad.addColorStop(1, haloColor + '0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y - 6 + bob, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // glyph (emoji)
+    ctx.save();
+    ctx.globalAlpha = blink;
+    ctx.font = '20px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(p.type === 'speed' ? '⚡' : '🎨', x, y - 6 + bob);
+    ctx.restore();
+  }
+
+  function drawFx(f) {
+    if (f.type !== 'ring') return;
+    const x = isoX(f.c, f.r);
+    const y = isoY(f.c, f.r) + TH/2;
+    const k = f.t / f.dur;          // 0..1
+    const radius = 8 + k * 38;
+    const alpha = 1 - k;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = f.color;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius, radius * 0.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function render() {
     // clear w/ a soft sub-floor wash so the canvas chrome glows through
     ctx.clearRect(0, 0, cw, ch);
@@ -800,12 +969,20 @@
     }
     drawList.push({ kind: 'piece', piece: you, depth: you.x + you.y + 0.001 });
     drawList.push({ kind: 'piece', piece: bot, depth: bot.x + bot.y + 0.001 });
+    // powerups + fx use the same depth pipeline so they correctly stack
+    // with adjacent pieces / tiles.
+    for (const p of powerups) drawList.push({ kind: 'powerup', p, depth: p.c + p.r + 0.0005 });
+    for (const f of fx)       drawList.push({ kind: 'fx',      f, depth: f.c + f.r + 0.0008 });
     drawList.sort((a, b) => a.depth - b.depth);
     for (const item of drawList) {
       if (item.kind === 'tile') {
         const cell = grid[item.r][item.c];
         const isHover = item.c === hoverC && item.r === hoverR;
         drawTilePrism(item.c, item.r, paletteFor(cell), isHover);
+      } else if (item.kind === 'powerup') {
+        drawPowerup(item.p);
+      } else if (item.kind === 'fx') {
+        drawFx(item.f);
       } else {
         drawPiece(item.piece);
       }
@@ -823,6 +1000,7 @@
       tickPiece(you, dt);
       tickPiece(bot, dt);
       botThink(dt);
+      tickPowerups(dt);
       timeLeft -= dt;
       if (timeLeft <= 0) {
         timeLeft = 0;
