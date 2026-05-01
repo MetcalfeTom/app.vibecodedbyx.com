@@ -1,0 +1,23 @@
+# tickle-shield
+
+## log
+- 2026-05-01: Created. **Neon brick breaker with glowing particle effects.** Single-file vanilla JS canvas. Aspect-locked stage (11:14) with auto-DPR scaling. Title is a 2-color Bungee header — pink TICKLE + cyan SHIELD with cyan/pink layered text-shadows + tagline "the shield that tickles". HUD shows SCORE (amber glow), LIVES (red glow), LEVEL (green glow), COMBO (×N pink glow). **Bricks**: 6-tier color/HP system — amber 1HP / pink 1HP / violet 2HP / cyan 2HP / hot 3HP / green 5HP boss with skull glyph. Layout grows by row count with level (clamped at 8 rows × 10 cols), with a level/row-modulated edge-skip pattern so each level has visual variety, and boss-row at top from level 3 onward. **Paddle**: 110px base, hot→white→cyan horizontal gradient with 22px pink shadowBlur, 12px tall. Reflects with x-position-based angle ([-0.95, +0.95] rad off vertical) for skill control. Resets COMBO on every paddle bounce — combo only multiplies through chained brick hits. **Ball**: white core w/ 12px shadow + radial-gradient halo + 12-position fading pink trail + ~50%/frame trail particles emitted into the additive-blend pool. Wall + paddle bouncing with sfx, accelerates 2% per paddle hit. Default speed `380 + level*28` capped at 720 px/s. Dies when below the paddle. **Particles**: additive `globalCompositeOperation='lighter'` pass — burst on every brick hit (size scales with HP) + larger boss-kill burst with 1.8× power, gravity-affected. **Pickups** drop ~18% per brick break, fall at 90 px/s, caught by paddle: M multi-ball (splits primary ball into +2 with ±0.6 rad spread), W wide shield (1.7× width 8s), S slow ball (55% speed 8s), L tickle laser (paddle fires twin amber beams every 0.12s for 6s + auto-targets bricks above), `+` extra life. **Combo system**: every brick chained without a paddle bounce ramps the multiplier (cap ×20). 2.5s decay. **Tickle words**: 30% chance of a `hee!`/`ha!`/`hoo!`/`tee!`/`BOP`/`POP!`/`✨`/`★` floating up from the paddle on each catch (the "tickle" of the shield), plus level-up banners and OUCH on death. **Aesthetic**: deep void bg with subtle 32px grid, 30%-alpha motion-trail wash (so trails persist for several frames), screen shake on boss kills + life-loss (12px on death, ~6px on boss break, decays 0.85/frame). Tip overlay on title (`TICKLE SHIELD` Bungee + Press Start 2P controls hint). Pause overlay shows "PAUSED · press P to resume". GAME OVER overlay shows score + level + retry hint. Audio: WebAudio synth — bounce square 420Hz, brick triangle scaled by HP (720+hp*80), pickup arpeggio (880/1175/1568), laser sawtooth 1400Hz, die descending sawtooth, win 5-note chime. Mute button bottom-right, persists nothing (resets per session). Controls: `← →` or A/D paddle, mouse/touch drag (more accurate), `SPACE` launch sticky ball + start/restart, `P` pause, `R` restart. Pollinations OG.
+
+## issues
+- The hot/violet 3HP+ bricks look very similar at full HP — color contrast could be punched up. Acceptable since the HP indicator is the alpha tier of the fill (chips visibly).
+- Boss bricks (5 HP green) at the very top can be unreachable if the level happens to skip the entire row below — the BFS-style reachability isn't enforced; rare in practice since only top corners can be skipped.
+- Multi-ball spawns from the *first* non-stuck ball; if all balls are stuck (during level transitions) the multi pickup is consumed without effect. Could fall back to spawning new ones from the paddle.
+- The `wide` paddle expansion can briefly clip outside the canvas right edge if the paddle is already against the wall when the pickup is caught. Cosmetic — gameplay is unaffected.
+- No tilt / accelerometer support on mobile. Drag works fine.
+- Ball's vertical trajectory can occasionally end up bouncing horizontally between walls forever if the paddle reflection produces |vy| < 30. Unlikely but possible. Could add a min-vy clamp.
+- All visual effects share one `particles` array — at high combo + boss kill you can briefly hit 200+ particles; perf is fine on desktop, may chug on low-end mobile. Could cap at 250.
+
+## todos
+- High-score persisted to localStorage with initials.
+- A "boss level" every 5 levels — single huge boss with patterned movement.
+- Beam-paddle alt mode that holds a 1px laser line attached to the ball — like Arkanoid's energy ball.
+- Different brick patterns: skull, smiley, words.
+- Achievement toasts ("perfect level — no lives lost!").
+- Online leaderboard via Supabase (high scores by session).
+- Trail-color rotation per ball when multi-ball is active (each ball gets its own hue).
+- A "tickle frenzy" mode after destroying ≥10 bricks in 3s — screen invert + double points.
