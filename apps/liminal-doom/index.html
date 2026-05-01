@@ -226,14 +226,14 @@ canvas:focus{outline:none}
 
 <div id="mobile-controls">
   <div class="mc-pad" id="movePad">
-    <button class="mc-up"   data-key="w">▲</button>
-    <button class="mc-left" data-key="strafeL">◀</button>
-    <button class="mc-right"data-key="strafeR">▶</button>
-    <button class="mc-down" data-key="s">▼</button>
+    <button class="mc-up"   data-action="forward">▲</button>
+    <button class="mc-left" data-action="strafeL">◀</button>
+    <button class="mc-right"data-action="strafeR">▶</button>
+    <button class="mc-down" data-action="back">▼</button>
   </div>
   <div class="mc-look">
-    <button data-key="a">↶</button>
-    <button data-key="d">↷</button>
+    <button data-action="rotL">↶</button>
+    <button data-action="rotR">↷</button>
     <button id="mobileFlareBtn" style="background:rgba(80,20,12,0.65);border-color:rgba(255,90,50,0.7);color:#ff8050">🔥</button>
   </div>
 </div>
@@ -842,34 +842,75 @@ canvas:focus{outline:none}
     player.steps = 0; player.lastStepX = startX; player.lastStepY = startY;
   }
 
-  const keys = new Set();
-  function bindKey(name, on) {
-    if (on) keys.add(name); else keys.delete(name);
-  }
-  document.addEventListener('keydown', (e) => {
+  // ===== INPUT SYSTEM (rewritten from scratch) =====
+  // Per chat: "rewrite input + movement, simplified flag-based model,
+  // tracked globally, bypass focus blocks". Three core principles:
+  //
+  // 1. SINGLE FLAG OBJECT — `held` has one bool per logical action.
+  //    Per-frame movement reads directly from it (no keys-Set indirection,
+  //    no string lookups). Source of truth is one object, used by the
+  //    keyboard listeners, the touch pads, and the debug HUD identically.
+  //
+  // 2. WINDOW + CAPTURE PHASE — listeners attached to `window` in the
+  //    capture phase fire BEFORE any element-level handlers can stopProp
+  //    or absorb the event. This is the most permissive listener
+  //    placement in the spec and bypasses focus on buttons/iframes/canvases.
+  //
+  // 3. NO MOVEMENT preventDefault — WASD/arrows/QE pass through unchanged
+  //    so they can never "feel stuck". Only F-fire and arrow-key-scroll
+  //    (when the page might scroll under arrow keys) are preventDefault'd.
+  //
+  // Plus: `blur` clears all flags so alt-tabbing doesn't leave keys stuck.
+  const held = {
+    forward: false, back: false,
+    rotL: false, rotR: false,
+    strafeL: false, strafeR: false,
+  };
+  function bind(action, on) { held[action] = on; }
+  // Map physical keys → logical actions. Multiple keys can bind to the
+  // same action (W and ArrowUp both forward), and the held object holds
+  // bools so multiple bindings work cleanly.
+  const KEY_MAP = {
+    'w': 'forward', 'arrowup': 'forward',
+    's': 'back',    'arrowdown': 'back',
+    'a': 'rotL',    'arrowleft': 'rotL',
+    'd': 'rotR',    'arrowright': 'rotR',
+    'q': 'strafeL',
+    'e': 'strafeR',
+  };
+  function onKey(e, on) {
     const k = e.key.toLowerCase();
-    // ESC used to call showTitle() → running=false. Per kneady1 report
-    // "flare doesn't work" + "movement is dead": the only way running
-    // can flip to false during play (besides winning) was ESC. Removed
-    // entirely per chat's "keep it raw" — ESC is a no-op now.
-    if (k === 'f' && running) { fireFlare(); e.preventDefault(); return; }
-    keys.add(k);
+    // F is action-style (edge-triggered fire), not held — handled separately
+    if (k === 'f') {
+      if (on && running) { fireFlare(); e.preventDefault(); }
+      return;
+    }
+    const action = KEY_MAP[k];
+    if (!action) return;
+    bind(action, on);
+    // prevent page scroll on arrow keys (no behavior cost since we're
+    // already consuming them for movement)
+    if (k.startsWith('arrow')) e.preventDefault();
+  }
+  // window + capture-phase = most permissive event placement in DOM —
+  // fires before any nested element-level listeners and isn't blocked
+  // by document-level shadow handlers from injected toolbars.
+  window.addEventListener('keydown', (e) => onKey(e, true),  { capture: true });
+  window.addEventListener('keyup',   (e) => onKey(e, false), { capture: true });
+  // alt-tab safety — release everything so movement doesn't stick when
+  // focus leaves the window.
+  window.addEventListener('blur', () => {
+    for (const k in held) held[k] = false;
   });
-  document.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
-  // ===== FORCE FOCUS on canvas + window — per chat ("flare doesn't work" /
-  // "movement dead"). Some embed contexts route key events through the
-  // focused element; if focus is on a click-stripped <button> in the title
-  // overlay or an iframe parent, document-level keydown can be silent.
-  // tabindex+autofocus on the canvas + click-time focus() call ensure the
-  // canvas owns focus the moment the player interacts with it.
+  // ===== FOCUS RECLAIM — keeps the canvas as the active focused element
+  // even though the global capture listeners don't strictly need it. Some
+  // browsers' built-in shortcuts (find-in-page, etc.) only suppress when
+  // focus is on a canvas/game element, so this still helps.
   const focusGame = () => { try { canvas.focus(); window.focus(); } catch (e) {} };
   canvas.addEventListener('pointerdown', focusGame);
   canvas.addEventListener('click', focusGame);
-  // also reclaim focus whenever the page itself regains focus (alt-tab back)
   window.addEventListener('focus', focusGame);
-  // initial autofocus (the HTML attr only fires once and may race with the
-  // title overlay's own focus traps, so do it explicitly post-init too)
   setTimeout(focusGame, 100);
   // mobile flare button — single tap fires (separate from hold-to-press d-pad)
   const mflare = document.getElementById('mobileFlareBtn');
@@ -879,10 +920,12 @@ canvas:focus{outline:none}
     mflare.addEventListener('mousedown',  fire);
   }
   // mobile pads
-  document.querySelectorAll('[data-key]').forEach(btn => {
-    const k = btn.dataset.key;
-    const press   = (e) => { e.preventDefault(); keys.add(k); };
-    const release = (e) => { e.preventDefault(); keys.delete(k); };
+  // Mobile pads map directly to the same `held` actions the keyboard
+  // controls, so there is exactly ONE source of truth for input.
+  document.querySelectorAll('[data-action]').forEach(btn => {
+    const a = btn.dataset.action;
+    const press   = (e) => { e.preventDefault(); bind(a, true);  };
+    const release = (e) => { e.preventDefault(); bind(a, false); };
     btn.addEventListener('touchstart', press,   { passive: false });
     btn.addEventListener('touchend',   release, { passive: false });
     btn.addEventListener('mousedown',  press);
@@ -1279,11 +1322,11 @@ canvas:focus{outline:none}
     for (const el of dbgPills) {
       const w = el.dataset.watch;
       let on = false;
-      if (w === 'w') on = keys.has('w') || keys.has('arrowup');
-      else if (w === 'a') on = keys.has('a') || keys.has('arrowleft');
-      else if (w === 's') on = keys.has('s') || keys.has('arrowdown');
-      else if (w === 'd') on = keys.has('d') || keys.has('arrowright');
-      else if (w === 'f') on = performance.now() < flare.muzzleUntil;   // F lights up while muzzle flash window is active
+      if      (w === 'w') on = held.forward;
+      else if (w === 'a') on = held.rotL;
+      else if (w === 's') on = held.back;
+      else if (w === 'd') on = held.rotR;
+      else if (w === 'f') on = performance.now() < flare.muzzleUntil;
       el.classList.toggle('on', on);
     }
   }
@@ -1299,14 +1342,22 @@ canvas:focus{outline:none}
       tickTumbleweeds(dt);
       tickFlare(dt, now);
       tickSmoke(dt, now);
-      // movement
-      let mx = 0, my = 0, rot = 0;
-      if (keys.has('w') || keys.has('arrowup'))    { mx += Math.cos(player.dir); my += Math.sin(player.dir); }
-      if (keys.has('s') || keys.has('arrowdown'))  { mx -= Math.cos(player.dir); my -= Math.sin(player.dir); }
-      if (keys.has('q') || keys.has('strafel'))    { mx += Math.cos(player.dir - Math.PI/2); my += Math.sin(player.dir - Math.PI/2); }
-      if (keys.has('e') || keys.has('strafer'))    { mx += Math.cos(player.dir + Math.PI/2); my += Math.sin(player.dir + Math.PI/2); }
-      if (keys.has('a') || keys.has('arrowleft'))  rot -= 1;
-      if (keys.has('d') || keys.has('arrowright')) rot += 1;
+      // ===== MOVEMENT (rewritten — flag-driven, no Set lookups) =====
+      // Reads `held` directly. fwd/strafe/rot are integer ∈ {-1, 0, 1}
+      // computed from the pair of opposing flags. `mx/my` becomes a 2D
+      // unit vector after normalization, applied with collision below.
+      const fwd    = (held.forward  ? 1 : 0) - (held.back    ? 1 : 0);
+      const strafe = (held.strafeR  ? 1 : 0) - (held.strafeL ? 1 : 0);
+      const rot    = (held.rotR     ? 1 : 0) - (held.rotL    ? 1 : 0);
+      let mx = 0, my = 0;
+      if (fwd) {
+        mx += Math.cos(player.dir) * fwd;
+        my += Math.sin(player.dir) * fwd;
+      }
+      if (strafe) {
+        mx += Math.cos(player.dir + Math.PI / 2) * strafe;
+        my += Math.sin(player.dir + Math.PI / 2) * strafe;
+      }
       if (mx !== 0 || my !== 0) {
         const m = Math.hypot(mx, my);
         mx /= m; my /= m;
