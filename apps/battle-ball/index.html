@@ -230,9 +230,11 @@
     return dx / halfW + dy / halfH <= 1;
   }
   function screenToGrid(sx, sy) {
-    // PASS 1: top diamond
+    // PASS 1: top diamond — skip void cells so clicks on holes don't
+    // accidentally hit a phantom tile.
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
+        if (!grid[r][c].exists) continue;
         const cx = isoX(c, r);
         const cy = isoY(c, r) + TH/2;
         if (pointInDiamond(sx, sy, cx, cy, TW/2, TH/2, 1)) {
@@ -243,6 +245,7 @@
     // PASS 2: side-wall fallback (front-to-back so closer tile wins)
     for (let r = ROWS - 1; r >= 0; r--) {
       for (let c = COLS - 1; c >= 0; c--) {
+        if (!grid[r][c].exists) continue;
         const x = isoX(c, r);
         const y = isoY(c, r);
         if (sx >= x - TW/2 && sx <= x + TW/2 &&
@@ -255,21 +258,133 @@
   }
   function inBounds(c, r) { return c >= 0 && c < COLS && r >= 0 && r < ROWS; }
 
+  // ===== ROOM LAYOUTS =====
+  // Per chat: rooms aren't always square — randomize shape each round.
+  // ASCII templates are easy to author/eyeball:
+  //   '#' = walkable tile
+  //   '.' = void (no tile drawn, not pathable, not click-targetable)
+  // Each layout must keep all '#'s in a single connected component
+  // (8-connectivity matches our pathfinder) and must include at least
+  // one tile near each corner so the player + bot have valid spawns.
+  const LAYOUTS = [
+    { name: 'arena',     rows: [
+      '########',
+      '########',
+      '########',
+      '########',
+      '########',
+      '########',
+      '########',
+      '########',
+    ]},
+    { name: 'donut',     rows: [
+      '########',
+      '########',
+      '##....##',
+      '##....##',
+      '##....##',
+      '##....##',
+      '########',
+      '########',
+    ]},
+    { name: 'plus',      rows: [
+      '..####..',
+      '..####..',
+      '########',
+      '########',
+      '########',
+      '########',
+      '..####..',
+      '..####..',
+    ]},
+    { name: 'octagon',   rows: [
+      '..####..',
+      '.######.',
+      '########',
+      '########',
+      '########',
+      '########',
+      '.######.',
+      '..####..',
+    ]},
+    { name: 'hourglass', rows: [
+      '########',
+      '########',
+      '.######.',
+      '..####..',
+      '..####..',
+      '.######.',
+      '########',
+      '########',
+    ]},
+    { name: 'L-block',   rows: [
+      '####....',
+      '####....',
+      '####....',
+      '####....',
+      '########',
+      '########',
+      '########',
+      '########',
+    ]},
+    { name: 'shards',    rows: [
+      '########',
+      '###..###',
+      '########',
+      '##....##',
+      '##....##',
+      '########',
+      '###..###',
+      '########',
+    ]},
+  ];
+
   // ===== STATE =====
-  // grid[r][c] = {owner: 0|1|2, level: 0|1|2}
+  // grid[r][c] = {exists, owner: 0|1|2, level: 0|1|2}
+  //   exists           — true when the layout places a tile here
   //   owner 0 = unclaimed, 1 = player, 2 = bot
   //   level 0 = empty, 1 = light claim, 2 = dark/locked
-  // dark tiles owned by the OTHER side block movement.
   const grid = [];
   for (let r = 0; r < ROWS; r++) {
     const row = [];
-    for (let c = 0; c < COLS; c++) row.push({ owner: 0, level: 0 });
+    for (let c = 0; c < COLS; c++) row.push({ exists: true, owner: 0, level: 0 });
     grid.push(row);
+  }
+  let currentLayoutName = 'arena';
+  function applyLayout(layout) {
+    currentLayoutName = layout.name;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        grid[r][c].exists = layout.rows[r][c] === '#';
+        grid[r][c].owner = 0;
+        grid[r][c].level = 0;
+      }
+    }
+  }
+  function pickRandomLayout() {
+    return LAYOUTS[Math.floor(Math.random() * LAYOUTS.length)];
+  }
+  // Find the closest existing cell to the requested seed (BFS-by-rings).
+  // Used to nudge spawn corners onto valid tiles when the layout removes
+  // them (e.g. octagon's missing corners).
+  function nearestExistingCell(seedC, seedR) {
+    if (inBounds(seedC, seedR) && grid[seedR][seedC].exists) return { c: seedC, r: seedR };
+    for (let radius = 1; radius < Math.max(COLS, ROWS); radius++) {
+      for (let dr = -radius; dr <= radius; dr++) {
+        for (let dc = -radius; dc <= radius; dc++) {
+          if (Math.max(Math.abs(dr), Math.abs(dc)) !== radius) continue;
+          const c = seedC + dc, r = seedR + dr;
+          if (inBounds(c, r) && grid[r][c].exists) return { c, r };
+        }
+      }
+    }
+    return { c: 0, r: 0 };  // fallback (should never trigger on real layouts)
   }
 
   // PALETTES — base, light claim, dark/locked
   const PALETTE = {
-    base: { top:'#f1d7c2', right:'#c89b80', left:'#a87662' },
+    // unowned tiles are dark grey (per chat) so claimed pinks/cyans pop
+    base: { top:'#3a3848', right:'#28263a', left:'#1a1828' },
     you: {
       light: { top:'#ffb6c8', right:'#d97a98', left:'#b35370' },
       dark:  { top:'#ff5c8a', right:'#c33269', left:'#8a1d44' },
@@ -295,9 +410,20 @@
   }
   const you = makePiece(0, ROWS - 1, 1);   // player starts bottom-left
   const bot = makePiece(COLS - 1, 0, 2);   // rival starts top-right
-  // claim the start tiles at light level so the round feels initialized
-  grid[you.r][you.c] = { owner: 1, level: 1 };
-  grid[bot.r][bot.c] = { owner: 2, level: 1 };
+  // resetRound — applies a layout and parks both pieces on valid spawns.
+  // Called at boot and from the PLAY AGAIN button so each round picks a
+  // fresh random shape.
+  function resetRound() {
+    applyLayout(pickRandomLayout());
+    const ySpawn = nearestExistingCell(0, ROWS - 1);
+    const bSpawn = nearestExistingCell(COLS - 1, 0);
+    you.c = ySpawn.c; you.r = ySpawn.r; you.x = you.c; you.y = you.r; you.path = [];
+    bot.c = bSpawn.c; bot.r = bSpawn.r; bot.x = bot.c; bot.y = bot.r; bot.path = [];
+    // claim the start tiles at light level so the round feels initialized
+    grid[you.r][you.c].owner = 1; grid[you.r][you.c].level = 1;
+    grid[bot.r][bot.c].owner = 2; grid[bot.r][bot.c].level = 1;
+  }
+  resetRound();
 
   // ===== PATHFINDING =====
   // BFS over 8-neighborhood (4 cardinal + 4 diagonals) — per chat: makes
@@ -314,9 +440,17 @@
   function isBlocked(_c, _r, _side) {
     return false;
   }
+  // A cell is *passable* if it's in bounds, exists in the layout, and
+  // isn't logically blocked. Non-existent cells (holes / void) are
+  // never reachable, regardless of side or pathfinder context.
+  function isPassable(c, r, side) {
+    if (!inBounds(c, r)) return false;
+    if (!grid[r][c].exists) return false;
+    if (isBlocked(c, r, side)) return false;
+    return true;
+  }
   function bfs(piece, goalC, goalR) {
-    if (!inBounds(goalC, goalR)) return null;
-    if (isBlocked(goalC, goalR, piece.side)) return null;
+    if (!isPassable(goalC, goalR, piece.side)) return null;
     const start = { c: piece.c, r: piece.r };
     if (start.c === goalC && start.r === goalR) return [];
     const seen = Array.from({length: ROWS}, () => Array(COLS).fill(null));
@@ -326,9 +460,8 @@
       const { c, r } = q.shift();
       for (const [dc, dr] of NB) {
         const nc = c + dc, nr = r + dr;
-        if (!inBounds(nc, nr)) continue;
-        if (seen[nr][nc]) continue;
-        if (isBlocked(nc, nr, piece.side)) continue;
+        if (seen[nr] && seen[nr][nc]) continue;
+        if (!isPassable(nc, nr, piece.side)) continue;
         seen[nr][nc] = { c, r };
         if (nc === goalC && nr === goalR) {
           // reconstruct
@@ -372,17 +505,20 @@
   // many cells are still empty — once that hits zero the round ends
   // early (per chat: "add game end when all tiles are claimed").
   function tally() {
-    let y = 0, b = 0, empty = 0;
+    let y = 0, b = 0, unlocked = 0;
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const cell = grid[r][c];
-        if (cell.level === 0) { empty++; continue; }
+        if (!cell.exists) continue;     // void cells don't count
+        if (cell.level < 2) unlocked++;  // 0 (empty) or 1 (light) — still
+                                         // up for grabs in this round.
+        if (cell.level === 0) continue;
         const pts = cell.level;        // 1 or 2
         if (cell.owner === 1) y += pts;
         else if (cell.owner === 2) b += pts;
       }
     }
-    return { you: y, bot: b, empty };
+    return { you: y, bot: b, unlocked };
   }
 
   // ===== INPUT =====
@@ -423,6 +559,7 @@
       for (let c = 0; c < COLS; c++) {
         if (c === bot.c && r === bot.r) continue;
         const cell = grid[r][c];
+        if (!cell.exists) continue;
         if (isBlocked(c, r, bot.side)) continue;
         let score = 0;
         if (cell.level === 0) score = 4;                       // empty — prime real estate
@@ -651,10 +788,13 @@
   function render() {
     // clear w/ a soft sub-floor wash so the canvas chrome glows through
     ctx.clearRect(0, 0, cw, ch);
-    // back-to-front render: row+col asc, with pieces drawn AFTER their tile
+    // back-to-front render: row+col asc, with pieces drawn AFTER their tile.
+    // Void cells are skipped entirely so the layout's holes look like
+    // empty space, not floor.
     const drawList = [];
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
+        if (!grid[r][c].exists) continue;
         drawList.push({ kind: 'tile', c, r, depth: c + r });
       }
     }
@@ -692,7 +832,9 @@
     // HUD
     const s = tally();
     // Early end: every tile claimed → no point waiting out the timer.
-    if (gameActive && s.empty === 0) endGame();
+    // End the round early only once every tile is fully LOCKED — light
+    // claims still count as up-for-grabs, so a contested floor plays out.
+    if (gameActive && s.unlocked === 0) endGame();
     document.getElementById('scoreYou').textContent = s.you;
     document.getElementById('scoreBot').textContent = s.bot;
     document.getElementById('timer').textContent = Math.ceil(timeLeft);
@@ -721,12 +863,8 @@
   }
 
   document.getElementById('restartBtn').addEventListener('click', () => {
-    // reset grid + pieces + timer
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) grid[r][c] = { owner: 0, level: 0 };
-    you.c = 0; you.r = ROWS - 1; you.x = you.c; you.y = you.r; you.path = [];
-    bot.c = COLS - 1; bot.r = 0; bot.x = bot.c; bot.y = bot.r; bot.path = [];
-    grid[you.r][you.c] = { owner: 1, level: 1 };
-    grid[bot.r][bot.c] = { owner: 2, level: 1 };
+    // pick a fresh random layout + reseat both pieces on valid spawns
+    resetRound();
     timeLeft = ROUND_S;
     gameActive = true;
     document.getElementById('over').classList.remove('show');
