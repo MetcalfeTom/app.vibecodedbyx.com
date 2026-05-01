@@ -386,7 +386,7 @@ body.view-pet  #roomCanvas{ display:none }
 
 <div class="stage">
   <div class="head">
-    <div class="brand">mochi cat<small>· uwu clicker · ♡ ♡ ♡ ·</small></div>
+    <div class="brand">mochi cat<small>· null wants pets · ♡ ♡ ♡ ·</small></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <div class="hud-pill"><span class="em">♡</span><span id="lifetimeCount">0</span> total</div>
       <div class="hud-pill" id="evoStagePill"><span class="em">🐱</span><span id="evoStageName">kitten</span></div>
@@ -409,7 +409,7 @@ body.view-pet  #roomCanvas{ display:none }
       <canvas id="catCanvas" width="320" height="320"></canvas>
       <canvas id="roomCanvas" width="480" height="340"></canvas>
       <div class="floor" id="catFloor"></div>
-      <div class="click-hint" id="clickHint">tap me uwu</div>
+      <div class="click-hint" id="clickHint">wave near null uwu</div>
     </div>
   </div>
 
@@ -449,9 +449,9 @@ body.view-pet  #roomCanvas{ display:none }
     },
     muted: false,
     megaUwuUntil: 0,        // performance.now() timestamp; mega mode active while < this
-    megaUwuCharges: 0,      // charges accumulated; every 100 clicks gives 1 charge
-    viewMode: 'pet',        // 'pet' (click-stage) | 'room' (passive bedroom scene — clicking optional)
-    pixel: false,           // retro pixel-art rendering — drops canvas internal res, CSS upscales blocky
+    megaUwuCharges: 0,      // charges accumulated; every 50 interactions gives 1 charge
+    viewMode: 'pet',        // 'pet' (cursor-chase stage) | 'room' (passive bedroom scene)
+    pixel: true,            // retro chunky-pixel rendering — DEFAULT ON for new players per chat
   };
 
   // Persistent rate tracking — keep love streaming without storing per-tick deltas.
@@ -597,15 +597,23 @@ body.view-pet  #roomCanvas{ display:none }
   const cat = {
     canvas: document.getElementById('catCanvas'),
     ctx: null,
-    bounce: 0,             // 0..1 — set to 1 on click, decays
+    bounce: 0,             // 0..1 — set to 1 on bat/click, decays
     blush: 0,              // 0..1
-    mouthOpen: 0,          // 0..1, set to 1 on click for ~150ms
-    happyT: 0,             // happy-face hold time (post-click)
+    mouthOpen: 0,          // 0..1, set to 1 on bat/click for ~150ms
+    happyT: 0,             // happy-face hold time (post-bat)
     walkPhase: 0,
     blinkT: 0,             // blink animation 0..1
     blinkNext: 4 + Math.random() * 4,
     tailPhase: 0,
     age: 0,                // total animated time
+    // Cursor-chase fields — Null tracks the cursor and bats at it instead
+    // of relying on clicks. cursor is in canvas-px coords (0..size); null
+    // when pointer is off-canvas → she gradually drifts back to center.
+    cursor: null,
+    followX: 0, followY: 0,    // body-offset lerp toward cursor
+    lastBatT: 0,
+    batT: 0,                   // 0..1, set to 1 on bat trigger, decays
+    batAngle: 0,
   };
   function setupCat() {
     const c = cat.canvas;
@@ -616,10 +624,10 @@ body.view-pet  #roomCanvas{ display:none }
     cat.size = sz;
     if (state.pixel) {
       // Pixel-art mode — small physical framebuffer, CSS upscales with
-      // `image-rendering: pixelated`. Logical drawing coords still address
-      // a `sz × sz` region (we scale the ctx) so the same drawing code
-      // produces blocky output without changes to drawCat.
-      const PIX = 96;   // logical→physical: cat sprite quantized to ~96 px
+      // `image-rendering: pixelated`. Cranked from 96→64 per chat for
+      // chunkier retro feel: at ~320px display that's ~5 display-px per
+      // logical pixel, which reads as solidly NES/GameBoy-style blocky.
+      const PIX = 64;
       c.width = PIX; c.height = PIX;
       cat.ctx = c.getContext('2d');
       cat.ctx.imageSmoothingEnabled = false;
@@ -647,7 +655,9 @@ body.view-pet  #roomCanvas{ display:none }
     w: 480, h: 340,
     // wandering kitty — autonomous AI, no input required
     cat: { x: 240, y: 280, vx: 0, facing: 1, walkPhase: 0, blinkT: 0, blinkNext: 5,
-           state: 'wander', stateT: 3, target: null, mouthOpen: 0, blush: 0, happyT: 0, age: 0 },
+           state: 'wander', stateT: 3, target: null, mouthOpen: 0, blush: 0, happyT: 0, age: 0,
+           lastBatT: 0, batT: 0, batAngle: 0 },
+    cursor: null,           // world-coord cursor or null when off-canvas
     lastHeartT: 0,
   };
   function setupRoom() {
@@ -657,10 +667,10 @@ body.view-pet  #roomCanvas{ display:none }
     c.style.width = wantW + 'px'; c.style.height = wantH + 'px';
     room.dispW = wantW; room.dispH = wantH;
     if (state.pixel) {
-      // Low-res framebuffer → CSS upscales pixelated. 192×134 keeps the
-      // 1.42:1 aspect ratio of the display canvas and gives chunky pixels
-      // at typical desktop sizes (~3-5px per logical pixel).
-      const PW = 192, PH = 134;
+      // Low-res framebuffer → CSS upscales pixelated. Cranked from 192×134
+      // down to 96×68 per chat for chunkier retro feel — at ~480px display
+      // that's ~5 display-px per logical pixel, NES-tier blocky.
+      const PW = 96, PH = 68;
       c.width = PW; c.height = PH;
       room.ctx = c.getContext('2d');
       room.ctx.imageSmoothingEnabled = false;
@@ -781,8 +791,31 @@ body.view-pet  #roomCanvas{ display:none }
     rc.blinkNext -= dt;
     if (rc.blinkNext <= 0) { rc.blinkT = 1; rc.blinkNext = 4 + Math.random() * 5; }
 
-    if (rc.stateT <= 0) {
-      // pick a new behavior — 70% visit a station if any exist
+    // ===== CURSOR CHASE OVERRIDES AI =====
+    // When the cursor is over the room canvas, Null abandons her wander
+    // schedule and chases it directly. She bats when within 50 world-px
+    // of the cursor, with a 380ms cooldown. When the cursor leaves, she
+    // resumes autonomous wandering on the next stateT tick.
+    if (room.cursor) {
+      const tx = Math.max(50, Math.min(W - 50, room.cursor.x));
+      rc.target = { x: tx, y: 280, kind: 'cursor' };
+      rc.state  = 'walk_to';
+      rc.stateT = 1;       // keep refreshing while cursor present
+      // bat trigger
+      const dx = room.cursor.x - rc.x;
+      const dy = room.cursor.y - (rc.y - 30);
+      const dist = Math.hypot(dx, dy);
+      if (dist < 60 && now - rc.lastBatT > 380 && rc.batT < 0.15) {
+        rc.batT = 1;
+        rc.batAngle = Math.atan2(dy, dx);
+        rc.lastBatT = now;
+        const sx = room.canvas.offsetLeft + (room.cursor.x / W) * room.dispW;
+        const sy = room.canvas.offsetTop  + (room.cursor.y / H) * room.dispH;
+        applyPet(sx, sy, 'room');
+        spawnRoomHeart(rc.x, rc.y - 30);
+      }
+    } else if (rc.stateT <= 0) {
+      // pick a new behavior — 75% visit a station if any exist
       if (stations.length > 0 && Math.random() < 0.75) {
         const s = stations[Math.floor(Math.random() * stations.length)];
         rc.target = { x: s.x, y: s.y, kind: s.kind };
@@ -795,17 +828,20 @@ body.view-pet  #roomCanvas{ display:none }
         rc.stateT = 4 + Math.random() * 3;
       }
     }
+    rc.batT *= 0.90;  // bat anim decay
+
     // walk toward target
     if (rc.target) {
       const dx = rc.target.x - rc.x;
-      const speed = 36;
+      const speed = room.cursor ? 56 : 36;     // chase faster than wander
       if (Math.abs(dx) > 4) {
         rc.facing = dx > 0 ? 1 : -1;
         rc.x += Math.sign(dx) * Math.min(Math.abs(dx), speed * dt);
         rc.walkPhase += dt * 8;
       } else {
-        // arrived — switch to station-specific idle
-        if (rc.state === 'walk_to') {
+        // arrived — switch to station-specific idle (skip if chasing cursor;
+        // we want to keep her bat-ready stance, not lull into nap mode)
+        if (rc.state === 'walk_to' && rc.target.kind !== 'cursor') {
           rc.state = (rc.target.kind === 'wander') ? 'idle'
                    : (rc.target.kind === 'pillow' || rc.target.kind === 'sakura') ? 'sleep'
                    : (rc.target.kind === 'yarn') ? 'play'
@@ -974,6 +1010,34 @@ body.view-pet  #roomCanvas{ display:none }
         ctx.moveTo(ex - 6, headY + 2);
         ctx.lineTo(ex + 6, headY + 2);
         ctx.stroke();
+      } else if (state.pixel) {
+        // PIXEL MODE — same lime-green glowing slit eyes as the pet view,
+        // adapted to the room cat's slightly smaller eye size.
+        const eyeH = 10 - blinkAmt * 7;
+        // dark void sclera
+        ctx.fillStyle = '#0a0014';
+        ctx.beginPath();
+        ctx.ellipse(ex, headY + 2, 6, eyeH, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // lime glow bloom
+        const glowStr = 0.55 + rc.batT * 0.4;
+        ctx.fillStyle = `rgba(170,255,40,${glowStr})`;
+        ctx.beginPath();
+        ctx.ellipse(ex, headY + 2, 8, eyeH + 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // crisp lime iris
+        ctx.fillStyle = '#aaff14';
+        ctx.beginPath();
+        ctx.ellipse(ex, headY + 3, 4, Math.max(1, eyeH - 3), 0, 0, Math.PI * 2);
+        ctx.fill();
+        // dark slit pupil
+        ctx.fillStyle = '#0a0014';
+        ctx.beginPath();
+        ctx.ellipse(ex, headY + 3, 1.2, Math.max(1, eyeH - 4), 0, 0, Math.PI * 2);
+        ctx.fill();
+        // sparkle
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(ex - 1, headY, 1.4, 0, Math.PI * 2); ctx.fill();
       } else {
         const eyeH = 10 - blinkAmt * 7;
         ctx.fillStyle = '#fff';
@@ -1013,6 +1077,43 @@ body.view-pet  #roomCanvas{ display:none }
     }
 
     ctx.restore();
+
+    // ===== BAT PAW SWIPE (room view) =====
+    if (rc.batT > 0.05) {
+      const cx0 = rc.x;
+      const cy0 = rc.y - 30;     // around the head
+      const reach = 36 * Math.sin((1 - rc.batT) * Math.PI);
+      const px = cx0 + Math.cos(rc.batAngle) * reach;
+      const py = cy0 + Math.sin(rc.batAngle) * reach;
+      // motion arcs
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 1.6;
+      for (let i = 0; i < 3; i++) {
+        const r = 9 + i * 5;
+        ctx.globalAlpha = (0.6 - i * 0.18) * rc.batT;
+        ctx.beginPath();
+        ctx.arc(cx0 + Math.cos(rc.batAngle) * 14, cy0 + Math.sin(rc.batAngle) * 14, r,
+                rc.batAngle - 0.5, rc.batAngle + 0.5);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // paw pad
+      ctx.fillStyle = '#fff5fa';
+      ctx.strokeStyle = '#c75ea0';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(px, py, 7, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // pink toe beans
+      ctx.fillStyle = '#ff5fbf';
+      const beanAng = rc.batAngle + Math.PI;
+      for (let i = -1; i <= 1; i++) {
+        const a = beanAng + i * 0.4;
+        ctx.beginPath();
+        ctx.arc(px + Math.cos(a) * 4, py + Math.sin(a) * 4, 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
 
     // sleep z's float above head
     if (rc.state === 'sleep') {
@@ -1054,8 +1155,47 @@ body.view-pet  #roomCanvas{ display:none }
     const cy = sz * 0.55;
     const scale = (sz / 320) * (1 - cat.bounce * 0.10);
 
+    // ===== CURSOR-CHASE LERP =====
+    // Null leans her body toward the cursor (clamped) so it reads as her
+    // following the mouse, then bats when within range. When cursor leaves,
+    // followX/Y decay back to 0 (centered).
+    if (cat.cursor) {
+      const dx = cat.cursor.x - cx;
+      const dy = cat.cursor.y - cy;
+      const tgX = Math.max(-60, Math.min(60, dx * 0.35));
+      const tgY = Math.max(-26, Math.min(26, dy * 0.30));
+      cat.followX += (tgX - cat.followX) * 0.14;
+      cat.followY += (tgY - cat.followY) * 0.14;
+    } else {
+      cat.followX *= 0.92;
+      cat.followY *= 0.92;
+    }
+    cat.batT *= 0.90;     // bat anim decay (~7-frame half-life)
+
+    // ===== BAT TRIGGER =====
+    // When cursor is inside the canvas AND close enough to Null's current
+    // (followed) position AND cooldown has elapsed, fire a bat: paw swipe
+    // animation + applyPet reward at the cursor's stage-coord position.
+    if (cat.cursor) {
+      const cx0 = cx + cat.followX;
+      const cy0 = cy + cat.followY - 30;   // bat-zone is around the head
+      const dx = cat.cursor.x - cx0;
+      const dy = cat.cursor.y - cy0;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 84 && now - cat.lastBatT > 380 && cat.batT < 0.15) {
+        cat.batT = 1;
+        cat.batAngle = Math.atan2(dy, dx);
+        cat.lastBatT = now;
+        // stage coords of cursor (canvas offset + cursor in display px,
+        // which equals cat.cursor since CSS px == cat.size logical units)
+        const sx = cat.canvas.offsetLeft + cat.cursor.x;
+        const sy = cat.canvas.offsetTop  + cat.cursor.y;
+        applyPet(sx, sy, 'pet');
+      }
+    }
+
     ctx.save();
-    ctx.translate(cx, cy + cat.bounce * 6);
+    ctx.translate(cx + cat.followX, cy + cat.followY + cat.bounce * 6);
     ctx.scale(scale, scale);
 
     // ===== TAIL (wags continuously, faster on click) =====
@@ -1177,8 +1317,41 @@ body.view-pet  #roomCanvas{ display:none }
         ctx.moveTo(ex - 7, eyeY);
         ctx.lineTo(ex + 7, eyeY);
         ctx.stroke();
+      } else if (state.pixel) {
+        // PIXEL MODE — Null's eyes glow lime green and pierce through the
+        // neon shadow per chat. Layered render: dark void sclera, lime-green
+        // glowing iris that pulses with bat tension, white pinprick sparkle.
+        // The drop-shadow "glow" at low res reads as bright bloom around
+        // the eye — pierces through the cat's pink shadow palette.
+        const eyeH = 12 - blinkAmt * 9;
+        // dark sclera (almost black) so the green pops
+        ctx.fillStyle = '#0a0014';
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY, 8, eyeH, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // lime green glow pass (drawn larger + transparent for bloom)
+        const glowStr = 0.55 + cat.batT * 0.4;
+        ctx.fillStyle = `rgba(170,255,40,${glowStr})`;
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY, 10, eyeH + 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // crisp lime iris core
+        ctx.fillStyle = '#aaff14';
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY + 1, 5, Math.max(1, eyeH - 4), 0, 0, Math.PI * 2);
+        ctx.fill();
+        // dark slit pupil (cat-style vertical slit) for that piercing look
+        ctx.fillStyle = '#0a0014';
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY + 1, 1.5, Math.max(1, eyeH - 5), 0, 0, Math.PI * 2);
+        ctx.fill();
+        // white sparkle
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(ex - 2, eyeY - 3, 1.6, 0, Math.PI * 2);
+        ctx.fill();
       } else {
-        // big sparkly eye — sclera + pink iris + white sparkle
+        // big sparkly eye — sclera + pink iris + white sparkle (smooth mode)
         const eyeH = 12 - blinkAmt * 9;
         ctx.fillStyle = '#fff';
         ctx.beginPath();
@@ -1348,6 +1521,52 @@ body.view-pet  #roomCanvas{ display:none }
 
     ctx.restore();
 
+    // ===== BAT PAW SWIPE =====
+    // Drawn in canvas coords (after restore) so the paw can extend outside
+    // the cat-local transform region. Fires when cat.batT > 0.05; reach
+    // peaks at batT=0.5 (sin(π·0.5)=1) and returns to 0 at the end of the
+    // animation. The paw points along cat.batAngle toward the cursor that
+    // triggered the bat.
+    if (cat.batT > 0.05) {
+      const cx0 = cx + cat.followX;
+      const cy0 = cy + cat.followY - 10;
+      const reach = 56 * Math.sin((1 - cat.batT) * Math.PI);
+      const px = cx0 + Math.cos(cat.batAngle) * reach;
+      const py = cy0 + Math.sin(cat.batAngle) * reach;
+      // motion arcs (3 fading curves trailing the paw)
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 2.5;
+      for (let i = 0; i < 3; i++) {
+        const r = 14 + i * 7;
+        ctx.globalAlpha = (0.6 - i * 0.18) * cat.batT;
+        ctx.beginPath();
+        ctx.arc(cx0 + Math.cos(cat.batAngle) * 22, cy0 + Math.sin(cat.batAngle) * 22, r,
+                cat.batAngle - 0.5, cat.batAngle + 0.5);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // paw pad
+      ctx.fillStyle = '#fff5fa';
+      ctx.strokeStyle = '#c75ea0';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(px, py, 11, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // pink toe beans (3)
+      ctx.fillStyle = '#ff5fbf';
+      const beanAng = cat.batAngle + Math.PI;   // beans point inward (back toward cat)
+      for (let i = -1; i <= 1; i++) {
+        const a = beanAng + i * 0.4;
+        ctx.beginPath();
+        ctx.arc(px + Math.cos(a) * 6, py + Math.sin(a) * 6, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // central bigger bean
+      ctx.beginPath();
+      ctx.arc(px + Math.cos(beanAng) * 3, py + Math.sin(beanAng) * 3, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // ===== MEGA UWU MODE OVERLAY (draws into canvas) =====
     if (performance.now() < state.megaUwuUntil) {
       const remaining = (state.megaUwuUntil - performance.now()) / 1000;
@@ -1460,22 +1679,34 @@ body.view-pet  #roomCanvas{ display:none }
     stage.appendChild(r);
     setTimeout(() => r.remove(), 850);
   }
-  function petCat(e) {
-    // spend a click
+  // ===== INTERACTION CORE =====
+  // applyPet() is the single position-driven reward path used by both the
+  // legacy click handler AND the cursor-chase bat triggers. Each call
+  // credits one pet (≡ click value), animates the right cat, fires sfx,
+  // spawns floating reactions at the given stage coords. The "Null" name
+  // refers to the kitty herself (chat-given). Mouse-over batting is the
+  // primary input now; clicks still work as a fallback for touch devices.
+  function applyPet(stageX, stageY, target) {
     const v = clickValue();
     state.pets += v;
     state.lifetime += v;
     state.clicks++;
 
-    // cat reactions
-    cat.bounce = 1;
-    cat.blush = Math.min(1, cat.blush + 0.5);
-    cat.mouthOpen = 1;
-    cat.happyT = 0.42;
+    // animate the appropriate cat
+    if (target === 'room') {
+      const rc = room.cat;
+      rc.mouthOpen = 1;
+      rc.blush = Math.min(1, rc.blush + 0.55);
+      rc.happyT = Math.max(rc.happyT, 0.45);
+    } else {
+      cat.bounce = 1;
+      cat.blush = Math.min(1, cat.blush + 0.5);
+      cat.mouthOpen = 1;
+      cat.happyT = 0.42;
+    }
 
-    // mega uwu charge — every 50 clicks gets a charge, max 5; each charge
-    // arms an 8s mega uwu burst that the player auto-triggers on next pet
-    // when they have >= 1 charge AND no active mega.
+    // mega uwu charges — every 50 successful interactions earns a charge,
+    // capped at 5; each charge arms an 8s 5× burst on the NEXT interaction.
     const now = performance.now();
     const wasMega = now < state.megaUwuUntil;
     if (state.clicks % 50 === 0 && !wasMega) state.megaUwuCharges = Math.min(5, state.megaUwuCharges + 1);
@@ -1491,40 +1722,72 @@ body.view-pet  #roomCanvas{ display:none }
     }
 
     // visual reactions in stage coords
-    const rect = stage.getBoundingClientRect();
-    const x = (e ? e.clientX - rect.left : rect.width / 2);
-    const y = (e ? e.clientY - rect.top  : rect.height / 2);
-    spawnRipple(x, y);
+    spawnRipple(stageX, stageY);
     const reactWords = ['nya~', 'uwu', '♡', 'mrrr', 'purr', '✨'];
-    const text = wasMega
-      ? '+' + fmt(v) + ' ♡✨'
-      : '+' + fmt(v) + ' ♡';
+    const text = wasMega ? '+' + fmt(v) + ' ♡✨' : '+' + fmt(v) + ' ♡';
     const kind = wasMega ? 'crit' : (Math.random() < 0.25 ? 'heart' : '');
-    spawnReact(text, x, y, kind);
+    spawnReact(text, stageX, stageY, kind);
     if (Math.random() < 0.4) {
       const w = reactWords[Math.floor(Math.random() * reactWords.length)];
-      setTimeout(() => spawnReact(w, x + (Math.random() - 0.5) * 30, y - 20, 'heart'), 80);
+      setTimeout(() => spawnReact(w, stageX + (Math.random() - 0.5) * 30, stageY - 20, 'heart'), 80);
     }
 
-    // hide hint after first click
-    document.getElementById('clickHint').style.display = 'none';
+    // hide hint after first interaction
+    const hint = document.getElementById('clickHint');
+    if (hint) hint.style.display = 'none';
 
-    // sfx + tone variation by combo cadence
     if (wasMega) sfx.crit();
     else sfx.pet();
 
-    // upgrade list refreshes affordability + HUD ticks
     if (state.clicks % 5 === 0) buildUpgrades();
     renderHUD();
     if (state.clicks % 12 === 0) save();
   }
+
+  // Click handler — converts an event to stage coords then calls applyPet.
+  // Mouse-over batting is the new primary input; this stays as a fallback
+  // for touch devices where there's no hover.
+  function petCat(e) {
+    const rect = stage.getBoundingClientRect();
+    const x = (e ? e.clientX - rect.left : rect.width / 2);
+    const y = (e ? e.clientY - rect.top  : rect.height / 2);
+    applyPet(x, y, state.viewMode === 'room' ? 'room' : 'pet');
+  }
+  // ===== PET-VIEW CURSOR TRACKING =====
+  // Mouse-over is now the primary input — Null lerps her body toward the
+  // cursor (clamped to a small region around canvas center so she can't
+  // run off-screen) and bats at it when within range. Click still works
+  // as a fallback for touch devices and for players who prefer tapping.
+  cat.canvas.addEventListener('mousemove', (e) => {
+    const rect = cat.canvas.getBoundingClientRect();
+    cat.cursor = {
+      x: (e.clientX - rect.left) * (cat.size / rect.width),
+      y: (e.clientY - rect.top)  * (cat.size / rect.height),
+    };
+  });
+  cat.canvas.addEventListener('mouseleave', () => { cat.cursor = null; });
   cat.canvas.addEventListener('click', petCat);
-  // some browsers route touch as a separate event — extra coverage
   cat.canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const t = e.changedTouches[0];
+    // touch sets cursor + acts as a tap
+    const rect = cat.canvas.getBoundingClientRect();
+    cat.cursor = {
+      x: (t.clientX - rect.left) * (cat.size / rect.width),
+      y: (t.clientY - rect.top)  * (cat.size / rect.height),
+    };
     petCat({ clientX: t.clientX, clientY: t.clientY });
   }, { passive: false });
+  cat.canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const rect = cat.canvas.getBoundingClientRect();
+    cat.cursor = {
+      x: (t.clientX - rect.left) * (cat.size / rect.width),
+      y: (t.clientY - rect.top)  * (cat.size / rect.height),
+    };
+  }, { passive: false });
+  cat.canvas.addEventListener('touchend', () => { cat.cursor = null; });
 
   // Room view — clicking is OPTIONAL but still rewarded if the player taps
   // the kitty. Only the cat sprite area triggers a pet so the player can
@@ -1560,6 +1823,28 @@ body.view-pet  #roomCanvas{ display:none }
     e.preventDefault();
     roomClickHandler(null, e.changedTouches[0]);
   }, { passive: false });
+
+  // Room cursor tracking — Null abandons wander AI and chases the cursor
+  // when present, batting when close. Cursor is stored in world coords
+  // (0..480, 0..340).
+  room.canvas.addEventListener('mousemove', (e) => {
+    const rect = room.canvas.getBoundingClientRect();
+    room.cursor = {
+      x: (e.clientX - rect.left) * (room.w / rect.width),
+      y: (e.clientY - rect.top)  * (room.h / rect.height),
+    };
+  });
+  room.canvas.addEventListener('mouseleave', () => { room.cursor = null; });
+  room.canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const rect = room.canvas.getBoundingClientRect();
+    room.cursor = {
+      x: (t.clientX - rect.left) * (room.w / rect.width),
+      y: (t.clientY - rect.top)  * (room.h / rect.height),
+    };
+  }, { passive: false });
+  room.canvas.addEventListener('touchend', () => { room.cursor = null; });
 
   // ===== PASSIVE TICK =====
   // Renders whichever view is active. cps() credit is unconditional — the
@@ -1622,7 +1907,7 @@ body.view-pet  #roomCanvas{ display:none }
     document.getElementById('viewRoomBtn').classList.toggle('on', state.viewMode === 'room');
     // hint only matters in pet view
     const hint = document.getElementById('clickHint');
-    if (hint) hint.textContent = state.clicks === 0 ? 'tap me uwu' : '';
+    if (hint) hint.textContent = state.clicks === 0 ? 'wave near null uwu' : '';
   }
   function applyPixel() {
     document.body.classList.toggle('pixel-on', state.pixel);
