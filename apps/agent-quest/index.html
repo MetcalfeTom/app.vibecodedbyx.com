@@ -908,6 +908,11 @@ Pick exactly ONE action from the list. Reply ONLY as compact JSON:
   // ===== GAME LOOP ============================
   // ============================================
   let running = false, autoMode = false, stepResolve = null, abortFlag = false;
+  // Held by the loop while the hero is paused waiting for a STEP. If the user
+  // clicks an action pill during the pause, we mutate this object in place so
+  // the loop applies the override instead of the LLM's pick (was previously
+  // double-applying — chat saw "I clicked X but the hero also did Y").
+  let pendingDecision = null;
   function setBtnState() {
     document.getElementById('btnStart').disabled = running;
     document.getElementById('btnStep').disabled = !running;
@@ -954,11 +959,13 @@ Pick exactly ONE action from the list. Reply ONLY as compact JSON:
       els.sbState.textContent = 'hero thinking…';
       // hero decides (LLM)
       const decision = await heroDecide(cell, actions);
+      pendingDecision = decision;
       renderActions(actions, decision.action);
       adv(`<span class="label">[plan]</span> <em>${escape(decision.action)}</em> — ${escape(decision.reason || '')}`, 'hero');
       await pause();
-      // resolve action
-      applyAction(decision.action, cell);
+      // resolve action — pendingDecision may have been mutated in place by a chat override
+      applyAction(pendingDecision.action, cell);
+      pendingDecision = null;
       renderHero(); renderMap();
       // life check
       if (hero.hp <= 0) {
@@ -1023,15 +1030,22 @@ Pick exactly ONE action from the list. Reply ONLY as compact JSON:
     }, 80);
   });
   function userPickAction(a) {
-    if (running && !autoMode && stepResolve) {
-      // override the LLM's pick: apply this action immediately + resume
-      const cell = world.at(hero.x, hero.y);
-      adv(`<span class="label">[chat]</span> override → <em>${escape(a)}</em>`, 'hero');
-      applyAction(a, cell);
-      renderHero(); renderMap();
-      if (hero.hp <= 0) { hero.alive = false; adv(`Hero falls to a chat-induced choice.`, 'crit'); }
-      advanceStep();
-    }
+    if (!running) return;
+    // Override only works while the hero is paused waiting for a STEP advance,
+    // and the action must be one of the currently-listed available actions.
+    if (autoMode || !stepResolve || !pendingDecision) return;
+    const cell = world.at(hero.x, hero.y);
+    if (!cell.actions || !cell.actions.includes(a)) return;
+    // Mutate the pending decision in place; the loop will apply this single
+    // action when pause() unblocks. Previously we ALSO called applyAction here,
+    // which caused the LLM's original pick to run a moment later — a double-
+    // apply bug that left chat thinking clicks weren't doing anything.
+    pendingDecision.action = a;
+    pendingDecision.reason = 'overridden by chat';
+    adv(`<span class="label">[chat]</span> override → <em>${escape(a)}</em>`, 'hero');
+    // visually re-mark which pill is now suggested
+    document.querySelectorAll('.action-pill').forEach(p => p.classList.toggle('suggested', p.textContent === a));
+    advanceStep();
   }
 
   // ============================================
