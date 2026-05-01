@@ -1228,7 +1228,40 @@ body::after{
       { idx: [2,4,6], len: 3, kind: 'antidiag' },
     ],
   };
-  function getLines(N) { return LINES_BY_N[N] || []; }
+  // ===== AUTO HORIZONTAL PAYLINES — irregular grids only =====
+  // Per chat: "only apply irregular horizontal payline detection when cell
+  // count isn't a multiple of 3". For N where N % 3 === 0 (3, 6, 9) the
+  // canonical hand-written LINES_BY_N table already enumerates every row
+  // — no auto-gen needed. For N=4, 5, 7, 8 (N % 3 !== 0) the trailing
+  // partial row may have 1 OR 2+ cells and the hand-written tables miss
+  // the 2-cell horizontals — auto-gen fills those in. Specifically:
+  //   N=4 (3×2, last row [3]):       row 0 only → no new line (len 1)
+  //   N=5 (3×2, last row [3,4]):     adds row [3,4] (len 2)
+  //   N=7 (3×3, last row [6]):       no new line (len 1)
+  //   N=8 (3×3, last row [6,7]):     adds row [6,7] (len 2)
+  // Cols and diagonals stay table-driven and are merged in via getLines.
+  function autoHorizontalLines(N) {
+    const cols = colCount(N);
+    const rows = Math.ceil(N / cols);
+    const out = [];
+    for (let r = 0; r < rows; r++) {
+      const row = [];
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        if (idx < N) row.push(idx);
+      }
+      if (row.length >= 2) out.push({ idx: row, len: row.length, kind: 'row' });
+    }
+    return out;
+  }
+  function getLines(N) {
+    // Multiples of 3 → canonical hand-written table (rows + cols + diags)
+    if (N % 3 === 0) return LINES_BY_N[N] || [];
+    // Irregular grid → auto-gen horizontals + stored cols/diagonals
+    const stored = LINES_BY_N[N] || [];
+    const nonHoriz = stored.filter(l => l.kind !== 'row');
+    return [...autoHorizontalLines(N), ...nonHoriz];
+  }
 
   let spinning = false;
   let runEpoch = 0;   // bumped on prestige so in-flight spin-resolves can bail out
@@ -1429,48 +1462,60 @@ body::after{
       if (c > bestCount) { bestCount = c; bestSym = s; }
     }
     // ===== MULTI-PASS PAYLINE SCAN =====
-    // Per chat: "rewrite to perform a multi-pass scan across all eight
-    // canonical paylines, ensuring overlapping symbols are counted for
-    // every valid line match". Three explicit passes:
-    //   PASS 1 — MATCH: for each line in LINES_BY_N[N] (up to 8 at
-    //     N=9: 3 rows + 3 cols + 2 diagonals), check wild-aware match
-    //     and stash the dominant symbol so PASS 3 can score without
-    //     redoing the work.
-    //   PASS 2 — OVERLAP TALLY: for each cell, count how many winning
-    //     lines include it. Cells at intersections (the 3×3 center
-    //     participates in row 1 + col 1 + both diagonals = up to 4
-    //     wins simultaneously) accumulate higher tallies.
-    //   PASS 3 — SCORE: sum each winning line's len² × val (each line
-    //     counted INDEPENDENTLY — overlap NEVER dedupes a shared cell
-    //     out of any line's contribution). Multi-line and L-win
-    //     multipliers stack on top later.
-    const winningLines = [];
-    const lines = getLines(N);
-
-    // ----- PASS 1: match detection -----
-    for (const ln of lines) {
+    // Per chat: "perform a clean, independent pass on each payline,
+    // ensuring symbols are reused for multiple wins". `evalLine` is a
+    // PURE function — given the result array + a single line spec, it
+    // returns a winner-or-null verdict without touching any outer
+    // state. Each line is checked in isolation; symbols are shared
+    // across all lines they appear in, so a single cell can drive
+    // multiple wins simultaneously without dedupe.
+    //
+    // Three orchestration passes:
+    //   PASS 1 — MATCH: call evalLine() on each of the (up to 8)
+    //     canonical paylines. Each call is independent — no carry-over
+    //     state, no early bailout based on prior results.
+    //   PASS 2 — OVERLAP TALLY: cellHits[i] = count of winning lines
+    //     touching cell i. Reused symbols inflate this count, which is
+    //     the explicit "reuse" signal.
+    //   PASS 3 — SCORE: sum len² × val across winning lines. Cells in
+    //     multiple winners contribute to each line's bonus separately.
+    //
+    // evalLine is hoisted into a module-level helper:
+    //   {
+    //     idx:[...], len, kind,         (echoes the line spec)
+    //     dominantSym,                  (the substitute-resolved symbol)
+    //   }
+    // or null if the line doesn't match. WILD-aware: wilds substitute
+    // for the dominant non-wild on the line; pure-wild lines score at
+    // the wild's own val; mixed non-wilds → no match.
+    function evalLine(ln, result) {
       const symsOnLine = ln.idx.map(i => result[i]);
       const nonWilds = symsOnLine.filter(s => s.nm !== WILD_NM);
       let dominantSym;
       if (nonWilds.length === 0) {
-        // every cell is wild — score at wild's val
-        dominantSym = symsOnLine[0];
+        dominantSym = symsOnLine[0];          // pure-wild — score at wild val
       } else {
         dominantSym = nonWilds[0];
-        let allSame = true;
         for (let i = 1; i < nonWilds.length; i++) {
-          if (nonWilds[i].nm !== dominantSym.nm) { allSame = false; break; }
+          if (nonWilds[i].nm !== dominantSym.nm) return null;   // mixed non-wilds
         }
-        if (!allSame) continue;     // mixed non-wilds → no match
       }
-      winningLines.push({ idx: ln.idx, len: ln.len, kind: ln.kind, dominantSym });
+      return { idx: ln.idx, len: ln.len, kind: ln.kind, dominantSym };
     }
 
-    // ----- PASS 2: overlap tally -----
-    // For each cell, how many winning lines include it. cellHits[i]
-    // can range from 0 (no winning line touches cell i) to 4 (the
-    // center cell on a fully-winning 3×3, participating in row 1 +
-    // col 1 + main diag + anti-diag).
+    const winningLines = [];
+    const lines = getLines(N);
+
+    // ----- PASS 1: independent per-line match -----
+    for (const ln of lines) {
+      const verdict = evalLine(ln, result);
+      if (verdict) winningLines.push(verdict);
+    }
+
+    // ----- PASS 2: overlap tally (REUSE signal) -----
+    // For each cell, how many winning lines include it. Reused symbols
+    // (e.g., the center cell on a full-grid match in row 1 + col 1 +
+    // both diagonals = 4 reuses) explicitly bump this count.
     const cellHits = new Array(result.length).fill(0);
     for (const w of winningLines) {
       for (const i of w.idx) cellHits[i]++;
@@ -1479,8 +1524,9 @@ body::after{
     for (const c of cellHits) if (c > maxOverlap) maxOverlap = c;
 
     // ----- PASS 3: score -----
-    // Independent per-line summing — a cell on 4 winning lines
-    // contributes its symbol's val to all 4 line bonuses (no dedupe).
+    // Each line counted independently. A cell on 4 winning lines
+    // contributes its val to all 4 line bonuses (no dedupe — reuse is
+    // the point).
     let fullLineBonus = 0;
     for (const w of winningLines) {
       fullLineBonus += w.len * w.len * w.dominantSym.val;
