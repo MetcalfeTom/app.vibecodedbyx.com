@@ -472,12 +472,12 @@
   const WEAPONS = {
     rifle:   { name:'RIFLE',   dmg: 32, mag: 20, magMax: 20, reserve: 160, reserveMax: 160, rof: 0.18, reload: 1.8, range:11, speed: 17, spread: 0.02, mode:'auto' },
     raygun:  { name:'RAY GUN', dmg: 60, mag: 20, magMax: 20, reserve: 120, reserveMax: 120, rof: 0.20, reload: 2.6, range:11, speed: 15, spread: 0.02, mode:'auto', pierce: 2, color:'#7df09d' },
-    // ROCKET LAUNCHER — AOE detonator. Direct hit = 60 dmg + 80 splash
-    // damage to every zombie within 1.8 tiles. Slow projectile (8u/s)
-    // gives the player a beat to imagine the carnage. Infinite ammo
-    // like every other weapon — rof of 1.0s is the only firerate gate
-    // so spamming rockets is paced, not infinite-burst.
-    rocket:  { name:'ROCKET',  dmg: 60, mag:  3, magMax:  3, reserve:  12, reserveMax: 12, rof: 1.00, reload: 2.8, range:12, speed: 8,  spread: 0.005, mode:'semi', aoe: { radius: 1.8, dmg: 80 }, color:'#ffae3a' },
+    // ROCKET LAUNCHER (buffed): per chat, faster projectile + bigger
+    // explosion. speed 8→14 (so the rocket actually crosses a zone
+    // before the horde closes in), aoe.radius 1.8→2.6 (saturates a
+    // wider crowd), aoe.dmg 80→110 (clears mid-tier wave kills in one
+    // blast). rof unchanged so spam is still paced.
+    rocket:  { name:'ROCKET',  dmg: 60, mag:  3, magMax:  3, reserve:  12, reserveMax: 12, rof: 1.00, reload: 2.8, range:12, speed: 14, spread: 0.005, mode:'semi', aoe: { radius: 2.6, dmg: 110 }, color:'#ffae3a' },
     // DRUM SHOTGUN — rapid-fire pellet hose. 8 pellets at 0.28 spread,
     // 0.18s rof (3.3× faster than the pump shotgun). Per-pellet dmg
     // dropped to 7 so it doesn't out-DPS the rifle at point blank but
@@ -785,8 +785,10 @@
     if (m > 0) { mx /= m; my /= m; }
     // Axis-separated walkability check so the player slides along walls
     // through narrow corridors instead of catching on inside corners.
-    const nx = player.wx + mx * player.speed * dt;
-    const ny = player.wy + my * player.speed * dt;
+    const speedMult = (player.speedBoostUntil || 0) > performance.now() ? 1.6 : 1;
+    const moveSpeed = player.speed * speedMult;
+    const nx = player.wx + mx * moveSpeed * dt;
+    const ny = player.wy + my * moveSpeed * dt;
     if (playerCanBeAt(nx, player.wy)) player.wx = nx;
     if (playerCanBeAt(player.wx, ny)) player.wy = ny;
     player.aim = Math.atan2(mouse.wy - player.wy, mouse.wx - player.wx);
@@ -810,7 +812,9 @@
         interludeT = 4.5;
         // Milestone-zone unlock at every 5th wave clear; on non-milestone
         // waves just bank the bonus + advance.
-        const isMilestone = (wave % 5) === 0;
+        // Per chat: zones unlock every 3 waves instead of 5 so players
+        // see new ground sooner and the map opens up at a faster clip.
+        const isMilestone = (wave % 3) === 0;
         showBanner('WAVE ' + wave + ' CLEARED', isMilestone ? '+200 PTS · NEW ZONE OPENS' : '+200 PTS');
         addPoints(200);
         meta.bestWave = Math.max(meta.bestWave, wave);
@@ -838,6 +842,16 @@
       const d = Math.hypot(dx, dy) || 1;
       z.wx += (dx / d) * z.speed * dt;
       z.wy += (dy / d) * z.speed * dt;
+      // Push out of pillars — zombies have to path around cover too.
+      for (const p of pillars) {
+        const px = z.wx - p.wx, py = z.wy - p.wy;
+        const pd = Math.hypot(px, py);
+        const minD = p.r + z.rWorld;
+        if (pd > 0 && pd < minD) {
+          z.wx += (px / pd) * (minD - pd);
+          z.wy += (py / pd) * (minD - pd);
+        }
+      }
 
       // attack window
       if (!insideRoom && z.targetWindow.boards > 0) {
@@ -886,7 +900,8 @@
           z.attackT -= dt;
           if (z.attackT <= 0 && performance.now() > player.invulnUntil) {
             const baseBite = z.biteDmg || 8;
-            const dmg = Math.max(1, baseBite - armor.reduce);
+            const armorBoost = (player.armorBoostUntil || 0) > performance.now() ? 12 : 0;
+            const dmg = Math.max(1, baseBite - armor.reduce - armorBoost);
             player.hp = Math.max(0, player.hp - dmg);
             player.invulnUntil = performance.now() + 350;
             spawnFloater(player.wx, player.wy, '-' + dmg, '#ff4040');
@@ -991,14 +1006,27 @@
   // its own perimeter window so zombies can stream in from anywhere.
   // ROOM stays as the union AABB so render iteration + bullet bounds
   // stay simple; tileWalkable() is the actual movement gate.
+  // Each unlockable zone has a signature powerup that spawns in its
+  // centre on unlock — gives the new ground a sense of identity and
+  // a tangible reward beyond the welcome crate.
   const zones = [
-    { id:'bunker',    x:1,  y:1,  w:14, h:10, unlocked:true,  name:'BUNKER',    tier:0 },
-    { id:'outskirts', x:18, y:3,  w:9,  h:7,  unlocked:false, name:'OUTSKIRTS', tier:1 },
-    { id:'warehouse', x:14, y:14, w:12, h:8,  unlocked:false, name:'WAREHOUSE', tier:2 },
-    { id:'dockyard',  x:2,  y:14, w:9,  h:8,  unlocked:false, name:'DOCKYARD',  tier:3 },
-    { id:'citadel',   x:30, y:13, w:10, h:9,  unlocked:false, name:'CITADEL',   tier:3 },
+    { id:'bunker',    x:1,  y:1,  w:14, h:10, unlocked:true,  name:'BUNKER',    tier:0, signature: null },
+    { id:'outskirts', x:18, y:3,  w:9,  h:7,  unlocked:false, name:'OUTSKIRTS', tier:1, signature: 'ammo' },
+    { id:'warehouse', x:14, y:14, w:12, h:8,  unlocked:false, name:'WAREHOUSE', tier:2, signature: 'double' },
+    { id:'dockyard',  x:2,  y:14, w:9,  h:8,  unlocked:false, name:'DOCKYARD',  tier:3, signature: 'powerarmor' },
+    { id:'citadel',   x:30, y:13, w:10, h:9,  unlocked:false, name:'CITADEL',   tier:3, signature: 'instakill' },
   ];
   const corridors = [];     // each: { x, y, w, h }
+  // Waist-high pillars — block movement (player + zombies) but allow
+  // bullets / beams to fly over. Spawned procedurally inside each new
+  // zone on unlock so cover gameplay grows with the map.
+  const pillars = [];       // each: { wx, wy, r }
+  function pillarBlocks(wx, wy, agentR) {
+    for (const p of pillars) {
+      if (Math.hypot(wx - p.wx, wy - p.wy) < p.r + agentR) return true;
+    }
+    return false;
+  }
   function tileWalkable(tx, ty) {
     for (const z of zones) {
       if (!z.unlocked) continue;
@@ -1014,6 +1042,7 @@
   }
   function playerCanBeAt(wx, wy) {
     const r = player.rWorld;
+    if (pillarBlocks(wx, wy, r)) return false;
     return worldWalkable(wx - r, wy - r)
         && worldWalkable(wx + r, wy - r)
         && worldWalkable(wx - r, wy + r)
@@ -1051,16 +1080,17 @@
     ROOM.w = maxx - minx; ROOM.h = maxy - miny;
   }
   // Procedural L-shaped corridor between two zone centers. Width is
-  // randomly 2 or 3 tiles for visual variety; the order of the legs
-  // (x-then-y vs y-then-x) is random so each unlock looks different.
-  function buildCorridor(zA, zB) {
+  // randomly 2 or 3 tiles for visual variety. `opts.xFirst` forces
+  // the leg order so callers can guarantee two distinct paths between
+  // the same pair of zones (avoiding visual overlap).
+  function buildCorridor(zA, zB, opts) {
     const ax = Math.floor(zA.x + zA.w / 2);
     const ay = Math.floor(zA.y + zA.h / 2);
     const bx = Math.floor(zB.x + zB.w / 2);
     const by = Math.floor(zB.y + zB.h / 2);
-    const wide = Math.random() < 0.4 ? 3 : 2;
+    const wide = (opts && opts.wide) || (Math.random() < 0.4 ? 3 : 2);
     const half = Math.floor(wide / 2);
-    const xFirst = Math.random() < 0.5;
+    const xFirst = (opts && typeof opts.xFirst === 'boolean') ? opts.xFirst : Math.random() < 0.5;
     if (xFirst) {
       const xa = Math.min(ax, bx), xb = Math.max(ax, bx);
       corridors.push({ x: xa,        y: ay - half,             w: xb - xa + 1,         h: wide });
@@ -1077,7 +1107,30 @@
     const unlocked = zones.filter(z => z.unlocked);
     const prev = unlocked[unlocked.length - 1];
     next.unlocked = true;
-    buildCorridor(prev, next);
+    // Per chat: each new zone gets AT LEAST TWO corridor connections
+    // for looping. Primary connects to the most recently unlocked zone.
+    // Secondary picks a DIFFERENT prior zone (true loop) when one
+    // exists, otherwise builds a second corridor to the same zone with
+    // the opposite leg-order so the two paths don't overlap.
+    const primaryXFirst = Math.random() < 0.5;
+    buildCorridor(prev, next, { xFirst: primaryXFirst });
+    const altCandidates = unlocked.filter(z => z !== prev);
+    if (altCandidates.length > 0) {
+      // Pick the alt with the most distant center so the loop spans
+      // a meaningful chunk of the map rather than just doubling back.
+      let alt = altCandidates[0];
+      let bestD = -1;
+      for (const c of altCandidates) {
+        const d = Math.hypot((c.x + c.w/2) - (next.x + next.w/2),
+                             (c.y + c.h/2) - (next.y + next.h/2));
+        if (d > bestD) { bestD = d; alt = c; }
+      }
+      buildCorridor(alt, next, { xFirst: !primaryXFirst });
+    } else {
+      // Only one prior zone (bunker) — second corridor uses the
+      // opposite orientation so the two paths form a parallel loop.
+      buildCorridor(prev, next, { xFirst: !primaryXFirst });
+    }
     recomputeBounds();
     // Add a perimeter window on the new zone so zombies can spawn here.
     const sides = ['top', 'right', 'bottom', 'left'];
@@ -1090,8 +1143,40 @@
     windows.push({ id:'Z-' + next.id, side, bx, by, len: WIN_LEN, boards: 5 });
     // Bonus crate in the zone center as a welcome gift.
     const tier = Math.min(3, next.tier);
-    drops.push({ kind:'crate', wx: next.x + next.w / 2, wy: next.y + next.h / 2, life: 30, bobT: 0, rarity: RARITY_TIERS[tier] });
-    showBanner(next.name + ' UNLOCKED', 'corridor opens · advance to claim the crate');
+    const cx = next.x + next.w / 2, cy = next.y + next.h / 2;
+    drops.push({ kind:'crate', wx: cx, wy: cy, life: 30, bobT: 0, rarity: RARITY_TIERS[tier] });
+    // Per chat: each unlockable zone has a SIGNATURE powerup that
+    // spawns alongside the welcome crate — gives the new ground a
+    // tangible reward + sense of identity ("the warehouse where I got
+    // my first power armor"). Placed offset from the crate so they
+    // don't visually stack.
+    if (next.signature) {
+      drops.push({ kind: next.signature, wx: cx + 1.0, wy: cy, life: 36, bobT: 0 });
+    }
+    // Procedural waist-high pillar cover scattered through the zone.
+    // 3-4 pillars, kept clear of the zone center (where the crate +
+    // signature spawn) and the perimeter window so the loot is always
+    // reachable. Pillars block movement but bullets fly over.
+    const numPillars = 3 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < numPillars; i++) {
+      let placed = false;
+      for (let attempt = 0; attempt < 8 && !placed; attempt++) {
+        const wx = next.x + 1 + Math.random() * (next.w - 2);
+        const wy = next.y + 1 + Math.random() * (next.h - 2);
+        // avoid welcome crate cluster (1.6u) + window mouth (1.4u)
+        if (Math.hypot(wx - cx, wy - cy) < 1.6) continue;
+        if (Math.hypot(wx - bx, wy - by) < 1.4) continue;
+        // avoid stacking on existing pillars
+        let tooClose = false;
+        for (const p of pillars) {
+          if (Math.hypot(wx - p.wx, wy - p.wy) < 1.2) { tooClose = true; break; }
+        }
+        if (tooClose) continue;
+        pillars.push({ wx, wy, r: 0.42 });
+        placed = true;
+      }
+    }
+    showBanner(next.name + ' UNLOCKED', 'two corridors · cover · ' + (next.signature ? next.signature.toUpperCase() + ' INSIDE' : 'crate inside'));
     sfx.boxLand();
     return true;
   }
@@ -1241,13 +1326,16 @@
       const pos = nearestWalkable(z.wx, z.wy);
       drops.push({ kind:'crate', wx: pos.wx, wy: pos.wy, life: 18, bobT: 0, rarity: rar });
     } else if (Math.random() < 0.06 * luckMult) {
-      // Weighted powerup roll — power armor is rare (~6% of powerups).
+      // Weighted powerup roll — power armor is rare (~6%); the new
+      // speed + armor stat buffs sit at ~15% each in the rotation.
       const r = Math.random();
       let k;
       if (r < 0.06)      k = 'powerarmor';
-      else if (r < 0.30) k = 'ammo';
-      else if (r < 0.55) k = 'instakill';
-      else if (r < 0.80) k = 'double';
+      else if (r < 0.20) k = 'speedboost';
+      else if (r < 0.34) k = 'armorboost';
+      else if (r < 0.50) k = 'ammo';
+      else if (r < 0.68) k = 'instakill';
+      else if (r < 0.85) k = 'double';
       else               k = 'nuke';
       const pos = nearestWalkable(z.wx, z.wy);
       drops.push({ kind: k, wx: pos.wx, wy: pos.wy, life: 12, bobT: 0 });
@@ -1272,6 +1360,19 @@
       addShake(26);
       for (let i = zombies.length - 1; i >= 0; i--) killZombie(zombies[i], i);
       spawnFloater(player.wx, player.wy, '☢ NUKE', '#ffd766');
+    }
+    if (d.kind === 'speedboost') {
+      // +60% movement speed for 14s. Stacks with itself by extending
+      // the timer rather than compounding the multiplier.
+      player.speedBoostUntil = Math.max(player.speedBoostUntil || 0, performance.now()) + 14000;
+      spawnFloater(player.wx, player.wy, '⇶ SPEED +60% · 14s', '#7df0ff');
+    }
+    if (d.kind === 'armorboost') {
+      // +12 flat damage reduction stacked on whatever armor piece is
+      // equipped, for 14s. Bumps even a bare-vest player to a tanky
+      // mid-tier feel.
+      player.armorBoostUntil = Math.max(player.armorBoostUntil || 0, performance.now()) + 14000;
+      spawnFloater(player.wx, player.wy, '🛡 ARMOR +12 · 14s', '#a9f0ff');
     }
     if (d.kind === 'powerarmor') {
       // 12s of invulnerability AND access to the heavy STOMP attack
@@ -1700,6 +1801,9 @@
     for (const wb of wallBuys) {
       drawList.push({ depth: wb.wx + wb.wy - 0.4, kind:'wallbuy', e: wb });
     }
+    for (const pl of pillars) {
+      drawList.push({ depth: pl.wx + pl.wy, kind:'pillar', e: pl });
+    }
     for (const f of fx) drawList.push({ depth: f.wx + f.wy + 0.5, kind:'fx', e: f });
     drawList.push({ depth: 1e9, kind:'bullets' });   // bullets always on top
     drawList.sort((a, b) => a.depth - b.depth);
@@ -1711,6 +1815,7 @@
       else if (item.kind === 'drop')   drawDrop(item.e);
       else if (item.kind === 'window') drawWindow(item.e);
       else if (item.kind === 'wallbuy') drawWallBuy(item.e);
+      else if (item.kind === 'pillar')  drawPillar(item.e);
       else if (item.kind === 'fx')     drawFx(item.e);
       else if (item.kind === 'bullets') {
         for (const b of bullets) {
@@ -1982,8 +2087,8 @@
         ctx.fillText('E · OPEN', 0, 4);
       }
     } else {
-      const colors = { ammo:'#7df09d', instakill:'#e02e2e', double:'#ffd766', nuke:'#cca3ff', powerarmor:'#ffd766' };
-      const labels = { ammo:'⌥', instakill:'☠', double:'×2', nuke:'☢', powerarmor:'⚜' };
+      const colors = { ammo:'#7df09d', instakill:'#e02e2e', double:'#ffd766', nuke:'#cca3ff', powerarmor:'#ffd766', speedboost:'#7df0ff', armorboost:'#a9f0ff' };
+      const labels = { ammo:'⌥', instakill:'☠', double:'×2', nuke:'☢', powerarmor:'⚜', speedboost:'⇶', armorboost:'🛡' };
       ctx.fillStyle = colors[d.kind] || '#fff';
       ctx.shadowColor = colors[d.kind];
       ctx.shadowBlur = 14;
@@ -1997,6 +2102,38 @@
       ctx.textBaseline = 'middle';
       ctx.fillText(labels[d.kind] || '?', 0, -13);
     }
+    ctx.restore();
+  }
+
+  // Waist-high pillar — chunky stub w/ shadow + rim highlight + rivets.
+  // Sits low to the ground so it visually reads as cover-you-shoot-over.
+  function drawPillar(p) {
+    const sp = worldToScreen(p.wx, p.wy);
+    ctx.save();
+    ctx.translate(sp.sx, sp.sy);
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.ellipse(0, 6, 14, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // base block
+    ctx.fillStyle = '#1f1814';
+    ctx.fillRect(-12, -3, 24, 9);
+    // mid mass
+    ctx.fillStyle = '#3a2e22';
+    ctx.fillRect(-12, -16, 24, 13);
+    // top rim — lighter so it reads as a flat surface you can shoot over
+    ctx.fillStyle = '#5a4530';
+    ctx.fillRect(-12, -16, 24, 3);
+    // accent stripe
+    ctx.fillStyle = '#8c6a40';
+    ctx.fillRect(-11, -14, 22, 1);
+    // corner rivets
+    ctx.fillStyle = '#0e0a06';
+    ctx.fillRect(-10, -12, 1, 1);
+    ctx.fillRect( 9,  -12, 1, 1);
+    ctx.fillRect(-10, -5,  1, 1);
+    ctx.fillRect( 9,  -5,  1, 1);
     ctx.restore();
   }
 
@@ -2295,6 +2432,8 @@
     player.doubleUntil = 0;
     player.powerArmorUntil = 0;
     player.lastStompT = 0;
+    player.speedBoostUntil = 0;
+    player.armorBoostUntil = 0;
     player.wx = ROOM.x + ROOM.w / 2;
     player.wy = ROOM.y + ROOM.h / 2;
     kills = 0;
@@ -2322,6 +2461,7 @@
     // run — no two runs share the same hallway layout.
     for (const z of zones) z.unlocked = (z.id === 'bunker');
     corridors.length = 0;
+    pillars.length = 0;
     while (windows.length > 4) windows.pop();
     recomputeBounds();
     for (const w of windows) w.boards = 5;
