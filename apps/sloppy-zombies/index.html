@@ -35,9 +35,12 @@
     background:
       radial-gradient(circle at 50% 50%, rgba(122,26,24,0.10), transparent 60%),
       linear-gradient(180deg, #0a0508 0%, #000 100%);
-    min-height:100vh;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    padding:14px;gap:12px;cursor:none;
+    /* Per chat: 100vw × 100vh viewport with the canvas filling the
+       arena column. Header/footer hint stay compact so the playfield
+       gets every spare pixel. */
+    width:100vw;height:100vh;
+    display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+    padding:8px;gap:8px;cursor:none;
   }
 
   body::before{
@@ -76,8 +79,8 @@
   .pill.gold  {border-color:var(--gold);color:var(--gold);text-shadow:0 0 8px var(--gold)}
 
   .stage{
-    width:100%;max-width:1080px;display:flex;justify-content:center;align-items:center;
-    flex:1;min-height:0;
+    width:100%;flex:1;min-height:0;
+    display:flex;justify-content:center;align-items:center;
   }
   canvas{
     display:block;background:#0d0a08;cursor:none;
@@ -85,8 +88,12 @@
     border-radius:8px;
     border:2px solid var(--rust);
     box-shadow:0 0 30px rgba(122,26,24,0.25), inset 0 0 22px rgba(0,0,0,0.7);
+    /* JS sets the live CSS w/h each resize. width:auto keeps the
+       canvas at its native pixel buffer until JS scales it up. */
     max-width:100%;max-height:100%;touch-action:none;
   }
+  header{flex-shrink:0}
+  .hint{flex-shrink:0}
 
   .hint{
     font-family:'Silkscreen', monospace;font-size:9px;letter-spacing:0.18em;text-transform:uppercase;
@@ -181,8 +188,8 @@
     <div class="pill health">HP<span class="num" id="hpNum">100</span></div>
     <div class="pill points">PTS<span class="num" id="pointsNum">500</span></div>
     <div class="pill gold">GOLD<span class="num" id="goldNum">0</span></div>
-    <div class="pill weapon" id="weaponPill" title="Q or 2 to swap">
-      <span id="loadoutSlots"><b id="weaponName">PISTOL</b><span style="opacity:0.45"> | PISTOL</span></span> · <span id="ammoNum">12/72</span>
+    <div class="pill weapon" id="weaponPill" title="1-5 select slot · Q cycles">
+      <span id="loadoutSlots"></span> · <span id="ammoNum">12/72</span>
     </div>
   </div>
 </header>
@@ -192,7 +199,7 @@
 </div>
 
 <div class="hint">
-  <kbd>WASD</kbd> move &nbsp;·&nbsp; <kbd>MOUSE</kbd> aim &nbsp;·&nbsp; <kbd>CLICK</kbd> fire &nbsp;·&nbsp; <kbd>R</kbd> reload &nbsp;·&nbsp; <kbd>Q</kbd> swap &nbsp;·&nbsp; <kbd>E</kbd> board / box / loot
+  <kbd>WASD</kbd> move &nbsp;·&nbsp; <kbd>MOUSE</kbd> aim &nbsp;·&nbsp; <kbd>CLICK</kbd> fire &nbsp;·&nbsp; <kbd>R</kbd> reload &nbsp;·&nbsp; <kbd>1-5</kbd>/<kbd>Q</kbd> swap &nbsp;·&nbsp; <kbd>E</kbd> board / box / loot
 </div>
 
 <div class="banner" id="banner"></div>
@@ -227,6 +234,26 @@
   const cvs = document.getElementById('game');
   const ctx = cvs.getContext('2d');
   const W = cvs.width, H = cvs.height;
+
+  // Responsive canvas — keep the native 960×600 pixel buffer (so iso
+  // math + tile sizes stay integer-clean) but CSS-scale it to fill the
+  // stage on every resize, preserving aspect ratio. width:auto on
+  // canvas alone caps at the buffer; we have to set explicit CSS
+  // dimensions to actually upscale.
+  function fitCanvas() {
+    const stage = cvs.parentElement;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const aspect = W / H;
+    let w = rect.width, h = w / aspect;
+    if (h > rect.height) { h = rect.height; w = h * aspect; }
+    cvs.style.width  = w + 'px';
+    cvs.style.height = h + 'px';
+  }
+  window.addEventListener('resize', fitCanvas);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitCanvas);
+  requestAnimationFrame(fitCanvas);
 
   // ===== ISOMETRIC PROJECTION =====
   // World coords: (wx, wy) on a top-down grid. Logic stays in this
@@ -357,27 +384,63 @@
     const def = WEAPONS[key];
     return { key, def, mag: def.mag, reserve: def.reserve, lastFireT: 0, reloadingUntil: 0 };
   }
-  // ===== TWO-SLOT LOADOUT =====
-  // Per chat: real weapon-swap system. Slot A = primary (mystery box /
-  // crate-rolled), Slot B = secondary (always your starter PISTOL). Q
-  // or "2" key swaps active. Box rolls REPLACE the primary; the
-  // pistol secondary is permanent.
+  // ===== FIVE-SLOT LOADOUT =====
+  // Per chat: 5 weapon slots mapped to keys 1-5. Pistol starts in
+  // slot 0; rest empty until box rolls / crate drops fill them. Each
+  // slot holds a UNIQUE weapon — duplicate rolls re-pick from the
+  // remaining pool so a 5-slot loadout never has two of the same.
+  const SLOT_COUNT = 5;
   const loadout = {
-    primary:   makeWeaponState('pistol'),  // overwritten on first box-roll
-    secondary: makeWeaponState('pistol'),
-    activeSlot: 'primary',
+    slots: new Array(SLOT_COUNT).fill(null),
+    active: 0,
   };
-  // Maintain `weapon` as a getter-shaped accessor for legacy reads.
-  // Active slot is the source of truth.
-  let weapon = loadout.primary;
-  function activeWeapon() { return loadout[loadout.activeSlot]; }
+  loadout.slots[0] = makeWeaponState('pistol');
+
+  // Legacy `weapon` ref kept in sync with the active slot so existing
+  // fire/reload/HUD paths continue to work.
+  let weapon = loadout.slots[0];
+  function activeWeapon() { return loadout.slots[loadout.active]; }
   function syncWeaponRef() { weapon = activeWeapon(); }
-  function swapWeapon() {
-    if (!loadout.primary || !loadout.secondary) return;
-    loadout.activeSlot = loadout.activeSlot === 'primary' ? 'secondary' : 'primary';
+  function selectSlot(i) {
+    if (i < 0 || i >= SLOT_COUNT) return;
+    if (!loadout.slots[i]) return;
+    if (loadout.active === i) return;
+    loadout.active = i;
     syncWeaponRef();
-    sfx.reload();   // light click that doubles as a swap chime
+    sfx.reload();
     updateHUD();
+  }
+  function swapWeapon() {
+    // Q cycles to the next non-empty slot
+    for (let off = 1; off < SLOT_COUNT; off++) {
+      const idx = (loadout.active + off) % SLOT_COUNT;
+      if (loadout.slots[idx]) { selectSlot(idx); return; }
+    }
+  }
+  // Inserts a freshly-rolled weapon into the loadout. Fills the first
+  // empty slot if any; otherwise replaces the currently-active slot.
+  // Enforces uniqueness — if the picked key is already held, we re-pick
+  // up to a few times before falling back.
+  function pickUniqueWeapon(pool) {
+    const held = new Set(loadout.slots.filter(Boolean).map(w => w.key));
+    const choices = pool.filter(k => !held.has(k));
+    if (choices.length > 0) {
+      return choices[Math.floor(Math.random() * choices.length)];
+    }
+    // every box weapon already held — replace active with any roll
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  function grantWeapon(key) {
+    const fresh = makeWeaponState(key);
+    const empty = loadout.slots.findIndex(s => s === null);
+    if (empty >= 0) {
+      loadout.slots[empty] = fresh;
+      loadout.active = empty;
+    } else {
+      loadout.slots[loadout.active] = fresh;
+    }
+    syncWeaponRef();
+    return fresh;
   }
 
   // ===== GEAR / LOOT =====
@@ -408,7 +471,9 @@
     keys.add(e.key.toLowerCase());
     const k = e.key.toLowerCase();
     if (k === 'r') tryReload();
-    if (k === 'q' || k === '2') swapWeapon();
+    if (k === 'q') swapWeapon();
+    // 1-5 directly select a slot. Empty slots are no-ops.
+    if (/^[1-5]$/.test(k)) selectSlot(parseInt(k, 10) - 1);
     if (e.key.toLowerCase() === 'e') tryInteract();
   });
   window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
@@ -621,12 +686,14 @@
       box.rollT += dt;
       if (box.rollT > 2.0) {
         box.rolling = false;
-        const pick = BOX_POOL[Math.floor(Math.random() * BOX_POOL.length)];
-        loadout.primary = makeWeaponState(pick);
-        loadout.activeSlot = 'primary';
-        syncWeaponRef();
+        // Pick a UNIQUE weapon (one that's not already in the loadout)
+        // and drop it into the next empty slot — only replaces the
+        // active slot if all 5 are full. Per chat: box rolls actually
+        // expand the inventory instead of just resetting the pistol.
+        const pick = pickUniqueWeapon(BOX_POOL);
+        const fresh = grantWeapon(pick);
         sfx.boxLand();
-        spawnFloater(box.wx, box.wy, weapon.def.name, '#ffd766');
+        spawnFloater(box.wx, box.wy, fresh.def.name, '#ffd766');
       }
     }
     box.glowT += dt;
@@ -725,11 +792,9 @@
     if (Math.random() < 0.5) {
       // either weapon (rerolls box pool) or armor
       if (Math.random() < 0.5) {
-        const pick = BOX_POOL[Math.floor(Math.random() * BOX_POOL.length)];
-        loadout.primary = makeWeaponState(pick);
-        loadout.activeSlot = 'primary';
-        syncWeaponRef();
-        spawnFloater(d.wx, d.wy + 0.4, weapon.def.name + ' ' + rar.id.toUpperCase(), rar.color);
+        const pick = pickUniqueWeapon(BOX_POOL);
+        const fresh = grantWeapon(pick);
+        spawnFloater(d.wx, d.wy + 0.4, fresh.def.name + ' ' + rar.id.toUpperCase(), rar.color);
       } else {
         const a = makeGearArmor(rar);
         // only equip if better
@@ -871,16 +936,22 @@
     document.getElementById('hpNum').textContent = player.hp;
     document.getElementById('pointsNum').textContent = points;
     document.getElementById('goldNum').textContent = meta.gold + (goldEarned ? '+' + goldEarned : '');
-    // Loadout HUD: two slots side-by-side, active in bold, inactive
-    // dimmed. Visually advertises the swap (Q or 2).
+    // Loadout HUD — five slot chips with keybind index. Active is
+    // bold cream, populated-but-inactive is dim (45%), empty is
+    // outlined dash. Visually advertises both 1-5 and Q.
     const slots = document.getElementById('loadoutSlots');
     if (slots) {
-      const aName = loadout.primary.def.name;
-      const bName = loadout.secondary.def.name;
-      const activeIsA = loadout.activeSlot === 'primary';
-      slots.innerHTML = activeIsA
-        ? `<b id="weaponName" style="color:#e8d6b6">${aName}</b><span style="opacity:0.40"> | ${bName}</span>`
-        : `<span style="opacity:0.40">${aName} | </span><b id="weaponName" style="color:#e8d6b6">${bName}</b>`;
+      const parts = [];
+      for (let i = 0; i < SLOT_COUNT; i++) {
+        const w = loadout.slots[i];
+        const isActive = i === loadout.active;
+        const isEmpty  = !w;
+        const label = isEmpty ? '—' : w.def.name;
+        const color = isActive ? '#e8d6b6' : (isEmpty ? '#3a302a' : '#8c7a5a');
+        const fontWeight = isActive ? '700' : '400';
+        parts.push(`<span style="color:${color};font-weight:${fontWeight};margin-right:6px">[${i + 1}] ${label}</span>`);
+      }
+      slots.innerHTML = parts.join('') + `<b id="weaponName" style="display:none">${weapon.def.name}</b>`;
     }
     document.getElementById('ammoNum').textContent = weapon.mag + '/' + weapon.reserve;
   }
@@ -1317,9 +1388,9 @@
     points = 500;
     goldEarned = 0;
     armor = { name:'NO ARMOR', rarity: RARITY_TIERS[0], reduce: 0 };
-    loadout.primary = makeWeaponState('pistol');
-    loadout.secondary = makeWeaponState('pistol');
-    loadout.activeSlot = 'primary';
+    loadout.slots = new Array(SLOT_COUNT).fill(null);
+    loadout.slots[0] = makeWeaponState('pistol');
+    loadout.active = 0;
     syncWeaponRef();
     zombies.length = 0;
     bullets.length = 0;
