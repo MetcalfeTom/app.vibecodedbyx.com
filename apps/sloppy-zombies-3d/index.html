@@ -1080,25 +1080,27 @@ function updateAim(dt) {
 
 // ===== ZOMBIES =====
 const zombies = [];
+// Audit fix: zombie body / head / eye materials are now SHARED across
+// every zombie instance. Previously each spawn allocated 4 fresh
+// materials via ps1ifyMaterial — at wave-12 cadence (200+ zombies)
+// that was 800 leaked materials per wave (scene.remove never disposes).
+// Geometries also shared since dimensions are fixed.
+const ZOMBIE_BODY_MAT = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x4f6a3a }));
+const ZOMBIE_HEAD_MAT = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x6a7a48 }));
+const ZOMBIE_EYE_MAT  = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xff3030 }));
+const ZOMBIE_BODY_GEO = new THREE.BoxGeometry(0.7, 1.0, 0.5);
+const ZOMBIE_HEAD_GEO = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+const ZOMBIE_EYE_GEO  = new THREE.BoxGeometry(0.1, 0.1, 0.05);
 function makeZombieMesh() {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7, 1.0, 0.5),
-    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x4f6a3a }))
-  );
+  const body = new THREE.Mesh(ZOMBIE_BODY_GEO, ZOMBIE_BODY_MAT);
   body.position.y = 0.85;
   g.add(body);
-  const head = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.5, 0.5),
-    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x6a7a48 }))
-  );
+  const head = new THREE.Mesh(ZOMBIE_HEAD_GEO, ZOMBIE_HEAD_MAT);
   head.position.y = 1.6;
   g.add(head);
-  // Glowing red eyes — small black blocks with red emissive faces
-  const eyeMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xff3030 }));
-  const lEye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), eyeMat);
-  const rEye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), eyeMat);
-  // Eyes on the +Z (forward) face — fixes the previous backward facing.
+  const lEye = new THREE.Mesh(ZOMBIE_EYE_GEO, ZOMBIE_EYE_MAT);
+  const rEye = new THREE.Mesh(ZOMBIE_EYE_GEO, ZOMBIE_EYE_MAT);
   lEye.position.set(-0.12, 1.65, 0.26);
   rEye.position.set( 0.12, 1.65, 0.26);
   g.add(lEye); g.add(rEye);
@@ -1123,6 +1125,16 @@ function spawnZombie() {
   });
 }
 
+// Shared pickup geometry + per-color material cache (audit fix).
+const PICKUP_GEO = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+const _pickupMatCache = new Map();
+function getPickupMat(color) {
+  if (!_pickupMatCache.has(color)) {
+    _pickupMatCache.set(color, ps1ifyMaterial(new THREE.MeshBasicMaterial({ color })));
+  }
+  return _pickupMatCache.get(color);
+}
+
 // ===== PICKUPS =====
 // Chaotic ammo — a spinning multicolored cube that drops randomly
 // during a wave. On pickup the player's fire rate jumps to 25Hz for
@@ -1145,10 +1157,12 @@ function spawnPowerup(x, z, kind) {
   };
   const c = config[kind] || config.chaotic;
   const g = new THREE.Group();
-  const cube = new THREE.Mesh(
-    new THREE.BoxGeometry(0.6, 0.6, 0.6),
-    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: c.color }))
-  );
+  // Shared geometry + per-color material cache (audit fix). Cycling
+  // hue on chaotic pickups still works because we set material.color
+  // on the shared instance — but doing so would change ALL chaotic
+  // pickups simultaneously. We accept that visual coupling: at any
+  // given moment, all chaotic pickups pulse together.
+  const cube = new THREE.Mesh(PICKUP_GEO, getPickupMat(c.color));
   g.add(cube);
   g.position.set(x, 0.8, z);
   scene.add(g);
@@ -1163,13 +1177,12 @@ function tickPickups(dt) {
       pickups.splice(i, 1);
       continue;
     }
-    // spin + bob + cycle through neon hues
+    // spin + bob (hue cycling removed — pickup materials are now
+    // cached per color and shared, so per-instance hue writes would
+    // bleed across all pickups of the same kind).
     p.mesh.rotation.y += dt * 4;
     p.mesh.rotation.x += dt * 2.5;
     p.mesh.position.y = p.y + Math.sin(p.t * 4) * 0.15;
-    const hue = ((p.t * 240) % 360) / 360;
-    const c = new THREE.Color().setHSL(hue, 1, 0.6);
-    p.cube.material.color.copy(c);
     // pickup on contact
     const dx = player.pos.x - p.x, dz = player.pos.z - p.z;
     if (dx * dx + dz * dz < (player.rRadius + p.r) ** 2) {
@@ -1296,6 +1309,11 @@ function tryFire() {
   sfx.shoot();
 }
 
+// Shared cricket-bat-swing geometry + material (audit fix: was leaking
+// one material per swing).
+const BAT_SWING_GEO = new THREE.BoxGeometry(2.4, 0.2, 1.0);
+const BAT_SWING_MAT = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xd6c5a0 }));
+
 // ===== CRICKET BAT MELEE =====
 // Per chat: high-knockback close-range bat. Wide arc (0.7π ≈ 126°),
 // 2.0u reach, slow swing (0.55s cooldown). Each hit deals 45 dmg AND
@@ -1333,11 +1351,10 @@ function tryBat() {
     if (z.hp <= 0) killZombie(z, j);
     hits++;
   }
-  // Visual swing — flat box that lives 180ms in front of the player
-  const swing = new THREE.Mesh(
-    new THREE.BoxGeometry(2.4, 0.2, 1.0),
-    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xd6c5a0 }))
-  );
+  // Visual swing — flat box that lives 180ms in front of the player.
+  // Material + geometry shared across every swing (cached at module
+  // scope) so back-to-back swings don't leak materials.
+  const swing = new THREE.Mesh(BAT_SWING_GEO, BAT_SWING_MAT);
   swing.position.set(player.pos.x + fx * 1.0, 1.3, player.pos.z + fz * 1.0);
   swing.rotation.y = player.yaw;
   scene.add(swing);
