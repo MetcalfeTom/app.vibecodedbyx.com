@@ -813,8 +813,10 @@
         // Milestone-zone unlock at every 5th wave clear; on non-milestone
         // waves just bank the bonus + advance.
         // Per chat: zones unlock every 3 waves instead of 5 so players
-        // see new ground sooner and the map opens up at a faster clip.
-        const isMilestone = (wave % 3) === 0;
+        // see new ground sooner. The banner only promises a new zone
+        // when one is actually still locked.
+        const hasMoreZones = zones.some(z => !z.unlocked);
+        const isMilestone = (wave % 3) === 0 && hasMoreZones;
         showBanner('WAVE ' + wave + ' CLEARED', isMilestone ? '+200 PTS · NEW ZONE OPENS' : '+200 PTS');
         addPoints(200);
         meta.bestWave = Math.max(meta.bestWave, wave);
@@ -1006,15 +1008,23 @@
   // its own perimeter window so zombies can stream in from anywhere.
   // ROOM stays as the union AABB so render iteration + bullet bounds
   // stay simple; tileWalkable() is the actual movement gate.
-  // Each unlockable zone has a signature powerup that spawns in its
-  // centre on unlock — gives the new ground a sense of identity and
-  // a tangible reward beyond the welcome crate.
+  // Per chat: the run starts with a 2×2 grid of interconnected zones
+  // already unlocked (BUNKER / OUTSKIRTS / WAREHOUSE / DOCKYARD).
+  // Additional zones (CITADEL / CRATER / DEPOT) remain unlockable as
+  // the player pushes forward at the every-3-wave cadence.
+  // `starter:true` flags the zones that boot pre-unlocked; everything
+  // else stays locked until reached.
   const zones = [
-    { id:'bunker',    x:1,  y:1,  w:14, h:10, unlocked:true,  name:'BUNKER',    tier:0, signature: null },
-    { id:'outskirts', x:18, y:3,  w:9,  h:7,  unlocked:false, name:'OUTSKIRTS', tier:1, signature: 'ammo' },
-    { id:'warehouse', x:14, y:14, w:12, h:8,  unlocked:false, name:'WAREHOUSE', tier:2, signature: 'double' },
-    { id:'dockyard',  x:2,  y:14, w:9,  h:8,  unlocked:false, name:'DOCKYARD',  tier:3, signature: 'powerarmor' },
-    { id:'citadel',   x:30, y:13, w:10, h:9,  unlocked:false, name:'CITADEL',   tier:3, signature: 'instakill' },
+    // 2x2 starter grid — TL / TR / BL / BR
+    { id:'bunker',    x:1,  y:1,  w:14, h:10, unlocked:true,  starter:true, name:'BUNKER',    tier:0, signature: null },
+    { id:'outskirts', x:17, y:1,  w:11, h:10, unlocked:true,  starter:true, name:'OUTSKIRTS', tier:1, signature: 'ammo' },
+    { id:'warehouse', x:1,  y:13, w:14, h:9,  unlocked:true,  starter:true, name:'WAREHOUSE', tier:2, signature: 'double' },
+    { id:'dockyard',  x:17, y:13, w:11, h:9,  unlocked:true,  starter:true, name:'DOCKYARD',  tier:3, signature: 'powerarmor' },
+    // Unlockable extensions — pushed out from the starter grid as the
+    // player clears milestone waves.
+    { id:'citadel',   x:30, y:5,  w:11, h:13, unlocked:false,                name:'CITADEL',   tier:3, signature: 'instakill' },
+    { id:'crater',    x:8,  y:-9, w:12, h:8,  unlocked:false,                name:'CRATER',    tier:2, signature: 'nuke' },
+    { id:'depot',     x:20, y:25, w:12, h:8,  unlocked:false,                name:'DEPOT',     tier:2, signature: 'armorboost' },
   ];
   const corridors = [];     // each: { x, y, w, h }
   // Waist-high pillars — block movement (player + zombies) but allow
@@ -1101,6 +1111,85 @@
       corridors.push({ x: Math.min(ax, bx),     y: by - half, w: Math.abs(bx - ax) + wide, h: wide });
     }
   }
+  // Procedural pillar sprinkler — used both at boot (starter zones) and
+  // on each unlock. Skips placement near zone center / windows / other
+  // pillars to keep the loot reachable and prevent visual clumping.
+  function sprinklePillars(zone, opts) {
+    opts = opts || {};
+    const numPillars = (opts.count != null) ? opts.count : (3 + Math.floor(Math.random() * 2));
+    const cx = (opts.cx != null) ? opts.cx : zone.x + zone.w / 2;
+    const cy = (opts.cy != null) ? opts.cy : zone.y + zone.h / 2;
+    for (let i = 0; i < numPillars; i++) {
+      let placed = false;
+      for (let attempt = 0; attempt < 10 && !placed; attempt++) {
+        const wx = zone.x + 1 + Math.random() * (zone.w - 2);
+        const wy = zone.y + 1 + Math.random() * (zone.h - 2);
+        if (Math.hypot(wx - cx, wy - cy) < 1.6) continue;
+        let near = false;
+        for (const w of windows) {
+          const c = winCenter(w);
+          if (Math.hypot(wx - c.x, wy - c.y) < 1.4) { near = true; break; }
+        }
+        if (near) continue;
+        let tooClose = false;
+        for (const p of pillars) {
+          if (Math.hypot(wx - p.wx, wy - p.wy) < 1.2) { tooClose = true; break; }
+        }
+        if (tooClose) continue;
+        pillars.push({ wx, wy, r: 0.42 });
+        placed = true;
+      }
+    }
+  }
+
+  // Reseed the world to its boot state: 2×2 grid of starter zones
+  // already unlocked, 4 corridors connecting them in a closed loop,
+  // 8 perimeter windows (2 per starter zone) on outward-facing walls,
+  // pillar cover scattered through the non-bunker starters. Called at
+  // page-load and on every PLAY AGAIN so each run starts identical.
+  function seedStarterMap() {
+    // Reset zone unlock state
+    for (const z of zones) z.unlocked = !!z.starter;
+    corridors.length = 0;
+    pillars.length = 0;
+    windows.length = 0;
+
+    // Starter windows — outward-facing edges only. Two per zone so
+    // every starter has multiple spawn entrances right out of the gate.
+    // Bunker (1,1,14,10) — top + west are outward
+    windows.push({ id:'BNK-N', side:'top',    bx: 1 + 4,  by: 1,             len: WIN_LEN, boards: 5 });
+    windows.push({ id:'BNK-W', side:'left',   bx: 1,      by: 1 + 5,         len: WIN_LEN, boards: 5 });
+    // Outskirts (17,1,11,10) — top + east
+    windows.push({ id:'OUT-N', side:'top',    bx: 17 + 4, by: 1,             len: WIN_LEN, boards: 5 });
+    windows.push({ id:'OUT-E', side:'right',  bx: 17 + 11,by: 1 + 3,         len: WIN_LEN, boards: 5 });
+    // Warehouse (1,13,14,9) — bottom + west
+    windows.push({ id:'WAR-S', side:'bottom', bx: 1 + 5,  by: 13 + 9,        len: WIN_LEN, boards: 5 });
+    windows.push({ id:'WAR-W', side:'left',   bx: 1,      by: 13 + 4,        len: WIN_LEN, boards: 5 });
+    // Dockyard (17,13,11,9) — bottom + east
+    windows.push({ id:'DCK-S', side:'bottom', bx: 17 + 4, by: 13 + 9,        len: WIN_LEN, boards: 5 });
+    windows.push({ id:'DCK-E', side:'right',  bx: 17 + 11,by: 13 + 3,        len: WIN_LEN, boards: 5 });
+
+    // Starter corridors — connect the 2×2 grid in a closed loop:
+    // bunker↔outskirts (top row), bunker↔warehouse (left col),
+    // outskirts↔dockyard (right col), warehouse↔dockyard (bottom row).
+    const bnk = zones.find(z => z.id === 'bunker');
+    const out = zones.find(z => z.id === 'outskirts');
+    const war = zones.find(z => z.id === 'warehouse');
+    const dck = zones.find(z => z.id === 'dockyard');
+    buildCorridor(bnk, out, { xFirst: true,  wide: 3 });
+    buildCorridor(bnk, war, { xFirst: false, wide: 3 });
+    buildCorridor(out, dck, { xFirst: false, wide: 3 });
+    buildCorridor(war, dck, { xFirst: true,  wide: 3 });
+
+    // Pillar cover in non-bunker starter zones
+    for (const z of zones) {
+      if (!z.starter || z.id === 'bunker') continue;
+      sprinklePillars(z);
+    }
+
+    recomputeBounds();
+  }
+
   function unlockNextZone() {
     const next = zones.find(z => !z.unlocked);
     if (!next) return false;
@@ -1154,28 +1243,7 @@
       drops.push({ kind: next.signature, wx: cx + 1.0, wy: cy, life: 36, bobT: 0 });
     }
     // Procedural waist-high pillar cover scattered through the zone.
-    // 3-4 pillars, kept clear of the zone center (where the crate +
-    // signature spawn) and the perimeter window so the loot is always
-    // reachable. Pillars block movement but bullets fly over.
-    const numPillars = 3 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < numPillars; i++) {
-      let placed = false;
-      for (let attempt = 0; attempt < 8 && !placed; attempt++) {
-        const wx = next.x + 1 + Math.random() * (next.w - 2);
-        const wy = next.y + 1 + Math.random() * (next.h - 2);
-        // avoid welcome crate cluster (1.6u) + window mouth (1.4u)
-        if (Math.hypot(wx - cx, wy - cy) < 1.6) continue;
-        if (Math.hypot(wx - bx, wy - by) < 1.4) continue;
-        // avoid stacking on existing pillars
-        let tooClose = false;
-        for (const p of pillars) {
-          if (Math.hypot(wx - p.wx, wy - p.wy) < 1.2) { tooClose = true; break; }
-        }
-        if (tooClose) continue;
-        pillars.push({ wx, wy, r: 0.42 });
-        placed = true;
-      }
-    }
+    sprinklePillars(next, { cx, cy });
     showBanner(next.name + ' UNLOCKED', 'two corridors · cover · ' + (next.signature ? next.signature.toUpperCase() + ' INSIDE' : 'crate inside'));
     sfx.boxLand();
     return true;
@@ -2455,15 +2523,11 @@
     bullets.length = 0;
     drops.length = 0;
     fx.length = 0;
-    // Reset the world back to bunker-only on PLAY AGAIN. Lock all
-    // non-bunker zones, clear procedurally generated corridors, drop
-    // any zone-spawned windows. New corridors generate fresh on each
-    // run — no two runs share the same hallway layout.
-    for (const z of zones) z.unlocked = (z.id === 'bunker');
-    corridors.length = 0;
-    pillars.length = 0;
-    while (windows.length > 4) windows.pop();
-    recomputeBounds();
+    // Reseed the world to the 2×2 starter grid. seedStarterMap clears
+    // unlock state on non-starter zones, drops procedural corridors +
+    // pillars, rebuilds the 8 perimeter windows, and recomputes bounds
+    // — no two runs share identical pillar placements.
+    seedStarterMap();
     for (const w of windows) w.boards = 5;
     box.rolling = false; box.rollT = 0;
     wave = 0; waveActive = false; waveSpawnQueue = 0; interludeT = 0;
@@ -2504,7 +2568,10 @@
     startGame();
   });
 
-  // boot
+  // boot — seed the 2×2 starter grid (zones, corridors, windows,
+  // pillars) so even the title screen renders the full map behind the
+  // overlay. startGame re-seeds before each new run.
+  seedStarterMap();
   document.getElementById('titleGold').textContent = meta.gold;
   document.getElementById('titleBest').textContent = meta.bestWave;
   renderUpgradeStore(titleUp);
