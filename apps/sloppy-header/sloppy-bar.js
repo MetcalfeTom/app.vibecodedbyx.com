@@ -1073,18 +1073,23 @@
     }
 
     try {
-      // Parallel queries (karma + premium + verifications)
+      // Parallel queries (karma + premium + verifications). Use
+      // maybeSingle() instead of single() — both look up rows that
+      // legitimately may not exist for new users. single() emits
+      // PGRST116 ("no rows") to the console even when our calling
+      // code already handles the null case fine; maybeSingle() returns
+      // {data: null} silently.
       const [karmaResult, premiumResult, verifyResult] = await Promise.all([
         supabase
           .from('sloppygram_karma')
           .select('karma_total, rank, username')
           .eq('user_id', currentUser.id)
-          .single(),
+          .maybeSingle(),
         supabase
           .from('users')
           .select('purchased_at')
           .eq('user_id', currentUser.id)
-          .single(),
+          .maybeSingle(),
         supabase
           .from('sloppyid_verifications')
           .select('verification_type, is_verified')
@@ -1132,7 +1137,7 @@
             .from('sloppygram_profiles')
             .select('username')
             .eq('user_id', currentUser.id)
-            .single();
+            .maybeSingle();
           if (profResult.data?.username) userData.username = profResult.data.username;
         } catch (e) { /* non-fatal */ }
       }
