@@ -1,0 +1,17 @@
+# dev-tribute
+
+## log
+- 2026-05-02: Created. **Big neon button. Push it. Fireworks. Thank the devs.** Single-file canvas + DOM hybrid. **Button**: chunky pink-to-deep-magenta gradient pill with 4px white border, 28x56 padding, 18px radius, 3-layer shadow (8px hard drop + 32px pink glow + 50px wider pink halo + inner cream highlight) and `box-shadow:0 8px 0 #5a0a3a` to give it tactile depth. Hover lifts +2 +scale 1.02; click depresses 8px down + bigger glow + scale 0.98 + a `keyframe.animate` celebration bounce (cubic-bezier(.16,.84,.36,1) over 360ms). Gold ✦ stars rotate at the corners on a 2.6s spin. **Fireworks engine**: canvas-based particle system with two kinds — `rocket` (rises from bottom toward random target altitude with a sparkly trail, drag 0.96^(60dt), spawns sparkle particles every other frame) and `spark` (post-burst ring of 50-80 particles at 130-250 u/s, gravity 220 u/s², drag 0.985^(60dt), 1.4-2.3s life with linear alpha fade and slight size shrink). On rocket reaching target altitude, `explode()` fires a tight 2π-radius ring of sparks + sub-thump+square-blip BANG sfx. Render uses `globalCompositeOperation='lighter'` for additive glow + 16% alpha black trail-fade so particles leave streaking afterimages. **Counter**: VT323 68px gold-glowing tally that bumps to scale 1.18 + flips to amber on every increment (200ms). **Floating thank-you message**: each click picks one of 15 curated phrases ('thank you, devs ❤', 'absolute heroes', 'commit gods', 'thank you for the slop', etc.) and spawns a Fraunces italic DOM element over the button that runs a 2.8s `floatUp` keyframe — appears with blur + scale 0.85 → holds at full opacity → drifts up 160px and scales 1.05 while fading. **Realtime broadcast**: supabase channel `dev-tribute-broadcast` (no DB writes, no persistence). Each click broadcasts `{event:'tribute', payload:{msg, who:'· anon ·'}}`. Receivers fire their OWN rocket + bump their counter + show a 4s ticker line at the bottom crediting the sender. Falls back to solo mode if config can't load. **Aesthetic**: Bungee Shade brand "DEV TRIBUTE" with magenta/cyan chromatic split, deep-violet starfield via `body::before` 8 radial-gradient dots that gently twinkle, dark indigo gradient bg with magenta/cyan corner glows. **Audio**: Web Audio synth — rocket whoosh (sawtooth slide 220-300 → 80-90Hz over 0.5s), explosion bang (60Hz sawtooth + 120Hz square slap). **Controls**: click button OR press Space. Auto-fires one rocket 600ms after page load so the sky isn't dead on arrival. Pollinations OG, 🎆 favicon.
+
+## issues
+- Particle count grows when many people click rapidly — no global cap. With 50+ users + space-spam this could lag low-end devices. A `particles.length > 800` cull would help.
+- Mobile audio context only unlocks on first tap (per browser policy). The auto-fired welcome rocket plays silently.
+- Counter is per-session — if you reload, the count resets. A "global tribute count" would need a real DB write (intentionally avoided to keep this app frictionless and cheap).
+- The 15 thank-you phrases are repetitive after a while — chat could iterate to add more.
+
+## todos
+- Confetti particles in addition to fireworks.
+- Custom message input — let the user type their own thank-you.
+- Persist a global tribute count in supabase (single `dev_tribute_count` row that everyone increments).
+- Mobile haptic feedback on click via `navigator.vibrate`.
+- "Sustained" mode: hold Space to fire continuous rockets at chase rate.
