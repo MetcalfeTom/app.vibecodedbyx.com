@@ -105,18 +105,34 @@
   /* Center reticle — only visible while pointer is locked. The 3rd-
      person camera puts the player slightly off-center so this dot is
      where bullets travel toward, not where the player's head is. */
+  /* Crosshair: always visible while playing — locked or unlocked. */
   .reticle{
     position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
-    width:16px;height:16px;pointer-events:none;z-index:24;display:none;
+    width:18px;height:18px;pointer-events:none;z-index:24;
+    display:block;opacity:0.85;
   }
   .reticle::before, .reticle::after{
     content:'';position:absolute;background:#7df09d;
     box-shadow:0 0 6px #7df09d;
   }
-  .reticle::before{left:50%;top:0;width:2px;height:6px;transform:translateX(-50%)}
-  .reticle::after {top:50%;left:0;height:2px;width:6px;transform:translateY(-50%)}
-  body.locked .reticle{display:block}
+  .reticle::before{left:50%;top:0;width:2px;height:7px;transform:translateX(-50%)}
+  .reticle::after {top:50%;left:0;height:2px;width:7px;transform:translateY(-50%)}
   body.locked{cursor:none}
+  body.locked .reticle{opacity:1}
+  /* Floating "click to lock" hint when running but not locked */
+  .lock-hint{
+    position:fixed;left:50%;top:62%;transform:translate(-50%,-50%);
+    font-family:'Silkscreen', monospace;font-size:14px;letter-spacing:0.18em;
+    color:var(--gold);text-transform:uppercase;text-align:center;
+    background:rgba(20,8,8,0.88);border:2px solid var(--gold);border-radius:6px;
+    padding:10px 16px;pointer-events:none;z-index:24;
+    text-shadow:0 0 8px var(--gold);
+    box-shadow:0 0 20px rgba(226,185,74,0.45);
+    animation:lockHintPulse 1.6s ease-in-out infinite alternate;
+    display:none;
+  }
+  @keyframes lockHintPulse{0%{opacity:0.55}100%{opacity:1}}
+  body.needs-lock .lock-hint{display:block}
 
   /* Wave banner */
   .banner{
@@ -193,6 +209,7 @@
 </div>
 
 <div class="reticle"></div>
+<div class="lock-hint">click to lock pointer</div>
 <div class="banner" id="banner"></div>
 
 <!-- TITLE -->
@@ -337,15 +354,48 @@ const floor = new THREE.Mesh(
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
-// Bunker walls — 4 perimeter walls with notched window gaps. ROOM_R
-// is the LIVE half-width; expandMap() bumps it on milestone wave clears
-// and rebuilds the wall + window-frame meshes at the new size.
+// Bounding radius of the entire building footprint, used by bullets +
+// pillar-spawn fallback for out-of-bounds checks.
+const BUILDING_BOUND = 36;
+
+// ===== 7-ROOM BUILDING =====
+// Per chat: a 7-room building with shared doorways, perimeter window
+// spawns, wall-buy weapon stations, and armor stations. Rooms ABUT
+// (no gap between them) so the walls between rooms become doorways
+// when listed in DOORWAYS, otherwise solid. Outer-perimeter walls get
+// 4-unit window gaps as zombie spawn points.
 const wallMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x2c333a }));
-let ROOM_R = 14;
 const WALL_H = 4;
+const DOOR_W = 4;       // doorway gap width
+const WIN_W  = 4;       // window gap width (perimeter)
+
+const ROOMS = [
+  { id: 'bunker',     name: 'BUNKER',     x:   0, z:   0, w: 14, d: 14 },
+  { id: 'nhall',      name: 'N HALL',     x:   0, z: -14, w: 14, d: 14 },
+  { id: 'armory',     name: 'ARMORY',     x:   0, z: -28, w: 12, d: 12 },
+  { id: 'westwing',   name: 'WEST WING',  x: -14, z:   0, w: 14, d: 14 },
+  { id: 'eastdock',   name: 'EAST DOCK',  x:  14, z:   0, w: 14, d: 14 },
+  { id: 'workshop',   name: 'WORKSHOP',   x: -14, z:  14, w: 14, d: 14 },
+  { id: 'watchtower', name: 'WATCHTOWER', x:  14, z:  14, w: 14, d: 14 },
+];
+// Doorway connections — every shared wall in this list becomes a
+// 4-unit gap; un-listed shared walls stay solid (they're just visual
+// adjacency, not traversable).
+const DOORWAYS = [
+  ['bunker', 'nhall'],
+  ['bunker', 'westwing'],
+  ['bunker', 'eastdock'],
+  ['nhall', 'armory'],
+  ['westwing', 'workshop'],
+  ['eastdock', 'watchtower'],
+  ['workshop', 'watchtower'],   // back-loop so the player can circle
+];
+function roomById(id) { return ROOMS.find(r => r.id === id); }
+
 const wallMeshes = [];
 const frameMeshes = [];
 let SPAWN_POINTS = [];
+
 function makeWallMesh(x, z, w, h, d) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
   m.position.set(x, h / 2, z);
@@ -353,53 +403,239 @@ function makeWallMesh(x, z, w, h, d) {
   wallMeshes.push(m);
   return m;
 }
+// Find which side (N/S/E/W) of roomA borders roomB.
+// Returns null if they don't share a wall.
+function sharedSide(a, b) {
+  const aN = a.z - a.d/2, aS = a.z + a.d/2, aW = a.x - a.w/2, aE = a.x + a.w/2;
+  const bN = b.z - b.d/2, bS = b.z + b.d/2, bW = b.x - b.w/2, bE = b.x + b.w/2;
+  if (Math.abs(aN - bS) < 0.01 && bE > aW && bW < aE) return 'N';
+  if (Math.abs(aS - bN) < 0.01 && bE > aW && bW < aE) return 'S';
+  if (Math.abs(aW - bE) < 0.01 && bS > aN && bN < aS) return 'W';
+  if (Math.abs(aE - bW) < 0.01 && bS > aN && bN < aS) return 'E';
+  return null;
+}
+function isDoorBetween(idA, idB) {
+  return DOORWAYS.some(([a,b]) => (a===idA && b===idB) || (a===idB && b===idA));
+}
+function getRoomInfo(room, side) {
+  // Returns { hasNeighbor, hasDoor }
+  for (const other of ROOMS) {
+    if (other.id === room.id) continue;
+    const s = sharedSide(room, other);
+    if (s === side) {
+      return { hasNeighbor: true, hasDoor: isDoorBetween(room.id, other.id) };
+    }
+  }
+  return { hasNeighbor: false, hasDoor: false };
+}
+// Build a wall along one room edge with optional center gap.
+// `axis`='x' means horizontal wall (varies in x), z fixed.
+// `axis`='z' means vertical wall (varies in z), x fixed.
+function makeEdgeWall(start, end, fixed, axis, gapWidth) {
+  const length = end - start;
+  if (gapWidth <= 0 || gapWidth >= length) {
+    // solid wall, no gap
+    const center = (start + end) / 2;
+    if (axis === 'x') makeWallMesh(center, fixed, length, WALL_H, 0.6);
+    else              makeWallMesh(fixed, center, 0.6, WALL_H, length);
+    return null;
+  }
+  // gap centered at midpoint
+  const mid = (start + end) / 2;
+  const segLen = (length - gapWidth) / 2;
+  if (segLen > 0.01) {
+    const c1 = start + segLen / 2;
+    const c2 = end   - segLen / 2;
+    if (axis === 'x') {
+      makeWallMesh(c1, fixed, segLen, WALL_H, 0.6);
+      makeWallMesh(c2, fixed, segLen, WALL_H, 0.6);
+    } else {
+      makeWallMesh(fixed, c1, 0.6, WALL_H, segLen);
+      makeWallMesh(fixed, c2, 0.6, WALL_H, segLen);
+    }
+  }
+  return { gapCenter: mid, gapWidth };
+}
 function rebuildWalls() {
-  // Clear previous wall + frame meshes
   for (const m of wallMeshes) scene.remove(m);
   wallMeshes.length = 0;
   for (const m of frameMeshes) scene.remove(m);
   frameMeshes.length = 0;
-  const span = ROOM_R * 2;
-  const segLen = (span - 4) / 2;
-  // 4 sides, 2 segments each w/ 4-unit gap in the middle for the window
-  for (const side of ['N','S','E','W']) {
-    if (side === 'N') {
-      makeWallMesh(-(segLen / 2 + 2), -ROOM_R, segLen, WALL_H, 0.6);
-      makeWallMesh(+(segLen / 2 + 2), -ROOM_R, segLen, WALL_H, 0.6);
-    } else if (side === 'S') {
-      makeWallMesh(-(segLen / 2 + 2), +ROOM_R, segLen, WALL_H, 0.6);
-      makeWallMesh(+(segLen / 2 + 2), +ROOM_R, segLen, WALL_H, 0.6);
-    } else if (side === 'W') {
-      makeWallMesh(-ROOM_R, -(segLen / 2 + 2), 0.6, WALL_H, segLen);
-      makeWallMesh(-ROOM_R, +(segLen / 2 + 2), 0.6, WALL_H, segLen);
-    } else if (side === 'E') {
-      makeWallMesh(+ROOM_R, -(segLen / 2 + 2), 0.6, WALL_H, segLen);
-      makeWallMesh(+ROOM_R, +(segLen / 2 + 2), 0.6, WALL_H, segLen);
+  SPAWN_POINTS = [];
+  // Track which (room, side) edges we've drawn so shared walls aren't
+  // rendered twice (causing z-fighting). Use a string key.
+  const drawnEdges = new Set();
+  function edgeKey(room, side) {
+    // For shared walls we use a normalized key sorting both endpoints
+    // by room id so both rooms map to the same key.
+    let other = null;
+    for (const o of ROOMS) {
+      if (o.id === room.id) continue;
+      if (sharedSide(room, o) === side) { other = o; break; }
     }
+    if (other) {
+      const ids = [room.id, other.id].sort();
+      return 'shared:' + ids.join('|');
+    }
+    return room.id + ':' + side;
   }
-  // Spawn points + frame markers
-  SPAWN_POINTS = [
-    { x:  0, z: -ROOM_R - 1 },
-    { x:  0, z: +ROOM_R + 1 },
-    { x: -ROOM_R - 1, z:  0 },
-    { x: +ROOM_R + 1, z:  0 },
-  ];
-  for (const sp of SPAWN_POINTS) {
-    const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(0.4, WALL_H, 0.4),
-      ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x5a3018 }))
-    );
-    frame.position.set(sp.x * 0.92, WALL_H / 2, sp.z * 0.92);
-    scene.add(frame);
-    frameMeshes.push(frame);
+  for (const room of ROOMS) {
+    const N = room.z - room.d/2, S = room.z + room.d/2;
+    const W = room.x - room.w/2, E = room.x + room.w/2;
+    for (const side of ['N','S','E','W']) {
+      const key = edgeKey(room, side);
+      if (drawnEdges.has(key)) continue;
+      drawnEdges.add(key);
+      const info = getRoomInfo(room, side);
+      const gap = info.hasNeighbor
+        ? (info.hasDoor ? DOOR_W : 0)
+        : WIN_W;
+      let res;
+      if (side === 'N')      res = makeEdgeWall(W, E, N, 'x', gap);
+      else if (side === 'S') res = makeEdgeWall(W, E, S, 'x', gap);
+      else if (side === 'W') res = makeEdgeWall(N, S, W, 'z', gap);
+      else if (side === 'E') res = makeEdgeWall(N, S, E, 'z', gap);
+      // If perimeter window, register a spawn point + frame marker
+      if (res && !info.hasNeighbor) {
+        let sx, sz;
+        if (side === 'N') { sx = res.gapCenter; sz = N - 1; }
+        if (side === 'S') { sx = res.gapCenter; sz = S + 1; }
+        if (side === 'W') { sx = W - 1;          sz = res.gapCenter; }
+        if (side === 'E') { sx = E + 1;          sz = res.gapCenter; }
+        SPAWN_POINTS.push({ x: sx, z: sz });
+        const frame = new THREE.Mesh(
+          new THREE.BoxGeometry(0.4, WALL_H, 0.4),
+          ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x5a3018 }))
+        );
+        frame.position.set(sx, WALL_H / 2, sz);
+        scene.add(frame);
+        frameMeshes.push(frame);
+      }
+    }
   }
 }
 rebuildWalls();
-function expandMap() {
-  if (ROOM_R >= MAP_MAX_R) return false;
-  ROOM_R = Math.min(MAP_MAX_R, ROOM_R + EXPAND_STEP);
-  rebuildWalls();
-  return true;
+function expandMap() { return false; }   // map expansion replaced by 7-room layout
+
+// ===== ROOM-BASED WALKABILITY =====
+// Replaces the old single-rectangle clamp. A point is walkable if it
+// sits inside any room's interior OR inside any doorway gap. Doorway
+// gaps are 4-wide bands centered on shared walls.
+function tileWalkable(wx, wz) {
+  // Inside any room interior?
+  for (const r of ROOMS) {
+    if (wx >= r.x - r.w/2 && wx <= r.x + r.w/2 &&
+        wz >= r.z - r.d/2 && wz <= r.z + r.d/2) return true;
+  }
+  // Inside any doorway band?
+  for (const [aId, bId] of DOORWAYS) {
+    const a = roomById(aId), b = roomById(bId);
+    const s = sharedSide(a, b);
+    if (!s) continue;
+    if (s === 'N' || s === 'S') {
+      // shared horizontal wall — doorway band is 4 wide along x at the wall y
+      const wallZ = (s === 'N') ? a.z - a.d/2 : a.z + a.d/2;
+      const cx = (Math.max(a.x - a.w/2, b.x - b.w/2) + Math.min(a.x + a.w/2, b.x + b.w/2)) / 2;
+      if (Math.abs(wx - cx) <= DOOR_W/2 && Math.abs(wz - wallZ) <= 1.0) return true;
+    } else {
+      const wallX = (s === 'W') ? a.x - a.w/2 : a.x + a.w/2;
+      const cz = (Math.max(a.z - a.d/2, b.z - b.d/2) + Math.min(a.z + a.d/2, b.z + b.d/2)) / 2;
+      if (Math.abs(wz - cz) <= DOOR_W/2 && Math.abs(wx - wallX) <= 1.0) return true;
+    }
+  }
+  return false;
+}
+function playerCanBeAt(wx, wz) {
+  const r = player.rRadius;
+  return tileWalkable(wx - r, wz - r) && tileWalkable(wx + r, wz - r) &&
+         tileWalkable(wx - r, wz + r) && tileWalkable(wx + r, wz + r);
+}
+
+// ===== STATIONS — wall-buys + armor =====
+// Wall-buys grant a temporary buff (no cost on the prototype — chat
+// can iterate to add a points economy). Armor stations heal the
+// player to full with a per-station cooldown.
+const stations = [
+  { kind:'buy', label:'DAMAGE BOOST',   buff:'damage', x:  0, z: -13.4, room:'nhall',     color:0xff5ea1 },
+  { kind:'buy', label:'RAPID FIRE',     buff:'rapid',  x:  0, z: -27.4, room:'armory',    color:0xffd766 },
+  { kind:'buy', label:'PIERCE ROUNDS',  buff:'pierce', x:  13.4, z: 14, room:'watchtower',color:0x7df0ff },
+  { kind:'buy', label:'BAT FURY',       buff:'batfury',x: -13.4, z: 14, room:'workshop',  color:0xd680ff },
+  { kind:'armor', label:'REPAIR BAY', x: -13.4, z: 0, room:'westwing', color:0x7df09d },
+  { kind:'armor', label:'MED CACHE',  x:  13.4, z: 0, room:'eastdock', color:0x7df09d },
+];
+function makeStationMesh(s) {
+  const g = new THREE.Group();
+  // back panel
+  const panel = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 2.0, 0.3),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x1c1410 }))
+  );
+  panel.position.y = 1.5;
+  g.add(panel);
+  // glowing accent — wall-buys are colored emblem boxes; armor uses
+  // an upright rounded prism via cylinder rotated.
+  const accent = new THREE.Mesh(
+    s.kind === 'armor'
+      ? new THREE.CylinderGeometry(0.45, 0.45, 1.6, 8)
+      : new THREE.BoxGeometry(1.6, 1.4, 0.1),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: s.color }))
+  );
+  accent.position.set(0, 1.4, 0.18);
+  g.add(accent);
+  // base
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(2.4, 0.5, 0.5),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x3a2e22 }))
+  );
+  base.position.y = 0.25;
+  g.add(base);
+  g.position.set(s.x, 0, s.z);
+  // face the room interior — armor stations on E/W edges face inward
+  const room = roomById(s.room);
+  if (room) {
+    const dx = room.x - s.x, dz = room.z - s.z;
+    g.rotation.y = Math.atan2(dx, dz);
+  }
+  scene.add(g);
+  s.mesh = g;
+  s.cooldownUntil = 0;
+  return g;
+}
+for (const s of stations) makeStationMesh(s);
+
+function tryUseStation() {
+  const now = performance.now();
+  // Find nearest station within 1.6 units
+  let nearest = null, nd = Infinity;
+  for (const s of stations) {
+    const dx = s.x - player.pos.x, dz = s.z - player.pos.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < nd && d2 < 2.6) { nd = d2; nearest = s; }
+  }
+  if (!nearest) return;
+  if (now < (nearest.cooldownUntil || 0)) {
+    showBanner('STATION COOLING', 'wait a moment');
+    return;
+  }
+  if (nearest.kind === 'armor') {
+    if (player.hp >= player.maxHp) { showBanner('ARMOR FULL', ''); return; }
+    player.hp = player.maxHp;
+    nearest.cooldownUntil = now + 30000;
+    showBanner('+ ARMOR ' + nearest.label, 'fully repaired · 30s cooldown');
+    blip(660, 0.08, 'triangle', 0.16);
+    setTimeout(() => blip(990, 0.10, 'triangle', 0.14), 50);
+  } else {
+    // buy = grant a 15s buff
+    const dur = 15000;
+    if (nearest.buff === 'damage') player.damageBuffUntil = now + dur;
+    if (nearest.buff === 'rapid')  player.rapidBuffUntil  = now + dur;
+    if (nearest.buff === 'pierce') player.pierceBuffUntil = now + dur;
+    if (nearest.buff === 'batfury')player.batFuryUntil    = now + dur;
+    nearest.cooldownUntil = now + 25000;
+    showBanner(nearest.label, '15s · 25s cooldown');
+    blip(880, 0.10, 'triangle', 0.18);
+    setTimeout(() => blip(1320, 0.15, 'triangle', 0.16), 80);
+  }
 }
 
 // Pillar cover scattered inside the bunker
@@ -407,8 +643,8 @@ const pillarMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x3a2e22 }
 const pillars = [];
 function spawnPillarsInRoom(n) {
   for (let i = 0; i < n; i++) {
-    const x = (Math.random() - 0.5) * (ROOM_R * 1.6);
-    const z = (Math.random() - 0.5) * (ROOM_R * 1.6);
+    const x = (Math.random() - 0.5) * (BUILDING_BOUND * 1.6);
+    const z = (Math.random() - 0.5) * (BUILDING_BOUND * 1.6);
     if (Math.hypot(x, z) < 3) continue;       // keep center clear for spawn
     const m = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.4, 1.2), pillarMat);
     m.position.set(x, 0.7, z);
@@ -416,7 +652,10 @@ function spawnPillarsInRoom(n) {
     pillars.push({ mesh: m, x, z, r: 0.7 });
   }
 }
-spawnPillarsInRoom(8);
+// Per chat: pillars now distributed across the 7 rooms instead of one
+// big bunker scatter. Skipped for now — chat can request pillar
+// placement per-room in a follow-up iteration.
+// spawnPillarsInRoom(8);
 
 // Ambient red glow — no actual light needed since materials are
 // MeshBasicMaterial, but we add a faint hemisphere effect via fog tint
@@ -587,6 +826,7 @@ window.addEventListener('keydown', e => {
   keys.add(k);
   if (k === ' ') tryDodge();
   if (k === 'f') tryBat();
+  if (k === 'e') tryUseStation();
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 // Clear stuck keys when the window loses focus (alt-tab, browser
@@ -608,13 +848,21 @@ function requestLock() {
   const fn = cvs.requestPointerLock || cvs.mozRequestPointerLock || cvs.webkitRequestPointerLock;
   if (fn) try { fn.call(cvs); } catch (e) {}
 }
-document.addEventListener('pointerlockchange', () => {
-  pointerLocked = (document.pointerLockElement === cvs);
+function onPointerLockChange() {
+  pointerLocked = (document.pointerLockElement === cvs ||
+                   document.mozPointerLockElement === cvs);
   document.body.classList.toggle('locked', pointerLocked);
-});
-document.addEventListener('mozpointerlockchange', () => {
-  pointerLocked = (document.mozPointerLockElement === cvs);
-  document.body.classList.toggle('locked', pointerLocked);
+  // Show "click to lock" hint when game is running + paused-by-tab + lost lock
+  const needs = running && !paused && !pointerLocked;
+  document.body.classList.toggle('needs-lock', needs);
+}
+document.addEventListener('pointerlockchange', onPointerLockChange);
+document.addEventListener('mozpointerlockchange', onPointerLockChange);
+// Pointer lock can drop unexpectedly (alt-tab, browser focus loss).
+// Re-acquire on the next mousedown anywhere on the canvas.
+document.addEventListener('pointerlockerror', () => {
+  // Browser refused — likely a recent unlock; let the user click again.
+  console.warn('pointerlockerror');
 });
 window.addEventListener('mousemove', e => {
   if (pointerLocked) {
@@ -783,10 +1031,14 @@ const bulletGeo = new THREE.SphereGeometry(0.08, 6, 4);
 function tryFire() {
   const nowMs = performance.now();
   const now = nowMs / 1000;
-  // Chaotic ammo — fire rate jumps to 25Hz AND each shot rolls a random
-  // weapon flavor (color + damage + spread) for a 12s arcade burst.
-  const chaotic = (player.chaoticUntil || 0) > nowMs;
-  const fireGate = chaotic ? 0.04 : player.fireRate;
+  // Chaotic ammo + station buffs apply on top of base fire rate.
+  const chaotic = (player.chaoticUntil  || 0) > nowMs;
+  const rapid   = (player.rapidBuffUntil|| 0) > nowMs;
+  const dmgBuff = (player.damageBuffUntil|| 0) > nowMs;
+  const pierce  = (player.pierceBuffUntil|| 0) > nowMs;
+  let fireGate = player.fireRate;
+  if (chaotic) fireGate = 0.04;
+  else if (rapid) fireGate = 0.05;
   if (now - player.lastFireT < fireGate) return;
   if (!player.alive) return;
   player.lastFireT = now;
@@ -796,6 +1048,9 @@ function tryFire() {
   const len = Math.hypot(dirX, dirZ) || 1;
   let spd = 32, dmg = 22, color = 0xffe5a0;
   let spread = 0;
+  let bulletPierce = 0;
+  if (dmgBuff) dmg = Math.round(dmg * 1.5);
+  if (pierce)  bulletPierce = 2;
   if (chaotic) {
     const flavors = [
       { spd: 38, dmg: 14, color: 0xff5ea1, spread: 0.20 },   // pink scatter
@@ -817,6 +1072,7 @@ function tryFire() {
     vz: Math.cos(a) * spd,
     life: 1.4,
     dmg,
+    pierce: bulletPierce,
   });
   sfx.shoot();
 }
@@ -848,11 +1104,13 @@ function tryBat() {
     while (dY >  Math.PI) dY -= Math.PI * 2;
     while (dY < -Math.PI) dY += Math.PI * 2;
     if (Math.abs(dY) > arc / 2) continue;
-    z.hp -= 45;
-    // KNOCKBACK — radial impulse 2.6u away from player
+    const fury = (player.batFuryUntil || 0) > now;
+    z.hp -= fury ? 70 : 45;
+    // KNOCKBACK — radial impulse, doubled under BAT FURY buff
     const len = d || 1;
-    z.pos.x += (dx / len) * 2.6;
-    z.pos.z += (dz / len) * 2.6;
+    const punch = fury ? 5.2 : 2.6;
+    z.pos.x += (dx / len) * punch;
+    z.pos.z += (dz / len) * punch;
     if (z.hp <= 0) killZombie(z, j);
     hits++;
   }
@@ -954,7 +1212,7 @@ function addShake(mag) { shake.mag = Math.min(28, Math.max(shake.mag, mag)); }
 let wave = 0, waveActive = false, spawnQueue = 0, spawnT = 0, interludeT = 0;
 let kills = 0;
 // Map expansion — every 5 wave clears, push the wall segments outward
-// by EXPAND_STEP units so the playable area grows. ROOM_R is the live
+// by EXPAND_STEP units so the playable area grows. BUILDING_BOUND is the live
 // half-width referenced by movement clamp + spawn points.
 const EXPAND_STEP = 3;
 const MAP_MAX_R = 28;
@@ -1008,6 +1266,10 @@ function togglePause() {
   if (!running) return;
   paused = !paused;
   pauseEl.classList.toggle('show', paused);
+  if (paused) {
+    document.exitPointerLock && document.exitPointerLock();
+  }
+  onPointerLockChange();
 }
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape') { togglePause(); e.preventDefault(); }
@@ -1061,10 +1323,10 @@ function update(dt) {
   const vSpeed = player.speed * sprint;
   const nx = player.pos.x + dx * vSpeed * dt;
   const nz = player.pos.z + dz * vSpeed * dt;
-  // Clamp to bunker bounds (with wall padding)
-  const limit = ROOM_R - player.rRadius - 0.4;
-  player.pos.x = Math.max(-limit, Math.min(limit, nx));
-  player.pos.z = Math.max(-limit, Math.min(limit, nz));
+  // Per-axis walkability check for room+doorway navigation. Sliding
+  // along inside corners works because we test x and z independently.
+  if (playerCanBeAt(nx, player.pos.z)) player.pos.x = nx;
+  if (playerCanBeAt(player.pos.x, nz)) player.pos.z = nz;
   // Push out of pillars
   for (const p of pillars) {
     const dx = player.pos.x - p.x, dz = player.pos.z - p.z;
@@ -1089,8 +1351,8 @@ function update(dt) {
   // Random chance to drop a chaotic-ammo pickup mid-wave (~4% per
   // wave-clear interlude tick; keeps it rare but possible)
   if (waveActive && spawnQueue === 0 && pickups.length === 0 && Math.random() < 0.0007) {
-    const px = (Math.random() - 0.5) * (ROOM_R * 1.4);
-    const pz = (Math.random() - 0.5) * (ROOM_R * 1.4);
+    const px = (Math.random() - 0.5) * (BUILDING_BOUND * 1.4);
+    const pz = (Math.random() - 0.5) * (BUILDING_BOUND * 1.4);
     spawnChaoticAmmo(px, pz);
   }
 
@@ -1134,8 +1396,8 @@ function update(dt) {
       const expanded = (wave % 5 === 0) ? expandMap() : false;
       showBanner('WAVE ' + wave + ' CLEARED', expanded ? '+200 · MAP EXPANDS' : '+200 PTS');
       if (wave % 3 === 0) {
-        const px = (Math.random() - 0.5) * (ROOM_R * 1.2);
-        const pz = (Math.random() - 0.5) * (ROOM_R * 1.2);
+        const px = (Math.random() - 0.5) * (BUILDING_BOUND * 1.2);
+        const pz = (Math.random() - 0.5) * (BUILDING_BOUND * 1.2);
         spawnChaoticAmmo(px, pz);
       }
     }
@@ -1181,12 +1443,12 @@ function update(dt) {
     b.mesh.position.x += b.vx * dt;
     b.mesh.position.z += b.vz * dt;
     b.life -= dt;
-    if (b.life <= 0 || Math.abs(b.mesh.position.x) > ROOM_R + 2 || Math.abs(b.mesh.position.z) > ROOM_R + 2) {
+    if (b.life <= 0 || Math.abs(b.mesh.position.x) > BUILDING_BOUND + 2 || Math.abs(b.mesh.position.z) > BUILDING_BOUND + 2) {
       scene.remove(b.mesh);
       bullets.splice(i, 1);
       continue;
     }
-    // hit zombies
+    // hit zombies — with pierce, bullet survives until pierce is exhausted
     let consumed = false;
     for (let j = zombies.length - 1; j >= 0; j--) {
       const z = zombies[j];
@@ -1196,6 +1458,7 @@ function update(dt) {
         z.hp -= b.dmg;
         sfx.hit();
         if (z.hp <= 0) killZombie(z, j);
+        if ((b.pierce || 0) > 0) { b.pierce--; continue; }
         consumed = true;
         break;
       }
@@ -1258,8 +1521,18 @@ function startGame() {
   shake.mag = 0;
   for (const s of batSwings) scene.remove(s.mesh);
   batSwings.length = 0;
-  // Reset map to base size
-  if (ROOM_R !== 14) { ROOM_R = 14; rebuildWalls(); }
+  // station buff timers
+  player.damageBuffUntil = 0;
+  player.rapidBuffUntil = 0;
+  player.pierceBuffUntil = 0;
+  player.batFuryUntil = 0;
+  for (const st of stations) st.cooldownUntil = 0;
+  // Aggressive auto-lock pointer on game start so the player doesn't
+  // have to click into the canvas first. Browser may still require a
+  // user gesture — startGame is called from a click handler so this
+  // is allowed.
+  setTimeout(() => requestLock(), 50);
+  onPointerLockChange();
   kills = 0;
   wave = 0;
   waveActive = false;
