@@ -203,7 +203,7 @@
 </div>
 
 <div class="hint">
-  <kbd>WASD</kbd> move &nbsp;·&nbsp; <kbd>MOUSE</kbd> aim &nbsp;·&nbsp; <kbd>CLICK</kbd> fire (∞ ammo) &nbsp;·&nbsp; <kbd>1-5</kbd>/<kbd>Q</kbd>/<kbd>WHEEL</kbd> swap &nbsp;·&nbsp; <kbd>E</kbd> board · box &nbsp;·&nbsp; loot is auto-pickup &nbsp;·&nbsp; <kbd>ESC</kbd> pause
+  <kbd>WASD</kbd> move &nbsp;·&nbsp; <kbd>MOUSE</kbd> aim &nbsp;·&nbsp; <kbd>CLICK</kbd> fire (∞ ammo) &nbsp;·&nbsp; <kbd>1-5</kbd>/<kbd>Q</kbd>/<kbd>WHEEL</kbd> swap &nbsp;·&nbsp; <kbd>E</kbd> board · box &nbsp;·&nbsp; <kbd>SPACE</kbd> stomp (when ⚜) &nbsp;·&nbsp; <kbd>ESC</kbd> pause
 </div>
 
 <div class="banner" id="banner"></div>
@@ -491,12 +491,13 @@
     // and chain.range bumped so it doesn't fail to find targets in the
     // expanded districts.
     tesla:   { name:'TESLA COIL', dmg: 70, mag: 30, magMax: 30, reserve: 0, reserveMax: 0, rof: 0.20, reload: 0, range: 8.5, speed: 0, spread: 0, mode:'auto', chain: { hops: 8, falloff: 0.88, range: 5.0 }, color:'#7df0ff', ultra: true },
-    // RAILGUN — heavy power weapon replacing the sniper/assault/shotgun
-    // tier. Instant-hit beam that pierces every zombie along the aim
-    // line for massive damage. Slow rof keeps it from trivializing the
-    // game; the heavy shake + wide bright beam visual sells it as the
-    // gun-with-the-most-presence in the rack.
-    railgun: { name:'RAILGUN', dmg: 220, mag: 4, magMax: 4, reserve: 16, reserveMax: 16, rof: 1.30, reload: 2.6, range: 18, speed: 0, spread: 0, mode:'semi', beam: { width: 0.55 }, color:'#a9f0ff' },
+    // PLASMA RAILGUN — heavy power weapon. Instant-hit superheated
+    // plasma lance that pierces every zombie along the aim line.
+    // Color shifted from raw cyan to a magenta-violet plasma glow per
+    // chat ("plasma railgun"). Slow rof keeps it from trivializing the
+    // game; the heavy shake + bright beam sells it as the king of the
+    // rack.
+    railgun: { name:'PLASMA RAILGUN', dmg: 220, mag: 4, magMax: 4, reserve: 16, reserveMax: 16, rof: 1.30, reload: 2.6, range: 18, speed: 0, spread: 0, mode:'semi', beam: { width: 0.55 }, color:'#d680ff' },
   };
   // Standard mystery-box pool (uniform random unique pick).
   const BOX_POOL = ['drumshot', 'rifle', 'raygun', 'rocket', 'railgun'];
@@ -616,6 +617,9 @@
     // 1-5 directly select a slot. Empty slots are no-ops.
     if (/^[1-5]$/.test(k)) selectSlot(parseInt(k, 10) - 1);
     if (e.key.toLowerCase() === 'e') tryInteract();
+    if (k === ' ' || k === 'spacebar') {
+      if (tryStomp()) e.preventDefault();
+    }
   });
   window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
   cvs.addEventListener('pointermove', e => {
@@ -775,10 +779,12 @@
     // worldToScreen(-1,-1) → sy = -32. ✓
     const m = Math.hypot(mx, my);
     if (m > 0) { mx /= m; my /= m; }
+    // Axis-separated walkability check so the player slides along walls
+    // through narrow corridors instead of catching on inside corners.
     const nx = player.wx + mx * player.speed * dt;
     const ny = player.wy + my * player.speed * dt;
-    player.wx = clamp(nx, ROOM.x + player.rWorld, ROOM.x + ROOM.w - player.rWorld);
-    player.wy = clamp(ny, ROOM.y + player.rWorld, ROOM.y + ROOM.h - player.rWorld);
+    if (playerCanBeAt(nx, player.wy)) player.wx = nx;
+    if (playerCanBeAt(player.wx, ny)) player.wy = ny;
     player.aim = Math.atan2(mouse.wy - player.wy, mouse.wx - player.wx);
 
     if (firing && weapon.def.mode === 'auto') tryFire();
@@ -798,13 +804,14 @@
       } else if (zombies.length === 0) {
         waveActive = false;
         interludeT = 4.5;
-        showBanner('WAVE ' + wave + ' CLEARED', '+200 PTS · MAP EXPANDS');
+        // Milestone-zone unlock at every 5th wave clear; on non-milestone
+        // waves just bank the bonus + advance.
+        const isMilestone = (wave % 5) === 0;
+        showBanner('WAVE ' + wave + ' CLEARED', isMilestone ? '+200 PTS · NEW ZONE OPENS' : '+200 PTS');
         addPoints(200);
         meta.bestWave = Math.max(meta.bestWave, wave);
         saveMeta();
-        // Per chat: the map grows after every wave clear, not just at
-        // the wave-10 milestone.
-        expandRoomOnClear();
+        if (isMilestone) unlockNextZone();
       }
     } else if (interludeT > 0) {
       interludeT -= dt;
@@ -815,7 +822,7 @@
     for (let i = zombies.length - 1; i >= 0; i--) {
       const z = zombies[i];
       z.bobT += dt;
-      const insideRoom = z.wx > ROOM.x && z.wx < ROOM.x + ROOM.w && z.wy > ROOM.y && z.wy < ROOM.y + ROOM.h;
+      const insideRoom = worldWalkable(z.wx, z.wy);
       let tx, ty;
       if (!insideRoom) {
         const c = winCenter(z.targetWindow);
@@ -847,6 +854,12 @@
         if (pd < player.rWorld + z.rWorld - 0.02) {
           z.attackT -= dt;
           if (z.attackT <= 0 && performance.now() > player.invulnUntil) {
+            // Power armor — full damage immunity. Visual feedback via
+            // the golden aura instead of red flash.
+            if ((player.powerArmorUntil || 0) > performance.now()) {
+              z.attackT = 0.9;
+              continue;
+            }
             const baseBite = z.biteDmg || 8;
             const dmg = Math.max(1, baseBite - armor.reduce);
             player.hp = Math.max(0, player.hp - dmg);
@@ -944,50 +957,101 @@
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-  // ===== EXPANDABLE WORLD =====
-  // Per chat: the room grows on every wave clear instead of a one-shot
-  // jump at wave 10. Each clear adds +1 tile to width and (every other
-  // clear) +1 tile to height up to MAP_MAX_W × MAP_MAX_H. Border-side
-  // windows shift out to the new perimeter and a fresh window punches
-  // a hole on the expansion frontier every 3 waves so the new ground
-  // actually has access points for the horde.
-  const MAP_MAX_W = 30, MAP_MAX_H = 22;
-  let districtsUnlocked = 1;     // legacy banner state — 1/2/3
-  function expandRoomOnClear() {
-    let grew = false;
-    if (ROOM.w < MAP_MAX_W) { ROOM.w += 1; grew = true; }
-    // Height grows half as fast so the map stays elongated rather than
-    // ballooning into a square.
-    if (ROOM.h < MAP_MAX_H && wave % 2 === 0) { ROOM.h += 1; grew = true; }
-    if (!grew) return;
-    // Shift border-side windows out to the new wall line so they don't
-    // strand themselves mid-floor after the expansion.
-    for (const w of windows) {
-      if (w.side === 'bottom') w.by = ROOM.y + ROOM.h;
-      if (w.side === 'right')  w.bx = ROOM.x + ROOM.w;
+  // ===== ZONES + PROCEDURAL CORRIDORS =====
+  // Per Zennlogic: the map is now a set of distinct zones connected by
+  // procedurally generated corridors that unlock at wave milestones.
+  // The starting BUNKER is the only zone unlocked initially. Every 5
+  // waves a new zone unlocks and an L-shaped hallway is procedurally
+  // routed between the previous zone and the new one. Each zone has
+  // its own perimeter window so zombies can stream in from anywhere.
+  // ROOM stays as the union AABB so render iteration + bullet bounds
+  // stay simple; tileWalkable() is the actual movement gate.
+  const zones = [
+    { id:'bunker',    x:1,  y:1,  w:14, h:10, unlocked:true,  name:'BUNKER',    tier:0 },
+    { id:'outskirts', x:18, y:3,  w:9,  h:7,  unlocked:false, name:'OUTSKIRTS', tier:1 },
+    { id:'warehouse', x:14, y:14, w:12, h:8,  unlocked:false, name:'WAREHOUSE', tier:2 },
+    { id:'dockyard',  x:2,  y:14, w:9,  h:8,  unlocked:false, name:'DOCKYARD',  tier:3 },
+    { id:'citadel',   x:30, y:13, w:10, h:9,  unlocked:false, name:'CITADEL',   tier:3 },
+  ];
+  const corridors = [];     // each: { x, y, w, h }
+  function tileWalkable(tx, ty) {
+    for (const z of zones) {
+      if (!z.unlocked) continue;
+      if (tx >= z.x && tx < z.x + z.w && ty >= z.y && ty < z.y + z.h) return true;
     }
-    // Every 3 wave clears, punch a brand-new window into a random
-    // boundary. Cycles through sides so the player gets attacked from
-    // every direction over time.
-    if (wave % 3 === 0) {
-      const sides = ['top', 'right', 'bottom', 'left'];
-      const side = sides[(Math.floor(wave / 3) - 1) % 4];
-      let bx, by;
-      if (side === 'top')    { bx = ROOM.x + Math.floor(Math.random() * (ROOM.w - 2)) + 1; by = ROOM.y; }
-      if (side === 'bottom') { bx = ROOM.x + Math.floor(Math.random() * (ROOM.w - 2)) + 1; by = ROOM.y + ROOM.h; }
-      if (side === 'left')   { bx = ROOM.x; by = ROOM.y + Math.floor(Math.random() * (ROOM.h - 2)) + 1; }
-      if (side === 'right')  { bx = ROOM.x + ROOM.w; by = ROOM.y + Math.floor(Math.random() * (ROOM.h - 2)) + 1; }
-      windows.push({ id:'EXP-' + wave, side, bx, by, len: WIN_LEN, boards: 5 });
+    for (const c of corridors) {
+      if (tx >= c.x && tx < c.x + c.w && ty >= c.y && ty < c.y + c.h) return true;
     }
-    // Milestone districts every 5 waves — banner + bonus crate.
-    if (wave === 5 || wave === 10 || wave === 15 || wave === 20) {
-      districtsUnlocked = Math.min(4, Math.floor(wave / 5) + 1);
-      const districtNames = { 5:'OUTSKIRTS', 10:'WAREHOUSE', 15:'DOCKYARD', 20:'CITADEL' };
-      const tier = wave >= 15 ? 3 : (wave >= 10 ? 2 : 1);
-      drops.push({ kind:'crate', wx: ROOM.x + ROOM.w - 2, wy: ROOM.y + ROOM.h - 2, life: 30, bobT: 0, rarity: RARITY_TIERS[tier] });
-      showBanner('DISTRICT UNLOCKED', districtNames[wave].toUpperCase());
-      sfx.boxLand();
+    return false;
+  }
+  function worldWalkable(wx, wy) {
+    return tileWalkable(Math.floor(wx), Math.floor(wy));
+  }
+  function playerCanBeAt(wx, wy) {
+    const r = player.rWorld;
+    return worldWalkable(wx - r, wy - r)
+        && worldWalkable(wx + r, wy - r)
+        && worldWalkable(wx - r, wy + r)
+        && worldWalkable(wx + r, wy + r);
+  }
+  function recomputeBounds() {
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+    for (const z of zones) if (z.unlocked) {
+      minx = Math.min(minx, z.x); miny = Math.min(miny, z.y);
+      maxx = Math.max(maxx, z.x + z.w); maxy = Math.max(maxy, z.y + z.h);
     }
+    for (const c of corridors) {
+      minx = Math.min(minx, c.x); miny = Math.min(miny, c.y);
+      maxx = Math.max(maxx, c.x + c.w); maxy = Math.max(maxy, c.y + c.h);
+    }
+    if (!isFinite(minx)) return;
+    ROOM.x = minx; ROOM.y = miny;
+    ROOM.w = maxx - minx; ROOM.h = maxy - miny;
+  }
+  // Procedural L-shaped corridor between two zone centers. Width is
+  // randomly 2 or 3 tiles for visual variety; the order of the legs
+  // (x-then-y vs y-then-x) is random so each unlock looks different.
+  function buildCorridor(zA, zB) {
+    const ax = Math.floor(zA.x + zA.w / 2);
+    const ay = Math.floor(zA.y + zA.h / 2);
+    const bx = Math.floor(zB.x + zB.w / 2);
+    const by = Math.floor(zB.y + zB.h / 2);
+    const wide = Math.random() < 0.4 ? 3 : 2;
+    const half = Math.floor(wide / 2);
+    const xFirst = Math.random() < 0.5;
+    if (xFirst) {
+      const xa = Math.min(ax, bx), xb = Math.max(ax, bx);
+      corridors.push({ x: xa,        y: ay - half,             w: xb - xa + 1,         h: wide });
+      corridors.push({ x: bx - half, y: Math.min(ay, by),      w: wide,                h: Math.abs(by - ay) + wide });
+    } else {
+      const ya = Math.min(ay, by), yb = Math.max(ay, by);
+      corridors.push({ x: ax - half,            y: ya,        w: wide,                h: yb - ya + 1 });
+      corridors.push({ x: Math.min(ax, bx),     y: by - half, w: Math.abs(bx - ax) + wide, h: wide });
+    }
+  }
+  function unlockNextZone() {
+    const next = zones.find(z => !z.unlocked);
+    if (!next) return false;
+    const unlocked = zones.filter(z => z.unlocked);
+    const prev = unlocked[unlocked.length - 1];
+    next.unlocked = true;
+    buildCorridor(prev, next);
+    recomputeBounds();
+    // Add a perimeter window on the new zone so zombies can spawn here.
+    const sides = ['top', 'right', 'bottom', 'left'];
+    const side = sides[Math.floor(Math.random() * sides.length)];
+    let bx, by;
+    if (side === 'top')    { bx = next.x + Math.floor(next.w / 2); by = next.y; }
+    if (side === 'bottom') { bx = next.x + Math.floor(next.w / 2); by = next.y + next.h; }
+    if (side === 'left')   { bx = next.x; by = next.y + Math.floor(next.h / 2); }
+    if (side === 'right')  { bx = next.x + next.w; by = next.y + Math.floor(next.h / 2); }
+    windows.push({ id:'Z-' + next.id, side, bx, by, len: WIN_LEN, boards: 5 });
+    // Bonus crate in the zone center as a welcome gift.
+    const tier = Math.min(3, next.tier);
+    drops.push({ kind:'crate', wx: next.x + next.w / 2, wy: next.y + next.h / 2, life: 30, bobT: 0, rarity: RARITY_TIERS[tier] });
+    showBanner(next.name + ' UNLOCKED', 'corridor opens · advance to claim the crate');
+    sfx.boxLand();
+    return true;
   }
 
   function startWave(n) {
@@ -997,7 +1061,10 @@
     // Larger districts (post-expansion) bump the count 25% to keep
     // density high across the bigger arena.
     const base = 6 + Math.floor(n * 2.2);
-    waveSpawnQueue = districtsUnlocked >= 2 ? Math.floor(base * 1.25) : base;
+    // Bigger arenas (more zones unlocked) bump horde count 25% per zone
+    // beyond bunker so density stays high as the map grows.
+    const zoneCount = zones.filter(z => z.unlocked).length;
+    waveSpawnQueue = Math.floor(base * (1 + (zoneCount - 1) * 0.25));
     waveSpawnT = 1.0;
     // Boss every 5 waves — queued separately so it spawns on top of
     // the regular horde instead of replacing it.
@@ -1129,8 +1196,14 @@
       const rar = rollRarity();
       drops.push({ kind:'crate', wx: z.wx, wy: z.wy, life: 18, bobT: 0, rarity: rar });
     } else if (Math.random() < 0.06 * luckMult) {
-      const pool = ['ammo', 'instakill', 'double', 'nuke'];
-      const k = pool[Math.floor(Math.random() * pool.length)];
+      // Weighted powerup roll — power armor is rare (~6% of powerups).
+      const r = Math.random();
+      let k;
+      if (r < 0.06)      k = 'powerarmor';
+      else if (r < 0.30) k = 'ammo';
+      else if (r < 0.55) k = 'instakill';
+      else if (r < 0.80) k = 'double';
+      else               k = 'nuke';
       drops.push({ kind: k, wx: z.wx, wy: z.wy, life: 12, bobT: 0 });
     }
   }
@@ -1154,6 +1227,57 @@
       for (let i = zombies.length - 1; i >= 0; i--) killZombie(zombies[i], i);
       spawnFloater(player.wx, player.wy, '☢ NUKE', '#ffd766');
     }
+    if (d.kind === 'powerarmor') {
+      // 12s of invulnerability AND access to the heavy STOMP attack
+      // (SPACE) which slams an AOE shockwave around the player.
+      player.powerArmorUntil = performance.now() + 12000;
+      player.invulnUntil = Math.max(player.invulnUntil || 0, player.powerArmorUntil);
+      spawnFloater(player.wx, player.wy, '⚜ POWER ARMOR · 12s', '#ffd766');
+      spawnFloater(player.wx, player.wy + 0.3, 'SPACE = STOMP', '#a9f0ff');
+      sfx.bossRoar();
+    }
+  }
+  // STOMP — heavy AOE attack only available while power armor is
+  // active. Shockwave damages every zombie in a radius around the
+  // player, knocks them back via velocity-style displacement, and
+  // shakes the screen. 1s cooldown between stomps.
+  function tryStomp() {
+    const now = performance.now();
+    if ((player.powerArmorUntil || 0) <= now) return false;
+    if (now - (player.lastStompT || 0) < 1000) return false;
+    player.lastStompT = now;
+    const radius = 2.6;
+    const dmg = 240;
+    let hit = 0;
+    for (let j = zombies.length - 1; j >= 0; j--) {
+      const z = zombies[j];
+      const d = Math.hypot(z.wx - player.wx, z.wy - player.wy);
+      if (d > radius) continue;
+      // knockback — push zombie radially outward; clamped so they don't
+      // teleport past their target window.
+      const nx = (z.wx - player.wx) / (d || 1);
+      const ny = (z.wy - player.wy) / (d || 1);
+      z.wx += nx * 0.9;
+      z.wy += ny * 0.9;
+      z.hp -= Math.round(dmg * (1 - 0.4 * (d / radius)));
+      hit++;
+      if (z.hp <= 0) killZombie(z, j);
+    }
+    // shockwave fx — concentric ring + dust particles
+    fx.push({ kind:'stomp', wx: player.wx, wy: player.wy, t: 0, dur: 0.5, color: '#ffd766' });
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      fx.push({
+        kind:'particle', wx: player.wx, wy: player.wy,
+        vwx: Math.cos(a) * 7, vwy: Math.sin(a) * 7,
+        size: 3, color: i % 2 ? '#ffd766' : '#a9f0ff',
+        t: 0, dur: 0.55,
+      });
+    }
+    spawnFloater(player.wx, player.wy - 0.3, '💥 STOMP ×' + hit, '#ffd766');
+    addShake(20);
+    sfx.boom();
+    return true;
   }
   // Crate is opened with E — it grants gold + a random gear roll.
   function openCrate(d) {
@@ -1483,20 +1607,33 @@
     ctx.scale(RENDER_ZOOM, RENDER_ZOOM);
     ctx.translate(-CAM_ANCHOR_X, -CAM_ANCHOR_Y);
 
-    // Floor: draw each tile as a diamond, dark dirt with subtle grid
+    // Floor: only draw tiles that are inside an unlocked zone or
+    // corridor. Corridors get a slightly cooler tint so they read as
+    // distinct travel routes from the zone interiors.
     for (let y = ROOM.y; y < ROOM.y + ROOM.h; y++) {
       for (let x = ROOM.x; x < ROOM.x + ROOM.w; x++) {
-        drawTile(x, y, ((x + y) % 2 === 0) ? '#1d130e' : '#1a1009');
+        if (!tileWalkable(x, y)) continue;
+        // Distinguish corridor tiles visually from zone-interior tiles.
+        let inCorridor = false;
+        for (const c of corridors) {
+          if (x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h) { inCorridor = true; break; }
+        }
+        const checker = ((x + y) % 2 === 0);
+        const color = inCorridor ? (checker ? '#181a16' : '#141612') : (checker ? '#1d130e' : '#1a1009');
+        drawTile(x, y, color);
       }
     }
-    // Wall border — outline tiles just outside the room
-    for (let x = ROOM.x - 1; x < ROOM.x + ROOM.w + 1; x++) {
-      drawTile(x, ROOM.y - 1, '#0a0605');
-      drawTile(x, ROOM.y + ROOM.h, '#0a0605');
-    }
-    for (let y = ROOM.y; y < ROOM.y + ROOM.h; y++) {
-      drawTile(ROOM.x - 1, y, '#0a0605');
-      drawTile(ROOM.x + ROOM.w, y, '#0a0605');
+    // Wall border — render any non-walkable cell that has at least one
+    // walkable neighbor as a wall tile. This auto-traces the outside of
+    // every zone + corridor without hardcoding rectangle outlines.
+    for (let y = ROOM.y - 1; y < ROOM.y + ROOM.h + 1; y++) {
+      for (let x = ROOM.x - 1; x < ROOM.x + ROOM.w + 1; x++) {
+        if (tileWalkable(x, y)) continue;
+        if (tileWalkable(x - 1, y) || tileWalkable(x + 1, y) ||
+            tileWalkable(x, y - 1) || tileWalkable(x, y + 1)) {
+          drawTile(x, y, '#0a0605');
+        }
+      }
     }
 
     // Build a depth-sorted draw list of all entities so they paint
@@ -1599,7 +1736,13 @@
 
   function drawPlayer() {
     const p = worldToScreen(player.wx, player.wy);
-    const flicker = performance.now() < player.invulnUntil ? (Math.floor(performance.now() / 60) % 2) : 1;
+    const now = performance.now();
+    const powered = (player.powerArmorUntil || 0) > now;
+    // While power armor is up, suppress the i-frame flicker — the
+    // armor's golden aura is the visual cue for invulnerability.
+    const flicker = (!powered && now < player.invulnUntil)
+      ? (Math.floor(now / 60) % 2)
+      : 1;
     ctx.save();
     ctx.translate(p.sx, p.sy);
     // shadow
@@ -1607,12 +1750,32 @@
     ctx.beginPath();
     ctx.ellipse(0, 6, 11, 3.5, 0, 0, Math.PI * 2);
     ctx.fill();
+    // golden aura ring when power armor active
+    if (powered) {
+      const pulse = 0.6 + Math.sin(now / 90) * 0.4;
+      const auraR = 18 + Math.sin(now / 110) * 2;
+      const grad = ctx.createRadialGradient(0, -10, 4, 0, -10, auraR);
+      grad.addColorStop(0, `rgba(255, 215, 102, ${0.55 * pulse})`);
+      grad.addColorStop(1, 'rgba(255, 215, 102, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(-auraR, -10 - auraR, auraR * 2, auraR * 2);
+    }
     if (!flicker) { ctx.restore(); return; }
     // body
-    ctx.fillStyle = '#dbb47a';
+    ctx.fillStyle = powered ? '#f0c87a' : '#dbb47a';
     ctx.fillRect(-7, -22, 14, 16);
-    // armor overlay if equipped
-    if (armor.reduce > 0) {
+    // power-armor chestplate — bright gold + amber rivets across the torso
+    if (powered) {
+      ctx.fillStyle = '#ffd766';
+      ctx.fillRect(-7, -22, 14, 9);
+      ctx.fillStyle = '#a06a18';
+      ctx.fillRect(-6, -22, 1, 1);
+      ctx.fillRect( 5, -22, 1, 1);
+      ctx.fillRect(-6, -14, 1, 1);
+      ctx.fillRect( 5, -14, 1, 1);
+      ctx.fillStyle = '#fff8d6';
+      ctx.fillRect(-2, -22, 4, 2);   // emblem
+    } else if (armor.reduce > 0) {
       ctx.fillStyle = armor.rarity.color;
       ctx.fillRect(-7, -22, 14, 4);
     }
@@ -1772,8 +1935,8 @@
         ctx.fillText('E · OPEN', 0, 4);
       }
     } else {
-      const colors = { ammo:'#7df09d', instakill:'#e02e2e', double:'#ffd766', nuke:'#cca3ff' };
-      const labels = { ammo:'⌥', instakill:'☠', double:'×2', nuke:'☢' };
+      const colors = { ammo:'#7df09d', instakill:'#e02e2e', double:'#ffd766', nuke:'#cca3ff', powerarmor:'#ffd766' };
+      const labels = { ammo:'⌥', instakill:'☠', double:'×2', nuke:'☢', powerarmor:'⚜' };
       ctx.fillStyle = colors[d.kind] || '#fff';
       ctx.shadowColor = colors[d.kind];
       ctx.shadowBlur = 14;
@@ -1894,34 +2057,56 @@
 
   function drawFx(f) {
     const k = f.t / f.dur;
+    if (f.kind === 'stomp') {
+      // Concentric expanding ring — gold inner + amber outer halo.
+      const p = worldToScreen(f.wx, f.wy);
+      const r = 6 + k * 90;
+      const alpha = 1 - k;
+      ctx.save();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = `rgba(255, 215, 102, ${alpha})`;
+      ctx.shadowColor = '#ffd766';
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      ctx.ellipse(p.sx, p.sy, r, r * 0.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(169, 240, 255, ${alpha * 0.6})`;
+      ctx.beginPath();
+      ctx.ellipse(p.sx, p.sy, r * 0.6, r * 0.3, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     if (f.kind === 'beam') {
-      // Railgun beam — thick cyan-white core surrounded by a glow halo.
-      // Projects directly through worldToScreen for both endpoints, no
-      // jitter (it's a precision weapon, the line should read clean).
+      // Plasma railgun beam — magenta-violet halo + white-hot core,
+      // projected straight through worldToScreen with no jitter (the
+      // line should read clean; it's a precision weapon).
       const a = worldToScreen(f.sx, f.sy);
       const b = worldToScreen(f.ex, f.ey);
       const flicker = 1 - k;
       ctx.save();
       ctx.lineCap = 'round';
-      // outer halo
-      ctx.strokeStyle = `rgba(125, 240, 255, ${0.20 * flicker})`;
-      ctx.lineWidth = 22;
-      ctx.shadowColor = '#a9f0ff';
-      ctx.shadowBlur = 26;
+      // outer plasma halo
+      ctx.strokeStyle = `rgba(214, 128, 255, ${0.22 * flicker})`;
+      ctx.lineWidth = 24;
+      ctx.shadowColor = '#d680ff';
+      ctx.shadowBlur = 28;
       ctx.beginPath();
       ctx.moveTo(a.sx, a.sy - 10);
       ctx.lineTo(b.sx, b.sy - 10);
       ctx.stroke();
-      // core
-      ctx.strokeStyle = `rgba(240, 252, 255, ${0.95 * flicker})`;
+      // hot core
+      ctx.strokeStyle = `rgba(255, 240, 255, ${0.98 * flicker})`;
       ctx.lineWidth = 4;
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = '#fff';
       ctx.beginPath();
       ctx.moveTo(a.sx, a.sy - 10);
       ctx.lineTo(b.sx, b.sy - 10);
       ctx.stroke();
       // muzzle puff
-      ctx.fillStyle = `rgba(255, 255, 255, ${0.85 * flicker})`;
+      ctx.fillStyle = `rgba(255, 240, 255, ${0.85 * flicker})`;
       ctx.beginPath();
       ctx.arc(a.sx, a.sy - 10, 6 + k * 8, 0, Math.PI * 2);
       ctx.fill();
@@ -2061,6 +2246,8 @@
     player.invulnUntil = 0;
     player.instakillUntil = 0;
     player.doubleUntil = 0;
+    player.powerArmorUntil = 0;
+    player.lastStompT = 0;
     player.wx = ROOM.x + ROOM.w / 2;
     player.wy = ROOM.y + ROOM.h / 2;
     kills = 0;
@@ -2082,18 +2269,14 @@
     bullets.length = 0;
     drops.length = 0;
     fx.length = 0;
-    // Reset the room back to District 1 dimensions on PLAY AGAIN so
-    // each fresh run starts in the original bunker. Per-wave expansion
-    // re-grows the map naturally as the player clears waves. Strip any
-    // expansion windows (>4 originals) and reseat the originals.
-    ROOM.w = ROOM_W;   // 14
-    ROOM.h = ROOM_H;   // 10
+    // Reset the world back to bunker-only on PLAY AGAIN. Lock all
+    // non-bunker zones, clear procedurally generated corridors, drop
+    // any zone-spawned windows. New corridors generate fresh on each
+    // run — no two runs share the same hallway layout.
+    for (const z of zones) z.unlocked = (z.id === 'bunker');
+    corridors.length = 0;
     while (windows.length > 4) windows.pop();
-    const south = windows.find(w => w.id === 'S');
-    if (south) south.by = ROOM.y + ROOM.h;
-    const east  = windows.find(w => w.id === 'E');
-    if (east)  east.bx = ROOM.x + ROOM.w;
-    districtsUnlocked = 1;
+    recomputeBounds();
     for (const w of windows) w.boards = 5;
     box.rolling = false; box.rollT = 0;
     wave = 0; waveActive = false; waveSpawnQueue = 0; interludeT = 0;
