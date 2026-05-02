@@ -215,6 +215,33 @@
   }
 
   /* MODEL PILL */
+  .legend-swatch{
+    display:inline-block;width:10px;height:10px;border-radius:2px;
+    margin-right:4px;margin-left:6px;vertical-align:baseline;
+  }
+  .token-chart{ width:100%; }
+  .token-chart svg{ display:block; width:100%; height:240px; }
+  .token-chart .grid-line{ stroke:rgba(31,26,23,0.08); stroke-width:1; }
+  .token-chart .axis-label{
+    font-family:'IBM Plex Mono', monospace;font-size:10px;
+    fill:rgba(31,26,23,0.55);
+  }
+  .token-chart .area-input  { fill:var(--terra); fill-opacity:0.10; }
+  .token-chart .area-output { fill:var(--moss);  fill-opacity:0.10; }
+  .token-chart .line-input  { fill:none; stroke:var(--terra); stroke-width:2.5; }
+  .token-chart .line-output { fill:none; stroke:var(--moss);  stroke-width:2.5; }
+  .token-chart .dot-input   { fill:var(--paper); stroke:var(--terra); stroke-width:2; }
+  .token-chart .dot-output  { fill:var(--paper); stroke:var(--moss);  stroke-width:2; }
+  .live-pulse{
+    display:inline-flex;align-items:center;gap:6px;
+    font-family:'IBM Plex Mono', monospace;font-size:10px;letter-spacing:0.20em;
+    color:var(--terra-deep);text-transform:uppercase;
+  }
+  .live-pulse .dot{
+    width:7px;height:7px;border-radius:50%;background:#3f8a5a;
+    animation:livePulse 1.6s infinite;
+  }
+  .live-pulse.refreshing .dot{ background:var(--gold); animation-duration:0.6s; }
   .cost-grid{
     display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;
     font-family:'IBM Plex Mono', monospace;
@@ -275,7 +302,7 @@
   <header>
     <div class="gutter-marks">
       <span>Vol. I · Ledger of Synthesis</span>
-      <span class="live">Live · auto-refresh 30s</span>
+      <span class="live-pulse" id="livePulse"><span class="dot"></span><span id="liveLbl">Live · refreshing in 30s</span></span>
     </div>
     <h1>Claude<em> · Dashboard</em></h1>
     <div class="tagline">Live telemetry from the kitchen — tokens, lines, and the apps being shaped right now.</div>
@@ -332,6 +359,16 @@
   </section>
 
   <section class="panels">
+    <div class="panel" style="grid-column:1 / -1">
+      <div class="panel-head">
+        <span class="name">Token usage · last 7 days</span>
+        <span class="hint">
+          <span class="legend-swatch" style="background:var(--terra)"></span>input ·
+          <span class="legend-swatch" style="background:var(--moss)"></span>output
+        </span>
+      </div>
+      <div class="token-chart" id="tokenChart"></div>
+    </div>
     <div class="panel">
       <div class="panel-head"><span class="name">Daily commits</span><span class="hint">last 7 days</span></div>
       <div class="bars" id="bars"></div>
@@ -408,16 +445,111 @@
     requestAnimationFrame(tick);
   }
 
+  // ===== HISTORY PERSISTENCE =====
+  // Each successful fetch appends a token-snapshot to localStorage so
+  // the chart can show intra-day evolution even before the upstream
+  // data.json grows a per-day token history. Capped at 200 entries
+  // (enough for ~100 hours at 30s polling).
+  const HISTORY_KEY = 'claude-dashboard-history-v1';
+  function loadHistory() {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
+    catch (e) { return []; }
+  }
+  function saveHistory(data) {
+    if (!data) return loadHistory();
+    let hist = loadHistory();
+    const ts = data.generatedAt || new Date().toISOString();
+    const last = hist[hist.length - 1];
+    // dedupe by generatedAt — same snapshot won't be appended twice
+    if (last && last.ts === ts) return hist;
+    hist.push({
+      ts, day: data.today,
+      inT: data.inputTokens || 0,
+      outT: data.outputTokens || 0,
+    });
+    if (hist.length > 200) hist = hist.slice(-200);
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(hist)); } catch (e) {}
+    return hist;
+  }
+
+  // ===== TOKEN HISTORY CHART =====
+  // 7-day series uses the upstream `daily` commits as the skeleton,
+  // projecting per-day tokens from today's actual figure scaled by
+  // (dayCommits / todayCommits). When the upstream snapshot ever adds
+  // per-day token totals we'll prefer those over the projection.
+  function renderTokenChart(data, history) {
+    const days = data.daily || [];
+    if (days.length === 0) { $('tokenChart').innerHTML = '<div style="padding:20px;color:var(--ink-soft);font-size:11px;font-family:IBM Plex Mono, monospace">no daily data yet</div>'; return; }
+    const todayCommits = Math.max(1, data.totals?.commitsToday || 0);
+    const todayInT = data.inputTokens || 0;
+    const todayOutT = data.outputTokens || 0;
+    // If the snapshot adds dailyTokens later, prefer it; else project.
+    const dailyTokens = data.dailyTokens || null;
+    const series = days.map((d, i) => {
+      const isToday = i === days.length - 1;
+      if (isToday) return { date: d.date, inT: todayInT, outT: todayOutT, projected: false };
+      if (dailyTokens && dailyTokens[d.date]) {
+        return { date: d.date, inT: dailyTokens[d.date].in || 0, outT: dailyTokens[d.date].out || 0, projected: false };
+      }
+      const ratio = d.count / todayCommits;
+      return { date: d.date, inT: Math.round(todayInT * ratio), outT: Math.round(todayOutT * ratio), projected: true };
+    });
+    const W = 800, H = 240, P = 36, PB = 28;
+    const innerW = W - P * 2, innerH = H - P - PB;
+    const maxT = Math.max(1, ...series.flatMap(s => [s.inT, s.outT]));
+    const xStep = series.length > 1 ? innerW / (series.length - 1) : 0;
+    const xy = (i, v) => `${P + i * xStep},${P + innerH - (v / maxT) * innerH}`;
+    const polyIn  = series.map((s, i) => xy(i, s.inT)).join(' ');
+    const polyOut = series.map((s, i) => xy(i, s.outT)).join(' ');
+    // closed polygons for soft fill under each line
+    const baseY = P + innerH;
+    const areaIn  = `${P},${baseY} ${polyIn} ${P + (series.length - 1) * xStep},${baseY}`;
+    const areaOut = `${P},${baseY} ${polyOut} ${P + (series.length - 1) * xStep},${baseY}`;
+    const gridY = [0, 0.25, 0.5, 0.75, 1]
+      .map(t => `<line class="grid-line" x1="${P}" y1="${P + innerH * t}" x2="${P + innerW}" y2="${P + innerH * t}"/>`).join('');
+    const yLabels = [0, 0.5, 1]
+      .map(t => `<text class="axis-label" x="${P - 8}" y="${P + innerH * (1 - t) + 3}" text-anchor="end">${fmt(maxT * t)}</text>`).join('');
+    const xLabels = series.map((s, i) =>
+      `<text class="axis-label" x="${P + i * xStep}" y="${H - 6}" text-anchor="middle">${(s.date || '').slice(5)}</text>`).join('');
+    const dotsIn = series.map((s, i) =>
+      `<circle class="dot-input" cx="${P + i * xStep}" cy="${P + innerH - (s.inT / maxT) * innerH}" r="3.5"/>`).join('');
+    const dotsOut = series.map((s, i) =>
+      `<circle class="dot-output" cx="${P + i * xStep}" cy="${P + innerH - (s.outT / maxT) * innerH}" r="3.5"/>`).join('');
+    $('tokenChart').innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        ${gridY}
+        <polygon class="area-input"  points="${areaIn}"/>
+        <polygon class="area-output" points="${areaOut}"/>
+        <polyline class="line-input"  points="${polyIn}"/>
+        <polyline class="line-output" points="${polyOut}"/>
+        ${dotsIn}${dotsOut}
+        ${yLabels}${xLabels}
+      </svg>
+    `;
+  }
+
   // hero stats
-  $('dateStr').textContent = data.today || '—';
-  $('snapshot').textContent = (data.generatedAt || '').replace('T', ' ').slice(0, 19) + ' UTC';
-  animate($('tokensIn'),    data.inputTokens   || 0, 1100);
-  animate($('tokensOut'),   data.outputTokens  || 0, 1100);
-  animate($('linesAdded'),  data.totals?.linesAdded   || 0, 900);
-  animate($('linesDeleted'),data.totals?.linesDeleted || 0, 900);
-  animate($('commitsToday'),data.totals?.commitsToday || 0, 700);
-  animate($('appsTouched'), data.totals?.appsTouched  || 0, 700);
-  $('totalApps').textContent = String(data.totals?.totalApps || 0);
+  function renderHero(data, animateNums) {
+    $('dateStr').textContent = data.today || '—';
+    $('snapshot').textContent = (data.generatedAt || '').replace('T', ' ').slice(0, 19) + ' UTC';
+    if (animateNums) {
+      animate($('tokensIn'),    data.inputTokens   || 0, 1100);
+      animate($('tokensOut'),   data.outputTokens  || 0, 1100);
+      animate($('linesAdded'),  data.totals?.linesAdded   || 0, 900);
+      animate($('linesDeleted'),data.totals?.linesDeleted || 0, 900);
+      animate($('commitsToday'),data.totals?.commitsToday || 0, 700);
+      animate($('appsTouched'), data.totals?.appsTouched  || 0, 700);
+    } else {
+      $('tokensIn').textContent     = fmt(data.inputTokens   || 0);
+      $('tokensOut').textContent    = fmt(data.outputTokens  || 0);
+      $('linesAdded').textContent   = fmt(data.totals?.linesAdded   || 0);
+      $('linesDeleted').textContent = fmt(data.totals?.linesDeleted || 0);
+      $('commitsToday').textContent = fmt(data.totals?.commitsToday || 0);
+      $('appsTouched').textContent  = fmt(data.totals?.appsTouched  || 0);
+    }
+    $('totalApps').textContent = String(data.totals?.totalApps || 0);
+  }
+  renderHero(data, true);
 
   // ===== COST ANALYSIS =====
   // Public Anthropic API pricing for Claude Opus 4 (current model on
@@ -443,20 +575,20 @@
     if (v >= 0.01)return '$' + v.toFixed(3);
     return '$' + v.toFixed(4);
   }
-  // Animate the cost number similarly to other hero stats
-  (function animateCost() {
+  function animateCostNum(target) {
     const el = $('totalCost');
     if (!el) return;
     const start = performance.now(), dur = 1200;
     const tick = (now) => {
       const k = Math.min(1, (now - start) / dur);
       const eased = 1 - Math.pow(1 - k, 3);
-      el.textContent = fmtUsd(totalCost * eased);
+      el.textContent = fmtUsd(target * eased);
       if (k < 1) requestAnimationFrame(tick);
-      else el.textContent = fmtUsd(totalCost);
+      else el.textContent = fmtUsd(target);
     };
     requestAnimationFrame(tick);
-  })();
+  }
+  animateCostNum(totalCost);
   $('modelPrice').textContent = `${modelName} · $${price.in}/M in · $${price.out}/M out`;
 
   // Cost grid panel — per-axis breakdown + total + back-of-envelope
@@ -572,8 +704,109 @@
     $('thinkingMsg').textContent = messages[mi];
   }, 4200);
 
-  // soft-refetch every 30s — cheap snapshot, no auth
-  setTimeout(() => location.reload(), 30_000);
+  // ===== REAL-TIME REFRESH =====
+  // Re-fetch data.json every REFRESH_MS, re-render the dynamic parts
+  // (hero stats, cost panel, token chart, daily commits, recent commits,
+  // pills) without a full page reload. Tracks countdown to next refresh
+  // in the live-pulse indicator. Skips renders when generatedAt hasn't
+  // changed so static snapshots don't reanimate every tick.
+  saveHistory(data);
+  renderTokenChart(data, loadHistory());
+  let lastGen = data.generatedAt;
+  const REFRESH_MS = 30000;
+  let nextRefreshAt = Date.now() + REFRESH_MS;
+  const livePulseEl = $('livePulse');
+  const liveLblEl = $('liveLbl');
+  function tickCountdown() {
+    if (!liveLblEl) return;
+    const left = Math.max(0, nextRefreshAt - Date.now());
+    const s = Math.ceil(left / 1000);
+    liveLblEl.textContent = s > 0 ? `Live · refresh in ${s}s` : 'Live · refreshing…';
+  }
+  setInterval(tickCountdown, 250);
+  async function refresh() {
+    if (livePulseEl) livePulseEl.classList.add('refreshing');
+    if (liveLblEl) liveLblEl.textContent = 'Live · refreshing…';
+    try {
+      const r = await fetch('data.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('fetch failed');
+      const fresh = await r.json();
+      if (fresh.generatedAt && fresh.generatedAt !== lastGen) {
+        lastGen = fresh.generatedAt;
+        saveHistory(fresh);
+        // Re-run the entire render block — easier than cherry-picking
+        // each dynamic field. Animations are skipped on refresh so
+        // numbers don't roll-up from 0 every 30s.
+        renderHero(fresh, false);
+        // update cost panel
+        const newInT = fresh.inputTokens || 0;
+        const newOutT = fresh.outputTokens || 0;
+        const newInCost = (newInT / 1e6) * price.in;
+        const newOutCost = (newOutT / 1e6) * price.out;
+        const newTotal = newInCost + newOutCost;
+        $('totalCost').textContent = fmtUsd(newTotal);
+        const monthly = newTotal * 30;
+        $('costGrid').innerHTML = `
+          <div class="cost-row"><span class="ck">Input · ${fmt(newInT)} tok</span><span class="cv">${fmtUsd(newInCost)}</span><span class="cs">@ $${price.in}/M</span></div>
+          <div class="cost-row"><span class="ck">Output · ${fmt(newOutT)} tok</span><span class="cv">${fmtUsd(newOutCost)}</span><span class="cs">@ $${price.out}/M</span></div>
+          <div class="cost-row total"><span class="ck">Today · total</span><span class="cv">${fmtUsd(newTotal)}</span><span class="cs">${fmt(newInT + newOutT)} tok combined</span></div>
+          <div class="cost-row"><span class="ck">Monthly burn · est</span><span class="cv">${fmtUsd(monthly)}</span><span class="cs">at today's pace × 30</span></div>
+        `;
+        renderTokenChart(fresh, loadHistory());
+        // re-render daily bars
+        const fdays = fresh.daily || [];
+        const fmax = Math.max(1, ...fdays.map(d => d.count));
+        bars.innerHTML = ''; barsX.innerHTML = '';
+        fdays.forEach((d, i) => {
+          const isT = i === fdays.length - 1;
+          const h = Math.max(4, Math.round((d.count / fmax) * 132));
+          const bar = document.createElement('div');
+          bar.className = 'bar' + (isT ? ' today' : '');
+          bar.style.height = h + 'px';
+          const v = document.createElement('span'); v.className = 'v'; v.textContent = d.count;
+          bar.appendChild(v); bars.appendChild(bar);
+          const lbl = document.createElement('span');
+          lbl.textContent = (d.date || '').slice(5); barsX.appendChild(lbl);
+        });
+        // re-render tools
+        const ftu = fresh.toolUsage || {};
+        const ftMax = Math.max(1, ...Object.values(ftu));
+        toolsEl.innerHTML = '';
+        Object.entries(ftu).forEach(([name, count]) => {
+          const row = document.createElement('div');
+          row.className = 'tool';
+          row.innerHTML = `<span class="name">${name}</span><span class="meter"><span style="width:${(count / ftMax) * 100}%"></span></span><span class="v">${count}</span>`;
+          toolsEl.appendChild(row);
+        });
+        // re-render pills
+        pillsEl.innerHTML = '';
+        if ((fresh.appsTouchedToday || []).length === 0) {
+          pillsEl.innerHTML = '<span class="pill" style="opacity:0.6">no apps yet today</span>';
+        } else {
+          fresh.appsTouchedToday.forEach(slug => {
+            const p = document.createElement('span');
+            p.className = 'pill'; p.textContent = slug; pillsEl.appendChild(p);
+          });
+        }
+        // re-render commits
+        cEl.innerHTML = '';
+        (fresh.recentCommits || []).forEach(c => {
+          const row = document.createElement('div');
+          row.className = 'commit';
+          row.innerHTML = `<span class="hash">${(c.hash || '').slice(0,7)}</span><span class="msg">${escapeHtml(c.msg || '')}</span><span class="when">${formatRel(c.when)}</span>`;
+          cEl.appendChild(row);
+        });
+        if ((fresh.recentCommits || []).length === 0) {
+          cEl.innerHTML = '<div style="color:var(--ink-soft);font-family:IBM Plex Mono, monospace;font-size:11px">no commits yet today.</div>';
+        }
+      }
+    } catch (e) {
+      // network blip — leave state alone, just reset countdown
+    }
+    if (livePulseEl) livePulseEl.classList.remove('refreshing');
+    nextRefreshAt = Date.now() + REFRESH_MS;
+  }
+  setInterval(refresh, REFRESH_MS);
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
