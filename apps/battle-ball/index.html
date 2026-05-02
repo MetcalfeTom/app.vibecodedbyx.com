@@ -677,6 +677,10 @@
       const piece = makePiece(v.c, v.r, side);
       piece.personality = personalityPool[i % personalityPool.length];
       piece.planT = 0;
+      // Per chat: bots are now aggressive — start with 1 bomb charge
+      // and earn more from refill pickups. Arsonists start with 2.
+      piece.bombCharges = (piece.personality === 'arsonist') ? 2 : 1;
+      piece.bombCD = 0;     // anti-spam — seconds until next allowed bomb
       bots.push(piece);
       grid[v.r][v.c].owner = side;
       grid[v.r][v.c].level = 1;
@@ -707,7 +711,7 @@
   // Bot personalities — declared BEFORE resetRound() runs at boot so its
   // assignment to `botPersonality` doesn't TDZ. Score functions live
   // further down (where the BOT AI block reads more cohesively).
-  const BOT_PERSONALITIES = ['rusher', 'hunter', 'collector', 'sieger'];
+  const BOT_PERSONALITIES = ['rusher', 'hunter', 'collector', 'sieger', 'arsonist'];
   let botPersonality = 'rusher';
 
   const POWERUP_TYPES = ['speed', 'paint', 'refill', 'vacuum'];
@@ -773,16 +777,17 @@
       sfxBoost();
     } else if (type === 'refill') {
       // Per chat: trap-refill is ADDITIVE with no cap — each pickup
-      // adds TRAP_CHARGES_PER_ROUND to the wallet so a stockpiling
-      // player can chain defences indefinitely. Only the player
-      // benefits (bot doesn't drop traps); bot pickups are pure denial.
-      // The TRAP pill counter (id="trapCount") shows the running total.
+      // adds TRAP_CHARGES_PER_ROUND to the wallet. Now bots also USE
+      // bombs (see botThinkOne) so refills boost their pile too. Bots
+      // are no longer "denial-only" pickup victims.
       if (piece.side === 1) {
         youTrapCharges += TRAP_CHARGES_PER_ROUND;
         const tcEl = document.getElementById('trapCount');
         if (tcEl) tcEl.textContent = youTrapCharges;
         const tbEl = document.getElementById('trapBtn');
         if (tbEl) tbEl.disabled = false;
+      } else {
+        piece.bombCharges = (piece.bombCharges || 0) + TRAP_CHARGES_PER_ROUND;
       }
       sfxRefill();
     } else if (type === 'paint') {
@@ -1241,11 +1246,79 @@
     s += adjLocks * 1.5;
     return s;
   }
+  // ARSONIST — explosive personality. Treats locks like raw materials
+  // and chases dense enemy clusters so its bombs detonate over the most
+  // valuable real estate. Falls back to capture-bonus when no bomb is
+  // available so the bot stays useful between charges.
+  function scoreCellArsonist(c, r, cell, piece) {
+    let s = 0;
+    if (cell.level === 0)                                   s = 2;
+    else if (cell.owner !== piece.side && cell.level === 1) s = 4;
+    else if (cell.owner === piece.side && cell.level === 1) s = 1;
+    // Cluster bonus — count how many ENEMY-owned tiles are within the
+    // bomb radius (3×3) of this cell. The bot wants to stand somewhere
+    // its next detonation lights a lot of enemy holdings on fire.
+    let enemyDensity = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const nc = c + dc, nr = r + dr;
+        if (!inBounds(nc, nr)) continue;
+        const ncell = grid[nr][nc];
+        if (!ncell.exists) continue;
+        if (ncell.owner !== 0 && ncell.owner !== piece.side) {
+          enemyDensity += (ncell.level === 2 ? 3 : 1);
+        }
+      }
+    }
+    s += enemyDensity * 1.6;
+    s += captureBonus(c, r, cell, piece, 2);
+    return s;
+  }
+
   function scoreFor(personality) {
     if (personality === 'rusher')    return scoreCellRusher;
     if (personality === 'hunter')    return scoreCellHunter;
     if (personality === 'sieger')    return scoreCellSieger;
+    if (personality === 'arsonist')  return scoreCellArsonist;
     return scoreCellCollector;
+  }
+
+  // Bots now actively use the bomb pipeline. Each bot keeps a
+  // bombCharges counter (initial 1, +TRAP_CHARGES_PER_ROUND on refill
+  // pickup) and a per-bot cooldown so they don't spam fuses on top of
+  // each other. botShouldBomb() returns true when:
+  //   • the bot has charges + cooldown is up
+  //   • the 3×3 around the bot contains at least 2 enemy tiles (so the
+  //     blast actually flips territory) — arsonists trigger on 1+
+  //   • or HUNTER/ARSONIST are within 1.5 cells of the player
+  function botShouldBomb(b) {
+    if (!b.bombCharges || b.bombCharges <= 0) return false;
+    if ((b.bombCD || 0) > 0) return false;
+    // density check on the bot's current cell
+    let enemyDensity = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const nc = b.c + dc, nr = b.r + dr;
+        if (!inBounds(nc, nr)) continue;
+        const cell = grid[nr][nc];
+        if (!cell.exists) continue;
+        if (cell.owner !== 0 && cell.owner !== b.side) enemyDensity++;
+      }
+    }
+    const minDensity = (b.personality === 'arsonist') ? 1 : 2;
+    if (enemyDensity >= minDensity) return true;
+    // hunter/arsonist also bomb when right on top of the player
+    if ((b.personality === 'hunter' || b.personality === 'arsonist')) {
+      const pd = Math.max(Math.abs(b.c - you.c), Math.abs(b.r - you.r));
+      if (pd <= 1) return true;
+    }
+    return false;
+  }
+  function botDropBomb(b) {
+    bombFuses.push({ c: b.c, r: b.r, side: b.side, t: 0, dur: BOMB_FUSE_S });
+    b.bombCharges--;
+    b.bombCD = 4.0 + Math.random() * 1.5;   // anti-spam window
+    sfxFuseStart();
   }
 
   function botThink(dt) {
@@ -1253,6 +1326,13 @@
     for (const b of bots) botThinkOne(b, dt);
   }
   function botThinkOne(b, dt) {
+    if ((b.bombCD || 0) > 0) b.bombCD = Math.max(0, b.bombCD - dt);
+
+    // Aggressive bot decision — every frame, check whether it makes
+    // sense to drop a bomb right now, even mid-walk. Standalone from
+    // the path-replan timer below.
+    if (botShouldBomb(b)) botDropBomb(b);
+
     b.planT -= dt;
     if (b.path.length > 0) return;
     if (b.planT > 0)        return;
@@ -1267,6 +1347,17 @@
         if (!cell.exists) continue;
         if (isBlocked(c, r, b.side)) continue;
         let score = scoreFn(c, r, cell, b);
+        // Aggressive personalities (hunter / arsonist / sieger) get a
+        // STRONG nudge toward any visible powerup so they don't yield
+        // refills/speed/vacuum to the player. Collector still gets the
+        // largest pull (its identity), but everyone else now competes.
+        if (powerups.length) {
+          for (const p of powerups) {
+            const d = Math.max(Math.abs(c - p.c), Math.abs(r - p.r));
+            if (d === 0) score += 6;
+            else if (d === 1) score += 3;
+          }
+        }
         const dist = Math.abs(c - b.c) + Math.abs(r - b.r);
         score -= dist * 0.18;
         if (score > 0) candidates.push({ c, r, score });
@@ -1812,7 +1903,7 @@
   // cyan accent as the BOT'S TILES counter.
   function drawPersonaSubpill(parentBox, color, personalityKey) {
     const key = personalityKey || botPersonality;
-    const personaLabel = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR', sieger: 'SIEGER' }[key] || 'RIVAL';
+    const personaLabel = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR', sieger: 'SIEGER', arsonist: 'ARSONIST' }[key] || 'RIVAL';
     const subH = 22;
     const subX = parentBox.x;
     const subY = parentBox.y + parentBox.h + 6;
@@ -1936,7 +2027,7 @@
     document.getElementById('finalBot').textContent = s.bot;
     // Find the highest-scoring bot to surface on the end card. With one
     // bot this is just bots[0]; with three it's whoever scored most.
-    const personalityLabels = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR', sieger: 'SIEGER' };
+    const personalityLabels = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR', sieger: 'SIEGER', arsonist: 'ARSONIST' };
     let leader = null, leaderScore = -1;
     for (const b of bots) {
       const sc = (s.sideScore && s.sideScore[b.side]) || 0;
