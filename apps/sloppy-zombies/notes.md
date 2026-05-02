@@ -1,6 +1,7 @@
 # sloppy-zombies
 
 ## log
+- 2026-05-02: **Bosses + per-wave map expansion + Tesla Coil + Drum Shotgun**. Map now grows on every wave clear: `+1` width every clear, `+1` height every other clear, capped at `MAP_MAX_W=30, MAP_MAX_H=22`. Border-side windows shift out to the new perimeter; a fresh boundary window punches through every 3 waves cycling through sides. Milestone districts at waves 5/10/15/20 fire a banner + bonus crate (`OUTSKIRTS / WAREHOUSE / DOCKYARD / CITADEL`). Replaced the old one-shot `unlockDistrict2` with `expandRoomOnClear()` called from the wave-clear branch; the `if (n >= 10) unlockDistrict2()` gate in `startWave` is gone. **Boss every 5 waves**: `spawnBoss()` triggers 1.8s into wave start (banner reads "WAVE N · BOSS"). Boss = `boss:true` zombie at `rWorld 0.72`, `hp 800 + wave×220`, slower `0.45 × 1.06^wave` speed but `biteDmg:22` (vs default 8). Renders at 2.1× scale via stacked ctx transform, hsl(290) violet body, always-visible 28px violet hp bar with "BOSS" label above. Kill reward: +1000 pts, 32-particle violet/amber shockwave, guaranteed legendary crate + bonus powerup, bossRoar sfx. **Tesla Coil** (ultra-rare drop, ~6% per box via new `ULTRA_POOL`): chain-lightning gun, no projectile. `fireChain()` picks nearest zombie in 7-tile range with 60° aim-cone bias, deals 42 dmg, then arcs to nearest unstruck zombie within `chain.range:4.2` for `chain.hops:5` jumps with `chain.falloff:0.78` damage decay. Renders 'lightning' fx kind: 2-pass jittered zigzag stroke between path nodes (cyan core + soft halo via shadowBlur). New `sfx.zap` (2400Hz square crackle + sub) + `sfx.bossRoar`. **Drum Shotgun** (regular box drop): 8-pellet rapid-fire shotgun, 0.18s rof (3.3× pump-shotgun), 7 dmg/pellet, auto mode. Box pool now `[smg, shotgun, drumshot, rifle, assault, sniper, raygun, rocket]`. Run-reset shrinks ROOM back to 14×10 + strips expansion windows.
 - 2026-05-02: Created as a top-down wave-survival shooter (4 boarded windows, mystery box, 6 weapons, powerups).
 - 2026-05-02: **Overhauled into isometric zombie RPG.** Gameplay logic now lives in WORLD-TILE coords (wx/wy on a 14×10 tile grid); all rendering goes through `worldToScreen()` for a 2:1 iso projection (TILE_W=64, TILE_H=32). Mouse cursor is unprojected back via `screenToWorld()` for aiming and click-targets. Z-sort all entities by `wx + wy` so closer ones paint on top — proper iso depth ordering for zombies / drops / windows / box / fx / bullets. Walls render as outer dark tile rings; boards still on the inner-room edges with the ID label. **Persistent meta-progression** added via localStorage (`sloppy-zombies-meta-v1` schema `{gold, bestWave, upgrades:{vit,fire,reload,luck}}`): GOLD persists across runs, 4 permanent upgrade tracks each with their own gold cost curve (`base × grow^lvl`):
   - VITALITY (max HP +20/lvl, max 5, base 80g, grow 1.7)
@@ -22,9 +23,10 @@
 - More weapon tiers and gear types (helm / boots / trinket).
 - Item rarity-affixed weapon stats (e.g., "Epic SMG: +25% mag size").
 - Pack-a-Punch-style upgrade station that consumes points + gold.
-- Boss zombie at every 5th wave.
 - Mobile virtual joystick.
 - High-score leaderboard via Supabase.
 - Interactive armor slot UI (compare on hover, manually equip from drops).
 - Save current loadout between runs (right now armor + weapon reset on death).
 - Mute toggle + reset-vault button.
+- Boss variants per district (necromancer summons / charger / spitter).
+- More ultra-rare weapons (railgun, flamethrower, freeze ray).

@@ -391,11 +391,29 @@
     raygun:  { name:'RAY GUN', dmg: 60, mag: 20, magMax: 20, reserve: 120, reserveMax: 120, rof: 0.20, reload: 2.6, range:11, speed: 15, spread: 0.02, mode:'auto', pierce: 2, color:'#7df09d' },
     // ROCKET LAUNCHER — AOE detonator. Direct hit = 60 dmg + 80 splash
     // damage to every zombie within 1.8 tiles. Slow projectile (8u/s)
-    // gives the player a beat to imagine the carnage. Tiny mag, slow
-    // reload — the panic-button heavy weapon.
+    // gives the player a beat to imagine the carnage. Infinite ammo
+    // like every other weapon — rof of 1.0s is the only firerate gate
+    // so spamming rockets is paced, not infinite-burst.
     rocket:  { name:'ROCKET',  dmg: 60, mag:  3, magMax:  3, reserve:  12, reserveMax: 12, rof: 1.00, reload: 2.8, range:12, speed: 8,  spread: 0.005, mode:'semi', aoe: { radius: 1.8, dmg: 80 }, color:'#ffae3a' },
+    // DRUM SHOTGUN — rapid-fire pellet hose. 8 pellets at 0.28 spread,
+    // 0.18s rof (3.3× faster than the pump shotgun). Per-pellet dmg
+    // dropped to 7 so it doesn't out-DPS the rifle at point blank but
+    // crowd-clears the front of a horde like a fire hydrant of lead.
+    drumshot:{ name:'DRUM SHOTGUN', dmg: 7, mag: 24, magMax: 24, reserve: 96, reserveMax: 96, rof: 0.18, reload: 2.4, range: 4.5, speed: 13, spread: 0.28, mode:'auto', pellets: 8, color:'#ffb86b' },
+    // TESLA COIL — ultra-rare chain-lightning gun. Each shot picks the
+    // nearest zombie in a 7-tile range, deals dmg, then arcs to the
+    // nearest other zombie within `chain.range` for `chain.hops` total
+    // jumps with `chain.falloff` damage decay per hop. No projectile
+    // model — bullet object is consumed inline and a 'lightning' fx
+    // handles the visual zigzag.
+    tesla:   { name:'TESLA COIL', dmg: 42, mag: 30, magMax: 30, reserve: 0, reserveMax: 0, rof: 0.22, reload: 0, range: 7, speed: 0, spread: 0, mode:'auto', chain: { hops: 5, falloff: 0.78, range: 4.2 }, color:'#7df0ff', ultra: true },
   };
-  const BOX_POOL = ['smg', 'shotgun', 'rifle', 'assault', 'sniper', 'raygun', 'rocket'];
+  // Standard mystery-box pool (uniform random unique pick).
+  const BOX_POOL = ['smg', 'shotgun', 'drumshot', 'rifle', 'assault', 'sniper', 'raygun', 'rocket'];
+  // Ultra-rare pool — Tesla rolls at ~6% per box. Disjoint from BOX_POOL
+  // so the tesla can't show up via the normal uniform path.
+  const ULTRA_POOL = ['tesla'];
+  const ULTRA_CHANCE = 0.06;
   function makeWeaponState(key) {
     const def = WEAPONS[key];
     return { key, def, mag: def.mag, reserve: def.reserve, lastFireT: 0, reloadingUntil: 0 };
@@ -444,6 +462,15 @@
   // up to a few times before falling back.
   function pickUniqueWeapon(pool) {
     const held = new Set(loadout.slots.filter(Boolean).map(w => w.key));
+    // ULTRA tier first — Tesla Coil rolls at ULTRA_CHANCE before the
+    // standard pool gets a look-in. Skipped if the player already
+    // holds an ultra weapon so a tesla hoarder can't lock the slot.
+    if (Math.random() < ULTRA_CHANCE) {
+      const ultraChoices = ULTRA_POOL.filter(k => !held.has(k));
+      if (ultraChoices.length > 0) {
+        return ultraChoices[Math.floor(Math.random() * ultraChoices.length)];
+      }
+    }
     const choices = pool.filter(k => !held.has(k));
     if (choices.length > 0) {
       return choices[Math.floor(Math.random() * choices.length)];
@@ -573,6 +600,20 @@
       setTimeout(() => blip(220, 0.20, 'square',   0.12), 130);
     },
     coin()     { blip(1320, 0.06, 'square', 0.16); setTimeout(() => blip(1760, 0.08, 'square', 0.14), 60); },
+    zap()      {
+      // tesla zap — high-frequency square crackle + sub thud + descending squelch
+      blip(2400, 0.04, 'square',   0.14);
+      setTimeout(() => blip(1800, 0.06, 'square',   0.12), 12);
+      setTimeout(() => blip(680,  0.08, 'sawtooth', 0.10), 30);
+      setTimeout(() => blip(280,  0.10, 'sawtooth', 0.08), 60);
+    },
+    bossRoar() {
+      // boss arrival — sub thud + low growl + screech tail
+      blip(50,  0.40, 'sawtooth', 0.28);
+      setTimeout(() => blip(85,  0.30, 'sawtooth', 0.22), 80);
+      setTimeout(() => blip(140, 0.20, 'square',   0.18), 200);
+      setTimeout(() => blip(220, 0.30, 'sawtooth', 0.14), 280);
+    },
     end()      { blip(220, 0.18, 'sawtooth', 0.20); setTimeout(() => blip(180, 0.18, 'sawtooth', 0.18), 90); setTimeout(() => blip(140, 0.32, 'sawtooth', 0.16), 180); },
   };
 
@@ -639,10 +680,13 @@
       } else if (zombies.length === 0) {
         waveActive = false;
         interludeT = 4.5;
-        showBanner('WAVE ' + wave + ' CLEARED', '+200 PTS · NEXT WAVE INCOMING');
+        showBanner('WAVE ' + wave + ' CLEARED', '+200 PTS · MAP EXPANDS');
         addPoints(200);
         meta.bestWave = Math.max(meta.bestWave, wave);
         saveMeta();
+        // Per chat: the map grows after every wave clear, not just at
+        // the wave-10 milestone.
+        expandRoomOnClear();
       }
     } else if (interludeT > 0) {
       interludeT -= dt;
@@ -685,7 +729,8 @@
         if (pd < player.rWorld + z.rWorld - 0.02) {
           z.attackT -= dt;
           if (z.attackT <= 0 && performance.now() > player.invulnUntil) {
-            const dmg = Math.max(1, 8 - armor.reduce);
+            const baseBite = z.biteDmg || 8;
+            const dmg = Math.max(1, baseBite - armor.reduce);
             player.hp = Math.max(0, player.hp - dmg);
             player.invulnUntil = performance.now() + 350;
             spawnFloater(player.wx, player.wy, '-' + dmg, '#ff4040');
@@ -782,53 +827,100 @@
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
   // ===== EXPANDABLE WORLD =====
-  // District 1 is the original 14×10 room (the bunker). Reaching wave
-  // 10 unlocks District 2 — the warehouse — which expands ROOM east
-  // and south, adds three new windows along the freshly exposed
-  // walls, and drops a free epic crate as a welcome gift.
-  let districtsUnlocked = 1;
-  function unlockDistrict2() {
-    if (districtsUnlocked >= 2) return;
-    districtsUnlocked = 2;
-    // Expand the room. ROOM is a const-bound object so mutating its
-    // dimensions propagates to every render + clamp + spawn site.
-    ROOM.w = 20;     // was 14
-    ROOM.h = 14;     // was 10
-    // Existing south + east windows hugged the original wall lines —
-    // shift them out to the new perimeter so they stay on the wall
-    // rather than floating mid-room.
+  // Per chat: the room grows on every wave clear instead of a one-shot
+  // jump at wave 10. Each clear adds +1 tile to width and (every other
+  // clear) +1 tile to height up to MAP_MAX_W × MAP_MAX_H. Border-side
+  // windows shift out to the new perimeter and a fresh window punches
+  // a hole on the expansion frontier every 3 waves so the new ground
+  // actually has access points for the horde.
+  const MAP_MAX_W = 30, MAP_MAX_H = 22;
+  let districtsUnlocked = 1;     // legacy banner state — 1/2/3
+  function expandRoomOnClear() {
+    let grew = false;
+    if (ROOM.w < MAP_MAX_W) { ROOM.w += 1; grew = true; }
+    // Height grows half as fast so the map stays elongated rather than
+    // ballooning into a square.
+    if (ROOM.h < MAP_MAX_H && wave % 2 === 0) { ROOM.h += 1; grew = true; }
+    if (!grew) return;
+    // Shift border-side windows out to the new wall line so they don't
+    // strand themselves mid-floor after the expansion.
     for (const w of windows) {
       if (w.side === 'bottom') w.by = ROOM.y + ROOM.h;
       if (w.side === 'right')  w.bx = ROOM.x + ROOM.w;
     }
-    // New windows along the expansion frontier (warehouse openings).
-    windows.push({ id:'WH-S', side:'bottom', bx: ROOM.x + 12, by: ROOM.y + ROOM.h, len: WIN_LEN, boards: 5 });
-    windows.push({ id:'WH-E', side:'right',  bx: ROOM.x + ROOM.w, by: ROOM.y + 9,  len: WIN_LEN, boards: 5 });
-    windows.push({ id:'WH-N', side:'top',    bx: ROOM.x + 12, by: ROOM.y,           len: WIN_LEN, boards: 5 });
-    // Welcome gift in the new wing
-    drops.push({ kind:'crate', wx: ROOM.x + 16, wy: ROOM.y + 11, life: 30, bobT: 0, rarity: RARITY_TIERS[2] });
-    showBanner('DISTRICT 2 UNLOCKED', 'THE WAREHOUSE OPENS · 3 NEW WINDOWS');
-    sfx.boxLand();
+    // Every 3 wave clears, punch a brand-new window into a random
+    // boundary. Cycles through sides so the player gets attacked from
+    // every direction over time.
+    if (wave % 3 === 0) {
+      const sides = ['top', 'right', 'bottom', 'left'];
+      const side = sides[(Math.floor(wave / 3) - 1) % 4];
+      let bx, by;
+      if (side === 'top')    { bx = ROOM.x + Math.floor(Math.random() * (ROOM.w - 2)) + 1; by = ROOM.y; }
+      if (side === 'bottom') { bx = ROOM.x + Math.floor(Math.random() * (ROOM.w - 2)) + 1; by = ROOM.y + ROOM.h; }
+      if (side === 'left')   { bx = ROOM.x; by = ROOM.y + Math.floor(Math.random() * (ROOM.h - 2)) + 1; }
+      if (side === 'right')  { bx = ROOM.x + ROOM.w; by = ROOM.y + Math.floor(Math.random() * (ROOM.h - 2)) + 1; }
+      windows.push({ id:'EXP-' + wave, side, bx, by, len: WIN_LEN, boards: 5 });
+    }
+    // Milestone districts every 5 waves — banner + bonus crate.
+    if (wave === 5 || wave === 10 || wave === 15 || wave === 20) {
+      districtsUnlocked = Math.min(4, Math.floor(wave / 5) + 1);
+      const districtNames = { 5:'OUTSKIRTS', 10:'WAREHOUSE', 15:'DOCKYARD', 20:'CITADEL' };
+      const tier = wave >= 15 ? 3 : (wave >= 10 ? 2 : 1);
+      drops.push({ kind:'crate', wx: ROOM.x + ROOM.w - 2, wy: ROOM.y + ROOM.h - 2, life: 30, bobT: 0, rarity: RARITY_TIERS[tier] });
+      showBanner('DISTRICT UNLOCKED', districtNames[wave].toUpperCase());
+      sfx.boxLand();
+    }
   }
 
   function startWave(n) {
     wave = n;
     waveActive = true;
-    // Wave 10 unlocks the warehouse before the horde lands so the
-    // player has a beat to scout the new ground.
-    if (n >= 10 && districtsUnlocked < 2) unlockDistrict2();
     // Per chat: bigger horde size — 6 + 2.2/wave (was 4 + 1.6).
-    // Combined with the faster spawn cadence below, the floor stays
-    // crowded once you've cleared a few waves. District 2 unlocks
-    // bump it another 25% to fill the bigger arena.
+    // Larger districts (post-expansion) bump the count 25% to keep
+    // density high across the bigger arena.
     const base = 6 + Math.floor(n * 2.2);
     waveSpawnQueue = districtsUnlocked >= 2 ? Math.floor(base * 1.25) : base;
     waveSpawnT = 1.0;
-    showBanner('WAVE ' + n, n >= 10 ? 'the warehouse is full' : 'they are coming');
+    // Boss every 5 waves — queued separately so it spawns on top of
+    // the regular horde instead of replacing it.
+    if (n > 0 && n % 5 === 0) {
+      // small delay so the boss arrives mid-wave for a dramatic moment
+      setTimeout(() => { if (waveActive) spawnBoss(); }, 1800);
+      showBanner('WAVE ' + n + ' · BOSS', 'a giant approaches');
+    } else {
+      showBanner('WAVE ' + n, 'they are coming');
+    }
     sfx.waveStart();
     if (weapon.key === 'pistol') {
       weapon.reserve = Math.min(weapon.def.reserveMax, weapon.reserve + 24);
     }
+  }
+
+  // BOSS — oversized zombie with massive HP, scaled hitbox, slower base
+  // speed but heavier bite. One boss per qualifying wave (every 5th).
+  function spawnBoss() {
+    const w = windows[Math.floor(Math.random() * windows.length)];
+    const c = winCenter(w);
+    let wx = c.x, wy = c.y;
+    if (w.side === 'top')    wy -= 1.8;
+    if (w.side === 'bottom') wy += 1.8;
+    if (w.side === 'left')   wx -= 1.8;
+    if (w.side === 'right')  wx += 1.8;
+    const baseHp = 800 + wave * 220;
+    zombies.push({
+      wx, wy, rWorld: 0.72,
+      hp: baseHp, maxHp: baseHp,
+      // Slower than rank-and-file so the player can kite, but still
+      // scales with wave so late-game bosses keep up.
+      speed: 0.45 * Math.pow(1.06, wave),
+      attackT: 1.4,
+      bobT: Math.random() * Math.PI * 2,
+      targetWindow: w,
+      hue: 290,           // sickly violet so it visually pops vs greens
+      boss: true,
+      biteDmg: 22,
+    });
+    sfx.bossRoar();
   }
   function spawnZombie() {
     const w = windows[Math.floor(Math.random() * windows.length)];
@@ -887,6 +979,24 @@
   function killZombie(z, idx) {
     zombies.splice(idx, 1);
     kills++;
+    if (z.boss) {
+      // Boss kill — fat bonus + guaranteed legendary crate + a powerup.
+      addPoints(1000);
+      spawnFloater(z.wx, z.wy - 0.4, '+1000 BOSS', '#ffae3a');
+      // big shockwave fx
+      for (let i = 0; i < 32; i++) {
+        fx.push({
+          kind:'particle', wx: z.wx, wy: z.wy,
+          vwx:(Math.random()-0.5)*10, vwy:(Math.random()-0.5)*10,
+          size:4, color: i % 2 ? '#c46aff' : '#ffae3a',
+          t:0, dur:0.8,
+        });
+      }
+      drops.push({ kind:'crate', wx: z.wx, wy: z.wy, life: 30, bobT: 0, rarity: RARITY_TIERS[3] });
+      drops.push({ kind: ['instakill','double','nuke'][Math.floor(Math.random()*3)], wx: z.wx + 0.5, wy: z.wy + 0.5, life: 18, bobT: 0 });
+      sfx.bossRoar();
+      return;
+    }
     addPoints(50);
     spawnFloater(z.wx, z.wy - 0.2, '+50', '#e2b94a');
     spawnFX('hit', z.wx, z.wy, '#5a8a48', 14);
@@ -965,6 +1075,9 @@
     const insta = (player.instakillUntil || 0) > performance.now();
     const fireBonus = 1 + meta.upgrades.fire * 0.10;
     const dmg = insta ? 9999 : Math.round(def.dmg * fireBonus);
+    // Tesla / chain weapons take a separate code path — no projectile,
+    // instant hit + zigzag arc to nearby zombies.
+    if (def.chain) { fireChain(def, dmg); return; }
     const speed = def.speed;     // tiles/sec
     const pellets = def.pellets || 1;
     for (let p = 0; p < pellets; p++) {
@@ -980,7 +1093,64 @@
         aoe: def.aoe || null,
       });
     }
-    if (weapon.key === 'raygun') sfx.rayShoot(); else sfx.shoot();
+    if (weapon.key === 'raygun') sfx.rayShoot();
+    else if (weapon.key === 'drumshot') sfx.shoot();
+    else sfx.shoot();
+  }
+
+  // CHAIN FIRE — find a primary target in range from the player's aim,
+  // damage it, then jump to the nearest unstruck zombie within chain
+  // range up to chain.hops total jumps. Damage decays by chain.falloff
+  // each hop. Spawns a single lightning fx with the entire chain path.
+  function fireChain(def, baseDmg) {
+    const chain = def.chain;
+    const startWx = player.wx + Math.cos(player.aim) * (player.rWorld + 0.1);
+    const startWy = player.wy + Math.sin(player.aim) * (player.rWorld + 0.1);
+    // Target picker: nearest zombie inside def.range from player, with
+    // a 60° aim cone bias so the player can vaguely point. Falls back
+    // to nearest-in-range if no cone match.
+    let primary = null, primaryD = Infinity;
+    let coneMatch = null, coneD = Infinity;
+    const aimX = Math.cos(player.aim), aimY = Math.sin(player.aim);
+    for (const z of zombies) {
+      const dx = z.wx - startWx, dy = z.wy - startWy;
+      const d = Math.hypot(dx, dy);
+      if (d > def.range) continue;
+      if (d < primaryD) { primaryD = d; primary = z; }
+      const dot = (dx / (d || 1)) * aimX + (dy / (d || 1)) * aimY;
+      if (dot > 0.5 && d < coneD) { coneD = d; coneMatch = z; }
+    }
+    const target = coneMatch || primary;
+    if (!target) {
+      // dry-fire crackle so you know the gun fired but found nothing
+      blip(2200, 0.04, 'square', 0.08);
+      return;
+    }
+    const path = [{ wx: startWx, wy: startWy }];
+    const struck = new Set();
+    let curDmg = baseDmg;
+    let cur = target;
+    for (let h = 0; h < chain.hops && cur; h++) {
+      struck.add(cur);
+      cur.hp -= Math.round(curDmg);
+      spawnFX('hit', cur.wx, cur.wy, def.color);
+      path.push({ wx: cur.wx, wy: cur.wy });
+      const idx = zombies.indexOf(cur);
+      if (cur.hp <= 0 && idx >= 0) killZombie(cur, idx);
+      // pick next: nearest unstruck zombie within chain.range
+      let next = null, nextD = Infinity;
+      for (const z of zombies) {
+        if (struck.has(z)) continue;
+        const d = Math.hypot(z.wx - cur.wx, z.wy - cur.wy);
+        if (d < chain.range && d < nextD) { nextD = d; next = z; }
+      }
+      cur = next;
+      curDmg *= chain.falloff;
+    }
+    // lightning sits on top of zombies — use a far-z so the depth sort
+    // puts it last. wx/wy still set so the sort key is well-defined.
+    fx.push({ kind:'lightning', path, t:0, dur:0.22, color: def.color, wx: path[0].wx, wy: path[0].wy + 99 });
+    sfx.zap();
   }
   function tryReload() {
     // Reload is now a no-op (ammo is infinite) — kept as a function so
@@ -1234,6 +1404,15 @@
   function drawZombie(z) {
     const p = worldToScreen(z.wx, z.wy);
     const bob = Math.sin(z.bobT * 6) * 1.5;
+    // Bosses draw at 2.1× scale via ctx transform — same sprite, bigger
+    // footprint. Their hp bar (drawn at the end) ends up wider too
+    // since it's positioned in the scaled local space.
+    if (z.boss) {
+      ctx.save();
+      ctx.translate(p.sx, p.sy + bob);
+      ctx.scale(2.1, 2.1);
+      ctx.translate(-p.sx, -(p.sy + bob));
+    }
     // Per-zombie grit pattern — deterministic from hue + bobPhase so
     // each undead has its own filth pattern that doesn't shimmer
     // every frame. Cached on the zombie object on first draw.
@@ -1307,8 +1486,20 @@
     ctx.fillRect(-2, -21, 4, 2);
     ctx.fillStyle = '#7a0a0a';
     ctx.fillRect(-2, -20, 1, 1);    // tooth/blood speck
-    // hp bar
-    if (z.hp < z.maxHp) {
+    // hp bar — bosses always show the bar, regular zombies only when
+    // damaged. Boss bar is wider for readability + tinted violet.
+    if (z.boss) {
+      const k = z.hp / z.maxHp;
+      ctx.fillStyle = '#1c0a1c';
+      ctx.fillRect(-14, -38, 28, 4);
+      ctx.fillStyle = '#c46aff';
+      ctx.fillRect(-14, -38, 28 * k, 4);
+      // BOSS label above
+      ctx.fillStyle = '#ffae3a';
+      ctx.font = 'bold 7px "Silkscreen", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('BOSS', 0, -42);
+    } else if (z.hp < z.maxHp) {
       const k = z.hp / z.maxHp;
       ctx.fillStyle = '#220a0a';
       ctx.fillRect(-9, -34, 18, 3);
@@ -1316,6 +1507,7 @@
       ctx.fillRect(-9, -34, 18 * k, 3);
     }
     ctx.restore();
+    if (z.boss) ctx.restore();   // close the outer scale-transform save
   }
 
   function drawDrop(d) {
@@ -1395,8 +1587,40 @@
   }
 
   function drawFx(f) {
-    const p = worldToScreen(f.wx, f.wy);
     const k = f.t / f.dur;
+    if (f.kind === 'lightning') {
+      // Render the chain as a series of jittered line segments between
+      // each path node — bright cyan core + soft halo. Jitter reseeds
+      // per frame so the bolt flickers like real lightning.
+      ctx.save();
+      const flicker = 1 - k;
+      for (let pass = 0; pass < 2; pass++) {
+        ctx.lineWidth = pass === 0 ? 5 : 1.6;
+        ctx.strokeStyle = pass === 0 ? `rgba(125, 240, 255, ${0.18 * flicker})` : `rgba(220, 250, 255, ${0.95 * flicker})`;
+        ctx.shadowColor = '#7df0ff';
+        ctx.shadowBlur = pass === 0 ? 14 : 6;
+        ctx.beginPath();
+        for (let i = 0; i < f.path.length - 1; i++) {
+          const a = worldToScreen(f.path[i].wx, f.path[i].wy);
+          const b = worldToScreen(f.path[i + 1].wx, f.path[i + 1].wy);
+          ctx.moveTo(a.sx, a.sy - 10);
+          // jitter intermediate points to make the bolt zigzag
+          const segs = 5;
+          for (let s = 1; s <= segs; s++) {
+            const t = s / segs;
+            const jx = (Math.random() - 0.5) * 8 * (1 - Math.abs(0.5 - t) * 1.6);
+            const jy = (Math.random() - 0.5) * 8 * (1 - Math.abs(0.5 - t) * 1.6);
+            const x = a.sx + (b.sx - a.sx) * t + jx;
+            const y = a.sy - 10 + ((b.sy - 10) - (a.sy - 10)) * t + jy;
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+    const p = worldToScreen(f.wx, f.wy);
     if (f.kind === 'particle') {
       ctx.globalAlpha = 1 - k;
       ctx.fillStyle = f.color;
@@ -1518,21 +1742,18 @@
     bullets.length = 0;
     drops.length = 0;
     fx.length = 0;
-    // Collapse District 2 back to District 1 dimensions on PLAY AGAIN
-    // so each fresh run starts in the bunker. New windows from the
-    // expansion are popped (4 originals stay).
-    if (districtsUnlocked >= 2) {
-      ROOM.w = ROOM_W;   // 14
-      ROOM.h = ROOM_H;   // 10
-      while (windows.length > 4) windows.pop();
-      // restore the original south + east window positions (they
-      // were shifted out when ROOM expanded)
-      const south = windows.find(w => w.id === 'S');
-      if (south) south.by = ROOM.y + ROOM.h;
-      const east  = windows.find(w => w.id === 'E');
-      if (east)  east.bx = ROOM.x + ROOM.w;
-      districtsUnlocked = 1;
-    }
+    // Reset the room back to District 1 dimensions on PLAY AGAIN so
+    // each fresh run starts in the original bunker. Per-wave expansion
+    // re-grows the map naturally as the player clears waves. Strip any
+    // expansion windows (>4 originals) and reseat the originals.
+    ROOM.w = ROOM_W;   // 14
+    ROOM.h = ROOM_H;   // 10
+    while (windows.length > 4) windows.pop();
+    const south = windows.find(w => w.id === 'S');
+    if (south) south.by = ROOM.y + ROOM.h;
+    const east  = windows.find(w => w.id === 'E');
+    if (east)  east.bx = ROOM.x + ROOM.w;
+    districtsUnlocked = 1;
     for (const w of windows) w.boards = 5;
     box.rolling = false; box.rollT = 0;
     wave = 0; waveActive = false; waveSpawnQueue = 0; interludeT = 0;
