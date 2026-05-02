@@ -1349,13 +1349,49 @@ function requestLock() {
   if (fn) try { fn.call(cvs); } catch (e) {}
 }
 function onPointerLockChange() {
+  const wasLocked = pointerLocked;
   pointerLocked = (document.pointerLockElement === cvs ||
                    document.mozPointerLockElement === cvs);
   document.body.classList.toggle('locked', pointerLocked);
   // Show "click to lock" hint when game is running + paused-by-tab + lost lock
   const needs = running && !paused && !pointerLocked;
   document.body.classList.toggle('needs-lock', needs);
+  // === LOCK-CHANGE RESET — fixes "camera spins on Escape" ===
+  // When pointer lock is released (Escape, Alt-Tab, focus loss), the
+  // browser may dispatch a flurry of mousemove events as the cursor
+  // snaps back to its on-screen position with very large movementX/Y
+  // values. Zero those out so they can't get fed into player.yaw.
+  // ALSO clear the cursor-aim deltas so the cursor-position fallback
+  // doesn't immediately yank the player toward wherever the system
+  // cursor happens to land (often the centre, where the resume
+  // button sits) on the next frame after resume.
+  if (wasLocked && !pointerLocked) {
+    pendingYawDelta = 0;
+    pendingPitchDelta = 0;
+    // Park the cursor-aim target at the player's current forward so
+    // updateAim's lerp has nothing to chase.
+    mouse.world.set(
+      player.pos.x + Math.sin(player.yaw) * 16,
+      0,
+      player.pos.z + Math.cos(player.yaw) * 16,
+    );
+    mouseMoveSinceUnlockT = 0;
+  }
+  if (pointerLocked) {
+    // Re-acquired — also flush any pending deltas accumulated while
+    // we were transitioning, so the first frame doesn't snap-rotate.
+    pendingYawDelta = 0;
+    pendingPitchDelta = 0;
+  }
 }
+// Mouse-aim suppression after a lock release: cursor-position aim
+// stays disabled until the user has actually moved the mouse over the
+// canvas more than a small jitter threshold for at least 250ms. Stops
+// the camera from immediately spinning toward the cursor on resume.
+let mouseMoveSinceUnlockT = 0;
+const MOUSE_AIM_REQUIRES_MS = 250;
+let pendingYawDelta = 0;
+let pendingPitchDelta = 0;
 document.addEventListener('pointerlockchange', onPointerLockChange);
 document.addEventListener('mozpointerlockchange', onPointerLockChange);
 // Pointer lock can drop unexpectedly (alt-tab, browser focus loss).
@@ -1404,28 +1440,28 @@ window.addEventListener('wheel', (e) => {
   input.swapDelta += (e.deltaY > 0) ? 1 : -1;
 }, { passive: false });
 
+// Maximum per-event delta we'll trust (px). Browsers occasionally
+// emit a bogus 1000+px movement when pointer lock releases or when a
+// modal grabs/releases the cursor; clamping per event guards against
+// the camera teleporting in that case.
+const MAX_MOUSE_DELTA_PX = 80;
 window.addEventListener('mousemove', e => {
   if (pointerLocked) {
-    // Raw delta. Per chat: invert mouse X. Three.js convention has
-    // the camera looking down -Z by default; we lookAt +Z so screen-X
-    // is mirrored vs world-X. With `+= movementX`, moving the mouse
-    // RIGHT turned the camera toward world +X — which projects to
-    // screen-LEFT under our look orientation, so it felt backwards.
-    // Flipping to `-=` makes mouse-right rotate to screen-right.
-    player.yaw -= (e.movementX || 0) * MOUSE_SENSITIVITY;
-    // Pitch: mouse-up (negative movementY) looks up.
-    pitch -= (e.movementY || 0) * MOUSE_SENSITIVITY;
-    if (pitch >  PITCH_LIMIT) pitch =  PITCH_LIMIT;
-    if (pitch < -PITCH_LIMIT) pitch = -PITCH_LIMIT;
-    // Keep the world cursor in sync for the bullet-trajectory math:
-    // it sits 16 units in front of the player along the new yaw.
-    mouse.world.set(
-      player.pos.x + Math.sin(player.yaw) * 16,
-      0,
-      player.pos.z + Math.cos(player.yaw) * 16,
-    );
+    // Per chat: invert mouse X (see prior commit for the lookAt
+    // convention reasoning). Accumulate raw deltas into pending* and
+    // let update() apply them once per frame — gives us a single point
+    // to clamp / discard if pointer lock drops mid-frame.
+    let dx = e.movementX || 0;
+    let dy = e.movementY || 0;
+    if (Math.abs(dx) > MAX_MOUSE_DELTA_PX) dx = Math.sign(dx) * MAX_MOUSE_DELTA_PX;
+    if (Math.abs(dy) > MAX_MOUSE_DELTA_PX) dy = Math.sign(dy) * MAX_MOUSE_DELTA_PX;
+    pendingYawDelta   -= dx * MOUSE_SENSITIVITY;
+    pendingPitchDelta -= dy * MOUSE_SENSITIVITY;
   } else {
     // Fallback path: cursor-position aim (used pre-lock and on touch).
+    // Track time-since-unlock so updateAim can ignore stale cursor
+    // positions for ~250ms, preventing the resume-from-pause spin.
+    mouseMoveSinceUnlockT += 1;
     const r = cvs.getBoundingClientRect();
     mouse.sx = ((e.clientX - r.left) / r.width)  * RENDER_W;
     mouse.sy = ((e.clientY - r.top ) / r.height) * RENDER_H;
@@ -1464,6 +1500,16 @@ function updateAim(dt) {
   // Pointer-lock path takes the raw-delta yaw set by mousemove and
   // skips the cursor-projection lerp entirely.
   if (pointerLocked) return;
+  // === SPIN GUARD ===
+  // When the game is running we ALWAYS expect pointer lock; the
+  // unlocked state is just the brief gap between Escape and the next
+  // canvas click. Don't lerp the player's yaw toward the system
+  // cursor during that gap — otherwise resuming after pause snaps the
+  // camera toward wherever the user clicked the resume button (often
+  // the screen centre). Require at least MOUSE_AIM_REQUIRES_MS worth
+  // of accumulated mousemove activity over the canvas before we trust
+  // the cursor position again.
+  if (running && mouseMoveSinceUnlockT < MOUSE_AIM_REQUIRES_MS / 8) return;
   aimNDC.x = (mouse.sx / RENDER_W) * 2 - 1;
   aimNDC.y = -((mouse.sy / RENDER_H) * 2 - 1);
   aimRay.setFromCamera(aimNDC, camera);
@@ -2520,6 +2566,26 @@ function loop(now) {
 requestAnimationFrame(loop);
 
 function update(dt) {
+  // === APPLY PENDING MOUSE DELTAS (pointer-lock path) ===
+  // mousemove only accumulates clamped raw deltas into pendingYaw/
+  // PitchDelta — we apply them once per frame here. This gives us a
+  // single chokepoint to discard if pointer lock dropped mid-frame
+  // (any bogus snap-back deltas from the unlock have already been
+  // zeroed by onPointerLockChange before this frame's update runs).
+  if (pointerLocked && (pendingYawDelta || pendingPitchDelta)) {
+    player.yaw += pendingYawDelta;
+    pitch      += pendingPitchDelta;
+    if (pitch >  PITCH_LIMIT) pitch =  PITCH_LIMIT;
+    if (pitch < -PITCH_LIMIT) pitch = -PITCH_LIMIT;
+    mouse.world.set(
+      player.pos.x + Math.sin(player.yaw) * 16,
+      0,
+      player.pos.z + Math.cos(player.yaw) * 16,
+    );
+  }
+  pendingYawDelta = 0;
+  pendingPitchDelta = 0;
+
   // Per-frame yaw normalization. Pointer-lock raw delta accumulates
   // into player.yaw without bound — over a long session this can grow
   // to thousands of radians. The two while-loops in updateAim and
