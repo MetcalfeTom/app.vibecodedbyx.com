@@ -59,6 +59,8 @@
   .pill.health{border-color:var(--sick); color:var(--sick); text-shadow:0 0 8px var(--sick)}
   .pill.kills {border-color:var(--gold); color:var(--gold); text-shadow:0 0 8px var(--gold)}
   .pill.fuel  {border-color:#7df0ff; color:#7df0ff; text-shadow:0 0 8px #7df0ff}
+  .pill.combo {border-color:#7df0ff; color:#7df0ff; text-shadow:0 0 10px #7df0ff; transition:opacity 0.25s}
+  .pill.combo.dim {opacity:0.35; filter:saturate(0.4)}
   .pill.fuel.cooldown {border-color:#7a1a18; color:#7a1a18; text-shadow:0 0 8px #7a1a18; animation:cooldownPulse 0.8s ease-in-out infinite alternate}
   @keyframes cooldownPulse{0%{opacity:0.55}100%{opacity:1}}
   .pill.fuel .fuel-bar{
@@ -99,6 +101,22 @@
     border:1px solid rgba(214,197,160,0.30);border-radius:3px;
     font-family:'Silkscreen', monospace;color:var(--bone);background:rgba(20,8,8,0.6);
   }
+
+  /* Center reticle — only visible while pointer is locked. The 3rd-
+     person camera puts the player slightly off-center so this dot is
+     where bullets travel toward, not where the player's head is. */
+  .reticle{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:16px;height:16px;pointer-events:none;z-index:24;display:none;
+  }
+  .reticle::before, .reticle::after{
+    content:'';position:absolute;background:#7df09d;
+    box-shadow:0 0 6px #7df09d;
+  }
+  .reticle::before{left:50%;top:0;width:2px;height:6px;transform:translateX(-50%)}
+  .reticle::after {top:50%;left:0;height:2px;width:6px;transform:translateY(-50%)}
+  body.locked .reticle{display:block}
+  body.locked{cursor:none}
 
   /* Wave banner */
   .banner{
@@ -158,6 +176,7 @@
     <div class="pill wave">WAVE<span class="num" id="waveNum">1</span></div>
     <div class="pill health">HP<span class="num" id="hpNum">100</span></div>
     <div class="pill kills">KILLS<span class="num" id="killsNum">0</span></div>
+    <div class="pill combo" id="comboPill">COMBO<span class="num" id="comboNum">×1</span></div>
     <div class="pill fuel" id="fuelPill" title="drone fuel">
       DRONE
       <span class="fuel-bar"><span id="fuelFill"></span></span>
@@ -170,9 +189,10 @@
 </div>
 
 <div class="hint">
-  <kbd>WASD</kbd> move &nbsp;·&nbsp; <kbd>MOUSE</kbd> aim &nbsp;·&nbsp; <kbd>CLICK</kbd> fire &nbsp;·&nbsp; <kbd>SHIFT</kbd> sprint &nbsp;·&nbsp; <kbd>SPACE</kbd> dodge-roll
+  <kbd>CLICK</kbd> lock pointer &nbsp;·&nbsp; <kbd>WASD</kbd> move &nbsp;·&nbsp; <kbd>MOUSE</kbd> aim &nbsp;·&nbsp; <kbd>L-CLICK</kbd> fire &nbsp;·&nbsp; <kbd>F</kbd> bat &nbsp;·&nbsp; <kbd>SHIFT</kbd> sprint &nbsp;·&nbsp; <kbd>SPACE</kbd> dodge &nbsp;·&nbsp; <kbd>ESC</kbd> pause
 </div>
 
+<div class="reticle"></div>
 <div class="banner" id="banner"></div>
 
 <!-- TITLE -->
@@ -317,54 +337,69 @@ const floor = new THREE.Mesh(
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
-// Bunker walls — 4 perimeter walls with notched window gaps
+// Bunker walls — 4 perimeter walls with notched window gaps. ROOM_R
+// is the LIVE half-width; expandMap() bumps it on milestone wave clears
+// and rebuilds the wall + window-frame meshes at the new size.
 const wallMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x2c333a }));
-const ROOM_R = 14;     // half-width of the bunker
+let ROOM_R = 14;
 const WALL_H = 4;
-const wallSegments = [];
-function makeWall(x, z, w, h, d) {
+const wallMeshes = [];
+const frameMeshes = [];
+let SPAWN_POINTS = [];
+function makeWallMesh(x, z, w, h, d) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
   m.position.set(x, h / 2, z);
   scene.add(m);
-  wallSegments.push({ x, z, w, d });
+  wallMeshes.push(m);
   return m;
 }
-// 4 walls broken into 3 segments each (left | gap | right) so each
-// face has a window gap zombies stream through.
-function makePerimeterWall(side) {
+function rebuildWalls() {
+  // Clear previous wall + frame meshes
+  for (const m of wallMeshes) scene.remove(m);
+  wallMeshes.length = 0;
+  for (const m of frameMeshes) scene.remove(m);
+  frameMeshes.length = 0;
   const span = ROOM_R * 2;
-  const segLen = (span - 4) / 2;     // 2 segments of (span/2 - 2), 4-unit gap
-  if (side === 'N') {
-    makeWall(-(segLen / 2 + 2), -ROOM_R, segLen, WALL_H, 0.6);
-    makeWall(+(segLen / 2 + 2), -ROOM_R, segLen, WALL_H, 0.6);
-  } else if (side === 'S') {
-    makeWall(-(segLen / 2 + 2), +ROOM_R, segLen, WALL_H, 0.6);
-    makeWall(+(segLen / 2 + 2), +ROOM_R, segLen, WALL_H, 0.6);
-  } else if (side === 'W') {
-    makeWall(-ROOM_R, -(segLen / 2 + 2), 0.6, WALL_H, segLen);
-    makeWall(-ROOM_R, +(segLen / 2 + 2), 0.6, WALL_H, segLen);
-  } else if (side === 'E') {
-    makeWall(+ROOM_R, -(segLen / 2 + 2), 0.6, WALL_H, segLen);
-    makeWall(+ROOM_R, +(segLen / 2 + 2), 0.6, WALL_H, segLen);
+  const segLen = (span - 4) / 2;
+  // 4 sides, 2 segments each w/ 4-unit gap in the middle for the window
+  for (const side of ['N','S','E','W']) {
+    if (side === 'N') {
+      makeWallMesh(-(segLen / 2 + 2), -ROOM_R, segLen, WALL_H, 0.6);
+      makeWallMesh(+(segLen / 2 + 2), -ROOM_R, segLen, WALL_H, 0.6);
+    } else if (side === 'S') {
+      makeWallMesh(-(segLen / 2 + 2), +ROOM_R, segLen, WALL_H, 0.6);
+      makeWallMesh(+(segLen / 2 + 2), +ROOM_R, segLen, WALL_H, 0.6);
+    } else if (side === 'W') {
+      makeWallMesh(-ROOM_R, -(segLen / 2 + 2), 0.6, WALL_H, segLen);
+      makeWallMesh(-ROOM_R, +(segLen / 2 + 2), 0.6, WALL_H, segLen);
+    } else if (side === 'E') {
+      makeWallMesh(+ROOM_R, -(segLen / 2 + 2), 0.6, WALL_H, segLen);
+      makeWallMesh(+ROOM_R, +(segLen / 2 + 2), 0.6, WALL_H, segLen);
+    }
+  }
+  // Spawn points + frame markers
+  SPAWN_POINTS = [
+    { x:  0, z: -ROOM_R - 1 },
+    { x:  0, z: +ROOM_R + 1 },
+    { x: -ROOM_R - 1, z:  0 },
+    { x: +ROOM_R + 1, z:  0 },
+  ];
+  for (const sp of SPAWN_POINTS) {
+    const frame = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, WALL_H, 0.4),
+      ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x5a3018 }))
+    );
+    frame.position.set(sp.x * 0.92, WALL_H / 2, sp.z * 0.92);
+    scene.add(frame);
+    frameMeshes.push(frame);
   }
 }
-for (const s of ['N','S','E','W']) makePerimeterWall(s);
-
-// Window-gap markers (the 4 spawn points)
-const SPAWN_POINTS = [
-  { x:  0, z: -ROOM_R - 1 },   // N
-  { x:  0, z: +ROOM_R + 1 },   // S
-  { x: -ROOM_R - 1, z:  0 },   // W
-  { x: +ROOM_R + 1, z:  0 },   // E
-];
-// Visual window frames so the player can see the gaps
-for (const sp of SPAWN_POINTS) {
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(0.4, WALL_H, 0.4),
-    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x5a3018 }))
-  );
-  frame.position.set(sp.x * 0.92, WALL_H / 2, sp.z * 0.92);
-  scene.add(frame);
+rebuildWalls();
+function expandMap() {
+  if (ROOM_R >= MAP_MAX_R) return false;
+  ROOM_R = Math.min(MAP_MAX_R, ROOM_R + EXPAND_STEP);
+  rebuildWalls();
+  return true;
 }
 
 // Pillar cover scattered inside the bunker
@@ -551,6 +586,7 @@ window.addEventListener('keydown', e => {
   }
   keys.add(k);
   if (k === ' ') tryDodge();
+  if (k === 'f') tryBat();
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 // Clear stuck keys when the window loses focus (alt-tab, browser
@@ -560,14 +596,60 @@ window.addEventListener('blur', () => keys.clear());
 
 const mouse = { sx: RENDER_W / 2, sy: RENDER_H / 2, world: new THREE.Vector3() };
 let firing = false;
-cvs.addEventListener('pointermove', e => {
-  const r = cvs.getBoundingClientRect();
-  mouse.sx = ((e.clientX - r.left) / r.width)  * RENDER_W;
-  mouse.sy = ((e.clientY - r.top ) / r.height) * RENDER_H;
+// ===== POINTER LOCK + RAW MOUSE DELTA =====
+// Per chat: lock the pointer to the window and map raw mouse delta
+// (e.movementX) directly onto the player's yaw. Gives FPS-grade
+// precision — every device-pixel movement of the mouse maps to a
+// predictable rad turn. The damped-cursor path stays as a fallback
+// when the pointer isn't locked (e.g. on first load before click).
+let pointerLocked = false;
+const MOUSE_SENSITIVITY = 0.0026;   // rad per pixel of movementX
+function requestLock() {
+  const fn = cvs.requestPointerLock || cvs.mozRequestPointerLock || cvs.webkitRequestPointerLock;
+  if (fn) try { fn.call(cvs); } catch (e) {}
+}
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = (document.pointerLockElement === cvs);
+  document.body.classList.toggle('locked', pointerLocked);
 });
-cvs.addEventListener('pointerdown', () => { firing = true; tryFire(); });
-cvs.addEventListener('pointerup',   () => firing = false);
-cvs.addEventListener('pointerleave',() => firing = false);
+document.addEventListener('mozpointerlockchange', () => {
+  pointerLocked = (document.mozPointerLockElement === cvs);
+  document.body.classList.toggle('locked', pointerLocked);
+});
+window.addEventListener('mousemove', e => {
+  if (pointerLocked) {
+    // Raw delta — accumulate yaw directly. No lerp/cap; sensitivity
+    // already controls feel. Negative dx turns left, positive turns right.
+    player.yaw += (e.movementX || 0) * MOUSE_SENSITIVITY;
+    // Keep the world cursor in sync for the bullet-trajectory math:
+    // it sits 16 units in front of the player along the new yaw.
+    mouse.world.set(
+      player.pos.x + Math.sin(player.yaw) * 16,
+      0,
+      player.pos.z + Math.cos(player.yaw) * 16,
+    );
+  } else {
+    // Fallback path: cursor-position aim (used pre-lock and on touch).
+    const r = cvs.getBoundingClientRect();
+    mouse.sx = ((e.clientX - r.left) / r.width)  * RENDER_W;
+    mouse.sy = ((e.clientY - r.top ) / r.height) * RENDER_H;
+  }
+});
+cvs.addEventListener('pointerdown', e => {
+  if (!pointerLocked && running && !paused) {
+    // First click while running grabs the pointer; subsequent clicks
+    // fire because mouse is already locked.
+    requestLock();
+    return;
+  }
+  firing = true;
+  tryFire();
+});
+window.addEventListener('mousedown', e => {
+  if (pointerLocked && running && !paused) { firing = true; tryFire(); }
+});
+window.addEventListener('mouseup',   () => firing = false);
+cvs.addEventListener('pointerleave', () => firing = false);
 
 // Mouse → world: raycast from camera through cursor onto the floor
 // plane so the player aims at the cursor's ground position.
@@ -581,6 +663,9 @@ const FLOOR_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 // responsive but smooth enough to remove subpixel jitter).
 const TURN_RATE = 9.0;
 function updateAim(dt) {
+  // Pointer-lock path takes the raw-delta yaw set by mousemove and
+  // skips the cursor-projection lerp entirely.
+  if (pointerLocked) return;
   aimNDC.x = (mouse.sx / RENDER_W) * 2 - 1;
   aimNDC.y = -((mouse.sy / RENDER_H) * 2 - 1);
   aimRay.setFromCamera(aimNDC, camera);
@@ -589,7 +674,6 @@ function updateAim(dt) {
   const dz = mouse.world.z - player.pos.z;
   if (dx * dx + dz * dz < 0.01) return;
   const targetYaw = Math.atan2(dx, dz);
-  // Shortest-path angle delta (-π .. π)
   let dYaw = targetYaw - player.yaw;
   while (dYaw >  Math.PI) dYaw -= Math.PI * 2;
   while (dYaw < -Math.PI) dYaw += Math.PI * 2;
@@ -737,6 +821,66 @@ function tryFire() {
   sfx.shoot();
 }
 
+// ===== CRICKET BAT MELEE =====
+// Per chat: high-knockback close-range bat. Wide arc (0.7π ≈ 126°),
+// 2.0u reach, slow swing (0.55s cooldown). Each hit deals 45 dmg AND
+// punts the zombie 2.6 units radially away — clears space around the
+// player when surrounded. Visual: temporary box swung in front of the
+// player as a 'batSwing' fx that shrinks as it ages.
+const batSwings = [];
+function tryBat() {
+  if (!player.alive) return;
+  const now = performance.now();
+  if (now < (player.batCooldownUntil || 0)) return;
+  player.batCooldownUntil = now + 550;
+  const reach = 2.0;
+  const arc = Math.PI * 0.7;
+  const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw);
+  let hits = 0;
+  for (let j = zombies.length - 1; j >= 0; j--) {
+    const z = zombies[j];
+    const dx = z.pos.x - player.pos.x, dz = z.pos.z - player.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > reach + (z.rRadius || 0.4)) continue;
+    // Arc check — angle between forward vector and zombie direction
+    const angTo = Math.atan2(dx, dz);
+    let dY = angTo - player.yaw;
+    while (dY >  Math.PI) dY -= Math.PI * 2;
+    while (dY < -Math.PI) dY += Math.PI * 2;
+    if (Math.abs(dY) > arc / 2) continue;
+    z.hp -= 45;
+    // KNOCKBACK — radial impulse 2.6u away from player
+    const len = d || 1;
+    z.pos.x += (dx / len) * 2.6;
+    z.pos.z += (dz / len) * 2.6;
+    if (z.hp <= 0) killZombie(z, j);
+    hits++;
+  }
+  // Visual swing — flat box that lives 180ms in front of the player
+  const swing = new THREE.Mesh(
+    new THREE.BoxGeometry(2.4, 0.2, 1.0),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xd6c5a0 }))
+  );
+  swing.position.set(player.pos.x + fx * 1.0, 1.3, player.pos.z + fz * 1.0);
+  swing.rotation.y = player.yaw;
+  scene.add(swing);
+  batSwings.push({ mesh: swing, t: 0, dur: 0.18 });
+  // SFX: thwack
+  blip(220, 0.06, 'square', 0.18);
+  setTimeout(() => blip(120, 0.10, 'sawtooth', 0.16), 30);
+  if (hits > 0) addShake(8 + Math.min(8, hits * 2));
+}
+function tickBatSwings(dt) {
+  for (let i = batSwings.length - 1; i >= 0; i--) {
+    const s = batSwings[i];
+    s.t += dt;
+    if (s.t > s.dur) { scene.remove(s.mesh); batSwings.splice(i, 1); continue; }
+    const k = s.t / s.dur;
+    s.mesh.scale.set(1, 1 - k * 0.6, 1);
+    s.mesh.rotation.z = (1 - k) * 0.3;
+  }
+}
+
 // ===== DODGE ROLL =====
 function tryDodge() {
   const now = performance.now();
@@ -791,9 +935,29 @@ const sfx = {
   end()      { blip(220, 0.2, 'sawtooth', 0.2); setTimeout(() => blip(140, 0.3, 'sawtooth', 0.18), 120); },
 };
 
+// ===== COMBO + SCREEN SHAKE (ported from 2D) =====
+const combo = { count: 0, peak: 0, lastKillT: 0 };
+const COMBO_WINDOW_MS = 2500;
+const COMBO_MAX_MULT = 5;
+function comboMultiplier() {
+  return Math.min(COMBO_MAX_MULT, 1 + Math.floor(combo.count / 3) * 0.5);
+}
+function bumpCombo() {
+  combo.count++;
+  combo.peak = Math.max(combo.peak, combo.count);
+  combo.lastKillT = performance.now();
+}
+const shake = { mag: 0, decay: 4.0 };
+function addShake(mag) { shake.mag = Math.min(28, Math.max(shake.mag, mag)); }
+
 // ===== WAVE SYSTEM =====
 let wave = 0, waveActive = false, spawnQueue = 0, spawnT = 0, interludeT = 0;
 let kills = 0;
+// Map expansion — every 5 wave clears, push the wall segments outward
+// by EXPAND_STEP units so the playable area grows. ROOM_R is the live
+// half-width referenced by movement clamp + spawn points.
+const EXPAND_STEP = 3;
+const MAP_MAX_R = 28;
 function startWave(n) {
   wave = n;
   waveActive = true;
@@ -825,6 +989,15 @@ function updateHUD() {
   const pillEl = document.getElementById('fuelPill');
   if (fillEl) fillEl.style.width = ((drone.fuel / drone.maxFuel) * 100) + '%';
   if (pillEl) pillEl.classList.toggle('cooldown', drone.disabled);
+  // Combo pill
+  const comboEl = document.getElementById('comboNum');
+  const comboPill = document.getElementById('comboPill');
+  if (comboEl) {
+    const cm = comboMultiplier();
+    const mStr = (cm % 1 === 0) ? cm.toFixed(0) : cm.toFixed(1);
+    comboEl.textContent = combo.count > 0 ? `${combo.count}·×${mStr}` : '×1';
+  }
+  if (comboPill) comboPill.classList.toggle('dim', combo.count === 0);
 }
 
 // ===== GAME LOOP =====
@@ -858,6 +1031,14 @@ requestAnimationFrame(loop);
 
 function update(dt) {
   updateAim(dt);
+  // Combo decay
+  if (combo.count > 0 && performance.now() - combo.lastKillT > COMBO_WINDOW_MS) {
+    combo.count = 0;
+  }
+  // Shake decay
+  if (shake.mag > 0) shake.mag = Math.max(0, shake.mag - shake.decay * 60 * dt);
+  // Bat swing fade
+  tickBatSwings(dt);
 
   // === MOVEMENT ===
   // WASD is CAMERA-relative — W moves toward the cursor (player's
@@ -924,6 +1105,13 @@ function update(dt) {
   camera.position.x += (tx - camera.position.x) * k;
   camera.position.y += (ty - camera.position.y) * k;
   camera.position.z += (tz - camera.position.z) * k;
+  // Apply screen shake — random offset on top of the smooth chase pos.
+  if (shake.mag > 0) {
+    const sX = (Math.random() - 0.5) * shake.mag * 0.05;
+    const sY = (Math.random() - 0.5) * shake.mag * 0.05;
+    const sZ = (Math.random() - 0.5) * shake.mag * 0.05;
+    camera.position.x += sX; camera.position.y += sY; camera.position.z += sZ;
+  }
   // Look at a point slightly ahead of the player so over-shoulder framing
   // shows the action zone the player is moving into.
   const lookX = player.pos.x + Math.sin(player.yaw) * 2;
@@ -942,9 +1130,9 @@ function update(dt) {
     } else if (zombies.length === 0) {
       waveActive = false;
       interludeT = 4.0;
-      showBanner('WAVE ' + wave + ' CLEARED', '+200 PTS');
-      // Guaranteed chaotic ammo drop every 3 waves so the arcade
-      // power-up is always within reach for the player.
+      // Map expansion every 5 wave clears, ported from the 2D iso game.
+      const expanded = (wave % 5 === 0) ? expandMap() : false;
+      showBanner('WAVE ' + wave + ' CLEARED', expanded ? '+200 · MAP EXPANDS' : '+200 PTS');
       if (wave % 3 === 0) {
         const px = (Math.random() - 0.5) * (ROOM_R * 1.2);
         const pz = (Math.random() - 0.5) * (ROOM_R * 1.2);
@@ -1025,6 +1213,8 @@ function killZombie(z, idx) {
   scene.remove(z.mesh);
   zombies.splice(idx, 1);
   kills++;
+  bumpCombo();
+  addShake(2 + Math.min(8, combo.count * 0.4));
   sfx.zDie();
 }
 
@@ -1064,6 +1254,12 @@ function startGame() {
   drone.disabled = false;
   paused = false;
   pauseEl.classList.remove('show');
+  combo.count = 0; combo.peak = 0; combo.lastKillT = 0;
+  shake.mag = 0;
+  for (const s of batSwings) scene.remove(s.mesh);
+  batSwings.length = 0;
+  // Reset map to base size
+  if (ROOM_R !== 14) { ROOM_R = 14; rebuildWalls(); }
   kills = 0;
   wave = 0;
   waveActive = false;
