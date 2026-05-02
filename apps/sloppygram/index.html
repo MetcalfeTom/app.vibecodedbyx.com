@@ -3504,7 +3504,17 @@
         }
 
         // Upload image to Supabase Storage, returns public URL or null on failure
+        // Session-level circuit-breaker — once we know the bucket is
+        // missing/inaccessible there's no point retrying every chat
+        // image. The Cloudflare-fronted Supabase response for a missing
+        // bucket reads in dev-tools as a generic fetch failure (server:
+        // cloudflare + cf-ray), which is what reports as a "Cloudflare
+        // fetch error". CORS is fine (access-control-allow-origin: *,
+        // all methods + headers) — the real issue is the bucket itself.
+        // Callers already handle a null return by inlining the data URL.
+        let _storageDisabled = false;
         async function uploadToStorage(blob, folder = 'images') {
+            if (_storageDisabled) return null;
             try {
                 const ext = blob.type === 'image/png' ? 'png' : 'jpg';
                 const filename = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
@@ -3518,7 +3528,16 @@
                     });
 
                 if (error) {
-                    console.error('Storage upload error:', error);
+                    const msg = String(error.message || error);
+                    // Trip the circuit breaker for permanent failures
+                    // (bucket missing or RLS blocks the role) — those
+                    // won't fix themselves between uploads.
+                    if (/bucket not found|not found|permission|denied|policy/i.test(msg)) {
+                        _storageDisabled = true;
+                        console.warn('[uploadToStorage] disabling storage uploads for this session:', msg, '· falling back to inline base64.');
+                    } else {
+                        console.error('[uploadToStorage] transient error:', error);
+                    }
                     return null;
                 }
 
@@ -3529,7 +3548,7 @@
 
                 return (urlData && urlData.publicUrl) ? urlData.publicUrl : null;
             } catch (err) {
-                console.error('Upload failed:', err);
+                console.error('[uploadToStorage] threw:', err);
                 return null;
             }
         }
