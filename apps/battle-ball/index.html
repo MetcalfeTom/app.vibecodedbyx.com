@@ -323,8 +323,10 @@
   <div class="card" id="overCard">
     <h2 id="overTitle">YOU WIN</h2>
     <div class="scoreboard">
-      <div class="sb-row you">YOU<span class="v" id="finalYou">0</span></div>
-      <div class="sb-row bot">RIVAL<span class="v" id="finalBot">0</span><span class="persona" id="finalPersona">RUSHER</span></div>
+      <!-- Per-side rows are now built by endGame() so multi-bot
+           matches show one row per bot with its personality + tile
+           count, ranked highest to lowest. -->
+      <div id="finalRows" style="display:contents"></div>
     </div>
     <button id="restartBtn">PLAY AGAIN</button>
   </div>
@@ -659,7 +661,7 @@
     applyLayout(pickRandomLayout());
     const seeds = SPAWN_SEEDS();
     const yV = nearestExistingCell(seeds[0].c, seeds[0].r);
-    you.c = yV.c; you.r = yV.r; you.x = you.c; you.y = you.r; you.path = []; you.boostT = 0;
+    you.c = yV.c; you.r = yV.r; you.x = you.c; you.y = you.r; you.path = []; you.boostT = 0; you.stunUntil = 0;
     grid[you.r][you.c].owner = 1; grid[you.r][you.c].level = 1;
     // (re)build the bot roster
     bots.length = 0;
@@ -681,6 +683,7 @@
       // and earn more from refill pickups. Arsonists start with 2.
       piece.bombCharges = (piece.personality === 'arsonist') ? 2 : 1;
       piece.bombCD = 0;     // anti-spam — seconds until next allowed bomb
+      piece.stunUntil = 0;  // bomb-blast stun timer (3s on hit)
       bots.push(piece);
       grid[v.r][v.c].owner = side;
       grid[v.r][v.c].level = 1;
@@ -869,6 +872,20 @@
     }
   }
 
+  // 3-second stun applied to any piece (player or bot) caught in a
+  // bomb blast. Stunned pieces freeze in place — path cleared, no
+  // tickPiece progression — until stunUntil expires. Used as a
+  // crowd-control kicker so a well-placed bomb takes a bot off the
+  // floor for three full seconds.
+  const STUN_MS = 3000;
+  function stunIfInBlast(piece, centreC, centreR) {
+    if (!piece) return;
+    const dx = Math.abs(piece.c - centreC), dy = Math.abs(piece.r - centreR);
+    if (dx <= 1 && dy <= 1) {
+      piece.stunUntil = performance.now() + STUN_MS;
+      piece.path = [];
+    }
+  }
   function explodeColorBomb(centreC, centreR, side) {
     // Lock the 3×3 around (centreC, centreR) to side's colour at level 2,
     // overriding ANY prior state including enemy locks (this is the
@@ -881,6 +898,11 @@
         grid[r][c].level = 2;
       }
     }
+    // 3-second stun on every piece in the blast — friend or foe.
+    // Lets a bomb interrupt a hostile bot's chain even when the
+    // dropper themselves is caught in their own blast.
+    stunIfInBlast(you, centreC, centreR);
+    for (const b of bots) stunIfInBlast(b, centreC, centreR);
     const ringColor = side === 1 ? '#b94dff' : '#00e5ff';
     fx.push({ type: 'ring', c: centreC, r: centreR, t: 0, dur: 0.55, color: ringColor });
     fx.push({ type: 'ring', c: centreC, r: centreR, t: 0, dur: 0.85, color: ringColor });
@@ -1327,6 +1349,8 @@
   }
   function botThinkOne(b, dt) {
     if ((b.bombCD || 0) > 0) b.bombCD = Math.max(0, b.bombCD - dt);
+    // Stunned bots skip all behavior until stunUntil expires.
+    if (b.stunUntil && performance.now() < b.stunUntil) return;
 
     // Aggressive bot decision — every frame, check whether it makes
     // sense to drop a bomb right now, even mid-walk. Standalone from
@@ -1374,6 +1398,13 @@
   // ===== ANIMATION =====
   function tickPiece(piece, dt) {
     if (piece.boostT > 0) piece.boostT = Math.max(0, piece.boostT - dt);
+    // 3-second bomb stun — freeze in place, drop any in-flight path
+    if (piece.stunUntil && performance.now() < piece.stunUntil) {
+      piece.path = [];
+      piece.stepT = 0;
+      piece.x = piece.c; piece.y = piece.r;
+      return;
+    }
     if (piece.path.length === 0) {
       piece.x = piece.c; piece.y = piece.r;
       piece.stepT = 0;
@@ -1548,11 +1579,19 @@
   }
 
   function drawPiece(piece) {
-    const x = isoX(piece.x, piece.y);
-    const y = isoY(piece.x, piece.y);
+    let x = isoX(piece.x, piece.y);
+    let y = isoY(piece.x, piece.y);
     const isMoving = piece.path.length > 0;
     // hop offset — a tiny up-and-down while walking
     const hop = isMoving ? Math.abs(Math.sin(piece.hopT * Math.PI / 1.4)) * piece.hopAmp : 0;
+    // 3-second bomb stun — vibrate + dim. Visual cue only; the actual
+    // "no movement" lock is enforced in tickPiece + botThinkOne.
+    const stunMs = piece.stunUntil ? Math.max(0, piece.stunUntil - performance.now()) : 0;
+    const stunned = stunMs > 0;
+    if (stunned) {
+      x += Math.sin(performance.now() / 30) * 1.5;
+      y += Math.cos(performance.now() / 26) * 1.0;
+    }
     const cx = x;
     const cy = y + TH/2 - hop;     // base on top of tile center
 
@@ -1611,6 +1650,29 @@
     ctx.arc(cx, cy - 26, 2, 0, Math.PI);
     ctx.stroke();
     ctx.restore();
+
+    // Stun overlay — yellow ✦ stars circling the piece's head and a
+    // greyscale dim so it's clear they're locked out of the floor.
+    if (stunned) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const t = performance.now() / 1000;
+      const remaining = stunMs / 3000;        // 1 → 0 over the stun
+      ctx.globalAlpha = 0.85 * Math.min(1, remaining + 0.3);
+      ctx.fillStyle = '#ffd400';
+      ctx.font = 'bold 12px "Bungee", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let i = 0; i < 3; i++) {
+        const a = t * 4 + i * (Math.PI * 2 / 3);
+        const sx = cx + Math.cos(a) * 14;
+        const sy = cy - 38 + Math.sin(a) * 5;
+        ctx.shadowColor = '#ffd400';
+        ctx.shadowBlur = 6;
+        ctx.fillText('✦', sx, sy);
+      }
+      ctx.restore();
+    }
   }
 
   function roundRect(x, y, w, h, r) {
@@ -2023,25 +2085,54 @@
   function endGame() {
     gameActive = false;
     const s = tally();
-    document.getElementById('finalYou').textContent = s.you;
-    document.getElementById('finalBot').textContent = s.bot;
-    // Find the highest-scoring bot to surface on the end card. With one
-    // bot this is just bots[0]; with three it's whoever scored most.
     const personalityLabels = { rusher: 'RUSHER', hunter: 'HUNTER', collector: 'COLLECTOR', sieger: 'SIEGER', arsonist: 'ARSONIST' };
-    let leader = null, leaderScore = -1;
+
+    // Per chat: render one row per side ranked highest → lowest. Player
+    // is always present; each bot gets its own row with personality.
+    const rows = [{ side: 1, label: 'YOU',     score: s.you, persona: '',
+                    accentClass: 'you' }];
     for (const b of bots) {
       const sc = (s.sideScore && s.sideScore[b.side]) || 0;
-      if (sc > leaderScore) { leaderScore = sc; leader = b; }
+      rows.push({
+        side: b.side,
+        label: bots.length === 1 ? 'RIVAL' : ('BOT ' + (b.side - 1)),
+        score: sc,
+        persona: personalityLabels[b.personality] || 'BOT',
+        accentClass: 'bot',
+      });
     }
-    const personaLabel = leader ? (personalityLabels[leader.personality] || 'BOT') : 'BOT';
-    const personaEl = document.getElementById('finalPersona');
-    if (personaEl) personaEl.textContent = personaLabel + (bots.length > 1 ? ` (${bots.length} BOTS)` : '');
-    const card = document.getElementById('overCard');
+    rows.sort((a, b) => b.score - a.score);
+    const host = document.getElementById('finalRows');
+    if (host) {
+      host.innerHTML = '';
+      rows.forEach((r, i) => {
+        const trophy = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+        const row = document.createElement('div');
+        row.className = 'sb-row ' + r.accentClass;
+        row.innerHTML = `
+          <span style="display:block;font-size:9px;letter-spacing:0.22em;opacity:0.55;margin-bottom:2px">#${i + 1} ${trophy}</span>
+          ${r.label}
+          <span class="v">${r.score}</span>
+          ${r.persona ? `<span class="persona">${r.persona}</span>` : ''}
+        `;
+        host.appendChild(row);
+      });
+    }
+
+    // Win/lose/tie verdict computed against the highest-scoring bot
+    // rather than the sum, so a player who edges out the leader still
+    // wins even if the COMBINED bot score is higher.
+    const topBot = rows.find(r => r.accentClass === 'bot');
+    const myScore = s.you;
+    const topBotScore = topBot ? topBot.score : 0;
+    const card  = document.getElementById('overCard');
     const title = document.getElementById('overTitle');
     let cls, txt;
-    if (s.you > s.bot)      { cls = 'win';  txt = 'YOU WIN'; }
-    else if (s.you < s.bot) { cls = 'lose'; txt = bots.length > 1 ? 'BOTS WIN' : 'RIVAL WINS'; }
-    else                    { cls = 'tie';  txt = 'DEAD HEAT'; }
+    if (myScore > topBotScore)      { cls = 'win';  txt = 'YOU WIN'; }
+    else if (myScore < topBotScore) { cls = 'lose'; txt = bots.length > 1
+                                                       ? `${topBot.persona} WINS`
+                                                       : 'RIVAL WINS'; }
+    else                            { cls = 'tie';  txt = 'DEAD HEAT'; }
     card.classList.remove('win','lose','tie'); card.classList.add(cls);
     title.classList.remove('win','lose','tie'); title.classList.add(cls);
     title.textContent = txt;
