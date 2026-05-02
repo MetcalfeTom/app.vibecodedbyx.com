@@ -368,11 +368,12 @@ const player = {
   vel: new THREE.Vector3(),
   yaw: 0,                    // facing direction (radians)
   hp: 100, maxHp: 100,
-  speed: 6,                  // units/sec
+  speed: 7,                  // units/sec — arcade snap, faster than realism
   rRadius: 0.45,
   invulnUntil: 0,
   lastFireT: 0,
-  fireRate: 0.18,            // sec between shots
+  fireRate: 0.10,            // sec between shots — arcade auto-rifle feel
+  chaoticUntil: 0,           // chaotic ammo timer
   alive: true,
 };
 const playerGroup = new THREE.Group();
@@ -397,6 +398,88 @@ weaponMesh.rotation.x = Math.PI / 2;
 weaponMesh.position.set(0.3, 1.05, -0.4);
 playerGroup.add(weaponMesh);
 scene.add(playerGroup);
+
+// ===== MACHINE-GUN DRONE =====
+// Per chat: a small autonomous drone orbits the player and auto-fires
+// at the nearest zombie. Adds a constant rate of fire to the player's
+// damage output so kiting + dodging is more viable. Rendered as a
+// hovering low-poly diamond with a tiny red blinking eye.
+const drone = {
+  mesh: new THREE.Group(),
+  pos: new THREE.Vector3(0, 2.2, -1),
+  orbitT: 0,
+  lastFireT: 0,
+  fireRate: 0.18,    // sec between shots
+  range: 14,
+  dmg: 8,
+};
+{
+  const body = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.32, 0),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x4d5388 }))
+  );
+  drone.mesh.add(body);
+  // tiny barrel
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, 0.4, 6),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x222628 }))
+  );
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, -0.05, 0.3);
+  drone.mesh.add(barrel);
+  // red eye
+  const eye = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.08, 0.04),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xff3030 }))
+  );
+  eye.position.set(0, 0, 0.18);
+  drone.mesh.add(eye);
+  scene.add(drone.mesh);
+}
+function updateDrone(dt) {
+  drone.orbitT += dt;
+  // Orbit ~1.6 units behind+above the player at 0.6Hz
+  const orbAng = drone.orbitT * 1.4 + player.yaw + Math.PI;
+  const ox = player.pos.x + Math.cos(orbAng) * 1.4;
+  const oz = player.pos.z + Math.sin(orbAng) * 1.4;
+  const oy = player.pos.y + 2.2 + Math.sin(drone.orbitT * 3) * 0.15;
+  // smooth chase
+  const k = Math.min(1, dt * 5);
+  drone.pos.x += (ox - drone.pos.x) * k;
+  drone.pos.y += (oy - drone.pos.y) * k;
+  drone.pos.z += (oz - drone.pos.z) * k;
+  drone.mesh.position.copy(drone.pos);
+  // Find nearest zombie in range and aim/face it
+  let nearest = null, nd = Infinity;
+  for (const z of zombies) {
+    const dx = z.pos.x - drone.pos.x, dz = z.pos.z - drone.pos.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < nd && d2 < drone.range * drone.range) { nd = d2; nearest = z; }
+  }
+  if (nearest) {
+    const dx = nearest.pos.x - drone.pos.x;
+    const dz = nearest.pos.z - drone.pos.z;
+    drone.mesh.rotation.y = Math.atan2(dx, dz);
+    // Auto-fire
+    const now = performance.now() / 1000;
+    if (now - drone.lastFireT >= drone.fireRate && running) {
+      drone.lastFireT = now;
+      const len = Math.sqrt(nd);
+      const sp = 28;
+      const mesh = new THREE.Mesh(bulletGeo, ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x7df0ff })));
+      mesh.position.set(drone.pos.x, drone.pos.y, drone.pos.z);
+      scene.add(mesh);
+      bullets.push({
+        mesh,
+        vx: (dx / len) * sp,
+        vz: (dz / len) * sp,
+        life: 1.2,
+        dmg: drone.dmg,
+      });
+      blip(720, 0.04, 'square', 0.10);
+    }
+  }
+}
 
 // ===== INPUT =====
 const keys = new Set();
@@ -477,29 +560,96 @@ function spawnZombie() {
   });
 }
 
+// ===== PICKUPS =====
+// Chaotic ammo — a spinning multicolored cube that drops randomly
+// during a wave. On pickup the player's fire rate jumps to 25Hz for
+// 12 seconds AND each shot rolls a random "weapon type" (color + dmg
+// + spread). Visually telegraphs the chaos with a per-shot color
+// flicker on the bullets.
+const pickups = [];
+function spawnChaoticAmmo(x, z) {
+  const g = new THREE.Group();
+  const cube = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.6, 0.6),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xff5ea1 }))
+  );
+  g.add(cube);
+  g.position.set(x, 0.8, z);
+  scene.add(g);
+  pickups.push({ kind:'chaotic', mesh: g, cube, x, y:0.8, z, t: 0, life: 18, r: 0.7 });
+}
+function tickPickups(dt) {
+  for (let i = pickups.length - 1; i >= 0; i--) {
+    const p = pickups[i];
+    p.t += dt;
+    if (p.t > p.life) {
+      scene.remove(p.mesh);
+      pickups.splice(i, 1);
+      continue;
+    }
+    // spin + bob + cycle through neon hues
+    p.mesh.rotation.y += dt * 4;
+    p.mesh.rotation.x += dt * 2.5;
+    p.mesh.position.y = p.y + Math.sin(p.t * 4) * 0.15;
+    const hue = ((p.t * 240) % 360) / 360;
+    const c = new THREE.Color().setHSL(hue, 1, 0.6);
+    p.cube.material.color.copy(c);
+    // pickup on contact
+    const dx = player.pos.x - p.x, dz = player.pos.z - p.z;
+    if (dx * dx + dz * dz < (player.rRadius + p.r) ** 2) {
+      if (p.kind === 'chaotic') {
+        player.chaoticUntil = performance.now() + 12000;
+        showBanner('CHAOTIC AMMO', 'random fire · ultra speed · 12s');
+        blip(1320, 0.06, 'square', 0.16);
+        setTimeout(() => blip(1760, 0.08, 'square', 0.14), 60);
+      }
+      scene.remove(p.mesh);
+      pickups.splice(i, 1);
+    }
+  }
+}
+
 // ===== BULLETS =====
 const bullets = [];
 const bulletMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xffe5a0 }));
 const bulletGeo = new THREE.SphereGeometry(0.08, 6, 4);
 function tryFire() {
-  const now = performance.now() / 1000;
-  if (now - player.lastFireT < player.fireRate) return;
+  const nowMs = performance.now();
+  const now = nowMs / 1000;
+  // Chaotic ammo — fire rate jumps to 25Hz AND each shot rolls a random
+  // weapon flavor (color + damage + spread) for a 12s arcade burst.
+  const chaotic = (player.chaoticUntil || 0) > nowMs;
+  const fireGate = chaotic ? 0.04 : player.fireRate;
+  if (now - player.lastFireT < fireGate) return;
   if (!player.alive) return;
   player.lastFireT = now;
   // Spawn at weapon-tip world position, velocity = direction toward cursor
   const dirX = mouse.world.x - player.pos.x;
   const dirZ = mouse.world.z - player.pos.z;
   const len = Math.hypot(dirX, dirZ) || 1;
-  const speed = 32;
-  const mesh = new THREE.Mesh(bulletGeo, bulletMat);
-  mesh.position.set(player.pos.x + (dirX / len) * 0.8, 1.0, player.pos.z + (dirZ / len) * 0.8);
+  let spd = 32, dmg = 22, color = 0xffe5a0;
+  let spread = 0;
+  if (chaotic) {
+    const flavors = [
+      { spd: 38, dmg: 14, color: 0xff5ea1, spread: 0.20 },   // pink scatter
+      { spd: 26, dmg: 32, color: 0x7df0ff, spread: 0.04 },   // cyan slug
+      { spd: 32, dmg: 18, color: 0x7df09d, spread: 0.10 },   // toxic
+      { spd: 44, dmg:  9, color: 0xffd766, spread: 0.30 },   // gold buckshot
+      { spd: 22, dmg: 50, color: 0xd680ff, spread: 0.02 },   // plasma slug
+    ];
+    const f = flavors[Math.floor(Math.random() * flavors.length)];
+    spd = f.spd; dmg = f.dmg; color = f.color; spread = f.spread;
+  }
+  const a = Math.atan2(dirX, dirZ) + (Math.random() - 0.5) * spread;
+  const mesh = new THREE.Mesh(bulletGeo, ps1ifyMaterial(new THREE.MeshBasicMaterial({ color })));
+  mesh.position.set(player.pos.x + Math.sin(a) * 0.8, 1.0, player.pos.z + Math.cos(a) * 0.8);
   scene.add(mesh);
   bullets.push({
     mesh,
-    vx: (dirX / len) * speed,
-    vz: (dirZ / len) * speed,
+    vx: Math.sin(a) * spd,
+    vz: Math.cos(a) * spd,
     life: 1.4,
-    dmg: 18,
+    dmg,
   });
   sfx.shoot();
 }
@@ -620,6 +770,18 @@ function update(dt) {
   // Auto-fire if held
   if (firing) tryFire();
 
+  // Drone tick — orbit + auto-aim + auto-fire on nearest zombie
+  updateDrone(dt);
+  // Pickups (chaotic ammo etc.)
+  tickPickups(dt);
+  // Random chance to drop a chaotic-ammo pickup mid-wave (~4% per
+  // wave-clear interlude tick; keeps it rare but possible)
+  if (waveActive && spawnQueue === 0 && pickups.length === 0 && Math.random() < 0.0007) {
+    const px = (Math.random() - 0.5) * (ROOM_R * 1.4);
+    const pz = (Math.random() - 0.5) * (ROOM_R * 1.4);
+    spawnChaoticAmmo(px, pz);
+  }
+
   // === CAMERA FOLLOW ===
   // Third-person: position behind player along -yaw direction, raised
   // and pulled back. Lerp toward target slot for smooth chase.
@@ -650,6 +812,13 @@ function update(dt) {
       waveActive = false;
       interludeT = 4.0;
       showBanner('WAVE ' + wave + ' CLEARED', '+200 PTS');
+      // Guaranteed chaotic ammo drop every 3 waves so the arcade
+      // power-up is always within reach for the player.
+      if (wave % 3 === 0) {
+        const px = (Math.random() - 0.5) * (ROOM_R * 1.2);
+        const pz = (Math.random() - 0.5) * (ROOM_R * 1.2);
+        spawnChaoticAmmo(px, pz);
+      }
     }
   } else if (interludeT > 0) {
     interludeT -= dt;
@@ -747,14 +916,17 @@ function render(dt) {
 function startGame() {
   document.getElementById('title').classList.remove('show');
   document.getElementById('end').classList.remove('show');
-  // wipe zombies + bullets from any previous run
+  // wipe zombies + bullets + pickups from any previous run
   for (const z of zombies) scene.remove(z.mesh);
   for (const b of bullets) scene.remove(b.mesh);
+  for (const p of pickups) scene.remove(p.mesh);
   zombies.length = 0;
   bullets.length = 0;
+  pickups.length = 0;
   player.hp = player.maxHp;
   player.alive = true;
   player.invulnUntil = 0;
+  player.chaoticUntil = 0;
   player.pos.set(0, 0, 0);
   player.yaw = 0;
   kills = 0;
