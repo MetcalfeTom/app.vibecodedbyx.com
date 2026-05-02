@@ -378,8 +378,13 @@
     assault: { name:'ASSAULT RIFLE', dmg: 22, mag: 30, magMax: 30, reserve: 240, reserveMax: 240, rof: 0.10, reload: 1.7, range:10, speed: 16, spread: 0.045, mode:'auto' },
     sniper:  { name:'SNIPER',  dmg: 90, mag:  5, magMax:  5, reserve:  20, reserveMax: 20,  rof: 1.10, reload: 2.4, range:14, speed: 22, spread: 0.005,mode:'semi' },
     raygun:  { name:'RAY GUN', dmg: 60, mag: 20, magMax: 20, reserve: 120, reserveMax: 120, rof: 0.20, reload: 2.6, range:11, speed: 15, spread: 0.02, mode:'auto', pierce: 2, color:'#7df09d' },
+    // ROCKET LAUNCHER — AOE detonator. Direct hit = 60 dmg + 80 splash
+    // damage to every zombie within 1.8 tiles. Slow projectile (8u/s)
+    // gives the player a beat to imagine the carnage. Tiny mag, slow
+    // reload — the panic-button heavy weapon.
+    rocket:  { name:'ROCKET',  dmg: 60, mag:  3, magMax:  3, reserve:  12, reserveMax: 12, rof: 1.00, reload: 2.8, range:12, speed: 8,  spread: 0.005, mode:'semi', aoe: { radius: 1.8, dmg: 80 }, color:'#ffae3a' },
   };
-  const BOX_POOL = ['smg', 'shotgun', 'rifle', 'assault', 'sniper', 'raygun'];
+  const BOX_POOL = ['smg', 'shotgun', 'rifle', 'assault', 'sniper', 'raygun', 'rocket'];
   function makeWeaponState(key) {
     const def = WEAPONS[key];
     return { key, def, mag: def.mag, reserve: def.reserve, lastFireT: 0, reloadingUntil: 0 };
@@ -493,6 +498,22 @@
   cvs.addEventListener('pointerdown', () => { firing = true; if (weapon.def.mode === 'semi') tryFire(); });
   cvs.addEventListener('pointerup',   () => firing = false);
   cvs.addEventListener('pointerleave',() => firing = false);
+  // Scroll wheel cycles through populated slots — wheel up = previous,
+  // wheel down = next. Skips empty slots so you only land on usable
+  // weapons. Throttled so a fast scroll doesn't blast through five
+  // slots in one frame.
+  let lastWheelT = 0;
+  cvs.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const now = performance.now();
+    if (now - lastWheelT < 90) return;
+    lastWheelT = now;
+    const dir = e.deltaY > 0 ? 1 : -1;
+    for (let off = 1; off <= SLOT_COUNT; off++) {
+      const idx = (loadout.active + dir * off + SLOT_COUNT * 2) % SLOT_COUNT;
+      if (loadout.slots[idx]) { selectSlot(idx); return; }
+    }
+  }, { passive: false });
 
   // ===== AUDIO =====
   let actx = null;
@@ -522,6 +543,13 @@
     pickup()   { blip(660, 0.08, 'triangle', 0.16); setTimeout(() => blip(990, 0.10, 'triangle', 0.14), 50); },
     repair()   { blip(180, 0.05, 'square', 0.14); setTimeout(() => blip(220, 0.06, 'square', 0.12), 80); },
     nuke()     { for (let i = 0; i < 6; i++) setTimeout(() => blip(120 - i*12, 0.18, 'sawtooth', 0.18), i*70); },
+    boom()     {
+      // sub thud + sawtooth crack + descending body — rocket-blast feel
+      blip(60,  0.30, 'sawtooth', 0.24);
+      setTimeout(() => blip(140, 0.18, 'square',   0.20), 30);
+      setTimeout(() => blip(95,  0.28, 'sawtooth', 0.16), 90);
+      setTimeout(() => blip(220, 0.20, 'square',   0.12), 130);
+    },
     coin()     { blip(1320, 0.06, 'square', 0.16); setTimeout(() => blip(1760, 0.08, 'square', 0.14), 60); },
     end()      { blip(220, 0.18, 'sawtooth', 0.20); setTimeout(() => blip(180, 0.18, 'sawtooth', 0.18), 90); setTimeout(() => blip(140, 0.32, 'sawtooth', 0.16), 180); },
   };
@@ -642,10 +670,16 @@
       b.wx += b.vwx * dt;
       b.wy += b.vwy * dt;
       b.life -= dt;
-      if (b.life <= 0 || b.wx < ROOM.x - 1 || b.wx > ROOM.x + ROOM.w + 1 || b.wy < ROOM.y - 1 || b.wy > ROOM.y + ROOM.h + 1) {
+      const outOfRoom = b.wx < ROOM.x - 1 || b.wx > ROOM.x + ROOM.w + 1 || b.wy < ROOM.y - 1 || b.wy > ROOM.y + ROOM.h + 1;
+      if (b.life <= 0 || outOfRoom) {
+        // Rockets detonate at end-of-life or wall hit instead of just
+        // disappearing — that's how you nuke a corner full of zombies
+        // even when no direct hit lands.
+        if (b.aoe) detonateAOE(b);
         bullets.splice(i, 1);
         continue;
       }
+      let consumed = false;
       for (let j = zombies.length - 1; j >= 0; j--) {
         const z = zombies[j];
         const dd = (b.wx - z.wx) ** 2 + (b.wy - z.wy) ** 2;
@@ -654,10 +688,17 @@
           spawnFX('hit', b.wx, b.wy, b.color);
           sfx.hit();
           if (z.hp <= 0) killZombie(z, j);
+          if (b.aoe) {
+            // direct hit + AOE splash — rockets vaporize clusters
+            detonateAOE(b);
+            consumed = true;
+            break;
+          }
           if (b.pierce > 0) { b.pierce--; }
-          else { bullets.splice(i, 1); break; }
+          else { consumed = true; break; }
         }
       }
+      if (consumed) bullets.splice(i, 1);
     }
 
     // drops
@@ -782,6 +823,35 @@
     });
   }
 
+  // Rocket / aoe weapon detonation. Damages every zombie within
+  // bullet's aoe.radius by aoe.dmg, scaled linearly with falloff so
+  // edge-of-blast zombies take less than direct hits. Also spawns a
+  // bright orange ring + particle shower + screen-rumble sfx.
+  function detonateAOE(b) {
+    const radius = b.aoe.radius;
+    const baseDmg = b.aoe.dmg;
+    for (let j = zombies.length - 1; j >= 0; j--) {
+      const z = zombies[j];
+      const d = Math.hypot(z.wx - b.wx, z.wy - b.wy);
+      if (d <= radius) {
+        const falloff = 1 - (d / radius) * 0.45;   // edge takes 55%, centre full
+        z.hp -= Math.round(baseDmg * falloff);
+        if (z.hp <= 0) killZombie(z, j);
+      }
+    }
+    // FX — orange shrapnel + a fading ring plus a meaty floater.
+    for (let i = 0; i < 24; i++) {
+      fx.push({
+        kind:'particle', wx: b.wx, wy: b.wy,
+        vwx:(Math.random()-0.5)*8, vwy:(Math.random()-0.5)*8,
+        size:3, color: i % 2 ? '#ffae3a' : '#ff5a18',
+        t:0, dur:0.55,
+      });
+    }
+    spawnFloater(b.wx, b.wy, '💥 BOOM', '#ffae3a');
+    sfx.boom();
+  }
+
   function killZombie(z, idx) {
     zombies.splice(idx, 1);
     kills++;
@@ -875,6 +945,7 @@
         vwx, vwy, dmg, life: def.range / speed,
         color: def.color || '#ffe5a0',
         pierce: def.pierce || 0,
+        aoe: def.aoe || null,
       });
     }
     if (weapon.key === 'raygun') sfx.rayShoot(); else sfx.shoot();
