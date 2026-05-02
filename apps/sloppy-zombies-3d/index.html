@@ -483,11 +483,23 @@ function updateDrone(dt) {
 
 // ===== INPUT =====
 const keys = new Set();
+const TRACKED_KEYS = new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright','shift',' ']);
 window.addEventListener('keydown', e => {
-  keys.add(e.key.toLowerCase());
-  if (e.key === ' ') tryDodge();
+  const k = e.key.toLowerCase();
+  if (TRACKED_KEYS.has(k)) {
+    // Prevent arrow keys from scrolling the page + space from triggering
+    // the title-screen play button after the game has started. Improves
+    // input responsiveness when the canvas isn't the focused element.
+    e.preventDefault();
+  }
+  keys.add(k);
+  if (k === ' ') tryDodge();
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+// Clear stuck keys when the window loses focus (alt-tab, browser
+// chrome interaction). Without this, holding W → tabbing away → coming
+// back leaves W "pressed" forever until the next keyup.
+window.addEventListener('blur', () => keys.clear());
 
 const mouse = { sx: RENDER_W / 2, sy: RENDER_H / 2, world: new THREE.Vector3() };
 let firing = false;
@@ -659,12 +671,26 @@ function tryDodge() {
   const now = performance.now();
   if (now < (player.invulnUntil || 0)) return;
   if (!player.alive) return;
-  // 0.3s i-frames + impulse in current move direction
-  const moveX = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
-  const moveZ = (keys.has('s') ? 1 : 0) - (keys.has('w') ? 1 : 0);
-  const len = Math.hypot(moveX, moveZ) || 1;
-  player.pos.x += (moveX / len) * 1.4;
-  player.pos.z += (moveZ / len) * 1.4;
+  // 0.35s i-frames + impulse in current CAMERA-RELATIVE move direction
+  // so a dodge always travels in the direction the player visually
+  // expects (matching the WASD movement axes).
+  const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw);
+  const sx = Math.cos(player.yaw), sz = -Math.sin(player.yaw);
+  let dx = 0, dz = 0;
+  if (keys.has('w') || keys.has('arrowup'))    { dx += fx; dz += fz; }
+  if (keys.has('s') || keys.has('arrowdown'))  { dx -= fx; dz -= fz; }
+  if (keys.has('d') || keys.has('arrowright')) { dx += sx; dz += sz; }
+  if (keys.has('a') || keys.has('arrowleft'))  { dx -= sx; dz -= sz; }
+  const len = Math.hypot(dx, dz);
+  if (len === 0) {
+    // No direction held — dodge backward (away from cursor) so the
+    // dodge always does SOMETHING when pressed standing still.
+    dx = -fx; dz = -fz;
+  } else {
+    dx /= len; dz /= len;
+  }
+  player.pos.x += dx * 1.6;
+  player.pos.z += dz * 1.6;
   player.invulnUntil = now + 350;
   sfx.dodge();
 }
@@ -739,16 +765,26 @@ function update(dt) {
   updateAim();
 
   // === MOVEMENT ===
-  // WASD relative to camera (which is roughly behind+above looking
-  // toward +Z). w=forward (-z), s=back (+z), a=left (-x), d=right (+x).
-  let mx = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
-  let mz = (keys.has('s') ? 1 : 0) - (keys.has('w') ? 1 : 0);
-  const len = Math.hypot(mx, mz);
-  if (len > 0) { mx /= len; mz /= len; }
+  // WASD is CAMERA-relative — W moves toward the cursor (player's
+  // facing direction), S moves back, A/D strafe perpendicular. The
+  // previous fixed-world-axis mapping was disorienting because the
+  // camera rotates with mouse aim, so "world W" stopped looking like
+  // "screen up" the moment the player turned.
+  const fx = Math.sin(player.yaw);          // forward (toward cursor)
+  const fz = Math.cos(player.yaw);
+  const sx = Math.cos(player.yaw);          // strafe right (perp clockwise)
+  const sz = -Math.sin(player.yaw);
+  let dx = 0, dz = 0;
+  if (keys.has('w') || keys.has('arrowup'))    { dx += fx; dz += fz; }
+  if (keys.has('s') || keys.has('arrowdown'))  { dx -= fx; dz -= fz; }
+  if (keys.has('d') || keys.has('arrowright')) { dx += sx; dz += sz; }
+  if (keys.has('a') || keys.has('arrowleft'))  { dx -= sx; dz -= sz; }
+  const len = Math.hypot(dx, dz);
+  if (len > 0) { dx /= len; dz /= len; }
   const sprint = keys.has('shift') ? 1.55 : 1;
   const vSpeed = player.speed * sprint;
-  const nx = player.pos.x + mx * vSpeed * dt;
-  const nz = player.pos.z + mz * vSpeed * dt;
+  const nx = player.pos.x + dx * vSpeed * dt;
+  const nz = player.pos.z + dz * vSpeed * dt;
   // Clamp to bunker bounds (with wall padding)
   const limit = ROOM_R - player.rRadius - 0.4;
   player.pos.x = Math.max(-limit, Math.min(limit, nx));
