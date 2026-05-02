@@ -133,6 +133,22 @@
   }
   @keyframes lockHintPulse{0%{opacity:0.55}100%{opacity:1}}
   body.needs-lock .lock-hint{display:block}
+  /* Station-in-range prompt — pulses near the bottom of the screen
+     when the player is within interaction radius of any wall-buy or
+     armor station, so they always know where the buy is + what key. */
+  .station-prompt{
+    position:fixed;left:50%;bottom:80px;transform:translateX(-50%);
+    font-family:'Silkscreen', monospace;font-size:15px;letter-spacing:0.18em;
+    color:var(--gold);text-transform:uppercase;text-align:center;
+    background:rgba(20,8,8,0.92);border:2px solid var(--gold);border-radius:6px;
+    padding:9px 14px;pointer-events:none;z-index:24;
+    text-shadow:0 0 8px var(--gold);
+    box-shadow:0 0 18px rgba(226,185,74,0.5);
+    opacity:0;transition:opacity 0.18s ease-out;
+  }
+  .station-prompt.show{opacity:1;animation:promptPulse 1.4s ease-in-out infinite alternate}
+  .station-prompt.cd{color:#7a1a18;border-color:#7a1a18;text-shadow:0 0 6px #7a1a18;box-shadow:0 0 14px rgba(122,26,24,0.5)}
+  @keyframes promptPulse{0%{transform:translateX(-50%) scale(0.96)}100%{transform:translateX(-50%) scale(1.02)}}
 
   /* Wave banner */
   .banner{
@@ -210,6 +226,7 @@
 
 <div class="reticle"></div>
 <div class="lock-hint">click to lock pointer</div>
+<div class="station-prompt" id="stationPrompt"></div>
 <div class="banner" id="banner"></div>
 
 <!-- TITLE -->
@@ -563,34 +580,79 @@ const stations = [
   { kind:'armor', label:'REPAIR BAY', x: -13.4, z: 0, room:'westwing', color:0x7df09d },
   { kind:'armor', label:'MED CACHE',  x:  13.4, z: 0, room:'eastdock', color:0x7df09d },
 ];
+// Build a canvas-textured floating label that hovers above a station
+// and billboards toward the camera every frame. Helps players FIND
+// the stations from across the room (per chat: "can't find them").
+function makeStationLabel(text, color) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 80;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(20,8,8,0.92)';
+  g.fillRect(0, 0, 256, 80);
+  g.strokeStyle = color;
+  g.lineWidth = 5;
+  g.strokeRect(2, 2, 252, 76);
+  g.fillStyle = color;
+  g.font = 'bold 26px Silkscreen, monospace';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.shadowColor = color;
+  g.shadowBlur = 16;
+  g.fillText(text, 128, 32);
+  g.shadowBlur = 0;
+  g.font = 'bold 16px Silkscreen, monospace';
+  g.fillStyle = '#d6c5a0';
+  g.fillText('PRESS E', 128, 60);
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  return new THREE.Mesh(
+    new THREE.PlaneGeometry(2.4, 0.75),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+  );
+}
 function makeStationMesh(s) {
   const g = new THREE.Group();
-  // back panel
+  // glowing back panel — slightly bigger + tinted to match accent
   const panel = new THREE.Mesh(
-    new THREE.BoxGeometry(2.2, 2.0, 0.3),
+    new THREE.BoxGeometry(2.6, 2.4, 0.3),
     ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x1c1410 }))
   );
-  panel.position.y = 1.5;
+  panel.position.y = 1.6;
   g.add(panel);
-  // glowing accent — wall-buys are colored emblem boxes; armor uses
-  // an upright rounded prism via cylinder rotated.
+  // bright colored accent
   const accent = new THREE.Mesh(
     s.kind === 'armor'
-      ? new THREE.CylinderGeometry(0.45, 0.45, 1.6, 8)
-      : new THREE.BoxGeometry(1.6, 1.4, 0.1),
+      ? new THREE.CylinderGeometry(0.5, 0.5, 1.8, 8)
+      : new THREE.BoxGeometry(1.8, 1.6, 0.12),
     ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: s.color }))
   );
-  accent.position.set(0, 1.4, 0.18);
+  accent.position.set(0, 1.5, 0.18);
   g.add(accent);
-  // base
+  // chunky base
   const base = new THREE.Mesh(
-    new THREE.BoxGeometry(2.4, 0.5, 0.5),
+    new THREE.BoxGeometry(2.6, 0.6, 0.6),
     ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x3a2e22 }))
   );
-  base.position.y = 0.25;
+  base.position.y = 0.3;
   g.add(base);
+  // BEACON — small bright pulsing cube on top so it's spottable from
+  // across the room
+  const beacon = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.4, 0.4),
+    new THREE.MeshBasicMaterial({ color: s.color })
+  );
+  beacon.position.y = 3.0;
+  g.add(beacon);
+  s.beacon = beacon;
+  // floating label, drawn at scene root so it doesn't rotate with the
+  // kiosk; updated each frame to billboard toward the camera
+  const label = makeStationLabel(s.label, '#' + s.color.toString(16).padStart(6, '0'));
+  label.position.set(s.x, 3.6, s.z);
+  scene.add(label);
+  s.label3d = label;
+  // place
   g.position.set(s.x, 0, s.z);
-  // face the room interior — armor stations on E/W edges face inward
   const room = roomById(s.room);
   if (room) {
     const dx = room.x - s.x, dz = room.z - s.z;
@@ -602,16 +664,36 @@ function makeStationMesh(s) {
   return g;
 }
 for (const s of stations) makeStationMesh(s);
+function tickStations(dt) {
+  // Billboard labels toward camera + pulse beacons
+  const t = performance.now() / 400;
+  for (const s of stations) {
+    if (s.label3d) {
+      s.label3d.lookAt(camera.position.x, s.label3d.position.y, camera.position.z);
+    }
+    if (s.beacon) {
+      const sc = 0.85 + Math.sin(t + s.x * 0.13) * 0.25;
+      s.beacon.scale.set(sc, sc, sc);
+    }
+  }
+}
 
-function tryUseStation() {
-  const now = performance.now();
-  // Find nearest station within 1.6 units
+// Bumped interaction radius — kiosks are 2.6u wide, so a 3.5u radius
+// (12.25 squared) lets the player trigger them from a normal walking
+// approach instead of having to overlap the kiosk mesh.
+const STATION_INTERACT_R2 = 12.25;
+function nearestStationInRange() {
   let nearest = null, nd = Infinity;
   for (const s of stations) {
     const dx = s.x - player.pos.x, dz = s.z - player.pos.z;
     const d2 = dx * dx + dz * dz;
-    if (d2 < nd && d2 < 2.6) { nd = d2; nearest = s; }
+    if (d2 < nd && d2 < STATION_INTERACT_R2) { nd = d2; nearest = s; }
   }
+  return nearest;
+}
+function tryUseStation() {
+  const now = performance.now();
+  const nearest = nearestStationInRange();
   if (!nearest) return;
   if (now < (nearest.cooldownUntil || 0)) {
     showBanner('STATION COOLING', 'wait a moment');
@@ -620,19 +702,20 @@ function tryUseStation() {
   if (nearest.kind === 'armor') {
     if (player.hp >= player.maxHp) { showBanner('ARMOR FULL', ''); return; }
     player.hp = player.maxHp;
-    nearest.cooldownUntil = now + 30000;
-    showBanner('+ ARMOR ' + nearest.label, 'fully repaired · 30s cooldown');
+    nearest.cooldownUntil = now + 20000;
+    showBanner('+ ARMOR ' + nearest.label, 'fully repaired · 20s cooldown');
     blip(660, 0.08, 'triangle', 0.16);
     setTimeout(() => blip(990, 0.10, 'triangle', 0.14), 50);
   } else {
-    // buy = grant a 15s buff
-    const dur = 15000;
+    // Wall-buy = 25s buff (was 15s). Cooldown shortened so the player
+    // can rotate buffs as they cross the building.
+    const dur = 25000;
     if (nearest.buff === 'damage') player.damageBuffUntil = now + dur;
     if (nearest.buff === 'rapid')  player.rapidBuffUntil  = now + dur;
     if (nearest.buff === 'pierce') player.pierceBuffUntil = now + dur;
     if (nearest.buff === 'batfury')player.batFuryUntil    = now + dur;
-    nearest.cooldownUntil = now + 25000;
-    showBanner(nearest.label, '15s · 25s cooldown');
+    nearest.cooldownUntil = now + 15000;
+    showBanner(nearest.label, '25s buff · 15s cooldown');
     blip(880, 0.10, 'triangle', 0.18);
     setTimeout(() => blip(1320, 0.15, 'triangle', 0.16), 80);
   }
@@ -1326,6 +1409,21 @@ function update(dt) {
   if (shake.mag > 0) shake.mag = Math.max(0, shake.mag - shake.decay * 60 * dt);
   // Bat swing fade
   tickBatSwings(dt);
+  // Station label billboarding + beacon pulse
+  tickStations(dt);
+  // In-range prompt — show name of nearest station
+  const near = nearestStationInRange();
+  const promptEl = document.getElementById('stationPrompt');
+  if (promptEl) {
+    if (near) {
+      const onCD = performance.now() < (near.cooldownUntil || 0);
+      promptEl.textContent = (onCD ? 'COOLING · ' : '⟶ ') + near.label + ' · E to use';
+      promptEl.classList.add('show');
+      promptEl.classList.toggle('cd', onCD);
+    } else {
+      promptEl.classList.remove('show');
+    }
+  }
 
   // === MOVEMENT ===
   // WASD is CAMERA-relative for first-person. Forward = facing dir.
