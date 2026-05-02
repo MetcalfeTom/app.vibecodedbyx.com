@@ -1,24 +1,30 @@
 # sloppy-zombies
 
 ## log
-- 2026-05-02: Created. **Top-down wave-based survival shooter — board the windows, hold the line, roll the mystery box for a better gun.** Pure HTML/CSS/JS Canvas2D, no engine. **Arena**: 900×600 canvas with an inner 780×480 ROOM bounded by 4 wood walls; 4 windows (N/S/E/W) each at fixed positions with 5 boards apiece. Zombies spawn outside the canvas, path to their assigned window's centre, attack the boards (1/0.9–1.3s) until the window breaches, then chase the player. **Player**: WASD movement (170 px/s, clamped to ROOM interior), mouse aim, click fire (semi or auto per weapon mode), R to reload, E to interact. Per-frame invulnerability flicker after a bite (350ms). 100 HP. **Weapons**: 6-piece arsenal — PISTOL (start), SMG, SHOTGUN (8 pellets, wide spread), RIFLE (auto, mid-fast), SNIPER (90 dmg, slow ROF), RAY GUN (60 dmg, pierces 2). Each has rate-of-fire, mag size, reserve cap, reload time, range, projectile speed, spread. Reload uses a cooldown timer + restock; UI shows a ground-bar under the player while reloading. **Mystery Box**: fixed crate in the top-left corner of ROOM. Pulsing yellow `?` glow + price tag visible when player within 56u. E + ≥950 points → roll animation (~2s shaking enlarged glyph) → random pick from BOX_POOL = ['smg','shotgun','rifle','sniper','raygun']. New weapon state replaces current. **Wave system**: `startWave(n)` shows a banner ("WAVE N · they are coming"), spawns 4 + floor(n*1.6) zombies one-at-a-time on a 1.6→0.25s cadence (ramp). Wave end fires when queue empty AND zombies array empty: 4.5s interlude, +200 wave-clear bonus, then next wave. Pistol gets a +24 reserve top-up at wave start. **Powerups (8% drop chance per kill)**: ⌥ MAX AMMO (refill mag + reserve), ☠ INSTAKILL (12s, sets dmg = 9999), ×2 DOUBLE POINTS (18s), ☢ NUKE (kills every zombie on screen + jingle). Drops bob/blink in the last 3s of their 12s lifespan; player picks up by walking over. **Points economy**: kill = 50 (×2 with double), wave clear = 200, board repair (E near window with <5 boards) = 10 pts/board, box roll = -950 pts. **Aesthetic**: dark dirt-brown floor `#1a120e` with a 30px tile grid (subtle `rgba(122,90,60,0.08)` strokes), wood walls `#3a2018`, `#a07040` boards, sickly green zombies via `hsl(90–120, 40-50%, 35-45%)`, red eyes, jaw stripe, drop-shadow ellipse. Bullets are 3.2px circles with a colour-matched shadowBlur=6 trail; particles + floating-text `+50` numerals. CRT scanlines + dust vignette via fixed `body::before` overlay (mix-blend-mode multiply). **Typography**: Bungee Shade brand "SLOPPY ZOMBIES" (sick-green + blood-red), Special Elite body, VT323 numeric counters, Silkscreen meta labels. Custom red crosshair drawn at `mouse.x/y` (cursor:none on body). **Audio**: 12 Web Audio synth sfx — square pistol pop, sawtooth bottom-end + delay; ray-gun triangle warble; reload double-click; bite low sawtooth; nuke 6-stage descending bass; wave-start triple horn arpeggio; pickup arp; box roll/land jingles. **Title screen**: brand + sub + key legend + START WAVE 1 button. **End card**: YOU DIED + waves survived + kills + points + RETRY (replays from wave 1). Pollinations OG, 🧟 favicon.
+- 2026-05-02: Created as a top-down wave-survival shooter (4 boarded windows, mystery box, 6 weapons, powerups).
+- 2026-05-02: **Overhauled into isometric zombie RPG.** Gameplay logic now lives in WORLD-TILE coords (wx/wy on a 14×10 tile grid); all rendering goes through `worldToScreen()` for a 2:1 iso projection (TILE_W=64, TILE_H=32). Mouse cursor is unprojected back via `screenToWorld()` for aiming and click-targets. Z-sort all entities by `wx + wy` so closer ones paint on top — proper iso depth ordering for zombies / drops / windows / box / fx / bullets. Walls render as outer dark tile rings; boards still on the inner-room edges with the ID label. **Persistent meta-progression** added via localStorage (`sloppy-zombies-meta-v1` schema `{gold, bestWave, upgrades:{vit,fire,reload,luck}}`): GOLD persists across runs, 4 permanent upgrade tracks each with their own gold cost curve (`base × grow^lvl`):
+  - VITALITY (max HP +20/lvl, max 5, base 80g, grow 1.7)
+  - FIREPOWER (+10% bullet dmg/lvl, max 5, base 100g, grow 1.7)
+  - STEADY HANDS (-10% reload/lvl, max 4, base 90g, grow 1.8)
+  - SCAVENGER (+25% loot drop chance/lvl, max 4, base 110g, grow 1.8)
+
+  Title screen + death card both render the upgrade store as 4 cards (cost / current level / max). Buying decrements gold + bumps the level + saves to localStorage. **Loot system**: 18% × luckMult drop chance per kill spawns a rarity-tinted CRATE (4 tiers: common 60%, rare 25%, epic 11%, legend 4%); 6% × luckMult drops a powerup (max ammo / instakill / double / nuke). Crates require E to open and yield gold (`20 × rarity.mult`), then 50% roll for either a fresh weapon (mystery-box pool) or an armor piece. Equipping a worse-tier armor refunds a few gold and skips the swap. **Equipment slots**: weapon (mystery-box / loot rolls) + armor (loot only). Armor: damage-reduction passive (`8 × rarity.mult`, capped to ≥1 dmg incoming). Armor badge rendered top-left of canvas with rarity-coloured border + name. **Weapons**: 6-piece arsenal (PISTOL / SMG / SHOTGUN-pellets-8 / RIFLE / SNIPER / RAY GUN-pierce-2). All damage now scales with FIREPOWER upgrade: `dmg × (1 + 0.10 × fireLvl)`. Reload time scales with STEADY HANDS: `reload × max(0.35, 1 - 0.10 × reloadLvl)`. **Mystery box** still at 950 pts; works the same. **Wave system** unchanged in shape: 4 + ⌊wave×1.6⌋ zombies, ramping cadence, banner on start/clear, +200 wave-clear bonus, pistol +24 reserve at wave start. Zombie HP `60 + wave×28`; zombie speed `1.6 + min(2.0, wave×0.10)` tiles/sec. **Aesthetic**: dirt-tile floor with checker stagger, dark wall tile ring, sickly hsl(90–120) zombies with red dot eyes, drop-shadow ellipses on every entity, rarity-coloured glow on crates, gold/blood neon UI accents. Bungee Shade title, Special Elite body, VT323 numerals, Silkscreen meta. CRT scanline overlay + custom red crosshair (cursor:none). 14 Web Audio synth sfx including a coin pickup. Pollinations OG, 🧟 favicon.
 
 ## issues
-- Boards regenerate manually only (E near window). At higher waves with breach pressure on multiple windows, players have to commit to one corner and lose the others. By design — that's the loop.
-- Zombies lose their "target window" assignment on spawn and don't re-pick if their window is breached. Acceptable: once they're inside they path to player anyway.
-- No bot-bot collision: zombies stack on top of each other when they're all aiming at the same spot. Adds chaos rather than feeling buggy, but a soft separation force would be cleaner.
-- Mystery Box currency is ONLY points; on a flush kill streak the box becomes spammable. The box's 950-point cost balances against the 50/kill rate so it takes ~19 kills to afford one, which feels right at wave 1 but trivial by wave 8.
-- Reload cancel: pressing fire during reload doesn't cancel — the timeout still fires its restock callback. Tiny visual jitter risk if the user spams F/E during reload.
-- Powerup drop rate (8%) is generous early but can lead to compound-effect chains at high waves. Could ramp it down with wave count.
-- All weapons share the same projectile path — no shotgun shell visual difference besides spread.
+- Iso depth-sort uses simple `wx + wy` per entity; for very close pieces this can flicker as they swap z-order tick-to-tick. A stable secondary key (e.g., entity id) would lock it.
+- Crates and powerups both go in `drops[]` — fine but the kind-switch in `applyDrop`/`openCrate` is split. Refactor into a uniform pickup interface later.
+- WASD → world mapping uses iso-natural diagonals (`W = (-1,-1)` world). Players who expect strict cardinal world movement will need a beat to adapt — that's the standard iso-shooter compromise.
+- Armor only has one stat (damage reduction). Could add a stamina/move-speed mod or a +ammo bonus in later iterations.
+- Upgrade cost curve is exponential — at L5 vit the cost is 80×1.7⁴≈668g, which takes a few good runs. Tunable.
+- No mute toggle, no localStorage clear button (testing required wiping it manually).
 
 ## todos
-- Wall pillars or table cover so the player can break LOS on faster zombies.
-- Pack-a-Punch-style upgrade station (spend 3000 pts to upgrade current weapon — +50% damage, +mag size).
-- Knife / melee for point-saving on early waves.
-- Boss zombie at every 5th wave (high HP, larger sprite, trails smoke).
-- Rare crawler variant (post-leg-shot) that drags toward the player half-speed.
-- Save high wave to localStorage.
-- Mobile virtual joystick + auto-aim + tap-to-fire.
-- Mute toggle.
-- Multi-room map with traversable doors that need debris-cleared.
+- More weapon tiers and gear types (helm / boots / trinket).
+- Item rarity-affixed weapon stats (e.g., "Epic SMG: +25% mag size").
+- Pack-a-Punch-style upgrade station that consumes points + gold.
+- Boss zombie at every 5th wave.
+- Mobile virtual joystick.
+- High-score leaderboard via Supabase.
+- Interactive armor slot UI (compare on hover, manually equip from drops).
+- Save current loadout between runs (right now armor + weapon reset on death).
+- Mute toggle + reset-vault button.
