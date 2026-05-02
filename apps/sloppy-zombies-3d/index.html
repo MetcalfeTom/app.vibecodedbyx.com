@@ -700,7 +700,14 @@ const weaponMesh = new THREE.Mesh(
 );
 weaponMesh.rotation.x = Math.PI / 2;
 weaponMesh.position.set(0.3, 1.05, 0.4);
-playerGroup.add(weaponMesh);
+// Per chat: switch to FIRST PERSON. Hide the body model (we don't see
+// ourselves) and attach the weapon to the camera so it floats in view
+// like a classic FPS. The cylinder is rotated so its long axis points
+// forward (−Z in camera-local space) and tucked bottom-right of the
+// viewport at a believable hold position.
+weaponMesh.position.set(0.32, -0.30, -0.65);
+weaponMesh.rotation.set(-Math.PI / 2, 0, 0);
+playerGroup.add(weaponMesh);   // temporarily — reparented to camera below
 // Face badge — small dark eye marker so the player can see which way
 // the head is facing. Sits on the +Z (forward) face of the head box.
 const faceMark = new THREE.Mesh(
@@ -710,6 +717,11 @@ const faceMark = new THREE.Mesh(
 faceMark.position.set(0, 1.65, 0.26);
 playerGroup.add(faceMark);
 scene.add(playerGroup);
+// FPS — hide the body model entirely (we're inside the head)
+playerGroup.visible = false;
+// Re-parent weapon to camera so it tracks head movement perfectly
+camera.add(weaponMesh);
+scene.add(camera);
 
 // ===== MACHINE-GUN DRONE =====
 // Per chat: a small autonomous drone orbits the player and auto-fires
@@ -844,6 +856,10 @@ let firing = false;
 // when the pointer isn't locked (e.g. on first load before click).
 let pointerLocked = false;
 const MOUSE_SENSITIVITY = 0.0026;   // rad per pixel of movementX
+// FPS pitch — vertical look angle, clamped to ±80° so the player
+// can't flip the camera upside-down by dragging up/down forever.
+let pitch = 0;
+const PITCH_LIMIT = Math.PI / 2 - 0.18;
 function requestLock() {
   const fn = cvs.requestPointerLock || cvs.mozRequestPointerLock || cvs.webkitRequestPointerLock;
   if (fn) try { fn.call(cvs); } catch (e) {}
@@ -869,6 +885,10 @@ window.addEventListener('mousemove', e => {
     // Raw delta — accumulate yaw directly. No lerp/cap; sensitivity
     // already controls feel. Negative dx turns left, positive turns right.
     player.yaw += (e.movementX || 0) * MOUSE_SENSITIVITY;
+    // Pitch on movementY (negative = look up).
+    pitch -= (e.movementY || 0) * MOUSE_SENSITIVITY;
+    if (pitch >  PITCH_LIMIT) pitch =  PITCH_LIMIT;
+    if (pitch < -PITCH_LIMIT) pitch = -PITCH_LIMIT;
     // Keep the world cursor in sync for the bullet-trajectory math:
     // it sits 16 units in front of the player along the new yaw.
     mouse.world.set(
@@ -1064,7 +1084,7 @@ function tryFire() {
   }
   const a = Math.atan2(dirX, dirZ) + (Math.random() - 0.5) * spread;
   const mesh = new THREE.Mesh(bulletGeo, ps1ifyMaterial(new THREE.MeshBasicMaterial({ color })));
-  mesh.position.set(player.pos.x + Math.sin(a) * 0.8, 1.0, player.pos.z + Math.cos(a) * 0.8);
+  mesh.position.set(player.pos.x + Math.sin(a) * 0.8, 1.5, player.pos.z + Math.cos(a) * 0.8);
   scene.add(mesh);
   bullets.push({
     mesh,
@@ -1303,15 +1323,14 @@ function update(dt) {
   tickBatSwings(dt);
 
   // === MOVEMENT ===
-  // WASD is CAMERA-relative — W moves toward the cursor (player's
-  // facing direction), S moves back, A/D strafe perpendicular. The
-  // previous fixed-world-axis mapping was disorienting because the
-  // camera rotates with mouse aim, so "world W" stopped looking like
-  // "screen up" the moment the player turned.
-  const fx = Math.sin(player.yaw);          // forward (toward cursor)
-  const fz = Math.cos(player.yaw);
-  const sx = Math.cos(player.yaw);          // strafe right (perp clockwise)
-  const sz = -Math.sin(player.yaw);
+  // WASD is CAMERA-relative for first-person. Forward = facing dir.
+  // Right = look × up, computed correctly so A/D map to screen-left/
+  // screen-right (the previous formula was mirrored, putting D on the
+  // left of the screen — chat called it out).
+  const fx =  Math.sin(player.yaw);          // forward (toward look)
+  const fz =  Math.cos(player.yaw);
+  const sx = -Math.cos(player.yaw);          // strafe right (correct mirror)
+  const sz =  Math.sin(player.yaw);
   let dx = 0, dz = 0;
   if (keys.has('w') || keys.has('arrowup'))    { dx += fx; dz += fz; }
   if (keys.has('s') || keys.has('arrowdown'))  { dx -= fx; dz -= fz; }
@@ -1356,29 +1375,23 @@ function update(dt) {
     spawnChaoticAmmo(px, pz);
   }
 
-  // === CAMERA FOLLOW ===
-  // Third-person: position behind player along -yaw direction, raised
-  // and pulled back. Lerp toward target slot for smooth chase.
-  const camDist = 7, camHeight = 5;
-  const tx = player.pos.x - Math.sin(player.yaw) * camDist;
-  const tz = player.pos.z - Math.cos(player.yaw) * camDist;
-  const ty = player.pos.y + camHeight;
-  const k = Math.min(1, dt * 6);
-  camera.position.x += (tx - camera.position.x) * k;
-  camera.position.y += (ty - camera.position.y) * k;
-  camera.position.z += (tz - camera.position.z) * k;
-  // Apply screen shake — random offset on top of the smooth chase pos.
+  // === FIRST-PERSON CAMERA ===
+  // Camera sits AT the player position at eye height, looking in the
+  // current yaw + pitch direction. No chase lag, no over-shoulder
+  // offset — what you aim is where you shoot.
+  const eyeY = 1.6;
+  camera.position.set(player.pos.x, player.pos.y + eyeY, player.pos.z);
+  // Apply screen shake as random offset on the camera position
   if (shake.mag > 0) {
-    const sX = (Math.random() - 0.5) * shake.mag * 0.05;
-    const sY = (Math.random() - 0.5) * shake.mag * 0.05;
-    const sZ = (Math.random() - 0.5) * shake.mag * 0.05;
-    camera.position.x += sX; camera.position.y += sY; camera.position.z += sZ;
+    camera.position.x += (Math.random() - 0.5) * shake.mag * 0.04;
+    camera.position.y += (Math.random() - 0.5) * shake.mag * 0.04;
+    camera.position.z += (Math.random() - 0.5) * shake.mag * 0.04;
   }
-  // Look at a point slightly ahead of the player so over-shoulder framing
-  // shows the action zone the player is moving into.
-  const lookX = player.pos.x + Math.sin(player.yaw) * 2;
-  const lookZ = player.pos.z + Math.cos(player.yaw) * 2;
-  camera.lookAt(lookX, player.pos.y + 1.0, lookZ);
+  // Look direction = yaw (heading) + pitch (vertical)
+  const lookX = player.pos.x + Math.sin(player.yaw) * Math.cos(pitch) * 5;
+  const lookY = player.pos.y + eyeY + Math.sin(pitch) * 5;
+  const lookZ = player.pos.z + Math.cos(player.yaw) * Math.cos(pitch) * 5;
+  camera.lookAt(lookX, lookY, lookZ);
 
   // === WAVE SPAWN ===
   if (waveActive) {
@@ -1513,6 +1526,7 @@ function startGame() {
   player.chaoticUntil = 0;
   player.pos.set(0, 0, 0);
   player.yaw = 0;
+  pitch = 0;
   drone.fuel = drone.maxFuel;
   drone.disabled = false;
   paused = false;
