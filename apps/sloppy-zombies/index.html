@@ -269,12 +269,18 @@
   // ===== ISOMETRIC PROJECTION =====
   // World coords: (wx, wy) on a top-down grid. Logic stays in this
   // space — only render + cursor get projected. 64×32 tiles is the
-  // classic 2:1 iso ratio. Origin centred so the room sits middle.
+  // classic 2:1 iso ratio.
+  //
+  // Per chat: ORIGIN is now a smooth camera that follows the player.
+  // The map can grow well past the canvas viewport (up to 30×22 tiles)
+  // so a fixed origin would strand the player off-screen as they walk
+  // into new districts. ORIGIN_X/Y lerp toward the position that puts
+  // the player at the screen anchor each frame (see updateCamera).
   const TILE_W = 64, TILE_H = 32;
   const ROOM_W = 14, ROOM_H = 10;     // tiles
   const ROOM_X = 1, ROOM_Y = 1;       // top-left tile of inner room
-  const ORIGIN_X = W / 2;
-  const ORIGIN_Y = 130;
+  let ORIGIN_X = W / 2;
+  let ORIGIN_Y = 130;
   function worldToScreen(wx, wy) {
     return {
       sx: (wx - wy) * (TILE_W / 2) + ORIGIN_X,
@@ -288,6 +294,42 @@
       wx: (dx / (TILE_W / 2) + dy / (TILE_H / 2)) / 2,
       wy: (dy / (TILE_H / 2) - dx / (TILE_W / 2)) / 2,
     };
+  }
+  // Compute where ORIGIN should be to put the given world point at the
+  // given screen anchor. Used both for the live camera lerp and the
+  // hard snap on game start.
+  function originForAnchor(wx, wy, anchorSx, anchorSy) {
+    return {
+      x: anchorSx - (wx - wy) * (TILE_W / 2),
+      y: anchorSy - (wx + wy) * (TILE_H / 2),
+    };
+  }
+  // Camera anchor — slightly above middle so the map ahead reads as the
+  // play space and the HUD overlay doesn't crowd the player.
+  const CAM_ANCHOR_X = W / 2;
+  const CAM_ANCHOR_Y = H * 0.55;
+  // Render zoom — applied as a ctx.scale around the camera anchor so
+  // both the iso world AND the pixel-art sprites get larger together.
+  // Tuned so the player feels close-up without clipping windows out
+  // of view in the original 14×10 bunker.
+  const RENDER_ZOOM = 1.4;
+  function screenToWorldZoomed(sx, sy) {
+    // Inverse of the ctx.scale-around-anchor render transform.
+    const usx = (sx - CAM_ANCHOR_X) / RENDER_ZOOM + CAM_ANCHOR_X;
+    const usy = (sy - CAM_ANCHOR_Y) / RENDER_ZOOM + CAM_ANCHOR_Y;
+    return screenToWorld(usx, usy);
+  }
+  function snapCameraToPlayer() {
+    const t = originForAnchor(player.wx, player.wy, CAM_ANCHOR_X, CAM_ANCHOR_Y);
+    ORIGIN_X = t.x;
+    ORIGIN_Y = t.y;
+  }
+  function updateCamera(dt) {
+    const t = originForAnchor(player.wx, player.wy, CAM_ANCHOR_X, CAM_ANCHOR_Y);
+    // Critically-damped feel: k ~ 4.5 = follows tightly without snapping
+    const k = Math.min(1, dt * 4.5);
+    ORIGIN_X += (t.x - ORIGIN_X) * k;
+    ORIGIN_Y += (t.y - ORIGIN_Y) * k;
   }
 
   // World-space room AABB (tile units)
@@ -371,10 +413,24 @@
   // Mystery box — fixed corner in world space
   const box = { wx: ROOM.x + 1.0, wy: ROOM.y + 1.0, rolling: false, rollT: 0, glowT: 0 };
 
+  // ===== WALL-BUYS =====
+  // Per chat: classic CoD-Zombies-style wall outlets — walk up to a
+  // chalk-outlined weapon on a wall, press E, pay points, weapon drops
+  // into your loadout. Costs scale with weapon strength. Each wall-buy
+  // re-arms on a fresh run (purchased flag wiped at startGame).
+  const wallBuys = [
+    { id:'wb-shotgun', wkey:'shotgun',  cost: 1500, wx: ROOM.x + 4.0,           wy: ROOM.y + 0.5, side:'top'    },
+    { id:'wb-rifle',   wkey:'rifle',    cost: 2500, wx: ROOM.x + 9.0,           wy: ROOM.y + 0.5, side:'top'    },
+    { id:'wb-assault', wkey:'assault',  cost: 3500, wx: ROOM.x + ROOM_W - 0.5,  wy: ROOM.y + 5.0, side:'right'  },
+    { id:'wb-sniper',  wkey:'sniper',   cost: 4500, wx: ROOM.x + 11.0,          wy: ROOM.y + ROOM_H - 0.5, side:'bottom' },
+    { id:'wb-rocket',  wkey:'rocket',   cost: 6500, wx: ROOM.x + 0.5,           wy: ROOM.y + 4.0, side:'left'   },
+  ];
+  for (const wb of wallBuys) wb.purchased = false;
+
   // ===== WEAPONS =====
+  // Per chat: pistol + smg removed as starter junk. Run begins with the
+  // shotgun as the weakest available weapon, scaling up from there.
   const WEAPONS = {
-    pistol:  { name:'PISTOL',  dmg: 18, mag: 12, magMax: 12, reserve:  72, reserveMax: 72,  rof: 0.30, reload: 1.4, range: 9, speed: 14, spread: 0.04, mode:'semi' },
-    smg:     { name:'SMG',     dmg: 14, mag: 32, magMax: 32, reserve: 240, reserveMax: 240, rof: 0.07, reload: 1.6, range: 8, speed: 15, spread: 0.06, mode:'auto' },
     // SHOTGUN — wide-spread pellet weapon. Per chat: more pellets +
     // wider spread so a single trigger pull hits multiple enemies.
     // 12 pellets at 0.32 spread = ~37° cone covering 3-4 zombies in
@@ -406,10 +462,15 @@
     // jumps with `chain.falloff` damage decay per hop. No projectile
     // model — bullet object is consumed inline and a 'lightning' fx
     // handles the visual zigzag.
-    tesla:   { name:'TESLA COIL', dmg: 42, mag: 30, magMax: 30, reserve: 0, reserveMax: 0, rof: 0.22, reload: 0, range: 7, speed: 0, spread: 0, mode:'auto', chain: { hops: 5, falloff: 0.78, range: 4.2 }, color:'#7df0ff', ultra: true },
+    // TESLA COIL (buffed): per chat, more chain hops + more damage so
+    // the ultra-rare drop actually clears a horde. 70 base dmg, 8 hops,
+    // 0.88 falloff means hop 8 still does ~70×0.88^7 ≈ 33 dmg. Range
+    // and chain.range bumped so it doesn't fail to find targets in the
+    // expanded districts.
+    tesla:   { name:'TESLA COIL', dmg: 70, mag: 30, magMax: 30, reserve: 0, reserveMax: 0, rof: 0.20, reload: 0, range: 8.5, speed: 0, spread: 0, mode:'auto', chain: { hops: 8, falloff: 0.88, range: 5.0 }, color:'#7df0ff', ultra: true },
   };
   // Standard mystery-box pool (uniform random unique pick).
-  const BOX_POOL = ['smg', 'shotgun', 'drumshot', 'rifle', 'assault', 'sniper', 'raygun', 'rocket'];
+  const BOX_POOL = ['shotgun', 'drumshot', 'rifle', 'assault', 'sniper', 'raygun', 'rocket'];
   // Ultra-rare pool — Tesla rolls at ~6% per box. Disjoint from BOX_POOL
   // so the tesla can't show up via the normal uniform path.
   const ULTRA_POOL = ['tesla'];
@@ -428,7 +489,7 @@
     slots: new Array(SLOT_COUNT).fill(null),
     active: 0,
   };
-  loadout.slots[0] = makeWeaponState('pistol');
+  loadout.slots[0] = makeWeaponState('shotgun');
 
   // Legacy `weapon` ref kept in sync with the active slot so existing
   // fire/reload/HUD paths continue to work.
@@ -532,7 +593,7 @@
     const r = cvs.getBoundingClientRect();
     mouse.sx = (e.clientX - r.left) * (cvs.width  / r.width);
     mouse.sy = (e.clientY - r.top ) * (cvs.height / r.height);
-    const w = screenToWorld(mouse.sx, mouse.sy);
+    const w = screenToWorldZoomed(mouse.sx, mouse.sy);
     mouse.wx = w.wx; mouse.wy = w.wy;
   });
   let firing = false;
@@ -641,6 +702,15 @@
   requestAnimationFrame(loop);
 
   function update(dt) {
+    // smooth camera follow — runs every tick so the player stays
+    // anchored near the screen middle regardless of map size.
+    updateCamera(dt);
+    // mouse-aim must reproject from the latest mouse screen pos using
+    // the live camera origin, otherwise aim drifts when the camera
+    // slides under a stationary cursor.
+    const aimW = screenToWorldZoomed(mouse.sx, mouse.sy);
+    mouse.wx = aimW.wx; mouse.wy = aimW.wy;
+
     // movement
     let mx = 0, my = 0;
     if (keys.has('w') || keys.has('arrowup'))    { mx -= 1; my -= 1; }
@@ -891,9 +961,6 @@
       showBanner('WAVE ' + n, 'they are coming');
     }
     sfx.waveStart();
-    if (weapon.key === 'pistol') {
-      weapon.reserve = Math.min(weapon.def.reserveMax, weapon.reserve + 24);
-    }
   }
 
   // BOSS — oversized zombie with massive HP, scaled hitbox, slower base
@@ -1186,6 +1253,25 @@
       sfx.boxRoll();
       spawnFloater(box.wx, box.wy, '-950', '#ff4040');
       updateHUD();
+      return;
+    }
+    // wall-buy purchase — closest unbuilt outlet within 1.3 tiles.
+    for (const wb of wallBuys) {
+      if (wb.purchased) continue;
+      if (Math.hypot(player.wx - wb.wx, player.wy - wb.wy) < 1.3) {
+        if (points < wb.cost) {
+          spawnFloater(wb.wx, wb.wy - 0.4, 'NEED ' + wb.cost, '#ff4040');
+          return;
+        }
+        points -= wb.cost;
+        wb.purchased = true;
+        const fresh = grantWeapon(wb.wkey);
+        spawnFloater(wb.wx, wb.wy - 0.4, '-' + wb.cost, '#ff4040');
+        spawnFloater(wb.wx, wb.wy - 0.8, fresh.def.name + ' ACQUIRED', '#7df09d');
+        sfx.boxLand();
+        updateHUD();
+        return;
+      }
     }
   }
 
@@ -1258,9 +1344,17 @@
     renderLastT = now;
     tickBanner(rdt);
 
-    // background
+    // background — drawn at native scale BEFORE the zoom transform
     ctx.fillStyle = '#0a0608';
     ctx.fillRect(0, 0, W, H);
+
+    // Apply camera zoom around the camera anchor. Everything drawn
+    // until the matching ctx.restore() at the end of render() is
+    // scaled — sprites, tiles, walls, fx all enlarge together.
+    ctx.save();
+    ctx.translate(CAM_ANCHOR_X, CAM_ANCHOR_Y);
+    ctx.scale(RENDER_ZOOM, RENDER_ZOOM);
+    ctx.translate(-CAM_ANCHOR_X, -CAM_ANCHOR_Y);
 
     // Floor: draw each tile as a diamond, dark dirt with subtle grid
     for (let y = ROOM.y; y < ROOM.y + ROOM.h; y++) {
@@ -1289,6 +1383,12 @@
       const c = winCenter(w);
       drawList.push({ depth: c.x + c.y - 0.5, kind:'window', e: w });
     }
+    // wall-buys sit ON the wall, slightly behind so the player overlaps
+    // them when standing in front. depth - 0.4 paints them between the
+    // wall border and the player.
+    for (const wb of wallBuys) {
+      drawList.push({ depth: wb.wx + wb.wy - 0.4, kind:'wallbuy', e: wb });
+    }
     for (const f of fx) drawList.push({ depth: f.wx + f.wy + 0.5, kind:'fx', e: f });
     drawList.push({ depth: 1e9, kind:'bullets' });   // bullets always on top
     drawList.sort((a, b) => a.depth - b.depth);
@@ -1299,6 +1399,7 @@
       else if (item.kind === 'box')    drawBox();
       else if (item.kind === 'drop')   drawDrop(item.e);
       else if (item.kind === 'window') drawWindow(item.e);
+      else if (item.kind === 'wallbuy') drawWallBuy(item.e);
       else if (item.kind === 'fx')     drawFx(item.e);
       else if (item.kind === 'bullets') {
         for (const b of bullets) {
@@ -1314,7 +1415,11 @@
       }
     }
 
-    // crosshair (screen-space)
+    // close the camera zoom transform so HUD overlays render at native
+    // pixel scale.
+    ctx.restore();
+
+    // crosshair (screen-space, at the raw cursor — outside the zoom)
     drawCrosshair();
     // reload bar removed — ammo is infinite, no reload state to draw.
     // armor pill (top-left of canvas)
@@ -1586,6 +1691,78 @@
     ctx.restore();
   }
 
+  // Wall-buy outlet — a chalk-outlined weapon silhouette painted on
+  // the wall with the cost label. Glows when the player is in range,
+  // dims to a faint white-X "OWNED" mark after purchase.
+  function drawWallBuy(wb) {
+    const p = worldToScreen(wb.wx, wb.wy);
+    const inRange = Math.hypot(player.wx - wb.wx, player.wy - wb.wy) < 1.4;
+    const t = performance.now() / 600;
+    const pulse = 0.55 + Math.sin(t) * 0.45;
+    ctx.save();
+    ctx.translate(p.sx, p.sy);
+    // chalk plate
+    ctx.fillStyle = wb.purchased ? 'rgba(40,30,24,0.5)' : 'rgba(30,22,18,0.85)';
+    ctx.fillRect(-22, -32, 44, 30);
+    // chalk frame
+    ctx.strokeStyle = wb.purchased ? '#3a302a' : (inRange ? '#ffd766' : '#8c7a5a');
+    ctx.lineWidth = inRange && !wb.purchased ? 2 : 1.2;
+    if (inRange && !wb.purchased) {
+      ctx.shadowColor = '#ffd766';
+      ctx.shadowBlur = 10 * pulse;
+    }
+    ctx.strokeRect(-22, -32, 44, 30);
+    ctx.shadowBlur = 0;
+    // weapon silhouette — simple stylized icon per wkey
+    ctx.fillStyle = wb.purchased ? '#3a302a' : '#e8d6b6';
+    ctx.strokeStyle = wb.purchased ? '#3a302a' : '#e8d6b6';
+    ctx.lineWidth = 1.4;
+    if (wb.wkey === 'rocket') {
+      ctx.fillRect(-15, -22, 22, 5);
+      ctx.fillRect(7,   -23, 6, 7);   // warhead
+      ctx.fillRect(-15, -25, 4, 3);   // fin
+    } else if (wb.wkey === 'shotgun') {
+      ctx.fillRect(-14, -22, 24, 4);
+      ctx.fillRect(-2,  -18, 4, 6);
+      ctx.fillRect(10,  -23, 4, 6);
+    } else if (wb.wkey === 'rifle') {
+      ctx.fillRect(-16, -22, 28, 3);
+      ctx.fillRect(-2,  -19, 4, 6);
+      ctx.fillRect(8,   -25, 3, 4);
+    } else if (wb.wkey === 'assault') {
+      ctx.fillRect(-15, -22, 22, 4);
+      ctx.fillRect(-13, -17, 4, 6);
+      ctx.fillRect(-2,  -18, 4, 5);
+      ctx.fillRect(8,   -23, 5, 3);
+    } else if (wb.wkey === 'sniper') {
+      ctx.fillRect(-18, -22, 32, 2);
+      ctx.fillRect(-2,  -25, 3, 6);   // scope
+      ctx.fillRect(-2,  -19, 4, 5);
+    } else {
+      ctx.fillRect(-12, -22, 22, 4);  // generic
+    }
+    if (wb.purchased) {
+      ctx.strokeStyle = '#5a4030';
+      ctx.beginPath();
+      ctx.moveTo(-18, -28); ctx.lineTo(18, -6);
+      ctx.moveTo(18, -28);  ctx.lineTo(-18, -6);
+      ctx.stroke();
+    } else {
+      // cost
+      ctx.fillStyle = points >= wb.cost ? '#ffd766' : '#ff8866';
+      ctx.font = 'bold 10px "Silkscreen", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(wb.cost + ' PTS', 0, -6);
+      if (inRange) {
+        ctx.fillStyle = points >= wb.cost ? '#7df09d' : '#ff4040';
+        ctx.font = 'bold 9px "Silkscreen", monospace';
+        ctx.fillText('PRESS E', 0, 6);
+      }
+    }
+    ctx.restore();
+  }
+
   function drawFx(f) {
     const k = f.t / f.dur;
     if (f.kind === 'lightning') {
@@ -1732,7 +1909,7 @@
     // every gun immediately without waiting on box rolls. Box rolls
     // still replace the active slot (uniqueness check skipped when
     // the rack starts full).
-    const STARTER_RACK = ['pistol', 'smg', 'shotgun', 'rifle', 'rocket'];
+    const STARTER_RACK = ['shotgun', 'assault', 'rifle', 'rocket', 'drumshot'];
     for (let i = 0; i < SLOT_COUNT; i++) {
       loadout.slots[i] = makeWeaponState(STARTER_RACK[i]);
     }
@@ -1757,6 +1934,10 @@
     for (const w of windows) w.boards = 5;
     box.rolling = false; box.rollT = 0;
     wave = 0; waveActive = false; waveSpawnQueue = 0; interludeT = 0;
+    // Reset wall-buy state so previously-purchased outlets re-arm on
+    // a fresh run (they're meant to be a per-run gold sink, not perma).
+    for (const wb of wallBuys) wb.purchased = false;
+    snapCameraToPlayer();
     running = true;
     updateHUD();
     setTimeout(() => startWave(1), 500);
