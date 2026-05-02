@@ -104,6 +104,33 @@
   .hint-row .status.ok{color:var(--moss)}
   .hint-row .status.busy{color:var(--gold)}
 
+  .manual-paste{
+    margin:14px 0 0;background:rgba(255,255,255,0.5);
+    border:1px solid var(--rule);border-radius:8px;padding:8px 14px;
+    font-family:'IBM Plex Mono', monospace;font-size:12px;
+  }
+  .manual-paste summary{
+    cursor:pointer;color:var(--ink-soft);letter-spacing:0.06em;
+    list-style:none;padding:4px 0;
+  }
+  .manual-paste summary::before{content:'+ ';color:var(--terra);font-weight:600}
+  .manual-paste[open] summary::before{content:'– '}
+  .manual-pad p{margin:8px 0 6px;color:var(--ink-soft);font-style:italic;font-family:'Newsreader', serif;font-size:14px}
+  .manual-pad textarea{
+    width:100%;min-height:140px;background:var(--bone);
+    border:1px solid var(--rule);border-radius:5px;padding:9px 12px;
+    font-family:'IBM Plex Mono', monospace;font-size:12px;color:var(--ink);
+    outline:none;resize:vertical;line-height:1.4;
+  }
+  .manual-pad textarea:focus{border-color:var(--terra)}
+  .manual-tools{
+    display:flex;gap:8px;margin-top:8px;align-items:center;
+  }
+  .manual-tools input{
+    background:var(--bone);border:1px solid var(--rule);border-radius:4px;
+    padding:6px 10px;font-family:'IBM Plex Mono', monospace;font-size:12px;
+    color:var(--ink);outline:none;flex:1;
+  }
   .layout{
     display:grid;grid-template-columns:1.4fr 1fr;gap:18px;margin-top:18px;
   }
@@ -225,9 +252,21 @@
   <button id="demoBtn" class="demo-btn">Try a demo</button>
 </div>
 <div class="hint-row">
-  <span>tip · paste · click timestamp · jump video</span>
+  <span>tip · paste URL · click timestamp · jump video</span>
   <span class="status" id="status">awaiting URL</span>
 </div>
+
+<details class="manual-paste" id="manualPaste">
+  <summary>YouTube's caption API is locked down — paste captions manually here</summary>
+  <div class="manual-pad">
+    <p>Paste captions in any of these formats. The parser detects timestamps automatically.</p>
+    <textarea id="manualText" placeholder="0:00 first line&#10;0:08 next line&#10;0:14 …&#10;&#10;Or SRT-style:&#10;1&#10;00:00:00,000 --> 00:00:08,000&#10;first line&#10;&#10;Or just plain text — we'll spread it evenly along the video duration."></textarea>
+    <div class="manual-tools">
+      <input type="number" id="manualDur" placeholder="duration sec (optional)" step="1" min="1" />
+      <button class="tool-btn" id="manualParseBtn">Parse</button>
+    </div>
+  </div>
+</details>
 
 <div class="layout">
   <div class="video-card">
@@ -454,7 +493,8 @@
       } else {
         segments = [];
         renderTimeline('');
-        setStatus('no captions found — video may not have any, or proxies are blocked. Try the demo.', 'err');
+        setStatus('no captions returned — YouTube has locked down the public timedtext API. Open the panel below to paste captions manually.', 'err');
+        $('manualPaste').open = true;
       }
     } catch (e) {
       segments = [];
@@ -474,6 +514,76 @@
     $('urlInput').value = `https://youtu.be/${DEMO_VIDEO}`;
   }
 
+  // ===== MANUAL PASTE PARSER =====
+  // Accepts three formats:
+  //  1. Lines like "0:08 first line" or "00:01:24 second line"
+  //  2. SRT blocks (00:00:00,000 --> 00:00:08,000)
+  //  3. Plain text — distributed evenly across `manualDur` seconds
+  function parseTimestamp(s) {
+    // Returns seconds (float), or NaN
+    s = s.trim().replace(',', '.');
+    const parts = s.split(':');
+    if (parts.length < 2 || parts.length > 3) return NaN;
+    const nums = parts.map(p => parseFloat(p));
+    if (nums.some(isNaN)) return NaN;
+    if (nums.length === 2) return nums[0] * 60 + nums[1];
+    return nums[0] * 3600 + nums[1] * 60 + nums[2];
+  }
+  function parseManual(text, fallbackDur) {
+    text = (text || '').trim();
+    if (!text) return [];
+    // Detect SRT (lines like "00:00:00,000 --> 00:00:08,000")
+    if (/-->/.test(text)) {
+      const segs = [];
+      const blocks = text.split(/\n\s*\n/);
+      for (const block of blocks) {
+        const lines = block.split(/\n/).map(l => l.trim()).filter(Boolean);
+        if (lines.length < 2) continue;
+        // First line might be a sequence number, skip if all-digits
+        let i = 0;
+        if (/^\d+$/.test(lines[0])) i = 1;
+        const tl = lines[i] || '';
+        const m = tl.match(/(\d{1,2}:\d{2}(?::\d{2})?(?:[,.]\d+)?)\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?(?:[,.]\d+)?)/);
+        if (!m) continue;
+        const start = parseTimestamp(m[1]);
+        const end   = parseTimestamp(m[2]);
+        if (isNaN(start)) continue;
+        const text = lines.slice(i + 1).join(' ').trim();
+        if (text) segs.push({ start, dur: Math.max(0.5, end - start), text });
+      }
+      if (segs.length) return segs;
+    }
+    // Detect inline-timestamp lines
+    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+    const tsRegex = /^(\[?)(\d{1,2}:\d{2}(?::\d{2})?)\]?\s*[-:]?\s*(.*)$/;
+    const stamped = [];
+    let allStamped = true;
+    for (const line of lines) {
+      const m = line.match(tsRegex);
+      if (m && m[3]) {
+        const start = parseTimestamp(m[2]);
+        if (!isNaN(start)) { stamped.push({ start, text: m[3] }); continue; }
+      }
+      allStamped = false;
+      stamped.push({ start: null, text: line });
+    }
+    if (allStamped && stamped.length) {
+      // Compute durations from gaps between consecutive starts
+      const segs = [];
+      for (let i = 0; i < stamped.length; i++) {
+        const s = stamped[i];
+        const next = stamped[i + 1];
+        const dur = next ? Math.max(0.5, next.start - s.start) : 4;
+        segs.push({ start: s.start, dur, text: s.text });
+      }
+      return segs;
+    }
+    // Plain text — distribute evenly across fallbackDur (default 5s/line)
+    const total = fallbackDur || (lines.length * 5);
+    const per = total / Math.max(1, lines.length);
+    return lines.map((t, i) => ({ start: i * per, dur: per, text: t }));
+  }
+
   // ===== WIRE UP =====
   $('loadBtn').addEventListener('click', () => loadUrl($('urlInput').value));
   $('demoBtn').addEventListener('click', loadDemo);
@@ -488,6 +598,19 @@
     navigator.clipboard.writeText(text).then(() => {
       setStatus('copied to clipboard', 'ok');
     }, () => setStatus('clipboard write failed', 'err'));
+  });
+
+  $('manualParseBtn').addEventListener('click', () => {
+    const raw = $('manualText').value;
+    const dur = parseFloat($('manualDur').value) || 0;
+    const segs = parseManual(raw, dur);
+    if (!segs.length) {
+      setStatus('couldn\'t parse anything from the textarea', 'err');
+      return;
+    }
+    segments = segs;
+    renderTimeline('');
+    setStatus(`parsed ${segs.length} lines from manual paste`, 'ok');
   });
 
   $('downloadBtn').addEventListener('click', () => {
