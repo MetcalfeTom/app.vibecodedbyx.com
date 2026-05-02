@@ -77,6 +77,9 @@
   .pill.health{border-color:var(--sick);color:var(--sick);text-shadow:0 0 8px var(--sick)}
   .pill.weapon{border-color:var(--bone);color:var(--bone);text-shadow:0 0 6px rgba(232,214,182,0.4)}
   .pill.gold  {border-color:var(--gold);color:var(--gold);text-shadow:0 0 8px var(--gold)}
+  .pill.combo {border-color:#7df0ff;color:#7df0ff;text-shadow:0 0 10px #7df0ff;transition:transform 0.12s ease-out, opacity 0.25s}
+  .pill.combo.dim {opacity:0.35;filter:saturate(0.4)}
+  .pill.combo.bump {transform:scale(1.18)}
 
   .stage{
     width:100%;flex:1;min-height:0;
@@ -188,6 +191,7 @@
     <div class="pill health">HP<span class="num" id="hpNum">100</span></div>
     <div class="pill points">PTS<span class="num" id="pointsNum">500</span></div>
     <div class="pill gold">GOLD<span class="num" id="goldNum">0</span></div>
+    <div class="pill combo dim" id="comboPill">COMBO<span class="num" id="comboNum">×1</span></div>
     <div class="pill weapon" id="weaponPill" title="1-5 select slot · Q cycles">
       <span id="loadoutSlots"></span> · <span id="ammoNum">12/72</span>
     </div>
@@ -233,6 +237,7 @@
   <div class="endstats">
     SURVIVED &nbsp; <span class="v" id="endWave">0</span> &nbsp; WAVES<br>
     KILLS &nbsp; <span class="v" id="endKills">0</span><br>
+    PEAK COMBO &nbsp; <span class="v" id="endCombo">0</span><br>
     POINTS &nbsp; <span class="v" id="endPoints">0</span><br>
     GOLD EARNED &nbsp; <span class="v gain" id="endGold">0</span>
   </div>
@@ -388,6 +393,34 @@
 
   let kills = 0;
   let points = 500;        // in-run currency for box/repairs
+  // ===== COMBO + SCREEN SHAKE =====
+  // Combo: chains kills together. Each kill bumps the counter; multiplier
+  // = 1 + floor(count/3) * 0.5, capped at 5×. Resets if no kill within
+  // COMBO_WINDOW_MS. Shake: per-frame translate jitter that decays
+  // exponentially. Bigger spikes for boss kills + AOE detonations.
+  const combo = { count: 0, peak: 0, lastKillT: 0 };
+  const COMBO_WINDOW_MS = 2500;
+  const COMBO_MAX_MULT = 5;
+  function comboMultiplier() {
+    return Math.min(COMBO_MAX_MULT, 1 + Math.floor(combo.count / 3) * 0.5);
+  }
+  function bumpCombo() {
+    combo.count++;
+    combo.peak = Math.max(combo.peak, combo.count);
+    combo.lastKillT = performance.now();
+    const pill = document.getElementById('comboPill');
+    if (pill) {
+      pill.classList.remove('dim');
+      pill.classList.add('bump');
+      // strip the bump class so the same kill can re-trigger the
+      // animation on the next bump
+      setTimeout(() => pill && pill.classList.remove('bump'), 130);
+    }
+  }
+  const shake = { mag: 0, decay: 4.0 };
+  function addShake(mag) {
+    shake.mag = Math.min(28, Math.max(shake.mag, mag));
+  }
   let goldEarned = 0;      // gold accrued THIS run, granted on death
 
   let wave = 0, waveActive = false, waveSpawnQueue = 0, waveSpawnT = 0, interludeT = 0;
@@ -705,6 +738,16 @@
     // smooth camera follow — runs every tick so the player stays
     // anchored near the screen middle regardless of map size.
     updateCamera(dt);
+    // combo decay — drop streak when no kill within COMBO_WINDOW_MS
+    if (combo.count > 0 && performance.now() - combo.lastKillT > COMBO_WINDOW_MS) {
+      combo.count = 0;
+      const pill = document.getElementById('comboPill');
+      if (pill) pill.classList.add('dim');
+    }
+    // shake decay
+    if (shake.mag > 0) {
+      shake.mag = Math.max(0, shake.mag - shake.decay * 60 * dt);
+    }
     // mouse-aim must reproject from the latest mouse screen pos using
     // the live camera origin, otherwise aim drifts when the camera
     // slides under a stationary cursor.
@@ -1040,16 +1083,19 @@
       });
     }
     spawnFloater(b.wx, b.wy, '💥 BOOM', '#ffae3a');
+    addShake(14);
     sfx.boom();
   }
 
   function killZombie(z, idx) {
     zombies.splice(idx, 1);
     kills++;
+    bumpCombo();
     if (z.boss) {
       // Boss kill — fat bonus + guaranteed legendary crate + a powerup.
-      addPoints(1000);
-      spawnFloater(z.wx, z.wy - 0.4, '+1000 BOSS', '#ffae3a');
+      const award = addKillPoints(1000);
+      const tag = award.mult > 1 ? `+${award.total} BOSS ×${award.mult.toFixed(award.mult % 1 ? 1 : 0)}` : `+${award.total} BOSS`;
+      spawnFloater(z.wx, z.wy - 0.4, tag, '#ffae3a');
       // big shockwave fx
       for (let i = 0; i < 32; i++) {
         fx.push({
@@ -1061,12 +1107,16 @@
       }
       drops.push({ kind:'crate', wx: z.wx, wy: z.wy, life: 30, bobT: 0, rarity: RARITY_TIERS[3] });
       drops.push({ kind: ['instakill','double','nuke'][Math.floor(Math.random()*3)], wx: z.wx + 0.5, wy: z.wy + 0.5, life: 18, bobT: 0 });
+      addShake(22);   // boss kill rumble
       sfx.bossRoar();
       return;
     }
-    addPoints(50);
-    spawnFloater(z.wx, z.wy - 0.2, '+50', '#e2b94a');
+    const award = addKillPoints(50);
+    const tag = award.mult > 1 ? `+${award.total} ×${award.mult.toFixed(award.mult % 1 ? 1 : 0)}` : `+${award.total}`;
+    spawnFloater(z.wx, z.wy - 0.2, tag, '#e2b94a');
     spawnFX('hit', z.wx, z.wy, '#5a8a48', 14);
+    // Shake scales with combo so the screen bucks harder during a streak
+    addShake(3 + Math.min(8, combo.count * 0.4));
     sfx.zDie();
     // Drop logic — Scavenger upgrade boosts both crate + powerup chance
     const luckMult = 1 + meta.upgrades.luck * 0.25;
@@ -1095,6 +1145,7 @@
     }
     if (d.kind === 'nuke') {
       sfx.nuke();
+      addShake(26);
       for (let i = zombies.length - 1; i >= 0; i--) killZombie(zombies[i], i);
       spawnFloater(player.wx, player.wy, '☢ NUKE', '#ffd766');
     }
@@ -1292,10 +1343,23 @@
     fx.push({ kind:'floater', wx, wy, text, color, t:0, dur:0.95 });
   }
   function addPoints(n) {
-    const m = (player.doubleUntil || 0) > performance.now() ? 2 : 1;
-    points += n * m;
-    if (n > 0 && m > 1) spawnFloater(player.wx, player.wy, '×2', '#ffd766');
+    const dbl = (player.doubleUntil || 0) > performance.now() ? 2 : 1;
+    // Combo only multiplies kill awards, not box/wall purchases or
+    // window repairs. Caller passes `comboable:true` via addPointsKill
+    // helper. Plain addPoints stays multiplier-free except for double.
+    points += n * dbl;
+    if (n > 0 && dbl > 1) spawnFloater(player.wx, player.wy, '×2', '#ffd766');
     updateHUD();
+  }
+  // Kill-award path — applies combo multiplier on top of double and
+  // returns the actual points awarded so the caller can render it.
+  function addKillPoints(base) {
+    const dbl = (player.doubleUntil || 0) > performance.now() ? 2 : 1;
+    const cm = comboMultiplier();
+    const total = Math.round(base * cm * dbl);
+    points += total;
+    updateHUD();
+    return { total, mult: cm * dbl };
   }
 
   // ===== BANNER =====
@@ -1316,6 +1380,12 @@
     document.getElementById('hpNum').textContent = player.hp;
     document.getElementById('pointsNum').textContent = points;
     document.getElementById('goldNum').textContent = meta.gold + (goldEarned ? '+' + goldEarned : '');
+    const comboNum = document.getElementById('comboNum');
+    if (comboNum) {
+      const cm = comboMultiplier();
+      const mStr = (cm % 1 === 0) ? cm.toFixed(0) : cm.toFixed(1);
+      comboNum.textContent = combo.count > 0 ? `${combo.count}·×${mStr}` : '×1';
+    }
     // Loadout HUD — five slot chips with keybind index. Active is
     // bold cream, populated-but-inactive is dim (45%), empty is
     // outlined dash. Visually advertises both 1-5 and Q.
@@ -1348,11 +1418,16 @@
     ctx.fillStyle = '#0a0608';
     ctx.fillRect(0, 0, W, H);
 
+    // Screen shake — random translate proportional to current shake.mag.
+    // Applied INSIDE the camera-zoom save so it shakes the world but
+    // not the HUD/crosshair (which draw after the matching restore).
+    const shakeX = (Math.random() - 0.5) * 2 * shake.mag;
+    const shakeY = (Math.random() - 0.5) * 2 * shake.mag;
     // Apply camera zoom around the camera anchor. Everything drawn
     // until the matching ctx.restore() at the end of render() is
     // scaled — sprites, tiles, walls, fx all enlarge together.
     ctx.save();
-    ctx.translate(CAM_ANCHOR_X, CAM_ANCHOR_Y);
+    ctx.translate(CAM_ANCHOR_X + shakeX, CAM_ANCHOR_Y + shakeY);
     ctx.scale(RENDER_ZOOM, RENDER_ZOOM);
     ctx.translate(-CAM_ANCHOR_X, -CAM_ANCHOR_Y);
 
@@ -1937,6 +2012,10 @@
     // Reset wall-buy state so previously-purchased outlets re-arm on
     // a fresh run (they're meant to be a per-run gold sink, not perma).
     for (const wb of wallBuys) wb.purchased = false;
+    combo.count = 0; combo.peak = 0; combo.lastKillT = 0;
+    shake.mag = 0;
+    const cp = document.getElementById('comboPill');
+    if (cp) { cp.classList.add('dim'); cp.classList.remove('bump'); }
     snapCameraToPlayer();
     running = true;
     updateHUD();
@@ -1951,6 +2030,7 @@
     document.getElementById('endTitle').textContent = 'YOU DIED';
     document.getElementById('endWave').textContent = wave;
     document.getElementById('endKills').textContent = kills;
+    document.getElementById('endCombo').textContent = combo.peak + '×';
     document.getElementById('endPoints').textContent = points;
     document.getElementById('endGold').textContent = '+' + goldEarned + ' (vault: ' + meta.gold + ')';
     renderUpgradeStore(endUp);
