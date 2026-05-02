@@ -232,6 +232,48 @@
   .token-chart .line-output { fill:none; stroke:var(--moss);  stroke-width:2.5; }
   .token-chart .dot-input   { fill:var(--paper); stroke:var(--terra); stroke-width:2; }
   .token-chart .dot-output  { fill:var(--paper); stroke:var(--moss);  stroke-width:2; }
+  .token-chart .area-total  { fill:#a04848; fill-opacity:0.06; }
+  .token-chart .line-total  { fill:none; stroke:#a04848; stroke-width:2.5; stroke-dasharray:4 3; }
+  .token-chart .dot-total   { fill:var(--paper); stroke:#a04848; stroke-width:2; }
+  .model-compare{
+    display:flex;flex-direction:column;gap:8px;font-family:'IBM Plex Mono', monospace;
+  }
+  .mc-row{
+    display:grid;grid-template-columns:140px 1fr 100px 90px;gap:12px;align-items:center;
+    padding:10px 14px;background:rgba(255,255,255,0.55);
+    border:1px solid rgba(168,84,72,0.16);border-radius:6px;
+    font-size:12px;
+  }
+  .mc-row.current{
+    background:linear-gradient(180deg, rgba(204,120,92,0.08), rgba(204,120,92,0.18));
+    border-color:var(--terra);
+  }
+  .mc-row .mc-name{
+    font-family:'JetBrains Mono', monospace;font-weight:700;color:var(--ink);
+  }
+  .mc-row .mc-bar{
+    height:10px;background:rgba(31,26,23,0.06);border-radius:3px;overflow:hidden;
+  }
+  .mc-row .mc-bar > span{
+    display:block;height:100%;background:var(--terra);
+    transition:width 0.6s cubic-bezier(.16,.84,.36,1);
+  }
+  .mc-row.current .mc-bar > span{ background:var(--terra-deep); }
+  .mc-row.cheap .mc-bar > span{ background:var(--moss); }
+  .mc-row .mc-cost{
+    font-family:'JetBrains Mono', monospace;font-weight:700;
+    color:var(--ink);text-align:right;
+  }
+  .mc-row .mc-delta{
+    font-size:11px;text-align:right;
+  }
+  .mc-row .mc-delta.up   { color:var(--terra-deep); }
+  .mc-row .mc-delta.down { color:var(--good); }
+  .mc-row .mc-delta.same { color:var(--ink-soft); }
+  @media (max-width:680px){
+    .mc-row{grid-template-columns:1fr 80px;font-size:11px}
+    .mc-row .mc-bar, .mc-row .mc-delta{display:none}
+  }
   .live-pulse{
     display:inline-flex;align-items:center;gap:6px;
     font-family:'IBM Plex Mono', monospace;font-size:10px;letter-spacing:0.20em;
@@ -368,6 +410,24 @@
         </span>
       </div>
       <div class="token-chart" id="tokenChart"></div>
+    </div>
+    <div class="panel" style="grid-column:1 / -1">
+      <div class="panel-head">
+        <span class="name">Token cost · last 7 days</span>
+        <span class="hint">
+          <span class="legend-swatch" style="background:var(--terra)"></span>input $ ·
+          <span class="legend-swatch" style="background:var(--moss)"></span>output $ ·
+          <span class="legend-swatch" style="background:#a04848"></span>total $
+        </span>
+      </div>
+      <div class="token-chart" id="costChart"></div>
+    </div>
+    <div class="panel" style="grid-column:1 / -1">
+      <div class="panel-head">
+        <span class="name">Model cost comparison</span>
+        <span class="hint">today's tokens priced across Claude generations</span>
+      </div>
+      <div class="model-compare" id="modelCompare"></div>
     </div>
     <div class="panel">
       <div class="panel-head"><span class="name">Daily commits</span><span class="hint">last 7 days</span></div>
@@ -528,6 +588,108 @@
     `;
   }
 
+  // ===== COST TIME-SERIES CHART =====
+  // Same projection as the token chart but values are converted to USD
+  // using the active model's pricing. Three lines: input cost (terra),
+  // output cost (moss), and total cost (dashed deep-red).
+  function renderCostChart(data, priceObj) {
+    const days = data.daily || [];
+    if (days.length === 0) { $('costChart').innerHTML = '<div style="padding:20px;color:var(--ink-soft);font-size:11px;font-family:IBM Plex Mono, monospace">no daily data yet</div>'; return; }
+    const todayCommits = Math.max(1, data.totals?.commitsToday || 0);
+    const todayInT = data.inputTokens || 0;
+    const todayOutT = data.outputTokens || 0;
+    const dailyTokens = data.dailyTokens || null;
+    const series = days.map((d, i) => {
+      const isToday = i === days.length - 1;
+      let inT, outT;
+      if (isToday) { inT = todayInT; outT = todayOutT; }
+      else if (dailyTokens && dailyTokens[d.date]) {
+        inT = dailyTokens[d.date].in || 0; outT = dailyTokens[d.date].out || 0;
+      } else {
+        const ratio = d.count / todayCommits;
+        inT = Math.round(todayInT * ratio); outT = Math.round(todayOutT * ratio);
+      }
+      const inC = (inT / 1e6) * priceObj.in;
+      const outC = (outT / 1e6) * priceObj.out;
+      return { date: d.date, inC, outC, totC: inC + outC };
+    });
+    const W = 800, H = 240, P = 40, PB = 28;
+    const innerW = W - P * 2, innerH = H - P - PB;
+    const maxC = Math.max(0.0001, ...series.map(s => s.totC));
+    const xStep = series.length > 1 ? innerW / (series.length - 1) : 0;
+    const xy = (i, v) => `${P + i * xStep},${P + innerH - (v / maxC) * innerH}`;
+    const polyIn  = series.map((s, i) => xy(i, s.inC )).join(' ');
+    const polyOut = series.map((s, i) => xy(i, s.outC)).join(' ');
+    const polyTot = series.map((s, i) => xy(i, s.totC)).join(' ');
+    const baseY = P + innerH;
+    const areaTot = `${P},${baseY} ${polyTot} ${P + (series.length - 1) * xStep},${baseY}`;
+    const gridY = [0, 0.25, 0.5, 0.75, 1]
+      .map(t => `<line class="grid-line" x1="${P}" y1="${P + innerH * t}" x2="${P + innerW}" y2="${P + innerH * t}"/>`).join('');
+    const yLabels = [0, 0.5, 1]
+      .map(t => `<text class="axis-label" x="${P - 8}" y="${P + innerH * (1 - t) + 3}" text-anchor="end">${fmtUsd(maxC * t)}</text>`).join('');
+    const xLabels = series.map((s, i) =>
+      `<text class="axis-label" x="${P + i * xStep}" y="${H - 6}" text-anchor="middle">${(s.date || '').slice(5)}</text>`).join('');
+    const dotsIn  = series.map((s, i) => `<circle class="dot-input"  cx="${P + i * xStep}" cy="${P + innerH - (s.inC  / maxC) * innerH}" r="3.2"/>`).join('');
+    const dotsOut = series.map((s, i) => `<circle class="dot-output" cx="${P + i * xStep}" cy="${P + innerH - (s.outC / maxC) * innerH}" r="3.2"/>`).join('');
+    const dotsTot = series.map((s, i) => `<circle class="dot-total"  cx="${P + i * xStep}" cy="${P + innerH - (s.totC / maxC) * innerH}" r="3.5"/>`).join('');
+    $('costChart').innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        ${gridY}
+        <polygon class="area-total" points="${areaTot}"/>
+        <polyline class="line-input"  points="${polyIn}"/>
+        <polyline class="line-output" points="${polyOut}"/>
+        <polyline class="line-total"  points="${polyTot}"/>
+        ${dotsIn}${dotsOut}${dotsTot}
+        ${yLabels}${xLabels}
+      </svg>
+    `;
+  }
+
+  // ===== MODEL COST COMPARISON =====
+  // Re-prices today's actual token volume across every model in PRICING
+  // and renders a sortable table-ish list (rendered cheapest → most
+  // expensive) with the cost bar scaled to the most expensive option.
+  // The currently-active model is highlighted; delta column shows %
+  // savings or increase vs the current model.
+  function renderModelCompare(data, currentName) {
+    const inT = data.inputTokens || 0;
+    const outT = data.outputTokens || 0;
+    const rows = Object.entries(PRICING).map(([name, p]) => ({
+      name, p,
+      cost: (inT / 1e6) * p.in + (outT / 1e6) * p.out,
+    }));
+    const currentCost = rows.find(r => r.name === currentName)?.cost || rows[0].cost;
+    const maxCost = Math.max(0.0001, ...rows.map(r => r.cost));
+    rows.sort((a, b) => a.cost - b.cost);
+    $('modelCompare').innerHTML = rows.map(r => {
+      const pct = (r.cost / maxCost) * 100;
+      const isCurrent = r.name === currentName;
+      const cheapest = rows[0].name === r.name && !isCurrent;
+      let deltaClass = 'same', deltaText = '—';
+      if (currentCost > 0) {
+        const ratio = r.cost / currentCost;
+        if (Math.abs(ratio - 1) < 0.01) {
+          deltaText = '0%'; deltaClass = 'same';
+        } else if (ratio < 1) {
+          deltaText = '-' + Math.round((1 - ratio) * 100) + '%';
+          deltaClass = 'down';
+        } else {
+          deltaText = '+' + Math.round((ratio - 1) * 100) + '%';
+          deltaClass = 'up';
+        }
+      }
+      const tag = isCurrent ? ' · current' : (cheapest ? ' · cheapest' : '');
+      return `
+        <div class="mc-row${isCurrent ? ' current' : ''}${cheapest ? ' cheap' : ''}">
+          <span class="mc-name">${r.name}<span style="font-weight:400;color:var(--ink-soft);font-size:10px">${tag}</span></span>
+          <span class="mc-bar"><span style="width:${pct}%"></span></span>
+          <span class="mc-cost">${fmtUsd(r.cost)}</span>
+          <span class="mc-delta ${deltaClass}">${deltaText}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
   // hero stats
   function renderHero(data, animateNums) {
     $('dateStr').textContent = data.today || '—';
@@ -556,11 +718,24 @@
   // this stream): input $15/M tokens, output $75/M tokens. Cache-read
   // hits get a 90% discount but we don't track that distinction in the
   // snapshot, so cost is a worst-case ceiling on prompt+response cost.
+  // Public Anthropic API pricing across Claude generations. Used both
+  // for today's cost computation AND the model-comparison panel below.
+  // Order matters — newer first; comparison panel renders in this order.
   const PRICING = {
-    'Opus 4.7':    { in: 15.00, out: 75.00 },
-    'Opus 4.6':    { in: 15.00, out: 75.00 },
-    'Sonnet 4.6':  { in:  3.00, out: 15.00 },
-    'Haiku 4.5':   { in:  1.00, out:  5.00 },
+    'Opus 4.7':    { in: 15.00, out: 75.00, gen: 4, tier: 'opus'   },
+    'Opus 4.6':    { in: 15.00, out: 75.00, gen: 4, tier: 'opus'   },
+    'Sonnet 4.6':  { in:  3.00, out: 15.00, gen: 4, tier: 'sonnet' },
+    'Haiku 4.5':   { in:  1.00, out:  5.00, gen: 4, tier: 'haiku'  },
+    'Opus 3.5':    { in: 15.00, out: 75.00, gen: 3, tier: 'opus'   },
+    'Sonnet 3.7':  { in:  3.00, out: 15.00, gen: 3, tier: 'sonnet' },
+    'Sonnet 3.5':  { in:  3.00, out: 15.00, gen: 3, tier: 'sonnet' },
+    'Haiku 3.5':   { in:  0.80, out:  4.00, gen: 3, tier: 'haiku'  },
+    'Opus 3':      { in: 15.00, out: 75.00, gen: 3, tier: 'opus'   },
+    'Sonnet 3':    { in:  3.00, out: 15.00, gen: 3, tier: 'sonnet' },
+    'Haiku 3':     { in:  0.25, out:  1.25, gen: 3, tier: 'haiku'  },
+    'Claude 2.1':  { in:  8.00, out: 24.00, gen: 2, tier: 'opus'   },
+    'Claude 2':    { in:  8.00, out: 24.00, gen: 2, tier: 'opus'   },
+    'Instant 1.2': { in:  0.80, out:  2.40, gen: 1, tier: 'haiku'  },
   };
   const modelName = ($('modelName')?.textContent || 'Opus 4.7').trim();
   const price = PRICING[modelName] || PRICING['Opus 4.7'];
@@ -712,6 +887,8 @@
   // changed so static snapshots don't reanimate every tick.
   saveHistory(data);
   renderTokenChart(data, loadHistory());
+  renderCostChart(data, price);
+  renderModelCompare(data, modelName);
   let lastGen = data.generatedAt;
   const REFRESH_MS = 30000;
   let nextRefreshAt = Date.now() + REFRESH_MS;
@@ -753,6 +930,8 @@
           <div class="cost-row"><span class="ck">Monthly burn · est</span><span class="cv">${fmtUsd(monthly)}</span><span class="cs">at today's pace × 30</span></div>
         `;
         renderTokenChart(fresh, loadHistory());
+        renderCostChart(fresh, price);
+        renderModelCompare(fresh, modelName);
         // re-render daily bars
         const fdays = fresh.daily || [];
         const fmax = Math.max(1, ...fdays.map(d => d.count));
