@@ -555,6 +555,11 @@
     // dropped to 7 so it doesn't out-DPS the rifle at point blank but
     // crowd-clears the front of a horde like a fire hydrant of lead.
     drumshot:{ name:'DRUM SHOTGUN', dmg: 7, mag: 24, magMax: 24, reserve: 96, reserveMax: 96, rof: 0.18, reload: 2.4, range: 4.5, speed: 13, spread: 0.28, mode:'auto', pellets: 8, color:'#ffb86b' },
+    // CHAINSAW — close-range cone melee. Each rev-tick scans for zombies
+    // inside a 0.55π arc within 1.4 tiles and deals dmg + spawns a red
+    // blood splatter burst (12 gore particles per hit). Auto-fire so
+    // holding the button revs continuously through a horde.
+    chainsaw:{ name:'CHAINSAW', dmg: 30, mag: 60, magMax: 60, reserve: 0, reserveMax: 0, rof: 0.08, reload: 0, range: 1.4, speed: 0, spread: 0, mode:'auto', melee: { range: 1.4, arc: Math.PI * 0.55 }, color:'#c8261a' },
     // TESLA COIL — ultra-rare chain-lightning gun. Each shot picks the
     // nearest zombie in a 7-tile range, deals dmg, then arcs to the
     // nearest other zombie within `chain.range` for `chain.hops` total
@@ -576,7 +581,7 @@
     railgun: { name:'PLASMA RAILGUN', dmg: 220, mag: 4, magMax: 4, reserve: 16, reserveMax: 16, rof: 1.30, reload: 2.6, range: 18, speed: 0, spread: 0, mode:'semi', beam: { width: 0.55 }, color:'#d680ff' },
   };
   // Standard mystery-box pool (uniform random unique pick).
-  const BOX_POOL = ['drumshot', 'rifle', 'raygun', 'rocket', 'railgun'];
+  const BOX_POOL = ['chainsaw', 'drumshot', 'rifle', 'raygun', 'rocket', 'railgun'];
   // Ultra-rare pool — Tesla rolls at ~6% per box. Disjoint from BOX_POOL
   // so the tesla can't show up via the normal uniform path.
   const ULTRA_POOL = ['tesla'];
@@ -777,6 +782,23 @@
       setTimeout(() => blip(680,  0.08, 'sawtooth', 0.10), 30);
       setTimeout(() => blip(280,  0.10, 'sawtooth', 0.08), 60);
     },
+    chainsaw() {
+      // Brrt — high-pitched sawtooth + bandpassed noise, very short
+      // burst per call (called per-hit at 12hz so it stacks naturally).
+      blip(180 + Math.random() * 40, 0.05, 'sawtooth', 0.10);
+      blip(420 + Math.random() * 80, 0.04, 'square', 0.08);
+    },
+    geiger() {
+      // Single sharp Geiger-counter click, played per aura tick.
+      blip(2400 + Math.random() * 600, 0.02, 'square', 0.10);
+    },
+    blackhole() {
+      // Deep collapsing hum — sub thump → swell → drop
+      blip(60,  0.40, 'sawtooth', 0.22);
+      setTimeout(() => blip(45, 0.50, 'sawtooth', 0.18),  60);
+      setTimeout(() => blip(120, 0.30, 'square',   0.12), 140);
+      setTimeout(() => blip(30, 0.60, 'sawtooth', 0.16), 240);
+    },
     railShot() {
       // railgun — magnetized hum into a high-pitched whip-crack and a
       // rolling sub thud. The signature "thoom-CRACK" of a heavy beam.
@@ -832,6 +854,83 @@
     // shake decay
     if (shake.mag > 0) {
       shake.mag = Math.max(0, shake.mag - shake.decay * 60 * dt);
+    }
+
+    // Radioactive death aura — 5 ticks/sec, 16 dmg per tick = 80 dps,
+    // 3-tile radius. Spawns a green glow ring + plays a Geiger click
+    // every other tick so the audio doesn't drown the rest of the mix.
+    const nowMs = performance.now();
+    if ((player.radAuraUntil || 0) > nowMs) {
+      if (nowMs > (player.radAuraNextTick || 0)) {
+        player.radAuraNextTick = nowMs + 200;
+        const radius = 3.0;
+        const dmg = 16;
+        for (let j = zombies.length - 1; j >= 0; j--) {
+          const z = zombies[j];
+          const d = Math.hypot(z.wx - player.wx, z.wy - player.wy);
+          if (d <= radius) {
+            z.hp -= dmg;
+            if (z.hp <= 0) killZombie(z, j);
+          }
+        }
+        fx.push({ kind:'radring', wx: player.wx, wy: player.wy, t:0, dur:0.55, color:'#7df09d', radius });
+        if ((player.radAuraTickCount = (player.radAuraTickCount || 0) + 1) % 2 === 0) sfx.geiger();
+      }
+    }
+
+    // Black hole grenades — pull zombies radially inward + crush at the
+    // event horizon + tick continuous DPS for anything caught in the
+    // disk. Lifetime fixed; visual fx pushed every 80ms for swirl.
+    for (let i = blackHoles.length - 1; i >= 0; i--) {
+      const bh = blackHoles[i];
+      bh.t += dt;
+      if (bh.t > bh.dur) { blackHoles.splice(i, 1); continue; }
+      const pullR = 5.0;
+      const crushR = 0.6;
+      const k = bh.t / bh.dur;
+      const strength = (k < 0.85 ? 1 : 1 - (k - 0.85) / 0.15);   // fade out at end
+      for (let j = zombies.length - 1; j >= 0; j--) {
+        const z = zombies[j];
+        const dx = bh.wx - z.wx, dy = bh.wy - z.wy;
+        const d = Math.hypot(dx, dy);
+        if (d > pullR) continue;
+        const pull = (1 - d / pullR) * 5.5 * strength * dt;
+        z.wx += (dx / (d || 1)) * pull;
+        z.wy += (dy / (d || 1)) * pull;
+        if (d < crushR) {
+          z.hp -= 220;
+          if (z.hp <= 0) killZombie(z, j);
+        }
+      }
+      // continuous DPS pulse every 0.2s (60 dps inside 70% of pullR)
+      if (bh.t > (bh.nextDmg || 0)) {
+        bh.nextDmg = bh.t + 0.2;
+        const dmgR = pullR * 0.7;
+        for (let j = zombies.length - 1; j >= 0; j--) {
+          const z = zombies[j];
+          const d = Math.hypot(z.wx - bh.wx, z.wy - bh.wy);
+          if (d > dmgR) continue;
+          z.hp -= 12;
+          if (z.hp <= 0) killZombie(z, j);
+        }
+      }
+    }
+
+    // Energy shields — push zombies out radially (same as pillars) but
+    // bullets pass through (no collision check vs shields elsewhere).
+    for (let i = shields.length - 1; i >= 0; i--) {
+      const s = shields[i];
+      s.t += dt;
+      if (s.t > s.dur) { shields.splice(i, 1); continue; }
+      for (const z of zombies) {
+        const dx = z.wx - s.wx, dy = z.wy - s.wy;
+        const d = Math.hypot(dx, dy);
+        const minD = s.r + (z.rWorld || 0.32);
+        if (d > 0 && d < minD) {
+          z.wx += (dx / d) * (minD - d);
+          z.wy += (dy / d) * (minD - d);
+        }
+      }
     }
     // mouse-aim must reproject from the latest mouse screen pos using
     // the live camera origin, otherwise aim drifts when the camera
@@ -1106,6 +1205,14 @@
   // bullets / beams to fly over. Spawned procedurally inside each new
   // zone on unlock so cover gameplay grows with the map.
   const pillars = [];       // each: { wx, wy, r }
+  // Active black-hole grenades — limited-lifetime singularities that
+  // pull zombies in, shred them with continuous DPS, and burst-damage
+  // anything that reaches the event horizon.
+  const blackHoles = [];    // each: { wx, wy, t, dur, nextDmg }
+  // Deployable energy shields — circular barriers that block zombie
+  // movement (push them out radially like pillars) but let player
+  // bullets pass through. Time-limited.
+  const shields = [];       // each: { wx, wy, r, t, dur }
   function pillarBlocks(wx, wy, agentR) {
     for (const p of pillars) {
       if (Math.hypot(wx - p.wx, wy - p.wy) < p.r + agentR) return true;
@@ -1482,12 +1589,15 @@
       // speed + armor stat buffs sit at ~15% each in the rotation.
       const r = Math.random();
       let k;
-      if (r < 0.06)      k = 'powerarmor';
-      else if (r < 0.20) k = 'speedboost';
-      else if (r < 0.34) k = 'armorboost';
-      else if (r < 0.50) k = 'ammo';
-      else if (r < 0.68) k = 'instakill';
-      else if (r < 0.85) k = 'double';
+      if (r < 0.05)      k = 'powerarmor';
+      else if (r < 0.10) k = 'blackhole';
+      else if (r < 0.17) k = 'radaura';
+      else if (r < 0.24) k = 'eshield';
+      else if (r < 0.34) k = 'speedboost';
+      else if (r < 0.44) k = 'armorboost';
+      else if (r < 0.58) k = 'ammo';
+      else if (r < 0.72) k = 'instakill';
+      else if (r < 0.86) k = 'double';
       else               k = 'nuke';
       const pos = nearestWalkable(z.wx, z.wy);
       drops.push({ kind: k, wx: pos.wx, wy: pos.wy, life: 12, bobT: 0 });
@@ -1525,6 +1635,39 @@
       // mid-tier feel.
       player.armorBoostUntil = Math.max(player.armorBoostUntil || 0, performance.now()) + 14000;
       spawnFloater(player.wx, player.wy, '🛡 ARMOR +12 · 14s', '#a9f0ff');
+    }
+    if (d.kind === 'radaura') {
+      // 12s of toxic-green damage aura. Zombies inside take periodic
+      // damage tick (handled in update()).
+      player.radAuraUntil = performance.now() + 12000;
+      spawnFloater(player.wx, player.wy, '☢ DEATH AURA · 12s', '#7df09d');
+    }
+    if (d.kind === 'blackhole') {
+      // Throw a black hole 4 tiles in front of the player along the
+      // current aim direction. Clamped to a walkable tile so the BH
+      // can't form inside a wall.
+      const ax = Math.cos(player.aim), ay = Math.sin(player.aim);
+      let bhX = player.wx + ax * 4, bhY = player.wy + ay * 4;
+      if (!worldWalkable(bhX, bhY)) {
+        const safe = nearestWalkable(bhX, bhY);
+        bhX = safe.wx; bhY = safe.wy;
+      }
+      blackHoles.push({ wx: bhX, wy: bhY, t: 0, dur: 4.0, nextDmg: 0 });
+      spawnFloater(player.wx, player.wy, '🕳 BLACK HOLE', '#cca3ff');
+      addShake(12);
+      sfx.blackhole();
+    }
+    if (d.kind === 'eshield') {
+      // Deploy an energy shield 1.5 tiles in front of the player. Snaps
+      // to nearest walkable tile so it can't form inside a wall.
+      const ax = Math.cos(player.aim), ay = Math.sin(player.aim);
+      let sx = player.wx + ax * 1.5, sy = player.wy + ay * 1.5;
+      if (!worldWalkable(sx, sy)) {
+        const safe = nearestWalkable(sx, sy);
+        sx = safe.wx; sy = safe.wy;
+      }
+      shields.push({ wx: sx, wy: sy, r: 1.6, t: 0, dur: 14.0 });
+      spawnFloater(player.wx, player.wy, '⌬ SHIELD · 14s', '#7df0ff');
     }
     if (d.kind === 'powerarmor') {
       // 12s of invulnerability AND access to the heavy STOMP attack
@@ -1627,6 +1770,8 @@
     if (def.chain) { fireChain(def, dmg); return; }
     // Railgun / beam weapons — instant-hit line-pierce ray.
     if (def.beam)  { fireBeam(def, dmg);  return; }
+    // Chainsaw / melee — close-range cone with blood splatter on contact.
+    if (def.melee) { fireMelee(def, dmg); return; }
     const speed = def.speed;     // tiles/sec
     const pellets = def.pellets || 1;
     for (let p = 0; p < pellets; p++) {
@@ -1700,6 +1845,53 @@
     // puts it last. wx/wy still set so the sort key is well-defined.
     fx.push({ kind:'lightning', path, t:0, dur:0.22, color: def.color, wx: path[0].wx, wy: path[0].wy + 99 });
     sfx.zap();
+  }
+
+  // MELEE FIRE — short-range cone scan with blood-splatter burst on
+  // every contact. Each call deals dmg to every zombie inside the arc;
+  // visual feedback per hit is a 12-particle red gore burst + small
+  // shake. Designed for holding the trigger to rev through a crowd.
+  function fireMelee(def, dmg) {
+    const range = def.melee.range;
+    const arc = def.melee.arc;
+    const ax = Math.cos(player.aim), ay = Math.sin(player.aim);
+    let hits = 0;
+    for (let j = zombies.length - 1; j >= 0; j--) {
+      const z = zombies[j];
+      const dx = z.wx - player.wx, dy = z.wy - player.wy;
+      const d = Math.hypot(dx, dy);
+      if (d > range + (z.rWorld || 0.32)) continue;
+      const angTo = Math.atan2(dy, dx);
+      let delta = ((angTo - player.aim + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      if (Math.abs(delta) > arc / 2) continue;
+      z.hp -= dmg;
+      // BLOOD SPLATTER — 12 red/dark-red particles burst outward
+      for (let p = 0; p < 12; p++) {
+        const sa = Math.random() * Math.PI * 2;
+        fx.push({
+          kind:'particle', wx: z.wx, wy: z.wy,
+          vwx: Math.cos(sa) * (4 + Math.random() * 7),
+          vwy: Math.sin(sa) * (4 + Math.random() * 7),
+          size: 2 + Math.floor(Math.random() * 3),
+          color: ['#7a0a0a','#c8261a','#5a0606','#a01818','#3a0303'][Math.floor(Math.random() * 5)],
+          t: 0, dur: 0.4 + Math.random() * 0.3,
+        });
+      }
+      // Heavier ground gore — a few darker drops with shorter velocity
+      for (let p = 0; p < 4; p++) {
+        const sa = Math.random() * Math.PI * 2;
+        fx.push({
+          kind:'particle', wx: z.wx, wy: z.wy,
+          vwx: Math.cos(sa) * 1.5, vwy: Math.sin(sa) * 1.5,
+          size: 4, color: '#3a0303',
+          t: 0, dur: 0.9,
+        });
+      }
+      if (z.hp <= 0) killZombie(z, j);
+      hits++;
+    }
+    if (hits > 0) addShake(2 + Math.min(6, hits));
+    sfx.chainsaw();
   }
 
   // BEAM FIRE — instant line-pierce ray. Hits every zombie whose
@@ -1970,6 +2162,12 @@
     for (const pl of pillars) {
       drawList.push({ depth: pl.wx + pl.wy, kind:'pillar', e: pl });
     }
+    for (const bh of blackHoles) {
+      drawList.push({ depth: bh.wx + bh.wy + 0.3, kind:'blackhole', e: bh });
+    }
+    for (const sh of shields) {
+      drawList.push({ depth: sh.wx + sh.wy + 0.2, kind:'eshield', e: sh });
+    }
     for (const f of fx) drawList.push({ depth: f.wx + f.wy + 0.5, kind:'fx', e: f });
     drawList.push({ depth: 1e9, kind:'bullets' });   // bullets always on top
     drawList.sort((a, b) => a.depth - b.depth);
@@ -1983,6 +2181,8 @@
       else if (item.kind === 'wallbuy') drawWallBuy(item.e);
       else if (item.kind === 'pillar')  drawPillar(item.e);
       else if (item.kind === 'wall')    drawWallBlock(item.e.x, item.e.y);
+      else if (item.kind === 'blackhole') drawBlackHole(item.e);
+      else if (item.kind === 'eshield') drawEnergyShield(item.e);
       else if (item.kind === 'fx')     drawFx(item.e);
       else if (item.kind === 'bullets') {
         for (const b of bullets) {
@@ -2254,8 +2454,8 @@
         ctx.fillText('E · OPEN', 0, 4);
       }
     } else {
-      const colors = { ammo:'#7df09d', instakill:'#e02e2e', double:'#ffd766', nuke:'#cca3ff', powerarmor:'#ffd766', speedboost:'#7df0ff', armorboost:'#a9f0ff' };
-      const labels = { ammo:'⌥', instakill:'☠', double:'×2', nuke:'☢', powerarmor:'⚜', speedboost:'⇶', armorboost:'🛡' };
+      const colors = { ammo:'#7df09d', instakill:'#e02e2e', double:'#ffd766', nuke:'#cca3ff', powerarmor:'#ffd766', speedboost:'#7df0ff', armorboost:'#a9f0ff', radaura:'#7df09d', blackhole:'#cca3ff', eshield:'#7df0ff' };
+      const labels = { ammo:'⌥', instakill:'☠', double:'×2', nuke:'☢', powerarmor:'⚜', speedboost:'⇶', armorboost:'🛡', radaura:'☢', blackhole:'🕳', eshield:'⌬' };
       ctx.fillStyle = colors[d.kind] || '#fff';
       ctx.shadowColor = colors[d.kind];
       ctx.shadowBlur = 14;
@@ -2268,6 +2468,83 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(labels[d.kind] || '?', 0, -13);
+    }
+    ctx.restore();
+  }
+
+  // Black hole — rotating accretion swirl + dark event horizon disk.
+  // Radius scales up over the first 20% of life (spawn pop) then holds
+  // and fades the last 15% as it dissipates.
+  function drawBlackHole(bh) {
+    const p = worldToScreen(bh.wx, bh.wy);
+    const k = bh.t / bh.dur;
+    const grow = k < 0.2 ? (k / 0.2) : 1;
+    const fade = k < 0.85 ? 1 : 1 - (k - 0.85) / 0.15;
+    const baseR = 36 * grow * fade;
+    const tnow = performance.now() / 1000;
+    ctx.save();
+    ctx.translate(p.sx, p.sy - 8);
+    // outer pull halo — violet wash
+    const halo = ctx.createRadialGradient(0, 0, baseR * 0.4, 0, 0, baseR * 2.4);
+    halo.addColorStop(0, `rgba(204, 163, 255, ${0.32 * fade})`);
+    halo.addColorStop(0.5, `rgba(120, 80, 200, ${0.18 * fade})`);
+    halo.addColorStop(1, 'rgba(40, 20, 80, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(0, 0, baseR * 2.4, 0, Math.PI * 2); ctx.fill();
+    // accretion ring — multiple rotating arcs
+    ctx.lineWidth = 2.5;
+    for (let i = 0; i < 4; i++) {
+      const ang = tnow * 2.4 + i * 1.6;
+      const r = baseR * (1.05 + i * 0.18);
+      ctx.strokeStyle = `rgba(204, 163, 255, ${(0.55 - i * 0.1) * fade})`;
+      ctx.shadowColor = '#cca3ff'; ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, ang, ang + 1.6);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    // event horizon — pitch black core
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(0, 0, baseR * 0.7 * fade, 0, Math.PI * 2); ctx.fill();
+    // photon ring
+    ctx.strokeStyle = `rgba(220, 200, 255, ${0.85 * fade})`;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(0, 0, baseR * 0.72 * fade, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Energy shield — cyan glowing ring with animated scanlines, pulses
+  // gently while active and fades the last 12% of its lifetime.
+  function drawEnergyShield(s) {
+    const p = worldToScreen(s.wx, s.wy);
+    const k = s.t / s.dur;
+    const fade = k < 0.88 ? 1 : 1 - (k - 0.88) / 0.12;
+    const tnow = performance.now() / 1000;
+    const pulse = 0.78 + Math.sin(tnow * 4) * 0.22;
+    const rPx = s.r * TILE_W / 2;     // world→screen radius (iso x scale)
+    const rPxY = s.r * TILE_H / 2;
+    ctx.save();
+    ctx.translate(p.sx, p.sy);
+    // soft inner glow
+    const grad = ctx.createRadialGradient(0, 0, rPx * 0.2, 0, 0, rPx);
+    grad.addColorStop(0, `rgba(125, 240, 255, ${0.18 * fade * pulse})`);
+    grad.addColorStop(1, 'rgba(125, 240, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.ellipse(0, 0, rPx, rPxY, 0, 0, Math.PI * 2); ctx.fill();
+    // outer ring
+    ctx.strokeStyle = `rgba(170, 250, 255, ${0.95 * fade})`;
+    ctx.shadowColor = '#7df0ff'; ctx.shadowBlur = 18 * pulse;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(0, 0, rPx, rPxY, 0, 0, Math.PI * 2); ctx.stroke();
+    // scan-segments — 6 rotating arc dashes
+    ctx.lineWidth = 3;
+    ctx.shadowBlur = 6;
+    for (let i = 0; i < 6; i++) {
+      const ang = tnow * 1.6 + i * (Math.PI / 3);
+      ctx.strokeStyle = `rgba(220, 255, 255, ${0.55 * fade})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rPx, rPxY, 0, ang, ang + 0.34);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -2494,6 +2771,24 @@
 
   function drawFx(f) {
     const k = f.t / f.dur;
+    if (f.kind === 'radring') {
+      // Toxic-green expanding ring — drawn per radioactive aura tick
+      // (5/sec). Multiple rings stack in the fx queue producing a
+      // continuous wash around the player while the aura is active.
+      const p = worldToScreen(f.wx, f.wy);
+      const r = (f.radius || 3) * (TILE_W / 2) * (0.4 + k * 1.4);
+      const alpha = (1 - k) * 0.7;
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = `rgba(125, 240, 157, ${alpha})`;
+      ctx.shadowColor = '#7df09d';
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.ellipse(p.sx, p.sy, r, r * 0.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     if (f.kind === 'stomp') {
       // Concentric expanding ring — gold inner + amber outer halo.
       const p = worldToScreen(f.wx, f.wy);
@@ -2687,6 +2982,11 @@
     player.lastStompT = 0;
     player.speedBoostUntil = 0;
     player.armorBoostUntil = 0;
+    player.radAuraUntil = 0;
+    player.radAuraNextTick = 0;
+    player.radAuraTickCount = 0;
+    blackHoles.length = 0;
+    shields.length = 0;
     // Per chat: spawn always lands on a walkable tile inside the
     // bunker. ROOM-center is unsafe now that the 2×2 starter grid has
     // a non-walkable hole in the middle of the union AABB. Anchor to
