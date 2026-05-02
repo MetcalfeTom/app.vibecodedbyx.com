@@ -524,7 +524,12 @@ const BUILDING_BOUND = 36;
 // (no gap between them) so the walls between rooms become doorways
 // when listed in DOORWAYS, otherwise solid. Outer-perimeter walls get
 // 4-unit window gaps as zombie spawn points.
-const wallMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x2c333a }));
+// Walls — slate texture with crack lines + bottom-edge AO darken so
+// the floor-meets-wall corner reads as shadowed without per-pixel
+// lighting. Tex repeats 4x along long faces so detail stays crisp at
+// any wall length.
+const _wallTex = makeRichTex(0x2c333a, 'slate', 4, 1);
+const wallMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ map: _wallTex }));
 const WALL_H = 4;
 // Per chat: wider doorways for easier navigation between rooms.
 // 7-unit gap (was 4) makes the opening visibly large + comfortable
@@ -888,7 +893,7 @@ function tryUseStation() {
 }
 
 // Pillar cover scattered inside the bunker
-const pillarMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x3a2e22 }));
+const pillarMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ map: makeRichTex(0x3a2e22, 'concrete', 1, 1) }));
 const pillars = [];
 function spawnPillarsInRoom(n) {
   for (let i = 0; i < n; i++) {
@@ -976,9 +981,11 @@ scene.add(camera);
 // mode's group is visible; others are hidden via .visible = false.
 // Built once at boot, parented to camera so they track head movement.
 const WEAPON_MODELS = {};       // id -> THREE.Group
-const _weaponBlackMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x222628 }));
-const _weaponRustMat  = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x6a4028 }));
-const _weaponSteelMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x4d5388 }));
+// Weapon mats — each gets a kind-tuned procedural texture: brushed
+// metal for steel + black, rust patina for the wood-look stocks.
+const _weaponBlackMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ map: makeRichTex(0x222628, 'metal') }));
+const _weaponRustMat  = ps1ifyMaterial(new THREE.MeshBasicMaterial({ map: makeRichTex(0x6a4028, 'rust') }));
+const _weaponSteelMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ map: makeRichTex(0x4d5388, 'metal') }));
 const _weaponBoneMat  = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xd6c5a0 }));
 const _weaponHotMat   = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xc43838 }));
 const _weaponOrangeMat= ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xffae3a }));
@@ -1266,6 +1273,112 @@ const zombies = [];
 // jitter from ps1ifyMaterial this produces the classic PS1 chunky
 // shaded look — no per-pixel lighting, just the dither doing the
 // shading work.
+// Procedural texture factory — generates a 32×32 dithered + noised
+// canvas texture per (hex, kind) pair. Combines Bayer dither for the
+// base shading + per-pixel random noise for organic grain + per-kind
+// detail layer (slate cracks, rust flecks, brushed-metal striations,
+// concrete splotches, hatched fabric). NearestFilter + no mipmaps for
+// the crunchy PS1 look. Cached per (hex, kind) so we never allocate
+// the same texture twice.
+const _richTexCache = new Map();
+function makeRichTex(hex, kind, repeatX, repeatY) {
+  const key = hex + ':' + (kind || 'slate');
+  let tex = _richTexCache.get(key);
+  if (!tex) {
+    const SIZE = 32;
+    const c = document.createElement('canvas');
+    c.width = c.height = SIZE;
+    const g = c.getContext('2d');
+    const r0 = (hex >> 16) & 0xff, g0 = (hex >> 8) & 0xff, b0 = hex & 0xff;
+    const dark = (m) => 'rgb(' + Math.floor(r0*m) + ',' + Math.floor(g0*m) + ',' + Math.floor(b0*m) + ')';
+    // 4×4 Bayer matrix, 0..15
+    const BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+    // 1) BASE LAYER — dither between base hex and a kind-tuned dark
+    //    variant. Slate gets shallow contrast (cohesive walls); rust
+    //    gets deep contrast (variegated patina); metal stays tight.
+    const darkenMul = kind === 'rust' ? 0.40 : kind === 'metal' ? 0.65
+                    : kind === 'concrete' ? 0.50 : 0.58;
+    const baseStr = 'rgb(' + r0 + ',' + g0 + ',' + b0 + ')';
+    const darkStr = dark(darkenMul);
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        const t = BAYER[y % 4][x % 4] / 16;
+        // 2) PER-PIXEL NOISE LAYER — random dither bias so the pattern
+        //    isn't perfectly regular. ±0.18 jitter on the threshold.
+        const jitter = (Math.random() - 0.5) * 0.36;
+        g.fillStyle = (t + jitter < 0.5) ? darkStr : baseStr;
+        g.fillRect(x, y, 1, 1);
+      }
+    }
+    // 3) DETAIL LAYER — kind-specific overlay
+    if (kind === 'slate') {
+      // Slate: scatter 4-6 short crack lines + ambient-occlusion gradient
+      // along the bottom edge to fake floor-shadow lightmapping
+      g.strokeStyle = dark(0.35);
+      g.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        const x1 = Math.random() * SIZE, y1 = Math.random() * SIZE;
+        const len = 4 + Math.random() * 7, ang = Math.random() * Math.PI * 2;
+        g.beginPath();
+        g.moveTo(x1, y1);
+        g.lineTo(x1 + Math.cos(ang) * len, y1 + Math.sin(ang) * len);
+        g.stroke();
+      }
+      // Bottom-edge AO darken
+      const grad = g.createLinearGradient(0, SIZE * 0.7, 0, SIZE);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.45)');
+      g.fillStyle = grad;
+      g.fillRect(0, SIZE * 0.7, SIZE, SIZE * 0.3);
+    } else if (kind === 'rust') {
+      // Rust: scatter 18-25 small orange/dark flecks
+      for (let i = 0; i < 22; i++) {
+        const x = Math.floor(Math.random() * SIZE);
+        const y = Math.floor(Math.random() * SIZE);
+        const sz = Math.random() < 0.5 ? 1 : 2;
+        g.fillStyle = Math.random() < 0.5 ? '#3a1c08' : '#a85820';
+        g.fillRect(x, y, sz, sz);
+      }
+    } else if (kind === 'metal') {
+      // Brushed-metal horizontal striations
+      g.strokeStyle = dark(0.85);
+      g.lineWidth = 1;
+      for (let y = 0; y < SIZE; y += 2) {
+        if (Math.random() < 0.6) {
+          g.beginPath();
+          g.moveTo(0, y + 0.5); g.lineTo(SIZE, y + 0.5);
+          g.stroke();
+        }
+      }
+      // A few darker pits
+      for (let i = 0; i < 6; i++) {
+        g.fillStyle = dark(0.45);
+        g.fillRect(Math.floor(Math.random()*SIZE), Math.floor(Math.random()*SIZE), 1, 1);
+      }
+    } else if (kind === 'concrete') {
+      // Concrete: 8-12 dark splotches + speckle highlights
+      for (let i = 0; i < 10; i++) {
+        const x = Math.random() * SIZE, y = Math.random() * SIZE;
+        const r = 2 + Math.random() * 3;
+        g.fillStyle = dark(0.45);
+        g.beginPath(); g.arc(x, y, r, 0, Math.PI*2); g.fill();
+      }
+      for (let i = 0; i < 12; i++) {
+        g.fillStyle = '#dcd6c8';
+        g.fillRect(Math.floor(Math.random()*SIZE), Math.floor(Math.random()*SIZE), 1, 1);
+      }
+    }
+    tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    if (repeatX || repeatY) tex.repeat.set(repeatX || 1, repeatY || 1);
+    _richTexCache.set(key, tex);
+  }
+  return tex;
+}
+
 function makePs1DitherTex(hex, darkenAmount) {
   const SIZE = 16;
   const c = document.createElement('canvas');
