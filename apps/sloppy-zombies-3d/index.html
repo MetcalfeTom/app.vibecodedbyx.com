@@ -926,30 +926,56 @@ function updateDrone(dt) {
   }
 }
 
-// ===== INPUT =====
+// ===== FRAME-BASED INPUT SNAPSHOT =====
+// Per chat: rewrite all weapon swap + firing state to be PURELY
+// frame-based. Event listeners ONLY mutate the input snapshot —
+// they NEVER call game logic directly. Per frame, update() reads
+// the snapshot and dispatches the appropriate game functions.
+//
+// Continuous flags (held while button/key down):
+//   input.fire — left mouse button down
+//   keys Set   — physical keys currently down (for movement)
+//
+// Edge-triggered counters/flags (consumed once per press):
+//   input.swapDelta   — accumulated wheel ticks (+/- to cycle weapon)
+//   input.dodgeTrig   — true once on space-press
+//   input.batTrig     — true once on F-press
+//   input.useTrig     — true once on E-press
+//
+// The dispatcher in update() reads these at the top of the frame,
+// runs the relevant try* functions (each gated by their own cooldown),
+// then clears the edge-triggered flags. No double-fires possible —
+// even if the same physical event somehow fires twice in one frame,
+// the snapshot just stays "true" once and the dispatcher consumes it.
 const keys = new Set();
-const TRACKED_KEYS = new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright','shift',' ']);
+const TRACKED_KEYS = new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright','shift',' ','f','e']);
+const input = {
+  fire: false,         // continuous (LMB held)
+  swapDelta: 0,        // edge-triggered (consumed each frame)
+  dodgeTrig: false,    // edge-triggered
+  batTrig: false,      // edge-triggered
+  useTrig: false,      // edge-triggered
+};
 window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
-  if (TRACKED_KEYS.has(k)) {
-    // Prevent arrow keys from scrolling the page + space from triggering
-    // the title-screen play button after the game has started. Improves
-    // input responsiveness when the canvas isn't the focused element.
-    e.preventDefault();
-  }
+  if (TRACKED_KEYS.has(k)) e.preventDefault();
+  if (e.repeat) return;             // ignore key-auto-repeat for edge triggers
   keys.add(k);
-  if (k === ' ') tryDodge();
-  if (k === 'f') tryBat();
-  if (k === 'e') tryUseStation();
+  if (k === ' ') input.dodgeTrig = true;
+  else if (k === 'f') input.batTrig = true;
+  else if (k === 'e') input.useTrig = true;
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
-// Clear stuck keys when the window loses focus (alt-tab, browser
-// chrome interaction). Without this, holding W → tabbing away → coming
-// back leaves W "pressed" forever until the next keyup.
-window.addEventListener('blur', () => keys.clear());
+window.addEventListener('blur', () => {
+  // Clear EVERYTHING on focus loss so no buttons stay "pressed" while
+  // the user alt-tabs.
+  keys.clear();
+  input.fire = false;
+  input.swapDelta = 0;
+  input.dodgeTrig = input.batTrig = input.useTrig = false;
+});
 
 const mouse = { sx: RENDER_W / 2, sy: RENDER_H / 2, world: new THREE.Vector3() };
-let firing = false;
 // ===== POINTER LOCK + RAW MOUSE DELTA =====
 // Per chat: lock the pointer to the window and map raw mouse delta
 // (e.movementX) directly onto the player's yaw. Gives FPS-grade
@@ -992,16 +1018,14 @@ const FIRE_MODES = [
   { id:'railgun', name:'RAILGUN',  rof: 0.85, pellets: 1, dmg: 90, spread: 0.0, spd: 60, color: 0x7df0ff, pierce: 5 },
 ];
 let fireMode = 0;
+// Wheel listener ONLY accumulates the swap delta into the input
+// snapshot. The actual fireMode mutation + HUD update + banner
+// happens in update() so the entire input → state flow runs once
+// per frame, avoiding any chance of mid-frame state shear.
 window.addEventListener('wheel', (e) => {
   if (!running || paused) return;
   e.preventDefault();
-  const dir = (e.deltaY > 0) ? 1 : -1;
-  fireMode = (fireMode + dir + FIRE_MODES.length) % FIRE_MODES.length;
-  const def = FIRE_MODES[fireMode];
-  showBanner(def.name, 'weapon mode · scroll to cycle');
-  // Update HUD weapon pill if present
-  const wpEl = document.getElementById('weaponNum');
-  if (wpEl) wpEl.textContent = def.name;
+  input.swapDelta += (e.deltaY > 0) ? 1 : -1;
 }, { passive: false });
 
 window.addEventListener('mousemove', e => {
@@ -1031,28 +1055,23 @@ window.addEventListener('mousemove', e => {
     mouse.sy = ((e.clientY - r.top ) / r.height) * RENDER_H;
   }
 });
-// Per audit: ONE pointerdown source for fire. The previous setup also
-// had a window 'mousedown' listener that called tryFire() — meaning
-// every click ran tryFire TWICE (once via canvas pointerdown, once via
-// window mousedown). The second call was harmlessly gated by `rof`,
-// but it was redundant work + an extra material lookup per click.
-// Removing the duplicate consolidates the fire path. Pointer-locked
-// clicks still fire pointerdown on the locked canvas — no need for a
-// fallback window listener.
+// Frame-based fire: pointerdown ONLY mutates input.fire = true and
+// (if not yet locked) requests pointer lock. The actual fire dispatch
+// happens once per frame in update() based on input.fire. Releasing
+// the button anywhere or leaving the canvas clears input.fire.
 cvs.addEventListener('pointerdown', e => {
   if (e.button === 2) return;     // right-click reserved
-  if (!pointerLocked && running && !paused) {
-    // First click while running grabs the pointer; subsequent clicks
-    // fire because mouse is already locked.
-    requestLock();
-    return;
-  }
   if (!running || paused) return;
-  firing = true;
-  tryFire();
+  if (!pointerLocked) {
+    // First click while running grabs the pointer; the held-down
+    // state still propagates to input.fire so the player gets a shot
+    // on the very same click that grabs the lock.
+    requestLock();
+  }
+  input.fire = true;
 });
-window.addEventListener('mouseup',   () => firing = false);
-cvs.addEventListener('pointerleave', () => firing = false);
+window.addEventListener('pointerup',   () => { input.fire = false; });
+cvs.addEventListener('pointerleave',   () => { input.fire = false; });
 
 // Mouse → world: raycast from camera through cursor onto the floor
 // plane so the player aims at the cursor's ground position.
@@ -1620,8 +1639,27 @@ function update(dt) {
   playerGroup.position.copy(player.pos);
   playerGroup.rotation.y = player.yaw;
 
-  // Auto-fire if held
-  if (firing) tryFire();
+  // ===== FRAME-BASED INPUT DISPATCH =====
+  // Single point where input snapshot drives game logic. Each call
+  // here is itself rate-gated by its own cooldown (rof for tryFire,
+  // 0.55s for tryBat, invulnUntil for tryDodge, station cooldowns
+  // for tryUseStation). Edge-triggered flags are CONSUMED after
+  // dispatch so the same press never fires twice.
+  // Weapon swap — apply accumulated wheel ticks
+  if (input.swapDelta !== 0) {
+    fireMode = (fireMode + input.swapDelta + FIRE_MODES.length * 99) % FIRE_MODES.length;
+    input.swapDelta = 0;
+    const def = FIRE_MODES[fireMode];
+    showBanner(def.name, 'weapon mode · scroll to cycle');
+    const wpEl = document.getElementById('weaponNum');
+    if (wpEl) wpEl.textContent = def.name;
+  }
+  // Continuous fire — held LMB
+  if (input.fire) tryFire();
+  // Edge-triggered consumes
+  if (input.dodgeTrig) { tryDodge();        input.dodgeTrig = false; }
+  if (input.batTrig)   { tryBat();          input.batTrig   = false; }
+  if (input.useTrig)   { tryUseStation();   input.useTrig   = false; }
 
   // Drone tick — orbit + auto-aim + auto-fire on nearest zombie
   updateDrone(dt);
@@ -1820,6 +1858,11 @@ function startGame() {
   player.doublePtsUntil = 0;
   player.drumshotUntil = 0;
   fireMode = 0;
+  // Clear the input snapshot so a leftover fire-down or wheel delta
+  // from the title screen doesn't carry into the new run.
+  input.fire = false;
+  input.swapDelta = 0;
+  input.dodgeTrig = input.batTrig = input.useTrig = false;
   const wpEl = document.getElementById('weaponNum');
   if (wpEl) wpEl.textContent = FIRE_MODES[fireMode].name;
   for (const st of stations) st.cooldownUntil = 0;
