@@ -342,6 +342,21 @@
             return texture;
         }
 
+        // Wall AABBs collected for collision queries. Each entry is
+        // {x1, z1, x2, z2} (axis-aligned bounding box on the floor plane).
+        const wallAABBs = [];
+        function spawnWall(cx, cz, sx, sz, mat, h) {
+            const wallHeight = h || 5;
+            const m = new THREE.Mesh(new THREE.BoxGeometry(sx, wallHeight, sz), mat);
+            m.position.set(cx, wallHeight / 2, cz);
+            m.castShadow = true;
+            m.receiveShadow = true;
+            scene.add(m);
+            wallAABBs.push({
+                x1: cx - sx / 2, x2: cx + sx / 2,
+                z1: cz - sz / 2, z2: cz + sz / 2,
+            });
+        }
         function createWalls() {
             const wallTexture = createBrickTexture();
             const wallMaterial = new THREE.MeshStandardMaterial({
@@ -350,49 +365,53 @@
                 metalness: 0.1
             });
 
-            const wallHeight = 5;
             const wallThickness = 1;
             const arenaSize = 50;
+            const half = arenaSize / 2;
+            // Perimeter
+            spawnWall(0,     -half, arenaSize, wallThickness, wallMaterial);
+            spawnWall(0,      half, arenaSize, wallThickness, wallMaterial);
+            spawnWall(-half, 0,     wallThickness, arenaSize, wallMaterial);
+            spawnWall( half, 0,     wallThickness, arenaSize, wallMaterial);
 
-            // North wall
-            const northWall = new THREE.Mesh(
-                new THREE.BoxGeometry(arenaSize, wallHeight, wallThickness),
-                wallMaterial
-            );
-            northWall.position.set(0, wallHeight / 2, -arenaSize / 2);
-            northWall.castShadow = true;
-            northWall.receiveShadow = true;
-            scene.add(northWall);
+            // Interior layout — non-square per chat. A staggered grid of
+            // partial walls + a few pillars carves the arena into rooms
+            // and corridors so combat isn't a flat box.
+            //   ┌── short walls running E–W ──┐
+            spawnWall(-12, -10, 14, wallThickness, wallMaterial);
+            spawnWall( 14, -10, 16, wallThickness, wallMaterial);
+            spawnWall(-16,  10, 12, wallThickness, wallMaterial);
+            spawnWall( 12,  10, 14, wallThickness, wallMaterial);
+            //   short walls running N–S
+            spawnWall( -8,  -2, wallThickness, 8,  wallMaterial);
+            spawnWall(  8,   2, wallThickness, 8,  wallMaterial);
+            spawnWall(  0,  -8, wallThickness, 6,  wallMaterial);
+            spawnWall(  0,   8, wallThickness, 6,  wallMaterial);
+            //   pillars (3×3 bricks)
+            spawnWall(-18, -18, 3, 3, wallMaterial);
+            spawnWall( 18, -18, 3, 3, wallMaterial);
+            spawnWall(-18,  18, 3, 3, wallMaterial);
+            spawnWall( 18,  18, 3, 3, wallMaterial);
+            spawnWall(  0,   0, 3, 3, wallMaterial);
+        }
 
-            // South wall
-            const southWall = new THREE.Mesh(
-                new THREE.BoxGeometry(arenaSize, wallHeight, wallThickness),
-                wallMaterial
-            );
-            southWall.position.set(0, wallHeight / 2, arenaSize / 2);
-            southWall.castShadow = true;
-            southWall.receiveShadow = true;
-            scene.add(southWall);
-
-            // East wall
-            const eastWall = new THREE.Mesh(
-                new THREE.BoxGeometry(wallThickness, wallHeight, arenaSize),
-                wallMaterial
-            );
-            eastWall.position.set(arenaSize / 2, wallHeight / 2, 0);
-            eastWall.castShadow = true;
-            eastWall.receiveShadow = true;
-            scene.add(eastWall);
-
-            // West wall
-            const westWall = new THREE.Mesh(
-                new THREE.BoxGeometry(wallThickness, wallHeight, arenaSize),
-                wallMaterial
-            );
-            westWall.position.set(-arenaSize / 2, wallHeight / 2, 0);
-            westWall.castShadow = true;
-            westWall.receiveShadow = true;
-            scene.add(westWall);
+        // Circle-vs-AABB step: tries to move the camera by (dx, dz). If
+        // the move would penetrate any wall AABB (with `radius` clearance
+        // around the player), the move is rejected on that axis. Called
+        // separately for X and Z so the player can slide along walls.
+        function tryAxisStep(dx, dz, radius) {
+            const nx = camera.position.x + dx;
+            const nz = camera.position.z + dz;
+            for (let i = 0; i < wallAABBs.length; i++) {
+                const w = wallAABBs[i];
+                // closest point on the AABB to the proposed centre
+                const cx = Math.max(w.x1, Math.min(nx, w.x2));
+                const cz = Math.max(w.z1, Math.min(nz, w.z2));
+                const ddx = nx - cx, ddz = nz - cz;
+                if (ddx * ddx + ddz * ddz < radius * radius) return;   // blocked
+            }
+            camera.position.x = nx;
+            camera.position.z = nz;
         }
 
         function createEnemy() {
@@ -584,11 +603,25 @@
             // gamepad augments the velocity + rotation in the same units
             applyGamepad(delta);
 
-            camera.position.add(velocity.applyEuler(camera.rotation));
+            // YAW-ONLY movement transform. Original code did
+            //   camera.position.add(velocity.applyEuler(camera.rotation))
+            // which factored in pitch — looking down then pressing W
+            // tilted the velocity DOWN through the floor (the "falling
+            // through the floor" bug). Use rotation.y only so movement
+            // stays in the XZ plane regardless of where the camera looks.
+            const yaw = camera.rotation.y;
+            const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+            const moveX =  velocity.x * cosY + velocity.z * sinY;
+            const moveZ = -velocity.x * sinY + velocity.z * cosY;
 
-            // Keep in bounds
-            camera.position.x = Math.max(-23, Math.min(23, camera.position.x));
-            camera.position.z = Math.max(-23, Math.min(23, camera.position.z));
+            // Axis-decoupled wall collision against every wall AABB.
+            const PR = 0.6;          // player radius
+            tryAxisStep(moveX, 0, PR);
+            tryAxisStep(0, moveZ, PR);
+
+            // Lock eye-height so head-bob / pitch tilt can't drift the
+            // camera below the floor.
+            camera.position.y = player.height;
 
             spawnEnemies();
             updateBullets();
