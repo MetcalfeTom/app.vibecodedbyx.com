@@ -1,0 +1,24 @@
+# sloppy-zombies
+
+## log
+- 2026-05-02: Created. **Top-down wave-based survival shooter — board the windows, hold the line, roll the mystery box for a better gun.** Pure HTML/CSS/JS Canvas2D, no engine. **Arena**: 900×600 canvas with an inner 780×480 ROOM bounded by 4 wood walls; 4 windows (N/S/E/W) each at fixed positions with 5 boards apiece. Zombies spawn outside the canvas, path to their assigned window's centre, attack the boards (1/0.9–1.3s) until the window breaches, then chase the player. **Player**: WASD movement (170 px/s, clamped to ROOM interior), mouse aim, click fire (semi or auto per weapon mode), R to reload, E to interact. Per-frame invulnerability flicker after a bite (350ms). 100 HP. **Weapons**: 6-piece arsenal — PISTOL (start), SMG, SHOTGUN (8 pellets, wide spread), RIFLE (auto, mid-fast), SNIPER (90 dmg, slow ROF), RAY GUN (60 dmg, pierces 2). Each has rate-of-fire, mag size, reserve cap, reload time, range, projectile speed, spread. Reload uses a cooldown timer + restock; UI shows a ground-bar under the player while reloading. **Mystery Box**: fixed crate in the top-left corner of ROOM. Pulsing yellow `?` glow + price tag visible when player within 56u. E + ≥950 points → roll animation (~2s shaking enlarged glyph) → random pick from BOX_POOL = ['smg','shotgun','rifle','sniper','raygun']. New weapon state replaces current. **Wave system**: `startWave(n)` shows a banner ("WAVE N · they are coming"), spawns 4 + floor(n*1.6) zombies one-at-a-time on a 1.6→0.25s cadence (ramp). Wave end fires when queue empty AND zombies array empty: 4.5s interlude, +200 wave-clear bonus, then next wave. Pistol gets a +24 reserve top-up at wave start. **Powerups (8% drop chance per kill)**: ⌥ MAX AMMO (refill mag + reserve), ☠ INSTAKILL (12s, sets dmg = 9999), ×2 DOUBLE POINTS (18s), ☢ NUKE (kills every zombie on screen + jingle). Drops bob/blink in the last 3s of their 12s lifespan; player picks up by walking over. **Points economy**: kill = 50 (×2 with double), wave clear = 200, board repair (E near window with <5 boards) = 10 pts/board, box roll = -950 pts. **Aesthetic**: dark dirt-brown floor `#1a120e` with a 30px tile grid (subtle `rgba(122,90,60,0.08)` strokes), wood walls `#3a2018`, `#a07040` boards, sickly green zombies via `hsl(90–120, 40-50%, 35-45%)`, red eyes, jaw stripe, drop-shadow ellipse. Bullets are 3.2px circles with a colour-matched shadowBlur=6 trail; particles + floating-text `+50` numerals. CRT scanlines + dust vignette via fixed `body::before` overlay (mix-blend-mode multiply). **Typography**: Bungee Shade brand "SLOPPY ZOMBIES" (sick-green + blood-red), Special Elite body, VT323 numeric counters, Silkscreen meta labels. Custom red crosshair drawn at `mouse.x/y` (cursor:none on body). **Audio**: 12 Web Audio synth sfx — square pistol pop, sawtooth bottom-end + delay; ray-gun triangle warble; reload double-click; bite low sawtooth; nuke 6-stage descending bass; wave-start triple horn arpeggio; pickup arp; box roll/land jingles. **Title screen**: brand + sub + key legend + START WAVE 1 button. **End card**: YOU DIED + waves survived + kills + points + RETRY (replays from wave 1). Pollinations OG, 🧟 favicon.
+
+## issues
+- Boards regenerate manually only (E near window). At higher waves with breach pressure on multiple windows, players have to commit to one corner and lose the others. By design — that's the loop.
+- Zombies lose their "target window" assignment on spawn and don't re-pick if their window is breached. Acceptable: once they're inside they path to player anyway.
+- No bot-bot collision: zombies stack on top of each other when they're all aiming at the same spot. Adds chaos rather than feeling buggy, but a soft separation force would be cleaner.
+- Mystery Box currency is ONLY points; on a flush kill streak the box becomes spammable. The box's 950-point cost balances against the 50/kill rate so it takes ~19 kills to afford one, which feels right at wave 1 but trivial by wave 8.
+- Reload cancel: pressing fire during reload doesn't cancel — the timeout still fires its restock callback. Tiny visual jitter risk if the user spams F/E during reload.
+- Powerup drop rate (8%) is generous early but can lead to compound-effect chains at high waves. Could ramp it down with wave count.
+- All weapons share the same projectile path — no shotgun shell visual difference besides spread.
+
+## todos
+- Wall pillars or table cover so the player can break LOS on faster zombies.
+- Pack-a-Punch-style upgrade station (spend 3000 pts to upgrade current weapon — +50% damage, +mag size).
+- Knife / melee for point-saving on early waves.
+- Boss zombie at every 5th wave (high HP, larger sprite, trails smoke).
+- Rare crawler variant (post-leg-shot) that drags toward the player half-speed.
+- Save high wave to localStorage.
+- Mobile virtual joystick + auto-aim + tap-to-fire.
+- Mute toggle.
+- Multi-room map with traversable doors that need debris-cleared.
