@@ -182,6 +182,7 @@
 
     <div class="hud">
         <div class="hud-item" id="health">HEALTH: 100</div>
+        <div class="hud-item armor" id="armor" style="color:#4ec9d6;text-shadow:2px 2px 4px #000;">ARMOR: 0</div>
         <div class="hud-item" id="ammo">AMMO: 50</div>
         <div class="hud-item" id="kills">KILLS: 0</div>
     </div>
@@ -220,12 +221,20 @@
         let gameRunning = false;
         let player = {
             health: 100,
+            maxHealth: 100,
+            armor: 0,
+            maxArmor: 100,
             ammo: 50,
+            bfgAmmo: 3,         // BFG-9000 starts loaded with 3 shots
             speed: 0.15,
-            height: 1.6
+            height: 1.6,
+            lastHitT: 0,        // performance.now() of last enemy contact damage
+            damageCooldown: 600 // ms — prevents instant-death from per-frame contact
         };
         let enemies = [];
         let bullets = [];
+        let pickups = [];       // armor packs scattered in corridors
+        let bfgOrbs = [];       // active BFG plasma orbs
         let kills = 0;
         let keys = {};
         let mouseX = 0, mouseY = 0;
@@ -286,9 +295,10 @@
 
             // Walls
             createWalls();
-            // Player weapon model + escape-portal goal
+            // Player weapon model + escape-portal goal + armor pickups
             createWeaponModel();
             createGoal();
+            createArmorPickups();
             // Camera needs to be in the scene graph so its child weapon
             // mesh actually renders.
             scene.add(camera);
@@ -645,37 +655,210 @@
         }
 
         function updateEnemies() {
+            const now = performance.now();
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const enemy = enemies[i];
-                // XZ-plane chase — y stays at 0 so the figure walks the
-                // floor instead of sliding up to eye height.
                 const dx = camera.position.x - enemy.mesh.position.x;
                 const dz = camera.position.z - enemy.mesh.position.z;
                 const len = Math.hypot(dx, dz) || 1;
                 enemy.mesh.position.x += (dx / len) * enemy.speed;
                 enemy.mesh.position.z += (dz / len) * enemy.speed;
-                // face the player
                 enemy.mesh.rotation.y = Math.atan2(dx, dz);
-                // walking bob — gentle vertical wobble while moving
-                const t = performance.now() * 0.006 + enemy.bobPhase;
+                const t = now * 0.006 + enemy.bobPhase;
                 enemy.mesh.position.y = Math.abs(Math.sin(t)) * 0.06;
 
-                // collision with player (XZ-only, body radius)
+                // Damage on contact — gated by player.damageCooldown so
+                // standing next to an enemy doesn't drain HP at 60fps
+                // (the original "instant-death" complaint per chat).
+                // Each contact deals a chunky hit (12 dmg) but only
+                // once every 600ms, giving the player time to back off
+                // or fire back. This is the "fair fight" pacing.
                 const dist2D = Math.hypot(dx, dz);
-                if (dist2D < 1.4) {
-                    player.health -= 1;
-                    updateHUD();
-                    if (player.health <= 0) {
-                        gameOver();
+                if (dist2D < 1.4 && now - player.lastHitT >= player.damageCooldown) {
+                    player.lastHitT = now;
+                    applyDamage(12);
+                }
+            }
+        }
+
+        // Damage flow: armor absorbs 2/3 of the hit first, HP takes
+        // whatever's left. Once armor hits 0, HP eats the full damage.
+        function applyDamage(dmg) {
+            if (player.armor > 0) {
+                const absorbed = Math.min(player.armor, Math.ceil(dmg * 0.66));
+                player.armor -= absorbed;
+                dmg -= absorbed;
+            }
+            if (dmg > 0) player.health = Math.max(0, player.health - dmg);
+            updateHUD();
+            if (player.health <= 0) gameOver();
+        }
+
+        // ===== ARMOR PICKUPS =====
+        // Spawn a fixed set of armor packs at hand-placed positions
+        // tucked into the new non-square corridor layout. Each grants
+        // +25 armor and despawns on pickup. Players have to actually
+        // walk to them to get the boost.
+        const ARMOR_SPAWNS = [
+            [-15, 0, -5], [15, 0,  0], [0, 0, 12], [-10, 0, 14], [8, 0, -15],
+        ];
+        function createArmorPickups() {
+            for (const [x, y, z] of ARMOR_SPAWNS) {
+                const group = new THREE.Group();
+                const shellMat = new THREE.MeshStandardMaterial({
+                    color: 0x4ec9d6, emissive: 0x1a8090, emissiveIntensity: 0.8,
+                    metalness: 0.7, roughness: 0.25, transparent: true, opacity: 0.85,
+                });
+                const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 0), shellMat);
+                shell.position.y = 1.0;
+                group.add(shell);
+                // wireframe overlay reads as a "pickup" through walls
+                const wf = new THREE.LineSegments(
+                    new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(0.36, 0)),
+                    new THREE.LineBasicMaterial({ color: 0xa0e8f0 })
+                );
+                wf.position.y = 1.0;
+                group.add(wf);
+                // glowing pedestal core
+                const coreMat = new THREE.MeshBasicMaterial({ color: 0x6affe0 });
+                const core = new THREE.Mesh(new THREE.SphereGeometry(0.10, 10, 8), coreMat);
+                core.position.y = 0.3;
+                group.add(core);
+                group.position.set(x, y, z);
+                scene.add(group);
+                pickups.push({ group, shell, kind: 'armor', amount: 25, taken: false });
+            }
+        }
+        function updatePickups(dt) {
+            const now = performance.now();
+            for (let i = pickups.length - 1; i >= 0; i--) {
+                const p = pickups[i];
+                if (p.taken) continue;
+                // float + spin
+                p.group.rotation.y += dt * 1.4;
+                p.shell.position.y = 1.0 + Math.sin(now * 0.003 + i) * 0.10;
+                // proximity grab
+                const dx = camera.position.x - p.group.position.x;
+                const dz = camera.position.z - p.group.position.z;
+                if (Math.hypot(dx, dz) < 1.2) {
+                    p.taken = true;
+                    scene.remove(p.group);
+                    pickups.splice(i, 1);
+                    if (p.kind === 'armor') {
+                        player.armor = Math.min(player.maxArmor, player.armor + p.amount);
+                        updateHUD();
                     }
                 }
             }
         }
 
+        // ===== BFG-9000 =====
+        // Massive slow-moving green plasma orb. AOE damage on impact
+        // (radius 4u, deals 5 to every enemy in range — usually a wipe).
+        // Limited ammo + 0.9s cooldown so it's a panic button, not the
+        // default fire.
+        let bfgCooldownT = 0;
+        function fireBFG() {
+            if (player.bfgAmmo <= 0 || bfgCooldownT > 0) return;
+            player.bfgAmmo--;
+            bfgCooldownT = 0.9;
+            updateHUD();
+
+            const muzzleLocal = new THREE.Vector3(0.30, -0.28, -1.22);
+            const muzzleWorld = muzzleLocal.clone();
+            camera.localToWorld(muzzleWorld);
+
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+
+            // Big glowing orb made of two layers — bright core + softer
+            // outer halo (transparent additive-ish).
+            const orb = new THREE.Group();
+            const coreMat = new THREE.MeshBasicMaterial({ color: 0xc6ffb6 });
+            const core = new THREE.Mesh(new THREE.SphereGeometry(0.32, 18, 14), coreMat);
+            orb.add(core);
+            const haloMat = new THREE.MeshBasicMaterial({ color: 0x55ff88, transparent: true, opacity: 0.45 });
+            const halo = new THREE.Mesh(new THREE.SphereGeometry(0.55, 18, 14), haloMat);
+            orb.add(halo);
+            const wfMat = new THREE.LineBasicMaterial({ color: 0x00ff66 });
+            const wf = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(0.65, 1)), wfMat);
+            orb.add(wf);
+            orb.position.copy(muzzleWorld);
+            scene.add(orb);
+            bfgOrbs.push({ orb, direction: direction.clone(), speed: 0.35, life: 200 });
+        }
+        function updateBFGOrbs(dt) {
+            if (bfgCooldownT > 0) bfgCooldownT = Math.max(0, bfgCooldownT - dt);
+            for (let i = bfgOrbs.length - 1; i >= 0; i--) {
+                const o = bfgOrbs[i];
+                o.orb.position.addScaledVector(o.direction, o.speed);
+                o.life--;
+                // spin the wireframe so it reads as alive
+                o.orb.rotation.x += dt * 4;
+                o.orb.rotation.y += dt * 5;
+                // detonate on wall hit OR life expiring OR enemy contact
+                let hit = (o.life <= 0);
+                if (!hit) {
+                    for (let j = 0; j < wallAABBs.length; j++) {
+                        const w = wallAABBs[j];
+                        const px = o.orb.position.x, pz = o.orb.position.z;
+                        if (px > w.x1 - 0.5 && px < w.x2 + 0.5 && pz > w.z1 - 0.5 && pz < w.z2 + 0.5) { hit = true; break; }
+                    }
+                }
+                if (!hit) {
+                    for (const e of enemies) {
+                        const dx = o.orb.position.x - e.mesh.position.x;
+                        const dz = o.orb.position.z - e.mesh.position.z;
+                        if (Math.hypot(dx, dz) < 1.0) { hit = true; break; }
+                    }
+                }
+                if (hit) {
+                    detonateBFG(o.orb.position);
+                    scene.remove(o.orb);
+                    bfgOrbs.splice(i, 1);
+                }
+            }
+        }
+        function detonateBFG(pos) {
+            // AOE — 4u radius, 5 dmg per enemy hit (3 hits with default
+            // enemy HP = clean wipe).
+            for (let j = enemies.length - 1; j >= 0; j--) {
+                const e = enemies[j];
+                const dx = pos.x - e.mesh.position.x;
+                const dz = pos.z - e.mesh.position.z;
+                if (Math.hypot(dx, dz) < 4.0) {
+                    e.health -= 5;
+                    if (e.health <= 0) {
+                        scene.remove(e.mesh);
+                        enemies.splice(j, 1);
+                        kills++;
+                        player.ammo += 5;
+                    }
+                }
+            }
+            updateHUD();
+            // brief expanding-ring fx
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x55ff88, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+            const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.7, 32), ringMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.copy(pos);
+            scene.add(ring);
+            const start = performance.now();
+            const fade = () => {
+                const k = (performance.now() - start) / 400;
+                if (k >= 1) { scene.remove(ring); return; }
+                ring.scale.setScalar(1 + k * 5);
+                ringMat.opacity = 0.7 * (1 - k);
+                requestAnimationFrame(fade);
+            };
+            fade();
+        }
+
         function updateHUD() {
             document.getElementById('health').textContent = `HEALTH: ${player.health}`;
             document.getElementById('health').className = player.health < 30 ? 'hud-item low' : 'hud-item';
-            document.getElementById('ammo').textContent = `AMMO: ${player.ammo}`;
+            document.getElementById('armor').textContent = `ARMOR: ${player.armor}`;
+            document.getElementById('ammo').textContent = `AMMO: ${player.ammo}  ·  BFG: ${player.bfgAmmo}`;
             document.getElementById('kills').textContent = `KILLS: ${kills}`;
         }
 
@@ -762,6 +945,8 @@
             spawnEnemies();
             updateBullets();
             updateEnemies();
+            updatePickups(delta);
+            updateBFGOrbs(delta);
             updateWeapon(delta);
             updateGoal(delta);
             checkLevelComplete();
@@ -829,10 +1014,18 @@
             document.getElementById('startScreen').style.display = 'none';
             gameRunning = true;
             player.health = 100;
+            player.armor = 0;
             player.ammo = 50;
+            player.bfgAmmo = 3;
+            player.lastHitT = 0;
             kills = 0;
             enemySpawnTimer = 0;
             _levelDone = false;
+            // wipe any stray BFG orbs from prior round
+            for (const o of bfgOrbs) scene && scene.remove(o.orb);
+            bfgOrbs.length = 0;
+            // re-spawn pickups if scene already exists (PLAY AGAIN path)
+            if (scene && pickups.length === 0) createArmorPickups();
             updateHUD();
 
             if (!scene) {
@@ -962,6 +1155,17 @@
                 return;
             }
             shoot();
+        });
+        // Right-click and F-key fire the BFG-9000.
+        document.addEventListener('contextmenu', (e) => {
+            if (!gameRunning) return;
+            e.preventDefault();
+            if (!_pointerLocked) { requestLock(); return; }
+            fireBFG();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (!gameRunning) return;
+            if (e.key && (e.key.toLowerCase() === 'f')) fireBFG();
         });
 
         window.startGame = startGame;
