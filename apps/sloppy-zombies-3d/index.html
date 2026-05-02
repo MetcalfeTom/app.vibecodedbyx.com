@@ -392,7 +392,7 @@
 </div>
 
 <!-- PAUSE -->
-<div class="overlay" id="pause" role="dialog" aria-modal="true" aria-labelledby="pauseHeading" aria-hidden="true">
+<div class="overlay" id="pause" role="dialog" aria-modal="true" aria-labelledby="pauseHeading" inert>
   <h2 id="pauseHeading"><span aria-hidden="true">⏸ </span>PAUSED</h2>
   <p class="sub">press escape to resume — gameplay halted</p>
   <button type="button" class="play" id="resumeBtn">RESUME</button>
@@ -400,7 +400,7 @@
 </div>
 
 <!-- END -->
-<div class="overlay" id="end" role="dialog" aria-modal="true" aria-labelledby="endTitle" aria-hidden="true">
+<div class="overlay" id="end" role="dialog" aria-modal="true" aria-labelledby="endTitle" inert>
   <h2 id="endTitle">YOU DIED</h2>
   <p class="endstats">
     SURVIVED &nbsp; <span class="v" id="endWave">0</span> &nbsp; WAVES<br>
@@ -453,7 +453,11 @@ scene.background = new THREE.Color(0x0a0608);
 // Heavy, low-distance fog — the PS1 way to hide pop-in from short
 // draw distance. Color matches the bunker palette so the fog wash
 // looks intentional instead of broken.
-scene.fog = new THREE.Fog(0x100a0d, 14, 42);
+// Per chat: tiered map expansion adds rooms south to z=+71. Push fog
+// far plane out so the city district + boss arena are reachable visually
+// without disappearing into murk before you arrive. Near plane stays
+// short for that PS1 dread feel.
+scene.fog = new THREE.Fog(0x100a0d, 16, 64);
 
 // Third-person camera — sits behind+above the player and chases. We
 // lerp toward a target slot each frame for the classic over-shoulder
@@ -519,16 +523,21 @@ const floorTex = (() => {
   tex.minFilter = THREE.NearestFilter;
   return tex;
 })();
+// Floor sized to cover the full tiered map: tier 0 ranges z [-35,21],
+// tier 1 extends to z=35, tier 2 city to z=57, tier 3 arena to z=71.
+// X spans up to ±21. We give 12u of overspill on each side so the
+// edges feel grounded rather than abruptly clipping to fog.
 const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(80, 80),
+  new THREE.PlaneGeometry(80, 160),
   ps1ifyMaterial(new THREE.MeshBasicMaterial({ map: floorTex }))
 );
 floor.rotation.x = -Math.PI / 2;
+floor.position.z = 16;     // recentre so it covers north + south expansion
 scene.add(floor);
 
 // Bounding radius of the entire building footprint, used by bullets +
 // pillar-spawn fallback for out-of-bounds checks.
-const BUILDING_BOUND = 36;
+const BUILDING_BOUND = 80;
 
 // ===== 7-ROOM BUILDING =====
 // Per chat: a 7-room building with shared doorways, perimeter window
@@ -555,27 +564,79 @@ const WALL_H = 4;
 const DOOR_W = 7;
 const WIN_W  = 5;
 
+// ROOMS are grouped by `tier`. Tier 0 rooms are always built. Each
+// boss kill (every 5 waves) advances `unlockedTier` by 1, and
+// rebuildWalls() re-runs to add the next group of rooms + doorways.
+//   tier 0 — base bunker complex (waves 1+)
+//   tier 1 — south wing  (mess / chapel / kennels)   unlocks after wave  5
+//   tier 2 — CITY DISTRICT (sprawling outdoor plaza) unlocks after wave 10
+//   tier 3 — BOSS ARENA                              unlocks after wave 15
 const ROOMS = [
-  { id: 'bunker',     name: 'BUNKER',     x:   0, z:   0, w: 14, d: 14 },
-  { id: 'nhall',      name: 'N HALL',     x:   0, z: -14, w: 14, d: 14 },
-  { id: 'armory',     name: 'ARMORY',     x:   0, z: -28, w: 12, d: 12 },
-  { id: 'westwing',   name: 'WEST WING',  x: -14, z:   0, w: 14, d: 14 },
-  { id: 'eastdock',   name: 'EAST DOCK',  x:  14, z:   0, w: 14, d: 14 },
-  { id: 'workshop',   name: 'WORKSHOP',   x: -14, z:  14, w: 14, d: 14 },
-  { id: 'watchtower', name: 'WATCHTOWER', x:  14, z:  14, w: 14, d: 14 },
+  // === TIER 0 — base bunker (waves 1+) ===
+  { id: 'bunker',     name: 'BUNKER',     x:   0, z:   0, w: 14, d: 14, tier: 0 },
+  { id: 'nhall',      name: 'N HALL',     x:   0, z: -14, w: 14, d: 14, tier: 0 },
+  { id: 'armory',     name: 'ARMORY',     x:   0, z: -28, w: 12, d: 14, tier: 0 },
+  { id: 'westwing',   name: 'WEST WING',  x: -14, z:   0, w: 14, d: 14, tier: 0 },
+  { id: 'eastdock',   name: 'EAST DOCK',  x:  14, z:   0, w: 14, d: 14, tier: 0 },
+  { id: 'workshop',   name: 'WORKSHOP',   x: -14, z:  14, w: 14, d: 14, tier: 0 },
+  { id: 'watchtower', name: 'WATCHTOWER', x:  14, z:  14, w: 14, d: 14, tier: 0 },
+
+  // === TIER 1 — south wing (unlocks after wave 5) ===
+  // Three rooms south of workshop / bunker / watchtower. SHOCKWAVE
+  // station lives in the chapel.
+  { id: 'mess',       name: 'MESS HALL',  x: -14, z:  28, w: 14, d: 14, tier: 1 },
+  { id: 'chapel',     name: 'CHAPEL',     x:   0, z:  28, w: 14, d: 14, tier: 1 },
+  { id: 'kennels',    name: 'KENNELS',    x:  14, z:  28, w: 14, d: 14, tier: 1 },
+
+  // === TIER 2 — CITY DISTRICT (unlocks after wave 10) ===
+  // Single oversized "outdoor" room with internal building obstacles
+  // (CITY_BLOCKS below) creating streets + alleys. The MINI NUKE
+  // BENCH lives at its centre.
+  { id: 'city',       name: 'CITY DISTRICT', x:   0, z:  46, w: 50, d: 22, tier: 2 },
+
+  // === TIER 3 — BOSS ARENA (unlocks after wave 15) ===
+  { id: 'arena',      name: 'BOSS ARENA', x:   0, z:  64, w: 22, d: 14, tier: 3 },
 ];
 // Doorway connections — every shared wall in this list becomes a
-// 4-unit gap; un-listed shared walls stay solid (they're just visual
-// adjacency, not traversable).
+// DOOR_W gap; un-listed shared walls stay solid. Doorways are also
+// gated by tier: both rooms must be tier ≤ unlockedTier for the gap
+// to be carved.
 const DOORWAYS = [
+  // tier 0 — base loop
   ['bunker', 'nhall'],
   ['bunker', 'westwing'],
   ['bunker', 'eastdock'],
   ['nhall', 'armory'],
   ['westwing', 'workshop'],
   ['eastdock', 'watchtower'],
-  ['workshop', 'watchtower'],   // back-loop so the player can circle
+  ['workshop', 'watchtower'],
+  // tier 1 — south wing
+  ['workshop', 'mess'],
+  ['mess', 'chapel'],
+  ['chapel', 'kennels'],
+  ['watchtower', 'kennels'],
+  // tier 2 — entries into the city plaza
+  ['mess', 'city'],
+  ['chapel', 'city'],
+  ['kennels', 'city'],
+  // tier 3 — boss arena gate
+  ['city', 'arena'],
 ];
+
+// CITY_BLOCKS — interior obstacles inside the tier-2 city plaza.
+// Each block is a tall rectangular building footprint that blocks
+// movement + bullets, naturally creating streets / alleys between
+// blocks. Only collide-checked when unlockedTier ≥ 2.
+const CITY_BLOCKS = [
+  { x: -18, z: 41, w:  6, d: 6 },   // NW corner
+  { x:  18, z: 41, w:  6, d: 6 },   // NE corner
+  { x: -10, z: 50, w:  4, d: 8 },   // W central block
+  { x:  10, z: 50, w:  4, d: 8 },   // E central block
+  { x:  -1, z: 51, w:  4, d: 4 },   // central kiosk (offset to leave nuke bench room)
+  { x: -18, z: 53, w:  6, d: 4 },   // SW street stub
+  { x:  18, z: 53, w:  6, d: 4 },   // SE street stub
+];
+let unlockedTier = 0;
 function roomById(id) { return ROOMS.find(r => r.id === id); }
 
 const wallMeshes = [];
@@ -642,12 +703,22 @@ function makeEdgeWall(start, end, fixed, axis, gapWidth) {
   }
   return { gapCenter: mid, gapWidth };
 }
+// Active rooms at current unlock tier — single source of truth so wall
+// build, walkability, doorway carving and spawn-point generation all
+// agree on what's in play right now.
+function activeRooms() {
+  return ROOMS.filter(r => r.tier <= unlockedTier);
+}
+const cityBlockMeshes = [];
 function rebuildWalls() {
   for (const m of wallMeshes) scene.remove(m);
   wallMeshes.length = 0;
   for (const m of frameMeshes) scene.remove(m);
   frameMeshes.length = 0;
+  for (const m of cityBlockMeshes) scene.remove(m);
+  cityBlockMeshes.length = 0;
   SPAWN_POINTS = [];
+  const rooms = activeRooms();
   // Track which (room, side) edges we've drawn so shared walls aren't
   // rendered twice (causing z-fighting). Use a string key.
   const drawnEdges = new Set();
@@ -655,7 +726,7 @@ function rebuildWalls() {
     // For shared walls we use a normalized key sorting both endpoints
     // by room id so both rooms map to the same key.
     let other = null;
-    for (const o of ROOMS) {
+    for (const o of rooms) {
       if (o.id === room.id) continue;
       if (sharedSide(room, o) === side) { other = o; break; }
     }
@@ -665,14 +736,24 @@ function rebuildWalls() {
     }
     return room.id + ':' + side;
   }
-  for (const room of ROOMS) {
+  for (const room of rooms) {
     const N = room.z - room.d/2, S = room.z + room.d/2;
     const W = room.x - room.w/2, E = room.x + room.w/2;
     for (const side of ['N','S','E','W']) {
       const key = edgeKey(room, side);
       if (drawnEdges.has(key)) continue;
       drawnEdges.add(key);
-      const info = getRoomInfo(room, side);
+      // Tier-aware neighbor lookup: only consider neighbors that are
+      // currently unlocked. A locked tier-2 city looks like an
+      // outer-perimeter window from a tier-1 chapel, not a doorway.
+      let info = { hasNeighbor: false, hasDoor: false };
+      for (const other of rooms) {
+        if (other.id === room.id) continue;
+        if (sharedSide(room, other) === side) {
+          info = { hasNeighbor: true, hasDoor: isDoorBetween(room.id, other.id) };
+          break;
+        }
+      }
       const gap = info.hasNeighbor
         ? (info.hasDoor ? DOOR_W : 0)
         : WIN_W;
@@ -699,9 +780,33 @@ function rebuildWalls() {
       }
     }
   }
+  // ===== CITY DISTRICT BUILDING BLOCKS =====
+  // Tier-2 only: scatter tall building obstacles inside the city
+  // plaza so the player has to navigate streets + alleys. Each block
+  // is a 1.6×WALL_H tall concrete box that also blocks bullets.
+  if (unlockedTier >= 2) {
+    for (const b of CITY_BLOCKS) {
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(b.w, WALL_H * 1.6, b.d),
+        pillarMat
+      );
+      m.position.set(b.x, WALL_H * 0.8, b.z);
+      scene.add(m);
+      cityBlockMeshes.push(m);
+    }
+  }
 }
 rebuildWalls();
-function expandMap() { return false; }   // map expansion replaced by 7-room layout
+// Advance to the next tier and rebuild the world. Returns true if
+// something new was unlocked, false if we're already at max tier.
+const MAX_TIER = 3;
+const TIER_NAMES = ['BUNKER COMPLEX', 'SOUTH WING', 'CITY DISTRICT', 'BOSS ARENA'];
+function advanceTier() {
+  if (unlockedTier >= MAX_TIER) return false;
+  unlockedTier += 1;
+  rebuildWalls();
+  return true;
+}
 
 // ===== ROOM-BASED WALKABILITY =====
 // Replaces the old single-rectangle clamp. A point is walkable if it
@@ -715,12 +820,24 @@ function expandMap() { return false; }   // map expansion replaced by 7-room lay
 // rooms' interiors and gives a smooth pass-through corridor.
 const ROOM_INSET = 0.4;
 function tileWalkable(wx, wz) {
+  // City district building obstacles take precedence — even if a
+  // city-block sits inside the city room interior, those tiles must
+  // never be walkable. Checked first so the early return wins.
+  if (unlockedTier >= 2) {
+    for (const b of CITY_BLOCKS) {
+      if (wx >= b.x - b.w/2 - 0.3 && wx <= b.x + b.w/2 + 0.3 &&
+          wz >= b.z - b.d/2 - 0.3 && wz <= b.z + b.d/2 + 0.3) return false;
+    }
+  }
   for (const r of ROOMS) {
+    if (r.tier > unlockedTier) continue;
     if (wx >= r.x - r.w/2 + ROOM_INSET && wx <= r.x + r.w/2 - ROOM_INSET &&
         wz >= r.z - r.d/2 + ROOM_INSET && wz <= r.z + r.d/2 - ROOM_INSET) return true;
   }
   for (const [aId, bId] of DOORWAYS) {
     const a = roomById(aId), b = roomById(bId);
+    if (!a || !b) continue;
+    if (a.tier > unlockedTier || b.tier > unlockedTier) continue;
     const s = sharedSide(a, b);
     if (!s) continue;
     if (s === 'N' || s === 'S') {
@@ -745,6 +862,7 @@ function tileWalkable(wx, wz) {
 const STATION_COLLIDER_R = 0.85;
 function stationBlocks(wx, wz, agentR) {
   for (const s of stations) {
+    if (!s._built) continue;     // locked stations don't exist physically
     const dx = wx - s.x, dz = wz - s.z;
     if (dx * dx + dz * dz < (STATION_COLLIDER_R + agentR) ** 2) return true;
   }
@@ -762,12 +880,25 @@ function playerCanBeAt(wx, wz) {
 // can iterate to add a points economy). Armor stations heal the
 // player to full with a per-station cooldown.
 const stations = [
-  { kind:'buy', label:'DAMAGE BOOST',   buff:'damage', x:  0, z: -13.4, room:'nhall',     color:0xff5ea1 },
-  { kind:'buy', label:'RAPID FIRE',     buff:'rapid',  x:  0, z: -27.4, room:'armory',    color:0xffd766 },
-  { kind:'buy', label:'PIERCE ROUNDS',  buff:'pierce', x:  13.4, z: 14, room:'watchtower',color:0x7df0ff },
-  { kind:'buy', label:'BAT FURY',       buff:'batfury',x: -13.4, z: 14, room:'workshop',  color:0xd680ff },
-  { kind:'armor', label:'REPAIR BAY', x: -13.4, z: 0, room:'westwing', color:0x7df09d },
-  { kind:'armor', label:'MED CACHE',  x:  13.4, z: 0, room:'eastdock', color:0x7df09d },
+  // === TIER 0 — base bunker stations ===
+  { kind:'buy', label:'DAMAGE BOOST',   buff:'damage', x:  0, z: -13.4, room:'nhall',     color:0xff5ea1, tier:0 },
+  { kind:'buy', label:'RAPID FIRE',     buff:'rapid',  x:  0, z: -27.4, room:'armory',    color:0xffd766, tier:0 },
+  { kind:'buy', label:'PIERCE ROUNDS',  buff:'pierce', x:  13.4, z: 14, room:'watchtower',color:0x7df0ff, tier:0 },
+  { kind:'buy', label:'BAT FURY',       buff:'batfury',x: -13.4, z: 14, room:'workshop',  color:0xd680ff, tier:0 },
+  { kind:'armor', label:'REPAIR BAY', x: -13.4, z: 0, room:'westwing', color:0x7df09d, tier:0 },
+  { kind:'armor', label:'MED CACHE',  x:  13.4, z: 0, room:'eastdock', color:0x7df09d, tier:0 },
+  // === TIER 1 — south wing reward (SHOCKWAVE) ===
+  // Instant 14u radial blast that knocks back + damages every
+  // zombie around the player. 30s cooldown.
+  { kind:'buy', label:'SHOCKWAVE',    buff:'shock',   x:   0, z: 27.4, room:'chapel',  color:0x88f5ff, tier:1 },
+  { kind:'armor', label:'FIELD MEDIC', x: -13.4, z: 28, room:'mess',    color:0x9af2b1, tier:1 },
+  // === TIER 2 — CITY DISTRICT — MINI NUKE BENCH (unlocks the gun) ===
+  // Type 'unlock' adds a fire mode to the scroll-wheel cycle. Once
+  // unlocked, re-pressing E refills the nuke ammo (3 rounds per use).
+  { kind:'unlock', label:'MINI NUKE BENCH', unlocks:'nuke', x:   0, z: 46, room:'city',  color:0x4ff8a8, tier:2 },
+  { kind:'buy', label:'TIME WARP', buff:'tmwarp', x: -18, z: 50, room:'city', color:0xb86fff, tier:2 },
+  // === TIER 3 — BOSS ARENA — BERSERKER altar ===
+  { kind:'buy', label:'BERSERKER',  buff:'berserk', x:   0, z: 58.4, room:'arena',  color:0xff5050, tier:3 },
 ];
 // Build a canvas-textured floating label that hovers above a station
 // and billboards toward the camera every frame. Helps players FIND
@@ -852,7 +983,19 @@ function makeStationMesh(s) {
   s.cooldownUntil = 0;
   return g;
 }
-for (const s of stations) makeStationMesh(s);
+// Build only currently-unlocked station meshes; advanceTier() calls
+// ensureStationMeshes() to bring the next tier's kiosks into the world
+// when their rooms appear. Each station tracks `_built` so we never
+// double-spawn a mesh.
+function ensureStationMeshes() {
+  for (const s of stations) {
+    if (s._built) continue;
+    if ((s.tier || 0) > unlockedTier) continue;
+    makeStationMesh(s);
+    s._built = true;
+  }
+}
+ensureStationMeshes();
 function tickStations(dt) {
   // Billboard labels toward camera + pulse beacons
   const t = performance.now() / 400;
@@ -874,6 +1017,7 @@ const STATION_INTERACT_R2 = 12.25;
 function nearestStationInRange() {
   let nearest = null, nd = Infinity;
   for (const s of stations) {
+    if (!s._built) continue;     // skip locked-tier kiosks
     const dx = s.x - player.pos.x, dz = s.z - player.pos.z;
     const d2 = dx * dx + dz * dz;
     if (d2 < nd && d2 < STATION_INTERACT_R2) { nd = d2; nearest = s; }
@@ -895,16 +1039,53 @@ function tryUseStation() {
     showBanner('+ ARMOR ' + nearest.label, 'fully repaired · 20s cooldown');
     blip(660, 0.08, 'triangle', 0.16);
     setTimeout(() => blip(990, 0.10, 'triangle', 0.14), 50);
+  } else if (nearest.kind === 'unlock') {
+    // MINI NUKE BENCH (and any future weapon-unlock kiosks): on first
+    // press, flip the locked weapon's `unlocked` flag so it appears in
+    // the scroll-wheel cycle. On subsequent presses, top up its ammo.
+    const id = nearest.unlocks;
+    const mode = FIRE_MODES.find(m => m.id === id);
+    if (!mode) { showBanner('STATION ERROR', 'no such weapon'); return; }
+    if (!mode.unlocked) {
+      mode.unlocked = true;
+      player.nukeAmmo = (player.nukeAmmo || 0) + 3;
+      showBanner('★ MINI NUKE UNLOCKED ★', 'scroll wheel · ' + player.nukeAmmo + ' rounds');
+    } else {
+      player.nukeAmmo = (player.nukeAmmo || 0) + 2;
+      showBanner('NUKE RESTOCK', '+2 rounds · total ' + player.nukeAmmo);
+    }
+    nearest.cooldownUntil = now + 30000;
+    blip(220, 0.12, 'square', 0.20);
+    setTimeout(() => blip(140, 0.18, 'sawtooth', 0.18), 80);
   } else {
     // Wall-buy = 25s buff (was 15s). Cooldown shortened so the player
     // can rotate buffs as they cross the building.
-    const dur = 25000;
+    let dur = 25000, cd = 15000, sub = '25s buff · 15s cooldown';
     if (nearest.buff === 'damage') player.damageBuffUntil = now + dur;
     if (nearest.buff === 'rapid')  player.rapidBuffUntil  = now + dur;
     if (nearest.buff === 'pierce') player.pierceBuffUntil = now + dur;
     if (nearest.buff === 'batfury')player.batFuryUntil    = now + dur;
-    nearest.cooldownUntil = now + 15000;
-    showBanner(nearest.label, '25s buff · 15s cooldown');
+    if (nearest.buff === 'tmwarp') {
+      // TIME WARP — slows every active zombie to 35% for 12 seconds.
+      // Read in the zombie movement loop via player.timeWarpUntil.
+      player.timeWarpUntil = now + 12000;
+      cd = 35000; sub = '12s · 35% zombie speed · 35s cooldown';
+    }
+    if (nearest.buff === 'berserk') {
+      // BERSERKER — 8s of unlimited fire rate + invulnerability +
+      // chainsaw-like 1-shot melee. Tier-3 reward.
+      player.berserkUntil = now + 8000;
+      player.invulnUntil  = Math.max(player.invulnUntil, now + 8000);
+      cd = 60000; sub = '8s godmode · 60s cooldown';
+    }
+    if (nearest.buff === 'shock') {
+      // SHOCKWAVE — instant 14u radial blast around the player.
+      // Damages every zombie in radius + spawns a big shock ring.
+      triggerShockwave(player.pos.x, player.pos.z, 14, 90 + wave * 6);
+      cd = 30000; sub = 'instant blast · 30s cooldown';
+    }
+    nearest.cooldownUntil = now + cd;
+    showBanner(nearest.label, sub);
     blip(880, 0.10, 'triangle', 0.18);
     setTimeout(() => blip(1320, 0.15, 'triangle', 0.16), 80);
   }
@@ -1060,6 +1241,21 @@ function buildWeaponModel(id) {
       g.add(tooth);
     }
     g.add(engine); g.add(bar); g.add(grip);
+  } else if (id === 'nuke') {
+    // MINI NUKE — Fallout fat-man silhouette: stubby wide tube, big
+    // glowing toxic-green warhead, two side handles, slot-loaded shell
+    const nukeGreen = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x4ff8a8 }));
+    const tube  = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.55, 10), _weaponSteelMat);
+    tube.rotation.x = Math.PI / 2; tube.position.set(0, -0.04, 0);
+    const warhead = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), nukeGreen);
+    warhead.position.set(0, -0.04, -0.30);
+    const fins = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.04, 0.10), _weaponBlackMat);
+    fins.position.set(0, -0.04, -0.42);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.22, 0.16), _weaponRustMat);
+    grip.position.set(0, -0.22, 0.18);
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.18), _weaponBlackMat);
+    sight.position.set(0, 0.14, 0.05);
+    g.add(tube); g.add(warhead); g.add(fins); g.add(grip); g.add(sight);
   }
   // Position the entire weapon group at the bottom-right hold position
   g.position.set(0.32, -0.30, -0.55);
@@ -1072,6 +1268,7 @@ WEAPON_MODELS['shotgun']  = buildWeaponModel('shotgun');
 WEAPON_MODELS['railgun']  = buildWeaponModel('railgun');
 WEAPON_MODELS['launcher'] = buildWeaponModel('launcher');
 WEAPON_MODELS['chainsaw'] = buildWeaponModel('chainsaw');
+WEAPON_MODELS['nuke']     = buildWeaponModel('nuke');
 // Show the rifle by default at boot
 WEAPON_MODELS['rifle'].visible = true;
 // (the legacy weaponMesh added earlier is unused now — remove it from
@@ -1189,6 +1386,12 @@ const FIRE_MODES = [
   // red blood particles on every hit. Per chat: "the only way to
   // properly clear a path through this mess".
   { id:'chainsaw', name:'CHAINSAW', rof: 0.08, pellets: 1, dmg: 12,  spread: 0.0, spd: 0,  color: 0xc43838, pierce: 0, melee: true, meleeRange: 2.6, meleeArc: Math.PI * 0.55 },
+  // MINI NUKE — Fallout-style hand cannon. Slow-firing, eats from a
+  // limited ammo pool, lobs a chunky neon-green slug that detonates in
+  // a massive 9u splash for 200+ damage at center. `unlocked: false`
+  // means it doesn't appear in the scroll-wheel cycle until the player
+  // visits the MINI NUKE BENCH in the city district.
+  { id:'nuke',     name:'MINI NUKE', rof: 1.4, pellets: 1, dmg: 240, spread: 0.0, spd: 22, color: 0x4ff8a8, pierce: 0, aoe: true, splash: 9.0, splashDmg: 200, mininuke: true, unlocked: false },
 ];
 let fireMode = 0;
 // Wheel listener ONLY accumulates the swap delta into the input
@@ -1471,6 +1674,86 @@ function spawnZombie() {
   });
 }
 
+// === BOSS — TITAN ZOMBIE ===
+// Spawns at the end of every 5th wave. Bigger box body, glowing red
+// eyes, much higher HP / damage / radius / lower speed. The wave
+// can't clear until the boss dies. On kill, drops two healpacks plus
+// a tier-locked rare powerup.
+function makeBossMesh() {
+  const g = new THREE.Group();
+  // body — chunky crimson torso
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(2.0, 2.8, 1.4),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x6a1a1a }))
+  );
+  body.position.y = 1.4;
+  g.add(body);
+  // shoulders — extra wide pads
+  const shoulders = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 0.5, 1.5),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x4a1212 }))
+  );
+  shoulders.position.y = 2.55;
+  g.add(shoulders);
+  // head — separate dark red box with glowing eyes
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 1.2, 1.2),
+    ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x4a1212 }))
+  );
+  head.position.y = 3.4;
+  g.add(head);
+  const eyeGeo = new THREE.BoxGeometry(0.20, 0.18, 0.06);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff5050 });
+  const lEye = new THREE.Mesh(eyeGeo, eyeMat);
+  const rEye = new THREE.Mesh(eyeGeo, eyeMat);
+  lEye.position.set(-0.30, 3.5, 0.65);
+  rEye.position.set( 0.30, 3.5, 0.65);
+  g.add(lEye); g.add(rEye);
+  // arms — long pipes hanging at sides
+  const armGeo = new THREE.BoxGeometry(0.45, 1.6, 0.45);
+  const armMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x5a1818 }));
+  const lArm = new THREE.Mesh(armGeo, armMat);
+  const rArm = new THREE.Mesh(armGeo, armMat);
+  lArm.position.set(-1.20, 1.5, 0); rArm.position.set( 1.20, 1.5, 0);
+  g.add(lArm); g.add(rArm);
+  return g;
+}
+function spawnBoss() {
+  // Spawn the boss in the boss arena if it's unlocked, else from a
+  // perimeter spawn point furthest from the player so it can stomp in.
+  let sx = 0, sz = 0;
+  if (unlockedTier >= 3) {
+    sx = 0; sz = 64;     // boss arena center
+  } else {
+    // pick the SPAWN_POINTS entry farthest from the player
+    let bestD = -1;
+    for (const sp of SPAWN_POINTS) {
+      const d = Math.hypot(sp.x - player.pos.x, sp.z - player.pos.z);
+      if (d > bestD) { bestD = d; sx = sp.x; sz = sp.z; }
+    }
+  }
+  const mesh = makeBossMesh();
+  mesh.position.set(sx, 0, sz);
+  scene.add(mesh);
+  const tier = Math.floor(wave / 5);
+  const baseHp = 280 + wave * 35;
+  zombies.push({
+    mesh, pos: mesh.position, yaw: 0,
+    hp: baseHp, maxHp: baseHp,
+    speed: 1.2 + tier * 0.15,
+    rRadius: 1.3,
+    attackT: 1.0,
+    biteDmg: 22 + tier * 4,
+    isBoss: true,
+  });
+  showBanner('★ BOSS WAVE ★', 'survive the titan');
+  flashScreen(0.7, 'rgba(255,80,80,0.45)');
+  addShake(28);
+  // Low growl + sub thump
+  blip(60, 0.50, 'sawtooth', 0.28);
+  setTimeout(() => blip(110, 0.40, 'square', 0.22), 80);
+}
+
 // Shared pickup geometry + per-color material cache (audit fix).
 const PICKUP_GEO = new THREE.BoxGeometry(0.6, 0.6, 0.6);
 const _pickupMatCache = new Map();
@@ -1500,6 +1783,11 @@ function spawnPowerup(x, z, kind) {
     rapid:     { color: 0xffd766, label: 'RAPID' },
     infammo:   { color: 0xa9f0ff, label: '∞ AMMO' },
     drumshot:  { color: 0xffb86b, label: 'DRUM' },
+    // tier-locked rare drops
+    shockwave: { color: 0x88f5ff, label: 'SHOCK' },
+    mininuke:  { color: 0x4ff8a8, label: 'NUKE'  },
+    timewarp:  { color: 0xb86fff, label: 'WARP'  },
+    berserk:   { color: 0xff5050, label: 'RAGE'  },
   };
   const c = config[kind] || config.chaotic;
   const g = new THREE.Group();
@@ -1560,6 +1848,34 @@ function tickPickups(dt) {
         // DRUM SHOTGUN: 18s of 8-pellet rapid spread (per chat buff)
         player.drumshotUntil = nowMs + 18000;
         showBanner('DRUM SHOTGUN', '8-pellet spread · rapid · 18s');
+      } else if (p.kind === 'shockwave') {
+        // SHOCKWAVE pickup — instant radial blast at the player's
+        // current position. Tier-1+ rare drop.
+        triggerShockwave(player.pos.x, player.pos.z, 14, 90 + wave * 6);
+        showBanner('★ SHOCKWAVE ★', 'instant radial blast');
+      } else if (p.kind === 'mininuke') {
+        // MINI NUKE pickup — auto-unlocks the gun for the run AND
+        // restocks 2 rounds. If already unlocked, just restocks.
+        const nukeMode = FIRE_MODES.find(m => m.id === 'nuke');
+        if (nukeMode && !nukeMode.unlocked) {
+          nukeMode.unlocked = true;
+          showBanner('★ MINI NUKE UNLOCKED ★', 'scroll wheel · 2 rounds');
+        } else {
+          showBanner('NUKE +2 ROUNDS', 'restocked');
+        }
+        player.nukeAmmo = (player.nukeAmmo || 0) + 2;
+      } else if (p.kind === 'timewarp') {
+        // TIME WARP pickup — slows zombies to 35% for 12s.
+        player.timeWarpUntil = nowMs + 12000;
+        showBanner('TIME WARP', 'zombies @ 35% · 12s');
+      } else if (p.kind === 'berserk') {
+        // BERSERKER pickup — 8s godmode + unlimited fire. Stacks
+        // damage buff so every weapon shreds.
+        player.berserkUntil    = nowMs + 8000;
+        player.invulnUntil     = Math.max(player.invulnUntil, nowMs + 8000);
+        player.damageBuffUntil = nowMs + 8000;
+        player.rapidBuffUntil  = nowMs + 8000;
+        showBanner('★ BERSERKER ★', '8s godmode · 2× damage · rapid');
       }
       blip(1320, 0.06, 'square', 0.16);
       setTimeout(() => blip(1760, 0.08, 'square', 0.14), 60);
@@ -1620,6 +1936,19 @@ function tickFxItems(dt) {
       if (f.mesh.material) f.mesh.material.opacity = 0.85 * (1 - k);
     } else if (f.kind === 'beam') {
       if (f.mesh.material) f.mesh.material.opacity = 0.85 * (1 - k);
+    } else if (f.kind === 'nukedust') {
+      // mushroom debris — XYZ ballistic with gravity, fade out, spin
+      f.vy -= 8 * dt;
+      f.mesh.position.x += f.vx * dt;
+      f.mesh.position.y += f.vy * dt;
+      f.mesh.position.z += f.vz * dt;
+      f.mesh.rotation.x += dt * 6;
+      f.mesh.rotation.y += dt * 4;
+      if (f.mesh.position.y < 0.05) { f.mesh.position.y = 0.05; f.vy *= -0.25; f.vx *= 0.6; f.vz *= 0.6; }
+      if (f.mesh.material && f.mesh.material.opacity != null) {
+        if (!f.mesh.material.transparent) f.mesh.material.transparent = true;
+        f.mesh.material.opacity = Math.max(0, 1 - k);
+      }
     } else if (f.kind === 'blood') {
       // Ballistic arc — gravity pulls Y down, XZ velocity decays slightly
       f.vy -= 9 * dt;
@@ -1648,8 +1977,107 @@ function tickFxItems(dt) {
 // Cached AOE shock-ring geometry/material — drawn briefly on rocket hit
 const _ringGeo = new THREE.RingGeometry(0.1, 1.0, 18);
 const _ringMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xffae3a, transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+// Shock-ring variants for the new SHOCKWAVE buff and MINI NUKE detonations.
+const _ringMatCyan  = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x88f5ff, transparent: true, opacity: 0.92, side: THREE.DoubleSide }));
+const _ringMatNuke  = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x4ff8a8, transparent: true, opacity: 0.95, side: THREE.DoubleSide }));
+const _ringMatNukeOuter = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xfff7c2, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+
+// SHOCKWAVE — instant radial blast around an origin. Used by the
+// chapel's SHOCKWAVE station and the dropped 'shockwave' pickup.
+// All zombies inside `radius` take `dmg` * linear-falloff.
+function triggerShockwave(ox, oz, radius, dmg) {
+  for (let j = zombies.length - 1; j >= 0; j--) {
+    const z = zombies[j];
+    const d = Math.hypot(z.pos.x - ox, z.pos.z - oz);
+    if (d > radius) continue;
+    const falloff = 1 - 0.4 * (d / radius);
+    z.hp -= Math.round(dmg * falloff);
+    if (z.hp <= 0) killZombie(z, j);
+  }
+  const ring = new THREE.Mesh(_ringGeo, _ringMatCyan);
+  ring.position.set(ox, 0.05, oz);
+  ring.rotation.x = -Math.PI / 2;
+  scene.add(ring);
+  fxItems.push({ kind: 'ring', mesh: ring, t: 0, dur: 0.55, target: radius });
+  addShake(18);
+  blip(140, 0.08, 'square', 0.18);
+  setTimeout(() => blip(880, 0.10, 'sine', 0.14), 30);
+}
+
+// MINI NUKE detonation — vastly bigger version of detonateRocket with
+// extra screen shake, sub-bass boom, and a brief screen flash overlay.
+function detonateNuke(ex, ez, splashR, splashDmg) {
+  for (let j = zombies.length - 1; j >= 0; j--) {
+    const z = zombies[j];
+    const d = Math.hypot(z.pos.x - ex, z.pos.z - ez);
+    if (d > splashR) continue;
+    const falloff = 1 - 0.4 * (d / splashR);
+    z.hp -= Math.round(splashDmg * falloff);
+    if (z.hp <= 0) killZombie(z, j);
+  }
+  // Two stacked rings: tight bright inner + softer outer halo
+  const ringIn = new THREE.Mesh(_ringGeo, _ringMatNuke);
+  ringIn.position.set(ex, 0.05, ez);
+  ringIn.rotation.x = -Math.PI / 2;
+  scene.add(ringIn);
+  fxItems.push({ kind: 'ring', mesh: ringIn, t: 0, dur: 0.85, target: splashR * 0.85 });
+  const ringOut = new THREE.Mesh(_ringGeo, _ringMatNukeOuter);
+  ringOut.position.set(ex, 0.06, ez);
+  ringOut.rotation.x = -Math.PI / 2;
+  scene.add(ringOut);
+  fxItems.push({ kind: 'ring', mesh: ringOut, t: 0, dur: 1.2, target: splashR * 1.4 });
+  // Mushroom debris: 60 small cubes flung up + outward, drift down
+  for (let i = 0; i < 60; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const r = Math.random() * 1.2;
+    const dust = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.18, 0.18),
+      new THREE.MeshBasicMaterial({ color: i % 4 === 0 ? 0xfff7c2 : 0x4ff8a8 })
+    );
+    dust.position.set(ex + Math.cos(ang) * r, 0.4, ez + Math.sin(ang) * r);
+    scene.add(dust);
+    fxItems.push({
+      kind: 'nukedust', mesh: dust, t: 0, dur: 1.6,
+      vx: Math.cos(ang) * (3 + Math.random() * 6),
+      vy: 4 + Math.random() * 7,
+      vz: Math.sin(ang) * (3 + Math.random() * 6),
+    });
+  }
+  // Screen shake + screen flash
+  addShake(60);
+  flashScreen(0.7, 'rgba(220,255,180,0.6)');
+  // Sub-bass thump + crack + aftershock
+  blip(38, 0.55, 'sawtooth', 0.30);
+  setTimeout(() => blip(80, 0.30, 'sawtooth', 0.24), 40);
+  setTimeout(() => blip(180, 0.24, 'square',  0.18), 110);
+  setTimeout(() => blip(60,  0.50, 'sine',    0.14), 280);
+}
+
+// Brief CSS screen flash overlay for high-impact moments (nuke, boss
+// spawn, boss death). Builds the overlay on first call, then just
+// retriggers its opacity transition.
+let _flashEl = null;
+function flashScreen(durSec, cssColor) {
+  if (!_flashEl) {
+    _flashEl = document.createElement('div');
+    _flashEl.style.cssText =
+      'position:fixed;inset:0;pointer-events:none;z-index:32;' +
+      'background:rgba(255,255,255,0);transition:background ' +
+      (durSec * 0.6).toFixed(2) + 's ease-out;';
+    document.body.appendChild(_flashEl);
+  }
+  _flashEl.style.background = cssColor;
+  setTimeout(() => { if (_flashEl) _flashEl.style.background = 'rgba(255,255,255,0)'; }, 60);
+}
 function detonateRocket(b) {
   const ex = b.mesh.position.x, ez = b.mesh.position.z;
+  // Mini-nukes use a beefier explosion path — bigger ring, more debris,
+  // sub-bass thump, screen flash. Branches early so the conventional
+  // rocket path stays unchanged.
+  if (b.isNuke) {
+    detonateNuke(ex, ez, b.aoeRadius, b.aoeDmg);
+    return;
+  }
   for (let j = zombies.length - 1; j >= 0; j--) {
     const z = zombies[j];
     const d = Math.hypot(z.pos.x - ex, z.pos.z - ez);
@@ -1778,6 +2206,18 @@ function tryFire() {
     setTimeout(() => blip(900, 0.10, 'sawtooth', 0.12), 30);
     return;
   }
+  // MINI NUKE: gate on per-run ammo pool. nukeAmmo gets refilled at
+  // the city-district MINI NUKE BENCH; +1 also drops from boss kills.
+  const isNuke = !!mode.mininuke;
+  if (isNuke) {
+    if ((player.nukeAmmo || 0) <= 0) {
+      showBanner('NO NUKE AMMO', 'restock at the city bench');
+      blip(120, 0.10, 'square', 0.14);
+      return;
+    }
+    player.nukeAmmo -= 1;
+    updateHUD();
+  }
   // Base values from the active fire mode (scroll wheel selectable)
   let spd = mode.spd, dmg = mode.dmg, color = mode.color;
   let spread = mode.spread;
@@ -1824,9 +2264,15 @@ function tryFire() {
       dmg,
       pierce: bulletPierce,
       isRocket,
+      isNuke,
       aoeRadius, aoeDmg,
       color,
     });
+    // Make the mini-nuke projectile visually chunky + glowing so it
+    // reads as a Fallout fat-man slug rather than another bullet.
+    if (isNuke) {
+      mesh.scale.set(2.2, 2.2, 2.2);
+    }
   }
   sfx.shoot();
 }
@@ -1979,6 +2425,7 @@ function addShake(mag) { shake.mag = Math.min(28, Math.max(shake.mag, mag)); }
 // ===== WAVE SYSTEM =====
 let wave = 0, waveActive = false, spawnQueue = 0, spawnT = 0, interludeT = 0;
 let kills = 0;
+let bossSpawned = false;
 // Map expansion — every 5 wave clears, push the wall segments outward
 // by EXPAND_STEP units so the playable area grows. BUILDING_BOUND is the live
 // half-width referenced by movement clamp + spawn points.
@@ -2044,7 +2491,11 @@ function togglePause() {
   if (!running) return;
   paused = !paused;
   pauseEl.classList.toggle('show', paused);
-  pauseEl.setAttribute('aria-hidden', paused ? 'false' : 'true');
+  // Use `inert` instead of `aria-hidden`: aria-hidden on a parent that
+  // contains the focused element triggers a console warning in modern
+  // browsers. `inert` is the spec-correct way to take an entire subtree
+  // out of focus + AT order while it's hidden.
+  pauseEl.toggleAttribute('inert', !paused);
   if (paused) {
     document.exitPointerLock && document.exitPointerLock();
     const resumeBtn = document.getElementById('resumeBtn');
@@ -2152,12 +2603,23 @@ function update(dt) {
   // 0.55s for tryBat, invulnUntil for tryDodge, station cooldowns
   // for tryUseStation). Edge-triggered flags are CONSUMED after
   // dispatch so the same press never fires twice.
-  // Weapon swap — apply accumulated wheel ticks
+  // Weapon swap — apply accumulated wheel ticks. Skip any FIRE_MODE
+  // entry whose `unlocked === false` flag is set (mini-nuke before the
+  // city bench is visited) so locked weapons never appear in the cycle.
   if (input.swapDelta !== 0) {
-    fireMode = (fireMode + input.swapDelta + FIRE_MODES.length * 99) % FIRE_MODES.length;
+    const dir = input.swapDelta > 0 ? 1 : -1;
+    let steps = Math.abs(input.swapDelta);
+    while (steps-- > 0) {
+      // walk at most FIRE_MODES.length tries to avoid an infinite loop
+      // if every mode is somehow locked (shouldn't happen)
+      let tries = FIRE_MODES.length;
+      do {
+        fireMode = (fireMode + dir + FIRE_MODES.length) % FIRE_MODES.length;
+      } while (FIRE_MODES[fireMode].unlocked === false && --tries > 0);
+    }
     input.swapDelta = 0;
     const def = FIRE_MODES[fireMode];
-    showBanner(def.name, 'weapon mode · scroll to cycle');
+    showBanner(def.name, def.mininuke ? 'mini nuke · ammo ' + (player.nukeAmmo || 0) : 'weapon mode · scroll to cycle');
     const wpEl = document.getElementById('weaponNum');
     if (wpEl) wpEl.textContent = def.name;
     setVisibleWeapon(def.id);
@@ -2210,14 +2672,32 @@ function update(dt) {
         spawnT = Math.max(0.08, 0.55 - wave * 0.04) + Math.random() * 0.12;
       }
     } else if (zombies.length === 0) {
+      // BOSS WAVE: every 5 waves, after the regular spawnQueue is empty
+      // and the room is clear, spawn the titan boss. The wave isn't
+      // considered cleared until the boss is also dead.
+      if (wave % 5 === 0 && !bossSpawned) {
+        spawnBoss();
+        bossSpawned = true;
+        return;     // hold here — re-enter next frame with the boss alive
+      }
+      bossSpawned = false;
       waveActive = false;
       interludeT = 4.0;
-      // Map expansion every 5 wave clears, ported from the 2D iso game.
-      const expanded = (wave % 5 === 0) ? expandMap() : false;
-      showBanner('WAVE ' + wave + ' CLEARED', expanded ? '+200 · MAP EXPANDS' : '+200 PTS');
+      // Tier unlock at the wave thresholds (5/10/15). advanceTier
+      // returns true on success; we always show the cleared banner.
+      let tierJust = false;
+      if (wave === 5 || wave === 10 || wave === 15) {
+        tierJust = advanceTier();
+        if (tierJust) {
+          ensureStationMeshes();
+          flashScreen(0.8, 'rgba(255,200,80,0.45)');
+          setTimeout(() => showBanner('★ NEW AREA UNLOCKED ★', TIER_NAMES[unlockedTier]), 600);
+        }
+      }
+      showBanner('WAVE ' + wave + ' CLEARED', tierJust ? '+500 · MAP EXPANDS' : '+200 PTS');
       if (wave % 3 === 0) {
-        const px = (Math.random() - 0.5) * (BUILDING_BOUND * 1.2);
-        const pz = (Math.random() - 0.5) * (BUILDING_BOUND * 1.2);
+        const px = (Math.random() - 0.5) * 8;
+        const pz = (Math.random() - 0.5) * 8;
         spawnChaoticAmmo(px, pz);
       }
     }
@@ -2227,12 +2707,16 @@ function update(dt) {
   }
 
   // === ZOMBIES ===
+  // TIME WARP: city-district reactor buff slows every zombie to 35%
+  // for its duration. Multiplier is 1.0 when not active.
+  const warpActive = (player.timeWarpUntil || 0) > performance.now();
+  const speedMul = warpActive ? 0.35 : 1.0;
   for (let i = zombies.length - 1; i >= 0; i--) {
     const z = zombies[i];
     const dx = player.pos.x - z.pos.x, dz = player.pos.z - z.pos.z;
     const d = Math.hypot(dx, dz) || 1;
-    z.pos.x += (dx / d) * z.speed * dt;
-    z.pos.z += (dz / d) * z.speed * dt;
+    z.pos.x += (dx / d) * z.speed * speedMul * dt;
+    z.pos.z += (dz / d) * z.speed * speedMul * dt;
     z.mesh.rotation.y = Math.atan2(dx, dz);
     // push out of pillars
     for (const p of pillars) {
@@ -2302,6 +2786,26 @@ function update(dt) {
 function killZombie(z, idx) {
   scene.remove(z.mesh);
   zombies.splice(idx, 1);
+  // BOSS DEATH — heavy reward + screen shake + tier-locked drop
+  if (z.isBoss) {
+    addShake(48);
+    flashScreen(0.7, 'rgba(255,200,80,0.55)');
+    showBanner('★ TITAN DOWN ★', 'loot drops · advance south');
+    spawnPowerup(z.pos.x,       z.pos.z,       'healpack');
+    spawnPowerup(z.pos.x + 2.0, z.pos.z,       'healpack');
+    // Tier-locked rare drop pool — boss gives the player a taste of
+    // whichever tier just unlocked (or random unlocked tier loot if
+    // we're past tier 3).
+    const lockedPool = ['shockwave', 'mininuke', 'timewarp', 'berserk'];
+    const drop = lockedPool[Math.min(lockedPool.length - 1, Math.max(0, unlockedTier))];
+    spawnPowerup(z.pos.x - 2.0, z.pos.z, drop);
+    // boss death sub-bass
+    blip(40, 0.55, 'sawtooth', 0.30);
+    setTimeout(() => blip(90, 0.40, 'square', 0.22), 60);
+    bossSpawned = false;
+    kills += 5;
+    return;
+  }
   // Double points buff doubles the kill count for the round
   const mult = (player.doublePtsUntil || 0) > performance.now() ? 2 : 1;
   kills += mult;
@@ -2313,13 +2817,19 @@ function killZombie(z, idx) {
   if (Math.random() < 0.16) {
     const r = Math.random();
     let kind;
-    if (r < 0.18)      kind = 'chaotic';
-    else if (r < 0.34) kind = 'instakill';
-    else if (r < 0.50) kind = 'doublepts';
-    else if (r < 0.72) kind = 'healpack';
-    else if (r < 0.82) kind = 'rapid';
-    else if (r < 0.92) kind = 'drumshot';
-    else               kind = 'infammo';
+    if (r < 0.16)      kind = 'chaotic';
+    else if (r < 0.30) kind = 'instakill';
+    else if (r < 0.45) kind = 'doublepts';
+    else if (r < 0.65) kind = 'healpack';
+    else if (r < 0.74) kind = 'rapid';
+    else if (r < 0.83) kind = 'drumshot';
+    else if (r < 0.90) kind = 'infammo';
+    // tier-locked rare drops (only if their tier is unlocked)
+    else if (r < 0.94 && unlockedTier >= 1) kind = 'shockwave';
+    else if (r < 0.97 && unlockedTier >= 2) kind = 'mininuke';
+    else if (r < 0.99 && unlockedTier >= 2) kind = 'timewarp';
+    else if (unlockedTier >= 3)             kind = 'berserk';
+    else                                    kind = 'healpack';
     spawnPowerup(z.pos.x, z.pos.z, kind);
   }
 }
@@ -2332,7 +2842,7 @@ function gameOver() {
   document.getElementById('endKills').textContent = kills;
   const endEl = document.getElementById('end');
   endEl.classList.add('show');
-  endEl.setAttribute('aria-hidden', 'false');
+  endEl.removeAttribute('inert');
   const restartBtn = document.getElementById('restartBtn');
   if (restartBtn) restartBtn.focus();
   sfx.end();
@@ -2348,9 +2858,9 @@ function startGame() {
   const titleEl = document.getElementById('title');
   const endEl = document.getElementById('end');
   titleEl.classList.remove('show');
-  titleEl.setAttribute('aria-hidden', 'true');
+  titleEl.setAttribute('inert', '');
   endEl.classList.remove('show');
-  endEl.setAttribute('aria-hidden', 'true');
+  endEl.setAttribute('inert', '');
   // wipe zombies + bullets + pickups from any previous run
   for (const z of zombies) scene.remove(z.mesh);
   for (const b of bullets) scene.remove(b.mesh);
@@ -2367,7 +2877,7 @@ function startGame() {
   pitch = 0;
   paused = false;
   pauseEl.classList.remove('show');
-  pauseEl.setAttribute('aria-hidden', 'true');
+  pauseEl.setAttribute('inert', '');
   combo.count = 0; combo.peak = 0; combo.lastKillT = 0;
   shake.mag = 0;
   for (const s of batSwings) scene.remove(s.mesh);
