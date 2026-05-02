@@ -58,6 +58,20 @@
   .pill.wave  {border-color:var(--hot);  color:var(--hot);  text-shadow:0 0 8px var(--hot)}
   .pill.health{border-color:var(--sick); color:var(--sick); text-shadow:0 0 8px var(--sick)}
   .pill.kills {border-color:var(--gold); color:var(--gold); text-shadow:0 0 8px var(--gold)}
+  .pill.fuel  {border-color:#7df0ff; color:#7df0ff; text-shadow:0 0 8px #7df0ff}
+  .pill.fuel.cooldown {border-color:#7a1a18; color:#7a1a18; text-shadow:0 0 8px #7a1a18; animation:cooldownPulse 0.8s ease-in-out infinite alternate}
+  @keyframes cooldownPulse{0%{opacity:0.55}100%{opacity:1}}
+  .pill.fuel .fuel-bar{
+    display:inline-block;width:80px;height:8px;background:rgba(0,0,0,0.55);
+    border:1px solid rgba(125,240,255,0.45);border-radius:3px;overflow:hidden;
+  }
+  .pill.fuel .fuel-bar > span{
+    display:block;height:100%;background:linear-gradient(90deg,#7df0ff,#a9f0ff);
+    transition:width 0.18s ease-out;
+  }
+  .pill.fuel.cooldown .fuel-bar > span{
+    background:linear-gradient(90deg,#7a1a18,#e02e2e);
+  }
   .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
   .stage{
@@ -144,6 +158,10 @@
     <div class="pill wave">WAVE<span class="num" id="waveNum">1</span></div>
     <div class="pill health">HP<span class="num" id="hpNum">100</span></div>
     <div class="pill kills">KILLS<span class="num" id="killsNum">0</span></div>
+    <div class="pill fuel" id="fuelPill" title="drone fuel">
+      DRONE
+      <span class="fuel-bar"><span id="fuelFill"></span></span>
+    </div>
   </div>
 </header>
 
@@ -162,6 +180,14 @@
   <h1><span class="b1">SLOPPY</span> <span class="b2">ZOMBIES</span> <span class="b3">3D</span></h1>
   <div class="sub">low-poly horde · ps1 vertex jitter · dithered fog</div>
   <button class="play" id="playBtn">▼ ENTER THE BUNKER</button>
+</div>
+
+<!-- PAUSE -->
+<div class="overlay" id="pause">
+  <h2>⏸ PAUSED</h2>
+  <div class="sub">esc to resume · gameplay halted · drone fuel still ticking</div>
+  <button class="play" id="resumeBtn">RESUME</button>
+  <button class="play" id="restartFromPauseBtn" style="margin-top:10px;background:linear-gradient(180deg, #3a3a3a, #1a1a1a);">RESTART RUN</button>
 </div>
 
 <!-- END -->
@@ -389,14 +415,26 @@ const playerHead = new THREE.Mesh(
 );
 playerHead.position.y = 1.6;
 playerGroup.add(playerHead);
-// Weapon — small cylinder pointing forward (-Z in player local space)
+// Weapon — small cylinder pointing FORWARD (+Z in player local space).
+// Per chat: the previous model was visually backward — weapon stuck out
+// of the player's back because Z was negative. Now z=+0.4 puts the
+// barrel in front so the third-person view shows the player aiming
+// outward at the cursor.
 const weaponMesh = new THREE.Mesh(
   new THREE.CylinderGeometry(0.08, 0.08, 0.7, 6),
   ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x222628 }))
 );
 weaponMesh.rotation.x = Math.PI / 2;
-weaponMesh.position.set(0.3, 1.05, -0.4);
+weaponMesh.position.set(0.3, 1.05, 0.4);
 playerGroup.add(weaponMesh);
+// Face badge — small dark eye marker so the player can see which way
+// the head is facing. Sits on the +Z (forward) face of the head box.
+const faceMark = new THREE.Mesh(
+  new THREE.BoxGeometry(0.16, 0.10, 0.04),
+  ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x1c1410 }))
+);
+faceMark.position.set(0, 1.65, 0.26);
+playerGroup.add(faceMark);
 scene.add(playerGroup);
 
 // ===== MACHINE-GUN DRONE =====
@@ -412,6 +450,15 @@ const drone = {
   fireRate: 0.18,    // sec between shots
   range: 14,
   dmg: 8,
+  // Per chat: timed fuel bar. Drone fires until fuel runs out, then
+  // enters a forced cooldown until fuel regenerates past COOLDOWN_GATE.
+  // Fuel drains 4 per shot (~22 shots from full); regenerates 14/sec
+  // always (full refill from empty in ~7s).
+  fuel: 100, maxFuel: 100,
+  fuelDrainPerShot: 4,
+  fuelRegenPerSec: 14,
+  cooldownGate: 40,        // re-enable threshold after fuel hits 0
+  disabled: false,
 };
 {
   const body = new THREE.Mesh(
@@ -438,6 +485,13 @@ const drone = {
 }
 function updateDrone(dt) {
   drone.orbitT += dt;
+  // Fuel regen — always running, even while firing (the drain math
+  // simply outpaces it). Re-enable from cooldown once gate is met.
+  drone.fuel = Math.min(drone.maxFuel, drone.fuel + drone.fuelRegenPerSec * dt);
+  if (drone.disabled && drone.fuel >= drone.cooldownGate) drone.disabled = false;
+  // Visual dim while disabled — tint the body grey via material.opacity
+  // would need transparent:true setup; simplest is a subtle Y droop.
+  drone.mesh.position.y -= drone.disabled ? 0.05 * dt : 0;
   // Orbit ~1.6 units behind+above the player at 0.6Hz
   const orbAng = drone.orbitT * 1.4 + player.yaw + Math.PI;
   const ox = player.pos.x + Math.cos(orbAng) * 1.4;
@@ -460,10 +514,13 @@ function updateDrone(dt) {
     const dx = nearest.pos.x - drone.pos.x;
     const dz = nearest.pos.z - drone.pos.z;
     drone.mesh.rotation.y = Math.atan2(dx, dz);
-    // Auto-fire
+    // Auto-fire — gated on fuel + cooldown
     const now = performance.now() / 1000;
-    if (now - drone.lastFireT >= drone.fireRate && running) {
+    if (!drone.disabled && drone.fuel >= drone.fuelDrainPerShot &&
+        now - drone.lastFireT >= drone.fireRate && running) {
       drone.lastFireT = now;
+      drone.fuel = Math.max(0, drone.fuel - drone.fuelDrainPerShot);
+      if (drone.fuel <= 0) drone.disabled = true;
       const len = Math.sqrt(nd);
       const sp = 28;
       const mesh = new THREE.Mesh(bulletGeo, ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0x7df0ff })));
@@ -517,15 +574,28 @@ cvs.addEventListener('pointerleave',() => firing = false);
 const aimRay = new THREE.Raycaster();
 const aimNDC = new THREE.Vector2();
 const FLOOR_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-function updateAim() {
+// Per chat: dampen mouse sensitivity. Previously player.yaw snapped
+// instantly to the cursor every frame, which made wide cursor sweeps
+// feel jittery and twitchy. Now we lerp yaw toward the target with a
+// capped turn rate (~9 rad/sec ≈ 515°/sec — fast enough to feel
+// responsive but smooth enough to remove subpixel jitter).
+const TURN_RATE = 9.0;
+function updateAim(dt) {
   aimNDC.x = (mouse.sx / RENDER_W) * 2 - 1;
   aimNDC.y = -((mouse.sy / RENDER_H) * 2 - 1);
   aimRay.setFromCamera(aimNDC, camera);
   aimRay.ray.intersectPlane(FLOOR_PLANE, mouse.world);
-  // Player faces from its position toward the world cursor
   const dx = mouse.world.x - player.pos.x;
   const dz = mouse.world.z - player.pos.z;
-  if (dx * dx + dz * dz > 0.01) player.yaw = Math.atan2(dx, dz);
+  if (dx * dx + dz * dz < 0.01) return;
+  const targetYaw = Math.atan2(dx, dz);
+  // Shortest-path angle delta (-π .. π)
+  let dYaw = targetYaw - player.yaw;
+  while (dYaw >  Math.PI) dYaw -= Math.PI * 2;
+  while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+  const step = TURN_RATE * dt;
+  if (Math.abs(dYaw) <= step) player.yaw = targetYaw;
+  else                        player.yaw += Math.sign(dYaw) * step;
 }
 
 // ===== ZOMBIES =====
@@ -548,8 +618,9 @@ function makeZombieMesh() {
   const eyeMat = ps1ifyMaterial(new THREE.MeshBasicMaterial({ color: 0xff3030 }));
   const lEye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), eyeMat);
   const rEye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), eyeMat);
-  lEye.position.set(-0.12, 1.65, -0.26);
-  rEye.position.set( 0.12, 1.65, -0.26);
+  // Eyes on the +Z (forward) face — fixes the previous backward facing.
+  lEye.position.set(-0.12, 1.65, 0.26);
+  rEye.position.set( 0.12, 1.65, 0.26);
   g.add(lEye); g.add(rEye);
   return g;
 }
@@ -747,22 +818,46 @@ function updateHUD() {
   document.getElementById('waveNum').textContent = wave;
   document.getElementById('hpNum').textContent = Math.max(0, Math.floor(player.hp));
   document.getElementById('killsNum').textContent = kills;
+  // Drone fuel bar — width % of the inner span tracks current fuel.
+  // The .cooldown class flips bar+border to red and pulse-animates it
+  // until fuel regenerates past the cooldownGate threshold.
+  const fillEl = document.getElementById('fuelFill');
+  const pillEl = document.getElementById('fuelPill');
+  if (fillEl) fillEl.style.width = ((drone.fuel / drone.maxFuel) * 100) + '%';
+  if (pillEl) pillEl.classList.toggle('cooldown', drone.disabled);
 }
 
 // ===== GAME LOOP =====
 let running = false;
+let paused = false;
+const pauseEl = document.getElementById('pause');
+function togglePause() {
+  if (!running) return;
+  paused = !paused;
+  pauseEl.classList.toggle('show', paused);
+}
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { togglePause(); e.preventDefault(); }
+});
+document.getElementById('resumeBtn').addEventListener('click', () => { if (paused) togglePause(); });
+document.getElementById('restartFromPauseBtn').addEventListener('click', () => {
+  paused = false;
+  pauseEl.classList.remove('show');
+  startGame();
+});
+
 let lastT = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
-  if (running) update(dt);
+  if (running && !paused) update(dt);
   render(dt);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
 function update(dt) {
-  updateAim();
+  updateAim(dt);
 
   // === MOVEMENT ===
   // WASD is CAMERA-relative — W moves toward the cursor (player's
@@ -965,6 +1060,10 @@ function startGame() {
   player.chaoticUntil = 0;
   player.pos.set(0, 0, 0);
   player.yaw = 0;
+  drone.fuel = drone.maxFuel;
+  drone.disabled = false;
+  paused = false;
+  pauseEl.classList.remove('show');
   kills = 0;
   wave = 0;
   waveActive = false;
