@@ -1,6 +1,17 @@
 # sigma-man
 
 ## log
+- 2026-05-03: skibidi-toilet power-up (chat ask).
+  - **Spawn**: every 18-32s an idle toilet appears in a random walkable tile (avoids walls, pellets, ghost house, and a 2-tile buffer around the player). Sits for 10s; if uncollected, vanishes and the spawn timer restarts. Last 3s of TTL it blinks.
+  - **Pickup**: walking onto the toilet awards 75pt and triggers `triggerChaos()` which:
+    1. Sets `chaosT = 8s`.
+    2. Spawns 14 floating-toilet 🚽 emoji that drift across the maze with gentle gravity + spin, fading out over 4-8s.
+    3. Plays the chaos sound: bandpass-noise gurgle + 6-step sawtooth low chant.
+    4. Pops a SKIBIDI · CHAOS banner.
+  - **Visual chaos** (`applyChaosVisual`): CSS `filter: hue-rotate() saturate() contrast()` + `transform: translate() skewX()` driven by `performance.now()`. The hue cycles through 360° at ~80°/s, plus a few-pixel jitter and a small skew. Cheap (no per-pixel work). Filter/transform fade scaled by `min(1, chaosT/1.5)` for a quick wind-down.
+  - **AI override**: while `chaosT > 0`, every ghost's targeting collapses to "random tile" — even chasing ghosts pick erratic directions at every intersection.
+  - **HUD**: new CHAOS pill appears alongside BEAST, counting down the seconds remaining.
+  - **Reset hooks**: toilet, chaos timer, floating particles, and CSS filter/transform all cleared on `resetPositions` (every level + after death).
 - 2026-05-03: shipped — top-down maze grindset, pacman-shaped.
   - **Maze**: 19×21 hand-laid layout (RAW_MAZE) with walls, pellets, 4 power dumbbells, ghost house in the middle, two side tunnels that wrap horizontally, ghost door above the house.
   - **Player**: yellow circle with mouth animation tied to motion phase, two muscle bumps (light bicep + darker shadow circle) on the perpendicular axis, a horizontal sunglasses bar across the face. Speed 3.4 + 0.18×(level-1) tiles/sec.
