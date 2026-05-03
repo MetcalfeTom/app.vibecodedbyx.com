@@ -1,6 +1,13 @@
 # shepherd-shark
 
 ## log
+- 2026-05-03: added ARASAIN — single tiny plankton prioritized by all predators (chat ask).
+  - Singular `plankton` global. Size 4.5 (less than half the smallest regular spawn ~8). Speed 150 (faster than the average fish ~85). Cyan-white palette. Always-visible coral label.
+  - **Priority detection**: every regular fish's tickAI scans for plankton at `senseRadius * 2.5` — 2.5× the normal range. If detected AND the fish is big enough to eat it (everyone is), plankton overrides whatever regular prey was queued. Threats still take precedence — predators won't suicide-chase ARASAIN while a bigger fish is hunting them.
+  - **Plankton AI** (own `tickPlanktonAI`): pure flee from nearest fish within 280u + erratic per-tick jitter (±55 vx/vy random) so its motion is hard to predict. No hunting, no peer-wandering. Sharper turn rate (12 instead of 6) so it can dodge. Bounce off world edges at -0.7×.
+  - **Eat bounty**: when consumed, eater gets a +6 size bonus on top of the normal 0.30×eaten stake (significant pop). Golden+cyan particle burst (2× the normal count). Special feed verb ("CLAIMED THE BOUNTY ON" or "cracked open") + bounty flag. Plankton respawns at random world position 5-9s later with a feed announcement: "ARASAIN drifts back into the deep".
+  - **Render**: dedicated `drawPlankton` — pulsing radial halo (orange→cyan→transparent), bright orb body, three orbiting cilia dots, always-on coral label so it's spottable from anywhere on screen.
+  - **HUD**: new ARASAIN pill — shows "ALIVE" in cyan or "RESPAWN Ns" countdown in coral.
 - 2026-05-03: full refactor — removed the player entirely, autonomous fish-on-fish AI, names pulled from sloppygram_profiles (chat ask).
   - **No player.** No name input, no start overlay, no controls beyond P/M (pause/mute). The simulation runs forever.
   - **Names sourced from Supabase `sloppygram_profiles`** ordered by `updated_at DESC LIMIT 60`, deduped, capped at 40, uppercased, length-filtered to 2..18 chars. Fallback to a 24-name static pool (SLOPPY/PIETER/XENOFISH/etc) if supabase unreachable or table empty.

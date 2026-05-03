@@ -181,6 +181,7 @@ h1 .accent{color:var(--gold)}
       <div class="pill" aria-label="Named fish alive"><span>NAMED</span> <b id="hNamed">0</b></div>
       <div class="pill" aria-label="Total kills"><span>KILLS</span> <b id="hKills">0</b></div>
       <div class="pill" aria-label="Apex"><span>APEX</span> <b id="hApex">—</b></div>
+      <div class="pill" aria-label="Plankton bounty target"><span>ARASAIN</span> <b id="hPlankton">—</b></div>
       <button id="muteBtn" class="mute-btn" type="button" aria-label="Toggle audio" aria-pressed="false">♪</button>
     </div>
   </div>
@@ -403,10 +404,50 @@ function spawnAtEdge(opts){
   return f;
 }
 
+// === Plankton (the singular ARASAIN) ===
+// One tiny plankton always exists in the ocean. Every predator
+// prioritizes it WAY above other prey — they detect it from 2.5×
+// their normal sense radius and target it through normal prey. It
+// flees with high speed + erratic jitter. When eaten, respawns at a
+// random edge after 5-9s so the chase never ends for long.
+const PLANKTON_NAME = 'ARASAIN';
+const PLANKTON_SIZE = 4.5;
+const PLANKTON_SPEED = 150;
+const PLANKTON_PRIORITY_MULT = 2.5;   // sense range mult for plankton
+let plankton = null;
+let planktonRespawnT = 0;
+let planktonKilledBy = null;
+
+function spawnPlankton(){
+  const ang = Math.random() * Math.PI * 2;
+  // Spawn somewhere away from the action — pick from the middle ring.
+  const dist = Math.min(WORLD_W, WORLD_H) * 0.32;
+  plankton = {
+    isPlankton: true,
+    name: PLANKTON_NAME,
+    seed: (Math.random() * 1e9) | 0,
+    palette: { body:'#aef0ff', belly:'#ffffff', fin:'#5fc1b3' },
+    worldX: Math.cos(ang) * dist,
+    worldY: Math.sin(ang) * dist,
+    vx: 0, vy: 0,
+    size: PLANKTON_SIZE,
+    facing: Math.random() * Math.PI * 2,
+    wanderT: 0, wanderA: 0,
+    speedScalar: PLANKTON_SPEED,
+    huntCD: 0,
+    state: 'flee',
+    target: null,
+    age: 0,
+    kills: 0,
+  };
+  fishes.push(plankton);
+}
+
 // === Initial spawn ===
 function seedOcean(){
   fishes.length = 0;
   kills = 0;
+  plankton = null; planktonRespawnT = 0; planktonKilledBy = null;
   reshuffleNameQueue();
   // Spread fish across the world; smaller fish more common (rollSize bias).
   for (let i = 0; i < 48; i++){
@@ -423,6 +464,8 @@ function seedOcean(){
     const f = sorted[Math.floor(i * sorted.length * 0.5 / nameCount)];
     if (!f.name) f.name = nextName();
   }
+  // Plankton enters last so it doesn't get auto-named or eaten on frame 1
+  spawnPlankton();
 }
 
 // === AI ===
@@ -431,28 +474,90 @@ const SAFE_RATIO  = 1.18;   // anything > size * SAFE_RATIO is a threat
 const PREY_RATIO  = 0.82;   // anything < size * PREY_RATIO is prey
 const HUNT_DURATION = 4.0;  // seconds before reacquiring target
 
-function tickAI(f, dt){
-  f.age += dt;
-  // Find nearest threat + nearest prey in sense radius
-  const sense = f.size * 8 + SENSE_BASE;
-  let threat = null, threatD = sense;
-  let prey   = null, preyD   = sense;
+function tickPlanktonAI(f, dt){
+  // Plankton: pure flee from nearest fish + erratic random jitter so
+  // its trajectory is hard to predict. No hunting, no wandering.
+  let threat = null, threatD = 1e9;
   for (let i = 0; i < fishes.length; i++){
     const o = fishes[i];
     if (o === f) continue;
     const dx = o.worldX - f.worldX;
     const dy = o.worldY - f.worldY;
     const d = Math.hypot(dx, dy);
+    if (d < threatD){ threat = o; threatD = d; }
+  }
+  if (threat && threatD < 280){
+    const dx = f.worldX - threat.worldX;
+    const dy = f.worldY - threat.worldY;
+    const m = Math.hypot(dx, dy) || 1;
+    f.vx += (dx/m) * 260 * dt;
+    f.vy += (dy/m) * 260 * dt;
+  } else {
+    // ambient drift even when nothing is chasing
+    f.vx += (Math.random()-0.5) * 60 * dt;
+    f.vy += (Math.random()-0.5) * 60 * dt;
+  }
+  // erratic jitter every tick — plankton motion looks random by design
+  f.vx += (Math.random()-0.5) * 110 * dt;
+  f.vy += (Math.random()-0.5) * 110 * dt;
+  f.vx *= Math.pow(0.94, dt*60);
+  f.vy *= Math.pow(0.94, dt*60);
+  const sp = Math.hypot(f.vx, f.vy);
+  if (sp > f.speedScalar){ f.vx *= f.speedScalar/sp; f.vy *= f.speedScalar/sp; }
+  if (sp > 5){
+    const t = Math.atan2(f.vy, f.vx);
+    let dA = ((t - f.facing + Math.PI*3) % (Math.PI*2)) - Math.PI;
+    f.facing += dA * (1 - Math.exp(-14 * dt));
+  }
+  f.worldX += f.vx * dt;
+  f.worldY += f.vy * dt;
+  const margin = 60;
+  if (f.worldX >  WORLD_W/2 + margin){ f.worldX =  WORLD_W/2 + margin; f.vx *= -0.7; }
+  if (f.worldX < -WORLD_W/2 - margin){ f.worldX = -WORLD_W/2 - margin; f.vx *= -0.7; }
+  if (f.worldY >  WORLD_H/2 + margin){ f.worldY =  WORLD_H/2 + margin; f.vy *= -0.7; }
+  if (f.worldY < -WORLD_H/2 - margin){ f.worldY = -WORLD_H/2 - margin; f.vy *= -0.7; }
+}
+
+function tickAI(f, dt){
+  f.age += dt;
+  // Plankton has its own behaviour — pure flee with erratic jitter.
+  if (f.isPlankton){ tickPlanktonAI(f, dt); return; }
+  // Find nearest threat + nearest prey in sense radius. Plankton is
+  // detected at PLANKTON_PRIORITY_MULT × the normal range and ALWAYS
+  // wins the prey slot if seen — every predator drops what it's doing
+  // and chases ARASAIN.
+  const sense = f.size * 8 + SENSE_BASE;
+  const planktonSense = sense * PLANKTON_PRIORITY_MULT;
+  let threat = null, threatD = sense;
+  let prey   = null, preyD   = sense;
+  let saw    = false;
+  for (let i = 0; i < fishes.length; i++){
+    const o = fishes[i];
+    if (o === f) continue;
+    const dx = o.worldX - f.worldX;
+    const dy = o.worldY - f.worldY;
+    const d = Math.hypot(dx, dy);
+    if (o.isPlankton){
+      // Plankton-priority detection: if within extended range AND we
+      // could eat it (which is everyone, since plankton is tiny),
+      // override prey choice.
+      if (d < planktonSense && f.size > o.size * (1/PREY_RATIO)){
+        prey = o; preyD = d; saw = true;
+      }
+      continue;
+    }
     if (d > sense) continue;
     if (o.size > f.size * SAFE_RATIO){
-      // threat — closest wins (size-weighted slightly toward bigger)
       const eff = d / (1 + Math.log(o.size / f.size));
       if (eff < threatD){ threat = o; threatD = eff; }
-    } else if (o.size < f.size * PREY_RATIO){
+    } else if (o.size < f.size * PREY_RATIO && !saw){
+      // Only consider regular prey if we haven't locked onto plankton.
       if (d < preyD){ prey = o; preyD = d; }
     }
   }
-  // Resolve state
+  // Threats override hunting — ARASAIN priority does NOT override
+  // self-preservation. A predator running from a bigger predator
+  // won't suicide-chase plankton.
   if (threat){
     f.state = 'flee';
     f.target = threat;
@@ -546,6 +651,15 @@ function resolveEats(){
       eater.size += eaten.size * 0.30;
       eater.kills++;
       kills++;
+      // ARASAIN bounty: eating the plankton is a much bigger deal —
+      // size pop, golden burst, the eater's name flashed in the feed.
+      if (eaten.isPlankton){
+        eater.size += 6;            // bonus chunk on top of the normal stake
+        plankton = null;
+        planktonRespawnT = 5 + Math.random() * 4;
+        planktonKilledBy = eater.name || ('a ' + sizeWord(eater.size) + ' fish');
+        spawnPlanktonBurst(eaten);
+      }
       // record event
       addFeedItem(eater, eaten);
       // burst
@@ -608,6 +722,19 @@ function spawnEatBurst(f){
       maxLife: 0.6 + Math.random()*0.5,
       color: f.palette.body,
       size: 2 + Math.random()*4,
+    });
+  }
+}
+function spawnPlanktonBurst(f){
+  // Bigger, golden burst when ARASAIN is consumed.
+  for (let i = 0; i < 28; i++){
+    particles.push({
+      worldX: f.worldX, worldY: f.worldY,
+      vx: (Math.random()-0.5)*220, vy: (Math.random()-0.5)*220,
+      life: 1.0 + Math.random()*0.8,
+      maxLife: 1.0 + Math.random()*0.8,
+      color: i % 3 === 0 ? '#f5c453' : (i % 3 === 1 ? '#aef0ff' : '#dff5fb'),
+      size: 3 + Math.random()*5,
     });
   }
 }
@@ -690,8 +817,16 @@ const FEED_TTL = 8;     // seconds
 function addFeedItem(eater, eaten){
   const eaterTag = eater.name || ('a ' + sizeWord(eater.size) + ' fish');
   const eatenTag = eaten.name || ('a ' + sizeWord(eaten.size) + ' fish');
-  const verb = FEED_VERBS[Math.floor(Math.random()*FEED_VERBS.length)];
-  feedItems.unshift({ text: `<b>${eaterTag}</b> ${verb} <b>${eatenTag}</b>`, t: 0, named: !!(eater.name || eaten.name) });
+  // Special verbs reserved for the plankton bounty
+  const verb = eaten.isPlankton
+    ? (Math.random() < 0.5 ? 'CLAIMED THE BOUNTY ON' : 'cracked open')
+    : FEED_VERBS[Math.floor(Math.random()*FEED_VERBS.length)];
+  feedItems.unshift({
+    text: `<b>${eaterTag}</b> ${verb} <b>${eatenTag}</b>`,
+    t: 0,
+    named: !!(eater.name || eaten.name),
+    bounty: !!eaten.isPlankton,
+  });
   while (feedItems.length > 6) feedItems.pop();
 }
 function sizeWord(s){
@@ -707,6 +842,7 @@ const hPop   = document.getElementById('hPop');
 const hNamed = document.getElementById('hNamed');
 const hKills = document.getElementById('hKills');
 const hApex  = document.getElementById('hApex');
+const hPlankton = document.getElementById('hPlankton');
 const lbList = document.getElementById('lbList');
 const feedListEl = document.getElementById('feedList');
 let hudAcc = 0;
@@ -716,6 +852,17 @@ function refreshHud(){
   for (const f of fishes) if (f.name) namedAlive++;
   hNamed.textContent = namedAlive;
   hKills.textContent = kills;
+  // ARASAIN status — alive = "ALIVE", dead = countdown, otherwise pending
+  if (plankton){
+    hPlankton.textContent = 'ALIVE';
+    hPlankton.style.color = '#aef0ff';
+  } else if (planktonRespawnT > 0){
+    hPlankton.textContent = 'RESPAWN ' + Math.ceil(planktonRespawnT) + 's';
+    hPlankton.style.color = '#e7704c';
+  } else {
+    hPlankton.textContent = '—';
+    hPlankton.style.color = '';
+  }
   // leaderboard: top 5 named by size
   const named = fishes.filter(f => f.name).slice().sort((a, b) => b.size - a.size);
   const top = named.slice(0, 5);
@@ -762,7 +909,61 @@ function drawBackground(t){
   }
 }
 
+function drawPlankton(f){
+  // Plankton: tiny luminous orb with pulsing halo + spotlight beam, so
+  // chat can spot ARASAIN at any zoom level.
+  const [sx, sy] = worldToScreen(f.worldX, f.worldY);
+  const z = viewScale();
+  const r = Math.max(3, f.size * z * 0.55);
+  const t = performance.now() * 0.004;
+  const pulse = 1 + Math.sin(t) * 0.18;
+  // Outer halo (large, so it's locatable)
+  const haloR = r * 8 * pulse;
+  const halo = ctx.createRadialGradient(sx, sy, r*0.5, sx, sy, haloR);
+  halo.addColorStop(0,    'rgba(245,196,83,0.55)');
+  halo.addColorStop(0.55, 'rgba(174,240,255,0.18)');
+  halo.addColorStop(1,    'rgba(174,240,255,0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(sx, sy, haloR, 0, Math.PI*2); ctx.fill();
+  // Body — small bright orb
+  const body = ctx.createRadialGradient(sx - r*0.3, sy - r*0.3, 0, sx, sy, r);
+  body.addColorStop(0, '#ffffff');
+  body.addColorStop(0.4, '#aef0ff');
+  body.addColorStop(1, '#5fc1b3');
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.arc(sx, sy, r * pulse, 0, Math.PI*2); ctx.fill();
+  // Antennae / cilia — three radiating dots
+  ctx.fillStyle = '#aef0ff';
+  for (let i = 0; i < 3; i++){
+    const a = t + i * Math.PI*2/3;
+    ctx.beginPath();
+    ctx.arc(sx + Math.cos(a) * r * 1.6, sy + Math.sin(a) * r * 1.6, r * 0.22, 0, Math.PI*2);
+    ctx.fill();
+  }
+  // Always-on label in coral
+  ctx.font = `${Math.max(11, r * 1.6)}px 'Major Mono Display', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const text = f.name;
+  const tw = ctx.measureText(text).width;
+  const padX = 6, padY = 3;
+  const labelY = sy + r + 8;
+  ctx.fillStyle = 'rgba(3,23,34,0.85)';
+  roundRect(ctx, sx - tw/2 - padX, labelY, tw + padX*2, parseInt(ctx.font, 10) + padY*2, 4);
+  ctx.fill();
+  ctx.fillStyle = '#e7704c';
+  ctx.fillText(text, sx, labelY + padY);
+  // Tag arrow
+  ctx.fillStyle = 'rgba(3,23,34,0.85)';
+  ctx.beginPath();
+  ctx.moveTo(sx - 5, labelY);
+  ctx.lineTo(sx + 5, labelY);
+  ctx.lineTo(sx,     labelY - 6);
+  ctx.closePath(); ctx.fill();
+}
+
 function drawFish(f){
+  if (f.isPlankton){ drawPlankton(f); return; }
   const [sx, sy] = worldToScreen(f.worldX, f.worldY);
   const z = viewScale();
   const len = f.size * z;
@@ -902,6 +1103,16 @@ function update(dt){
   resolveEats();
   tickParticles(dt);
   maintainPopulation(dt);
+  // Plankton respawn — ARASAIN never stays gone for long.
+  if (!plankton && planktonRespawnT > 0){
+    planktonRespawnT -= dt;
+    if (planktonRespawnT <= 0){
+      spawnPlankton();
+      // Announce its return so chat sees the chase resume.
+      feedItems.unshift({ text: `<b>ARASAIN</b> drifts back into the deep`, t: 0, named: true });
+      while (feedItems.length > 6) feedItems.pop();
+    }
+  }
   // Age out feed items
   for (let i = feedItems.length - 1; i >= 0; i--){
     feedItems[i].t += dt;
