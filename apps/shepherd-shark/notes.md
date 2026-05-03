@@ -1,6 +1,14 @@
 # shepherd-shark
 
 ## log
+- 2026-05-03: stripped controls + fixed-step physics (chat ask: "remove all controls, audit dt for smoother rendering").
+  - Removed dash (mechanic + audio + CD ring + space binding + click-to-dash + mobile dash button).
+  - Removed WASD/Arrow steering.
+  - Removed `.touch` HTML/CSS.
+  - Only input now: pointer move = aim. Pointer down still ensures audio (unlock gesture). P pause and M mute kept as meta affordances.
+  - Cursor near dead-center (within 3px) keeps previous facing instead of jittering through the singularity at atan2(0,0).
+  - Facing rotation now uses `dA * (1 - exp(-6*dt))` instead of `dA * min(1, dt*6)` — exact frame-rate-independent ease that doesn't clip to 1 on long frames.
+  - Switched render loop to fixed-step physics: 1/120 s steps via accumulator, render at display rate. MAX_DT = 0.25s clamp on long pauses (tab switch); MAX_STEPS_PER_FRAME = 8 with backlog-drop guard against spiral-of-death when browser falls behind. Update + tickParticles always see consistent 1/120 s dt → motion is identical across 60Hz / 120Hz / variable refresh displays.
 - 2026-05-03: shipped — infinite-zoom fish-eat-fish.
   - **Player = random fish from the school**. On START, type a name (persisted to localStorage as `shepherd-shark-name`). The game seeds N fish across the visible area, randomly picks one (preferring small ones for growth headroom), and pins your name to it. The player inherits that fish's color palette, shape bias, fin count, seed, and starting size — so your fish is visually a real member of the school.
   - **Constant-zoom loop**: `zoom() = TARGET_PX / player.size` always. Player renders at TARGET_PX (70 px) regardless of size. As you grow, the world scales down — bigger predators that were huge at size 1.0 become normal-sized at size 5.0; new predators spawn proportionally. The visual scene "loops" forever — you can grow unboundedly and the screen always looks like a fish among fish.
