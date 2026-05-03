@@ -469,6 +469,15 @@ function makeNinja(spec) {
       // brain logic is lerped toward this at AI_TURN_RATE so AI
       // ninjas no longer pivot instantly.
       steeredVx: 0, steeredVy: 0,
+      // Stun timer — when the NPC bumps an obstacle (its move was
+      // rejected by blocksAt), it gets stunned for 0.3-0.5s so the
+      // chase has visible "oh no I crashed" moments.
+      stunT: 0,
+      // Per-NPC flee-angle bias. Used to break up the visual
+      // mirroring where every runner sprints at the EXACT opposite
+      // angle from IT — small per-ninja angular offset (in radians)
+      // so each runner picks a slightly different escape vector.
+      fleeBias: 0,
     },
     safeAccum: 0,          // seconds spent NOT being IT (player score)
     lastStepT: 0,
@@ -492,6 +501,10 @@ function spawnNinjas() {
     n.x = WORLD.w / 2 + Math.cos(angle) * 160;
     n.y = WORLD.h / 2 + Math.sin(angle) * 160;
     n.facing = Math.cos(angle) >= 0 ? 1 : -1;
+    // Stable per-NPC flee bias (-0.6 .. +0.6 rad ≈ ±35°). Used inside
+    // the runner-flee branch to nudge each NPC's escape angle off the
+    // exact-opposite-of-IT direction, breaking up the mirroring look.
+    n.aiState.fleeBias = (i - specs.length / 2) * 0.32;
     NINJAS.push(n);
   }
   // Pick the first AI as IT
@@ -633,6 +646,15 @@ const AI_REACT_MIN = 0.18;     // sec — fastest re-evaluation
 const AI_REACT_MAX = 0.32;     // sec — slowest re-evaluation
 const AI_TURN_RATE = 11;       // velocity lerp rate (1/sec)
 function aiTick(n, dt, t) {
+  // STUN: NPC just bumped a wall/tree → freeze for the remaining stun
+  // duration. We zero velocity (so they look surprised) and skip both
+  // reaction-decrement and steering. Eyes go dizzy thanks to vx/vy=0
+  // making `moving` false in drawNinja → upright pose, no run cycle.
+  if (n.aiState.stunT > 0) {
+    n.aiState.stunT -= dt;
+    n.vx = n.vy = 0;
+    return;
+  }
   // Decrement reaction timer; only re-pick targets when it expires.
   n.aiState.reactT -= dt;
   if (n.aiState.reactT > 0) {
@@ -681,9 +703,14 @@ function aiTick(n, dt, t) {
     if (dy < -WORLD.h / 2) dy += WORLD.h;
     const d = Math.hypot(dx, dy) || 1;
     if (d < 280) {
-      // sprint flee directly away
-      n.aiState.targetX = n.x + dx / d * 200;
-      n.aiState.targetY = n.y + dy / d * 200;
+      // sprint flee — but ROTATE the escape vector by this NPC's
+      // stable fleeBias (±35°) so all runners don't sprint at the
+      // exact mirror of IT. Reduces the visual "swarm of clones"
+      // effect chat called out.
+      const baseAng = Math.atan2(dy, dx);
+      const a = baseAng + (n.aiState.fleeBias || 0);
+      n.aiState.targetX = n.x + Math.cos(a) * 200;
+      n.aiState.targetY = n.y + Math.sin(a) * 200;
       n.sprinting = !n.sprintLockedOut && n.chakra > 20;
     } else {
       // wander with occasional reroll
@@ -773,9 +800,16 @@ function stepNinja(n, dt) {
   let ny = n.y + n.vy * dt * speedScale;
   // === AXIS-SEPARATED MOVE — only obstacles can block ===
   // Edges don't block; the world wraps below. Trees + rocks still
-  // reject the step so the runner can pivot around cover.
-  if (!blocksAt(nx, n.y, 14)) n.x = nx;
-  if (!blocksAt(n.x, ny, 14)) n.y = ny;
+  // reject the step so the runner can pivot around cover. NPCs that
+  // bump an obstacle while moving fast get a brief STUN (player is
+  // exempt — they can feel their input, no need to slap them).
+  let bumped = false;
+  if (!blocksAt(nx, n.y, 14)) n.x = nx; else bumped = true;
+  if (!blocksAt(n.x, ny, 14)) n.y = ny; else bumped = true;
+  if (bumped && !n.isPlayer && Math.hypot(n.vx, n.vy) > 80) {
+    n.aiState.stunT = 0.32 + Math.random() * 0.18;
+    n.vx = n.vy = 0;
+  }
   // === SCREEN WRAP — pac-man style toroidal world ===
   // Per chat: replace bounce/edge-clamp with wrap so neither the
   // player nor the IT bot can ever get stuck against a wall. Cross
