@@ -469,6 +469,11 @@ function makeNpc() {
     alive: true,
     age: 0,
     lastResponse: null,     // {shapeId, disasterType} — what they bet on this round
+    // Fear level 0..1. Increases when nearby ducks die. Decreases the
+    // longer a duck stays alive. Used by the SOURDOUGH BOSS routine:
+    // fear > 0.5 → flee the bread, fear ≤ 0.5 → swarm + peck it.
+    fear: 0.5 + (Math.random() - 0.5) * 0.4,
+    swarming: false,        // currently pecking the bread
   };
 }
 spawnPopulation();
@@ -483,8 +488,18 @@ const state = {
   pending: null,       // { type, drawnAt, durationMs } once player picks
   disaster: null,      // { type, t, ...DISASTERS[type] state } during eruption
   toastT: 0,
-  totalLearned: 0,     // # NPCs that have a non-zero Q for the current shape
+  totalLearned: 0,
+  // === SOURDOUGH BOSS ===
+  // Spawns every 60s. Drifts around the field. Ducks with fear > 0.5
+  // flee, ducks with fear ≤ 0.5 swarm + peck it. Boss has HP and dies
+  // when pecked enough. While alive, ducks within bite-range take damage.
+  bossT: 60,           // countdown until next spawn (sec)
+  boss: null,          // { x, y, vx, vy, hp, maxHp, age }
 };
+const BOSS_RADIUS = 56;       // visual + collision radius
+const BOSS_BITE_R = 70;       // close enough to peck
+const BOSS_DANGER_R = 28;     // close enough to be eaten
+const BOSS_MAX_HP = 100;
 const particles = [];
 
 const bannerEl = document.getElementById('banner');
@@ -664,6 +679,138 @@ function endDisaster() {
   }
   sfx.learn();
   refreshHud();
+}
+
+// =====================================================================
+// SOURDOUGH BOSS — every 60s a giant slice floats in
+// =====================================================================
+function spawnBoss() {
+  // Drift in from a random edge with a modest velocity
+  const edge = Math.floor(Math.random() * 4);
+  let x = 0, y = 0, vx = 0, vy = 0;
+  const W = cvs.width, H = cvs.height;
+  if (edge === 0) { x = 80;     y = Math.random() * H; vx =  60; }
+  if (edge === 1) { x = W - 80; y = Math.random() * H; vx = -60; }
+  if (edge === 2) { x = Math.random() * W; y = 80;     vy =  60; }
+  if (edge === 3) { x = Math.random() * W; y = H - 80; vy = -60; }
+  state.boss = { x, y, vx, vy, hp: BOSS_MAX_HP, maxHp: BOSS_MAX_HP, age: 0 };
+  showBanner('★ SOURDOUGH ARRIVES ★', 'fearful flee · brave swarm');
+  blip(180, 0.30, 'sawtooth', 0.20);
+  setTimeout(() => blip(110, 0.40, 'square', 0.18), 120);
+}
+function tickBoss(dt) {
+  state.bossT -= dt;
+  if (!state.boss && state.bossT <= 0) {
+    spawnBoss();
+    state.bossT = 60;
+  }
+  const b = state.boss;
+  if (!b) return;
+  b.age += dt;
+  // Drift: bounce off walls, wobble velocity slightly
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+  if (b.x < BOSS_RADIUS)             { b.x = BOSS_RADIUS;             b.vx = Math.abs(b.vx); }
+  if (b.x > cvs.width  - BOSS_RADIUS){ b.x = cvs.width  - BOSS_RADIUS; b.vx = -Math.abs(b.vx); }
+  if (b.y < BOSS_RADIUS)             { b.y = BOSS_RADIUS;             b.vy = Math.abs(b.vy); }
+  if (b.y > cvs.height - BOSS_RADIUS){ b.y = cvs.height - BOSS_RADIUS; b.vy = -Math.abs(b.vy); }
+  // Per-duck behaviour: fear > 0.5 → flee target away, else swarm
+  // toward boss centre + nibble for damage at bite range.
+  for (const n of NPCS) {
+    if (!n.alive) continue;
+    const dx = n.x - b.x, dy = n.y - b.y;
+    const d = Math.hypot(dx, dy);
+    if (n.fear > 0.5) {
+      // Flee — set target to push away from the boss (only if close-ish)
+      if (d < 220) {
+        const m = d || 1;
+        n.target = { x: n.x + (dx / m) * 200, y: n.y + (dy / m) * 200 };
+        n.fleeing = true;
+        n.swarming = false;
+      }
+    } else {
+      // Swarm — target the boss centre
+      if (d > BOSS_BITE_R) {
+        n.target = { x: b.x, y: b.y };
+        n.fleeing = false;
+        n.swarming = false;
+      } else {
+        // Close enough to peck
+        n.swarming = true;
+        n.fleeing = false;
+        // Damage the boss (per second per duck pecking)
+        b.hp -= 12 * dt;
+      }
+    }
+    // Boss eats anyone too close — instant kill, raises nearby ducks' fear
+    if (n.alive && d < BOSS_DANGER_R) {
+      n.alive = false;
+      // particles for the chomp
+      for (let i = 0; i < 6; i++) {
+        particles.push({
+          kind: 'spark', x: n.x, y: n.y, color: '#c87a14',
+          life: 0.5, age: 0,
+        });
+      }
+      // Raise fear of nearby surviving ducks (witnessed a death)
+      for (const o of NPCS) {
+        if (!o.alive || o === n) continue;
+        const od = Math.hypot(o.x - n.x, o.y - n.y);
+        if (od < 120) o.fear = Math.min(1, o.fear + 0.18);
+      }
+    }
+  }
+  // Slow fear decay for surviving ducks (calm comes back over time)
+  for (const n of NPCS) if (n.alive) n.fear = Math.max(0.05, n.fear - dt * 0.02);
+  // Boss death
+  if (b.hp <= 0) {
+    showBanner('★ SOURDOUGH FELL ★', 'the brave ducks feasted');
+    blip(880, 0.20, 'square', 0.20);
+    setTimeout(() => blip(1320, 0.30, 'triangle', 0.18), 100);
+    // Reward: every alive duck gets a fear nudge DOWN (success builds courage)
+    for (const n of NPCS) if (n.alive) n.fear = Math.max(0.05, n.fear - 0.25);
+    state.boss = null;
+    for (const n of NPCS) { n.swarming = false; n.fleeing = false; n.target = null; }
+  }
+}
+function drawBoss() {
+  const b = state.boss;
+  if (!b) return;
+  // Sourdough slice — tan crust ring + cream crumb interior + crumb specks
+  const t = performance.now() / 600;
+  const wob = Math.sin(t) * 3;
+  // Crust ring (darker outer)
+  ctx.fillStyle = '#8a5a2a';
+  ctx.beginPath(); ctx.ellipse(b.x, b.y + wob, BOSS_RADIUS, BOSS_RADIUS * 0.85, 0, 0, Math.PI * 2); ctx.fill();
+  // Crumb interior
+  ctx.fillStyle = '#ead49a';
+  ctx.beginPath(); ctx.ellipse(b.x, b.y + wob, BOSS_RADIUS - 8, BOSS_RADIUS * 0.85 - 8, 0, 0, Math.PI * 2); ctx.fill();
+  // Crumb holes
+  ctx.fillStyle = 'rgba(120, 80, 30, 0.45)';
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + t * 0.3;
+    const r = (BOSS_RADIUS - 16) * (0.3 + (i % 3) * 0.18);
+    const cx = b.x + Math.cos(a) * r;
+    const cy = b.y + wob + Math.sin(a) * r * 0.85;
+    ctx.beginPath(); ctx.arc(cx, cy, 3 + (i % 3), 0, Math.PI * 2); ctx.fill();
+  }
+  // Crust highlight
+  ctx.strokeStyle = 'rgba(255, 230, 160, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(b.x - 6, b.y + wob - 6, BOSS_RADIUS - 4, BOSS_RADIUS * 0.85 - 4, 0, Math.PI * 1.0, Math.PI * 1.6); ctx.stroke();
+  // HP bar above
+  const hpW = BOSS_RADIUS * 1.4;
+  const hpY = b.y - BOSS_RADIUS - 14;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(b.x - hpW / 2 - 1, hpY - 1, hpW + 2, 7);
+  ctx.fillStyle = '#5a1010';
+  ctx.fillRect(b.x - hpW / 2, hpY, hpW, 5);
+  ctx.fillStyle = '#c83838';
+  ctx.fillRect(b.x - hpW / 2, hpY, hpW * Math.max(0, b.hp / b.maxHp), 5);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 10px "IBM Plex Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('SOURDOUGH', b.x, hpY - 4);
 }
 
 // =====================================================================
@@ -922,6 +1069,7 @@ function loop(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
   if (state.phase === 'playing') {
+    tickBoss(dt);
     tickNpcs(dt);
     tickDisaster(dt);
     tickParticles(dt);
@@ -932,6 +1080,7 @@ function loop(now) {
   clearScene();
   drawCurrentShape();
   drawDisaster();
+  drawBoss();
   drawNpcs();
   requestAnimationFrame(loop);
 }
