@@ -4,9 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Dimension Ten</title>
-<meta name="description" content="A 10-dimensional hypercube projected to 2D. 1024 vertices, 5120 edges. 45 rotation planes, your fingertips on the sliders." />
+<meta name="description" content="An N-dimensional hypercube projected to 2D. Slide N from 2 to 100, rotate the planes, watch the shadow rearrange." />
 <meta property="og:title" content="Dimension Ten" />
-<meta property="og:description" content="A 10-dimensional hypercube projected to 2D. 1024 vertices, 5120 edges. 45 rotation planes, your fingertips on the sliders." />
+<meta property="og:description" content="An N-dimensional hypercube projected to 2D. Slide N from 2 to 100, rotate the planes, watch the shadow rearrange." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://sloppy.live/dimension-ten" />
 <meta property="og:image" content="https://image.pollinations.ai/prompt/abstract%20wireframe%20rotating%20hypercube%2010%20dimensions%20cyan%20magenta%20glowing%20vertices%20mathematical%20visualization%20black%20void%20background?width=1200&height=630&nologo=true" />
@@ -173,13 +173,28 @@
       <h1>DIMENSION <span class="ten">TEN</span></h1>
       <div class="pre" aria-hidden="true">⬡ N=10 · 2^10 vertices ⬡</div>
       <div class="meta">
-        <b>1024</b> vertices · <b>5120</b> edges · <b>45</b> rotation planes.
-        Drag canvas for the (0,1) and (0,2) planes. Sliders below for the rest.
+        <b id="metaVerts">1024</b> vertices · <b id="metaEdges">5120</b> edges · <b id="metaPlanes">45</b> rotation planes.
+        Drag canvas for the (0,1) and (0,2) planes.
       </div>
       <div class="meta" id="auditMeta" style="margin-top:0.375rem">
         Projection audit: <b id="auditPts">—</b> distinct screen points.
       </div>
     </header>
+    <section>
+      <h2>Dimensions (N)</h2>
+      <div class="slider-row" style="grid-template-columns:3rem 1fr 3rem">
+        <label for="dimSlider"><span class="axes">N</span></label>
+        <input id="dimSlider" type="range" min="2" max="100" value="10" step="1"
+               aria-label="Number of dimensions, from 2 to 100">
+        <span class="val" id="dimVal">10</span>
+      </div>
+      <div class="meta" id="dimNote"
+           style="margin-top:0.5rem;font-style:normal;
+                  font-family:'IBM Plex Mono',monospace;font-size:0.6875rem;
+                  letter-spacing:0.04em;color:var(--ink-soft);line-height:1.5">
+        full hypercube · all 2<sup>N</sup> vertices rendered
+      </div>
+    </section>
     <section>
       <h2>Adjacent-pair Planes</h2>
       <div id="adjacentSliders"></div>
@@ -249,8 +264,25 @@ let supabaseReady = (async () => {
 // DIMENSION TEN — 10D hypercube projected to 2D
 // =====================================================================
 
-const N = 10;                              // dimensions
-const V_COUNT = 1 << N;                    // 1024 vertices
+// === Dimension-mutable state ===
+// N can be changed at runtime via the dimension slider (2..100). All
+// downstream geometry / planes / buffers are rebuilt by rebuildAll().
+let N = 10;
+let V_COUNT = 0;
+let vertices = null;     // Float32Array, V_COUNT * N
+let edges = null;        // Array of [aIdx, bIdx, bit]
+let PLANE_COUNT = 0;
+let planes = null;       // Array of [i, j]
+let angles = null;       // Float32Array, PLANE_COUNT
+let work = null;         // Float32Array, N (per-frame scratch)
+let projection = null;   // Float32Array, V_COUNT * 3 (x, y, depth)
+let autoSpeeds = null;   // Float32Array, PLANE_COUNT
+
+// Above this N we switch from "full hypercube" to a sampled random-walk
+// skeleton. 2^13 = 8192 verts is the soft ceiling for full mode on
+// modern browsers; 2^100 ≈ 10^30 obviously cannot be enumerated.
+const FULL_HC_MAX_N = 12;
+
 const cvs = document.getElementById('stage');
 const ctx = cvs.getContext('2d');
 
@@ -268,74 +300,113 @@ function fitCanvas() {
 window.addEventListener('resize', fitCanvas);
 fitCanvas();
 
-// === Build hypercube ===
-// Vertices: each one a binary index 0..2^N-1 mapped to ±1 per coord.
-const vertices = new Float32Array(V_COUNT * N);
-for (let i = 0; i < V_COUNT; i++) {
-  for (let k = 0; k < N; k++) {
-    vertices[i * N + k] = (i & (1 << k)) ? 1 : -1;
+// === Build geometry — full hypercube (small N) or sampled (high N) ===
+// Full mode: every vertex of {±1}^N enumerated. Edges = 1-bit-flip pairs.
+// Sampled mode: random-walk through {±1}^N. Each step picks a random
+// coord to flip — the start/end pair becomes an edge tagged with that
+// bit. Yields a sparse but dimensionally-honest skeleton at any N.
+function buildFullHypercube() {
+  V_COUNT = 1 << N;
+  vertices = new Float32Array(V_COUNT * N);
+  for (let i = 0; i < V_COUNT; i++) {
+    for (let k = 0; k < N; k++) {
+      vertices[i * N + k] = (i & (1 << k)) ? 1 : -1;
+    }
+  }
+  edges = [];
+  for (let a = 0; a < V_COUNT; a++) {
+    for (let k = 0; k < N; k++) {
+      if (!(a & (1 << k))) edges.push([a, a | (1 << k), k]);
+    }
+  }
+  // Total = N * 2^(N-1)
+}
+function buildSampledHypercube() {
+  // Edge budget shrinks with N to keep frame budget reasonable.
+  const K_EDGES = Math.max(1200, Math.min(6000, 8000 - N * 60));
+  const vertMap = new Map();
+  const tmp = [];
+  function addVert(coords) {
+    let key = '';
+    for (let k = 0; k < N; k++) key += coords[k] > 0 ? '1' : '0';
+    const hit = vertMap.get(key);
+    if (hit !== undefined) return hit;
+    const idx = tmp.length;
+    vertMap.set(key, idx);
+    tmp.push(Float32Array.from(coords));
+    return idx;
+  }
+  function randomVert() {
+    const v = new Float32Array(N);
+    for (let k = 0; k < N; k++) v[k] = Math.random() < 0.5 ? -1 : 1;
+    return v;
+  }
+  edges = [];
+  let cur = randomVert();
+  let curIdx = addVert(cur);
+  for (let i = 0; i < K_EDGES; i++) {
+    if (Math.random() < 0.04) {
+      cur = randomVert();
+      curIdx = addVert(cur);
+    }
+    const k = (Math.random() * N) | 0;
+    const next = Float32Array.from(cur);
+    next[k] = -next[k];
+    const nextIdx = addVert(next);
+    edges.push([curIdx, nextIdx, k]);
+    cur = next;
+    curIdx = nextIdx;
+  }
+  V_COUNT = tmp.length;
+  vertices = new Float32Array(V_COUNT * N);
+  for (let v = 0; v < V_COUNT; v++) {
+    for (let k = 0; k < N; k++) vertices[v * N + k] = tmp[v][k];
   }
 }
-// Edges: pairs (a, b) where popcount(a XOR b) === 1.
-// Equivalent: for each vertex a, for each bit k, b = a ^ (1<<k) — but
-// only emit when k > previous bit set to dedupe. Simplest: emit only
-// when (a & (1<<k)) === 0 — that gives each edge exactly once.
-const edges = [];
-for (let a = 0; a < V_COUNT; a++) {
-  for (let k = 0; k < N; k++) {
-    if (!(a & (1 << k))) edges.push([a, a | (1 << k)]);
-  }
-}
-// Total = N * 2^(N-1) = 5120 for N=10. ✓
 
-// === Rotation state ===
-// One angle per (i, j) plane, i < j. Total = N * (N-1) / 2 = 45.
-// Stored as a flat array indexed by `pairIndex(i, j)`.
-const PLANE_COUNT = N * (N - 1) / 2;
-const pairIndex = (i, j) => {
-  // canonical i < j; index = i*N - i*(i+1)/2 + (j - i - 1)
+// === Plane index (i, j), canonical i < j → linear index in [0, C(N,2)) ===
+function pairIndex(i, j) {
   return i * N - i * (i + 1) / 2 + (j - i - 1);
-};
-const planes = [];
-for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) planes.push([i, j]);
-const angles = new Float32Array(PLANE_COUNT);
+}
+function buildPlanes() {
+  PLANE_COUNT = N * (N - 1) / 2;
+  planes = new Array(PLANE_COUNT);
+  let idx = 0;
+  for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) planes[idx++] = [i, j];
+}
+
+function allocateBuffers() {
+  angles = new Float32Array(PLANE_COUNT);
+  work = new Float32Array(N);
+  projection = new Float32Array(V_COUNT * 3);
+  autoSpeeds = new Float32Array(PLANE_COUNT);
+  for (let p = 0; p < PLANE_COUNT; p++) {
+    autoSpeeds[p] = 0.05 + ((p * 7919) % 31) / 100;
+  }
+}
+
 // CHAT AUDIT: with all angles = 0 the projection only reads work[0]
-// and work[1] (bits 0 and 1 of the vertex index), so the 1024 vertices
-// collapse to 4 screen points and you see a flat square. The math IS
-// correct — it just needs non-zero rotations involving the higher
-// dimensions before they mix into (x, y). Seed every plane with a
-// small varied angle so every dim is "alive" in the projection from
-// boot. Reset button still zeros them all if the user wants pure axes.
+// and work[1] (bits 0 and 1 of the vertex), so vertices collapse to 4
+// screen points. Seed every plane with a small varied angle so every
+// dim is "alive" in the projection from boot. Reset still zeros them.
 function seedDefaultAngles() {
   for (let p = 0; p < PLANE_COUNT; p++) {
-    const [i, j] = planes[p];
-    // Hand-tuned spread: planes touching dim 0 or 1 get bigger angles
-    // so the higher dims propagate strongly into the screen plane;
-    // far-from-projection planes get smaller seed angles so they're
-    // present but not chaotic.
-    const involvesScreen = (i === 0 || i === 1 || j === 0 || j === 1);
+    const ij = planes[p];
+    const involvesScreen = (ij[0] === 0 || ij[0] === 1 || ij[1] === 0 || ij[1] === 1);
     const base = involvesScreen ? 0.5 : 0.25;
     angles[p] = base * Math.sin(p * 1.137) + 0.18 * Math.cos(p * 0.713);
   }
 }
-seedDefaultAngles();
 
-// === Projection scratch buffer ===
-// Reuse a single Float32Array per frame so we don't allocate.
-const work = new Float32Array(N);
-
-// Project a single vertex through the current rotations + take (x, y).
-// Returns also a "depth" value derived from the remaining N-2 coords
-// that we use for line alpha (further coords = "deeper" away from us).
-const projection = new Float32Array(V_COUNT * 3);   // x, y, depth
+// === Projection ===
 function projectAll() {
   for (let v = 0; v < V_COUNT; v++) {
     for (let k = 0; k < N; k++) work[k] = vertices[v * N + k];
-    // Apply each rotation in plane (i, j) by its angle.
     for (let p = 0; p < PLANE_COUNT; p++) {
       const a = angles[p];
       if (a === 0) continue;
-      const [i, j] = planes[p];
+      const ij = planes[p];
+      const i = ij[0], j = ij[1];
       const c = Math.cos(a), s = Math.sin(a);
       const wi = work[i], wj = work[j];
       work[i] = wi * c - wj * s;
@@ -343,17 +414,13 @@ function projectAll() {
     }
     projection[v * 3]     = work[0];
     projection[v * 3 + 1] = work[1];
-    // Depth = sum of squared remaining coords / N — used for alpha
     let d = 0;
     for (let k = 2; k < N; k++) d += work[k] * work[k];
-    projection[v * 3 + 2] = Math.sqrt(d / (N - 2));
+    projection[v * 3 + 2] = N > 2 ? Math.sqrt(d / (N - 2)) : 0;
   }
 }
 
-// === Audit helper — count distinct projected (x, y) points so the
-// user can SEE that all 1024 vertices are getting unique positions.
-// Bucket to 0.005 precision; if all 10 dims are alive in the
-// projection, we should see ~1024 distinct buckets.
+// === Audit — count distinct projected (x, y) buckets ===
 let distinctPoints = 0;
 function countDistinctProjections() {
   const seen = new Set();
@@ -368,80 +435,119 @@ function countDistinctProjections() {
 // === Render ===
 let glowOn = true;
 let depthFadeOn = true;
+// CHAT REQUEST: map each dimension to a unique HSL hue so the N
+// dimensions form a clean spectrum (no palette wrap-around even at
+// N=100). Hue offset 200° keeps the lowest dim in the cyan range that
+// matches the original aesthetic, then sweeps the full circle.
+function hueForDim(bit) {
+  return (200 + (bit * 360) / Math.max(N, 1)) % 360;
+}
+function colorForDim(bit, light) {
+  return 'hsl(' + hueForDim(bit) + ',82%,' + (light != null ? light : 62) + '%)';
+}
 function render() {
   // Trail-fade for that "stars-of-the-hypercube drifting" feel
   ctx.fillStyle = 'rgba(2, 5, 10, 0.32)';
   ctx.fillRect(0, 0, cvs.width, cvs.height);
   projectAll();
   const cx = cvs.width / 2, cy = cvs.height / 2;
-  // Auto-fit scale: bound by half the smaller viewport dimension and the
-  // hypercube's max extent ≈ √N at corners. We want corners in the
-  // visible area with a little margin.
   const scale = Math.min(cvs.width, cvs.height) * 0.34;
-  // === EDGES ===
-  // We batch all edges into per-bit-direction layers so each direction
-  // gets a distinct color. The bit that differs between two endpoints
-  // tells us which dimension this edge lies along — color by bit.
-  const palette = [
-    '#7adcff', '#ff5ec8', '#ffe27a', '#3dff7a',
-    '#a86bff', '#ff9e2a', '#5af0c6', '#ff5050',
-    '#7af5ff', '#ffaaff',
-  ];
+
+  // Bucket edges by their differing-bit so each dimension gets a color.
+  const buckets = new Array(N);
+  for (let k = 0; k < N; k++) buckets[k] = null;
+  for (let e = 0; e < edges.length; e++) {
+    const ed = edges[e];
+    const bit = ed[2];
+    let arr = buckets[bit];
+    if (!arr) { arr = []; buckets[bit] = arr; }
+    arr.push(ed[0], ed[1]);
+  }
+  const ALPHA_DENOM = Math.max(N, 6);
   for (let bit = 0; bit < N; bit++) {
+    const arr = buckets[bit];
+    if (!arr || arr.length === 0) continue;
     ctx.beginPath();
-    let drew = 0;
-    for (let e = 0; e < edges.length; e++) {
-      const [a, b] = edges[e];
-      if ((a ^ b) !== (1 << bit)) continue;
-      const ax = projection[a * 3]     * scale + cx;
-      const ay = projection[a * 3 + 1] * scale + cy;
-      const bx = projection[b * 3]     * scale + cx;
-      const by = projection[b * 3 + 1] * scale + cy;
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      drew++;
+    for (let q = 0; q < arr.length; q += 2) {
+      const a = arr[q], b = arr[q + 1];
+      ctx.moveTo(projection[a * 3]     * scale + cx, projection[a * 3 + 1] * scale + cy);
+      ctx.lineTo(projection[b * 3]     * scale + cx, projection[b * 3 + 1] * scale + cy);
     }
-    if (!drew) continue;
-    const col = palette[bit];
-    if (glowOn) {
-      ctx.shadowColor = col;
-      ctx.shadowBlur = 6;
-    } else {
-      ctx.shadowBlur = 0;
-    }
+    const col = colorForDim(bit);
+    if (glowOn) { ctx.shadowColor = col; ctx.shadowBlur = 6; }
+    else        { ctx.shadowBlur = 0; }
     ctx.strokeStyle = col;
-    ctx.globalAlpha = depthFadeOn ? (0.35 + 0.45 * (1 - bit / N)) : 0.7;
+    // Even alpha across all bits — every dimension is a real dimension,
+    // no privileged screen axis. Lightly biased toward later bits so
+    // the deeper dims still poke through the early ones.
+    ctx.globalAlpha = depthFadeOn ? (0.40 + 0.35 * (1 - bit / ALPHA_DENOM)) : 0.7;
     ctx.lineWidth = 1.1;
     ctx.stroke();
   }
   ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
-  // === VERTICES ===
-  // Bright center cores. Depth-fade alpha so vertices in deeper hidden
-  // dimensions look further away.
-  for (let v = 0; v < V_COUNT; v++) {
-    const x = projection[v * 3]     * scale + cx;
-    const y = projection[v * 3 + 1] * scale + cy;
-    const d = projection[v * 3 + 2];
-    const a = depthFadeOn ? (0.4 + 0.6 * (1 - d)) : 1;
-    ctx.fillStyle = 'rgba(255, 255, 255, ' + a + ')';
-    ctx.beginPath(); ctx.arc(x, y, 1.6, 0, Math.PI * 2); ctx.fill();
+
+  // Vertex dots — also tinted across the spectrum. Each vertex is
+  // assigned a hue from its coord pattern: in full mode by Hamming
+  // weight (which dim count is positive), in sampled mode by index
+  // hash. Skip rendering when too many to keep canvas fast/legible.
+  if (V_COUNT <= 6000) {
+    for (let v = 0; v < V_COUNT; v++) {
+      const x = projection[v * 3]     * scale + cx;
+      const y = projection[v * 3 + 1] * scale + cy;
+      const d = projection[v * 3 + 2];
+      // Compute a per-vertex "dominant dimension" by hashing the +1
+      // bits — it produces a stable, visually-evenly-spread color.
+      let h = 0;
+      for (let k = 0; k < N; k++) {
+        if (vertices[v * N + k] > 0) h = (h * 31 + (k + 1)) | 0;
+      }
+      const hue = ((h & 0xffff) % 360 + 360) % 360;
+      const a = depthFadeOn ? (0.50 + 0.50 * (1 - d)) : 1;
+      ctx.fillStyle = 'hsla(' + hue + ',75%,72%,' + a + ')';
+      ctx.beginPath(); ctx.arc(x, y, 1.7, 0, Math.PI * 2); ctx.fill();
+    }
   }
 }
 
 // === Slider UI ===
+// Caps so very large N doesn't spawn 4,950+ DOM nodes. The hidden
+// planes still rotate (auto / twist work on all PLANE_COUNT); they
+// just don't get an individual slider widget.
+const ADJ_DISPLAY_CAP = 30;
+const ALL_DISPLAY_CAP = 30;
+function noteLine(text, color) {
+  const el = document.createElement('div');
+  el.className = 'meta';
+  el.style.cssText = 'margin-top:0.375rem;font-style:normal;' +
+    "font-family:'IBM Plex Mono', monospace;font-size:0.6875rem;letter-spacing:0.04em;color:" +
+    (color || 'var(--ink-soft)');
+  el.textContent = text;
+  return el;
+}
 function buildSliderUI() {
-  // ADJACENT pairs (0,1) (1,2) ... (8,9) — the easy-to-grok 9 sliders
   const adj = document.getElementById('adjacentSliders');
-  for (let i = 0; i < N - 1; i++) {
-    adj.appendChild(makeSlider(i, i + 1));
-  }
-  // ALL pairs in compact form
   const all = document.getElementById('allSliders');
-  for (let p = 0; p < PLANE_COUNT; p++) {
-    const [i, j] = planes[p];
-    if (j === i + 1) continue;     // already in adjacent list
-    all.appendChild(makeSlider(i, j));
+  adj.innerHTML = '';
+  all.innerHTML = '';
+  // Adjacents — display first ADJ_DISPLAY_CAP only.
+  const adjMax = Math.max(0, N - 1);
+  const adjShown = Math.min(adjMax, ADJ_DISPLAY_CAP);
+  for (let i = 0; i < adjShown; i++) adj.appendChild(makeSlider(i, i + 1));
+  if (adjMax > adjShown) {
+    adj.appendChild(noteLine('+ ' + (adjMax - adjShown) + ' more adjacent pairs (TWIST randomizes them)'));
+  }
+  // Non-adjacent — first ALL_DISPLAY_CAP.
+  let shown = 0;
+  for (let p = 0; p < PLANE_COUNT && shown < ALL_DISPLAY_CAP; p++) {
+    const ij = planes[p];
+    if (ij[1] === ij[0] + 1) continue;
+    all.appendChild(makeSlider(ij[0], ij[1]));
+    shown++;
+  }
+  const nonAdj = PLANE_COUNT - adjMax;
+  if (nonAdj > shown) {
+    all.appendChild(noteLine('+ ' + (nonAdj - shown).toLocaleString() + ' more planes (TWIST randomizes all)'));
   }
 }
 function makeSlider(i, j) {
@@ -449,13 +555,17 @@ function makeSlider(i, j) {
   row.className = 'slider-row';
   const id = 'plane-' + i + '-' + j;
   const p = pairIndex(i, j);
-  // Initial value reflects the seeded angle so the slider matches the
-  // visible state at boot (rather than reading "0°" while the cube is
-  // already mid-twist).
   const seedVal = Math.round(angles[p] * 100);
   const seedDeg = Math.round(angles[p] * 180 / Math.PI);
+  // Color-code the axis label with the same HSL hue used for that
+  // dim's edges, so eye-tracking from slider → cube is immediate.
+  const hueI = hueForDim(i);
+  const hueJ = hueForDim(j);
   row.innerHTML =
-    '<label for="' + id + '"><span class="axes">' + i + '·' + j + '</span></label>' +
+    '<label for="' + id + '"><span class="axes">' +
+      '<span style="color:hsl(' + hueI + ',82%,68%)">' + i + '</span>·' +
+      '<span style="color:hsl(' + hueJ + ',82%,68%)">' + j + '</span>' +
+    '</span></label>' +
     '<input id="' + id + '" type="range" min="-628" max="628" value="' + seedVal + '"' +
       ' aria-label="Rotation in plane (' + i + ', ' + j + ')">' +
     '<span class="val" id="val-' + i + '-' + j + '">' + seedDeg + '°</span>';
@@ -465,56 +575,10 @@ function makeSlider(i, j) {
     angles[p] = +input.value / 100;
     val.textContent = Math.round(angles[p] * 180 / Math.PI) + '°';
   });
+  input.addEventListener('change', scheduleAutoSave);
   return row;
 }
-buildSliderUI();
 
-// === Auto-rotate ===
-let autoOn = false;
-const autoSpeeds = new Float32Array(PLANE_COUNT);
-for (let p = 0; p < PLANE_COUNT; p++) {
-  // Distinct slow speeds — primes-derived so the rotations don't all
-  // realign at once. Range 0.05..0.35 rad/sec.
-  autoSpeeds[p] = 0.05 + ((p * 7919) % 31) / 100;
-}
-function tickAuto(dt) {
-  if (!autoOn) return;
-  for (let p = 0; p < PLANE_COUNT; p++) {
-    angles[p] += autoSpeeds[p] * dt;
-    // Keep slider visuals in sync (only update visible adjacent + open all)
-    const [i, j] = planes[p];
-    const el = document.getElementById('plane-' + i + '-' + j);
-    if (el) {
-      // wrap to ±2π for slider clamp
-      let a = angles[p];
-      while (a > Math.PI * 2)  a -= Math.PI * 4;
-      while (a < -Math.PI * 2) a += Math.PI * 4;
-      el.value = Math.round(a * 100);
-      const v = document.getElementById('val-' + i + '-' + j);
-      if (v) v.textContent = Math.round(a * 180 / Math.PI) + '°';
-    }
-  }
-}
-
-// === Mouse drag for (0,1) + (0,2) planes (intuitive mapping) ===
-let dragging = false, lastX = 0, lastY = 0;
-cvs.addEventListener('pointerdown', e => {
-  dragging = true; lastX = e.clientX; lastY = e.clientY;
-  cvs.setPointerCapture(e.pointerId);
-});
-cvs.addEventListener('pointermove', e => {
-  if (!dragging) return;
-  const dx = e.clientX - lastX, dy = e.clientY - lastY;
-  lastX = e.clientX; lastY = e.clientY;
-  // Horizontal drag → rotate plane (0, 1) — the screen-X mix
-  // Vertical drag   → rotate plane (0, 2) — pull a 3rd axis into view
-  angles[pairIndex(0, 1)] += dx * 0.005;
-  angles[pairIndex(0, 2)] += dy * 0.005;
-  syncSliderRow(0, 1);
-  syncSliderRow(0, 2);
-});
-cvs.addEventListener('pointerup', e => { dragging = false; });
-cvs.addEventListener('pointercancel', () => { dragging = false; });
 function syncSliderRow(i, j) {
   const el = document.getElementById('plane-' + i + '-' + j);
   if (!el) return;
@@ -526,62 +590,141 @@ function syncSliderRow(i, j) {
   if (v) v.textContent = Math.round(a * 180 / Math.PI) + '°';
 }
 
+// === Auto-rotate ===
+let autoOn = false;
+function tickAuto(dt) {
+  if (!autoOn) return;
+  for (let p = 0; p < PLANE_COUNT; p++) {
+    angles[p] += autoSpeeds[p] * dt;
+    const ij = planes[p];
+    if (document.getElementById('plane-' + ij[0] + '-' + ij[1])) {
+      syncSliderRow(ij[0], ij[1]);
+    }
+  }
+}
+
+// === Mouse drag for (0,1) + (0,2) planes ===
+let dragging = false, lastX = 0, lastY = 0;
+cvs.addEventListener('pointerdown', e => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  cvs.setPointerCapture(e.pointerId);
+});
+cvs.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  if (N >= 2) { angles[pairIndex(0, 1)] += dx * 0.005; syncSliderRow(0, 1); }
+  if (N >= 3) { angles[pairIndex(0, 2)] += dy * 0.005; syncSliderRow(0, 2); }
+});
+cvs.addEventListener('pointerup',     () => { dragging = false; });
+cvs.addEventListener('pointercancel', () => { dragging = false; });
+
 // === Keyboard ===
 window.addEventListener('keydown', e => {
-  if (e.key === 'a' || e.key === 'A') { setAuto(!autoOn); }
-  if (e.key === 'r' || e.key === 'R') { resetAll(); }
-  if (e.key === 's' || e.key === 'S') { setGlow(!glowOn); }
+  if (e.key === 'a' || e.key === 'A') setAuto(!autoOn);
+  if (e.key === 'r' || e.key === 'R') resetAll();
+  if (e.key === 's' || e.key === 'S') setGlow(!glowOn);
 });
 
 // === Buttons ===
-const autoBtn = document.getElementById('autoBtn');
-const glowBtn = document.getElementById('glowBtn');
+const autoBtn  = document.getElementById('autoBtn');
+const glowBtn  = document.getElementById('glowBtn');
 const depthBtn = document.getElementById('depthBtn');
 const resetBtn = document.getElementById('resetBtn');
-function setAuto(v) {
-  autoOn = v;
-  autoBtn.classList.toggle('on', v);
-  autoBtn.setAttribute('aria-pressed', v ? 'true' : 'false');
-}
-function setGlow(v) {
-  glowOn = v;
-  glowBtn.classList.toggle('on', v);
-  glowBtn.setAttribute('aria-pressed', v ? 'true' : 'false');
-}
-function setDepth(v) {
-  depthFadeOn = v;
-  depthBtn.classList.toggle('on', v);
-  depthBtn.setAttribute('aria-pressed', v ? 'true' : 'false');
-}
+function setAuto(v)  { autoOn = v;       autoBtn.classList.toggle('on', v);  autoBtn.setAttribute('aria-pressed', v ? 'true' : 'false'); }
+function setGlow(v)  { glowOn = v;       glowBtn.classList.toggle('on', v);  glowBtn.setAttribute('aria-pressed', v ? 'true' : 'false'); }
+function setDepth(v) { depthFadeOn = v; depthBtn.classList.toggle('on', v); depthBtn.setAttribute('aria-pressed', v ? 'true' : 'false'); }
 function resetAll() {
   for (let p = 0; p < PLANE_COUNT; p++) angles[p] = 0;
   for (let p = 0; p < PLANE_COUNT; p++) {
-    const [i, j] = planes[p];
-    const el = document.getElementById('plane-' + i + '-' + j);
-    if (el) {
-      el.value = 0;
-      const v = document.getElementById('val-' + i + '-' + j);
-      if (v) v.textContent = '0°';
-    }
+    const ij = planes[p];
+    if (document.getElementById('plane-' + ij[0] + '-' + ij[1])) syncSliderRow(ij[0], ij[1]);
   }
 }
 autoBtn.addEventListener('click',  () => setAuto(!autoOn));
 glowBtn.addEventListener('click',  () => setGlow(!glowOn));
 depthBtn.addEventListener('click', () => setDepth(!depthFadeOn));
 resetBtn.addEventListener('click', resetAll);
-// TWIST — randomize every plane to a fresh angle in [-π, +π] so all
-// 10 dimensions are demonstrably mixed into the screen projection.
-// Watch the audit counter jump from 4 (collapsed) to ~1024 (every
-// vertex distinct).
+// TWIST randomizes EVERY plane — including the ones without a visible
+// slider. Watch the audit counter jump and the spectrum redistribute.
 function twistAll() {
   for (let p = 0; p < PLANE_COUNT; p++) {
     angles[p] = (Math.random() * 2 - 1) * Math.PI;
-    const [i, j] = planes[p];
-    syncSliderRow(i, j);
+    const ij = planes[p];
+    if (document.getElementById('plane-' + ij[0] + '-' + ij[1])) syncSliderRow(ij[0], ij[1]);
   }
 }
 document.getElementById('twistBtn').addEventListener('click', twistAll);
+
+// === Dimension control — N slider rebuilds geometry / planes / UI ===
+const dimSlider  = document.getElementById('dimSlider');
+const dimVal     = document.getElementById('dimVal');
+const dimNote    = document.getElementById('dimNote');
+const metaVerts  = document.getElementById('metaVerts');
+const metaEdges  = document.getElementById('metaEdges');
+const metaPlanes = document.getElementById('metaPlanes');
+
+function fmtBigPow2(n) {
+  if (n < 30) return Math.pow(2, n).toLocaleString();
+  return '2^' + n + ' (~10^' + Math.round(n * Math.LN2 / Math.LN10) + ')';
+}
+function updateDimMeta() {
+  metaVerts.textContent  = V_COUNT.toLocaleString();
+  metaEdges.textContent  = edges.length.toLocaleString();
+  metaPlanes.textContent = PLANE_COUNT.toLocaleString();
+  let html;
+  if (N <= FULL_HC_MAX_N) {
+    html = 'full hypercube · all <b>' + V_COUNT.toLocaleString() + '</b> vertices rendered';
+  } else {
+    html = '<span style="color:var(--neon-y)">sampled</span> · 2<sup>' + N + '</sup> = ' +
+      fmtBigPow2(N) + ' vertices in {±1}<sup>N</sup>, rendering <b>' +
+      V_COUNT.toLocaleString() + '</b> from a random walk';
+  }
+  if (PLANE_COUNT > 1000) {
+    html += '<br><span style="color:var(--neon-m)">⚠ heavy: ' + PLANE_COUNT.toLocaleString() +
+      ' rotation planes · projection cost = ' + V_COUNT.toLocaleString() + ' verts × ' +
+      PLANE_COUNT.toLocaleString() + ' planes per frame</span>';
+  }
+  dimNote.innerHTML = html;
+}
+
+function rebuildAll(newN) {
+  N = Math.max(2, Math.min(100, newN | 0));
+  if (N <= FULL_HC_MAX_N) buildFullHypercube();
+  else                    buildSampledHypercube();
+  buildPlanes();
+  allocateBuffers();
+  seedDefaultAngles();
+  buildSliderUI();
+  updateDimMeta();
+  if (dimSlider) { dimSlider.value = String(N); dimVal.textContent = String(N); }
+}
+
 setGlow(true); setDepth(true);
+rebuildAll(10);
+
+// Live (cheap) preview of vertex/plane counts while dragging the slider;
+// actual geometry rebuild fires on `change` (release) — debounced 60ms.
+let dimDebounce = 0;
+dimSlider.addEventListener('input', () => {
+  const v = +dimSlider.value;
+  dimVal.textContent = String(v);
+  metaPlanes.textContent = (v * (v - 1) / 2).toLocaleString();
+  if (v <= FULL_HC_MAX_N) {
+    metaVerts.textContent = (1 << v).toLocaleString();
+  } else {
+    metaVerts.textContent = '~' + Math.max(1200, Math.min(6000, 8000 - v * 60)).toLocaleString();
+  }
+});
+dimSlider.addEventListener('change', () => {
+  const v = +dimSlider.value;
+  if (dimDebounce) clearTimeout(dimDebounce);
+  dimDebounce = setTimeout(() => {
+    dimDebounce = 0;
+    rebuildAll(v);
+    scheduleAutoSave();
+  }, 60);
+});
 
 // Mobile panel toggle
 const panel = document.getElementById('panel');
@@ -607,7 +750,7 @@ function loop(now) {
   if (auditAccum > 0.25) {
     auditAccum = 0;
     countDistinctProjections();
-    if (auditEl) auditEl.textContent = distinctPoints + ' / 1024';
+    if (auditEl) auditEl.textContent = distinctPoints + ' / ' + V_COUNT.toLocaleString();
   }
   requestAnimationFrame(loop);
 }
@@ -645,7 +788,9 @@ async function saveSnapshot() {
     const r = await supabase.from('dimension_ten_snapshots').insert({
       user_id: uid,
       name,
-      angles: Array.from(angles),
+      // Wrap with N so snapshots survive future dimension-count changes.
+      // Old rows (plain array) are still readable — see applySnapshot.
+      angles: { n: N, a: Array.from(angles) },
     });
     if (r.error) { setStatus('save failed: ' + r.error.message, false); return; }
     setStatus('saved "' + name + '"', true);
@@ -655,11 +800,24 @@ async function saveSnapshot() {
     setStatus('save failed: ' + e.message, false);
   }
 }
-function applySnapshot(arr) {
+function applySnapshot(payload) {
+  // Backwards-compat: payload may be a plain array (assumed N=10) or
+  // {n, a} for variable-N snapshots saved after the 100D upgrade.
+  let snapN, snapA;
+  if (Array.isArray(payload)) {
+    snapN = 10;
+    snapA = payload;
+  } else if (payload && typeof payload === 'object' && Array.isArray(payload.a)) {
+    snapN = (payload.n | 0) || 10;
+    snapA = payload.a;
+  } else {
+    return;
+  }
+  if (snapN !== N) rebuildAll(snapN);
   for (let p = 0; p < PLANE_COUNT; p++) {
-    angles[p] = arr[p] || 0;
-    const [i, j] = planes[p];
-    syncSliderRow(i, j);
+    angles[p] = (p < snapA.length ? snapA[p] : 0) || 0;
+    const ij = planes[p];
+    if (document.getElementById('plane-' + ij[0] + '-' + ij[1])) syncSliderRow(ij[0], ij[1]);
   }
 }
 async function refreshSnapList() {
@@ -749,7 +907,7 @@ async function autoSaveNow() {
     const row = {
       user_id: uid,
       name: AUTO_NAME,
-      angles: Array.from(angles),
+      angles: { n: N, a: Array.from(angles) },
       updated_at: new Date().toISOString(),
     };
     if (existing && existing.data && existing.data.id) {
@@ -770,16 +928,10 @@ function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(autoSaveNow, 800);
 }
-// Wire to canvas drag end
+// Wire to canvas drag end. Slider 'change' is wired in makeSlider so
+// autosave still fires on rebuilt sliders after a dimension change.
 cvs.addEventListener('pointerup',     scheduleAutoSave);
 cvs.addEventListener('pointercancel', scheduleAutoSave);
-// Wire to every slider — 'change' fires on release, not during drag
-function wireSliderAutoSave() {
-  document.querySelectorAll('.slider-row input[type="range"]').forEach(input => {
-    input.addEventListener('change', scheduleAutoSave);
-  });
-}
-wireSliderAutoSave();
 // TWIST + RESET buttons also count as user changes worth autosaving
 document.getElementById('twistBtn').addEventListener('click', () => setTimeout(scheduleAutoSave, 50));
 document.getElementById('resetBtn').addEventListener('click', () => setTimeout(scheduleAutoSave, 50));
