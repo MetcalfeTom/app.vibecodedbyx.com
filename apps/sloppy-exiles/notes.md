@@ -1,6 +1,11 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-03: lazy supabase import — fix "blocked at the door" load failure (chat ask, zennlogic).
+  - The static `import supabase, { supabaseSession } from '/supabase-config-fixed.js'` sat at the very top of the module. Any server hiccup that returned the wrong Content-Type (e.g. nginx serving a 404 page as text/html) would block the whole game from booting — what the chat called "blocked at the door".
+  - Switched to a lazy dynamic `await import('/supabase-config-fixed.js')` wrapped in try/catch. Both `supabase` and `supabaseSession` are `let` bindings that start null and only get set on successful resolve. A new `supabaseReady` promise gates async callers.
+  - `ensureSupaSession`, `cloudSave`, and `cloudLoad` all `await supabaseReady` and bail if the import failed. localStorage vault remains the single source of truth offline; cloud sync is now genuinely optional.
+  - Verified the recent stash update did NOT break the database client: chest items live only in localStorage `saveVault`, never in the cloud `cloudSave` row (which keeps the original `inventory` / `equipped` / etc. fields). The `sloppy_exiles_saves` table schema is unchanged.
 - 2026-05-03: click-to-attack + ranged buff (chat ask).
   - **Auto-attack removed.** No more nearest-enemy-in-range scan firing on cooldown. The combat tick now only acts on `player.attackTarget`, set by clicking an enemy.
   - **Click-to-attack** behaviour:
