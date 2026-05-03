@@ -315,6 +315,15 @@ fitCanvas();
 // Sampled mode: random-walk through {±1}^N. Each step picks a random
 // coord to flip — the start/end pair becomes an edge tagged with that
 // bit. Yields a sparse but dimensionally-honest skeleton at any N.
+//
+// CHAT REQUEST: each edge gets its OWN unique hue (not just its
+// dimension's hue). We use the golden-angle (137.508°) so consecutive
+// edge indices map to maximally-spread hues — no clustering at any
+// edge count. Edge tuple is [aIdx, bIdx, bit, hue].
+const GOLDEN_HUE_STEP = 137.50776405;
+function hueForEdge(idx) {
+  return (idx * GOLDEN_HUE_STEP) % 360;
+}
 function buildFullHypercube() {
   V_COUNT = 1 << N;
   vertices = new Float32Array(V_COUNT * N);
@@ -324,9 +333,12 @@ function buildFullHypercube() {
     }
   }
   edges = [];
+  let eidx = 0;
   for (let a = 0; a < V_COUNT; a++) {
     for (let k = 0; k < N; k++) {
-      if (!(a & (1 << k))) edges.push([a, a | (1 << k), k]);
+      if (!(a & (1 << k))) {
+        edges.push([a, a | (1 << k), k, hueForEdge(eidx++)]);
+      }
     }
   }
   // Total = N * 2^(N-1)
@@ -363,7 +375,7 @@ function buildSampledHypercube() {
     const next = Float32Array.from(cur);
     next[k] = -next[k];
     const nextIdx = addVert(next);
-    edges.push([curIdx, nextIdx, k]);
+    edges.push([curIdx, nextIdx, k, hueForEdge(edges.length)]);
     cur = next;
     curIdx = nextIdx;
   }
@@ -471,6 +483,12 @@ function hueForDim(bit) {
 function colorForDim(bit, light) {
   return 'hsl(' + hueForDim(bit) + ',82%,' + (light != null ? light : 62) + '%)';
 }
+// CHAT REQUEST: every edge has a unique hue. Each edge carries its
+// own pre-baked hue (golden-angle distributed at build time). At
+// render we bucket into HUE_BUCKETS narrow bins (≈2° each) so we don't
+// pay per-edge stroke calls — the visual result is a continuous
+// spectrum where adjacent edges are at most 2° apart in hue.
+const HUE_BUCKETS = 180;
 function render() {
   // Trail-fade for that "stars-of-the-hypercube drifting" feel
   ctx.fillStyle = 'rgba(2, 5, 10, 0.32)';
@@ -479,34 +497,33 @@ function render() {
   const cx = cvs.width / 2, cy = cvs.height / 2;
   const scale = Math.min(cvs.width, cvs.height) * 0.34;
 
-  // Bucket edges by their differing-bit so each dimension gets a color.
-  const buckets = new Array(N);
-  for (let k = 0; k < N; k++) buckets[k] = null;
+  const buckets = new Array(HUE_BUCKETS);
+  for (let i = 0; i < HUE_BUCKETS; i++) buckets[i] = null;
   for (let e = 0; e < edges.length; e++) {
     const ed = edges[e];
-    const bit = ed[2];
-    let arr = buckets[bit];
-    if (!arr) { arr = []; buckets[bit] = arr; }
+    const hue = ed[3];
+    let bi = (hue * HUE_BUCKETS / 360) | 0;
+    if (bi < 0) bi = 0;
+    else if (bi >= HUE_BUCKETS) bi = HUE_BUCKETS - 1;
+    let arr = buckets[bi];
+    if (!arr) { arr = []; buckets[bi] = arr; }
     arr.push(ed[0], ed[1]);
   }
-  const ALPHA_DENOM = Math.max(N, 6);
-  for (let bit = 0; bit < N; bit++) {
-    const arr = buckets[bit];
+  for (let bi = 0; bi < HUE_BUCKETS; bi++) {
+    const arr = buckets[bi];
     if (!arr || arr.length === 0) continue;
+    const hue = (bi + 0.5) * 360 / HUE_BUCKETS;
+    const col = 'hsl(' + hue.toFixed(1) + ',82%,62%)';
     ctx.beginPath();
     for (let q = 0; q < arr.length; q += 2) {
       const a = arr[q], b = arr[q + 1];
       ctx.moveTo(projection[a * 3]     * scale + cx, projection[a * 3 + 1] * scale + cy);
       ctx.lineTo(projection[b * 3]     * scale + cx, projection[b * 3 + 1] * scale + cy);
     }
-    const col = colorForDim(bit);
     if (glowOn) { ctx.shadowColor = col; ctx.shadowBlur = 6; }
     else        { ctx.shadowBlur = 0; }
     ctx.strokeStyle = col;
-    // Even alpha across all bits — every dimension is a real dimension,
-    // no privileged screen axis. Lightly biased toward later bits so
-    // the deeper dims still poke through the early ones.
-    ctx.globalAlpha = depthFadeOn ? (0.40 + 0.35 * (1 - bit / ALPHA_DENOM)) : 0.7;
+    ctx.globalAlpha = 0.62;
     ctx.lineWidth = 1.1;
     ctx.stroke();
   }

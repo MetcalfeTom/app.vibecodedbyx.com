@@ -1,6 +1,11 @@
 # dimension-ten
 
 ## log
+- 2026-05-03: every edge has its own unique hue (chat ask).
+  - Each edge gets a hue baked at build time via golden-angle distribution: `hue = (edgeIdx * 137.508) % 360`. Golden ratio guarantees max-spread for any edge count, no clustering.
+  - Render now buckets edges into 180 narrow hue bins (~2° wide) instead of N per-dim buckets. Adjacent edges in hue space get rendered together for batch stroking, but the visual result is a continuous spectrum where each edge is essentially distinct (≤2° from any neighbor).
+  - Edge tuple: `[aIdx, bIdx, bit, hue]`. The `bit` field is retained (used by buildSampled bookkeeping) but no longer drives color. `colorForDim()` is still used for slider axis labels so each plane control still color-codes its (i,j) dims.
+  - Vertex coloring (Hamming-weight hash) untouched — verts still cluster by lattice position.
 - 2026-05-03: pushed N cap to 999 + LITE mode for projection.
   - Dimension slider max bumped 100 → 999. C(999,2) = 498,501 planes — applying every plane × ~1200 sampled vertices per frame would be ~600M ops/frame and crash the tab.
   - Added `MAX_ACTIVE_PLANES = 800` budget. When PLANE_COUNT exceeds it, projection iterates planes by `stride = ceil(PLANE_COUNT / MAX_ACTIVE_PLANES)` starting at a rotating `activeOffset` (advances every ~100ms), so per-frame cost is bounded but every plane still takes effect across consecutive frames — no fixed-slice "frozen" look.
