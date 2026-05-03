@@ -184,6 +184,9 @@
         <b>1024</b> vertices · <b>5120</b> edges · <b>45</b> rotation planes.
         Drag canvas for the (0,1) and (0,2) planes. Sliders below for the rest.
       </div>
+      <div class="meta" id="auditMeta" style="margin-top:0.375rem">
+        Projection audit: <b id="auditPts">—</b> distinct screen points.
+      </div>
     </header>
     <section>
       <h2>Adjacent-pair Planes</h2>
@@ -199,6 +202,7 @@
         <button id="autoBtn" type="button" aria-pressed="false">AUTO ROTATE</button>
         <button id="glowBtn" type="button" aria-pressed="true">GLOW</button>
         <button id="depthBtn" type="button" aria-pressed="true">DEPTH FADE</button>
+        <button id="twistBtn" type="button" aria-label="Randomize all 45 plane angles">TWIST</button>
         <button id="resetBtn" type="button">RESET</button>
       </div>
     </section>
@@ -263,7 +267,27 @@ const pairIndex = (i, j) => {
 };
 const planes = [];
 for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) planes.push([i, j]);
-const angles = new Float32Array(PLANE_COUNT);  // start at 0
+const angles = new Float32Array(PLANE_COUNT);
+// CHAT AUDIT: with all angles = 0 the projection only reads work[0]
+// and work[1] (bits 0 and 1 of the vertex index), so the 1024 vertices
+// collapse to 4 screen points and you see a flat square. The math IS
+// correct — it just needs non-zero rotations involving the higher
+// dimensions before they mix into (x, y). Seed every plane with a
+// small varied angle so every dim is "alive" in the projection from
+// boot. Reset button still zeros them all if the user wants pure axes.
+function seedDefaultAngles() {
+  for (let p = 0; p < PLANE_COUNT; p++) {
+    const [i, j] = planes[p];
+    // Hand-tuned spread: planes touching dim 0 or 1 get bigger angles
+    // so the higher dims propagate strongly into the screen plane;
+    // far-from-projection planes get smaller seed angles so they're
+    // present but not chaotic.
+    const involvesScreen = (i === 0 || i === 1 || j === 0 || j === 1);
+    const base = involvesScreen ? 0.5 : 0.25;
+    angles[p] = base * Math.sin(p * 1.137) + 0.18 * Math.cos(p * 0.713);
+  }
+}
+seedDefaultAngles();
 
 // === Projection scratch buffer ===
 // Reuse a single Float32Array per frame so we don't allocate.
@@ -293,6 +317,21 @@ function projectAll() {
     for (let k = 2; k < N; k++) d += work[k] * work[k];
     projection[v * 3 + 2] = Math.sqrt(d / (N - 2));
   }
+}
+
+// === Audit helper — count distinct projected (x, y) points so the
+// user can SEE that all 1024 vertices are getting unique positions.
+// Bucket to 0.005 precision; if all 10 dims are alive in the
+// projection, we should see ~1024 distinct buckets.
+let distinctPoints = 0;
+function countDistinctProjections() {
+  const seen = new Set();
+  for (let v = 0; v < V_COUNT; v++) {
+    const x = Math.round(projection[v * 3]     * 200);
+    const y = Math.round(projection[v * 3 + 1] * 200);
+    seen.add(x * 100000 + y);
+  }
+  distinctPoints = seen.size;
 }
 
 // === Render ===
@@ -379,15 +418,20 @@ function makeSlider(i, j) {
   row.className = 'slider-row';
   const id = 'plane-' + i + '-' + j;
   const p = pairIndex(i, j);
+  // Initial value reflects the seeded angle so the slider matches the
+  // visible state at boot (rather than reading "0°" while the cube is
+  // already mid-twist).
+  const seedVal = Math.round(angles[p] * 100);
+  const seedDeg = Math.round(angles[p] * 180 / Math.PI);
   row.innerHTML =
     '<label for="' + id + '"><span class="axes">' + i + '·' + j + '</span></label>' +
-    '<input id="' + id + '" type="range" min="-628" max="628" value="0"' +
+    '<input id="' + id + '" type="range" min="-628" max="628" value="' + seedVal + '"' +
       ' aria-label="Rotation in plane (' + i + ', ' + j + ')">' +
-    '<span class="val" id="val-' + i + '-' + j + '">0°</span>';
+    '<span class="val" id="val-' + i + '-' + j + '">' + seedDeg + '°</span>';
   const input = row.querySelector('input');
   const val   = row.querySelector('.val');
   input.addEventListener('input', () => {
-    angles[p] = +input.value / 100;       // -2π..+2π in 0.01 rad units
+    angles[p] = +input.value / 100;
     val.textContent = Math.round(angles[p] * 180 / Math.PI) + '°';
   });
   return row;
@@ -494,6 +538,18 @@ autoBtn.addEventListener('click',  () => setAuto(!autoOn));
 glowBtn.addEventListener('click',  () => setGlow(!glowOn));
 depthBtn.addEventListener('click', () => setDepth(!depthFadeOn));
 resetBtn.addEventListener('click', resetAll);
+// TWIST — randomize every plane to a fresh angle in [-π, +π] so all
+// 10 dimensions are demonstrably mixed into the screen projection.
+// Watch the audit counter jump from 4 (collapsed) to ~1024 (every
+// vertex distinct).
+function twistAll() {
+  for (let p = 0; p < PLANE_COUNT; p++) {
+    angles[p] = (Math.random() * 2 - 1) * Math.PI;
+    const [i, j] = planes[p];
+    syncSliderRow(i, j);
+  }
+}
+document.getElementById('twistBtn').addEventListener('click', twistAll);
 setGlow(true); setDepth(true);
 
 // Mobile panel toggle
@@ -506,11 +562,22 @@ panelToggle.addEventListener('click', () => {
 
 // === Main loop ===
 let lastT = performance.now();
+let auditAccum = 0;
+const auditEl = document.getElementById('auditPts');
 function loop(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
   tickAuto(dt);
   render();
+  // Audit: count distinct projected positions every ~250ms (cheap to
+  // do but no need every frame). With seeded angles we expect ~1024;
+  // collapsed to 4 means a dimension layer is missing.
+  auditAccum += dt;
+  if (auditAccum > 0.25) {
+    auditAccum = 0;
+    countDistinctProjections();
+    if (auditEl) auditEl.textContent = distinctPoints + ' / 1024';
+  }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
