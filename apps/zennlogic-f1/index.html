@@ -615,6 +615,19 @@ function makeDriver(spec) {
     lapStartT: 0,
     bestLapT: Infinity,
     crossedHalf: false, // track that we've passed the half-way point this lap (anti-cheese)
+    // === Lap-fire debounce ===
+    // Without this a stuttering curveT estimate near the start line
+    // could trigger 2+ laps in successive frames. After a lap fires
+    // we set this to 1.5s and refuse to count another lap until it
+    // ticks back to 0 — physically impossible to do a sub-1.5s lap.
+    lapDebounceT: 0,
+    // === Off-track tracking ===
+    // distFromCurve = sqrt of bestD from updateCurveT; offTrack flag
+    // is set when the car is more than HALF_W*1.5 away from the
+    // racing line. While offTrack the car is speed-capped + drag-
+    // penalised AND can't bank lap progress (no shortcuts).
+    distFromCurve: 0,
+    offTrack: false,
     isPlayer: false,
   }, spec);
 }
@@ -626,6 +639,10 @@ function placeAtStart(d, offset) {
   d.speed = 0; d.gear = 1; d.lap = 1; d.curveT = startT;
   d.crossedHalf = false;
   d.lapStartT = performance.now() / 1000;
+  d.lapDebounceT = 0;
+  d.offTrack = false;
+  d.distFromCurve = 0;
+  d.finished = false;
 }
 placeAtStart(player,  3.5);
 placeAtStart(rival,  -3.5);
@@ -797,16 +814,24 @@ function stepCar(d, dt, controls) {
   d.gear = (speedKmh < 1) ? 1 : Math.min(8, Math.max(1, 1 + Math.floor(speedKmh / 45)));
   d.throttle = controls.throttle;
   d.brake    = controls.brake;
+  // OFF-TRACK PENALTY — when we're past the asphalt the engine can't
+  // sustain top speed, and an extra rolling drag drags us down. The
+  // car still steers normally so the player can drive back ON track.
+  const effMaxSpeed = d.offTrack ? MAX_SPEED * 0.55 : MAX_SPEED;
+  const offTrackDrag = d.offTrack ? 0.35 : 0;
   // engine acceleration with diminishing returns at high speed
-  const remaining = 1 - Math.min(1, Math.max(0, d.speed) / MAX_SPEED);
+  const remaining = 1 - Math.min(1, Math.max(0, d.speed) / effMaxSpeed);
   let acc = controls.throttle * ENGINE_POWER * (0.4 + 0.6 * remaining);
   acc -= controls.brake * BRAKE_POWER * Math.sign(d.speed || 1);
-  // drag — rolling + aero (∝ v²)
-  acc -= ROLL_DRAG * d.speed;
+  // drag — rolling + aero (∝ v²) + off-track grass drag
+  acc -= (ROLL_DRAG + offTrackDrag) * d.speed;
   acc -= AERO_DRAG * d.speed * Math.abs(d.speed);
   // handbrake = strong brake + slip
   if (controls.handbrake) acc -= 22 * Math.sign(d.speed || 1);
   d.speed += acc * dt;
+  // Clamp speed to the off-track effective max so the penalty bites
+  // immediately rather than only after drag eats the existing speed.
+  if (d.speed > effMaxSpeed) d.speed = effMaxSpeed;
   if (Math.abs(d.speed) < 0.2 && controls.throttle === 0 && controls.brake === 0) d.speed = 0;
   // steering — limited at high speed (real F1 has more downforce so they
   // can turn at speed, but arcade physics needs a soft cap to prevent
@@ -826,9 +851,9 @@ function stepCar(d, dt, controls) {
   const wheelGroup = (d === player) ? playerCar.wheels : rivalCar.wheels;
   for (const w of wheelGroup) w.rotation.x += d.speed * dt * 1.4;
   // Update curve parameter for lap counting (find nearest sample point)
-  updateCurveT(d);
+  updateCurveT(d, dt);
 }
-function updateCurveT(d) {
+function updateCurveT(d, dt) {
   // Step forward from the previous curveT looking for the nearest
   // arc-length point — this is O(N) over a small window so it stays
   // cheap. We sweep ±0.05 of the loop (≈18 segments) every frame.
@@ -845,26 +870,39 @@ function updateCurveT(d) {
     const dd = dx*dx + dz*dz;
     if (dd < bestD) { bestD = dd; bestT = t; }
   }
-  // Lap detection: half-pass + cross back near 0
-  if (d.curveT < 0.5 && bestT > 0.5) d.crossedHalf = true;
-  if (d.crossedHalf && bestT < 0.05 && d.curveT > 0.9) {
-    // crossed the start/finish line going forward
-    const now = performance.now() / 1000;
-    const lapTime = now - d.lapStartT;
-    d.lapStartT = now;
-    if (lapTime < d.bestLapT) d.bestLapT = lapTime;
-    d.lap += 1;
-    d.crossedHalf = false;
-    if (d.isPlayer) {
-      showBanner('LAP ' + (d.lap - 1) + ' · ' + formatLap(lapTime),
-        d.lap > state.totalLaps ? 'race complete' : 'best ' + formatLap(d.bestLapT));
-      blip(880, 0.10, 'triangle', 0.18);
-    }
-    if (d.lap > state.totalLaps) {
-      // race over for this driver
-      d.finished = true;
-      const otherFinished = (d === player ? rival.finished : player.finished);
-      if (!otherFinished) endRace(d === player);
+  d.distFromCurve = Math.sqrt(bestD);
+  // OFF-TRACK detection — anything beyond HALF_W * 1.5 from the
+  // racing line counts as off the asphalt. Triggers the speed-cap +
+  // drag penalty in stepCar and blocks lap progression so cutting
+  // the inside of the loop never banks a lap.
+  d.offTrack = d.distFromCurve > HALF_W * 1.5;
+  // Lap-fire debounce tick down
+  if (d.lapDebounceT > 0) d.lapDebounceT -= (dt || 0);
+  // Lap detection: half-pass + cross back near 0. Both phases are
+  // gated on NOT being off-track so a player driving across the
+  // grass on the inside of the loop can't bank a lap.
+  if (!d.offTrack) {
+    if (d.curveT < 0.5 && bestT > 0.5) d.crossedHalf = true;
+    if (d.crossedHalf && bestT < 0.05 && d.curveT > 0.9 && d.lapDebounceT <= 0) {
+      // crossed the start/finish line going forward
+      const now = performance.now() / 1000;
+      const lapTime = now - d.lapStartT;
+      d.lapStartT = now;
+      if (lapTime < d.bestLapT) d.bestLapT = lapTime;
+      d.lap += 1;
+      d.crossedHalf = false;
+      d.lapDebounceT = 1.5;     // can't fire another lap for 1.5s
+      if (d.isPlayer) {
+        showBanner('LAP ' + (d.lap - 1) + ' · ' + formatLap(lapTime),
+          d.lap > state.totalLaps ? 'race complete' : 'best ' + formatLap(d.bestLapT));
+        blip(880, 0.10, 'triangle', 0.18);
+      }
+      if (d.lap > state.totalLaps) {
+        // race over for this driver
+        d.finished = true;
+        const otherFinished = (d === player ? rival.finished : player.finished);
+        if (!otherFinished) endRace(d === player);
+      }
     }
   }
   d.curveT = bestT;
@@ -974,6 +1012,10 @@ function updateHUD() {
     (player.curveT + (player.lap - 1) >= rival.curveT + (rival.lap - 1)) ? 'P1' : 'P2';
   // Tach fill
   document.getElementById('tachFill').style.width = Math.min(100, speedKmh / 3.42) + '%';
+  // Off-track flash on the lap cell so the player notices the penalty
+  // (and knows why their lap isn't counting if they're cutting corners).
+  const lapCell = document.getElementById('hudLap');
+  if (lapCell) lapCell.style.color = player.offTrack ? '#ff5af6' : '';
 }
 
 // =====================================================================
