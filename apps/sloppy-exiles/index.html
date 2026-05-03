@@ -530,12 +530,19 @@ const TILE_SEED = (() => {
   }
   return s;
 })();
+// Town centre — fixed integer tile coords so the safe-zone always
+// renders on whole tiles AND the portal-back position is deterministic.
+const TOWN_GX = Math.floor(GRID_W / 2);
+const TOWN_GY = Math.floor(GRID_H / 2);
+// Safe-zone radius (in tiles). Tiles within this distance from the
+// town centre are kept clear by buildMap and rendered with a glowing
+// floor overlay in drawTiles.
+const TOWN_RADIUS = 2.6;
 function buildMap() {
   TILES.length = 0;
   for (let y = 0; y < GRID_H; y++) {
     const row = [];
     for (let x = 0; x < GRID_W; x++) {
-      // Border = pillars (so player can't escape grid)
       if (x === 0 || y === 0 || x === GRID_W - 1 || y === GRID_H - 1) {
         row.push(1);
       } else {
@@ -553,9 +560,22 @@ function buildMap() {
   for (const [px, py] of pillars) {
     if (TILES[py] && TILES[py][px] === 0) TILES[py][px] = 1;
   }
+  // Force-clear the town safe-zone — pillars never block the home base
+  for (let y = 0; y < GRID_H; y++) {
+    for (let x = 0; x < GRID_W; x++) {
+      if (Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS) {
+        TILES[y][x] = 0;
+      }
+    }
+  }
 }
 function tileWalkable(gx, gy) {
-  const ix = Math.floor(gx), iy = Math.floor(gy);
+  // CHAT FIX: was Math.floor(), which mapped (gx, gy) onto tile
+  // (floor(gx), floor(gy)) — but the iso renderer draws tile (i, j)
+  // centred at world position (i, j), so floor() created a half-tile
+  // collision-vs-visual offset. Round-to-nearest aligns the
+  // collision tile with whichever tile the player is visually on.
+  const ix = Math.round(gx), iy = Math.round(gy);
   if (ix < 0 || iy < 0 || ix >= GRID_W || iy >= GRID_H) return false;
   return TILES[iy][ix] === 0;
 }
@@ -805,9 +825,9 @@ function useTownPortal() {
   // Full heal/mana refill — the home base is safe
   player.hp = player.maxHp;
   player.mp = player.maxMp;
-  // Drop the player at the town spawn (centre of grid)
-  player.gx = GRID_W / 2;
-  player.gy = GRID_H / 2;
+  // Drop the player at the town spawn (geometric centre tile)
+  player.gx = TOWN_GX;
+  player.gy = TOWN_GY;
   player.vgx = player.vgy = 0;
   player.targetGx = null;
   // Save vault — town entry is a safe checkpoint
@@ -831,8 +851,8 @@ function advanceFloor() {
   // Re-roll pillar layout for visual variety per floor
   buildMap();
   // Recentre player + save vault
-  player.gx = GRID_W / 2;
-  player.gy = GRID_H / 2;
+  player.gx = TOWN_GX;
+  player.gy = TOWN_GY;
   player.targetGx = null;
   saveVault();
   showToast('★ FLOOR ' + state.floor + ' ★', 'enemies grow stronger');
@@ -893,7 +913,7 @@ function startGame() {
   // Re-roll pillar layout for a fresh floor 1
   buildMap();
   // reset player
-  player.gx = GRID_W / 2; player.gy = GRID_H / 2;
+  player.gx = TOWN_GX; player.gy = TOWN_GY;
   player.vgx = player.vgy = 0;
   // Apply selected character class
   const cls = CLASSES[selectedClass] || CLASSES.warrior;
@@ -1495,10 +1515,25 @@ function spawnDeathBurst(gx, gy) {
 // PHYSICS / MOVEMENT (player + enemies)
 // =====================================================================
 function tryMove(entity, dgx, dgy) {
-  // axis-separated movement so corners don't lock
+  // Axis-separated AABB collision — sample 4 corners of a small
+  // square footprint around the entity. CHAT FIX: was 2 samples
+  // (N/S only) at ±0.15 which let players slip into pillars on
+  // diagonal approaches. Now ±0.30 on both axes covers the full
+  // footprint and matches the iso visual hitbox better.
+  const r = 0.30;
   const nx = entity.gx + dgx, ny = entity.gy + dgy;
-  if (tileWalkable(nx, entity.gy + 0.15) && tileWalkable(nx, entity.gy - 0.15)) entity.gx = nx;
-  if (tileWalkable(entity.gx + 0.15, ny) && tileWalkable(entity.gx - 0.15, ny)) entity.gy = ny;
+  const okX =
+    tileWalkable(nx + r, entity.gy + r) &&
+    tileWalkable(nx + r, entity.gy - r) &&
+    tileWalkable(nx - r, entity.gy + r) &&
+    tileWalkable(nx - r, entity.gy - r);
+  if (okX) entity.gx = nx;
+  const okY =
+    tileWalkable(entity.gx + r, ny + r) &&
+    tileWalkable(entity.gx + r, ny - r) &&
+    tileWalkable(entity.gx - r, ny + r) &&
+    tileWalkable(entity.gx - r, ny - r);
+  if (okY) entity.gy = ny;
 }
 
 function tickPlayer(dt) {
@@ -1724,6 +1759,7 @@ function drawTile(x, y) {
   const sp = worldToScreen(x, y);
   const seed = TILE_SEED[y][x];
   const isWall = TILES[y][x] === 1;
+  const inTownZone = Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS;
   // diamond tile
   ctx.beginPath();
   ctx.moveTo(sp.x, sp.y - TILE_H / 2);
@@ -1735,13 +1771,35 @@ function drawTile(x, y) {
   const baseV = (seed % 18) - 9;
   if (isWall) {
     ctx.fillStyle = 'rgb(' + (32 + baseV / 2) + ',' + (24 + baseV / 2) + ',' + (28 + baseV / 2) + ')';
+  } else if (inTownZone) {
+    // SAFE-ZONE warm-tinted floor — gold-tinged stone so the home base
+    // is visually unmistakable from anywhere on the map.
+    ctx.fillStyle = 'rgb(' + (78 + baseV) + ',' + (60 + baseV) + ',' + (32 + baseV) + ')';
   } else {
     ctx.fillStyle = 'rgb(' + (40 + baseV) + ',' + (32 + baseV) + ',' + (36 + baseV) + ')';
   }
   ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeStyle = inTownZone ? 'rgba(217,161,58,0.45)' : 'rgba(0,0,0,0.55)';
   ctx.lineWidth = 1;
   ctx.stroke();
+  // Centre tile of town gets a bright shrine sigil — always visible
+  // landmark for where you'll teleport in via the portal.
+  if (x === TOWN_GX && y === TOWN_GY) {
+    ctx.fillStyle = 'rgba(217,161,58,0.85)';
+    ctx.font = 'bold 18px "UnifrakturCook", serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('⌂', sp.x, sp.y);
+    // pulsing safe-zone halo when actually in town
+    if (state.inTown) {
+      const pulse = 0.4 + Math.sin(performance.now() / 250) * 0.15;
+      ctx.strokeStyle = 'rgba(217,161,58,' + pulse + ')';
+      ctx.lineWidth = 2;
+      const r = TOWN_RADIUS;
+      ctx.beginPath();
+      ctx.ellipse(sp.x, sp.y, r * (TILE_W / 2), r * (TILE_H / 2), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
   // crack lines for floor tiles
   if (!isWall && (seed % 3) === 0) {
     ctx.strokeStyle = 'rgba(0,0,0,0.45)';
