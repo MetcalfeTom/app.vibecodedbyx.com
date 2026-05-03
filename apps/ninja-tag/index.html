@@ -458,7 +458,18 @@ function makeNinja(spec) {
     isIt: false,
     immuneUntil: 0,        // newly-tagged "ex-IT" can't be re-tagged
     tagPenaltyUntil: 0,    // IT failed to tag → small chakra drain
-    aiState: { wanderT: 0, targetX: 0, targetY: 0 },
+    aiState: {
+      wanderT: 0, targetX: 0, targetY: 0,
+      // Reaction delay: AI defers re-evaluating its target by this
+      // many seconds. While > 0 it keeps steering toward whatever
+      // it locked on last (stale target). Reset to a fresh random
+      // value each time the brain re-reads the world.
+      reactT: 0,
+      // Steered velocity actually applied — the target velocity from
+      // brain logic is lerped toward this at AI_TURN_RATE so AI
+      // ninjas no longer pivot instantly.
+      steeredVx: 0, steeredVy: 0,
+    },
     safeAccum: 0,          // seconds spent NOT being IT (player score)
     lastStepT: 0,
     name: '???',
@@ -611,13 +622,25 @@ document.getElementById('restartBtn').addEventListener('click', startRound);
 // =====================================================================
 // AI BRAIN
 // =====================================================================
+// AI handicaps (chat fix — bots were too perfect):
+//   • REACTION DELAY: AI re-evaluates its target every 0.18–0.32s
+//     instead of every frame. While the timer is > 0 it just keeps
+//     steering toward whatever it locked on last frame.
+//   • TURN RATE LIMIT: the velocity the AI actually applies is lerped
+//     toward its target velocity at AI_TURN_RATE per second, so it
+//     can't snap-pivot 180° in one frame the way a perfect bot can.
+const AI_REACT_MIN = 0.18;     // sec — fastest re-evaluation
+const AI_REACT_MAX = 0.32;     // sec — slowest re-evaluation
+const AI_TURN_RATE = 11;       // velocity lerp rate (1/sec)
 function aiTick(n, dt, t) {
-  // IT chases STRICTLY the nearest non-immune ninja — no player bias.
-  // Chat fix: previous version weighted the player by ×0.78 which
-  // made the IT bot lock onto the human even when an NPC was closer.
-  // Removed entirely. If every other ninja is mid-immunity (just got
-  // tagged), fall back to the nearest including immune ones so the IT
-  // doesn't freeze for the 1.5s immunity window.
+  // Decrement reaction timer; only re-pick targets when it expires.
+  n.aiState.reactT -= dt;
+  if (n.aiState.reactT > 0) {
+    // Stale-target path: keep last targetX/Y, just re-run the steering.
+    aiSteerToTarget(n, dt);
+    return;
+  }
+  n.aiState.reactT = AI_REACT_MIN + Math.random() * (AI_REACT_MAX - AI_REACT_MIN);
   if (n.isIt) {
     let target = null, best = Infinity;
     for (const o of NINJAS) {
@@ -673,14 +696,19 @@ function aiTick(n, dt, t) {
       n.sprinting = false;
     }
   }
-  // World wraps now, no need for edge-avoidance forces. The AI just
-  // uses the toroidal-shortest delta toward its target so it'll
-  // happily chase across a wrap boundary.
+  // Apply steering — both the brain-just-decided path and the
+  // stale-target path go through the same helper, so the turn-rate
+  // limit applies uniformly.
+  aiSteerToTarget(n, dt);
+}
+
+// Steering pass — computes a target velocity from aiState.targetX/Y,
+// runs obstacle steering, then LERPS the actual n.vx/vy toward that
+// target at AI_TURN_RATE per second so the AI can't pivot instantly.
+function aiSteerToTarget(n, dt) {
   const tx = n.aiState.targetX;
   const ty = n.aiState.targetY;
-  // Move toward target via the SHORTER toroidal path. If the wrap
-  // distance is less than the direct distance on either axis, treat
-  // the target as if it were one world-width on the wrap side.
+  // Toroidal-shortest delta (world wraps).
   let dxT = tx - n.x, dyT = ty - n.y;
   if (dxT >  WORLD.w / 2) dxT -= WORLD.w;
   if (dxT < -WORLD.w / 2) dxT += WORLD.w;
@@ -692,17 +720,18 @@ function aiTick(n, dt, t) {
     const a = baseAng + off;
     const stepX = n.x + Math.cos(a) * 28, stepY = n.y + Math.sin(a) * 28;
     if (blocksAt(stepX, stepY, 14)) continue;
-    const score = -off*off;   // prefer the straight-line direction
+    const score = -off*off;
     if (score > bestScore) { bestScore = score; bestAng = a; }
   }
-  // Strict speed gate: sprint only multiplies if BOTH the sprinting
-  // flag is on AND chakra is non-zero AND we're not in the post-empty
-  // lockout. Without the lockout check the AI could still sprint at
-  // chakra==0 for the single frame between drain and regen.
   const canSprint = n.sprinting && !n.sprintLockedOut && n.chakra > 0;
   const speed = canSprint ? n.speed * 1.55 : n.speed;
-  n.vx = Math.cos(bestAng) * speed;
-  n.vy = Math.sin(bestAng) * speed;
+  const targetVx = Math.cos(bestAng) * speed;
+  const targetVy = Math.sin(bestAng) * speed;
+  // Turn-rate limit — capped lerp so AI direction-changes feel like a
+  // runner pivoting, not a teleport.
+  const k = Math.min(1, dt * AI_TURN_RATE);
+  n.vx += (targetVx - n.vx) * k;
+  n.vy += (targetVy - n.vy) * k;
 }
 
 // =====================================================================
