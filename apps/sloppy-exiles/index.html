@@ -362,6 +362,10 @@
       <div class="lbl">Pts</div>
       <div class="val" id="hudPts">0</div>
     </div>
+    <div class="hud-cell" style="border-color:var(--rune)">
+      <div class="lbl" style="color:var(--rune)">Floor</div>
+      <div class="val" id="hudFloor" style="color:var(--rune);text-shadow:0 0 0.625rem var(--rune)">1</div>
+    </div>
   </aside>
   <div class="hud-bottom">
     <div class="hud-bar hp" role="status" aria-live="polite">
@@ -410,9 +414,9 @@
     <div><kbd>WASD</kbd> move</div>
     <div><kbd>MOUSE</kbd> aim</div>
     <div><kbd>CLICK</kbd> walk / strike</div>
-    <div><kbd>1 · 2 · 3</kbd> active skills</div>
-    <div><kbd>T</kbd> skill tree · <kbd>I</kbd> inventory</div>
-    <div><kbd>ESC</kbd> pause · <kbd>SPACE</kbd> start</div>
+    <div><kbd>1 · 2 · 3 · 4</kbd> skills + signature</div>
+    <div><kbd>P</kbd> town portal (heal · stash)</div>
+    <div><kbd>T</kbd> tree · <kbd>I</kbd> bag · <kbd>ESC</kbd> pause</div>
   </div>
   <div class="char-picker" role="radiogroup" aria-label="Character class selection">
     <button type="button" class="char-card" data-class="warrior" aria-pressed="true">
@@ -745,6 +749,19 @@ const state = {
   wave: 1,
   kills: 0,
   toastT: 0,
+  // === FLOOR + TOWN PORTAL state ===
+  // floor       : current depth, scales enemy stats
+  // killsToClear: kills needed before the exit portal appears
+  // floorKills  : kills accumulated this floor
+  // exitPortal  : world-tile location of the descent portal once spawned
+  // inTown      : true while at the home base (no enemies, full heal)
+  // returnFrom  : remembered (gx, gy) so re-entering wastes drops you there
+  floor: 1,
+  killsToClear: 12,
+  floorKills: 0,
+  exitPortal: null,            // { gx, gy } when present
+  inTown: false,
+  returnFrom: null,
 };
 
 const toastEl = document.getElementById('toast');
@@ -754,6 +771,92 @@ function showToast(msg, sub, rarity) {
   state.toastT = 1.6;
 }
 function hideToast() { toastEl.classList.remove('show'); }
+
+// =====================================================================
+// TOWN PORTAL + FLOOR TRANSITIONS
+// =====================================================================
+// useTownPortal() — instant teleport to/from the home base. Town has
+// no enemy spawns + full heal on entry. Press P again (or walk over
+// the return rune) to drop back into the wastes at your last spot.
+// advanceFloor() — wipes the field, scales enemies, regenerates the
+// pillar layout, drops the portal back to the centre.
+function useTownPortal() {
+  if (state.phase !== 'playing') return;
+  if (state.inTown) {
+    // Return to wastes at the spot you left from
+    state.inTown = false;
+    if (state.returnFrom) {
+      player.gx = state.returnFrom.gx;
+      player.gy = state.returnFrom.gy;
+    }
+    state.returnFrom = null;
+    state.spawnT = 4.0;       // small breather before mobs return
+    showToast('RETURNED TO THE WASTES', 'floor ' + state.floor);
+    sfx.cast();
+    return;
+  }
+  // Going TO town
+  state.inTown = true;
+  state.returnFrom = { gx: player.gx, gy: player.gy };
+  // Wipe enemies and projectiles for a clean breather
+  for (const en of enemies) spawnDeathBurst(en.gx, en.gy);
+  enemies.length = 0;
+  projectiles.length = 0;
+  // Full heal/mana refill — the home base is safe
+  player.hp = player.maxHp;
+  player.mp = player.maxMp;
+  // Drop the player at the town spawn (centre of grid)
+  player.gx = GRID_W / 2;
+  player.gy = GRID_H / 2;
+  player.vgx = player.vgy = 0;
+  player.targetGx = null;
+  // Save vault — town entry is a safe checkpoint
+  saveVault();
+  showToast('★ TOWN PORTAL ★', 'safe · gear restocked · press P to return');
+  sfx.cast();
+}
+
+function advanceFloor() {
+  state.floor += 1;
+  state.floorKills = 0;
+  state.killsToClear = 12 + state.floor * 2;     // +2 kills per floor
+  state.exitPortal = null;
+  state.spawnT = 3.0;
+  state.waveT = 0;
+  // Wipe enemies + projectiles so the next floor starts fresh
+  for (const en of enemies) spawnDeathBurst(en.gx, en.gy);
+  enemies.length = 0;
+  projectiles.length = 0;
+  drops.length = 0;
+  // Re-roll pillar layout for visual variety per floor
+  buildMap();
+  // Recentre player + save vault
+  player.gx = GRID_W / 2;
+  player.gy = GRID_H / 2;
+  player.targetGx = null;
+  saveVault();
+  showToast('★ FLOOR ' + state.floor + ' ★', 'enemies grow stronger');
+  sfx.level();
+  refreshHud();
+}
+
+function maybeSpawnExitPortal() {
+  // Once the player has cleared `killsToClear` mobs on this floor,
+  // drop a glowing exit portal in a random walkable tile far from
+  // them. Walking over it advances to the next floor.
+  if (state.exitPortal || state.floorKills < state.killsToClear) return;
+  let attempts = 80, gx = 0, gy = 0;
+  while (attempts-- > 0) {
+    gx = 2 + Math.floor(Math.random() * (GRID_W - 4));
+    gy = 2 + Math.floor(Math.random() * (GRID_H - 4));
+    if (!tileWalkable(gx + 0.5, gy + 0.5)) continue;
+    if (Math.hypot(gx - player.gx, gy - player.gy) < 6) continue;
+    break;
+  }
+  state.exitPortal = { gx: gx + 0.5, gy: gy + 0.5 };
+  showToast('★ FLOOR CLEARED ★', 'portal opened — walk into it');
+  sfx.level();
+}
 
 // =====================================================================
 // PERSISTENT VAULT — gold + inventory + equipped persist across runs
@@ -781,6 +884,14 @@ function startGame() {
   state.waveT = 0;
   state.wave = 1;
   state.kills = 0;
+  state.floor = 1;
+  state.floorKills = 0;
+  state.killsToClear = 12;
+  state.exitPortal = null;
+  state.inTown = false;
+  state.returnFrom = null;
+  // Re-roll pillar layout for a fresh floor 1
+  buildMap();
   // reset player
   player.gx = GRID_W / 2; player.gy = GRID_H / 2;
   player.vgx = player.vgy = 0;
@@ -946,6 +1057,7 @@ window.addEventListener('keydown', e => {
   if (e.key === '2') { useSkill('frostbolt'); e.preventDefault(); return; }
   if (e.key === '3') { useSkill('lifedrain'); e.preventDefault(); return; }
   if (e.key === '4') { useSignature();        e.preventDefault(); return; }
+  if (e.key === 'p' || e.key === 'P') { useTownPortal(); e.preventDefault(); return; }
   keys[e.key.toLowerCase()] = true;
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -1137,6 +1249,8 @@ function damageEnemy(en, dmg, isCrit) {
 }
 function killEnemy(en) {
   state.kills += 1;
+  state.floorKills += 1;
+  maybeSpawnExitPortal();
   const xpGain = 24 + en.level * 8;
   player.xp += xpGain;
   const goldGain = 4 + Math.floor(Math.random() * en.level * 5);
@@ -1566,6 +1680,8 @@ function refreshHud() {
   document.getElementById('hudLvl').textContent = player.level;
   document.getElementById('hudGold').textContent = player.gold;
   document.getElementById('hudPts').textContent = player.skillPts;
+  const fEl = document.getElementById('hudFloor');
+  if (fEl) fEl.textContent = state.inTown ? '⌂' : state.floor;
   document.getElementById('hpFill').style.width = (player.hp / player.maxHp * 100) + '%';
   document.getElementById('hpText').innerHTML = '<b>' + Math.ceil(player.hp) + '</b> / ' + player.maxHp;
   document.getElementById('mpFill').style.width = (player.mp / player.maxMp * 100) + '%';
@@ -1699,6 +1815,9 @@ function drawEntities() {
   for (const d  of drops)      all.push({ kind:'drop', d, gx: d.gx, gy: d.gy });
   for (const p  of projectiles)all.push({ kind:'proj', p, gx: p.gx, gy: p.gy });
   for (const p  of particles)  all.push({ kind:'particle', p, gx: p.gx, gy: p.gy });
+  if (state.exitPortal) {
+    all.push({ kind:'portal', gx: state.exitPortal.gx, gy: state.exitPortal.gy });
+  }
   all.sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy));
   ctx.save();
   ctx.translate(off.x, off.y);
@@ -1708,8 +1827,32 @@ function drawEntities() {
     else if (o.kind === 'drop')     drawDrop(o.d);
     else if (o.kind === 'proj')     drawProjectile(o.p);
     else if (o.kind === 'particle') drawParticle(o.p);
+    else if (o.kind === 'portal')   drawPortal(o.gx, o.gy);
   }
   ctx.restore();
+}
+// Glowing exit portal — pulsing rune ring with a vertical column of
+// embers rising from the centre.
+function drawPortal(gx, gy) {
+  const sp = worldToScreen(gx, gy);
+  const t = performance.now() / 200;
+  const pulse = 1 + Math.sin(t) * 0.15;
+  // outer ring
+  ctx.strokeStyle = '#a86bff';
+  ctx.lineWidth = 3;
+  ctx.globalAlpha = 0.85;
+  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, 22 * pulse, 11 * pulse, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = '#bafff5';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, 14 * pulse, 7 * pulse, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = 1;
+  // central glow + rising shaft
+  ctx.fillStyle = 'rgba(168, 107, 255, 0.45)';
+  ctx.fillRect(sp.x - 6, sp.y - 28, 12, 28);
+  ctx.fillStyle = '#a86bff';
+  ctx.font = 'bold 16px serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('ᛟ', sp.x, sp.y);
 }
 
 function drawPlayer() {
@@ -1950,14 +2093,21 @@ function loop(now) {
     tickProjectiles(dt);
     tickDrops(dt);
     tickParticles(dt);
-    // Wave spawning — every few seconds, ramp with elapsed wave time
-    state.waveT += dt;
-    state.spawnT -= dt;
-    if (state.spawnT <= 0) {
-      spawnEnemy(now);
-      // chat nerf: base 2.0→3.2, ramp 0.04→0.025, floor 0.6 (unchanged).
-      // Wave 1 (waveT=0): 3.2s/spawn. Floor (0.6s) reached at waveT=104.
-      state.spawnT = Math.max(0.6, 3.2 - state.waveT * 0.025);
+    // Wave spawning — town zone is a safe pocket so enemies don't
+    // spawn while inTown. Once cleared (exit portal up), spawning
+    // also stops so the player has breathing room to grab the portal.
+    if (!state.inTown && !state.exitPortal) {
+      state.waveT += dt;
+      state.spawnT -= dt;
+      if (state.spawnT <= 0) {
+        spawnEnemy(now);
+        state.spawnT = Math.max(0.6, 3.2 - state.waveT * 0.025);
+      }
+    }
+    // Exit portal pickup — walking onto it advances to the next floor.
+    if (state.exitPortal) {
+      const d = Math.hypot(state.exitPortal.gx - player.gx, state.exitPortal.gy - player.gy);
+      if (d < 0.7) advanceFloor();
     }
     refreshHud();
     refreshSkillBar();
