@@ -1,6 +1,21 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-03: robust localStorage persistence — full snapshot save (chat ask).
+  - **Schema v2 save** at `sloppy-exiles-save-v2`. Captures everything needed to resume a run mid-floor: `classKey`, `level/xp/xpNext/skillPts/gold`, current `hp/maxHp/mp/maxMp` (saved as ratio so restoring after maxHp changes does the right thing), `floor/floorKills/kills/killsToClear`, `inventory[]`, `equipped{}`, `chest[]`, and `purchasedNodes[]`.
+  - **Backward-compat**: if v2 missing, falls back to legacy `sloppy-exiles-vault-v1` which only had gold + inventory + equipped + chest. Safe defaults fill in the rest (level=1, floor=1, etc.).
+  - **Defensive load**: every field type-checked. Numbers default safely; arrays default to `[]`; equipped defaults to all-null. A corrupt JSON parse returns null and the run starts clean rather than crashing.
+  - **Skill-tree restore**: previously, restoring `purchasedNodes` set the membership but never ran each node's `apply(player)` callback — so passive bonuses like +max-HP, mana regen, melee multipliers never took effect on a reload. Fixed: after restoring the set, iterate every purchased node and re-call `apply(player)` so live stats match what the player earned.
+  - **Load order fix**: `purchasedNodes.clear()` was happening AFTER `loadVault` and AFTER `cloudLoad` populated it, wiping the very state we just restored. Now cleared FIRST, then both restore paths re-fill it.
+  - **HP/MP rehydration**: player.hp/mp restored as a RATIO of saved hp:maxHp (so if a passive bonus boosted maxHp on reload, hp scales proportionally instead of clamping).
+  - **Auto-save triggers** (`saveVault({silent: true})` everywhere persistence matters):
+    - Level up — instant flush so the new level + skill point can't be lost.
+    - Loot pickup — every new item in the satchel persists immediately.
+    - Skill-tree node purchase — passive bonuses cement instantly.
+    - Town entry / floor advance / chest deposit / chest withdraw / equip swap (existing).
+  - **Periodic flush**: `markDirty()` flag + 10s background flush in the main loop. If anything mutated state and the player's still alive, it flushes silently.
+  - **Page-unload safety**: `beforeunload` + `visibilitychange` handlers flush dirty state synchronously. Closing the tab or backgrounding the app on mobile no longer loses the last few seconds.
+  - **Title-screen save slot**: shows `WARRIOR · LV 7 · FLOOR 3 · 142g · 4 inv / 12 chest`. The DESCEND button retitles to **CONTINUE** when a save exists. New `⌫ DELETE SAVE` pill (with confirm prompt) wipes the vault and the legacy v1 key.
 - 2026-05-03: chain lightning + AoE blast on the mage's basic attack (chat ask).
   - **Replaces the mage's plain ranged projectile.** When the mage clicks an enemy in range, instead of a single arrow-shaped bolt it casts a chain that bounces between nearby enemies and ricochets off dungeon walls.
   - **Chain rules** (constants near the implementation): up to 5 jumps, 4.5-tile arc range between enemies, 5-tile wall ricochet range, 1.4-tile AoE blast at every enemy hit. Damage falloff per jump: 100% / 85% / 70% / 55% / 45%.

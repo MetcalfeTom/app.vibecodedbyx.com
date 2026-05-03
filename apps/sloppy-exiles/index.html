@@ -483,6 +483,10 @@
     </button>
   </div>
   <button type="button" id="playBtn" aria-label="Descend into the wastes — start the run">▼ DESCEND</button>
+  <div id="saveLine" style="margin-top:1rem;font-family:'IBM Plex Mono',monospace;font-size:0.875rem;color:var(--bone);text-align:center"></div>
+  <button type="button" id="deleteSaveBtn"
+          style="margin-top:0.5rem;font-family:'IBM Plex Mono',monospace;font-size:0.75rem;letter-spacing:0.16em;text-transform:uppercase;background:transparent;border:0.0625rem solid var(--rule);color:var(--bone);padding:0.4375rem 0.875rem;border-radius:0.25rem;cursor:pointer;min-height:2.25rem"
+          aria-label="Delete saved character data">⌫ DELETE SAVE</button>
 </div>
 
 <!-- END -->
@@ -1123,23 +1127,112 @@ function maybeSpawnExitPortal() {
 }
 
 // =====================================================================
-// PERSISTENT VAULT — gold + inventory + equipped persist across runs
+// LOCAL SAVE — robust, versioned, full snapshot (chat ask)
 // =====================================================================
-const VAULT_KEY = 'sloppy-exiles-vault-v1';
-function loadVault() {
-  try { return JSON.parse(localStorage.getItem(VAULT_KEY) || 'null'); }
-  catch (e) { return null; }
-}
-function saveVault() {
+// Schema v2 captures EVERYTHING needed to resume a run: class, stats,
+// inventory, equipped, chest, floor progress, kills, skill-tree
+// purchases. Auto-saves on every meaningful event (level-up, floor
+// advance, town entry, loot pickup, skill purchase, chest move) +
+// periodic flush every 10s while playing. v1 saves (gold + inv +
+// equipped + chest only) are still readable as a fallback.
+const VAULT_KEY    = 'sloppy-exiles-save-v2';
+const VAULT_KEY_V1 = 'sloppy-exiles-vault-v1';
+const VAULT_SCHEMA = 2;
+let _saveDirty = false;     // flag set whenever state changes
+let _periodicSaveT = 0;     // counts seconds since last flush
+
+function saveVault(opts) {
+  // opts.silent: don't toast/log; used for high-frequency auto-saves.
   try {
-    localStorage.setItem(VAULT_KEY, JSON.stringify({
-      gold: player.gold,
-      inventory: player.inventory,
-      equipped: player.equipped,
-      chest: player.chest,
-    }));
-  } catch (e) {}
+    const snap = {
+      v: VAULT_SCHEMA,
+      ts: Date.now(),
+      // class identity
+      classKey: player.classKey || 'warrior',
+      // character stats
+      level: player.level | 0,
+      xp: player.xp | 0,
+      xpNext: player.xpNext | 0,
+      skillPts: player.skillPts | 0,
+      hp: Math.round(player.hp || 0),
+      maxHp: Math.round(player.maxHp || 0),
+      mp: Math.round(player.mp || 0),
+      maxMp: Math.round(player.maxMp || 0),
+      gold: player.gold | 0,
+      // run progress
+      floor: state.floor | 0,
+      floorKills: state.floorKills | 0,
+      kills: state.kills | 0,
+      killsToClear: state.killsToClear | 0,
+      // items
+      inventory: player.inventory || [],
+      equipped: player.equipped || { weapon:null, helm:null, robe:null, ring:null },
+      chest: player.chest || [],
+      // skill tree
+      purchasedNodes: Array.from(purchasedNodes || []),
+    };
+    localStorage.setItem(VAULT_KEY, JSON.stringify(snap));
+    _saveDirty = false;
+    if (!opts || !opts.silent){
+      // Optional toast — skipped on hot-path saves to avoid spam.
+    }
+  } catch (e) {
+    console.warn('saveVault failed', e);
+  }
 }
+
+function loadVault() {
+  // Prefer v2; fall back to v1 (partial data, gold/inv/equipped/chest only).
+  let raw = null, isV1 = false;
+  try { raw = localStorage.getItem(VAULT_KEY); }
+  catch (e) {}
+  if (!raw){
+    try { raw = localStorage.getItem(VAULT_KEY_V1); isV1 = !!raw; }
+    catch (e) {}
+  }
+  if (!raw) return null;
+  let obj;
+  try { obj = JSON.parse(raw); }
+  catch (e) { console.warn('vault corrupt — ignoring'); return null; }
+  if (!obj || typeof obj !== 'object') return null;
+  // Defensive: validate field types so a malformed save can't crash the
+  // load (numbers default to safe values; arrays default to []; objects
+  // default to {}).
+  const safe = {
+    v:               obj.v | 0 || (isV1 ? 1 : 2),
+    classKey:        typeof obj.classKey === 'string' ? obj.classKey : null,
+    level:           Number.isFinite(obj.level)    ? obj.level    : 1,
+    xp:              Number.isFinite(obj.xp)       ? obj.xp       : 0,
+    xpNext:          Number.isFinite(obj.xpNext)   ? obj.xpNext   : 100,
+    skillPts:        Number.isFinite(obj.skillPts) ? obj.skillPts : 0,
+    hp:              Number.isFinite(obj.hp)       ? obj.hp       : null,
+    maxHp:           Number.isFinite(obj.maxHp)    ? obj.maxHp    : null,
+    mp:              Number.isFinite(obj.mp)       ? obj.mp       : null,
+    maxMp:           Number.isFinite(obj.maxMp)    ? obj.maxMp    : null,
+    gold:            Number.isFinite(obj.gold)     ? obj.gold     : 0,
+    floor:           Number.isFinite(obj.floor)    ? obj.floor    : 1,
+    floorKills:      Number.isFinite(obj.floorKills) ? obj.floorKills : 0,
+    kills:           Number.isFinite(obj.kills)    ? obj.kills    : 0,
+    killsToClear:    Number.isFinite(obj.killsToClear) ? obj.killsToClear : 12,
+    inventory:       Array.isArray(obj.inventory) ? obj.inventory : [],
+    equipped:        (obj.equipped && typeof obj.equipped === 'object') ? obj.equipped
+                                                                        : { weapon:null, helm:null, robe:null, ring:null },
+    chest:           Array.isArray(obj.chest)     ? obj.chest     : [],
+    purchasedNodes:  Array.isArray(obj.purchasedNodes) ? obj.purchasedNodes : [],
+  };
+  return safe;
+}
+
+function deleteVault() {
+  try { localStorage.removeItem(VAULT_KEY);    } catch (e) {}
+  try { localStorage.removeItem(VAULT_KEY_V1); } catch (e) {}
+}
+
+// Auto-save trigger — call from any event that mutates persistent
+// state (level up, loot pickup, skill purchase, floor advance, chest
+// op, town enter). Marks the slot dirty + schedules a flush; periodic
+// tick flushes every ~10s if dirty so we never lose more than a moment.
+function markDirty(){ _saveDirty = true; }
 
 // === Supabase cloud save (sloppy_exiles_saves table) ===
 // Auto-syncs whenever the player visits town. Anonymous-auth user_id
@@ -1239,24 +1332,69 @@ function startGame() {
   player.inventory.length = 0;
   player.chest.length = 0;
   player.equipped = { weapon: null, helm: null, robe: null, ring: null };
-  // Restore from vault (local-first — synchronous so the player can
-  // start playing immediately; cloud restore overwrites async if it
-  // returns a NEWER row than what we loaded locally).
+  purchasedNodes.clear();              // FIRST — vault restore re-fills
+  // Restore from local vault (synchronous so the player can start
+  // immediately). The vault is the source of truth offline; cloud
+  // restore (async) may overwrite if a more recent row exists.
   const vault = loadVault();
   if (vault) {
-    player.gold = vault.gold || 0;
-    if (Array.isArray(vault.inventory)) {
-      for (const it of vault.inventory) player.inventory.push(it);
+    // class identity wins over the title screen pick if the save has one
+    if (vault.classKey && CLASSES[vault.classKey]){
+      const sc = CLASSES[vault.classKey];
+      selectedClass = vault.classKey;
+      player.classKey  = vault.classKey;
+      player.maxHp     = sc.maxHp; player.hp = sc.maxHp;
+      player.maxMp     = sc.maxMp; player.mp = sc.maxMp;
+      player.mpRegen   = sc.mpRegen;
+      player.attackDmg = sc.attackDmg;
+      player.attackRange = sc.attackRange;
+      player.speed     = sc.speed;
+      player.ranged    = sc.ranged;
+      player.projectileColor = sc.projectileColor;
+      player.bonus     = { meleeMul: sc.meleeMul, critChance: sc.critChance, berserk: false };
+      const sigIcons = { warrior: '🗡', archer: '🔥', mage: '❅' };
+      const sigIcon = document.getElementById('sigIcon');
+      if (sigIcon) sigIcon.textContent = sigIcons[player.classKey] || '★';
     }
-    if (Array.isArray(vault.chest)) {
-      for (const it of vault.chest) player.chest.push(it);
+    // character stats
+    player.level    = vault.level    || 1;
+    player.xp       = vault.xp       || 0;
+    player.xpNext   = vault.xpNext   || 100;
+    player.skillPts = vault.skillPts || 0;
+    player.gold     = vault.gold     || 0;
+    // run progress
+    state.floor        = vault.floor        || 1;
+    state.floorKills   = vault.floorKills   || 0;
+    state.kills        = vault.kills        || 0;
+    state.killsToClear = vault.killsToClear || 12;
+    // items
+    for (const it of vault.inventory) player.inventory.push(it);
+    for (const it of vault.chest)     player.chest.push(it);
+    for (const slot of ['weapon', 'helm', 'robe', 'ring']) {
+      if (vault.equipped[slot]) player.equipped[slot] = vault.equipped[slot];
     }
-    if (vault.equipped && typeof vault.equipped === 'object') {
-      for (const slot of ['weapon', 'helm', 'robe', 'ring']) {
-        if (vault.equipped[slot]) player.equipped[slot] = vault.equipped[slot];
+    // skill tree purchases — re-apply each node's bonus so passives
+    // (max-HP, mana regen, melee multipliers, etc.) actually take
+    // effect on the live player stats.
+    for (const branchKey of Object.keys(SKILL_TREE)){
+      for (const node of SKILL_TREE[branchKey].nodes){
+        if (vault.purchasedNodes.includes(node.id)){
+          purchasedNodes.add(node.id);
+          try { node.apply(player); } catch (e) { console.warn('skill apply failed', node.id, e); }
+        }
       }
     }
     applyEquippedStats();
+    // Restore live HP/MP (clamped to current max) — finishes after the
+    // skill-tree apply pass since some nodes change max values.
+    if (vault.hp != null && vault.maxHp != null){
+      const hpRatio = Math.max(0, Math.min(1, vault.hp / Math.max(1, vault.maxHp)));
+      player.hp = Math.max(1, Math.round(player.maxHp * hpRatio));
+    }
+    if (vault.mp != null && vault.maxMp != null){
+      const mpRatio = Math.max(0, Math.min(1, vault.mp / Math.max(1, vault.maxMp)));
+      player.mp = Math.round(player.maxMp * mpRatio);
+    }
   }
   // Async cloud restore — if a more recent save exists in Supabase,
   // overwrite the local vault and refresh stats.
@@ -1291,7 +1429,7 @@ function startGame() {
   projectiles.length = 0;
   drops.length = 0;
   particles.length = 0;
-  purchasedNodes.clear();
+  // (purchasedNodes already cleared + restored above from the vault)
   document.getElementById('title').classList.remove('show');
   document.getElementById('title').setAttribute('inert', '');
   document.getElementById('end').classList.remove('show');
@@ -1325,6 +1463,34 @@ function togglePause() {
   showToast(state.paused ? 'PAUSED' : 'RESUMED', state.paused ? 'esc to resume' : '');
 }
 document.getElementById('playBtn').addEventListener('click', startGame);
+// === Save-slot summary on the title screen ===
+function refreshSaveLine(){
+  const line = document.getElementById('saveLine');
+  if (!line) return;
+  const v = loadVault();
+  if (!v){
+    line.textContent = 'no save — fresh run';
+    document.getElementById('deleteSaveBtn').style.display = 'none';
+    document.getElementById('playBtn').textContent = '▼ DESCEND';
+  } else {
+    const cls = (v.classKey || 'warrior').toUpperCase();
+    line.innerHTML =
+      '<span style="color:var(--gold)">' + cls + '</span>' +
+      ' · LV <b style="color:var(--gold)">' + v.level + '</b>' +
+      ' · FLOOR <b style="color:var(--gold)">' + v.floor + '</b>' +
+      ' · ' + v.gold + 'g' +
+      ' · ' + (v.inventory.length + ' inv / ' + v.chest.length + ' chest');
+    document.getElementById('deleteSaveBtn').style.display = '';
+    document.getElementById('playBtn').textContent = '▼ CONTINUE';
+  }
+}
+document.getElementById('deleteSaveBtn').addEventListener('click', () => {
+  if (!confirm('Delete your save? This wipes your character, inventory, chest, and floor progress. The vault chest items are gone too.')) return;
+  deleteVault();
+  refreshSaveLine();
+  showToast('SAVE DELETED', 'fresh run on next descend');
+});
+refreshSaveLine();
 document.getElementById('restartBtn').addEventListener('click', startGame);
 // Character picker — title-screen radio cards. Selected class is
 // applied at startGame via the CLASSES map.
@@ -1431,6 +1597,16 @@ window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 // key marked down indefinitely so the player wandered off forever.
 function clearAllKeys() { for (const k in keys) keys[k] = false; }
 window.addEventListener('blur', clearAllKeys);
+// Last-chance flush before the tab closes — synchronous localStorage.
+window.addEventListener('beforeunload', () => {
+  if (state.phase === 'playing' && _saveDirty) saveVault({ silent: true });
+});
+// Also flush when the page is hidden (mobile background, tab switch).
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.phase === 'playing' && _saveDirty){
+    saveVault({ silent: true });
+  }
+});
 document.addEventListener('visibilitychange', () => { if (document.hidden) clearAllKeys(); });
 
 cvs.addEventListener('click', e => {
@@ -1509,6 +1685,7 @@ function refreshTreeUI() {
         player.skillPts -= node.cost;
         node.apply(player);
         sfx.cast();
+        saveVault({ silent: true });   // persist the unlock immediately
         refreshTreeUI();
         refreshSkillBar();
         refreshHud();
@@ -1779,6 +1956,7 @@ function killEnemy(en) {
   const idx = enemies.indexOf(en);
   if (idx >= 0) enemies.splice(idx, 1);
   // Level up?
+  let leveled = false;
   while (player.xp >= player.xpNext) {
     player.xp -= player.xpNext;
     player.level += 1;
@@ -1788,7 +1966,14 @@ function killEnemy(en) {
     player.mp = player.maxMp;
     sfx.level();
     showToast('LEVEL ' + player.level, '+1 skill point');
+    leveled = true;
   }
+  // Auto-save on every kill so XP / floor progress / dropped loot all
+  // survive a tab close. markDirty + the periodic flush would also
+  // handle this — calling saveVault directly here keeps the latency
+  // down to one frame.
+  if (leveled) saveVault({ silent: true });
+  else markDirty();
   refreshHud();
 }
 function dropLootAt(gx, gy) {
@@ -1816,6 +2001,7 @@ function pickUpDrop(d) {
   sfx.pickup();
   const dIdx = drops.indexOf(d);
   if (dIdx >= 0) drops.splice(dIdx, 1);
+  saveVault({ silent: true });   // never lose a pickup
   refreshHud();
 }
 
@@ -3121,6 +3307,15 @@ function loop(now) {
   }
   state.toastT -= dt;
   if (state.toastT <= 0) hideToast();
+  // Periodic save flush — every 10s if anything is dirty AND we're
+  // mid-run. Cheap insurance against tab close mid-fight.
+  if (state.phase === 'playing'){
+    _periodicSaveT += dt;
+    if (_periodicSaveT > 10){
+      _periodicSaveT = 0;
+      if (_saveDirty) saveVault({ silent: true });
+    }
+  }
   // Render
   clearScene();
   drawTiles();
