@@ -418,8 +418,9 @@ const petals = [];
 buildField();
 
 function blocksAt(x, y, r) {
-  // World bounds
-  if (x - r < 0 || x + r > WORLD.w || y - r < 0 || y + r > WORLD.h) return true;
+  // World bounds intentionally NOT checked here — the world wraps
+  // pac-man style (see stepNinja's modular wrap). Only obstacles
+  // (trees / rocks) actually block movement.
   for (const o of obstacles) {
     if (o.kind === 'pond') continue;   // ponds slow but don't fully block
     const d = Math.hypot(x - o.x, y - o.y);
@@ -641,10 +642,15 @@ function aiTick(n, dt, t) {
       n.sprinting = false;
     }
   } else {
-    // Runners: flee from IT, with a wander mix when far away
+    // Runners: flee from IT (toroidal-shortest direction), with a
+    // wander mix when far away.
     const it = NINJAS.find(o => o.isIt);
     if (!it) return;
-    const dx = n.x - it.x, dy = n.y - it.y;
+    let dx = n.x - it.x, dy = n.y - it.y;
+    if (dx >  WORLD.w / 2) dx -= WORLD.w;
+    if (dx < -WORLD.w / 2) dx += WORLD.w;
+    if (dy >  WORLD.h / 2) dy -= WORLD.h;
+    if (dy < -WORLD.h / 2) dy += WORLD.h;
     const d = Math.hypot(dx, dy) || 1;
     if (d < 280) {
       // sprint flee directly away
@@ -662,22 +668,20 @@ function aiTick(n, dt, t) {
       n.sprinting = false;
     }
   }
-  // === EDGE AVOIDANCE — pull the AI away from world walls ===
-  // Without this the IT bot will happily steer straight at a player
-  // pinned in a corner, then the bounce code shoves it back out and
-  // it shoves itself back in next frame → visible vibration. This
-  // adds an inward force as the ninja gets within EDGE_PUSH of any
-  // wall, blended into the desired heading before obstacle steering.
-  const EDGE_PUSH = 70;
-  let edgeFx = 0, edgeFy = 0;
-  if (n.x < EDGE_PUSH)             edgeFx += (EDGE_PUSH - n.x) / EDGE_PUSH;
-  if (n.x > WORLD.w - EDGE_PUSH)   edgeFx -= (n.x - (WORLD.w - EDGE_PUSH)) / EDGE_PUSH;
-  if (n.y < EDGE_PUSH)             edgeFy += (EDGE_PUSH - n.y) / EDGE_PUSH;
-  if (n.y > WORLD.h - EDGE_PUSH)   edgeFy -= (n.y - (WORLD.h - EDGE_PUSH)) / EDGE_PUSH;
-  const tx = n.aiState.targetX + edgeFx * 240;
-  const ty = n.aiState.targetY + edgeFy * 240;
-  // Move toward target (with simple obstacle steering: sample 5 angles)
-  let bestAng = Math.atan2(ty - n.y, tx - n.x), bestScore = -Infinity;
+  // World wraps now, no need for edge-avoidance forces. The AI just
+  // uses the toroidal-shortest delta toward its target so it'll
+  // happily chase across a wrap boundary.
+  const tx = n.aiState.targetX;
+  const ty = n.aiState.targetY;
+  // Move toward target via the SHORTER toroidal path. If the wrap
+  // distance is less than the direct distance on either axis, treat
+  // the target as if it were one world-width on the wrap side.
+  let dxT = tx - n.x, dyT = ty - n.y;
+  if (dxT >  WORLD.w / 2) dxT -= WORLD.w;
+  if (dxT < -WORLD.w / 2) dxT += WORLD.w;
+  if (dyT >  WORLD.h / 2) dyT -= WORLD.h;
+  if (dyT < -WORLD.h / 2) dyT += WORLD.h;
+  let bestAng = Math.atan2(dyT, dxT), bestScore = -Infinity;
   const baseAng = bestAng;
   for (let off = -1.0; off <= 1.0; off += 0.5) {
     const a = baseAng + off;
@@ -725,31 +729,25 @@ function stepNinja(n, dt) {
   if (inWater(n.x, n.y)) speedScale = 0.5;     // ponds slow
   let nx = n.x + n.vx * dt * speedScale;
   let ny = n.y + n.vy * dt * speedScale;
-  // === AXIS-SEPARATED MOVE WITH BOUNCE ===
-  // Previous behaviour: blocksAt rejected the step and the ninja
-  // froze pressed against the wall while their AI kept overwriting
-  // velocity into the same direction → corner lock. Now: when a step
-  // is rejected, we flip the relevant velocity component with 0.55×
-  // damping. Walls + corners physically push ninjas back into play.
-  if (!blocksAt(nx, n.y, 14)) {
-    n.x = nx;
-  } else if (Math.abs(n.vx) > 5) {
-    n.vx = -n.vx * 0.55;
+  // === AXIS-SEPARATED MOVE — only obstacles can block ===
+  // Edges don't block; the world wraps below. Trees + rocks still
+  // reject the step so the runner can pivot around cover.
+  if (!blocksAt(nx, n.y, 14)) n.x = nx;
+  if (!blocksAt(n.x, ny, 14)) n.y = ny;
+  // === SCREEN WRAP — pac-man style toroidal world ===
+  // Per chat: replace bounce/edge-clamp with wrap so neither the
+  // player nor the IT bot can ever get stuck against a wall. Cross
+  // any boundary, teleport to the opposite edge.
+  // For the player, also snap the camera by the same wrap delta so
+  // the lerp doesn't slingshot the view across the entire field.
+  let wrapDx = 0, wrapDy = 0;
+  if (n.x < 0)         { wrapDx =  WORLD.w; n.x += WORLD.w; }
+  if (n.x > WORLD.w)   { wrapDx = -WORLD.w; n.x -= WORLD.w; }
+  if (n.y < 0)         { wrapDy =  WORLD.h; n.y += WORLD.h; }
+  if (n.y > WORLD.h)   { wrapDy = -WORLD.h; n.y -= WORLD.h; }
+  if (n.isPlayer && (wrapDx || wrapDy)) {
+    cam.x += wrapDx; cam.y += wrapDy;
   }
-  if (!blocksAt(n.x, ny, 14)) {
-    n.y = ny;
-  } else if (Math.abs(n.vy) > 5) {
-    n.vy = -n.vy * 0.55;
-  }
-  // Safety clamp + edge-bounce backstop. If somehow we ended up with
-  // position past the edge (e.g. the ninja was teleported by a tag
-  // knockback), reflect velocity AND nudge 1px clear of the edge so
-  // the next frame doesn't immediately re-bounce.
-  const M = 14;
-  if (n.x < M)             { n.x = M;             if (n.vx < 0) n.vx = -n.vx * 0.55; }
-  if (n.x > WORLD.w - M)   { n.x = WORLD.w - M;   if (n.vx > 0) n.vx = -n.vx * 0.55; }
-  if (n.y < M)             { n.y = M;             if (n.vy < 0) n.vy = -n.vy * 0.55; }
-  if (n.y > WORLD.h - M)   { n.y = WORLD.h - M;   if (n.vy > 0) n.vy = -n.vy * 0.55; }
   // facing — only flip when there's enough horizontal velocity
   if (Math.abs(n.vx) > 8) n.facing = n.vx > 0 ? 1 : -1;
   // run cycle phase advances proportional to speed magnitude
@@ -778,7 +776,14 @@ function checkTags(t) {
   for (const other of NINJAS) {
     if (other === it || other.isIt) continue;
     if (t < (other.immuneUntil || 0)) continue;
-    const d = Math.hypot(other.x - it.x, other.y - it.y);
+    // Toroidal distance — a ninja just past the wrap edge is
+    // physically adjacent to one just inside the opposite edge.
+    let dx = other.x - it.x, dy = other.y - it.y;
+    if (dx >  WORLD.w / 2) dx -= WORLD.w;
+    if (dx < -WORLD.w / 2) dx += WORLD.w;
+    if (dy >  WORLD.h / 2) dy -= WORLD.h;
+    if (dy < -WORLD.h / 2) dy += WORLD.h;
+    const d = Math.hypot(dx, dy);
     if (d < 30) {
       // TAG! swap roles
       it.isIt = false;
@@ -867,13 +872,24 @@ function spawnFloat(x, y, text) {
 const cam = { x: WORLD.w / 2, y: WORLD.h / 2 };
 function updateCamera(dt) {
   const player = NINJAS[0];
-  // lerp toward player
-  cam.x += (player.x - cam.x) * Math.min(1, dt * 6);
-  cam.y += (player.y - cam.y) * Math.min(1, dt * 6);
-  // clamp so camera doesn't show outside-world black
-  const halfW = cvs.clientWidth / 2, halfH = cvs.clientHeight / 2;
-  cam.x = Math.max(halfW, Math.min(WORLD.w - halfW, cam.x));
-  cam.y = Math.max(halfH, Math.min(WORLD.h - halfH, cam.y));
+  // Lerp toward player via toroidal-shortest delta so the camera
+  // doesn't slingshot across the entire field when the player
+  // crosses a wrap boundary. The wrap snap inside stepNinja already
+  // adjusts cam.x/cam.y by the wrap delta the same frame, so this
+  // is a defensive belt-and-suspenders.
+  let dx = player.x - cam.x, dy = player.y - cam.y;
+  if (dx >  WORLD.w / 2) dx -= WORLD.w;
+  if (dx < -WORLD.w / 2) dx += WORLD.w;
+  if (dy >  WORLD.h / 2) dy -= WORLD.h;
+  if (dy < -WORLD.h / 2) dy += WORLD.h;
+  cam.x += dx * Math.min(1, dt * 6);
+  cam.y += dy * Math.min(1, dt * 6);
+  // Wrap the camera position to stay inside [0, WORLD.w] × [0, WORLD.h]
+  // so world-coord rendering math stays well-bounded across many laps.
+  if (cam.x < 0)        cam.x += WORLD.w;
+  if (cam.x > WORLD.w)  cam.x -= WORLD.w;
+  if (cam.y < 0)        cam.y += WORLD.h;
+  if (cam.y > WORLD.h)  cam.y -= WORLD.h;
 }
 
 // =====================================================================
