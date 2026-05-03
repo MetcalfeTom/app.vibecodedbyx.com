@@ -327,13 +327,24 @@ window.addEventListener('resize', fitCanvas);
 fitCanvas();
 
 // =====================================================================
-// AUDIO — Web Audio synth for everything
+// AUDIO — Web Audio synth (SFX + chiptune music engine)
 // =====================================================================
 let actx = null;
 let muted = false;
+// Master gains so we can independently mute SFX vs music
+let sfxGain = null, musicGain = null, noiseBuffer = null;
 function ensureAudio() {
   if (!actx) {
     try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    if (actx) {
+      sfxGain = actx.createGain();   sfxGain.gain.value = 1;   sfxGain.connect(actx.destination);
+      musicGain = actx.createGain(); musicGain.gain.value = 0.65; musicGain.connect(actx.destination);
+      // Noise buffer for hi-hat / snare / bump tail
+      const N = actx.sampleRate * 0.5;
+      noiseBuffer = actx.createBuffer(1, N, actx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < N; i++) data[i] = Math.random() * 2 - 1;
+    }
   }
   if (actx && actx.state === 'suspended') actx.resume();
 }
@@ -343,16 +354,153 @@ function blip(freq, dur, type, vol) {
   o.type = type || 'square'; o.frequency.value = freq;
   g.gain.value = vol || 0.16;
   g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
-  o.connect(g).connect(actx.destination);
+  o.connect(g).connect(sfxGain || actx.destination);
   o.start(); o.stop(actx.currentTime + dur);
 }
+function noiseBurst(dur, freqLow, freqHigh, vol) {
+  if (muted || !actx || !noiseBuffer) return;
+  const src = actx.createBufferSource();
+  src.buffer = noiseBuffer; src.loop = true;
+  const bp = actx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = freqHigh;
+  bp.frequency.linearRampToValueAtTime(freqLow, actx.currentTime + dur);
+  bp.Q.value = 4;
+  const g = actx.createGain();
+  g.gain.value = vol;
+  g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+  src.connect(bp).connect(g).connect(sfxGain);
+  src.start(); src.stop(actx.currentTime + dur);
+}
 const sfx = {
-  poof: () => { blip(540, 0.10, 'triangle', 0.18); setTimeout(() => blip(220, 0.18, 'sawtooth', 0.16), 30); },
-  tag:  () => { blip(880, 0.06, 'square', 0.18); setTimeout(() => blip(1320, 0.10, 'square', 0.18), 50); setTimeout(() => blip(1760, 0.10, 'triangle', 0.16), 110); },
-  step: () => { blip(180 + Math.random() * 60, 0.04, 'sawtooth', 0.05); },
-  start:() => { blip(440, 0.08, 'square', 0.18); setTimeout(() => blip(660, 0.08, 'square', 0.18), 80); setTimeout(() => blip(990, 0.18, 'triangle', 0.20), 160); },
-  end:  () => { blip(330, 0.20, 'sawtooth', 0.20); setTimeout(() => blip(220, 0.30, 'sawtooth', 0.18), 180); },
+  poof:  () => { blip(540, 0.10, 'triangle', 0.18); setTimeout(() => blip(220, 0.18, 'sawtooth', 0.16), 30); },
+  // Tag — punchier 8-bit triplet with a bandpass-noise pop at the end
+  tag:   () => {
+    blip(880, 0.05, 'square', 0.20);
+    setTimeout(() => blip(1320, 0.06, 'square', 0.20), 40);
+    setTimeout(() => blip(1760, 0.10, 'square', 0.20), 90);
+    setTimeout(() => noiseBurst(0.10, 600, 2400, 0.18), 110);
+  },
+  step:  () => { blip(180 + Math.random() * 60, 0.04, 'sawtooth', 0.05); },
+  start: () => { blip(440, 0.08, 'square', 0.18); setTimeout(() => blip(660, 0.08, 'square', 0.18), 80); setTimeout(() => blip(990, 0.18, 'triangle', 0.20), 160); },
+  end:   () => { blip(330, 0.20, 'sawtooth', 0.20); setTimeout(() => blip(220, 0.30, 'sawtooth', 0.18), 180); },
+  // Bump — square thud + filtered noise tail. Fired when an NPC hits
+  // an obstacle hard enough to enter the stun state. Crunchy 8-bit.
+  bump:  () => {
+    blip(140, 0.06, 'square', 0.18);
+    blip( 90, 0.08, 'sawtooth', 0.16);
+    setTimeout(() => noiseBurst(0.18, 200, 900, 0.14), 30);
+  },
+  // Coin-style pickup chime (reused for various positive cues)
+  chime: () => {
+    blip(1175, 0.06, 'square', 0.16);
+    setTimeout(() => blip(1567, 0.10, 'square', 0.16), 60);
+  },
 };
+
+// =====================================================================
+// CHIPTUNE MUSIC ENGINE — looping NES-flavoured 4/4 at 132 BPM
+// =====================================================================
+// 16-step grid (sixteenth notes). Two 32-step bars cycle indefinitely.
+// Bass = pulse-wave 8-step pattern (root motion). Lead = pulse arp on
+// top, with a gap on every snare hit. Snare = bandpass-noise burst on
+// beats 2 + 4 of every bar. Hat = thin bandpass noise on every off-beat.
+// All voices route through musicGain so user can mute music without
+// killing SFX.
+const TEMPO = 132;
+const STEP_LEN = 60 / TEMPO / 4;     // sixteenth-note in seconds
+// Note table (just the pitches we use). C4 ≈ 261.63
+const NOTE = {
+  'A2': 110.00, 'C3': 130.81, 'D3': 146.83, 'E3': 164.81, 'F3': 174.61, 'G3': 196.00,
+  'A3': 220.00, 'B3': 246.94, 'C4': 261.63, 'D4': 293.66, 'E4': 329.63, 'F4': 349.23,
+  'G4': 392.00, 'A4': 440.00, 'B4': 493.88, 'C5': 523.25, 'D5': 587.33, 'E5': 659.25,
+};
+// Bass — driving root-fifth-octave repeating riff in A minor
+const BASS = ['A2','A2', 'E3','A2', 'C3','A2', 'D3','A2', 'A2','A2', 'E3','A2', 'F3','E3', 'D3','C3'];
+// Lead — staccato arpeggio over the bass, 32 steps (2 bars)
+const LEAD = [
+  'E4','A4','C5','A4', 'E4','A4','C5','E5', 'D4','A4','C5','A4', 'D4','F4','A4','C5',
+  'E4','A4','C5','A4', 'E4','A4','C5','E5', 'D4','F4','A4','D5', 'C5','B4','A4','G4',
+];
+let musicRunning = false;
+let nextStepT = 0;
+let stepIdx = 0;
+let musicTimer = 0;
+function playPulse(freq, startT, durSec, vol, duty) {
+  // duty is fake (sine OscillatorNode doesn't do duty cycle) — we approximate
+  // pulse via square wave + slight detune for a chiptune flavour.
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = duty || 'square';
+  o.frequency.value = freq;
+  g.gain.value = 0;
+  g.gain.linearRampToValueAtTime(vol, startT + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, startT + durSec);
+  o.connect(g).connect(musicGain);
+  o.start(startT);
+  o.stop(startT + durSec + 0.02);
+}
+function playSnare(startT) {
+  const src = actx.createBufferSource();
+  src.buffer = noiseBuffer; src.loop = true;
+  const bp = actx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 1.4;
+  const g = actx.createGain();
+  g.gain.value = 0.18;
+  g.gain.exponentialRampToValueAtTime(0.0001, startT + 0.12);
+  src.connect(bp).connect(g).connect(musicGain);
+  src.start(startT); src.stop(startT + 0.12);
+}
+function playHat(startT) {
+  const src = actx.createBufferSource();
+  src.buffer = noiseBuffer; src.loop = true;
+  const hp = actx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 6000;
+  const g = actx.createGain();
+  g.gain.value = 0.06;
+  g.gain.exponentialRampToValueAtTime(0.0001, startT + 0.05);
+  src.connect(hp).connect(g).connect(musicGain);
+  src.start(startT); src.stop(startT + 0.05);
+}
+function scheduleStep(idx, t) {
+  // Bass on every beat
+  if (idx % 2 === 0) {
+    const b = BASS[(idx / 2) % BASS.length];
+    playPulse(NOTE[b], t, STEP_LEN * 1.6, 0.16, 'square');
+  }
+  // Lead on every step (32-step pattern)
+  const l = LEAD[idx % LEAD.length];
+  if (l) playPulse(NOTE[l], t, STEP_LEN * 0.85, 0.10, 'square');
+  // Snare on beats 2 + 4 of each 4/4 bar (steps 4 and 12 of each 16)
+  const stepInBar = idx % 16;
+  if (stepInBar === 4 || stepInBar === 12) playSnare(t);
+  // Hat on every odd step (off-beats)
+  if (idx % 2 === 1) playHat(t);
+}
+function musicScheduler() {
+  if (!musicRunning || !actx) return;
+  // Look 0.12s ahead, schedule any steps that fall within the window
+  const lookahead = actx.currentTime + 0.12;
+  while (nextStepT < lookahead) {
+    scheduleStep(stepIdx, nextStepT);
+    stepIdx++;
+    nextStepT += STEP_LEN;
+  }
+}
+function startMusic() {
+  if (!actx) return;
+  if (musicRunning) return;
+  musicRunning = true;
+  stepIdx = 0;
+  nextStepT = actx.currentTime + 0.05;
+  musicTimer = setInterval(musicScheduler, 30);
+}
+function stopMusic() {
+  musicRunning = false;
+  if (musicTimer) { clearInterval(musicTimer); musicTimer = 0; }
+}
+function setMusicMute(m) {
+  if (musicGain) musicGain.gain.value = m ? 0 : 0.65;
+}
 
 // =====================================================================
 // FIELD — obstacles, scenery
@@ -516,8 +664,18 @@ spawnNinjas();
 // INPUT — keyboard + virtual joystick
 // =====================================================================
 const keys = {};
+// Track music-mute separately from sfx-mute so the user can keep
+// gameplay sounds while silencing the chiptune loop. M key toggles.
+let musicMuted = false;
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape') { togglePause(); e.preventDefault(); return; }
+  if (e.key === 'm' || e.key === 'M') {
+    musicMuted = !musicMuted;
+    setMusicMute(musicMuted);
+    showBanner(musicMuted ? '♪ MUSIC OFF' : '♪ MUSIC ON');
+    e.preventDefault();
+    return;
+  }
   if (e.key === ' ' || e.key === 'Enter') {
     if (state.phase === 'title' || state.phase === 'end') { startRound(); e.preventDefault(); return; }
   }
@@ -606,6 +764,7 @@ function startRound() {
   cvs.focus();
   showBanner('GO!', 'don\'t be IT when time runs out');
   sfx.start();
+  startMusic();
 }
 function endRound() {
   state.phase = 'end';
@@ -621,6 +780,7 @@ function endRound() {
   endEl.removeAttribute('inert');
   document.getElementById('restartBtn').focus();
   sfx.end();
+  stopMusic();
 }
 function togglePause() {
   if (state.phase !== 'playing' && state.phase !== 'paused') return;
@@ -809,6 +969,7 @@ function stepNinja(n, dt) {
   if (bumped && !n.isPlayer && Math.hypot(n.vx, n.vy) > 80) {
     n.aiState.stunT = 0.32 + Math.random() * 0.18;
     n.vx = n.vy = 0;
+    sfx.bump();
   }
   // === SCREEN WRAP — pac-man style toroidal world ===
   // Per chat: replace bounce/edge-clamp with wrap so neither the
