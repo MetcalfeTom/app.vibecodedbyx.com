@@ -284,6 +284,49 @@
   .equipped-row .eq-slot[data-rar="epic"]     .name{color:var(--epic)}
   .equipped-row .eq-slot[data-rar="leg"]      .name{color:var(--leg)}
 
+  /* ===== Vault chest UI (two-pane) ===== */
+  .vault-row{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:1.5rem;
+    align-items:flex-start;
+    margin-top:1rem;max-width:74rem;width:100%;
+  }
+  .vault-row > section{
+    display:flex;flex-direction:column;align-items:center;
+    background:rgba(0,0,0,0.35);
+    border:0.1875rem solid var(--rule);
+    padding:0.875rem 0.75rem 1rem;border-radius:0.25rem;
+  }
+  .vault-pane-title{
+    font-family:'Cinzel', serif;font-weight:900;letter-spacing:0.18em;
+    font-size:0.9375rem;color:var(--gold);
+    margin-bottom:0.625rem;text-transform:uppercase;
+    display:flex;align-items:center;gap:0.5rem;
+  }
+  .vault-pane-title .cap{
+    font-family:'IBM Plex Mono', monospace;font-size:0.75rem;
+    color:var(--bone);letter-spacing:0.04em;
+    background:rgba(0,0,0,0.45);
+    padding:0.0625rem 0.375rem;border-radius:0.125rem;
+  }
+  .vault-grid{margin-top:0;max-width:32rem}
+  .vault-bulk-btn{
+    margin-top:0.875rem;
+    font-family:'Cinzel', serif;font-weight:700;font-size:0.875rem;
+    letter-spacing:0.16em;text-transform:uppercase;
+    background:rgba(20,12,14,0.85);
+    border:0.125rem solid var(--gold);color:var(--gold);
+    padding:0.5rem 1rem;border-radius:0.25rem;cursor:pointer;
+    min-height:2.75rem;
+  }
+  .vault-bulk-btn:hover{background:rgba(217,161,58,0.16)}
+  .vault-bulk-btn:focus-visible{outline:0.1875rem solid var(--gold);outline-offset:0.125rem}
+  .vault-bulk-btn[disabled]{opacity:0.4;cursor:not-allowed}
+  @media (max-width:760px){
+    .vault-row{grid-template-columns:1fr}
+  }
+
   /* ===== Damage numbers (DOM-based floats) ===== */
   .dmg-pop{
     position:fixed;font-family:'Cinzel', serif;font-weight:900;font-size:1.25rem;
@@ -416,6 +459,7 @@
     <div><kbd>CLICK</kbd> walk / strike</div>
     <div><kbd>1 · 2 · 3 · 4</kbd> skills + signature</div>
     <div><kbd>P</kbd> town portal (heal · stash)</div>
+    <div><kbd>V</kbd> open vault chest (in town)</div>
     <div><kbd>T</kbd> tree · <kbd>I</kbd> bag · <kbd>ESC</kbd> pause</div>
   </div>
   <div class="char-picker" role="radiogroup" aria-label="Character class selection">
@@ -463,6 +507,25 @@
   <p class="sub" style="margin-top:1.25rem">click an item to equip</p>
   <div class="inv" id="invGrid"></div>
   <button type="button" id="closeInvBtn" style="margin-top:1.25rem" aria-label="Close inventory">CLOSE</button>
+</div>
+
+<!-- VAULT CHEST (storage) — town-only, opened by clicking the chest in town or pressing V -->
+<div class="overlay" id="vaultOverlay" role="dialog" aria-modal="true" aria-labelledby="vaultHeading" inert>
+  <h2 id="vaultHeading">STORAGE · CHEST</h2>
+  <p class="sub">Click an item to move it. Items in the chest survive every run.</p>
+  <div class="vault-row">
+    <section aria-label="Satchel — your worn inventory">
+      <h3 class="vault-pane-title">SATCHEL <span class="cap" id="vaultSatchelCap">0/32</span></h3>
+      <div class="inv vault-grid" id="vaultSatchelGrid"></div>
+      <button type="button" id="depositAllBtn" class="vault-bulk-btn" aria-label="Move every satchel item into the chest">▶ DEPOSIT ALL</button>
+    </section>
+    <section aria-label="Chest — persistent storage">
+      <h3 class="vault-pane-title">CHEST <span class="cap" id="vaultChestCap">0/48</span></h3>
+      <div class="inv vault-grid" id="vaultChestGrid"></div>
+      <button type="button" id="withdrawAllBtn" class="vault-bulk-btn" aria-label="Move every chest item back to your satchel">◀ WITHDRAW ALL</button>
+    </section>
+  </div>
+  <button type="button" id="closeVaultBtn" style="margin-top:1.25rem" aria-label="Close vault">CLOSE</button>
 </div>
 
 <script type="module">
@@ -534,6 +597,12 @@ const TILE_SEED = (() => {
 // renders on whole tiles AND the portal-back position is deterministic.
 const TOWN_GX = Math.floor(GRID_W / 2);
 const TOWN_GY = Math.floor(GRID_H / 2);
+// Chest sits 2 tiles east of the town centre — visible only when in
+// town. Clicking it (or pressing V while standing inside the safe
+// zone) opens the storage vault overlay.
+const CHEST_GX = TOWN_GX + 2;
+const CHEST_GY = TOWN_GY;
+const CHEST_OPEN_RADIUS = 2.5;   // how close the player must be to interact
 // Safe-zone radius (in tiles). Tiles within this distance from the
 // town centre are kept clear by buildMap and rendered with a glowing
 // floor overlay in drawTiles.
@@ -730,6 +799,11 @@ const player = {
   attackDmg: 12,
   inventory: [],
   equipped: { weapon: null, helm: null, robe: null, ring: null },
+  // CHAT ASK: persistent storage chest in the town zone. Larger than
+  // the satchel (48 slots vs 32) and survives every run via vault save
+  // + cloud upsert. Items move via the vault overlay, opened by
+  // clicking the chest entity in town or pressing V while in town.
+  chest: [],
   targetGx: null, targetGy: null,
   alive: true,
   invulnUntil: 0,
@@ -905,6 +979,7 @@ function saveVault() {
       gold: player.gold,
       inventory: player.inventory,
       equipped: player.equipped,
+      chest: player.chest,
     }));
   } catch (e) {}
 }
@@ -936,6 +1011,10 @@ async function cloudSave() {
       floor: state.floor,
       kills: state.kills,
       inventory: player.inventory,
+      // chest items are stored in localStorage only — the existing
+      // sloppy_exiles_saves table doesn't have a chest column, so
+      // including it here would error. Cross-device chest sync is a
+      // future schema migration.
       equipped: player.equipped,
       purchased_nodes: Array.from(purchasedNodes),
       updated_at: new Date().toISOString(),
@@ -995,6 +1074,7 @@ function startGame() {
   const sigIcon = document.getElementById('sigIcon');
   if (sigIcon) sigIcon.textContent = sigIcons[selectedClass] || '★';
   player.inventory.length = 0;
+  player.chest.length = 0;
   player.equipped = { weapon: null, helm: null, robe: null, ring: null };
   // Restore from vault (local-first — synchronous so the player can
   // start playing immediately; cloud restore overwrites async if it
@@ -1004,6 +1084,9 @@ function startGame() {
     player.gold = vault.gold || 0;
     if (Array.isArray(vault.inventory)) {
       for (const it of vault.inventory) player.inventory.push(it);
+    }
+    if (Array.isArray(vault.chest)) {
+      for (const it of vault.chest) player.chest.push(it);
     }
     if (vault.equipped && typeof vault.equipped === 'object') {
       for (const slot of ['weapon', 'helm', 'robe', 'ring']) {
@@ -1023,7 +1106,9 @@ function startGame() {
     state.floor = row.floor || 1;
     state.kills = row.kills || 0;
     player.inventory.length = 0;
+    player.chest.length = 0;
     if (Array.isArray(row.inventory)) for (const it of row.inventory) player.inventory.push(it);
+    if (Array.isArray(row.chest))     for (const it of row.chest)     player.chest.push(it);
     player.equipped = { weapon: null, helm: null, robe: null, ring: null };
     if (row.equipped) for (const slot of ['weapon','helm','robe','ring']) {
       if (row.equipped[slot]) player.equipped[slot] = row.equipped[slot];
@@ -1156,6 +1241,17 @@ window.addEventListener('keydown', e => {
   }
   if (e.key === 't' || e.key === 'T') { toggleTree(); e.preventDefault(); return; }
   if (e.key === 'i' || e.key === 'I') { toggleInv();  e.preventDefault(); return; }
+  if (e.key === 'v' || e.key === 'V') {
+    // Only opens when in town AND close enough to the chest
+    if (state.inTown && Math.hypot(player.gx - CHEST_GX, player.gy - CHEST_GY) < CHEST_OPEN_RADIUS){
+      openChest();
+    } else if (state.inTown){
+      showToast('walk to the chest', '↗ east of the portal');
+    } else {
+      showToast('chest is in town', 'press P to portal home');
+    }
+    e.preventDefault(); return;
+  }
   if (e.key === '1') { useSkill('cleave');    e.preventDefault(); return; }
   if (e.key === '2') { useSkill('frostbolt'); e.preventDefault(); return; }
   if (e.key === '3') { useSkill('lifedrain'); e.preventDefault(); return; }
@@ -1179,7 +1275,18 @@ cvs.addEventListener('click', e => {
   const sy = (e.clientY - r.top)  * (cvs.height / r.height);
   const off = camOffset();
   const w = screenToWorld(sx - off.x, sy - off.y);
-  // Check if click hit an enemy first — set them as attack target
+  // 1) Storage chest hit (only when in the town zone — chest is rendered there only)
+  if (state.inTown){
+    const dChest = Math.hypot(w.gx - CHEST_GX, w.gy - CHEST_GY);
+    if (dChest < 0.9){
+      // If close enough, open immediately; else walk to the chest then auto-open on arrival.
+      const dPlayer = Math.hypot(player.gx - CHEST_GX, player.gy - CHEST_GY);
+      if (dPlayer < CHEST_OPEN_RADIUS){ openChest(); }
+      else { player.targetGx = CHEST_GX; player.targetGy = CHEST_GY; player._walkToChest = true; }
+      return;
+    }
+  }
+  // 2) Enemy click — set them as attack target
   let nearestE = null, bestD = 999;
   for (const en of enemies) {
     const d = Math.hypot(en.gx - w.gx, en.gy - w.gy);
@@ -1189,9 +1296,11 @@ cvs.addEventListener('click', e => {
     // Move toward enemy (will auto-attack on range)
     player.targetGx = nearestE.gx;
     player.targetGy = nearestE.gy;
+    player._walkToChest = false;
   } else {
     player.targetGx = w.gx;
     player.targetGy = w.gy;
+    player._walkToChest = false;
   }
 });
 
@@ -1291,6 +1400,129 @@ function toggleInv() {
   }
 }
 document.getElementById('closeInvBtn').addEventListener('click', toggleInv);
+
+// =====================================================================
+// VAULT CHEST UI — persistent storage opened from the town zone
+// =====================================================================
+const SATCHEL_CAP = 32;
+const CHEST_CAP = 48;
+
+function refreshVaultUI(){
+  // Cap labels
+  const sCap = document.getElementById('vaultSatchelCap');
+  const cCap = document.getElementById('vaultChestCap');
+  if (sCap) sCap.textContent = player.inventory.length + '/' + SATCHEL_CAP;
+  if (cCap) cCap.textContent = player.chest.length + '/' + CHEST_CAP;
+  // Render satchel grid (left)
+  const sGrid = document.getElementById('vaultSatchelGrid');
+  sGrid.innerHTML = '';
+  for (let i = 0; i < SATCHEL_CAP; i++){
+    const item = player.inventory[i];
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    if (item){
+      slot.dataset.rar = item.rarity;
+      slot.innerHTML = '<span class="icon">' + item.icon + '</span>' +
+                       '<span class="level">+' + item.stat + '</span>';
+      slot.title = item.name + ' · ' + item.rarityName + ' · +' + item.stat + ' · click to deposit';
+      slot.addEventListener('click', () => depositItem(i));
+    }
+    sGrid.appendChild(slot);
+  }
+  // Render chest grid (right)
+  const cGrid = document.getElementById('vaultChestGrid');
+  cGrid.innerHTML = '';
+  for (let i = 0; i < CHEST_CAP; i++){
+    const item = player.chest[i];
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    if (item){
+      slot.dataset.rar = item.rarity;
+      slot.innerHTML = '<span class="icon">' + item.icon + '</span>' +
+                       '<span class="level">+' + item.stat + '</span>';
+      slot.title = item.name + ' · ' + item.rarityName + ' · +' + item.stat + ' · click to withdraw';
+      slot.addEventListener('click', () => withdrawItem(i));
+    }
+    cGrid.appendChild(slot);
+  }
+  // Bulk buttons enabled state
+  document.getElementById('depositAllBtn').disabled  = player.inventory.length === 0 || player.chest.length >= CHEST_CAP;
+  document.getElementById('withdrawAllBtn').disabled = player.chest.length === 0 || player.inventory.length >= SATCHEL_CAP;
+}
+
+function depositItem(satchelIdx){
+  const it = player.inventory[satchelIdx];
+  if (!it) return;
+  if (player.chest.length >= CHEST_CAP){
+    showToast('CHEST IS FULL', 'sell or equip something first');
+    return;
+  }
+  player.inventory.splice(satchelIdx, 1);
+  player.chest.push(it);
+  saveVault();
+  refreshVaultUI();
+  refreshHud();
+  sfx.pickup();
+}
+function withdrawItem(chestIdx){
+  const it = player.chest[chestIdx];
+  if (!it) return;
+  if (player.inventory.length >= SATCHEL_CAP){
+    showToast('SATCHEL IS FULL', 'equip or stash something');
+    return;
+  }
+  player.chest.splice(chestIdx, 1);
+  player.inventory.push(it);
+  saveVault();
+  refreshVaultUI();
+  refreshHud();
+  sfx.pickup();
+}
+
+function openChest(){
+  if (state.phase !== 'playing' && state.phase !== 'paused') return;
+  // Close other overlays first if open
+  const inv = document.getElementById('invOverlay');
+  if (inv.classList.contains('show')){ inv.classList.remove('show'); inv.setAttribute('inert',''); }
+  const tree = document.getElementById('treeOverlay');
+  if (tree.classList.contains('show')){ tree.classList.remove('show'); tree.setAttribute('inert',''); }
+  refreshVaultUI();
+  const el = document.getElementById('vaultOverlay');
+  el.classList.add('show'); el.removeAttribute('inert');
+  state.paused = true; state.phase = 'paused';
+  showToast('★ STORAGE CHEST ★', 'click items to deposit · withdraw');
+  sfx.pickup();
+}
+function closeChest(){
+  const el = document.getElementById('vaultOverlay');
+  if (!el.classList.contains('show')) return;
+  el.classList.remove('show'); el.setAttribute('inert','');
+  state.phase = 'playing'; state.paused = false;
+  saveVault();   // persist after every chest session
+}
+document.getElementById('closeVaultBtn').addEventListener('click', closeChest);
+document.getElementById('depositAllBtn').addEventListener('click', () => {
+  let moved = 0;
+  while (player.inventory.length > 0 && player.chest.length < CHEST_CAP){
+    player.chest.push(player.inventory.shift());
+    moved++;
+  }
+  if (moved > 0){ saveVault(); refreshVaultUI(); refreshHud(); sfx.pickup(); }
+  if (player.chest.length >= CHEST_CAP && player.inventory.length > 0){
+    showToast('CHEST FULL', 'some items left in satchel');
+  }
+});
+document.getElementById('withdrawAllBtn').addEventListener('click', () => {
+  let moved = 0;
+  while (player.chest.length > 0 && player.inventory.length < SATCHEL_CAP){
+    player.inventory.push(player.chest.shift());
+    moved++;
+  }
+  if (moved > 0){ saveVault(); refreshVaultUI(); refreshHud(); sfx.pickup(); }
+  if (player.inventory.length >= SATCHEL_CAP && player.chest.length > 0){
+    showToast('SATCHEL FULL', 'some items remain in the chest');
+  }
+});
 
 function equipItem(idx) {
   const item = player.inventory[idx];
@@ -1705,6 +1937,13 @@ function tickPlayer(dt) {
     if (dist < 0.1) {
       player.targetGx = null;
       player.vgx = player.vgy = 0;
+      // Auto-open chest if the click was a chest interaction and we
+      // have arrived in range.
+      if (player._walkToChest && state.inTown){
+        player._walkToChest = false;
+        const dChest = Math.hypot(player.gx - CHEST_GX, player.gy - CHEST_GY);
+        if (dChest < CHEST_OPEN_RADIUS) openChest();
+      }
     } else {
       const sp = player.speed;
       const s = Math.min(sp, dist / dt);
@@ -2017,6 +2256,11 @@ function drawEntities() {
   if (state.exitPortal) {
     all.push({ kind:'portal', gx: state.exitPortal.gx, gy: state.exitPortal.gy });
   }
+  // Chest is only drawn while in town. It sits 2 tiles east of the
+  // portal and z-sorts with everything else.
+  if (state.inTown){
+    all.push({ kind:'chest', gx: CHEST_GX, gy: CHEST_GY });
+  }
   all.sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy));
   ctx.save();
   ctx.translate(off.x, off.y);
@@ -2027,8 +2271,75 @@ function drawEntities() {
     else if (o.kind === 'proj')     drawProjectile(o.p);
     else if (o.kind === 'particle') drawParticle(o.p);
     else if (o.kind === 'portal')   drawPortal(o.gx, o.gy);
+    else if (o.kind === 'chest')    drawChest(o.gx, o.gy);
   }
   ctx.restore();
+}
+
+function drawChest(gx, gy){
+  const sp = worldToScreen(gx, gy);
+  const t = performance.now() / 280;
+  const lift = Math.sin(t) * 1.2;
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(sp.x, sp.y + 3, 22, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // base box (iso 3D faces)
+  const W = 38, H = 22, D = 18;
+  // bottom face (the chest body) — 3 quads: top, left, right
+  // left face
+  ctx.fillStyle = '#5a3d1c';
+  ctx.beginPath();
+  ctx.moveTo(sp.x - W/2, sp.y - 4 + lift);
+  ctx.lineTo(sp.x,       sp.y + H/2 - 4 + lift);
+  ctx.lineTo(sp.x,       sp.y + H/2 + D - 4 + lift);
+  ctx.lineTo(sp.x - W/2, sp.y - 4 + D + lift);
+  ctx.closePath(); ctx.fill();
+  // right face
+  ctx.fillStyle = '#7a5728';
+  ctx.beginPath();
+  ctx.moveTo(sp.x + W/2, sp.y - 4 + lift);
+  ctx.lineTo(sp.x,       sp.y + H/2 - 4 + lift);
+  ctx.lineTo(sp.x,       sp.y + H/2 + D - 4 + lift);
+  ctx.lineTo(sp.x + W/2, sp.y - 4 + D + lift);
+  ctx.closePath(); ctx.fill();
+  // top face (lid)
+  ctx.fillStyle = '#a37230';
+  ctx.beginPath();
+  ctx.moveTo(sp.x,       sp.y - H/2 - 4 + lift);
+  ctx.lineTo(sp.x + W/2, sp.y - 4 + lift);
+  ctx.lineTo(sp.x,       sp.y + H/2 - 4 + lift);
+  ctx.lineTo(sp.x - W/2, sp.y - 4 + lift);
+  ctx.closePath(); ctx.fill();
+  // gold trim along lid edges
+  ctx.strokeStyle = '#d9a13a'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(sp.x,       sp.y - H/2 - 4 + lift);
+  ctx.lineTo(sp.x + W/2, sp.y - 4 + lift);
+  ctx.lineTo(sp.x,       sp.y + H/2 - 4 + lift);
+  ctx.lineTo(sp.x - W/2, sp.y - 4 + lift);
+  ctx.closePath(); ctx.stroke();
+  // gold lock face (front)
+  ctx.fillStyle = '#d9a13a';
+  ctx.fillRect(sp.x - 4, sp.y + H/2 + 2 + lift, 8, 6);
+  ctx.fillStyle = '#1a1108';
+  ctx.fillRect(sp.x - 1, sp.y + H/2 + 4 + lift, 2, 3);
+  // pulsing prompt — only when player is in range
+  const dPlayer = Math.hypot(player.gx - CHEST_GX, player.gy - CHEST_GY);
+  if (dPlayer < CHEST_OPEN_RADIUS){
+    const a = 0.6 + 0.4 * Math.sin(performance.now() / 140);
+    ctx.fillStyle = `rgba(217,161,58,${a})`;
+    ctx.font = 'bold 11px "IBM Plex Mono", monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline='middle';
+    ctx.fillText('[ V ] open', sp.x, sp.y - H/2 - 18 + lift);
+  } else {
+    // soft idle label
+    ctx.fillStyle = 'rgba(207,185,138,0.55)';
+    ctx.font = '11px "IM Fell English", serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('vault chest', sp.x, sp.y - H/2 - 18 + lift);
+  }
 }
 // Glowing exit portal — pulsing rune ring with a vertical column of
 // embers rising from the centre.
