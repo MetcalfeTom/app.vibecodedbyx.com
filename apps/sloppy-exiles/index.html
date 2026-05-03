@@ -379,6 +379,9 @@
       <div class="skill-slot locked" data-skill="lifedrain">
         <span class="key">3</span><span class="ic">☠</span>
       </div>
+      <div class="skill-slot" data-skill="signature" id="sigSlot">
+        <span class="key">4</span><span class="ic" id="sigIcon">★</span>
+      </div>
     </div>
     <div class="hud-bar mana" role="status" aria-live="polite">
       <div class="lbl">Mana</div>
@@ -752,11 +755,29 @@ function showToast(msg, sub, rarity) {
 }
 function hideToast() { toastEl.classList.remove('show'); }
 
+// =====================================================================
+// PERSISTENT VAULT — gold + inventory + equipped persist across runs
+// =====================================================================
+const VAULT_KEY = 'sloppy-exiles-vault-v1';
+function loadVault() {
+  try { return JSON.parse(localStorage.getItem(VAULT_KEY) || 'null'); }
+  catch (e) { return null; }
+}
+function saveVault() {
+  try {
+    localStorage.setItem(VAULT_KEY, JSON.stringify({
+      gold: player.gold,
+      inventory: player.inventory,
+      equipped: player.equipped,
+    }));
+  } catch (e) {}
+}
+
 function startGame() {
   ensureAudio();
   state.phase = 'playing';
   state.paused = false;
-  state.spawnT = 2.0;
+  state.spawnT = 4.0;     // chat-asked nerf — was 2.0; longer first-spawn breather
   state.waveT = 0;
   state.wave = 1;
   state.kills = 0;
@@ -778,9 +799,29 @@ function startGame() {
   player.gold = 0; player.skillPts = 0;
   player.bonus = { meleeMul: cls.meleeMul, critChance: cls.critChance, berserk: false };
   player.skills = { cleave: false, frostbolt: false, lifedrain: false };
-  player.cooldowns = { attack: 0, cleave: 0, frostbolt: 0, lifedrain: 0 };
+  player.cooldowns = { attack: 0, cleave: 0, frostbolt: 0, lifedrain: 0, signature: 0 };
+  // Update the signature slot icon to match the chosen class
+  const sigIcons = { warrior: '🗡', archer: '🔥', mage: '❅' };
+  const sigIcon = document.getElementById('sigIcon');
+  if (sigIcon) sigIcon.textContent = sigIcons[selectedClass] || '★';
   player.inventory.length = 0;
   player.equipped = { weapon: null, helm: null, robe: null, ring: null };
+  // Restore from vault — your gear persists across deaths/runs so the
+  // base-camp chest fantasy holds. Each run starts with whatever you
+  // banked in the previous one.
+  const vault = loadVault();
+  if (vault) {
+    player.gold = vault.gold || 0;
+    if (Array.isArray(vault.inventory)) {
+      for (const it of vault.inventory) player.inventory.push(it);
+    }
+    if (vault.equipped && typeof vault.equipped === 'object') {
+      for (const slot of ['weapon', 'helm', 'robe', 'ring']) {
+        if (vault.equipped[slot]) player.equipped[slot] = vault.equipped[slot];
+      }
+    }
+    applyEquippedStats();
+  }
   player.alive = true;
   player.targetGx = null; player.targetGy = null;
   enemies.length = 0;
@@ -801,6 +842,9 @@ function startGame() {
 }
 function endGame() {
   state.phase = 'end';
+  // Save vault BEFORE ending — gold + inventory + equipped persist
+  // into the next run as the "base camp chest".
+  saveVault();
   document.getElementById('endHeading').textContent = 'YOUR EXILE ENDS';
   document.getElementById('endstats').innerHTML =
     'Reached level <b style="color:var(--gold);font-family:Cinzel;font-weight:700">' + player.level + '</b>' +
@@ -839,7 +883,9 @@ const CLASSES = {
     name: 'Warrior',
     icon: '⚔',
     tagline: 'tank · cleave · stand and brawl',
-    maxHp: 150, maxMp: 30, mpRegen: 1,
+    // Per chat: starting HP bumped (was 150 / 100 / 80) so the early
+    // game is more survivable while you learn the controls.
+    maxHp: 200, maxMp: 30, mpRegen: 1,
     attackDmg: 16, attackRange: 1.5,
     speed: 4.5,
     meleeMul: 1.2, critChance: 0.05,
@@ -850,7 +896,7 @@ const CLASSES = {
     name: 'Archer',
     icon: '🏹',
     tagline: 'ranged · crit · circle and shoot',
-    maxHp: 100, maxMp: 50, mpRegen: 2,
+    maxHp: 140, maxMp: 50, mpRegen: 2,
     attackDmg: 12, attackRange: 6.0,
     speed: 5.0,
     meleeMul: 1.0, critChance: 0.18,
@@ -861,7 +907,7 @@ const CLASSES = {
     name: 'Mage',
     icon: '✦',
     tagline: 'glass cannon · spell power',
-    maxHp: 80, maxMp: 100, mpRegen: 4,
+    maxHp: 110, maxMp: 100, mpRegen: 4,
     attackDmg: 14, attackRange: 5.0,
     speed: 4.2,
     meleeMul: 1.0, critChance: 0.10,
@@ -899,9 +945,16 @@ window.addEventListener('keydown', e => {
   if (e.key === '1') { useSkill('cleave');    e.preventDefault(); return; }
   if (e.key === '2') { useSkill('frostbolt'); e.preventDefault(); return; }
   if (e.key === '3') { useSkill('lifedrain'); e.preventDefault(); return; }
+  if (e.key === '4') { useSignature();        e.preventDefault(); return; }
   keys[e.key.toLowerCase()] = true;
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+// Clear all held keys on window blur / tab switch / pointer-lock exit
+// — fixes "WASD sticking" where alt-tabbing while holding W left the
+// key marked down indefinitely so the player wandered off forever.
+function clearAllKeys() { for (const k in keys) keys[k] = false; }
+window.addEventListener('blur', clearAllKeys);
+document.addEventListener('visibilitychange', () => { if (document.hidden) clearAllKeys(); });
 
 cvs.addEventListener('click', e => {
   if (state.phase !== 'playing') return;
@@ -1198,6 +1251,110 @@ function useSkill(id) {
   }
   refreshSkillBar();
 }
+// =====================================================================
+// CLASS SIGNATURE SKILLS — bound to key 4, branches on player.classKey
+// =====================================================================
+// Warrior  : HEAVY CLAYMORE — slow overhead 3.5-tile cleave, 3× damage,
+//            knockback on hit. 3.5s cooldown, 12 mp.
+// Archer   : TRIPLE FLAME ARROW — fan of 3 arrows (each 1.4× weapon
+//            damage, fire trail color, no chill). 2.5s cooldown, 16 mp.
+// Mage     : FROST BOMB — lobbed orb that detonates AT THE CURSOR
+//            (ignores range), 4-tile chill+damage AOE. 5s cooldown, 22 mp.
+function useSignature() {
+  if (state.phase !== 'playing' || state.paused) return;
+  if (player.cooldowns.signature > 0) return;
+  const key = player.classKey || 'warrior';
+  if (key === 'warrior') {
+    if (player.mp < 12) { showToast('NEED MANA', '12 mp'); return; }
+    player.mp -= 12;
+    player.cooldowns.signature = 3.5;
+    sfx.cast();
+    let hits = 0;
+    for (const en of enemies) {
+      const d = Math.hypot(en.gx - player.gx, en.gy - player.gy);
+      if (d < 3.5) {
+        const dmg = playerDamage(3.0);
+        damageEnemy(en, dmg, true);
+        // knockback away from player
+        const dx = en.gx - player.gx, dy = en.gy - player.gy;
+        const m = Math.hypot(dx, dy) || 1;
+        en.gx += dx / m * 0.6;
+        en.gy += dy / m * 0.6;
+        hits++;
+      }
+    }
+    spawnAoeRing(player.gx, player.gy, 3.5, '#ffd968');
+    if (hits > 0) sfx.crit();
+    showToast('CLAYMORE', '×3 dmg · knockback');
+  } else if (key === 'archer') {
+    if (player.mp < 16) { showToast('NEED MANA', '16 mp'); return; }
+    player.mp -= 16;
+    player.cooldowns.signature = 2.5;
+    sfx.cast();
+    // Aim direction = cursor; 3 arrows in a fan (-12°, 0°, +12°)
+    const baseDx = mouse.gx - player.gx;
+    const baseDy = mouse.gy - player.gy;
+    const baseAng = Math.atan2(baseDy, baseDx);
+    for (let i = -1; i <= 1; i++) {
+      const a = baseAng + i * 0.21;
+      projectiles.push({
+        gx: player.gx, gy: player.gy,
+        vgx: Math.cos(a) * 12,
+        vgy: Math.sin(a) * 12,
+        dmg: playerDamage(1.4),
+        kind: 'flame', color: '#ff8a33',
+        life: 1.6,
+      });
+    }
+    showToast('TRIPLE FLAME', '3 arrows · fire trail');
+  } else if (key === 'mage') {
+    if (player.mp < 22) { showToast('NEED MANA', '22 mp'); return; }
+    player.mp -= 22;
+    player.cooldowns.signature = 5.0;
+    sfx.cast();
+    // CHAIN LIGHTNING — strike the cursor's nearest enemy, then arc
+    // up to 4 hops between adjacent enemies (within 4 tiles each hop).
+    // Each hop loses 15% damage. Each link is drawn as a beam fx.
+    const visited = new Set();
+    let cur = null, bestD = 999;
+    for (const en of enemies) {
+      const d = Math.hypot(en.gx - mouse.gx, en.gy - mouse.gy);
+      if (d < bestD) { bestD = d; cur = en; }
+    }
+    if (!cur || bestD > 8) {
+      showToast('NO TARGET', 'aim at an enemy');
+      return;
+    }
+    let dmgMul = 2.0;
+    let lastGx = player.gx, lastGy = player.gy;
+    for (let hop = 0; hop < 5 && cur; hop++) {
+      visited.add(cur);
+      // beam visual
+      particles.push({
+        kind: 'beam',
+        // gx/gy are the midpoint so the entity z-sort doesn't NaN out
+        gx: (lastGx + cur.gx) / 2, gy: (lastGy + cur.gy) / 2,
+        x1: lastGx, y1: lastGy, x2: cur.gx, y2: cur.gy,
+        t: 0, dur: 0.35, color: '#a86bff',
+      });
+      const dmg = playerDamage(dmgMul);
+      damageEnemy(cur, dmg, false);
+      dmgMul *= 0.85;
+      lastGx = cur.gx; lastGy = cur.gy;
+      // Find the next nearest unvisited enemy within 4 tiles
+      let next = null, nd = 4.0;
+      for (const en of enemies) {
+        if (visited.has(en)) continue;
+        const d = Math.hypot(en.gx - cur.gx, en.gy - cur.gy);
+        if (d < nd) { nd = d; next = en; }
+      }
+      cur = next;
+    }
+    showToast('CHAIN LIGHTNING', visited.size + ' arcs');
+  }
+  refreshSkillBar();
+}
+
 function playerDamage(mul) {
   let dmg = player.attackDmg * mul * player.bonus.meleeMul;
   if (player.bonus.berserk && player.hp / player.maxHp < 0.3) dmg *= 1.6;
@@ -1672,6 +1829,21 @@ function drawProjectile(p) {
     ctx.strokeStyle = '#bafff5';
     ctx.lineWidth = 2;
     ctx.stroke();
+  } else if (p.kind === 'flame') {
+    // Triple-flame arrow — orange streak with a wider glow halo
+    ctx.fillStyle = 'rgba(255, 138, 51, 0.5)';
+    ctx.beginPath(); ctx.arc(sp.x, sp.y, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd968';
+    ctx.beginPath(); ctx.arc(sp.x, sp.y, 3, 0, Math.PI * 2); ctx.fill();
+    // tail
+    const tailGx = p.gx - p.vgx * 0.05, tailGy = p.gy - p.vgy * 0.05;
+    const tail = worldToScreen(tailGx, tailGy);
+    ctx.strokeStyle = '#ff8a33';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(tail.x, tail.y);
+    ctx.lineTo(sp.x, sp.y);
+    ctx.stroke();
   } else if (p.kind === 'auto') {
     // Class auto-attack projectile (archer arrow / mage bolt)
     ctx.fillStyle = p.color || '#cfb98a';
@@ -1690,6 +1862,28 @@ function drawProjectile(p) {
   }
 }
 function drawParticle(p) {
+  if (p.kind === 'beam') {
+    // Chain lightning arc — jagged line with pulsing alpha
+    const a = worldToScreen(p.x1, p.y1);
+    const b = worldToScreen(p.x2, p.y2);
+    ctx.strokeStyle = p.color || '#a86bff';
+    ctx.lineWidth = 2.5;
+    ctx.globalAlpha = 1 - p.t / p.dur;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    // 3 jagged midpoints
+    const dx = b.x - a.x, dy = b.y - a.y;
+    for (let i = 1; i <= 3; i++) {
+      const f = i / 4;
+      const mx = a.x + dx * f + (Math.random() - 0.5) * 12;
+      const my = a.y + dy * f + (Math.random() - 0.5) * 12;
+      ctx.lineTo(mx, my);
+    }
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    return;
+  }
   const sp = worldToScreen(p.gx, p.gy);
   if (p.kind === 'ring') {
     const r = (p.r * (TILE_W / 2)) * (0.2 + p.t / p.dur * 1.0);
@@ -1761,7 +1955,9 @@ function loop(now) {
     state.spawnT -= dt;
     if (state.spawnT <= 0) {
       spawnEnemy(now);
-      state.spawnT = Math.max(0.6, 2.0 - state.waveT * 0.04);
+      // chat nerf: base 2.0→3.2, ramp 0.04→0.025, floor 0.6 (unchanged).
+      // Wave 1 (waveT=0): 3.2s/spawn. Floor (0.6s) reached at waveT=104.
+      state.spawnT = Math.max(0.6, 3.2 - state.waveT * 0.025);
     }
     refreshHud();
     refreshSkillBar();
