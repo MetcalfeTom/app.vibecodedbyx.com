@@ -707,21 +707,26 @@ function tickBoss(dt) {
   const b = state.boss;
   if (!b) return;
   b.age += dt;
-  // Drift: bounce off walls, wobble velocity slightly
+  // Boss also wraps the screen so it can chase a duck that fled
+  // through the edge without losing them.
   b.x += b.vx * dt;
   b.y += b.vy * dt;
-  if (b.x < BOSS_RADIUS)             { b.x = BOSS_RADIUS;             b.vx = Math.abs(b.vx); }
-  if (b.x > cvs.width  - BOSS_RADIUS){ b.x = cvs.width  - BOSS_RADIUS; b.vx = -Math.abs(b.vx); }
-  if (b.y < BOSS_RADIUS)             { b.y = BOSS_RADIUS;             b.vy = Math.abs(b.vy); }
-  if (b.y > cvs.height - BOSS_RADIUS){ b.y = cvs.height - BOSS_RADIUS; b.vy = -Math.abs(b.vy); }
-  // Per-duck behaviour: fear > 0.5 → flee target away, else swarm
-  // toward boss centre + nibble for damage at bite range.
+  if (b.x < 0)          b.x += cvs.width;
+  if (b.x > cvs.width)  b.x -= cvs.width;
+  if (b.y < 0)          b.y += cvs.height;
+  if (b.y > cvs.height) b.y -= cvs.height;
+  // Per-duck behaviour: toroidal-shortest delta so the flee/swarm
+  // decisions make sense across the wrap (a duck just past the right
+  // edge sees a boss just inside the LEFT edge as adjacent).
   for (const n of NPCS) {
     if (!n.alive) continue;
-    const dx = n.x - b.x, dy = n.y - b.y;
+    const td = torDelta(b.x, b.y, n.x, n.y);
+    const dx = td.dx, dy = td.dy;
     const d = Math.hypot(dx, dy);
     if (n.fear > 0.5) {
-      // Flee — set target to push away from the boss (only if close-ish)
+      // Flee — set target to push away from the boss (only if close-ish).
+      // Target may end up outside the field, that's fine — the wrap will
+      // bring the duck back in on the opposite edge.
       if (d < 220) {
         const m = d || 1;
         n.target = { x: n.x + (dx / m) * 200, y: n.y + (dy / m) * 200 };
@@ -729,16 +734,17 @@ function tickBoss(dt) {
         n.swarming = false;
       }
     } else {
-      // Swarm — target the boss centre
+      // Swarm — target the boss centre. Use the wrapped-shortest
+      // approach: target = npc + delta-from-boss-to-npc reversed,
+      // which points along the short path even across the wrap.
       if (d > BOSS_BITE_R) {
-        n.target = { x: b.x, y: b.y };
+        n.target = { x: n.x - dx, y: n.y - dy };
         n.fleeing = false;
         n.swarming = false;
       } else {
         // Close enough to peck
         n.swarming = true;
         n.fleeing = false;
-        // Damage the boss (per second per duck pecking)
         b.hp -= 12 * dt;
       }
     }
@@ -755,7 +761,9 @@ function tickBoss(dt) {
       // Raise fear of nearby surviving ducks (witnessed a death)
       for (const o of NPCS) {
         if (!o.alive || o === n) continue;
-        const od = Math.hypot(o.x - n.x, o.y - n.y);
+        // Toroidal — witnessing trauma works through the wrap edge too
+        const wd = torDelta(o.x, o.y, n.x, n.y);
+        const od = Math.hypot(wd.dx, wd.dy);
         if (od < 120) o.fear = Math.min(1, o.fear + 0.18);
       }
     }
@@ -816,6 +824,16 @@ function drawBoss() {
 // =====================================================================
 // SIM TICKS
 // =====================================================================
+// Toroidal-shortest delta — for chase/flee logic in a wrapped world.
+// Returns {dx, dy} that go via the SHORT side of the wrap.
+function torDelta(fromX, fromY, toX, toY) {
+  let dx = toX - fromX, dy = toY - fromY;
+  if (dx >  cvs.width  / 2) dx -= cvs.width;
+  if (dx < -cvs.width  / 2) dx += cvs.width;
+  if (dy >  cvs.height / 2) dy -= cvs.height;
+  if (dy < -cvs.height / 2) dy += cvs.height;
+  return { dx, dy };
+}
 function tickNpcs(dt) {
   for (const n of NPCS) {
     if (!n.alive) continue;
@@ -825,14 +843,16 @@ function tickNpcs(dt) {
       n.vx *= Math.pow(0.9, dt * 60);
       n.vy *= Math.pow(0.9, dt * 60);
     } else if (n.target) {
-      const dx = n.target.x - n.x, dy = n.target.y - n.y;
-      const d = Math.hypot(dx, dy);
+      // Use toroidal-shortest delta so chasing across the wrap edge
+      // takes the close path, not the long way around the field.
+      const td = torDelta(n.x, n.y, n.target.x, n.target.y);
+      const d = Math.hypot(td.dx, td.dy);
       if (d < 8) { n.target = null; n.fleeing = false; }
       else {
         const sp = n.fleeing ? n.speed * 1.6 : n.speed;
         const k = Math.min(1, dt * 6);
-        n.vx += ((dx / d) * sp - n.vx) * k;
-        n.vy += ((dy / d) * sp - n.vy) * k;
+        n.vx += ((td.dx / d) * sp - n.vx) * k;
+        n.vy += ((td.dy / d) * sp - n.vy) * k;
       }
     } else {
       n.wanderT -= dt;
@@ -846,10 +866,13 @@ function tickNpcs(dt) {
     }
     n.x += n.vx * dt;
     n.y += n.vy * dt;
-    if (n.x < 20) { n.x = 20; n.vx = Math.abs(n.vx); }
-    if (n.y < 20) { n.y = 20; n.vy = Math.abs(n.vy); }
-    if (n.x > cvs.width - 20)  { n.x = cvs.width - 20;  n.vx = -Math.abs(n.vx); }
-    if (n.y > cvs.height - 20) { n.y = cvs.height - 20; n.vy = -Math.abs(n.vy); }
+    // === SCREEN WRAP === pac-man toroid; ducks slide off one edge
+    // and pop back in on the opposite side. No more bouncing-into-
+    // a-wall chasing logic where they got stuck at the corners.
+    if (n.x < 0)            n.x += cvs.width;
+    if (n.x > cvs.width)    n.x -= cvs.width;
+    if (n.y < 0)            n.y += cvs.height;
+    if (n.y > cvs.height)   n.y -= cvs.height;
   }
 }
 
