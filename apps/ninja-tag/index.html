@@ -807,22 +807,26 @@ const AI_REACT_MAX = 0.32;     // sec — slowest re-evaluation
 const AI_TURN_RATE = 11;       // velocity lerp rate (1/sec)
 function aiTick(n, dt, t) {
   // STUN: NPC just bumped a wall/tree → freeze for the remaining stun
-  // duration. We zero velocity (so they look surprised) and skip both
-  // reaction-decrement and steering. Eyes go dizzy thanks to vx/vy=0
-  // making `moving` false in drawNinja → upright pose, no run cycle.
+  // duration. Player-IT never stuns (they're human-controlled).
   if (n.aiState.stunT > 0) {
     n.aiState.stunT -= dt;
-    n.vx = n.vy = 0;
+    // velocity NOT zeroed any more — the bump-bounce kick we apply in
+    // stepNinja gives them a small outward drift while stunned, so when
+    // stun ends they're already a few units clear of the obstacle.
     return;
   }
   // Decrement reaction timer; only re-pick targets when it expires.
+  // IT bots get a shorter reaction window (more aggressive — they
+  // re-evaluate the chase faster as the player jukes).
   n.aiState.reactT -= dt;
   if (n.aiState.reactT > 0) {
     // Stale-target path: keep last targetX/Y, just re-run the steering.
     aiSteerToTarget(n, dt);
     return;
   }
-  n.aiState.reactT = AI_REACT_MIN + Math.random() * (AI_REACT_MAX - AI_REACT_MIN);
+  const reactMin = n.isIt ? 0.10 : AI_REACT_MIN;
+  const reactMax = n.isIt ? 0.18 : AI_REACT_MAX;
+  n.aiState.reactT = reactMin + Math.random() * (reactMax - reactMin);
   if (n.isIt) {
     let target = null, best = Infinity;
     for (const o of NINJAS) {
@@ -832,7 +836,6 @@ function aiTick(n, dt, t) {
       if (d < best) { best = d; target = o; }
     }
     if (!target) {
-      // Fallback: nearest ANY ninja (ignore immunity) so we keep moving
       let bestF = Infinity;
       for (const o of NINJAS) {
         if (o === n) continue;
@@ -841,11 +844,22 @@ function aiTick(n, dt, t) {
       }
     }
     if (target) {
-      const dx = target.x - n.x, dy = target.y - n.y;
+      // === LEAD THE TARGET ===
+      // Aim where the target WILL be in 0.35s, not where they are now.
+      // For a runner sprinting at ~340 u/s that's ~120u of lead — IT
+      // will cut them off at the corner instead of always chasing
+      // their tail. Aggressive predator behaviour.
+      const LEAD = 0.35;
+      const tx = target.x + target.vx * LEAD;
+      const ty = target.y + target.vy * LEAD;
+      const dx = tx - n.x, dy = ty - n.y;
       const d = Math.hypot(dx, dy) || 1;
       n.aiState.targetX = n.x + dx / d * 80;
       n.aiState.targetY = n.y + dy / d * 80;
-      n.sprinting = !n.sprintLockedOut && n.chakra > 20 && d > 50;
+      // IT sprints aggressively — chakra threshold lowered from 20→10
+      // and the distance gate lowered from 50→25 so the bot keeps
+      // pressure on at close range too.
+      n.sprinting = !n.sprintLockedOut && n.chakra > 10 && d > 25;
     } else {
       n.aiState.targetX = WORLD.w / 2;
       n.aiState.targetY = WORLD.h / 2;
@@ -901,9 +915,31 @@ function aiSteerToTarget(n, dt) {
   if (dxT < -WORLD.w / 2) dxT += WORLD.w;
   if (dyT >  WORLD.h / 2) dyT -= WORLD.h;
   if (dyT < -WORLD.h / 2) dyT += WORLD.h;
-  let bestAng = Math.atan2(dyT, dxT), bestScore = -Infinity;
+  // === OBSTACLE AVOIDANCE — separation force around nearby trees/rocks ===
+  // Find the closest obstacle within ~70u and add a vector pointing
+  // AWAY from it to the desired heading. The closer the obstacle, the
+  // stronger the push. Combined with the multi-angle obstacle-step
+  // sampler below, this lets the AI curve smoothly around cover instead
+  // of plowing into corners.
+  let avoidX = 0, avoidY = 0;
+  const AVOID_R = 70;
+  for (const o of obstacles) {
+    if (o.kind === 'pond') continue;
+    const odx = n.x - o.x, ody = n.y - o.y;
+    const od = Math.hypot(odx, ody) || 1;
+    if (od < AVOID_R + o.r) {
+      const force = (AVOID_R + o.r - od) / AVOID_R;     // 0..1, stronger when closer
+      avoidX += (odx / od) * force * 80;
+      avoidY += (ody / od) * force * 80;
+    }
+  }
+  const desiredX = dxT + avoidX;
+  const desiredY = dyT + avoidY;
+  let bestAng = Math.atan2(desiredY, desiredX), bestScore = -Infinity;
+  // Wider angle sweep (5 → 7 samples, ±1.4 rad) so the AI can find an
+  // escape angle even when the desired heading is mostly blocked.
   const baseAng = bestAng;
-  for (let off = -1.0; off <= 1.0; off += 0.5) {
+  for (let off = -1.4; off <= 1.4; off += 0.4) {
     const a = baseAng + off;
     const stepX = n.x + Math.cos(a) * 28, stepY = n.y + Math.sin(a) * 28;
     if (blocksAt(stepX, stepY, 14)) continue;
@@ -968,8 +1004,38 @@ function stepNinja(n, dt) {
   if (!blocksAt(n.x, ny, 14)) n.y = ny; else bumped = true;
   if (bumped && !n.isPlayer && Math.hypot(n.vx, n.vy) > 80) {
     n.aiState.stunT = 0.32 + Math.random() * 0.18;
-    n.vx = n.vy = 0;
     sfx.bump();
+    // === STICKY-COLLISION FIX ===
+    // Find the obstacle responsible (nearest one within bump radius)
+    // and shove the NPC AWAY from its centre, plus rotate their flee
+    // bias so the next target re-pick won't immediately steer back
+    // into the same obstacle. Without this the NPC stuns, recovers,
+    // re-picks the same target through the same obstacle, gets
+    // bumped again — visible "stuck flickering" loop.
+    let nearO = null, nearD = Infinity;
+    for (const o of obstacles) {
+      if (o.kind === 'pond') continue;
+      const d2 = Math.hypot(n.x - o.x, n.y - o.y);
+      if (d2 < nearD) { nearD = d2; nearO = o; }
+    }
+    if (nearO) {
+      const dx = n.x - nearO.x, dy = n.y - nearO.y;
+      const d = Math.hypot(dx, dy) || 1;
+      // push 6u away from the obstacle centre
+      n.x += dx / d * 6;
+      n.y += dy / d * 6;
+      // velocity: bounce away with a small kick so they have momentum
+      // when stun ends (no instant stop)
+      n.vx = dx / d * 60;
+      n.vy = dy / d * 60;
+    } else {
+      n.vx = n.vy = 0;
+    }
+    // also nudge the NPC's stable fleeBias slightly so the post-stun
+    // re-pick steers around the obstacle, not back into it.
+    if (n.aiState.fleeBias != null) {
+      n.aiState.fleeBias += (Math.random() - 0.5) * 0.4;
+    }
   }
   // === SCREEN WRAP — pac-man style toroidal world ===
   // Per chat: replace bounce/edge-clamp with wrap so neither the
