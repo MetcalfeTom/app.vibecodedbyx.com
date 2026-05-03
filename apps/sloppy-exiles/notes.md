@@ -1,6 +1,13 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-03: render-loop optimization — bake static map to offscreen cache (chat ask, zennlogic lag).
+  - **Root cause**: `drawTiles` was iterating `GRID_W × GRID_H = 1600 tiles` per frame. Each tile painted a diamond fill + stroke + occasional crack stroke + occasional rune fill, plus 4 polygon fills + 4 strokes per pillar. ~10k Path2D ops per frame for the static map alone — that's the lag zennlogic reported after the 24×24 → 40×40 expansion.
+  - **Fix**: bake the entire static iso map into an offscreen `mapCache` canvas exactly once, at the end of every `buildMap` call (i.e. once per floor). Per-frame `drawTiles` is now a single `ctx.drawImage(mapCache, ...)` blit. Estimated per-frame map cost: ~10k Path2D ops → 1 drawImage. Frame time should drop noticeably on the larger grid.
+  - **Cache geometry**: bounding box computed from worldToScreen extents + 36px pillar overhead + ½-tile padding. For a 40×40 grid → ~2560×1316 offscreen canvas (~3.4 MP, ~13.5 MB). Re-allocated once per floor (no leak — same canvas element re-sized).
+  - **Animated bits stay live**: the town pulse halo (sin-wave alpha) is the only frame-varying part of the static map, so it's drawn separately on the live canvas as a single `ellipse` stroke after the cache blit. Town shrine sigil, crack lines, runes, pillars all baked.
+  - **Refactor split**: `drawTile` / `drawPillar` (used module `ctx`) → `paintTile(c, x, y)` / `paintPillar(c, sx, sy)` that take an explicit ctx, so they can render into either the cache OR the live canvas. drawTile/drawPillar removed.
+  - Verified the procedural-map redraw was indeed the lag source and not something else (entity sort + render is O(N) where N≈30; cheap by comparison).
 - 2026-05-03: bigger map + procedural rooms-and-corridors + 2 new enemy kinds (chat ask).
   - **Map size**: GRID_W/H bumped 24×24 → **40×40** (~2.8× area).
   - **Procedural rooms+corridors generator** replaces the old single-arena + 12 random pillars. Algorithm: fill with walls → carve fixed TOWN room (9×9) at world centre → place 7 random rooms (4-9 wide/tall) without overlap (1-tile padding) → connect each new room to the previous via L-shaped corridor → 2 extra random corridors for loop variety → sprinkle 0-2 pillars per non-town room → force-clear town safe zone. Corridors carved 2 tiles wide (1 + widening tile) so they don't feel claustrophobic. Each floor re-rolls the layout.

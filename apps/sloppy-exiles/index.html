@@ -605,6 +605,16 @@ function camOffset() {
 // =====================================================================
 const TILES = [];      // 2D array: 0 = walkable, 1 = wall
 let TILE_SEED = [];    // per-tile crack-render seed; regenerated per buildMap
+// CHAT FIX (zennlogic lag): the 40×40 grid means drawTiles was running
+// 1600 tiles × multiple Path2D ops every frame (~10k ops/frame just for
+// the static map). The map only changes when buildMap runs (per floor),
+// so we bake the entire iso scene into an offscreen canvas once and
+// blit it per frame. Per-frame map cost drops from O(GRID_W×GRID_H)
+// path operations to ONE drawImage. Dynamic bits (town pulse halo)
+// stay live via a small overlay pass.
+let mapCache = null;
+let mapCacheW = 0, mapCacheH = 0;
+let mapCacheOriginX = 0, mapCacheOriginY = 0;
 // Track room rectangles so future tooling (boss spawn? minimap?) can
 // reason about distinct rooms. Each entry: { x, y, w, h, cx, cy }
 const ROOMS = [];
@@ -699,6 +709,9 @@ function buildMap() {
   }
   // 8) freshly seed crack-render variety
   buildTileSeed();
+  // 9) bake the static map to an offscreen canvas — the per-frame
+  //    drawTiles becomes a single drawImage instead of 1600 path draws.
+  bakeMapCache();
 }
 function makeRoom(x, y, w, h){
   return { x, y, w, h, cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
@@ -2289,121 +2302,138 @@ function clearScene() {
 }
 function drawTiles() {
   const off = camOffset();
-  ctx.save();
-  ctx.translate(off.x, off.y);
-  // Sort and draw tiles + objects in iso order (back-to-front)
-  for (let y = 0; y < GRID_H; y++) {
-    for (let x = 0; x < GRID_W; x++) {
-      drawTile(x, y);
+  if (mapCache){
+    // Per-frame: ONE drawImage instead of 1600 tile path draws.
+    // mapCacheOrigin is the cache-canvas pixel that corresponds to
+    // world (0,0); subtracting it puts world (0,0) at (off.x, off.y)
+    // on the live canvas — same alignment as the per-tile renderer.
+    ctx.drawImage(mapCache, off.x - mapCacheOriginX, off.y - mapCacheOriginY);
+  }
+  // Live overlay: animated town pulse halo (the only frame-varying
+  // part of the static map). Cheap — one ellipse stroke.
+  if (state.inTown){
+    ctx.save();
+    ctx.translate(off.x, off.y);
+    const sp = worldToScreen(TOWN_GX, TOWN_GY);
+    const pulse = 0.4 + Math.sin(performance.now() / 250) * 0.15;
+    ctx.strokeStyle = 'rgba(217,161,58,' + pulse + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(sp.x, sp.y, TOWN_RADIUS * (TILE_W / 2), TOWN_RADIUS * (TILE_H / 2), 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function bakeMapCache(){
+  // Compute iso bounding box for the whole grid + pillar overhead.
+  const PILL_H = 36;
+  const minSX = -(GRID_H - 1) * (TILE_W / 2) - TILE_W / 2;
+  const maxSX =  (GRID_W - 1) * (TILE_W / 2) + TILE_W / 2;
+  const minSY = -PILL_H - TILE_H / 2;
+  const maxSY = (GRID_W + GRID_H - 2) * (TILE_H / 2) + TILE_H / 2;
+  mapCacheW = Math.ceil(maxSX - minSX);
+  mapCacheH = Math.ceil(maxSY - minSY);
+  mapCacheOriginX = -minSX;
+  mapCacheOriginY = -minSY;
+  if (!mapCache) mapCache = document.createElement('canvas');
+  mapCache.width  = mapCacheW;
+  mapCache.height = mapCacheH;
+  const cctx = mapCache.getContext('2d');
+  cctx.translate(mapCacheOriginX, mapCacheOriginY);
+  // Render every tile (and pillar) into the cache once. Iso back-to-front
+  // so pillars in the back don't paint over walls in front.
+  for (let y = 0; y < GRID_H; y++){
+    for (let x = 0; x < GRID_W; x++){
+      paintTile(cctx, x, y);
     }
   }
-  ctx.restore();
 }
-function drawTile(x, y) {
+function paintTile(c, x, y) {
   const sp = worldToScreen(x, y);
   const seed = TILE_SEED[y][x];
   const isWall = TILES[y][x] === 1;
   const inTownZone = Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS;
   // diamond tile
-  ctx.beginPath();
-  ctx.moveTo(sp.x, sp.y - TILE_H / 2);
-  ctx.lineTo(sp.x + TILE_W / 2, sp.y);
-  ctx.lineTo(sp.x, sp.y + TILE_H / 2);
-  ctx.lineTo(sp.x - TILE_W / 2, sp.y);
-  ctx.closePath();
-  // base color — slightly varied per tile
+  c.beginPath();
+  c.moveTo(sp.x, sp.y - TILE_H / 2);
+  c.lineTo(sp.x + TILE_W / 2, sp.y);
+  c.lineTo(sp.x, sp.y + TILE_H / 2);
+  c.lineTo(sp.x - TILE_W / 2, sp.y);
+  c.closePath();
   const baseV = (seed % 18) - 9;
   if (isWall) {
-    ctx.fillStyle = 'rgb(' + (32 + baseV / 2) + ',' + (24 + baseV / 2) + ',' + (28 + baseV / 2) + ')';
+    c.fillStyle = 'rgb(' + (32 + baseV / 2) + ',' + (24 + baseV / 2) + ',' + (28 + baseV / 2) + ')';
   } else if (inTownZone) {
-    // SAFE-ZONE warm-tinted floor — gold-tinged stone so the home base
-    // is visually unmistakable from anywhere on the map.
-    ctx.fillStyle = 'rgb(' + (78 + baseV) + ',' + (60 + baseV) + ',' + (32 + baseV) + ')';
+    c.fillStyle = 'rgb(' + (78 + baseV) + ',' + (60 + baseV) + ',' + (32 + baseV) + ')';
   } else {
-    ctx.fillStyle = 'rgb(' + (40 + baseV) + ',' + (32 + baseV) + ',' + (36 + baseV) + ')';
+    c.fillStyle = 'rgb(' + (40 + baseV) + ',' + (32 + baseV) + ',' + (36 + baseV) + ')';
   }
-  ctx.fill();
-  ctx.strokeStyle = inTownZone ? 'rgba(217,161,58,0.45)' : 'rgba(0,0,0,0.55)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  // Centre tile of town gets a bright shrine sigil — always visible
-  // landmark for where you'll teleport in via the portal.
+  c.fill();
+  c.strokeStyle = inTownZone ? 'rgba(217,161,58,0.45)' : 'rgba(0,0,0,0.55)';
+  c.lineWidth = 1;
+  c.stroke();
+  // Town shrine sigil — static, baked into the cache (the animated
+  // pulse halo stays in drawTiles' live overlay).
   if (x === TOWN_GX && y === TOWN_GY) {
-    ctx.fillStyle = 'rgba(217,161,58,0.85)';
-    ctx.font = 'bold 18px "UnifrakturCook", serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('⌂', sp.x, sp.y);
-    // pulsing safe-zone halo when actually in town
-    if (state.inTown) {
-      const pulse = 0.4 + Math.sin(performance.now() / 250) * 0.15;
-      ctx.strokeStyle = 'rgba(217,161,58,' + pulse + ')';
-      ctx.lineWidth = 2;
-      const r = TOWN_RADIUS;
-      ctx.beginPath();
-      ctx.ellipse(sp.x, sp.y, r * (TILE_W / 2), r * (TILE_H / 2), 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+    c.fillStyle = 'rgba(217,161,58,0.85)';
+    c.font = 'bold 18px "UnifrakturCook", serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('⌂', sp.x, sp.y);
   }
-  // crack lines for floor tiles
   if (!isWall && (seed % 3) === 0) {
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(sp.x - 6 + (seed % 9), sp.y - 4);
-    ctx.lineTo(sp.x + 4 - (seed % 7), sp.y + 4);
-    ctx.stroke();
+    c.strokeStyle = 'rgba(0,0,0,0.45)';
+    c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(sp.x - 6 + (seed % 9), sp.y - 4);
+    c.lineTo(sp.x + 4 - (seed % 7), sp.y + 4);
+    c.stroke();
   }
-  // rune glyph on rare tiles
   if (!isWall && (seed % 47) === 0) {
-    ctx.fillStyle = 'rgba(168,107,255,0.5)';
-    ctx.font = 'bold 14px serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    c.fillStyle = 'rgba(168,107,255,0.5)';
+    c.font = 'bold 14px serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
     const glyphs = ['ᚠ','ᚱ','ᛞ','ᛟ','ᛇ','ᛉ','ᛗ'];
-    ctx.fillText(glyphs[seed % glyphs.length], sp.x, sp.y);
+    c.fillText(glyphs[seed % glyphs.length], sp.x, sp.y);
   }
-  // Pillars: tall block with roof
   if (isWall) {
-    drawPillar(sp.x, sp.y);
+    paintPillar(c, sp.x, sp.y);
   }
 }
-function drawPillar(sx, sy) {
+function paintPillar(c, sx, sy) {
   const H = 36;
-  // Left face
-  ctx.fillStyle = '#22181c';
-  ctx.beginPath();
-  ctx.moveTo(sx - TILE_W / 2, sy);
-  ctx.lineTo(sx - TILE_W / 2, sy - H);
-  ctx.lineTo(sx,              sy + TILE_H / 2 - H);
-  ctx.lineTo(sx,              sy + TILE_H / 2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.stroke();
-  // Right face
-  ctx.fillStyle = '#2c1f24';
-  ctx.beginPath();
-  ctx.moveTo(sx + TILE_W / 2, sy);
-  ctx.lineTo(sx + TILE_W / 2, sy - H);
-  ctx.lineTo(sx,              sy + TILE_H / 2 - H);
-  ctx.lineTo(sx,              sy + TILE_H / 2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  // Top
-  ctx.fillStyle = '#382731';
-  ctx.beginPath();
-  ctx.moveTo(sx,              sy - H);
-  ctx.lineTo(sx + TILE_W / 2, sy - H + TILE_H / 2);
-  ctx.lineTo(sx,              sy - H + TILE_H);
-  ctx.lineTo(sx - TILE_W / 2, sy - H + TILE_H / 2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  // Faint blood-red ember on top
-  ctx.fillStyle = 'rgba(168,34,38,0.5)';
-  ctx.beginPath();
-  ctx.arc(sx, sy - H + TILE_H / 2, 3, 0, Math.PI * 2);
-  ctx.fill();
+  c.fillStyle = '#22181c';
+  c.beginPath();
+  c.moveTo(sx - TILE_W / 2, sy);
+  c.lineTo(sx - TILE_W / 2, sy - H);
+  c.lineTo(sx,              sy + TILE_H / 2 - H);
+  c.lineTo(sx,              sy + TILE_H / 2);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = 'rgba(0,0,0,0.6)';
+  c.stroke();
+  c.fillStyle = '#2c1f24';
+  c.beginPath();
+  c.moveTo(sx + TILE_W / 2, sy);
+  c.lineTo(sx + TILE_W / 2, sy - H);
+  c.lineTo(sx,              sy + TILE_H / 2 - H);
+  c.lineTo(sx,              sy + TILE_H / 2);
+  c.closePath();
+  c.fill();
+  c.stroke();
+  c.fillStyle = '#382731';
+  c.beginPath();
+  c.moveTo(sx,              sy - H);
+  c.lineTo(sx + TILE_W / 2, sy - H + TILE_H / 2);
+  c.lineTo(sx,              sy - H + TILE_H);
+  c.lineTo(sx - TILE_W / 2, sy - H + TILE_H / 2);
+  c.closePath();
+  c.fill();
+  c.stroke();
+  c.fillStyle = 'rgba(168,34,38,0.5)';
+  c.beginPath();
+  c.arc(sx, sy - H + TILE_H / 2, 3, 0, Math.PI * 2);
+  c.fill();
 }
 
 // === ENTITY RENDERING (sorted back-to-front by gx+gy) ===
