@@ -451,6 +451,10 @@ function makeNinja(spec) {
     runPhase: 0,           // accumulator for leg cycle
     chakra: 100, maxChakra: 100,
     sprinting: false,
+    sprintLockedOut: false,   // hysteresis flag — once chakra hits 0,
+                              // sprint is locked off until chakra
+                              // recovers above maxChakra * 0.25
+                              // (prevents 1-frame on/off flicker)
     isIt: false,
     immuneUntil: 0,        // newly-tagged "ex-IT" can't be re-tagged
     tagPenaltyUntil: 0,    // IT failed to tag → small chakra drain
@@ -558,6 +562,7 @@ function startRound() {
   state.itTimerLeft = 6;
   for (const n of NINJAS) {
     n.chakra = n.maxChakra;
+    n.sprintLockedOut = false;
     n.immuneUntil = 0;
     n.safeAccum = 0;
   }
@@ -635,7 +640,7 @@ function aiTick(n, dt, t) {
       const d = Math.hypot(dx, dy) || 1;
       n.aiState.targetX = n.x + dx / d * 80;
       n.aiState.targetY = n.y + dy / d * 80;
-      n.sprinting = n.chakra > 20 && d > 50;
+      n.sprinting = !n.sprintLockedOut && n.chakra > 20 && d > 50;
     } else {
       n.aiState.targetX = WORLD.w / 2;
       n.aiState.targetY = WORLD.h / 2;
@@ -656,7 +661,7 @@ function aiTick(n, dt, t) {
       // sprint flee directly away
       n.aiState.targetX = n.x + dx / d * 200;
       n.aiState.targetY = n.y + dy / d * 200;
-      n.sprinting = n.chakra > 20;
+      n.sprinting = !n.sprintLockedOut && n.chakra > 20;
     } else {
       // wander with occasional reroll
       n.aiState.wanderT -= dt;
@@ -690,7 +695,12 @@ function aiTick(n, dt, t) {
     const score = -off*off;   // prefer the straight-line direction
     if (score > bestScore) { bestScore = score; bestAng = a; }
   }
-  const speed = (n.sprinting && n.chakra > 0) ? n.speed * 1.55 : n.speed;
+  // Strict speed gate: sprint only multiplies if BOTH the sprinting
+  // flag is on AND chakra is non-zero AND we're not in the post-empty
+  // lockout. Without the lockout check the AI could still sprint at
+  // chakra==0 for the single frame between drain and regen.
+  const canSprint = n.sprinting && !n.sprintLockedOut && n.chakra > 0;
+  const speed = canSprint ? n.speed * 1.55 : n.speed;
   n.vx = Math.cos(bestAng) * speed;
   n.vy = Math.sin(bestAng) * speed;
 }
@@ -708,8 +718,11 @@ function applyPlayerInput(n, dt) {
   if (joy.active) { dx = joy.dx; dy = joy.dy; }
   const len = Math.hypot(dx, dy);
   if (len > 0) { dx /= len; dy /= len; }
-  // Sprint via Shift OR mobile sprint button
-  n.sprinting = (keys.shift || joy.sprint) && n.chakra > 0;
+  // Sprint via Shift OR mobile sprint button. The sprintLockedOut
+  // hysteresis flag (set in stepNinja when chakra hits 0) keeps
+  // sprint OFF until chakra recovers above 25%, eliminating the
+  // 1-frame sprint flicker that made speed feel "uneven".
+  n.sprinting = (keys.shift || joy.sprint) && !n.sprintLockedOut && n.chakra > 0;
   const speed = n.sprinting ? n.speed * 1.55 : n.speed;
   // Velocity smoothing — accelerate toward the target velocity at a
   // capped rate so direction-changes feel like a runner pivoting
@@ -753,15 +766,20 @@ function stepNinja(n, dt) {
   // run cycle phase advances proportional to speed magnitude
   const speed = Math.hypot(n.vx, n.vy);
   n.runPhase += dt * (speed * 0.025);
-  // chakra: drain on sprint, regen on rest. IT used to regen at half
-  // rate (8/sec) which combined with the post-6s penalty drain below
-  // left the IT player stuck at 0 chakra, breaking sprint entirely.
-  // Now everyone regens at the same 14/sec — being IT is its own
-  // pressure, no need to mechanically punish it.
+  // chakra: drain on sprint, regen on rest, with an EMPTY-LOCKOUT
+  // so we don't get a 1-frame on/off flicker when chakra hits 0.
+  // Hysteresis: once depleted, sprint stays locked off until chakra
+  // recovers above 25% — meter visibly fills back up before the
+  // player can boost again, instead of stuttering between drained
+  // and 1-unit-of-chakra forever.
   if (n.sprinting && speed > 10) {
     n.chakra = Math.max(0, n.chakra - dt * 22);
+    if (n.chakra <= 0) n.sprintLockedOut = true;
   } else {
     n.chakra = Math.min(n.maxChakra, n.chakra + dt * 14);
+    if (n.sprintLockedOut && n.chakra >= n.maxChakra * 0.25) {
+      n.sprintLockedOut = false;
+    }
   }
   // step sound for player only, throttled
   if (n.isPlayer && speed > 50) {
@@ -1344,8 +1362,18 @@ function update(dt) {
   const sv = document.getElementById('hudStatus');
   if (NINJAS[0].isIt) { sc.classList.add('it'); sv.textContent = 'IT! ' + state.itTimerLeft.toFixed(1) + 's'; }
   else                { sc.classList.remove('it'); sv.textContent = 'RUNNER'; }
-  document.getElementById('hudChakraText').textContent = Math.round(NINJAS[0].chakra) + '%';
-  document.getElementById('chakraFill').style.width = (NINJAS[0].chakra / NINJAS[0].maxChakra * 100) + '%';
+  // While chakra is in the post-empty lockout, prefix the readout
+  // and tint the fill red so the player understands why sprint isn't
+  // responding even though the meter is filling.
+  const chakraPct = Math.round(NINJAS[0].chakra);
+  const lockedOut = NINJAS[0].sprintLockedOut;
+  document.getElementById('hudChakraText').textContent =
+    lockedOut ? ('⛔ ' + chakraPct + '%') : (chakraPct + '%');
+  const fillEl = document.getElementById('chakraFill');
+  fillEl.style.width = (NINJAS[0].chakra / NINJAS[0].maxChakra * 100) + '%';
+  fillEl.style.background = lockedOut
+    ? 'linear-gradient(90deg, #b54545, #ff5252)'
+    : '';     // empty string falls back to the CSS rule
 }
 function draw(t, dt) {
   clearScene();
