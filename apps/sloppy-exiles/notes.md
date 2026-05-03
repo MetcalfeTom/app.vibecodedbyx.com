@@ -1,6 +1,15 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-03: chain lightning + AoE blast on the mage's basic attack (chat ask).
+  - **Replaces the mage's plain ranged projectile.** When the mage clicks an enemy in range, instead of a single arrow-shaped bolt it casts a chain that bounces between nearby enemies and ricochets off dungeon walls.
+  - **Chain rules** (constants near the implementation): up to 5 jumps, 4.5-tile arc range between enemies, 5-tile wall ricochet range, 1.4-tile AoE blast at every enemy hit. Damage falloff per jump: 100% / 85% / 70% / 55% / 45%.
+  - **Targeting**: nearest unhit enemy with line-of-sight (16-step Bresenham-ish sample through `TILES`) wins the next jump. If none in range, scans 16 angles for a wall tile within ricochet range, picks the closest hit, lands the bolt just before the wall, then continues hunting from there. Wall bounce counts as one segment but does no damage — produces a small spark cluster.
+  - **AoE blast**: each enemy hit also deals 40% of the bolt's damage to other enemies within 1.4 tiles of the hit point (`chainBlast`), plus a cyan AoE ring particle.
+  - **Visual** (`drawJaggedBolt`): per-segment perpendicular-jitter polyline (4-14 segments depending on length), big cyan glow stroke (lineWidth 6, shadowBlur 12), bright white inner core (lineWidth 2, no glow). Wall-segment ends spawn 5 tiny yellow sparks. Whole chain fades out over 0.42s.
+  - **Class targeting**: warrior/archer click-attack untouched. Only `player.classKey === 'mage'` flips into the chain path. Mage's per-shot CD is 0.55s (the chain is doing way more work than a single bolt — slight tempo throttle balances).
+  - **State plumbing**: new `lightnings` array, `tickLightnings(dt)` removes expired entries, `drawLightnings()` runs after `drawEntities()` so bolts sit above sprites.
+  - Mage class card + class tagline updated to advertise "chain lightning · ricochet".
 - 2026-05-03: render-loop optimization — bake static map to offscreen cache (chat ask, zennlogic lag).
   - **Root cause**: `drawTiles` was iterating `GRID_W × GRID_H = 1600 tiles` per frame. Each tile painted a diamond fill + stroke + occasional crack stroke + occasional rune fill, plus 4 polygon fills + 4 strokes per pillar. ~10k Path2D ops per frame for the static map alone — that's the lag zennlogic reported after the 24×24 → 40×40 expansion.
   - **Fix**: bake the entire static iso map into an offscreen `mapCache` canvas exactly once, at the end of every `buildMap` call (i.e. once per floor). Per-frame `drawTiles` is now a single `ctx.drawImage(mapCache, ...)` blit. Estimated per-frame map cost: ~10k Path2D ops → 1 drawImage. Frame time should drop noticeably on the larger grid.

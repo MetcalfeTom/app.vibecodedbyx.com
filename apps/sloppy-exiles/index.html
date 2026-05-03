@@ -478,7 +478,7 @@
     <button type="button" class="char-card" data-class="mage" aria-pressed="false">
       <div class="cc-icon" aria-hidden="true">✦</div>
       <div class="cc-name">Mage</div>
-      <div class="cc-tag">glass cannon</div>
+      <div class="cc-tag">chain lightning · ricochet</div>
       <div class="cc-stats">HP 80 · MP 100</div>
     </button>
   </div>
@@ -927,6 +927,9 @@ const player = {
 };
 const enemies = [];
 const projectiles = [];
+// Chain-lightning bolts — each entry is { segments: [{fx,fy,tx,ty,kind}], life, maxLife }.
+// Pure visual; damage is applied immediately when the chain is cast.
+const lightnings = [];
 const drops = [];
 const particles = [];
 
@@ -1367,7 +1370,7 @@ const CLASSES = {
   mage: {
     name: 'Mage',
     icon: '✦',
-    tagline: 'glass cannon · spell power',
+    tagline: 'glass cannon · chain lightning · ricochets off walls',
     maxHp: 110, maxMp: 100, mpRegen: 4,
     attackDmg: 14, attackRange: 8.0,
     speed: 4.2,
@@ -2032,6 +2035,181 @@ function spawnDeathBurst(gx, gy) {
 }
 
 // =====================================================================
+// CHAIN LIGHTNING — mage's basic attack (chat ask)
+// =====================================================================
+// Cast when the mage clicks an enemy. The bolt:
+//   1. Hits the clicked enemy (full damage + AoE blast).
+//   2. Bounces to up to 4 more enemies, picking the nearest unhit
+//      enemy within ARC_RANGE and with line-of-sight to the previous
+//      hit point. Damage decays each jump.
+//   3. If no enemy is in arc range from the current point, looks for a
+//      wall to ricochet off — picks a wall tile within range, the
+//      bounce point becomes the new origin, and chain-search resumes
+//      from there. Counts as one segment but deals no damage at the
+//      wall hit.
+//   4. Each enemy hit also produces a small AoE blast (1.4-tile radius,
+//      40% of the bolt's damage) so adjacent enemies get chip damage.
+const CHAIN_MAX_JUMPS   = 5;
+const CHAIN_ARC_RANGE   = 4.5;     // tiles between consecutive enemy bounces
+const CHAIN_WALL_RANGE  = 5.0;     // max ricochet distance off walls
+const CHAIN_BLAST_R     = 1.4;     // AoE radius at each enemy hit
+const CHAIN_DMG_FALLOFF = [1.0, 0.85, 0.70, 0.55, 0.45];
+
+function castChainLightning(firstTarget){
+  if (!firstTarget) return;
+  const segments = [];
+  const hit = new Set();
+  let curX = player.gx, curY = player.gy;
+  let target = firstTarget;
+  let totalEnemyHits = 0;
+  for (let jump = 0; jump < CHAIN_MAX_JUMPS; jump++){
+    if (!target){
+      // No enemy in arc range — try a wall ricochet
+      const w = pickRicochetPoint(curX, curY, CHAIN_WALL_RANGE);
+      if (!w) break;
+      segments.push({ fx: curX, fy: curY, tx: w.x, ty: w.y, kind: 'wall' });
+      curX = w.x; curY = w.y;
+      target = nearestUnhitEnemyWithLOS(curX, curY, CHAIN_ARC_RANGE, hit);
+      if (!target) break;
+    }
+    segments.push({ fx: curX, fy: curY, tx: target.gx, ty: target.gy, kind: 'enemy' });
+    const dmg = playerDamage(CHAIN_DMG_FALLOFF[jump]);
+    damageEnemy(target, dmg, false);
+    // AoE blast at the hit point
+    chainBlast(target.gx, target.gy, dmg * 0.40, target);
+    spawnAoeRing(target.gx, target.gy, CHAIN_BLAST_R, '#7adcff');
+    hit.add(target);
+    totalEnemyHits++;
+    curX = target.gx; curY = target.gy;
+    target = nearestUnhitEnemyWithLOS(curX, curY, CHAIN_ARC_RANGE, hit);
+  }
+  if (segments.length){
+    lightnings.push({ segments, life: 0.42, maxLife: 0.42 });
+    sfx.cast();
+  }
+}
+
+function chainBlast(gx, gy, dmg, exclude){
+  for (const en of enemies){
+    if (en === exclude) continue;
+    if (en.hp <= 0) continue;
+    const d = Math.hypot(en.gx - gx, en.gy - gy);
+    if (d < CHAIN_BLAST_R){
+      damageEnemy(en, dmg, false);
+    }
+  }
+}
+
+function nearestUnhitEnemyWithLOS(fx, fy, range, exclude){
+  let best = null, bestD = range;
+  for (const en of enemies){
+    if (exclude.has(en)) continue;
+    if (en.hp <= 0) continue;
+    const d = Math.hypot(en.gx - fx, en.gy - fy);
+    if (d < bestD && tileLineOfSight(fx, fy, en.gx, en.gy)){
+      bestD = d; best = en;
+    }
+  }
+  return best;
+}
+
+function tileLineOfSight(x1, y1, x2, y2){
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.hypot(dx, dy);
+  const steps = Math.max(2, Math.ceil(dist * 4));
+  for (let i = 1; i < steps; i++){
+    const t = i / steps;
+    const xi = Math.round(x1 + dx * t);
+    const yi = Math.round(y1 + dy * t);
+    if (xi < 0 || yi < 0 || xi >= GRID_W || yi >= GRID_H) return false;
+    if (TILES[yi] && TILES[yi][xi] === 1) return false;
+  }
+  return true;
+}
+
+function pickRicochetPoint(fx, fy, range){
+  // Sample 16 angles × stepped radii looking for a wall tile. Return
+  // the bounce point just before the wall, preferring closer hits.
+  let best = null, bestD = Infinity;
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 16){
+    const cx = Math.cos(a), cy = Math.sin(a);
+    for (let r = 0.5; r <= range; r += 0.5){
+      const wx = Math.round(fx + cx * r);
+      const wy = Math.round(fy + cy * r);
+      if (wx < 0 || wy < 0 || wx >= GRID_W || wy >= GRID_H) break;
+      if (TILES[wy] && TILES[wy][wx] === 1){
+        const bx = fx + cx * Math.max(0.3, r - 0.4);
+        const by = fy + cy * Math.max(0.3, r - 0.4);
+        if (r < bestD){ bestD = r; best = { x: bx, y: by }; }
+        break;   // stop this ray after first wall
+      }
+    }
+  }
+  return best;
+}
+
+function tickLightnings(dt){
+  for (let i = lightnings.length - 1; i >= 0; i--){
+    lightnings[i].life -= dt;
+    if (lightnings[i].life <= 0) lightnings.splice(i, 1);
+  }
+}
+
+function drawLightnings(){
+  if (!lightnings.length) return;
+  const off = camOffset();
+  ctx.save();
+  ctx.translate(off.x, off.y);
+  for (const L of lightnings){
+    const a = Math.max(0, L.life / L.maxLife);
+    for (const s of L.segments) drawJaggedBolt(s.fx, s.fy, s.tx, s.ty, a, s.kind === 'wall');
+  }
+  ctx.restore();
+}
+
+function drawJaggedBolt(fx, fy, tx, ty, alpha, isWall){
+  const a = worldToScreen(fx, fy);
+  const b = worldToScreen(tx, ty);
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const px = -dy / len, py = dx / len;
+  const segs = Math.max(4, Math.min(14, Math.round(len / 18)));
+  // Jagged path with perpendicular jitter
+  ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(122,220,255,0.9)';
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = `rgba(122,220,255,${alpha * 0.85})`;
+  ctx.lineWidth = 6;
+  const points = [{ x: a.x, y: a.y }];
+  for (let i = 1; i < segs; i++){
+    const t = i / segs;
+    const jit = (Math.random() - 0.5) * Math.min(20, len * 0.20);
+    points.push({ x: a.x + dx * t + px * jit, y: a.y + dy * t + py * jit });
+  }
+  points.push({ x: b.x, y: b.y });
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+  ctx.stroke();
+  // bright inner core
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // wall sparks
+  if (isWall){
+    ctx.fillStyle = `rgba(255,250,180,${alpha})`;
+    for (let k = 0; k < 5; k++){
+      const sx = b.x + (Math.random() - 0.5) * 18;
+      const sy = b.y + (Math.random() - 0.5) * 18;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// =====================================================================
 // PHYSICS / MOVEMENT (player + enemies)
 // =====================================================================
 // Enemies are blocked from the home safe-zone — the town circle is
@@ -2167,16 +2345,25 @@ function tickPlayer(dt) {
       } else if (player.cooldowns.attack <= 0){
         // In range, off cooldown — swing/fire ONCE.
         if (player.ranged){
-          player.cooldowns.attack = 0.37;   // archer/mage tempo
-          const dx = tgt.gx - player.gx, dy = tgt.gy - player.gy;
-          const m = Math.hypot(dx, dy) || 1;
-          projectiles.push({
-            gx: player.gx, gy: player.gy,
-            vgx: dx / m * 11, vgy: dy / m * 11,
-            dmg: playerDamage(1.0),
-            kind: 'auto', color: player.projectileColor,
-            life: 1.8,
-          });
+          // CHAT ASK: mage's basic attack is now CHAIN LIGHTNING that
+          // bounces between nearby enemies, ricochets off dungeon
+          // walls, and emits a small AoE blast at every hit point.
+          // Archer keeps the original arrow projectile.
+          if (player.classKey === 'mage'){
+            player.cooldowns.attack = 0.55;
+            castChainLightning(tgt);
+          } else {
+            player.cooldowns.attack = 0.37;
+            const dx = tgt.gx - player.gx, dy = tgt.gy - player.gy;
+            const m = Math.hypot(dx, dy) || 1;
+            projectiles.push({
+              gx: player.gx, gy: player.gy,
+              vgx: dx / m * 11, vgy: dy / m * 11,
+              dmg: playerDamage(1.0),
+              kind: 'auto', color: player.projectileColor,
+              life: 1.8,
+            });
+          }
         } else {
           player.cooldowns.attack = 0.6;
           const dmg = playerDamage(1.0);
@@ -2911,6 +3098,7 @@ function loop(now) {
     tickProjectiles(dt);
     tickDrops(dt);
     tickParticles(dt);
+    tickLightnings(dt);
     // Wave spawning — town zone is a safe pocket so enemies don't
     // spawn while inTown. Once cleared (exit portal up), spawning
     // also stops so the player has breathing room to grab the portal.
@@ -2937,6 +3125,7 @@ function loop(now) {
   clearScene();
   drawTiles();
   drawEntities();
+  drawLightnings();
   drawEmbers(dt * 1000);
   drawVignette();
   requestAnimationFrame(loop);
