@@ -206,6 +206,27 @@
         <button id="resetBtn" type="button">RESET</button>
       </div>
     </section>
+    <section>
+      <h2>Saved Snapshots (shared)</h2>
+      <div style="display:flex;gap:0.375rem;margin-bottom:0.5rem">
+        <input id="snapName" type="text" placeholder="name this rotation"
+               aria-label="Snapshot name"
+               style="flex:1;background:rgba(0,0,0,0.5);border:0.125rem solid var(--rule);
+                      color:var(--paper);padding:0.5rem 0.625rem;border-radius:0.125rem;
+                      font-family:'IBM Plex Mono', monospace;font-size:0.75rem;
+                      min-height:2.25rem">
+        <button id="snapSaveBtn" type="button" class="snap-save"
+                style="font-family:'IBM Plex Mono', monospace;font-size:0.6875rem;
+                       letter-spacing:0.16em;text-transform:uppercase;cursor:pointer;
+                       background:rgba(122,220,255,0.12);color:var(--neon-c);
+                       border:0.125rem solid var(--neon-c);border-radius:0.125rem;
+                       padding:0.5rem 0.75rem;min-height:2.25rem">SAVE</button>
+      </div>
+      <div id="snapStatus" style="font-family:'IBM Plex Mono', monospace;font-size:0.6875rem;
+                                  color:var(--ink-soft);margin-bottom:0.5rem;min-height:0.875rem"></div>
+      <ul id="snapList" style="list-style:none;padding:0;margin:0;max-height:14rem;overflow-y:auto;
+                               font-family:'IBM Plex Mono', monospace;font-size:0.75rem"></ul>
+    </section>
     <p class="footnote">
       The shape doesn't actually exist in 2D space — every line you see is a shadow
       thrown by a 10-dimensional skeleton onto your screen. Move a slider, watch the
@@ -214,9 +235,9 @@
   </aside>
 </main>
 
-<script>
-(() => {
-'use strict';
+<script type="module">
+import supabase, { supabaseSession } from '/supabase-config-fixed.js';
+
 // =====================================================================
 // DIMENSION TEN — 10D hypercube projected to 2D
 // =====================================================================
@@ -582,7 +603,108 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 
-})();
+// =====================================================================
+// SUPABASE SAVE / LOAD — shared snapshots on dimension_ten_snapshots
+// =====================================================================
+// All-readable RLS so the snapshot list shows EVERY user's saves;
+// each row is editable/deletable only by its own user.
+let _userId = null;
+async function getUid() {
+  if (_userId) return _userId;
+  try {
+    const sess = await supabaseSession();
+    _userId = sess && sess.user && sess.user.id;
+    return _userId;
+  } catch (e) { return null; }
+}
+const snapNameEl = document.getElementById('snapName');
+const snapStatusEl = document.getElementById('snapStatus');
+const snapListEl = document.getElementById('snapList');
+function setStatus(msg, ok) {
+  snapStatusEl.textContent = msg;
+  snapStatusEl.style.color = ok ? 'var(--neon-g)' : (msg ? 'var(--neon-m)' : 'var(--ink-soft)');
+}
+async function saveSnapshot() {
+  const uid = await getUid();
+  if (!uid) { setStatus('auth failed — try again', false); return; }
+  const name = (snapNameEl.value || 'untitled').slice(0, 40).trim() || 'untitled';
+  try {
+    const r = await supabase.from('dimension_ten_snapshots').insert({
+      user_id: uid,
+      name,
+      angles: Array.from(angles),
+    });
+    if (r.error) { setStatus('save failed: ' + r.error.message, false); return; }
+    setStatus('saved "' + name + '"', true);
+    snapNameEl.value = '';
+    refreshSnapList();
+  } catch (e) {
+    setStatus('save failed: ' + e.message, false);
+  }
+}
+function applySnapshot(arr) {
+  for (let p = 0; p < PLANE_COUNT; p++) {
+    angles[p] = arr[p] || 0;
+    const [i, j] = planes[p];
+    syncSliderRow(i, j);
+  }
+}
+async function refreshSnapList() {
+  try {
+    const r = await supabase.from('dimension_ten_snapshots')
+      .select('id, name, angles, user_id, created_at')
+      .order('created_at', { ascending: false })
+      .limit(40);
+    if (r.error) { setStatus('list failed: ' + r.error.message, false); return; }
+    const rows = r.data || [];
+    const uid = await getUid();
+    snapListEl.innerHTML = '';
+    if (!rows.length) {
+      snapListEl.innerHTML = '<li style="color:var(--ink-soft);padding:0.375rem 0">no snapshots yet — save one!</li>';
+      return;
+    }
+    for (const row of rows) {
+      const li = document.createElement('li');
+      li.style.cssText = 'display:flex;gap:0.375rem;align-items:center;padding:0.25rem 0;border-bottom:0.0625rem solid var(--rule)';
+      const ts = new Date(row.created_at);
+      const tsStr = (ts.getMonth()+1) + '/' + ts.getDate() + ' ' + String(ts.getHours()).padStart(2,'0') + ':' + String(ts.getMinutes()).padStart(2,'0');
+      const isOwn = (uid && row.user_id === uid);
+      li.innerHTML =
+        '<button type="button" data-load="1" style="flex:1;text-align:left;background:transparent;' +
+          'border:none;color:var(--paper);font-family:inherit;font-size:0.75rem;cursor:pointer;' +
+          'padding:0.25rem 0">▸ ' +
+          (row.name || 'untitled').replace(/[<>&]/g, '') +
+          ' <span style="color:var(--ink-soft);font-size:0.6875rem">' + tsStr + (isOwn ? ' · you' : '') + '</span>' +
+          '</button>' +
+        (isOwn
+          ? '<button type="button" data-del="1" aria-label="Delete snapshot" style="background:transparent;border:0.0625rem solid var(--rule);color:var(--ink-soft);font-family:inherit;cursor:pointer;padding:0.125rem 0.375rem;border-radius:0.125rem">✕</button>'
+          : '');
+      const loadBtn = li.querySelector('[data-load]');
+      loadBtn.addEventListener('click', () => {
+        applySnapshot(row.angles || []);
+        setStatus('loaded "' + (row.name || 'untitled') + '"', true);
+      });
+      const delBtn = li.querySelector('[data-del]');
+      if (delBtn) {
+        delBtn.addEventListener('click', async () => {
+          if (!confirm('Delete "' + (row.name || 'untitled') + '"?')) return;
+          await supabase.from('dimension_ten_snapshots').delete().eq('id', row.id);
+          refreshSnapList();
+        });
+      }
+      snapListEl.appendChild(li);
+    }
+  } catch (e) {
+    setStatus('list failed: ' + e.message, false);
+  }
+}
+document.getElementById('snapSaveBtn').addEventListener('click', saveSnapshot);
+snapNameEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); saveSnapshot(); }
+});
+// Initial fetch + every 30s refresh so other users' saves trickle in
+refreshSnapList();
+setInterval(refreshSnapList, 30000);
 </script>
 </body>
 </html>
