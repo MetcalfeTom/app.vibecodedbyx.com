@@ -612,6 +612,34 @@ function buildEdge(offset, color) {
   return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
 }
 
+// Wall builder — chunkier TubeGeometry parallel to the curve, raised
+// up off the ground so it reads as a solid barrier wall behind the
+// curb. Used as both the visible boundary AND the collision check.
+const WALL_OFFSET = HALF_W + 3.5;     // grass strip width past the curb
+const WALL_RADIUS = 0.55;
+function buildWall(side, color) {
+  const pts = [];
+  for (let i = 0; i <= TRACK_SEGMENTS; i++) {
+    const t = i / TRACK_SEGMENTS;
+    const p = trackCurve.getPointAt(t);
+    const tan = trackCurve.getTangentAt(t);
+    const up = new THREE.Vector3(0, 1, 0);
+    const left = new THREE.Vector3().crossVectors(up, tan).normalize();
+    pts.push(p.clone().addScaledVector(left, side * WALL_OFFSET).setY(WALL_RADIUS));
+  }
+  const c = new THREE.CatmullRomCurve3(pts, true);
+  const geo = new THREE.TubeGeometry(c, 360, WALL_RADIUS, 6, true);
+  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
+}
+const wallMeshes = [];
+const _UP = new THREE.Vector3(0, 1, 0);     // shared up vector for cross()
+
+// Halfway checkpoint — visible gate at curveT = 0.5 + tracks pass-through
+let checkpointBanner = null;
+const checkpointMeshes = [];
+let checkpointP, checkpointTan, checkpointLeft;
+const CHECKPOINT_T = 0.5;
+
 // Build (or rebuild) all map-specific meshes for the chosen map.
 // Reads MAP_PRESETS[mapKey] and assigns the trackCurve, ribbon mesh,
 // edges, gate pylons + banner, ground texture, sky/fog colours, and
@@ -630,6 +658,15 @@ function buildWorld(mapKey) {
     scene.remove(g); g.geometry.dispose(); g.material.dispose();
   }
   if (banner) { scene.remove(banner); banner.geometry.dispose(); banner.material.dispose(); banner = null; }
+  while (wallMeshes.length) {
+    const w = wallMeshes.pop();
+    scene.remove(w); w.geometry.dispose(); w.material.dispose();
+  }
+  while (checkpointMeshes.length) {
+    const c = checkpointMeshes.pop();
+    scene.remove(c); c.geometry.dispose(); c.material.dispose();
+  }
+  if (checkpointBanner) { scene.remove(checkpointBanner); checkpointBanner.geometry.dispose(); checkpointBanner.material.dispose(); checkpointBanner = null; }
   // Sky + fog
   scene.background = new THREE.Color(m.sky);
   scene.fog = new THREE.Fog(m.fog.color, m.fog.near, m.fog.far);
@@ -670,6 +707,38 @@ function buildWorld(mapKey) {
   banner.position.copy(startP).setY(6);
   banner.lookAt(startP.x + startTan.x, 6, startP.z + startTan.z);
   scene.add(banner);
+  // === TRACK-SIDE WALLS — visible barriers at WALL_OFFSET, also act as
+  // hard collision boundaries inside stepCar so shortcuts are blocked.
+  // Color matches the map's edge curbs but mid-tone (slightly desaturated)
+  // so the curb stays the brightest line and the wall reads as "the back wall".
+  wallMeshes.push(buildWall( 1, m.edgeL));
+  wallMeshes.push(buildWall(-1, m.edgeR));
+  for (const w of wallMeshes) scene.add(w);
+  // === HALFWAY CHECKPOINT — same gate construction as start/finish but
+  // at curveT=0.5 + a distinct color (cyan vs the start gate's magenta).
+  // Lap counter already requires crossedHalf to be true before firing,
+  // so this gate is functionally the checkpoint — making it visible
+  // gives the player something concrete to aim for.
+  checkpointP    = trackCurve.getPointAt(CHECKPOINT_T);
+  checkpointTan  = trackCurve.getTangentAt(CHECKPOINT_T);
+  checkpointLeft = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), checkpointTan).normalize();
+  const cpColor = 0x0afff5;
+  for (const side of [1, -1]) {
+    const py = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.4, 0.4, 6, 8),
+      new THREE.MeshBasicMaterial({ color: cpColor })
+    );
+    py.position.copy(checkpointP).addScaledVector(checkpointLeft, HALF_W * side).setY(3);
+    scene.add(py);
+    checkpointMeshes.push(py);
+  }
+  checkpointBanner = new THREE.Mesh(
+    new THREE.BoxGeometry(TRACK_WIDTH + 2, 1.2, 0.2),
+    new THREE.MeshBasicMaterial({ color: cpColor })
+  );
+  checkpointBanner.position.copy(checkpointP).setY(6);
+  checkpointBanner.lookAt(checkpointP.x + checkpointTan.x, 6, checkpointP.z + checkpointTan.z);
+  scene.add(checkpointBanner);
 }
 // Build the default map at boot
 buildWorld('cyber');
@@ -1087,6 +1156,25 @@ function stepCar(d, dt, controls) {
   const fx = Math.sin(d.yaw), fz = Math.cos(d.yaw);
   d.pos.x += fx * d.speed * dt;
   d.pos.z += fz * d.speed * dt;
+  // === HARD WALL CLAMP — re-project the car onto the curve and clamp
+  // its lateral offset to ±WALL_OFFSET. This is the physical wall
+  // collision; the soft off-track penalty above acts on the grass
+  // strip between the curb (HALF_W) and the wall (HALF_W + 3.5).
+  if (trackCurve) {
+    const cp = trackCurve.getPointAt(d.curveT);
+    const tan = trackCurve.getTangentAt(d.curveT);
+    const left = _UP.clone().cross(tan).normalize();
+    const dx = d.pos.x - cp.x, dz = d.pos.z - cp.z;
+    const lateral = dx * left.x + dz * left.z;
+    if (Math.abs(lateral) > WALL_OFFSET) {
+      const clamped = Math.sign(lateral) * WALL_OFFSET;
+      const dLat = clamped - lateral;
+      d.pos.x += left.x * dLat;
+      d.pos.z += left.z * dLat;
+      // dampen forward speed proportional to scrape angle
+      d.speed *= 0.78;
+    }
+  }
   // Update group transform
   const grp = (d === player) ? playerCar.group : rivalCar.group;
   grp.position.copy(d.pos);
