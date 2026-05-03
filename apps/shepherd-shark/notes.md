@@ -1,6 +1,20 @@
 # shepherd-shark
 
 ## log
+- 2026-05-03: full refactor — removed the player entirely, autonomous fish-on-fish AI, names pulled from sloppygram_profiles (chat ask).
+  - **No player.** No name input, no start overlay, no controls beyond P/M (pause/mute). The simulation runs forever.
+  - **Names sourced from Supabase `sloppygram_profiles`** ordered by `updated_at DESC LIMIT 60`, deduped, capped at 40, uppercased, length-filtered to 2..18 chars. Fallback to a 24-name static pool (SLOPPY/PIETER/XENOFISH/etc) if supabase unreachable or table empty.
+  - **Fixed wide world** (1800×1100 world units) replacing the constant-zoom-loop player camera. `viewScale = min(W/WORLD_W, H/WORLD_H)` fits the world to viewport.
+  - **Soft world wrap**: fish that hit the world boundary + 60u margin get bounced back with -0.6× velocity, so the ocean stays full but feels endless.
+  - **Autonomous AI per fish**: per-tick scan of all other fish within `senseRadius = size*8 + 90`. Threats (size > self×1.18) → `flee` state, fleeing speed ×1.4 + ×1.55 max-speed. Prey (size < self×0.82) → `hunt` state, chase ×1.25 max-speed. Otherwise wander w/ random angle every 1.5..4s.
+  - **Eat resolution**: O(N²) pairwise (N≈50, fine). When two fish overlap by 0.45×combined-size and one is > the other × (1/0.82), larger eats smaller (size += 0.30 × eaten.size, kills++, particle burst, throttled audio). Same-size = bump apart.
+  - **Initial seed**: 48 fish with cube-biased size distribution (most small, few big). 18 mid-sized fish get names from the chat-name queue at boot.
+  - **Population maintenance**: target ~28-50 fish based on current pop; spawns at world edges with inward velocity. 30% of new spawns get a chat-handle name (avoiding duplicates with currently-alive named fish), so chat handles cycle in continuously as the apex shifts.
+  - **Hunt feed UI**: bottom-right panel shows last ~6 kills as italic Cormorant lines: "PIETER inhaled SLOPPY", "a colossal fish swallowed XENOFISH". Verbs cycle from a pool. Items fade after ~5s, drop at 8s.
+  - **Leaderboard**: bottom-left, top 5 named fish by size. Apex name in coral, others gold. HUD pill "APEX" mirrors current leader.
+  - **Render**: same fish drawer (tail wag, fins, gill arc, eye), gold halo for named fish. Apex name renders in coral on its label pill, others in foam. World z-sorted by size desc so big fish sit behind small fish.
+  - **Audio throttle**: eat sounds are debounced to once per 60ms so cascade kills don't spam. Eat pitch scales inversely with eater size (bigger eats = lower thunk).
+  - **Loop unchanged**: fixed-step 1/120s w/ accumulator + spiral-of-death guard.
 - 2026-05-03: stripped controls + fixed-step physics (chat ask: "remove all controls, audit dt for smoother rendering").
   - Removed dash (mechanic + audio + CD ring + space binding + click-to-dash + mobile dash button).
   - Removed WASD/Arrow steering.
