@@ -1,6 +1,13 @@
 # corporate-succulent
 
 ## log
+- 2026-05-03: path-drawing for asynchronous growth + wider sunlight window (chat ask).
+  - **Steering changed from realtime-mouse-aim → drawn-path queue.** Drag to trace a path; the succulent grows along it on its own time. The plant continues following the queue while the player does other things (judging coworkers, drawing the next path, watching the day go by).
+  - **Click vs drag detection**: pointer-down tentatively starts a path; if the press releases without moving past 6px, it's treated as a click (judges a coworker if one is under it, otherwise cancels the current path). `<Esc>` also cancels.
+  - **Path consumption**: `update()` walks the path queue — current target is `path[0]`, advances when tip reaches within 6px. Aim direction = unit vector from tip to next waypoint. Growth requires path AND light AND water; idle plants stop growing (no path = no aim = no progress).
+  - **Path render**: dashed line from current tip through remaining waypoints. Segments crossing the sun spot draw in warm gold; out-of-sun segments draw in cool green — instant visual feedback on whether the planned route catches the light. Each waypoint a small dot in the same color, with the active target wrapped in a pulsing gold ring.
+  - **Idle hint**: when no path queued and the plant is alive, a subtle dashed gold ring pulses around the tip inviting the player to draw.
+  - **Wider sunlight window** (chat ask): light spot radius `Math.max(40, w*0.18)` → `Math.max(95, w*0.40)` (more than doubled). Visible window strip: x range 10%-90% → 4%-96%; height 22% → 26%. Chat asked for it specifically because the path-drawing system rewards routes that arc broadly through the sun, not just the narrow desk-spot center.
 - 2026-05-03: shipped — desk-plant survival w/ silent judgment of coworkers.
   - **Sun + light system**: a sun moves left→right across a window strip over `DAY_SEC = 64s`; the light spotlight on the desk slides from desk-left to desk-right. Light intensity = `sin(dayProg·π)` (zero at dawn/dusk). Days increment with chime + bubble.
   - **Stem growth**: succulent has chained segments, each with a direction + length. Player aims with mouse (relative to pot, clamped to upper hemisphere — succulents don't grow down). When the stem TIP is in the spotlight AND aimed roughly toward the sun, light is absorbed (`align = max(0, dot(aim, sunDir))`); growth = `lightGain * (0.25 + lightAccum * 0.55)`. New segments spawn when aim diverges enough from the last segment, otherwise the last segment lerps + extends — produces a smooth curving stem that records its lean history.

@@ -251,10 +251,11 @@ canvas#scene:focus-visible{box-shadow:inset 0 0 0 0.1875rem var(--sun)}
   <div class="overlay" id="ovStart" role="dialog" aria-modal="true" aria-labelledby="startTitle">
     <div class="card">
       <h2 id="startTitle">Corporate <span class="leaf">Succulent</span></h2>
-      <p class="sub">You are a desk plant. The sun moves. Lean toward it to grow. Coworkers shuffle past — click them to render silent, exquisite judgment. Your owner waters you sometimes. Pray they remember.</p>
+      <p class="sub">You are a desk plant. The sun moves. <em>Drag</em> across the canvas to draw a path — your succulent will grow along it on its own time. <em>Click</em> a passing coworker to render silent, exquisite judgment. Your owner waters you sometimes. Pray they remember.</p>
       <div class="keys">
-        <kbd>mouse</kbd> lean stem &nbsp;·&nbsp;
+        <kbd>drag</kbd> draw growth path &nbsp;·&nbsp;
         <kbd>click coworker</kbd> judge &nbsp;·&nbsp;
+        <kbd>click empty</kbd> / <kbd>Esc</kbd> cancel path &nbsp;·&nbsp;
         <kbd>P</kbd> pause &nbsp;·&nbsp;
         <kbd>M</kbd> mute
       </div>
@@ -421,15 +422,15 @@ function sunPos(){
 function lightSpot(){
   // The sunbeam falls onto the desk plane. Where on the desk does it land?
   const sun = sunPos();
-  // Project from sun straight down with a slight horizontal arc — the
-  // beam slides across the desk during the day.
+  // Sweeps a wider arc during the day so paths drawn well above the
+  // desk (toward the window) can still catch the light. Chat asked for
+  // a wider sunlight window — radius doubled and the beam now reaches
+  // up off the desk plane.
   const t = dayProg;
-  // Horizontal landing position: sweeps from desk.x to desk.x+desk.w
   const lx = desk.x + desk.w * t;
   const ly = desk.y + desk.h * 0.5;
-  // Light is "out" before sunrise / after sunset
   const intensity = Math.sin(Math.max(0, Math.min(1, dayProg)) * Math.PI);
-  return { x: lx, y: ly, r: Math.max(40, desk.w*0.18), intensity };
+  return { x: lx, y: ly, r: Math.max(95, desk.w*0.40), intensity };
 }
 
 // ===== Succulent stem =====
@@ -564,32 +565,83 @@ function sndWither(){ for (let i=0; i<5; i++) setTimeout(()=>blip(380 - i*60, 0.
 function sndDayChime(){ for (let i=0; i<3; i++) setTimeout(()=>blip(523 + i*131, 0.16, 'triangle', 0.10), i*70); }
 
 // ===== Input =====
+// CHAT REWORK: instead of leaning the stem at the mouse in real time,
+// the player DRAWS A PATH (drag) and the succulent grows along it
+// asynchronously — so you can plan a route through the wider sunlight
+// window, walk away (judge a coworker, watch the day), and come back
+// to a plant that followed your trail. Quick clicks still judge.
 let mouseX = 0, mouseY = 0;
-cvs.addEventListener('pointermove', e => {
+let path = [];                    // {x, y} waypoints the stem will follow
+let isDrawing = false;
+let pointerDownAt = null;
+let lastDrawPoint = null;
+const MIN_DRAW_DIST = 8;          // min px between recorded waypoints
+const DRAG_THRESHOLD = 6;         // px past which a press counts as a drag
+
+function evCanvasPoint(e){
   const r = cvs.getBoundingClientRect();
-  mouseX = e.clientX - r.left;
-  mouseY = e.clientY - r.top;
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+cvs.addEventListener('pointermove', e => {
+  const p = evCanvasPoint(e);
+  mouseX = p.x; mouseY = p.y;
+  if (!isDrawing) return;
+  const dx = p.x - lastDrawPoint.x;
+  const dy = p.y - lastDrawPoint.y;
+  if (dx*dx + dy*dy > MIN_DRAW_DIST*MIN_DRAW_DIST){
+    path.push({ x: p.x, y: p.y });
+    lastDrawPoint = p;
+  }
 });
 cvs.addEventListener('pointerdown', e => {
   ensureAudio();
-  const r = cvs.getBoundingClientRect();
-  const px = e.clientX - r.left;
-  const py = e.clientY - r.top;
-  // Try to judge a coworker under the click first
-  if (state === 'playing'){
+  if (state !== 'playing') return;
+  const p = evCanvasPoint(e);
+  pointerDownAt = p;
+  // Tentatively start a fresh path. If the press turns out to be a
+  // click (released without dragging), we'll discard the path on
+  // pointerup and treat it as a judgment attempt instead.
+  isDrawing = true;
+  path = [{ x: p.x, y: p.y }];
+  lastDrawPoint = p;
+});
+function endPath(e){
+  if (!isDrawing) return;
+  isDrawing = false;
+  // Was it a click (no real drag distance)? → judge a coworker if one
+  // is under the press, otherwise clear the path (cancel).
+  const p = pointerDownAt;
+  pointerDownAt = null;
+  if (!p) return;
+  const totalLen = pathLength(path);
+  if (totalLen < DRAG_THRESHOLD){
     let target = null, bestD = 1e9;
     for (const c of coworkers){
       if (c.judged) continue;
-      const dx = c.x - px, dy = c.y - py;
+      const dx = c.x - p.x, dy = c.y - p.y;
       const d = Math.hypot(dx, dy);
       if (d < 28 && d < bestD){ bestD = d; target = c; }
     }
-    if (target) judge(target);
+    if (target){ path = []; judge(target); }
+    else { path = []; }   // empty click on background = cancel current path
   }
-});
+}
+function pathLength(p){
+  let s = 0;
+  for (let i = 1; i < p.length; i++){
+    s += Math.hypot(p[i].x - p[i-1].x, p[i].y - p[i-1].y);
+  }
+  return s;
+}
+cvs.addEventListener('pointerup',     endPath);
+cvs.addEventListener('pointercancel', endPath);
+cvs.addEventListener('pointerleave',  endPath);
+
 window.addEventListener('keydown', e => {
   if (e.code === 'KeyP') togglePause();
   if (e.code === 'KeyM'){ ensureAudio(); toggleMute(); }
+  if (e.code === 'Escape'){ path = []; }   // cancel current path
 });
 
 // ===== Judgments =====
@@ -642,25 +694,31 @@ function update(dt){
     spawnBubble(W/2, H*0.12, 'day ' + day + ' begins', false);
   }
 
-  // Aim direction from mouse relative to pot
-  let ax = mouseX - pot.x;
-  let ay = mouseY - (pot.y - pot.r*0.6);
-  // Clamp aim to upward hemisphere — succulents don't grow down.
-  if (ay > 0) ay = -1;
-  // Default to upright if mouse hasn't been over the canvas yet
-  if (mouseX === 0 && mouseY === 0){ ax = 0; ay = -1; }
-  const m = Math.hypot(ax, ay) || 1;
-  succulent.aimX = ax / m;
-  succulent.aimY = ay / m;
+  // === Aim from PATH (asynchronous growth) ===
+  // The succulent follows the player-drawn path on its own. Each frame
+  // we look at the next unconsumed waypoint and aim toward it. When
+  // the tip reaches it (within 6px), advance to the next waypoint.
+  // No path → no aim → no growth (the plant idles).
+  const tip = stemTip();
+  let aimX = 0, aimY = 0, hasAim = false;
+  while (path.length > 0){
+    const wp = path[0];
+    const dxw = wp.x - tip.x;
+    const dyw = wp.y - tip.y;
+    const dw = Math.hypot(dxw, dyw);
+    if (dw < 6){ path.shift(); continue; }
+    aimX = dxw / dw; aimY = dyw / dw;
+    hasAim = true;
+    break;
+  }
+  if (hasAim){ succulent.aimX = aimX; succulent.aimY = aimY; }
 
   // Light absorption: tip near light spot AND aimed at light.
-  const tip = stemTip();
   const ls = lightSpot();
-  const dx = tip.x - ls.x, dy = tip.y - ls.y;
-  const dist = Math.hypot(dx, dy);
+  const ldx = tip.x - ls.x, ldy = tip.y - ls.y;
+  const dist = Math.hypot(ldx, ldy);
   const inSpot = dist < ls.r;
   const sun = sunPos();
-  // Direction FROM tip TO sun — alignment with aim
   const sx = sun.x - tip.x, sy = sun.y - tip.y;
   const sm = Math.hypot(sx, sy) || 1;
   const align = Math.max(0, succulent.aimX * (sx/sm) + succulent.aimY * (sy/sm));
@@ -675,10 +733,12 @@ function update(dt){
     return;
   }
 
-  // Growth: requires light + water
+  // Growth: requires light + water + an active path. The plant only
+  // grows when there's somewhere to grow toward — so the player's
+  // intent (the drawn path) gates progress, even in bright sun.
   const baseGrow = lightGain * (0.25 + succulent.lightAccum * 0.55);
-  if (succulent.water > 5 && baseGrow > 0.05){
-    growStem(baseGrow * dt * 5, succulent.aimX, succulent.aimY);
+  if (succulent.water > 5 && baseGrow > 0.05 && hasAim){
+    growStem(baseGrow * dt * 5, aimX, aimY);
     if (Math.random() < dt * 1.2 * baseGrow) sndGrow();
   }
 
@@ -758,8 +818,9 @@ function drawBackground(){
   ctx.fillStyle = '#b3b0a8';
   ctx.fillRect(0, 0, W, H * 0.32);
   // Window strip
-  const winY = H * 0.04, winH = H * 0.22;
-  const winX = W * 0.10, winW = W * 0.80;
+  // Wider sunlight window per chat ask — runs nearly edge-to-edge.
+  const winY = H * 0.04, winH = H * 0.26;
+  const winX = W * 0.04, winW = W * 0.92;
   ctx.fillStyle = '#9bcae0';
   ctx.fillRect(winX, winY, winW, winH);
   // Window mullions (3 panes)
@@ -935,14 +996,53 @@ function drawSucculent(){
   // Tip rosette / bud
   const tip = stemTip();
   drawTipRosette(tip.x, tip.y, 14);
-  // Aim indicator: faint dotted line from tip in aim direction (only when alive)
-  if (succulent.alive){
-    ctx.strokeStyle = 'rgba(106,179,84,0.55)';
-    ctx.setLineDash([2, 4]);
+  // === PATH overlay: dashed line from tip through unconsumed waypoints
+  // Tinted brighter where the segment passes through the sun spot, so
+  // the player can immediately see whether their planned route catches
+  // the light. Renders even while the player is mid-drag, so the path
+  // forms in real time as they trace it.
+  if (succulent.alive && path.length > 0){
+    const ls = lightSpot();
+    const pts = [tip].concat(path);
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([5, 6]);
+    for (let i = 1; i < pts.length; i++){
+      const mx = (pts[i-1].x + pts[i].x) / 2;
+      const my = (pts[i-1].y + pts[i].y) / 2;
+      const inLight = ls.intensity > 0.05 &&
+                      Math.hypot(mx - ls.x, my - ls.y) < ls.r;
+      ctx.strokeStyle = inLight ? 'rgba(247,225,150,0.95)' : 'rgba(106,179,84,0.65)';
+      ctx.beginPath();
+      ctx.moveTo(pts[i-1].x, pts[i-1].y);
+      ctx.lineTo(pts[i].x,   pts[i].y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // dot at each remaining waypoint so the player sees their plan
+    for (let i = 0; i < path.length; i++){
+      const inLight = ls.intensity > 0.05 &&
+                      Math.hypot(path[i].x - ls.x, path[i].y - ls.y) < ls.r;
+      ctx.fillStyle = inLight ? '#f7c84d' : '#6ab354';
+      ctx.beginPath();
+      ctx.arc(path[i].x, path[i].y, 2.6, 0, Math.PI*2);
+      ctx.fill();
+    }
+    // marker at the very next waypoint (the active target)
+    const next = path[0];
+    ctx.strokeStyle = '#f7c84d';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(tip.x, tip.y);
-    ctx.lineTo(tip.x + succulent.aimX * 30, tip.y + succulent.aimY * 30);
+    ctx.arc(next.x, next.y, 6 + Math.sin(performance.now()*0.012)*1.5, 0, Math.PI*2);
+    ctx.stroke();
+  }
+  // When idle (no path) and alive, hint at the tip with a small pulsing
+  // ring inviting the player to draw a path.
+  if (succulent.alive && path.length === 0){
+    ctx.strokeStyle = `rgba(247,200,77,${0.30 + 0.30*Math.sin(performance.now()*0.006)})`;
+    ctx.lineWidth = 1.3;
+    ctx.setLineDash([2, 4]);
+    ctx.beginPath();
+    ctx.arc(tip.x, tip.y, 14, 0, Math.PI*2);
     ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -1142,6 +1242,7 @@ function startGame(){
   succulent.judgments = 0;
   succulent.combo = 0; succulent.comboT = 0;
   succulent.alive = true;
+  path = []; isDrawing = false; pointerDownAt = null; lastDrawPoint = null;
   coworkers.length = 0;
   judgmentBag = []; nameBag = [];
   day = 1; dayProg = 0;
