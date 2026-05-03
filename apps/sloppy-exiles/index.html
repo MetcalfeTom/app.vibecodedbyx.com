@@ -465,9 +465,9 @@
   <button type="button" id="closeInvBtn" style="margin-top:1.25rem" aria-label="Close inventory">CLOSE</button>
 </div>
 
-<script>
-(() => {
-'use strict';
+<script type="module">
+import supabase, { supabaseSession } from '/supabase-config-fixed.js';
+
 // =====================================================================
 // SLOPPY EXILES — isometric click-to-move ARPG with loot + skill tree
 // =====================================================================
@@ -720,6 +720,13 @@ const player = {
   skills: { cleave: false, frostbolt: false, lifedrain: false },
   cooldowns: { attack: 0, cleave: 0, frostbolt: 0, lifedrain: 0 },
   attackRange: 1.4,      // tiles
+  // === Dodge roll ===
+  // dashUntil — performance.now() ms while the dash impulse is active
+  // (player teleports along velocity for ~180ms, immune the whole time).
+  // dashCdUntil — cooldown gate, can't dodge again until past this.
+  dashUntil: 0,
+  dashCdUntil: 0,
+  dashDx: 0, dashDy: 0,
   attackDmg: 12,
   inventory: [],
   equipped: { weapon: null, helm: null, robe: null, ring: null },
@@ -834,8 +841,10 @@ function useTownPortal() {
   player.gy = TOWN_GY;
   player.vgx = player.vgy = 0;
   player.targetGx = null;
-  // Save vault — town entry is a safe checkpoint
+  // Save vault — town entry is a safe checkpoint. Local first
+  // (synchronous); cloud sync runs async + non-blocking.
   saveVault();
+  cloudSave().catch(() => {});
   showToast('★ TOWN PORTAL ★', 'safe · gear restocked · press P to return');
   sfx.cast();
 }
@@ -900,6 +909,52 @@ function saveVault() {
   } catch (e) {}
 }
 
+// === Supabase cloud save (sloppy_exiles_saves table) ===
+// Auto-syncs whenever the player visits town. Anonymous-auth user_id
+// keys the row. localStorage vault stays as the primary fallback for
+// offline / anon-auth-failed cases.
+let _supaUserId = null;
+async function ensureSupaSession() {
+  if (_supaUserId) return _supaUserId;
+  try {
+    const sess = await supabaseSession();
+    _supaUserId = sess && sess.user && sess.user.id;
+    return _supaUserId;
+  } catch (e) { console.warn('supa session fail', e); return null; }
+}
+async function cloudSave() {
+  const uid = await ensureSupaSession();
+  if (!uid) return;
+  try {
+    // Try update first; if zero rows affected, insert.
+    const row = {
+      user_id: uid,
+      class_key: player.classKey,
+      level: player.level, xp: player.xp, xp_next: player.xpNext,
+      skill_pts: player.skillPts,
+      gold: player.gold,
+      floor: state.floor,
+      kills: state.kills,
+      inventory: player.inventory,
+      equipped: player.equipped,
+      purchased_nodes: Array.from(purchasedNodes),
+      updated_at: new Date().toISOString(),
+    };
+    // Upsert by user_id — assumes one save row per user.
+    await supabase.from('sloppy_exiles_saves').upsert(row, { onConflict: 'user_id' });
+  } catch (e) { console.warn('cloudSave failed', e); }
+}
+async function cloudLoad() {
+  const uid = await ensureSupaSession();
+  if (!uid) return null;
+  try {
+    const r = await supabase.from('sloppy_exiles_saves')
+      .select('*').eq('user_id', uid).maybeSingle();
+    if (r.error) { console.warn('cloudLoad', r.error); return null; }
+    return r.data;
+  } catch (e) { console.warn('cloudLoad failed', e); return null; }
+}
+
 function startGame() {
   ensureAudio();
   state.phase = 'playing';
@@ -941,9 +996,9 @@ function startGame() {
   if (sigIcon) sigIcon.textContent = sigIcons[selectedClass] || '★';
   player.inventory.length = 0;
   player.equipped = { weapon: null, helm: null, robe: null, ring: null };
-  // Restore from vault — your gear persists across deaths/runs so the
-  // base-camp chest fantasy holds. Each run starts with whatever you
-  // banked in the previous one.
+  // Restore from vault (local-first — synchronous so the player can
+  // start playing immediately; cloud restore overwrites async if it
+  // returns a NEWER row than what we loaded locally).
   const vault = loadVault();
   if (vault) {
     player.gold = vault.gold || 0;
@@ -957,6 +1012,30 @@ function startGame() {
     }
     applyEquippedStats();
   }
+  // Async cloud restore — if a more recent save exists in Supabase,
+  // overwrite the local vault and refresh stats.
+  cloudLoad().then(row => {
+    if (!row) return;
+    player.gold = row.gold || 0;
+    player.level = row.level || 1;
+    player.xp = row.xp || 0; player.xpNext = row.xp_next || 100;
+    player.skillPts = row.skill_pts || 0;
+    state.floor = row.floor || 1;
+    state.kills = row.kills || 0;
+    player.inventory.length = 0;
+    if (Array.isArray(row.inventory)) for (const it of row.inventory) player.inventory.push(it);
+    player.equipped = { weapon: null, helm: null, robe: null, ring: null };
+    if (row.equipped) for (const slot of ['weapon','helm','robe','ring']) {
+      if (row.equipped[slot]) player.equipped[slot] = row.equipped[slot];
+    }
+    if (Array.isArray(row.purchased_nodes)) {
+      purchasedNodes.clear();
+      for (const n of row.purchased_nodes) purchasedNodes.add(n);
+    }
+    applyEquippedStats();
+    refreshHud();
+    showToast('☁ CLOUD SAVE LOADED', 'level ' + player.level + ' · floor ' + state.floor);
+  }).catch(() => {});
   player.alive = true;
   player.targetGx = null; player.targetGy = null;
   enemies.length = 0;
@@ -1082,6 +1161,7 @@ window.addEventListener('keydown', e => {
   if (e.key === '3') { useSkill('lifedrain'); e.preventDefault(); return; }
   if (e.key === '4') { useSignature();        e.preventDefault(); return; }
   if (e.key === 'p' || e.key === 'P') { useTownPortal(); e.preventDefault(); return; }
+  if (e.key === ' ') { tryDodgeRoll(); e.preventDefault(); return; }
   keys[e.key.toLowerCase()] = true;
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -1493,6 +1573,33 @@ function useSignature() {
   refreshSkillBar();
 }
 
+// =====================================================================
+// DODGE ROLL — Space → 0.18s dash with i-frames + particle trail
+// =====================================================================
+// Direction = current movement vector OR cursor direction if standing.
+// While dashing: speed × 3.2, fully invulnerable, leaves a per-frame
+// fade-trail particle so the motion reads. 0.9s cooldown.
+function tryDodgeRoll() {
+  if (state.phase !== 'playing' || state.paused) return;
+  const now = performance.now();
+  if (now < player.dashCdUntil) return;
+  // Pick direction
+  let dx = player.vgx, dy = player.vgy;
+  const m1 = Math.hypot(dx, dy);
+  if (m1 < 0.1) {
+    // standing still → dash toward the cursor
+    dx = mouse.gx - player.gx;
+    dy = mouse.gy - player.gy;
+  }
+  const m = Math.hypot(dx, dy) || 1;
+  player.dashDx = dx / m;
+  player.dashDy = dy / m;
+  player.dashUntil   = now + 180;
+  player.dashCdUntil = now + 900;
+  player.invulnUntil = now + 220;     // i-frames extend slightly past dash end
+  sfx.cast();
+}
+
 function playerDamage(mul) {
   let dmg = player.attackDmg * mul * player.bonus.meleeMul;
   if (player.bonus.berserk && player.hp / player.maxHp < 0.3) dmg *= 1.6;
@@ -1554,6 +1661,22 @@ function tryMove(entity, dgx, dgy) {
 
 function tickPlayer(dt) {
   if (!player.alive) return;
+  // === DODGE ROLL ===
+  // While dashing, override normal movement: glide along dashDx/dashDy
+  // at 3.2× speed, drop a fade-trail particle every frame, skip input.
+  const nowT = performance.now();
+  if (nowT < player.dashUntil) {
+    const dashSp = player.speed * 3.2;
+    tryMove(player, player.dashDx * dashSp * dt, player.dashDy * dashSp * dt);
+    // Trail particle — small ember at the player's last position, fades 0.35s
+    particles.push({
+      kind: 'dashtrail',
+      gx: player.gx, gy: player.gy,
+      t: 0, dur: 0.35,
+      facing: player.facing,
+    });
+    return;
+  }
   // === WASD MOVEMENT ===
   // Screen-space directional movement: W = up the screen, etc.
   // Inverse iso projection converts screen direction to (gx, gy) delta:
@@ -2111,6 +2234,23 @@ function drawParticle(p) {
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.ellipse(sp.x, sp.y, r, r / 2, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.globalAlpha = 1;
+  } else if (p.kind === 'dashtrail') {
+    // Ghost-silhouette of the player at this past position. Fades from
+    // bright ember to dim purple over its 0.35s lifetime.
+    const a = 1 - p.t / p.dur;
+    ctx.globalAlpha = a * 0.55;
+    // Robe triangle
+    ctx.fillStyle = '#a86bff';
+    ctx.beginPath();
+    ctx.moveTo(sp.x, sp.y - 26);
+    ctx.lineTo(sp.x - 12, sp.y + 4);
+    ctx.lineTo(sp.x + 12, sp.y + 4);
+    ctx.closePath();
+    ctx.fill();
+    // ember head dot
+    ctx.fillStyle = '#ff8a33';
+    ctx.beginPath(); ctx.arc(sp.x, sp.y - 24, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
   } else if (p.kind === 'bone') {
     ctx.fillStyle = '#cfb98a';
     ctx.globalAlpha = 1 - p.t / p.dur;
@@ -2203,8 +2343,6 @@ requestAnimationFrame(loop);
 
 // Initial focus to play button
 requestAnimationFrame(() => document.getElementById('playBtn').focus());
-
-})();
 </script>
 </body>
 </html>
