@@ -692,11 +692,14 @@ async function refreshSnapList() {
       const ts = new Date(row.created_at);
       const tsStr = (ts.getMonth()+1) + '/' + ts.getDate() + ' ' + String(ts.getHours()).padStart(2,'0') + ':' + String(ts.getMinutes()).padStart(2,'0');
       const isOwn = (uid && row.user_id === uid);
+      const isAuto = row.name === '__auto__';
+      const labelText = isAuto ? '★ autosave' : (row.name || 'untitled').replace(/[<>&]/g, '');
+      const labelColor = isAuto ? 'var(--neon-y)' : 'var(--paper)';
       li.innerHTML =
         '<button type="button" data-load="1" style="flex:1;text-align:left;background:transparent;' +
-          'border:none;color:var(--paper);font-family:inherit;font-size:0.75rem;cursor:pointer;' +
+          'border:none;color:' + labelColor + ';font-family:inherit;font-size:0.75rem;cursor:pointer;' +
           'padding:0.25rem 0">▸ ' +
-          (row.name || 'untitled').replace(/[<>&]/g, '') +
+          labelText +
           ' <span style="color:var(--ink-soft);font-size:0.6875rem">' + tsStr + (isOwn ? ' · you' : '') + '</span>' +
           '</button>' +
         (isOwn
@@ -725,6 +728,67 @@ document.getElementById('snapSaveBtn').addEventListener('click', saveSnapshot);
 snapNameEl.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); saveSnapshot(); }
 });
+
+// =====================================================================
+// AUTO-SAVE — single "__auto__" row per user, upserted on change
+// =====================================================================
+// Triggered by pointerup on the canvas (drag-rotate ended) and by the
+// 'change' event on every slider (fires on release, not while dragging).
+// 800ms debounce prevents thrash if the user releases two controls in
+// quick succession. The sidebar list refreshes after every save so it
+// stays live.
+const AUTO_NAME = '__auto__';
+let autoSaveTimer = 0;
+let autoSaveInflight = false;
+async function autoSaveNow() {
+  await supabaseReady;
+  if (!supabase) return;
+  if (autoSaveInflight) return;
+  const uid = await getUid();
+  if (!uid) return;
+  autoSaveInflight = true;
+  try {
+    // Find existing autosave row for this user
+    const existing = await supabase.from('dimension_ten_snapshots')
+      .select('id').eq('user_id', uid).eq('name', AUTO_NAME).maybeSingle();
+    const row = {
+      user_id: uid,
+      name: AUTO_NAME,
+      angles: Array.from(angles),
+      updated_at: new Date().toISOString(),
+    };
+    if (existing && existing.data && existing.data.id) {
+      await supabase.from('dimension_ten_snapshots')
+        .update(row).eq('id', existing.data.id);
+    } else {
+      await supabase.from('dimension_ten_snapshots').insert(row);
+    }
+    setStatus('☁ autosaved', true);
+    refreshSnapList();
+  } catch (e) {
+    setStatus('autosave failed: ' + e.message, false);
+  } finally {
+    autoSaveInflight = false;
+  }
+}
+function scheduleAutoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(autoSaveNow, 800);
+}
+// Wire to canvas drag end
+cvs.addEventListener('pointerup',     scheduleAutoSave);
+cvs.addEventListener('pointercancel', scheduleAutoSave);
+// Wire to every slider — 'change' fires on release, not during drag
+function wireSliderAutoSave() {
+  document.querySelectorAll('.slider-row input[type="range"]').forEach(input => {
+    input.addEventListener('change', scheduleAutoSave);
+  });
+}
+wireSliderAutoSave();
+// TWIST + RESET buttons also count as user changes worth autosaving
+document.getElementById('twistBtn').addEventListener('click', () => setTimeout(scheduleAutoSave, 50));
+document.getElementById('resetBtn').addEventListener('click', () => setTimeout(scheduleAutoSave, 50));
+
 // Initial fetch + every 30s refresh so other users' saves trickle in
 refreshSnapList();
 setInterval(refreshSnapList, 30000);
