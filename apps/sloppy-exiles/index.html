@@ -559,8 +559,11 @@ const ctx = cvs.getContext('2d');
 // === Iso projection ===
 const TILE_W = 64;     // tile width on screen
 const TILE_H = 32;     // tile height on screen (2:1 iso)
-const GRID_W = 24;
-const GRID_H = 24;
+// Chat ask: expand the map. 24×24 → 40×40 (~2.8× area). Coupled with
+// the new procedural rooms-and-corridors generator below so the player
+// actually has rooms to discover, not a single open arena.
+const GRID_W = 40;
+const GRID_H = 40;
 function fitCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 1.4);
   cvs.width  = Math.floor(window.innerWidth  * dpr);
@@ -600,17 +603,20 @@ function camOffset() {
 // =====================================================================
 // MAP — cracked stone tiles + a few obstacle pillars
 // =====================================================================
-const TILES = [];      // 2D array: 0 = walkable, 1 = pillar block
-const TILE_SEED = (() => {
-  // Per-tile seed for deterministic stone-crack rendering
-  const s = [];
+const TILES = [];      // 2D array: 0 = walkable, 1 = wall
+let TILE_SEED = [];    // per-tile crack-render seed; regenerated per buildMap
+// Track room rectangles so future tooling (boss spawn? minimap?) can
+// reason about distinct rooms. Each entry: { x, y, w, h, cx, cy }
+const ROOMS = [];
+function buildTileSeed() {
+  TILE_SEED = [];
   for (let y = 0; y < GRID_H; y++) {
     const row = [];
     for (let x = 0; x < GRID_W; x++) row.push(Math.floor(Math.random() * 9999));
-    s.push(row);
+    TILE_SEED.push(row);
   }
-  return s;
-})();
+}
+buildTileSeed();
 // Town centre — fixed integer tile coords so the safe-zone always
 // renders on whole tiles AND the portal-back position is deterministic.
 const TOWN_GX = Math.floor(GRID_W / 2);
@@ -625,34 +631,110 @@ const CHEST_OPEN_RADIUS = 2.5;   // how close the player must be to interact
 // town centre are kept clear by buildMap and rendered with a glowing
 // floor overlay in drawTiles.
 const TOWN_RADIUS = 2.6;
+// === Procedural rooms + L-shaped corridors (chat ask) ===
+// Algorithm: fill grid with walls, carve a fixed TOWN room at the
+// centre, then place 7 random rooms (4-9 tiles wide/tall) without
+// overlap (1-tile padding). Connect each new room to the previous via
+// an L-shaped corridor, plus 2 random extra corridors for loop variety.
+// The dungeon is guaranteed connected because the chain corridor
+// reaches every room.
 function buildMap() {
   TILES.length = 0;
+  ROOMS.length = 0;
+  // 1) fill with walls
   for (let y = 0; y < GRID_H; y++) {
     const row = [];
-    for (let x = 0; x < GRID_W; x++) {
-      if (x === 0 || y === 0 || x === GRID_W - 1 || y === GRID_H - 1) {
-        row.push(1);
-      } else {
-        row.push(0);
-      }
-    }
+    for (let x = 0; x < GRID_W; x++) row.push(1);
     TILES.push(row);
   }
-  // A few interior pillars for cover
-  const pillars = [
-    [6, 6], [18, 6], [6, 18], [18, 18],
-    [12, 5], [5, 12], [19, 12], [12, 19],
-    [9, 9], [15, 15], [9, 15], [15, 9],
-  ];
-  for (const [px, py] of pillars) {
-    if (TILES[py] && TILES[py][px] === 0) TILES[py][px] = 1;
+  // 2) carve TOWN room — fixed at world centre
+  const TOWN_R = 4;
+  const townRoom = makeRoom(TOWN_GX - TOWN_R, TOWN_GY - TOWN_R, TOWN_R*2 + 1, TOWN_R*2 + 1);
+  carveRoom(townRoom);
+  ROOMS.push(townRoom);
+  // 3) place additional rooms
+  const TARGET_ROOMS = 7;
+  for (let attempt = 0; attempt < 220 && ROOMS.length < TARGET_ROOMS + 1; attempt++){
+    const rw = 4 + Math.floor(Math.random() * 6);   // 4..9
+    const rh = 4 + Math.floor(Math.random() * 6);
+    const rx = 2 + Math.floor(Math.random() * (GRID_W - rw - 4));
+    const ry = 2 + Math.floor(Math.random() * (GRID_H - rh - 4));
+    const cand = makeRoom(rx, ry, rw, rh);
+    let ok = true;
+    for (const r of ROOMS){
+      if (cand.x + cand.w + 1 < r.x || cand.x > r.x + r.w + 1) continue;
+      if (cand.y + cand.h + 1 < r.y || cand.y > r.y + r.h + 1) continue;
+      ok = false; break;
+    }
+    if (!ok) continue;
+    carveRoom(cand);
+    ROOMS.push(cand);
   }
-  // Force-clear the town safe-zone — pillars never block the home base
-  for (let y = 0; y < GRID_H; y++) {
-    for (let x = 0; x < GRID_W; x++) {
-      if (Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS) {
-        TILES[y][x] = 0;
-      }
+  // 4) connect each room to the previous one via an L-shaped corridor
+  for (let i = 1; i < ROOMS.length; i++){
+    carveCorridor(ROOMS[i-1].cx, ROOMS[i-1].cy, ROOMS[i].cx, ROOMS[i].cy);
+  }
+  // 5) sprinkle a few extra corridors for loop variety
+  for (let i = 0; i < 2; i++){
+    const a = ROOMS[Math.floor(Math.random() * ROOMS.length)];
+    const b = ROOMS[Math.floor(Math.random() * ROOMS.length)];
+    if (a !== b) carveCorridor(a.cx, a.cy, b.cx, b.cy);
+  }
+  // 6) sprinkle a few interior pillars per non-town room — kept old
+  //    'pillars for cover' aesthetic, just localised inside rooms now
+  for (let i = 1; i < ROOMS.length; i++){
+    const r = ROOMS[i];
+    const pillarCount = Math.floor(Math.random() * 3);   // 0..2
+    for (let p = 0; p < pillarCount; p++){
+      const px = r.x + 1 + Math.floor(Math.random() * (r.w - 2));
+      const py = r.y + 1 + Math.floor(Math.random() * (r.h - 2));
+      if (TILES[py] && TILES[py][px] === 0) TILES[py][px] = 1;
+    }
+  }
+  // 7) force-clear the town safe zone (in case a pillar landed in it)
+  for (let y = 0; y < GRID_H; y++){
+    for (let x = 0; x < GRID_W; x++){
+      if (Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS) TILES[y][x] = 0;
+    }
+  }
+  // 8) freshly seed crack-render variety
+  buildTileSeed();
+}
+function makeRoom(x, y, w, h){
+  return { x, y, w, h, cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+}
+function carveRoom(r){
+  for (let y = r.y; y < r.y + r.h; y++){
+    for (let x = r.x; x < r.x + r.w; x++){
+      if (x > 0 && y > 0 && x < GRID_W - 1 && y < GRID_H - 1) TILES[y][x] = 0;
+    }
+  }
+}
+function carveCorridor(x1, y1, x2, y2){
+  // Random L-shape — half horizontal-then-vertical, half v-then-h.
+  // The corridor is 1 tile wide; widen at intersections via the +1 below.
+  if (Math.random() < 0.5){
+    carveH(x1, x2, y1); carveV(y1, y2, x2);
+  } else {
+    carveV(y1, y2, x1); carveH(x1, x2, y2);
+  }
+}
+function carveH(x1, x2, y){
+  const lo = Math.min(x1, x2), hi = Math.max(x1, x2);
+  for (let x = lo; x <= hi; x++){
+    if (x > 0 && y > 0 && x < GRID_W - 1 && y < GRID_H - 1){
+      TILES[y][x] = 0;
+      // also widen one tile down so corridors aren't claustrophobic
+      if (y + 1 < GRID_H - 1) TILES[y+1][x] = 0;
+    }
+  }
+}
+function carveV(y1, y2, x){
+  const lo = Math.min(y1, y2), hi = Math.max(y1, y2);
+  for (let y = lo; y <= hi; y++){
+    if (x > 0 && y > 0 && x < GRID_W - 1 && y < GRID_H - 1){
+      TILES[y][x] = 0;
+      if (x + 1 < GRID_W - 1) TILES[y][x+1] = 0;
     }
   }
 }
@@ -835,11 +917,41 @@ const projectiles = [];
 const drops = [];
 const particles = [];
 
+// === Enemy roster (chat ask: variety) ===
+// All enemies share the same AI loop; kind drives stat multipliers,
+// attack cadence, and the per-kind sprite branch in drawEnemy.
+const ENEMY_KINDS = {
+  skeleton: {
+    label: 'Skeleton',
+    hpMul: 1.0, dmgMul: 1.0, speedMul: 1.0,
+    attackCdMul: 1.0,
+  },
+  swamp_troll: {
+    label: 'Swamp Troll',
+    // tanky but slow — eats your face in one hit if you stand still
+    hpMul: 2.6, dmgMul: 1.7, speedMul: 0.55,
+    attackCdMul: 1.4,
+  },
+  toxic_slime: {
+    label: 'Toxic Slime',
+    // glass cannon — fast and chip damage, can surprise low-HP players
+    hpMul: 0.55, dmgMul: 0.85, speedMul: 1.45,
+    attackCdMul: 0.75,
+  },
+};
+function pickEnemyKind(){
+  // Floor-scaled distribution. Floor 1 = mostly skeletons; deeper = more
+  // trolls + slimes. Keeps early game readable but adds chaos at depth.
+  const f = Math.max(1, state.floor);
+  const trollW = Math.min(0.35, 0.04 + f * 0.04);
+  const slimeW = Math.min(0.40, 0.10 + f * 0.04);
+  const skelW  = Math.max(0.25, 1 - trollW - slimeW);
+  const r = Math.random() * (skelW + trollW + slimeW);
+  if (r < skelW) return 'skeleton';
+  if (r < skelW + trollW) return 'swamp_troll';
+  return 'toxic_slime';
+}
 function spawnEnemy(t) {
-  // Spawn at random walkable border tile far from the player AND
-  // never inside the home safe-zone (the town circle is enemy-blocked
-  // by tryMove, but we shouldn't spawn one stuck against the boundary
-  // either — pick a fresh tile).
   let attempts = 60, sx = 0, sy = 0;
   while (attempts-- > 0) {
     sx = 1 + Math.floor(Math.random() * (GRID_W - 2));
@@ -850,12 +962,18 @@ function spawnEnemy(t) {
     break;
   }
   const lvl = Math.max(1, Math.floor(player.level + (Math.random() - 0.3) * 2));
+  const kindKey = pickEnemyKind();
+  const k = ENEMY_KINDS[kindKey];
+  const baseHp = 30 + lvl * 14;
   enemies.push({
+    kind: kindKey,
     gx: sx, gy: sy,
     vgx: 0, vgy: 0,
-    speed: 2.0 + Math.random() * 0.8,
-    hp: 30 + lvl * 14, maxHp: 30 + lvl * 14,
-    dmg: 8 + lvl * 2,
+    speed: (2.0 + Math.random() * 0.8) * k.speedMul,
+    hp:    baseHp * k.hpMul,
+    maxHp: baseHp * k.hpMul,
+    dmg:   (8 + lvl * 2) * k.dmgMul,
+    attackCdBase: k.attackCdMul,
     attackCD: 0,
     flash: 0,
     facing: 1,
@@ -2077,7 +2195,7 @@ function tickEnemies(dt) {
     if (en.flash > 0) en.flash -= dt;
     en.attackCD -= dt;
     if (d < 0.95 && en.attackCD <= 0 && performance.now() > player.invulnUntil) {
-      en.attackCD = 1.1;
+      en.attackCD = 1.1 * (en.attackCdBase || 1.0);
       const dmg = en.dmg;
       player.hp -= dmg;
       dmgPop(player.gx, player.gy, '-' + dmg);
@@ -2453,12 +2571,32 @@ function drawPlayer() {
 }
 function drawEnemy(en) {
   const sp = worldToScreen(en.gx, en.gy);
-  // shadow
+  // shadow (slightly bigger for trolls)
+  const shR = en.kind === 'swamp_troll' ? 18 : (en.kind === 'toxic_slime' ? 12 : 14);
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.beginPath(); ctx.ellipse(sp.x, sp.y + 6, 14, 5, 0, 0, Math.PI * 2); ctx.fill();
-  // body — skeleton (bone color, hint of red on flash)
+  ctx.beginPath(); ctx.ellipse(sp.x, sp.y + 6, shR, 5, 0, 0, Math.PI * 2); ctx.fill();
   const flash = en.flash > 0 ? Math.min(1, en.flash * 6) : 0;
   const wob = Math.sin(en.walkPhase) * 2;
+  if      (en.kind === 'swamp_troll') drawSwampTroll(sp, en, flash, wob);
+  else if (en.kind === 'toxic_slime') drawToxicSlime(sp, en, flash, wob);
+  else                                drawSkeleton(sp, en, flash, wob);
+  // chill (frost) glow — applies to any kind
+  if (en.chillUntil > performance.now() / 1000) {
+    ctx.strokeStyle = 'rgba(122,220,255,0.7)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(sp.x, sp.y - 12, 16, 0, Math.PI * 2); ctx.stroke();
+  }
+  // HP bar
+  drawBar(sp.x, sp.y - 36, 22, 2, en.hp / en.maxHp, '#a82226');
+  // level + kind label
+  ctx.fillStyle = '#d9a13a';
+  ctx.font = 'bold 9px "IBM Plex Mono", monospace';
+  ctx.textAlign = 'center';
+  const k = ENEMY_KINDS[en.kind] || ENEMY_KINDS.skeleton;
+  ctx.fillText('L' + en.level + ' ' + k.label, sp.x, sp.y - 40);
+}
+
+function drawSkeleton(sp, en, flash, wob){
   // legs
   ctx.fillStyle = '#cfb98a';
   ctx.fillRect(sp.x - 5, sp.y - 4, 3, 10);
@@ -2476,21 +2614,98 @@ function drawEnemy(en) {
   ctx.fillStyle = '#1a0c12';
   ctx.fillRect(sp.x - 4, sp.y - 24 + wob, 2, 2);
   ctx.fillRect(sp.x + 2, sp.y - 24 + wob, 2, 2);
-  // jaw
   ctx.fillRect(sp.x - 3, sp.y - 19 + wob, 6, 1);
-  // chill (frost) glow
-  if (en.chillUntil > performance.now() / 1000) {
-    ctx.strokeStyle = 'rgba(122,220,255,0.7)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(sp.x, sp.y - 12, 14, 0, Math.PI * 2); ctx.stroke();
+}
+
+function drawSwampTroll(sp, en, flash, wob){
+  // bigger silhouette: hunched green ogre with tusks
+  const baseG = 110, baseR = 60, baseB = 36;
+  const fillR = baseR + flash * 90;
+  const fillG = baseG - flash * 30;
+  const fillB = baseB - flash * 10;
+  const skin = `rgb(${fillR | 0}, ${fillG | 0}, ${fillB | 0})`;
+  // legs (wide stance)
+  ctx.fillStyle = '#3a4f1c';
+  ctx.fillRect(sp.x - 7, sp.y - 2, 4, 12);
+  ctx.fillRect(sp.x + 3, sp.y - 2, 4, 12);
+  // big body
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.ellipse(sp.x, sp.y - 12 + wob, 11, 12, 0, 0, Math.PI*2);
+  ctx.fill();
+  // belly highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  ctx.beginPath();
+  ctx.ellipse(sp.x - 2, sp.y - 8 + wob, 5, 6, 0, 0, Math.PI*2);
+  ctx.fill();
+  // arms
+  ctx.fillStyle = skin;
+  ctx.fillRect(sp.x - 13, sp.y - 12 + wob, 4, 11);
+  ctx.fillRect(sp.x + 9,  sp.y - 12 + wob, 4, 11);
+  // hunched head
+  ctx.beginPath();
+  ctx.arc(sp.x, sp.y - 24 + wob, 7, 0, Math.PI*2);
+  ctx.fill();
+  // tusks
+  ctx.fillStyle = '#e8e2c4';
+  ctx.beginPath();
+  ctx.moveTo(sp.x - 3, sp.y - 21 + wob); ctx.lineTo(sp.x - 4, sp.y - 18 + wob); ctx.lineTo(sp.x - 2, sp.y - 21 + wob);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(sp.x + 3, sp.y - 21 + wob); ctx.lineTo(sp.x + 4, sp.y - 18 + wob); ctx.lineTo(sp.x + 2, sp.y - 21 + wob);
+  ctx.closePath(); ctx.fill();
+  // angry red eyes
+  ctx.fillStyle = '#ff6a44';
+  ctx.fillRect(sp.x - 4, sp.y - 25 + wob, 2, 2);
+  ctx.fillRect(sp.x + 2, sp.y - 25 + wob, 2, 2);
+  // moss patches
+  ctx.fillStyle = '#5e8030';
+  ctx.beginPath(); ctx.arc(sp.x - 4, sp.y - 14 + wob, 2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sp.x + 5, sp.y - 10 + wob, 1.6, 0, Math.PI*2); ctx.fill();
+}
+
+function drawToxicSlime(sp, en, flash, wob){
+  // jiggle: slimes pulse with sin time, smaller wobble than walkPhase
+  const t = performance.now() / 220;
+  const jiggle = Math.sin(t + en.walkPhase) * 1.5;
+  const sw = 14 + jiggle;        // width
+  const sh = 10 - jiggle * 0.5;  // height (inverse)
+  const fillR = 122 + flash * 100;
+  const fillG = 220 - flash * 80;
+  const fillB = 74  + flash * 30;
+  const skin = `rgb(${fillR | 0}, ${fillG | 0}, ${fillB | 0})`;
+  // body — dome
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.ellipse(sp.x, sp.y - sh*0.2, sw, sh, 0, Math.PI, 0, true);
+  ctx.lineTo(sp.x + sw, sp.y + 4);
+  ctx.lineTo(sp.x - sw, sp.y + 4);
+  ctx.closePath(); ctx.fill();
+  // shine highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(sp.x - sw*0.35, sp.y - sh*0.55, sw*0.35, sh*0.4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // eyes — wide dot pair
+  ctx.fillStyle = '#1a1108';
+  ctx.beginPath(); ctx.arc(sp.x - sw*0.30, sp.y - sh*0.10, 1.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sp.x + sw*0.30, sp.y - sh*0.10, 1.8, 0, Math.PI*2); ctx.fill();
+  // mouth — tiny grin
+  ctx.strokeStyle = '#1a1108'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(sp.x - 3, sp.y - sh*0.05);
+  ctx.quadraticCurveTo(sp.x, sp.y + 2, sp.x + 3, sp.y - sh*0.05);
+  ctx.stroke();
+  // toxic drips falling underneath
+  const dripT = (performance.now() % 1400) / 1400;
+  ctx.fillStyle = `rgba(122,220,74,${0.6 - dripT * 0.5})`;
+  for (let i = -1; i <= 1; i++){
+    const dx = i * 5;
+    const dy = 4 + dripT * 6;
+    ctx.beginPath();
+    ctx.ellipse(sp.x + dx, sp.y + dy, 1.6, 2.6, 0, 0, Math.PI*2);
+    ctx.fill();
   }
-  // HP bar
-  drawBar(sp.x, sp.y - 36, 22, 2, en.hp / en.maxHp, '#a82226');
-  // level
-  ctx.fillStyle = '#d9a13a';
-  ctx.font = 'bold 9px "IBM Plex Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('L' + en.level, sp.x, sp.y - 40);
 }
 function drawBar(x, y, w, h, ratio, color) {
   ctx.fillStyle = '#000';

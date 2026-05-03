@@ -1,6 +1,17 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-03: bigger map + procedural rooms-and-corridors + 2 new enemy kinds (chat ask).
+  - **Map size**: GRID_W/H bumped 24×24 → **40×40** (~2.8× area).
+  - **Procedural rooms+corridors generator** replaces the old single-arena + 12 random pillars. Algorithm: fill with walls → carve fixed TOWN room (9×9) at world centre → place 7 random rooms (4-9 wide/tall) without overlap (1-tile padding) → connect each new room to the previous via L-shaped corridor → 2 extra random corridors for loop variety → sprinkle 0-2 pillars per non-town room → force-clear town safe zone. Corridors carved 2 tiles wide (1 + widening tile) so they don't feel claustrophobic. Each floor re-rolls the layout.
+  - **TILE_SEED** is now a function that re-seeds on every buildMap call (was a one-shot IIFE pinned to the original 24×24 grid — would have indexed out of bounds at 40×40).
+  - **ROOMS** array kept around so future tooling (boss room, minimap, room-clear bonuses) has somewhere to read room rectangles.
+  - **Two new enemy kinds**:
+    - **Swamp Troll** (green hunched ogre with tusks + moss patches): 2.6× HP, 1.7× damage, 0.55× speed, 1.4× attack-CD. Tanky brawler — punishes standing still.
+    - **Toxic Slime** (jiggling green dome with sliding shine + falling toxic drips + tiny grin): 0.55× HP, 0.85× damage, 1.45× speed, 0.75× attack-CD. Glass cannon — chips the player and is hard to dodge in tight corridors.
+  - **Floor-scaled enemy mix**: floor 1 is mostly skeletons; troll/slime weights ramp +4% per floor (capped at 35% troll / 40% slime). Skeleton stays at minimum 25% to keep the early game legible.
+  - Each enemy now carries its `kind` + `attackCdBase`; `tickEnemies` uses the multiplier on swing CD so trolls swing slower, slimes faster.
+  - `drawEnemy` branches by kind: `drawSkeleton`, `drawSwampTroll`, `drawToxicSlime`. Shadow size, label, and chill-glow shared. Level pill now includes the kind label.
 - 2026-05-03: lazy supabase import — fix "blocked at the door" load failure (chat ask, zennlogic).
   - The static `import supabase, { supabaseSession } from '/supabase-config-fixed.js'` sat at the very top of the module. Any server hiccup that returned the wrong Content-Type (e.g. nginx serving a 404 page as text/html) would block the whole game from booting — what the chat called "blocked at the door".
   - Switched to a lazy dynamic `await import('/supabase-config-fixed.js')` wrapped in try/catch. Both `supabase` and `supabaseSession` are `let` bindings that start null and only get set on successful resolve. A new `supabaseReady` promise gates async callers.
