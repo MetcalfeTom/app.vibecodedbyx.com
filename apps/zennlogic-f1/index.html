@@ -551,15 +551,20 @@ const MAP_PRESETS = {
     // first car crosses the finish line.
     pointToPoint: true,
     wallRadius: 2.4,           // chunky canyon walls (vs 0.55 default)
+    // Winding canyon path — alternating sharper hairpins and flowing
+    // sweepers, big elevation in z-axis only (track stays flat). 36
+    // points span ~1500u of length with three notable hairpins +
+    // four chicanes + a final long sprint.
     points: [
-      [   0,    0], [  80,   20], [ 180,    0], [ 280,  -40],
-      [ 380,  -60], [ 470,  -30], [ 540,   40], [ 580,  130],
-      [ 560,  240], [ 480,  330], [ 400,  390], [ 320,  430],
-      [ 220,  450], [ 120,  450], [  20,  430], [ -80,  390],
-      [-160,  330], [-220,  240], [-240,  140], [-200,   60],
-      [-120,  -10], [ -20,  -50], [  80,  -80], [ 200, -100],
-      [ 320, -100], [ 440,  -70], [ 540,    0], [ 620,   90],
-      [ 680,  200], [ 700,  320], [ 680,  440], [ 620,  540],
+      [   0,    0], [  60,   30], [ 140,   60], [ 220,   30],   // start sweeper
+      [ 280,  -40], [ 320, -120], [ 280, -180], [ 180, -200],   // hairpin 1
+      [  80, -160], [  20,  -80], [ -40,    0], [ -80,  100],   // chicane 1
+      [ -40,  200], [  60,  240], [ 180,  220], [ 280,  160],   // S-curve
+      [ 360,  100], [ 420,   20], [ 480,  -60], [ 540, -140],   // long descent
+      [ 580, -220], [ 540, -300], [ 420, -340], [ 280, -320],   // hairpin 2
+      [ 160, -260], [ 100, -180], [ 100,  -80], [ 180,  -20],   // climb back
+      [ 280,   60], [ 380,  140], [ 480,  220], [ 580,  300],   // long straight
+      [ 660,  380], [ 700,  480], [ 660,  580], [ 540,  640],   // hairpin 3
     ].map(([x, z]) => new THREE.Vector3(x, 0, z)),
   },
 };
@@ -859,11 +864,18 @@ const CAR_PRESETS = {
   },
 };
 let selectedCar = 'ghost';
-const RIVAL_LIVERY = { body: 0xff5af6, accent: 0x0afff5, wing: 0xffd968 };
+// Rival liveries — three distinct AI cars on the field for chaotic
+// multi-car racing. Each car gets its own visual mesh (rivalCars[])
+// AND its own driver state (rivals[] further down).
+const RIVAL_LIVERIES = [
+  { body: 0xff5af6, accent: 0x0afff5, wing: 0xffd968 },   // magenta/cyan/gold
+  { body: 0xff5050, accent: 0x1a1a22, wing: 0xffd968 },   // crimson titan
+  { body: 0xffd968, accent: 0x3dff7a, wing: 0xff5af6 },   // gold/green
+];
 let playerCar = makeCar(CAR_PRESETS.ghost.livery);
-let rivalCar  = makeCar(RIVAL_LIVERY);
+const rivalCars = RIVAL_LIVERIES.map(lv => makeCar(lv));
 scene.add(playerCar.group);
-scene.add(rivalCar.group);
+for (const rc of rivalCars) scene.add(rc.group);
 
 // Rebuild the player's car body when the selection changes (different
 // liveries). Cheaper than rebuilding the entire group: just swap the
@@ -923,7 +935,8 @@ function makeDriver(spec) {
   }, spec);
 }
 const player = makeDriver({ isPlayer: true });
-const rival  = makeDriver({ isPlayer: false });
+// 3 rival drivers, each tied to a rivalCars[] visual group by index.
+const rivals = RIVAL_LIVERIES.map((_, i) => makeDriver({ isPlayer: false, rivalIdx: i }));
 function placeAtStart(d, offset) {
   // Spawn slightly AHEAD of the gate (along the curve tangent) so the
   // car is just past the start line facing into the first sweeper.
@@ -943,7 +956,8 @@ function placeAtStart(d, offset) {
   d.finished = false;
 }
 placeAtStart(player,  3.5);
-placeAtStart(rival,  -3.5);
+// Stagger the rivals laterally so they don't spawn on top of each other
+rivals.forEach((r, i) => placeAtStart(r, -3.5 - i * 3));
 
 // Constants — top speed, acceleration, brake, steer rates
 const MAX_SPEED = 95;        // m/s ≈ 342 km/h
@@ -1088,16 +1102,19 @@ function startRace() {
   player.maxSpeed    = carP.maxSpeed;
   player.steerRate   = carP.steerRate;
   // Rival always uses the Titan stats so they're a credible threat
-  rival.enginePower = CAR_PRESETS.titan.enginePower;
-  rival.maxSpeed    = CAR_PRESETS.titan.maxSpeed;
-  rival.steerRate   = CAR_PRESETS.titan.steerRate;
+  // All rivals get Titan stats so they're consistently fast threats.
+  for (const r of rivals) {
+    r.enginePower = CAR_PRESETS.titan.enginePower;
+    r.maxSpeed    = CAR_PRESETS.titan.maxSpeed;
+    r.steerRate   = CAR_PRESETS.titan.steerRate;
+  }
   state.phase = 'racing';
   state.raceStartT = performance.now() / 1000;
   state.paused = false;
   placeAtStart(player,  3.5);
-  placeAtStart(rival,  -3.5);
+  rivals.forEach((r, i) => placeAtStart(r, -3.5 - i * 3));
   player.bestLapT = Infinity;
-  rival.bestLapT = Infinity;
+  for (const r of rivals) r.bestLapT = Infinity;
   document.getElementById('title').classList.remove('show');
   document.getElementById('title').setAttribute('inert', '');
   document.getElementById('end').classList.remove('show');
@@ -1182,12 +1199,25 @@ function stepCar(d, dt, controls) {
   d.pos.x += fx * d.speed * dt;
   d.pos.z += fz * d.speed * dt;
   // === HARD WALL CLAMP — re-project the car onto the curve and clamp
-  // its lateral offset to ±WALL_OFFSET. This is the physical wall
-  // collision; the soft off-track penalty above acts on the grass
-  // strip between the curb (HALF_W) and the wall (HALF_W + 3.5).
+  // its lateral offset to ±WALL_OFFSET. CHAT FIX: previous version
+  // sampled the curve at the STALE d.curveT (last frame's value),
+  // which lagged at high speed and let the car clip THROUGH the wall
+  // when the lateral computed off the wrong reference point. Now we
+  // do a 12-sample local search in a 0.05-arc-length window and pick
+  // the actual nearest curve point before clamping.
   if (trackCurve) {
-    const cp = trackCurve.getPointAt(d.curveT);
-    const tan = trackCurve.getTangentAt(d.curveT);
+    let nT = d.curveT, nD = Infinity;
+    for (let i = -6; i <= 6; i++) {
+      let t = d.curveT + i / 12 * 0.05;
+      if (t < 0) t += 1;
+      if (t >= 1) t -= 1;
+      const p = trackCurve.getPointAt(t);
+      const ddx = p.x - d.pos.x, ddz = p.z - d.pos.z;
+      const ddD = ddx * ddx + ddz * ddz;
+      if (ddD < nD) { nD = ddD; nT = t; }
+    }
+    const cp = trackCurve.getPointAt(nT);
+    const tan = trackCurve.getTangentAt(nT);
     const left = _UP.clone().cross(tan).normalize();
     const dx = d.pos.x - cp.x, dz = d.pos.z - cp.z;
     const lateral = dx * left.x + dz * left.z;
@@ -1197,15 +1227,23 @@ function stepCar(d, dt, controls) {
       d.pos.x += left.x * dLat;
       d.pos.z += left.z * dLat;
       // dampen forward speed proportional to scrape angle
-      d.speed *= 0.78;
+      d.speed *= 0.72;
+      // Also kill perpendicular velocity component so the car can't
+      // immediately re-attempt the clip on the next frame.
+      const fx = Math.sin(d.yaw), fz = Math.cos(d.yaw);
+      const vLat = fx * left.x + fz * left.z;
+      if (Math.sign(vLat) === Math.sign(lateral)) {
+        // moving outward — yaw the car back toward the racing line
+        d.yaw += -Math.sign(lateral) * 0.12;
+      }
     }
   }
   // Update group transform
-  const grp = (d === player) ? playerCar.group : rivalCar.group;
+  const grp = (d === player) ? playerCar.group : rivalCars[d.rivalIdx].group;
   grp.position.copy(d.pos);
   grp.rotation.y = d.yaw;
   // Spin the wheels visually
-  const wheelGroup = (d === player) ? playerCar.wheels : rivalCar.wheels;
+  const wheelGroup = (d === player) ? playerCar.wheels : rivalCars[d.rivalIdx].wheels;
   for (const w of wheelGroup) w.rotation.x += d.speed * dt * 1.4;
   // Update curve parameter for lap counting (find nearest sample point)
   updateCurveT(d, dt);
@@ -1252,8 +1290,18 @@ function updateCurveT(d, dt) {
           showBanner('★ FINISH ★', formatLap(totalTime));
           blip(880, 0.12, 'triangle', 0.20);
         }
-        const otherFinished = (d === player ? rival.finished : player.finished);
-        if (!otherFinished) endRace(d === player);
+        // Race ends when EVERY other car has finished — the first car
+        // to finish "wins" (their event triggers endRace if no one else
+        // had finished yet).
+        const allOthersDone = (d === player)
+          ? rivals.every(r => r.finished)
+          : (player.finished && rivals.every(r => r === d || r.finished));
+        const someoneFinished = player.finished || rivals.some(r => r.finished);
+        if (!someoneFinished) endRace(d === player);
+        else if (allOthersDone && !player.finished && d !== player) {
+          // Player lost — all rivals done, player still running
+          endRace(false);
+        }
       }
     } else {
       // CLOSED-LOOP LAP COUNTER — crossedHalf + cross back near 0.
@@ -1383,7 +1431,14 @@ function updateHUD() {
   const t = state.phase === 'racing' ? (performance.now() / 1000 - player.lapStartT) : 0;
   document.getElementById('hudTime').textContent = formatLap(t);
   document.getElementById('hudPos').textContent =
-    (player.curveT + (player.lap - 1) >= rival.curveT + (rival.lap - 1)) ? 'P1' : 'P2';
+    (() => {
+      // Position = rank by total progress (curveT + (lap-1)). 1 = lead.
+      const all = [player, ...rivals];
+      const progress = (d) => d.curveT + (d.lap - 1);
+      all.sort((a, b) => progress(b) - progress(a));
+      const idx = all.indexOf(player);
+      return 'P' + (idx + 1);
+    })();
   // Tach fill
   document.getElementById('tachFill').style.width = Math.min(100, speedKmh / 3.42) + '%';
   // Off-track flash on the lap cell so the player notices the penalty
@@ -1401,7 +1456,7 @@ function loop(now) {
   lastT = now;
   if (state.phase === 'racing' && !state.paused) {
     stepCar(player, dt, playerControls());
-    if (!rival.finished) stepCar(rival, dt, aiControls(rival, dt));
+    for (const r of rivals) if (!r.finished) stepCar(r, dt, aiControls(r, dt));
     updateHUD();
     updateEngineAudio(dt);
   }
