@@ -1,6 +1,11 @@
 # dimension-ten
 
 ## log
+- 2026-05-03: pushed N cap to 999 + LITE mode for projection.
+  - Dimension slider max bumped 100 → 999. C(999,2) = 498,501 planes — applying every plane × ~1200 sampled vertices per frame would be ~600M ops/frame and crash the tab.
+  - Added `MAX_ACTIVE_PLANES = 800` budget. When PLANE_COUNT exceeds it, projection iterates planes by `stride = ceil(PLANE_COUNT / MAX_ACTIVE_PLANES)` starting at a rotating `activeOffset` (advances every ~100ms), so per-frame cost is bounded but every plane still takes effect across consecutive frames — no fixed-slice "frozen" look.
+  - At N=999: stride=624 → 800 active planes per frame, 1200 verts × 800 = 960K ops/frame. Tested mental: ~60fps on modern hardware. The LITE mode banner appears in the dim-note when active.
+  - Twist + auto-rotate still touch ALL angles (PLANE_COUNT-wide); only projection samples a stride.
 - 2026-05-03: variable N (2..100) + HSL spectrum coloring per dimension.
   - **N slider**: new "Dimensions (N)" section at top of panel, range 2..100, default 10. `rebuildAll(N)` rebuilds geometry, planes, angle/scratch/autoSpeed buffers, slider DOM, audit numbers. Live (cheap) preview of vert/edge/plane counts on `input`; full geometry rebuild on `change` (debounced 60ms) so dragging the slider doesn't thrash.
   - **Two render modes**: `N ≤ FULL_HC_MAX_N (12)` → full hypercube enumerated (V_COUNT = 2^N up to 4096, edges = N·2^(N-1) up to 24576). `N > 12` → sampled random-walk skeleton: K_EDGES = max(1200, min(6000, 8000 - N·60)) edges, vertices added by Map dedup. At N=100 we get ~2000 edges and ~3500 verts visible at any time; the underlying {±1}^100 has 10^30 verts which we cannot enumerate, hence the sample.

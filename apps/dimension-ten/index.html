@@ -184,8 +184,8 @@
       <h2>Dimensions (N)</h2>
       <div class="slider-row" style="grid-template-columns:3rem 1fr 3rem">
         <label for="dimSlider"><span class="axes">N</span></label>
-        <input id="dimSlider" type="range" min="2" max="100" value="10" step="1"
-               aria-label="Number of dimensions, from 2 to 100">
+        <input id="dimSlider" type="range" min="2" max="999" value="10" step="1"
+               aria-label="Number of dimensions, from 2 to 999">
         <span class="val" id="dimVal">10</span>
       </div>
       <div class="meta" id="dimNote"
@@ -280,8 +280,18 @@ let autoSpeeds = null;   // Float32Array, PLANE_COUNT
 
 // Above this N we switch from "full hypercube" to a sampled random-walk
 // skeleton. 2^13 = 8192 verts is the soft ceiling for full mode on
-// modern browsers; 2^100 ≈ 10^30 obviously cannot be enumerated.
+// modern browsers; 2^100 ≈ 10^30 and 2^999 ≈ 10^300 obviously cannot
+// be enumerated.
 const FULL_HC_MAX_N = 12;
+// Per-frame projection cost is V_COUNT × PLANE_COUNT cos/sin/multiply
+// ops. C(999,2) = 498,501 planes — applying all of them per frame
+// would be ~600M ops at the sampled vertex count, far too slow. So we
+// cap how many planes actually MUTATE the projection per frame, and
+// stride them across the full plane list so every dimension still gets
+// some screen-time. The non-active planes' angles still tick during
+// auto-rotate and randomize on twist — they just don't bend vertices
+// this frame. Without this cap, N > ~150 would crash the tab.
+const MAX_ACTIVE_PLANES = 800;
 
 const cvs = document.getElementById('stage');
 const ctx = cvs.getContext('2d');
@@ -399,10 +409,26 @@ function seedDefaultAngles() {
 }
 
 // === Projection ===
+// At extreme N we apply only a stride-sampled subset of planes per
+// frame so the per-frame budget stays bounded. Stride = ceil(PLANE_COUNT
+// / MAX_ACTIVE_PLANES); applied indices = 0, stride, 2*stride, ...
+// (cycled through with a slow per-second rotation so different planes
+// take effect over time and the cube doesn't look frozen on a fixed
+// subset). Below the cap we apply every plane every frame.
+let activeStride = 1;
+let activeOffset = 0;
+let activeOffsetT = 0;
+function recomputeActiveStride() {
+  activeStride = PLANE_COUNT > MAX_ACTIVE_PLANES
+    ? Math.ceil(PLANE_COUNT / MAX_ACTIVE_PLANES)
+    : 1;
+}
 function projectAll() {
+  const stride = activeStride;
+  const off = activeOffset % stride;
   for (let v = 0; v < V_COUNT; v++) {
     for (let k = 0; k < N; k++) work[k] = vertices[v * N + k];
-    for (let p = 0; p < PLANE_COUNT; p++) {
+    for (let p = off; p < PLANE_COUNT; p += stride) {
       const a = angles[p];
       if (a === 0) continue;
       const ij = planes[p];
@@ -680,21 +706,25 @@ function updateDimMeta() {
       fmtBigPow2(N) + ' vertices in {±1}<sup>N</sup>, rendering <b>' +
       V_COUNT.toLocaleString() + '</b> from a random walk';
   }
-  if (PLANE_COUNT > 1000) {
-    html += '<br><span style="color:var(--neon-m)">⚠ heavy: ' + PLANE_COUNT.toLocaleString() +
-      ' rotation planes · projection cost = ' + V_COUNT.toLocaleString() + ' verts × ' +
-      PLANE_COUNT.toLocaleString() + ' planes per frame</span>';
+  if (PLANE_COUNT > MAX_ACTIVE_PLANES) {
+    html += '<br><span style="color:var(--neon-m)">LITE mode</span> · ' +
+      PLANE_COUNT.toLocaleString() + ' planes total, applying <b>' +
+      MAX_ACTIVE_PLANES + '</b> per frame on a stride to keep things responsive';
+  } else if (PLANE_COUNT > 1000) {
+    html += '<br><span style="color:var(--neon-m)">heavy:</span> ' + PLANE_COUNT.toLocaleString() +
+      ' rotation planes — every plane applied each frame';
   }
   dimNote.innerHTML = html;
 }
 
 function rebuildAll(newN) {
-  N = Math.max(2, Math.min(100, newN | 0));
+  N = Math.max(2, Math.min(999, newN | 0));
   if (N <= FULL_HC_MAX_N) buildFullHypercube();
   else                    buildSampledHypercube();
   buildPlanes();
   allocateBuffers();
   seedDefaultAngles();
+  recomputeActiveStride();
   buildSliderUI();
   updateDimMeta();
   if (dimSlider) { dimSlider.value = String(N); dimVal.textContent = String(N); }
@@ -742,6 +772,16 @@ function loop(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
   tickAuto(dt);
+  // Rotate which plane subset is active each ~100ms so LITE mode at
+  // huge N still touches all planes over time (the cube doesn't look
+  // frozen on a fixed slice).
+  if (activeStride > 1) {
+    activeOffsetT += dt;
+    if (activeOffsetT > 0.1) {
+      activeOffset = (activeOffset + 1) % activeStride;
+      activeOffsetT = 0;
+    }
+  }
   render();
   // Audit: count distinct projected positions every ~250ms (cheap to
   // do but no need every frame). With seeded angles we expect ~1024;
