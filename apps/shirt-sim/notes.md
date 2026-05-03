@@ -1,6 +1,12 @@
 # shirt-sim
 
 ## log
+- 2026-05-03: fixed neck-hole collision + arm-reach cap (chat ask).
+  - **Neck hole was always permeable** regardless of cloth orientation — the 6 inner-hole points were unconditionally exempt from head collision, so the head could phase through them at any angle. You could "win" by waving the cloth past the head sideways.
+  - **Fix**: built a 7-point ring polygon around the inner hole — `(0,0) (1,0) (2,1) (2,2) (2,3) (1,4) (0,4)` clockwise — recomputed each frame from live cloth positions. New `pointInPoly` test asks: is the head's center actually inside that polygon? Inner-hole points only skip head collision IF yes. Otherwise they collide normally and the head can no longer phase through. Now the cloth has to genuinely be threaded onto the head.
+  - **Fitness gate**: `fitnessNow` short-circuits to 0 unless the head is inside the hole polygon. Meter can no longer creep up just by hovering the cloth near the face.
+  - **Arm reach cap** (`MAX_REACH = 230`): each hand is tethered to its shoulder; if input would push the hand past 230px from shoulder, position is clamped back onto the reach circle. Prevents flinging hands across the screen and yanking the cloth into infinite stretch (which broke verlet's stability).
+  - **Reach visualization**: faint dashed circle drawn around each shoulder in that hand's color (blue/orange) while playing, so the limit is visible before the player bumps into it.
 - 2026-05-03: shipped — QWOP-flavored cloth-physics shirt-on simulator.
   - **Two-hand control**: WASD = LEFT hand (blue), arrows = RIGHT hand (orange). Each hand permanently grips one bottom corner of the cloth (last-row corners pinned to the hand position). Hand speed 320 px/s, clamped to canvas + can't enter the head circle or torso rect.
   - **Cloth**: verlet-integrated 5×7 grid, 35 points, REST length 26px (auto-scaled on small viewports). Structural constraints (horizontal+vertical, k=1) + diagonal shear constraints (k=0.5) for cloth-like sag. Gravity 720, damping 0.985, 6 solver iterations per frame.
