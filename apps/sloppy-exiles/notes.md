@@ -1,6 +1,16 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-03: click-to-attack + ranged buff (chat ask).
+  - **Auto-attack removed.** No more nearest-enemy-in-range scan firing on cooldown. The combat tick now only acts on `player.attackTarget`, set by clicking an enemy.
+  - **Click-to-attack** behaviour:
+    - Click empty ground → walk only, clears any queued attack target.
+    - Click an enemy in range → swings/fires once on the next tick (subject to attack CD), then waits for another click to fire again.
+    - Click an enemy out of range → walks toward it; once inside attack range, fires one shot.
+    - Target stays "locked" until the enemy dies, the player clicks elsewhere, or the enemy escapes beyond `attackRange × 3 + 1` tiles (drops the lock so the player isn't dragged forever).
+  - **Ranged range bumped**: archer 6.0 → **9.0** tiles, mage 5.0 → **8.0** tiles. Warrior unchanged at 1.5.
+  - **State plumbing**: `player.attackTarget = null` initialized + cleared on respawn, on town entry, and whenever the player clicks empty ground.
+  - Updated canvas `aria-label` and on-screen control hint to reflect "click enemy to attack — no auto-attack".
 - 2026-05-03: storage chest in town zone (chat ask).
   - **Chest entity** rendered at `(TOWN_GX + 2, TOWN_GY)` — 2 tiles east of the town portal. Iso 3D box with left/right/top faces (browns + gold trim), front gold lock, lifts ~1.2px with a slow sin bob. Only drawn while `state.inTown` is true.
   - **Open**: click the chest tile (auto-walks the player there if too far) OR press `V` while in the town safe zone within `CHEST_OPEN_RADIUS = 2.5` tiles. Pulsing `[ V ] open` prompt floats over the chest when in range; "vault chest" idle label otherwise.

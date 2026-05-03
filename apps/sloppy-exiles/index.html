@@ -387,7 +387,7 @@
 <main class="stage">
   <canvas id="stage" tabindex="0"
           role="application"
-          aria-label="Sloppy Exiles isometric ARPG. Click on the ground to walk. Auto-attack triggers when an enemy is in range. Press 1 to cast Cleave, 2 for Frost Bolt, 3 for Life Drain when unlocked. Press T to open the skill tree, I for inventory, Escape to pause.">
+          aria-label="Sloppy Exiles isometric ARPG. Click on the ground to walk. Click on an enemy to attack — each click swings or fires once when in range. No auto-attack. Press 1 to cast Cleave, 2 for Frost Bolt, 3 for Life Drain when unlocked. Press T to open the skill tree, I for inventory, V for the storage chest in town, Escape to pause.">
   </canvas>
 </main>
 
@@ -456,7 +456,7 @@
   <div class="controls">
     <div><kbd>WASD</kbd> move</div>
     <div><kbd>MOUSE</kbd> aim</div>
-    <div><kbd>CLICK</kbd> walk / strike</div>
+    <div><kbd>CLICK</kbd> walk · click <em>enemy</em> to attack</div>
     <div><kbd>1 · 2 · 3 · 4</kbd> skills + signature</div>
     <div><kbd>P</kbd> town portal (heal · stash)</div>
     <div><kbd>V</kbd> open vault chest (in town)</div>
@@ -797,6 +797,10 @@ const player = {
   dashCdUntil: 0,
   dashDx: 0, dashDy: 0,
   attackDmg: 12,
+  // Click-to-attack lock — set by clicking an enemy, cleared on death
+  // / out-of-chase-range / click on empty ground. While set, the
+  // updatePlayer/click-attack tick swings or fires once per attack CD.
+  attackTarget: null,
   inventory: [],
   equipped: { weapon: null, helm: null, robe: null, ring: null },
   // CHAT ASK: persistent storage chest in the town zone. Larger than
@@ -903,6 +907,7 @@ function useTownPortal() {
   // Going TO town
   state.inTown = true;
   state.returnFrom = { gx: player.gx, gy: player.gy };
+  player.attackTarget = null;
   // Wipe enemies and projectiles for a clean breather
   for (const en of enemies) spawnDeathBurst(en.gx, en.gy);
   enemies.length = 0;
@@ -1123,6 +1128,7 @@ function startGame() {
   }).catch(() => {});
   player.alive = true;
   player.targetGx = null; player.targetGy = null;
+  player.attackTarget = null;
   enemies.length = 0;
   projectiles.length = 0;
   drops.length = 0;
@@ -1196,7 +1202,8 @@ const CLASSES = {
     icon: '🏹',
     tagline: 'ranged · crit · circle and shoot',
     maxHp: 140, maxMp: 50, mpRegen: 2,
-    attackDmg: 12, attackRange: 6.0,
+    // Chat ask: bump archer / mage attack range.
+    attackDmg: 12, attackRange: 9.0,
     speed: 5.0,
     meleeMul: 1.0, critChance: 0.18,
     ranged: true,
@@ -1207,7 +1214,7 @@ const CLASSES = {
     icon: '✦',
     tagline: 'glass cannon · spell power',
     maxHp: 110, maxMp: 100, mpRegen: 4,
-    attackDmg: 14, attackRange: 5.0,
+    attackDmg: 14, attackRange: 8.0,
     speed: 4.2,
     meleeMul: 1.0, critChance: 0.10,
     ranged: true,
@@ -1286,18 +1293,33 @@ cvs.addEventListener('click', e => {
       return;
     }
   }
-  // 2) Enemy click — set them as attack target
+  // 2) Enemy click — explicit click-to-attack (chat ask: no more
+  //    auto-swing). Each enemy click queues ONE attack attempt: if in
+  //    range right now, fire/swing immediately; otherwise walk toward
+  //    the enemy and try again on each frame until it dies, leaves
+  //    range permanently, or the player clicks somewhere else.
   let nearestE = null, bestD = 999;
   for (const en of enemies) {
     const d = Math.hypot(en.gx - w.gx, en.gy - w.gy);
     if (d < 0.8 && d < bestD) { bestD = d; nearestE = en; }
   }
   if (nearestE) {
-    // Move toward enemy (will auto-attack on range)
-    player.targetGx = nearestE.gx;
-    player.targetGy = nearestE.gy;
+    player.attackTarget = nearestE;
+    // For ranged classes, stand and shoot — only walk closer if the
+    // enemy is beyond attack range. For melee, walk into swing range.
+    const dToEn = Math.hypot(nearestE.gx - player.gx, nearestE.gy - player.gy);
+    if (dToEn > player.attackRange){
+      player.targetGx = nearestE.gx;
+      player.targetGy = nearestE.gy;
+    } else {
+      // Already in range — stop where we are; the swing will fire from
+      // updateClickAttack on the next tick.
+      player.targetGx = null; player.targetGy = null;
+    }
     player._walkToChest = false;
   } else {
+    // Click on empty ground = walk only. Cancel any queued attack.
+    player.attackTarget = null;
     player.targetGx = w.gx;
     player.targetGy = w.gy;
     player._walkToChest = false;
@@ -1966,51 +1988,51 @@ function tickPlayer(dt) {
   for (const k in player.cooldowns) {
     if (player.cooldowns[k] > 0) player.cooldowns[k] -= dt;
   }
-  // === AUTO-ATTACK ===
-  // Melee classes (Warrior): hit nearest enemy in range.
-  // Ranged classes (Archer / Mage): spawn a projectile aimed at the
-  // mouse cursor (or at nearest enemy if cursor is on a target).
-  if (player.cooldowns.attack <= 0) {
-    if (player.ranged) {
-      // Find nearest enemy — use as auto-target if within range,
-      // otherwise aim at cursor direction.
-      let nearest = null, bestD = 999;
-      for (const en of enemies) {
-        const d = Math.hypot(en.gx - player.gx, en.gy - player.gy);
-        if (d < bestD) { bestD = d; nearest = en; }
-      }
-      const inRange = nearest && bestD < player.attackRange;
-      // Decide aim point — prefer locked enemy, fall back to cursor
-      let aimGx, aimGy;
-      if (inRange) { aimGx = nearest.gx; aimGy = nearest.gy; }
-      else         { aimGx = mouse.gx;   aimGy = mouse.gy;   }
-      if (inRange) {
-        // Archer/Mage ranged auto-attack cooldown — bumped 50% faster
-        // per chat (was 0.55, now 0.37). Mage spell tempo benefits too.
-        player.cooldowns.attack = 0.37;
-        const dx = aimGx - player.gx, dy = aimGy - player.gy;
-        const m = Math.hypot(dx, dy) || 1;
-        projectiles.push({
-          gx: player.gx, gy: player.gy,
-          vgx: dx / m * 11, vgy: dy / m * 11,
-          dmg: playerDamage(1.0),
-          kind: 'auto', color: player.projectileColor,
-          life: 1.5,
-        });
-        sfx.hit();
-      }
+  // === CLICK-TO-ATTACK ===
+  // No more auto-swing. Each click on an enemy sets player.attackTarget
+  // to that enemy. While the target is alive AND in attack range AND
+  // attack cooldown is ready, this fires one swing/projectile per CD.
+  // The target stays "locked" until it dies, the player clicks
+  // elsewhere, or the target leaves a generous chase radius (3× attack
+  // range — beyond that we drop the lock to avoid following indefinitely).
+  if (player.attackTarget){
+    const tgt = player.attackTarget;
+    const tgtAlive = enemies.indexOf(tgt) !== -1 && tgt.hp > 0;
+    if (!tgtAlive){
+      player.attackTarget = null;
     } else {
-      // Melee — original logic
-      let nearest = null, bestD = 999;
-      for (const en of enemies) {
-        const d = Math.hypot(en.gx - player.gx, en.gy - player.gy);
-        if (d < bestD) { bestD = d; nearest = en; }
-      }
-      if (nearest && bestD < player.attackRange) {
-        player.cooldowns.attack = 0.6;
-        const dmg = playerDamage(1.0);
-        damageEnemy(nearest, dmg, dmg > player.attackDmg * 1.2);
+      const d = Math.hypot(tgt.gx - player.gx, tgt.gy - player.gy);
+      // Drop lock if target wandered far away from the engagement
+      if (d > player.attackRange * 3 + 1){
+        player.attackTarget = null;
+      } else if (d > player.attackRange){
+        // Walk closer — keep targetGx in sync with the moving enemy
+        player.targetGx = tgt.gx;
+        player.targetGy = tgt.gy;
+      } else if (player.cooldowns.attack <= 0){
+        // In range, off cooldown — swing/fire ONCE.
+        if (player.ranged){
+          player.cooldowns.attack = 0.37;   // archer/mage tempo
+          const dx = tgt.gx - player.gx, dy = tgt.gy - player.gy;
+          const m = Math.hypot(dx, dy) || 1;
+          projectiles.push({
+            gx: player.gx, gy: player.gy,
+            vgx: dx / m * 11, vgy: dy / m * 11,
+            dmg: playerDamage(1.0),
+            kind: 'auto', color: player.projectileColor,
+            life: 1.8,
+          });
+        } else {
+          player.cooldowns.attack = 0.6;
+          const dmg = playerDamage(1.0);
+          damageEnemy(tgt, dmg, dmg > player.attackDmg * 1.2);
+        }
         sfx.hit();
+        // Stop walking now that we've engaged — the player can re-click
+        // to swing again on the next CD or click another enemy.
+        if (player.targetGx === tgt.gx && player.targetGy === tgt.gy){
+          player.targetGx = null; player.targetGy = null;
+        }
       }
     }
   }
