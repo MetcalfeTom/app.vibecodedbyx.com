@@ -377,6 +377,7 @@ function makePlayer(spec) {
     jumpHeld: false,
     coyoteT: 0,          // grace window after walking off a ledge
     jumpBufferT: 0,      // grace window for early jump press
+    jumpsLeft: 2,        // total jumps before next ground touch (1 ground + 1 air)
     hearts: 3,
     invulnT: 0,
     won: false,
@@ -401,6 +402,63 @@ const P2 = makePlayer({
   keys: P2_KEYS,
   isP2: true,
 });
+// =====================================================================
+// PROCEDURAL LEVEL GEN — rebuild platforms / coins / pits / enemies
+// every new run so no two runs are identical. Hand-tuned numerics
+// keep the difficulty curve survivable: at most 1 pit between any
+// two safe sections, at most 1 crab on each ~200u stretch, coin
+// piles above platforms.
+// =====================================================================
+function generateLevel() {
+  LEVEL.platforms.length = 0;
+  LEVEL.coins.length = 0;
+  LEVEL.pits.length = 0;
+  LEVEL.enemies.length = 0;
+  const groundY = LEVEL_GROUND_Y();
+  let x = 200;
+  while (x < LEVEL.w - 220) {
+    const gap   = 110 + Math.random() * 90;
+    const y     = 110 + Math.random() * 80;       // platform top y
+    const platW = 50 + Math.floor(Math.random() * 70);
+    LEVEL.platforms.push({ x, y, w: platW, h: 12 });
+    // 1–3 coins above the platform
+    const coinCount = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < coinCount; i++) {
+      LEVEL.coins.push({
+        x: x + 12 + i * 14,
+        y: y - 14,
+        collected: [false, false],
+      });
+    }
+    // 35% chance of a crab patrolling near this platform
+    if (Math.random() < 0.35 && LEVEL.enemies.length < 7) {
+      LEVEL.enemies.push({
+        kind: 'crab',
+        x: x + platW / 2,
+        y: groundY - 16,
+        vx: (Math.random() < 0.5 ? -1 : 1) * (32 + Math.random() * 18),
+        minX: Math.max(60, x - 30),
+        maxX: x + platW + 30,
+        hp: 1,
+      });
+    }
+    x += platW + gap;
+    // 25% pit chance after this platform; ensures we don't pit twice in a row
+    if (Math.random() < 0.25 && x < LEVEL.w - 320) {
+      LEVEL.pits.push({ x: x - 20, y: 100 });
+      x += LEVEL.pitWidth + 30;
+    }
+  }
+  // ground-level coin row scattered for low-skill players
+  for (let cx = 240; cx < LEVEL.w - 240; cx += 80 + Math.floor(Math.random() * 60)) {
+    if (inPit(cx)) continue;
+    LEVEL.coins.push({ x: cx, y: groundY - 12, collected: [false, false] });
+  }
+  // Move flag to the end of the level
+  LEVEL.flag.x = LEVEL.w - 140;
+  LEVEL.flag.y = groundY - LEVEL.flag.h;
+}
+
 function spawnAtStart() {
   P1.x = 60;  P1.y = LEVEL_GROUND_Y() - P1.h;
   P2.x = 80;  P2.y = LEVEL_GROUND_Y() - P2.h;
@@ -434,6 +492,7 @@ function hideBanner() { bannerEl.classList.remove('show'); }
 
 function startGame() {
   ensureAudio();
+  generateLevel();      // fresh procedural layout per run
   spawnAtStart();
   // Reset enemies
   for (const e of LEVEL.enemies) {
@@ -523,17 +582,34 @@ function applyInput(p, dt, isTouchHelper) {
   const wantVx = target * RUN_SPEED;
   p.vx += (wantVx - p.vx) * Math.min(1, dt * (RUN_ACCEL / RUN_SPEED));
   if (Math.abs(p.vx) > 4) p.facing = p.vx > 0 ? 1 : -1;
-  // Jump w/ coyote time + buffered press + variable height
+  // Jump w/ coyote time + buffered press + variable height + DOUBLE JUMP.
+  // jumpsLeft refills to 2 every time the player lands on the ground
+  // (handled inside resolveY). First press uses jump #1 (with normal
+  // ground+coyote rules); a second press while airborne uses jump #2
+  // (the "air jump" — slightly weaker so it still feels like a boost,
+  // not a full reset).
   if (jump && !p.jumpHeld) {
     p.jumpBufferT = JUMP_BUFFER;
   }
   p.jumpHeld = jump;
-  if (p.jumpBufferT > 0 && (p.grounded || p.coyoteT > 0)) {
-    p.vy = -JUMP_POWER;
-    p.grounded = false;
-    p.coyoteT = 0;
-    p.jumpBufferT = 0;
-    sfx.jump();
+  if (p.jumpBufferT > 0) {
+    if (p.grounded || p.coyoteT > 0) {
+      // ground jump
+      p.vy = -JUMP_POWER;
+      p.grounded = false;
+      p.coyoteT = 0;
+      p.jumpBufferT = 0;
+      p.jumpsLeft = 1;     // one air-jump remaining
+      sfx.jump();
+    } else if (p.jumpsLeft > 0) {
+      // air jump — slightly weaker (88%) so it reads as a boost
+      p.vy = -JUMP_POWER * 0.88;
+      p.jumpBufferT = 0;
+      p.jumpsLeft = 0;
+      // tiny puff of "air" feedback — square + triangle pair
+      sfx.jump();
+      blip(440, 0.06, 'triangle', 0.14);
+    }
   }
   if (jump && p.vy < 0) {
     // hold-to-jump-higher boost while still going up
@@ -582,6 +658,7 @@ function resolveY(p) {
     p.y = LEVEL.ground - p.h;
     p.vy = 0;
     p.grounded = true;
+    p.jumpsLeft = 2;       // refill double-jump on ground touch
   }
   // Platforms
   for (const pl of LEVEL.platforms) {
@@ -590,6 +667,7 @@ function resolveY(p) {
         p.y = pl.y - p.h;
         p.vy = 0;
         p.grounded = true;
+        p.jumpsLeft = 2;   // landing on a platform also refills
       } else if (p.vy < 0) {
         p.y = pl.y + pl.h;
         p.vy = 0;
