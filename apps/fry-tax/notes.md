@@ -1,6 +1,10 @@
 # fry-tax
 
 ## log
+- 2026-05-04: base levy fixed at 10% + audit trail relabeled (chat ask).
+  - **Math change**: `baseLevy` constant flipped 0.25 → **0.10** AND the formula was rebalanced. Previously the base contribution was `baseLevy × hungerMul` (so the floor swung 0.10..0.60 with hunger ratio). Now the base is a fixed 10% regardless of who's hungrier — the **hunger multiplier scopes only to the opportunistic surcharges** (`(justSurcharge + nuggetSurcharge) × hungerMul`). Hunger still matters but no longer touches the floor levy, which is now auditable as a constant snack rate.
+  - **Audit-trail relabel**: receipt line "BASE LEVY (25%)" → **"FIXED SNACK RATE (10%)"**. The "HUNGER MULTIPLIER" line moved under the surcharge block as `↳ HUNGER × (SURCHARGES)` to telegraph that it no longer touches the base. New "SURCHARGE SUBTOTAL" line shows the (just + nugget) × hunger total. Receipt subtitle now reads `FORM 1040-FRY · #yymmdd-NNNN · FIXED SNACK RATE 10%`.
+  - **Copy-receipt** text updated to enumerate `FIXED SNACK RATE 10%` + `SURCHARGE BLOCK +N%` + `(hunger ×X.XX)` + `MOD ADJUSTMENT ±N%` so a copied receipt matches the on-screen audit trail line-for-line.
 - 2026-05-04: shipped — three chat asks merged into one ship.
   - **Calculator core (chat ask 1)**: girlfriend-tax model with base fries + your hunger + their hunger. Math: `rate = baseLevy(0.25) × hungerMul + justSurcharge + nuggetSurcharge + modSum`, where `hungerMul = clamp(0.6 + 0.6 × theirH/yourH, 0.4..2.4)` and `justSurcharge = justOneCount × 3%`. Clamped to 0..95%. Live recompute on every input.
   - **Nugget surcharge field (chat ask 2)**: new "NUGGETS IN ORDER" number input (0-99) and "HONEY MUSTARD QUALITY" 0-5 slider. Surcharge = `clamp(nuggets × 0.4% × hmMul, 0..30%)`, where `hmMul = 0.40 + (hmLevel/5) × 1.60` (range 0.40..2.00). No mustard nullifies the nugget tax; S-tier mustard doubles it. Receipt prints both lines (nugget surcharge + mustard multiplier sub-line).
