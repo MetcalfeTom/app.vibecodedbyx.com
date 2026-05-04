@@ -1,6 +1,15 @@
 # steam-swipe
 
 ## log
+- 2026-05-04: jagged-bottom mask v3 — much chunkier teeth + cross-browser hardening (chat asks: "more chunky and step-like", "looks like a clean knife", "much larger blocky pixel teeth", "debug to render on all displays").
+  - **Tile size**: 32×18 (v1) → 80×32 (v2) → **160×48** (v3). Mask zone bumped from 18px to **48px** so teeth have real visual presence.
+  - **Tooth count + width**: 8 thin teeth (4px wide) → 5 medium teeth (16px) → **4 huge teeth (40px each)**. Each tooth is now ~40 actual screen pixels wide so the broken edge reads as obvious chunky 8-bit blocks rather than a fine sawtooth.
+  - **Multi-step staircases per tooth**: two of the four teeth (A, C) are built from 2-3 stacked rects with progressively narrower upper steps, giving a clear pixel-staircase silhouette. The other two (B, D) are flat single blocks for contrast — alternating chunky-flat keeps the horizon visually interesting. Heights sequence per column: `16→32→48→32→16 | 8|8|8|8|8 | 24→40→40→24 | 40→40→40→40` — adjacent columns differ by up to 32 logical units, impossible to misread as a clean knife.
+  - **Cross-browser debug pass**:
+    - URL-encoded `<` and `>` (`%3C`/`%3E`) inside the data URI so older Firefox / Safari Data-URI parsers can't choke on raw angle brackets
+    - explicit `mask-mode: luminance` (and `-webkit-mask-mode: luminance`) on both layers so renderers don't pick alpha mode
+    - kept both `-webkit-mask` and `mask` in lockstep so Safari and Firefox each honour their preferred property
+    - `@supports (-webkit-mask: ...)` guards the shadow assignment so browsers that drop the mask still render a clean shadow
 - 2026-05-04: desktop redesign + 8-bit jagged broken bottom edge (two chat asks).
   - **Wide-screen layout**: `@media (min-width: 1024px)` — cards bumped to **30rem × 46rem**, pixel sprite to **11.5rem**, title font scales up. `@media (min-width: 1280px)` — main grid splits to `1fr 22rem` so the **favorites drawer becomes a persistent right sidebar** (no longer modal). Stage takes the left column, favorites locked to the right; `#favBtn` HUD pill and the drawer's CLOSE button hide because there's nothing to toggle. JS listens to `matchMedia('(min-width: 1280px)')` and auto-clears the drawer's `inert` flag so it stays keyboard-reachable.
   - **8-bit jagged broken bottom (chat ask)**: applied a two-layer CSS `mask` to `.card`. Layer 1 = solid linear-gradient covering everything except the last 18px. Layer 2 = a tiny inline SVG (32×18 logical units) of varied-height pixel teeth (heights: 15, 7, 12, 3, 10, 16, 2, 8) tiled `repeat-x` along the bottom. The result: the card's bottom edge is a chunky 8-bit broken horizon that survives any card width crisp because the SVG tile is fixed pixel-size, not stretched. The card's `box-shadow` inherits the same shape — so the dim halo behind the deck also has pixel teeth. Bottom corners + bottom border were zeroed so the mask owns that edge cleanly.
