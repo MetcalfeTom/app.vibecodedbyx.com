@@ -1,6 +1,10 @@
 # steam-swipe
 
 ## log
+- 2026-05-04: desktop redesign + 8-bit jagged broken bottom edge (two chat asks).
+  - **Wide-screen layout**: `@media (min-width: 1024px)` — cards bumped to **30rem × 46rem**, pixel sprite to **11.5rem**, title font scales up. `@media (min-width: 1280px)` — main grid splits to `1fr 22rem` so the **favorites drawer becomes a persistent right sidebar** (no longer modal). Stage takes the left column, favorites locked to the right; `#favBtn` HUD pill and the drawer's CLOSE button hide because there's nothing to toggle. JS listens to `matchMedia('(min-width: 1280px)')` and auto-clears the drawer's `inert` flag so it stays keyboard-reachable.
+  - **8-bit jagged broken bottom (chat ask)**: applied a two-layer CSS `mask` to `.card`. Layer 1 = solid linear-gradient covering everything except the last 18px. Layer 2 = a tiny inline SVG (32×18 logical units) of varied-height pixel teeth (heights: 15, 7, 12, 3, 10, 16, 2, 8) tiled `repeat-x` along the bottom. The result: the card's bottom edge is a chunky 8-bit broken horizon that survives any card width crisp because the SVG tile is fixed pixel-size, not stretched. The card's `box-shadow` inherits the same shape — so the dim halo behind the deck also has pixel teeth. Bottom corners + bottom border were zeroed so the mask owns that edge cleanly.
+  - **Compatibility**: `_wideMQ.addEventListener` falls back to `addListener` for older Safari.
 - 2026-05-04: cards 20% larger + sprites have more breathing room (chat ask).
   - **Card size**: `.deck-wrap` width 22rem → **26.4rem**, height 34rem → **40.8rem** (the `min(*, 92vw)` cap still keeps it within the viewport on phones).
   - **Cover proportion**: cover flex 1 1 60% → **65%**, so the pixel-sprite zone takes a bigger share of the now-larger card. Cover padding 1.25/1.25/1 → **1.5/1.5/1.25rem** for extra inset.
