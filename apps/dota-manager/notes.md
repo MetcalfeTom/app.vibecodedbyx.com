@@ -47,6 +47,13 @@
   - **Activity log integration**: every match adds a line to the existing transfer log (`Match won vs Northern Edge · 1607–1503 · DPC +25` in gold, or `Match lost…` in red), so the history is unified with transfers.
   - **Day advances by 1** per match; weekly salary debit + window timer continue to use the existing daily tick.
 
+- 2026-05-04: chat ask — "add a match history array to store KDAs and MVPs". Now `state.matches[]` persists every played match (capped at 100, newest first) with a complete record:
+  - `{ id, day, timestamp, won, us_name, opponent:{id,name,region,prestige}, us_score, them_score, phase_scores:[{phase,us,them}], mvp_id, mvp_handle, kdas:[{player_id,handle,role,k,d,a}], deltas }`.
+  - **Match History section** between Match Day and Roster: summary pills at top (record W-L, win rate %, most-MVPs handle + count, best single-game KDA), then a list of clickable `.history-row` cards with the W/L pill in green/red, day stamp `d042`, opponent name + region + prestige, score (gold–red), and MVP star + handle.
+  - **Click any row → modal pops open with the full per-match breakdown** (phase bars, KDA grid, MVP highlight) — same modal as a fresh match, just rendered from the stored snapshot. Renderer was refactored into `renderMatchModal(view)` that takes a normalized `liveView(res)` or `historicView(rec)`. Historic view shows a "archive · day NNN · effects already applied" line in place of the deltas bar so retroactively-applied numbers can't mislead.
+  - Wipe All wipe button on the section header (with confirm) clears the archive without touching player stats or DPC.
+  - Boot migration adds `state.matches = []` to old saves so v0.3 sessions don't break.
+
 ## issues
 - No transfer market UI yet — § 3 of the spec. Free agency + negotiation + buyouts still pending.
 - No match resolution — § 2. Form/fatigue ticks here are placeholder drift, not the spec's per-match update.
