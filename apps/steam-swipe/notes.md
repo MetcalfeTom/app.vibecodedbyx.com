@@ -1,6 +1,11 @@
 # steam-swipe
 
 ## log
+- 2026-05-04: cards 20% larger + sprites have more breathing room (chat ask).
+  - **Card size**: `.deck-wrap` width 22rem → **26.4rem**, height 34rem → **40.8rem** (the `min(*, 92vw)` cap still keeps it within the viewport on phones).
+  - **Cover proportion**: cover flex 1 1 60% → **65%**, so the pixel-sprite zone takes a bigger share of the now-larger card. Cover padding 1.25/1.25/1 → **1.5/1.5/1.25rem** for extra inset.
+  - **Pixel sprite**: 9rem → **10rem** (modest bump — the breathing room comes from the cover growing more than the sprite). Vertical position 46% → **40%** so the title sits a touch further below with clear air around it.
+  - Net effect: the 8-bit icon now has noticeably more empty halo around it, and the whole card reads bigger without losing layout balance.
 - 2026-05-04: shipped — Tinder-style game discovery with 8-bit retro covers + persistent favorites.
   - **Card deck mechanics**: 3-card stack visible (top + 2 staggered behind), drag the top card with pointer events to swipe. Right (>90px Δx) = FAVORITE, left = PASS, up (<-100px Δy) = SHORTLIST. Card translates + rotates with drag delta, snaps back on release if under threshold.
   - **Verdict overlays**: live FAV / PASS / SHORTLIST stamps fade in proportional to drag intensity. Card flies off-screen on commit (320ms ease-in), then the next card scales up.
