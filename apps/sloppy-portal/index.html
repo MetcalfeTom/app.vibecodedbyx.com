@@ -1066,13 +1066,16 @@ Keep replies under 6 sentences unless the user clearly wants more.`;
     msgs.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text });
   }
 
-  // ── attempt 1: POST with text/plain to dodge CORS preflight ──
-  // (json content-type triggers OPTIONS, which some networks/firewalls block)
+  // No referrer param — Pollinations rejects it on the anon endpoints (same fate as
+  // the image API per project notes). No api key is configured anywhere in this app
+  // by design — it's a frontend-only chat with no server to safely store one.
   const body = JSON.stringify({ model: 'openai', messages: msgs });
+
+  // ── attempt 1: POST openai-style to dodge CORS preflight via text/plain ──
   try {
     const out = await fetchPollinations({
       method: 'POST',
-      url: 'https://text.pollinations.ai/openai?referrer=sloppy.live',
+      url: 'https://text.pollinations.ai/openai',
       body,
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       timeoutMs: 20000,
@@ -1080,10 +1083,10 @@ Keep replies under 6 sentences unless the user clearly wants more.`;
     return out;
   } catch (e1) {
     console.warn('[sloppy-portal] POST failed, trying GET fallback:', e1?.message || e1);
-    // ── attempt 2: GET fallback — last user turn only, no preflight at all ──
+    // ── attempt 2: GET — anon-friendly, last user turn only, no preflight ──
     const lastUser = history.filter(m => m.role === 'user').slice(-1)[0]?.text || '';
     const prompt = `${sys}\n\nUser: ${lastUser}\n\nReply briefly, in lowercase:`;
-    const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai&referrer=sloppy.live`;
+    const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai`;
     const out = await fetchPollinations({ method: 'GET', url, timeoutMs: 20000 });
     return out;
   }
@@ -1098,24 +1101,38 @@ async function fetchPollinations({ method, url, body, headers, timeoutMs }){
   } catch (netErr) {
     clearTimeout(timer);
     if (ctrl.signal.aborted) throw new Error('timeout');
-    // typical network/CORS errors throw a TypeError with no status
     throw new Error('network blocked or offline');
   }
   clearTimeout(timer);
-  if (!r.ok) throw new Error('http ' + r.status);
+  if (!r.ok){
+    // 401/402/403 → auth gate, surface it explicitly
+    if (r.status === 401 || r.status === 402 || r.status === 403){
+      throw new Error('auth-gated · http ' + r.status);
+    }
+    throw new Error('http ' + r.status);
+  }
   const txt = await r.text();
   if (!txt) throw new Error('empty response');
-  // detect Pollinations deprecation/auth banner regardless of body shape
-  if (/AUTHENTICATE|please use enter\.pollinations|deprecated/i.test(txt)) throw new Error('endpoint auth-gated');
-  // try JSON shape (POST returns OpenAI-style json); otherwise treat the body as plain text (GET endpoint)
+
+  // extract usable content first; only THEN flag a banner if content is missing
+  let out = '';
   try {
     const j = JSON.parse(txt);
-    const out = j?.choices?.[0]?.message?.content || j?.content || '';
-    if (out) return out.trim();
-    throw new Error('json missing content');
+    out = (j?.choices?.[0]?.message?.content || j?.content || j?.message || '').trim();
   } catch {
-    return txt.trim();
+    // GET endpoint returns plain text; treat the whole body as the reply
+    out = txt.trim();
   }
+
+  // banner detection runs ONLY on suspicious payloads (no content extracted, OR
+  // a very short body that looks like a server message — never on AI replies that
+  // happen to mention the word "deprecated"). Keywords kept narrow so they only
+  // match Pollinations' own auth-gate text.
+  const looksLikeBanner = (s) => /api[\s-]*key|please.{0,40}sign[\s-]*in|please.{0,40}authenticate|enter\.pollinations\.ai|tier[\s\w]{0,20}required/i.test(s);
+  if (!out || (out.length < 280 && looksLikeBanner(out))){
+    throw new Error('endpoint auth-gated · ' + (out || txt).slice(0, 120).replace(/\s+/g,' '));
+  }
+  return out;
 }
 
 const FALLBACKS = [
