@@ -816,15 +816,18 @@ async function sendMessage(text){
   showTyping();
 
   let reply = '';
+  let errLabel = null;
   try {
     reply = await callPortal(messages);
   } catch (err) {
-    reply = localFallback(text);
+    console.error('[sloppy-portal] callPortal failed:', err);
+    errLabel = err && err.message ? err.message : 'unknown error';
+    reply = localFallback(text) + `\n\n*( ${errLabel} — saved locally; try again in a moment )*`;
   }
   hideTyping();
   isThinking = false;
   $('#sendBtn').disabled = false;
-  setStatus('ready', 'ready');
+  setStatus(errLabel ? 'offline · ' + errLabel : 'ready', errLabel ? 'warn' : 'ready');
 
   const botMsg = { role:'bot', text:reply, t:Date.now() };
   messages.push(botMsg);
@@ -842,24 +845,56 @@ Keep replies under 6 sentences unless the user clearly wants more.`;
   for (const m of history.slice(-20)){
     msgs.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text });
   }
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20000);
+
+  // ── attempt 1: POST with text/plain to dodge CORS preflight ──
+  // (json content-type triggers OPTIONS, which some networks/firewalls block)
+  const body = JSON.stringify({ model: 'openai', messages: msgs });
   try {
-    const r = await fetch('https://text.pollinations.ai/openai', {
+    const out = await fetchPollinations({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'openai', messages: msgs, referrer: 'sloppy.live' }),
-      signal: ctrl.signal,
+      url: 'https://text.pollinations.ai/openai?referrer=sloppy.live',
+      body,
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      timeoutMs: 20000,
     });
+    return out;
+  } catch (e1) {
+    console.warn('[sloppy-portal] POST failed, trying GET fallback:', e1?.message || e1);
+    // ── attempt 2: GET fallback — last user turn only, no preflight at all ──
+    const lastUser = history.filter(m => m.role === 'user').slice(-1)[0]?.text || '';
+    const prompt = `${sys}\n\nUser: ${lastUser}\n\nReply briefly, in lowercase:`;
+    const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai&referrer=sloppy.live`;
+    const out = await fetchPollinations({ method: 'GET', url, timeoutMs: 20000 });
+    return out;
+  }
+}
+
+async function fetchPollinations({ method, url, body, headers, timeoutMs }){
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let r;
+  try {
+    r = await fetch(url, { method, headers: headers || {}, body, signal: ctrl.signal });
+  } catch (netErr) {
     clearTimeout(timer);
-    if (!r.ok) throw new Error('bad status ' + r.status);
-    const j = await r.json();
-    const out = j?.choices?.[0]?.message?.content || '';
-    if (!out || /AUTHENTICATE|deprecated/i.test(out)) throw new Error('bad body');
-    return out.trim();
-  } catch (e) {
-    clearTimeout(timer);
-    throw e;
+    if (ctrl.signal.aborted) throw new Error('timeout');
+    // typical network/CORS errors throw a TypeError with no status
+    throw new Error('network blocked or offline');
+  }
+  clearTimeout(timer);
+  if (!r.ok) throw new Error('http ' + r.status);
+  const txt = await r.text();
+  if (!txt) throw new Error('empty response');
+  // detect Pollinations deprecation/auth banner regardless of body shape
+  if (/AUTHENTICATE|please use enter\.pollinations|deprecated/i.test(txt)) throw new Error('endpoint auth-gated');
+  // try JSON shape (POST returns OpenAI-style json); otherwise treat the body as plain text (GET endpoint)
+  try {
+    const j = JSON.parse(txt);
+    const out = j?.choices?.[0]?.message?.content || j?.content || '';
+    if (out) return out.trim();
+    throw new Error('json missing content');
+  } catch {
+    return txt.trim();
   }
 }
 
