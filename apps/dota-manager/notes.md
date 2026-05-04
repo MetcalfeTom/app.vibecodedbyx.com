@@ -31,6 +31,22 @@
   - **Poach guard scaffolding**: `_poach` flag + 90-day check + −5 prestige + ₵50k fine logic exists for any future "approach a rival's player" UI; the flag isn't toggled yet (FA pool only for now).
   - **Persistence**: state shape extended with `window`, `free_agents`, `bids`, `rival_bids`, `transfer_log` — boot migration adds them if loading a v0.1 save.
 
+- 2026-05-04: shipped — **§ 2 match resolution**. The core loop closes: signed players play, form/morale/fatigue/chemistry/DPC/prestige all move per match.
+  - **Match Day panel** below the header. Five rival cards (Northern Edge / Sunset Saints / Hangzhou Volt / Manila Mosaic / Brujas Mexicas) showing region + prestige, plus a sixth crimson "? Random" card. Click to select (aria-pressed toggles the gold ring), press the giant red **Commence** button. Button auto-disables when starters < 5 or no rival selected; status line shows `5/5 starters · ready` or `3/5 starters · need 2 more`.
+  - **Phase-by-phase score (per spec §2.2)**: per phase (lane / mid / late), a per-role stat subset is averaged for each player, then `score = avgStat × 1 × (1 + chemistry/100) × form/100`. Per-role stats by phase:
+    - Lane: pos1 lasthit/farm/harass · pos2 lasthit/tempo/reaction · pos3 lasthit/space/tilt · pos4 rotation/harass/vision · pos5 warding/vision/harass.
+    - Mid: pos1 farm/reaction/micro · pos2 tempo/decision/reaction · pos3 space/tilt/micro · pos4 rotation/vision/map · pos5 vision/map/warding.
+    - Late: pos1 micro/decision/draft_iq · pos2 micro/draft/decision · pos3 micro/tilt/space · pos4 decision/leadership/map · pos5 decision/leadership/tilt.
+  - **Form drag from fatigue**: effective form during the match = `form × (1 − fatigue/200)`. Maxed-out fatigue halves contribution — gives rest a real reason to exist.
+  - **Rival rosters generated on-the-fly**: 5 starters whose stats are biased to a target average derived from the rival's prestige (38–82 mean), with their own internal chemistry seeded slightly higher than ours by default (rivals have been together longer). Disposable per match — keeps state lean and rivals fresh.
+  - **Elo-style upset variance (per spec §2.3)**: σ = mean_score × (0.07 + prestige_diff/100 × 0.10). Verified empirically over 5,000 sims: equal strength → 50.2% us-win, +300 score & +30 prestige → 91.4% us-win, underdog (-300, -30) → 8.3% us-win. Big enough variance that every match feels alive; small enough that strength matters.
+  - **Per-player KDA (per spec §2.4)**: each starter's K/D/A is biased by their per-phase contribution rank, role-typical baselines (carry K=9 d=4 a=9, hard-sup K=3 d=7 a=16), win/loss multipliers (winners +18% kills/assists, losers +18% deaths). MVP flag goes to the highest contributor on the winning side.
+  - **Per-player effects (per spec §2.4)**: form `+4` win / `−3` loss / `+4` MVP, fatigue **+12 flat for all 5** (per spec), morale `+3` win / `−2` loss / `+2` MVP. Chemistry between every starter pair grows: `+0.5` win / `−0.15` loss with σ=0.4-0.5 jitter, games counter increments. Pair chemistries lerp into integers in [-20, +20] over many matches.
+  - **Team effects**: win → DPC +25, prestige +1 (or +2 if upset over a stronger team), sponsor bonus ₵60,000. Loss → DPC −3 (clamped at 0), prestige −1 (or −2 vs weaker team).
+  - **Match modal layout**: VS line at top → giant VICTORY/DEFEAT in green/red Cinzel → 3-row phase grid with our gold bar filling from the right ←, their red bar filling from the left → with phase winner indicator at the right edge → totals strip showing final scores side-by-side → KDA grid (one row per starter, role-coloured left stripe, MVP row gets the gold gradient + ★ MVP tag instead of the +12 fatigue note) → delta bar with DPC/Prestige/Avg form Δ/Sponsor bonus, positive in green, negative in red. Continue button closes the modal. Esc + click-outside also close.
+  - **Activity log integration**: every match adds a line to the existing transfer log (`Match won vs Northern Edge · 1607–1503 · DPC +25` in gold, or `Match lost…` in red), so the history is unified with transfers.
+  - **Day advances by 1** per match; weekly salary debit + window timer continue to use the existing daily tick.
+
 ## issues
 - No transfer market UI yet — § 3 of the spec. Free agency + negotiation + buyouts still pending.
 - No match resolution — § 2. Form/fatigue ticks here are placeholder drift, not the spec's per-match update.
