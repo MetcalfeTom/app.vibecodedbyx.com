@@ -1,0 +1,42 @@
+# forest-rally
+
+## log
+- 2026-05-04: shipped — pseudo-3D scanline rally racer. Lancer-Evo-flavoured pixel car carves through 3 forest stages. Engine hum stays running across the whole session.
+  - **Pseudo-3D engine**: classic Outrun-style scanline projection. Track is an array of segments (`SEG_LEN = 200` world units each), each with `{curve, pitch, scenery, special}`. Per frame, accumulates `dCurveX` (curve velocity → curve position) and `dPitchY` to bend road slices left/right and dip up/down with hills. Renders to a **fixed 320×180 pixel buffer** (`bctx`), then upscales nearest-neighbour onto the main canvas. Renderer iterates `DRAW_DIST = 220` segments forward, projecting each via `cam.depth = 1/tan(50°)` perspective, drawing alternating-shade road + grass + shoulders + dashed center stripe + checker-banded start/finish gantry.
+  - **3D pixel trees**: 6 hand-drawn pixel sprites in `SPR.{pine, fir, bush, rock, sign, finishSign}` — each rendered to an offscreen canvas using stacked triangle "layers" with 2-tone shading + 1-color highlight (dark green silhouette + brighter rim on the lit side). Sprites are scattered into segment scenery during `buildTrack()` with side, distance-from-road, and scale jitter. Per-frame they're projected to screen, sorted back-to-front, and `drawImage`-blitted to the buffer with depth-scaled width/height.
+  - **3 stages**, each procedurally generated via a seeded LCG (`rng()` derived from `1234 + stageIdx*9871`):
+    - **SS 1 · Pine Woods** (720 segments) — golden-hour sky, gentle 3.5–5.5 magnitude curves, mostly pines.
+    - **SS 2 · Misty Bend** (760 segments) — cool overcast palette + 0.55 fog gradient over the road's middle band, sharper 3-7 magnitude curves, fir-dominated scenery.
+    - **SS 3 · Ravine Run** (820 segments) — twilight magenta sky, mixed elevation (`pitch ±160-220` per section), tighter chicane sections (paired ±5 curves), gold center stripe.
+  - Each stage has a procedural section generator that picks `straight | gentle | hard | hill | chicane | breather` and concatenates with eased curve magnitudes. Both ends of every stage are 8-segment **start gantry** (or finish, with checkered flag signs on both sides).
+  - **Lancer Evo–style car**, drawn live as procedural pixel art in `drawCarPixel()` (no sprite sheet — re-rendered every frame so it can yaw and bob with the body roll):
+    - arctic-white trapezoid body + dark-grey cabin + light-blue windscreen reflection
+    - blue+red rally stripes down the center
+    - black hood scoop + chrome rally light pod (4 round 1.6px-radius lights on the front bumper)
+    - dark wheel arches + gold rally rims
+    - rear wing as a 3-row black bar + 1-row dark accent
+    - antenna whip on the rear quarter
+    - drop shadow oval underneath
+    - body **rolls** with `car.yaw` (lerps toward `-steer * 0.18 - centripetal*1.2`) so cornering tilts the car visually; subtle vertical bob (`sin(time/90) * 0.4px`) for engine vibration.
+  - **Physics**: throttle (1100 u/s²), brake (2200), handbrake (2700), drag coefficient changes off-road (×2 worse), centripetal push on tight curves (`seg.curve × speed/maxSpeed × 0.0028`), steering strength scales with speed so low-speed turns are slow and high-speed inputs are precise. Off-road causes 320 u/s² extra slow + reduces drag-friction. Speed clamped to `maxSpeed = 1900` (~228 km/h displayed).
+  - **5-speed gearbox**: gear = `1 + floor(speedFrac × 5)`, neutral when stopped. RPM follows the gear-relative speed plus a throttle-driven floor; `setEngineRpm()` retargets the engine oscillator in real time.
+  - **Engine humming (chat ask)**: continuous Web Audio engine — 2 detuned sawtooth oscillators (60Hz base + 12 cents detune) plus a sub sine at half-frequency, all routed through a lowpass filter that opens 700→3100Hz with RPM. Engine gain rides 0.05–0.17 with throttle. Created once via `startEngine()` on first interaction and never torn down — the hum stays through countdowns, finishes, and stage transitions. Tire screech triggers when `|steer| × speed/1200 > 0.4`, layering a bandpass-filtered noise burst.
+  - **Stage flow**: title screen → click START → countdown 3-2-1-GO with synth blips → racing → reach final 8 segments → fanfare + stage time banner (3s) → next stage starts automatically. After SS3, "RALLY COMPLETE" with cumulative total time, persisted to `localStorage['forest-rally-best']`.
+  - **HUD**: left dash shows stage label + huge VT323 timer + total time; center dash has Audiowide speed (turns green over 140 km/h, warn-orange over 200), gear pill, gradient tachometer; right dash has stage name, distance progress bar, 3 stage dots (done = green, current = blinking gold, todo = grey), pace.
+  - **Title screen** with rally-red-gradient START button (gold border, drop shadow), Audiowide title with red shadow + gold glow, Cormorant italic tagline ("three stages. one borrowed Evo. don't lift, don't crash, don't blink.").
+  - **Touch controls**: 4 round bottom buttons (◀ ▶ ▼ ▲) appear automatically on coarse pointers, mapped to the same key codes so all the keyboard logic continues to work uniformly.
+  - **Aesthetic**: Audiowide for the racy dash + headers, Press Start 2P for tiny labels, VT323 for tabular timer/numerals, Cormorant Garamond italic for the cinematic tagline. Image-rendering pixelated everywhere so the buffer upscale stays crisp.
+  - **Accessibility**: rem units, 100% root font-size, semantic `<canvas role="application">` with full keymap aria-label, `aria-live="polite"` on the banner + lap timer, focus-visible 3px gold outline on START, 5rem touch buttons (well above the 44px target), `prefers-reduced-motion` kills the blinking stage dot + banner transitions.
+
+## issues
+- Tree sprites scale linearly with depth, so very-close trees can look chunky on tall viewports. A tighter near-clip helps but I let them push large for that "trees rushing by" feel.
+- No collision with trees yet — they're decorative. Pillars on the road do not exist; off-road is just the slow-down zone.
+- Fog band on Misty Bend is a flat gradient; layered fog (different opacity bands at different depths) would feel more atmospheric.
+- The procedural track generator can occasionally produce two consecutive curves in the same direction without a breather, making certain segments feel relentless. Adjusting the seed per stage masks this most of the time.
+
+## todos
+- Co-driver pace notes ("3 right tightens" appearing on a sticky note pre-corner).
+- Rival ghost car — record SS1 lap, race against your replay on subsequent runs.
+- Damage model + crash on tree contact (currently decorative).
+- Day/night cycle within a stage (sunset to nightfall on Ravine Run).
+- Online leaderboard for total time via Supabase.

@@ -543,15 +543,61 @@
 // save/load just no-op.
 let supabase = null;
 let supabaseSession = null;
+// Try absolute path first (root-served), fall back to relative if absolute
+// returns the wrong MIME (e.g. an SPA-style index.html catch-all). Both
+// paths are accepted by the project — `/supabase-config-fixed.js` is the
+// canonical location per project notes; the fallback covers atypical
+// deploy roots. All errors swallowed: cloud-save is optional.
 const supabaseReady = (async () => {
-  try {
-    const mod = await import('/supabase-config-fixed.js');
-    supabase = mod.default;
-    supabaseSession = mod.supabaseSession;
-  } catch (e) {
-    console.warn('[sloppy-exiles] supabase unavailable — cloud-save disabled:', e);
+  const tryPaths = ['/supabase-config-fixed.js', '../supabase-config-fixed.js', '/supabase-config.js'];
+  for (const path of tryPaths){
+    try {
+      const mod = await import(path);
+      if (mod && (mod.default || mod.supabase)){
+        supabase = mod.default || mod.supabase;
+        supabaseSession = mod.supabaseSession || null;
+        console.info('[sloppy-exiles] supabase loaded from', path);
+        return;
+      }
+    } catch (e) {
+      console.warn('[sloppy-exiles] supabase load failed at', path, '·', e?.message || e);
+    }
   }
+  console.warn('[sloppy-exiles] no supabase config reachable — cloud-save disabled');
 })();
+
+// === STATE — declared up here, BEFORE buildMap() (which reads state.zoneX/zoneY)
+// runs at module-init time (further down). Previously this lived near the
+// game logic and module-init buildMap() crashed with "cannot read zoneX of
+// undefined". Hoisted to the top to make the data dependency explicit.
+const state = {
+  phase: 'title',
+  paused: false,
+  spawnT: 2.0,
+  waveT: 0,
+  wave: 1,
+  kills: 0,
+  toastT: 0,
+  // === FLOOR + TOWN PORTAL state ===
+  // floor       : current depth, scales enemy stats
+  // killsToClear: kills needed before the exit portal appears
+  // floorKills  : kills accumulated this floor
+  // exitPortal  : world-tile location of the descent portal once spawned
+  // inTown      : true while at the home base (no enemies, full heal)
+  // returnFrom  : remembered (gx, gy) so re-entering wastes drops you there
+  floor: 1,
+  killsToClear: 12,
+  floorKills: 0,
+  exitPortal: null,            // { gx, gy } when present
+  inTown: false,
+  returnFrom: null,
+  // === ZONE COORDS (chat: edges open into new areas) ===
+  // Home zone is (0, 0) — town + chest live here. Walking off any
+  // edge increments/decrements zoneX/Y and rebuilds the wastes as
+  // a fresh wing of the same floor.
+  zoneX: 0,
+  zoneY: 0,
+};
 
 // =====================================================================
 // SLOPPY EXILES — isometric click-to-move ARPG with loot + skill tree
@@ -653,13 +699,10 @@ const TOWN_RADIUS = 2.6;
 // The dungeon is guaranteed connected because the chain corridor
 // reaches every room.
 // Zone is "home" only at (0, 0) — town room + safe-zone carve only there.
-// Tolerates being called before `state` is initialised: the very first
-// buildMap() runs at module-init time (before the state object exists)
-// to populate TILES; treating that early call as the home zone is correct
-// because state.zoneX/zoneY default to 0 anyway.
+// Safe to call at any point now that `state` is declared at the top of
+// the script (above buildMap's first invocation).
 function isHomeZone(){
-  return ((typeof state !== 'undefined' && state ? state.zoneX : 0) | 0) === 0
-      && ((typeof state !== 'undefined' && state ? state.zoneY : 0) | 0) === 0;
+  return (state.zoneX | 0) === 0 && (state.zoneY | 0) === 0;
 }
 
 function buildMap() {
@@ -1067,36 +1110,9 @@ function spawnEnemy(t) {
 // =====================================================================
 // GAME STATE
 // =====================================================================
-const state = {
-  phase: 'title',
-  paused: false,
-  spawnT: 2.0,
-  waveT: 0,
-  wave: 1,
-  kills: 0,
-  toastT: 0,
-  // === FLOOR + TOWN PORTAL state ===
-  // floor       : current depth, scales enemy stats
-  // killsToClear: kills needed before the exit portal appears
-  // floorKills  : kills accumulated this floor
-  // exitPortal  : world-tile location of the descent portal once spawned
-  // inTown      : true while at the home base (no enemies, full heal)
-  // returnFrom  : remembered (gx, gy) so re-entering wastes drops you there
-  floor: 1,
-  killsToClear: 12,
-  floorKills: 0,
-  exitPortal: null,            // { gx, gy } when present
-  inTown: false,
-  returnFrom: null,
-  // === ZONE COORDS (chat: edges open into new areas) ===
-  // Home zone is (0, 0) — town + chest live here. Walking off any
-  // edge increments/decrements zoneX/Y and rebuilds the wastes as
-  // a fresh wing of the same floor. Enemies/projectiles wipe on
-  // every crossing; floorKills carry over so you can chip away
-  // at the kill quota across multiple wings.
-  zoneX: 0,
-  zoneY: 0,
-};
+// state is declared near the top of this script (above buildMap) — no
+// duplicate declaration here. Anything that used to set state defaults
+// here should already be set in the top-of-file declaration.
 
 const toastEl = document.getElementById('toast');
 function showToast(msg, sub, rarity) {
