@@ -530,13 +530,18 @@ const cvs = $('#stage');
 const ctx = cvs.getContext('2d');
 let W = 0, H = 0, DPR = 1;
 
-// Pseudo-3D backing buffer — fixed 320×180 pixel res, scaled to viewport.
-// Render math runs in this low-res space; final blit upscales with
-// nearest-neighbour for the chunky pixel feel.
-const BW = 320, BH = 180;
+// Pseudo-3D backing buffer — bumped 320×180 → 480×270 for the graphics
+// overhaul. Still scaled to viewport with nearest-neighbour for the
+// chunky-but-readable pixel feel; the extra res lets sprites carry
+// real gradient shading + ambient occlusion + bigger silhouettes.
+const BW = 480, BH = 270;
 const buf = document.createElement('canvas');
 buf.width = BW; buf.height = BH;
 const bctx = buf.getContext('2d');
+// Secondary buffer used for bloom/glow passes (filter:blur copies of buf)
+const glowBuf = document.createElement('canvas');
+glowBuf.width = BW; glowBuf.height = BH;
+const gctx = glowBuf.getContext('2d');
 
 function fit(){
   DPR = 1;   // we keep pseudo-3D crisp at the buffer res; main canvas scales via CSS
@@ -660,76 +665,174 @@ function makeSprite(w, h, drawFn){
   return c;
 }
 
-// Pine: tall conifer with layered triangles
-const SPR = {
-  pine: makeSprite(20, 36, (g) => {
-    // trunk
-    g.fillStyle = '#3a2614'; g.fillRect(8, 28, 4, 8);
-    g.fillStyle = '#23170c'; g.fillRect(8, 30, 1, 6);
-    // 4 triangle layers — darker greens at bottom, brighter at top
-    const triLayer = (cx, cy, w, h, c1, c2) => {
-      for (let py = 0; py < h; py++){
-        const pw = Math.floor((py / h) * w);
-        const x0 = cx - pw / 2;
-        g.fillStyle = c1;
-        g.fillRect(Math.floor(x0), cy - py, pw + 1, 1);
-        g.fillStyle = c2;
-        // highlight on left edge
-        g.fillRect(Math.floor(x0), cy - py, Math.max(1, Math.floor(pw/3)), 1);
-      }
-    };
-    triLayer(10, 30, 20, 9, '#1f4023', '#3a6d2c');
-    triLayer(10, 23, 16, 8, '#234d27', '#3f7a32');
-    triLayer(10, 17, 12, 7, '#2c5a30', '#4a8e3a');
-    triLayer(10, 12, 8, 6, '#356636', '#5aa040');
-  }),
-  fir: makeSprite(18, 30, (g) => {
-    g.fillStyle = '#2a1810'; g.fillRect(7, 24, 4, 6);
-    const triLayer = (cx, cy, w, h, c1, c2) => {
-      for (let py = 0; py < h; py++){
-        const pw = Math.floor((py / h) * w);
-        const x0 = cx - pw / 2;
-        g.fillStyle = c1; g.fillRect(Math.floor(x0), cy - py, pw + 1, 1);
-        g.fillStyle = c2; g.fillRect(Math.floor(x0), cy - py, Math.max(1, Math.floor(pw/3)), 1);
-      }
-    };
-    triLayer(9, 25, 18, 8, '#1c3820', '#345f2c');
-    triLayer(9, 19, 14, 7, '#234d27', '#3f7a32');
-    triLayer(9, 13, 10, 6, '#2d5d33', '#4f973f');
-    triLayer(9, 8, 6, 5, '#3a7340', '#62b54e');
-  }),
-  bush: makeSprite(14, 12, (g) => {
-    // small round bush
-    const blobs = [[3,8,6],[7,6,7],[10,8,5]];
+// ──── richer sprites: gradient-shaded layered triangles, AO ground
+// shadow, soft rim highlight on the lit side. Each tree kind has 3
+// stochastic variants so the forest doesn't look repeating.
+function drawTreeLayered(g, cx, cy, w, h, layers){
+  // ambient occlusion ground shadow (soft ellipse)
+  const ag = g.createRadialGradient(cx, cy + 1, 1, cx, cy + 1, w * 0.7);
+  ag.addColorStop(0, 'rgba(0,0,0,0.45)');
+  ag.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = ag;
+  g.beginPath(); g.ellipse(cx, cy + 1, w * 0.55, h * 0.06 + 2, 0, 0, Math.PI*2); g.fill();
+  // trunk
+  const trunkW = Math.max(2, Math.floor(w * 0.18));
+  const trunkH = Math.max(4, Math.floor(h * 0.18));
+  const tg = g.createLinearGradient(cx - trunkW/2, 0, cx + trunkW/2, 0);
+  tg.addColorStop(0, '#1c1108'); tg.addColorStop(0.55, '#3a2614'); tg.addColorStop(1, '#553820');
+  g.fillStyle = tg;
+  g.fillRect(Math.floor(cx - trunkW/2), Math.floor(cy - trunkH + 1), trunkW, trunkH);
+  // foliage: stacked tapered shapes with vertical gradient + rim highlight
+  for (const L of layers){
+    const { yOff, lw, lh, dark, mid, hi } = L;
+    const top = cy - yOff - lh;
+    const grad = g.createLinearGradient(0, top, 0, top + lh);
+    grad.addColorStop(0, hi); grad.addColorStop(0.45, mid); grad.addColorStop(1, dark);
+    g.fillStyle = grad;
+    g.beginPath();
+    g.moveTo(cx, top);                              // peak
+    g.lineTo(cx + lw / 2, top + lh);                // right base
+    g.lineTo(cx - lw / 2, top + lh);                // left base
+    g.closePath(); g.fill();
+    // rim highlight on the lit (left) edge
+    g.strokeStyle = 'rgba(255,255,255,0.18)';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(cx, top); g.lineTo(cx - lw / 2, top + lh); g.stroke();
+    // small inner shadow on the right edge for depth
+    g.strokeStyle = 'rgba(0,0,0,0.35)';
+    g.beginPath(); g.moveTo(cx, top); g.lineTo(cx + lw / 2, top + lh); g.stroke();
+  }
+}
+
+const PINE_PALETTES = [
+  { dark:'#173119', mid:'#2c5a37', hi:'#4d8a4a' },
+  { dark:'#1d3a23', mid:'#356834', hi:'#5e9b4f' },
+  { dark:'#152a18', mid:'#2a5532', hi:'#487d44' },
+];
+const FIR_PALETTES = [
+  { dark:'#102612', mid:'#284a28', hi:'#4a7c3e' },
+  { dark:'#162e1a', mid:'#305a32', hi:'#56904a' },
+  { dark:'#0e1f12', mid:'#234020', hi:'#3a6e3a' },
+];
+
+function makePineSprite(palIdx){
+  const W = 40, H = 80;
+  const p = PINE_PALETTES[palIdx % PINE_PALETTES.length];
+  return makeSprite(W, H, (g) => {
+    drawTreeLayered(g, W/2, H - 2, W, H, [
+      { yOff: 6,  lw: 38, lh: 22, ...p },
+      { yOff: 22, lw: 32, lh: 22, ...p },
+      { yOff: 38, lw: 26, lh: 22, ...p },
+      { yOff: 54, lw: 18, lh: 18, dark:p.mid, mid:p.hi, hi:'#9bd07e' },
+    ]);
+  });
+}
+function makeFirSprite(palIdx){
+  const W = 36, H = 70;
+  const p = FIR_PALETTES[palIdx % FIR_PALETTES.length];
+  return makeSprite(W, H, (g) => {
+    drawTreeLayered(g, W/2, H - 2, W, H, [
+      { yOff: 4,  lw: 34, lh: 18, ...p },
+      { yOff: 18, lw: 28, lh: 18, ...p },
+      { yOff: 32, lw: 22, lh: 16, ...p },
+      { yOff: 46, lw: 14, lh: 14, dark:p.mid, mid:p.hi, hi:'#b4e890' },
+    ]);
+  });
+}
+
+// Bush: a moss-green soft-edge cluster with shadow
+function makeBushSprite(){
+  return makeSprite(28, 22, (g) => {
+    const ag = g.createRadialGradient(14, 19, 1, 14, 19, 13);
+    ag.addColorStop(0, 'rgba(0,0,0,0.45)'); ag.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = ag; g.beginPath(); g.ellipse(14, 19, 12, 3, 0, 0, Math.PI*2); g.fill();
+    // 4 overlapping blobs with vertical gradient
+    const blobs = [[7, 12, 8], [16, 10, 10], [22, 13, 7], [12, 6, 7]];
     for (const [bx,by,br] of blobs){
-      g.fillStyle = '#1f4525';
+      const bg = g.createRadialGradient(bx, by - br/3, 1, bx, by, br);
+      bg.addColorStop(0, '#5a9a4e'); bg.addColorStop(0.55, '#3b6e2c'); bg.addColorStop(1, '#1f4525');
+      g.fillStyle = bg;
       g.beginPath(); g.arc(bx, by, br, 0, Math.PI*2); g.fill();
     }
-    g.fillStyle = '#3a7234';
-    g.beginPath(); g.arc(6, 5, 3, 0, Math.PI*2); g.fill();
-  }),
-  rock: makeSprite(14, 10, (g) => {
-    g.fillStyle = '#525762'; g.fillRect(2, 5, 11, 5);
-    g.fillStyle = '#6d7280'; g.fillRect(3, 3, 8, 3);
-    g.fillStyle = '#8b8e98'; g.fillRect(4, 2, 4, 2);
-    g.fillStyle = '#363a44'; g.fillRect(2, 8, 11, 2);
-  }),
-  sign: makeSprite(14, 18, (g) => {
-    g.fillStyle = '#3a2614'; g.fillRect(6, 8, 2, 10);
-    g.fillStyle = '#d62a2a'; g.fillRect(1, 1, 12, 7);
-    g.fillStyle = '#fff'; g.fillRect(2, 2, 10, 5);
-    g.fillStyle = '#000'; g.fillRect(4, 3, 6, 1); g.fillRect(4, 5, 6, 1);
-  }),
-  finishSign: makeSprite(20, 24, (g) => {
-    g.fillStyle = '#3a2614'; g.fillRect(2, 14, 2, 10); g.fillRect(16, 14, 2, 10);
+  });
+}
+
+// Rock: greyscale boulder with proper shading
+function makeRockSprite(){
+  return makeSprite(28, 20, (g) => {
+    const ag = g.createRadialGradient(14, 18, 1, 14, 18, 14);
+    ag.addColorStop(0, 'rgba(0,0,0,0.5)'); ag.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = ag; g.beginPath(); g.ellipse(14, 18, 12, 3, 0, 0, Math.PI*2); g.fill();
+    const grad = g.createLinearGradient(0, 4, 0, 18);
+    grad.addColorStop(0, '#aab0bc'); grad.addColorStop(0.5, '#6a6f7a'); grad.addColorStop(1, '#3b3f48');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.moveTo(4, 16); g.lineTo(8, 6); g.lineTo(14, 4); g.lineTo(20, 7); g.lineTo(24, 16);
+    g.closePath(); g.fill();
+    // crack lines
+    g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(10, 12); g.lineTo(12, 8); g.moveTo(18, 14); g.lineTo(16, 10); g.stroke();
+    // moss tuft
+    g.fillStyle = '#3a6e2c';
+    g.fillRect(11, 5, 3, 1); g.fillRect(13, 4, 2, 1);
+  });
+}
+
+function makeSignSprite(){
+  return makeSprite(22, 32, (g) => {
+    g.fillStyle = '#3a2614'; g.fillRect(10, 16, 3, 16);
+    g.fillStyle = '#221409'; g.fillRect(10, 16, 1, 16);
+    // diamond hazard sign with rally-yellow + black arrow
+    const sx = 11, sy = 8;
+    g.save();
+    g.translate(sx, sy);
+    g.rotate(Math.PI/4);
+    g.fillStyle = '#ffd84a';
+    g.fillRect(-7, -7, 14, 14);
+    g.fillStyle = '#000';
+    g.fillRect(-6, -6, 12, 1); g.fillRect(-6, 5, 12, 1);
+    g.fillRect(-6, -6, 1, 12); g.fillRect(5, -6, 1, 12);
+    g.restore();
+    // arrow inside
+    g.fillStyle = '#000';
+    g.beginPath();
+    g.moveTo(8, 4); g.lineTo(15, 8); g.lineTo(8, 12); g.lineTo(11, 8);
+    g.closePath(); g.fill();
+  });
+}
+
+function makeFinishSignSprite(){
+  return makeSprite(40, 48, (g) => {
+    // poles
+    g.fillStyle = '#3a2614'; g.fillRect(4, 28, 3, 20); g.fillRect(33, 28, 3, 20);
+    g.fillStyle = '#221409'; g.fillRect(4, 28, 1, 20); g.fillRect(33, 28, 1, 20);
+    // arch banner
+    g.fillStyle = '#d62a2a'; g.fillRect(4, 4, 32, 6);
+    g.fillStyle = '#fff';
+    g.font = 'bold 5px monospace'; g.textBaseline = 'top';
+    g.fillText('FINISH', 8, 5);
     // checkered flag
-    for (let y = 0; y < 7; y++) for (let x = 0; x < 12; x++){
-      g.fillStyle = ((x+y) & 1) ? '#000' : '#fff';
-      g.fillRect(4 + x, 3 + y, 1, 1);
+    for (let y = 0; y < 14; y++) for (let x = 0; x < 24; x++){
+      g.fillStyle = ((x>>1)+(y>>1)) & 1 ? '#0e0e10' : '#fff';
+      g.fillRect(8 + x, 12 + y, 1, 1);
     }
-    g.fillStyle = '#ffd84a'; g.fillRect(4, 12, 12, 1);
-  }),
+    g.fillStyle = '#ffd84a'; g.fillRect(8, 26, 24, 2);
+  });
+}
+
+const SPR = {
+  pine: makePineSprite(0),  pine1: makePineSprite(0), pine2: makePineSprite(1), pine3: makePineSprite(2),
+  fir:  makeFirSprite(0),   fir1:  makeFirSprite(0),  fir2:  makeFirSprite(1),  fir3:  makeFirSprite(2),
+  bush: makeBushSprite(),
+  rock: makeRockSprite(),
+  sign: makeSignSprite(),
+  finishSign: makeFinishSignSprite(),
 };
+function pickTreeKind(bias){
+  // Stochastic variant pick — most bias type, occasional cross-pollinator.
+  const variants = bias === 'pine' ? ['pine1','pine2','pine3'] : ['fir1','fir2','fir3'];
+  return variants[(Math.random() * variants.length) | 0];
+}
 
 // ──────── track generation ────────
 // Each segment carries: curve (lateral road shift), pitch (vertical),
@@ -739,12 +842,36 @@ const ROAD_W  = 1200;
 const DRAW_DIST = 220;          // segments rendered ahead
 
 const STAGES = [
-  { name: 'Pine Woods',   color: { sky:'#f9b56b', skyBot:'#3a2655', grass1:'#3a5a2a', grass2:'#4a7235', road1:'#3a3a3a', road2:'#444', stripe:'#fff', shoulder:'#d1c08a' },
-    fog: 0.0, treeBias: 'pine', length: 720 },
-  { name: 'Misty Bend',   color: { sky:'#cbe3ed', skyBot:'#7689a0', grass1:'#3e5a3a', grass2:'#52755b', road1:'#36383c', road2:'#3f4147', stripe:'#fff8d0', shoulder:'#a6a08a' },
-    fog: 0.55, treeBias: 'fir', length: 760 },
-  { name: 'Ravine Run',   color: { sky:'#22132a', skyBot:'#7b2f3a', grass1:'#283318', grass2:'#3b482a', road1:'#2a2c30', road2:'#363a40', stripe:'#ffd84a', shoulder:'#92805a' },
-    fog: 0.15, treeBias: 'fir', length: 820 },
+  { name: 'Pine Woods',
+    color: { sky:'#f7d28a', skyMid:'#e88c52', skyBot:'#3a2655',
+             grass1:'#3a5a2a', grass2:'#4a7235',
+             road1:'#3a3a3a', road2:'#454547', stripe:'#fff', shoulder:'#d1c08a',
+             mountain:'#2c1d3a', haze:'#f5b56e' },
+    sun: { x: 0.75, y: 0.18, color:'#ffeac0', size: 28, glow: 1.0 },   // dawn sun on the right
+    fog: 0.05, ambient: 1.0, headlights: false,
+    particle: 'pollen', particleColor:'#ffeec0',
+    treeBias: 'pine', length: 720,
+    bloom: 0.6 },
+  { name: 'Misty Bend',
+    color: { sky:'#dde9ee', skyMid:'#9fb1bf', skyBot:'#6e8094',
+             grass1:'#3e5a3a', grass2:'#52755b',
+             road1:'#36383c', road2:'#42444a', stripe:'#fff8d0', shoulder:'#a6a08a',
+             mountain:'#7c8b9a', haze:'#cfdde6' },
+    sun: { x: 0.5, y: 0.28, color:'#e8efff', size: 18, glow: 0.45 },
+    fog: 0.7, ambient: 0.85, headlights: false,
+    particle: 'mist', particleColor:'#e8efff',
+    treeBias: 'fir', length: 760,
+    bloom: 0.35 },
+  { name: 'Ravine Run',
+    color: { sky:'#1a0d2a', skyMid:'#5c1f3a', skyBot:'#9b3340',
+             grass1:'#1f2812', grass2:'#2c361a',
+             road1:'#1a1c20', road2:'#262830', stripe:'#ffd84a', shoulder:'#5a4a30',
+             mountain:'#3a1424', haze:'#7a2f3a' },
+    sun: { x: 0.18, y: 0.32, color:'#ffb05a', size: 22, glow: 0.85 },   // setting sun behind
+    fog: 0.18, ambient: 0.55, headlights: true,
+    particle: 'ember', particleColor:'#ff7a3e',
+    treeBias: 'fir', length: 820,
+    bloom: 0.9 },
 ];
 
 let track = [];
@@ -826,13 +953,13 @@ function buildTrack(stageIdx){
     if (Math.random() < 0.62){
       const side = Math.random() < 0.5 ? -1 : 1;
       const dist = 1.1 + Math.random() * 1.6;
-      const sprite = Math.random() < 0.7 ? trees : 'fir';
-      track[i].scenery.push({ kind: sprite, x: side * dist * ROAD_W * 0.8, scale: 1 + Math.random()*0.6 });
+      const kind = Math.random() < 0.85 ? pickTreeKind(trees) : pickTreeKind(trees === 'pine' ? 'fir' : 'pine');
+      track[i].scenery.push({ kind, x: side * dist * ROAD_W * 0.8, scale: 0.9 + Math.random()*0.5 });
     }
     if (Math.random() < 0.7){
       const side = Math.random() < 0.5 ? -1 : 1;
       const dist = 2.2 + Math.random() * 3;
-      track[i].scenery.push({ kind: trees, x: side * dist * ROAD_W * 0.8, scale: 1 + Math.random()*0.5 });
+      track[i].scenery.push({ kind: pickTreeKind(trees), x: side * dist * ROAD_W * 0.8, scale: 0.9 + Math.random()*0.5 });
     }
     if (Math.random() < 0.18){
       const side = Math.random() < 0.5 ? -1 : 1;
@@ -1043,6 +1170,223 @@ function updateCar(dt){
   if (audioOn) setEngineRpm(car.rpm, throttle * 0.85 + (handbrake ? 0.4 : 0));
 }
 
+// ──────── particle system (atmospheric) ────────
+const particles = [];
+function spawnParticle(stage){
+  if (particles.length > 100) return;
+  const kind = stage.particle;
+  if (kind === 'pollen'){
+    particles.push({
+      kind, x: Math.random() * BW, y: BH * 0.35 + Math.random() * BH * 0.45,
+      vx: (Math.random() - 0.5) * 0.3, vy: -0.05 - Math.random() * 0.1,
+      life: 1, size: 1 + Math.random(),
+      color: stage.particleColor,
+    });
+  } else if (kind === 'mist'){
+    particles.push({
+      kind, x: Math.random() * BW, y: BH * 0.45 + Math.random() * BH * 0.4,
+      vx: 0.4 + Math.random() * 0.3, vy: -0.04 + (Math.random() - 0.5) * 0.06,
+      life: 1, size: 6 + Math.random() * 8,
+      color: stage.particleColor,
+    });
+  } else if (kind === 'ember'){
+    particles.push({
+      kind, x: Math.random() * BW, y: BH * 0.45 + Math.random() * BH * 0.5,
+      vx: -0.2 + (Math.random() - 0.5) * 0.4, vy: -0.15 - Math.random() * 0.25,
+      life: 1, size: 1 + Math.random() * 1.5,
+      color: stage.particleColor,
+    });
+  }
+}
+function tickParticles(dt, speedFrac){
+  // spawn more when going faster (camera relative motion)
+  const stage = STAGES[game.stageIdx];
+  const stageSpawn = stage.particle === 'mist' ? 1.2 : 0.6;
+  let n = stageSpawn + speedFrac * 1.4;
+  while (n > 0){
+    if (Math.random() < n) spawnParticle(stage);
+    n -= 1;
+  }
+  for (let i = particles.length - 1; i >= 0; i--){
+    const p = particles[i];
+    // forward motion drag — particles streak past as we accelerate
+    p.x += p.vx + (p.x - BW/2) * 0.012 * speedFrac;
+    p.y += p.vy + speedFrac * 0.6 * (p.y > BH * 0.5 ? 0.4 : 0.1);
+    p.life -= dt * (p.kind === 'mist' ? 0.4 : 0.7);
+    if (p.life <= 0 || p.x < -20 || p.x > BW + 20 || p.y < BH * 0.3 || p.y > BH + 8){
+      particles.splice(i, 1);
+    }
+  }
+}
+function drawParticles(){
+  for (const p of particles){
+    bctx.globalAlpha = Math.max(0, Math.min(1, p.life));
+    bctx.fillStyle = p.color;
+    if (p.kind === 'mist'){
+      bctx.globalAlpha *= 0.18;
+      bctx.beginPath(); bctx.ellipse(p.x, p.y, p.size, p.size * 0.6, 0, 0, Math.PI*2); bctx.fill();
+    } else {
+      bctx.beginPath(); bctx.arc(p.x, p.y, p.size, 0, Math.PI*2); bctx.fill();
+      // soft glow halo for embers + pollen
+      if (p.kind === 'ember' || p.kind === 'pollen'){
+        bctx.globalAlpha *= 0.4;
+        bctx.beginPath(); bctx.arc(p.x, p.y, p.size * 2.5, 0, Math.PI*2); bctx.fill();
+      }
+    }
+  }
+  bctx.globalAlpha = 1;
+}
+
+// Sun + clouds + mountain silhouette layers
+function drawSky(stage){
+  const grad = bctx.createLinearGradient(0, 0, 0, BH * 0.7);
+  grad.addColorStop(0, stage.color.sky);
+  grad.addColorStop(0.55, stage.color.skyMid);
+  grad.addColorStop(1, stage.color.skyBot);
+  bctx.fillStyle = grad;
+  bctx.fillRect(0, 0, BW, BH * 0.7);
+  // sun
+  const sx = BW * stage.sun.x, sy = BH * stage.sun.y;
+  const sg = bctx.createRadialGradient(sx, sy, 1, sx, sy, stage.sun.size * 4);
+  sg.addColorStop(0, stage.sun.color);
+  sg.addColorStop(0.18, `rgba(255,220,160,${0.55 * stage.sun.glow})`);
+  sg.addColorStop(0.5, `rgba(255,150,80,${0.18 * stage.sun.glow})`);
+  sg.addColorStop(1, 'rgba(255,80,40,0)');
+  bctx.fillStyle = sg;
+  bctx.fillRect(0, 0, BW, BH * 0.7);
+  // sun disc
+  bctx.fillStyle = stage.sun.color;
+  bctx.beginPath(); bctx.arc(sx, sy, stage.sun.size, 0, Math.PI*2); bctx.fill();
+  // soft cloud bands (one drifting layer; cheap)
+  bctx.globalAlpha = 0.22;
+  bctx.fillStyle = stage.color.haze || '#ffffff';
+  const t = performance.now() / 300;
+  for (let i = 0; i < 4; i++){
+    const cy = BH * 0.18 + i * 12;
+    const cx = ((t * 6 + i * 80) % (BW + 200)) - 100;
+    bctx.beginPath();
+    bctx.ellipse(cx, cy, 50 + i*8, 6, 0, 0, Math.PI*2); bctx.fill();
+    bctx.beginPath();
+    bctx.ellipse(cx + 30, cy + 2, 30, 4, 0, 0, Math.PI*2); bctx.fill();
+  }
+  bctx.globalAlpha = 1;
+}
+
+function drawMountains(stage){
+  // far ridge (lighter, with haze fade)
+  bctx.fillStyle = stage.color.mountain;
+  bctx.globalAlpha = 0.55;
+  bctx.beginPath();
+  bctx.moveTo(0, BH * 0.5);
+  for (let x = 0; x <= BW; x += 8){
+    const y = BH * 0.42 - Math.sin(x * 0.018) * 16 - Math.sin(x * 0.045 + 1.7) * 6;
+    bctx.lineTo(x, y);
+  }
+  bctx.lineTo(BW, BH * 0.55); bctx.lineTo(0, BH * 0.55); bctx.closePath();
+  bctx.fill();
+  // close ridge (darker silhouette)
+  bctx.globalAlpha = 0.85;
+  bctx.fillStyle = '#1a0e22';
+  bctx.beginPath();
+  bctx.moveTo(0, BH * 0.55);
+  for (let x = 0; x <= BW; x += 6){
+    const y = BH * 0.5 - Math.sin(x * 0.03 + 0.5) * 10 - Math.sin(x * 0.09) * 3;
+    bctx.lineTo(x, y);
+  }
+  bctx.lineTo(BW, BH * 0.6); bctx.lineTo(0, BH * 0.6); bctx.closePath();
+  bctx.fill();
+  bctx.globalAlpha = 1;
+}
+
+// Headlight cone — projected onto road from car's screen position
+function drawHeadlights(stage){
+  if (!stage.headlights) return;
+  const cx = BW / 2;
+  const cy = BH - 40;
+  const grad = bctx.createRadialGradient(cx, cy, 4, cx, cy - 40, BW * 0.55);
+  grad.addColorStop(0, 'rgba(255,240,200,0.6)');
+  grad.addColorStop(0.35, 'rgba(255,220,150,0.25)');
+  grad.addColorStop(1, 'rgba(255,200,120,0)');
+  bctx.globalCompositeOperation = 'screen';
+  bctx.fillStyle = grad;
+  // cone polygon — narrow top, wide near car
+  bctx.beginPath();
+  bctx.moveTo(cx - 10, cy);
+  bctx.lineTo(cx - BW * 0.45, BH * 0.45);
+  bctx.lineTo(cx + BW * 0.45, BH * 0.45);
+  bctx.lineTo(cx + 10, cy);
+  bctx.closePath();
+  bctx.fill();
+  bctx.globalCompositeOperation = 'source-over';
+}
+
+// Lens flare emanating from sun position
+function drawLensFlare(stage){
+  if (stage.sun.glow < 0.3) return;
+  const sx = BW * stage.sun.x, sy = BH * stage.sun.y;
+  bctx.globalCompositeOperation = 'screen';
+  // a few colored discs along the line from sun toward screen center
+  const dx = BW/2 - sx, dy = BH/2 - sy;
+  const flares = [
+    { t: 0.25, r: 14, c: 'rgba(255,200,150,0.35)' },
+    { t: 0.55, r: 8,  c: 'rgba(180,160,255,0.28)' },
+    { t: 0.85, r: 18, c: 'rgba(255,220,150,0.22)' },
+    { t: 1.1,  r: 6,  c: 'rgba(255,255,255,0.32)' },
+  ];
+  for (const f of flares){
+    const x = sx + dx * f.t, y = sy + dy * f.t;
+    const g = bctx.createRadialGradient(x, y, 1, x, y, f.r * 3);
+    g.addColorStop(0, f.c); g.addColorStop(1, 'rgba(0,0,0,0)');
+    bctx.fillStyle = g;
+    bctx.beginPath(); bctx.arc(x, y, f.r * 3, 0, Math.PI*2); bctx.fill();
+  }
+  bctx.globalCompositeOperation = 'source-over';
+}
+
+// Speed lines streaking outward from a center point near the horizon
+function drawSpeedLines(speedFrac){
+  if (speedFrac < 0.35) return;
+  const cx = BW/2, cy = BH * 0.55;
+  bctx.strokeStyle = `rgba(255,255,255,${0.12 * speedFrac})`;
+  bctx.lineWidth = 1;
+  bctx.globalCompositeOperation = 'screen';
+  const t = performance.now() / 60;
+  for (let i = 0; i < 18; i++){
+    const a = (i / 18) * Math.PI * 2 + t * 0.05;
+    const r0 = 30 + (Math.sin(t + i) * 10);
+    const r1 = r0 + 30 + speedFrac * 80;
+    bctx.beginPath();
+    bctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0 * 0.6);
+    bctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1 * 0.6);
+    bctx.stroke();
+  }
+  bctx.globalCompositeOperation = 'source-over';
+}
+
+// Vignette + slight chromatic warmth on the corners
+function drawVignette(stage){
+  const grad = bctx.createRadialGradient(BW/2, BH * 0.55, BH * 0.2, BW/2, BH * 0.55, BH * 0.85);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, `rgba(0,0,0,${0.55 * (1 - stage.ambient * 0.5)})`);
+  bctx.fillStyle = grad;
+  bctx.fillRect(0, 0, BW, BH);
+}
+
+// Bloom/glow pass — copy the buffer, blur, additive composite back.
+function drawBloom(stage){
+  const amount = stage.bloom || 0.5;
+  if (amount <= 0) return;
+  gctx.clearRect(0, 0, BW, BH);
+  gctx.filter = 'blur(4px) brightness(1.4)';
+  gctx.drawImage(buf, 0, 0);
+  gctx.filter = 'none';
+  bctx.globalCompositeOperation = 'screen';
+  bctx.globalAlpha = amount;
+  bctx.drawImage(glowBuf, 0, 0);
+  bctx.globalAlpha = 1;
+  bctx.globalCompositeOperation = 'source-over';
+}
+
 // ──────── render ────────
 function project(camX, camY, camZ, segWorldZ, segCurveX, segPitchY){
   // simple pseudo-3D projection
@@ -1057,35 +1401,19 @@ function project(camX, camY, camZ, segWorldZ, segCurveX, segPitchY){
 
 function renderScene(){
   if (game.phase === 'title'){
-    // simple gradient on the buffer for parity
     const stage = STAGES[0];
-    const grad = bctx.createLinearGradient(0, 0, 0, BH);
-    grad.addColorStop(0, stage.color.sky);
-    grad.addColorStop(1, stage.color.skyBot);
-    bctx.fillStyle = grad;
-    bctx.fillRect(0, 0, BW, BH);
+    drawSky(stage);
+    drawMountains(stage);
+    drawLensFlare(stage);
     blit();
     return;
   }
   const stage = STAGES[game.stageIdx];
 
-  // sky
-  const grad = bctx.createLinearGradient(0, 0, 0, BH);
-  grad.addColorStop(0, stage.color.sky);
-  grad.addColorStop(0.65, stage.color.skyBot);
-  grad.addColorStop(1, stage.color.grass1);
-  bctx.fillStyle = grad;
-  bctx.fillRect(0, 0, BW, BH);
-
-  // distant tree silhouette band
-  bctx.fillStyle = `rgba(0,0,0,${0.18 + stage.fog * 0.3})`;
-  bctx.beginPath();
-  for (let x = 0; x <= BW; x += 4){
-    const y = BH * 0.55 - Math.sin((x + game.stageIdx*40) * 0.05) * 6 - Math.sin(x * 0.18) * 3;
-    bctx.lineTo(x, y);
-  }
-  bctx.lineTo(BW, BH * 0.55 + 18); bctx.lineTo(0, BH * 0.55 + 18);
-  bctx.closePath(); bctx.fill();
+  // ─── Layer 1: sky + sun + clouds ───
+  drawSky(stage);
+  // ─── Layer 2: mountain silhouette band ───
+  drawMountains(stage);
 
   // ground / road
   const camZ = car.z - 80;     // camera lags the car a touch
@@ -1159,11 +1487,13 @@ function renderScene(){
       for (const s of seg.scenery){
         const sp = SPR[s.kind];
         if (!sp) continue;
-        // scenery world x → screen
         const screenX = p.sx + (s.x / ROAD_W) * p.w;
-        const sprScale = p.scale * 320 * (s.scale || 1);     // base sprite is ~30 tall world units; tweak
-        const drawW = (sp.width / 30) * sprScale;
-        const drawH = (sp.height / 30) * sprScale;
+        // Tuneable: at perspective scale=1 (right at camera) a tree
+        // ~ this many pixels tall. Picked empirically for the new
+        // 480×270 buffer + 80-tall sprites.
+        const TREE_BASE_PX = 320;
+        const drawH = p.scale * TREE_BASE_PX * (s.scale || 1);
+        const drawW = (sp.width / sp.height) * drawH;
         sprites.push({
           z: segZ,
           img: sp,
@@ -1171,6 +1501,7 @@ function renderScene(){
           y: p.sy - drawH,
           w: drawW,
           h: drawH,
+          scale: p.scale,
         });
       }
     }
@@ -1180,26 +1511,60 @@ function renderScene(){
     lastCx = p.sx;
   }
 
-  // sprites — back to front
+  // sprites — back to front, with depth-fog tinting on far trees
   sprites.sort((a, b) => b.z - a.z);
   bctx.imageSmoothingEnabled = false;
   for (const s of sprites){
     if (s.w < 1 || s.h < 1) continue;
     if (s.x + s.w < 0 || s.x > BW) continue;
     bctx.drawImage(s.img, Math.floor(s.x), Math.floor(s.y), Math.ceil(s.w), Math.ceil(s.h));
+    // depth fog tint — small far trees fade into the haze color
+    if (s.scale < 0.05){
+      bctx.globalAlpha = (1 - s.scale * 18) * (0.45 + stage.fog * 0.45);
+      bctx.fillStyle = stage.color.haze || '#aac0d0';
+      bctx.fillRect(Math.floor(s.x), Math.floor(s.y), Math.ceil(s.w), Math.ceil(s.h));
+      bctx.globalAlpha = 1;
+    }
   }
 
-  // fog overlay
+  // ─── tickle particles & draw mid-depth ───
+  const speedFrac = car.speed / car.maxSpeed;
+  tickParticles(0.016, speedFrac);
+  drawParticles();
+
+  // ─── headlight cone (only stages with lights ON) ───
+  drawHeadlights(stage);
+
+  // ─── fog: stronger volumetric band + subtle ground haze ───
   if (stage.fog > 0){
-    const fg = bctx.createLinearGradient(0, BH * 0.45, 0, BH * 0.85);
-    fg.addColorStop(0, `rgba(220,225,230,${stage.fog * 0.55})`);
+    const fg = bctx.createLinearGradient(0, BH * 0.42, 0, BH * 0.95);
+    fg.addColorStop(0, `rgba(220,225,230,${stage.fog * 0.62})`);
+    fg.addColorStop(0.5, `rgba(220,225,230,${stage.fog * 0.32})`);
     fg.addColorStop(1, `rgba(220,225,230,0)`);
     bctx.fillStyle = fg;
-    bctx.fillRect(0, BH * 0.45, BW, BH * 0.4);
+    bctx.fillRect(0, BH * 0.42, BW, BH * 0.55);
   }
 
-  // car (drawn last, fixed at bottom-center)
-  drawCarPixel(bctx, BW/2, BH - 30, car.steer, car.yaw);
+  // ─── ambient tint: dim everything slightly on dim stages ───
+  if (stage.ambient < 1){
+    bctx.fillStyle = `rgba(20,12,28,${(1 - stage.ambient) * 0.55})`;
+    bctx.fillRect(0, 0, BW, BH);
+  }
+
+  // ─── godrays / lens flare emanating from the sun ───
+  drawLensFlare(stage);
+
+  // ─── speed lines (kicks in at high speed) ───
+  drawSpeedLines(speedFrac);
+
+  // ─── bloom pass ───
+  drawBloom(stage);
+
+  // ─── vignette & corner darken ───
+  drawVignette(stage);
+
+  // ─── car (drawn last, fixed at bottom-center, with soft shadow) ───
+  drawCarPixel(bctx, BW/2, BH - 50, car.steer, car.yaw, speedFrac, stage);
 
   blit();
 }
@@ -1217,15 +1582,54 @@ function blit(){
 
 // ──────── Lancer Evo–style pixel car ────────
 // Drawn live each frame so we can yaw + steer without baking a sheet.
-function drawCarPixel(g, cx, cy, steer, yaw){
+// Bigger now (matches the bumped buffer res), with brake lights, head-
+// light spill on the road, and a dust trail kicking up at speed.
+function drawCarPixel(g, cx, cy, steer, yaw, speedFrac, stage){
+  // ─── road headlight spill — drawn BEFORE the car body so the body
+  //     occludes it correctly. Two soft yellow ovals on the tarmac.
+  if (stage && stage.headlights){
+    g.save();
+    g.translate(cx, cy + 30);
+    g.globalCompositeOperation = 'screen';
+    const sg = g.createRadialGradient(0, 0, 4, 0, -10, 80);
+    sg.addColorStop(0, 'rgba(255,235,170,0.55)');
+    sg.addColorStop(1, 'rgba(255,200,120,0)');
+    g.fillStyle = sg;
+    g.beginPath(); g.ellipse(-10, -8, 50, 22, 0, 0, Math.PI*2); g.fill();
+    g.beginPath(); g.ellipse(10, -8, 50, 22, 0, 0, Math.PI*2); g.fill();
+    g.globalCompositeOperation = 'source-over';
+    g.restore();
+  }
+  // ─── dust trail kicked up behind the car (speed-scaled) ───
+  if (speedFrac > 0.18){
+    g.save();
+    g.translate(cx, cy + 30);
+    const t = performance.now() / 80;
+    g.globalAlpha = 0.55 * speedFrac;
+    g.fillStyle = '#a6926a';
+    for (let i = 0; i < 5; i++){
+      const ox = -32 + i * 14 + Math.sin(t + i) * 4 - steer * 14 * speedFrac;
+      const oy = 4 + Math.cos(t * 1.2 + i) * 2;
+      const r = 5 + Math.sin(t + i * 1.7) * 2;
+      g.beginPath(); g.arc(ox, oy, r, 0, Math.PI*2); g.fill();
+    }
+    g.globalAlpha = 1;
+    g.restore();
+  }
   g.save();
   g.translate(cx, cy);
   g.rotate(yaw);
-  const sBob = Math.sin(performance.now() / 90) * 0.4;
+  const sBob = Math.sin(performance.now() / 90) * 0.6;
   g.translate(0, sBob);
-  // shadow
-  g.fillStyle = 'rgba(0,0,0,0.45)';
-  g.beginPath(); g.ellipse(0, 8, 36, 5, 0, 0, Math.PI*2); g.fill();
+  // shadow — bigger, softer, darker on bright stages
+  g.globalAlpha = stage ? 0.55 + stage.ambient * 0.25 : 0.55;
+  const ag = g.createRadialGradient(0, 14, 1, 0, 14, 60);
+  ag.addColorStop(0, 'rgba(0,0,0,0.7)'); ag.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = ag;
+  g.beginPath(); g.ellipse(0, 14, 56, 9, 0, 0, Math.PI*2); g.fill();
+  g.globalAlpha = 1;
+  // Scale up the car body for the bigger buffer (was tuned to 320×180).
+  g.scale(1.5, 1.5);
   // ─ body — top-down rear-three-quarter view  ─
   // Lancer Evo livery: arctic white, royal blue + red rally stripes,
   // big front grille, rally lights, rear wing.
@@ -1292,6 +1696,23 @@ function drawCarPixel(g, cx, cy, steer, yaw){
   g.strokeStyle = '#222';
   g.lineWidth = 0.8;
   g.beginPath(); g.moveTo(20, -10); g.lineTo(22, -16); g.stroke();
+  // tail lights — always on a small red glow, brighter when braking
+  const braking = !!keys['ArrowDown'] || !!keys['KeyS'] || !!keys['Space'];
+  const brakeBright = braking ? 1 : 0.5;
+  g.fillStyle = `rgba(255,40,40,${0.65 * brakeBright})`;
+  g.fillRect(-22, -12, 6, 2);
+  g.fillRect(16, -12, 6, 2);
+  if (braking){
+    // brake light bloom — extra red halo when pressed
+    g.globalCompositeOperation = 'screen';
+    const rg = g.createRadialGradient(-19, -11, 1, -19, -11, 10);
+    rg.addColorStop(0, 'rgba(255,80,80,0.9)'); rg.addColorStop(1, 'rgba(255,30,30,0)');
+    g.fillStyle = rg; g.fillRect(-30, -22, 18, 18);
+    const rg2 = g.createRadialGradient(19, -11, 1, 19, -11, 10);
+    rg2.addColorStop(0, 'rgba(255,80,80,0.9)'); rg2.addColorStop(1, 'rgba(255,30,30,0)');
+    g.fillStyle = rg2; g.fillRect(12, -22, 18, 18);
+    g.globalCompositeOperation = 'source-over';
+  }
   g.restore();
 }
 
