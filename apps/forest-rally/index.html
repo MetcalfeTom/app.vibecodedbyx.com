@@ -382,20 +382,41 @@ let supabaseUser = null;
 let playerId = null;
 let progress = { best_total: null, best_stages: [null, null, null], runs: 0 };
 
+// Probe a path before attempting `import()`. Some hosts SPA-fallback
+// unknown URLs to text/html, and a dynamic import on such a URL throws
+// a MIME-mismatch error that the browser surfaces in the console even
+// when wrapped in try/catch. By HEAD-sniffing the Content-Type first
+// (and double-checking the body's first bytes for an HTML signature)
+// we only invoke `import()` when the response is genuinely JS — so a
+// deployment without supabase produces zero console noise.
+async function safeImportJs(path){
+  let res;
+  try { res = await fetch(path, { method: 'GET', cache: 'no-cache' }); }
+  catch { return null; }
+  if (!res.ok) return null;
+  const ct = (res.headers.get('Content-Type') || '').toLowerCase();
+  if (!/(javascript|ecmascript)/.test(ct)) return null;
+  let body;
+  try { body = await res.text(); }
+  catch { return null; }
+  if (/^\s*(<!doctype|<html\b|<head\b|<body\b)/i.test(body)) return null;
+  // Verified JS — safe to import the original URL. Browser will refetch
+  // (cheap; same-origin, often cached) and parse as a real module without
+  // tripping the MIME check we'd otherwise have hit.
+  try { return await import(path); }
+  catch (e) { console.warn('[forest-rally] verified-JS import still threw at', path, '·', e?.message || e); return null; }
+}
+
 async function initPlayer(){
-  // Try to load supabase lazily — same fallback chain as sloppy-exiles.
-  // If it succeeds AND there's an authenticated user, we use that user id;
-  // otherwise we mint a guest UID. Either way, progress is always isolated.
+  // Try the canonical supabase config locations, but probe each via
+  // safeImportJs so an HTML 404/SPA-fallback never reaches `import()`.
   const tryPaths = ['/supabase-config-fixed.js', '../supabase-config-fixed.js', '/supabase-config.js'];
   for (const p of tryPaths){
-    try {
-      const mod = await import(p);
-      if (mod && (mod.default || mod.supabase)){
-        supabaseClient = mod.default || mod.supabase;
-        break;
-      }
-    } catch (e) {
-      // expected for non-deployed paths; quiet
+    const mod = await safeImportJs(p);
+    if (mod && (mod.default || mod.supabase)){
+      supabaseClient = mod.default || mod.supabase;
+      console.info('[forest-rally] supabase loaded from', p);
+      break;
     }
   }
   if (supabaseClient){
