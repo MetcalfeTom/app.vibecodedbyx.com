@@ -652,20 +652,28 @@ const TOWN_RADIUS = 2.6;
 // an L-shaped corridor, plus 2 random extra corridors for loop variety.
 // The dungeon is guaranteed connected because the chain corridor
 // reaches every room.
+// Zone is "home" only at (0, 0) — town room + safe-zone carve only there.
+function isHomeZone(){ return (state.zoneX | 0) === 0 && (state.zoneY | 0) === 0; }
+
 function buildMap() {
   TILES.length = 0;
   ROOMS.length = 0;
+  const home = isHomeZone();
   // 1) fill with walls
   for (let y = 0; y < GRID_H; y++) {
     const row = [];
     for (let x = 0; x < GRID_W; x++) row.push(1);
     TILES.push(row);
   }
-  // 2) carve TOWN room — fixed at world centre
+  // 2) carve TOWN / hub room at the centre
+  //    Home: a 9×9 sanctuary that gets the gold safe-zone overlay.
+  //    Foreign zone: a 9×9 normal room — same coords so the town portal
+  //    still drops you onto walkable ground if you're warped here, but
+  //    no glow + no chest + enemies allowed.
   const TOWN_R = 4;
-  const townRoom = makeRoom(TOWN_GX - TOWN_R, TOWN_GY - TOWN_R, TOWN_R*2 + 1, TOWN_R*2 + 1);
-  carveRoom(townRoom);
-  ROOMS.push(townRoom);
+  const hubRoom = makeRoom(TOWN_GX - TOWN_R, TOWN_GY - TOWN_R, TOWN_R*2 + 1, TOWN_R*2 + 1);
+  carveRoom(hubRoom);
+  ROOMS.push(hubRoom);
   // 3) place additional rooms
   const TARGET_ROOMS = 7;
   for (let attempt = 0; attempt < 220 && ROOMS.length < TARGET_ROOMS + 1; attempt++){
@@ -705,17 +713,63 @@ function buildMap() {
       if (TILES[py] && TILES[py][px] === 0) TILES[py][px] = 1;
     }
   }
-  // 7) force-clear the town safe zone (in case a pillar landed in it)
-  for (let y = 0; y < GRID_H; y++){
-    for (let x = 0; x < GRID_W; x++){
-      if (Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS) TILES[y][x] = 0;
+  // 7) force-clear the town safe zone (only in the home zone — in
+  // wing zones the same tiles are just regular floor, no gold halo)
+  if (home){
+    for (let y = 0; y < GRID_H; y++){
+      for (let x = 0; x < GRID_W; x++){
+        if (Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS) TILES[y][x] = 0;
+      }
     }
   }
-  // 8) freshly seed crack-render variety
+  // 8) carve edge gates so the player can step off into the next zone.
+  //    Each cardinal edge gets a 3-tile-wide opening at the midpoint,
+  //    extruded 4 tiles inward, then connected to the nearest room.
+  carveEdgeGates();
+  // 9) freshly seed crack-render variety
   buildTileSeed();
-  // 9) bake the static map to an offscreen canvas — the per-frame
+  // 10) bake the static map to an offscreen canvas — the per-frame
   //    drawTiles becomes a single drawImage instead of 1600 path draws.
   bakeMapCache();
+}
+
+function carveEdgeGates(){
+  // 4 cardinal gates. Each one: 3 tiles wide × 5 tiles deep, then
+  // a corridor to the nearest existing room so it's always reachable.
+  const midX = Math.floor(GRID_W / 2);
+  const midY = Math.floor(GRID_H / 2);
+  const gates = [
+    { side: 'N', gx: midX,            gy: 0,            ix: midX,            iy: 4            },
+    { side: 'S', gx: midX,            gy: GRID_H - 1,   ix: midX,            iy: GRID_H - 5   },
+    { side: 'W', gx: 0,               gy: midY,         ix: 4,               iy: midY         },
+    { side: 'E', gx: GRID_W - 1,      gy: midY,         ix: GRID_W - 5,      iy: midY         },
+  ];
+  for (const g of gates){
+    if (g.side === 'N' || g.side === 'S'){
+      const yStart = g.side === 'N' ? 0 : GRID_H - 5;
+      const yEnd   = g.side === 'N' ? 5 : GRID_H;
+      for (let y = yStart; y < yEnd; y++){
+        for (let dx = -1; dx <= 1; dx++){
+          if (TILES[y]) TILES[y][g.gx + dx] = 0;
+        }
+      }
+    } else {
+      const xStart = g.side === 'W' ? 0 : GRID_W - 5;
+      const xEnd   = g.side === 'W' ? 5 : GRID_W;
+      for (let x = xStart; x < xEnd; x++){
+        for (let dy = -1; dy <= 1; dy++){
+          if (TILES[g.gy + dy]) TILES[g.gy + dy][x] = 0;
+        }
+      }
+    }
+    // Connect inner end to nearest room centre so gates aren't islands.
+    let near = null, ndist = Infinity;
+    for (const r of ROOMS){
+      const d = Math.hypot(r.cx - g.ix, r.cy - g.iy);
+      if (d < ndist){ near = r; ndist = d; }
+    }
+    if (near) carveCorridor(g.ix, g.iy, near.cx, near.cy);
+  }
 }
 function makeRoom(x, y, w, h){
   return { x, y, w, h, cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
@@ -1027,6 +1081,14 @@ const state = {
   exitPortal: null,            // { gx, gy } when present
   inTown: false,
   returnFrom: null,
+  // === ZONE COORDS (chat: edges open into new areas) ===
+  // Home zone is (0, 0) — town + chest live here. Walking off any
+  // edge increments/decrements zoneX/Y and rebuilds the wastes as
+  // a fresh wing of the same floor. Enemies/projectiles wipe on
+  // every crossing; floorKills carry over so you can chip away
+  // at the kill quota across multiple wings.
+  zoneX: 0,
+  zoneY: 0,
 };
 
 const toastEl = document.getElementById('toast');
@@ -1048,9 +1110,14 @@ function hideToast() { toastEl.classList.remove('show'); }
 function useTownPortal() {
   if (state.phase !== 'playing') return;
   if (state.inTown) {
-    // Return to wastes at the spot you left from
+    // Return to wastes at the spot — and zone — you left from
     state.inTown = false;
     if (state.returnFrom) {
+      const targetZx = state.returnFrom.zx | 0, targetZy = state.returnFrom.zy | 0;
+      if (targetZx !== state.zoneX || targetZy !== state.zoneY){
+        state.zoneX = targetZx; state.zoneY = targetZy;
+        buildMap();
+      }
       player.gx = state.returnFrom.gx;
       player.gy = state.returnFrom.gy;
     }
@@ -1060,9 +1127,16 @@ function useTownPortal() {
     sfx.cast();
     return;
   }
-  // Going TO town
+  // Going TO town — always returns you to the home zone (0,0). If
+  // we were exploring a wing, rebuild the home map and remember where
+  // we were (incl. zone) so 'return to wastes' drops us back exactly there.
+  const wasZoneX = state.zoneX, wasZoneY = state.zoneY;
   state.inTown = true;
-  state.returnFrom = { gx: player.gx, gy: player.gy };
+  state.returnFrom = { gx: player.gx, gy: player.gy, zx: wasZoneX, zy: wasZoneY };
+  if (wasZoneX !== 0 || wasZoneY !== 0){
+    state.zoneX = 0; state.zoneY = 0;
+    buildMap();
+  }
   player.attackTarget = null;
   // Wipe enemies and projectiles for a clean breather
   for (const en of enemies) spawnDeathBurst(en.gx, en.gy);
@@ -2432,6 +2506,69 @@ function tryMove(entity, dgx, dgy) {
   if (okY) entity.gy = ny;
 }
 
+// =====================================================================
+// EDGE WARP — chat ask: stepping onto a cardinal edge gate drops you
+// into a fresh wing of the same floor at the opposite gate. Town stays
+// anchored to (0,0) — walking back through gates eventually returns
+// home (or you can press P at any time for the town portal).
+// =====================================================================
+function zoneLabel(zx, zy){
+  if (zx === 0 && zy === 0) return 'HOME · the still well';
+  const d = Math.abs(zx) + Math.abs(zy);
+  const tier = d <= 1 ? 'OUTER' : d <= 3 ? 'DEEP' : 'FAR';
+  const compass = (zy < 0 ? 'N' : zy > 0 ? 'S' : '') + (zx < 0 ? 'W' : zx > 0 ? 'E' : '');
+  const NAMES = {
+    N:'NORTH WASTES', S:'SOUTHERN HOLLOWS', E:'EASTERN BREACH', W:'WESTERN GLASSLAND',
+    NE:'IRON CRAGS', NW:'BONE MOOR', SE:'SUNKEN VAULTS', SW:'WEEPING SHELF',
+  };
+  return tier + ' ' + (NAMES[compass] || 'WILDS');
+}
+function crossEdge(dir){
+  // Wipe transient state for a clean entry into the new wing.
+  for (const en of enemies) spawnDeathBurst(en.gx, en.gy);
+  enemies.length = 0;
+  projectiles.length = 0;
+  drops.length = 0;
+  state.spawnT = 1.6;       // small breather before mobs ramp back up
+  // The exit portal (if any) is abandoned on cross — re-earn on kill quota.
+  state.exitPortal = null;
+  // Shift zone coords.
+  if      (dir === 'W') state.zoneX -= 1;
+  else if (dir === 'E') state.zoneX += 1;
+  else if (dir === 'N') state.zoneY -= 1;
+  else if (dir === 'S') state.zoneY += 1;
+  buildMap();
+  // Drop player at the OPPOSITE gate so traversal feels continuous.
+  const midX = Math.floor(GRID_W / 2);
+  const midY = Math.floor(GRID_H / 2);
+  if      (dir === 'W'){ player.gx = GRID_W - 2.6; player.gy = midY; }
+  else if (dir === 'E'){ player.gx = 2.4;          player.gy = midY; }
+  else if (dir === 'N'){ player.gx = midX;         player.gy = GRID_H - 2.6; }
+  else if (dir === 'S'){ player.gx = midX;         player.gy = 2.4; }
+  // Cancel walk/attack queue so the next click feels fresh.
+  player.targetGx = player.gx;
+  player.targetGy = player.gy;
+  player.attackTarget = null;
+  player.vgx = 0; player.vgy = 0;
+  // 0.6s grace so the boundary check doesn't fire again the instant we land.
+  player._edgeCooldown = 0.6;
+  showToast(zoneLabel(state.zoneX, state.zoneY), 'zone (' + state.zoneX + ', ' + state.zoneY + ') · floor ' + state.floor);
+  if (typeof sfx !== 'undefined' && sfx.cast) sfx.cast();
+  if (typeof saveDirty === 'function') saveDirty();
+}
+function checkEdgeCrossing(dt){
+  if (state.inTown || state.phase !== 'playing' || !player.alive) return;
+  if (player._edgeCooldown && player._edgeCooldown > 0){
+    player._edgeCooldown -= dt;
+    return;
+  }
+  const M = 0.55;
+  if      (player.gx <= M)              crossEdge('W');
+  else if (player.gx >= GRID_W - 1 - M) crossEdge('E');
+  else if (player.gy <= M)              crossEdge('N');
+  else if (player.gy >= GRID_H - 1 - M) crossEdge('S');
+}
+
 function tickPlayer(dt) {
   if (!player.alive) return;
   // === DODGE ROLL ===
@@ -2501,6 +2638,10 @@ function tickPlayer(dt) {
   const fdx = mouse.gx - player.gx, fdy = mouse.gy - player.gy;
   const facingScreen = (fdx - fdy);   // screen +X projection of (dx,dy)
   if (Math.abs(facingScreen) > 0.05) player.facing = facingScreen > 0 ? 1 : -1;
+  // Edge crossing — if the player has reached a cardinal gate, warp
+  // them into the adjacent zone. Runs after movement, before the rest
+  // of the tick so the new zone state takes effect this frame.
+  checkEdgeCrossing(dt);
   // Mana regen
   player.mp = Math.min(player.maxMp, player.mp + player.mpRegen * dt);
   // Cooldowns
@@ -2726,7 +2867,9 @@ function paintTile(c, x, y) {
   const sp = worldToScreen(x, y);
   const seed = TILE_SEED[y][x];
   const isWall = TILES[y][x] === 1;
-  const inTownZone = Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS;
+  // Town safe-zone floor glow only renders in the home zone (0,0).
+  // In wing zones the same tile coords are just normal floor.
+  const inTownZone = isHomeZone() && (Math.hypot(x - TOWN_GX, y - TOWN_GY) < TOWN_RADIUS);
   // diamond tile
   c.beginPath();
   c.moveTo(sp.x, sp.y - TILE_H / 2);
