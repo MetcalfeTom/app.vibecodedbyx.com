@@ -231,6 +231,15 @@ html{font-size:100%}
   margin:0 0 1.4rem;
   max-width:34rem;
 }
+.title-overlay .player-info{
+  font-family:'Press Start 2P', monospace;
+  font-size:0.55rem; letter-spacing:0.18em;
+  color: rgba(232,238,245,0.6);
+  margin: 0 0 1.2rem;
+  display:flex; gap:1.2rem; flex-wrap:wrap; justify-content:center;
+}
+.title-overlay .player-info b{ color: var(--gold) }
+.title-overlay .player-info .best b{ color: var(--good) }
 .title-overlay .keys{
   font-family:'Press Start 2P', monospace;
   font-size:0.62rem; letter-spacing:0.16em;
@@ -359,6 +368,141 @@ html{font-size:100%}
 
 const $ = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+// ════════════════════════════════════════════════════════════════
+//   PER-DRIVER STATE — every driver's progress is keyed by a stable
+//   id (Supabase auth user_id if logged in, otherwise a guest UID
+//   minted into localStorage). Records, run counts, and best times
+//   are all stored under `forest-rally-progress-<id>` so two drivers
+//   sharing a browser never bleed into each other's records.
+// ════════════════════════════════════════════════════════════════
+let supabaseClient = null;
+let supabaseUser = null;
+let playerId = null;
+let progress = { best_total: null, best_stages: [null, null, null], runs: 0 };
+
+async function initPlayer(){
+  // Try to load supabase lazily — same fallback chain as sloppy-exiles.
+  // If it succeeds AND there's an authenticated user, we use that user id;
+  // otherwise we mint a guest UID. Either way, progress is always isolated.
+  const tryPaths = ['/supabase-config-fixed.js', '../supabase-config-fixed.js', '/supabase-config.js'];
+  for (const p of tryPaths){
+    try {
+      const mod = await import(p);
+      if (mod && (mod.default || mod.supabase)){
+        supabaseClient = mod.default || mod.supabase;
+        break;
+      }
+    } catch (e) {
+      // expected for non-deployed paths; quiet
+    }
+  }
+  if (supabaseClient){
+    try {
+      const { data } = await supabaseClient.auth.getUser();
+      if (data?.user?.id){
+        supabaseUser = data.user;
+        playerId = 'sb-' + data.user.id;
+      }
+    } catch (e) {
+      console.warn('[forest-rally] auth lookup failed:', e?.message || e);
+    }
+  }
+  // Guest fallback — a stable per-browser UID. Multiple drivers on the
+  // same browser can have separate profiles by clearing localStorage,
+  // but the default behaviour is "this browser = this driver".
+  if (!playerId){
+    try {
+      let g = localStorage.getItem('forest-rally-guest-id');
+      if (!g){
+        g = 'guest-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+        localStorage.setItem('forest-rally-guest-id', g);
+      }
+      playerId = g;
+    } catch {
+      // localStorage blocked — fall back to an in-memory session id; progress
+      // simply won't persist across reloads, but is still isolated per session.
+      playerId = 'session-' + Math.random().toString(36).slice(2, 10);
+    }
+  }
+  loadProgress();
+  renderPlayerInfo();
+}
+
+function progressKey(){ return 'forest-rally-progress-' + playerId; }
+
+function loadProgress(){
+  try {
+    const raw = localStorage.getItem(progressKey());
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (p && typeof p === 'object'){
+      progress.best_total = typeof p.best_total === 'number' ? p.best_total : null;
+      progress.best_stages = Array.isArray(p.best_stages) ? p.best_stages.slice(0, 3) : [null, null, null];
+      while (progress.best_stages.length < 3) progress.best_stages.push(null);
+      progress.runs = p.runs | 0;
+    }
+  } catch (e){
+    console.warn('[forest-rally] progress load failed, starting fresh:', e?.message || e);
+  }
+}
+
+function saveProgress(){
+  try { localStorage.setItem(progressKey(), JSON.stringify(progress)); }
+  catch (e){ console.warn('[forest-rally] progress save failed:', e?.message || e); }
+}
+
+function recordCompletedRun(stageTimes){
+  // Returns { isNewBest, total, newStageBests:[bool,bool,bool] }.
+  const total = stageTimes.reduce((s, v) => s + (v || 0), 0);
+  let isNewBest = false;
+  if (!progress.best_total || total < progress.best_total){
+    progress.best_total = total;
+    isNewBest = true;
+  }
+  const newStageBests = [false, false, false];
+  for (let i = 0; i < 3; i++){
+    const t = stageTimes[i];
+    if (t && (!progress.best_stages[i] || t < progress.best_stages[i])){
+      progress.best_stages[i] = t;
+      newStageBests[i] = true;
+    }
+  }
+  progress.runs += 1;
+  saveProgress();
+  return { isNewBest, total, newStageBests };
+}
+
+function driverLabel(){
+  if (supabaseUser){
+    return supabaseUser.is_anonymous
+      ? 'anon'
+      : (supabaseUser.user_metadata?.preferred_username || supabaseUser.user_metadata?.name || 'twitch');
+  }
+  return 'guest';
+}
+
+function renderPlayerInfo(){
+  const titleEl = document.getElementById('title');
+  if (!titleEl) return;
+  let infoEl = titleEl.querySelector('.player-info');
+  if (!infoEl){
+    infoEl = document.createElement('div');
+    infoEl.className = 'player-info';
+    const tag = titleEl.querySelector('.tag');
+    if (tag && tag.parentNode) tag.parentNode.insertBefore(infoEl, tag.nextSibling);
+    else titleEl.appendChild(infoEl);
+  }
+  const shortId = (playerId || '').slice(-6);
+  let html = `<span>driver · <b>${escapeHtml(driverLabel())}</b> · #${escapeHtml(shortId)}</span>`;
+  if (progress.best_total){
+    html += `<span class="best">personal best · <b>${fmtTime(progress.best_total)}</b> · ${progress.runs} run${progress.runs===1?'':'s'}</span>`;
+  } else {
+    html += `<span>no record yet — first run sets the bar</span>`;
+  }
+  infoEl.innerHTML = html;
+}
 
 // ──────── canvas ────────
 const cvs = $('#stage');
@@ -745,12 +889,11 @@ function nextStageOrFinale(){
     startStage(game.stageIdx + 1);
   } else {
     game.phase = 'rallyComplete';
-    const total = game.splits.reduce((s,v) => s + v, 0);
-    showBanner('RALLY COMPLETE', `total · ${fmtTime(total)}`, 'blue');
-    try {
-      const prev = parseFloat(localStorage.getItem('forest-rally-best') || '0');
-      if (!prev || total < prev) localStorage.setItem('forest-rally-best', String(total));
-    } catch{}
+    const { isNewBest, total } = recordCompletedRun(game.splits);
+    const headline = isNewBest ? 'NEW PERSONAL BEST' : 'RALLY COMPLETE';
+    const sub = `total · ${fmtTime(total)} · driver #${(playerId||'').slice(-6)} · ${progress.runs} run${progress.runs===1?'':'s'}`;
+    showBanner(headline, sub, isNewBest ? 'green' : 'blue');
+    renderPlayerInfo();   // refresh title-screen card so it shows new best on next visit
   }
 }
 
@@ -1145,6 +1288,15 @@ function frame(now){
 requestAnimationFrame(frame);
 
 // ──────── boot ────────
+// Kick off per-player progress lookup early so the title screen shows
+// the right driver + best time before they hit START. Failures inside
+// initPlayer fall through to a guest UID — the game never blocks on it.
+initPlayer().catch(err => {
+  console.warn('[forest-rally] initPlayer failed:', err?.message || err);
+  // last-resort: synthesize a session-only id so progress functions work
+  if (!playerId){ playerId = 'session-' + Math.random().toString(36).slice(2, 10); renderPlayerInfo(); }
+});
+
 function startGame(){
   $('#title').classList.add('gone');
   setTimeout(() => $('#title').remove(), 500);
