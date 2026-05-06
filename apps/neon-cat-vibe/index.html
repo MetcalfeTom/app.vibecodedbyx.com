@@ -203,33 +203,50 @@ body{
 .score-card .pill .vv.cyan{ color: var(--cyan); text-shadow: 0 0 10px rgba(0,240,255,0.5) }
 .score-card .pill .vv.lime{ color: var(--lime); text-shadow: 0 0 10px rgba(181,255,58,0.5) }
 
-/* mobile touch controls */
+/* mobile touch controls — left dpad + right action stack, never overlap */
 .touch{
   position:fixed; bottom:1rem; left:0; right:0;
   z-index:6;
   display:none;
   justify-content:space-between;
-  padding:0 1rem;
+  align-items:flex-end;
+  padding: 0 0.85rem;
   pointer-events:none;
 }
 @media (pointer: coarse), (max-width: 720px){
   .touch{ display:flex }
 }
+.touch .left-grp,
+.touch .right-grp{
+  display:flex;
+  gap:0.5rem;
+  pointer-events:auto;
+}
 .tbtn{
   pointer-events:auto;
   font-family:'Audiowide',sans-serif;
-  font-size:1.4rem;
-  width:5rem; height:5rem;
+  font-size:1.3rem;
+  width:4.2rem; height:4.2rem;
   border-radius:50%;
-  background: rgba(255,255,255,0.06);
+  background: rgba(20,8,48,0.62);
+  backdrop-filter: blur(4px);
   border:1px solid var(--rule);
   color: var(--ink);
   user-select:none; -webkit-user-select:none;
   touch-action:none;
   display:inline-flex; align-items:center; justify-content:center;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
 }
-.tbtn:active{ background: rgba(255,46,156,0.18); border-color: var(--pink) }
-.touch .right-grp{ display:flex; gap:0.5rem }
+.tbtn.lg{ width:5.2rem; height:5.2rem; font-size:1.7rem }
+.tbtn:active{ background: rgba(255,46,156,0.22); border-color: var(--pink) }
+
+/* On narrow viewports, drop the directional pad gap to keep both groups inside the screen */
+@media (max-width: 420px){
+  .tbtn{ width:3.6rem; height:3.6rem; font-size:1.15rem }
+  .tbtn.lg{ width:4.4rem; height:4.4rem; font-size:1.5rem }
+  .touch{ padding: 0 0.5rem }
+  .touch .left-grp, .touch .right-grp{ gap:0.35rem }
+}
 
 @media (prefers-reduced-motion: reduce){
   .shield-pip{ animation: none }
@@ -293,12 +310,14 @@ body{
 </div>
 
 <div class="touch" aria-hidden="true">
-  <button type="button" class="tbtn" id="tLeft" aria-label="Run left">◀</button>
+  <div class="left-grp">
+    <button type="button" class="tbtn" id="tLeft" aria-label="Run left">◀</button>
+    <button type="button" class="tbtn" id="tRight" aria-label="Run right">▶</button>
+  </div>
   <div class="right-grp">
     <button type="button" class="tbtn" id="tPurr" aria-label="Purr distraction">♪</button>
     <button type="button" class="tbtn" id="tDash" aria-label="Dash">»</button>
-    <button type="button" class="tbtn" id="tJump" aria-label="Jump">▲</button>
-    <button type="button" class="tbtn" id="tRight" aria-label="Run right">▶</button>
+    <button type="button" class="tbtn lg" id="tJump" aria-label="Jump">▲</button>
   </div>
 </div>
 
@@ -829,40 +848,78 @@ function tickPlayer(dt){
   cat.vy += G * dt;
   if (cat.vy > 1500) cat.vy = 1500;
 
-  // proposed motion
+  // ── proper axis-separated AABB collision ──
+  // Pass 1: X-axis. Ground rects are solid on all sides; cat can't run through
+  // a wall. Floating platforms (kind:'float') are one-way (top-only) so we
+  // skip them on the horizontal pass.
+  const halfW = cat.w * 0.36, halfH = cat.h * 0.45;
+  const prevX = cat.x, prevY = cat.y;
   let nx = cat.x + cat.vx * dt;
-  let ny = cat.y + cat.vy * dt;
-
-  // platform collision (AABB)
-  cat.onGround = false;
   for (const p of platforms){
-    // skip if far off-screen
+    if (p.kind !== 'ground') continue;
     const screenPx = p.x - worldX;
     if (screenPx + p.w < -200 || screenPx > W + 400) continue;
-    // check vertical landing (cat falling into top of platform)
-    if (cat.vy >= 0){
-      const wasAbove = (cat.y + cat.h * 0.45) <= p.y + 1;
-      const willInside = nx + cat.w * 0.36 > p.x && nx - cat.w * 0.36 < p.x + p.w
-                       && ny + cat.h * 0.45 >= p.y && cat.y + cat.h * 0.45 <= p.y + 8;
-      if (wasAbove && willInside){
-        ny = p.y - cat.h * 0.45;
-        if (cat.vy > 220) {
-          cat.squash = 0.7;
-          landSfx();
-          for (let i = 0; i < 6; i++){
-            particles.push({ x: cat.x + (Math.random()-0.5)*20, y: p.y, vx: (Math.random()-0.5)*140, vy: -40 - Math.random()*40, life: 0.35, color: '#b13eff' });
-          }
-        }
+    // does cat overlap rect at (nx, prevY)?
+    if (nx + halfW > p.x && nx - halfW < p.x + p.w &&
+        prevY + halfH > p.y && prevY - halfH < p.y + p.h){
+      if (cat.vx > 0){
+        nx = p.x - halfW;
+      } else if (cat.vx < 0){
+        nx = p.x + p.w + halfW;
+      }
+      cat.vx = 0;
+    }
+  }
+  cat.x = nx;
+
+  // Pass 2: Y-axis. Now resolve vertical: ground rects block both top + bottom,
+  // floats only block downward landing (one-way / drop-through up).
+  cat.onGround = false;
+  let ny = cat.y + cat.vy * dt;
+  for (const p of platforms){
+    const screenPx = p.x - worldX;
+    if (screenPx + p.w < -200 || screenPx > W + 400) continue;
+    // horizontal overlap test (uses post-X-pass cat.x)
+    if (!(cat.x + halfW > p.x && cat.x - halfW < p.x + p.w)) continue;
+
+    if (p.kind === 'float'){
+      // one-way: only triggers when falling AND was above the top last frame
+      if (cat.vy < 0) continue;
+      const wasAbove = (prevY + halfH) <= p.y + 1;
+      if (!wasAbove) continue;
+      if (ny + halfH >= p.y){
+        ny = p.y - halfH;
+        landAt(p.y);
+      }
+    } else {
+      // ground: solid top and bottom
+      if (cat.vy > 0 && ny + halfH > p.y && prevY + halfH <= p.y + 1){
+        // landing on top
+        ny = p.y - halfH;
+        landAt(p.y);
+      } else if (cat.vy < 0 && ny - halfH < p.y + p.h && prevY - halfH >= p.y + p.h - 1){
+        // bonking head against the underside (rare since grounds extend 200px down,
+        // but kept for completeness)
+        ny = p.y + p.h + halfH;
         cat.vy = 0;
-        cat.onGround = true;
-        cat.jumpsLeft = 2;
-        cat.coyote = 0.12;
       }
     }
   }
-
-  cat.x = nx;
   cat.y = ny;
+
+  function landAt(topY){
+    if (cat.vy > 220){
+      cat.squash = 0.7;
+      landSfx();
+      for (let i = 0; i < 6; i++){
+        particles.push({ x: cat.x + (Math.random()-0.5)*20, y: topY, vx: (Math.random()-0.5)*140, vy: -40 - Math.random()*40, life: 0.35, color: '#b13eff' });
+      }
+    }
+    cat.vy = 0;
+    cat.onGround = true;
+    cat.jumpsLeft = 2;
+    cat.coyote = 0.12;
+  }
 
   // squash interpolation
   cat.squash += (1 - cat.squash) * Math.min(1, dt * 8);
