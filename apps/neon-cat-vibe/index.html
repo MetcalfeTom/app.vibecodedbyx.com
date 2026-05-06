@@ -777,6 +777,149 @@ function maybeSpawn(){
 }
 
 // ──────── physics ────────
+// ════════════════════════════════════════════════════════════════
+//   SWEPT AABB
+// ════════════════════════════════════════════════════════════════
+// Returns null on miss, or { t, nx, ny } where t is the time-of-impact
+// in [0,1] along the (dx, dy) motion and (nx, ny) is the surface normal
+// (one of {-1,0,1}, exactly one nonzero). Uses the Minkowski expansion
+// trick: treat the entity as a point and grow the platform rect by the
+// entity's half-extents, then do a slab intersection.
+function sweepAABB(boxX, boxY, halfW, halfH, dx, dy, rectX, rectY, rectW, rectH){
+  // Expanded rect via Minkowski-sum trick.
+  const eX = rectX - halfW;
+  const eY = rectY - halfH;
+  const eXR = rectX + rectW + halfW;
+  const eYB = rectY + rectH + halfH;
+
+  // Per-axis entry/exit times. Direction-aware so we don't divide by zero.
+  let txEnter, txExit;
+  if (dx > 0){      txEnter = (eX  - boxX) / dx; txExit = (eXR - boxX) / dx; }
+  else if (dx < 0){ txEnter = (eXR - boxX) / dx; txExit = (eX  - boxX) / dx; }
+  else {
+    if (boxX <= eX || boxX >= eXR) return null;
+    txEnter = -Infinity; txExit = Infinity;
+  }
+  let tyEnter, tyExit;
+  if (dy > 0){      tyEnter = (eY  - boxY) / dy; tyExit = (eYB - boxY) / dy; }
+  else if (dy < 0){ tyEnter = (eYB - boxY) / dy; tyExit = (eY  - boxY) / dy; }
+  else {
+    if (boxY <= eY || boxY >= eYB) return null;
+    tyEnter = -Infinity; tyExit = Infinity;
+  }
+
+  const tEnter = Math.max(txEnter, tyEnter);
+  const tExit  = Math.min(txExit,  tyExit);
+  if (tEnter > tExit) return null;
+  if (tEnter > 1) return null;        // future overlap, beyond this frame
+  if (tExit < 0) return null;         // past overlap, already cleared
+
+  // Embedded at t=0 — entity is already inside the rect. Resolve along the
+  // axis with the smallest penetration so the iteration loop can push out.
+  if (tEnter < 0){
+    const penLeft  = boxX - eX;
+    const penRight = eXR - boxX;
+    const penTop   = boxY - eY;
+    const penBot   = eYB - boxY;
+    const minP = Math.min(penLeft, penRight, penTop, penBot);
+    let nx = 0, ny = 0;
+    if      (minP === penLeft)  nx = -1;
+    else if (minP === penRight) nx =  1;
+    else if (minP === penTop)   ny = -1;
+    else                        ny =  1;
+    return { t: 0, nx, ny, penetration: minP, embedded: true };
+  }
+
+  // Future swept hit — normal is the axis that entered last.
+  let nx = 0, ny = 0;
+  if (txEnter > tyEnter){ nx = dx > 0 ? -1 : 1; }
+  else                  { ny = dy > 0 ? -1 : 1; }
+  return { t: tEnter, nx, ny, penetration: 0, embedded: false };
+}
+
+function moveAndCollide(e, dx, dy){
+  const halfW = e.w * 0.36, halfH = e.h * 0.45;
+  const SKIN = 0.0001;
+  // Iterative sweep — at most 5 passes, each finds the earliest hit, advances
+  // to it, zeroes the contact-normal velocity, then continues with the
+  // perpendicular slide. Embedded states (t<0) are pushed out along the
+  // smallest-penetration axis with no time consumed.
+  let timeLeft = 1;
+  let safety = 5;
+  while (safety-- > 0 && timeLeft > SKIN && (Math.abs(dx) > 1e-5 || Math.abs(dy) > 1e-5)){
+    let bestT = timeLeft;
+    let bestNx = 0, bestNy = 0;
+    let bestPlatY = 0;
+    let bestEmbedded = false;
+    let bestPen = 0;
+    for (const p of platforms){
+      const screenPx = p.x - worldX;
+      if (screenPx + p.w < -200 || screenPx > W + 400) continue;
+      // One-way (float): only test if falling AND currently above the top.
+      if (p.kind === 'float'){
+        if (dy <= 0) continue;
+        if (e.y + halfH > p.y + 0.5) continue;
+      }
+      const hit = sweepAABB(e.x, e.y, halfW, halfH, dx, dy, p.x, p.y, p.w, p.h);
+      if (!hit) continue;
+      // For floats only register top hits; reject side/bottom contacts.
+      if (p.kind === 'float' && hit.ny !== -1) continue;
+      // Prefer the earliest hit. Embedded hits (t=0) only beat a non-embedded
+      // bestT if we don't already have an earlier real hit.
+      if (hit.t < bestT - 1e-7){
+        bestT = hit.t;
+        bestNx = hit.nx;
+        bestNy = hit.ny;
+        bestPlatY = p.y;
+        bestEmbedded = hit.embedded;
+        bestPen = hit.penetration;
+      }
+    }
+    if (bestNx === 0 && bestNy === 0){
+      // No collision this iteration — consume the rest of the time freely.
+      e.x += dx * timeLeft;
+      e.y += dy * timeLeft;
+      timeLeft = 0;
+      break;
+    }
+    if (bestEmbedded){
+      // Push out along the contact normal by the penetration depth + skin.
+      e.x += bestNx * (bestPen + SKIN);
+      e.y += bestNy * (bestPen + SKIN);
+      // Don't consume timeLeft: the entity hasn't actually moved through space.
+    } else {
+      const moveT = Math.max(0, bestT - SKIN);
+      e.x += dx * moveT;
+      e.y += dy * moveT;
+      timeLeft -= moveT;
+    }
+    // Zero the contact-axis velocity so the next iteration slides along the
+    // perpendicular direction only.
+    if (bestNx !== 0){ e.vx = 0; dx = 0; }
+    if (bestNy !== 0){
+      if (bestNy === -1){
+        landAt(bestPlatY);
+      } else {
+        e.vy = 0;
+      }
+      dy = 0;
+    }
+  }
+}
+function landAt(topY){
+  if (cat.vy > 220){
+    cat.squash = 0.7;
+    landSfx();
+    for (let i = 0; i < 6; i++){
+      particles.push({ x: cat.x + (Math.random()-0.5)*20, y: topY, vx: (Math.random()-0.5)*140, vy: -40 - Math.random()*40, life: 0.35, color: '#b13eff' });
+    }
+  }
+  cat.vy = 0;
+  cat.onGround = true;
+  cat.jumpsLeft = 2;
+  cat.coyote = 0.12;
+}
+
 function tickPlayer(dt){
   if (!cat.alive) return;
   const moving = (held('ArrowLeft','KeyA') ? -1 : 0) + (held('ArrowRight','KeyD') ? 1 : 0);
@@ -848,78 +991,15 @@ function tickPlayer(dt){
   cat.vy += G * dt;
   if (cat.vy > 1500) cat.vy = 1500;
 
-  // ── proper axis-separated AABB collision ──
-  // Pass 1: X-axis. Ground rects are solid on all sides; cat can't run through
-  // a wall. Floating platforms (kind:'float') are one-way (top-only) so we
-  // skip them on the horizontal pass.
-  const halfW = cat.w * 0.36, halfH = cat.h * 0.45;
-  const prevX = cat.x, prevY = cat.y;
-  let nx = cat.x + cat.vx * dt;
-  for (const p of platforms){
-    if (p.kind !== 'ground') continue;
-    const screenPx = p.x - worldX;
-    if (screenPx + p.w < -200 || screenPx > W + 400) continue;
-    // does cat overlap rect at (nx, prevY)?
-    if (nx + halfW > p.x && nx - halfW < p.x + p.w &&
-        prevY + halfH > p.y && prevY - halfH < p.y + p.h){
-      if (cat.vx > 0){
-        nx = p.x - halfW;
-      } else if (cat.vx < 0){
-        nx = p.x + p.w + halfW;
-      }
-      cat.vx = 0;
-    }
-  }
-  cat.x = nx;
-
-  // Pass 2: Y-axis. Now resolve vertical: ground rects block both top + bottom,
-  // floats only block downward landing (one-way / drop-through up).
+  // ── swept AABB collision ──
+  // Treat the cat as a point-vs-Minkowski-expanded-rect for each platform.
+  // Per axis, compute slab entry/exit times; the earliest valid hit gives a
+  // time-of-impact t in [0,1] of this frame's motion. We advance to the hit
+  // (with a 0.0001 skin so we don't embed), zero the contact-normal velocity,
+  // and iterate with the leftover time so the cat slides along walls and
+  // can't tunnel through any platform regardless of frame dt or speed.
   cat.onGround = false;
-  let ny = cat.y + cat.vy * dt;
-  for (const p of platforms){
-    const screenPx = p.x - worldX;
-    if (screenPx + p.w < -200 || screenPx > W + 400) continue;
-    // horizontal overlap test (uses post-X-pass cat.x)
-    if (!(cat.x + halfW > p.x && cat.x - halfW < p.x + p.w)) continue;
-
-    if (p.kind === 'float'){
-      // one-way: only triggers when falling AND was above the top last frame
-      if (cat.vy < 0) continue;
-      const wasAbove = (prevY + halfH) <= p.y + 1;
-      if (!wasAbove) continue;
-      if (ny + halfH >= p.y){
-        ny = p.y - halfH;
-        landAt(p.y);
-      }
-    } else {
-      // ground: solid top and bottom
-      if (cat.vy > 0 && ny + halfH > p.y && prevY + halfH <= p.y + 1){
-        // landing on top
-        ny = p.y - halfH;
-        landAt(p.y);
-      } else if (cat.vy < 0 && ny - halfH < p.y + p.h && prevY - halfH >= p.y + p.h - 1){
-        // bonking head against the underside (rare since grounds extend 200px down,
-        // but kept for completeness)
-        ny = p.y + p.h + halfH;
-        cat.vy = 0;
-      }
-    }
-  }
-  cat.y = ny;
-
-  function landAt(topY){
-    if (cat.vy > 220){
-      cat.squash = 0.7;
-      landSfx();
-      for (let i = 0; i < 6; i++){
-        particles.push({ x: cat.x + (Math.random()-0.5)*20, y: topY, vx: (Math.random()-0.5)*140, vy: -40 - Math.random()*40, life: 0.35, color: '#b13eff' });
-      }
-    }
-    cat.vy = 0;
-    cat.onGround = true;
-    cat.jumpsLeft = 2;
-    cat.coyote = 0.12;
-  }
+  moveAndCollide(cat, cat.vx * dt, cat.vy * dt);
 
   // squash interpolation
   cat.squash += (1 - cat.squash) * Math.min(1, dt * 8);
