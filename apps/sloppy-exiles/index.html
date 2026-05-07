@@ -860,6 +860,13 @@ const state = {
   autoEvalT: 0,
   autoLastSig: 0,
   autoIdleAng: 0,
+  // A* pathfinding scratch space (chat ask) — bot navigates around walls
+  autoPath: null,         // [{x,y}] or null
+  autoPathIdx: 0,
+  autoPathGoal: null,     // {x,y} of the goal the path was computed to
+  autoPathTime: 0,        // performance.now() when computed
+  autoLastPos: null,      // {x,y,t} for stuck detection
+  autoStuckT: 0,          // accumulated stuck seconds
   // Progress Quest vibes — show what the bot is doing right now + a
   // scrolling log of recent completed actions in a small status panel.
   autoActivity: { label: 'Idle', progress: 0, dur: 0, kind: 'idle' },
@@ -3313,6 +3320,9 @@ function toggleAuto(){
     player.targetGx = null;
     player.targetGy = null;
     player.attackTarget = null;
+    state.autoPath = null;
+    state.autoPathIdx = 0;
+    state.autoPathGoal = null;
   }
   const pill = document.getElementById('autoPill');
   if (pill){
@@ -3481,6 +3491,235 @@ function tickAutoPanel(dt){
   if (fill) fill.style.width = (a.progress * 100).toFixed(1) + '%';
 }
 
+// =====================================================================
+// A* PATHFINDING — chat ask: navigate the bot around walls
+// =====================================================================
+// Grid-graph A* on TILES. Each walkable tile is a node; edges go to all 8
+// neighbours with diagonal cost √2. Diagonal moves are blocked from
+// corner-clipping (both adjacent orthogonals must be walkable) so the bot
+// doesn't slip through pillar gaps the AABB collider would reject. Closed
+// set is a Set, open set is a small unsorted array (40×40 = 1600 nodes
+// max, search frontier rarely > 50, so a heap is overkill). 600-node
+// expansion cap returns null on pathological cases — caller falls back to
+// straight-line movement.
+const _astarG       = new Map();
+const _astarParent  = new Map();
+const _astarClosed  = new Set();
+const _astarOpen    = [];
+function autoOctile(x1, y1, x2, y2){
+  const dx = Math.abs(x1 - x2), dy = Math.abs(y1 - y2);
+  return (dx + dy) + (1.4142 - 2) * Math.min(dx, dy);
+}
+function autoNearestWalkable(tx, ty){
+  const ix = Math.round(tx), iy = Math.round(ty);
+  if (tileWalkable(ix, iy)) return { x: ix, y: iy };
+  // spiral outward up to radius 4 looking for any walkable tile
+  for (let r = 1; r <= 4; r++){
+    for (let dx = -r; dx <= r; dx++){
+      for (let dy = -r; dy <= r; dy++){
+        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue; // ring only
+        const nx = ix + dx, ny = iy + dy;
+        if (tileWalkable(nx, ny)) return { x: nx, y: ny };
+      }
+    }
+  }
+  return null;
+}
+// Bresenham-ish LOS sample — returns true if every point along the line is
+// walkable. Used to skip A* entirely when the goal is in plain sight.
+function autoHasLOS(sx, sy, gx, gy){
+  const dx = gx - sx, dy = gy - sy;
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) * 4));
+  for (let i = 1; i <= steps; i++){
+    const t = i / steps;
+    if (!tileWalkable(sx + dx * t, sy + dy * t)) return false;
+  }
+  return true;
+}
+const ASTAR_NEIGHBORS = [
+  { dx:  1, dy:  0, c: 1     },
+  { dx: -1, dy:  0, c: 1     },
+  { dx:  0, dy:  1, c: 1     },
+  { dx:  0, dy: -1, c: 1     },
+  { dx:  1, dy:  1, c: 1.4142 },
+  { dx:  1, dy: -1, c: 1.4142 },
+  { dx: -1, dy:  1, c: 1.4142 },
+  { dx: -1, dy: -1, c: 1.4142 },
+];
+function autoFindPath(sx, sy, tx, ty){
+  const start = { x: Math.round(sx), y: Math.round(sy) };
+  if (!tileWalkable(start.x, start.y)) return null;
+  const goalSnap = autoNearestWalkable(tx, ty);
+  if (!goalSnap) return null;
+  if (start.x === goalSnap.x && start.y === goalSnap.y){
+    return [{ x: tx, y: ty }];
+  }
+  _astarG.clear(); _astarParent.clear(); _astarClosed.clear();
+  _astarOpen.length = 0;
+
+  const startKey = start.x + ',' + start.y;
+  const goalKey  = goalSnap.x + ',' + goalSnap.y;
+  _astarG.set(startKey, 0);
+  _astarOpen.push({ k: startKey, x: start.x, y: start.y, f: autoOctile(start.x, start.y, goalSnap.x, goalSnap.y) });
+
+  let limit = 600;
+  while (_astarOpen.length && limit-- > 0){
+    // pop lowest f (small frontier — linear scan is fine)
+    let bi = 0;
+    for (let i = 1; i < _astarOpen.length; i++){
+      if (_astarOpen[i].f < _astarOpen[bi].f) bi = i;
+    }
+    const cur = _astarOpen.splice(bi, 1)[0];
+    if (cur.k === goalKey){
+      // reconstruct path from goal → start
+      const out = [];
+      let k = cur.k, cx = cur.x, cy = cur.y;
+      // walk parent chain
+      while (true){
+        out.unshift({ x: cx, y: cy });
+        const p = _astarParent.get(k);
+        if (!p) break;
+        k = p.k; cx = p.x; cy = p.y;
+      }
+      // append the actual fractional target as the final waypoint so the
+      // bot walks onto the precise drop / portal / enemy location, not the
+      // tile centre next to it.
+      if (Math.hypot(tx - goalSnap.x, ty - goalSnap.y) > 0.15){
+        out.push({ x: tx, y: ty });
+      }
+      // drop the start node — we're already there
+      if (out.length > 1) out.shift();
+      return out;
+    }
+    _astarClosed.add(cur.k);
+    const curG = _astarG.get(cur.k);
+    for (const n of ASTAR_NEIGHBORS){
+      const nx = cur.x + n.dx, ny = cur.y + n.dy;
+      if (!tileWalkable(nx, ny)) continue;
+      // diagonal corner-clip prevention
+      if (n.dx !== 0 && n.dy !== 0){
+        if (!tileWalkable(cur.x + n.dx, cur.y) || !tileWalkable(cur.x, cur.y + n.dy)) continue;
+      }
+      const nk = nx + ',' + ny;
+      if (_astarClosed.has(nk)) continue;
+      const tentG = curG + n.c;
+      const prevG = _astarG.get(nk);
+      if (prevG !== undefined && tentG >= prevG) continue;
+      _astarG.set(nk, tentG);
+      _astarParent.set(nk, { k: cur.k, x: cur.x, y: cur.y });
+      const f = tentG + autoOctile(nx, ny, goalSnap.x, goalSnap.y);
+      const exi = _astarOpen.findIndex(o => o.k === nk);
+      if (exi < 0) _astarOpen.push({ k: nk, x: nx, y: ny, f });
+      else _astarOpen[exi].f = f;
+    }
+  }
+  return null;
+}
+
+// String-pull / line-of-sight smoothing: removes intermediate waypoints
+// that have direct LOS from the previous one, so the bot cuts diagonals
+// across open rooms instead of zig-zagging tile-by-tile.
+function autoSmoothPath(path, sx, sy){
+  if (!path || path.length < 2) return path;
+  const out = [];
+  let cx = sx, cy = sy;
+  let i = 0;
+  while (i < path.length){
+    // greedy: find the farthest waypoint with LOS from (cx, cy)
+    let best = i;
+    for (let j = path.length - 1; j > i; j--){
+      if (autoHasLOS(cx, cy, path[j].x, path[j].y)){ best = j; break; }
+    }
+    out.push(path[best]);
+    cx = path[best].x; cy = path[best].y;
+    i = best + 1;
+  }
+  return out;
+}
+
+// Path-following driver. Sets player.targetGx/Gy to the current waypoint,
+// advances when we get close, recomputes when stuck or when the goal
+// drifts. Returns true when path is set / progressing, false on failure
+// (caller can fall back to straight-line).
+function autoFollowGoal(gx, gy){
+  const now = performance.now();
+  const prev = state.autoPath;
+  const prevGoal = state.autoPathGoal;
+  const playerPos = { x: player.gx, y: player.gy };
+
+  // stuck detection — track last position
+  if (!state.autoLastPos || (now - state.autoLastPos.t) > 350){
+    if (state.autoLastPos){
+      const moved = Math.hypot(playerPos.x - state.autoLastPos.x, playerPos.y - state.autoLastPos.y);
+      if (moved < 0.12) state.autoStuckT = (state.autoStuckT || 0) + (now - state.autoLastPos.t) / 1000;
+      else state.autoStuckT = 0;
+    }
+    state.autoLastPos = { x: playerPos.x, y: playerPos.y, t: now };
+  }
+
+  const goalMoved = !prevGoal || Math.hypot(gx - prevGoal.x, gy - prevGoal.y) > 1.5;
+  const stale = (now - (state.autoPathTime || 0)) > 1500;
+  const stuck = (state.autoStuckT || 0) > 0.6;
+  const direct = autoHasLOS(playerPos.x, playerPos.y, gx, gy);
+
+  // Direct LOS short-circuit: skip A* entirely if we can see the goal.
+  // Saves work on every step in open rooms.
+  if (direct){
+    state.autoPath = null;
+    state.autoPathGoal = { x: gx, y: gy };
+    player.targetGx = gx;
+    player.targetGy = gy;
+    return true;
+  }
+
+  // Recompute path if needed
+  if (!prev || goalMoved || stale || stuck){
+    const raw = autoFindPath(playerPos.x, playerPos.y, gx, gy);
+    const smooth = raw ? autoSmoothPath(raw, playerPos.x, playerPos.y) : null;
+    if (smooth && smooth.length){
+      state.autoPath = smooth;
+      state.autoPathIdx = 0;
+      state.autoPathGoal = { x: gx, y: gy };
+      state.autoPathTime = now;
+      state.autoStuckT = 0;
+      if (stuck) pushAutoLog('Re-routing around wall');
+    } else {
+      // pathfinding failed — straight-line fallback (existing behaviour)
+      state.autoPath = null;
+      player.targetGx = gx;
+      player.targetGy = gy;
+      return false;
+    }
+  }
+
+  // follow the current waypoint
+  const path = state.autoPath;
+  let idx = state.autoPathIdx | 0;
+  if (idx >= path.length){
+    // reached end — drive to actual goal directly
+    player.targetGx = gx;
+    player.targetGy = gy;
+    return true;
+  }
+  // advance through any waypoints we've already cleared (handles fast moves)
+  while (idx < path.length - 1){
+    const wp = path[idx];
+    if (Math.hypot(playerPos.x - wp.x, playerPos.y - wp.y) < 0.55) idx++;
+    else break;
+  }
+  state.autoPathIdx = idx;
+  const wp = path[idx];
+  player.targetGx = wp.x;
+  player.targetGy = wp.y;
+  return true;
+}
+
+function autoClearPath(){
+  state.autoPath = null;
+  state.autoPathIdx = 0;
+  state.autoPathGoal = null;
+}
+
 function tickAuto(dt){
   if (!state.auto || !player.alive) return;
 
@@ -3489,14 +3728,14 @@ function tickAuto(dt){
   if (state.inTown){
     if (player.inventory.length >= 28){
       setAutoActivity('Hauling loot to the chest…', 1.0, 'haul');
-      player.targetGx = CHEST_GX;
-      player.targetGy = CHEST_GY;
+      autoFollowGoal(CHEST_GX, CHEST_GY);
       if (Math.hypot(player.gx - CHEST_GX, player.gy - CHEST_GY) < CHEST_OPEN_RADIUS){
         if (typeof openChest === 'function') openChest();
         pushAutoLog('Stashed ' + player.inventory.length + ' items in the chest');
       }
     } else {
       setAutoActivity('Returning to the wastes…', 0.3, 'travel');
+      autoClearPath();
       useTownPortal();
       pushAutoLog('Stepped through the town portal');
     }
@@ -3529,8 +3768,7 @@ function tickAuto(dt){
   if (exitPortal && !enemy){
     setAutoActivity('Descending to floor ' + (state.floor + 1) + '…', 0.6, 'descend');
     player.attackTarget = null;
-    player.targetGx = exitPortal.gx;
-    player.targetGy = exitPortal.gy;
+    autoFollowGoal(exitPortal.gx, exitPortal.gy);
     return;
   }
 
@@ -3539,26 +3777,36 @@ function tickAuto(dt){
     const it = dropInfo.drop.item;
     setAutoActivity('Salvaging ' + (it && it.name ? it.name : 'loot') + '…', 0.6, 'loot');
     player.attackTarget = null;
-    player.targetGx = dropInfo.drop.gx;
-    player.targetGy = dropInfo.drop.gy;
+    autoFollowGoal(dropInfo.drop.gx, dropInfo.drop.gy);
     return;
   }
 
   // 2c. Combat — execute the closest enemy
   if (enemy){
     const distE = Math.hypot(enemy.gx - player.gx, enemy.gy - player.gy);
-    // activity label = current target's name + HP-derived progress
+    const inRange = distE <= player.attackRange * 1.4 && autoHasLOS(player.gx, player.gy, enemy.gx, enemy.gy);
     const lbl = (enemy.kind === 'nexrad_cloud')
       ? 'Battling The NEXRAD Cloud…'
       : 'Executing a ' + (enemyDisplayName(enemy)) + '…';
-    // progress shows damage dealt as 0→1
     const prog = 1 - Math.max(0, Math.min(1, enemy.hp / enemy.maxHp));
     setAutoActivity(lbl, 1.0, 'fight');
     state.autoActivity.progress = prog;
 
-    player.attackTarget = enemy;
-    player.targetGx = enemy.gx;
-    player.targetGy = enemy.gy;
+    if (inRange){
+      // close enough + clear LOS — engage; let tickPlayer's existing combat
+      // logic drive the swing/walk-into-range loop without our path
+      // overriding its targetGx tweaks
+      player.attackTarget = enemy;
+      autoClearPath();
+      player.targetGx = enemy.gx;
+      player.targetGy = enemy.gy;
+    } else {
+      // out of LOS or out of range — pathfind toward the enemy. Don't lock
+      // attackTarget yet, otherwise the existing tickPlayer code would
+      // overwrite our waypoint targetGx with the enemy's straight-line pos.
+      player.attackTarget = null;
+      autoFollowGoal(enemy.gx, enemy.gy);
+    }
     const fdx = enemy.gx - player.gx, fdy = enemy.gy - player.gy;
     const facingScreen = (fdx - fdy);
     if (Math.abs(facingScreen) > 0.05) player.facing = facingScreen > 0 ? 1 : -1;
@@ -3568,7 +3816,7 @@ function tickAuto(dt){
     if (player.skills.cleave    && player.cooldowns.cleave    <= 0 && swarm >= 2 && player.mp >= 8 ) useSkill('cleave');
     if (player.skills.frostbolt && player.cooldowns.frostbolt <= 0 && distE > 3 && distE < 9 && player.mp >= 12) useSkill('frostbolt');
     if (player.skills.lifedrain && player.cooldowns.lifedrain <= 0 && lowHp && distE < 4 && player.mp >= 20) useSkill('lifedrain');
-    if (player.cooldowns.signature <= 0 && (now - state.autoLastSig) > 4500 && distE < 8){
+    if (player.cooldowns.signature <= 0 && (now - state.autoLastSig) > 4500 && distE < 8 && inRange){
       useSignature();
       state.autoLastSig = now;
     }
@@ -3579,19 +3827,18 @@ function tickAuto(dt){
   setAutoActivity('Searching the wastes for prey…', 1.4, 'travel');
   if (state.autoEvalT > 0.9){
     state.autoEvalT = 0;
-    // walk a long line through map center; reroll target if we're already there
     const cx = TOWN_GX, cy = TOWN_GY;
     const dx = cx - player.gx, dy = cy - player.gy;
     const d = Math.hypot(dx, dy);
     if (d < 3){
       state.autoIdleAng += (Math.random() - 0.5) * 1.6 + 0.7;
-      player.targetGx = player.gx + Math.cos(state.autoIdleAng) * 9;
-      player.targetGy = player.gy + Math.sin(state.autoIdleAng) * 9;
+      const tx = player.gx + Math.cos(state.autoIdleAng) * 9;
+      const ty = player.gy + Math.sin(state.autoIdleAng) * 9;
+      autoFollowGoal(tx, ty);
     } else {
-      player.targetGx = cx;
-      player.targetGy = cy;
+      autoFollowGoal(cx, cy);
     }
-    state.autoActivity.progress = 0.5; // pure animation; no real progress
+    state.autoActivity.progress = 0.5;
   }
 }
 
@@ -4105,6 +4352,44 @@ function paintPillar(c, sx, sy) {
 }
 
 // === ENTITY RENDERING (sorted back-to-front by gx+gy) ===
+// Auto-mode path overlay — visualises the A* waypoint chain in pulsing
+// lime so the audience can see the bot's brain. Renders nothing when
+// auto is off or there's no active path.
+function drawAutoPath(){
+  if (!state.auto || !state.autoPath || !state.autoPath.length) return;
+  const path = state.autoPath;
+  const idx = state.autoPathIdx | 0;
+  const t = performance.now() / 1000;
+  // line from player to first waypoint, then through the rest
+  const start = worldToScreen(player.gx, player.gy);
+  ctx.save();
+  ctx.shadowColor = '#9aff5e';
+  ctx.shadowBlur = 8;
+  ctx.strokeStyle = 'rgba(154,255,94,0.55)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.lineDashOffset = -t * 24;        // crawling dashes
+  ctx.beginPath();
+  ctx.moveTo(start.x, start.y);
+  for (let i = idx; i < path.length; i++){
+    const sp = worldToScreen(path[i].x, path[i].y);
+    ctx.lineTo(sp.x, sp.y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // waypoint dots
+  ctx.shadowBlur = 6;
+  for (let i = idx; i < path.length; i++){
+    const sp = worldToScreen(path[i].x, path[i].y);
+    const isLast = i === path.length - 1;
+    ctx.fillStyle = isLast ? '#ffd03e' : '#9aff5e';
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, isLast ? 4 : 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawEntities() {
   const off = camOffset();
   // Z-sort: tiles already drawn; entities drawn afterward so they sit on top.
@@ -4812,6 +5097,7 @@ function loop(now) {
   // Render
   clearScene();
   drawTiles();
+  drawAutoPath();
   drawEntities();
   drawLightnings();
   drawEmbers(dt * 1000);
