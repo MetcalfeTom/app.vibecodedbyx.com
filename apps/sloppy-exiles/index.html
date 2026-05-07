@@ -1953,11 +1953,18 @@ function startGame() {
     applyEquippedStats();
     // Restore live HP/MP (clamped to current max) — finishes after the
     // skill-tree apply pass since some nodes change max values.
-    if (vault.hp != null && vault.maxHp != null){
+    // Chat ask: full HP/MP on respawn. The death save flushed hp=0 to the
+    // vault (because endGame runs after the killing blow set hp to 0), so
+    // gate the ratio restore on `vault.hp > 0`. When the save snapshot is
+    // from a dead run, leave the class-init `player.hp = maxHp` set above
+    // in place — the bot rises fully restored. Mid-session reloads from a
+    // live save still preserve their HP ratio.
+    const wasAlive = (vault.hp != null && vault.hp > 0);
+    if (wasAlive && vault.maxHp != null){
       const hpRatio = Math.max(0, Math.min(1, vault.hp / Math.max(1, vault.maxHp)));
       player.hp = Math.max(1, Math.round(player.maxHp * hpRatio));
     }
-    if (vault.mp != null && vault.maxMp != null){
+    if (wasAlive && vault.mp != null && vault.maxMp != null){
       const mpRatio = Math.max(0, Math.min(1, vault.mp / Math.max(1, vault.maxMp)));
       player.mp = Math.round(player.maxMp * mpRatio);
     }
@@ -3761,6 +3768,62 @@ function autoClearPath(){
   state.autoPathGoal = null;
 }
 
+// Per-enemy A* path-following — chat ask: enemies should walk around walls
+// the same way the bot does. Each enemy carries its own path/goal/stuck
+// scratch fields (lazy-initialised). Returns a desired direction vector
+// (NOT yet normalised) for the caller to scale by speed × dt.
+//
+// Performance: LOS short-circuit covers the common case (enemy can see
+// player → straight-line, no A* call). Recompute throttle (1.2s + drift /
+// stuck triggers) caps each enemy at ~1 A* call/sec when blocked. Worst
+// case 30 enemies × ~1 call/sec = 30 A* calls/sec on a 1600-node grid —
+// well within budget.
+function enemyFollowGoal(en, gx, gy, now){
+  // Track stuck state — if the enemy hasn't moved appreciably for >0.5s,
+  // force a path recompute on the next tick.
+  if (!en._lastPos || (now - en._lastPos.t) > 350){
+    if (en._lastPos){
+      const moved = Math.hypot(en.gx - en._lastPos.x, en.gy - en._lastPos.y);
+      if (moved < 0.10) en._stuckT = (en._stuckT || 0) + (now - en._lastPos.t) / 1000;
+      else en._stuckT = 0;
+    }
+    en._lastPos = { x: en.gx, y: en.gy, t: now };
+  }
+  // Direct LOS — easy path, no A* needed
+  if (autoHasLOS(en.gx, en.gy, gx, gy)){
+    en._path = null;
+    return { dx: gx - en.gx, dy: gy - en.gy };
+  }
+  const goalMoved = !en._pathGoal || Math.hypot(gx - en._pathGoal.x, gy - en._pathGoal.y) > 1.5;
+  const stale = (now - (en._pathTime || 0)) > 1200;
+  const stuck = (en._stuckT || 0) > 0.5;
+  if (!en._path || goalMoved || stale || stuck){
+    const raw = autoFindPath(en.gx, en.gy, gx, gy);
+    const smooth = raw ? autoSmoothPath(raw, en.gx, en.gy) : null;
+    if (smooth && smooth.length){
+      en._path = smooth;
+      en._pathIdx = 0;
+      en._pathGoal = { x: gx, y: gy };
+      en._pathTime = now;
+      en._stuckT = 0;
+    } else {
+      // pathfinding failed — straight-line fallback (may still bonk)
+      en._path = null;
+      return { dx: gx - en.gx, dy: gy - en.gy };
+    }
+  }
+  // Advance through any waypoints we've already cleared
+  let idx = en._pathIdx | 0;
+  while (idx < en._path.length - 1){
+    const wp = en._path[idx];
+    if (Math.hypot(en.gx - wp.x, en.gy - wp.y) < 0.55) idx++;
+    else break;
+  }
+  en._pathIdx = idx;
+  const wp = en._path[idx];
+  return { dx: wp.x - en.gx, dy: wp.y - en.gy };
+}
+
 function tickAuto(dt){
   if (!state.auto || !player.alive) return;
 
@@ -4034,22 +4097,28 @@ function tickPlayer(dt) {
 }
 
 function tickEnemies(dt) {
+  const now = performance.now();
   for (let i = enemies.length - 1; i >= 0; i--) {
     const en = enemies[i];
     // Boss has its own AI (no melee, projectile-only)
     if (en.kind === 'nexrad_cloud'){ tickNexradBoss(en, dt); continue; }
-    const dx = player.gx - en.gx, dy = player.gy - en.gy;
-    const d = Math.hypot(dx, dy) || 1;
-    const slowMul = (en.chillUntil > performance.now() / 1000) ? 0.45 : 1.0;
-    if (d > 0.9) {
-      const sp = en.speed * slowMul;
-      tryMove(en, (dx / d) * sp * dt, (dy / d) * sp * dt);
+    const dxPlayer = player.gx - en.gx, dyPlayer = player.gy - en.gy;
+    const dPlayer  = Math.hypot(dxPlayer, dyPlayer) || 1;
+    const slowMul  = (en.chillUntil > now / 1000) ? 0.45 : 1.0;
+    if (dPlayer > 0.9){
+      // Chat ask: enemies pathfind around walls toward the player using the
+      // same A* helpers the auto bot uses. Direct LOS hands back a straight
+      // line; otherwise the helper steers toward the next waypoint.
+      const dir = enemyFollowGoal(en, player.gx, player.gy, now);
+      const dl  = Math.hypot(dir.dx, dir.dy) || 1;
+      const sp  = en.speed * slowMul;
+      tryMove(en, (dir.dx / dl) * sp * dt, (dir.dy / dl) * sp * dt);
     }
     en.walkPhase += dt * 6;
-    en.facing = (dx > dy) ? 1 : -1;
+    en.facing = (dxPlayer > dyPlayer) ? 1 : -1;
     if (en.flash > 0) en.flash -= dt;
     en.attackCD -= dt;
-    if (d < 0.95 && en.attackCD <= 0 && performance.now() > player.invulnUntil) {
+    if (dPlayer < 0.95 && en.attackCD <= 0 && now > player.invulnUntil) {
       en.attackCD = 1.1 * (en.attackCdBase || 1.0);
       const dmg = en.dmg;
       player.hp -= dmg;
