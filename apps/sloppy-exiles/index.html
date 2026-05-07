@@ -725,6 +725,16 @@ const state = {
   // a fresh wing of the same floor.
   zoneX: 0,
   zoneY: 0,
+  // === NEXRAD CLOUD BOSS (chat ask) ===
+  // nexradPrecip       : has the precipitation check returned positive recently
+  // nexradBossSpawned  : guard so we only spawn one per session per cooldown
+  // nexradBossKilledAt : performance.now() at last kill, gates re-spawn 5min
+  // userLat/userLon    : geolocation if granted, else CONUS centerish defaults
+  nexradPrecip: false,
+  nexradBossSpawned: false,
+  nexradBossKilledAt: 0,
+  userLat: 39.5,
+  userLon: -96.5,
 };
 
 // =====================================================================
@@ -1190,7 +1200,26 @@ const ENEMY_KINDS = {
     hpMul: 0.55, dmgMul: 0.85, speedMul: 1.45,
     attackCdMul: 0.75,
   },
+  nexrad_cloud: {
+    label: 'The NEXRAD Cloud',
+    // RARE BOSS (chat ask) — only spawns at map center when RainViewer
+    // reports precipitation in the player's region. Slow, tanky, attacks
+    // exclusively via projectiles in the radar-palette colors.
+    hpMul: 12.0, dmgMul: 0.0, speedMul: 0.32, attackCdMul: 1.0,
+    isBoss: true,
+  },
 };
+
+// Radar palette for the boss + its attacks — the same NEXRAD-III ramp the
+// neon-radar app uses, lifted whole so the boss looks like a piece of the
+// storm map that walked off the screen.
+const NEXRAD_PALETTE = ['#3072c8', '#5fc2a4', '#9aff5e', '#ffd03e', '#ff7a3e', '#ff2e9c', '#b13eff'];
+function nexradColor(t){
+  // t in [0,1] → palette gradient
+  const N = NEXRAD_PALETTE.length;
+  const i = Math.max(0, Math.min(N - 1, Math.floor(t * (N - 1))));
+  return NEXRAD_PALETTE[i];
+}
 function pickEnemyKind(){
   // Floor-scaled distribution. Floor 1 = mostly skeletons; deeper = more
   // trolls + slimes. Keeps early game readable but adds chaos at depth.
@@ -1232,6 +1261,173 @@ function spawnEnemy(t) {
     walkPhase: Math.random() * Math.PI * 2,
     level: lvl,
     chillUntil: 0,        // frost-bolt slow
+  });
+}
+
+// =====================================================================
+// THE NEXRAD CLOUD — rare boss, gated on real-world precipitation
+// =====================================================================
+// Boss spawns at the map center (TOWN_GX, TOWN_GY) — yes, that's INSIDE
+// the home zone's town safe-zone — when RainViewer reports current radar
+// frames AND Open-Meteo says it's raining at the player's position. The
+// safe-zone block is bypassed for this enemy specifically; the storm has
+// invaded sanctuary. Guarded so it spawns at most once per 5 minutes.
+async function checkNexradPrecipitation(){
+  let rvUp = false;
+  // Step 1 — confirm RainViewer is reporting current frames
+  try {
+    const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    if (r.ok){
+      const j = await r.json();
+      rvUp = !!(j && j.radar && Array.isArray(j.radar.past) && j.radar.past.length);
+    }
+  } catch (e) { /* CORS / offline — silent, fallback below */ }
+  // Step 2 — Open-Meteo gives us the actual precipitation magnitude
+  let precip = -1;
+  try {
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + state.userLat
+              + '&longitude=' + state.userLon
+              + '&current=precipitation&timezone=auto';
+    const r = await fetch(url);
+    if (r.ok){
+      const j = await r.json();
+      if (j && j.current && typeof j.current.precipitation === 'number'){
+        precip = j.current.precipitation;
+      }
+    }
+  } catch (e) { /* silent */ }
+  // Decision matrix:
+  // - precipitation > 0.05 mm AND RainViewer up → DEFINITELY raining
+  // - precipitation > 0.05 mm but RainViewer down → still raining (use Open-Meteo as truth)
+  // - Open-Meteo down + RainViewer up → 25% chance the storm is local (probabilistic fallback)
+  // - both down → no boss
+  if (precip > 0.05) state.nexradPrecip = true;
+  else if (precip < 0 && rvUp) state.nexradPrecip = Math.random() < 0.25;
+  else state.nexradPrecip = false;
+  console.info('[sloppy-exiles] nexrad precip check · rvUp=' + rvUp + ' · precip=' + precip + ' · result=' + state.nexradPrecip);
+}
+
+function spawnNexradBoss(){
+  const lvl = Math.max(3, player.level + 2);
+  const k = ENEMY_KINDS.nexrad_cloud;
+  const baseHp = 30 + lvl * 14;
+  enemies.push({
+    kind: 'nexrad_cloud',
+    gx: TOWN_GX, gy: TOWN_GY,
+    vgx: 0, vgy: 0,
+    speed: (2.0 + Math.random() * 0.6) * k.speedMul,
+    hp:    baseHp * k.hpMul,
+    maxHp: baseHp * k.hpMul,
+    dmg: 0,
+    attackCdBase: k.attackCdMul,
+    attackCD: 0,
+    flash: 0, facing: 1,
+    walkPhase: 0,
+    level: lvl,
+    chillUntil: 0,
+    isBoss: true,
+    // boss-specific timers (per-attack independent cooldowns)
+    boltCD: 1.4,
+    hailCD: 3.2,
+    pulseCD: 5.5,
+    boltJitter: 0,
+    bobPhase: 0,
+  });
+  state.nexradBossSpawned = true;
+  showToast('▣ THE NEXRAD CLOUD ▣', 'a storm has reached the centre', 'leg');
+  if (sfx && sfx.cast) sfx.cast();
+}
+
+function tickNexradBoss(en, dt){
+  // Cloud drifts slowly toward (or away from) the player to keep the fight kinetic.
+  // It never melees — all damage is via projectiles, so contact is just visual.
+  const dx = player.gx - en.gx, dy = player.gy - en.gy;
+  const d = Math.hypot(dx, dy) || 1;
+  // hover at ~5 tiles from player; close in if too far, drift away if too close
+  const desired = 5;
+  const moveSign = d > desired ? 1 : d < desired - 1 ? -1 : 0;
+  if (moveSign !== 0){
+    const sp = en.speed * moveSign;
+    tryMove(en, (dx / d) * sp * dt, (dy / d) * sp * dt);
+  }
+  en.bobPhase += dt * 0.8;
+  en.facing = dx > 0 ? 1 : -1;
+  if (en.flash > 0) en.flash -= dt;
+
+  // ── Attack 1 — Lightning bolt (every ~2.6s) ──
+  en.boltCD -= dt;
+  if (en.boltCD <= 0){
+    en.boltCD = 2.6;
+    fireNexradBolt(en);
+  }
+  // ── Attack 2 — Hail rain (every ~4.5s) ──
+  en.hailCD -= dt;
+  if (en.hailCD <= 0){
+    en.hailCD = 4.5;
+    fireNexradHail(en);
+  }
+  // ── Attack 3 — Cell pulse ring (every ~6s) ──
+  en.pulseCD -= dt;
+  if (en.pulseCD <= 0){
+    en.pulseCD = 6.0;
+    fireNexradPulse(en);
+  }
+}
+
+function fireNexradBolt(en){
+  const dx = player.gx - en.gx, dy = player.gy - en.gy;
+  const d = Math.hypot(dx, dy) || 1;
+  const speed = 5.5;
+  projectiles.push({
+    kind: 'nx-bolt',
+    gx: en.gx, gy: en.gy,
+    vgx: (dx / d) * speed,
+    vgy: (dy / d) * speed,
+    life: 2.0,
+    dmg: 22,
+    targetsPlayer: true,
+    color: '#9aff5e',
+    streakSeed: Math.random() * 999,
+    age: 0,
+  });
+  if (sfx && sfx.cast) sfx.cast();
+}
+function fireNexradHail(en){
+  // 5 hail orbs spawn high above the player and "fall" — modelled as projectiles
+  // with a downward visual-only `fallY` that decays to 0 over their first 0.6s.
+  const N = 5;
+  for (let i = 0; i < N; i++){
+    const a = (i / N) * Math.PI * 2 + Math.random() * 0.4;
+    const offX = Math.cos(a) * (0.6 + Math.random() * 1.6);
+    const offY = Math.sin(a) * (0.6 + Math.random() * 1.6);
+    projectiles.push({
+      kind: 'nx-hail',
+      gx: player.gx + offX,
+      gy: player.gy + offY,
+      vgx: 0, vgy: 0,
+      life: 1.4,
+      dmg: 14,
+      targetsPlayer: true,
+      color: '#ff7a3e',
+      fallY: 1.6,            // visual-only; decays over first 0.6s
+      armed: false,
+      r: 0.7,                // splash radius
+    });
+  }
+}
+function fireNexradPulse(en){
+  projectiles.push({
+    kind: 'nx-pulse',
+    gx: en.gx, gy: en.gy,
+    vgx: 0, vgy: 0,
+    life: 1.6,
+    dmg: 18,
+    targetsPlayer: true,
+    radius: 0.4,
+    radiusV: 3.5,            // tiles/sec
+    maxR: 5.5,
+    hitOnce: false,
+    color: '#3072c8',
   });
 }
 
@@ -2370,13 +2566,32 @@ function killEnemy(en) {
   state.kills += 1;
   state.floorKills += 1;
   maybeSpawnExitPortal();
-  const xpGain = 24 + en.level * 8;
+  const isBoss = en.kind === 'nexrad_cloud';
+  const xpGain = isBoss ? (240 + en.level * 40) : (24 + en.level * 8);
   player.xp += xpGain;
-  const goldGain = 4 + Math.floor(Math.random() * en.level * 5);
+  const goldGain = isBoss ? (200 + en.level * 30) : (4 + Math.floor(Math.random() * en.level * 5));
   player.gold += goldGain;
-  // 60% drop chance
-  if (Math.random() < 0.6) dropLootAt(en.gx, en.gy);
-  spawnDeathBurst(en.gx, en.gy);
+  if (isBoss){
+    // guaranteed legendary drop + reset boss state w/ 5-min cooldown
+    const legendary = rollItem(Math.max(player.level, en.level), 0);
+    const legR = RARITY.find(r => r.key === 'leg');
+    legendary.rarity = 'leg';
+    legendary.rarityName = 'legendary';
+    legendary.stat = Math.round((legendary.level * 2 + 4) * legR.stat);
+    // strip any existing prefix and set Mythic
+    legendary.name = legR.prefix + legendary.name.replace(/^(Sturdy|Glorious|Cursed|Mythic)\s+/, '');
+    drops.push({ gx: en.gx, gy: en.gy, item: legendary, ageT: 0, ttl: 60 });
+    spawnDeathBurst(en.gx, en.gy);
+    spawnDeathBurst(en.gx + 0.6, en.gy);
+    spawnDeathBurst(en.gx - 0.6, en.gy);
+    state.nexradBossSpawned = false;
+    state.nexradBossKilledAt = performance.now();
+    showToast('THE STORM PASSES', 'legendary drop · cooldown 5min', 'leg');
+  } else {
+    // 60% drop chance
+    if (Math.random() < 0.6) dropLootAt(en.gx, en.gy);
+    spawnDeathBurst(en.gx, en.gy);
+  }
   sfx.bone();
   // Remove
   const idx = enemies.indexOf(en);
@@ -3062,6 +3277,8 @@ function tickPlayer(dt) {
 function tickEnemies(dt) {
   for (let i = enemies.length - 1; i >= 0; i--) {
     const en = enemies[i];
+    // Boss has its own AI (no melee, projectile-only)
+    if (en.kind === 'nexrad_cloud'){ tickNexradBoss(en, dt); continue; }
     const dx = player.gx - en.gx, dy = player.gy - en.gy;
     const d = Math.hypot(dx, dy) || 1;
     const slowMul = (en.chillUntil > performance.now() / 1000) ? 0.45 : 1.0;
@@ -3095,7 +3312,48 @@ function tickProjectiles(dt) {
     p.gy += p.vgy * dt;
     p.life -= dt;
     if (p.life <= 0) { projectiles.splice(i, 1); continue; }
-    // Hit detection
+
+    // ── BOSS PROJECTILES (target the player) ──
+    if (p.targetsPlayer){
+      // visual-only fall for hail
+      if (p.kind === 'nx-hail'){
+        p.fallY = Math.max(0, (p.fallY || 0) - dt * 2.7);
+        if (!p.armed && p.fallY <= 0.05){
+          p.armed = true;        // landed — start the splash window
+          p.armedAt = performance.now();
+          p.life = Math.min(p.life, 0.45);
+        }
+        if (p.armed){
+          const dpy = Math.hypot(player.gx - p.gx, player.gy - p.gy);
+          if (dpy < (p.r || 0.7) && performance.now() > player.invulnUntil){
+            damagePlayerFromBoss(p.dmg);
+            projectiles.splice(i, 1); continue;
+          }
+        }
+      } else if (p.kind === 'nx-pulse'){
+        // expanding ring — damage when player is within a thin band around the ring
+        p.radius += (p.radiusV || 3.5) * dt;
+        if (p.radius > (p.maxR || 5.5)){ projectiles.splice(i, 1); continue; }
+        if (!p.hitOnce){
+          const dpy = Math.hypot(player.gx - p.gx, player.gy - p.gy);
+          if (Math.abs(dpy - p.radius) < 0.42 && performance.now() > player.invulnUntil){
+            damagePlayerFromBoss(p.dmg);
+            p.hitOnce = true;
+          }
+        }
+      } else {
+        // straight-line lightning bolt (and any other line-projectile)
+        p.age = (p.age || 0) + dt;
+        const dpy = Math.hypot(player.gx - p.gx, player.gy - p.gy);
+        if (dpy < 0.55 && performance.now() > player.invulnUntil){
+          damagePlayerFromBoss(p.dmg);
+          projectiles.splice(i, 1); continue;
+        }
+      }
+      continue;     // boss projectiles never damage other enemies
+    }
+
+    // ── PLAYER PROJECTILES (existing behavior — target enemies) ──
     for (const en of enemies) {
       const d = Math.hypot(en.gx - p.gx, en.gy - p.gy);
       if (d < 0.6) {
@@ -3105,6 +3363,17 @@ function tickProjectiles(dt) {
         break;
       }
     }
+  }
+}
+function damagePlayerFromBoss(dmg){
+  player.hp -= dmg;
+  dmgPop(player.gx, player.gy, '-' + dmg);
+  if (sfx && sfx.hit) sfx.hit();
+  player.invulnUntil = performance.now() + 350;
+  if (player.hp <= 0){
+    player.hp = 0;
+    player.alive = false;
+    endGame();
   }
 }
 
@@ -3535,9 +3804,10 @@ function drawEnemy(en) {
   ctx.beginPath(); ctx.ellipse(sp.x, sp.y + 6, shR, 5, 0, 0, Math.PI * 2); ctx.fill();
   const flash = en.flash > 0 ? Math.min(1, en.flash * 6) : 0;
   const wob = Math.sin(en.walkPhase) * 2;
-  if      (en.kind === 'swamp_troll') drawSwampTroll(sp, en, flash, wob);
-  else if (en.kind === 'toxic_slime') drawToxicSlime(sp, en, flash, wob);
-  else                                drawSkeleton(sp, en, flash, wob);
+  if      (en.kind === 'nexrad_cloud') drawNexradCloud(sp, en, flash);
+  else if (en.kind === 'swamp_troll')  drawSwampTroll(sp, en, flash, wob);
+  else if (en.kind === 'toxic_slime')  drawToxicSlime(sp, en, flash, wob);
+  else                                 drawSkeleton(sp, en, flash, wob);
   // chill (frost) glow — applies to any kind
   if (en.chillUntil > performance.now() / 1000) {
     ctx.strokeStyle = 'rgba(122,220,255,0.7)';
@@ -3665,6 +3935,178 @@ function drawToxicSlime(sp, en, flash, wob){
     ctx.fill();
   }
 }
+
+// ── NEXRAD CLOUD BOSS RENDER ──────────────────────────────────────────────────
+// Big dark storm cloud silhouette w/ pulsing radar-palette neon edges, two
+// glowing electric eyes, and intermittent lightning fork crackle across body.
+function drawNexradCloud(sp, en, flash){
+  const t = performance.now() / 1000;
+  const cx = sp.x, cy = sp.y - 6;
+  // shadow disc on the ground (boss is bigger than normal enemies)
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(cx, sp.y + 14, 32, 9, 0, 0, Math.PI*2);
+  ctx.fill();
+  // bloom halo cycling through nexrad palette
+  const haloColor = nexradColor((t * 0.18) % 1);
+  ctx.save();
+  ctx.shadowColor = haloColor;
+  ctx.shadowBlur = 22 + flash * 18;
+  // dark storm body — 5 puffs
+  const puffs = [
+    { dx:  0, dy:  0, r: 22 },
+    { dx:-18, dy:  4, r: 16 },
+    { dx: 18, dy:  4, r: 16 },
+    { dx: -8, dy:-10, r: 14 },
+    { dx: 10, dy:-10, r: 14 },
+  ];
+  // outer neon stroke
+  ctx.lineWidth = 2.4;
+  ctx.strokeStyle = haloColor;
+  for (const p of puffs){
+    ctx.beginPath();
+    ctx.arc(cx + p.dx, cy + p.dy, p.r + 1.5, 0, Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+  // body fill — near-black cloud
+  const grad = ctx.createRadialGradient(cx, cy - 2, 4, cx, cy, 30);
+  grad.addColorStop(0, '#3a2a45');
+  grad.addColorStop(1, '#0c0810');
+  ctx.fillStyle = grad;
+  for (const p of puffs){
+    ctx.beginPath();
+    ctx.arc(cx + p.dx, cy + p.dy, p.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+  // inner neon rim — a second color, opposite phase
+  const rim = nexradColor(((t * 0.18) + 0.5) % 1);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = rim;
+  ctx.globalAlpha = 0.55;
+  for (const p of puffs){
+    ctx.beginPath();
+    ctx.arc(cx + p.dx, cy + p.dy, p.r - 2, 0, Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  // glowing eyes (always-on yellow → red flash on attack tick)
+  const eyeColor = flash > 0.1 ? '#ff2e9c' : '#ffd03e';
+  ctx.shadowColor = eyeColor;
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = eyeColor;
+  ctx.beginPath(); ctx.arc(cx - 7, cy - 2, 2.4, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 7, cy - 2, 2.4, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+  // periodic lightning fork — every ~1.6s a quick zigzag flickers across
+  const lt = (t * 0.6) % 1;
+  if (lt < 0.10){
+    const a = 1 - lt / 0.10;
+    ctx.strokeStyle = `rgba(154,255,94,${a})`;
+    ctx.lineWidth = 1.3;
+    ctx.shadowColor = '#9aff5e';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    let zx = cx - 22, zy = cy - 4;
+    ctx.moveTo(zx, zy);
+    for (let i = 0; i < 6; i++){
+      zx += 7 + Math.random()*2;
+      zy += (Math.random() - 0.5) * 8;
+      ctx.lineTo(zx, zy);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+  // boss name + HP bar (oversize)
+  ctx.font = '600 11px "IBM Plex Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd03e';
+  ctx.shadowColor = '#000'; ctx.shadowBlur = 4;
+  ctx.fillText('THE NEXRAD CLOUD', cx, cy - 30);
+  ctx.shadowBlur = 0;
+  drawBar(cx, cy - 24, 56, 5, en.hp / en.maxHp, '#ff2e9c');
+}
+
+function drawNexradBolt(p, sp){
+  // cyan/yellow zigzag arrow
+  const t = performance.now() / 80;
+  ctx.save();
+  ctx.shadowColor = '#3072c8';
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = '#9aff5e';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let zx = sp.x - 6, zy = sp.y - 4;
+  ctx.moveTo(zx, zy);
+  for (let i = 0; i < 4; i++){
+    zx += 3;
+    zy += ((i % 2 === 0) ? 3 : -3) + Math.sin(t + i)*0.6;
+    ctx.lineTo(zx, zy);
+  }
+  ctx.stroke();
+  // bright core
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = '#ffd03e';
+  ctx.beginPath(); ctx.arc(sp.x, sp.y, 2.2, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawNexradHail(p, sp){
+  // hail orb that drops from above — uses p.fallY for visual height offset
+  const fall = p.fallY || 0;
+  const armed = p.armed;
+  ctx.save();
+  if (!armed){
+    // shadow telegraph on ground
+    ctx.fillStyle = 'rgba(255,46,156,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(sp.x, sp.y + 4, 6, 2, 0, 0, Math.PI*2);
+    ctx.fill();
+  } else {
+    // splash ring on impact
+    const age = (performance.now() - (p.armedAt || performance.now())) / 1000;
+    const rr = 4 + age * 22;
+    ctx.strokeStyle = `rgba(255,122,62,${Math.max(0, 1 - age*4)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(sp.x, sp.y, rr, 0, Math.PI*2); ctx.stroke();
+  }
+  // orb
+  ctx.shadowColor = '#ff7a3e';
+  ctx.shadowBlur = 10;
+  const grad = ctx.createRadialGradient(sp.x - 1, sp.y - fall - 1, 1, sp.x, sp.y - fall, 5);
+  grad.addColorStop(0, '#ffd03e');
+  grad.addColorStop(1, '#ff2e9c');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(sp.x, sp.y - fall, 4.5, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawNexradPulse(p, sp){
+  // expanding ring colored by radius progress through palette
+  const prog = Math.min(1, p.radius / p.maxR);
+  const col = nexradColor(prog);
+  ctx.save();
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 14;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 3;
+  ctx.globalAlpha = 0.85 * (1 - prog * 0.6);
+  // tile→screen scale: roughly TILE_W*0.5 horizontal radius
+  const rx = p.radius * 16;
+  const ry = p.radius * 8;
+  ctx.beginPath();
+  ctx.ellipse(sp.x, sp.y, rx, ry, 0, 0, Math.PI*2);
+  ctx.stroke();
+  // inner faint companion
+  ctx.globalAlpha = 0.4 * (1 - prog);
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.ellipse(sp.x, sp.y, rx*0.78, ry*0.78, 0, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawBar(x, y, w, h, ratio, color) {
   ctx.fillStyle = '#000';
   ctx.fillRect(x - w / 2 - 1, y - 1, w + 2, h + 2);
@@ -3695,6 +4137,10 @@ function drawDrop(d) {
 }
 function drawProjectile(p) {
   const sp = worldToScreen(p.gx, p.gy);
+  // ── BOSS PROJECTILES — radar-palette flavoured ──
+  if (p.kind === 'nx-bolt'){ drawNexradBolt(p, sp); return; }
+  if (p.kind === 'nx-hail'){ drawNexradHail(p, sp); return; }
+  if (p.kind === 'nx-pulse'){ drawNexradPulse(p, sp); return; }
   if (p.kind === 'frost') {
     ctx.fillStyle = '#7adcff';
     ctx.beginPath(); ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2); ctx.fill();
@@ -3851,6 +4297,22 @@ function loop(now) {
         state.spawnT = Math.max(0.6, 3.2 - state.waveT * 0.025);
       }
     }
+    // ── NEXRAD CLOUD BOSS — rare spawn when real-world precip detected ──
+    // gates: precip flag set by checkNexradPrecipitation, no boss already alive,
+    // 5-min cooldown after last kill, not in town/exit-portal phase
+    if (
+      state.nexradPrecip &&
+      !state.nexradBossSpawned &&
+      !state.inTown &&
+      !state.exitPortal &&
+      (now - state.nexradBossKilledAt > 5 * 60 * 1000)
+    ){
+      // small per-frame chance so it feels rare, telegraphed by toast
+      if (Math.random() < 0.0006){
+        spawnNexradBoss();
+        showToast('A STORM GATHERS', 'the NEXRAD cloud descends', 'leg');
+      }
+    }
     // Exit portal pickup — walking onto it advances to the next floor.
     if (state.exitPortal) {
       const d = Math.hypot(state.exitPortal.gx - player.gx, state.exitPortal.gy - player.gy);
@@ -3888,6 +4350,32 @@ requestAnimationFrame(loop);
 
 // Initial focus to play button
 requestAnimationFrame(() => document.getElementById('playBtn').focus());
+
+// ── NEXRAD precipitation lifecycle ──────────────────────────────────────────
+// Try geolocation once (silently). If denied/unavailable, checkNexradPrecipitation
+// falls back to a generic "is RainViewer publishing recent radar?" check.
+// Refresh the precip flag every 5 min so weather conditions can flip mid-session.
+(function bootNexrad(){
+  function start(){
+    checkNexradPrecipitation().catch(()=>{});
+    setInterval(() => checkNexradPrecipitation().catch(()=>{}), 5 * 60 * 1000);
+  }
+  if (navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function'){
+    let resolved = false;
+    const finish = () => { if (!resolved){ resolved = true; start(); } };
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { state.userLat = pos.coords.latitude; state.userLon = pos.coords.longitude; finish(); },
+        () => finish(),
+        { enableHighAccuracy: false, timeout: 4000, maximumAge: 30 * 60 * 1000 }
+      );
+      // hard fallback in case the geo prompt sits forever
+      setTimeout(finish, 5000);
+    } catch(e){ start(); }
+  } else {
+    start();
+  }
+})();
 </script>
 </body>
 </html>
