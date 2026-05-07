@@ -5280,6 +5280,160 @@ function tuiEnemyClass(en){
   return en.isBoss || en.kind === 'nexrad_cloud' ? 'boss' : 'en';
 }
 
+// ── STRATEGIST — analyse live state, suggest the next move ──────────────
+// Score every available skill-tree node by class fit + current weakness +
+// floor pressure, then return the highest-scoring pick. Used by the TUI
+// "Strategist" panel and the console-dump appendix.
+function tuiSuggestSkill(){
+  const candidates = [];
+  for (const branchKey of Object.keys(SKILL_TREE)){
+    for (const node of SKILL_TREE[branchKey].nodes){
+      if (!nodeAvailable(node)) continue;
+      let score = 1.0;
+      // class alignment
+      if (player.classKey === 'warrior' && branchKey === 'combat')  score += 1.0;
+      if (player.classKey === 'mage'    && branchKey === 'arcane')  score += 1.0;
+      if (player.classKey === 'archer'  && branchKey === 'combat')  score += 0.4;
+      if (player.classKey === 'archer'  && branchKey === 'shadow')  score += 0.6;
+      // current need
+      if (node.id === 'vital'     && player.maxHp < 100)            score += 0.9;
+      if (node.id === 'vital'     && player.hp / player.maxHp < 0.5) score += 0.4;
+      if (node.id === 'mana'      && player.maxMp < 60)             score += 0.7;
+      if (node.id === 'mana'      && player.classKey === 'mage')    score += 0.3;
+      if (node.id === 'sharper'   && player.attackDmg < 14)         score += 0.5;
+      if (node.id === 'cleave'    && state.floor >= 2)              score += 0.3;
+      if (node.id === 'crit'      && (player.bonus.critChance || 0) < 0.15) score += 0.4;
+      if (node.id === 'frostbolt' && !player.skills.frostbolt && player.classKey !== 'warrior') score += 0.4;
+      if (node.id === 'lifedrain' && player.hp / player.maxHp < 0.55) score += 0.4;
+      if (node.id === 'berserk'   && state.floor >= 4)              score += 0.4;
+      if (node.id === 'surge'     && player.classKey === 'mage')    score += 0.4;
+      // floor pressure favours survivability picks at depth
+      if (state.floor >= 5 && (node.id === 'vital' || node.id === 'lifedrain' || node.id === 'berserk')) score += 0.3;
+      // cost penalty so 1-pt picks edge out 2-pt picks at equal fit
+      score -= node.cost * 0.12;
+      candidates.push({ node, branchKey, score });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0] || null;
+}
+
+// Top-level strategist summary. Returns an ordered array of advice rows
+// {tag, text, reason} from highest urgency → lowest. Caller renders the
+// first 3 in the TUI rail + dumps all to console on demand.
+function tuiAnalyzeState(){
+  const out = [];
+  const hpRatio = player.hp / Math.max(1, player.maxHp);
+  const xpRatio = (player.xpNext > 0) ? player.xp / player.xpNext : 0;
+
+  // 1. URGENT — low HP and not in town
+  if (hpRatio < 0.3 && !state.inTown){
+    out.push({
+      tag: '! DANGER',
+      text: 'HP ' + Math.round(hpRatio * 100) + '% · pull back',
+      reason: 'press P to portal home — town fully heals on entry',
+    });
+  }
+
+  // 2. SPEND — skill points sitting unused
+  if ((player.skillPts | 0) > 0){
+    const pick = tuiSuggestSkill();
+    if (pick){
+      out.push({
+        tag: '◆ SPEND',
+        text: pick.node.name + ' · ' + pick.branchKey,
+        reason: pick.node.desc + ' (' + pick.node.cost + ' pt' + (pick.node.cost > 1 ? 's' : '') + ')',
+      });
+    } else {
+      out.push({
+        tag: '◆ SPEND',
+        text: 'no available nodes',
+        reason: 'skill points stockpiled — keep grinding for prereqs',
+      });
+    }
+  }
+
+  // 3. EQUIP — empty equipment slot. Flag the first one we find.
+  const slotPriority = ['weapon', 'helm', 'robe', 'ring'];
+  for (const slot of slotPriority){
+    if (!player.equipped[slot]){
+      out.push({
+        tag: '○ EQUIP',
+        text: slot + ' slot is empty',
+        reason: 'kills drop loot 60% of the time; auto-equip swaps on stat upgrade',
+      });
+      break;
+    }
+  }
+
+  // 4. UPGRADE — equipped item is a low rarity AND inventory has higher
+  for (const slot of slotPriority){
+    const eq = player.equipped[slot];
+    if (!eq) continue;
+    let better = null;
+    for (const it of player.inventory){
+      if (it.slot === slot && it.stat > eq.stat){
+        if (!better || it.stat > better.stat) better = it;
+      }
+    }
+    if (better){
+      out.push({
+        tag: '↑ UPGRADE',
+        text: better.name + ' (+' + better.stat + ') vs ' + eq.name + ' (+' + eq.stat + ')',
+        reason: 'press I and swap — auto-equip should have caught this',
+      });
+      break;
+    }
+  }
+
+  // 5. PORTAL — descend the moment the rune appears
+  if (state.exitPortal){
+    out.push({
+      tag: '> DESCEND',
+      text: 'exit portal is open',
+      reason: 'walk onto the rune at (' + Math.round(state.exitPortal.gx) + ',' + Math.round(state.exitPortal.gy) + ') for floor ' + (state.floor + 1),
+    });
+  }
+
+  // 6. XP — close to level-up
+  if (xpRatio > 0.7 && (player.skillPts | 0) === 0){
+    out.push({
+      tag: '↑ XP',
+      text: 'level ' + (player.level + 1) + ' in ' + (player.xpNext - player.xp) + ' xp',
+      reason: 'one or two more kills nets a skill point',
+    });
+  }
+
+  // 7. INV — satchel filling up
+  if (player.inventory.length >= 24){
+    out.push({
+      tag: '◢ STASH',
+      text: 'satchel ' + player.inventory.length + '/32',
+      reason: 'portal home and dump non-essentials in the chest',
+    });
+  }
+
+  // 8. MP — mage running low on resources
+  if (player.classKey === 'mage' && player.mp / Math.max(1, player.maxMp) < 0.3){
+    out.push({
+      tag: '~ MANA',
+      text: 'mp ' + Math.round((player.mp/player.maxMp)*100) + '%',
+      reason: 'kite for a few seconds — MP regen ticks every second',
+    });
+  }
+
+  // 9. STEADY default
+  if (out.length === 0){
+    out.push({
+      tag: '▰ STEADY',
+      text: 'all gauges green',
+      reason: 'grind kills, sweep loot, descend when the rune drops',
+    });
+  }
+
+  return out;
+}
+
 // Build a 2D char/class grid from the live game state. Returns
 // [{ch, cls}][GRID_H][GRID_W] — caller uses it to render HTML or plain text.
 function buildTuiGrid(){
@@ -5391,7 +5545,20 @@ function renderTui(){
       return '<div class="row"><span>' + label + '</span><b>' + skillCD(id) + '</b></div>';
     };
     const log = (state.autoLog || []).slice(0, 8);
+    // Strategist analysis — top 3 prioritised picks
+    const advice = tuiAnalyzeState().slice(0, 3);
+    const adviceHtml =
+      '<h3 style="color:#bfffaa">Strategist</h3>' +
+      advice.map(a =>
+        '<div style="padding:.25rem 0;border-top:1px dashed rgba(58,160,122,0.18)">' +
+          '<div style="color:#ffd45e;font-size:.66rem;letter-spacing:.18em">' + escapeAuto(a.tag) + '</div>' +
+          '<div style="color:#bfffaa">' + escapeAuto(a.text) + '</div>' +
+          '<div style="color:#5fb05f;font-size:.66rem;line-height:1.3">' + escapeAuto(a.reason) + '</div>' +
+        '</div>'
+      ).join('');
+
     rail.innerHTML =
+      adviceHtml +
       '<h3>Status</h3>' +
       '<div class="row"><span>class</span><b>' + (player.classKey || 'warrior') + '</b></div>' +
       '<div class="row"><span>level</span><b>' + player.level + '</b></div>' +
@@ -5444,6 +5611,16 @@ function buildTuiAscii(){
   }
   lines.push('+' + '-'.repeat(GRID_W * 2) + '+');
   lines.push('legend: @ player · # wall · . floor · · town · s skeleton · T troll · S slime · % BOSS · $ drop · > portal · ~ proj · + chest');
+  // strategist output — full analysis (not just top 3)
+  const advice = tuiAnalyzeState();
+  if (advice.length){
+    lines.push('');
+    lines.push('# strategist:');
+    for (const a of advice){
+      lines.push('  ' + a.tag.padEnd(10) + ' · ' + a.text);
+      lines.push('             └ ' + a.reason);
+    }
+  }
   // recent log
   if (state.autoLog && state.autoLog.length){
     lines.push('');
