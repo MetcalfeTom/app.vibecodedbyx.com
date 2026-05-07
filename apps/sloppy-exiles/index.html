@@ -15,6 +15,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=UnifrakturCook:wght@700&family=IM+Fell+English:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<!-- Matter.js for the physical inventory satchel (chat ask) — loaded as a regular script so window.Matter is available before the module script boots -->
+<script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
 <style>
   /* ============================================================
      Sloppy Exiles — accessibility-first defaults
@@ -346,6 +348,30 @@
   .inv .slot[data-rar="rare"]    {border-color:var(--rare)}
   .inv .slot[data-rar="epic"]    {border-color:var(--epic)}
   .inv .slot[data-rar="leg"]     {border-color:var(--leg);box-shadow:0 0 0.75rem var(--leg)}
+
+  /* Physics-canvas satchel (chat ask) — replaces the static grid only in
+     the satchel overlay. Vault chest still uses the CSS grid because it
+     needs deterministic two-pane bulk move semantics. */
+  .inv-phys{
+    width: min(34rem, 90vw);
+    height: min(28rem, 60vh);
+    background: rgba(20,8,8,0.55);
+    border: 0.1875rem solid var(--rule);
+    border-radius: 0.25rem;
+    display: block;
+    cursor: grab;
+    touch-action: none;
+    image-rendering: auto;
+  }
+  .inv-phys.dragging{ cursor: grabbing }
+  .inv-phys-hint{
+    margin: 0.5rem auto 0;
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 0.62rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--bone);
+    opacity: 0.7;
+    text-align: center;
+  }
   .equipped-row{
     display:flex;gap:0.75rem;justify-content:center;margin-top:0.75rem;
   }
@@ -603,8 +629,9 @@
 <div class="overlay" id="invOverlay" role="dialog" aria-modal="true" aria-labelledby="invHeading" inert>
   <h2 id="invHeading">SATCHEL</h2>
   <div class="equipped-row" id="equippedRow"></div>
-  <p class="sub" style="margin-top:1.25rem">click an item to equip</p>
-  <div class="inv" id="invGrid"></div>
+  <p class="sub" style="margin-top:1.25rem">drag to rearrange · tap to equip</p>
+  <canvas id="invPhys" class="inv-phys" aria-label="Physical satchel — every item is a Matter.js rigid body. Drag items around inside the satchel; tap an item without dragging to equip it."></canvas>
+  <p class="inv-phys-hint">▾ items settle by their rarity weight ▾</p>
   <button type="button" id="closeInvBtn" style="margin-top:1.25rem" aria-label="Close inventory">CLOSE</button>
 </div>
 
@@ -1919,33 +1946,204 @@ function refreshInvUI() {
       (item ? '<div>+' + item.stat + '</div>' : '');
     eqRow.appendChild(div);
   }
-  const grid = document.getElementById('invGrid');
-  grid.innerHTML = '';
-  for (let i = 0; i < 32; i++) {
-    const item = player.inventory[i];
-    const slot = document.createElement('div');
-    slot.className = 'slot';
-    if (item) {
-      slot.dataset.rar = item.rarity;
-      slot.innerHTML =
-        '<span class="icon">' + item.icon + '</span>' +
-        '<span class="level">+' + item.stat + '</span>';
-      slot.title = item.name + ' · ' + item.rarityName + ' · +' + item.stat;
-      slot.addEventListener('click', () => equipItem(i));
-    }
-    grid.appendChild(slot);
-  }
+  // Physical satchel — items spawned as Matter.js bodies inside the canvas.
+  populateSatchelPhysics();
 }
+
+// ──────── Physical satchel (chat ask) ─────────────────────────────
+// Lightweight Matter.js mini-world inside the satchel canvas. Engine + render
+// loop only run while the inventory overlay is open. Each item becomes a
+// rounded rectangle body with the item icon + level drawn on top; rarity
+// drives the body color + glow. Tap = equip (removes the body), drag = move.
+let _satchel = null;     // { engine, canvas, ctx, raf, mouse, mouseConstraint, items: [{body, idx, rar, icon, stat, name}], walls: [], onResize }
+function ensureMatter(){
+  return (typeof window !== 'undefined' && window.Matter) ? window.Matter : null;
+}
+function teardownSatchelPhysics(){
+  if (!_satchel) return;
+  cancelAnimationFrame(_satchel.raf);
+  if (_satchel.engine){
+    Matter.Composite.clear(_satchel.engine.world, false, true);
+    Matter.Engine.clear(_satchel.engine);
+  }
+  if (_satchel.onResize) window.removeEventListener('resize', _satchel.onResize);
+  if (_satchel.mouseDownH) _satchel.canvas.removeEventListener('pointerdown', _satchel.mouseDownH);
+  if (_satchel.mouseUpH)   window.removeEventListener('pointerup',   _satchel.mouseUpH);
+  _satchel = null;
+}
+function populateSatchelPhysics(){
+  const M = ensureMatter();
+  const canvas = document.getElementById('invPhys');
+  if (!M || !canvas) return;     // Matter failed to load → silently fall back to nothing (vault still works)
+  // Reset any previous session
+  teardownSatchelPhysics();
+  const ctx = canvas.getContext('2d');
+  // Size the backing buffer to its CSS box (no DPR scaling for simplicity; canvas is already small)
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.floor(rect.width);
+  canvas.height = Math.floor(rect.height);
+  const W = canvas.width, H = canvas.height;
+  const engine = M.Engine.create();
+  engine.gravity.y = 0.85;
+  // Walls — top, bottom, left, right
+  const wallT = 30;
+  const walls = [
+    M.Bodies.rectangle(W/2, -wallT/2 + 1,  W * 1.2, wallT, { isStatic: true }),
+    M.Bodies.rectangle(W/2, H + wallT/2 - 1, W * 1.2, wallT, { isStatic: true }),
+    M.Bodies.rectangle(-wallT/2 + 1, H/2,    wallT, H * 1.2, { isStatic: true }),
+    M.Bodies.rectangle(W + wallT/2 - 1, H/2, wallT, H * 1.2, { isStatic: true }),
+  ];
+  M.Composite.add(engine.world, walls);
+  // Spawn one body per inventory item — drop them in from the top with a small spread
+  const items = [];
+  const rarColors = {
+    common:   '#cfb98a',
+    uncommon: '#7ec97a',
+    rare:     '#f5b362',
+    epic:     '#c986e0',
+    leg:      '#ff7e9a',
+  };
+  const SLOT = 56;     // visual size of each item card
+  const inv = player.inventory || [];
+  for (let i = 0; i < inv.length; i++){
+    const it = inv[i];
+    if (!it) continue;
+    const x = SLOT + Math.random() * (W - SLOT * 2);
+    const y = -SLOT - Math.random() * 80;
+    const density = it.rarity === 'leg' ? 0.0030
+                  : it.rarity === 'epic' ? 0.0024
+                  : it.rarity === 'rare' ? 0.0019
+                  : it.rarity === 'uncommon' ? 0.0015
+                  : 0.0012;
+    const body = M.Bodies.rectangle(x, y, SLOT, SLOT, {
+      chamfer: { radius: 6 },
+      friction: 0.45,
+      frictionAir: 0.018,
+      restitution: 0.32,
+      density,
+      label: 'inv-item',
+    });
+    M.Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.04);
+    M.Composite.add(engine.world, body);
+    items.push({
+      body, idx: i,
+      rarity: it.rarity,
+      rarColor: rarColors[it.rarity] || rarColors.common,
+      icon: it.icon, stat: it.stat, name: it.name, rarityName: it.rarityName,
+    });
+  }
+  // Mouse drag
+  const mouse = M.Mouse.create(canvas);
+  const mouseConstraint = M.MouseConstraint.create(engine, {
+    mouse, constraint: { stiffness: 0.22, render: { visible: false } },
+  });
+  M.Composite.add(engine.world, mouseConstraint);
+  // Tap-vs-drag detection so a quick tap equips the item
+  let downBody = null, downAt = 0, downPos = { x:0, y:0 };
+  const mouseDownH = (e) => {
+    canvas.classList.add('dragging');
+    downBody = mouseConstraint.body || null;
+    downAt = performance.now();
+    downPos = { x: mouse.position.x, y: mouse.position.y };
+  };
+  const mouseUpH = () => {
+    canvas.classList.remove('dragging');
+    const elapsed = performance.now() - downAt;
+    const dx = mouse.position.x - downPos.x, dy = mouse.position.y - downPos.y;
+    const dist2 = dx * dx + dy * dy;
+    if (downBody && elapsed < 240 && dist2 < 64){
+      // tap → equip (find the item)
+      const item = items.find(it => it.body === downBody);
+      if (item) equipItem(item.idx);
+    }
+    downBody = null;
+  };
+  canvas.addEventListener('pointerdown', mouseDownH);
+  window.addEventListener('pointerup', mouseUpH);
+
+  // Resize handler — keep walls aligned if the overlay flexes
+  const onResize = () => {
+    const r2 = canvas.getBoundingClientRect();
+    if (Math.abs(r2.width - canvas.width) < 2 && Math.abs(r2.height - canvas.height) < 2) return;
+    populateSatchelPhysics();      // simplest: rebuild everything on size change
+  };
+  window.addEventListener('resize', onResize);
+
+  // Render loop
+  function frame(){
+    M.Engine.update(engine, 1000 / 60);
+    ctx.clearRect(0, 0, W, H);
+    // soft inner shadow / vignette
+    const grad = ctx.createRadialGradient(W/2, H/2, Math.min(W, H) * 0.15, W/2, H/2, Math.max(W, H) * 0.7);
+    grad.addColorStop(0, 'rgba(60,20,20,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.4)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+    // draw items
+    for (const it of items){
+      const b = it.body;
+      ctx.save();
+      ctx.translate(b.position.x, b.position.y);
+      ctx.rotate(b.angle);
+      // shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.42)';
+      ctx.fillRect(-SLOT/2 + 2, -SLOT/2 + 4, SLOT, SLOT);
+      // body card with rarity-tinted edge glow
+      ctx.shadowBlur = it.rarity === 'leg' ? 16 : it.rarity === 'epic' ? 12 : it.rarity === 'rare' ? 8 : 0;
+      ctx.shadowColor = it.rarColor;
+      ctx.fillStyle = '#16080a';
+      roundRect(ctx, -SLOT/2, -SLOT/2, SLOT, SLOT, 6);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // rarity-colored border
+      ctx.strokeStyle = it.rarColor;
+      ctx.lineWidth = 2;
+      roundRect(ctx, -SLOT/2 + 1, -SLOT/2 + 1, SLOT - 2, SLOT - 2, 5);
+      ctx.stroke();
+      // icon (emoji glyph) — large, centered
+      ctx.fillStyle = '#fff';
+      ctx.font = '22px serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(it.icon, 0, -3);
+      // stat label
+      ctx.fillStyle = it.rarColor;
+      ctx.font = 'bold 11px "IBM Plex Mono", monospace';
+      ctx.fillText('+' + it.stat, 0, SLOT/2 - 9);
+      ctx.restore();
+    }
+    _satchel.raf = requestAnimationFrame(frame);
+  }
+
+  function roundRect(c, x, y, w, h, r){
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.lineTo(x + w - r, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + h - r);
+    c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    c.lineTo(x + r, y + h);
+    c.quadraticCurveTo(x, y + h, x, y + h - r);
+    c.lineTo(x, y + r);
+    c.quadraticCurveTo(x, y, x + r, y);
+    c.closePath();
+  }
+
+  _satchel = { engine, canvas, ctx, raf: 0, mouse, mouseConstraint, items, walls, onResize, mouseDownH, mouseUpH };
+  _satchel.raf = requestAnimationFrame(frame);
+}
+
 function toggleInv() {
   if (state.phase !== 'playing' && state.phase !== 'paused') return;
   const el = document.getElementById('invOverlay');
   if (el.classList.contains('show')) {
     el.classList.remove('show'); el.setAttribute('inert', '');
     state.phase = 'playing'; state.paused = false;
+    teardownSatchelPhysics();    // stop the rAF loop while playing
   } else {
-    refreshInvUI();
     el.classList.add('show'); el.removeAttribute('inert');
     state.paused = true; state.phase = 'paused';
+    // refreshInvUI will spawn the physical bodies; defer one frame so the
+    // overlay's CSS sizing settles before we measure the canvas.
+    requestAnimationFrame(() => refreshInvUI());
   }
 }
 document.getElementById('closeInvBtn').addEventListener('click', toggleInv);
