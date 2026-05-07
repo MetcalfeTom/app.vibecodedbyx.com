@@ -783,9 +783,9 @@
   </div>
 </div>
 
-<div class="auto-panel" id="autoPanel" aria-live="polite" aria-label="Progress Quest activity log">
+<div class="auto-panel" id="autoPanel" aria-label="Progress Quest activity log">
   <h3>Auto-Quest</h3>
-  <div class="activity" id="autoActivityLabel">Idle.</div>
+  <div class="activity" id="autoActivityLabel" aria-live="polite">Idle.</div>
   <div class="pbar" id="autoActivityBar" data-kind="fight"><div id="autoActivityFill"></div></div>
   <ul id="autoLogList"></ul>
   <div class="stats">
@@ -1725,6 +1725,12 @@ function useTownPortal() {
     }
     state.returnFrom = null;
     state.spawnT = 4.0;       // small breather before mobs return
+    // Bug fix (chat playtest): invalidate auto bot's waypoints — we may
+    // have just rebuilt the map for a different zone, old path is stale.
+    state.autoPath = null;
+    state.autoPathIdx = 0;
+    state.autoPathGoal = null;
+    state.autoStuckT = 0;
     showToast('RETURNED TO THE WASTES', 'floor ' + state.floor);
     sfx.cast();
     return;
@@ -1752,6 +1758,13 @@ function useTownPortal() {
   player.gy = TOWN_GY;
   player.vgx = player.vgy = 0;
   player.targetGx = null;
+  // Bug fix (chat playtest): invalidate auto bot's waypoints whenever
+  // the underlying map changes (town/wastes transition may have rebuilt
+  // it via buildMap above).
+  state.autoPath = null;
+  state.autoPathIdx = 0;
+  state.autoPathGoal = null;
+  state.autoStuckT = 0;
   // Save vault — town entry is a safe checkpoint. Local first
   // (synchronous); cloud sync runs async + non-blocking.
   saveVault();
@@ -1783,6 +1796,12 @@ function advanceFloor() {
   player.gx = TOWN_GX;
   player.gy = TOWN_GY;
   player.targetGx = null;
+  // Bug fix (chat playtest): invalidate auto bot's waypoints — old paths
+  // reference the previous floor's tile layout.
+  state.autoPath = null;
+  state.autoPathIdx = 0;
+  state.autoPathGoal = null;
+  state.autoStuckT = 0;
   saveVault();
   showToast('★ FLOOR ' + state.floor + ' ★', 'enemies grow stronger');
   sfx.level();
@@ -3432,6 +3451,13 @@ function crossEdge(dir){
   enemies.length = 0;
   projectiles.length = 0;
   drops.length = 0;
+  // Bug fix (chat playtest): the auto bot's pathfinding waypoints are
+  // tile coords in the OLD zone — invalidate them so the next tickAuto
+  // recomputes against the new map's walls instead of walking into them.
+  state.autoPath = null;
+  state.autoPathIdx = 0;
+  state.autoPathGoal = null;
+  state.autoStuckT = 0;
   state.spawnT = 1.6;       // small breather before mobs ramp back up
   // The exit portal (if any) is abandoned on cross — re-earn on kill quota.
   state.exitPortal = null;
@@ -3529,7 +3555,12 @@ function autoNearestEnemy(){
   return best;
 }
 // Closest dropped item — walk toward it when no immediate threat exists.
+// Bug fix (chat playtest): when the satchel is at the 32-cap, pickUpDrop
+// rejects all pickups — without this gate the bot would loop walking
+// onto a drop it can't grab. Skip ALL drops at cap so the wander branch
+// takes over (which will trigger the satchel-full port-home).
 function autoNearestDrop(){
+  if (player.inventory.length >= 32) return null;
   let best = null, bestD = Infinity;
   for (const d of drops){
     const dd = Math.hypot(d.gx - player.gx, d.gy - player.gy);
@@ -5376,6 +5407,26 @@ function tuiSuggestSkill(){
 // first 3 in the TUI rail + dumps all to console on demand.
 function tuiAnalyzeState(){
   const out = [];
+  // Bug fix (chat playtest): strategist runs even after death (TUI can be
+  // re-opened post-mortem). Without this gate it would chirp "press P to
+  // portal home" with HP at 0% — nonsensical. Short-circuit on the end /
+  // title phases.
+  if (state.phase !== 'playing' || !player.alive){
+    if (state.phase === 'end'){
+      out.push({
+        tag: '☠ DEAD',
+        text: 'reached floor ' + state.floor,
+        reason: state.auto ? 'auto-mode is rising you in a moment…' : 'click rise again to restart',
+      });
+    } else {
+      out.push({
+        tag: '▰ READY',
+        text: 'pick a class on the title screen',
+        reason: 'auto-mode unlocks once a run starts',
+      });
+    }
+    return out;
+  }
   const hpRatio = player.hp / Math.max(1, player.maxHp);
   const xpRatio = (player.xpNext > 0) ? player.xp / player.xpNext : 0;
 
@@ -5467,6 +5518,18 @@ function tuiAnalyzeState(){
       reason: state.auto
         ? 'auto-mode will port home at 28/32'
         : 'press P to portal home and dump non-essentials',
+    });
+  }
+
+  // 7a. CHEST FULL — deadlock alert: chest at cap + satchel full means the
+  // bot can't make progress. Manual players need to equip from chest or
+  // sell items (no shop yet — for now the only escape is to die or wipe
+  // chest manually).
+  if (player.chest.length >= 48 /* CHEST_CAP */ && player.inventory.length >= 28){
+    out.push({
+      tag: '⊘ DEADLOCK',
+      text: 'chest 48/48 + satchel ' + player.inventory.length + '/32',
+      reason: 'no room to stash — withdraw chest items (V in town) or accept death',
     });
   }
 
