@@ -3885,6 +3885,25 @@ function autoClearPath(){
   state.autoPathGoal = null;
 }
 
+// Direct chest deposit — used by the auto bot in town. Bypasses
+// `openChest()` which pauses the game and would freeze the bot's
+// tick loop. Equipped gear is untouched (only the satchel array
+// `player.inventory` is drained). Caps at CHEST_CAP. Returns count.
+function autoStashAll(){
+  let moved = 0;
+  while (player.inventory.length > 0 && player.chest.length < CHEST_CAP){
+    player.chest.push(player.inventory.shift());
+    moved++;
+  }
+  if (moved > 0){
+    saveVault({ silent: true });
+    refreshHud();
+    if (sfx && sfx.pickup) sfx.pickup();
+  }
+  return moved;
+}
+const AUTO_STASH_THRESHOLD = 28;     // satchel-full trigger (out of 32 cap)
+
 // Per-enemy A* path-following — chat ask: enemies should walk around walls
 // the same way the bot does. Each enemy carries its own path/goal/stuck
 // scratch fields (lazy-initialised). Returns a desired direction vector
@@ -3944,15 +3963,17 @@ function enemyFollowGoal(en, gx, gy, now){
 function tickAuto(dt){
   if (!state.auto || !player.alive) return;
 
-  // Town behavior — never linger. Auto deposits inventory at the chest if
-  // it's getting full, otherwise re-portals to the wastes immediately.
+  // Town behavior — never linger. If the satchel still has anything in it,
+  // walk to the chest and stash directly (NOT via openChest() because that
+  // pauses the game and freezes the bot's own tick). Once empty, portal
+  // straight back to the wastes.
   if (state.inTown){
-    if (player.inventory.length >= 28){
+    if (player.inventory.length > 0 && player.chest.length < CHEST_CAP){
       setAutoActivity('Hauling loot to the chest…', 1.0, 'haul');
       autoFollowGoal(CHEST_GX, CHEST_GY);
       if (Math.hypot(player.gx - CHEST_GX, player.gy - CHEST_GY) < CHEST_OPEN_RADIUS){
-        if (typeof openChest === 'function') openChest();
-        pushAutoLog('Stashed ' + player.inventory.length + ' items in the chest');
+        const moved = autoStashAll();
+        if (moved > 0) pushAutoLog('Stashed ' + moved + ' items in the chest');
       }
     } else {
       setAutoActivity('Returning to the wastes…', 0.3, 'travel');
@@ -3978,6 +3999,22 @@ function tickAuto(dt){
       tryDodgeRoll();
       pushAutoLog('Dodged the storm');
     }
+  }
+
+  // ── 1.5. Satchel full — port home to stash before continuing (chat ask).
+  // Skip if the descent rune is already up: finish the floor first, the
+  // satchel will get cleaned out on the next stash trip. Skip if the chest
+  // is also full (no room to dump anything).
+  if (
+    player.inventory.length >= AUTO_STASH_THRESHOLD &&
+    !state.exitPortal &&
+    player.chest.length < CHEST_CAP
+  ){
+    setAutoActivity('Satchel full · porting home…', 0.4, 'travel');
+    autoClearPath();
+    pushAutoLog('Satchel full (' + player.inventory.length + '/32) — porting home to stash');
+    useTownPortal();   // safe-zone heal + park returnFrom; next tick runs the in-town branch
+    return;
   }
 
   // ── 2. Targets ──
