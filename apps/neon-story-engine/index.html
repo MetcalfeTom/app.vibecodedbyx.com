@@ -480,6 +480,88 @@ async function pollinate(messages, opts){
   throw new Error('pollinations · all attempts failed');
 }
 
+// ── PREAMBLE STRIPPER (chat ask) ────────────────────────────────────
+// Models love to prefix JSON with "Sure thing!", "Here's the JSON:",
+// markdown fences, etc. We strip all that at the fetch boundary so the
+// parser sees clean input on the happy path and Stage 1 (JSON.parse)
+// catches it. The 4-stage robust parser is still there as a safety net.
+const PREAMBLE_PATTERNS = [
+  /^\s*```[a-z]*\s*/i,                                     // opening code fence
+  /^\s*(sure[,!.]?\s*thing[,!.]?\s*)+/i,                  // "Sure thing!"
+  /^\s*(sure|certainly|of course|absolutely|got it|okay|alright|noted)[,!.]?\s*/i,
+  /^\s*(here'?s|here is)\s+(the|your)?\s*(json|response|output|reply|result|adventure)?[,:.]?\s*/i,
+  /^\s*(let me|i'?ll|i will|i can|i'm)\s+[^{[\n]+?[.:]\s*/i,    // "Let me give you..."
+  /^\s*(response|json|output|result|reply)[\s:]*[:\-]?\s*/i,
+];
+const POSTAMBLE_PATTERNS = [
+  /\s*```\s*$/,                                            // closing code fence
+  /\s*let me know[\s\S]*$/i,                              // "Let me know if..."
+  /\s*hope (this|that)[\s\S]*$/i,
+  /\s*feel free[\s\S]*$/i,
+];
+function stripPreamble(text){
+  if (!text) return text;
+  let s = text;
+  // run the patterns until none match in a pass — preambles can stack
+  for (let i = 0; i < 6; i++){
+    const before = s;
+    for (const re of PREAMBLE_PATTERNS) s = s.replace(re, '');
+    for (const re of POSTAMBLE_PATTERNS) s = s.replace(re, '');
+    if (s === before) break;
+  }
+  // If the text STILL doesn't start with { or [, jump to the first { or [
+  // within a reasonable distance — anything further is presumed prose.
+  s = s.trim();
+  if (s && s[0] !== '{' && s[0] !== '['){
+    const firstObj = s.indexOf('{');
+    const firstArr = s.indexOf('[');
+    let firstStruct = -1;
+    if (firstObj >= 0 && (firstArr < 0 || firstObj < firstArr)) firstStruct = firstObj;
+    else if (firstArr >= 0) firstStruct = firstArr;
+    if (firstStruct > 0 && firstStruct < 400) s = s.slice(firstStruct);
+  }
+  return s.trim();
+}
+
+// pollJSON — one fetch path for any LLM call that needs structured output.
+// Sequence: POST (json_mode) → stripPreamble → parser → on failure, retry
+// once with a sterner follow-up message + the model's previous (bad) reply
+// in context so it can correct itself. Final failure throws.
+async function pollJSON(messages, opts, parser){
+  opts = opts || {};
+  parser = parser || ((s) => JSON.parse(s));
+  let lastErr = null;
+  let lastRaw = '';
+  // build a working copy we can mutate to add the retry follow-up
+  const conv = messages.slice();
+  for (let attempt = 0; attempt < 2; attempt++){
+    let raw;
+    try {
+      raw = await pollPost(conv, { ...opts, json_mode: true });
+    } catch(e){
+      lastErr = e;
+      if (attempt === 0) continue;
+      throw e;
+    }
+    lastRaw = raw;
+    const cleaned = stripPreamble(raw);
+    try { return parser(cleaned); }
+    catch(e){
+      lastErr = e;
+      if (attempt === 0){
+        // feed the model its own bad reply + a sterner instruction
+        conv.push({ role: 'assistant', content: raw });
+        conv.push({ role: 'user', content:
+          'That wasn\'t parseable JSON. Reply with ONLY the JSON object — no preamble like "Sure thing!" or "Here\'s the JSON:", no markdown fences, no trailing prose. The first character must be { and the last character must be }.'
+        });
+        continue;
+      }
+    }
+  }
+  console.warn('[story-engine] pollJSON gave up after retry. Last error:', lastErr, 'raw sample:', (lastRaw || '').slice(0, 240));
+  throw new Error('json · could not get parseable response after retry · ' + (lastErr && lastErr.message || ''));
+}
+
 // ── AGENT STATUS RAIL ──────────────────────────────────────────────
 function setAgent(id, status){
   const el = document.getElementById('ag-' + id);
@@ -491,10 +573,20 @@ function resetAgents(){ ['director','memory','narrator','npc'].forEach(id => set
 
 // ── DIRECTOR AGENT ─────────────────────────────────────────────────
 async function runDirector(input, world, setting){
+  // Hardened system prompt (chat ask): repeat the no-preamble rule
+  // multiple times in different framings so models can't miss it.
+  // Prompt order is part of the design — the most-violated rule comes
+  // first AND last so it bookends the instructions.
   const sys = [
+    'CRITICAL OUTPUT RULES:',
+    '1. Reply with RAW JSON ONLY. The first character of your response MUST be `{`. The last character MUST be `}`.',
+    '2. DO NOT prefix your reply with any conversational text. NO "Sure thing!", NO "Here\'s the JSON:", NO "Certainly,", NO "Of course!", NO "Let me…".',
+    '3. DO NOT wrap the JSON in markdown code fences (```json … ```). Output the JSON object directly.',
+    '4. DO NOT add prose, commentary, or trailing explanation after the closing brace.',
+    '5. If you violate any rule above, your response will be rejected by the parser.',
+    '',
     'You are the DIRECTOR agent for a multi-agent text adventure.',
     'Decide the consequences of the player\'s action against the current world state.',
-    'Reply with STRICT JSON ONLY. No prose, no preface.',
     '',
     'Output schema:',
     '{',
@@ -514,6 +606,8 @@ async function runDirector(input, world, setting){
     'Rules: Be terse and decisive. Don\'t embellish — that\'s the Narrator\'s job. ' +
     'Refuse impossible / off-tone actions with outcome="refused" + a one-sentence brief explaining.',
     'If a character speaks, populate npc_speaks with their name + a 1-line brief of WHAT they say (NOT the dialogue itself).',
+    '',
+    'REMEMBER: First character `{`. Last character `}`. Nothing else around it.',
   ].join('\n');
   const user = [
     'GENRE: ' + setting.tone,
@@ -530,11 +624,19 @@ async function runDirector(input, world, setting){
     '',
     'Output the JSON now.',
   ].join('\n');
-  const text = await pollinate(
+  // Route through pollJSON so preamble gets stripped at the fetch boundary
+  // AND we get one automatic retry with a sterner instruction if the
+  // model still slips conversational fluff in. The robust 4-stage
+  // parseDirectorJson is used as the parser callback so all the existing
+  // brace-balanced/repair/regex fallbacks are still in play if they're
+  // needed.
+  const j = await pollJSON(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    { temperature: 0.35, max_tokens: 360, json_mode: true }
+    { temperature: 0.35, max_tokens: 360 },
+    parseDirectorJson,
   );
-  return parseDirectorJson(text);
+  // pollJSON returns whatever the parser returned — already shape-normalised
+  return j;
 }
 // ── ROBUST DIRECTOR JSON PARSER (chat ask) ─────────────────────────
 // LLMs find creative ways to mangle JSON. Four progressively-lenient
