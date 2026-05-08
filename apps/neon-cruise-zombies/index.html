@@ -315,6 +315,10 @@
 
   /* Chips pill in HUD */
   .pill.chips{ color:#ffd45e;border-color:rgba(255,212,94,0.45) }
+  .pill.dir{ color:#cdb6ff;border-color:rgba(180,107,255,0.4) }
+  .pill.dir.lull { color:#9aff5e;border-color:rgba(154,255,94,0.45) }
+  .pill.dir.build{ color:#ffd45e;border-color:rgba(255,212,94,0.45) }
+  .pill.dir.peak { color:#ff5f88;border-color:rgba(255,95,136,0.45);box-shadow:0 0 .8rem rgba(255,95,136,0.35) }
 </style>
 </head>
 <body>
@@ -329,6 +333,7 @@
   <div class="pill weapon" id="hudWeapon">PISTOL</div>
   <div class="pill kills" id="hudKills">KILLS 0</div>
   <div class="pill chips" id="hudChips">♢ 100</div>
+  <div class="pill dir" id="hudDirector" title="AI Director difficulty tier">DIRECTOR · LULL</div>
 </div>
 
 <div class="title-overlay show" id="title" role="dialog" aria-modal="true" aria-labelledby="titleH">
@@ -340,7 +345,8 @@
     <kbd>click</kbd> fire ·
     <kbd>space</kbd> dash ·
     <kbd>R</kbd> reload ·
-    <kbd>1-3</kbd> swap weapon
+    <kbd>1-5</kbd> weapon (1 pistol · 2 shotgun · 3 smg · 4 minigun · 5 grenade) ·
+    <kbd>E</kbd> blackjack
   </div>
   <button type="button" class="big-btn" id="startBtn">▶ EMBARK</button>
 </div>
@@ -480,7 +486,7 @@ const DECKS = [
       '#......#........#..............#',
       '#......##########..............#',
       '#..............................#',
-      '#......##########..............#',
+      '#......##########.....N........#',
       '#......#........#......Z.......#',
       '#..R...#...+....#..............#',
       '#......#........#..............#',
@@ -528,7 +534,7 @@ const DECKS = [
       '#..............................#',
       '#....#####.#####.#####.#####...#',
       '#....#...#.#...#.#...#.#...#...#',
-      '#....#.B.#.#.M.#.#.R.#.#.+.#...#',
+      '#....#.B.#.#.G.#.#.R.#.#.+.#...#',
       '#....#####.#####.#####.#####...#',
       '#............................>.#',
       '#..............................#',
@@ -570,6 +576,136 @@ let enemies = [];        // {x,y,vx,vy,hp,maxHp,kind,r,speed,dmg,attackCD}
 let bullets = [];        // {x,y,vx,vy,dmg,life,piercing}
 let particles = [];      // {x,y,vx,vy,life,dur,color,size}
 let totalKills = 0;
+
+// ── AI DIRECTOR (chat ask) ─────────────────────────────────────────────
+// L4D-style dynamic difficulty. Tracks an `intensity` value 0..1 derived
+// from the player's recent stress (HP loss, time-since-kill, current HP
+// ratio). When intensity is LOW (lull), the director periodically spawns
+// a "pressure wave" of zombies offscreen-but-walkable to keep the action
+// flowing. When intensity is HIGH, it backs off so the player gets
+// breathing room. Boss deck (engine, idx 4) is excluded — that's a
+// scripted boss fight. Player can tune by simply playing differently.
+const aiDirector = {
+  intensity:    0.0,
+  hpAtLastTick: 100,
+  killAt:       0,        // perf.now/1000 of last kill
+  hitAt:        0,        // perf.now/1000 of last damage taken
+  nextWaveAt:   0,        // schedule timestamp for the next pressure wave
+  killsAtBaseline: 0,
+  activated:    false,
+  lastReportedTier: '',
+};
+function directorReset(){
+  aiDirector.intensity = 0;
+  aiDirector.hpAtLastTick = player.maxHp;
+  aiDirector.killAt = performance.now()/1000;
+  aiDirector.hitAt  = performance.now()/1000;
+  aiDirector.nextWaveAt = performance.now()/1000 + 12;
+  aiDirector.killsAtBaseline = totalKills;
+  aiDirector.activated = true;
+  aiDirector.lastReportedTier = '';
+}
+function directorObserveKill(){ aiDirector.killAt = performance.now()/1000; }
+function directorObserveHit(prevHp){
+  aiDirector.hitAt = performance.now()/1000;
+  // bump intensity hard on big damage; reset trickle later
+  const hpLost = Math.max(0, prevHp - player.hp) / player.maxHp;
+  aiDirector.intensity = Math.min(1, aiDirector.intensity + hpLost * 1.4);
+}
+function directorTick(now){
+  if (!aiDirector.activated) return;
+  // boss deck — director steps aside
+  if (curDeckIdx >= DECKS.length - 1) return;
+
+  // ── compute target intensity from the live state ──
+  const hpRatio = Math.max(0, player.hp) / player.maxHp;
+  const hpStress = (1 - hpRatio) * 0.6;                       // 0..0.6
+  const sinceKill = Math.max(0, now - aiDirector.killAt);     // bigger = lull
+  const sinceHit  = Math.max(0, now - aiDirector.hitAt);
+  const liveCount = enemies.length;
+  const crowdStress = Math.min(1, liveCount / 12) * 0.4;      // 0..0.4
+  let target = hpStress + crowdStress + Math.max(0, 0.3 - sinceHit * 0.04);
+  target = Math.min(1, target);
+  // ease intensity toward the target
+  const k = 0.04;
+  aiDirector.intensity += (target - aiDirector.intensity) * k;
+
+  // ── decide whether to spawn a pressure wave ──
+  // LULL = intensity < 0.35 AND no kill in last 4s → push a wave.
+  // HIGH = intensity > 0.7 → throttle waves (longer cooldown).
+  const lull = aiDirector.intensity < 0.35 && sinceKill > 4 && liveCount < 14;
+  const high = aiDirector.intensity > 0.72;
+  if (now < aiDirector.nextWaveAt) return;
+  if (lull){
+    spawnPressureWave(/*size*/ 2 + Math.floor(Math.random() * 2), /*aggro*/ false);
+    aiDirector.nextWaveAt = now + (5 + Math.random() * 4);
+  } else if (high){
+    aiDirector.nextWaveAt = now + 7;
+  } else {
+    // mid tension — occasional bumps
+    if (Math.random() < 0.4){
+      spawnPressureWave(1 + Math.floor(Math.random() * 2), /*aggro*/ true);
+    }
+    aiDirector.nextWaveAt = now + (4 + Math.random() * 3);
+  }
+
+  // ── tier announcement when state changes meaningfully ──
+  const tier = aiDirector.intensity < 0.35 ? 'LULL'
+             : aiDirector.intensity < 0.7  ? 'BUILD'
+                                            : 'PEAK';
+  if (tier !== aiDirector.lastReportedTier){
+    aiDirector.lastReportedTier = tier;
+    const dirEl = document.getElementById('hudDirector');
+    if (dirEl){
+      dirEl.textContent = 'DIRECTOR · ' + tier;
+      dirEl.classList.toggle('peak',  tier === 'PEAK');
+      dirEl.classList.toggle('lull',  tier === 'LULL');
+      dirEl.classList.toggle('build', tier === 'BUILD');
+    }
+  }
+}
+// Spawn N enemies at random walkable tiles outside the player's view radius.
+// `aggro=true` biases toward runners + bloaters; otherwise mostly walkers.
+function spawnPressureWave(n, aggro){
+  const candidates = [];
+  for (let ty = 1; ty < tiles.length - 1; ty++){
+    for (let tx = 1; tx < tiles[ty].length - 1; tx++){
+      if (tiles[ty][tx] !== '.') continue;
+      const wx = tx * TILE + TILE/2, wy = ty * TILE + TILE/2;
+      const d = Math.hypot(wx - player.x, wy - player.y);
+      if (d < TILE * 6) continue;        // not too close
+      if (d > TILE * 16) continue;       // not too far
+      candidates.push({ tx, ty, wx, wy });
+    }
+  }
+  if (!candidates.length) return;
+  // shuffle a bit
+  for (let i = candidates.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  for (let i = 0; i < n && i < candidates.length; i++){
+    const c = candidates[i];
+    let kind = 'Z';
+    const r = Math.random();
+    if (aggro){
+      kind = r < 0.55 ? 'R' : r < 0.85 ? 'Z' : 'B';
+    } else {
+      kind = r < 0.7 ? 'Z' : r < 0.92 ? 'R' : 'B';
+    }
+    spawnEnemy(kind, c.wx, c.wy);
+    // small spawn-puff particles so it doesn't feel like teleporting in
+    for (let p = 0; p < 6; p++){
+      const a = Math.random() * Math.PI * 2;
+      particles.push({
+        x: c.wx, y: c.wy,
+        vx: Math.cos(a) * 60, vy: Math.sin(a) * 60,
+        life: 0, dur: 0.4, color: '#ff5fbf', size: 3,
+      });
+    }
+  }
+}
+
 let chips = 100;         // blackjack chips, persisted across sessions
 try {
   const stored = parseInt(localStorage.getItem('cruise-zombie-chips') || '100', 10);
@@ -588,15 +724,22 @@ const player = {
   dashUntil: 0, dashCD: 0, dashDx: 0, dashDy: 0,
   alive: true,
   weapon: 'pistol',
-  ammo: { pistol: Infinity, shotgun: 18, smg: 60 },
+  ammo: { pistol: Infinity, shotgun: 18, smg: 60, minigun: 0, grenade: 0 },
   cd: 0,
+  spinup: 0,    // minigun spin-up 0..1
 };
 
 // ── weapons ──────────────────────────────────────────────────────────
+// `kind:'grenade'` projectiles arc to a fixed range and explode in a
+// blast radius — handled separately in tickBullets / fire branch.
 const WEAPONS = {
-  pistol:  { dmg: 16, cd: 0.32, spd: 720, spread: 0.02, pellets: 1, color: '#ffd45e', muzzle:'#ffd45e' },
-  shotgun: { dmg: 12, cd: 0.7,  spd: 660, spread: 0.18, pellets: 6, color: '#ff8a55', muzzle:'#ff8a55' },
-  smg:     { dmg: 8,  cd: 0.085,spd: 820, spread: 0.10, pellets: 1, color: '#7af0ff', muzzle:'#7af0ff' },
+  pistol:   { dmg: 16, cd: 0.32, spd: 720,  spread: 0.02, pellets: 1, color:'#ffd45e', muzzle:'#ffd45e' },
+  shotgun:  { dmg: 12, cd: 0.70, spd: 660,  spread: 0.18, pellets: 6, color:'#ff8a55', muzzle:'#ff8a55' },
+  smg:      { dmg: 8,  cd: 0.085,spd: 820,  spread: 0.10, pellets: 1, color:'#7af0ff', muzzle:'#7af0ff' },
+  // Crowd control — minigun spins up over 0.5s before reaching peak fire rate.
+  minigun:  { dmg: 7,  cd: 0.045,spd: 880,  spread: 0.16, pellets: 1, color:'#ff5fbf', muzzle:'#ff5fbf', spinup: true },
+  // Grenades explode at the cursor's distance (clamped 60–360u) for splash damage.
+  grenade:  { dmg: 60, cd: 0.85, spd: 380,  spread: 0,    pellets: 1, color:'#9aff5e', muzzle:'#9aff5e', kind:'grenade', radius: 70, range: 320 },
 };
 
 // ── enemies ──────────────────────────────────────────────────────────
@@ -626,6 +769,8 @@ function loadDeck(idx){
       else if (c === '+'){ pickups.push({ x:wx, y:wy, kind:'health' }); tiles[ty][tx] = '.'; }
       else if (c === 'S'){ pickups.push({ x:wx, y:wy, kind:'shotgun' }); tiles[ty][tx] = '.'; }
       else if (c === 'M'){ pickups.push({ x:wx, y:wy, kind:'smg' }); tiles[ty][tx] = '.'; }
+      else if (c === 'N'){ pickups.push({ x:wx, y:wy, kind:'minigun' }); tiles[ty][tx] = '.'; }
+      else if (c === 'G'){ pickups.push({ x:wx, y:wy, kind:'grenade' }); tiles[ty][tx] = '.'; }
       else if (ENEMY_KINDS[c]){ spawnEnemy(c, wx, wy); tiles[ty][tx] = '.'; }
     }
   }
@@ -686,6 +831,8 @@ window.addEventListener('keydown', e => {
   else if (k === '1') swapWeapon('pistol');
   else if (k === '2') swapWeapon('shotgun');
   else if (k === '3') swapWeapon('smg');
+  else if (k === '4') swapWeapon('minigun');
+  else if (k === '5') swapWeapon('grenade');
   else if (k === 'e') tryEnterTerminal();
   keys[k] = true;
 });
@@ -799,11 +946,47 @@ function fireWeapon(){
     swapWeapon('pistol');
     return;
   }
-  player.cd = w.cd;
+  // Grenade — arcing projectile that explodes at cursor distance (clamped).
+  if (w.kind === 'grenade'){
+    player.cd = w.cd;
+    player.ammo.grenade--;
+    const aim = player.facing;
+    // distance to cursor in world
+    const sx = mouse.x - cvs.width  / 2 + player.x;
+    const sy = mouse.y - cvs.height / 2 + player.y;
+    const dToCursor = Math.hypot(sx - player.x, sy - player.y);
+    const range = Math.max(60, Math.min(w.range, dToCursor));
+    const flightT = range / w.spd;     // seconds until landing
+    bullets.push({
+      kind: 'grenade',
+      x: player.x + Math.cos(aim) * 14,
+      y: player.y + Math.sin(aim) * 14,
+      vx: Math.cos(aim) * w.spd,
+      vy: Math.sin(aim) * w.spd,
+      dmg: w.dmg,
+      life: flightT,
+      arcInit: flightT,
+      maxLife: flightT,
+      color: w.color,
+      radius: w.radius,
+    });
+    sndShoot(player.weapon);
+    refreshHud();
+    return;
+  }
+  // Minigun — spin-up modulates effective CD: 2× CD at spinup=0, 1× CD at spinup=1
+  if (w.spinup){
+    const factor = 2.0 - player.spinup;   // 2.0 → 1.0 as spin-up climbs
+    player.cd = w.cd * factor;
+  } else {
+    player.cd = w.cd;
+  }
   if (player.weapon !== 'pistol') player.ammo[player.weapon]--;
   const aim = player.facing;
+  // wider spread when minigun is spinning up (less accurate at low rev)
+  const spreadMul = w.spinup ? (1.6 - player.spinup * 0.8) : 1.0;
   for (let p = 0; p < w.pellets; p++){
-    const a = aim + (Math.random() - 0.5) * w.spread;
+    const a = aim + (Math.random() - 0.5) * w.spread * spreadMul;
     bullets.push({
       x: player.x + Math.cos(aim) * 14,
       y: player.y + Math.sin(aim) * 14,
@@ -814,8 +997,9 @@ function fireWeapon(){
       color: w.color,
     });
   }
-  // muzzle flash particles
-  for (let i = 0; i < 3; i++){
+  // muzzle flash particles — bigger burst on minigun
+  const burst = w.spinup ? 5 : 3;
+  for (let i = 0; i < burst; i++){
     particles.push({
       x: player.x + Math.cos(aim)*16,
       y: player.y + Math.sin(aim)*16,
@@ -895,6 +1079,12 @@ function tickPlayer(dt, now){
     const sy = mouse.y - cvs.height / 2 + player.y;
     player.facing = Math.atan2(sy - player.y, sx - player.x);
   }
+  // minigun spin-up — climbs to 1 over 0.5s of held trigger, decays over 0.7s on release
+  if (player.weapon === 'minigun' && mouse.down){
+    player.spinup = Math.min(1, player.spinup + dt / 0.5);
+  } else {
+    player.spinup = Math.max(0, player.spinup - dt / 0.7);
+  }
   // fire
   if (mouse.down) fireWeapon();
   if (player.cd > 0) player.cd -= dt;
@@ -947,6 +1137,13 @@ function collectPickup(pu){
     player.ammo.smg = Math.min(120, player.ammo.smg + 50);
     swapWeapon('smg');
     flashToast('SMG');
+  } else if (pu.kind === 'minigun'){
+    player.ammo.minigun = Math.min(300, player.ammo.minigun + 180);
+    swapWeapon('minigun');
+    flashToast('MINIGUN · CROWD CONTROL');
+  } else if (pu.kind === 'grenade'){
+    player.ammo.grenade = Math.min(8, player.ammo.grenade + 3);
+    flashToast('+3 GRENADES');
   }
   sndPickup();
   refreshHud();
@@ -973,6 +1170,7 @@ function tickEnemies(dt, now){
         });
       }
       totalKills++;
+      directorObserveKill();
       if (e.kindData.isBoss){
         // VICTORY
         endGame(true);
@@ -1000,8 +1198,10 @@ function tickEnemies(dt, now){
 }
 
 function damagePlayer(dmg){
+  const prevHp = player.hp;
   player.hp -= dmg;
   player.invuln = performance.now() / 1000 + 0.4;
+  directorObserveHit(prevHp);
   // hit particles
   for (let i = 0; i < 8; i++){
     const a = Math.random() * Math.PI * 2;
@@ -1024,6 +1224,24 @@ function tickBullets(dt){
   for (let i = bullets.length - 1; i >= 0; i--){
     const b = bullets[i];
     b.life -= dt;
+    // ── grenade: arcs, ignores walls (rolls), explodes on life=0 ──
+    if (b.kind === 'grenade'){
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      // deflect off walls (roll)
+      const c = tileAt(b.x, b.y);
+      if (blocksBullet(c) || c === '#'){
+        // simple bounce — invert the dominant component
+        if (Math.abs(b.vx) > Math.abs(b.vy)) b.vx *= -0.6; else b.vy *= -0.6;
+        b.x = Math.max(TILE, Math.min(WORLD_W - TILE, b.x));
+        b.y = Math.max(TILE, Math.min(WORLD_H - TILE, b.y));
+      }
+      if (b.life <= 0){
+        explodeAt(b.x, b.y, b.dmg, b.radius || 70, b.color);
+        bullets.splice(i, 1);
+      }
+      continue;
+    }
     if (b.life <= 0){ bullets.splice(i, 1); continue; }
     // step in 3 sub-steps to avoid tunnelling at high speed
     const steps = 3;
@@ -1049,6 +1267,39 @@ function tickBullets(dt){
     }
     if (hit) bullets.splice(i, 1);
   }
+}
+
+// Splash damage helper — damages all enemies inside radius with falloff,
+// plus a big particle burst. Also damages the player if too close.
+function explodeAt(x, y, dmg, radius, color){
+  for (const e of enemies){
+    const d = Math.hypot(e.x - x, e.y - y);
+    if (d < radius){
+      const fall = 1 - d / radius;
+      e.hp -= dmg * fall;
+      e.flash = 1.0;
+    }
+  }
+  // self-damage if inside blast (smaller)
+  const dp = Math.hypot(player.x - x, player.y - y);
+  if (dp < radius && performance.now()/1000 > player.invuln){
+    damagePlayer(Math.round(dmg * (1 - dp / radius) * 0.35));
+  }
+  // particle burst
+  for (let i = 0; i < 32; i++){
+    const a = Math.random() * Math.PI * 2;
+    const sp = 80 + Math.random() * 240;
+    particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: 0, dur: 0.5 + Math.random()*0.4, color: i & 1 ? '#ffd45e' : color, size: 3 + Math.random()*2,
+    });
+  }
+  // shockwave ring particle (a stationary expanding-ring is faked via ring particles)
+  particles.push({
+    x, y, vx:0, vy:0, life:0, dur: 0.45, color:'#fff5e0', size: 18, _ring: true, maxR: radius,
+  });
+  noiseHit();
+  blip(80, 0.3, 'sawtooth', 0.3);
 }
 
 function spawnSparks(x, y, color, n){
@@ -1411,6 +1662,8 @@ function render(now){
     else if (pu.kind === 'ammo'){   col = '#ffd45e'; glyph = '*'; }
     else if (pu.kind === 'shotgun'){ col = '#ff8a55'; glyph = 'S'; }
     else if (pu.kind === 'smg'){    col = '#7af0ff'; glyph = 'M'; }
+    else if (pu.kind === 'minigun'){col = '#ff5fbf'; glyph = 'N'; }
+    else if (pu.kind === 'grenade'){col = '#9aff5e'; glyph = 'G'; }
     ctx.fillStyle = col + '30';
     ctx.beginPath(); ctx.arc(pu.x, pu.y + wob, 13, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = col;
@@ -1424,6 +1677,17 @@ function render(now){
   // particles (under entities)
   for (const p of particles){
     const a = 1 - p.life / p.dur;
+    if (p._ring){
+      // expanding shockwave ring
+      const rNow = (1 - a) * (p.maxR || 70);
+      ctx.strokeStyle = p.color;
+      ctx.globalAlpha = a;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = p.color; ctx.shadowBlur = 14;
+      ctx.beginPath(); ctx.arc(p.x, p.y, rNow, 0, Math.PI*2); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+      continue;
+    }
     const isBlood = p.color === '#7a0a1e';
     if (isBlood){
       ctx.fillStyle = 'rgba(122,10,30,' + (a * 0.75) + ')';
@@ -1440,6 +1704,27 @@ function render(now){
 
   // bullets
   for (const b of bullets){
+    if (b.kind === 'grenade'){
+      // arc visualization — height bobs sin-wise based on remaining flight
+      const prog = 1 - (b.life / b.maxLife);
+      const arcZ = Math.sin(prog * Math.PI) * 14;
+      // shadow on the ground at b.x,b.y
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath(); ctx.ellipse(b.x, b.y + 4, 6, 2.2, 0, 0, Math.PI*2); ctx.fill();
+      // grenade pellet rendered offset by arcZ
+      ctx.fillStyle = b.color;
+      ctx.shadowColor = b.color; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.arc(b.x, b.y - arcZ, 4.5, 0, Math.PI*2); ctx.fill();
+      // tumbling line through the pellet
+      ctx.strokeStyle = '#04140a'; ctx.lineWidth = 1.4;
+      const ang = prog * Math.PI * 8;
+      ctx.beginPath();
+      ctx.moveTo(b.x + Math.cos(ang)*3, b.y - arcZ + Math.sin(ang)*3);
+      ctx.lineTo(b.x - Math.cos(ang)*3, b.y - arcZ - Math.sin(ang)*3);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      continue;
+    }
     ctx.fillStyle = b.color;
     ctx.shadowColor = b.color; ctx.shadowBlur = 8;
     // streak — bullet body + tail
@@ -1575,10 +1860,12 @@ function startGame(){
   player.hp = player.maxHp = 100;
   player.alive = true;
   player.weapon = 'pistol';
-  player.ammo = { pistol: Infinity, shotgun: 8, smg: 30 };
+  player.ammo = { pistol: Infinity, shotgun: 8, smg: 30, minigun: 0, grenade: 2 };
+  player.spinup = 0;
   player.cd = 0;
   player.invuln = 0;
   loadDeck(0);
+  directorReset();
   document.getElementById('title').classList.remove('show');
   document.getElementById('end').classList.remove('show');
   refreshHud();
@@ -1884,6 +2171,7 @@ function loop(now){
     tickEnemies(dt, t);
     tickBullets(dt);
     tickParticles(dt);
+    directorTick(t);
     refreshHud();
   } else {
     tickParticles(dt);
