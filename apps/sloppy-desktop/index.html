@@ -1751,6 +1751,7 @@ const FONT_MODES = [
   { id:'wave',    label:'wave' },
   { id:'melt',    label:'melt' },
   { id:'chaos',   label:'chaos' },
+  { id:'magnet',  label:'magnet' },
 ];
 // Per-VERTEX distortion (chat ask: "refactor sloppy-font to use raw
 // vector path data from OpenType.js 2.0.0 instead of basic SVG text").
@@ -1800,6 +1801,11 @@ const FONT_DISTORTIONS = {
     x + Math.sin(t * 2.6 + vi * 0.4 + gi) * 5 + (Math.random() - 0.5) * 1.4,
     y + Math.cos(t * 2.2 + vi * 0.3 + gi * 0.6) * 5 + (Math.random() - 0.5) * 1.4,
   ],
+  // magnet — identity base; distortion comes from the mouse-proximity
+  // post-step in distortCommands(). When the cursor is far from the
+  // letter (or off the SVG entirely) the glyph sits perfectly still.
+  // (chat ask: "make the letters distort based on mouse proximity")
+  magnet: (x, y, t, gi, vi, h) => [x, y],
 };
 
 // Render an opentype.js commands array back to an SVG path "d" string.
@@ -1822,11 +1828,48 @@ function commandsToD(cmds){
   return s;
 }
 // Per-vertex distortion sweep: clones every command and runs each
-// (x,y) coordinate pair through the distortion function. We touch
-// endpoints (x,y), quadratic control (x1,y1), and cubic controls
+// (x,y) coordinate pair through the distortion function. Touches
+// endpoints, quadratic control (x1,y1), and cubic controls
 // (x1,y1)/(x2,y2). Z (close path) has no points to move.
-function distortCommands(commands, t, glyphIdx, glyphHeight, mode){
+//
+// `env` (optional) applies a mouse-proximity push on top of the base
+// distortion: { mx, my, mActive, slotX, radius, strength }. Mouse
+// coords are SVG-space; we subtract the glyph's slotX to convert to
+// glyph-local before measuring distance. The push direction is AWAY
+// from the cursor (it's a repel/magnet field, not suction) with a
+// quadratic falloff inside `radius`. Behaviour applies to ALL base
+// modes — even with `mode='dance'` the letters will shy away from
+// the cursor — and the dedicated `magnet` mode has identity base so
+// the mouse field is the ONLY motion.
+function distortCommands(commands, t, glyphIdx, glyphHeight, mode, env){
   const fn = FONT_DISTORTIONS[mode] || FONT_DISTORTIONS.dance;
+  const useEnv = env && env.mActive;
+  const slotX = env ? env.slotX : 0;
+  const r2  = useEnv ? (env.radius * env.radius) : 0;
+  const r   = useEnv ? env.radius : 0;
+  const str = useEnv ? env.strength : 0;
+  // local mouse position in glyph-local coords
+  const mxL = useEnv ? (env.mx - slotX) : 0;
+  const myL = useEnv ? env.my : 0;
+
+  // Apply base distortion + magnet push for one (x, y).
+  function distortPoint(px, py, vi){
+    const base = fn(px, py, t, glyphIdx, vi, glyphHeight);
+    let x = base[0], y = base[1];
+    if (useEnv){
+      const dx = x - mxL, dy = y - myL;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < r2 && d2 > 1){
+        const d = Math.sqrt(d2);
+        const k = 1 - d / r;            // 0 at edge → 1 at cursor
+        const push = k * k * str;       // quadratic falloff
+        x += (dx / d) * push;
+        y += (dy / d) * push;
+      }
+    }
+    return [x, y];
+  }
+
   const out = new Array(commands.length);
   let vtx = 0;
   for (let i = 0; i < commands.length; i++){
@@ -1834,20 +1877,19 @@ function distortCommands(commands, t, glyphIdx, glyphHeight, mode){
     const o = { type: c.type };
     if (c.type === 'Z'){ out[i] = o; continue; }
     if (c.type === 'C'){
-      const a = fn(c.x1, c.y1, t, glyphIdx, vtx++, glyphHeight);
-      const b = fn(c.x2, c.y2, t, glyphIdx, vtx++, glyphHeight);
-      const e = fn(c.x,  c.y,  t, glyphIdx, vtx++, glyphHeight);
+      const a = distortPoint(c.x1, c.y1, vtx++);
+      const b = distortPoint(c.x2, c.y2, vtx++);
+      const e = distortPoint(c.x,  c.y,  vtx++);
       o.x1 = a[0]; o.y1 = a[1];
       o.x2 = b[0]; o.y2 = b[1];
       o.x  = e[0]; o.y  = e[1];
     } else if (c.type === 'Q'){
-      const a = fn(c.x1, c.y1, t, glyphIdx, vtx++, glyphHeight);
-      const e = fn(c.x,  c.y,  t, glyphIdx, vtx++, glyphHeight);
+      const a = distortPoint(c.x1, c.y1, vtx++);
+      const e = distortPoint(c.x,  c.y,  vtx++);
       o.x1 = a[0]; o.y1 = a[1];
       o.x  = e[0]; o.y  = e[1];
     } else {
-      // M or L — single point
-      const e = fn(c.x, c.y, t, glyphIdx, vtx++, glyphHeight);
+      const e = distortPoint(c.x, c.y, vtx++);
       o.x = e[0]; o.y = e[1];
     }
     out[i] = o;
@@ -1893,9 +1935,16 @@ function spawnFont(){
     color: '#ff4dc8',
     size: 120,
     paused: false,
-    glyphs: [],     // [{el, slotX, advanceWidth, commands, glyphHeight}] — el is the <path>, commands is the raw OpenType array
+    glyphs: [],
     bounds: null,
     vtxOutEl,
+    // Mouse-proximity field (chat ask: "make the letters distort based
+    // on mouse proximity"). Tracked in SVG-local coords so glyph
+    // distortion math is straightforward; populated in the pointermove
+    // handler attached after rebuildGlyphs creates the SVG.
+    mouse: { x: 0, y: 0, active: false },
+    magnetRadius: 110,    // glyph-local px
+    magnetStrength: 28,   // peak push at the cursor itself
   };
 
   // build mode pills
@@ -2016,18 +2065,70 @@ function spawnFont(){
   let rafId = null;
   let t0 = performance.now();
   function tick(now){
-    if (!fontState.paused && fontState.glyphs.length){
-      const t = (now - t0) / 1000;
+    if (fontState.glyphs.length){
+      // We tick even while paused if the magnet is active — the user
+      // expects to drag the cursor and SEE letters react. Base time
+      // freezes when paused so dance/wave/etc. stop, but mouse pull
+      // still applies.
+      const t = fontState.paused ? 0 : (now - t0) / 1000;
       const mode = fontState.mode;
+      const m = fontState.mouse;
       for (let i = 0; i < fontState.glyphs.length; i++){
         const g = fontState.glyphs[i];
-        const distorted = distortCommands(g.commands, t, i, g.glyphHeight, mode);
+        const env = m.active ? {
+          mActive: true,
+          mx: m.x, my: m.y,
+          slotX: g.slotX,
+          radius: fontState.magnetRadius,
+          strength: fontState.magnetStrength,
+        } : null;
+        const distorted = distortCommands(g.commands, t, i, g.glyphHeight, mode, env);
         g.el.setAttribute('d', commandsToD(distorted));
       }
     }
     rafId = requestAnimationFrame(tick);
   }
   rafId = requestAnimationFrame(tick);
+
+  // ── MOUSE PROXIMITY TRACKING ───────────────────────────────────
+  // Convert pointer (clientX, clientY) → SVG-local coords via the
+  // SVG's getScreenCTM inverse. Listener is attached on the stage
+  // wrapper so the cursor doesn't have to be exactly over a glyph
+  // for the magnet to read it; pointerleave on the stage clears
+  // `active` so glyphs spring back when the cursor exits.
+  function attachMouseListeners(){
+    if (!fontState.svg) return;
+    const wrap = stageEl;
+    const updateFromEvent = (e) => {
+      const svg = fontState.svg;
+      if (!svg) return;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return;
+      const pt = svg.createSVGPoint();
+      pt.x = e.clientX; pt.y = e.clientY;
+      const local = pt.matrixTransform(ctm.inverse());
+      fontState.mouse.x = local.x;
+      fontState.mouse.y = local.y;
+      fontState.mouse.active = true;
+    };
+    wrap.addEventListener('pointermove',  updateFromEvent);
+    wrap.addEventListener('pointerenter', updateFromEvent);
+    wrap.addEventListener('pointerleave', () => { fontState.mouse.active = false; });
+    // touch support — pointermove fires for touch already, but explicit
+    // touchstart helps on iOS Safari which can swallow the first event.
+    wrap.addEventListener('touchstart', e => {
+      if (e.touches.length){
+        updateFromEvent(e.touches[0]);
+      }
+    }, { passive: true });
+  }
+  // Hook listeners after the SVG exists. rebuildGlyphs replaces the
+  // SVG node every text/size change, so we re-attach inside that path.
+  const origRebuild = rebuildGlyphs;
+  rebuildGlyphs = function(){
+    origRebuild();
+    attachMouseListeners();
+  };
 
   // ── INPUT WIRING ──
   inputEl.addEventListener('input', () => {
