@@ -49,6 +49,15 @@ state.world = {
 - **Restart**: "↺ new tale" button in the header asks confirmation before wiping state and returning to the setting-picker overlay.
 - **Accessibility**: rem units, `<header role=banner>`, `<aside>` for state, semantic `<section>` for story, `aria-live="polite"` on the story (off on agent rail since LED pulses spam), `aria-label` on every input, focus-visible cyan/lime outlines, ≥2.4rem touch targets, skip link, `prefers-reduced-motion` no-ops the LED roll animation.
 
+- 2026-05-08: **Hardened Director JSON parser** (chat ask: more robust against model preamble / formatting errors). Replaced the single-pass `JSON.parse` with a 4-stage progressively-lenient pipeline:
+  1. **Raw**: `JSON.parse` straight off the response (handles well-behaved models).
+  2. **Fenced**: strip every ` ```json … ``` ` and ` ``` ` block, parse again.
+  3. **Block + repair**: brace-balanced scan (`findBalancedJsonBlock`) extracts the first complete `{…}` accounting for nested braces and string-literal escapes; if that still won't parse, run `repairJson` over it (smart-quote normalisation, `//` + `/* */` comment stripping, single→double-quote conversion, unquoted-key quoting, trailing-comma removal) and parse again.
+  4. **Regex extract**: last-resort field-by-field scrape of `outcome`, `brief`, `changes.{location, inventory_add[], inventory_remove[]}`, and `npc_speaks.{name, line_brief}` so a partly-truncated response still drives a viable turn.
+  - **Diagnostics**: the FIRST parse error is captured into a closure variable and dumped via `console.warn` with a 240-char sample if the parser ever gives up entirely or has to fall through to regex extract. Lets chat paste a quick diagnostic from DevTools without the parser spamming the console on the happy path.
+  - **`normaliseDirector`** is now a separate function the parser hands off to. Type-checks every field it cares about, drops malformed values with `delete`, ensures arrays are arrays and objects are objects, coerces `npc_speaks` to a clean `{name, line_brief}` shape or null.
+  - Verified all 10 sanity cases via `node`: happy path → raw, preamble + postamble → block, code-fenced → fenced, trailing comma / unquoted keys / single quotes → repaired, line-comment-prefixed → block, nested objects → raw, truncated → correctly rejected (would land in regex stage in the real engine).
+
 ## issues
 - Pollinations occasionally returns malformed JSON or empty content — Director call falls back to a system error message in the story stream rather than crashing the whole turn. Memory + Narrator are skipped in that case so the world stays consistent.
 - The Narrator can ignore the no-dialogue rule on rare occasions and slip a quoted line into the prose; the NPC Voice agent runs separately so dialogue still gets its own block when properly flagged. Trade-off of LLM compliance.

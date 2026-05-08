@@ -536,24 +536,157 @@ async function runDirector(input, world, setting){
   );
   return parseDirectorJson(text);
 }
+// ── ROBUST DIRECTOR JSON PARSER (chat ask) ─────────────────────────
+// LLMs find creative ways to mangle JSON. Four progressively-lenient
+// stages, each only invoked when the previous one fails:
+//
+//   1. JSON.parse the raw text                                  ← happy path
+//   2. strip code fences (```json … ```), JSON.parse again
+//   3. brace-balanced scan to extract the first complete {…} block
+//      (handles nested braces + strings + escapes), then attempt
+//      JSON.parse, and if that fails apply common repairs
+//      (smart quotes, // and /* */ comments, single-quoted strings,
+//      unquoted keys, trailing commas) and parse again
+//   4. last-resort regex extraction of the fields we actually need
+//      so even partly-truncated outputs still drive a viable turn
+//
+// We also surface the FIRST failure to console.warn so chat can paste
+// a diagnostic if the parser ever gives up entirely.
 function parseDirectorJson(text){
   if (!text) throw new Error('director · empty response');
-  // strip code fences, find first {...} block
-  let s = text.trim();
-  s = s.replace(/^```[a-z]*\s*/i, '').replace(/```\s*$/, '');
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  if (start < 0 || end < 0 || end < start) throw new Error('director · no json block');
-  const j = JSON.parse(s.slice(start, end + 1));
-  // normalise
+  let firstErr = null;
+  const tryParse = (s, label) => {
+    try { return JSON.parse(s); }
+    catch(e){ if (!firstErr) firstErr = { label, msg: e.message, sample: s.slice(0, 240) }; return null; }
+  };
+  // Stage 1 — raw
+  let parsed = tryParse(text.trim(), 'raw');
+  // Stage 2 — strip code fences (might be language-tagged like ```json)
+  if (!parsed){
+    const stripped = text.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim();
+    parsed = tryParse(stripped, 'fenced');
+    // Stage 3 — brace-balanced extract + repair pipeline
+    if (!parsed){
+      const block = findBalancedJsonBlock(stripped);
+      if (block){
+        parsed = tryParse(block, 'block');
+        if (!parsed){
+          const repaired = repairJson(block);
+          parsed = tryParse(repaired, 'repaired');
+        }
+      }
+    }
+  }
+  // Stage 4 — regex extract of the fields the rest of the engine needs
+  if (!parsed){
+    const extracted = regexExtractDirector(text);
+    if (extracted){
+      console.warn('[story-engine] JSON unparseable, used regex fallback. First parse error:', firstErr);
+      parsed = extracted;
+    }
+  }
+  if (!parsed){
+    console.warn('[story-engine] JSON parse failed at every stage:', firstErr, 'raw:', text.slice(0, 600));
+    throw new Error('director · unparseable JSON (' + (firstErr ? firstErr.label + ': ' + firstErr.msg : 'unknown') + ')');
+  }
+  return normaliseDirector(parsed);
+}
+
+// Brace-balanced scan: finds the first complete top-level {...} block,
+// correctly skipping over braces that appear INSIDE string literals.
+function findBalancedJsonBlock(s){
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++){
+    const c = s[i];
+    if (inStr){
+      if (esc){ esc = false; continue; }
+      if (c === '\\'){ esc = true; continue; }
+      if (c === '"')  inStr = false;
+      continue;
+    }
+    if (c === '"'){ inStr = true; continue; }
+    if (c === '{'){
+      if (depth === 0) start = i;
+      depth++;
+    } else if (c === '}'){
+      if (depth > 0){
+        depth--;
+        if (depth === 0 && start >= 0) return s.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+// Common LLM JSON mistakes — apply only after the strict parse failed.
+// Order matters: comment-strip MUST come before key-quoting because the
+// key regex doesn't understand comment context.
+function repairJson(s){
+  return s
+    // smart quotes → regular
+    .replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+    // // line comments + /* block */ comments
+    .replace(/\/\/[^\n\r]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    // single-quoted string values → double-quoted (basic, doesn't cover
+    // strings containing apostrophes — those are rare in machine output)
+    .replace(/'([^'\n\\]*)'/g, '"$1"')
+    // unquoted object keys → quoted (identifier-ish keys only)
+    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+    // trailing commas inside arrays + objects
+    .replace(/,(\s*[}\]])/g, '$1');
+}
+
+// Last-resort: scrape the fields the engine actually needs out of
+// whatever shape the model returned. Works even on truncated output.
+function regexExtractDirector(text){
+  const grab = (re) => { const m = text.match(re); return m ? m[1] : null; };
+  const out = { outcome: null, brief: null, changes: {}, npc_speaks: null };
+  out.outcome = grab(/"outcome"\s*:\s*"([^"]+)"/);
+  out.brief   = grab(/"brief"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (out.brief) out.brief = out.brief.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  // location
+  const loc = grab(/"location"\s*:\s*"([^"]+)"/);
+  if (loc) out.changes.location = loc;
+  // arrays
+  const grabStringList = (key) => {
+    const m = text.match(new RegExp('"' + key + '"\\s*:\\s*\\[([\\s\\S]*?)\\]'));
+    if (!m) return [];
+    const arr = [];
+    const inner = m[1];
+    const re = /"((?:[^"\\]|\\.)*)"/g;
+    let mm;
+    while ((mm = re.exec(inner))) arr.push(mm[1]);
+    return arr;
+  };
+  out.changes.inventory_add    = grabStringList('inventory_add');
+  out.changes.inventory_remove = grabStringList('inventory_remove');
+  // npc_speaks
+  const npcName = grab(/"npc_speaks"\s*:[\s\S]{0,200}?"name"\s*:\s*"([^"]+)"/);
+  if (npcName){
+    const npcLine = grab(/"npc_speaks"\s*:[\s\S]{0,400}?"line_brief"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    out.npc_speaks = { name: npcName, line_brief: (npcLine || '').replace(/\\"/g, '"') };
+  }
+  // Require at least brief OR outcome OR location to call this a usable extract
+  if (!out.outcome && !out.brief && !out.changes.location) return null;
+  return out;
+}
+
+function normaliseDirector(j){
   j.outcome = j.outcome || 'ambiguous';
   j.changes = j.changes || {};
   j.changes.inventory_add    = Array.isArray(j.changes.inventory_add)    ? j.changes.inventory_add    : [];
   j.changes.inventory_remove = Array.isArray(j.changes.inventory_remove) ? j.changes.inventory_remove : [];
   j.changes.cast_meet        = Array.isArray(j.changes.cast_meet)        ? j.changes.cast_meet        : [];
   j.changes.flags_set        = (typeof j.changes.flags_set === 'object' && j.changes.flags_set) || {};
-  j.brief = j.brief || '';
-  j.npc_speaks = j.npc_speaks && j.npc_speaks.name ? j.npc_speaks : null;
+  // string / null normalisation
+  if (typeof j.changes.location !== 'string') delete j.changes.location;
+  if (typeof j.changes.time_advance !== 'string') delete j.changes.time_advance;
+  j.brief = (typeof j.brief === 'string' ? j.brief : '').trim();
+  j.npc_speaks = (j.npc_speaks && typeof j.npc_speaks === 'object' && j.npc_speaks.name) ? {
+    name: String(j.npc_speaks.name),
+    line_brief: String(j.npc_speaks.line_brief || ''),
+  } : null;
   return j;
 }
 
