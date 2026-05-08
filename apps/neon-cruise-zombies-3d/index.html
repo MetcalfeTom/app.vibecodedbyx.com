@@ -1082,8 +1082,13 @@ function tryDash(){
   if (now < player.dashCD) return;
   let dx = player.vx, dz = player.vz;
   const m = Math.hypot(dx, dz);
-  if (m < 0.1){ dx = Math.cos(player.facing); dz = Math.sin(player.facing); }
-  else { dx /= m; dz /= m; }
+  if (m < 0.1){
+    // Standing-still dash → use camera-forward so it goes WHERE YOU LOOK,
+    // not in some random direction. (Bug fix chat playtest: previous code
+    // used cos/sin of yaw as a math-plane angle which was 90° off.)
+    dx = -Math.sin(player.yaw);
+    dz = -Math.cos(player.yaw);
+  } else { dx /= m; dz /= m; }
   player.dashDx = dx; player.dashDz = dz;
   player.dashUntil = now + 0.18;
   player.dashCD    = now + 0.85;
@@ -1298,15 +1303,19 @@ function tickPlayer(dt, now){
   const inXR = renderer.xr.isPresenting;
 
   // ── INPUT-RELATIVE MOVEMENT ─────────────────────────────────────
+  // Sign convention: fwd > 0 = forward, strafe > 0 = right.
+  // Bug fix (chat playtest): WASD was inverted because the previous
+  // formula and the `fwd -= 1` mapping used opposite conventions.
   let strafe = 0, fwd = 0;
-  if (keys['w'] || keys['arrowup'])    fwd    -= 1;   // -Z is forward in our world
-  if (keys['s'] || keys['arrowdown'])  fwd    += 1;
+  if (keys['w'] || keys['arrowup'])    fwd    += 1;
+  if (keys['s'] || keys['arrowdown'])  fwd    -= 1;
   if (keys['a'] || keys['arrowleft'])  strafe -= 1;
   if (keys['d'] || keys['arrowright']) strafe += 1;
-  if (joy.active){ strafe += joy.dx; fwd += joy.dy; }
+  // joystick dy positive = down on screen = backward
+  if (joy.active){ strafe += joy.dx; fwd -= joy.dy; }
   const sprint = keys['shift'] ? 1.45 : 1;
 
-  // VR thumbstick locomotion (left hand) — thumbstick axes 2 + 3 on most headsets
+  // VR thumbstick locomotion (left hand) — thumbstick Y positive = down = backward
   if (inXR){
     const session = renderer.xr.getSession();
     if (session) for (const src of session.inputSources){
@@ -1314,7 +1323,7 @@ function tickPlayer(dt, now){
         const ax = src.gamepad.axes;
         if (src.handedness === 'left'){
           strafe += ax[2] || ax[0] || 0;
-          fwd    += ax[3] || ax[1] || 0;
+          fwd    -= ax[3] || ax[1] || 0;
         } else if (src.handedness === 'right'){
           // right-stick snap-turn
           const turn = ax[2] || ax[0] || 0;
@@ -1333,18 +1342,19 @@ function tickPlayer(dt, now){
   const inMag = Math.hypot(strafe, fwd);
   if (inMag > 1){ strafe /= inMag; fwd /= inMag; }
 
-  // Convert (strafe, fwd) from local-space to world-space using current yaw.
-  // In XR, derive yaw from the camera so movement is relative to where
-  // the headset is looking.
+  // Determine the look yaw — in XR the headset writes camera rotation,
+  // so we read it back; otherwise it's `player.yaw` directly.
   let lookYaw = player.yaw;
   if (inXR){
     const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
     lookYaw = e.y + playerRig.rotation.y;
   }
-  const cosY = Math.cos(lookYaw), sinY = Math.sin(lookYaw);
-  // standard FPS axes: forward = -Z in cam-space → world (sin*-1, -cos*-1) etc.
-  let mx = strafe * cosY + fwd * sinY;
-  let mz = strafe * sinY - fwd * cosY;
+  // Camera-relative basis vectors in world XZ:
+  //   forward = (-sin(yaw), -cos(yaw))   (three.js camera looks down -Z at yaw=0)
+  //   right   = ( cos(yaw), -sin(yaw))
+  const sinY = Math.sin(lookYaw), cosY = Math.cos(lookYaw);
+  let mx =  strafe * cosY - fwd * sinY;
+  let mz = -strafe * sinY - fwd * cosY;
   let speed = 4.6 * sprint;
   if (now < player.dashUntil){
     // dash uses last-frame velocity direction
