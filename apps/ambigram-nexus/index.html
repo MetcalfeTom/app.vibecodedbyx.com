@@ -103,6 +103,26 @@
     font-family:'JetBrains Mono',monospace;font-size:.55rem;letter-spacing:.16em;
     color:var(--dim);text-transform:uppercase;
   }
+  .panel-head .meta-row{
+    display:flex;align-items:center;gap:.5rem;
+  }
+  .panel-head .export{
+    display:inline-flex;gap:.32rem;
+  }
+  .panel-head .export button{
+    background:rgba(2,1,12,0.65);color:var(--gold);
+    border:1px solid var(--gold);border-radius:.28rem;
+    padding:.28rem .55rem;
+    font-family:'JetBrains Mono',monospace;font-size:.58rem;letter-spacing:.18em;
+    text-transform:uppercase;cursor:pointer;
+    transition:background .15s,color .15s,box-shadow .15s;
+    min-height:1.9rem;
+  }
+  .panel-head .export button:hover,
+  .panel-head .export button:focus-visible{
+    background:var(--gold);color:#100618;
+    box-shadow:0 0 .55rem rgba(255,208,42,0.45);outline:none;
+  }
   .panel svg{
     width:100%;height:auto;display:block;background:#02010a;border-radius:.24rem;
     border:1px solid rgba(255,255,255,0.08);
@@ -170,7 +190,13 @@
   <section class="panel overlay" aria-label="Stack overlay">
     <div class="panel-head">
       <span class="label overlay">◇ overlay · pink + cyan</span>
-      <span class="meta" id="metaC">overlap score: <b id="overlapScore">—</b></span>
+      <div class="meta-row">
+        <span class="meta" id="metaC">overlap score: <b id="overlapScore">—</b></span>
+        <span class="export" role="group" aria-label="Export overlay">
+          <button type="button" id="exportSvg" title="Download overlay as .svg">↓ svg</button>
+          <button type="button" id="exportPng" title="Download overlay as high-res .png">↓ png</button>
+        </span>
+      </div>
     </div>
     <div id="svgC"></div>
   </section>
@@ -303,30 +329,34 @@ function render(){
   // panel C can place rotated B-chars at A-slots for exact alignment.
   const A = renderCharacters(font, wA, fs, baseY);
   const B = renderCharacters(font, wB, fs, baseY);
-  // (chat ask: "in ambigram-nexus, the rotated text is missing, please
-  // debug and fix the canvas rendering logic"). Bug was here:
-  // opentype.js's `font.ascender` is POSITIVE in font units (e.g. 800)
-  // and `font.descender` is NEGATIVE (e.g. -200). In canvas y-down
-  // coordinates, "above baseline" means SMALLER y, so lineTop should
-  // SUBTRACT the ascender, not add. Adding flipped lineTop below the
-  // baseline, lineBottom above it, gave a NEGATIVE viewBox height —
-  // SVG silently clips that to nothing, so panel B (and the cyan
-  // overlay layer) never rendered. Fix: derive line bounds from the
-  // actual per-glyph bounding boxes (Path.getBoundingBox returns
-  // canvas y-down coords already, no metric interpretation needed),
-  // falling back to baseY ± fs if no glyph has a bbox (e.g. the
-  // string is all spaces).
-  let lineTop = Infinity, lineBottom = -Infinity;
-  for (const p of A.paths.concat(B.paths)){
-    if (p.bb){
-      if (p.bb.y1 < lineTop)    lineTop    = p.bb.y1;
-      if (p.bb.y2 > lineBottom) lineBottom = p.bb.y2;
+  // Line bounds derived from per-glyph bboxes — opentype 2.0's
+  // font.ascender is POSITIVE in font units and descender is NEGATIVE,
+  // and in canvas y-down coords "above baseline" means SMALLER y;
+  // path.getBoundingBox() returns canvas y-down coords directly so no
+  // metric interpretation is needed. We compute SEPARATE line bounds
+  // for A and B so the overlay can match vertical line-centres
+  // exactly (chat ask: "ensure the vertical centers match exactly").
+  function lineBounds(paths){
+    let top = Infinity, bot = -Infinity;
+    for (const p of paths){
+      if (p.bb){
+        if (p.bb.y1 < top) top = p.bb.y1;
+        if (p.bb.y2 > bot) bot = p.bb.y2;
+      }
     }
+    if (!isFinite(top) || !isFinite(bot)){
+      top = baseY - fs;
+      bot = baseY + fs * 0.25;
+    }
+    return { top, bot, mid: (top + bot) / 2 };
   }
-  if (!isFinite(lineTop) || !isFinite(lineBottom)){
-    lineTop    = baseY - fs;
-    lineBottom = baseY + fs * 0.25;
-  }
+  const Abnd = lineBounds(A.paths);
+  const Bbnd = lineBounds(B.paths);
+  // The shared viewBox uses the UNION of A and B bounds so the rotated
+  // line never clips, even when A and B have different ascender/
+  // descender extents.
+  const lineTop    = Math.min(Abnd.top, Bbnd.top);
+  const lineBottom = Math.max(Abnd.bot, Bbnd.bot);
   const padX = fs * 0.18;
   const padY = fs * 0.30;
   // viewBox A
@@ -346,29 +376,36 @@ function render(){
     vbB
   );
   metaBEl.textContent = wB.length + ' chars · rotated';
-  // panel C — PER-CHARACTER alignment. For each slot i in word A, find
-  // the corresponding rotated character: rotating word B by 180° around
-  // its line-centre maps B[i] to slot (n-1-i). So if we want the
-  // rotated B character that LANDS at A's slot i, it's B[len(B)-1-i].
-  // We then rotate THAT character 180° around its own slot centre and
-  // translate it to A's slot centre. Result: rotationally-symmetric
-  // glyphs that share both A's slot and the rotated B-glyph's centre
-  // overlay EXACTLY pixel-for-pixel.
+  // panel C — exact vertical-centre match (chat ask: "ensure the
+  // vertical centers match exactly"). All rotated B-chars share a
+  // SINGLE vertical rotation axis at B's whole-word line midline
+  // (Bbnd.mid) and translate by a CONSTANT dy = Abnd.mid - Bbnd.mid,
+  // which guarantees that the overall vertical centre of word B (as
+  // rendered) coincides exactly with the overall vertical centre of
+  // word A, regardless of which letters have ascenders/descenders.
+  // X is still aligned per-character by glyph-bbox centre so each
+  // rotated B-glyph lands in its corresponding A-slot horizontally.
   const overlayParts = [];
-  // pink layer = A normal
   overlayParts.push('<path class="a-normal" d="' + A.paths.map(p => p.d).join(' ') + '"/>');
-  // cyan layer = each B-character rotated, placed at A's slot
+  const aMidY = Abnd.mid;
+  const bMidY = Bbnd.mid;
+  const dyShared = aMidY - bMidY;
   const len = Math.max(A.paths.length, B.paths.length);
   for (let i = 0; i < len; i++){
     const aSlot = A.paths[i];
-    const bChar = B.paths[B.paths.length - 1 - i];        // mirrored mapping
+    const bChar = B.paths[B.paths.length - 1 - i];        // 180° rotation maps slot i to slot (len-1-i)
     if (!aSlot || !bChar) continue;
-    // rotate B-char around its own slot centre + line centre, then
-    // translate from B-char's slot centre to A-slot's slot centre
-    const dx = aSlot.slotCenterX - bChar.slotCenterX;
-    const dy = 0;                                          // baseline aligned already
+    let aCx, bCx;
+    if (aSlot.bb && bChar.bb){
+      aCx = (aSlot.bb.x1 + aSlot.bb.x2) / 2;
+      bCx = (bChar.bb.x1 + bChar.bb.x2) / 2;
+    } else {
+      aCx = aSlot.slotCenterX;
+      bCx = bChar.slotCenterX;
+    }
+    const dx = aCx - bCx;
     overlayParts.push(
-      '<g class="a-rotate" transform="translate(' + dx + ' ' + dy + ') rotate(180 ' + bChar.slotCenterX + ' ' + cyB + ')">' +
+      '<g class="a-rotate" transform="translate(' + dx + ' ' + dyShared + ') rotate(180 ' + bCx + ' ' + bMidY + ')">' +
         '<path d="' + bChar.d + '"/>' +
       '</g>'
     );
@@ -402,6 +439,91 @@ function buildFontSelector(){
   fontSelEl.value = cache.active;
 }
 fontSelEl.addEventListener('change', () => selectFont(fontSelEl.value));
+
+// ── EXPORT ───────────────────────────────────────────────────────
+// Chat asks (bundled): "add a button to export the current view as
+// an SVG or PNG file" + "add a download button to export the current
+// canvas as a high-quality PNG". Both buttons act on the OVERLAY
+// panel — that's the artifact designers actually want to keep.
+function exportFilename(ext){
+  const a = (wordAEl.value || 'A').trim().replace(/[^a-z0-9-]+/gi, '_').toLowerCase() || 'a';
+  const b = (wordBEl.value || '').trim().replace(/[^a-z0-9-]+/gi, '_').toLowerCase();
+  const slug = b ? a + '-' + b : a;
+  return 'ambigram-' + slug + '.' + ext;
+}
+function getOverlaySvg(){
+  const inner = svgCEl.querySelector('svg');
+  if (!inner) return null;
+  // Clone so we can inline a solid bg + xmlns for standalone use.
+  const clone = inner.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  // Inline background rect + glyph fills/blends so the file
+  // renders identically to the on-page panel without our CSS.
+  const vb = clone.getAttribute('viewBox').split(/\s+/).map(Number);
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('x', vb[0]); bg.setAttribute('y', vb[1]);
+  bg.setAttribute('width', vb[2]); bg.setAttribute('height', vb[3]);
+  bg.setAttribute('fill', '#02010a');
+  clone.insertBefore(bg, clone.firstChild);
+  for (const node of clone.querySelectorAll('.a-normal')){
+    node.setAttribute('fill', 'rgba(255,46,136,0.55)');
+  }
+  for (const node of clone.querySelectorAll('.a-rotate')){
+    node.setAttribute('fill', 'rgba(92,242,255,0.55)');
+    node.setAttribute('style', 'mix-blend-mode:screen');
+  }
+  return clone;
+}
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 800);
+}
+document.getElementById('exportSvg').addEventListener('click', () => {
+  const clone = getOverlaySvg();
+  if (!clone){ setToast('nothing to export yet', 'warn'); return; }
+  const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+  downloadBlob(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }), exportFilename('svg'));
+  setToast('saved ' + exportFilename('svg'), 'ok');
+});
+document.getElementById('exportPng').addEventListener('click', () => {
+  const clone = getOverlaySvg();
+  if (!clone){ setToast('nothing to export yet', 'warn'); return; }
+  const vb = clone.getAttribute('viewBox').split(/\s+/).map(Number);
+  // Target ~2400px wide for a clean retina-quality PNG; height
+  // scales to the overlay's actual aspect ratio so no letters clip.
+  const targetW = 2400;
+  const scale = targetW / vb[2];
+  const targetH = Math.round(vb[3] * scale);
+  const xml = new XMLSerializer().serializeToString(clone);
+  const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW; canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#02010a';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+    URL.revokeObjectURL(url);
+    canvas.toBlob((blob) => {
+      if (!blob){ setToast('png export failed', 'warn'); return; }
+      downloadBlob(blob, exportFilename('png'));
+      setToast('saved ' + exportFilename('png') + ' (' + targetW + '×' + targetH + ')', 'ok');
+    }, 'image/png');
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    setToast('png export failed', 'warn');
+  };
+  img.src = url;
+});
 
 // ── BOOT ─────────────────────────────────────────────────────────
 buildFontSelector();
