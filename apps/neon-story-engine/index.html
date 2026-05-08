@@ -567,23 +567,43 @@ function extractAssistantText(j, label){
   const choice = j && j.choices && j.choices[0];
   const msg    = choice && choice.message;
   const content = (msg && msg.content) || '';
-  if (content) return content;
-  const reasoning = (msg && (msg.reasoning_content || msg.reasoning)) || '';
   const finish = (choice && choice.finish_reason) || 'unknown';
+  if (content){
+    // Diagnostic log (chat ask: "print out the raw model response for
+    // every agent call"): truncated to 600 chars so a long Narrator
+    // turn doesn't flood the console; finish_reason surfaces budget
+    // exhaustion ("length"), API errors, etc.
+    console.log('[story-engine][' + (label || 'llm') + '] raw content · ' +
+      content.length + ' chars · finish: ' + finish + ' ·\n' +
+      content.slice(0, 600) + (content.length > 600 ? ' …(truncated)' : ''));
+    return content;
+  }
+  const reasoning = (msg && (msg.reasoning_content || msg.reasoning)) || '';
   if (reasoning){
-    console.warn('[story-engine] ' + (label || 'llm') +
-      ' reasoning-only response · ' + reasoning.length +
+    console.warn('[story-engine][' + (label || 'llm') +
+      '] reasoning-only response · ' + reasoning.length +
       ' reasoning chars discarded · finish_reason: ' + finish +
       ' · raise max_tokens or pick a non-reasoning model');
   } else {
-    console.warn('[story-engine] ' + (label || 'llm') +
-      ' empty response (no content, no reasoning) · finish_reason: ' +
+    console.warn('[story-engine][' + (label || 'llm') +
+      '] empty response (no content, no reasoning) · finish_reason: ' +
       finish + ' · raw envelope:', j);
   }
   return '';
 }
 
 // ── POLLINATIONS — text API with POST + GET fallback ───────────────
+// CRITICAL: do NOT pass `response_format: { type: 'json_object' }` here.
+// Verified 2026-05-08 via direct curl: Pollinations silently substitutes
+// a cached canned response (the "Hey there! How can I help you right
+// now?" greeting) when response_format is present, REGARDLESS of the
+// messages we sent. Same model with the same messages but no
+// response_format returns clean JSON. That's why every Director call
+// has been failing — strip+retry can't recover from a cached unrelated
+// response that mentions nothing of our schema. JSON enforcement now
+// relies on (a) the bookended CRITICAL OUTPUT RULES system prompt, and
+// (b) the 4-stage parseDirectorJson + stripPreamble pipeline. JSON mode
+// is preserved on OpenRouter where it actually works.
 async function pollPost(messages, opts){
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeout || 18000);
@@ -594,13 +614,9 @@ async function pollPost(messages, opts){
       body: JSON.stringify({
         model: opts.model || 'openai',
         messages,
-        // Bumped from 320 → 1024 so reasoning models that route through
-        // pollinations have headroom for both chain-of-thought AND a final
-        // answer. Plain models stop at finish_reason="stop" anyway, so the
-        // extra ceiling costs nothing for the non-reasoning path.
         max_tokens: opts.max_tokens || 1024,
         temperature: opts.temperature != null ? opts.temperature : 0.85,
-        ...(opts.json_mode ? { response_format: { type: 'json_object' } } : {}),
+        // response_format intentionally omitted — see comment above.
       }),
       signal: ctrl.signal,
     });
@@ -788,11 +804,23 @@ async function runDirector(input, world, setting){
   // multiple times in different framings so models can't miss it.
   // Prompt order is part of the design — the most-violated rule comes
   // first AND last so it bookends the instructions.
+  // NOTE (2026-05-08, chat ask: "check the logs for why every director
+  // response is still failing"). The system prompt used to enumerate
+  // literal banned greeting phrases ("Sure thing!", "Here's the JSON:",
+  // "Certainly,", "Of course!", "Let me…"). Verified via direct curl
+  // that Pollinations content-hashes the messages and returns a CACHED
+  // canned greeting response — featuring those exact phrases — whenever
+  // they appear prominently in the prompt. Same long prompt with the
+  // enumerations removed returns perfect JSON. So we keep the STRUCTURAL
+  // rules (first char `{`, last char `}`, no preamble, no fences, no
+  // trailing prose) but never name the phrases themselves; the
+  // stripPreamble regex chain at the fetch boundary still catches them
+  // if a model slips one in, so the safety net stays in place.
   const sys = [
     'CRITICAL OUTPUT RULES:',
     '1. Reply with RAW JSON ONLY. The first character of your response MUST be `{`. The last character MUST be `}`.',
-    '2. DO NOT prefix your reply with any conversational text. NO "Sure thing!", NO "Here\'s the JSON:", NO "Certainly,", NO "Of course!", NO "Let me…".',
-    '3. DO NOT wrap the JSON in markdown code fences (```json … ```). Output the JSON object directly.',
+    '2. DO NOT prefix your reply with conversational text, greetings, or affirmations.',
+    '3. DO NOT wrap the JSON in markdown code fences. Output the JSON object directly.',
     '4. DO NOT add prose, commentary, or trailing explanation after the closing brace.',
     '5. If you violate any rule above, your response will be rejected by the parser.',
     '',
@@ -841,6 +869,7 @@ async function runDirector(input, world, setting){
   // parseDirectorJson is used as the parser callback so all the existing
   // brace-balanced/repair/regex fallbacks are still in play if they're
   // needed.
+  console.log('[story-engine][director] sending →', { input, world_keys: Object.keys(world || {}), setting: setting && setting.key });
   const j = await pollJSON(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
     // max_tokens raised 360 → 2048 so reasoning models (MiniMax M2.5,
@@ -850,6 +879,7 @@ async function runDirector(input, world, setting){
     { temperature: 0.35, max_tokens: 2048, timeout: 60000 },
     parseDirectorJson,
   );
+  console.log('[story-engine][director] parsed →', j);
   // pollJSON returns whatever the parser returned — already shape-normalised
   return j;
 }
@@ -1065,13 +1095,16 @@ async function runNarrator(brief, world, setting, recentHistory){
     '',
     'Write the prose response now (just the prose, nothing else):',
   ].join('\n');
+  console.log('[story-engine][narrator] sending → brief:', brief);
   const text = await pollinate(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
     // 220 → 1500 — reasoning models need budget for chain-of-thought
     // BEFORE the prose answer, otherwise content comes back empty.
     { temperature: 0.95, max_tokens: 1500, timeout: 60000 }
   );
-  return cleanProse(text);
+  const cleaned = cleanProse(text);
+  console.log('[story-engine][narrator] cleaned → ' + cleaned.length + ' chars · ' + cleaned.slice(0, 240) + (cleaned.length > 240 ? ' …(truncated)' : ''));
+  return cleaned;
 }
 function cleanProse(t){
   if (!t) return '';
@@ -1095,12 +1128,15 @@ async function runNpcVoice(npc_speaks, world, setting){
   ].join('\n');
   const user = 'They want to say (briefly): ' + npc_speaks.line_brief +
                '\n\nSay it now in character (just the words):';
+  console.log('[story-engine][npc-voice] sending → name:', npc_speaks.name, '· brief:', npc_speaks.line_brief);
   const text = await pollinate(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
     // 140 → 1200 for reasoning-model headroom (chain-of-thought + line).
     { temperature: 1.0, max_tokens: 1200, timeout: 60000 }
   );
-  return cleanProse(text);
+  const cleaned = cleanProse(text);
+  console.log('[story-engine][npc-voice] cleaned → ' + cleaned.length + ' chars · ' + cleaned.slice(0, 240) + (cleaned.length > 240 ? ' …(truncated)' : ''));
+  return cleaned;
 }
 
 // ── TURN PIPELINE ──────────────────────────────────────────────────
