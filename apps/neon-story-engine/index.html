@@ -550,6 +550,36 @@ function loadState(){
 }
 function clearState(){ try { localStorage.removeItem(SK); } catch(e){} }
 
+// extractAssistantText — read a chat-completion JSON envelope and return
+// the most useful text we can. Reasoning models (MiniMax M2.5, DeepSeek R1,
+// QwQ, o1-style) sometimes emit chain-of-thought via `message.reasoning`
+// or `message.reasoning_content` and leave `message.content` blank — most
+// often when max_tokens runs out mid-think (finish_reason="length"). When
+// content is empty but reasoning has text, return the reasoning instead so
+// the JSON parser / Narrator at least has something to work with — the
+// reasoning field often contains the literal JSON the model was about to
+// emit, and our 4-stage parser can usually still extract the fields it
+// needs. console.warn surfaces a diagnostic that chat can paste from
+// DevTools if the turn looks off.
+function extractAssistantText(j, label){
+  const choice = j && j.choices && j.choices[0];
+  const msg    = choice && choice.message;
+  const content = (msg && msg.content) || '';
+  if (content) return content;
+  const reasoning = (msg && (msg.reasoning_content || msg.reasoning)) || '';
+  const finish = (choice && choice.finish_reason) || 'unknown';
+  if (reasoning){
+    console.warn('[story-engine] ' + (label || 'llm') +
+      ' returned empty content, falling back to reasoning field (finish_reason: ' +
+      finish + '). Length: ' + reasoning.length);
+    return reasoning;
+  }
+  console.warn('[story-engine] ' + (label || 'llm') +
+    ' returned empty content AND empty reasoning (finish_reason: ' +
+    finish + '). Raw envelope:', j);
+  return '';
+}
+
 // ── POLLINATIONS — text API with POST + GET fallback ───────────────
 async function pollPost(messages, opts){
   const ctrl = new AbortController();
@@ -561,7 +591,11 @@ async function pollPost(messages, opts){
       body: JSON.stringify({
         model: opts.model || 'openai',
         messages,
-        max_tokens: opts.max_tokens || 320,
+        // Bumped from 320 → 1024 so reasoning models that route through
+        // pollinations have headroom for both chain-of-thought AND a final
+        // answer. Plain models stop at finish_reason="stop" anyway, so the
+        // extra ceiling costs nothing for the non-reasoning path.
+        max_tokens: opts.max_tokens || 1024,
         temperature: opts.temperature != null ? opts.temperature : 0.85,
         ...(opts.json_mode ? { response_format: { type: 'json_object' } } : {}),
       }),
@@ -570,7 +604,7 @@ async function pollPost(messages, opts){
     clearTimeout(t);
     if (!res.ok) throw new Error('http ' + res.status);
     const j = await res.json();
-    return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+    return extractAssistantText(j, 'pollinations');
   } finally { clearTimeout(t); }
 }
 
@@ -609,7 +643,11 @@ async function openrouterCall(messages, opts){
       throw new Error('openrouter http ' + res.status + ' · ' + txt.slice(0, 200));
     }
     const j = await res.json();
-    return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+    // Reasoning-model awareness: MiniMax M2.5, DeepSeek R1, QwQ, o1-style —
+    // see extractAssistantText() above. Falls back to message.reasoning /
+    // reasoning_content when content is empty so hexz_cracker's minimax
+    // turns aren't silent.
+    return extractAssistantText(j, 'openrouter');
   } finally { clearTimeout(t); }
 }
 
@@ -802,7 +840,11 @@ async function runDirector(input, world, setting){
   // needed.
   const j = await pollJSON(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    { temperature: 0.35, max_tokens: 360 },
+    // max_tokens raised 360 → 2048 so reasoning models (MiniMax M2.5,
+    // DeepSeek R1, etc.) have budget for chain-of-thought BEFORE emitting
+    // the JSON. Without headroom they exhaust the cap mid-think and leave
+    // `content` empty, breaking the entire pipeline.
+    { temperature: 0.35, max_tokens: 2048, timeout: 60000 },
     parseDirectorJson,
   );
   // pollJSON returns whatever the parser returned — already shape-normalised
@@ -1022,7 +1064,9 @@ async function runNarrator(brief, world, setting, recentHistory){
   ].join('\n');
   const text = await pollinate(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    { temperature: 0.95, max_tokens: 220 }
+    // 220 → 1500 — reasoning models need budget for chain-of-thought
+    // BEFORE the prose answer, otherwise content comes back empty.
+    { temperature: 0.95, max_tokens: 1500, timeout: 60000 }
   );
   return cleanProse(text);
 }
@@ -1050,7 +1094,8 @@ async function runNpcVoice(npc_speaks, world, setting){
                '\n\nSay it now in character (just the words):';
   const text = await pollinate(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    { temperature: 1.0, max_tokens: 140 }
+    // 140 → 1200 for reasoning-model headroom (chain-of-thought + line).
+    { temperature: 1.0, max_tokens: 1200, timeout: 60000 }
   );
   return cleanProse(text);
 }
