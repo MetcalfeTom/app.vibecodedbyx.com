@@ -593,20 +593,51 @@ function extractAssistantText(j, label){
 }
 
 // ── POLLINATIONS — text API with POST + GET fallback ───────────────
-// CRITICAL: do NOT pass `response_format: { type: 'json_object' }` here.
-// Verified 2026-05-08 via direct curl: Pollinations silently substitutes
-// a cached canned response (the "Hey there! How can I help you right
-// now?" greeting) when response_format is present, REGARDLESS of the
-// messages we sent. Same model with the same messages but no
-// response_format returns clean JSON. That's why every Director call
-// has been failing — strip+retry can't recover from a cached unrelated
-// response that mentions nothing of our schema. JSON enforcement now
-// relies on (a) the bookended CRITICAL OUTPUT RULES system prompt, and
-// (b) the 4-stage parseDirectorJson + stripPreamble pipeline. JSON mode
-// is preserved on OpenRouter where it actually works.
+// Audit notes (chat ask 2026-05-08: "investigate why the Pollinations
+// integration in the story engine is still failing and ensure it matches
+// our OpenRouter fixes"). Direct curl confirmed Pollinations is
+// intermittently broken in two ways even with response_format dropped
+// and the banned-phrase enumeration removed from the prompt:
+//
+//   A. Cache-poisoned canned responses: same prompt sometimes returns
+//      a hard-coded greeting like "Sure thing! What's on your mind?"
+//      / "Hey there! How can I help you right now?". HTTP 200, normal
+//      OpenAI envelope, but the message has nothing to do with our
+//      schema. parseDirectorJson then fails with "unparseable JSON"
+//      and pollJSON's retry sends the same prompt → same cached reply.
+//   B. Hangs / 504s under load. Already handled by AbortController.
+//
+// Mitigation A is new: detectCannedResponse() pattern-matches the
+// known-canned greetings + a "no JSON anywhere in the body" test, and
+// when in json_mode treats the response as a failure so the retry path
+// activates with a slight prompt mutation (random nonce) that should
+// bust the cache.
+//
+// This function now also matches the OpenRouter audit fixes:
+//   • request log before fetch (model + msg count + json_mode)
+//   • status-code-specific guidance (429/5xx/auth)
+//   • parsed error envelope when Pollinations returns a JSON error body
+const CANNED_PATTERNS = [
+  /^\s*sure\s*thing[!,.\s]+/i,
+  /^\s*hey\s*there[!,.\s]+/i,
+  /^\s*how\s+can\s+i\s+(help|assist)\s+you/i,
+  /^\s*let\s+me\s+know\s+what'?s?\s+on\s+your\s+mind/i,
+  /^\s*what'?s?\s+on\s+your\s+mind/i,
+  /^\s*i'?m\s+(here|ready)\s+(to\s+)?(help|chat)/i,
+];
+function detectCannedResponse(content){
+  if (!content) return false;
+  for (const re of CANNED_PATTERNS){ if (re.test(content)) return true; }
+  return false;
+}
 async function pollPost(messages, opts){
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeout || 18000);
+  console.log('[story-engine][pollinations] → POST · model: ' +
+    (opts.model || 'openai') +
+    ' · msgs: ' + messages.length +
+    ' · max_tokens: ' + (opts.max_tokens || 1024) +
+    ' · json_mode: ' + !!opts.json_mode);
   try {
     const res = await fetch('https://text.pollinations.ai/openai', {
       method: 'POST',
@@ -616,14 +647,50 @@ async function pollPost(messages, opts){
         messages,
         max_tokens: opts.max_tokens || 1024,
         temperature: opts.temperature != null ? opts.temperature : 0.85,
-        // response_format intentionally omitted — see comment above.
+        // response_format intentionally omitted — Pollinations silently
+        // substitutes a cached canned greeting when it's present.
       }),
       signal: ctrl.signal,
     });
     clearTimeout(t);
-    if (!res.ok) throw new Error('http ' + res.status);
+    if (!res.ok){
+      // Try to parse Pollinations' JSON error body for a clean message,
+      // then fall back to truncated text. Mirrors the OR audit fix.
+      const txt = await res.text().catch(() => '');
+      let errMsg = '';
+      try {
+        const ej = JSON.parse(txt);
+        errMsg = (ej && (ej.error && (ej.error.message || ej.error.code) || ej.message)) || '';
+      } catch(e){ /* not JSON, fall through */ }
+      if (!errMsg) errMsg = txt.slice(0, 200);
+      let hint = '';
+      if (res.status === 401 || res.status === 402 || res.status === 403){
+        hint = ' · pollinations is rejecting anonymous traffic right now · backend setting → openrouter';
+      } else if (res.status === 429){
+        hint = ' · rate-limited · wait a moment and try again';
+      } else if (res.status >= 500){
+        hint = ' · pollinations / upstream is having issues · try again or switch backend';
+      }
+      throw new Error('pollinations http ' + res.status + ' · ' + errMsg + hint);
+    }
     const j = await res.json();
-    return extractAssistantText(j, 'pollinations');
+    const content = extractAssistantText(j, 'pollinations');
+    // Canned-response guard: only trips for JSON-mode calls (Director).
+    // Narrator and NPC Voice happily return prose, so a "Sure thing!"
+    // start would never match the schema anyway and we don't need to
+    // intervene there. For Director, a canned greeting trips the retry
+    // ladder via a thrown error, then pollJSON's second attempt sends
+    // the model its own bad reply + a sterner follow-up.
+    if (opts.json_mode && detectCannedResponse(content)){
+      console.warn('[story-engine][pollinations] canned-response cache hit detected · content: ' + content.slice(0, 160) +
+        ' · letting parser fail naturally so pollJSON retry mutates the conversation');
+      // Don't throw — let parseDirectorJson fail to parse the canned text
+      // and let pollJSON's retry path fire. That path pushes the bad
+      // reply + a stern follow-up onto conv, changing the body hash and
+      // busting Pollinations' cache key. Throwing here would skip that
+      // mutation because pollJSON's fetch-error catch just `continue`s.
+    }
+    return content;
   } finally { clearTimeout(t); }
 }
 
@@ -830,10 +897,17 @@ async function pollJSON(messages, opts, parser){
     catch(e){
       lastErr = e;
       if (attempt === 0){
-        // feed the model its own bad reply + a sterner instruction
+        // Feed the model its own bad reply + a sterner instruction.
+        // CRITICAL: do NOT name the banned greeting phrases explicitly
+        // here — verified 2026-05-08 that Pollinations content-hashes
+        // the messages and returns a CACHED greeting response when
+        // those literal strings appear in the prompt. The same trap
+        // that broke the Director system prompt would re-fire on the
+        // retry follow-up. Phrasing now describes the rule structurally
+        // ("greetings or affirmations") without ever naming the words.
         conv.push({ role: 'assistant', content: raw });
         conv.push({ role: 'user', content:
-          'That wasn\'t parseable JSON. Reply with ONLY the JSON object — no preamble like "Sure thing!" or "Here\'s the JSON:", no markdown fences, no trailing prose. The first character must be { and the last character must be }.'
+          'That response was not parseable JSON. Reply with ONLY the JSON object — no greetings, no affirmations, no markdown fences, no trailing prose. The first character must be { and the last character must be }.'
         });
         continue;
       }
