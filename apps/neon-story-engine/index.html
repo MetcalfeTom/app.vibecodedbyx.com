@@ -120,6 +120,44 @@
     .state-panel{ max-height:14rem; overflow:auto; }
   }
 
+  /* SCENE ART — Pollinations-generated location backdrop */
+  .scene-art{
+    position:relative;height:9rem;border-radius:.45rem;overflow:hidden;
+    border:1px solid var(--rule);background:var(--panel);margin-bottom:.6rem;
+    flex:0 0 auto;
+  }
+  .scene-art img{
+    width:100%;height:100%;object-fit:cover;display:block;
+    opacity:0;transition:opacity .9s ease;
+    filter:saturate(1.2) contrast(1.05);
+  }
+  .scene-art img.loaded{opacity:.78}
+  .scene-art::after{
+    content:'';position:absolute;inset:0;pointer-events:none;
+    background:
+      linear-gradient(180deg, rgba(5,2,24,0.18) 0%, rgba(5,2,24,0.55) 100%),
+      radial-gradient(ellipse at 18% 12%, rgba(255,77,200,0.18), transparent 55%),
+      radial-gradient(ellipse at 82% 92%, rgba(122,240,255,0.14), transparent 55%);
+    mix-blend-mode:screen;
+  }
+  .scene-art .scene-cap{
+    position:absolute;left:.7rem;bottom:.5rem;z-index:2;
+    font-family:'IBM Plex Mono',monospace;font-size:.6rem;letter-spacing:.22em;
+    color:var(--text);text-transform:uppercase;
+    text-shadow:0 1px 0 rgba(0,0,0,0.65), 0 0 .35rem rgba(255,77,200,0.4);
+  }
+  .scene-art.loading::before{
+    content:'· generating scene ·';position:absolute;inset:0;display:flex;
+    align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace;font-size:.66rem;letter-spacing:.22em;
+    color:var(--mute);text-transform:uppercase;animation:livePulse 1.2s infinite;
+  }
+  @keyframes livePulse{50%{opacity:.5}}
+  @media (prefers-reduced-motion: reduce){
+    .scene-art img{transition:none}
+    .scene-art.loading::before{animation:none}
+  }
+
   /* STORY VIEW */
   .story{
     background:var(--panel);border:1px solid var(--rule);border-radius:.45rem;
@@ -144,7 +182,27 @@
   .story .npc{
     margin-top:.45rem;border-left:.16rem solid var(--magenta);padding-left:.7rem;
     color:var(--text);font-family:'Newsreader',serif;font-style:normal;
+    display:flex;align-items:flex-start;gap:.7rem;
   }
+  .story .npc .npc-portrait{
+    flex:0 0 auto;width:3.4rem;height:3.4rem;border-radius:50%;
+    border:.12rem solid var(--magenta);overflow:hidden;
+    background:rgba(2,1,12,0.6);
+    box-shadow:0 0 .55rem rgba(255,77,200,0.4);
+    position:relative;
+  }
+  .story .npc .npc-portrait img{
+    width:100%;height:100%;object-fit:cover;display:block;
+    opacity:0;transition:opacity .9s ease;
+  }
+  .story .npc .npc-portrait img.loaded{opacity:1}
+  .story .npc .npc-portrait.loading::before{
+    content:'…';position:absolute;inset:0;display:flex;
+    align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace;font-size:1rem;color:var(--magenta);
+    animation:livePulse 1.2s infinite;
+  }
+  .story .npc .npc-body{ flex:1;min-width:0; }
   .story .npc .who{
     display:block;font-family:'IBM Plex Mono',monospace;font-size:.62rem;
     letter-spacing:.22em;color:var(--magenta);text-transform:uppercase;font-weight:600;margin-bottom:.12rem;
@@ -386,7 +444,13 @@
   </div>
 
   <div class="body">
-    <section class="story" id="story" aria-live="polite" tabindex="0"></section>
+    <div style="display:flex;flex-direction:column;min-height:0">
+      <figure class="scene-art" id="sceneArt" aria-label="Scene illustration" hidden>
+        <img id="sceneArtImg" alt="" decoding="async" loading="lazy">
+        <figcaption class="scene-cap" id="sceneArtCap"></figcaption>
+      </figure>
+      <section class="story" id="story" aria-live="polite" tabindex="0" style="flex:1;min-height:0"></section>
+    </div>
     <aside class="state-panel" id="state" aria-label="World state inspector">
       <h3>· location ·</h3>
       <div id="stLoc" class="empty">—</div>
@@ -524,6 +588,122 @@ function freshWorld(seed){
     time: seed.time,
     turns: 0,
   };
+}
+
+// ── POLLINATIONS IMAGE API (chat ask: scene backgrounds + NPC portraits) ──
+// Pollinations image endpoint: GET image.pollinations.ai/prompt/<encoded>?...
+// Per /vibespace/notes.md: DROP `referrer=` (returns 500 since 2026-04-18)
+// and rely on the anonymous cache. Cold generation 60–90s, then edge-cached
+// forever, so deterministic seeds make repeated visits to the same location
+// or the same NPC return the SAME image instantly.
+const IMAGE_BASE = 'https://image.pollinations.ai/prompt/';
+function fnv1a(str){
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++){
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h;
+}
+function imageUrl(prompt, opts){
+  opts = opts || {};
+  const w = opts.width  || 1024;
+  const h = opts.height || 576;
+  const seed = opts.seed != null ? opts.seed : fnv1a(prompt);
+  // model=flux is the fast variant; nologo=true strips the watermark.
+  const params = 'width=' + w + '&height=' + h + '&seed=' + seed +
+                 '&model=flux&nologo=true&enhance=false';
+  return IMAGE_BASE + encodeURIComponent(prompt) + '?' + params;
+}
+
+// Compose a scene-art prompt from world state + setting tone.
+// Negative-space cinematic framing so the scene reads as an environment
+// shot rather than a portrait. Includes the genre tone so the visual
+// idiom matches the prose (dungeon, neon, fog, gaslight).
+function scenePromptFor(world, setting){
+  const loc = (world && world.location) || (setting && setting.seed && setting.seed.location) || '';
+  const time = (world && world.time) || '';
+  const tone = (setting && setting.tone) || '';
+  return [
+    loc,
+    time && ('time of day: ' + time),
+    'cinematic wide establishing shot, no people, no characters, atmospheric, painterly',
+    tone,
+    'no text, no watermark, no logo, no signature',
+  ].filter(Boolean).join(' · ');
+}
+
+// Compose a portrait prompt for an NPC from name + persona + tone.
+function portraitPromptFor(name, persona, setting){
+  const tone = (setting && setting.tone) || '';
+  return [
+    'character portrait of ' + name,
+    persona ? ('persona: ' + persona) : null,
+    'head and shoulders, centered, looking at camera, painterly, dramatic lighting',
+    tone,
+    'no text, no caption, no watermark, no logo, no signature',
+  ].filter(Boolean).join(' · ');
+}
+
+// ── SCENE-ART RENDERER ────────────────────────────────────────────
+// Updates the location backdrop only when state.world.location changes,
+// so the same scene image stays loaded across consecutive turns in the
+// same place. Uses a deterministic FNV-1a seed of (location + setting)
+// so the user can leave + come back and Pollinations' edge cache returns
+// the same image instantly.
+function refreshSceneArt(){
+  const fig    = document.getElementById('sceneArt');
+  const imgEl  = document.getElementById('sceneArtImg');
+  const capEl  = document.getElementById('sceneArtCap');
+  if (!fig || !imgEl) return;
+  const w = state.world, s = state.setting;
+  if (!w || !s){ fig.hidden = true; return; }
+  const loc = w.location;
+  if (!loc){ fig.hidden = true; return; }
+  // Cache the last-rendered URL on the element so we don't re-fetch when
+  // the location is unchanged (most turns).
+  const prompt = scenePromptFor(w, s);
+  const url = imageUrl(prompt, { width: 1024, height: 432, seed: fnv1a(loc + '|' + s.key) });
+  if (imgEl.dataset.url === url){
+    fig.hidden = false;
+    return;
+  }
+  imgEl.dataset.url = url;
+  fig.hidden = false;
+  fig.classList.add('loading');
+  imgEl.classList.remove('loaded');
+  imgEl.alt = 'Generated illustration of ' + loc;
+  capEl.textContent = loc.length > 70 ? loc.slice(0, 67) + '…' : loc;
+  // Fade-in on load; surface failures so the panel doesn't sit on
+  // "generating" forever when Pollinations 5xx's.
+  imgEl.onload  = () => { fig.classList.remove('loading'); imgEl.classList.add('loaded'); };
+  imgEl.onerror = () => { fig.classList.remove('loading'); capEl.textContent = '· scene art unavailable ·'; };
+  imgEl.src = url;
+}
+
+// Resolve a portrait URL for an NPC, using the persona stored in
+// world.cast when available. Cached on cast[name]._portraitUrl so the
+// same character always renders the same image.
+function portraitUrlFor(name){
+  const w = state.world, s = state.setting;
+  if (!name || !w || !s) return null;
+  const cast = w.cast || {};
+  const entry = cast[name];
+  // entry can be a string persona (from older saves) or an object
+  // {persona, _portraitUrl}. Normalise on read.
+  const persona = (typeof entry === 'string') ? entry : (entry && entry.persona) || '';
+  if (entry && typeof entry === 'object' && entry._portraitUrl) return entry._portraitUrl;
+  const prompt = portraitPromptFor(name, persona, s);
+  const url = imageUrl(prompt, { width: 384, height: 384, seed: fnv1a(name + '|' + s.key) });
+  // Persist the URL on the cast entry so it survives saveState reloads.
+  if (typeof entry === 'string'){
+    cast[name] = { persona: entry, _portraitUrl: url };
+  } else if (entry){
+    entry._portraitUrl = url;
+  } else {
+    cast[name] = { persona: '', _portraitUrl: url };
+  }
+  return url;
 }
 
 // ── PERSISTENCE ────────────────────────────────────────────────────
@@ -1180,7 +1360,17 @@ function runMemory(world, changes){
   }
   if (Array.isArray(c.cast_meet)){
     for (const ch of c.cast_meet){
-      if (ch && ch.name) world.cast[ch.name] = ch.persona || '';
+      if (!ch || !ch.name) continue;
+      // Preserve any cached portrait URL across re-introductions —
+      // cast entries can be either a bare string persona (legacy / older
+      // saves) or an object {persona, _portraitUrl}. Always normalise to
+      // the object form so portraitUrlFor's cache hits.
+      const existing = world.cast[ch.name];
+      const existingPortrait = (existing && typeof existing === 'object') ? existing._portraitUrl : null;
+      world.cast[ch.name] = {
+        persona: ch.persona || (typeof existing === 'string' ? existing : (existing && existing.persona) || ''),
+        _portraitUrl: existingPortrait || null,
+      };
     }
   }
   if (c.flags_set && typeof c.flags_set === 'object'){
@@ -1244,7 +1434,13 @@ function cleanProse(t){
 
 // ── NPC VOICE AGENT ────────────────────────────────────────────────
 async function runNpcVoice(npc_speaks, world, setting){
-  const persona = world.cast[npc_speaks.name] || npc_speaks.persona || 'an unnamed character';
+  // world.cast entries can be a bare string persona (legacy) or an
+  // object {persona, _portraitUrl} after the image-API addition.
+  const castEntry = world.cast[npc_speaks.name];
+  const persona = (typeof castEntry === 'string'
+                    ? castEntry
+                    : (castEntry && castEntry.persona) || '')
+                  || npc_speaks.persona || 'an unnamed character';
   const sys = [
     'You are voicing the character "' + npc_speaks.name + '" in a text adventure.',
     'Genre tone: ' + setting.tone,
@@ -1325,6 +1521,7 @@ async function takeTurn(input){
   saveState();
   renderTurn(state.story[state.story.length - 1]);
   renderState();
+  refreshSceneArt();   // updates the location backdrop only when location actually changed
   state.busy = false;
   document.getElementById('sendBtn').disabled = false;
   // fade-reset agent rail after a beat
@@ -1363,9 +1560,38 @@ function renderTurn(t){
   let html = '';
   if (t.input)     html += '<div class="input-echo">' + escHtml(t.input) + '</div>';
   if (t.narrative) html += '<div class="narrative">' + escHtml(t.narrative) + '</div>';
-  if (t.npc)       html += '<div class="npc"><span class="who">' + escHtml(t.npc.name) +
-                            ' speaks</span>' + escHtml(t.npc.line) + '</div>';
+  if (t.npc){
+    // Per-NPC portrait via Pollinations image API. Seeded by name + setting
+    // so the same character is visually consistent across turns.
+    const purl = portraitUrlFor(t.npc.name);
+    const portrait = purl
+      ? '<div class="npc-portrait loading">' +
+          '<img alt="Portrait of ' + escHtml(t.npc.name) + '" decoding="async" loading="lazy" ' +
+            'data-src="' + escHtml(purl) + '">' +
+        '</div>'
+      : '';
+    html += '<div class="npc">' + portrait +
+      '<div class="npc-body">' +
+        '<span class="who">' + escHtml(t.npc.name) + ' speaks</span>' +
+        escHtml(t.npc.line) +
+      '</div>' +
+    '</div>';
+  }
   d.innerHTML = html;
+  // Hook portrait load events after DOM insertion so the fade transition fires.
+  const portraitImg = d.querySelector('.npc-portrait img');
+  if (portraitImg && portraitImg.dataset.src){
+    portraitImg.onload  = () => {
+      portraitImg.classList.add('loaded');
+      const wrap = portraitImg.closest('.npc-portrait');
+      if (wrap) wrap.classList.remove('loading');
+    };
+    portraitImg.onerror = () => {
+      const wrap = portraitImg.closest('.npc-portrait');
+      if (wrap) wrap.classList.remove('loading');
+    };
+    portraitImg.src = portraitImg.dataset.src;
+  }
   storyEl.appendChild(d);
   storyEl.scrollTop = storyEl.scrollHeight;
 }
@@ -1392,7 +1618,12 @@ function renderState(){
   } else setEl('stInv', 'empty', true);
   const cast = Object.keys(w.cast || {});
   if (cast.length){
-    setEl('stCast', cast.map(n => '<span class="tag npc" title="' + escHtml(w.cast[n]) + '">' + escHtml(n) + '</span>').join(''), false);
+    setEl('stCast', cast.map(n => {
+      // cast[n] is either a persona string (legacy) or {persona, _portraitUrl}
+      const entry = w.cast[n];
+      const persona = (typeof entry === 'string') ? entry : (entry && entry.persona) || '';
+      return '<span class="tag npc" title="' + escHtml(persona) + '">' + escHtml(n) + '</span>';
+    }).join(''), false);
   } else setEl('stCast', 'no one yet', true);
   const fk = Object.keys(w.flags || {});
   if (fk.length){
@@ -1424,6 +1655,7 @@ function beginAdventure(setting, restoredState){
   document.getElementById('titleOverlay').classList.add('hidden');
   renderAll();
   renderState();
+  refreshSceneArt();   // boot scene art for the starting location
   saveState();
   document.getElementById('input').focus();
 }
