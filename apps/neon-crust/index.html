@@ -49,6 +49,9 @@
   .pill.energy { color:#9aff5e;border-color:rgba(154,255,94,0.45) }
   .pill.energy .ic{ background:#9aff5e }
   .pill.energy.crit{ color:#fff;background:rgba(255,77,90,0.7);border-color:#ff5f88;animation:pulse .8s linear infinite }
+  .pill.hp     { color:#ff7e9e;border-color:rgba(255,126,158,0.45) }
+  .pill.hp     .ic{ background:#ff7e9e }
+  .pill.hp.crit{ color:#fff;background:rgba(255,77,90,0.7);border-color:#ff5f88;animation:pulse .8s linear infinite }
   @keyframes pulse{50%{background:rgba(255,77,90,0.3)}}
 
   /* center crosshair */
@@ -257,6 +260,7 @@
   <div class="pill pink"  ><span class="ic"></span>Solis  <b id="hudPink">0</b></div>
   <div class="pill gold"  ><span class="ic"></span>Lumen  <b id="hudGold">0</b></div>
   <div class="pill energy" id="hudEnergy"><span class="ic"></span>Cell <b id="hudEnergyV">100%</b></div>
+  <div class="pill hp" id="hudHp"><span class="ic"></span>HP <b id="hudHpV">100</b></div>
 </div>
 
 <div class="crosshair" id="crosshair" aria-hidden="true"></div>
@@ -549,6 +553,7 @@ const player = {
   laserTarget: null,        // currently-targeted node
   laserRangeTier: 0,        // 0..3, indexes RANGE_TIERS
   laserPowerTier: 0,        // 0..3, indexes POWER_TIERS
+  hp: 100, maxHp: 100,      // separate from energy — drones can damage you
 };
 const HEAD_HEIGHT = 1.7;
 
@@ -613,10 +618,10 @@ cvs.addEventListener('mousedown', e => {
   if (state.phase !== 'play' || !isLocked()) return;
   if (buildMode.active){
     if (e.button === 0){
-      // place at current ghost position
+      // place at current ghost position + rotation
       if (buildMode.ghost){
         const g = buildMode.ghost.position;
-        placeModule(buildMode.idx, g.x, g.y, g.z);
+        placeModule(buildMode.idx, g.x, g.y, g.z, buildMode.ghost.rotation.y);
         updateBuildHud();
       }
     } else if (e.button === 2){
@@ -763,15 +768,27 @@ function findTargetedNode(){
   ray.set(_camOrigin, _camDir);
   let best = null, bestDist = Infinity;
   const r2 = LASER_MAX_RANGE * LASER_MAX_RANGE;
+  // resource nodes
   for (const n of nodes){
     if (n.depleted) continue;
-    // cheap XZ distance gate — skip nodes outside the laser's max horizontal range
     const d2 = (n.x - _camOrigin.x)**2 + (n.z - _camOrigin.z)**2;
     if (d2 > r2 + 16) continue;
     const hits = ray.intersectObject(n.group, true);
     if (hits.length && hits[0].distance < bestDist && hits[0].distance <= LASER_MAX_RANGE){
       bestDist = hits[0].distance;
       best = { node: n, point: hits[0].point };
+    }
+  }
+  // drone enemies — laser also damages them, just like resource nodes
+  for (const d of drones){
+    if (d.dead) continue;
+    const dx = d.x - _camOrigin.x, dy = d.y - _camOrigin.y, dz = d.z - _camOrigin.z;
+    const distSq = dx*dx + dy*dy + dz*dz;
+    if (distSq > r2 + 16) continue;
+    const hits = ray.intersectObject(d.group, true);
+    if (hits.length && hits[0].distance < bestDist && hits[0].distance <= LASER_MAX_RANGE){
+      bestDist = hits[0].distance;
+      best = { drone: d, point: hits[0].point };
     }
   }
   return best;
@@ -902,16 +919,25 @@ function tickLaser(dt){
   const ti = document.getElementById('targetInfo');
   xh.classList.remove('locked-on', 'firing');
 
-  // raycast for the targeted node (within LASER_MAX_RANGE)
+  // raycast for the targeted node OR drone (within LASER_MAX_RANGE)
   const target = findTargetedNode();
-  player.laserTarget = target ? target.node : null;
+  const targetNode = target && target.node ? target.node : null;
+  const targetDrone = target && target.drone ? target.drone : null;
+  player.laserTarget = targetNode;
   if (target){
     xh.classList.add('locked-on');
     ti.classList.add('show');
-    ti.style.color = '#' + target.node.kind.color.toString(16).padStart(6, '0');
-    document.getElementById('targetName').textContent = target.node.kind.name;
-    const ratio = Math.max(0, target.node.hp) / target.node.maxHp;
-    document.getElementById('targetBar').style.width = (ratio * 100) + '%';
+    if (targetNode){
+      ti.style.color = '#' + targetNode.kind.color.toString(16).padStart(6, '0');
+      document.getElementById('targetName').textContent = targetNode.kind.name;
+      const ratio = Math.max(0, targetNode.hp) / targetNode.maxHp;
+      document.getElementById('targetBar').style.width = (ratio * 100) + '%';
+    } else {
+      ti.style.color = '#ff5fbf';
+      document.getElementById('targetName').textContent = 'Drone';
+      const ratio = Math.max(0, targetDrone.hp) / targetDrone.maxHp;
+      document.getElementById('targetBar').style.width = (ratio * 100) + '%';
+    }
   } else {
     ti.classList.remove('show');
   }
@@ -931,17 +957,25 @@ function tickLaser(dt){
     player.energy = Math.min(player.maxEnergy, player.energy + ENERGY_REGEN_PER_SEC * dt);
   }
   if (isDraining){
-    target.node.hp -= LASER_DRAIN_PER_SEC * dt;
-    if (target.node.hp <= 0){
-      target.node.hp = 0;
-      depleteNode(target.node);
+    if (targetNode){
+      targetNode.hp -= LASER_DRAIN_PER_SEC * dt;
+      if (targetNode.hp <= 0){
+        targetNode.hp = 0;
+        depleteNode(targetNode);
+      }
+      const gain = targetNode.kind.yieldPerHit * (LASER_DRAIN_PER_SEC * dt) / targetNode.kind.capHp * 6;
+      addResource(targetNode.kind.hpKey, gain);
+    } else if (targetDrone){
+      // laser shreds drones a bit faster than nodes (smaller target)
+      targetDrone.hp -= LASER_DRAIN_PER_SEC * dt * 1.4;
+      if (targetDrone.hp <= 0) killDrone(targetDrone);
     }
-    const gain = target.node.kind.yieldPerHit * (LASER_DRAIN_PER_SEC * dt) / target.node.kind.capHp * 6;
-    addResource(target.node.kind.hpKey, gain);
   }
 
   // beam color: target-tinted when locked on, default cyan otherwise
-  const beamHex = isDraining ? target.node.kind.glow : 0x7af0ff;
+  const beamHex = isDraining
+    ? (targetNode ? targetNode.kind.glow : 0xff5fbf)
+    : 0x7af0ff;
   setLaserActive(isFiring);
 
   if (isFiring){
@@ -999,6 +1033,276 @@ function tickLaser(dt){
     impactLight.intensity = 0;
   }
   refreshHud();
+}
+
+// =====================================================================
+// DRONE ENEMIES + TURRET BULLETS (chat ask)
+// Drones spawn at world edges and slowly orbit the base / closest hex of
+// activity. They occasionally dive at the player for chip damage. Both
+// the player's laser and any placed Defense Turret can shoot them. 5
+// concurrent max. Killing one drops a small bonus of each resource.
+// =====================================================================
+// Drone tuning bumped (chat ask: more aggressive). Shorter spawn cadence,
+// faster orbit, more frequent dives, more contact damage, lower per-drone
+// damage cooldown.
+const DRONE_MAX        = 6;
+const DRONE_SPAWN_SEC  = 5.5;     // base interval; jittered ±2s
+const DRONE_SPEED      = 5.0;     // tangential m/s while orbiting
+const DRONE_ORBIT_R    = 12;      // tighter orbit — closer to the player
+const DRONE_ALT        = 5;       // lower hover altitude (more menacing)
+const DRONE_HP         = 30;
+const DRONE_DAMAGE     = 7;       // contact damage per hit
+const DRONE_DAMAGE_CD  = 0.45;
+const DRONE_DIVE_CD_MIN = 2.0;    // re-dive sooner
+const DRONE_DIVE_CD_MAX = 4.0;
+const TURRET_RANGE     = 18;
+const TURRET_FIRE_CD   = 0.95;
+const TURRET_BULLET_DMG= 12;
+const TURRET_BULLET_SP = 28;
+const drones = [];
+const turretBullets = [];
+
+function baseFocalPoint(){
+  // The base focal point = average XZ of all foundations, falling back
+  // to player position if no foundations are placed yet.
+  let sx = 0, sz = 0, n = 0;
+  for (const m of placedModules){
+    if (m.def.key === 'foundation'){ sx += m.x; sz += m.z; n++; }
+  }
+  if (n === 0) return { x: player.x, z: player.z };
+  return { x: sx / n, z: sz / n };
+}
+function spawnDrone(){
+  if (drones.length >= DRONE_MAX) return;
+  // spawn at a random edge of the world at altitude
+  const half = TERRAIN_SIZE / 2 - 4;
+  const side = Math.floor(Math.random() * 4);
+  const off = (Math.random() - 0.5) * 2 * half;
+  const sp = side === 0 ? { x: -half, z: off }
+           : side === 1 ? { x:  half, z: off }
+           : side === 2 ? { x: off,   z: -half }
+           :              { x: off,   z:  half };
+  // build mesh
+  const g = new THREE.Group();
+  // body — flat hex prism
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.42, 0.42, 0.18, 6),
+    new THREE.MeshStandardMaterial({ color: 0x1a0a26, emissive: 0xff5fbf, emissiveIntensity: 0.55, roughness: 0.4 })
+  );
+  g.add(body);
+  // 4 propellers on arms
+  const armMat = new THREE.MeshStandardMaterial({ color: 0xff5fbf, emissive: 0xff5fbf, emissiveIntensity: 1.2 });
+  const propMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
+  const props = [];
+  for (let i = 0; i < 4; i++){
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.04, 0.04), armMat);
+    arm.position.set(Math.cos(a) * 0.3, 0.05, Math.sin(a) * 0.3);
+    arm.rotation.y = a;
+    g.add(arm);
+    const prop = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.02, 0.06), propMat);
+    prop.position.set(Math.cos(a) * 0.55, 0.10, Math.sin(a) * 0.55);
+    g.add(prop);
+    props.push(prop);
+  }
+  // glowing eye
+  const eye = new THREE.Mesh(
+    new THREE.SphereGeometry(0.10, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xff2c2c })
+  );
+  eye.position.set(0, 0.16, 0);
+  g.add(eye);
+  // halo light
+  const lite = new THREE.PointLight(0xff5fbf, 1.0, 7);
+  lite.position.y = 0.2;
+  g.add(lite);
+  g.position.set(sp.x, DRONE_ALT, sp.z);
+  scene.add(g);
+  drones.push({
+    group: g, props, x: sp.x, y: DRONE_ALT, z: sp.z,
+    vx: 0, vy: 0, vz: 0,
+    hp: DRONE_HP, maxHp: DRONE_HP,
+    orbitT: Math.random() * Math.PI * 2,
+    diveCd: DRONE_DIVE_CD_MIN + Math.random() * (DRONE_DIVE_CD_MAX - DRONE_DIVE_CD_MIN),
+    diving: false, divePhase: 0,
+    damageCd: 0,
+    dead: false,
+  });
+}
+function tickDrones(dt){
+  // periodic spawn
+  droneSpawnT -= dt;
+  if (droneSpawnT <= 0){
+    droneSpawnT = DRONE_SPAWN_SEC + (Math.random() - 0.5) * 4;
+    spawnDrone();
+  }
+  const focal = baseFocalPoint();
+  for (let i = drones.length - 1; i >= 0; i--){
+    const d = drones[i];
+    if (d.dead){
+      // fade-out + cleanup
+      d.fadeT = (d.fadeT || 0) + dt;
+      d.group.scale.multiplyScalar(Math.pow(0.92, dt * 60));
+      if (d.fadeT > 0.7){
+        scene.remove(d.group);
+        d.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+        drones.splice(i, 1);
+      }
+      continue;
+    }
+    // propeller spin
+    for (const p of d.props) p.rotation.y += dt * 28;
+    // orbit logic
+    if (d.diving){
+      // chat ask: more aggressive dive — track the player every frame
+      // and accelerate, instead of locking initial vector at dive-start.
+      d.divePhase += dt;
+      const dx = player.x - d.x, dz = player.z - d.z;
+      const m = Math.hypot(dx, dz) || 1;
+      // active homing — strong steering toward player's current position
+      d.vx += (dx / m * 14 - d.vx) * Math.min(1, dt * 6);
+      d.vz += (dz / m * 14 - d.vz) * Math.min(1, dt * 6);
+      d.vy += -dt * 9;
+      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      if (d.divePhase > 1.6 || d.y < 1.3){
+        d.diving = false; d.divePhase = 0; d.vy = 0;
+        d.diveCd = DRONE_DIVE_CD_MIN + Math.random() * (DRONE_DIVE_CD_MAX - DRONE_DIVE_CD_MIN);
+      }
+    } else {
+      // chat ask: orbit shifts to track the PLAYER, not the base, so
+      // drones stay menacing even when you wander away from the base.
+      const focusX = (player.x + focal.x) / 2;
+      const focusZ = (player.z + focal.z) / 2;
+      d.orbitT += dt * (DRONE_SPEED / DRONE_ORBIT_R);
+      const tx = focusX + Math.cos(d.orbitT) * DRONE_ORBIT_R;
+      const tz = focusZ + Math.sin(d.orbitT) * DRONE_ORBIT_R;
+      d.x += (tx - d.x) * Math.min(1, dt * 1.6);
+      d.z += (tz - d.z) * Math.min(1, dt * 1.6);
+      d.y += (DRONE_ALT - d.y) * Math.min(1, dt * 1.5);
+      d.diveCd -= dt;
+      // dive trigger — wider engagement window since we track the player
+      if (d.diveCd <= 0 && Math.hypot(player.x - d.x, player.z - d.z) < 22){
+        d.diving = true; d.divePhase = 0;
+      }
+    }
+    d.group.position.set(d.x, d.y, d.z);
+    d.group.rotation.y += dt * 0.6;
+    // contact damage on the player
+    if (d.damageCd > 0) d.damageCd -= dt;
+    const cd = Math.hypot(player.x - d.x, player.z - d.z);
+    if (cd < 1.6 && Math.abs(d.y - HEAD_HEIGHT) < 1.5 && d.damageCd <= 0){
+      damagePlayer(DRONE_DAMAGE);
+      d.damageCd = DRONE_DAMAGE_CD;
+    }
+  }
+}
+function killDrone(d){
+  if (d.dead) return;
+  d.dead = true;
+  // resource bonus
+  inventory.cyan += 1; inventory.pink += 1; inventory.gold += 1;
+  flashToast('drone down · +1 of each');
+  // explosion sparks
+  for (let k = 0; k < 16; k++){
+    const a = Math.random() * Math.PI * 2;
+    const sp = 2 + Math.random() * 4;
+    spawnParticle(d.x, d.y, d.z, Math.cos(a) * sp, Math.random() * 3, Math.sin(a) * sp,
+                  0.55 + Math.random() * 0.4, 0xff5fbf, 0.15);
+  }
+  blip(220, 0.16, 'sawtooth', 0.18);
+  refreshHud();
+}
+let droneSpawnT = 8;
+
+// ── TURRET PLASMA BOLTS (chat ask: glowing) ─────────────────────────
+// Each bolt is a fat additive-blended sphere PLUS its own travelling
+// PointLight, with a faded tracer trail spawned each tick. Visually
+// reads like a chunky projectile of plasma instead of a tiny pellet.
+const PLASMA_COLOR = 0x7af0ff;
+function fireTurretBullet(turret, target){
+  const tx = turret.position.x, tz = turret.position.z;
+  const sx = tx, sy = turret.position.y + 0.7, sz = tz;
+  const dx = target.x - sx, dy = (target.y) - sy, dz = target.z - sz;
+  const m = Math.hypot(dx, dy, dz) || 1;
+  const vx = dx / m * TURRET_BULLET_SP;
+  const vy = dy / m * TURRET_BULLET_SP;
+  const vz = dz / m * TURRET_BULLET_SP;
+  // bolt body — bigger, additive-blend, full glow
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 12, 10),
+    new THREE.MeshBasicMaterial({
+      color: PLASMA_COLOR, transparent: true, opacity: 0.95,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }),
+  );
+  // bolt halo — slightly larger, lower alpha sphere
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(0.45, 12, 10),
+    new THREE.MeshBasicMaterial({
+      color: PLASMA_COLOR, transparent: true, opacity: 0.32,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }),
+  );
+  mesh.add(halo);
+  mesh.position.set(sx, sy, sz);
+  scene.add(mesh);
+  // travelling point light so the bolt actually illuminates the dunes
+  const lite = new THREE.PointLight(PLASMA_COLOR, 1.4, 5);
+  lite.position.copy(mesh.position);
+  scene.add(lite);
+  turretBullets.push({ x: sx, y: sy, z: sz, vx, vy, vz, life: 1.4, mesh, lite, target });
+  // little tracer particle at the muzzle on fire
+  spawnParticle(sx, sy, sz, 0, 0, 0, 0.18, PLASMA_COLOR, 0.16);
+  blip(820, 0.06, 'sawtooth', 0.10);
+  blip(1200, 0.05, 'square', 0.06);
+}
+function tickTurretBullets(dt){
+  for (let i = turretBullets.length - 1; i >= 0; i--){
+    const b = turretBullets[i];
+    b.life -= dt;
+    b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
+    b.mesh.position.set(b.x, b.y, b.z);
+    if (b.lite) b.lite.position.set(b.x, b.y, b.z);
+    // tracer trail particle every frame for the comet-tail effect
+    spawnParticle(b.x, b.y, b.z, -b.vx * 0.05, -b.vy * 0.05, -b.vz * 0.05, 0.22, PLASMA_COLOR, 0.10);
+    let consumed = b.life <= 0;
+    if (!consumed){
+      for (const d of drones){
+        if (d.dead) continue;
+        if (Math.hypot(d.x - b.x, d.y - b.y, d.z - b.z) < 0.7){
+          d.hp -= TURRET_BULLET_DMG;
+          if (d.hp <= 0) killDrone(d);
+          // impact burst — magenta target debris + extra plasma flare
+          for (let k = 0; k < 8; k++){
+            const a = Math.random() * Math.PI * 2;
+            spawnParticle(b.x, b.y, b.z, Math.cos(a)*2, 1+Math.random()*2, Math.sin(a)*2, 0.32, k & 1 ? PLASMA_COLOR : 0xff5fbf, 0.12);
+          }
+          consumed = true;
+          break;
+        }
+      }
+    }
+    if (consumed){
+      scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose();
+      if (b.lite) scene.remove(b.lite);
+      turretBullets.splice(i, 1);
+    }
+  }
+}
+
+// ── PLAYER DAMAGE ────────────────────────────────────────────────────
+function damagePlayer(dmg){
+  player.hp = Math.max(0, player.hp - dmg);
+  refreshHud();
+  if (player.hp <= 0){
+    // soft revive — teleport to base center, restore HP, energy reset
+    player.hp = player.maxHp;
+    player.energy = player.maxEnergy;
+    const f = baseFocalPoint();
+    player.x = f.x; player.z = f.z;
+    flashToast('REVIVED · respawned at base');
+    blip(110, 0.4, 'sawtooth', 0.3);
+  }
 }
 
 // fractional resource bucket (laser ticks at fps, integers update on whole units)
@@ -1063,24 +1367,37 @@ const MODULES = [
   {
     key: 'wall',
     name: 'Wall Panel',
-    cost: { cyan: 1, pink: 1, gold: 0 },
+    // Bigger walls (chat ask): width matches hex edge length (2.0), height
+    // bumped 1.5 → 2.6 so they tower over the foundation, depth 0.18 →
+    // 0.34 so they read as substantial. Snaps to hex EDGES (not centres).
+    cost: { cyan: 2, pink: 2, gold: 0 },
     color: 0x7af0ff,
+    snap: 'edge',
     build: () => {
       const g = new THREE.Group();
       const body = new THREE.Mesh(
-        new THREE.BoxGeometry(2.0, 1.5, 0.18),
+        new THREE.BoxGeometry(2.05, 2.6, 0.34),
         new THREE.MeshStandardMaterial({ color: 0x051a26, emissive: 0x7af0ff, emissiveIntensity: 0.5, roughness: 0.4 })
       );
-      body.position.y = 0.85;
+      body.position.y = 1.30;
       g.add(body);
-      // top + bottom neon bars
-      for (const y of [0.18, 1.55]){
+      // top + bottom neon trim bars
+      for (const y of [0.18, 2.62]){
         const bar = new THREE.Mesh(
-          new THREE.BoxGeometry(2.0, 0.06, 0.22),
+          new THREE.BoxGeometry(2.05, 0.10, 0.40),
           new THREE.MeshStandardMaterial({ color: 0x7af0ff, emissive: 0x7af0ff, emissiveIntensity: 1.4 })
         );
         bar.position.y = y;
         g.add(bar);
+      }
+      // vertical accent stripes at each end
+      for (const x of [-0.95, 0.95]){
+        const stripe = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 2.4, 0.36),
+          new THREE.MeshStandardMaterial({ color: 0x7af0ff, emissive: 0x7af0ff, emissiveIntensity: 1.0 })
+        );
+        stripe.position.set(x, 1.30, 0);
+        g.add(stripe);
       }
       return g;
     },
@@ -1115,6 +1432,7 @@ const MODULES = [
     name: 'Airlock Door',
     cost: { cyan: 2, pink: 2, gold: 1 },
     color: 0xff8a55,
+    snap: 'edge',
     build: () => {
       // Two-panel door that opens when the player is within 3 units.
       // Same 2u footprint as the wall so it slots into walled rows.
@@ -1257,6 +1575,78 @@ const MODULES = [
       return g;
     },
   },
+  {
+    key: 'turret',
+    name: 'Defense Turret',
+    cost: { cyan: 4, pink: 6, gold: 2 },
+    color: 0xff6b6b,
+    build: () => {
+      const g = new THREE.Group();
+      // pedestal
+      const ped = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.55, 0.6, 10),
+        new THREE.MeshStandardMaterial({ color: 0x1a0a0a, emissive: 0xff6b6b, emissiveIntensity: 0.4, roughness: 0.5 })
+      );
+      ped.position.y = 0.3;
+      g.add(ped);
+      // rotating turret head — its own subgroup so we can spin only the head
+      const head = new THREE.Group();
+      head.position.y = 0.7;
+      g.add(head);
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.36, 14, 10, 0, Math.PI*2, 0, Math.PI/2),
+        new THREE.MeshStandardMaterial({ color: 0x4a0a0a, emissive: 0xff6b6b, emissiveIntensity: 0.7, roughness: 0.4 })
+      );
+      head.add(dome);
+      // dual barrels poking forward
+      const barMat = new THREE.MeshStandardMaterial({ color: 0xff6b6b, emissive: 0xff6b6b, emissiveIntensity: 1.2 });
+      for (const dx of [-0.13, 0.13]){
+        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.7, 8), barMat);
+        bar.rotation.x = Math.PI / 2;
+        bar.position.set(dx, 0.10, -0.42);
+        head.add(bar);
+      }
+      // top eye
+      const eye = new THREE.Mesh(
+        new THREE.SphereGeometry(0.08, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0xffd45e, emissive: 0xffd45e, emissiveIntensity: 1.6 })
+      );
+      eye.position.set(0, 0.32, 0);
+      head.add(eye);
+      const lite = new THREE.PointLight(0xff6b6b, 0.7, 6);
+      lite.position.y = 1.0;
+      g.add(lite);
+      g.userData.head = head;
+      g.userData.fireCd = 0;
+      g.userData.tick = (dt) => {
+        // find nearest live drone within range
+        const px = g.position.x, pz = g.position.z;
+        let best = null, bestD = TURRET_RANGE * TURRET_RANGE;
+        for (const d of drones){
+          if (d.dead) continue;
+          const dd = (d.x - px)**2 + (d.z - pz)**2 + (d.y - 0.7)**2;
+          if (dd < bestD){ bestD = dd; best = d; }
+        }
+        if (best){
+          // aim head at the target
+          const aimY = -Math.atan2(best.z - pz, best.x - px) - Math.PI / 2;
+          head.rotation.y = aimY;
+          // fire on cooldown
+          g.userData.fireCd -= dt;
+          if (g.userData.fireCd <= 0){
+            g.userData.fireCd = TURRET_FIRE_CD;
+            fireTurretBullet(g, best);
+          }
+        } else {
+          // idle scan
+          head.rotation.y += dt * 0.7;
+          g.userData.fireCd = Math.min(g.userData.fireCd, 0.2);
+        }
+      };
+      g.userData.isTurret = true;
+      return g;
+    },
+  },
 ];
 const placedModules = [];     // { kind, group, x, y, z }
 const buildMode = { active: false, idx: 0, ghost: null };
@@ -1278,7 +1668,7 @@ function refund(cost, frac){
   inventory.gold += Math.floor((cost.gold || 0) * frac);
   refreshHud();
 }
-function placeModule(idx, x, y, z){
+function placeModule(idx, x, y, z, rotY){
   const def = MODULES[idx];
   if (!canAfford(def.cost)){
     flashToast('not enough · need ' + costLabel(def.cost));
@@ -1287,6 +1677,7 @@ function placeModule(idx, x, y, z){
   spend(def.cost);
   const g = def.build();
   g.position.set(x, y, z);
+  if (rotY != null) g.rotation.y = rotY;
   scene.add(g);
   placedModules.push({ kind: def.key, def, group: g, x, y, z });
   flashToast('placed · ' + def.name);
@@ -1398,6 +1789,23 @@ function snapHex(px, pz){
   const h = pixelToHex(px, pz);
   return hexToPixel(h.q, h.r);
 }
+// snap to the nearest of the 6 edge midpoints around the nearest hex
+// (used by the wall + airlock modules so they sit on hex edges, not centres).
+// Returns { x, z, theta } where theta ∈ {0, π/3, 2π/3, π, 4π/3, 5π/3}.
+function snapEdge(px, pz){
+  const h = pixelToHex(px, pz);
+  const c = hexToPixel(h.q, h.r);
+  const apothem = HEX_SIZE * SQRT3 / 2;
+  let best = null, bestD = Infinity;
+  for (let i = 0; i < 6; i++){
+    const theta = i * Math.PI / 3;
+    const ex = c.x + apothem * Math.cos(theta);
+    const ez = c.z + apothem * Math.sin(theta);
+    const d = (px - ex) ** 2 + (pz - ez) ** 2;
+    if (d < bestD){ bestD = d; best = { x: ex, z: ez, theta }; }
+  }
+  return best;
+}
 
 // snap marker — a 6-segment lime hex outline at the snapped cell, made
 // of additive Lines. Created once on first build-mode entry.
@@ -1433,14 +1841,30 @@ function tickBuildGhost(){
     const half = TERRAIN_SIZE / 2 - 2;
     let sx = Math.max(-half, Math.min(half, _ghostHit.x));
     let sz = Math.max(-half, Math.min(half, _ghostHit.z));
-    // ── hex snap (chat ask: hexagonal grid) ──────────────
-    const snapped = snapHex(sx, sz);
-    sx = snapped.x; sz = snapped.z;
+    // ── snap mode dispatch: hex centre OR hex edge midpoint ──
+    const def = MODULES[buildMode.idx];
+    let snapTheta = null;
+    if (def.snap === 'edge'){
+      const e = snapEdge(sx, sz);
+      sx = e.x; sz = e.z; snapTheta = e.theta;
+    } else {
+      const c = snapHex(sx, sz);
+      sx = c.x; sz = c.z;
+    }
     const yGround = heightAt(sx, sz);
     buildMode.ghost.position.set(sx, yGround, sz);
-    // snap-cell marker hugs the grid square the ghost lives in
+    // rotate the ghost so it aligns with the hex edge tangent (walls/airlocks)
+    if (snapTheta !== null){
+      buildMode.ghost.rotation.y = -(Math.PI / 2 + snapTheta);
+    } else {
+      buildMode.ghost.rotation.y = 0;
+    }
+    // snap marker — hex outline at cell centre OR a small line segment
+    // along the chosen edge for edge-snap modules
     if (snapMarker){
       snapMarker.position.set(sx, yGround + 0.01, sz);
+      snapMarker.rotation.y = snapTheta !== null ? -(Math.PI / 2 + snapTheta) : 0;
+      snapMarker.scale.set(snapTheta !== null ? 0.55 : 1, 1, snapTheta !== null ? 0.55 : 1);
       snapMarker.visible = true;
     }
     // tint ghost based on affordability (red-ish if can't afford)
@@ -1580,6 +2004,10 @@ function refreshHud(){
   const ep = (player.energy / player.maxEnergy) * 100;
   eVal.textContent = Math.round(ep) + '%';
   eEl.classList.toggle('crit', ep < 25);
+  const hpEl = document.getElementById('hudHp');
+  const hpV  = document.getElementById('hudHpV');
+  if (hpV) hpV.textContent = Math.round(player.hp);
+  if (hpEl) hpEl.classList.toggle('crit', (player.hp / player.maxHp) < 0.3);
   // build mode hud reflects affordability
   if (buildMode.active) updateBuildHud();
 }
@@ -1628,9 +2056,10 @@ function loop(){
   if (state.phase === 'play'){
     tickPlayer(dt);
     tickLaser(dt);
+    tickDrones(dt);
+    tickTurretBullets(dt);
     tickParticles(dt);
     tickBuildGhost();
-    // ticks any modules that want them (e.g., Crystal Refiner trickle)
     for (const m of placedModules){
       if (m.group.userData && m.group.userData.tick) m.group.userData.tick(dt);
     }
