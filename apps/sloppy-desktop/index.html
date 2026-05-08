@@ -1722,6 +1722,16 @@ const FONT_LIBRARY = [
   { id:'monoton',    label:'Monoton',            url:'https://cdn.jsdelivr.net/npm/@fontsource/monoton/files/monoton-latin-400-normal.woff' },
   { id:'press2p',    label:'Press Start 2P',     url:'https://cdn.jsdelivr.net/npm/@fontsource/press-start-2p/files/press-start-2p-latin-400-normal.woff' },
   { id:'majormono',  label:'Major Mono Display', url:'https://cdn.jsdelivr.net/npm/@fontsource/major-mono-display/files/major-mono-display-latin-400-normal.woff' },
+  // Color-font pick (chat ask: "try to integrate Noto Color Emoji or
+  // a color font like Bungee Spice into the viewer"). Bungee Spice
+  // ships COLR/CPAL tables with red+yellow+blue layered "spice"
+  // letterforms. It uses COLR v1 (gradient-based), which opentype.js
+  // 2.0 explicitly doesn't decode yet — the lib prints a warning to
+  // that effect on parse. Our extractColorLayers() below tries the v0
+  // path first and falls back to the monochrome outline so the font
+  // still renders as a usable display face; the COLR pill in the UI
+  // surfaces which path engaged so chat can see what's happening.
+  { id:'bungeespice', label:'Bungee Spice (COLR)', url:'https://cdn.jsdelivr.net/npm/@fontsource/bungee-spice/files/bungee-spice-latin-400-normal.woff' },
 ];
 const FONT_APP = {
   ot: null,                // opentype.js global once loaded
@@ -1778,6 +1788,64 @@ async function loadFont(id){
   return promise;
 }
 function getActiveFont(){ return FONT_APP.fonts.get(FONT_APP.activeId); }
+
+// ── COLR v0 LAYER EXTRACTION ──────────────────────────────────────
+// Color fonts using OpenType COLR v0 + CPAL store each glyph as a
+// stack of monochrome layers (each is a regular outline glyph filled
+// with a CPAL palette entry). opentype.js 2.0 parses COLR v0 records
+// into `font.tables.colr.{baseGlyphRecords, layerRecords}` and CPAL
+// into `font.tables.cpal.{numPaletteEntries, colorRecords[]}` (each
+// colorRecord is a 32-bit BGRA int — we extract bytes manually).
+//
+// COLR v1 (gradient-based, used by most modern color fonts including
+// Bungee Spice) is NOT yet decoded by opentype.js 2.0 — the lib prints
+// a warning at parse time. When v0 records are absent we return null
+// so the caller falls back to single-layer monochrome rendering.
+function cpalIntToRGBA(n){
+  if (n === undefined || n === null) return '#ffffff';
+  const b = (n >>> 24) & 0xff;
+  const g = (n >>> 16) & 0xff;
+  const r = (n >>>  8) & 0xff;
+  const a = (n >>>  0) & 0xff;
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + (a / 255).toFixed(3) + ')';
+}
+function extractColorLayers(font, glyph){
+  if (!font || !font.tables) return null;
+  const colr = font.tables.colr;
+  const cpal = font.tables.cpal;
+  if (!colr || !cpal) return null;
+  const baseRecs = colr.baseGlyphRecords || [];
+  const layerRecs = colr.layerRecords || [];
+  if (!baseRecs.length || !layerRecs.length) return null;     // COLR v1-only or empty
+  // baseGlyphRecord shape: { glyphID, firstLayerIndex, numLayers }
+  const base = baseRecs.find(r => r.glyphID === glyph.index);
+  if (!base) return null;
+  const start = base.firstLayerIndex || 0;
+  const count = base.numLayers || 0;
+  if (!count) return null;
+  const records = cpal.colorRecords || [];
+  // CPAL palette indices: paletteIndex 0xFFFF = "use foreground color"
+  const FOREGROUND = 0xFFFF;
+  const out = [];
+  for (let i = 0; i < count; i++){
+    const L = layerRecs[start + i];
+    if (!L) continue;
+    const layerGlyph = font.glyphs.get(L.glyphID);
+    if (!layerGlyph) continue;
+    const palIdx = L.paletteIndex;
+    const fill = (palIdx === FOREGROUND) ? null : cpalIntToRGBA(records[palIdx]);
+    out.push({ glyph: layerGlyph, fill });
+  }
+  return out.length ? out : null;
+}
+// Best-effort summary used by the UI pill — not load-bearing for render.
+function describeColorSupport(font){
+  if (!font || !font.tables || !font.tables.colr) return null;
+  const recs = (font.tables.colr.baseGlyphRecords || []).length;
+  return recs > 0
+    ? { type: 'v0', layers: recs }
+    : { type: 'v1', layers: 0 };       // v1 detected, layers not decoded
+}
 
 const FONT_MODES = [
   { id:'dance',   label:'dance' },
@@ -1957,6 +2025,7 @@ function spawnFont(){
       '<span class="size-out" data-role="size-out">120</span>' +
       '<button type="button" class="pause-btn" data-role="pause" data-paused="false">❚❚ pause</button>' +
       '<button type="button" class="pause-btn" data-role="magnet" data-on="true" title="Toggle mouse-proximity distortion">◉ magnet · on</button>' +
+      '<span class="pause-btn" data-role="colr" style="display:none;color:var(--dim);border-color:rgba(255,255,255,0.2);cursor:default" title="COLR/CPAL color-font support: v0 renders layered, v1 falls back to monochrome (lib limitation)">COLR · mono</span>' +
       '<span class="size-out" data-role="vtx" style="color:var(--cyan);min-width:auto;letter-spacing:.08em" title="raw vector points being distorted every frame">— verts · — glyphs</span>' +
       '<button type="button" class="download-btn" data-role="download">▼ snapshot svg</button>' +
     '</div>';
@@ -1968,6 +2037,7 @@ function spawnFont(){
   const pauseEl   = root.querySelector('[data-role="pause"]');
   const downloadEl= root.querySelector('[data-role="download"]');
   const vtxOutEl  = root.querySelector('[data-role="vtx"]');
+  const colrPillEl= root.querySelector('[data-role="colr"]');
   const modesEl   = root.querySelector('.modes');
 
   const fontState = {
@@ -1979,6 +2049,7 @@ function spawnFont(){
     glyphs: [],
     bounds: null,
     vtxOutEl,
+    colrPillEl,
     // Mouse-proximity field. Tracked in SVG-local coords so glyph
     // distortion math is straightforward; populated in the pointermove
     // handler attached after rebuildGlyphs creates the SVG.
@@ -2047,48 +2118,52 @@ function spawnFont(){
     const baselineY = fs * 0.85;
     const groups = [];
     let maxAscent = 0, maxDescent = 0;
+    // Helper: clone an opentype commands array deep enough that the
+    // distortion loop can't alias the originals back into the cache.
+    const cloneCommands = (cmds) => cmds.map(c => {
+      const o = { type: c.type };
+      if ('x'  in c){ o.x  = c.x;  o.y  = c.y;  }
+      if ('x1' in c){ o.x1 = c.x1; o.y1 = c.y1; }
+      if ('x2' in c){ o.x2 = c.x2; o.y2 = c.y2; }
+      return o;
+    });
     for (let i = 0; i < text.length; i++){
       const ch = text[i];
       const glyph = font.charToGlyph(ch);
       const advance = (glyph.advanceWidth || 0) * (fs / font.unitsPerEm);
-      // Build the glyph's path centred on its own slot origin (x=0).
-      // The <g> below applies the per-slot translation so the per-
-      // vertex distortion can work in glyph-local coords AND the
-      // composed SVG remains laid out left-to-right correctly.
-      const path = glyph.getPath(0, baselineY, fs);
-      // CACHE the raw commands array (cloned so distortion can't
-      // accidentally mutate the original via aliased number ops). This
-      // is the "raw vector path data" the chat ask refers to — every
-      // M/L/Q/C with explicit endpoints + control points, exactly as
-      // OpenType.js parsed them out of the WOFF.
-      const commands = path.commands.map(c => {
-        const o = { type: c.type };
-        if ('x'  in c){ o.x  = c.x;  o.y  = c.y;  }
-        if ('x1' in c){ o.x1 = c.x1; o.y1 = c.y1; }
-        if ('x2' in c){ o.x2 = c.x2; o.y2 = c.y2; }
-        return o;
-      });
-      // Glyph height for the melt distortion's depth math: ascender
-      // top → descender bottom, in glyph-local coords.
+      // COLR-aware: try to extract color layers; null = monochrome
+      const colrLayers = extractColorLayers(font, glyph);
+      const layerSpecs = colrLayers || [{ glyph, fill: null }];
+      // Use the BASE glyph's bounding box for height + ascent math
+      // (layers share the same glyph metrics by construction).
+      const basePath = glyph.getPath(0, baselineY, fs);
       let bb = null;
-      try { bb = path.getBoundingBox(); } catch(_){}
+      try { bb = basePath.getBoundingBox(); } catch(_){}
       const glyphHeight = bb ? Math.max(1, bb.y2 - bb.y1) : fs;
-      // <g> handles the rigid slot translation; per-vertex distortion
-      // happens on the inner <path>'s `d` attribute every frame.
       const g = document.createElementNS(svgNS, 'g');
       g.setAttribute('transform', 'translate(' + x + ',0)');
-      const p = document.createElementNS(svgNS, 'path');
-      p.setAttribute('d', commandsToD(commands));
-      p.setAttribute('fill', fontState.color);
-      g.appendChild(p);
+      // Build a <path> per layer. Each layer caches its OWN commands
+      // array so the per-frame distortion loop walks the union of
+      // layer commands across all glyphs.
+      const layerEntries = [];
+      for (const spec of layerSpecs){
+        const lp = spec.glyph.getPath(0, baselineY, fs);
+        const commands = cloneCommands(lp.commands);
+        const p = document.createElementNS(svgNS, 'path');
+        p.setAttribute('d', commandsToD(commands));
+        p.setAttribute('fill', spec.fill || fontState.color);
+        if (spec.fill) p.dataset.colrFill = '1';   // skip global color picker overrides
+        g.appendChild(p);
+        layerEntries.push({ el: p, commands });
+      }
       svg.appendChild(g);
       groups.push({
-        el: p,           // the <path> element we mutate every frame
+        layers: layerEntries,    // [{el, commands}, ...] — 1 entry for mono, N for COLR
         slotX: x,
         advanceWidth: advance,
-        commands,        // raw commands — frame loop distorts copies of these
         glyphHeight,
         glyphTop: bb ? bb.y1 : (baselineY - fs),
+        isColor: !!colrLayers,
       });
       x += advance;
       if (bb){
@@ -2109,19 +2184,47 @@ function spawnFont(){
     fontState.glyphs = groups;
     fontState.svg = svg;
     fontState.viewBox = svg.getAttribute('viewBox');
-    // Update the live "vertex count" pill so chat can see the refactor
-    // is hitting raw commands (not just CSS transforms on a string).
-    const vtxCount = groups.reduce((s, g) => {
-      let n = 0;
-      for (const c of g.commands){
-        if (c.type === 'C') n += 3;
-        else if (c.type === 'Q') n += 2;
-        else if (c.type === 'M' || c.type === 'L') n += 1;
+    // Update the live readouts so chat can see the refactor is hitting
+    // raw commands AND the COLR layer extraction is firing when the
+    // font supports it.
+    let vtxCount = 0, layerCount = 0;
+    for (const g of groups){
+      for (const layer of g.layers){
+        layerCount += 1;
+        for (const c of layer.commands){
+          if (c.type === 'C') vtxCount += 3;
+          else if (c.type === 'Q') vtxCount += 2;
+          else if (c.type === 'M' || c.type === 'L') vtxCount += 1;
+        }
       }
-      return s + n;
-    }, 0);
+    }
     fontState.vtxCount = vtxCount;
-    if (fontState.vtxOutEl) fontState.vtxOutEl.textContent = vtxCount + ' verts · ' + groups.length + ' glyphs';
+    if (fontState.vtxOutEl){
+      fontState.vtxOutEl.textContent = vtxCount + ' verts · ' + groups.length + ' glyphs' +
+        (layerCount > groups.length ? ' · ' + layerCount + ' layers' : '');
+    }
+    // COLR pill: reports which color path is engaged.
+    if (fontState.colrPillEl){
+      const support = describeColorSupport(font);
+      if (!support){
+        fontState.colrPillEl.style.display = 'none';
+      } else {
+        fontState.colrPillEl.style.display = '';
+        if (support.type === 'v0' && layerCount > groups.length){
+          fontState.colrPillEl.textContent = '🌈 COLR v0 · layered';
+          fontState.colrPillEl.style.color = 'var(--lime)';
+          fontState.colrPillEl.style.borderColor = 'var(--lime)';
+        } else if (support.type === 'v1'){
+          fontState.colrPillEl.textContent = '⚠ COLR v1 · mono fallback';
+          fontState.colrPillEl.style.color = 'var(--gold)';
+          fontState.colrPillEl.style.borderColor = 'var(--gold)';
+        } else {
+          fontState.colrPillEl.textContent = 'COLR · mono';
+          fontState.colrPillEl.style.color = 'var(--dim)';
+          fontState.colrPillEl.style.borderColor = 'rgba(255,255,255,0.2)';
+        }
+      }
+    }
   }
 
   // ── ANIMATION LOOP — RAW VECTOR PATH DATA REFACTOR ──
@@ -2155,8 +2258,16 @@ function spawnFont(){
           radius: fontState.magnetRadius,
           strength: fontState.magnetStrength,
         } : null;
-        const distorted = distortCommands(g.commands, t, i, g.glyphHeight, mode, env);
-        g.el.setAttribute('d', commandsToD(distorted));
+        // Walk the glyph's layer stack — 1 layer for monochrome
+        // glyphs, N layers when COLR returned color records. Each
+        // layer animates its own `commands` array independently so
+        // the colour bands of a Bungee-Spice-style font would slide
+        // past each other when distorted (when v0 layers exist).
+        for (let li = 0; li < g.layers.length; li++){
+          const layer = g.layers[li];
+          const distorted = distortCommands(layer.commands, t, i, g.glyphHeight, mode, env);
+          layer.el.setAttribute('d', commandsToD(distorted));
+        }
       }
     }
     rafId = requestAnimationFrame(tick);
@@ -2212,7 +2323,11 @@ function spawnFont(){
     fontState.color = colorEl.value;
     root.style.setProperty('--font-glow', colorEl.value);
     if (fontState.svg){
-      fontState.svg.querySelectorAll('path').forEach(p => p.setAttribute('fill', fontState.color));
+      // Skip paths whose fill came from CPAL — those are owned by the
+      // color font's palette, not the user's color picker.
+      fontState.svg.querySelectorAll('path').forEach(p => {
+        if (p.dataset.colrFill !== '1') p.setAttribute('fill', fontState.color);
+      });
     }
   });
   sizeEl.addEventListener('input', () => {
