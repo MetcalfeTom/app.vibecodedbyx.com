@@ -1,0 +1,33 @@
+# font-sort
+
+## log
+- 2026-05-08: shipped — high-stakes drag-into-order font sorting game powered by **OpenType.js 2.0.0** (chat asks bundled: "create a high-stakes font-sorting game where users race to order font names alphabetically" + clarification "create font-sort using opentype.js 2.0.0 where users drag font names into alphabetical order against a clock"). Drag mechanic, not click — every tile is a draggable rendering of a font's NAME in its OWN typeface, parsed live from raw WOFFs via OpenType.js 2.0.0. No CSS @font-face cheat sheet; every visible glyph is `<svg><path d="..."/></svg>` from the font's actual vector commands.
+  - **Game flow**: 3 rounds, escalating size. Each round picks N random fonts from an 18-font pool, presents them in a shuffled tray below an N-slot alphabetical "lane" above, and starts a countdown. Drag a tile from the tray into a numbered slot (1st through Nth, alphabetical). Drag onto a filled slot to swap. Drag back to the tray to unplace. Hit ✓ LOCK to commit and grade — green border for correct slots, red for wrong, points awarded per correct + a generous time bonus (30 pts/sec remaining) + a 500-pt PERFECT bonus when every slot is right. Timer hitting 0 auto-locks.
+  - **Difficulties**: easy = 5 fonts in 60s, medium = 8 in 75s, hard = 12 in 100s.
+  - **Font pool** (18 distinct typefaces from @fontsource WOFF — all verified 200-OK before wiring): Audiowide, Bagel Fat One, Bowlby One, Bungee, Bungee Shade, Foldit, Fugaz One, Gabarito, Major Mono Display, Monoton, Nabla, Orbitron, Press Start 2P, Rampart One, RocknRoll One, Rubik Glitch, Rubik Iso, Silkscreen. Mix of display, mono, decorative, and color (Foldit/Nabla COLR v1 render monochrome on opentype 2.0; outline shape is enough for sorting).
+  - **OpenType.js rendering**: `nameSvg(font, name, opts)` calls `font.getPath(name, 0, baselineY, fontSize)` to get the full string's vector path in one shot, takes `.toPathData(2)` for compact `d` strings, and computes the viewBox from `path.getBoundingBox()` plus 0.2× horizontal / 0.25× vertical font-size padding so descenders/ascenders never clip. If the lib fails to load (network blocked, old browser) we fall back to plain SVG `<text>` so the game still runs degraded — but the cool factor depends on opentype.
+  - **Boot loader**: a fixed-position overlay with a progress bar fetches + parses every WOFF in the pool sequentially (∑ ~1MB across 18 fonts) before the game becomes interactive. Each font's parse status is shown in real time; if any specific font fails (e.g. CDN flaky), it's silently skipped from the playable pool — `pickN()` filters to fonts that successfully parsed. Total boot ~2-4s on a fast connection; subsequent rounds are instant since fonts are cached on `state.fonts[slug]`.
+  - **Drag-and-drop via Pointer Events** (NOT HTML5 drag/drop — too finicky cross-platform). On `pointerdown`: capture pointer, switch tile to `position:fixed` ghost, follow cursor on `pointermove`. On `pointerup`: hit-test against every slot's bounding rect to find the drop target; if it's a slot, place there (swapping out any existing occupant); if it's the tray, return to tray; if dead space, snap back. `setPointerCapture` ensures the drag survives the cursor leaving the tile. `touch-action: none` on tiles + `touch-action: manipulation` on body keeps mobile smooth.
+  - **Audio**: 7 Web Audio synths (drop blip, correct two-tone, wrong sawtooth, tick on each second of the last 5s, round-win 4-note arpeggio, timeout 3-note descending sawtooth). Lazy-init on first user gesture.
+  - **HUD**: score (gold), correct count (lime, "2/5" style), round (cyan, "1/3"), timer (Press Start 2P red, urgent-pulse animation when ≤5s left). Difficulty picker auto-disables during a round.
+  - **Local leaderboard**: top 5 scores per difficulty saved to `localStorage['font-sort-leaderboard-v1']`. Shown on the end-of-match overlay.
+  - **Aesthetic**: deep ink-black bg with pink + cyan radial glows, dotted grid mask, Fraunces italic "font · sort" masthead with pink accent, Press Start 2P timer + section markers, JetBrains Mono everything else. Tile uses radial-gradient + 1px white-translucent border + cyan hover halo + pink dragging halo. Slots are dashed-border placeholders that swap to solid lime/rose on validation.
+  - **Accessibility**: rem units, semantic `<header role=banner>`, `<section>` per lane/tray, `<main>`, skip link, `aria-live="polite"` on HUD pills, `aria-pressed` on difficulty buttons, `aria-modal` overlays, focus-visible on every interactive control. Drag-and-drop isn't keyboard-accessible yet (TODO).
+
+## issues
+- No keyboard alternative for the drag mechanic — keyboard-only users can't currently sort. Could add focus-arrow-keyboard navigation in V2.
+- Foldit and Nabla are COLR v1 color fonts; opentype.js 2.0 doesn't decode v1 layers, so they render as monochrome outlines. Their letterforms are still distinct enough to recognise in the sort.
+- Boot fetches all 18 WOFFs even if the user only ever plays easy (5 fonts/round). Could lazy-load on first round to cut TTFI by ~70%.
+- 1MB total font payload over the wire — fine on broadband, slower on 3G. A "fast load" mode that subsets to 5 fonts could be added.
+- Network failure during boot leaves a stuck loading overlay — we should add a retry button.
+- The drop hit-test uses `getBoundingClientRect` on every move event; for 12 slots × 60Hz that's 720 layout queries/sec. In practice imperceptible, but a ResizeObserver-cached rect would be cleaner.
+
+## todos
+- Keyboard sorting: arrow keys to navigate the tray, Enter picks up, Tab/Arrow places into a slot.
+- Subset-on-demand: fetch only the round's fonts instead of all 18 up-front.
+- Hint button (-100 score) that briefly flashes the next-correct slot.
+- Daily challenge: a fixed seed per UTC day so everyone races the same shuffle.
+- Online leaderboard via Supabase (mirror chroma-sort's pattern).
+- Streak chains across rounds (perfect → perfect = double the time bonus).
+- Font-name reveal animation on round start (each tile fades in staggered).
+- "Master" mode using ALL 18 fonts in one giant 18-slot round.
