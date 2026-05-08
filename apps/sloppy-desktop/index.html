@@ -1603,9 +1603,25 @@ function ensureMusicAudio(){
   if (SHARED_AUDIO.ctx) return SHARED_AUDIO;
   const C = (window.AudioContext || window.webkitAudioContext);
   const ctx = new C();
-  const master = ctx.createGain(); master.gain.value = 0.4;
+  // Lower master ceiling (was 0.4 → 0.3) so the floor sits quieter
+  // overall — the user's volume slider can still ride it back up.
+  const master = ctx.createGain(); master.gain.value = 0.3;
+  // A gentle limiter on the master keeps transients from running away
+  // without audibly squashing the chord pad.
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -8;
+  limiter.knee.value = 12;
+  limiter.ratio.value = 6;
+  limiter.attack.value = 0.005;
+  limiter.release.value = 0.18;
+  // Master tilt-EQ: small high-shelf cut to roll off the synth-grit
+  // band that was making the lofi feel sharp on near-field speakers.
+  const tilt = ctx.createBiquadFilter();
+  tilt.type = 'highshelf';
+  tilt.frequency.value = 4000;
+  tilt.gain.value = -6;
   const analyser = ctx.createAnalyser(); analyser.fftSize = 256;
-  master.connect(analyser); analyser.connect(ctx.destination);
+  master.connect(tilt); tilt.connect(limiter); limiter.connect(analyser); analyser.connect(ctx.destination);
   SHARED_AUDIO.ctx = ctx; SHARED_AUDIO.master = master; SHARED_AUDIO.analyser = analyser;
   return SHARED_AUDIO;
 }
@@ -1658,74 +1674,123 @@ function startTrack(playback, track){
   const ctx = A.ctx;
   if (ctx.state === 'suspended') ctx.resume();
 
-  // ── PAD: stacked sines per chord-note through a slow LFO-modulated lowpass.
-  //    A wet bus sends through a noise convolver so each chord blooms and tails.
+  // ── PAD: stacked sines per chord-note through a slow LFO-modulated
+  // lowpass. Tweaks (chat ask: "tweak the lofi synth to reduce the noise
+  // floor and smooth out the oscillator grit"):
+  //   • Lowpass cutoff dropped 1100 → 820 Hz so the upper-mid grit
+  //     (where stacked oscillators sound saw-edged) never reaches the
+  //     master bus.
+  //   • LFO sweep amplitude 280 → 160 so the cutoff doesn't open all
+  //     the way to brightness and bring grit back in.
+  //   • Lowpass Q raised 0.8 → 0.55: shallower resonance, no whistle.
+  //   • A second post-reverb damp lowpass at 2.6kHz darkens the wet
+  //     tail (the noise-IR was the loudest contributor to "hiss").
   const trackBus = ctx.createGain(); trackBus.gain.value = 1;
-  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1100; lp.Q.value = 0.8;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 820; lp.Q.value = 0.55;
   const lfo = ctx.createOscillator(); lfo.frequency.value = 0.08;
-  const lfoGain = ctx.createGain(); lfoGain.gain.value = 280;
+  const lfoGain = ctx.createGain(); lfoGain.gain.value = 160;
   lfo.connect(lfoGain); lfoGain.connect(lp.frequency); lfo.start();
 
-  // simple noise-impulse convolver → cheap reverb
+  // Noise-impulse convolver reverb. The IR itself is now low-pass
+  // softened in-place via a 4-tap moving average so the wet tail isn't
+  // hissy white-noise. Decay shape eased from 2.2 → 2.6 for a longer
+  // gentler tail without raising overall energy.
   const rev = ctx.createConvolver();
   const rb = ctx.createBuffer(2, ctx.sampleRate * 2.4, ctx.sampleRate);
   for (let ch = 0; ch < 2; ch++){
     const data = rb.getChannelData(ch);
     for (let i = 0; i < data.length; i++){
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 2.2);
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 2.6);
+    }
+    // 4-tap rolling-average: kills the brightest noise bins, leaving a
+    // warmer pad-tail. Done in-place since the IR isn't reused.
+    for (let i = 3; i < data.length; i++){
+      data[i] = (data[i] + data[i-1] + data[i-2] + data[i-3]) * 0.25;
     }
   }
   rev.buffer = rb;
-  const wet = ctx.createGain(); wet.gain.value = 0.32;
-  const dry = ctx.createGain(); dry.gain.value = 0.7;
+  // Post-reverb damp: a second lowpass on the wet bus stops the tail
+  // adding back the high-end the pre-reverb LP already removed.
+  const wetDamp = ctx.createBiquadFilter();
+  wetDamp.type = 'lowpass'; wetDamp.frequency.value = 2600; wetDamp.Q.value = 0.5;
+  const wet = ctx.createGain(); wet.gain.value = 0.26;
+  const dry = ctx.createGain(); dry.gain.value = 0.72;
   trackBus.connect(lp);
   lp.connect(dry); dry.connect(A.master);
-  lp.connect(rev); rev.connect(wet); wet.connect(A.master);
-  playback.voices.push(lfo, lfoGain, lp, rev, wet, dry, trackBus);
+  lp.connect(rev); rev.connect(wetDamp); wetDamp.connect(wet); wet.connect(A.master);
+  playback.voices.push(lfo, lfoGain, lp, rev, wetDamp, wet, dry, trackBus);
 
-  // ── RAIN: bandpassed white noise loop, gain set per-track
+  // ── RAIN: bandpassed noise loop. Tweaks:
+  //   • Per-track gain factor slashed by ~0.30 so the rain sits under
+  //     the pad rather than competing with it.
+  //   • Bandpass Q widened 0.7 → 1.6 (narrower band) so far less of the
+  //     full-spectrum hiss leaks through — only the chosen freq band.
+  //   • A series lowpass at 3.2kHz on top tames sibilance.
+  //   • Source noise scaled 0.7 → 0.5 so the buffer itself is quieter.
   if (track.rain > 0){
     const noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const nd = noiseBuf.getChannelData(0);
-    for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * 0.7;
+    for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * 0.5;
     const noise = ctx.createBufferSource(); noise.buffer = noiseBuf; noise.loop = true;
-    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 0.7;
-    const rg = ctx.createGain(); rg.gain.value = track.rain;
-    noise.connect(bp); bp.connect(rg); rg.connect(A.master);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 1.6;
+    const rainLp = ctx.createBiquadFilter(); rainLp.type = 'lowpass'; rainLp.frequency.value = 3200; rainLp.Q.value = 0.5;
+    const rg = ctx.createGain(); rg.gain.value = track.rain * 0.30;
+    noise.connect(bp); bp.connect(rainLp); rainLp.connect(rg); rg.connect(A.master);
     noise.start();
-    playback.voices.push(noise, bp, rg);
+    playback.voices.push(noise, bp, rainLp, rg);
     playback.rainNode = noise; playback.rainGain = rg;
   }
 
-  // ── CHORD CYCLE: schedule each chord on a beat boundary,
-  //    re-firing 4-on-the-floor through setInterval. Each chord triggers
-  //    a fresh batch of oscillators that fade in and out, so we don't
-  //    rely on one long-lived voice (which would phase-cancel ugly).
+  // ── CHORD CYCLE: each chord fires 3 sine voices through the trackBus.
+  //    Tweaks for grit reduction:
+  //      • Dropped the brighter 2× octave triangle voice — it was the
+  //        single loudest grit source against the sine fundamentals.
+  //      • Replaced with a fundamental-octave sine at 0.55× gain for
+  //        body, plus a -7 cent detuned sine for gentle chorus instead
+  //        of the +6 cent bright detune.
+  //      • Per-note gain ramps via setTargetAtTime (exponential) rather
+  //        than linear, plus a 0.7s attack (was 0.4s linear) — softer
+  //        onset, no transient spike on chord change.
+  //      • Per-note release fades via exponential decay over the last
+  //        0.9s of the bar instead of a hard linear-to-zero, killing
+  //        the click-on-stop artifact.
   const beatMs = (60 / track.bpm) * 1000;
   const barMs  = beatMs * 4;
   function fireChord(chord){
     const t = ctx.currentTime;
-    const total = ctx.createGain(); total.gain.value = 0;
-    total.gain.linearRampToValueAtTime(0.18, t + 0.4);
-    total.gain.linearRampToValueAtTime(0,    t + (barMs / 1000) - 0.05);
+    const barSec = barMs / 1000;
+    const total = ctx.createGain(); total.gain.value = 0.0001;
+    total.gain.setTargetAtTime(0.16, t, 0.32);                            // ~exponential 0.7s attack
+    total.gain.setTargetAtTime(0,    t + barSec - 0.9, 0.3);              // gentle release
     total.connect(trackBus);
     for (const note of chord){
       const f = noteHz(note);
-      const o1 = ctx.createOscillator(); o1.type = 'sine';     o1.frequency.value = f;
-      const o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = f * 2; o2.detune.value = 6;
-      const g  = ctx.createGain();       g.gain.value = 0.22;
-      o1.connect(g); o2.connect(g); g.connect(total);
-      o1.start(t); o2.start(t);
-      o1.stop(t + (barMs / 1000) + 0.2);
-      o2.stop(t + (barMs / 1000) + 0.2);
+      // fundamental + soft detuned twin + low-octave body
+      const o1 = ctx.createOscillator(); o1.type = 'sine'; o1.frequency.value = f;
+      const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = f; o2.detune.value = -7;
+      const o3 = ctx.createOscillator(); o3.type = 'sine'; o3.frequency.value = f * 0.5;
+      const g1 = ctx.createGain(); g1.gain.value = 0.22;
+      const g2 = ctx.createGain(); g2.gain.value = 0.18;
+      const g3 = ctx.createGain(); g3.gain.value = 0.12;
+      o1.connect(g1); g1.connect(total);
+      o2.connect(g2); g2.connect(total);
+      o3.connect(g3); g3.connect(total);
+      o1.start(t); o2.start(t); o3.start(t);
+      o1.stop(t + barSec + 0.4);
+      o2.stop(t + barSec + 0.4);
+      o3.stop(t + barSec + 0.4);
     }
-    // soft kick on beat 1 of each bar (lofi bedroom-tape vibe)
+    // Soft kick on beat 1: peak gain 0.45 → 0.30 (less thumpy), longer
+    // 6ms attack to soften the click, lowpass on its own bus to cut
+    // any aliasing whistle from the fast freq sweep.
+    const kFilt = ctx.createBiquadFilter(); kFilt.type = 'lowpass'; kFilt.frequency.value = 220; kFilt.Q.value = 0.6;
     const k = ctx.createOscillator(); const kg = ctx.createGain();
-    k.type = 'sine'; k.frequency.setValueAtTime(80, t); k.frequency.exponentialRampToValueAtTime(40, t + 0.16);
-    kg.gain.setValueAtTime(0, t); kg.gain.linearRampToValueAtTime(0.45, t + 0.005);
-    kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-    k.connect(kg); kg.connect(A.master);
-    k.start(t); k.stop(t + 0.22);
+    k.type = 'sine'; k.frequency.setValueAtTime(80, t); k.frequency.exponentialRampToValueAtTime(40, t + 0.18);
+    kg.gain.setValueAtTime(0, t);
+    kg.gain.linearRampToValueAtTime(0.30, t + 0.006);
+    kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    k.connect(kFilt); kFilt.connect(kg); kg.connect(A.master);
+    k.start(t); k.stop(t + 0.26);
   }
 
   playback.chordIdx = 0;
