@@ -1752,21 +1752,108 @@ const FONT_MODES = [
   { id:'melt',    label:'melt' },
   { id:'chaos',   label:'chaos' },
 ];
-// Per-mode transform function: returns a CSS-transform string for
-// glyph index i at time t (seconds).
-const FONT_TRANSFORMS = {
-  // dance — sin-based vertical bounce, staggered by glyph index.
-  dance:   (i, t) => 'translate(0, ' + (Math.sin(t * 4 + i * 0.55) * 12).toFixed(2) + ')',
-  // vibrate — micro-jitter every frame; we reseed every animation
-  // frame so the glyph buzzes rather than drifting smoothly.
-  vibrate: (i, t) => 'translate(' + ((Math.random() - 0.5) * 4).toFixed(2) + ', ' + ((Math.random() - 0.5) * 4).toFixed(2) + ') rotate(' + ((Math.random() - 0.5) * 3).toFixed(2) + ')',
-  // wave — rotate around the glyph center with sin-staggered phase.
-  wave:    (i, t) => 'rotate(' + (Math.sin(t * 3 + i * 0.4) * 12).toFixed(2) + ')',
-  // melt — vertical scale collapses then rebuilds in waves.
-  melt:    (i, t) => 'scale(1, ' + (1 - 0.45 * Math.abs(Math.sin(t * 1.8 + i * 0.7))).toFixed(3) + ')',
-  // chaos — combine bounce + rotate + scale shimmer
-  chaos:   (i, t) => 'translate(' + (Math.sin(t * 3 + i * 0.7) * 6).toFixed(2) + ', ' + (Math.cos(t * 2.4 + i * 0.5) * 6).toFixed(2) + ') rotate(' + (Math.sin(t * 2.8 + i * 0.3) * 14).toFixed(2) + ') scale(' + (0.92 + Math.sin(t * 4 + i) * 0.08).toFixed(3) + ')',
+// Per-VERTEX distortion (chat ask: "refactor sloppy-font to use raw
+// vector path data from OpenType.js 2.0.0 instead of basic SVG text").
+// Earlier revision composed CSS transforms on each glyph's <g> — that
+// was rigid-body animation, the M/L/Q/C control points themselves
+// never moved. This refactor walks the raw `commands` array we now
+// cache from `glyph.getPath(...)` and remaps every (x, y) — including
+// bezier control points (x1/y1, x2/y2) — through one of these
+// functions before rebuilding the `d` string each frame. Result:
+// letterforms genuinely deform at the bezier level (curves bulge,
+// stems ripple) instead of just translating as a unit.
+//
+// Signature: distort(x, y, t, glyphIdx, vtxIdx, glyphHeight) → [x', y']
+const FONT_DISTORTIONS = {
+  // dance — vertical sin wave whose phase shifts with glyph index AND
+  // along the x axis of each vertex, so even a single wide glyph
+  // ripples instead of moving as a slab.
+  dance: (x, y, t, gi, vi, h) => [
+    x,
+    y + Math.sin(t * 4 + gi * 0.55 + x * 0.045) * 8,
+  ],
+  // vibrate — independent micro-jitter per vertex, re-seeded every
+  // frame. Curves get jittery in their middle as well as their
+  // endpoints because control points are jittered too.
+  vibrate: (x, y, t, gi, vi, h) => [
+    x + (Math.random() - 0.5) * 3.2,
+    y + (Math.random() - 0.5) * 3.2,
+  ],
+  // wave — y modulated by a travelling wave along x; glyph index
+  // staggers the phase. A glyph mid-rise looks like a flag.
+  wave: (x, y, t, gi, vi, h) => [
+    x,
+    y + Math.sin(t * 3 + gi * 0.4 + x * 0.06) * 12,
+  ],
+  // melt — points further down the glyph (higher y) drift further
+  // down, scaled by depth so the top of the letter stays fixed and
+  // the bottom droops/stretches like wax.
+  melt: (x, y, t, gi, vi, h) => {
+    const depth = h > 0 ? Math.max(0, Math.min(1, y / h)) : 0;
+    const drip = (Math.sin(t * 1.6 + gi * 0.7 + vi * 0.2) * 0.5 + 0.5) * 18 * depth;
+    return [x, y + drip];
+  },
+  // chaos — combine sin offsets with a tiny random per-vertex twist
+  // so the letterform writhes. control-points + endpoints all share
+  // the same noise field which keeps curves smooth.
+  chaos: (x, y, t, gi, vi, h) => [
+    x + Math.sin(t * 2.6 + vi * 0.4 + gi) * 5 + (Math.random() - 0.5) * 1.4,
+    y + Math.cos(t * 2.2 + vi * 0.3 + gi * 0.6) * 5 + (Math.random() - 0.5) * 1.4,
+  ],
 };
+
+// Render an opentype.js commands array back to an SVG path "d" string.
+// This is the same shape opentype emits internally for `toPathData()`,
+// just rebuilt from possibly-distorted commands. Numbers truncated to
+// 2 decimals for compact d-strings.
+function commandsToD(cmds){
+  const f = (n) => (Math.round(n * 100) / 100).toString();
+  let s = '';
+  for (let i = 0; i < cmds.length; i++){
+    const c = cmds[i];
+    switch (c.type){
+      case 'M': s += 'M' + f(c.x) + ',' + f(c.y); break;
+      case 'L': s += 'L' + f(c.x) + ',' + f(c.y); break;
+      case 'C': s += 'C' + f(c.x1) + ',' + f(c.y1) + ' ' + f(c.x2) + ',' + f(c.y2) + ' ' + f(c.x) + ',' + f(c.y); break;
+      case 'Q': s += 'Q' + f(c.x1) + ',' + f(c.y1) + ' ' + f(c.x) + ',' + f(c.y); break;
+      case 'Z': s += 'Z'; break;
+    }
+  }
+  return s;
+}
+// Per-vertex distortion sweep: clones every command and runs each
+// (x,y) coordinate pair through the distortion function. We touch
+// endpoints (x,y), quadratic control (x1,y1), and cubic controls
+// (x1,y1)/(x2,y2). Z (close path) has no points to move.
+function distortCommands(commands, t, glyphIdx, glyphHeight, mode){
+  const fn = FONT_DISTORTIONS[mode] || FONT_DISTORTIONS.dance;
+  const out = new Array(commands.length);
+  let vtx = 0;
+  for (let i = 0; i < commands.length; i++){
+    const c = commands[i];
+    const o = { type: c.type };
+    if (c.type === 'Z'){ out[i] = o; continue; }
+    if (c.type === 'C'){
+      const a = fn(c.x1, c.y1, t, glyphIdx, vtx++, glyphHeight);
+      const b = fn(c.x2, c.y2, t, glyphIdx, vtx++, glyphHeight);
+      const e = fn(c.x,  c.y,  t, glyphIdx, vtx++, glyphHeight);
+      o.x1 = a[0]; o.y1 = a[1];
+      o.x2 = b[0]; o.y2 = b[1];
+      o.x  = e[0]; o.y  = e[1];
+    } else if (c.type === 'Q'){
+      const a = fn(c.x1, c.y1, t, glyphIdx, vtx++, glyphHeight);
+      const e = fn(c.x,  c.y,  t, glyphIdx, vtx++, glyphHeight);
+      o.x1 = a[0]; o.y1 = a[1];
+      o.x  = e[0]; o.y  = e[1];
+    } else {
+      // M or L — single point
+      const e = fn(c.x, c.y, t, glyphIdx, vtx++, glyphHeight);
+      o.x = e[0]; o.y = e[1];
+    }
+    out[i] = o;
+  }
+  return out;
+}
 
 function spawnFont(){
   const root = document.createElement('div');
@@ -1787,6 +1874,7 @@ function spawnFont(){
       '<input id="fontSize" type="range" min="48" max="180" value="120">' +
       '<span class="size-out" data-role="size-out">120</span>' +
       '<button type="button" class="pause-btn" data-role="pause" data-paused="false">❚❚ pause</button>' +
+      '<span class="size-out" data-role="vtx" style="color:var(--cyan);min-width:auto;letter-spacing:.08em" title="raw vector points being distorted every frame">— verts · — glyphs</span>' +
       '<button type="button" class="download-btn" data-role="download">▼ snapshot svg</button>' +
     '</div>';
   const stageEl   = root.querySelector('[data-role="stage"]');
@@ -1796,6 +1884,7 @@ function spawnFont(){
   const sizeOutEl = root.querySelector('[data-role="size-out"]');
   const pauseEl   = root.querySelector('[data-role="pause"]');
   const downloadEl= root.querySelector('[data-role="download"]');
+  const vtxOutEl  = root.querySelector('[data-role="vtx"]');
   const modesEl   = root.querySelector('.modes');
 
   const fontState = {
@@ -1804,8 +1893,9 @@ function spawnFont(){
     color: '#ff4dc8',
     size: 120,
     paused: false,
-    glyphs: [],     // [{el, baselineX, advanceWidth}] — DOM nodes per glyph, recreated when text/size changes
-    bounds: null,   // computed bbox for the SVG viewBox
+    glyphs: [],     // [{el, slotX, advanceWidth, commands, glyphHeight}] — el is the <path>, commands is the raw OpenType array
+    bounds: null,
+    vtxOutEl,
   };
 
   // build mode pills
@@ -1842,35 +1932,53 @@ function spawnFont(){
       const ch = text[i];
       const glyph = font.charToGlyph(ch);
       const advance = (glyph.advanceWidth || 0) * (fs / font.unitsPerEm);
-      // build the glyph's own path at (0, 0) so the per-glyph <g> can
-      // translate it to its slot — that way the rotate/scale animations
-      // pivot around the glyph's local origin, not the entire string's.
+      // Build the glyph's path centred on its own slot origin (x=0).
+      // The <g> below applies the per-slot translation so the per-
+      // vertex distortion can work in glyph-local coords AND the
+      // composed SVG remains laid out left-to-right correctly.
       const path = glyph.getPath(0, baselineY, fs);
-      const d = path.toPathData(2);
+      // CACHE the raw commands array (cloned so distortion can't
+      // accidentally mutate the original via aliased number ops). This
+      // is the "raw vector path data" the chat ask refers to — every
+      // M/L/Q/C with explicit endpoints + control points, exactly as
+      // OpenType.js parsed them out of the WOFF.
+      const commands = path.commands.map(c => {
+        const o = { type: c.type };
+        if ('x'  in c){ o.x  = c.x;  o.y  = c.y;  }
+        if ('x1' in c){ o.x1 = c.x1; o.y1 = c.y1; }
+        if ('x2' in c){ o.x2 = c.x2; o.y2 = c.y2; }
+        return o;
+      });
+      // Glyph height for the melt distortion's depth math: ascender
+      // top → descender bottom, in glyph-local coords.
+      let bb = null;
+      try { bb = path.getBoundingBox(); } catch(_){}
+      const glyphHeight = bb ? Math.max(1, bb.y2 - bb.y1) : fs;
+      // <g> handles the rigid slot translation; per-vertex distortion
+      // happens on the inner <path>'s `d` attribute every frame.
       const g = document.createElementNS(svgNS, 'g');
-      // store the slot translation as the group's data so the rAF
-      // tick can compose `slotTransform * animationTransform` cheaply
-      g.setAttribute('data-slot-x', String(x));
-      g.setAttribute('transform-origin', '0 ' + baselineY);
+      g.setAttribute('transform', 'translate(' + x + ',0)');
       const p = document.createElementNS(svgNS, 'path');
-      p.setAttribute('d', d);
+      p.setAttribute('d', commandsToD(commands));
       p.setAttribute('fill', fontState.color);
       g.appendChild(p);
       svg.appendChild(g);
-      groups.push({ el: g, slotX: x, advanceWidth: advance });
+      groups.push({
+        el: p,           // the <path> element we mutate every frame
+        slotX: x,
+        advanceWidth: advance,
+        commands,        // raw commands — frame loop distorts copies of these
+        glyphHeight,
+        glyphTop: bb ? bb.y1 : (baselineY - fs),
+      });
       x += advance;
-      // approximate vertical bounds — opentype.js 2.x exposes bbox
-      // via path.getBoundingBox()
-      try {
-        const bb = path.getBoundingBox();
-        if (bb){
-          maxAscent  = Math.max(maxAscent,  baselineY - bb.y1);
-          maxDescent = Math.max(maxDescent, bb.y2 - baselineY);
-        }
-      } catch(_){}
+      if (bb){
+        maxAscent  = Math.max(maxAscent,  baselineY - bb.y1);
+        maxDescent = Math.max(maxDescent, bb.y2 - baselineY);
+      }
     }
-    // viewBox: extra padding so animation displacement doesn't clip.
-    const padX = fs * 0.5, padY = fs * 0.5;
+    // viewBox: extra padding so per-vertex distortion doesn't clip.
+    const padX = fs * 0.5, padY = fs * 0.6;
     const totalW = x + padX * 2;
     const totalH = (maxAscent + maxDescent) + padY * 2 || fs * 1.4;
     svg.setAttribute('viewBox', (-padX) + ' ' + ((baselineY - maxAscent) - padY) + ' ' + totalW + ' ' + totalH);
@@ -1882,21 +1990,39 @@ function spawnFont(){
     fontState.glyphs = groups;
     fontState.svg = svg;
     fontState.viewBox = svg.getAttribute('viewBox');
+    // Update the live "vertex count" pill so chat can see the refactor
+    // is hitting raw commands (not just CSS transforms on a string).
+    const vtxCount = groups.reduce((s, g) => {
+      let n = 0;
+      for (const c of g.commands){
+        if (c.type === 'C') n += 3;
+        else if (c.type === 'Q') n += 2;
+        else if (c.type === 'M' || c.type === 'L') n += 1;
+      }
+      return s + n;
+    }, 0);
+    fontState.vtxCount = vtxCount;
+    if (fontState.vtxOutEl) fontState.vtxOutEl.textContent = vtxCount + ' verts · ' + groups.length + ' glyphs';
   }
 
-  // ── ANIMATION LOOP ──
+  // ── ANIMATION LOOP — RAW VECTOR PATH DATA REFACTOR ──
+  // Instead of slapping a CSS transform on each glyph's <g>, we now
+  // walk the cached opentype.js commands array, distort every
+  // (x,y) — including bezier control points — through the active
+  // mode's distortion function, and re-emit a fresh `d` string on
+  // each glyph's <path> every frame. This means letterforms genuinely
+  // BEND at the curve level (stems ripple, bowls breathe, descenders
+  // droop) rather than translating as rigid bodies.
   let rafId = null;
   let t0 = performance.now();
   function tick(now){
     if (!fontState.paused && fontState.glyphs.length){
       const t = (now - t0) / 1000;
-      const fn = FONT_TRANSFORMS[fontState.mode] || FONT_TRANSFORMS.dance;
+      const mode = fontState.mode;
       for (let i = 0; i < fontState.glyphs.length; i++){
         const g = fontState.glyphs[i];
-        // Compose the per-frame anim around the slot — the slot
-        // translation is constant; the anim transform is in glyph-
-        // local coordinates because we set transform-origin earlier.
-        g.el.setAttribute('transform', 'translate(' + g.slotX + ',0) ' + fn(i, t));
+        const distorted = distortCommands(g.commands, t, i, g.glyphHeight, mode);
+        g.el.setAttribute('d', commandsToD(distorted));
       }
     }
     rafId = requestAnimationFrame(tick);
