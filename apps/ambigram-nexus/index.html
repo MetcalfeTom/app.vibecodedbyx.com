@@ -267,66 +267,101 @@ function buildSvg(content, viewBox, attrs){
     Object.keys(attrs).map(k => k + '="' + attrs[k] + '"').join(' ') + '>' + content + '</svg>';
 }
 
+// Render a word as a sequence of per-character glyphs at known slot
+// positions. Returns { paths: [{ch, d, slotX, advance, slotCenter, bb}], totalWidth }.
+// We need per-character placement (rather than font.getPath(text)) so
+// the overlay panel can align rotationally-symmetric letters EXACTLY
+// on top of their rotated counterparts (chat ask: "align letters that
+// are rotationally symmetrical so they overlay exactly").
+function renderCharacters(font, text, fs, baseY){
+  const out = [];
+  let x = 0;
+  for (let i = 0; i < text.length; i++){
+    const ch = text[i];
+    const glyph = font.charToGlyph(ch);
+    const advance = (glyph.advanceWidth || 0) * (fs / font.unitsPerEm);
+    // build the glyph's path AT (x, baseY) so its `d` is in absolute
+    // coords on the rendered line — that way we don't need a per-glyph
+    // <g translate>; the path already lives in the right place.
+    const path = glyph.getPath(x, baseY, fs);
+    let bb = null; try { bb = path.getBoundingBox(); } catch(_){}
+    const slotCenterX = x + advance / 2;
+    out.push({ ch, d: path.toPathData(2), slotX: x, advance, slotCenterX, bb });
+    x += advance;
+  }
+  return { paths: out, totalWidth: x };
+}
+
 function render(){
   const font = cache.fonts.get(cache.active);
   if (!font){ return; }
   const wA = wordAEl.value || ' ';
   const wB = (wordBEl.value || '').trim() || wA;
-  // render path data for both words at the same font size
   const fs = 110;
-  const A = renderText(font, wA, { fontSize: fs });
-  const B = renderText(font, wB, { fontSize: fs });
-  // viewbox: pad by 10% on every side around the larger of A/B
-  const padX = fs * 0.25;
-  const padY = fs * 0.35;
-  const minXa = (A.bb && A.bb.x1 || 0) - padX;
-  const maxXa = (A.bb && A.bb.x2 || 0) + padX;
-  const minYa = (A.bb && A.bb.y1 || 0) - padY;
-  const maxYa = (A.bb && A.bb.y2 || 0) + padY;
-  const minXb = (B.bb && B.bb.x1 || 0) - padX;
-  const maxXb = (B.bb && B.bb.x2 || 0) + padX;
-  const minYb = (B.bb && B.bb.y1 || 0) - padY;
-  const maxYb = (B.bb && B.bb.y2 || 0) + padY;
-  const Wa = maxXa - minXa, Ha = maxYa - minYa;
-  const Wb = maxXb - minXb, Hb = maxYb - minYb;
-  const vbA = minXa + ' ' + minYa + ' ' + Wa + ' ' + Ha;
-  const vbB = minXb + ' ' + minYb + ' ' + Wb + ' ' + Hb;
-  // panel A: word normal
-  svgAEl.innerHTML = buildSvg('<path d="' + A.d + '"/>', vbA);
-  metaAEl.textContent = wA.length + ' chars · ' + Math.round(Wa) + 'u wide';
-  // panel B: word B rotated 180° around the centre of B's bounding box
-  // Compute centre, apply rotate(180, cx, cy) — that flips horizontally
-  // AND vertically, which is exactly the "flip the page upside down"
-  // transformation an ambigram solves.
-  const cxB = (minXb + maxXb) / 2;
-  const cyB = (minYb + maxYb) / 2;
+  const baseY = fs * 0.85;
+  // PER-CHARACTER paths for both words — used by all three panels so
+  // panel C can place rotated B-chars at A-slots for exact alignment.
+  const A = renderCharacters(font, wA, fs, baseY);
+  const B = renderCharacters(font, wB, fs, baseY);
+  // line metrics (use ascender/descender from the font's hhea table
+  // when available, otherwise approximate from the per-glyph bbox).
+  const ascender  = (font.ascender || -fs * 0.95) * (fs / font.unitsPerEm);
+  const descender = (font.descender || fs * 0.2) * (fs / font.unitsPerEm);
+  // Y bounds for the line: baseline ± ascender/descender
+  const lineTop    = baseY + ascender;        // ascender is negative in OT
+  const lineBottom = baseY + descender;       // descender is positive offset below baseline; opentype gives negative descender
+  const padX = fs * 0.18;
+  const padY = fs * 0.30;
+  // viewBox A
+  const vbA = (-padX) + ' ' + (lineTop - padY) + ' ' + (A.totalWidth + padX * 2) + ' ' + (lineBottom - lineTop + padY * 2);
+  const vbB = (-padX) + ' ' + (lineTop - padY) + ' ' + (B.totalWidth + padX * 2) + ' ' + (lineBottom - lineTop + padY * 2);
+  // panel A — word normal, drawn as one combined path
+  svgAEl.innerHTML = buildSvg('<path d="' + A.paths.map(p => p.d).join(' ') + '"/>', vbA);
+  metaAEl.textContent = wA.length + ' chars · ' + Math.round(A.totalWidth) + 'u wide';
+  // panel B — word B rotated 180° around its OWN line centre. This is
+  // the "flip the page upside down" view: still a single rotation,
+  // showing what a flipped reader would see.
+  const cxB = B.totalWidth / 2;
+  const cyB = (lineTop + lineBottom) / 2;
   svgBEl.innerHTML = buildSvg(
-    '<g transform="rotate(180 ' + cxB + ' ' + cyB + ')"><path d="' + B.d + '"/></g>',
+    '<g transform="rotate(180 ' + cxB + ' ' + cyB + ')"><path d="' +
+      B.paths.map(p => p.d).join(' ') + '"/></g>',
     vbB
   );
   metaBEl.textContent = wB.length + ' chars · rotated';
-  // panel C: overlay — A in pink, B-rotated in cyan, on a unified canvas
-  // using A's viewbox (so user can SEE the alignment of letterforms).
-  // Centre B's rotated bbox over A's bbox so a self-ambigram with the
-  // same word lands its letters on top of each other.
-  // Translation to centre B's centre over A's centre:
-  const cxA = (minXa + maxXa) / 2;
-  const cyA = (minYa + maxYa) / 2;
-  const dx = cxA - cxB, dy = cyA - cyB;
-  const overlayContent =
-    '<path class="a-normal" d="' + A.d + '"/>' +
-    '<g class="a-rotate" transform="translate(' + dx + ' ' + dy + ') rotate(180 ' + cxB + ' ' + cyB + ')">' +
-      '<path d="' + B.d + '"/>' +
-    '</g>';
-  svgCEl.innerHTML = buildSvg(overlayContent, vbA);
-  // overlap score: cheap heuristic — bounding-box similarity in
-  // proportion. Real overlap analysis would rasterize and count
-  // shared pixels, which is overkill here; we report bbox aspect-
-  // ratio similarity instead and call it a "shape-fit" hint.
-  const aRatio = Wa / Math.max(1, Ha);
-  const bRatio = Wb / Math.max(1, Hb);
+  // panel C — PER-CHARACTER alignment. For each slot i in word A, find
+  // the corresponding rotated character: rotating word B by 180° around
+  // its line-centre maps B[i] to slot (n-1-i). So if we want the
+  // rotated B character that LANDS at A's slot i, it's B[len(B)-1-i].
+  // We then rotate THAT character 180° around its own slot centre and
+  // translate it to A's slot centre. Result: rotationally-symmetric
+  // glyphs that share both A's slot and the rotated B-glyph's centre
+  // overlay EXACTLY pixel-for-pixel.
+  const overlayParts = [];
+  // pink layer = A normal
+  overlayParts.push('<path class="a-normal" d="' + A.paths.map(p => p.d).join(' ') + '"/>');
+  // cyan layer = each B-character rotated, placed at A's slot
+  const len = Math.max(A.paths.length, B.paths.length);
+  for (let i = 0; i < len; i++){
+    const aSlot = A.paths[i];
+    const bChar = B.paths[B.paths.length - 1 - i];        // mirrored mapping
+    if (!aSlot || !bChar) continue;
+    // rotate B-char around its own slot centre + line centre, then
+    // translate from B-char's slot centre to A-slot's slot centre
+    const dx = aSlot.slotCenterX - bChar.slotCenterX;
+    const dy = 0;                                          // baseline aligned already
+    overlayParts.push(
+      '<g class="a-rotate" transform="translate(' + dx + ' ' + dy + ') rotate(180 ' + bChar.slotCenterX + ' ' + cyB + ')">' +
+        '<path d="' + bChar.d + '"/>' +
+      '</g>'
+    );
+  }
+  svgCEl.innerHTML = buildSvg(overlayParts.join(''), vbA);
+  // shape-fit score — kept as a rough proportion hint.
+  const aRatio = A.totalWidth / Math.max(1, lineBottom - lineTop);
+  const bRatio = B.totalWidth / Math.max(1, lineBottom - lineTop);
   const fit = Math.round(100 * Math.min(aRatio, bRatio) / Math.max(aRatio, bRatio));
-  overlapScoreEl.textContent = fit + '% shape-fit';
+  overlapScoreEl.textContent = fit + '% shape-fit · per-letter aligned';
 }
 
 // ── DEBOUNCED INPUT HANDLER ──────────────────────────────────────
