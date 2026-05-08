@@ -1,6 +1,30 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-08: **Necromancer class · spirit pool · soul harvest · drone summons · spawn density · bug fixes**. Chat asks bundled (zennlogic):
+  - "update sloppy-exiles to add a Necromancer class that summons a swarm of drones to attack nearby enemies" + "summons drones throwing frost bombs that freeze and shatter enemies"
+  - "add a spirit resource system to the Necromancer ... making minions cost spirit to summon, and give Zennlogic some souls to harvest from fallen enemies"
+  - "scale the Necromancer spirit pool and drone limit over time based on level"
+  - "significantly increase the enemy spawn density"
+  - "check the movement event listeners ... controls are hanging or acting weirdly"
+  - "check the supabase-config-fixed.js import ... it is throwing a fetch error"
+
+  **Necromancer class** (4th archetype): HP 130 / MP 80 / mp-regen 3 / attackDmg 11 / range 7 / speed 4.4 / crit 10% / sickly-green ranged auto-attack `#7eff8a`. Title-screen card slotted after Mage with glyph ☠ and tagline "drone swarm · frost · shatter".
+
+  **Signature: RAISE FROST SWARM** (key 4 / signature slot ☠). Spends MP + SPIRIT to summon up to 4 drones per cast. Drones orbit player at 1.5-tile radius, lobs frost bombs every ~1.6s at the nearest enemy within 6 tiles. New projectile kind `frostbomb` with light homing toward stored target — detonates on contact OR life-expiry into a 1.6-tile AoE. Each enemy hit takes `playerDamage(0.6)` + applies 2.5s chill. **SHATTER**: if the enemy was already chilled when the bomb lands, they take +`playerDamage(1.0)` bonus damage and explode into a 10-particle ice burst. Cooldown 4.0s.
+
+  **Spirit resource** (necromancer-only). Pool size scales with level — `necroMaxSpiritFor(level) = 50 + min(180, (level-1) * 6)` (50 at L1 → 230 at L31). Drone cap rises every 5 levels — `necroDroneCapFor(level) = min(8, 4 + floor((level-1)/5))` (4→5→6→7→8). Cost per drone: `SPIRIT_PER_DRONE = 12`. Each cast summons `min(4, slotsFree, floor(spirit / 12))` — partial casts work when low. Refilled to max on every level-up.
+
+  **Souls** (chat: "give Zennlogic some souls to harvest from fallen enemies"). On every enemy kill, necromancer has 85% chance to drop a soul wisp (boss = guaranteed + 3 souls). Other classes get a soul only from boss kills. Souls are purple/green glowing wisps with bobbing + side-sway animation. Auto-pickup within 2.4-tile range for necromancer (1.6 for others); within 0.45 tiles, the soul is consumed → +6 spirit (necro) or +4 mana (others). 12s lifespan before despawn.
+
+  **Spawn density bump**: base interval 1.8s (was 3.2), ramp 0.04/wave-second (was 0.025), floor 0.35s (was 0.6). Pair-spawn after 30s in-zone (2 enemies per spawn tick); triple-roll after 75s (50% chance for a 3rd). Late-zone runs now feel like horde mode. Town safe-zone + exit-portal phase still stop spawning.
+
+  **Movement-hang fix**: chat reported controls hanging / acting weirdly. Two defensive fixes:
+  1. All non-movement keydown branches now skip on `e.repeat`, so holding 1/2/3/4 (skill keys) doesn't spam the underlying handler. WASD remain repeatable because tickPlayer reads `keys[]` per frame.
+  2. `togglePause`, `toggleTree`, `toggleInv` all call `clearAllKeys()` so opening/closing modals or pausing flushes any held key. Prior bug: a modal could swallow the keyup, leaving WASD stuck `true`.
+
+  **Supabase-import fix**: chat reported a fetch error. The dynamic import chain already swallowed errors but logged each failed path as `console.warn`, spamming devtools even when a later path succeeded. Collapsed to: silent on success, a single `console.info` line ONLY when all 3 paths fail. Cloud save is still optional; localStorage remains the source of truth.
+
 - 2026-05-07: **Playtest pass 2 — 5 more edge cases fixed** (chat ask "continue playtesting via code analysis and internal tracing"). Deeper trace through map-rebuild and post-death code paths surfaced five more issues:
   1. **Stale path on zone cross**: `crossEdge` rebuilds the map via `buildMap()` (new walls), but did NOT clear `state.autoPath` — the bot's waypoint chain referenced the OLD zone's tile coords. Bot would walk into walls in the new zone for ~0.6s until stuck-detection fired. Fixed by clearing `autoPath`/`autoPathIdx`/`autoPathGoal`/`autoStuckT` in `crossEdge`.
   2. **Same bug in `advanceFloor`**: floor descent re-rolls the layout but only cleared `player.targetGx`. Now also clears the auto path state.

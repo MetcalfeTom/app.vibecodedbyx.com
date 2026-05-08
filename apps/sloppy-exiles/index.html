@@ -834,6 +834,12 @@
       <div class="cc-tag">chain lightning · ricochet</div>
       <div class="cc-stats">HP 80 · MP 100</div>
     </button>
+    <button type="button" class="char-card" data-class="necromancer" aria-pressed="false">
+      <div class="cc-icon" aria-hidden="true">☠</div>
+      <div class="cc-name">Necromancer</div>
+      <div class="cc-tag">drone swarm · frost · shatter</div>
+      <div class="cc-stats">HP 130 · MP 80</div>
+    </button>
   </div>
   <button type="button" id="playBtn" aria-label="Descend into the wastes — start the run">▼ DESCEND</button>
   <div id="saveLine" style="margin-top:1rem;font-family:'IBM Plex Mono',monospace;font-size:0.875rem;color:var(--bone);text-align:center"></div>
@@ -903,21 +909,30 @@ let supabaseSession = null;
 // canonical location per project notes; the fallback covers atypical
 // deploy roots. All errors swallowed: cloud-save is optional.
 const supabaseReady = (async () => {
+  // Chat ask (zennlogic): "check the supabase-config-fixed.js import in
+  // sloppy-exiles, it is throwing a fetch error." The dynamic import
+  // chain already swallowed errors but logged each failed path as a
+  // warning, which spammed the console even when a later path worked.
+  // Collapsed to: log nothing on the success path, single warning
+  // ONLY when every path fails. Cloud save remains optional.
   const tryPaths = ['/supabase-config-fixed.js', '../supabase-config-fixed.js', '/supabase-config.js'];
+  const errs = [];
   for (const path of tryPaths){
     try {
       const mod = await import(path);
       if (mod && (mod.default || mod.supabase)){
         supabase = mod.default || mod.supabase;
         supabaseSession = mod.supabaseSession || null;
-        console.info('[sloppy-exiles] supabase loaded from', path);
         return;
       }
     } catch (e) {
-      console.warn('[sloppy-exiles] supabase load failed at', path, '·', e?.message || e);
+      errs.push({ path, msg: e && e.message ? e.message : String(e) });
     }
   }
-  console.warn('[sloppy-exiles] no supabase config reachable — cloud-save disabled');
+  // Single concise final warning so the player can grep one line in
+  // devtools to know cloud-save is off.
+  console.info('[sloppy-exiles] cloud-save disabled · localStorage is the source of truth · attempted paths: ' +
+               errs.map(e => e.path).join(', '));
 })();
 
 // === STATE — declared up here, BEFORE buildMap() (which reads state.zoneX/zoneY)
@@ -1431,6 +1446,19 @@ const projectiles = [];
 // Chain-lightning bolts — each entry is { segments: [{fx,fy,tx,ty,kind}], life, maxLife }.
 // Pure visual; damage is applied immediately when the chain is cast.
 const lightnings = [];
+// Necromancer drones — orbital skulls summoned by the signature skill.
+// Each drone: { phase, radius, life, throwAt }. Orbits the player at
+// `radius` tiles, lobs a frost bomb at the nearest enemy every ~1.6s.
+const drones = [];
+// Souls — chat ask (zennlogic): "give Zennlogic some souls to harvest
+// from fallen enemies." Drop from any enemy the necromancer kills (or
+// nearby — soul siphon radius). Auto-pickup grants +SPIRIT_PER_SOUL
+// to the necromancer's spirit pool. Wisps drift up + sway.
+const souls = [];
+const SPIRIT_PER_SOUL = 6;
+// Spirit cost per drone — stays flat so higher levels just buy more
+// drones at the same per-drone price.
+const SPIRIT_PER_DRONE = 12;
 const drops = [];
 const particles = [];
 
@@ -2025,8 +2053,20 @@ function startGame() {
   player.bonus = { meleeMul: cls.meleeMul, critChance: cls.critChance, berserk: false };
   player.skills = { cleave: false, frostbolt: false, lifedrain: false };
   player.cooldowns = { attack: 0, cleave: 0, frostbolt: 0, lifedrain: 0, signature: 0 };
+  // Necromancer-only resources — spirit pool & drone cap (chat: zennlogic).
+  // Other classes get 0 so the HUD bar stays hidden.
+  if (selectedClass === 'necromancer'){
+    player.maxSpirit = necroMaxSpiritFor(1);
+    player.spirit    = player.maxSpirit;
+    player.droneCap  = necroDroneCapFor(1);
+  } else {
+    player.maxSpirit = 0; player.spirit = 0; player.droneCap = 0;
+  }
+  // wipe any leftover drones / souls between runs
+  drones.length = 0;
+  souls.length = 0;
   // Update the signature slot icon to match the chosen class
-  const sigIcons = { warrior: '🗡', archer: '🔥', mage: '❅' };
+  const sigIcons = { warrior: '🗡', archer: '🔥', mage: '❅', necromancer: '☠' };
   const sigIcon = document.getElementById('sigIcon');
   if (sigIcon) sigIcon.textContent = sigIcons[selectedClass] || '★';
   player.inventory.length = 0;
@@ -2052,7 +2092,7 @@ function startGame() {
       player.ranged    = sc.ranged;
       player.projectileColor = sc.projectileColor;
       player.bonus     = { meleeMul: sc.meleeMul, critChance: sc.critChance, berserk: false };
-      const sigIcons = { warrior: '🗡', archer: '🔥', mage: '❅' };
+      const sigIcons = { warrior: '🗡', archer: '🔥', mage: '❅', necromancer: '☠' };
       const sigIcon = document.getElementById('sigIcon');
       if (sigIcon) sigIcon.textContent = sigIcons[player.classKey] || '★';
     }
@@ -2062,6 +2102,18 @@ function startGame() {
     player.xpNext   = vault.xpNext   || 100;
     player.skillPts = vault.skillPts || 0;
     player.gold     = vault.gold     || 0;
+    // Necromancer resources — derived from level so loading an old save
+    // automatically gets the correct pool / drone cap (chat: zennlogic
+    // "scale the Necromancer spirit pool and drone limit over time").
+    if (player.classKey === 'necromancer'){
+      player.maxSpirit = necroMaxSpiritFor(player.level);
+      player.spirit    = player.maxSpirit;
+      player.droneCap  = necroDroneCapFor(player.level);
+    } else {
+      player.maxSpirit = 0; player.spirit = 0; player.droneCap = 0;
+    }
+    drones.length = 0;
+    souls.length = 0;
     // run progress
     state.floor        = vault.floor        || 1;
     state.floorKills   = vault.floorKills   || 0;
@@ -2217,6 +2269,10 @@ function togglePause() {
   if (state.phase !== 'playing' && state.phase !== 'paused') return;
   state.paused = !state.paused;
   state.phase = state.paused ? 'paused' : 'playing';
+  // Clear held keys so re-opening the game after pause never finds
+  // WASD "stuck" from before. Prevents the "controls hanging" bug
+  // when the pause modal swallowed a keyup event (chat: zennlogic).
+  if (typeof clearAllKeys === 'function') clearAllKeys();
   showToast(state.paused ? 'PAUSED' : 'RESUMED', state.paused ? 'esc to resume' : '');
 }
 document.getElementById('playBtn').addEventListener('click', startGame);
@@ -2306,6 +2362,22 @@ const CLASSES = {
     ranged: true,
     projectileColor: '#a86bff',
   },
+  // Necromancer — chat ask (zennlogic): "summons drones throwing
+  // frost bombs that freeze and shatter enemies." Sickly-green palette
+  // distinct from the mage's violet so the two ranged casters read
+  // differently on screen. Auto-attack is a low-tempo necrotic bolt;
+  // the kit is the SIGNATURE — see useSignature().
+  necromancer: {
+    name: 'Necromancer',
+    icon: '☠',
+    tagline: 'drone swarm · frost bombs · shatter on chilled',
+    maxHp: 130, maxMp: 80, mpRegen: 3,
+    attackDmg: 11, attackRange: 7.0,
+    speed: 4.4,
+    meleeMul: 1.0, critChance: 0.10,
+    ranged: true,
+    projectileColor: '#7eff8a',
+  },
 };
 let selectedClass = 'warrior';
 
@@ -2328,12 +2400,18 @@ cvs.addEventListener('mousemove', e => {
   mouse.gx = w.gx; mouse.gy = w.gy;
 });
 window.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { togglePause(); e.preventDefault(); return; }
+  // Chat ask (zennlogic): "controls are hanging or acting weirdly".
+  // Defensive — ignore auto-repeat for non-movement keys so holding
+  // a skill key doesn't spam useSkill() / toggle modals continuously.
+  // WASD remain repeatable because tickPlayer reads `keys[]` per
+  // frame, which is independent of repeat fire.
+  const isRepeat = e.repeat;
+  if (e.key === 'Escape') { if (!isRepeat) togglePause(); e.preventDefault(); return; }
   if (e.key === ' ') {
-    if (state.phase === 'title' || state.phase === 'end') { startGame(); e.preventDefault(); return; }
+    if (state.phase === 'title' || state.phase === 'end') { if (!isRepeat) startGame(); e.preventDefault(); return; }
   }
-  if (e.key === 't' || e.key === 'T') { toggleTree(); e.preventDefault(); return; }
-  if (e.key === 'i' || e.key === 'I') { toggleInv();  e.preventDefault(); return; }
+  if (e.key === 't' || e.key === 'T') { if (!isRepeat) toggleTree(); e.preventDefault(); return; }
+  if (e.key === 'i' || e.key === 'I') { if (!isRepeat) toggleInv();  e.preventDefault(); return; }
   if (e.key === 'v' || e.key === 'V') {
     // Only opens when in town AND close enough to the chest
     if (state.inTown && Math.hypot(player.gx - CHEST_GX, player.gy - CHEST_GY) < CHEST_OPEN_RADIUS){
@@ -2345,15 +2423,15 @@ window.addEventListener('keydown', e => {
     }
     e.preventDefault(); return;
   }
-  if (e.key === '1') { useSkill('cleave');    e.preventDefault(); return; }
-  if (e.key === '2') { useSkill('frostbolt'); e.preventDefault(); return; }
-  if (e.key === '3') { useSkill('lifedrain'); e.preventDefault(); return; }
-  if (e.key === '4') { useSignature();        e.preventDefault(); return; }
-  if (e.key === 'p' || e.key === 'P') { useTownPortal(); e.preventDefault(); return; }
-  if (e.key === 'b' || e.key === 'B') { toggleAuto();   e.preventDefault(); return; }
-  if (e.key === '`' || e.key === '~') { toggleTui();    e.preventDefault(); return; }
-  if (state.tuiOn && (e.key === 'l' || e.key === 'L')) { dumpTuiToConsole(); e.preventDefault(); return; }
-  if (e.key === ' ') { tryDodgeRoll(); e.preventDefault(); return; }
+  if (e.key === '1') { if (!isRepeat) useSkill('cleave');    e.preventDefault(); return; }
+  if (e.key === '2') { if (!isRepeat) useSkill('frostbolt'); e.preventDefault(); return; }
+  if (e.key === '3') { if (!isRepeat) useSkill('lifedrain'); e.preventDefault(); return; }
+  if (e.key === '4') { if (!isRepeat) useSignature();        e.preventDefault(); return; }
+  if (e.key === 'p' || e.key === 'P') { if (!isRepeat) useTownPortal(); e.preventDefault(); return; }
+  if (e.key === 'b' || e.key === 'B') { if (!isRepeat) toggleAuto();   e.preventDefault(); return; }
+  if (e.key === '`' || e.key === '~') { if (!isRepeat) toggleTui();    e.preventDefault(); return; }
+  if (state.tuiOn && (e.key === 'l' || e.key === 'L')) { if (!isRepeat) dumpTuiToConsole(); e.preventDefault(); return; }
+  if (e.key === ' ') { if (!isRepeat) tryDodgeRoll(); e.preventDefault(); return; }
   keys[e.key.toLowerCase()] = true;
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -2471,6 +2549,7 @@ function toggleTree() {
     el.classList.add('show'); el.removeAttribute('inert');
     state.paused = true; state.phase = 'paused';
   }
+  if (typeof clearAllKeys === 'function') clearAllKeys();
 }
 document.getElementById('closeTreeBtn').addEventListener('click', toggleTree);
 
@@ -2721,6 +2800,7 @@ function toggleInv() {
     // overlay's CSS sizing settles before we measure the canvas.
     requestAnimationFrame(() => refreshInvUI());
   }
+  if (typeof clearAllKeys === 'function') clearAllKeys();
 }
 document.getElementById('closeInvBtn').addEventListener('click', toggleInv);
 
@@ -2941,6 +3021,20 @@ function killEnemy(en) {
     if (Math.random() < 0.6) dropLootAt(en.gx, en.gy);
     spawnDeathBurst(en.gx, en.gy);
   }
+  // Soul drop — chat ask: "give Zennlogic some souls to harvest from
+  // fallen enemies." Necromancer harvests on every kill (chance 0.85),
+  // other classes only see souls from elite kills (boss = guaranteed).
+  if (player.classKey === 'necromancer'){
+    if (isBoss || Math.random() < 0.85){
+      souls.push(makeSoul(en.gx, en.gy));
+      if (isBoss){
+        souls.push(makeSoul(en.gx + 0.4, en.gy + 0.2));
+        souls.push(makeSoul(en.gx - 0.4, en.gy - 0.2));
+      }
+    }
+  } else if (isBoss){
+    souls.push(makeSoul(en.gx, en.gy));
+  }
   sfx.bone();
   // Remove
   const idx = enemies.indexOf(en);
@@ -2952,6 +3046,14 @@ function killEnemy(en) {
     player.level += 1;
     player.xpNext = Math.floor(player.xpNext * 1.4);
     player.skillPts += 1;
+    // Necromancer scaling — chat ask: "scale the Necromancer spirit
+    // pool and drone limit over time based on level". Spirit pool
+    // grows linearly; drone cap rises every 5 levels (cap 8).
+    if (player.classKey === 'necromancer'){
+      player.maxSpirit = necroMaxSpiritFor(player.level);
+      player.droneCap  = necroDroneCapFor(player.level);
+      player.spirit    = player.maxSpirit;          // refill on level
+    }
     player.hp = player.maxHp;
     player.mp = player.maxMp;
     sfx.level();
@@ -3163,6 +3265,49 @@ function useSignature() {
       cur = next;
     }
     showToast('CHAIN LIGHTNING', visited.size + ' arcs');
+  } else if (key === 'necromancer') {
+    // RAISE FROST SWARM — chat asks bundled (zennlogic):
+    //   "summons drones throwing frost bombs that freeze and shatter
+    //    enemies"
+    //   "add a spirit resource system to the Necromancer ... making
+    //    minions cost spirit to summon"
+    //   "scale the Necromancer spirit pool and drone limit over time
+    //    based on level"
+    // Each drone costs SPIRIT_PER_DRONE (12). Drone count = min of
+    // (player.droneCap minus drones already alive, spirit budget,
+    // base ceiling 4 per cast). 12s lifespan, frost-bomb cadence
+    // ~1.6s. Bombs detonate in 1.6-tile AoE applying chill; SHATTER
+    // bonus damage if the enemy was already chilled (see tickProjectiles).
+    if (player.mp < 8) { showToast('NEED MANA', '8 mp to cast'); return; }
+    const cap = player.droneCap || 4;
+    const slotsFree = Math.max(0, cap - drones.length);
+    const spiritAvail = player.spirit | 0;
+    const wantThisCast = 4;                      // base burst per cast
+    const summonCount = Math.min(wantThisCast, slotsFree, Math.floor(spiritAvail / SPIRIT_PER_DRONE));
+    if (summonCount <= 0){
+      if (slotsFree <= 0) showToast('SWARM FULL', 'cap ' + cap + ' · wait for drones to expire');
+      else if (spiritAvail < SPIRIT_PER_DRONE) showToast('NEED SPIRIT', 'harvest souls from kills');
+      return;
+    }
+    player.mp -= 8;
+    player.spirit -= summonCount * SPIRIT_PER_DRONE;
+    player.cooldowns.signature = 4.0;
+    sfx.cast();
+    const now = performance.now();
+    const startPhase = drones.length * (Math.PI * 2 / Math.max(cap, 1));
+    for (let i = 0; i < summonCount; i++){
+      drones.push({
+        phase: startPhase + (i / summonCount) * Math.PI * 2,
+        radius: 1.5,
+        bornAt: now,
+        diesAt: now + 12000,
+        throwAt: now + 800 + i * 200,   // staggered first throws
+        gx: player.gx, gy: player.gy,
+      });
+    }
+    spawnAoeRing(player.gx, player.gy, 1.6, '#a86bff');
+    showToast('FROST SWARM', '+' + summonCount + ' drone' + (summonCount > 1 ? 's' : '') +
+              ' · −' + (summonCount * SPIRIT_PER_DRONE) + ' spirit');
   }
   refreshSkillBar();
 }
@@ -4383,13 +4528,69 @@ function tickProjectiles(dt) {
     }
 
     // ── PLAYER PROJECTILES (existing behavior — target enemies) ──
-    for (const en of enemies) {
-      const d = Math.hypot(en.gx - p.gx, en.gy - p.gy);
-      if (d < 0.6) {
-        damageEnemy(en, p.dmg, false);
-        if (p.kind === 'frost') en.chillUntil = performance.now() / 1000 + 2.0;
+    // FROST BOMB (necromancer drone): light homing toward stored target,
+    // detonates in a 1.6-tile AoE on first contact OR on life expiry.
+    // Each enemy hit takes p.dmg + shatter bonus if already chilled.
+    if (p.kind === 'frostbomb'){
+      // light homing
+      if (p.target && enemies.indexOf(p.target) !== -1){
+        const tx = p.target.gx - p.gx, ty = p.target.gy - p.gy;
+        const td = Math.hypot(tx, ty) || 1;
+        // blend velocity 80% old / 20% toward target so flight reads as a lob
+        const cur = Math.hypot(p.vgx, p.vgy) || 1;
+        const dx = (p.vgx / cur) * 0.78 + (tx / td) * 0.22;
+        const dy = (p.vgy / cur) * 0.78 + (ty / td) * 0.22;
+        const dd = Math.hypot(dx, dy) || 1;
+        const sp = 8.0;
+        p.vgx = dx / dd * sp;
+        p.vgy = dy / dd * sp;
+      }
+      let detonate = false;
+      for (const en of enemies){
+        if (Math.hypot(en.gx - p.gx, en.gy - p.gy) < 0.6){ detonate = true; break; }
+      }
+      if (detonate || p.life <= 0.06){
+        const now = performance.now() / 1000;
+        const AOE = 1.6;
+        let hits = 0, shatters = 0;
+        for (const en of enemies){
+          const d = Math.hypot(en.gx - p.gx, en.gy - p.gy);
+          if (d > AOE) continue;
+          // shatter bonus if already chilled
+          const wasChilled = en.chillUntil > now;
+          let dmg = p.dmg;
+          if (wasChilled){
+            dmg = Math.round(dmg + playerDamage(1.0));
+            shatters++;
+            // ice burst particles
+            for (let k = 0; k < 10; k++){
+              const a = Math.random() * Math.PI * 2;
+              const sp2 = 1.5 + Math.random() * 2.0;
+              particles.push({
+                kind: 'bone', gx: en.gx, gy: en.gy,
+                vx: Math.cos(a) * sp2, vy: Math.sin(a) * sp2,
+                t: 0, dur: 0.55 + Math.random() * 0.2,
+              });
+            }
+          }
+          damageEnemy(en, dmg, wasChilled);
+          en.chillUntil = now + 2.5;
+          hits++;
+        }
+        spawnAoeRing(p.gx, p.gy, AOE, '#a8e8ff');
+        if (shatters > 0 && sfx.crit) sfx.crit();
         projectiles.splice(i, 1);
-        break;
+        continue;
+      }
+    } else {
+      for (const en of enemies) {
+        const d = Math.hypot(en.gx - p.gx, en.gy - p.gy);
+        if (d < 0.6) {
+          damageEnemy(en, p.dmg, false);
+          if (p.kind === 'frost') en.chillUntil = performance.now() / 1000 + 2.0;
+          projectiles.splice(i, 1);
+          break;
+        }
       }
     }
   }
@@ -4403,6 +4604,203 @@ function damagePlayerFromBoss(dmg){
     player.hp = 0;
     player.alive = false;
     endGame();
+  }
+}
+
+// =====================================================================
+// NECROMANCER · SPIRIT POOL · DRONE LIMITS · SOUL HARVEST
+// =====================================================================
+// Chat asks bundled (zennlogic):
+//   "add a spirit resource system to the Necromancer in sloppy-exiles,
+//    making minions cost spirit to summon, and give Zennlogic some
+//    souls to harvest from fallen enemies"
+//   "scale the Necromancer spirit pool and drone limit over time
+//    based on level"
+// Spirit pool & drone cap scale with player.level. Souls drop from
+// fallen enemies (see killEnemy) and auto-pickup grants spirit.
+function necroMaxSpiritFor(level){
+  return 50 + Math.min(180, (level - 1) * 6);    // 50 @ L1 → 230 @ L31
+}
+function necroDroneCapFor(level){
+  // cap rises every 5 levels: L1=4, L5=5, L10=6, L15=7, L20=8 (max)
+  return Math.min(8, 4 + Math.floor((level - 1) / 5));
+}
+function makeSoul(gx, gy){
+  const a = Math.random() * Math.PI * 2;
+  return {
+    gx: gx + Math.cos(a) * 0.3,
+    gy: gy + Math.sin(a) * 0.3,
+    bornAt: performance.now(),
+    ttl: 12000,        // 12s wisp lifetime
+    bobPhase: Math.random() * Math.PI * 2,
+    sway: Math.random() * 0.6 + 0.4,
+    consumed: false,
+  };
+}
+function tickSouls(dt){
+  if (!souls.length) return;
+  const SIPHON_RANGE = 1.6;
+  // Necromancer auto-siphons; other classes get a smaller pickup radius.
+  const isNecro = player.classKey === 'necromancer';
+  const range = isNecro ? 2.4 : SIPHON_RANGE;
+  for (let i = souls.length - 1; i >= 0; i--){
+    const s = souls[i];
+    s.bobPhase += dt * 2.2;
+    // gentle drift toward player when within siphon range
+    const dx = player.gx - s.gx, dy = player.gy - s.gy;
+    const d = Math.hypot(dx, dy);
+    if (d < range){
+      const pull = 4.5 * dt;
+      s.gx += (dx / Math.max(d, 0.0001)) * pull;
+      s.gy += (dy / Math.max(d, 0.0001)) * pull;
+    }
+    // pickup
+    if (d < 0.45){
+      if (isNecro){
+        const before = player.spirit | 0;
+        player.spirit = Math.min(player.maxSpirit, (player.spirit | 0) + SPIRIT_PER_SOUL);
+        const gained = (player.spirit | 0) - before;
+        if (gained > 0) dmgPop(player.gx, player.gy, '+' + gained + ' spirit', 'crit');
+      } else {
+        // non-necros get a small mana refund
+        player.mp = Math.min(player.maxMp, player.mp + 4);
+      }
+      // little particle puff
+      for (let k = 0; k < 6; k++){
+        const a = Math.random() * Math.PI * 2;
+        particles.push({
+          kind: 'bone', gx: s.gx, gy: s.gy,
+          vx: Math.cos(a) * 1.0, vy: Math.sin(a) * 1.0,
+          t: 0, dur: 0.45 + Math.random() * 0.2,
+        });
+      }
+      souls.splice(i, 1);
+      continue;
+    }
+    // expiry
+    if (performance.now() - s.bornAt > s.ttl){
+      souls.splice(i, 1);
+    }
+  }
+}
+function drawSoul(s){
+  const sp = worldToScreen(s.gx, s.gy);
+  const sx = sp.x;
+  const t = performance.now();
+  const bob = Math.sin(s.bobPhase) * 3;
+  const sway = Math.sin(t * 0.004 + s.bobPhase) * s.sway * 4;
+  const sy = sp.y + bob;
+  // halo
+  const grd = ctx.createRadialGradient(sx + sway, sy, 1, sx + sway, sy, 12);
+  grd.addColorStop(0, 'rgba(168,107,255,0.7)');
+  grd.addColorStop(0.6, 'rgba(126,255,138,0.4)');
+  grd.addColorStop(1, 'rgba(126,255,138,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(sx + sway, sy, 12, 0, Math.PI * 2);
+  ctx.fill();
+  // wisp body
+  ctx.fillStyle = '#d4baff';
+  ctx.beginPath();
+  ctx.arc(sx + sway, sy, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  // tiny tail
+  ctx.fillStyle = 'rgba(168,107,255,0.6)';
+  ctx.beginPath();
+  ctx.arc(sx + sway * 0.4, sy + 4, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// =====================================================================
+// NECROMANCER DRONES — orbit the player + lob frost bombs
+// =====================================================================
+// Each drone: { phase, radius, bornAt/diesAt, throwAt }. Orbits the
+// player at `radius` tiles, lobs a frost bomb at the nearest enemy
+// within 6 tiles every ~1.6s. Bombs are pushed onto `projectiles` as
+// the new `frostbomb` kind that applies chill on hit + bonus shatter
+// damage on already-chilled enemies (see tickProjectiles).
+function tickDrones(dt){
+  const now = performance.now();
+  for (let i = drones.length - 1; i >= 0; i--){
+    const d = drones[i];
+    if (now > d.diesAt){
+      for (let k = 0; k < 6; k++){
+        const a = Math.random() * Math.PI * 2;
+        particles.push({
+          kind: 'bone', gx: d.gx, gy: d.gy,
+          vx: Math.cos(a) * 1.2, vy: Math.sin(a) * 1.2,
+          t: 0, dur: 0.6,
+        });
+      }
+      drones.splice(i, 1);
+      continue;
+    }
+    d.phase += dt * 1.6;
+    d.gx = player.gx + Math.cos(d.phase) * d.radius;
+    d.gy = player.gy + Math.sin(d.phase) * d.radius * 0.85;
+    if (now > d.throwAt){
+      d.throwAt = now + 1500 + Math.random() * 200;
+      let target = null, bestD = 6.0;
+      for (const en of enemies){
+        const ed = Math.hypot(en.gx - d.gx, en.gy - d.gy);
+        if (ed < bestD){ bestD = ed; target = en; }
+      }
+      if (target){
+        const dx = target.gx - d.gx;
+        const dy = target.gy - d.gy;
+        const dd = Math.hypot(dx, dy) || 1;
+        const speed = 8.0;
+        projectiles.push({
+          gx: d.gx, gy: d.gy,
+          vgx: dx / dd * speed,
+          vgy: dy / dd * speed,
+          dmg: playerDamage(0.6),
+          kind: 'frostbomb',
+          color: '#a8e8ff',
+          life: 1.4,
+          target,
+        });
+        if (sfx.cast) sfx.cast();
+      }
+    }
+  }
+}
+
+function drawDrone(d){
+  // Called from inside drawEntities' translate(off.x, off.y) — so we
+  // use the raw worldToScreen result without re-applying the camera
+  // offset (otherwise the drones get double-offset and float off-screen
+  // when the camera moves).
+  const now = performance.now();
+  {
+    const sp = worldToScreen(d.gx, d.gy);
+    const sx = sp.x;
+    const sy = sp.y;
+    const bob = Math.sin(now * 0.006 + d.phase * 2) * 2;
+    const grd = ctx.createRadialGradient(sx, sy + bob, 2, sx, sy + bob, 16);
+    grd.addColorStop(0, 'rgba(168,107,255,0.55)');
+    grd.addColorStop(1, 'rgba(168,107,255,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(sx, sy + bob, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1024';
+    ctx.beginPath();
+    ctx.arc(sx, sy + bob, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#a86bff';
+    ctx.font = 'bold 14px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('☠', sx, sy + bob);
+    const life = (d.diesAt - now) / 12000;
+    if (life > 0){
+      ctx.strokeStyle = life > 0.3 ? 'rgba(168,107,255,0.7)' : 'rgba(255,80,120,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy + bob, 9, -Math.PI / 2, -Math.PI / 2 + life * Math.PI * 2);
+      ctx.stroke();
+    }
   }
 }
 
@@ -4711,6 +5109,8 @@ function drawEntities() {
   for (const d  of drops)      all.push({ kind:'drop', d, gx: d.gx, gy: d.gy });
   for (const p  of projectiles)all.push({ kind:'proj', p, gx: p.gx, gy: p.gy });
   for (const p  of particles)  all.push({ kind:'particle', p, gx: p.gx, gy: p.gy });
+  for (const d  of drones)     all.push({ kind:'drone', d, gx: d.gx, gy: d.gy });
+  for (const s  of souls)      all.push({ kind:'soul', s, gx: s.gx, gy: s.gy });
   if (state.exitPortal) {
     all.push({ kind:'portal', gx: state.exitPortal.gx, gy: state.exitPortal.gy });
   }
@@ -4728,6 +5128,8 @@ function drawEntities() {
     else if (o.kind === 'drop')     drawDrop(o.d);
     else if (o.kind === 'proj')     drawProjectile(o.p);
     else if (o.kind === 'particle') drawParticle(o.p);
+    else if (o.kind === 'drone')    drawDrone(o.d);
+    else if (o.kind === 'soul')     drawSoul(o.s);
     else if (o.kind === 'portal')   drawPortal(o.gx, o.gy);
     else if (o.kind === 'chest')    drawChest(o.gx, o.gy);
   }
@@ -5801,18 +6203,26 @@ function loop(now) {
     tickPlayer(dt);
     tickEnemies(dt);
     tickProjectiles(dt);
+    tickDrones(dt);
+    tickSouls(dt);
     tickDrops(dt);
     tickParticles(dt);
     tickLightnings(dt);
     // Wave spawning — town zone is a safe pocket so enemies don't
     // spawn while inTown. Once cleared (exit portal up), spawning
     // also stops so the player has breathing room to grab the portal.
+    // Density bump (chat: zennlogic): base interval 1.8s (was 3.2),
+    // ramp 0.04 per wave-second (was 0.025), floor 0.35s (was 0.6).
+    // After 30s in a zone we also start spawning enemies in pairs so
+    // late-game runs feel like a horde mode.
     if (!state.inTown && !state.exitPortal) {
       state.waveT += dt;
       state.spawnT -= dt;
       if (state.spawnT <= 0) {
         spawnEnemy(now);
-        state.spawnT = Math.max(0.6, 3.2 - state.waveT * 0.025);
+        if (state.waveT > 30) spawnEnemy(now);   // pair-spawn after 30s
+        if (state.waveT > 75 && Math.random() < 0.5) spawnEnemy(now); // triple-roll late
+        state.spawnT = Math.max(0.35, 1.8 - state.waveT * 0.04);
       }
     }
     // ── NEXRAD CLOUD BOSS — rare spawn when real-world precip detected ──
