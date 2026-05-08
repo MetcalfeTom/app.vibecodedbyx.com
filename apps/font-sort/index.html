@@ -176,6 +176,23 @@
   .tile svg path{ fill:var(--text);transition:fill .15s }
   .slot.correct .tile svg path{ fill:var(--lime) }
   .slot.wrong   .tile svg path{ fill:var(--rose) }
+  /* Post-LOCK reveal — once the round grades, every tile gets its
+     actual font name overlaid in system mono so the player can
+     learn what they were looking at. Hidden during play (the whole
+     point is they have to identify by SHAPE, not read the name). */
+  .tile .reveal{
+    position:absolute;left:0;right:0;bottom:0;
+    background:rgba(2,1,12,0.88);
+    color:var(--gold);
+    font-family:'JetBrains Mono',monospace;font-size:.55rem;letter-spacing:.16em;
+    padding:.18rem .3rem;text-align:center;text-transform:uppercase;
+    border-top:1px solid rgba(255,208,42,0.4);
+    transform:translateY(100%);transition:transform .25s ease;
+    pointer-events:none;
+  }
+  .tile.revealed .reveal{ transform:translateY(0) }
+  .slot.correct .reveal{ color:var(--lime);border-color:rgba(164,255,94,0.4) }
+  .slot.wrong   .reveal{ color:var(--rose);border-color:rgba(255,85,117,0.4) }
 
   /* CONTROLS */
   .ctrls{
@@ -263,7 +280,7 @@
 <main id="main">
   <header class="brand" role="banner">
     <h1>font <span class="accent">sort</span></h1>
-    <div class="tagline">drag tiles into alphabetical order · clock doesn't blink · glyphs from raw WOFFs via OpenType.js 2.0.0</div>
+    <div class="tagline">identify the typeface · drag into alphabetical order by font name · clock doesn't blink</div>
   </header>
 
   <div class="hud" aria-label="Match stats">
@@ -295,10 +312,10 @@
   </div>
 
   <p class="help">
-    drag tiles from the tray into the numbered slots in <b style="color:var(--gold)">A → Z</b> order ·
-    swap by dragging onto a filled slot ·
-    LOCK to commit and earn time-bonus ·
-    timer hits 0 = round over
+    each tile shows a <b style="color:var(--cyan)">random phrase</b> in a different typeface ·
+    identify the font by its <b style="color:var(--gold)">visual style</b> ·
+    drag into slots in <b style="color:var(--gold)">A → Z</b> order by font name ·
+    LOCK to commit and reveal answers
   </p>
 </main>
 
@@ -367,6 +384,27 @@ function fontUrl(slug){
   return 'https://cdn.jsdelivr.net/npm/@fontsource/' + slug + '/files/' + slug + '-latin-400-normal.woff';
 }
 
+// Phrase pool — each tile gets a random short string instead of the
+// font's name (chat ask: "update font-sort to use random phrases
+// instead of names, forcing users to identify and sort typefaces by
+// their visual style"). Kept short (≤14 chars) so even tiny tiles
+// fit the text without crowding. Lowercase mostly so the eye reads
+// SHAPE first, not legible word-meaning.
+const PHRASE_POOL = [
+  'neon dreams',  'vibe coded',   'press start',  'glow up',
+  'after dark',   'pink moon',    'low res',      'cyber static',
+  'kerning',      'sample text',  'dark mode',    'sloppy live',
+  'magnet pull',  'sort it out',  'block by block','ink runs deep',
+  'analog ghost', 'closing time', 'pixel hot',    'new world',
+  'good kerning', 'eat letters',  'hot pixel',    'midnight',
+  'open sesame',  'late night',   'bright idea',  'color test',
+  'a-b-c-d-e',    '0 1 2 3 4',    'hello world',  'coffee break',
+  'keep typing',  'no caps',      'take it easy', 'deep cuts',
+];
+function pickPhrase(){
+  return PHRASE_POOL[Math.floor(Math.random() * PHRASE_POOL.length)];
+}
+
 const DIFFICULTIES = {
   easy:   { count: 5,  cols: 5, time: 60 },
   medium: { count: 8,  cols: 4, time: 75 },
@@ -395,11 +433,55 @@ const state = {
 };
 
 // ── GLYPH RENDERING via OpenType.js 2.0.0 ──────────────────────────
-// Returns an <svg> element containing one <path> with the font's name
-// rendered using the font's own glyphs. Fallbacks gracefully if the
-// font lacks a glyph for a character (uses .notdef which is usually a
-// box outline, still gives the player a hint that the font's loaded).
-function nameSvg(font, name, opts){
+// Returns an <svg> element containing one <path> with the given text
+// rendered using the font's own glyphs. opts.distortAmp (in px)
+// applies a one-shot per-vertex random jitter to every M/L/Q/C
+// control point — used by HARD difficulty so glyphs are deformed
+// just enough to make typeface ID more brutal (chat ask: "add
+// vector distortion to hard mode in font-sort"). The distortion is
+// STATIC (random seed per render) so the shape is stable for the
+// life of the tile rather than wiggling distractingly.
+function commandsToD(cmds){
+  const f = (n) => (Math.round(n * 100) / 100).toString();
+  let s = '';
+  for (const c of cmds){
+    switch (c.type){
+      case 'M': s += 'M' + f(c.x) + ',' + f(c.y); break;
+      case 'L': s += 'L' + f(c.x) + ',' + f(c.y); break;
+      case 'C': s += 'C' + f(c.x1) + ',' + f(c.y1) + ' ' + f(c.x2) + ',' + f(c.y2) + ' ' + f(c.x) + ',' + f(c.y); break;
+      case 'Q': s += 'Q' + f(c.x1) + ',' + f(c.y1) + ' ' + f(c.x) + ',' + f(c.y); break;
+      case 'Z': s += 'Z'; break;
+    }
+  }
+  return s;
+}
+function distortCommandsStatic(cmds, amp){
+  // amp = jitter radius in font units. Each (x,y) pair (endpoints AND
+  // bezier control points) gets ±amp uniform random offset. Since
+  // control points get jittered independently of endpoints, curves
+  // bulge in addition to vertices wobbling — that's where the "this
+  // is genuinely harder to read" feel comes from.
+  const out = new Array(cmds.length);
+  const j = () => (Math.random() - 0.5) * amp * 2;
+  for (let i = 0; i < cmds.length; i++){
+    const c = cmds[i];
+    const o = { type: c.type };
+    if (c.type === 'Z'){ out[i] = o; continue; }
+    if (c.type === 'C'){
+      o.x1 = c.x1 + j(); o.y1 = c.y1 + j();
+      o.x2 = c.x2 + j(); o.y2 = c.y2 + j();
+      o.x  = c.x  + j(); o.y  = c.y  + j();
+    } else if (c.type === 'Q'){
+      o.x1 = c.x1 + j(); o.y1 = c.y1 + j();
+      o.x  = c.x  + j(); o.y  = c.y  + j();
+    } else {
+      o.x = c.x + j(); o.y = c.y + j();
+    }
+    out[i] = o;
+  }
+  return out;
+}
+function nameSvg(font, text, opts){
   opts = opts || {};
   const fs = opts.fontSize || 64;
   const ot = window.opentype;
@@ -408,24 +490,28 @@ function nameSvg(font, name, opts){
   svg.setAttribute('xmlns', svgNS);
   if (!font || !ot){
     // fallback to plain SVG text if opentype isn't loaded yet
-    const text = document.createElementNS(svgNS, 'text');
-    text.textContent = name;
-    text.setAttribute('x', '0'); text.setAttribute('y', fs * 0.85);
-    text.setAttribute('font-family', 'system-ui, sans-serif');
-    text.setAttribute('font-size', fs);
-    text.setAttribute('fill', '#ece6ff');
-    svg.appendChild(text);
-    svg.setAttribute('viewBox', '0 0 ' + (name.length * fs * 0.6) + ' ' + (fs * 1.2));
+    const t = document.createElementNS(svgNS, 'text');
+    t.textContent = text;
+    t.setAttribute('x', '0'); t.setAttribute('y', fs * 0.85);
+    t.setAttribute('font-family', 'system-ui, sans-serif');
+    t.setAttribute('font-size', fs);
+    t.setAttribute('fill', '#ece6ff');
+    svg.appendChild(t);
+    svg.setAttribute('viewBox', '0 0 ' + (text.length * fs * 0.6) + ' ' + (fs * 1.2));
     return svg;
   }
   const baseY = fs * 0.85;
-  const path = font.getPath(name, 0, baseY, fs);
-  const d = path.toPathData(2);
+  const path = font.getPath(text, 0, baseY, fs);
   const bb = (() => { try { return path.getBoundingBox(); } catch(_) { return null; } })();
-  const padX = fs * 0.2;
-  const padY = fs * 0.25;
+  // distort the raw command array if amp > 0 (HARD mode only)
+  const cmds = (opts.distortAmp > 0)
+    ? distortCommandsStatic(path.commands, opts.distortAmp)
+    : path.commands;
+  const d = commandsToD(cmds);
+  const padX = fs * 0.2 + (opts.distortAmp || 0);
+  const padY = fs * 0.25 + (opts.distortAmp || 0);
   const minX = bb ? bb.x1 - padX : -padX;
-  const maxX = bb ? bb.x2 + padX : (name.length * fs * 0.6 + padX);
+  const maxX = bb ? bb.x2 + padX : (text.length * fs * 0.6 + padX);
   const minY = bb ? Math.min(bb.y1, baseY - fs * 0.95) - padY : -padY;
   const maxY = bb ? Math.max(bb.y2, baseY * 1.05) + padY : (fs * 1.2 + padY);
   svg.setAttribute('viewBox', minX + ' ' + minY + ' ' + (maxX - minX) + ' ' + (maxY - minY));
@@ -568,9 +654,23 @@ function buildTile(font){
   t.className = 'tile';
   t.dataset.fontName = font.name;
   t.dataset.slug = font.slug;
-  // Render the font's name via opentype path data
-  const svg = nameSvg(state.fonts[font.slug], font.name, { fontSize: 64 });
+  // Render the tile's RANDOM PHRASE in this font (chat ask). The
+  // phrase was assigned at round start and lives on the round-
+  // specific font clone; tile re-builds (drag/swap) reuse it.
+  // HARD mode passes a non-zero distortAmp so glyph control points
+  // get a one-shot static jitter — letterforms bulge enough to
+  // really require typeface recognition.
+  const distortAmp = (state.difficulty === 'hard') ? 64 * 0.06 : 0;
+  const svg = nameSvg(state.fonts[font.slug], font.phrase || font.name, {
+    fontSize: 64, distortAmp,
+  });
   t.appendChild(svg);
+  // Hidden "reveal" label — flipped on after LOCK so the player can
+  // learn what each tile actually was.
+  const reveal = document.createElement('div');
+  reveal.className = 'reveal';
+  reveal.textContent = font.name;
+  t.appendChild(reveal);
   attachDrag(t, font);
   return t;
 }
@@ -716,7 +816,10 @@ async function startRound(){
   if (!state.loaded) return;
   state.round += 1;
   const cfg = DIFFICULTIES[state.difficulty];
-  state.pool = pickN(FONT_POOL, cfg.count);
+  // Clone each picked font so we can attach a per-round random phrase
+  // without mutating the global FONT_POOL entries. The phrase sticks
+  // with the font for the whole round (tile re-renders pull it back).
+  state.pool = pickN(FONT_POOL, cfg.count).map(f => ({ ...f, phrase: pickPhrase() }));
   state.alpha = alphaSort(state.pool);
   state.slots = new Array(state.pool.length).fill(null);
   state.tray = state.pool.slice();
@@ -745,7 +848,9 @@ function lockRound(timedOut){
   state.phase = 'locked';
   if (state.timerHandle) clearInterval(state.timerHandle);
   state.timerHandle = null;
-  // grade the slots
+  // grade the slots and reveal the actual font name on every tile
+  // (whether placed or still in the tray) so the player learns what
+  // they were looking at.
   let correct = 0;
   state.slots.forEach((font, i) => {
     const slotEl = slotsEl.querySelector('[data-idx="' + i + '"]');
@@ -758,6 +863,8 @@ function lockRound(timedOut){
       slotEl.classList.add('wrong');
     }
   });
+  // Slide the reveal labels into view on every tile (slots + tray)
+  document.querySelectorAll('.tile').forEach(t => t.classList.add('revealed'));
   state.totalCorrect += correct;
   // score: SCORE_BASE per correct + time bonus + perfect bonus
   const elapsed = (performance.now() - state.roundStart) / 1000;
