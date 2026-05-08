@@ -1805,8 +1805,20 @@ body::before{
     }
 
     // === CPU breakdown panel ===
+    // Schema-tolerant — earlier snapshot scripts wrote `cpu_pct` as a
+    // single overall % float; the current shape is a per-category dict.
+    // Render an "overall" single-bar fallback if we got a number.
     const cb = document.getElementById('cpuBreakdown');
-    if (cb && rt.cpu_pct) {
+    if (cb && typeof rt.cpu_pct === 'number') {
+      cb.innerHTML = `
+        <div class="svc-row">
+          <span class="svc-name">overall</span>
+          <span class="svc-bar"><span class="svc-fill" style="width:${Math.min(100, rt.cpu_pct).toFixed(1)}%"></span></span>
+          <span class="svc-stat"><span class="used">${rt.cpu_pct.toFixed(1)}%</span></span>
+        </div>
+        <div class="svc-row" style="opacity:.55;font-style:italic;font-size:.7rem">snapshot lacks per-category breakdown — regenerate to see user/system/iowait/steal</div>
+      `;
+    } else if (cb && rt.cpu_pct) {
       const order = ['user','system','idle','iowait','steal','irq','softirq','nice'];
       cb.innerHTML = order.map(k => {
         const v = rt.cpu_pct[k] || 0;
@@ -1838,24 +1850,34 @@ body::before{
         return m + 'm ' + (sec%60) + 's';
       };
       const maxRss = rt.top_procs[0] ? rt.top_procs[0].rss_kb : 1;
-      pl.innerHTML = rt.top_procs.map(p => `
+      // Schema-tolerant: prefer .comm but fall back to .name; uptime
+      // may be missing on older snapshots.
+      pl.innerHTML = rt.top_procs.map(p => {
+        const label = p.comm || p.name || '?';
+        const upStr = (typeof p.uptime_sec === 'number') ? fmtUp(p.uptime_sec) : '—';
+        return `
         <div class="svc-row">
-          <span class="svc-name">${escapeHtml(p.comm)} <span style="opacity:0.5;font-size:10px">·${p.pid}</span></span>
+          <span class="svc-name">${escapeHtml(label)} <span style="opacity:0.5;font-size:10px">·${p.pid}</span></span>
           <span class="svc-bar"><span class="svc-fill" style="width:${(p.rss_kb / maxRss * 100).toFixed(1)}%"></span></span>
-          <span class="svc-stat"><span class="used">${(p.rss_kb/1024).toFixed(1)} MB</span> · ${fmtUp(p.uptime_sec)}</span>
+          <span class="svc-stat"><span class="used">${(p.rss_kb/1024).toFixed(1)} MB</span> · ${upStr}</span>
         </div>
-      `).join('');
+      `;}).join('');
       document.getElementById('procMeta').textContent = `${rt.proc_count} processes total · top ${rt.top_procs.length} by RSS`;
     }
 
     // === Network interface totals ===
+    // Schema-tolerant: iface name + packet counts may be absent on
+    // older snapshots that only captured rx/tx_bytes.
     const ns = document.getElementById('netStats');
     if (ns && rt.net) {
-      const fmtMB = (b) => (b / (1024*1024)).toFixed(1);
+      const fmtMB = (b) => ((b || 0) / (1024*1024)).toFixed(1);
+      const ifaceLbl = rt.net.iface || 'iface';
+      const rxPk = (rt.net.rx_packets != null) ? rt.net.rx_packets.toLocaleString() + ' packets' : '—';
+      const txPk = (rt.net.tx_packets != null) ? rt.net.tx_packets.toLocaleString() + ' packets' : '—';
       ns.innerHTML = [
-        `<div class="stat-card"><span class="lbl">IFACE</span><span class="v cyan">${rt.net.iface}</span></div>`,
-        `<div class="stat-card"><span class="lbl">RX · BYTES</span><span class="v green">${fmtMB(rt.net.rx_bytes)} MB</span><span class="delta">${rt.net.rx_packets.toLocaleString()} packets</span></div>`,
-        `<div class="stat-card"><span class="lbl">TX · BYTES</span><span class="v amber">${fmtMB(rt.net.tx_bytes)} MB</span><span class="delta">${rt.net.tx_packets.toLocaleString()} packets</span></div>`,
+        `<div class="stat-card"><span class="lbl">IFACE</span><span class="v cyan">${escapeHtml(ifaceLbl)}</span></div>`,
+        `<div class="stat-card"><span class="lbl">RX · BYTES</span><span class="v green">${fmtMB(rt.net.rx_bytes)} MB</span><span class="delta">${rxPk}</span></div>`,
+        `<div class="stat-card"><span class="lbl">TX · BYTES</span><span class="v amber">${fmtMB(rt.net.tx_bytes)} MB</span><span class="delta">${txPk}</span></div>`,
       ].join('');
     }
 
@@ -3033,8 +3055,12 @@ body::before{
     const cpuPct = realData.runtime?.pressure?.cpu?.some?.avg10 ?? 0;
     const memPctPSI = realData.runtime?.pressure?.memory?.some?.avg10 ?? 0;
     const ioPctPSI  = realData.runtime?.pressure?.io?.some?.avg10 ?? 0;
-    const mt = realData.runtime?.mem?.memtotal;
-    const ma = realData.runtime?.mem?.memavailable;
+    // Schema-tolerant: prefer the rich `memtotal/memavailable` fields
+    // (current snapshot script) but fall back to legacy `total_kb /
+    // available_kb` so the PSI graph's MEM line keeps plotting on
+    // older data.json files.
+    const mt = realData.runtime?.mem?.memtotal     ?? realData.runtime?.mem?.total_kb;
+    const ma = realData.runtime?.mem?.memavailable ?? realData.runtime?.mem?.available_kb;
     const memUsedPct = (mt && ma) ? (1 - ma / mt) * 100 : 0;
     const load = realData.system?.load_1 ?? 0;
     const cores = realData.system?.cpu_count ?? realData.system?.cpu_cores ?? 1;
