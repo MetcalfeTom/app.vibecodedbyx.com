@@ -671,21 +671,50 @@ function cancelStream(){
 async function streamCompletion(provKey, key, model, messages, botMsg){
   const prov = PROVIDERS[provKey];
   state.abortCtrl = new AbortController();
+  // max_tokens is required for reasoning models — without it providers can
+  // default to a budget too small to leave room for a final answer after the
+  // chain-of-thought, which is the root cause of MiniMax M2.5 returning
+  // empty content under HTTP 200.
   const res = await fetch(prov.url, {
     method: 'POST',
     headers: prov.headers(key),
-    body: JSON.stringify({ model, messages, stream: true, temperature: 0.8 }),
+    body: JSON.stringify({ model, messages, stream: true, temperature: 0.8, max_tokens: 2048 }),
     signal: state.abortCtrl.signal,
   });
   if (!res.ok){
     const txt = await res.text().catch(() => '');
     throw new Error('http ' + res.status + ' · ' + (txt.slice(0, 240) || 'no body'));
   }
+  // Reasoning-model awareness: some providers (MiniMax M2.5, DeepSeek R1,
+  // QwQ, o1-style) emit deltas under `reasoning` / `reasoning_content`
+  // BEFORE and instead of `content`. If we ignore those fields and the
+  // model never gets to emit `content` (max_tokens too low, model is
+  // reasoning-only, or finish_reason="length" mid-think), the chat
+  // appears empty even though HTTP 200 came back fine. We track both
+  // streams so we can fall back to reasoning if no answer arrives, and
+  // we record finish_reason so the user gets a useful diagnostic.
+  let gotContent  = false;
+  let reasoningBuf = '';
+  let finishReason = null;
   if (!res.body || !res.body.getReader){
     // fall back to non-streaming parse if the runtime doesn't support stream readers
     const j = await res.json().catch(() => ({}));
-    const text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || '';
-    appendToBot(botMsg, text);
+    const msg = j && j.choices && j.choices[0] && j.choices[0].message;
+    const content   = (msg && msg.content) || '';
+    const reasoning = (msg && (msg.reasoning_content || msg.reasoning)) || '';
+    finishReason = (j && j.choices && j.choices[0] && j.choices[0].finish_reason) || null;
+    if (content){
+      appendToBot(botMsg, content);
+    } else if (reasoning){
+      appendToBot(botMsg, '_⚠ model emitted only reasoning, no final answer'
+        + (finishReason ? ' (finish_reason: ' + finishReason + ')' : '')
+        + '. Showing chain-of-thought:_\n\n> ' + reasoning.replace(/\n/g, '\n> '));
+    } else {
+      appendToBot(botMsg, '_⚠ empty response · finish_reason: '
+        + (finishReason || 'unknown')
+        + ' · try a higher max_tokens, or verify the model id is correct on '
+        + provKey + '_');
+    }
     return;
   }
   const reader = res.body.getReader();
@@ -702,12 +731,55 @@ async function streamCompletion(provKey, key, model, messages, botMsg){
       if (!t || t.startsWith(':')) continue;     // SSE comment
       if (!t.startsWith('data:')) continue;
       const data = t.slice(5).trim();
-      if (data === '[DONE]') return;
+      if (data === '[DONE]'){
+        // Stream ended cleanly — if no visible content arrived, surface
+        // whatever reasoning we captured (or an explicit empty-response
+        // diagnostic) so the user isn't staring at a blank reply.
+        if (!gotContent){
+          if (reasoningBuf){
+            appendToBot(botMsg, '_⚠ model emitted only reasoning, no final answer'
+              + (finishReason ? ' (finish_reason: ' + finishReason + ')' : '')
+              + '. Showing chain-of-thought:_\n\n> ' + reasoningBuf.replace(/\n/g, '\n> '));
+          } else {
+            appendToBot(botMsg, '_⚠ empty response · finish_reason: '
+              + (finishReason || 'unknown')
+              + ' · try a higher max_tokens, or verify the model id is correct on '
+              + provKey + '_');
+          }
+        }
+        return;
+      }
       try {
         const j = JSON.parse(data);
-        const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
-        if (delta) appendToBot(botMsg, delta);
+        const choice = j.choices && j.choices[0];
+        if (!choice) continue;
+        const delta = choice.delta || {};
+        if (choice.finish_reason) finishReason = choice.finish_reason;
+        // Visible answer tokens — append immediately and remember we got
+        // some so we don't show the reasoning fallback at end-of-stream.
+        if (delta.content){
+          gotContent = true;
+          appendToBot(botMsg, delta.content);
+        }
+        // Reasoning tokens — buffered, only surfaced if no content arrives.
+        // Both field names cover the providers we've seen: OpenRouter uses
+        // `reasoning`, MiniMax / DeepSeek native APIs use `reasoning_content`.
+        const r = delta.reasoning || delta.reasoning_content;
+        if (r) reasoningBuf += r;
       } catch(e){ /* skip mal-formed chunks */ }
+    }
+  }
+  // Reader closed without an explicit [DONE] — apply the same fallback.
+  if (!gotContent){
+    if (reasoningBuf){
+      appendToBot(botMsg, '_⚠ model emitted only reasoning, no final answer'
+        + (finishReason ? ' (finish_reason: ' + finishReason + ')' : '')
+        + '. Showing chain-of-thought:_\n\n> ' + reasoningBuf.replace(/\n/g, '\n> '));
+    } else {
+      appendToBot(botMsg, '_⚠ empty response · finish_reason: '
+        + (finishReason || 'unknown')
+        + ' · try a higher max_tokens, or verify the model id is correct on '
+        + provKey + '_');
     }
   }
 }
