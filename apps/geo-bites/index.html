@@ -368,6 +368,10 @@
   <p class="footer">data via <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">openstreetmap</a> · overpass api · <a href="https://github.com/opening-hours/opening_hours.js" target="_blank" rel="noopener">opening_hours.js</a></p>
 </main>
 
+<!-- SunCalc is a hard dependency of opening_hours.js for sunset/sunrise.
+     If it's missing, every `new opening_hours(...)` throws and the
+     library appears broken, which is what the chat reported. -->
+<script src="https://cdn.jsdelivr.net/npm/suncalc@1.9.0/suncalc.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/opening_hours@3.8.0/build/opening_hours.min.js"></script>
 <script>
 (() => {
@@ -498,15 +502,117 @@ function distance(lat1, lon1, lat2, lon2){
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ── opening_hours check ─────────────────────────────────────────────
-function isOpenNow(value, lat, lon){
-  if (!value) return null;     // unknown
-  try {
-    const oh = new opening_hours(value, { lat, lon });
-    return oh.getState();
-  } catch(e){
-    return null;
+// ── opening_hours check (chat ask: was returning unknown for everything) ──
+// Three-layer fallback so we never silently bury parse errors:
+//   1. opening_hours.js + SunCalc                  ← preferred
+//   2. tiny built-in parser for common OSM strings ← covers ~60-70%
+//   3. null (truly unknown)                        ← last resort
+//
+// We capture the FIRST library error and surface it to the console once
+// so chat can report it without us spamming the log per restaurant.
+const OH_CLASS = (typeof window !== 'undefined') &&
+  (window.opening_hours || window.OpeningHours || null);
+let _ohWarnedOnce = false;
+function ohWarn(stage, value, err){
+  if (_ohWarnedOnce) return;
+  _ohWarnedOnce = true;
+  console.warn('[geo-bites] opening_hours ' + stage + ' failed for "' + value + '":', err);
+  console.warn('[geo-bites] OH_CLASS =', OH_CLASS, 'SunCalc =', typeof window !== 'undefined' ? window.SunCalc : 'no window');
+}
+
+// Tiny pragmatic parser. Handles the most common OSM opening_hours forms:
+//   "24/7"
+//   "Mo-Fr 09:00-18:00"
+//   "Mo-Fr 09:00-18:00; Sa 10:00-14:00"
+//   "Mo,Tu 18:00-23:00"
+//   "Mo-Su 11:00-23:00"
+//   "09:00-22:00" (no weekday part = everyday)
+// Returns true / false / null for unknown.
+const DAY_IDX = { Mo:1, Tu:2, We:3, Th:4, Fr:5, Sa:6, Su:0 };
+function expandDayRange(s){
+  // "Mo-Fr" → [1,2,3,4,5]; "Sa,Su" → [6,0]; "Mo" → [1]
+  const out = new Set();
+  for (const part of s.split(',')){
+    const m = part.match(/^([A-Z][a-z])(?:-([A-Z][a-z]))?$/);
+    if (!m) return null;
+    const a = DAY_IDX[m[1]];
+    if (a === undefined) return null;
+    if (m[2] === undefined){ out.add(a); continue; }
+    const b = DAY_IDX[m[2]];
+    if (b === undefined) return null;
+    let d = a;
+    while (true){
+      out.add(d);
+      if (d === b) break;
+      d = (d + 1) % 7;
+    }
   }
+  return out;
+}
+function parseHHMM(s){
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+}
+function fallbackIsOpen(value, now){
+  const v = value.trim();
+  if (!v) return null;
+  if (v === '24/7' || v === '24/7;' || /^Mo-Su\s+00:00-24:00$/i.test(v)) return true;
+  // each clause separated by ';' is OR'd together
+  const day = now.getDay();          // 0=Sun..6=Sat
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  let recognised = false;
+  for (let clause of v.split(';')){
+    clause = clause.trim();
+    if (!clause) continue;
+    // optional weekday prefix, then time range. e.g. "Mo-Fr 09:00-22:00"
+    let dayPart = '', timePart = clause;
+    const firstSpace = clause.indexOf(' ');
+    if (firstSpace > 0 && /^[A-Z][a-z]/.test(clause)){
+      dayPart  = clause.slice(0, firstSpace).trim();
+      timePart = clause.slice(firstSpace).trim();
+    }
+    let days = null;
+    if (dayPart){
+      days = expandDayRange(dayPart);
+      if (!days) continue;     // unrecognised — skip this clause
+    }
+    // can have multiple time ranges comma-separated
+    for (let range of timePart.split(',')){
+      range = range.trim();
+      const tm = range.match(/^(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$/);
+      if (!tm) continue;
+      const start = parseHHMM(tm[1]);
+      const end   = parseHHMM(tm[2]);
+      if (start === null || end === null) continue;
+      recognised = true;
+      // weekday match (no dayPart = every day)
+      if (days && !days.has(day)) continue;
+      // handle midnight crossing (end < start means "until tomorrow morning")
+      if (end > start){
+        if (minutes >= start && minutes < end) return true;
+      } else {
+        if (minutes >= start || minutes < end) return true;
+      }
+    }
+  }
+  return recognised ? false : null;
+}
+
+function isOpenNow(value, lat, lon){
+  if (!value) return null;
+  if (OH_CLASS){
+    try {
+      const oh = new OH_CLASS(value, { lat, lon, address: { country_code: 'us' } });
+      return oh.getState();
+    } catch(e){
+      ohWarn('parse', value, e);
+      // fall through to fallback parser
+    }
+  } else {
+    ohWarn('library load', value, 'opening_hours global not found');
+  }
+  try { return fallbackIsOpen(value, new Date()); } catch(e){ return null; }
 }
 
 // ── parse + classify ────────────────────────────────────────────────
