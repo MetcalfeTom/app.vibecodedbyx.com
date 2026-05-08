@@ -685,35 +685,37 @@ async function streamCompletion(provKey, key, model, messages, botMsg){
     const txt = await res.text().catch(() => '');
     throw new Error('http ' + res.status + ' · ' + (txt.slice(0, 240) || 'no body'));
   }
-  // Reasoning-model awareness: some providers (MiniMax M2.5, DeepSeek R1,
-  // QwQ, o1-style) emit deltas under `reasoning` / `reasoning_content`
-  // BEFORE and instead of `content`. If we ignore those fields and the
-  // model never gets to emit `content` (max_tokens too low, model is
-  // reasoning-only, or finish_reason="length" mid-think), the chat
-  // appears empty even though HTTP 200 came back fine. We track both
-  // streams so we can fall back to reasoning if no answer arrives, and
-  // we record finish_reason so the user gets a useful diagnostic.
-  let gotContent  = false;
-  let reasoningBuf = '';
-  let finishReason = null;
+  // Reasoning-model awareness (chat ask: "only pass the final content to
+  // the UI and hide the reasoning fields"). Reasoning models (MiniMax M2.5,
+  // DeepSeek R1, QwQ, o1-style) emit chain-of-thought via delta.reasoning
+  // or delta.reasoning_content BEFORE delta.content. Those fields are
+  // explicitly NOT shown to the user — they get logged once at end-of-
+  // stream so chat can paste a diagnostic from DevTools, but never make
+  // it into the chat bubble. If the model exhausts max_tokens during
+  // reasoning and never emits content, the user sees a clean
+  // "no final answer" notice — no chain-of-thought leaks through.
+  let gotContent     = false;
+  let reasoningChars = 0;       // counter only — content never accumulated
+  let finishReason   = null;
   if (!res.body || !res.body.getReader){
     // fall back to non-streaming parse if the runtime doesn't support stream readers
     const j = await res.json().catch(() => ({}));
     const msg = j && j.choices && j.choices[0] && j.choices[0].message;
-    const content   = (msg && msg.content) || '';
+    const content = (msg && msg.content) || '';
     const reasoning = (msg && (msg.reasoning_content || msg.reasoning)) || '';
     finishReason = (j && j.choices && j.choices[0] && j.choices[0].finish_reason) || null;
     if (content){
       appendToBot(botMsg, content);
-    } else if (reasoning){
-      appendToBot(botMsg, '_⚠ model emitted only reasoning, no final answer'
-        + (finishReason ? ' (finish_reason: ' + finishReason + ')' : '')
-        + '. Showing chain-of-thought:_\n\n> ' + reasoning.replace(/\n/g, '\n> '));
     } else {
-      appendToBot(botMsg, '_⚠ empty response · finish_reason: '
+      if (reasoning){
+        console.warn('[neon-chat-hub] reasoning-only response · ' + reasoning.length +
+          ' reasoning chars discarded · finish_reason: ' + finishReason);
+      }
+      appendToBot(botMsg, '_⚠ no final answer received · finish_reason: '
         + (finishReason || 'unknown')
-        + ' · try a higher max_tokens, or verify the model id is correct on '
-        + provKey + '_');
+        + (reasoning ? ' · model spent the entire budget on reasoning'
+                     : ' · check model id / max_tokens')
+        + '_');
     }
     return;
   }
@@ -732,20 +734,16 @@ async function streamCompletion(provKey, key, model, messages, botMsg){
       if (!t.startsWith('data:')) continue;
       const data = t.slice(5).trim();
       if (data === '[DONE]'){
-        // Stream ended cleanly — if no visible content arrived, surface
-        // whatever reasoning we captured (or an explicit empty-response
-        // diagnostic) so the user isn't staring at a blank reply.
         if (!gotContent){
-          if (reasoningBuf){
-            appendToBot(botMsg, '_⚠ model emitted only reasoning, no final answer'
-              + (finishReason ? ' (finish_reason: ' + finishReason + ')' : '')
-              + '. Showing chain-of-thought:_\n\n> ' + reasoningBuf.replace(/\n/g, '\n> '));
-          } else {
-            appendToBot(botMsg, '_⚠ empty response · finish_reason: '
-              + (finishReason || 'unknown')
-              + ' · try a higher max_tokens, or verify the model id is correct on '
-              + provKey + '_');
+          if (reasoningChars){
+            console.warn('[neon-chat-hub] reasoning-only response · ' + reasoningChars +
+              ' reasoning chars discarded · finish_reason: ' + finishReason);
           }
+          appendToBot(botMsg, '_⚠ no final answer received · finish_reason: '
+            + (finishReason || 'unknown')
+            + (reasoningChars ? ' · model spent the entire budget on reasoning'
+                              : ' · check model id / max_tokens')
+            + '_');
         }
         return;
       }
@@ -755,32 +753,28 @@ async function streamCompletion(provKey, key, model, messages, botMsg){
         if (!choice) continue;
         const delta = choice.delta || {};
         if (choice.finish_reason) finishReason = choice.finish_reason;
-        // Visible answer tokens — append immediately and remember we got
-        // some so we don't show the reasoning fallback at end-of-stream.
+        // Final-answer tokens — only these reach the UI.
         if (delta.content){
           gotContent = true;
           appendToBot(botMsg, delta.content);
         }
-        // Reasoning tokens — buffered, only surfaced if no content arrives.
-        // Both field names cover the providers we've seen: OpenRouter uses
-        // `reasoning`, MiniMax / DeepSeek native APIs use `reasoning_content`.
+        // Reasoning tokens — counted for logging only; never appended.
         const r = delta.reasoning || delta.reasoning_content;
-        if (r) reasoningBuf += r;
+        if (r) reasoningChars += r.length;
       } catch(e){ /* skip mal-formed chunks */ }
     }
   }
-  // Reader closed without an explicit [DONE] — apply the same fallback.
+  // Reader closed without an explicit [DONE] — same clean diagnostic.
   if (!gotContent){
-    if (reasoningBuf){
-      appendToBot(botMsg, '_⚠ model emitted only reasoning, no final answer'
-        + (finishReason ? ' (finish_reason: ' + finishReason + ')' : '')
-        + '. Showing chain-of-thought:_\n\n> ' + reasoningBuf.replace(/\n/g, '\n> '));
-    } else {
-      appendToBot(botMsg, '_⚠ empty response · finish_reason: '
-        + (finishReason || 'unknown')
-        + ' · try a higher max_tokens, or verify the model id is correct on '
-        + provKey + '_');
+    if (reasoningChars){
+      console.warn('[neon-chat-hub] reasoning-only response · ' + reasoningChars +
+        ' reasoning chars discarded · finish_reason: ' + finishReason);
     }
+    appendToBot(botMsg, '_⚠ no final answer received · finish_reason: '
+      + (finishReason || 'unknown')
+      + (reasoningChars ? ' · model spent the entire budget on reasoning'
+                        : ' · check model id / max_tokens')
+      + '_');
   }
 }
 function appendToBot(botMsg, chunk){
