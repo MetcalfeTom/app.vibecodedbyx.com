@@ -97,6 +97,18 @@
     color:var(--gold);letter-spacing:-0.01em;
   }
   input[type=range]{ flex:1;accent-color:var(--pink);min-width:8rem }
+  input[type=text]{
+    flex:1;min-width:9rem;background:rgba(2,1,12,0.7);color:var(--text);
+    border:1px solid var(--rule);border-radius:.28rem;
+    padding:.55rem .7rem;
+    font-family:'JetBrains Mono',monospace;font-size:.82rem;letter-spacing:.02em;
+    outline:none;transition:border-color .15s, box-shadow .15s;
+    min-height:2.6rem;
+  }
+  input[type=text]:focus-visible{
+    border-color:var(--cyan);box-shadow:0 0 0 3px rgba(122,240,255,0.18);
+  }
+  input[type=text]::placeholder{color:var(--dim);font-style:italic}
   .pill-group{ display:flex;flex-wrap:wrap;gap:.35rem }
   .pill{
     font-family:'JetBrains Mono',monospace;font-size:.62rem;letter-spacing:.2em;
@@ -315,7 +327,13 @@
       <div class="control-row">
         <span class="row-label">Location</span>
         <span class="row-value" id="locValue">awaiting permission</span>
-        <button type="button" class="btn ghost" id="locBtn">⌖ enable location</button>
+        <button type="button" class="btn" id="locBtn">⌖ enable location</button>
+      </div>
+      <div class="control-row">
+        <span class="row-label">or address</span>
+        <input type="text" id="addrInput" placeholder="city, neighborhood, or full address"
+               autocomplete="off" aria-label="City or address fallback for geolocation">
+        <button type="button" class="btn" id="addrBtn">⌕ find</button>
       </div>
       <div class="control-row">
         <span class="row-label">Radius</span>
@@ -384,9 +402,10 @@
 
 const state = {
   lat: null, lon: null,
+  locLabel: null,                        // friendly name from nominatim, or null when geolocation
   radius: 1000,                          // metres
   kinds: new Set(['restaurant', 'cafe', 'bar']),
-  results: [],                           // [{name, lat, lon, dist, kind, cuisine, opening, isOpen, addr}]
+  results: [],
   searching: false,
 };
 
@@ -408,11 +427,19 @@ function setStatus(msg, cls){
 function setLocText(){
   const el = document.getElementById('locValue');
   if (state.lat == null){ el.textContent = 'awaiting permission'; return; }
-  el.textContent = state.lat.toFixed(4) + ', ' + state.lon.toFixed(4);
+  if (state.locLabel){
+    // show short label + tiny coord trailer so users know what we found
+    const short = state.locLabel.length > 48 ? state.locLabel.slice(0, 45) + '…' : state.locLabel;
+    el.innerHTML = short + ' <span style="color:var(--dim);font-size:.78rem">· ' +
+      state.lat.toFixed(3) + ', ' + state.lon.toFixed(3) + '</span>';
+  } else {
+    el.textContent = state.lat.toFixed(4) + ', ' + state.lon.toFixed(4);
+  }
 }
 function requestLocation(){
   if (!('geolocation' in navigator)){
-    setStatus('this browser has no geolocation api', 'error');
+    setStatus('no geolocation api · use the address input below', 'error');
+    document.getElementById('addrInput').focus();
     return;
   }
   setStatus('asking your browser…');
@@ -420,15 +447,68 @@ function requestLocation(){
     pos => {
       state.lat = pos.coords.latitude;
       state.lon = pos.coords.longitude;
+      state.locLabel = null;
       setLocText();
       setStatus('location captured · ready to search');
       document.getElementById('searchBtn').disabled = false;
     },
     err => {
-      setStatus('location denied or unavailable · ' + (err.message || ''), 'error');
+      // chat ask: gentle nudge toward the manual address input when
+      // permission is denied / device has no GPS / timed out.
+      const why = err && err.code === 1 ? 'permission denied'
+                : err && err.code === 2 ? 'unavailable'
+                : err && err.code === 3 ? 'timed out'
+                : (err && err.message) || 'unknown error';
+      setStatus('geolocation ' + why + ' · type a city or address below ↓', 'error');
+      const input = document.getElementById('addrInput');
+      input.focus();
+      // pulse the address input so it visually beckons
+      input.animate([
+        { boxShadow:'0 0 0 0 rgba(255,77,200,0.0)' },
+        { boxShadow:'0 0 0 6px rgba(255,77,200,0.45)' },
+        { boxShadow:'0 0 0 0 rgba(255,77,200,0.0)' },
+      ], { duration: 1100, iterations: 2 });
     },
     { enableHighAccuracy: false, timeout: 9000, maximumAge: 60_000 },
   );
+}
+
+// ── NOMINATIM GEOCODE FALLBACK (chat ask) ───────────────────────────
+// Free OpenStreetMap geocoder. Nominatim usage policy = max 1 req/sec,
+// no API key. Returns lat/lon + a friendly display name we can echo
+// back so the user knows we found the right place.
+async function geocodeAddress(text){
+  const q = (text || '').trim();
+  if (!q){
+    setStatus('type a city or address first', 'error');
+    return;
+  }
+  setStatus('geocoding "' + q + '"…', 'live');
+  try {
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 9000);
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { 'Accept': 'application/json' },
+    });
+    clearTimeout(t);
+    if (!res.ok) throw new Error('nominatim http ' + res.status);
+    const arr = await res.json();
+    if (!arr || !arr.length){
+      setStatus('no match for "' + q + '" · try a wider name', 'error');
+      return;
+    }
+    const hit = arr[0];
+    state.lat = parseFloat(hit.lat);
+    state.lon = parseFloat(hit.lon);
+    state.locLabel = hit.display_name || q;
+    setLocText();
+    setStatus('found · ' + (hit.display_name || q));
+    document.getElementById('searchBtn').disabled = false;
+  } catch(e){
+    setStatus('geocoder error · ' + e.message + ' · try again or use enable-location', 'error');
+  }
 }
 
 // ── Overpass query (chat ask: 504 retry + backup mirrors) ───────────
@@ -957,6 +1037,12 @@ function revealPick(r){
 // ── wiring ──────────────────────────────────────────────────────────
 document.getElementById('locBtn').addEventListener('click', requestLocation);
 document.getElementById('searchBtn').addEventListener('click', runSearch);
+document.getElementById('addrBtn').addEventListener('click', () => {
+  geocodeAddress(document.getElementById('addrInput').value);
+});
+document.getElementById('addrInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ e.preventDefault(); geocodeAddress(e.target.value); }
+});
 document.getElementById('spinBtn').addEventListener('click', () => {
   const open = state.results.filter(r => r.isOpen === true);
   const unknown = state.results.filter(r => r.isOpen === null);
