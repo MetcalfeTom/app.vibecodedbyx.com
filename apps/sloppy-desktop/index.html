@@ -1705,14 +1705,33 @@ function spawnPaintWindow(){
 //   • https://cdn.jsdelivr.net/npm/@fontsource/audiowide/files/audiowide-latin-400-normal.woff → 200, 17.5KB
 // (TTFs from google/fonts via jsdelivr/gh return 404; @fontsource WOFFs
 // work and opentype.js 2.0 parses WOFF natively without brotli.)
+// Font library (chat ask: "add a font selector with at least three
+// neon-friendly Google Fonts to the app"). All 5 are @fontsource WOFFs
+// served by jsdelivr — verified each returns 200 via direct curl. Each
+// font is fetched lazily on first selection and the parsed
+// opentype.Font object is cached on FONT_APP.fonts so switching back
+// is instant. Picks chosen for distinct neon vibes:
+//   • Audiowide          — chrome-arcade italic feel (default)
+//   • Orbitron           — geometric cyberpunk display sans
+//   • Monoton            — multi-line marquee letterforms
+//   • Press Start 2P     — 8-bit pixel-grid arcade text
+//   • Major Mono Display — blocky monospace display
+const FONT_LIBRARY = [
+  { id:'audiowide',  label:'Audiowide',          url:'https://cdn.jsdelivr.net/npm/@fontsource/audiowide/files/audiowide-latin-400-normal.woff' },
+  { id:'orbitron',   label:'Orbitron',           url:'https://cdn.jsdelivr.net/npm/@fontsource/orbitron/files/orbitron-latin-400-normal.woff' },
+  { id:'monoton',    label:'Monoton',            url:'https://cdn.jsdelivr.net/npm/@fontsource/monoton/files/monoton-latin-400-normal.woff' },
+  { id:'press2p',    label:'Press Start 2P',     url:'https://cdn.jsdelivr.net/npm/@fontsource/press-start-2p/files/press-start-2p-latin-400-normal.woff' },
+  { id:'majormono',  label:'Major Mono Display', url:'https://cdn.jsdelivr.net/npm/@fontsource/major-mono-display/files/major-mono-display-latin-400-normal.woff' },
+];
 const FONT_APP = {
-  ot: null,           // opentype.js global once loaded
-  font: null,         // parsed font object
-  loadingPromise: null,
+  ot: null,                // opentype.js global once loaded
+  fonts: new Map(),        // id -> parsed Font (per-pick cache)
+  activeId: 'audiowide',   // currently displayed pick
+  inflight: new Map(),     // id -> Promise — dedupe parallel fetches
+  loadingPromise: null,    // opentype.js lib load
 };
 const FONT_LIB_URL  = 'https://cdn.jsdelivr.net/npm/opentype.js@2.0.0/dist/opentype.min.js';
 const FONT_LIB_FALLBACK = 'https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js';
-const FONT_FILE_URL = 'https://cdn.jsdelivr.net/npm/@fontsource/audiowide/files/audiowide-latin-400-normal.woff';
 
 function loadOpenType(){
   if (FONT_APP.ot) return Promise.resolve(FONT_APP.ot);
@@ -1736,20 +1755,29 @@ function loadOpenType(){
   });
   return FONT_APP.loadingPromise;
 }
-async function loadFont(){
-  if (FONT_APP.font) return FONT_APP.font;
-  const ot = await loadOpenType();
-  // opentype.js 2.0 exposes `parse` synchronously on an ArrayBuffer.
-  // We fetch the WOFF ourselves so we can give a clean error if the
-  // CDN is down rather than the library's generic XHR failure.
-  const res = await fetch(FONT_FILE_URL);
-  if (!res.ok) throw new Error('font http ' + res.status);
-  const buf = await res.arrayBuffer();
-  // 2.0 API: opentype.parse(buffer, opts). 1.x API: same signature.
-  // Both return a Font object with charToGlyph + getPath.
-  FONT_APP.font = ot.parse(buf);
-  return FONT_APP.font;
+// Fetch + parse a font by id, caching the result. Concurrent calls
+// for the same id share one fetch via FONT_APP.inflight.
+async function loadFont(id){
+  id = id || FONT_APP.activeId;
+  if (FONT_APP.fonts.has(id)) return FONT_APP.fonts.get(id);
+  if (FONT_APP.inflight.has(id)) return FONT_APP.inflight.get(id);
+  const def = FONT_LIBRARY.find(f => f.id === id) || FONT_LIBRARY[0];
+  const promise = (async () => {
+    const ot = await loadOpenType();
+    const res = await fetch(def.url);
+    if (!res.ok) throw new Error('font http ' + res.status + ' for ' + id);
+    const buf = await res.arrayBuffer();
+    // opentype.js 2.0: opentype.parse(buffer, opts) → Font with
+    // charToGlyph + getPath. Same signature as 1.x.
+    const parsed = ot.parse(buf);
+    FONT_APP.fonts.set(id, parsed);
+    return parsed;
+  })();
+  FONT_APP.inflight.set(id, promise);
+  promise.finally(() => FONT_APP.inflight.delete(id));
+  return promise;
 }
+function getActiveFont(){ return FONT_APP.fonts.get(FONT_APP.activeId); }
 
 const FONT_MODES = [
   { id:'dance',   label:'dance' },
@@ -1910,6 +1938,12 @@ function spawnFont(){
     '<div class="input-row">' +
       '<label for="fontTextInput">TEXT</label>' +
       '<input id="fontTextInput" type="text" maxlength="20" value="SLOPPY" autocomplete="off" spellcheck="false">' +
+      '<label for="fontFamilySel" style="margin-left:.4rem">FONT</label>' +
+      '<select id="fontFamilySel" data-role="font-sel" ' +
+        'style="background:rgba(2,1,12,0.6);color:var(--text);border:1px solid rgba(255,255,255,0.16);' +
+        'border-radius:.32rem;padding:.42rem .55rem;font-family:\'JetBrains Mono\',monospace;' +
+        'font-size:.78rem;letter-spacing:.04em;outline:none;cursor:pointer;min-width:8rem">' +
+      '</select>' +
     '</div>' +
     '<div class="modes" role="radiogroup" aria-label="Animation mode"></div>' +
     '<div class="stage" data-role="stage">' +
@@ -1972,12 +2006,36 @@ function spawnFont(){
     modesEl.appendChild(btn);
   }
 
+  // build font selector
+  const fontSelEl = root.querySelector('[data-role="font-sel"]');
+  for (const f of FONT_LIBRARY){
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    opt.textContent = f.label;
+    fontSelEl.appendChild(opt);
+  }
+  fontSelEl.value = FONT_APP.activeId;
+  fontSelEl.addEventListener('change', async () => {
+    const id = fontSelEl.value;
+    setStatus('loading font · ' + id + ' …');
+    try {
+      await loadFont(id);
+      FONT_APP.activeId = id;
+      rebuildGlyphs();
+    } catch(err){
+      console.warn('[sloppy-font] font load failed:', err);
+      setStatus('font load failed · ' + (err && err.message || err), true);
+      // revert dropdown to last-loaded font so the user can retry
+      fontSelEl.value = FONT_APP.activeId;
+    }
+  });
+
   function setStatus(text, isErr){
     stageEl.innerHTML = '<div class="status' + (isErr ? ' err' : '') + '">' + escHtml(text) + '</div>';
   }
   function rebuildGlyphs(){
-    if (!FONT_APP.font) return;
-    const font = FONT_APP.font;
+    const font = getActiveFont();
+    if (!font) return;
     const text = fontState.text;
     const fs = fontState.size;
     // Lay out from x=0 along the baseline; baseline at y=fs*0.85 so the
