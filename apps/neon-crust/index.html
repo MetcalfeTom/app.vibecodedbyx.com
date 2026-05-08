@@ -128,6 +128,24 @@
   .big-btn:active{transform:translateY(2px)}
   .big-btn:focus-visible{outline:.2rem solid #fff;outline-offset:.2rem}
 
+  /* build-mode HUD */
+  .build-hud{
+    position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);z-index:5;
+    background:rgba(20,4,32,0.85);backdrop-filter:blur(8px);
+    border:1px solid #9aff5e;border-radius:.4rem;
+    padding:.55rem .85rem;display:none;align-items:center;gap:.7rem;
+    font-family:'Press Start 2P',monospace;font-size:.65rem;letter-spacing:.16em;
+    color:#9aff5e;text-shadow:0 0 .45rem rgba(154,255,94,0.55);
+    box-shadow:0 0 1rem rgba(154,255,94,0.3);pointer-events:none;
+  }
+  .build-hud.show{display:flex}
+  .build-hud.cant{ color:#ff5f88; border-color:#ff5f88;
+                    text-shadow:0 0 .45rem rgba(255,95,136,0.55); box-shadow:0 0 1rem rgba(255,95,136,0.3) }
+  .build-hud b{color:#fff;font-weight:400}
+  .build-hud .keys{
+    color:#cdb6ff;font-size:.55rem;letter-spacing:.18em;text-transform:uppercase;
+    border-left:1px solid rgba(154,255,94,0.35);padding-left:.6rem;margin-left:.2rem;
+  }
   /* mobile touch controls */
   .joy, .fire-btn{
     position:fixed;z-index:6;pointer-events:auto;display:none;user-select:none;-webkit-user-select:none;
@@ -182,6 +200,10 @@
 </div>
 <div class="lock-prompt" id="lockPrompt">click to capture cursor · esc to release</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="build-hud" id="buildHud" aria-live="polite">
+  ⌬ <b id="buildName">Foundation</b><span id="buildCost">· 2 aether</span>
+  <span class="keys">Q/E cycle · LMB place · RMB demolish · B exit</span>
+</div>
 
 <div class="title-overlay show" id="title" role="dialog" aria-modal="true">
   <h1>NEON <span class="accent">CRUST</span></h1>
@@ -190,7 +212,9 @@
     <kbd>W A S D</kbd> roam ·
     <kbd>shift</kbd> sprint ·
     <kbd>mouse</kbd> look ·
-    <kbd>hold click</kbd> fire laser<br>
+    <kbd>hold click</kbd> fire laser (15u range)<br>
+    <kbd>B</kbd> build mode ·
+    <kbd>Q</kbd> / <kbd>E</kbd> cycle ·
     <kbd>R</kbd> reseed terrain ·
     <kbd>esc</kbd> release cursor
   </div>
@@ -444,10 +468,23 @@ window.addEventListener('keydown', e => {
   if (k === 'r' && state.phase === 'play'){
     worldSeed = (Math.random() * 1e9) | 0;
     rng = mulberry32(worldSeed);
+    clearAllModules();
     rebuildTerrain(); rebuildGrid(); spawnNodes();
-    // re-snap player to new ground
     player.y = heightAt(player.x, player.z);
     flashToast('terrain reseeded · ' + worldSeed);
+  }
+  // build mode controls
+  if (k === 'b' && state.phase === 'play'){
+    setBuildMode(!buildMode.active);
+    flashToast(buildMode.active ? 'BUILD MODE · click to place' : 'roam mode');
+  }
+  if (buildMode.active){
+    if (k === 'q') cycleBuildModule(-1);
+    if (k === 'e') cycleBuildModule( 1);
+    if (k === '1' || k === '2' || k === '3' || k === '4'){
+      const idx = parseInt(k, 10) - 1;
+      if (idx < MODULES.length){ buildMode.idx = idx; ensureGhost(); }
+    }
   }
   keys[k] = true;
 });
@@ -472,6 +509,19 @@ window.addEventListener('mousemove', e => {
 });
 cvs.addEventListener('mousedown', e => {
   if (state.phase !== 'play' || !isLocked()) return;
+  if (buildMode.active){
+    if (e.button === 0){
+      // place at current ghost position
+      if (buildMode.ghost){
+        const g = buildMode.ghost.position;
+        placeModule(buildMode.idx, g.x, g.y, g.z);
+        updateBuildHud();
+      }
+    } else if (e.button === 2){
+      demolishNearest();
+    }
+    return;     // build clicks DO NOT also fire the laser
+  }
   if (e.button === 0) mouse.down = true;
 });
 cvs.addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
@@ -567,12 +617,18 @@ function sndDeplete(kind){
 }
 
 // ── LASER VISUAL ─────────────────────────────────────────────────────
-// A line from the camera's near-front to the impact point. Updated each
-// frame while firing; disabled otherwise. Plus a small beam-end glow.
+// Two-vertex line from the camera's near-front muzzle to the impact
+// point (or the 15u max-range point when firing into empty desert).
+// Per-vertex colors with additive blending = the far end of the beam
+// "fades out" by going to (0,0,0) which under additive contributes
+// nothing → the beam visually tapers to transparency at max range.
+const LASER_MAX_RANGE = 15;             // chat ask: cap mining range at 15 units
 const laserGeo = new THREE.BufferGeometry();
 laserGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+laserGeo.setAttribute('color',    new THREE.BufferAttribute(new Float32Array(6), 3));
 const laserMat = new THREE.LineBasicMaterial({
-  color: 0x7af0ff, transparent: true, opacity: 0,
+  vertexColors: true, transparent: true, opacity: 0,
+  blending: THREE.AdditiveBlending, depthWrite: false,
 });
 const laserLine = new THREE.Line(laserGeo, laserMat);
 laserLine.frustumCulled = false;
@@ -593,23 +649,25 @@ const impactLight = new THREE.PointLight(0x7af0ff, 0, 4);
 scene.add(impactLight);
 
 // ── TARGETING / RAYCAST ──────────────────────────────────────────────
+// Cap at LASER_MAX_RANGE so nodes beyond 15 units can't be locked-on
+// and the beam actually has a finite reach to fade into.
 const ray = new THREE.Raycaster();
-ray.far = 60;
+ray.far = LASER_MAX_RANGE;
 const _camDir = new THREE.Vector3();
 const _camOrigin = new THREE.Vector3();
 function findTargetedNode(){
-  // raycast from camera forward against all node groups
   camera.getWorldPosition(_camOrigin);
   camera.getWorldDirection(_camDir);
   ray.set(_camOrigin, _camDir);
   let best = null, bestDist = Infinity;
+  const r2 = LASER_MAX_RANGE * LASER_MAX_RANGE;
   for (const n of nodes){
     if (n.depleted) continue;
-    // quick distance check first — skip far nodes
+    // cheap XZ distance gate — skip nodes outside the laser's max horizontal range
     const d2 = (n.x - _camOrigin.x)**2 + (n.z - _camOrigin.z)**2;
-    if (d2 > 50*50) continue;
+    if (d2 > r2 + 16) continue;
     const hits = ray.intersectObject(n.group, true);
-    if (hits.length && hits[0].distance < bestDist){
+    if (hits.length && hits[0].distance < bestDist && hits[0].distance <= LASER_MAX_RANGE){
       bestDist = hits[0].distance;
       best = { node: n, point: hits[0].point };
     }
@@ -621,15 +679,16 @@ function findTargetedNode(){
 const LASER_DRAIN_PER_SEC = 80;        // node hp drained per second
 const ENERGY_DRAIN_PER_SEC = 22;       // player energy drained per second of firing
 const ENERGY_REGEN_PER_SEC = 18;       // regen when not firing
+const _muzzleWorld = new THREE.Vector3();
+const _beamEnd = new THREE.Vector3();
+const _beamColor = new THREE.Color();
 
-let firingThisFrame = false;
 function tickLaser(dt){
-  // crosshair + target info reset
   const xh = document.getElementById('crosshair');
   const ti = document.getElementById('targetInfo');
   xh.classList.remove('locked-on', 'firing');
 
-  // figure out targeted node
+  // raycast for the targeted node (within LASER_MAX_RANGE)
   const target = findTargetedNode();
   player.laserTarget = target ? target.node : null;
   if (target){
@@ -643,54 +702,88 @@ function tickLaser(dt){
     ti.classList.remove('show');
   }
 
-  // are we firing?
-  const wantFire = mouse.down && state.phase === 'play';
+  // firing state — chat ask: beam should ALSO show (with fade) when firing
+  // into the void, not only when locked onto a node. So separate "firing"
+  // from "draining a target".
+  const wantFire = mouse.down && state.phase === 'play' && !buildMode.active;
   const canFire  = player.energy > 0;
-  const isFiring = wantFire && canFire && target;
+  const isFiring = wantFire && canFire;
+  const isDraining = isFiring && !!target;
 
   if (isFiring){
     xh.classList.add('firing');
-    // drain node + add resources gradually (in fractional accumulator)
+    player.energy = Math.max(0, player.energy - ENERGY_DRAIN_PER_SEC * dt);
+  } else {
+    player.energy = Math.min(player.maxEnergy, player.energy + ENERGY_REGEN_PER_SEC * dt);
+  }
+  if (isDraining){
     target.node.hp -= LASER_DRAIN_PER_SEC * dt;
     if (target.node.hp <= 0){
       target.node.hp = 0;
       depleteNode(target.node);
     }
-    // gain the kind's yield over time, in fractional units
     const gain = target.node.kind.yieldPerHit * (LASER_DRAIN_PER_SEC * dt) / target.node.kind.capHp * 6;
-    player.energy = Math.max(0, player.energy - ENERGY_DRAIN_PER_SEC * dt);
     addResource(target.node.kind.hpKey, gain);
-    laserMat.color.setHex(target.node.kind.glow);
-    laserMuzzle.material.color.setHex(target.node.kind.glow);
-    laserImpact.material.color.setHex(target.node.kind.glow);
-    impactLight.color.setHex(target.node.kind.glow);
-  } else {
-    player.energy = Math.min(player.maxEnergy, player.energy + ENERGY_REGEN_PER_SEC * dt);
   }
+
+  // beam color: target-tinted when locked on, default cyan otherwise
+  const beamHex = isDraining ? target.node.kind.glow : 0x7af0ff;
   setLaserActive(isFiring);
-  // beam visibility + position
+
   if (isFiring){
-    const muzzleWorld = new THREE.Vector3();
-    laserMuzzle.getWorldPosition(muzzleWorld);
+    // muzzle world position
+    laserMuzzle.getWorldPosition(_muzzleWorld);
+    // beam end: target hit point if locked, else max-range point ahead of camera
+    if (target){
+      _beamEnd.copy(target.point);
+    } else {
+      camera.getWorldPosition(_camOrigin);
+      camera.getWorldDirection(_camDir);
+      _beamEnd.copy(_camOrigin).addScaledVector(_camDir, LASER_MAX_RANGE);
+    }
     const positions = laserGeo.attributes.position.array;
-    positions[0] = muzzleWorld.x; positions[1] = muzzleWorld.y; positions[2] = muzzleWorld.z;
-    positions[3] = target.point.x; positions[4] = target.point.y; positions[5] = target.point.z;
+    positions[0] = _muzzleWorld.x; positions[1] = _muzzleWorld.y; positions[2] = _muzzleWorld.z;
+    positions[3] = _beamEnd.x;     positions[4] = _beamEnd.y;     positions[5] = _beamEnd.z;
     laserGeo.attributes.position.needsUpdate = true;
-    // beam pulse opacity
+
+    // per-vertex colors w/ additive blending — full-color at muzzle, then
+    // either full-color at the target or near-black at max-range (which
+    // under AdditiveBlending visually reads as a clean fade to nothing).
+    _beamColor.setHex(beamHex);
+    const cols = laserGeo.attributes.color.array;
+    cols[0] = _beamColor.r; cols[1] = _beamColor.g; cols[2] = _beamColor.b;
+    if (target){
+      cols[3] = _beamColor.r; cols[4] = _beamColor.g; cols[5] = _beamColor.b;
+    } else {
+      // visible head, fades to ~10% at max range
+      cols[3] = _beamColor.r * 0.10;
+      cols[4] = _beamColor.g * 0.10;
+      cols[5] = _beamColor.b * 0.10;
+    }
+    laserGeo.attributes.color.needsUpdate = true;
+
     const pulse = 0.7 + Math.sin(performance.now() * 0.04) * 0.25;
-    laserMat.opacity   = pulse;
+    laserMat.opacity = pulse;
+    laserMuzzle.material.color.setHex(beamHex);
     laserMuzzle.material.opacity = pulse;
-    laserImpact.material.opacity = 0.85;
-    laserImpact.position.copy(target.point);
-    impactLight.position.copy(target.point);
-    impactLight.intensity = 1.6 + Math.sin(performance.now() * 0.03) * 0.6;
+    if (target){
+      laserImpact.material.color.setHex(beamHex);
+      laserImpact.material.opacity = 0.85;
+      laserImpact.position.copy(_beamEnd);
+      impactLight.color.setHex(beamHex);
+      impactLight.position.copy(_beamEnd);
+      impactLight.intensity = 1.6 + Math.sin(performance.now() * 0.03) * 0.6;
+    } else {
+      // no impact glow when firing into the void
+      laserImpact.material.opacity = 0;
+      impactLight.intensity = 0;
+    }
   } else {
-    laserMat.opacity   = 0;
+    laserMat.opacity = 0;
     laserMuzzle.material.opacity = 0;
     laserImpact.material.opacity = 0;
     impactLight.intensity = 0;
   }
-
   refreshHud();
 }
 
@@ -701,6 +794,279 @@ function addResource(key, amt){
   while (_frac[key] >= 1){
     inventory[key]++; _frac[key]--;
     sndCollect();
+  }
+}
+
+// =====================================================================
+// MODULAR BASE BUILDING (chat ask)
+// =====================================================================
+// Players spend gathered resources to place modules in the world. Press
+// B to toggle build mode → ghost preview at cursor's projected ground
+// point → click to place. Q / E cycles modules. Right-click while in
+// build mode demolishes the nearest placed module within 4u (50% refund).
+// Modules persist for the session; cleared on terrain reseed.
+const MODULES = [
+  {
+    key: 'foundation',
+    name: 'Foundation',
+    cost: { cyan: 2, pink: 0, gold: 0 },
+    color: 0x9aff5e,
+    build: () => {
+      const m = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.1, 1.1, 0.18, 8),
+        new THREE.MeshStandardMaterial({ color: 0x1a4a26, emissive: 0x9aff5e, emissiveIntensity: 0.4, roughness: 0.5 })
+      );
+      m.position.y = 0.09;
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(1.05, 0.05, 6, 18),
+        new THREE.MeshStandardMaterial({ color: 0x9aff5e, emissive: 0x9aff5e, emissiveIntensity: 1.0 })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.18;
+      const g = new THREE.Group();
+      g.add(m); g.add(ring);
+      return g;
+    },
+  },
+  {
+    key: 'wall',
+    name: 'Wall Panel',
+    cost: { cyan: 1, pink: 1, gold: 0 },
+    color: 0x7af0ff,
+    build: () => {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(2.0, 1.5, 0.18),
+        new THREE.MeshStandardMaterial({ color: 0x051a26, emissive: 0x7af0ff, emissiveIntensity: 0.5, roughness: 0.4 })
+      );
+      body.position.y = 0.85;
+      g.add(body);
+      // top + bottom neon bars
+      for (const y of [0.18, 1.55]){
+        const bar = new THREE.Mesh(
+          new THREE.BoxGeometry(2.0, 0.06, 0.22),
+          new THREE.MeshStandardMaterial({ color: 0x7af0ff, emissive: 0x7af0ff, emissiveIntensity: 1.4 })
+        );
+        bar.position.y = y;
+        g.add(bar);
+      }
+      return g;
+    },
+  },
+  {
+    key: 'beacon',
+    name: 'Beacon',
+    cost: { cyan: 0, pink: 0, gold: 3 },
+    color: 0xffd45e,
+    build: () => {
+      const g = new THREE.Group();
+      const stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.32, 4.2, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2a1a04, emissive: 0xffd45e, emissiveIntensity: 0.45 })
+      );
+      stem.position.y = 2.1;
+      g.add(stem);
+      const orb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.42, 16, 12),
+        new THREE.MeshStandardMaterial({ color: 0xffd45e, emissive: 0xffd45e, emissiveIntensity: 1.6 })
+      );
+      orb.position.y = 4.6;
+      g.add(orb);
+      const light = new THREE.PointLight(0xffd45e, 1.8, 14);
+      light.position.y = 4.6;
+      g.add(light);
+      return g;
+    },
+  },
+  {
+    key: 'refiner',
+    name: 'Crystal Refiner',
+    cost: { cyan: 4, pink: 4, gold: 2 },
+    color: 0xff5fbf,
+    build: () => {
+      const g = new THREE.Group();
+      // base disc
+      const base = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.95, 1.1, 0.32, 12),
+        new THREE.MeshStandardMaterial({ color: 0x1a0a26, emissive: 0xff5fbf, emissiveIntensity: 0.4 })
+      );
+      base.position.y = 0.16;
+      g.add(base);
+      // central crystal
+      const xtl = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.5, 0),
+        new THREE.MeshStandardMaterial({ color: 0xff5fbf, emissive: 0xff5fbf, emissiveIntensity: 1.4, roughness: 0.2, metalness: 0.4 })
+      );
+      xtl.position.y = 1.1;
+      g.add(xtl);
+      // 3 small rotating struts
+      for (let i = 0; i < 3; i++){
+        const a = (i / 3) * Math.PI * 2;
+        const s = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, 0.7, 0.1),
+          new THREE.MeshStandardMaterial({ color: 0xffd45e, emissive: 0xffd45e, emissiveIntensity: 0.9 })
+        );
+        s.position.set(Math.cos(a) * 0.65, 0.5, Math.sin(a) * 0.65);
+        g.add(s);
+      }
+      const light = new THREE.PointLight(0xff5fbf, 1.4, 8);
+      light.position.y = 1.0;
+      g.add(light);
+      // refiner ticks: trickle 1 of each resource per 30s while powered
+      g.userData.tick = (dt) => {
+        g.userData._t = (g.userData._t || 0) + dt;
+        // crystal spin
+        xtl.rotation.y += dt * 1.2;
+        if (g.userData._t > 30){
+          g.userData._t = 0;
+          inventory.cyan += 1; inventory.pink += 1; inventory.gold += 1;
+          flashToast('refiner produced +1 of each');
+          refreshHud();
+        }
+      };
+      return g;
+    },
+  },
+];
+const placedModules = [];     // { kind, group, x, y, z }
+const buildMode = { active: false, idx: 0, ghost: null };
+
+function canAfford(cost){
+  return (inventory.cyan >= (cost.cyan || 0)) &&
+         (inventory.pink >= (cost.pink || 0)) &&
+         (inventory.gold >= (cost.gold || 0));
+}
+function spend(cost){
+  inventory.cyan -= (cost.cyan || 0);
+  inventory.pink -= (cost.pink || 0);
+  inventory.gold -= (cost.gold || 0);
+  refreshHud();
+}
+function refund(cost, frac){
+  inventory.cyan += Math.floor((cost.cyan || 0) * frac);
+  inventory.pink += Math.floor((cost.pink || 0) * frac);
+  inventory.gold += Math.floor((cost.gold || 0) * frac);
+  refreshHud();
+}
+function placeModule(idx, x, y, z){
+  const def = MODULES[idx];
+  if (!canAfford(def.cost)){
+    flashToast('not enough · need ' + costLabel(def.cost));
+    return false;
+  }
+  spend(def.cost);
+  const g = def.build();
+  g.position.set(x, y, z);
+  scene.add(g);
+  placedModules.push({ kind: def.key, def, group: g, x, y, z });
+  flashToast('placed · ' + def.name);
+  blip(660, 0.08, 'square', 0.16);
+  return true;
+}
+function demolishNearest(){
+  let best = null, bestD = 4 * 4;
+  for (const m of placedModules){
+    const d2 = (m.x - player.x)**2 + (m.z - player.z)**2;
+    if (d2 < bestD){ bestD = d2; best = m; }
+  }
+  if (!best){ flashToast('nothing to demolish nearby'); return; }
+  scene.remove(best.group);
+  best.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  placedModules.splice(placedModules.indexOf(best), 1);
+  refund(best.def.cost, 0.5);
+  flashToast('demolished · refund 50%');
+}
+function costLabel(c){
+  const parts = [];
+  if (c.cyan) parts.push(c.cyan + ' aether');
+  if (c.pink) parts.push(c.pink + ' solis');
+  if (c.gold) parts.push(c.gold + ' lumen');
+  return parts.join(' + ') || 'free';
+}
+function clearAllModules(){
+  for (const m of placedModules){
+    scene.remove(m.group);
+    m.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  }
+  placedModules.length = 0;
+}
+
+// ── BUILD-MODE GHOST PREVIEW ────────────────────────────────────────
+function ensureGhost(){
+  if (buildMode.ghost){
+    scene.remove(buildMode.ghost);
+    buildMode.ghost.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  }
+  const def = MODULES[buildMode.idx];
+  const g = def.build();
+  // make every material in the ghost translucent + slightly emissive-pulsing
+  g.traverse(o => {
+    if (o.isMesh && o.material){
+      o.material.transparent = true;
+      o.material.opacity = 0.55;
+      o.material.depthWrite = false;
+    }
+  });
+  scene.add(g);
+  buildMode.ghost = g;
+  updateBuildHud();
+}
+function setBuildMode(on){
+  buildMode.active = on;
+  if (on){
+    ensureGhost();
+    document.getElementById('buildHud').classList.add('show');
+  } else {
+    if (buildMode.ghost){
+      scene.remove(buildMode.ghost);
+      buildMode.ghost.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      buildMode.ghost = null;
+    }
+    document.getElementById('buildHud').classList.remove('show');
+  }
+}
+function cycleBuildModule(dir){
+  if (!buildMode.active) return;
+  buildMode.idx = (buildMode.idx + dir + MODULES.length) % MODULES.length;
+  ensureGhost();
+}
+function updateBuildHud(){
+  const def = MODULES[buildMode.idx];
+  document.getElementById('buildName').textContent = def.name;
+  document.getElementById('buildCost').textContent = '· ' + costLabel(def.cost);
+  const btn = document.getElementById('buildHud');
+  btn.classList.toggle('cant', !canAfford(def.cost));
+}
+// position the ghost at the cursor's projected ground point each frame
+const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _ghostHit = new THREE.Vector3();
+function tickBuildGhost(){
+  if (!buildMode.active || !buildMode.ghost) return;
+  // raycast from camera forward to terrain — but easy approximation:
+  // project camera-forward ray onto the ground plane (y=0), then snap
+  // the ghost Y to heightAt that XZ for terrain-following placement.
+  camera.getWorldPosition(_camOrigin);
+  camera.getWorldDirection(_camDir);
+  ray.set(_camOrigin, _camDir);
+  ray.far = 14;        // build placement reach — slightly under laser cap
+  // try ground-plane intersection (treating y=0 plane is fine for sin terrain)
+  if (ray.ray.intersectPlane(_groundPlane, _ghostHit)){
+    // clamp to terrain bounds
+    const half = TERRAIN_SIZE / 2 - 2;
+    _ghostHit.x = Math.max(-half, Math.min(half, _ghostHit.x));
+    _ghostHit.z = Math.max(-half, Math.min(half, _ghostHit.z));
+    const yGround = heightAt(_ghostHit.x, _ghostHit.z);
+    buildMode.ghost.position.set(_ghostHit.x, yGround, _ghostHit.z);
+    // tint ghost based on affordability (red-ish if can't afford)
+    const ok = canAfford(MODULES[buildMode.idx].cost);
+    buildMode.ghost.traverse(o => {
+      if (o.isMesh && o.material && o.material.emissive){
+        o.material.emissiveIntensity = ok ? 0.8 : 0.25;
+      }
+    });
+    ray.far = LASER_MAX_RANGE;     // restore
+  } else {
+    ray.far = LASER_MAX_RANGE;
   }
 }
 
@@ -824,6 +1190,8 @@ function refreshHud(){
   const ep = (player.energy / player.maxEnergy) * 100;
   eVal.textContent = Math.round(ep) + '%';
   eEl.classList.toggle('crit', ep < 25);
+  // build mode hud reflects affordability
+  if (buildMode.active) updateBuildHud();
 }
 let toastT = null;
 function flashToast(msg){
@@ -867,6 +1235,11 @@ function loop(){
     tickPlayer(dt);
     tickLaser(dt);
     tickParticles(dt);
+    tickBuildGhost();
+    // ticks any modules that want them (e.g., Crystal Refiner trickle)
+    for (const m of placedModules){
+      if (m.group.userData && m.group.userData.tick) m.group.userData.tick(dt);
+    }
   } else {
     tickParticles(dt);
   }

@@ -18,6 +18,18 @@
   - **Aesthetic**: deep purple-magenta sky `#1a0826`, FogExp2 at 0.014 density tinted to match. Pink + cyan + gold + lime palette. Audiowide title with the same neon glow shadows as other apps in the suite. IBM Plex Mono UI / Press Start 2P numeric pills.
   - **Accessibility**: rem units, semantic `<canvas role="application">` with descriptive aria-label, skip link, `aria-live="polite"` HUD region, focus-visible white outlines on buttons, ≥2.6rem button heights, `prefers-reduced-motion` no-ops the energy-crit flash.
 
+- 2026-05-08: **Laser 15-unit range cap + visual fade-out + modular base building** (3 chat asks bundled).
+  - **Range cap (chat ask)**: `ray.far = LASER_MAX_RANGE = 15` and the per-node distance gate also clamps to `r² + 16`. Nodes beyond 15u no longer lock-on at all.
+  - **Visual fade-out (chat ask)**: laser line is now a `LineBasicMaterial` with `vertexColors: true` + `AdditiveBlending` + `depthWrite: false`. Two RGB triplets in a per-frame BufferAttribute: the muzzle vertex is full beam color; the far vertex is full color when locked onto a target, OR `0.10 ×` color when firing into the void — under additive blending, near-zero RGB renders as no light contribution → the beam tapers cleanly to transparency at the 15u max-range projection point. Beam now ALSO renders when firing without a target (was hidden before), so users can see where they're aiming and watch their energy drain.
+  - **Modular base building (chat ask)**: press **B** to toggle build mode → translucent ghost preview at the cursor's projected ground point → click to place, RMB to demolish nearest within 4u (50% refund), Q/E or 1-4 to cycle modules.
+    - **Foundation** (2 Aether) — green hex tile + glowing torus ring, terrain-following.
+    - **Wall Panel** (1 Aether + 1 Solis) — 2u-wide cyan-bordered panel, 1.5u tall.
+    - **Beacon** (3 Lumen) — 4.6u-tall stem + glowing gold orb + own PointLight (range 14u). Visible from across the desert.
+    - **Crystal Refiner** (4 Aether + 4 Solis + 2 Lumen) — magenta crystal cluster, spinning octahedron core, **trickles +1 of each resource every 30s** while placed. Real economy loop.
+  - **Build HUD**: bottom-center pill shows current module + cost; lime when affordable, red+pink when not. `Q/E cycle · LMB place · RMB demolish · B exit` legend. `setBuildMode` gates laser firing while active so build clicks don't also drain a node.
+  - **Ghost preview** (`tickBuildGhost`): rebuilds via the module's `build()` factory each cycle, makes every Mesh material `transparent + opacity 0.55 + depthWrite false`, projects the camera-forward ray onto the y=0 ground plane (bounded to ±half-terrain), then snaps Y to `heightAt(x, z)` so the preview sits flat on dunes. Emissive intensity dims to 0.25 when the cost can't be afforded — visual affordability cue.
+  - **Lifecycle**: `clearAllModules` is called when R reseeds the terrain (modules are tied to the world so they make no sense after a reshape). `refreshHud` re-evaluates the build HUD's affordability state on every inventory change. Demolish refunds floor(cost × 0.5) of each component.
+
 ## issues
 - Terrain heightmap is sine-based, not real Perlin/Simplex — at very low frequency you can spot obvious lattice artefacts. Acceptable for the synthwave style; a real Perlin upgrade would be ~30 lines.
 - `findTargetedNode` does a raycast against every alive node within 50u every frame — fine for 36 nodes but won't scale to 500. A spatial grid would help if NODE_COUNT grows.
