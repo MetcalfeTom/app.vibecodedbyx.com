@@ -633,12 +633,46 @@ async function pollPost(messages, opts){
 // + X-Title so the app shows up correctly in the user's OR dashboard. Errors
 // are surfaced verbatim so a missing/invalid key shows up as a readable
 // system message in the story stream rather than a generic timeout.
+// Audit notes (chat ask 2026-05-08: "check the OpenRouter docs for the
+// story engine and see why the integration is failing"). Comparing our
+// integration to OpenRouter's docs surfaced FIVE rough edges:
+//
+//   1. `response_format: { type: 'json_object' }` is NOT uniformly
+//      supported across OR providers. OpenAI / Mistral / Gemini honour
+//      it; Anthropic / many Llama / MiniMax / DeepSeek / Qwen routes
+//      either return 400 ("provider does not support json_object") or
+//      silently ignore it. Sending it for the Director on an
+//      unsupported model breaks the whole pipeline. → Dropped, same as
+//      the pollPost fix; the hardened system prompt + 4-stage parser +
+//      stripPreamble + retry is enough to enforce JSON.
+//
+//   2. Default `max_tokens: 320` was too small for any reasoning model
+//      and inconsistent with pollPost's bumped 1024. → Raised to 1024.
+//
+//   3. Error responses from OR are structured JSON `{error:{message,
+//      type,code}}` but we surfaced the raw text — usually unreadable
+//      next to a long HTML 502 page. → Parse `error.message` first,
+//      fall back to text.
+//
+//   4. Specific status codes carry actionable meaning that we used to
+//      bury in a generic 'http <status>'. → 401/403 surfaced as
+//      "invalid API key", 402 as "out of credits — top up at
+//      openrouter.ai/credits", 404 as "model id not found — verify
+//      the slug", 429 as "rate-limited · wait a moment".
+//
+//   5. No request log meant a failed turn left no trail. → Added a
+//      console.log of model + msg count + json_mode flag before fetch
+//      (the response side already logs via extractAssistantText).
 async function openrouterCall(messages, opts){
   const key = state.openrouterKey;
   if (!key) throw new Error('openrouter · no API key set (open backend settings)');
   const model = state.openrouterModel || 'openai/gpt-4o-mini';
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeout || 30000);
+  console.log('[story-engine][openrouter] → POST · model: ' + model +
+    ' · msgs: ' + messages.length +
+    ' · max_tokens: ' + (opts.max_tokens || 1024) +
+    ' · json_mode: ' + !!opts.json_mode);
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -651,21 +685,41 @@ async function openrouterCall(messages, opts){
       body: JSON.stringify({
         model,
         messages,
-        max_tokens:  opts.max_tokens  || 320,
+        max_tokens:  opts.max_tokens  || 1024,
         temperature: opts.temperature != null ? opts.temperature : 0.85,
-        ...(opts.json_mode ? { response_format: { type: 'json_object' } } : {}),
+        // response_format intentionally OMITTED — many OR providers
+        // (Anthropic / most Llama / MiniMax / DeepSeek / Qwen) either
+        // 400 on it or silently ignore it. The hardened system prompt
+        // + 4-stage parseDirectorJson + stripPreamble + 1-retry layer
+        // is what actually enforces JSON across all backends.
       }),
       signal: ctrl.signal,
     });
     if (!res.ok){
+      // Try to parse OR's structured error envelope for a clean message.
       const txt = await res.text().catch(() => '');
-      throw new Error('openrouter http ' + res.status + ' · ' + txt.slice(0, 200));
+      let errMsg = '';
+      try {
+        const ej = JSON.parse(txt);
+        errMsg = (ej && ej.error && (ej.error.message || ej.error.code)) || '';
+      } catch(e){ /* not JSON, fall through to text */ }
+      if (!errMsg) errMsg = txt.slice(0, 200);
+      // Status-code-specific guidance so chat can act on the failure.
+      let hint = '';
+      if (res.status === 401 || res.status === 403){
+        hint = ' · invalid API key — re-paste it in backend settings';
+      } else if (res.status === 402){
+        hint = ' · out of credits — top up at openrouter.ai/credits';
+      } else if (res.status === 404){
+        hint = ' · model "' + model + '" not found — verify the slug at openrouter.ai/models';
+      } else if (res.status === 429){
+        hint = ' · rate-limited · wait a moment and try again';
+      } else if (res.status >= 500){
+        hint = ' · openrouter / upstream provider is having issues';
+      }
+      throw new Error('openrouter http ' + res.status + ' · ' + errMsg + hint);
     }
     const j = await res.json();
-    // Reasoning-model awareness: MiniMax M2.5, DeepSeek R1, QwQ, o1-style —
-    // see extractAssistantText() above. Falls back to message.reasoning /
-    // reasoning_content when content is empty so hexz_cracker's minimax
-    // turns aren't silent.
     return extractAssistantText(j, 'openrouter');
   } finally { clearTimeout(t); }
 }
