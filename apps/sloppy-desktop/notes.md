@@ -1,0 +1,32 @@
+# sloppy-desktop
+
+## log
+- 2026-05-08: shipped — glassmorphism web OS shell with a draggable window manager + a terminal app. Created at `apps/sloppy-desktop/` because `apps/sloppy-os/` was already a 3D Three.js neon-mansion-hallway from January 2026 that we explicitly didn't want to overwrite (per project convention "never delete apps unless there's a very good reason"). Two parallel takes on the same idea, different paradigms — chat can decide later if they want to merge or kill one. Bundled chat asks: "initialize sloppy OS with a glassmorphism desktop and a terminal app" + "start building sloppy-os with a draggable window manager and a terminal" + "ensure the sloppy-os window manager supports basic z-index swapping when clicking on windows".
+  - **Wallpaper**: deep navy `#06031a` base + 3 radial glows (pink/cyan/violet) + a slowly-rotating conic gradient wash beneath (80s rotation, no-op'd under `prefers-reduced-motion`). 46px dotted grid mask faded out toward the corners adds depth without competing with the windows.
+  - **Menu bar** (top, fixed, 1.85rem tall): glass strip with backdrop-filter blur 22 + saturate 1.55, Audiowide `sloppyDESKTOP` logo (cyan accent), placeholder File/Edit/View/Window/Help menu, JetBrains Mono clock with date + HH:MM (ticks every 30s — chosen over per-second to avoid layout work in the menu strip). aria-live=polite on the clock.
+  - **Dock** (bottom-center, fixed, glass-pill): floating glass strip with 3 launch icons — terminal (`▶_`), readme (`📜`), about (`ℹ︎`). Icons hover-lift 0.4rem + scale 1.12, label tooltip floats up on hover. A cyan running-indicator dot sits below an icon while at least one of its windows is open.
+  - **Window manager**: each window is a glass `<section>` with traffic-light buttons (close/minimize/maximize as red/yellow/green radial-gradient circles), centred title text, a body region (auto-scroll), and a 1.1rem corner resize grip. `dragify` uses pointer-capture to track header drags with viewport clamping (-window+80 to W-40 horizontally, 30 to H-80 vertically) so windows can never be lost off-screen. `resizify` does the same for the corner grip with min 280×160. Maximize toggles between user-set size and full-desktop; pre-state stashed on dataset so unmaximize restores exact prior position.
+  - **Z-index swap on click** (chat ask): `el.addEventListener('pointerdown', () => focusWindow(id), true)` — capture-phase listener runs BEFORE any inner handlers, so clicking ANYWHERE inside a window (body, titlebar, even the resize grip) bumps `WM.z` and assigns the new max to that window's z-index, making it the topmost. Also strips `.focused` from every other window and adds it to the target so the styling reflects ordering — inactive windows get `filter: saturate(.85) brightness(.94)` and a dimmed titlebar so the user can see at a glance which window receives input. closeWindow auto-promotes the highest-remaining-z window to focused so the dimming doesn't make the desktop look dead.
+  - **Cascading spawn**: each new window opens at `(spawnX, spawnY)` then advances by `+32, +28` mod the desktop size, so consecutive windows fan diagonally instead of stacking on top of each other. Resets to a 60/50 floor if the modulo wraps under it.
+  - **Terminal app**: pure-JS shell rendered into a window body. 12 built-in commands: `help`, `echo`, `date`, `whoami`, `ls`, `cat <file>` (3 virtual files: readme.txt, motd.txt with random rotation, wallpaper.jpg with a friendly "binary file" refusal), `clear` / `cls`, `history`, `theme <color>` (lime/cyan/gold/pink/rose — recolours text + caret in place), `about` / `open <app>` (launches dock apps via the same WM hooks), `exit` (closes the hosting window). Lime monospace text with cyan command echo, rose errors, gold help-section header, dim history. Ctrl+L clears, Ctrl+C cancels current input. ↑/↓ walks command history (200-entry cap, persisted in `localStorage['sloppy-desktop-term-history-v1']`). Banner "★ sloppy desktop · terminal v0.1 ★" in Press Start 2P on every fresh terminal. Click anywhere in the terminal refocuses the input. Multiple terminal windows work independently — each spawns its own command/history scope but shares the persistent history file across sessions.
+  - **Boot sequence**: opens a readme + a terminal automatically (280ms apart) so the desktop isn't empty on first paint.
+  - **Accessibility**: rem units, `<header role=banner>` menu bar, `<main>` desktop, `<nav>` dock, `aria-label` on every icon button, `aria-live=polite` on the clock, focus-visible outlines via the default UA on traffic-light buttons (they're real `<button>`s), `prefers-reduced-motion` no-ops both wallpaper rotation and window-spawn animation, ≥3rem icon targets.
+
+## issues
+- The pre-existing `apps/sloppy-os/` (Three.js neon-mansion-hallway, Jan 2026) lives at a different path. If chat wants to consolidate, we can either: (a) move the 3D version to `sloppy-os-3d` and rename this to `sloppy-os`, or (b) merge the 3D hallway as a "fullscreen app" launchable from this WM's dock. Defer until chat decides.
+- Window minimize hides the element entirely — there's no taskbar restore yet. The yellow button works but the only way to bring it back is to reopen via the dock (which re-uses the existing window if the id matches, so the state survives but the user has to know that).
+- No multi-monitor / virtual desktop concept (one screen, one z-stack).
+- Mobile dragging has touch-action: none on titlebars and resize grips, but the dock buttons are still 3rem — usable but tight on phones. A coarse-pointer media query bump would help.
+- Wallpaper conic-gradient + backdrop-filter combo can be GPU-heavy on older devices; conic animation is the heaviest contributor and is killed by prefers-reduced-motion.
+
+## todos
+- File browser app (virtual filesystem shared with the terminal's `ls` / `cat`).
+- Paint / canvas drawing app.
+- Music player with the Pollinations music endpoint.
+- Notes / sticky-notes app.
+- Right-click desktop context menu (new terminal, change wallpaper).
+- Window minimize → dock-tray restore (clicking a running dock icon with active windows could cycle through them).
+- Persistent window positions (save geometry to localStorage per window id).
+- Snap-to-edge maximize (drag a window to the left/right half).
+- Settings app for theme / wallpaper / dock position.
+- Decide with chat whether to merge/replace the existing 3D `apps/sloppy-os/`.
