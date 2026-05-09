@@ -1,6 +1,14 @@
 # geo-bites
 
 ## log
+- 2026-05-09: **Gluten-free toggle + safety badges** (chat ask: "add a gluten free toggle to the geo bites app to highlight safe options"). The Overpass query already returned every OSM tag via `out center tags;`, so no query change was needed — just plumbed `diet:gluten_free` through.
+  - `parseElement` extracts `r.glutenFree` from `t['diet:gluten_free']`. OSM values: `yes` / `only` / `limited` / `no` / missing.
+  - GF badges on every result card + slot-reel meta: green ✓GF for yes/only, amber ⚠GF? for limited, dim dashed ✕ for explicit no.
+  - 🌾✕ "GF safe only" pill in a new Diet control row. When on, filters rendered lists + slot pool to `glutenFree === 'yes' || 'only'`. Persisted to `localStorage['geo-bites-gf']`.
+  - Toggle re-buckets `state.results` in place — no Overpass re-query, instant.
+  - Status line gets a "GF safe filter ON · N verified GF spots" message when the toggle is engaged so the user can see the GF-spot count even when the list is empty.
+  - Honest UX disclaimer next to the pill: "uses OSM `diet:gluten_free=yes` · OSM coverage varies — call ahead for celiacs". OSM diet tags are volunteer-contributed and often incomplete; we surface that instead of pretending the filter is medical-grade.
+  - Active state uses a green-keyed pressed style (vs. the kind pills' cyan) so the safety filter reads as engaged at a glance.
 - 2026-05-08: shipped — geolocation-based restaurant picker. The user clicks **enable location** → browser permission prompt → on success, picks a radius (200m – 5km) and a set of kinds (restaurant / café / bar / pub / fast food), then **search the streets** queries Overpass for everything matching, and the **spin picker** randomly lands on a single recommendation tilted toward closer-distance results. Free OpenStreetMap data, no API key, no signup.
   - **Geolocation**: `navigator.geolocation.getCurrentPosition` with `enableHighAccuracy: false` + 9s timeout + 60s maxAge cache. Permission denial / unavailable / timeout all surface as inline status text in the search card.
   - **Data source — Overpass API** (`overpass-api.de/api/interpreter`): POST with `data=` form-encoded query, CORS-friendly, no rate-limit signup. Query template uses node + way + relation against `amenity~"^(<kinds>)$"` with `(around:radius,lat,lon)`, then `out center tags;` so ways/relations get a centroid alongside their tags. 25s timeout in the QL itself.

@@ -305,6 +305,42 @@
   }
   ul.spots .meta .pill-kind{color:var(--gold);font-weight:600;margin-right:.4rem}
   ul.spots .meta .cuisine{color:var(--cyan);font-style:italic;margin-right:.4rem}
+  /* GLUTEN-FREE BADGES (chat ask: highlight safe options) — green
+     ✓ for verified yes/only, amber ⚠ for limited, dim ✕ for explicit
+     no. Sized small so they slot inline with the existing meta row
+     without overpowering distance/cuisine. */
+  .gf-badge{
+    display: inline-flex; align-items: center;
+    margin-left: .35rem;
+    padding: .12rem .45rem;
+    border-radius: .85rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .65rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    border: 1px solid currentColor;
+    line-height: 1.3;
+  }
+  .gf-badge.gf-yes    { color: #6ee08a; background: rgba(110,224,138,0.12); }
+  .gf-badge.gf-limited{ color: #ffb15b; background: rgba(255,177,91,0.10); }
+  .gf-badge.gf-no     { color: rgba(255,90,108,0.7); background: rgba(255,90,108,0.06); border-style: dashed; }
+  /* Pull-out style for the GF row's helper text inline with the pill */
+  .pill-group code{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: inherit;
+    background: rgba(255,255,255,0.06);
+    padding: 0 .25rem;
+    border-radius: .15rem;
+    color: var(--cyan);
+  }
+  /* Active state for the diet toggle uses a green-keyed pressed style
+     (instead of the cyan default) so it reads as "safety filter on". */
+  .pill-group .pill[data-diet][aria-pressed="true"]{
+    background: rgba(110,224,138,0.14);
+    border-color: #6ee08a;
+    color: #b6f5c6;
+    box-shadow: 0 0 .55rem rgba(110,224,138,0.4);
+  }
   ul.spots .addr{
     font-family:'JetBrains Mono',monospace;font-size:.62rem;color:var(--dim);
     letter-spacing:.04em;margin-top:.16rem;
@@ -357,6 +393,23 @@
           <button type="button" class="pill" data-kind="bar"        aria-pressed="true">bar</button>
           <button type="button" class="pill" data-kind="pub"        aria-pressed="false">pub</button>
           <button type="button" class="pill" data-kind="fast_food"  aria-pressed="false">fast food</button>
+        </div>
+      </div>
+      <!-- GLUTEN-FREE TOGGLE — chat ask: highlight safe options. Reads
+           the OSM `diet:gluten_free` tag (values: yes / only / limited
+           / no). When enabled, filters the results to only spots that
+           are EXPLICITLY tagged `yes`/`only`. Cards always show a green
+           ✓GF / amber GF? / dim 'no GF' badge regardless of toggle so
+           you can tell at a glance. -->
+      <div class="control-row">
+        <span class="row-label">Diet</span>
+        <div class="pill-group" id="dietRow" role="group" aria-label="Diet filters">
+          <button type="button" class="pill" data-diet="gluten_free" aria-pressed="false">
+            🌾✕ GF safe only
+          </button>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--mute);letter-spacing:.08em;line-height:1.5;flex:1;min-width:14rem;">
+            uses OSM <code>diet:gluten_free=yes</code> · OSM coverage varies — call ahead for celiacs
+          </span>
         </div>
       </div>
       <div class="control-row">
@@ -417,6 +470,12 @@ const state = {
   locLabel: null,                        // friendly name from nominatim, or null when geolocation
   radius: 1000,                          // metres
   kinds: new Set(['restaurant', 'cafe', 'bar']),
+  // GF toggle (chat ask) — when true, filters the rendered lists +
+  // slot machine to only show spots whose OSM `diet:gluten_free` tag
+  // is `yes` or `only`. Persisted to localStorage so the toggle
+  // survives a reload (handy for celiacs who never want to see the
+  // unsafe set).
+  gfOnly: (() => { try { return localStorage.getItem('geo-bites-gf') === '1'; } catch(e){ return false; } })(),
   results: [],
   searching: false,
 };
@@ -725,7 +784,14 @@ function parseElement(el){
   const num = t['addr:housenumber'];
   const addr = (num && street) ? (num + ' ' + street)
               : (street || (t['addr:full'] || ''));
-  return { name: t.name, lat, lon, dist, kind, cuisine, opening, isOpen, addr };
+  // OSM `diet:gluten_free` tag (chat ask) — values per the wiki:
+  //   yes      — has GF options on the menu
+  //   only     — entirely GF kitchen (rare, the gold-tier safe option)
+  //   limited  — a couple of items, ask staff
+  //   no       — explicitly does not cater
+  //   (missing) — nobody's mapped it; treat as unknown
+  const glutenFree = t['diet:gluten_free'] || null;
+  return { name: t.name, lat, lon, dist, kind, cuisine, opening, isOpen, addr, glutenFree };
 }
 
 // ── search ──────────────────────────────────────────────────────────
@@ -753,9 +819,16 @@ async function runSearch(){
       seen.add(k); return true;
     });
     state.results.sort((a, b) => a.dist - b.dist);
-    const open    = state.results.filter(r => r.isOpen === true);
-    const closed  = state.results.filter(r => r.isOpen === false);
-    const unknown = state.results.filter(r => r.isOpen === null);
+    // Apply the GF-only filter (chat ask) AFTER dedupe, BEFORE the
+    // open/closed/unknown bucketing. We keep state.results as the raw
+    // set (so toggling without re-querying still works) and bucket
+    // from a filtered view.
+    const filtered = state.gfOnly
+      ? state.results.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only')
+      : state.results;
+    const open    = filtered.filter(r => r.isOpen === true);
+    const closed  = filtered.filter(r => r.isOpen === false);
+    const unknown = filtered.filter(r => r.isOpen === null);
     renderLists(open, closed, unknown);
     document.getElementById('spinBtn').disabled = (open.length + unknown.length) === 0;
     if (open.length || unknown.length){
@@ -784,6 +857,25 @@ async function runSearch(){
 function distLabel(m){
   return m < 950 ? Math.round(m) + ' m' : (m / 1000).toFixed(2) + ' km';
 }
+function gfBadge(gf){
+  // chat ask: highlight gluten-free safe options. Returns an HTML
+  // string for the result card's meta row. Color-keyed:
+  //   yes/only → green ✓GF (safe)
+  //   limited  → amber GF? (call ahead)
+  //   no       → faint dimmed indicator (do NOT show as a green tick)
+  //   null     → nothing (most spots, no data)
+  if (gf === 'yes' || gf === 'only'){
+    const lbl = gf === 'only' ? '✓ GF only' : '✓ GF';
+    return '<span class="gf-badge gf-yes" title="OSM diet:gluten_free=' + gf + '">' + lbl + '</span>';
+  }
+  if (gf === 'limited'){
+    return '<span class="gf-badge gf-limited" title="OSM diet:gluten_free=limited — call ahead">⚠ GF?</span>';
+  }
+  if (gf === 'no'){
+    return '<span class="gf-badge gf-no" title="OSM diet:gluten_free=no">✕ no GF</span>';
+  }
+  return '';
+}
 function spotItem(r, kindCls, badgeText){
   const li = document.createElement('li');
   li.className = kindCls;
@@ -791,10 +883,11 @@ function spotItem(r, kindCls, badgeText){
   const cuisine = r.cuisine ? '<span class="cuisine">' + escHtml(r.cuisine) + '</span>' : '';
   const kind = '<span class="pill-kind">' + escHtml(r.kind) + '</span>';
   const addr = r.addr ? '<div class="addr">' + escHtml(r.addr) + '</div>' : '';
+  const gf  = gfBadge(r.glutenFree);
   li.innerHTML =
     '<div class="head"><span class="name">' + safeName + '</span>' +
       '<span class="badge ' + kindCls + '">' + badgeText + '</span></div>' +
-    '<div class="meta">' + kind + cuisine + distLabel(r.dist) + '</div>' +
+    '<div class="meta">' + kind + cuisine + distLabel(r.dist) + (gf ? ' ' + gf : '') + '</div>' +
     addr;
   li.style.cursor = 'pointer';
   li.addEventListener('click', () => openInMap(r));
@@ -998,7 +1091,8 @@ function spinPick(pool){
       r = pool[0];
     }
     nameEl.textContent = r.name;
-    metaEl.innerHTML = '<i>' + escHtml(r.cuisine || r.kind) + '</i> · ' + distLabel(r.dist);
+    const _gf = gfBadge(r.glutenFree);
+    metaEl.innerHTML = '<i>' + escHtml(r.cuisine || r.kind) + '</i> · ' + distLabel(r.dist) + (_gf ? ' ' + _gf : '');
     // ease factor based on the CURRENT tick (before increment) so the
     // audio + haptic + interval all share one phase value
     const phase = i / totalTicks;
@@ -1035,7 +1129,8 @@ function revealPick(r){
   nameEl.hidden = false; nameEl.textContent = r.name;
   const cuisine = r.cuisine ? '<i>' + escHtml(r.cuisine) + '</i> · ' : '';
   metaEl.hidden = false;
-  metaEl.innerHTML = cuisine + '<b style="color:var(--gold)">' + escHtml(r.kind) + '</b> · ' + distLabel(r.dist);
+  const _gf = gfBadge(r.glutenFree);
+  metaEl.innerHTML = cuisine + '<b style="color:var(--gold)">' + escHtml(r.kind) + '</b> · ' + distLabel(r.dist) + (_gf ? ' ' + _gf : '');
   stateEl.textContent = r.isOpen === true ? '★ OPEN NOW ★'
                       : r.isOpen === false ? '☒ CLOSED NOW'
                       : '? HOURS UNKNOWN';
@@ -1131,6 +1226,42 @@ document.querySelectorAll('#kinds .pill').forEach(p => {
     if (on) state.kinds.add(k); else state.kinds.delete(k);
   });
 });
+
+// GLUTEN-FREE TOGGLE (chat ask). Re-buckets the existing results
+// in-place when flipped — no new Overpass query, since the data we
+// need (`diet:gluten_free` tag) is already on every result. If the
+// user hasn't searched yet, just persists the preference.
+const gfPill = document.querySelector('#dietRow .pill[data-diet="gluten_free"]');
+if (gfPill){
+  // reflect persisted state on boot
+  gfPill.setAttribute('aria-pressed', state.gfOnly ? 'true' : 'false');
+  gfPill.addEventListener('click', () => {
+    state.gfOnly = !state.gfOnly;
+    gfPill.setAttribute('aria-pressed', state.gfOnly ? 'true' : 'false');
+    try { localStorage.setItem('geo-bites-gf', state.gfOnly ? '1' : '0'); } catch(e){}
+    // re-bucket existing results without re-querying Overpass
+    if (state.results && state.results.length){
+      const filtered = state.gfOnly
+        ? state.results.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only')
+        : state.results;
+      const open    = filtered.filter(r => r.isOpen === true);
+      const closed  = filtered.filter(r => r.isOpen === false);
+      const unknown = filtered.filter(r => r.isOpen === null);
+      renderLists(open, closed, unknown);
+      const status = document.getElementById('status');
+      if (status){
+        const gfCount = state.results.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only').length;
+        status.innerHTML = state.gfOnly
+          ? '🌾✕ GF safe filter ON · ' + gfCount + ' verified GF spots in current results'
+          : 'showing all ' + state.results.length + ' spots';
+      }
+      // refresh slot-machine pick if needed
+      if (open.length || unknown.length){
+        spinPick(open.length ? open : unknown);
+      }
+    }
+  });
+}
 
 })();
 </script>
