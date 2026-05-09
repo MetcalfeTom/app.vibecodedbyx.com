@@ -1,6 +1,13 @@
 # neko-bound
 
 ## log
+- 2026-05-09: **UI scale-up + interaction-lock fix** (chat ask: "the UI in neko-bound is too small and interaction is broken, please scale up the art and ensure the turn-based menu is usable on all screens"). Six-part fix:
+  1. **Sprite scaling** — new `spriteScale()` derives a multiplier from the canvas's logical size (`max(1.4, min(3.0, min(W/360, H/280)))`). `drawCat` and `drawSoaker` both now `ctx.scale(s, s)` after the translate, so cats grow with the arena instead of staying pinned at the original ~28-pixel body radius. Floor 1.4× keeps them readable on small phones; cap 3.0× prevents cat-eats-screen on desktop.
+  2. **Aspect-ratio arena** — was fixed-height (22rem desktop / 18rem mobile). Now `width:100%; aspect-ratio: 4/3` (mobile) → `16/9` (≥760px) with `max-height: 32rem`. Canvas grows with column width on every screen.
+  3. **HP cards moved OUT of the arena** — were absolutely-positioned over the canvas, obscuring the cats on phones. Now in dedicated `.hp-row` containers above + below the arena, full-width, never overlapping the fight. Font sizes inside bumped (`.nm` 0.85rem→1.1rem, `.num` 1rem→1.4rem, bar height 0.55rem→0.8rem).
+  4. **Move buttons larger + more readable** — `min-height` 3.6rem→4.5rem, `padding` bumped, `.nm` font-size 0.9rem→1.1rem, `.desc` 0.7rem→0.82rem, `.pp` 0.58rem→0.68rem, `.type` pill 0.45rem→0.55rem. Buttons are now a comfortable two-row card with name + glyph on top, type-pill + PP + description on bottom.
+  5. **Interaction-lock fix** — `playerTurn` now wraps the whole turn in a `try/finally` and locks `state.inAnim = true` BEFORE any async work. Previously a thrown error inside `resolveMove`'s `special` callback could leave the lock set forever, making every subsequent button-press silently no-op (the chat-reported "interaction is broken"). The finally ALWAYS releases the lock + re-renders the move buttons. Caught errors log to console + show a "something glitched · skipping turn" dialogue line so the player at least knows what happened.
+  6. **Dialogue arrow stability** — was using `firstChild.textContent` which broke when log re-renders nested the arrow inside a stale text node. Now wholesale-rebuilds the dialogue body each render and re-appends the arrow as a clean child.
 - 2026-05-09: shipped — turn-based cat RPG with EarthBound aesthetic. Chat asks bundled (credit: **icekrieg** + chat votes):
   - "create a turn-based RPG called Neko-Bound with cat-themed moves like hairball-hurl and nap-time"
   - "create a turn-based RPG called Neko-Bound with EarthBound aesthetics and cat-themed psychic abilities like purr-pulse"
