@@ -593,16 +593,29 @@ function rectBlocks(x, y, r){
   return null;
 }
 function pushOutOfRect(p, a, r){
-  // resolve collision by axis-aligned shortest push
-  const left   = (p.x + r) - a.x;
-  const right  = (a.x + a.w) - (p.x - r);
-  const top    = (p.y + r) - a.y;
-  const bottom = (a.y + a.h) - (p.y - r);
+  // Resolve collision by axis-aligned shortest push. When the entity
+  // has a velocity, ALSO reflect that axis so bouncers / chargers
+  // bounce away cleanly instead of grinding back into the wall on
+  // the next tick. Chat ask 2026-05-09: "fix the wall collision so
+  // enemies don't get stuck at the edges."
+  const left   = (p.x + r) - a.x;            // overlap on left edge
+  const right  = (a.x + a.w) - (p.x - r);    // overlap on right edge
+  const top    = (p.y + r) - a.y;            // overlap on top edge
+  const bottom = (a.y + a.h) - (p.y - r);    // overlap on bottom edge
   const m = Math.min(left, right, top, bottom);
-  if (m === left)   { p.x = a.x - r; p.vx = -Math.abs(p.vx || 0); }
-  else if (m === right){ p.x = a.x + a.w + r; p.vx =  Math.abs(p.vx || 0); }
-  else if (m === top)  { p.y = a.y - r; p.vy = -Math.abs(p.vy || 0); }
-  else                  { p.y = a.y + a.h + r; p.vy =  Math.abs(p.vy || 0); }
+  if (m === left){
+    p.x = a.x - r;
+    if (p.vx > 0) p.vx = -p.vx;
+  } else if (m === right){
+    p.x = a.x + a.w + r;
+    if (p.vx < 0) p.vx = -p.vx;
+  } else if (m === top){
+    p.y = a.y - r;
+    if (p.vy > 0) p.vy = -p.vy;
+  } else {
+    p.y = a.y + a.h + r;
+    if (p.vy < 0) p.vy = -p.vy;
+  }
 }
 
 // ── INPUT ──────────────────────────────────────────────────────
@@ -770,6 +783,32 @@ function spawnEnemy(kind){
   }
   state.enemies.push(e);
 }
+// Axis-separated movement helper — mirrors the player's collision
+// pipeline. Resolves X then Y independently so a flier blocked on
+// X can still slide along the wall on Y (and vice versa) instead of
+// getting wedged into a corner. Chat ask 2026-05-09: "fix the
+// collision in Market Mayhem so enemies can't get stuck in walls."
+function tryMoveEnemy(e, dx, dy){
+  // X axis
+  if (dx){
+    e.x += dx;
+    const ax = rectBlocks(e.x, e.y, e.r);
+    if (ax) pushOutOfRect(e, ax, e.r);
+  }
+  // Y axis
+  if (dy){
+    e.y += dy;
+    const ay = rectBlocks(e.x, e.y, e.r);
+    if (ay) pushOutOfRect(e, ay, e.r);
+  }
+  // Hard arena clamp — bouncers also flip velocity here, fliers just
+  // get pinned at the edge so they can't drift off-screen.
+  if (e.x < e.r){ e.x = e.r; if (e.vx) e.vx = Math.abs(e.vx); }
+  if (e.x > W - e.r){ e.x = W - e.r; if (e.vx) e.vx = -Math.abs(e.vx); }
+  if (e.y < e.r){ e.y = e.r; if (e.vy) e.vy = Math.abs(e.vy); }
+  if (e.y > H - e.r){ e.y = H - e.r; if (e.vy) e.vy = -Math.abs(e.vy); }
+}
+
 function tickEnemies(dt){
   const p = state.player;
   const now = performance.now() / 1000;
@@ -781,16 +820,23 @@ function tickEnemies(dt){
       continue;
     }
     const def = ENEMIES[e.kind];
+    // Track previous position for the stuck-detector backstop. If an
+    // enemy's net movement is < STUCK_EPS over STUCK_TIME seconds we
+    // assume the collision pipeline trapped it and teleport it
+    // toward a random open neighbor cell instead of letting it idle
+    // forever inside an aisle.
+    const px = e.x, py = e.y;
     // behavior
     if (e.behavior === 'flier' || e.behavior === 'swarmer'){
       const dx = p.x - e.x, dy = p.y - e.y;
       const d = Math.hypot(dx, dy) || 1;
-      const sp = e.speed * (e.behavior === 'swarmer' ? 1 : 1);
-      e.x += (dx / d) * sp * dt;
-      e.y += (dy / d) * sp * dt;
+      const sp = e.speed;
+      tryMoveEnemy(e, (dx / d) * sp * dt, (dy / d) * sp * dt);
     } else if (e.behavior === 'charger'){
       // watermelon — charges in a straight line for a few seconds, then
-      // re-aims toward the player
+      // re-aims toward the player. Re-aims early if the charge gets
+      // blocked by a wall (otherwise it would just sit grinding into
+      // the side of an aisle for 1.5s).
       e.chargeCd -= dt;
       if (e.chargeCd <= 0){
         const dx = p.x - e.x, dy = p.y - e.y;
@@ -799,27 +845,19 @@ function tickEnemies(dt){
         e.vy = dy / d * e.speed;
         e.chargeCd = 1.5 + Math.random() * 0.6;
       }
-      e.x += e.vx * dt;
-      e.y += e.vy * dt;
+      tryMoveEnemy(e, e.vx * dt, e.vy * dt);
     } else if (e.behavior === 'bouncer'){
-      e.x += e.vx * dt;
-      e.y += e.vy * dt;
-      // wall bounce
-      if (e.x < e.r){ e.x = e.r; e.vx = -e.vx; }
-      if (e.x > W - e.r){ e.x = W - e.r; e.vx = -e.vx; }
-      if (e.y < e.r){ e.y = e.r; e.vy = -e.vy; }
-      if (e.y > H - e.r){ e.y = H - e.r; e.vy = -e.vy; }
+      // pushOutOfRect flips vx/vy on collision, so the bouncer
+      // reflects naturally off both arena walls AND aisle rectangles.
+      tryMoveEnemy(e, e.vx * dt, e.vy * dt);
     } else if (e.behavior === 'milkboss'){
-      // slow walker that periodically pours a milk slick (a pickup-style
-      // hazard that damages player on touch)
+      // slow walker that periodically pours a milk slick
       const dx = p.x - e.x, dy = p.y - e.y;
       const d = Math.hypot(dx, dy) || 1;
-      e.x += (dx / d) * e.speed * dt;
-      e.y += (dy / d) * e.speed * dt;
+      tryMoveEnemy(e, (dx / d) * e.speed * dt, (dy / d) * e.speed * dt);
       e.slickCd -= dt;
       if (e.slickCd <= 0){
         e.slickCd = 2.4;
-        // spawn a milk slick particle pile
         for (let q = 0; q < 18; q++){
           const a = Math.random() * Math.PI * 2;
           state.particles.push({
@@ -831,19 +869,53 @@ function tickEnemies(dt){
         }
       }
     }
-    // collision with aisles — bounce/reflect for chargers + bouncers,
-    // skirt for fliers (just push out)
-    const a = rectBlocks(e.x, e.y, e.r);
-    if (a){
-      if (e.behavior === 'bouncer' || e.behavior === 'charger'){
-        pushOutOfRect(e, a, e.r);
-        if (e.behavior === 'bouncer'){
-          // already bounced via pushOutOfRect's velocity flip
+    // STUCK DETECTOR — if the entity barely moved this tick AND it's
+    // currently overlapping an aisle (collision pipeline trapped it),
+    // accumulate a stuck timer. After 0.5s, eject toward an axis-
+    // separated nudge so it pops out and can re-pursue.
+    const moved = Math.hypot(e.x - px, e.y - py);
+    if (moved < 0.4 && rectBlocks(e.x, e.y, e.r)){
+      e.stuckT = (e.stuckT || 0) + dt;
+      if (e.stuckT > 0.5){
+        // try 4 cardinal nudges; first one that lands in clear space wins
+        const tries = [
+          { dx:  e.r * 2, dy: 0 },
+          { dx: -e.r * 2, dy: 0 },
+          { dx: 0, dy:  e.r * 2 },
+          { dx: 0, dy: -e.r * 2 },
+        ];
+        // prefer the nudge that points TOWARD the player
+        tries.sort((A, B) => {
+          const da = Math.hypot((e.x + A.dx) - p.x, (e.y + A.dy) - p.y);
+          const db = Math.hypot((e.x + B.dx) - p.x, (e.y + B.dy) - p.y);
+          return da - db;
+        });
+        for (const t of tries){
+          const nx = e.x + t.dx, ny = e.y + t.dy;
+          if (nx < e.r || nx > W - e.r || ny < e.r || ny > H - e.r) continue;
+          if (!rectBlocks(nx, ny, e.r)){
+            e.x = nx; e.y = ny;
+            e.stuckT = 0;
+            // bouncers re-roll heading so they don't immediately
+            // ricochet back into the same wall
+            if (e.behavior === 'bouncer'){
+              const ang = Math.random() * Math.PI * 2;
+              e.vx = Math.cos(ang) * e.speed;
+              e.vy = Math.sin(ang) * e.speed;
+            }
+            break;
+          }
         }
-      } else {
-        pushOutOfRect(e, a, e.r);
       }
+    } else {
+      e.stuckT = 0;
     }
+    // Final safety net — if the enemy STILL overlaps something after
+    // movement + stuck-detector (e.g., spawned overlapping a corner),
+    // run pushOutOfRect once. Most frames this is a no-op; it just
+    // catches the long tail.
+    const a = rectBlocks(e.x, e.y, e.r);
+    if (a) pushOutOfRect(e, a, e.r);
     // touch player → damage
     if (Math.hypot(e.x - p.x, e.y - p.y) < p.r + e.r){
       if (now - (p.lastHurt || 0) > 0.4){
