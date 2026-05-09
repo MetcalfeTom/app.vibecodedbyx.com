@@ -1001,6 +1001,12 @@ const state = {
   wave: 1,
   kills: 0,
   toastT: 0,
+  // === BIOME (chat ask: "graveyard biome and spectral bosses") ===
+  // 'wastes' (default, brown rock) | 'graveyard' (cool grey + cross
+  // glyphs, spectral mob roster, lich-king boss eligible).
+  biome: 'wastes',
+  lichSpawned: false,
+  lichKilledAt: 0,
   // === FLOOR + TOWN PORTAL state ===
   // floor       : current depth, scales enemy stats
   // killsToClear: kills needed before the exit portal appears
@@ -1537,6 +1543,28 @@ const ENEMY_KINDS = {
     hpMul: 0.55, dmgMul: 0.85, speedMul: 1.45,
     attackCdMul: 0.75,
   },
+  // ── GRAVEYARD BIOME (chat ask: "graveyard biome and spectral
+  // bosses") — spectral mob types only spawn when state.biome ===
+  // 'graveyard'. See pickEnemyKind.
+  wraith: {
+    label: 'Wraith',
+    // fast spectral, lower HP, hits hard but slow attack cooldown
+    hpMul: 0.7, dmgMul: 1.6, speedMul: 1.25,
+    attackCdMul: 1.4,
+  },
+  bone_revenant: {
+    label: 'Bone Revenant',
+    // tankier than skeleton, slower, brutal one-shot melee
+    hpMul: 1.9, dmgMul: 1.4, speedMul: 0.7,
+    attackCdMul: 1.2,
+  },
+  lich_king: {
+    label: 'The Lich King',
+    // SPECTRAL BOSS — only spawns on graveyard floors. Tanky, fires
+    // necrotic projectiles + summons skeleton minions on a long cooldown.
+    hpMul: 9.0, dmgMul: 0.0, speedMul: 0.42, attackCdMul: 1.0,
+    isBoss: true,
+  },
   nexrad_cloud: {
     label: 'The NEXRAD Cloud',
     // RARE BOSS (chat ask) — only spawns at map center when RainViewer
@@ -1558,8 +1586,17 @@ function nexradColor(t){
   return NEXRAD_PALETTE[i];
 }
 function pickEnemyKind(){
-  // Floor-scaled distribution. Floor 1 = mostly skeletons; deeper = more
-  // trolls + slimes. Keeps early game readable but adds chaos at depth.
+  // Graveyard biome — chat ask: "spectral bosses + graveyard biome".
+  // Roster shifts to wraiths + bone revenants + occasional skeletons.
+  if (state.biome === 'graveyard'){
+    const r = Math.random();
+    if (r < 0.50) return 'wraith';
+    if (r < 0.80) return 'bone_revenant';
+    return 'skeleton';
+  }
+  // Floor-scaled wastes distribution. Floor 1 = mostly skeletons; deeper
+  // = more trolls + slimes. Keeps early game readable but adds chaos at
+  // depth.
   const f = Math.max(1, state.floor);
   const trollW = Math.min(0.35, 0.04 + f * 0.04);
   const slimeW = Math.min(0.40, 0.10 + f * 0.04);
@@ -1568,6 +1605,13 @@ function pickEnemyKind(){
   if (r < skelW) return 'skeleton';
   if (r < skelW + trollW) return 'swamp_troll';
   return 'toxic_slime';
+}
+// Pick the biome for a given floor. Floors 1-5 are wastes; floor 6+
+// has a chance of graveyard that scales up to 60% by floor 15.
+function pickBiomeForFloor(floor){
+  if (floor < 6) return 'wastes';
+  const chance = Math.min(0.6, 0.4 + (floor - 6) * 0.02);
+  return Math.random() < chance ? 'graveyard' : 'wastes';
 }
 function spawnEnemy(t) {
   let attempts = 60, sx = 0, sy = 0;
@@ -1672,7 +1716,130 @@ function spawnNexradBoss(){
   });
   state.nexradBossSpawned = true;
   showToast('▣ THE NEXRAD CLOUD ▣', 'a storm has reached the centre', 'leg');
+}
+// LICH KING — spectral boss for the graveyard biome. Picks a random
+// walkable tile away from the player so they have to find it.
+function spawnLichKing(){
+  const lvl = Math.max(3, player.level + 2);
+  const k = ENEMY_KINDS.lich_king;
+  const baseHp = 30 + lvl * 14;
+  // pick a random walkable tile far from the player
+  let sx = TOWN_GX, sy = TOWN_GY, attempts = 60;
+  while (attempts-- > 0){
+    const cx = 2 + Math.floor(Math.random() * (GRID_W - 4));
+    const cy = 2 + Math.floor(Math.random() * (GRID_H - 4));
+    if (!tileWalkable(cx, cy)) continue;
+    if (Math.hypot(cx - player.gx, cy - player.gy) < 10) continue;
+    sx = cx; sy = cy; break;
+  }
+  enemies.push({
+    kind: 'lich_king',
+    gx: sx, gy: sy,
+    vgx: 0, vgy: 0,
+    speed: (2.0 + Math.random() * 0.6) * k.speedMul,
+    hp:    baseHp * k.hpMul,
+    maxHp: baseHp * k.hpMul,
+    dmg: 0,
+    attackCdBase: k.attackCdMul,
+    attackCD: 0,
+    flash: 0, facing: 1,
+    walkPhase: 0,
+    level: lvl,
+    chillUntil: 0,
+    isBoss: true,
+    // boss-specific cooldowns
+    boltCD: 1.6,
+    summonCD: 7.0,
+    blastCD: 11.0,
+  });
+  state.lichSpawned = true;
+  showToast('☠ THE LICH KING ☠', 'a crowned shade walks the cemetery', 'leg');
   if (sfx && sfx.cast) sfx.cast();
+}
+
+function tickLichKing(en, dt){
+  // Slow march toward the player while keeping ~3 tiles of spacing so
+  // the player can't trivially melee them down. Three attack patterns:
+  //   1. Necrotic bolt — straight projectile, every ~2.0s.
+  //   2. Summon ring — spawns 3 skeletons in a circle around the lich,
+  //      every ~7s. Maintains pressure while the player tries to close.
+  //   3. Necrotic blast — expanding cell-pulse damage ring (re-uses the
+  //      nexrad pulse fx but recoloured violet), every ~11s.
+  const dx = player.gx - en.gx, dy = player.gy - en.gy;
+  const d = Math.hypot(dx, dy) || 1;
+  const desired = 3.5;
+  const moveSign = d > desired ? 1 : d < desired - 1 ? -1 : 0;
+  if (moveSign !== 0){
+    const sp = en.speed * moveSign;
+    tryMove(en, (dx / d) * sp * dt, (dy / d) * sp * dt);
+  }
+  en.facing = dx > 0 ? 1 : -1;
+  if (en.flash > 0) en.flash -= dt;
+
+  // ── Attack 1 — Necrotic bolt (every ~2.0s) ──
+  en.boltCD -= dt;
+  if (en.boltCD <= 0){
+    en.boltCD = 2.0;
+    const m = Math.hypot(dx, dy) || 1;
+    projectiles.push({
+      gx: en.gx, gy: en.gy,
+      vgx: (dx / m) * 6, vgy: (dy / m) * 6,
+      kind: 'nx-bolt',
+      color: '#bdff5e',
+      dmg: 12 + en.level * 2,
+      life: 2.4, age: 0,
+      targetsPlayer: true,
+    });
+  }
+  // ── Attack 2 — Summon ring (every ~7s) ──
+  en.summonCD -= dt;
+  if (en.summonCD <= 0){
+    en.summonCD = 7.0;
+    const summonLevel = Math.max(1, en.level - 2);
+    for (let i = 0; i < 3; i++){
+      const a = (i / 3) * Math.PI * 2 + Math.random() * 0.4;
+      const sx = Math.round(en.gx + Math.cos(a) * 2.5);
+      const sy = Math.round(en.gy + Math.sin(a) * 2.5);
+      if (!tileWalkable(sx, sy)) continue;
+      const k = ENEMY_KINDS.skeleton;
+      const baseHp = 18 + summonLevel * 8;
+      enemies.push({
+        kind: 'skeleton', gx: sx, gy: sy,
+        vgx: 0, vgy: 0,
+        speed: (2.0 + Math.random() * 0.4) * k.speedMul,
+        hp: baseHp, maxHp: baseHp,
+        dmg: 5 + summonLevel,
+        attackCdBase: k.attackCdMul,
+        attackCD: 0,
+        flash: 0, facing: 1, walkPhase: Math.random() * Math.PI * 2,
+        level: summonLevel, chillUntil: 0,
+        summoned: true,
+      });
+      // summon FX
+      for (let p = 0; p < 6; p++) particles.push({
+        kind: 'bone', gx: sx, gy: sy,
+        vx: Math.cos(p) * 1.2, vy: Math.sin(p) * 1.2,
+        t: 0, dur: 0.5,
+      });
+    }
+    showToast('SUMMONED', 'lich raises three skeletons', 'warn');
+  }
+  // ── Attack 3 — Necrotic blast (every ~11s) ──
+  en.blastCD -= dt;
+  if (en.blastCD <= 0){
+    en.blastCD = 11.0;
+    projectiles.push({
+      gx: en.gx, gy: en.gy,
+      vgx: 0, vgy: 0,
+      kind: 'nx-pulse',
+      color: '#a86bff',
+      dmg: 18 + en.level * 2,
+      life: 1.8, age: 0,
+      targetsPlayer: true,
+      radius: 0.5, radiusV: 4.0, maxR: 6.0,
+      hitOnce: false,
+    });
+  }
 }
 
 function tickNexradBoss(en, dt){
@@ -1867,6 +2034,13 @@ function advanceFloor() {
   state.exitPortal = null;
   state.spawnT = 3.0;
   state.waveT = 0;
+  // Pick biome BEFORE buildMap so paintTile/bakeMapCache see the new
+  // value when re-rendering tiles (chat: graveyard biome).
+  const newBiome = pickBiomeForFloor(state.floor);
+  if (newBiome !== state.biome){
+    state.biome = newBiome;
+    state.lichSpawned = false;     // graveyard rolls its own lich-king
+  }
   // Wipe enemies + projectiles so the next floor starts fresh
   for (const en of enemies) spawnDeathBurst(en.gx, en.gy);
   enemies.length = 0;
@@ -3000,13 +3174,28 @@ function applyEquippedStats() {
   // helm contributes max HP (preserves current ratio)
   const helm = player.equipped.helm;
   const baseHp = 100 + (helm ? helm.stat * 2 : 0);
-  const ratio = player.hp / player.maxHp;
-  player.maxHp = baseHp;
-  player.hp = Math.min(player.maxHp, Math.max(1, Math.floor(baseHp * ratio)));
+  // SPECTRAL affixes — chat ask: "spectral loot with 20% lifesteal and
+  // minion-scaling health". Any equipped item with `spectral: true`
+  // (dropped exclusively by the Lich King) grants a 20% lifesteal +12 HP
+  // per active drone, capped at 8 drones (matching the L20 drone cap).
+  let lifesteal = 0, minionHpBonus = 0;
+  for (const slot of ['weapon','helm','robe','ring']){
+    const it = player.equipped[slot];
+    if (it && it.spectral){
+      lifesteal = Math.max(lifesteal, 0.20);
+      const droneBonus = Math.min(8, Array.isArray(drones) ? drones.length : 0) * 12;
+      minionHpBonus = Math.max(minionHpBonus, droneBonus);
+    }
+  }
+  player.bonus.lifesteal = lifesteal;
+  player.bonus.spectral = (lifesteal > 0);
+  const ratio = player.hp / Math.max(1, player.maxHp);
+  player.maxHp = baseHp + minionHpBonus;
+  player.hp = Math.min(player.maxHp, Math.max(1, Math.floor(player.maxHp * ratio)));
   // robe = mana
   const robe = player.equipped.robe;
   const baseMp = 50 + (robe ? robe.stat * 2 : 0);
-  const mpRatio = player.mp / player.maxMp;
+  const mpRatio = player.mp / Math.max(1, player.maxMp);
   player.maxMp = baseMp;
   player.mp = Math.min(player.maxMp, Math.max(0, Math.floor(baseMp * mpRatio)));
   // ring boosts crit chance
@@ -3039,6 +3228,14 @@ function damageEnemy(en, dmg, isCrit) {
     const heal = Math.max(1, Math.floor(dmg * 0.08));
     player.hp = Math.min(player.maxHp, player.hp + heal);
   }
+  // SPECTRAL LIFESTEAL — chat ask: "spectral loot with 20% lifesteal".
+  // Stacks additively with Life Drain; both can fire on the same hit.
+  // Sourced from any equipped item with `spectral: true` (dropped by
+  // the Lich King boss).
+  if (player.bonus.lifesteal > 0){
+    const heal = Math.max(1, Math.floor(dmg * player.bonus.lifesteal));
+    player.hp = Math.min(player.maxHp, player.hp + heal);
+  }
 }
 function killEnemy(en) {
   state.kills += 1;
@@ -3049,27 +3246,40 @@ function killEnemy(en) {
     pushAutoLog('Slew a ' + enemyDisplayName(en));
   }
   maybeSpawnExitPortal();
-  const isBoss = en.kind === 'nexrad_cloud';
+  const isLich = en.kind === 'lich_king';
+  const isBoss = en.kind === 'nexrad_cloud' || isLich;
   const xpGain = isBoss ? (240 + en.level * 40) : (24 + en.level * 8);
   player.xp += xpGain;
   const goldGain = isBoss ? (200 + en.level * 30) : (4 + Math.floor(Math.random() * en.level * 5));
   player.gold += goldGain;
   if (isBoss){
-    // guaranteed legendary drop + reset boss state w/ 5-min cooldown
+    // guaranteed legendary drop + reset boss state w/ cooldown
     const legendary = rollItem(Math.max(player.level, en.level), 0);
     const legR = RARITY.find(r => r.key === 'leg');
     legendary.rarity = 'leg';
     legendary.rarityName = 'legendary';
     legendary.stat = Math.round((legendary.level * 2 + 4) * legR.stat);
-    // strip any existing prefix and set Mythic
     legendary.name = legR.prefix + legendary.name.replace(/^(Sturdy|Glorious|Cursed|Mythic)\s+/, '');
+    if (isLich){
+      // SPECTRAL affix flag — chat ask: "spectral loot with 20%
+      // lifesteal and minion-scaling health". applyEquippedStats reads
+      // .spectral and grants both bonuses while it's worn.
+      legendary.spectral = true;
+      legendary.name = 'Spectral ' + legendary.name.replace(/^Mythic\s+/, '');
+    }
     drops.push({ gx: en.gx, gy: en.gy, item: legendary, ageT: 0, ttl: 60 });
     spawnDeathBurst(en.gx, en.gy);
     spawnDeathBurst(en.gx + 0.6, en.gy);
     spawnDeathBurst(en.gx - 0.6, en.gy);
-    state.nexradBossSpawned = false;
-    state.nexradBossKilledAt = performance.now();
-    showToast('THE STORM PASSES', 'legendary drop · cooldown 5min', 'leg');
+    if (isLich){
+      state.lichSpawned = false;
+      state.lichKilledAt = performance.now();
+      showToast('THE LICH FALLS', 'spectral legendary · 20% lifesteal · minion-scaling HP', 'leg');
+    } else {
+      state.nexradBossSpawned = false;
+      state.nexradBossKilledAt = performance.now();
+      showToast('THE STORM PASSES', 'legendary drop · cooldown 5min', 'leg');
+    }
   } else {
     // 60% drop chance
     if (Math.random() < 0.6) dropLootAt(en.gx, en.gy);
@@ -4445,6 +4655,16 @@ function tickPlayer(dt) {
   checkEdgeCrossing(dt);
   // Mana regen
   player.mp = Math.min(player.maxMp, player.mp + player.mpRegen * dt);
+  // SPECTRAL minion-scaling HP — chat ask: "minion-scaling health".
+  // Re-apply equipped stats every ~0.5s so player.maxHp tracks the
+  // current drone count (the bonus = drones.length × 12, capped at 8).
+  if (player.bonus.spectral){
+    player._spectralRecalc = (player._spectralRecalc || 0) + dt;
+    if (player._spectralRecalc > 0.5){
+      player._spectralRecalc = 0;
+      applyEquippedStats();
+    }
+  }
   // Cooldowns
   for (const k in player.cooldowns) {
     if (player.cooldowns[k] > 0) player.cooldowns[k] -= dt;
@@ -4514,6 +4734,7 @@ function tickEnemies(dt) {
     const en = enemies[i];
     // Boss has its own AI (no melee, projectile-only)
     if (en.kind === 'nexrad_cloud'){ tickNexradBoss(en, dt); continue; }
+    if (en.kind === 'lich_king')   { tickLichKing(en, dt); continue; }
     const dxPlayer = player.gx - en.gx, dyPlayer = player.gy - en.gy;
     const dPlayer  = Math.hypot(dxPlayer, dyPlayer) || 1;
     const slowMul  = (en.chillUntil > now / 1000) ? 0.45 : 1.0;
@@ -5052,15 +5273,26 @@ function paintTile(c, x, y) {
   c.lineTo(sp.x - TILE_W / 2, sp.y);
   c.closePath();
   const baseV = (seed % 18) - 9;
+  // Graveyard biome — bone-grey floor, cool-violet walls, faint cyan
+  // outline (chat ask: graveyard biome). Palette reads as "cold + dead"
+  // vs the wastes' warm rust.
+  const isGraveyard = state.biome === 'graveyard';
   if (isWall) {
-    c.fillStyle = 'rgb(' + (32 + baseV / 2) + ',' + (24 + baseV / 2) + ',' + (28 + baseV / 2) + ')';
+    if (isGraveyard){
+      c.fillStyle = 'rgb(' + (28 + baseV / 2) + ',' + (28 + baseV / 2) + ',' + (40 + baseV / 2) + ')';
+    } else {
+      c.fillStyle = 'rgb(' + (32 + baseV / 2) + ',' + (24 + baseV / 2) + ',' + (28 + baseV / 2) + ')';
+    }
   } else if (inTownZone) {
     c.fillStyle = 'rgb(' + (78 + baseV) + ',' + (60 + baseV) + ',' + (32 + baseV) + ')';
+  } else if (isGraveyard) {
+    c.fillStyle = 'rgb(' + (54 + baseV) + ',' + (54 + baseV) + ',' + (62 + baseV) + ')';
   } else {
     c.fillStyle = 'rgb(' + (40 + baseV) + ',' + (32 + baseV) + ',' + (36 + baseV) + ')';
   }
   c.fill();
-  c.strokeStyle = inTownZone ? 'rgba(217,161,58,0.45)' : 'rgba(0,0,0,0.55)';
+  c.strokeStyle = inTownZone ? 'rgba(217,161,58,0.45)'
+                  : (isGraveyard ? 'rgba(140,180,210,0.18)' : 'rgba(0,0,0,0.55)');
   c.lineWidth = 1;
   c.stroke();
   // Town shrine sigil — static, baked into the cache (the animated
@@ -5080,11 +5312,28 @@ function paintTile(c, x, y) {
     c.stroke();
   }
   if (!isWall && (seed % 47) === 0) {
-    c.fillStyle = 'rgba(168,107,255,0.5)';
-    c.font = 'bold 14px serif';
+    if (isGraveyard){
+      // Faint pale-cyan grave glyphs scattered on graveyard floor tiles.
+      c.fillStyle = 'rgba(180,210,232,0.55)';
+      c.font = 'bold 14px serif';
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      const glyphs = ['†', '‡', '☩', '✟', '☧', '⚰', '☠'];
+      c.fillText(glyphs[seed % glyphs.length], sp.x, sp.y);
+    } else {
+      c.fillStyle = 'rgba(168,107,255,0.5)';
+      c.font = 'bold 14px serif';
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      const glyphs = ['ᚠ','ᚱ','ᛞ','ᛟ','ᛇ','ᛉ','ᛗ'];
+      c.fillText(glyphs[seed % glyphs.length], sp.x, sp.y);
+    }
+  }
+  // Bonus graveyard detail: wall tiles get the occasional cross / R.I.P.
+  // marker carved into them for "this is a tomb wall" texture.
+  if (isWall && isGraveyard && (seed % 11) === 0){
+    c.fillStyle = 'rgba(180,210,232,0.4)';
+    c.font = 'bold 11px "UnifrakturCook", serif';
     c.textAlign = 'center'; c.textBaseline = 'middle';
-    const glyphs = ['ᚠ','ᚱ','ᛞ','ᛟ','ᛇ','ᛉ','ᛗ'];
-    c.fillText(glyphs[seed % glyphs.length], sp.x, sp.y);
+    c.fillText(['†','✟','☩'][seed % 3], sp.x, sp.y - 2);
   }
   if (isWall) {
     paintPillar(c, sp.x, sp.y);
@@ -5339,10 +5588,13 @@ function drawEnemy(en) {
   ctx.beginPath(); ctx.ellipse(sp.x, sp.y + 6, shR, 5, 0, 0, Math.PI * 2); ctx.fill();
   const flash = en.flash > 0 ? Math.min(1, en.flash * 6) : 0;
   const wob = Math.sin(en.walkPhase) * 2;
-  if      (en.kind === 'nexrad_cloud') drawNexradCloud(sp, en, flash);
-  else if (en.kind === 'swamp_troll')  drawSwampTroll(sp, en, flash, wob);
-  else if (en.kind === 'toxic_slime')  drawToxicSlime(sp, en, flash, wob);
-  else                                 drawSkeleton(sp, en, flash, wob);
+  if      (en.kind === 'nexrad_cloud')  drawNexradCloud(sp, en, flash);
+  else if (en.kind === 'lich_king')     drawLichKing(sp, en, flash, wob);
+  else if (en.kind === 'wraith')        drawWraith(sp, en, flash, wob);
+  else if (en.kind === 'bone_revenant') drawBoneRevenant(sp, en, flash, wob);
+  else if (en.kind === 'swamp_troll')   drawSwampTroll(sp, en, flash, wob);
+  else if (en.kind === 'toxic_slime')   drawToxicSlime(sp, en, flash, wob);
+  else                                  drawSkeleton(sp, en, flash, wob);
   // chill (frost) glow — applies to any kind
   if (en.chillUntil > performance.now() / 1000) {
     ctx.strokeStyle = 'rgba(122,220,255,0.7)';
@@ -5378,6 +5630,188 @@ function drawSkeleton(sp, en, flash, wob){
   ctx.fillRect(sp.x - 4, sp.y - 24 + wob, 2, 2);
   ctx.fillRect(sp.x + 2, sp.y - 24 + wob, 2, 2);
   ctx.fillRect(sp.x - 3, sp.y - 19 + wob, 6, 1);
+}
+
+// ── SPECTRAL ROSTER (chat ask: graveyard biome + spectral bosses) ──
+// Shared visual: slow vertical drift, faint pale-cyan halo, transparent
+// body with bright glowing eye sockets. Color palette tuned to the
+// graveyard tile palette so they read as "from this place."
+function drawWraith(sp, en, flash, wob){
+  const t = performance.now() / 1000;
+  const drift = Math.sin(t * 1.7 + en.gx * 0.3) * 3;
+  // halo
+  const grd = ctx.createRadialGradient(sp.x, sp.y - 14 + drift, 4, sp.x, sp.y - 14 + drift, 26);
+  grd.addColorStop(0, 'rgba(180,232,255,0.55)');
+  grd.addColorStop(1, 'rgba(180,232,255,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(sp.x, sp.y - 14 + drift, 26, 0, Math.PI * 2);
+  ctx.fill();
+  // hood — tapered shroud
+  ctx.fillStyle = flash > 0 ? `rgba(${200 + flash * 50},${230 + flash * 20},${255},0.85)` : 'rgba(170,210,240,0.78)';
+  ctx.beginPath();
+  ctx.moveTo(sp.x - 9, sp.y + 6 + drift);
+  ctx.lineTo(sp.x - 7, sp.y - 18 + drift);
+  ctx.quadraticCurveTo(sp.x, sp.y - 28 + drift, sp.x + 7, sp.y - 18 + drift);
+  ctx.lineTo(sp.x + 9, sp.y + 6 + drift);
+  // tattered hem (zig-zag bottom)
+  ctx.lineTo(sp.x + 6, sp.y + 10 + drift);
+  ctx.lineTo(sp.x + 3, sp.y + 6 + drift);
+  ctx.lineTo(sp.x,     sp.y + 11 + drift);
+  ctx.lineTo(sp.x - 3, sp.y + 6 + drift);
+  ctx.lineTo(sp.x - 6, sp.y + 11 + drift);
+  ctx.closePath();
+  ctx.fill();
+  // hood inner darkness
+  ctx.fillStyle = 'rgba(20,30,48,0.85)';
+  ctx.beginPath();
+  ctx.ellipse(sp.x, sp.y - 18 + drift, 5, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // glowing eye dots
+  ctx.fillStyle = '#bdff5e';
+  ctx.fillRect(sp.x - 3, sp.y - 19 + drift, 2, 2);
+  ctx.fillRect(sp.x + 1, sp.y - 19 + drift, 2, 2);
+  // ectoplasm trail under
+  ctx.fillStyle = 'rgba(116,232,255,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(sp.x, sp.y + 6 + drift, 9, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBoneRevenant(sp, en, flash, wob){
+  // tankier skeleton — armored shoulders, broader stance, glowing red eyes.
+  // legs (heavier)
+  ctx.fillStyle = '#a89668';
+  ctx.fillRect(sp.x - 7, sp.y - 4, 5, 12);
+  ctx.fillRect(sp.x + 2, sp.y - 4, 5, 12);
+  // pauldrons (shoulder armor)
+  ctx.fillStyle = '#3d3645';
+  ctx.fillRect(sp.x - 11, sp.y - 18 + wob, 5, 6);
+  ctx.fillRect(sp.x + 6,  sp.y - 18 + wob, 5, 6);
+  // ribcage
+  ctx.fillStyle = flash > 0 ? `rgb(${230 + flash * 25},${195 - flash * 30},${150 - flash * 40})` : '#cfb98a';
+  ctx.fillRect(sp.x - 8, sp.y - 18 + wob, 16, 16);
+  // armor breastplate
+  ctx.fillStyle = '#5a4d6a';
+  ctx.fillRect(sp.x - 7, sp.y - 14 + wob, 14, 6);
+  ctx.strokeStyle = 'rgba(180,210,232,0.35)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(sp.x - 7, sp.y - 14 + wob, 14, 6);
+  // ribs visible above breastplate
+  ctx.fillStyle = '#7a6a4a';
+  for (let i = 0; i < 2; i++) ctx.fillRect(sp.x - 7, sp.y - 17 + i * 2 + wob, 14, 1);
+  // skull (slightly bigger)
+  ctx.fillStyle = '#cfb98a';
+  ctx.beginPath(); ctx.arc(sp.x, sp.y - 24 + wob, 7, 0, Math.PI * 2); ctx.fill();
+  // crown of bone fragments
+  ctx.fillStyle = '#a89668';
+  for (let i = -2; i <= 2; i++){
+    ctx.fillRect(sp.x + i * 2 - 0.5, sp.y - 30 + wob, 1.5, 3);
+  }
+  // GLOWING RED eyes
+  ctx.fillStyle = '#ff4060';
+  ctx.shadowColor = '#ff4060';
+  ctx.shadowBlur = 6;
+  ctx.fillRect(sp.x - 4, sp.y - 26 + wob, 2, 2);
+  ctx.fillRect(sp.x + 2, sp.y - 26 + wob, 2, 2);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#1a0c12';
+  ctx.fillRect(sp.x - 3, sp.y - 21 + wob, 6, 1);
+}
+
+function drawLichKing(sp, en, flash, wob){
+  // BOSS — towering robed lich on a swirling violet aura. Drawn larger
+  // than the other mobs so they read as a boss at first glance.
+  const t = performance.now() / 1000;
+  const drift = Math.sin(t * 1.2) * 3;
+  const auraR = 38;
+  // ground aura — pulsing violet
+  const aura = ctx.createRadialGradient(sp.x, sp.y + 6, 6, sp.x, sp.y + 6, auraR);
+  aura.addColorStop(0, 'rgba(168,107,255,0.55)');
+  aura.addColorStop(0.6, 'rgba(116,232,255,0.25)');
+  aura.addColorStop(1, 'rgba(116,232,255,0)');
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.ellipse(sp.x, sp.y + 6, auraR, auraR * 0.45, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // robe — double tier, dark violet
+  const robeColor = flash > 0 ? `rgba(${180 + flash * 60},${120 + flash * 40},${230},0.95)` : 'rgba(80,55,120,0.95)';
+  ctx.fillStyle = robeColor;
+  ctx.beginPath();
+  ctx.moveTo(sp.x - 13, sp.y + 8 + drift);
+  ctx.lineTo(sp.x - 11, sp.y - 22 + drift);
+  ctx.quadraticCurveTo(sp.x, sp.y - 36 + drift, sp.x + 11, sp.y - 22 + drift);
+  ctx.lineTo(sp.x + 13, sp.y + 8 + drift);
+  // tattered hem
+  ctx.lineTo(sp.x + 9,  sp.y + 14 + drift);
+  ctx.lineTo(sp.x + 5,  sp.y + 8 + drift);
+  ctx.lineTo(sp.x + 1,  sp.y + 14 + drift);
+  ctx.lineTo(sp.x - 3,  sp.y + 8 + drift);
+  ctx.lineTo(sp.x - 7,  sp.y + 14 + drift);
+  ctx.lineTo(sp.x - 11, sp.y + 8 + drift);
+  ctx.closePath();
+  ctx.fill();
+  // robe trim
+  ctx.strokeStyle = 'rgba(255,213,74,0.6)';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(sp.x - 11, sp.y - 22 + drift);
+  ctx.quadraticCurveTo(sp.x, sp.y - 36 + drift, sp.x + 11, sp.y - 22 + drift);
+  ctx.stroke();
+  // skeletal hands holding a staff
+  ctx.fillStyle = '#cfb98a';
+  ctx.fillRect(sp.x + 9, sp.y - 8 + drift, 3, 5);
+  ctx.fillRect(sp.x - 12, sp.y - 8 + drift, 3, 5);
+  // staff (right hand) with floating skull-orb top
+  ctx.fillStyle = '#3a2c20';
+  ctx.fillRect(sp.x + 14, sp.y - 30 + drift, 2, 32);
+  ctx.fillStyle = '#cfb98a';
+  ctx.beginPath(); ctx.arc(sp.x + 15, sp.y - 32 + drift, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#bdff5e';
+  ctx.shadowColor = '#bdff5e';
+  ctx.shadowBlur = 8;
+  ctx.fillRect(sp.x + 13, sp.y - 33 + drift, 1.5, 1.5);
+  ctx.fillRect(sp.x + 16, sp.y - 33 + drift, 1.5, 1.5);
+  ctx.shadowBlur = 0;
+  // SKULL — biggest of all enemies
+  ctx.fillStyle = '#dccba0';
+  ctx.beginPath(); ctx.arc(sp.x, sp.y - 30 + drift, 9, 0, Math.PI * 2); ctx.fill();
+  // crown — gold pointed
+  ctx.fillStyle = '#ffd54a';
+  ctx.beginPath();
+  ctx.moveTo(sp.x - 9, sp.y - 35 + drift);
+  for (let i = 0; i < 7; i++){
+    const px = sp.x - 9 + i * 3;
+    ctx.lineTo(px + 1, sp.y - 41 + drift);
+    ctx.lineTo(px + 3, sp.y - 35 + drift);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#a86bff';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // GLOWING violet eyes (boss)
+  ctx.fillStyle = '#bdff5e';
+  ctx.shadowColor = '#bdff5e';
+  ctx.shadowBlur = 10;
+  ctx.fillRect(sp.x - 5, sp.y - 32 + drift, 3, 3);
+  ctx.fillRect(sp.x + 2, sp.y - 32 + drift, 3, 3);
+  ctx.shadowBlur = 0;
+  // jaw line
+  ctx.fillStyle = '#1a0c12';
+  ctx.fillRect(sp.x - 4, sp.y - 25 + drift, 8, 1);
+  ctx.fillRect(sp.x - 2, sp.y - 24 + drift, 1, 2);
+  ctx.fillRect(sp.x + 1, sp.y - 24 + drift, 1, 2);
+  // floating spectral wisps around head
+  for (let i = 0; i < 3; i++){
+    const a = t * 1.8 + i * (Math.PI * 2 / 3);
+    const wx = sp.x + Math.cos(a) * 18;
+    const wy = sp.y - 30 + drift + Math.sin(a) * 8;
+    ctx.fillStyle = 'rgba(189,255,94,' + (0.4 + Math.sin(t * 4 + i) * 0.2) + ')';
+    ctx.beginPath();
+    ctx.arc(wx, wy, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawSwampTroll(sp, en, flash, wob){
@@ -6343,6 +6777,23 @@ function loop(now) {
       if (Math.random() < 0.0006){
         spawnNexradBoss();
         showToast('A STORM GATHERS', 'the NEXRAD cloud descends', 'leg');
+      }
+    }
+    // ── LICH KING — spectral boss for the graveyard biome (chat ask) ──
+    // Eligibility: graveyard floor, not in town/exit-portal phase, not
+    // already spawned this floor, and 60-second cooldown after last
+    // kill so a single legendary chase doesn't immediately respawn.
+    if (
+      state.biome === 'graveyard' &&
+      !state.lichSpawned &&
+      !state.inTown &&
+      !state.exitPortal &&
+      (now - state.lichKilledAt > 60 * 1000)
+    ){
+      // higher per-frame chance than the cloud since this gates an
+      // entire biome's flagship encounter
+      if (Math.random() < 0.0018){
+        spawnLichKing();
       }
     }
     // Exit portal pickup — walking onto it advances to the next floor.
