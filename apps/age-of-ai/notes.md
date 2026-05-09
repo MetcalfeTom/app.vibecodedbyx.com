@@ -1,6 +1,13 @@
 # age-of-ai
 
 ## log
+- 2026-05-09: **Two higher difficulty tiers** (chat ask: "in age-of-ai, add two higher difficulty levels and suggest technical or gameplay improvements for the balance"). New `DIFFICULTIES` table holds a multiplier bundle per tier; new HUD button `◇ NORMAL` cycles through the three. Locks itself the moment a wave starts, unlocks on reset.
+  - **NORMAL** ◇ — `hpMul 1.0 · speedMul 1.0 · bountyMul 1.0 · 200 FLOPS · 20 lives` (baseline).
+  - **OVERCLOCK** ◈ — `hpMul 1.4 · speedMul 1.10 · bountyMul 0.9 · 175 FLOPS · 15 lives` (hard).
+  - **SINGULARITY** ◆ — `hpMul 1.85 · speedMul 1.20 · bountyMul 0.8 · 150 FLOPS · 10 lives` (insane).
+  - Multipliers apply uniformly to every spawn in `spawnEnemy` (HP, maxHp, speed, bounty); existing per-wave HP scaling (`1 + wave*0.08`) stacks on top so wave 12 Singularity enemies are roughly `1 + 11*0.08 = 1.88 × 1.85 ≈ 3.48× normal-wave-1 HP`.
+  - Reset reads difficulty-aware starting resources (FLOPS + lives) so swapping tiers and resetting always lands in the right resource pool.
+  - The button is disabled mid-wave to prevent live mid-run difficulty switching (would cause weird snapshots in the lobby leaderboard).
 - 2026-05-09: **Exponential token-cost scaling** (chat ask: "add the exponential token cost scaling to the Age of AI turret prices"). Each subsequent purchase of the SAME tower type costs `base × 1.4^N` where N is the count already on the board, mirroring the real-world AI procurement-curve where every additional GPU costs more than the last. Implementation:
   - New `costFor(def)` helper computes the live next-purchase price from the current board count of that type.
   - Click-to-place uses `costFor(def)` instead of `def.cost` for both the affordability gate and the deduction.

@@ -357,6 +357,7 @@ main{ max-width: 78rem; margin: 0 auto; padding: 1rem 1rem 2rem; }
     <div class="stat"><span class="lbl">Lives</span><span class="val cyan" id="hudLives">20</span></div>
     <div class="stat"><span class="lbl">Wave</span><span class="val acid" id="hudWave">0/12</span></div>
     <div class="stat"><span class="lbl">Score</span><span class="val violet" id="hudScore">0</span></div>
+    <button class="btn" id="diffBtn" type="button" title="Cycle difficulty (locked once a wave starts)">◇ NORMAL</button>
     <span class="spacer"></span>
     <button class="btn primary" id="waveBtn" type="button">▶ START WAVE</button>
     <button class="btn warn" id="speedBtn" type="button">▶ 1×</button>
@@ -514,7 +515,34 @@ const WAVES = [
 ];
 
 // ── STATE ─────────────────────────────────────────────────────
+// Difficulty tiers (chat ask: "add two higher difficulty levels").
+// Multipliers applied at spawn-time (HP, speed, bounty) and at reset
+// time (starting flops, lives). Difficulty is locked once the first
+// wave starts so a player can't switch mid-run for free.
+const DIFFICULTIES = {
+  normal: {
+    label: 'NORMAL',     glyph: '◇', tagColor: '#74e8ff',
+    hpMul: 1.0,  speedMul: 1.0,  bountyMul: 1.0,
+    startFlops: 200, startLives: 20,
+    desc: 'baseline · 200 FLOPS · 20 lives',
+  },
+  overclock: {
+    label: 'OVERCLOCK',  glyph: '◈', tagColor: '#ffd54a',
+    hpMul: 1.4,  speedMul: 1.10, bountyMul: 0.9,
+    startFlops: 175, startLives: 15,
+    desc: 'hard · +40% HP · +10% speed · 90% bounty · 175 FLOPS · 15 lives',
+  },
+  singularity: {
+    label: 'SINGULARITY',glyph: '◆', tagColor: '#ff4060',
+    hpMul: 1.85, speedMul: 1.20, bountyMul: 0.8,
+    startFlops: 150, startLives: 10,
+    desc: 'insane · +85% HP · +20% speed · 80% bounty · 150 FLOPS · 10 lives',
+  },
+};
+const DIFFICULTY_ORDER = ['normal', 'overclock', 'singularity'];
+
 const state = {
+  difficulty: 'normal',
   flops: 200,
   lives: 20,
   wave: 0,
@@ -787,15 +815,20 @@ function spawnEnemy(kindId){
   if (!k) return;
   const start = WAYPOINTS[0];
   const p = tileToPx(0, start.r);
-  // wave-scaled HP: each wave adds 8% HP for non-boss
-  const hpMul = 1 + state.wave * 0.08;
+  // wave-scaled HP: each wave adds 8% HP for non-boss · difficulty
+  // multiplies on top, so OVERCLOCK 1.4× and SINGULARITY 1.85×
+  // compound with the wave ramp.
+  const dif = DIFFICULTIES[state.difficulty] || DIFFICULTIES.normal;
+  const hpMul = (1 + state.wave * 0.08) * dif.hpMul;
+  const speedMul = dif.speedMul;
+  const bountyMul = dif.bountyMul;
   state.enemies.push({
     x: p.x - CELL / 2,
     y: p.y,
     hp: k.hp * hpMul,
     maxHp: k.hp * hpMul,
-    speed: k.speed,
-    bounty: Math.round(k.bounty * (1 + state.wave * 0.05)),
+    speed: k.speed * speedMul,
+    bounty: Math.round(k.bounty * (1 + state.wave * 0.05) * bountyMul),
     kind: kindId,
     wpIdx: 1,
     slowUntil: 0,
@@ -1053,6 +1086,7 @@ function startWave(){
   }
   waveBtn.textContent = '▷ wave ' + state.wave + ' · running';
   waveBtn.disabled = true;
+  refreshDifficultyBtn();
   showToast('wave ' + state.wave + ' · ' + WAVES[state.wave - 1].map(g => g.count + ' ' + g.kind).join(' + '), 'warn');
   sfxWaveStart();
 }
@@ -1232,8 +1266,39 @@ function refreshHud(){
 const waveBtn = document.getElementById('waveBtn');
 const speedBtn = document.getElementById('speedBtn');
 const muteBtn = document.getElementById('muteBtn');
+const diffBtn = document.getElementById('diffBtn');
 waveBtn.addEventListener('click', startWave);
 speedBtn.addEventListener('click', cycleSpeed);
+
+// DIFFICULTY CYCLE — chat ask: 2 higher tiers above NORMAL.
+// Locked once any wave has started (state.wave > 0 or state.waveActive),
+// so a player can't game the system by switching mid-run.
+function cycleDifficulty(){
+  if (state.wave > 0 || state.waveActive){
+    showToast('locked · reset to change difficulty', 'crim');
+    return;
+  }
+  const i = DIFFICULTY_ORDER.indexOf(state.difficulty);
+  state.difficulty = DIFFICULTY_ORDER[(i + 1) % DIFFICULTY_ORDER.length];
+  // Snap starting flops + lives to the new tier so the HUD reflects
+  // the new run-start state immediately (no need to hit reset).
+  const dif = DIFFICULTIES[state.difficulty];
+  state.flops = dif.startFlops;
+  state.lives = dif.startLives;
+  refreshDifficultyBtn();
+  refreshHud();
+  refreshPalette();
+  showToast(dif.label + ' · ' + dif.desc, 'warn');
+}
+function refreshDifficultyBtn(){
+  const dif = DIFFICULTIES[state.difficulty] || DIFFICULTIES.normal;
+  diffBtn.textContent = dif.glyph + ' ' + dif.label;
+  diffBtn.style.color = dif.tagColor;
+  diffBtn.style.borderColor = dif.tagColor;
+  diffBtn.disabled = (state.wave > 0 || state.waveActive);
+}
+diffBtn.addEventListener('click', cycleDifficulty);
+refreshDifficultyBtn();
 function cycleSpeed(){
   state.speedIdx = (state.speedIdx + 1) % state.speedSteps.length;
   state.speed = state.speedSteps[state.speedIdx];
@@ -1286,8 +1351,12 @@ function endGame(reason){
   document.getElementById('endOverlay').hidden = false;
 }
 function reset(){
-  state.flops = 200;
-  state.lives = 20;
+  // Difficulty-aware starting resources (chat ask: 2 higher tiers).
+  // The currently-selected difficulty determines how forgiving the
+  // run is — Singularity hands you 25% less FLOPS and half the lives.
+  const dif = DIFFICULTIES[state.difficulty] || DIFFICULTIES.normal;
+  state.flops = dif.startFlops;
+  state.lives = dif.startLives;
   state.wave = 0;
   state.score = 0;
   state.towers = [];
@@ -1303,6 +1372,7 @@ function reset(){
   document.getElementById('endOverlay').hidden = true;
   refreshPalette();
   refreshHud();
+  refreshDifficultyBtn();
   showToast('reset', 'warn');
 }
 
