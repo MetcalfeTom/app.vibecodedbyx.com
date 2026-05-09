@@ -1,6 +1,12 @@
 # age-of-ai
 
 ## log
+- 2026-05-09: **Exponential token-cost scaling** (chat ask: "add the exponential token cost scaling to the Age of AI turret prices"). Each subsequent purchase of the SAME tower type costs `base × 1.4^N` where N is the count already on the board, mirroring the real-world AI procurement-curve where every additional GPU costs more than the last. Implementation:
+  - New `costFor(def)` helper computes the live next-purchase price from the current board count of that type.
+  - Click-to-place uses `costFor(def)` instead of `def.cost` for both the affordability gate and the deduction.
+  - Each placed tower stores `paidCost` so the sell-refund (60%) refunds 60% of what you ACTUALLY paid, not the base list price — selling a late-game H100 you bought for ₣423 returns ₣253, not ₣66.
+  - Palette card cost pill now shows the LIVE next-purchase price + a small `× N` hint when the player already has copies (e.g., "264F ×3" means this would be your 3rd copy, costing 264 FLOPS).
+  - Different tower types each track their own count independently so going wide (one of each) stays cheap; going deep (six A100s) gets expensive fast.
 - 2026-05-09: shipped — GPU-cluster tower defense (chat ask: "create a game called Age of AI where players build GPU clusters to defend against data surges") + 5-room lobby with Supabase presence sync (chat ask: "add a lobby system with five rooms using URL parameters and simple Supabase state syncing"). Pure canvas-2D, no asset files.
   - **Map**: 24×14 grid (40px cells = 960×560 viewport), waypoint-based path that snakes through 4 turns from left to right. Path tiles are non-buildable (dark asphalt with a faint cyan data-stream sheen); grass tiles are buildable (mottled navy with subtle hash-noise).
   - **6 GPU cluster types** with rock-paper-scissors trade-offs:
