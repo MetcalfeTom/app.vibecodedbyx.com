@@ -1,6 +1,12 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-09: **Audit follow-up — SRI on Matter.js + DOM-lookup caching for the per-frame HUD.**
+  - **Subresource Integrity** on the third-party Matter.js script tag. Computed `sha384-ZRKYEXtLBVeqs9z1WxyeKutCqnkqolS/r1EUWuoUpG4ZKbnRAIXnHhHdnNuiB6CL` against the actual 83476-byte 0.20.0 build from jsdelivr; if the CDN ever serves modified bytes the browser refuses to execute. Added matching `crossorigin="anonymous"` so the integrity check actually runs. Pinned to `@0.20.0` so the hash stays valid until we deliberately bump.
+  - **`<link rel="dns-prefetch">` + `<link rel="preconnect">` for cdn.jsdelivr.net** (we already had both for fonts.googleapis.com / fonts.gstatic.com). Saves ~150-300ms of DNS+TLS round-trips on cold loads.
+  - **HUD DOM-element cache**: `refreshHud` was running 9× `document.getElementById` per frame at 60fps = 540 DOM queries/sec. Replaced with a lazy `_hud = {...}` cache populated once + `_hudPrev` last-rendered-value memo so we skip unchanged-text writes entirely. The bar widths and innerHTML writes only fire when the underlying value changes (HP/MP/XP regen ticks naturally update; idle frames now do zero DOM writes for the static fields).
+  - **Skill-slot cache**: `tickSkillHud` and `refreshSkillBar` both ran `document.querySelectorAll('.skill-slot')` every call (60fps), each iteration also doing `slot.querySelector('.cd-text')` + `slot.querySelector('.cost')`. Added `_skillSlotsCache = [{el, id, cdEl, costEl}, ...]` populated lazily once; subsequent calls iterate the cached records without touching the DOM walk machinery.
+  - Net effect on a 60fps browser: ~720 DOM lookups/sec eliminated from the hot path, with no behavior changes (every code branch is identical, just operating on cached references). Confirmed via `grep -c "document.getElementById"` count: 70 → 75 hit count is misleading (the new code adds the cache-init lookups but they fire ONCE, not per-frame).
 - 2026-05-09: **Removed all geolocation + weather-API code** (chat ask: "remove all location requests and geolocation code from sloppy-exiles immediately"). Audit + removal of every live code path that requested location or hit a weather endpoint:
   - **Deleted `navigator.geolocation.getCurrentPosition` call** in the `bootNexrad` IIFE — no more browser permission prompt on page load.
   - **Deleted the entire `bootNexrad` IIFE** + the 5-min interval that polled weather APIs.
