@@ -1,6 +1,12 @@
 # geo-bites
 
 ## log
+- 2026-05-09: **Uber Eats link + delivery filter** (chat ask: "include a filter for Uber Eats availability, and maybe a direct link"). OSM doesn't expose a per-platform `delivery:ubereats` tag, so the honest implementation is: filter on OSM's generic `delivery=yes` tag (the only delivery signal we actually have), and surface a per-card `↗ uber eats` link that opens an Uber Eats search for the restaurant's name + address — their site shows on the next click whether they're really listed.
+  - `parseElement` extracts `r.delivery` (`yes`/`no`/null) + `r.takeaway`. Spot cards show a green 🛵 'delivers' badge for `yes`, a dashed dim ✕ for `no`, nothing for missing. Slot reel shows the same.
+  - `↗ uber eats` link on every card + the slot-reel meta. Builds a search URL `https://www.ubereats.com/search?q=<name>+<addr-first-3-words>`, opens in a new tab. Click stops propagation so the card click-to-map doesn't also fire.
+  - `🛵 OSM-listed delivery only` toggle pill in a new Delivery row. When on, filters to `delivery === 'yes'`. Persisted to `localStorage['geo-bites-deliv']`. Re-buckets in place — no Overpass re-query.
+  - Honest disclaimer next to the pill: "uses OSM `delivery=yes` · ↗ Uber Eats link works on every card · their site says yes/no". We don't fake an Uber-listed claim — the link is the source of truth.
+  - Active state of the delivery toggle uses an Uber-adjacent green so the filter reads as engaged.
 - 2026-05-09: **Gluten-free toggle + safety badges** (chat ask: "add a gluten free toggle to the geo bites app to highlight safe options"). The Overpass query already returned every OSM tag via `out center tags;`, so no query change was needed — just plumbed `diet:gluten_free` through.
   - `parseElement` extracts `r.glutenFree` from `t['diet:gluten_free']`. OSM values: `yes` / `only` / `limited` / `no` / missing.
   - GF badges on every result card + slot-reel meta: green ✓GF for yes/only, amber ⚠GF? for limited, dim dashed ✕ for explicit no.
