@@ -1,6 +1,14 @@
 # sloppy-exiles
 
 ## log
+- 2026-05-09: **Removed all geolocation + weather-API code** (chat ask: "remove all location requests and geolocation code from sloppy-exiles immediately"). Audit + removal of every live code path that requested location or hit a weather endpoint:
+  - **Deleted `navigator.geolocation.getCurrentPosition` call** in the `bootNexrad` IIFE — no more browser permission prompt on page load.
+  - **Deleted the entire `bootNexrad` IIFE** + the 5-min interval that polled weather APIs.
+  - **Deleted `checkNexradPrecipitation`** — the function that called `https://api.rainviewer.com/public/weather-maps.json` and `https://api.open-meteo.com/v1/forecast`. Both fetches gone.
+  - **Removed `state.userLat / userLon / nexradPrecip`** fields. The `state` object now stores only the boss spawn-guard + last-kill timestamp.
+  - **Replaced the precipitation gate** in the main-loop boss-spawn check with a rare random roll (`Math.random() < 0.00008` per frame, gated on no-active-boss + 5-min cooldown + not-in-town + not-graveyard-biome). The Nexrad Cloud boss still exists but is purely a random encounter — no permission prompts, no outbound network.
+  - Updated the ENEMY_KINDS comment + the spawn-roll comment + the IIFE-position-comment so future agents see the removal date and reason.
+  - Verified: `grep -E "navigator\.geolocation|getCurrentPosition|api\.rainviewer|api\.open-meteo"` finds only ONE hit, and it's a comment line documenting the removal (not live code).
 - 2026-05-09: **Graveyard biome · spectral roster · Lich King boss · spectral loot affix.** Chat asks bundled: "update sloppy-exiles with a new graveyard biome and spectral bosses" + "add spectral loot with 20% lifesteal and minion-scaling health".
   - **Biome system**: `state.biome` defaults to `'wastes'`; from floor 6+ each new floor rolls `pickBiomeForFloor(floor)` that returns `'graveyard'` with chance scaling 40% → 60% by floor 15. Set BEFORE `buildMap()` runs so the cached tile bake picks it up. `paintTile` reads `state.biome === 'graveyard'` and switches to a cool-grey/violet palette (floor `rgb(54,54,62)` ± noise, walls `rgb(28,28,40)`, faint cyan tile outlines vs. the wastes' black) and replaces the random-rune glyphs with cross/skull glyphs (`† ‡ ☩ ✟ ☧ ⚰ ☠`). Wall tiles also occasionally carry a faded UnifrakturCook cross so they read as tomb walls.
   - **Spectral roster** (3 new ENEMY_KINDS):

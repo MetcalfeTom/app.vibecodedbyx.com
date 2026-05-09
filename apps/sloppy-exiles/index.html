@@ -1026,16 +1026,16 @@ const state = {
   // a fresh wing of the same floor.
   zoneX: 0,
   zoneY: 0,
-  // === NEXRAD CLOUD BOSS (chat ask) ===
-  // nexradPrecip       : has the precipitation check returned positive recently
-  // nexradBossSpawned  : guard so we only spawn one per session per cooldown
-  // nexradBossKilledAt : performance.now() at last kill, gates re-spawn 5min
-  // userLat/userLon    : geolocation if granted, else CONUS centerish defaults
-  nexradPrecip: false,
+  // === NEXRAD CLOUD BOSS ===
+  // Chat ask 2026-05-09: "remove all location requests and geolocation
+  // code from sloppy-exiles immediately." Previously the boss was gated
+  // on real-world weather via Open-Meteo + RainViewer + the browser's
+  // geolocation API. ALL network calls + the geolocation prompt were
+  // removed; the boss now spawns as a rare random encounter on any
+  // non-graveyard floor. State pared back to just the spawn guard +
+  // last-kill timestamp.
   nexradBossSpawned: false,
   nexradBossKilledAt: 0,
-  userLat: 39.5,
-  userLon: -96.5,
   // === ZERO-PLAYER AUTOMATION (chat ask) ===
   // auto       : when true, the player AI drives movement, targeting,
   //              skill use, dodge rolls, looting, and floor clears.
@@ -1567,9 +1567,11 @@ const ENEMY_KINDS = {
   },
   nexrad_cloud: {
     label: 'The NEXRAD Cloud',
-    // RARE BOSS (chat ask) — only spawns at map center when RainViewer
-    // reports precipitation in the player's region. Slow, tanky, attacks
-    // exclusively via projectiles in the radar-palette colors.
+    // RARE BOSS — slow, tanky, attacks exclusively via projectiles in
+    // the radar-palette colors. Originally gated on real-world weather
+    // (RainViewer + Open-Meteo + geolocation); now a rare random
+    // encounter on non-graveyard floors, all network/permission plumbing
+    // removed 2026-05-09.
     hpMul: 12.0, dmgMul: 0.0, speedMul: 0.32, attackCdMul: 1.0,
     isBoss: true,
   },
@@ -1646,48 +1648,13 @@ function spawnEnemy(t) {
 }
 
 // =====================================================================
-// THE NEXRAD CLOUD — rare boss, gated on real-world precipitation
+// THE NEXRAD CLOUD — rare random boss (no geolocation, no network)
 // =====================================================================
-// Boss spawns at the map center (TOWN_GX, TOWN_GY) — yes, that's INSIDE
-// the home zone's town safe-zone — when RainViewer reports current radar
-// frames AND Open-Meteo says it's raining at the player's position. The
-// safe-zone block is bypassed for this enemy specifically; the storm has
-// invaded sanctuary. Guarded so it spawns at most once per 5 minutes.
-async function checkNexradPrecipitation(){
-  let rvUp = false;
-  // Step 1 — confirm RainViewer is reporting current frames
-  try {
-    const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-    if (r.ok){
-      const j = await r.json();
-      rvUp = !!(j && j.radar && Array.isArray(j.radar.past) && j.radar.past.length);
-    }
-  } catch (e) { /* CORS / offline — silent, fallback below */ }
-  // Step 2 — Open-Meteo gives us the actual precipitation magnitude
-  let precip = -1;
-  try {
-    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + state.userLat
-              + '&longitude=' + state.userLon
-              + '&current=precipitation&timezone=auto';
-    const r = await fetch(url);
-    if (r.ok){
-      const j = await r.json();
-      if (j && j.current && typeof j.current.precipitation === 'number'){
-        precip = j.current.precipitation;
-      }
-    }
-  } catch (e) { /* silent */ }
-  // Decision matrix:
-  // - precipitation > 0.05 mm AND RainViewer up → DEFINITELY raining
-  // - precipitation > 0.05 mm but RainViewer down → still raining (use Open-Meteo as truth)
-  // - Open-Meteo down + RainViewer up → 25% chance the storm is local (probabilistic fallback)
-  // - both down → no boss
-  if (precip > 0.05) state.nexradPrecip = true;
-  else if (precip < 0 && rvUp) state.nexradPrecip = Math.random() < 0.25;
-  else state.nexradPrecip = false;
-  console.info('[sloppy-exiles] nexrad precip check · rvUp=' + rvUp + ' · precip=' + precip + ' · result=' + state.nexradPrecip);
-}
-
+// Originally gated on real-world precipitation via Open-Meteo +
+// RainViewer + navigator.geolocation; removed 2026-05-09 per chat ask
+// to strip all location requests. The boss now spawns as a rare random
+// encounter — see the per-frame roll in the main loop. Visual + AI
+// behaviour unchanged.
 function spawnNexradBoss(){
   const lvl = Math.max(3, player.level + 2);
   const k = ENEMY_KINDS.nexrad_cloud;
@@ -6763,18 +6730,22 @@ function loop(now) {
         state.spawnT = Math.max(0.35, 1.8 - state.waveT * 0.04);
       }
     }
-    // ── NEXRAD CLOUD BOSS — rare spawn when real-world precip detected ──
-    // gates: precip flag set by checkNexradPrecipitation, no boss already alive,
-    // 5-min cooldown after last kill, not in town/exit-portal phase
+    // ── NEXRAD CLOUD BOSS — rare random encounter ──
+    // Chat ask 2026-05-09: removed the real-world weather gate (and
+    // the geolocation prompt that fed it). Spawn now requires only
+    // the standard guards: no boss already alive, 5-min kill cooldown,
+    // not in town/exit-portal, and we keep it OUT of the graveyard
+    // biome so it doesn't compete with the Lich King for boss slots.
     if (
-      state.nexradPrecip &&
       !state.nexradBossSpawned &&
       !state.inTown &&
       !state.exitPortal &&
+      state.biome !== 'graveyard' &&
       (now - state.nexradBossKilledAt > 5 * 60 * 1000)
     ){
-      // small per-frame chance so it feels rare, telegraphed by toast
-      if (Math.random() < 0.0006){
+      // very small per-frame chance so it stays rare without any
+      // external trigger
+      if (Math.random() < 0.00008){
         spawnNexradBoss();
         showToast('A STORM GATHERS', 'the NEXRAD cloud descends', 'leg');
       }
@@ -6838,31 +6809,11 @@ requestAnimationFrame(loop);
 // Initial focus to play button
 requestAnimationFrame(() => document.getElementById('playBtn').focus());
 
-// ── NEXRAD precipitation lifecycle ──────────────────────────────────────────
-// Try geolocation once (silently). If denied/unavailable, checkNexradPrecipitation
-// falls back to a generic "is RainViewer publishing recent radar?" check.
-// Refresh the precip flag every 5 min so weather conditions can flip mid-session.
-(function bootNexrad(){
-  function start(){
-    checkNexradPrecipitation().catch(()=>{});
-    setInterval(() => checkNexradPrecipitation().catch(()=>{}), 5 * 60 * 1000);
-  }
-  if (navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function'){
-    let resolved = false;
-    const finish = () => { if (!resolved){ resolved = true; start(); } };
-    try {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => { state.userLat = pos.coords.latitude; state.userLon = pos.coords.longitude; finish(); },
-        () => finish(),
-        { enableHighAccuracy: false, timeout: 4000, maximumAge: 30 * 60 * 1000 }
-      );
-      // hard fallback in case the geo prompt sits forever
-      setTimeout(finish, 5000);
-    } catch(e){ start(); }
-  } else {
-    start();
-  }
-})();
+// (Geolocation + RainViewer + Open-Meteo bootstrap removed 2026-05-09
+// per chat ask: "remove all location requests and geolocation code from
+// sloppy-exiles immediately." The Nexrad Cloud boss now spawns as a
+// rare random encounter — no browser permission prompts, no outbound
+// network requests. See the main loop for the per-frame spawn roll.)
 </script>
 </body>
 </html>
