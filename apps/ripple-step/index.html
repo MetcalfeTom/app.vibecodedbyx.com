@@ -294,6 +294,7 @@ input[type=range]::-moz-range-thumb{
   grid-template-columns:2.5rem repeat(16, 1fr);
   gap:0.22rem;
   align-items:stretch;
+  position:relative;     /* containing block for absolutely-positioned .note-fill */
 }
 .row .lbl{
   display:flex;align-items:center;justify-content:flex-end;
@@ -322,16 +323,15 @@ input[type=range]::-moz-range-thumb{
 .cell.beat{background:rgba(168,216,226,0.08)}
 .cell.head{background:rgba(168,216,226,0.22);border-color:rgba(168,216,226,0.55);z-index:3}
 .note-fill{
-  grid-row:1;
-  align-self:stretch;
-  justify-self:stretch;
-  min-width:0;min-height:0;
+  /* Absolutely positioned over the cells — left/width/top/height set by JS
+     from measured cell rects so the fill always aligns to the actual
+     pixel positions of the underlying grid cells. */
+  position:absolute;
   background:var(--cell-color, var(--note-3));
   border:1px solid var(--cell-color, var(--note-3));
   border-radius:3px;
   box-shadow:0 0 8px var(--cell-color, var(--note-3));
   pointer-events:none;
-  position:relative;
   z-index:2;
   overflow:hidden;
 }
@@ -339,11 +339,6 @@ input[type=range]::-moz-range-thumb{
   content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
   background:rgba(255,255,255,0.7);
   border-radius:3px 0 0 3px;
-}
-.note-fill.short{
-  /* sub-1-step duration: render as narrow slice anchored at the cell's left edge */
-  justify-self:start;
-  width:var(--fill-width, 25%);
 }
 .row.r-1 .note-fill{--cell-color:var(--note-1)}
 .row.r-2 .note-fill{--cell-color:var(--note-2)}
@@ -1005,38 +1000,50 @@ function updateCell(r, s){
 }
 
 function refreshNoteFills(row){
-  // wipe any existing fills in this row and re-render based on pattern
+  // Wipe + rebuild fills for one row. Fills are absolutely positioned
+  // using the LIVE pixel rects of the cells so they always align with
+  // the underlying grid cells regardless of grid sizing edge cases.
   const rowEl = document.querySelector(`.row[data-row="${row}"]`);
   if (!rowEl) return;
   rowEl.querySelectorAll('.note-fill').forEach(n => n.remove());
+  const rowRect = rowEl.getBoundingClientRect();
+  if (rowRect.width === 0) return;  // not yet laid out
+
   const p = curPattern();
   for (let s = 0; s < STEPS_PER_BAR; s++){
     const dur = p[row][absStep(s)];
     if (!dur) continue;
+    const startCell = rowEl.querySelector(`.cell[data-cell-idx="${s}"]`);
+    if (!startCell) continue;
+    const startRect = startCell.getBoundingClientRect();
+
+    let leftPx = startRect.left - rowRect.left;
+    let widthPx;
+    if (dur >= 1){
+      // Span ends at the cell at (s + ceil(dur) - 1), clamped to bar end
+      const span = Math.min(Math.ceil(dur), STEPS_PER_BAR - s);
+      const endIdx = s + span - 1;
+      const endCell = rowEl.querySelector(`.cell[data-cell-idx="${endIdx}"]`);
+      if (!endCell) continue;
+      const endRect = endCell.getBoundingClientRect();
+      widthPx = (endRect.right - rowRect.left) - leftPx;
+    } else {
+      // sub-cell duration (1/64 or 1/32): width = fraction of one cell,
+      // pinned to the cell's left edge
+      widthPx = Math.max(2, startRect.width * dur);
+    }
+    const topPx = startRect.top - rowRect.top;
+    const heightPx = startRect.height;
+
     const fill = document.createElement('div');
     fill.className = 'note-fill';
     fill.dataset.row = row;
     fill.dataset.step = s;
     fill.dataset.dur  = dur;
-    // grid placement: label = col 1, cells = col 2..17
-    const startCol = s + 2;
-    if (dur >= 1){
-      // clamp span so we don't extend past the visible bar
-      const span = Math.min(Math.ceil(dur), STEPS_PER_BAR - s);
-      fill.style.gridColumn = startCol + ' / span ' + span;
-      // If duration isn't a whole-cell multiple within this bar's visible
-      // window, narrow the right edge slightly. For sub-cell remainder.
-      const remainder = dur - Math.floor(dur);
-      if (remainder > 0 && dur > 1){
-        // width is "almost full" — last cell only fills partially
-        fill.style.width = `calc(${(Math.floor(dur) + remainder) / span * 100}%)`;
-      }
-    } else {
-      // dur < 1 cell: pin to the cell column, render narrow slice
-      fill.style.gridColumn = startCol + ' / span 1';
-      fill.classList.add('short');
-      fill.style.setProperty('--fill-width', (dur * 100) + '%');
-    }
+    fill.style.left   = leftPx + 'px';
+    fill.style.top    = topPx + 'px';
+    fill.style.width  = widthPx + 'px';
+    fill.style.height = heightPx + 'px';
     fill.setAttribute('aria-hidden', 'true');
     rowEl.appendChild(fill);
   }
@@ -1045,6 +1052,13 @@ function refreshNoteFills(row){
 function refreshAllNoteFills(){
   for (let r = 0; r < ROWS; r++) refreshNoteFills(r);
 }
+
+// Reposition every fill when the layout could have changed
+function reflowAllNoteFills(){
+  // Use requestAnimationFrame so cell rects are settled before we measure
+  requestAnimationFrame(() => refreshAllNoteFills());
+}
+window.addEventListener('resize', reflowAllNoteFills);
 
 function repaintGridForSection(){
   for (let r = 0; r < ROWS; r++) for (let s = 0; s < STEPS_PER_BAR; s++){
