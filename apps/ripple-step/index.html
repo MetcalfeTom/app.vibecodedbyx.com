@@ -297,18 +297,40 @@ input[type=range]::-moz-range-thumb{
   transition:background 0.12s ease, transform 0.08s ease, box-shadow 0.18s ease;
   min-height:1.4rem;
   position:relative;
+  z-index:1;
 }
 .cell:hover{background:rgba(168,216,226,0.10)}
-.cell:focus-visible{outline:2px solid var(--note-3);outline-offset:1px}
+.cell:focus-visible{outline:2px solid var(--note-3);outline-offset:1px;z-index:3}
 .cell.beat{background:rgba(168,216,226,0.08)}
-.cell.active{background:var(--cell-color, var(--note-3));border-color:var(--cell-color, var(--note-3));box-shadow:0 0 8px var(--cell-color, var(--note-3))}
-.cell.active.head{box-shadow:0 0 14px var(--cell-color, var(--note-3));transform:scale(1.06)}
-.cell.head:not(.active){background:rgba(168,216,226,0.18);border-color:rgba(168,216,226,0.4)}
-.row.r-1 .cell.active{--cell-color:var(--note-1)}
-.row.r-2 .cell.active{--cell-color:var(--note-2)}
-.row.r-3 .cell.active{--cell-color:var(--note-3)}
-.row.r-4 .cell.active{--cell-color:var(--note-4)}
-.row.r-5 .cell.active{--cell-color:var(--note-5)}
+.cell.head{background:rgba(168,216,226,0.22);border-color:rgba(168,216,226,0.55)}
+.note-fill{
+  grid-row:1;
+  align-self:stretch;
+  background:var(--cell-color, var(--note-3));
+  border:1px solid var(--cell-color, var(--note-3));
+  border-radius:3px;
+  box-shadow:0 0 8px var(--cell-color, var(--note-3));
+  pointer-events:none;
+  position:relative;
+  z-index:2;
+  display:flex;align-items:center;
+  overflow:hidden;
+}
+.note-fill::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:rgba(255,255,255,0.65);
+  border-radius:3px 0 0 3px;
+}
+.note-fill.short{
+  /* sub-1-step duration: render as narrow slice anchored at the cell's left edge */
+  width:var(--fill-width, 25%);
+}
+.row.r-1 .note-fill{--cell-color:var(--note-1)}
+.row.r-2 .note-fill{--cell-color:var(--note-2)}
+.row.r-3 .note-fill{--cell-color:var(--note-3)}
+.row.r-4 .note-fill{--cell-color:var(--note-4)}
+.row.r-5 .note-fill{--cell-color:var(--note-5)}
+.note-fill.playing{box-shadow:0 0 18px var(--cell-color), 0 0 6px white;filter:brightness(1.18)}
 
 footer{
   margin-top:0.4rem;
@@ -438,9 +460,11 @@ const NOTE_COLORS = ['#f5d068','#f5926a','#e84c7a','#c47bff','#5ec2e8'];
 // ─────────────────────────────────────────────────────────────
 // PATTERN STATE — two sections (verse / chorus) + song structure
 // ─────────────────────────────────────────────────────────────
+// Pattern cells store *duration in 16th-step units* when active, or 0/falsy when off.
+// 1 = a single 1/16 cell, 4 = a 1/4 note spanning 4 cells, 0.5 = a 1/32, etc.
 const patterns = {
-  verse:  Array.from({length: ROWS}, () => Array(STEPS).fill(false)),
-  chorus: Array.from({length: ROWS}, () => Array(STEPS).fill(false)),
+  verse:  Array.from({length: ROWS}, () => Array(STEPS).fill(0)),
+  chorus: Array.from({length: ROWS}, () => Array(STEPS).fill(0)),
 };
 let editing = 'verse';                        // which section the grid currently shows
 let editBar = 0;                              // 0..BARS-1 — which 16-step page of the
@@ -692,6 +716,8 @@ function startPad(){
 // for one beat regardless of step interval. 1 = whole bar sustain.
 const NOTE_DURATIONS = ['1/64', '1/32', '1/16', '1/8', '1/4', '1/2', '1'];
 const DURATION_FRAC  = { '1/64':1/64, '1/32':1/32, '1/16':1/16, '1/8':1/8, '1/4':1/4, '1/2':1/2, '1':1 };
+// Same durations expressed in 16th-step units (the sequencer's native cell)
+const DURATION_STEPS = { '1/64':0.25, '1/32':0.5, '1/16':1, '1/8':2, '1/4':4, '1/2':8, '1':16 };
 let noteDuration = '1/8';
 
 function noteDurMs(){
@@ -699,36 +725,95 @@ function noteDurMs(){
   return DURATION_FRAC[noteDuration] * barMs;
 }
 
-function playNote(freq, color){
+// One active voice per row at any moment. New trigger on the same row
+// fast-fades the previous voice and disconnects it cleanly — fixes the
+// "long note + fast retrigger = stacked drone that never releases" bug.
+const activeVoices = Array(ROWS).fill(null);
+
+function stopVoice(voice, t, fadeMs){
+  if (!voice || voice.released) return;
+  voice.released = true;
+  const og = voice.gain;
+  const release = (fadeMs == null ? 30 : fadeMs) / 1000;
+  try {
+    og.gain.cancelScheduledValues(t);
+    og.gain.setValueAtTime(og.gain.value, t);
+    og.gain.linearRampToValueAtTime(0.0001, t + release);
+  } catch (e) {}
+  const endT = t + release + 0.02;
+  try { voice.o1.stop(endT); } catch (e) {}
+  try { voice.o2.stop(endT); } catch (e) {}
+  // After the oscillators stop, disconnect everything so no node lingers
+  // in the graph holding gain values.
+  setTimeout(() => {
+    try { voice.o1.disconnect(); } catch (e) {}
+    try { voice.o2.disconnect(); } catch (e) {}
+    try { voice.lp.disconnect(); } catch (e) {}
+    try { voice.gain.disconnect(); } catch (e) {}
+  }, (release + 0.06) * 1000);
+}
+
+function playNote(row, freq, durationSteps){
   if (!actx) return;
   const t = actx.currentTime;
-  // ADSR scaled to the current note-duration setting:
-  //  attack 8ms → peak; hold at peak for (duration - release); release
-  //  scales with duration but is bounded so very short notes don't click
-  //  too hard and very long notes don't tail forever.
-  const durSec = Math.max(0.04, noteDurMs() / 1000);
+  const stepSec = (60 / bpm) / 4;
+  const durSec  = Math.max(0.04, (durationSteps || 1) * stepSec);
+  // release scales with duration but bounded — short notes don't click,
+  // long notes don't ring forever
   const release = Math.min(0.45, Math.max(0.04, durSec * 0.4));
-  const sustainEnd = t + Math.max(0.012, durSec - release);
+  const attack  = Math.min(0.012, durSec * 0.2);
+  const sustainEnd = t + Math.max(attack + 0.004, durSec - release);
   const endT = sustainEnd + release;
-  // sine + 2nd harmonic
-  const o1 = actx.createOscillator(); o1.type = 'sine'; o1.frequency.value = freq;
+
+  // Stop any existing voice on this row BEFORE starting the new one.
+  // Quick 18ms fade prevents click + clears the gain automation queue.
+  if (activeVoices[row]){
+    stopVoice(activeVoices[row], t, 18);
+    activeVoices[row] = null;
+  }
+
+  const o1 = actx.createOscillator(); o1.type = 'sine';     o1.frequency.value = freq;
   const o2 = actx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = freq * 2.01;
   const og = actx.createGain();
+  // Use linear ramps for envelope. Exponential ramps to very small values
+  // can leave residual non-zero gains in some browsers — linear-to-zero is
+  // unambiguous and the resulting click is masked by the reverb tail.
   og.gain.setValueAtTime(0.0001, t);
-  og.gain.exponentialRampToValueAtTime(0.32, t + 0.008);
+  og.gain.linearRampToValueAtTime(0.32, t + attack);
   og.gain.setValueAtTime(0.32, sustainEnd);
-  og.gain.exponentialRampToValueAtTime(0.0001, endT);
-  // lowpass — long notes get a slightly opener filter so the sustain
-  // doesn't sound muffled, short notes stay round
+  og.gain.linearRampToValueAtTime(0.0001, endT);
+
+  // lowpass — long notes get a slightly opener filter, short notes stay round
   const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
-  const cutoff = 1800 + Math.min(2400, durSec * 1400);
-  lp.frequency.value = cutoff; lp.Q.value = 1.4;
+  lp.frequency.value = 1800 + Math.min(2400, durSec * 1400);
+  lp.Q.value = 1.4;
   o1.connect(lp); o2.connect(lp);
   lp.connect(og);
   og.connect(master);
   og.connect(reverb);
   o1.start(t); o2.start(t);
   o1.stop(endT + 0.06); o2.stop(endT + 0.06);
+
+  const voice = { o1, o2, gain: og, lp, released: false, endT };
+  activeVoices[row] = voice;
+  // When the note naturally finishes, clear the slot + disconnect
+  setTimeout(() => {
+    if (activeVoices[row] === voice){ activeVoices[row] = null; }
+    try { o1.disconnect(); } catch (e) {}
+    try { o2.disconnect(); } catch (e) {}
+    try { lp.disconnect(); } catch (e) {}
+    try { og.disconnect(); } catch (e) {}
+  }, (endT - t + 0.1) * 1000);
+}
+
+// Panic kill — stop every active voice immediately. Wired to stop() and
+// to a global keyboard panic in case anything ever wedges.
+function allNotesOff(){
+  if (!actx) return;
+  const t = actx.currentTime;
+  for (let r = 0; r < ROWS; r++){
+    if (activeVoices[r]){ stopVoice(activeVoices[r], t, 12); activeVoices[r] = null; }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -760,15 +845,21 @@ function absStep(s){ return editBar * STEPS_PER_BAR + s; }
 function toggleCell(r, s){
   const p = curPattern();
   const idx = absStep(s);
-  p[r][idx] = !p[r][idx];
+  if (p[r][idx]){
+    // deactivate, preserving any other active cells that may visually
+    // span across this position
+    p[r][idx] = 0;
+  } else {
+    p[r][idx] = DURATION_STEPS[noteDuration];
+  }
   updateCell(r, s);
+  refreshNoteFills(r);
   hideHint();
-  // play preview tone on activation
   if (p[r][idx]){
     ensureAudio();
     if (actx && actx.state === 'suspended') actx.resume();
     const freq = SCALES[SCALE][r];
-    playNote(freq, NOTE_COLORS[r]);
+    playNote(r, freq, p[r][idx]);
     spawnRipple(r, s, NOTE_COLORS[r]);
   }
 }
@@ -777,16 +868,58 @@ function updateCell(r, s){
   const cell = document.querySelector(`.cell[data-row="${r}"][data-cell-idx="${s}"]`);
   if (!cell) return;
   const idx = absStep(s);
-  const on = curPattern()[r][idx];
-  cell.classList.toggle('active', on);
+  const on = !!curPattern()[r][idx];
   cell.setAttribute('aria-pressed', String(on));
   cell.setAttribute('aria-label', ROW_LABELS[r] + ' bar ' + (editBar + 1) + ' step ' + (s + 1));
+}
+
+function refreshNoteFills(row){
+  // wipe any existing fills in this row and re-render based on pattern
+  const rowEl = document.querySelector(`.row[data-row="${row}"]`);
+  if (!rowEl) return;
+  rowEl.querySelectorAll('.note-fill').forEach(n => n.remove());
+  const p = curPattern();
+  for (let s = 0; s < STEPS_PER_BAR; s++){
+    const dur = p[row][absStep(s)];
+    if (!dur) continue;
+    const fill = document.createElement('div');
+    fill.className = 'note-fill';
+    fill.dataset.row = row;
+    fill.dataset.step = s;
+    fill.dataset.dur  = dur;
+    // grid placement: label = col 1, cells = col 2..17
+    const startCol = s + 2;
+    if (dur >= 1){
+      // clamp span so we don't extend past the visible bar
+      const span = Math.min(Math.ceil(dur), STEPS_PER_BAR - s);
+      fill.style.gridColumn = startCol + ' / span ' + span;
+      // If duration isn't a whole-cell multiple within this bar's visible
+      // window, narrow the right edge slightly. For sub-cell remainder.
+      const remainder = dur - Math.floor(dur);
+      if (remainder > 0 && dur > 1){
+        // width is "almost full" — last cell only fills partially
+        fill.style.width = `calc(${(Math.floor(dur) + remainder) / span * 100}%)`;
+      }
+    } else {
+      // dur < 1 cell: pin to the cell column, render narrow slice
+      fill.style.gridColumn = startCol + ' / span 1';
+      fill.classList.add('short');
+      fill.style.setProperty('--fill-width', (dur * 100) + '%');
+    }
+    fill.setAttribute('aria-hidden', 'true');
+    rowEl.appendChild(fill);
+  }
+}
+
+function refreshAllNoteFills(){
+  for (let r = 0; r < ROWS; r++) refreshNoteFills(r);
 }
 
 function repaintGridForSection(){
   for (let r = 0; r < ROWS; r++) for (let s = 0; s < STEPS_PER_BAR; s++){
     updateCell(r, s);
   }
+  refreshAllNoteFills();
   refreshHead();
 }
 
@@ -836,9 +969,8 @@ buildBarPicker();
 
 function refreshHead(){
   document.querySelectorAll('.cell.head').forEach(c => c.classList.remove('head'));
+  document.querySelectorAll('.note-fill.playing').forEach(c => c.classList.remove('playing'));
   if (playhead < 0 || !playing) return;
-  // Only highlight the head if the section playing matches the section being
-  // edited AND the bar being viewed contains the playhead.
   if (activeBlockKind() !== editing) return;
   const playBar = Math.floor(playhead / STEPS_PER_BAR);
   if (playBar !== editBar) return;
@@ -846,13 +978,16 @@ function refreshHead(){
   for (let r = 0; r < ROWS; r++){
     const cell = document.querySelector(`.cell[data-row="${r}"][data-cell-idx="${cellIdx}"]`);
     if (cell) cell.classList.add('head');
+    // light up the note-fill that STARTS at this step (if any)
+    const fill = document.querySelector(`.note-fill[data-row="${r}"][data-step="${cellIdx}"]`);
+    if (fill) fill.classList.add('playing');
   }
 }
 
 function clearAll(){
   const p = curPattern();
   for (let r = 0; r < ROWS; r++) for (let s = 0; s < STEPS; s++){
-    p[r][s] = false;
+    p[r][s] = 0;
   }
   repaintGridForSection();
 }
@@ -892,10 +1027,19 @@ function seedDemo(){
   // verse layout across 8 bars: A A A B  A A A B  (a phrase + answer pair)
   const verseLayout  = [verseBarA, verseBarA, verseBarA, verseBarB, verseBarA, verseBarA, verseBarA, verseBarB];
   const chorusLayout = [chorusBarA, chorusBarA, chorusBarA, chorusBarB, chorusBarA, chorusBarA, chorusBarA, chorusBarB];
+  // Convert the boolean seeds into duration values. Default new notes to
+  // 1 step (1/16); we mix in some 1/8 and 1/4 sustains in the chorus for
+  // visual demonstration of stretched cells.
   for (let bar = 0; bar < BARS; bar++){
     for (let r = 0; r < ROWS; r++) for (let s = 0; s < STEPS_PER_BAR; s++){
-      patterns.verse[r][bar * STEPS_PER_BAR + s]  = verseLayout[bar][r][s];
-      patterns.chorus[r][bar * STEPS_PER_BAR + s] = chorusLayout[bar][r][s];
+      patterns.verse[r][bar * STEPS_PER_BAR + s]  = verseLayout[bar][r][s] ? 1 : 0;
+      // chorus row 0 + 4 get longer 1/8 notes so the stretched cells are visible by default
+      if (chorusLayout[bar][r][s]){
+        const longish = (r === 0 || r === 4);
+        patterns.chorus[r][bar * STEPS_PER_BAR + s] = longish ? 2 : 1;
+      } else {
+        patterns.chorus[r][bar * STEPS_PER_BAR + s] = 0;
+      }
     }
   }
   repaintGridForSection();
@@ -928,6 +1072,7 @@ function play(){
 function stop(){
   playing = false;
   playhead = -1;
+  allNotesOff();              // kill any hanging long-sustain voices
   refreshHead();
   refreshStructure();
   refreshBarPicker();
@@ -968,9 +1113,10 @@ function tickSequencer(now){
     if (kind !== 'rest'){
       const p = patterns[kind];
       for (let r = 0; r < ROWS; r++){
-        if (p[r][playhead]){
+        const dur = p[r][playhead];
+        if (dur){
           const freq = SCALES[SCALE][r];
-          playNote(freq, NOTE_COLORS[r]);
+          playNote(r, freq, dur);
           // ripple x position: spread across the pond width as a function
           // of the position WITHIN the current bar so visible movement
           // tracks the cell head, not the 128-step block-global progress
@@ -1124,6 +1270,9 @@ window.addEventListener('keydown', (ev) => {
     // longer duration
     const i = NOTE_DURATIONS.indexOf(noteDuration);
     if (i < NOTE_DURATIONS.length - 1) setDuration(NOTE_DURATIONS[i + 1]);
+  } else if (ev.key === '.'){
+    // panic: kill all sound right now
+    allNotesOff();
   }
 });
 
@@ -1138,7 +1287,8 @@ cv.addEventListener('pointerdown', (ev) => {
   const row = Math.min(ROWS - 1, Math.max(0, Math.floor((y / H) * ROWS)));
   const freq = SCALES[SCALE][row];
   const color = NOTE_COLORS[row];
-  playNote(freq, color);
+  // pond-click uses the currently-selected duration setting for the preview
+  playNote(row, freq, DURATION_STEPS[noteDuration]);
   spawnRipple(row, 0, color, { x, y });
   hideHint();
 });
