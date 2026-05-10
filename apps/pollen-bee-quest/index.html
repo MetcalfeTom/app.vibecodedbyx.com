@@ -205,14 +205,17 @@
     font-size: 0.86rem;
     margin-bottom: 0.7rem;
   }
-  /* Quiz overlay */
-  .quiz-overlay { background: rgba(0,0,0,0.72); }
+  /* Quiz overlay — bumped z-index so it sits above the end overlay
+     and the canvas hud-row, and pointer-events are explicit so any
+     stray event listener up the tree can't swallow the click. */
+  .quiz-overlay { background: rgba(0,0,0,0.78); z-index: 20; pointer-events: auto; }
   .quiz-inner {
     border-color: var(--honey);
     box-shadow: 8px 8px 0 var(--honey-deep);
     background: var(--paper);
     color: var(--ink);
-    max-width: 26rem;
+    max-width: 28rem;
+    width: min(28rem, 92vw);
   }
   .quiz-eyebrow {
     font-family:'JetBrains Mono', monospace;
@@ -310,7 +313,8 @@
   </div>
 
   <div class="controls">
-    <button class="btn" id="muteBtn" type="button" aria-pressed="false">♪ on</button>
+    <button class="btn" id="quizBtn"  type="button" disabled>★ POLLEN QUIZ</button>
+    <button class="btn" id="muteBtn"  type="button" aria-pressed="false">♪ on</button>
     <button class="btn" id="resetBtn" type="button">↺ new bloom</button>
   </div>
   <div class="help">
@@ -454,9 +458,17 @@ window.addEventListener('keydown', (ev) => {
   if (k === 'q' && state.activeFlower && !state.quizActive && !state.ended){
     openQuiz(state.activeFlower);
     ev.preventDefault();
-  } else if (k === 'escape' && state.quizActive){
-    closeQuiz(false);
-    ev.preventDefault();
+  } else if (state.quizActive){
+    // 1/2/3 picks the n-th option without clicking
+    if (k === '1' || k === '2' || k === '3'){
+      const idx = parseInt(k, 10) - 1;
+      const opts = state._quizOpts || [];
+      if (opts[idx]) answerQuiz(opts[idx]);
+      ev.preventDefault();
+    } else if (k === 'escape'){
+      closeQuiz(false);
+      ev.preventDefault();
+    }
   }
 });
 window.addEventListener('keyup', (ev) => {
@@ -467,13 +479,14 @@ window.addEventListener('keyup', (ev) => {
 
 // pointer / touch — drag anywhere to fly toward the cursor
 cv.addEventListener('pointerdown', (ev) => {
+  if (state.quizActive) return;       // don't grab pointer state during quiz
   ensureAudio();
   state.pointerDown = true;
   state.buzzActive = true;
   updatePointer(ev);
 });
 cv.addEventListener('pointermove', (ev) => {
-  if (!state.pointerDown) return;
+  if (state.quizActive || !state.pointerDown) return;
   updatePointer(ev);
 });
 cv.addEventListener('pointerup',     () => { state.pointerDown = false; state.buzzActive = false; });
@@ -562,25 +575,38 @@ function openQuiz(f){
   state.quizActive = true;
   state.quizFlower = f;
   state.quizCorrect = POLLEN_TYPES[f.pollenTypeIdx];
-  quizFlowerEl.textContent = f.def.name;
-  // shuffle the 3 options so the correct one isn't always in the
-  // same slot
-  const opts = [...POLLEN_TYPES].sort(() => Math.random() - 0.5);
-  quizOptions.innerHTML = '';
-  for (const opt of opts){
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'quiz-btn';
-    btn.textContent = opt;
-    btn.addEventListener('click', () => answerQuiz(opt));
-    quizOptions.appendChild(btn);
-  }
-  quizOverlay.hidden = false;
-  // suspend buzz audio so the quiz feels paused
+  // Drop any in-flight pointer state from the canvas so a press
+  // started on the canvas can't swallow the button click. (Native
+  // click events require press+release on the same element; without
+  // this the touch user could tap a button and have it never fire.)
+  state.pointerDown = false;
+  state.buzzActive = false;
   if (buzzGain){
     const a = ensureAudio();
     if (a) buzzGain.gain.linearRampToValueAtTime(0, a.currentTime + 0.05);
   }
+  quizFlowerEl.textContent = f.def.name;
+  // shuffle the 3 options so the correct one isn't always at idx 0
+  const opts = [...POLLEN_TYPES].sort(() => Math.random() - 0.5);
+  quizOptions.innerHTML = '';
+  state._quizOpts = opts;     // for keyboard 1/2/3 fallback
+  opts.forEach((opt, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'quiz-btn';
+    btn.textContent = (i + 1) + '. ' + opt;
+    // pointerup fires reliably even when pointerdown started on a
+    // sibling element; click works in addition.
+    btn.addEventListener('click', (ev) => { ev.stopPropagation(); answerQuiz(opt); });
+    btn.addEventListener('pointerup', (ev) => { ev.stopPropagation(); answerQuiz(opt); });
+    quizOptions.appendChild(btn);
+  });
+  quizOverlay.hidden = false;
+  // focus the first option so keyboard users can Enter immediately
+  setTimeout(() => {
+    const first = quizOptions.querySelector('.quiz-btn');
+    if (first) first.focus();
+  }, 0);
 }
 function answerQuiz(opt){
   if (!state.quizActive) return;
@@ -617,6 +643,12 @@ function refreshHud(){
   hudBloom.textContent = Math.max(0, Math.round(state.bloom * 100)) + '%';
   hudBuzz.textContent = state.buzzActive ? 'ON · ' + Math.round(state.buzz * 100) + '%' : 'OFF';
   hudTime.textContent = Math.floor(state.elapsed) + 's';
+  // quiz button is only useful while drinking from a flower
+  const quizReady = !!state.activeFlower && !state.quizActive && !state.ended;
+  if (quizBtnEl){
+    quizBtnEl.disabled = !quizReady;
+    quizBtnEl.style.opacity = quizReady ? '1' : '0.45';
+  }
 }
 
 // ── TICK ──────────────────────────────────────────────────────
@@ -1224,57 +1256,125 @@ function drawMicroPollen(x, y, r, def, t, type){
     ctx.ellipse(x, y + r * 0.05, r * 0.95, r * 0.2, 0, 0, Math.PI*2);
     ctx.stroke();
   } else if (type === 'tricolpate'){
-    // ── TRICOLPATE: three colpus furrows pole-to-pole, 120° apart ──
-    const phase = t * 0.25;
+    // ── TRICOLPATE — three lemon-tapered colpi pole-to-pole, 120°
+    // apart, each with a margo (lighter rim) framing the dark
+    // furrow + an equatorial pore (3-colporate) at center. Reticulate
+    // dot pattern fills the body sculpture between colpi (real
+    // dicot pollen has a meshy "tectum" lacing).
+    const phase = t * 0.20;
+    // reticulate sculpture between colpi — small dark pits arranged
+    // in two concentric rings + scattered fill
+    ctx.fillStyle = withAlpha(def.deep, 0.42);
+    for (let i = 0; i < 22; i++){
+      const a = phase * 0.5 + (i / 22) * Math.PI * 2;
+      const ring = (i % 2) ? r * 0.55 : r * 0.72;
+      const rx = x + Math.cos(a) * ring;
+      const ry = y + Math.sin(a) * ring;
+      // skip pits that overlap with where colpi will go
+      const colpiAlign = (((a - phase) % (Math.PI * 2 / 3)) + Math.PI * 2) % (Math.PI * 2 / 3);
+      if (colpiAlign < 0.25 || colpiAlign > (Math.PI * 2 / 3) - 0.25) continue;
+      ctx.beginPath(); ctx.arc(rx, ry, 0.9, 0, Math.PI*2); ctx.fill();
+    }
+    // colpi
     for (let i = 0; i < 3; i++){
       const a = phase + (i / 3) * Math.PI * 2;
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(a);
-      // furrow: an elongated dark slit
-      ctx.fillStyle = withAlpha(def.deep, 0.85);
+      // margo — wider, lighter "shoulder" rim around the colpus
+      ctx.fillStyle = withAlpha(def.glow, 0.42);
       ctx.beginPath();
-      ctx.ellipse(0, 0, r * 0.16, r * 0.92, 0, 0, Math.PI*2);
+      ctx.ellipse(0, 0, r * 0.22, r * 0.96, 0, 0, Math.PI*2);
       ctx.fill();
-      // a brighter rim around the furrow (margo)
-      ctx.strokeStyle = withAlpha(def.glow, 0.55);
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-      // inner darker line
-      ctx.strokeStyle = withAlpha('#1a1108', 0.6);
-      ctx.lineWidth = 1.2;
+      // colpus — tapered lemon shape via cubic Bezier (pointed at poles)
+      ctx.fillStyle = withAlpha(def.deep, 0.92);
       ctx.beginPath();
-      ctx.moveTo(0, -r * 0.78); ctx.lineTo(0, r * 0.78);
-      ctx.stroke();
+      ctx.moveTo(0, -r * 0.94);
+      ctx.bezierCurveTo( r * 0.13, -r * 0.50,  r * 0.13, r * 0.50, 0, r * 0.94);
+      ctx.bezierCurveTo(-r * 0.13,  r * 0.50, -r * 0.13, -r * 0.50, 0, -r * 0.94);
+      ctx.closePath();
+      ctx.fill();
+      // central operculum (darker) + the equatorial endopore
+      ctx.fillStyle = withAlpha('#1a1108', 0.92);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.14, r * 0.18, 0, 0, Math.PI*2);
+      ctx.fill();
+      // bright pore opening
+      ctx.fillStyle = withAlpha(def.glow, 0.7);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.08, r * 0.10, 0, 0, Math.PI*2);
+      ctx.fill();
       ctx.restore();
     }
   } else if (type === 'fenestrate'){
-    // ── FENESTRATE: lattice of dark hexagonal "windows" over the surface ──
-    // (like Asteraceae / Cosmos pollen — geodesic-domed)
-    ctx.fillStyle = withAlpha(def.deep, 0.78);
-    const SP = r * 0.42;
+    // ── FENESTRATE — Cosmos-style echinate-fenestrate. Triangular
+    // lacunae (windows) separated by thick muri (ridges), with
+    // small spines at the lattice vertices on the rim. Every other
+    // window is shifted to read as the geodesic facet pattern of
+    // real Asteraceae pollen.
+    const SP = r * 0.46;
+    const muriCol = withAlpha(def.glow, 0.85);
+    const lacunaCol = withAlpha(def.deep, 0.85);
+    const vertices = [];   // collected for spine placement on the rim
     for (let row = -2; row <= 2; row++){
       for (let col = -2; col <= 2; col++){
         const offset = (Math.abs(row) % 2) ? SP / 2 : 0;
         const px = x + col * SP + offset;
         const py = y + row * SP * 0.86;
-        const dx = px - x, dy = py - y;
-        if (Math.hypot(dx, dy) > r * 0.85) continue;
-        // hex window
+        if (Math.hypot(px - x, py - y) > r * 0.92) continue;
+        // 3 alternating triangle windows packed around each cell
+        // centre (gives the "Cosmos triangular fenestrae" look)
+        const triUp   = ((row + col) % 2) === 0;
+        ctx.fillStyle = lacunaCol;
         ctx.beginPath();
-        for (let h = 0; h < 6; h++){
-          const ha = h * Math.PI / 3 + t * 0.1;
-          const hx = px + Math.cos(ha) * SP * 0.36;
-          const hy = py + Math.sin(ha) * SP * 0.36;
-          if (h === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
-        }
+        const tris = triUp ? [0, Math.PI * 2 / 3, Math.PI * 4 / 3]
+                            : [Math.PI / 3, Math.PI, Math.PI * 5 / 3];
+        // single triangular lacuna pointing up or down
+        const triR = SP * 0.32;
+        const triA = triUp ? -Math.PI / 2 : Math.PI / 2;
+        ctx.moveTo(px + Math.cos(triA) * triR,
+                   py + Math.sin(triA) * triR);
+        ctx.lineTo(px + Math.cos(triA + Math.PI * 2 / 3) * triR,
+                   py + Math.sin(triA + Math.PI * 2 / 3) * triR);
+        ctx.lineTo(px + Math.cos(triA + Math.PI * 4 / 3) * triR,
+                   py + Math.sin(triA + Math.PI * 4 / 3) * triR);
         ctx.closePath();
         ctx.fill();
-        // brighter rim per window
-        ctx.strokeStyle = withAlpha(def.glow, 0.55);
-        ctx.lineWidth = 0.5;
+        // bright muri (ridges) framing the lacuna
+        ctx.strokeStyle = muriCol;
+        ctx.lineWidth = 0.9;
         ctx.stroke();
+        // collect outer-rim vertices for spine placement
+        for (const ta of tris){
+          const vx = px + Math.cos(ta + triA) * triR;
+          const vy = py + Math.sin(ta + triA) * triR;
+          if (Math.hypot(vx - x, vy - y) > r * 0.7
+           && Math.hypot(vx - x, vy - y) < r * 0.95){
+            vertices.push([vx, vy]);
+          }
+        }
       }
+    }
+    // small ECHINATE spines protruding from rim vertices (sharp
+    // tooth-like projections — the "echinate" of echinate-fenestrate)
+    ctx.strokeStyle = withAlpha(def.glow, 0.92);
+    ctx.lineWidth = 1.2;
+    const seen = new Set();
+    for (const [vx, vy] of vertices){
+      const key = vx.toFixed(0) + ',' + vy.toFixed(0);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const ang = Math.atan2(vy - y, vx - x);
+      const sLen = r * 0.18;
+      ctx.beginPath();
+      ctx.moveTo(vx, vy);
+      ctx.lineTo(vx + Math.cos(ang) * sLen, vy + Math.sin(ang) * sLen);
+      ctx.stroke();
+      // tiny dot at spine tip for definition
+      ctx.fillStyle = withAlpha(def.glow, 0.95);
+      ctx.beginPath();
+      ctx.arc(vx + Math.cos(ang) * sLen, vy + Math.sin(ang) * sLen, 1, 0, Math.PI*2);
+      ctx.fill();
     }
   }
 
@@ -1342,6 +1442,13 @@ function toggleMute(){
 }
 document.getElementById('muteBtn').addEventListener('click', toggleMute);
 document.getElementById('resetBtn').addEventListener('click', () => { reset(); ensureAudio(); });
+const quizBtnEl = document.getElementById('quizBtn');
+quizBtnEl.addEventListener('click', () => {
+  ensureAudio();
+  if (state.activeFlower && !state.quizActive && !state.ended){
+    openQuiz(state.activeFlower);
+  }
+});
 
 // ── MAIN LOOP ─────────────────────────────────────────────────
 let lastTs = 0;
