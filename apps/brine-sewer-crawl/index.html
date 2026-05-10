@@ -283,7 +283,7 @@
     <button class="btn" id="resetBtn" type="button">↺ NEW DESCENT</button>
   </div>
   <div class="help">
-    <kbd>WASD</kbd> · move · <kbd>MOUSE</kbd> · aim flashlight · <kbd>SHIFT</kbd> · sprint (drains brine)
+    <kbd>WASD</kbd> · move · <kbd>MOUSE</kbd> · aim · <kbd>SPACE</kbd> · jab · <kbd>SHIFT</kbd> · sprint
   </div>
 </main>
 
@@ -374,11 +374,13 @@ const state = {
     x: 80, y: 80, vx: 0, vy: 0,
     hp: 3, hpMax: 3,
     stamina: 100, stamMax: 100,
-    aim: 0,            // radians — flashlight direction
-    aimFromMouse: 0,   // timestamp of last mouse aim — decays to movement
+    aim: 0,
+    aimFromMouse: 0,
     sprinting: false,
     iframes: 0,
     moveAng: 0,
+    attackCD: 0,    // seconds until next jab is allowed
+    attackT:  0,    // seconds remaining on the jab visual / hit window
   },
   walls: [],           // {x,y,w,h} rectangles
   parts: [],           // {x,y,kind,collected}
@@ -401,6 +403,7 @@ window.addEventListener('keydown', (ev) => {
   keys.add(k);
   if (ev.repeat) return;
   if (k === 'shift') state.player.sprinting = true;
+  if (k === ' ' || k === 'enter' || k === 'z'){ attackJab(); ev.preventDefault(); }
   if (k === 'r' && state.ended) reset();
   if (k === 'm') toggleMute();
 });
@@ -462,6 +465,9 @@ const sfx = {
   pickup: () => { blip(660, 0.08, 'triangle', 0.05); blip(990, 0.10, 'triangle', 0.04); },
   hurt:   () => { noiseBurst(0.18, 0.07, 800); blip(120, 0.16, 'sawtooth', 0.06); },
   bug:    () => noiseBurst(0.06, 0.04, 600),
+  jab:    () => { blip(360, 0.05, 'square', 0.05); blip(220, 0.06, 'square', 0.04); },
+  squish: () => { noiseBurst(0.14, 0.07, 700); blip(110, 0.12, 'sawtooth', 0.05); },
+  whiff:  () => blip(180, 0.06, 'sine', 0.03),
   win:    () => { for (const f of [523,659,784,1047,1318]) setTimeout(()=>blip(f,0.18,'triangle',0.06), (f-523)*0.55); },
   lose:   () => { for (const f of [220,164,110,82]) setTimeout(()=>blip(f,0.6,'sawtooth',0.07), (220-f)*1.2); },
 };
@@ -555,6 +561,8 @@ function reset(){
     sprinting: false,
     iframes: 0,
     moveAng: 0,
+    attackCD: 0,
+    attackT: 0,
   };
   state.fx = [];
   genWorld();
@@ -635,8 +643,10 @@ function tickPlayer(dt){
   } else if (mx || my){
     p.aim = p.moveAng;
   }
-  // i-frames
+  // i-frames + attack cooldowns
   if (p.iframes > 0) p.iframes -= dt;
+  if (p.attackCD > 0) p.attackCD -= dt;
+  if (p.attackT  > 0) p.attackT  -= dt;
   // pick up parts
   for (const part of state.parts){
     if (part.collected) continue;
@@ -661,10 +671,65 @@ function tickPlayer(dt){
   }
 }
 
+// ── PLAYER ATTACK — RAZORBLADE JAB ───────────────────────────
+// Pickle Rick canon: a razor blade strapped to the front of the
+// pickle. Spacebar thrusts it in the aim direction. Hits enemies
+// in a 38u front arc (±0.7 rad) for 12 damage. On kill, spawns a
+// fresh LEG part at the bug's position — pickle-rick "harvest the
+// armor from the body" energy. Picked-up legs count toward the
+// 8-part win condition like scavenged ones.
+const ATTACK_RANGE = 38;
+const ATTACK_ARC   = 0.7;
+const ATTACK_DMG   = 12;
+const ATTACK_CD    = 0.45;
+const ATTACK_DUR   = 0.22;
+function attackJab(){
+  const p = state.player;
+  if (state.ended || p.attackCD > 0) return;
+  p.attackCD = ATTACK_CD;
+  p.attackT  = ATTACK_DUR;
+  let connected = false;
+  for (const e of state.enemies){
+    if (e._dead) continue;
+    const dx = e.x - p.x, dy = e.y - p.y;
+    const d = Math.hypot(dx, dy);
+    if (d > ATTACK_RANGE + 12) continue;
+    const ang = Math.atan2(dy, dx);
+    const da = Math.atan2(Math.sin(ang - p.aim), Math.cos(ang - p.aim));
+    if (Math.abs(da) > ATTACK_ARC) continue;
+    e.hp -= ATTACK_DMG;
+    e.hitFlash = 0.22;
+    e.alertedT = 4.0;
+    connected = true;
+    if (e.hp <= 0){
+      e._dead = true;
+      sfx.squish();
+      // FX: red splat text + a leg-part DROP that the pickle can
+      // walk over to collect (counts toward the 8). Mark as
+      // .dropped so the renderer can give it a fresh red ring.
+      state.fx.push({ kind:'text', x: e.x, y: e.y - 14, vx: 0, vy: -34,
+                      life: 0.9, max: 0.9, color: '#ff6060', text: 'CRUSHED' });
+      state.parts.push({
+        x: e.x + (Math.random() - 0.5) * 8,
+        y: e.y + (Math.random() - 0.5) * 8,
+        kind: 'leg',
+        collected: false,
+        dropped: true,
+      });
+      // (partsTotal intentionally NOT bumped — drops give the
+      // player extra options without raising the win quota above 8)
+    }
+  }
+  if (connected) sfx.jab(); else sfx.whiff();
+}
+
 // ── TICK ENEMIES ─────────────────────────────────────────────
 function tickEnemies(dt){
   const p = state.player;
   const t = performance.now() / 1000;
+  // sweep dead bugs at the top of each tick (jab kills are marked
+  // with e._dead during attackJab)
+  state.enemies = state.enemies.filter(e => !e._dead);
   for (const e of state.enemies){
     e.animT += dt * 8;
     e.hitFlash = Math.max(0, e.hitFlash - dt);
@@ -840,6 +905,14 @@ function drawBrinePuddles(){
 function drawParts(){
   for (const part of state.parts){
     if (part.collected) continue;
+    // dropped legs (combat drops) get a faint red ring so the
+    // player can tell harvested-from-corpse from scattered
+    if (part.dropped){
+      const pulse = (Math.sin(performance.now() / 220) + 1) / 2;
+      ctx.strokeStyle = 'rgba(255,80,80,' + (0.25 + pulse * 0.25).toFixed(2) + ')';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(part.x, part.y, 14, 0, Math.PI*2); ctx.stroke();
+    }
     drawPart(part.x, part.y, part.kind);
   }
 }
@@ -1092,6 +1165,49 @@ function drawPlayer(){
   ctx.beginPath(); ctx.arc(15, 0, 2, 0, Math.PI*2); ctx.fill();
   ctx.fillStyle = '#fff5d8';
   ctx.beginPath(); ctx.arc(15, 0, 1, 0, Math.PI*2); ctx.fill();
+  // RAZORBLADE — chrome blade thrusts from the front of the
+  // pickle during the attack window. Telescopes out, glints, then
+  // retracts. Faint warm swipe arc trails behind the blade tip
+  // for impact feel.
+  if (p.attackT > 0){
+    const k = 1 - (p.attackT / ATTACK_DUR);     // 0..1 progress
+    const reach = ATTACK_RANGE * (0.55 + k * 0.6);
+    // trailing warm swipe arc
+    ctx.strokeStyle = 'rgba(255,248,200,' + (0.45 * (1 - k * 0.5)).toFixed(2) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const halfArc = ATTACK_ARC * 0.55 * (1 - k * 0.4);
+    ctx.arc(8, 0, reach, -halfArc, halfArc);
+    ctx.stroke();
+    // razorblade shaft (chrome rectangle)
+    ctx.save();
+    ctx.translate(8, 0);
+    // shadow underside
+    ctx.fillStyle = '#5a6172';
+    ctx.fillRect(0, 1, reach, 2);
+    // body
+    ctx.fillStyle = '#dadfe7';
+    ctx.fillRect(0, -2, reach, 4);
+    // top highlight
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, -2, reach, 1);
+    // tip — pointed triangle
+    ctx.fillStyle = '#fff5d8';
+    ctx.beginPath();
+    ctx.moveTo(reach, -3);
+    ctx.lineTo(reach + 5, 0);
+    ctx.lineTo(reach,  3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#9ea4b3';
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+    // glint streak that races down the blade
+    const glintX = reach * (0.2 + k * 0.6);
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.85 * (1 - k)).toFixed(2) + ')';
+    ctx.fillRect(glintX, -1, Math.min(8, reach * 0.25), 1);
+    ctx.restore();
+  }
   ctx.restore();
 }
 
@@ -1135,55 +1251,62 @@ function drawFx(){
 }
 
 // ── FLASHLIGHT MASK ──────────────────────────────────────────
+// New approach (chat ask): instead of an opaque dark overlay with
+// a hole cut via destination-out, dim the world with a moderate
+// black overlay and ADD light back into the cone with a warm
+// gradient using `lighter` blend. The cone is now a real bright
+// gradient — additive, with hue — instead of a punched-out window
+// onto the world's natural color.
 function drawFlashlightMask(){
   const p = state.player;
-  // dark overlay — pulled back from 0.94 to 0.78 so the world
-  // outside the cone stays a readable dim instead of pitch-black
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.78)';
-  ctx.fillRect(0, 0, VW, VH);
-  // erase cone in screen space
-  ctx.globalCompositeOperation = 'destination-out';
   const sx = p.x - state.cam.x;
   const sy = p.y - state.cam.y;
-  // wider ambient circle around player
-  const amb = ctx.createRadialGradient(sx, sy, 8, sx, sy, 72);
-  amb.addColorStop(0, 'rgba(0,0,0,1.00)');
-  amb.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save();
+
+  // 1. Moderate ambient darkness over the whole scene
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, VW, VH);
+
+  // 2. Additive WARM AMBIENT POOL around the player (small lantern halo)
+  ctx.globalCompositeOperation = 'lighter';
+  const amb = ctx.createRadialGradient(sx, sy, 6, sx, sy, 80);
+  amb.addColorStop(0,   'rgba(255, 240, 180, 0.55)');
+  amb.addColorStop(0.6, 'rgba(255, 220, 130, 0.18)');
+  amb.addColorStop(1,   'rgba(255, 200, 100, 0)');
   ctx.fillStyle = amb;
-  ctx.beginPath(); ctx.arc(sx, sy, 72, 0, Math.PI*2); ctx.fill();
-  // flashlight cone (rotated, wider + brighter)
+  ctx.beginPath(); ctx.arc(sx, sy, 80, 0, Math.PI * 2); ctx.fill();
+
+  // 3. Additive BRIGHT FLASHLIGHT CONE in front of the player
   ctx.save();
   ctx.translate(sx, sy);
   ctx.rotate(p.aim);
-  // cone path: arc from -coneW to +coneW, radius coneR
-  // (chat ask: widen beam angle + boost intensity)
   const coneW = 0.62;
-  // flicker if low brine
   const lowBr = p.stamina < 25 ? Math.random() * 0.15 : 0;
-  const coneR = 280 - lowBr * 60;
-  const grad = ctx.createRadialGradient(0, 0, 6, 0, 0, coneR);
-  grad.addColorStop(0,    'rgba(0,0,0,1.00)');
-  grad.addColorStop(0.45, 'rgba(0,0,0,0.95)');
-  grad.addColorStop(0.75, 'rgba(0,0,0,0.55)');
-  grad.addColorStop(1,    'rgba(0,0,0,0)');
+  const coneR = 300 - lowBr * 80;
+  // warm flashlight gradient: bright core -> amber mid -> fade to 0
+  const grad = ctx.createRadialGradient(0, 0, 4, 0, 0, coneR);
+  grad.addColorStop(0,    'rgba(255, 248, 200, 0.95)');
+  grad.addColorStop(0.35, 'rgba(255, 230, 160, 0.65)');
+  grad.addColorStop(0.7,  'rgba(255, 200, 110, 0.30)');
+  grad.addColorStop(1,    'rgba(255, 180, 80, 0)');
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.arc(0, 0, coneR, -coneW, coneW);
   ctx.closePath();
   ctx.fill();
-  // brighter inner hotspot (full reveal in the close-mid zone)
-  const hot = ctx.createRadialGradient(coneR * 0.35, 0, 4, coneR * 0.35, 0, coneR * 0.55);
-  hot.addColorStop(0, 'rgba(0,0,0,0.85)');
-  hot.addColorStop(1, 'rgba(0,0,0,0)');
+  // bright hot-spot at mid-cone — sells the bulb's focal cone
+  const hot = ctx.createRadialGradient(coneR * 0.32, 0, 2, coneR * 0.32, 0, coneR * 0.45);
+  hot.addColorStop(0, 'rgba(255, 252, 220, 0.55)');
+  hot.addColorStop(1, 'rgba(255, 252, 220, 0)');
   ctx.fillStyle = hot;
   ctx.beginPath();
   ctx.moveTo(0, 0);
-  ctx.arc(0, 0, coneR * 0.75, -coneW * 0.75, coneW * 0.75);
+  ctx.arc(0, 0, coneR * 0.7, -coneW * 0.7, coneW * 0.7);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
+
   ctx.globalCompositeOperation = 'source-over';
   ctx.restore();
 }
