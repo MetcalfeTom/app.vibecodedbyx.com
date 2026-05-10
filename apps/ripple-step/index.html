@@ -136,6 +136,24 @@ input[type=range]::-moz-range-thumb{
   background:var(--note-5);color:var(--bg-deep);border-color:var(--note-5);
   box-shadow:0 0 8px rgba(94,194,232,0.4);
 }
+/* formant preset row reuses .duration-pick layout */
+.formant-pick .div-tick{
+  font-family:'Fraunces',serif;font-style:italic;font-size:0.7rem;
+  color:var(--dim);padding:0 0.1rem 0 0.3rem;
+  letter-spacing:0.02em;
+}
+.formant-pick .chip.f-vowel[aria-pressed="true"]{
+  background:var(--note-4);color:var(--bg-deep);border-color:var(--note-4);
+  box-shadow:0 0 8px rgba(196,123,255,0.5);
+}
+.formant-pick .chip.f-cons[aria-pressed="true"]{
+  background:var(--note-2);color:var(--bg-deep);border-color:var(--note-2);
+  box-shadow:0 0 8px rgba(245,146,106,0.5);
+}
+.formant-pick .chip.f-none[aria-pressed="true"]{
+  background:transparent;color:var(--cream);border-color:var(--foam);
+  box-shadow:none;
+}
 .scale-pick{display:flex;gap:0.3rem}
 .scale-pick .chip{
   background:transparent;border:1px solid var(--dim);color:var(--dim);
@@ -392,6 +410,22 @@ footer .pulse{color:var(--note-5);animation:pulse 2.6s infinite ease-in-out}
     <button class="chip" type="button" data-dur="1/4"  aria-pressed="false">1/4</button>
     <button class="chip" type="button" data-dur="1/2"  aria-pressed="false">1/2</button>
     <button class="chip" type="button" data-dur="1"    aria-pressed="false">1 bar</button>
+  </div>
+
+  <div class="duration-pick formant-pick" role="group" aria-label="Formant filter preset" id="formantPick">
+    <span class="lbl">formant</span>
+    <button class="chip f-none" type="button" data-formant="none" aria-pressed="true">none</button>
+    <span class="div-tick" aria-hidden="true">vowels</span>
+    <button class="chip f-vowel" type="button" data-formant="ah" aria-pressed="false">ah</button>
+    <button class="chip f-vowel" type="button" data-formant="eh" aria-pressed="false">eh</button>
+    <button class="chip f-vowel" type="button" data-formant="ee" aria-pressed="false">ee</button>
+    <button class="chip f-vowel" type="button" data-formant="oh" aria-pressed="false">oh</button>
+    <button class="chip f-vowel" type="button" data-formant="oo" aria-pressed="false">oo</button>
+    <span class="div-tick" aria-hidden="true">cons</span>
+    <button class="chip f-cons" type="button" data-formant="ss" aria-pressed="false">ss</button>
+    <button class="chip f-cons" type="button" data-formant="sh" aria-pressed="false">sh</button>
+    <button class="chip f-cons" type="button" data-formant="ff" aria-pressed="false">ff</button>
+    <button class="chip f-cons" type="button" data-formant="mm" aria-pressed="false">mm</button>
   </div>
 
   <div class="sequencer" aria-label="Step grid 5 rows by 16 steps with verse and chorus sections">
@@ -662,6 +696,55 @@ function hexA(hex, alpha){
 // AUDIO
 // ─────────────────────────────────────────────────────────────
 let actx = null, master = null, reverb = null, reverbGain = null, padGain = null;
+// Formant insert nodes — sit between the per-voice gain and the master bus.
+// Two parallel bandpass filters (F1 + F2) plus a dry-mix gain feed a sum.
+// Vowel presets shape both filter freqs; consonant presets emphasise a
+// single noisy band. "none" preset zeroes the filter wet sends and keeps
+// only the dry signal.
+let formantIn = null, formantOut = null, formantBp1 = null, formantBp2 = null,
+    formantWet1 = null, formantWet2 = null, formantDry = null;
+
+// F1/F2 formant pairs (Hz) — classic IPA approximations
+const FORMANTS = {
+  none: { kind: 'none', label: '—' },
+  ah:   { kind: 'vowel', f1: 730, f2: 1090, q1: 10, q2: 10, label: 'ah' },
+  eh:   { kind: 'vowel', f1: 530, f2: 1840, q1: 10, q2: 10, label: 'eh' },
+  ee:   { kind: 'vowel', f1: 270, f2: 2290, q1: 12, q2: 12, label: 'ee' },
+  oh:   { kind: 'vowel', f1: 570, f2:  840, q1: 10, q2: 10, label: 'oh' },
+  oo:   { kind: 'vowel', f1: 300, f2:  870, q1: 12, q2: 12, label: 'oo' },
+  // consonants — emphasise a single noisy band
+  ss:   { kind: 'cons',  f1: 6500, f2: 8000, q1: 6,  q2: 6,  label: 'ss' },
+  sh:   { kind: 'cons',  f1: 2800, f2: 3500, q1: 6,  q2: 6,  label: 'sh' },
+  ff:   { kind: 'cons',  f1: 1200, f2: 4000, q1: 4,  q2: 3,  label: 'ff' },
+  mm:   { kind: 'cons',  f1: 280,  f2:  900, q1: 14, q2: 8,  label: 'mm' },
+};
+const FORMANT_KEYS = ['none','ah','eh','ee','oh','oo','ss','sh','ff','mm'];
+let formantPreset = 'none';
+
+function applyFormant(preset){
+  formantPreset = preset;
+  if (!actx) return;
+  const f = FORMANTS[preset];
+  const now = actx.currentTime;
+  if (!f || f.kind === 'none'){
+    formantWet1.gain.linearRampToValueAtTime(0.0001, now + 0.06);
+    formantWet2.gain.linearRampToValueAtTime(0.0001, now + 0.06);
+    formantDry.gain.linearRampToValueAtTime(1.0,    now + 0.06);
+    return;
+  }
+  formantBp1.frequency.linearRampToValueAtTime(f.f1, now + 0.08);
+  formantBp2.frequency.linearRampToValueAtTime(f.f2, now + 0.08);
+  formantBp1.Q.linearRampToValueAtTime(f.q1, now + 0.08);
+  formantBp2.Q.linearRampToValueAtTime(f.q2, now + 0.08);
+  // vowels: heavy wet, moderate dry — recognisable but musical
+  // consonants: more dry kept so the note still rings underneath
+  const wet = (f.kind === 'vowel') ? 1.8 : 1.1;
+  const dry = (f.kind === 'vowel') ? 0.32 : 0.55;
+  formantWet1.gain.linearRampToValueAtTime(wet, now + 0.06);
+  formantWet2.gain.linearRampToValueAtTime(wet, now + 0.06);
+  formantDry.gain.linearRampToValueAtTime(dry, now + 0.06);
+}
+
 function ensureAudio(){
   if (actx) return;
   actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -672,10 +755,31 @@ function ensureAudio(){
   reverb.buffer = makeImpulse(2.4, 2.0);
   reverbGain = actx.createGain();
   reverbGain.gain.value = 0.45;
+
+  // formant insert chain: voices feed formantIn, which splits into
+  //   formantIn → bp1 → wet1 ─┐
+  //   formantIn → bp2 → wet2 ─┼→ formantOut → master + reverb
+  //   formantIn → dry        ─┘
+  formantIn  = actx.createGain(); formantIn.gain.value  = 1.0;
+  formantOut = actx.createGain(); formantOut.gain.value = 0.85;
+  formantBp1 = actx.createBiquadFilter(); formantBp1.type = 'bandpass'; formantBp1.frequency.value = 730; formantBp1.Q.value = 10;
+  formantBp2 = actx.createBiquadFilter(); formantBp2.type = 'bandpass'; formantBp2.frequency.value = 1090; formantBp2.Q.value = 10;
+  formantWet1 = actx.createGain(); formantWet1.gain.value = 0.0001;
+  formantWet2 = actx.createGain(); formantWet2.gain.value = 0.0001;
+  formantDry  = actx.createGain(); formantDry.gain.value  = 1.0;
+  formantIn.connect(formantBp1).connect(formantWet1).connect(formantOut);
+  formantIn.connect(formantBp2).connect(formantWet2).connect(formantOut);
+  formantIn.connect(formantDry).connect(formantOut);
+  formantOut.connect(master);
+  formantOut.connect(reverb);
+
   master.connect(actx.destination);
   reverb.connect(reverbGain).connect(actx.destination);
   // ambient pad bus, very low
   startPad();
+  // apply whatever preset was selected pre-audio-init (in case the user
+  // clicked a formant chip before triggering audio)
+  applyFormant(formantPreset);
 }
 
 function makeImpulse(dur, decay){
@@ -789,8 +893,9 @@ function playNote(row, freq, durationSteps){
   lp.Q.value = 1.4;
   o1.connect(lp); o2.connect(lp);
   lp.connect(og);
-  og.connect(master);
-  og.connect(reverb);
+  // Route through the formant insert — when preset is 'none' it acts as
+  // a dry pass-through; vowel/consonant presets shape the timbre.
+  og.connect(formantIn);
   o1.start(t); o2.start(t);
   o1.stop(endT + 0.06); o2.stop(endT + 0.06);
 
@@ -1238,8 +1343,22 @@ function setDuration(d){
     c.setAttribute('aria-pressed', String(c.dataset.dur === d));
   });
 }
-document.querySelectorAll('.duration-pick .chip').forEach((c) => {
+document.querySelectorAll('.duration-pick:not(.formant-pick) .chip').forEach((c) => {
   c.addEventListener('click', () => setDuration(c.dataset.dur));
+});
+
+// formant preset chips
+function setFormant(p){
+  if (!FORMANTS[p]) return;
+  ensureAudio();
+  if (actx && actx.state === 'suspended') actx.resume();
+  document.querySelectorAll('.formant-pick .chip').forEach((c) => {
+    c.setAttribute('aria-pressed', String(c.dataset.formant === p));
+  });
+  applyFormant(p);
+}
+document.querySelectorAll('.formant-pick .chip').forEach((c) => {
+  c.addEventListener('click', () => setFormant(c.dataset.formant));
 });
 
 window.addEventListener('keydown', (ev) => {
@@ -1273,6 +1392,10 @@ window.addEventListener('keydown', (ev) => {
   } else if (ev.key === '.'){
     // panic: kill all sound right now
     allNotesOff();
+  } else if (ev.key === 'f' || ev.key === 'F'){
+    // cycle through formant presets
+    const i = FORMANT_KEYS.indexOf(formantPreset);
+    setFormant(FORMANT_KEYS[(i + 1) % FORMANT_KEYS.length]);
   }
 });
 
