@@ -424,6 +424,7 @@ function makeFighter(side, x){
     poseStiff: 18,          // springs to pose targets — high when idle
     stateTimer: 0,
     flashTimer: 0,
+    graceTimer: 0,          // brief invincibility after recovering from a hit
     swingFuse: 0,           // 0..1, only used by foe — fills over time
     swingFuseRate: 0.28,    // fills per second (tuned per round)
     rotBias: 0,             // small body sway
@@ -476,17 +477,27 @@ function applyImpulse(f, vec, hit){
 function tickFighter(f, dt){
   f.stateTimer += dt;
   if (f.flashTimer > 0) f.flashTimer = Math.max(0, f.flashTimer - dt);
+  if (f.graceTimer > 0) f.graceTimer = Math.max(0, f.graceTimer - dt);
 
-  // state transitions
-  if (f.state === 'ragdoll' && f.stateTimer > 1.4){
+  // state transitions — snappier recovery: 0.8s ragdoll → 0.35s rising
+  if (f.state === 'ragdoll' && f.stateTimer > 0.8){
     f.state = 'rising'; f.stateTimer = 0;
   }
   if (f.state === 'rising'){
-    // ramp pose stiffness back up over 0.7s
-    f.poseStiff = Math.min(20, f.stateTimer / 0.7 * 20);
-    if (f.stateTimer > 0.7){
+    // ramp pose stiffness back up over 0.35s
+    f.poseStiff = Math.min(20, f.stateTimer / 0.35 * 20);
+    if (f.stateTimer > 0.35){
       f.state = 'idle'; f.stateTimer = 0; f.poseStiff = 18;
+      // 1.0s post-recovery grace: foe fuse paused, no re-hit possible
+      if (f.graceTimer < 1.0) f.graceTimer = 1.0;
     }
+  }
+  // Hard safety cap: never let any fighter linger in non-idle past 2.0s total.
+  // Prevents any wedge case (paused mid-state, repeated impulses, tab switch)
+  // from leaving you locked out forever.
+  if (f.state !== 'idle' && f.stateTimer > 2.0){
+    f.state = 'idle'; f.stateTimer = 0; f.poseStiff = 18;
+    if (f.graceTimer < 0.6) f.graceTimer = 0.6;
   }
   if (f.state === 'idle'){
     f.poseStiff = 18;
@@ -1220,10 +1231,52 @@ function render(){
   // foe swing fuse
   if (game.running) drawFuse();
 
+  // player recovery indicator
+  if (game.running) drawRecovery();
+
   // FX layer
   drawFx();
 
   ctx.restore();
+}
+
+function drawRecovery(){
+  const you = game.you;
+  const inHit  = (you.state === 'ragdoll' || you.state === 'rising');
+  const inGrace = (you.graceTimer > 0);
+  if (!inHit && !inGrace) return;
+  const x = you.ps[1].x;
+  const y = you.ps[1].y - 70;
+  // SAFE label + thin progress bar so the player can see they cannot be hit yet
+  let label, color, frac;
+  if (inHit){
+    // ragdoll fills 0→0.7, rising fills 0.7→1.0
+    if (you.state === 'ragdoll') frac = Math.min(0.7, you.stateTimer / 0.8 * 0.7);
+    else frac = 0.7 + Math.min(0.3, you.stateTimer / 0.35 * 0.3);
+    label = (you.state === 'ragdoll') ? 'GET UP' : 'RISING';
+    color = '#5ec2ff';
+  } else {
+    // grace timer counts down from 1.0
+    frac = 1 - (you.graceTimer / 1.0);
+    label = 'SAFE';
+    color = '#7df09a';
+  }
+  // backing plate
+  ctx.fillStyle = 'rgba(10,8,5,0.7)';
+  ctx.fillRect(x - 38, y - 11, 76, 22);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2;
+  ctx.strokeRect(x - 38, y - 11, 76, 22);
+  // bar
+  ctx.fillStyle = color;
+  ctx.shadowColor = color; ctx.shadowBlur = 6;
+  ctx.fillRect(x - 36, y - 9, 72 * frac, 4);
+  ctx.shadowBlur = 0;
+  // label
+  ctx.font = "900 11px 'Big Shoulders Stencil Display', sans-serif";
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.fillText(label, x, y + 5);
 }
 
 function drawWord(){
@@ -1325,8 +1378,12 @@ function loop(ts){
   tickBg(dt);
 
   if (game.running && !game.paused && !game.ended){
-    // foe fuse — only fills when foe is upright
-    if (game.foe.state === 'idle'){
+    // foe fuse — only fills when foe is upright AND player is upright with no grace period.
+    // This guarantees the player can always type their way out of a hit: after the 0.8s
+    // ragdoll + 0.35s rise + 1.0s grace = ~2.15s of guaranteed recovery time before the
+    // foe can wind up another swing.
+    const playerSafe = (game.you.state === 'ragdoll' || game.you.state === 'rising' || game.you.graceTimer > 0);
+    if (game.foe.state === 'idle' && !playerSafe){
       game.foe.swingFuse += game.foe.swingFuseRate * dt;
       if (game.foe.swingFuse >= 1){
         game.foe.swingFuse = 0;
@@ -1368,8 +1425,10 @@ window.addEventListener('keydown', (ev) => {
     return;
   }
   if (game.paused) return;
-  // can't type during own ragdoll
-  if (game.you.state === 'ragdoll') { sfxMiss(); return; }
+  // No typing lockout — even while ragdolled, letters register so the
+  // player can immediately start the next word without waiting for the
+  // physical recovery to finish. The grace timer (set on rise) protects
+  // against a follow-up swing during the typing-recovery window.
 
   if (ev.key === 'Backspace'){
     if (game.typed.length > 0){
