@@ -575,12 +575,19 @@ function openQuiz(f){
   state.quizActive = true;
   state.quizFlower = f;
   state.quizCorrect = POLLEN_TYPES[f.pollenTypeIdx];
-  // Drop any in-flight pointer state from the canvas so a press
+  state._quizOpenedAt = performance.now();   // debounces stray early events
+  // Drop in-flight pointer state from the canvas so a press
   // started on the canvas can't swallow the button click. (Native
   // click events require press+release on the same element; without
   // this the touch user could tap a button and have it never fire.)
   state.pointerDown = false;
   state.buzzActive = false;
+  // ALSO drop held keyboard keys so a held SPACE (used for buzz)
+  // doesn't auto-fire a focused button — that was the "quiz
+  // disappears too quickly" bug: held Space + Q opening the quiz
+  // would have Space immediately click the first option.
+  keys.delete(' ');
+  keys.delete('enter');
   if (buzzGain){
     const a = ensureAudio();
     if (a) buzzGain.gain.linearRampToValueAtTime(0, a.currentTime + 0.05);
@@ -595,21 +602,20 @@ function openQuiz(f){
     btn.type = 'button';
     btn.className = 'quiz-btn';
     btn.textContent = (i + 1) + '. ' + opt;
-    // pointerup fires reliably even when pointerdown started on a
-    // sibling element; click works in addition.
     btn.addEventListener('click', (ev) => { ev.stopPropagation(); answerQuiz(opt); });
     btn.addEventListener('pointerup', (ev) => { ev.stopPropagation(); answerQuiz(opt); });
     quizOptions.appendChild(btn);
   });
   quizOverlay.hidden = false;
-  // focus the first option so keyboard users can Enter immediately
-  setTimeout(() => {
-    const first = quizOptions.querySelector('.quiz-btn');
-    if (first) first.focus();
-  }, 0);
+  // (Deliberately NOT auto-focusing the first option — was a footgun:
+  // Space-keyup or Enter on a focused button auto-fires its click.)
 }
 function answerQuiz(opt){
   if (!state.quizActive) return;
+  // 220ms debounce — drops any stray events that fired in the same
+  // tick the quiz opened (auto-repeat keys, pointerup from the open
+  // gesture, etc).
+  if (performance.now() - (state._quizOpenedAt || 0) < 220) return;
   const correct = (opt === state.quizCorrect);
   if (correct){
     state.jar = Math.min(state.jarMax, state.jar + 20);
@@ -714,7 +720,11 @@ function tickFlowers(dt){
   const b = state.bee;
   let bestPistilDist = Infinity;
   let activeFlower = null;
-  state.activeFlower = null;       // cleared each tick; set below if drinking
+  // Grace period: keep the most recent active flower around for a
+  // short tail after the bee stops touching its pistil so the
+  // microscope doesn't flicker on/off as the bee jitters.
+  state._activeGrace = Math.max(0, (state._activeGrace || 0) - dt);
+  if (state._activeGrace <= 0) state.activeFlower = null;
   for (const f of state.flowers){
     f.bobT += dt * 0.8;
     if (f.wilt < 1){
@@ -736,6 +746,7 @@ function tickFlowers(dt){
         }
         if (d < bestPistilDist){ bestPistilDist = d; activeFlower = f; }
         state.activeFlower = activeFlower;
+        state._activeGrace = 0.6;     // hold the lens for 0.6s after leaving
       }
       // emit gentle ambient pollen from flower center
       if (Math.random() < 0.04 + state.buzz * 0.06){
@@ -1307,73 +1318,91 @@ function drawMicroPollen(x, y, r, def, t, type){
       ctx.restore();
     }
   } else if (type === 'fenestrate'){
-    // ── FENESTRATE — Cosmos-style echinate-fenestrate. Triangular
-    // lacunae (windows) separated by thick muri (ridges), with
-    // small spines at the lattice vertices on the rim. Every other
-    // window is shifted to read as the geodesic facet pattern of
-    // real Asteraceae pollen.
-    const SP = r * 0.46;
-    const muriCol = withAlpha(def.glow, 0.85);
-    const lacunaCol = withAlpha(def.deep, 0.85);
-    const vertices = [];   // collected for spine placement on the rim
-    for (let row = -2; row <= 2; row++){
-      for (let col = -2; col <= 2; col++){
+    // ── Taraxacum officinalis (dandelion) ECHINATE-FENESTRATE ────
+    // Real T. officinalis pollen under SEM: oblate-spheroid body
+    // covered in sparse triangular lacunae (windows) framed by
+    // raised muri, AND ringed by a CROWN of long sharp echinate
+    // spines that dominate the silhouette ("pin-cushion" /
+    // "sea-urchin" look). The spines are the diagnostic feature.
+    // 1. small triangular lacunae confined to the central disc
+    //    (kept clear of the spine zone so the silhouette stays
+    //    spike-dominant)
+    const SP = r * 0.40;
+    ctx.fillStyle = withAlpha(def.deep, 0.78);
+    for (let row = -1; row <= 1; row++){
+      for (let col = -1; col <= 1; col++){
         const offset = (Math.abs(row) % 2) ? SP / 2 : 0;
         const px = x + col * SP + offset;
         const py = y + row * SP * 0.86;
-        if (Math.hypot(px - x, py - y) > r * 0.92) continue;
-        // 3 alternating triangle windows packed around each cell
-        // centre (gives the "Cosmos triangular fenestrae" look)
-        const triUp   = ((row + col) % 2) === 0;
-        ctx.fillStyle = lacunaCol;
+        if (Math.hypot(px - x, py - y) > r * 0.60) continue;
+        const triUp = ((row + col) % 2) === 0;
+        const triA  = triUp ? -Math.PI / 2 : Math.PI / 2;
+        const triR  = SP * 0.32;
         ctx.beginPath();
-        const tris = triUp ? [0, Math.PI * 2 / 3, Math.PI * 4 / 3]
-                            : [Math.PI / 3, Math.PI, Math.PI * 5 / 3];
-        // single triangular lacuna pointing up or down
-        const triR = SP * 0.32;
-        const triA = triUp ? -Math.PI / 2 : Math.PI / 2;
-        ctx.moveTo(px + Math.cos(triA) * triR,
-                   py + Math.sin(triA) * triR);
+        ctx.moveTo(px + Math.cos(triA) * triR, py + Math.sin(triA) * triR);
         ctx.lineTo(px + Math.cos(triA + Math.PI * 2 / 3) * triR,
                    py + Math.sin(triA + Math.PI * 2 / 3) * triR);
         ctx.lineTo(px + Math.cos(triA + Math.PI * 4 / 3) * triR,
                    py + Math.sin(triA + Math.PI * 4 / 3) * triR);
         ctx.closePath();
         ctx.fill();
-        // bright muri (ridges) framing the lacuna
-        ctx.strokeStyle = muriCol;
-        ctx.lineWidth = 0.9;
+        // bright muri (raised ridges) framing the lacuna
+        ctx.strokeStyle = withAlpha(def.glow, 0.85);
+        ctx.lineWidth = 0.7;
         ctx.stroke();
-        // collect outer-rim vertices for spine placement
-        for (const ta of tris){
-          const vx = px + Math.cos(ta + triA) * triR;
-          const vy = py + Math.sin(ta + triA) * triR;
-          if (Math.hypot(vx - x, vy - y) > r * 0.7
-           && Math.hypot(vx - x, vy - y) < r * 0.95){
-            vertices.push([vx, vy]);
-          }
-        }
       }
     }
-    // small ECHINATE spines protruding from rim vertices (sharp
-    // tooth-like projections — the "echinate" of echinate-fenestrate)
-    ctx.strokeStyle = withAlpha(def.glow, 0.92);
-    ctx.lineWidth = 1.2;
-    const seen = new Set();
-    for (const [vx, vy] of vertices){
-      const key = vx.toFixed(0) + ',' + vy.toFixed(0);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const ang = Math.atan2(vy - y, vx - x);
-      const sLen = r * 0.18;
-      ctx.beginPath();
-      ctx.moveTo(vx, vy);
-      ctx.lineTo(vx + Math.cos(ang) * sLen, vy + Math.sin(ang) * sLen);
-      ctx.stroke();
-      // tiny dot at spine tip for definition
+    // 2. faint inter-spine ring — visual link between lacunae and rim
+    ctx.strokeStyle = withAlpha(def.glow, 0.40);
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.78, 0, Math.PI * 2);
+    ctx.stroke();
+    // 3. THE DEFINING DANDELION SPINE CROWN — 14 long radial
+    //    echini. Each is a tapered triangle from the body rim
+    //    outward, with a darker midline ridge for SEM-grade
+    //    definition + a dim shadow on one flank.
+    const NSPINES = 14;
+    const spineLen = r * 0.55;
+    const baseR    = r * 0.86;
+    const baseW    = r * 0.10;
+    for (let s = 0; s < NSPINES; s++){
+      const a = (s / NSPINES) * Math.PI * 2 + t * 0.05;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const baseX_ = x + ca * baseR;
+      const baseY_ = y + sa * baseR;
+      const tipX   = x + ca * (r + spineLen);
+      const tipY   = y + sa * (r + spineLen);
+      const perpX = -sa, perpY = ca;
+      const lhsX = baseX_ + perpX * baseW, lhsY = baseY_ + perpY * baseW;
+      const rhsX = baseX_ - perpX * baseW, rhsY = baseY_ - perpY * baseW;
+      // bright spine body
       ctx.fillStyle = withAlpha(def.glow, 0.95);
       ctx.beginPath();
-      ctx.arc(vx + Math.cos(ang) * sLen, vy + Math.sin(ang) * sLen, 1, 0, Math.PI*2);
+      ctx.moveTo(lhsX, lhsY);
+      ctx.lineTo(tipX,  tipY);
+      ctx.lineTo(rhsX, rhsY);
+      ctx.closePath();
+      ctx.fill();
+      // shadow on the cw flank (depth)
+      ctx.fillStyle = withAlpha(def.deep, 0.45);
+      ctx.beginPath();
+      ctx.moveTo(rhsX,  rhsY);
+      ctx.lineTo(tipX,  tipY);
+      ctx.lineTo(baseX_, baseY_);
+      ctx.closePath();
+      ctx.fill();
+      // dark midline ridge from base to tip
+      ctx.strokeStyle = withAlpha(def.deep, 0.7);
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.moveTo(baseX_, baseY_);
+      ctx.lineTo(tipX,   tipY);
+      ctx.stroke();
+      // socket where the spine plants into the body
+      ctx.fillStyle = withAlpha(def.deep, 0.55);
+      ctx.beginPath();
+      ctx.arc(baseX_, baseY_, 1.6, 0, Math.PI * 2);
       ctx.fill();
     }
   }
