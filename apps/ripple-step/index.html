@@ -117,6 +117,25 @@ input[type=range]::-moz-range-thumb{
   border-radius:50%;cursor:pointer;box-shadow:0 0 8px rgba(232,76,122,0.6);
 }
 
+.duration-pick{
+  display:flex;gap:0.3rem;align-items:center;flex-wrap:wrap;
+}
+.duration-pick .lbl{
+  font-family:'JetBrains Mono',monospace;font-size:0.66rem;letter-spacing:0.22em;
+  color:var(--dim);text-transform:uppercase;margin-right:0.2rem;
+}
+.duration-pick .chip{
+  background:transparent;border:1px solid var(--dim);color:var(--dim);
+  padding:0.3rem 0.5rem;font-family:'JetBrains Mono',monospace;font-size:0.66rem;
+  letter-spacing:0.05em;cursor:pointer;border-radius:3px;
+  min-height:2.0rem;min-width:2.2rem;
+  display:flex;align-items:center;justify-content:center;
+}
+.duration-pick .chip:hover{color:var(--cream);border-color:var(--foam)}
+.duration-pick .chip[aria-pressed="true"]{
+  background:var(--note-5);color:var(--bg-deep);border-color:var(--note-5);
+  box-shadow:0 0 8px rgba(94,194,232,0.4);
+}
 .scale-pick{display:flex;gap:0.3rem}
 .scale-pick .chip{
   background:transparent;border:1px solid var(--dim);color:var(--dim);
@@ -340,6 +359,17 @@ footer .pulse{color:var(--note-5);animation:pulse 2.6s infinite ease-in-out}
       <button class="chip" id="scaleHira" type="button" aria-pressed="false">hira</button>
       <button class="chip" id="scaleDor"  type="button" aria-pressed="false">dor</button>
     </div>
+  </div>
+
+  <div class="duration-pick" role="group" aria-label="Note duration">
+    <span class="lbl">note</span>
+    <button class="chip" type="button" data-dur="1/64" aria-pressed="false">1/64</button>
+    <button class="chip" type="button" data-dur="1/32" aria-pressed="false">1/32</button>
+    <button class="chip" type="button" data-dur="1/16" aria-pressed="false">1/16</button>
+    <button class="chip" type="button" data-dur="1/8"  aria-pressed="true">1/8</button>
+    <button class="chip" type="button" data-dur="1/4"  aria-pressed="false">1/4</button>
+    <button class="chip" type="button" data-dur="1/2"  aria-pressed="false">1/2</button>
+    <button class="chip" type="button" data-dur="1"    aria-pressed="false">1 bar</button>
   </div>
 
   <div class="sequencer" aria-label="Step grid 5 rows by 16 steps with verse and chorus sections">
@@ -658,25 +688,47 @@ function startPad(){
   padGain.gain.linearRampToValueAtTime(0.05, actx.currentTime + 4);
 }
 
+// Note duration in bar fractions — clicking 1/4 means each note rings out
+// for one beat regardless of step interval. 1 = whole bar sustain.
+const NOTE_DURATIONS = ['1/64', '1/32', '1/16', '1/8', '1/4', '1/2', '1'];
+const DURATION_FRAC  = { '1/64':1/64, '1/32':1/32, '1/16':1/16, '1/8':1/8, '1/4':1/4, '1/2':1/2, '1':1 };
+let noteDuration = '1/8';
+
+function noteDurMs(){
+  const barMs = (60 / bpm) * 4 * 1000;
+  return DURATION_FRAC[noteDuration] * barMs;
+}
+
 function playNote(freq, color){
   if (!actx) return;
   const t = actx.currentTime;
+  // ADSR scaled to the current note-duration setting:
+  //  attack 8ms → peak; hold at peak for (duration - release); release
+  //  scales with duration but is bounded so very short notes don't click
+  //  too hard and very long notes don't tail forever.
+  const durSec = Math.max(0.04, noteDurMs() / 1000);
+  const release = Math.min(0.45, Math.max(0.04, durSec * 0.4));
+  const sustainEnd = t + Math.max(0.012, durSec - release);
+  const endT = sustainEnd + release;
   // sine + 2nd harmonic
   const o1 = actx.createOscillator(); o1.type = 'sine'; o1.frequency.value = freq;
   const o2 = actx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = freq * 2.01;
   const og = actx.createGain();
   og.gain.setValueAtTime(0.0001, t);
   og.gain.exponentialRampToValueAtTime(0.32, t + 0.008);
-  og.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
-  // lowpass with note-specific Q
+  og.gain.setValueAtTime(0.32, sustainEnd);
+  og.gain.exponentialRampToValueAtTime(0.0001, endT);
+  // lowpass — long notes get a slightly opener filter so the sustain
+  // doesn't sound muffled, short notes stay round
   const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
-  lp.frequency.value = 2400; lp.Q.value = 1.4;
+  const cutoff = 1800 + Math.min(2400, durSec * 1400);
+  lp.frequency.value = cutoff; lp.Q.value = 1.4;
   o1.connect(lp); o2.connect(lp);
   lp.connect(og);
   og.connect(master);
   og.connect(reverb);
   o1.start(t); o2.start(t);
-  o1.stop(t + 1.9); o2.stop(t + 1.9);
+  o1.stop(endT + 0.06); o2.stop(endT + 0.06);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1032,6 +1084,18 @@ scalePent.addEventListener('click', () => pickScale('pent'));
 scaleHira.addEventListener('click', () => pickScale('hira'));
 scaleDor .addEventListener('click', () => pickScale('dor'));
 
+// note-duration chips
+function setDuration(d){
+  if (!DURATION_FRAC[d]) return;
+  noteDuration = d;
+  document.querySelectorAll('.duration-pick .chip').forEach((c) => {
+    c.setAttribute('aria-pressed', String(c.dataset.dur === d));
+  });
+}
+document.querySelectorAll('.duration-pick .chip').forEach((c) => {
+  c.addEventListener('click', () => setDuration(c.dataset.dur));
+});
+
 window.addEventListener('keydown', (ev) => {
   if (ev.target && ev.target.tagName === 'INPUT') return;
   if (ev.key === ' '){
@@ -1052,6 +1116,14 @@ window.addEventListener('keydown', (ev) => {
     setEditBar(editBar - 1);
   } else if (ev.key === ']'){
     setEditBar(editBar + 1);
+  } else if (ev.key === '-' || ev.key === '_'){
+    // shorter duration
+    const i = NOTE_DURATIONS.indexOf(noteDuration);
+    if (i > 0) setDuration(NOTE_DURATIONS[i - 1]);
+  } else if (ev.key === '=' || ev.key === '+'){
+    // longer duration
+    const i = NOTE_DURATIONS.indexOf(noteDuration);
+    if (i < NOTE_DURATIONS.length - 1) setDuration(NOTE_DURATIONS[i + 1]);
   }
 });
 
