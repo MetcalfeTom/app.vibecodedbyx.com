@@ -243,7 +243,9 @@ const TT = {
   ASSIGN:'ASSIGN',
   PLUS:'PLUS', MINUS:'MINUS', STAR:'STAR', SLASH:'SLASH', PERCENT:'PERCENT',
   LPAREN:'LPAREN', RPAREN:'RPAREN',
-  PUTS:'PUTS',
+  LBRACE:'LBRACE', RBRACE:'RBRACE',
+  DOT:'DOT', PIPE:'PIPE',
+  PUTS:'PUTS', DO:'DO', END:'END',
   NEWLINE:'NEWLINE', EOF:'EOF',
 };
 
@@ -305,20 +307,26 @@ function tokenize(src){
     if (/[a-zA-Z_]/.test(c)){
       let s = '';
       while (i < len && /[a-zA-Z0-9_]/.test(src[i])){ s += src[i]; adv(); }
-      if (s === 'puts') emit(TT.PUTS, s);
-      else emit(TT.IDENT, s);
+      if      (s === 'puts') emit(TT.PUTS, s);
+      else if (s === 'do')   emit(TT.DO,   s);
+      else if (s === 'end')  emit(TT.END,  s);
+      else                   emit(TT.IDENT, s);
       continue;
     }
-    // operators
+    // operators + punctuation
     switch (c){
-      case '+': emit(TT.PLUS, c); adv(); continue;
-      case '-': emit(TT.MINUS, c); adv(); continue;
-      case '*': emit(TT.STAR, c); adv(); continue;
-      case '/': emit(TT.SLASH, c); adv(); continue;
+      case '+': emit(TT.PLUS, c);    adv(); continue;
+      case '-': emit(TT.MINUS, c);   adv(); continue;
+      case '*': emit(TT.STAR, c);    adv(); continue;
+      case '/': emit(TT.SLASH, c);   adv(); continue;
       case '%': emit(TT.PERCENT, c); adv(); continue;
-      case '(': emit(TT.LPAREN, c); adv(); continue;
-      case ')': emit(TT.RPAREN, c); adv(); continue;
-      case '=': emit(TT.ASSIGN, c); adv(); continue;
+      case '(': emit(TT.LPAREN, c);  adv(); continue;
+      case ')': emit(TT.RPAREN, c);  adv(); continue;
+      case '{': emit(TT.LBRACE, c);  adv(); continue;
+      case '}': emit(TT.RBRACE, c);  adv(); continue;
+      case '.': emit(TT.DOT, c);     adv(); continue;
+      case '|': emit(TT.PIPE, c);    adv(); continue;
+      case '=': emit(TT.ASSIGN, c);  adv(); continue;
     }
     throw new Error("unexpected character '" + c + "' at line " + line + ", col " + col);
   }
@@ -362,8 +370,45 @@ class Parser {
       const value = this.parseExpr();
       return { type:'Assign', name, value };
     }
+    // Ruby-style method call with a block. Currently only `.times { ... }`
+    // and `.times do ... end` are recognised — enough to demonstrate
+    // closures + block scope.
     const expr = this.parseExpr();
+    if (this.match(TT.DOT) && this.peek(1) && this.peek(1).type === TT.IDENT && this.peek(1).value === 'times'
+        && (this.peek(2) && (this.peek(2).type === TT.LBRACE || this.peek(2).type === TT.DO))){
+      this.pos += 2; // consume DOT + 'times'
+      const block = this.parseBlock();
+      return { type:'TimesCall', count: expr, blockArg: block.arg, body: block.body, line: this.peek().line };
+    }
     return { type:'ExprStmt', expr };
+  }
+
+  // Block: '{' '|' IDENT '|' stmts '}'   OR   'do' '|' IDENT '|' stmts 'end'
+  parseBlock(){
+    const open = this.peek().type;
+    if (open !== TT.LBRACE && open !== TT.DO){
+      throw new Error("expected '{' or 'do' for block at line " + this.peek().line);
+    }
+    this.pos++;
+    // swallow optional newline after `do`
+    while (this.match(TT.NEWLINE)) this.pos++;
+    // require `|arg|`
+    this.eat(TT.PIPE);
+    const arg = this.eat(TT.IDENT).value;
+    this.eat(TT.PIPE);
+    while (this.match(TT.NEWLINE)) this.pos++;
+    const body = [];
+    const close = open === TT.LBRACE ? TT.RBRACE : TT.END;
+    while (!this.match(close)){
+      if (this.match(TT.NEWLINE)){ this.pos++; continue; }
+      if (this.match(TT.EOF)){
+        throw new Error("unterminated block, expected '" + (close === TT.RBRACE ? '}' : 'end') + "'");
+      }
+      body.push(this.parseStmt());
+      while (this.match(TT.NEWLINE)) this.pos++;
+    }
+    this.eat(close);
+    return { arg, body };
   }
 
   parseExpr(){
@@ -409,18 +454,60 @@ class Parser {
 }
 
 // ── CODE GEN (Ruby AST → C) ──────────────────────────────────
+// Scope model: a stack of frames. Each frame has its own locals; when
+// emitting an Ident we check innermost → outermost. Blocks compile to
+// (a) a context struct of captured outer variables, (b) a static C
+// function that takes the block arg + a void* context pointer, and
+// (c) a call site that builds the struct and invokes the generic
+// `times_loop` helper.
 class CGen {
   constructor(){
-    this.vars = {};   // name → 'int' | 'double' | 'const char*'
-    this.lines = [];
+    this.mainVars = {};       // name → C type, for the main scope
+    this.mainLines = [];      // body of int main(void)
+    this.prelude = [];        // structs + block fns appear here (above main)
+    this.blockCount = 0;      // monotonically increasing block id
+    this.usesTimesLoop = false;
+    // Scope stack — each entry is { vars: name→type, kind: 'main'|'block',
+    // blockArg?, captured?: Map(name→type), parent }
+    this.scopes = [{ vars: this.mainVars, kind: 'main', parent: null }];
+  }
+  cur(){ return this.scopes[this.scopes.length - 1]; }
+
+  // Resolve an identifier — returns { type, where, scope } where `where`
+  // is 'local' | 'arg' | 'captured' | 'outer'. For an outer lookup inside
+  // a block we record the name into the current scope's captured map so
+  // the prelude knows to put it on the context struct.
+  resolveIdent(name){
+    const s = this.cur();
+    if (s.vars[name]) return { type: s.vars[name], where: 'local' };
+    if (s.kind === 'block' && s.blockArg === name){
+      return { type: 'int', where: 'arg' };
+    }
+    if (s.kind === 'block'){
+      // walk parents
+      let p = s.parent;
+      while (p){
+        if (p.vars[name]){
+          // capture it
+          if (!s.captured.has(name)) s.captured.set(name, p.vars[name]);
+          return { type: p.vars[name], where: 'captured' };
+        }
+        if (p.kind === 'block' && p.blockArg === name){
+          if (!s.captured.has(name)) s.captured.set(name, 'int');
+          return { type: 'int', where: 'captured' };
+        }
+        p = p.parent;
+      }
+    }
+    // Unknown — default to int and assume it'll be declared
+    return { type: 'int', where: 'unknown' };
   }
 
-  // type-inference: walk an expression and decide the C type
   exprType(n){
     if (n.type === 'IntLit')   return 'int';
     if (n.type === 'FloatLit') return 'double';
     if (n.type === 'StrLit')   return 'const char*';
-    if (n.type === 'Ident')    return this.vars[n.name] || 'int';
+    if (n.type === 'Ident')    return this.resolveIdent(n.name).type;
     if (n.type === 'Unary')    return this.exprType(n.operand);
     if (n.type === 'Group')    return this.exprType(n.expr);
     if (n.type === 'BinOp'){
@@ -428,7 +515,6 @@ class CGen {
       if (lt === 'const char*' || rt === 'const char*'){
         throw new Error("can't apply '" + n.op + "' to a string");
       }
-      // numeric promotion: any double in the mix → double result
       return (lt === 'double' || rt === 'double') ? 'double' : 'int';
     }
     return 'int';
@@ -441,44 +527,125 @@ class CGen {
       return s.includes('.') ? s : s + '.0';
     }
     if (n.type === 'StrLit')   return '"' + n.value + '"';
-    if (n.type === 'Ident')    return n.name;
+    if (n.type === 'Ident'){
+      const r = this.resolveIdent(n.name);
+      if (r.where === 'captured') return 'ctx->' + n.name;
+      return n.name;
+    }
     if (n.type === 'Unary')    return n.op + this.emitExpr(n.operand);
     if (n.type === 'Group')    return '(' + this.emitExpr(n.expr) + ')';
     if (n.type === 'BinOp')    return this.emitExpr(n.left) + ' ' + n.op + ' ' + this.emitExpr(n.right);
     return '';
   }
 
-  emitStmt(stmt){
+  // Emit a statement into the CURRENT scope's line buffer. Top-level uses
+  // mainLines; inside a block we collect into a temporary list passed in
+  // via `out`.
+  emitStmt(stmt, out, indent){
+    indent = indent || '    ';
     if (stmt.type === 'Assign'){
       const valType = this.exprType(stmt.value);
-      const exists = this.vars[stmt.name];
-      if (!exists){
-        this.vars[stmt.name] = valType;
-        this.lines.push('    ' + valType + ' ' + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
+      const s = this.cur();
+      // block-arg shadowing isn't allowed
+      if (s.kind === 'block' && stmt.name === s.blockArg){
+        throw new Error("cannot reassign block argument '" + stmt.name + "'");
+      }
+      // resolve in surrounding context to decide declare vs reassign
+      const r = this.resolveIdent(stmt.name);
+      const declaredHere = !!s.vars[stmt.name];
+      const declaredOuter = r.where === 'captured';
+      if (!declaredHere && !declaredOuter){
+        s.vars[stmt.name] = valType;
+        out.push(indent + valType + ' ' + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
+      } else if (declaredOuter){
+        // mutate captured outer var via context pointer
+        out.push(indent + 'ctx->' + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
       } else {
-        // Variable already declared. If new value-type widens int→double,
-        // bump the declared type by editing the earlier line. (Simple impl —
-        // we just leave the original declaration and cast on assignment.)
-        if (exists === 'int' && valType === 'double'){
-          this.lines.push('    ' + stmt.name + ' = (int)(' + this.emitExpr(stmt.value) + ');');
-        } else {
-          this.lines.push('    ' + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
-        }
+        out.push(indent + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
       }
     } else if (stmt.type === 'Puts'){
       const at = this.exprType(stmt.arg);
       const fmt = at === 'double' ? '%f' : at === 'const char*' ? '%s' : '%d';
-      this.lines.push('    printf("' + fmt + '\\n", ' + this.emitExpr(stmt.arg) + ');');
+      out.push(indent + 'printf("' + fmt + '\\n", ' + this.emitExpr(stmt.arg) + ');');
     } else if (stmt.type === 'ExprStmt'){
-      // bare expression — emit as a statement; compiler may warn, that's fine
-      this.lines.push('    (void)(' + this.emitExpr(stmt.expr) + ');');
+      out.push(indent + '(void)(' + this.emitExpr(stmt.expr) + ');');
+    } else if (stmt.type === 'TimesCall'){
+      this.emitTimesCall(stmt, out, indent);
     }
   }
 
+  emitTimesCall(stmt, out, indent){
+    // Allocate a fresh block id + scope
+    const id = this.blockCount++;
+    const blockScope = {
+      vars: {},
+      kind: 'block',
+      blockArg: stmt.blockArg,
+      captured: new Map(),    // captureName → type
+      parent: this.cur(),
+    };
+    this.scopes.push(blockScope);
+    // Emit body into a separate list while in block scope
+    const bodyLines = [];
+    for (const s of stmt.body){
+      this.emitStmt(s, bodyLines, '        ');  // 8-space indent inside block fn
+    }
+    this.scopes.pop();
+    // Build the struct definition from the captures observed during body emit
+    const captureEntries = [...blockScope.captured.entries()];  // [name, type]
+    const structName = 'block_ctx_' + id;
+    let structDef;
+    if (captureEntries.length){
+      structDef = 'typedef struct {\n'
+        + captureEntries.map(([n, t]) => '    ' + t + ' ' + n + ';').join('\n')
+        + '\n} ' + structName + ';\n';
+    } else {
+      // empty struct — emit a dummy field so C is happy (no zero-size struct in std C)
+      structDef = 'typedef struct { int _unused; } ' + structName + ';\n';
+    }
+    this.prelude.push(structDef);
+    // Block body function
+    const fnName = 'block_body_' + id;
+    let fn = 'static void ' + fnName + '(int ' + stmt.blockArg + ', void* ctx_) {\n';
+    if (captureEntries.length){
+      fn += '    ' + structName + '* ctx = (' + structName + '*)ctx_;\n';
+    } else {
+      fn += '    (void)ctx_;\n';
+    }
+    if (!bodyLines.length){
+      fn += '    (void)' + stmt.blockArg + ';\n';
+    } else {
+      fn += bodyLines.join('\n') + '\n';
+      // mark blockArg as used in case body only references captures
+      fn += '    (void)' + stmt.blockArg + ';\n';
+    }
+    fn += '}\n';
+    this.prelude.push(fn);
+    // Call site: populate the context struct and invoke times_loop
+    const ctxVar = 'ctx' + id;
+    if (captureEntries.length){
+      const inits = captureEntries.map(([n]) => '.' + n + ' = ' + n).join(', ');
+      out.push(indent + structName + ' ' + ctxVar + ' = { ' + inits + ' };');
+    } else {
+      out.push(indent + structName + ' ' + ctxVar + ' = { 0 };');
+    }
+    out.push(indent + 'times_loop(' + this.emitExpr(stmt.count) + ', ' + fnName + ', &' + ctxVar + ');');
+    this.usesTimesLoop = true;
+  }
+
   generate(program){
-    for (const s of program.body) this.emitStmt(s);
-    const body = this.lines.length ? this.lines.join('\n') + '\n' : '';
-    return '#include <stdio.h>\n\nint main(void) {\n' + body + '    return 0;\n}\n';
+    for (const s of program.body) this.emitStmt(s, this.mainLines, '    ');
+    let header = '#include <stdio.h>\n\n';
+    if (this.prelude.length){
+      header += this.prelude.join('\n');
+    }
+    if (this.usesTimesLoop){
+      header += '\nstatic void times_loop(int n, void (*body)(int, void*), void* ctx) {\n'
+              + '    for (int i = 0; i < n; i++) body(i, ctx);\n'
+              + '}\n';
+    }
+    const body = this.mainLines.length ? this.mainLines.join('\n') + '\n' : '';
+    return header + '\nint main(void) {\n' + body + '    return 0;\n}\n';
   }
 }
 
@@ -541,18 +708,26 @@ const autoBtn= document.getElementById('autoBtn');
 const compileBtn = document.getElementById('compileBtn');
 const exampleBtn = document.getElementById('exampleBtn');
 
-const EXAMPLE = `# a tiny ruby program
-# computes the area of a glowing circle
-r = 4
-pi = 3.14159
-area = pi * r * r
-puts area
-
-# integer arithmetic and a greeting
-n = (10 + 5) * 2 - 3
-puts n
-puts "hello, c"
-`;
+const EXAMPLE = [
+  '# blocks + closures',
+  '# the block captures multiplier from the enclosing scope —',
+  '# compiled into a context struct + C function pointer.',
+  'multiplier = 7',
+  '3.times do |i|',
+  '  puts i * multiplier',
+  'end',
+  '',
+  '# brace-form block, no captures',
+  '5.times { |k| puts k }',
+  '',
+  '# arithmetic still works',
+  'r = 4',
+  'pi = 3.14159',
+  'area = pi * r * r',
+  'puts area',
+  'puts "hello, c"',
+  '',
+].join('\n');
 
 let auto = true;
 let timer = null;
@@ -568,11 +743,11 @@ function render(){
       let cls = 'token';
       if (t.type === 'NEWLINE') cls += ' newline';
       else if (t.type === 'EOF') cls += ' eof';
-      else if (t.type === 'PUTS') cls += ' keyword';
+      else if (t.type === 'PUTS' || t.type === 'DO' || t.type === 'END') cls += ' keyword';
       else if (t.type === 'INT' || t.type === 'FLOAT') cls += ' num';
       else if (t.type === 'STRING') cls += ' str';
-      else if (['PLUS','MINUS','STAR','SLASH','PERCENT','ASSIGN'].includes(t.type)) cls += ' op';
-      else if (t.type === 'LPAREN' || t.type === 'RPAREN') cls += ' paren';
+      else if (['PLUS','MINUS','STAR','SLASH','PERCENT','ASSIGN','DOT','PIPE'].includes(t.type)) cls += ' op';
+      else if (['LPAREN','RPAREN','LBRACE','RBRACE'].includes(t.type)) cls += ' paren';
       div.className = cls;
       const valStr = t.value === null ? '—' : (typeof t.value === 'string' ? JSON.stringify(t.value).slice(1, -1) : String(t.value));
       div.innerHTML = '<span class="type">' + t.type + '</span><span class="val">' + escapeHtml(valStr) + '</span>';
