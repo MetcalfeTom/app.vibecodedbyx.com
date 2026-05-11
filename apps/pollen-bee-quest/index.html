@@ -635,6 +635,11 @@ function spawnPollen(x, y){
     max: 12,
     r: 1 + Math.random() * 1.6,
     color: ['#ffd14a', '#ffe69e', '#fff7d9', '#ff8fb9'][Math.floor(Math.random() * 4)],
+    // Stable seed → deterministic noise speckle pattern, so each grain
+    // looks like ONE grain rather than a shimmering ball of random dots.
+    seed: Math.floor(Math.random() * 0xffffff),
+    spin: Math.random() * Math.PI * 2,
+    spinVel: (Math.random() - 0.5) * 1.2,
   };
 }
 
@@ -1124,6 +1129,9 @@ function spawnNectarParticle(fx, fy, def){
     life: 1.2, max: 1.2,
     r: 2.4, color: def.center || '#ffd14a',
     homing: true,
+    seed: Math.floor(Math.random() * 0xffffff),
+    spin: Math.random() * Math.PI * 2,
+    spinVel: (Math.random() - 0.5) * 2,
   });
 }
 function spawnRipple(x, y, color){
@@ -1145,6 +1153,8 @@ function tickPollens(dt){
     p.x += p.vx * dt; p.y += p.vy * dt;
     p.vx *= 0.985; p.vy *= 0.985;
     if (!p.homing) p.vy += 16 * dt;
+    // tumble the grain so the speckle pattern visibly rotates
+    if (p.spin != null) p.spin += (p.spinVel || 0) * dt;
     out.push(p);
   }
   state.pollens = out;
@@ -1210,12 +1220,10 @@ function render(){
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(r.x, r.y, t * 80, 0, Math.PI*2); ctx.stroke();
   }
-  // pollen particles (additive)
+  // pollen particles — noise-textured fuzzy grains (additive blend)
   ctx.globalCompositeOperation = 'lighter';
   for (const p of state.pollens){
-    const a = Math.min(1, p.life / p.max);
-    ctx.fillStyle = withAlpha(p.color, a);
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    drawFuzzyPollen(p);
   }
   ctx.globalCompositeOperation = 'source-over';
   // bee
@@ -1239,6 +1247,115 @@ function render(){
   if (state.activeFlower && !state.ended){
     drawMicroscope(state.activeFlower);
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Pollen rendering — procedural watercolor + grainy histology slide.
+// Each particle is drawn as a pre-rendered 64×64 sprite scaled + spun
+// to its current size/orientation. We build 8 sprite variants once at
+// boot (paying the gradient cost only N times instead of per-frame ×
+// per-particle), then draw them via a single drawImage per particle.
+// Palette: deep magenta + plum + violet-magenta + dusty rose — the
+// chat-suggested "marcipopsis" histology aesthetic. Each sprite has
+//   • 4-5 overlapping translucent watercolor lobes (radial gradients)
+//   • a darker plum core blob
+//   • 22 deterministic speckle dots (sub-px to 1.4px) for the grainy
+//     stained-slide texture
+// ─────────────────────────────────────────────────────────────
+const POLLEN_PALETTE = [
+  { core: '#9b3a8f', edge: '#3a1640' },  // violet-magenta
+  { core: '#c52d6e', edge: '#5a1438' },  // hot magenta
+  { core: '#7a2d6e', edge: '#2a0c28' },  // plum
+  { core: '#b85a92', edge: '#4a1238' },  // dusty rose-plum
+];
+const POLLEN_SPRITE_SIZE = 64;
+const POLLEN_SPRITE_VARIANTS = 8;
+let pollenSprites = null;
+
+function fnvHash(seed, k){
+  let h = (seed | 0) ^ ((k + 1) * 0x9E3779B1);
+  h = (h ^ (h >>> 13)) * 0x85EBCA6B; h |= 0;
+  h = (h ^ (h >>> 16)) * 0xC2B2AE35; h |= 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  return h;
+}
+
+function buildPollenSprites(){
+  pollenSprites = [];
+  const S = POLLEN_SPRITE_SIZE;
+  const cx = S / 2, cy = S / 2;
+  for (let v = 0; v < POLLEN_SPRITE_VARIANTS; v++){
+    const cv = document.createElement('canvas');
+    cv.width = S; cv.height = S;
+    const c = cv.getContext('2d');
+    const pick = POLLEN_PALETTE[v % POLLEN_PALETTE.length];
+    // 5 watercolor lobes — overlapping radial gradients at low alpha
+    for (let k = 0; k < 5; k++){
+      const h = fnvHash(v * 101, k);
+      const baseAng = (k / 5) * Math.PI * 2 + ((h & 0xff) / 255) * 0.4;
+      const off = S * 0.18 + ((h >>> 8 & 0xff) / 255) * S * 0.12;
+      const rx  = S * 0.28 + ((h >>> 16 & 0xff) / 255) * S * 0.08;
+      const ry  = S * 0.22 + ((h >>> 24 & 0xff) / 255) * S * 0.10;
+      const lx = cx + Math.cos(baseAng) * off;
+      const ly = cy + Math.sin(baseAng) * off;
+      const g = c.createRadialGradient(lx, ly, 0, lx, ly, Math.max(rx, ry));
+      g.addColorStop(0,   withAlpha(pick.core, 0.55));
+      g.addColorStop(0.45,withAlpha(pick.core, 0.30));
+      g.addColorStop(0.85,withAlpha(pick.edge, 0.12));
+      g.addColorStop(1,   withAlpha(pick.edge, 0));
+      c.fillStyle = g;
+      c.save();
+      c.translate(lx, ly);
+      c.rotate(baseAng + Math.PI * 0.18);
+      c.beginPath(); c.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2); c.fill();
+      c.restore();
+    }
+    // darker plum core blob
+    const coreG = c.createRadialGradient(cx, cy, 0, cx, cy, S * 0.34);
+    coreG.addColorStop(0,    withAlpha(pick.edge, 0.55));
+    coreG.addColorStop(0.7,  withAlpha(pick.edge, 0.18));
+    coreG.addColorStop(1,    withAlpha(pick.edge, 0));
+    c.fillStyle = coreG;
+    c.beginPath(); c.arc(cx, cy, S * 0.34, 0, Math.PI*2); c.fill();
+    // histology speckle — 22 fine deterministic dots clustered in the disc
+    for (let k = 0; k < 22; k++){
+      const h = fnvHash(v * 7919 + 31, k);
+      // pull toward center with sqrt for clustering
+      const rNorm = Math.sqrt((h & 0xff) / 255);
+      const rad = rNorm * S * 0.42;
+      const ang = ((h >>> 8) & 0xffff) / 0xffff * Math.PI * 2;
+      const sx = cx + Math.cos(ang) * rad;
+      const sy = cy + Math.sin(ang) * rad;
+      const dotR = 0.35 + ((h >>> 24 & 0xff) / 255) * 1.1;
+      const isLight = (h & 1);
+      const fillCol = isLight
+        ? withAlpha('#f4d4e8', 0.45 * (1 - rNorm * 0.6))
+        : withAlpha(pick.edge, 0.65 * (1 - rNorm * 0.5));
+      c.fillStyle = fillCol;
+      c.beginPath(); c.arc(sx, sy, dotR, 0, Math.PI*2); c.fill();
+    }
+    pollenSprites.push(cv);
+  }
+}
+
+// Per-particle: pick a sprite variant by seed, draw it rotated + scaled
+// to the particle's current radius, alpha-faded by remaining life.
+function drawFuzzyPollen(p){
+  if (!pollenSprites) buildPollenSprites();
+  const a = Math.min(1, p.life / p.max);
+  if (a <= 0.01) return;
+  const sprite = pollenSprites[(p.seed | 0) % POLLEN_SPRITE_VARIANTS];
+  // size: sprite is 64px at its native baked-in detail; scale so the
+  // grain's visible radius lands at p.r * 2.8 (lobes extend past the
+  // hard radius from the original arc rendering, giving the soft edge).
+  const sz = Math.max(8, p.r * 5.6);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.spin || 0);
+  ctx.globalAlpha = a;
+  ctx.drawImage(sprite, -sz / 2, -sz / 2, sz, sz);
+  ctx.restore();
+  ctx.globalAlpha = 1;
 }
 
 function drawFlower(f){
