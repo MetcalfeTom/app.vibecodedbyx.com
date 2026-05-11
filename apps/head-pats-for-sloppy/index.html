@@ -1166,56 +1166,93 @@ const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsIn
 const insertQueue = [];
 
 async function bootSupabase(){
+  let mod;
   try {
-    const mod = await import('/supabase-config-fixed.js');
-    sb = mod.default;
-    // ensure we have an anon auth session for inserts
-    let { data: { user } } = await sb.auth.getUser();
-    if (!user){
-      try {
-        await sb.auth.signInAnonymously();
-        const u2 = (await sb.auth.getUser()).data?.user;
-        user = u2;
-      } catch(e){ /* may already be signed */ }
-    }
+    mod = await import('/supabase-config-fixed.js');
+  } catch (e){
+    console.warn('[head-pats] supabase config import failed:', e);
+    globeDotEl.classList.add('offline');
+    globeDotEl.title = 'offline · supabase config failed to load';
+    globalNumEl.textContent = '—';
+    return;
+  }
+  sb = mod.default;
+  try {
+    // Use the config's session helper — it handles anon sign-in + user upsert
+    // reliably (and surfaces errors instead of swallowing them like my old
+    // signInAnonymously chain did).
+    const { user } = await mod.supabaseSession();
     myUserId = user ? user.id : null;
-    // fetch the total count of all rows
+    if (!myUserId) throw new Error('session returned no user id');
+    console.info('[head-pats] supabase ready · user', myUserId.slice(0, 8));
+  } catch (e){
+    console.warn('[head-pats] supabase auth failed — inserts will be queued and retried:', e);
+    globeDotEl.classList.add('offline');
+    globeDotEl.title = 'offline · auth failed';
+    // try a bare anon signup as a last resort, no upsert
+    try {
+      const sign = await sb.auth.signInAnonymously();
+      const u = sign?.data?.user;
+      if (u){
+        myUserId = u.id;
+        console.info('[head-pats] fallback anon sign-in succeeded · user', myUserId.slice(0, 8));
+      }
+    } catch (e2){
+      console.warn('[head-pats] fallback anon sign-in also failed:', e2);
+    }
+  }
+  try {
     await refreshGlobalTotal();
-    // realtime subscription on INSERT events
+  } catch (e){
+    console.warn('[head-pats] global count fetch failed:', e);
+  }
+
+  // realtime subscription on INSERT events. If the table isn't published
+  // to supabase_realtime, this will sit in CHANNEL_ERROR — global counter
+  // won't tick, but local inserts still go through fine.
+  try {
     realtimeChan = sb.channel('head-pats-log-stream')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'head_pats_log' }, (payload) => {
-        // any insert (mine or someone else's) bumps the global counter
         const inserted = payload && payload.new;
-        if (inserted){
-          // ghost-pop for inserts coming from other viewers; we already
-          // played the local animation for our own inserts.
-          if (inserted.user_id && myUserId && inserted.user_id !== myUserId){
-            const r = petArea.getBoundingClientRect();
-            const gx = r.left + r.width * (0.3 + Math.random() * 0.4);
-            const gy = r.top  + r.height * (0.3 + Math.random() * 0.4);
-            ghostPetAt(gx, gy, inserted.kind || 'pat');
-          }
-          bumpGlobalTotal();
+        if (!inserted) return;
+        if (inserted.user_id && myUserId && inserted.user_id !== myUserId){
+          const r = petArea.getBoundingClientRect();
+          const gx = r.left + r.width * (0.3 + Math.random() * 0.4);
+          const gy = r.top  + r.height * (0.3 + Math.random() * 0.4);
+          ghostPetAt(gx, gy, inserted.kind || 'pat');
         }
+        bumpGlobalTotal();
       })
       .subscribe((status) => {
+        console.info('[head-pats] realtime channel status:', status);
         if (status === 'SUBSCRIBED'){
           realtimeReady = true;
           globeDotEl.classList.remove('offline');
           globeDotEl.title = 'live · global';
           flushInsertQueue();
-        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED'){
+        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT'){
           realtimeReady = false;
           globeDotEl.classList.add('offline');
-          globeDotEl.title = 'reconnecting…';
+          globeDotEl.title = 'realtime · ' + status.toLowerCase();
+          // even when realtime fails we can still INSERT; poll the count instead
+          startPollingFallback();
         }
       });
   } catch (e){
-    console.warn('[head-pats] supabase init failed, running local-only', e);
-    globeDotEl.classList.add('offline');
-    globeDotEl.title = 'offline · local only';
-    globalNumEl.textContent = '—';
+    console.warn('[head-pats] realtime subscribe failed, falling back to polling:', e);
+    startPollingFallback();
   }
+
+  // ALSO try to flush any queued inserts now — if my user id is set and
+  // sb is ready, we don't need to wait for realtime SUBSCRIBED to push.
+  flushInsertQueue();
+}
+
+let pollingTimer = null;
+function startPollingFallback(){
+  if (pollingTimer) return;
+  // re-poll the global count every 4s if realtime can't deliver it
+  pollingTimer = setInterval(() => { refreshGlobalTotal(); }, 4000);
 }
 
 async function refreshGlobalTotal(){
