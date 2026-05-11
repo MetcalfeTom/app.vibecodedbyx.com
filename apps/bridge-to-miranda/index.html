@@ -243,19 +243,28 @@ const boats = [];
 let waveT = 0;
 const ripples = [];
 
-function makeBoat({ id, text, byName, direction, ts, x }){
+function makeBoat({ id, text, byName, direction, ts, x, dropFromBridge }){
   const dir = direction != null ? direction : (Math.random() < 0.5 ? 1 : -1);
+  // boats now spawn UNDER THE BRIDGE LANTERN with a slight horizontal offset
+  // and drift outward. The splash is visible. Old behaviour (off-screen edge
+  // spawn) made submits feel broken — no visual feedback at the bridge.
+  const spawnX = (x != null)
+    ? x
+    : W * 0.5 + (Math.random() * 0.18 - 0.09) * W;
   return {
     id: id || ('b' + Math.random().toString(36).slice(2, 9)),
     text: String(text || '').slice(0, 180),
     byName: byName || 'anon',
     direction: dir,
     color: PALETTE_BOATS[Math.floor(Math.random() * PALETTE_BOATS.length)],
-    x: x != null ? x : (dir > 0 ? -80 : W + 80),
+    x: spawnX,
+    spawnX,
+    dropFrom: dropFromBridge ? H * 0.55 : null, // drop animation y-start
+    dropProgress: dropFromBridge ? 0 : 1,        // 0..1, 1 = on water
     yBase: 0,         // set on first render
     yPhase: Math.random() * Math.PI * 2,
     bob: 0,
-    speed: 24 + Math.random() * 18,    // px/s
+    speed: 22 + Math.random() * 16,    // px/s
     rot: 0,
     ts: ts || Date.now(),
     age: 0,
@@ -263,9 +272,11 @@ function makeBoat({ id, text, byName, direction, ts, x }){
 }
 
 function dropMyBoat(text){
-  const boat = makeBoat({ text, byName: 'me', direction: Math.random() < 0.5 ? 1 : -1 });
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const boat = makeBoat({ text, byName: 'me', direction: dir, dropFromBridge: true });
   boats.push(boat);
-  ripples.push({ x: boat.x, y: H * 0.66, life: 0, max: 1.6, r: 4 });
+  // splash ripple at the boat's spawn point on the water
+  ripples.push({ x: boat.spawnX, y: H * 0.66, life: 0, max: 1.6, r: 4 });
   sfxSplash();
   return boat;
 }
@@ -286,8 +297,9 @@ async function connect(){
   });
   channel.on('broadcast', { event: 'drop' }, ({ payload }) => {
     if (!payload || !payload.text) return;
-    boats.push(makeBoat(payload));
-    ripples.push({ x: payload.direction > 0 ? -80 : W + 80, y: H * 0.66, life: 0, max: 1.6, r: 4 });
+    const boat = makeBoat({ ...payload, dropFromBridge: true });
+    boats.push(boat);
+    ripples.push({ x: boat.spawnX, y: H * 0.66, life: 0, max: 1.6, r: 4 });
   });
   channel.subscribe((status) => {
     if (status === 'SUBSCRIBED'){
@@ -330,9 +342,11 @@ function seedBoats(){
   let delay = 0;
   for (const s of seeds){
     setTimeout(() => {
-      const b = makeBoat({ text: s, byName: 'anon', direction: Math.random() < 0.5 ? 1 : -1 });
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      // seed boats enter naturally from off-screen so the river feels lived-in
+      const x = dir > 0 ? -80 : W + 80;
+      const b = makeBoat({ text: s, byName: 'anon', direction: dir, x });
       boats.push(b);
-      ripples.push({ x: b.x, y: H * 0.66, life: 0, max: 1.6, r: 4 });
     }, delay);
     delay += 1300 + Math.random() * 1100;
   }
@@ -396,11 +410,17 @@ function loop(ts){
   for (let i = boats.length - 1; i >= 0; i--){
     const b = boats[i];
     b.age += dt;
-    // ease into the river — first 1.5s let the boat enter from the bridge edge
     if (b.yBase === 0){
       b.yBase = H * 0.68 + Math.random() * (H * 0.22);
     }
-    b.x += b.speed * b.direction * dt;
+    // drop-from-bridge animation: 0..1 over ~0.8s
+    if (b.dropProgress < 1){
+      b.dropProgress = Math.min(1, b.dropProgress + dt / 0.8);
+    }
+    // only start drifting once boat has touched the water
+    if (b.dropProgress >= 1){
+      b.x += b.speed * b.direction * dt;
+    }
     b.yPhase += dt * (0.6 + b.speed * 0.01);
     b.bob = Math.sin(b.yPhase) * 3;
     b.rot = Math.sin(b.yPhase * 0.6) * 0.06;
@@ -508,7 +528,14 @@ function drawMoonReflection(mx){
 
 function drawBoat(b){
   ctx.save();
-  ctx.translate(b.x, b.yBase + b.bob);
+  // during drop animation, ease the boat from bridge level to its water yBase
+  let drawY = b.yBase + b.bob;
+  if (b.dropProgress < 1 && b.dropFrom != null){
+    const k = b.dropProgress;
+    const eased = 1 - Math.pow(1 - k, 2.2); // ease-out quadratic-ish
+    drawY = b.dropFrom + (b.yBase - b.dropFrom) * eased;
+  }
+  ctx.translate(b.x, drawY);
   ctx.rotate(b.rot * b.direction);
   // hull — folded paper triangle base + trapezoid keel
   ctx.fillStyle = b.color;
@@ -545,7 +572,7 @@ function drawBoat(b){
   // message text above the boat — italic, low-contrast, line-wrapped
   if (b.text){
     const tx = b.x;
-    const ty = b.yBase + b.bob - 22;
+    const ty = drawY - 22;
     const text = b.text;
     ctx.save();
     ctx.font = 'italic 13px "Cormorant Garamond", serif';
