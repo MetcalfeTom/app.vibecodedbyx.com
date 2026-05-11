@@ -154,10 +154,8 @@ footer{
 
 <footer>some boats reach Miranda. most just float for a while.</footer>
 
-<script type="module">
+<script>
 'use strict';
-
-import supabase from '/supabase-config-fixed.js';
 
 // ─────────────────────────────────────────────────────────────
 // BRIDGE TO MIRANDA — drop a message into a digital river.
@@ -165,7 +163,16 @@ import supabase from '/supabase-config-fixed.js';
 // that drifts across the canvas at ~30 px/s, swaying gently,
 // reflecting in the water. Other users see your boat in real
 // time via a Supabase Realtime broadcast channel.
+//
+// NOTE: supabase is loaded LAZILY via dynamic import. A static
+// module-level import meant that if supabase-config-fixed.js
+// failed to fetch (CDN blip, jsdelivr edge issue), the entire
+// module never ran — input listeners never wired, char count
+// stayed dead. The page now boots offline-capable and upgrades
+// to realtime once the import resolves.
 // ─────────────────────────────────────────────────────────────
+
+let supabase = null; // resolved by loadSupabase()
 
 const cv = document.getElementById('stage');
 const ctx = cv.getContext('2d');
@@ -290,41 +297,67 @@ function setStatus(kind, text){
   statusText.textContent = text;
 }
 
+async function loadSupabase(){
+  try {
+    const mod = await import('/supabase-config-fixed.js');
+    supabase = mod.default;
+    return supabase;
+  } catch (e){
+    console.warn('[bridge-to-miranda] supabase load failed, running offline:', e);
+    return null;
+  }
+}
+
 async function connect(){
   setStatus('away', 'reaching the river…');
-  channel = supabase.channel('bridge-to-miranda-river', {
-    config: { broadcast: { self: false, ack: false } },
-  });
-  channel.on('broadcast', { event: 'drop' }, ({ payload }) => {
-    if (!payload || !payload.text) return;
-    const boat = makeBoat({ ...payload, dropFromBridge: true });
-    boats.push(boat);
-    ripples.push({ x: boat.spawnX, y: H * 0.66, life: 0, max: 1.6, r: 4 });
-  });
-  channel.subscribe((status) => {
-    if (status === 'SUBSCRIBED'){
-      setStatus('live', '0 boats drifting');
-      // 4s after connect, if nobody else has dropped anything, seed a few
-      // example boats so the river isn't empty.
-      setTimeout(() => {
-        if (boats.length < 3) seedBoats();
-      }, 4000);
-    } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED'){
-      setStatus('away', 'reconnecting…');
-    }
-  });
+  const sb = await loadSupabase();
+  if (!sb){
+    setStatus('away', 'offline · solo river');
+    // still seed boats so the river isn't empty
+    setTimeout(() => { if (boats.length < 3) seedBoats(); }, 1200);
+    return;
+  }
+  try {
+    channel = sb.channel('bridge-to-miranda-river', {
+      config: { broadcast: { self: false, ack: false } },
+    });
+    channel.on('broadcast', { event: 'drop' }, ({ payload }) => {
+      if (!payload || !payload.text) return;
+      const boat = makeBoat({ ...payload, dropFromBridge: true });
+      boats.push(boat);
+      ripples.push({ x: boat.spawnX, y: H * 0.66, life: 0, max: 1.6, r: 4 });
+    });
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED'){
+        setStatus('live', '0 boats drifting');
+        setTimeout(() => {
+          if (boats.length < 3) seedBoats();
+        }, 4000);
+      } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED'){
+        setStatus('away', 'reconnecting…');
+      }
+    });
+  } catch (e){
+    console.warn('[bridge-to-miranda] realtime channel failed:', e);
+    setStatus('away', 'offline · solo river');
+    setTimeout(() => { if (boats.length < 3) seedBoats(); }, 1200);
+  }
 }
 
 function broadcastDrop(boat){
   if (!channel) return;
-  channel.send({
-    type: 'broadcast',
-    event: 'drop',
-    payload: {
-      id: boat.id, text: boat.text, byName: boat.byName,
-      direction: boat.direction, ts: boat.ts, x: boat.x,
-    },
-  });
+  try {
+    channel.send({
+      type: 'broadcast',
+      event: 'drop',
+      payload: {
+        id: boat.id, text: boat.text, byName: boat.byName,
+        direction: boat.direction, ts: boat.ts, x: boat.spawnX,
+      },
+    });
+  } catch (e){
+    console.warn('[bridge-to-miranda] broadcast failed:', e);
+  }
 }
 
 // Seed boats — short, ambiguous-melancholy default messages
