@@ -93,6 +93,16 @@ h1{
 .btn:active{transform:translateY(1px)}
 .btn:focus-visible{outline:2px solid var(--moon);outline-offset:2px}
 .btn[disabled]{opacity:0.4;cursor:not-allowed}
+.btn.ghost-btn{
+  border-color:rgba(176,200,243,0.55);
+  color:#b0c8f3;
+  padding:0.42rem 0.85rem;
+  font-size:0.68rem;
+  letter-spacing:0.18em;
+}
+.btn.ghost-btn:hover{background:rgba(176,200,243,0.10);color:#cfe4f3;box-shadow:0 0 12px rgba(176,200,243,0.22)}
+.btn.ghost-btn[aria-pressed="false"]{opacity:0.45}
+.btn.ghost-btn[aria-pressed="false"]:hover{opacity:0.85}
 
 .river-wrap{
   position:relative;
@@ -140,6 +150,7 @@ footer{
   <textarea id="msg" placeholder="dear Miranda, …" maxlength="180" rows="2" aria-label="Message to release into the river"></textarea>
   <div class="row">
     <span class="charcount" id="charcount">0 / 180</span>
+    <button type="button" class="btn ghost-btn" id="hostBtn" aria-pressed="true" title="The AI host drops occasional messages of its own. Click to pause.">✦ host: on</button>
     <button type="submit" class="btn" id="releaseBtn">release into the river</button>
   </div>
 </form>
@@ -250,7 +261,10 @@ const boats = [];
 let waveT = 0;
 const ripples = [];
 
-function makeBoat({ id, text, byName, direction, ts, x, dropFromBridge }){
+// boats from the AI host get a cooler paper tint
+const PALETTE_HOST = ['#cbe4ff', '#bcd6f7', '#dde7f7', '#b8d0ed'];
+
+function makeBoat({ id, text, byName, direction, ts, x, dropFromBridge, host }){
   const dir = direction != null ? direction : (Math.random() < 0.5 ? 1 : -1);
   // boats now spawn UNDER THE BRIDGE LANTERN with a slight horizontal offset
   // and drift outward. The splash is visible. Old behaviour (off-screen edge
@@ -258,12 +272,14 @@ function makeBoat({ id, text, byName, direction, ts, x, dropFromBridge }){
   const spawnX = (x != null)
     ? x
     : W * 0.5 + (Math.random() * 0.18 - 0.09) * W;
+  const palette = host ? PALETTE_HOST : PALETTE_BOATS;
   return {
     id: id || ('b' + Math.random().toString(36).slice(2, 9)),
     text: String(text || '').slice(0, 180),
     byName: byName || 'anon',
+    host: !!host,
     direction: dir,
-    color: PALETTE_BOATS[Math.floor(Math.random() * PALETTE_BOATS.length)],
+    color: palette[Math.floor(Math.random() * palette.length)],
     x: spawnX,
     spawnX,
     dropFrom: dropFromBridge ? H * 0.55 : null, // drop animation y-start
@@ -353,11 +369,135 @@ function broadcastDrop(boat){
       payload: {
         id: boat.id, text: boat.text, byName: boat.byName,
         direction: boat.direction, ts: boat.ts, x: boat.spawnX,
+        host: !!boat.host,
       },
     });
   } catch (e){
     console.warn('[bridge-to-miranda] broadcast failed:', e);
   }
+}
+
+// ── AI host: drops occasional ambient messages of its own ──
+// Uses Pollinations text API (POST openai-compatible w/ text/plain content-type
+// to avoid CORS preflight; falls back to GET text.pollinations.ai/<prompt> if
+// POST fails). Each client runs its own host loop and the AI's boats are
+// broadcast like any other so all viewers see them.
+const HOST_FALLBACK = [
+  "the bench is still ours",
+  "i remembered your laugh wrong",
+  "the bread proved overnight",
+  "tell the dog i said hi",
+  "the kettle keeps whistling",
+  "your handwriting is on the milk carton",
+  "i kept the postcard",
+  "i'm proud of you, quietly",
+  "the porch light is on",
+  "i still talk to you sometimes",
+  "the moss came back this year",
+  "send word when you can",
+  "the linoleum still creaks where you left it",
+  "i forgot how to be angry about it",
+  "i passed your old street today",
+];
+
+const HOST_SYS = "You are a poet drafting one quiet message to drop into a digital river to someone named Miranda. Tone: bittersweet, ordinary, oblique, lower-case, melancholy but kind. Write ONE sentence under 14 words. No quotation marks. No greeting. No name. No emoji. Just the sentence. Examples in the right register: 'your mug is still in the cupboard', 'happy birthday, late', 'i think i forgive you', 'tell me you're warm', 'the bridge looks smaller every year'.";
+const HOST_USER = "one new sentence in that exact register please";
+
+let hostEnabled = true;
+let hostTimer = null;
+let hostInFlight = false;
+
+async function fetchHostMessage(){
+  const payload = {
+    model: 'openai',
+    messages: [
+      { role: 'system', content: HOST_SYS },
+      { role: 'user', content: HOST_USER },
+    ],
+  };
+  // POST attempt — text/plain content-type bypasses CORS preflight
+  try {
+    const r = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload),
+    });
+    if (r.ok){
+      const data = await r.json();
+      const t = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      const cleaned = cleanHostText(t);
+      if (cleaned) return cleaned;
+    }
+  } catch (e){ /* fall through */ }
+  // GET fallback — fully avoids preflight
+  try {
+    const url = 'https://text.pollinations.ai/' + encodeURIComponent(HOST_SYS + '\n\n' + HOST_USER);
+    const r2 = await fetch(url);
+    if (r2.ok){
+      const txt = await r2.text();
+      const cleaned = cleanHostText(txt);
+      if (cleaned) return cleaned;
+    }
+  } catch (e){ /* fall through */ }
+  // local fallback so the host still drops something
+  return HOST_FALLBACK[Math.floor(Math.random() * HOST_FALLBACK.length)];
+}
+
+function cleanHostText(raw){
+  if (!raw) return null;
+  let t = String(raw).trim();
+  // strip code-fence / wrapping quotes
+  t = t.replace(/^```[a-z]*\s*/i, '').replace(/```\s*$/, '');
+  t = t.replace(/^["'`]+|["'`]+$/g, '');
+  // take only the first non-empty line, in case the model multi-lined
+  const firstLine = t.split(/\n+/).map(s => s.trim()).find(Boolean);
+  if (!firstLine) return null;
+  // drop any leading "Message:" / "Sentence:" labels
+  let line = firstLine.replace(/^(message|sentence|line|reply)\s*[:\-—]\s*/i, '');
+  // hard length cap
+  if (line.length > 140) line = line.slice(0, 137).replace(/\s+\S*$/, '') + '…';
+  // reject empty / refusal / weird output
+  if (line.length < 4) return null;
+  if (/^(i (cannot|can't|won't)|sorry|as an ai)/i.test(line)) return null;
+  return line;
+}
+
+async function hostTick(){
+  if (!hostEnabled){ scheduleNextHost(); return; }
+  if (hostInFlight){ scheduleNextHost(); return; }
+  hostInFlight = true;
+  let text = null;
+  try { text = await fetchHostMessage(); }
+  catch (e){ console.warn('[bridge] host fetch failed', e); }
+  hostInFlight = false;
+  if (text && hostEnabled){
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const boat = makeBoat({ text, byName: 'host', direction: dir, dropFromBridge: true, host: true });
+    boats.push(boat);
+    ripples.push({ x: boat.spawnX, y: H * 0.66, life: 0, max: 1.6, r: 4 });
+    sfxSplash();
+    if (Math.random() < 0.35) sfxChime();
+    broadcastDrop(boat);
+  }
+  scheduleNextHost();
+}
+
+function scheduleNextHost(){
+  if (hostTimer) clearTimeout(hostTimer);
+  // 35–80s between host drops, jittered
+  const wait = (35 + Math.random() * 45) * 1000;
+  hostTimer = setTimeout(hostTick, wait);
+}
+
+function startHost(){
+  hostEnabled = true;
+  // first drop arrives ~10–20s after enable so users see one early
+  if (hostTimer) clearTimeout(hostTimer);
+  hostTimer = setTimeout(hostTick, (10 + Math.random() * 10) * 1000);
+}
+function stopHost(){
+  hostEnabled = false;
+  if (hostTimer){ clearTimeout(hostTimer); hostTimer = null; }
 }
 
 // Seed boats — short, ambiguous-melancholy default messages
@@ -592,14 +732,38 @@ function drawBoat(b){
   // crease fold line
   ctx.strokeStyle = 'rgba(60,42,28,0.35)';
   ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(0, 4); ctx.stroke();
-  // amber lantern dot
-  const lampGlow = ctx.createRadialGradient(0, -8, 1, 0, -8, 12);
-  lampGlow.addColorStop(0, 'rgba(255,210,120,0.85)');
-  lampGlow.addColorStop(1, 'rgba(255,210,120,0)');
-  ctx.fillStyle = lampGlow;
-  ctx.beginPath(); ctx.arc(0, -8, 12, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#fff4d0';
-  ctx.beginPath(); ctx.arc(0, -8, 1.5, 0, Math.PI * 2); ctx.fill();
+  // lantern dot — amber for users, cool white-blue for the AI host
+  if (b.host){
+    const lampGlow = ctx.createRadialGradient(0, -8, 1, 0, -8, 14);
+    lampGlow.addColorStop(0, 'rgba(210,232,255,0.9)');
+    lampGlow.addColorStop(1, 'rgba(210,232,255,0)');
+    ctx.fillStyle = lampGlow;
+    ctx.beginPath(); ctx.arc(0, -8, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#eaf3ff';
+    ctx.beginPath(); ctx.arc(0, -8, 1.6, 0, Math.PI * 2); ctx.fill();
+    // tiny four-point star above the sail to mark a host boat
+    ctx.fillStyle = 'rgba(210,232,255,0.95)';
+    const sx = 0, sy = -20;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - 3);
+    ctx.lineTo(sx + 1, sy - 1);
+    ctx.lineTo(sx + 3, sy);
+    ctx.lineTo(sx + 1, sy + 1);
+    ctx.lineTo(sx, sy + 3);
+    ctx.lineTo(sx - 1, sy + 1);
+    ctx.lineTo(sx - 3, sy);
+    ctx.lineTo(sx - 1, sy - 1);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    const lampGlow = ctx.createRadialGradient(0, -8, 1, 0, -8, 12);
+    lampGlow.addColorStop(0, 'rgba(255,210,120,0.85)');
+    lampGlow.addColorStop(1, 'rgba(255,210,120,0)');
+    ctx.fillStyle = lampGlow;
+    ctx.beginPath(); ctx.arc(0, -8, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff4d0';
+    ctx.beginPath(); ctx.arc(0, -8, 1.5, 0, Math.PI * 2); ctx.fill();
+  }
   ctx.restore();
 
   // message text above the boat — italic, low-contrast, line-wrapped
@@ -610,7 +774,7 @@ function drawBoat(b){
     ctx.save();
     ctx.font = 'italic 13px "Cormorant Garamond", serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(244,233,210,0.88)';
+    ctx.fillStyle = b.host ? 'rgba(210,232,255,0.88)' : 'rgba(244,233,210,0.88)';
     ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 4;
     // single-line wrap up to 36 chars
     const lines = wrapText(text, 36);
@@ -642,9 +806,22 @@ const composerForm = document.getElementById('composer');
 const msgEl = document.getElementById('msg');
 const charcount = document.getElementById('charcount');
 const releaseBtn = document.getElementById('releaseBtn');
+const hostBtn = document.getElementById('hostBtn');
 
 msgEl.addEventListener('input', () => {
   charcount.textContent = msgEl.value.length + ' / 180';
+});
+
+hostBtn.addEventListener('click', () => {
+  if (hostEnabled){
+    stopHost();
+    hostBtn.textContent = '✦ host: off';
+    hostBtn.setAttribute('aria-pressed', 'false');
+  } else {
+    startHost();
+    hostBtn.textContent = '✦ host: on';
+    hostBtn.setAttribute('aria-pressed', 'true');
+  }
 });
 composerForm.addEventListener('submit', (ev) => {
   ev.preventDefault();
@@ -665,6 +842,7 @@ resize();
 buildStars();
 window.addEventListener('resize', () => { resize(); buildStars(); });
 connect();
+startHost();
 requestAnimationFrame(loop);
 </script>
 </body>
