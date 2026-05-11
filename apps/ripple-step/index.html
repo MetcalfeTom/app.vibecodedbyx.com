@@ -474,9 +474,11 @@ footer .pulse{color:var(--note-5);animation:pulse 2.6s infinite ease-in-out}
 // ─────────────────────────────────────────────────────────────
 // RIPPLE STEP — minimalist step sequencer with pond visualizer
 // ─────────────────────────────────────────────────────────────
-const STEPS_PER_BAR = 16;
+const STEPS_PER_BAR = 16;                      // visible cells per bar
+const FINE_PER_CELL = 4;                       // 4 sub-slots per cell (1/64 resolution)
+const FINE_PER_BAR  = STEPS_PER_BAR * FINE_PER_CELL;  // 64
 const BARS = 8;
-const STEPS = STEPS_PER_BAR * BARS;            // 128 — each pattern is a full 8-bar sequence
+const FINE_TOTAL = FINE_PER_BAR * BARS;        // 512 fine slots per pattern
 const ROWS = 5;
 const ROW_LABELS = ['A', 'G', 'E', 'D', 'C'];
 // pentatonic C major octaves arranged top→bottom A G E D C (high to low)
@@ -491,12 +493,20 @@ const NOTE_COLORS = ['#f5d068','#f5926a','#e84c7a','#c47bff','#5ec2e8'];
 // ─────────────────────────────────────────────────────────────
 // PATTERN STATE — two sections (verse / chorus) + song structure
 // ─────────────────────────────────────────────────────────────
-// Pattern cells store *duration in 16th-step units* when active, or 0/falsy when off.
-// 1 = a single 1/16 cell, 4 = a 1/4 note spanning 4 cells, 0.5 = a 1/32, etc.
+// Pattern cells store note objects `{ dur, formant }` when active, or 0
+// when off. `dur` is in 1/64 fine-slot units (1 = a 1/64, 4 = a 1/16,
+// 16 = a 1/4, 64 = a whole bar). `formant` is a preset key from FORMANTS
+// (none/ah/eh/ee/oh/oo/ss/sh/ff/mm) and is applied per-voice when this
+// note is triggered.
 const patterns = {
-  verse:  Array.from({length: ROWS}, () => Array(STEPS).fill(0)),
-  chorus: Array.from({length: ROWS}, () => Array(STEPS).fill(0)),
+  verse:  Array.from({length: ROWS}, () => Array(FINE_TOTAL).fill(0)),
+  chorus: Array.from({length: ROWS}, () => Array(FINE_TOTAL).fill(0)),
 };
+// Note-cell accessors — keep call sites readable even though the
+// underlying storage is `0 | {dur, formant}`.
+function noteDur(cell){ return cell ? cell.dur : 0; }
+function noteFormant(cell){ return cell ? (cell.formant || 'none') : 'none'; }
+function makeNote(dur, formant){ return { dur, formant: formant || 'none' }; }
 let editing = 'verse';                        // which section the grid currently shows
 let editBar = 0;                              // 0..BARS-1 — which 16-step page of the
                                               // 128-step pattern the grid is currently editing
@@ -508,7 +518,7 @@ let playhead = -1;                            // 0..127 (full 8-bar position wit
 let autoFollow = true;                        // grid auto-pages to follow the playhead's bar
 let playing = false;
 let bpm = 96;
-let stepTime = (60 / bpm) / 4 * 1000;  // 16th notes
+let stepTime = (60 / bpm) / 16 * 1000;  // 1/64 fine slots = playback resolution
 let lastStepAt = 0;
 function curPattern(){ return patterns[editing]; }
 function activeBlockKind(){ return structure[structureIdx]; }
@@ -674,7 +684,7 @@ function drawPond(){
     ctx.fillText(label, W - 14, 32);
     ctx.shadowBlur = 0;
     // block + bar within block (e.g. "block 3/8 · bar 5/8")
-    const playBar = Math.max(0, Math.floor(playhead / STEPS_PER_BAR));
+    const playBar = Math.max(0, Math.floor(playhead / FINE_PER_BAR));
     ctx.font = '500 11px "JetBrains Mono", monospace';
     ctx.fillStyle = 'rgba(168,216,226,0.6)';
     ctx.fillText('block ' + (structureIdx + 1) + '/' + structure.length + ' · bar ' + (playBar + 1) + '/' + BARS, W - 14, 48);
@@ -693,14 +703,10 @@ function hexA(hex, alpha){
 // AUDIO
 // ─────────────────────────────────────────────────────────────
 let actx = null, master = null, reverb = null, reverbGain = null, padGain = null;
-// Formant insert nodes — sit between the per-voice gain and the master bus.
-// Two peaking-EQ filters in series. At 0dB gain they pass the signal
-// through unchanged; presets boost the F1/F2 formants by +12 to +18dB to
-// give vocal coloration. Series peaking (not parallel bandpass) is the
-// correct topology — bandpass rejects everything outside the formant
-// range, which silenced our high-pitched sine notes; peaking emphasises
-// the formants while letting the rest of the signal through.
-let formantIn = null, formantOut = null, formantPeak1 = null, formantPeak2 = null;
+// PER-NOTE formant: each triggered voice gets its own pair of in-line
+// peaking-EQ filters set from the note's stored formant preset. The
+// global `formantPreset` here is just the DEFAULT that gets stamped into
+// freshly placed notes — it isn't an audio insert anymore.
 
 // F1/F2 formant pairs (Hz) — classic IPA approximations; Q-values tuned
 // for peaking filters (lower than bandpass so the boost is musical).
@@ -721,36 +727,10 @@ const FORMANTS = {
 const FORMANT_KEYS = ['none','ah','eh','ee','oh','oo','ss','sh','ff','mm'];
 let formantPreset = 'none';
 
+// Now just remembers the chip picker's selection. Notes carry their own
+// formant; this is only the default stamped into the NEXT placed note.
 function applyFormant(preset){
-  formantPreset = preset;
-  if (!actx) return;
-  const f = FORMANTS[preset];
-  const now = actx.currentTime;
-  if (!f || f.kind === 'none'){
-    // Pass-through: both peaks to 0 dB. Frequencies left alone so the
-    // next preset's setValueAtTime takes effect smoothly.
-    formantPeak1.gain.cancelScheduledValues(now);
-    formantPeak2.gain.cancelScheduledValues(now);
-    formantPeak1.gain.linearRampToValueAtTime(0, now + 0.06);
-    formantPeak2.gain.linearRampToValueAtTime(0, now + 0.06);
-    return;
-  }
-  formantPeak1.frequency.cancelScheduledValues(now);
-  formantPeak2.frequency.cancelScheduledValues(now);
-  formantPeak1.Q.cancelScheduledValues(now);
-  formantPeak2.Q.cancelScheduledValues(now);
-  formantPeak1.gain.cancelScheduledValues(now);
-  formantPeak2.gain.cancelScheduledValues(now);
-  formantPeak1.frequency.linearRampToValueAtTime(f.f1, now + 0.08);
-  formantPeak2.frequency.linearRampToValueAtTime(f.f2, now + 0.08);
-  formantPeak1.Q.linearRampToValueAtTime(f.q1, now + 0.08);
-  formantPeak2.Q.linearRampToValueAtTime(f.q2, now + 0.08);
-  // dB boost at the formant freqs — vowels go higher to dominate timbre,
-  // consonants slightly less since the sawtooth + high formant already
-  // emphasises the breath/hiss character clearly.
-  const peakDb = (f.kind === 'vowel') ? 18 : 14;
-  formantPeak1.gain.linearRampToValueAtTime(peakDb, now + 0.06);
-  formantPeak2.gain.linearRampToValueAtTime(peakDb, now + 0.06);
+  if (FORMANTS[preset]) formantPreset = preset;
 }
 
 function ensureAudio(){
@@ -764,33 +744,10 @@ function ensureAudio(){
   reverbGain = actx.createGain();
   reverbGain.gain.value = 0.45;
 
-  // Formant insert chain — two peaking-EQ filters in series. At 0 dB both
-  // peaks are transparent (signal passes unchanged); presets boost the
-  // formant frequencies by 14-18 dB to colour the voice.
-  //   voices → formantIn → peak1 → peak2 → formantOut → master + reverb
-  formantIn  = actx.createGain(); formantIn.gain.value  = 1.0;
-  formantOut = actx.createGain(); formantOut.gain.value = 0.9;
-  formantPeak1 = actx.createBiquadFilter();
-  formantPeak1.type = 'peaking';
-  formantPeak1.frequency.value = 730;
-  formantPeak1.Q.value = 6;
-  formantPeak1.gain.value = 0;     // start flat
-  formantPeak2 = actx.createBiquadFilter();
-  formantPeak2.type = 'peaking';
-  formantPeak2.frequency.value = 1090;
-  formantPeak2.Q.value = 6;
-  formantPeak2.gain.value = 0;
-  formantIn.connect(formantPeak1).connect(formantPeak2).connect(formantOut);
-  formantOut.connect(master);
-  formantOut.connect(reverb);
-
   master.connect(actx.destination);
   reverb.connect(reverbGain).connect(actx.destination);
   // ambient pad bus, very low
   startPad();
-  // apply whatever preset was selected pre-audio-init (in case the user
-  // clicked a formant chip before triggering audio)
-  applyFormant(formantPreset);
 }
 
 function makeImpulse(dur, decay){
@@ -805,34 +762,51 @@ function makeImpulse(dur, decay){
   return buf;
 }
 
+// Ambient pad — created once by ensureAudio(). Its gain stays at zero
+// until play() ramps it up, and stop() ramps it back down. The three
+// oscillator voices run continuously (a single AudioContext-long pad
+// is cheap), so toggling play does NOT create new oscillators and the
+// drone cannot "restart" — only its master pad gain changes.
 function startPad(){
   padGain = actx.createGain();
   padGain.gain.value = 0.0;
   padGain.connect(reverb);
   padGain.connect(master);
-  // 3-voice low pad — C E G
   const padFreqs = [130.81, 164.81, 196.00];
   for (const f of padFreqs){
     const o = actx.createOscillator(); o.type = 'sine';
     o.frequency.value = f;
     const og = actx.createGain(); og.gain.value = 0.4;
-    // gentle LFO detune
     const lfo = actx.createOscillator(); lfo.frequency.value = 0.08 + Math.random()*0.06; lfo.type='sine';
     const lfoGain = actx.createGain(); lfoGain.gain.value = 1.2;
     lfo.connect(lfoGain).connect(o.detune);
     o.connect(og).connect(padGain);
     lfo.start(); o.start();
   }
-  // fade in pad gently
-  padGain.gain.linearRampToValueAtTime(0.05, actx.currentTime + 4);
+  // intentionally NO fade-in here. play() handles the fade.
+}
+
+function padFadeIn(){
+  if (!actx || !padGain) return;
+  const t = actx.currentTime;
+  padGain.gain.cancelScheduledValues(t);
+  padGain.gain.setValueAtTime(padGain.gain.value, t);
+  padGain.gain.linearRampToValueAtTime(0.05, t + 1.6);
+}
+function padFadeOut(){
+  if (!actx || !padGain) return;
+  const t = actx.currentTime;
+  padGain.gain.cancelScheduledValues(t);
+  padGain.gain.setValueAtTime(padGain.gain.value, t);
+  padGain.gain.linearRampToValueAtTime(0.0001, t + 0.8);
 }
 
 // Note duration in bar fractions — clicking 1/4 means each note rings out
 // for one beat regardless of step interval. 1 = whole bar sustain.
 const NOTE_DURATIONS = ['1/64', '1/32', '1/16', '1/8', '1/4', '1/2', '1'];
 const DURATION_FRAC  = { '1/64':1/64, '1/32':1/32, '1/16':1/16, '1/8':1/8, '1/4':1/4, '1/2':1/2, '1':1 };
-// Same durations expressed in 16th-step units (the sequencer's native cell)
-const DURATION_STEPS = { '1/64':0.25, '1/32':0.5, '1/16':1, '1/8':2, '1/4':4, '1/2':8, '1':16 };
+// Same durations expressed in 1/64 fine-slot units — pattern storage native.
+const DURATION_FINE = { '1/64':1, '1/32':2, '1/16':4, '1/8':8, '1/4':16, '1/2':32, '1':64 };
 let noteDuration = '1/8';
 
 function noteDurMs(){
@@ -865,80 +839,97 @@ function stopVoice(voice, t, fadeMs){
     try { voice.o2.disconnect(); } catch (e) {}
     try { voice.lp.disconnect(); } catch (e) {}
     try { voice.gain.disconnect(); } catch (e) {}
+    if (voice.peak1) try { voice.peak1.disconnect(); } catch (e) {}
+    if (voice.peak2) try { voice.peak2.disconnect(); } catch (e) {}
   }, (release + 0.06) * 1000);
 }
 
-function playNote(row, freq, durationSteps){
+function playNote(row, freq, durationFine, formantKey){
   if (!actx) return;
   const t = actx.currentTime;
-  const stepSec = (60 / bpm) / 4;
-  const durSec  = Math.max(0.04, (durationSteps || 1) * stepSec);
-  // release scales with duration but bounded — short notes don't click,
-  // long notes don't ring forever
+  // 1 fine slot = a 1/64 note = (60/bpm) / 16 seconds
+  const fineSec = (60 / bpm) / 16;
+  const durSec  = Math.max(0.04, (durationFine || 1) * fineSec);
   const release = Math.min(0.45, Math.max(0.04, durSec * 0.4));
   const attack  = Math.min(0.012, durSec * 0.2);
   const sustainEnd = t + Math.max(attack + 0.004, durSec - release);
   const endT = sustainEnd + release;
 
-  // Stop any existing voice on this row BEFORE starting the new one.
-  // Quick 18ms fade prevents click + clears the gain automation queue.
   if (activeVoices[row]){
     stopVoice(activeVoices[row], t, 18);
     activeVoices[row] = null;
   }
 
-  // When a formant preset is active, switch the main oscillator to
-  // sawtooth so it has the harmonic content the peaking EQ can shape.
-  // Pure sine has no overtones for the formant to emphasise — that was
-  // why the previous "ah/eh/ee" presets sounded nearly silent.
-  const useRich = formantPreset !== 'none';
+  // Resolve the per-note formant — defaults to 'none' if absent. When
+  // a vowel/consonant preset is set, switch the main oscillator to
+  // sawtooth so the peaking EQ has harmonic content to shape.
+  const fmt = (formantKey && FORMANTS[formantKey]) ? FORMANTS[formantKey] : FORMANTS.none;
+  const useRich = fmt.kind !== 'none';
   const o1 = actx.createOscillator();
   o1.type = useRich ? 'sawtooth' : 'sine';
   o1.frequency.value = freq;
   const o2 = actx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = freq * 2.01;
   const og = actx.createGain();
-  // Sawtooth is significantly louder than sine at the same gain — drop
-  // the peak so formant mode doesn't slam the master bus.
   const peakGain = useRich ? 0.20 : 0.32;
-  // Use linear ramps for envelope. Exponential ramps to very small values
-  // can leave residual non-zero gains in some browsers — linear-to-zero is
-  // unambiguous and the resulting click is masked by the reverb tail.
   og.gain.setValueAtTime(0.0001, t);
   og.gain.linearRampToValueAtTime(peakGain, t + attack);
   og.gain.setValueAtTime(peakGain, sustainEnd);
   og.gain.linearRampToValueAtTime(0.0001, endT);
 
-  // lowpass — long notes get a slightly opener filter, short notes stay round
   const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
   lp.frequency.value = 1800 + Math.min(2400, durSec * 1400);
   lp.Q.value = 1.4;
+
+  // PER-NOTE FORMANT — two peaking filters in series, tuned from the
+  // note's stored preset. At kind === 'none' both peaks are 0 dB
+  // (transparent pass-through).
+  const peak1 = actx.createBiquadFilter(); peak1.type = 'peaking';
+  const peak2 = actx.createBiquadFilter(); peak2.type = 'peaking';
+  if (fmt.kind === 'none'){
+    peak1.gain.value = 0; peak2.gain.value = 0;
+  } else {
+    const peakDb = (fmt.kind === 'vowel') ? 18 : 14;
+    peak1.frequency.value = fmt.f1; peak1.Q.value = fmt.q1; peak1.gain.value = peakDb;
+    peak2.frequency.value = fmt.f2; peak2.Q.value = fmt.q2; peak2.gain.value = peakDb;
+  }
+
   o1.connect(lp); o2.connect(lp);
   lp.connect(og);
-  // Route through the formant insert — when preset is 'none' it acts as
-  // a dry pass-through; vowel/consonant presets shape the timbre.
-  og.connect(formantIn);
+  og.connect(peak1).connect(peak2);
+  peak2.connect(master);
+  peak2.connect(reverb);
   o1.start(t); o2.start(t);
   o1.stop(endT + 0.06); o2.stop(endT + 0.06);
 
-  const voice = { o1, o2, gain: og, lp, released: false, endT };
+  const voice = { o1, o2, gain: og, lp, peak1, peak2, released: false, endT };
   activeVoices[row] = voice;
-  // When the note naturally finishes, clear the slot + disconnect
   setTimeout(() => {
     if (activeVoices[row] === voice){ activeVoices[row] = null; }
     try { o1.disconnect(); } catch (e) {}
     try { o2.disconnect(); } catch (e) {}
     try { lp.disconnect(); } catch (e) {}
     try { og.disconnect(); } catch (e) {}
+    try { peak1.disconnect(); } catch (e) {}
+    try { peak2.disconnect(); } catch (e) {}
   }, (endT - t + 0.1) * 1000);
 }
 
-// Panic kill — stop every active voice immediately. Wired to stop() and
-// to a global keyboard panic in case anything ever wedges.
+// Panic kill — stop every active voice immediately and make sure no
+// oscillator can keep ringing past the panic. Wired to stop() and to a
+// global keyboard panic in case anything ever wedges.
 function allNotesOff(){
   if (!actx) return;
   const t = actx.currentTime;
   for (let r = 0; r < ROWS; r++){
-    if (activeVoices[r]){ stopVoice(activeVoices[r], t, 12); activeVoices[r] = null; }
+    const v = activeVoices[r];
+    if (v){
+      stopVoice(v, t, 12);
+      // belt-and-braces: also force-stop the oscillators in ~30ms so a
+      // wedged scheduling state can't keep them running silently.
+      try { v.o1.stop(t + 0.04); } catch (e) {}
+      try { v.o2.stop(t + 0.04); } catch (e) {}
+      activeVoices[r] = null;
+    }
   }
 }
 
@@ -946,8 +937,9 @@ function allNotesOff(){
 // SEQUENCER UI
 // ─────────────────────────────────────────────────────────────
 function buildGrid(){
-  // The grid shows ONE bar (STEPS_PER_BAR cells) at a time. The bar picker
-  // determines which slice of the 128-step pattern those cells map to.
+  // The grid shows ONE bar (STEPS_PER_BAR cells) at a time. Each visible
+  // cell internally subdivides into FINE_PER_CELL (=4) sub-slots so a
+  // 1/64 note can be placed at any of 4 positions within the same cell.
   for (let r = 0; r < ROWS; r++){
     const rowEl = document.querySelector(`.row[data-row="${r}"]`);
     for (let s = 0; s < STEPS_PER_BAR; s++){
@@ -957,7 +949,7 @@ function buildGrid(){
       cell.dataset.row = r;
       cell.dataset.cellIdx = s;          // 0..15 within the visible bar
       cell.setAttribute('aria-pressed', 'false');
-      cell.addEventListener('click', () => toggleCell(r, s));
+      cell.addEventListener('click', (ev) => toggleCell(r, s, ev));
       rowEl.appendChild(cell);
     }
   }
@@ -965,89 +957,104 @@ function buildGrid(){
 buildGrid();
 resize();
 
-// translate a (row, cell-within-visible-bar) into the absolute 0..127 pattern index
-function absStep(s){ return editBar * STEPS_PER_BAR + s; }
+// translate (cell-within-visible-bar, sub-slot 0..3) into the absolute
+// 0..511 fine-slot pattern index
+function absFine(cellIdx, subSlot){
+  return editBar * FINE_PER_BAR + cellIdx * FINE_PER_CELL + subSlot;
+}
+// helper: get the cell rect for click-position math
+function getSubSlotFromEvent(ev){
+  const cell = ev.currentTarget;
+  const cellW = cell.clientWidth;
+  if (cellW === 0) return 0;
+  const sub = Math.floor(ev.offsetX / (cellW / FINE_PER_CELL));
+  return Math.max(0, Math.min(FINE_PER_CELL - 1, sub));
+}
 
-function toggleCell(r, s){
+function toggleCell(r, cellIdx, ev){
   const p = curPattern();
-  const idx = absStep(s);
+  const newDur = DURATION_FINE[noteDuration];
 
-  // Case 1: the clicked cell IS the start of an active note → remove it.
+  let subSlot;
+  if (newDur >= FINE_PER_CELL){
+    subSlot = 0;
+  } else if (newDur === 2){
+    const clicked = getSubSlotFromEvent(ev);
+    subSlot = clicked < 2 ? 0 : 2;
+  } else {
+    subSlot = getSubSlotFromEvent(ev);
+  }
+  const idx = absFine(cellIdx, subSlot);
+
+  // Case 1: there's already a note exactly at this fine slot → remove it.
   if (p[r][idx]){
     p[r][idx] = 0;
-    updateCell(r, s);
+    updateCell(r, cellIdx);
     refreshNoteFills(r);
     hideHint();
     return;
   }
 
-  const newDur = DURATION_STEPS[noteDuration];
-
-  // Case 2A: sub-step durations (1/64 / 1/32) bypass the covering-note
-  // scan. Each cell occupies a single 1/16 slot in the data model, and
-  // small notes only fill a fraction of that slot — they cannot collide
-  // with adjacent cells. Skipping the scan guarantees a 1/64 can be
-  // placed on every grid cell, including cells visually inside a longer
-  // note's fill. The longer note is left intact; the small note coexists.
-  if (newDur < 1){
-    p[r][idx] = newDur;
-    updateCell(r, s);
+  // Case 2A: sub-step durations (1/64 / 1/32) bypass the covering-note scan.
+  if (newDur < FINE_PER_CELL){
+    p[r][idx] = makeNote(newDur, formantPreset);
+    updateCell(r, cellIdx);
     refreshNoteFills(r);
     hideHint();
     ensureAudio();
     if (actx && actx.state === 'suspended') actx.resume();
     const freq = SCALES[SCALE][r];
-    playNote(r, freq, newDur);
-    spawnRipple(r, s, NOTE_COLORS[r]);
+    playNote(r, freq, newDur, formantPreset);
+    spawnRipple(r, cellIdx, NOTE_COLORS[r]);
     return;
   }
 
-  // Case 2B: 1/16+ duration — a stretched note from an earlier cell may
-  // visually cover cell s. Click removes that covering note instead of
-  // dropping a shorter note on top of it.
-  for (let prev = s - 1; prev >= 0; prev--){
-    const prevIdx = absStep(prev);
-    const prevDur = p[r][prevIdx];
-    if (prevDur > 0){
-      if (prev + prevDur > s){
-        // span covers cell s → remove that note
-        p[r][prevIdx] = 0;
-        updateCell(r, prev);
+  // Case 2B: 1/16+ — scan back through fine slots for a covering note.
+  const barStart = editBar * FINE_PER_BAR;
+  for (let prev = idx - 1; prev >= barStart; prev--){
+    const prevCell = p[r][prev];
+    if (prevCell){
+      if (prev + noteDur(prevCell) > idx){
+        p[r][prev] = 0;
         refreshNoteFills(r);
+        for (let cc = 0; cc < STEPS_PER_BAR; cc++) updateCell(r, cc);
         hideHint();
         return;
       }
-      // earlier active note ends before s; no further-back note can
-      // reach s under the data model's no-overlap rule, so stop here.
       break;
     }
   }
 
-  // Case 3: truly empty cell → activate with the current duration setting.
-  p[r][idx] = newDur;
-  updateCell(r, s);
+  // Case 3: empty fine slot → activate
+  p[r][idx] = makeNote(newDur, formantPreset);
+  updateCell(r, cellIdx);
   refreshNoteFills(r);
   hideHint();
   ensureAudio();
   if (actx && actx.state === 'suspended') actx.resume();
   const freq = SCALES[SCALE][r];
-  playNote(r, freq, newDur);
-  spawnRipple(r, s, NOTE_COLORS[r]);
+  playNote(r, freq, newDur, formantPreset);
+  spawnRipple(r, cellIdx, NOTE_COLORS[r]);
 }
 
-function updateCell(r, s){
-  const cell = document.querySelector(`.cell[data-row="${r}"][data-cell-idx="${s}"]`);
+function updateCell(r, cellIdx){
+  const cell = document.querySelector(`.cell[data-row="${r}"][data-cell-idx="${cellIdx}"]`);
   if (!cell) return;
-  const idx = absStep(s);
-  const on = !!curPattern()[r][idx];
+  const p = curPattern();
+  // Cell is "active" if any of its 4 sub-slots has a note starting in it.
+  let on = false;
+  for (let i = 0; i < FINE_PER_CELL; i++){
+    if (p[r][absFine(cellIdx, i)]) { on = true; break; }
+  }
   cell.setAttribute('aria-pressed', String(on));
-  cell.setAttribute('aria-label', ROW_LABELS[r] + ' bar ' + (editBar + 1) + ' step ' + (s + 1));
+  cell.setAttribute('aria-label', ROW_LABELS[r] + ' bar ' + (editBar + 1) + ' step ' + (cellIdx + 1));
 }
 
 function refreshNoteFills(row){
   // Wipe + rebuild fills for one row. Fills are absolutely positioned
-  // using the LIVE pixel rects of the cells so they always align with
-  // the underlying grid cells regardless of grid sizing edge cases.
+  // from the LIVE pixel rects of the cells, with sub-slot precision
+  // inside each cell so a 1/64 at sub-slot 2 of cell 5 renders as a
+  // quarter-cell-wide slice anchored at the 50%-75% portion of cell 5.
   const rowEl = document.querySelector(`.row[data-row="${row}"]`);
   if (!rowEl) return;
   rowEl.querySelectorAll('.note-fill').forEach(n => n.remove());
@@ -1055,35 +1062,38 @@ function refreshNoteFills(row){
   if (rowRect.width === 0) return;  // not yet laid out
 
   const p = curPattern();
-  for (let s = 0; s < STEPS_PER_BAR; s++){
-    const dur = p[row][absStep(s)];
-    if (!dur) continue;
-    const startCell = rowEl.querySelector(`.cell[data-cell-idx="${s}"]`);
+  const barStart = editBar * FINE_PER_BAR;
+  for (let fine = 0; fine < FINE_PER_BAR; fine++){
+    const cell = p[row][barStart + fine];
+    if (!cell) continue;
+    const dur = noteDur(cell);
+    const startCellIdx = Math.floor(fine / FINE_PER_CELL);
+    const startSub     = fine % FINE_PER_CELL;
+    const startCell = rowEl.querySelector(`.cell[data-cell-idx="${startCellIdx}"]`);
     if (!startCell) continue;
     const startRect = startCell.getBoundingClientRect();
+    const subW = startRect.width / FINE_PER_CELL;
 
-    let leftPx = startRect.left - rowRect.left;
-    let widthPx;
-    if (dur >= 1){
-      // Span ends at the cell at (s + ceil(dur) - 1), clamped to bar end
-      const span = Math.min(Math.ceil(dur), STEPS_PER_BAR - s);
-      const endIdx = s + span - 1;
-      const endCell = rowEl.querySelector(`.cell[data-cell-idx="${endIdx}"]`);
-      if (!endCell) continue;
-      const endRect = endCell.getBoundingClientRect();
-      widthPx = (endRect.right - rowRect.left) - leftPx;
-    } else {
-      // sub-cell duration (1/64 or 1/32): width = fraction of one cell,
-      // pinned to the cell's left edge
-      widthPx = Math.max(2, startRect.width * dur);
-    }
+    // End fine slot is fine + dur - 1, clamped to the bar's last slot
+    const endFine = Math.min(fine + dur - 1, FINE_PER_BAR - 1);
+    const endCellIdx = Math.floor(endFine / FINE_PER_CELL);
+    const endSub     = endFine % FINE_PER_CELL;
+    const endCell = rowEl.querySelector(`.cell[data-cell-idx="${endCellIdx}"]`);
+    if (!endCell) continue;
+    const endRect = endCell.getBoundingClientRect();
+    const endSubW = endRect.width / FINE_PER_CELL;
+
+    const leftPx  = (startRect.left + startSub * subW) - rowRect.left;
+    const rightPx = (endRect.left + (endSub + 1) * endSubW) - rowRect.left;
+    const widthPx = Math.max(2, rightPx - leftPx);
     const topPx = startRect.top - rowRect.top;
     const heightPx = startRect.height;
 
     const fill = document.createElement('div');
     fill.className = 'note-fill';
     fill.dataset.row = row;
-    fill.dataset.step = s;
+    fill.dataset.fine = fine;
+    fill.dataset.cellIdx = startCellIdx;
     fill.dataset.dur  = dur;
     fill.style.left   = leftPx + 'px';
     fill.style.top    = topPx + 'px';
@@ -1106,8 +1116,8 @@ function reflowAllNoteFills(){
 window.addEventListener('resize', reflowAllNoteFills);
 
 function repaintGridForSection(){
-  for (let r = 0; r < ROWS; r++) for (let s = 0; s < STEPS_PER_BAR; s++){
-    updateCell(r, s);
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < STEPS_PER_BAR; c++){
+    updateCell(r, c);
   }
   refreshAllNoteFills();
   refreshHead();
@@ -1117,7 +1127,7 @@ function refreshBarPicker(){
   document.querySelectorAll('.bar-chip').forEach((chip) => {
     const idx = parseInt(chip.dataset.bar, 10);
     chip.setAttribute('aria-pressed', String(idx === editBar));
-    const playBar = Math.floor(playhead / STEPS_PER_BAR);
+    const playBar = Math.floor(playhead / FINE_PER_BAR);
     const sectionMatches = playing && activeBlockKind() === editing;
     chip.classList.toggle('playing', sectionMatches && idx === playBar);
   });
@@ -1162,22 +1172,23 @@ function refreshHead(){
   document.querySelectorAll('.note-fill.playing').forEach(c => c.classList.remove('playing'));
   if (playhead < 0 || !playing) return;
   if (activeBlockKind() !== editing) return;
-  const playBar = Math.floor(playhead / STEPS_PER_BAR);
+  const playBar = Math.floor(playhead / FINE_PER_BAR);
   if (playBar !== editBar) return;
-  const cellIdx = playhead % STEPS_PER_BAR;
+  const fineInBar = playhead % FINE_PER_BAR;
+  const cellIdx   = Math.floor(fineInBar / FINE_PER_CELL);
   for (let r = 0; r < ROWS; r++){
     const cell = document.querySelector(`.cell[data-row="${r}"][data-cell-idx="${cellIdx}"]`);
     if (cell) cell.classList.add('head');
-    // light up the note-fill that STARTS at this step (if any)
-    const fill = document.querySelector(`.note-fill[data-row="${r}"][data-step="${cellIdx}"]`);
+    // light up any note-fill whose fine-slot matches the playhead
+    const fill = document.querySelector(`.note-fill[data-row="${r}"][data-fine="${fineInBar}"]`);
     if (fill) fill.classList.add('playing');
   }
 }
 
 function clearAll(){
   const p = curPattern();
-  for (let r = 0; r < ROWS; r++) for (let s = 0; s < STEPS; s++){
-    p[r][s] = 0;
+  for (let r = 0; r < ROWS; r++) for (let f = 0; f < FINE_TOTAL; f++){
+    p[r][f] = 0;
   }
   repaintGridForSection();
 }
@@ -1217,35 +1228,44 @@ function seedDemo(){
   // verse layout across 8 bars: A A A B  A A A B  (a phrase + answer pair)
   const verseLayout  = [verseBarA, verseBarA, verseBarA, verseBarB, verseBarA, verseBarA, verseBarA, verseBarB];
   const chorusLayout = [chorusBarA, chorusBarA, chorusBarA, chorusBarB, chorusBarA, chorusBarA, chorusBarA, chorusBarB];
-  // Convert seeds to duration values. Default = 1 step (1/16). To demo
-  // the stretched-cell rendering we overlay a few cleanly-spaced longer
-  // notes on top so adjacent fills don't overlap visually.
+  // Convert the bool seed layouts into fine-slot durations. A bool true
+  // at cell c becomes a 1/16 note (4 fine slots) placed at sub-slot 0 of
+  // that cell. Showcase notes (1/4 + 1/2) get overlaid at cleanly-spaced
+  // positions so their stretched fills don't collide with neighbours.
+  const FINE_16 = FINE_PER_CELL;       // 4 = a 1/16 note
+  // Seed assigns per-note formants so vowel coloration is visible on
+  // boot: chorus row 0 (lead) gets 'ah', row 4 (bass) gets 'oo'.
   for (let bar = 0; bar < BARS; bar++){
-    for (let r = 0; r < ROWS; r++) for (let s = 0; s < STEPS_PER_BAR; s++){
-      patterns.verse[r][bar * STEPS_PER_BAR + s]  = verseLayout[bar][r][s] ? 1 : 0;
-      patterns.chorus[r][bar * STEPS_PER_BAR + s] = chorusLayout[bar][r][s] ? 1 : 0;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < STEPS_PER_BAR; c++){
+      const fineStart = bar * FINE_PER_BAR + c * FINE_PER_CELL;
+      if (verseLayout[bar][r][c]){
+        patterns.verse[r][fineStart] = makeNote(FINE_16, 'none');
+      }
+      if (chorusLayout[bar][r][c]){
+        let fmt = 'none';
+        if (r === 0) fmt = 'ah';
+        else if (r === 4) fmt = 'oo';
+        patterns.chorus[r][fineStart] = makeNote(FINE_16, fmt);
+      }
     }
-    // Showcase a 1/4 sustain on the chorus down-beat (row 0 = A) and a
-    // 1/2 sustain on the bass row (row 4 = C). Both are placed at step 0
-    // where the chorus pattern is already active, but using long
-    // durations that don't collide with other actives in their row.
-    const barStart = bar * STEPS_PER_BAR;
-    if (chorusLayout[bar][0][0]) patterns.chorus[0][barStart + 0] = 4;   // 1/4 note
-    if (chorusLayout[bar][4][0]) patterns.chorus[4][barStart + 0] = 8;   // 1/2 note
-    // A second 1/4 sustain at step 8 of row 0 if that cell is on
-    if (chorusLayout[bar][0][8]) patterns.chorus[0][barStart + 8] = 4;
+    const barStart = bar * FINE_PER_BAR;
+    if (chorusLayout[bar][0][0]) patterns.chorus[0][barStart + 0]                    = makeNote(16, 'ah');
+    if (chorusLayout[bar][0][8]) patterns.chorus[0][barStart + 8 * FINE_PER_CELL]    = makeNote(16, 'ah');
+    if (chorusLayout[bar][4][0]) patterns.chorus[4][barStart + 0]                    = makeNote(32, 'oo');
   }
-  // Clear any cells that would be visually swallowed by a long sustain in
-  // the same row so consecutive trues don't produce overlapping fills.
-  for (let bar = 0; bar < BARS; bar++){
-    for (let r = 0; r < ROWS; r++){
-      const barStart = bar * STEPS_PER_BAR;
-      for (let s = 0; s < STEPS_PER_BAR; s++){
-        const dur = patterns.chorus[r][barStart + s];
-        if (dur > 1){
-          // wipe the cells this note would cover
-          for (let k = 1; k < dur && (s + k) < STEPS_PER_BAR; k++){
-            patterns.chorus[r][barStart + s + k] = 0;
+  // Sweep — any fine slot covered by a longer note's span gets zero'd
+  // so visually adjacent fills don't overlap.
+  for (const sect of ['verse', 'chorus']){
+    for (let bar = 0; bar < BARS; bar++){
+      for (let r = 0; r < ROWS; r++){
+        const barStart = bar * FINE_PER_BAR;
+        for (let f = 0; f < FINE_PER_BAR; f++){
+          const cell = patterns[sect][r][barStart + f];
+          const dur = noteDur(cell);
+          if (dur > 1){
+            for (let k = 1; k < dur && (f + k) < FINE_PER_BAR; k++){
+              patterns[sect][r][barStart + f + k] = 0;
+            }
           }
         }
       }
@@ -1260,7 +1280,7 @@ function seedDemo(){
 // ─────────────────────────────────────────────────────────────
 function setBpm(v){
   bpm = v;
-  stepTime = (60 / bpm) / 4 * 1000;
+  stepTime = (60 / bpm) / 16 * 1000;
   document.getElementById('bpmVal').textContent = String(v);
 }
 
@@ -1273,6 +1293,7 @@ function play(){
   autoFollow = true;     // re-engage auto-paging on every fresh play
   refreshStructure();
   refreshBarPicker();
+  padFadeIn();           // ambient drone smoothly fades up, never restarts
   lastStepAt = performance.now() - stepTime;  // fire step 0 immediately
   playBtn.textContent = '■ stop';
   playBtn.setAttribute('aria-pressed', 'true');
@@ -1281,7 +1302,8 @@ function play(){
 function stop(){
   playing = false;
   playhead = -1;
-  allNotesOff();              // kill any hanging long-sustain voices
+  allNotesOff();         // kill any hanging long-sustain voices
+  padFadeOut();          // and silence the ambient drone
   refreshHead();
   refreshStructure();
   refreshBarPicker();
@@ -1293,44 +1315,39 @@ function tickSequencer(now){
   if (!playing) return;
   if (now - lastStepAt >= stepTime){
     lastStepAt += stepTime;
-    const prevBar = Math.max(0, Math.floor(playhead / STEPS_PER_BAR));
+    const prevBar = Math.max(0, Math.floor(playhead / FINE_PER_BAR));
     playhead += 1;
-    // After all 128 steps (the full 8-bar pattern) finish, advance to the
-    // next block in the song structure.
-    if (playhead >= STEPS){
+    // After all 512 fine slots (the full 8-bar pattern) finish, advance
+    // to the next block in the song structure.
+    if (playhead >= FINE_TOTAL){
       playhead = 0;
       structureIdx = (structureIdx + 1) % structure.length;
     }
-    const newBar = Math.floor(playhead / STEPS_PER_BAR);
+    const newBar = Math.floor(playhead / FINE_PER_BAR);
     const crossedBar = newBar !== prevBar;
-    // If the playhead crossed into a new bar AND the user has auto-follow
-    // on, nudge editBar to keep the visible page in sync with the playing
-    // position when editing == active section.
     if (crossedBar && playing && activeBlockKind() === editing && autoFollow){
       editBar = newBar;
       repaintGridForSection();
       refreshBarPicker();
     }
     if (crossedBar){
-      // bar boundary: update the block bar-mark counter + bar-picker dot
       refreshStructure();
       refreshBarPicker();
     }
     refreshHead();
-    // trigger active notes at this step from whichever section is current
+    // trigger active notes at this fine slot from whichever section is current
     const kind = activeBlockKind();
     if (kind !== 'rest'){
       const p = patterns[kind];
       for (let r = 0; r < ROWS; r++){
-        const dur = p[r][playhead];
-        if (dur){
+        const cell = p[r][playhead];
+        if (cell){
           const freq = SCALES[SCALE][r];
-          playNote(r, freq, dur);
-          // ripple x position: spread across the pond width as a function
-          // of the position WITHIN the current bar so visible movement
-          // tracks the cell head, not the 128-step block-global progress
-          const visualStep = playhead % STEPS_PER_BAR;
-          spawnRipple(r, visualStep, NOTE_COLORS[r]);
+          playNote(r, freq, noteDur(cell), noteFormant(cell));
+          // ripple x: anchor on the cell of the current fine slot so
+          // visible ripple movement tracks the cell-level grid
+          const visualCell = Math.floor((playhead % FINE_PER_BAR) / FINE_PER_CELL);
+          spawnRipple(r, visualCell, NOTE_COLORS[r]);
         }
       }
     }
@@ -1398,7 +1415,7 @@ function refreshStructure(){
     // append a tiny bar-of-8 counter to the active block ("3/8")
     const bar = b.querySelector('.bar-mark');
     if (isPlaying){
-      const playBar = Math.floor(playhead / STEPS_PER_BAR);
+      const playBar = Math.floor(playhead / FINE_PER_BAR);
       const label = (Math.max(0, playBar) + 1) + '/' + BARS;
       if (!bar){
         const m = document.createElement('span');
@@ -1515,7 +1532,7 @@ cv.addEventListener('pointerdown', (ev) => {
   const freq = SCALES[SCALE][row];
   const color = NOTE_COLORS[row];
   // pond-click uses the currently-selected duration setting for the preview
-  playNote(row, freq, DURATION_STEPS[noteDuration]);
+  playNote(row, freq, DURATION_FINE[noteDuration]);
   spawnRipple(row, 0, color, { x, y });
   hideHint();
 });
