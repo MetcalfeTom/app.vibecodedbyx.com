@@ -244,8 +244,8 @@ const TT = {
   PLUS:'PLUS', MINUS:'MINUS', STAR:'STAR', SLASH:'SLASH', PERCENT:'PERCENT',
   LPAREN:'LPAREN', RPAREN:'RPAREN',
   LBRACE:'LBRACE', RBRACE:'RBRACE',
-  DOT:'DOT', PIPE:'PIPE',
-  PUTS:'PUTS', DO:'DO', END:'END',
+  DOT:'DOT', PIPE:'PIPE', AT:'AT', LT:'LT', COMMA:'COMMA',
+  PUTS:'PUTS', DO:'DO', END:'END', CLASS:'CLASS', DEF:'DEF',
   NEWLINE:'NEWLINE', EOF:'EOF',
 };
 
@@ -307,10 +307,12 @@ function tokenize(src){
     if (/[a-zA-Z_]/.test(c)){
       let s = '';
       while (i < len && /[a-zA-Z0-9_]/.test(src[i])){ s += src[i]; adv(); }
-      if      (s === 'puts') emit(TT.PUTS, s);
-      else if (s === 'do')   emit(TT.DO,   s);
-      else if (s === 'end')  emit(TT.END,  s);
-      else                   emit(TT.IDENT, s);
+      if      (s === 'puts')  emit(TT.PUTS,  s);
+      else if (s === 'do')    emit(TT.DO,    s);
+      else if (s === 'end')   emit(TT.END,   s);
+      else if (s === 'class') emit(TT.CLASS, s);
+      else if (s === 'def')   emit(TT.DEF,   s);
+      else                    emit(TT.IDENT, s);
       continue;
     }
     // operators + punctuation
@@ -327,6 +329,9 @@ function tokenize(src){
       case '.': emit(TT.DOT, c);     adv(); continue;
       case '|': emit(TT.PIPE, c);    adv(); continue;
       case '=': emit(TT.ASSIGN, c);  adv(); continue;
+      case '@': emit(TT.AT, c);      adv(); continue;
+      case '<': emit(TT.LT, c);      adv(); continue;
+      case ',': emit(TT.COMMA, c);   adv(); continue;
     }
     throw new Error("unexpected character '" + c + "' at line " + line + ", col " + col);
   }
@@ -359,28 +364,83 @@ class Parser {
   }
 
   parseStmt(){
+    if (this.match(TT.CLASS))  return this.parseClass();
+    if (this.match(TT.DEF))    return this.parseDef();
     if (this.match(TT.PUTS)){
       this.pos++;
       const arg = this.parseExpr();
       return { type:'Puts', arg };
     }
+    // @ivar = expr  (instance-variable assignment)
+    if (this.match(TT.AT) && this.peek(1) && this.peek(1).type === TT.IDENT
+        && this.peek(2) && this.peek(2).type === TT.ASSIGN){
+      this.eat(TT.AT);
+      const name = this.eat(TT.IDENT).value;
+      this.eat(TT.ASSIGN);
+      const value = this.parseExpr();
+      return { type:'IvarAssign', name, value };
+    }
+    // local-var assignment
     if (this.match(TT.IDENT) && this.peek(1) && this.peek(1).type === TT.ASSIGN){
       const name = this.eat(TT.IDENT).value;
       this.eat(TT.ASSIGN);
       const value = this.parseExpr();
       return { type:'Assign', name, value };
     }
-    // Ruby-style method call with a block. Currently only `.times { ... }`
-    // and `.times do ... end` are recognised — enough to demonstrate
-    // closures + block scope.
+    // expression statement, optionally followed by a method-call/block tail.
     const expr = this.parseExpr();
     if (this.match(TT.DOT) && this.peek(1) && this.peek(1).type === TT.IDENT && this.peek(1).value === 'times'
         && (this.peek(2) && (this.peek(2).type === TT.LBRACE || this.peek(2).type === TT.DO))){
-      this.pos += 2; // consume DOT + 'times'
+      this.pos += 2;
       const block = this.parseBlock();
-      return { type:'TimesCall', count: expr, blockArg: block.arg, body: block.body, line: this.peek().line };
+      return { type:'TimesCall', count: expr, blockArg: block.arg, body: block.body };
     }
     return { type:'ExprStmt', expr };
+  }
+
+  parseClass(){
+    this.eat(TT.CLASS);
+    const name = this.eat(TT.IDENT).value;
+    let parent = null;
+    if (this.match(TT.LT)){
+      this.pos++;
+      parent = this.eat(TT.IDENT).value;
+    }
+    while (this.match(TT.NEWLINE)) this.pos++;
+    const methods = [];
+    while (!this.match(TT.END)){
+      if (this.match(TT.NEWLINE)){ this.pos++; continue; }
+      if (this.match(TT.EOF)) throw new Error("unterminated class '" + name + "'");
+      if (!this.match(TT.DEF)) throw new Error("only `def` allowed inside class body at line " + this.peek().line);
+      methods.push(this.parseDef());
+      while (this.match(TT.NEWLINE)) this.pos++;
+    }
+    this.eat(TT.END);
+    return { type:'ClassDecl', name, parent, methods };
+  }
+
+  parseDef(){
+    this.eat(TT.DEF);
+    const name = this.eat(TT.IDENT).value;
+    const params = [];
+    if (this.match(TT.LPAREN)){
+      this.pos++;
+      while (!this.match(TT.RPAREN)){
+        params.push(this.eat(TT.IDENT).value);
+        if (this.match(TT.COMMA)) this.pos++;
+      }
+      this.eat(TT.RPAREN);
+    }
+    while (this.match(TT.NEWLINE)) this.pos++;
+    const body = [];
+    while (!this.match(TT.END)){
+      if (this.match(TT.NEWLINE)){ this.pos++; continue; }
+      if (this.match(TT.EOF)) throw new Error("unterminated def '" + name + "'");
+      body.push(this.parseStmt());
+      while (this.match(TT.NEWLINE)) this.pos++;
+    }
+    this.eat(TT.END);
+    return { type:'DefDecl', name, params, body };
   }
 
   // Block: '{' '|' IDENT '|' stmts '}'   OR   'do' '|' IDENT '|' stmts 'end'
@@ -435,14 +495,56 @@ class Parser {
       this.pos++;
       return { type:'Unary', op:'-', operand: this.parseUnary() };
     }
-    return this.parsePrimary();
+    return this.parsePostfix();
   }
+
+  // After a primary, accept zero-or-more `.method(args)` / `.method` /
+  // `.new(args)` postfixes. We DON'T consume `.times` here so the block
+  // form is still picked up by parseStmt's tail check.
+  parsePostfix(){
+    let recv = this.parsePrimary();
+    while (this.match(TT.DOT) && this.peek(1) && this.peek(1).type === TT.IDENT){
+      const nameTok = this.peek(1);
+      const nameVal = nameTok.value;
+      // Special-case .times — only consume it when a block follows; let
+      // parseStmt handle it otherwise (the block form is statement-level).
+      if (nameVal === 'times' && this.peek(2)
+          && (this.peek(2).type === TT.LBRACE || this.peek(2).type === TT.DO)){
+        break;
+      }
+      this.pos += 2;  // consume DOT + IDENT
+      const args = [];
+      if (this.match(TT.LPAREN)){
+        this.pos++;
+        if (!this.match(TT.RPAREN)){
+          args.push(this.parseExpr());
+          while (this.match(TT.COMMA)){ this.pos++; args.push(this.parseExpr()); }
+        }
+        this.eat(TT.RPAREN);
+      }
+      if (nameVal === 'new'){
+        if (recv.type !== 'Ident'){
+          throw new Error('only Identifier.new(...) is supported');
+        }
+        recv = { type:'NewExpr', className: recv.name, args };
+      } else {
+        recv = { type:'MethodCall', receiver: recv, methodName: nameVal, args };
+      }
+    }
+    return recv;
+  }
+
   parsePrimary(){
     const t = this.peek();
     if (t.type === TT.INT){    this.pos++; return { type:'IntLit',   value: t.value }; }
     if (t.type === TT.FLOAT){  this.pos++; return { type:'FloatLit', value: t.value }; }
     if (t.type === TT.STRING){ this.pos++; return { type:'StrLit',   value: t.value }; }
     if (t.type === TT.IDENT){  this.pos++; return { type:'Ident',    name:  t.value }; }
+    if (t.type === TT.AT){
+      this.pos++;
+      const nm = this.eat(TT.IDENT).value;
+      return { type:'IvarRef', name: nm };
+    }
     if (t.type === TT.LPAREN){
       this.pos++;
       const e = this.parseExpr();
@@ -467,8 +569,11 @@ class CGen {
     this.prelude = [];        // structs + block fns appear here (above main)
     this.blockCount = 0;      // monotonically increasing block id
     this.usesTimesLoop = false;
-    // Scope stack — each entry is { vars: name→type, kind: 'main'|'block',
-    // blockArg?, captured?: Map(name→type), parent }
+    // class table: name → { parent, ivars: name→type, methods: name→DefDecl,
+    //                       allIvars (inherited+own), methodOwner (name→className) }
+    this.classes = {};
+    // Scope stack — each entry is { vars: name→type, kind, ... }
+    // kind ∈ 'main' | 'block' | 'method'
     this.scopes = [{ vars: this.mainVars, kind: 'main', parent: null }];
   }
   cur(){ return this.scopes[this.scopes.length - 1]; }
@@ -508,6 +613,14 @@ class CGen {
     if (n.type === 'FloatLit') return 'double';
     if (n.type === 'StrLit')   return 'const char*';
     if (n.type === 'Ident')    return this.resolveIdent(n.name).type;
+    if (n.type === 'IvarRef'){
+      // resolve in the enclosing method scope's class
+      const s = this.cur();
+      if (s.kind !== 'method') throw new Error("@" + n.name + " used outside a method");
+      const cls = this.classes[s.className];
+      if (!cls.allIvars[n.name]) cls.allIvars[n.name] = 'const char*';
+      return cls.allIvars[n.name];
+    }
     if (n.type === 'Unary')    return this.exprType(n.operand);
     if (n.type === 'Group')    return this.exprType(n.expr);
     if (n.type === 'BinOp'){
@@ -517,6 +630,8 @@ class CGen {
       }
       return (lt === 'double' || rt === 'double') ? 'double' : 'int';
     }
+    if (n.type === 'NewExpr')      return n.className + '*';
+    if (n.type === 'MethodCall')   return 'int';  // method return types not tracked
     return 'int';
   }
 
@@ -532,9 +647,22 @@ class CGen {
       if (r.where === 'captured') return 'ctx->' + n.name;
       return n.name;
     }
+    if (n.type === 'IvarRef')  return 'self->' + n.name;
     if (n.type === 'Unary')    return n.op + this.emitExpr(n.operand);
     if (n.type === 'Group')    return '(' + this.emitExpr(n.expr) + ')';
     if (n.type === 'BinOp')    return this.emitExpr(n.left) + ' ' + n.op + ' ' + this.emitExpr(n.right);
+    if (n.type === 'NewExpr')  return '/* NewExpr in expr position not supported */0';
+    if (n.type === 'MethodCall'){
+      // synchronous expression — emit dispatch. Only zero-arg methods work in
+      // expression position today; we lean on the fact that most methods are
+      // statements in v1.
+      const recvType = this.exprType(n.receiver);  // expected ClassName*
+      const recvCode = this.emitExpr(n.receiver);
+      const cls = this.classes[recvType.replace('*','')];
+      if (!cls) throw new Error('no class ' + recvType);
+      const argStr = n.args.length ? ', ' + n.args.map(a => this.emitExpr(a)).join(', ') : '';
+      return recvCode + '->vt->' + n.methodName + '(' + recvCode + argStr + ')';
+    }
     return '';
   }
 
@@ -543,35 +671,223 @@ class CGen {
   // via `out`.
   emitStmt(stmt, out, indent){
     indent = indent || '    ';
+    if (stmt.type === 'ClassDecl'){
+      // class is processed via the up-front pass; nothing to emit at the
+      // call site (class definitions don't produce main-body code).
+      return;
+    }
     if (stmt.type === 'Assign'){
       const valType = this.exprType(stmt.value);
       const s = this.cur();
-      // block-arg shadowing isn't allowed
       if (s.kind === 'block' && stmt.name === s.blockArg){
         throw new Error("cannot reassign block argument '" + stmt.name + "'");
       }
-      // resolve in surrounding context to decide declare vs reassign
       const r = this.resolveIdent(stmt.name);
       const declaredHere = !!s.vars[stmt.name];
       const declaredOuter = r.where === 'captured';
       if (!declaredHere && !declaredOuter){
+        // class-instance allocation: `d = Dog.new("rex")` declares Dog d_d; d_d_init(...); Dog* d = &d_d
+        if (stmt.value.type === 'NewExpr'){
+          const cls = stmt.value.className;
+          if (!this.classes[cls]) throw new Error('unknown class ' + cls);
+          s.vars[stmt.name] = cls + '*';
+          const storage = '_' + stmt.name + '_storage';
+          out.push(indent + cls + ' ' + storage + ';');
+          const argList = stmt.value.args.map(a => this.emitExpr(a)).join(', ');
+          out.push(indent + cls + '_init(&' + storage + (argList ? ', ' + argList : '') + ');');
+          out.push(indent + cls + '* ' + stmt.name + ' = &' + storage + ';');
+          return;
+        }
         s.vars[stmt.name] = valType;
         out.push(indent + valType + ' ' + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
       } else if (declaredOuter){
-        // mutate captured outer var via context pointer
         out.push(indent + 'ctx->' + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
       } else {
         out.push(indent + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
       }
+    } else if (stmt.type === 'IvarAssign'){
+      const s = this.cur();
+      if (s.kind !== 'method') throw new Error('@' + stmt.name + ' = ... outside method');
+      const cls = this.classes[s.className];
+      const vt = this.exprType(stmt.value);
+      if (!cls.allIvars[stmt.name]) cls.allIvars[stmt.name] = vt;
+      out.push(indent + 'self->' + stmt.name + ' = ' + this.emitExpr(stmt.value) + ';');
     } else if (stmt.type === 'Puts'){
       const at = this.exprType(stmt.arg);
       const fmt = at === 'double' ? '%f' : at === 'const char*' ? '%s' : '%d';
       out.push(indent + 'printf("' + fmt + '\\n", ' + this.emitExpr(stmt.arg) + ');');
     } else if (stmt.type === 'ExprStmt'){
-      out.push(indent + '(void)(' + this.emitExpr(stmt.expr) + ');');
+      const e = stmt.expr;
+      if (e.type === 'MethodCall'){
+        // dispatch via vtable as a statement
+        const recvType = this.exprType(e.receiver).replace('*','');
+        const cls = this.classes[recvType];
+        if (!cls) throw new Error('no class ' + recvType + ' for method call');
+        const recvCode = this.emitExpr(e.receiver);
+        const argStr = e.args.length ? ', ' + e.args.map(a => this.emitExpr(a)).join(', ') : '';
+        out.push(indent + recvCode + '->vt->' + e.methodName + '(' + recvCode + argStr + ');');
+        return;
+      }
+      if (e.type === 'NewExpr'){
+        // discarded — but still emit init if user wrote bare `Dog.new(...)`
+        const cls = e.className;
+        const storage = '_anon' + (this.blockCount++);
+        const argList = e.args.map(a => this.emitExpr(a)).join(', ');
+        out.push(indent + cls + ' ' + storage + ';');
+        out.push(indent + cls + '_init(&' + storage + (argList ? ', ' + argList : '') + ');');
+        return;
+      }
+      out.push(indent + '(void)(' + this.emitExpr(e) + ');');
     } else if (stmt.type === 'TimesCall'){
       this.emitTimesCall(stmt, out, indent);
     }
+  }
+
+  // ── Class processing ────────────────────────────────────────
+  registerClass(decl){
+    const parent = decl.parent ? this.classes[decl.parent] : null;
+    if (decl.parent && !parent) throw new Error("parent class '" + decl.parent + "' not yet defined");
+    const cls = {
+      name: decl.name,
+      parent: decl.parent,
+      methods: {},                                  // name → DefDecl
+      methodOwner: parent ? { ...parent.methodOwner } : {},
+      allMethodNames: parent ? [...parent.allMethodNames] : [],
+      allIvars: parent ? { ...parent.allIvars } : {},
+    };
+    for (const m of decl.methods){
+      cls.methods[m.name] = m;
+      // record/override owner for this method
+      if (!cls.methodOwner[m.name]) cls.allMethodNames.push(m.name);
+      cls.methodOwner[m.name] = decl.name;
+    }
+    this.classes[decl.name] = cls;
+  }
+
+  emitClass(cls){
+    // First, walk every method body to seed ivars + populate the
+    // method's body emission (so type inference of @ivars settles before
+    // we emit the struct).
+    const methodEmits = {};
+    for (const m of Object.values(cls.methods)){
+      this.scopes.push({
+        vars: {},
+        kind: 'method',
+        className: cls.name,
+        parent: null,
+      });
+      // parameters are local vars
+      for (const p of m.params) this.cur().vars[p] = 'const char*';
+      const lines = [];
+      for (const s of m.body) this.emitStmt(s, lines, '    ');
+      this.scopes.pop();
+      methodEmits[m.name] = { params: m.params, lines };
+    }
+    // Forward declarations
+    const VT = cls.name + 'VT';
+    const SUPER = cls.parent ? (cls.parent + 'VT') : null;
+    this.prelude.push('typedef struct ' + VT + ' ' + VT + ';');
+    this.prelude.push('typedef struct ' + cls.name + ' ' + cls.name + ';');
+    // Struct definition — vt pointer first, then ivars in deterministic order
+    const ivarNames = Object.keys(cls.allIvars);
+    let structDef = 'struct ' + cls.name + ' {\n';
+    structDef += '    ' + VT + '* vt;\n';
+    for (const iv of ivarNames){
+      structDef += '    ' + cls.allIvars[iv] + ' ' + iv + ';\n';
+    }
+    structDef += '};\n';
+    this.prelude.push(structDef);
+    // Vtable struct — superclass pointer first, then all method slots
+    let vtDef = 'struct ' + VT + ' {\n';
+    vtDef += '    ' + (SUPER ? SUPER + '*' : 'void*') + ' super;\n';
+    for (const mn of cls.allMethodNames){
+      // Look up the param signature from whoever owns this method
+      const ownerName = cls.methodOwner[mn];
+      const def = this.classes[ownerName].methods[mn];
+      const params = def ? def.params : [];
+      const paramSig = params.length ? ', ' + params.map(() => 'const char*').join(', ') : '';
+      vtDef += '    void (*' + mn + ')(' + cls.name + '* self' + paramSig + ');\n';
+    }
+    vtDef += '};\n';
+    this.prelude.push(vtDef);
+    // Forward-declare method functions defined on THIS class so the vtable
+    // initialiser can take their addresses.
+    for (const m of Object.values(cls.methods)){
+      const paramSig = m.params.length ? ', ' + m.params.map(p => 'const char* ' + p).join(', ') : '';
+      this.prelude.push('static void ' + cls.name + '_' + m.name + '(' + cls.name + '* self' + paramSig + ');');
+    }
+    // Vtable instance — slot in the method belonging to this class for each name
+    let vtInit = 'static ' + VT + ' ' + cls.name + '_vt = {\n';
+    vtInit += '    .super = ' + (cls.parent ? '&' + cls.parent + '_vt' : 'NULL') + ',\n';
+    for (const mn of cls.allMethodNames){
+      const ownerName = cls.methodOwner[mn];
+      // If the owner is THIS class, point to its own function. Otherwise,
+      // we need a thunk that accepts `cls.name* self` but calls the parent
+      // class's method (which takes `parent.name* self`). For binary
+      // compatibility we just cast — both structs share their prefix layout
+      // and we depend on that. Emit the thunk lazily.
+      if (ownerName === cls.name){
+        vtInit += '    .' + mn + ' = ' + cls.name + '_' + mn + ',\n';
+      } else {
+        const thunkName = cls.name + '__inherited_' + mn;
+        this.prelude.push(this.emitInheritedThunk(cls, mn, thunkName));
+        vtInit += '    .' + mn + ' = ' + thunkName + ',\n';
+      }
+    }
+    vtInit += '};\n';
+    this.prelude.push(vtInit);
+    // Initialiser — set vt pointer and run user's initialize (if any)
+    const initMethod = cls.methods['initialize'] || (cls.parent ? this.findInherited(cls, 'initialize') : null);
+    const initParams = initMethod ? initMethod.params : [];
+    const initSig = initParams.length ? ', ' + initParams.map(p => 'const char* ' + p).join(', ') : '';
+    let init = 'void ' + cls.name + '_init(' + cls.name + '* self' + initSig + ') {\n';
+    init += '    self->vt = &' + cls.name + '_vt;\n';
+    if (initMethod){
+      // If initialize was inherited, call the owner's function with cast
+      const ownerName = cls.methodOwner['initialize'];
+      const argStr = initParams.length ? ', ' + initParams.join(', ') : '';
+      if (ownerName === cls.name){
+        init += '    ' + cls.name + '_initialize(self' + argStr + ');\n';
+      } else {
+        init += '    ' + ownerName + '_initialize((' + ownerName + '*)self' + argStr + ');\n';
+      }
+    }
+    init += '}\n';
+    this.prelude.push(init);
+    // Now emit each method's body
+    for (const mn of Object.keys(methodEmits)){
+      const m = methodEmits[mn];
+      const paramSig = m.params.length ? ', ' + m.params.map(p => 'const char* ' + p).join(', ') : '';
+      let fn = 'static void ' + cls.name + '_' + mn + '(' + cls.name + '* self' + paramSig + ') {\n';
+      fn += '    (void)self;\n';
+      if (m.lines.length) fn += m.lines.join('\n') + '\n';
+      fn += '}\n';
+      this.prelude.push(fn);
+    }
+  }
+
+  // When a class C inherits method M from class P (which expects P*), we
+  // wrap the call in a thunk that casts C* → P* so C's vtable slot has
+  // the correct signature `void (*)(C* self, ...)`.
+  emitInheritedThunk(cls, mn, thunkName){
+    const ownerName = cls.methodOwner[mn];
+    const def = this.classes[ownerName].methods[mn];
+    const paramDecls = def.params.map(p => 'const char* ' + p).join(', ');
+    const paramCall  = def.params.join(', ');
+    const sig = paramDecls ? ', ' + paramDecls : '';
+    const call = paramCall ? ', ' + paramCall : '';
+    return 'static void ' + thunkName + '(' + cls.name + '* self' + sig + ') {\n'
+         + '    ' + ownerName + '_' + mn + '((' + ownerName + '*)self' + call + ');\n'
+         + '}\n';
+  }
+
+  findInherited(cls, methodName){
+    let p = cls.parent ? this.classes[cls.parent] : null;
+    while (p){
+      if (p.methods[methodName]) return p.methods[methodName];
+      p = p.parent ? this.classes[p.parent] : null;
+    }
+    return null;
   }
 
   emitTimesCall(stmt, out, indent){
@@ -634,10 +950,20 @@ class CGen {
   }
 
   generate(program){
+    // First pass: register all classes (in source order, so parent must
+    // appear before child).
+    for (const s of program.body){
+      if (s.type === 'ClassDecl') this.registerClass(s);
+    }
+    // Second pass: emit class struct + vtable + method definitions into prelude
+    for (const s of program.body){
+      if (s.type === 'ClassDecl') this.emitClass(this.classes[s.name]);
+    }
+    // Third pass: emit main body
     for (const s of program.body) this.emitStmt(s, this.mainLines, '    ');
-    let header = '#include <stdio.h>\n\n';
+    let header = '#include <stdio.h>\n#include <stddef.h>\n\n';
     if (this.prelude.length){
-      header += this.prelude.join('\n');
+      header += this.prelude.join('\n') + '\n';
     }
     if (this.usesTimesLoop){
       header += '\nstatic void times_loop(int n, void (*body)(int, void*), void* ctx) {\n'
@@ -709,23 +1035,36 @@ const compileBtn = document.getElementById('compileBtn');
 const exampleBtn = document.getElementById('exampleBtn');
 
 const EXAMPLE = [
-  '# blocks + closures',
-  '# the block captures multiplier from the enclosing scope —',
-  '# compiled into a context struct + C function pointer.',
+  '# classes + inheritance — each Ruby class becomes a C struct',
+  '# with a vtable struct linked via a super pointer.',
+  'class Animal',
+  '  def initialize(name)',
+  '    @name = name',
+  '  end',
+  '  def speak',
+  '    puts @name',
+  '    puts "some sound"',
+  '  end',
+  'end',
+  '',
+  '# Dog inherits from Animal — overrides speak, inherits initialize',
+  'class Dog < Animal',
+  '  def speak',
+  '    puts @name',
+  '    puts "woof"',
+  '  end',
+  'end',
+  '',
+  'a = Animal.new("zebra")',
+  'a.speak',
+  'd = Dog.new("rex")',
+  'd.speak',
+  '',
+  '# closures + arithmetic still work',
   'multiplier = 7',
   '3.times do |i|',
   '  puts i * multiplier',
   'end',
-  '',
-  '# brace-form block, no captures',
-  '5.times { |k| puts k }',
-  '',
-  '# arithmetic still works',
-  'r = 4',
-  'pi = 3.14159',
-  'area = pi * r * r',
-  'puts area',
-  'puts "hello, c"',
   '',
 ].join('\n');
 
@@ -743,10 +1082,10 @@ function render(){
       let cls = 'token';
       if (t.type === 'NEWLINE') cls += ' newline';
       else if (t.type === 'EOF') cls += ' eof';
-      else if (t.type === 'PUTS' || t.type === 'DO' || t.type === 'END') cls += ' keyword';
+      else if (['PUTS','DO','END','CLASS','DEF'].includes(t.type)) cls += ' keyword';
       else if (t.type === 'INT' || t.type === 'FLOAT') cls += ' num';
       else if (t.type === 'STRING') cls += ' str';
-      else if (['PLUS','MINUS','STAR','SLASH','PERCENT','ASSIGN','DOT','PIPE'].includes(t.type)) cls += ' op';
+      else if (['PLUS','MINUS','STAR','SLASH','PERCENT','ASSIGN','DOT','PIPE','AT','LT','COMMA'].includes(t.type)) cls += ' op';
       else if (['LPAREN','RPAREN','LBRACE','RBRACE'].includes(t.type)) cls += ' paren';
       div.className = cls;
       const valStr = t.value === null ? '—' : (typeof t.value === 'string' ? JSON.stringify(t.value).slice(1, -1) : String(t.value));
