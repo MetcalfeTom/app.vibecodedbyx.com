@@ -14,6 +14,11 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { createClient } from '@supabase/supabase-js';
+// Node < 22 has no native WebSocket — patch with the ws polyfill.
+if (typeof globalThis.WebSocket === 'undefined'){
+  const wsMod = await import('ws');
+  globalThis.WebSocket = wsMod.default;
+}
 
 const SUPABASE_URL      = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
