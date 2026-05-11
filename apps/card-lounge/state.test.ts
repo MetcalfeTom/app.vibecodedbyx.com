@@ -20,8 +20,11 @@ describe('freshDeck', () => {
   it('returns 56 cards for Exploding Kittens', () => {
     expect(freshDeck('ek')).toHaveLength(56);
   });
-  it('returns 62 cards for Unstable Unicorns', () => {
-    expect(freshDeck('uu')).toHaveLength(62);
+  it('returns 86 cards for Unstable Unicorns + expansions', () => {
+    expect(freshDeck('uu')).toHaveLength(86);
+  });
+  it('returns 40 cards for Tapple categories', () => {
+    expect(freshDeck('tapple')).toHaveLength(40);
   });
   it('every standard card has a unique id', () => {
     const ids = new Set(freshDeck('std').map(c => c.id));
@@ -36,9 +39,21 @@ describe('freshDeck', () => {
     expect(d.filter((c): c is EkCard => c.kind === 'ek' && c.type === 'kitten')).toHaveLength(4);
     expect(d.filter((c): c is EkCard => c.kind === 'ek' && c.type === 'defuse')).toHaveLength(6);
   });
-  it('UU deck has 18 magical unicorns', () => {
+  it('UU deck has 26 magical unicorns (18 base + 8 expansion)', () => {
     const d = freshDeck('uu');
-    expect(d.filter(c => c.kind === 'uu' && c.type === 'magical')).toHaveLength(18);
+    expect(d.filter(c => c.kind === 'uu' && c.type === 'magical')).toHaveLength(26);
+  });
+  it('UU deck includes the Dragons expansion category (6 dragons)', () => {
+    const d = freshDeck('uu');
+    expect(d.filter(c => c.kind === 'uu' && c.type === 'dragon')).toHaveLength(6);
+  });
+  it('UU deck includes the Apocalypse expansion category (4 cards)', () => {
+    const d = freshDeck('uu');
+    expect(d.filter(c => c.kind === 'uu' && c.type === 'apocalypse')).toHaveLength(4);
+  });
+  it('Tapple cards each carry a category string', () => {
+    const d = freshDeck('tapple');
+    expect(d.every(c => c.kind === 'tapple' && typeof c.category === 'string' && c.category.length > 0)).toBe(true);
   });
   it('unknown kind falls back to standard 52', () => {
     expect(freshDeck('???')).toHaveLength(52);
@@ -215,11 +230,17 @@ describe('applySwitchDeck', () => {
     expect(s.deckKind).toBe('ek');
     expect(s.deck.length).toBe(56);
   });
-  it('switches to UU with 62 cards', () => {
+  it('switches to UU with 86 cards (base + expansions)', () => {
     const s = makeFreshState();
     applySwitchDeck(s, { kind: 'uu' });
     expect(s.deckKind).toBe('uu');
-    expect(s.deck.length).toBe(62);
+    expect(s.deck.length).toBe(86);
+  });
+  it('switches to Tapple with 40 category cards', () => {
+    const s = makeFreshState();
+    applySwitchDeck(s, { kind: 'tapple' });
+    expect(s.deckKind).toBe('tapple');
+    expect(s.deck.length).toBe(40);
   });
 });
 

@@ -7,13 +7,14 @@
 // suite exercises them directly.
 // ─────────────────────────────────────────────────────────────────────
 
-export type DeckKind = 'std' | 'uno' | 'ek' | 'uu';
+export type DeckKind = 'std' | 'uno' | 'ek' | 'uu' | 'tapple';
 
-export interface StdCard  { id: number; kind: 'std'; suit: string; rank: string; }
-export interface UnoCard  { id: number; kind: 'uno'; color: string; value: string; }
-export interface EkCard   { id: number; kind: 'ek';  type: string; label: string; glyph: string; color: string; }
-export interface UuCard   { id: number; kind: 'uu';  type: string; name: string; label: string; glyph: string; color: string; }
-export type Card = StdCard | UnoCard | EkCard | UuCard;
+export interface StdCard    { id: number; kind: 'std'; suit: string; rank: string; }
+export interface UnoCard    { id: number; kind: 'uno'; color: string; value: string; }
+export interface EkCard     { id: number; kind: 'ek';  type: string; label: string; glyph: string; color: string; }
+export interface UuCard     { id: number; kind: 'uu';  type: string; name: string; label: string; glyph: string; color: string; }
+export interface TappleCard { id: number; kind: 'tapple'; category: string; }
+export type Card = StdCard | UnoCard | EkCard | UuCard | TappleCard;
 
 export type TableCard = Card & { x: number; y: number; drawnBy?: string };
 
@@ -69,26 +70,92 @@ export const EK_CARDS: EkTypeDef[] = [
 ];
 
 interface UuCatMeta { label: string; glyph: string; color: string; }
+// UU base set + Dragons + Apocalypse + NSFW expansions. New `dragon` and
+// `apocalypse` categories add their own coloured cards on top of the
+// base set; magical/baby/upgrade pools were extended with expansion-set
+// named unicorns.
 export const UU_CATS: Record<string, UuCatMeta> = {
-  basic:     { label:'BASIC UNICORN',   glyph:'🦄', color:'#f0e8ff' },
-  magical:   { label:'MAGICAL UNICORN', glyph:'✨', color:'#c9a4ff' },
-  baby:      { label:'BABY UNICORN',    glyph:'🐴', color:'#ffd6e8' },
-  upgrade:   { label:'UPGRADE',         glyph:'⬆',  color:'#a4d8ff' },
-  downgrade: { label:'DOWNGRADE',       glyph:'⬇',  color:'#3a2540' },
-  magic:     { label:'MAGIC',           glyph:'🔮', color:'#ffa4dc' },
-  instant:   { label:'INSTANT',         glyph:'⚡', color:'#fff094' },
+  basic:      { label:'BASIC UNICORN',   glyph:'🦄', color:'#f0e8ff' },
+  magical:    { label:'MAGICAL UNICORN', glyph:'✨', color:'#c9a4ff' },
+  baby:       { label:'BABY UNICORN',    glyph:'🐴', color:'#ffd6e8' },
+  upgrade:    { label:'UPGRADE',         glyph:'⬆',  color:'#a4d8ff' },
+  downgrade:  { label:'DOWNGRADE',       glyph:'⬇',  color:'#3a2540' },
+  magic:      { label:'MAGIC',           glyph:'🔮', color:'#ffa4dc' },
+  instant:    { label:'INSTANT',         glyph:'⚡', color:'#fff094' },
+  dragon:     { label:'DRAGON',          glyph:'🐉', color:'#5a1818' },
+  apocalypse: { label:'APOCALYPSE',      glyph:'☢',  color:'#604030' },
 };
 export const UU_NAMES: Record<string, string[]> = {
-  basic:     ['Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn'],
-  magical:   ['Rainbow','Glitter','Narwhal','Pegasus','Llamacorn','Shark-Horn','Stabby','Americorn',
-              'Twindle','Destructive','Greedy Flying','Black Knight','Kittencorn','Puppicorn',
-              'Annoying Flying','Honeybee','Seductive','Unicorn Mike'],
-  baby:      ['Buttercup','Daisy','Sparkle','Spitfire','Mustache','Hazel','Frankenstein','Bonkers','Hammer','Coconut'],
-  upgrade:   ['Magical Boots','Extra Tail','Pretty Pretty Mane','Magical Squad','Sweet Ride','Stardust','Glittery Hooves','Bedazzled'],
-  downgrade: ['Broken Stable','Tiny Stable','Black Hole','Burning Stable','Mud Spirit','Nanny Cam'],
-  magic:     ['Neigh!','Glitter Tornado','Unicorn Lasso','Yay!','Re-Target','Rainbow Mane','Glitter Bomb','Summoning Ritual'],
-  instant:   ['Neigh!','Super Neigh!','Stab','Mystical Vortex'],
+  basic:      ['Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn','Basic Unicorn'],
+  // 18 base + 8 from Dragons/NSFW expansions = 26 magical
+  magical:    ['Rainbow','Glitter','Narwhal','Pegasus','Llamacorn','Shark-Horn','Stabby','Americorn',
+               'Twindle','Destructive','Greedy Flying','Black Knight','Kittencorn','Puppicorn',
+               'Annoying Flying','Honeybee','Seductive','Unicorn Mike',
+               // expansion magicals
+               'Greasebag','Magical Llama','Unicorn Phoenix','Smolder',
+               'Drazlana','Drachma','Dracosaur','Magical Cookie'],
+  // 10 base + 2 expansion = 12 baby
+  baby:       ['Buttercup','Daisy','Sparkle','Spitfire','Mustache','Hazel','Frankenstein','Bonkers','Hammer','Coconut',
+               'Marshmallow','Wishbone'],
+  // 8 base + 2 expansion = 10 upgrade
+  upgrade:    ['Magical Boots','Extra Tail','Pretty Pretty Mane','Magical Squad','Sweet Ride','Stardust','Glittery Hooves','Bedazzled',
+               'Ginormous Sword','Magic Mirror'],
+  downgrade:  ['Broken Stable','Tiny Stable','Black Hole','Burning Stable','Mud Spirit','Nanny Cam'],
+  // 8 base + 2 expansion = 10 magic
+  magic:      ['Neigh!','Glitter Tornado','Unicorn Lasso','Yay!','Re-Target','Rainbow Mane','Glitter Bomb','Summoning Ritual',
+               'Dragon Pact','Mass Hypnosis'],
+  instant:    ['Neigh!','Super Neigh!','Stab','Mystical Vortex'],
+  // expansion: 6 dragons
+  dragon:     ['Drakkar','Smoldrax','Magma Wyrm','Crystal Drake','Stormscale','Hatchling'],
+  // expansion: 4 apocalypse
+  apocalypse: ['Apocalypse Unicorn','Brick Unicorn','Tactical Unicorn','Pegacorn'],
 };
+
+// ── Tapple — category prompt deck (40 cards) ─────────────────────────
+// Pairs with the letter-randomizer panel: spin a letter, draw a category
+// → name something matching both.
+export const TAPPLE_CATEGORIES: string[] = [
+  'Things at the beach',
+  'Famous movies',
+  'Foods that are yellow',
+  'Things in a kitchen',
+  'Animals in the jungle',
+  'Things that are round',
+  'Famous athletes',
+  'Cars and trucks',
+  'Things in a hospital',
+  'Board games',
+  'Cartoon characters',
+  'Things that fly',
+  'Words for "happy"',
+  'Famous singers',
+  'Things in space',
+  'Words ending in -ing',
+  'Things at a wedding',
+  'Famous painters',
+  'Things that are blue',
+  'Sports',
+  'Capital cities',
+  'Disney movies',
+  'Things you wear',
+  'Famous scientists',
+  'Types of cheese',
+  'Things in a forest',
+  'Famous bands',
+  'Things that bounce',
+  'Things in your bedroom',
+  'Words that mean "fast"',
+  'Types of trees',
+  'Famous brands',
+  'Things in a school',
+  'Mythical creatures',
+  'Cooking utensils',
+  'TV shows',
+  'Famous video games',
+  'Things in a museum',
+  'Famous superheroes',
+  'Things that are soft',
+];
 
 // ── Pure helpers ─────────────────────────────────────────────────────
 export function freshDeck(kind: DeckKind | string): Card[] {
@@ -120,6 +187,12 @@ export function freshDeck(kind: DeckKind | string): Card[] {
       for (const name of UU_NAMES[cat]){
         d.push({ id: id++, kind:'uu', type: cat, name, label: meta.label, glyph: meta.glyph, color: meta.color });
       }
+    }
+    return d;
+  }
+  if (kind === 'tapple'){
+    for (const cat of TAPPLE_CATEGORIES){
+      d.push({ id: id++, kind:'tapple', category: cat });
     }
     return d;
   }
@@ -188,10 +261,11 @@ export function applyMove(state: State, payload: MovePayload, opts: ApplyOpts = 
 export function applyClear(state: State): void {
   for (const c of state.table){
     let restored: Card;
-    if      (c.kind === 'uno') restored = { id: c.id, kind: 'uno', color: c.color, value: c.value };
-    else if (c.kind === 'ek')  restored = { id: c.id, kind: 'ek', type: c.type, label: c.label, glyph: c.glyph, color: c.color };
-    else if (c.kind === 'uu')  restored = { id: c.id, kind: 'uu', type: c.type, name: c.name, label: c.label, glyph: c.glyph, color: c.color };
-    else                       restored = { id: c.id, kind: 'std', suit: c.suit, rank: c.rank };
+    if      (c.kind === 'uno')    restored = { id: c.id, kind: 'uno', color: c.color, value: c.value };
+    else if (c.kind === 'ek')     restored = { id: c.id, kind: 'ek', type: c.type, label: c.label, glyph: c.glyph, color: c.color };
+    else if (c.kind === 'uu')     restored = { id: c.id, kind: 'uu', type: c.type, name: c.name, label: c.label, glyph: c.glyph, color: c.color };
+    else if (c.kind === 'tapple') restored = { id: c.id, kind: 'tapple', category: c.category };
+    else                          restored = { id: c.id, kind: 'std', suit: c.suit, rank: c.rank };
     state.deck.push(restored);
   }
   state.table = [];
