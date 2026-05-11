@@ -392,15 +392,26 @@ function connectTwitch(){
         try { ws.send('PONG ' + line.slice(5) + '\r\n'); } catch (e){}
         continue;
       }
-      // The first server response after our JOIN is `... JOIN #channel`
-      // echoed back — flip the status to "live" on that. PRIVMSG lines
-      // then push messages into the jars.
-      if (line.indexOf(' JOIN #' + TWITCH_CHANNEL) !== -1){
-        setStatus('live', 'listening · #' + TWITCH_CHANNEL);
+      const msg = parseIrcLine(line);
+      if (!msg) continue;
+      // Status: flip to "live" the moment we see the JOIN echo back.
+      if (msg.command === 'JOIN' && nickFromPrefix(msg.prefix) && msg.params[0] === '#' + TWITCH_CHANNEL){
+        // could be us OR another joiner — either way the channel is reachable
+        if (statusDot.className !== 'status-dot live'){
+          setStatus('live', 'listening · #' + TWITCH_CHANNEL);
+        }
         continue;
       }
-      const msg = parsePrivmsg(line);
-      if (msg) pushMessage(msg.user, msg.text);
+      if (msg.command === 'PRIVMSG'){
+        const nick = nickFromPrefix(msg.prefix);
+        const display = displayNameFromTags(msg.tags) || nick;
+        const text = msg.params[1] || '';
+        if (!nick) continue;
+        chatRecvCount++;
+        setStatus('live', 'listening · #' + TWITCH_CHANNEL + ' · ' + chatRecvCount + ' msg' + (chatRecvCount === 1 ? '' : 's'));
+        // NO username filter — every PRIVMSG goes into a jar
+        pushMessage(display, text);
+      }
     }
   };
   ws.onclose = () => {
@@ -412,20 +423,53 @@ function connectTwitch(){
   };
 }
 
-// Parse a single IRC PRIVMSG line into { user, text }
-function parsePrivmsg(line){
-  // Strip optional @tags prefix
-  let l = line;
-  if (l.startsWith('@')){
-    const sp = l.indexOf(' ');
-    if (sp === -1) return null;
-    l = l.slice(sp + 1);
+// Generic IRC tokenizer — handles `@tags :prefix COMMAND param param :trailing`
+// for any command, not just PRIVMSG. The previous regex-based parser was
+// too strict and silently rejected anything with extra spacing or non-
+// standard tags, which made it look like specific users were being
+// "filtered" when in fact the WHOLE LINE was being skipped.
+function parseIrcLine(line){
+  if (!line) return null;
+  let i = 0;
+  let tags = '';
+  if (line[0] === '@'){
+    const sp = line.indexOf(' ');
+    if (sp < 0) return null;
+    tags = line.slice(1, sp);
+    i = sp + 1;
   }
-  // Form: :user!user@user.tmi.twitch.tv PRIVMSG #channel :message
-  const m = l.match(/^:([^!]+)![^ ]+ PRIVMSG #[^ ]+ :(.*)$/);
-  if (!m) return null;
-  return { user: m[1], text: m[2] };
+  let prefix = '';
+  if (line[i] === ':'){
+    const sp = line.indexOf(' ', i);
+    if (sp < 0) return null;
+    prefix = line.slice(i + 1, sp);
+    i = sp + 1;
+  }
+  const rest = line.slice(i).split(' ');
+  const command = rest.shift();
+  const params = [];
+  while (rest.length){
+    const p = rest.shift();
+    if (p.startsWith(':')){ params.push([p.slice(1), ...rest].join(' ')); break; }
+    params.push(p);
+  }
+  return { tags, prefix, command, params };
 }
+function nickFromPrefix(prefix){
+  if (!prefix) return null;
+  const bang = prefix.indexOf('!');
+  return (bang > 0 ? prefix.slice(0, bang) : prefix);
+}
+function displayNameFromTags(tags){
+  if (!tags) return null;
+  const m = tags.match(/(?:^|;)display-name=([^;]*)/);
+  // Twitch escapes spaces in tag values as the literal two chars: backslash + s
+  return m && m[1] ? m[1].replace(/\\s/g, ' ') : null;
+}
+// Live count of received PRIVMSGs — shown in the status bar so chat can
+// instantly tell whether the connection is silently receiving but failing
+// to render, vs. genuinely not receiving anything.
+let chatRecvCount = 0;
 
 function setStatus(kind, text){
   statusDot.className = 'status-dot ' + kind;
