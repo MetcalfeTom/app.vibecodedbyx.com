@@ -4,7 +4,9 @@ import {
   applyDraw, applyMove, applyClear, applyShuffle, applySwitchDeck,
   applyDrawToHand, applyPlayFromHand, applyDefuse, applyExplode,
   shouldAdoptState,
-  type Card, type State, type PendingMoves, type EkCard, type StdCard,
+  makeChameleonRound, chameleonSecretWord, applyStartChamRound, applyEndChamRound,
+  CHAMELEON_TOPICS,
+  type Card, type State, type PendingMoves, type EkCard, type StdCard, type ChameleonCard,
 } from './state.ts';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -25,6 +27,32 @@ describe('freshDeck', () => {
   });
   it('returns 40 cards for Tapple categories', () => {
     expect(freshDeck('tapple')).toHaveLength(40);
+  });
+  it('returns 5 topic cards for The Chameleon', () => {
+    expect(freshDeck('cham')).toHaveLength(5);
+  });
+  it('returns 32 cards for Throw Throw Burrito', () => {
+    // 9 number variants × 2 copies = 18, + 4 War + 4 Brawl + 2 Duel + 4 Bandito = 32
+    expect(freshDeck('ttb')).toHaveLength(32);
+  });
+  it('returns 20 rule cards for Let\'s Hit Each Other With Fake Swords', () => {
+    expect(freshDeck('sword')).toHaveLength(20);
+  });
+  it('TTB deck contains 4 Burrito War cards', () => {
+    const d = freshDeck('ttb');
+    expect(d.filter(c => c.kind === 'ttb' && c.type === 'war')).toHaveLength(4);
+  });
+  it('every sword card carries a non-empty rule', () => {
+    const d = freshDeck('sword');
+    expect(d.every(c => c.kind === 'sword' && typeof c.rule === 'string' && c.rule.length > 0)).toBe(true);
+  });
+  it('every Chameleon card has exactly 16 words on a 4x4 grid', () => {
+    const d = freshDeck('cham') as ChameleonCard[];
+    for (const c of d){
+      expect(c.kind).toBe('cham');
+      expect(c.words).toHaveLength(16);
+      expect(c.topic.length).toBeGreaterThan(0);
+    }
   });
   it('every standard card has a unique id', () => {
     const ids = new Set(freshDeck('std').map(c => c.id));
@@ -348,6 +376,65 @@ describe('shouldAdoptState', () => {
   });
   it('adopts when versions match and sender id sorts after mine (deterministic tiebreak)', () => {
     expect(shouldAdoptState({ localVersion: 5, incomingVersion: 5, isFirstHere: false, myId: 'aaa', senderId: 'zzz' })).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// The Chameleon — round mechanics + secret-word resolution
+// ─────────────────────────────────────────────────────────────────────
+describe('makeChameleonRound', () => {
+  it('produces a round with topic, 16 words, dice 1-4, and the chameleon id', () => {
+    const r = makeChameleonRound({ chameleonId: 'alice', by: 'bob', name: 'Bob' });
+    expect(r.topic.length).toBeGreaterThan(0);
+    expect(r.words).toHaveLength(16);
+    expect(r.diceX).toBeGreaterThanOrEqual(1);
+    expect(r.diceX).toBeLessThanOrEqual(4);
+    expect(r.diceY).toBeGreaterThanOrEqual(1);
+    expect(r.diceY).toBeLessThanOrEqual(4);
+    expect(r.chameleonId).toBe('alice');
+  });
+
+  it('respects explicit topicIndex + dice when provided', () => {
+    const r = makeChameleonRound({ chameleonId: 'a', by: 'b', name: 'B', topicIndex: 1, diceX: 3, diceY: 2 });
+    expect(r.topic).toBe(CHAMELEON_TOPICS[1].topic);
+    expect(r.diceX).toBe(3);
+    expect(r.diceY).toBe(2);
+  });
+});
+
+describe('chameleonSecretWord', () => {
+  it('returns the word at the (diceX, diceY) cell of the 4x4 grid', () => {
+    // Olympic Sports, diceX=1 diceY=1 → row 0 col 0 = "tennis"
+    const r = makeChameleonRound({ chameleonId: 'a', by: 'b', name: 'B', topicIndex: 0, diceX: 1, diceY: 1 });
+    expect(chameleonSecretWord(r)).toBe('tennis');
+  });
+  it('diceX=4 diceY=4 picks the bottom-right word', () => {
+    const r = makeChameleonRound({ chameleonId: 'a', by: 'b', name: 'B', topicIndex: 0, diceX: 4, diceY: 4 });
+    expect(chameleonSecretWord(r)).toBe('gymnastics');
+  });
+  it('diceX=2 diceY=3 picks the third-row second-column word', () => {
+    const r = makeChameleonRound({ chameleonId: 'a', by: 'b', name: 'B', topicIndex: 1, diceX: 2, diceY: 3 });
+    // Star Wars row 2 (index 2) col 1 → 'C-3PO'
+    expect(chameleonSecretWord(r)).toBe('C-3PO');
+  });
+});
+
+describe('applyStartChamRound / applyEndChamRound', () => {
+  it('stores the round on state and bumps version', () => {
+    const s = makeFreshState();
+    const v0 = s.stateVersion;
+    const r = makeChameleonRound({ chameleonId: 'alice', by: 'bob', name: 'Bob' });
+    applyStartChamRound(s, r);
+    expect(s.chamRound).toBe(r);
+    expect(s.stateVersion).toBe(v0 + 1);
+  });
+  it('clearing the round nulls chamRound and bumps version', () => {
+    const s = makeFreshState();
+    applyStartChamRound(s, makeChameleonRound({ chameleonId: 'a', by: 'b', name: 'B' }));
+    const v0 = s.stateVersion;
+    applyEndChamRound(s);
+    expect(s.chamRound).toBeNull();
+    expect(s.stateVersion).toBe(v0 + 1);
   });
 });
 

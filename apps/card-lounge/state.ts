@@ -7,14 +7,29 @@
 // suite exercises them directly.
 // ─────────────────────────────────────────────────────────────────────
 
-export type DeckKind = 'std' | 'uno' | 'ek' | 'uu' | 'tapple';
+export type DeckKind = 'std' | 'uno' | 'ek' | 'uu' | 'tapple' | 'cham' | 'ttb' | 'sword';
 
-export interface StdCard    { id: number; kind: 'std'; suit: string; rank: string; }
-export interface UnoCard    { id: number; kind: 'uno'; color: string; value: string; }
-export interface EkCard     { id: number; kind: 'ek';  type: string; label: string; glyph: string; color: string; }
-export interface UuCard     { id: number; kind: 'uu';  type: string; name: string; label: string; glyph: string; color: string; }
-export interface TappleCard { id: number; kind: 'tapple'; category: string; }
-export type Card = StdCard | UnoCard | EkCard | UuCard | TappleCard;
+export interface StdCard       { id: number; kind: 'std'; suit: string; rank: string; }
+export interface UnoCard       { id: number; kind: 'uno'; color: string; value: string; }
+export interface EkCard        { id: number; kind: 'ek';  type: string; label: string; glyph: string; color: string; }
+export interface UuCard        { id: number; kind: 'uu';  type: string; name: string; label: string; glyph: string; color: string; }
+export interface TappleCard    { id: number; kind: 'tapple'; category: string; }
+export interface ChameleonCard { id: number; kind: 'cham';   topic: string; words: string[]; }
+export interface TtbCard       { id: number; kind: 'ttb';    type: string; label: string; glyph: string; color: string; value?: number; }
+export interface SwordCard     { id: number; kind: 'sword';  rule: string; }
+export type Card = StdCard | UnoCard | EkCard | UuCard | TappleCard | ChameleonCard | TtbCard | SwordCard;
+
+// An active Chameleon round — one player is secretly the Chameleon and
+// doesn't get to see which of the 16 topic words is the answer.
+export interface ChameleonRound {
+  topic: string;
+  words: string[];   // 16 words arranged row-major (4 rows × 4 cols)
+  diceX: number;     // 1-4, column index
+  diceY: number;     // 1-4, row index
+  chameleonId: string;
+  by: string;
+  name: string;
+}
 
 export type TableCard = Card & { x: number; y: number; drawnBy?: string };
 
@@ -24,6 +39,7 @@ export interface State {
   table: TableCard[];
   hands: Record<string, Card[]>;
   stateVersion: number;
+  chamRound?: ChameleonRound | null;
 }
 
 export interface DrawPayload         { cardId: number; x: number; y: number; name?: string; }
@@ -111,6 +127,107 @@ export const UU_NAMES: Record<string, string[]> = {
   apocalypse: ['Apocalypse Unicorn','Brick Unicorn','Tactical Unicorn','Pegacorn'],
 };
 
+// ── The Chameleon — 5 topic cards, each with 16 words on a 4×4 grid ─
+// Round mechanic: a peer "deals" a round which picks a card, rolls two
+// d4s for column + row, designates one player as the Chameleon, then
+// broadcasts the round so every peer can render the topic. Non-chameleon
+// peers see the secret word highlighted; the chameleon sees the grid
+// without a highlight + a "you're the chameleon" banner.
+// ── Throw Throw Burrito — number cards + action cards (32 cards) ────
+// Three burrito "colors" with numbers 1-3 (two copies each = 18) plus
+// 14 action cards (Burrito War, Brawl, Duel, Burrito Bandito).
+interface TtbDef { type: string; label: string; glyph: string; color: string; count: number; value?: number; }
+export const TTB_NUMBERS: TtbDef[] = [
+  { type:'taco-1',   label:'TACO 1',    glyph:'🌮', color:'#c87836', count: 2, value: 1 },
+  { type:'taco-2',   label:'TACO 2',    glyph:'🌮', color:'#c87836', count: 2, value: 2 },
+  { type:'taco-3',   label:'TACO 3',    glyph:'🌮', color:'#c87836', count: 2, value: 3 },
+  { type:'avo-1',    label:'AVOCADO 1', glyph:'🥑', color:'#5a8f3e', count: 2, value: 1 },
+  { type:'avo-2',    label:'AVOCADO 2', glyph:'🥑', color:'#5a8f3e', count: 2, value: 2 },
+  { type:'avo-3',    label:'AVOCADO 3', glyph:'🥑', color:'#5a8f3e', count: 2, value: 3 },
+  { type:'burro-1',  label:'BURRITO 1', glyph:'🌯', color:'#b88c3c', count: 2, value: 1 },
+  { type:'burro-2',  label:'BURRITO 2', glyph:'🌯', color:'#b88c3c', count: 2, value: 2 },
+  { type:'burro-3',  label:'BURRITO 3', glyph:'🌯', color:'#b88c3c', count: 2, value: 3 },
+];
+export const TTB_ACTIONS: TtbDef[] = [
+  { type:'war',     label:'BURRITO WAR',     glyph:'⚔',  color:'#a02818', count: 4 },
+  { type:'brawl',   label:'BURRITO BRAWL',   glyph:'💥', color:'#7a2d8a', count: 4 },
+  { type:'duel',    label:'BURRITO DUEL',    glyph:'🔥', color:'#c54e58', count: 2 },
+  { type:'bandito', label:'BURRITO BANDITO', glyph:'🤠', color:'#2a1208', count: 4 },
+];
+
+// ── Let's Hit Each Other With Fake Swords — silly sword-fight rules ─
+// One card = one constraint for the next swordfight. ~20 prompts.
+export const SWORD_RULES: string[] = [
+  'Hold the sword backwards',
+  'Make eye contact at all times',
+  'Without making eye contact',
+  'While quoting Shakespeare',
+  'In your worst pirate voice',
+  'Only horizontal swings',
+  'Only vertical chops',
+  'Use the sword as a paintbrush',
+  'Hop on one foot the whole fight',
+  'Compliment your opponent each hit',
+  'In slow motion only',
+  'In speed-read narration',
+  'Add sound effects with your mouth',
+  'Pretend the sword is on fire',
+  'You are mortal enemies from kindergarten',
+  'The floor is lava',
+  'Sword must touch the ground between hits',
+  'Recite the alphabet while attacking',
+  'You can only attack on the beat',
+  'No words — only grunts',
+];
+
+export const CHAMELEON_TOPICS: { topic: string; words: string[] }[] = [
+  {
+    topic: 'Olympic Sports',
+    words: [
+      'tennis','golf','judo','karate',
+      'archery','cycling','boxing','rowing',
+      'swimming','sailing','skiing','diving',
+      'hockey','luge','fencing','gymnastics',
+    ],
+  },
+  {
+    topic: 'Star Wars',
+    words: [
+      'Yoda','Jedi','Sith','Force',
+      'Vader','Luke','Han','Leia',
+      'R2-D2','C-3PO','BB-8','Chewie',
+      'Tatooine','Hoth','Endor','Naboo',
+    ],
+  },
+  {
+    topic: 'Music Genres',
+    words: [
+      'rock','pop','jazz','folk',
+      'blues','funk','soul','disco',
+      'punk','metal','grunge','emo',
+      'hip-hop','rap','EDM','country',
+    ],
+  },
+  {
+    topic: 'Zoo Animals',
+    words: [
+      'lion','tiger','bear','zebra',
+      'elephant','giraffe','monkey','panda',
+      'penguin','seal','koala','sloth',
+      'snake','parrot','crocodile','flamingo',
+    ],
+  },
+  {
+    topic: 'Famous Movies',
+    words: [
+      'Titanic','Avatar','Jaws','Up',
+      'Frozen','Inception','Gladiator','Rocky',
+      'Casablanca','Psycho','Alien','Goodfellas',
+      'E.T.','Grease','Heat','Cars',
+    ],
+  },
+];
+
 // ── Tapple — category prompt deck (40 cards) ─────────────────────────
 // Pairs with the letter-randomizer panel: spin a letter, draw a category
 // → name something matching both.
@@ -196,6 +313,31 @@ export function freshDeck(kind: DeckKind | string): Card[] {
     }
     return d;
   }
+  if (kind === 'cham'){
+    for (const t of CHAMELEON_TOPICS){
+      d.push({ id: id++, kind:'cham', topic: t.topic, words: t.words.slice() });
+    }
+    return d;
+  }
+  if (kind === 'ttb'){
+    for (const def of TTB_NUMBERS){
+      for (let i = 0; i < def.count; i++){
+        d.push({ id: id++, kind:'ttb', type: def.type, label: def.label, glyph: def.glyph, color: def.color, value: def.value });
+      }
+    }
+    for (const def of TTB_ACTIONS){
+      for (let i = 0; i < def.count; i++){
+        d.push({ id: id++, kind:'ttb', type: def.type, label: def.label, glyph: def.glyph, color: def.color });
+      }
+    }
+    return d;
+  }
+  if (kind === 'sword'){
+    for (const rule of SWORD_RULES){
+      d.push({ id: id++, kind:'sword', rule });
+    }
+    return d;
+  }
   for (const s of SUITS) for (const r of RANKS){
     d.push({ id: id++, kind:'std', suit: s, rank: r });
   }
@@ -265,10 +407,55 @@ export function applyClear(state: State): void {
     else if (c.kind === 'ek')     restored = { id: c.id, kind: 'ek', type: c.type, label: c.label, glyph: c.glyph, color: c.color };
     else if (c.kind === 'uu')     restored = { id: c.id, kind: 'uu', type: c.type, name: c.name, label: c.label, glyph: c.glyph, color: c.color };
     else if (c.kind === 'tapple') restored = { id: c.id, kind: 'tapple', category: c.category };
+    else if (c.kind === 'cham')   restored = { id: c.id, kind: 'cham', topic: c.topic, words: c.words.slice() };
+    else if (c.kind === 'ttb')    restored = { id: c.id, kind: 'ttb', type: c.type, label: c.label, glyph: c.glyph, color: c.color, value: c.value };
+    else if (c.kind === 'sword')  restored = { id: c.id, kind: 'sword', rule: c.rule };
     else                          restored = { id: c.id, kind: 'std', suit: c.suit, rank: c.rank };
     state.deck.push(restored);
   }
   state.table = [];
+  state.stateVersion += 1;
+}
+
+// Pick a random topic from the cham deck, roll two d4s, designate a
+// chameleon by user id, and assemble a round payload. The caller decides
+// the chameleon (typically Math.random over the player roster) since
+// state.ts doesn't know who's in the lounge.
+export function makeChameleonRound(opts: {
+  chameleonId: string;
+  by: string;
+  name: string;
+  topicIndex?: number;
+  diceX?: number;
+  diceY?: number;
+}): ChameleonRound {
+  const idx = (opts.topicIndex == null)
+    ? Math.floor(Math.random() * CHAMELEON_TOPICS.length)
+    : opts.topicIndex;
+  const t = CHAMELEON_TOPICS[idx];
+  return {
+    topic: t.topic,
+    words: t.words.slice(),
+    diceX: opts.diceX ?? (1 + Math.floor(Math.random() * 4)),
+    diceY: opts.diceY ?? (1 + Math.floor(Math.random() * 4)),
+    chameleonId: opts.chameleonId,
+    by: opts.by,
+    name: opts.name,
+  };
+}
+
+export function chameleonSecretWord(round: ChameleonRound): string {
+  // diceX/diceY are 1-based — convert to 0-based grid lookup.
+  return round.words[(round.diceY - 1) * 4 + (round.diceX - 1)];
+}
+
+export function applyStartChamRound(state: State, round: ChameleonRound): void {
+  state.chamRound = round;
+  state.stateVersion += 1;
+}
+
+export function applyEndChamRound(state: State): void {
+  state.chamRound = null;
   state.stateVersion += 1;
 }
 
