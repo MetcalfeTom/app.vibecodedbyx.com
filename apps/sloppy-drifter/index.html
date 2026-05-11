@@ -611,8 +611,17 @@ const ACCEL = 280;             // px/s² when ↑ held
 const BRAKE = 540;             // when ↓ held
 const COAST = 70;              // passive deceleration when no input
 const STEER_SPEED = 360;       // car px/s lateral movement when L/R held
-const DRIFT_LEAN = 0.38;       // radians the car visually leans during drift
+const DRIFT_LEAN = 0.58;       // radians the car visually leans during drift
 const DRIFT_SCORE_MULT = 2.0;
+
+// fall-off physics — leaving the road has real consequences
+const OFFROAD_DECEL = 240;     // px/s² extra slowdown while wheels are in the dirt
+const FAR_OFFROAD_PAD = 90;    // px past the road edge before wipeout triggers
+const WIPEOUT_TIME = 0.9;      // seconds the wipeout animation/lockout lasts
+let offRoad = false;
+let wipeoutT = 0;              // remaining wipeout time
+let oilPushX = 0;              // active lateral push from an oil slick
+let oilPushT = 0;
 
 function resetGame(){
   computeLayout();
@@ -632,8 +641,54 @@ function resetGame(){
   sparks.length = 0;
   dashOffsets.lane = 0;
   dashOffsets.side = 0;
+  offRoad = false;
+  wipeoutT = 0;
+  oilPushX = 0;
+  oilPushT = 0;
   document.getElementById('endOverlay').classList.remove('show');
   document.getElementById('endOverlay').setAttribute('aria-hidden','true');
+}
+
+function triggerWipeout(){
+  if (wipeoutT > 0) return;
+  wipeoutT = WIPEOUT_TIME;
+  showToast('wipeout!', '#ff5e8c');
+  // big spark burst at the car
+  for (let k = 0; k < 22; k++){
+    const a = Math.random() * Math.PI * 2;
+    const s = 120 + Math.random() * 280;
+    sparks.push({
+      x: carX, y: carY,
+      vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      r: 2 + Math.random() * 2, life: 0.8 + Math.random() * 0.4, age: 0,
+      color: ['#ff7a59','#ffe156','#ff5e8c','#fff4f6'][Math.floor(Math.random()*4)],
+    });
+  }
+}
+
+function sfxWipeout(){
+  if (!actx || muted) return;
+  const t = actx.currentTime;
+  const len = Math.floor(actx.sampleRate * 0.6);
+  const buf = actx.createBuffer(1, len, actx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i/len, 1.3);
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+  const g = actx.createGain(); g.gain.value = 0.4;
+  src.connect(lp); lp.connect(g); g.connect(masterGain);
+  src.start(t); src.stop(t + 0.62);
+  // descending squeal
+  const o = actx.createOscillator();
+  const og = actx.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(420, t);
+  o.frequency.exponentialRampToValueAtTime(60, t + 0.5);
+  og.gain.setValueAtTime(0.0001, t);
+  og.gain.exponentialRampToValueAtTime(0.16, t + 0.01);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  o.connect(og); og.connect(masterGain);
+  o.start(t); o.stop(t + 0.6);
 }
 
 function startGame(){
@@ -692,13 +747,30 @@ function spawnTick(dt){
   const roll = Math.random();
   if (roll < 0.18){
     items.push({ kind: 'pickup', wx, wy, taken: false, phase: Math.random() * Math.PI * 2 });
-  } else if (roll < 0.78){
+  } else if (roll < 0.40){
+    items.push({ kind: 'barrel', wx, wy, hit: false, phase: Math.random() * Math.PI * 2 });
+  } else if (roll < 0.55){
+    items.push({ kind: 'oil', wx, wy, hit: false, phase: Math.random() * Math.PI * 2,
+                 size: 28 + Math.random() * 14 });
+  } else {
     items.push({ kind: 'cone', wx, wy, hit: false });
   }
   // sometimes spawn an extra cone cluster nearby (for slalom feel)
   if (Math.random() < 0.16){
     for (let i = 0; i < 3; i++){
       items.push({ kind: 'cone', wx: center + localX + (i - 1) * 36, wy: wy - i * 60, hit: false });
+    }
+  }
+  // occasionally spawn a barrier wall (a row of 4-5 barrels) the player must dodge
+  if (Math.random() < 0.07){
+    const span = roadHalfWidth * 1.4;
+    const startX = center - span / 2 + Math.random() * 60;
+    const wallY = wy - 80;
+    const gapAt = Math.floor(Math.random() * 5);   // one barrel removed = the gap
+    for (let i = 0; i < 5; i++){
+      if (i === gapAt) continue;
+      items.push({ kind: 'barrel', wx: startX + i * (span / 4), wy: wallY,
+                   hit: false, phase: Math.random() * Math.PI * 2 });
     }
   }
 }
@@ -708,8 +780,142 @@ function itemScreenY(it){
   return (it.wy - traveled) + H * 0.75 - SPAWN_AHEAD;
 }
 
+function cullAndAdvanceItems(dt){
+  for (let i = items.length - 1; i >= 0; i--){
+    const it = items[i];
+    if ((it.kind === 'pickup' || it.kind === 'oil' || it.kind === 'barrel') && it.phase != null){
+      it.phase += dt * (it.kind === 'oil' ? 1.0 : 2.5);
+    }
+    const sy = itemScreenY(it);
+    if (sy > H + 60){
+      items.splice(i, 1); continue;
+    }
+    // wipeout suspends collisions — items still scroll past visually
+    if (wipeoutT > 0) continue;
+    if (it.hit || it.taken) continue;
+
+    const dx = it.wx - carX, dy = sy - carY;
+    const d2 = dx * dx + dy * dy;
+
+    if (it.kind === 'pickup'){
+      if (d2 < 26 * 26){
+        it.taken = true;
+        pickupCount++;
+        score += 150;
+        sfxPickup();
+        for (let k = 0; k < 14; k++){
+          const a = (k / 14) * Math.PI * 2;
+          sparks.push({ x: it.wx, y: sy, vx: Math.cos(a) * 220, vy: Math.sin(a) * 220,
+                        r: 2, life: 0.6, age: 0, color: '#00f6ff' });
+        }
+        showToast('+150', '#00f6ff');
+      }
+    } else if (it.kind === 'cone'){
+      if (d2 < 22 * 22){
+        it.hit = true;
+        coneHits++;
+        score += 35;
+        sfxCone();
+        for (let k = 0; k < 14; k++){
+          const a = Math.random() * Math.PI * 2;
+          const s = 80 + Math.random() * 200;
+          sparks.push({ x: it.wx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+                        r: 1.6 + Math.random() * 1.6,
+                        life: 0.5 + Math.random() * 0.4, age: 0,
+                        color: ['#ffe156','#ff7a59','#fff4f6'][Math.floor(Math.random()*3)] });
+        }
+        speed *= 0.86;
+      }
+    } else if (it.kind === 'barrel'){
+      if (d2 < 28 * 28){
+        it.hit = true;
+        score += 80;
+        sfxCone();
+        // heavier slowdown + bigger spark
+        for (let k = 0; k < 22; k++){
+          const a = Math.random() * Math.PI * 2;
+          const s = 140 + Math.random() * 240;
+          sparks.push({ x: it.wx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+                        r: 2 + Math.random() * 2,
+                        life: 0.7 + Math.random() * 0.4, age: 0,
+                        color: ['#ff5e8c','#ff7a59','#ffe156','#fff4f6'][Math.floor(Math.random()*4)] });
+        }
+        speed *= 0.6;
+        // bounce sideways slightly — barrels are big
+        oilPushX = (carX < it.wx ? -1 : 1) * 220;
+        oilPushT = 0.18;
+        showToast('barrel hit!', '#ff5e8c');
+      }
+    } else if (it.kind === 'oil'){
+      const r = (it.size || 32) + 18;
+      if (d2 < r * r){
+        if (!it.touched){
+          it.touched = true;
+          // apply lateral slide (sign random, biased away from road center for drama)
+          const center = roadCenterAtScreenY(carY);
+          const sgn = carX < center ? -1 : 1;
+          oilPushX = sgn * 320;
+          oilPushT = 0.45;
+          showToast('slick!', '#b07cff');
+          for (let k = 0; k < 18; k++){
+            const a = Math.random() * Math.PI * 2;
+            const s = 80 + Math.random() * 140;
+            sparks.push({ x: carX, y: carY, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+                          r: 1.2 + Math.random() * 1.2,
+                          life: 0.4 + Math.random() * 0.3, age: 0,
+                          color: ['#b07cff','#00f6ff','#7a3d56'][Math.floor(Math.random()*3)] });
+          }
+        }
+      }
+    }
+  }
+}
+
 // ── physics step (very light: speed, steer, screen-space positions) ──────
 function step(dt){
+  const roadCenter = roadCenterAtScreenY(carY);
+  const distFromCenter = Math.abs(carX - roadCenter);
+  const sideSign = carX < roadCenter ? -1 : 1;
+  offRoad = distFromCenter > roadHalfWidth - 6;
+  const farOff = distFromCenter > roadHalfWidth + FAR_OFFROAD_PAD;
+
+  // ── wipeout state ─────────────────────────────────────────────────────
+  if (wipeoutT > 0){
+    wipeoutT -= dt;
+    // spin the car down + slide it further off the road
+    carAngle += 8 * dt * sideSign;
+    speed = Math.max(40, speed - 480 * dt);
+    carX += sideSign * 180 * dt;   // visible eject toward the side
+    // emit dust + sparks during the wipeout
+    if (Math.random() < 0.45){
+      smoke.push({
+        x: carX + (Math.random() - 0.5) * 30,
+        y: carY + (Math.random() - 0.5) * 24,
+        vx: -sideSign * 80, vy: 30 + Math.random() * 40,
+        r: 10 + Math.random() * 8, life: 0.7 + Math.random() * 0.4, age: 0,
+        hue: 30 + Math.random() * 30,
+      });
+    }
+    // when timer expires, respawn at center
+    if (wipeoutT <= 0){
+      carX = roadCenter;
+      carAngle = 0;
+      speed = 200;
+      wipeoutT = 0;
+    }
+    // still scroll items + dashes during wipeout (so the world keeps moving)
+    traveled += speed * dt;
+    dashOffsets.lane = (dashOffsets.lane + speed * dt) % 60;
+    dashOffsets.side = (dashOffsets.side + speed * dt) % 28;
+    spawnTick(dt);
+    cullAndAdvanceItems(dt);
+    document.getElementById('speed').textContent = Math.round(speed);
+    document.getElementById('score').textContent = score.toLocaleString();
+    document.getElementById('dist').textContent = Math.floor(traveled / 10) + 'm';
+    document.getElementById('driftFill').style.width = '0%';
+    return;
+  }
+
   // speed
   if (input.up){
     speed += ACCEL * dt;
@@ -723,26 +929,37 @@ function step(dt){
   if (speed > MAX_SPEED) speed = MAX_SPEED;
   if (speed < MIN_SPEED) speed = MIN_SPEED;
 
-  // steering: car X moves laterally; clamped to road boundaries (with a bit of overshoot allowed)
+  // steering: car X moves laterally
   const steerInput = (input.right - input.left);
-  // speed multiplier so the car responds proportional to scroll speed
   const lateral = steerInput * STEER_SPEED * (0.6 + 0.4 * (speed / MAX_SPEED)) * dt;
   carX += lateral;
-  const roadCenter = roadCenterAtScreenY(carY);
-  const minX = roadCenter - roadHalfWidth - 30;
-  const maxX = roadCenter + roadHalfWidth + 30;
-  if (carX < minX) carX = minX;
-  if (carX > maxX) carX = maxX;
+  // oil-slick push: lateral drift independent of steer for ~0.4s after a slick
+  if (oilPushT > 0){
+    oilPushT -= dt;
+    carX += oilPushX * dt;
+  }
+  // hard clamp so the car can't disappear past the screen edges entirely
+  if (carX < 30) carX = 30;
+  if (carX > W - 30) carX = W - 30;
 
-  // off-road slowdown
-  if (Math.abs(carX - roadCenter) > roadHalfWidth - 6){
-    speed -= 60 * dt;  // gentle penalty
+  // ── fall-off physics ──────────────────────────────────────────────────
+  // off-road: harder speed bleed, no score accumulation
+  if (offRoad){
+    speed -= OFFROAD_DECEL * dt;
+    if (speed < MIN_SPEED) speed = MIN_SPEED;
+  }
+  // far off-road = wipeout
+  if (farOff){
+    triggerWipeout();
+    sfxWipeout();
   }
 
   // drift lean — visual only
   const drifting = input.brake > 0.5;
   const driftLean = drifting ? steerInput * DRIFT_LEAN : 0;
-  carAngle += (driftLean - carAngle) * Math.min(1, dt * 8);
+  // when off-road the car tilts AWAY from the road (gravity-look toward the off-side)
+  const offRoadLean = offRoad ? sideSign * 0.22 : 0;
+  carAngle += ((driftLean + offRoadLean) - carAngle) * Math.min(1, dt * 8);
 
   // scroll the world
   traveled += speed * dt;
@@ -750,9 +967,11 @@ function step(dt){
   dashOffsets.lane = (dashOffsets.lane + speed * dt) % 60;
   dashOffsets.side = (dashOffsets.side + speed * dt) % 28;
 
-  // score per second
+  // score per second — only on the road, doubled while drifting
   const driftBoost = drifting ? DRIFT_SCORE_MULT : 1;
-  score += Math.floor(speed * dt * 0.08 * driftBoost);
+  if (!offRoad){
+    score += Math.floor(speed * dt * 0.08 * driftBoost);
+  }
 
   // drift meter + run
   if (drifting && speed > 200){
@@ -785,56 +1004,7 @@ function step(dt){
 
   // item updates
   spawnTick(dt);
-  for (let i = items.length - 1; i >= 0; i--){
-    const it = items[i];
-    if (it.kind === 'pickup' && !it.taken){
-      it.phase += dt * 2.5;
-    }
-    const sy = itemScreenY(it);
-    if (sy > H + 60){
-      items.splice(i, 1); continue;
-    }
-    // collision check
-    if ((it.kind === 'pickup' && !it.taken) || (it.kind === 'cone' && !it.hit)){
-      const dx = it.wx - carX, dy = sy - carY;
-      if (dx * dx + dy * dy < 24 * 24){
-        if (it.kind === 'cone'){
-          it.hit = true;
-          coneHits++;
-          score += 35;
-          sfxCone();
-          // sparks
-          for (let k = 0; k < 14; k++){
-            const a = Math.random() * Math.PI * 2;
-            const s = 80 + Math.random() * 200;
-            sparks.push({
-              x: it.wx, y: sy,
-              vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-              r: 1.6 + Math.random() * 1.6,
-              life: 0.5 + Math.random() * 0.4, age: 0,
-              color: ['#ffe156','#ff7a59','#fff4f6'][Math.floor(Math.random()*3)],
-            });
-          }
-          // brief slowdown on hit
-          speed *= 0.86;
-        } else {
-          it.taken = true;
-          pickupCount++;
-          score += 150;
-          sfxPickup();
-          for (let k = 0; k < 14; k++){
-            const a = (k / 14) * Math.PI * 2;
-            sparks.push({
-              x: it.wx, y: sy,
-              vx: Math.cos(a) * 220, vy: Math.sin(a) * 220,
-              r: 2, life: 0.6, age: 0, color: '#00f6ff',
-            });
-          }
-          showToast('+150', '#00f6ff');
-        }
-      }
-    }
-  }
+  cullAndAdvanceItems(dt);
 
   // particles update
   for (let i = smoke.length - 1; i >= 0; i--){
@@ -1032,7 +1202,68 @@ function drawWorld(){
   for (const it of items){
     const sy = itemScreenY(it);
     if (sy < -40 || sy > H + 40) continue;
-    if (it.kind === 'cone' && !it.hit){
+    if (it.kind === 'oil'){
+      // dark blob with rainbow sheen — drawn BENEATH everything else
+      const r = it.size || 32;
+      const grad = ctx.createRadialGradient(it.wx, sy, 0, it.wx, sy, r);
+      grad.addColorStop(0, 'rgba(40, 5, 32, 0.95)');
+      grad.addColorStop(0.7, 'rgba(20, 0, 16, 0.85)');
+      grad.addColorStop(1, 'rgba(20, 0, 16, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(it.wx, sy, r, r * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // rainbow oil sheen on top
+      const sheen = ctx.createLinearGradient(it.wx - r, sy - r * 0.3, it.wx + r, sy + r * 0.3);
+      sheen.addColorStop(0,   'rgba(176, 124, 255, 0)');
+      sheen.addColorStop(0.4, 'rgba(176, 124, 255, 0.45)');
+      sheen.addColorStop(0.6, 'rgba(0, 246, 255, 0.4)');
+      sheen.addColorStop(0.85,'rgba(255, 94, 161, 0.35)');
+      sheen.addColorStop(1,   'rgba(255, 94, 161, 0)');
+      ctx.fillStyle = sheen;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.beginPath();
+      ctx.ellipse(it.wx, sy, r * 0.85, r * 0.42, Math.sin(it.phase) * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    } else if (it.kind === 'barrel' && !it.hit){
+      // chunky red barrel with metal bands
+      ctx.shadowColor = 'rgba(255, 94, 140, 0.7)';
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = '#9a1830';
+      ctx.beginPath();
+      ctx.arc(it.wx, sy, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // body lighter rim
+      ctx.fillStyle = '#d8233f';
+      ctx.beginPath();
+      ctx.arc(it.wx, sy, 18, 0, Math.PI * 2);
+      ctx.fill();
+      // top lid + bolts
+      ctx.fillStyle = '#3a0510';
+      ctx.beginPath();
+      ctx.arc(it.wx, sy, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffe156';
+      for (let k = 0; k < 4; k++){
+        const a = (k / 4) * Math.PI * 2 + it.phase;
+        ctx.beginPath();
+        ctx.arc(it.wx + Math.cos(a) * 12, sy + Math.sin(a) * 12, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // hazard stripe
+      ctx.strokeStyle = '#ffe156';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(it.wx, sy, 14, Math.PI * 0.1, Math.PI * 0.9);
+      ctx.stroke();
+    } else if (it.kind === 'barrel' && it.hit){
+      ctx.fillStyle = 'rgba(70, 16, 24, 0.5)';
+      ctx.beginPath();
+      ctx.ellipse(it.wx, sy, 22, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (it.kind === 'cone' && !it.hit){
       ctx.shadowColor = 'rgba(255, 122, 89, 0.85)';
       ctx.shadowBlur = 12;
       ctx.fillStyle = '#ff7a59';
@@ -1121,7 +1352,8 @@ function drawCar(){
   ctx.fill();
 
   // body — viewed from above (slight perspective). Length goes up-down.
-  const L = 48, Wd = 26;   // length, width
+  // Lengthened from 48 to 68 px so the drift tilt is visibly dramatic at the nose/tail.
+  const L = 68, Wd = 28;   // length, width
   // body gradient
   const grad = ctx.createLinearGradient(-Wd/2, 0, Wd/2, 0);
   grad.addColorStop(0, '#7a0e6e');
