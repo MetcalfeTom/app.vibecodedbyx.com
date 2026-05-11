@@ -87,6 +87,29 @@ def bake_sizes_top() -> tuple[list, int]:
     return rows[:30], len(rows)
 
 
+def _app_from_commit(h: str, subj: str) -> str:
+    """Best-effort: derive the primary app name from a commit.
+    First tries the conventional `appname: …` subject prefix, then falls
+    back to `git show --name-only` to find the first `apps/<name>/` path
+    in the changed files."""
+    m = re.match(r'^([a-z0-9][a-z0-9_-]*)\s*[:|-]', subj or '')
+    if m:
+        return m.group(1)
+    try:
+        files = run([
+            'git', '-C', str(ROOT), 'show', '--name-only',
+            '--pretty=format:', h,
+        ]).strip().split('\n')
+        for f in files:
+            if f.startswith('apps/'):
+                parts = f.split('/')
+                if len(parts) >= 2 and parts[1]:
+                    return parts[1]
+    except Exception:
+        pass
+    return ''
+
+
 def bake_deploys() -> list:
     raw = run([
         'git', '-C', str(ROOT), 'log',
@@ -103,6 +126,7 @@ def bake_deploys() -> list:
             'when_iso': iso,
             'author': author,
             'subject': subj[:200],
+            'app': _app_from_commit(h, subj),
         })
     return out
 
