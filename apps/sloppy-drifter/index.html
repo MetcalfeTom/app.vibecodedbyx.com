@@ -565,6 +565,21 @@ function sfxPickup(){
   }
 }
 
+function sfxDot(){
+  if (!actx || muted) return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(960, t);
+  o.frequency.exponentialRampToValueAtTime(1320, t + 0.08);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.08, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+  o.connect(g); g.connect(masterGain);
+  o.start(t); o.stop(t + 0.12);
+}
+
 // ── road geometry ────────────────────────────────────────────────────────
 // The road is a strip centered horizontally. Its centerline curves over
 // time (sin combo). carX is the horizontal position of the car on screen.
@@ -574,12 +589,16 @@ function computeLayout(){
   roadHalfWidth = Math.min(W * 0.28, 240);
 }
 function roadCenterAtScreenY(screenY){
-  // map screen y to a world y, then evaluate a deterministic sin curve
+  // map screen y to a world y, then evaluate a deterministic sin curve.
+  // Significantly more curvy than v1: bigger amplitudes + a third sin layer
+  // for serpentine variety. Peak lateral velocity at base speed ~190 px/s
+  // — well within steering capacity but you'll feel the corners.
   const wy = traveled + (screenY - H * 0.75);
   const base = W / 2;
   return base
-    + Math.sin(wy * 0.0024) * 110
-    + Math.sin(wy * 0.0008 + 1.7) * 70;
+    + Math.sin(wy * 0.0034) * 200
+    + Math.sin(wy * 0.0014 + 1.7) * 110
+    + Math.sin(wy * 0.0006 + 3.2) * 60;
 }
 
 // ── game state ───────────────────────────────────────────────────────────
@@ -737,19 +756,25 @@ let spawnTimer = 0;
 function spawnTick(dt){
   spawnTimer -= dt;
   if (spawnTimer > 0) return;
-  spawnTimer = 0.35 + Math.random() * 0.45;
-  // pick a position relative to the upcoming centerline ~SPAWN_AHEAD above the screen
-  const targetScreenY = SPAWN_AHEAD;
-  const center = roadCenterAtScreenY(targetScreenY);
+  spawnTimer = 0.28 + Math.random() * 0.38;
+  // wy = the value of `traveled` at which the item reaches the car.
+  // At spawn time, item should appear OFF-SCREEN above (screenY = SPAWN_AHEAD).
+  // From itemScreenY: H * 0.75 - (it.wy - traveled) = SPAWN_AHEAD
+  //  ⇒ it.wy = traveled + (H * 0.75 - SPAWN_AHEAD)
+  const wy = traveled + (H * 0.75 - SPAWN_AHEAD);
+  // sample the centerline at the spawn screen y so items land within the road
+  const center = roadCenterAtScreenY(SPAWN_AHEAD);
   const localX = (Math.random() - 0.5) * roadHalfWidth * 1.7;
   const wx = center + localX;
-  const wy = traveled + (targetScreenY - H * 0.75);  // world y in same space as traveled offset
   const roll = Math.random();
-  if (roll < 0.18){
+  if (roll < 0.15){
     items.push({ kind: 'pickup', wx, wy, taken: false, phase: Math.random() * Math.PI * 2 });
-  } else if (roll < 0.40){
+  } else if (roll < 0.45){
+    // cyan score dot — common, +20, swept across the road
+    items.push({ kind: 'dot', wx, wy, taken: false, phase: Math.random() * Math.PI * 2 });
+  } else if (roll < 0.62){
     items.push({ kind: 'barrel', wx, wy, hit: false, phase: Math.random() * Math.PI * 2 });
-  } else if (roll < 0.55){
+  } else if (roll < 0.77){
     items.push({ kind: 'oil', wx, wy, hit: false, phase: Math.random() * Math.PI * 2,
                  size: 28 + Math.random() * 14 });
   } else {
@@ -758,15 +783,24 @@ function spawnTick(dt){
   // sometimes spawn an extra cone cluster nearby (for slalom feel)
   if (Math.random() < 0.16){
     for (let i = 0; i < 3; i++){
-      items.push({ kind: 'cone', wx: center + localX + (i - 1) * 36, wy: wy - i * 60, hit: false });
+      items.push({ kind: 'cone', wx: center + localX + (i - 1) * 36, wy: wy + i * 60, hit: false });
+    }
+  }
+  // dot chain — 6 cyan dots in a row along the road center, sometimes
+  // (the chain reaches the car staggered so you collect them rhythmically)
+  if (Math.random() < 0.22){
+    for (let i = 0; i < 6; i++){
+      const lx = (Math.random() - 0.5) * roadHalfWidth * 0.8;
+      items.push({ kind: 'dot', wx: center + lx, wy: wy + i * 60,
+                   taken: false, phase: Math.random() * Math.PI * 2 });
     }
   }
   // occasionally spawn a barrier wall (a row of 4-5 barrels) the player must dodge
   if (Math.random() < 0.07){
     const span = roadHalfWidth * 1.4;
     const startX = center - span / 2 + Math.random() * 60;
-    const wallY = wy - 80;
-    const gapAt = Math.floor(Math.random() * 5);   // one barrel removed = the gap
+    const wallY = wy + 220;   // wall is FURTHER away than the spawn, gives time to react
+    const gapAt = Math.floor(Math.random() * 5);
     for (let i = 0; i < 5; i++){
       if (i === gapAt) continue;
       items.push({ kind: 'barrel', wx: startX + i * (span / 4), wy: wallY,
@@ -776,8 +810,10 @@ function spawnTick(dt){
 }
 
 function itemScreenY(it){
-  // item appears at HOMEY when wy === traveled; scrolls down as traveled grows
-  return (it.wy - traveled) + H * 0.75 - SPAWN_AHEAD;
+  // The car is at screen y = H * 0.75 when traveled === it.wy.
+  // Before then (traveled < it.wy) the item is above the car on screen.
+  // After (traveled > it.wy) it's below — scrolling off the bottom.
+  return H * 0.75 - (it.wy - traveled);
 }
 
 function cullAndAdvanceItems(dt){
@@ -809,6 +845,18 @@ function cullAndAdvanceItems(dt){
                         r: 2, life: 0.6, age: 0, color: '#00f6ff' });
         }
         showToast('+150', '#00f6ff');
+      }
+    } else if (it.kind === 'dot'){
+      if (d2 < 18 * 18){
+        it.taken = true;
+        score += 20;
+        sfxDot();
+        // tiny cyan spark spray
+        for (let k = 0; k < 6; k++){
+          const a = (k / 6) * Math.PI * 2;
+          sparks.push({ x: it.wx, y: sy, vx: Math.cos(a) * 130, vy: Math.sin(a) * 130,
+                        r: 1.4, life: 0.4, age: 0, color: '#00f6ff' });
+        }
       }
     } else if (it.kind === 'cone'){
       if (d2 < 22 * 22){
@@ -1305,6 +1353,22 @@ function drawWorld(){
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    } else if (it.kind === 'dot' && !it.taken){
+      // small cyan score dot — pulses softly
+      const pulse = 1 + Math.sin(it.phase) * 0.18;
+      ctx.shadowColor = 'rgba(0, 246, 255, 0.85)';
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = '#00f6ff';
+      ctx.beginPath();
+      ctx.arc(it.wx, sy, 7 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff4f6';
+      ctx.beginPath();
+      ctx.arc(it.wx, sy, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (it.kind === 'dot' && it.taken){
+      // briefly leave a faint ring after taken (rendered nothing for now)
     }
   }
 
