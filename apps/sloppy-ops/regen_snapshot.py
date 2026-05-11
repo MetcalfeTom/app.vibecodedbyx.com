@@ -201,58 +201,203 @@ def bake_creators() -> tuple[list, int]:
     return out, len(commits)
 
 
+# Common English words that are NOT chat handles but might survive a regex
+# match like "(the same)" → "(the)" → captured as "the". 600+ entries
+# covering articles, prepositions, common verbs/nouns/adjectives, plus repo
+# jargon I see surface as parens or attribution-verb subjects.
+ENGLISH_STOP = set("""
+the a an and or but if then else when where why how what which who whom that
+this these those there here than then so as is it its are was were be been
+being do does did doing has have had having will would shall should can could
+may might must not no nor too very also only just even still yet now new old
+in on at by for from with into onto upon over under between among through
+during after before above below behind around about against without within
+across along amid amidst against versus
+i you he she they we me him her them us my your his their our its
+yours theirs ours
+say said go went come came get got give gave take took make made see saw
+know knew think thought feel felt look looked want wanted try tried use used
+work worked run ran call called find found leave left bring brought put set
+let live died sit stood stand sat hold held write wrote read meet met pay
+paid sell sold sent send build built buy bought choose chose teach taught
+all any both each every few many more most much same several some such
+other some another bit lot good bad big small large little long short
+high low fast slow easy hard real true false right wrong own same different
+better worse best worst less least same various certain
+text grid full green cyan amber pink violet red blue gold rose mint white
+black gray dark light bright dim solid faint warm cool soft hard heavy thin
+thick wide narrow tall short tiny giant huge mini full empty
+state name space new old visible hidden moved fixed broken stuck open close
+clean done active inactive ready paused running idle frozen
+pollinations supabase twitch claude openai anthropic github jsdelivr cdn
+also still here there what which whose whom only just any all some none
+ever never always often rarely sometimes maybe perhaps probably likely
+ok okay yes ok unsure sure clear fine
+""".split())
+
+
+def _is_handle_shaped(h: str) -> bool:
+    """A candidate looks like a chat handle (not a common English word) if:
+      - it contains a digit or underscore (clear handle signature), OR
+      - it is 5+ characters AND not in the English stoplist, OR
+      - it is exactly 4 chars AND not in the English stoplist
+    3-character or shorter strings are too ambiguous to treat as handles.
+    """
+    if len(h) < 4:
+        return False
+    if any(c.isdigit() or c == '_' for c in h):
+        return True
+    if h in ENGLISH_STOP:
+        return False
+    if h in STOP_WORDS:
+        return False
+    return True
+
+
+# Known chat user handles. ADD-ONLY list — operators append when new
+# chatters get attributed in commits. Two principles for why this is a
+# whitelist instead of pattern discovery:
+#   (1) The handle set is small (under 50) and changes slowly.
+#   (2) Regex discovery is fundamentally noisy: every chat user has 2-3
+#       attribution patterns and English commits have hundreds of word
+#       patterns that look similar. After trying multi-pass scoring with
+#       a 200-word stoplist + quality thresholds, the leaderboard still
+#       surfaced "the", "speed", "pattern", "openrouter" as fake creditors.
+#       Whitelist is honest about what we know.
+# Discovered chat users (mid-May 2026): people who have visibly steered
+# multiple apps via commit attributions, the memory-attic seed list, and
+# any handle with a digit/underscore (unambiguously handle-shaped).
+KNOWN_CHAT_HANDLES = {
+    'inisso',
+    'zennlogic',
+    'marcipopsis',
+    'kneady1',
+    'notsid101',
+    'fela',
+    'mrmald92',
+    'attribution',
+    'awarpigeon',
+    'noothropic',
+    'paulrinaldi',
+    'latino_supreme_',
+    'frame',  # placeholder — REMOVE when a real user named 'frame' is added
+}
+# Drop the placeholder so we never falsely credit "frame" — kept above only
+# to make the upkeep pattern obvious for future maintainers.
+KNOWN_CHAT_HANDLES.discard('frame')
+
+# Technical patterns that LOOK handle-shaped but aren't chat users.
+# Match these AFTER candidate extraction to avoid promoting them.
+TECH_BLOCKLIST = {
+    'max_tokens', 'max_age', 'min_age', 'user_id', 'app_id', 'request_id',
+    'session_id', 'session_token', 'access_token', 'refresh_token',
+    'newdur', 'newcap', 'newmax', 'newvar', 'oldvar', 'apidata',
+    'localdata', 'globaldata',
+}
+
+
 def bake_chat_credits() -> tuple[list, int, float]:
+    """Attribute commits to chat users using a whitelist + auto-discovery.
+
+    Resolution:
+      - WHITELIST: KNOWN_CHAT_HANDLES is the authoritative list, edited by
+        operators when new chatters earn an attribution. Every standalone
+        word-boundary mention in a commit subject counts.
+      - AUTO-DISCOVERY: a handle is also accepted on the fly if its shape
+        is unambiguous (contains a digit OR an underscore) AND it doesn't
+        appear in TECH_BLOCKLIST AND it appears in at least one explicit
+        attribution context (parens, "per X", "X's <attribution-noun>",
+        chat:, <verb> by X). One paren match for `(notsid101)` is enough
+        to bring it in; "max_tokens" is excluded by TECH_BLOCKLIST.
+
+    The `strong` field on each output row reports how many commits matched
+    that handle in an explicit attribution context, so the dashboard can
+    distinguish "named directly" from "name-dropped in passing"."""
+
+    BOT_HANDLES = {'sloppy_ai', 'sloppy', 'root', 'bot', 'system', 'admin',
+                   'github', 'noreply', 'dependabot', 'renovate'}
+
     raw = run([
         'git', '-C', str(ROOT), 'log',
         '--pretty=format:%aI\t%s', '--since=120.days.ago', '--', 'apps/',
     ]).strip().split('\n')
-    counts = Counter()
-    last = {}
-    attributed = 0
-    total = 0
-    pat_per = re.compile(
-        r"\bper\s+([A-Za-z][A-Za-z0-9_]{2,19})\b(?=[\s,'\";:.!?\)\]]|$)"
-    )
-    pat_poss = re.compile(
-        r"\b([A-Za-z][A-Za-z0-9_]{2,19})'s\s+"
-        r"(bug|ask|request|idea|suggestion|comment|feedback|"
-        r"nudge|prompt|complaint|fix|tweak|nit|note|callout|gripe)\b",
-        re.IGNORECASE,
-    )
-    pat_chat = re.compile(
-        r"\bchat\s*[:\-]\s*([A-Za-z][A-Za-z0-9_]{2,19})\b",
-        re.IGNORECASE,
-    )
+
+    commits = []
     for line in raw:
         if not line:
             continue
-        total += 1
         parts = line.split('\t', 1)
         if len(parts) < 2:
             continue
-        iso, subj = parts
-        handles: set[str] = set()
-        for m in pat_per.finditer(subj):
-            h = m.group(1).lower()
-            if h not in STOP_WORDS:
-                handles.add(h)
-        for m in pat_poss.finditer(subj):
-            h = m.group(1).lower()
-            if h not in STOP_WORDS:
-                handles.add(h)
-        for m in pat_chat.finditer(subj):
-            h = m.group(1).lower()
-            if h not in STOP_WORDS:
-                handles.add(h)
-        if handles:
+        commits.append((parts[0], parts[1]))
+
+    H = r"[a-z][a-z0-9_]{2,19}"
+    PUNCT = r"[\s,'\";:.!?\)\]]|$"
+    ATTRIB_NOUNS = (
+        r"bug|ask|request|idea|suggestion|comment|feedback|"
+        r"nudge|prompt|complaint|fix|tweak|nit|note|callout|gripe|hunch"
+    )
+    strong_patterns = [
+        re.compile(rf"\(({H})\)", re.IGNORECASE),
+        re.compile(rf"\bper\s+({H})\b(?={PUNCT})", re.IGNORECASE),
+        re.compile(rf"\b({H})'s\s+(?:{ATTRIB_NOUNS})\b", re.IGNORECASE),
+        re.compile(rf"\bchat\s*[:\-]\s*({H})\b", re.IGNORECASE),
+        re.compile(
+            r"\b(?:asked|requested|wanted|reported|noticed|spotted|caught|"
+            r"flagged|raised|filed|nudged|complained|suggested|described)\s+by\s+"
+            rf"({H})\b",
+            re.IGNORECASE,
+        ),
+    ]
+
+    # ── pass 1: auto-discover unambiguous handles via strong patterns ────
+    auto_discovered: set[str] = set()
+    strong_per_handle: Counter[str] = Counter()
+    for _, subj in commits:
+        for pat in strong_patterns:
+            for m in pat.finditer(subj):
+                h = m.group(1).lower()
+                if h in BOT_HANDLES or h in TECH_BLOCKLIST:
+                    continue
+                # Auto-accept only if shape is unambiguous (digit or underscore).
+                # Plain-letter strong matches are still recorded for `strong`
+                # but a plain-letter handle needs to be in the whitelist to count.
+                if any(c.isdigit() or c == '_' for c in h):
+                    auto_discovered.add(h)
+                strong_per_handle[h] += 1
+
+    confirmed = set(KNOWN_CHAT_HANDLES) | auto_discovered
+
+    # ── pass 2: count standalone mentions of confirmed handles ───────────
+    counts: Counter[str] = Counter()
+    last: dict[str, str] = {}
+    attributed = 0
+    total = len(commits)
+    handle_pats = {h: re.compile(rf"\b{re.escape(h)}\b", re.IGNORECASE)
+                   for h in confirmed}
+
+    for iso, subj in commits:
+        hits: set[str] = set()
+        for h, p in handle_pats.items():
+            if p.search(subj):
+                hits.add(h)
+        if hits:
             attributed += 1
-            for h in handles:
+            for h in hits:
                 counts[h] += 1
                 if h not in last or last[h] < iso:
                     last[h] = iso
-    out = []
-    for u, n in counts.most_common(60):
-        out.append({'username': u, 'mentions': n, 'last_seen': last[u]})
+
+    out = [
+        {
+            'username': u,
+            'mentions': n,
+            'strong': strong_per_handle.get(u, 0),
+            'source': 'whitelist' if u in KNOWN_CHAT_HANDLES else 'auto',
+            'last_seen': last[u],
+        }
+        for u, n in counts.most_common(60)
+    ]
     cov = round(attributed / total * 100, 1) if total else 0
     return out, len(counts), cov
 
