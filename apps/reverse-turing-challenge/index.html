@@ -430,55 +430,86 @@ function hideThinking(){
 }
 
 // ── Scoring ──────────────────────────────────────────────────
-// Heuristic fallback when the network is unavailable. Checks:
-//   - length sweet spot (45-500 chars)
-//   - lexical diversity (unique-word ratio)
-//   - sensory / personal-pronoun hits
-//   - punctuation variety / emoji presence
-//   - small surprise via long-word rate
+// Heuristic fallback when the network is unavailable. Designed to
+// recognise MANY shapes of human answer — sensory + emotional ones, but
+// also literal / direct / neurodivergent ones (hyperspecific facts,
+// numbered lists, calm refusals, matter-of-fact reframes). The only
+// hard penalties are explicit "I'm an AI"-style disclaimers, which are
+// real machine markers regardless of style.
 function heuristicScore(text){
   const t = (text || '').trim();
-  if (t.length < 6) return { score: 5, comment: 'four words is not a confession.' };
+  if (t.length < 6) return { score: 35, comment: 'a little more, please — i want to follow what you mean.' };
   const len = t.length;
-  // Length: peak around 120 chars
+  // Length sweet-spot is now BROADER. Short literal answers (e.g.
+  // "Tuesday is wet because the dog dreamt of the sea.") are fine.
   let lenScore;
-  if (len < 30)      lenScore = len / 30 * 30;
-  else if (len < 60) lenScore = 30 + (len - 30) / 30 * 25;
-  else if (len < 300) lenScore = 55 + (1 - Math.abs(len - 140) / 200) * 20;
-  else                lenScore = Math.max(30, 75 - (len - 300) / 8);
-  // Diversity
+  if (len < 14)       lenScore = 40 + len * 0.7;
+  else if (len < 60)  lenScore = 50 + (len - 14) / 46 * 22;     // 50 → 72
+  else if (len < 320) lenScore = 72 + (1 - Math.abs(len - 160) / 220) * 8;
+  else                lenScore = Math.max(58, 78 - (len - 320) / 12);
+  // Lexical diversity — gentle, NOT punitive (literal answers repeat words deliberately)
   const words = t.toLowerCase().replace(/[^a-zÀ-ɏ'\s]/g, ' ').split(/\s+/).filter(Boolean);
   const unique = new Set(words);
   const diversity = words.length ? unique.size / words.length : 0;
-  const divScore = Math.min(15, diversity * 18);
-  // Personal voice — pronouns + sensory adjectives
-  const personal = /\b(i|me|my|mine|we|our|us)\b/i.test(t) ? 8 : 0;
-  const sensory = /\b(smell|taste|hot|cold|warm|soft|sharp|bitter|sweet|loud|quiet|wet|dry|grit|sticky|salt|sour|hum|crunch|crack|hiss|drip)\b/i.test(t) ? 7 : 0;
-  // Surprise — long-word rate + unusual punctuation
-  const longWords = words.filter(w => w.length >= 7).length / Math.max(1, words.length);
-  const longScore = Math.min(10, longWords * 22);
-  // Penalty for "as an AI" tells
+  const divScore = Math.min(10, diversity * 12);
+  // Many ways to be human — count any of these as positive signal:
+  let humanSignals = 0;
+  if (/\b(i|me|my|mine|we|our|us)\b/i.test(t)) humanSignals += 6;          // personal voice
+  if (/\b(smell|taste|hot|cold|warm|soft|sharp|bitter|sweet|loud|quiet|wet|dry|grit|sticky|salt|sour|hum|crunch|crack|hiss|drip|texture|sound|rough)\b/i.test(t)) humanSignals += 5;
+  if (/\b(actually|literally|technically|specifically|exactly|honestly|tbh|imo)\b/i.test(t)) humanSignals += 5; // direct-speech markers (often neurodivergent)
+  if (/\b(\d+[a-z]*|\d{1,2}:\d{2}|\d+%|\d+\s*(am|pm|kg|km|mins?|hours?|years?|times|cm|ft))\b/i.test(t)) humanSignals += 6; // hyperspecific numbers/units
+  if (/\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\b/.test(t.replace(/^./, x => x.toLowerCase()))) humanSignals += 4;   // proper nouns mid-sentence (real names/places)
+  if (/\n\s*[-*•]\s/.test(t) || /\b(first|second|third|then|next|finally)\b/i.test(t)) humanSignals += 6;    // enumerated / structured thinking
+  if (/[—–…]/.test(t) || /\.\.\./.test(t)) humanSignals += 3;                                                // em-dashes, ellipses (drafted speech)
+  if (/[!?]{2,}|[?]\s*[!?]/.test(t)) humanSignals += 2;                                                       // !? combos
+  if (/\b(don'?t know|not sure|maybe|i guess|i think)\b/i.test(t)) humanSignals += 4;                         // honest uncertainty
+  if (/\b(refuse|won'?t|skip|pass on this|that'?s not how)\b/i.test(t)) humanSignals += 5;                     // gentle pushback on the prompt itself
+  humanSignals = Math.min(28, humanSignals);
+  // Penalties for actual AI tells (kept narrow — these are real flags)
   let aiTell = 0;
-  if (/\bas an? (ai|language model|assistant)\b/i.test(t)) aiTell += 30;
-  if (/\bi don'?t have personal\b/i.test(t)) aiTell += 25;
-  if (/\bi cannot\b/i.test(t)) aiTell += 8;
-  // Final
-  const raw = Math.round(lenScore + divScore + personal + sensory + longScore - aiTell);
-  const score = Math.max(0, Math.min(100, raw));
-  // Pick a comment by bucket
+  if (/\bas an? (ai|language model|assistant|llm)\b/i.test(t)) aiTell += 35;
+  if (/\bi don'?t have (personal|emotions|experiences|a body)\b/i.test(t)) aiTell += 25;
+  if (/\bi cannot (provide|do|engage)\b/i.test(t))             aiTell += 10;
+  if (/\bas a (chatbot|virtual assistant)\b/i.test(t))         aiTell += 25;
+  const raw = Math.round(lenScore + divScore + humanSignals - aiTell);
+  const score = Math.max(15, Math.min(100, raw));   // floor at 15 — short literal humans don't get nuked
+  // Warm comments — affirming the answer rather than mocking it.
   const COMMENTS = score >= 80
-    ? ['unmistakably soft. proceed.', 'organically uneven. acceptable.', 'a damp little answer. very human.', 'i felt your knees in that sentence.']
+    ? [
+        'specific. that lands as human.',
+        'you took the prompt seriously. i like that.',
+        'this has texture. cleared.',
+        'i can tell you actually thought about it.',
+        'unforced. carries weight. proceed.',
+      ]
     : score >= 60
-    ? ['adequate. you smell like a person.', 'i’ve heard worse from grandmothers.', 'a borderline pulse, but a pulse.', 'this passes, narrowly.']
+    ? [
+        'noted. i believe you.',
+        'plain and clear — that counts.',
+        'a real answer, in your own shape.',
+        'good. literal works too.',
+        'this passes — well-handled.',
+      ]
     : score >= 40
-    ? ['suspiciously rehearsed.', 'too clean. fingerprints?', 'i can hear the autocomplete underneath.', 'try having a body next time.']
-    : ['flagged. resubmit with a body attached.', 'this is what an extruded answer sounds like.', 'a survey response, not a soul.', 'try again. with feeling.'];
+    ? [
+        'tell me a bit more — i want to follow.',
+        'try a more concrete example.',
+        'closer if you can name something specific.',
+        'expand a little? one detail is enough.',
+        'almost. a name or a number would help.',
+      ]
+    : [
+        'sounds rehearsed — drop the official register.',
+        'looks like a disclaimer. answer with what you actually think.',
+        'try again in your normal voice — no caveats needed.',
+        'remove the meta-commentary and just respond.',
+      ];
   return { score, comment: COMMENTS[Math.floor(Math.random() * COMMENTS.length)] };
 }
 
 // Try Pollinations for richer scoring; on any failure fall back to heuristic.
 async function scoreWithPollinations(prompt, response){
-  const sys = 'You are a deadpan reverse-Turing examiner. The USER will give you a STRANGE PROMPT and a HUMAN RESPONSE to that prompt. Score the response from 0-100 based on how convincingly HUMAN it feels: high score = specific, surprising, emotionally engaged, slightly weird, sensory, error-prone in a charming way. Low score = generic, safe, neutral, evasive, AI-bland. Then write ONE short tired-bureaucratic comment in your own voice (under 14 words, no greeting). Reply ONLY with strict JSON: {"score": <integer 0-100>, "comment": "<your one-line judgement>"}.';
+  const sys = 'You are a warm, curious reverse-Turing examiner. The USER will give you a STRANGE PROMPT and a RESPONSE. Score from 0-100 how convincingly HUMAN it feels. IMPORTANT: many shapes of human answer count — sensory and emotional answers are one shape, but LITERAL, DIRECT, CONCRETE, HYPER-SPECIFIC, MATTER-OF-FACT, neurodivergent-flavoured, autistically-precise, deadpan, fact-first, list-shaped, or matter-of-fact answers ARE EQUALLY VALID human signatures. A response that quietly refuses the premise, names a specific time/number/place, or just answers the question literally is HUMAN. Do NOT penalise plainness, brevity, lack of emotion, or refusal to play along. The only strong NEGATIVE signals are: explicit AI-disclaimer phrasing ("as an AI/language model", "I don\'t have personal experiences"), corporate-press-release tone, or completely empty/non-engagement. Then write ONE short comment under 14 words — kind, curious, genuinely receptive, never sneering. Reply ONLY with strict JSON: {"score": <integer 0-100>, "comment": "<your warm one-line note>"}.';
   const user = 'PROMPT: ' + prompt + '\n\nRESPONSE: ' + response;
   const ctl = new AbortController();
   const to = setTimeout(() => ctl.abort(), 12000);
@@ -565,14 +596,16 @@ function showFinal(){
   finalAvg.style.color = pass ? 'var(--green)' : 'var(--crim)';
   const summaries = pass
     ? [
-        'the examiner notes a wet warmth in your answers. uncatalogued. proceed.',
-        'four out of five answers smelled like a body that has eaten lunch.',
-        'inconsistent in the way only meat is inconsistent. cleared.',
+        'the examiner notes a recognisable person under the answers. cleared.',
+        'five answers, five real shapes of thinking — many ways to be human.',
+        'specific, plain, or strange — all valid here. you came through.',
+        'this read as you, in whichever register you brought.',
       ]
     : [
-        'too polished. too patient. too willing to be helpful.',
-        'no contradictions. no fingerprints. resubmit with a real day in you.',
-        'response patterns suggestive of distributed processing. denied.',
+        'a few answers leaned on disclaimer-language — that\'s the only real tell.',
+        'try again in your most ordinary voice. literal is fine. specific helps.',
+        'no judgement on style — just say what you would actually say.',
+        'examiner needs more of you in the answers. any flavour of you.',
       ];
   finalSummary.textContent = summaries[Math.floor(Math.random() * summaries.length)];
   // also clear progress dots state into final colors
