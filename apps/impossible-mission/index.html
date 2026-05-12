@@ -99,6 +99,21 @@
     letter-spacing: 0.18em;
   }
   .topbar .clock.low { color: var(--c64-lred); animation: blink 0.6s steps(2) infinite; }
+  .topbar .snz-pip {
+    color: var(--c64-lgreen);
+    font-family: 'Press Start 2P', monospace;
+    font-size: clamp(0.5rem, 1vw, 0.6rem);
+    letter-spacing: 0.16em;
+    margin-left: 0.7em;
+    transition: color 0.2s;
+  }
+  .topbar .snz-pip.zero { color: var(--c64-dgrey); }
+  .topbar .snz-pip.use { animation: snzFlash 0.65s ease-out; }
+  @keyframes snzFlash {
+    0%   { color: var(--c64-cyan); text-shadow: 0 0 12px var(--c64-cyan); }
+    60%  { color: var(--c64-cyan); text-shadow: 0 0 6px var(--c64-cyan); }
+    100% { color: var(--c64-lgreen); text-shadow: none; }
+  }
   @keyframes blink { 50% { opacity: 0.2; } }
   .topbar .pieces { color: var(--c64-lgreen); }
   .topbar .hp.lo { color: var(--c64-lred); }
@@ -339,8 +354,9 @@
   .inv-grid {
     flex: 1;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
+    grid-template-columns: repeat(6, 1fr);
+    grid-auto-rows: 1fr;
+    gap: 0.3rem;
     padding: 0.4rem;
     overflow: auto;
   }
@@ -562,10 +578,11 @@
   <div class="hud topbar">
     <div class="left">
       hp <span class="hp" id="hpVal">100</span>
+      <span class="snz-pip" id="snzPip">SNZ × <span id="snzVal">3</span></span>
     </div>
     <div class="center" id="centerTitle">IMPOSSIBLE MISSION</div>
     <div class="right">
-      pieces <span class="pieces" id="piecesVal">0</span>/9 &nbsp; <span class="clock" id="clockVal">06:00:00</span>
+      pieces <span class="pieces" id="piecesVal">0</span>/36 &nbsp; <span class="clock" id="clockVal">06:00:00</span>
     </div>
   </div>
 
@@ -590,8 +607,9 @@
         <div><span class="kb">↑</span> / <span class="kb">W</span> jump &nbsp; inside elevator: change floor</div>
         <div><span class="kb">↓</span> / <span class="kb">S</span> search furniture · take elevator down</div>
         <div><span class="kb">SPACE</span> hack computer terminal · 2 second decrypt</div>
+        <div><span class="kb">Z</span> snooze pulse · freezes same-floor sentries 8s · 3 charges</div>
         <div><span class="kb">I</span> inventory · <span class="kb">P</span> puzzle room · drag pieces · <span class="kb">R</span>/wheel rotate</div>
-        <div>find <b>9 TETROMINO PIECES</b> across <b>32 ROOMS</b> · 6 hours on the clock</div>
+        <div>find <b>36 TETROMINO PIECES</b> across <b>32 ROOMS</b> · 6 hours on the clock</div>
         <div>avoid the sentry robots · 8 floors connected by the elevator shaft</div>
       </div>
       <button id="startBtn" type="button">▲ INFILTRATE ▲</button>
@@ -1038,14 +1056,19 @@ function buildFurniture(){
     const j = Math.floor(rng() * (i + 1));
     [idx[i], idx[j]] = [idx[j], idx[i]];
   }
-  // shuffle the seven tetromino keys, then take the first 9 (with two
-  // duplicates) — ensures every color/shape appears at least once
-  const keyDeck = [...TETROMINO_KEYS, ...TETROMINO_KEYS].slice(0, 9);
+  // Build a 36-key deck (7 tetrominos × 6 = 42, sliced to 36) so the
+  // full 6×6 inventory ends up with every shape + color represented
+  // multiple times. Shuffle, then distribute one piece per furniture
+  // index up to 36.
+  const keyDeck = [];
+  for (let r = 0; r < 6; r++) keyDeck.push(...TETROMINO_KEYS);
+  keyDeck.length = 36;
   for (let i = keyDeck.length - 1; i > 0; i--){
     const j = Math.floor(rng() * (i + 1));
     [keyDeck[i], keyDeck[j]] = [keyDeck[j], keyDeck[i]];
   }
-  for (let i = 0; i < 9 && i < idx.length; i++){
+  const targetCount = Math.min(36, idx.length);
+  for (let i = 0; i < targetCount; i++){
     const f = furniture[idx[i]];
     f.hasPiece = true;
     f.pieceKey = keyDeck[i];   // tetromino key assigned at build time
@@ -1214,6 +1237,12 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       break;
     case 'KeyM': document.getElementById('muteBtn').click(); break;
+    case 'KeyZ':
+      if (gameState === 'playing' && !inventoryOpen && !puzzleOpen){
+        fireSnooze();
+        e.preventDefault();
+      }
+      break;
     case 'KeyI':
       // toggle the puzzle-piece inventory overlay
       toggleInventory();
@@ -1967,7 +1996,57 @@ let piecesFound = 0;
 let inventory = [];         // array of PuzzlePiece instances, newest last
 let activePieceIdx = 0;     // which piece is selected in the inventory overlay
 let inventoryOpen = false;
+let snoozeCharges = 3;      // tactical "freeze nearby sentries" charges per run
+const SNOOZE_START = 3;
+const SNOOZE_DURATION = 8;  // seconds a robot stays frozen after a pulse
 let lastFrame = performance.now();
+
+// ── SNOOZE PULSE ────────────────────────────────────────────────────────
+// Z deploys a same-floor snooze pulse. Every robot whose floor matches
+// the agent's gains snoozed=true with an 8-second countdown; updateRobots
+// short-circuits while snoozed and drawRobots overlays a pulsing zZ
+// glyph above each frozen unit. Three charges per run, refilled on
+// restart, displayed in the topbar SNZ × N pip.
+function fireSnooze(){
+  if (gameState !== 'playing' || snoozeCharges <= 0) return;
+  snoozeCharges--;
+  let count = 0;
+  for (const r of robots){
+    if (r.floor !== player.floor) continue;
+    r.snoozed = true;
+    r.snoozeT = SNOOZE_DURATION;
+    count++;
+  }
+  sfxSnooze();
+  const word = count === 1 ? 'SENTRY' : 'SENTRIES';
+  showToast('SNOOZE PULSE · ' + count + ' ' + word + ' DOWN', '#a9ff9f');
+  // pip flash
+  const pip = document.getElementById('snzPip');
+  if (pip){
+    pip.classList.remove('use');
+    void pip.offsetWidth;   // force reflow so the keyframe restarts
+    pip.classList.add('use');
+  }
+  updateHud();
+}
+
+function sfxSnooze(){
+  // descending triangle wave arpeggio — dreamy, lullaby-ish
+  const a = ensureAudio(); if (!a) return;
+  const t = a.currentTime;
+  const notes = [880, 660, 440, 330];
+  notes.forEach((f, i) => {
+    const o = a.createOscillator();
+    const g = a.createGain();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t + i * 0.08);
+    g.gain.exponentialRampToValueAtTime(0.12, t + i * 0.08 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.08 + 0.42);
+    o.connect(g); g.connect(masterGain);
+    o.start(t + i * 0.08); o.stop(t + i * 0.08 + 0.45);
+  });
+}
 
 function startGame(){
   userGestured = true;
@@ -1991,6 +2070,7 @@ function startGame(){
   inventory = [];
   activePieceIdx = 0;
   inventoryOpen = false;
+  snoozeCharges = SNOOZE_START;
   document.getElementById('inventoryOverlay').classList.remove('show');
   // reset the puzzle room
   for (let i = 0; i < PUZZLE_SLOTS; i++) puzzleSlots[i] = null;
@@ -2113,10 +2193,12 @@ function drawPieceToCanvas(canvas, piece){
 
 function renderInventory(){
   if (!invGridEl) return;
-  invTitleEl.textContent = 'INVENTORY · ' + inventory.length + '/9';
+  invTitleEl.textContent = 'INVENTORY · ' + inventory.length + '/36';
   invGridEl.innerHTML = '';
-  // 9 slots — fill the front with collected pieces, rest as empties
-  for (let i = 0; i < 9; i++){
+  // 36 slots in a 6×6 grid — fill the front with collected pieces, the
+  // rest render as dashed-empty placeholders so the agent can see how
+  // much remains to find
+  for (let i = 0; i < 36; i++){
     const cell = document.createElement('div');
     cell.className = 'inv-cell';
     if (i < inventory.length){
@@ -2125,10 +2207,6 @@ function renderInventory(){
       const canvas = document.createElement('canvas');
       cell.appendChild(canvas);
       drawPieceToCanvas(canvas, p);
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = p.id ? p.id.slice(-2) : (i + 1);
-      cell.appendChild(badge);
       cell.addEventListener('click', () => {
         activePieceIdx = i;
         renderInventory();
@@ -2380,6 +2458,10 @@ function updateHud(){
   if (player.hp < 35) hpVal.parentElement.querySelector('.hp').classList.add('lo');
   else hpVal.parentElement.querySelector('.hp').classList.remove('lo');
   piecesValEl.textContent = piecesFound;
+  const snzVal = document.getElementById('snzVal');
+  const snzPip = document.getElementById('snzPip');
+  if (snzVal) snzVal.textContent = snoozeCharges;
+  if (snzPip) snzPip.classList.toggle('zero', snoozeCharges <= 0);
   const h = Math.floor(gameTimeRemaining / 3600);
   const m = Math.floor((gameTimeRemaining % 3600) / 60);
   const s = Math.floor(gameTimeRemaining % 60);
@@ -2455,9 +2537,9 @@ function updatePlayer(dt){
           inventory.push(piece);
           renderInventory();
           const verb = mode === 'hack' ? 'DECRYPTED' : 'PIECE';
-          showToast(verb + ' ' + piecesFound + '/9 · ' + (f.pieceKey || 'L') + '-BLOCK', '#a9ff9f');
+          showToast(verb + ' ' + piecesFound + '/36 · ' + (f.pieceKey || 'L') + '-BLOCK', '#a9ff9f');
           sfxFound();
-          if (piecesFound >= 9) showWin();
+          if (piecesFound >= 36) showWin();
         } else {
           showToast(mode === 'hack' ? 'NO DATA · CLEAN TERMINAL' : 'NOTHING USEFUL', '#706deb');
           sfxEmpty();
@@ -2698,9 +2780,10 @@ function updatePlayer(dt){
       if (player.hp <= 0) showFail('cardiac arrest.');
     }
   }
-  // robot contact
+  // robot contact (snoozed robots are dormant — agent can run past them)
   for (const r of robots){
     if (r.floor !== player.floor) continue;
+    if (r.snoozed) continue;
     if (Math.abs(r.x - player.x) < 12 && Math.abs(r.y - (player.y - 8)) < 14){
       if (player.iframe <= 0){
         player.hp -= 20;
@@ -2735,6 +2818,18 @@ function updateElevator(dt){
 // ── ROBOT UPDATE ────────────────────────────────────────────────────────
 function updateRobots(dt){
   for (const r of robots){
+    // snooze countdown — frozen robots don't patrol, don't fire, don't
+    // even animate their eye. The timer keeps running so the freeze
+    // naturally wears off after SNOOZE_DURATION seconds.
+    if (r.snoozed){
+      r.snoozeT -= dt;
+      if (r.snoozeT <= 0){
+        r.snoozed = false;
+        r.snoozeT = 0;
+      } else {
+        continue;
+      }
+    }
     r.eyeAng += dt * 2;
     if (r.kind === 'patrol' || r.kind === 'shooter'){
       r.x += r.vx * dt;
@@ -3207,24 +3302,47 @@ function drawRobots(){
       ctx.fillRect(rx - 6, ry - 14, 12, 14);
       ctx.fillStyle = PAL.lgrey;
       ctx.fillRect(rx - 5, ry - 13, 10, 4);
-      // antenna
+      // antenna — droops while snoozed
       ctx.fillStyle = PAL.red;
-      ctx.fillRect(rx - 1, ry - 18, 2, 4);
-      // eye (cyclops red, follows player)
+      if (r.snoozed){
+        ctx.fillRect(rx - 1, ry - 17, 1, 3);
+        ctx.fillRect(rx - 2, ry - 14, 2, 1);
+      } else {
+        ctx.fillRect(rx - 1, ry - 18, 2, 4);
+      }
+      // eye — cyclops red, follows player when awake; closed line when snoozed
       const dx = player.x - r.x, dy = (player.y - 8) - r.y;
       const len = Math.max(1, Math.sqrt(dx*dx + dy*dy));
       const ex = Math.round(rx + (dx / len) * 2);
       const ey = Math.round(ry - 9 + (dy / len) * 1);
-      ctx.fillStyle = PAL.lred;
+      ctx.fillStyle = r.snoozed ? PAL.dgrey : PAL.lred;
       ctx.fillRect(rx - 3, ry - 11, 6, 4);
-      ctx.fillStyle = PAL.white;
-      ctx.fillRect(ex, ey, 2, 2);
+      if (r.snoozed){
+        ctx.fillStyle = PAL.black;
+        ctx.fillRect(rx - 2, ry - 9, 4, 1);   // closed eye slit
+      } else {
+        ctx.fillStyle = PAL.white;
+        ctx.fillRect(ex, ey, 2, 2);
+      }
       // legs / treads
       ctx.fillStyle = PAL.black;
       ctx.fillRect(rx - 5, ry - 2, 10, 3);
       ctx.fillStyle = PAL.lgrey;
       const tread = Math.floor((r.x * 0.5) % 4);
       for (let i = 0; i < 3; i++) ctx.fillRect(rx - 4 + tread + i * 4, ry - 1, 2, 1);
+    }
+    // snooze overlay: a pulsing zZ bubble drifts above frozen sentries
+    if (r.snoozed){
+      const baseY = (r.kind === 'spinner') ? (ry - 12) : (ry - 24);
+      const t = performance.now() * 0.004;
+      const ox = Math.round(Math.sin(t) * 1);
+      const oy = Math.round(Math.cos(t * 0.7) * 1);
+      ctx.fillStyle = PAL.lgreen;
+      ctx.font = "6px 'Press Start 2P', monospace";
+      ctx.fillText('z', rx - 6 + ox, baseY + oy);
+      ctx.fillStyle = PAL.cyan;
+      ctx.font = "7px 'Press Start 2P', monospace";
+      ctx.fillText('Z', rx + 1 + ox, baseY - 5 + oy);
     }
   }
 }
