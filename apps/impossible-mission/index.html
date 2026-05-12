@@ -1200,6 +1200,165 @@ function sfxElvinTaunt(){
     o.start(t + i * 0.13); o.stop(t + i * 0.13 + 0.24);
   }
 }
+
+// ── SID-STYLE VOICE SYNTHESIS ───────────────────────────────────────────
+// Approximates the crunchy 6581 SID digi-voice from Impossible Mission '84.
+// We don't have samples — instead each phoneme is a formant-filtered
+// sawtooth (vowels), bandpassed noise (fricatives), or both (voiced
+// fricatives like V), put through a 3-bit waveshape quantizer for that
+// trademark 8-bit aliasing crunch. Pitches sit in the ~65-110 Hz range
+// so Elvin reads as a deep adult male villain.
+function _makeCrushCurve(bits){
+  const N = 1024;
+  const curve = new Float32Array(N);
+  const levels = (1 << bits);
+  for (let i = 0; i < N; i++){
+    const x = (i / (N - 1)) * 2 - 1;
+    curve[i] = Math.round(x * levels) / levels;
+  }
+  return curve;
+}
+let CRUSH_CURVE_3BIT = null;
+function getCrushCurve(){
+  if (!CRUSH_CURVE_3BIT) CRUSH_CURVE_3BIT = _makeCrushCurve(3);
+  return CRUSH_CURVE_3BIT;
+}
+
+function synthSidVowel(t, dur, pitch, f1, f2){
+  // Vowel: two-saw bank (slight detune for thickness) → 3-bit crush →
+  // parallel bandpass formant filters at F1 + F2 → ADSR envelope.
+  const a = actx;
+  const osc1 = a.createOscillator(); osc1.type = 'sawtooth'; osc1.frequency.value = pitch;
+  const osc2 = a.createOscillator(); osc2.type = 'sawtooth'; osc2.frequency.value = pitch * 1.006;
+  // ~5 Hz vibrato — Elvin's wavering threat
+  const vib = a.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.4;
+  const vibGain = a.createGain(); vibGain.gain.value = 7;     // 7 cents depth
+  vib.connect(vibGain);
+  vibGain.connect(osc1.detune);
+  vibGain.connect(osc2.detune);
+  // pulse-width-ish ring modulation via amplitude LFO on the second saw
+  const ring = a.createOscillator(); ring.type = 'sine'; ring.frequency.value = 22;
+  const ringGain = a.createGain(); ringGain.gain.value = 60;
+  ring.connect(ringGain);
+  ringGain.connect(osc2.detune);
+
+  const oscMix = a.createGain(); oscMix.gain.value = 0.5;
+  osc1.connect(oscMix); osc2.connect(oscMix);
+
+  const crush = a.createWaveShaper();
+  crush.curve = getCrushCurve();
+  crush.oversample = 'none';   // keep the aliasing!
+
+  const bp1 = a.createBiquadFilter(); bp1.type = 'bandpass'; bp1.frequency.value = f1; bp1.Q.value = 9;
+  const bp2 = a.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = f2; bp2.Q.value = 8;
+  const formantMix = a.createGain(); formantMix.gain.value = 0.7;
+
+  // ADSR
+  const env = a.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.linearRampToValueAtTime(0.28, t + 0.018);
+  env.gain.setValueAtTime(0.28, t + Math.max(0, dur - 0.04));
+  env.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+
+  oscMix.connect(crush);
+  crush.connect(bp1);
+  crush.connect(bp2);
+  bp1.connect(formantMix);
+  bp2.connect(formantMix);
+  formantMix.connect(env);
+  env.connect(masterGain);
+
+  osc1.start(t); osc2.start(t); vib.start(t); ring.start(t);
+  const stopAt = t + dur + 0.06;
+  osc1.stop(stopAt); osc2.stop(stopAt); vib.stop(stopAt); ring.stop(stopAt);
+}
+
+function synthFricative(t, dur){
+  // Unvoiced fricative (S, F, SH-ish) — highpassed white noise burst
+  const a = actx;
+  const len = Math.max(64, Math.floor(a.sampleRate * dur));
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = a.createBufferSource(); noise.buffer = buf;
+  const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2300; hp.Q.value = 0.7;
+  const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3600; bp.Q.value = 1.4;
+  const env = a.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.exponentialRampToValueAtTime(0.13, t + 0.012);
+  env.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+  noise.connect(hp); hp.connect(bp); bp.connect(env); env.connect(masterGain);
+  noise.start(t);
+}
+
+function synthStop(t, dur){
+  // Stop consonant (T) — short lowpass-filtered noise click
+  const a = actx;
+  const len = Math.max(64, Math.floor(a.sampleRate * dur));
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = a.createBufferSource(); noise.buffer = buf;
+  const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1500;
+  const env = a.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.exponentialRampToValueAtTime(0.17, t + 0.003);
+  env.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+  noise.connect(lp); lp.connect(env); env.connect(masterGain);
+  noise.start(t);
+}
+
+function synthVoiced(t, dur, pitch){
+  // Voiced fricative (V) — sawtooth voicing + bandpassed buzz noise
+  const a = actx;
+  const osc = a.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = pitch;
+  const len = Math.max(64, Math.floor(a.sampleRate * dur));
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = a.createBufferSource(); noise.buffer = buf;
+  const crush = a.createWaveShaper(); crush.curve = getCrushCurve(); crush.oversample = 'none';
+  const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 4;
+  const env = a.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.exponentialRampToValueAtTime(0.20, t + 0.014);
+  env.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+  osc.connect(crush); crush.connect(bp);
+  noise.connect(bp);
+  bp.connect(env); env.connect(masterGain);
+  osc.start(t); noise.start(t);
+  osc.stop(t + dur + 0.05);
+}
+
+// "STAY FOREVER!" — sequenced phoneme schedule:
+//   S T - AY  (gap)  F  OR  R  EE  V  EE  RRR↓
+// Pitches drop on the final "R" for that "trailing menace" feel.
+function sayStayForever(){
+  const a = ensureAudio(); if (!a) return;
+  let t = a.currentTime + 0.02;
+  const phonemes = [
+    { kind: 'fric',  dur: 0.10 },                               // S
+    { kind: 'stop',  dur: 0.05 },                               // T
+    { kind: 'vowel', dur: 0.16, f1: 720, f2: 1240, p:  90 },    // A
+    { kind: 'vowel', dur: 0.20, f1: 320, f2: 2200, p: 108 },    // EE (-AY tail, rising)
+    { kind: 'gap',   dur: 0.10 },
+    { kind: 'fric',  dur: 0.09 },                               // F
+    { kind: 'vowel', dur: 0.16, f1: 500, f2: 1100, p:  95 },    // OR
+    { kind: 'vowel', dur: 0.10, f1: 420, f2: 1300, p:  80 },    // R
+    { kind: 'vowel', dur: 0.12, f1: 380, f2: 2400, p:  95 },    // E
+    { kind: 'voiced',dur: 0.08, p:  88 },                       // V
+    { kind: 'vowel', dur: 0.10, f1: 400, f2: 2300, p:  90 },    // E
+    { kind: 'vowel', dur: 0.38, f1: 480, f2: 1300, p:  62 },    // RRR — drops in pitch
+  ];
+  for (const ph of phonemes){
+    if (ph.kind === 'gap'){ t += ph.dur; continue; }
+    if (ph.kind === 'vowel')  synthSidVowel(t, ph.dur, ph.p, ph.f1, ph.f2);
+    else if (ph.kind === 'fric')  synthFricative(t, ph.dur);
+    else if (ph.kind === 'stop')  synthStop(t, ph.dur);
+    else if (ph.kind === 'voiced') synthVoiced(t, ph.dur, ph.p);
+    t += ph.dur;
+  }
+}
 function sfxRobotShot(){
   const a = ensureAudio(); if (!a) return;
   const t = a.currentTime;
@@ -1449,7 +1608,11 @@ function showTaunt(text){
   document.getElementById('stage').appendChild(el);
   liveTaunts++;
   setTimeout(() => { el.remove(); liveTaunts--; }, 4400);
-  sfxElvinTaunt();
+  // dispatch audio per phrase — the iconic "STAY FOREVER!" gets the full
+  // SID-style synthesized voice (formant-filtered + 3-bit crush); every
+  // other taunt rides the descending-sawtooth cackle
+  if (text === 'STAY FOREVER!') sayStayForever();
+  else sfxElvinTaunt();
 }
 
 function updateElvinTaunts(dt){
