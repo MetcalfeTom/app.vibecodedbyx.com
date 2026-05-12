@@ -1224,19 +1224,32 @@ function getCrushCurve(){
   return CRUSH_CURVE_3BIT;
 }
 
-function synthSidVowel(t, dur, pitch, f1, f2){
+function synthSidVowel(t, dur, pitch, f1, f2, opts){
   // Vowel: two-saw bank (slight detune for thickness) → 3-bit crush →
   // parallel bandpass formant filters at F1 + F2 → ADSR envelope.
+  // opts.pitchEnd / f1End / f2End drive linear glides across the phoneme
+  // so diphthongs (AY = A→EE) read as a single smooth vowel instead of
+  // two staccato pulses; gain scales overall envelope peak.
+  opts = opts || {};
+  const pitchEnd = opts.pitchEnd != null ? opts.pitchEnd : pitch;
+  const f1End    = opts.f1End    != null ? opts.f1End    : f1;
+  const f2End    = opts.f2End    != null ? opts.f2End    : f2;
+  const gainPeak = opts.gain     != null ? opts.gain     : 0.28;
+
   const a = actx;
-  const osc1 = a.createOscillator(); osc1.type = 'sawtooth'; osc1.frequency.value = pitch;
-  const osc2 = a.createOscillator(); osc2.type = 'sawtooth'; osc2.frequency.value = pitch * 1.006;
+  const osc1 = a.createOscillator(); osc1.type = 'sawtooth';
+  const osc2 = a.createOscillator(); osc2.type = 'sawtooth';
+  osc1.frequency.setValueAtTime(pitch, t);
+  osc1.frequency.linearRampToValueAtTime(pitchEnd, t + dur);
+  osc2.frequency.setValueAtTime(pitch * 1.006, t);
+  osc2.frequency.linearRampToValueAtTime(pitchEnd * 1.006, t + dur);
   // ~5 Hz vibrato — Elvin's wavering threat
   const vib = a.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.4;
   const vibGain = a.createGain(); vibGain.gain.value = 7;     // 7 cents depth
   vib.connect(vibGain);
   vibGain.connect(osc1.detune);
   vibGain.connect(osc2.detune);
-  // pulse-width-ish ring modulation via amplitude LFO on the second saw
+  // pulse-width-ish ring modulation via detune LFO on the second saw
   const ring = a.createOscillator(); ring.type = 'sine'; ring.frequency.value = 22;
   const ringGain = a.createGain(); ringGain.gain.value = 60;
   ring.connect(ringGain);
@@ -1249,15 +1262,19 @@ function synthSidVowel(t, dur, pitch, f1, f2){
   crush.curve = getCrushCurve();
   crush.oversample = 'none';   // keep the aliasing!
 
-  const bp1 = a.createBiquadFilter(); bp1.type = 'bandpass'; bp1.frequency.value = f1; bp1.Q.value = 9;
-  const bp2 = a.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = f2; bp2.Q.value = 8;
+  const bp1 = a.createBiquadFilter(); bp1.type = 'bandpass'; bp1.Q.value = 9;
+  bp1.frequency.setValueAtTime(f1, t);
+  bp1.frequency.linearRampToValueAtTime(f1End, t + dur);
+  const bp2 = a.createBiquadFilter(); bp2.type = 'bandpass'; bp2.Q.value = 8;
+  bp2.frequency.setValueAtTime(f2, t);
+  bp2.frequency.linearRampToValueAtTime(f2End, t + dur);
   const formantMix = a.createGain(); formantMix.gain.value = 0.7;
 
   // ADSR
   const env = a.createGain();
   env.gain.setValueAtTime(0.0001, t);
-  env.gain.linearRampToValueAtTime(0.28, t + 0.018);
-  env.gain.setValueAtTime(0.28, t + Math.max(0, dur - 0.04));
+  env.gain.linearRampToValueAtTime(gainPeak, t + 0.018);
+  env.gain.setValueAtTime(gainPeak, t + Math.max(0, dur - 0.04));
   env.gain.exponentialRampToValueAtTime(0.0005, t + dur);
 
   oscMix.connect(crush);
@@ -1271,6 +1288,47 @@ function synthSidVowel(t, dur, pitch, f1, f2){
   osc1.start(t); osc2.start(t); vib.start(t); ring.start(t);
   const stopAt = t + dur + 0.06;
   osc1.stop(stopAt); osc2.stop(stopAt); vib.stop(stopAt); ring.stop(stopAt);
+}
+
+function synthAspirate(t, dur){
+  // Soft H — broadband noise gently bandpassed around 1.4kHz to read as
+  // breath rather than the sharp S/F hiss
+  const a = actx;
+  const len = Math.max(32, Math.floor(a.sampleRate * dur));
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = a.createBufferSource(); noise.buffer = buf;
+  const bp = a.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 0.85;
+  const env = a.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.exponentialRampToValueAtTime(0.10, t + 0.008);
+  env.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+  noise.connect(bp); bp.connect(env); env.connect(masterGain);
+  noise.start(t);
+}
+
+function synthLaugh(t){
+  // 6-syllable HA-HA-HA trail, rising-then-falling pitch arc, with the
+  // final HA stretched 2× and dropping below the body voice for that
+  // "menace echoing down the shaft" tail
+  const pitches = [125, 140, 130, 110, 90, 70];
+  let cur = t;
+  for (let i = 0; i < pitches.length; i++){
+    const p = pitches[i];
+    const isLast = (i === pitches.length - 1);
+    const vowelDur = isLast ? 0.26 : 0.10;
+    synthAspirate(cur, 0.03);
+    cur += 0.024;
+    synthSidVowel(cur, vowelDur, p, 720, 1240, {
+      pitchEnd: p * (isLast ? 0.74 : 0.92),
+      f1End:    isLast ? 560  : 720,
+      f2End:    isLast ? 1100 : 1240,
+      gain:     isLast ? 0.20 : 0.24,
+    });
+    cur += vowelDur + (isLast ? 0 : 0.05);
+  }
 }
 
 function synthFricative(t, dur){
@@ -1330,34 +1388,76 @@ function synthVoiced(t, dur, pitch){
   osc.stop(t + dur + 0.05);
 }
 
-// "STAY FOREVER!" — sequenced phoneme schedule:
-//   S T - AY  (gap)  F  OR  R  EE  V  EE  RRR↓
-// Pitches drop on the final "R" for that "trailing menace" feel.
+// "STAY FOREVER!" — fully glided phoneme schedule:
+//   S T  AY (diphthong glide A→EE)  ·  F  OR→R  E  V  E  RRR↓  ·  HAHAHA…
+// Single vowels with intra-phoneme F1/F2/pitch glides replace the
+// earlier staccato slices, and a 6-syllable descending laugh tags the end.
 function sayStayForever(){
   const a = ensureAudio(); if (!a) return;
   let t = a.currentTime + 0.02;
-  const phonemes = [
-    { kind: 'fric',  dur: 0.10 },                               // S
-    { kind: 'stop',  dur: 0.05 },                               // T
-    { kind: 'vowel', dur: 0.16, f1: 720, f2: 1240, p:  90 },    // A
-    { kind: 'vowel', dur: 0.20, f1: 320, f2: 2200, p: 108 },    // EE (-AY tail, rising)
-    { kind: 'gap',   dur: 0.10 },
-    { kind: 'fric',  dur: 0.09 },                               // F
-    { kind: 'vowel', dur: 0.16, f1: 500, f2: 1100, p:  95 },    // OR
-    { kind: 'vowel', dur: 0.10, f1: 420, f2: 1300, p:  80 },    // R
-    { kind: 'vowel', dur: 0.12, f1: 380, f2: 2400, p:  95 },    // E
-    { kind: 'voiced',dur: 0.08, p:  88 },                       // V
-    { kind: 'vowel', dur: 0.10, f1: 400, f2: 2300, p:  90 },    // E
-    { kind: 'vowel', dur: 0.38, f1: 480, f2: 1300, p:  62 },    // RRR — drops in pitch
-  ];
-  for (const ph of phonemes){
-    if (ph.kind === 'gap'){ t += ph.dur; continue; }
-    if (ph.kind === 'vowel')  synthSidVowel(t, ph.dur, ph.p, ph.f1, ph.f2);
-    else if (ph.kind === 'fric')  synthFricative(t, ph.dur);
-    else if (ph.kind === 'stop')  synthStop(t, ph.dur);
-    else if (ph.kind === 'voiced') synthVoiced(t, ph.dur, ph.p);
-    t += ph.dur;
-  }
+  // S
+  synthFricative(t, 0.10);                                                     t += 0.10;
+  // T
+  synthStop(t, 0.05);                                                          t += 0.05;
+  // AY (diphthong A→EE, rising pitch)
+  synthSidVowel(t, 0.34, 90, 720, 1240, {
+    pitchEnd: 112, f1End: 320, f2End: 2200,
+  });                                                                          t += 0.34;
+  t += 0.10;                                                                   // breath gap
+  // F
+  synthFricative(t, 0.09);                                                     t += 0.09;
+  // OR — sustained mid-vowel
+  synthSidVowel(t, 0.16, 95, 500, 1100);                                       t += 0.16;
+  // R — F1 down, F2 up, pitch dipping
+  synthSidVowel(t, 0.10, 95, 500, 1100, {
+    pitchEnd: 82, f1End: 420, f2End: 1300,
+  });                                                                          t += 0.10;
+  // E — bright vowel
+  synthSidVowel(t, 0.12, 92, 380, 2400);                                       t += 0.12;
+  // V — voiced labio-dental fricative
+  synthVoiced(t, 0.08, 86);                                                    t += 0.08;
+  // E (second E in "EVER")
+  synthSidVowel(t, 0.10, 88, 400, 2350);                                       t += 0.10;
+  // RRR — descending tail (pitch + formants both glide down)
+  synthSidVowel(t, 0.46, 80, 400, 2350, {
+    pitchEnd: 58, f1End: 480, f2End: 1100,
+  });                                                                          t += 0.46;
+  // brief breath then the laugh trail
+  t += 0.22;
+  synthLaugh(t);
+}
+
+// "STAY A WHILE..." — second beat of the iconic opener, voiced too:
+//   S T  AY · A · W I L · trailing fade
+function sayStayAWhile(){
+  const a = ensureAudio(); if (!a) return;
+  let t = a.currentTime + 0.02;
+  // S
+  synthFricative(t, 0.10);                                                     t += 0.10;
+  // T
+  synthStop(t, 0.05);                                                          t += 0.05;
+  // AY (diphthong A→EE, rising pitch — matches "STAY FOREVER")
+  synthSidVowel(t, 0.34, 90, 720, 1240, {
+    pitchEnd: 110, f1End: 320, f2End: 2200,
+  });                                                                          t += 0.34;
+  t += 0.10;                                                                   // gap
+  // A (the lone "a" — short, mid pitch)
+  synthSidVowel(t, 0.16, 95, 700, 1200);                                       t += 0.16;
+  t += 0.06;                                                                   // gap
+  // W — rounded lips, F1/F2 start low then climb into the next vowel
+  synthSidVowel(t, 0.08, 80, 290, 640, {
+    pitchEnd: 100, f1End: 720, f2End: 1240,
+  });                                                                          t += 0.08;
+  // I (diphthong A→EE for "WHILE")
+  synthSidVowel(t, 0.26, 100, 700, 1240, {
+    pitchEnd: 95, f1End: 320, f2End: 2300,
+  });                                                                          t += 0.26;
+  // L — lateral approximant (low F1, mid F2)
+  synthSidVowel(t, 0.14, 88, 350, 1200);                                       t += 0.14;
+  // ... trailing fade (the ellipsis at the end of the phrase)
+  synthSidVowel(t, 0.34, 80, 380, 1100, {
+    pitchEnd: 55, f1End: 420, f2End: 900, gain: 0.18,
+  });
 }
 function sfxRobotShot(){
   const a = ensureAudio(); if (!a) return;
@@ -1608,10 +1708,12 @@ function showTaunt(text){
   document.getElementById('stage').appendChild(el);
   liveTaunts++;
   setTimeout(() => { el.remove(); liveTaunts--; }, 4400);
-  // dispatch audio per phrase — the iconic "STAY FOREVER!" gets the full
-  // SID-style synthesized voice (formant-filtered + 3-bit crush); every
-  // other taunt rides the descending-sawtooth cackle
+  // dispatch audio per phrase — the iconic 3-beat opener now voices the
+  // last two beats with full SID-style formant synthesis; "STAY FOREVER!"
+  // additionally trails into a 6-syllable descending HAHAHA. Every random
+  // pool taunt keeps the descending-sawtooth cackle for variety.
   if (text === 'STAY FOREVER!') sayStayForever();
+  else if (text === 'STAY A WHILE...') sayStayAWhile();
   else sfxElvinTaunt();
 }
 
