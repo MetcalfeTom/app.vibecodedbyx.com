@@ -715,28 +715,121 @@ const PAL = {
 };
 
 // ════════════════════════════════════════════════════════════════════════
-// ── PUZZLE-PIECE CLASS ─────────────────────────────────────────────────
-// Each found furniture-hidden piece is a tetromino with shape + color +
-// rotation + flip state. The inventory layer uses these to lay pieces on
-// a 4×8 assembly board; once the agent has nine, they can hand-rotate /
-// flip / arrange to "decode" the password.
+// ── PUZZLE-PIECE SYSTEM ────────────────────────────────────────────────
+// 9 LETTERS × 4 FRAGMENTS = 36 pieces. Each LETTER defines a 4×4 "map"
+// where each cell carries a fragment ID 1..4; the 16 cells partition
+// into four disjoint groups of 4. A piece carries (letterIdx, fragmentIdx)
+// and renders only the cells whose map value matches its fragment ID —
+// so each piece covers exactly 4 of the 16 cells.
 //
-//   const p = new PuzzlePiece({ shape, color, id });
-//   p.rotate();        // CW once  → rotation: 0→1→2→3→0
-//   p.rotate(-1);      // CCW
-//   p.flip();          // horizontal mirror (toggles)
-//   p.cells();         // tight 2D 0/1 array in current orientation
-//   p.bbox();          // { w, h } of the trimmed cells
-//   p.serialize();     // JSON-safe state for save/load
-//   PuzzlePiece.fromJSON(obj);   // rehydrate
+// When all 4 fragments of one letter are dropped into the puzzle room,
+// their non-empty cells UNION to exactly the 16-cell 4×4 grid: a solid
+// colored square = "letter decoded".
+//
+// Letter maps below are hand-tuned so each fragment ID appears exactly
+// 4 times per map (verified by hand + a sanity assert at boot).
 // ════════════════════════════════════════════════════════════════════════
+const LETTERS = [
+  // L0 — quadrants (each fragment is a 2×2 corner)
+  { color: '#56ac4d', map: [
+    [1,1,2,2],
+    [1,1,2,2],
+    [3,3,4,4],
+    [3,3,4,4],
+  ]},
+  // L1 — horizontal bars (each fragment is one row)
+  { color: '#813338', map: [
+    [1,1,1,1],
+    [2,2,2,2],
+    [3,3,3,3],
+    [4,4,4,4],
+  ]},
+  // L2 — vertical bars
+  { color: '#2e2c9b', map: [
+    [1,2,3,4],
+    [1,2,3,4],
+    [1,2,3,4],
+    [1,2,3,4],
+  ]},
+  // L3 — 2×2 checkerboard
+  { color: '#8e3c97', map: [
+    [1,2,1,2],
+    [3,4,3,4],
+    [1,2,1,2],
+    [3,4,3,4],
+  ]},
+  // L4 — Latin square (each fragment once per row + once per col)
+  { color: '#ffffff', map: [
+    [1,2,3,4],
+    [2,1,4,3],
+    [3,4,1,2],
+    [4,3,2,1],
+  ]},
+  // L5 — concentric spiral
+  { color: '#75cec8', map: [
+    [1,1,1,1],
+    [4,3,3,2],
+    [4,3,2,2],
+    [4,4,3,2],
+  ]},
+  // L6 — pinwheel
+  { color: '#edf171', map: [
+    [1,1,2,2],
+    [4,1,2,3],
+    [4,1,3,3],
+    [4,4,2,3],
+  ]},
+  // L7 — diagonal wraparound
+  { color: '#a9ff9f', map: [
+    [1,2,3,4],
+    [4,1,2,3],
+    [3,4,1,2],
+    [2,3,4,1],
+  ]},
+  // L8 — frame split (outer ring vs inner)
+  { color: '#c46c71', map: [
+    [1,1,2,2],
+    [1,3,4,2],
+    [1,3,4,2],
+    [3,3,4,4],
+  ]},
+];
+
+// Boot-time sanity check: each fragment ID appears exactly 4× per letter
+(function _verifyLetterMaps(){
+  for (let i = 0; i < LETTERS.length; i++){
+    const m = LETTERS[i].map;
+    const cnt = [0, 0, 0, 0, 0];   // index 0 unused
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) cnt[m[y][x]]++;
+    if (cnt[1] !== 4 || cnt[2] !== 4 || cnt[3] !== 4 || cnt[4] !== 4){
+      console.warn('LETTERS[' + i + '] fragment counts off:', cnt);
+    }
+  }
+})();
+
+// Each PuzzlePiece carries (letterIdx, fragmentIdx). The `shape` stored
+// on the instance is a 4×4 array where cells matching this piece's
+// fragment carry the letterIdx+1 (1..9 — used by drawPieceToCanvas to
+// look up the color) and all other cells are 0 (empty).
+//
+//   const p = new PuzzlePiece({ letterIdx, fragmentIdx });
+//   p.rotate();   p.flip();   p.cells();   p.bbox();   p.serialize();
+//
+// Rotation/flip operate on the 4×4 grid in place — pieces stay 4×4
+// regardless of orientation.
 class PuzzlePiece {
-  constructor({ shape, color, id }){
-    this.id       = id ?? ('p' + ((Math.random() * 1e9) | 0));
-    this.shape    = shape.map(row => row.slice());   // 4×4 master template
-    this.color    = color;                            // PAL key, e.g. 'cyan'
-    this.rotation = 0;                                // 0..3 → 0/90/180/270 CW
-    this.flipped  = false;                            // mirror across vertical axis
+  constructor({ letterIdx, fragmentIdx, shape, id }){
+    this.letterIdx   = letterIdx   ?? -1;
+    this.fragmentIdx = fragmentIdx ?? -1;
+    this.id          = id ?? (this.letterIdx >= 0
+                              ? 'L' + this.letterIdx + 'F' + this.fragmentIdx
+                              : 'p' + ((Math.random() * 1e9) | 0));
+    // build the shape from letterIdx + fragmentIdx if not provided
+    this.shape = shape
+      ? shape.map(r => r.slice())
+      : PuzzlePiece._buildShape(this.letterIdx, this.fragmentIdx);
+    this.rotation = 0;
+    this.flipped  = false;
   }
   rotate(dir = 1){
     this.rotation = (((this.rotation + dir) % 4) + 4) % 4;
@@ -751,29 +844,42 @@ class PuzzlePiece {
     this.flipped = false;
     return this;
   }
-  // current oriented grid (master shape with rotation + flip baked in,
-  // then trimmed to its bounding box). Always returns at least 1×1.
+  // Current oriented 4×4 grid with rotation + flip baked in. NEVER
+  // trimmed — pieces always occupy the full 4×4 even when most cells
+  // are empty (so 4 fragments cleanly overlay into a 4×4 union).
   cells(){
     let g = this.shape.map(r => r.slice());
     if (this.flipped) g = g.map(r => r.slice().reverse());
     for (let i = 0; i < this.rotation; i++) g = PuzzlePiece._rotateCW(g);
-    return PuzzlePiece._trim(g);
+    return g;
   }
-  bbox(){
-    const c = this.cells();
-    return { w: c[0].length, h: c.length };
-  }
+  bbox(){ return { w: 4, h: 4 }; }
   serialize(){
     return {
-      id: this.id, shape: this.shape, color: this.color,
+      id: this.id,
+      letterIdx: this.letterIdx, fragmentIdx: this.fragmentIdx,
+      shape: this.shape,
       rotation: this.rotation, flipped: this.flipped,
     };
   }
   static fromJSON(o){
-    const p = new PuzzlePiece({ id: o.id, shape: o.shape, color: o.color });
+    const p = new PuzzlePiece({
+      id: o.id, letterIdx: o.letterIdx, fragmentIdx: o.fragmentIdx, shape: o.shape,
+    });
     p.rotation = o.rotation | 0;
     p.flipped  = !!o.flipped;
     return p;
+  }
+  static _buildShape(letterIdx, fragmentIdx){
+    const out = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+    const L = LETTERS[letterIdx];
+    if (!L) return out;
+    const target = fragmentIdx + 1;          // map values are 1..4
+    const colIdx = letterIdx + 1;            // 1..9 = letter color slot
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++){
+      if (L.map[y][x] === target) out[y][x] = colIdx;
+    }
+    return out;
   }
   static _rotateCW(g){
     const n = g.length, m = g[0].length;
@@ -783,80 +889,13 @@ class PuzzlePiece {
     }
     return out;
   }
-  static _trim(g){
-    let minX = Infinity, minY = Infinity, maxX = -1, maxY = -1;
-    for (let y = 0; y < g.length; y++) for (let x = 0; x < g[y].length; x++){
-      if (g[y][x]){
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-      }
-    }
-    if (maxX < 0) return [[0]];
-    const out = [];
-    for (let y = minY; y <= maxY; y++){
-      const row = [];
-      for (let x = minX; x <= maxX; x++) row.push(g[y][x]);
-      out.push(row);
-    }
-    return out;
-  }
 }
 
-// Seven canonical tetromino templates, each colored from the VIC-II palette
-// so collected pieces match the building's aesthetic. Shapes use a 4×4
-// authoring grid so rotation around the center reads cleanly.
-const TETROMINOES = {
-  I: { shape: [
-    [0,0,0,0],
-    [1,1,1,1],
-    [0,0,0,0],
-    [0,0,0,0],
-  ], color: 'cyan' },
-  O: { shape: [
-    [0,1,1,0],
-    [0,1,1,0],
-    [0,0,0,0],
-    [0,0,0,0],
-  ], color: 'yellow' },
-  T: { shape: [
-    [1,1,1,0],
-    [0,1,0,0],
-    [0,0,0,0],
-    [0,0,0,0],
-  ], color: 'purple' },
-  L: { shape: [
-    [1,0,0,0],
-    [1,0,0,0],
-    [1,1,0,0],
-    [0,0,0,0],
-  ], color: 'orange' },
-  J: { shape: [
-    [0,1,0,0],
-    [0,1,0,0],
-    [1,1,0,0],
-    [0,0,0,0],
-  ], color: 'blue' },
-  S: { shape: [
-    [0,1,1,0],
-    [1,1,0,0],
-    [0,0,0,0],
-    [0,0,0,0],
-  ], color: 'green' },
-  Z: { shape: [
-    [1,1,0,0],
-    [0,1,1,0],
-    [0,0,0,0],
-    [0,0,0,0],
-  ], color: 'red' },
-};
-const TETROMINO_KEYS = Object.keys(TETROMINOES);
-// Build a fresh piece for a given key — cloned so each instance owns its
-// own template (mutations during play are safe).
-function newPuzzlePiece(key, id){
-  const tpl = TETROMINOES[key];
-  return new PuzzlePiece({ shape: tpl.shape, color: tpl.color, id });
+// Factory — newPuzzlePiece(letterIdx, fragmentIdx) returns a fresh
+// piece. Legacy two-arg callers (newPuzzlePiece(letterIdx, fragmentIdx))
+// just forward.
+function newPuzzlePiece(letterIdx, fragmentIdx){
+  return new PuzzlePiece({ letterIdx, fragmentIdx });
 }
 
 // ── WORLD LAYOUT (data-driven tilemap) ──────────────────────────────────
@@ -1076,22 +1115,25 @@ function buildFurniture(){
     const j = Math.floor(rng() * (i + 1));
     [idx[i], idx[j]] = [idx[j], idx[i]];
   }
-  // Build a 36-key deck (7 tetrominos × 6 = 42, sliced to 36) so the
-  // full 6×6 inventory ends up with every shape + color represented
-  // multiple times. Shuffle, then distribute one piece per furniture
-  // index up to 36.
-  const keyDeck = [];
-  for (let r = 0; r < 6; r++) keyDeck.push(...TETROMINO_KEYS);
-  keyDeck.length = 36;
-  for (let i = keyDeck.length - 1; i > 0; i--){
-    const j = Math.floor(rng() * (i + 1));
-    [keyDeck[i], keyDeck[j]] = [keyDeck[j], keyDeck[i]];
+  // Build a deterministic 36-piece deck: every (letter, fragment) pair
+  // exactly once → 9 × 4 = 36 distinct pieces. Shuffle so they're
+  // distributed unpredictably across the building's furniture.
+  const pieceDeck = [];
+  for (let L = 0; L < LETTERS.length; L++){
+    for (let F = 0; F < 4; F++){
+      pieceDeck.push({ letterIdx: L, fragmentIdx: F });
+    }
   }
-  const targetCount = Math.min(36, idx.length);
+  for (let i = pieceDeck.length - 1; i > 0; i--){
+    const j = Math.floor(rng() * (i + 1));
+    [pieceDeck[i], pieceDeck[j]] = [pieceDeck[j], pieceDeck[i]];
+  }
+  const targetCount = Math.min(pieceDeck.length, idx.length);
   for (let i = 0; i < targetCount; i++){
     const f = furniture[idx[i]];
     f.hasPiece = true;
-    f.pieceKey = keyDeck[i];   // tetromino key assigned at build time
+    f.pieceLetter   = pieceDeck[i].letterIdx;
+    f.pieceFragment = pieceDeck[i].fragmentIdx;
   }
 }
 
@@ -2193,99 +2235,77 @@ const invGridEl  = document.getElementById('invGrid');
 const invTitleEl = document.getElementById('invTitle');
 const invOverlayEl = document.getElementById('inventoryOverlay');
 
-// 5-color retro tile palette — neon green border + green/red/blue/purple/white
-// content fill — applied by drawPieceToCanvas. Pieces ignore their original
-// pal-key color and instead pick a path/node/accent combo from this 5-stop
-// palette seeded by piece.id, so the same shape can recur with different
-// color schemes across the inventory.
-const TILE_NEON   = '#a9ff9f';   // c64 lgreen — outer border
-const TILE_PAL5   = [
-  '#56ac4d',   // green
-  '#813338',   // red
-  '#2e2c9b',   // blue
-  '#8e3c97',   // purple
-  '#ffffff',   // white
-];
+// Neon-green border + letter colors for the 4×4 pixel-pattern renderer.
+// LETTER_COLORS is indexed by (cells[y][x] - 1) since 0 is empty.
+const TILE_NEON     = '#a9ff9f';                // c64 lgreen — outer border
+const LETTER_COLORS = LETTERS.map(L => L.color);
 
 function drawPieceToCanvas(canvas, piece){
-  // RETRO PIXEL-ART TILE renderer. For each filled tetromino cell:
-  //   1. Fill a 3×3 black background square
-  //   2. Draw a center "node" + path connectors toward adjacent filled
-  //      cells — paths read as little tunnels flowing through the piece
-  //   3. Sprinkle one accent pixel per cell based on a seeded RNG so
-  //      each piece has a distinctive sparkle pattern
-  //   4. Outline ONLY the outward-facing edges in neon green so the
-  //      whole piece reads as one neon-bordered shape
-  // Color combo (path / node / accent) is picked from TILE_PAL5 using
-  // a hash of piece.id so each piece instance has stable colors across
-  // rotations + re-renders.
+  // 4×4 PIXEL-PATTERN renderer for fragment pieces:
+  //   1. 32×32 square buffer with the 4×4 grid centered (4 px / cell)
+  //   2. Full grid painted black so empty cells read as void
+  //   3. Each non-zero cell paints its letter color + a 1-px top-edge
+  //      white highlight for chunky pixel-art feel
+  //   4. The whole 4×4 grid is outlined in neon green — pieces are
+  //      always rectangular tiles. When 4 fragments of one letter are
+  //      stacked their colored cells UNION into a fully-painted 4×4
+  //      colored square (the "letter decoded" state).
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
   const cells = piece.cells();
-  const cols = cells[0].length, rows = cells.length;
-  const sz = 3;                            // px per tetromino cell
-  const buffer = 40;                       // square buffer side
+  const rows = cells.length;
+  const cols = cells[0].length;
+  const sz = 4;                            // px per 4×4 cell
+  const buffer = 32;
   canvas.width = buffer; canvas.height = buffer;
   ctx.clearRect(0, 0, buffer, buffer);
   const ox = Math.floor((buffer - cols * sz) / 2);
   const oy = Math.floor((buffer - rows * sz) / 2);
 
-  // deterministic seed from piece.id — stable across rotations + redraws
-  let seed = 0;
-  if (piece.id){
-    for (let i = 0; i < piece.id.length; i++){
-      seed = ((seed << 5) - seed + piece.id.charCodeAt(i)) | 0;
-    }
-  }
-  const aS = Math.abs(seed >>> 0);
-  const pathCol   = TILE_PAL5[ aS        % 5];
-  const nodeCol   = TILE_PAL5[(aS + 2)   % 5];
-  const accentCol = TILE_PAL5[(aS + 4)   % 5];
-
-  const has = (x, y) => y >= 0 && y < rows && x >= 0 && x < cols && cells[y][x];
-
-  // 1. BLACK BACKGROUND under all filled cells
+  // 1. BLACK BACKGROUND across the whole 4×4 grid
   ctx.fillStyle = '#000000';
+  ctx.fillRect(ox, oy, cols * sz, rows * sz);
+
+  // 2. PIXEL ARRANGEMENT — paint each non-zero cell in its letter color
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
-    if (cells[y][x]) ctx.fillRect(ox + x * sz, oy + y * sz, sz, sz);
+    const idx = cells[y][x];
+    if (idx === 0) continue;
+    ctx.fillStyle = LETTER_COLORS[idx - 1] || '#ffffff';
+    ctx.fillRect(ox + x * sz, oy + y * sz, sz, sz);
+    // 1-px top-edge highlight so adjacent same-color cells stay visible
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.fillRect(ox + x * sz, oy + y * sz, sz, 1);
   }
 
-  // 2. PATHS / TUNNELS — center node + connectors toward each filled neighbor
-  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
-    if (!cells[y][x]) continue;
-    const cx = ox + x * sz;
-    const cy = oy + y * sz;
-    // center node pixel
-    ctx.fillStyle = nodeCol;
-    ctx.fillRect(cx + 1, cy + 1, 1, 1);
-    // tunnel connectors to filled neighbors
-    ctx.fillStyle = pathCol;
-    if (has(x, y - 1)) ctx.fillRect(cx + 1, cy + 0, 1, 1);  // up
-    if (has(x, y + 1)) ctx.fillRect(cx + 1, cy + 2, 1, 1);  // down
-    if (has(x - 1, y)) ctx.fillRect(cx + 0, cy + 1, 1, 1);  // left
-    if (has(x + 1, y)) ctx.fillRect(cx + 2, cy + 1, 1, 1);  // right
-    // accent pixel — seeded corner sparkle, ~25% of cells get one
-    const cs = (seed + x * 11 + y * 23) >>> 0;
-    if ((cs & 0b11) === 0){
-      ctx.fillStyle = accentCol;
-      const ax = (cs >> 2) & 1 ? cx + 2 : cx + 0;
-      const ay = (cs >> 3) & 1 ? cy + 2 : cy + 0;
-      ctx.fillRect(ax, ay, 1, 1);
+  // 3. NEON-GREEN BORDER traces the entire 4×4 rectangle (always)
+  ctx.fillStyle = TILE_NEON;
+  ctx.fillRect(ox, oy, cols * sz, 1);                   // top
+  ctx.fillRect(ox, oy + rows * sz - 1, cols * sz, 1);   // bottom
+  ctx.fillRect(ox, oy, 1, rows * sz);                   // left
+  ctx.fillRect(ox + cols * sz - 1, oy, 1, rows * sz);   // right
+}
+
+// Overlay check — when all 4 puzzle slots hold fragments of THE SAME
+// letter AND their oriented cells partition the 4×4 grid (every cell
+// covered exactly once), the letter is "decoded". Returns the letter
+// index on success or -1 otherwise.
+function checkPuzzleAssembled(){
+  if (puzzleSlots.some(p => !p)) return -1;
+  const L = puzzleSlots[0].letterIdx;
+  if (L < 0) return -1;
+  if (puzzleSlots.some(p => p.letterIdx !== L)) return -1;
+  // count cell coverage across all four fragments
+  const counts = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+  for (const p of puzzleSlots){
+    const c = p.cells();
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++){
+      if (c[y][x] !== 0) counts[y][x]++;
     }
   }
-
-  // 3. NEON-GREEN OUTER BORDER on edges that face empty space — this
-  // overwrites any accent/path pixel that happens to land on an edge.
-  ctx.fillStyle = TILE_NEON;
-  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
-    if (!cells[y][x]) continue;
-    const cx = ox + x * sz;
-    const cy = oy + y * sz;
-    if (!has(x, y - 1)) ctx.fillRect(cx, cy, sz, 1);            // top
-    if (!has(x, y + 1)) ctx.fillRect(cx, cy + sz - 1, sz, 1);   // bottom
-    if (!has(x - 1, y)) ctx.fillRect(cx, cy, 1, sz);            // left
-    if (!has(x + 1, y)) ctx.fillRect(cx + sz - 1, cy, 1, sz);   // right
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++){
+    if (counts[y][x] !== 1) return -1;
   }
+  return L;
 }
 
 function renderInventory(){
@@ -2482,6 +2502,14 @@ function endDrag(e){
       puzzleSlots[drag.fromSlot] = existing;
     }
     sfxFound();
+    // overlay check — if the 4 slots now hold all 4 fragments of one
+    // letter AND they partition the 4×4 grid, celebrate
+    const decodedL = checkPuzzleAssembled();
+    if (decodedL >= 0){
+      showToast('LETTER ' + (decodedL + 1) + ' DECODED!', '#a9ff9f');
+      sfxFound();
+      setTimeout(sfxFound, 240);
+    }
   } else if (drag.fromSlot >= 0){
     // dropped outside any slot from a slot — return to bank
     puzzleSlots[drag.fromSlot] = null;
@@ -2666,13 +2694,15 @@ function updatePlayer(dt){
         searchBarEl.classList.remove('hack');
         if (f.hasPiece){
           piecesFound++;
-          // mint a real PuzzlePiece using the tetromino key assigned at
-          // build time — this is what the inventory overlay renders
-          const piece = newPuzzlePiece(f.pieceKey || 'L');
+          // mint a real PuzzlePiece from the (letter, fragment) assigned
+          // to this furniture at build time — this is what inventory +
+          // puzzle room render
+          const piece = newPuzzlePiece(f.pieceLetter | 0, f.pieceFragment | 0);
           inventory.push(piece);
           renderInventory();
           const verb = mode === 'hack' ? 'DECRYPTED' : 'PIECE';
-          showToast(verb + ' ' + piecesFound + '/36 · ' + (f.pieceKey || 'L') + '-BLOCK', '#a9ff9f');
+          const tag = 'L' + (f.pieceLetter + 1) + '·F' + (f.pieceFragment + 1);
+          showToast(verb + ' ' + piecesFound + '/36 · ' + tag, '#a9ff9f');
           sfxFound();
           if (piecesFound >= 36) showWin();
         } else {
