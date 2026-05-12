@@ -240,11 +240,33 @@
     height: 280px;
     position: relative;
   }
-  .lulu-art svg {
+  .lulu-art .art-svg,
+  .lulu-art .art-illust {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transition: opacity 0.7s ease-out;
+  }
+  .lulu-art .art-svg svg {
     width: 100%;
     height: 100%;
     overflow: visible;
   }
+  /* per-line Pollinations illustration. Cream-paper bg from the API is
+     elided by mix-blend-mode:multiply so only the ink lines show on the
+     page's cream paper. Starts invisible; fades in once loaded. */
+  .lulu-art .art-illust {
+    object-fit: contain;
+    object-position: center;
+    opacity: 0;
+    mix-blend-mode: multiply;
+    pointer-events: none;
+    filter: contrast(1.05);
+  }
+  /* when the illustration is loaded, the SVG pose dims to a faint guide */
+  .lulu-art.has-illust .art-svg     { opacity: 0.14; }
+  .lulu-art.has-illust .art-illust  { opacity: 1; }
   /* hand-drawn stroke styles, applied to all SVG paths */
   .lulu-art svg .stroke {
     fill: none;
@@ -266,12 +288,12 @@
     opacity: 0.7;
   }
   /* SVG draw-in animation */
-  .lulu-art.drawing svg .stroke {
+  .lulu-art.drawing .art-svg svg .stroke {
     stroke-dasharray: 1000;
     stroke-dashoffset: 1000;
     animation: draw 1.4s ease-out forwards;
   }
-  .lulu-art.drawing svg .dot {
+  .lulu-art.drawing .art-svg svg .dot {
     opacity: 0;
     animation: dotIn 0.4s ease-out forwards;
     animation-delay: 1.2s;
@@ -655,7 +677,10 @@
   </div>
 
   <article class="card">
-    <div class="lulu-art" id="luluArt"></div>
+    <div class="lulu-art" id="luluArt">
+      <div class="art-svg" id="luluSvg"></div>
+      <img class="art-illust" id="luluIllust" alt="" />
+    </div>
     <div class="line-wrap">
       <blockquote class="line loading" id="lineEl">
         <span class="line-text" spellcheck="false">give me a topic — i'll do the bit. just one line, i promise.</span>
@@ -1256,6 +1281,10 @@ async function think(){
   $('techMeta').textContent = result.technique.label;
   // unlock the line for tweaks before saving / sharing
   setEditable(true);
+  // ask Pollinations for a matching line-art illustration — fades in
+  // over the SVG pose once it loads (cold-gen can take 30-90s; the
+  // SVG pose stays visible in the meantime as a placeholder)
+  fetchIllustration(result.line);
 
   // restore button
   $('goBtn').disabled = false;
@@ -1264,11 +1293,49 @@ async function think(){
 
 function drawPose(techId){
   const art = $('luluArt');
-  art.classList.remove('drawing');
-  art.innerHTML = getPose(techId);
+  const svgEl = $('luluSvg');
+  // clear any prior illustration; the SVG goes back to full opacity
+  art.classList.remove('has-illust', 'drawing');
+  const illust = $('luluIllust');
+  illust.removeAttribute('src');
+  illust.style.opacity = '';
+  // swap in the new pose
+  svgEl.innerHTML = getPose(techId);
   // force reflow so the animation restarts
-  void art.offsetWidth;
+  void svgEl.offsetWidth;
   art.classList.add('drawing');
+}
+
+// ── PER-LINE ILLUSTRATION ──────────────────────────────────────────────
+// After every successful line generation we ask Pollinations for a
+// minimalist black-ink line-art rendering of the LINE itself (not the
+// topic). The image fades over the SVG pose once it loads (the pose
+// dims to 14% opacity and acts as a faint guide). The URL is stashed
+// on currentLine.illustUrl so the share PNG export can include it.
+let _illustReq = 0;
+function fetchIllustration(line){
+  if (!line) return;
+  const myReq = ++_illustReq;
+  const prompt =
+    'minimalist hand-drawn black ink line art on cream paper, ' +
+    'a single illustration of: ' + line + '. ' +
+    'clean continuous linework, no shading, no text, no signature, ' +
+    'no border, witty calm composition, warm cream background.';
+  const seed = Math.floor(Math.random() * 1e6);
+  const url = 'https://image.pollinations.ai/prompt/' +
+    encodeURIComponent(prompt) +
+    '?width=512&height=512&nologo=true&seed=' + seed;
+  const img = $('luluIllust');
+  img.onload = () => {
+    // bail if the user has already moved on to a newer request
+    if (myReq !== _illustReq) return;
+    $('luluArt').classList.add('has-illust');
+    if (currentLine) currentLine.illustUrl = url;
+  };
+  img.onerror = () => {
+    // silently swallow — the SVG pose stays as the fallback visual
+  };
+  img.src = url;
 }
 
 function typeLine(text){
@@ -1364,7 +1431,10 @@ $('saveBtn').addEventListener('click', () => {
     $('saveBtn').classList.remove('saved');
     $('saveBtn').textContent = '♡ save';
   } else {
-    saved.unshift({ ...currentLine, _ts: Date.now() });
+    // include the illustration URL so it can be restored later (the
+    // Pollinations URL is deterministic — re-fetching the same URL
+    // hits the edge cache and returns instantly)
+    saved.unshift({ ...currentLine, illustUrl: currentLine.illustUrl || null, _ts: Date.now() });
     if (saved.length > 80) saved = saved.slice(0, 80);
     $('saveBtn').classList.add('saved');
     $('saveBtn').textContent = '♥ saved';
@@ -1461,22 +1531,45 @@ $('shareDownload').addEventListener('click', async () => {
   c.font = '600 italic 96px "Caveat", cursive';
   c.fillText('lulu', 70, 130);
 
-  // draw the SVG pose into a temp image
-  const svgEl = $('luluArt').querySelector('svg');
-  if (svgEl){
-    const xml = new XMLSerializer().serializeToString(svgEl);
-    const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+  // ART: prefer the Pollinations line-art illustration if it loaded for
+  // this line; otherwise fall back to rasterising the SVG pose.
+  if (currentLine.illustUrl){
     await new Promise((resolve) => {
       const img = new Image();
+      img.crossOrigin = 'anonymous';
       img.onload = () => {
-        c.drawImage(img, size / 2 - 220, 200, 440, 480);
-        URL.revokeObjectURL(url);
+        // composite with multiply so the cream-paper bg from the API
+        // image blends with the export's cream-paper background and
+        // only the black linework survives (matches the on-page look)
+        c.save();
+        c.globalCompositeOperation = 'multiply';
+        // fit-into a 520×520 square centered horizontally, top at 200
+        const w = 520, h = 520;
+        c.drawImage(img, size / 2 - w / 2, 200, w, h);
+        c.restore();
         resolve();
       };
-      img.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-      img.src = url;
+      img.onerror = () => resolve();
+      img.src = currentLine.illustUrl;
     });
+  } else {
+    // SVG fallback
+    const svgEl = $('luluArt').querySelector('svg');
+    if (svgEl){
+      const xml = new XMLSerializer().serializeToString(svgEl);
+      const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          c.drawImage(img, size / 2 - 220, 200, 440, 480);
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+        img.src = url;
+      });
+    }
   }
 
   // line — wrap into 2-3 lines as needed
@@ -1561,9 +1654,14 @@ function renderSaved(){
     });
     li.addEventListener('click', (e) => {
       if (e.target.classList.contains('x')) return;
-      const techId = (s.technique && s.technique.id) || 'obs';
-      const techRec = TECHNIQUES.find(x => x.id === techId) || TECHNIQUES.find(x => x.id === 'obs');
-      currentLine = { line: s.line, technique: s.technique || { id: techId, label: techLabel }, topic: s.topic || '—' };
+      const techId = (s.technique && s.technique.id) || TECHNIQUES[1].id;
+      const techRec = TECHNIQUES.find(x => x.id === techId) || TECHNIQUES[1];
+      currentLine = {
+        line: s.line,
+        technique: s.technique || { id: techId, label: techLabel },
+        topic: s.topic || '—',
+        illustUrl: s.illustUrl || null,
+      };
       drawPose(techRec.pose);
       $('lineEl').classList.remove('loading');
       typeLine(s.line);
@@ -1571,6 +1669,19 @@ function renderSaved(){
       setEditable(true);
       $('saveBtn').classList.add('saved');
       $('saveBtn').textContent = '♥ saved';
+      // if the saved entry carried an illustration URL, re-fade it in
+      // (Pollinations edge-caches by URL so this is usually instant)
+      if (s.illustUrl){
+        _illustReq++;
+        const reqId = _illustReq;
+        const img = $('luluIllust');
+        img.onload = () => {
+          if (reqId !== _illustReq) return;
+          $('luluArt').classList.add('has-illust');
+        };
+        img.onerror = () => {};
+        img.src = s.illustUrl;
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
     list.appendChild(li);
