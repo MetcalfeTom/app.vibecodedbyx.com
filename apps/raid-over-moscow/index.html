@@ -758,7 +758,14 @@
         <div class="label">RANGE · <span id="orbProgVal">000</span>%</div>
         <div class="track"><div class="fill" id="orbProgFill"></div></div>
       </div>
-      <div class="objective" id="orbObjective">DODGE DEBRIS · STRAFE WITH A &amp; D · SPACE FIRES LASERS</div>
+      <div class="objective" id="orbObjective">DODGE DEBRIS · STRAFE A/D · THRUST W · FIRE SPACE · WATCH THE HEAT</div>
+      <!-- HEAT bar — fills when thrusting / skimming the edges. Over 100% → hull damage. -->
+      <div style="position:absolute;top:20%;left:4%;width:30%;font-family:'Press Start 2P',monospace;font-size:clamp(0.55rem,1.15vw,0.66rem);letter-spacing:0.18em">
+        <div style="color:var(--c64-orange);margin-bottom:0.4em">HEAT · <span id="orbHeatVal" style="color:#bfce72">000</span></div>
+        <div style="height:0.6rem;background:rgba(0,0,0,0.7);border:2px solid var(--c64-orange);overflow:hidden">
+          <div id="orbHeatFill" style="height:100%;width:0%;background:#bfce72;box-shadow:0 0 10px #bfce72;transition:width 0.18s linear, background 0.18s"></div>
+        </div>
+      </div>
       <div class="scene-tag blink">▼ APPROACHING MOSCOW · PREPARE FOR RE-ENTRY ▼</div>
     </div>
     <div class="mission-fail" id="orbitalFail">
@@ -779,16 +786,31 @@
     </div>
   </div>
 
-  <!-- ── GROUND ASSAULT — stub for the next phase ────────────────── -->
+  <!-- ── STAGE 03 — GROUND ASSAULT side-scrolling low-altitude run ─ -->
   <div class="ground-scene" id="groundScene" aria-hidden="true">
     <canvas class="ground-canvas" id="groundCanvas"></canvas>
     <div class="scene-hud">
-      <div class="scene-title">▲ STAGE 03 · GROUND ASSAULT ▲</div>
-      <div class="objective" id="groundObjective">deployed · red square · 04:00 east<br>·······························<br>SAM sites detected. silo complex 1.2km north.</div>
-      <div class="scene-tag" id="groundTag">▼ TO BE CONTINUED · STAGE 03 IN DEVELOPMENT ▼</div>
+      <div class="scene-title">▲ STAGE 03 · GROUND ASSAULT · TREE-TOP SPEED ▲</div>
+      <div class="hp">
+        <div class="label">HULL · <span id="grHpVal">100</span>%</div>
+        <div class="track"><div class="fill" id="grHpFill"></div></div>
+      </div>
+      <div class="progress">
+        <div class="label">DISTANCE · <span id="grProgVal">000</span>%</div>
+        <div class="track"><div class="fill" id="grProgFill"></div></div>
+      </div>
+      <div class="objective" id="groundObjective">WASD steers · SPACE fires · DODGE SAM missiles · STRAFE TOWERS · FLY TO THE SILO</div>
+      <div class="scene-tag blink">▼ INBOUND · RED SQUARE · LOW ALTITUDE ▼</div>
     </div>
-    <div class="mission-fail" id="groundDone" style="display:flex;align-items:flex-end;justify-content:flex-end;padding-bottom:1.5rem;padding-right:1.5rem;background:transparent;animation:none">
-      <button id="groundBackBtn" type="button">◀ ABORT · RETURN TO TITLE</button>
+    <div class="mission-fail" id="groundFail">
+      <h2>SHOT DOWN</h2>
+      <div class="sub">soviet air defense network confirmed kill.<br>cheyenne is queueing the next sortie.</div>
+      <button id="groundFailBtn" type="button">◀ RESTART STAGE 03</button>
+    </div>
+    <div class="mission-fail" id="groundWin" style="background:rgba(85,160,73,0.92)">
+      <h2>SILO DESTROYED</h2>
+      <div class="sub">primary objective complete.<br>two warheads neutralized · the world keeps spinning, for now.</div>
+      <button id="groundWinBtn" type="button">◀ RETURN TO TITLE</button>
     </div>
   </div>
 
@@ -1896,7 +1918,7 @@ function explodeShip(){
 }
 
 // WASD inputs — shared between hangar piloting and orbital strafing
-const WASD_SCENES = new Set(['hangar', 'orbital']);
+const WASD_SCENES = new Set(['hangar', 'orbital', 'ground']);
 document.addEventListener('keydown', (e) => {
   if (!WASD_SCENES.has(scene)) return;
   if (e.repeat) return;
@@ -2070,13 +2092,17 @@ function sfxLaunchConfirm(){
 const orbital = {
   canvas: null, ctx: null,
   W: 320, H: 240,
-  ship: { x: 160, y: 200, vx: 0, hp: 100 },
+  ship: { x: 160, y: 200, vx: 0, hp: 100, bank: 0 },
   stars: [],
   debris: [],   // {x, y, vy, r, kind, hp}
   lasers: [],   // {x, y}
   spawnT: 0,
   fireCooldown: 0,
   range: 0,     // 0..100 — fills as the player travels
+  // Heat: thrusters glow hot. W held = +14/s, idle = −8/s, capped 130.
+  // Over 100 % = overheat → bleeds hull at 12 HP/s. Banks at top speed
+  // through atmosphere skim also add a heat tick.
+  heat: 0,
   alive: true,
   endTimer: 0,
 };
@@ -2100,7 +2126,8 @@ function initOrbital(){
 
 function resetOrbital(){
   orbital.ship.x = 160; orbital.ship.y = 200; orbital.ship.vx = 0;
-  orbital.ship.hp = 100;
+  orbital.ship.hp = 100; orbital.ship.bank = 0;
+  orbital.heat = 0;
   orbital.debris.length = 0;
   orbital.lasers.length = 0;
   orbital.spawnT = 0;
@@ -2206,12 +2233,45 @@ function orbitalUpdate(dt){
     }
   }
 
+  // ── BANK visual — smooth roll based on lateral velocity ──
+  // bank ranges roughly [-1, +1]. Pure number; the renderer reads it.
+  const targetBank = Math.max(-1, Math.min(1, orbital.ship.vx / 240));
+  orbital.ship.bank += (targetBank - orbital.ship.bank) * Math.min(1, dt * 8);
+
+  // ── HEAT BUILDUP ──
+  // Thrusters spool up under W. Holding bank near the edges of the screen
+  // (atmospheric skim) compounds it; cruising lets heat radiate away.
+  const skim = (orbital.ship.x < 40 || orbital.ship.x > orbital.W - 40) ? 0.7 : 0;
+  if (HANG_INPUT.w) orbital.heat += (14 + skim * 18) * dt;
+  else              orbital.heat -= 8 * dt;
+  // hard banks also add a touch
+  orbital.heat += Math.abs(orbital.ship.bank) * 4 * dt;
+  if (orbital.heat < 0)   orbital.heat = 0;
+  if (orbital.heat > 140) orbital.heat = 140;
+  // overheat — bleed hull
+  if (orbital.heat > 100){
+    orbital.ship.hp -= 12 * dt;
+    if (orbital.ship.hp <= 0) orbitalDie();
+  }
+
   // progress
   orbital.range = Math.min(100, orbital.range + (0.7 + HANG_INPUT.w * 1.4) * dt * 3.5);
   document.getElementById('orbProgVal').textContent = String(Math.floor(orbital.range)).padStart(3, '0');
   document.getElementById('orbProgFill').style.width = orbital.range + '%';
   document.getElementById('orbHpVal').textContent = Math.max(0, Math.round(orbital.ship.hp));
   document.getElementById('orbHpFill').style.width = Math.max(0, orbital.ship.hp) + '%';
+  const heatEl = document.getElementById('orbHeatFill');
+  if (heatEl){
+    heatEl.style.width = Math.min(100, orbital.heat) + '%';
+    heatEl.style.background = orbital.heat > 100 ? '#ff5050'
+                            : orbital.heat > 70  ? '#ffb35a'
+                            : '#bfce72';
+  }
+  const heatVal = document.getElementById('orbHeatVal');
+  if (heatVal){
+    heatVal.textContent = String(Math.min(140, Math.round(orbital.heat))).padStart(3, '0');
+    heatVal.style.color = orbital.heat > 100 ? '#ff5050' : (orbital.heat > 70 ? '#ffb35a' : '#bfce72');
+  }
   if (orbital.range >= 100){
     gotoEntry();
   }
@@ -2298,39 +2358,70 @@ function drawOrbital(){
     c.fillRect(l.x, l.y - 4, 1, 7);
   }
 
-  // ship — chunky pixel viewed from above
+  // ship — chunky pixel viewed from above, BANKS with lateral velocity
   if (orbital.alive){
     const sx = orbital.ship.x, sy = orbital.ship.y;
+    const bank = orbital.ship.bank;   // -1..+1
     // shadow
     c.fillStyle = 'rgba(0, 0, 0, 0.4)';
     c.fillRect(sx - 8, sy + 8, 16, 2);
-    // body
+    // bank visual = scale the wing-width along x by (1 - |bank|·0.5)
+    // and offset the cockpit slightly toward the lean direction
+    const wingScale = 1 - Math.abs(bank) * 0.45;
+    const wingL = Math.round(11 * wingScale);
+    const tipOff = Math.round(bank * 6);
+    // body — slightly rolled
     c.fillStyle = '#101015';
     c.beginPath();
     c.moveTo(sx, sy - 10);
-    c.lineTo(sx - 11, sy + 6);
-    c.lineTo(sx - 8, sy + 8);
-    c.lineTo(sx + 8, sy + 8);
-    c.lineTo(sx + 11, sy + 6);
+    c.lineTo(sx - wingL, sy + 6);
+    c.lineTo(sx - wingL + 3, sy + 8);
+    c.lineTo(sx + wingL - 3, sy + 8);
+    c.lineTo(sx + wingL, sy + 6);
     c.closePath();
     c.fill();
-    // cockpit
+    // cockpit — shifts toward the bank direction
     c.fillStyle = PALETTE.blue;
-    c.fillRect(sx - 2, sy - 4, 4, 5);
+    c.fillRect(sx - 2 + tipOff * 0.4, sy - 4, 4, 5);
     c.fillStyle = PALETTE.cyan;
-    c.fillRect(sx - 1, sy - 3, 2, 2);
-    // wing tip lights
+    c.fillRect(sx - 1 + tipOff * 0.4, sy - 3, 2, 2);
+    // wing tip lights — UP wing tip catches MORE light when banked
     const lit = Math.floor(performance.now() / 220) % 2;
+    // left wing
+    const leftBright = bank > 0 ? 1 : 0.5;
     c.fillStyle = lit ? PALETTE.lred : PALETTE.red;
-    c.fillRect(sx - 12, sy + 5, 3, 3);
+    c.globalAlpha = leftBright;
+    c.fillRect(sx - wingL - 1, sy + 5, 3, 3);
+    // right wing
+    const rightBright = bank < 0 ? 1 : 0.5;
     c.fillStyle = lit ? PALETTE.lgreen : PALETTE.green;
-    c.fillRect(sx + 9, sy + 5, 3, 3);
+    c.globalAlpha = rightBright;
+    c.fillRect(sx + wingL - 2, sy + 5, 3, 3);
+    c.globalAlpha = 1;
+    // banked wing trim — bright streak along the leading edge of the
+    // wing that's tilted toward the camera (raised)
+    if (Math.abs(bank) > 0.15){
+      c.fillStyle = '#fff';
+      const trimX = bank > 0 ? sx + wingL - 6 : sx - wingL + 3;
+      c.fillRect(trimX, sy + 6, 3, 1);
+    }
     // thrust flame at the rear
     const flameLen = 6 + HANG_INPUT.w * 14;
-    c.fillStyle = `rgba(95, 245, 255, ${0.5 + Math.sin(performance.now() * 0.04) * 0.3})`;
+    // flame turns redder when overheating
+    const heatK = Math.min(1, Math.max(0, (orbital.heat - 60) / 60));
+    const flameR = 95 + heatK * 160;
+    const flameG = 245 - heatK * 200;
+    const flameB = 255 - heatK * 200;
+    c.fillStyle = `rgba(${flameR | 0}, ${flameG | 0}, ${flameB | 0}, ${0.5 + Math.sin(performance.now() * 0.04) * 0.3})`;
     c.fillRect(sx - 4, sy + 8, 8, flameLen);
     c.fillStyle = '#fff';
     c.fillRect(sx - 2, sy + 8, 4, flameLen * 0.5);
+    // OVERHEAT WARNING — red flash overlay across the whole canvas
+    if (orbital.heat > 100){
+      const wb = (Math.floor(performance.now() / 130) % 2) === 0;
+      c.fillStyle = wb ? 'rgba(255, 60, 60, 0.18)' : 'rgba(255, 60, 60, 0.04)';
+      c.fillRect(0, 0, orbital.W, orbital.H);
+    }
   }
   // debris/laser spark debris (shared particle pool from hangar)
   for (let i = shipParts.length - 1; i >= 0; i--){
@@ -2435,9 +2526,34 @@ function drawEntry(dt){
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// GROUND ASSAULT stub — placeholder while stage 03 is in development
+// STAGE 03 — GROUND ASSAULT  (side-scrolling low-altitude run)
+// world scrolls right→left under a player ship that moves freely on a
+// 2D plane. SAM towers, radar dishes, and enemy fighters spawn from the
+// right. SAMs launch homing-ish missiles up at the player. Radars
+// trigger SAMs when their dish aligns with the player. Enemy fighters
+// approach in formation and fire forward bullets. Player fires forward
+// twin bullets with Space; hull HP, distance bar, mission-complete at
+// distance = 100%.
 // ═════════════════════════════════════════════════════════════════════════
-const ground = { canvas: null, ctx: null, W: 320, H: 240, t: 0 };
+const ground = {
+  canvas: null, ctx: null,
+  W: 320, H: 240,
+  t: 0,
+  scroll: 0,        // px of world scrolled
+  baseScroll: 90,   // px/s base scroll speed
+  ship: { x: 64, y: 120, hp: 100, fireT: 0, hurtFlash: 0 },
+  bullets: [],      // {x, y, vx, vy}
+  enemyBullets: [], // ditto, traveling left
+  enemies: [],      // {kind:'sam'|'radar'|'fighter', x, y, ...}
+  sparks: [],
+  distance: 0,      // 0..100
+  alive: true,
+  ended: false,
+  spawnFighterT: 4.0,
+  spawnSamT: 3.0,
+  radarPing: 0,
+};
+
 function initGround(){
   ground.canvas = document.getElementById('groundCanvas');
   ground.ctx = ground.canvas.getContext('2d');
@@ -2445,10 +2561,261 @@ function initGround(){
   ground.canvas.height = ground.H;
   ground.ctx.imageSmoothingEnabled = false;
 }
-function drawGround(dt){
+function resetGround(){
+  ground.t = 0;
+  ground.scroll = 0;
+  ground.ship.x = 64; ground.ship.y = 120;
+  ground.ship.hp = 100;
+  ground.ship.fireT = 0;
+  ground.ship.hurtFlash = 0;
+  ground.bullets.length = 0;
+  ground.enemyBullets.length = 0;
+  ground.enemies.length = 0;
+  ground.sparks.length = 0;
+  ground.distance = 0;
+  ground.alive = true;
+  ground.ended = false;
+  ground.spawnFighterT = 4.0;
+  ground.spawnSamT = 3.0;
+  document.getElementById('groundFail').classList.remove('show');
+  document.getElementById('groundWin').classList.remove('show');
+}
+
+function spawnGroundEnemy(){
+  // weighted spawn: sam towers most common, radars + fighters less so
+  const r = Math.random();
+  if (r < 0.45){
+    // SAM tower — sits on the ground line at y=200, fires missile up
+    ground.enemies.push({
+      kind: 'sam', x: ground.W + 16, y: 200,
+      fireT: 1.6 + Math.random() * 1.4,
+      hp: 4, ang: -Math.PI / 4,
+    });
+  } else if (r < 0.78){
+    // radar dish — rotating; when its sweep faces left toward the
+    // player it pings a SAM nearby
+    ground.enemies.push({
+      kind: 'radar', x: ground.W + 12, y: 196,
+      ang: 0, hp: 3,
+    });
+  } else {
+    // enemy fighter — flies in from the right at the player's altitude
+    const y = 70 + Math.random() * 110;
+    ground.enemies.push({
+      kind: 'fighter', x: ground.W + 20, y,
+      vx: -110 - Math.random() * 40,
+      vy: 0, fireT: 0.6 + Math.random() * 1.4,
+      hp: 2,
+    });
+  }
+}
+
+function groundUpdate(dt){
+  if (ground.ended) return;
   ground.t += dt;
+  const scrollSpd = ground.baseScroll * (1 + HANG_INPUT.d * 0.6 - HANG_INPUT.a * 0.35);
+  ground.scroll += scrollSpd * dt;
+  ground.distance = Math.min(100, ground.distance + scrollSpd * dt * 0.024);
+
+  // ── PLAYER SHIP movement (W/S vertical, A/D horizontal w/in screen) ──
+  if (ground.alive){
+    ground.ship.y += (HANG_INPUT.s - HANG_INPUT.w) * 160 * dt;
+    ground.ship.x += (HANG_INPUT.d - HANG_INPUT.a) * 110 * dt;
+    if (ground.ship.y < 28) ground.ship.y = 28;
+    if (ground.ship.y > 190) ground.ship.y = 190;     // can't dive into ground
+    if (ground.ship.x < 14) ground.ship.x = 14;
+    if (ground.ship.x > ground.W * 0.65) ground.ship.x = ground.W * 0.65;
+    // hurt flash decay
+    if (ground.ship.hurtFlash > 0) ground.ship.hurtFlash -= dt;
+    // fire
+    ground.ship.fireT -= dt;
+  }
+
+  // ── spawn enemies ──
+  if (ground.alive){
+    ground.spawnFighterT -= dt;
+    ground.spawnSamT -= dt;
+    if (ground.spawnSamT <= 0){
+      spawnGroundEnemy();
+      ground.spawnSamT = 1.8 + Math.random() * 1.4;
+    }
+  }
+
+  // ── update enemies ──
+  for (let i = ground.enemies.length - 1; i >= 0; i--){
+    const e = ground.enemies[i];
+    if (e.kind === 'sam' || e.kind === 'radar'){
+      // ground-anchored — scroll with the world
+      e.x -= scrollSpd * dt;
+      if (e.kind === 'radar'){
+        e.ang += dt * 1.8;
+        // when the dish is pointing toward the player and the player is
+        // upper-ish in the air, trigger a spawn nearby
+        if (Math.abs(Math.cos(e.ang) - 1) < 0.1 && Math.random() < 0.18){
+          ground.enemies.push({
+            kind: 'sam', x: e.x - 24, y: 200,
+            fireT: 0.6 + Math.random() * 0.8,
+            hp: 3, ang: -Math.PI / 4,
+          });
+        }
+      } else if (e.kind === 'sam'){
+        e.fireT -= dt;
+        if (e.fireT <= 0 && e.x > 18 && e.x < ground.W - 4){
+          // aim ish toward player
+          const dx = ground.ship.x - e.x, dy = ground.ship.y - e.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          ground.enemyBullets.push({
+            kind: 'missile',
+            x: e.x, y: e.y - 8,
+            vx: dx / len * 100, vy: dy / len * 100,
+            seek: 0.9,
+            life: 4.5, age: 0,
+          });
+          e.fireT = 2.4 + Math.random() * 1.6;
+          sfxLaunch();
+        }
+      }
+      if (e.x < -28) ground.enemies.splice(i, 1);
+    } else if (e.kind === 'fighter'){
+      e.x += e.vx * dt;
+      // little sin wobble vertical
+      e.vy = Math.sin(ground.t * 2 + e.x * 0.04) * 30;
+      e.y += e.vy * dt;
+      e.fireT -= dt;
+      if (e.fireT <= 0 && e.x > ground.ship.x){
+        ground.enemyBullets.push({
+          kind: 'bullet', x: e.x - 8, y: e.y,
+          vx: -180, vy: 0, life: 3, age: 0,
+        });
+        e.fireT = 1.2 + Math.random() * 0.6;
+      }
+      if (e.x < -30) ground.enemies.splice(i, 1);
+    }
+  }
+
+  // ── update player bullets ──
+  for (let i = ground.bullets.length - 1; i >= 0; i--){
+    const b = ground.bullets[i];
+    b.x += b.vx * dt;
+    if (b.x > ground.W + 8) { ground.bullets.splice(i, 1); continue; }
+    // collide with enemies
+    for (let j = ground.enemies.length - 1; j >= 0; j--){
+      const e = ground.enemies[j];
+      const r = e.kind === 'sam' ? 10 : e.kind === 'radar' ? 10 : 8;
+      if (Math.abs(e.x - b.x) < r && Math.abs(e.y - b.y) < r){
+        e.hp -= 1;
+        ground.bullets.splice(i, 1);
+        spawnGroundSpark(b.x, b.y, PALETTE.yellow);
+        if (e.hp <= 0){
+          spawnGroundExplosion(e.x, e.y, e.kind === 'fighter' ? PALETTE.lred : PALETTE.orange);
+          ground.enemies.splice(j, 1);
+          sfxImpact();
+        }
+        break;
+      }
+    }
+  }
+
+  // ── update enemy bullets ──
+  for (let i = ground.enemyBullets.length - 1; i >= 0; i--){
+    const b = ground.enemyBullets[i];
+    b.age += dt;
+    if (b.age >= b.life){ ground.enemyBullets.splice(i, 1); continue; }
+    // missiles seek the player a bit
+    if (b.kind === 'missile'){
+      const dx = ground.ship.x - b.x, dy = ground.ship.y - b.y;
+      const len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      b.vx += (dx / len) * 90 * dt;
+      b.vy += (dy / len) * 90 * dt;
+      // cap speed
+      const sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+      const maxSp = 180;
+      if (sp > maxSp){ b.vx *= maxSp / sp; b.vy *= maxSp / sp; }
+    }
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    if (b.x < -10 || b.x > ground.W + 10 || b.y < -10 || b.y > ground.H + 10){
+      ground.enemyBullets.splice(i, 1); continue;
+    }
+    if (ground.alive){
+      const dx = ground.ship.x - b.x, dy = ground.ship.y - b.y;
+      if (dx * dx + dy * dy < 64){
+        ground.ship.hp -= (b.kind === 'missile' ? 22 : 10);
+        ground.ship.hurtFlash = 0.25;
+        ground.enemyBullets.splice(i, 1);
+        spawnGroundExplosion(ground.ship.x, ground.ship.y, PALETTE.lred);
+        sfxImpact();
+        if (ground.ship.hp <= 0) groundDie();
+      }
+    }
+  }
+
+  // ── update sparks ──
+  for (let i = ground.sparks.length - 1; i >= 0; i--){
+    const p = ground.sparks[i];
+    p.age += dt;
+    if (p.age >= p.life){ ground.sparks.splice(i, 1); continue; }
+    p.vy += 80 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+
+  // ── mission complete? ──
+  if (ground.distance >= 100 && !ground.ended){
+    ground.ended = true;
+    document.getElementById('groundWin').classList.add('show');
+    sfxLaunchConfirm();
+  }
+
+  // HUD update
+  document.getElementById('grHpVal').textContent = Math.max(0, Math.round(ground.ship.hp));
+  document.getElementById('grHpFill').style.width = Math.max(0, ground.ship.hp) + '%';
+  document.getElementById('grProgVal').textContent = String(Math.floor(ground.distance)).padStart(3, '0');
+  document.getElementById('grProgFill').style.width = ground.distance + '%';
+}
+
+function fireGroundBullets(){
+  if (scene !== 'ground' || !ground.alive || ground.ended) return;
+  if (ground.ship.fireT > 0) return;
+  ground.bullets.push({ x: ground.ship.x + 12, y: ground.ship.y - 3, vx: 320, vy: 0 });
+  ground.bullets.push({ x: ground.ship.x + 12, y: ground.ship.y + 3, vx: 320, vy: 0 });
+  ground.ship.fireT = 0.18;
+  sfxAuthChirp();
+}
+
+function spawnGroundSpark(x, y, color){
+  for (let k = 0; k < 6; k++){
+    const a = Math.random() * Math.PI * 2;
+    const sp = 40 + Math.random() * 80;
+    ground.sparks.push({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
+      r: 1, color, life: 0.4 + Math.random() * 0.2, age: 0,
+    });
+  }
+}
+function spawnGroundExplosion(x, y, color){
+  for (let k = 0; k < 14; k++){
+    const a = Math.random() * Math.PI * 2;
+    const sp = 60 + Math.random() * 140;
+    ground.sparks.push({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40,
+      r: 1 + Math.floor(Math.random() * 2),
+      color: Math.random() < 0.4 ? PALETTE.yellow : color,
+      life: 0.5 + Math.random() * 0.4, age: 0,
+    });
+  }
+}
+
+function groundDie(){
+  if (ground.ended) return;
+  ground.alive = false;
+  ground.ended = true;
+  document.getElementById('groundFail').classList.add('show');
+}
+
+function drawGround(dt){
+  groundUpdate(dt);
   const c = ground.ctx;
-  // dawn sky gradient
+  // dawn sky gradient (cached per-frame because pixels are cheap)
   for (let y = 0; y < ground.H * 0.6; y++){
     const k = y / (ground.H * 0.6);
     const r = Math.floor(80 + k * 160);
@@ -2457,65 +2824,211 @@ function drawGround(dt){
     c.fillStyle = `rgb(${r},${g},${b})`;
     c.fillRect(0, y, ground.W, 1);
   }
-  // ground line + snow
+  // parallax skyline of moscow + onion domes (slow scroll)
+  c.fillStyle = '#1c1410';
+  const bgOff = (ground.scroll * 0.3) % 320;
+  for (let pass = 0; pass < 2; pass++){
+    const baseX = pass * 320 - bgOff;
+    // kremlin wall band
+    c.fillStyle = '#3a2418';
+    c.fillRect(baseX + 40, 108, 240, 36);
+    c.fillStyle = '#5a3818';
+    for (let x = baseX + 40; x < baseX + 280; x += 8){
+      c.fillRect(x, 104, 4, 4);
+    }
+    // tower spires
+    const spireX = [baseX + 60, baseX + 120, baseX + 200, baseX + 260];
+    for (const sx of spireX){
+      if (sx < -20 || sx > ground.W + 20) continue;
+      c.fillStyle = '#1c1410';
+      c.fillRect(sx - 6, 72, 12, 36);
+      c.fillStyle = PALETTE.lred;
+      c.beginPath();
+      c.arc(sx, 72, 8, Math.PI, 0);
+      c.fill();
+      c.fillStyle = PALETTE.yellow;
+      c.fillRect(sx - 1, 60, 2, 4);
+      c.fillRect(sx - 2, 62, 4, 1);
+    }
+  }
+  // mid-ground tree line + power lines (medium scroll)
+  c.fillStyle = '#0a1408';
+  const midOff = (ground.scroll * 0.6) % 32;
+  for (let x = -midOff; x < ground.W; x += 32){
+    c.beginPath();
+    c.moveTo(x, 168);
+    c.lineTo(x + 6, 158);
+    c.lineTo(x + 12, 162);
+    c.lineTo(x + 20, 155);
+    c.lineTo(x + 28, 162);
+    c.lineTo(x + 32, 168);
+    c.closePath();
+    c.fill();
+  }
+  // ground line + snow streaks (fast scroll)
   c.fillStyle = '#1c1c2a';
-  c.fillRect(0, ground.H * 0.6, ground.W, ground.H * 0.4);
+  c.fillRect(0, 200, ground.W, 40);
   c.fillStyle = '#fff';
+  const fastOff = (ground.scroll * 1.4) % 320;
   for (let i = 0; i < 80; i++){
-    const x = ((i * 73 + ground.t * 12) % ground.W);
-    const y = ground.H * 0.6 + ((i * 17) % (ground.H * 0.4));
+    const x = ((i * 73 - fastOff) % ground.W + ground.W) % ground.W;
+    const y = 200 + ((i * 17) % 40);
     c.fillRect(x, y, 1, 1);
   }
-  // pixel skyline of moscow — kremlin walls + onion domes
-  c.fillStyle = '#3a2418';
-  c.fillRect(40, ground.H * 0.45, ground.W - 80, ground.H * 0.18);
-  // walls + crenellations
-  c.fillStyle = '#5a3818';
-  for (let x = 40; x < ground.W - 40; x += 8){
-    c.fillRect(x, ground.H * 0.45 - 4, 4, 4);
+  // small fast tracer streaks on the ground for speed feel
+  c.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  for (let i = 0; i < 16; i++){
+    const x = ((i * 19 - fastOff * 1.4) % ground.W + ground.W) % ground.W;
+    const y = 204 + ((i * 7) % 18);
+    c.fillRect(x, y, 4, 1);
   }
-  // tower spires
-  const spireX = [60, 120, 200, 260];
-  for (const sx of spireX){
-    c.fillStyle = '#1c1410';
-    c.fillRect(sx - 6, ground.H * 0.30, 12, ground.H * 0.15);
-    // dome
-    c.fillStyle = PALETTE.lred;
-    c.beginPath();
-    c.arc(sx, ground.H * 0.30, 8, Math.PI, 0);
-    c.fill();
-    // dome cross
+
+  // ── ENEMIES ──
+  for (const e of ground.enemies){
+    if (e.kind === 'sam'){
+      // base
+      c.fillStyle = '#0a0a10';
+      c.fillRect(e.x - 7, 204, 14, 6);
+      // pillar
+      c.fillStyle = '#1a1a28';
+      c.fillRect(e.x - 2, 190, 4, 16);
+      // launcher tube
+      c.save();
+      c.translate(e.x, 192);
+      const aimDX = ground.ship.x - e.x, aimDY = ground.ship.y - 192;
+      const aimAng = Math.atan2(aimDY, aimDX);
+      c.rotate(aimAng);
+      c.fillStyle = '#202028';
+      c.fillRect(0, -2, 16, 4);
+      c.fillStyle = PALETTE.red;
+      c.fillRect(13, -2, 3, 4);
+      c.restore();
+    } else if (e.kind === 'radar'){
+      // base
+      c.fillStyle = '#0a0a10';
+      c.fillRect(e.x - 8, 204, 16, 6);
+      // mast
+      c.fillStyle = '#1a1a28';
+      c.fillRect(e.x - 1, 184, 2, 20);
+      // dish — drawn as a rotating arc
+      c.save();
+      c.translate(e.x, 184);
+      c.rotate(e.ang);
+      c.fillStyle = '#5b6878';
+      c.beginPath();
+      c.moveTo(-9, 0);
+      c.lineTo(9, -3);
+      c.lineTo(9, 3);
+      c.closePath();
+      c.fill();
+      c.fillStyle = PALETTE.cyan;
+      c.fillRect(7, -1, 2, 2);
+      c.restore();
+      // ping ring when the dish faces left
+      if (Math.cos(e.ang) < -0.7){
+        const ringR = 8 + (Math.sin(ground.t * 4) + 1) * 6;
+        c.strokeStyle = `rgba(95, 245, 255, ${(0.6 - ringR / 20).toFixed(2)})`;
+        c.lineWidth = 1;
+        c.beginPath(); c.arc(e.x, 184, ringR, 0, Math.PI * 2); c.stroke();
+      }
+    } else if (e.kind === 'fighter'){
+      // small angry pixel fighter — body
+      c.fillStyle = '#2a1410';
+      c.beginPath();
+      c.moveTo(e.x - 9, e.y);
+      c.lineTo(e.x - 2, e.y - 5);
+      c.lineTo(e.x + 6, e.y - 4);
+      c.lineTo(e.x + 9, e.y);
+      c.lineTo(e.x + 6, e.y + 4);
+      c.lineTo(e.x - 2, e.y + 5);
+      c.closePath();
+      c.fill();
+      // cockpit
+      c.fillStyle = PALETTE.red;
+      c.fillRect(e.x + 1, e.y - 2, 3, 4);
+      // engine glow
+      c.fillStyle = PALETTE.yellow;
+      c.fillRect(e.x + 7, e.y - 1, 3, 2);
+    }
+  }
+
+  // ── BULLETS ──
+  for (const b of ground.bullets){
     c.fillStyle = PALETTE.yellow;
-    c.fillRect(sx - 1, ground.H * 0.30 - 12, 2, 4);
-    c.fillRect(sx - 2, ground.H * 0.30 - 10, 4, 1);
+    c.fillRect(b.x - 3, b.y - 1, 6, 2);
+    c.fillStyle = '#fff';
+    c.fillRect(b.x, b.y - 1, 3, 2);
   }
-  // central red star (kremlin)
-  const cx = ground.W / 2, cy = ground.H * 0.36;
-  c.fillStyle = PALETTE.lred;
-  c.beginPath();
-  for (let i = 0; i < 5; i++){
-    const a1 = -Math.PI / 2 + (i / 5) * Math.PI * 2;
-    const a2 = a1 + Math.PI / 5;
-    c.lineTo(cx + Math.cos(a1) * 8, cy + Math.sin(a1) * 8);
-    c.lineTo(cx + Math.cos(a2) * 3.4, cy + Math.sin(a2) * 3.4);
+  // enemy bullets / missiles
+  for (const b of ground.enemyBullets){
+    if (b.kind === 'missile'){
+      c.fillStyle = PALETTE.lred;
+      c.fillRect(b.x - 2, b.y - 2, 4, 4);
+      c.fillStyle = PALETTE.yellow;
+      c.fillRect(b.x - 1, b.y - 1, 2, 2);
+      // tiny rear flame trail
+      c.fillStyle = `rgba(255, 255, 255, ${(0.6 + Math.sin(ground.t * 30) * 0.3).toFixed(2)})`;
+      c.fillRect(b.x - 4, b.y, 2, 1);
+    } else {
+      c.fillStyle = PALETTE.red;
+      c.fillRect(b.x - 2, b.y - 1, 5, 2);
+    }
   }
-  c.closePath(); c.fill();
-  // SAM site silhouettes — three angled launchers along the bottom
-  c.fillStyle = '#0a0a0a';
-  for (const samX of [80, 160, 240]){
-    c.fillRect(samX - 6, ground.H * 0.75, 12, 4);
-    c.fillRect(samX - 1, ground.H * 0.75 - 8, 2, 9);
-    // launcher tubes pointing up at an angle
-    c.save();
-    c.translate(samX, ground.H * 0.75);
-    c.rotate(-Math.PI / 4 + Math.sin(ground.t * 0.6 + samX) * 0.18);
-    c.fillStyle = '#202020';
-    c.fillRect(-1, -14, 2, 14);
-    c.fillStyle = PALETTE.red;
-    c.fillRect(-1, -14, 2, 2);
-    c.restore();
+
+  // ── PLAYER SHIP ──
+  if (ground.alive){
+    const sx = ground.ship.x, sy = ground.ship.y;
+    // shadow on the ground
+    c.fillStyle = 'rgba(0, 0, 0, 0.42)';
+    c.fillRect(sx - 9, 208, 18, 2);
+    // body
+    c.fillStyle = ground.ship.hurtFlash > 0 ? '#ff5050' : '#101015';
+    c.beginPath();
+    c.moveTo(sx + 14, sy);
+    c.lineTo(sx + 4, sy - 7);
+    c.lineTo(sx - 6, sy - 11);
+    c.lineTo(sx - 14, sy - 6);
+    c.lineTo(sx - 14, sy + 6);
+    c.lineTo(sx - 6, sy + 11);
+    c.lineTo(sx + 4, sy + 7);
+    c.closePath();
+    c.fill();
+    // cockpit canopy
+    c.fillStyle = PALETTE.blue;
+    c.fillRect(sx + 4, sy - 2, 5, 4);
+    c.fillStyle = PALETTE.cyan;
+    c.fillRect(sx + 5, sy - 1, 3, 1);
+    // wing nav lights (red on top, green on bottom — banked from above)
+    const lit = Math.floor(ground.t * 5) % 2;
+    c.fillStyle = lit ? PALETTE.lred : PALETTE.red;
+    c.fillRect(sx - 8, sy - 12, 3, 3);
+    c.fillStyle = lit ? PALETTE.lgreen : PALETTE.green;
+    c.fillRect(sx - 8, sy + 9, 3, 3);
+    // rear engine glow
+    const enginePulse = 0.5 + Math.sin(ground.t * 18) * 0.5;
+    c.fillStyle = `rgba(95, 245, 255, ${(0.55 + enginePulse * 0.35).toFixed(2)})`;
+    c.fillRect(sx - 18, sy - 2, 5, 4);
+    c.fillStyle = '#fff';
+    c.fillRect(sx - 14, sy - 1, 2, 2);
   }
+
+  // ── SPARKS (drawn last so they sit on top) ──
+  for (const p of ground.sparks){
+    const a = 1 - p.age / p.life;
+    c.fillStyle = p.color;
+    c.globalAlpha = a;
+    c.fillRect(Math.round(p.x), Math.round(p.y), p.r, p.r);
+  }
+  c.globalAlpha = 1;
 }
+
+// Bind Space in ground scene to fire
+document.addEventListener('keydown', (e) => {
+  if (scene === 'ground' && (e.code === 'Space' || e.code === 'KeyF')){
+    e.preventDefault();
+    fireGroundBullets();
+  }
+});
 
 // ── SCENE TRANSITIONS ─────────────────────────────────────────────
 function gotoOrbital(){
@@ -2541,7 +3054,7 @@ function gotoGround(){
   scene = 'ground';
   document.getElementById('entryScene').classList.remove('show');
   document.getElementById('groundScene').classList.add('show');
-  ground.t = 0;
+  resetGround();
   sfxLaunchConfirm();
 }
 
@@ -2554,7 +3067,10 @@ document.getElementById('orbFailBtn').addEventListener('click', () => {
   scene = 'briefing';
   document.getElementById('proceedScreen').classList.add('show');
 });
-document.getElementById('groundBackBtn').addEventListener('click', () => {
+document.getElementById('groundFailBtn').addEventListener('click', () => {
+  resetGround();
+});
+document.getElementById('groundWinBtn').addEventListener('click', () => {
   document.getElementById('groundScene').classList.remove('show');
   backToTitle();
 });
