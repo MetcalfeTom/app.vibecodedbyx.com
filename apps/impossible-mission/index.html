@@ -305,8 +305,8 @@
         <div><span class="kb">←</span> <span class="kb">→</span> move</div>
         <div><span class="kb">↑</span> / <span class="kb">W</span> jump &nbsp; inside elevator: change floor</div>
         <div><span class="kb">↓</span> / <span class="kb">S</span> search furniture · take elevator down</div>
-        <div>find <b>9 PUZZLE PIECES</b> · 6 hours on the clock</div>
-        <div>avoid the sentry robots</div>
+        <div>find <b>9 PUZZLE PIECES</b> across <b>32 ROOMS</b> · 6 hours on the clock</div>
+        <div>avoid the sentry robots · 8 floors connected by the elevator shaft</div>
       </div>
       <button id="startBtn" type="button">▲ INFILTRATE ▲</button>
     </div>
@@ -362,84 +362,248 @@ const PAL = {
   grey:'#787878', lgreen:'#94e089', lblue:'#7869c4', lgrey:'#9f9f9f',
 };
 
-// ── BUILDING LAYOUT ─────────────────────────────────────────────────────
-// 3 floors. Floor 0 = bottom. Each floor is 50px tall in logical pixels.
-// Top bar reserved 20px so the gameplay area is 20..200 (180px) → 3 × 60px.
-const FLOOR_COUNT = 3;
-const FLOOR_TOP = 24;            // pixels from top where the floor stack begins
-const FLOOR_HEIGHT = 56;          // visual height of each floor (incl floor line)
-const FLOOR_LINE_OFFSET = 50;     // y position of the WALKABLE floor inside each floor band
-// The elevator shaft is a vertical strip at x = 144..176 (32px wide). Furniture
-// must avoid this strip. Floor lines are continuous across; the shaft just has
-// open doorways at each floor level.
-const SHAFT_X = 144;
+// ── WORLD LAYOUT (data-driven tilemap) ──────────────────────────────────
+// 8 floors × 4 rooms-per-floor = 32 rooms. Each room is one screen wide
+// (320px) in world coordinates. The world is 1280 wide and ~472 tall.
+// The elevator shaft runs through the center of every floor, straddling
+// the boundary between rooms 1 and 2. The camera scrolls horizontally
+// AND vertically to follow the agent through the building.
+const FLOOR_COUNT = 8;
+const ROOMS_PER_FLOOR = 4;
+const ROOM_COUNT = FLOOR_COUNT * ROOMS_PER_FLOOR;   // 32
+const ROOM_W = 320;                                  // one screen wide per room
+const WORLD_W = ROOM_W * ROOMS_PER_FLOOR;            // 1280
+const FLOOR_TOP = 24;
+const FLOOR_HEIGHT = 56;
+const FLOOR_LINE_OFFSET = 50;
+const WORLD_H = FLOOR_TOP + FLOOR_COUNT * FLOOR_HEIGHT; // 472
+
+// Elevator shaft centered on the world (between rooms 1 and 2)
 const SHAFT_W = 32;
-const SHAFT_RIGHT = SHAFT_X + SHAFT_W;
+const SHAFT_X = Math.floor(WORLD_W / 2) - SHAFT_W / 2;  // 624
+const SHAFT_RIGHT = SHAFT_X + SHAFT_W;                  // 656
 
 function floorY(idx){
-  // walkable floor surface y for floor `idx` (0 = bottom). Returns the
-  // y-coordinate of the FLOOR LINE the player stands on.
+  // worldY of floor `idx`'s walkable surface (0 = bottom).
   return FLOOR_TOP + (FLOOR_COUNT - 1 - idx) * FLOOR_HEIGHT + FLOOR_LINE_OFFSET;
 }
+function roomForWorldX(wx){
+  return Math.max(0, Math.min(ROOMS_PER_FLOOR - 1, Math.floor(wx / ROOM_W)));
+}
+function inShaftWorld(wx){
+  return wx > SHAFT_X - 6 && wx < SHAFT_RIGHT + 6;
+}
 
-// ── FURNITURE — searchable items ────────────────────────────────────────
-// Each floor gets up to 4 pieces of furniture in the left + right room.
-// 12 total slots; 9 contain puzzle pieces (randomly), 3 are decoys.
-const FURNITURE_KINDS = ['terminal', 'cabinet', 'sofa', 'chair'];
-let furniture = [];     // {x, y, w, h, kind, floor, searched, hasPiece, searchT}
+// ── ROOM TEMPLATES — reusable furniture + sentry blueprints ─────────────
+// Each template defines an arrangement of furniture in room-local space
+// (0..320) plus an optional robot. The same template can appear in many
+// rooms; thematic variety comes from window/accent colors per template.
+const ROOM_TEMPLATES = [
+  // 0 — library: tall bookcases + reading chair, lazy patroller
+  { name: 'library', accent: 'orange', windowKind: 'arched',
+    furniture: [
+      { kind: 'cabinet', localX: 38 },
+      { kind: 'cabinet', localX: 240 },
+      { kind: 'chair',   localX: 110 },
+    ],
+    robot: { kind: 'patrol', side: 'left', vx: 28 },
+  },
+  // 1 — lab: terminals and a supplies cabinet, accurate shooter
+  { name: 'lab', accent: 'cyan', windowKind: 'square',
+    furniture: [
+      { kind: 'terminal', localX: 60 },
+      { kind: 'terminal', localX: 260 },
+      { kind: 'cabinet',  localX: 170 },
+    ],
+    robot: { kind: 'shooter', side: 'right', vx: 26 },
+  },
+  // 2 — lounge: sofas, decoy chair, NO sentry (rest stop)
+  { name: 'lounge', accent: 'purple', windowKind: 'wide',
+    furniture: [
+      { kind: 'sofa',  localX: 50 },
+      { kind: 'sofa',  localX: 220 },
+      { kind: 'chair', localX: 140 },
+    ],
+    robot: null,
+  },
+  // 3 — control room: command terminal, comm sofa, spinner turret
+  { name: 'control', accent: 'green', windowKind: 'square',
+    furniture: [
+      { kind: 'terminal', localX: 50 },
+      { kind: 'sofa',     localX: 170 },
+      { kind: 'chair',    localX: 250 },
+    ],
+    robot: { kind: 'spinner', x: 270 },
+  },
+  // 4 — storage: file cabinets everywhere, fast patroller
+  { name: 'storage', accent: 'brown', windowKind: 'tall',
+    furniture: [
+      { kind: 'cabinet', localX: 40 },
+      { kind: 'cabinet', localX: 110 },
+      { kind: 'cabinet', localX: 220 },
+      { kind: 'cabinet', localX: 282 },
+    ],
+    robot: { kind: 'patrol', side: 'right', vx: 38 },
+  },
+  // 5 — office: desk terminal, swivel chair, file cabinet, slow patrol
+  { name: 'office', accent: 'yellow', windowKind: 'square',
+    furniture: [
+      { kind: 'terminal', localX: 80 },
+      { kind: 'chair',    localX: 150 },
+      { kind: 'cabinet',  localX: 230 },
+    ],
+    robot: { kind: 'patrol', side: 'left', vx: 24 },
+  },
+  // 6 — hallway: empty bench, twitchy shooter
+  { name: 'hallway', accent: 'red', windowKind: 'tall',
+    furniture: [
+      { kind: 'sofa', localX: 130 },
+    ],
+    robot: { kind: 'shooter', side: 'right', vx: 22 },
+  },
+  // 7 — vault: pedestal terminal flanked by safes, spinner guardian
+  { name: 'vault', accent: 'cyan', windowKind: 'arched',
+    furniture: [
+      { kind: 'terminal', localX: 140 },
+      { kind: 'cabinet',  localX: 50 },
+      { kind: 'cabinet',  localX: 250 },
+    ],
+    robot: { kind: 'spinner', x: 160 },
+  },
+  // 8 — atrium: lounge feel with two sofas, no sentry
+  { name: 'atrium', accent: 'green', windowKind: 'wide',
+    furniture: [
+      { kind: 'sofa',  localX: 60 },
+      { kind: 'sofa',  localX: 230 },
+    ],
+    robot: null,
+  },
+  // 9 — server room: dense terminal cluster, shooter
+  { name: 'servers', accent: 'lblue', windowKind: 'square',
+    furniture: [
+      { kind: 'terminal', localX: 40 },
+      { kind: 'terminal', localX: 110 },
+      { kind: 'terminal', localX: 220 },
+      { kind: 'terminal', localX: 285 },
+    ],
+    robot: { kind: 'shooter', side: 'left', vx: 30 },
+  },
+  // 10 — break room: chair + sofa + cabinet
+  { name: 'break room', accent: 'orange', windowKind: 'wide',
+    furniture: [
+      { kind: 'chair',   localX: 70 },
+      { kind: 'sofa',    localX: 160 },
+      { kind: 'cabinet', localX: 270 },
+    ],
+    robot: { kind: 'patrol', side: 'left', vx: 20 },
+  },
+  // 11 — archive: cabinets + reading terminal
+  { name: 'archive', accent: 'brown', windowKind: 'arched',
+    furniture: [
+      { kind: 'cabinet',  localX: 38 },
+      { kind: 'terminal', localX: 150 },
+      { kind: 'cabinet',  localX: 282 },
+    ],
+    robot: { kind: 'spinner', x: 100 },
+  },
+];
+
+// ── ROOM INSTANCES — 32 rooms, deterministic template assignment ────────
+const ROOMS = [];
+for (let f = 0; f < FLOOR_COUNT; f++){
+  for (let r = 0; r < ROOMS_PER_FLOOR; r++){
+    // hash-style pick so adjacent rooms feel distinct
+    const tIdx = (f * 5 + r * 3 + ((f * r) | 0)) % ROOM_TEMPLATES.length;
+    ROOMS.push({
+      floor: f,
+      roomIdx: r,
+      worldX: r * ROOM_W,
+      template: ROOM_TEMPLATES[tIdx],
+    });
+  }
+}
+
+// ── FURNITURE — searchable items, world-coord positioned ────────────────
+let furniture = [];
 function buildFurniture(){
   furniture = [];
-  // hand-placed slots — 2 per floor side, avoiding the elevator shaft
-  const slotsPerFloor = [
-    // left room (x ~ 16..130) + right room (x ~ 184..304)
-    [22, 50,  88, 110, 192, 224, 262, 290],   // 8 x's; pick 4 per floor
-  ];
-  // For each floor, we pick 4 x positions
-  const used = [];
-  for (let f = 0; f < FLOOR_COUNT; f++){
-    const xs = [22, 60, 96, 192, 232, 270];
-    for (let i = 0; i < 4; i++){
-      // pick 4 xs (cycle through the array with offset)
-      const x = xs[(i * 2 + f) % xs.length];
-      const kind = FURNITURE_KINDS[(i + f) % FURNITURE_KINDS.length];
+  for (const room of ROOMS){
+    const fy = floorY(room.floor);
+    for (const item of room.template.furniture){
+      const worldX = room.worldX + item.localX;
+      // skip slots that would land inside or right next to the shaft
+      if (worldX + 12 > SHAFT_X - 8 && worldX - 12 < SHAFT_RIGHT + 8) continue;
+      const kind = item.kind;
       const w = kind === 'sofa' ? 30 : (kind === 'chair' ? 14 : 18);
       const h = kind === 'terminal' ? 22 : (kind === 'cabinet' ? 26 : (kind === 'sofa' ? 14 : 16));
-      // y: anchored to the floor line — furniture sits ON the floor
-      const fy = floorY(f);
       furniture.push({
-        x, y: fy - h, w, h, kind, floor: f,
-        searched: false, hasPiece: false,
-        searchT: 0,
+        x: worldX, y: fy - h, w, h, kind,
+        floor: room.floor, roomIdx: room.roomIdx,
+        searched: false, hasPiece: false, searchT: 0,
       });
     }
   }
-  // sprinkle puzzle pieces — pick 9 of the 12 slots randomly
-  const indexes = [...furniture.keys()];
-  for (let i = indexes.length - 1; i > 0; i--){
-    const j = Math.floor(Math.random() * (i + 1));
-    [indexes[i], indexes[j]] = [indexes[j], indexes[i]];
+  // distribute 9 puzzle pieces across all furniture (seeded shuffle so each
+  // run is mixed but reproducible within a session)
+  const idx = [...furniture.keys()];
+  let s = (Date.now() * 2654435761) >>> 0;
+  const rng = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
+  for (let i = idx.length - 1; i > 0; i--){
+    const j = Math.floor(rng() * (i + 1));
+    [idx[i], idx[j]] = [idx[j], idx[i]];
   }
-  for (let i = 0; i < 9 && i < indexes.length; i++){
-    furniture[indexes[i]].hasPiece = true;
+  for (let i = 0; i < 9 && i < idx.length; i++){
+    furniture[idx[i]].hasPiece = true;
   }
 }
 
-// ── ENEMIES — one sentry robot per floor ────────────────────────────────
+// ── ROBOTS — one optional sentry per room, world-coord positioned ───────
 const robots = [];
 function buildRobots(){
   robots.length = 0;
-  for (let f = 0; f < FLOOR_COUNT; f++){
-    // robots patrol the LEFT room only by default — players can hop via
-    // elevator to skip floors with active sentries
+  for (const room of ROOMS){
+    const tmpl = room.template;
+    if (!tmpl.robot) continue;
+    const r = tmpl.robot;
+    const baseY = floorY(room.floor);
+    const half = room.worldX + ROOM_W / 2;
+    let minX, maxX, x;
+    if (r.kind === 'spinner'){
+      x = room.worldX + (r.x ?? ROOM_W / 2);
+      minX = x; maxX = x;
+    } else {
+      if (r.side === 'left'){
+        minX = room.worldX + 22;
+        maxX = half - 10;
+      } else if (r.side === 'right'){
+        minX = half + 10;
+        maxX = room.worldX + ROOM_W - 22;
+      } else {
+        minX = room.worldX + 22;
+        maxX = room.worldX + ROOM_W - 22;
+      }
+      // clip patrol path so it never runs into the elevator shaft
+      if (maxX > SHAFT_X - 6 && minX < SHAFT_RIGHT + 6){
+        if ((minX + maxX) / 2 < SHAFT_X){
+          maxX = Math.min(maxX, SHAFT_X - 8);
+        } else {
+          minX = Math.max(minX, SHAFT_RIGHT + 8);
+        }
+      }
+      if (maxX - minX < 12){ // collapsed — skip this robot
+        continue;
+      }
+      x = (minX + maxX) / 2;
+    }
     robots.push({
-      floor: f,
-      x: 80 + f * 30,
-      y: floorY(f) - 16,
-      vx: (f % 2 === 0 ? -1 : 1) * 30,
-      side: f % 2 === 0 ? 'left' : 'right',
-      kind: f === 0 ? 'patrol' : (f === 1 ? 'spinner' : 'shooter'),
-      fireT: 1.5 + Math.random(),
-      eyeAng: 0,
+      floor: room.floor,
+      roomIdx: room.roomIdx,
+      kind: r.kind,
+      x, y: r.kind === 'spinner' ? baseY - 4 : baseY - 16,
+      vx: r.kind === 'spinner' ? 0 : (r.vx || 30) * (Math.random() < 0.5 ? -1 : 1),
+      minX, maxX,
+      fireT: 1.5 + Math.random() * 0.6,
+      eyeAng: Math.random() * Math.PI * 2,
     });
   }
 }
@@ -476,6 +640,26 @@ const elevator = {
   targetFloor: 0,
   moving: false,
 };
+
+// ── CAMERA ──────────────────────────────────────────────────────────────
+// Logical viewport is 320×200; world is 1280×472. View tracks the agent
+// with separate lerps for X and Y so vertical floor changes feel calmer
+// than horizontal sprint scrolling.
+const view = { x: 0, y: 0, tx: 0, ty: 0 };
+function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
+function updateView(dt){
+  view.tx = clamp(player.x - W_LOGICAL / 2, 0, WORLD_W - W_LOGICAL);
+  view.ty = clamp(player.y - H_LOGICAL * 0.65, 0, WORLD_H - H_LOGICAL);
+  const lx = Math.min(1, dt * 7.5);
+  const ly = Math.min(1, dt * 5);
+  view.x += (view.tx - view.x) * lx;
+  view.y += (view.ty - view.y) * ly;
+}
+function snapView(){
+  view.tx = clamp(player.x - W_LOGICAL / 2, 0, WORLD_W - W_LOGICAL);
+  view.ty = clamp(player.y - H_LOGICAL * 0.65, 0, WORLD_H - H_LOGICAL);
+  view.x = view.tx; view.y = view.ty;
+}
 
 // ── INPUT ───────────────────────────────────────────────────────────────
 const input = { left: 0, right: 0, up: 0, down: 0, jump: 0, search: 0 };
@@ -653,6 +837,7 @@ function startGame(){
   buildFurniture();
   buildRobots();
   enemyBullets.length = 0;
+  // spawn in the leftmost room of floor 0
   player.x = 80; player.y = floorY(0);
   player.vx = 0; player.vy = 0; player.floor = 0;
   player.hp = 100; player.searching = null; player.inElevator = false;
@@ -665,6 +850,7 @@ function startGame(){
   piecesFound = 0;
   gameTimeRemaining = 6 * 60 * 60;
   gameState = 'playing';
+  snapView();
   document.getElementById('startOverlay').classList.remove('show');
   document.getElementById('failOverlay').classList.remove('show');
   document.getElementById('winOverlay').classList.remove('show');
@@ -717,6 +903,15 @@ const piecesValEl = document.getElementById('piecesVal');
 const clockVal = document.getElementById('clockVal');
 const searchBarEl = document.getElementById('searchBar');
 const searchFillEl = document.getElementById('searchFill');
+const centerTitleEl = document.getElementById('centerTitle');
+
+function currentRoom(){
+  // which room is the agent in (by world X + floor)?
+  const r = roomForWorldX(player.x);
+  const f = player.inElevator ? Math.round(elevator.floor) : player.floor;
+  const idx = f * ROOMS_PER_FLOOR + r;
+  return ROOMS[idx] || null;
+}
 
 function updateHud(){
   hpVal.textContent = Math.max(0, Math.round(player.hp));
@@ -732,6 +927,17 @@ function updateHud(){
     String(s).padStart(2,'0');
   if (gameTimeRemaining < 600) clockVal.classList.add('low');
   else clockVal.classList.remove('low');
+  // center title shows location while playing, app name otherwise
+  if (gameState === 'playing'){
+    const room = currentRoom();
+    if (room){
+      const fLabel = 'F' + (FLOOR_COUNT - room.floor);
+      const tName = player.inElevator ? 'ELEVATOR' : room.template.name.toUpperCase();
+      centerTitleEl.textContent = fLabel + ' · ' + tName;
+    }
+  } else {
+    centerTitleEl.textContent = 'IMPOSSIBLE MISSION';
+  }
 }
 
 // ── PHYSICS / PLAYER UPDATE ─────────────────────────────────────────────
@@ -787,8 +993,8 @@ function updatePlayer(dt){
 
   // ── ELEVATOR MODE ──
   if (player.inElevator){
-    // change floor with W/S — discrete: each tap moves one floor
-    if (jumpJustPressed && elevator.targetFloor < FLOOR_COUNT - 1){
+    // change floor with W/S — discrete: each tap moves one floor (clamped 0..FLOOR_COUNT-1)
+    if (jumpJustPressed && elevator.targetFloor < FLOOR_COUNT - 1 && !elevator.moving){
       elevator.targetFloor++;
       jumpJustPressed = false;
     } else if (input.down && elevator.targetFloor > 0 && !elevator.moving){
@@ -798,7 +1004,7 @@ function updatePlayer(dt){
     // exit elevator: hold A/D when stopped at a floor
     if ((input.left || input.right) && !elevator.moving){
       player.inElevator = false;
-      // step out
+      // step out into the adjacent room
       player.x = input.left ? SHAFT_X - 12 : SHAFT_RIGHT + 12;
       player.facing = input.left ? -1 : 1;
       stopElevatorHum();
@@ -834,9 +1040,9 @@ function updatePlayer(dt){
   player.x += player.vx * dt;
   player.y += player.vy * dt;
 
-  // wall bounds
+  // wall bounds — full world is 1280 wide
   if (player.x < 8) player.x = 8;
-  if (player.x > 312) player.x = 312;
+  if (player.x > WORLD_W - 8) player.x = WORLD_W - 8;
 
   // track peak of current jump — used for fall damage
   if (!player.onGround){
@@ -941,11 +1147,7 @@ function updatePlayer(dt){
         player.searching = f;
         f.searchT = 0;
         searchBarEl.style.display = 'block';
-        // position the search bar above the furniture
-        const sx = ((f.x + f.w / 2) / W_LOGICAL) * 100;
-        const sy = ((f.y - 4) / H_LOGICAL) * 100;
-        searchBarEl.style.left = sx + '%';
-        searchBarEl.style.top  = sy + '%';
+        // screen-space position is set every frame in the render loop
         break;
       }
     }
@@ -1018,18 +1220,16 @@ function updateRobots(dt){
     r.eyeAng += dt * 2;
     if (r.kind === 'patrol' || r.kind === 'shooter'){
       r.x += r.vx * dt;
-      // patrol bounds: stay on one side of the shaft
-      const minX = r.side === 'left' ? 18 : 188;
-      const maxX = r.side === 'left' ? 128 : 300;
-      if (r.x < minX){ r.x = minX; r.vx = Math.abs(r.vx); }
-      if (r.x > maxX){ r.x = maxX; r.vx = -Math.abs(r.vx); }
+      // bounces against per-robot patrol bounds (set at build time per room)
+      if (r.x < r.minX){ r.x = r.minX; r.vx = Math.abs(r.vx); }
+      if (r.x > r.maxX){ r.x = r.maxX; r.vx = -Math.abs(r.vx); }
     }
     if (r.kind === 'shooter'){
       r.fireT -= dt;
       if (r.fireT <= 0){
         r.fireT = 1.6 + Math.random();
-        // fire toward the player if on the same floor
-        if (r.floor === player.floor){
+        // fire only if the player is on the same floor AND within ~1 room
+        if (r.floor === player.floor && Math.abs(player.x - r.x) < 220){
           const dx = player.x - r.x, dy = (player.y - 8) - r.y;
           const len = Math.sqrt(dx * dx + dy * dy) || 1;
           enemyBullets.push({
@@ -1068,65 +1268,141 @@ function updateRobots(dt){
 }
 
 // ── DRAWING ─────────────────────────────────────────────────────────────
+// Draw helpers operate in WORLD coordinates. The main loop wraps every
+// draw call in ctx.translate(-view.x, -view.y) so only the camera window
+// shows up. We still clip the brick fill to the visible band for perf.
 function drawBuilding(){
-  // building backdrop (navy blue brick)
+  const camX = view.x, camY = view.y;
+  const visL = Math.max(0, Math.floor(camX) - 8);
+  const visR = Math.min(WORLD_W, Math.ceil(camX) + W_LOGICAL + 8);
+  const visT = Math.max(0, Math.floor(camY) - 8);
+  const visB = Math.min(WORLD_H, Math.ceil(camY) + H_LOGICAL + 8);
+
+  // backdrop wash
   ctx.fillStyle = PAL.blue;
-  ctx.fillRect(0, 0, W_LOGICAL, H_LOGICAL);
-  // brick pattern — sparse rectangles
+  ctx.fillRect(visL, visT, visR - visL, visB - visT);
+  // brick pattern — sparse rectangles, clipped to visible band
   ctx.fillStyle = '#352878';
-  for (let y = 22; y < H_LOGICAL; y += 8){
-    for (let x = ((y / 8 | 0) % 2 === 0 ? 0 : 4); x < W_LOGICAL; x += 8){
+  const startY = Math.max(22, Math.floor(visT / 8) * 8);
+  for (let y = startY; y < visB; y += 8){
+    const phase = ((y / 8 | 0) % 2 === 0 ? 0 : 4);
+    const startX = Math.floor((visL - phase) / 8) * 8 + phase;
+    for (let x = startX; x < visR; x += 8){
       ctx.fillRect(x, y, 7, 1);
     }
   }
-  // floor lines
+  // floor slabs — across the entire world width so adjacent rooms are continuous
   for (let f = 0; f < FLOOR_COUNT; f++){
     const fy = floorY(f);
-    // floor slab
+    if (fy + 4 < visT || fy > visB) continue;
     ctx.fillStyle = PAL.dgrey;
-    ctx.fillRect(0, fy, W_LOGICAL, 4);
-    // top highlight stripe
+    ctx.fillRect(0, fy, WORLD_W, 4);
     ctx.fillStyle = PAL.lgrey;
-    ctx.fillRect(0, fy, W_LOGICAL, 1);
-    // base shadow
+    ctx.fillRect(0, fy, WORLD_W, 1);
     ctx.fillStyle = PAL.black;
-    ctx.fillRect(0, fy + 3, W_LOGICAL, 1);
+    ctx.fillRect(0, fy + 3, WORLD_W, 1);
   }
-  // elevator shaft — vertical strip
+  // inter-room dividers (1 per ROOM boundary except where the shaft sits)
+  for (let r = 1; r < ROOMS_PER_FLOOR; r++){
+    const wx = r * ROOM_W;
+    if (wx > SHAFT_X - 2 && wx < SHAFT_RIGHT + 2) continue; // shaft is the divider
+    if (wx < visL - 4 || wx > visR + 4) continue;
+    for (let f = 0; f < FLOOR_COUNT; f++){
+      const fy = floorY(f);
+      const topY = fy - FLOOR_HEIGHT + 4;
+      if (fy < visT || topY > visB) continue;
+      // wall column
+      ctx.fillStyle = PAL.dgrey;
+      ctx.fillRect(wx, topY, 2, FLOOR_HEIGHT - 4);
+      // doorway opening cut-out (centered above the floor)
+      ctx.fillStyle = PAL.blue;
+      ctx.fillRect(wx, fy - 32, 2, 26);
+      // lintel highlight
+      ctx.fillStyle = PAL.lgrey;
+      ctx.fillRect(wx - 1, fy - 33, 4, 1);
+    }
+  }
+  // elevator shaft — full world height
   ctx.fillStyle = PAL.black;
-  ctx.fillRect(SHAFT_X, FLOOR_TOP, SHAFT_W, H_LOGICAL - FLOOR_TOP);
-  // shaft rails
+  ctx.fillRect(SHAFT_X, FLOOR_TOP, SHAFT_W, WORLD_H - FLOOR_TOP);
   ctx.fillStyle = PAL.lgrey;
-  ctx.fillRect(SHAFT_X + 1, FLOOR_TOP, 1, H_LOGICAL - FLOOR_TOP);
-  ctx.fillRect(SHAFT_RIGHT - 2, FLOOR_TOP, 1, H_LOGICAL - FLOOR_TOP);
+  ctx.fillRect(SHAFT_X + 1, FLOOR_TOP, 1, WORLD_H - FLOOR_TOP);
+  ctx.fillRect(SHAFT_RIGHT - 2, FLOOR_TOP, 1, WORLD_H - FLOOR_TOP);
   // shaft door frames at each floor
   ctx.fillStyle = PAL.yellow;
   for (let f = 0; f < FLOOR_COUNT; f++){
     const fy = floorY(f);
-    ctx.fillRect(SHAFT_X, fy - 26, SHAFT_W, 1);   // top of door
-    ctx.fillRect(SHAFT_X, fy, SHAFT_W, 1);        // bottom of door
+    if (fy + 4 < visT || fy - 32 > visB) continue;
+    ctx.fillRect(SHAFT_X, fy - 26, SHAFT_W, 1);
+    ctx.fillRect(SHAFT_X, fy, SHAFT_W, 1);
   }
-  // floor numbers on the right side
+  // floor numbers stamped beside the shaft (so they're always findable)
   ctx.fillStyle = PAL.yellow;
   ctx.font = "8px 'Press Start 2P', monospace";
   for (let f = 0; f < FLOOR_COUNT; f++){
     const fy = floorY(f);
-    ctx.fillText('F' + (FLOOR_COUNT - f), W_LOGICAL - 14, fy - 4);
+    if (fy + 6 < visT || fy - 12 > visB) continue;
+    ctx.fillText('F' + (FLOOR_COUNT - f), SHAFT_RIGHT + 4, fy - 4);
   }
-  // tiny wall art / windows on each floor (decor)
-  ctx.fillStyle = PAL.purple;
-  for (let f = 0; f < FLOOR_COUNT; f++){
-    const fy = floorY(f);
-    // left room window
-    ctx.fillRect(36, fy - 40, 16, 10);
+  // per-room dressing — window + room name label
+  for (const room of ROOMS){
+    const fy = floorY(room.floor);
+    const wx = room.worldX;
+    const topY = fy - FLOOR_HEIGHT + 4;
+    if (wx + ROOM_W < visL || wx > visR) continue;
+    if (fy < visT || topY > visB) continue;
+    // skip windows that would land in the shaft column
+    const winX = wx + 134;
+    const skipWindow = winX + 22 > SHAFT_X && winX < SHAFT_RIGHT + 2;
+    if (!skipWindow){
+      const accentCol = PAL[room.template.accent] || PAL.purple;
+      drawWindow(winX, fy - 40, room.template.windowKind || 'square', accentCol);
+    }
+    // tiny room label tucked under the ceiling
+    ctx.fillStyle = PAL.cyan;
+    ctx.font = "4px 'Press Start 2P', monospace";
+    const label = room.template.name.toUpperCase();
+    // label sits on the left wall of the room; skip if it would clash with the shaft
+    const labelX = wx + 6;
+    if (labelX + label.length * 4 < SHAFT_X || labelX > SHAFT_RIGHT){
+      ctx.fillText(label, labelX, topY + 10);
+    }
+  }
+}
+
+function drawWindow(x, y, kind, accentCol){
+  // recessed window frame in the wall, panes glow lblue
+  ctx.fillStyle = accentCol;
+  if (kind === 'arched'){
+    ctx.fillRect(x, y + 2, 22, 12);
+    ctx.fillRect(x + 2, y, 18, 4);
     ctx.fillStyle = PAL.lblue;
-    ctx.fillRect(38, fy - 38, 12, 6);
-    ctx.fillStyle = PAL.purple;
-    // right room window
-    ctx.fillRect(252, fy - 40, 16, 10);
+    ctx.fillRect(x + 2, y + 4, 18, 8);
+    ctx.fillRect(x + 4, y + 2, 14, 4);
+    ctx.fillStyle = accentCol;
+    ctx.fillRect(x + 10, y + 2, 2, 10);
+  } else if (kind === 'wide'){
+    ctx.fillRect(x - 2, y + 2, 26, 10);
     ctx.fillStyle = PAL.lblue;
-    ctx.fillRect(254, fy - 38, 12, 6);
-    ctx.fillStyle = PAL.purple;
+    ctx.fillRect(x, y + 4, 22, 6);
+    ctx.fillStyle = accentCol;
+    ctx.fillRect(x + 7, y + 4, 1, 6);
+    ctx.fillRect(x + 14, y + 4, 1, 6);
+  } else if (kind === 'tall'){
+    ctx.fillRect(x + 4, y - 4, 14, 18);
+    ctx.fillStyle = PAL.lblue;
+    ctx.fillRect(x + 6, y - 2, 10, 14);
+    ctx.fillStyle = accentCol;
+    ctx.fillRect(x + 10, y - 2, 1, 14);
+    ctx.fillRect(x + 6, y + 4, 10, 1);
+  } else {
+    // square
+    ctx.fillRect(x, y + 2, 22, 12);
+    ctx.fillStyle = PAL.lblue;
+    ctx.fillRect(x + 2, y + 4, 18, 8);
+    ctx.fillStyle = accentCol;
+    ctx.fillRect(x + 10, y + 4, 1, 8);
+    ctx.fillRect(x + 2, y + 7, 18, 1);
   }
 }
 
@@ -1350,14 +1626,30 @@ function frame(now){
     updateHud();
   }
 
+  // camera
+  if (gameState === 'playing') updateView(dt);
+
   // render
   ctx.clearRect(0, 0, W_LOGICAL, H_LOGICAL);
+  ctx.save();
+  ctx.translate(-Math.round(view.x), -Math.round(view.y));
   drawBuilding();
   drawFurniture();
   drawElevator();
   drawRobots();
   drawEnemyBullets();
   drawPlayer();
+  ctx.restore();
+
+  // search-bar HUD lives in screen space — reposition every frame so it
+  // tracks the furniture under the camera as it scrolls
+  if (player.searching){
+    const f = player.searching;
+    const sx = ((f.x + f.w / 2 - view.x) / W_LOGICAL) * 100;
+    const sy = ((f.y - 4 - view.y) / H_LOGICAL) * 100;
+    searchBarEl.style.left = sx + '%';
+    searchBarEl.style.top  = sy + '%';
+  }
 
   requestAnimationFrame(frame);
 }
