@@ -253,19 +253,27 @@
     height: 100%;
     overflow: visible;
   }
-  /* per-line Pollinations illustration. Cream-paper bg from the API is
-     elided by mix-blend-mode:multiply so only the ink lines show on the
-     page's cream paper. Starts invisible; fades in once loaded. */
+  /* per-line Pollinations illustration. White bg from the API is elided
+     by mix-blend-mode:multiply so only the ink lines show on the page's
+     cream paper. Starts invisible; fades in once loaded.
+     CSS filter is the SAFETY NET — if canvas-based thresholding fails
+     (e.g. CORS blocks getImageData), the filter alone hard-snaps mid-
+     tones toward pure 0/255 visually. When the canvas threshold
+     succeeds the img is already 1-bit; the filter is a no-op then. */
   .lulu-art .art-illust {
     object-fit: contain;
     object-position: center;
     opacity: 0;
     mix-blend-mode: multiply;
     pointer-events: none;
-    filter: contrast(1.05);
+    filter: grayscale(1) contrast(2.4) brightness(1.04);
   }
-  /* when the illustration is loaded, the SVG pose dims to a faint guide */
-  .lulu-art.has-illust .art-svg     { opacity: 0.14; }
+  /* when the illustration is loaded the SVG pose hides entirely
+     (was 0.14 opacity faint guide — chat wanted it gone) */
+  .lulu-art.has-illust .art-svg {
+    opacity: 0;
+    pointer-events: none;
+  }
   .lulu-art.has-illust .art-illust  { opacity: 1; }
   /* hand-drawn stroke styles, applied to all SVG paths */
   .lulu-art svg .stroke {
@@ -1350,11 +1358,51 @@ function fetchIllustration(line){
     encodeURIComponent(prompt) +
     '?width=512&height=512&nologo=true&seed=' + seed;
   const img = $('luluIllust');
+  // crossOrigin must be set BEFORE src so the browser opts the request
+  // into CORS and the canvas threshold below can read pixels back via
+  // getImageData. Pollinations sends the necessary ACAO header.
+  img.crossOrigin = 'anonymous';
+  img._processed = false;          // per-load guard so the data-URL
+                                    // re-set doesn't recurse forever
   img.onload = () => {
-    // bail if the user has already moved on to a newer request
     if (myReq !== _illustReq) return;
-    $('luluArt').classList.add('has-illust');
-    if (currentLine) currentLine.illustUrl = url;
+    if (img._processed){
+      // second load is the data: URL we just wrote — reveal it
+      $('luluArt').classList.add('has-illust');
+      if (currentLine) currentLine.illustUrl = url;
+      return;
+    }
+    // first load — threshold to pure 1-bit B&W on a canvas, then swap
+    // the img.src to the thresholded data URL so the on-page render
+    // contains zero grayscale mid-tones
+    try {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth || 512;
+      c.height = img.naturalHeight || 512;
+      const cx = c.getContext('2d');
+      cx.drawImage(img, 0, 0, c.width, c.height);
+      const data = cx.getImageData(0, 0, c.width, c.height);
+      const px = data.data;
+      const T = 148;   // threshold biased toward white-bg (so faint
+                       // pencil ghosts don't ink up the background)
+      for (let i = 0; i < px.length; i += 4){
+        // ITU-R BT.601 luma — perceptually balanced
+        const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+        const v = lum > T ? 255 : 0;
+        px[i] = v; px[i + 1] = v; px[i + 2] = v;
+        // alpha unchanged
+      }
+      cx.putImageData(data, 0, 0);
+      img._processed = true;
+      img.src = c.toDataURL('image/png');   // triggers onload again,
+                                            // hits the early-return above
+    } catch (e){
+      // CORS or some other read failure — just show the original image,
+      // CSS grayscale+contrast filter will approximate 1-bit visually
+      console.warn('threshold failed, falling back to CSS filter', e);
+      $('luluArt').classList.add('has-illust');
+      if (currentLine) currentLine.illustUrl = url;
+    }
   };
   img.onerror = () => {
     // silently swallow — the SVG pose stays as the fallback visual
@@ -1563,20 +1611,50 @@ $('shareDownload').addEventListener('click', async () => {
 
   // ART: prefer the Pollinations line-art illustration if it loaded for
   // this line; otherwise fall back to rasterising the SVG pose.
-  if (currentLine.illustUrl){
+  // Use the ON-PAGE img element directly — it's already been threshold
+  // converted to pure 1-bit B&W via the canvas pass in fetchIllustration,
+  // so the PNG export matches the on-screen render exactly.
+  const onPageImg = $('luluIllust');
+  const hasIllust = $('luluArt').classList.contains('has-illust') && onPageImg.complete && onPageImg.naturalWidth > 0;
+  if (hasIllust){
+    c.save();
+    c.globalCompositeOperation = 'multiply';
+    const w = 520, h = 520;
+    c.drawImage(onPageImg, size / 2 - w / 2, 200, w, h);
+    c.restore();
+  } else if (currentLine.illustUrl){
+    // illustration URL stored on a saved line but the on-page img hasn't
+    // refreshed yet — load + threshold inline for the export only
     await new Promise((resolve) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        // composite with multiply so the cream-paper bg from the API
-        // image blends with the export's cream-paper background and
-        // only the black linework survives (matches the on-page look)
-        c.save();
-        c.globalCompositeOperation = 'multiply';
-        // fit-into a 520×520 square centered horizontally, top at 200
-        const w = 520, h = 520;
-        c.drawImage(img, size / 2 - w / 2, 200, w, h);
-        c.restore();
+        try {
+          // threshold to 1-bit B&W on a temp canvas so the export
+          // matches the live-page treatment
+          const tc = document.createElement('canvas');
+          tc.width = img.naturalWidth; tc.height = img.naturalHeight;
+          const tcx = tc.getContext('2d');
+          tcx.drawImage(img, 0, 0);
+          const d = tcx.getImageData(0, 0, tc.width, tc.height);
+          const p = d.data;
+          for (let i = 0; i < p.length; i += 4){
+            const lum = 0.299*p[i] + 0.587*p[i+1] + 0.114*p[i+2];
+            const v = lum > 148 ? 255 : 0;
+            p[i] = v; p[i+1] = v; p[i+2] = v;
+          }
+          tcx.putImageData(d, 0, 0);
+          c.save();
+          c.globalCompositeOperation = 'multiply';
+          c.drawImage(tc, size / 2 - 260, 200, 520, 520);
+          c.restore();
+        } catch(e){
+          // fall back to direct drawImage if CORS blocks the threshold
+          c.save();
+          c.globalCompositeOperation = 'multiply';
+          c.drawImage(img, size / 2 - 260, 200, 520, 520);
+          c.restore();
+        }
         resolve();
       };
       img.onerror = () => resolve();
