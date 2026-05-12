@@ -489,8 +489,8 @@
   }
   .puzzle-bank {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 0.4rem;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0.32rem;
     flex: 1;
     padding: 0.35rem;
     overflow: auto;
@@ -552,6 +552,21 @@
     margin: 0 0.15rem;
     letter-spacing: 0.1em;
   }
+  .puzzle-clear {
+    appearance: none;
+    background: var(--c64-black);
+    border: 2px solid var(--c64-yellow);
+    color: var(--c64-yellow);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.12em;
+    padding: 0.28rem 0.55rem;
+    margin-right: 0.6rem;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .puzzle-clear:hover { background: var(--c64-yellow); color: var(--c64-black); }
+  .puzzle-clear:disabled { opacity: 0.35; cursor: not-allowed; }
   body.dragging-puzzle { user-select: none; }
 
   @media (max-width: 720px) {
@@ -594,7 +609,8 @@
   <div class="hud toast" id="toast"></div>
 
   <div class="controls-tools">
-    <button id="muteBtn" type="button">♪ ON</button>
+    <button id="musicBtn" type="button" title="chiptune music">♫ OFF</button>
+    <button id="muteBtn" type="button" title="sfx audio">♪ ON</button>
     <button id="restartBtn" type="button">⟲ RESET</button>
   </div>
 
@@ -651,10 +667,14 @@
     <div class="puzzle-foot">
       <span>
         <kbd>DRAG</kbd> place
+        <kbd>CLICK</kbd> rotate placed
         <kbd>R</kbd>/<kbd>WHEEL</kbd> rotate while dragging
-        <kbd>F</kbd> flip while dragging
+        <kbd>F</kbd> flip
       </span>
-      <span><kbd>P</kbd> close</span>
+      <span>
+        <button class="puzzle-clear" id="puzzleClearBtn" type="button">↺ CLEAR ALL</button>
+        <kbd>P</kbd> close
+      </span>
     </div>
   </div>
 
@@ -1976,6 +1996,9 @@ function stopChiptune(){
   chiptune = null;
 }
 
+// chiptune music is a SEPARATE toggle from the universal sfx mute, and
+// it ships OFF by default — players can opt-in via the ♫ button.
+let musicMuted = true;
 document.getElementById('muteBtn').addEventListener('click', (e) => {
   muted = !muted;
   e.currentTarget.textContent = muted ? '♪ OFF' : '♪ ON';
@@ -1983,7 +2006,16 @@ document.getElementById('muteBtn').addEventListener('click', (e) => {
     stopElevatorHum();
     stopRobotHum();
     stopChiptune();
-  } else if (gameState === 'playing'){
+  } else if (gameState === 'playing' && !musicMuted){
+    startChiptune();
+  }
+});
+document.getElementById('musicBtn').addEventListener('click', (e) => {
+  musicMuted = !musicMuted;
+  e.currentTarget.textContent = musicMuted ? '♫ OFF' : '♫ ON';
+  if (musicMuted){
+    stopChiptune();
+  } else if (gameState === 'playing' && !muted){
     startChiptune();
   }
 });
@@ -2086,9 +2118,9 @@ function startGame(){
   gameTimeRemaining = 6 * 60 * 60;
   gameState = 'playing';
   snapView();
-  // kick off the chiptune loop (fades in over 0.6s) — robot hum starts
-  // lazily on first proximity, no need to prime it here
-  startChiptune();
+  // chiptune fades in only if the player opted in via the ♫ button —
+  // it ships OFF by default so the first impression is quiet
+  if (!musicMuted) startChiptune();
   document.getElementById('startOverlay').classList.remove('show');
   document.getElementById('failOverlay').classList.remove('show');
   document.getElementById('winOverlay').classList.remove('show');
@@ -2181,8 +2213,8 @@ function drawPieceToCanvas(canvas, piece){
   ctx.imageSmoothingEnabled = false;
   const cells = piece.cells();
   const cols = cells[0].length, rows = cells.length;
-  const sz = 3;                            // px per tetromino cell (was 6)
-  const buffer = 40;                       // square buffer side
+  const sz = 2;                            // px per tetromino cell (was 6 → 3 → 2)
+  const buffer = 44;                       // square buffer side
   canvas.width = buffer; canvas.height = buffer;
   ctx.clearRect(0, 0, buffer, buffer);
   // center the piece inside the buffer
@@ -2276,6 +2308,23 @@ function togglePuzzleRoom(){
   }
 }
 
+// ↺ CLEAR ALL — return every placed piece to the bank in one click.
+// Wired in DOMReady order: the button exists in the HTML at boot so
+// addEventListener fires immediately without a defer.
+document.getElementById('puzzleClearBtn').addEventListener('click', () => {
+  let cleared = 0;
+  for (let i = 0; i < PUZZLE_SLOTS; i++){
+    if (puzzleSlots[i]){
+      puzzleSlots[i] = null;
+      cleared++;
+    }
+  }
+  if (cleared > 0){
+    sfxEmpty();
+    renderPuzzleRoom();
+  }
+});
+
 function renderPuzzleRoom(){
   // ── 4 target slots ──
   puzzleSlotsEl.innerHTML = '';
@@ -2291,7 +2340,25 @@ function renderPuzzleRoom(){
       const canvas = document.createElement('canvas');
       slot.appendChild(canvas);
       drawPieceToCanvas(canvas, puzzleSlots[i]);
-      slot.addEventListener('pointerdown', (e) => beginDrag(e, puzzleSlots[i], i, slot));
+      // pointerdown begins a drag; if pointer is released within ~6px
+      // without leaving the slot, treat it as a click → rotate in place
+      let downX = 0, downY = 0, didDrag = false;
+      slot.addEventListener('pointerdown', (e) => {
+        downX = e.clientX; downY = e.clientY; didDrag = false;
+        beginDrag(e, puzzleSlots[i], i, slot);
+      });
+      slot.addEventListener('pointermove', (e) => {
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) didDrag = true;
+      });
+      slot.addEventListener('pointerup', () => {
+        if (drag && !didDrag){
+          // click without drag → rotate the placed piece in-place
+          puzzleSlots[i].rotate(1);
+          cancelDrag();
+          renderPuzzleRoom();
+          sfxSearch();
+        }
+      });
     }
     puzzleSlotsEl.appendChild(slot);
   }
@@ -2315,6 +2382,9 @@ function renderPuzzleRoom(){
     empty.textContent = 'No pieces yet · search the building first.';
     puzzleBankEl.appendChild(empty);
   }
+  // Clear-all button enabled only when at least one slot is filled
+  const clearBtn = document.getElementById('puzzleClearBtn');
+  if (clearBtn) clearBtn.disabled = (filled === 0);
 }
 
 function beginDrag(e, piece, fromSlot, srcEl){
