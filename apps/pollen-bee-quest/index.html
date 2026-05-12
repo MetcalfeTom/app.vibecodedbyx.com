@@ -1268,7 +1268,10 @@ const POLLEN_PALETTE = [
   { core: '#7a2d6e', edge: '#2a0c28' },  // plum
   { core: '#b85a92', edge: '#4a1238' },  // dusty rose-plum
 ];
-const POLLEN_SPRITE_SIZE = 64;
+// Sprite buffer needs extra headroom for the spike ring extending past
+// the body — bumped from 64 to 96 so a spike that's 0.18*S long doesn't
+// clip at the sprite edge.
+const POLLEN_SPRITE_SIZE = 96;
 const POLLEN_SPRITE_VARIANTS = 8;
 let pollenSprites = null;
 
@@ -1334,6 +1337,99 @@ function buildPollenSprites(){
       c.fillStyle = fillCol;
       c.beginPath(); c.arc(sx, sy, dotR, 0, Math.PI*2); c.fill();
     }
+
+    // ── ECHINATE SPIKE RING ─────────────────────────────────────────
+    // Real pollen grains (e.g. hibiscus, sunflower, sweetgum) have a
+    // ring of triangular spines projecting from the body. We draw a
+    // deterministic per-variant ring of 14-20 spines using the fnvHash
+    // PRNG. Each spike is a tapered isoceles triangle anchored on the
+    // body radius, rotated outward, with a darker tip.
+    const SPIKE_COUNT = 14 + (fnvHash(v * 547, 0) & 0x07);  // 14..21
+    const bodyR = S * 0.30;
+    for (let k = 0; k < SPIKE_COUNT; k++){
+      const h = fnvHash(v * 1801, k);
+      // base angle around the body, +small jitter so spikes don't grid-up
+      const ang = (k / SPIKE_COUNT) * Math.PI * 2
+                + ((h & 0xff) / 255 - 0.5) * 0.18;
+      // each spike has its own length + width — gives the silhouette
+      // organic asymmetry
+      const len   = S * (0.13 + ((h >>> 8 & 0xff) / 255) * 0.10);   // 0.13..0.23 of S
+      const width = S * (0.025 + ((h >>> 16 & 0xff) / 255) * 0.020);
+      const baseX = cx + Math.cos(ang) * bodyR;
+      const baseY = cy + Math.sin(ang) * bodyR;
+      const tipX  = cx + Math.cos(ang) * (bodyR + len);
+      const tipY  = cy + Math.sin(ang) * (bodyR + len);
+      // perpendicular for the base width
+      const perpX = -Math.sin(ang);
+      const perpY =  Math.cos(ang);
+      // body-color spike with darker tip (uses an inline radial-along-the-
+      // axis gradient that fakes a tip darkening)
+      const grad = c.createLinearGradient(baseX, baseY, tipX, tipY);
+      grad.addColorStop(0,    withAlpha(pick.core, 0.85));
+      grad.addColorStop(0.55, withAlpha(pick.edge, 0.92));
+      grad.addColorStop(1,    withAlpha(pick.edge, 1));
+      c.fillStyle = grad;
+      c.beginPath();
+      c.moveTo(baseX + perpX * width, baseY + perpY * width);
+      c.lineTo(baseX - perpX * width, baseY - perpY * width);
+      c.lineTo(tipX,                  tipY);
+      c.closePath();
+      c.fill();
+      // bright pink highlight on the leading (left) edge of each spike for
+      // microscopic "lit from above-left" feel
+      c.fillStyle = withAlpha('#f4d4e8', 0.35);
+      c.beginPath();
+      c.moveTo(baseX + perpX * width, baseY + perpY * width);
+      c.lineTo(baseX + perpX * width * 0.4,
+               baseY + perpY * width * 0.4);
+      c.lineTo(tipX, tipY);
+      c.closePath();
+      c.fill();
+    }
+
+    // ── ORGANIC SURFACE NOISE (microscopic exine texture) ───────────
+    // Walk a per-pixel pass over the disc and dab dark/light specks at
+    // a seeded random pattern. This is the bumpy, granular surface you'd
+    // see under SEM. Done as discrete ctx.fillRect 1-2px specks so we
+    // don't need an ImageData op (cheaper, looks the same at this scale).
+    const NOISE_DOTS = 280;
+    const ringR2Inner = (bodyR * 0.70) * (bodyR * 0.70);
+    const ringR2Outer = (bodyR * 1.0) * (bodyR * 1.0);
+    for (let k = 0; k < NOISE_DOTS; k++){
+      const h = fnvHash(v * 2657 + 113, k);
+      const sx = ((h & 0xffff) / 0xffff) * S;
+      const sy = ((h >>> 16) / 0xffff) * S;
+      const dx = sx - cx, dy = sy - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > ringR2Outer) continue;     // outside the body
+      // density per ring — center is denser/darker, edge sparser/lighter
+      const radialFrac = Math.sqrt(d2 / ringR2Outer);
+      // alpha tapers off near the rim so the surface noise dissolves into
+      // the watercolor lobes rather than leaving a hard edge
+      const dotR = (h & 1) ? 0.7 : 1.1;
+      const isDark = ((h >>> 5) & 1);
+      const baseAlpha = 0.18 + (1 - radialFrac) * 0.35;
+      c.fillStyle = isDark
+        ? withAlpha(pick.edge, baseAlpha)
+        : withAlpha('#fff4f9', baseAlpha * 0.55);
+      c.fillRect(sx - dotR/2, sy - dotR/2, dotR, dotR);
+    }
+    // additional cluster of fine bumps in the "germination pore" area
+    // (a circular patch off-center, the pollen's signature aperture)
+    const apertureSeed = fnvHash(v * 3911, 0);
+    const apertureAng = (apertureSeed / 0xffffffff) * Math.PI * 2;
+    const apertureX = cx + Math.cos(apertureAng) * S * 0.18;
+    const apertureY = cy + Math.sin(apertureAng) * S * 0.18;
+    const apertureG = c.createRadialGradient(apertureX, apertureY, 0,
+                                              apertureX, apertureY, S * 0.10);
+    apertureG.addColorStop(0,   withAlpha(pick.edge, 0.55));
+    apertureG.addColorStop(0.6, withAlpha(pick.edge, 0.25));
+    apertureG.addColorStop(1,   withAlpha(pick.edge, 0));
+    c.fillStyle = apertureG;
+    c.beginPath();
+    c.arc(apertureX, apertureY, S * 0.10, 0, Math.PI * 2);
+    c.fill();
+
     pollenSprites.push(cv);
   }
 }
