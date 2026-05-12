@@ -2193,50 +2193,98 @@ const invGridEl  = document.getElementById('invGrid');
 const invTitleEl = document.getElementById('invTitle');
 const invOverlayEl = document.getElementById('inventoryOverlay');
 
+// 5-color retro tile palette — neon green border + green/red/blue/purple/white
+// content fill — applied by drawPieceToCanvas. Pieces ignore their original
+// pal-key color and instead pick a path/node/accent combo from this 5-stop
+// palette seeded by piece.id, so the same shape can recur with different
+// color schemes across the inventory.
+const TILE_NEON   = '#a9ff9f';   // c64 lgreen — outer border
+const TILE_PAL5   = [
+  '#56ac4d',   // green
+  '#813338',   // red
+  '#2e2c9b',   // blue
+  '#8e3c97',   // purple
+  '#ffffff',   // white
+];
+
 function drawPieceToCanvas(canvas, piece){
-  // crisp pixel-style render of the piece's current cells; piece color
-  // resolved against PAL so e.g. 'cyan' → #75cec8.
-  //
-  // Buffer is SQUARE (40×40) and the piece is rendered centered within
-  // it, so:
-  //   1. Pieces never get aspect-stretched when the parent cell scales
-  //      them via CSS width/height %  (a 4×1 horizontal I and a 1×4
-  //      vertical I now render at identical visible scale)
-  //   2. Pieces sit in the visual center of every container instead of
-  //      being pinned to top-left
-  //   3. Tetromino cells render at 3px each, so a max-extent 4-cell
-  //      piece spans 12px inside a 40px buffer — roughly 9% of the
-  //      buffer area, ~10% of the displayed cell once CSS scaling
-  //      applies. Pieces shrink dramatically vs the previous chunky
-  //      "fills the slot" appearance.
+  // RETRO PIXEL-ART TILE renderer. For each filled tetromino cell:
+  //   1. Fill a 3×3 black background square
+  //   2. Draw a center "node" + path connectors toward adjacent filled
+  //      cells — paths read as little tunnels flowing through the piece
+  //   3. Sprinkle one accent pixel per cell based on a seeded RNG so
+  //      each piece has a distinctive sparkle pattern
+  //   4. Outline ONLY the outward-facing edges in neon green so the
+  //      whole piece reads as one neon-bordered shape
+  // Color combo (path / node / accent) is picked from TILE_PAL5 using
+  // a hash of piece.id so each piece instance has stable colors across
+  // rotations + re-renders.
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
   const cells = piece.cells();
   const cols = cells[0].length, rows = cells.length;
-  const sz = 2;                            // px per tetromino cell (was 6 → 3 → 2)
-  const buffer = 44;                       // square buffer side
+  const sz = 3;                            // px per tetromino cell
+  const buffer = 40;                       // square buffer side
   canvas.width = buffer; canvas.height = buffer;
   ctx.clearRect(0, 0, buffer, buffer);
-  // center the piece inside the buffer
   const ox = Math.floor((buffer - cols * sz) / 2);
   const oy = Math.floor((buffer - rows * sz) / 2);
-  const col = PAL[piece.color] || piece.color;
-  // shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
-    if (cells[y][x]) ctx.fillRect(ox + x * sz + 1, oy + y * sz + 1, sz, sz);
+
+  // deterministic seed from piece.id — stable across rotations + redraws
+  let seed = 0;
+  if (piece.id){
+    for (let i = 0; i < piece.id.length; i++){
+      seed = ((seed << 5) - seed + piece.id.charCodeAt(i)) | 0;
+    }
   }
-  // body
-  ctx.fillStyle = col;
+  const aS = Math.abs(seed >>> 0);
+  const pathCol   = TILE_PAL5[ aS        % 5];
+  const nodeCol   = TILE_PAL5[(aS + 2)   % 5];
+  const accentCol = TILE_PAL5[(aS + 4)   % 5];
+
+  const has = (x, y) => y >= 0 && y < rows && x >= 0 && x < cols && cells[y][x];
+
+  // 1. BLACK BACKGROUND under all filled cells
+  ctx.fillStyle = '#000000';
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
     if (cells[y][x]) ctx.fillRect(ox + x * sz, oy + y * sz, sz, sz);
   }
-  // 1px highlight stripe on the top edge of each cell for that c64 chunk feel
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+
+  // 2. PATHS / TUNNELS — center node + connectors toward each filled neighbor
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
-    if (cells[y][x] && (y === 0 || !cells[y - 1][x])){
-      ctx.fillRect(ox + x * sz, oy + y * sz, sz, 1);
+    if (!cells[y][x]) continue;
+    const cx = ox + x * sz;
+    const cy = oy + y * sz;
+    // center node pixel
+    ctx.fillStyle = nodeCol;
+    ctx.fillRect(cx + 1, cy + 1, 1, 1);
+    // tunnel connectors to filled neighbors
+    ctx.fillStyle = pathCol;
+    if (has(x, y - 1)) ctx.fillRect(cx + 1, cy + 0, 1, 1);  // up
+    if (has(x, y + 1)) ctx.fillRect(cx + 1, cy + 2, 1, 1);  // down
+    if (has(x - 1, y)) ctx.fillRect(cx + 0, cy + 1, 1, 1);  // left
+    if (has(x + 1, y)) ctx.fillRect(cx + 2, cy + 1, 1, 1);  // right
+    // accent pixel — seeded corner sparkle, ~25% of cells get one
+    const cs = (seed + x * 11 + y * 23) >>> 0;
+    if ((cs & 0b11) === 0){
+      ctx.fillStyle = accentCol;
+      const ax = (cs >> 2) & 1 ? cx + 2 : cx + 0;
+      const ay = (cs >> 3) & 1 ? cy + 2 : cy + 0;
+      ctx.fillRect(ax, ay, 1, 1);
     }
+  }
+
+  // 3. NEON-GREEN OUTER BORDER on edges that face empty space — this
+  // overwrites any accent/path pixel that happens to land on an edge.
+  ctx.fillStyle = TILE_NEON;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
+    if (!cells[y][x]) continue;
+    const cx = ox + x * sz;
+    const cy = oy + y * sz;
+    if (!has(x, y - 1)) ctx.fillRect(cx, cy, sz, 1);            // top
+    if (!has(x, y + 1)) ctx.fillRect(cx, cy + sz - 1, sz, 1);   // bottom
+    if (!has(x - 1, y)) ctx.fillRect(cx, cy, 1, sz);            // left
+    if (!has(x + 1, y)) ctx.fillRect(cx + sz - 1, cy, 1, sz);   // right
   }
 }
 
