@@ -116,7 +116,7 @@
     outline: none;
     width: 100%;
   }
-  .composer input::placeholder { color: var(--pencil); opacity: 0.7; }
+  .composer input::placeholder { color: var(--pencil); opacity: 0.65; font-style: italic; }
   .composer input:focus { border-bottom-color: var(--ink); border-bottom-width: 3px; }
   .composer button.go {
     appearance: none;
@@ -406,12 +406,12 @@
 <main class="wrap">
   <header class="brand">
     <h1 class="logo">lulu</h1>
-    <div class="strap">tells the joke <span class="dot">·</span> draws herself <span class="dot">·</span> ink only</div>
+    <div class="strap">warm <span class="dot">·</span> cheeky <span class="dot">·</span> one line, no encores</div>
   </header>
 
   <form class="composer" id="composer" onsubmit="return false;">
     <input type="text" id="topicInput" maxlength="120" autocomplete="off"
-           placeholder="type a topic and Lulu will think of something…" />
+           placeholder="give me a topic, friend…" />
     <button class="go" id="goBtn" type="submit">→ think</button>
   </form>
 
@@ -423,7 +423,7 @@
     <div class="lulu-art" id="luluArt"></div>
     <div class="line-wrap">
       <blockquote class="line loading" id="lineEl">
-        <span class="line-text">type a topic — anything. Lulu will draw and think.</span>
+        <span class="line-text">give me a topic — i'll do the bit. just one line, i promise.</span>
         <span class="technique-meta" id="techMeta"></span>
       </blockquote>
     </div>
@@ -637,20 +637,36 @@ async function fetchLine(topic, techniqueId){
   let t = techniqueId === 'random'
     ? TECHNIQUES[Math.floor(Math.random() * (TECHNIQUES.length - 1)) + 1]
     : (TECHNIQUES.find(x => x.id === techniqueId) || TECHNIQUES[1]);
+
+  // WARMER + CHEEKIER persona. The hard contract: output ONLY the final
+  // one-liner — no JSON, no quotes, no preamble, no explanation, no
+  // sign-off. Anything else and the sanitizer below strips it, but the
+  // model rarely cooperates with strip cleanup so the prompt is strict.
   const sysPrompt = [
-    'You are Lulu, a quiet observational humorist with a sharp pen.',
-    'You write ONE single-line joke per response. The line must be:',
-    '  - exactly ONE sentence',
-    '  - at most 140 characters',
-    '  - witty and specific — never crude, never sweary',
-    '  - in the style of the requested TECHNIQUE',
-    'Reply with JSON ONLY, no prose, no fences:',
-    '  { "line": "single sentence", "technique": "' + t.id + '" }',
+    "You are Lulu — warm, cheeky, sharp. You sound like a clever friend",
+    "muttering across a kitchen table, not a stand-up bit on a stage.",
+    "",
+    "OUTPUT CONTRACT — read carefully, this is the only thing that matters:",
+    '  • Reply with EXACTLY one sentence. The final witty line. Nothing else.',
+    '  • No preamble ("Here\'s one:", "Sure!", "Lulu says:"). No sign-off.',
+    '  • No quotation marks around the line. No JSON. No code fences.',
+    '  • No explanation of the joke. No "technique: X" labels.',
+    '  • ≤ 140 characters total. One sentence, one period (or one ?, !).',
+    "",
+    "VOICE:",
+    "  • Warm — like you're rooting for everyone, including the topic.",
+    "  • Cheeky — playful side-eye, not bitter, not mean, not crude.",
+    "  • Specific — concrete nouns and verbs beat clever abstractions.",
+    "  • Match the requested TECHNIQUE faithfully.",
+    "",
+    "If the topic is sad or sensitive, soften the punch and stay kind.",
   ].join('\n');
+
   const userPrompt = [
     'topic: ' + topic,
     'technique: ' + t.label + ' — ' + t.hint,
-    'Write a sharp one-liner about the topic using this technique. JSON only.',
+    '',
+    'Reply with ONLY the single sentence. Nothing else.',
   ].join('\n');
 
   const ctrl = new AbortController();
@@ -669,16 +685,9 @@ async function fetchLine(topic, techniqueId){
       signal: ctrl.signal,
     });
     clearTimeout(tId);
-    const text = await res.text();
-    const parsed = extractJson(text);
-    if (parsed && parsed.line){
-      return { line: String(parsed.line).slice(0, 200).trim(), technique: t };
-    }
-    // fallback if the model returned plain text
-    const plain = (text || '').replace(/```[\s\S]*?```/g, '').trim();
-    if (plain && plain.length < 240 && !plain.startsWith('{')){
-      return { line: plain.replace(/^["'`]|["'`]$/g, ''), technique: t };
-    }
+    const raw = await res.text();
+    const line = extractLine(raw);
+    if (line) return { line, technique: t };
   } catch (e){
     clearTimeout(tId);
     console.warn('pollinations error', e);
@@ -687,36 +696,58 @@ async function fetchLine(topic, techniqueId){
   return { line: localFallback(topic, t), technique: t };
 }
 
-function localFallback(topic, t){
-  // small canned table — used when pollinations is unreachable
-  const stubs = {
-    obs:    'You ever notice ' + topic + " is just three weird decisions in a trench coat?",
-    pun:    "I told a joke about " + topic + " — it didn't land, but neither does anything in life.",
-    absurd: topic + ' is mostly water. So am I. We are basically the same animal.',
-    sd:     "I'd say I have strong opinions on " + topic + ', but I don\'t trust me.',
-    misdir: 'My favorite thing about ' + topic + " is that I don't have to think about it — until I do.",
-    anti:   topic + ' exists. That is the joke.',
-  };
-  return stubs[t.id] || stubs.obs;
+// Pull a single clean one-liner out of whatever Pollinations returns.
+// Handles: openai-shape JSON ({ choices: [{ message: { content }}] }),
+// bare JSON with a "line" key, plain text, fenced markdown, or text with
+// a "Here's a line:" preamble. Always returns a single trimmed sentence
+// without surrounding quotes or labels.
+function extractLine(raw){
+  if (!raw) return '';
+  let s = raw;
+  // try the openai message shape first
+  try {
+    const o = JSON.parse(raw);
+    if (o && o.choices && o.choices[0] && o.choices[0].message){
+      s = String(o.choices[0].message.content || '');
+    } else if (o && typeof o.line === 'string'){
+      s = o.line;
+    } else if (typeof o === 'string'){
+      s = o;
+    }
+  } catch (e){ /* not JSON — proceed with raw */ }
+  // strip fences
+  s = s.replace(/```[\s\S]*?```/g, '').replace(/```/g, '');
+  // if the body still looks like JSON, try to extract .line
+  const jm = s.match(/"line"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+  if (jm){ s = jm[1]; }
+  // strip leading "Here's a line:", "Sure!", "Lulu:" etc
+  s = s.replace(/^\s*(?:here(?:'s| is)?(?:[^:]*?):|sure[!,.\s]*|okay[!,.\s]*|lulu[!,.\s]*?:|joke:|line:|answer:)\s*/i, '');
+  // strip surrounding quotes / backticks
+  s = s.trim().replace(/^["'`“”‘’]+|["'`“”‘’]+$/g, '');
+  // if multiline, take the first non-empty line
+  if (s.indexOf('\n') >= 0){
+    const lines = s.split('\n').map(x => x.trim()).filter(Boolean);
+    if (lines.length) s = lines[0];
+  }
+  // strip trailing technique/source labels like "— observation" or "— Lulu"
+  s = s.replace(/\s*[—–-]\s*(?:lulu|observation|pun|absurdist|self-deprecating|misdirection|anti-joke).*$/i, '');
+  s = s.trim().replace(/^["'`“”‘’]+|["'`“”‘’]+$/g, '');
+  // cap length
+  if (s.length > 220) s = s.slice(0, 220);
+  return s;
 }
 
-function extractJson(text){
-  try {
-    const o = JSON.parse(text);
-    if (o.choices && o.choices[0] && o.choices[0].message){
-      const inner = o.choices[0].message.content;
-      try { return JSON.parse(inner); } catch(e){}
-      const m = inner.match(/\{[\s\S]*\}/);
-      if (m){ try { return JSON.parse(m[0]); } catch(e){} }
-      return { line: String(inner).trim() };
-    }
-    if (typeof o === 'object') return o;
-  } catch(e){}
-  const stripped = (text || '').replace(/```(?:json)?/g, '').trim();
-  try { return JSON.parse(stripped); } catch(e){}
-  const m = stripped.match(/\{[\s\S]*\}/);
-  if (m){ try { return JSON.parse(m[0]); } catch(e){} }
-  return null;
+function localFallback(topic, t){
+  // warmer, cheekier canned lines — used when pollinations is unreachable
+  const stubs = {
+    obs:    "we love " + topic + " right up until we have to explain why we love " + topic + ".",
+    pun:    "i'd make a pun about " + topic + " but you'd see straight through me — bless you for trying.",
+    absurd: topic + " is technically a vegetable if you squint and lower your standards just enough.",
+    sd:     "i have so many takes on " + topic + " — none of them survive contact with another person.",
+    misdir: "the best thing about " + topic + " is that it lets you feel like an adult, briefly, in private.",
+    anti:   topic + " exists, and that's the whole bit. you were promised more.",
+  };
+  return stubs[t.id] || stubs.obs;
 }
 
 // ── RENDER ─────────────────────────────────────────────────────────────
@@ -744,7 +775,7 @@ async function think(){
   const lineEl = $('lineEl');
   lineEl.classList.add('loading');
   lineEl.classList.remove('error');
-  lineEl.querySelector('.line-text').textContent = 'thinking about ' + topic + '…';
+  lineEl.querySelector('.line-text').textContent = 'thinking up ' + topic + '… give me a sec.';
   $('techMeta').textContent = '';
 
   const result = await fetchLine(topic, activeTechnique);
