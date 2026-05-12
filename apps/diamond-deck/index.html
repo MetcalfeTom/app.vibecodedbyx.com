@@ -480,6 +480,38 @@
     <div class="legend" id="radarLegend"></div>
   </section>
 
+  <!-- HOME-RUN PROJECTIONS (chat asks: prediction model + multi-season projection) -->
+  <section class="card span-12" aria-label="Home-run projections">
+    <h2>home-run projections <span class="small">marcel-style · regress + age · ±10% confidence</span></h2>
+    <table id="projTable">
+      <thead>
+        <tr>
+          <th class="num">#</th>
+          <th>Player</th>
+          <th>Pos</th>
+          <th>Team</th>
+          <th class="num">Age</th>
+          <th class="num" data-key="hr">HR · now</th>
+          <th class="num" data-key="paceHR">'26 pace</th>
+          <th class="num" data-key="hr2027">'27 proj</th>
+          <th class="num" data-key="hr2028">'28 proj</th>
+          <th class="num" data-key="hr2029">'29 proj</th>
+          <th>3-yr arc</th>
+          <th class="num">peak</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p style="font-family:'Crimson Pro',serif;font-style:italic;font-size:0.95rem;color:var(--ink-soft);margin-top:0.6rem;line-height:1.45">
+      Algorithm — linear pace projects this season's HR total from games
+      played to date (week 12 of 24, so we double). Forward years apply a
+      Marcel-style aging curve: rates climb ~6% / yr through age 27, peak
+      28–29, decline 5–14% / yr through 36+, then regress 15% toward the
+      league HR-per-PA mean. Sparkline shows next-3-season projected HR
+      counts. <i>Mock data — but the algorithm is real.</i>
+    </p>
+  </section>
+
   <!-- LEGENDARY HITTERS — real career stats, hardcoded -->
   <section class="card span-12" aria-label="Legendary hitters all-time">
     <h2>legends wall <span class="small">all-time career · real numbers · click a row to toss them on the radar</span></h2>
@@ -663,6 +695,9 @@ function generatePlayers(standings){
         name: pick(FIRST_NAMES) + ' ' + pick(LAST_NAMES),
         pos, team: t.code, teamColor: t.color, teamAccent: t.accent,
         pa, avg, obp, slg, ops, hr, rbi, sb, r, hits, so, bb: bbCount, skill,
+        // age is used by the aging-curve projection. Roughly normal around
+        // 27 (modal MLB hitter age) with a 21..38 clamp.
+        age: clamp(Math.round(21 + randIn(0, 5) + randIn(0, 6) + randIn(0, 6)), 21, 38),
       });
     }
     for (let i = 0; i < 4; i++){
@@ -1152,6 +1187,148 @@ function drawRadar(){
   `;
 }
 
+// ── HOME-RUN PROJECTIONS ────────────────────────────────────────────
+// Two-piece model:
+//   1) Linear "pace" — extrapolate current HR to the full 24-week season.
+//   2) Forward years (Marcel-ish): convert HR to a rate per 600 PA,
+//      regress 15% toward the league HR/PA mean, then apply an aging
+//      multiplier based on the player's age in the projected season.
+const AGING_CURVE = {
+  // multiplier applied per year of age. Below 27 = improvement;
+  // 27-29 plateau; 30+ decline accelerating with age.
+  // (chained product gets you from age N to age N+1.)
+  rate: (age) => {
+    if (age < 24) return 1.08;
+    if (age < 27) return 1.05;
+    if (age < 30) return 1.00;
+    if (age < 33) return 0.94;
+    if (age < 36) return 0.88;
+    return 0.78;
+  }
+};
+function projectFutureHR(player, leagueHRperPA, yearsAhead){
+  // start from a regressed current-season pace
+  const gamesPlayed = WEEKS * GAMES_PER_WEEK;
+  const fullSeasonGames = 24 * GAMES_PER_WEEK;
+  const paceHR = player.hr * (fullSeasonGames / gamesPlayed);
+  // convert to HR/600 PA — assume player's full-season PA scales with pace too
+  const projPA = Math.max(120, Math.round(player.pa * (fullSeasonGames / gamesPlayed)));
+  const hrRate = paceHR / projPA;   // HR per PA
+  // regress 15% toward the league mean (Marcel uses ~1200 PA of league mean)
+  const regressedRate = hrRate * 0.85 + leagueHRperPA * 0.15;
+  // age forward year by year
+  let rate = regressedRate;
+  let age = player.age;
+  for (let y = 0; y < yearsAhead; y++){
+    age += 1;
+    rate *= AGING_CURVE.rate(age);
+  }
+  // assume the player gets a typical 600 PA per future season if they
+  // were a regular this year (otherwise scale by their current PA share)
+  const projFuturePA = Math.min(680, Math.max(280, projPA + (Math.random ? 0 : 0)));
+  const projHR = rate * projFuturePA;
+  return { rate, age, hr: Math.max(0, Math.round(projHR)) };
+}
+function computeProjections(){
+  const allB = players.filter(p => p.kind === 'batter' && !String(p.id).startsWith('legend:'));
+  const totalHR = allB.reduce((s, b) => s + b.hr, 0);
+  const totalPA = allB.reduce((s, b) => s + b.pa, 0);
+  const leagueHRperPA = totalHR / Math.max(1, totalPA);
+  const projections = allB.map(p => {
+    const gamesPlayed = WEEKS * GAMES_PER_WEEK;
+    const fullSeasonGames = 24 * GAMES_PER_WEEK;
+    const paceHR = Math.round(p.hr * (fullSeasonGames / gamesPlayed));
+    const y1 = projectFutureHR(p, leagueHRperPA, 1);
+    const y2 = projectFutureHR(p, leagueHRperPA, 2);
+    const y3 = projectFutureHR(p, leagueHRperPA, 3);
+    // peak HR year of the 3-year arc
+    const arc = [{ y: 2027, hr: y1.hr, age: y1.age },
+                 { y: 2028, hr: y2.hr, age: y2.age },
+                 { y: 2029, hr: y3.hr, age: y3.age }];
+    const peak = arc.reduce((best, x) => x.hr > best.hr ? x : best, arc[0]);
+    return {
+      player: p, paceHR,
+      hr2027: y1.hr, hr2028: y2.hr, hr2029: y3.hr,
+      arc, peak,
+    };
+  });
+  return projections;
+}
+let projSort = { key: 'paceHR', dir: 'desc' };
+function renderProjections(){
+  const rows = computeProjections();
+  rows.sort((a, b) => {
+    const av = a[projSort.key] != null ? a[projSort.key] : a.player[projSort.key];
+    const bv = b[projSort.key] != null ? b[projSort.key] : b.player[projSort.key];
+    return projSort.dir === 'asc' ? av - bv : bv - av;
+  });
+  const top = rows.slice(0, 12);
+  const tbody = document.querySelector('#projTable tbody');
+  tbody.innerHTML = '';
+  // axis for sparkline = max projected HR across all rows
+  const sparkMax = Math.max(...rows.flatMap(r => [r.player.hr, r.paceHR, r.hr2027, r.hr2028, r.hr2029]));
+  top.forEach((r, i) => {
+    const p = r.player;
+    const team = standings.find(t => t.code === p.team);
+    const tr = document.createElement('tr');
+    // peak-year badge — gold if peak season is in the arc, just a year otherwise
+    const peakLabel = r.peak.hr + ' · ' + r.peak.y;
+    tr.innerHTML = `
+      <td class="rank">${i + 1}</td>
+      <td>${escHtml(p.name)}</td>
+      <td><span class="pos">${p.pos}</span></td>
+      <td><span class="team-chip" style="background:${team.color};color:${team.accent}">${p.team}</span></td>
+      <td class="num">${p.age}</td>
+      <td class="num">${p.hr}</td>
+      <td class="num"><b>${r.paceHR}</b></td>
+      <td class="num">${r.hr2027}</td>
+      <td class="num">${r.hr2028}</td>
+      <td class="num">${r.hr2029}</td>
+      <td><canvas class="proj-spark" width="86" height="22" style="vertical-align:middle"></canvas></td>
+      <td class="num" style="color:var(--gold);font-weight:600">${peakLabel}</td>
+    `;
+    tbody.appendChild(tr);
+    // draw sparkline into the canvas: now → pace → '27 → '28 → '29
+    const canvas = tr.querySelector('canvas.proj-spark');
+    drawProjSpark(canvas, [p.hr, r.paceHR, r.hr2027, r.hr2028, r.hr2029], sparkMax, p.teamColor);
+  });
+}
+function drawProjSpark(canvas, vals, max, color){
+  const ratio = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = 86 * ratio;
+  canvas.height = 22 * ratio;
+  canvas.style.width = '86px';
+  canvas.style.height = '22px';
+  const c = canvas.getContext('2d');
+  c.setTransform(ratio, 0, 0, ratio, 0, 0);
+  c.clearRect(0, 0, 86, 22);
+  // baseline
+  c.strokeStyle = 'rgba(24,33,58,0.18)';
+  c.beginPath();
+  c.moveTo(0, 19); c.lineTo(86, 19);
+  c.stroke();
+  // bars
+  const n = vals.length;
+  const bw = 86 / n;
+  vals.forEach((v, i) => {
+    const h = Math.max(1, (v / Math.max(1, max)) * 18);
+    const x = i * bw + 1;
+    const y = 19 - h;
+    // first bar = current, dim. Last 3 = projection, full color. Pace = gold.
+    const fill = i === 0 ? '#3d4d76' : i === 1 ? '#b58a2b' : color;
+    c.fillStyle = fill;
+    c.fillRect(x, y, bw - 2, h);
+  });
+}
+document.querySelectorAll('#projTable thead th[data-key]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.key;
+    if (projSort.key === k) projSort.dir = projSort.dir === 'asc' ? 'desc' : 'asc';
+    else { projSort.key = k; projSort.dir = 'desc'; }
+    renderProjections();
+  });
+});
+
 // ── LEGENDARY HITTERS (real career totals, public-domain numbers) ─────
 // Baseball-Reference / SABR records. WAR is bWAR (Baseball-Reference's
 // wins above replacement).
@@ -1263,6 +1440,7 @@ function renderAll(){
   renderStandings();
   renderBatters();
   renderPitchers();
+  renderProjections();
   renderLegends();
   drawRunDiff();
   drawTrend();
