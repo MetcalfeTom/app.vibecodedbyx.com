@@ -261,12 +261,15 @@
     gap: 0.5rem;
     font-family: 'Space Mono', monospace;
     font-size: 0.78rem;
-    color: rgba(255,255,255,0.4);
+    color: rgba(255,255,255,0.75);
     background:
-      repeating-linear-gradient(135deg, transparent 0 14px, rgba(255,255,255,0.04) 14px 16px),
-      linear-gradient(180deg, #1a0d2e, #0a0418);
+      repeating-linear-gradient(135deg, transparent 0 14px, rgba(0,0,0,0.06) 14px 16px);
     text-align: center;
+    text-shadow: 0 0 6px rgba(0,0,0,0.5);
+    z-index: 2;
+    pointer-events: none;
   }
+  .meme .art .cap { z-index: 3; }
   .meme .art .placeholder .spin {
     width: 30px; height: 30px;
     border: 3px solid rgba(255,46,166,0.25);
@@ -664,62 +667,124 @@ function makeMemeCard(template, topic){
   return card;
 }
 
-// ── POPULATE A MEME (text from pollinations, image from pollinations) ──
+// ── POPULATE A MEME ─────────────────────────────────────────────────────
+// Two-phase render:
+//   1. IMMEDIATELY paint a tinted gradient background + procedural-fallback
+//      captions so the card has visible content before any network request
+//      resolves. Image src is set right away — even if cold-gen takes 60s,
+//      the captions read fine on the tinted bg.
+//   2. KICK OFF a fetch to Pollinations text API for upgraded captions
+//      with a 10s AbortController timeout. If it returns valid JSON,
+//      swap in the better captions. If it times out or errors, the
+//      fallback already in place stays.
 async function populateMeme(card, template, topic){
-  // get captions
-  let captions = null;
+  // 1. immediate render with procedural fallback captions + tinted bg
+  let cap = sanitizeCaptions(template, fallbackCaptions(template, topic));
+  card.dataset.captions = JSON.stringify(cap);
+
+  const imgPrompt = encodeURIComponent(template.imagePromptFn(topic) + ', topic: ' + topic);
+  const imgUrl = 'https://image.pollinations.ai/prompt/' + imgPrompt + '?width=540&height=540&nologo=true&seed=' + (Math.floor(Math.random() * 1e6));
+  card.dataset.image = imgUrl;
+
+  const artEl = card.querySelector('.art');
+  artEl.style.background = tintForTemplate(template);
+  artEl.innerHTML = renderArt(template, cap, imgUrl);
+  wireImageFallback(artEl);
+
+  // 2. background fetch — upgrade captions if Pollinations responds
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), 10000);   // 10s cap
+  let upgraded = null;
   try {
     const res = await fetch('https://text.pollinations.ai/openai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'openai',
-        jsonMode: true,
         messages: [
-          { role: 'system', content: 'You write short funny meme captions. Reply with JSON only. Stay under the character limits. Be punchy and specific.' },
+          { role: 'system', content: 'You write short funny meme captions. Reply with JSON only — no prose, no code fences. Stay under the character limits. Be punchy and specific.' },
           { role: 'user',   content: template.captionsPrompt(topic) },
         ],
       }),
+      signal: ctrl.signal,
     });
+    clearTimeout(timeoutId);
     const text = await res.text();
-    captions = extractJson(text);
+    upgraded = extractJson(text);
   } catch (e){
-    console.warn('captions fetch failed', e);
+    clearTimeout(timeoutId);
+    if (e && e.name === 'AbortError'){
+      console.info('captions timed out for "' + topic + '", keeping fallback');
+    } else {
+      console.warn('captions fetch error', e);
+    }
   }
-  if (!captions || typeof captions !== 'object'){
-    captions = fallbackCaptions(template, topic);
-  }
-
-  // sanitize captions to the template's fields
-  const cap = {};
-  for (const f of template.fields){
-    cap[f] = (captions[f] || captions[Object.keys(captions)[0]] || '').toString().slice(0, 120);
-  }
-  card.dataset.captions = JSON.stringify(cap);
-
-  // assemble final image: Pollinations image with caption baked into the
-  // overlay. We use Pollinations for the BACKGROUND art only and overlay
-  // text via DOM (Anton font) so it stays crisp + readable.
-  const imgPrompt = encodeURIComponent(template.imagePromptFn(topic) + ', topic: ' + topic);
-  const imgUrl = 'https://image.pollinations.ai/prompt/' + imgPrompt + '?width=540&height=540&nologo=true&seed=' + (Math.floor(Math.random() * 1e6));
-  card.dataset.image = imgUrl;
-
-  const artEl = card.querySelector('.art');
-  artEl.innerHTML = renderArt(template, cap, imgUrl);
-  const img = artEl.querySelector('img');
-  if (img){
-    img.onerror = () => {
-      img.remove();
-      const ph = document.createElement('div');
-      ph.className = 'placeholder';
-      ph.innerHTML = '<span>image cosmos napping ✦</span>';
-      artEl.insertBefore(ph, artEl.firstChild);
-    };
+  if (upgraded && typeof upgraded === 'object'){
+    cap = sanitizeCaptions(template, upgraded);
+    card.dataset.captions = JSON.stringify(cap);
+    // re-render just the caption overlays — the image keeps loading
+    redrawCaptions(card, template, cap);
   }
 }
 
+// Per-template tinted gradient — applied to .art as a fallback bg so the
+// card is never just a black square while the Pollinations image cold-gens.
+function tintForTemplate(t){
+  const tints = {
+    drake:        'linear-gradient(135deg, #f7d041, #ffae3c)',
+    distracted:   'linear-gradient(135deg, #ffb1c9, #ff7caf)',
+    twoButtons:   'linear-gradient(135deg, #ffd25f, #ff8c42)',
+    brain:        'linear-gradient(135deg, #15082a, #6232b8)',
+    thisIsFine:   'linear-gradient(135deg, #ff8a2b, #c43d17)',
+    changeMyMind: 'linear-gradient(135deg, #e7e0d2, #7c8a99)',
+    rollSafe:     'linear-gradient(135deg, #6a4c93, #2a1f3a)',
+    pikachu:      'linear-gradient(135deg, #ffe14d, #ff9a2b)',
+    starecat:     'linear-gradient(135deg, #f5b6a6, #b8a3ff)',
+    galaxyBrain:  'linear-gradient(135deg, #2e1a5d, #c45cff)',
+  };
+  return tints[t.id] || 'linear-gradient(135deg, #1a0d2e, #6232b8)';
+}
+
+function sanitizeCaptions(template, raw){
+  const cap = {};
+  if (!raw || typeof raw !== 'object') raw = {};
+  const keys = Object.keys(raw);
+  for (const f of template.fields){
+    let v = raw[f];
+    if (v == null && keys.length) v = raw[keys[0]];
+    cap[f] = (v == null ? '' : String(v)).slice(0, 120);
+  }
+  return cap;
+}
+
+function wireImageFallback(artEl){
+  const img = artEl.querySelector('img');
+  if (!img) return;
+  img.onerror = () => {
+    img.remove();
+    const ph = document.createElement('div');
+    ph.className = 'placeholder';
+    ph.innerHTML = '<span>image cosmos napping ✦</span>';
+    artEl.insertBefore(ph, artEl.firstChild);
+  };
+}
+
+function redrawCaptions(card, template, cap){
+  const artEl = card.querySelector('.art');
+  // remove old .cap divs only — keep the <img> in place
+  artEl.querySelectorAll('.cap').forEach(el => el.remove());
+  // build fresh caption divs and append
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderArt(template, cap, '');
+  // renderArt returns img + caps; we already have the img, so extract only .cap divs
+  tmp.querySelectorAll('.cap').forEach(c => artEl.appendChild(c));
+}
+
 function renderArt(template, cap, imgUrl){
-  const imgTag = `<img loading="lazy" alt="${esc(template.name)} meme" src="${esc(imgUrl || '')}" onload="this.style.opacity='1'" style="opacity:0;transition:opacity 0.35s;" />`;
+  // start at opacity 0.55 not 0 — the .art container has a tinted
+  // gradient bg + captions already visible, so showing the partial
+  // image blending in is friendlier than a hard reveal at the end
+  const imgTag = `<img loading="lazy" alt="${esc(template.name)} meme" src="${esc(imgUrl || '')}" onload="this.style.opacity='1'" style="opacity:0.55;transition:opacity 0.6s;" />`;
   // build caption divs per template layout
   let capHtml = '';
   if (template.layout === 'topBottom'){
@@ -780,10 +845,16 @@ function esc(s){
 
 // ── INFINITE SCROLL ─────────────────────────────────────────────────────
 function spawnSeed(){
-  for (const topic of SEED_TOPICS.slice(0, 6)){
-    const t = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)];
-    feed.appendChild(makeMemeCard(t, topic));
-  }
+  // stagger the initial spawn so we don't fire 6 parallel Pollinations
+  // requests on first paint (rate-limit risk + visible jank). Cards
+  // appear at 150ms intervals.
+  const topics = SEED_TOPICS.slice(0, 6);
+  topics.forEach((topic, i) => {
+    setTimeout(() => {
+      const t = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)];
+      feed.appendChild(makeMemeCard(t, topic));
+    }, i * 150);
+  });
 }
 
 async function loadMore(){
