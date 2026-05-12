@@ -456,7 +456,18 @@ const player = {
   inElevator: false,
   iframe: 0,
   hurtFlash: 0,
+  // somersault state — angle (radians) advances while airborne so the
+  // player visibly tumbles. peakY tracks the highest point of the
+  // current jump for fall-damage scoring.
+  airT: 0,
+  somersault: 0,
+  peakY: 0,
+  stun: 0,
 };
+
+const FALL_HURT = 60;     // pixels — past this fall, take 30 HP
+const FALL_DEATH = 90;    // pixels — past this fall, instant death
+const SOMERSAULT_SPEED = 11;   // rad/s during jumps
 
 // ── ELEVATOR ────────────────────────────────────────────────────────────
 const elevator = {
@@ -646,6 +657,9 @@ function startGame(){
   player.vx = 0; player.vy = 0; player.floor = 0;
   player.hp = 100; player.searching = null; player.inElevator = false;
   player.iframe = 0; player.hurtFlash = 0;
+  player.peakY = player.y; player.airT = 0; player.somersault = 0;
+  player.stun = 0;
+  player.onGround = true;
   elevator.floor = 0; elevator.targetFloor = 0; elevator.y = floorY(0) - 32;
   elevator.moving = false;
   piecesFound = 0;
@@ -799,12 +813,21 @@ function updatePlayer(dt){
   else if (player.vx < 0) player.facing = -1;
 
   // jump
-  if (jumpJustPressed && player.onGround){
+  if (jumpJustPressed && player.onGround && player.stun <= 0){
     player.vy = JUMP_VEL;
     player.onGround = false;
+    player.peakY = player.y;     // start of arc — track for fall damage
+    player.airT = 0;
     sfxJump();
     jumpJustPressed = false;
   }
+  // stun timer — disables movement briefly after a hard landing
+  if (player.stun > 0){
+    player.stun -= dt;
+    player.vx = 0;
+  }
+  // track walking off a ledge (no jump press, but suddenly airborne)
+  if (player.onGround && player.peakY > player.y) player.peakY = player.y;
 
   // gravity
   player.vy += GRAVITY * dt;
@@ -815,16 +838,91 @@ function updatePlayer(dt){
   if (player.x < 8) player.x = 8;
   if (player.x > 312) player.x = 312;
 
-  // floor collision — land on the floor of the current floor index
-  const groundY = floorY(player.floor);
+  // track peak of current jump — used for fall damage
+  if (!player.onGround){
+    player.airT += dt;
+    if (player.y < player.peakY) player.peakY = player.y;
+    // tumble — only rotate once the player has actually launched (vy was
+    // negative or is moving), avoids spinning during a 1-frame airborne
+    // blip on slopes
+    player.somersault += SOMERSAULT_SPEED * dt;
+  }
+
+  // ── FLOOR / SHAFT collision ──
+  // Outside the elevator shaft: collide with the player's current floor.
+  // Inside the shaft (and NOT riding the elevator): fall freely until
+  // either the elevator car top catches the player, or the bottom of the
+  // shaft does. Falls scored against player.peakY for damage.
+  let groundY;
+  let landedSurface = 'floor';
+  let landedFloor = player.floor;
+  if (playerInsideShaft() && !player.inElevator){
+    // possible landing surfaces — pick the highest one at or below the
+    // player's current feet
+    groundY = floorY(0);            // shaft bottom (lowest catch)
+    landedSurface = 'shaftBottom';
+    landedFloor = 0;
+    const carTop = elevator.y;       // top of elevator car
+    if (carTop >= player.y - 2 && carTop < groundY){
+      groundY = carTop;
+      landedSurface = 'car';
+      landedFloor = Math.round(elevator.floor);
+    }
+    // also: any floor's surface at or below the player IF it sits between
+    // the shaft entrance heights (the player should still catch onto the
+    // floor they walked off, in case the shaft door alignment is right)
+    for (let f = 0; f < FLOOR_COUNT; f++){
+      const sy = floorY(f);
+      // only count this floor surface if the player was ABOVE it (i.e.,
+      // jumping/walking off the floor above and the shaft door at THIS
+      // level aligns with the player's height)
+      if (sy >= player.y - 2 && sy <= groundY && f !== player.floor){
+        // if the elevator car is at this floor, the floor itself isn't
+        // accessible (the car is in the doorway) — skip
+        if (Math.abs(elevator.floor - f) < 0.1) continue;
+        groundY = sy;
+        landedSurface = 'floor';
+        landedFloor = f;
+      }
+    }
+  } else {
+    groundY = floorY(player.floor);
+  }
+
   if (player.y >= groundY){
+    const fellY = player.y - player.peakY;
     player.y = groundY;
     player.vy = 0;
+    player.floor = landedFloor;
+    // fall damage on landing
     if (!player.onGround){
-      // landed — footstep cadence reset
       sfxStep();
+      // only apply damage if we actually fell (peakY was above where we
+      // landed — guards the initial spawn case)
+      if (fellY > FALL_HURT && player.iframe <= 0){
+        if (fellY >= FALL_DEATH){
+          player.hp = 0;
+          player.hurtFlash = 0.4;
+          player.stun = 1.0;
+          sfxHurt();
+          showFail('terminal fall · ' + Math.round(fellY) + 'px');
+        } else {
+          // hard landing — bleed HP + brief stun
+          player.hp -= 30;
+          player.hurtFlash = 0.3;
+          player.stun = 0.5;
+          player.iframe = 0.6;
+          sfxHurt();
+          showToast('HARD LANDING -30', '#b86962');
+          if (player.hp <= 0) showFail('hard landing.');
+        }
+      }
     }
     player.onGround = true;
+    // somersault snaps back to facing-up on landing
+    player.somersault = 0;
+    player.airT = 0;
+    player.peakY = player.y;
   } else {
     player.onGround = false;
   }
@@ -1103,9 +1201,26 @@ function drawFurnitureItem(f){
 function drawPlayer(){
   const px = Math.round(player.x);
   const py = Math.round(player.y);
-  // shadow on floor
+  // shadow on floor — drawn UNDER the rotation transform so it stays flat
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.fillRect(px - 6, py + 1, 12, 2);
+  // ── somersault transform ──
+  // while airborne, rotate the agent around its torso. We translate to
+  // the torso pivot, rotate by player.somersault radians, then offset
+  // back so the rest of the draw code can use unmodified (px, py).
+  const tumbling = !player.onGround && Math.abs(player.somersault) > 0.01;
+  if (tumbling){
+    ctx.save();
+    const pivotY = py - 10;     // roughly the torso center
+    ctx.translate(px, pivotY);
+    ctx.rotate(player.somersault);
+    ctx.translate(-px, -pivotY);
+  }
+  // stun shake — brief horizontal jitter after a hard landing
+  if (player.stun > 0){
+    ctx.save();
+    ctx.translate(((Math.random() - 0.5) * 2) | 0, 0);
+  }
   // body
   const bodyCol = player.hurtFlash > 0 ? PAL.lred : PAL.cyan;
   // head
@@ -1140,6 +1255,9 @@ function drawPlayer(){
     ctx.fillStyle = PAL.yellow;
     ctx.fillRect(px - 2, py - 14, 4, 4);
   }
+  // close stun + tumble transforms in reverse order
+  if (player.stun > 0) ctx.restore();
+  if (tumbling) ctx.restore();
 }
 
 function drawElevator(){
