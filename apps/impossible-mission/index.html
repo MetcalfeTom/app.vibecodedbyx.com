@@ -152,6 +152,14 @@
     background: var(--c64-yellow);
     box-shadow: 0 0 6px var(--c64-yellow);
   }
+  /* hack variant — Space-held terminal hack, green-phosphor palette so
+     the agent can tell at a glance which action they triggered */
+  .search-bar.hack .label { color: var(--c64-lgreen); }
+  .search-bar.hack .track { border-color: var(--c64-lgreen); }
+  .search-bar.hack .fill {
+    background: linear-gradient(90deg, var(--c64-green) 0%, var(--c64-lgreen) 65%, var(--c64-cyan) 100%);
+    box-shadow: 0 0 8px rgba(169, 255, 159, 0.65);
+  }
 
   /* overlays */
   .center-text {
@@ -562,7 +570,7 @@
   </div>
 
   <div class="search-bar" id="searchBar" style="display:none">
-    <div class="label">SEARCHING</div>
+    <div class="label" id="searchLabel">SEARCHING</div>
     <div class="track"><div class="fill" id="searchFill"></div></div>
   </div>
 
@@ -581,6 +589,7 @@
         <div><span class="kb">←</span> <span class="kb">→</span> move</div>
         <div><span class="kb">↑</span> / <span class="kb">W</span> jump &nbsp; inside elevator: change floor</div>
         <div><span class="kb">↓</span> / <span class="kb">S</span> search furniture · take elevator down</div>
+        <div><span class="kb">SPACE</span> hack computer terminal · 2 second decrypt</div>
         <div><span class="kb">I</span> inventory · <span class="kb">P</span> puzzle room · drag pieces · <span class="kb">R</span>/wheel rotate</div>
         <div>find <b>9 TETROMINO PIECES</b> across <b>32 ROOMS</b> · 6 hours on the clock</div>
         <div>avoid the sentry robots · 8 floors connected by the elevator shaft</div>
@@ -1156,7 +1165,11 @@ function snapView(){
 }
 
 // ── INPUT ───────────────────────────────────────────────────────────────
-const input = { left: 0, right: 0, up: 0, down: 0, jump: 0, search: 0 };
+// hack = held Space, separate from search (S/down) so the player can run
+// a different verb on terminals without changing the universal-search
+// mapping. Both flags can technically be high at once; the search trigger
+// in updatePlayer prefers search→hack so a held S wins over a held Space.
+const input = { left: 0, right: 0, up: 0, down: 0, jump: 0, search: 0, hack: 0 };
 let jumpJustPressed = false;
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
@@ -1193,8 +1206,12 @@ document.addEventListener('keydown', (e) => {
     case 'Space':
       if (gameState === 'menu' || gameState === 'ended' || gameState === 'won'){
         startGame();
-        e.preventDefault();
+      } else if (gameState === 'playing' && !inventoryOpen && !puzzleOpen){
+        // hold Space while standing in front of a terminal to hack it —
+        // a 2-second progress bar runs; release Space to abort
+        input.hack = 1;
       }
+      e.preventDefault();
       break;
     case 'KeyM': document.getElementById('muteBtn').click(); break;
     case 'KeyI':
@@ -1263,6 +1280,7 @@ document.addEventListener('keyup', (e) => {
     case 'ArrowRight': case 'KeyD': input.right = 0; break;
     case 'ArrowUp': case 'KeyW': input.up = 0; input.jump = 0; break;
     case 'ArrowDown': case 'KeyS': input.down = 0; input.search = 0; break;
+    case 'Space': input.hack = 0; break;
   }
 });
 
@@ -2047,6 +2065,7 @@ const piecesValEl = document.getElementById('piecesVal');
 const clockVal = document.getElementById('clockVal');
 const searchBarEl = document.getElementById('searchBar');
 const searchFillEl = document.getElementById('searchFill');
+const searchLabelEl = document.getElementById('searchLabel');
 const centerTitleEl = document.getElementById('centerTitle');
 
 function currentRoom(){
@@ -2401,24 +2420,33 @@ let stepT = 0;
 function updatePlayer(dt){
   if (gameState !== 'playing') return;
 
-  // ── SEARCHING ──
+  // ── SEARCHING / HACKING ──
+  // The same code path drives normal search (1.4s, any furniture, S/down)
+  // AND terminal hack (2.0s, terminals only, Space). The furniture entry
+  // carries searchMode + searchDuration; we keep the input held that
+  // matches the current mode and abort if the agent moves away or lets
+  // go of the key.
   if (player.searching){
-    // continue search if S held and still in front of furniture
     const f = player.searching;
-    if (input.search && Math.abs((player.x) - (f.x + f.w / 2)) < f.w / 2 + 4 &&
+    const mode = f.searchMode || 'search';
+    const inputActive = mode === 'hack' ? input.hack : input.search;
+    const dur = f.searchDuration || 1.4;
+    if (inputActive && Math.abs((player.x) - (f.x + f.w / 2)) < f.w / 2 + 4 &&
         Math.abs(player.y - (f.y + f.h)) < 4){
       const prevT = f.searchT;
       f.searchT += dt;
-      // emit a soft per-tick blip every 0.18s of search progress so the
-      // bar fill audibly clicks forward
+      // emit a soft per-tick blip every 0.18s of progress so the bar
+      // fill audibly clicks forward (same blip for both modes — the
+      // hack version is already visually distinct via the green bar)
       if (Math.floor(f.searchT / 0.18) > Math.floor(prevT / 0.18)) sfxSearch();
-      const pct = Math.min(100, (f.searchT / 1.4) * 100);
+      const pct = Math.min(100, (f.searchT / dur) * 100);
       searchFillEl.style.width = pct + '%';
-      if (f.searchT >= 1.4){
-        // search complete
+      if (f.searchT >= dur){
+        // action complete
         f.searched = true;
         player.searching = null;
         searchBarEl.style.display = 'none';
+        searchBarEl.classList.remove('hack');
         if (f.hasPiece){
           piecesFound++;
           // mint a real PuzzlePiece using the tetromino key assigned at
@@ -2426,11 +2454,12 @@ function updatePlayer(dt){
           const piece = newPuzzlePiece(f.pieceKey || 'L');
           inventory.push(piece);
           renderInventory();
-          showToast('PIECE ' + piecesFound + '/9 · ' + (f.pieceKey || 'L') + '-BLOCK', '#a9ff9f');
+          const verb = mode === 'hack' ? 'DECRYPTED' : 'PIECE';
+          showToast(verb + ' ' + piecesFound + '/9 · ' + (f.pieceKey || 'L') + '-BLOCK', '#a9ff9f');
           sfxFound();
           if (piecesFound >= 9) showWin();
         } else {
-          showToast('NOTHING USEFUL', '#706deb');
+          showToast(mode === 'hack' ? 'NO DATA · CLEAN TERMINAL' : 'NOTHING USEFUL', '#706deb');
           sfxEmpty();
         }
       }
@@ -2440,6 +2469,7 @@ function updatePlayer(dt){
       f.searchT = 0;
       player.searching = null;
       searchBarEl.style.display = 'none';
+      searchBarEl.classList.remove('hack');
     }
   }
 
@@ -2604,15 +2634,38 @@ function updatePlayer(dt){
     if (stepT > 1){ stepT = 0; sfxStep(); }
   }
 
-  // search trigger — press S near furniture
-  if (input.search && player.onGround){
+  // search trigger — press S near any furniture (1.4s yellow bar)
+  if (input.search && player.onGround && !player.searching){
     for (const f of furniture){
       if (f.floor !== player.floor || f.searched) continue;
       if (Math.abs(player.x - (f.x + f.w / 2)) < f.w / 2 + 4){
         player.searching = f;
         f.searchT = 0;
+        f.searchMode = 'search';
+        f.searchDuration = 1.4;
         searchBarEl.style.display = 'block';
+        searchBarEl.classList.remove('hack');
+        searchLabelEl.textContent = 'SEARCHING';
         // screen-space position is set every frame in the render loop
+        break;
+      }
+    }
+  }
+  // hack trigger — press SPACE near a computer terminal (2.0s green bar).
+  // Terminals only; everything else just plays the menu-space animation.
+  // search takes priority — if S is also held, the universal search wins.
+  if (input.hack && player.onGround && !player.searching){
+    for (const f of furniture){
+      if (f.floor !== player.floor || f.searched) continue;
+      if (f.kind !== 'terminal') continue;
+      if (Math.abs(player.x - (f.x + f.w / 2)) < f.w / 2 + 4){
+        player.searching = f;
+        f.searchT = 0;
+        f.searchMode = 'hack';
+        f.searchDuration = 2.0;
+        searchBarEl.style.display = 'block';
+        searchBarEl.classList.add('hack');
+        searchLabelEl.textContent = 'HACKING TERMINAL';
         break;
       }
     }
