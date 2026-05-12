@@ -1283,6 +1283,32 @@ function fnvHash(seed, k){
   return h;
 }
 
+// 3-octave fractal-sine angular noise. Approximates 1D Perlin around a
+// circle without needing a real Perlin lookup table. Returns roughly
+// -1..+1 (sum of amplitudes 0.55 + 0.28 + 0.17 = 1.0). Per-variant phase
+// shifts (seedA/B/C) ensure each grain has a unique organic deformation.
+function angNoise(angle, seedA, seedB, seedC){
+  return 0.55 * Math.sin(angle * 3  + seedA)
+       + 0.28 * Math.sin(angle * 7  + seedB)
+       + 0.17 * Math.sin(angle * 13 + seedC);
+}
+
+// Trace a closed Path along a "lumpy" radial curve modulated by angNoise.
+// baseR = mean radius, amp = how much the noise pushes (fraction of baseR).
+// Caller is responsible for calling c.beginPath() before and c.fill()/stroke()
+// after.
+function lumpyClosedPath(c, cx, cy, baseR, amp, samples, seedA, seedB, seedC){
+  c.beginPath();
+  for (let i = 0; i <= samples; i++){
+    const a = (i / samples) * Math.PI * 2;
+    const r = baseR * (1 + amp * angNoise(a, seedA, seedB, seedC));
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+  }
+  c.closePath();
+}
+
 function buildPollenSprites(){
   pollenSprites = [];
   const S = POLLEN_SPRITE_SIZE;
@@ -1292,7 +1318,17 @@ function buildPollenSprites(){
     cv.width = S; cv.height = S;
     const c = cv.getContext('2d');
     const pick = POLLEN_PALETTE[v % POLLEN_PALETTE.length];
-    // 5 watercolor lobes — overlapping radial gradients at low alpha
+
+    // Per-variant noise phase seeds for the organic deformation. These
+    // drive both the watercolor lobes and the core blob's outline so each
+    // of the 8 sprites has a uniquely bumpy silhouette instead of a
+    // perfect sphere.
+    const noiseSeedA = ((fnvHash(v * 211, 1) & 0xffff) / 0xffff) * Math.PI * 2;
+    const noiseSeedB = ((fnvHash(v * 211, 2) & 0xffff) / 0xffff) * Math.PI * 2;
+    const noiseSeedC = ((fnvHash(v * 211, 3) & 0xffff) / 0xffff) * Math.PI * 2;
+
+    // 5 watercolor lobes — drawn as DEFORMED polygons (not perfect
+    // ellipses anymore) so the wash itself has bumpy edges.
     for (let k = 0; k < 5; k++){
       const h = fnvHash(v * 101, k);
       const baseAng = (k / 5) * Math.PI * 2 + ((h & 0xff) / 255) * 0.4;
@@ -1310,16 +1346,40 @@ function buildPollenSprites(){
       c.save();
       c.translate(lx, ly);
       c.rotate(baseAng + Math.PI * 0.18);
-      c.beginPath(); c.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2); c.fill();
+      // deform this lobe's local ellipse-ish shape with its own phase set
+      // so adjacent lobes don't share the same bump pattern
+      const lobeSeedA = noiseSeedA + k * 1.137;
+      const lobeSeedB = noiseSeedB + k * 0.461;
+      const lobeSeedC = noiseSeedC + k * 1.871;
+      const lobeBase = (rx + ry) / 2;
+      c.scale(rx / lobeBase, ry / lobeBase);   // preserve the elliptical aspect
+      lumpyClosedPath(c, 0, 0, lobeBase, 0.18, 36, lobeSeedA, lobeSeedB, lobeSeedC);
+      c.fill();
       c.restore();
     }
-    // darker plum core blob
-    const coreG = c.createRadialGradient(cx, cy, 0, cx, cy, S * 0.34);
+
+    // Darker plum CORE BLOB — now a noise-deformed polygon rather than a
+    // perfect circle. Drawn via two passes: a soft outer fill (alpha
+    // gradient via a clip) and a crisper inner outline.
+    const coreBaseR = S * 0.34;
+    c.save();
+    // outer soft glow — clip to the deformed core shape so the radial
+    // gradient gets the bumpy silhouette automatically
+    lumpyClosedPath(c, cx, cy, coreBaseR, 0.14, 56, noiseSeedA, noiseSeedB, noiseSeedC);
+    c.clip();
+    const coreG = c.createRadialGradient(cx, cy, 0, cx, cy, coreBaseR * 1.15);
     coreG.addColorStop(0,    withAlpha(pick.edge, 0.55));
     coreG.addColorStop(0.7,  withAlpha(pick.edge, 0.18));
     coreG.addColorStop(1,    withAlpha(pick.edge, 0));
     c.fillStyle = coreG;
-    c.beginPath(); c.arc(cx, cy, S * 0.34, 0, Math.PI*2); c.fill();
+    c.fillRect(0, 0, S, S);
+    c.restore();
+    // a thin darker outline tracing the same deformed path → visibly
+    // bumpy silhouette around the core
+    lumpyClosedPath(c, cx, cy, coreBaseR, 0.14, 56, noiseSeedA, noiseSeedB, noiseSeedC);
+    c.strokeStyle = withAlpha(pick.edge, 0.42);
+    c.lineWidth = 0.8;
+    c.stroke();
     // histology speckle — 22 fine deterministic dots clustered in the disc
     for (let k = 0; k < 22; k++){
       const h = fnvHash(v * 7919 + 31, k);
@@ -1355,10 +1415,13 @@ function buildPollenSprites(){
       // organic asymmetry
       const len   = S * (0.13 + ((h >>> 8 & 0xff) / 255) * 0.10);   // 0.13..0.23 of S
       const width = S * (0.025 + ((h >>> 16 & 0xff) / 255) * 0.020);
-      const baseX = cx + Math.cos(ang) * bodyR;
-      const baseY = cy + Math.sin(ang) * bodyR;
-      const tipX  = cx + Math.cos(ang) * (bodyR + len);
-      const tipY  = cy + Math.sin(ang) * (bodyR + len);
+      // anchor spike to the DEFORMED body radius at this angle — so the
+      // spike ring rides the bumpy outline rather than a perfect circle
+      const localBodyR = bodyR * (1 + 0.14 * angNoise(ang, noiseSeedA, noiseSeedB, noiseSeedC));
+      const baseX = cx + Math.cos(ang) * localBodyR;
+      const baseY = cy + Math.sin(ang) * localBodyR;
+      const tipX  = cx + Math.cos(ang) * (localBodyR + len);
+      const tipY  = cy + Math.sin(ang) * (localBodyR + len);
       // perpendicular for the base width
       const perpX = -Math.sin(ang);
       const perpY =  Math.cos(ang);
