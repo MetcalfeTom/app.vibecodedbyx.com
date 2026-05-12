@@ -1460,18 +1460,9 @@ function sayStayAWhile(){
   });
 }
 function sfxRobotShot(){
-  const a = ensureAudio(); if (!a) return;
-  const t = a.currentTime;
-  const o = a.createOscillator();
-  const g = a.createGain();
-  o.type = 'sawtooth';
-  o.frequency.setValueAtTime(820, t);
-  o.frequency.exponentialRampToValueAtTime(220, t + 0.14);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.10, t + 0.01);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
-  o.connect(g); g.connect(masterGain);
-  o.start(t); o.stop(t + 0.18);
+  // back-compat alias — every shooter call now routes through the
+  // beefier 2-layer sfxLaser (square sweep + sub thump)
+  sfxLaser();
 }
 function startElevatorHum(){
   const a = ensureAudio(); if (!a || elevatorNodes) return;
@@ -1492,10 +1483,242 @@ function stopElevatorHum(){
   try { elevatorNodes.o1.stop(t + 0.4); elevatorNodes.o2.stop(t + 0.4); } catch(e){}
   elevatorNodes = null;
 }
+
+// ── SEARCH TICK ─────────────────────────────────────────────────────────
+// Soft per-tick blip while the agent rifles through a piece of furniture.
+// Triggered from updatePlayer every ~0.18s of search progress so the bar
+// fill audibly clicks forward (called via furniture.searchTick state).
+function sfxSearch(){
+  const a = ensureAudio(); if (!a) return;
+  const t = a.currentTime;
+  const o = a.createOscillator(); o.type = 'square';
+  o.frequency.value = 360 + Math.random() * 80;   // slight pitch wobble
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.045, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+  o.connect(g); g.connect(masterGain);
+  o.start(t); o.stop(t + 0.09);
+}
+
+// ── LASER ───────────────────────────────────────────────────────────────
+// Punchier replacement for the basic robot-shot blip. Two-osc layer:
+//   - bright square sweep 1400 → 200 Hz over 100ms
+//   - sub sine thump 80 → 40 Hz for chest-weight
+// Used by shooter robots; sfxRobotShot now just delegates here.
+function sfxLaser(){
+  const a = ensureAudio(); if (!a) return;
+  const t = a.currentTime;
+  // bright sweep
+  const o = a.createOscillator(); o.type = 'square';
+  o.frequency.setValueAtTime(1400, t);
+  o.frequency.exponentialRampToValueAtTime(220, t + 0.10);
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.11, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+  o.connect(g); g.connect(masterGain);
+  // sub thump
+  const sub = a.createOscillator(); sub.type = 'sine';
+  sub.frequency.setValueAtTime(82, t);
+  sub.frequency.exponentialRampToValueAtTime(38, t + 0.08);
+  const subG = a.createGain();
+  subG.gain.setValueAtTime(0.0001, t);
+  subG.gain.exponentialRampToValueAtTime(0.18, t + 0.006);
+  subG.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+  sub.connect(subG); subG.connect(masterGain);
+  o.start(t); o.stop(t + 0.15);
+  sub.start(t); sub.stop(t + 0.13);
+}
+
+// ── DEATH STINGER ───────────────────────────────────────────────────────
+// Dramatic 5-note descending sawtooth fall + bandpassed noise rumble at
+// the end. Called from showFail() instead of plain sfxHurt for the
+// proper game-over beat.
+function sfxDeath(){
+  const a = ensureAudio(); if (!a) return;
+  const t = a.currentTime;
+  const notes = [330, 277, 233, 175, 110];
+  notes.forEach((f, i) => {
+    const o = a.createOscillator(); o.type = 'sawtooth';
+    o.frequency.value = f;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, t + i * 0.13);
+    g.gain.exponentialRampToValueAtTime(0.10, t + i * 0.13 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.13 + 0.24);
+    o.connect(g); g.connect(masterGain);
+    o.start(t + i * 0.13); o.stop(t + i * 0.13 + 0.26);
+  });
+  // crashing low-noise tail at the end of the fall
+  const len = Math.floor(a.sampleRate * 0.8);
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = a.createBufferSource(); noise.buffer = buf;
+  const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 600;
+  const ng = a.createGain();
+  ng.gain.setValueAtTime(0.0001, t + 0.5);
+  ng.gain.exponentialRampToValueAtTime(0.16, t + 0.52);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 1.05);
+  noise.connect(lp); lp.connect(ng); ng.connect(masterGain);
+  noise.start(t + 0.5);
+}
+
+// ── ROBOT HUM (proximity-driven) ────────────────────────────────────────
+// One global pair of low oscillators that swells when ANY sentry on the
+// same floor is within ~140 px world distance. Cheaper than 28 per-robot
+// oscillators and gives a creepy "you're being watched" pressure cue.
+let robotHumNodes = null;
+function ensureRobotHum(){
+  const a = ensureAudio(); if (!a || robotHumNodes) return robotHumNodes;
+  const o1 = a.createOscillator(); o1.type = 'triangle'; o1.frequency.value = 58;
+  const o2 = a.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 92;
+  const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 230; lp.Q.value = 1.4;
+  const g = a.createGain(); g.gain.value = 0;
+  o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(masterGain);
+  o1.start(); o2.start();
+  robotHumNodes = { o1, o2, g };
+  return robotHumNodes;
+}
+function updateRobotHum(dt){
+  if (!actx || muted){
+    // if we're muted but hum nodes are still alive, fade them out
+    if (robotHumNodes) robotHumNodes.g.gain.setValueAtTime(0, actx.currentTime);
+    return;
+  }
+  // find nearest same-floor robot distance
+  let nearest = Infinity;
+  for (const r of robots){
+    if (r.floor !== player.floor) continue;
+    const dx = r.x - player.x, dy = r.y - player.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < nearest) nearest = d;
+  }
+  const range = 140;
+  const target = nearest < range ? (1 - nearest / range) * 0.085 : 0;
+  if (target > 0 && !robotHumNodes) ensureRobotHum();
+  if (!robotHumNodes) return;
+  // smooth track via setValueAtTime (4 Hz follow rate)
+  const cur = robotHumNodes.g.gain.value;
+  const next = cur + (target - cur) * Math.min(1, dt * 4);
+  robotHumNodes.g.gain.setValueAtTime(next, actx.currentTime);
+}
+function stopRobotHum(){
+  if (!robotHumNodes || !actx) return;
+  const t = actx.currentTime;
+  robotHumNodes.g.gain.cancelScheduledValues(t);
+  robotHumNodes.g.gain.linearRampToValueAtTime(0, t + 0.3);
+  try { robotHumNodes.o1.stop(t + 0.4); robotHumNodes.o2.stop(t + 0.4); } catch(e){}
+  robotHumNodes = null;
+}
+
+// ── CHIPTUNE LOOP ───────────────────────────────────────────────────────
+// 4-bar A-minor → F → C → E7 progression at 124 BPM, 16 steps per bar.
+// Two voices:
+//   - bass: sawtooth at A2/F2/C2/E2 with octave drops on the off-beat
+//   - lead: square wave 16th-note melodic line
+// Scheduler runs every 200 ms, looking ahead 0.5 s so notes are queued
+// well before the audio context plays them. Chiptune bus → soft lowpass
+// → master so the loop sits behind sfx + Elvin's voice.
+const CHIP_BPM = 124;
+const CHIP_SEC_PER_16TH = 60 / CHIP_BPM / 4;
+const NOTE_FREQS = {
+  '-':null,
+  'B1':61.74,
+  'C2':65.41,'D2':73.42,'E2':82.41,'F2':87.31,'G2':98.00,'A2':110.0,'B2':123.47,
+  'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196.0,'A3':220.0,'B3':246.94,
+  'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'F#4':369.99,'G4':392.0,'A4':440.0,'B4':493.88,
+  'C5':523.25,'D5':587.33,'E5':659.25,'G5':783.99,
+};
+const CHIPTUNE_BARS = [
+  { // Bar 1 — Am
+    bass: ['A2','-','-','-','A2','-','-','-','A2','-','-','-','A2','-','G2','-'],
+    lead: ['A4','-','C5','-','E5','-','C5','-','A4','-','G4','-','E4','-','D4','-'],
+  },
+  { // Bar 2 — F
+    bass: ['F2','-','-','-','F2','-','-','-','F2','-','-','-','F2','-','E2','-'],
+    lead: ['F4','-','A4','-','C5','-','A4','-','F4','-','G4','-','F4','-','E4','-'],
+  },
+  { // Bar 3 — C
+    bass: ['C2','-','-','-','C2','-','-','-','C2','-','-','-','C2','-','B1','-'],
+    lead: ['C5','-','E5','-','G5','-','E5','-','C5','-','B4','-','G4','-','E4','-'],
+  },
+  { // Bar 4 — E7 (resolves back to Am)
+    bass: ['E2','-','-','-','E2','-','-','-','G2','-','-','-','B2','-','E2','-'],
+    lead: ['B4','-','D5','-','E5','-','D5','-','B4','-','A4','-','G4','-','F#4','-'],
+  },
+];
+let chiptune = null;   // { bus, lp, nextBarT, barIdx, scheduler }
+function chipPlayNote(t, noteName, channel){
+  const f = NOTE_FREQS[noteName];
+  if (!f) return;
+  const a = actx;
+  const o = a.createOscillator();
+  o.type = channel === 'bass' ? 'sawtooth' : 'square';
+  o.frequency.value = f;
+  const g = a.createGain();
+  const peak = channel === 'bass' ? 0.05 : 0.030;
+  const dur  = channel === 'bass' ? 0.20  : 0.16;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(chiptune.bus);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+function scheduleChipBar(barIdx, startT){
+  const bar = CHIPTUNE_BARS[barIdx];
+  for (let step = 0; step < 16; step++){
+    const t = startT + step * CHIP_SEC_PER_16TH;
+    chipPlayNote(t, bar.bass[step], 'bass');
+    chipPlayNote(t, bar.lead[step], 'lead');
+  }
+}
+function startChiptune(){
+  const a = ensureAudio(); if (!a || chiptune) return;
+  const bus = a.createGain(); bus.gain.value = 0;
+  const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; lp.Q.value = 0.7;
+  bus.connect(lp); lp.connect(masterGain);
+  // fade in over 0.6s so the loop sneaks in under the agent's spawn
+  bus.gain.setValueAtTime(0, a.currentTime);
+  bus.gain.linearRampToValueAtTime(0.42, a.currentTime + 0.6);
+  chiptune = {
+    bus, lp,
+    nextBarT: a.currentTime + 0.1,
+    barIdx: 0,
+    scheduler: null,
+  };
+  const tick = () => {
+    if (!chiptune || !actx) return;
+    const lookahead = 0.5;
+    while (chiptune.nextBarT < actx.currentTime + lookahead){
+      scheduleChipBar(chiptune.barIdx, chiptune.nextBarT);
+      chiptune.nextBarT += 16 * CHIP_SEC_PER_16TH;
+      chiptune.barIdx = (chiptune.barIdx + 1) % CHIPTUNE_BARS.length;
+    }
+  };
+  tick();
+  chiptune.scheduler = setInterval(tick, 200);
+}
+function stopChiptune(){
+  if (!chiptune || !actx) return;
+  clearInterval(chiptune.scheduler);
+  const t = actx.currentTime;
+  chiptune.bus.gain.cancelScheduledValues(t);
+  chiptune.bus.gain.setValueAtTime(chiptune.bus.gain.value, t);
+  chiptune.bus.gain.linearRampToValueAtTime(0, t + 0.4);
+  chiptune = null;
+}
+
 document.getElementById('muteBtn').addEventListener('click', (e) => {
   muted = !muted;
   e.currentTarget.textContent = muted ? '♪ OFF' : '♪ ON';
-  if (muted) stopElevatorHum();
+  if (muted){
+    stopElevatorHum();
+    stopRobotHum();
+    stopChiptune();
+  } else if (gameState === 'playing'){
+    startChiptune();
+  }
 });
 
 // ── GAME STATE ──────────────────────────────────────────────────────────
@@ -1540,6 +1763,9 @@ function startGame(){
   gameTimeRemaining = 6 * 60 * 60;
   gameState = 'playing';
   snapView();
+  // kick off the chiptune loop (fades in over 0.6s) — robot hum starts
+  // lazily on first proximity, no need to prime it here
+  startChiptune();
   document.getElementById('startOverlay').classList.remove('show');
   document.getElementById('failOverlay').classList.remove('show');
   document.getElementById('winOverlay').classList.remove('show');
@@ -1550,15 +1776,19 @@ function showFail(reason){
   if (gameState !== 'playing') return;
   gameState = 'ended';
   stopElevatorHum();
+  stopRobotHum();
+  stopChiptune();
   document.getElementById('endTitle').textContent = 'MISSION FAILED';
   document.getElementById('endSub').textContent = reason || 'agent down.';
   document.getElementById('failOverlay').classList.add('show');
-  sfxHurt();
+  sfxDeath();
 }
 function showWin(){
   if (gameState !== 'playing') return;
   gameState = 'won';
   stopElevatorHum();
+  stopRobotHum();
+  stopChiptune();
   document.getElementById('winOverlay').classList.add('show');
   sfxFound();
   setTimeout(sfxFound, 380);
@@ -1793,7 +2023,11 @@ function updatePlayer(dt){
     const f = player.searching;
     if (input.search && Math.abs((player.x) - (f.x + f.w / 2)) < f.w / 2 + 4 &&
         Math.abs(player.y - (f.y + f.h)) < 4){
+      const prevT = f.searchT;
       f.searchT += dt;
+      // emit a soft per-tick blip every 0.18s of search progress so the
+      // bar fill audibly clicks forward
+      if (Math.floor(f.searchT / 0.18) > Math.floor(prevT / 0.18)) sfxSearch();
       const pct = Math.min(100, (f.searchT / 1.4) * 100);
       searchFillEl.style.width = pct + '%';
       if (f.searchT >= 1.4){
@@ -2577,6 +2811,7 @@ function frame(now){
     updateElevator(dt);
     updateRobots(dt);
     updateElvinTaunts(dt);
+    updateRobotHum(dt);
     // tick the in-game clock (60× scaled)
     gameTimeRemaining -= dt * GAME_TIME_SCALE;
     if (gameTimeRemaining <= 0){
