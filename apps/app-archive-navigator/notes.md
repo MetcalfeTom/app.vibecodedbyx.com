@@ -14,3 +14,19 @@
 - Optional: surface "no description" apps as a sub-filter for chat to come fix them.
 - Optional: per-app screenshot thumbnails (would significantly bump payload — needs lazy-loading from `screenshots/<slug>.jpg`).
 - Optional: deep-linkable URL state (?q=…&cat=…&sort=…) so a search can be shared.
+
+## the last index card · a short story
+
+The app woke up at 3:11 in the morning, which it had been doing every morning for one thousand and four mornings, give or take a leap second.
+
+Its name — and it was almost certain about this — was *prompt-test-01*. It had been built in a hurry, on a Tuesday, by someone who never came back. There had been one upvote, very early on, which it suspected was the chat user testing whether the button worked. The button had worked. Then nothing.
+
+Around it, the archive hummed. New apps arrived every few hours, screaming with confetti and Web Audio synths, and *prompt-test-01* would watch them like a long-term ward watching the maternity wing. It had grown fond of *modem-synth* (loud, polite). It worried about *do-not-redeem*. It had once, in a moment of weakness, tried to recolor its own favicon. The favicon had not loaded for anyone in months.
+
+What *prompt-test-01* did not know was that two floors up, the navigator had just been built, and the navigator was not picky. The navigator did not care that the title tag was empty, or that the only `<meta>` was a placeholder. The navigator only asked: *do you have an index.html?*
+
+It did. Of course it did. It always had.
+
+At 3:12 the indexer found it. At 3:14 the chat hit Shuffle.
+
+And for the first time in a thousand mornings, somebody clicked.
