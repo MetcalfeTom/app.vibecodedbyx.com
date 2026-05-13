@@ -3,6 +3,7 @@
 Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and placeable decor.
 
 ## log
+- 2026-05-13: V11 — **Twitch chat → fish**. New sidebar section with channel input + Connect button. Anonymous IRC WSS (`wss://irc-ws.chat.twitch.tv:443`, `PASS SCHMOOPIIE` + random `justinfan`), PRIVMSG parser, PING/PONG handling, auto-reconnect on drop (3.5s). Each chat message spawns one fish whose species, hue shift, size (9–14), spawn position, and initial velocity are deterministically derived from an FNV-1a hash of the lowercase username — so the same chatter always gets the same color/species across sessions. First-time chatter triggers a 5-particle violet welcome sparkle near the surface. Live floating chat feed bottom-left (max 6 lines, 4.7s fade, message clipped at 80 chars). **Rare deep-sea kraken**: 1/120 base chance per chat message OR guaranteed when the message contains "kraken"/"summon"/"deepsea"/"release". Bypasses the biomass gate via direct `spawnKraken()` call. Magenta banner flashes "⌬ THE KRAKEN STIRS · summoned by USER ⌬" centered for 3.3s with scale-pop keyframe. Connection state pill in sidebar (idle / connecting / live · #channel / reconnecting / error). Last channel persisted to localStorage. Roster cap (30) handled gracefully — when full, chat messages feed a random existing fish instead of being dropped. Each chat message also counts toward totalChats/leaderboard.
 - 2026-03-26: V10 — Global leaderboard tracking most fish fed. Supabase UMD client, anon auth, upsert on user_id. Top 10 feeders panel (bottom-right toggle). Name persistence in localStorage. Auto-syncs every 15s. Table: aquarium_leaderboard (user_id uuid PK, name text, fish_fed integer, created_at timestamptz).
 - 2026-03-26: V9 — Multi-color sand dropper. 8 sand colors: Sand, Ruby, Coral, Gold, Emerald, Cyan, Violet, Snow. Color picker swatches appear under Sand Drop toggle when active. Per-grain hue+saturation variation for natural look. Paint the sea floor in any color combo.
 - 2026-03-26: V8 — Bioluminescent jellyfish school. 12 small cyan-teal jellyfish that drift as a school. Glow pulses based on interaction activity (clicks, fish adds, sand drops) — 8 clicks in 10s = max glow. Individual pulse offsets, schooling formation with jitter, activity sparks in bell when high activity. Ambient group glow radiates from school center.
@@ -18,6 +19,8 @@ Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and place
 
 ## todos
 - Leaderboard table creation: needs `aquarium_leaderboard` table via MCP (columns: user_id uuid PK, name text, fish_fed integer, created_at timestamptz default now()). RLS: public select, authenticated upsert where auth.uid()=user_id.
+- Show username label that follows the chat-spawned fish for a few seconds after spawn
+- Subscriber/cheer/raid events from Twitch tags (currently anonymous IRC only sees raw PRIVMSG, no tag parsing) — different visual effects per event type
 - Fish breeding (two large fish produce a baby)
 - Day/night cycle
 - Sound effects (bubbles, ambient)
