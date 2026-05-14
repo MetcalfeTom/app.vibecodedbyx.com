@@ -432,10 +432,19 @@
                autocomplete="off" aria-label="City or address fallback for geolocation">
         <button type="button" class="btn" id="addrBtn">⌕ find</button>
       </div>
-      <div class="control-row">
+      <div class="control-row" id="radiusRow">
         <span class="row-label">Radius</span>
         <span class="row-value"><span id="radiusValue">1.0</span> km</span>
         <input type="range" id="radius" min="200" max="5000" step="100" value="1000" aria-label="Search radius in metres">
+      </div>
+      <!-- Shown only when a geofence is active. Stand-in for the hidden radius
+           row so chat sees that the search mode has switched. -->
+      <div class="control-row" id="fenceModeRow" hidden>
+        <span class="row-label">Mode</span>
+        <span class="row-value" style="color:var(--gold)">🧭 inside-fence</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--mute);letter-spacing:.08em;line-height:1.5;flex:1;min-width:14rem;">
+          radius hidden · Overpass queries the polygon bbox · clear the fence to use radius again
+        </span>
       </div>
       <div class="control-row">
         <span class="row-label">Kinds</span>
@@ -699,16 +708,53 @@ function setFenceStatus(text, cls){
 }
 
 function renderFenceState(){
+  // chat ask: radius and geofence are mutually exclusive options.
+  // When a fence is loaded we hide the radius row entirely and surface
+  // a "mode" hint so the swap reads clearly.
+  const radRow = document.getElementById('radiusRow');
+  const modeRow = document.getElementById('fenceModeRow');
   if (state.geofence){
     const name = state.geofence.name ? '"' + state.geofence.name + '" · ' : '';
-    setFenceStatus(name + state.geofence.points.length + ' pts loaded · only inside-fence spots survive · saved', 'live');
+    setFenceStatus(name + state.geofence.points.length + ' pts loaded · radius disabled · saved', 'live');
     document.getElementById('fenceClearBtn').hidden = false;
     document.getElementById('fenceUploadBtn').textContent = '▼ replace polyline';
+    if (radRow) radRow.hidden = true;
+    if (modeRow) modeRow.hidden = false;
+    // search button is allowed in fence mode even with no location
+    syncSearchBtnEnabled();
   } else {
     setFenceStatus('no fence · accepts [[lat,lon],…] or GeoJSON Polygon/LineString · saved to localStorage', '');
     document.getElementById('fenceClearBtn').hidden = true;
     document.getElementById('fenceUploadBtn').textContent = '▼ upload JSON polyline';
+    if (radRow) radRow.hidden = false;
+    if (modeRow) modeRow.hidden = true;
+    syncSearchBtnEnabled();
   }
+}
+
+// chat ask: search button is enabled if EITHER a location is set
+// (radius-around-me mode) OR a geofence is loaded (inside-polygon mode).
+function syncSearchBtnEnabled(){
+  const btn = document.getElementById('searchBtn');
+  if (!btn) return;
+  btn.disabled = !(state.lat != null || state.geofence);
+}
+
+// helpers for fence-mode search: bbox + centroid of polygon.
+function bboxOfPolygon(points){
+  let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity;
+  for (const [lat, lon] of points){
+    if (lat < s) s = lat;
+    if (lat > n) n = lat;
+    if (lon < w) w = lon;
+    if (lon > e) e = lon;
+  }
+  return { south: s, west: w, north: n, east: e };
+}
+function centroidOfPolygon(points){
+  let lat = 0, lon = 0;
+  for (const [a, b] of points){ lat += a; lon += b; }
+  return { lat: lat / points.length, lon: lon / points.length };
 }
 renderFenceState();
 
@@ -763,7 +809,7 @@ function requestLocation(){
       state.locLabel = null;
       setLocText();
       setStatus('location captured · ready to search');
-      document.getElementById('searchBtn').disabled = false;
+      syncSearchBtnEnabled();
     },
     err => {
       // chat ask: gentle nudge toward the manual address input when
@@ -818,7 +864,7 @@ async function geocodeAddress(text){
     state.locLabel = hit.display_name || q;
     setLocText();
     setStatus('found · ' + (hit.display_name || q));
-    document.getElementById('searchBtn').disabled = false;
+    syncSearchBtnEnabled();
   } catch(e){
     setStatus('geocoder error · ' + e.message + ' · try again or use enable-location', 'error');
   }
@@ -835,15 +881,24 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass.openstreetmap.fr/api/interpreter',
 ];
 
-function buildQuery(lat, lon, radius, kinds){
+function buildQuery(opts, kinds){
+  // opts can be { lat, lon, radius } (radius-around-me mode) OR
+  // { bbox: { south, west, north, east } } (geofence mode). Chat ask:
+  // radius and geofence are mutually exclusive, so we branch here on
+  // which keys were passed.
   const kindsList = Array.from(kinds).join('|');
-  const around = '(around:' + radius + ',' + lat + ',' + lon + ')';
-  // shorter QL timeout (15s) so we get a faster failure → retry sooner
+  let filter;
+  if (opts && opts.bbox){
+    const b = opts.bbox;
+    filter = '(' + b.south + ',' + b.west + ',' + b.north + ',' + b.east + ')';
+  } else {
+    filter = '(around:' + opts.radius + ',' + opts.lat + ',' + opts.lon + ')';
+  }
   return '[out:json][timeout:15];' +
     '(' +
-      'node["amenity"~"^(' + kindsList + ')$"]' + around + ';' +
-      'way["amenity"~"^(' + kindsList + ')$"]' + around + ';' +
-      'relation["amenity"~"^(' + kindsList + ')$"]' + around + ';' +
+      'node["amenity"~"^(' + kindsList + ')$"]' + filter + ';' +
+      'way["amenity"~"^(' + kindsList + ')$"]' + filter + ';' +
+      'relation["amenity"~"^(' + kindsList + ')$"]' + filter + ';' +
     ');' +
     'out center tags;';
 }
@@ -1015,7 +1070,14 @@ function parseElement(el){
   const lat = el.lat != null ? el.lat : (el.center && el.center.lat);
   const lon = el.lon != null ? el.lon : (el.center && el.center.lon);
   if (lat == null || lon == null) return null;
-  const dist = distance(state.lat, state.lon, lat, lon);
+  // distance is from user location when set; otherwise (geofence-only mode
+  // without geolocation) we fall back to the polygon centroid so the slot
+  // machine's "closest" bias and the per-card distance label still mean
+  // something inside the fence.
+  const origin = (state.lat != null && state.lon != null)
+    ? { lat: state.lat, lon: state.lon }
+    : (state.geofence ? centroidOfPolygon(state.geofence.points) : null);
+  const dist = origin ? distance(origin.lat, origin.lon, lat, lon) : 0;
   if (dist > state.radius + 50) return null;     // safety
   const kind = t.amenity || 'place';
   const cuisine = (t.cuisine || '').replace(/_/g, ' ').replace(/;/g, ' · ');
@@ -1048,14 +1110,20 @@ function parseElement(el){
 
 // ── search ──────────────────────────────────────────────────────────
 async function runSearch(){
-  if (state.lat == null){ setStatus('enable location first', 'error'); return; }
+  // chat ask: radius + geofence are mutually exclusive. In geofence mode
+  // we use the polygon's bbox as the Overpass filter and DO NOT require
+  // a user location (centroid stands in for distance display). In
+  // radius mode we still need a location.
+  if (!state.geofence && state.lat == null){ setStatus('enable location first', 'error'); return; }
   if (state.searching) return;
   if (!state.kinds.size){ setStatus('pick at least one kind', 'error'); return; }
   state.searching = true;
   document.getElementById('searchBtn').disabled = true;
   setStatus('querying overpass…', 'live');
   try {
-    const q = buildQuery(state.lat, state.lon, state.radius, state.kinds);
+    const q = state.geofence
+      ? buildQuery({ bbox: bboxOfPolygon(state.geofence.points) }, state.kinds)
+      : buildQuery({ lat: state.lat, lon: state.lon, radius: state.radius }, state.kinds);
     const j = await overpassFetch(q);
     const els = j.elements || [];
     const parsed = [];
@@ -1091,7 +1159,9 @@ async function runSearch(){
       document.getElementById('reelName').hidden = true;
       document.getElementById('reelMeta').hidden = true;
       document.getElementById('reelHours').hidden = true;
-      document.getElementById('reelState').textContent = 'no open spots — try a wider radius';
+      document.getElementById('reelState').textContent = state.geofence
+        ? 'no open spots inside the fence — try a bigger polygon or clear it'
+        : 'no open spots — try a wider radius';
     }
     document.getElementById('status').innerHTML = 'found ' + state.results.length + ' · ' +
       '<b>' + open.length + ' open</b> · ' + closed.length + ' closed · ' + unknown.length + ' unknown';
@@ -1099,7 +1169,7 @@ async function runSearch(){
     setStatus('all overpass mirrors failed · ' + e.message + ' · try again in a sec', 'error');
   } finally {
     state.searching = false;
-    document.getElementById('searchBtn').disabled = false;
+    syncSearchBtnEnabled();
   }
 }
 
