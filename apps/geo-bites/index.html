@@ -556,20 +556,21 @@
           <button type="button" class="pill" data-kind="ice_cream"  aria-pressed="true">🍦 ice cream</button>
         </div>
       </div>
-      <!-- GLUTEN-FREE TOGGLE — chat ask: highlight safe options. Reads
-           the OSM `diet:gluten_free` tag (values: yes / only / limited
-           / no). When enabled, filters the results to only spots that
-           are EXPLICITLY tagged `yes`/`only`. Cards always show a green
-           ✓GF / amber GF? / dim 'no GF' badge regardless of toggle so
-           you can tell at a glance. -->
+      <!-- Diet filters (chat ask: multi-select). Each pill toggles an OSM
+           `diet:<key>` filter; multiple pills AND together so a spot
+           must satisfy every selected diet (yes / only) to survive.
+           Cards always render badges for any diet the spot actually has,
+           regardless of which pills are active. -->
       <div class="control-row">
         <span class="row-label">Diet</span>
         <div class="pill-group" id="dietRow" role="group" aria-label="Diet filters">
-          <button type="button" class="pill" data-diet="gluten_free" aria-pressed="false">
-            🌾✕ GF safe only
-          </button>
+          <button type="button" class="pill" data-diet="vegan"       aria-pressed="false">🌱 vegan</button>
+          <button type="button" class="pill" data-diet="vegetarian"  aria-pressed="false">🥦 vegetarian</button>
+          <button type="button" class="pill" data-diet="gluten_free" aria-pressed="false">🌾✕ gluten-free</button>
+          <button type="button" class="pill" data-diet="halal"       aria-pressed="false">☪ halal</button>
+          <button type="button" class="pill" data-diet="kosher"      aria-pressed="false">✡ kosher</button>
           <span style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--mute);letter-spacing:.08em;line-height:1.5;flex:1;min-width:14rem;">
-            uses OSM <code>diet:gluten_free=yes</code> · OSM coverage varies — call ahead for celiacs
+            uses OSM <code>diet:&lt;key&gt;=yes</code> · multiple AND together · coverage varies — call ahead for medical needs
           </span>
         </div>
       </div>
@@ -649,12 +650,29 @@ const state = {
   locLabel: null,                        // friendly name from nominatim, or null when geolocation
   radius: 1000,                          // metres
   kinds: new Set(['restaurant', 'cafe', 'bar', 'pub', 'fast_food', 'food_court', 'biergarten', 'ice_cream']),
-  // GF toggle (chat ask) — when true, filters the rendered lists +
-  // slot machine to only show spots whose OSM `diet:gluten_free` tag
-  // is `yes` or `only`. Persisted to localStorage so the toggle
-  // survives a reload (handy for celiacs who never want to see the
-  // unsafe set).
-  gfOnly: (() => { try { return localStorage.getItem('geo-bites-gf') === '1'; } catch(e){ return false; } })(),
+  // Diet multi-select (chat ask). Set of OSM `diet:<key>` keys that
+  // are currently active. Spots must satisfy ALL active diets (yes /
+  // only) to pass the filter. Migrated from the old single GF key on
+  // first boot post-update.
+  dietsOn: (() => {
+    try {
+      const raw = localStorage.getItem('geo-bites-diets');
+      if (raw){
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return new Set(arr.filter(k => typeof k === 'string'));
+      }
+      // legacy migration: a single gluten-free toggle becomes the only
+      // selected diet, then the old key is dropped.
+      if (localStorage.getItem('geo-bites-gf') === '1'){
+        localStorage.removeItem('geo-bites-gf');
+        const s = new Set(['gluten_free']);
+        localStorage.setItem('geo-bites-diets', JSON.stringify([...s]));
+        return s;
+      }
+      try { localStorage.removeItem('geo-bites-gf'); } catch(_) {}
+    } catch(e){}
+    return new Set();
+  })(),
   // Delivery toggle (chat ask) — filter to OSM `delivery=yes`. NOT a
   // direct Uber Eats query (their availability data isn't public);
   // the link on each card opens an Uber Eats search.
@@ -1048,7 +1066,16 @@ document.getElementById('tab-fence').addEventListener('click', () => setMode('fe
 // filter only applies in fence tab + when a fence is loaded.
 function applyAllFilters(){
   let list = state.results;
-  if (state.gfOnly)       list = list.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only');
+  if (state.dietsOn && state.dietsOn.size){
+    list = list.filter(r => {
+      if (!r.diets) return false;
+      for (const key of state.dietsOn){
+        const v = r.diets[key];
+        if (v !== 'yes' && v !== 'only') return false;
+      }
+      return true;
+    });
+  }
   if (state.deliveryOnly) list = list.filter(r => r.delivery === 'yes');
   if (fenceModeActive())  list = list.filter(r => pointInPolygon(r.lat, r.lon, state.geofence.points));
   return list;
@@ -1381,6 +1408,15 @@ function parseElement(el){
   //   no       — explicitly does not cater
   //   (missing) — nobody's mapped it; treat as unknown
   const glutenFree = t['diet:gluten_free'] || null;
+  // Multi-select diet tags (chat ask) — all parsed regardless of which
+  // pills are active so cards stay informative.
+  const diets = {
+    vegan:       t['diet:vegan']        || null,
+    vegetarian:  t['diet:vegetarian']   || null,
+    gluten_free: glutenFree,
+    halal:       t['diet:halal']        || null,
+    kosher:      t['diet:kosher']       || null,
+  };
   // OSM doesn't have a `delivery:ubereats` tag in wide use — the
   // common pattern is a generic `delivery=yes/no` (any service).
   // Chat ask: "filter for Uber Eats availability + maybe a direct
@@ -1391,7 +1427,7 @@ function parseElement(el){
   // determined by the link landing on a real result page.
   const delivery = t['delivery'] || null;        // 'yes' | 'no' | null
   const takeaway = t['takeaway'] || null;        // bonus signal
-  return { name: t.name, lat, lon, dist, kind, cuisine, opening, isOpen, addr, glutenFree, delivery, takeaway };
+  return { name: t.name, lat, lon, dist, kind, cuisine, opening, isOpen, addr, glutenFree, diets, delivery, takeaway };
 }
 
 // ── search ──────────────────────────────────────────────────────────
@@ -1866,19 +1902,43 @@ document.querySelectorAll('#kinds .pill').forEach(p => {
   });
 });
 
-// GLUTEN-FREE TOGGLE (chat ask). Re-buckets the existing results
-// in-place when flipped — no new Overpass query, since the data we
-// need (`diet:gluten_free` tag) is already on every result. If the
-// user hasn't searched yet, just persists the preference.
-const gfPill = document.querySelector('#dietRow .pill[data-diet="gluten_free"]');
-if (gfPill){
-  // reflect persisted state on boot
-  gfPill.setAttribute('aria-pressed', state.gfOnly ? 'true' : 'false');
-  gfPill.addEventListener('click', () => {
-    state.gfOnly = !state.gfOnly;
-    gfPill.setAttribute('aria-pressed', state.gfOnly ? 'true' : 'false');
-    try { localStorage.setItem('geo-bites-gf', state.gfOnly ? '1' : '0'); } catch(e){}
-    // re-bucket existing results without re-querying Overpass
+// Diet multi-select (chat ask). Each pill independently adds/removes its
+// key from state.dietsOn; applyAllFilters() ANDs them together. No
+// Overpass re-query is needed — all diet tags are already on every
+// result from `out tags`. Persist as a JSON array under geo-bites-diets.
+const DIET_LABELS = {
+  vegan:       '🌱 vegan',
+  vegetarian:  '🥦 vegetarian',
+  gluten_free: '🌾✕ gluten-free',
+  halal:       '☪ halal',
+  kosher:      '✡ kosher',
+};
+function persistDiets(){
+  try { localStorage.setItem('geo-bites-diets', JSON.stringify([...state.dietsOn])); } catch(e){}
+}
+function dietStatusLine(){
+  if (!state.dietsOn.size) return 'showing all ' + state.results.length + ' spots';
+  // count spots passing the AND of all active diets
+  const ok = state.results.filter(r => {
+    if (!r.diets) return false;
+    for (const k of state.dietsOn){
+      const v = r.diets[k];
+      if (v !== 'yes' && v !== 'only') return false;
+    }
+    return true;
+  }).length;
+  const labels = [...state.dietsOn].map(k => DIET_LABELS[k] || k).join(' + ');
+  return labels + ' filter ON · ' + ok + ' verified spot' + (ok === 1 ? '' : 's') + ' in current results';
+}
+// reflect persisted state on boot
+document.querySelectorAll('#dietRow .pill[data-diet]').forEach(pill => {
+  const key = pill.dataset.diet;
+  pill.setAttribute('aria-pressed', state.dietsOn.has(key) ? 'true' : 'false');
+  pill.addEventListener('click', () => {
+    if (state.dietsOn.has(key)) state.dietsOn.delete(key);
+    else                        state.dietsOn.add(key);
+    pill.setAttribute('aria-pressed', state.dietsOn.has(key) ? 'true' : 'false');
+    persistDiets();
     if (state.results && state.results.length){
       const filtered = applyAllFilters();
       const open    = filtered.filter(r => r.isOpen === true);
@@ -1886,19 +1946,11 @@ if (gfPill){
       const unknown = filtered.filter(r => r.isOpen === null);
       renderLists(open, closed, unknown);
       const status = document.getElementById('status');
-      if (status){
-        const gfCount = state.results.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only').length;
-        status.innerHTML = state.gfOnly
-          ? '🌾✕ GF safe filter ON · ' + gfCount + ' verified GF spots in current results'
-          : 'showing all ' + state.results.length + ' spots';
-      }
-      // refresh slot-machine pick if needed
-      if (open.length || unknown.length){
-        spinPick(open.length ? open : unknown);
-      }
+      if (status) status.innerHTML = dietStatusLine();
+      if (open.length || unknown.length) spinPick(open.length ? open : unknown);
     }
   });
-}
+});
 
 // GEOFENCE UPLOAD (chat ask). File input parses the JSON, normalizes via
 // parseGeofence(), saves to localStorage, and re-buckets any existing
