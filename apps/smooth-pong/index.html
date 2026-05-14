@@ -158,18 +158,21 @@ canvas{ display:block; width:100%; height:100%; }
     <canvas id="c" role="application" aria-label="Pong court. Use W and S or arrow keys or mouse to move the left paddle. Left and right arrow keys swing the paddle to angle your return."></canvas>
     <div id="msg" class="center-msg show">
       <div class="big" id="msg-big">Smooth Pong</div>
-      <div class="sub" id="msg-sub">W / S · ↑ ↓ · mouse · touch to move &nbsp;·&nbsp; ← → to swing the paddle &nbsp;·&nbsp; first to 7</div>
+      <div class="sub" id="msg-sub">mouse Y moves · scroll tilts · whip the mouse on contact for extra power &nbsp;·&nbsp; W/S ↑↓ ←→ also work &nbsp;·&nbsp; first to 7</div>
       <button type="button" id="msg-btn">Start</button>
     </div>
   </div>
 
   <div class="hud-row">
     <span><span class="l">●</span> you</span>
-    <span><button type="button" id="mute-btn" aria-pressed="false">♪ sound</button></span>
+    <span style="display:flex; gap:.4rem; flex-wrap:wrap; justify-content:center;">
+      <button type="button" id="mouse-mode-btn" aria-pressed="false" title="Toggle mouse rotation mode">⌖ scroll tilt</button>
+      <button type="button" id="mute-btn" aria-pressed="false">♪ sound</button>
+    </span>
     <span><span class="r">●</span> bot</span>
   </div>
-  <div class="hud-help">
-    <kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> move &nbsp;·&nbsp; <kbd>←</kbd><kbd>→</kbd> swing &nbsp;·&nbsp; mouse / touch also moves &nbsp;·&nbsp; <kbd>P</kbd> pause
+  <div class="hud-help" id="hud-help">
+    <kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> move &nbsp;·&nbsp; mouse Y follows · <kbd>scroll</kbd> tilts the paddle &nbsp;·&nbsp; whip the mouse on contact for extra swing power &nbsp;·&nbsp; <kbd>←</kbd><kbd>→</kbd> also swing &nbsp;·&nbsp; <kbd>P</kbd> pause
   </div>
 </div>
 
@@ -273,19 +276,26 @@ canvas{ display:block; width:100%; height:100%; }
     leftV: 0,
     leftAngle: 0,
     leftAngleV: 0,
-    leftTargetY: null, // for mouse/touch input
+    leftTargetY: null,         // for mouse/touch movement
+    leftTargetAngle: 0,        // scroll-tilt target
+    lastWheelT: 0,             // for scroll-target decay
+    mouseVy: 0,                // smoothed mouse-Y velocity (logical px/s) — adds swing power
     rightY: H/2 - PADDLE_H/2,
     rightV: 0,
+    rightAngle: 0,
+    rightAngleV: 0,
     rightTargetY: H/2,
+    rightTargetAngle: 0,       // AI-aimed rotation target
     ball: { x: W/2, y: H/2, vx: 0, vy: 0 },
     scoreL: 0,
     scoreR: 0,
     keys: { up:false, down:false, ccw:false, cw:false },
-    inputMode: 'pointer',  // 'keyboard' | 'pointer'  — last input the user *actively* used
+    inputMode: 'pointer',      // 'keyboard' | 'pointer'  — last input the user *actively* used
+    mouseRotMode: 'scroll',    // 'scroll' (scroll-tilt + velocity power) | 'click' (click-flick + velocity power)
     trail: [],
     particles: [],
     lastT: 0,
-    serveDelay: 0, // wait before launching after a score
+    serveDelay: 0,
     serveDir: 1,
   };
 
@@ -305,7 +315,11 @@ canvas{ display:block; width:100%; height:100%; }
     state.leftY = state.rightY = H/2 - PADDLE_H/2;
     state.leftV = state.rightV = 0;
     state.leftAngle = 0; state.leftAngleV = 0;
+    state.rightAngle = 0; state.rightAngleV = 0;
     state.leftTargetY = null;
+    state.leftTargetAngle = 0;
+    state.rightTargetAngle = 0;
+    state.mouseVy = 0;
     state.particles.length = 0;
     state.running = true;
     state.paused = false;
@@ -388,9 +402,40 @@ canvas{ display:block; width:100%; height:100%; }
   // Only react to pointer movement when the user is already in pointer mode
   // OR when they click/touch (which counts as an active pointer intent).
   let lastMouseY = null;
+  let lastLogicalY = null;
+  let lastLogicalT = 0;
+
+  function applyClickFlick(clientY){
+    const y = ptToLogicalY(clientY);
+    const paddleCenter = state.leftY + PADDLE_HALF_H;
+    const dy = y - paddleCenter;
+    const dir = dy === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(dy);
+    const flickV = 7.2;
+    state.leftAngleV += dir * flickV;
+    // small flick particle pop for feedback
+    spawnParticles(22 + PADDLE_W, paddleCenter, 140, 4);
+    blip(620 + Math.random()*60, 0.05, 'square', 0.10);
+  }
+
+  function trackMouseVelocity(clientY){
+    const ly = ptToLogicalY(clientY);
+    const now = performance.now();
+    if (lastLogicalY != null){
+      const dtm = (now - lastLogicalT) / 1000;
+      if (dtm > 0 && dtm < 0.18){
+        const instV = (ly - lastLogicalY) / dtm;
+        // exponential smoothing — quick response, but no spikes
+        state.mouseVy = state.mouseVy * 0.55 + instV * 0.45;
+      }
+    }
+    lastLogicalY = ly;
+    lastLogicalT = now;
+  }
+
   canvas.addEventListener('mousedown', e => {
     setPointerMode();
     state.leftTargetY = ptToLogicalY(e.clientY) - PADDLE_H/2;
+    if (state.mouseRotMode === 'click') applyClickFlick(e.clientY);
   });
   canvas.addEventListener('mousemove', e => {
     if (!state.running) return;
@@ -403,13 +448,26 @@ canvas{ display:block; width:100%; height:100%; }
       if (state.inputMode === 'keyboard') return;
     }
     state.leftTargetY = ptToLogicalY(e.clientY) - PADDLE_H/2;
+    trackMouseVelocity(e.clientY);
   });
+
+  canvas.addEventListener('wheel', e => {
+    if (!state.running) return;
+    e.preventDefault();
+    if (state.mouseRotMode !== 'scroll') return;
+    setPointerMode();
+    // each pixel of deltaY adjusts the target angle subtly; full tilt in a few notches
+    const k = 0.0028;
+    state.leftTargetAngle = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, state.leftTargetAngle + e.deltaY * k));
+    state.lastWheelT = performance.now();
+  }, { passive: false });
 
   canvas.addEventListener('touchstart', e => {
     if (!state.running) return;
     const t = e.touches[0]; if (!t) return;
     setPointerMode();
     state.leftTargetY = ptToLogicalY(t.clientY) - PADDLE_H/2;
+    if (state.mouseRotMode === 'click') applyClickFlick(t.clientY);
     e.preventDefault();
   }, { passive: false });
   canvas.addEventListener('touchmove', e => {
@@ -417,8 +475,27 @@ canvas{ display:block; width:100%; height:100%; }
     const t = e.touches[0]; if (!t) return;
     setPointerMode();
     state.leftTargetY = ptToLogicalY(t.clientY) - PADDLE_H/2;
+    trackMouseVelocity(t.clientY);
     e.preventDefault();
   }, { passive: false });
+
+  // mouse-rotation mode toggle
+  const $mouseModeBtn = document.getElementById('mouse-mode-btn');
+  const $hudHelp = document.getElementById('hud-help');
+  function syncMouseModeUI(){
+    const isScroll = state.mouseRotMode === 'scroll';
+    $mouseModeBtn.textContent = isScroll ? '⌖ scroll tilt' : '⌖ click flick';
+    $mouseModeBtn.setAttribute('aria-pressed', String(!isScroll));
+    $hudHelp.innerHTML = isScroll
+      ? '<kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> move &nbsp;·&nbsp; mouse Y follows · <kbd>scroll</kbd> tilts the paddle &nbsp;·&nbsp; whip the mouse on contact for extra power &nbsp;·&nbsp; <kbd>←</kbd><kbd>→</kbd> also swing &nbsp;·&nbsp; <kbd>P</kbd> pause'
+      : '<kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> move &nbsp;·&nbsp; mouse Y follows · <kbd>click</kbd> flicks the paddle (above center = CCW, below = CW) &nbsp;·&nbsp; whip the mouse for extra power &nbsp;·&nbsp; <kbd>P</kbd> pause';
+  }
+  $mouseModeBtn.addEventListener('click', () => {
+    state.mouseRotMode = state.mouseRotMode === 'scroll' ? 'click' : 'scroll';
+    state.leftTargetAngle = 0; // reset so switching is clean
+    syncMouseModeUI();
+  });
+  syncMouseModeUI();
 
   $msgBtn.addEventListener('click', () => {
     if (state.scoreL >= WIN_SCORE || state.scoreR >= WIN_SCORE){
@@ -467,20 +544,31 @@ canvas{ display:block; width:100%; height:100%; }
     if (state.leftY < 0) { state.leftY = 0; state.leftV = 0; }
     if (state.leftY > H - PADDLE_H) { state.leftY = H - PADDLE_H; state.leftV = 0; }
 
-    // paddle rotation — swing with ← (ccw, top goes left/forward) or → (cw, bottom goes left/forward)
-    let angAccel = 0;
+    // --- left paddle rotation ---
     if (state.inputMode === 'keyboard'){
+      // arrow / A·D swing: accel + spring
+      let angAccel = 0;
       if (state.keys.ccw) angAccel -= ANGLE_ACCEL;
       if (state.keys.cw)  angAccel += ANGLE_ACCEL;
-    }
-    state.leftAngleV += angAccel * dt;
-    // spring + damping back toward 0 when not actively swinging
-    if (!state.keys.ccw && !state.keys.cw){
+      state.leftAngleV += angAccel * dt;
+      if (!state.keys.ccw && !state.keys.cw){
+        state.leftAngleV += (-state.leftAngle * ANGLE_SPRING) * dt;
+        state.leftAngleV *= Math.max(0, 1 - ANGLE_DAMP * dt);
+      } else {
+        state.leftAngleV *= Math.max(0, 1 - 1.5 * dt);
+      }
+    } else if (state.mouseRotMode === 'scroll'){
+      // scroll-tilt: ease toward target angle (positional). Target drifts back
+      // to 0 if no wheel for >700 ms so the paddle resets naturally.
+      if (performance.now() - state.lastWheelT > 700){
+        state.leftTargetAngle *= Math.max(0, 1 - 0.55 * dt);
+      }
+      const diff = state.leftTargetAngle - state.leftAngle;
+      state.leftAngleV = diff * 12; // critically damped follow
+    } else {
+      // click-flick: impulse already added on click; spring + damp back to 0
       state.leftAngleV += (-state.leftAngle * ANGLE_SPRING) * dt;
       state.leftAngleV *= Math.max(0, 1 - ANGLE_DAMP * dt);
-    } else {
-      // light damping while held
-      state.leftAngleV *= Math.max(0, 1 - 1.5 * dt);
     }
     if (state.leftAngleV > ANGLE_MAX_V)  state.leftAngleV = ANGLE_MAX_V;
     if (state.leftAngleV < -ANGLE_MAX_V) state.leftAngleV = -ANGLE_MAX_V;
@@ -488,14 +576,30 @@ canvas{ display:block; width:100%; height:100%; }
     if (state.leftAngle > MAX_ANGLE)  { state.leftAngle = MAX_ANGLE; if (state.leftAngleV > 0) state.leftAngleV = 0; }
     if (state.leftAngle < -MAX_ANGLE) { state.leftAngle = -MAX_ANGLE; if (state.leftAngleV < 0) state.leftAngleV = 0; }
 
-    // AI paddle: track ball with smoothing + jitter
+    // mouseVy decays so it only matters when fresh (within ~150 ms of last motion)
+    state.mouseVy *= Math.max(0, 1 - 4 * dt);
+
+    // --- AI paddle: position + rotation ---
     let target = state.ball.y - PADDLE_H/2;
-    // dampen anticipation when ball is moving away
+    let predictedHitY = null;        // for AI rotation aim
+    const aiPaddleX = W - 22 - PADDLE_HALF_W;
     if (state.ball.vx < 0) {
       target = H/2 - PADDLE_H/2 + Math.sin(performance.now()*0.0007)*40; // idle drift
     } else {
-      // add jitter so AI isn't perfect
+      // jitter so AI isn't perfect
       target += (Math.sin(performance.now()*0.003) * AI_MISS);
+      // predict y at impact (account for wall bounces by unfolding into reflected strip)
+      const dx = aiPaddleX - state.ball.x;
+      if (dx > 0 && state.ball.vx > 0){
+        const tHit = dx / state.ball.vx;
+        let py = state.ball.y + state.ball.vy * tHit;
+        // reflect into [0, H]
+        const span = H;
+        let mod = py % (2 * span);
+        if (mod < 0) mod += 2 * span;
+        if (mod > span) mod = 2 * span - mod;
+        predictedHitY = mod;
+      }
     }
     const aiCenterDelta = target - state.rightY;
     state.rightV = aiCenterDelta * AI_REACT * 60; // smoothing
@@ -503,6 +607,45 @@ canvas{ display:block; width:100%; height:100%; }
     state.rightY += state.rightV * dt;
     if (state.rightY < 0) state.rightY = 0;
     if (state.rightY > H - PADDLE_H) state.rightY = H - PADDLE_H;
+
+    // AI paddle rotation — defensive at edges, offensive near center
+    let aiTargetAng = 0;
+    if (predictedHitY != null){
+      const paddleCenter = state.rightY + PADDLE_HALF_H;
+      const hitOffset = (predictedHitY - paddleCenter) / PADDLE_HALF_H; // -1..+1 (or beyond)
+      const hitClamped = Math.max(-1.4, Math.min(1.4, hitOffset));
+      if (Math.abs(hitClamped) > 0.55){
+        // DEFENSIVE: ball coming near the paddle edge — tilt so the surface normal
+        // angles back toward court center, scooping the ball back into play.
+        // If hit is at the top (hitClamped < 0), tilt CW (positive) so normal points down-left.
+        aiTargetAng = -hitClamped * 0.55;
+      } else {
+        // OFFENSIVE: aim the return at the human's far side
+        const humanCenter = state.leftY + PADDLE_HALF_H;
+        // Pick an aim point on the far side of the court (opposite of where human currently sits)
+        const aimY = humanCenter > H/2 ? 60 : H - 60;
+        // We want ball to leave the paddle and reach aimY by the time it reaches the human side.
+        const dxAway = aiPaddleX - 22;            // horizontal distance to human paddle line
+        const dyAim = aimY - predictedHitY;        // vertical distance needed
+        // desired leaving-vy/vx ratio = dyAim/dxAway; convert to a small angle nudge
+        const desiredSlope = Math.max(-1.2, Math.min(1.2, dyAim / Math.max(dxAway, 1)));
+        // a tilt of theta adds about theta to the bounce angle (paddle's normal rotates by theta)
+        // so we set target angle to half the desired slope (since hit position also contributes)
+        aiTargetAng = -Math.atan(desiredSlope) * 0.5;
+      }
+      // light wobble so the AI isn't robotic
+      aiTargetAng += Math.sin(performance.now() * 0.0015) * 0.06;
+    } else {
+      aiTargetAng = 0;
+    }
+    const aiAngClamp = MAX_ANGLE * 0.72;
+    state.rightTargetAngle = Math.max(-aiAngClamp, Math.min(aiAngClamp, aiTargetAng));
+    const angDiff = state.rightTargetAngle - state.rightAngle;
+    state.rightAngleV = angDiff * 7.5;
+    state.rightAngleV = Math.max(-ANGLE_MAX_V * 0.85, Math.min(ANGLE_MAX_V * 0.85, state.rightAngleV));
+    state.rightAngle += state.rightAngleV * dt;
+    if (state.rightAngle > aiAngClamp)  { state.rightAngle = aiAngClamp;  if (state.rightAngleV > 0) state.rightAngleV = 0; }
+    if (state.rightAngle < -aiAngClamp) { state.rightAngle = -aiAngClamp; if (state.rightAngleV < 0) state.rightAngleV = 0; }
 
     // ball
     if (state.serveDelay > 0){
@@ -591,6 +734,17 @@ canvas{ display:block; width:100%; height:100%; }
         vy += state.leftV * 0.18;
         vy += state.leftAngleV * SWING_ENGLISH / 30;   // angular velocity adds spin
         vx += Math.abs(state.leftAngleV) * 4;          // a strong swing also adds pace
+        // Raw mouse-velocity bonus: whipping the mouse on contact adds extra
+        // power on top of the paddle's own motion. Only applies in pointer mode.
+        if (state.inputMode === 'pointer'){
+          const mv = Math.max(-1400, Math.min(1400, state.mouseVy));
+          vy += mv * 0.16;
+          const swingPace = Math.min(110, Math.abs(mv) * 0.05);
+          const curSp = Math.hypot(vx, vy) || 1;
+          const newSp = Math.min(MAX_BALL_SPEED, curSp + swingPace);
+          const sk = newSp / curSp;
+          vx *= sk; vy *= sk;
+        }
         // separate ball from paddle to avoid sticky tunneling
         const pen = BALL_R - Math.sqrt(distSq);
         if (pen > 0){
@@ -605,19 +759,67 @@ canvas{ display:block; width:100%; height:100%; }
         spawnParticles(state.ball.x, state.ball.y, 140, 8 + Math.floor(Math.abs(state.leftAngleV)));
       }
     }
-    // paddle collision right
-    const rightX = W - 22 - PADDLE_W, rightRX = rightX + PADDLE_W;
-    if (state.ball.vx > 0 && state.ball.x + BALL_R >= rightX && state.ball.x - BALL_R <= rightRX){
-      if (state.ball.y >= state.rightY && state.ball.y <= state.rightY + PADDLE_H){
-        state.ball.x = rightX - BALL_R;
-        const hit = (state.ball.y - (state.rightY + PADDLE_H/2)) / (PADDLE_H/2);
-        const speed = Math.min(Math.hypot(state.ball.vx, state.ball.vy) + BALL_SPEED_BUMP, MAX_BALL_SPEED);
-        const angle = hit * 0.85;
-        state.ball.vx = -Math.cos(angle) * speed;
-        state.ball.vy = Math.sin(angle) * speed;
-        state.ball.vy += state.rightV * 0.18;
-        blip(440, 0.07, 'square', 0.18);
-        spawnParticles(state.ball.x, state.ball.y, 190, 8);
+    // paddle collision RIGHT — rotated OBB-vs-circle (AI can swing too)
+    {
+      const cx = W - 22 - PADDLE_HALF_W;
+      const cy = state.rightY + PADDLE_HALF_H;
+      const a = state.rightAngle;
+      const ca = Math.cos(-a), sa = Math.sin(-a);
+      const rx = state.ball.x - cx, ry = state.ball.y - cy;
+      const lx = ca * rx - sa * ry;
+      const ly = sa * rx + ca * ry;
+      const cxClamp = Math.max(-PADDLE_HALF_W, Math.min(PADDLE_HALF_W, lx));
+      const cyClamp = Math.max(-PADDLE_HALF_H, Math.min(PADDLE_HALF_H, ly));
+      const dxR = lx - cxClamp, dyR = ly - cyClamp;
+      const distSqR = dxR * dxR + dyR * dyR;
+      const approaching = state.ball.vx > 0 || (a !== 0);
+      if (distSqR < BALL_R * BALL_R && approaching){
+        let nlx, nly;
+        if (distSqR > 0.0001){
+          const d = Math.sqrt(distSqR);
+          nlx = dxR / d; nly = dyR / d;
+        } else {
+          if (PADDLE_HALF_W - Math.abs(lx) < PADDLE_HALF_H - Math.abs(ly)){
+            nlx = Math.sign(lx) || -1; nly = 0;
+          } else {
+            nlx = 0; nly = Math.sign(ly) || 1;
+          }
+        }
+        const ca2 = Math.cos(a), sa2 = Math.sin(a);
+        const nx = ca2 * nlx - sa2 * nly;
+        const ny = sa2 * nlx + ca2 * nly;
+        const speedNow = Math.hypot(state.ball.vx, state.ball.vy);
+        const speed = Math.min(speedNow + BALL_SPEED_BUMP, MAX_BALL_SPEED);
+        let vx = state.ball.vx, vy = state.ball.vy;
+        const dot = vx * nx + vy * ny;
+        vx = vx - 2 * dot * nx;
+        vy = vy - 2 * dot * ny;
+        // safety: ensure ball heads away from right wall (negative vx)
+        if (vx > -50){
+          const hit = Math.max(-1, Math.min(1, ly / PADDLE_HALF_H));
+          const localAngle = hit * 0.85;
+          const totalAngle = a + localAngle;
+          // ball leaves to the left: vx must be negative
+          vx = -Math.cos(totalAngle) * speed;
+          vy = Math.sin(totalAngle) * speed;
+          if (vx > -60) { vx = -60; vy = vy * 0.9; }
+        } else {
+          const k = speed / Math.hypot(vx, vy);
+          vx *= k; vy *= k;
+        }
+        vy += state.rightV * 0.18;
+        vy += state.rightAngleV * SWING_ENGLISH / 30;
+        // separate
+        const pen = BALL_R - Math.sqrt(distSqR);
+        if (pen > 0){
+          state.ball.x += nx * (pen + 0.5);
+          state.ball.y += ny * (pen + 0.5);
+        }
+        state.ball.vx = vx;
+        state.ball.vy = vy;
+        const swingPitch = 380 + Math.abs(state.rightAngleV) * 18;
+        blip(swingPitch, 0.07, 'square', 0.18);
+        spawnParticles(state.ball.x, state.ball.y, 200, 8 + Math.floor(Math.abs(state.rightAngleV)));
       }
     }
 
@@ -700,9 +902,9 @@ canvas{ display:block; width:100%; height:100%; }
       ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI*2); ctx.fill();
     }
 
-    // paddles
+    // paddles (both rotated)
     drawPaddle(22 + PADDLE_HALF_W, state.leftY + PADDLE_HALF_H, state.leftAngle, '#39ff8a');
-    drawPaddle(W - 22 - PADDLE_HALF_W, state.rightY + PADDLE_HALF_H, 0, '#1ad470');
+    drawPaddle(W - 22 - PADDLE_HALF_W, state.rightY + PADDLE_HALF_H, state.rightAngle, '#1ad470');
 
     // ball
     ctx.save();
