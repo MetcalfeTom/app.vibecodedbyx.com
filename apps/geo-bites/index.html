@@ -118,6 +118,13 @@
     transition:background .14s, color .14s, border-color .14s, box-shadow .14s;
     min-height:2.4rem;
   }
+  .geofence-status{
+    font-family:'JetBrains Mono',monospace;font-size:.65rem;letter-spacing:.08em;
+    color:var(--mute); line-height:1.5; flex:1; min-width:14rem;
+    align-self:center;
+  }
+  .geofence-status.live{ color: var(--gold); }
+  .geofence-status.error{ color: var(--pink); }
   .pill:hover{background:rgba(255,77,200,0.08);border-color:var(--pink);color:var(--pink)}
   .pill:focus-visible{outline:.16rem solid var(--cyan);outline-offset:2px}
   .pill[aria-pressed="true"]{
@@ -476,6 +483,23 @@
           </span>
         </div>
       </div>
+      <!-- GEOFENCE (chat ask: "upload a JSON polyline for a geofence, and
+           save it to localStorage"). Accepts a JSON polyline/polygon as
+           a raw [[lat,lon],…] array OR any GeoJSON shape (Polygon /
+           LineString / Feature / FeatureCollection). Auto-detects
+           lat-first vs lon-first ordering by magnitude. When a fence is
+           loaded, the result set is post-filtered with a point-in-polygon
+           ray cast — only spots inside the polygon survive. Persisted to
+           localStorage['geo-bites-geofence'] so it survives a reload. -->
+      <div class="control-row">
+        <span class="row-label">Geofence</span>
+        <div class="pill-group" id="fenceRow" role="group" aria-label="Geofence upload">
+          <input type="file" id="fenceFile" accept=".json,.geojson,application/json" hidden aria-label="Upload geofence JSON file">
+          <button type="button" class="pill" id="fenceUploadBtn">▼ upload JSON polyline</button>
+          <button type="button" class="pill" id="fenceClearBtn" hidden>✕ clear fence</button>
+          <span class="geofence-status" id="fenceStatus">no fence · all results in radius</span>
+        </div>
+      </div>
       <div class="control-row">
         <button type="button" class="btn" id="searchBtn" disabled>▶ search the streets</button>
         <span class="status" id="status">enable location, then search.</span>
@@ -544,9 +568,159 @@ const state = {
   // direct Uber Eats query (their availability data isn't public);
   // the link on each card opens an Uber Eats search.
   deliveryOnly: (() => { try { return localStorage.getItem('geo-bites-deliv') === '1'; } catch(e){ return false; } })(),
+  // Geofence (chat ask). Stored as { name, points: [[lat,lon], ...] }.
+  // Restored from localStorage on boot. null when no fence is loaded.
+  geofence: (() => {
+    try {
+      const raw = localStorage.getItem('geo-bites-geofence');
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (obj && Array.isArray(obj.points) && obj.points.length >= 3) return obj;
+      return null;
+    } catch(e){ return null; }
+  })(),
   results: [],
   searching: false,
 };
+
+// ── Geofence helpers (chat ask) ─────────────────────────────────────
+// Accept several common JSON shapes and normalize to [[lat,lon],…].
+// - raw array of pairs: [[lat,lon],…] OR [[lon,lat],…] (auto-detected by magnitude)
+// - GeoJSON Polygon: { type:'Polygon', coordinates:[[[lon,lat],…]] }
+// - GeoJSON LineString: { type:'LineString', coordinates:[[lon,lat],…] }
+// - GeoJSON Feature / FeatureCollection (uses the first geometry)
+// - custom: { name?:'…', points:[[lat,lon],…] }
+function parseGeofence(json){
+  if (!json) throw new Error('empty file');
+  let name = null;
+  let raw = null;
+  let isGeoJSON = false;
+
+  if (typeof json === 'string'){
+    json = JSON.parse(json);
+  }
+  if (Array.isArray(json)){
+    raw = json;
+  } else if (json && typeof json === 'object'){
+    name = json.name || json.properties?.name || null;
+    if (Array.isArray(json.points)) {
+      raw = json.points;
+    } else if (json.type === 'FeatureCollection' && Array.isArray(json.features) && json.features[0]){
+      return parseGeofence(json.features[0]);
+    } else if (json.type === 'Feature' && json.geometry){
+      isGeoJSON = true;
+      const g = json.geometry;
+      name = name || json.properties?.name || null;
+      if (g.type === 'Polygon')      raw = g.coordinates?.[0];
+      else if (g.type === 'LineString') raw = g.coordinates;
+      else if (g.type === 'MultiPolygon') raw = g.coordinates?.[0]?.[0];
+      else throw new Error('unsupported geometry: ' + g.type);
+    } else if (json.type === 'Polygon'){
+      isGeoJSON = true;
+      raw = json.coordinates?.[0];
+    } else if (json.type === 'LineString'){
+      isGeoJSON = true;
+      raw = json.coordinates;
+    } else if (json.type === 'MultiPolygon'){
+      isGeoJSON = true;
+      raw = json.coordinates?.[0]?.[0];
+    } else if (Array.isArray(json.coordinates)){
+      // bare {coordinates:[…]} blob — guess by depth
+      isGeoJSON = true;
+      raw = (Array.isArray(json.coordinates[0]?.[0])) ? json.coordinates[0] : json.coordinates;
+    }
+  }
+  if (!Array.isArray(raw) || raw.length < 3) throw new Error('need at least 3 points');
+
+  // Each entry must be a 2-number array
+  const pairs = raw.map((p, i) => {
+    if (!Array.isArray(p) || p.length < 2) throw new Error('point #' + (i+1) + ' not [a, b]');
+    const a = Number(p[0]), b = Number(p[1]);
+    if (!isFinite(a) || !isFinite(b)) throw new Error('point #' + (i+1) + ' not numeric');
+    return [a, b];
+  });
+
+  // Detect ordering. GeoJSON shapes are [lon, lat] per spec — we trust
+  // that. Raw arrays default to [lat, lon] (the more common "human"
+  // convention), and we only flip to lon-first when any |first| > 90
+  // — that's the only unambiguous signal, since latitude is bounded ±90.
+  // Magnitude tiebreakers are unreliable globally (a Vilnius lat=54.x
+  // is bigger than its lon=25.x). If you have a GeoJSON-style raw array
+  // with longitude first that falls inside ±90 on both axes, wrap it as
+  // a GeoJSON Polygon/LineString and the converter will respect that.
+  let lonFirst = isGeoJSON;
+  if (!lonFirst){
+    for (const [a, b] of pairs){
+      if (Math.abs(a) > 90 && Math.abs(b) <= 90){ lonFirst = true; break; }
+      if (Math.abs(b) > 90 && Math.abs(a) <= 90){ lonFirst = false; break; }
+    }
+  }
+  let points = lonFirst ? pairs.map(([lon, lat]) => [lat, lon]) : pairs.map(([lat, lon]) => [lat, lon]);
+
+  // Validate ranges + clean up duplicate closing point
+  for (const [lat, lon] of points){
+    if (lat < -90 || lat > 90)   throw new Error('lat out of range (' + lat + ')');
+    if (lon < -180 || lon > 180) throw new Error('lon out of range (' + lon + ')');
+  }
+  if (points.length > 3){
+    const first = points[0], last = points[points.length - 1];
+    if (first[0] === last[0] && first[1] === last[1]) points = points.slice(0, -1);
+  }
+  if (points.length < 3) throw new Error('need at least 3 unique points');
+
+  return { name, points };
+}
+
+// Ray-casting point-in-polygon. `points` is [[lat,lon],…] (closed polygon
+// is implicit — we wrap from last → first).
+function pointInPolygon(lat, lon, points){
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++){
+    const yi = points[i][0], xi = points[i][1];
+    const yj = points[j][0], xj = points[j][1];
+    const intersect = ((yi > lat) !== (yj > lat))
+      && (lon < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function saveGeofence(){
+  try {
+    if (state.geofence) localStorage.setItem('geo-bites-geofence', JSON.stringify(state.geofence));
+    else localStorage.removeItem('geo-bites-geofence');
+  } catch(e){}
+}
+
+function setFenceStatus(text, cls){
+  const el = document.getElementById('fenceStatus');
+  el.textContent = text;
+  el.className = 'geofence-status ' + (cls || '');
+}
+
+function renderFenceState(){
+  if (state.geofence){
+    const name = state.geofence.name ? '"' + state.geofence.name + '" · ' : '';
+    setFenceStatus(name + state.geofence.points.length + ' pts loaded · only inside-fence spots survive · saved', 'live');
+    document.getElementById('fenceClearBtn').hidden = false;
+    document.getElementById('fenceUploadBtn').textContent = '▼ replace polyline';
+  } else {
+    setFenceStatus('no fence · accepts [[lat,lon],…] or GeoJSON Polygon/LineString · saved to localStorage', '');
+    document.getElementById('fenceClearBtn').hidden = true;
+    document.getElementById('fenceUploadBtn').textContent = '▼ upload JSON polyline';
+  }
+}
+renderFenceState();
+
+// applyAllFilters: GF + delivery + geofence — used both by initial bucket
+// and by the GF/delivery toggles when re-bucketing live.
+function applyAllFilters(){
+  let list = state.results;
+  if (state.gfOnly)       list = list.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only');
+  if (state.deliveryOnly) list = list.filter(r => r.delivery === 'yes');
+  if (state.geofence)     list = list.filter(r => pointInPolygon(r.lat, r.lon, state.geofence.points));
+  return list;
+}
 
 // today stamp in the masthead
 (function dateStamp(){
@@ -901,12 +1075,7 @@ async function runSearch(){
     // open/closed/unknown bucketing. We keep state.results as the raw
     // set (so toggling without re-querying still works) and bucket
     // from a filtered view.
-    let filtered = state.gfOnly
-      ? state.results.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only')
-      : state.results;
-    if (state.deliveryOnly){
-      filtered = filtered.filter(r => r.delivery === 'yes');
-    }
+    let filtered = applyAllFilters();
     const open    = filtered.filter(r => r.isOpen === true);
     const closed  = filtered.filter(r => r.isOpen === false);
     const unknown = filtered.filter(r => r.isOpen === null);
@@ -1353,9 +1522,7 @@ if (gfPill){
     try { localStorage.setItem('geo-bites-gf', state.gfOnly ? '1' : '0'); } catch(e){}
     // re-bucket existing results without re-querying Overpass
     if (state.results && state.results.length){
-      const filtered = state.gfOnly
-        ? state.results.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only')
-        : state.results;
+      const filtered = applyAllFilters();
       const open    = filtered.filter(r => r.isOpen === true);
       const closed  = filtered.filter(r => r.isOpen === false);
       const unknown = filtered.filter(r => r.isOpen === null);
@@ -1375,6 +1542,68 @@ if (gfPill){
   });
 }
 
+// GEOFENCE UPLOAD (chat ask). File input parses the JSON, normalizes via
+// parseGeofence(), saves to localStorage, and re-buckets any existing
+// results in place using applyAllFilters() so the polygon takes effect
+// without a fresh Overpass query.
+(function wireGeofence(){
+  const fileInput  = document.getElementById('fenceFile');
+  const uploadBtn  = document.getElementById('fenceUploadBtn');
+  const clearBtn   = document.getElementById('fenceClearBtn');
+  uploadBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    if (f.size > 1024 * 1024){
+      setFenceStatus('file too big (>1MB) · refusing to parse', 'error');
+      fileInput.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => setFenceStatus('couldn’t read file', 'error');
+    reader.onload = () => {
+      try {
+        const parsed = parseGeofence(reader.result);
+        if (!parsed.name) parsed.name = f.name.replace(/\.(geo)?json$/i, '');
+        state.geofence = parsed;
+        saveGeofence();
+        renderFenceState();
+        // re-bucket existing results in place
+        if (state.results && state.results.length){
+          const filtered = applyAllFilters();
+          const open    = filtered.filter(r => r.isOpen === true);
+          const closed  = filtered.filter(r => r.isOpen === false);
+          const unknown = filtered.filter(r => r.isOpen === null);
+          renderLists(open, closed, unknown);
+          const visible = open.length + closed.length + unknown.length;
+          const status = document.getElementById('status');
+          if (status) status.innerHTML = '🧭 geofence applied · ' + visible + ' inside · ' + (state.results.length - visible) + ' outside (hidden)';
+          if (open.length || unknown.length) spinPick(open.length ? open : unknown);
+        }
+      } catch(e){
+        setFenceStatus('parse failed · ' + e.message, 'error');
+      }
+      fileInput.value = '';
+    };
+    reader.readAsText(f);
+  });
+  clearBtn.addEventListener('click', () => {
+    state.geofence = null;
+    saveGeofence();
+    renderFenceState();
+    if (state.results && state.results.length){
+      const filtered = applyAllFilters();
+      const open    = filtered.filter(r => r.isOpen === true);
+      const closed  = filtered.filter(r => r.isOpen === false);
+      const unknown = filtered.filter(r => r.isOpen === null);
+      renderLists(open, closed, unknown);
+      const status = document.getElementById('status');
+      if (status) status.innerHTML = 'fence cleared · showing all ' + state.results.length + ' results in radius';
+      if (open.length || unknown.length) spinPick(open.length ? open : unknown);
+    }
+  });
+})();
+
 // DELIVERY TOGGLE (chat ask). Re-buckets in place + re-renders, no
 // Overpass re-query. Symmetrical to the GF toggle wiring above.
 const dlvPill = document.querySelector('#deliveryRow .pill[data-deliv="yes"]');
@@ -1385,10 +1614,7 @@ if (dlvPill){
     dlvPill.setAttribute('aria-pressed', state.deliveryOnly ? 'true' : 'false');
     try { localStorage.setItem('geo-bites-deliv', state.deliveryOnly ? '1' : '0'); } catch(e){}
     if (state.results && state.results.length){
-      let filtered = state.gfOnly
-        ? state.results.filter(r => r.glutenFree === 'yes' || r.glutenFree === 'only')
-        : state.results;
-      if (state.deliveryOnly) filtered = filtered.filter(r => r.delivery === 'yes');
+      const filtered = applyAllFilters();
       const open    = filtered.filter(r => r.isOpen === true);
       const closed  = filtered.filter(r => r.isOpen === false);
       const unknown = filtered.filter(r => r.isOpen === null);
