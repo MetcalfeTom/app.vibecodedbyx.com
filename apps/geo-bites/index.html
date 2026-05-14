@@ -149,6 +149,44 @@
     color:var(--mute); line-height:1.5; flex:1; min-width:14rem;
     align-self:center;
   }
+  /* Saved-geofence pill pair: a name button + a tiny ✕ delete button
+     glued together so they read as one chip. The pair's left button
+     activates the fence (aria-pressed mirrors the active state); the
+     right button deletes it from the saved list. */
+  .fence-chip{
+    display:inline-flex; align-items:stretch;
+    border:1px solid var(--rule); border-radius:.22rem; overflow:hidden;
+    margin: 0 .15rem .15rem 0;
+  }
+  .fence-chip .pill, .fence-chip .pill-x{
+    border:none; border-radius:0; margin:0;
+  }
+  .fence-chip .pill{
+    border-right:1px solid var(--rule);
+    text-transform:none; letter-spacing:.04em;
+    font-family:'Crimson Pro', serif; font-style:italic;
+    font-size:.92rem; font-weight:500;
+    padding:.32rem .7rem;
+  }
+  .fence-chip .pill[aria-pressed="true"]{
+    background:rgba(255,212,94,0.16); color:var(--gold); border-color:var(--gold);
+    box-shadow: inset 0 0 0 1px rgba(255,212,94,0.45);
+  }
+  .fence-chip .pill .ct{
+    font-family:'JetBrains Mono', monospace; font-size:.6rem;
+    color: var(--dim); margin-left:.5em; letter-spacing:.1em;
+  }
+  .fence-chip .pill[aria-pressed="true"] .ct{ color: rgba(255,212,94,0.7); }
+  .fence-chip .pill-x{
+    background:transparent; color:var(--dim);
+    font-family:'JetBrains Mono', monospace; font-size:.85rem;
+    cursor:pointer; padding: 0 .55rem;
+    min-height:2.4rem;
+    transition: background .14s, color .14s;
+  }
+  .fence-chip .pill-x:hover, .fence-chip .pill-x:focus-visible{
+    background: rgba(255,77,200,0.12); color: var(--pink); outline:none;
+  }
   .geofence-status.live{ color: var(--gold); }
   .geofence-status.error{ color: var(--pink); }
   .pill:hover{background:rgba(255,77,200,0.08);border-color:var(--pink);color:var(--pink)}
@@ -486,10 +524,17 @@
           <span class="row-label">Polyline</span>
           <div class="pill-group" id="fenceRow" role="group" aria-label="Geofence upload">
             <input type="file" id="fenceFile" accept=".json,.geojson,application/json" hidden aria-label="Upload geofence JSON file">
-            <button type="button" class="pill" id="fenceUploadBtn">▼ upload JSON polyline</button>
-            <button type="button" class="pill" id="fenceClearBtn" hidden>✕ clear fence</button>
+            <button type="button" class="pill" id="fenceUploadBtn">▼ upload new polyline</button>
+            <button type="button" class="pill" id="fenceClearBtn" hidden>◯ deactivate fence</button>
             <span class="geofence-status" id="fenceStatus">no fence · accepts [[lat,lon],…] or GeoJSON Polygon/LineString · saved to localStorage</span>
           </div>
+        </div>
+        <!-- Saved geofences (chat ask: "allow saving and switching between
+             multiple uploaded geofences"). Click a pill to activate it;
+             the ✕ next to a pill removes it from the saved list. -->
+        <div class="control-row" id="fenceListRow" hidden>
+          <span class="row-label">Saved</span>
+          <div class="pill-group" id="fenceList" role="group" aria-label="Saved geofences"></div>
         </div>
         <div class="control-row">
           <span class="row-label">Distance</span>
@@ -612,17 +657,14 @@ const state = {
   // direct Uber Eats query (their availability data isn't public);
   // the link on each card opens an Uber Eats search.
   deliveryOnly: (() => { try { return localStorage.getItem('geo-bites-deliv') === '1'; } catch(e){ return false; } })(),
-  // Geofence (chat ask). Stored as { name, points: [[lat,lon], ...] }.
-  // Restored from localStorage on boot. null when no fence is loaded.
-  geofence: (() => {
-    try {
-      const raw = localStorage.getItem('geo-bites-geofence');
-      if (!raw) return null;
-      const obj = JSON.parse(raw);
-      if (obj && Array.isArray(obj.points) && obj.points.length >= 3) return obj;
-      return null;
-    } catch(e){ return null; }
-  })(),
+  // Geofences (chat ask: "allow saving and switching between multiple
+  // uploaded geofences"). state.geofences holds the saved list; the
+  // active fence (state.geofence) is whichever has activeFenceId. On
+  // boot we hydrate from the array key + active-id key, and migrate the
+  // legacy single-fence key if present.
+  geofences: [],           // [{ id, name, points, savedAt }, …]
+  activeFenceId: null,
+  geofence: null,          // pointer to the active entry (or null)
   // Chat ask: two-tab layout. 'location' = around-me radius search;
   // 'fence' = inside-polygon search. Default to fence if one is saved.
   searchMode: (() => {
@@ -639,6 +681,53 @@ const state = {
   results: [],
   searching: false,
 };
+
+// Hydrate geofences from localStorage + run one-time legacy migration.
+(function hydrateGeofences(){
+  let list = [];
+  try {
+    const raw = localStorage.getItem('geo-bites-geofences');
+    if (raw){
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)){
+        for (const f of arr){
+          if (f && Array.isArray(f.points) && f.points.length >= 3 && f.id){
+            list.push({ id: f.id, name: f.name || 'untitled', points: f.points, savedAt: f.savedAt || Date.now() });
+          }
+        }
+      }
+    }
+  } catch(e){}
+  // Legacy migration: import the old single-fence key (geo-bites-geofence)
+  // as a fresh entry if it exists. Remove the old key after migration so
+  // we don't re-import on every load.
+  try {
+    const legacy = localStorage.getItem('geo-bites-geofence');
+    if (legacy){
+      const obj = JSON.parse(legacy);
+      if (obj && Array.isArray(obj.points) && obj.points.length >= 3){
+        const exists = list.some(f => f.name === (obj.name || 'untitled') && f.points.length === obj.points.length);
+        if (!exists){
+          const id = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+          list.unshift({ id, name: obj.name || 'imported', points: obj.points, savedAt: Date.now() });
+        }
+      }
+      localStorage.removeItem('geo-bites-geofence');
+    }
+  } catch(e){}
+  state.geofences = list;
+  // Resolve active id (persisted) → pointer
+  let activeId = null;
+  try { activeId = localStorage.getItem('geo-bites-fence-active'); } catch(e){}
+  if (activeId && list.some(f => f.id === activeId)){
+    state.activeFenceId = activeId;
+    state.geofence = list.find(f => f.id === activeId);
+  } else if (list.length){
+    // No persisted active → if migration just added one, activate the newest
+    state.activeFenceId = list[0].id;
+    state.geofence = list[0];
+  }
+})();
 
 function fenceModeActive(){ return state.searchMode === 'fence' && !!state.geofence; }
 
@@ -744,11 +833,65 @@ function pointInPolygon(lat, lon, points){
   return inside;
 }
 
-function saveGeofence(){
+function persistGeofences(){
   try {
-    if (state.geofence) localStorage.setItem('geo-bites-geofence', JSON.stringify(state.geofence));
-    else localStorage.removeItem('geo-bites-geofence');
+    localStorage.setItem('geo-bites-geofences', JSON.stringify(state.geofences));
+    if (state.activeFenceId) localStorage.setItem('geo-bites-fence-active', state.activeFenceId);
+    else localStorage.removeItem('geo-bites-fence-active');
   } catch(e){}
+}
+
+function newFenceId(){
+  return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// Add a freshly-parsed fence, dedupe by (name + first-point), set as active.
+// Returns the entry. Caller is responsible for renderFenceState().
+function addAndActivateFence(parsed){
+  const name = parsed.name || 'untitled';
+  // Dedupe: if a saved fence has the same name AND identical first/last
+  // points + count, treat it as a re-upload and just activate the existing one.
+  const sig = (f) => f.name + '|' + f.points.length + '|' + f.points[0][0].toFixed(4) + ',' + f.points[0][1].toFixed(4);
+  const candidate = { id: newFenceId(), name, points: parsed.points, savedAt: Date.now() };
+  const dup = state.geofences.find(f => sig(f) === sig(candidate));
+  let active;
+  if (dup){
+    active = dup;
+  } else {
+    state.geofences.unshift(candidate);
+    // Soft cap so localStorage doesn't grow unbounded
+    while (state.geofences.length > 20) state.geofences.pop();
+    active = candidate;
+  }
+  state.activeFenceId = active.id;
+  state.geofence = active;
+  persistGeofences();
+  return active;
+}
+
+function activateFence(id){
+  const f = state.geofences.find(x => x.id === id);
+  if (!f) return;
+  state.activeFenceId = id;
+  state.geofence = f;
+  persistGeofences();
+}
+
+function deactivateFence(){
+  state.activeFenceId = null;
+  state.geofence = null;
+  persistGeofences();
+}
+
+function deleteFence(id){
+  const idx = state.geofences.findIndex(f => f.id === id);
+  if (idx < 0) return;
+  state.geofences.splice(idx, 1);
+  if (state.activeFenceId === id){
+    state.activeFenceId = null;
+    state.geofence = null;
+  }
+  persistGeofences();
 }
 
 function setFenceStatus(text, cls){
@@ -758,20 +901,94 @@ function setFenceStatus(text, cls){
 }
 
 function renderFenceState(){
-  // The radius row is now hidden/shown by the tab system, not here.
-  // This just updates the geofence panel's own status caption + buttons.
+  // Update the status caption + upload/clear buttons + saved-fence pill row.
   if (state.geofence){
     const name = state.geofence.name ? '"' + state.geofence.name + '" · ' : '';
-    setFenceStatus(name + state.geofence.points.length + ' pts loaded · saved', 'live');
+    setFenceStatus(name + state.geofence.points.length + ' pts active · saved', 'live');
     document.getElementById('fenceClearBtn').hidden = false;
-    document.getElementById('fenceUploadBtn').textContent = '▼ replace polyline';
+    document.getElementById('fenceUploadBtn').textContent = '▼ upload another polyline';
+  } else if (state.geofences.length){
+    setFenceStatus(state.geofences.length + ' saved · click one to activate, or upload another', '');
+    document.getElementById('fenceClearBtn').hidden = true;
+    document.getElementById('fenceUploadBtn').textContent = '▼ upload new polyline';
   } else {
     setFenceStatus('no fence · accepts [[lat,lon],…] or GeoJSON Polygon/LineString · saved to localStorage', '');
     document.getElementById('fenceClearBtn').hidden = true;
     document.getElementById('fenceUploadBtn').textContent = '▼ upload JSON polyline';
   }
+  renderFenceList();
   syncSearchBtnEnabled();
 }
+
+// Rebuild the saved-fence chip list. Each chip is a "name + count" button
+// (activates the fence on click) glued to a small ✕ delete button.
+function renderFenceList(){
+  const row  = document.getElementById('fenceListRow');
+  const list = document.getElementById('fenceList');
+  if (!list || !row) return;
+  list.innerHTML = '';
+  if (!state.geofences.length){
+    row.hidden = true;
+    return;
+  }
+  row.hidden = false;
+  for (const f of state.geofences){
+    const chip = document.createElement('div');
+    chip.className = 'fence-chip';
+    chip.dataset.fenceId = f.id;
+    const isActive = (f.id === state.activeFenceId);
+    chip.innerHTML =
+      '<button type="button" class="pill" data-act="activate" aria-pressed="' + isActive + '"' +
+        ' aria-label="Activate fence ' + escapeAttr(f.name) + '">' +
+          escapeText(f.name) +
+          '<span class="ct">' + f.points.length + ' pts</span>' +
+      '</button>' +
+      '<button type="button" class="pill-x" data-act="delete"' +
+        ' aria-label="Delete fence ' + escapeAttr(f.name) + '">✕</button>';
+    chip.querySelector('[data-act="activate"]').addEventListener('click', () => {
+      if (state.activeFenceId === f.id){
+        // already active → deactivate (toggle off)
+        deactivateFence();
+      } else {
+        activateFence(f.id);
+      }
+      renderFenceState();
+      reBucketLive();
+    });
+    chip.querySelector('[data-act="delete"]').addEventListener('click', () => {
+      const wasActive = (state.activeFenceId === f.id);
+      deleteFence(f.id);
+      renderFenceState();
+      if (wasActive) reBucketLive();
+    });
+    list.appendChild(chip);
+  }
+}
+
+// Live re-bucket helper — used by activate/deactivate/delete so they
+// don't have to re-run runSearch. Mirrors the GF/delivery toggle paths.
+function reBucketLive(){
+  if (!state.results || !state.results.length) return;
+  const filtered = applyAllFilters();
+  const open    = filtered.filter(r => r.isOpen === true);
+  const closed  = filtered.filter(r => r.isOpen === false);
+  const unknown = filtered.filter(r => r.isOpen === null);
+  renderLists(open, closed, unknown);
+  if (open.length || unknown.length) spinPick(open.length ? open : unknown);
+  const status = document.getElementById('status');
+  if (status){
+    if (fenceModeActive()){
+      const visible = open.length + closed.length + unknown.length;
+      status.innerHTML = '🧭 ' + (state.geofence.name ? '"' + escapeText(state.geofence.name) + '" · ' : '') +
+        visible + ' inside · ' + (state.results.length - visible) + ' outside (hidden)';
+    } else {
+      status.innerHTML = 'showing all ' + state.results.length + ' spots';
+    }
+  }
+}
+
+function escapeText(s){ return String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
+function escapeAttr(s){ return String(s).replace(/["&<>]/g, c => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 // Chat ask: search button is enabled if EITHER a location is set (in
 // Location tab) OR a usable fence is loaded (in Geofence tab).
@@ -1704,23 +1921,10 @@ if (gfPill){
       try {
         const parsed = parseGeofence(reader.result);
         if (!parsed.name) parsed.name = f.name.replace(/\.(geo)?json$/i, '');
-        state.geofence = parsed;
-        saveGeofence();
-        // Auto-switch to the fence tab — uploading is a clear intent.
-        setMode('fence');
+        addAndActivateFence(parsed);
+        setMode('fence');                // uploading is a clear intent
         renderFenceState();
-        // re-bucket existing results in place
-        if (state.results && state.results.length){
-          const filtered = applyAllFilters();
-          const open    = filtered.filter(r => r.isOpen === true);
-          const closed  = filtered.filter(r => r.isOpen === false);
-          const unknown = filtered.filter(r => r.isOpen === null);
-          renderLists(open, closed, unknown);
-          const visible = open.length + closed.length + unknown.length;
-          const status = document.getElementById('status');
-          if (status) status.innerHTML = '🧭 geofence applied · ' + visible + ' inside · ' + (state.results.length - visible) + ' outside (hidden)';
-          if (open.length || unknown.length) spinPick(open.length ? open : unknown);
-        }
+        reBucketLive();
       } catch(e){
         setFenceStatus('parse failed · ' + e.message, 'error');
       }
@@ -1728,20 +1932,11 @@ if (gfPill){
     };
     reader.readAsText(f);
   });
+  // "deactivate fence" button — keeps the fence saved but stops applying it
   clearBtn.addEventListener('click', () => {
-    state.geofence = null;
-    saveGeofence();
+    deactivateFence();
     renderFenceState();
-    if (state.results && state.results.length){
-      const filtered = applyAllFilters();
-      const open    = filtered.filter(r => r.isOpen === true);
-      const closed  = filtered.filter(r => r.isOpen === false);
-      const unknown = filtered.filter(r => r.isOpen === null);
-      renderLists(open, closed, unknown);
-      const status = document.getElementById('status');
-      if (status) status.innerHTML = 'fence cleared · showing all ' + state.results.length + ' results in radius';
-      if (open.length || unknown.length) spinPick(open.length ? open : unknown);
-    }
+    reBucketLive();
   });
 })();
 
