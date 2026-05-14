@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Heli Sim — fly a helicopter over real maps</title>
+<meta name="description" content="A simple top-down helicopter flight sim over real-world satellite + OSM maps. WASD to fly.">
+<meta property="og:title" content="Heli Sim">
+<meta property="og:description" content="Top-down helicopter flight over real satellite and OpenStreetMap tiles. WASD to fly. No API key.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sloppy.live/heli-sim/">
+<meta property="og:image" content="https://image.pollinations.ai/prompt/top%20down%20satellite%20map%20view%20with%20small%20helicopter%20flying%20overhead%20casting%20shadow%20HUD%20overlay%20mission%20control%20amber%20cyan%20centered%20composition?width=1200&height=630&model=flux&nologo=true&seed=41414">
+<link rel="icon" href="https://emojicdn.elk.sh/%F0%9F%9A%81">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --amber:#ffb45a; --amber-bright:#ffd28a; --amber-dim:#8a5a1f;
+  --cyan:#7adcff; --rose:#ff5d7a; --jade:#82e6a4;
+  --void:#03040c; --jet:#0a0c16;
+  --text: rgba(255,210,138,0.92);
+  --dim:  rgba(255,210,138,0.55);
+  --faint:rgba(255,210,138,0.32);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--void);font-family:'IBM Plex Mono', monospace;color:var(--text);}
+
+/* leaflet map fills the viewport */
+#map{
+  position:fixed; inset:0; z-index:0;
+  background:#000;
+  cursor: crosshair;
+}
+/* hide leaflet's default ui — sim controls take over */
+.leaflet-control-container, .leaflet-control-zoom, .leaflet-control-attribution{ display:none !important; }
+
+/* faint phosphor scanlines on top of the map */
+.scan{
+  position:fixed; inset:0; pointer-events:none; z-index:9;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
+.vignette{
+  position:fixed; inset:0; pointer-events:none; z-index:10;
+  background: radial-gradient(120vmin 110vmin at 50% 50%, transparent 55%, rgba(0,0,0,0.65) 100%);
+}
+
+/* helicopter sprite — centered overlay */
+.sprite{
+  position:fixed; left:50%; top:50%; z-index:6;
+  width: 86px; height: 86px;
+  transform: translate(-50%, -50%);
+  pointer-events:none;
+  will-change: transform;
+}
+.sprite .body{
+  position:absolute; inset:0;
+  transform-origin: center;
+  transition: transform .06s linear;
+  filter: drop-shadow(0 0 6px rgba(0,0,0,0.6));
+}
+.sprite .rotor{
+  position:absolute; inset:0;
+  display:grid; place-items:center;
+  pointer-events:none;
+}
+.sprite .blades{
+  width: 110%; height: 8%;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(180,200,255,0.5) 35%, rgba(220,235,255,0.85) 50%, rgba(180,200,255,0.5) 65%, rgba(255,255,255,0) 100%);
+  border-radius: 50%;
+  filter: blur(2.5px);
+  transform-origin: center;
+}
+.sprite .blades.b2{ transform: rotate(90deg); opacity:.85; }
+.sprite .blur-disc{
+  position:absolute; left:50%; top:50%;
+  transform: translate(-50%, -50%);
+  width:95%; height:95%; border-radius:50%;
+  background: radial-gradient(circle, rgba(220,235,255,0.10), rgba(220,235,255,0.04) 60%, transparent 75%);
+  pointer-events:none;
+}
+/* helicopter shadow on ground (separate layer below sprite) */
+.shadow{
+  position:fixed; left:50%; top:50%; z-index:5;
+  width: 86px; height: 86px;
+  transform: translate(-50%, -50%);
+  pointer-events:none;
+  opacity:.55;
+}
+.shadow .silhouette{
+  position:absolute; inset:0;
+  filter: blur(3px) brightness(0);
+}
+
+/* HUD - top-left */
+.hud{
+  position:fixed; top:.8rem; left:.8rem; z-index:11;
+  display:flex; flex-direction:column; gap:.4rem;
+  pointer-events:none;
+}
+.hud .brand{
+  font-family:'Major Mono Display', monospace;
+  font-size: clamp(1.2rem, 2.8vw, 1.7rem);
+  color: var(--amber-bright);
+  text-shadow: 0 0 8px rgba(255,180,90,.55), 0 0 22px rgba(255,180,90,.3);
+  margin: 0;
+}
+.hud .eyebrow{
+  font-size:.62rem; letter-spacing:.4em; color: var(--dim); text-transform:uppercase;
+}
+.hud .stat{
+  background: rgba(10,12,22,0.65);
+  border:1px solid var(--amber-dim);
+  padding:.45rem .65rem;
+  display:grid; grid-template-columns: 56px auto; gap:.4rem;
+  font-size:.78rem; color:var(--text); pointer-events:none;
+  min-width: 180px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.hud .stat .lbl{
+  font-size:.6rem; letter-spacing:.22em; color:var(--dim); text-transform:uppercase;
+  align-self:center;
+}
+.hud .stat b{
+  font-family:'Major Mono Display', monospace; font-weight:400;
+  font-size:1.05rem; letter-spacing:.06em; color: var(--amber-bright);
+}
+.hud .stat.warn b{ color: var(--rose); }
+
+/* HUD - bottom-right compass + controls */
+.compass{
+  position:fixed; right:1rem; top:1rem; z-index:11;
+  width: 92px; height: 92px;
+  border-radius:50%;
+  background: rgba(10,12,22,0.6);
+  border:1px solid var(--amber-dim);
+  display:grid; place-items:center;
+  font-family:'Major Mono Display', monospace;
+  pointer-events:none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.compass .ring{
+  position:absolute; inset:8px; border-radius:50%;
+  border:1px dashed rgba(255,180,90,0.45);
+}
+.compass .n{
+  position:absolute; top:6px; left:50%; transform:translateX(-50%);
+  font-size:.65rem; color: var(--cyan);
+  text-shadow:0 0 6px rgba(122,220,255,.7);
+}
+.compass .e, .compass .s, .compass .w{
+  position:absolute; font-size:.55rem; color: rgba(255,180,90,0.55);
+}
+.compass .e{ right:8px; top:50%; transform:translateY(-50%); }
+.compass .s{ bottom:6px; left:50%; transform:translateX(-50%); }
+.compass .w{ left:8px; top:50%; transform:translateY(-50%); }
+.compass .needle{
+  width:50%; height:2px; background: linear-gradient(90deg, var(--rose), transparent);
+  position:absolute; top:50%; left:50%;
+  transform-origin: left center;
+  border-radius:1px;
+  box-shadow: 0 0 6px var(--rose);
+}
+.compass .label{
+  position:absolute; bottom:-1.4rem; left:50%; transform:translateX(-50%);
+  font-size:.6rem; letter-spacing:.2em; color: var(--dim);
+  text-transform:uppercase; font-family: 'IBM Plex Mono', monospace;
+}
+
+/* controls dock */
+.dock{
+  position:fixed; bottom:.8rem; left:50%; transform:translateX(-50%);
+  z-index:11;
+  display:flex; gap:.4rem; padding:.4rem;
+  background: rgba(10,12,22,0.65);
+  border:1px solid var(--amber-dim);
+  border-radius:14px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  max-width: calc(100vw - 1.5rem);
+  flex-wrap: wrap;
+  justify-content:center;
+}
+.btn{
+  appearance:none; background:transparent; border:1px solid var(--amber-dim);
+  color: var(--amber); font-family:'IBM Plex Mono', monospace; font-size:.7rem;
+  letter-spacing:.18em; text-transform:uppercase;
+  padding:.45rem .7rem; border-radius:8px; cursor:pointer;
+  min-height: 44px;
+}
+.btn:hover, .btn:focus-visible{ border-color: var(--amber); color: var(--amber-bright); background: rgba(255,180,90,0.08); outline:none; }
+.btn[aria-pressed="true"]{ background: rgba(255,180,90,0.16); color: var(--amber-bright); border-color: var(--amber); }
+.btn.cyan{ color: var(--cyan); border-color: rgba(122,220,255,0.35); }
+.btn.cyan:hover{ background: rgba(122,220,255,0.10); border-color: var(--cyan); }
+.btn.jade{ color: var(--jade); border-color: rgba(130,230,164,0.35); }
+.btn.jade:hover{ background: rgba(130,230,164,0.10); border-color: var(--jade); }
+
+.layer-pick{ display:inline-flex; gap:.2rem; }
+.layer-pick .btn{ border-radius: 0; padding-left:.55rem; padding-right:.55rem; }
+
+/* control hint card */
+.cheats{
+  position:fixed; bottom:.8rem; right:.8rem; z-index:11;
+  background: rgba(10,12,22,0.65);
+  border:1px solid var(--amber-dim);
+  padding:.55rem .7rem;
+  font-size:.6rem; letter-spacing:.15em; color:var(--dim);
+  text-transform:uppercase;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  max-width: 260px; line-height:1.7;
+}
+.cheats kbd{
+  display:inline-block; padding:.05rem .35rem;
+  border:1px solid var(--amber-dim); border-radius:3px;
+  background:rgba(255,180,90,0.05); color:var(--amber-bright);
+  font-family:'IBM Plex Mono', monospace; letter-spacing:0;
+  font-size:.62rem;
+}
+.cheats b{ color: var(--amber-bright); font-weight: 500; }
+@media (max-width: 720px){
+  .cheats{ display:none; }
+  .hud .stat{ min-width: 140px; padding:.35rem .5rem; font-size:.7rem; }
+  .compass{ width: 72px; height: 72px; }
+}
+
+/* destinations picker (small modal) */
+.modal{
+  position:fixed; inset:0; z-index:30;
+  display:none; align-items:center; justify-content:center;
+  padding:1rem;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.modal.show{ display:flex; }
+.modal .card{
+  background: rgba(10,12,22,0.95);
+  border:1px solid var(--amber);
+  padding: 1.2rem 1.4rem;
+  max-width: 460px; width:100%;
+  box-shadow: 0 0 40px rgba(255,180,90,0.25);
+}
+.modal h2{
+  margin:0 0 .6rem;
+  font-family:'Major Mono Display', monospace; font-weight:400;
+  font-size:1.1rem; color:var(--amber-bright); letter-spacing:.04em;
+}
+.modal p{ margin:.2rem 0 .8rem; font-size:.78rem; color:var(--dim); }
+.modal .dests{ display:grid; grid-template-columns:1fr 1fr; gap:.4rem; }
+.modal .dest{
+  appearance:none; background:rgba(255,180,90,0.04);
+  border:1px solid var(--amber-dim); color:var(--text);
+  font-family:'IBM Plex Mono', monospace; font-size:.78rem;
+  text-align:left; padding:.55rem .65rem; cursor:pointer;
+  letter-spacing:.04em; min-height: 44px;
+}
+.modal .dest:hover{ border-color:var(--amber); background: rgba(255,180,90,0.10); color:var(--amber-bright); }
+.modal .dest small{ display:block; color:var(--faint); font-size:.62rem; margin-top:.15rem; letter-spacing:.15em; text-transform:uppercase; }
+.modal .row{ display:flex; gap:.4rem; margin-top:.8rem; }
+.modal input[type=text]{
+  flex:1;
+  background:rgba(255,180,90,0.04);
+  border:1px solid var(--amber-dim); color:var(--text);
+  font-family:'IBM Plex Mono', monospace; font-size:.78rem;
+  padding:.55rem .65rem; outline:none;
+}
+.modal input[type=text]:focus{ border-color: var(--amber); }
+
+/* attribution */
+.attrib{
+  position:fixed; bottom:0; left:0; z-index:8;
+  font-size:.55rem; letter-spacing:.1em; color:rgba(255,180,90,0.45);
+  background:rgba(0,0,0,0.5); padding: 2px 6px;
+}
+.attrib a{ color: inherit; text-decoration: underline; }
+
+@media (prefers-reduced-motion: reduce){
+  .sprite .blades, .sprite .blades.b2{ animation:none !important; }
+}
+</style>
+</head>
+<body>
+<div id="map" role="application" aria-label="Map viewport — helicopter flies over real-world tiles"></div>
+
+<div class="scan" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
+
+<!-- shadow under the helicopter -->
+<div class="shadow" id="shadow" aria-hidden="true">
+  <svg class="silhouette" viewBox="0 0 100 100" width="100%" height="100%">
+    <!-- body -->
+    <ellipse cx="50" cy="50" rx="24" ry="13" fill="#000"/>
+    <rect x="48" y="49" width="36" height="3.5" fill="#000"/>
+    <rect x="78" y="44" width="5" height="13" fill="#000"/>
+  </svg>
+</div>
+
+<!-- helicopter sprite -->
+<div class="sprite" id="sprite" role="img" aria-label="Helicopter">
+  <div class="body" id="body">
+    <svg viewBox="0 0 100 100" width="100%" height="100%">
+      <!-- shadow halo (slight) -->
+      <ellipse cx="50" cy="52" rx="26" ry="14" fill="#000" opacity="0.25"/>
+      <!-- tail boom -->
+      <rect x="48" y="48" width="38" height="4" fill="#2c2410"/>
+      <rect x="48" y="48" width="38" height="4" fill="url(#stripeA)" opacity=".7"/>
+      <!-- tail rotor base -->
+      <rect x="82" y="42" width="4" height="16" fill="#1a1408"/>
+      <!-- tail rotor blade -->
+      <rect x="76" y="49" width="14" height="2" fill="#dfe6f0" opacity=".85"/>
+      <!-- body (oval) -->
+      <ellipse cx="40" cy="50" rx="22" ry="13" fill="#2b3a4a"/>
+      <ellipse cx="40" cy="48" rx="22" ry="11" fill="url(#bodyShine)"/>
+      <!-- cockpit glass -->
+      <ellipse cx="28" cy="50" rx="11" ry="9" fill="#0a1820"/>
+      <ellipse cx="26" cy="48" rx="9" ry="7" fill="url(#glassShine)" opacity=".8"/>
+      <!-- skids -->
+      <rect x="22" y="60" width="36" height="1.5" fill="#1a1408"/>
+      <line x1="26" y1="56" x2="28" y2="60" stroke="#1a1408" stroke-width="1.5"/>
+      <line x1="54" y1="56" x2="52" y2="60" stroke="#1a1408" stroke-width="1.5"/>
+      <!-- nav lights -->
+      <circle cx="18" cy="48" r="1.8" fill="#ff5d7a"/>
+      <circle cx="50" cy="38" r="1.6" fill="#7adcff"/>
+      <!-- rotor mast -->
+      <circle cx="40" cy="48" r="2.2" fill="#1a1408"/>
+      <defs>
+        <linearGradient id="bodyShine" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#5a7290" stop-opacity="0.6"/>
+          <stop offset=".5" stop-color="#2b3a4a" stop-opacity="0"/>
+          <stop offset="1" stop-color="#000" stop-opacity="0.4"/>
+        </linearGradient>
+        <linearGradient id="glassShine" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#aaccff" stop-opacity=".9"/>
+          <stop offset="1" stop-color="#3a5a7a" stop-opacity=".4"/>
+        </linearGradient>
+        <linearGradient id="stripeA" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#ffb45a"/>
+          <stop offset="1" stop-color="#8a5a1f"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  </div>
+  <div class="rotor" id="rotor">
+    <div class="blur-disc" id="blur-disc"></div>
+    <div class="blades" id="blade1"></div>
+    <div class="blades b2" id="blade2"></div>
+  </div>
+</div>
+
+<!-- HUD -->
+<div class="hud">
+  <div>
+    <div class="eyebrow">▾ heli sim · v1</div>
+    <h1 class="brand">Heli Sim</h1>
+  </div>
+  <div class="stat"><span class="lbl">spd</span><b id="s-spd">000 kt</b></div>
+  <div class="stat"><span class="lbl">alt</span><b id="s-alt">000 ft</b></div>
+  <div class="stat"><span class="lbl">hdg</span><b id="s-hdg">000°</b></div>
+  <div class="stat" id="s-coords-row"><span class="lbl">pos</span><b id="s-coords">—</b></div>
+</div>
+
+<div class="compass" aria-hidden="true">
+  <div class="ring"></div>
+  <div class="n">N</div><div class="e">E</div><div class="s">S</div><div class="w">W</div>
+  <div class="needle" id="needle"></div>
+  <div class="label">compass</div>
+</div>
+
+<nav class="dock" aria-label="Controls">
+  <span class="layer-pick" role="group" aria-label="Map layer">
+    <button class="btn" type="button" id="layer-sat" aria-pressed="true">satellite</button>
+    <button class="btn" type="button" id="layer-osm" aria-pressed="false">streets</button>
+    <button class="btn" type="button" id="layer-dark" aria-pressed="false">noir</button>
+  </span>
+  <button class="btn cyan" type="button" id="btn-dest">⌖ teleport</button>
+  <button class="btn jade" type="button" id="btn-rec" aria-pressed="false">◉ rec trail</button>
+  <button class="btn" type="button" id="btn-help">? help</button>
+</nav>
+
+<div class="cheats" aria-hidden="true">
+  <div><b>fly</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · turn <kbd>Q</kbd><kbd>E</kbd> or <kbd>←</kbd><kbd>→</kbd></div>
+  <div><b>alt</b> <kbd>Space</kbd> up · <kbd>Shift</kbd> down · <kbd>↑</kbd> throttle <kbd>↓</kbd> brake</div>
+</div>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="card">
+    <h2>teleport</h2>
+    <p>pick a destination or paste any <code>lat,lon</code>.</p>
+    <div class="dests" id="dests"></div>
+    <div class="row">
+      <input id="tp-input" type="text" placeholder="54.6872,25.2797   (lat,lon)" autocomplete="off">
+      <button class="btn" type="button" id="tp-go">go</button>
+      <button class="btn" type="button" id="tp-close">close</button>
+    </div>
+  </div>
+</div>
+
+<div class="attrib" id="attrib"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin></script>
+<script>
+(function(){
+  const DESTS = [
+    { name:'Vilnius',         lat: 54.6872, lon: 25.2797 },
+    { name:'Manhattan',       lat: 40.7580, lon: -73.9855 },
+    { name:'Tokyo · Shibuya', lat: 35.6595, lon: 139.7005 },
+    { name:'Grand Canyon',    lat: 36.0544, lon: -112.1401 },
+    { name:'Mt. Fuji',        lat: 35.3606, lon: 138.7274 },
+    { name:'Sydney Harbour',  lat: -33.8568, lon: 151.2153 },
+    { name:'Lisbon coast',    lat: 38.7166, lon: -9.1394 },
+    { name:'Reykjavík',       lat: 64.1466, lon: -21.9426 },
+  ];
+
+  // tile layers
+  const LAYERS = {
+    sat:  {
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      attribution: 'Tiles &copy; Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+      maxZoom: 19,
+    },
+    osm: {
+      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    },
+    dark: {
+      url: 'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png',
+      attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+      maxZoom: 19,
+    },
+  };
+
+  const map = L.map('map', {
+    zoomControl: false,
+    attributionControl: false,
+    dragging: false,
+    scrollWheelZoom: false,
+    doubleClickZoom: false,
+    boxZoom: false,
+    touchZoom: false,
+    keyboard: false,
+    inertia: false,
+    fadeAnimation: false,
+    zoomAnimation: false,
+    minZoom: 4,
+    maxZoom: 19,
+  }).setView([DESTS[0].lat, DESTS[0].lon], 16);
+
+  let currentLayer = L.tileLayer(LAYERS.sat.url, { maxZoom: LAYERS.sat.maxZoom }).addTo(map);
+  document.getElementById('attrib').innerHTML = LAYERS.sat.attribution;
+
+  function setLayer(key){
+    if (currentLayer) map.removeLayer(currentLayer);
+    currentLayer = L.tileLayer(LAYERS[key].url, { maxZoom: LAYERS[key].maxZoom }).addTo(map);
+    document.getElementById('attrib').innerHTML = LAYERS[key].attribution;
+    for (const id of ['layer-sat','layer-osm','layer-dark']){
+      const btn = document.getElementById(id);
+      btn.setAttribute('aria-pressed', String(btn.id === 'layer-' + key));
+    }
+  }
+  document.getElementById('layer-sat').addEventListener('click',  () => setLayer('sat'));
+  document.getElementById('layer-osm').addEventListener('click',  () => setLayer('osm'));
+  document.getElementById('layer-dark').addEventListener('click', () => setLayer('dark'));
+
+  // ---------- flight state ----------
+  // heading: radians, 0 = north (decreasing y on screen), +π/2 = east
+  const state = {
+    lat: DESTS[0].lat,
+    lon: DESTS[0].lon,
+    heading: 0,
+    speed: 0,       // m/s
+    targetSpeed: 0, // m/s
+    alt: 80,        // meters AGL (above ground, fake)
+    targetAlt: 80,
+    throttle: 0.55, // 0..1
+    rotorAngle: 0,
+    keys: { fwd:false, back:false, left:false, right:false, yawL:false, yawR:false, up:false, down:false, thrUp:false, thrDn:false },
+    paused: false,
+    recording: false,
+    trail: [],      // polyline points
+    trailLayer: null,
+  };
+  const MAX_SPEED = 78;           // m/s ~ 280 km/h ~ 152 kt — fast heli
+  const ACCEL = 22;               // m/s² when accelerating
+  const DECEL = 16;               // when decelerating
+  const TURN_RATE = 1.4;          // rad/s
+  const ALT_RATE = 14;            // m/s when climbing/descending
+  const MIN_ALT = 5, MAX_ALT = 4600;
+  const KT = 1.943844;            // m/s → knots
+  const FT = 3.28084;             // m → feet
+
+  // input
+  function on(el, type, fn){ el.addEventListener(type, fn); }
+  on(window, 'keydown', e => {
+    const k = e.key;
+    if (k === 'w' || k === 'W' || k === 'ArrowUp')   { state.keys.thrUp = true; }
+    if (k === 's' || k === 'S' || k === 'ArrowDown') { state.keys.thrDn = true; }
+    if (k === 'a' || k === 'A')                       state.keys.yawL = true;
+    if (k === 'd' || k === 'D')                       state.keys.yawR = true;
+    if (k === 'ArrowLeft')                            state.keys.yawL = true;
+    if (k === 'ArrowRight')                           state.keys.yawR = true;
+    if (k === 'q' || k === 'Q')                       state.keys.yawL = true;
+    if (k === 'e' || k === 'E')                       state.keys.yawR = true;
+    if (k === ' ')                                   { state.keys.up = true; e.preventDefault(); }
+    if (k === 'Shift')                                state.keys.down = true;
+    if (k === 'p' || k === 'P')                       state.paused = !state.paused;
+    if (k === 'Escape'){ closeModal(); }
+  });
+  on(window, 'keyup', e => {
+    const k = e.key;
+    if (k === 'w' || k === 'W' || k === 'ArrowUp')    state.keys.thrUp = false;
+    if (k === 's' || k === 'S' || k === 'ArrowDown')  state.keys.thrDn = false;
+    if (k === 'a' || k === 'A' || k === 'ArrowLeft' || k === 'q' || k === 'Q') state.keys.yawL = false;
+    if (k === 'd' || k === 'D' || k === 'ArrowRight' || k === 'e' || k === 'E') state.keys.yawR = false;
+    if (k === ' ') state.keys.up = false;
+    if (k === 'Shift') state.keys.down = false;
+  });
+
+  // touch joystick? simple tap-and-drag in left half = yaw, in right half = throttle
+  let touchYaw = 0;  // -1..1
+  let touchThr = 0;
+  on(window, 'touchstart', e => {
+    handleTouches(e);
+  }, { passive: true });
+  on(window, 'touchmove', e => {
+    handleTouches(e);
+  }, { passive: true });
+  on(window, 'touchend', e => {
+    touchYaw = 0; touchThr = 0;
+  });
+  function handleTouches(e){
+    touchYaw = 0; touchThr = 0;
+    for (const t of e.touches){
+      const x = t.clientX / window.innerWidth;
+      const y = t.clientY / window.innerHeight;
+      if (x < 0.5){
+        touchYaw = (x - 0.25) * 4;        // left half: -1..+1
+      } else {
+        touchThr = (0.75 - y) * 2;        // top of right half = thrust up
+      }
+    }
+  }
+
+  // map zoom tied to altitude
+  function targetZoom(alt){
+    // 5m → z19, 100m → z17, 500m → z15, 2000m → z13, 4000m → z11
+    if (alt <= 30) return 19;
+    if (alt <= 80) return 18;
+    if (alt <= 200) return 17;
+    if (alt <= 500) return 16;
+    if (alt <= 1100) return 15;
+    if (alt <= 2200) return 14;
+    if (alt <= 3500) return 13;
+    return 12;
+  }
+  let smoothedZoom = 16;
+
+  // ---------- main loop ----------
+  let lastT = performance.now();
+  function frame(now){
+    let dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.1) dt = 0.1;
+
+    if (!state.paused) update(dt);
+    render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function update(dt){
+    // throttle (changes target speed)
+    if (state.keys.thrUp) state.throttle = Math.min(1, state.throttle + dt * 0.6);
+    if (state.keys.thrDn) state.throttle = Math.max(0, state.throttle - dt * 0.9);
+    state.targetSpeed = state.throttle * MAX_SPEED;
+
+    // speed easing toward target
+    const dv = state.targetSpeed - state.speed;
+    const rate = dv > 0 ? ACCEL : DECEL;
+    state.speed += Math.sign(dv) * Math.min(Math.abs(dv), rate * dt);
+
+    // yaw
+    let yaw = 0;
+    if (state.keys.yawL) yaw -= 1;
+    if (state.keys.yawR) yaw += 1;
+    yaw += touchYaw;
+    yaw = Math.max(-1, Math.min(1, yaw));
+    state.heading += yaw * TURN_RATE * dt;
+    if (state.heading > Math.PI)  state.heading -= 2 * Math.PI;
+    if (state.heading < -Math.PI) state.heading += 2 * Math.PI;
+
+    // altitude
+    let climb = 0;
+    if (state.keys.up)   climb += 1;
+    if (state.keys.down) climb -= 1;
+    climb += touchThr;
+    climb = Math.max(-1, Math.min(1, climb));
+    state.alt += climb * ALT_RATE * dt;
+    state.alt = Math.max(MIN_ALT, Math.min(MAX_ALT, state.alt));
+
+    // move based on heading + speed
+    // heading 0 = north (lat +)
+    const v = state.speed;                                       // m/s
+    const dLat = (v * Math.cos(state.heading)) / 111320 * dt;
+    const cosLat = Math.cos(state.lat * Math.PI / 180);
+    const dLon = (v * Math.sin(state.heading)) / (111320 * cosLat) * dt;
+    state.lat += dLat;
+    state.lon += dLon;
+
+    // wrap longitude
+    if (state.lon > 180) state.lon -= 360;
+    if (state.lon < -180) state.lon += 360;
+    state.lat = Math.max(-85, Math.min(85, state.lat));
+
+    // rotor spin scaled by throttle (idle still spins)
+    state.rotorAngle += (4 + state.throttle * 22) * dt;
+
+    // trail
+    if (state.recording){
+      const last = state.trail[state.trail.length - 1];
+      if (!last || Math.abs(last[0] - state.lat) > 0.00002 || Math.abs(last[1] - state.lon) > 0.00002){
+        state.trail.push([state.lat, state.lon]);
+        if (state.trailLayer){
+          state.trailLayer.setLatLngs(state.trail);
+        }
+      }
+    }
+  }
+
+  function render(){
+    // pan map without animation (we already update every frame)
+    map.setView([state.lat, state.lon], smoothedZoom, { animate: false });
+    const tZ = targetZoom(state.alt);
+    smoothedZoom += (tZ - smoothedZoom) * 0.05;
+    if (Math.abs(smoothedZoom - tZ) < 0.01) smoothedZoom = tZ;
+
+    // sprite rotation — heading 0 (north) should point up
+    const hdgDeg = state.heading * 180 / Math.PI;
+    const body = document.getElementById('body');
+    body.style.transform = `rotate(${hdgDeg + 90}deg)`;
+    // rotor spin
+    document.getElementById('blade1').style.transform = `rotate(${state.rotorAngle * 360}deg)`;
+    document.getElementById('blade2').style.transform = `rotate(${state.rotorAngle * 360 + 90}deg)`;
+
+    // shadow scales + offsets with altitude (suggests height)
+    const altF = Math.min(1, state.alt / 800);
+    const shadow = document.getElementById('shadow');
+    const off = 8 + altF * 70;
+    const sScale = 1 + altF * 0.55;
+    const sOpacity = 0.45 - altF * 0.25;
+    shadow.style.opacity = sOpacity;
+    shadow.style.transform = `translate(calc(-50% + ${off}px), calc(-50% + ${off}px)) rotate(${hdgDeg + 90}deg) scale(${sScale})`;
+
+    // sprite altitude jitter (slight bobbing)
+    const bob = Math.sin(performance.now() * 0.004) * 1.4;
+    document.getElementById('sprite').style.transform = `translate(-50%, calc(-50% + ${bob}px))`;
+
+    // hud
+    document.getElementById('s-spd').textContent = String(Math.round(state.speed * KT)).padStart(3, '0') + ' kt';
+    document.getElementById('s-alt').textContent = String(Math.round(state.alt * FT)).padStart(3, '0') + ' ft';
+    let hdg = Math.round((hdgDeg + 360) % 360);
+    document.getElementById('s-hdg').textContent = String(hdg).padStart(3, '0') + '°';
+    document.getElementById('s-coords').textContent =
+      state.lat.toFixed(4) + ' / ' + state.lon.toFixed(4);
+
+    // compass needle
+    document.getElementById('needle').style.transform = `rotate(${hdgDeg - 90}deg)`;
+  }
+
+  // ---------- destination modal ----------
+  const $modal = document.getElementById('modal');
+  const $dests = document.getElementById('dests');
+  for (const d of DESTS){
+    const b = document.createElement('button');
+    b.className = 'dest';
+    b.type = 'button';
+    b.innerHTML = `${d.name}<small>${d.lat.toFixed(2)} / ${d.lon.toFixed(2)}</small>`;
+    b.addEventListener('click', () => {
+      teleport(d.lat, d.lon);
+      closeModal();
+    });
+    $dests.appendChild(b);
+  }
+  function openModal(){ $modal.classList.add('show'); $modal.setAttribute('aria-hidden','false'); document.getElementById('tp-input').focus(); }
+  function closeModal(){ $modal.classList.remove('show'); $modal.setAttribute('aria-hidden','true'); }
+  document.getElementById('btn-dest').addEventListener('click', openModal);
+  document.getElementById('tp-close').addEventListener('click', closeModal);
+  $modal.addEventListener('click', e => { if (e.target === $modal) closeModal(); });
+  document.getElementById('tp-go').addEventListener('click', () => {
+    const v = document.getElementById('tp-input').value.trim();
+    const m = v.match(/^(-?\d+(\.\d+)?)\s*[, ]\s*(-?\d+(\.\d+)?)$/);
+    if (!m) { alert('Format as: lat, lon (e.g., 54.6872, 25.2797)'); return; }
+    const lat = parseFloat(m[1]), lon = parseFloat(m[3]);
+    teleport(lat, lon);
+    closeModal();
+  });
+  function teleport(lat, lon){
+    state.lat = lat; state.lon = lon;
+    state.speed = 0; state.targetSpeed = 0; state.throttle = 0.4;
+    if (state.recording && state.trail.length){
+      state.trail.push([lat, lon]);
+      if (state.trailLayer) state.trailLayer.setLatLngs(state.trail);
+    }
+  }
+
+  // help
+  document.getElementById('btn-help').addEventListener('click', () => {
+    openModal();
+  });
+
+  // trail recording
+  document.getElementById('btn-rec').addEventListener('click', () => {
+    state.recording = !state.recording;
+    const btn = document.getElementById('btn-rec');
+    btn.setAttribute('aria-pressed', String(state.recording));
+    btn.textContent = state.recording ? '◉ recording' : '◉ rec trail';
+    if (state.recording){
+      state.trail = [[state.lat, state.lon]];
+      state.trailLayer = L.polyline(state.trail, { color: '#ffb45a', weight: 2, opacity: 0.85 }).addTo(map);
+    } else if (state.trailLayer){
+      map.removeLayer(state.trailLayer);
+      state.trailLayer = null;
+      state.trail = [];
+    }
+  });
+})();
+</script>
+</body>
+</html>
