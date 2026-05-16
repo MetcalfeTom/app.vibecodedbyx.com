@@ -1641,6 +1641,46 @@
     100% { opacity: 0; }
   }
 
+  /* eaten-icon damage tiers — bugs progressively consume their target */
+  [data-eaten]{
+    transition: opacity 0.35s ease, filter 0.35s ease, transform 0.35s ease;
+  }
+  [data-eaten="1"]{
+    opacity: 0.78;
+    filter: contrast(0.85) brightness(0.95);
+  }
+  [data-eaten="2"]{
+    opacity: 0.55;
+    filter: contrast(0.7) brightness(0.85) sepia(0.2);
+    transform: scale(0.94);
+  }
+  [data-eaten="3"]{
+    opacity: 0.30;
+    filter: contrast(0.55) brightness(0.7) grayscale(0.5) sepia(0.4);
+    transform: scale(0.88);
+  }
+  [data-eaten="4"]{
+    opacity: 0;
+    transform: scale(0.7);
+    pointer-events: none;
+  }
+  /* a small chunk indicator (bite marker) on partially-eaten icons */
+  [data-eaten] .bite-overlay{
+    position: absolute;
+    pointer-events: none;
+    inset: 0;
+    background-image:
+      radial-gradient(circle 4px at 22% 18%, rgba(20,5,5,0.5) 60%, transparent 70%),
+      radial-gradient(circle 5px at 78% 24%, rgba(20,5,5,0.45) 60%, transparent 70%),
+      radial-gradient(circle 4px at 14% 70%, rgba(20,5,5,0.40) 60%, transparent 70%),
+      radial-gradient(circle 6px at 82% 78%, rgba(20,5,5,0.55) 60%, transparent 70%);
+    mix-blend-mode: multiply;
+    opacity: 0;
+  }
+  [data-eaten="1"] .bite-overlay{ opacity: 0.5; }
+  [data-eaten="2"] .bite-overlay{ opacity: 0.85; }
+  [data-eaten="3"] .bite-overlay{ opacity: 1.0; }
+
   /* ── Twitch jumpscare connector pill (bottom-left) ── */
   #tw-jumpscare{
     position: fixed;
@@ -3121,6 +3161,20 @@ function reboot(){
   document.getElementById('kb-toast')?.classList.remove('show');
   document.getElementById('bitlocker')?.classList.remove('show');
   document.getElementById('reboot-screen')?.classList.remove('show');
+  // restore any eaten icons + clear pixel-bug state
+  document.querySelectorAll('[data-eaten]').forEach(el => {
+    delete el.dataset.eaten;
+    const ov = el.querySelector(':scope > .bite-overlay');
+    if (ov) ov.remove();
+  });
+  document.querySelectorAll('.chew-mark').forEach(m => m.remove());
+  if (state.pxBugs){
+    for (const bug of state.pxBugs.list){ try { bug.el.remove(); } catch(e){} }
+    state.pxBugs.list = [];
+    state.pxBugs.squashed = 0;
+    clearTimeout(state.pxBugs.spawnTimer);
+    setTimeout(schedulePxBugSpawn, 25000);
+  }
   // reset copilot conversation
   cpBody.innerHTML = `<div class="cp-msg bot">Hi! I've reviewed your <b>Recall snapshots</b> from this morning. I have some <span class="sparkle">helpful</span> suggestions. ✨</div>`;
   renderChips();
@@ -4628,15 +4682,17 @@ const PXBUG_PALETTES = [
   ['#a0a020', '#403c00', '#fff080'],    // yellow weevil
   ['#202020', '#000000', '#404040'],    // black beetle
 ];
+// Weighted nibble targets. `.icon` (desktop icons) appears multiple
+// times because the chat ask was specifically for bugs eating icons,
+// so they get heavily preferred.
 const NIBBLE_TARGETS = [
-  '#tasks > *',
-  '.tb-btn',
+  '.icon', '.icon', '.icon', '.icon', '.icon',
+  '.tb-btn', '.tb-btn',
   '#corner-pill',
   '#kb-toast',
   '#tw-jumpscare',
   '#clippy-bubble',
   '#rec-pill',
-  '.icon-label',
   '.start-btn',
 ];
 const BUG_DEFAULT_SPAWN_DELAY = 14000; // base delay between spawns
@@ -4826,6 +4882,17 @@ function updatePixelBug(bug, dt){
       bug.state = 'nibble';
       bug.nibbleUntil = bug.age + 3 + Math.random() * 4;
       bug.el.classList.add('nibbling');
+      // ensure the target has a relative position + bite overlay div so
+      // the radial-gradient bite marks can render on it.
+      try {
+        const cs = getComputedStyle(t);
+        if (cs.position === 'static') t.style.position = 'relative';
+        if (!t.querySelector(':scope > .bite-overlay')){
+          const ov = document.createElement('div');
+          ov.className = 'bite-overlay';
+          t.appendChild(ov);
+        }
+      } catch(e){}
     } else {
       const sp = 1.8;
       bug.x += (dx / d) * sp;
@@ -4843,6 +4910,27 @@ function updatePixelBug(bug, dt){
     }
     if (bug.age > bug.nibbleUntil){
       bug.el.classList.remove('nibbling');
+      // ACTUALLY EAT THE ICON — advance the data-eaten tier each
+      // completed nibble session. At tier 4 the icon fades to invisible
+      // (CSS handles opacity:0 + pointer-events:none) but we keep the
+      // element in the DOM so reboot can restore everything cleanly.
+      const t = bug.nibbleTargetEl;
+      if (t && t.isConnected){
+        const cur = Number(t.dataset.eaten || 0);
+        const next = cur + 1;
+        t.dataset.eaten = Math.min(4, next);
+        if (next >= 4){
+          // burp + dark stain at the spot where the icon used to be
+          tone(140, 0.20, 'sawtooth', 0.10);
+          tone(110, 0.32, 'sine', 0.08, 0.05);
+          setTimeout(() => {
+            try {
+              const r2 = t.getBoundingClientRect();
+              dropChewMark(r2.left + r2.width/2, r2.top + r2.height/2, '#3a1a1a');
+            } catch(e){}
+          }, 380);
+        }
+      }
       bug.state = 'wander';
       bug.targetX = 0;
       bug.nextDecisionAt = bug.age + 1;
@@ -4893,14 +4981,22 @@ document.getElementById('tb-start').addEventListener('click', () => {
   }
 });
 
-/* bugs also act as a quiet pressure toward the BSOD — every 4 squashes
-   bumps the crash counter once. Letting them roam doesn't progress it. */
+/* squashing too many bugs guilt-crashes the PC — chat upgraded the
+   threshold from 4 (incremental) to 10 (a hard cutoff that BSODs you
+   immediately). Per ask: "trigger a blue screen after ten squashes
+   instead of four." */
+const SQUASH_BSOD_THRESHOLD = 10;
 const _origSquash = squashBug;
 squashBug = function(bug){
   _origSquash(bug);
-  if (state.pxBugs.squashed % 4 === 0){
-    state.snapsViewed++;
-    bumpProgress();
+  // surface the running count in the Clippy bubble/console so the
+  // player can feel the threshold approaching
+  if (state.pxBugs.squashed >= SQUASH_BSOD_THRESHOLD && !state.crashed){
+    // brief death-rattle line, then BSOD
+    if (typeof showClippy === 'function'){
+      showClippy(`That was your <b>${SQUASH_BSOD_THRESHOLD}th</b> squash. The bugs are filing a complaint. The system can no longer cope.`);
+    }
+    setTimeout(() => { if (!state.crashed) triggerCrash(); }, 900);
   }
 };
 
