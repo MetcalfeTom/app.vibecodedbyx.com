@@ -1,6 +1,14 @@
 # digital-terrarium · notes
 
 ## log
+- 2026-05-16: v1.0.2 — **second pass on Twitch connection** per chat report: "check why the terrarium isn't showing chat messages, it seems the connection is still failing." Compared line-by-line against neon-aquarium V11 (which is the proven working reference in this repo) and found three concrete issues:
+  1. **PRIVMSG regex was too strict** — `^:([^!]+)![^ ]+ PRIVMSG #([^ ]+) :(.*)$` requires the line to start with a colon, but if Twitch ever sends IRCv3 tag prefixes (`@tag=value ...`) it silently drops them. Replaced with the proven `indexOf(' PRIVMSG ')` + manual position-based extraction from neon-aquarium.
+  2. **PONG format was wrong** — was sending `PONG ` (with space) + `line.substring(5)` which strips the colon prefix; the proven form is `'PONG' + line.substring(4)` (no space) which preserves the colon. Twitch is permissive here but matching the working pattern eliminates the variable.
+  3. **Default channel `sloppyXP` was misleading** — cleared the input default to an empty placeholder. The connection-looks-broken-but-actually-the-channel-is-just-empty failure mode is now visually obvious.
+  - **Plus diagnostics added** — `tdbg(...)` namespaced `console.log` calls fire on every connect / open / error / close / send / channel change so you can open DevTools and see exactly what the WebSocket is doing. Live status pill now reads `live · #channel · N msg` and increments as PRIVMSGs arrive, so you can tell at a glance whether the connection is healthy but the channel is just quiet.
+  - **Plus disconnect button** — clicking Connect while live now disconnects, instead of immediately reconnecting.
+  - **Sanitiser tightened** — channel name now strips to `[a-z0-9_]` only, matching the working aquarium's whitelist.
+
 - 2026-05-16: v1.0.1 — **bugfix: Twitch chat connection appeared to "not work"** per chat report: "the twitch chat connection in the digital-terrarium isn't working, can you check the event listener?" The connection itself was fine — the bug was in `pushChatLine`: the trim-to-MAX_FEED `while` loop scheduled removals via `setTimeout` (for the fade-out animation) but checked `chatFeed.children.length` synchronously, so the loop never saw the count go down and **infinite-looped the moment a 7th message arrived**, freezing the page entirely. Symptom from outside looked like "chat just doesn't work". Replaced with a synchronous `chatFeed.firstChild.remove()` loop and added a `parentNode` guard to the 7s fade so already-removed lines don't double-remove. The previous logic worked fine when manually adding 6 or fewer bugs but exploded on first real chat burst.
 
 - 2026-05-16: v1 — **pixel terrarium with Twitch-chat-named bugs that try to escape** per chat ask: "create a digital terrarium where weird pixel bugs are named after recent chat messages, and they crawl around trying to escape."

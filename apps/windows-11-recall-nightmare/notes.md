@@ -1,6 +1,17 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-16: v1.8 — **pixel bugs crawl out of the Start menu and nibble the UI** per chat ask: "add a feature to the windows-11-recall-nightmare where pixel bugs occasionally crawl out of the Start menu and start nib[bling]." Cross-app crossover with `/digital-terrarium`.
+  - **First bug emerges ~22 s after page load**, then every 14-40s another may appear (capped at 7 alive at once). Each spawns from the centre of the Start button with an upward hop arc, then enters a wander → travel-to-nibble → nibble loop. Clicking the Start button also has an 18% chance to dislodge an extra bug — they live in there, after all.
+  - **Pixel-art sprites**: 11×11 oval body with shaded gradient + dark head + 2 white-pinprick eyes + 2 antennae + 3 pairs of legs. Rendered to a tiny `<canvas>`, exported to a `data:` URL, then used as an `<img>` so we can rotate and animate via CSS. 6 colour palettes (brown beetle / green roach / red mite / purple bug / yellow weevil / black beetle), pixelated `image-rendering` so they stay crisp at 22px display size.
+  - **Wandering**: bugs pick random screen points and walk toward them at ~1.2 u/frame, rotating to face their travel direction. Clamped to the viewport.
+  - **Nibbling**: on arrival, 65% chance to pick a UI element (task buttons, taskbar icons, corner pill, KB toast, jumpscare pill, Clippy bubble, recording pill, desktop icon labels, the Start button itself) and walk to it. Once there, they wobble in place for 3-7s leaving small dark chew-marks on the screen (DOM divs with a 22s `chewFade` keyframe so they linger then disappear). Each chew plays a 1200-1600Hz square blip.
+  - **Squashable**: click any bug to splat it — scale(2.2, 0.4) + fade-out, dark red splat mark left behind, low sawtooth thunk. Every 4th squash bumps the BSOD crash counter, so culling them is a slow road to the finale.
+  - **Crash-aware**: all bugs immediately removed when `state.crashed` fires.
+  - **Sound design**: square-wave squeak on emerge, tiny chew clicks while nibbling, sawtooth thunk on squash.
+  - **Bug-layer DOM**: `#bug-layer` at `z-index: 110` (above the desktop, below modals) with `pointer-events: none` on the layer itself but `pointer-events: auto` on each bug. Chew marks at `z-index: 105`.
+  - File 170KB → 181KB.
+
 - 2026-05-16: v1.7 — **Twitch chat → jumpscares** per chat ask: "is it possible to hook the live twitch chat into the windows-11-recall-nightmare app to trigger jumpscares whenever someone types?" Answer: yes. Anonymous IRC WSS plus a 5-effect jumpscare pool that fires on every PRIVMSG.
   - **Connector pill (bottom-left)**: dark glassmorphism with a purple `JUMPSCARE` label, channel input, Connect button, and a live scare counter ("0 scares · 1 scare · 42 scares"). Status dot cycles grey → amber (connecting) → green (live) → red (error). Re-clicking the green Connect button disconnects.
   - **Twitch IRC**: `wss://irc-ws.chat.twitch.tv:443` with `PASS SCHMOOPIIE` + `NICK justinfan{random}` + `JOIN #channel`. PING/PONG keepalive; 3.5s auto-reconnect on drop. `!`-prefixed messages skipped so command-bots don't trigger scares.

@@ -236,7 +236,7 @@
 <div class="panel" id="panel-tw">
   <h3>Twitch Chat</h3>
   <div id="tw-row">
-    <input id="tw-channel" type="text" placeholder="channel" value="sloppyXP" />
+    <input id="tw-channel" type="text" placeholder="twitch channel name" autocomplete="off" />
     <button id="tw-connect">Connect</button>
   </div>
   <div id="tw-state" class="idle"><span class="dot"></span><span id="tw-state-text">idle</span></div>
@@ -928,71 +928,147 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-/* ── Twitch chat (anonymous IRC WSS) ──────── */
+/* ── Twitch chat (anonymous IRC WSS) ──────────
+   Rewritten to match the proven pattern from neon-aquarium V11.
+   The previous version had a regex-based PRIVMSG parser that was
+   too strict (would silently drop messages prefixed with IRCv3
+   tags) and used `PONG ` with a space which Twitch occasionally
+   rejects. Also added: a live "received N msg" counter so users
+   can tell if the connection is healthy but the channel is just
+   quiet, and console.log diagnostics for in-browser debugging.
+*/
 const twChannelEl = document.getElementById('tw-channel');
 const twConnectBtn = document.getElementById('tw-connect');
 const twStateEl = document.getElementById('tw-state');
 const twStateText = document.getElementById('tw-state-text');
+
+state.twRecvCount = 0;
+state.twChatCount = 0;
+state.twAlive = false;
 
 function setTwState(s, text){
   twStateEl.className = s;
   twStateText.textContent = text || s;
 }
 
+function tdbg(...args){
+  // namespaced console log so debugging is easy without spamming
+  try { console.log('[terrarium · twitch]', ...args); } catch(e){}
+}
+
+function refreshTwStatus(){
+  if (!state.twAlive){ return; }
+  const ch = state.twChannel;
+  setTwState('live', `live · #${ch} · ${state.twChatCount} msg`);
+}
+
 function connectTwitch(){
-  const channel = twChannelEl.value.trim().toLowerCase().replace(/^#/, '');
-  if (!channel){ setTwState('error', 'channel?'); return; }
-  // close existing
+  let channel = (twChannelEl.value || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (!channel){
+    setTwState('error', 'enter a channel');
+    return;
+  }
+  // tear down any existing connection
   if (state.twWS){
     try { state.twWS.close(); } catch (e) {}
     state.twWS = null;
   }
   clearTimeout(state.reconnectTimer);
   state.twChannel = channel;
+  state.twRecvCount = 0;
+  state.twChatCount = 0;
+  state.twAlive = false;
   setTwState('connecting', 'connecting…');
-  const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+  tdbg('connecting to #' + channel);
+  let ws;
+  try {
+    ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+  } catch (e){
+    tdbg('socket blocked', e);
+    setTwState('error', 'socket blocked');
+    return;
+  }
   state.twWS = ws;
-  ws.addEventListener('open', () => {
-    ws.send('PASS SCHMOOPIIE');
-    ws.send('NICK justinfan' + Math.floor(Math.random() * 999999));
-    ws.send('JOIN #' + channel);
-    setTwState('live', 'live · #' + channel);
-  });
-  ws.addEventListener('message', (ev) => {
-    const lines = ev.data.split('\r\n');
+  ws.onopen = function(){
+    try {
+      ws.send('PASS SCHMOOPIIE');
+      ws.send('NICK justinfan' + Math.floor(10000 + Math.random() * 89999));
+      ws.send('JOIN #' + channel);
+      state.twAlive = true;
+      setTwState('live', `live · #${channel} · 0 msg`);
+      tdbg('joined #' + channel);
+    } catch (e){
+      tdbg('open send failed', e);
+      setTwState('error', 'send failed');
+    }
+  };
+  ws.onmessage = function(ev){
+    const data = ev.data;
+    if (!data) return;
+    state.twRecvCount++;
+    // tdbg('raw', data); // uncomment for very-verbose debugging
+    const lines = String(data).split('\r\n');
     for (const line of lines){
       if (!line) continue;
-      if (line.startsWith('PING')){
-        ws.send('PONG ' + line.substring(5));
+      // PING keepalive — match the working pattern from neon-aquarium:
+      // PONG + ":server" (no space, preserve the colon trailing param)
+      if (line.indexOf('PING') === 0){
+        try { ws.send('PONG' + line.substring(4)); } catch (e){}
         continue;
       }
-      // PRIVMSG parse
-      const m = line.match(/^:([^!]+)![^ ]+ PRIVMSG #([^ ]+) :(.*)$/);
-      if (m){
-        const user = m[1];
-        const msg = m[3];
-        if (msg.length > 0 && !msg.startsWith('!')){
-          spawnBug(msg, user);
-          pushChatLine(user, msg);
-        }
+      // PRIVMSG parse using indexOf — tolerates optional IRCv3 tag
+      // prefix and any unusual user/host segments. Matches the
+      // working aquarium parser exactly.
+      const pmIdx = line.indexOf(' PRIVMSG ');
+      if (pmIdx > 0){
+        const userStart = line.indexOf(':') + 1;
+        const userEnd = line.indexOf('!');
+        if (userEnd < 0 || userEnd > pmIdx) continue;
+        const user = line.substring(userStart, userEnd);
+        const msgStart = line.indexOf(' :', pmIdx);
+        if (msgStart < 0) continue;
+        const msg = line.substring(msgStart + 2);
+        if (!user || !msg) continue;
+        if (msg.startsWith('!')) continue; // skip command-bot junk
+        state.twChatCount++;
+        refreshTwStatus();
+        spawnBug(msg, user);
+        pushChatLine(user, msg);
       }
     }
-  });
-  ws.addEventListener('close', () => {
+  };
+  ws.onerror = function(e){
+    tdbg('socket error', e);
+    setTwState('error', 'connection error');
+  };
+  ws.onclose = function(e){
+    tdbg('socket closed', e && e.code, e && e.reason);
+    state.twAlive = false;
     if (state.twChannel === channel){
       setTwState('connecting', 'reconnecting…');
       clearTimeout(state.reconnectTimer);
       state.reconnectTimer = setTimeout(connectTwitch, 3500);
     } else {
-      setTwState('idle', 'idle');
+      setTwState('idle', 'disconnected');
     }
-  });
-  ws.addEventListener('error', () => {
-    setTwState('error', 'error');
-  });
+  };
 }
-twConnectBtn.addEventListener('click', connectTwitch);
-twChannelEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') connectTwitch(); });
+twConnectBtn.addEventListener('click', () => {
+  // toggle: if already live, this acts as Disconnect
+  if (state.twAlive){
+    state.twChannel = '';
+    state.twAlive = false;
+    if (state.twWS){
+      try { state.twWS.close(); } catch (e) {}
+      state.twWS = null;
+    }
+    clearTimeout(state.reconnectTimer);
+    setTwState('idle', 'disconnected');
+    return;
+  }
+  connectTwitch();
+});
+twChannelEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') twConnectBtn.click(); });
 
 /* ── hover tooltip on bugs ────────────────── */
 const tooltip = document.getElementById('tooltip');
