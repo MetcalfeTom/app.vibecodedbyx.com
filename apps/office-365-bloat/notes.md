@@ -35,4 +35,6 @@
 ## relationship to /windows-11-recall-nightmare
 - Sibling app in the Microsoft satire family. Both feature: bloated chrome, constant subscription nags, Copilot suggestions, locked features behind paywalls, the 47-something joke economy.
 - This one focuses on the application layer (Word + Office launcher); the nightmare focuses on the OS layer (Win11 desktop + Recall + KB updates).
+- As of 2026-05-16, the Win11 nightmare desktop has a **Word taskbar icon + Start menu entry** that iframes this app at `../office-365-bloat/`. Standalone visits still work; the iframe path means the splash + 8-step boot bar plays every time someone opens Word inside the Win11 sim, which is on-brand.
+- Word is the **one app** KB5083769 does not break in the Win11 nightmare. Microsoft prioritises Microsoft.
 - Could imagine a third one for the browser ("Edge Premium") or for the Xbox ecosystem.
