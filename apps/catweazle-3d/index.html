@@ -468,10 +468,13 @@ makePath( 15, 5, 0, 5, 1.8); // hayfield spur
 /* ─── obstacles list (AABB for collision) ───────── */
 const obstacles = []; // {min:THREE.Vector2, max:THREE.Vector2}
 function addObstacle(x, z, w, d){
+  // Player radius (0.4) already pads collision tests, so keep the static
+  // bbox padding small or the world feels sticky (you slide off walls
+  // half a metre away from them).
   const halfW = w/2, halfD = d/2;
   obstacles.push({
-    min: new THREE.Vector2(x - halfW - 0.3, z - halfD - 0.3),
-    max: new THREE.Vector2(x + halfW + 0.3, z + halfD + 0.3),
+    min: new THREE.Vector2(x - halfW - 0.05, z - halfD - 0.05),
+    max: new THREE.Vector2(x + halfW + 0.05, z + halfD + 0.05),
   });
 }
 
@@ -917,6 +920,22 @@ const wiz = buildCatweazle();
 wiz.position.set(2, 0, -23);
 scene.add(wiz);
 
+// Shush-range indicator — a pulsing ring under Catweazle that fades in
+// when he is panicking (a hint), and switches to a green tint when the
+// player is actually close enough to hush him. Fixes the prior glitch
+// where Space pressed at "should be close enough" range did nothing
+// with no feedback as to why.
+const shushRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.78, 1.02, 32),
+  new THREE.MeshBasicMaterial({
+    color: 0x60c0ff, transparent: true, opacity: 0,
+    side: THREE.DoubleSide, depthWrite: false,
+  })
+);
+shushRing.rotation.x = -Math.PI / 2;
+shushRing.renderOrder = 2;
+scene.add(shushRing);
+
 /* ─── villagers (guards) ───────────────────────── */
 function buildVillager(jacketColor=0x2a3a6a, hatColor=0x1a1a1a){
   const g = new THREE.Group();
@@ -1040,15 +1059,30 @@ spawnGuard(-2, 4, [
 ], 0x3a2a4a);
 
 /* ─── input ─────────────────────────────────────── */
+// keys[]   = held state for WASD/Shift (set on keydown, cleared on keyup)
+// keys.shushPressed / keys.callPressed = ONE-SHOT flags consumed by the
+// game loop. Switched from timed cooldowns because OS keyboard auto-
+// repeat was triggering shush every ~0.8s while Space was held — making
+// it impossible to keep Space queued to shush as soon as you got in
+// range. Now: one press → one action, regardless of how long it's held.
 const keys = {};
 window.addEventListener('keydown', e => {
-  keys[e.key.toLowerCase()] = true;
-  if (e.code === 'Space') { keys.shush = true; e.preventDefault(); }
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (e.code === 'Space'){
+    if (!e.repeat) keys.shushPressed = true;
+    e.preventDefault();
+  }
+  if (k === 'e' && !e.repeat) keys.callPressed = true;
   if (e.key === 'Escape') document.exitPointerLock();
 });
 window.addEventListener('keyup', e => {
   keys[e.key.toLowerCase()] = false;
-  if (e.code === 'Space') keys.shush = false;
+});
+// drop stale keys when the window loses focus (otherwise Carrot can
+// keep walking after a tab-switch).
+window.addEventListener('blur', () => {
+  for (const k in keys) keys[k] = false;
 });
 
 // pointer lock + mouse yaw
@@ -1207,39 +1241,57 @@ function tickFlash(){
 /* ─── movement + collision ──────────────────────── */
 const PLAYER_RADIUS = 0.4;
 function moveWithCollision(pos, dx, dz){
-  // try X then Z (axis-separated)
-  const newX = new THREE.Vector2(pos.x + dx, pos.z);
-  const newZ = new THREE.Vector2(pos.x + dx, pos.z + dz);
-  // X axis
+  // axis-separated AABB push-out — try X first then Z so the player can
+  // slide along a wall rather than stop dead at corners.
+  const newX = pos.x + dx;
   let okX = true;
   for (const ob of obstacles){
-    if (newX.x + PLAYER_RADIUS > ob.min.x && newX.x - PLAYER_RADIUS < ob.max.x
-     && newX.y + PLAYER_RADIUS > ob.min.y && newX.y - PLAYER_RADIUS < ob.max.y){
+    if (newX + PLAYER_RADIUS > ob.min.x && newX - PLAYER_RADIUS < ob.max.x
+     && pos.z + PLAYER_RADIUS > ob.min.y && pos.z - PLAYER_RADIUS < ob.max.y){
       okX = false; break;
     }
   }
-  if (okX) pos.x += dx;
-  // Z axis
-  const newZ2 = new THREE.Vector2(pos.x, pos.z + dz);
+  if (okX) pos.x = newX;
+  const newZ = pos.z + dz;
   let okZ = true;
   for (const ob of obstacles){
-    if (newZ2.x + PLAYER_RADIUS > ob.min.x && newZ2.x - PLAYER_RADIUS < ob.max.x
-     && newZ2.y + PLAYER_RADIUS > ob.min.y && newZ2.y - PLAYER_RADIUS < ob.max.y){
+    if (pos.x + PLAYER_RADIUS > ob.min.x && pos.x - PLAYER_RADIUS < ob.max.x
+     && newZ + PLAYER_RADIUS > ob.min.y && newZ - PLAYER_RADIUS < ob.max.y){
       okZ = false; break;
     }
   }
-  if (okZ) pos.z += dz;
+  if (okZ) pos.z = newZ;
   // soft world bounds
   pos.x = Math.max(-48, Math.min(48, pos.x));
   pos.z = Math.max(-48, Math.min(48, pos.z));
 }
 
+// 2D ray vs AABB (XZ slab test) — returns entry-t along the ray, or
+// Infinity if no hit. Used for camera occlusion + (one day) a proper
+// guard LOS pass. Treats obstacles as infinitely tall columns, which
+// is fine because everything we care about (cottages, the church, the
+// water-tower stem) reaches well above the camera arc.
+function rayAABB2D(ox, oz, dx, dz, minX, minZ, maxX, maxZ){
+  let tmin = -Infinity, tmax = Infinity;
+  if (Math.abs(dx) > 1e-6){
+    const t1 = (minX - ox) / dx, t2 = (maxX - ox) / dx;
+    tmin = Math.max(tmin, Math.min(t1, t2));
+    tmax = Math.min(tmax, Math.max(t1, t2));
+  } else if (ox < minX || ox > maxX) return Infinity;
+  if (Math.abs(dz) > 1e-6){
+    const t1 = (minZ - oz) / dz, t2 = (maxZ - oz) / dz;
+    tmin = Math.max(tmin, Math.min(t1, t2));
+    tmax = Math.min(tmax, Math.max(t1, t2));
+  } else if (oz < minZ || oz > maxZ) return Infinity;
+  if (tmax < 0 || tmin > tmax) return Infinity;
+  return tmin > 0 ? tmin : 0;
+}
+
 /* ─── player update ────────────────────────────── */
 const PLAYER_SPEED = 4.6;
 const PLAYER_SNEAK_MULT = 0.45;
+const SHUSH_RANGE = 3.2;
 let playerWalkPhase = 0;
-let lastShushAt = -10;
-let lastCallAt = -10;
 
 function updatePlayer(dt){
   if (state.phase !== 'play') return;
@@ -1255,14 +1307,16 @@ function updatePlayer(dt){
   }
   const sneaking = !!keys.shift;
   const speed = PLAYER_SPEED * (sneaking ? PLAYER_SNEAK_MULT : 1);
-  // camera-relative
-  // camera forward = (-sin(yaw), 0, -cos(yaw))
-  // camera right   = ( cos(yaw), 0, -sin(yaw))
+  // camera-relative direction
   const fx = -Math.sin(cameraYaw), fz = -Math.cos(cameraYaw);
   const rx =  Math.cos(cameraYaw), rz = -Math.sin(cameraYaw);
   const dx = (fx * -iz + rx * ix) * speed * dt;
   const dz = (fz * -iz + rz * ix) * speed * dt;
   moveWithCollision(carrot.position, dx, dz);
+  // crouch visual when sneaking — purely cosmetic but the difference
+  // makes "Shift = stealth" legible without a HUD label.
+  const targetScaleY = sneaking ? 0.82 : 1.0;
+  carrot.scale.y += (targetScaleY - carrot.scale.y) * Math.min(1, dt * 9);
   // face the direction of motion (smoothly)
   if (moving){
     const targetA = Math.atan2(dx, dz);
@@ -1272,45 +1326,45 @@ function updatePlayer(dt){
     while (diff < -Math.PI) diff += Math.PI*2;
     carrot.rotation.y = cur + diff * Math.min(1, dt * 8);
     playerWalkPhase += dt * (sneaking ? 6 : 11);
-    // gentle bob + arm swing
-    carrot.position.y = Math.abs(Math.sin(playerWalkPhase)) * 0.06;
-    carrot.userData.armL.rotation.x = Math.sin(playerWalkPhase) * 0.6;
-    carrot.userData.armR.rotation.x = -Math.sin(playerWalkPhase) * 0.6;
+    // gentle bob + arm swing — bob shrinks when sneaking
+    const bobAmp = sneaking ? 0.025 : 0.06;
+    carrot.position.y = Math.abs(Math.sin(playerWalkPhase)) * bobAmp;
+    const armAmp = sneaking ? 0.32 : 0.6;
+    carrot.userData.armL.rotation.x = Math.sin(playerWalkPhase) * armAmp;
+    carrot.userData.armR.rotation.x = -Math.sin(playerWalkPhase) * armAmp;
   } else {
-    carrot.position.y = 0;
+    carrot.position.y *= 0.85;
     carrot.userData.armL.rotation.x *= 0.9;
     carrot.userData.armR.rotation.x *= 0.9;
   }
-  // shush action
-  const now = performance.now() / 1000;
-  if (keys.shush && now - lastShushAt > 0.8){
-    lastShushAt = now;
+  // shush action — edge-triggered (one press → one fire).
+  if (keys.shushPressed){
+    keys.shushPressed = false;
     const dToWiz = carrot.position.distanceTo(wiz.position);
-    if (dToWiz < 3.0){
+    if (dToWiz < SHUSH_RANGE){
       sndShush();
       if (state.wiz.state === 'panic' || state.wiz.state === 'shouting'){
-        // calm him down
         state.wiz.state = 'calm';
         state.wiz.shoutT = 0;
         state.wiz.target = null;
-        state.wiz.panicT = 18 + Math.random() * 14; // delay next panic
+        state.wiz.panicT = 18 + Math.random() * 14;
         showBubble('Catweazle', pick(TW_SHUSH_ACK), wiz, 2400);
-        // alert decays faster while he's quiet
         state.alert *= 0.55;
       } else {
-        showBubble('Carrot', 'Shhh, master. The watch is about.', carrot, 1800);
+        showBubble('Carrot', 'Shhh, master. The watch is about.', carrot, 1600);
       }
     } else {
-      showBubble('Carrot', 'Too far to hush. Closer!', carrot, 1400);
+      // tell the player *how far* they are — much clearer than "too far".
+      const dist = dToWiz.toFixed(1);
+      showBubble('Carrot', `Too far to hush (${dist} m). Closer!`, carrot, 1400);
     }
   }
-  // call (E)
-  if (keys.e && now - lastCallAt > 1.0){
-    lastCallAt = now;
+  // call (E) — edge-triggered
+  if (keys.callPressed){
+    keys.callPressed = false;
     sndCall();
     state.wiz.follow = true;
     if (state.wiz.state === 'panic' || state.wiz.state === 'shouting'){
-      // calling won't pull him out of panic — must shush
       showBubble('Carrot', 'Master! Master! ...he hears me not.', carrot, 1500);
     } else {
       showBubble('Catweazle', pick(TW_FOLLOW_ACK), wiz, 1800);
@@ -1345,19 +1399,51 @@ function updatePlayer(dt){
 }
 
 /* ─── camera ────────────────────────────────────── */
+const _camTargetTmp = new THREE.Vector3();
+const _camLookTmp = new THREE.Vector3();
 function updateCamera(dt){
-  // 3rd person: behind + above
+  // 3rd person: behind + above, with occlusion pull-in. Previously the
+  // camera clipped straight into cottage walls when the player walked
+  // around the south side of a building. Now we cast a ray from the
+  // player to the desired camera spot and shorten if it crosses an
+  // obstacle bbox, so the camera "hugs" cover instead of penetrating.
   const dist = 7.5;
   const high = 4.2;
-  const ox = -Math.sin(cameraYaw) * dist;
-  const oz = -Math.cos(cameraYaw) * dist;
-  const tx = carrot.position.x - ox;
-  const tz = carrot.position.z - oz;
-  const ty = carrot.position.y + high;
-  // lerp toward target
-  camera.position.lerp(new THREE.Vector3(tx, ty, tz), Math.min(1, dt * 6.5));
-  const look = new THREE.Vector3(carrot.position.x, carrot.position.y + 1.6, carrot.position.z);
-  camera.lookAt(look);
+  const fx = -Math.sin(cameraYaw);
+  const fz = -Math.cos(cameraYaw);
+  let tx = carrot.position.x - fx * dist;
+  let tz = carrot.position.z - fz * dist;
+  let ty = carrot.position.y + high;
+  // occlusion
+  const fromX = carrot.position.x;
+  const fromZ = carrot.position.z;
+  const dirX = tx - fromX, dirZ = tz - fromZ;
+  const fullLen = Math.hypot(dirX, dirZ);
+  if (fullLen > 0.01){
+    const ndx = dirX / fullLen, ndz = dirZ / fullLen;
+    let minHit = fullLen;
+    for (const ob of obstacles){
+      const t = rayAABB2D(
+        fromX, fromZ, ndx, ndz,
+        ob.min.x - 0.3, ob.min.y - 0.3,
+        ob.max.x + 0.3, ob.max.y + 0.3
+      );
+      if (t < minHit) minHit = t;
+    }
+    if (minHit < fullLen){
+      const safe = Math.max(2.2, minHit - 0.45);
+      tx = fromX + ndx * safe;
+      tz = fromZ + ndz * safe;
+      // bring the camera down slightly when pulled close so we don't
+      // end up gazing straight at Carrot's hair.
+      ty = carrot.position.y + Math.max(2.2, high * (safe / fullLen) + 1.0);
+    }
+  }
+  // lerp toward target (faster when occluded so the pop-in is snappy)
+  _camTargetTmp.set(tx, ty, tz);
+  camera.position.lerp(_camTargetTmp, Math.min(1, dt * 7.5));
+  _camLookTmp.set(carrot.position.x, carrot.position.y + 1.55, carrot.position.z);
+  camera.lookAt(_camLookTmp);
 }
 
 /* ─── catweazle AI ─────────────────────────────── */
@@ -1422,9 +1508,30 @@ function updateWizard(dt){
     if (s.state === 'follow' || s.state === 'calm') stopDist = 2.5;
     if (s.state === 'panic') stopDist = 0.8;
     if (d > stopDist){
+      const prevX = wiz.position.x, prevZ = wiz.position.z;
       const vx = (dx / d) * speed * dt;
       const vz = (dz / d) * speed * dt;
       moveWithCollision(wiz.position, vx, vz);
+      // stuck detection — if axis-separated collision blocked us hard
+      // (the wizard pancaked into a cottage wall), nudge perpendicular
+      // so he slides around corners instead of vibrating against them.
+      // Alternates direction every ~1.2s of sustained stuck-ness to
+      // unstick on either side.
+      const actualMoved = Math.hypot(wiz.position.x - prevX, wiz.position.z - prevZ);
+      const expected = speed * dt;
+      if (expected > 0.005 && actualMoved < expected * 0.35){
+        s.stuckT = (s.stuckT || 0) + dt;
+        if (s.stuckT > 0.35){
+          const sign = (s.stuckSign === 1 ? -1 : 1);
+          if ((s.stuckT - 0.35) % 1.2 < dt) s.stuckSign = sign;
+          const perpX = -(dz / d) * sign;
+          const perpZ =  (dx / d) * sign;
+          moveWithCollision(wiz.position, perpX * speed * dt * 1.4, perpZ * speed * dt * 1.4);
+        }
+        if (s.stuckT > 2.2) s.stuckT = 0; // give up + retry next frame
+      } else {
+        s.stuckT = 0;
+      }
       const facing = Math.atan2(vx, vz);
       let cur = wiz.rotation.y;
       let diff = facing - cur;
@@ -1542,19 +1649,16 @@ function updateGuards(dt){
       while (diff >  Math.PI) diff -= Math.PI*2;
       while (diff < -Math.PI) diff += Math.PI*2;
       if (Math.abs(diff) < g.detectCone/2){
-        // simple LOS: check if any obstacle bounding box is between guard and player
-        const steps = 8;
+        // LOS check via 2D ray-AABB against obstacle list. Previously
+        // sampled only 8 segment points which let guards "see" through
+        // the corner of a cottage when the sample stride landed just
+        // outside the bbox. Proper ray test gives a clean hit/no-hit.
+        const losLen = Math.hypot(toCarrotX, toCarrotZ);
+        const ndx = toCarrotX / losLen, ndz = toCarrotZ / losLen;
         let blocked = false;
-        for (let i = 1; i < steps; i++){
-          const t = i / steps;
-          const px = pos.x + toCarrotX * t;
-          const pz = pos.z + toCarrotZ * t;
-          for (const ob of obstacles){
-            if (px > ob.min.x && px < ob.max.x && pz > ob.min.y && pz < ob.max.y){
-              blocked = true; break;
-            }
-          }
-          if (blocked) break;
+        for (const ob of obstacles){
+          const t = rayAABB2D(pos.x, pos.z, ndx, ndz, ob.min.x, ob.min.y, ob.max.x, ob.max.y);
+          if (t < losLen - 0.4){ blocked = true; break; }
         }
         if (!blocked) spotted = true;
       }
@@ -1632,12 +1736,27 @@ function playerCaught(byGuard){
   updateLivesUI();
   flash(`Caught by ${byGuard.name}!`, 'caught', 1800);
   sndCaught();
-  // reset positions
+  // reset positions + facing + stale inputs (avoids the player being
+  // mysteriously caught a second time the moment they respawn because
+  // Space was queued, or being yaw-disoriented after the catch).
   carrot.position.set(0, 0, -25);
   carrot.rotation.y = 0;
+  carrot.scale.y = 1;
   wiz.position.set(2, 0, -23);
-  // reset alert + guard states
+  wiz.rotation.y = 0;
+  cameraYaw = 0;
+  keys.shushPressed = false;
+  keys.callPressed = false;
+  // also snap the camera so we don't lerp dramatically from across the
+  // map back to the spawn pose.
+  camera.position.set(carrot.position.x, carrot.position.y + 4.2, carrot.position.z + 7.5);
   state.alert = 0;
+  state.wiz.state = 'follow';
+  state.wiz.target = null;
+  state.wiz.shoutT = 0;
+  state.wiz.stuckT = 0;
+  state.wiz.panicT = 22 + Math.random() * 10;
+  bubble.classList.add('hidden');
   for (const g of GUARDS){
     g.state = 'patrol';
     g.detectT = 0;
@@ -1764,6 +1883,19 @@ function drawCompass(){
   compassCtx.stroke();
 }
 
+/* ─── shush-range indicator (per frame) ────────── */
+function updateShushRing(dt){
+  shushRing.position.set(wiz.position.x, 0.04, wiz.position.z);
+  const dToWiz = carrot.position.distanceTo(wiz.position);
+  const inRange = dToWiz < SHUSH_RANGE;
+  const wantVisible = (state.wiz.state === 'panic' || state.wiz.state === 'shouting');
+  const targetOp = wantVisible ? (inRange ? 0.75 : 0.32) : 0;
+  shushRing.material.opacity += (targetOp - shushRing.material.opacity) * Math.min(1, dt * 5);
+  shushRing.material.color.setHex(inRange ? 0x70ffa8 : 0x60c0ff);
+  const pulse = 1 + Math.sin(performance.now() / 180) * 0.10;
+  shushRing.scale.set(pulse, 1, pulse);
+}
+
 /* ─── main loop ─────────────────────────────────── */
 let last = performance.now();
 function loop(now){
@@ -1774,6 +1906,7 @@ function loop(now){
     updateWizard(dt);
     updateGuards(dt);
     animateRunes(dt);
+    updateShushRing(dt);
     updateBars();
     drawCompass();
   }
@@ -1783,6 +1916,11 @@ function loop(now){
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
+// snap the camera behind the player once before the loop starts so the
+// first paint doesn't show the world from the origin (previously the
+// camera lerped in over ~0.3s from (0,0,0) when the page loaded).
+camera.position.set(0, 4.2, -25 + 7.5);
+camera.lookAt(0, 1.6, -25);
 requestAnimationFrame(loop);
 
 /* ─── resize ────────────────────────────────────── */
@@ -1799,7 +1937,10 @@ document.getElementById('btn-begin').addEventListener('click', () => {
   document.getElementById('intro').classList.add('hidden');
   state.phase = 'play';
   state.startedAt = performance.now() / 1000;
-  state.wiz.panicT = 22 + Math.random() * 8; // first panic comes later (let them get oriented)
+  state.wiz.panicT = 22 + Math.random() * 8;
+  cameraYaw = 0;
+  keys.shushPressed = false;
+  keys.callPressed = false;
   flash('Lead the wizard north to the stones', '', 2400);
 });
 document.getElementById('btn-restart').addEventListener('click', () => {
@@ -1815,6 +1956,7 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   state.wiz.panicT = 22 + Math.random() * 8;
   state.wiz.state = 'follow';
   state.wiz.shoutT = 0;
+  state.wiz.stuckT = 0;
   state.wiz.target = null;
   state.startedAt = performance.now() / 1000;
   for (const r of runes){
@@ -1824,7 +1966,14 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   }
   carrot.position.set(0, 0, -25);
   carrot.rotation.y = 0;
+  carrot.scale.y = 1;
   wiz.position.set(2, 0, -23);
+  wiz.rotation.y = 0;
+  cameraYaw = 0;
+  camera.position.set(carrot.position.x, carrot.position.y + 4.2, carrot.position.z + 7.5);
+  keys.shushPressed = false;
+  keys.callPressed = false;
+  bubble.classList.add('hidden');
   for (const g of GUARDS){
     g.state = 'patrol';
     g.detectT = 0;
