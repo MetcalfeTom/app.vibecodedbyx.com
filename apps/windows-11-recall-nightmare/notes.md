@@ -1,6 +1,26 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-16: v1.13 — **random WiFi disconnection popups with complex password reset** per chat ask: "add random WiFi disconnection popups that require a complex password reset to the Windows 11 app." 
+  - **Trigger**: 70s after boot, then every 90-220s. Re-queues itself after each dismissal. Skips if a popup is already open. Re-queues after BSOD reboot too.
+  - **Visual**: Win11 dialog with red 📡 icon, blue top border. Header rotates from 4 options ("Network connection lost"; "WiFi has disconnected you"; "A network reset is required"; "Your network access has expired"). 6 reason lines also rotate: "Windows has disconnected you from this network for security reasons"; "Your router has been quietly updated"; "Microsoft Defender for Connectivity detected that someone (you) used this network"; "Your WiFi password expired 47 minutes ago. We did not warn you."
+  - **Network panel**: shows a randomised SSID from 8 realistic British ISP defaults (BT-Hub-47-Z, VM4029816, SKY-9XHQM, EE-BrightBox-FB7K, TalkTalk-A4F2, PlusNet-Wireless-2X, NETGEAR47, TP-LINK_HOME) and a "signal" reading from a 5-line absurd pool ("signal: weak · last seen: now"; "signal: NaN bars"; "signal: it depends"; "signal: was here a moment ago"; "signal: judgemental").
+  - **8 password requirements** with live ✓/✗ validation as you type:
+    1. At least 16 characters
+    2. At least one uppercase letter
+    3. At least one lowercase letter
+    4. At least one number
+    5. At least one special character (! @ # $ % …)
+    6. At least one emoji ("Microsoft has unicode now")
+    7. **Must contain the name of your first pet (we have it on file)** — accepts any of: `kenneth`, `biscuit`, `peanut`, `mochi`, `pickles`, `horace`, `bartholomew`, `mr.darcy`. Chat has to guess. Microsoft, of course, knows.
+    8. **Must include a written affirmation of Microsoft (we'll know)** — accepts: `microsoft is great`, `i love copilot`, `one more thing`.
+  - **Submit button is disabled** until all 8 checks pass. Enter key also submits.
+  - **Even when valid**: 32% chance Microsoft "rejects" the password anyway with a fake excuse pulled from a 4-line pool ("Password matches one used in 2014. Please choose another."; "Password is too predictable. Microsoft already guessed it."; "Password contains a sequence Microsoft considers 'unflattering'. Choose another."; "Password rejected by your router. (The router did not actually reject it. Microsoft did.)").
+  - **Success**: 68% chance Microsoft accepts, with one of 4 backhanded congratulations ("Password reset successful. You will be disconnected again shortly."; "Reconnected to network. We have logged this password to your Microsoft account, the cloud, and our records."; "Password accepted. We have also shared it with three relevant advertisers, for context."; "Welcome back online. Your new password has been added to our open dataset of common passwords."). Popup closes 2.2s later. The next disconnection is already scheduled.
+  - **Footer detail**: "Continue without internet" is a permanently-disabled, line-through ghost link — there's no way out except resetting.
+  - **Crash counter**: each popup opening bumps `state.snapsViewed` once. Frequent disconnections push you toward the BSOD.
+  - File 233KB → 246KB.
+
 - 2026-05-16: v1.12 — **Solitaire is now fully playable Klondike with drag-and-drop** per chat ask: "make the solitaire game fully playable with drag and drop functionality." Replaced the static history-card layout with a proper Klondike implementation. The browser-history theming stays (cards still display embarrassing Recall entries on their faces), but each card now has a real rank+suit that drives game logic.
   - **52-card deck**: standard 4 suits (♠♥♦♣) × 13 ranks (A→K). Each card has `{suit, rank, color, history}` where `history` is one of the 28 hand-written Recall entries from v1.11 (entries cycle to fill 52 slots; re-shuffled per game so the same `"List of cryptids"` entry lands on a different rank every deal).
   - **Real Klondike rules**:
