@@ -1,6 +1,15 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-16: v1.7 — **Twitch chat → jumpscares** per chat ask: "is it possible to hook the live twitch chat into the windows-11-recall-nightmare app to trigger jumpscares whenever someone types?" Answer: yes. Anonymous IRC WSS plus a 5-effect jumpscare pool that fires on every PRIVMSG.
+  - **Connector pill (bottom-left)**: dark glassmorphism with a purple `JUMPSCARE` label, channel input, Connect button, and a live scare counter ("0 scares · 1 scare · 42 scares"). Status dot cycles grey → amber (connecting) → green (live) → red (error). Re-clicking the green Connect button disconnects.
+  - **Twitch IRC**: `wss://irc-ws.chat.twitch.tv:443` with `PASS SCHMOOPIIE` + `NICK justinfan{random}` + `JOIN #channel`. PING/PONG keepalive; 3.5s auto-reconnect on drop. `!`-prefixed messages skipped so command-bots don't trigger scares.
+  - **Effect pool (5 light effects, random per message)**: each combination of {full-screen white `mix-blend-mode:difference` flash, body-shake CSS keyframe, centered banner with "USER WAS HERE" + the message in monospace, dissonant 900Hz+140Hz sawtooth+square pair, purple-bordered Recall-style corner toast}. Banner pops with a cubic-bezier(.34,1.56,.64,1) bounce.
+  - **Heavy effects (rate-limited to once per 8s)**: 12% chance per message — either a 1.1s BitLocker takeover (re-uses the existing fullscreen element) or **Clippy bursts in with the chat message**: "I notice <b>USER</b> just typed: '<i>their message</i>'. I have flagged this for HR." 
+  - **Crash-aware**: jumpscares disabled while `state.crashed` is true (BSOD finale takes priority).
+  - **Counter feeds the nightmare**: each jumpscare effect ticks the existing `tjs.scareCount`; the banner pops are visible without bumping the BSOD threshold (so a chatty stream isn't auto-crashing the page) but heavy effects implicitly progress chaos via Clippy/BitLocker side effects.
+  - File 158KB → 170KB.
+
 - 2026-05-16: v1.6 — **Microsoft context-switching fee popup** per stacked chat asks: "add a context-switching fee popup that charges a fake dollar every time the user tries to alt-tab" + "add an alt-tab fee popup that charges a fake dollar every time the user tries to switch windows." Same ask twice; satisfied with a single feature.
   - **The charge**: pops up centered on every detected window switch. Green `:` header with "💸 Microsoft Context-Switching Fee", a big tabular-numeric `$X.XX` amount, a session-statement panel ("Reason: Alt+Tab detected · Switches this session: N · Account balance: $TOTAL owed"), and two buttons: `Authorise charge & continue` (primary green gradient) and `Dispute (£4.99 dispute fee applies)` — disputing applies a £4.99 dispute fee, of course.
   - **Detection**: 4 paths — (1) `Alt+Tab` keydown (the rare browser that delivers it), (2) `Ctrl+Tab` / `Cmd+Tab` (browser tab switch), (3) `window.blur` with a 350ms grace so micro-blurs don't fire, (4) `document.visibilitychange` to "hidden" queues a charge that fires when the tab is re-shown.
