@@ -1,6 +1,31 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-16: v1.14 — **broken offline setup in the boot sequence + passive-aggressive sign-in nag on basic tools** per stacked chat asks: "update windows-11-recall-nightmare with a broken offline setup process" + "include a broken offline setup that forces an email login for basic tools, and adds a passive-aggressive prompt." Inserted between the Microsoft 365 trial ad and the Microsoft account sign-in screen.
+  - **OOBE-Offline boot step**: full-screen with the iconic Win11 setup pose — "Let's connect you to the **internet**" + tagline "Microsoft requires an internet connection to complete setup. *(You cannot proceed without one.)*". Below: a 4-row WiFi network list, each row showing a realistic SSID + signal note + a Connect button. **Every WiFi connection fails** with a different hand-written excuse:
+    - **BT-Hub-47-Z** → *"Cannot connect. Password incorrect. (You haven't entered one. We checked.)"*
+    - **Free_Public_WiFi** → *"This network is not actually free. Cannot connect."*
+    - **VM4029816** → *"Cannot connect. (We do not say why.)"*
+    - **Use cellular data instead** → *"Cellular is not available on this device. (Even though it is.)"*
+  - **5 escape links**: "I don't have internet" / "Use limited setup" / "Recovery options" / "Help" / "Skip" — each pops a small **dead-end modal** with a hand-written brush-off:
+    - *"This option is no longer available. Please connect to a network. (Microsoft tracks how many times you have tried this.)"*
+    - *"Limited setup has been removed. We were the only ones using it."*
+    - *"There is nothing to recover. You haven't finished setting up yet."*
+    - *"We cannot help you here. Please connect to a network to access Help. (Help is also offline.)"*
+    - *"Skipping is no longer one of the things you can do."*
+  - **Attempt counter** below the WiFi list: starts at "No attempts yet · Microsoft is watching", increments to "Failed attempts: N · Microsoft is still watching" — visible feedback that you're being judged for each click.
+  - **After 4 failed attempts**, a previously-hidden button finally appears at the bottom (with a brief shimmy animation): **"Sign me in anyway (Microsoft will handle it)"**. Clicking it advances the boot sequence — the only escape, satirically forcing you to surrender to the Microsoft account even though the setup said offline was acceptable.
+  - **BSOD reboot replays it**: this step is part of the boot ad parade, so each crash → reboot → mandatory updates → broken offline setup → ... again.
+  - **Passive-aggressive sign-in nag** on basic tools (Search / File Explorer / Edge / Task View / Store): 14% chance per click after boot completes. Pops a focused Win11 modal:
+    - Header rotates per tool: "Sign in to use **Search**" / "Sign in to use **File Explorer**" / etc.
+    - Body line picks from 5 hand-written excuses: *"Basic tools now require a Microsoft account. They didn't used to. We changed our minds."*; *"For security reasons, this tool now requires Microsoft account verification. The security reason is our quarterly targets."*; *"You're using this tool without a Microsoft account, which we have noted and find suspicious."*
+    - **Metrics panel** styled like a guilt-trip Consolas-mono note: *"Time spent unsigned: **47 min** · Tools blocked: **N** · Microsoft's patience: **thin/exhausted**"*
+    - Email input + "Sign in & unlock" big primary button + tiny "No thanks (please)" skip link **gated behind a 5-second countdown**
+    - Sign-in success line: *"Welcome back. We have signed you in to **17 Microsoft services** at once. You will receive 47 welcome emails shortly."*
+    - Skip outcome: *"We have recorded this in your file. Have a slightly worse day."*
+  - **State tracking** for the sign-in nag persists across the session: `state.signin.unsignedSince`, `state.signin.tools`, `state.signin.blocked`. Reset by `reboot()` so each post-BSOD round starts fresh.
+  - File 246KB → 264KB.
+
 - 2026-05-16: v1.13 — **random WiFi disconnection popups with complex password reset** per chat ask: "add random WiFi disconnection popups that require a complex password reset to the Windows 11 app." 
   - **Trigger**: 70s after boot, then every 90-220s. Re-queues itself after each dismissal. Skips if a popup is already open. Re-queues after BSOD reboot too.
   - **Visual**: Win11 dialog with red 📡 icon, blue top border. Header rotates from 4 options ("Network connection lost"; "WiFi has disconnected you"; "A network reset is required"; "Your network access has expired"). 6 reason lines also rotate: "Windows has disconnected you from this network for security reasons"; "Your router has been quietly updated"; "Microsoft Defender for Connectivity detected that someone (you) used this network"; "Your WiFi password expired 47 minutes ago. We did not warn you."
