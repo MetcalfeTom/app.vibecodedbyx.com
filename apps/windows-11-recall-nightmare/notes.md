@@ -1,6 +1,20 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-16: v1.15 — **OOBE has three working escape paths now** per stacked chat asks: "make one of the wifi networks functional after multiple clicks, or provide a hidden bypass so users can reach the desktop. Marc" + amendment: "make the first wifi network actually connect after **exactly six desperate clicks**." Previous v1.14 only had the "surrender" path after 4 dead-end clicks — punishing without a satirical pay-off. Now there are three paths in:
+  1. **BT-Hub-47-Z connects on the EXACT 6th click**. Clicks 1-5 each show a different escalating excuse with an attempt counter ("⚠ Connecting to BT-Hub-47-Z · attempt 3/6"):
+     - 1: "Cannot connect. Password incorrect. (You haven't entered one. We checked.)"
+     - 2: "Retrying... still failing. (Microsoft notes your persistence with vague approval.)"
+     - 3: "This is the third time. We admire your stamina."
+     - 4: "Almost there. Two more tries. (We are not lying this time. Probably.)"
+     - 5: "One more click. We promise. (We have promised this before.)"
+     - 6: **CONNECTED!** Plays the startup chime, modal reads "✓ Connected to BT-Hub-47-Z · Network up. Microsoft is pleasantly surprised by your dedication. Setup will now continue. (We are mildly disappointed it worked.)" → advances boot after 1.6s.
+  2. **Hidden keyboard bypass — Ctrl+Shift+B**: pressed while the OOBE step is active triggers "✓ Engineering override accepted · Bypass code recognised. Setup will now continue. (We have noted this. **Marc would have wanted it this way.**)" — credit-line nod to the chatter who suggested it. Only active during the OOBE screen so it doesn't hijack the shortcut elsewhere.
+  3. **"Sign me in anyway" (existing v1.14 fallback)**: appears at the bottom after 4 failed escape-link or wrong-WiFi attempts.
+  - Other 3 WiFi networks (Free_Public_WiFi / VM4029816 / cellular) keep failing forever — those rewards are gated to BT only.
+  - **State tracking**: `state.oobeWifiClicks` per-SSID counter, reset on `reboot()` and on each OOBE step entry so each round of the game requires the full 6 clicks again. `state.oobeHintShown` reserved for a future "hint flicker" after N escape attempts.
+  - File 264KB → 266KB.
+
 - 2026-05-16: v1.14 — **broken offline setup in the boot sequence + passive-aggressive sign-in nag on basic tools** per stacked chat asks: "update windows-11-recall-nightmare with a broken offline setup process" + "include a broken offline setup that forces an email login for basic tools, and adds a passive-aggressive prompt." Inserted between the Microsoft 365 trial ad and the Microsoft account sign-in screen.
   - **OOBE-Offline boot step**: full-screen with the iconic Win11 setup pose — "Let's connect you to the **internet**" + tagline "Microsoft requires an internet connection to complete setup. *(You cannot proceed without one.)*". Below: a 4-row WiFi network list, each row showing a realistic SSID + signal note + a Connect button. **Every WiFi connection fails** with a different hand-written excuse:
     - **BT-Hub-47-Z** → *"Cannot connect. Password incorrect. (You haven't entered one. We checked.)"*
