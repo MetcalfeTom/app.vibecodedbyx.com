@@ -1,6 +1,28 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-16: v1.12 — **Solitaire is now fully playable Klondike with drag-and-drop** per chat ask: "make the solitaire game fully playable with drag and drop functionality." Replaced the static history-card layout with a proper Klondike implementation. The browser-history theming stays (cards still display embarrassing Recall entries on their faces), but each card now has a real rank+suit that drives game logic.
+  - **52-card deck**: standard 4 suits (♠♥♦♣) × 13 ranks (A→K). Each card has `{suit, rank, color, history}` where `history` is one of the 28 hand-written Recall entries from v1.11 (entries cycle to fill 52 slots; re-shuffled per game so the same `"List of cryptids"` entry lands on a different rank every deal).
+  - **Real Klondike rules**:
+    - **Tableau** builds DOWN by alternating colours (red ↔ black, rank one lower)
+    - **Foundations** build UP by suit from Ace to King
+    - **Stock → Waste** draws one card per click; when empty, clicking the recycle icon ↻ flips the waste back into the stock
+    - **Empty tableau column** accepts only a King
+    - **Empty foundation** accepts only an Ace
+  - **Card face redesign**: standard rank+suit appears as small bold corner indicators top-left and bottom-right (rotated 180°, like a real card), colour-coded red/black. The favicon emoji floats top-right. The italic embarrassing query takes the central body. Site + tag in the footer between the bottom-corner indicator. So you can read both "7♥" (game identity) and "*is everyone secretly competent except me* · Bing · 47 mins" (the joke).
+  - **Drag-and-drop** with pointer events (works for mouse + touch via PointerEvents + `touch-action: none`):
+    - **Stack-aware**: dragging a tableau card automatically picks up every face-up card on top of it as a single moveable stack
+    - **Drag threshold of 4px** so single-clicks (for the detail panel) don't accidentally start a drag
+    - **Floating ghost element** shows the stack you're moving; originals dim to 35% opacity at the source
+    - **Green-glow drop highlight** on valid targets while hovering; invalid drops snap back with an error blip
+    - **Drag from waste / tableau / foundation** all supported
+  - **Double-click → auto-foundation**: tap a card twice (or any face-up tableau-top / waste-top) and it'll auto-send to the matching foundation pile if legal. Standard Solitaire convenience.
+  - **Auto-flip**: after any move, the now-top face-down card of each tableau pile flips face-up automatically.
+  - **Win detection**: when all 4 foundations have a King on top, a centered "🏆 You won at Solitaire" overlay appears with the move count and a "Play Again" button. Clippy bursts in: "You won at Solitaire. **Microsoft has noted this.** Time spent playing has been logged with HR." Plays the startup chime.
+  - **State management**: `state.sol = { tableau, foundations, stock, waste, drag, won, moves }`. `renderSolitaire()` rebuilds the entire DOM from state each move (small enough not to flicker, simpler than incremental patching).
+  - **Score** in the status bar tracks moves made (`state.sol.moves`).
+  - File 220KB → 233KB.
+
 - 2026-05-16: v1.11 — **click-triggered sudden Restarting screen + cursed Solitaire app** per stacked chat asks: "implement a sudden Restarting screen that triggers during active clicking" + "add a Solitaire game icon to the taskbar that opens a cursed version, where cards are your browser history."
   - **Sudden Restarting overlay**: tracks every click in a 2.5s sliding window. If 5+ clicks land within the window AND it's been >28s since the last interrupt, 42% chance to fire a full-screen black "Restarting…" overlay with the spinner that lasts 2.4-3.8s. The interrupt does NOT actually run the boot sequence — it's a punishment-flash, distinct from the heavier 4-7min forced-restart system. 8 hand-written excuse lines: "Your clicking has been deemed suspicious. Restarting to investigate."; "Microsoft Defender for Productivity has paused your session."; "Excessive task-switching detected. We are calming you down."; "A scheduled restart has decided this is the moment."; "Click-rate anomaly detected. Restarting protectively." Each fired interrupt bumps the BSOD counter once. Click listener uses capture-phase so it counts even when other handlers `stopPropagation`.
   - **Cursed Solitaire** (new taskbar icon `🂡`): opens an 860×580 sat-window with a dark-green felt background (radial gradient `#1a8a52 → #0a4f2c → #052817`), white "Microsoft Solitaire · *Cursed Edition*" title on a deep-green bar, classic Klondike layout:
