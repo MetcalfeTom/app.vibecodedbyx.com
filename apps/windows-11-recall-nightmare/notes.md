@@ -1,6 +1,16 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-16: v1.6 — **Microsoft context-switching fee popup** per stacked chat asks: "add a context-switching fee popup that charges a fake dollar every time the user tries to alt-tab" + "add an alt-tab fee popup that charges a fake dollar every time the user tries to switch windows." Same ask twice; satisfied with a single feature.
+  - **The charge**: pops up centered on every detected window switch. Green `:` header with "💸 Microsoft Context-Switching Fee", a big tabular-numeric `$X.XX` amount, a session-statement panel ("Reason: Alt+Tab detected · Switches this session: N · Account balance: $TOTAL owed"), and two buttons: `Authorise charge & continue` (primary green gradient) and `Dispute (£4.99 dispute fee applies)` — disputing applies a £4.99 dispute fee, of course.
+  - **Detection**: 4 paths — (1) `Alt+Tab` keydown (the rare browser that delivers it), (2) `Ctrl+Tab` / `Cmd+Tab` (browser tab switch), (3) `window.blur` with a 350ms grace so micro-blurs don't fire, (4) `document.visibilitychange` to "hidden" queues a charge that fires when the tab is re-shown.
+  - **Charge variants** (weighted): $1.00 (base, 8 weight), $2.00 (escalated, 3 weight), **$0.47** (the signature 47, 4 weight), $4.99 (premium switch, 1 weight), $0.79 (2 weight). Each charge picks one at random so you never quite know what the fee will be.
+  - **6 rotating descriptions** for variety: "Microsoft Focus Manager has detected a context switch."; "For your protection, Windows has charged you for the cognitive load of switching tasks."; "Microsoft Defender for Attention™ has intercepted your context switch. Charge applied."; "Your context switch has been billed at the standard rate. The non-standard rate is much higher."
+  - **Corner pill** top-left (green, pulses on each charge): "MS Focus Account: $X.XX owed" — clicking it opens a statement view that recaps total switches and balance.
+  - **Cooldown**: 1.2s between charges so a single context switch doesn't fire 3 modals. Pending visibility charges are queued for when the tab returns.
+  - **Crash counter integration**: each charge bumps `state.snapsViewed`. Excessive window-switching pushes you toward the BSOD finale.
+  - File grew 147KB → 158KB.
+
 - 2026-05-16: v1.5 — **office-365-bloat merged in as an iframe-windowed Word app** per chat ask: "merge the office-365-bloat app into the windows-11-recall-nightmare project." Did **not** delete the standalone `/office-365-bloat` (CLAUDE.md says never delete apps without strong reason, and it was just shipped this hour with substantial work). Instead wired it in as a sub-app accessible from the Win11 desktop:
   - **New taskbar icon**: a Word-blue `W` between File Explorer and Microsoft Store, with hover and active states matching the other taskbar buttons.
   - **New Start menu pinned app**: Word slots into the pinned grid with a proper Word-blue rounded-square icon (replacing one of the duplicate Edges, conceptually). Clicking the tile closes the Start menu and opens Word.
