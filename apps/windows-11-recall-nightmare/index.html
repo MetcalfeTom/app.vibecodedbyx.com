@@ -4185,6 +4185,7 @@ function reboot(){
   }
   state.oobeAttempts = 0;
   state.oobeWifiClicks = {};
+  state.oobeWifiTotal = 0;
   state.oobeHintShown = false;
   // re-queue WiFi disconnect schedule
   if (state.wifi){
@@ -4987,13 +4988,15 @@ function runAdScreen(step){
       });
     }
     // OOBE — broken offline setup. Three escape paths:
-    //  1. Click BT-Hub-47-Z exactly 6 times → it connects.
+    //  1. Click any combination of 3 WiFi networks → connects on the
+    //     3rd click, regardless of which network. (Marcipopsis spec.)
     //  2. Press Ctrl+Shift+B → engineering override.
     //  3. Click any of the 5 skip links 3 times → "Sign me in anyway"
-    //     button appears at the bottom. (Was 4; lowered per chat ask.)
+    //     button appears at the bottom.
     if (step.isOOBE){
       state.oobeAttempts = 0;
       state.oobeWifiClicks = {};
+      state.oobeWifiTotal = 0;
       state.oobeHintShown = false;
       const giveUp = document.getElementById('oobe-give-up');
       giveUp.classList.remove('show');
@@ -6214,26 +6217,27 @@ setTimeout(scheduleWifiDisconnect, 70000);
    ═════════════════════════════════════════════════════════════════ */
 
 state.oobeAttempts = 0;
-state.oobeWifiClicks = {};      // per-SSID click counter
+state.oobeWifiClicks = {};      // per-SSID click counter (kept for stats)
+state.oobeWifiTotal = 0;        // total clicks across ALL networks
 state.oobeHintShown = false;
 
-// BT-Hub-47-Z is the "real" network — it connects on the EXACT 6th
-// click, with five escalating failure messages on clicks 1-5 that
-// reward persistence. Per chat spec: "exactly six desperate clicks."
-const OOBE_BT_CONNECT_AT = 6;
-const OOBE_BT_LADDER = [
-  'Cannot connect. Password incorrect. (You haven\'t entered one. We checked.)',
-  'Retrying... still failing. (Microsoft notes your persistence with vague approval.)',
-  'This is the third time. We admire your stamina.',
-  'Almost there. Two more tries. (We are not lying this time. Probably.)',
-  'One more click. We promise. (We have promised this before.)',
-  /* 6th click → CONNECT! handled separately */
-];
+// Any 3 wifi clicks let you in — regardless of which network you chose.
+// Per chat amendment from marcipopsis: "clicking any three wifi buttons
+// lets you in." Clicks 1-2 show network-specific failures; click 3
+// (whichever it is) connects and advances boot.
+const OOBE_WIFI_CONNECT_AT = 3;
 const OOBE_WIFI_FAIL = {
+  bt:       'Cannot connect. Password incorrect. (You haven\'t entered one. We checked.)',
   free:     'This network is not actually free. Cannot connect.',
   vm:       'Cannot connect. (We do not say why.)',
   cellular: 'Cellular is not available on this device. (Even though it is.)',
 };
+// Generic fallback messages that escalate by total-clicks if a player
+// keeps mashing the same network. These rotate in for variety.
+const OOBE_WIFI_FAIL_EXTRA = [
+  'Retrying... still failing. (Microsoft notes your persistence with vague approval.)',
+  'This is the second time. We admire your stamina, modestly.',
+];
 const OOBE_ESCAPE_LINES = {
   'no-internet': {
     head: '⚠ Microsoft requires internet',
@@ -6285,33 +6289,40 @@ document.getElementById('oobe-deadend-ok').addEventListener('click', () => {
   oobeDeadend.classList.remove('show');
 });
 
-// wire WiFi rows. BT-Hub-47-Z connects on the 6th click; the rest
-// keep failing forever.
+// wire WiFi rows. Per chat: any 3 wifi clicks (in any combination)
+// let you in. Click 1-2 show the network's failure message; click 3
+// connects regardless of which network — Microsoft gives up.
 document.querySelectorAll('.oobe-wifi-row').forEach(row => {
   row.addEventListener('click', () => {
     const k = row.dataset.wifi;
     sndPop();
-    if (k === 'bt'){
-      const n = (state.oobeWifiClicks.bt = (state.oobeWifiClicks.bt || 0) + 1);
-      if (n < OOBE_BT_CONNECT_AT){
-        // escalating failure messages
-        const msg = OOBE_BT_LADDER[Math.min(n - 1, OOBE_BT_LADDER.length - 1)];
-        openOobeDeadend(`⚠ Connecting to BT-Hub-47-Z · attempt ${n}/${OOBE_BT_CONNECT_AT}`, msg);
-        return;
+    state.oobeWifiClicks[k] = (state.oobeWifiClicks[k] || 0) + 1;
+    state.oobeWifiTotal++;
+    const total = state.oobeWifiTotal;
+    if (total < OOBE_WIFI_CONNECT_AT){
+      // pick a network-specific failure on the first hit, then
+      // escalating fallback lines on subsequent same-network mashes
+      let msg;
+      if (state.oobeWifiClicks[k] === 1){
+        msg = OOBE_WIFI_FAIL[k] || 'Connection failed.';
+      } else {
+        const idx = Math.min(state.oobeWifiClicks[k] - 2, OOBE_WIFI_FAIL_EXTRA.length - 1);
+        msg = OOBE_WIFI_FAIL_EXTRA[idx];
       }
-      // 6th click → CONNECTED. Advance the boot.
-      sndChime();
-      openOobeDeadend(
-        '✓ Connected to BT-Hub-47-Z',
-        'Network up. Microsoft is pleasantly surprised by your dedication. Setup will now continue. (We are mildly disappointed it worked.)'
-      );
-      setTimeout(() => {
-        document.getElementById('oobe-deadend').classList.remove('show');
-        advanceBoot();
-      }, 1600);
+      openOobeDeadend(`⚠ Cannot connect · network attempt ${total}/${OOBE_WIFI_CONNECT_AT}`, msg);
       return;
     }
-    openOobeDeadend('⚠ Cannot connect to network', OOBE_WIFI_FAIL[k] || 'Connection failed.');
+    // total === 3 → SUCCESS, regardless of which network was last clicked
+    const niceName = ({ bt:'BT-Hub-47-Z', free:'Free_Public_WiFi', vm:'VM4029816', cellular:'cellular data' })[k] || 'this network';
+    sndChime();
+    openOobeDeadend(
+      `✓ Connected to ${niceName}`,
+      'Network up. Three attempts was enough — Microsoft has decided you are committed. Setup will now continue. (We are mildly disappointed it worked.)'
+    );
+    setTimeout(() => {
+      document.getElementById('oobe-deadend').classList.remove('show');
+      advanceBoot();
+    }, 1600);
   });
 });
 
