@@ -93,6 +93,28 @@
   .flash-pip.cooldown{ color: #a0a0a8; text-shadow: none; font-size: 11px; letter-spacing: 0.05em; }
   .flash-pip.ready{ animation: pulseAmber 1.2s ease-in-out infinite; }
 
+  /* red proximity pulse — full-viewport overlay that thumps with the heartbeat.
+     Opacity driven from JS each frame via --pulse on the body element. The
+     radial gradient pushes most of the red to the screen edges so the centre
+     of the play area stays readable. */
+  #red-pulse{
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4;                          /* above canvas (z 0), below HUD (z 10+) */
+    background:
+      radial-gradient(ellipse at center, rgba(120,8,16,0) 32%, rgba(180,16,28,0.65) 78%, rgba(80,4,10,0.90) 100%),
+      linear-gradient(180deg, rgba(120,8,16,0.30) 0%, rgba(160,12,24,0) 22%, rgba(160,12,24,0) 78%, rgba(120,8,16,0.30) 100%);
+    mix-blend-mode: screen;
+    opacity: 0;
+    transition: opacity 70ms linear;
+    will-change: opacity;
+  }
+  @media (prefers-reduced-motion: reduce){
+    /* steady ambient tint instead of thumping with each beat */
+    #red-pulse{ transition: opacity 400ms linear; }
+  }
+
   /* hint at bottom */
   .hint{
     position: fixed;
@@ -302,6 +324,7 @@
     <div class="val" id="hb-val">— bpm</div>
   </div>
 </div>
+<div id="red-pulse" aria-hidden="true"></div>
 <div id="mp-pill"><span class="dot"></span><span id="mp-pill-text">connected</span></div>
 <div class="hint" id="hint">
   <kbd>WASD</kbd> move · <kbd>Shift</kbd> sneak · <kbd>E</kbd> repair · <kbd>Space</kbd> skill check · <kbd>F</kbd> flashlight · <kbd>P</kbd> pause
@@ -657,25 +680,137 @@ function sndBlind(){
   tone(1760, 0.10, 'sine', 0.14, 0.04);
   tone(2080, 0.18, 'sine', 0.10, 0.08);
 }
-// heartbeat: dual sine thud
+/* heartbeat — a layered, suspenseful loop driven by killer proximity
+   ── ambient sub-bass drone (always running once started, gain swells
+      smoothly with closeness via setTargetAtTime) gives a constant
+      cinematic dread floor below the beats themselves.
+   ── per-beat "kick" = noise-burst transient + two-stop sine lub-DUB.
+      Velocity scales with bpm so the higher the rate, the punchier.
+   ── tinnitus whine — high detuned dyad gated in when killer is VERY
+      close (closeness > 0.62), so the player gets a piercing audio
+      cue right before catch range.
+   ── visual heart-pulse synced 1:1 with each beat via pulseRed(). */
 let heartbeatTimer = null;
 let heartbeatRate = 0;     // bpm (0 = silent)
+let killerCloseness = 0;   // 0..1, set per-frame from killer distance
+let droneGain = null;      // GainNode for sub-bass dread drone
+let whineGain = null;      // GainNode for the tinnitus dyad
+function ensureDreadDrone(){
+  if (droneGain) return;
+  // sub-bass two-voice slightly-detuned drone (~38Hz)
+  const o1 = audioCtx.createOscillator();
+  const o2 = audioCtx.createOscillator();
+  o1.type = 'sine'; o1.frequency.value = 38;
+  o2.type = 'sine'; o2.frequency.value = 38.5;
+  droneGain = audioCtx.createGain();
+  droneGain.gain.value = 0;
+  o1.connect(droneGain); o2.connect(droneGain);
+  droneGain.connect(audioCtx.destination);
+  o1.start(); o2.start();
+  // high tinnitus dyad — only audible when closeness gates it open
+  const w1 = audioCtx.createOscillator();
+  const w2 = audioCtx.createOscillator();
+  w1.type = 'sine'; w1.frequency.value = 880;
+  w2.type = 'sine'; w2.frequency.value = 1320; // perfect fifth, unsettling at this register
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'bandpass'; filt.frequency.value = 1100; filt.Q.value = 4;
+  whineGain = audioCtx.createGain();
+  whineGain.gain.value = 0;
+  w1.connect(filt); w2.connect(filt);
+  filt.connect(whineGain);
+  whineGain.connect(audioCtx.destination);
+  w1.start(); w2.start();
+}
+function beatKick(closeness){
+  // short bandpass-noise "thump" at the start of each beat → mic'd-chest realism
+  const t0 = audioCtx.currentTime;
+  const dur = 0.05;
+  const buf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * dur), audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++){
+    const env = Math.pow(1 - i / data.length, 1.6);
+    data[i] = (Math.random() * 2 - 1) * env;
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 90; bp.Q.value = 1.4;
+  const g = audioCtx.createGain();
+  g.gain.value = 0.08 + closeness * 0.18;
+  src.connect(bp); bp.connect(g); g.connect(audioCtx.destination);
+  src.start(t0);
+}
 function startHeartbeat(){
   if (heartbeatTimer) return;
+  ensureDreadDrone();
   const beat = () => {
     if (heartbeatRate > 0){
+      const c = killerCloseness;
       const vol = Math.min(0.30, 0.04 + heartbeatRate * 0.0016);
+      beatKick(c);
       tone(80, 0.10, 'sine', vol, 0);
-      tone(56, 0.18, 'sine', vol*0.7, 0.04);
+      tone(56, 0.18, 'sine', vol * 0.7, 0.04);
+      // visual heart-pulse synced to the beat (peak fades over ~600ms)
+      pulseRedHeart(c);
     }
     heartbeatTimer = setTimeout(beat, heartbeatRate > 0 ? (60000 / heartbeatRate) : 1000);
   };
   beat();
 }
+function updateDreadAudio(){
+  // called from render loop. Smooth gain ramps toward proximity targets.
+  if (!droneGain || audioCtx.state !== 'running') return;
+  const c = killerCloseness;
+  // drone: faint floor that swells with proximity, capped low to avoid muddy mix
+  const droneTarget = Math.pow(c, 1.4) * 0.07;
+  droneGain.gain.setTargetAtTime(droneTarget, audioCtx.currentTime, 0.25);
+  // whine: gated above 0.62 closeness, ramps up fast, ramps down faster
+  const whineTarget = c > 0.62 ? Math.min(0.03, (c - 0.62) * 0.12) : 0;
+  whineGain.gain.setTargetAtTime(whineTarget, audioCtx.currentTime, c > 0.62 ? 0.15 : 0.08);
+}
 window.addEventListener('pointerdown', () => {
   if (audioCtx.state === 'suspended') audioCtx.resume();
   startHeartbeat();
 }, { once: true });
+
+/* ── red screen pulse (synced to heartbeat) ──────────────────────────
+   Two-channel model: a continuous baseline tint that scales with
+   killer closeness, plus a transient SPIKE injected by each heartbeat
+   beat. The spike exp-decays over ~600ms back toward baseline. Caps at
+   ~0.68 alpha so the play area never goes fully unreadable, even at
+   full chase proximity. */
+const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let redSpike = 0;          // 0..1, decays each frame
+let redCurrent = 0;        // last opacity written to DOM (avoid thrashing)
+function pulseRedHeart(closeness){
+  // each beat injects a spike scaled by proximity. Quieter when far; full slam at full close.
+  if (prefersReducedMotion) return;     // accessibility: no flashing for at-risk users
+  const spike = Math.min(1, 0.35 + closeness * 0.85);
+  if (spike > redSpike) redSpike = spike;
+}
+function updateRedPulse(now){
+  // exp-decay spike at ~3.5/s, then compose with the closeness baseline
+  const dt = updateRedPulse._last ? Math.min(0.05, (now - updateRedPulse._last) / 1000) : 0;
+  updateRedPulse._last = now;
+  redSpike *= Math.exp(-dt * 3.6);
+  if (redSpike < 0.002) redSpike = 0;
+  // baseline scales with closeness^1.6 so it stays subtle most of the game and
+  // only really intrudes when the killer is RIGHT THERE. Capped lower than the spike.
+  const baseline = Math.pow(killerCloseness, 1.6) * 0.30;
+  let opacity;
+  if (prefersReducedMotion){
+    // steady ambient — no flashes, but still telegraphs danger via intensity
+    opacity = Math.min(0.55, baseline * 1.5);
+  } else {
+    opacity = Math.min(0.68, Math.max(baseline, redSpike * (0.40 + killerCloseness * 0.60)));
+  }
+  // only write to DOM when value changes meaningfully (≥0.02) — saves layout work
+  if (Math.abs(opacity - redCurrent) > 0.02 || (opacity === 0 && redCurrent !== 0)){
+    redCurrent = opacity;
+    const el = document.getElementById('red-pulse');
+    if (el) el.style.opacity = opacity.toFixed(3);
+  }
+}
 
 /* ═════════════════════════════════════════════════════════════════
    MULTIPLAYER (Supabase Realtime · 2-player co-op · 4-char room codes)
@@ -2107,9 +2242,36 @@ function loop(now){
   updatePlayer(dt, now);
   updateKiller(dt, now);
   checkEscape();
+  // recompute killer closeness on every client (joiner doesn't run updateKiller
+  // but still knows the killer's broadcast position) so dread audio + red pulse
+  // intensify symmetrically in co-op
+  updateKillerCloseness();
+  updateDreadAudio();
+  updateRedPulse(now);
   render(now);
   renderGenPips();
   requestAnimationFrame(loop);
+}
+function updateKillerCloseness(){
+  if (state.phase !== 'play'){
+    killerCloseness = 0;
+    return;
+  }
+  const dx = state.killer.x - state.player.x;
+  const dy = state.killer.y - state.player.y;
+  const d = Math.hypot(dx, dy);
+  let c = Math.max(0, 1 - d / 320);
+  // chase state adds urgency even at the same distance
+  if (state.killer.state === 'chase') c = Math.min(1, c + 0.18);
+  // blinded killer = breathing room → kill the dread audio + pulse
+  if (performance.now() < state.killer.blindedUntil) c *= 0.25;
+  killerCloseness = c;
+  // joiner doesn't run updateKiller so heartbeatRate doesn't get computed —
+  // give them the same bpm so the audio loop ticks correctly.
+  if (MP.enabled && !MP.isHost){
+    state.hbBpm = 60 + c * 100 + (state.killer.state === 'chase' ? 30 : 0);
+    heartbeatRate = state.hbBpm > 60 ? state.hbBpm : 0;
+  }
 }
 requestAnimationFrame(loop);
 
