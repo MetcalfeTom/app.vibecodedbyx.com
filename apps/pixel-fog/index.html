@@ -238,7 +238,7 @@
   </div>
 </div>
 <div class="hint" id="hint">
-  <kbd>WASD</kbd> move · <kbd>Shift</kbd> sneak · <kbd>E</kbd> repair · <kbd>P</kbd> pause
+  <kbd>WASD</kbd> move · <kbd>Shift</kbd> sneak · <kbd>E</kbd> repair · <kbd>Space</kbd> skill check · <kbd>P</kbd> pause
 </div>
 
 <div class="overlay" id="start-overlay">
@@ -517,17 +517,13 @@ function newGame(){
     sparkT: 0,
   }));
 
-  // killer waypoints: 4 corners-ish + center
-  state.killer.waypoints = [
-    { x: px(6),  y: px(4) },
-    { x: px(33), y: px(4) },
-    { x: px(33), y: px(20) },
-    { x: px(6),  y: px(20) },
-    { x: px(20), y: px(12) },
-  ].filter(p => isWalkable(Math.floor(p.x/TILE_PX), Math.floor(p.y/TILE_PX)));
-  state.killer.wpIdx = 0;
-  state.killer.x = state.killer.waypoints[0].x;
-  state.killer.y = state.killer.waypoints[0].y;
+  // killer waypoints now derive from generator positions (he guards gens).
+  // The pickKillerWaypoint helper picks dynamically each time he arrives.
+  state.killer.target = null;
+  state.killer.wpPauseUntil = 0;
+  // start him on the centre-ish of the map
+  state.killer.x = px(20);
+  state.killer.y = px(12);
   state.killer.state = 'patrol';
   state.killer.lastSeen = null;
 
@@ -543,6 +539,11 @@ const keys = {};
 window.addEventListener('keydown', (e) => {
   keys[e.key.toLowerCase()] = true;
   if (e.code === 'KeyP'){ state.paused = !state.paused; }
+  // Space resolves an active skill check
+  if (e.code === 'Space' && state.skillCheck && !state.skillCheck.resolved){
+    e.preventDefault();
+    attemptSkillCheck();
+  }
 });
 window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
@@ -563,6 +564,135 @@ function tryMove(ent, dx, dy, r){
     ny = ent.y;
   }
   ent.x = nx; ent.y = ny;
+}
+
+/* ── killer waypoint picker (gens act as patrol nodes) ── */
+function pickKillerWaypoint(){
+  const k = state.killer;
+  const unfinished = state.generators.filter(g => !g.done);
+  let pool;
+  if (unfinished.length){
+    // 80% chance to head to the nearest unfinished gen, 20% random for variety
+    if (Math.random() < 0.20){
+      pool = unfinished;
+    } else {
+      pool = unfinished.slice().sort((a, b) => distance(k, a) - distance(k, b));
+    }
+  } else {
+    // all gens done — patrol around the exit gate area
+    pool = gateCells.map(c => ({ x: px(c.x), y: px(c.y + 1) }));
+    if (!pool.length) pool = [{ x: px(20), y: px(12) }];
+  }
+  // pick something that isn't his current target (so he actually moves)
+  for (const c of pool){
+    if (!k.target || c !== k.target) return c;
+  }
+  return pool[0];
+}
+
+/* ── noise events (skill-check fails, etc) ── */
+function emitNoise(x, y, radius, kind){
+  const k = state.killer;
+  const d = Math.hypot(k.x - x, k.y - y);
+  if (d < radius){
+    // killer investigates the noise source
+    k.lastSeen = { x, y };
+    if (k.state !== 'chase'){
+      k.state = 'search';
+      k.stateT = 0;
+      k.target = null;     // drop patrol target so search code uses lastSeen
+    }
+  }
+}
+
+/* ── skill-check (DBD-style press-Space-in-the-window) ── */
+const SKILL_CHECK_DURATION = 1100;       // ms total for the sweep
+const SKILL_CHECK_WINDOW = 38;           // degrees of the green "great" arc
+const SKILL_CHECK_REWARD = 0.6;          // seconds added to repair on hit
+const SKILL_CHECK_PENALTY = 0.8;         // seconds removed from repair on miss
+const SKILL_CHECK_NOISE = 320;           // px radius — comparable to chase vision
+
+function startSkillCheck(g){
+  state.skillCheck = {
+    gen: g,
+    startT: performance.now(),
+    targetCenter: 40 + Math.random() * 280,   // degrees
+    resolved: false,
+  };
+}
+function attemptSkillCheck(){
+  if (!state.skillCheck || state.skillCheck.resolved) return;
+  const sc = state.skillCheck;
+  sc.resolved = true;
+  const now = performance.now();
+  const elapsed = now - sc.startT;
+  if (elapsed > SKILL_CHECK_DURATION){
+    failSkillCheck(sc, 'late');
+    return;
+  }
+  const angleDeg = (elapsed / SKILL_CHECK_DURATION) * 360;
+  const diff = Math.abs(((angleDeg - sc.targetCenter + 540) % 360) - 180);
+  // diff = angular distance; smaller diff (closer to 180? wait we want closer to 0)
+  // The wraparound formula gives distance from targetCenter; small = close.
+  // Re-derive simply:
+  const realDiff = Math.min(
+    Math.abs(angleDeg - sc.targetCenter),
+    360 - Math.abs(angleDeg - sc.targetCenter)
+  );
+  if (realDiff < SKILL_CHECK_WINDOW / 2){
+    // GREAT — bonus progress
+    sc.gen.repair = Math.min(REPAIR_TIME, sc.gen.repair + SKILL_CHECK_REWARD);
+    sc.gen.flashUntil = now + 400;
+    sc.gen.flashColor = '#4cff80';
+    sndSkillHit();
+  } else {
+    failSkillCheck(sc, 'wrong');
+  }
+}
+function failSkillCheck(sc, reason){
+  const now = performance.now();
+  sc.gen.repair = Math.max(0, sc.gen.repair - SKILL_CHECK_PENALTY);
+  sc.gen.flashUntil = now + 600;
+  sc.gen.flashColor = '#ff4060';
+  sc.gen.explosionUntil = now + 400;
+  sndSkillMiss();
+  emitNoise(sc.gen.x, sc.gen.y, SKILL_CHECK_NOISE, 'skill-check');
+}
+function tickSkillCheck(now){
+  if (!state.skillCheck) return;
+  if (state.skillCheck.resolved && now - state.skillCheck.startT > SKILL_CHECK_DURATION + 200){
+    state.skillCheck = null;
+    return;
+  }
+  if (!state.skillCheck.resolved && now - state.skillCheck.startT > SKILL_CHECK_DURATION){
+    // didn't press in time — auto-miss
+    failSkillCheck(state.skillCheck, 'timeout');
+    state.skillCheck.resolved = true;
+  }
+}
+
+/* skill-check audio */
+function sndSkillHit(){
+  tone(880, 0.06, 'sine', 0.10, 0);
+  tone(1320, 0.10, 'sine', 0.08, 0.04);
+}
+function sndSkillMiss(){
+  // sharp dissonant + explosion
+  tone(120, 0.22, 'sawtooth', 0.18, 0);
+  tone(240, 0.18, 'square', 0.12, 0.02);
+  // noise burst (explosion crackle)
+  const t0 = audioCtx.currentTime;
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.35, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++){
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 1.4);
+  }
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 3;
+  const g = audioCtx.createGain(); g.gain.value = 0.20;
+  src.connect(bp); bp.connect(g); g.connect(audioCtx.destination);
+  src.start(t0);
 }
 
 let lastStepT = 0;
@@ -592,9 +722,18 @@ function updatePlayer(dt, t){
     if (d < TILE_PX * 1.4 && d < nearDist){ nearDist = d; nearGen = g; }
   }
   if (wantRepair && nearGen){
+    if (p.repairing !== nearGen){
+      // first frame of engaging this gen — start the skill-check clock fresh
+      nearGen.nextCheckAt = performance.now() + 2200 + Math.random() * 2200;
+      // also drop any stale skill check if it was for a different gen
+      if (state.skillCheck && state.skillCheck.gen !== nearGen) state.skillCheck = null;
+    }
     p.repairing = nearGen;
   } else {
+    if (p.repairing) p.repairing.nextCheckAt = 0;
     p.repairing = null;
+    // releasing E cancels any unresolved skill check
+    if (state.skillCheck && !state.skillCheck.resolved) state.skillCheck = null;
   }
   if (!p.repairing){
     tryMove(p, ix * speed * dt, iy * speed * dt, SURV_R);
@@ -605,21 +744,32 @@ function updatePlayer(dt, t){
     }
   } else {
     // repair tick
-    p.repairing.repair = Math.min(REPAIR_TIME, p.repairing.repair + dt);
-    p.repairing.sparkT = (p.repairing.sparkT || 0) + dt;
-    if (p.repairing.sparkT > 0.18){
-      p.repairing.sparkT = 0;
+    const g = p.repairing;
+    g.repair = Math.min(REPAIR_TIME, g.repair + dt);
+    g.sparkT = (g.sparkT || 0) + dt;
+    if (g.sparkT > 0.18){
+      g.sparkT = 0;
       sndRepair();
-      // 6% chance: skill check / noise burst — let's just emit louder noise
     }
-    if (p.repairing.repair >= REPAIR_TIME){
-      p.repairing.done = true;
+    // schedule skill checks while engaged on this gen
+    if (!state.skillCheck){
+      if (!g.nextCheckAt) g.nextCheckAt = performance.now() + 2200 + Math.random() * 2200;
+      if (performance.now() > g.nextCheckAt){
+        startSkillCheck(g);
+        g.nextCheckAt = performance.now() + 4500 + Math.random() * 3500;
+      }
+    }
+    if (g.repair >= REPAIR_TIME){
+      g.done = true;
       sndGenPop();
       p.repairing = null;
+      state.skillCheck = null;
       renderGenPips();
       checkAllGens();
     }
   }
+  // tick the skill check timeout / cleanup
+  tickSkillCheck(t);
 }
 
 function checkAllGens(){
@@ -687,11 +837,20 @@ function updateKiller(dt, t){
     if (target && distance(k, target) < TILE_PX * 0.6 && k.stateT > 3){
       k.state = 'patrol'; k.stateT = 0; k.lastSeen = null;
     }
-  } else { // patrol
-    target = k.waypoints[k.wpIdx];
+  } else { // patrol — walks between generators
+    if (!k.target) k.target = pickKillerWaypoint();
+    target = k.target;
     speed = KILLER_PATROL_SPEED;
-    if (target && distance(k, target) < TILE_PX * 0.5){
-      k.wpIdx = (k.wpIdx + 1) % k.waypoints.length;
+    if (target && distance(k, target) < TILE_PX * 1.4){
+      // arrived at the gen — pause briefly to "inspect" it, then pick another
+      if (!k.wpPauseUntil) k.wpPauseUntil = performance.now() + 900 + Math.random() * 700;
+      if (performance.now() > k.wpPauseUntil){
+        k.target = pickKillerWaypoint();
+        k.wpPauseUntil = 0;
+      } else {
+        // stand still while pausing (don't keep nudging toward target)
+        target = null;
+      }
     }
   }
   // move toward target
@@ -795,6 +954,16 @@ function render(t){
   if (state.player.repairing){
     const g = state.player.repairing;
     drawRepairProgress(g);
+  }
+  // skill check (drawn above the fog so always visible to the player)
+  if (state.skillCheck){
+    drawSkillCheck(t);
+  }
+  // any gen with an active flash (skill-check feedback / explosion) — draw above fog
+  for (const g of state.generators){
+    if (g.explosionUntil && performance.now() < g.explosionUntil){
+      drawGenExplosion(g);
+    }
   }
 
   // HUD updates
@@ -957,6 +1126,67 @@ function drawRepairProgress(g){
   ctx.beginPath();
   ctx.arc(g.x, g.y - 20, r, 0, Math.PI * 2);
   ctx.stroke();
+}
+
+function drawSkillCheck(t){
+  const sc = state.skillCheck;
+  const g = sc.gen;
+  const cx = g.x;
+  const cy = g.y - 40;
+  const R = 20;
+  const elapsed = t - sc.startT;
+  const angleDeg = Math.min(360, (elapsed / SKILL_CHECK_DURATION) * 360);
+  // outer ring
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  // target arc (green "great" zone)
+  const startA = (sc.targetCenter - SKILL_CHECK_WINDOW/2) * Math.PI / 180 - Math.PI/2;
+  const endA   = (sc.targetCenter + SKILL_CHECK_WINDOW/2) * Math.PI / 180 - Math.PI/2;
+  ctx.strokeStyle = sc.resolved ? 'rgba(76,255,128,0.30)' : '#4cff80';
+  ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(cx, cy, R, startA, endA); ctx.stroke();
+  // arrow (sweeping pointer)
+  const arrowA = angleDeg * Math.PI / 180 - Math.PI / 2;
+  ctx.strokeStyle = sc.resolved ? 'rgba(255,255,255,0.40)' : '#ffd060';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(arrowA) * (R + 3), cy + Math.sin(arrowA) * (R + 3));
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+  // tiny SPACE prompt below
+  ctx.fillStyle = sc.resolved ? 'rgba(255,255,255,0.45)' : '#fff';
+  ctx.font = 'bold 9px IBM Plex Mono, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(sc.resolved ? '·' : 'SPACE', cx, cy + R + 13);
+  ctx.textAlign = 'left';
+}
+
+function drawGenExplosion(g){
+  const remaining = (g.explosionUntil - performance.now()) / 400;
+  const r = (1 - remaining) * 22 + 6;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, remaining);
+  ctx.fillStyle = '#ffaa30';
+  ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#ff4060';
+  ctx.beginPath(); ctx.arc(g.x, g.y, r * 0.55, 0, Math.PI*2); ctx.fill();
+  // spark lines
+  ctx.strokeStyle = '#ffd060';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 6; i++){
+    const a = (i / 6) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(g.x + Math.cos(a) * r, g.y + Math.sin(a) * r);
+    ctx.lineTo(g.x + Math.cos(a) * (r + 6), g.y + Math.sin(a) * (r + 6));
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /* fog of war — radial cutout around player */

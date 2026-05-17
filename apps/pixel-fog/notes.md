@@ -1,6 +1,20 @@
 # pixel-fog · notes
 
 ## log
+- 2026-05-17: v1.1 — **killer patrols between generators + skill-check noise events** per chat ask: "improve the killer AI in pixel-fog to patrol between generators and investigate noises like missed skill checks."
+  - **Killer patrol routes now derive from generators**: replaced the 5-corner waypoint array with `pickKillerWaypoint()` that picks an unfinished gen each time — 80% chance of the nearest, 20% chance of any random unfinished one for variety. When he arrives at a gen, he pauses 900-1600ms ("inspecting") then picks the next. After all 5 gens are done he patrols the exit gate area instead. Net effect: he's always near where you actually need to be.
+  - **Skill-check system** (DBD-style): every 2.2-4.4s of holding E on a gen, a skill-check fires:
+    - Circular ring overlay floats above the gen (radius 20px, drawn above the fog so always visible)
+    - Sweeping orange arrow rotates 0→360° over 1.1 s
+    - Green "great" arc (38° wide) sits at a random target position
+    - Player must press **Space** while the arrow is inside the green arc
+    - **HIT**: +0.6s repair bonus, soft 2-tone sine sparkle, green flash on the gen
+    - **MISS** (wrong position OR no press by timeout): -0.8s repair penalty, red flash, **gen explosion FX** (expanding orange→red disc with spark lines), 2-part audio (sawtooth thunk + bandpass-noise explosion crackle), AND **a noise event is emitted at the gen position with a 320px radius**
+  - **Noise events** trigger the killer to investigate: if the killer is within range of an `emitNoise(x, y, radius)` call, his `lastSeen` is set to the noise origin and he switches to `search` state (or stays in `chase` if already chasing). Missed skill checks are now the loudest noise source in the game by a wide margin — chase the killer toward an empty gen by miss-pressing the prompt on purpose.
+  - **Schedule reset on disengage**: releasing E mid-repair clears `nextCheckAt` on that gen + cancels any unresolved skill check, so re-engaging gives you a fresh 2.2-4.4s grace before the next prompt.
+  - **HUD hint** updated: "WASD move · Shift sneak · E repair · Space skill check · P pause".
+  - File 36KB → 45KB.
+
 - 2026-05-17: v1 — **top-down stealth survival with 5 generators, a stalking AI killer, fog of war, and an exit gate** per stacked chat asks: "build a 2D top-down game called pixel-fog with a survivor fixing generators and a stalking killer" + amendment "make the killer a dark shadow with glowing eyes that flickers in and out of sight." Both baked into v1.
   - **Map**: 40 × 25 tile grid (tile size auto-scales to viewport, 14-36px). Hand-built corridor layout with rooms, walls, 5 generator markers scattered, and 2 GATE tiles in the top wall as the exit.
   - **Survivor** (player): 7px-radius blue jumpsuit + skin-tone head + dark hood + facing-direction pip. WASD or arrows to move (110 px/s walk, 55 px/s while holding Shift to sneak). Subtle bob animation when not repairing. Crouched-purple outline visualises sneak state.
