@@ -420,10 +420,15 @@
 
   <div class="modal-back" id="glslModal" role="dialog" aria-modal="true" aria-labelledby="glslTitle">
     <div class="modal">
-      <h2 id="glslTitle">fragment shader · GLSL ES 3.00</h2>
+      <h2 id="glslTitle">fragment shader source</h2>
+      <div class="chips" role="group" aria-label="shader dialect">
+        <button class="chip" data-dialect="glsl" aria-pressed="true">GLSL ES 3.00 (web)</button>
+        <button class="chip" data-dialect="godot" aria-pressed="false">Godot 4 (.gdshader)</button>
+      </div>
       <pre id="glslSource"></pre>
       <div class="row">
         <button class="btn" id="copyGlsl">⎘ copy</button>
+        <button class="btn" id="downloadGlsl">⤓ download</button>
         <button class="btn" id="closeGlsl">close</button>
       </div>
     </div>
@@ -806,20 +811,166 @@ document.getElementById('saveBtn').addEventListener('click', () => {
   }, 'image/png');
 });
 
-/* ── glsl viewer ── */
+/* ── shader source viewer (GLSL ES + Godot 4 .gdshader) ──
+   Godot 4's shading language is GLSL-like but has its own type names
+   and entry points. The transpile below targets a Godot CanvasItem
+   shader so users can paste the result directly into a Material in
+   the engine. The Voronoi math is the same — only the boilerplate +
+   uniform syntax + entry function changes. */
+function godotTranspile(){
+  // current uniform values, embedded so the shader runs standalone
+  // without needing a Material-set step in Godot.
+  const s = state;
+  const cur = (v) => Number(v).toFixed(5);
+  const v3 = ([r,g,b]) => `vec3(${cur(r)}, ${cur(g)}, ${cur(b)})`;
+  return `shader_type canvas_item;
+// Voronoi cellular-noise shader · exported from sloppy.live/voronoi-shader
+// Drop on a ColorRect or TextureRect with full-rect anchor preset.
+// Uniforms are pre-baked from the studio state — tweak in inspector
+// after dropping the file, or wire from GDScript via set_shader_parameter.
+
+uniform float density   : hint_range(3.0, 80.0)  = ${cur(s.density)};
+uniform float jitter    : hint_range(0.0, 1.0)   = ${cur(s.jitter)};
+uniform float warp      : hint_range(0.0, 1.5)   = ${cur(s.warp)};
+uniform float speed     : hint_range(0.0, 2.0)   = ${cur(s.speed)};
+uniform float scale_v   : hint_range(0.3, 3.0)   = ${cur(s.scale)};
+uniform float edge      : hint_range(0.005, 0.4) = ${cur(s.edge)};
+uniform float contrast  : hint_range(0.2, 3.0)   = ${cur(s.contrast)};
+uniform float shift_v   : hint_range(0.0, 1.0)   = ${cur(s.shift)};
+uniform int   metric    : hint_range(0, 3)       = ${s.metric};   // 0 euclid · 1 manh · 2 cheby · 3 mink-3
+uniform int   style_v   : hint_range(0, 4)       = ${s.style};    // 0 cells · 1 edges · 2 f2-f1 · 3 dots · 4 cracks
+uniform int   palette_v : hint_range(0, 6)       = ${s.palette};  // 0..5 presets · 6 custom 3-stop
+uniform vec3  col_a     : source_color           = ${v3(s.colA)};
+uniform vec3  col_b     : source_color           = ${v3(s.colB)};
+uniform vec3  col_c     : source_color           = ${v3(s.colC)};
+
+vec2 hash2(vec2 p){
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453);
+}
+float hash1(vec2 p){
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+float vnoise(vec2 p){
+    vec2 i = floor(p); vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(hash1(i + vec2(0,0)), hash1(i + vec2(1,0)), u.x),
+        mix(hash1(i + vec2(0,1)), hash1(i + vec2(1,1)), u.x),
+        u.y);
+}
+float metric_dist(vec2 r){
+    if (metric == 0) return length(r);
+    if (metric == 1) return abs(r.x) + abs(r.y);
+    if (metric == 2) return max(abs(r.x), abs(r.y));
+    return pow(pow(abs(r.x), 3.0) + pow(abs(r.y), 3.0), 1.0 / 3.0);
+}
+vec3 voronoi_(vec2 uv){
+    vec2 ip = floor(uv); vec2 fp = fract(uv);
+    float f1 = 1e10; float f2 = 1e10;
+    vec2 id_closest = vec2(0.0);
+    for (int j = -1; j <= 1; j++){
+        for (int i = -1; i <= 1; i++){
+            vec2 g = vec2(float(i), float(j));
+            vec2 cell_id = ip + g;
+            vec2 o = hash2(cell_id);
+            o = 0.5 + (o - 0.5) * jitter;
+            o += 0.32 * jitter * vec2(sin(TIME * (0.6 + o.x)), cos(TIME * (0.55 + o.y)));
+            vec2 r = g + o - fp;
+            float d = metric_dist(r);
+            if (d < f1){ f2 = f1; f1 = d; id_closest = cell_id; }
+            else if (d < f2){ f2 = d; }
+        }
+    }
+    float id_scalar = fract(sin(dot(id_closest, vec2(91.3, 47.7))) * 1234.5);
+    return vec3(f1, f2, id_scalar);
+}
+vec3 palette_(float t){
+    t = fract(t + shift_v);
+    vec3 a; vec3 b; vec3 c; vec3 d;
+    if (palette_v == 0){ a = vec3(0.6,0.3,0.2); b = vec3(0.6,0.5,0.4); c = vec3(1.0); d = vec3(0.0,0.15,0.3); }
+    else if (palette_v == 1){ a = vec3(0.3,0.5,0.7); b = vec3(0.3,0.4,0.5); c = vec3(1.0,1.0,0.6); d = vec3(0.0,0.25,0.5); }
+    else if (palette_v == 2){ a = vec3(0.5,0.2,0.05); b = vec3(0.6,0.4,0.2); c = vec3(2.0,1.5,0.6); d = vec3(0.0,0.25,0.4); }
+    else if (palette_v == 3){ a = vec3(0.4,0.55,0.4); b = vec3(0.4,0.45,0.35); c = vec3(0.8,0.8,1.0); d = vec3(0.0,0.1,0.2); }
+    else if (palette_v == 4){ a = vec3(0.5,0.3,0.7); b = vec3(0.4,0.5,0.5); c = vec3(1.0); d = vec3(0.3,0.0,0.5); }
+    else if (palette_v == 5){ a = vec3(0.5); b = vec3(0.5); c = vec3(1.0); d = vec3(0.0); }
+    else {
+        if (t < 0.5) return mix(col_a, col_b, smoothstep(0.0, 1.0, t * 2.0));
+        return mix(col_b, col_c, smoothstep(0.0, 1.0, (t - 0.5) * 2.0));
+    }
+    return a + b * cos(6.28318 * (c * t + d));
+}
+void fragment(){
+    // SCREEN_PIXEL_SIZE = 1.0 / SCREEN texture size; use UV directly.
+    vec2 uv = (UV * 2.0 - 1.0);
+    uv.x *= 1.0 / TEXTURE_PIXEL_SIZE.y * TEXTURE_PIXEL_SIZE.x;   // aspect
+    uv *= scale_v;
+    uv *= density * 0.5;
+    if (warp > 0.001){
+        float t = TIME * 0.25 * speed;
+        vec2 w = vec2(
+            vnoise(uv * 0.6 + vec2(0.0, t)),
+            vnoise(uv * 0.6 + vec2(t, 0.0))
+        );
+        w = w * 2.0 - 1.0;
+        uv += w * warp;
+    }
+    vec3 v = voronoi_(uv);
+    float f1 = v.x; float f2 = v.y; float id = v.z;
+    float val = 0.0;
+    if (style_v == 0){ val = id; }
+    else if (style_v == 1){ float ed = smoothstep(edge, 0.0, f2 - f1); val = mix(id, 1.0 - ed * 0.85, 0.5); }
+    else if (style_v == 2){ val = clamp((f2 - f1) * 1.4, 0.0, 1.0); }
+    else if (style_v == 3){ val = 1.0 - smoothstep(0.0, 0.5 - edge, f1); val = mix(val, id * 0.6, 0.3); }
+    else { float w = smoothstep(edge, edge * 0.4, f2 - f1); val = 1.0 - w; }
+    val = pow(clamp(val, 0.0, 1.0), 1.0 / contrast);
+    COLOR = vec4(palette_(val), 1.0);
+}
+`;
+}
+
+let currentDialect = 'glsl';
+function sourceForDialect(d){
+  return d === 'godot' ? godotTranspile() : FS;
+}
+function refreshModalSource(){
+  document.getElementById('glslSource').textContent = sourceForDialect(currentDialect);
+  document.getElementById('glslTitle').textContent = currentDialect === 'godot'
+    ? 'fragment shader · Godot 4 (.gdshader)'
+    : 'fragment shader · GLSL ES 3.00';
+}
 document.getElementById('glslBtn').addEventListener('click', () => {
-  document.getElementById('glslSource').textContent = FS;
+  refreshModalSource();
   document.getElementById('glslModal').classList.add('show');
 });
 document.getElementById('closeGlsl').addEventListener('click', () => {
   document.getElementById('glslModal').classList.remove('show');
 });
+for (const b of document.querySelectorAll('[data-dialect]')){
+  b.addEventListener('click', () => {
+    for (const x of document.querySelectorAll('[data-dialect]')) x.setAttribute('aria-pressed', 'false');
+    b.setAttribute('aria-pressed', 'true');
+    currentDialect = b.dataset.dialect;
+    refreshModalSource();
+  });
+}
 document.getElementById('copyGlsl').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText(FS);
+    await navigator.clipboard.writeText(sourceForDialect(currentDialect));
     document.getElementById('copyGlsl').textContent = '✓ copied';
     setTimeout(() => { document.getElementById('copyGlsl').textContent = '⎘ copy'; }, 1400);
   } catch(_){}
+});
+document.getElementById('downloadGlsl').addEventListener('click', () => {
+  const ext = currentDialect === 'godot' ? 'gdshader' : 'frag';
+  const src = sourceForDialect(currentDialect);
+  const blob = new Blob([src], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'voronoi-' + Date.now() + '.' + ext;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
 });
 
 /* ── panel collapse ── */
