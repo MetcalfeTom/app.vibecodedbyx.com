@@ -1,6 +1,43 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-17: v1.20 — **proper Bing taskbar icon + shutdown submenu with a 10-stage fake "Working on updates" overlay** per chat ask: "fix the Bing icon in the menu and add a shutdown button with a fake update message."
+  - **BING ICON FIX**: the v1.19 taskbar button was just a bare lowercase `b` in Bing-blue text — fine, but lacked the recognisable gradient-badge look of the real Bing wordmark. Replaced with a proper 22×22 gradient glyph that matches the sidebar's `.bing-logo` styling: cyan→Bing-blue→navy linear-gradient at 135°, white `b` in Segoe UI 800 weight at -0.02em letter-spacing, inset 1px white rim + 6px Bing-blue drop shadow. Hover scales 1.06 + brightens 8%; active snaps to 0.94. The `.unread::after` green pulse pip still anchors to the top-right of the taskbar slot via `position: absolute` on the parent `.tb-btn.bing-btn`.
+  - **SHUTDOWN OVERHAUL**: the existing `⏻` power button in the start menu's user row used to just trigger `state.snapsViewed = CRASH_THRESHOLD; bumpProgress()` — i.e. instant BSOD with no theatre. Now it pops a proper Windows-style power submenu, and any selection launches a full multi-stage update overlay before eventually crashing.
+    - **Power submenu** (`#power-menu`) — 240px wide, anchored bottom-left near the start-menu power button, glass-blur white with 18px soft shadow. Five rows, each with an emoji icon + bold label + italic dim-grey subtext:
+      - 🌙 **Sleep** · "Microsoft is watching, even when you're not."
+      - 🔁 **Restart** · "4 hours · 47 pending updates · do not interrupt"
+      - ⬆️ **Update and restart** · "installs 47 updates, breaks 6 things you used"
+      - ⏻ **Update and shut down** · "and update some more · 9 hours est."
+      - ♾️ **Update and update some more** · "Microsoft Recommends™ · 14 hours est."
+    - Click outside the submenu closes it. Each row has `role="menuitem"` + `tabindex="0"` + Enter/Space keyboard handler.
+  - **Fake update overlay** (`#fake-update`) — full-viewport blue-radial-gradient screen mimicking the iconic Win11 "Working on updates" experience:
+    - Centred 96px spinning gear (3-second linear rotation, glow shadow)
+    - Huge 72px ultra-light percentage counter with tabular-nums + drop shadow
+    - "Working on updates" / "Configuring Windows updates" / "Almost done" stage heading underneath
+    - Italic sub-line with the actual joke per stage
+    - Pulsing amber `⚠ DO NOT TURN OFF YOUR COMPUTER` warning at the bottom (1.6s opacity wash)
+    - Mono meta strip at the very bottom: "Microsoft Windows · Step N of 47 · Estimated time remaining: NaN minutes" — the step counter increments semi-randomly + the ETA oscillates absurdly through `['NaN', 'NaN', '4', '8,239', '47', '∞', '14', '1 (probably)', '0 (we lied)']` every 600ms.
+    - Tiny "cancel (you cannot)" button that, when clicked, just swaps in one of 6 hand-written taunts: "There is no cancel. (We told you.)" / "Microsoft has noted your impatience for your annual review." / "Try the keyboard. (Won't help.)" / "If you cancel now, your screenshots will be uploaded out of spite." etc.
+  - **10-stage update theatre** (~26 seconds total) — `FAKE_UPDATE_STAGES` array of `[label, sub-html, durationMs, pctTarget]`:
+    1. Working on updates · "Don't turn off your computer. *This will take a while.*" · 3.2s · 0→12%
+    2. Working on updates · "Microsoft is preparing 47 updates you didn't agree to." · 2.6s · →24%
+    3. Configuring Windows updates · "Step 14 of 12,239 · **do not interrupt**" · 2.8s · →39%
+    4. Getting Windows ready · "Please do not turn off your computer. *(There is no power button on your computer.)*" · 2.4s · →51%
+    5. Installing update 47 of 12,239 · "This update contains **important security improvements** for Bing's right to recommend Edge." · 2.8s · →64%
+    6. Configuring Recall improvements · "Your screenshots will be migrated to the new improved Recall format. *None will be lost.*" · 2.6s · →76%
+    7. Installing update 8,239 of 12,239 · "Microsoft is sorry this is taking so long. *Microsoft is not sorry.*" · 2.4s · →87%
+    8. Almost done · "Just finishing up a few things. **(There are 4,000 things.)**" · 2.4s · →94%
+    9. Almost done · "Please don't turn off your computer. *We are this close to being done.*" · 2.2s · →98%
+    10. Almost done · "Please. *Don't turn off your computer.*" · 4s · →99% (sticks at 99 for the whole 4s — the classic infuriating cliffhanger)
+    - Each stage's `pct` animates smoothly via rAF over its `durationMs` using linear interpolation from `start → target`.
+    - After stage 10, a 2.4s "Update complete · Microsoft has installed **47 NEW updates** for you to install. *Restart required.*" finale with `⚠ RESTART REQUIRED FOR UPDATES YOU JUST INSTALLED`, then `triggerCrash()` fires the real BSOD cascade. So the shutdown was a crash all along — the satire's punchline.
+    - Per-action meta-prefix per submenu choice: "Microsoft is putting your PC to sleep · " / "Microsoft Windows · Restarting · " / "Microsoft Windows · Update + Restart · " / etc. So chat can see which option they picked.
+  - **State**: new `fakeUpdate` object `{active, stageIdx, pct, timer}`. Independent of main `state`. `reboot()` extended to defensively dismiss the overlay + close the power submenu + reset `fakeUpdate.active/stageIdx/pct` (shouldn't normally be necessary since `finishFakeUpdate` hands off cleanly, but covers edge cases like clicking power mid-BSOD).
+  - **Audio**: soft 2-note descending chime (440→330Hz sines) when the overlay opens. BSOD scream sound comes from the eventual `triggerCrash()` handoff.
+  - **WCAG**: `role="menu"` + `role="menuitem"` on the submenu with Enter/Space keyboard support, `role="dialog" aria-modal="true" aria-labelledby="fu-stage"` on the overlay, `prefers-reduced-motion` kills the gear spin (border-top stays high-opacity for visibility) + warning pulse. Icon `aria-hidden="true"` on the decorative bing-glyph + gear.
+  - File ~328KB → ~344KB.
+
 - 2026-05-17: v1.19 — **Bing AI sidebar pops in every 25-55s with unsolicited corporate advice** per stacked chat asks: "add a Bing AI sidebar to windows-11-recall-nightmare that interrupts with unsolicited advice" + "update windows-11-recall-nightmare to add a Bing AI sidebar that gives unhelpful advice." Microsoft's helpful AI now ambushes you on the left edge of the screen with 41 hand-written cheerful-yet-passive-aggressive suggestions on a rotating timer.
   - **New left-docked sidebar** `#bing-sidebar` mirrors the Copilot panel but on the opposite edge — 320px wide, glass-blur white/blue gradient, `border-radius: 12px`, `backdrop-filter: blur(50px) saturate(170%)`, soft cyan box-shadow + 1px Bing-blue rim. Slides in via `transform: translateX(-360px → 0)` over 0.32s.
   - **Header**: 32×32 cyan→Bing-blue gradient `b` logo (the classic Bing wordmark glyph), "Bing AI" bold + tracked subtitle "helpful · suggesting · always" with a pulsing green liveDot (`bingLiveDot` keyframe, 1.4s opacity wash), plus 🔕 mute button and ✕ close button.
