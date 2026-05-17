@@ -1,0 +1,45 @@
+# pixel-canvas · notes
+
+## log
+- 2026-05-17: v1 — **shared 48×48 pixel-art canvas with 16-colour palette + real-time multiplayer via Supabase Realtime** per chat ask: "build a collaborative pixel-art canvas with a shared grid and basic color palette." Single-file (~25KB), no DB tables, no auth — pure broadcast + presence collaboration.
+  - **Grid**: 48×48 = 2,304 cells, drawn on a single 480×480 logical canvas (10px per cell) that scales responsively to viewport via `width: 30rem` + `image-rendering: pixelated`. Subtle 1px grid lines in cream (`#f0ebd9`) telegraph the cell boundaries between the white background and the painted pixels.
+  - **16-color palette** in an 8×2 grid, all hand-picked for cohesive pixel-art warmth: erase (white with diagonal slash) / ink (`#1a1224`) / stone / cloud / red / amber / gold / lime / teal / sea / navy / purple / pink / rose / brown / cream. Selected swatch flips to a 3px ink border + 2px white halo + 2px pink outer ring (chunky toy-button selected state). Each swatch has a `:focus-visible` pink outline + 44px touch target.
+  - **Painting input**: pointerdown + drag works for mouse, touch, and stylus equally via Pointer Events with `setPointerCapture`. Drag interpolation uses **Bresenham's line algorithm** between consecutive pointer samples so fast drags don't leave gaps (every cell along the line gets painted). No-op guard skips cells that already have the same colour (saves broadcast bandwidth + redraws).
+  - **Eraser**: 1st palette swatch with a diagonal-slash visual. Toggle via click OR right-click anywhere on the canvas (one-shot eraser select). Sets `isErasing = true` which makes paintCell write `null` (white) instead of the current colour. Cursor flips to `cell` when eraser is active.
+  - **Keyboard shortcuts**: 1-9 + 0 select palette slots 1-10, Q-T select slots 11-15, Shift+E or Alt+E select eraser (slot 0). Plain 'E' is taken by the EDGE letter being typed into the canvas, so it's gated behind a modifier.
+  - **Real-time multiplayer** on Supabase Realtime channel `pixel-canvas:shared`:
+    - **Paint events**: `{type:'broadcast', event:'paint', payload:{x, y, c, from}}` fired immediately on every painted cell. Peer applies directly to grid + redraws just that cell. Self-filtered via `broadcast: { self: false }` + per-payload `from` check.
+    - **Clear events**: `{event:'clear', payload:{from}}` resets every cell to null + shows toast "🧹 a collaborator cleared the canvas".
+    - **Late-join snapshot exchange**: when a new tab subscribes, after 600ms it checks presence — if other peers are online AND its own grid is empty, it broadcasts `{event:'request-snapshot', payload:{from}}`. Any existing peer with a non-empty grid replies with `{event:'snapshot', payload:{from, to, grid: <encoded>}}` — encoded as 1 hex char per cell (palette index 0-15), 2304 chars total = ~2.3KB payload, well under Supabase's broadcast limit. Requester applies the first snapshot it receives and ignores subsequent ones. So chat that joins mid-session immediately sees the in-progress art.
+    - **Presence**: lightweight `track({uid, at})` per joiner. `presence: sync` event recomputes online count → live badge in the header updates to "N painting · live" with a pulsing green dot. Falls back to "offline" if the channel errors.
+  - **localStorage backup** (`pixel-canvas-v1`): every paint debounces a 350ms save. Encoded the same way as broadcast (1 hex per cell). On reload, `loadLocal()` rehydrates the grid before multiplayer kicks in — so if you're painting solo, your art survives reload. If you reload and a peer is already painting, the snapshot exchange overwrites your local state with theirs (collaborative wins over personal).
+  - **Save as PNG**: tool button renders a fresh offscreen 768×768 canvas (16× upscale of the 48-grid) WITHOUT grid lines, then `toBlob` + auto-download as `pixel-canvas-YYYY-MM-DD.png`. Clean export for sharing.
+  - **Share link**: copies the page URL to clipboard with a toast. Falls back to displaying the URL in a longer toast if Clipboard API blocked.
+  - **Clear all**: confirm-gated, broadcasts a 'clear' event so all peers reset. Local clear runs immediately even if broadcast fails.
+  - **Aesthetic**: cream paper bg (`#fbf2dc` → `#f4e3bf` gradient) with 3 layered radial accent glows (pink top-left + cyan top-right + lime bottom-right). Canvas sits in a thick double-bordered "frame" panel with an inset 4px paper bezel and outer drop shadow for a "this is a real art piece" feel. Title `Pixel Canvas` in Silkscreen with a 4px cyan offset shadow, "Canvas" word in pink. Tagline + live badge in VT323. Chunky Silkscreen 3px-offset buttons (save / share / clear-all) with hover lift + active snap.
+  - **Mobile**: `touch-action: none` on canvas so pinch/zoom doesn't fight the paint drag. Palette stays at 8 columns (8×2 grid) — they're tappable at any viewport. Body padding tightens, buttons wrap.
+  - **WCAG**: rem units throughout, semantic main/header/footer/h1, canvas has `role="img" aria-label`, palette `role="radiogroup" aria-label="color palette"` with each swatch `role="radio" aria-checked` + `aria-pressed` + `aria-label` (color name) + `title` (color name + hex), `role="status" aria-live="polite"` on the toast, ≥44px (`2.75rem` min-height) on all buttons/swatches via aspect-ratio + min-width, `:focus-visible` 3px pink outline, `prefers-reduced-motion` kills all transitions + hover transforms.
+  - **OG image**: Pollinations flux seed 48484.
+
+## issues
+- No DB persistence — if every visitor leaves the page, the canvas is gone. Survives within a session via localStorage + late-join snapshot exchange, but a full-empty-everyone moment resets the world. Future ask: snapshot to a single Supabase row every minute.
+- 48×48 = 2304 cells. Encoded payload for snapshots is ~2.3KB which is fine, but bumping to 96×96 would 4× the size + hit broadcast size limits — would need DB-backed deltas instead.
+- Clear-all is collaborative (one user wipes everyone's view) which is satisfying for the streamer-owned canvas pattern but might be a footgun if chat misuses it. No undo. Considered adding a 10-second "vote to clear" UX but kept it simple for v1.
+- Snapshot exchange races: if 2 users join simultaneously and both ask for snapshots and the existing user replies to both, both will apply the same snapshot — fine. If only one of two new users gets the reply (broadcast missed), the other stays empty until they paint anything → next clear would resync. Acceptable.
+- localStorage encoded representation uses palette-index hex chars (0-f = 16 colors), max one cell per char. If we expand the palette beyond 16 we'd need a different encoding (base64 of raw RGB bytes or similar).
+- The "share" button just copies the page URL — there's no link to "view this specific canvas" since it's a single global one. Could add a /pixel-canvas/#<id> sub-canvas mode later.
+- Pointer interpolation uses Bresenham over GRID space — works perfectly but means very fast strokes that move >20 cells per frame can momentarily lag while filling each cell. Capped only by the broadcast cadence.
+
+## todos
+- DB-backed snapshot (single row, JSON-encoded grid, upsert every ~60s) so canvas survives the "everyone left" moment
+- Bigger optional canvas (96×96 or 128×128) with DB-backed delta sync
+- Brush sizes (1, 2, 4 pixels) for chunky strokes
+- Floodfill bucket tool
+- Custom-color picker (hex input) for users who want to override the 16-palette
+- Layers (so you can paint over without losing the bottom)
+- Cursor sync: show all online users' hover position as a coloured dot
+- "Vote to clear" minigame instead of immediate clear-all
+- /pixel-canvas/<room-id> multiple canvases with sharable links
+- Sound: tiny click on each paint, gentle chime on snapshot received
+- Anti-griefing: rate limit per uid (max N paints per second) + auto-revert if a user blanks more than 50% of the canvas in <5s
+- Twitch chat → paint: each chat message paints a deterministic cell based on FNV-1a(username) hashed to (x,y,color)
