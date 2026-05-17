@@ -1,0 +1,81 @@
+# tps-report-tycoon · notes
+
+## log
+- 2026-05-17: v1 — **corporate nightmare simulator: click TPS reports through accelerating popups while a mustachioed manager leans in over your shoulder** per chat ask: "create a corporate nightmare simulator called TPS-Report-Tycoon where you have to click through endless popups about flair and meeting invites while a manager character leans over your shoulder to..." (message truncated mid-sentence — interpreted as Office Space pastiche). Single file ~32KB. localStorage persists best score.
+  - **Core loop**: 8-stage TPS report on a chunky beige CRT monitor. Click ATTACH COVER SHEET → INSERT TODAY'S DATE → VALIDATE LINE 12 → REVIEW (×3) → CORRECT IT AGAIN → ROUTE TO QUALITY → AWAIT COUNTER-SHEET → SUBMIT. Each completed report = +1 score + 6 stress relief + 1 flair. Meanwhile popups spawn at accelerating cadence (3.5s → 0.85s over 90s) and the manager visits every 14-24s. Stress hits 100% → you SNAP → game over.
+  - **CRT monitor scene** (CSS-only):
+    - Beige bezel with rounded radius + inset shadows + chunky 6px black border + 8px bottom-offset shadow (the iconic Init-Tech XR-9 style cubicle workstation)
+    - Screen: dark-green CRT phosphor radial gradient with embedded scanlines via `::after` (4px period, multiply blend)
+    - TPS report rendered in VT323 phosphor green with stage list and underline-blink cursor
+    - Current stage highlighted bright white with pulsing arrow; done stages dim + line-through; future stages dim
+    - Big amber "next stage" button in Special Elite typewriter with 3px hard shadow
+    - Stage counter in CRT-amber phosphor below the button
+  - **8 stages × N reports per round**, so as the popup tide rises you have to keep clicking through completed reports. Best round so far persists across sessions.
+  - **POPUPS** (6 visual types, 18 hand-written, randomly sampled):
+    - 📅 **MEETING** (cyan banner): "Pre-Sync about the Sync about the Stand-up — Required." / "Q4 KPI Re-Alignment Touchpoint — 4 hours. Camera on please." / "Your 1:1 has been moved to your lunch hour. Again."
+    - 🎉 **FLAIR** (amber banner): "We've noticed you have only 15 pieces of flair. Minimum is 17 now. We changed it." / "Your enthusiasm score: 0.3" / "The new mandatory piece of flair is a tiny stapler with your face on it. $47."
+    - 🔒 **IT** (red banner): "Your password must contain 1 special character. Your special character must be ‽." / "VPN disconnected. Reconnecting… reconnecting… reconnecting…" / "You have 4,732 unread emails. Of which 4,729 are calendar invites."
+    - 🥳 **HR** (pink banner): "Acme Industries would like to recognise you for: existing." / "Please complete your annual Compliance Training (49 modules). Due: yesterday." / "Pizza Friday is now Salad Wednesday. For ESG reasons."
+    - 📊 **KPI** (plum banner): "Your Q3 OKRs are 47% off-track. Please align with stakeholders. (There are no stakeholders.)" / "You have 0 visible impact this quarter. The system is not broken."
+    - 📎 **CLIPPY** (yellow paper with Clippy 📎 prefix in Comic Neue): "Hi! It looks like you're trying to file a TPS report. Would you like help making it worse?" / "Hi! Did you mean to write the same email as last week? I've sent it for you."
+    - Each popup: random position avoiding monitor zone, `popIn` cubic-bezier(.34, 1.40, .50, 1) entrance keyframe (scale 0.55→1.06→1 + rotate -4°→1.5°→0°), 3px ink border + 4px hard shadow, header with banner color + ✕ close, body text with **red callouts** and *italic asides*, 2 action buttons that ALL dismiss the popup (the joke is that no answer matters).
+    - **Spawn**: +2 stress on appearance, accelerating cadence.
+    - **Expire** (~6.5-9s if undismissed): popup vanishes + **+9 stress** (the silent failure penalty).
+    - **Dismiss** (click any button): -1.5 stress, +1 dismissed count.
+  - **MANAGER VISIT** (the Lumbergh character):
+    - CSS-only sprite — bald scalp with brown comb-over hair strip, 2 lensed glasses, brown mustache, blue button-down shirt with subtle pattern, red tie clip-pathed to triangle, "WORLD'S OK BOSS" coffee mug in his hand
+    - Slides in from the right edge via `right: -22rem → -2rem` over 0.42s cubic-bezier(.4, 1.3, .5, 1) overshoot every 14-24s
+    - Speech bubble in cream paper with "Yeahhh hi, **Peter**…" prefix + one of 11 hand-written passive-aggressive requests:
+      - "…if you could come in on Saturday, that'd be greaaat."
+      - "…and on Sunday too, that'd be greaaat. mmkay?"
+      - "…we're going to need you to come into the office a little earlier from now on."
+      - "…I'm gonna need you to go ahead and move your desk down to **storage B**."
+      - "…did you get the memo? About the new cover sheets?"
+      - "…we're gonna need to put you on the new **blockchain initiative**."
+      - "…the deadline is end of business today. But it was already yesterday."
+      - "…I'm going to go ahead and add a quick 30-minute meeting to your lunch slot. mmkay?"
+      - "…I see you're working. Could you also **look busier** while you do it?"
+      - "…I noticed your flair level is concerning. Let's circle back on that. mmkay?"
+    - Stress climbs at **+1.4 per 320ms (~4.4/s)** while he's leaning in
+    - Click "OK, fine" button to dismiss (+0 stress)
+    - Don't dismiss within 7s → he leaves angry (+7 stress immediately)
+    - Schedules the next visit after he leaves
+  - **HUD** (3 chips below the title, monotype Special Elite):
+    - **TPS DONE · N** (blue accent)
+    - **FLAIR · N** (amber accent)
+    - **STRESS · N%** (red accent) with a thin gradient bar (green → amber → red) integrated at the bottom of the chip
+  - **Aesthetic — late-90s cubicle**: beige bg (#d9c98c) with repeating 12px horizontal stripe simulating cubicle fabric wall + fluorescent ellipse overhead glow. Title in Bungee with green offset shadow (the CRT glow color) + ambient black. Tag in Special Elite typewriter. All popups use Special Elite + accent colors. Manager bubble + speech use Special Elite.
+  - **Audio** (lazy `ensureAudio()` on first interaction):
+    - `sndClick` — 660Hz square blip per stage advance
+    - `sndCompleted` — 523/659/784Hz triangle+sine major arpeggio per finished report
+    - `sndPopupSpawn(type)` — pitch varies by popup type (380-880Hz square)
+    - `sndPopupDismiss` — soft 220Hz triangle
+    - `sndPopupExpire` — descending 180→120Hz sawtooth (the bad feeling)
+    - `sndMgr` — 280→220Hz sine ("yeahhh")
+    - `sndMgrOK` — 440Hz triangle blip
+    - `sndMgrAngry` — 180→110Hz sawtooth (he's mad)
+  - **Stress decay**: gentle -0.2/0.8s passive (so doing nothing slowly relaxes you, but the popup tide overwhelms it)
+  - **Start screen**: "Have you got the new **cover sheets**?" with rules + PUNCH IN button (Office Space deep cut)
+  - **End screen**: "**YOU SNAPPED**" + flavor by reports count + stats (TPS filed, best ever w/ NEW BEST badge, popups dismissed, popups ignored to death, manager visits, final flair count) + "FILE THE INCIDENT REPORT & TRY AGAIN" button
+  - **WCAG**: rem units, semantic main/header/h1, `role="status" aria-live="polite"` on HUD, `role="dialog" aria-modal="true" aria-labelledby` on start + end overlays, `aria-label` on popup close + manager OK, `:focus-visible` 3px red outline 3px offset, ≥44px (2.75rem) min-height on all action buttons, `prefers-reduced-motion` kills all transitions + keyframes (game still plays — you just don't get the popIn juice).
+  - **OG image**: Pollinations flux seed 15151.
+
+## issues
+- Spawn cadence floor of 0.85s means after ~80 seconds the popups are non-stop — most runs end around the 60-90s mark with stress hitting 100. That's the joke (no one survives the corporate machine), but maybe a "casual" mode with slower cadence for chat that wants to actually rack up reports?
+- Manager visits stack with popup pressure — at high popup rate + a manager visit, stress climbs ~10/sec which is brutal. Intentional but feels punitive on the second visit.
+- Popups can spawn in awkward positions on small viewports (avoid-monitor logic is basic — just margin from edges). On phones the screen is small enough that 2-3 popups can cover the whole interface.
+- "Dismiss" buttons are functionally identical to ✕ — the joke is that no answer matters. Could differentiate later (RSVP=meeting actually appears later for double misery?).
+- The manager's coffee mug "WORLD'S OK BOSS" text is rendered via CSS `::after` and may not be legible at small viewport sizes. Acceptable visual flourish.
+- No actual gameplay loop variation past the 8-stage cycle — every report is the same sequence. Adding a random "wrong stage" or "report rejected, restart" mechanic would add depth.
+
+## todos
+- Casual / nightmare difficulty selector (cadence floors of 1.5s / 0.85s / 0.4s)
+- Random "report rejected" event that bumps you back to stage 1 with a sad sound
+- Achievements: "Filed 5 reports" / "Survived 90s" / "Dismissed 50 popups" / "Manager visited 5 times"
+- Vending machine break — earn a "snickers bar" power-up that gives -30 stress
+- Twitch chat → popup: each chat message becomes a popup with that user's name
+- Leaderboard via Supabase (anon)
+- Background ambient: fluorescent buzz + distant photocopier + occasional "did you see this?" snippet
+- A "log out and become a kombucha entrepreneur" win condition (file 20 reports without snapping)
+- Random "the printer is on fire" popup that requires multiple clicks to put out
+- Optional: drag popups around (most games make them anchored but you should be able to shove the meeting ones into a corner)
