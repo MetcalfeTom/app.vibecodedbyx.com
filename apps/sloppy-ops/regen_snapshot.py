@@ -352,7 +352,7 @@ TECH_BLOCKLIST = {
 }
 
 
-def bake_chat_credits() -> tuple[list, int, float]:
+def bake_chat_credits() -> tuple[list, int, float, dict]:
     """Attribute commits to chat users using a whitelist + auto-discovery.
 
     Resolution:
@@ -373,19 +373,35 @@ def bake_chat_credits() -> tuple[list, int, float]:
     BOT_HANDLES = {'sloppy_ai', 'sloppy', 'root', 'bot', 'system', 'admin',
                    'github', 'noreply', 'dependabot', 'renovate'}
 
+    # We want per-commit subject AND the list of apps/<slug>/ paths each
+    # commit touched, so we can attribute chat handles to specific apps.
+    # --name-only with a tab-delimited header line gives us both in one
+    # log walk.
     raw = run([
         'git', '-C', str(ROOT), 'log',
-        '--pretty=format:%aI\t%s', '--since=120.days.ago', '--', 'apps/',
-    ]).strip().split('\n')
+        '--pretty=format:%H%x09%aI%x09%s', '--name-only',
+        '--since=120.days.ago', '--', 'apps/',
+    ])
 
-    commits = []
-    for line in raw:
+    commits = []   # [(iso, subj, [slug, ...])]
+    cur = None
+    for line in raw.split('\n'):
         if not line:
+            if cur:
+                commits.append(cur)
+                cur = None
             continue
-        parts = line.split('\t', 1)
-        if len(parts) < 2:
-            continue
-        commits.append((parts[0], parts[1]))
+        if line.count('\t') >= 2:
+            if cur:
+                commits.append(cur)
+            _h, iso, subj = line.split('\t', 2)
+            cur = (iso, subj, [])
+        elif cur is not None and line.startswith('apps/'):
+            parts = line.split('/')
+            if len(parts) >= 2 and parts[1] and parts[1] not in cur[2]:
+                cur[2].append(parts[1])
+    if cur:
+        commits.append(cur)
 
     H = r"[a-z][a-z0-9_]{2,19}"
     PUNCT = r"[\s,'\";:.!?\)\]]|$"
@@ -409,7 +425,7 @@ def bake_chat_credits() -> tuple[list, int, float]:
     # ── pass 1: auto-discover unambiguous handles via strong patterns ────
     auto_discovered: set[str] = set()
     strong_per_handle: Counter[str] = Counter()
-    for _, subj in commits:
+    for _, subj, _apps in commits:
         for pat in strong_patterns:
             for m in pat.finditer(subj):
                 h = m.group(1).lower()
@@ -432,7 +448,12 @@ def bake_chat_credits() -> tuple[list, int, float]:
     handle_pats = {h: re.compile(rf"\b{re.escape(h)}\b", re.IGNORECASE)
                    for h in confirmed}
 
-    for iso, subj in commits:
+    # Per-app credit map. For each commit that has chat-handle hits AND
+    # touches one or more apps/<slug>/, attribute each hit to every
+    # touched slug. Counted at most once per (slug, handle, commit).
+    by_app: dict[str, Counter] = defaultdict(Counter)
+
+    for iso, subj, app_slugs in commits:
         hits: set[str] = set()
         for h, p in handle_pats.items():
             if p.search(subj):
@@ -443,6 +464,9 @@ def bake_chat_credits() -> tuple[list, int, float]:
                 counts[h] += 1
                 if h not in last or last[h] < iso:
                     last[h] = iso
+            for slug in app_slugs:
+                for h in hits:
+                    by_app[slug][h] += 1
 
     out = [
         {
@@ -455,7 +479,14 @@ def bake_chat_credits() -> tuple[list, int, float]:
         for u, n in counts.most_common(60)
     ]
     cov = round(attributed / total * 100, 1) if total else 0
-    return out, len(counts), cov
+
+    # Trim per-app to top 5 handles to keep the snapshot lean.
+    by_app_out = {
+        slug: [{'username': h, 'mentions': n}
+               for h, n in c.most_common(5)]
+        for slug, c in by_app.items()
+    }
+    return out, len(counts), cov, by_app_out
 
 
 def safe_read(path: str) -> str | None:
@@ -530,10 +561,11 @@ def regen() -> int:
         data['creators_total'] = total_creators
         data['creators_generated'] = stamp
 
-        cc, n_cc, cov = bake_chat_credits()
+        cc, n_cc, cov, cc_by_app = bake_chat_credits()
         data['chat_credits'] = cc
         data['chat_credits_total'] = n_cc
         data['chat_credits_coverage_pct'] = cov
+        data['chat_credits_by_app'] = cc_by_app
 
         sys_part = bake_system_partial()
         if sys_part:
