@@ -163,8 +163,58 @@
     .stats span b { color: var(--cyan); font-weight: 500; }
     .stats span.found b { color: var(--amber); }
 
+    .genres {
+      margin: 1.2rem 0 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .genre {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 0.85rem;
+      background: var(--bg-2);
+      border: 1px solid var(--line-bright);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      min-height: 2.75rem;
+      transition: color 140ms, border-color 140ms, background 140ms;
+    }
+    .genre .gico { font-size: 0.95rem; line-height: 1; }
+    .genre .gcount {
+      font-size: 0.65rem;
+      color: var(--dim);
+      background: #04040a;
+      padding: 0.15rem 0.4rem;
+      border: 1px solid var(--line);
+      letter-spacing: 0.04em;
+    }
+    .genre:hover {
+      color: var(--cyan-soft);
+      border-color: var(--cyan);
+    }
+    .genre:focus-visible {
+      outline: 2px solid var(--amber);
+      outline-offset: 2px;
+    }
+    .genre[aria-pressed="true"] {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: linear-gradient(180deg, rgba(79,240,255,0.10), rgba(79,240,255,0.02));
+      box-shadow: 0 0 14px rgba(79,240,255,0.18);
+    }
+    .genre[aria-pressed="true"] .gcount {
+      color: var(--cyan);
+      border-color: var(--cyan);
+    }
+
     .azbar {
-      margin: 1.4rem 0 0.6rem;
+      margin: 0.9rem 0 0.6rem;
       padding: 0.55rem;
       border: 1px solid var(--line);
       background: var(--bg-2);
@@ -395,9 +445,12 @@
       <div class="stats" role="status" aria-live="polite">
         <span>indexed <b id="total">…</b></span>
         <span class="found">showing <b id="shown">…</b></span>
+        <span>genre <b id="curgenre">all</b></span>
         <span>last sync <b id="sync">…</b></span>
       </div>
     </header>
+
+    <nav class="genres" id="genres" aria-label="Filter by genre" role="group"></nav>
 
     <nav class="azbar" id="azbar" aria-label="Jump to letter"></nav>
 
@@ -419,10 +472,81 @@
       total: $('#total'),
       shown: $('#shown'),
       sync: $('#sync'),
-      azbar: $('#azbar')
+      azbar: $('#azbar'),
+      genres: $('#genres'),
+      curgenre: $('#curgenre')
     };
 
     let APPS = [];
+    let GENRE = 'all';
+
+    // ---- genre classifier --------------------------------------------------
+    // word-boundary patterns (case-insensitive) per genre. priority on tie:
+    // sim > game > tool > misc (so "battle-tycoon" lands in Sim, not Games).
+    const GENRE_DEFS = [
+      { id: 'games', label: 'Games', icon: '🎮', priority: 2, words: [
+        'game','arcade','shooter','blaster','dodger','runner','platformer',
+        'jumper','breakout','pinball','tetris','snake','pong','asteroids',
+        'invaders','dungeon','quest','rpg','roguelike','boss','lives','hi-score',
+        'leaderboard','multiplayer','opponent','enemy','slay','fps','puzzle',
+        'match-3','slots','casino','blackjack','poker','bingo','chess','checkers',
+        'sudoku','crossword','trivia','quiz','hangman','racer','racing','rally',
+        'combat','battle','smash','smacker','clash','melee','ninja','samurai',
+        'warrior','villain','escape','hunt','hunter','rush','fighter','brawl',
+        'brawler','tower-defense','arena','duel','versus','shooting',
+        'climb','climber','maze','labyrinth','adventure'
+      ]},
+      { id: 'sims', label: 'Simulators', icon: '🌱', priority: 3, words: [
+        'sim','simulator','simulation','tycoon','idle','clicker','factory','garden',
+        'gardener','aquarium','terrarium','ecosystem','farm','farming','farmer',
+        'pet','tamagotchi','creature','virtual','evolution','evolve','raise',
+        'breed','breeder','grow','grower','ant','ants','bee','bees','fish','koi',
+        'plant','plants','sandbox','ragdoll','organism','restaurant','cafe',
+        'bakery','kitchen','business','empire','dynasty','kingdom','city-builder',
+        'town','village','colony','dwarf','rock','pond','aquatic','wildlife',
+        'pasture','meadow','reef','swarm','school','flock','sloppy-sim',
+        'pet-rock','life-sim','idle-slots'
+      ]},
+      { id: 'tools', label: 'Tools', icon: '🛠', priority: 1, words: [
+        'tool','editor','generator','calculator','calc','converter','parser',
+        'formatter','finder','search','picker','tracker','dashboard','monitor',
+        'scanner','viewer','analyzer','planner','checker','validator','builder',
+        'maker','organizer','manager','board','kanban','notes','note','todo',
+        'todo-list','terminal','shell','cli','console','ide','debugger','repl',
+        'regex','json','yaml','markdown','html','css','javascript','python','sql',
+        'query','api','oauth','hash','encrypt','decrypt','qr','barcode','palette',
+        'font','ruler','timer','stopwatch','clock','alarm','calendar','schedule',
+        'weather','currency','unit','translator','dictionary','glossary','wiki',
+        'docs','helper','assistant','summarizer','redactor','tracker','audit',
+        'report','log','logger','recorder','annotator','sketchpad','whiteboard',
+        'directory','catalog','index','feed','reader','rss','crm','crud','admin',
+        'taxonomist','tagger','classifier','dispatcher','router','status',
+        'health','vitals','overview','metrics','stats','statistics'
+      ]}
+    ];
+
+    function classify(app) {
+      const hay = ((app.slug || '') + ' ' + (app.title || '') + ' ' +
+                   (app.desc || '') + ' ' + (app.keywords || '')).toLowerCase();
+      const scores = {};
+      for (const g of GENRE_DEFS) {
+        let s = 0;
+        for (const w of g.words) {
+          const re = new RegExp('(^|[^a-z0-9])' + w.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '([^a-z0-9]|$)', 'i');
+          if (re.test(hay)) s++;
+        }
+        scores[g.id] = s;
+      }
+      let best = null, bestScore = 0, bestPri = -1;
+      for (const g of GENRE_DEFS) {
+        const s = scores[g.id];
+        if (s > bestScore || (s === bestScore && s > 0 && g.priority > bestPri)) {
+          best = g.id; bestScore = s; bestPri = g.priority;
+        }
+      }
+      return best || 'misc';
+    }
+    // ------------------------------------------------------------------------
 
     function firstChar(slug) {
       const c = (slug || '').trim().toUpperCase().charAt(0);
@@ -473,9 +597,37 @@
       }).join('');
     }
 
+    const GENRE_LIST = [
+      { id: 'all',   label: 'All',        icon: '✦' },
+      { id: 'games', label: 'Games',      icon: '🎮' },
+      { id: 'sims',  label: 'Simulators', icon: '🌱' },
+      { id: 'tools', label: 'Tools',      icon: '🛠' },
+      { id: 'misc',  label: 'Misc',       icon: '✺' }
+    ];
+
+    function buildGenres() {
+      const counts = { all: APPS.length, games: 0, sims: 0, tools: 0, misc: 0 };
+      for (const a of APPS) counts[a._genre] = (counts[a._genre] || 0) + 1;
+      els.genres.innerHTML = GENRE_LIST.map(g => `
+        <button type="button" class="genre" data-genre="${g.id}" aria-pressed="${g.id === GENRE}">
+          <span class="gico" aria-hidden="true">${g.icon}</span>
+          <span class="glabel">${g.label}</span>
+          <span class="gcount">${(counts[g.id] || 0).toLocaleString()}</span>
+        </button>`).join('');
+    }
+
+    function setGenre(id) {
+      GENRE = id;
+      els.curgenre.textContent = GENRE_LIST.find(g => g.id === id)?.label.toLowerCase() || 'all';
+      for (const btn of els.genres.querySelectorAll('.genre')) {
+        btn.setAttribute('aria-pressed', btn.dataset.genre === id ? 'true' : 'false');
+      }
+      render();
+    }
+
     function render() {
       const q = els.search.value.trim().toLowerCase();
-      const filtered = APPS.filter(a => matches(a, q));
+      const filtered = APPS.filter(a => (GENRE === 'all' || a._genre === GENRE) && matches(a, q));
 
       const byLetter = new Map();
       for (const a of filtered) {
@@ -540,6 +692,12 @@
       jumpTo(btn.dataset.letter);
     });
 
+    els.genres.addEventListener('click', (e) => {
+      const btn = e.target.closest('button.genre');
+      if (!btn) return;
+      setGenre(btn.dataset.genre);
+    });
+
     let renderTimer;
     els.search.addEventListener('input', () => {
       clearTimeout(renderTimer);
@@ -563,9 +721,11 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         APPS = Array.isArray(data) ? data : [];
+        for (const a of APPS) a._genre = classify(a);
         els.total.textContent = APPS.length.toLocaleString();
         const newest = APPS.reduce((m, a) => Math.max(m, a.mtime || 0), 0);
         els.sync.textContent = relTime(newest);
+        buildGenres();
         render();
       } catch (err) {
         els.results.innerHTML = `
