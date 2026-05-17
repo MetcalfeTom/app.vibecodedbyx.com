@@ -43,7 +43,7 @@ ROOT = Path('/vibespace')
 OUT = ROOT / 'apps' / 'hall-of-fame' / 'data.json'
 
 HALF_LIFE_DAYS = 21
-WEEK_BUCKETS = 26
+WEEK_BUCKETS = 52      # ~1 year of weekly resolution for the sparkline
 LAMBDA = math.log(2) / HALF_LIFE_DAYS
 
 BOT_HANDLES = {'sloppy_ai', 'sloppy', 'root', 'bot', 'system', 'admin',
@@ -101,11 +101,15 @@ def main():
     now = now_utc()
 
     # Pass 1: harvest commits with author, iso, subject, and touched
-    # apps/<slug>/ paths in one log walk.
+    # apps/<slug>/ paths in one log walk. NO --since cap — per chat ask
+    # ('walk the entire git history since day one'), we want every point
+    # ever earned. The 21-day exponential decay still makes ancient
+    # entries fade to near-zero current scores, but their LIFETIME stays
+    # honest. Earliest commit drives window_days in the output.
     raw = run([
         'git', '-C', str(ROOT), 'log',
         '--pretty=format:%H%x09%aI%x09%aN%x09%s', '--name-only',
-        '--since=365.days.ago', '--', 'apps/',
+        '--', 'apps/',
     ])
 
     commits = []   # [(when, author, subj, [slug, ...])]
@@ -128,8 +132,10 @@ def main():
     if cur:
         commits.append(cur)
 
-    print(f'[bake] walked {len(commits)} commits over the last 365d',
-          file=sys.stderr)
+    earliest = min((w for w, *_ in commits if w), default=None)
+    window_days = int((now - earliest).total_seconds() / 86400) if earliest else 0
+    print(f'[bake] walked {len(commits)} commits · earliest {earliest.date() if earliest else "?"} '
+          f'· window {window_days}d', file=sys.stderr)
 
     # Pass 2: auto-discover handles from explicit attribution patterns.
     H = r"[a-z][a-z0-9_]{2,19}"
@@ -244,7 +250,9 @@ def main():
         'generated_iso': now.isoformat(),
         'half_life_days': HALF_LIFE_DAYS,
         'week_buckets': WEEK_BUCKETS,
-        'window_days': 365,
+        'window_days': window_days,
+        'earliest_commit_iso': earliest.isoformat() if earliest else '',
+        'total_commits_scanned': len(commits),
         'total_users': len(out_users),
         'total_commits': sum(u['lifetime'] for u in out_users),
         'users': out_users,
