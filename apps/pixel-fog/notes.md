@@ -1,6 +1,23 @@
 # pixel-fog · notes
 
 ## log
+- 2026-05-17: v1.3 — **2-player peer-to-peer co-op via PeerJS** per chat ask: "can we implement a simple peer-to-peer multiplayer using something like PeerJS for pixel-fog?" Yes. Both players sneak through the same map at the same time. Either gets caught = both lose. Either reaches the gate after 5 gens = both win.
+  - **Library**: PeerJS 1.5.4 via `unpkg` CDN, using their free public broker for signaling + Google STUN for NAT traversal. WebRTC data channel handles in-game messages.
+  - **UI**: 3-button mode selector on the start panel — **Solo** (default), **Host co-op**, **Join friend**. Host gets a peer-ID code with a Copy button; joiner pastes the code and hits Connect. Connection status shows live ("waiting for a friend…", "connected · click 'Enter the fog' to begin", "host will start when ready…").
+  - **Architecture**:
+    - **Host is authoritative** for the killer AI and the map. When "Enter the fog" is clicked, host runs `newGame()` (procedural map generation), then sends the full tile array + generator positions + gate location + player spawn to the peer.
+    - **Joiner** receives the `map` message and runs a `mpStartGameAsJoiner()` that skips re-generation (avoids two different maps) and just stands up the entity state from the host's data.
+    - **Killer AI** is host-only. `updateKiller()` early-returns on the joiner. Host broadcasts `{t:'killer', x, y, fc, st, hb}` at ~12 Hz; joiner pins his local killer state to those messages.
+    - **Player positions** sync both ways at ~12 Hz: `{t:'pos', x, y, fc, snk, r}`. Each side renders the other as a "friend" in amber jumpsuit (vs. blue for self) with a tiny "friend" label above them. Friend pierces the fog (always visible to teammate, like the killer's red-eyes through fog).
+    - **Generators**: progress synced at ~3 Hz throttle + an immediate `{t:'gen', id, prog, done:true}` on completion. Either player can repair.
+    - **Skill checks**: stay local to the player who's holding the gen. If a skill check is **missed**, the resulting noise is forwarded as `{t:'noise', x, y, r, kind}` to the host (joiner forwards; host applies directly) so the killer investigates regardless of who flubbed the prompt.
+    - **Gate** opening synced via `{t:'gate', open:true}`. WIN/LOSE broadcast as terminal `{t:'win'}` / `{t:'lose'}` messages so both players see the same endcard at the same time.
+    - **Restart** after lose/win: host can trigger via Try Again button (re-rolls the procedural map + sends a fresh `map` message). Joiner shows a "waiting for host to restart…" pill until the next map arrives.
+  - **Connection status pill**: small purple pill at top-left, only visible during MP — reads "connected · co-op · host" / "connected · co-op" / "disconnected · joiner left", etc.
+  - **Disconnection handling**: peer drop closes the connection cleanly, falls back to solo behaviour (killer AI resumes locally on the joiner, etc).
+  - **Trade-offs**: not strictly P2P — PeerJS's public broker handles the WebRTC handshake. Once the data channel is established it IS direct browser-to-browser. The free broker is shared, occasionally rate-limited; if PeerJS fails to load or connect, the mode falls back to solo silently with a status message. NAT-restricted networks may need a TURN server (not provided here).
+  - File 51KB → 67KB.
+
 - 2026-05-17: v1.2 — **procedural map generation via cellular automata + flood-fill** per chat ask from **@deadbydaddyttv** ("can we generate random map layouts for pixel-fog using cellular automata or simple procedural generation"). Every newGame() call now serves a fresh layout — no two rounds the same. Awarded `+2` sloppy points for the suggestion.
   - **Algorithm**:
     1. **Random fill** the 40×25 grid with 46% wall density; border always wall.
