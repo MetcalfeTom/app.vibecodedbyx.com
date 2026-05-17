@@ -150,6 +150,57 @@
       60%{transform:translateX(-50%) rotate(-1deg)}
       80%{transform:translateX(-50%) rotate(1deg)}
     }
+    /* Rock-name plate above the rock */
+    .nameplate{
+      font-size:13px;
+      color:var(--text);
+      letter-spacing:1px;
+      text-transform:uppercase;
+      margin-bottom:8px;
+      padding:4px 12px;
+      background:var(--paper);
+      border:1px solid rgba(0,0,0,0.10);
+      box-shadow:2px 2px 0 rgba(0,0,0,0.06);
+      font-weight:700;
+      cursor:pointer;
+    }
+    .nameplate:hover{ border-color:var(--accent); color:var(--accent); }
+    .nameplate .pen{ opacity:0.55; font-weight:400; margin-left:6px; font-size:11px; }
+
+    /* Gravel pieces — small lumpy ellipses that pile up around the rock */
+    .gravel-layer{
+      position:absolute;
+      left:0; right:0; bottom:0;
+      pointer-events:none;
+      height:48px;
+      overflow:visible;
+    }
+    .gravel{
+      position:absolute;
+      width:7px; height:5px;
+      background:radial-gradient(ellipse at 35% 30%, #b4ab97, #8c8473 55%, #5e564c 100%);
+      border-radius:60% 50% 55% 50% / 60% 55% 60% 55%;
+      box-shadow:0 1px 0 rgba(0,0,0,0.18), inset 0 -1px 0 rgba(0,0,0,0.15);
+      opacity:0;
+      animation:gravelFall 0.7s cubic-bezier(.34,1.20,.50,1) forwards;
+    }
+    .gravel.v2{ background:radial-gradient(ellipse at 35% 30%, #d4cab3, #a0987f 55%, #756d5b 100%); }
+    .gravel.v3{ background:radial-gradient(ellipse at 35% 30%, #968d77, #6b6359 55%, #3a342b 100%); }
+    @keyframes gravelFall{
+      0%{ transform:translate(var(--x), -120px) rotate(var(--rot0)); opacity:0; }
+      30%{ opacity:1; }
+      100%{ transform:translate(var(--x), var(--y)) rotate(var(--rot1)); opacity:1; }
+    }
+
+    /* Mineral content + gravel-pile sub-stats line */
+    .substats{
+      margin-top:6px;
+      font-size:10px;
+      color:var(--dim);
+      letter-spacing:1px;
+    }
+    .substats b{ color:var(--text); font-weight:700; }
+    .substats .mineral{ color:var(--accent); }
   </style>
 </head>
 <body>
@@ -157,8 +208,11 @@
 
   <div class="bubble" id="bubble">...</div>
 
+  <button class="nameplate" id="nameplate" type="button" title="click to rename your rock">— click to name —<span class="pen">✎</span></button>
+
   <div class="rock-container" id="rock-container">
     <div class="rock-shadow"></div>
+    <div class="gravel-layer" id="gravel-layer" aria-hidden="true"></div>
     <div class="rock" id="rock">
       <div class="rock-eyes">
         <div class="eye"></div>
@@ -170,26 +224,145 @@
   <div class="actions">
     <button class="act-btn" onclick="doAction('pet')">Pet</button>
     <button class="act-btn" onclick="doAction('move')">Move</button>
+    <button class="act-btn" onclick="doAction('gravel')" title="feed your rock some digital gravel">🪨 Feed Gravel</button>
     <button class="act-btn" onclick="doAction('feed')">Feed</button>
     <button class="act-btn" onclick="doAction('talk')">Talk</button>
     <button class="act-btn" onclick="doAction('play')">Play</button>
-    <button class="act-btn" onclick="doAction('name')">Name</button>
+    <button class="act-btn" onclick="doAction('name')">Rename</button>
     <button class="act-btn" onclick="doAction('compliment')">Compliment</button>
     <button class="act-btn" onclick="doAction('ignore')">Ignore</button>
   </div>
 
   <div class="stats" id="stats"></div>
+  <div class="substats" id="substats"></div>
 <script>
     const rock = document.getElementById('rock');
     const bubble = document.getElementById('bubble');
     const container = document.getElementById('rock-container');
+    const nameplateEl = document.getElementById('nameplate');
+    const gravelLayer = document.getElementById('gravel-layer');
+    const substatsEl = document.getElementById('substats');
+
+    /* persistent state (localStorage) — survives reloads */
+    const SAVE_KEY = 'pet-rock-v2';
+    const saved = (() => { try { return JSON.parse(localStorage.getItem(SAVE_KEY) || '{}'); } catch(e){ return {}; } })();
 
     let mood = 'indifferent'; // indifferent, annoyed, smug, philosophical
-    let interactionCount = 0;
-    let moveAttempts = 0;
+    let interactionCount = saved.interactionCount || 0;
+    let moveAttempts = saved.moveAttempts || 0;
+    let gravelCount = saved.gravelCount || 0;
     let lastAction = '';
     let typing = false;
-    let rockName = 'Rock';
+    let rockName = saved.rockName || '';
+    let mineralContent = saved.mineralContent || 0;
+
+    function persist(){
+      try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify({
+          rockName, interactionCount, moveAttempts, gravelCount, mineralContent,
+        }));
+      } catch(e){}
+    }
+    function renderNameplate(){
+      if (rockName){
+        nameplateEl.innerHTML = rockName + '<span class="pen">✎</span>';
+        nameplateEl.title = 'click to rename · currently: ' + rockName;
+      } else {
+        nameplateEl.innerHTML = '— click to name —<span class="pen">✎</span>';
+        nameplateEl.title = 'click to give your rock a name';
+      }
+    }
+    function promptForName(){
+      const next = window.prompt('What is your rock called?', rockName || 'Rocky');
+      if (next === null) return;
+      const trimmed = next.trim().slice(0, 24);
+      if (!trimmed) return;
+      rockName = trimmed;
+      renderNameplate();
+      persist();
+    }
+    nameplateEl.addEventListener('click', promptForName);
+
+    /* ── Digital gravel feeding ──
+       Each "Feed Gravel" press spawns 6-9 little ellipse pebbles that fall
+       from above the rock and settle in a piled arc around its base.
+       Pile size + mineral content persist; the pile renders fresh on each
+       reload up to a 60-piece visible cap (running count is preserved). */
+    const PILE_VISIBLE_CAP = 60;
+    function spawnGravel(count){
+      const wrap = gravelLayer;
+      // compute the local geometry — base 0..wrap.clientWidth, centred under the rock
+      const w = wrap.clientWidth || 200;
+      const centreX = w / 2;
+      for (let i = 0; i < count; i++){
+        const piece = document.createElement('div');
+        const variant = (Math.random() * 3) | 0;
+        piece.className = 'gravel' + (variant === 1 ? ' v2' : variant === 2 ? ' v3' : '');
+        // settle position: arc around base of rock, wider at the bottom
+        const r = 38 + Math.random() * 32;
+        const ang = -Math.PI * (0.05 + Math.random() * 0.90);   // -π..0 = above-axis fan
+        const x = centreX + Math.cos(ang) * r - 3.5;
+        const baseY = 24;
+        const y = baseY - Math.abs(Math.sin(ang)) * 10 + (Math.random() - 0.5) * 6;
+        const startJitter = (Math.random() - 0.5) * 40;
+        piece.style.left = '0px';
+        piece.style.top = '0px';
+        piece.style.setProperty('--x', (x + startJitter) + 'px');
+        piece.style.setProperty('--y', y + 'px');
+        piece.style.setProperty('--rot0', (Math.random() * 360) + 'deg');
+        piece.style.setProperty('--rot1', (Math.random() * 720 - 360) + 'deg');
+        piece.style.animationDelay = (Math.random() * 0.15) + 's';
+        wrap.appendChild(piece);
+      }
+      // cap visible gravel (oldest evicted)
+      while (wrap.children.length > PILE_VISIBLE_CAP){ wrap.removeChild(wrap.firstChild); }
+    }
+    function restorePileFromCount(n){
+      // on load: re-render up to PILE_VISIBLE_CAP pieces in their settled positions (no fall anim)
+      const wrap = gravelLayer;
+      wrap.innerHTML = '';
+      const visible = Math.min(n, PILE_VISIBLE_CAP);
+      const w = wrap.clientWidth || 200;
+      const centreX = w / 2;
+      for (let i = 0; i < visible; i++){
+        const piece = document.createElement('div');
+        const variant = (Math.random() * 3) | 0;
+        piece.className = 'gravel' + (variant === 1 ? ' v2' : variant === 2 ? ' v3' : '');
+        const r = 38 + Math.random() * 32;
+        const ang = -Math.PI * (0.05 + Math.random() * 0.90);
+        const x = centreX + Math.cos(ang) * r - 3.5;
+        const baseY = 24;
+        const y = baseY - Math.abs(Math.sin(ang)) * 10 + (Math.random() - 0.5) * 6;
+        piece.style.left = '0px';
+        piece.style.top = '0px';
+        piece.style.transform = 'translate(' + x + 'px, ' + y + 'px) rotate(' + (Math.random() * 360) + 'deg)';
+        piece.style.opacity = '1';
+        piece.style.animation = 'none';
+        wrap.appendChild(piece);
+      }
+    }
+    function renderSubstats(){
+      substatsEl.innerHTML =
+        'gravel pile: <b>' + gravelCount + '</b> pebbles · ' +
+        'mineral content: <b class="mineral">' + mineralContent.toFixed(2) + '%</b> · ' +
+        'rocks per rock: <b>1</b>';
+    }
+    function feedGravel(){
+      const batch = 6 + ((Math.random() * 4) | 0);     // 6-9 per feed
+      gravelCount += batch;
+      mineralContent = Math.min(100, mineralContent + batch * 0.05);
+      spawnGravel(batch);
+      renderSubstats();
+      persist();
+    }
+
+    // init on first load
+    renderNameplate();
+    renderSubstats();
+    if (gravelCount > 0){
+      // wait a tick so layout has settled
+      setTimeout(() => restorePileFromCount(gravelCount), 50);
+    }
 
     // ─── Messages ───
     const MESSAGES = {
@@ -229,6 +402,20 @@
         "You could leave the food. I won't eat it. But it's the thought that counts. Barely.",
         "Feed me? I'm a ROCK. Were you absent the day they taught... everything?",
         "I subsist entirely on the disappointment of my owners. So thanks, I'm full.",
+      ],
+      gravel: [
+        "Oh. You actually went and got the gravel. I was joking. Mostly.",
+        "Gravel. My people. I will not eat them but I welcome the gesture.",
+        "You're piling gravel on me. Fascinating. Continue.",
+        "I now have N pebbles of mineral content. Statistically I am 0.01% richer.",
+        "Gravel is just rocks that haven't grown up. I'll mentor them.",
+        "Is this... a sandwich? Of stones? You shouldn't have. Truly.",
+        "This is the most rock-appropriate offering anyone has ever made. Begrudging respect.",
+        "I have eaten zero of these. They are also still here. We are at equilibrium.",
+        "Geologically speaking, this is what we call 'a heap'. Thank you for the heap.",
+        "More gravel? Fine. I have nowhere to be. Literally.",
+        "If I keep accumulating gravel I will become a slightly larger rock. Is that what you want?",
+        "You have officially put more thought into my diet than into your own. I notice.",
       ],
       talk: [
         "Oh, NOW you want to talk? After just staring at me?",
@@ -337,9 +524,20 @@
       } else if (action === 'name') {
         expression = '';
         message = pick(MESSAGES.name);
+        // open the rename prompt immediately after the message types
+        setTimeout(promptForName, 800);
+      } else if (action === 'gravel') {
+        expression = '';
+        feedGravel();
+        message = pick(MESSAGES.gravel).replace('N pebbles', gravelCount + ' pebbles');
       } else {
         message = pick(MESSAGES[action] || MESSAGES.idle);
         expression = action === 'compliment' ? '' : action === 'ignore' ? 'annoyed' : action === 'pet' ? 'shocked' : '';
+      }
+
+      // splice in the rock's name occasionally if it has one
+      if (rockName && Math.random() < 0.4 && action !== 'name'){
+        message = personaliseWithName(message);
       }
 
       rock.className = 'rock';
@@ -347,12 +545,29 @@
 
       await typeMessage(message);
       updateStats();
+      persist();
 
       setTimeout(() => {
         rock.className = 'rock';
         actionLock = false;
       }, 2000);
     };
+
+    /* Sprinkle the rock's name into a message — replaces 'I' or 'me' at the
+       start of the sentence with the name, or appends a "— " + name signoff. */
+    function personaliseWithName(msg){
+      // prefer a leading-I → "Rocky" swap so the line still reads naturally
+      const startMatch = msg.match(/^I('| | am )/);
+      if (startMatch){
+        const rest = msg.slice(1);
+        return rockName + (startMatch[1] === ' am ' ? ' is ' + msg.slice(5) :
+                           startMatch[1] === "'" ? "'" + msg.slice(2) :
+                           ' ' + msg.slice(2));
+      }
+      // otherwise add a signed "— Rocky" tail occasionally
+      if (msg.length < 90 && !msg.endsWith(')')) return msg + ' — ' + rockName;
+      return msg;
+    }
 
     async function typeMessage(text) {
       bubble.textContent = '';
@@ -367,9 +582,11 @@
 
     function updateStats() {
       document.getElementById('stats').innerHTML =
+        (rockName ? `name: <span>${rockName}</span> · ` : '') +
         `interactions: <span>${interactionCount}</span> · ` +
         `move attempts: <span>${moveAttempts}</span> · ` +
         `moved: <span>never</span>`;
+      renderSubstats();
     }
 
     // Idle messages
@@ -413,7 +630,9 @@
 
     // Init
     updateStats();
-    typeMessage("Oh. It's you. Great.");
+    typeMessage(rockName
+      ? "Oh. " + rockName + " here. (You named me. I remember.) Great."
+      : "Oh. It's you. Great.");
     resetIdleTimer();
     document.addEventListener('click', resetIdleTimer);
   </script>
