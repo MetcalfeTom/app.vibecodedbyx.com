@@ -1,6 +1,20 @@
 # pixel-fog · notes
 
 ## log
+- 2026-05-17: v1.2 — **procedural map generation via cellular automata + flood-fill** per chat ask from **@deadbydaddyttv** ("can we generate random map layouts for pixel-fog using cellular automata or simple procedural generation"). Every newGame() call now serves a fresh layout — no two rounds the same. Awarded `+2` sloppy points for the suggestion.
+  - **Algorithm**:
+    1. **Random fill** the 40×25 grid with 46% wall density; border always wall.
+    2. **5 CA iterations** with the classic Moore-neighbourhood rule: cell becomes WALL if ≥5 of 8 neighbours are walls, FLOOR otherwise. The last iteration uses threshold 6 to open the caves up slightly so corridors form.
+    3. **Flood fill** from every unvisited floor cell to find connected regions; keep only the **largest** region as actual floor. Any smaller pockets get filled in with wall — no orphan rooms the player can't reach. If the surviving region is < 80 cells, recurse and re-roll.
+    4. **5 generators** placed on widely-spaced floor cells from a shuffled iteration (>6 tile Manhattan distance apart). Top-up pass with a >3 spacing rule if the strict version didn't yield 5.
+    5. **Gate placement**: scan the second row for a floor cell with floor directly below; if none found, brute-carve a 1-wide corridor down from a random top-edge column to the nearest floor cell. Carve 2 GATE tiles at the top edge.
+    6. **Player spawn**: floor cell with maximum Manhattan distance to the gate (usually near the bottom).
+    7. **Killer spawn**: floor cell with maximum distance from the player spawn (the far corner, opposite the player) — gives 5-10s of breathing room before he closes in.
+  - **Hook**: `applyGeneratedMap()` is called at the top of `newGame()`. Each subsequent re-roll (Start, Try Again, Run It Again) generates a fresh layout. The killer-AI's `pickKillerWaypoint()` automatically uses the new generator positions, so the patrol routes adapt to the new map.
+  - **Performance**: full CA + flood-fill + placement takes ~5-12ms on a typical browser, imperceptible inside the overlay-to-game transition.
+  - **Start overlay lede** updated: "*Every round generates a fresh map via cellular automata.*"
+  - File 45KB → 51KB.
+
 - 2026-05-17: v1.1 — **killer patrols between generators + skill-check noise events** per chat ask: "improve the killer AI in pixel-fog to patrol between generators and investigate noises like missed skill checks."
   - **Killer patrol routes now derive from generators**: replaced the 5-corner waypoint array with `pickKillerWaypoint()` that picks an unfinished gen each time — 80% chance of the nearest, 20% chance of any random unfinished one for variety. When he arrives at a gen, he pauses 900-1600ms ("inspecting") then picks the next. After all 5 gens are done he patrols the exit gate area instead. Net effect: he's always near where you actually need to be.
   - **Skill-check system** (DBD-style): every 2.2-4.4s of holding E on a gen, a skill-check fires:

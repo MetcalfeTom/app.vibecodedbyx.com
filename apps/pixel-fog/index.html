@@ -245,7 +245,7 @@
   <div class="panel">
     <div class="tag">— a top-down stealth prototype —</div>
     <h1>PIXEL FOG</h1>
-    <p>Repair <b>five generators</b> and escape through the exit gate. A killer stalks the corridors. You don't fight — you sneak, you crouch, you hold your breath. Listen for the heartbeat.</p>
+    <p>Repair <b>five generators</b> and escape through the exit gate. A killer stalks the corridors. You don't fight — you sneak, you crouch, you hold your breath. Listen for the heartbeat. <i>Every round generates a fresh map via cellular automata.</i></p>
     <div class="keys">
       <div class="row"><kbd>W A S D</kbd> or <kbd>↑ ← ↓ →</kbd> — move</div>
       <div class="row"><kbd>Shift</kbd> — sneak (slower, quieter)</div>
@@ -358,6 +358,138 @@ while (genSpawns.length < 5){
   if (!placed) break;
 }
 genSpawns.length = Math.min(5, genSpawns.length);
+
+/* ── procedural map generator (cellular automata caves) ─────────────
+   Called per newGame() so every round serves a fresh layout. CA pass
+   produces organic cave-like rooms; flood fill keeps only the
+   largest connected region (so no orphan pockets). Then drops 5
+   spaced-out generators, carves a gate at the top edge, and picks
+   the player spawn at the floor cell farthest from the gate.
+*/
+function generateMap(){
+  const tNew = [];
+  // 1. random fill — 46% wall, border always wall
+  const FILL = 0.46;
+  for (let y = 0; y < ROWS; y++){
+    tNew.push(new Array(COLS));
+    for (let x = 0; x < COLS; x++){
+      tNew[y][x] = (x === 0 || y === 0 || x === COLS - 1 || y === ROWS - 1)
+        ? TILE.WALL : (Math.random() < FILL ? TILE.WALL : TILE.FLOOR);
+    }
+  }
+  // 2. CA smoothing — 5 passes with the classic 4/5 rule (becomes wall
+  //    if ≥5 neighbours are walls; floor otherwise). Open up a bit on
+  //    the last pass with a 6-rule for slightly more space.
+  for (let iter = 0; iter < 5; iter++){
+    const threshold = iter === 4 ? 6 : 5;
+    const next = tNew.map(row => row.slice());
+    for (let y = 1; y < ROWS - 1; y++){
+      for (let x = 1; x < COLS - 1; x++){
+        let walls = 0;
+        for (let dy = -1; dy <= 1; dy++){
+          for (let dx = -1; dx <= 1; dx++){
+            if (dx === 0 && dy === 0) continue;
+            if (tNew[y + dy][x + dx] === TILE.WALL) walls++;
+          }
+        }
+        next[y][x] = walls >= threshold ? TILE.WALL : TILE.FLOOR;
+      }
+    }
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) tNew[y][x] = next[y][x];
+  }
+  // 3. flood-fill: keep only the LARGEST connected floor region.
+  //    Smaller floor patches become walls (no orphans).
+  const visited = Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
+  let bestRegion = [];
+  for (let y = 1; y < ROWS - 1; y++){
+    for (let x = 1; x < COLS - 1; x++){
+      if (tNew[y][x] !== TILE.FLOOR || visited[y][x]) continue;
+      const region = [];
+      const stack = [[x, y]];
+      while (stack.length){
+        const [cx, cy] = stack.pop();
+        if (cx < 1 || cy < 1 || cx >= COLS - 1 || cy >= ROWS - 1) continue;
+        if (visited[cy][cx] || tNew[cy][cx] !== TILE.FLOOR) continue;
+        visited[cy][cx] = 1;
+        region.push([cx, cy]);
+        stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+      }
+      if (region.length > bestRegion.length) bestRegion = region;
+    }
+  }
+  if (bestRegion.length < 80){
+    // map ended up too small — try again
+    return generateMap();
+  }
+  const keep = new Set(bestRegion.map(([x, y]) => x + ',' + y));
+  for (let y = 0; y < ROWS; y++){
+    for (let x = 0; x < COLS; x++){
+      if (tNew[y][x] === TILE.FLOOR && !keep.has(x + ',' + y)) tNew[y][x] = TILE.WALL;
+    }
+  }
+  // 4. place 5 generators on widely-spaced floor cells
+  const shuffled = bestRegion.slice().sort(() => Math.random() - 0.5);
+  const gens = [];
+  for (const [x, y] of shuffled){
+    if (gens.length >= 5) break;
+    if (gens.every(g => Math.abs(g.x - x) + Math.abs(g.y - y) > 6)) gens.push({ x, y });
+  }
+  // top-up if too clustered
+  if (gens.length < 5){
+    for (const [x, y] of shuffled){
+      if (gens.length >= 5) break;
+      if (gens.every(g => Math.abs(g.x - x) + Math.abs(g.y - y) > 3) && !gens.some(g => g.x === x && g.y === y)){
+        gens.push({ x, y });
+      }
+    }
+  }
+  // 5. gate placement: find a floor cell near the top, carve through if needed
+  let gateX = -1;
+  for (let x = 5; x < COLS - 6; x++){
+    if (tNew[1][x] === TILE.FLOOR && tNew[2][x] === TILE.FLOOR){ gateX = x; break; }
+  }
+  if (gateX < 0){
+    // brute-carve a 1-wide corridor down from the top to the nearest floor
+    gateX = 5 + Math.floor(Math.random() * (COLS - 10));
+    for (let y = 1; y < ROWS - 1; y++){
+      tNew[y][gateX] = TILE.FLOOR;
+      if (bestRegion.some(([rx, ry]) => rx === gateX && ry === y + 1)) break;
+    }
+  }
+  tNew[0][gateX] = TILE.GATE;
+  if (gateX + 1 < COLS - 1) tNew[0][gateX + 1] = TILE.GATE;
+  // 6. player spawn: floor cell farthest from the gate (so usually near bottom)
+  let spawn = null, bestD = -1;
+  for (const [x, y] of bestRegion){
+    const d = Math.abs(x - gateX) + Math.abs(y - 0);
+    if (d > bestD){ bestD = d; spawn = { x, y }; }
+  }
+  return {
+    tiles: tNew,
+    gens,
+    gateCells: [{ x: gateX, y: 0 }, gateX + 1 < COLS - 1 ? { x: gateX + 1, y: 0 } : null].filter(Boolean),
+    playerSpawn: spawn,
+    bestRegion,
+  };
+}
+
+function applyGeneratedMap(){
+  const m = generateMap();
+  // overwrite the live grid in place
+  for (let y = 0; y < ROWS; y++){
+    for (let x = 0; x < COLS; x++){
+      tiles[y][x] = m.tiles[y][x];
+    }
+  }
+  // overwrite generator + gate spawn arrays
+  genSpawns.length = 0;
+  for (const g of m.gens) genSpawns.push(g);
+  gateCells.length = 0;
+  for (const c of m.gateCells) gateCells.push(c);
+  // stash for newGame() to use
+  state._procSpawn = m.playerSpawn;
+  state._procRegion = m.bestRegion;
+}
 
 /* ── canvas / camera ─────────────────── */
 let TILE_PX = 24;
@@ -489,22 +621,29 @@ const state = {
 function px(t){ return t * TILE_PX + TILE_PX / 2; }   // center of tile
 
 function newGame(){
+  // ROLL A FRESH PROCEDURAL LAYOUT every round (cellular automata caves
+  // + flood-fill connectivity pass + auto-placed generators + carved gate)
+  applyGeneratedMap();
+
   state.phase = 'play';
   state.startedAt = performance.now();
   state.paused = false;
   state.gateOpen = false;
   state.hbBpm = 60;
+  state.skillCheck = null;
 
-  // place player at the bottom-center of the map on a floor tile
-  let px0 = px(20), py0 = px(22);
-  for (let y = ROWS - 2; y >= 0; y--){
-    for (let xo of [0, -1, 1, -2, 2, -3, 3]){
-      const xx = 20 + xo;
-      if (isWalkable(xx, y)){ px0 = px(xx); py0 = px(y); y = -1; break; }
+  // place player at the procedurally-chosen spawn (floor cell farthest from gate)
+  let spawnTile = state._procSpawn;
+  if (!spawnTile || !isWalkable(spawnTile.x, spawnTile.y)){
+    // ultra-safe fallback: scan the whole map for any floor cell
+    outer: for (let y = ROWS - 2; y >= 1; y--){
+      for (let x = 1; x < COLS - 1; x++){
+        if (isWalkable(x, y)){ spawnTile = { x, y }; break outer; }
+      }
     }
   }
-  state.player.x = px0;
-  state.player.y = py0;
+  state.player.x = px(spawnTile.x);
+  state.player.y = px(spawnTile.y);
   state.player.vx = 0; state.player.vy = 0;
   state.player.facing = -Math.PI / 2;
   state.player.repairing = null;
@@ -517,13 +656,23 @@ function newGame(){
     sparkT: 0,
   }));
 
-  // killer waypoints now derive from generator positions (he guards gens).
-  // The pickKillerWaypoint helper picks dynamically each time he arrives.
+  // killer waypoints derive from generator positions (he guards gens) via
+  // the pickKillerWaypoint helper. Start him on a floor cell as far from
+  // the player spawn as possible, so the first 5-10 seconds give the
+  // player some breathing room.
   state.killer.target = null;
   state.killer.wpPauseUntil = 0;
-  // start him on the centre-ish of the map
-  state.killer.x = px(20);
-  state.killer.y = px(12);
+  let bestKillerSpawn = { x: 20, y: 12 };
+  let bestKillerDist = -1;
+  const region = state._procRegion || [];
+  if (region.length){
+    for (const [x, y] of region){
+      const d = Math.abs(x - state.player.x / TILE_PX) + Math.abs(y - state.player.y / TILE_PX);
+      if (d > bestKillerDist){ bestKillerDist = d; bestKillerSpawn = { x, y }; }
+    }
+  }
+  state.killer.x = px(bestKillerSpawn.x);
+  state.killer.y = px(bestKillerSpawn.y);
   state.killer.state = 'patrol';
   state.killer.lastSeen = null;
 
