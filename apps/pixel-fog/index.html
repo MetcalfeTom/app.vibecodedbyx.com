@@ -92,6 +92,80 @@
   .flash-pip.spent{ color: rgba(255,224,128,0.20); text-shadow: none; }
   .flash-pip.cooldown{ color: #a0a0a8; text-shadow: none; font-size: 11px; letter-spacing: 0.05em; }
   .flash-pip.ready{ animation: pulseAmber 1.2s ease-in-out infinite; }
+  /* inventory slot — single item with glyph + name + Q hint */
+  .inv-glyph{
+    display: inline-block;
+    font-size: 18px;
+    line-height: 1;
+    margin-right: 6px;
+    vertical-align: middle;
+    filter: drop-shadow(0 0 6px rgba(255,224,128,0.45));
+  }
+  .inv-name{
+    font-size: 12px;
+    color: #ffd080;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+  }
+  .inv-key{
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 6px;
+    border: 1px solid rgba(255,224,128,0.40);
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    color: rgba(255,224,128,0.85);
+    vertical-align: middle;
+  }
+  .inv-empty{
+    font-size: 11px;
+    font-style: italic;
+    color: rgba(216,200,176,0.32);
+  }
+  /* transient toast (item pickup, rescue, etc) */
+  #toast{
+    position: fixed;
+    bottom: 56px; left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    background: rgba(8, 4, 14, 0.92);
+    border: 1px solid rgba(255, 192, 96, 0.40);
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 13px;
+    color: #ffd080;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.05em;
+    z-index: 25;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 220ms ease-out, transform 220ms ease-out;
+    box-shadow: 0 4px 20px rgba(255, 160, 60, 0.30);
+  }
+  #toast.show{
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  /* downed status pill — bottom-centre amber timer when local player is downed */
+  #downed-pill{
+    position: fixed;
+    bottom: 12px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(40, 4, 8, 0.94);
+    border: 2px solid rgba(255, 64, 80, 0.60);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: #ffb0b8;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.10em;
+    z-index: 24;
+    pointer-events: none;
+    display: none;
+    box-shadow: 0 0 26px rgba(255, 40, 60, 0.50);
+    animation: pulseRed 1.0s ease-in-out infinite;
+  }
+  #downed-pill.show{ display: block; }
 
   /* red proximity pulse — full-viewport overlay that thumps with the heartbeat.
      Opacity driven from JS each frame via --pulse on the body element. The
@@ -319,15 +393,22 @@
     <div class="label">flashlight · F</div>
     <div id="flash-pips" aria-live="polite"></div>
   </div>
+  <div class="hud-card">
+    <div class="label">inventory · Q</div>
+    <div id="inv-pip" aria-live="polite"><span class="inv-empty">— empty —</span></div>
+  </div>
   <div class="hud-card right">
     <div class="label">heartbeat</div>
     <div class="val" id="hb-val">— bpm</div>
   </div>
 </div>
+<div id="downed-pill" role="status" aria-live="assertive">
+  <span id="downed-pill-text">DOWNED · 45.0s · teammate must rescue</span>
+</div>
 <div id="red-pulse" aria-hidden="true"></div>
 <div id="mp-pill"><span class="dot"></span><span id="mp-pill-text">connected</span></div>
 <div class="hint" id="hint">
-  <kbd>WASD</kbd> move · <kbd>Shift</kbd> sneak · <kbd>E</kbd> repair · <kbd>Space</kbd> skill check · <kbd>F</kbd> flashlight · <kbd>P</kbd> pause
+  <kbd>WASD</kbd> move · <kbd>Shift</kbd> sneak · <kbd>E</kbd> repair / search chest / rescue · <kbd>Q</kbd> locker / use item · <kbd>F</kbd> flashlight · <kbd>P</kbd> pause
 </div>
 
 <div class="overlay" id="start-overlay">
@@ -340,6 +421,8 @@
       <div class="row"><kbd>Shift</kbd> — sneak (slower, quieter)</div>
       <div class="row"><kbd>E</kbd> (hold) — repair the nearest generator</div>
       <div class="row"><kbd>F</kbd> — flashlight burst · blinds the killer for 3s · 2 charges · 8s cooldown</div>
+      <div class="row"><kbd>E</kbd> — also search chests (3s) + rescue a downed teammate (3s)</div>
+      <div class="row"><kbd>Q</kbd> — hide in / leave a locker · or use your held item</div>
       <div class="row"><kbd>P</kbd> — pause</div>
     </div>
     <p style="color: #ffc060; font-size: 12px;">Sneak past the killer's vision cone. The faster you move, the further your noise carries.</p>
@@ -448,6 +531,8 @@ MAP.length = ROWS;
 const TILE = { FLOOR: 0, WALL: 1, GATE: 2 };
 const tiles = [];
 const genSpawns = [];
+const lockerSpawns = [];
+const chestSpawns = [];
 let gateCells = [];
 for (let y = 0; y < ROWS; y++){
   tiles.push([]);
@@ -583,12 +668,41 @@ function generateMap(){
     const d = Math.abs(x - gateX) + Math.abs(y - 0);
     if (d > bestD){ bestD = d; spawn = { x, y }; }
   }
+  // 7. lockers (hide-spots) — 6 placed on floor cells away from gens + each other.
+  //    Lockers don't block movement themselves; players just stand inside them.
+  const lockers = [];
+  const lockerShuffle = bestRegion.slice().sort(() => Math.random() - 0.5);
+  for (const [x, y] of lockerShuffle){
+    if (lockers.length >= 6) break;
+    // not on a gen and not on the player spawn
+    if (gens.some(g => g.x === x && g.y === y)) continue;
+    if (spawn && spawn.x === x && spawn.y === y) continue;
+    // ≥3 tiles from any other locker, ≥2 from any gen
+    if (lockers.some(l => Math.abs(l.x - x) + Math.abs(l.y - y) < 3)) continue;
+    if (gens.some(g => Math.abs(g.x - x) + Math.abs(g.y - y) < 2)) continue;
+    lockers.push({ x, y });
+  }
+  // 8. chests (search for items) — 4 placed similarly, no overlap with lockers/gens.
+  const chests = [];
+  const chestShuffle = bestRegion.slice().sort(() => Math.random() - 0.5);
+  for (const [x, y] of chestShuffle){
+    if (chests.length >= 4) break;
+    if (gens.some(g => g.x === x && g.y === y)) continue;
+    if (lockers.some(l => l.x === x && l.y === y)) continue;
+    if (spawn && spawn.x === x && spawn.y === y) continue;
+    if (chests.some(c => Math.abs(c.x - x) + Math.abs(c.y - y) < 3)) continue;
+    if (lockers.some(l => Math.abs(l.x - x) + Math.abs(l.y - y) < 2)) continue;
+    if (gens.some(g => Math.abs(g.x - x) + Math.abs(g.y - y) < 2)) continue;
+    chests.push({ x, y });
+  }
   return {
     tiles: tNew,
     gens,
     gateCells: [{ x: gateX, y: 0 }, gateX + 1 < COLS - 1 ? { x: gateX + 1, y: 0 } : null].filter(Boolean),
     playerSpawn: spawn,
     bestRegion,
+    lockers,
+    chests,
   };
 }
 
@@ -608,6 +722,11 @@ function applyGeneratedMap(){
   // stash for newGame() to use
   state._procSpawn = m.playerSpawn;
   state._procRegion = m.bestRegion;
+  // locker + chest spawn arrays (parallel to genSpawns)
+  lockerSpawns.length = 0;
+  for (const l of (m.lockers || [])) lockerSpawns.push(l);
+  chestSpawns.length = 0;
+  for (const c of (m.chests || [])) chestSpawns.push(c);
 }
 
 /* ── canvas / camera ─────────────────── */
@@ -679,6 +798,74 @@ function sndBlind(){
   tone(1320, 0.08, 'sine', 0.16, 0);
   tone(1760, 0.10, 'sine', 0.14, 0.04);
   tone(2080, 0.18, 'sine', 0.10, 0.08);
+}
+function sndLockerClose(){
+  // metallic clang + brief reverberant ring
+  tone(180, 0.04, 'square', 0.10, 0);
+  tone(420, 0.14, 'triangle', 0.06, 0.03);
+}
+function sndLockerOpen(){
+  tone(520, 0.06, 'triangle', 0.06, 0);
+  tone(280, 0.10, 'sine', 0.05, 0.04);
+}
+function sndChestCreak(){
+  // short bandpass-noise scrape for chest searching
+  const t0 = audioCtx.currentTime;
+  const buf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * 0.10), audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++){ d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 1.4); }
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const bp = audioCtx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 2.4;
+  const g = audioCtx.createGain(); g.gain.value = 0.05;
+  src.connect(bp); bp.connect(g); g.connect(audioCtx.destination);
+  src.start(t0);
+}
+function sndChestOpen(){
+  // satisfying lid-pop + bell chime
+  tone(220, 0.10, 'square', 0.08, 0);
+  tone(660, 0.14, 'triangle', 0.08, 0.06);
+  tone(990, 0.20, 'sine', 0.08, 0.12);
+}
+function sndItemPickup(){
+  // bright 4-note arpeggio
+  tone(523, 0.06, 'sine', 0.10, 0);
+  tone(659, 0.06, 'sine', 0.10, 0.05);
+  tone(784, 0.06, 'sine', 0.10, 0.10);
+  tone(1047, 0.18, 'sine', 0.08, 0.15);
+}
+function sndSmoke(){
+  // big breathy hiss
+  const t0 = audioCtx.currentTime;
+  const dur = 0.55;
+  const buf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * dur), audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++){
+    const env = i < d.length * 0.1 ? (i / (d.length * 0.1)) : Math.pow(1 - (i - d.length * 0.1) / (d.length * 0.9), 1.2);
+    d[i] = (Math.random() * 2 - 1) * env;
+  }
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const lp = audioCtx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; lp.Q.value = 0.7;
+  const g = audioCtx.createGain(); g.gain.value = 0.10;
+  src.connect(lp); lp.connect(g); g.connect(audioCtx.destination);
+  src.start(t0);
+}
+function sndSpeedBoost(){
+  // quick rising swoop + heartbeat-style sub thump
+  tone(180, 0.08, 'sine', 0.18, 0);
+  tone(440, 0.16, 'triangle', 0.10, 0.04);
+  tone(880, 0.18, 'triangle', 0.08, 0.10);
+}
+function sndDownGroan(){
+  // descending sawtooth shout for being downed
+  tone(280, 0.12, 'sawtooth', 0.14, 0);
+  tone(180, 0.22, 'sawtooth', 0.16, 0.10);
+  tone(110, 0.45, 'sawtooth', 0.14, 0.24);
+}
+function sndRescueChime(){
+  // major triad up — relief
+  tone(523, 0.10, 'sine', 0.12, 0);
+  tone(659, 0.12, 'sine', 0.12, 0.05);
+  tone(784, 0.22, 'sine', 0.12, 0.10);
 }
 /* heartbeat — a layered, suspenseful loop driven by killer proximity
    ── ambient sub-bass drone (always running once started, gain swells
@@ -958,6 +1145,8 @@ function mpSendMapToPeer(){
     gateCells: gateCells.slice(),
     spawn: state._procSpawn,
     region: state._procRegion ? state._procRegion.slice() : [],
+    lockers: lockerSpawns.slice(),
+    chests: chestSpawns.slice(),
   });
 }
 function mpApplyMap(msg){
@@ -971,6 +1160,10 @@ function mpApplyMap(msg){
   for (const c of msg.gateCells) gateCells.push(c);
   state._procSpawn = msg.spawn;
   state._procRegion = msg.region;
+  lockerSpawns.length = 0;
+  for (const l of (msg.lockers || [])) lockerSpawns.push(l);
+  chestSpawns.length = 0;
+  for (const c of (msg.chests || [])) chestSpawns.push(c);
   MP.mapApplied = true;
 }
 
@@ -988,6 +1181,10 @@ function mpOnMessage(msg){
       MP.remote.x = msg.x; MP.remote.y = msg.y;
       MP.remote.fc = msg.fc; MP.remote.snk = msg.snk;
       MP.remote.repairing = !!msg.r;
+      MP.remote.hidden = !!msg.hd;
+      // 'downed' state is authoritative from 'down' message; pos's dn flag is
+      // just a hint while waiting. Don't downgrade a downed remote from a pos.
+      if (msg.dn && !MP.remote.downed) MP.remote.downed = true;
       break;
     case 'killer':
       // joiner-only: pin local killer state to host's broadcast
@@ -1008,6 +1205,63 @@ function mpOnMessage(msg){
       break;
     case 'blind':
       applyKillerBlind(msg.until);
+      break;
+    case 'locker': {
+      // peer entered/exited locker idx
+      const l = state.lockers[msg.idx];
+      if (l) l.occupiedByRemote = !!msg.occupied;
+      break;
+    }
+    case 'chest': {
+      const c = state.chests[msg.idx];
+      if (c){
+        if (msg.opened && !c.opened){
+          c.opened = true;
+          c.item = msg.item || null;
+          c.search = CHEST_SEARCH_TIME;
+          // play open audio only — the OTHER player gets the item locally, we
+          // just see the chest become opened. Don't pick anything up.
+          sndChestOpen();
+        } else if (typeof msg.prog === 'number'){
+          c.search = msg.prog;
+        }
+      }
+      break;
+    }
+    case 'item':
+      // peer picked something up — just stash it on the remote model so we
+      // can show "friend has medkit" in the future (currently unused but
+      // available)
+      if (MP.remote) MP.remote.item = msg.item;
+      break;
+    case 'smoke':
+      state.smokeClouds.push({ x: msg.x, y: msg.y, until: msg.until });
+      break;
+    case 'down':
+      // remote teammate was downed
+      if (!MP.remote) MP.remote = { x: msg.x, y: msg.y, fc: 0, snk: false, repairing: false };
+      MP.remote.x = msg.x; MP.remote.y = msg.y;
+      MP.remote.downed = true;
+      MP.remote.downedUntil = msg.until;
+      MP.remote._rescueHold = 0;
+      sndDownGroan();
+      showToast('teammate is DOWNED · go rescue them');
+      break;
+    case 'catch':
+      // host telling joiner that local player has been caught → go down
+      if (msg.target === 'remote'){
+        downPlayer();
+      }
+      break;
+    case 'rescue':
+      // peer rescued the local player (we were the downed one)
+      if (state.player.downed){
+        state.player.downed = false;
+        state.player.downedUntil = 0;
+        state.player._rescueHold = 0;
+        sndRescueChime();
+        showToast(msg.instant ? 'rescued with med-kit' : 'rescued by teammate');
+      }
       break;
     case 'gen':
       // sync generator progress
@@ -1053,11 +1307,30 @@ function mpStartGameAsJoiner(){
   state.player.flashCharges = FLASH_MAX_CHARGES;
   state.player.flashUntil = 0;
   state.player.flashCooldownUntil = 0;
+  state.player.item = null;
+  state.player.hidden = false;
+  state.player.lockerIdx = -1;
+  state.player.sprintUntil = 0;
+  state.player.searchTarget = null;
+  state.player.rescueTarget = null;
+  state.player.downed = false;
+  state.player.downedUntil = 0;
+  state.player._rescueHold = 0;
   state.killer.blindedUntil = 0;
+  state.smokeClouds = [];
   // generators
   state.generators = genSpawns.map(g => ({
     tx: g.x, ty: g.y, x: px(g.x), y: px(g.y),
     repair: 0, done: false, sparkT: 0,
+  }));
+  // lockers + chests
+  state.lockers = lockerSpawns.map(l => ({
+    tx: l.x, ty: l.y, x: px(l.x), y: px(l.y),
+    occupiedByLocal: false, occupiedByRemote: false,
+  }));
+  state.chests = chestSpawns.map(c => ({
+    tx: c.x, ty: c.y, x: px(c.x), y: px(c.y),
+    opened: false, search: 0, item: null, _lastSent: 0,
   }));
   // killer placeholder — host will broadcast actual position; just put him somewhere reasonable
   state.killer.target = null;
@@ -1154,6 +1427,24 @@ function losBlocked(ax, ay, bx, by){
   return false;
 }
 
+/* Smoke clouds block LOS too — segment-vs-circle hit test for any active cloud.
+   Used in updateKiller() so smoke bombs from chests genuinely shut down chases. */
+function smokeBlocksLOS(ax, ay, bx, by){
+  if (!state.smokeClouds || !state.smokeClouds.length) return false;
+  const now = performance.now();
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 0.0001) return false;
+  for (const s of state.smokeClouds){
+    if (s.until < now) continue;
+    // closest point on segment AB to circle centre s
+    const tt = Math.max(0, Math.min(1, ((s.x - ax) * dx + (s.y - ay) * dy) / len2));
+    const px = ax + tt * dx, py = ay + tt * dy;
+    if (Math.hypot(s.x - px, s.y - py) < SMOKE_RADIUS) return true;
+  }
+  return false;
+}
+
 /* ── entities ──────────────────────── */
 const SURV_R = 7, KILLER_R = 8;
 const PLAYER_SPEED = 110;       // px/sec
@@ -1176,16 +1467,46 @@ const FLASH_BLIND_MS    = 3000;           // killer blinded duration
 const FLASH_COOLDOWN_MS = 8000;           // between uses
 const FLASH_MAX_CHARGES = 2;              // per game
 
+/* ── lockers, chests, rescue tuning ─── */
+const LOCKER_INTERACT_R   = 30;           // px — hide/exit range
+const CHEST_INTERACT_R    = 30;           // px — search range
+const CHEST_SEARCH_TIME   = 3.0;          // seconds to fully open
+const RESCUE_RANGE        = 30;           // px — distance to start rescuing
+const RESCUE_HOLD_TIME    = 3.0;          // seconds to free a downed teammate
+const DOWNED_TIMEOUT      = 45.0;         // seconds before downed → both lose
+const SPEED_BOOST_MS      = 5000;         // adrenaline duration
+const SPEED_BOOST_MULT    = 1.42;         // speed multiplier
+const SMOKE_DURATION_MS   = 4500;         // smoke cloud lifetime
+const SMOKE_RADIUS        = 56;           // px — LOS-blocking radius
+const ITEM_POOL = ['medkit', 'smoke', 'speed'];
+const ITEM_META = {
+  medkit: { glyph: '🩹', name: 'Med-kit',     hint: 'instant teammate rescue · or one second-chance if caught (solo)' },
+  smoke:  { glyph: '💨', name: 'Smoke bomb',  hint: 'drops a 4.5s vision-blocking cloud at your feet' },
+  speed:  { glyph: '⚡', name: 'Adrenaline',  hint: '5s sprint burst (×1.4 speed) for yourself' },
+};
+
 const state = {
   phase: 'start',           // start | play | win | lose
   startedAt: 0,
   paused: false,
   player: { x: 0, y: 0, vx: 0, vy: 0, facing: 0, sneaking: false, repairing: null,
-            flashCharges: FLASH_MAX_CHARGES, flashUntil: 0, flashCooldownUntil: 0 },
+            flashCharges: FLASH_MAX_CHARGES, flashUntil: 0, flashCooldownUntil: 0,
+            item: null,             // 'medkit' | 'smoke' | 'speed' | null — 1 slot inventory
+            hidden: false,          // true while inside a locker
+            lockerIdx: -1,          // index into state.lockers when hidden
+            sprintUntil: 0,         // performance.now() ms — speed boost end
+            searchTarget: null,     // chest being searched
+            rescueTarget: null,     // downed teammate id (host knows; for client UI only)
+            downed: false,          // MP: caught but not yet dead
+            downedUntil: 0,         // ms — when downed timer ends (both lose)
+            _rescueHold: 0 },       // seconds accumulated while teammate holds E on you
   killer: { x: 0, y: 0, vx: 0, vy: 0, facing: 0, state: 'patrol', stateT: 0,
             waypoints: [], wpIdx: 0, lastSeen: null, target: null,
             blindedUntil: 0 },
   generators: [],           // {x,y, repair (0..REPAIR_TIME), done}
+  lockers: [],              // {tx,ty,x,y, occupiedByLocal:false, occupiedByRemote:false}
+  chests: [],               // {tx,ty,x,y, opened:false, search:0, item:null}
+  smokeClouds: [],          // {x, y, until}
   gateOpen: false,
   hbBpm: 60,
 };
@@ -1222,7 +1543,17 @@ function newGame(){
   state.player.flashCharges = FLASH_MAX_CHARGES;
   state.player.flashUntil = 0;
   state.player.flashCooldownUntil = 0;
+  state.player.item = null;
+  state.player.hidden = false;
+  state.player.lockerIdx = -1;
+  state.player.sprintUntil = 0;
+  state.player.searchTarget = null;
+  state.player.rescueTarget = null;
+  state.player.downed = false;
+  state.player.downedUntil = 0;
+  state.player._rescueHold = 0;
   state.killer.blindedUntil = 0;
+  state.smokeClouds = [];
 
   // generators
   state.generators = genSpawns.map(g => ({
@@ -1230,6 +1561,16 @@ function newGame(){
     x: px(g.x), y: px(g.y),
     repair: 0, done: false,
     sparkT: 0,
+  }));
+  // lockers (hide spots)
+  state.lockers = lockerSpawns.map(l => ({
+    tx: l.x, ty: l.y, x: px(l.x), y: px(l.y),
+    occupiedByLocal: false, occupiedByRemote: false,
+  }));
+  // chests (search for items)
+  state.chests = chestSpawns.map(c => ({
+    tx: c.x, ty: c.y, x: px(c.x), y: px(c.y),
+    opened: false, search: 0, item: null, _lastSent: 0,
   }));
 
   // killer waypoints derive from generator positions (he guards gens) via
@@ -1273,6 +1614,11 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF' && state.phase === 'play' && !state.paused){
     e.preventDefault();
     tryFlashlight();
+  }
+  // Q → context: if standing on/near a locker, enter/exit it. Otherwise use held item.
+  if (e.code === 'KeyQ' && state.phase === 'play' && !state.paused){
+    e.preventDefault();
+    handleQ();
   }
 });
 window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
@@ -1388,6 +1734,274 @@ function applyKillerBlind(until){
   }
 }
 
+/* ── lockers, chests, items, downed rescue ─────────────────────────
+   Context-sensitive Q key:
+     • Standing inside a locker → exit it
+     • Otherwise, near a locker (within LOCKER_INTERACT_R) → enter it
+     • Otherwise, if holding an item → use it
+   E is handled inline in updatePlayer() with priority: chest search >
+   teammate rescue > generator repair. */
+function nearestLocker(p, radius){
+  let best = null, bestD = Infinity;
+  for (let i = 0; i < state.lockers.length; i++){
+    const l = state.lockers[i];
+    if (l.occupiedByRemote) continue;
+    const d = Math.hypot(p.x - l.x, p.y - l.y);
+    if (d < radius && d < bestD){ bestD = d; best = { locker: l, idx: i, d }; }
+  }
+  return best;
+}
+function nearestChest(p, radius){
+  let best = null, bestD = Infinity;
+  for (let i = 0; i < state.chests.length; i++){
+    const c = state.chests[i];
+    if (c.opened) continue;
+    const d = Math.hypot(p.x - c.x, p.y - c.y);
+    if (d < radius && d < bestD){ bestD = d; best = { chest: c, idx: i, d }; }
+  }
+  return best;
+}
+function nearestDownedRemote(p, radius){
+  if (!MP.enabled || !MP.remote || !MP.remote.downed) return null;
+  const d = Math.hypot(p.x - MP.remote.x, p.y - MP.remote.y);
+  if (d < radius) return { remote: MP.remote, d };
+  return null;
+}
+
+function handleQ(){
+  const p = state.player;
+  if (p.downed) return;     // can't act while downed
+  // 1. exit locker
+  if (p.hidden){
+    exitLocker();
+    return;
+  }
+  // 2. enter nearest unoccupied locker (within range)
+  const near = nearestLocker(p, LOCKER_INTERACT_R);
+  if (near){
+    enterLocker(near.idx);
+    return;
+  }
+  // 3. use held item
+  if (p.item){
+    useHeldItem();
+  }
+}
+
+function enterLocker(idx){
+  const p = state.player;
+  if (p.hidden || p.repairing) return;
+  const l = state.lockers[idx];
+  if (!l || l.occupiedByLocal || l.occupiedByRemote) return;
+  l.occupiedByLocal = true;
+  p.hidden = true;
+  p.lockerIdx = idx;
+  // snap player to the locker centre so the visual sits clean
+  p.x = l.x;
+  p.y = l.y;
+  p.vx = 0; p.vy = 0;
+  // cancel anything they were doing
+  p.repairing = null;
+  if (state.skillCheck) state.skillCheck = null;
+  sndLockerClose();
+  renderHud();
+  // killer loses chase target if they were chasing you (you broke LOS hard)
+  if (state.killer.state === 'chase'){
+    state.killer.state = 'search';
+    state.killer.stateT = 0;
+    state.killer.lastSeen = { x: l.x, y: l.y };
+  }
+  if (MP.enabled) mpSend({ t: 'locker', idx, occupied: true });
+}
+function exitLocker(){
+  const p = state.player;
+  if (!p.hidden) return;
+  const l = state.lockers[p.lockerIdx];
+  if (l){ l.occupiedByLocal = false; }
+  p.hidden = false;
+  const idx = p.lockerIdx;
+  p.lockerIdx = -1;
+  sndLockerOpen();
+  renderHud();
+  if (MP.enabled && idx >= 0) mpSend({ t: 'locker', idx, occupied: false });
+}
+
+function rollChestItem(){
+  return ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
+}
+function pickupItem(item){
+  state.player.item = item;
+  sndItemPickup();
+  renderHud();
+  showToast('+ ' + ITEM_META[item].glyph + ' ' + ITEM_META[item].name);
+  if (MP.enabled) mpSend({ t: 'item', item });
+}
+
+function useHeldItem(){
+  const p = state.player;
+  if (!p.item) return;
+  const now = performance.now();
+  if (p.item === 'medkit'){
+    // medkit: rescue a downed teammate instantly OR use as self-revive token (SP)
+    if (MP.enabled && MP.remote && MP.remote.downed){
+      const d = Math.hypot(p.x - MP.remote.x, p.y - MP.remote.y);
+      if (d < RESCUE_RANGE * 2){
+        // broadcast instant rescue
+        mpSend({ t: 'rescue', instant: true });
+        if (MP.remote){
+          MP.remote.downed = false;
+          MP.remote._rescueHold = 0;
+        }
+        sndRescueChime();
+        p.item = null;
+        renderHud();
+        showToast('teammate rescued with med-kit');
+        return;
+      } else {
+        showToast('teammate too far for med-kit', 1400);
+        return;
+      }
+    } else if (!MP.enabled){
+      // SP: medkit becomes a one-time second chance. Already consumed implicitly
+      // when used; if you're not in trouble there's nothing to heal. So we
+      // just keep it in the slot until you get caught — see lose() below.
+      showToast('hold med-kit · revives once if caught', 1800);
+      return;
+    } else {
+      showToast('no teammate to revive', 1400);
+      return;
+    }
+  }
+  if (p.item === 'smoke'){
+    state.smokeClouds.push({ x: p.x, y: p.y, until: now + SMOKE_DURATION_MS });
+    sndSmoke();
+    if (MP.enabled) mpSend({ t: 'smoke', x: p.x, y: p.y, until: now + SMOKE_DURATION_MS });
+    p.item = null;
+    renderHud();
+    showToast('smoke bomb dropped');
+    return;
+  }
+  if (p.item === 'speed'){
+    p.sprintUntil = Math.max(p.sprintUntil, now + SPEED_BOOST_MS);
+    sndSpeedBoost();
+    p.item = null;
+    renderHud();
+    showToast('adrenaline · sprint for ' + (SPEED_BOOST_MS / 1000) + 's');
+    return;
+  }
+}
+
+/* downed / rescue */
+function downPlayer(){
+  // called when host's catch check fires on local player in MP.
+  const p = state.player;
+  if (p.downed || state.phase !== 'play') return;
+  // SP self-revive via medkit (consumed)
+  if (!MP.enabled && p.item === 'medkit'){
+    p.item = null;
+    p.flashCharges = Math.min(FLASH_MAX_CHARGES, p.flashCharges + 1);
+    showToast('MED-KIT BURNED · you survived');
+    renderHud();
+    // shove the killer briefly off the player so they don't insta-catch again
+    state.killer.state = 'search';
+    state.killer.stateT = 0;
+    state.killer.lastSeen = null;
+    // small i-frame: push killer away
+    const dx = state.killer.x - p.x, dy = state.killer.y - p.y;
+    const d = Math.hypot(dx, dy) || 1;
+    state.killer.x += (dx / d) * 80;
+    state.killer.y += (dy / d) * 80;
+    return;
+  }
+  // SP: no rescue possible → straight to lose
+  if (!MP.enabled){
+    lose();
+    return;
+  }
+  // MP: enter downed state with timer
+  p.downed = true;
+  p.downedUntil = performance.now() + DOWNED_TIMEOUT * 1000;
+  p._rescueHold = 0;
+  p.repairing = null;
+  if (p.hidden){
+    // ejected from locker on catch
+    const l = state.lockers[p.lockerIdx];
+    if (l){ l.occupiedByLocal = false; }
+    p.hidden = false; p.lockerIdx = -1;
+  }
+  if (state.skillCheck) state.skillCheck = null;
+  sndDownGroan();
+  mpSend({ t: 'down', x: p.x, y: p.y, until: p.downedUntil });
+  // second-catch instant lose: if BOTH players downed → end the round
+  if (MP.remote && MP.remote.downed){
+    mpSend({ t: 'lose' });
+    lose();
+  }
+}
+
+function tickRescue(dt){
+  // local player rescuing the remote downed teammate (E held, in range)
+  if (!MP.enabled || !MP.remote || !MP.remote.downed) return false;
+  const p = state.player;
+  if (p.downed || p.hidden) return false;
+  const d = Math.hypot(p.x - MP.remote.x, p.y - MP.remote.y);
+  if (d > RESCUE_RANGE) return false;
+  if (!keys['e']) return false;
+  MP.remote._rescueHold = (MP.remote._rescueHold || 0) + dt;
+  if (MP.remote._rescueHold >= RESCUE_HOLD_TIME){
+    MP.remote._rescueHold = 0;
+    MP.remote.downed = false;
+    sndRescueChime();
+    showToast('teammate rescued');
+    mpSend({ t: 'rescue', instant: false });
+  }
+  return true;
+}
+
+function tickDownedSelf(dt, t){
+  // local player IS downed → tick timer down, check timeout
+  const p = state.player;
+  if (!p.downed) return;
+  if (t >= p.downedUntil){
+    // timer ran out → both lose
+    if (MP.enabled) mpSend({ t: 'lose' });
+    lose();
+  }
+}
+
+/* HUD refresh helper — used after item pickup/use, locker change, etc. */
+function renderHud(){
+  renderFlashlightPips();
+  renderInventoryHud();
+}
+function renderInventoryHud(){
+  const wrap = document.getElementById('inv-pip');
+  if (!wrap) return;
+  const p = state.player;
+  if (!p.item){
+    wrap.innerHTML = '<span class="inv-empty">— empty —</span>';
+    wrap.title = '';
+  } else {
+    const meta = ITEM_META[p.item];
+    wrap.innerHTML = `<span class="inv-glyph">${meta.glyph}</span><span class="inv-name">${meta.name}</span><span class="inv-key">Q</span>`;
+    wrap.title = meta.hint;
+  }
+}
+
+/* tiny toast for short status messages */
+function showToast(text, ms){
+  let el = document.getElementById('toast');
+  if (!el){
+    el = document.createElement('div');
+    el.id = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.classList.remove('show'), ms || 2200);
+}
+
 /* ── skill-check (DBD-style press-Space-in-the-window) ── */
 const SKILL_CHECK_DURATION = 1100;       // ms total for the sweep
 const SKILL_CHECK_WINDOW = 38;           // degrees of the green "great" arc
@@ -1482,6 +2096,26 @@ let lastStepT = 0;
 function updatePlayer(dt, t){
   if (state.phase !== 'play' || state.paused) return;
   const p = state.player;
+  // downed players can't act — tick the timer + check for timeout
+  if (p.downed){
+    tickDownedSelf(dt, t);
+    // still broadcast position (frozen) so teammate sees you
+    if (MP.enabled && MP.channel && (t - MP.lastSentPos) > 200){
+      MP.lastSentPos = t;
+      mpSend({ t: 'pos', x: p.x, y: p.y, fc: p.facing, snk: p.sneaking, r: false, dn: true });
+    }
+    return;
+  }
+  // hidden in a locker → no movement / no actions until they Q out
+  if (p.hidden){
+    // still broadcast position so peer knows where the locker is + that you're inside
+    if (MP.enabled && MP.channel && (t - MP.lastSentPos) > 200){
+      MP.lastSentPos = t;
+      mpSend({ t: 'pos', x: p.x, y: p.y, fc: p.facing, snk: true, r: false, hd: true });
+    }
+    // sprint timer still ticks even while hidden (harmless)
+    return;
+  }
   // input
   let ix = 0, iy = 0;
   if (keys['w'] || keys['arrowup']) iy -= 1;
@@ -1494,38 +2128,104 @@ function updatePlayer(dt, t){
     const len = Math.hypot(ix, iy); ix /= len; iy /= len;
     p.facing = Math.atan2(iy, ix);
   }
-  const speed = PLAYER_SPEED * (p.sneaking ? PLAYER_SNEAK_MULT : 1) * (p.repairing ? 0.0 : 1);
-  // if currently repairing, you can't move — release E to break
-  const wantRepair = !!keys['e'];
-  // find nearest gen within interact range
-  let nearGen = null, nearDist = Infinity;
+  // sprint boost from adrenaline item
+  const sprinting = t < p.sprintUntil;
+  const speedMult = (p.sneaking ? PLAYER_SNEAK_MULT : 1) * (sprinting ? SPEED_BOOST_MULT : 1);
+  const speed = PLAYER_SPEED * speedMult * (p.repairing || p.searchTarget ? 0.0 : 1);
+  const wantE = !!keys['e'];
+
+  // ── E priority: chest search > teammate rescue > generator repair ──
+  // chest within range
+  let nearChest = null, chestDist = Infinity;
+  for (const c of state.chests){
+    if (c.opened) continue;
+    const d = Math.hypot(p.x - c.x, p.y - c.y);
+    if (d < CHEST_INTERACT_R && d < chestDist){ chestDist = d; nearChest = c; }
+  }
+  // downed teammate within range
+  let nearDownedTeammate = nearestDownedRemote(p, RESCUE_RANGE);
+  // nearest gen within interact range
+  let nearGen = null, genDist = Infinity;
   for (const g of state.generators){
     if (g.done) continue;
     const d = distance(p, g);
-    if (d < TILE_PX * 1.4 && d < nearDist){ nearDist = d; nearGen = g; }
+    if (d < TILE_PX * 1.4 && d < genDist){ genDist = d; nearGen = g; }
   }
-  if (wantRepair && nearGen){
+
+  // Decide what E is doing this frame (only one at a time):
+  let doingChest = false, doingRescue = false, doingRepair = false;
+  if (wantE){
+    // already mid-search? prioritise sticking with the chest you started
+    if (p.searchTarget && !p.searchTarget.opened){
+      const d = Math.hypot(p.x - p.searchTarget.x, p.y - p.searchTarget.y);
+      if (d < CHEST_INTERACT_R){ doingChest = true; nearChest = p.searchTarget; }
+    } else if (nearChest && !p.item){
+      // can only search if your inventory is empty
+      doingChest = true;
+    } else if (nearDownedTeammate){
+      doingRescue = true;
+    } else if (nearGen){
+      doingRepair = true;
+    }
+  }
+
+  // CHEST SEARCH
+  if (doingChest){
+    p.searchTarget = nearChest;
+    nearChest.search = Math.min(CHEST_SEARCH_TIME, (nearChest.search || 0) + dt);
+    // creak periodically
+    if (!nearChest._lastCreak || t - nearChest._lastCreak > 220){
+      nearChest._lastCreak = t;
+      sndChestCreak();
+    }
+    if (nearChest.search >= CHEST_SEARCH_TIME && !nearChest.opened){
+      nearChest.opened = true;
+      const item = rollChestItem();
+      nearChest.item = item;
+      sndChestOpen();
+      pickupItem(item);
+      p.searchTarget = null;
+      if (MP.enabled){
+        mpSend({ t: 'chest', idx: state.chests.indexOf(nearChest), opened: true, item });
+      }
+    }
+    // throttle progress broadcast ~3 Hz
+    if (MP.enabled && (!nearChest._lastSent || t - nearChest._lastSent > 320)){
+      nearChest._lastSent = t;
+      mpSend({ t: 'chest', idx: state.chests.indexOf(nearChest), opened: false, prog: nearChest.search });
+    }
+  } else {
+    if (p.searchTarget && !p.searchTarget.opened) p.searchTarget.search = Math.max(0, p.searchTarget.search - dt * 0.6);
+    p.searchTarget = null;
+  }
+
+  // RESCUE TICK (returns true if we're rescuing, suppresses repair)
+  if (doingRescue){ tickRescue(dt); }
+  else if (MP.enabled && MP.remote && MP.remote.downed){
+    // not holding E or out of range — decay the partial hold so accidental
+    // taps don't accumulate
+    MP.remote._rescueHold = Math.max(0, (MP.remote._rescueHold || 0) - dt * 1.5);
+  }
+
+  // REPAIR (existing behaviour) — only if no higher-priority E action
+  if (doingRepair){
     if (p.repairing !== nearGen){
-      // first frame of engaging this gen — start the skill-check clock fresh
       nearGen.nextCheckAt = performance.now() + 2200 + Math.random() * 2200;
-      // also drop any stale skill check if it was for a different gen
       if (state.skillCheck && state.skillCheck.gen !== nearGen) state.skillCheck = null;
     }
     p.repairing = nearGen;
   } else {
     if (p.repairing) p.repairing.nextCheckAt = 0;
     p.repairing = null;
-    // releasing E cancels any unresolved skill check
     if (state.skillCheck && !state.skillCheck.resolved) state.skillCheck = null;
   }
-  if (!p.repairing){
+  if (!p.repairing && !doingChest){
     tryMove(p, ix * speed * dt, iy * speed * dt, SURV_R);
-    // footsteps every ~0.32s while walking
-    if ((ix || iy) && (t - lastStepT) > (p.sneaking ? 480 : 280)){
+    if ((ix || iy) && (t - lastStepT) > (p.sneaking ? 480 : (sprinting ? 200 : 280))){
       lastStepT = t;
       sndStep();
     }
-  } else {
+  } else if (p.repairing){
     // repair tick
     const g = p.repairing;
     g.repair = Math.min(REPAIR_TIME, g.repair + dt);
@@ -1534,7 +2234,6 @@ function updatePlayer(dt, t){
       g.sparkT = 0;
       sndRepair();
     }
-    // schedule skill checks while engaged on this gen
     if (!state.skillCheck){
       if (!g.nextCheckAt) g.nextCheckAt = performance.now() + 2200 + Math.random() * 2200;
       if (performance.now() > g.nextCheckAt){
@@ -1549,12 +2248,10 @@ function updatePlayer(dt, t){
       state.skillCheck = null;
       renderGenPips();
       checkAllGens();
-      // broadcast completion to peer
       if (MP.enabled){
         mpSend({ t: 'gen', id: state.generators.indexOf(g), prog: g.repair, done: true });
       }
     }
-    // throttled progress broadcast (~3 Hz so peer sees the bar fill)
     if (MP.enabled && (!g._lastSent || t - g._lastSent > 320)){
       g._lastSent = t;
       mpSend({ t: 'gen', id: state.generators.indexOf(g), prog: g.repair, done: g.done });
@@ -1572,7 +2269,15 @@ function updatePlayer(dt, t){
       fc: state.player.facing,
       snk: state.player.sneaking,
       r: !!state.player.repairing,
+      hd: false, dn: false,
     });
+  }
+  // expire smoke clouds
+  if (state.smokeClouds.length){
+    const now = t;
+    for (let i = state.smokeClouds.length - 1; i >= 0; i--){
+      if (state.smokeClouds[i].until < now) state.smokeClouds.splice(i, 1);
+    }
   }
 }
 
@@ -1594,22 +2299,27 @@ function updateKiller(dt, t){
   const p = state.player;
   k.stateT += dt;
 
-  // detect player — blinded killer can't see at all
+  // detect player — blinded killer can't see at all. Hidden (in locker) or
+  // downed players are also "invisible" to vision/hearing detection (downed =
+  // they're already caught; hidden = locker hard-breaks LOS).
   const blinded = performance.now() < k.blindedUntil;
+  const playerEvadable = p.hidden || p.downed;
   const dPlayer = distance(k, p);
   let canSee = false;
-  if (!blinded && dPlayer < KILLER_VISION_RANGE){
+  if (!blinded && !playerEvadable && dPlayer < KILLER_VISION_RANGE){
     const angTo = Math.atan2(p.y - k.y, p.x - k.x);
     let diff = angTo - k.facing;
     while (diff >  Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    if (Math.abs(diff) < KILLER_VISION_ARC / 2 && !losBlocked(k.x, k.y, p.x, p.y)){
+    if (Math.abs(diff) < KILLER_VISION_ARC / 2
+        && !losBlocked(k.x, k.y, p.x, p.y)
+        && !smokeBlocksLOS(k.x, k.y, p.x, p.y)){
       canSee = true;
     }
   }
-  // noise — anything inside the noise radius also alerts
+  // noise — anything inside the noise radius also alerts (hidden/downed = silent)
   const playerNoiseRadius = p.repairing ? NOISE_REPAIR : (p.sneaking ? NOISE_SNEAK : NOISE_WALK);
-  const playerMoving = (Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.1) || p.repairing;
+  const playerMoving = !playerEvadable && ((Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.1) || p.repairing);
   const heardPlayer = playerMoving && dPlayer < playerNoiseRadius * 1.6;
 
   // state transitions
@@ -1679,13 +2389,24 @@ function updateKiller(dt, t){
     if (d > 1) k.facing = Math.atan2(dy, dx);
   }
 
-  // catch player (host) — also check remote player in MP. Blinded killers can't catch.
-  if (!blinded && distance(k, p) < (SURV_R + KILLER_R - 2)){
-    lose();
+  // catch player (host) — also check remote player in MP. Blinded killers
+  // can't catch. Hidden (in locker) or already-downed players can't be re-caught.
+  if (!blinded && !p.hidden && !p.downed
+      && distance(k, p) < (SURV_R + KILLER_R - 2)){
+    downPlayer();
   }
-  if (!blinded && MP.enabled && MP.remote){
+  if (!blinded && MP.enabled && MP.remote
+      && !MP.remote.hidden && !MP.remote.downed){
     const dRemote = Math.hypot(k.x - MP.remote.x, k.y - MP.remote.y);
-    if (dRemote < (SURV_R + KILLER_R - 2)) lose();
+    if (dRemote < (SURV_R + KILLER_R - 2)){
+      // Host catches the remote player → tell them to go down
+      mpSend({ t: 'catch', target: 'remote' });
+      // Mark them downed locally so we don't immediately re-catch + spam
+      MP.remote.downed = true;
+      MP.remote._rescueHold = 0;
+      // also: if local is already downed, both are now down → instant lose
+      if (state.player.downed){ mpSend({ t: 'lose' }); lose(); }
+    }
   }
   // heartbeat scales with proximity to NEAREST survivor
   let nearestDist = dPlayer;
@@ -1774,12 +2495,17 @@ function render(t){
   for (const g of state.generators){
     drawGenerator(g, t);
   }
+  // lockers
+  for (const l of state.lockers){ drawLocker(l, t); }
+  // chests
+  for (const c of state.chests){ drawChest(c, t); }
   // killer
   drawKiller(state.killer, t);
-  // player
-  drawPlayer(state.player, t);
+  // player (skipped while hidden so the locker visually swallows them, and
+  // skipped while downed because drawDownedSurvivor renders an X-marker above)
+  if (!state.player.hidden && !state.player.downed) drawPlayer(state.player, t);
   // remote player in MP — drawn in an orange-yellow palette to distinguish
-  if (MP.enabled && MP.remote){
+  if (MP.enabled && MP.remote && !MP.remote.hidden && !MP.remote.downed){
     drawRemotePlayer(MP.remote, t);
   }
 
@@ -1816,6 +2542,20 @@ function render(t){
       drawGenExplosion(g);
     }
   }
+  // chest search progress arc above the chest being searched
+  if (state.player.searchTarget && !state.player.searchTarget.opened){
+    drawSearchProgress(state.player.searchTarget);
+  }
+  // smoke clouds — drawn ABOVE fog so they're visually loud
+  for (const s of state.smokeClouds){ drawSmokeCloud(s, t); }
+  // downed remote teammate — bright SOS marker above the fog, plus rescue arc
+  if (MP.enabled && MP.remote && MP.remote.downed){
+    drawDownedSurvivor(MP.remote, t, '#e0a040');
+  }
+  // downed local self — large pulsing X-marker drawn above fog
+  if (state.player.downed){
+    drawDownedSurvivor(state.player, t, '#ff6080');
+  }
 
   // HUD updates
   const hbEl = document.getElementById('hb-val');
@@ -1826,6 +2566,21 @@ function render(t){
   if (!render._lastFlashHud || t - render._lastFlashHud > 240){
     render._lastFlashHud = t;
     renderFlashlightPips();
+    renderInventoryHud();
+    refreshDownedPill();
+  }
+}
+function refreshDownedPill(){
+  const pill = document.getElementById('downed-pill');
+  if (!pill) return;
+  const p = state.player;
+  if (p.downed){
+    pill.classList.add('show');
+    const remaining = Math.max(0, (p.downedUntil - performance.now()) / 1000);
+    document.getElementById('downed-pill-text').textContent =
+      'DOWNED · ' + remaining.toFixed(1) + 's · teammate must rescue (E)';
+  } else {
+    pill.classList.remove('show');
   }
 }
 
@@ -1895,6 +2650,187 @@ function drawKillerBlindedLabel(k){
   ctx.fillStyle = '#ffee60';
   ctx.fillText(text, k.x, k.y - 19);
   ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+function drawLocker(l, t){
+  // upright steel locker — 2 vertical doors, hinge + slot vent + handle
+  const w = 18, h = 24;
+  const x = l.x - w / 2, y = l.y - h / 2 - 2;
+  const occupied = l.occupiedByLocal || l.occupiedByRemote;
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath(); ctx.ellipse(l.x, l.y + h / 2 + 1, 10, 3, 0, 0, Math.PI * 2); ctx.fill();
+  // body
+  ctx.fillStyle = occupied ? '#3a3550' : '#2a2630';
+  ctx.fillRect(x, y, w, h);
+  // top + bottom edge bands
+  ctx.fillStyle = '#494050';
+  ctx.fillRect(x, y, w, 2);
+  ctx.fillRect(x, y + h - 2, w, 2);
+  // vertical seam between two doors
+  ctx.fillStyle = '#1a1620';
+  ctx.fillRect(x + w / 2 - 0.5, y + 2, 1, h - 4);
+  // ventilation slots (3 horizontal slits per door)
+  ctx.fillStyle = '#0e0a14';
+  for (let i = 0; i < 3; i++){
+    ctx.fillRect(x + 2, y + 4 + i * 3, w / 2 - 3, 1);
+    ctx.fillRect(x + w / 2 + 1, y + 4 + i * 3, w / 2 - 3, 1);
+  }
+  // door handles (tiny dots)
+  ctx.fillStyle = '#8a8090';
+  ctx.fillRect(x + w / 2 - 3, y + h - 9, 2, 2);
+  ctx.fillRect(x + w / 2 + 1, y + h - 9, 2, 2);
+  // occupied glow rim — faint magenta pulse
+  if (occupied){
+    const pulse = 0.5 + 0.5 * Math.sin(t / 220);
+    ctx.strokeStyle = 'rgba(192, 96, 255, ' + (0.35 + pulse * 0.35) + ')';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - 1, y - 1, w + 2, h + 2);
+  }
+}
+
+function drawChest(c, t){
+  const x = c.x, y = c.y + 2;
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.40)';
+  ctx.beginPath(); ctx.ellipse(x, y + 7, 10, 3, 0, 0, Math.PI * 2); ctx.fill();
+  if (c.opened){
+    // open chest: lower body + opened lid arc above + glow inside
+    ctx.fillStyle = '#3a2a16';
+    ctx.fillRect(x - 9, y - 2, 18, 9);
+    ctx.fillStyle = '#5a3e1f';
+    ctx.fillRect(x - 9, y - 2, 18, 2);
+    // bright "empty interior" glow (the loot is taken)
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, 14);
+    grad.addColorStop(0, 'rgba(255, 224, 128, 0.45)');
+    grad.addColorStop(1, 'rgba(255, 224, 128, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fill();
+    // lid rotated open (lift up + back)
+    ctx.save();
+    ctx.translate(x, y - 2);
+    ctx.rotate(-Math.PI * 0.55);
+    ctx.fillStyle = '#5a3e1f';
+    ctx.fillRect(-9, -8, 18, 8);
+    ctx.fillStyle = '#3a2a16';
+    ctx.fillRect(-9, -8, 18, 1);
+    // metal bands
+    ctx.fillStyle = '#8a7048';
+    ctx.fillRect(-9, -5, 18, 1);
+    ctx.restore();
+  } else {
+    // closed chest: rounded wooden box with metal bands + lock
+    ctx.fillStyle = '#3a2a16';
+    ctx.fillRect(x - 9, y - 6, 18, 13);
+    // lid
+    ctx.fillStyle = '#5a3e1f';
+    ctx.fillRect(x - 9, y - 6, 18, 5);
+    // lid top-edge highlight
+    ctx.fillStyle = '#7a542a';
+    ctx.fillRect(x - 9, y - 6, 18, 1);
+    // 3 metal bands
+    ctx.fillStyle = '#8a7048';
+    ctx.fillRect(x - 9, y - 1, 18, 1);
+    ctx.fillRect(x - 7, y - 6, 1, 13);
+    ctx.fillRect(x + 6, y - 6, 1, 13);
+    // central lock plate
+    ctx.fillStyle = '#a08858';
+    ctx.fillRect(x - 2, y - 3, 4, 5);
+    ctx.fillStyle = '#1a1410';
+    ctx.fillRect(x - 1, y, 2, 2);
+    // subtle pulse glow when within range so player knows it's interactive
+    const dPlayer = Math.hypot(state.player.x - x, state.player.y - y);
+    if (dPlayer < CHEST_INTERACT_R + 8){
+      const pulse = 0.5 + 0.5 * Math.sin(t / 240);
+      ctx.strokeStyle = 'rgba(255, 192, 96, ' + (0.30 + pulse * 0.35) + ')';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x - 10, y - 7, 20, 15);
+    }
+  }
+}
+
+function drawSearchProgress(c){
+  const r = 14;
+  const prog = Math.max(0, Math.min(1, c.search / CHEST_SEARCH_TIME));
+  ctx.beginPath();
+  ctx.moveTo(c.x, c.y - 20);
+  ctx.arc(c.x, c.y - 20, r, -Math.PI/2, -Math.PI/2 + prog * Math.PI * 2);
+  ctx.lineTo(c.x, c.y - 20);
+  ctx.fillStyle = 'rgba(255, 192, 96, 0.85)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 192, 96, 0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(c.x, c.y - 20, r, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function drawSmokeCloud(s, t){
+  const now = performance.now();
+  const ageMs = SMOKE_DURATION_MS - (s.until - now);
+  const life = Math.max(0, Math.min(1, 1 - (s.until - now) / SMOKE_DURATION_MS));
+  // alpha: fade in over first 250ms, hold, fade out over last 400ms
+  let alpha = 0.85;
+  if (s.until - now < 400) alpha = 0.85 * ((s.until - now) / 400);
+  else if (ageMs < 250) alpha = 0.85 * (ageMs / 250);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  // multiple offset puffs that drift slightly over time
+  for (let i = 0; i < 7; i++){
+    const a = i * (Math.PI * 2 / 7) + t / 900;
+    const ox = Math.cos(a) * (SMOKE_RADIUS * 0.45);
+    const oy = Math.sin(a) * (SMOKE_RADIUS * 0.45);
+    const cr = SMOKE_RADIUS * 0.62;
+    const grad = ctx.createRadialGradient(s.x + ox, s.y + oy, 0, s.x + ox, s.y + oy, cr);
+    grad.addColorStop(0, 'rgba(168, 172, 184, 0.95)');
+    grad.addColorStop(0.7, 'rgba(100, 104, 120, 0.55)');
+    grad.addColorStop(1, 'rgba(72, 76, 92, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(s.x + ox, s.y + oy, cr, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawDownedSurvivor(p, t, colour){
+  // pulsing X marker + rescue progress arc + warning halo
+  const now = performance.now();
+  const pulse = 0.5 + 0.5 * Math.sin(t / 180);
+  ctx.save();
+  // bright halo
+  const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 22);
+  grad.addColorStop(0, colour + 'cc');
+  grad.addColorStop(1, colour + '00');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(p.x, p.y, 22, 0, Math.PI * 2); ctx.fill();
+  // body slumped (an X)
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(p.x - 5, p.y - 4); ctx.lineTo(p.x + 5, p.y + 4);
+  ctx.moveTo(p.x + 5, p.y - 4); ctx.lineTo(p.x - 5, p.y + 4);
+  ctx.stroke();
+  // rescue hold arc when teammate is holding E
+  const hold = p._rescueHold || 0;
+  if (hold > 0){
+    const ang = -Math.PI / 2 + (hold / RESCUE_HOLD_TIME) * Math.PI * 2;
+    ctx.strokeStyle = '#4cff80';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 14, -Math.PI / 2, ang);
+    ctx.stroke();
+  }
+  // countdown text above
+  if (p.downedUntil){
+    const remaining = Math.max(0, (p.downedUntil - now) / 1000);
+    ctx.font = 'bold 11px IBM Plex Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillText('↓ ' + remaining.toFixed(1) + 's', p.x + 1, p.y - 14);
+    ctx.fillStyle = colour;
+    ctx.fillText('↓ ' + remaining.toFixed(1) + 's', p.x, p.y - 15);
+    ctx.textAlign = 'left';
+  }
   ctx.restore();
 }
 
