@@ -97,8 +97,12 @@ const GENRE_DEFS = {
        'openai','anthropic','rag','embedding','embeddings','transformer',
        'diffusion','stable-diffusion','dalle','midjourney','flux','imagen',
        'whisper','tts','asr','copilot','machine-learning','sloppy-ai',
-       'neural','tensorflow','pytorch','onnx','prompt-engineer',
-       'fine-tune','dataset','training'],
+       'neural','tensorflow','pytorch','onnx','prompt','prompt-engineer',
+       'prompt-optimizer','fine-tune','dataset','training','agent','agents',
+       'multi-agent','assistant','rag-pipeline','context-window',
+       'completion','completions','grok','mistral','llama','gemini',
+       'tokens','token','inference','semantic-search','vector-db',
+       'system-prompt','jailbreak','hallucinate','hallucination'],
   art: ['art','draw','drawing','paint','painter','painting','sketch',
         'doodle','pixel-art','generative-art','kaleidoscope','fractal',
         'fractals','mandelbrot','mandelbulb','julia','spirograph',
@@ -155,8 +159,12 @@ const GENRE_DEFS = {
 function escRe(s){ return s.replace(/[-\\/\\\\^\\\$*+?.()|[\\]{}]/g, '\\\\\$&'); }
 const _genrePatterns = {};
 for (const [g, words] of Object.entries(GENRE_DEFS)){
+  // Allow an optional trailing 's' so plural forms match too: 'adventure'
+  // catches 'adventures', 'agent' catches 'agents', 'game' catches 'games'.
+  // The strict non-alnum boundary on both sides prevents 'promptly' or
+  // 'gaming' style false positives.
   _genrePatterns[g] = words.map(w =>
-    new RegExp('(^|[^a-z0-9])' + escRe(w) + '([^a-z0-9]|\$)', 'i'));
+    new RegExp('(^|[^a-z0-9])' + escRe(w) + 's?([^a-z0-9]|\$)', 'i'));
 }
 function classifyApp(app){
   const hay = ((app.slug||'') + ' ' + (app.title||'') + ' ' +
