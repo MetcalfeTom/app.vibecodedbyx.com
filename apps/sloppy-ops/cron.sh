@@ -24,14 +24,18 @@ fi
 # the official /_bar/apps-index.json hasn't picked up yet).
 bash apps/app-directory/build-index.sh || echo "[cron] app-directory index build failed" >&2
 
+# Rebake the hall-of-fame leaderboard (per-user lifetime + decay scores).
+python3 apps/hall-of-fame/bake.py || echo "[cron] hall-of-fame bake failed" >&2
+
 # Ignore generated_iso / creators_generated when deciding whether to commit.
 # These bump every run; if nothing else moved, there's no point committing.
-if git diff --quiet -I 'generated_iso\|creators_generated' apps/sloppy-ops/data.json apps/app-directory/index.json; then
+if git diff --quiet -I 'generated_iso\|creators_generated' \
+   apps/sloppy-ops/data.json apps/app-directory/index.json apps/hall-of-fame/data.json; then
     echo "[cron] no material changes — skipping commit"
     exit 0
 fi
 
-git add apps/sloppy-ops/data.json apps/app-directory/index.json
+git add apps/sloppy-ops/data.json apps/app-directory/index.json apps/hall-of-fame/data.json
 NOW=$(date -u +%FT%TZ)
 if git commit -m "sloppy-ops: hourly metric refresh ${NOW}"; then
     git push 2>&1 || echo "[cron] push failed — commit kept locally"
