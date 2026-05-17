@@ -436,6 +436,32 @@
       padding: 0 1px;
     }
 
+    .live-dot {
+      display: inline-block;
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 8px rgba(233,196,106,0.7);
+      vertical-align: middle;
+      margin-right: 0.45rem;
+      animation: livepulse 1.8s ease-in-out infinite;
+    }
+    .live-dot.stale { background: var(--decay); box-shadow: 0 0 6px rgba(196,69,69,0.6); animation: none; }
+    @keyframes livepulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.35); opacity: 0.55; }
+    }
+    .num.lifetime.bumped,
+    .num.current.bumped {
+      animation: pointbump 0.9s ease-out 1;
+    }
+    @keyframes pointbump {
+      0%   { color: #fff; text-shadow: 0 0 22px rgba(255,255,255,0.9), 0 0 36px rgba(233,196,106,0.7); transform: scale(1.15); }
+      55%  { color: var(--gold-bright); text-shadow: 0 0 18px rgba(255,217,126,0.7); transform: scale(1.04); }
+      100% { transform: scale(1); }
+    }
+
     .empty {
       padding: 4rem 1rem;
       text-align: center;
@@ -503,7 +529,7 @@
       <div class="crumbs">sloppy.live <span class="now">/ hall-of-fame</span></div>
       <h1 class="title">HALL <span class="dot">·</span> OF <span class="dot">·</span> FAME</h1>
       <p class="tag">the legends behind every weird little app on this site</p>
-      <div class="ribbon" id="ribbon">loading…</div>
+      <div class="ribbon" id="ribbon"><span class="live-dot" id="liveDot"></span>loading…</div>
 
       <div class="toolbar" role="search">
         <label for="search" style="position:absolute;left:-9999px">Search the hall</label>
@@ -571,6 +597,8 @@
 
     let DATA = null;
     let STATE = { q: '', sort: 'lifetime', source: 'all' };
+    const POLL_MS = 30000;
+    const LIVE = { lastTick: null, stale: false, prevScores: new Map() };
 
     function esc(s) {
       return String(s).replace(/[&<>"']/g, c => ({
@@ -632,13 +660,16 @@
         .filter(u => matches(u, q, STATE.source))
         .sort(sortFn(STATE.sort));
 
-      // Stats ribbon
+      // Stats ribbon (the live-dot pulses while the poller is healthy)
       els.ribbon.innerHTML = `
+        <span class="live-dot${LIVE.stale ? ' stale' : ''}" title="${LIVE.stale ? 'stale data' : 'live · polling every ' + (POLL_MS/1000) + 's'}"></span>
         <b>${DATA.total_users.toLocaleString()}</b> honorees
         <span class="sep">·</span>
         <b>${DATA.total_commits.toLocaleString()}</b> lifetime points
         <span class="sep">·</span>
-        ${q ? `<b>${rows.length.toLocaleString()}</b> shown ${q ? `for "${esc(q)}"` : ''}` : `showing all`}
+        ${q ? `<b>${rows.length.toLocaleString()}</b> shown for "${esc(q)}"` : `showing all`}
+        <span class="sep">·</span>
+        <span style="font-size:0.62rem;color:var(--dim)">refreshed ${LIVE.lastTick ? relTime(LIVE.lastTick) : '—'}</span>
       `;
 
       if (rows.length === 0) {
@@ -733,25 +764,80 @@
       render();
     });
 
-    async function load() {
+    function highlightChangedScores(){
+      // Compare each visible row's score to the snapshot we held before
+      // the poll. If lifetime or current moved, flash the bumped class
+      // so the chatter can see WHICH points moved without staring.
+      for (const u of (DATA?.users || [])){
+        const prev = LIVE.prevScores.get(u.name);
+        if (!prev) continue;
+        const row = els.board.querySelector('.row[data-i] .who .name');
+        // We need to find the specific row; the data-i index may have
+        // changed sort position, so query by username inside .name.
+        const all = els.board.querySelectorAll('.row');
+        for (const r of all){
+          if ((r.querySelector('.name')?.textContent || '').trim() !== u.name) continue;
+          if (prev.lifetime !== u.lifetime){
+            const el = r.querySelector('.num.lifetime');
+            if (el){ el.classList.remove('bumped'); void el.offsetWidth; el.classList.add('bumped'); }
+          }
+          if (Math.abs(prev.current - u.current) >= 0.01){
+            const el = r.querySelector('.num.current');
+            if (el){ el.classList.remove('bumped'); void el.offsetWidth; el.classList.add('bumped'); }
+          }
+          break;
+        }
+      }
+      // Snapshot the latest scores for the next poll comparison.
+      LIVE.prevScores.clear();
+      for (const u of (DATA?.users || [])){
+        LIVE.prevScores.set(u.name, { lifetime: u.lifetime, current: u.current });
+      }
+    }
+
+    async function load(isPoll){
       try {
-        const res = await fetch('/hall-of-fame/data.json', { cache: 'no-cache' });
+        // Cache-bust so a fresh bake actually surfaces; the file is
+        // small (~3KB) so the bandwidth cost is negligible.
+        const res = await fetch('/hall-of-fame/data.json?t=' + Date.now(), { cache: 'no-cache' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        DATA = await res.json();
+        const next = await res.json();
+        // First-load snapshot baseline (so first render doesn't flash
+        // every score as if it had just changed).
+        if (!isPoll){
+          for (const u of (next.users || [])){
+            LIVE.prevScores.set(u.name, { lifetime: u.lifetime, current: u.current });
+          }
+        }
+        DATA = next;
+        LIVE.lastTick = DATA.generated_iso;
+        LIVE.stale = false;
         els.hlife.textContent = DATA.half_life_days;
         els.window.textContent = DATA.window_days;
         els.generated.textContent = relTime(DATA.generated_iso);
         render();
+        if (isPoll) highlightChangedScores();
       } catch (err) {
-        els.board.innerHTML = `<div class="errbox">
-          <strong>the hall is dark.</strong><br>
-          <span style="color:#aaa;font-size:.78rem">${esc(err.message || String(err))}</span><br>
-          <span style="color:#aaa;font-size:.78rem">tried: <code>/hall-of-fame/data.json</code></span>
-        </div>`;
+        if (!DATA){
+          els.board.innerHTML = `<div class="errbox">
+            <strong>the hall is dark.</strong><br>
+            <span style="color:#aaa;font-size:.78rem">${esc(err.message || String(err))}</span><br>
+            <span style="color:#aaa;font-size:.78rem">tried: <code>/hall-of-fame/data.json</code></span>
+          </div>`;
+        } else {
+          // Quiet failure on a background poll — keep the last good
+          // render but flip the live-dot to stale so the chatter knows.
+          LIVE.stale = true;
+          render();
+        }
       }
     }
 
-    load();
+    load(false);
+    setInterval(() => load(true), POLL_MS);
+    // Tick the relative-time label every 5s so 'refreshed Xs ago'
+    // updates between polls without re-fetching.
+    setInterval(() => { if (DATA) render(); }, 5000);
   </script>
   <script src="/sloppy-header/sloppy-bar.js"></script>
 </body>

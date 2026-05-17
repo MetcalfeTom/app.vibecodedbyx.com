@@ -405,21 +405,39 @@ def bake_chat_credits() -> tuple[list, int, float, dict]:
 
     H = r"[a-z][a-z0-9_]{2,19}"
     PUNCT = r"[\s,'\";:.!?\)\]]|$"
+    # Expanded noun list catches more real attributions: audit / report /
+    # find / finding / spot / concern / ping / shoutout / lag / hang /
+    # crash / regression (these all show up in 'X's audit' / '(X report)'
+    # style commits that the old list missed).
     ATTRIB_NOUNS = (
         r"bug|ask|request|idea|suggestion|comment|feedback|"
-        r"nudge|prompt|complaint|fix|tweak|nit|note|callout|gripe|hunch"
+        r"nudge|prompt|complaint|fix|tweak|nit|note|callout|gripe|hunch|"
+        r"audit|report|reports|find|finding|spot|concern|ping|shoutout|"
+        r"lag|hang|crash|regression"
     )
     strong_patterns = [
         re.compile(rf"\(({H})\)", re.IGNORECASE),
+        # "(handle report)", "(handle bug)", etc.
+        re.compile(rf"\(({H})\s+(?:{ATTRIB_NOUNS}|reported|spotted|noticed|"
+                   r"caught|asked|wanted|flagged|raised|complained|suggested|"
+                   r"described|says|noted|saw)s?\b",
+                   re.IGNORECASE),
         re.compile(rf"\bper\s+({H})\b(?={PUNCT})", re.IGNORECASE),
         re.compile(rf"\b({H})'s\s+(?:{ATTRIB_NOUNS})\b", re.IGNORECASE),
         re.compile(rf"\bchat\s*[:\-]\s*({H})\b", re.IGNORECASE),
+        # "asked/built/etc for/by X"
         re.compile(
             r"\b(?:asked|requested|wanted|reported|noticed|spotted|caught|"
-            r"flagged|raised|filed|nudged|complained|suggested|described)\s+by\s+"
+            r"flagged|raised|filed|nudged|complained|suggested|described|"
+            r"built)\s+(?:for|by)\s+"
             rf"({H})\b",
             re.IGNORECASE,
         ),
+        # "X noticed/reported/asked/etc Y" leading form
+        re.compile(rf"\b({H})\s+(?:noticed|reported|spotted|caught|saw|"
+                   r"asked|wanted|requested|flagged|raised|complained|"
+                   r"suggested|described|said|noted|hit|encountered|filed)\b",
+                   re.IGNORECASE),
     ]
 
     # ── pass 1: auto-discover unambiguous handles via strong patterns ────
@@ -448,25 +466,43 @@ def bake_chat_credits() -> tuple[list, int, float, dict]:
     handle_pats = {h: re.compile(rf"\b{re.escape(h)}\b", re.IGNORECASE)
                    for h in confirmed}
 
-    # Per-app credit map. For each commit that has chat-handle hits AND
-    # touches one or more apps/<slug>/, attribute each hit to every
-    # touched slug. Counted at most once per (slug, handle, commit).
+    # Per-app credit map. STRICT: only count attribution when the
+    # handle appears in an explicit attribution context (one of the
+    # strong patterns above) — bare mentions don't qualify. This is the
+    # marcipopsis/memory-attic fix: that handle was being credited to
+    # apps where it was only listed as a placeholder seed-username, not
+    # as a requester. The top-level `chat_credits` leaderboard still
+    # counts every standalone mention for the loud-in-chat ranking.
     by_app: dict[str, Counter] = defaultdict(Counter)
 
     for iso, subj, app_slugs in commits:
-        hits: set[str] = set()
+        # Standalone mention hits (used for the top-level leaderboard).
+        mention_hits: set[str] = set()
         for h, p in handle_pats.items():
             if p.search(subj):
-                hits.add(h)
-        if hits:
+                mention_hits.add(h)
+        # Strong-attribution hits (used for per-app credit).
+        strong_hits: set[str] = set()
+        for pat in strong_patterns:
+            for m in pat.finditer(subj):
+                h = m.group(1).lower()
+                if h in BOT_HANDLES or h in TECH_BLOCKLIST:
+                    continue
+                # Only credit if we recognise the handle as a real chatter
+                # (in the whitelist OR auto-discovered via shape).
+                if h in confirmed:
+                    strong_hits.add(h)
+
+        if mention_hits:
             attributed += 1
-            for h in hits:
+            for h in mention_hits:
                 counts[h] += 1
                 if h not in last or last[h] < iso:
                     last[h] = iso
-            for slug in app_slugs:
-                for h in hits:
-                    by_app[slug][h] += 1
+        # Per-app credit only from strong attribution.
+        for slug in app_slugs:
+            for h in strong_hits:
+                by_app[slug][h] += 1
 
     out = [
         {

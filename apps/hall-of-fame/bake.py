@@ -41,6 +41,7 @@ from pathlib import Path
 
 ROOT = Path('/vibespace')
 OUT = ROOT / 'apps' / 'hall-of-fame' / 'data.json'
+MANUAL_CREDITS = ROOT / 'apps' / 'hall-of-fame' / 'manual-credits.json'
 
 HALF_LIFE_DAYS = 21
 WEEK_BUCKETS = 52      # ~1 year of weekly resolution for the sparkline
@@ -140,19 +141,35 @@ def main():
     # Pass 2: auto-discover handles from explicit attribution patterns.
     H = r"[a-z][a-z0-9_]{2,19}"
     PUNCT = r"[\s,'\";:.!?\)\]]|$"
+    # Expanded noun list catches more real attributions: audit / report /
+    # find / finding / spot / concern / ping / shoutout / lag / hang /
+    # crash / regression (these all show up in 'X's audit' / '(X report)'
+    # style commits that the old list missed).
     ATTRIB_NOUNS = (r"bug|ask|request|idea|suggestion|comment|feedback|"
-                    r"nudge|prompt|complaint|fix|tweak|nit|note|callout|gripe|hunch")
+                    r"nudge|prompt|complaint|fix|tweak|nit|note|callout|"
+                    r"gripe|hunch|audit|report|reports|find|finding|spot|"
+                    r"concern|ping|shoutout|lag|hang|crash|regression")
     strong_patterns = [
         re.compile(rf"\(({H})\)", re.IGNORECASE),
+        re.compile(rf"\(({H})\s+(?:{ATTRIB_NOUNS}|reported|spotted|noticed|"
+                   r"caught|asked|wanted|flagged|raised|complained|suggested|"
+                   r"described|says|noted|saw)s?\b",
+                   re.IGNORECASE),
         re.compile(rf"\bper\s+({H})\b(?={PUNCT})", re.IGNORECASE),
         re.compile(rf"\b({H})'s\s+(?:{ATTRIB_NOUNS})\b", re.IGNORECASE),
         re.compile(rf"\bchat\s*[:\-]\s*({H})\b", re.IGNORECASE),
         re.compile(
             r"\b(?:asked|requested|wanted|reported|noticed|spotted|caught|"
-            r"flagged|raised|filed|nudged|complained|suggested|described)\s+by\s+"
+            r"flagged|raised|filed|nudged|complained|suggested|described|"
+            r"built)\s+(?:for|by)\s+"
             rf"({H})\b",
             re.IGNORECASE,
         ),
+        # "X noticed Y" / "X reported Y" leading form
+        re.compile(rf"\b({H})\s+(?:noticed|reported|spotted|caught|saw|"
+                   r"asked|wanted|requested|flagged|raised|complained|"
+                   r"suggested|described|said|noted|hit|encountered|filed)\b",
+                   re.IGNORECASE),
     ]
     auto = set()
     for _w, _a, subj, _apps in commits:
@@ -197,22 +214,84 @@ def main():
             if when and (u['last'] is None or when > u['last']):
                 u['last'] = when
 
-        # Chat-handle attributions. Score once per (handle, commit) so
-        # mentioning the same name twice in a subject doesn't double-count.
-        hits = set()
+        # Chat-handle attributions — hybrid scoring:
+        #   - Any mention of a confirmed handle → +1 to LIFETIME score
+        #     and a week-bucket tick (catches 'fix zennlogic lag' style
+        #     bare mentions which are real credit even without 'per' or
+        #     '(handle)' framing).
+        #   - Only STRONG-pattern hits add the slug to that user's apps
+        #     list (so memory-attic's seed-username placeholder doesn't
+        #     attribute the app to marcipopsis).
+        # Both deduped per-commit so a name repeated in one subject only
+        # earns one point.
+        mention_hits = set()
         for h, p in handle_pats.items():
             if p.search(subj):
-                hits.add(h)
-        for h in hits:
+                mention_hits.add(h)
+        strong_hits = set()
+        for pat in strong_patterns:
+            for m in pat.finditer(subj):
+                h = m.group(1).lower()
+                if h in BOT_HANDLES or h in TECH_BLOCKLIST:
+                    continue
+                if h in confirmed:
+                    strong_hits.add(h)
+        for h in mention_hits:
             u = users[h]
             u['sources'].add('chat')
             u['total'] += 1
             if wk is not None:
                 u['weeks'][wk] += 1
-            for s in app_slugs:
-                u['apps'].add(s)
             if when and (u['last'] is None or when > u['last']):
                 u['last'] = when
+        for h in strong_hits:
+            for s in app_slugs:
+                users[h]['apps'].add(s)
+
+    # Pass 3.5: apply manual chat-attribution overrides for asks that
+    # never landed in a commit subject (creation commits often pre-date
+    # the chat iteration that requested the app). Each entry adds 1
+    # lifetime point per (slug, handle); we anchor 'last' to the slug's
+    # latest commit timestamp so decay treats the credit as fresh as
+    # the app itself. Manual credits also touch the apps set + bump the
+    # current week bucket if the slug's last commit is in-window.
+    try:
+        manual = json.loads(MANUAL_CREDITS.read_text()).get('credits', [])
+    except Exception as e:
+        print(f'[bake] manual-credits load failed: {e}', file=sys.stderr)
+        manual = []
+
+    # Pre-index commits by slug to find each slug's most-recent timestamp.
+    slug_last: dict[str, datetime] = {}
+    for when, _a, _s, app_slugs in commits:
+        if not when:
+            continue
+        for s in app_slugs:
+            if s not in slug_last or when > slug_last[s]:
+                slug_last[s] = when
+
+    manual_applied = 0
+    for entry in manual:
+        slug = entry.get('slug', '').strip()
+        handle = entry.get('handle', '').strip().lower()
+        if not slug or not handle:
+            continue
+        if handle in BOT_HANDLES:
+            continue
+        u = users[handle]
+        u['sources'].add('chat')
+        u['total'] += 1
+        u['apps'].add(slug)
+        anchor = slug_last.get(slug)
+        if anchor:
+            wk = week_index(anchor, now)
+            if wk is not None:
+                u['weeks'][wk] += 1
+            if u['last'] is None or anchor > u['last']:
+                u['last'] = anchor
+        manual_applied += 1
+    if manual_applied:
+        print(f'[bake] applied {manual_applied} manual credit(s)', file=sys.stderr)
 
     # Pass 4: shape output records, score the decay, sort by current.
     out_users = []
