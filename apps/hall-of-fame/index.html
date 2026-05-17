@@ -327,6 +327,73 @@
     }
     .badge.chat { color: #ff8fb8; border-color: rgba(255,143,184,0.4); background: rgba(255,143,184,0.08); }
     .badge.git  { color: var(--gold); border-color: rgba(233,196,106,0.4); background: rgba(233,196,106,0.08); }
+    .badge.live {
+      color: #6ee7b7;
+      border-color: rgba(110,231,183,0.5);
+      background: rgba(110,231,183,0.10);
+      animation: livepulse 1.6s ease-in-out infinite;
+    }
+    .badge.live::before {
+      content: '●';
+      margin-right: 0.25rem;
+      color: #6ee7b7;
+    }
+    .live-points {
+      display: inline-block;
+      margin-left: 0.45rem;
+      padding: 0.05rem 0.4rem;
+      background: rgba(110,231,183,0.10);
+      border: 1px solid rgba(110,231,183,0.35);
+      color: #b6f1d2;
+      font-size: 0.6rem;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.04em;
+    }
+    .row.fresh {
+      animation: freshflash 1.2s ease-out 1;
+    }
+    @keyframes freshflash {
+      0%   { background: rgba(110,231,183,0.18); border-color: #6ee7b7; box-shadow: 0 0 18px rgba(110,231,183,0.4); }
+      100% { /* let the default row background take over */ }
+    }
+
+    /* Twitch IRC status pill + chat ticker tape under the masthead. */
+    .twitch-status {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      font-size: 0.66rem; letter-spacing: 0.16em;
+      color: var(--dim); text-transform: uppercase;
+      margin-left: 0.8rem;
+    }
+    .twitch-status .dot {
+      width: 0.55rem; height: 0.55rem; border-radius: 50%;
+      background: var(--gold); box-shadow: 0 0 6px rgba(233,196,106,0.55);
+    }
+    .twitch-status.connecting .dot { background: #ffd97e; animation: livepulse 0.8s ease-in-out infinite; }
+    .twitch-status.live .dot { background: #6ee7b7; box-shadow: 0 0 8px rgba(110,231,183,0.7); animation: livepulse 1.6s ease-in-out infinite; }
+    .twitch-status.error .dot { background: var(--decay); }
+    .twitch-status b { color: var(--marble); font-weight: 500; }
+
+    .chat-ticker {
+      margin-top: 1rem;
+      max-height: 4.2rem;
+      overflow: hidden;
+      display: flex; flex-direction: column-reverse; gap: 0.3rem;
+      font-size: 0.72rem;
+      color: var(--marble);
+      font-family: 'JetBrains Mono', monospace;
+      border-top: 1px dashed var(--line);
+      padding-top: 0.6rem;
+    }
+    .chat-ticker .ct-line {
+      animation: ct-in 0.25s ease-out 1;
+      letter-spacing: 0.01em;
+    }
+    .chat-ticker .ct-line .nick { color: #6ee7b7; font-weight: 700; margin-right: 0.5rem; }
+    .chat-ticker .ct-line .msg { color: #c9c2ad; }
+    @keyframes ct-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
     .badge.both { color: var(--marble); border-color: rgba(241,233,215,0.35); background: rgba(241,233,215,0.06); }
 
     .num {
@@ -529,7 +596,8 @@
       <div class="crumbs">sloppy.live <span class="now">/ hall-of-fame</span></div>
       <h1 class="title">HALL <span class="dot">·</span> OF <span class="dot">·</span> FAME</h1>
       <p class="tag">the legends behind every weird little app on this site</p>
-      <div class="ribbon" id="ribbon"><span class="live-dot" id="liveDot"></span>loading…</div>
+      <div class="ribbon" id="ribbon"><span class="live-dot" id="liveDot"></span>loading…<span class="twitch-status connecting" id="twitchStatus" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="twitchLabel">twitch · connecting</span></span></div>
+      <div class="chat-ticker" id="chatTicker" role="log" aria-live="polite" aria-label="Live chat ticker"></div>
 
       <div class="toolbar" role="search">
         <label for="search" style="position:absolute;left:-9999px">Search the hall</label>
@@ -542,7 +610,7 @@
           <label for="sortSel">sort</label>
           <select id="sortSel">
             <option value="lifetime">Lifetime points</option>
-            <option value="current">Current (decayed)</option>
+            <option value="current" selected>Current (live + decayed)</option>
             <option value="decay">Decay rate</option>
             <option value="apps">Apps touched</option>
             <option value="last">Most recent</option>
@@ -596,9 +664,30 @@
     };
 
     let DATA = null;
-    let STATE = { q: '', sort: 'lifetime', source: 'all' };
+    // Default sort: 'current' so live chatters surface immediately
+    // (per chat ask: 'make sure the top five are actually current').
+    let STATE = { q: '', sort: 'current', source: 'all' };
     const POLL_MS = 30000;
     const LIVE = { lastTick: null, stale: false, prevScores: new Map() };
+    // Per-session twitch scoring. Each PRIVMSG from a non-bot user
+    // bumps their entry in this map. Scores are merged into DATA.users
+    // on render so the lifetime + live signal coexist in one leaderboard.
+    const TW = {
+      session: new Map(),     // handle (lowercased) → { messages, lastSeen (ms), display }
+      connected: false,
+      ws: null,
+      msgsSeen: 0,
+      reconnectAt: 0,
+      ticker: [],             // last 12 chat lines for the masthead ticker
+    };
+    const TW_BOTS = new Set(['sloppy_ai','sloppy','nightbot','streamelements','streamlabs','moobot','soundalerts','wizebot']);
+    // Live boost: each message contributes 0.6 to the user's CURRENT
+    // score, then decays exponentially with a 5-minute half-life so
+    // 'is talking right now' bubbles them to the top even if their
+    // lifetime is small. Tunable.
+    const TW_LIVE_BOOST_PER_MSG = 0.6;
+    const TW_LIVE_HALFLIFE_MS = 5 * 60 * 1000;
+    const TW_LIVE_LAMBDA = Math.log(2) / TW_LIVE_HALFLIFE_MS;
 
     function esc(s) {
       return String(s).replace(/[&<>"']/g, c => ({
@@ -653,10 +742,57 @@
       }).join('') + '</span>';
     }
 
+    function applyLiveLayer(users){
+      // Merge live twitch session data into the baked users list. For
+      // each chatter we either find an existing entry (case-insensitive
+      // match on name) or synthesise a fresh one with lifetime=0.
+      const idx = new Map();
+      for (const u of users) idx.set(u.name.toLowerCase(), u);
+      const now = Date.now();
+      for (const [key, s] of TW.session.entries()){
+        const ageMs = now - s.lastSeen;
+        const decay = Math.exp(-TW_LIVE_LAMBDA * ageMs);
+        // Per-message stack with their own decay timestamps would be
+        // more accurate; this single-spike-from-last-seen approximation
+        // is good enough at the 5-min half-life — fresh chatters spike,
+        // quiet ones fade back to baseline.
+        const liveBoost = s.messages * TW_LIVE_BOOST_PER_MSG * decay;
+        let u = idx.get(key);
+        if (!u){
+          u = {
+            name: s.display || key,
+            source: 'chat',
+            lifetime: 0,
+            current: 0,
+            decay_pct: 100,
+            days_since_last: null,
+            weeks: new Array((DATA && DATA.week_buckets) || 26).fill(0),
+            apps: [],
+            apps_count: 0,
+            last_active_iso: new Date(s.lastSeen).toISOString(),
+            _live: true,
+          };
+          users.push(u);
+          idx.set(key, u);
+        }
+        u.live_messages = s.messages;
+        u.live_boost = liveBoost;
+        u.live_active = ageMs < 60000;   // 'green dot' window
+        // The leaderboard reads u.current for sorting; bump it with
+        // the live boost so loud-this-session chatters rise.
+        u.current = (u.current || 0) + liveBoost;
+        if (ageMs < 60000) u.last_active_iso = new Date(s.lastSeen).toISOString();
+      }
+    }
+
     function render() {
       if (!DATA) return;
       const q = STATE.q.trim().toLowerCase();
-      const rows = DATA.users
+      // Snapshot users so the live merge doesn't pollute the baked
+      // array. We rebuild on every render so live decay is honest.
+      const merged = DATA.users.map(u => ({ ...u }));
+      applyLiveLayer(merged);
+      const rows = merged
         .filter(u => matches(u, q, STATE.source))
         .sort(sortFn(STATE.sort));
 
@@ -693,11 +829,12 @@
               <div class="name">${highlight(u.name, q)}</div>
               <div class="meta">
                 <span class="badge ${u.source}">${u.source}</span>
-                <span>${u.lifetime} pts · ${u.apps_count} apps</span>
+                ${u.live_active ? `<span class="badge live">live</span>` : ''}
+                <span>${u.lifetime} pts · ${u.apps_count} apps${u.live_messages ? ` · ${u.live_messages} msg this session` : ''}</span>
               </div>
             </div>
             <div class="num lifetime" title="total credits over the last ${DATA.window_days} days">${u.lifetime}</div>
-            <div class="num current" title="lifetime × exp(-λ × days_since_last), λ from half-life ${DATA.half_life_days}d">${u.current.toFixed(2)}<span class="pct">−${u.decay_pct}%</span></div>
+            <div class="num current" title="baked current + live twitch boost (5-min half-life on per-msg spikes)">${u.current.toFixed(2)}<span class="pct">−${u.decay_pct}%</span>${u.live_boost > 0.05 ? `<span class="live-points">+${u.live_boost.toFixed(2)} live</span>` : ''}</div>
             ${spark(u.weeks)}
             <div class="num apps">${u.apps_count}</div>
             <div class="when ${cold ? 'cold' : ''}"><b>${relTime(u.last_active_iso)}</b></div>
@@ -832,6 +969,153 @@
         }
       }
     }
+
+    /* ── Live Twitch IRC listener ────────────────────────────────
+       Anon read-only join of #sloppy_ai. Each PRIVMSG bumps the
+       sender's per-session score; the leaderboard then re-renders.
+       Tokenising parser handles @tags + RECONNECT + PING properly.
+       Auto-reconnects on close with a 4s backoff. Won't impact the
+       baked-data path if Twitch is unreachable — the hall still
+       renders, just without the live boost. */
+    const TWITCH_CHANNEL = 'sloppy_ai';
+    const twStatus = document.getElementById('twitchStatus');
+    const twLabel = document.getElementById('twitchLabel');
+    const chatTicker = document.getElementById('chatTicker');
+
+    function twSetStatus(state, label){
+      twStatus.classList.remove('connecting','live','error');
+      twStatus.classList.add(state);
+      twLabel.textContent = label;
+    }
+    function twDisplayNameFromTags(rawLine){
+      const m = /^@([^ ]+) /.exec(rawLine);
+      if (!m) return null;
+      for (const tag of m[1].split(';')){
+        const [k, v] = tag.split('=', 2);
+        if (k === 'display-name' && v){
+          return v.replace(/\\s/g, ' ').trim();
+        }
+      }
+      return null;
+    }
+    function twParseIrcLine(line){
+      let rest = line;
+      let tags = '';
+      if (rest.startsWith('@')){
+        const sp = rest.indexOf(' ');
+        tags = rest.slice(1, sp);
+        rest = rest.slice(sp + 1);
+      }
+      let prefix = '';
+      if (rest.startsWith(':')){
+        const sp = rest.indexOf(' ');
+        prefix = rest.slice(1, sp);
+        rest = rest.slice(sp + 1);
+      }
+      const colon = rest.indexOf(' :');
+      let trailing = null;
+      if (colon !== -1){
+        trailing = rest.slice(colon + 2);
+        rest = rest.slice(0, colon);
+      }
+      const parts = rest.split(' ').filter(Boolean);
+      const cmd = parts.shift() || '';
+      if (trailing !== null) parts.push(trailing);
+      return { tags, prefix, cmd, params: parts };
+    }
+    function twPushTicker(nick, msg){
+      TW.ticker.push({ nick, msg, at: Date.now() });
+      if (TW.ticker.length > 12) TW.ticker.shift();
+      // render the ticker; column-reverse + push means newest renders
+      // at the top automatically.
+      chatTicker.innerHTML = TW.ticker.map(t => `
+        <div class="ct-line"><span class="nick">${esc(t.nick)}</span><span class="msg">${esc(t.msg.slice(0, 140))}</span></div>
+      `).join('');
+    }
+    function twHandlePrivmsg(nick, channel, text, display){
+      const key = nick.toLowerCase();
+      if (TW_BOTS.has(key)) return;
+      // Sanitise the display name; fall back to nick if missing.
+      const dispName = (display && display.trim()) || nick;
+      let s = TW.session.get(key);
+      if (!s){
+        s = { messages: 0, lastSeen: 0, display: dispName };
+        TW.session.set(key, s);
+      } else {
+        s.display = dispName;     // keep the latest cased version
+      }
+      s.messages += 1;
+      s.lastSeen = Date.now();
+      TW.msgsSeen += 1;
+      twSetStatus('live', `twitch · #${TWITCH_CHANNEL} · ${TW.msgsSeen} msg`);
+      twPushTicker(dispName, text);
+      // Re-render the leaderboard. Cheap enough — at peak chat rate
+      // this is sub-ms because the merge is O(users).
+      if (DATA) render();
+      // Flash the row that just bumped (next animation frame so the
+      // freshly-rendered row exists in the DOM).
+      requestAnimationFrame(() => {
+        for (const r of els.board.querySelectorAll('.row')){
+          const n = (r.querySelector('.name')?.textContent || '').trim().toLowerCase();
+          if (n === dispName.toLowerCase()){
+            r.classList.remove('fresh'); void r.offsetWidth; r.classList.add('fresh');
+            break;
+          }
+        }
+      });
+    }
+    function twConnect(){
+      twSetStatus('connecting', `twitch · connecting`);
+      const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+      TW.ws = ws;
+      ws.onopen = () => {
+        try {
+          ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands\r\n');
+          ws.send('PASS SCHMOOPIIE\r\n');
+          ws.send('NICK justinfan' + Math.floor(Math.random() * 99999) + '\r\n');
+          ws.send('JOIN #' + TWITCH_CHANNEL + '\r\n');
+        } catch(_) {}
+      };
+      ws.onmessage = (ev) => {
+        for (const raw of String(ev.data).split('\r\n')){
+          if (!raw) continue;
+          // Keep-alive
+          if (raw.startsWith('PING ')){
+            try { ws.send('PONG ' + raw.slice(5) + '\r\n'); } catch(_) {}
+            continue;
+          }
+          const display = twDisplayNameFromTags(raw);
+          const m = twParseIrcLine(raw);
+          if (m.cmd === 'PRIVMSG'){
+            const nickMatch = /^([^!]+)!/.exec(m.prefix);
+            if (!nickMatch) continue;
+            const nick = nickMatch[1];
+            const channel = m.params[0] || '';
+            const text = m.params[m.params.length - 1] || '';
+            if (channel !== '#' + TWITCH_CHANNEL) continue;
+            twHandlePrivmsg(nick, channel, text, display);
+          } else if (m.cmd === 'JOIN'){
+            // first JOIN echo confirms the room is reachable
+            twSetStatus('live', `twitch · #${TWITCH_CHANNEL} · listening`);
+          } else if (m.cmd === 'RECONNECT'){
+            try { ws.close(); } catch(_) {}
+          }
+        }
+      };
+      ws.onclose = () => {
+        TW.connected = false;
+        twSetStatus('error', 'twitch · reconnecting · 4s');
+        setTimeout(twConnect, 4000);
+      };
+      ws.onerror = () => {
+        twSetStatus('error', 'twitch · error · retrying');
+        try { ws.close(); } catch(_) {}
+      };
+    }
+    twConnect();
+    // Re-render every 6s so live decay visibly attenuates between
+    // messages and active-badges drop off after the 60s window.
+    setInterval(() => { if (DATA) render(); }, 6000);
 
     load(false);
     setInterval(() => load(true), POLL_MS);
