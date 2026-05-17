@@ -1,6 +1,47 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-17: v1.16 — **panic mode that swaps every Recall thumbnail for a kitten and shows a rotating list of corporate excuses** per chat ask: "update windows-11-recall-nightmare with a panic mode that swaps screenshots for kittens and a list of corporate excuses." The "boss just walked behind your desk" feature — one click and the entire surveillance timeline becomes a wholesome cat moodboard.
+  - **Trigger** (two ways):
+    1. Big red 🛟 **PANIC** button injected at the right end of the Recall search bar — gradient red→dark, white border, 14px outer glow, hover brightens + glow pulses to 22px
+    2. `Ctrl+Shift+P` from anywhere on the page — auto-opens Recall if it's closed, then toggles panic
+  - When panic mode is ON:
+    - **Button flips state**: turns warm orange, animates with `panicPulse` keyframe (1.1s ease-in-out glow swell), label changes to `🐈 COVER STORY`
+    - **Banner slides in below the search bar**: amber gradient (rgba(255,154,60,0.18) → rgba(255,255,255,0.40) → rgba(255,154,60,0.18)) with backdrop-blur, contains 3 zones:
+      - Heading: pulsing red dot + `COVER STORY ACTIVE · screenshots overwritten with kittens` in tracked uppercase
+      - Excuse line: italic prose like *"If asked, you can say: **I'm conducting brand-mascot research.**"*
+      - Action buttons: `↻ new excuse` (cycles to the next corporate excuse) + `stand down (back to nightmare)` (toggles panic off)
+    - **Recall grid re-renders** in kitten mode: each of the 17 snap cards gets:
+      - Thumbnail replaced with a real cat photo via `cataas.com/cat?width=320&height=200&type=square&seed=N` (seeds 50000-50016, so the same kittens come back on re-toggle and across reboots; using the well-known free Cat-as-a-Service API since the project already uses external image services like Pollinations + emojicdn)
+      - Cover gradient overlay (transparent → rgba(0,0,0,0.30)) for legibility
+      - Bottom-left tag with `♥ Kitten Name` in white with text-shadow (17 hand-curated names: Mr. Whiskers, Doris, Snorbert, Lord Pawsworth, Tangerine, Bagel, Captain Floof, Steve, The Duchess, Pickle, Smudge, Olive, Brian, Ribbon, Toaster, Margot, Beans)
+      - App-line replaced with `🐈 Kitten Name`, caption with "Today: napping, judging, biscuits.", timestamp preserved
+      - Card border softens to amber-tinted with subtle inset glow
+  - **Click a kitten card** → snap-detail panel opens with wholesome cat content instead of the embarrassing surveillance reveal:
+    - 17 hand-written `KITTEN_BODIES` — daily logs, threat assessments ("cucumber on the floor (urgent)"), philosophical reflections ("Is the cardboard box the box, or am I the box?"), wellness check-ins, memos to "The Human" about the closed door
+    - 8 rotating `KITTEN_AIS` lines as the AI footer: "Copilot has been replaced by a real cat. The real cat has no comment." / "Brand mascot prototype #7 · approval pending from Legal." / "Q4 morale-stack research output — please forward to People Ops." etc.
+    - Header shows "🐈 Kitten Name · daily check-in", meta row says "Sourced from **Pet-Welfare Subcommittee**"
+    - Still bumps `state.snapsViewed` + `bumpProgress()` so the BSOD escalation cycle continues even while in cover-story mode (you can still crash the system; the boss is still watching the kittens)
+  - **24 corporate excuses** in `PANIC_EXCUSES`, hand-written to be plausibly recitable in front of a colleague or manager. Highlights:
+    - "I'm conducting brand-mascot research."
+    - "Reviewing accessibility contrast on warm-toned imagery."
+    - "Cross-functional alignment with the wellness-touchpoint workstream."
+    - "Empathy-stack research for a customer-journey deep dive."
+    - "Synergising the wellness pillar of our DEI roadmap."
+    - "Conducting a non-trivial vibe audit, ETA end of sprint."
+    - "Auditing the emotional bandwidth of the customer onboarding flow."
+    - "Cross-pollinating insights from the People Ops well-being charter."
+    - "Validating the parasocial-engagement KPI with empirical inputs."
+    - "Bandwidth-adjacent productivity recovery (it's in the deck)."
+    - "I'm taking a wellness micro-break in line with the new policy."
+    - + 13 more in the same register
+  - **Excuse rotation**: first activation picks weighted-random; subsequent activations + `↻ new excuse` clicks step forward sequentially with mod-cycle. Excuse index persists across reboots so cycling continues from where you left off.
+  - **Persistence across BSOD reboot**: `state.panicMode` is NOT reset in `reboot()` — the boss is still walking past, the cover story holds across crashes. `reboot()` was extended to re-sync the PANIC button + banner visual state to match the persisted panicMode value so they don't drift after a forced restart.
+  - **`openSnap(s, idx)`** signature extended with the snap index so the kitten override can map deterministically to the same kitten across re-opens (was just `openSnap(s)` before).
+  - **State**: `state.panicMode` (bool), `state.panicExcuseIdx` (int cursor into PANIC_EXCUSES), `state.panicActivations` (int count) — used to bias the first-activation excuse to weighted-random vs sequential thereafter.
+  - **WCAG**: panic button + banner have proper labels (title attr, `role="status" aria-live="polite"` on banner), keyboard shortcut works without focus dependency. Per-project convention preserved.
+  - File 266KB → ~278KB.
+
 - 2026-05-16: v1.15 — **OOBE has three working escape paths now** per stacked chat asks: "make one of the wifi networks functional after multiple clicks, or provide a hidden bypass so users can reach the desktop. Marc" + amendment: "make the first wifi network actually connect after **exactly six desperate clicks**." Previous v1.14 only had the "surrender" path after 4 dead-end clicks — punishing without a satirical pay-off. Now there are three paths in:
   1. **BT-Hub-47-Z connects on the EXACT 6th click**. Clicks 1-5 each show a different escalating excuse with an attempt counter ("⚠ Connecting to BT-Hub-47-Z · attempt 3/6"):
      - 1: "Cannot connect. Password incorrect. (You haven't entered one. We checked.)"
