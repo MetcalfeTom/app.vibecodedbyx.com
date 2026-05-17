@@ -1,6 +1,43 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-17: v1.22 — **SECURE BOOT EXPIRY · the panic-inducing UEFI lockout** per stacked chat asks: "add a panic-inducing secure boot expiry screen to the windows-11-recall-nightmare app" + "update windows-11-recall-nightmare with a secure boot expiry screen that locks the user out until they update their bios." The most panic-shaped overlay in the app yet — full BIOS-screen takeover with a real PC-speaker alarm and a 30-second fake BIOS update.
+  - **TRIGGER** (two paths):
+    1. **Periodic** — every 30s, 12% chance of firing if no other major overlay is active (BSOD, emoji-lock, login screen, fake-update). Average: one event per ~4 minutes of activity.
+    2. **Post-reboot** — 30% chance of firing 4-9s after every BSOD reboot completes. Gives the iconic "great, NOW this" feeling.
+    - 90-second cooldown between events so it doesn't spam.
+  - **Z-INDEX 290** — sits above the lock screen (265), emoji-lock (260), Bing sidebar, terminal, fake-update overlay — only the BSOD itself (300+) is higher. Truly nothing else is interactable while this is up.
+  - **VISUAL** — full-viewport BIOS aesthetic:
+    - **Boot-flash entrance**: `sbBootIn` keyframe with 3-step staircase fades white → navy → navy (the moment a real BIOS POST screen appears). 180ms.
+    - **Pulsing red banner** at top: rotates among 3 hand-written variants — "⚠ SECURE BOOT CERTIFICATE EXPIRED · TPM 2.0 HANDSHAKE FAILED · DO NOT POWER OFF" / "⚠ UEFI CHAIN OF TRUST BROKEN · BIOS UPDATE MANDATORY · DO NOT POWER OFF" / "⚠ TPM 2.0 PCR[7] MISMATCH · BOOT MANAGER LOCKED · DO NOT POWER OFF". 0.85s opacity pulse for that warning-light effect.
+    - **Huge ⚠ icon** in amber with 22px shadowBlur glow
+    - **"UEFI Boot Manager · CRITICAL SECURITY EVENT" header**
+    - **Info paragraph** with bolded amber dates + red italics: "Your Secure Boot certificate expired on **2026-Mar-14** (randomised year 2020-2025, random month + day). Until your BIOS is updated, all applications are quarantined by Microsoft Defender Boot Loader. Until the BIOS update completes, you will not be able to: use Recall · launch any application · close this dialog · turn off the computer · move your mouse with confidence."
+    - **Certificate fingerprint panel** (Consolas mono, dark inset card with blue accent border): hand-crafted fake UEFI bureaucracy — `CERT: 0xDEAD-BEEF-47-CC-AB-12-9F-99-…`, `CHAIN: Microsoft Corporation UEFI CA 2011 → Microsoft Windows Production PCA → YOU (revoked)`, `TPM: 2.0 (locked) · fTPM: not present · PCR[7]: mismatch`. Designed to look exactly real enough to make IT-adjacent chat double-take.
+    - **Pulsing red doomsday countdown** at 2:00 ticking down by 1s — when it hits 0 it doesn't actually expire (lol), it just **re-rolls to a fresh 47-67 seconds** with the message "cold-storage countdown *extended* by **47 seconds** (for compliance reasons)". Classic Microsoft.
+  - **THE BIG RED "UPDATE BIOS NOW" BUTTON** with a `sbBtnPulse` keyframe glow that swells from 24px to 38px box-shadow on a 1.4s loop. Impossible to ignore.
+  - **Cancel + Skip** buttons present but functionally useless:
+    - 5 hand-written `SB_CANCEL_REPLIES` rotate: "Cancellation is not authorised at this stage. (Microsoft has noted the request.)" / "You cannot cancel. The BIOS update is mandatory. (We can wait.)" / "Cancel? Bold. The update has been re-queued. (Twice.)" / "Cancellation request denied for security reasons. The reason is: we said no." / "Per UEFI policy ¶47.b you may not cancel a Secure Boot recovery. (We made that up.)"
+    - 5 hand-written `SB_SKIP_REPLIES`: "Skip is not a valid option here." / "Skipping has been disabled by your IT administrator. (You are your IT administrator.)" / "Skip request received. We have skipped acknowledging it." / "Skip costs $4,000. Please contact your Microsoft account representative." / "You skipped one (1) thing in 2019. It was this. We remember."
+    - Each press increments `secureBoot.attempts` + shows the reply in the stage area; after **5 attempts**, an orange "I will buy a new computer" surrender button appears at the bottom.
+  - **FAKE BIOS UPDATE FLOW** (30 seconds total):
+    - Click "Update BIOS Now" → buttons disable, progress bar fades in with shimmering blue gradient + outer glow
+    - Pct ticker: 0 → 99% over ~28s on a non-linear curve (1.6/tick under 50%, 0.8/tick 50-80%, 0.25/tick 80-99% — slows down dramatically at the end for the iconic "stuck at 99%" feeling). At 99% it limps by 0.02/tick toward 99.95 for an extra 2s of dread.
+    - **13 stage messages rotate** every 2.4s: "preparing BIOS image…" / "validating signature against PCR[7]…" / "erasing flash sector 0x47000000…" / "writing UEFI boot loader (47 of 12,239 blocks)…" / "flashing fTPM keys (this would have been free in 2019)…" / "verifying secure boot chain…" / "rebuilding boot manager database…" / "preparing kernel pinky-swear…" / "committing new revocation list…" / "almost done · do not turn off your computer" / "somehow not done · please continue not turning off" / "really almost done now" / "finalising the finalising…"
+    - Byte counter updates alongside pct: "23.4 / 47 MB"
+    - At 100%: **green "✓ BIOS UPDATED · system will reboot in 2 seconds"** message → 2.2s pause → **`triggerCrash()`** fires the real BSOD cascade. Because of course your BIOS update results in a crash. (The reboot afterward then has its own 30% chance of triggering ANOTHER secure-boot expiry — the loop continues.)
+  - **3 ESCAPE PATHS** (matching the established v1.15/v1.17/v1.18 pattern):
+    1. **Grind the update** — the 30-second fake update, ending in BSOD. The intended punishment path.
+    2. **Humiliation surrender** — orange "I will buy a new computer" button appears after 5 cancel/skip presses. Click = "✓ defeat accepted · resuming surveillance" → hide overlay → no BSOD reboot (you get to keep your session, having admitted you were owned).
+    3. **Hidden Ctrl+Shift+B engineering bypass** — only active while the overlay is showing. Shows "✓ Engineering bypass accepted · TPM PCR[7] override applied (this will be audited)" → 800ms green flash → hide overlay. Hint visible at the bottom-right of the footnote in 40%-opacity amber: `[ engineering bypass: Ctrl+Shift+B ]`.
+  - **AUDIO**:
+    - `sndSecureBootAlarm` — 3 escalating square-wave beeps (880 / 990 / 1100Hz) in 200ms succession on appear. The iconic PC-speaker POST alarm.
+    - `sndSecureBootBeep` — small 660/880Hz mechanical click on "Update BIOS Now" press
+    - `sndSecureBootSuccess` — 523/659/784Hz triangle major arpeggio on completion / surrender / bypass
+  - **STATE**: new `secureBoot` object with `{active, attempts, updating, lastFiredAt, countdownTimer, progressTimer, stageTimer, fingerprintRotation}`. `reboot()` extended to defensively dismiss the overlay + clear all 3 timers (countdown / progress / stage) so a mid-update crash doesn't strand them.
+  - **WCAG**: `role="dialog" aria-modal="true" aria-labelledby="sb-title"`, decorative icons `aria-hidden="true"`, all buttons keyboard-focusable + Enter-activated, `prefers-reduced-motion` kills boot-in flash + banner pulse + bar shimmer + button glow + countdown digit pulse (still functional — just no motion).
+  - File ~358KB → ~378KB.
+
 - 2026-05-17: v1.21 — **"fix the redirect loop" satirical resolution: after the 30-emoji password is cracked, you're dropped onto a Win11 lock screen and have to log in again** per chat ask: "fix the redirect loop in windows-11-recall-nightmare so it returns to the login screen after setting the password." Read as the perfect punchline framing — the "fix" IS the joke. You spent 5+ tries entering 30 emojis just to be told you now need to sign in.
   - **NEW `#login-screen` overlay** (z-index 265, full-viewport): Win11-style lock screen mimicking the iconic blurred-mountain wallpaper via pure CSS — 3 layered radial blobs (purple top-left + teal centre-right + magenta bottom) over a deep #0a1830→#02 vertical gradient, with a slow moving 200px-circle highlight (`lockBlob` keyframe, 14s loop) for the parallax shimmer. `backdrop-filter: blur(2px)` adds the dreamy out-of-focus quality.
   - **Live clock** (centred, top half of the screen): huge `clamp(5rem, 16vw, 9rem)` Segoe UI Variable weight 200 time in HH:MM, smaller weight 400 date below ("Friday, May 17"). Ticks every second via `setInterval` while the screen is visible. Updated on each show.
