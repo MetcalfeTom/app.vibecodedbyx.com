@@ -19,6 +19,7 @@ Exit codes:
     0  success
     2  git or filesystem failure (snapshot left untouched)
 """
+import functools
 import json
 import os
 import re
@@ -87,26 +88,81 @@ def bake_sizes_top() -> tuple[list, int]:
     return rows[:30], len(rows)
 
 
+@functools.lru_cache(maxsize=1)
+def _real_slugs() -> frozenset:
+    """The set of slugs that are actually directories under apps/.
+    Used to validate candidate names extracted from commit subjects so
+    we never emit a `d.app` value that won't resolve when the user clicks
+    'visit' on the deployments list."""
+    try:
+        return frozenset(p.name for p in (ROOT / 'apps').iterdir() if p.is_dir())
+    except Exception:
+        return frozenset()
+
+
 def _app_from_commit(h: str, subj: str) -> str:
-    """Best-effort: derive the primary app name from a commit.
-    First tries the conventional `appname: …` subject prefix, then falls
-    back to `git show --name-only` to find the first `apps/<name>/` path
-    in the changed files."""
-    m = re.match(r'^([a-z0-9][a-z0-9_-]*)\s*[:|-]', subj or '')
-    if m:
-        return m.group(1)
+    """Derive the primary app name from a commit. The authoritative
+    source is the actual `apps/<slug>/` path touched by the commit — the
+    subject-line prefix is only used as a tie-breaker when a commit
+    spans multiple apps, or as a last resort when the commit touched
+    nothing under apps/. Any candidate is validated against the real
+    apps/ directory listing so we never emit a broken slug."""
+    real = _real_slugs()
+
+    # 1. Walk the files actually changed by this commit. Collect every
+    #    apps/<slug>/ path; prefer the slug that matches the subject
+    #    prefix, otherwise return the single touched slug (or the first
+    #    if multiple — rare but happens with cross-cutting refactors).
+    touched: list[str] = []
     try:
         files = run([
             'git', '-C', str(ROOT), 'show', '--name-only',
             '--pretty=format:', h,
         ]).strip().split('\n')
+        seen = set()
         for f in files:
             if f.startswith('apps/'):
                 parts = f.split('/')
-                if len(parts) >= 2 and parts[1]:
-                    return parts[1]
+                if len(parts) >= 2 and parts[1] and parts[1] not in seen:
+                    seen.add(parts[1])
+                    if not real or parts[1] in real:
+                        touched.append(parts[1])
     except Exception:
         pass
+
+    # Extract the subject prefix once, as a hint for tie-breaking.
+    prefix_hint = ''
+    m = re.match(r'^([a-z0-9][a-z0-9_-]*)\s*[:|-]', subj or '')
+    if m:
+        # Greedy match may have stopped on the FIRST hyphen even though
+        # the real slug has more hyphens. Try longer candidates: from
+        # the full subject, take the leading run of [a-z0-9_-] and walk
+        # back hyphen-by-hyphen looking for one that's a real slug.
+        head = re.match(r'^[a-z0-9_-]+', subj or '')
+        if head:
+            cand = head.group(0).rstrip('-')
+            while cand:
+                if not real or cand in real:
+                    prefix_hint = cand
+                    break
+                # Drop the trailing -segment and retry.
+                if '-' in cand:
+                    cand = cand.rsplit('-', 1)[0]
+                else:
+                    break
+        if not prefix_hint:
+            prefix_hint = m.group(1)
+
+    if touched:
+        if prefix_hint and prefix_hint in touched:
+            return prefix_hint
+        return touched[0]
+
+    # 2. Nothing under apps/ was touched — fall back to the subject
+    #    prefix, but only return it if it actually exists on disk (or if
+    #    we have no real-slug set to compare against).
+    if prefix_hint and (not real or prefix_hint in real):
+        return prefix_hint
     return ''
 
 
