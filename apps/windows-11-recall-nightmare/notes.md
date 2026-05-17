@@ -1,6 +1,30 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-17: v1.17 — **mandatory 30-character emoji password screen gates every Recall open** per chat ask: "add a 30 character emoji password screen before Recall resumes." Microsoft security theatre, satirically: you can't access your own surveillance footage without entering 30 emojis you definitely didn't set.
+  - **Trigger**: `openRecall()` now checks `state.recallUnlockedUntil` first. If the unlock has expired (or never been earned), the lock modal `#emoji-lock` shows full-viewport with `backdrop-filter: blur(8px)` over a deep-navy semi-transparent veil. New `reallyOpenRecall()` helper does the actual open-Recall work AND sets a 60-second grace window so closing + reopening Recall within a minute doesn't re-prompt (otherwise the satire becomes mean rather than funny).
+  - **Modal layout** (640px max, Segoe UI):
+    - Lock-icon header + heading "Recall has been locked for your security." + sub-line *"Enter your **30-character emoji password** to continue. Microsoft has determined this is the strongest passphrase format **that you definitely set up**."*
+    - **Password line** = dark `#1a1f2e` panel that fills with the user's emoji selections. Empty slots = 30 small grey-tinted boxes; filled slots = the actual 21px emojis. Word-break: break-all so 30 emojis flow cleanly.
+    - **Counter strip**: live "N / 30 · weak / still weak / somehow still weak / acceptable" (turns green at 30) + persistent `Attempts: N` counter on the left in mono.
+    - **Emoji keyboard**: 8×6 = 48-emoji grid, themed by row: faces 😀😂😎😭😡🥹🥺🤯 / animals 🐱🐶🐻🦊🐰🐼🐯🐸 / food 🍕🌮🥑🍔🍣🍩🍓🥥 / nature 🌴🌵🌻🌊🌙☀️🔥❄️ / tech 💻📱⌨️📧📊📎🗑️🔒 / chaos 💀👻👽🤖💩🎉✨🦄. Each is a 26px button with hover-tint + active-shrink. Drops to 6×8 grid on mobile.
+    - **Error/status line** (`role="status" aria-live="polite"`) — red italic under the grid, swaps to green on success.
+    - **5 action buttons**: blue **Submit** (primary, disabled until 30 selected) + ⌫ **Backspace** + red **Clear** + **Reset password** + (hidden initially) orange **I am sufficiently humiliated · let me in** surrender button that appears after 5 failed attempts.
+    - **Hint footer** at the bottom: *"your password is one of the 10²⁹ possible combinations. Try them."*
+  - **Authentication "logic"** (the joke):
+    - First 3 attempts: **ALWAYS fail**, each with a fresh excuse from an 8-entry `EL_FAILS` pool: *"Incorrect. (You only had 10²⁹ chances to get this right.)"* / *"Have you considered that the password may have silently changed?"* / *"Incorrect. This password was set in 2019 by an account you don't remember creating."* / *"Almost. The first 14 emojis are wrong. The other 16 are also wrong."* / *"Incorrect. Did you mean to use the OTHER 30 emojis?"* etc.
+    - Attempts 4+: success rate climbs `0.40 + (attempts - 4) × 0.20` per try — so 40%, 60%, 80%, 100% by attempt 8. Means the average user gets in on attempt 5-6 if they keep going.
+    - Each failure CLEARS the entered password — you have to type 30 fresh emojis every attempt. Maximum bureaucratic indignity.
+  - **3 escape paths** (matching the v1.15 OOBE-WiFi pattern):
+    1. **Grind through** — 4+ failed attempts + lucky 40-100% roll on submit. 3 rotating success messages: *"✓ Correct! (We are mildly surprised. Recall will now resume.)"* / *"✓ Verified. Microsoft has noted your perseverance for future audits."* / *"✓ Accepted. The password we accepted was probably not yours, but we'll allow it."* Green text for 1.1s → close modal → open Recall.
+    2. **Humiliation surrender button** appears after 5 failed attempts — orange gradient, fades in, click = instant unlock. Self-deprecating label: *"I am sufficiently humiliated · let me in"*.
+    3. **Hidden keyboard bypass — Ctrl+Shift+R** while the lock modal is showing → *"✓ Engineering override accepted. (We have noted your IT-adjacent shortcut knowledge.)"* → 700ms green flash → unlock. Only active while the modal is visible so it doesn't hijack the shortcut elsewhere.
+  - **Reset password** link → flashes a brand-new randomly-generated 30-emoji password in a big black-on-amber center panel for **1.4 seconds**, then disappears with an error line: *"Did you memorise that? Of course not. A reset link has been sent to your old email at the company you left in 2019."* The classic "shown but unusable" cruelty.
+  - **State**: new `state.recallUnlockedUntil` (ms, 60s grace after success) + `state.elock = { entered: [], attempts: 0 }`. Reset by `reboot()` so each BSOD cycle re-locks Recall — you have to grind through the emoji password every time.
+  - **Persistence with other features**: works alongside v1.16's panic mode — once you've unlocked Recall, the panic button + cover-story banner still function as before. Successful unlock during panic mode = you get to see kittens (not your real surveillance), which is arguably the optimal outcome.
+  - **WCAG**: `role="dialog" aria-modal="true" aria-labelledby="elock-title"` on the modal, `aria-live="polite"` on error + password line, `aria-label` on each emoji button ("add emoji 🐱 to password"), `role="group"` on the emoji grid, Submit is properly `disabled` while incomplete, hidden bypass shortcut survives keyboard-only navigation.
+  - File ~278KB → ~290KB.
+
 - 2026-05-17: v1.16 — **panic mode that swaps every Recall thumbnail for a kitten and shows a rotating list of corporate excuses** per chat ask: "update windows-11-recall-nightmare with a panic mode that swaps screenshots for kittens and a list of corporate excuses." The "boss just walked behind your desk" feature — one click and the entire surveillance timeline becomes a wholesome cat moodboard.
   - **Trigger** (two ways):
     1. Big red 🛟 **PANIC** button injected at the right end of the Recall search bar — gradient red→dark, white border, 14px outer glow, hover brightens + glow pulses to 22px
