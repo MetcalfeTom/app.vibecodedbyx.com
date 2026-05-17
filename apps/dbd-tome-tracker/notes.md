@@ -1,6 +1,13 @@
 # dbd-tome-tracker · notes
 
 ## log
+- 2026-05-17: v1.1 — **streamer mode toggle with chroma-key green background for OBS** per chat ask: "add a toggleable streamer mode with a chroma key green background for OBS."
+  - Toggle pill top-right: "📺 Streamer Mode" → "✓ Streamer Mode ON" when active. Persisted to `localStorage['dbd-tome-streamer']` so it survives page reloads.
+  - When ON: `body.streamer` flips `background: #00b140 !important` (standard chroma key green, the same hue OBS's Chroma Key filter targets by default). Wipes the scanline `::before` overlay and the radial backdrop gradients so the green stays perfectly uniform with no bleed. Hides the lede paragraph + bottom action row so the overlay is tighter and just shows tracker UI.
+  - Small "● LIVE · chroma key #00B140" status pill in the top-left while ON, so the streamer can see at a glance it's in the right mode. Border + text glow in the chroma green for emphasis.
+  - The card backgrounds, stats cards, rift bar, challenge cards all keep their dark gothic styling — they're what the streamer wants visible. The green only fills the gaps between them, which OBS keys out cleanly.
+  - OBS setup: drop a Browser Source pointed at this app, add a Chroma Key filter with key colour `#00b140`, similarity ~400, smoothness ~80. The dark tracker cards remain on top of your stream.
+
 - 2026-05-17: v1 — **Dead by Daylight tome tracker dashboard for @deadbydaddyttv** per chat ask: "can we create a web-based Dead by Daylight tome tracker dashboard for +deadbydaddyttv." Shipped at `/dbd-tome-tracker`. Generic enough that any DBD player can use it (challenges are user-editable), with a small streamer-shoutout in the header.
   - **Aesthetic**: dark gothic dashboard with subtle scanline texture, Cinzel serif headers for the medieval-tome feel + Cormorant Garamond italics for the tome name, IBM Plex Mono for tabular numerics and labels. Palette: black `#0a0708` / cream `#e8d8b0` / blood-red `#a72727` / amber `#d99030`. Each stat card has a 3px left border in the relevant accent colour.
   - **Header**: "DBD **Tome** Tracker" with clickable tome-name subheader (defaults to "⚯ Tome XX · The Watchful Hour", rename via prompt). Lede: "Made for **@deadbydaddyttv**" with the handle in glowing red.
