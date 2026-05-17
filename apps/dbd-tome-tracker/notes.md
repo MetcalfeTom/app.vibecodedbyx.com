@@ -1,6 +1,22 @@
 # dbd-tome-tracker · notes
 
 ## log
+- 2026-05-17: v1.2 — **hidden hatch animation triggered by clearing all 40 challenges** per chat ask: "add a hidden hatch animation that triggers when all 40 challenges are marked complete." The Easter egg you only see when you finish a tome.
+  - **Trigger**: every time `computeStats().done` ticks UP and reaches `totalChallenges`. Tracked via a `lastDoneCount` sentinel so it only fires on the rising edge (no re-fire if you toggle one off and immediately back on). Wrapped `renderStats` so the check runs after every state mutation without touching the existing handlers.
+  - **Visual**: full-screen black overlay (96% opacity) with a 360×360 SVG hatch in the centre. Sequence:
+    1. **0.0 s**: black backdrop fades in
+    2. **0.0 – 1.4 s**: hatch flies up from below the viewport with a cubic-bezier(.34, 1.40, .50, 1) overshoot bounce
+    3. **1.5 – 2.5 s**: lid hinges open — `transform-origin: 160px 30px` (top edge as hinge), rotates -118° + 10px upward translation + opacity fades to 0
+    4. **2.2 – 3.2 s**: light pours out — yellow radial-gradient pit (`#fff5d0 → #ffdd80 → #ffa030`) under a vertical light shaft polygon, with a 0.16s flicker animation for that DBD spotlight-on-the-survivor moment
+    5. **2.5 – 3.3 s**: large Cinzel "ESCAPE" headline fades in above the hatch with multi-layer gold text-shadow (8px + 20px + 36px bloom)
+    6. **2.9 – 3.7 s**: Cormorant italic subtitle "All 40 challenges complete · the hatch awaits" fades in below
+    7. **3.6 – 4.2 s**: tiny "click anywhere to dismiss" hint in mono caps
+    8. Auto-dismisses after 8.2 s if untouched, or instantly on click
+  - **SVG hatch**: outer dark-metal rim (`#2a2018`) with a thin inner ring, 12 rivets evenly placed around the perimeter, the lid (two concentric circles + dashed wear rings + a chunky central handle with a small dark recessed bolt). The lid lifts away to reveal the bright pit + shaft, mirroring DBD's hatch behaviour.
+  - **Audio (Web Audio synth)**: 4-part orchestrated sequence over 2.5 s — bandpass-noise metallic creak (filter 420Hz Q=5) as the hatch rises, a low 50Hz sub boom on landing, another bandpass-noise creak (1600Hz Q=12) as the lid opens, then a sustained C-E-G-C swell (523/659/784/1047 Hz sines) over 2.4 s for the "escape" chord.
+  - **Auto-running renderer hook**: instead of inserting checks into every action path, wraps `renderStats()` once at module init so any future state mutation that re-renders stats also re-checks the trigger.
+  - File 32KB → 42KB.
+
 - 2026-05-17: v1.1 — **streamer mode toggle with chroma-key green background for OBS** per chat ask: "add a toggleable streamer mode with a chroma key green background for OBS."
   - Toggle pill top-right: "📺 Streamer Mode" → "✓ Streamer Mode ON" when active. Persisted to `localStorage['dbd-tome-streamer']` so it survives page reloads.
   - When ON: `body.streamer` flips `background: #00b140 !important` (standard chroma key green, the same hue OBS's Chroma Key filter targets by default). Wipes the scanline `::before` overlay and the radial backdrop gradients so the green stays perfectly uniform with no bleed. Hides the lede paragraph + bottom action row so the overlay is tighter and just shows tracker UI.
