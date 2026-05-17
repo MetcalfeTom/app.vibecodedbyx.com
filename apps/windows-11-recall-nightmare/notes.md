@@ -1,6 +1,24 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-05-17: v1.21 — **"fix the redirect loop" satirical resolution: after the 30-emoji password is cracked, you're dropped onto a Win11 lock screen and have to log in again** per chat ask: "fix the redirect loop in windows-11-recall-nightmare so it returns to the login screen after setting the password." Read as the perfect punchline framing — the "fix" IS the joke. You spent 5+ tries entering 30 emojis just to be told you now need to sign in.
+  - **NEW `#login-screen` overlay** (z-index 265, full-viewport): Win11-style lock screen mimicking the iconic blurred-mountain wallpaper via pure CSS — 3 layered radial blobs (purple top-left + teal centre-right + magenta bottom) over a deep #0a1830→#02 vertical gradient, with a slow moving 200px-circle highlight (`lockBlob` keyframe, 14s loop) for the parallax shimmer. `backdrop-filter: blur(2px)` adds the dreamy out-of-focus quality.
+  - **Live clock** (centred, top half of the screen): huge `clamp(5rem, 16vw, 9rem)` Segoe UI Variable weight 200 time in HH:MM, smaller weight 400 date below ("Friday, May 17"). Ticks every second via `setInterval` while the screen is visible. Updated on each show.
+  - **Avatar row** (centred, bottom half): 6rem brown-radial-gradient avatar circle with 🥲 emoji (we are all this user now), bold "You" name + tiny subtitle "microsoftaccount.user.you · sign-in #N today" where N counts up across the session. Below: a fake password field showing `••••••••••` + a circled `→` arrow icon (purely decorative, pointer-events: none).
+  - **Pulsing hint** in tracked uppercase: "▶ click anywhere to sign in" → escalates as session sign-ins climb:
+    - 1st: "▶ click anywhere to sign in"
+    - 2-3rd: "▶ click anywhere to sign in (again)"
+    - 4-6th: "▶ click anywhere to sign in (sign-in #N today)"
+    - 7th+: "▶ please sign in. yes again. yes. (#N)"
+  - **Top-right "EMOJI VERIFICATION ACCEPTED · now please sign in"** flavour pill in Consolas mono with amber accent — frames the lock screen explicitly as the consequence of completing the emoji password.
+  - **Bottom-right corner** shows the standard Win11 lock-screen tray icons (🌐 ⚡ ⏻ at 55% opacity) as scene-setting decoration.
+  - **Dismissal**: any click or keypress on the overlay dismisses it (one-shot, captured 280ms after show to avoid the residual click from the emoji-modal close immediately closing the lock screen). On dismiss, fires the original callback (`reallyOpenRecall()` or `doPanicActivate()`).
+  - **Routed through `resolveUnlock(ctx)` helper**: all 3 emoji-password success paths (`elockSuccess` grind / `elockSurrender` 5-failure bypass / `Ctrl+Shift+R` IT-engineering shortcut) now call `resolveUnlock(ctx)` which fires `showLoginScreen(() => doAction)`. So whichever escape path you took, you still get the lock screen at the end. **There is no shortcut around the lock screen.** That's the whole point.
+  - **`state.loginScreens` counter** persists in-session and is exposed in the hint text + name subtitle. Future flavour text can lampshade ("you've signed in 47 times today"). Reset between BSOD reboots.
+  - **`reboot()` extended**: defensively dismisses `#login-screen` + clears `_loginClock` interval so a mid-unlock BSOD doesn't strand the timer alive.
+  - **WCAG**: `role="dialog" aria-modal="true" aria-label="Windows lock screen"`, decorative icons `aria-hidden="true"`, hint visible to screen readers via the natural text node, keyboard dismissable via any keydown (not just click), `prefers-reduced-motion` kills the blob keyframe + hint pulse + lockBlurIn entrance animation (lock screen still functions — just no motion).
+  - File ~344KB → ~358KB.
+
 - 2026-05-17: v1.20 — **proper Bing taskbar icon + shutdown submenu with a 10-stage fake "Working on updates" overlay** per chat ask: "fix the Bing icon in the menu and add a shutdown button with a fake update message."
   - **BING ICON FIX**: the v1.19 taskbar button was just a bare lowercase `b` in Bing-blue text — fine, but lacked the recognisable gradient-badge look of the real Bing wordmark. Replaced with a proper 22×22 gradient glyph that matches the sidebar's `.bing-logo` styling: cyan→Bing-blue→navy linear-gradient at 135°, white `b` in Segoe UI 800 weight at -0.02em letter-spacing, inset 1px white rim + 6px Bing-blue drop shadow. Hover scales 1.06 + brightens 8%; active snaps to 0.94. The `.unread::after` green pulse pip still anchors to the top-right of the taskbar slot via `position: absolute` on the parent `.tb-btn.bing-btn`.
   - **SHUTDOWN OVERHAUL**: the existing `⏻` power button in the start menu's user row used to just trigger `state.snapsViewed = CRASH_THRESHOLD; bumpProgress()` — i.e. instant BSOD with no theatre. Now it pops a proper Windows-style power submenu, and any selection launches a full multi-stage update overlay before eventually crashing.
