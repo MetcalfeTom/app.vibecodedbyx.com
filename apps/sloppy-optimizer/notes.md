@@ -1,0 +1,72 @@
+# sloppy-optimizer · notes
+
+## log
+- 2026-05-17: v1 — **neon brutalist prompt optimizer with chunky oversize typography** per chat ask: "create a neon bright sloppy-optimizer with large fonts based on the prompt-optimizer logic." Lives at `/sloppy-optimizer`. Single file ~18KB script + 9KB CSS.
+  - **Core logic lifted from `/prompt-optimizer/`** (the existing matrix-themed cousin at `/vibespace/apps/prompt-optimizer/`):
+    - `REFINER_SYSTEM_PROMPT` ported from v0.9.5 baseline — instructs Claude to rewrite the prompt, preserve intent, NEVER echo verbatim, NEVER add encyclopedic background, use **Bold** section headers, no preamble. Lightly tweaked here to allow up to 5 sections (Role / Task / Context / Examples / Reasoning) since the chip set is broader than prompt-optimizer's final 2-section output.
+    - **Two-pass refine** (same pattern as prompt-optimizer's `refine()` → `runLLMRewrite()`): step 1 = heuristic `buildHeuristic()` runs locally and renders instantly so the user sees output in ~50ms; step 2 = async Pollinations GET call to `text.pollinations.ai/<encoded prompt>` with a 14s `AbortController` timeout. Token-protected via `state.refineToken++` so a fast second click drops the stale earlier response. On success + `hasStructure()` check passes, the LLM output replaces the heuristic; on failure / timeout / banner / sparse output, the heuristic stays + status flips to "offline · kept heuristic" + toast warning.
+    - `cleanRewrite()` strips wrapping code fences + preamble phrases ("Here is", "Sure,", "Refined prompt:", etc) — same regex pattern as prompt-optimizer.
+    - `hasStructure()` accepts any of: **bold** spans, ATX headings (`# / ## / ### / ####`), or multi-line responses with bullet markers — rejects bare one-liner summaries.
+    - localStorage `sloppy-optimizer-history-v1` keeps the last 5 tasks (was 3 in prompt-optimizer; bumped here for the larger UI breathing room).
+  - **5 chip toggles** drive the heuristic assembly:
+    - 🎩 **role** — "You are [X]" framing (text input appears when on)
+    - 📎 **context** — background that changes the answer (textarea)
+    - 🧪 **examples** — one short worked example (textarea)
+    - 🧠 **step-by-step** — adds a `**Reasoning**` section: "Think privately step-by-step before answering, then give only the final answer."
+    - Task is implicit (always required, the main textarea). Chips can be combined freely.
+    - Each chip gets a different accent color when active: role=cyan, context=amber, examples=lime, reasoning=magenta, with matching 0 4px hard offset shadows in complementary colors.
+  - **NEON BRIGHT AESTHETIC**:
+    - Background: 3 layered radial accent glows (pink top + cyan bottom-right + amber bottom-left) over a #050008 → #0d0218 vertical gradient
+    - Full-viewport CRT scanline overlay (`body::after`, 4px period, mix-blend-mode multiply) — gives the arcade-cabinet feel
+    - **Brutalist panels** with thick magenta/cyan/amber borders (3px) + offset complementary-color hard shadows (8px 8px 0) instead of soft drop shadows. Each panel has a Bungee "legend" tab badge in the top-left corner (the legend's color = the panel's contrasting accent, with its own 4px offset shadow on the OPPOSITE color).
+    - All borders, radii, and panels are SHARP (border-radius: 0) — no soft rounding. Reinforces the brutalist neon-arcade vibe.
+    - Title `SLOPPY × OPTIMIZER` in Bungee at `clamp(3rem, 11vw, 7rem)` with a magenta→amber→cyan 3-stop gradient via `-webkit-background-clip: text` + 22px shadowBlur + drop-shadow. The `×` glyph is rotated -6° in solid amber for kinetic energy.
+    - Tagline in Space Mono uppercase 0.06em-tracked cyan with `b` highlighted in magenta.
+  - **LARGE FONTS — the chat's headline ask**:
+    - Title: clamp(3rem, 11vw, **7rem**)
+    - Input textarea: clamp(1.3rem, 3.5vw, **1.8rem**) with weight 700 — much bigger than typical 1rem form fields
+    - Output: clamp(1.25rem, 3.4vw, **1.7rem**) weight 700
+    - OPTIMIZE button label: clamp(1.6rem, 5.5vw, **2.6rem**) Bungee — fills the panel width
+    - Chip labels: 1rem Bungee uppercase (with 1.15rem emoji per chip)
+    - Sub-field inputs (role/context/examples): 1.15rem — comfortably bigger than browser default
+    - All sized in `rem` per project accessibility convention so zoom + user font-size preferences scale everything cleanly
+  - **GIANT OPTIMIZE BUTTON**:
+    - Full panel width, ~4-5rem tall depending on viewport
+    - Pink→magenta vertical gradient bg, 4px white border, **3 nested box-shadows**: cyan 0 0 0 3px ring + pink 0 0 36px outer glow + amber 10px 10px 0 hard offset
+    - Hover: shifts 2px toward upper-left + glow intensifies to 48px
+    - Active: snaps 4px toward lower-right + shadow collapses (chunky press-down feel)
+    - When `optimize()` is running: `pulseGo` keyframe (0.4 → 1.3 brightness, 1s loop), button disabled to prevent double-clicks
+  - **Output area** (the second cyan-bordered panel):
+    - Amber-bordered textarea, dark interior, big bold output text
+    - Out-meta row above shows status pill (`idle` cyan / `heuristic · ai polishing…` amber blinking / `ai-refined · 1240ms` lime / `offline · kept heuristic` red) + live char count
+    - 3 actions below: 📋 **copy** (cyan), 🔄 **re-optimize** (amber), 🗑️ **clear** (muted dim transparent → ink on hover)
+    - Output textarea has an `idle` class that grays the placeholder text + uses italic light-weight; class is removed on first render
+  - **History panel** (3rd panel, amber-bordered) shows last 5 tasks. Each row: task text (90-char truncated), relative time ("just now" / "5m" / "2h"), and a `×` delete button. Click row to restore (replays the original chip toggles + sub-field values + output text). Hidden via `display: none` until at least 1 entry exists.
+  - **Keyboard shortcut**: `Cmd/Ctrl + Enter` from anywhere triggers `optimize()`. Standard `:focus-visible` 3px amber outline at 3px offset on all interactive elements.
+  - **Toast** (`role="status" aria-live="polite"`) bottom-centre: magenta border by default, amber for warnings, red for failures. 1.9s display, 3-layer box-shadow (1px ring + 30px glow + 4px hard offset in complementary color).
+  - **History de-dupe**: if the most recent history entry has the same task text, just update its output instead of pushing a duplicate — so re-clicking optimize after a tweak doesn't bloat the list.
+  - **History updates after LLM lands**: heuristic version pushed first (so history captures the attempt), then overwritten in place when the polish lands successfully. Re-opening from history shows the better version.
+  - **WCAG-AA per project convention**: rem units everywhere, semantic main/section/footer/h1, `aria-required` on task input + visually-hidden label, `role="group"` on chip row, `aria-pressed` on each chip, `aria-label` on output textarea + delete buttons, `role="status" aria-live="polite"` on toast + history list, `role="button" tabindex=0` + Enter/Space keyboard support on history rows, ≥44px (`2.75rem` min-height) on all interactive targets, `prefers-reduced-motion` kills all transitions + transforms + pulseGo animation.
+  - **OG image**: Pollinations flux seed 90909.
+
+## issues
+- Same Pollinations dependency caveats as prompt-optimizer: when text.pollinations.ai is rate-limited or down, every LLM polish silently falls through to the heuristic. The status pill + toast both communicate this but a confused user might not realize "offline" means the cloud rewrite failed (the heuristic is still real output, just locally assembled).
+- The heuristic produces clean `**Bold**` markdown but is fairly mechanical — it just concatenates labeled sections. The LLM polish is where the actual prompt-quality wins live, so when Pollinations is down the output is functional but not magical.
+- No `output_format` toggle (prompt-optimizer used to have one before it was retired in v0.8.7). The current 5-chip set covers the common cases but a user wanting "list / table / json output" guidance would need to bake it into their task description.
+- Chip + sub-field UI: when a chip is OFF, the sub-field is hidden — but the text inside is preserved. Restoring from history correctly re-shows them. Not preserved across page reloads (only the history is).
+- The "re-optimize" button just calls `optimize()` again from current inputs — useful for grabbing a different LLM rewrite of the same prompt. No diff view between attempts.
+- No reset-to-default chip preset. If a user heavily customizes chips and wants to start over, they have to manually toggle each off (or use Clear, which wipes inputs but not chips).
+- LLM token tracking via `state.refineToken` only protects against concurrent optimize calls; doesn't protect against multi-tab races on the same task (would need a fresh fetch ID per tab).
+
+## todos
+- Add an `output_format` chip with sub-dropdown (markdown / list / table / json / numbered) — port the v0.8.7 logic
+- Stream the LLM response token-by-token instead of waiting for the full response (Pollinations supports SSE)
+- "Compare" view: heuristic vs LLM side-by-side after the LLM lands
+- Add a `temperature`/`creativity` slider — values close to 0 = stricter rewrite, higher = more liberty
+- Char-count budget slider with live warning when over (prompt-optimizer used to have a 500-char cap)
+- Export a session: download the prompt + chips + sub-fields as a `.txt` or `.json`
+- Twitch chat → submit task input live (chatters can submit; streamer reviews + optimizes on stream)
+- A "snark mode" that intentionally adds chaos energy to the system prompt (sloppy voice) for meme purposes
+- Mute toggle if we add audio cues later
+- Animated typing cursor in the output while the LLM streams
+- Per-chip "?" tooltip explaining when to turn it on
