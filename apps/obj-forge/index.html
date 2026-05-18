@@ -637,18 +637,28 @@
         return geo;
       },
       heightmap(p) {
-        if (!state.heightmapImage) {
-          // placeholder ghost plane until user uploads
+        // prefer the pre-downsampled cache; fall back to original image; finally placeholder
+        const src = state.heightmapSource || state.heightmapImage;
+        if (!src) {
           const ph = new THREE.PlaneGeometry(p.size, p.size, 8, 8);
           ph.rotateX(-Math.PI / 2);
           return ph;
         }
-        const res = Math.min(Math.round(p.resolution), 256);
+        const res = Math.min(Math.max(4, Math.round(p.resolution)), 256);
         const cv = document.createElement('canvas');
         cv.width = res; cv.height = res;
-        const cx = cv.getContext('2d');
-        cx.drawImage(state.heightmapImage, 0, 0, res, res);
-        const data = cx.getImageData(0, 0, res, res).data;
+        const cx = cv.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(src, 0, 0, res, res);
+        let data;
+        try {
+          data = cx.getImageData(0, 0, res, res).data;
+        } catch (err) {
+          console.warn('[obj-forge] getImageData failed — canvas tainted?', err);
+          toast('cannot read pixels · ' + (err.message || 'tainted canvas'));
+          const ph = new THREE.PlaneGeometry(p.size, p.size, 8, 8);
+          ph.rotateX(-Math.PI / 2);
+          return ph;
+        }
         const size = p.size;
         const inv = p.invert ? -1 : 1;
         const pos = new Float32Array(res * res * 3);
@@ -656,7 +666,12 @@
         for (let i = 0; i < res; i++) {
           for (let j = 0; j < res; j++) {
             const k4 = (i * res + j) * 4;
-            const lum = (data[k4] * 0.299 + data[k4 + 1] * 0.587 + data[k4 + 2] * 0.114) / 255;
+            // composite over black so transparent png pixels read as low elevation
+            const a = data[k4 + 3] / 255;
+            const r = data[k4]     * a;
+            const g = data[k4 + 1] * a;
+            const b = data[k4 + 2] * a;
+            const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
             const off = (i * res + j) * 3;
             pos[off    ] = (j / (res - 1) - 0.5) * size;
             pos[off + 1] = (lum - 0.5) * p.amplitude * 2 * inv;
@@ -835,6 +850,15 @@
     }
 
     /* ───────────── heightmap dropzone ───────────── */
+    // — file constraints —
+    const MAX_BYTES = 32 * 1024 * 1024;   // 32 MB raw file cap (bumped from 12)
+    const MAX_PREVIEW_EDGE = 1024;        // pre-downsample so per-slider rebuilds are fast
+    const MAX_INTERMEDIATE = 8192;        // safe drawImage intermediate (Chrome/FF/Safari all >= 4096)
+    const DECODE_TIMEOUT_MS = 15000;
+    const SUPPORTED_EXT = /\.(png|jpe?g|webp|gif|bmp|avif|svg)$/i;
+    const KNOWN_BAD_EXT = /\.(heic|heif|tiff?|raw|cr2|nef|arw|dng|psd)$/i;
+    const KNOWN_BAD_MIME = /^image\/(heic|heif|tiff|x-canon-|x-nikon-|x-adobe-)/i;
+
     function escapeHTML(s) {
       return String(s).replace(/[&<>"']/g, ch => (
         { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]
@@ -842,8 +866,16 @@
     }
     function isImageFile(f) {
       if (!f) return false;
+      if (KNOWN_BAD_EXT.test(f.name || '') || KNOWN_BAD_MIME.test(f.type || '')) return false;
       if (f.type && f.type.startsWith('image/')) return true;
-      return /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(f.name || '');
+      return SUPPORTED_EXT.test(f.name || '');
+    }
+    function rejectionReason(f) {
+      if (!f) return 'no file';
+      if (KNOWN_BAD_EXT.test(f.name || '') || KNOWN_BAD_MIME.test(f.type || '')) {
+        return 'unsupported · browsers can\'t decode HEIC/TIFF/RAW · re-save as PNG or JPG';
+      }
+      return 'not an image · try PNG, JPG, WebP, GIF, BMP, AVIF, or SVG';
     }
     function pickFirstImage(dt) {
       // prefer the standard files list, then walk dataTransfer.items for nested cases
@@ -864,12 +896,89 @@
       return null;
     }
     function clearHeightmap() {
+      // close ImageBitmap explicitly to release GPU memory
+      if (state.heightmapImage && typeof state.heightmapImage.close === 'function') {
+        try { state.heightmapImage.close(); } catch(_) {}
+      }
       state.heightmapImage = null;
+      state.heightmapSource = null;
       state.heightmapName = '';
+      state.heightmapBytes = 0;
+      state.heightmapOrigSize = null;
       state.heightmapThumbURL = '';
       renderParams();
       rebuild();
       toast('image cleared');
+    }
+
+    /* — fast async decoder · createImageBitmap → <img> fallback · with timeout — */
+    async function decodeImage(file) {
+      let timeoutId;
+      const timeout = new Promise((_, rej) => {
+        timeoutId = setTimeout(() => rej(new Error('decode timed out')), DECODE_TIMEOUT_MS);
+      });
+      const decode = (async () => {
+        // Fast path: createImageBitmap (off-thread on Chrome/FF, no base64 round-trip)
+        if (window.createImageBitmap) {
+          try {
+            return await createImageBitmap(file, { imageOrientation: 'from-image' });
+          } catch (e) {
+            console.warn('[obj-forge] createImageBitmap with orient option failed, retrying plain', e);
+            try { return await createImageBitmap(file); }
+            catch (e2) { console.warn('[obj-forge] plain createImageBitmap failed, falling back to <img>', e2); }
+          }
+        }
+        // Fallback: Blob URL + <img> (skips the dataURL base64 stage entirely)
+        return await new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.decoding = 'async';
+          img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+          img.onerror = (ev) => {
+            URL.revokeObjectURL(url);
+            console.warn('[obj-forge] <img> fallback decode failed', ev);
+            reject(new Error('<img> decode failed'));
+          };
+          img.src = url;
+        });
+      })();
+      try {
+        const r = await Promise.race([decode, timeout]);
+        clearTimeout(timeoutId);
+        return r;
+      } catch (e) {
+        clearTimeout(timeoutId);
+        throw e;
+      }
+    }
+
+    function downsampleSource(source, maxEdge) {
+      const w = source.width || source.naturalWidth || 0;
+      const h = source.height || source.naturalHeight || 0;
+      if (!w || !h) throw new Error('source has no intrinsic dimensions');
+      // Cap intermediate at MAX_INTERMEDIATE to stay under per-browser canvas-size limits
+      const safe = Math.min(maxEdge, MAX_INTERMEDIATE);
+      const scale = Math.min(1, safe / Math.max(w, h));
+      const cw = Math.max(4, Math.round(w * scale));
+      const ch = Math.max(4, Math.round(h * scale));
+      const c = document.createElement('canvas');
+      c.width = cw; c.height = ch;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('2d context unavailable');
+      ctx.drawImage(source, 0, 0, cw, ch);
+      // Verify pixels are actually readable (defensive against tainted canvas)
+      ctx.getImageData(0, 0, 1, 1);
+      return c;
+    }
+
+    function canvasToThumb(canvas, max) {
+      const w = canvas.width, h = canvas.height;
+      const scale = max / Math.max(w, h);
+      const t = document.createElement('canvas');
+      t.width = Math.max(1, Math.round(w * scale));
+      t.height = Math.max(1, Math.round(h * scale));
+      t.getContext('2d').drawImage(canvas, 0, 0, t.width, t.height);
+      return t.toDataURL('image/png');
     }
     function renderDropzone() {
       const wrap = document.createElement('div');
@@ -880,21 +989,30 @@
       dz.htmlFor = 'hmFile';
       if (state.heightmapImage) {
         const kb = state.heightmapBytes ? (state.heightmapBytes / 1024).toFixed(0) + ' KB · ' : '';
+        const o = state.heightmapOrigSize || { w: state.heightmapImage.width, h: state.heightmapImage.height };
+        const c = state.heightmapSource || { width: 0, height: 0 };
+        const isDown = o.w > c.width || o.h > c.height;
+        const dims = isDown
+          ? `${o.w}×${o.h} → ${c.width}×${c.height} cached`
+          : `${o.w}×${o.h}`;
+        const thumb = state.heightmapThumbURL
+          ? `<img class="file-thumb" src="${state.heightmapThumbURL}" alt="loaded heightmap thumbnail">`
+          : '';
         dz.innerHTML = `
           <span class="big">✓ ${escapeHTML(state.heightmapName || 'image loaded')}</span>
-          <span>${kb}${state.heightmapImage.width}×${state.heightmapImage.height} · click to replace</span>
-          <img class="file-thumb" src="${state.heightmapThumbURL}" alt="loaded heightmap thumbnail">
+          <span>${kb}${dims} · click to replace</span>
+          ${thumb}
         `;
       } else {
         dz.innerHTML = `
           <span class="big">+ drop or pick an image</span>
-          <span>brightness → height · png · jpg · webp · gif · bmp</span>
+          <span>brightness → height · png · jpg · webp · gif · bmp · avif · svg</span>
         `;
       }
       const input = document.createElement('input');
       input.type = 'file';
       input.id = 'hmFile';
-      input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,image/*';
+      input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif,image/svg+xml,image/*';
       input.addEventListener('change', e => {
         const f = e.target.files && e.target.files[0];
         if (f) loadHeightmapFile(f);
@@ -946,35 +1064,72 @@
       });
     }
 
-    function loadHeightmapFile(file) {
-      const MAX_BYTES = 12 * 1024 * 1024;
-      if (!isImageFile(file)) { toast('not an image'); return; }
-      if (file.size > MAX_BYTES) {
-        toast('too big · max ' + (MAX_BYTES / 1024 / 1024) + ' MB');
+    async function loadHeightmapFile(file) {
+      console.info('[obj-forge] loadHeightmapFile:', {
+        name: file && file.name,
+        type: file && file.type,
+        size: file && file.size,
+      });
+      if (!isImageFile(file)) {
+        toast(rejectionReason(file));
+        console.warn('[obj-forge] rejected:', rejectionReason(file));
         return;
       }
-      toast('loading · ' + file.name);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          if (img.width < 4 || img.height < 4) {
-            toast('too small · need ≥ 4×4 pixels');
-            return;
-          }
-          state.heightmapImage = img;
-          state.heightmapName = file.name;
-          state.heightmapBytes = file.size;
-          state.heightmapThumbURL = e.target.result;
-          toast('loaded · ' + img.width + '×' + img.height);
-          renderParams();
-          rebuild();
-        };
-        img.onerror = () => toast('image failed to decode');
-        img.src = e.target.result;
-      };
-      reader.onerror = () => toast('file read failed');
-      reader.readAsDataURL(file);
+      if (file.size > MAX_BYTES) {
+        toast('too big · max ' + Math.round(MAX_BYTES / 1024 / 1024) + ' MB');
+        console.warn('[obj-forge] size cap hit:', file.size, '>', MAX_BYTES);
+        return;
+      }
+      const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+      toast('decoding · ' + file.name + ' (' + sizeMB + 'MB)');
+      let decoded;
+      try {
+        decoded = await decodeImage(file);
+      } catch (err) {
+        console.warn('[obj-forge] decode failed:', err);
+        toast('decode failed · ' + (err.message || 'try PNG/JPG/WebP'));
+        return;
+      }
+      const origW = decoded.width || decoded.naturalWidth || 0;
+      const origH = decoded.height || decoded.naturalHeight || 0;
+      console.info('[obj-forge] decoded:', origW + '×' + origH, '· kind:', decoded.constructor && decoded.constructor.name);
+      if (!origW || !origH || origW < 4 || origH < 4) {
+        toast('image has no usable size · need ≥ 4×4');
+        if (decoded.close) decoded.close();
+        return;
+      }
+      let cached;
+      try {
+        cached = downsampleSource(decoded, MAX_PREVIEW_EDGE);
+      } catch (err) {
+        console.warn('[obj-forge] downsample failed:', err);
+        toast('cannot sample image · ' + (err.message || 'canvas error'));
+        if (decoded.close) decoded.close();
+        return;
+      }
+      console.info('[obj-forge] cached canvas:', cached.width + '×' + cached.height);
+      state.heightmapSource = cached;
+      state.heightmapImage = decoded;
+      state.heightmapOrigSize = { w: origW, h: origH };
+      state.heightmapName = file.name;
+      state.heightmapBytes = file.size;
+      try {
+        state.heightmapThumbURL = canvasToThumb(cached, 96);
+      } catch (err) {
+        console.warn('[obj-forge] thumb failed:', err);
+        state.heightmapThumbURL = '';
+      }
+      // free the full-res ImageBitmap now we have the cached canvas
+      if (decoded.close && decoded !== cached) {
+        try { decoded.close(); } catch(_) {}
+        state.heightmapImage = cached; // keep a non-bitmap reference for the dropzone metadata
+      }
+      const isDown = origW > cached.width || origH > cached.height;
+      toast(isDown
+        ? 'loaded · ' + origW + '×' + origH + ' → cached ' + cached.width + '×' + cached.height
+        : 'loaded · ' + origW + '×' + origH);
+      renderParams();
+      rebuild();
     }
 
     /* ───────────── view options ───────────── */
