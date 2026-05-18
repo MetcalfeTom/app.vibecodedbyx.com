@@ -5516,29 +5516,39 @@
     to   { transform: rotate(360deg); }
   }
 
-  /* ── DESKTOP ICONS · 'Holiday 2024' folder + grounding peers ──
-     A small vertical stack on the left edge of the wallpaper. The
-     'Holiday 2024' folder opens the cursed beach photo grid. */
+  /* ── DESKTOP ICONS · scattered across the wallpaper per chat ask ──
+     'scatter all desktop icons to random positions on the recall-
+     nightmare desktop so they aren't hidden'. The .desktop-icons
+     stops being a layout container; each .icon child is positioned
+     absolutely by JS to a randomised but safe spot (avoiding the
+     taskbar + top rec-pill), then draggable, with positions
+     persisted to localStorage so they survive reloads. */
   .desktop-icons{
     position: fixed;
-    top: 24px; left: 24px;
-    display: grid; gap: 18px;
+    inset: 0;
     z-index: 8;        /* above wallpaper, below toolbars/taskbar */
-    grid-auto-flow: row;
+    pointer-events: none;   /* children re-enable pointer events */
   }
   .desktop-icons .icon{
+    pointer-events: auto;
+    position: absolute;       /* JS sets top/left per icon */
     display: grid;
     grid-template-rows: auto auto;
     justify-items: center;
     gap: 6px;
     width: 86px;
     text-align: center;
-    cursor: pointer;
+    cursor: grab;
     user-select: none;
     padding: 4px;
     border-radius: 4px;
-    transition: background .12s;
-    position: relative;
+    transition: background .12s, transform .12s;
+  }
+  .desktop-icons .icon.dragging{
+    cursor: grabbing;
+    transition: none;
+    transform: scale(1.04);
+    z-index: 12;
   }
   .desktop-icons .icon:hover{ background: rgba(255,255,255,0.10); }
   .desktop-icons .icon:focus-visible{ outline: 2px solid #fff; outline-offset: 2px; background: rgba(255,255,255,0.15); }
@@ -11141,6 +11151,124 @@ const AD_PRODUCTS = [
   hatchSymbol('petal-hatched-outer', PALETTES.outer, 280);
   hatchSymbol('petal-hatched-mid',   PALETTES.mid,   220);
   hatchSymbol('petal-hatched-inner', PALETTES.inner, 160);
+})();
+
+/* ── DESKTOP ICON SCATTER · randomise positions, make draggable ──
+   Per chat ask 'scatter all desktop icons to random positions on
+   the recall-nightmare desktop so they aren't hidden'. On boot,
+   each icon gets a random (x,y) within safe bounds (avoiding the
+   taskbar bottom + top rec-pill) or restores a previously-saved
+   position. Pointer-drag the icon to relocate; the new position
+   persists to localStorage. */
+(function desktopIconScatter(){
+  const STORE_KEY = 'desktop-icons-pos-v1';
+  const icons = [...document.querySelectorAll('.desktop-icons .icon')];
+  if (!icons.length) return;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch(_){}
+  // Place each icon. We try a few random positions per icon to avoid
+  // overlap with already-placed icons. Safe-area bounds:
+  //   left   24 … vw-110     (icons are 86 + 4 padding)
+  //   top    60 … vh-180     (avoid the 64px taskbar + 12px buffer + icon height ~80)
+  const placed = [];   // {x, y, w, h}
+  function rand(min, max){ return min + Math.random() * (max - min); }
+  function overlaps(a, b){
+    return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+  }
+  function nextPos(){
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const iw = 100, ih = 86;        // icon footprint
+    const maxX = Math.max(24, vw - iw - 24);
+    const maxY = Math.max(60, vh - ih - 90);
+    for (let attempt = 0; attempt < 24; attempt++){
+      const cand = { x: rand(24, maxX), y: rand(60, maxY), w: iw, h: ih };
+      // avoid the top rec-pill centred at the top (~120px wide)
+      const centerX = vw / 2;
+      if (cand.y < 50 && Math.abs(cand.x + iw/2 - centerX) < 120) continue;
+      let ok = true;
+      for (const p of placed){ if (overlaps(cand, p)){ ok = false; break; } }
+      if (ok) return cand;
+    }
+    // give up · place anywhere
+    return { x: rand(24, maxX), y: rand(60, maxY), w: iw, h: ih };
+  }
+  for (const el of icons){
+    const id = el.id;
+    let pos = saved[id];
+    if (!pos){
+      const p = nextPos();
+      pos = { x: Math.round(p.x), y: Math.round(p.y) };
+    } else {
+      // clamp restored position to current viewport so a small window
+      // doesn't push an icon off-screen
+      pos.x = Math.max(8, Math.min(window.innerWidth - 110, pos.x));
+      pos.y = Math.max(50, Math.min(window.innerHeight - 100, pos.y));
+    }
+    el.style.left = pos.x + 'px';
+    el.style.top = pos.y + 'px';
+    placed.push({ x: pos.x, y: pos.y, w: 100, h: 86 });
+  }
+  function savePositions(){
+    const out = {};
+    for (const el of icons){
+      const x = parseFloat(el.style.left) || 0;
+      const y = parseFloat(el.style.top) || 0;
+      out[el.id] = { x: Math.round(x), y: Math.round(y) };
+    }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(out)); } catch(_){}
+  }
+  // Pointer drag · single shared handler. We track whether the user
+  // ACTUALLY dragged so a quick click still fires the icon's own
+  // click handler (open the folder/game/etc).
+  for (const el of icons){
+    let dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0, pid = null;
+    el.addEventListener('pointerdown', (e) => {
+      // don't start drag if click landed on the inner glyph or label
+      // when the icon is focus-only (still allow drag from anywhere)
+      pid = e.pointerId;
+      dragging = true; moved = false;
+      sx = e.clientX; sy = e.clientY;
+      ox = parseFloat(el.style.left) || 0;
+      oy = parseFloat(el.style.top) || 0;
+      el.setPointerCapture(pid);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (!moved && Math.abs(dx) + Math.abs(dy) > 4){
+        moved = true;
+        el.classList.add('dragging');
+      }
+      if (moved){
+        const nx = Math.max(0, Math.min(window.innerWidth - 90, ox + dx));
+        const ny = Math.max(40, Math.min(window.innerHeight - 90, oy + dy));
+        el.style.left = nx + 'px';
+        el.style.top = ny + 'px';
+      }
+    });
+    el.addEventListener('pointerup', (e) => {
+      dragging = false;
+      el.releasePointerCapture(pid);
+      if (moved){
+        el.classList.remove('dragging');
+        savePositions();
+      }
+    });
+    // click that DIDN'T move falls through to the per-icon open
+    // handlers already bound on each (di-holiday, di-private, etc.)
+    el.addEventListener('click', (e) => {
+      if (moved){ e.stopImmediatePropagation(); moved = false; }
+    }, true);
+  }
+  // Re-clamp on viewport resize so icons don't get marooned outside
+  window.addEventListener('resize', () => {
+    for (const el of icons){
+      const x = parseFloat(el.style.left) || 0;
+      const y = parseFloat(el.style.top) || 0;
+      el.style.left = Math.max(0, Math.min(window.innerWidth - 90, x)) + 'px';
+      el.style.top  = Math.max(40, Math.min(window.innerHeight - 90, y)) + 'px';
+    }
+  });
 })();
 
 /* ── HOLIDAY 2024 · cursed beach photo folder ────────────────────
