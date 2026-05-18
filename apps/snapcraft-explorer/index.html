@@ -590,7 +590,7 @@
   <main>
     <div class="status-bar">
       <span id="statusText">loading featured snaps…</span>
-      <span id="apiInfo">api · v1 / amd64</span>
+      <span id="apiInfo" title="codetabs CORS proxy → Snapcraft v1 API · amd64">api · v1 via proxy · amd64</span>
     </div>
     <div class="grid" id="grid" aria-live="polite"></div>
     <div class="load-more-wrap"><button class="load-more" id="loadMore" type="button" style="display:none">load more</button></div>
@@ -601,9 +601,18 @@
   (() => {
     'use strict';
 
-    const API_BASE = 'https://api.snapcraft.io/api/v1/snaps';
+    // Direct base — the Snapcraft v1 API doesn't send Access-Control-Allow-Origin,
+    // so any browser fetch from sloppy.live is CORS-blocked. We route through
+    // the codetabs public proxy (returns ACAO: *). The proxy strips custom
+    // request headers, so we DON'T send X-Ubuntu-Series / X-Ubuntu-Architecture
+    // — fortunately /search works without them. /details and v2 /info both
+    // require those headers and can't be used through the proxy, so the detail
+    // modal reads from the already-cached search result instead of fetching.
+    const DIRECT_BASE = 'https://api.snapcraft.io/api/v1/snaps';
+    const PROXY_PREFIX = 'https://api.codetabs.com/v1/proxy/?quest=';
     const STORE_URL = 'https://snapcraft.io';
     const PAGE_SIZE = 24;
+    function proxied(url) { return PROXY_PREFIX + encodeURIComponent(url); }
 
     // The 20 known categories. Probed from /v2/snaps/categories — same as
     // v1 sections, just hardcoded to skip a network round-trip on boot.
@@ -703,19 +712,23 @@
       if (opts.confinement) p.set('confinement', opts.confinement);
       p.set('size', String(PAGE_SIZE));
       if (opts.page) p.set('page', String(opts.page));
-      return API_BASE + '/search?' + p.toString();
+      return DIRECT_BASE + '/search?' + p.toString();
     }
-    async function apiFetch(url) {
-      const r = await fetch(url, {
-        headers: {
-          'Snap-Device-Series': '16',
-          'X-Ubuntu-Series': '16',
-          'X-Ubuntu-Architecture': state.arch,
-          'Accept': 'application/hal+json',
-        },
-      });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+    async function apiFetch(directUrl) {
+      // No custom headers — codetabs strips them, and v1 /search doesn't need
+      // them anyway. Going through the proxy is the only way to satisfy CORS.
+      const r = await fetch(proxied(directUrl), { headers: { 'Accept': 'application/hal+json' } });
+      if (!r.ok) {
+        if (r.status === 429) throw new Error('proxy rate limit · slow down a moment');
+        if (r.status === 403) throw new Error('proxy denied · try again in a sec');
+        if (r.status === 502 || r.status === 503) throw new Error('proxy down · retry');
+        throw new Error('HTTP ' + r.status);
+      }
       return r.json();
+    }
+    function filterByArch(results, arch) {
+      if (!arch) return results;
+      return results.filter(r => Array.isArray(r.architecture) && r.architecture.includes(arch));
     }
 
     /* ───────── chips ───────── */
@@ -826,6 +839,8 @@
         ? 'searching for "' + state.query + '"…'
         : (state.section ? 'browsing ' + state.section + '…' : 'loading snaps…');
 
+      // apiFetch() wraps with the proxy, so always pass a DIRECT URL here.
+      // state.nextUrl was pulled from data._links.next.href which is direct.
       const url = replace || !state.nextUrl ? buildApiUrl({
         q: state.query,
         section: state.section,
@@ -837,15 +852,22 @@
         const data = await apiFetch(url);
         if (id !== state.lastFetchId) return; // stale
         const incoming = (data._embedded && data._embedded['clickindex:package']) || [];
-        if (replace) state.results = incoming;
-        else state.results = state.results.concat(incoming);
+        // Client-side arch filter: codetabs strips X-Ubuntu-Architecture so we
+        // can't filter server-side. The architecture[] field is on every result.
+        const fetched = incoming.length;
+        const archFiltered = filterByArch(incoming, state.arch);
+        if (replace) state.results = archFiltered;
+        else state.results = state.results.concat(archFiltered);
         state.nextUrl = (data._links && data._links.next) ? data._links.next.href : null;
         const total = data.total;
+        const skipped = fetched - archFiltered.length;
         statusEl.innerHTML = state.results.length
           ? 'showing <strong>' + state.results.length + '</strong> of <strong>' + (total || state.results.length) + '</strong>' +
             (state.query ? ' for "<strong>' + esc(state.query) + '</strong>"' : '') +
-            (state.section ? ' · <strong>' + esc(state.section) + '</strong>' : '')
-          : 'no results';
+            (state.section ? ' · <strong>' + esc(state.section) + '</strong>' : '') +
+            ' · <strong>' + esc(state.arch) + '</strong>' +
+            (skipped > 0 ? ' <span style="color:var(--dim)">(' + skipped + ' filtered out)</span>' : '')
+          : 'no results match' + (state.arch ? ' for arch ' + esc(state.arch) : '');
         renderResults(!replace);
         loadMoreBtn.style.display = state.nextUrl ? 'inline-block' : 'none';
         loadMoreBtn.disabled = false;
@@ -860,16 +882,18 @@
     }
 
     /* ───────── detail modal ───────── */
-    async function openDetail(name) {
-      modal.innerHTML = '<div class="detail-inner"><p style="text-align:center;padding:2rem;color:var(--dim);font-family:JetBrains Mono,monospace">loading…</p></div>';
-      modal.showModal();
-      let snap;
-      try {
-        snap = await apiFetch(API_BASE + '/details/' + encodeURIComponent(name));
-      } catch (err) {
-        modal.innerHTML = '<div class="detail-inner"><p style="text-align:center;padding:2rem;color:var(--accent)">failed to load · ' + esc(err.message) + '</p></div>';
+    function openDetail(name) {
+      // The v1 search response already carries the full description, screenshots,
+      // license, base, version, confinement, etc. Same shape as /details, so we
+      // can render the modal directly from cache — also saves a round-trip and
+      // sidesteps the fact that codetabs strips X-Ubuntu-Series (which /details
+      // requires and which causes a 400 when missing).
+      const snap = state.results.find(s => s.name === name);
+      if (!snap) {
+        flash('snap not in cache · scroll back', true);
         return;
       }
+      modal.showModal();
       const icon = snap.icon_url
         ? '<img src="' + esc(snap.icon_url) + '" alt="">'
         : '<span class="placeholder">' + esc((snap.title || snap.name || '?')[0].toUpperCase()) + '</span>';
@@ -939,7 +963,7 @@
     });
     archSel.addEventListener('change', () => {
       state.arch = archSel.value;
-      apiInfoEl.textContent = 'api · v1 / ' + state.arch;
+      apiInfoEl.textContent = 'api · v1 via proxy · ' + state.arch;
       searchAndRender(true);
     });
     confSel.addEventListener('change', () => {
@@ -962,7 +986,7 @@
 
     /* ───────── boot ───────── */
     renderChips();
-    apiInfoEl.textContent = 'api · v1 / ' + state.arch;
+    apiInfoEl.textContent = 'api · v1 via proxy · ' + state.arch;
     searchAndRender(true);
   })();
   </script>
