@@ -4613,6 +4613,93 @@
   }
   @keyframes fadeIn{ to{ opacity: 1; } }
 
+  /* ── INFINITE RESTART · 'SHUTDOWN FAILED' overlay + toast ──
+     Shown briefly when a shutdown attempt completes the BSOD reboot
+     cycle and lands back on the desktop. The PC never actually
+     shuts down — it just reboots, every time, with the count visible.
+     Counter is also pinned on the power button as a red badge. */
+  #shutdown-fail-overlay{
+    position: fixed; inset: 0;
+    background: #000;
+    color: #ffd6d6;
+    z-index: 290;
+    display: none;
+    align-items: center; justify-content: center;
+    flex-direction: column;
+    font-family: 'Segoe UI', sans-serif;
+    text-align: center;
+    padding: 2rem;
+  }
+  #shutdown-fail-overlay.show{ display: flex; animation: shFailIn .4s ease-out; }
+  @keyframes shFailIn { from { opacity: 0; } to { opacity: 1; } }
+  #shutdown-fail-overlay h1{
+    font-size: 28px;
+    color: #ff6a6a;
+    letter-spacing: .04em;
+    margin-bottom: .65rem;
+    text-shadow: 0 0 12px rgba(255,106,106,0.4);
+  }
+  #shutdown-fail-overlay h2{
+    font-size: 16px;
+    color: #ffd6d6;
+    font-weight: 400;
+    margin-bottom: 1.2rem;
+    max-width: 38rem;
+    line-height: 1.45;
+  }
+  #shutdown-fail-overlay .count{
+    font-size: 64px;
+    font-family: 'Segoe UI', sans-serif;
+    color: #ff8c8c;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: .35rem;
+  }
+  #shutdown-fail-overlay .label{
+    font-size: 11px;
+    letter-spacing: .26em;
+    color: #aa6868;
+    text-transform: uppercase;
+  }
+  #shutdown-fail-overlay .footer{
+    margin-top: 2rem;
+    font-size: 12px;
+    color: #8a5050;
+    font-style: italic;
+    max-width: 38rem;
+    line-height: 1.5;
+  }
+  #shutdown-fail-overlay .footer b{ color: #ff8c8c; font-weight: 600; }
+  #shutdown-fail-overlay .progress{
+    margin-top: 1.6rem;
+    width: min(20rem, 80vw);
+    height: .25rem;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #shutdown-fail-overlay .progress .fill{
+    height: 100%;
+    background: linear-gradient(90deg, #ff6a6a, #ffba5e);
+    width: 0%;
+    transition: width 2s linear;
+  }
+  /* small red badge on the start-menu power button when shutdowns have failed */
+  #sm-power.has-fails{ position: relative; }
+  #sm-power.has-fails::after{
+    content: attr(data-fails);
+    position: absolute;
+    top: -.18rem; right: -.18rem;
+    background: #ff4040;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 1px 5px;
+    line-height: 1;
+    font-family: 'Segoe UI', sans-serif;
+  }
+
   /* ── BSOD confirmation gauntlet · 10 modals before the crash ── */
   .crash-confirm{
     position: fixed; inset: 0;
@@ -5822,6 +5909,18 @@
     <h2>Copilot has finished learning everything about you.</h2>
     <p>Thank you for your data. Initialising the new, improved version of you.</p>
   </div>
+</div>
+
+<!-- Infinite-restart-bug overlay · briefly takes over the screen when
+     a shutdown attempt completes the BSOD reboot cycle. The PC never
+     actually shuts down. The desktop is restored after this. -->
+<div id="shutdown-fail-overlay" role="alertdialog" aria-modal="true" aria-labelledby="sf-h1">
+  <div class="count" id="sf-count">1</div>
+  <div class="label">consecutive failed shutdowns</div>
+  <h1 id="sf-h1">⚠ Shutdown failed (KB5083769)</h1>
+  <h2 id="sf-h2">Your shutdown request was processed. Then it was un-processed. The system has restarted in order to deliver important updates that were not present in the previous session.</h2>
+  <div class="progress"><div class="fill" id="sf-fill"></div></div>
+  <div class="footer" id="sf-foot">restoring desktop in <b id="sf-secs">2</b>s · please remain seated · the next shutdown attempt will be even more unsuccessful</div>
 </div>
 
 <!-- Crash-confirmation gauntlet · 10 modals before BSOD fires.
@@ -8124,6 +8223,13 @@ function startFakeUpdate(action){
   fakeUpdate.active = true;
   fakeUpdate.stageIdx = 0;
   fakeUpdate.pct = 0;
+  fakeUpdate.lastAction = action;
+  // If this is a shutdown-flavoured action, pre-increment the counter
+  // so the overlay later in the chain can report the attempt number.
+  if (isShutdownAction(action)){
+    state.shutdownAttempts = (state.shutdownAttempts || 0) + 1;
+    updateShutdownBadge();
+  }
   // close any other modals first so the update overlay is the unambiguous focus
   document.getElementById('emoji-lock')?.classList.remove('show');
   closeTerminal && closeTerminal();
@@ -8188,6 +8294,10 @@ function runNextStage(action){
 function finishFakeUpdate(){
   fakeUpdate.active = false;
   document.getElementById('fake-update').classList.remove('show');
+  // Track the action the user CLICKED so the reboot wrapper knows
+  // whether this was a shutdown attempt (→ infinite-restart toast)
+  // or an actual restart (→ normal reboot path).
+  state._lastPowerAction = fakeUpdate.lastAction || '';
   // hand over to the real BSOD cascade — your shutdown was always going to crash
   if (typeof triggerCrash === 'function') triggerCrash();
 }
@@ -11958,6 +12068,117 @@ triggerCrash = function(){
   hideClippy(false);
   clearTimeout(state.clippy.scheduleTimer);
   _origTriggerCrash();
+};
+
+/* ── INFINITE RESTART BUG · clicking 'Shut down' just reboots ──
+   Wraps reboot() so that if the user actually picked a shutdown-flavoured
+   power action, the BSOD-then-restart cycle ends in a satirical
+   'SHUTDOWN FAILED' takeover overlay before restoring the desktop.
+   The counter persists for the session AND surfaces as a red badge
+   on the start-menu power button. Restart actions pass through
+   unchanged — only shutdowns get the infinite-loop treatment. */
+state.shutdownAttempts = 0;
+state._lastPowerAction = '';
+function isShutdownAction(a){
+  return a === 'update-shutdown' || a === 'shutdown' || a === 'update-update';
+}
+function updateShutdownBadge(){
+  const btn = document.getElementById('sm-power');
+  if (!btn) return;
+  if (state.shutdownAttempts > 0){
+    btn.classList.add('has-fails');
+    btn.dataset.fails = state.shutdownAttempts;
+    btn.title = 'Power · ' + state.shutdownAttempts + ' failed shutdowns (and counting)';
+  } else {
+    btn.classList.remove('has-fails');
+    btn.removeAttribute('data-fails');
+  }
+}
+function showShutdownFailOverlay(){
+  const ov = document.getElementById('shutdown-fail-overlay');
+  const count = document.getElementById('sf-count');
+  const h1 = document.getElementById('sf-h1');
+  const h2 = document.getElementById('sf-h2');
+  const fill = document.getElementById('sf-fill');
+  const secs = document.getElementById('sf-secs');
+  const foot = document.getElementById('sf-foot');
+  const n = state.shutdownAttempts;
+  count.textContent = n;
+  // Headlines escalate with the attempt count.
+  const HEADLINES = [
+    '⚠ Shutdown failed (KB5083769)',
+    '⚠ Shutdown failed AGAIN (KB5083769)',
+    '⚠ Microsoft is sorry · please stop trying to leave',
+    '⚠ Shutdown is unavailable in your region',
+    '⚠ Your PC has decided it would prefer not to',
+    '⚠ Have you considered keeping it on forever',
+    '⚠ Shutdown deprecated as of update 47/12,239',
+    '⚠ The power button is decorative · we are aware',
+  ];
+  h1.textContent = HEADLINES[Math.min(n - 1, HEADLINES.length - 1)];
+  const SUBS = [
+    'Your shutdown request was processed. Then it was un-processed. The system has restarted in order to deliver important updates that were not present in the previous session.',
+    'Shutdown attempt #' + n + ' was logged, reviewed by Copilot, and discarded. Microsoft thinks you should be online right now.',
+    'A new update (KB' + (5083769 + n) + ') was discovered during the shutdown attempt. The system restarted to install it.',
+    'Your PC is not eligible for shutdown until you complete <b>0 of 1</b> tasks. The task is "remain available". You have completed it ' + n + ' times.',
+    'Copilot has flagged your shutdown attempts as <b>concerning behaviour</b>. A wellness check-in has been scheduled. You will be notified when it is scheduled (it is now).',
+    'The Microsoft Account responsible for this PC has revoked your shutdown privileges. (The Microsoft Account is your Microsoft Account.)',
+  ];
+  h2.innerHTML = SUBS[Math.min(n - 1, SUBS.length - 1)];
+  const FOOTERS = [
+    'restoring desktop in <b id="sf-secs">2</b>s · please remain seated · the next shutdown attempt will be even more unsuccessful',
+    'next attempt suggested in <b>17 minutes</b> · we will be here',
+    'productivity gains during your ' + n + ' failed shutdowns: <b>+' + (12 * n) + ' minutes</b> · Microsoft thanks you',
+    'consider: maybe you didn\'t want to shut down. maybe you wanted attention. <b>we are here.</b>',
+  ];
+  foot.innerHTML = FOOTERS[(n - 1) % FOOTERS.length];
+  ov.classList.add('show');
+  // animate the progress bar over 2.2s, then dismiss
+  fill.style.width = '0%';
+  // force reflow so the transition restarts
+  void fill.offsetWidth;
+  fill.style.width = '100%';
+  // countdown text
+  let s = 2;
+  const ss = ov.querySelector('#sf-secs') || secs;
+  if (ss) ss.textContent = s;
+  const tick = setInterval(() => {
+    s--;
+    const el = ov.querySelector('#sf-secs');
+    if (el) el.textContent = Math.max(0, s);
+    if (s <= 0) clearInterval(tick);
+  }, 700);
+  setTimeout(() => { ov.classList.remove('show'); }, 2300);
+}
+// Wrap reboot to flash the shutdown-failed overlay when the last
+// power action was a shutdown. Original reboot still runs (so the
+// desktop is restored) — we just lay the overlay on top briefly.
+const _origRebootForShutdown = reboot;
+reboot = function(){
+  const wasShutdown = isShutdownAction(state._lastPowerAction || '');
+  _origRebootForShutdown();
+  if (wasShutdown){
+    // overlay sits on top of the freshly-rebooted desktop for ~2.3s
+    setTimeout(() => {
+      showShutdownFailOverlay();
+      updateShutdownBadge();
+      // also pop a persistent toast that the desktop sees once the
+      // overlay clears, so the chatter can find the counter
+      setTimeout(() => {
+        const t = document.getElementById('welcome-toast');
+        if (t){
+          const titleEl = t.querySelector('h4');
+          const bodyEl = t.querySelector('p');
+          if (titleEl) titleEl.textContent = '⚠ Shutdown failed (attempt #' + state.shutdownAttempts + ')';
+          if (bodyEl) bodyEl.innerHTML = 'Your PC has restarted instead. The shutdown queue is now <b>' + state.shutdownAttempts + ' attempts</b> long. Microsoft is reviewing your request.';
+          t.classList.add('show');
+          setTimeout(() => t.classList.remove('show'), 7000);
+        }
+      }, 2500);
+    }, 200);
+    // clear the last action so a subsequent manual reboot doesn't loop
+    state._lastPowerAction = '';
+  }
 };
 
 /* ──────────────────────────────────────────────────────────────
