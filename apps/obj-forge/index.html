@@ -766,11 +766,27 @@
         const invert = !!p.invert;
         const alphaMask = !!p.alphaMask;
         const ALPHA_THRESHOLD = 0.5;
+        const HEIGHT_THRESHOLD_FRAC = 0.05; // fraction of amp below which we treat a region as "background"
         const amp = p.amplitude;
         const pos = new Float32Array(res * res * 3);
         const uv  = new Float32Array(res * res * 2);
         const alphas = alphaMask ? new Float32Array(res * res) : null;
         const idx = [];
+        // alpha distribution stats so we can pick the right silhouette strategy
+        // and tell the user exactly what's happening
+        let aMin = 255, aMax = 0, opaque = 0, partial = 0, fullTransparent = 0;
+        if (alphaMask) {
+          for (let i = 0; i < data.length; i += 4) {
+            const al = data[i + 3];
+            if (al < aMin) aMin = al;
+            if (al > aMax) aMax = al;
+            if (al === 255) opaque++;
+            else if (al === 0) fullTransparent++;
+            else partial++;
+          }
+        }
+        const totalPx = res * res;
+        const hasAlphaVariation = alphaMask && (aMax - aMin) > 10;
         // displacement-map convention: black = ground (y=0), white = peak (y=amp).
         for (let i = 0; i < res; i++) {
           for (let j = 0; j < res; j++) {
@@ -794,24 +810,45 @@
           }
         }
         let skippedQuads = 0;
+        // Silhouette-only mode: skip both triangles of any quad we treat as
+        // "background". Primary signal is alpha when the image actually has
+        // alpha variation. Fallback (uniform-alpha images: JPGs, flat PNGs)
+        // cuts on the COMPUTED HEIGHT, which combined with the Invert toggle
+        // handles both dark-bg and light-bg images.
+        const heightCutoff = amp * HEIGHT_THRESHOLD_FRAC;
         for (let i = 0; i < res - 1; i++) {
           for (let j = 0; j < res - 1; j++) {
             const a = i * res + j;
             const b = a + 1;
             const c = a + res;
             const d = c + 1;
-            // Silhouette-only mode: skip both triangles of any quad whose four
-            // corners are ALL below the alpha threshold. Quads on the silhouette
-            // edge (mixed alpha) are kept, so anti-aliased PNG borders survive.
-            if (alphas) {
-              const maxA = Math.max(alphas[a], alphas[b], alphas[c], alphas[d]);
-              if (maxA < ALPHA_THRESHOLD) { skippedQuads++; continue; }
+            if (alphaMask) {
+              let skip;
+              if (hasAlphaVariation) {
+                const maxA = Math.max(alphas[a], alphas[b], alphas[c], alphas[d]);
+                skip = maxA < ALPHA_THRESHOLD;
+              } else {
+                const maxH = Math.max(pos[a*3+1], pos[b*3+1], pos[c*3+1], pos[d*3+1]);
+                skip = maxH < heightCutoff;
+              }
+              if (skip) { skippedQuads++; continue; }
             }
             idx.push(a, c, b, b, c, d);
           }
         }
         if (alphaMask) {
-          console.info('[obj-forge] silhouette mask · skipped ' + skippedQuads + ' / ' + ((res-1)*(res-1)) + ' quads');
+          const totalQuads = (res - 1) * (res - 1);
+          console.info('[obj-forge] silhouette mask · strategy=' + (hasAlphaVariation ? 'alpha' : 'height-fallback') +
+            ' · alpha range=' + aMin + '..' + aMax +
+            ' · opaque=' + opaque + ' partial=' + partial + ' transparent=' + fullTransparent + ' / ' + totalPx +
+            ' · skipped ' + skippedQuads + '/' + totalQuads + ' quads');
+          if (!hasAlphaVariation && skippedQuads === 0) {
+            toast('image has no alpha · try Invert + Silhouette for light-bg images');
+          } else if (!hasAlphaVariation) {
+            toast('no alpha · cutting on darkness (toggle Invert if subject is light)');
+          } else if (skippedQuads === 0) {
+            toast('silhouette mask matched nothing · image is fully opaque');
+          }
         }
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
