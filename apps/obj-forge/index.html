@@ -276,6 +276,16 @@
       image-rendering: pixelated;
     }
     .dropzone input[type=file] { display: none; }
+    .dropzone.drag-pulse {
+      border-color: var(--accent-2);
+      background: rgba(94, 227, 255, 0.08);
+      color: var(--accent-2);
+      animation: dragPulse 1.2s ease-in-out infinite;
+    }
+    @keyframes dragPulse { 50% { background: rgba(94, 227, 255, 0.16); } }
+    .dz-wrap { display: flex; flex-direction: column; gap: 0.4rem; }
+    .dz-clear { align-self: stretch; }
+    .dz-clear:hover { color: var(--accent); border-color: var(--accent); }
     *:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
     @media (max-width: 760px) {
       main { grid-template-columns: 1fr; grid-template-rows: minmax(14rem, 40vh) 1fr; }
@@ -825,59 +835,145 @@
     }
 
     /* ───────────── heightmap dropzone ───────────── */
+    function escapeHTML(s) {
+      return String(s).replace(/[&<>"']/g, ch => (
+        { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]
+      ));
+    }
+    function isImageFile(f) {
+      if (!f) return false;
+      if (f.type && f.type.startsWith('image/')) return true;
+      return /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(f.name || '');
+    }
+    function pickFirstImage(dt) {
+      // prefer the standard files list, then walk dataTransfer.items for nested cases
+      if (dt && dt.files && dt.files.length) {
+        for (let i = 0; i < dt.files.length; i++) {
+          if (isImageFile(dt.files[i])) return dt.files[i];
+        }
+      }
+      if (dt && dt.items && dt.items.length) {
+        for (let i = 0; i < dt.items.length; i++) {
+          const it = dt.items[i];
+          if (it.kind === 'file') {
+            const f = it.getAsFile();
+            if (isImageFile(f)) return f;
+          }
+        }
+      }
+      return null;
+    }
+    function clearHeightmap() {
+      state.heightmapImage = null;
+      state.heightmapName = '';
+      state.heightmapThumbURL = '';
+      renderParams();
+      rebuild();
+      toast('image cleared');
+    }
     function renderDropzone() {
+      const wrap = document.createElement('div');
+      wrap.className = 'dz-wrap';
+
       const dz = document.createElement('label');
       dz.className = 'dropzone' + (state.heightmapImage ? ' loaded' : '');
       dz.htmlFor = 'hmFile';
       if (state.heightmapImage) {
+        const kb = state.heightmapBytes ? (state.heightmapBytes / 1024).toFixed(0) + ' KB · ' : '';
         dz.innerHTML = `
-          <span class="big">✓ ${state.heightmapName || 'image loaded'}</span>
-          <span>${state.heightmapImage.width}×${state.heightmapImage.height} · click to replace</span>
+          <span class="big">✓ ${escapeHTML(state.heightmapName || 'image loaded')}</span>
+          <span>${kb}${state.heightmapImage.width}×${state.heightmapImage.height} · click to replace</span>
           <img class="file-thumb" src="${state.heightmapThumbURL}" alt="loaded heightmap thumbnail">
         `;
       } else {
         dz.innerHTML = `
           <span class="big">+ drop or pick an image</span>
-          <span>brightness becomes height · PNG / JPG / WebP</span>
+          <span>brightness → height · png · jpg · webp · gif · bmp</span>
         `;
       }
       const input = document.createElement('input');
       input.type = 'file';
       input.id = 'hmFile';
-      input.accept = 'image/*';
+      input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,image/*';
       input.addEventListener('change', e => {
-        const f = e.target.files[0];
+        const f = e.target.files && e.target.files[0];
         if (f) loadHeightmapFile(f);
+        input.value = ''; // re-picking the same file should still fire change
       });
       dz.appendChild(input);
-      paramsEl.appendChild(dz);
-      // drag/drop
-      dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
-      dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
-      dz.addEventListener('drop', e => {
+      wrap.appendChild(dz);
+
+      if (state.heightmapImage) {
+        const clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'ghost-btn dz-clear';
+        clearBtn.textContent = '× clear image';
+        clearBtn.setAttribute('aria-label', 'clear loaded heightmap image');
+        clearBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          clearHeightmap();
+        });
+        wrap.appendChild(clearBtn);
+      }
+
+      paramsEl.appendChild(wrap);
+
+      // drag-depth counter — dragleave fires when crossing into child elements
+      // (the thumbnail img inside the label), so a naive remove-on-leave flickers.
+      let depth = 0;
+      dz.addEventListener('dragenter', (e) => {
         e.preventDefault();
-        dz.classList.remove('drag');
-        const f = e.dataTransfer.files[0];
-        if (f && f.type.startsWith('image/')) loadHeightmapFile(f);
-        else toast('not an image');
+        depth++;
+        dz.classList.add('drag-pulse');
+      });
+      dz.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = 'copy'; } catch(_) {}
+      });
+      dz.addEventListener('dragleave', () => {
+        depth = Math.max(0, depth - 1);
+        if (depth === 0) dz.classList.remove('drag-pulse');
+      });
+      dz.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        depth = 0;
+        dz.classList.remove('drag-pulse');
+        const f = pickFirstImage(e.dataTransfer);
+        if (f) loadHeightmapFile(f);
+        else toast('not an image · png/jpg/webp/gif/bmp');
       });
     }
 
     function loadHeightmapFile(file) {
+      const MAX_BYTES = 12 * 1024 * 1024;
+      if (!isImageFile(file)) { toast('not an image'); return; }
+      if (file.size > MAX_BYTES) {
+        toast('too big · max ' + (MAX_BYTES / 1024 / 1024) + ' MB');
+        return;
+      }
+      toast('loading · ' + file.name);
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
+          if (img.width < 4 || img.height < 4) {
+            toast('too small · need ≥ 4×4 pixels');
+            return;
+          }
           state.heightmapImage = img;
           state.heightmapName = file.name;
+          state.heightmapBytes = file.size;
           state.heightmapThumbURL = e.target.result;
-          toast('heightmap loaded · ' + img.width + '×' + img.height);
+          toast('loaded · ' + img.width + '×' + img.height);
           renderParams();
           rebuild();
         };
-        img.onerror = () => toast('image failed to load');
+        img.onerror = () => toast('image failed to decode');
         img.src = e.target.result;
       };
+      reader.onerror = () => toast('file read failed');
       reader.readAsDataURL(file);
     }
 
@@ -970,6 +1066,15 @@
     /* ───────────── init ───────────── */
     renderParams();
     rebuild();
+
+    // window-level guard so accidental drops outside the dropzone don't navigate
+    // the tab to the dropped file. The dropzone's own handlers run first
+    // (target-phase before bubble), so this never swallows real drops.
+    ['dragover', 'drop'].forEach(ev => {
+      window.addEventListener(ev, (e) => {
+        if (!e.target.closest || !e.target.closest('.dropzone')) e.preventDefault();
+      });
+    });
 
     // keyboard shortcut: e to export, w wireframe, r reset cam, space rotate
     window.addEventListener('keydown', (e) => {
