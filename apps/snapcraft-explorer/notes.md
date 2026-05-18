@@ -1,0 +1,30 @@
+# snapcraft-explorer · notes
+
+## log
+- 2026-05-18: v1 — **Snapcraft Explorer** per chat ask "build a snapcraft explorer with a clean search bar and category chips, use a card grid to show icons and publishers, and make sure to include those architectural filters." Built on the v1 API per awarpigeon's correction — v1 returns ~8x richer per-result data (icon_url, screenshot_urls[], architecture[], binary_filesize, last_updated, description, license, base, version, ratings_average) and exposes pagination via _links.next + total count. v2 caps at 16 results with no pagination metadata, so v1 was the right call.
+  - **API** · `https://api.snapcraft.io/api/v1/snaps/search` for queries, `/details/{name}` for the modal. Required headers: `Snap-Device-Series: 16` AND `X-Ubuntu-Series: 16` (both sent for compat across edge proxies) + `X-Ubuntu-Architecture: <arch>` where arch is the current dropdown value. Query params used: `q`, `section`, `confinement`, `size=24`, `page`.
+  - **Layout** · sticky header with brand (Newsreader italic "Explorer") + centred search input (max 38rem) + arch/confinement selects on the right. Below that, horizontally-scrollable category chip row with 21 chips (all + featured + the 19 categories probed from `/v2/snaps/categories`). Status bar shows "showing N of TOTAL for QUERY · SECTION". Card grid is `repeat(auto-fill, minmax(17rem, 1fr))` so 1–4 columns depending on viewport.
+  - **Card** · 3.5rem icon box (with letter-placeholder fallback on missing/failed icon), Newsreader serif title, publisher line with verified ✓ / starred ★ badge, 2-line summary clamp, meta row with up-to-3 architecture pills + confinement pill + binary size + star rating.
+  - **Detail modal** (native `<dialog>`) · 5rem icon, large serif title, publisher + summary, dark terminal-style install command block (`sudo snap install <name>` with `--classic`/`--devmode` flags auto-added based on confinement) + copy button, horizontally scrollable screenshot strip, full description (preserves whitespace via `white-space: pre-wrap`), meta-grid with version/channel/confinement/base/license/size/updated/architectures, "view in snap store ↗" button linking to `snapcraft.io/<name>`. Closes on backdrop click, Esc key, or × button.
+  - **Search** · 280ms debounced. Empty `q` falls back to the active section (defaults to "featured" on load so the grid isn't empty). When user starts typing, the section auto-switches from "featured" to "all" so search isn't scoped to curated picks.
+  - **States** · skeleton cards (8 placeholders) on initial fetch, empty-state with suggestion chips (firefox, vlc, blender, gimp, discord, spotify, krita, libreoffice, inkscape, obs-studio) when zero results, error pane with retry button on fetch fail. Stale-fetch guard (`lastFetchId`) so fast typing doesn't paint outdated results.
+  - **Pagination** · "load more" button uses `_links.next.href` from the response — accumulates results into a single growing grid rather than paging. Hidden when no next link.
+  - **Aesthetic** · warm cream paper (#fbf6ed) with subtle 13°/97° fiber-grain, white cards with soft shadow that lifts on hover with an orange-tinted glow. Ubuntu Orange (#e95420) as the only chromatic accent. Newsreader for display (700 + italic), Source Sans 3 for body (clean editorial sans), JetBrains Mono for all technical metadata (sizes, archs, commands). Deliberately not another dark theme — the last few apps (obj-forge, blueprint-vault, dark-vault) all leaned navy.
+  - **Keyboard** · `/` focus search, `Esc` close modal.
+  - **A11y** · semantic header/main/nav, aria-live=polite on grid + toast, role=status on toast, aria-pressed-equivalent (active class) on chips, focus-visible 2px orange outline, ≥2.5rem hit targets, prefers-reduced-motion kills all transitions.
+
+## issues
+- The snap store API doesn't return install counts or download numbers anywhere in the public response, so we can't show "1.2M installs"-style metrics that proprietary stores have.
+- `ratings_average` is 0 for most snaps (the rating endpoint is separate + auth'd) — most cards won't show the ★ badge.
+- The screenshot URLs sometimes have weird aspect ratios or are huge; we cap height at 12rem and let aspect breathe.
+- v1 might eventually be deprecated. If it 410s or starts redirecting, swap `API_BASE` to `https://api.snapcraft.io/v2/snaps/find` and rewrite the per-result field access (v2 nests fields under `.snap` and uses media[] array for icons).
+- No infinite scroll — explicit "load more" was the simpler choice. Easy to switch later if chat asks.
+
+## todos
+- Sort dropdown (by name / by date / by rating)
+- "Verified developers only" toggle
+- Inline keyboard navigation through cards (j/k or arrow keys to move highlight, Enter to open modal)
+- Channel selector in the modal (defaults to stable; some snaps have beta/edge/candidate)
+- Save favourites to localStorage with a "starred" view
+- Direct download button for the .snap binary via anon_download_url (with a "this downloads a Linux binary" disclaimer)
+- Light/dark theme toggle
