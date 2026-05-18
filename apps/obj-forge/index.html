@@ -310,6 +310,56 @@
       box-shadow: 0 6px 20px rgba(94, 227, 255, 0.4);
     }
     .viewport-export.alt:hover { box-shadow: 0 10px 28px rgba(94, 227, 255, 0.55); }
+    .mask-debug {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      width: 11rem;
+      padding: 0.45rem 0.5rem 0.5rem;
+      background: rgba(8, 12, 18, 0.92);
+      border: 1px solid #e84c3d;
+      box-shadow: 0 4px 20px rgba(232, 76, 61, 0.18);
+      z-index: 6;
+      pointer-events: none;
+      display: none;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .mask-debug.show { display: block; }
+    .mask-debug-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.6rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #e84c3d;
+      margin-bottom: 0.35rem;
+    }
+    .mask-debug-head .stat { color: var(--dim); font-size: 0.55rem; letter-spacing: 0.06em; }
+    .mask-debug canvas {
+      display: block;
+      width: 100%;
+      height: 10rem;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      background: #000;
+      border: 1px solid #1a2330;
+    }
+    .mask-debug-foot {
+      margin-top: 0.35rem;
+      font-size: 0.55rem;
+      letter-spacing: 0.08em;
+      color: var(--dim);
+      text-align: center;
+    }
+    .mask-debug-foot .swatch {
+      display: inline-block;
+      width: 0.55rem;
+      height: 0.55rem;
+      background: #e84c3d;
+      vertical-align: middle;
+      margin-right: 0.25rem;
+    }
     .hud strong { color: var(--accent-2); font-weight: 500; }
     .hint {
       position: absolute;
@@ -414,6 +464,7 @@
         <div class="opts">
           <label><input type="checkbox" id="wireframe"> wireframe overlay</label>
           <label><input type="checkbox" id="autorotate" checked> auto-rotate</label>
+          <label><input type="checkbox" id="maskDebugToggle"> mask debug overlay</label>
           <button type="button" class="ghost-btn" id="resetCam">reset camera</button>
           <button type="button" class="ghost-btn" id="reseed">reseed randomness</button>
         </div>
@@ -431,6 +482,14 @@
       <div class="viewport-exports">
         <button class="viewport-export" data-format="obj" type="button" aria-label="download as .obj">↓ .obj</button>
         <button class="viewport-export alt" data-format="fbx" type="button" aria-label="download as .fbx">↓ .fbx</button>
+      </div>
+      <div class="mask-debug" id="maskDebug" aria-live="polite">
+        <div class="mask-debug-head">
+          <span>mask debug</span>
+          <span class="stat" id="maskStat">—</span>
+        </div>
+        <canvas id="maskCanvas"></canvas>
+        <div class="mask-debug-foot"><span class="swatch" aria-hidden="true"></span>= cut by silhouette</div>
       </div>
     </div>
   </main>
@@ -501,6 +560,8 @@
       seed: 1337,
       wireframe: false,
       autorotate: true,
+      showMaskDebug: false,
+      lastMaskInfo: null,     // { res, alphas, heights, strategy, threshold, skippedQuads, totalQuads, masked }
       heightmapImage: null,   // HTMLImageElement when loaded
       heightmapName: '',
     };
@@ -770,23 +831,24 @@
         const amp = p.amplitude;
         const pos = new Float32Array(res * res * 3);
         const uv  = new Float32Array(res * res * 2);
-        const alphas = alphaMask ? new Float32Array(res * res) : null;
+        // Always allocate alphas — the debug overlay needs them even when the
+        // silhouette toggle is off, so chat can preview what would be cut.
+        const alphas = new Float32Array(res * res);
         const idx = [];
         // alpha distribution stats so we can pick the right silhouette strategy
-        // and tell the user exactly what's happening
+        // and tell the user exactly what's happening (computed always — needed
+        // by the debug overlay even when the silhouette toggle is off)
         let aMin = 255, aMax = 0, opaque = 0, partial = 0, fullTransparent = 0;
-        if (alphaMask) {
-          for (let i = 0; i < data.length; i += 4) {
-            const al = data[i + 3];
-            if (al < aMin) aMin = al;
-            if (al > aMax) aMax = al;
-            if (al === 255) opaque++;
-            else if (al === 0) fullTransparent++;
-            else partial++;
-          }
+        for (let i = 0; i < data.length; i += 4) {
+          const al = data[i + 3];
+          if (al < aMin) aMin = al;
+          if (al > aMax) aMax = al;
+          if (al === 255) opaque++;
+          else if (al === 0) fullTransparent++;
+          else partial++;
         }
         const totalPx = res * res;
-        const hasAlphaVariation = alphaMask && (aMax - aMin) > 10;
+        const hasAlphaVariation = (aMax - aMin) > 10;
         // displacement-map convention: black = ground (y=0), white = peak (y=amp).
         for (let i = 0; i < res; i++) {
           for (let j = 0; j < res; j++) {
@@ -806,7 +868,7 @@
             pos[off + 2] = (v - 0.5) * size;
             uv[off2]     = u;
             uv[off2 + 1] = v;
-            if (alphas) alphas[i * res + j] = a;
+            alphas[i * res + j] = a;
           }
         }
         let skippedQuads = 0;
@@ -836,8 +898,23 @@
             idx.push(a, c, b, b, c, d);
           }
         }
+        const totalQuads = (res - 1) * (res - 1);
+        // Snapshot the per-pixel signals the silhouette math operates on so the
+        // debug overlay can render exactly what's being (or would be) cut.
+        const heightSnap = new Float32Array(res * res);
+        for (let i = 0; i < res * res; i++) heightSnap[i] = pos[i * 3 + 1];
+        state.lastMaskInfo = {
+          res,
+          alphas: new Float32Array(alphas),
+          heights: heightSnap,
+          strategy: hasAlphaVariation ? 'alpha' : 'height',
+          threshold: hasAlphaVariation ? ALPHA_THRESHOLD : heightCutoff,
+          skippedQuads,
+          totalQuads,
+          masked: alphaMask,
+          aMin, aMax, opaque, partial, fullTransparent, totalPx,
+        };
         if (alphaMask) {
-          const totalQuads = (res - 1) * (res - 1);
           console.info('[obj-forge] silhouette mask · strategy=' + (hasAlphaVariation ? 'alpha' : 'height-fallback') +
             ' · alpha range=' + aMin + '..' + aMax +
             ' · opaque=' + opaque + ' partial=' + partial + ' transparent=' + fullTransparent + ' / ' + totalPx +
@@ -850,6 +927,7 @@
             toast('silhouette mask matched nothing · image is fully opaque');
           }
         }
+        updateMaskOverlay();
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
         geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -1021,6 +1099,7 @@
       controls.update();
       renderParams();
       rebuild();
+      updateMaskOverlay();
     }
 
     /* ───────────── UI: parameter sliders ───────────── */
@@ -1144,8 +1223,10 @@
       state.heightmapBytes = 0;
       state.heightmapOrigSize = null;
       state.heightmapThumbURL = '';
+      state.lastMaskInfo = null;  // wipe any stale mask debug data
       renderParams();
       rebuild();
+      updateMaskOverlay();
       toast('image cleared');
     }
 
@@ -1370,6 +1451,63 @@
       rebuild();
     }
 
+    /* ───────────── mask debug overlay ───────────── */
+    function updateMaskOverlay() {
+      const dbg = document.getElementById('maskDebug');
+      const canvas = document.getElementById('maskCanvas');
+      const stat = document.getElementById('maskStat');
+      const info = state.lastMaskInfo;
+      // Only show for the heightmap shape, when toggled on, and when we have data
+      if (!state.showMaskDebug || state.shape !== 'heightmap' || !info) {
+        dbg.classList.remove('show');
+        return;
+      }
+      dbg.classList.add('show');
+      const res = info.res;
+      canvas.width = res;
+      canvas.height = res;
+      const ctx = canvas.getContext('2d');
+      const img = ctx.createImageData(res, res);
+      // Normalise heights to [0,1] for visualisation regardless of amplitude
+      let hMin = Infinity, hMax = -Infinity;
+      for (let i = 0; i < res * res; i++) {
+        if (info.heights[i] < hMin) hMin = info.heights[i];
+        if (info.heights[i] > hMax) hMax = info.heights[i];
+      }
+      const hRange = Math.max(0.0001, hMax - hMin);
+      for (let i = 0; i < res * res; i++) {
+        const a = info.alphas[i];
+        const h = info.heights[i];
+        const wouldCut = info.strategy === 'alpha'
+          ? a < info.threshold
+          : h < info.threshold;
+        const off = i * 4;
+        if (wouldCut) {
+          // Bright red overlay so the cut area is unmistakable
+          img.data[off]     = 232;
+          img.data[off + 1] = 76;
+          img.data[off + 2] = 61;
+          img.data[off + 3] = 255;
+        } else {
+          // Greyscale representation of the underlying signal we cut on
+          let g;
+          if (info.strategy === 'alpha') {
+            g = Math.round(a * 255);
+          } else {
+            g = Math.round(((h - hMin) / hRange) * 255);
+          }
+          img.data[off]     = g;
+          img.data[off + 1] = g;
+          img.data[off + 2] = g;
+          img.data[off + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      const cutPct = info.totalQuads ? (info.skippedQuads / info.totalQuads * 100).toFixed(0) : '0';
+      const maskedNote = info.masked ? '' : ' (preview)';
+      stat.textContent = info.strategy + ' · ' + info.skippedQuads + '/' + info.totalQuads + ' (' + cutPct + '%)' + maskedNote;
+    }
+
     /* ───────────── view options ───────────── */
     document.getElementById('wireframe').addEventListener('change', (e) => {
       state.wireframe = e.target.checked;
@@ -1382,6 +1520,10 @@
     });
     document.getElementById('autorotate').addEventListener('change', (e) => {
       state.autorotate = e.target.checked;
+    });
+    document.getElementById('maskDebugToggle').addEventListener('change', (e) => {
+      state.showMaskDebug = e.target.checked;
+      updateMaskOverlay();
     });
     document.getElementById('resetCam').addEventListener('click', () => {
       camera.position.copy(CAMERA_HOME);
