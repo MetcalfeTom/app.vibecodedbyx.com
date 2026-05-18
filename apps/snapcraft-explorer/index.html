@@ -146,6 +146,53 @@
       box-shadow: var(--shadow);
     }
     .filters select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .toggle-pill {
+      background: var(--card);
+      border: 1px solid var(--line);
+      color: var(--ink-soft);
+      font: 500 0.7rem 'JetBrains Mono', monospace;
+      padding: 0.4rem 0.75rem;
+      cursor: pointer;
+      min-height: 2.5rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      box-shadow: var(--shadow);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+    }
+    .toggle-pill .ind {
+      display: inline-block;
+      width: 0.65rem;
+      height: 0.65rem;
+      border: 1.5px solid var(--dim);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .toggle-pill:hover { border-color: var(--accent); color: var(--accent); }
+    .toggle-pill:hover .ind { border-color: var(--accent); }
+    .toggle-pill.on {
+      background: var(--accent);
+      color: #fffaf3;
+      border-color: var(--accent);
+    }
+    .toggle-pill.on .ind { background: #fffaf3; border-color: #fffaf3; }
+    .license-pill {
+      font: 500 0.6rem 'JetBrains Mono', monospace;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      letter-spacing: 0.06em;
+      cursor: help;
+    }
+    .license-pill.foss { background: rgba(110, 231, 183, 0.18); color: #2d6a40; }
+    .license-pill.prop { background: rgba(154, 141, 128, 0.14); color: var(--dim); }
+    .license-pill.unknown { background: rgba(154, 141, 128, 0.08); color: var(--dim); font-style: italic; }
+    .verified-meta {
+      font: 500 0.62rem 'JetBrains Mono', monospace;
+      color: var(--verified);
+      letter-spacing: 0.06em;
+    }
     /* — category chips row — */
     .chips-row {
       background: var(--panel);
@@ -584,6 +631,8 @@
         <option value="classic">classic</option>
         <option value="devmode">devmode</option>
       </select>
+      <button class="toggle-pill" id="promotedToggle" type="button" aria-pressed="false" title="show only Canonical-promoted snaps"><span class="ind" aria-hidden="true"></span>promoted</button>
+      <button class="toggle-pill" id="freeToggle" type="button" aria-pressed="false" title="hide snaps with non-free licenses (exclude_non_free)"><span class="ind" aria-hidden="true"></span>foss only</button>
     </div>
   </header>
   <nav class="chips-row" id="chipsRow" aria-label="category filters"></nav>
@@ -647,11 +696,19 @@
       section: 'featured',
       arch: 'amd64',
       confinement: '',
+      promotedOnly: false,   // server-side: promoted=true (Canonical's curated set, ~5k snaps)
+      freeOnly: false,       // server-side: exclude_non_free=true (drops Proprietary licenses)
       nextUrl: null,
       results: [],
       loading: false,
       lastFetchId: 0,
     };
+
+    // SPDX whitelist used ONLY for the per-card license badge. Server enforces
+    // the filter via exclude_non_free; this just paints "FOSS"/"prop" pills so
+    // chat can eyeball each card without flipping the filter on.
+    const FOSS_RE = /\b(Apache-2\.0|BSD-[234]-Clause|GPL-[23]\.0(?:\+|-(?:only|or-later))?|LGPL-[23]\.[01](?:\+|-(?:only|or-later))?|AGPL-3\.0(?:\+|-(?:only|or-later))?|MIT|MPL-[12]\.[01]|ISC|Unlicense|CC0-1\.0|Zlib|BSL-1\.0|EPL-[12]\.0|AFL-3\.0|Artistic-2\.0|EUPL-1\.[12]|Python-2\.0|WTFPL|CDDL-1\.[01]|PostgreSQL|X11|NCSA)\b/i;
+    function isFree(license) { return !!license && FOSS_RE.test(license); }
 
     /* ───────── DOM refs ───────── */
     const gridEl = document.getElementById('grid');
@@ -710,6 +767,9 @@
       if (opts.q) p.set('q', opts.q);
       if (opts.section) p.set('section', opts.section);
       if (opts.confinement) p.set('confinement', opts.confinement);
+      // Server-side filters (verified working via curl probe)
+      if (opts.promoted) p.set('promoted', 'true');
+      if (opts.excludeNonFree) p.set('exclude_non_free', 'true');
       p.set('size', String(PAGE_SIZE));
       if (opts.page) p.set('page', String(opts.page));
       return DIRECT_BASE + '/search?' + p.toString();
@@ -759,6 +819,11 @@
         const rating = (s.ratings_average && s.ratings_average > 0)
           ? '<span class="rating">★ ' + s.ratings_average.toFixed(1) + '</span>'
           : '';
+        const licPill = s.license
+          ? (isFree(s.license)
+              ? '<span class="license-pill foss" title="' + esc(s.license) + '">FOSS</span>'
+              : '<span class="license-pill prop" title="' + esc(s.license) + '">' + (s.license.toLowerCase() === 'proprietary' ? 'prop' : 'NON-FOSS') + '</span>')
+          : '<span class="license-pill unknown" title="license not set">no-lic</span>';
         return (
           '<article class="card" data-name="' + esc(s.name) + '">' +
             '<div class="card-head">' +
@@ -772,6 +837,7 @@
             '<div class="card-meta">' +
               arch4Card(s.architecture) +
               (s.confinement ? '<span class="conf-pill">' + esc(s.confinement) + '</span>' : '') +
+              licPill +
               (s.binary_filesize ? '<span class="size-pill">' + esc(fmtBytes(s.binary_filesize)) + '</span>' : '') +
               rating +
             '</div>' +
@@ -786,6 +852,32 @@
       });
     }
     function renderEmpty() {
+      // If filters are active, prompt to relax them — otherwise show suggestions.
+      const filtersActive = state.promotedOnly || state.freeOnly || state.confinement || state.arch !== 'amd64';
+      if (filtersActive) {
+        gridEl.innerHTML = '<div class="empty-state">' +
+          '<h2>nothing matches</h2>' +
+          '<p>the active filters cut everything · try relaxing one</p>' +
+          '<div class="suggestions">' +
+            (state.promotedOnly ? '<button class="suggestion" data-relax="promoted">drop promoted-only</button>' : '') +
+            (state.freeOnly     ? '<button class="suggestion" data-relax="free">drop FOSS-only</button>' : '') +
+            (state.confinement  ? '<button class="suggestion" data-relax="conf">drop ' + esc(state.confinement) + '</button>' : '') +
+            (state.arch !== 'amd64' ? '<button class="suggestion" data-relax="arch">reset arch to amd64</button>' : '') +
+          '</div>' +
+        '</div>';
+        gridEl.querySelectorAll('[data-relax]').forEach(b => {
+          b.addEventListener('click', () => {
+            const k = b.dataset.relax;
+            if (k === 'promoted') { state.promotedOnly = false; paintToggles(); }
+            if (k === 'free')     { state.freeOnly = false;     paintToggles(); }
+            if (k === 'conf')     { state.confinement = '';     confSel.value = ''; }
+            if (k === 'arch')     { state.arch = 'amd64';       archSel.value = 'amd64'; }
+            writeHash();
+            searchAndRender(true);
+          });
+        });
+        return;
+      }
       gridEl.innerHTML = '<div class="empty-state">' +
         '<h2>nothing here</h2>' +
         '<p>try one of these instead</p>' +
@@ -793,7 +885,7 @@
           SUGGESTIONS.map(s => '<button class="suggestion" data-q="' + esc(s) + '">' + esc(s) + '</button>').join('') +
         '</div>' +
       '</div>';
-      gridEl.querySelectorAll('.suggestion').forEach(b => {
+      gridEl.querySelectorAll('[data-q]').forEach(b => {
         b.addEventListener('click', () => {
           searchInput.value = b.dataset.q;
           searchInput.dispatchEvent(new Event('input'));
@@ -841,10 +933,14 @@
 
       // apiFetch() wraps with the proxy, so always pass a DIRECT URL here.
       // state.nextUrl was pulled from data._links.next.href which is direct.
+      // apiFetch() wraps with the proxy, so always pass a DIRECT URL here.
+      // state.nextUrl was pulled from data._links.next.href which is direct.
       const url = replace || !state.nextUrl ? buildApiUrl({
         q: state.query,
         section: state.section,
         confinement: state.confinement,
+        promoted: state.promotedOnly,
+        excludeNonFree: state.freeOnly,
         page: 1,
       }) : state.nextUrl;
 
@@ -861,13 +957,18 @@
         state.nextUrl = (data._links && data._links.next) ? data._links.next.href : null;
         const total = data.total;
         const skipped = fetched - archFiltered.length;
+        const activeBits = [];
+        if (state.section) activeBits.push('<strong>' + esc(state.section) + '</strong>');
+        activeBits.push('<strong>' + esc(state.arch) + '</strong>');
+        if (state.confinement) activeBits.push('<strong>' + esc(state.confinement) + '</strong>');
+        if (state.promotedOnly) activeBits.push('<strong style="color:var(--accent)">promoted</strong>');
+        if (state.freeOnly)     activeBits.push('<strong style="color:#2d6a40">FOSS</strong>');
         statusEl.innerHTML = state.results.length
           ? 'showing <strong>' + state.results.length + '</strong> of <strong>' + (total || state.results.length) + '</strong>' +
             (state.query ? ' for "<strong>' + esc(state.query) + '</strong>"' : '') +
-            (state.section ? ' · <strong>' + esc(state.section) + '</strong>' : '') +
-            ' · <strong>' + esc(state.arch) + '</strong>' +
-            (skipped > 0 ? ' <span style="color:var(--dim)">(' + skipped + ' filtered out)</span>' : '')
-          : 'no results match' + (state.arch ? ' for arch ' + esc(state.arch) : '');
+            ' · ' + activeBits.join(' · ') +
+            (skipped > 0 ? ' <span style="color:var(--dim)">(' + skipped + ' arch-filtered)</span>' : '')
+          : 'no results match the current filters';
         renderResults(!replace);
         loadMoreBtn.style.display = state.nextUrl ? 'inline-block' : 'none';
         loadMoreBtn.disabled = false;
@@ -951,6 +1052,7 @@
         state.section = '';
         renderChips();
       }
+      writeHash();
       scheduleSearch();
     });
     searchClear.addEventListener('click', () => {
@@ -964,10 +1066,32 @@
     archSel.addEventListener('change', () => {
       state.arch = archSel.value;
       apiInfoEl.textContent = 'api · v1 via proxy · ' + state.arch;
+      writeHash();
       searchAndRender(true);
     });
     confSel.addEventListener('change', () => {
       state.confinement = confSel.value;
+      writeHash();
+      searchAndRender(true);
+    });
+    const promotedToggle = document.getElementById('promotedToggle');
+    const freeToggle = document.getElementById('freeToggle');
+    function paintToggles() {
+      promotedToggle.classList.toggle('on', state.promotedOnly);
+      promotedToggle.setAttribute('aria-pressed', state.promotedOnly ? 'true' : 'false');
+      freeToggle.classList.toggle('on', state.freeOnly);
+      freeToggle.setAttribute('aria-pressed', state.freeOnly ? 'true' : 'false');
+    }
+    promotedToggle.addEventListener('click', () => {
+      state.promotedOnly = !state.promotedOnly;
+      paintToggles();
+      writeHash();
+      searchAndRender(true);
+    });
+    freeToggle.addEventListener('click', () => {
+      state.freeOnly = !state.freeOnly;
+      paintToggles();
+      writeHash();
       searchAndRender(true);
     });
     loadMoreBtn.addEventListener('click', () => {
@@ -984,8 +1108,44 @@
       if (e.key === 'Escape' && modal.open) modal.close();
     });
 
+    /* ───────── URL hash sync ───────── */
+    function readHash() {
+      const h = location.hash.slice(1);
+      if (!h) return;
+      const p = new URLSearchParams(h);
+      if (p.has('q'))        { state.query = p.get('q'); searchInput.value = state.query; }
+      if (p.has('section'))    state.section = p.get('section');
+      if (p.has('arch'))     { state.arch = p.get('arch'); archSel.value = state.arch; }
+      if (p.has('conf'))     { state.confinement = p.get('conf'); confSel.value = state.confinement; }
+      if (p.get('promoted') === '1') state.promotedOnly = true;
+      if (p.get('free') === '1')      state.freeOnly = true;
+    }
+    function writeHash() {
+      const p = new URLSearchParams();
+      if (state.query) p.set('q', state.query);
+      if (state.section && state.section !== 'featured') p.set('section', state.section);
+      if (state.arch && state.arch !== 'amd64') p.set('arch', state.arch);
+      if (state.confinement) p.set('conf', state.confinement);
+      if (state.promotedOnly) p.set('promoted', '1');
+      if (state.freeOnly) p.set('free', '1');
+      const s = p.toString();
+      const newHash = s ? '#' + s : '';
+      if (newHash !== location.hash) {
+        history.replaceState(null, '', location.pathname + newHash);
+      }
+    }
+    window.addEventListener('hashchange', () => {
+      readHash();
+      paintToggles();
+      renderChips();
+      searchAndRender(true);
+    });
+
     /* ───────── boot ───────── */
+    readHash();
     renderChips();
+    paintToggles();
+    searchClear.classList.toggle('show', !!state.query);
     apiInfoEl.textContent = 'api · v1 via proxy · ' + state.arch;
     searchAndRender(true);
   })();
