@@ -166,6 +166,54 @@
       min-height: 1.6rem;
       background: transparent;
     }
+    /* iOS-style toggle for boolean params (replaces the old on/off slider) */
+    .toggle-btn {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      color: var(--dim);
+      font: 500 0.7rem 'JetBrains Mono', monospace;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0.7rem;
+      cursor: pointer;
+      min-height: 2.25rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .toggle-btn:hover { border-color: var(--accent-2); }
+    .toggle-track {
+      width: 1.8rem;
+      height: 0.95rem;
+      background: var(--line);
+      border-radius: 0.5rem;
+      position: relative;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      top: 0.1rem;
+      left: 0.1rem;
+      width: 0.75rem;
+      height: 0.75rem;
+      background: var(--dim);
+      border-radius: 50%;
+      transition: transform 0.18s ease, background 0.15s;
+    }
+    .toggle-btn.on {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(255, 122, 61, 0.06);
+    }
+    .toggle-btn.on .toggle-track { background: var(--accent); }
+    .toggle-btn.on .toggle-track::after {
+      background: #0a0e14;
+      transform: translateX(0.85rem);
+    }
+    .toggle-label { flex: 1; text-align: right; }
     .opts {
       display: flex;
       flex-direction: column;
@@ -438,10 +486,11 @@
         { id: 'c',         label: 'Z-scale',   min: 0.4, max: 1.6, step: 0.05, value: 1   },
       ]},
       heightmap: { name: 'Heightmap', glyph: '▦', params: [
-        { id: 'resolution', label: 'Res',      min: 16,  max: 256, step: 8,    value: 96  },
-        { id: 'amplitude', label: 'Height',    min: 0.05, max: 4,   step: 0.05, value: 2   },
-        { id: 'size',      label: 'Size',      min: 1,   max: 5,   step: 0.1,  value: 3   },
-        { id: 'invert',    label: 'Invert',    min: 0,   max: 1,   step: 1,    value: 0   },
+        { id: 'resolution', label: 'Res',         min: 16,  max: 256, step: 8,    value: 96  },
+        { id: 'amplitude',  label: 'Height',      min: 0.05, max: 4,  step: 0.05, value: 2   },
+        { id: 'size',       label: 'Size',        min: 1,   max: 5,   step: 0.1,  value: 3   },
+        { id: 'invert',     label: 'Invert',      min: 0,   max: 1,   step: 1,    value: 0   },
+        { id: 'alphaMask',  label: 'Silhouette only', min: 0, max: 1, step: 1,    value: 0   },
       ]},
     };
 
@@ -715,13 +764,14 @@
         }
         const size = p.size;
         const invert = !!p.invert;
+        const alphaMask = !!p.alphaMask;
+        const ALPHA_THRESHOLD = 0.5;
         const amp = p.amplitude;
         const pos = new Float32Array(res * res * 3);
         const uv  = new Float32Array(res * res * 2);
+        const alphas = alphaMask ? new Float32Array(res * res) : null;
         const idx = [];
         // displacement-map convention: black = ground (y=0), white = peak (y=amp).
-        // Previous version centred at lum=0.5 and doubled the range, so any
-        // mostly-dark image sat below the baseline and looked like a hole/crater.
         for (let i = 0; i < res; i++) {
           for (let j = 0; j < res; j++) {
             const k4 = (i * res + j) * 4;
@@ -740,16 +790,28 @@
             pos[off + 2] = (v - 0.5) * size;
             uv[off2]     = u;
             uv[off2 + 1] = v;
+            if (alphas) alphas[i * res + j] = a;
           }
         }
+        let skippedQuads = 0;
         for (let i = 0; i < res - 1; i++) {
           for (let j = 0; j < res - 1; j++) {
             const a = i * res + j;
             const b = a + 1;
             const c = a + res;
             const d = c + 1;
+            // Silhouette-only mode: skip both triangles of any quad whose four
+            // corners are ALL below the alpha threshold. Quads on the silhouette
+            // edge (mixed alpha) are kept, so anti-aliased PNG borders survive.
+            if (alphas) {
+              const maxA = Math.max(alphas[a], alphas[b], alphas[c], alphas[d]);
+              if (maxA < ALPHA_THRESHOLD) { skippedQuads++; continue; }
+            }
             idx.push(a, c, b, b, c, d);
           }
+        }
+        if (alphaMask) {
+          console.info('[obj-forge] silhouette mask · skipped ' + skippedQuads + ' / ' + ((res-1)*(res-1)) + ' quads');
         }
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -934,23 +996,44 @@
         wrap.className = 'param';
         const val = state.params[state.shape][p.id];
         const isBool = p.min === 0 && p.max === 1 && p.step === 1;
-        wrap.innerHTML = `
-          <div class="lbl">
-            <span>${p.label}</span>
-            <span class="val" data-val="${p.id}">${isBool ? (val ? 'on' : 'off') : formatVal(val, p.step)}</span>
-          </div>
-          <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${val}"
-                 data-pid="${p.id}" aria-label="${p.label}">
-        `;
-        paramsEl.appendChild(wrap);
-        const slider = wrap.querySelector('input');
-        const readout = wrap.querySelector('.val');
-        slider.addEventListener('input', () => {
-          const v = parseFloat(slider.value);
-          state.params[state.shape][p.id] = v;
-          readout.textContent = isBool ? (v ? 'on' : 'off') : formatVal(v, p.step);
-          scheduleRebuild();
-        });
+        if (isBool) {
+          // Real toggle button — much harder to miss than a 0..1 slider
+          wrap.innerHTML = `
+            <button type="button" class="toggle-btn ${val ? 'on' : ''}"
+                    data-pid="${p.id}" aria-pressed="${val ? 'true' : 'false'}">
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">${p.label}</span>
+            </button>
+          `;
+          paramsEl.appendChild(wrap);
+          const btn = wrap.querySelector('button');
+          btn.addEventListener('click', () => {
+            const cur = state.params[state.shape][p.id];
+            const nxt = cur ? 0 : 1;
+            state.params[state.shape][p.id] = nxt;
+            btn.classList.toggle('on', !!nxt);
+            btn.setAttribute('aria-pressed', nxt ? 'true' : 'false');
+            scheduleRebuild();
+          });
+        } else {
+          wrap.innerHTML = `
+            <div class="lbl">
+              <span>${p.label}</span>
+              <span class="val" data-val="${p.id}">${formatVal(val, p.step)}</span>
+            </div>
+            <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${val}"
+                   data-pid="${p.id}" aria-label="${p.label}">
+          `;
+          paramsEl.appendChild(wrap);
+          const slider = wrap.querySelector('input');
+          const readout = wrap.querySelector('.val');
+          slider.addEventListener('input', () => {
+            const v = parseFloat(slider.value);
+            state.params[state.shape][p.id] = v;
+            readout.textContent = formatVal(v, p.step);
+            scheduleRebuild();
+          });
+        }
       });
       if (state.shape === 'heightmap') renderDropzone();
     }
