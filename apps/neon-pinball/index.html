@@ -18,6 +18,9 @@ canvas{display:block;width:100%;height:100%}
 #score-display{font-family:'Orbitron',sans-serif;font-size:1.4rem;font-weight:900;color:#0ff;text-shadow:0 0 20px rgba(0,255,255,0.6),0 0 40px rgba(0,255,255,0.3);letter-spacing:2px}
 #balls-display{font-size:0.7rem;color:rgba(0,255,255,0.5);letter-spacing:1px}
 #combo-display{font-family:'Orbitron',sans-serif;font-size:0.8rem;font-weight:700;color:#f0f;text-shadow:0 0 15px rgba(255,0,255,0.5);opacity:0;transition:opacity 0.3s}
+#mute-btn{pointer-events:auto;background:rgba(0,255,255,0.08);border:1px solid rgba(0,255,255,0.4);color:#0ff;font:500 0.85rem 'Fira Code',monospace;padding:0.35rem 0.65rem;cursor:pointer;letter-spacing:0.1em;text-shadow:0 0 8px rgba(0,255,255,0.5);min-height:2rem;transition:background 0.12s,color 0.12s}
+#mute-btn:hover{background:rgba(0,255,255,0.2);color:#fff}
+#mute-btn.muted{color:#555;border-color:#444;text-shadow:none}
 #combo-display.show{opacity:1}
 #start-screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;background:rgba(5,5,16,0.95)}
 #start-screen h1{font-family:'Orbitron',sans-serif;font-size:2.4rem;font-weight:900;color:#0ff;text-shadow:0 0 30px rgba(0,255,255,0.5),0 0 60px rgba(0,255,255,0.2);margin-bottom:8px}
@@ -59,6 +62,7 @@ a@media(max-width:500px){
 <div id="ui">
   <div><div id="score-display">0</div><div id="balls-display">BALLS: 3</div></div>
   <div id="combo-display">x2 COMBO</div>
+  <button id="mute-btn" type="button" title="toggle sound (M)" aria-label="toggle sound">♪</button>
 </div>
 <div id="start-screen">
   <h1>NEON PINBALL</h1>
@@ -92,6 +96,140 @@ var C=document.getElementById('c'),X=C.getContext('2d');
 var W,H,scale;
 var TW=400,TH=720;
 var ox=0,oy=0;
+
+/* ───────── audio (Web Audio synth · zero deps) ───────── */
+var MUTED = localStorage.getItem('neon_pinball_muted') === '1';
+var actx = null, master = null, reverb = null;
+function ensureAudio(){
+  if (actx) return actx;
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    actx = new AC();
+    master = actx.createGain();
+    master.gain.value = 0.5;
+    // tiny convolver reverb so SFX feel like they're inside a glowing cabinet
+    var rv = actx.createConvolver();
+    var len = actx.sampleRate * 0.6;
+    var buf = actx.createBuffer(2, len, actx.sampleRate);
+    for (var ch = 0; ch < 2; ch++){
+      var d = buf.getChannelData(ch);
+      for (var i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 2.5);
+    }
+    rv.buffer = buf;
+    var wet = actx.createGain(); wet.gain.value = 0.18;
+    rv.connect(wet).connect(master);
+    reverb = rv;
+    master.connect(actx.destination);
+  } catch(_){ actx = null; }
+  return actx;
+}
+function _osc(type, freq, gain, dur, attack, sweep){
+  if (MUTED || !ensureAudio()) return null;
+  var t = actx.currentTime;
+  var o = actx.createOscillator(); o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  if (sweep) o.frequency.exponentialRampToValueAtTime(Math.max(20, sweep), t + dur);
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t + (attack||0.005));
+  g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  o.connect(g); g.connect(master); if (reverb) g.connect(reverb);
+  o.start(t); o.stop(t + dur + 0.02);
+  return o;
+}
+function _noise(gain, dur, lp, q){
+  if (MUTED || !ensureAudio()) return;
+  var t = actx.currentTime;
+  var n = actx.createBufferSource();
+  var b = actx.createBuffer(1, actx.sampleRate * dur, actx.sampleRate);
+  var d = b.getChannelData(0);
+  for (var i = 0; i < d.length; i++) d[i] = Math.random()*2-1;
+  n.buffer = b;
+  var f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = lp; f.Q.value = q||3;
+  var g = actx.createGain();
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  n.connect(f).connect(g).connect(master);
+  n.start(t); n.stop(t + dur);
+}
+// per-event SFX — chunky, electric, neon
+function sndBumper(hue, speed){
+  var s = Math.min(1, (speed||6) / 14);
+  var f = 320 + (hue/360)*620;
+  _osc('triangle', f * 1.35, 0.26 + s*0.1, 0.34, 0.004, f * 0.78);
+  _osc('sine',     f * 2.05, 0.12, 0.16);
+  _noise(0.18, 0.07, 2400, 4);
+}
+function sndSling(){
+  _osc('square', 720, 0.16, 0.13, 0.003, 220);
+  _noise(0.13, 0.06, 1800, 6);
+}
+function sndTarget(hue){
+  var f = 480 + (hue/360)*420;
+  _osc('square', f, 0.14, 0.12, 0.003, f*1.3);
+  _osc('sine',   f*2, 0.08, 0.1);
+}
+function sndPaddleSwing(){ _noise(0.14, 0.05, 1100, 2.2); _osc('square', 95, 0.05, 0.05); }
+function sndPaddleHit(active, speed){
+  var s = Math.min(1, (speed||4) / 10);
+  _osc('sawtooth', 360 + s*120, 0.18 + s*0.1, 0.18, 0.003, 130);
+  _noise(0.14 + s*0.06, 0.06, active ? 1300 : 800, 3);
+}
+function sndCharge(level){
+  if (!ensureAudio()) return;
+  // pitched buzz that ramps up with charge level (0..1)
+  _osc('sawtooth', 80 + level*180, 0.05 + level*0.04, 0.08, 0.003);
+}
+function sndLaunch(power){
+  _osc('sawtooth', 70, 0.22, 0.55, 0.005, 620 + power*200);
+  _noise(0.14, 0.22, 700, 2);
+  _osc('square', 220, 0.12, 0.18, 0.01, 90);
+}
+function sndDrain(){
+  var t = ensureAudio() ? actx.currentTime : 0;
+  if (!actx) return;
+  [880, 660, 440, 220].forEach(function(f, i){
+    setTimeout(function(){ _osc('triangle', f, 0.18, 0.22, 0.005); }, i * 95);
+  });
+  _noise(0.12, 0.5, 300, 1);
+}
+function sndComboPing(combo){
+  if (combo < 2) return;
+  var f = 660 * Math.pow(1.18, combo - 2);
+  _osc('sine', f, 0.16, 0.22, 0.003);
+  _osc('triangle', f * 1.5, 0.10, 0.18, 0.003);
+}
+function sndJackpot(){
+  if (!ensureAudio()) return;
+  var t = actx.currentTime;
+  var notes = [523, 659, 784, 1047, 1319]; // C, E, G, C, E
+  notes.forEach(function(f, i){
+    setTimeout(function(){
+      _osc('triangle', f, 0.18, 0.32, 0.003);
+      _osc('sine',     f*2, 0.08, 0.22);
+    }, i * 70);
+  });
+  _noise(0.12, 0.5, 3200, 6);
+}
+function sndClack(speed){
+  var s = Math.min(1, (speed||4)/14);
+  if (s < 0.25) return;
+  _noise(0.08 + s*0.08, 0.045, 1800, 4);
+}
+// mute toggle wiring (button + M key)
+var muteBtn = document.getElementById('mute-btn');
+function paintMute(){ muteBtn.classList.toggle('muted', MUTED); muteBtn.textContent = MUTED ? '♪̸' : '♪'; }
+paintMute();
+muteBtn.addEventListener('click', function(){
+  MUTED = !MUTED;
+  localStorage.setItem('neon_pinball_muted', MUTED ? '1' : '0');
+  paintMute();
+  if (!MUTED) { ensureAudio(); if (actx && actx.state === 'suspended') actx.resume(); }
+});
+window.addEventListener('keydown', function(e){
+  if (e.key === 'm' || e.key === 'M') { muteBtn.click(); }
+});
 
 function resize(){
   W=C.width=window.innerWidth;H=C.height=window.innerHeight;
@@ -271,6 +409,7 @@ function releaseLaunch(){
   ball.active=true;
   gameState='play';
   spawnParticles(ball.x,ball.y+10,60,8,2+power*3);
+  sndLaunch(power);
   spring.charge=0;
 }
 
@@ -283,7 +422,8 @@ function addScore(pts,x,y,hue){
   if(mult>1){
     document.getElementById('combo-display').textContent='x'+mult+' COMBO';
     document.getElementById('combo-display').classList.add('show');
-  }
+    if (mult !== addScore._lastMult) { sndComboPing(mult); addScore._lastMult = mult; }
+  } else { addScore._lastMult = 0; }
   document.getElementById('score-display').textContent=score;
   showPopup(x,y,'+'+total,hue);
 }
@@ -292,6 +432,7 @@ function loseBall(){
   balls--;
   document.getElementById('balls-display').textContent='BALLS: '+balls;
   shakeTimer=0.3;
+  sndDrain();
   if(balls<=0){
     gameState='over';
     if(score>hiScore){hiScore=score;localStorage.setItem('neon_pinball_hi',hiScore);}
@@ -385,6 +526,9 @@ function update(dt){
   // paddles
   var lActive=keys['a']||keys['arrowleft']||touchL;
   var rActive=keys['d']||keys['arrowright']||touchR;
+  // Rising-edge flick SFX (only when paddle goes from rest → active)
+  if (lActive && !paddles[0].active) sndPaddleSwing();
+  if (rActive && !paddles[1].active) sndPaddleSwing();
   paddles[0].active=lActive;
   paddles[1].active=rActive;
 
@@ -406,7 +550,11 @@ function update(dt){
     if(spring.charge>spring.maxCharge) spring.charge=spring.maxCharge;
     // ball compresses down onto spring
     ball.y=spring.restY+spring.charge*40;
-  }
+    // chuggy "tensioning spring" buzz tick — frequency rises with charge
+    if (!update._chargeT) update._chargeT = 0;
+    update._chargeT += dt;
+    if (update._chargeT > 0.07) { sndCharge(spring.charge / spring.maxCharge); update._chargeT = 0; }
+  } else { update._chargeT = 0; }
 
   // distort bumper positions
   for(var i=0;i<bumpers.length;i++){
@@ -451,9 +599,11 @@ function update(dt){
       var spd=Math.sqrt(ball.vx*ball.vx+ball.vy*ball.vy);
       if(spd<6){ball.vx*=6/spd;ball.vy*=6/spd;}
       b.flash=1;
+      var __spd = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
       addScore(b.points,bx,by-b.r-10,b.hue);
       spawnParticles(ball.x,ball.y,b.hue,12,3);
       shakeTimer=0.1;
+      sndBumper(b.hue, __spd);
     }
     if(b.flash>0)b.flash-=dt*4;
   }
@@ -469,12 +619,14 @@ function update(dt){
       ball.vy=Math.abs(ball.vy)*1.1;
       addScore(tg.points,tg.x,tg.y-15,tg.hue);
       spawnParticles(tg.x,tg.y,tg.hue,8,2);
+      sndTarget(tg.hue);
     }
     if(tg.flash>0)tg.flash-=dt*3;
   }
   if(allHit){
     addScore(1000,TW/2,90,60);
     for(var i=0;i<targets.length;i++)targets[i].hit=false;
+    sndJackpot();
   }
 
   // slingshots
@@ -489,6 +641,7 @@ function update(dt){
       sl.flash=1;
       addScore(50,sl.x,sl.y-20,180);
       spawnParticles(sl.x,sl.y,180,6,2);
+      sndSling();
     }
     if(sl.flash>0)sl.flash-=dt*3;
   }
@@ -501,6 +654,7 @@ function update(dt){
       ball.x+=col.nx*col.pen;ball.y+=col.ny*col.pen;
       var dot=ball.vx*col.nx+ball.vy*col.ny;
       ball.vx-=1.8*dot*col.nx;ball.vy-=1.8*dot*col.ny;
+      sndClack(Math.abs(dot));
     }
   }
 
@@ -519,6 +673,7 @@ function update(dt){
       ball.vy-=kick;
       if(pad.side==='left')ball.vx+=kick*0.4;else ball.vx-=kick*0.4;
       spawnParticles(col.px,col.py,pad.side==='left'?180:300,6,2);
+      sndPaddleHit(pad.active, Math.abs(dot));
     }
     // magnetic pull
     if(pad.active){
