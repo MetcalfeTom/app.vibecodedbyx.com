@@ -1,6 +1,13 @@
 # chat-uno-vibe · notes
 
 ## log
+- 2026-05-19: v1.1 — **overlay modes for OBS** per chat ask "make the chat-uno-vibe background transparent and add a chroma-key green toggle for stream overlays". Three modes, persisted to localStorage, hot-cycled with `O`.
+  - **normal** · the default purple-gradient + scanline look · for standalone play.
+  - **transparent** · `body { background: transparent }` + scanline overlay hidden. Header + side panel + player cards get `rgba(31,14,58,0.55)` + `backdrop-filter: blur(6px)` so they stay readable when dropped over a webcam or gameplay capture in OBS BrowserSource (alpha channel preserved automatically).
+  - **chroma green** · `body { background: #00ff00 }` for capture tools that don't support alpha (Streamlabs window capture, Zoom screen share, Discord). Panels go more opaque so cards stay crisp against the green; the centre table area keeps a faint radial dark vignette so the discard pile pops.
+  - **Settings UI** · new segmented control in the settings modal with three buttons (`normal` / `transparent` / `chroma green`). Active state of the chroma button literally turns green; transparent shows a cyan diagonal-stripe pattern so chat can preview each mode at a glance. Saved with the rest of the settings.
+  - **Keyboard** · `O` cycles modes mid-stream (skips when typing in an input). Each cycle logs a hint into the side panel reminding the streamer of the right OBS source type.
+  - Applied on boot via `applyOverlay(settings.overlay)` so a saved overlay-mode page reloads straight into the streamer's chosen look.
 - 2026-05-19: v1 — **chat-driven Uno table** per stacked chat asks "create a new app called chat-uno-vibe that lets viewers play via chat commands" + "make the Twitch channel name configurable in a settings menu". Single ~45KB file, zero deps.
   - **Twitch IRC** · anonymous WebSocket connection (`wss://irc-ws.chat.twitch.tv:443`, `PASS SCHMOOPIIE` + `NICK justinfan{rand}` + `JOIN #channel`). Auto-reconnects in 4s on close. Connection pill in the header shows offline / connecting / live (#channel) / error.
   - **Configurable channel via settings modal** · ⚙ button opens a native `<dialog>` with: channel input (with `#` prefix tag), min-bot players (0-6), lobby-seconds. Persisted to `localStorage['chat-uno-vibe-v1']`. Save & reconnect immediately. Channel input sanitised to lowercase a-z0-9_ only.
