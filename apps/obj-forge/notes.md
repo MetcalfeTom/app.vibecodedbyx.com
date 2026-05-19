@@ -1,6 +1,13 @@
 # obj-forge · notes
 
 ## log
+- 2026-05-19: v1.9 — **Flat extrude toggle for the heightmap generator** per chat ask "in obj-forge, add a Flat Extrusion toggle for the heightmap generator to skip pixel-depth math". New boolean param on the heightmap shape labelled `Flat extrude · skip pixel depth` (renders as the existing toggle-button style). When ON, every kept vertex's y is clamped to `amp` instead of `lum * amp` — produces a uniform-depth slab in the shape of the silhouette (pairs naturally with the existing Silhouette only toggle for cookie-cutter / 3D-printed-sticker output).
+  - **Refactor** · added a parallel `lums` Float32Array to the heightmap builder. Every pixel writes its post-invert luminance into `lums[]` alongside the mesh `pos.y`. That way:
+    - silhouette mask's height-fallback strategy uses `lums[]` (the source signal) rather than `pos.y` — so the cut still works correctly when flatExtrude has clamped every kept vertex to amp;
+    - mask-debug overlay snapshot stores `lums[i] * amp` instead of `pos[i*3+1]` — so the red overlay shows the source image's relief even when the actual mesh is flat;
+    - alpha-strategy + invert + the rest of the pipeline are unaffected.
+  - **Demo placeholder** also respects flatExtrude: picking heightmap shape, flipping flat-extrude on, with no image uploaded gives you a flat 3-unit-square slab at y=amp (with the silhouette-only toggle off, you get a single solid slab; with it on the ripple's higher half becomes the silhouette and gets cut to nothing, since the lum-cutoff fires on the dim half).
+  - Verified by sim: lum ∈ {0, 0.25, 0.5, 0.75, 1} → all heights = 2 when flatExtrude=true.
 - 2026-05-18: v1.8 — **visual mask-debug overlay**. Chat: "add a visual debug overlay to the canvas showing the active silhouette mask in red, so we can see exactly what the math is ignoring".
   - **Top-right viewport panel** · 11rem-wide red-bordered debug box that appears when the new "mask debug overlay" checkbox in the panel View section is on AND the current shape is heightmap. Contains a small canvas rendered with `image-rendering: pixelated` so each cell is a crisp source-pixel, plus a stat readout (`alpha · 1240/9216 (13%)` or `height · 0/9216 (0%) (preview)`) and a legend ("█ = cut by silhouette").
   - **Render logic** · `updateMaskOverlay()` reads `state.lastMaskInfo` (snapshotted at the end of every heightmap rebuild) and per-pixel paints either bright red `#e84c3d` for would-be-cut pixels or a greyscale of the underlying signal (alpha or normalised height) for kept pixels. Same threshold the actual silhouette mask uses, so the overlay shows EXACTLY what gets ignored.

@@ -549,6 +549,7 @@
         { id: 'amplitude',  label: 'Height',      min: 0.05, max: 4,  step: 0.05, value: 2   },
         { id: 'size',       label: 'Size',        min: 1,   max: 5,   step: 0.1,  value: 3   },
         { id: 'invert',     label: 'Invert',      min: 0,   max: 1,   step: 1,    value: 0   },
+        { id: 'flatExtrude', label: 'Flat extrude · skip pixel depth', min: 0, max: 1, step: 1, value: 0 },
         { id: 'alphaMask',  label: 'Silhouette only', min: 0, max: 1, step: 1,    value: 0   },
       ]},
     };
@@ -826,14 +827,17 @@
         const size = p.size;
         const invert = !!p.invert;
         const alphaMask = !!p.alphaMask;
+        const flatExtrude = !!p.flatExtrude;
         const ALPHA_THRESHOLD = 0.5;
         const HEIGHT_THRESHOLD_FRAC = 0.05; // fraction of amp below which we treat a region as "background"
         const amp = p.amplitude;
         const pos = new Float32Array(res * res * 3);
         const uv  = new Float32Array(res * res * 2);
-        // Always allocate alphas — the debug overlay needs them even when the
-        // silhouette toggle is off, so chat can preview what would be cut.
+        // Always allocate alphas + lums — the debug overlay + silhouette mask
+        // both need the underlying signal even when the silhouette toggle is
+        // off OR when flatExtrude overrides the per-vertex height with `amp`.
         const alphas = new Float32Array(res * res);
+        const lums   = new Float32Array(res * res); // post-invert, before flatExtrude — drives silhouette + debug
         const idx = [];
         // alpha distribution stats so we can pick the right silhouette strategy
         // and tell the user exactly what's happening (computed always — needed
@@ -859,7 +863,12 @@
             const g = data[k4 + 1] * a;
             const b = data[k4 + 2] * a;
             const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
-            const h = (invert ? (1 - lum) : lum) * amp;
+            const adjLum = invert ? (1 - lum) : lum;
+            // flatExtrude bypasses the per-pixel depth math entirely — every
+            // kept vertex gets the same y=amp so the result is a uniform-depth
+            // slab in the shape of the silhouette (pair with Silhouette only
+            // for a cookie-cutter / 3D-printed-sticker look).
+            const h = flatExtrude ? amp : adjLum * amp;
             const off = (i * res + j) * 3;
             const off2 = (i * res + j) * 2;
             const u = j / (res - 1), v = i / (res - 1);
@@ -869,6 +878,7 @@
             uv[off2]     = u;
             uv[off2 + 1] = v;
             alphas[i * res + j] = a;
+            lums[i * res + j] = adjLum;
           }
         }
         let skippedQuads = 0;
@@ -890,8 +900,11 @@
                 const maxA = Math.max(alphas[a], alphas[b], alphas[c], alphas[d]);
                 skip = maxA < ALPHA_THRESHOLD;
               } else {
-                const maxH = Math.max(pos[a*3+1], pos[b*3+1], pos[c*3+1], pos[d*3+1]);
-                skip = maxH < heightCutoff;
+                // Always use the LUMINANCE-derived height for the silhouette test,
+                // not pos.y — so the mask still works when flatExtrude flattens
+                // every kept pixel to amp.
+                const maxL = Math.max(lums[a], lums[b], lums[c], lums[d]);
+                skip = (maxL * amp) < heightCutoff;
               }
               if (skip) { skippedQuads++; continue; }
             }
@@ -901,8 +914,11 @@
         const totalQuads = (res - 1) * (res - 1);
         // Snapshot the per-pixel signals the silhouette math operates on so the
         // debug overlay can render exactly what's being (or would be) cut.
+        // Snapshot the LUM-derived would-be height (not pos.y) so the debug
+        // overlay still shows the source-image relief even when flatExtrude
+        // has clamped every vertex y to amp.
         const heightSnap = new Float32Array(res * res);
-        for (let i = 0; i < res * res; i++) heightSnap[i] = pos[i * 3 + 1];
+        for (let i = 0; i < res * res; i++) heightSnap[i] = lums[i] * amp;
         state.lastMaskInfo = {
           res,
           alphas: new Float32Array(alphas),
@@ -944,6 +960,7 @@
       const uv = new Float32Array(res * res * 2);
       const idx = [];
       const invert = !!p.invert;
+      const flatExtrude = !!p.flatExtrude;
       for (let i = 0; i < res; i++) {
         for (let j = 0; j < res; j++) {
           const u = j / (res - 1), v = i / (res - 1);
@@ -958,7 +975,7 @@
           const off3 = (i * res + j) * 3;
           const off2 = (i * res + j) * 2;
           pos[off3]     = x;
-          pos[off3 + 1] = lum * p.amplitude;
+          pos[off3 + 1] = flatExtrude ? p.amplitude : lum * p.amplitude;
           pos[off3 + 2] = z;
           uv[off2]     = u;
           uv[off2 + 1] = v;
