@@ -806,13 +806,23 @@
     }
 
     /* ───────── card render ───────── */
-    function renderResults(append) {
-      if (!append) gridEl.innerHTML = '';
+    function renderResults(append, items) {
+      // When appending, items = ONLY the new results to paint (not state.results)
+      // — otherwise we'd re-render every previous page and end up with each
+      // card duplicated under itself in the DOM.
+      if (!append) {
+        gridEl.innerHTML = '';
+        items = state.results;
+      }
       if (!state.results.length) {
         renderEmpty();
         return;
       }
-      const html = state.results.map(s => {
+      if (!items || !items.length) {
+        // Append called but nothing new (all dedupe'd) — leave DOM alone
+        return;
+      }
+      const html = items.map(s => {
         const icon = s.icon_url
           ? '<img src="' + esc(s.icon_url) + '" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'placeholder\',textContent:\'' + esc((s.title||s.name||'?')[0].toUpperCase()) + '\'}));">'
           : '<span class="placeholder">' + esc((s.title || s.name || '?')[0].toUpperCase()) + '</span>';
@@ -846,10 +856,13 @@
       }).join('');
       if (append) gridEl.insertAdjacentHTML('beforeend', html);
       else gridEl.innerHTML = html;
-      // wire card clicks
-      gridEl.querySelectorAll('.card').forEach(c => {
+      // Wire ONLY the cards we just inserted (existing ones already have handlers)
+      const allCards = gridEl.querySelectorAll('.card');
+      const newCount = append ? items.length : allCards.length;
+      for (let i = allCards.length - newCount; i < allCards.length; i++) {
+        const c = allCards[i];
         c.addEventListener('click', () => openDetail(c.dataset.name));
-      });
+      }
     }
     function renderEmpty() {
       // If filters are active, prompt to relax them — otherwise show suggestions.
@@ -922,7 +935,11 @@
       debounceT = setTimeout(() => searchAndRender(true), 280);
     }
     async function searchAndRender(replace) {
-      if (state.loading) return;
+      // Only block re-entry for APPENDS — a replace (filter / search change)
+      // must always be allowed to interrupt an in-flight load-more, otherwise
+      // the user's new filter is silently dropped. The bumped lastFetchId will
+      // cause the in-flight fetch to be discarded when it returns.
+      if (state.loading && !replace) return;
       const id = ++state.lastFetchId;
       state.loading = true;
       if (replace) renderSkeleton();
@@ -952,8 +969,19 @@
         // can't filter server-side. The architecture[] field is on every result.
         const fetched = incoming.length;
         const archFiltered = filterByArch(incoming, state.arch);
-        if (replace) state.results = archFiltered;
-        else state.results = state.results.concat(archFiltered);
+        // DEDUPE BY NAME on append — server _links.next pages can overlap,
+        // and re-concatenating the same snap-id under itself was the visible
+        // "duplicate items in the list" bug chat reported.
+        let toRender;
+        if (replace) {
+          state.results = archFiltered;
+          toRender = archFiltered;
+        } else {
+          const existing = new Set(state.results.map(s => s.name));
+          const trulyNew = archFiltered.filter(s => !existing.has(s.name));
+          state.results = state.results.concat(trulyNew);
+          toRender = trulyNew;
+        }
         state.nextUrl = (data._links && data._links.next) ? data._links.next.href : null;
         const total = data.total;
         const skipped = fetched - archFiltered.length;
@@ -969,7 +997,7 @@
             ' · ' + activeBits.join(' · ') +
             (skipped > 0 ? ' <span style="color:var(--dim)">(' + skipped + ' arch-filtered)</span>' : '')
           : 'no results match the current filters';
-        renderResults(!replace);
+        renderResults(!replace, toRender);
         loadMoreBtn.style.display = state.nextUrl ? 'inline-block' : 'none';
         loadMoreBtn.disabled = false;
       } catch (err) {
