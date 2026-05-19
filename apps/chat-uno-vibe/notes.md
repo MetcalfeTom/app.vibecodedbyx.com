@@ -1,6 +1,9 @@
 # chat-uno-vibe · notes
 
 ## log
+- 2026-05-19: v1.2 — **+20% UI scale for stream visibility** per chat asks "increase the overall scale of the chat-uno-vibe interface by twenty percent to improve visibility on stream" + "scale up the chat-uno-vibe UI by twenty percent for better stream visibility". One-line change in spirit but the right one: `html { font-size: 120% }`. Because the whole stylesheet is rem-based (cards, fonts, paddings, gaps, button heights, even radii), every measurement multiplies cleanly without any layout distortion. Used `%` not `px` so a viewer who's bumped their browser default for accessibility still gets a proportional 20% multiplier on top of their preference (e.g. 18px base → 21.6px).
+  - **Breakpoint bumped 900 → 1080px** to match. At html=120% the side panel (22rem ≈ 422px) + table area need ~1080px to stay comfortable in two-column mode; narrower viewports now drop to the stacked mobile layout sooner so cards don't squish.
+  - No other CSS or HTML changes — same overlay modes, same chat commands, same game logic — just visibly bigger on stream.
 - 2026-05-19: v1.1 — **overlay modes for OBS** per chat ask "make the chat-uno-vibe background transparent and add a chroma-key green toggle for stream overlays". Three modes, persisted to localStorage, hot-cycled with `O`.
   - **normal** · the default purple-gradient + scanline look · for standalone play.
   - **transparent** · `body { background: transparent }` + scanline overlay hidden. Header + side panel + player cards get `rgba(31,14,58,0.55)` + `backdrop-filter: blur(6px)` so they stay readable when dropped over a webcam or gameplay capture in OBS BrowserSource (alpha channel preserved automatically).
