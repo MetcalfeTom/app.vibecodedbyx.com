@@ -882,14 +882,14 @@
           }
         }
         let skippedQuads = 0;
-        // Silhouette-only mode: skip both triangles of any quad we treat as
-        // "background". Primary signal is alpha when the image actually has
-        // alpha variation. Fallback (uniform-alpha images: JPGs, flat PNGs)
-        // cuts on the COMPUTED HEIGHT, which combined with the Invert toggle
-        // handles both dark-bg and light-bg images.
         const heightCutoff = amp * HEIGHT_THRESHOLD_FRAC;
-        for (let i = 0; i < res - 1; i++) {
-          for (let j = 0; j < res - 1; j++) {
+        // Track which quads survived the silhouette mask (or all of them if
+        // no mask is active) — needed below to emit the bottom plane + walls
+        // that give the mesh real thickness when exported to Blender/Unreal.
+        const qRows = res - 1, qCols = res - 1;
+        const kept = new Uint8Array(qRows * qCols);
+        for (let i = 0; i < qRows; i++) {
+          for (let j = 0; j < qCols; j++) {
             const a = i * res + j;
             const b = a + 1;
             const c = a + res;
@@ -900,15 +900,75 @@
                 const maxA = Math.max(alphas[a], alphas[b], alphas[c], alphas[d]);
                 skip = maxA < ALPHA_THRESHOLD;
               } else {
-                // Always use the LUMINANCE-derived height for the silhouette test,
-                // not pos.y — so the mask still works when flatExtrude flattens
+                // Use the LUMINANCE-derived height for the silhouette test, not
+                // pos.y — so the mask still works when flatExtrude flattens
                 // every kept pixel to amp.
                 const maxL = Math.max(lums[a], lums[b], lums[c], lums[d]);
                 skip = (maxL * amp) < heightCutoff;
               }
               if (skip) { skippedQuads++; continue; }
             }
-            idx.push(a, c, b, b, c, d);
+            kept[i * qCols + j] = 1;
+            idx.push(a, c, b, b, c, d);  // top face (normals up)
+          }
+        }
+        // SOLID extrusion · whenever flatExtrude OR alphaMask is on, the user
+        // wants a real 3D object (cookie-cutter, sticker, blocky relief) — not
+        // a paper-thin top sheet that looks flat/broken in Blender. Generate a
+        // bottom plane (y=0) at the same xz layout + vertical walls around the
+        // silhouette boundary so the mesh is a closed solid with thickness.
+        const makeSolid = flatExtrude || alphaMask;
+        if (makeSolid && idx.length) {
+          const N = res * res;
+          // Extend pos + uv to fit bottom vertices (N more, at same xz with y=0)
+          const pos2 = new Float32Array(N * 6);
+          const uv2  = new Float32Array(N * 4);
+          pos2.set(pos);
+          uv2.set(uv);
+          for (let k = 0; k < N; k++) {
+            pos2[N * 3 + k * 3]     = pos[k * 3];
+            pos2[N * 3 + k * 3 + 1] = 0; // base
+            pos2[N * 3 + k * 3 + 2] = pos[k * 3 + 2];
+            uv2[N * 2 + k * 2]      = uv[k * 2];
+            uv2[N * 2 + k * 2 + 1]  = uv[k * 2 + 1];
+          }
+          pos = pos2;
+          uv  = uv2;
+          // Bottom face triangles · reversed winding so normals face -Y
+          for (let i = 0; i < qRows; i++) {
+            for (let j = 0; j < qCols; j++) {
+              if (!kept[i * qCols + j]) continue;
+              const a = i * res + j, b = a + 1, c = a + res, d = c + 1;
+              idx.push(N + a, N + b, N + c, N + b, N + d, N + c);
+            }
+          }
+          // Side walls · for each kept quad, walk its 4 edges and add a wall
+          // quad where the neighbour is missing (out of grid OR not kept).
+          // Winding chosen so each wall's normal points OUTWARD from the
+          // silhouette (away from the kept interior). Verified by cross-
+          // product test for all 4 sides.
+          for (let i = 0; i < qRows; i++) {
+            for (let j = 0; j < qCols; j++) {
+              if (!kept[i * qCols + j]) continue;
+              const a = i * res + j, b = a + 1, c = a + res, d = c + 1;
+              const bA = N + a, bB = N + b, bC = N + c, bD = N + d;
+              // Top edge (low-i side) · facing -Z
+              if (i === 0 || !kept[(i - 1) * qCols + j]) {
+                idx.push(a, b, bA, b, bB, bA);
+              }
+              // Bottom edge (high-i side) · facing +Z
+              if (i === qRows - 1 || !kept[(i + 1) * qCols + j]) {
+                idx.push(c, bC, d, d, bC, bD);
+              }
+              // Left edge (low-j side) · facing -X
+              if (j === 0 || !kept[i * qCols + (j - 1)]) {
+                idx.push(a, bA, c, c, bA, bC);
+              }
+              // Right edge (high-j side) · facing +X
+              if (j === qCols - 1 || !kept[i * qCols + (j + 1)]) {
+                idx.push(b, d, bB, d, bD, bB);
+              }
+            }
           }
         }
         const totalQuads = (res - 1) * (res - 1);

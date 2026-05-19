@@ -1,6 +1,14 @@
 # obj-forge · notes
 
 ## log
+- 2026-05-19: v1.10 — **flatExtrude (and alphaMask) now produce a real 3D solid with thickness — bottom plane + side walls**. Stacked chat asks: "check why the flat extrude export in obj-forge appears flat or broken in Blender" + "if flatExtrude is on, ensure the mesh still has a non-zero thickness". Root cause confirmed: v1.9's flat extrude only emitted a TOP plane (the `pos.y = amp` quads). Blender (or any 3D viewer with backface culling) renders a zero-thickness sheet — looks flat, looks broken from below, useless for 3D printing.
+  - **Refactored quad loop** to track `kept[i*qCols+j]` (which quads survived the silhouette mask) instead of just emitting top triangles inline.
+  - **New `makeSolid = flatExtrude || alphaMask` path** doubles the position + UV buffers (N more vertices at the same xz with y=0), then emits:
+    - **bottom face** · same quad indices on the lower vertex set, reversed winding so normals face -Y;
+    - **side walls** · for each kept quad, walks its 4 edges; where the neighbour is missing (out of grid OR not kept) it emits a wall quad with winding chosen so the normal points OUTWARD from the silhouette. Verified the cross-product for all 4 sides (top edge → -Z normal, bottom edge → +Z, left → -X, right → +X).
+  - **Verified by sim** · full 4×4 grid → 60 triangles (18 top + 18 bottom + 24 perimeter walls). 8×8 grid with a circular silhouette → 124 triangles (42 top + 42 bottom + 40 silhouette-border walls). Closed solid, exportable cleanly.
+  - **Side effect** · the alphaMask-only case (silhouette on, flatExtrude off) ALSO becomes a proper solid now — varying top height, flat y=0 bottom, walls along the silhouette + the outer rectangle. PNG sprite extrudes correctly as a relief-on-base 3D object.
+  - **Limit** · `computeVertexNormals()` runs on the indexed mesh, so the 90° corner between top and walls gets smooth-shaded. Looks soft. Easy follow-up: `geo = geo.toNonIndexed()` would give crisp corners at the cost of more vertices — not done yet.
 - 2026-05-19: v1.9 — **Flat extrude toggle for the heightmap generator** per chat ask "in obj-forge, add a Flat Extrusion toggle for the heightmap generator to skip pixel-depth math". New boolean param on the heightmap shape labelled `Flat extrude · skip pixel depth` (renders as the existing toggle-button style). When ON, every kept vertex's y is clamped to `amp` instead of `lum * amp` — produces a uniform-depth slab in the shape of the silhouette (pairs naturally with the existing Silhouette only toggle for cookie-cutter / 3D-printed-sticker output).
   - **Refactor** · added a parallel `lums` Float32Array to the heightmap builder. Every pixel writes its post-invert luminance into `lums[]` alongside the mesh `pos.y`. That way:
     - silhouette mask's height-fallback strategy uses `lums[]` (the source signal) rather than `pos.y` — so the cut still works correctly when flatExtrude has clamped every kept vertex to amp;
