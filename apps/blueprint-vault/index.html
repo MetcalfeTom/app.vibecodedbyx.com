@@ -215,6 +215,43 @@
     .hl-string  { color: var(--hl-string); }
     .hl-comment { color: var(--hl-comment); font-style: italic; }
     .hl-num     { color: var(--hl-num); }
+    /* node-graph view (visual preview of BP pseudo) */
+    .view-tabs { display: flex; gap: 0.3rem; margin: 0 0 0.45rem; }
+    .view-tabs button {
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--dim);
+      font: 500 0.58rem 'JetBrains Mono', monospace;
+      padding: 0.25rem 0.6rem;
+      cursor: pointer;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      transition: border-color 0.12s, color 0.12s;
+    }
+    .view-tabs button:hover { color: var(--accent); border-color: var(--accent); }
+    .view-tabs button.active {
+      background: rgba(62, 174, 255, 0.08);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .snippet-views[data-view="text"]  .node-graph-view { display: none; }
+    .snippet-views[data-view="nodes"] pre.code         { display: none; }
+    .node-graph-view {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      padding: 0.85rem;
+      max-height: 28rem;
+      overflow: auto;
+      scrollbar-width: thin;
+    }
+    .node-graph-view svg { display: block; margin: 0 auto; }
+    .no-graph {
+      color: var(--dim);
+      font: 400 0.78rem 'JetBrains Mono', monospace;
+      text-align: center;
+      padding: 1.5rem;
+      font-style: italic;
+    }
     article.card footer {
       display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
       font-size: 0.7rem;
@@ -561,6 +598,140 @@
       return h;
     }
 
+    /* ───────────── node graph parser + SVG renderer ───────────── */
+    // Parses BP-pseudo code into [{ name, props:[{key,value}] }] by walking lines:
+    //   "[NodeName]"        → new node
+    //   "key : value"       → property of current node (tree-glyph prefix tolerated)
+    //   anything else       → skipped (flow glyphs ▼│├└─ and comments)
+    function parseBPGraph(code) {
+      const FLOW_ONLY = /^[\s│├└┌┐─▼▲▶→←■◆]+$/;
+      const NODE_RE   = /^\[([^\]]+)\]\s*(?:\([^)]+\))?$/;
+      const PROP_RE   = /^[├└─\s]*([A-Za-z][^:]*?)\s*:\s*(.+)$/;
+      const COMMENT   = /^\s*\/\//;
+      const lines = String(code || '').split('\n');
+      const nodes = [];
+      let cur = null;
+      for (const raw of lines) {
+        const t = raw.trim();
+        if (!t || COMMENT.test(t) || FLOW_ONLY.test(t)) continue;
+        const m = t.match(NODE_RE);
+        if (m) { cur = { name: m[1].trim(), props: [] }; nodes.push(cur); continue; }
+        if (cur) {
+          const p = t.match(PROP_RE);
+          if (p) cur.props.push({ key: p[1].trim(), value: p[2].trim() });
+        }
+      }
+      return nodes;
+    }
+
+    // Pick a header gradient id based on the node name — gives the UE5
+    // anim-graph feel where different node types get different tints.
+    function nodeGradient(name) {
+      const n = name.toLowerCase();
+      if (n.includes('pose'))                            return 'ngPose';   // cyan
+      if (n.includes('blend') || n.includes('layered'))  return 'ngBlend';  // teal
+      if (n.includes('ik')    || n.includes('bone')
+           || n.includes('modify') || n.includes('two'))  return 'ngBone';   // orange
+      if (n.includes('state') || n.includes('transition'))return 'ngState';  // pink
+      return 'ngAnim'; // default purple
+    }
+    const NODE_W = 280;
+    const NODE_HDR = 28;
+    const PROP_H = 18;
+    const NODE_PAD = 12;
+    const NODE_GAP = 56;
+    const SVG_PAD = 20;
+
+    function renderNodeGraph(code) {
+      const nodes = parseBPGraph(code);
+      if (!nodes.length) {
+        return '<div class="no-graph">No graph detected · this snippet has no [Node] blocks</div>';
+      }
+      // Compute layout
+      let y = 0;
+      const positions = nodes.map(n => {
+        const h = NODE_HDR + n.props.length * PROP_H + NODE_PAD + (n.props.length ? 6 : 0);
+        const pos = { x: SVG_PAD, y: y + SVG_PAD, w: NODE_W, h };
+        y += h + NODE_GAP;
+        return pos;
+      });
+      const totalH = y - NODE_GAP + SVG_PAD * 2;
+      const totalW = NODE_W + SVG_PAD * 2;
+
+      const lines = [];
+      lines.push('<svg viewBox="0 0 ' + totalW + ' ' + totalH + '" xmlns="http://www.w3.org/2000/svg" class="node-graph">');
+      lines.push('<defs>');
+      // Node-type gradients
+      const grads = [
+        ['ngPose',  '#22b7d4', '#0e7e94'],
+        ['ngAnim',  '#7a5fc8', '#4d3a8a'],
+        ['ngBlend', '#4ea88a', '#2a6a55'],
+        ['ngBone',  '#d68b3a', '#8a5022'],
+        ['ngState', '#d95086', '#8a2050'],
+      ];
+      for (const g of grads) {
+        lines.push('<linearGradient id="' + g[0] + '" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0" stop-color="' + g[1] + '"/>' +
+          '<stop offset="1" stop-color="' + g[2] + '"/></linearGradient>');
+      }
+      lines.push('<filter id="ngGlow" x="-20%" y="-20%" width="140%" height="140%">' +
+        '<feGaussianBlur stdDeviation="3"/></filter>');
+      lines.push('</defs>');
+
+      // Wires first (behind nodes) — bezier from output (bottom-center) of node[i]
+      // down to input (top-center) of node[i+1]
+      for (let i = 0; i < nodes.length - 1; i++) {
+        const a = positions[i], b = positions[i + 1];
+        const x1 = a.x + a.w / 2, y1 = a.y + a.h;
+        const x2 = b.x + b.w / 2, y2 = b.y;
+        const dy = (y2 - y1) * 0.45;
+        lines.push('<path d="M' + x1 + ' ' + y1 + ' C' + x1 + ' ' + (y1 + dy) + ', ' +
+          x2 + ' ' + (y2 - dy) + ', ' + x2 + ' ' + y2 + '" ' +
+          'stroke="#5eecff" stroke-width="2.5" fill="none" opacity="0.6"/>');
+        // arrowhead
+        lines.push('<polygon points="' + (x2 - 5) + ',' + (y2 - 5) + ' ' +
+          (x2 + 5) + ',' + (y2 - 5) + ' ' + x2 + ',' + (y2 + 2) + '" ' +
+          'fill="#5eecff" opacity="0.85"/>');
+      }
+
+      // Nodes
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i], p = positions[i];
+        const grad = nodeGradient(n.name);
+        lines.push('<g transform="translate(' + p.x + ',' + p.y + ')">');
+        // body
+        lines.push('<rect x="0" y="0" width="' + p.w + '" height="' + p.h + '" rx="6" ry="6" ' +
+          'fill="#0d1320" stroke="#26334f" stroke-width="1"/>');
+        // header bar
+        lines.push('<path d="M0 ' + NODE_HDR + ' L0 6 Q0 0 6 0 L' + (p.w - 6) + ' 0 Q' + p.w + ' 0 ' + p.w + ' 6 L' + p.w + ' ' + NODE_HDR + ' Z" ' +
+          'fill="url(#' + grad + ')"/>');
+        // title
+        lines.push('<text x="14" y="19" fill="#fff" font-family="Bricolage Grotesque, sans-serif" ' +
+          'font-size="13" font-weight="700" letter-spacing="-0.005em">' + esc(n.name) + '</text>');
+        // pins · input top-center, output bottom-center (skip input on first node, output on last)
+        if (i > 0) {
+          lines.push('<circle cx="' + (p.w / 2) + '" cy="0" r="5" fill="#fff" stroke="#5eecff" stroke-width="2"/>');
+        }
+        if (i < nodes.length - 1) {
+          lines.push('<circle cx="' + (p.w / 2) + '" cy="' + p.h + '" r="5" fill="#fff" stroke="#5eecff" stroke-width="2"/>');
+        }
+        // properties
+        for (let j = 0; j < n.props.length; j++) {
+          const py = NODE_HDR + 16 + j * PROP_H;
+          const pr = n.props[j];
+          const key = pr.key.length > 28 ? pr.key.slice(0, 27) + '…' : pr.key;
+          const val = pr.value.length > 24 ? pr.value.slice(0, 23) + '…' : pr.value;
+          lines.push('<text x="12" y="' + py + '" fill="#a8b4c4" font-family="JetBrains Mono, monospace" ' +
+            'font-size="10">' + esc(key) + '</text>');
+          lines.push('<text x="' + (p.w - 12) + '" y="' + py + '" fill="#ffb84e" font-family="JetBrains Mono, monospace" ' +
+            'font-size="10" text-anchor="end">' + esc(val) + '</text>');
+        }
+        lines.push('</g>');
+      }
+      lines.push('</svg>');
+      return lines.join('');
+    }
+
     /* ───────────── rendering ───────────── */
     const grid = document.getElementById('grid');
     const cats = document.getElementById('cats');
@@ -615,6 +786,18 @@
         const cat = CATEGORIES.find(c => c.id === s.category) || { name: s.category, color: '#888' };
         const tagHtml = (s.tags || []).map(t => '<span class="tag">#' + esc(t) + '</span>').join('');
         const descHtml = s.description ? '<p class="desc">' + esc(s.description) + '</p>' : '';
+        // Visual node-graph preview — only offered when at least one [Node] block is detected
+        const graphNodes = parseBPGraph(s.code || '');
+        const hasGraph = graphNodes.length >= 1;
+        const viewTabs = hasGraph
+          ? '<div class="view-tabs" data-id="' + s.id + '">' +
+              '<button data-view="text" class="active">◇ text</button>' +
+              '<button data-view="nodes">◇ nodes</button>' +
+            '</div>'
+          : '';
+        const graphHtml = hasGraph
+          ? '<div class="node-graph-view">' + renderNodeGraph(s.code || '') + '</div>'
+          : '';
         return (
           '<article class="card" data-id="' + s.id + '" style="--cat-color: ' + cat.color + '">' +
             '<header>' +
@@ -622,7 +805,11 @@
               '<span class="cat-badge">' + esc(cat.name) + '</span>' +
             '</header>' +
             descHtml +
-            '<pre class="code"><code>' + highlight(s.code || '', s.language || 'C++') + '</code></pre>' +
+            viewTabs +
+            '<div class="snippet-views" data-view="text" data-id="' + s.id + '">' +
+              '<pre class="code"><code>' + highlight(s.code || '', s.language || 'C++') + '</code></pre>' +
+              graphHtml +
+            '</div>' +
             '<footer>' +
               '<span class="lang">' + esc(s.language || 'C++') + '</span>' +
               tagHtml +
@@ -634,6 +821,20 @@
           '</article>'
         );
       }).join('');
+
+      // Wire view-tab toggle buttons
+      grid.querySelectorAll('.view-tabs').forEach(tabs => {
+        const id = tabs.dataset.id;
+        const views = grid.querySelector('.snippet-views[data-id="' + id + '"]');
+        if (!views) return;
+        tabs.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const v = btn.dataset.view;
+            views.dataset.view = v;
+            tabs.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+          });
+        });
+      });
 
       grid.querySelectorAll('.action').forEach(btn => {
         btn.addEventListener('click', () => {
