@@ -1,0 +1,20 @@
+# shadow-loot notes
+
+## log
+- 2026-05-20: **hardcore loot tables** — every weapon/armor/trinket drop now rolls 0-3 random affixes based on tier. New `AFFIXES` pool (24 entries): holy blessings (Blessed/Sanctified/Hallowed/of Verbena/of Mercy etc.), rare exotics (**Vampyric** = 25% lifesteal, **of the Vein** = 20% lifesteal, **Wreathed/of the Sunflame/of Immolation/of the Pyre Dance** = +2-4 holy fire dmg per strike, **of the Chalice** = +25% potion healing while equipped), and cursed-tier mixed-blessing affixes (**of Whispers** +4 atk -2 def, **Bloodbound** 40% lifesteal but -1 HP/turn, **Hellforged** +4 fire but -1 def, **of the Pit** +5 atk -2 def -1 HP/turn). `AFFIX_BY_TIER` config: broken=0, common 0-1, fine 1-2, master 1-2 (rare allowed), legend 2-3 (rare allowed), cursed always exactly 1 cursed affix. Display names compose as `[Prefix] Item [of Suffix(es)]` e.g. "Vampyric Sunburst Plate of the Vein".
+- 2026-05-20: **per-instance inventory uids** — non-stackable gear entries each get a `uid`, equipped slots store uid not id (with one-shot save migration that splits old gear stacks). Materials + consumables still stack by id. `consumeIngredient(id, qty)` for forge recipes consumes across multiple matching entries, prefers plain (no-affix) entries first so you don't accidentally craft away your best affixed gear.
+- 2026-05-20: **combat wiring** — `effectiveAtk/Def` add affix bonuses. New `effectiveLifesteal()` heals you from each strike (`max(1, ceil(dmg * total%))`, capped at maxHp), `effectiveFireDmg()` adds flat extra dmg per strike (double on crit), `effectiveHpRegen()` ticks at start of each attack/defend turn (Bulwark t3 +1 + affix `of Mercy` etc. or cursed bleed), `effectiveHealMul()` boosts potion heal by `of the Chalice` and Faith t3. Float damage shows 🔥/🩸 popups when fire/lifesteal trigger. Combat log surfaces the breakdown.
+- 2026-05-20: **loot table expansion** — legendaries (Sunsword of Verbena / Sunburst Plate / Verbena's Tooth) now actually drop from depth-9 alcoves + chests. iron_sword + silver_sword added to common/fine pools so non-craft paths can hit them. "blessed find" 5% per-roll upgrade chance. `rollLootTier` now puts cursed on its own 7% top-priority check so it stops getting eaten by master/legend rolls deep in.
+- 2026-05-20: **tooltip + inventory UI** — tooltip lists every affix line by line in italic IM Fell English under a dashed gold separator (cursed entries in blood-red), cells get small ● dots indicating affix count, equipped items show a ✓ corner badge + gold border-glow. `displayName(entry)` used everywhere instead of `item.name`.
+- earlier: paladin re-theme (Saint Verbena chapel, holy crafting recipes, sunsword path); 6 new gothic monsters (Crypt Crawler, Shadow Hound, Awakened Gargoyle, Mourning Banshee w/ ignoreDef, Pit Daemon, Fallen Inquisitor); skill tree (Faith/Steel/Bulwark, 3 tiers each, costs 1/2/3 SP).
+
+## issues
+- inventory entries with same id but different affixes don't stack — by design. If chat asks "why are there 3 cursed daggers" explain each is a unique roll. If satchel runs out of room (24 slots) it'll silently overflow off the visible grid; consider showing a count badge if it becomes a problem.
+- save migration: old saves with `equipped: { weapon: 'id_string' }` get converted to uid on first boot. If a user reports broken save, instruct them to clear localStorage for the app.
+- consumeIngredient sorts affixed gear *last* when consuming ingredients, but it still WILL consume affixed gear if you run out of plain copies — that's intentional. If chat wants protection, add a confirm prompt before forge accepts an affixed-only ingredient.
+
+## todos
+- shop / merchant in the chapel that buys back affixed gear (value scaling by affix count + rare flag)
+- enchanter station: spend ghost_essence + holy_water to add/reroll one affix on an existing item
+- affix indicator on equipped slot tooltip should also show fire/lifesteal/regen as separate icons
+- monster-specific drops: bosses should occasionally drop guaranteed-legendary with a fixed affix set (e.g. lich drops sunsword "of Verbena")
