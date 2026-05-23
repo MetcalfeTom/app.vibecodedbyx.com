@@ -793,7 +793,7 @@
 
 <div class="stage" id="stage">
   <canvas id="cv"></canvas>
-  <div class="hint-bubble" id="hint">click & hold to cast · release to drop the line</div>
+  <div class="hint-bubble" id="hint">A / D to steer the boat · click & hold to cast · release to drop the line</div>
   <div class="cast-meter" id="cast-meter">
     <div class="fill" id="cast-fill"></div>
     <div class="label" id="cast-label">CHARGING…</div>
@@ -1083,12 +1083,16 @@ const DEPTHS = [
   { id: 3, name: 'Pelagic',  short: 'PELG', em: '🐋', need: 3, hex: '#0a3858', desc: 'open ocean · big game' },
   { id: 4, name: 'Abyss',    short: 'ABYS', em: '🦑', need: 4, hex: '#020e1a', desc: 'deep-sea horror + cryptids' },
 ];
+/* Each boat has its own stats. speed = max paddle/throttle (px/s),
+   castMult = cast-distance multiplier on releaseCast, lureBonus stacks
+   on top of rod bonus inside pickFish, hull/accent/sail colour the
+   rendered boat. Every boat flies the Jolly Tuna (tuna-skull pirate flag). */
 const BOATS = [
-  { tier: 0, name: 'Wooden Rowboat',     em: '🚣', cost: 0,    desc: 'Two oars and faith. Unlocks: Surface.' },
-  { tier: 1, name: 'Salt-Stained Skiff', em: '⛵',  cost: 60,   desc: 'A real boat. Unlocks: Shallows.' },
-  { tier: 2, name: 'Coral Trawler',      em: '🛥️', cost: 240,  desc: 'Built for reef. Unlocks: Reef.' },
-  { tier: 3, name: 'Iron Submarine',     em: '🚤', cost: 900,  desc: 'Pressurized. Unlocks: Pelagic.' },
-  { tier: 4, name: 'Bathyscaphe Mk II',  em: '🛸', cost: 3200, desc: 'Glass dome, infinite courage. Unlocks: Abyss.' },
+  { tier: 0, name: 'Wooden Rowboat',     em: '🚣', cost: 0,    speed: 65,  castMult: 0.9, lureBonus: 0, hull: '#8a5128', accent: '#3a2210', sail: '#e0d2a8', desc: 'Two oars and faith. Unlocks: Surface.' },
+  { tier: 1, name: 'Salt-Stained Skiff', em: '⛵',  cost: 60,   speed: 110, castMult: 1.1, lureBonus: 0, hull: '#b07048', accent: '#3a2210', sail: '#f0e4c0', desc: 'A real boat. Unlocks: Shallows.' },
+  { tier: 2, name: 'Coral Trawler',      em: '🛥️', cost: 240,  speed: 95,  castMult: 1.3, lureBonus: 1, hull: '#c84850', accent: '#1a1a1a', sail: '#f0d8a0', desc: 'Built for reef. Unlocks: Reef.' },
+  { tier: 3, name: 'Iron Submarine',     em: '🚤', cost: 900,  speed: 150, castMult: 1.4, lureBonus: 2, hull: '#5a6878', accent: '#0a0a0a', sail: '#bcc8d4', desc: 'Pressurized. Unlocks: Pelagic.' },
+  { tier: 4, name: 'Bathyscaphe Mk II',  em: '🛸', cost: 3200, speed: 200, castMult: 1.7, lureBonus: 3, hull: '#3a4858', accent: '#0a0a0a', sail: '#80c0d0', desc: 'Glass dome, infinite courage. Unlocks: Abyss.' },
 ];
 const RODS = [
   { tier: 0, name: 'Bamboo Rod',        em: '🎋', cost: 0,    desc: 'Found on the dock. Slow but honest.', bonus: 0 },
@@ -1126,6 +1130,10 @@ const state = (function(){
     boat: 0, rod: 0, depth: 0,
     bombs: 3, sonar: 5,
     sonarUntil: 0,
+    // ── steerable boat state — boatX is horizontal position along the
+    // water (px), boatFacing is -1/+1 for hull mirroring. Reset on resize
+    // if it falls outside the playable bounds. ──
+    boatX: -1, boatFacing: 1,
     // ── bait state (worm is the default + infinite; others consumable) ──
     bait: 'worm',
     baits: { worm: -1, shrimp: 0, minnow: 0, star: 0 },
@@ -1219,16 +1227,39 @@ let ripples = [];
 let fishSchool = [];   // decorative background fish
 let dockY = 0;
 
-/* ── Build the dock & cat positions (anchored to canvas) ── */
+/* ── Layout: dock (left scenery) + boat (movable player anchor) ──
+   The dock stays as decor on the left. The boat is the actual player —
+   cat sits on it, rod extends from it, bobber casts from its tip. boatX
+   is the live horizontal position; A/D move it. */
+const BOAT_W = 88, BOAT_H = 26;
 function dockLayout(){
-  // dock is on the LEFT side; water fills right + below
+  // dock harbor on the LEFT
   const dx = 12;
-  const dw = Math.max(120, W * 0.18);
+  const dw = Math.max(110, W * 0.14);
   const dy = H * 0.50;
-  const dh = 30;
-  return { x: dx, y: dy, w: dw, h: dh,
-           catX: dx + dw - 28, catY: dy - 4,
-           rodTipX: dx + dw + 14, rodTipY: dy - 38 };
+  const dh = 26;
+  // boat sits on the waterline. Clamp boatX to playable bounds (right of
+  // the dock to just inside the right edge). First-run init sentinel (-1)
+  // places the boat just past the dock.
+  const boatY = H * 0.50;
+  const minBoatX = dx + dw + 6;
+  const maxBoatX = Math.max(minBoatX + 20, W - BOAT_W - 14);
+  if (state.boatX < 0) state.boatX = minBoatX + 24;             // first-run init
+  state.boatX = Math.max(minBoatX, Math.min(maxBoatX, state.boatX)); // runtime clamp
+  const bx = state.boatX;
+  // cat sits at the stern (left-of-center on the deck), rod tip extends
+  // forward over the bow (right edge of the boat).
+  return {
+    // dock fields (kept legacy names x/y/w/h for back-compat)
+    x: dx, y: dy, w: dw, h: dh,
+    // boat fields
+    boatX: bx, boatY, boatW: BOAT_W, boatH: BOAT_H,
+    minBoatX, maxBoatX,
+    catX: bx + BOAT_W * 0.42,
+    catY: boatY - 6,
+    rodTipX: bx + BOAT_W + 6,
+    rodTipY: boatY - 40,
+  };
 }
 
 function startCharging(){
@@ -1259,7 +1290,10 @@ function releaseCast(){
   let targetX = aim.has ? aim.x : (d.rodTipX + W * 0.4);
   targetX = Math.max(minX, Math.min(maxX, targetX));
   // Power gates how far you can reach (full power = full screen).
-  const maxReachX = d.rodTipX + 80 + castPower * Math.min(W - d.rodTipX - 80, 700);
+  // Boat tier multiplies the cast reach via castMult.
+  const boat = BOATS[state.boat] || BOATS[0];
+  const reach = Math.min(W - d.rodTipX - 80, 700) * (boat.castMult || 1);
+  const maxReachX = d.rodTipX + 80 + castPower * reach;
   if (targetX > maxReachX) targetX = maxReachX;
   // Horizontal velocity to land at targetX in dt seconds.
   bobber.vx = (targetX - d.rodTipX) / dt;
@@ -1315,13 +1349,16 @@ function pickFish(){
   });
   // If gating left us with nothing (shouldn't, but be safe), fall back to depth-only
   if (pool.length === 0) pool = FISH.filter(f => f.d === state.depth);
-  // Rod + bait shift rarity bias
+  // Rod + bait + BOAT shift rarity bias. Boat tier 2+ adds lureBonus
+  // which behaves like an effective rod-bonus stack for rare+ catches.
   const rod = RODS[state.rod] || RODS[0];
+  const boat = BOATS[state.boat] || BOATS[0];
+  const effBonus = (rod.bonus || 0) + (boat.lureBonus || 0);
   const weights = pool.map(f => {
     let w = RARITY_BIAS[f.rar] || 5;
-    if (rod.bonus >= 1 && f.rar === 'common') w *= 1.2;
-    if (rod.bonus >= 2 && f.rar === 'rare') w *= 1.3;
-    if (rod.bonus >= 3 && (f.rar === 'epic' || f.rar === 'legendary')) w *= 1.5;
+    if (effBonus >= 1 && f.rar === 'common') w *= 1.2;
+    if (effBonus >= 2 && f.rar === 'rare') w *= 1.3;
+    if (effBonus >= 3 && (f.rar === 'epic' || f.rar === 'legendary')) w *= 1.5;
     if (rod.bonus >= 4){ w *= 1.15; } // mythril: small boost across the board
     // bait bias on top of rod bias
     if (btier >= 1 && f.rar === 'uncommon')  w *= 1.25;
@@ -1603,7 +1640,8 @@ stage.addEventListener('pointerup', e => {
   if (isHudClick(e.target)) return;
   if (phase === 'charging') releaseCast();
 });
-// keyboard shortcuts
+// keyboard shortcuts + held-key tracking for A/D steering
+const heldKeys = { left: false, right: false };
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (e.code === 'Space'){
@@ -1614,6 +1652,14 @@ document.addEventListener('keydown', e => {
   }
   if (e.key.toLowerCase() === 'r' && phase === 'charging') releaseCast();
   if (e.key.toLowerCase() === 'j') openJournal();
+  // ── steering (A/D + arrow keys). Only respond when boat is free to move
+  // (idle or charging); ignored during cast/wait/bite/reel. ──
+  if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft'){ heldKeys.left = true; }
+  if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight'){ heldKeys.right = true; }
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft'){ heldKeys.left = false; }
+  if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight'){ heldKeys.right = false; }
 });
 
 /* ── Main loop ──────────────────────────────────────────── */
@@ -1656,6 +1702,23 @@ function frame(now){
       activeFish = null;
       flashHint('missed it — too slow!', 1800);
     }
+  }
+  // ── boat steering ── A/D move the boat horizontally when not actively
+  // fishing (idle or charging). Bobber stays anchored once cast.
+  if (phase === 'idle' || phase === 'charging'){
+    const b = BOATS[state.boat] || BOATS[0];
+    const dl = dockLayout(); // also clamps boatX
+    const dir = (heldKeys.right ? 1 : 0) - (heldKeys.left ? 1 : 0);
+    if (dir !== 0){
+      state.boatX += dir * b.speed * dt;
+      state.boatFacing = dir; // hull mirrors steer direction
+      // tiny wake ripple every ~5 frames of motion
+      if (Math.random() < dt * 6){
+        ripples.push({ x: state.boatX + (dir > 0 ? 0 : dl.boatW), y: dl.boatY + dl.boatH + 1, r: 2, alpha: 0.6 });
+      }
+    }
+    // clamp again after move
+    state.boatX = Math.max(dl.minBoatX, Math.min(dl.maxBoatX, state.boatX));
   }
   // ripples
   for (let i = ripples.length - 1; i >= 0; i--){
@@ -1710,6 +1773,8 @@ function draw(){
     ctx.stroke();
   }
   drawDistantTrees();
+  // ── The Iron Tin — sun-bleached giant tuna-can island on the horizon ──
+  drawIronTinIsland();
   // dock + cat + rod + line + bobber
   drawDockAndCat();
   // aim preview while charging — dotted arc from rod tip toward mouse
@@ -1721,7 +1786,9 @@ function drawAimArc(){
   const minX = d.rodTipX + 60, maxX = W - 30;
   let targetX = aim.has ? aim.x : (d.rodTipX + W * 0.4);
   targetX = Math.max(minX, Math.min(maxX, targetX));
-  const maxReachX = d.rodTipX + 80 + castPower * Math.min(W - d.rodTipX - 80, 700);
+  const boat = BOATS[state.boat] || BOATS[0];
+  const reach = Math.min(W - d.rodTipX - 80, 700) * (boat.castMult || 1);
+  const maxReachX = d.rodTipX + 80 + castPower * reach;
   const clamped = Math.min(targetX, maxReachX);
   // simulate the same physics for ~24 dots
   const dtSim = 0.75;
@@ -2094,9 +2161,183 @@ function drawDistantTrees(){
   }
 }
 
+/* The Iron Tin — a legendary tuna-can-shaped island on the horizon.
+   Massive cylindrical sun-bleached can with a peeled-back lid, faded
+   "THE IRON TIN" label, rust streaks, and a lone palm tree on top.
+   Pure scenery; sits at ~70% width on the horizon. */
+function drawIronTinIsland(){
+  // anchored to the far horizon line and right-of-center so it doesn't
+  // collide with the dock or boat
+  const horizonY = H * 0.49;
+  const cx = Math.min(W - 160, W * 0.7);
+  const cy = horizonY - 6;
+  const radius = 92;   // half-width of the can
+  const tinH = 64;     // height of the cylindrical can body
+  const t = performance.now() * 0.0008;
+  ctx.save();
+  // ── water reflection halo under the can ──
+  ctx.fillStyle = 'rgba(40,30,20,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + tinH + 4, radius * 1.05, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // ── can body (cylinder) ── flat front face with a slight perspective
+  // gradient (lighter top → shadow bottom) and vertical seam stripes
+  const grd = ctx.createLinearGradient(cx, cy - tinH * 0.4, cx, cy + tinH);
+  grd.addColorStop(0,   '#cfc6b0');
+  grd.addColorStop(0.55,'#a89c80');
+  grd.addColorStop(1,   '#5a5040');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.moveTo(cx - radius, cy);
+  ctx.lineTo(cx + radius, cy);
+  ctx.lineTo(cx + radius, cy + tinH);
+  ctx.lineTo(cx - radius, cy + tinH);
+  ctx.closePath();
+  ctx.fill();
+  // top ellipse (lid rim — partially peeled back)
+  ctx.fillStyle = '#7a6f54';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, radius, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // inner lid highlight
+  ctx.fillStyle = '#9a8e70';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + 1, radius * 0.93, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // bottom rim (subtle ellipse)
+  ctx.fillStyle = '#3a3224';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + tinH, radius, 5, 0, 0, Math.PI);
+  ctx.fill();
+  // ── peeled-back lid ── a jagged crescent flipping up-left
+  ctx.fillStyle = '#bcb098';
+  ctx.beginPath();
+  ctx.moveTo(cx - radius * 0.55, cy);
+  ctx.bezierCurveTo(cx - radius * 0.85, cy - 38, cx + radius * 0.10, cy - 46, cx + radius * 0.45, cy - 38);
+  ctx.bezierCurveTo(cx + radius * 0.55, cy - 30, cx + radius * 0.20, cy - 20, cx - radius * 0.10, cy - 16);
+  ctx.bezierCurveTo(cx - radius * 0.40, cy - 12, cx - radius * 0.60, cy - 6, cx - radius * 0.55, cy);
+  ctx.closePath();
+  ctx.fill();
+  // peeled-lid underside shadow
+  ctx.fillStyle = '#4a3e2a';
+  ctx.beginPath();
+  ctx.moveTo(cx - radius * 0.55, cy);
+  ctx.lineTo(cx - radius * 0.10, cy - 16);
+  ctx.lineTo(cx + radius * 0.20, cy - 16);
+  ctx.lineTo(cx + radius * 0.05, cy);
+  ctx.closePath();
+  ctx.fill();
+  // pull-tab ring on the peeled lid
+  ctx.strokeStyle = '#d8d0b8';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx + radius * 0.05, cy - 32, 5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx + radius * 0.05, cy - 27);
+  ctx.lineTo(cx + radius * 0.05, cy - 22);
+  ctx.stroke();
+  // ── label band ── faded paper wrap around the middle
+  const labelY = cy + tinH * 0.30;
+  const labelH = tinH * 0.42;
+  ctx.fillStyle = '#e8d8a8';
+  ctx.fillRect(cx - radius, labelY, radius * 2, labelH);
+  // label band top/bottom stripes
+  ctx.fillStyle = '#a04030';
+  ctx.fillRect(cx - radius, labelY, radius * 2, 3);
+  ctx.fillRect(cx - radius, labelY + labelH - 3, radius * 2, 3);
+  // label brand text
+  ctx.fillStyle = '#3a1a10';
+  ctx.font = 'bold 14px "Fraunces", serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('THE IRON TIN', cx, labelY + labelH * 0.42);
+  ctx.font = '8px "Space Mono", monospace';
+  ctx.fillStyle = '#6a3a18';
+  ctx.fillText('· FANCY TUNA · est. 19??', cx, labelY + labelH * 0.78);
+  // little tuna silhouette icon on the label
+  ctx.fillStyle = '#3a1a10';
+  ctx.beginPath();
+  ctx.ellipse(cx - radius * 0.65, labelY + labelH * 0.55, 7, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx - radius * 0.65 - 7, labelY + labelH * 0.55);
+  ctx.lineTo(cx - radius * 0.65 - 12, labelY + labelH * 0.55 - 3);
+  ctx.lineTo(cx - radius * 0.65 - 10, labelY + labelH * 0.55);
+  ctx.lineTo(cx - radius * 0.65 - 12, labelY + labelH * 0.55 + 3);
+  ctx.closePath();
+  ctx.fill();
+  // symmetric tuna on the right
+  ctx.beginPath();
+  ctx.ellipse(cx + radius * 0.65, labelY + labelH * 0.55, 7, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + radius * 0.65 + 7, labelY + labelH * 0.55);
+  ctx.lineTo(cx + radius * 0.65 + 12, labelY + labelH * 0.55 - 3);
+  ctx.lineTo(cx + radius * 0.65 + 10, labelY + labelH * 0.55);
+  ctx.lineTo(cx + radius * 0.65 + 12, labelY + labelH * 0.55 + 3);
+  ctx.closePath();
+  ctx.fill();
+  // ── rust streaks running down the metal ──
+  ctx.strokeStyle = 'rgba(120,50,20,0.55)';
+  ctx.lineWidth = 1.4;
+  for (const off of [-radius * 0.6, -radius * 0.2, radius * 0.35, radius * 0.75]){
+    ctx.beginPath();
+    ctx.moveTo(cx + off, cy + 8);
+    ctx.bezierCurveTo(cx + off + 2, cy + 18, cx + off - 1, cy + 30, cx + off + 1, cy + tinH - 4);
+    ctx.stroke();
+  }
+  // dents
+  ctx.fillStyle = 'rgba(40,30,20,0.30)';
+  ctx.beginPath(); ctx.ellipse(cx - radius * 0.4, cy + tinH * 0.85, 6, 3, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx + radius * 0.55, cy + tinH * 0.20, 5, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+  // ── lone palm tree growing through the peeled lid ──
+  const palmX = cx - radius * 0.20;
+  const palmBase = cy - 6;
+  // trunk (slight sway)
+  const sway = Math.sin(t * 3) * 1.2;
+  ctx.strokeStyle = '#6a3a1c';
+  ctx.lineWidth = 3.4;
+  ctx.beginPath();
+  ctx.moveTo(palmX, palmBase);
+  ctx.quadraticCurveTo(palmX + sway, palmBase - 16, palmX + sway * 2, palmBase - 30);
+  ctx.stroke();
+  // palm fronds — 5 long curved leaves
+  ctx.strokeStyle = '#3a7a3a';
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  const fx = palmX + sway * 2;
+  const fy = palmBase - 30;
+  const angles = [-1.0, -0.5, 0, 0.6, 1.1];
+  for (const a of angles){
+    ctx.beginPath();
+    ctx.moveTo(fx, fy);
+    const ex = fx + Math.cos(a - Math.PI / 2) * 18;
+    const ey = fy + Math.sin(a - Math.PI / 2) * 18;
+    const my = fy + Math.sin(a - Math.PI / 2) * 12 + 4;
+    ctx.quadraticCurveTo(fx + Math.cos(a - Math.PI / 2) * 10, my, ex, ey);
+    ctx.stroke();
+  }
+  // coconut cluster
+  ctx.fillStyle = '#3a2010';
+  ctx.beginPath(); ctx.arc(fx + 1, fy + 1, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(fx + 3, fy + 1, 1.6, 0, Math.PI * 2); ctx.fill();
+  // tiny seagull circling
+  const gx = cx + Math.cos(t * 6) * radius * 1.1;
+  const gy = cy - 60 + Math.sin(t * 6) * 4;
+  ctx.strokeStyle = 'rgba(240,235,220,0.85)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(gx - 4, gy);
+  ctx.quadraticCurveTo(gx - 2, gy - 2, gx, gy);
+  ctx.quadraticCurveTo(gx + 2, gy - 2, gx + 4, gy);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawDockAndCat(){
   const d = dockLayout();
-  // dock body — wood plank look
+  // dock body — wood plank look (now just harbor scenery on the left)
   ctx.fillStyle = '#6a4020';
   ctx.fillRect(d.x, d.y, d.w, d.h);
   // plank seams
@@ -2111,9 +2352,11 @@ function drawDockAndCat(){
   ctx.fillStyle = '#3a2210';
   ctx.fillRect(d.x + 6, d.y + d.h, 4, H - (d.y + d.h));
   ctx.fillRect(d.x + d.w - 16, d.y + d.h, 4, H - (d.y + d.h));
-  // cat (sitting)
+  // ── boat (player anchor) — current tier, with tuna pirate flag ──
+  drawBoat(d);
+  // cat (sitting on the boat deck)
   drawCat(d.catX, d.catY);
-  // fishing rod
+  // fishing rod — angled forward off the boat's bow
   ctx.strokeStyle = '#3a2210';
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
@@ -2156,6 +2399,215 @@ function computeLine(d){
     : Math.sin(t) * 1.5;
   return { x: bobber.x, y: bobber.y + bobOff };
 }
+/* Boat hull + mast + tuna-skull pirate flag (the Jolly Tuna). The flag
+   waves on a sin-cycle; the cat's facing flips with steering direction. */
+function drawBoat(d){
+  const b = BOATS[state.boat] || BOATS[0];
+  const x = d.boatX, y = d.boatY;
+  const w = d.boatW, h = d.boatH;
+  const face = state.boatFacing >= 0 ? 1 : -1;
+  // gentle vertical bob from being on water (independent of horizontal motion)
+  const bob = Math.sin(performance.now() * 0.003) * 1.4;
+  // ── hull ── trapezoid sweeping forward (bow on the +face side)
+  ctx.save();
+  ctx.translate(0, bob);
+  ctx.fillStyle = b.hull;
+  ctx.beginPath();
+  // back-bottom corner, front-bottom corner (narrower), front-top, back-top
+  const stern = x - w * 0.08 * face;
+  const bow   = x + (w + w * 0.08) * face;
+  const topY  = y;
+  const botY  = y + h;
+  ctx.moveTo(stern, topY);
+  ctx.lineTo(stern + (w * 0.15) * face, botY);
+  ctx.lineTo(bow   - (w * 0.05) * face, botY);
+  ctx.lineTo(bow, topY);
+  ctx.closePath();
+  ctx.fill();
+  // hull dark stripe
+  ctx.fillStyle = b.accent;
+  ctx.fillRect(Math.min(stern, bow), topY + h * 0.55, Math.abs(bow - stern), 2);
+  // gunwale highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  ctx.fillRect(Math.min(stern, bow), topY, Math.abs(bow - stern), 1.5);
+  // ── waterline foam ── thin white tick under the hull
+  ctx.fillStyle = 'rgba(240,250,255,0.55)';
+  ctx.fillRect(stern + 2 * face, botY - 1, Math.abs(bow - stern) - 4, 1.2);
+  // tier-specific cabin / extras
+  if (b.tier === 0){
+    // rowboat — two oar marks
+    ctx.strokeStyle = b.accent;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x + 18 * face, y + 6);
+    ctx.lineTo(x + 32 * face, y + 14);
+    ctx.moveTo(x + 50 * face, y + 6);
+    ctx.lineTo(x + 64 * face, y + 14);
+    ctx.stroke();
+  } else if (b.tier === 1){
+    // skiff — small cabin on the stern
+    ctx.fillStyle = b.accent;
+    ctx.fillRect(x + 8 * face, y - 10, 18 * face, 12);
+    ctx.fillStyle = '#f4e8c0';
+    ctx.fillRect(x + 11 * face, y - 7, 12 * face, 5);
+  } else if (b.tier === 2){
+    // trawler — winch + crane on the bow
+    ctx.fillStyle = b.accent;
+    ctx.fillRect(x + 12 * face, y - 12, 22 * face, 14);
+    ctx.fillStyle = '#ffd848';
+    ctx.fillRect(x + 14 * face, y - 9, 14 * face, 6);
+    ctx.strokeStyle = '#3a2010';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 38 * face, y - 4);
+    ctx.lineTo(x + 50 * face, y - 26);
+    ctx.lineTo(x + 64 * face, y - 26);
+    ctx.stroke();
+  } else if (b.tier === 3){
+    // submarine — conning tower + 2 portholes
+    ctx.fillStyle = b.accent;
+    ctx.fillRect(x + 24 * face, y - 14, 22 * face, 14);
+    ctx.fillStyle = '#88ccff';
+    ctx.beginPath(); ctx.arc(x + 16 * face, y + 12, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 60 * face, y + 12, 3, 0, Math.PI * 2); ctx.fill();
+    // tower window
+    ctx.fillStyle = '#a8e0ff';
+    ctx.fillRect(x + 30 * face, y - 10, 10 * face, 5);
+  } else {
+    // bathyscaphe — glass dome on top + glow
+    ctx.fillStyle = 'rgba(160,220,240,0.55)';
+    ctx.beginPath();
+    ctx.arc(x + w * 0.5 * face, y, w * 0.45, Math.PI, 0);
+    ctx.fill();
+    ctx.strokeStyle = '#0a1018';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(x + w * 0.5 * face, y, w * 0.45, Math.PI, 0);
+    ctx.stroke();
+    // glow ring
+    ctx.fillStyle = 'rgba(140,220,255,0.30)';
+    ctx.beginPath(); ctx.arc(x + w * 0.5 * face, y + 4, w * 0.5, 0, Math.PI * 2); ctx.fill();
+  }
+  // ── mast (sail boats only) — tier ≥ 1 ──
+  const mastX = x + w * 0.62 * face;
+  const mastTopY = y - 64;
+  if (b.tier >= 1){
+    // mast pole
+    ctx.strokeStyle = '#3a2210';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(mastX, y);
+    ctx.lineTo(mastX, mastTopY);
+    ctx.stroke();
+    // small triangular sail (skiff only — others use cabin/dome)
+    if (b.tier === 1){
+      ctx.fillStyle = b.sail;
+      ctx.beginPath();
+      ctx.moveTo(mastX, mastTopY + 6);
+      ctx.lineTo(mastX + 22 * face, mastTopY + 30);
+      ctx.lineTo(mastX, mastTopY + 30);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 1; ctx.stroke();
+    }
+  } else {
+    // tier 0 rowboat: tiny flagpole instead of mast
+    ctx.strokeStyle = '#3a2210';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(mastX, y);
+    ctx.lineTo(mastX, mastTopY + 8);
+    ctx.stroke();
+  }
+  drawTunaFlag(mastX, b.tier >= 1 ? mastTopY : mastTopY + 8, face);
+  ctx.restore();
+}
+
+/* Jolly Tuna — pirate flag with a tuna skull above two crossed
+   fish-bone halves. Waves with a per-frame sin offset along its length. */
+function drawTunaFlag(mx, topY, face){
+  const t = performance.now() * 0.004;
+  const flagW = 30, flagH = 22;
+  const wave = (k) => Math.sin(t * 2 + k * 0.8) * 2.6;
+  // flag fabric — quad with wavy edges (left edge fixed at mast)
+  ctx.fillStyle = '#0c0d12';
+  ctx.beginPath();
+  ctx.moveTo(mx, topY);
+  // right edge with 3 wave samples
+  ctx.lineTo(mx + flagW * face + wave(1) * face, topY + 4);
+  ctx.lineTo(mx + (flagW + 1) * face + wave(2) * face, topY + flagH * 0.55);
+  ctx.lineTo(mx + flagW * face + wave(3) * face, topY + flagH);
+  ctx.lineTo(mx, topY + flagH);
+  ctx.closePath();
+  ctx.fill();
+  // dark red trim along top + bottom
+  ctx.strokeStyle = '#5a1818';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(mx, topY);
+  ctx.lineTo(mx + flagW * face + wave(1) * face, topY + 4);
+  ctx.moveTo(mx, topY + flagH);
+  ctx.lineTo(mx + flagW * face + wave(3) * face, topY + flagH);
+  ctx.stroke();
+  // ── tuna skull centered on the flag ──
+  const cx = mx + (flagW * 0.5 + wave(2) * 0.5) * face;
+  const cy = topY + flagH * 0.42;
+  // skull body — teardrop-shaped tuna head
+  ctx.fillStyle = '#f0ece0';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, 7 * face, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // tail fin (forked)
+  ctx.beginPath();
+  ctx.moveTo(cx - 6 * face, cy);
+  ctx.lineTo(cx - 11 * face, cy - 3);
+  ctx.lineTo(cx - 9  * face, cy);
+  ctx.lineTo(cx - 11 * face, cy + 3);
+  ctx.closePath();
+  ctx.fill();
+  // eye socket (single black hole — pirate skull style)
+  ctx.fillStyle = '#0c0d12';
+  ctx.beginPath();
+  ctx.arc(cx + 2 * face, cy - 0.5, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  // tiny jaw / hook-mouth
+  ctx.strokeStyle = '#0c0d12';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(cx + 4 * face, cy + 1.5);
+  ctx.lineTo(cx + 6 * face, cy + 2.5);
+  ctx.stroke();
+  // ── crossed fish-bones under the skull ──
+  ctx.strokeStyle = '#f0ece0';
+  ctx.lineWidth = 1.4;
+  ctx.lineCap = 'round';
+  // bone 1 — diagonal
+  ctx.beginPath();
+  ctx.moveTo(cx - 7, cy + 6);
+  ctx.lineTo(cx + 7, cy + 12);
+  ctx.stroke();
+  // bone 2 — opposite diagonal
+  ctx.beginPath();
+  ctx.moveTo(cx + 7, cy + 6);
+  ctx.lineTo(cx - 7, cy + 12);
+  ctx.stroke();
+  // tiny ribs at each bone tip
+  ctx.lineWidth = 1.1;
+  const tips = [[-7,6],[7,12],[7,6],[-7,12]];
+  for (const [dx,dy] of tips){
+    ctx.beginPath();
+    ctx.moveTo(cx + dx - 1, cy + dy - 1);
+    ctx.lineTo(cx + dx + 1, cy + dy + 1);
+    ctx.moveTo(cx + dx + 1, cy + dy - 1);
+    ctx.lineTo(cx + dx - 1, cy + dy + 1);
+    ctx.stroke();
+  }
+  // mast finial (small golden ball on top)
+  ctx.fillStyle = '#d8a838';
+  ctx.beginPath(); ctx.arc(mx, topY - 1, 1.6, 0, Math.PI * 2); ctx.fill();
+}
+
 function drawBobber(x, y){
   // red top + white bottom
   ctx.fillStyle = '#c43d33';
@@ -2314,11 +2766,20 @@ function openShop(){
 function shopRow(entry, kind, idx, owned){
   const lock = (kind === 'boat' && idx > state.boat + 1) || (kind === 'rod' && idx > state.rod + 1);
   const canBuy = !owned && !lock && state.coins >= entry.cost;
+  // boats show their three stats as a small inline strip
+  const stats = (kind === 'boat')
+    ? '<div class="desc" style="margin-top:3px; font-size:11px; color:var(--ink-3); letter-spacing:0.04em;">'
+        + '⚡ SPD <b style="color:var(--ink);">' + entry.speed + '</b>'
+        + ' · 🎯 CAST <b style="color:var(--ink);">×' + entry.castMult.toFixed(1) + '</b>'
+        + ' · ✨ LURE <b style="color:var(--ink);">+' + entry.lureBonus + '</b>'
+      + '</div>'
+    : '';
   return '<div class="shop-row ' + (owned ? 'owned' : '') + ' ' + (lock ? 'locked' : '') + '">'
     + '<div class="em">' + entry.em + '</div>'
     + '<div>'
       + '<div class="name">' + entry.name + ' <small style="color:var(--ink-3);">· tier ' + entry.tier + '</small></div>'
       + '<div class="desc">' + entry.desc + '</div>'
+      + stats
     + '</div>'
     + (owned
         ? '<div class="owned-tag">✓ OWNED</div>'
@@ -2418,6 +2879,8 @@ const TUTORIAL = [
     body: 'When something bites, the bobber wiggles — <b>click immediately</b> (or press SPACE) to hook it. A reel panel pops up; <b>spam the REEL button</b> faster than the fish can resist. Legendaries fight hardest.' },
   { em: '🪸', title: 'The depth system',
     body: 'Five zones, each with its own ecosystem of fish. <b>Surface</b> · <b>Shallows</b> · <b>Reef</b> · <b>Pelagic</b> · <b>Abyss</b>. Each new depth requires a better boat (see 🛒 shop). Switching depths swaps the entire background.' },
+  { em: '🚤', title: 'Steer your boat',
+    body: 'Press <b>A</b> / <b>D</b> (or ← / →) to paddle along the water. Each boat in the shop has its own <b>SPD</b> (steer speed), <b>CAST</b> (range multiplier), and <b>LURE</b> (rare-fish bias) — better hulls fling further and pull bigger silhouettes. The Jolly Tuna flies above every mast. Spotted The <b>Iron Tin</b> off the bow? Sail past it for luck.' },
   { em: '🪱', title: 'Bait tiers — gates the rarest catches',
     body: '<b>Garden Worm</b> (free, infinite) catches commons. <b>Shrimp</b>/<b>Minnow</b>/<b>Star Bait</b>/<b>Neon Squid</b>/<b>Pig Lung</b> climb the tiers. <b>Epic</b> fish need tier ≥ 2 or depth ≥ 3. <b>Legendary</b> need tier ≥ 3 or depth ≥ 4. Better bait = bigger fish. Each cast eats one (worm is free).' },
   { em: '📡', title: 'Sonar & bombs',
