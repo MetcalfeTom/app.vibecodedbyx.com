@@ -1193,6 +1193,9 @@ let phase = 'idle';
 let castPower = 0; // 0-1
 let castDir = 1;   // bar swing dir
 let bobber = { x: 0, y: 0, vx: 0, vy: 0, restY: 0 };
+/* mouse aim — used to direct the cast. Updated by mousemove + pointerdown
+   over the stage. Default points toward the water area. */
+const aim = { x: 0, y: 0, has: false };
 let waitUntil = 0;
 let biteUntil = 0;
 let activeFish = null; // current fish on hook
@@ -1226,14 +1229,31 @@ function releaseCast(){
   if (phase !== 'charging') return;
   phase = 'flying';
   document.getElementById('cast-meter').classList.remove('show');
-  // launch bobber from rod tip with arc based on power
+  // launch bobber from rod tip with an arc — direction comes from the
+  // current mouse aim. Power scales the maximum horizontal reach.
   const d = dockLayout();
   bobber.x = d.rodTipX;
   bobber.y = d.rodTipY;
-  const range = 80 + castPower * Math.min(W - d.rodTipX - 80, 600);
-  bobber.vx = range / 0.7; // horizontal velocity (will hit ground in ~0.7s)
-  bobber.vy = -180 - castPower * 220;
-  bobber.restY = H * 0.62; // water surface
+  bobber.restY = H * 0.62;
+  // Direction: from rod tip toward the aim point, clamped to the
+  // forward arc (positive x → into the water on the right side of
+  // the dock). If the aim is behind the rod tip, default to a
+  // mild forward toss.
+  const minX = d.rodTipX + 60;             // can't aim into the dock
+  const maxX = W - 30;                     // off-screen cap
+  const dt = 0.75;                         // approximate flight time
+  let targetX = aim.has ? aim.x : (d.rodTipX + W * 0.4);
+  targetX = Math.max(minX, Math.min(maxX, targetX));
+  // Power gates how far you can reach (full power = full screen).
+  const maxReachX = d.rodTipX + 80 + castPower * Math.min(W - d.rodTipX - 80, 700);
+  if (targetX > maxReachX) targetX = maxReachX;
+  // Horizontal velocity to land at targetX in dt seconds.
+  bobber.vx = (targetX - d.rodTipX) / dt;
+  // Vertical: enough negative vy so the apex height feels arc-y and the
+  // bobber descends to restY by ≈dt. Solve y(dt) = vy*dt + 0.5*g*dt^2 = restY - rodTipY
+  //   vy = ((restY - rodTipY) - 0.5*g*dt^2) / dt
+  const g = 700; // matches the bobber update loop (vy += 700 * dt)
+  bobber.vy = ((bobber.restY - d.rodTipY) - 0.5 * g * dt * dt) / dt;
 }
 function landBobber(){
   phase = 'waiting';
@@ -1546,8 +1566,22 @@ function isHudClick(target){
     target.tagName === 'BUTTON'
   );
 }
+// Continuously track mouse for aim preview + final cast direction.
+stage.addEventListener('pointermove', e => {
+  if (isHudClick(e.target)) return;
+  const r = stage.getBoundingClientRect();
+  aim.x = e.clientX - r.left;
+  aim.y = e.clientY - r.top;
+  aim.has = true;
+});
+stage.addEventListener('pointerleave', () => { /* keep last aim */ });
 stage.addEventListener('pointerdown', e => {
   if (isHudClick(e.target)) return;
+  // Update aim on click too (so touch/tap registers a target before launch).
+  const r = stage.getBoundingClientRect();
+  aim.x = e.clientX - r.left;
+  aim.y = e.clientY - r.top;
+  aim.has = true;
   if (phase === 'biting'){ hookFish(); return; }
   if (phase === 'idle') startCharging();
 });
@@ -1664,6 +1698,80 @@ function draw(){
   drawDistantTrees();
   // dock + cat + rod + line + bobber
   drawDockAndCat();
+  // aim preview while charging — dotted arc from rod tip toward mouse
+  if (phase === 'charging') drawAimArc();
+}
+function drawAimArc(){
+  const d = dockLayout();
+  // compute the same clamped target the launch will use
+  const minX = d.rodTipX + 60, maxX = W - 30;
+  let targetX = aim.has ? aim.x : (d.rodTipX + W * 0.4);
+  targetX = Math.max(minX, Math.min(maxX, targetX));
+  const maxReachX = d.rodTipX + 80 + castPower * Math.min(W - d.rodTipX - 80, 700);
+  const clamped = Math.min(targetX, maxReachX);
+  // simulate the same physics for ~24 dots
+  const dtSim = 0.75;
+  const g = 700;
+  const vx = (clamped - d.rodTipX) / dtSim;
+  let vy = ((H * 0.62 - d.rodTipY) - 0.5 * g * dtSim * dtSim) / dtSim;
+  // tactical-red arc — bright glowing dots from rod tip to landing
+  let px = d.rodTipX, py = d.rodTipY;
+  // straight laser sight line first (the "designator")
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,30,40,0.32)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(d.rodTipX, d.rodTipY);
+  ctx.lineTo(clamped, H * 0.62 - 4);
+  ctx.stroke();
+  ctx.restore();
+  // arc dots — bright red core + soft red halo
+  for (let i = 1; i <= 24; i++){
+    const t = i * (dtSim / 24);
+    px = d.rodTipX + vx * t;
+    py = d.rodTipY + vy * t + 0.5 * g * t * t;
+    if (py >= H * 0.62) break;
+    // halo
+    ctx.fillStyle = 'rgba(255,40,50,0.30)';
+    ctx.beginPath(); ctx.arc(px, py, 4 - i * 0.06, 0, Math.PI * 2); ctx.fill();
+    // core
+    ctx.fillStyle = 'rgba(255,80,90,0.95)';
+    ctx.beginPath(); ctx.arc(px, py, 1.8 - i * 0.04, 0, Math.PI * 2); ctx.fill();
+  }
+  // landing target — tactical red crosshair
+  const tx = clamped, ty = H * 0.62;
+  // outer ring (glow)
+  ctx.strokeStyle = 'rgba(255,40,40,0.45)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.ellipse(tx, ty, 17, 5, 0, 0, Math.PI * 2); ctx.stroke();
+  // inner ring (sharp)
+  ctx.strokeStyle = 'rgba(255,60,60,0.95)';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.ellipse(tx, ty, 14, 4, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(tx, ty, 6, 2, 0, 0, Math.PI * 2); ctx.stroke();
+  // crosshair ticks
+  ctx.strokeStyle = 'rgba(255,80,80,0.85)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(tx - 22, ty); ctx.lineTo(tx - 12, ty);
+  ctx.moveTo(tx + 12, ty); ctx.lineTo(tx + 22, ty);
+  ctx.moveTo(tx, ty - 7);  ctx.lineTo(tx, ty - 2);
+  ctx.moveTo(tx, ty + 2);  ctx.lineTo(tx, ty + 7);
+  ctx.stroke();
+  // out-of-reach warning marker
+  if (targetX > maxReachX){
+    ctx.strokeStyle = 'rgba(255,30,40,1.0)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(targetX - 9, ty - 16); ctx.lineTo(targetX + 9, ty - 16);
+    ctx.moveTo(targetX - 6, ty - 22); ctx.lineTo(targetX + 6, ty - 10);
+    ctx.moveTo(targetX + 6, ty - 22); ctx.lineTo(targetX - 6, ty - 10);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,30,40,1.0)';
+    ctx.font = '600 9px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('OUT OF REACH', targetX, ty - 28);
+  }
 }
 
 /* Per-depth palettes + decor renderer. Painted into the canvas so it can
