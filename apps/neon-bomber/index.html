@@ -402,8 +402,18 @@ function blastCellsAt(bx,by,r){
 // and active explosions. Also propagates chain-reaction timers: if bomb A
 // sits in bomb B's blast cells, A's effective timer = min(A.timer, B.timer).
 function buildThreatMap(extraBombs){
-  var bs=bombs.slice();
-  if(extraBombs)for(var i=0;i<extraBombs.length;i++)bs.push(extraBombs[i]);
+  // CRITICAL: deep-clone bomb objects so the chain-react pass below cannot
+  // mutate real bomb timers via shared references (prev bug: AI planning
+  // shortened real bombs from e.g. 2.0s → 0.51s, exploding under the AI's
+  // own feet before its escape window).
+  var bs=[];
+  for(var i=0;i<bombs.length;i++){
+    bs.push({x:bombs[i].x,y:bombs[i].y,range:bombs[i].range,timer:bombs[i].timer});
+  }
+  if(extraBombs)for(var i=0;i<extraBombs.length;i++){
+    var eb=extraBombs[i];
+    bs.push({x:eb.x,y:eb.y,range:eb.range,timer:eb.timer});
+  }
   // chain-react pass: shorten timers of bombs caught in another's blast
   // (iterate twice — handles 2-step chains; longer chains stabilize quickly)
   for(var iter=0;iter<3;iter++){
@@ -464,6 +474,7 @@ function timeBfs(sx,sy,speed,threat,isGoal,opts){
   var maxDepth=opts.maxDepth||24;
   var margin=opts.margin||SAFE_MARGIN;
   var ignoreBomb=opts.ignoreBomb||null; // {x,y}
+  var startT=opts.startT||0; // seconds-from-now when AI arrives at (sx,sy)
   var stepT=1/Math.max(0.5,speed); // sec per cell
   // walkable test honors bricks/walls/bombs (with optional ignored bomb)
   var canStep=function(x,y){
@@ -477,8 +488,8 @@ function timeBfs(sx,sy,speed,threat,isGoal,opts){
     }
     return true;
   };
-  var visited={};visited[sx+','+sy]=0;
-  var queue=[{x:sx,y:sy,t:0,path:[]}];
+  var visited={};visited[sx+','+sy]=startT;
+  var queue=[{x:sx,y:sy,t:startT,path:[]}];
   while(queue.length){
     var cur=queue.shift();
     if(isGoal(cur.x,cur.y,cur.t))return cur;
@@ -517,21 +528,29 @@ function tickAI(p,dt){
   p.aiTick-=dt;
   if(p.aiCooldown>0)p.aiCooldown-=dt;
   if(p.aiTick>0)return;
-  p.aiTick=0.10; // tight cadence — more reactive
+  p.aiTick=0.08; // tight cadence — more reactive
 
   var threat=buildThreatMap();
-  var cx=p.x,cy=p.y;
+  // ── Transit-aware planning origin ──
+  // movePlayer commits to a target cell (p.tx,p.ty) and can't change
+  // direction until arriving. So while mid-transit the AI is GOING to
+  // (tx,ty), and any threat at THAT cell is what matters. We plan from
+  // (tx,ty) and offset BFS arrival time by the remaining transit duration.
+  var cx=p.tx,cy=p.ty;
   var speed=p.speed;
+  var dxp=(cx+0.5)*CELL-p.px, dyp=(cy+0.5)*CELL-p.py;
+  var transit=Math.hypot(dxp,dyp)/(speed*CELL);
   var here=threat[cx+','+cy];
 
-  // ── 1. CURRENT CELL IS / WILL BE LETHAL → FLEE ──
+  // ── 1. CURRENT/TARGET CELL IS / WILL BE LETHAL → FLEE ──
   // Trigger when: actively burning here, OR scheduled blast lands within
-  // (transit-to-safety budget = ~1.5s).
-  if(here && here.start < 1.5){
+  // (transit-to-safety budget ≈ transit + 2.0s). 2.0s gives ~8 cells of
+  // escape distance at speed 4 — generous safety margin.
+  if(here && here.start < transit + 2.0){
     // First try: reach a PERMANENTLY safe cell (no future threat at all).
     var permSafe=timeBfs(cx,cy,speed,threat,
       function(x,y){return !threat[x+','+y]&&(x!==cx||y!==cy);},
-      {maxDepth:18});
+      {maxDepth:18,startT:transit});
     if(permSafe&&permSafe.path.length){
       var mv=permSafe.path[0];
       setAIKeys(p,mv[0],mv[1],false);
@@ -540,7 +559,7 @@ function tickAI(p,dt){
     // Fall back: ANY cell safe at arrival (might require another flee tick)
     var anySafe=timeBfs(cx,cy,speed,threat,
       function(x,y,t){return isSafeAt(x,y,t,threat,SAFE_FLEE)&&(x!==cx||y!==cy);},
-      {maxDepth:14,margin:SAFE_FLEE});
+      {maxDepth:14,margin:SAFE_FLEE,startT:transit});
     if(anySafe&&anySafe.path.length){
       var mv=anySafe.path[0];
       setAIKeys(p,mv[0],mv[1],false);
@@ -580,11 +599,18 @@ function tickAI(p,dt){
         // permanently safe = not in any simThreat cell at all
         return !simThreat[x+','+y]&&(x!==cx||y!==cy);
       },
-      {maxDepth:Math.min(16,Math.floor(speed*fuse)+1),ignoreBomb:simBomb,margin:SAFE_MARGIN});
-    if(escape && escape.t < fuse - 0.35){
+      {maxDepth:Math.min(16,Math.floor(speed*fuse)+1),ignoreBomb:simBomb,margin:SAFE_MARGIN,startT:transit});
+    // need escape arrival before fuse (already offset by transit via startT)
+    if(escape && (escape.t-transit) < fuse - 0.35 && escape.path.length>0){
       // confirm: pre-plant exit count (don't trap self in 1-exit cell)
       if(exitScore(cx,cy)>=1){
-        setAIKeys(p,0,0,true);
+        // PLANT AND IMMEDIATELY WALK along the first escape step in the
+        // SAME tick. movePlayer reads keys at center: it sets new target
+        // (escape direction) THEN calls placeBomb. So bomb is planted
+        // here and the AI starts transit to the escape cell on the next
+        // frame — no 0.10s standing-on-fuse delay.
+        var first=escape.path[0];
+        setAIKeys(p,first[0],first[1],true);
         p.aiCooldown=0.65;
         return;
       }
@@ -602,7 +628,7 @@ function tickAI(p,dt){
       }
       return false;
     },
-    {maxDepth:20});
+    {maxDepth:20,startT:transit});
   if(target&&target.path.length){
     var mv=target.path[0];
     setAIKeys(p,mv[0],mv[1],false);
@@ -614,7 +640,8 @@ function tickAI(p,dt){
   for(var d=0;d<4;d++){
     var nx=cx+DDX[d],ny=cy+DDY[d];
     if(!isWalkCell(nx,ny,false))continue;
-    if(!isSafeAt(nx,ny,1/Math.max(0.5,speed),threat,SAFE_MARGIN))continue;
+    // arrival time = transit (current commit) + 1 cell step
+    if(!isSafeAt(nx,ny,transit+1/Math.max(0.5,speed),threat,SAFE_MARGIN))continue;
     var s=exitScore(nx,ny)+Math.random()*0.3;
     if(s>bestScore){bestScore=s;best=[DDX[d],DDY[d]];}
   }
