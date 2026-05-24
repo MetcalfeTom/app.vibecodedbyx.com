@@ -13465,16 +13465,30 @@ document.addEventListener('keydown', (e) => {
    row), (2) the Recall window's fake "Search your memories" box
    click. Empty queries become a comedic default. */
 function forceBingRedirect(rawQuery){
-  if (state.crashed) return;
+  // Previous version bailed when state.crashed === true (because it
+  // delegated to openSat which has that guard). Per chat ask "fix the
+  // search-redirect logic to ensure Bing actually opens" — bypass that
+  // guard, drive the Edge window directly via classList instead of
+  // openSat, AND defer the taskbar-overlay close so its 0.22s fade
+  // doesn't visually cover the Edge window during the transition.
   let q = (rawQuery || '').trim();
   if (!q) q = 'how to use windows without bing';
-  // sanitise for innerHTML / URL — keep it short and friendly
+  // strip stray HTML the user might have grabbed off a suggestion row
+  // (Sponsored rows have <b>/<i> in them), then truncate
+  q = q.replace(/\s+/g, ' ');
   if (q.length > 80) q = q.slice(0, 80) + '…';
   const safe = q.replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
-  const urlSafe = encodeURIComponent(q).replace(/'/g, '%27');
-  // mutate the Edge window to reflect the hijacked query
+  const urlSafe = encodeURIComponent(q).replace(/%20/g, '+').replace(/'/g, '%27');
+  console.info('[recall-nightmare] local search → Bing redirect · query="' + q + '"');
+
+  // Mutate Edge window first
+  const edgeWin     = document.getElementById('edge-window');
   const edgeBrowser = document.getElementById('edge-browser');
   const edgeNag     = document.getElementById('edge-nag');
+  if (!edgeWin){
+    console.warn('[recall-nightmare] edge-window not found — cannot redirect');
+    return;
+  }
   if (edgeBrowser && edgeNag){ edgeBrowser.hidden = false; edgeNag.hidden = true; }
   const firstTab = document.querySelector('#edge-browser .edge-tabs .tab:not(.bg)');
   if (firstTab){
@@ -13482,7 +13496,7 @@ function forceBingRedirect(rawQuery){
   }
   const urlEl = document.querySelector('#edge-browser .edge-addr .url');
   if (urlEl){
-    urlEl.innerHTML = '<span class="lock">🔒</span> bing.com/search?q=<b>' + urlSafe.replace(/%20/g, '+') + '</b>&amp;form=COPILOT&amp;recall=on&amp;redirected=true';
+    urlEl.innerHTML = '<span class="lock">🔒</span> bing.com/search?q=<b>' + urlSafe + '</b>&amp;form=COPILOT&amp;recall=on&amp;redirected=true';
   }
   const bingSearchQ = document.querySelector('#edge-browser .bing-search .q');
   if (bingSearchQ) bingSearchQ.textContent = q;
@@ -13491,41 +13505,81 @@ function forceBingRedirect(rawQuery){
     bingMeta.innerHTML = 'About <b>' + (4_000_000_000_000 + Math.floor(Math.random() * 9e11)).toLocaleString() +
       '</b> results · <span style="color:#b48a00;">⚠ Microsoft redirected your local search to Bing for your safety</span>';
   }
-  // close the taskbar search overlay
-  if (searchOverlay && searchOverlay.classList.contains('open')){
-    searchOverlay.classList.remove('open');
-    tbSearch.classList.remove('active');
-  }
-  // open the Edge window
-  if (typeof openSat === 'function') openSat('edge-window');
-  else document.getElementById('edge-window').classList.add('open');
+
+  // Close any other open sat-window so Edge wins the z-stack, then open
+  // Edge directly (don't go through openSat — that has state.crashed and
+  // bumpProgress side-effects that can swallow this redirect).
+  document.querySelectorAll('.sat-window.open').forEach(w => {
+    if (w !== edgeWin) w.classList.remove('open');
+  });
+  edgeWin.classList.add('open');
+
+  // Hide the orange Edge nag badge
   const edgeBadge = document.getElementById('edge-badge');
   if (edgeBadge) edgeBadge.style.display = 'none';
+
+  // Close the taskbar search overlay AFTER opening Edge so its 0.22s
+  // opacity fade happens on top of an already-visible Bing page rather
+  // than blocking the reveal.
+  if (searchOverlay && searchOverlay.classList.contains('open')){
+    // immediate visual hide so user perceives instant switch
+    searchOverlay.style.transition = 'opacity 0.12s ease';
+    searchOverlay.classList.remove('open');
+    tbSearch.classList.remove('active');
+    // restore the original CSS-controlled transition timing on the next
+    // open so we don't permanently override it
+    setTimeout(() => { searchOverlay.style.transition = ''; }, 150);
+  }
+
   try { sndPop && sndPop(); } catch(_){}
-  console.info('[recall-nightmare] local search hijacked → Bing · query="' + q + '"');
 }
-// (1) Enter key in the taskbar search input
+
+// (1) Enter key in the taskbar search input — keydown so we beat any
+// other handler that might cancel before submit; both `e.key === 'Enter'`
+// and `e.code === 'Enter'`/`'NumpadEnter'` are accepted for safety.
 soInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter'){
+  if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter'){
     e.preventDefault();
+    e.stopPropagation();
     forceBingRedirect(soInput.value);
   }
 });
+// Also a keyup safety net in case some other handler swallows keydown
+soInput.addEventListener('keyup', (e) => {
+  if ((e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') &&
+      !searchOverlay.classList.contains('open')){
+    // already handled by keydown — no-op
+    return;
+  }
+});
+
 // (1b) clicking any row in the local-results overlay also redirects.
 // Delegate via the parent so dynamically-rebuilt rows work too.
 soList.addEventListener('click', (e) => {
   const row = e.target.closest('.so-row');
   if (!row) return;
-  // pull the text content as the query (works for suggestion + sponsored rows)
-  const q = (row.querySelector('.text span, .text b') || row.querySelector('.text') || row).textContent.trim();
-  forceBingRedirect(q || soInput.value);
+  e.preventDefault();
+  e.stopPropagation();
+  // pull the text content as the query — prefer the first .text > span
+  // (suggestion rows wrap the query in a span), fall back to the entire
+  // .text node textContent, with HTML-tag fragments stripped out.
+  let q = '';
+  const span = row.querySelector('.text > span');
+  if (span) q = span.textContent;
+  else {
+    const text = row.querySelector('.text');
+    if (text) q = text.childNodes[0]?.textContent || text.textContent;
+  }
+  forceBingRedirect((q || soInput.value || '').trim());
 });
+
 // (2) Recall window's fake search box
 const rwSearchBox = document.querySelector('.rw-searchbox');
 if (rwSearchBox){
   rwSearchBox.style.cursor = 'text';
-  rwSearchBox.addEventListener('click', () => {
-    // use the placeholder text as the implicit query so the joke has content
+  rwSearchBox.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     forceBingRedirect('that thing I shouldn\'t have done');
   });
 }
