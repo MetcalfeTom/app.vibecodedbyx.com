@@ -391,6 +391,7 @@
 <div class="tools">
   <button class="tool" id="btn-save" type="button">💾 <span class="label">save</span></button>
   <button class="tool" id="btn-load" type="button">📂 <span class="label">load</span></button>
+  <button class="tool" id="btn-regen" type="button">🏝️ <span class="label">regen</span></button>
   <button class="tool danger" id="btn-clear" type="button">⌫ <span class="label">clear</span></button>
 </div>
 
@@ -466,8 +467,9 @@ function setBrush(i){
 /* ── three.js scene ──────────────────────────────────────── */
 const stage = document.getElementById('stage');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xeae4d6);
-scene.fog = new THREE.Fog(0xeae4d6, 30, 90);
+// Sky-blue void — fog hides the bottomless drop and softens distant islands
+scene.background = new THREE.Color(0xc8d8ec);
+scene.fog = new THREE.Fog(0xc8d8ec, 60, 220);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(8, 2.4, 8);
@@ -493,28 +495,21 @@ const back = new THREE.DirectionalLight(0xb8c4e8, 0.25);
 back.position.set(-15, 12, -10);
 scene.add(back);
 
-/* ── Ground plane (visible 64×64 grid; collision is at y=0) ── */
+/* ── World bounds — floating islands live inside a 64×64×64 region.
+   No flat ground; players fall off edges into the sky and respawn. */
 const GROUND_SIZE = 64;
-const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
-const groundMat = new THREE.MeshLambertMaterial({ color: 0xd0c8b8 });
-const ground = new THREE.Mesh(groundGeo, groundMat);
-ground.rotation.x = -Math.PI / 2;
-ground.position.set(GROUND_SIZE / 2, 0, GROUND_SIZE / 2);
+// soft cloud bands at high altitude for visual depth
+const cloudGeo = new THREE.PlaneGeometry(420, 36);
+const cloudMat = new THREE.MeshBasicMaterial({ color: 0xfefcfa, transparent: true, opacity: 0.42, depthWrite: false });
+for (let i = 0; i < 3; i++){
+  const c = new THREE.Mesh(cloudGeo, cloudMat);
+  c.position.set(GROUND_SIZE / 2, 42 + i * 6, GROUND_SIZE / 2 + (i - 1) * 60);
+  c.rotation.y = i * 0.4;
+  scene.add(c);
+}
+// placeholder so existing raycast code that references `ground` doesn't NPE
+const ground = new THREE.Object3D();
 ground.name = 'ground';
-scene.add(ground);
-
-// grid helper for spatial reference
-const grid = new THREE.GridHelper(GROUND_SIZE, GROUND_SIZE, 0xa39a82, 0xb8b0a0);
-grid.position.set(GROUND_SIZE / 2, 0.001, GROUND_SIZE / 2);
-scene.add(grid);
-
-// horizon haze plane (subtle)
-const horizon = new THREE.Mesh(
-  new THREE.PlaneGeometry(400, 18),
-  new THREE.MeshBasicMaterial({ color: 0xddd2bd, transparent: true, opacity: 0.55, depthWrite: false })
-);
-horizon.position.y = 2;
-scene.add(horizon);
 
 /* ── Block storage ────────────────────────────────────────── */
 const BLOCK = 1; // 1 unit cube
@@ -558,18 +553,100 @@ function blockAt(x, y, z){
   return blocks.has(keyOf(x, y, z));
 }
 
-// seed a small starter platform so the world isn't empty at boot
-function seedStarter(){
-  const cx = Math.floor(GROUND_SIZE / 2), cz = Math.floor(GROUND_SIZE / 2);
-  // a small pedestal in slate + 4 corner pillars in pastel colors
-  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++){
-    placeBlock(cx + dx, 0, cz + dz, 0);
+// Default respawn — overwritten by island generator
+let respawnPos = new THREE.Vector3(GROUND_SIZE / 2, 16, GROUND_SIZE / 2);
+
+/* ── Floating-island terrain generator ─────────────────────────
+   Drops 6 procedural islands at varied positions + altitudes. Each
+   island is a stack of shrinking disks (top = moss, then sand, then
+   slate, then ash for the rocky underbelly) with sin-noise edges for
+   organic-looking outlines. Some islands carry a small 4-tall amber
+   tree with a 6-block moss canopy and a buried diamond. */
+function generateFloatingIslands(){
+  // wipe everything first
+  for (const m of blocks.values()) scene.remove(m);
+  blocks.clear();
+
+  const cx0 = Math.floor(GROUND_SIZE / 2);
+  const cz0 = Math.floor(GROUND_SIZE / 2);
+  // Each island: { cx, cz, topY, radius, tree, diamond, decor }
+  const islands = [
+    // main central island — larger, lower, definitely has tree + diamond
+    { cx: cx0, cz: cz0, topY: 14, radius: 8.5, tree: true,  diamond: true,  primary: true },
+    // satellite islands at varied altitudes and offsets
+    { cx: cx0 - 14, cz: cz0 - 10, topY: 20, radius: 5.5, tree: true,  diamond: false },
+    { cx: cx0 + 16, cz: cz0 - 12, topY: 10, radius: 6.0, tree: false, diamond: true  },
+    { cx: cx0 + 14, cz: cz0 + 14, topY: 24, radius: 5.0, tree: true,  diamond: false },
+    { cx: cx0 - 16, cz: cz0 + 12, topY:  8, radius: 4.5, tree: false, diamond: false },
+    { cx: cx0,      cz: cz0 - 22, topY: 28, radius: 4.0, tree: false, diamond: true  },
+  ];
+  for (const isl of islands) carveIsland(isl);
+
+  // park player on top of the main island
+  const main = islands[0];
+  respawnPos.set(main.cx + 0.5, main.topY + 2.4, main.cz + 0.5);
+  player.pos.copy(respawnPos);
+  player.vel.set(0, 0, 0);
+  player.yaw = 0; player.pitch = 0;
+  updateHud();
+}
+
+function carveIsland(isl){
+  const { cx, cz, topY, radius, tree, diamond } = isl;
+  // generate from topY downward; each layer shrinks via taper
+  const depthMax = Math.max(3, Math.floor(radius * 1.6));
+  for (let depth = 0; depth < depthMax; depth++){
+    const y = topY - depth;
+    if (y < 0 || y > 32) continue;
+    // taper: top layers near full radius, bottom narrows aggressively
+    const t = depth / depthMax;
+    const layerR = radius * (1 - t * t * 0.85);
+    if (layerR < 0.6) break;
+    // color by depth band
+    let idx;
+    if      (depth === 0)              idx = 2; // moss top
+    else if (depth === 1)              idx = 1; // sand sub-top
+    else if (depth === 2 || depth === 3) idx = 0; // slate body
+    else                                 idx = 7; // ash rocky underbelly
+    const r2 = layerR * layerR;
+    const rCeil = Math.ceil(layerR + 1);
+    for (let dx = -rCeil; dx <= rCeil; dx++){
+      for (let dz = -rCeil; dz <= rCeil; dz++){
+        // sin-noise nudge for organic edges (deterministic per cell)
+        const noise =
+          Math.sin((cx + dx) * 0.55 + (cz + dz) * 0.31) * 1.3 +
+          Math.sin((cx - dx) * 0.27 + (cz + dz) * 0.49) * 0.8;
+        if (dx * dx + dz * dz <= r2 + noise){
+          placeBlock(cx + dx, y, cz + dz, idx);
+        }
+      }
+    }
   }
-  for (let h = 1; h < 3; h++){
-    placeBlock(cx + 2, h, cz + 2, 3);
-    placeBlock(cx - 2, h, cz + 2, 4);
-    placeBlock(cx + 2, h, cz - 2, 5);
-    placeBlock(cx - 2, h, cz - 2, 6);
+  // small tree: amber trunk 3 tall + 5-block moss canopy (+ peak)
+  if (tree){
+    const tx = cx + Math.floor((Math.random() - 0.5) * (radius - 1));
+    const tz = cz + Math.floor((Math.random() - 0.5) * (radius - 1));
+    const base = topY + 1;
+    if (base + 4 <= 32){
+      placeBlock(tx, base,     tz, 6); // amber trunk
+      placeBlock(tx, base + 1, tz, 6);
+      placeBlock(tx, base + 2, tz, 6);
+      placeBlock(tx, base + 3, tz, 2); // canopy
+      if (tx + 1 < GROUND_SIZE) placeBlock(tx + 1, base + 3, tz, 2);
+      if (tx - 1 >= 0)          placeBlock(tx - 1, base + 3, tz, 2);
+      if (tz + 1 < GROUND_SIZE) placeBlock(tx, base + 3, tz + 1, 2);
+      if (tz - 1 >= 0)          placeBlock(tx, base + 3, tz - 1, 2);
+      placeBlock(tx, base + 4, tz, 2);
+    }
+  }
+  // diamond cluster: 1-3 diamonds buried near top, slightly offset
+  if (diamond){
+    const ds = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < ds; i++){
+      const dx = cx + Math.floor((Math.random() - 0.5) * (radius - 1));
+      const dz = cz + Math.floor((Math.random() - 0.5) * (radius - 1));
+      placeBlock(dx, topY, dz, 9); // diamond on the moss layer
+    }
   }
 }
 
@@ -636,30 +713,23 @@ const screenCenter = new THREE.Vector2(0, 0);
 function raycastTarget(){
   raycaster.setFromCamera(screenCenter, camera);
   raycaster.far = 6.5;
-  // candidate set: ground + all blocks
-  const candidates = [ground, ...blocks.values()];
+  // candidates: only blocks (no flat ground in float-island mode)
+  const candidates = [...blocks.values()];
+  if (!candidates.length) return null;
   const hits = raycaster.intersectObjects(candidates, false);
   if (!hits.length) return null;
-  const h = hits[0];
-  return { hit: h, isGround: h.object === ground };
+  return { hit: hits[0], isGround: false };
 }
 function clickPlace(){
   const t = raycastTarget();
   if (!t) return;
-  let bx, by, bz;
-  if (t.isGround){
-    bx = Math.floor(t.hit.point.x);
-    by = 0;
-    bz = Math.floor(t.hit.point.z);
-  } else {
-    // place adjacent to the hit face — push along face normal
-    const m = t.hit.object;
-    const gx = m.userData.gx, gy = m.userData.gy, gz = m.userData.gz;
-    const n = t.hit.face.normal;
-    bx = gx + Math.round(n.x);
-    by = gy + Math.round(n.y);
-    bz = gz + Math.round(n.z);
-  }
+  // place adjacent to the hit block face — push along face normal
+  const m = t.hit.object;
+  const gx = m.userData.gx, gy = m.userData.gy, gz = m.userData.gz;
+  const n = t.hit.face.normal;
+  let bx = gx + Math.round(n.x);
+  let by = gy + Math.round(n.y);
+  let bz = gz + Math.round(n.z);
   // don't place where the player is standing
   const pCellX = Math.floor(player.pos.x);
   const pCellZ = Math.floor(player.pos.z);
@@ -672,7 +742,7 @@ function clickPlace(){
 }
 function clickRemove(){
   const t = raycastTarget();
-  if (!t || t.isGround) return;
+  if (!t) return;
   const m = t.hit.object;
   removeBlock(m.userData.gx, m.userData.gy, m.userData.gz);
 }
@@ -696,13 +766,8 @@ function resolveAxis(axis, delta){
   const minX = player.pos.x - r, maxX = player.pos.x + r;
   const minZ = player.pos.z - r, maxZ = player.pos.z + r;
   const minY = player.pos.y - player.height, maxY = player.pos.y;
-  // ground at y=0
-  if (axis === 'y' && delta < 0 && minY < 0){
-    player.pos.y = player.height;
-    player.vel.y = 0;
-    player.onGround = true;
-    return;
-  }
+  // No flat ground in floating-island mode — players fall into the sky
+  // and are respawned by the y < -10 guard in step().
   // block collisions — iterate cells that overlap our AABB
   const ix0 = Math.floor(minX), ix1 = Math.floor(maxX);
   const iz0 = Math.floor(minZ), iz1 = Math.floor(maxZ);
@@ -768,9 +833,9 @@ function step(dt){
   const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
   q.multiplyQuaternions(qY, qX);
   camera.quaternion.copy(q);
-  // safety: catch falling out of the world
+  // safety: fell off all islands → respawn at the main island
   if (player.pos.y < -10){
-    player.pos.set(GROUND_SIZE / 2 + 6, 2.0, GROUND_SIZE / 2 + 6);
+    player.pos.copy(respawnPos);
     player.vel.set(0, 0, 0);
   }
 }
@@ -794,6 +859,7 @@ function saveWorld(){
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       blocks: data,
       pos: [player.pos.x, player.pos.y, player.pos.z],
+      respawn: [respawnPos.x, respawnPos.y, respawnPos.z],
       yaw: player.yaw, pitch: player.pitch,
       ts: Date.now(),
     }));
@@ -828,6 +894,11 @@ function clearWorld(){
 document.getElementById('btn-save').addEventListener('click', saveWorld);
 document.getElementById('btn-load').addEventListener('click', loadWorld);
 document.getElementById('btn-clear').addEventListener('click', clearWorld);
+document.getElementById('btn-regen').addEventListener('click', () => {
+  if (!confirm('regenerate a new floating-island world? your current build will be replaced (use save first if you want to keep it).')) return;
+  generateFloatingIslands();
+  flash('new islands generated · ' + blocks.size + ' blocks');
+});
 
 function flash(msg){
   let el = document.getElementById('flash');
@@ -937,12 +1008,18 @@ function initTouchControls(){
   const TAP_MAX_MS = 280;
 
   function isLeftSide(t){
-    // joystick + jump button regions are excluded by their own touch handlers
-    // (they call preventDefault). Otherwise the entire screen is "look".
+    // BUG FIX: also bail when touch falls on the intro overlay / start button
+    // (otherwise the tap that dismisses the overlay also fires a clickPlace
+    // a moment later, dropping a stray block at world spawn). Joystick + jump
+    // button regions are caught here too as a belt-and-suspenders guard
+    // since their own touch handlers preventDefault.
     const path = document.elementsFromPoint(t.clientX, t.clientY);
     for (const el of path){
       if (el === joy || el === knob || el === jumpBtn) return true;
-      if (el && el.classList && (el.classList.contains('swatch') || el.classList.contains('tool'))) return true;
+      if (!el || !el.classList) continue;
+      if (el.classList.contains('swatch') || el.classList.contains('tool')) return true;
+      if (el.classList.contains('start-btn') || el.classList.contains('overlay')) return true;
+      if (el.id === 'intro') return true;
     }
     return false;
   }
@@ -1033,23 +1110,22 @@ function frame(now){
 }
 
 /* ── Boot ─────────────────────────────────────────────────── */
-seedStarter();
-// auto-load if a save exists
+let loadedFromSave = false;
 try {
   if (localStorage.getItem(SAVE_KEY)){
-    // hydrate quietly without flash
     const data = JSON.parse(localStorage.getItem(SAVE_KEY));
     if (data && Array.isArray(data.blocks) && data.blocks.length){
-      // wipe the seed so the saved build is the only one
-      for (const m of blocks.values()) scene.remove(m);
-      blocks.clear();
       for (const [x, y, z, idx] of data.blocks) placeBlock(x, y, z, idx);
       if (data.pos){ player.pos.set(data.pos[0], data.pos[1], data.pos[2]); }
       if (typeof data.yaw === 'number') player.yaw = data.yaw;
       if (typeof data.pitch === 'number') player.pitch = data.pitch;
+      if (data.respawn) respawnPos.set(data.respawn[0], data.respawn[1], data.respawn[2]);
+      else respawnPos.copy(player.pos);
+      loadedFromSave = true;
     }
   }
 } catch(_){}
+if (!loadedFromSave) generateFloatingIslands();
 updateHud();
 requestAnimationFrame(frame);
 </script>
