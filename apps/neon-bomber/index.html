@@ -311,11 +311,14 @@ document.addEventListener('keyup',function(e){keys[e.code]=false;});
 function updatePlayerKeys(){
   if(!players[0].cpu){
     var p=players[0];
-    p.keys.u=!!keys['KeyW']||!!touchP[0].u;
-    p.keys.d=!!keys['KeyS']||!!touchP[0].d;
-    p.keys.l=!!keys['KeyA']||!!touchP[0].l;
-    p.keys.r=!!keys['KeyD']||!!touchP[0].r;
-    p.keys.bomb=!!keys['Space']||!!touchP[0].bomb;
+    // In SOLO, accept both WASD AND arrow-keys (whichever feels natural).
+    // In DUO, P1 stays WASD-only so P2 can have arrows.
+    var solo=(mode==='solo');
+    p.keys.u=!!keys['KeyW']||!!touchP[0].u||(solo&&!!keys['ArrowUp']);
+    p.keys.d=!!keys['KeyS']||!!touchP[0].d||(solo&&!!keys['ArrowDown']);
+    p.keys.l=!!keys['KeyA']||!!touchP[0].l||(solo&&!!keys['ArrowLeft']);
+    p.keys.r=!!keys['KeyD']||!!touchP[0].r||(solo&&!!keys['ArrowRight']);
+    p.keys.bomb=!!keys['Space']||!!touchP[0].bomb||(solo&&!!keys['Enter']);
   }
   if(!players[1].cpu){
     var q=players[1];
@@ -366,131 +369,256 @@ function movePlayer(p,dt){
   }
 }
 
-/* ── AI ── BFS-based: avoid blast cells, walk toward nearest brick/enemy,
-   plant a bomb only when adjacent AND a safe retreat exists within
-   reasonable step count. */
-function blastCellsSet(){
-  var s={};
-  for(var i=0;i<bombs.length;i++){
-    var b=bombs[i];
-    s[b.x+','+b.y]=true;
-    var dirs=[[1,0],[-1,0],[0,1],[0,-1]];
-    for(var d=0;d<4;d++){
-      for(var k=1;k<=b.range;k++){
-        var ex=b.x+dirs[d][0]*k,ey=b.y+dirs[d][1]*k;
-        if(ex<0||ex>=COLS||ey<0||ey>=ROWS)break;
-        if(grid[ey][ex]===WALL)break;
-        s[ex+','+ey]=true;
-        if(grid[ey][ex]===BRICK)break;
-      }
+/* ══ AI v2 — time-aware threat planning ══════════════════════════
+   Each cell carries a danger window {start, end} = seconds-from-now during
+   which a blast occupies it. The AI plans paths via time-aware BFS:
+   only enters a cell if its planned ARRIVAL TIME falls comfortably
+   before that cell's blast starts (with a safety margin), or there's
+   no threat at all. Bomb-placement decisions simulate the planted
+   bomb's blast (merged with existing bomb threats) and require a
+   provably reachable PERMANENTLY-safe cell within the fuse window. */
+
+var DDX=[1,-1,0,0],DDY=[0,0,1,-1];
+var BOMB_FUSE=2.5,BLAST_DUR=0.4;
+var SAFE_MARGIN=0.15;   // arrival must precede blast.start by ≥150ms
+var SAFE_FLEE=0.10;     // flee tolerance — accept slightly tighter margins
+
+// Compute blast cells of a hypothetical or live bomb at (bx,by) with range r.
+function blastCellsAt(bx,by,r){
+  var cells=[[bx,by]];
+  for(var d=0;d<4;d++){
+    for(var i=1;i<=r;i++){
+      var ex=bx+DDX[d]*i,ey=by+DDY[d]*i;
+      if(ex<0||ex>=COLS||ey<0||ey>=ROWS)break;
+      if(grid[ey][ex]===WALL)break;
+      cells.push([ex,ey]);
+      if(grid[ey][ex]===BRICK)break;
     }
   }
-  return s;
+  return cells;
 }
-function bfs(sx,sy,isGoal,canPass){
-  var visited={};visited[sx+','+sy]=true;
-  var queue=[{x:sx,y:sy,path:[]}];
-  var DDX=[1,-1,0,0],DDY=[0,0,1,-1];
+
+// Build a per-cell threat map {[key]: {start, end}} from all live bombs
+// and active explosions. Also propagates chain-reaction timers: if bomb A
+// sits in bomb B's blast cells, A's effective timer = min(A.timer, B.timer).
+function buildThreatMap(extraBombs){
+  var bs=bombs.slice();
+  if(extraBombs)for(var i=0;i<extraBombs.length;i++)bs.push(extraBombs[i]);
+  // chain-react pass: shorten timers of bombs caught in another's blast
+  // (iterate twice — handles 2-step chains; longer chains stabilize quickly)
+  for(var iter=0;iter<3;iter++){
+    var changed=false;
+    for(var i=0;i<bs.length;i++){
+      for(var j=0;j<bs.length;j++){
+        if(i===j)continue;
+        var bi=bs[i],bj=bs[j];
+        var cells=blastCellsAt(bi.x,bi.y,bi.range);
+        for(var c=0;c<cells.length;c++){
+          if(cells[c][0]===bj.x&&cells[c][1]===bj.y){
+            var newT=Math.min(bj.timer,bi.timer+0.01);
+            if(newT<bj.timer-0.001){bj.timer=newT;changed=true;}
+            break;
+          }
+        }
+      }
+    }
+    if(!changed)break;
+  }
+  var threat={};
+  for(var i=0;i<bs.length;i++){
+    var b=bs[i];
+    var cells=blastCellsAt(b.x,b.y,b.range);
+    var t=Math.max(0,b.timer);
+    var e=t+BLAST_DUR;
+    for(var c=0;c<cells.length;c++){
+      var k=cells[c][0]+','+cells[c][1];
+      if(!threat[k]||t<threat[k].start)threat[k]={start:t,end:e};
+      else threat[k].end=Math.max(threat[k].end,e);
+    }
+  }
+  // active explosions = lethal NOW
+  for(var i=0;i<explosions.length;i++){
+    var ex=explosions[i];
+    var k=ex.x+','+ex.y;
+    var rem=Math.max(0.05,ex.dur-ex.t);
+    if(!threat[k]||threat[k].start>0)threat[k]={start:0,end:rem};
+    else threat[k].end=Math.max(threat[k].end,rem);
+  }
+  return threat;
+}
+
+// "Safe at cell at time t" — true if no threat, or arrival is before the
+// blast even starts (with margin), or the blast has fully cleared.
+function isSafeAt(x,y,t,threat,margin){
+  var th=threat[x+','+y];
+  if(!th)return true;
+  var m=margin||SAFE_MARGIN;
+  return (t<th.start-m)||(t>th.end+m);
+}
+
+// Time-aware BFS. Tracks arrival time at each cell using p.speed.
+// `isGoal(x,y,t)` — node accept predicate; `extraIgnoreBomb` skips a bomb
+// (used when planning escape from a just-placed bomb on own cell).
+function timeBfs(sx,sy,speed,threat,isGoal,opts){
+  opts=opts||{};
+  var maxDepth=opts.maxDepth||24;
+  var margin=opts.margin||SAFE_MARGIN;
+  var ignoreBomb=opts.ignoreBomb||null; // {x,y}
+  var stepT=1/Math.max(0.5,speed); // sec per cell
+  // walkable test honors bricks/walls/bombs (with optional ignored bomb)
+  var canStep=function(x,y){
+    if(x<0||x>=COLS||y<0||y>=ROWS)return false;
+    if(grid[y][x]!==EMPTY)return false;
+    for(var i=0;i<bombs.length;i++){
+      if(bombs[i].x===x&&bombs[i].y===y){
+        if(ignoreBomb&&ignoreBomb.x===x&&ignoreBomb.y===y)continue;
+        return false;
+      }
+    }
+    return true;
+  };
+  var visited={};visited[sx+','+sy]=0;
+  var queue=[{x:sx,y:sy,t:0,path:[]}];
   while(queue.length){
     var cur=queue.shift();
-    if(isGoal(cur.x,cur.y))return cur;
+    if(isGoal(cur.x,cur.y,cur.t))return cur;
+    if(cur.path.length>=maxDepth)continue;
     for(var d=0;d<4;d++){
       var nx=cur.x+DDX[d],ny=cur.y+DDY[d];
+      var nt=cur.t+stepT;
       var k=nx+','+ny;
-      if(visited[k])continue;
-      if(!canPass(nx,ny))continue;
-      visited[k]=true;
-      queue.push({x:nx,y:ny,path:cur.path.concat([[DDX[d],DDY[d]]])});
+      if(!canStep(nx,ny))continue;
+      if(!isSafeAt(nx,ny,nt,threat,margin))continue;
+      if(visited[k]!=null&&visited[k]<=nt)continue;
+      visited[k]=nt;
+      queue.push({x:nx,y:ny,t:nt,path:cur.path.concat([[DDX[d],DDY[d]]])});
     }
   }
   return null;
 }
+
 function setAIKeys(p,dx,dy,bomb){
   p.keys.u=dy===-1;p.keys.d=dy===1;p.keys.l=dx===-1;p.keys.r=dx===1;p.keys.bomb=!!bomb;
 }
+
+// Score a position for "how much exit room does it have" — used as a
+// tiebreaker so AI avoids dead-end pockets when fleeing.
+function exitScore(x,y){
+  var n=0;
+  for(var d=0;d<4;d++){
+    var nx=x+DDX[d],ny=y+DDY[d];
+    if(isWalkCell(nx,ny,false))n++;
+  }
+  return n;
+}
+
 function tickAI(p,dt){
   if(!p.alive)return;
   p.aiTick-=dt;
   if(p.aiCooldown>0)p.aiCooldown-=dt;
   if(p.aiTick>0)return;
-  p.aiTick=0.18;
-  var blasts=blastCellsSet();
-  var canPass=function(x,y){return isWalkCell(x,y,false);};
+  p.aiTick=0.10; // tight cadence — more reactive
+
+  var threat=buildThreatMap();
   var cx=p.x,cy=p.y;
-  // 1. In a blast cell → flee to nearest safe cell
-  if(blasts[cx+','+cy]){
-    var safe=bfs(cx,cy,function(x,y){return !blasts[x+','+y];},canPass);
-    if(safe&&safe.path.length){
-      var mv=safe.path[0];
+  var speed=p.speed;
+  var here=threat[cx+','+cy];
+
+  // ── 1. CURRENT CELL IS / WILL BE LETHAL → FLEE ──
+  // Trigger when: actively burning here, OR scheduled blast lands within
+  // (transit-to-safety budget = ~1.5s).
+  if(here && here.start < 1.5){
+    // First try: reach a PERMANENTLY safe cell (no future threat at all).
+    var permSafe=timeBfs(cx,cy,speed,threat,
+      function(x,y){return !threat[x+','+y]&&(x!==cx||y!==cy);},
+      {maxDepth:18});
+    if(permSafe&&permSafe.path.length){
+      var mv=permSafe.path[0];
       setAIKeys(p,mv[0],mv[1],false);
       return;
     }
-  }
-  // 2. Find nearest living enemy
-  var enemy=null;
-  for(var i=0;i<players.length;i++){
-    if(i!==p.idx&&players[i].alive){enemy={x:players[i].x,y:players[i].y};break;}
-  }
-  // 3. Adjacent to brick OR enemy in straight line within range → consider bomb
-  var DDX2=[1,-1,0,0],DDY2=[0,0,1,-1];
-  var adjacentTarget=false;
-  for(var d=0;d<4;d++){
-    var ax=cx+DDX2[d],ay=cy+DDY2[d];
-    if(ax<0||ax>=COLS||ay<0||ay>=ROWS)continue;
-    if(grid[ay][ax]===BRICK){adjacentTarget=true;break;}
-  }
-  if(!adjacentTarget && enemy && (enemy.x===cx||enemy.y===cy)){
-    var dd=Math.abs(enemy.x-cx)+Math.abs(enemy.y-cy);
-    if(dd>0 && dd<=p.range) adjacentTarget=true;
-  }
-  if(adjacentTarget && p.aiCooldown<=0 && p.bombs<p.maxBombs){
-    // simulate placing a bomb here: would there be a safe escape?
-    var willBlast={};
-    for(var k in blasts)willBlast[k]=true;
-    willBlast[cx+','+cy]=true;
-    for(var d=0;d<4;d++){
-      for(var i=1;i<=p.range;i++){
-        var ex=cx+DDX2[d]*i,ey=cy+DDY2[d]*i;
-        if(ex<0||ex>=COLS||ey<0||ey>=ROWS)break;
-        if(grid[ey][ex]===WALL)break;
-        willBlast[ex+','+ey]=true;
-        if(grid[ey][ex]===BRICK)break;
-      }
-    }
-    var passSim=function(x,y){
-      if(x===cx&&y===cy)return true; // own cell stand-on-bomb ok
-      return isWalkCell(x,y,true);
-    };
-    var escape=bfs(cx,cy,function(x,y){return !willBlast[x+','+y]&&(x!==cx||y!==cy);},passSim);
-    if(escape && escape.path.length>0 && escape.path.length<=Math.max(3,Math.floor(p.speed))){
-      setAIKeys(p,0,0,true);
-      p.aiCooldown=0.5;
+    // Fall back: ANY cell safe at arrival (might require another flee tick)
+    var anySafe=timeBfs(cx,cy,speed,threat,
+      function(x,y,t){return isSafeAt(x,y,t,threat,SAFE_FLEE)&&(x!==cx||y!==cy);},
+      {maxDepth:14,margin:SAFE_FLEE});
+    if(anySafe&&anySafe.path.length){
+      var mv=anySafe.path[0];
+      setAIKeys(p,mv[0],mv[1],false);
       return;
     }
+    // Truly trapped — stand still (no panic-moves into worse cells)
+    setAIKeys(p,0,0,false);
+    return;
   }
-  // 4. Walk toward nearest brick (or enemy if no bricks)
-  var target=bfs(cx,cy,function(x,y){
-    for(var d=0;d<4;d++){
-      var ax=x+DDX2[d],ay=y+DDY2[d];
-      if(ax<0||ax>=COLS||ay<0||ay>=ROWS)continue;
-      if(grid[ay][ax]===BRICK)return true;
-      if(enemy&&ax===enemy.x&&ay===enemy.y)return true;
+
+  // ── 2. ENEMY + BOMB-PLACE EVALUATION ──
+  var enemy=null;
+  for(var i=0;i<players.length;i++){
+    if(i!==p.idx&&players[i].alive){enemy=players[i];break;}
+  }
+
+  // Score the value of bombing current cell: bricks destroyed + line-on-enemy.
+  var bombScore=0;
+  for(var d=0;d<4;d++){
+    for(var i=1;i<=p.range;i++){
+      var ex=cx+DDX[d]*i,ey=cy+DDY[d]*i;
+      if(ex<0||ex>=COLS||ey<0||ey>=ROWS)break;
+      if(grid[ey][ex]===WALL)break;
+      if(enemy&&enemy.x===ex&&enemy.y===ey){bombScore+=4;break;}
+      if(grid[ey][ex]===BRICK){bombScore+=1;break;}
     }
-    return false;
-  },function(x,y){return isWalkCell(x,y,false)&&!blasts[x+','+y];});
+  }
+
+  if(bombScore>0 && p.aiCooldown<=0 && p.bombs<p.maxBombs){
+    // Simulate this bomb: merge into threat map and run a time-BFS for a
+    // PERMANENTLY-safe escape cell that we can reach before fuse runs out.
+    var simBomb={x:cx,y:cy,range:p.range,timer:BOMB_FUSE};
+    var simThreat=buildThreatMap([simBomb]);
+    var fuse=Math.max(0.6, (simThreat[cx+','+cy]&&simThreat[cx+','+cy].start)||BOMB_FUSE);
+    var escape=timeBfs(cx,cy,speed,simThreat,
+      function(x,y,t){
+        // permanently safe = not in any simThreat cell at all
+        return !simThreat[x+','+y]&&(x!==cx||y!==cy);
+      },
+      {maxDepth:Math.min(16,Math.floor(speed*fuse)+1),ignoreBomb:simBomb,margin:SAFE_MARGIN});
+    if(escape && escape.t < fuse - 0.35){
+      // confirm: pre-plant exit count (don't trap self in 1-exit cell)
+      if(exitScore(cx,cy)>=1){
+        setAIKeys(p,0,0,true);
+        p.aiCooldown=0.65;
+        return;
+      }
+    }
+  }
+
+  // ── 3. PROACTIVE: WALK TOWARD NEAREST BRICK / ENEMY ──
+  var target=timeBfs(cx,cy,speed,threat,
+    function(x,y){
+      for(var d=0;d<4;d++){
+        var ax=x+DDX[d],ay=y+DDY[d];
+        if(ax<0||ax>=COLS||ay<0||ay>=ROWS)continue;
+        if(grid[ay][ax]===BRICK)return true;
+        if(enemy&&ax===enemy.x&&ay===enemy.y)return true;
+      }
+      return false;
+    },
+    {maxDepth:20});
   if(target&&target.path.length){
     var mv=target.path[0];
     setAIKeys(p,mv[0],mv[1],false);
     return;
   }
-  // 5. Wander to any safe neighbor
+
+  // ── 4. SAFE WANDER — prefer cells with more onward exits ──
+  var best=null,bestScore=-1;
   for(var d=0;d<4;d++){
-    var nx=cx+DDX2[d],ny=cy+DDY2[d];
-    if(isWalkCell(nx,ny,false)&&!blasts[nx+','+ny]){
-      setAIKeys(p,DDX2[d],DDY2[d],false);
-      return;
-    }
+    var nx=cx+DDX[d],ny=cy+DDY[d];
+    if(!isWalkCell(nx,ny,false))continue;
+    if(!isSafeAt(nx,ny,1/Math.max(0.5,speed),threat,SAFE_MARGIN))continue;
+    var s=exitScore(nx,ny)+Math.random()*0.3;
+    if(s>bestScore){bestScore=s;best=[DDX[d],DDY[d]];}
   }
+  if(best){setAIKeys(p,best[0],best[1],false);return;}
   setAIKeys(p,0,0,false);
 }
 
