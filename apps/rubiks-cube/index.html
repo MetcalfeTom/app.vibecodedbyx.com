@@ -653,25 +653,144 @@ function mergeSameFacePass(seq){
   return { out, changed };
 }
 const _OPP = { U:'D', D:'U', F:'B', B:'F', L:'R', R:'L' };
+// Three-element commute: [A, opp(A), A] → [A, A, opp(A)] so the As merge.
 function commutePass(seq){
   let changed = false;
   const arr = seq.slice();
   for (let i = 0; i < arr.length - 2; i++){
-    // seq[i] and seq[i+2] same face, middle move on opposite (same-axis) face
     if (arr[i][0] === arr[i+2][0] && arr[i+1][0] === _OPP[arr[i][0]]){
       const tmp = arr[i+1]; arr[i+1] = arr[i+2]; arr[i+2] = tmp;
       changed = true;
-      i++; // skip past the swap to avoid undoing it
+      i++;
     }
   }
   return { out: arr, changed };
 }
+// Long-distance bubble: for each move arr[i], scan forward through
+// commuting opposite-face moves looking for a same-face partner. If
+// found, slide the partner leftward past every commuting move so the
+// two same-face moves become adjacent (mergeSameFacePass collapses them
+// on the next iteration). Stops at the first non-commuting move (i.e.
+// any face that isn't arr[i][0] or its opposite).
+function longBubblePass(seq){
+  let changed = false;
+  const arr = seq.slice();
+  for (let i = 0; i < arr.length - 1; i++){
+    const face = arr[i][0];
+    const opp  = _OPP[face];
+    for (let j = i + 1; j < arr.length; j++){
+      const jf = arr[j][0];
+      if (jf === face){
+        // bubble arr[j] back to position i+1
+        if (j > i + 1){
+          const partner = arr[j];
+          for (let k = j; k > i + 1; k--) arr[k] = arr[k-1];
+          arr[i+1] = partner;
+          changed = true;
+        }
+        break; // partner found, stop scanning past it
+      } else if (jf !== opp){
+        break; // non-commuting move blocks the bubble
+      }
+    }
+  }
+  return { out: arr, changed };
+}
+/* ── Pure-JS cube state (cubie model) — used by the window-identity
+   pass to detect sub-sequences that return the cube to solved.
+   8 corners with 3-orientation, 12 edges with 2-orientation. Each
+   face turn applies a 4-cycle on its layer's cubies + per-cubie
+   orientation deltas (corners twist on R/L/F/B; edges flip on F/B). */
+function newCubeState(){
+  // arrays: cp = corner permutation, co = corner orient, ep = edge perm, eo = edge orient
+  return {
+    cp: [0,1,2,3,4,5,6,7],
+    co: [0,0,0,0,0,0,0,0],
+    ep: [0,1,2,3,4,5,6,7,8,9,10,11],
+    eo: [0,0,0,0,0,0,0,0,0,0,0,0],
+  };
+}
+function cloneState(s){
+  return { cp:s.cp.slice(), co:s.co.slice(), ep:s.ep.slice(), eo:s.eo.slice() };
+}
+function isSolvedState(s){
+  for (let i = 0; i < 8; i++){ if (s.cp[i] !== i || s.co[i] !== 0) return false; }
+  for (let i = 0; i < 12; i++){ if (s.ep[i] !== i || s.eo[i] !== 0) return false; }
+  return true;
+}
+// face-turn defs — each = { cCyc:[4 corner positions], cOri:[4 corner twist deltas],
+//                           eCyc:[4 edge positions],   eOri:[4 edge flip deltas] }
+// Corner indexing (Singmaster): 0=UFL 1=UFR 2=UBR 3=UBL 4=DFL 5=DFR 6=DBR 7=DBL
+// Edge indexing: 0=UF 1=UR 2=UB 3=UL 4=DF 5=DR 6=DB 7=DL 8=FL 9=FR 10=BR 11=BL
+const TURN_DEFS = {
+  U: { cCyc:[0,3,2,1], cOri:[0,0,0,0], eCyc:[0,3,2,1], eOri:[0,0,0,0] },
+  D: { cCyc:[4,5,6,7], cOri:[0,0,0,0], eCyc:[4,5,6,7], eOri:[0,0,0,0] },
+  R: { cCyc:[1,2,6,5], cOri:[1,2,1,2], eCyc:[1,10,5,9], eOri:[0,0,0,0] },
+  L: { cCyc:[0,4,7,3], cOri:[2,1,2,1], eCyc:[3,8,7,11], eOri:[0,0,0,0] },
+  F: { cCyc:[0,1,5,4], cOri:[1,2,1,2], eCyc:[0,9,4,8], eOri:[1,1,1,1] },
+  B: { cCyc:[2,3,7,6], cOri:[1,2,1,2], eCyc:[2,11,6,10], eOri:[1,1,1,1] },
+};
+function applyOneTurn(s, def){
+  // cycle [a,b,c,d]: data moves a→b→c→d→a (data at a ends up at b)
+  const { cCyc, cOri, eCyc, eOri } = def;
+  // corners
+  const cpA=s.cp[cCyc[0]], cpB=s.cp[cCyc[1]], cpC=s.cp[cCyc[2]], cpD=s.cp[cCyc[3]];
+  const coA=s.co[cCyc[0]], coB=s.co[cCyc[1]], coC=s.co[cCyc[2]], coD=s.co[cCyc[3]];
+  s.cp[cCyc[1]] = cpA;  s.co[cCyc[1]] = (coA + cOri[0]) % 3;
+  s.cp[cCyc[2]] = cpB;  s.co[cCyc[2]] = (coB + cOri[1]) % 3;
+  s.cp[cCyc[3]] = cpC;  s.co[cCyc[3]] = (coC + cOri[2]) % 3;
+  s.cp[cCyc[0]] = cpD;  s.co[cCyc[0]] = (coD + cOri[3]) % 3;
+  // edges
+  const epA=s.ep[eCyc[0]], epB=s.ep[eCyc[1]], epC=s.ep[eCyc[2]], epD=s.ep[eCyc[3]];
+  const eoA=s.eo[eCyc[0]], eoB=s.eo[eCyc[1]], eoC=s.eo[eCyc[2]], eoD=s.eo[eCyc[3]];
+  s.ep[eCyc[1]] = epA;  s.eo[eCyc[1]] = (eoA + eOri[0]) % 2;
+  s.ep[eCyc[2]] = epB;  s.eo[eCyc[2]] = (eoB + eOri[1]) % 2;
+  s.ep[eCyc[3]] = epC;  s.eo[eCyc[3]] = (eoC + eOri[2]) % 2;
+  s.ep[eCyc[0]] = epD;  s.eo[eCyc[0]] = (eoD + eOri[3]) % 2;
+}
+function applyMoveToState(s, m){
+  const def = TURN_DEFS[m[0]];
+  const reps = m.endsWith('2') ? 2 : 1;
+  if (m.endsWith("'")){
+    // 3 CW = 1 CCW (cube group order 4 for face turns)
+    for (let i = 0; i < 3; i++) applyOneTurn(s, def);
+  } else {
+    for (let i = 0; i < reps; i++) applyOneTurn(s, def);
+  }
+}
+// Window-based identity removal: scan for sub-sequences whose net effect
+// on a solved cube is identity. Tries window sizes 4..8 at each position.
+// Random scrambles rarely contain such windows but the pass is cheap
+// (≤40N state-ops) and catches anything pathological.
+function windowIdentityPass(seq){
+  const out = [];
+  let i = 0, changed = false;
+  while (i < seq.length){
+    let removedW = 0;
+    for (let w = 4; w <= 8 && i + w <= seq.length; w++){
+      const s = newCubeState();
+      for (let k = 0; k < w; k++) applyMoveToState(s, seq[i + k]);
+      if (isSolvedState(s)){ removedW = w; break; }
+    }
+    if (removedW){
+      i += removedW;
+      changed = true;
+    } else {
+      out.push(seq[i]);
+      i++;
+    }
+  }
+  return { out, changed };
+}
+
 function simplifyMoves(seq){
   let cur = seq.slice();
-  for (let iter = 0; iter < 12; iter++){   // bounded for safety
-    const a = mergeSameFacePass(cur); cur = a.out;
-    const b = commutePass(cur);       cur = b.out;
-    if (!a.changed && !b.changed) break;
+  for (let iter = 0; iter < 32; iter++){   // bounded for safety
+    const a = mergeSameFacePass(cur);   cur = a.out;
+    const b = commutePass(cur);         cur = b.out;
+    const c = longBubblePass(cur);      cur = c.out;
+    const d = windowIdentityPass(cur);  cur = d.out;
+    if (!a.changed && !b.changed && !c.changed && !d.changed) break;
   }
   return cur;
 }
