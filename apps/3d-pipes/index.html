@@ -222,13 +222,17 @@
     <span class="v" id="v-turn">35%</span>
   </div>
   <div class="row">
-    <label for="r-orbit">camera</label>
-    <input type="range" id="r-orbit" min="0" max="30" step="1" value="10">
-    <span class="v" id="v-orbit">10</span>
+    <label for="r-orbit">auto-spin</label>
+    <input type="range" id="r-orbit" min="0" max="30" step="1" value="0">
+    <span class="v" id="v-orbit">0</span>
   </div>
   <div class="actions">
+    <button type="button" id="btn-view">⛶ Orbit view</button>
     <button type="button" id="btn-reset">⟲ Reset</button>
     <button type="button" id="btn-fullscreen">⛶ Fullscreen</button>
+  </div>
+  <div class="row" style="margin-top:0.4rem; opacity:0.7;">
+    <label style="font-size:0.85rem;">drag = look · WASD = fly · V = swap view</label>
   </div>
 </div>
 
@@ -334,7 +338,7 @@ const settings = {
   pipeCount: 3,
   speedHz: 11,        // cell extensions per second per pipe
   turnRate: 35,       // percent chance of turning at each step
-  orbitRate: 10,      // 0-30, camera orbit speed (degrees/sec at 10 = 1deg/sec)
+  orbitRate: 0,       // 0-30, auto-rotation rate (default 0 = disabled per chat ask)
   resetCellThreshold: 0.55,  // fraction of volume filled before full reset
 };
 
@@ -444,16 +448,116 @@ function fullReset(){
 }
 fullReset();
 
-/* ── Camera orbit — slow rotation around the centre ── */
-const cam = { theta: Math.PI / 4, phi: Math.PI / 4 * 1.2, radius: 26 };
+/* ── First-person camera INSIDE the pipe maze ──
+   Camera lives at cam.pos somewhere inside the volume; theta/phi
+   control look direction (mouse-drag), WASD flies through the maze
+   along the look axis. orbit-mode kept as a fallback (auto-rotates
+   externally) — toggleable from the panel; default is 'inside' per
+   chat ask. */
+const cam = {
+  mode: 'inside',                 // 'inside' or 'orbit'
+  theta: -Math.PI / 4,            // yaw
+  phi:   Math.PI / 2,             // pitch (π/2 = horizontal)
+  pos: new THREE.Vector3(0, 0, 0),// only used in 'inside'
+  radius: 26,                     // only used in 'orbit'
+};
+// bump FOV for the inside-the-maze feel
+camera.fov = 78;
+camera.updateProjectionMatrix();
+// reduce fog distance so distant pipes still fade into the void
+scene.fog = new THREE.Fog(0x0a0a14, 6, 28);
+
 function applyCam(){
-  const r = cam.radius;
-  camera.position.x = r * Math.sin(cam.phi) * Math.cos(cam.theta);
-  camera.position.y = r * Math.cos(cam.phi);
-  camera.position.z = r * Math.sin(cam.phi) * Math.sin(cam.theta);
-  camera.lookAt(0, 0, 0);
+  if (cam.mode === 'orbit'){
+    const r = cam.radius;
+    camera.position.x = r * Math.sin(cam.phi) * Math.cos(cam.theta);
+    camera.position.y = r * Math.cos(cam.phi);
+    camera.position.z = r * Math.sin(cam.phi) * Math.sin(cam.theta);
+    camera.lookAt(0, 0, 0);
+    return;
+  }
+  // inside-the-maze: camera at cam.pos, look direction from spherical angles
+  camera.position.copy(cam.pos);
+  const lx = Math.sin(cam.phi) * Math.cos(cam.theta);
+  const ly = Math.cos(cam.phi);
+  const lz = Math.sin(cam.phi) * Math.sin(cam.theta);
+  camera.lookAt(cam.pos.x + lx, cam.pos.y + ly, cam.pos.z + lz);
 }
 applyCam();
+
+/* ── Pointer-drag look (inside mode only) ── */
+let dragging = false, lastMx = 0, lastMy = 0;
+renderer.domElement.style.cursor = 'grab';
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (e.target.closest && e.target.closest('.panel, .toggle')) return;
+  dragging = true;
+  lastMx = e.clientX; lastMy = e.clientY;
+  renderer.domElement.style.cursor = 'grabbing';
+  renderer.domElement.setPointerCapture(e.pointerId);
+});
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastMx, dy = e.clientY - lastMy;
+  lastMx = e.clientX; lastMy = e.clientY;
+  if (cam.mode === 'inside'){
+    cam.theta -= dx * 0.006;
+    cam.phi   = Math.max(0.18, Math.min(Math.PI - 0.18, cam.phi + dy * 0.006));
+  } else {
+    cam.theta -= dx * 0.005;
+    cam.phi   = Math.max(0.18, Math.min(Math.PI - 0.18, cam.phi - dy * 0.005));
+  }
+});
+renderer.domElement.addEventListener('pointerup', e => {
+  dragging = false;
+  renderer.domElement.style.cursor = 'grab';
+  try { renderer.domElement.releasePointerCapture(e.pointerId); } catch(_){}
+});
+renderer.domElement.addEventListener('pointercancel', () => { dragging = false; renderer.domElement.style.cursor = 'grab'; });
+
+/* ── Keyboard fly controls (WASD + arrows + Q/E for up/down) ── */
+const heldKeys = {};
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  heldKeys[e.code] = true;
+  // V toggles view mode
+  if (e.key === 'v' || e.key === 'V'){
+    cam.mode = (cam.mode === 'inside') ? 'orbit' : 'inside';
+    if (cam.mode === 'inside') cam.pos.set(0, 0, 0);
+    document.getElementById('btn-view').textContent = cam.mode === 'inside' ? '⛶ Orbit view' : '👁 Inside view';
+  }
+});
+window.addEventListener('keyup', e => { heldKeys[e.code] = false; });
+function flyStep(dt){
+  if (cam.mode !== 'inside') return;
+  let fx = 0, fy = 0, fz = 0;
+  if (heldKeys['KeyW'] || heldKeys['ArrowUp'])    fz += 1;
+  if (heldKeys['KeyS'] || heldKeys['ArrowDown'])  fz -= 1;
+  if (heldKeys['KeyA'] || heldKeys['ArrowLeft'])  fx -= 1;
+  if (heldKeys['KeyD'] || heldKeys['ArrowRight']) fx += 1;
+  if (heldKeys['KeyE'] || heldKeys['Space'])      fy += 1;
+  if (heldKeys['KeyQ'])                           fy -= 1;
+  if (fx === 0 && fy === 0 && fz === 0) return;
+  const speed = (heldKeys['ShiftLeft'] || heldKeys['ShiftRight']) ? 14 : 6;
+  // forward direction = current look vector
+  const fwd = new THREE.Vector3(
+    Math.sin(cam.phi) * Math.cos(cam.theta),
+    Math.cos(cam.phi),
+    Math.sin(cam.phi) * Math.sin(cam.theta)
+  ).normalize();
+  const up = new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3().crossVectors(fwd, up).normalize();
+  const move = new THREE.Vector3();
+  move.addScaledVector(fwd, fz);
+  move.addScaledVector(right, fx);
+  move.y += fy;
+  move.normalize().multiplyScalar(speed * dt);
+  cam.pos.add(move);
+  // soft clamp inside the volume (with a small buffer so you can peek out)
+  const halfX = GRID.x / 2 + 2, halfY = GRID.y / 2 + 2, halfZ = GRID.z / 2 + 2;
+  cam.pos.x = Math.max(-halfX, Math.min(halfX, cam.pos.x));
+  cam.pos.y = Math.max(-halfY, Math.min(halfY, cam.pos.y));
+  cam.pos.z = Math.max(-halfZ, Math.min(halfZ, cam.pos.z));
+}
 
 /* ── Main loop ── */
 let lastT = performance.now();
@@ -461,10 +565,17 @@ let stepAccum = 0;
 function frame(now){
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
-  // camera drift
-  cam.theta += (settings.orbitRate / 10) * 0.1 * dt;
-  cam.phi += Math.sin(now * 0.00015) * 0.0008;
-  cam.phi = Math.max(0.4, Math.min(Math.PI - 0.4, cam.phi));
+  // Auto-rotation only fires when explicitly enabled (rate > 0). Disabled
+  // by default per chat ask. In inside-mode it spins the look direction;
+  // in orbit-mode it spins the camera around the centre.
+  if (settings.orbitRate > 0){
+    cam.theta += (settings.orbitRate / 10) * 0.1 * dt;
+    if (cam.mode === 'orbit'){
+      cam.phi += Math.sin(now * 0.00015) * 0.0008;
+      cam.phi = Math.max(0.4, Math.min(Math.PI - 0.4, cam.phi));
+    }
+  }
+  flyStep(dt);
   applyCam();
 
   // pipe stepping — Hz throttles per-pipe extension rate
@@ -512,6 +623,11 @@ wireRange('pipes', 'pipeCount');
 wireRange('speed', 'speedHz');
 wireRange('turn',  'turnRate', '%');
 wireRange('orbit', 'orbitRate');
+document.getElementById('btn-view').addEventListener('click', () => {
+  cam.mode = (cam.mode === 'inside') ? 'orbit' : 'inside';
+  if (cam.mode === 'inside') cam.pos.set(0, 0, 0);
+  document.getElementById('btn-view').textContent = cam.mode === 'inside' ? '⛶ Orbit view' : '👁 Inside view';
+});
 document.getElementById('btn-reset').addEventListener('click', fullReset);
 document.getElementById('btn-fullscreen').addEventListener('click', () => {
   if (!document.fullscreenElement){
