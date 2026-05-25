@@ -277,7 +277,8 @@
   .roster-head span{ color: var(--phosphor); }
   .roster ul{ list-style: none; padding: 0; margin: 0; }
   .roster li{
-    display: flex;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
     gap: 0.45rem;
     padding: 0.1rem 0;
@@ -289,8 +290,17 @@
     background: var(--phosphor);
     box-shadow: 0 0 5px currentColor;
   }
+  .roster li .nm{ overflow:hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .roster li .sc{
+    font-family:'Press Start 2P', monospace;
+    font-size: 0.7rem;
+    color: var(--phosphor);
+    text-shadow: 0 0 4px var(--phosphor);
+    letter-spacing: 0.04em;
+  }
   .roster li.me .nm{ color: var(--phosphor); }
-  .roster li.dead{ opacity: 0.5; text-decoration: line-through; }
+  .roster li.dead{ opacity: 0.5; }
+  .roster li.dead .nm{ text-decoration: line-through; }
 
   @media (prefers-reduced-motion: reduce){
     .start-btn{ animation: none !important; transition: none !important; }
@@ -421,6 +431,7 @@ const state = {
   running: false,
   gameOver: false,
   flashUntil: 0,
+  mpRole: null,    // null | 'host' | 'client' — set by the multiplayer module
 };
 try { state.bestScore = +localStorage.getItem('vector-rocks-best') || 0; } catch(_){}
 
@@ -724,22 +735,30 @@ function update(dt){
     if (a.y > H + a.r) a.y -= H + a.r * 2;
   }
 
-  // bullet × asteroid collisions
-  for (let i = state.asteroids.length - 1; i >= 0; i--){
-    const a = state.asteroids[i];
-    for (let j = state.bullets.length - 1; j >= 0; j--){
-      const b = state.bullets[j];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      if (dx*dx + dy*dy < a.r * a.r){
-        // hit
-        state.bullets.splice(j, 1);
-        state.score += POINTS[a.size];
-        sndExplode(a.size);
-        spawnDebris(a.x, a.y, a.size === 0 ? 14 : a.size === 1 ? 10 : 6, 1);
-        const newOnes = splitAsteroid(a);
-        state.asteroids.splice(i, 1);
-        for (const na of newOnes) state.asteroids.push(na);
-        break;
+  // bullet × asteroid collisions — single-player + multiplayer-host only.
+  // Clients skip this: the host is authoritative for asteroid state and
+  // pushes snapshots that will overwrite anything local clients change.
+  // Hosts run the standard local-bullets loop here AND a second pass over
+  // remote bullets in the multiplayer module (see window.__vr.hostHit).
+  if (!state.mpRole || state.mpRole === 'host'){
+    for (let i = state.asteroids.length - 1; i >= 0; i--){
+      const a = state.asteroids[i];
+      for (let j = state.bullets.length - 1; j >= 0; j--){
+        const b = state.bullets[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        if (dx*dx + dy*dy < a.r * a.r){
+          state.bullets.splice(j, 1);
+          state.score += POINTS[a.size];
+          sndExplode(a.size);
+          spawnDebris(a.x, a.y, a.size === 0 ? 14 : a.size === 1 ? 10 : 6, 1);
+          const newOnes = splitAsteroid(a);
+          state.asteroids.splice(i, 1);
+          for (const na of newOnes) state.asteroids.push(na);
+          if (state.mpRole === 'host' && typeof window.__vr.hostScored === 'function'){
+            window.__vr.hostScored(window.__vr.hostPilotId || null, POINTS[a.size]);
+          }
+          break;
+        }
       }
     }
   }
@@ -766,12 +785,16 @@ function update(dt){
     if (p.life >= p.dur) state.particles.splice(i, 1);
   }
 
-  // wave clear
-  if (state.asteroids.length === 0 && state.running){
+  // wave clear — only the host (or single-player) spawns new asteroids.
+  // Clients receive the new wave via the asteroids snapshot from the host.
+  if (state.asteroids.length === 0 && state.running &&
+      (!state.mpRole || state.mpRole === 'host')){
     state.wave++;
     spawnWaveAsteroids();
-    // brief invincibility on wave start
     ship.invincUntil = performance.now() + 1.0 * 1000;
+    if (state.mpRole === 'host' && typeof window.__vr.hostWaveBumped === 'function'){
+      window.__vr.hostWaveBumped();
+    }
   }
 
   // update HUD
@@ -937,10 +960,21 @@ function frame(now){
 requestAnimationFrame(frame);
 
 // Expose game internals so the multiplayer module below can read ship
-// state + start a game programmatically (when joining a room).
-window.__vr = { get ship(){ return ship; }, get state(){ return state; },
-                get W(){ return W; }, get H(){ return H; },
-                startGame, overlay };
+// state + start a game programmatically (when joining a room) + drive
+// host-authoritative asteroid sim from the outside.
+window.__vr = {
+  get ship(){ return ship; },
+  get state(){ return state; },
+  get W(){ return W; },
+  get H(){ return H; },
+  startGame,
+  overlay,
+  splitAsteroid,
+  spawnDebris,
+  sndExplode,
+  POINTS,
+  spawnWaveAsteroids,
+};
 </script>
 
 <script type="module">
@@ -985,10 +1019,16 @@ const MP = {
   room: null,
   id: 'p_' + Math.random().toString(36).slice(2, 10),
   name: '',
-  pilots: new Map(),   // id → { name, color, lastSeen, ship:{x,y,vx,vy,angle,alive,thrusting}, bullets:[] }
-  remoteBullets: [],   // bullets received from other pilots (own short-lived array)
+  pilots: new Map(),   // id → { name, color, lastSeen, ship:{...} }
+  remoteBullets: [],   // bullets received from other pilots (host tracks for collision)
+  scores: {},          // pilotId → score (authoritative on host, mirrored on clients)
   lastBroadcast: 0,
   broadcastHz: 12,
+  // Host-authoritative state
+  isHost: false,
+  hostId: null,        // current host's pilot ID (lowest in room)
+  lastSnapshotAt: 0,
+  snapshotHz: 6,       // 6 asteroid snapshots / sec from host
 };
 
 // load saved pilot name or generate
@@ -1053,8 +1093,35 @@ function joinRoom(rawCode){
     if (!p || p.id === MP.id) return;
     MP.remoteBullets.push({
       x: p.x, y: p.y, vx: p.vx, vy: p.vy, life: 0, dur: 1.0,
-      color: tintForId(p.id),
+      color: tintForId(p.id), shooterId: p.id,
     });
+  });
+  // ── Asteroid snapshot from the host. Clients overwrite their local
+  // asteroid array; the host's local sim is authoritative so this is a
+  // no-op for the host. Wave + shared scores ride along on the same msg.
+  ch.on('broadcast', { event: 'asteroids' }, msg => {
+    const p = msg.payload;
+    if (!p || p.from === MP.id) return;
+    // Only accept snapshots from the elected host (ignore stale stragglers)
+    if (MP.hostId && p.from !== MP.hostId) return;
+    if (MP.isHost) return;
+    const st = window.__vr.state;
+    if (!st) return;
+    // Reconstruct asteroid objects from compact payload
+    st.asteroids.length = 0;
+    for (const a of p.asteroids){
+      st.asteroids.push({
+        x: a.x, y: a.y, vx: a.vx, vy: a.vy,
+        angle: a.angle, spin: a.spin,
+        size: a.size, r: a.r, shape: a.shape,
+      });
+    }
+    if (typeof p.wave === 'number') st.wave = p.wave;
+    if (p.scores){
+      MP.scores = p.scores;
+      if (MP.scores[MP.id] != null) st.score = MP.scores[MP.id];
+      renderRoster();
+    }
   });
   ch.on('broadcast', { event: 'leave' }, msg => {
     const p = msg.payload;
@@ -1066,6 +1133,11 @@ function joinRoom(rawCode){
     // some peers may have dropped silently; sync prunes stale entries
     const present = new Set(Object.keys(ch.presenceState() || {}));
     for (const pid of MP.pilots.keys()) if (!present.has(pid)) MP.pilots.delete(pid);
+    // ── Host election: lowest pilot ID in the room (lex order) wins.
+    // Election is recomputed on every presence sync so a host disconnect
+    // promotes the next-lowest-ID client automatically with no extra
+    // protocol — within ~2s the new host is broadcasting snapshots.
+    electHost();
     renderRoster();
   });
   ch.subscribe(async (status) => {
@@ -1128,6 +1200,107 @@ setInterval(() => {
   }
   if (lastBulletLen > bs.length) lastBulletLen = bs.length;
 }, 60);
+
+/* ── Host election + asteroid-snapshot broadcast loop ────────
+   The lowest pilot ID alphabetically in the room owns the world. */
+function electHost(){
+  const ids = [MP.id, ...MP.pilots.keys()].sort();
+  const newHost = ids[0];
+  if (newHost === MP.hostId) return;
+  MP.hostId = newHost;
+  const wasHost = MP.isHost;
+  MP.isHost = (newHost === MP.id);
+  const st = window.__vr.state;
+  if (st){
+    st.mpRole = MP.isHost ? 'host' : 'client';
+    if (MP.isHost && !wasHost && st.running && st.asteroids.length === 0){
+      // Just got promoted to host with no asteroids around — bootstrap a wave.
+      window.__vr.spawnWaveAsteroids();
+    }
+    if (!MP.isHost){
+      // we're a client — wait for host snapshot, don't carry stale local rocks
+      st.asteroids.length = 0;
+    }
+  }
+  window.__vr.hostPilotId = MP.hostId;
+  multiStatus.innerHTML = 'connected · room <b>' + (MP.room || '----') + '</b> · ' +
+    (MP.isHost ? 'you are HOST · authoritative for the asteroid sim'
+               : 'you are CLIENT · receiving asteroids from ' + escapeHtml(shortHost(MP.hostId)));
+  console.info('[vector-rocks/mp] host elected:', MP.hostId, MP.isHost ? '(me)' : '');
+}
+function shortHost(id){
+  const peer = MP.pilots.get(id);
+  return peer ? peer.name : (id === MP.id ? MP.name : 'host');
+}
+
+/* Host's job: every 1/snapshotHz seconds, ship the asteroid state to all
+   clients. Includes the current wave number + the shared scores map.
+   Snapshot payload is compact: only the fields needed to render. */
+setInterval(() => {
+  if (!MP.enabled || !MP.channel || !MP.isHost) return;
+  const st = window.__vr.state;
+  if (!st || !st.running) return;
+  const compact = st.asteroids.map(a => ({
+    x: +a.x.toFixed(1), y: +a.y.toFixed(1),
+    vx: +a.vx.toFixed(1), vy: +a.vy.toFixed(1),
+    angle: +a.angle.toFixed(3), spin: +a.spin.toFixed(3),
+    size: a.size, r: a.r, shape: a.shape,
+  }));
+  MP.channel.send({
+    type: 'broadcast', event: 'asteroids',
+    payload: { from: MP.id, asteroids: compact, wave: st.wave, scores: MP.scores },
+  });
+}, Math.round(1000 / MP.snapshotHz));
+
+/* Host-side check for REMOTE bullets hitting asteroids — runs once per
+   frame independently of the per-client local check (which only handles
+   the host's own bullets). Hooked via setInterval at 60Hz to avoid
+   touching the main update loop. Awards points to whoever shot. */
+setInterval(() => {
+  if (!MP.enabled || !MP.isHost) return;
+  const st = window.__vr.state;
+  if (!st || !st.running) return;
+  const W = window.__vr.W, H = window.__vr.H;
+  // age + advect remote bullets through host frame
+  const dt = 1/60;
+  for (let i = MP.remoteBullets.length - 1; i >= 0; i--){
+    const b = MP.remoteBullets[i];
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.x < 0) b.x += W; if (b.x >= W) b.x -= W;
+    if (b.y < 0) b.y += H; if (b.y >= H) b.y -= H;
+    b.life += dt;
+    if (b.life > b.dur){ MP.remoteBullets.splice(i, 1); continue; }
+    // collision against current asteroid list
+    for (let j = st.asteroids.length - 1; j >= 0; j--){
+      const a = st.asteroids[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      if (dx*dx + dy*dy < a.r * a.r){
+        MP.remoteBullets.splice(i, 1);
+        const points = window.__vr.POINTS[a.size];
+        hostScored(b.shooterId, points);
+        window.__vr.sndExplode(a.size);
+        window.__vr.spawnDebris(a.x, a.y, a.size === 0 ? 14 : a.size === 1 ? 10 : 6, 1);
+        const newOnes = window.__vr.splitAsteroid(a);
+        st.asteroids.splice(j, 1);
+        for (const na of newOnes) st.asteroids.push(na);
+        break;
+      }
+    }
+  }
+}, 16);
+
+function hostScored(pilotId, points){
+  if (!MP.isHost || !pilotId) return;
+  MP.scores[pilotId] = (MP.scores[pilotId] || 0) + points;
+  if (pilotId === MP.id){
+    // host already credited its own state.score via the local collision pass
+  }
+  renderRoster();
+}
+window.__vr.hostScored = hostScored;
+window.__vr.hostWaveBumped = () => {
+  // host's wave already incremented in update(); snapshot loop will push it
+};
 
 /* ── Render remote pilots on the local canvas ──
    Called from the main draw() via window.drawRemotePilots(ctx).
@@ -1201,13 +1374,21 @@ window.drawRemotePilots = function(ctx){
 function renderRoster(){
   if (!rosterList) return;
   const rows = [];
-  // me first
+  const myScore = MP.scores[MP.id] || window.__vr.state.score || 0;
+  const tag = MP.isHost ? ' · HOST' : (MP.hostId === MP.id ? '' : ' · YOU');
   rows.push('<li class="me"><span class="dot" style="color:' + tintForId(MP.id) + ';"></span>' +
-            '<span class="nm">' + escapeHtml(MP.name) + ' · YOU</span></li>');
-  for (const [id, p] of MP.pilots){
+            '<span class="nm">' + escapeHtml(MP.name) + tag + '</span>' +
+            '<span class="sc">' + String(myScore).padStart(5,'0') + '</span></li>');
+  // sort peers by score desc for a leaderboardy feel
+  const peers = Array.from(MP.pilots.entries()).sort((a,b) => (MP.scores[b[0]]||0) - (MP.scores[a[0]]||0));
+  for (const [id, p] of peers){
     const alive = p.ship && p.ship.alive;
-    rows.push('<li class="' + (alive ? '' : 'dead') + '"><span class="dot" style="color:' + p.color + ';"></span>' +
-              '<span class="nm">' + escapeHtml(p.name) + '</span></li>');
+    const isHost = id === MP.hostId;
+    const sc = MP.scores[id] || 0;
+    rows.push('<li class="' + (alive ? '' : 'dead') + '">' +
+              '<span class="dot" style="color:' + p.color + ';"></span>' +
+              '<span class="nm">' + escapeHtml(p.name) + (isHost ? ' · HOST' : '') + '</span>' +
+              '<span class="sc">' + String(sc).padStart(5,'0') + '</span></li>');
   }
   rosterList.innerHTML = rows.join('');
 }
