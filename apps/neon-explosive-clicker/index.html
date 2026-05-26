@@ -220,6 +220,23 @@
   var hueWheel = [185, 320, 35, 145, 280, 0, 60, 220];
   var hueIdx = 0;
 
+  // ── Visible error toast — surface anything that goes wrong so users can report it ──
+  function showError(msg){
+    try {
+      var t = document.getElementById('errToast');
+      if (!t){
+        t = document.createElement('div');
+        t.id = 'errToast';
+        t.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#3a0610;color:#ffb6c1;font-family:monospace;font-size:11px;padding:8px 12px;border-bottom:1px solid #ff2bd6;white-space:pre-wrap;max-height:30vh;overflow:auto';
+        document.body.appendChild(t);
+      }
+      t.textContent = '⚠ ' + msg;
+    } catch(_){}
+  }
+  window.addEventListener('error', function(ev){
+    showError((ev.message || 'error') + ' @ ' + (ev.filename ? ev.filename.split('/').pop() : '?') + ':' + (ev.lineno || '?'));
+  });
+
   var $ = function(id){ return document.getElementById(id); };
   var numDisplay = $('numberDisplay');
   var comboEl = $('combo');
@@ -236,26 +253,38 @@
   var stageEl = $('stage');
 
   var fxCanvas = $('fxCanvas');
-  var fx = fxCanvas.getContext('2d');
+  var fx = null;
   var sampleCanvas = document.createElement('canvas');
-  var sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+  var sampleCtx = null;
   var DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var canvasReady = false;
+
+  try {
+    fx = fxCanvas.getContext('2d');
+    sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+    canvasReady = !!(fx && sampleCtx);
+  } catch(e){ showError('canvas init: ' + e.message); }
 
   function resize(){
-    fxCanvas.width = Math.floor(innerWidth * DPR);
-    fxCanvas.height = Math.floor(innerHeight * DPR);
-    fxCanvas.style.width = innerWidth + 'px';
-    fxCanvas.style.height = innerHeight + 'px';
-    fx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    if (!canvasReady) return;
+    try {
+      fxCanvas.width = Math.floor(innerWidth * DPR);
+      fxCanvas.height = Math.floor(innerHeight * DPR);
+      fxCanvas.style.width = innerWidth + 'px';
+      fxCanvas.style.height = innerHeight + 'px';
+      fx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    } catch(e){ showError('resize: ' + e.message); }
   }
   resize();
   addEventListener('resize', resize);
 
   var particles = [];
   var MAX_PARTICLES = 1400;
-  var prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var prefersReducedMotion = false;
+  try { prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(_){}
 
   function shatterNumber(text, hue, intensity){
+    if (!canvasReady) return;
     if (prefersReducedMotion) intensity = Math.min(intensity, 0.4);
     var fontSize = Math.min(innerHeight * 0.42, innerWidth * 0.30);
     if (fontSize < 80) fontSize = 80;
@@ -346,11 +375,12 @@
     var dt = Math.min(0.05, (now - last) / 1000);
     last = now;
 
-    fx.globalCompositeOperation = 'source-over';
-    fx.fillStyle = 'rgba(2,1,8,0.30)';
-    fx.fillRect(0, 0, innerWidth, innerHeight);
-
-    fx.globalCompositeOperation = 'lighter';
+    if (canvasReady){
+      fx.globalCompositeOperation = 'source-over';
+      fx.fillStyle = 'rgba(2,1,8,0.30)';
+      fx.fillRect(0, 0, innerWidth, innerHeight);
+      fx.globalCompositeOperation = 'lighter';
+    }
 
     for (var i = particles.length - 1; i >= 0; i--){
       var p = particles[i];
@@ -359,6 +389,7 @@
         particles.splice(i, 1);
         continue;
       }
+      if (!canvasReady) continue;
       var t = 1 - p.life / p.ttl;
 
       if (p.type === 'ring'){
@@ -388,7 +419,7 @@
       }
     }
 
-    fx.globalCompositeOperation = 'source-over';
+    if (canvasReady) fx.globalCompositeOperation = 'source-over';
 
     while (state.clickWindow.length && now - state.clickWindow[0] > 1000){
       state.clickWindow.shift();
@@ -520,8 +551,8 @@
     numDisplay.style.transform = 'scale(' + scale + ')';
     setTimeout(function(){ numDisplay.style.transform = 'scale(1)'; }, 90);
 
-    shatterNumber(String(oldCount), hue, intensity);
-    playClick(state.combo);
+    try { shatterNumber(String(oldCount), hue, intensity); } catch(e){ showError('shatter: ' + e.message); }
+    try { playClick(state.combo); } catch(e){ /* audio is best-effort */ }
 
     if (!hintEl.classList.contains('hide')){
       hintEl.classList.add('hide');
@@ -572,11 +603,21 @@
     hintEl.classList.remove('hide');
   }
 
-  stageEl.addEventListener('pointerdown', function(e){
-    if (e.target.closest('.hud') || e.target.closest('.win-overlay')) return;
-    ensureAudio();
-    doClick();
-  });
+  // Dedupe: pointerdown fires on most modern devices; fall back to click only when pointer events are missing
+  var lastInputT = 0;
+  function stageActivate(e){
+    try {
+      var tgt = e.target;
+      if (tgt && tgt.closest && (tgt.closest('.hud') || tgt.closest('.win-overlay'))) return;
+      var now = performance.now();
+      if (now - lastInputT < 30) return; // dedupe pointerdown + click pair
+      lastInputT = now;
+      ensureAudio();
+      doClick();
+    } catch(err){ showError('click handler: ' + err.message); }
+  }
+  stageEl.addEventListener('pointerdown', stageActivate);
+  stageEl.addEventListener('click', stageActivate);
 
   addEventListener('keydown', function(e){
     if (e.target && e.target.tagName === 'INPUT') return;
