@@ -279,6 +279,8 @@
     <div class="row"><kbd>W</kbd><kbd>S</kbd> <span>forward · back</span></div>
     <div class="row"><kbd>A</kbd><kbd>D</kbd> <span>turn left · right</span></div>
     <div class="row"><kbd>E</kbd> <span>talk (when close)</span></div>
+    <div class="row"><kbd>RMB</kbd> <span>drag = tilt/pitch camera</span></div>
+    <div class="row"><kbd>R</kbd> <span>reset camera</span></div>
     <div class="row"><kbd>Esc</kbd> <span>close dialog</span></div>
   </div>
 
@@ -363,8 +365,9 @@
   scene.fog = new THREE.Fog(0x6fb8c8, 28, 90);
 
   var camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.1, 220);
-  camera.position.set(0, 4, 4);
-  camera.lookAt(0, 0, 0);
+  // Initial position matches the new base geometry: camDist 7 behind, tilt 30° → y = 7·tan(30°) ≈ 4.04
+  camera.position.set(0, 4.04, 7);
+  camera.lookAt(0, 0.6, 0);
   function resize(){
     renderer.setSize(window.innerWidth, window.innerHeight, false);
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -1033,6 +1036,7 @@
 
   // ── State ──
   var OUTFIT_SLOTS = ['hat', 'sword', 'eyepatch', 'pegleg', 'parrot'];
+  var BASE_PITCH = Math.PI / 6;   // 30° downward base tilt
   var state = {
     letters: {},          // npc.id → true if collected
     outfit: { hat: false, sword: false, eyepatch: false, pegleg: false, parrot: false },
@@ -1045,7 +1049,11 @@
     moveSpeed: 4.5,
     walkPhase: 0,
     delivered: false,
-    camYaw: Math.PI       // smoothed camera yaw — lerps toward player.rotation.y for gentle camera turning
+    camYaw: Math.PI,           // smoothed camera yaw — lerps toward player.rotation.y
+    camYawOffset: 0,           // mouse-drag X offset (tilt — orbit around player)
+    camPitchOffset: 0,         // mouse-drag Y offset (pitch — steeper or shallower)
+    dragging: false,
+    dragLast: null
   };
   function lettersCount(){ var n = 0; for (var k in state.letters) if (state.letters[k]) n++; return n; }
   function outfitCount(){ var n = 0; for (var i = 0; i < OUTFIT_SLOTS.length; i++) if (state.outfit[OUTFIT_SLOTS[i]]) n++; return n; }
@@ -1120,7 +1128,52 @@
   // Click on canvas → raycast against NPC bounding spheres → talk
   var raycaster = new THREE.Raycaster();
   var mouseV = new THREE.Vector2();
+  // Disable the browser context menu on the canvas so right-click drag works
+  canvas.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  // Right-mouse-drag → camera tilt (yaw orbit) + pitch (vertical angle)
+  canvas.addEventListener('pointermove', function(e){
+    if (!state.dragging) return;
+    var dx = e.clientX - state.dragLast.x;
+    var dy = e.clientY - state.dragLast.y;
+    state.dragLast = { x: e.clientX, y: e.clientY };
+    var SENS_YAW = 0.005, SENS_PITCH = 0.005;
+    state.camYawOffset += dx * SENS_YAW;       // drag right → orbit camera right
+    state.camPitchOffset -= dy * SENS_PITCH;   // drag down → tilt camera down
+    // Clamp pitch so total stays between near-horizontal and almost top-down
+    var minPitch = -Math.PI / 36;              // -5° (almost level)
+    var maxPitch = Math.PI / 2.4;              // ~75° (steep top-down)
+    var total = BASE_PITCH + state.camPitchOffset;
+    if (total < minPitch) state.camPitchOffset = minPitch - BASE_PITCH;
+    if (total > maxPitch) state.camPitchOffset = maxPitch - BASE_PITCH;
+    // Soft clamp yaw orbit to ±π so you can sweep all the way around but don't lose count
+    if (state.camYawOffset > Math.PI) state.camYawOffset -= Math.PI * 2;
+    if (state.camYawOffset < -Math.PI) state.camYawOffset += Math.PI * 2;
+  });
+  window.addEventListener('pointerup', function(e){
+    if (state.dragging && (e.button === 2 || e.pointerType !== 'mouse')){
+      state.dragging = false;
+      try { canvas.releasePointerCapture(e.pointerId); } catch(_){}
+    }
+  });
+  // Reset camera offsets on press of R
+  window.addEventListener('keydown', function(e){
+    if (e.target && e.target.tagName === 'INPUT') return;
+    if (e.code === 'KeyR'){
+      state.camYawOffset = 0;
+      state.camPitchOffset = 0;
+    }
+  });
+
   canvas.addEventListener('pointerdown', function(e){
+    // Right click (button 2) → start camera drag, never trigger NPC talk
+    if (e.button === 2){
+      state.dragging = true;
+      state.dragLast = { x: e.clientX, y: e.clientY };
+      try { canvas.setPointerCapture(e.pointerId); } catch(_){}
+      e.preventDefault();
+      return;
+    }
     if (state.inDialog) return;
     var rect = canvas.getBoundingClientRect();
     mouseV.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1624,25 +1677,31 @@
       }
     }
 
-    // Camera follow — precisely 4u above player on Y, 45° downward tilt.
-    // Geometry: rise = 4 (cam.y − player.y), run = 4 (horizontal distance
-    // from camera to player), atan2(4, 4) = 45° → exact 45° downward angle
-    // when the camera looks at the player's ground position.
-    var camHeight = 4;
-    var camDist = 4;
+    // Camera follow — base -30° downward tilt + right-mouse-drag for tilt/pitch
+    // Horizontal distance from player is fixed; vertical offset derived as
+    // camDist · tan(totalPitch) so the look-at on the player's ground position
+    // yields the exact requested angle.
+    var camDist = 7;
+    var totalPitch = BASE_PITCH + state.camPitchOffset;
+    var camY_offset = camDist * Math.tan(totalPitch);
     var targetYaw = player.rotation.y;
     var yawDiff = ((targetYaw - state.camYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     state.camYaw += yawDiff * Math.min(1, dt * 0.55);
-    var behindAngle = state.camYaw + Math.PI;
+    var behindAngle = state.camYaw + Math.PI + state.camYawOffset;
     var targetCamX = player.position.x + Math.sin(behindAngle) * camDist;
     var targetCamZ = player.position.z + Math.cos(behindAngle) * camDist;
-    camera.position.x += (targetCamX - camera.position.x) * Math.min(1, dt * 2.2);
-    camera.position.z += (targetCamZ - camera.position.z) * Math.min(1, dt * 2.2);
-    // Y is locked exactly 4u above the player — no easing on this axis since
-    // chat asked for "precisely 4 units"
-    camera.position.y = player.position.y + camHeight;
-    // Look at the player's ground position → rise/run = 4/4 = exactly 45°
-    camera.lookAt(player.position.x, player.position.y, player.position.z);
+    var targetCamY = player.position.y + camY_offset;
+    // While drag is active, snap immediately (no easing); otherwise ease for smooth follow
+    if (state.dragging){
+      camera.position.x = targetCamX;
+      camera.position.z = targetCamZ;
+      camera.position.y = targetCamY;
+    } else {
+      camera.position.x += (targetCamX - camera.position.x) * Math.min(1, dt * 2.2);
+      camera.position.z += (targetCamZ - camera.position.z) * Math.min(1, dt * 2.2);
+      camera.position.y += (targetCamY - camera.position.y) * Math.min(1, dt * 2.2);
+    }
+    camera.lookAt(player.position.x, player.position.y + 0.6, player.position.z);
 
     // Animate ocean waves
     for (var i = 0; i < oPos.count; i++){
