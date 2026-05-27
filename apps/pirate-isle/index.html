@@ -1166,8 +1166,44 @@
     }
   });
 
+  // Helper: returns the single closest interactive target. Priority order:
+  // 1. Human NPCs within 3u
+  // 2. World objects (chest) within 3.5u
+  // 3. Polly within 6u — only if NO human NPC or object is in range
+  // Polly is skipped entirely once she's on the shoulder (no dialog target).
+  function getClosestInteractive(){
+    var bestHuman = null, bestHumanD = Infinity;
+    var bestObj = null, bestObjD = Infinity;
+    var bestParrot = null, bestParrotD = Infinity;
+    for (var i = 0; i < npcGroups.length; i++){
+      var n = npcGroups[i];
+      var dx = n.position.x - player.position.x;
+      var dz = n.position.z - player.position.z;
+      var d = Math.hypot(dx, dz);
+      if (n.userData.npc && n.userData.npc.isParrot){
+        if (state.outfit.parrot) continue;
+        if (d < 6 && d < bestParrotD){ bestParrotD = d; bestParrot = n; }
+      } else {
+        if (d < 3 && d < bestHumanD){ bestHumanD = d; bestHuman = n; }
+      }
+    }
+    for (var j = 0; j < worldObjects.length; j++){
+      var o = worldObjects[j];
+      var ddx = o.position.x - player.position.x;
+      var ddz = o.position.z - player.position.z;
+      var dd = Math.hypot(ddx, ddz);
+      if (dd < 3.5 && dd < bestObjD){ bestObjD = dd; bestObj = o; }
+    }
+    // Human or object — pick whichever is closer
+    if (bestHuman && (!bestObj || bestHumanD <= bestObjD)) return { obj: bestHuman, kind: 'npc', dist: bestHumanD };
+    if (bestObj && (!bestHuman || bestObjD < bestHumanD))  return { obj: bestObj, kind: 'object', dist: bestObjD };
+    // Polly only as a fallback when no human/object is in range
+    if (bestParrot) return { obj: bestParrot, kind: 'npc', dist: bestParrotD };
+    return null;
+  }
+
   canvas.addEventListener('pointerdown', function(e){
-    // Right click (button 2) → start camera drag, never trigger NPC talk
+    // Right click (button 2) → start camera drag, never trigger interaction
     if (e.button === 2){
       state.dragging = true;
       state.dragLast = { x: e.clientX, y: e.clientY };
@@ -1176,55 +1212,38 @@
       return;
     }
     if (state.inDialog) return;
+    // Only the closest in-range NPC or object is interactive.
+    var closest = getClosestInteractive();
+    if (closest){
+      if (closest.kind === 'object') openObjectDialog(closest.obj);
+      else openDialogForNpc(closest.obj);
+      return;
+    }
+    // Nothing in range — but if the click DID hit a far NPC, hint to walk closer.
     var rect = canvas.getBoundingClientRect();
     mouseV.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     mouseV.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(mouseV, camera);
-    var clickables = npcGroups.concat(worldObjects);
-    var hits = raycaster.intersectObjects(clickables, true);
+    var hits = raycaster.intersectObjects(npcGroups.concat(worldObjects), true);
     if (hits.length){
       var obj = hits[0].object;
       while (obj && !obj.userData.npc && !obj.userData.isChest) obj = obj.parent;
       if (obj){
-        var dx = obj.position.x - player.position.x;
-        var dz = obj.position.z - player.position.z;
-        var d = Math.hypot(dx, dz);
-        var allowDist;
-        if (obj.userData.isChest) allowDist = 3.5;
-        else if (obj.userData.npc && obj.userData.npc.isParrot) allowDist = 6;
-        else allowDist = 3;
-        if (d <= allowDist){
-          if (obj.userData.isChest) openObjectDialog(obj);
-          else openDialogForNpc(obj);
-        } else {
-          var label = obj.userData.isChest ? 'the chest' : obj.userData.npc.name;
-          showActionPrompt('Walk closer to ' + label);
-          setTimeout(hideActionPrompt, 1600);
-        }
+        // Skip Polly hint when she's perched on the shoulder
+        if (obj.userData.npc && obj.userData.npc.isParrot && state.outfit.parrot) return;
+        var label = obj.userData.isChest ? 'the chest' : obj.userData.npc.name;
+        showActionPrompt('Walk closer to ' + label);
+        setTimeout(hideActionPrompt, 1600);
       }
     }
   });
 
   function tryTalk(){
     if (state.inDialog){ closeDialog(); return; }
-    var best = null, bestD = Infinity, bestKind = null;
-    for (var i = 0; i < npcGroups.length; i++){
-      var n = npcGroups[i];
-      var dx = n.position.x - player.position.x;
-      var dz = n.position.z - player.position.z;
-      var d = Math.hypot(dx, dz);
-      var range = n.userData.npc.isParrot ? 6 : 3;
-      if (d < range && d < bestD){ bestD = d; best = n; bestKind = 'npc'; }
-    }
-    for (var j = 0; j < worldObjects.length; j++){
-      var o = worldObjects[j];
-      var dx2 = o.position.x - player.position.x;
-      var dz2 = o.position.z - player.position.z;
-      var d2 = Math.hypot(dx2, dz2);
-      if (d2 < 3.5 && d2 < bestD){ bestD = d2; best = o; bestKind = 'object'; }
-    }
-    if (best && bestKind === 'npc') openDialogForNpc(best);
-    else if (best && bestKind === 'object') openObjectDialog(best);
+    var closest = getClosestInteractive();
+    if (!closest) return;
+    if (closest.kind === 'object') openObjectDialog(closest.obj);
+    else openDialogForNpc(closest.obj);
   }
 
   // ── Dialog — point-and-click verb interface ──
@@ -1235,18 +1254,14 @@
   function openDialogForNpc(group){
     var npc = group.userData.npc;
     if (npc.isParrot){
+      // Once Polly is on the shoulder she's part of the player rig — no dialog.
+      if (state.outfit.parrot) return;
       state.inDialog = true;
       state.facingNpc = group;
       document.getElementById('dialogWho').textContent = 'Polly';
       document.getElementById('dialogRole').textContent = '— ship\'s parrot';
       var actions = document.getElementById('dialogActions');
       actions.innerHTML = '';
-      if (state.outfit.parrot){
-        setDialogLine("*content ruffle* Polly is already perched on your shoulder, chewing her cracker.");
-        addCloseBtn(actions);
-        showDialog();
-        return;
-      }
       if (state.hasCracker){
         setDialogLine("*BAWK!* THAT cracker. Yes. Hand it over and I'm yer parrot for life.");
         var feedBtn = makeVerb('🦜 Give Polly the cracker', function(){
@@ -1703,7 +1718,12 @@
       camera.position.z += (targetCamZ - camera.position.z) * Math.min(1, dt * 2.2);
       camera.position.y += (targetCamY - camera.position.y) * Math.min(1, dt * 2.2);
     }
-    camera.lookAt(player.position.x, player.position.y + 0.6, player.position.z);
+    // CRITICAL: lookAt(player) every single frame, after any camera-position
+    // mutation, so the player stays perfectly centered through movement,
+    // turning, mouse-drag orbit, and dialog transitions. No code path
+    // skips this — it's the last camera operation before render.
+    try { camera.lookAt(player.position.x, player.position.y + 0.6, player.position.z); }
+    catch(_){}
 
     // Animate ocean waves
     for (var i = 0; i < oPos.count; i++){
@@ -1718,13 +1738,15 @@
     var nearestDist = Infinity;
     for (var i = 0; i < npcGroups.length; i++){
       var n = npcGroups[i];
+      var lbl = n.userData.label;
+      // Polly's label hides entirely once she's on the shoulder
+      if (n.userData.npc.isParrot && state.outfit.parrot){ lbl.classList.remove('show'); continue; }
       var v = new THREE.Vector3();
       n.getWorldPosition(v);
       v.y += 1.9;
       var dx = n.position.x - player.position.x;
       var dz = n.position.z - player.position.z;
       var dd = Math.hypot(dx, dz);
-      var lbl = n.userData.label;
       // Project
       v.project(camera);
       if (v.z > 1){ lbl.classList.remove('show'); continue; }
