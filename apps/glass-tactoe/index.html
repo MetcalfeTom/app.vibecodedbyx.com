@@ -183,7 +183,7 @@
     transition:opacity 0.35s, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
     min-width:14rem;
   }
-  .result-toast.show{opacity:1;transform:translate(-50%, -50%) scale(1)}
+  .result-toast.show{opacity:1;transform:translate(-50%, -50%) scale(1);pointer-events:auto}
   .result-toast h2{font-weight:700;font-size:clamp(1.5rem, 4vw, 2.2rem);letter-spacing:-0.02em;margin-bottom:0.3rem}
   .result-toast.x h2{color:var(--x-leaf);text-shadow:0 0 22px var(--x-glow)}
   .result-toast.o h2{color:var(--o-leaf);text-shadow:0 0 22px var(--o-glow)}
@@ -284,6 +284,13 @@
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.setClearColor(0x0e1809);
+  // Photoreal upgrade: PBR-friendly output + soft shadow mapping + cinematic tonemap
+  if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.physicallyCorrectLights = true;
 
   var scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x1d2a14, 10, 38);
@@ -300,84 +307,175 @@
   }
   window.addEventListener('resize', resize);
 
-  // ── Lighting ──
-  var ambient = new THREE.AmbientLight(0xbfdda0, 0.45);
-  scene.add(ambient);
-  var sun = new THREE.DirectionalLight(0xfff0b8, 0.95);
-  sun.position.set(6, 12, 4);
+  // ── Lighting — physically based: hemi for sky/ground bounce, sun w/ soft shadow, cool rim ──
+  // physicallyCorrectLights = true means light intensities are in lumens; scale up
+  var hemi = new THREE.HemisphereLight(0x9fbfff, 0x3a5a24, 0.85);
+  scene.add(hemi);
+  var sun = new THREE.DirectionalLight(0xfff2c0, 2.4);
+  sun.position.set(7, 14, 5);
+  sun.castShadow = true;
+  sun.shadow.mapSize.width = 1024;
+  sun.shadow.mapSize.height = 1024;
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 45;
+  sun.shadow.camera.left = -14;
+  sun.shadow.camera.right = 14;
+  sun.shadow.camera.top = 14;
+  sun.shadow.camera.bottom = -14;
+  sun.shadow.bias = -0.0005;
+  sun.shadow.radius = 4;
   scene.add(sun);
-  var rim = new THREE.DirectionalLight(0x7fb8ff, 0.30);
-  rim.position.set(-8, 4, -6);
+  var rim = new THREE.DirectionalLight(0x7fb8ff, 0.45);
+  rim.position.set(-9, 5, -7);
   scene.add(rim);
 
-  // ── Mossy ground ──
-  // Large dark mossy disk
-  var groundGeom = new THREE.CircleGeometry(40, 64);
-  var groundMat = new THREE.MeshLambertMaterial({ color: 0x2a4a1c });
+  // ── Mossy ground — displaced PlaneGeometry with PBR moss material ──
+  // High-resolution plane (180x180 segments over 80u² area) lets us add organic
+  // height variation via per-vertex noise displacement. Center stays flat so
+  // the stone tiles sit on level ground.
+  var groundGeom = new THREE.PlaneGeometry(80, 80, 180, 180);
+  groundGeom.rotateX(-Math.PI / 2);
+  (function displaceGround(){
+    var pos = groundGeom.attributes.position;
+    for (var i = 0; i < pos.count; i++){
+      var vx = pos.getX(i), vz = pos.getZ(i);
+      var distFromCenter = Math.sqrt(vx*vx + vz*vz);
+      // Soft falloff: no displacement within radius 3.5, gradually ramps up beyond
+      var mask = Math.max(0, Math.min(1, (distFromCenter - 3.5) / 4));
+      var n1 = Math.sin(vx * 0.34) * Math.cos(vz * 0.42) * 0.18;
+      var n2 = Math.sin(vx * 0.95 + vz * 0.61) * 0.07;
+      var n3 = Math.sin(vx * 2.1) * Math.cos(vz * 1.7) * 0.025;
+      pos.setY(i, (n1 + n2 + n3) * mask);
+    }
+    pos.needsUpdate = true;
+    groundGeom.computeVertexNormals();
+  })();
+  var groundMat = new THREE.MeshStandardMaterial({
+    color: 0x2c4a1c,
+    roughness: 0.92,
+    metalness: 0.02,
+    flatShading: false
+  });
   var ground = new THREE.Mesh(groundGeom, groundMat);
-  ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.02;
+  ground.receiveShadow = true;
   scene.add(ground);
 
-  // Scatter moss tufts as flattened spheres for texture
-  for (var i = 0; i < 220; i++){
+  // Scatter moss tufts — denser, hue-varied IcosahedronGeometry blobs for organic clusters
+  // Mix small "patches" + larger "tufts" so the floor doesn't read as uniform spheres
+  for (var i = 0; i < 380; i++){
     var ang = Math.random() * Math.PI * 2;
-    var r = 1.5 + Math.random() * 18;
-    var tuftColor = [0x3a6a2a, 0x4a7a3a, 0x2a5a1c, 0x5a8a3a][Math.floor(Math.random() * 4)];
-    var tuft = new THREE.Mesh(
-      new THREE.SphereGeometry(0.15 + Math.random() * 0.20, 6, 4),
-      new THREE.MeshLambertMaterial({ color: tuftColor })
+    var r = 1.6 + Math.random() * 18;
+    var hue = 95 + (Math.random() - 0.5) * 30;   // 80-110 = mossy green range
+    var sat = 45 + Math.random() * 30;
+    var light = 18 + Math.random() * 18;
+    var tuftColor = new THREE.Color('hsl(' + Math.round(hue) + ',' + Math.round(sat) + '%,' + Math.round(light) + '%)');
+    // Mostly icosahedrons for natural rocky-blob silhouette, some spheres for soft tufts
+    var size = 0.13 + Math.random() * 0.24;
+    var isPatch = Math.random() < 0.4;
+    var tuftGeom = isPatch
+      ? new THREE.IcosahedronGeometry(size, 0)
+      : new THREE.SphereGeometry(size, 6, 4);
+    var tuftMat = new THREE.MeshStandardMaterial({
+      color: tuftColor,
+      roughness: 0.95,
+      metalness: 0
+    });
+    var tuft = new THREE.Mesh(tuftGeom, tuftMat);
+    tuft.position.set(
+      Math.cos(ang) * r,
+      0.05 + Math.random() * 0.05,
+      Math.sin(ang) * r
     );
-    tuft.position.set(Math.cos(ang) * r, 0.06 + Math.random() * 0.04, Math.sin(ang) * r);
-    tuft.scale.y = 0.35;
+    tuft.scale.set(
+      0.8 + Math.random() * 0.4,
+      isPatch ? 0.3 + Math.random() * 0.25 : 0.35 + Math.random() * 0.3,
+      0.8 + Math.random() * 0.4
+    );
+    tuft.rotation.y = Math.random() * Math.PI * 2;
+    tuft.castShadow = !isPatch;
+    tuft.receiveShadow = true;
     scene.add(tuft);
   }
 
-  // Scattered pebbles
-  for (var i = 0; i < 32; i++){
+  // Scattered pebbles — irregular IcosahedronGeometry with rocky brown/grey hues
+  for (var i = 0; i < 48; i++){
     var ang = Math.random() * Math.PI * 2;
-    var r = 3 + Math.random() * 8;
+    var r = 3 + Math.random() * 10;
+    var pebbleHue = 28 + Math.random() * 16;
+    var pebbleLight = 24 + Math.random() * 16;
+    var pebbleColor = new THREE.Color('hsl(' + Math.round(pebbleHue) + ',12%,' + Math.round(pebbleLight) + '%)');
     var pebble = new THREE.Mesh(
-      new THREE.SphereGeometry(0.10 + Math.random() * 0.10, 6, 4),
-      new THREE.MeshLambertMaterial({ color: 0x6a6256 })
+      new THREE.IcosahedronGeometry(0.10 + Math.random() * 0.13, 0),
+      new THREE.MeshStandardMaterial({ color: pebbleColor, roughness: 0.75, metalness: 0.05 })
     );
     pebble.position.set(Math.cos(ang) * r, 0.08, Math.sin(ang) * r);
-    pebble.scale.y = 0.55;
+    pebble.scale.set(1, 0.55 + Math.random() * 0.15, 1);
+    pebble.rotation.y = Math.random() * Math.PI * 2;
+    pebble.castShadow = true;
+    pebble.receiveShadow = true;
     scene.add(pebble);
   }
 
-  // Scattered toadstools (red cap + white stem)
-  for (var i = 0; i < 14; i++){
+  // Scattered toadstools (red cap + cream stem) — PBR materials with caps casting shadow
+  for (var i = 0; i < 18; i++){
     var ang = Math.random() * Math.PI * 2;
     var r = 3.5 + Math.random() * 10;
-    var stem = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.10, 0.35, 6), new THREE.MeshLambertMaterial({ color: 0xf0e6c8 }));
-    var cap = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshLambertMaterial({ color: 0xc8442a }));
+    var stemMat = new THREE.MeshStandardMaterial({ color: 0xeadfba, roughness: 0.85, metalness: 0 });
+    var capMat = new THREE.MeshStandardMaterial({ color: 0xc8442a, roughness: 0.55, metalness: 0.05 });
+    var stem = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.10, 0.35, 8), stemMat);
+    var cap = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8, 0, Math.PI*2, 0, Math.PI/2), capMat);
     cap.scale.y = 0.7;
-    stem.position.set(Math.cos(ang)*r, 0.20, Math.sin(ang)*r);
-    cap.position.set(stem.position.x, stem.position.y + 0.18, stem.position.z);
+    var sx = Math.cos(ang)*r, sz = Math.sin(ang)*r;
+    stem.position.set(sx, 0.20, sz);
+    cap.position.set(sx, 0.20 + 0.18, sz);
+    stem.castShadow = true; stem.receiveShadow = true;
+    cap.castShadow = true; cap.receiveShadow = true;
     scene.add(stem); scene.add(cap);
+    // Tiny white spots on red caps (the classic Amanita look)
+    if (Math.random() < 0.7){
+      for (var sp = 0; sp < 3; sp++){
+        var spotMat = new THREE.MeshStandardMaterial({ color: 0xfaf2dc, roughness: 0.7 });
+        var spot = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), spotMat);
+        var spotAng = Math.random() * Math.PI * 2;
+        var spotR = 0.08 + Math.random() * 0.06;
+        spot.position.set(
+          sx + Math.cos(spotAng) * spotR,
+          0.20 + 0.18 + 0.08 + Math.random() * 0.04,
+          sz + Math.sin(spotAng) * spotR
+        );
+        scene.add(spot);
+      }
+    }
   }
 
-  // Background tree silhouettes — ring of tall low-poly trees
-  for (var i = 0; i < 26; i++){
-    var ang = (i / 26) * Math.PI * 2 + (Math.random() - 0.5) * 0.15;
-    var r = 18 + Math.random() * 6;
-    var trunkH = 4 + Math.random() * 3;
+  // Background firs — PBR trunks + 3-tier crowns with hue variation, casting shadows
+  for (var i = 0; i < 32; i++){
+    var ang = (i / 32) * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
+    var r = 17 + Math.random() * 8;
+    var trunkH = 3.6 + Math.random() * 3.6;
+    var trunkColor = new THREE.Color('hsl(' + (20 + Math.random() * 12) + ',38%,' + (8 + Math.random() * 8) + '%)');
+    var trunkMat = new THREE.MeshStandardMaterial({ color: trunkColor, roughness: 0.95, metalness: 0 });
     var trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.25, 0.35, trunkH, 6),
-      new THREE.MeshLambertMaterial({ color: 0x2a1a0c })
+      new THREE.CylinderGeometry(0.22, 0.36, trunkH, 8),
+      trunkMat
     );
     trunk.position.set(Math.cos(ang) * r, trunkH / 2 - 0.05, Math.sin(ang) * r);
+    trunk.castShadow = true; trunk.receiveShadow = true;
     scene.add(trunk);
-    // Crown — stack of 3 cones for a low-poly fir feel
+    var crownHueBase = 95 + (Math.random() - 0.5) * 14;
     for (var k = 0; k < 3; k++){
-      var crownH = 1.6 - k * 0.3;
-      var crownR = 1.2 - k * 0.28;
+      var crownH = 1.7 - k * 0.30;
+      var crownR = 1.25 - k * 0.30;
+      var crownColor = new THREE.Color('hsl(' + Math.round(crownHueBase) + ',55%,' + Math.round(14 + k * 5) + '%)');
+      var crownMat = new THREE.MeshStandardMaterial({ color: crownColor, roughness: 0.88, metalness: 0, flatShading: true });
       var crown = new THREE.Mesh(
-        new THREE.ConeGeometry(crownR, crownH, 6),
-        new THREE.MeshLambertMaterial({ color: 0x1c4012 + k * 0x0a })
+        new THREE.ConeGeometry(crownR, crownH, 7),
+        crownMat
       );
-      crown.position.set(trunk.position.x, trunkH + k * (crownH * 0.55), trunk.position.z);
+      crown.position.set(trunk.position.x, trunkH + k * (crownH * 0.58), trunk.position.z);
+      crown.rotation.y = Math.random() * Math.PI * 2;
+      crown.castShadow = true;
       scene.add(crown);
     }
   }
@@ -422,38 +520,62 @@
   }
   for (var i = 0; i < 9; i++){
     var pos = tileXZ(i);
-    var stoneMat = new THREE.MeshLambertMaterial({ color: 0x8c8675, flatShading: true });
+    // Slight per-tile color jitter for hand-laid character
+    var stoneBase = new THREE.Color('hsl(' + Math.round(36 + (Math.random() - 0.5) * 14) + ',' + Math.round(10 + Math.random() * 8) + '%,' + Math.round(46 + Math.random() * 8) + '%)');
+    var stoneMat = new THREE.MeshStandardMaterial({
+      color: stoneBase,
+      roughness: 0.78,
+      metalness: 0.04,
+      flatShading: true
+    });
     var stone = new THREE.Mesh(
       new THREE.BoxGeometry(TILE_SIZE, BOARD_H, TILE_SIZE),
       stoneMat
     );
     stone.position.set(pos.x, BOARD_H/2, pos.z);
+    // Subtle hand-laid wobble: tiny rotation + height offset
+    stone.rotation.y = (Math.random() - 0.5) * 0.08;
+    stone.rotation.x = (Math.random() - 0.5) * 0.025;
+    stone.rotation.z = (Math.random() - 0.5) * 0.025;
+    stone.position.y += (Math.random() - 0.5) * 0.018;
     stone.userData.idx = i;
-    stone.userData.baseColor = new THREE.Color(0x8c8675);
+    stone.userData.baseColor = stoneBase.clone();
     stone.userData.hoverColor = new THREE.Color(0xc9a872);
     stone.userData.winColor = new THREE.Color(0xffd17a);
+    stone.castShadow = true;
+    stone.receiveShadow = true;
     scene.add(stone);
     tiles.push(stone);
     pieces.push(null);
 
-    // mossy edge crust around each tile (slightly larger thin slab beneath)
+    // mossy edge crust around each tile — irregular green slab beneath the stone
+    var crustMat = new THREE.MeshStandardMaterial({
+      color: 0x3a5a24,
+      roughness: 0.95,
+      metalness: 0
+    });
     var crust = new THREE.Mesh(
-      new THREE.BoxGeometry(TILE_SIZE + 0.16, 0.06, TILE_SIZE + 0.16),
-      new THREE.MeshLambertMaterial({ color: 0x3a5a24 })
+      new THREE.BoxGeometry(TILE_SIZE + 0.18, 0.06, TILE_SIZE + 0.18),
+      crustMat
     );
     crust.position.set(pos.x, 0.03, pos.z);
+    crust.receiveShadow = true;
     scene.add(crust);
 
-    // tiny moss flecks on top of each stone
-    for (var t = 0; t < 4; t++){
+    // tiny moss flecks on top of each stone (varied hues)
+    for (var t = 0; t < 5; t++){
+      var fleckHue = 95 + Math.random() * 18;
+      var fleckColor = new THREE.Color('hsl(' + Math.round(fleckHue) + ',55%,' + Math.round(28 + Math.random() * 16) + '%)');
+      var fleckMat = new THREE.MeshStandardMaterial({ color: fleckColor, roughness: 0.95 });
       var fleck = new THREE.Mesh(
-        new THREE.SphereGeometry(0.05, 4, 3),
-        new THREE.MeshLambertMaterial({ color: 0x4a7a3a })
+        new THREE.IcosahedronGeometry(0.05 + Math.random() * 0.03, 0),
+        fleckMat
       );
-      var fx = (Math.random() - 0.5) * (TILE_SIZE * 0.8);
-      var fz = (Math.random() - 0.5) * (TILE_SIZE * 0.8);
+      var fx = (Math.random() - 0.5) * (TILE_SIZE * 0.85);
+      var fz = (Math.random() - 0.5) * (TILE_SIZE * 0.85);
       fleck.position.set(pos.x + fx, BOARD_H + 0.025, pos.z + fz);
       fleck.scale.y = 0.4;
+      fleck.receiveShadow = true;
       scene.add(fleck);
     }
   }
@@ -462,8 +584,8 @@
   // X = two crossed twigs (cylinders) lying flat over the stone, plus 4 small leaves
   function buildX(){
     var g = new THREE.Group();
-    var twigMat = new THREE.MeshLambertMaterial({ color: 0x6a3a14 });
-    var leafMat = new THREE.MeshLambertMaterial({ color: 0xff9a3a, side: THREE.DoubleSide });
+    var twigMat = new THREE.MeshStandardMaterial({ color: 0x6a3a14, roughness: 0.88, metalness: 0 });
+    var leafMat = new THREE.MeshStandardMaterial({ color: 0xff9a3a, roughness: 0.65, metalness: 0, side: THREE.DoubleSide });
     // twig 1
     var t1 = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.05, 6), twigMat);
     t1.rotation.z = Math.PI / 2;       // horizontal
@@ -499,14 +621,14 @@
   // O = a curling vine ring (torus geometry) with 4 sage leaves + 3 pink-blossom clusters
   function buildO(){
     var g = new THREE.Group();
-    var vineMat = new THREE.MeshLambertMaterial({ color: 0x4a7a2a });
-    var ring = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.05, 8, 24), vineMat);
+    var vineMat = new THREE.MeshStandardMaterial({ color: 0x4a7a2a, roughness: 0.78, metalness: 0 });
+    var ring = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.05, 10, 32), vineMat);
     ring.rotation.x = Math.PI / 2;
     ring.position.y = 0.09;
     g.add(ring);
     // 4 leaves around the ring
     var leafGeom = new THREE.PlaneGeometry(0.22, 0.34);
-    var leafMat = new THREE.MeshLambertMaterial({ color: 0xa8d68a, side: THREE.DoubleSide });
+    var leafMat = new THREE.MeshStandardMaterial({ color: 0xa8d68a, roughness: 0.70, metalness: 0, side: THREE.DoubleSide });
     for (var i = 0; i < 4; i++){
       var ang = (i / 4) * Math.PI * 2 + Math.PI / 4;
       var leaf = new THREE.Mesh(leafGeom, leafMat);
@@ -516,8 +638,8 @@
       g.add(leaf);
     }
     // 3 pink blossom clusters along the ring
-    var petalMat = new THREE.MeshLambertMaterial({ color: 0xffb8d4 });
-    var coreMat = new THREE.MeshLambertMaterial({ color: 0xffe07a });
+    var petalMat = new THREE.MeshStandardMaterial({ color: 0xffb8d4, roughness: 0.55, metalness: 0 });
+    var coreMat = new THREE.MeshStandardMaterial({ color: 0xffe07a, roughness: 0.4, metalness: 0 });
     for (var b = 0; b < 3; b++){
       var ang2 = (b / 3) * Math.PI * 2 - Math.PI / 6;
       var bx = Math.cos(ang2) * 0.46;
@@ -546,6 +668,8 @@
     piece.scale.set(0.01, 0.01, 0.01);
     piece.userData.spawnT = 0;
     piece.userData.spawnDur = 0.6;
+    // Enable shadow casting on every mesh inside the piece group
+    piece.traverse(function(o){ if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
     scene.add(piece);
     pieces[idx] = piece;
   }
