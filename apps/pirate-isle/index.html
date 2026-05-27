@@ -276,7 +276,8 @@
   </header>
 
   <div class="nav-help" aria-hidden="true">
-    <div class="row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>walk</span></div>
+    <div class="row"><kbd>W</kbd><kbd>S</kbd> <span>forward · back</span></div>
+    <div class="row"><kbd>A</kbd><kbd>D</kbd> <span>turn left · right</span></div>
     <div class="row"><kbd>E</kbd> <span>talk (when close)</span></div>
     <div class="row"><kbd>Esc</kbd> <span>close dialog</span></div>
   </div>
@@ -362,7 +363,7 @@
   scene.fog = new THREE.Fog(0x6fb8c8, 28, 90);
 
   var camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.1, 220);
-  camera.position.set(0, 1.75, 12);
+  camera.position.set(0, 3.2, 12);
   camera.lookAt(0, 1.65, 0);
   function resize(){
     renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -1525,41 +1526,50 @@
     if (prefersReducedMotion) dt *= 0.85;
     clock += dt;
 
-    // Movement input
-    var ix = 0, iz = 0;
+    // Tank-style controls — W/S = forward/back along the player's facing;
+    // A/D = turn the player in place (no translation).
+    var fwd = 0, turn = 0;
     if (!state.inDialog){
-      if (keys['KeyW'] || keys['ArrowUp']) iz -= 1;
-      if (keys['KeyS'] || keys['ArrowDown']) iz += 1;
-      if (keys['KeyA'] || keys['ArrowLeft']) ix -= 1;
-      if (keys['KeyD'] || keys['ArrowRight']) ix += 1;
-      if (joy.active && (Math.abs(joy.dx) > 0.18 || Math.abs(joy.dy) > 0.18)){
-        ix = joy.dx; iz = joy.dy;
+      if (keys['KeyW'] || keys['ArrowUp'])   fwd += 1;
+      if (keys['KeyS'] || keys['ArrowDown']) fwd -= 1;
+      if (keys['KeyA'] || keys['ArrowLeft']) turn += 1;  // left = counterclockwise = +rot.y
+      if (keys['KeyD'] || keys['ArrowRight']) turn -= 1;
+      // Joystick: vertical axis = forward/back, horizontal axis = turn
+      if (joy.active){
+        if (Math.abs(joy.dy) > 0.18) fwd += -joy.dy;
+        if (Math.abs(joy.dx) > 0.18) turn += -joy.dx;
       }
-      var m = Math.hypot(ix, iz);
-      if (m > 1){ ix /= m; iz /= m; }
-      // Movement is relative to camera direction (camera looks at origin from +z, so world-relative is fine for north-up)
+      // Clamp
+      if (fwd > 1) fwd = 1; if (fwd < -1) fwd = -1;
+      if (turn > 1) turn = 1; if (turn < -1) turn = -1;
+
+      // Apply turn (rad/s)
+      var TURN_SPEED = 2.4;
+      player.rotation.y += turn * TURN_SPEED * dt;
+
+      // Compute forward unit vector from current facing
+      // Pirate model's "front" is +Z in local space, so world forward at
+      // rotation.y is (sin(rot), 0, cos(rot)).
+      var fwdX = Math.sin(player.rotation.y);
+      var fwdZ = Math.cos(player.rotation.y);
+
       var spd = state.moveSpeed;
-      var newX = player.position.x + ix * spd * dt;
-      var newZ = player.position.z + iz * spd * dt;
-      // Clamp to island disk
+      var newX = player.position.x + fwd * fwdX * spd * dt;
+      var newZ = player.position.z + fwd * fwdZ * spd * dt;
+      // Clamp to island disk (slide along border)
       var dist = Math.sqrt(newX*newX + newZ*newZ);
       if (dist < ISLAND_RADIUS - 1.2){
         player.position.x = newX;
         player.position.z = newZ;
       } else if (dist > 0){
-        // slide along the border
         var k = (ISLAND_RADIUS - 1.2) / dist;
         player.position.x = newX * k;
         player.position.z = newZ * k;
       }
-      // Face direction of movement
-      if (Math.abs(ix) > 0.05 || Math.abs(iz) > 0.05){
-        var targetYaw = Math.atan2(ix, iz) + Math.PI;
-        // shortest-angle lerp
-        var diff = ((targetYaw - player.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-        player.rotation.y += diff * Math.min(1, dt * 8);
+
+      // Idle bob during forward motion only
+      if (Math.abs(fwd) > 0.05){
         state.walkPhase += dt * 8;
-        // bob legs (we just bob whole body)
         player.position.y = groundY(player.position.x, player.position.z) + Math.abs(Math.sin(state.walkPhase * 2)) * 0.04;
       } else {
         player.position.y = groundY(player.position.x, player.position.z);
@@ -1614,22 +1624,22 @@
       }
     }
 
-    // Camera follow — horizontal eye-level chase with slow rotation tracking
-    // Height ≈ NPC eye level (head sphere centered at y=1.45 → cam at 1.75 just above it).
-    // Smoothed yaw: state.camYaw lerps toward player's facing at a much slower rate
-    // than before so the view doesn't whip behind the player on every turn.
-    var camHeight = 1.75;
-    var camDist = 7.0;
+    // Camera follow — lifted above wave peaks (~3.2u) while staying horizontal-ish.
+    // The smoothed yaw still produces gentle rotation tracking; A/D turns the
+    // player in place and the camera takes a beat to catch up.
+    var camHeight = 3.2;          // was 1.75 — wave peaks hit ~0.3 and the camera was clipping into the foam
+    var camDist = 7.5;
     var targetYaw = player.rotation.y;
     var yawDiff = ((targetYaw - state.camYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    state.camYaw += yawDiff * Math.min(1, dt * 0.55);   // slow rotation — small steps per frame
+    state.camYaw += yawDiff * Math.min(1, dt * 0.55);
     var behindAngle = state.camYaw + Math.PI;
     var targetCamX = player.position.x + Math.sin(behindAngle) * camDist;
     var targetCamZ = player.position.z + Math.cos(behindAngle) * camDist;
     camera.position.x += (targetCamX - camera.position.x) * Math.min(1, dt * 2.2);
     camera.position.z += (targetCamZ - camera.position.z) * Math.min(1, dt * 2.2);
     camera.position.y += (camHeight - camera.position.y) * Math.min(1, dt * 2);
-    // Horizontal look — same y as camera so the gaze stays level with the NPCs
+    // Look slightly down (cam y 3.2, target y 1.65) — gentle 3/4 angle that
+    // keeps NPC faces visible without becoming a top-down view.
     var lookX = player.position.x - Math.sin(behindAngle) * 4;
     var lookZ = player.position.z - Math.cos(behindAngle) * 4;
     camera.lookAt(lookX, player.position.y + 1.65, lookZ);
