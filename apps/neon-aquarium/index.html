@@ -228,8 +228,105 @@ function makeFish(){
     alpha:0.7+Math.random()*0.3,
     turnTimer:0,
     blinkTimer:2+Math.random()*4,
-    blink:false
+    blink:false,
+    // Procedural glitch flair: ~30% of fish render with chromatic-split
+    // (RGB ghost passes) and occasionally teleport-jitter to a nearby
+    // position. Each glitched fish has its own glitchPhase + period so the
+    // school doesn't pulse in sync. Click any fish to explode it into stars.
+    glitched:Math.random()<0.30,
+    glitchPhase:Math.random()*Math.PI*2,
+    glitchPeriod:1.6+Math.random()*2.2, // sec between teleport-flickers
+    glitchT:0,
+    glitchKick:0  // 0..1, drives chromatic split width; bumps when teleporting
   };
+}
+
+// ── Click-explode stars ─────────────────────────────────────────────────
+// Per-burst 5-point neon stars that fan out from where a fish was clicked.
+// Live alongside the regular particles[] system but get their own draw
+// pass with additive blending so they read as bright sparks against the
+// dark water.
+var stars=[];
+function explodeIntoStars(x,y,hue,count){
+  for(var i=0;i<count;i++){
+    var a=Math.random()*Math.PI*2;
+    var sp=120+Math.random()*220;
+    stars.push({
+      x:x,y:y,
+      vx:Math.cos(a)*sp,
+      vy:Math.sin(a)*sp,
+      life:0,
+      maxLife:0.65+Math.random()*0.75,
+      hue:hue+(Math.random()-0.5)*60,
+      size:2.5+Math.random()*3.5,
+      rot:Math.random()*Math.PI*2,
+      rotV:(Math.random()-0.5)*8
+    });
+  }
+  // Plus a couple of big "kapow" star-rays for impact
+  for(var j=0;j<5;j++){
+    var ang=j*Math.PI/2.5+Math.random()*0.3;
+    stars.push({
+      x:x,y:y,
+      vx:Math.cos(ang)*280,vy:Math.sin(ang)*280,
+      life:0,maxLife:0.42,hue:hue,size:4,
+      rot:ang,rotV:0,ray:true
+    });
+  }
+}
+function updateStars(dt){
+  for(var i=stars.length-1;i>=0;i--){
+    var s=stars[i];
+    s.life+=dt;
+    if(s.life>=s.maxLife){ stars.splice(i,1); continue; }
+    s.x+=s.vx*dt;
+    s.y+=s.vy*dt;
+    s.vy+=140*dt; // gentle gravity
+    s.vx*=Math.pow(0.35,dt);
+    s.rot+=s.rotV*dt;
+  }
+}
+function drawStarShape(cx,cy,outerR,rot){
+  // 5-point star path
+  var innerR=outerR*0.42;
+  X.beginPath();
+  for(var k=0;k<10;k++){
+    var r=(k%2===0)?outerR:innerR;
+    var a=rot+k*Math.PI/5-Math.PI/2;
+    var px=cx+Math.cos(a)*r;
+    var py=cy+Math.sin(a)*r;
+    if(k===0)X.moveTo(px,py);else X.lineTo(px,py);
+  }
+  X.closePath();
+}
+function drawStars(){
+  X.save();
+  X.globalCompositeOperation='lighter';
+  for(var i=0;i<stars.length;i++){
+    var s=stars[i];
+    var k=1-s.life/s.maxLife;
+    X.globalAlpha=k;
+    X.shadowColor='hsla('+s.hue+',95%,65%,1)';
+    X.shadowBlur=18;
+    X.fillStyle='hsla('+s.hue+',95%,70%,1)';
+    if(s.ray){
+      // streaky ray
+      X.strokeStyle='hsla('+s.hue+',95%,72%,1)';
+      X.lineWidth=s.size*0.8;
+      X.lineCap='round';
+      X.beginPath();
+      X.moveTo(s.x,s.y);
+      X.lineTo(s.x-s.vx*0.05,s.y-s.vy*0.05);
+      X.stroke();
+    }else{
+      drawStarShape(s.x,s.y,s.size*(1+k*0.3),s.rot);
+      X.fill();
+    }
+  }
+  X.restore();
+  X.shadowBlur=0;
+  X.globalAlpha=1;
+  X.globalCompositeOperation='source-over';
 }
 
 // init fish — load from localStorage or create fresh
@@ -698,7 +795,49 @@ function drawJelly(f){
   X.restore();
 }
 
+// Wrapper: glitched fish render with a 3-pass chromatic-aberration ghost +
+// occasional teleport-jitter to a nearby offset. The inner _drawFishCore
+// is the original drawFish body, unchanged.
 function drawFish(f){
+  if(!f.glitched){ return _drawFishCore(f); }
+  // Update glitch state — periodic teleport flicker
+  f.glitchT+=1/60; // assume render is roughly 60fps; an approximation is fine here
+  f.glitchPhase+=0.05;
+  if(f.glitchT>f.glitchPeriod){
+    f.glitchT=0;
+    f.glitchPeriod=1.6+Math.random()*2.2;
+    f.glitchKick=1;
+    // Hop to a slightly offset position
+    var jitter=f.size*(0.6+Math.random()*1.2);
+    f.x+=(Math.random()-0.5)*jitter*4;
+    f.y+=(Math.random()-0.5)*jitter*2;
+  }
+  // Kick decays toward 0
+  f.glitchKick*=0.88;
+  // Render with chromatic split (RGB-style). Three offset ghost passes
+  // tinted toward red, green, and blue, then the main body on top.
+  var split=2+f.glitchKick*8+Math.sin(f.glitchPhase*3.1)*1.2;
+  X.save();
+  X.globalCompositeOperation='screen';
+  // Red ghost — shifted left
+  X.save(); X.translate(-split,0); X.filter='hue-rotate(20deg)';
+  _drawFishCore(f,{ghost:true,tint:'rgba(255,40,80,1)'});
+  X.restore();
+  // Cyan ghost — shifted right
+  X.save(); X.translate(split,0); X.filter='hue-rotate(-30deg)';
+  _drawFishCore(f,{ghost:true,tint:'rgba(40,220,255,1)'});
+  X.restore();
+  X.restore();
+  // Sporadic scanline blink — pulls a horizontal slice up by a few px
+  if(f.glitchKick>0.45){
+    // already handled via translate offset on teleport — additional
+    // post-pass would be expensive in this loop; the chromatic ghost is
+    // doing the heavy lifting for the glitch feel.
+  }
+  // Main pass on top
+  _drawFishCore(f);
+}
+function _drawFishCore(f,opts){
   if(f.sp.jelly)return drawJelly(f);
   var dir=f.vx>=0?1:-1;
   var sz=f.size;
@@ -706,10 +845,13 @@ function drawFish(f){
   var bh=sz*f.sp.bodyH;
   var hue=f.sp.hue+f.hueShift;
   var breathScale=1+Math.sin(f.breathe)*0.03;
+  // Ghost passes render at reduced alpha so the main pass dominates
+  var ghostMul=(opts&&opts.ghost)?0.55:1;
 
   X.save();
   X.translate(f.x,f.y);
   X.scale(dir,breathScale);
+  if(opts&&opts.ghost){ X.globalAlpha=0.55; }
 
   // outer glow — predators get a red-tinted aura
   var isPredator=sz>=16;
@@ -873,6 +1015,10 @@ function draw(){
     X.fillStyle='hsla('+p.hue+',80%,70%,'+p.life*0.6+')';
     X.beginPath();X.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);X.fill();
   }
+
+  // click-explode stars (additive blend, drawn over fish so the burst
+  // reads clearly against background fish behind the click point)
+  drawStars();
 
   // volcano particles (bioluminescent + lava)
   for(var i=0;i<volcanoParticles.length;i++){
@@ -1776,6 +1922,35 @@ setInterval(saveState,10000);
 C.addEventListener('click',function(e){
   var rect=C.getBoundingClientRect();
   var cx=e.clientX-rect.left,cy=e.clientY-rect.top;
+  // Click-to-explode: if a fish is under the cursor, it bursts into stars
+  // and is removed. Hit test uses an enlarged bounding ellipse so it's
+  // forgiving (especially on touch). Skipped while placing decor / sand /
+  // lava since those modes own the click semantics.
+  if(placingDecor===null && !sandMode && !lavaMode){
+    var hitIdx=-1;
+    for(var fi=fish.length-1;fi>=0;fi--){
+      var f=fish[fi];
+      var bw=f.size*(f.sp.bodyW||1.2);
+      var bh=f.size*(f.sp.bodyH||0.8);
+      var dx=cx-f.x, dy=cy-f.y;
+      var pad=8; // generous tap target
+      if((dx*dx)/((bw*0.6+pad)*(bw*0.6+pad)) + (dy*dy)/((bh*0.6+pad)*(bh*0.6+pad)) <= 1){
+        hitIdx=fi; break;
+      }
+    }
+    if(hitIdx>=0){
+      var victim=fish[hitIdx];
+      var burstHue=(victim.sp.hue||200)+victim.hueShift;
+      var count=Math.floor(18+victim.size*1.5);
+      explodeIntoStars(victim.x,victim.y,burstHue,count);
+      fish.splice(hitIdx,1);
+      logActivity();
+      totalChats++;
+      // Population floor: regenerate after a delay so the screen doesn't
+      // empty — uses the same auto-replenish path as the kraken/eaten flow.
+      return;
+    }
+  }
   // placing decor?
   if(placingDecor!==null){
     var dt=DECOR_TYPES[placingDecor];
@@ -1848,6 +2023,7 @@ C.addEventListener('touchend',function(){sandPouring=false;});
 if(!loadState()){for(var i=0;i<14;i++)fish.push(makeFish());}
 function loop(){
   update();
+  updateStars(1/60); // approximate dt — render loop is ~60fps
   draw();
   requestAnimationFrame(loop);
 }
