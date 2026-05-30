@@ -47,11 +47,70 @@
     'Sloppy': ['activity-overlay','chat-pulse-monitor','chat-suggestions','content-manager','crisis-dashboard','federated-truth','fee-watchtower','overview','sloppy-analytics','sloppy-coin-info','sloppy-community','sloppy-dashboard','sloppy-flow','sloppy-id','sloppy-says','sloppy-spectrum','sloppy-xp','sloppys-gift','sploppy','status-dashboard','swarm-oracle','system-health']
   };
 
-  // Build flat list + reverse lookup
+  // Build flat list + reverse lookup (curated fallback)
   const TELEPORT_APPS = [...new Set(Object.values(APP_CATEGORIES).flat())];
   const APP_TO_CATEGORY = {};
   for (const [cat, apps] of Object.entries(APP_CATEGORIES)) {
     for (const app of apps) APP_TO_CATEGORY[app] = APP_TO_CATEGORY[app] || cat;
+  }
+
+  // === Live app-directory index (full 1,292+ catalogue) ===
+  // The curated APP_CATEGORIES above stays as a hand-tuned fallback; the live
+  // index from /app-directory/index.json is loaded lazily on first panel open
+  // so teleportation reaches every published app, not just the curated subset.
+  const LIVE_INDEX_URL = '/app-directory/index.json';
+  const LIVE_INDEX_SS_KEY = 'sloppy_live_index_v1';
+  const LIVE_INDEX_TTL = 10 * 60 * 1000; // 10 min sessionStorage cache
+  const LIVE_GENRE_EMOJI = { games:'🎮', sims:'🌿', tools:'🛠', art:'🎨', ai:'🤖', misc:'◆' };
+  let LIVE_INDEX = null;      // array of {slug,title,desc,genre,creators,mtime}
+  let LIVE_INDEX_BY_SLUG = null;
+  let _liveIndexLoading = null;
+
+  function _hydrateLiveIndex(arr) {
+    LIVE_INDEX = arr;
+    LIVE_INDEX_BY_SLUG = Object.create(null);
+    for (const e of arr) { if (e && e.slug) LIVE_INDEX_BY_SLUG[e.slug] = e; }
+  }
+
+  // Try a synchronous warm-load from sessionStorage so first paint can use it
+  try {
+    const raw = sessionStorage.getItem(LIVE_INDEX_SS_KEY);
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (cached && Array.isArray(cached.data) && (Date.now() - cached.ts) < LIVE_INDEX_TTL) {
+        _hydrateLiveIndex(cached.data);
+      }
+    }
+  } catch {}
+
+  function loadLiveIndex() {
+    if (LIVE_INDEX) return Promise.resolve(LIVE_INDEX);
+    if (_liveIndexLoading) return _liveIndexLoading;
+    _liveIndexLoading = fetch(LIVE_INDEX_URL, { cache: 'no-cache' })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(arr => {
+        if (!Array.isArray(arr) || !arr.length) throw new Error('empty index');
+        _hydrateLiveIndex(arr);
+        try { sessionStorage.setItem(LIVE_INDEX_SS_KEY, JSON.stringify({ ts: Date.now(), data: arr })); } catch {}
+        return arr;
+      })
+      .catch(e => {
+        console.warn('[sloppy-bar] live index unavailable, falling back to curated list:', e?.message || e);
+        // Build a minimal synthetic index from the curated lists so callers still get something
+        const synthetic = TELEPORT_APPS.map(slug => ({
+          slug, title: slug, desc: '', genre: (APP_TO_CATEGORY[slug] || 'misc').toLowerCase(), creators: []
+        }));
+        _hydrateLiveIndex(synthetic);
+        return synthetic;
+      })
+      .finally(() => { _liveIndexLoading = null; });
+    return _liveIndexLoading;
+  }
+
+  // Best-effort: return the full live slug list if loaded, else curated fallback
+  function getTeleportPool() {
+    if (LIVE_INDEX) return LIVE_INDEX.map(e => e.slug);
+    return TELEPORT_APPS;
   }
 
   // Visited apps tracking for weighted random
@@ -952,6 +1011,126 @@
     }
     .sloppy-bar-tp-overlay.open { display: block; }
 
+    /* Live badge + search */
+    .sloppy-tp-live {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: rgba(0,255,136,0.12);
+      color: #00ff88;
+      border: 1px solid rgba(0,255,136,0.25);
+      -webkit-text-fill-color: #00ff88;
+      vertical-align: middle;
+      margin-left: 6px;
+    }
+    .sloppy-tp-live.loading {
+      background: rgba(255,255,255,0.04);
+      color: #888;
+      -webkit-text-fill-color: #888;
+      border-color: rgba(255,255,255,0.12);
+    }
+    .sloppy-tp-search-wrap {
+      position: relative;
+      margin: 0 0 14px 0;
+    }
+    .sloppy-tp-search {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      color: #fff;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+      box-sizing: border-box;
+    }
+    .sloppy-tp-search::placeholder { color: #666; }
+    .sloppy-tp-search:focus {
+      border-color: rgba(170,102,255,0.55);
+      background: rgba(170,102,255,0.08);
+    }
+    .sloppy-tp-results {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 280px;
+      overflow-y: auto;
+      background: rgba(12,12,20,0.98);
+      border: 1px solid rgba(170,102,255,0.35);
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      z-index: 100002;
+      padding: 4px;
+    }
+    .sloppy-tp-results.open { display: block; }
+    .sloppy-tp-result {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 7px 10px;
+      border: none;
+      background: transparent;
+      color: #e0e0e0;
+      font-family: inherit;
+      font-size: 11px;
+      text-align: left;
+      cursor: pointer;
+      border-radius: 5px;
+      transition: background 0.1s;
+    }
+    .sloppy-tp-result:hover, .sloppy-tp-result:focus {
+      background: rgba(170,102,255,0.18);
+      color: #fff;
+      outline: none;
+    }
+    .sloppy-tp-result-emoji {
+      font-size: 13px;
+      flex-shrink: 0;
+      width: 16px;
+      text-align: center;
+    }
+    .sloppy-tp-result-name {
+      flex: 1;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sloppy-tp-result-slug {
+      font-size: 9px;
+      color: #666;
+      font-weight: 400;
+      flex-shrink: 0;
+    }
+    .sloppy-tp-seen {
+      color: #00ff88;
+      font-size: 8px;
+      opacity: 0.7;
+      flex-shrink: 0;
+    }
+    .sloppy-tp-empty {
+      padding: 12px;
+      color: #666;
+      font-size: 11px;
+      text-align: center;
+      font-style: italic;
+    }
+    .sloppy-tp-more {
+      padding: 8px 10px 4px;
+      color: #888;
+      font-size: 9px;
+      text-align: center;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      margin-top: 4px;
+    }
+
     /* === UNIVERSAL MOBILE FIXES (injected across all ~480 apps) === */
     /* Prevent iOS text size inflation */
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -1441,15 +1620,19 @@
   window.sloppyBarTeleport = function() {
     teleportPanelOpen = true;
     renderTeleportPanel();
+    // Kick off live-index load (lazy) — re-render once it lands
+    loadLiveIndex().then(() => { if (teleportPanelOpen) renderTeleportPanel(); });
     event?.stopPropagation();
   };
 
   // Execute the teleport
   window.sloppyBarTeleportGo = function() {
     const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '').split('/')[0] || 'home';
+    // Category mode: prefer curated category list (richer than auto-genre)
+    // All mode: prefer full live index (1,292 apps) — fall back to curated
     const pool = teleportCategory
       ? (APP_CATEGORIES[teleportCategory] || TELEPORT_APPS).filter(a => a !== currentPath)
-      : TELEPORT_APPS.filter(a => a !== currentPath);
+      : getTeleportPool().filter(a => a !== currentPath);
 
     const picked = weightedRandomPick(pool);
 
@@ -1484,6 +1667,78 @@
     renderTeleportPanel();
   };
 
+  // Jump directly to a specific app (used by search results)
+  window.sloppyBarJumpTo = function(slug) {
+    if (!slug) return;
+    const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '').split('/')[0] || 'home';
+    if (slug === currentPath) { window.sloppyBarTeleportClose(); return; }
+    if (supabase && currentUser) {
+      supabase.from('sloppy_analytics').insert({
+        event_type: 'teleport',
+        source_app: currentPath,
+        destination_app: slug,
+        username: userData.username,
+        user_id: currentUser.id,
+        metadata: { timestamp: Date.now(), mode: 'search' }
+      }).then(() => {}).catch(() => {});
+    }
+    window.location.href = '/' + slug;
+  };
+
+  // Debounced search handler (live-filter results from the loaded index)
+  let _tpSearchDebounce = null;
+  window.sloppyBarTeleportSearch = function(value) {
+    clearTimeout(_tpSearchDebounce);
+    _tpSearchDebounce = setTimeout(() => _renderTeleportSearchResults(value), 80);
+  };
+
+  function _renderTeleportSearchResults(query) {
+    const host = document.getElementById('sloppy-tp-results');
+    if (!host) return;
+    const q = (query || '').trim().toLowerCase();
+    if (!q) { host.innerHTML = ''; host.classList.remove('open'); return; }
+    if (!LIVE_INDEX) {
+      host.innerHTML = '<div class="sloppy-tp-empty">Loading catalogue…</div>';
+      host.classList.add('open');
+      return;
+    }
+    const visited = getVisitedApps();
+    // Score: prefix-slug 3, prefix-title 2, substring-title 1.5, substring-slug 1, substring-desc 0.5
+    const scored = [];
+    for (const e of LIVE_INDEX) {
+      const slug = (e.slug || '').toLowerCase();
+      const title = (e.title || '').toLowerCase();
+      const desc = (e.desc || '').toLowerCase();
+      let s = 0;
+      if (slug.startsWith(q)) s += 3;
+      else if (slug.includes(q)) s += 1;
+      if (title.startsWith(q)) s += 2;
+      else if (title.includes(q)) s += 1.5;
+      if (s === 0 && desc.includes(q)) s += 0.5;
+      if (s > 0) scored.push({ e, s });
+    }
+    scored.sort((a, b) => b.s - a.s || a.e.slug.localeCompare(b.e.slug));
+    if (!scored.length) {
+      host.innerHTML = `<div class="sloppy-tp-empty">No app matches "${q.replace(/[<>&"]/g,'')}"</div>`;
+      host.classList.add('open');
+      return;
+    }
+    const top = scored.slice(0, 18);
+    host.innerHTML = top.map(({ e }) => {
+      const emoji = LIVE_GENRE_EMOJI[(e.genre || 'misc')] || '◆';
+      const seen = visited[e.slug] ? '<span class="sloppy-tp-seen" title="visited">●</span>' : '';
+      const safeTitle = (e.title || e.slug).replace(/[<>&"]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;' }[c]));
+      const safeSlug = e.slug.replace(/'/g, '&#39;');
+      return `<button class="sloppy-tp-result" onclick="window.sloppyBarJumpTo('${safeSlug}')" title="${safeSlug} — ${(e.desc || '').slice(0,120).replace(/[<>&"]/g,'')}">
+        <span class="sloppy-tp-result-emoji">${emoji}</span>
+        <span class="sloppy-tp-result-name">${safeTitle}</span>
+        <span class="sloppy-tp-result-slug">/${e.slug}</span>
+        ${seen}
+      </button>`;
+    }).join('') + (scored.length > top.length ? `<div class="sloppy-tp-more">+${scored.length - top.length} more — refine search</div>` : '');
+    host.classList.add('open');
+  }
+
   function renderTeleportPanel() {
     let panel = document.getElementById('sloppy-tp-panel');
     let overlay = document.getElementById('sloppy-tp-overlay');
@@ -1503,14 +1758,21 @@
     }
 
     const visited = getVisitedApps();
-    const visitedCount = Object.keys(visited).filter(k => TELEPORT_APPS.includes(k)).length;
-    const totalApps = TELEPORT_APPS.length;
-    const pct = Math.round((visitedCount / totalApps) * 100);
+    // Live mode: use the full app-directory catalogue when available
+    const liveAvailable = !!LIVE_INDEX;
+    const livePool = liveAvailable ? LIVE_INDEX.map(e => e.slug) : null;
+    const liveTotal = liveAvailable ? livePool.length : 0;
+    const liveVisited = liveAvailable ? livePool.filter(s => visited[s]).length : 0;
+    const curatedTotal = TELEPORT_APPS.length;
+    const curatedVisited = Object.keys(visited).filter(k => TELEPORT_APPS.includes(k)).length;
+
+    const totalApps = liveAvailable ? liveTotal : curatedTotal;
+    const visitedCount = liveAvailable ? liveVisited : curatedVisited;
+    const pct = totalApps ? Math.round((visitedCount / totalApps) * 100) : 0;
 
     const catEmojis = { Games:'🎮', Creative:'🎨', Music:'🎵', Social:'💬', Tools:'🛠', Weird:'🤪', Sim:'🌿', Retro:'💾', Security:'🔒', Explore:'🧭', Sloppy:'🟣' };
 
     const catChips = Object.entries(APP_CATEGORIES).map(([cat, apps]) => {
-      const unvisited = apps.filter(a => !visited[a]).length;
       const active = teleportCategory === cat ? 'active' : '';
       return `<button class="sloppy-tp-cat ${active}" onclick="window.sloppyBarSetCategory('${cat}')">${catEmojis[cat] || '📦'} ${cat}<span class="sloppy-tp-cat-count">${apps.length}</span></button>`;
     }).join('');
@@ -1525,13 +1787,27 @@
 
     const poolNew = poolSize - poolVisited;
 
+    const liveBadge = liveAvailable
+      ? `<span class="sloppy-tp-live" title="Full app-directory catalogue loaded">● live · ${liveTotal.toLocaleString()}</span>`
+      : `<span class="sloppy-tp-live loading" title="Fetching /app-directory/index.json">○ loading catalogue…</span>`;
+
     panel.innerHTML = `
-      <div class="sloppy-tp-title">🌀 Teleport Discovery</div>
+      <div class="sloppy-tp-title">🌀 Teleport Discovery ${liveBadge}</div>
       <div class="sloppy-tp-stats">
         ${teleportCategory
           ? `<strong>${teleportCategory}</strong> &middot; ${poolSize} apps &middot; <span>${poolNew} undiscovered</span>`
-          : `${totalApps} apps &middot; <span>${totalApps - visitedCount} undiscovered</span>`
+          : `${totalApps.toLocaleString()} apps &middot; <span>${(totalApps - visitedCount).toLocaleString()} undiscovered</span>`
         }
+      </div>
+      <div class="sloppy-tp-search-wrap">
+        <input id="sloppy-tp-search"
+               class="sloppy-tp-search"
+               type="search"
+               placeholder="${liveAvailable ? `Search ${liveTotal.toLocaleString()} apps…` : 'Search apps…'}"
+               autocomplete="off"
+               oninput="window.sloppyBarTeleportSearch(this.value)"
+               onkeydown="if(event.key==='Escape'){this.value='';window.sloppyBarTeleportSearch('');}" />
+        <div id="sloppy-tp-results" class="sloppy-tp-results"></div>
       </div>
       <div class="sloppy-tp-cats">${catChips}</div>
       <div class="sloppy-tp-actions">
@@ -1539,13 +1815,15 @@
         <button class="sloppy-tp-close" onclick="window.sloppyBarTeleportClose()">✕</button>
       </div>
       <div class="sloppy-tp-discovery">
-        Explorer progress: ${visitedCount}/${totalApps} discovered (${pct}%)
+        Explorer progress: ${visitedCount.toLocaleString()}/${totalApps.toLocaleString()} discovered (${pct}%)
         <div class="sloppy-tp-progress"><div class="sloppy-tp-progress-fill" style="width:${pct}%"></div></div>
       </div>
     `;
 
     panel.classList.add('open');
     overlay.classList.add('open');
+    // Auto-focus search after a tick (don't yank focus before paint settles)
+    setTimeout(() => { const s = document.getElementById('sloppy-tp-search'); if (s) s.focus(); }, 80);
   }
 
   // === PUBLIC API ===
