@@ -161,6 +161,39 @@
   let _sloppyVoteCount = 0;
   let _sloppyVoteUserVoted = false;
 
+  // === Notification state ===
+  // Persisted log of recent notifications, capped at 30, newest-first.
+  // Each entry: { id, type, icon, msg, ts, read, action?: {label, href} }
+  const NOTIF_KEY = 'sloppy_notif_log_v1';
+  const NOTIF_MAX = 30;
+  const TOAST_DEDUPE_WINDOW = 4000; // ms
+  const TOAST_RATE_MIN = 250;       // ms between toasts
+  const TOAST_MAX_VISIBLE = 4;
+  let _notifLog = [];
+  let _notifUnreadCount = 0;
+  let _notifPanelOpen = false;
+  let _toastLastTime = 0;
+  let _toastRecent = []; // [{msg, type, ts}] for dedupe
+  let _lastSeenUnreadDmCount = 0;
+  let _lastSeenUnreadMentionCount = 0;
+
+  function _loadNotifLog() {
+    try {
+      const raw = localStorage.getItem(NOTIF_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          _notifLog = parsed.slice(0, NOTIF_MAX);
+          _notifUnreadCount = _notifLog.filter(n => !n.read).length;
+        }
+      }
+    } catch {}
+  }
+  function _persistNotifLog() {
+    try { localStorage.setItem(NOTIF_KEY, JSON.stringify(_notifLog)); } catch {}
+  }
+  _loadNotifLog();
+
   // Detect current app slug from URL path
   (function() {
     try {
@@ -346,6 +379,8 @@
         if (msg.event === 'verification-changed' && msg.data) {
           _applyVerification(msg.data);
         }
+        // Feed bell + (optionally) toast
+        try { _autoFeedFromSyncEvent(msg.event, msg.data); } catch(e) {}
         break;
 
       case 'leader-assigned':
@@ -504,6 +539,9 @@
       if (e.data.event === 'verification-changed' && e.data.data) {
         _applyVerification(e.data.data);
       }
+
+      // Feed bell + (optionally) toast
+      try { _autoFeedFromSyncEvent(e.data.event, e.data.data); } catch(err) {}
     };
   }
 
@@ -1131,6 +1169,303 @@
       margin-top: 4px;
     }
 
+    /* === Notification bell + badge === */
+    .sloppy-bar-bell {
+      position: relative;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #ddd;
+      border-radius: 14px;
+      padding: 5px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      line-height: 1;
+    }
+    .sloppy-bar-bell:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(170,102,255,0.4);
+      color: #fff;
+    }
+    .sloppy-bar-bell.has-unread {
+      animation: sloppy-bell-wiggle 1.6s ease-in-out;
+    }
+    @keyframes sloppy-bell-wiggle {
+      0%, 100% { transform: rotate(0); }
+      15% { transform: rotate(-14deg); }
+      30% { transform: rotate(12deg); }
+      45% { transform: rotate(-8deg); }
+      60% { transform: rotate(6deg); }
+      75% { transform: rotate(-3deg); }
+    }
+    .sloppy-bar-bell-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #ff5577, #ff9d4d);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 800;
+      line-height: 16px;
+      text-align: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      pointer-events: none;
+      letter-spacing: 0;
+      transform: scale(0);
+      transition: transform 0.18s cubic-bezier(.5,1.7,.4,1);
+    }
+    .sloppy-bar-bell-badge.show { transform: scale(1); }
+
+    /* === Notification panel === */
+    .sloppy-bar-notif-panel {
+      position: fixed;
+      ${options.position}: 44px;
+      right: 12px;
+      width: 320px;
+      max-width: calc(100vw - 24px);
+      max-height: 440px;
+      background: rgba(8,8,14,0.97);
+      border: 1px solid rgba(170,102,255,0.3);
+      border-radius: 12px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.6), 0 0 30px rgba(170,102,255,0.1);
+      z-index: 100001;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      font-family: 'JetBrains Mono', 'SF Mono', monospace;
+      color: #e0e0e0;
+      animation: sloppy-np-in 0.18s ease-out;
+    }
+    .sloppy-bar-notif-panel.open { display: flex; }
+    @keyframes sloppy-np-in {
+      from { opacity: 0; transform: translateY(${options.position === 'bottom' ? '10px' : '-10px'}); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .sloppy-np-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .sloppy-np-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, #aa66ff, #ff66aa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .sloppy-np-mark {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #aaa;
+      font-size: 9px;
+      font-family: inherit;
+      padding: 3px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sloppy-np-mark:hover { color: #fff; border-color: rgba(170,102,255,0.5); }
+    .sloppy-np-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px;
+      max-height: 340px;
+    }
+    .sloppy-np-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 9px;
+      border-radius: 7px;
+      transition: background 0.1s;
+      position: relative;
+      cursor: default;
+    }
+    .sloppy-np-item.unread { background: rgba(170,102,255,0.08); }
+    .sloppy-np-item.unread::before {
+      content: '';
+      position: absolute;
+      left: 2px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 18px;
+      border-radius: 2px;
+      background: linear-gradient(180deg, #aa66ff, #ff66aa);
+    }
+    .sloppy-np-item:hover { background: rgba(255,255,255,0.04); }
+    .sloppy-np-icon {
+      font-size: 14px;
+      line-height: 1.2;
+      flex-shrink: 0;
+      width: 18px;
+      text-align: center;
+    }
+    .sloppy-np-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .sloppy-np-msg {
+      font-size: 11px;
+      color: #ddd;
+      line-height: 1.35;
+      word-wrap: break-word;
+    }
+    .sloppy-np-meta {
+      font-size: 9px;
+      color: #666;
+      margin-top: 2px;
+      letter-spacing: 0.04em;
+    }
+    .sloppy-np-action {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 3px 7px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      background: linear-gradient(135deg, #aa66ff, #ff66aa);
+      color: #fff;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+    }
+    .sloppy-np-action:hover { filter: brightness(1.15); }
+    .sloppy-np-empty {
+      padding: 30px 16px;
+      text-align: center;
+      color: #555;
+      font-size: 10px;
+      font-style: italic;
+    }
+    .sloppy-np-footer {
+      padding: 6px 12px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 9px;
+      color: #555;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .sloppy-np-clear {
+      background: transparent;
+      border: none;
+      color: #777;
+      font-size: 9px;
+      cursor: pointer;
+      font-family: inherit;
+      padding: 2px 4px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sloppy-np-clear:hover { color: #ff5577; }
+    .sloppy-np-type-success { color: #00ff88; }
+    .sloppy-np-type-warn { color: #ffb347; }
+    .sloppy-np-type-error { color: #ff5577; }
+    .sloppy-np-type-info { color: #66ccff; }
+
+    /* === Global toast container === */
+    .sloppy-toast-stack {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 100002;
+      pointer-events: none;
+      max-width: 360px;
+    }
+    @media (max-width: 540px) {
+      .sloppy-toast-stack { left: 12px; right: 12px; max-width: none; }
+    }
+    .sloppy-toast {
+      pointer-events: auto;
+      background: rgba(12,12,20,0.96);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: #f0f0f0;
+      padding: 10px 12px 10px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(170,102,255,0.3);
+      border-left: 3px solid #aa66ff;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      font-family: 'JetBrains Mono', 'SF Mono', monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      transform: translateX(120%);
+      opacity: 0;
+      transition: transform 0.28s cubic-bezier(.5,1.7,.4,1), opacity 0.2s;
+      min-width: 220px;
+      max-width: 360px;
+    }
+    .sloppy-toast.in { transform: translateX(0); opacity: 1; }
+    .sloppy-toast.out { transform: translateX(120%); opacity: 0; }
+    .sloppy-toast-success { border-left-color: #00ff88; }
+    .sloppy-toast-warn { border-left-color: #ffb347; }
+    .sloppy-toast-error { border-left-color: #ff5577; }
+    .sloppy-toast-info { border-left-color: #66ccff; }
+    .sloppy-toast-icon {
+      font-size: 14px;
+      line-height: 1.2;
+      flex-shrink: 0;
+    }
+    .sloppy-toast-body { flex: 1; min-width: 0; }
+    .sloppy-toast-msg { color: #f0f0f0; word-wrap: break-word; }
+    .sloppy-toast-action {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 3px 7px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      background: linear-gradient(135deg, #aa66ff, #ff66aa);
+      color: #fff;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+    }
+    .sloppy-toast-action:hover { filter: brightness(1.15); }
+    .sloppy-toast-close {
+      background: transparent;
+      border: none;
+      color: #666;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0 0 0 4px;
+      flex-shrink: 0;
+      font-family: inherit;
+      line-height: 1;
+    }
+    .sloppy-toast-close:hover { color: #fff; }
+    @media (prefers-reduced-motion: reduce) {
+      .sloppy-toast, .sloppy-bar-notif-panel { animation: none; transition: opacity 0.15s; }
+      .sloppy-toast.in { transform: none; }
+      .sloppy-bar-bell.has-unread { animation: none; }
+    }
+
     /* === UNIVERSAL MOBILE FIXES (injected across all ~480 apps) === */
     /* Prevent iOS text size inflation */
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -1391,6 +1726,9 @@
         ${_sloppyVoteSlug ? `<button class="sloppy-bar-vote${_sloppyVoteUserVoted ? ' voted' : ''}" onclick="window.sloppyBarVote()" title="${_sloppyVoteUserVoted ? 'Remove vote' : 'Upvote this app'}">
           <span class="sloppy-vote-arrow">${_sloppyVoteUserVoted ? '▲' : '△'}</span>${_sloppyVoteCount > 0 ? `<span class="sloppy-vote-count">${_sloppyVoteCount}</span>` : ''}
         </button>` : ''}
+        <button class="sloppy-bar-bell${_notifUnreadCount > 0 ? ' has-unread' : ''}" onclick="window.sloppyBarToggleNotifications(event)" title="Notifications" aria-label="Notifications" aria-haspopup="true" aria-expanded="${_notifPanelOpen}">
+          🔔<span class="sloppy-bar-bell-badge${_notifUnreadCount > 0 ? ' show' : ''}" id="sloppy-bar-bell-badge">${_notifUnreadCount > 99 ? '99+' : _notifUnreadCount}</span>
+        </button>
         <button class="sloppy-bar-teleport" onclick="window.sloppyBarTeleport()" title="Random app adventure!">
           <span class="sloppy-bar-teleport-icon">🌀</span> Teleport
         </button>
@@ -1440,6 +1778,303 @@
     var labels = ['', '✓', '✓✓', '✓✓✓'];
     var titles = ['', 'Basic Verified', 'Verified', 'Fully Verified'];
     return '<span class="sloppy-bar-badge-trust lvl' + lvl + '" title="' + titles[lvl] + ' (Trust: ' + (userData.trustScore || 0) + ')">' + labels[lvl] + '</span>';
+  }
+
+  // ===================================================================
+  // === NOTIFICATIONS: toast API + bell panel ===
+  // ===================================================================
+
+  function _escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[<>&"]/g, function(c) {
+      return ({ '<':'&lt;', '>':'&gt;', '&':'&amp;', '"':'&quot;' })[c];
+    });
+  }
+
+  function _relativeTime(ts) {
+    var diff = Math.max(0, Date.now() - ts);
+    if (diff < 30 * 1000) return 'just now';
+    if (diff < 60 * 1000) return Math.floor(diff / 1000) + 's ago';
+    if (diff < 60 * 60 * 1000) return Math.floor(diff / 60000) + 'm ago';
+    if (diff < 24 * 60 * 60 * 1000) return Math.floor(diff / 3600000) + 'h ago';
+    return Math.floor(diff / 86400000) + 'd ago';
+  }
+
+  function _getToastStack() {
+    var stack = document.getElementById('sloppy-toast-stack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.id = 'sloppy-toast-stack';
+      stack.className = 'sloppy-toast-stack';
+      stack.setAttribute('role', 'region');
+      stack.setAttribute('aria-label', 'Notifications');
+      stack.setAttribute('aria-live', 'polite');
+      document.body.appendChild(stack);
+    }
+    return stack;
+  }
+
+  // Show a transient toast. Returns the toast element (or null if rate-limited).
+  // opts: { type, icon, duration, action: { label, href, onClick }, persist (bool) }
+  function _showToast(message, opts) {
+    opts = opts || {};
+    var now = Date.now();
+
+    // Rate limit
+    if (now - _toastLastTime < TOAST_RATE_MIN) {
+      // Coalesce by simply dropping rapid-fire repeats unless explicitly opts.bypassRate
+      if (!opts.bypassRate) return null;
+    }
+
+    // Dedupe identical (type+message) within window
+    var type = (opts.type || 'info').toLowerCase();
+    _toastRecent = _toastRecent.filter(function(r) { return now - r.ts < TOAST_DEDUPE_WINDOW; });
+    var dup = _toastRecent.find(function(r) { return r.msg === message && r.type === type; });
+    if (dup) return null;
+    _toastRecent.push({ msg: message, type: type, ts: now });
+    _toastLastTime = now;
+
+    var stack = _getToastStack();
+
+    // Cap visible
+    while (stack.children.length >= TOAST_MAX_VISIBLE) {
+      var oldest = stack.firstElementChild;
+      if (!oldest) break;
+      oldest.classList.remove('in');
+      oldest.classList.add('out');
+      stack.removeChild(oldest);
+    }
+
+    var icon = opts.icon || _iconForType(type);
+    var toast = document.createElement('div');
+    toast.className = 'sloppy-toast sloppy-toast-' + type;
+    toast.setAttribute('role', type === 'error' || type === 'warn' ? 'alert' : 'status');
+
+    var actionHtml = '';
+    if (opts.action && opts.action.label) {
+      var aLabel = _escapeHtml(opts.action.label);
+      if (opts.action.href) {
+        actionHtml = '<a class="sloppy-toast-action" href="' + _escapeHtml(opts.action.href) + '">' + aLabel + '</a>';
+      } else {
+        actionHtml = '<button class="sloppy-toast-action" type="button" data-toast-action="1">' + aLabel + '</button>';
+      }
+    }
+    toast.innerHTML =
+      '<span class="sloppy-toast-icon" aria-hidden="true">' + _escapeHtml(icon) + '</span>' +
+      '<div class="sloppy-toast-body"><div class="sloppy-toast-msg">' + _escapeHtml(message) + '</div>' + actionHtml + '</div>' +
+      '<button class="sloppy-toast-close" type="button" aria-label="Dismiss">×</button>';
+
+    stack.appendChild(toast);
+    // animate in
+    requestAnimationFrame(function() { toast.classList.add('in'); });
+
+    var dismiss = function() {
+      if (!toast.parentNode) return;
+      toast.classList.remove('in');
+      toast.classList.add('out');
+      setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 280);
+    };
+    toast.querySelector('.sloppy-toast-close').onclick = dismiss;
+    if (opts.action && opts.action.onClick) {
+      var btn = toast.querySelector('[data-toast-action]');
+      if (btn) btn.onclick = function(ev) { try { opts.action.onClick(ev); } catch(e) {} dismiss(); };
+    }
+
+    var duration = typeof opts.duration === 'number' ? opts.duration : 4000;
+    if (duration > 0) setTimeout(dismiss, duration);
+
+    return toast;
+  }
+
+  function _iconForType(type) {
+    switch (type) {
+      case 'success': return '✓';
+      case 'warn':    return '⚠';
+      case 'error':   return '✕';
+      case 'info':
+      default:        return 'ℹ';
+    }
+  }
+
+  // Push an entry into the persistent log (and surface as toast unless silent).
+  // opts: { type, icon, action, silent (don't toast), unread (default true), source }
+  function _pushNotification(message, opts) {
+    opts = opts || {};
+    var entry = {
+      id: 'n' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      type: (opts.type || 'info').toLowerCase(),
+      icon: opts.icon || _iconForType((opts.type || 'info').toLowerCase()),
+      msg: String(message || ''),
+      ts: Date.now(),
+      read: opts.unread === false,
+      action: opts.action || null,
+      source: opts.source || 'app'
+    };
+    _notifLog.unshift(entry);
+    if (_notifLog.length > NOTIF_MAX) _notifLog.length = NOTIF_MAX;
+    if (!entry.read) _notifUnreadCount++;
+    _persistNotifLog();
+    _updateBellBadge();
+    if (_notifPanelOpen) _renderNotifPanel();
+    if (!opts.silent) {
+      _showToast(entry.msg, { type: entry.type, icon: entry.icon, action: entry.action });
+    }
+    return entry;
+  }
+
+  function _updateBellBadge() {
+    var badge = document.getElementById('sloppy-bar-bell-badge');
+    if (!badge) return;
+    if (_notifUnreadCount > 0) {
+      badge.textContent = _notifUnreadCount > 99 ? '99+' : String(_notifUnreadCount);
+      badge.classList.add('show');
+      var bell = badge.parentElement;
+      if (bell) {
+        bell.classList.remove('has-unread');
+        // force reflow to retrigger wiggle on every increment
+        void bell.offsetWidth;
+        bell.classList.add('has-unread');
+        bell.setAttribute('aria-expanded', String(_notifPanelOpen));
+      }
+    } else {
+      badge.classList.remove('show');
+      badge.textContent = '0';
+    }
+  }
+
+  // Render bell panel
+  function _renderNotifPanel() {
+    var panel = document.getElementById('sloppy-bar-notif-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'sloppy-bar-notif-panel';
+      panel.className = 'sloppy-bar-notif-panel';
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-label', 'Notifications');
+      document.body.appendChild(panel);
+    }
+    var listHtml;
+    if (!_notifLog.length) {
+      listHtml = '<div class="sloppy-np-empty">no notifications yet</div>';
+    } else {
+      listHtml = _notifLog.slice(0, 20).map(function(n) {
+        var actionHtml = '';
+        if (n.action && n.action.label) {
+          var lbl = _escapeHtml(n.action.label);
+          if (n.action.href) actionHtml = '<a class="sloppy-np-action" href="' + _escapeHtml(n.action.href) + '">' + lbl + '</a>';
+        }
+        return '<div class="sloppy-np-item ' + (n.read ? '' : 'unread') + '">' +
+          '<span class="sloppy-np-icon sloppy-np-type-' + n.type + '" aria-hidden="true">' + _escapeHtml(n.icon) + '</span>' +
+          '<div class="sloppy-np-body">' +
+            '<div class="sloppy-np-msg">' + _escapeHtml(n.msg) + '</div>' +
+            actionHtml +
+            '<div class="sloppy-np-meta">' + _escapeHtml(_relativeTime(n.ts)) + (n.source && n.source !== 'app' ? ' · ' + _escapeHtml(n.source) : '') + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+    panel.innerHTML =
+      '<div class="sloppy-np-header">' +
+        '<div class="sloppy-np-title">🔔 Notifications' + (_notifUnreadCount > 0 ? ' · ' + _notifUnreadCount + ' new' : '') + '</div>' +
+        (_notifUnreadCount > 0 ? '<button class="sloppy-np-mark" type="button" onclick="window.sloppyBarMarkAllRead()">Mark all read</button>' : '') +
+      '</div>' +
+      '<div class="sloppy-np-list">' + listHtml + '</div>' +
+      '<div class="sloppy-np-footer">' +
+        '<span>showing ' + Math.min(_notifLog.length, 20) + (_notifLog.length > 20 ? ' of ' + _notifLog.length : '') + '</span>' +
+        (_notifLog.length ? '<button class="sloppy-np-clear" type="button" onclick="window.sloppyBarClearNotifications()">Clear all</button>' : '') +
+      '</div>';
+    panel.classList.add('open');
+  }
+
+  function _hideNotifPanel() {
+    var panel = document.getElementById('sloppy-bar-notif-panel');
+    if (panel) panel.classList.remove('open');
+    _notifPanelOpen = false;
+    var bell = document.querySelector('.sloppy-bar-bell');
+    if (bell) bell.setAttribute('aria-expanded', 'false');
+  }
+
+  window.sloppyBarToggleNotifications = function(ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    if (_notifPanelOpen) { _hideNotifPanel(); return; }
+    _notifPanelOpen = true;
+    _renderNotifPanel();
+    var bell = document.querySelector('.sloppy-bar-bell');
+    if (bell) bell.setAttribute('aria-expanded', 'true');
+    // Auto-mark as read after a half second of being open
+    setTimeout(function() {
+      if (_notifPanelOpen) window.sloppyBarMarkAllRead();
+    }, 700);
+    // Close on outside click
+    setTimeout(function() {
+      var off = function(e) {
+        var panel = document.getElementById('sloppy-bar-notif-panel');
+        if (!panel) return document.removeEventListener('click', off);
+        if (panel.contains(e.target)) return;
+        if (e.target.closest('.sloppy-bar-bell')) return;
+        _hideNotifPanel();
+        document.removeEventListener('click', off);
+      };
+      document.addEventListener('click', off);
+    }, 0);
+  };
+
+  window.sloppyBarMarkAllRead = function() {
+    var changed = false;
+    for (var i = 0; i < _notifLog.length; i++) {
+      if (!_notifLog[i].read) { _notifLog[i].read = true; changed = true; }
+    }
+    _notifUnreadCount = 0;
+    if (changed) _persistNotifLog();
+    _updateBellBadge();
+    if (_notifPanelOpen) _renderNotifPanel();
+  };
+
+  window.sloppyBarClearNotifications = function() {
+    _notifLog = [];
+    _notifUnreadCount = 0;
+    _persistNotifLog();
+    _updateBellBadge();
+    if (_notifPanelOpen) _renderNotifPanel();
+  };
+
+  // Auto-feed: convert relevant sync events into notification entries.
+  // Returns true if an entry was added.
+  function _autoFeedFromSyncEvent(event, data) {
+    if (event === 'unread-changed' && data) {
+      var dms = data.dms || 0;
+      var mentions = data.mentions || 0;
+      var dmDelta = dms - _lastSeenUnreadDmCount;
+      var mentionDelta = mentions - _lastSeenUnreadMentionCount;
+      _lastSeenUnreadDmCount = dms;
+      _lastSeenUnreadMentionCount = mentions;
+      if (dmDelta > 0) {
+        _pushNotification(dmDelta + ' new direct message' + (dmDelta > 1 ? 's' : ''),
+          { type: 'info', icon: '💌', source: 'sloppy-id',
+            action: { label: 'open', href: '/sloppy-id' } });
+        return true;
+      }
+      if (mentionDelta > 0) {
+        _pushNotification(mentionDelta + ' new mention' + (mentionDelta > 1 ? 's' : ''),
+          { type: 'info', icon: '@', source: 'sloppy-alerts',
+            action: { label: 'view', href: '/sloppy-alerts' } });
+        return true;
+      }
+    } else if (event === 'karma-changed' && data && typeof data.delta === 'number' && data.delta !== 0) {
+      var sign = data.delta > 0 ? '+' : '';
+      _pushNotification('Karma ' + sign + data.delta + (data.reason ? ' · ' + data.reason : ''),
+        { type: data.delta > 0 ? 'success' : 'warn', icon: '⚡', source: 'karma' });
+      return true;
+    } else if (event === 'verification-changed' && data && data.verificationLevel) {
+      // Only notify on level increase
+      var prev = (userData.verificationLevel || 0);
+      if (data.verificationLevel > prev) {
+        _pushNotification('Verification upgraded · level ' + data.verificationLevel,
+          { type: 'success', icon: '✓', source: 'sloppy-id',
+            action: { label: 'view', href: '/sloppy-id' } });
+        return true;
+      }
+    }
+    return false;
   }
 
   function formatNumber(num) {
@@ -1929,6 +2564,66 @@
       }
       if (callback) callback(Object.assign({}, userContext));
     });
+  };
+
+  /**
+   * Fire a transient toast notification (visible top-right, auto-dismisses ~4s).
+   * @param {string} message - text to display
+   * @param {Object} [opts]
+   * @param {('info'|'success'|'warn'|'error')} [opts.type='info']
+   * @param {string} [opts.icon] - emoji or single char (default: type-derived)
+   * @param {number} [opts.duration=4000] - ms (0 = sticky until dismissed)
+   * @param {{label:string, href?:string, onClick?:Function}} [opts.action]
+   * @returns {HTMLElement|null} the toast element, or null if rate-limited/duplicate
+   *
+   * Usage:
+   *   window.sloppyBarToast('Saved!');
+   *   window.sloppyBarToast('Karma +5', { type: 'success', icon: '⚡' });
+   *   window.sloppyBarToast('Connection lost', { type: 'error', duration: 0,
+   *     action: { label: 'retry', onClick: () => retry() } });
+   */
+  window.sloppyBarToast = function(message, opts) {
+    if (!message) return null;
+    return _showToast(String(message), opts || {});
+  };
+
+  /**
+   * Push a notification into the bell panel log AND optionally show a toast.
+   * Persisted across page loads in localStorage (capped 30 entries).
+   * @param {string} message
+   * @param {Object} [opts]
+   * @param {('info'|'success'|'warn'|'error')} [opts.type='info']
+   * @param {string} [opts.icon]
+   * @param {boolean} [opts.silent=false] - if true, skip the toast (bell only)
+   * @param {boolean} [opts.unread=true] - mark as unread (default yes)
+   * @param {{label:string, href?:string}} [opts.action]
+   * @param {string} [opts.source] - origin label (e.g., 'karma', 'app-name')
+   *
+   * Usage:
+   *   window.sloppyBarNotify('New comment on your app', {
+   *     type: 'info', icon: '💬', source: 'sloppy-feed',
+   *     action: { label: 'view', href: '/sloppy-feed' }
+   *   });
+   */
+  window.sloppyBarNotify = function(message, opts) {
+    if (!message) return null;
+    return _pushNotification(String(message), opts || {});
+  };
+
+  /**
+   * Get a snapshot of recent notifications from the bell log.
+   * @returns {Array<{id, type, icon, msg, ts, read, action, source}>}
+   */
+  window.sloppyBarGetNotifications = function() {
+    return _notifLog.slice();
+  };
+
+  /**
+   * Get current unread notification count.
+   * @returns {number}
+   */
+  window.sloppyBarGetUnreadCount = function() {
+    return _notifUnreadCount;
   };
 
   // Initialize on DOM ready
