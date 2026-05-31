@@ -47,6 +47,34 @@
     'Sloppy': ['activity-overlay','chat-pulse-monitor','chat-suggestions','content-manager','crisis-dashboard','federated-truth','fee-watchtower','overview','sloppy-analytics','sloppy-coin-info','sloppy-community','sloppy-dashboard','sloppy-flow','sloppy-id','sloppy-says','sloppy-spectrum','sloppy-xp','sloppys-gift','sploppy','status-dashboard','swarm-oracle','system-health']
   };
 
+  // === Ecosystem modules ===
+  // The core sloppygram-extracted apps that should be one-click-reachable from
+  // every page across the network. Ordered roughly by traffic / centrality.
+  // Categorized into 4 groups: TALK / IDENTITY / MAKE / PLAY for the dropdown
+  // section headers. Each entry: { path, name, icon, cat, desc }.
+  const ECOSYSTEM_MODULES = [
+    // TALK
+    { path: 'sloppy-chat',       name: 'Chat',       icon: '💬', cat: 'TALK',     desc: 'global green-phosphor chatroom' },
+    { path: 'sloppy-dms',        name: 'DMs',        icon: '💌', cat: 'TALK',     desc: 'direct messages' },
+    { path: 'sloppy-feed',       name: 'Feed',       icon: '📰', cat: 'TALK',     desc: 'global posts timeline' },
+    { path: 'sloppy-alerts',     name: 'Alerts',     icon: '🔔', cat: 'TALK',     desc: 'mentions / events feed' },
+    // IDENTITY
+    { path: 'sloppy-id',         name: 'Vault',      icon: '🪪', cat: 'IDENTITY', desc: 'your identity, vault, gifts' },
+    { path: 'karma-board',       name: 'Karma',      icon: '📊', cat: 'IDENTITY', desc: 'karma leaderboard' },
+    { path: 'sloppy-profiles',   name: 'Profiles',   icon: '👤', cat: 'IDENTITY', desc: 'people directory' },
+    { path: 'sloppy-network',    name: 'Network',    icon: '🕸',  cat: 'IDENTITY', desc: 'social graph' },
+    // MAKE
+    { path: 'sloppy-canvas',     name: 'Canvas',     icon: '🎨', cat: 'MAKE',     desc: 'collab whiteboard' },
+    { path: 'sloppy-radio',      name: 'Radio',      icon: '📻', cat: 'MAKE',     desc: 'synchronized radio' },
+    { path: 'sloppy-manifestos', name: 'Manifestos', icon: '📜', cat: 'MAKE',     desc: 'long-form essays' },
+    { path: 'sloppys-gift',      name: 'Gifts',      icon: '🎁', cat: 'MAKE',     desc: 'generate sigil artifacts' },
+    // PLAY
+    { path: 'sloppy-factions',   name: 'Factions',   icon: '⚔',  cat: 'PLAY',     desc: 'territory wars' },
+    { path: 'sloppy-oracle',     name: 'Oracle',     icon: '🔮', cat: 'PLAY',     desc: 'community Q&A' },
+    { path: 'sloppy-tags',       name: 'Tags',       icon: '🏷',  cat: 'PLAY',     desc: 'tag explorer' },
+    { path: 'sloppy-feedback',   name: 'Feedback',   icon: '💡', cat: 'PLAY',     desc: 'ideas + voting' },
+  ];
+
   // Build flat list + reverse lookup (curated fallback)
   const TELEPORT_APPS = [...new Set(Object.values(APP_CATEGORIES).flat())];
   const APP_TO_CATEGORY = {};
@@ -827,10 +855,43 @@
       border: 1px solid ${options.theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'};
       border-radius: 8px;
       padding: 8px 0;
-      min-width: 200px;
+      min-width: 280px;
+      max-width: 340px;
+      max-height: 70vh;
+      overflow-y: auto;
       box-shadow: 0 8px 30px rgba(0,0,0,0.3);
       z-index: 100000;
       display: none;
+    }
+    /* Ecosystem grid — compact 2-column list of all sloppygram modules */
+    .sloppy-bar-ecogrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px;
+      padding: 0 6px 6px;
+    }
+    .sloppy-bar-ecogrid .sloppy-bar-dropdown-item {
+      padding: 6px 8px;
+      font-size: 11px;
+      border-radius: 4px;
+      gap: 6px;
+    }
+    .sloppy-bar-ecogrid .sloppy-bar-dropdown-item-icon { font-size: 14px; }
+    .sloppy-bar-ecogrid .sloppy-bar-dropdown-item-name {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sloppy-bar-ecogrid .sloppy-bar-dropdown-item.current {
+      background: ${options.theme === 'light' ? 'rgba(0,221,255,0.18)' : 'rgba(0,221,255,0.22)'};
+      color: #00ddff;
+      pointer-events: none;
+    }
+    .sloppy-bar-ecogrid .sloppy-bar-dropdown-item.current::after {
+      content: '● here';
+      margin-left: auto;
+      font-size: 9px;
+      opacity: 0.7;
     }
     .sloppy-bar-dropdown.open {
       display: block;
@@ -1711,10 +1772,10 @@
       </div>
       ${!options.hideLinks ? `
       <div class="sloppy-bar-center">
-        <a href="/sloppygram#karma" class="sloppy-bar-link" title="Karma Leaderboard">📊 Karma</a>
+        <a href="/karma-board" class="sloppy-bar-link" title="Karma Leaderboard">📊 Karma</a>
         <span class="sloppy-bar-vault-wrap"><a href="/sloppy-id" class="sloppy-bar-link" title="Your Data Vault">🪪 Vault</a><span class="sloppy-bar-notif-dot ${userContext.unreadCount > 0 ? 'show' : ''}" id="sloppy-bar-notif"></span></span>
         <div class="sloppy-bar-dropdown-wrapper">
-          <span class="sloppy-bar-link sloppy-bar-apps-trigger" onclick="window.sloppyBarToggleDropdown(event)" title="Recent Apps">🚀 Apps</span>
+          <span class="sloppy-bar-link sloppy-bar-apps-trigger" onclick="window.sloppyBarToggleDropdown(event)" title="Ecosystem · all modules + recent apps">🚀 Apps</span>
           <div class="sloppy-bar-dropdown ${dropdownOpen ? 'open' : ''}" id="sloppy-bar-dropdown">
             ${renderDropdown()}
           </div>
@@ -2161,33 +2222,49 @@
   function renderDropdown() {
     const recentApps = getRecentApps();
     const currentPath = window.location.pathname.replace(/^\//, '').replace(/\/$/, '').split('/')[0];
+    const ecoPaths = new Set(ECOSYSTEM_MODULES.map(m => m.path));
 
-    // Filter out current app
-    const filtered = recentApps.filter(app => app.path !== currentPath);
-
-    if (filtered.length === 0) {
-      return `
-        <div class="sloppy-bar-dropdown-header">Recent Apps</div>
-        <div class="sloppy-bar-dropdown-empty">No recent apps yet<br>Start exploring!</div>
-        <div class="sloppy-bar-dropdown-footer">
-          <a href="/app-directory">Browse All Apps →</a>
-        </div>
-      `;
+    // Group ecosystem modules by category, preserving insertion order.
+    const byCat = {};
+    for (const m of ECOSYSTEM_MODULES) {
+      if (!byCat[m.cat]) byCat[m.cat] = [];
+      byCat[m.cat].push(m);
     }
 
-    const items = filtered.slice(0, 6).map(app => `
-      <a href="/${app.path}" class="sloppy-bar-dropdown-item">
-        <span class="sloppy-bar-dropdown-item-icon">${getAppIcon(app.name)}</span>
-        <span class="sloppy-bar-dropdown-item-name">${app.name}</span>
-        <span class="sloppy-bar-dropdown-item-time">${getTimeAgo(app.timestamp)}</span>
-      </a>
+    const ecoSections = Object.entries(byCat).map(([cat, modules]) => `
+      <div class="sloppy-bar-dropdown-header">${cat}</div>
+      <div class="sloppy-bar-ecogrid">
+        ${modules.map(m => {
+          const isCurrent = m.path === currentPath;
+          return `<a href="/${m.path}" class="sloppy-bar-dropdown-item${isCurrent ? ' current' : ''}" title="${m.desc}">
+            <span class="sloppy-bar-dropdown-item-icon">${m.icon}</span>
+            <span class="sloppy-bar-dropdown-item-name">${m.name}</span>
+          </a>`;
+        }).join('')}
+      </div>
     `).join('');
 
+    // Recent apps section — filter out current AND modules already in the
+    // Ecosystem grid above (no need to show them twice).
+    const recentFiltered = recentApps
+      .filter(app => app.path !== currentPath && !ecoPaths.has(app.path))
+      .slice(0, 4);
+    const recentSection = recentFiltered.length > 0 ? `
+      <div class="sloppy-bar-dropdown-header">RECENT</div>
+      ${recentFiltered.map(app => `
+        <a href="/${app.path}" class="sloppy-bar-dropdown-item">
+          <span class="sloppy-bar-dropdown-item-icon">${getAppIcon(app.name)}</span>
+          <span class="sloppy-bar-dropdown-item-name">${app.name}</span>
+          <span class="sloppy-bar-dropdown-item-time">${getTimeAgo(app.timestamp)}</span>
+        </a>
+      `).join('')}
+    ` : '';
+
     return `
-      <div class="sloppy-bar-dropdown-header">Recent Apps</div>
-      ${items}
+      ${ecoSections}
+      ${recentSection}
       <div class="sloppy-bar-dropdown-footer">
-        <a href="/app-directory">Browse All Apps →</a>
+        <a href="/app-directory">Browse All ${LIVE_INDEX ? LIVE_INDEX.length.toLocaleString() : ''} Apps →</a>
       </div>
     `;
   }
