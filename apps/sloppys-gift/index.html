@@ -499,7 +499,7 @@
 
       <div class="actions">
         <button class="btn btn-primary" id="newGiftBtn" onclick="generateGift()">New Gift</button>
-        <button class="btn btn-submit" id="submitBtn" onclick="submitToLeaderboard()">Submit</button>
+        <button class="btn btn-submit" id="submitBtn" onclick="submitToLeaderboard()" disabled>Submit</button>
         <button class="btn btn-secondary" onclick="saveGift()">Save</button>
       </div>
       <div class="share-row">
@@ -630,15 +630,28 @@
       { name: "Legendary", class: "rarity-legendary", chance: 0.02, rank: 5 }
     ];
 
-    // Auth
+    // Auth — resilient version.
+    // Without a logged-in currentUser, submitToLeaderboard() bails with a
+    // confusing "Please generate a gift first" error even when the gift IS
+    // generated. So we surface auth failures clearly and provide a re-try
+    // path (ensureUser) that submit can call to self-heal.
     async function initAuth() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        currentUser = session.user;
-      } else {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) { currentUser = session.user; return; }
         const { data, error } = await supabase.auth.signInAnonymously();
+        if (error) { console.warn('initAuth signInAnonymously error:', error.message); return; }
         if (data?.user) currentUser = data.user;
+      } catch (err) {
+        console.warn('initAuth threw:', err && err.message);
       }
+    }
+    // Called from submitToLeaderboard if currentUser is somehow still null
+    // by the time the user clicks Submit (failed init, network blip, etc).
+    async function ensureUser() {
+      if (currentUser) return currentUser;
+      await initAuth();
+      return currentUser;
     }
 
     function seededRandom(seed) {
@@ -661,9 +674,14 @@
     }
 
     window.generateGift = function() {
-      // Check daily limit
+      // Check daily limit — show feedback so the button doesn't appear dead.
       if (getDailyCount() >= DAILY_LIMIT) {
         updateDailyLimitDisplay();
+        const s = document.getElementById('submitStatus');
+        if (s) {
+          s.textContent = 'Daily gift limit reached. Come back tomorrow.';
+          s.className = 'submit-status error';
+        }
         return;
       }
 
@@ -830,9 +848,23 @@
     };
 
     window.submitToLeaderboard = async function() {
-      if (!currentGift || !currentUser) {
-        document.getElementById('submitStatus').textContent = 'Please generate a gift first';
-        document.getElementById('submitStatus').className = 'submit-status error';
+      // Split the two failure modes so users get an accurate error.
+      // Before this fix, both null-currentGift AND null-currentUser surfaced
+      // the same "Please generate a gift first" message, which was wrong + made
+      // the Submit button look broken whenever auth hadn't completed.
+      if (!currentGift) {
+        const s = document.getElementById('submitStatus');
+        s.textContent = 'Please generate a gift first';
+        s.className = 'submit-status error';
+        return;
+      }
+      // Self-heal: if auth dropped (e.g. anon sign-in race), try one more time
+      // before declaring defeat.
+      if (!currentUser) await ensureUser();
+      if (!currentUser) {
+        const s = document.getElementById('submitStatus');
+        s.textContent = 'Could not sign you in. Please refresh and try again.';
+        s.className = 'submit-status error';
         return;
       }
 
