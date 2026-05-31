@@ -2711,39 +2711,52 @@
       }
     }
 
-    // Pre-flight probe: hit the Supabase auth callback endpoint with a
-    // synthetic error param. Supabase responds with a 303 whose Location
-    // header is ALWAYS the project's effective fallback target — either the
-    // project's SITE_URL (when the redirectTo isn't allowlisted) or our
-    // redirectTo (when it is). Reading that Location tells us in advance
-    // whether sign-in is about to dump users on a dead legacy domain.
+    // === OAuth pre-flight ===
+    // The previous version of this probe was structurally broken: it relied on
+    // reading res.url after fetch followed the 303 from supabase.co. But the
+    // 303 target (vibecodedbyx.com) returns NO Access-Control-Allow-Origin
+    // header, so the browser blocks the CORS follow and fetch rejects with
+    // TypeError. The probe always landed in the catch, ok=false, and the
+    // misconfiguration check silently failed-open.
     //
-    // This is the only signal we can get from the browser — the dashboard
-    // (SITE_URL + Redirect URLs allowlist) isn't readable from anon clients.
+    // Confirmed via direct curl probe:
+    //   GET https://yjyxteqzhhmtrgcaekgz.supabase.co/auth/v1/callback?error=preflight
+    //   → 303 Location: https://vibecodedbyx.com/?error=...   (CORS allowed)
+    //   GET https://vibecodedbyx.com/?error=...
+    //   → 307 to www.vibecodedbyx.com         (NO CORS headers)
     //
-    // Cached for the page lifetime so we don't probe on every click.
+    // Since fetch can't read the Location of a cross-origin redirect (fetch
+    // spec limitation — redirect:'manual' in cors mode returns opaqueredirect
+    // with no readable headers), we use the CORS failure itself as the signal.
+    // Our canonical sloppy.live infra returns Access-Control-Allow-Origin
+    // headers, so a follow-failure strongly implies the fallback target is
+    // the dead legacy host. A second "control" probe against a known-friendly
+    // URL disambiguates this from generic network/extension issues so we
+    // don't false-positive when a user is offline or has a CORS-blocking ext.
     let _fallbackProbeCache = null;
     async function _probeAuthFallback() {
       if (_fallbackProbeCache) return _fallbackProbeCache;
+      const probeUrl = 'https://yjyxteqzhhmtrgcaekgz.supabase.co/auth/v1/callback?error=preflight';
+      const controlUrl = '/app-directory/index.json';  // CORS-friendly same-origin static asset
+
+      let probeFollowed = false;
+      let probeFinalUrl = '';
+      let probeErr = '';
+      let controlOk = false;
+      let controlErr = '';
+
       try {
-        const probeUrl = 'https://yjyxteqzhhmtrgcaekgz.supabase.co/auth/v1/callback?error=preflight';
-        // fetch will follow the 303 by default; we want to capture the redirect,
-        // not follow it. Setting redirect:'manual' on a cross-origin request
-        // gives us an opaqueredirect response with no headers visible, so we
-        // can't read Location directly. The reliable workaround: use a HEAD
-        // request through a CORS-allowed path that returns the same fallback.
-        // Supabase's /auth/v1/callback responds with permissive CORS, so HEAD
-        // + manual redirect actually does expose the Location via .headers in
-        // some browsers but most return opaqueredirect. So we fall back to
-        // following the redirect once and inspecting response.url.
         const res = await fetch(probeUrl, { method: 'GET', redirect: 'follow', cache: 'no-store', mode: 'cors' });
-        // res.url is the FINAL URL after redirects. If Supabase 303s us to a
-        // legacy domain, fetch then follows that 307 to www-variant — both
-        // are sniffable here.
-        _fallbackProbeCache = { fallbackUrl: res.url || '', ok: true };
-      } catch (e) {
-        _fallbackProbeCache = { fallbackUrl: '', ok: false, err: String(e?.message || e) };
-      }
+        probeFollowed = true;
+        probeFinalUrl = res.url || '';
+      } catch (e) { probeErr = String(e?.message || e); }
+
+      try {
+        const res = await fetch(controlUrl, { method: 'GET', cache: 'no-store' });
+        controlOk = res.ok;
+      } catch (e) { controlErr = String(e?.message || e); }
+
+      _fallbackProbeCache = { probeFollowed, probeFinalUrl, probeErr, controlOk, controlErr };
       return _fallbackProbeCache;
     }
 
@@ -2757,17 +2770,43 @@
 
     // Auth functions
     window.signInWithTwitter = async function() {
-      // Pre-flight: refuse to launch OAuth if the Supabase project's
-      // fallback target is the dead legacy domain. Users would otherwise
-      // walk through the entire flow and land on a 404 with no session.
+      // Pre-flight gate: refuse to launch OAuth if we have strong evidence
+      // the Supabase project's fallback target is the dead legacy domain.
+      // Three signals we treat as misconfiguration:
+      //   (a) Probe followed AND landed on an explicit LEGACY_HOSTS hostname.
+      //   (b) Probe FAILED (CORS-blocked the cross-origin redirect) AND the
+      //       control probe succeeded — proves it's not a generic network /
+      //       extension issue, and our canonical infra HAS CORS so a CORS
+      //       failure ≈ landed on a non-canonical (i.e., legacy) host.
+      //   (c) Probe followed AND landed somewhere that isn't a sloppy.live
+      //       host or a supabase.co host — covers domains not in LEGACY_HOSTS
+      //       but also not where users should end up.
+      // If control also fails → user has a broken network, fail-open and let
+      // the actual OAuth flow surface its own error.
       const probe = await _probeAuthFallback();
-      if (probe.ok && _isLegacyFallback(probe.fallbackUrl)) {
-        const fallbackHost = (new URL(probe.fallbackUrl)).hostname;
-        const msg = 'Sign-in is misconfigured at the moment — Supabase would route you to ' +
-                    fallbackHost + ' (a dead domain) instead of sloppy.live. ' +
-                    'A dashboard fix is required (SITE_URL + Redirect URLs allowlist).';
+      const explicitLegacy = probe.probeFollowed && _isLegacyFallback(probe.probeFinalUrl);
+      let nonCanonicalLanding = false;
+      if (probe.probeFollowed && probe.probeFinalUrl) {
+        try {
+          const h = new URL(probe.probeFinalUrl).hostname;
+          const isCanonical = h === 'sloppy.live' || h.endsWith('.sloppy.live') || h.endsWith('.supabase.co');
+          if (!isCanonical) nonCanonicalLanding = true;
+        } catch {}
+      }
+      const corsBlockedFollow = !probe.probeFollowed && probe.controlOk;
+
+      if (explicitLegacy || nonCanonicalLanding || corsBlockedFollow) {
+        let reason;
+        if (explicitLegacy) {
+          reason = 'Supabase would route you to ' + (new URL(probe.probeFinalUrl)).hostname + ' (a dead domain) instead of sloppy.live';
+        } else if (nonCanonicalLanding) {
+          reason = 'Supabase OAuth callback redirects to ' + (new URL(probe.probeFinalUrl)).hostname + ', not a sloppy.live host';
+        } else {
+          reason = 'Supabase OAuth callback redirects to a non-app domain (CORS blocked the trace, but our canonical infra would not). Almost certainly the legacy fallback URL is still configured';
+        }
+        const msg = 'Sign-in misconfigured — ' + reason + '. A dashboard fix is required (SITE_URL + Redirect URLs allowlist).';
         showToast(msg, 'error');
-        console.warn('[sloppy-id] OAuth pre-flight detected legacy fallback:', probe.fallbackUrl);
+        console.warn('[sloppy-id] OAuth pre-flight failed', { explicitLegacy, nonCanonicalLanding, corsBlockedFollow, probe });
         return;
       }
 
