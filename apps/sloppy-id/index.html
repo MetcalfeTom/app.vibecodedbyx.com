@@ -4060,26 +4060,44 @@
       editorProfile.status = document.getElementById('editorStatus').value.trim();
 
       try {
-        // Save to sloppygram_profiles (primary source)
-        const { error } = await supabase
+        // Save to sloppygram_profiles (primary source).
+        // Use select-then-insert/update instead of .upsert({onConflict:'user_id'})
+        // because user_id isn't UNIQUE-constrained at the DB level — Postgres
+        // requires a unique or exclusion constraint for ON CONFLICT to work,
+        // and .upsert was throwing "no unique or exclusion constraint matching".
+        const profilePayload = {
+          username: editorProfile.username,
+          avatar: editorProfile.avatarUrl || editorProfile.avatar,
+          color: editorProfile.color,
+          bio: editorProfile.status || '',
+          updated_at: new Date().toISOString()
+        };
+        const { data: existingProfile, error: profileSelErr } = await supabase
           .from('sloppygram_profiles')
-          .upsert({
-            user_id: currentUser.id,
-            username: editorProfile.username,
-            avatar: editorProfile.avatarUrl || editorProfile.avatar,
-            color: editorProfile.color,
-            bio: editorProfile.status || '',
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'user_id' });
-        if (error) throw error;
+          .select('user_id')
+          .eq('user_id', currentUser.id)
+          .maybeSingle();
+        if (profileSelErr) throw profileSelErr;
+        if (existingProfile) {
+          const { error } = await supabase
+            .from('sloppygram_profiles')
+            .update(profilePayload)
+            .eq('user_id', currentUser.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('sloppygram_profiles')
+            .insert({ ...profilePayload, user_id: currentUser.id });
+          if (error) throw error;
+        }
 
-        // Mirror to sloppy_identities (same instance now)
+        // Mirror to sloppy_identities (same instance now). Same select-then-write
+        // pattern for the same reason — non-fatal mirror, swallowed on failure.
         try {
           if (currentUser) {
             const avatarVal = editorProfile.avatarUrl || editorProfile.avatar;
             const isUrl = avatarVal && (avatarVal.startsWith('http') || avatarVal.startsWith('data:'));
-            await supabase.from('sloppy_identities').upsert({
-              user_id: currentUser.id,
+            const identityPayload = {
               username: editorProfile.username,
               avatar: isUrl ? '' : avatarVal,
               avatar_url: isUrl ? avatarVal : '',
@@ -4087,7 +4105,25 @@
               bio: editorProfile.status || '',
               source_table: 'sloppygram_profiles',
               updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id' });
+            };
+            const { data: existingIdentity, error: idSelErr } = await supabase
+              .from('sloppy_identities')
+              .select('user_id')
+              .eq('user_id', currentUser.id)
+              .maybeSingle();
+            if (idSelErr) throw idSelErr;
+            if (existingIdentity) {
+              const { error } = await supabase
+                .from('sloppy_identities')
+                .update(identityPayload)
+                .eq('user_id', currentUser.id);
+              if (error) throw error;
+            } else {
+              const { error } = await supabase
+                .from('sloppy_identities')
+                .insert({ ...identityPayload, user_id: currentUser.id });
+              if (error) throw error;
+            }
             console.log('[Identity] Mirrored to sloppy_identities');
           }
         } catch (mirrorErr) {
