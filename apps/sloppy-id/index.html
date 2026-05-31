@@ -2178,6 +2178,36 @@
       { cookieOptions: _co }
     );
 
+    // === Canonical app domain ===
+    // The Supabase project's SITE_URL still points at the legacy vibecodedbyx
+    // domain (a dashboard setting we can't change from code). When the project's
+    // Redirect-URLs allowlist doesn't exactly match the OAuth redirectTo we pass,
+    // Supabase silently falls back to SITE_URL — bouncing users to the legacy
+    // domain instead of back to /sloppy-id. Until the dashboard is fixed, this
+    // boot-time guard catches the bounce and re-routes to the canonical app
+    // origin, preserving any OAuth callback query/hash so the session lands.
+    const CANONICAL_APP_ORIGIN = 'https://sloppy.live';
+    const LEGACY_HOSTS = ['vibecodedbyx.com', 'www.vibecodedbyx.com',
+                          'youreabsolutelyright.xyz', 'www.youreabsolutelyright.xyz'];
+    (function _canonicalizeDomain() {
+      try {
+        if (!LEGACY_HOSTS.includes(window.location.hostname)) return;
+        // Only bounce when there's evidence of an OAuth callback in transit —
+        // we don't want to forcibly redirect everyone visiting the legacy
+        // domain, only sessions that need to land at the canonical app to
+        // complete sign-in (?code= for PKCE flow, #access_token= for implicit).
+        const hasCode = /[?&]code=/.test(window.location.search);
+        const hasFragmentToken = /[#&]access_token=/.test(window.location.hash);
+        const hasError = /[?&]error=/.test(window.location.search);
+        if (!hasCode && !hasFragmentToken && !hasError) return;
+        const target = CANONICAL_APP_ORIGIN + '/sloppy-id'
+                     + window.location.search
+                     + window.location.hash;
+        // Replace so this page doesn't end up in history.
+        window.location.replace(target);
+      } catch (_) {}
+    })();
+
     let currentUser = null;
     let userProfile = { username: 'Anonymous', avatar: '👤', isTwitter: false };
     let vaultEntries = [];
@@ -2692,17 +2722,30 @@
         catch (e) { topSameOrigin = false; }
       }
 
+      // Canonical app origin — never send users to a legacy host even if they
+      // happen to be visiting one. Falls back to current origin if we're on
+      // a non-legacy host (e.g. dev / preview deploys).
+      const _curHost = window.location.hostname;
+      const _onCanonical = _curHost === 'sloppy.live' || _curHost.endsWith('.sloppy.live');
+      const _onLegacy = LEGACY_HOSTS.includes(_curHost);
+      const _baseOrigin = (_onCanonical || _onLegacy)
+        ? CANONICAL_APP_ORIGIN
+        : (inFrame && topSameOrigin
+            ? window.top.location.origin
+            : window.location.origin);
+      const _basePath = (inFrame && topSameOrigin)
+        ? window.top.location.pathname
+        : window.location.pathname;
+
       // When embedded, use Supabase's skipBrowserRedirect to get the URL back
       // and route it ourselves — either to window.top (same-origin parent) or
       // a brand-new tab (cross-origin / sandbox-locked parent).
       const opts = {
         provider: 'twitter',
         options: {
-          // When embedded, redirect back to the TOP-level location after auth
-          // (so the user lands on the real page, not deep inside the iframe).
-          redirectTo: (inFrame && topSameOrigin
-                        ? window.top.location.origin + window.top.location.pathname
-                        : window.location.origin + window.location.pathname),
+          // Explicit canonical app URL — gives Supabase's allowlist match the
+          // best chance and prevents SITE_URL fallback to the legacy domain.
+          redirectTo: _baseOrigin + _basePath,
           skipBrowserRedirect: inFrame
         }
       };
