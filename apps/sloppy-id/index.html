@@ -2440,9 +2440,36 @@
         try {
           if (session) {
             currentUser = session.user;
+
+            // Wait for the header sync hub to ingest the new auth state before
+            // we read profile/karma/premium/trust from its cached context.
+            // Both apps' auth listeners fire on the same event, but the header's
+            // fetchUserData() is fire-and-forget, so without this await we'd
+            // pull stale "Guest" context. 1.5s safety cap in case header is
+            // missing or slow on a flaky network.
+            await _awaitHeaderResync();
+
             await loadUserProfile();
             await loadVerifications();
             updateUI();
+
+            // Broadcast the fresh identity so other tabs/apps update their
+            // username + avatar without waiting on their own DB roundtrip.
+            // (header itself broadcasts auth-changed; this complements with the
+            // full identity payload.)
+            if (window.sloppyBarEmit && currentUser) {
+              try {
+                window.sloppyBarEmit('identity-changed', {
+                  username: userProfile.username,
+                  avatarUrl: typeof userProfile.avatar === 'string' && /^(https?:|data:)/.test(userProfile.avatar) ? userProfile.avatar : null,
+                  avatar: typeof userProfile.avatar === 'string' && !/^(https?:|data:)/.test(userProfile.avatar) ? userProfile.avatar : null,
+                  userId: currentUser.id,
+                  authProvider: userProfile.isTwitter ? 'twitter' : 'anonymous',
+                  event: event
+                });
+              } catch (_) {}
+            }
+
             loadVaultEntries();
             loadProfileFromVault();
             initCommsHub();
@@ -2451,12 +2478,31 @@
             userProfile = { username: 'Anonymous', avatar: '👤', isTwitter: false };
             verifications = {};
             updateUI();
+            // Sign-out: nudge header to clear its cached identity too.
+            if (window.sloppyBarRefresh) {
+              try { window.sloppyBarRefresh(function(){}); } catch (_) {}
+            }
+            if (window.sloppyBarEmit) {
+              try { window.sloppyBarEmit('identity-changed', { username: 'Guest', userId: null, authProvider: null, event: event }); } catch (_) {}
+            }
           }
         } catch (err) {
           console.error('Auth state change handler error:', err);
           // Still try to update UI even if some sub-calls failed
           try { updateUI(); } catch (_) {}
         }
+      });
+    }
+
+    // Resolve once the header sync hub has refreshed its cached userContext.
+    // Bounded by a 1.5s safety timeout so a missing/slow header never blocks the UI.
+    function _awaitHeaderResync() {
+      if (!window.sloppyBarRefresh) return Promise.resolve();
+      return new Promise(function(resolve) {
+        var done = false;
+        var finish = function() { if (!done) { done = true; resolve(); } };
+        try { window.sloppyBarRefresh(finish); } catch (_) { finish(); }
+        setTimeout(finish, 1500);
       });
     }
 
@@ -2618,9 +2664,15 @@
         const { data, error } = await supabase.auth.signInAnonymously();
         if (error) {
           showToast('Failed to sign in: ' + error.message, 'error');
-        } else {
-          showToast('Signed in anonymously!', 'success');
+          return;
         }
+        // The onAuthStateChange listener handles UI refresh + header resync +
+        // identity broadcast. Belt-and-suspenders nudge here in case the
+        // header was loaded after this app boots and somehow missed the event.
+        if (window.sloppyBarRefresh) {
+          try { window.sloppyBarRefresh(function(){}); } catch (_) {}
+        }
+        showToast('Signed in anonymously!', 'success');
       } catch (err) {
         console.error('Anonymous sign-in network error:', err);
         showToast('Network error — check your connection and try again', 'error');
