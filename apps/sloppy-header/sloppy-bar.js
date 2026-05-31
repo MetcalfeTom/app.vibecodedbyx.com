@@ -2439,12 +2439,15 @@
     host.innerHTML = top.map(({ e }) => {
       const emoji = LIVE_GENRE_EMOJI[(e.genre || 'misc')] || '◆';
       const seen = visited[e.slug] ? '<span class="sloppy-tp-seen" title="visited">●</span>' : '';
-      const safeTitle = (e.title || e.slug).replace(/[<>&"]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;' }[c]));
-      const safeSlug = e.slug.replace(/'/g, '&#39;');
-      return `<button class="sloppy-tp-result" onclick="window.sloppyBarJumpTo('${safeSlug}')" title="${safeSlug} — ${(e.desc || '').slice(0,120).replace(/[<>&"]/g,'')}">
+      const htmlEsc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;' }[c]));
+      const safeTitle = htmlEsc(e.title || e.slug);
+      const safeSlugHtml = htmlEsc(e.slug);            // for HTML content + title attribute
+      const safeSlugJs = e.slug.replace(/'/g, '&#39;'); // for the inline onclick="..." single-quoted arg
+      const safeDesc = htmlEsc((e.desc || '').slice(0, 120));
+      return `<button class="sloppy-tp-result" onclick="window.sloppyBarJumpTo('${safeSlugJs}')" title="${safeSlugHtml} — ${safeDesc}">
         <span class="sloppy-tp-result-emoji">${emoji}</span>
         <span class="sloppy-tp-result-name">${safeTitle}</span>
-        <span class="sloppy-tp-result-slug">/${e.slug}</span>
+        <span class="sloppy-tp-result-slug">/${safeSlugHtml}</span>
         ${seen}
       </button>`;
     }).join('') + (scored.length > top.length ? `<div class="sloppy-tp-more">+${scored.length - top.length} more — refine search</div>` : '');
