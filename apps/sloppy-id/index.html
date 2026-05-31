@@ -2183,9 +2183,16 @@
     // domain (a dashboard setting we can't change from code). When the project's
     // Redirect-URLs allowlist doesn't exactly match the OAuth redirectTo we pass,
     // Supabase silently falls back to SITE_URL — bouncing users to the legacy
-    // domain instead of back to /sloppy-id. Until the dashboard is fixed, this
-    // boot-time guard catches the bounce and re-routes to the canonical app
-    // origin, preserving any OAuth callback query/hash so the session lands.
+    // domain instead of back to /sloppy-id.
+    //
+    // KNOWN LIMITATION: this boot-time guard only fires if the user lands on
+    // /sloppy-id ON the legacy domain. In practice the legacy domain is a
+    // separate Vercel/Next.js deployment that returns 404 for /sloppy-id, so
+    // the user lands on the legacy ROOT (/?error=...) and this script never
+    // loads. The real protection is the pre-flight probe in signInWithTwitter
+    // which detects the misconfiguration BEFORE launching OAuth. This guard
+    // stays as belt-and-suspenders for the day the legacy domain serves the
+    // app, or for the rare allowlisted-but-still-redirected edge case.
     const CANONICAL_APP_ORIGIN = 'https://sloppy.live';
     const LEGACY_HOSTS = ['vibecodedbyx.com', 'www.vibecodedbyx.com',
                           'youreabsolutelyright.xyz', 'www.youreabsolutelyright.xyz'];
@@ -2704,8 +2711,66 @@
       }
     }
 
+    // Pre-flight probe: hit the Supabase auth callback endpoint with a
+    // synthetic error param. Supabase responds with a 303 whose Location
+    // header is ALWAYS the project's effective fallback target — either the
+    // project's SITE_URL (when the redirectTo isn't allowlisted) or our
+    // redirectTo (when it is). Reading that Location tells us in advance
+    // whether sign-in is about to dump users on a dead legacy domain.
+    //
+    // This is the only signal we can get from the browser — the dashboard
+    // (SITE_URL + Redirect URLs allowlist) isn't readable from anon clients.
+    //
+    // Cached for the page lifetime so we don't probe on every click.
+    let _fallbackProbeCache = null;
+    async function _probeAuthFallback() {
+      if (_fallbackProbeCache) return _fallbackProbeCache;
+      try {
+        const probeUrl = 'https://yjyxteqzhhmtrgcaekgz.supabase.co/auth/v1/callback?error=preflight';
+        // fetch will follow the 303 by default; we want to capture the redirect,
+        // not follow it. Setting redirect:'manual' on a cross-origin request
+        // gives us an opaqueredirect response with no headers visible, so we
+        // can't read Location directly. The reliable workaround: use a HEAD
+        // request through a CORS-allowed path that returns the same fallback.
+        // Supabase's /auth/v1/callback responds with permissive CORS, so HEAD
+        // + manual redirect actually does expose the Location via .headers in
+        // some browsers but most return opaqueredirect. So we fall back to
+        // following the redirect once and inspecting response.url.
+        const res = await fetch(probeUrl, { method: 'GET', redirect: 'follow', cache: 'no-store', mode: 'cors' });
+        // res.url is the FINAL URL after redirects. If Supabase 303s us to a
+        // legacy domain, fetch then follows that 307 to www-variant — both
+        // are sniffable here.
+        _fallbackProbeCache = { fallbackUrl: res.url || '', ok: true };
+      } catch (e) {
+        _fallbackProbeCache = { fallbackUrl: '', ok: false, err: String(e?.message || e) };
+      }
+      return _fallbackProbeCache;
+    }
+
+    function _isLegacyFallback(url) {
+      if (!url) return false;
+      try {
+        const u = new URL(url);
+        return LEGACY_HOSTS.includes(u.hostname);
+      } catch { return false; }
+    }
+
     // Auth functions
     window.signInWithTwitter = async function() {
+      // Pre-flight: refuse to launch OAuth if the Supabase project's
+      // fallback target is the dead legacy domain. Users would otherwise
+      // walk through the entire flow and land on a 404 with no session.
+      const probe = await _probeAuthFallback();
+      if (probe.ok && _isLegacyFallback(probe.fallbackUrl)) {
+        const fallbackHost = (new URL(probe.fallbackUrl)).hostname;
+        const msg = 'Sign-in is misconfigured at the moment — Supabase would route you to ' +
+                    fallbackHost + ' (a dead domain) instead of sloppy.live. ' +
+                    'A dashboard fix is required (SITE_URL + Redirect URLs allowlist).';
+        showToast(msg, 'error');
+        console.warn('[sloppy-id] OAuth pre-flight detected legacy fallback:', probe.fallbackUrl);
+        return;
+      }
+
       // Detect iframe context (sloppy-os launcher, web-OS wrappers, etc).
       // Twitter sends X-Frame-Options: DENY + a strict Content-Security-Policy
       // frame-ancestors directive, so attempting the OAuth redirect inside an
