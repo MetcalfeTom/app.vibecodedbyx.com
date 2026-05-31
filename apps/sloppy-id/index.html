@@ -2676,13 +2676,53 @@
 
     // Auth functions
     window.signInWithTwitter = async function() {
-      const { error } = await supabase.auth.signInWithOAuth({
+      // Detect iframe context (sloppy-os launcher, web-OS wrappers, etc).
+      // Twitter sends X-Frame-Options: DENY + a strict Content-Security-Policy
+      // frame-ancestors directive, so attempting the OAuth redirect inside an
+      // iframe produces a "refused to display in a frame" error and the user
+      // is stuck looking at a broken sub-frame. We have to escape to the top
+      // window (or a new tab if top is cross-origin / sandboxed-locked) before
+      // the redirect lands on twitter.com.
+      let inFrame = false;
+      let topSameOrigin = true;
+      try { inFrame = window.self !== window.top; }
+      catch (e) { inFrame = true; topSameOrigin = false; } // accessing window.top across origins throws
+      if (inFrame) {
+        try { void window.top.location.href; }   // probe access
+        catch (e) { topSameOrigin = false; }
+      }
+
+      // When embedded, use Supabase's skipBrowserRedirect to get the URL back
+      // and route it ourselves — either to window.top (same-origin parent) or
+      // a brand-new tab (cross-origin / sandbox-locked parent).
+      const opts = {
         provider: 'twitter',
         options: {
-          redirectTo: window.location.origin + window.location.pathname
+          // When embedded, redirect back to the TOP-level location after auth
+          // (so the user lands on the real page, not deep inside the iframe).
+          redirectTo: (inFrame && topSameOrigin
+                        ? window.top.location.origin + window.top.location.pathname
+                        : window.location.origin + window.location.pathname),
+          skipBrowserRedirect: inFrame
         }
-      });
-      if (error) showToast('Failed to sign in: ' + error.message, 'error');
+      };
+      const { data, error } = await supabase.auth.signInWithOAuth(opts);
+      if (error) { showToast('Failed to sign in: ' + error.message, 'error'); return; }
+
+      if (inFrame && data?.url) {
+        if (topSameOrigin) {
+          // Same-origin parent — replace the top frame's URL so we leave the iframe entirely.
+          try { window.top.location.href = data.url; return; }
+          catch (e) { /* fall through to popup */ }
+        }
+        // Cross-origin or sandboxed parent — last resort is a brand-new tab.
+        const w = window.open(data.url, '_blank', 'noopener');
+        if (!w) {
+          // Popup blocker swallowed it — surface a clear CTA so the user can
+          // still complete sign-in by opening the app in its own tab.
+          showToast('Pop-up blocked. Open sloppy.live/sloppy-id in a new tab to sign in.', 'error');
+        }
+      }
     };
 
     window.signInAnonymously = async function() {
