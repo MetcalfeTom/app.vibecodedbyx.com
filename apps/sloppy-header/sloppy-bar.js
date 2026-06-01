@@ -14,6 +14,24 @@
 (function() {
   'use strict';
 
+  // ===================================================================
+  // === SINGLETON GUARD ===============================================
+  // ===================================================================
+  // If the script tag is included more than once (a duplicate <script>
+  // in <head> AND <body>, an app that copy-pasted the include twice,
+  // or nginx sub_filter injecting it on top of an existing tag), the
+  // IIFE would run twice. The bar DIV is de-duped via getElementById,
+  // but ALL the side effects — SharedWorker connections, event
+  // listeners, setInterval timers, style sheets, HUD pollers — would
+  // double up silently. That's the 'redundant header' chat reports:
+  // the bar looks fine but the page slows down + DB calls multiply.
+  // First-run sets a flag on window; subsequent loads bail cleanly.
+  if (window.__SLOPPY_BAR_LOADED__) {
+    try { console.warn('[SloppyBar] script loaded again — singleton guard prevented duplicate init (' + (window.SLOPPY_BAR_VERSION || '?') + ')'); } catch (_) {}
+    return;
+  }
+  window.__SLOPPY_BAR_LOADED__ = true;
+
   // Configuration
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
   const RECENT_APPS_KEY = 'sloppy_recent_apps';
