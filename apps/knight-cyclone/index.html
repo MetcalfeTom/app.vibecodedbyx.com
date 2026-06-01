@@ -183,6 +183,23 @@
       image-rendering: pixelated;
       image-rendering: crisp-edges;
     }
+    canvas#menu-bg {
+      display: none;       /* JS flips to block when intro is visible */
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      z-index: 1;          /* above #game (which is empty pre-start) but below overlay */
+      pointer-events: none;
+    }
+    /* While intro is showing, dim the menu canvas slightly so the overlay
+       text stays readable but the action behind is still visible. */
+    .overlay#overlay-intro {
+      background:
+        radial-gradient(ellipse at center, rgba(6,8,26,0.62), rgba(2,4,12,0.86) 75%);
+    }
     /* CRT-ish vignette */
     .arena::after {
       content: '';
@@ -788,6 +805,8 @@
     </header>
 
     <section class="arena">
+      <!-- Animated menu background — only visible behind the intro overlay -->
+      <canvas id="menu-bg" aria-hidden="true"></canvas>
       <canvas id="game" role="application" aria-label="A Hero's Story game. Choose Knight, Mage, or Assassin. WASD or arrows to move. Click to attack. Q for special. Survive endless waves of shadow."></canvas>
 
       <!-- Intro / Hero Select -->
@@ -1899,14 +1918,27 @@
       }
       bestContent.innerHTML = parts.join('');
     }
+    let bestiaryPausedRun = false;   // tracks whether opening bestiary also paused the run
     function openBestiary() {
       renderBestiary();
+      // Pause the game while the bestiary is open (only if we're playing).
+      // Track so closing the bestiary can resume cleanly without colliding
+      // with a manual pause the user might have triggered earlier.
+      if (state === 'playing' && !paused) {
+        bestiaryPausedRun = true;
+        paused = true;
+      }
       overlayBestiary.classList.remove('hidden');
       document.getElementById('btn-bestiary-close').focus();
       announce('bestiary open');
     }
     function closeBestiary() {
       overlayBestiary.classList.add('hidden');
+      if (bestiaryPausedRun) {
+        bestiaryPausedRun = false;
+        paused = false;
+        lastT = performance.now();   // skip accumulated dt while paused
+      }
       document.getElementById('btn-bestiary').focus();
     }
     document.getElementById('btn-bestiary').addEventListener('click', openBestiary);
@@ -2911,6 +2943,7 @@
       const cls = CLASSES[playerClass] || CLASSES.knight;
       runTookDamage = false;
       unlockAchievement('play_' + playerClass);
+      if (typeof stopMenuDemo === 'function') stopMenuDemo();
       player.maxHearts = cls.maxHearts;
       player.hearts = cls.maxHearts;
       player.speed = cls.speed;
@@ -3877,10 +3910,311 @@
       requestAnimationFrame(loop);
     }
 
+    // ============================================================
+    // MENU BACKGROUND DEMO — three tiny heroes fighting endless waves
+    // of shades behind the intro overlay. Self-contained mini-loop
+    // that starts when the intro is visible and stops once startGame
+    // fires. Uses a separate canvas to keep game state untouched.
+    // ============================================================
+    const menuCanvas = document.getElementById('menu-bg');
+    const mctx = menuCanvas.getContext('2d');
+    let menuW = 0, menuH = 0, menuRAF = 0, menuLastT = 0;
+    const menuHeroes = [];   // {kind, x, y, vx, vy, t, atkT, dashT, mvx, mvy, tint}
+    const menuFoes   = [];   // {x, y, vx, vy, hp, r}
+    const menuShots  = [];   // {x, y, vx, vy, life, age, color, kind}
+    const menuSlash  = [];   // {x1,y1,x2,y2,life,age}
+    const menuSparks = [];   // {x, y, vx, vy, life, age, color}
+    function resizeMenu() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = menuCanvas.getBoundingClientRect();
+      menuW = Math.max(360, rect.width);
+      menuH = Math.max(280, rect.height);
+      menuCanvas.width  = Math.floor(menuW * dpr);
+      menuCanvas.height = Math.floor(menuH * dpr);
+      menuCanvas.style.width  = menuW + 'px';
+      menuCanvas.style.height = menuH + 'px';
+      mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      mctx.imageSmoothingEnabled = false;
+    }
+    window.addEventListener('resize', () => { if (menuRAF) resizeMenu(); }, { passive: true });
+    function menuSeedHeroes() {
+      menuHeroes.length = 0;
+      const tints = {
+        knight:   { body:'#bccae0', accent:'#a01828', glint:'#ffd966' },
+        mage:     { body:'#bb8cff', accent:'#5effff', glint:'#ffe1a0' },
+        assassin: { body:'#2c2c3a', accent:'#ff3344', glint:'#5effff' }
+      };
+      const kinds = ['knight','mage','assassin'];
+      for (let i = 0; i < 3; i++) {
+        menuHeroes.push({
+          kind: kinds[i],
+          x: menuW * (0.3 + i * 0.2),
+          y: menuH * 0.55,
+          vx: 0, vy: 0,
+          mvx: 1, mvy: 0,
+          t: Math.random() * Math.PI * 2,
+          atkT: Math.random() * 1.2,
+          dashT: 0,
+          tint: tints[kinds[i]],
+          wanderTarget: { x: 0, y: 0 },
+          wanderTime: 0
+        });
+      }
+    }
+    function menuSpawnFoe() {
+      if (menuFoes.length >= 14) return;
+      const edge = Math.floor(Math.random() * 4);
+      let x, y;
+      if (edge === 0)      { x = -18;        y = Math.random() * menuH; }
+      else if (edge === 1) { x = menuW + 18; y = Math.random() * menuH; }
+      else if (edge === 2) { x = Math.random() * menuW; y = -18; }
+      else                 { x = Math.random() * menuW; y = menuH + 18; }
+      menuFoes.push({ x, y, vx:0, vy:0, hp: 1, r: 6 });
+    }
+    function menuSpark(x, y, n, color) {
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const s = 30 + Math.random() * 60;
+        menuSparks.push({
+          x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+          life: 0.6, age: 0, color
+        });
+      }
+    }
+    function menuUpdate(dt) {
+      // Hero movement: wander between random points; re-target on arrival or every 3-5s
+      for (const h of menuHeroes) {
+        h.t += dt;
+        h.atkT -= dt;
+        h.dashT = Math.max(0, h.dashT - dt);
+        h.wanderTime -= dt;
+        if (h.wanderTime <= 0 || Math.hypot(h.wanderTarget.x - h.x, h.wanderTarget.y - h.y) < 18) {
+          h.wanderTarget.x = 60 + Math.random() * (menuW - 120);
+          h.wanderTarget.y = 60 + Math.random() * (menuH - 120);
+          h.wanderTime = 2.5 + Math.random() * 3;
+        }
+        // Find nearest foe within attack range
+        let nearest = null, nd = Infinity;
+        for (const f of menuFoes) {
+          const d = Math.hypot(f.x - h.x, f.y - h.y);
+          if (d < nd) { nd = d; nearest = f; }
+        }
+        // If foe close + atk ready, attack (per kind). Otherwise wander.
+        let targetX = h.wanderTarget.x, targetY = h.wanderTarget.y;
+        if (h.kind === 'assassin' && nearest && nd < 90 && h.atkT <= 0) {
+          // Dash strike: jump toward the foe, slash on arrival
+          h.x = nearest.x + (Math.random() - 0.5) * 6;
+          h.y = nearest.y + (Math.random() - 0.5) * 6;
+          menuSlash.push({
+            x1: h.x - 8, y1: h.y - 8,
+            x2: h.x + 8, y2: h.y + 8,
+            life: 0.22, age: 0
+          });
+          nearest.hp -= 1;
+          h.atkT = 0.9;
+          h.dashT = 0.18;
+          menuSpark(nearest.x, nearest.y, 4, '#5effff');
+        } else if (h.kind === 'mage' && nearest && nd < 140 && h.atkT <= 0) {
+          // Shoot missile at the foe
+          const dxh = nearest.x - h.x, dyh = nearest.y - h.y;
+          const d = Math.hypot(dxh, dyh) || 0.001;
+          menuShots.push({
+            x: h.x, y: h.y,
+            vx: (dxh / d) * 140, vy: (dyh / d) * 140,
+            life: 1.6, age: 0, color: '#bb8cff', kind: 'missile'
+          });
+          h.atkT = 0.85;
+        } else if (h.kind === 'knight' && nearest && nd < 30) {
+          // Sword tick: simulate the spinning blade striking close foes
+          if (h.atkT <= 0) {
+            nearest.hp -= 1;
+            menuSpark(nearest.x, nearest.y, 4, '#d4e6ff');
+            h.atkT = 0.4;
+          }
+        }
+        // Move toward wander target unless mid-attack (dashing)
+        if (h.dashT <= 0) {
+          const tdx = targetX - h.x, tdy = targetY - h.y;
+          const td = Math.hypot(tdx, tdy) || 0.001;
+          const sp = h.kind === 'assassin' ? 64 : h.kind === 'mage' ? 38 : 50;
+          h.mvx = tdx / td; h.mvy = tdy / td;
+          h.x += h.mvx * sp * dt;
+          h.y += h.mvy * sp * dt;
+        }
+        // Clamp
+        h.x = Math.max(16, Math.min(menuW - 16, h.x));
+        h.y = Math.max(16, Math.min(menuH - 16, h.y));
+      }
+      // Foe movement: drift toward nearest hero
+      for (let i = menuFoes.length - 1; i >= 0; i--) {
+        const f = menuFoes[i];
+        let nh = menuHeroes[0], nd = Infinity;
+        for (const h of menuHeroes) {
+          const d = Math.hypot(h.x - f.x, h.y - f.y);
+          if (d < nd) { nd = d; nh = h; }
+        }
+        const ddx = nh.x - f.x, ddy = nh.y - f.y;
+        const d = Math.hypot(ddx, ddy) || 0.001;
+        f.x += (ddx / d) * 22 * dt;
+        f.y += (ddy / d) * 22 * dt;
+        // Killed?
+        if (f.hp <= 0) {
+          menuSpark(f.x, f.y, 8, '#9a5cd0');
+          menuFoes.splice(i, 1);
+        }
+      }
+      // Shots: travel + collide with foes
+      for (let i = menuShots.length - 1; i >= 0; i--) {
+        const s = menuShots[i];
+        s.age += dt;
+        s.x += s.vx * dt; s.y += s.vy * dt;
+        if (s.age >= s.life) { menuShots.splice(i, 1); continue; }
+        let hit = null;
+        for (const f of menuFoes) {
+          if (Math.hypot(f.x - s.x, f.y - s.y) < f.r + 3) { hit = f; break; }
+        }
+        if (hit) {
+          hit.hp -= 1;
+          menuSpark(s.x, s.y, 5, '#bb8cff');
+          menuShots.splice(i, 1);
+        }
+      }
+      // Slashes age
+      for (let i = menuSlash.length - 1; i >= 0; i--) {
+        menuSlash[i].age += dt;
+        if (menuSlash[i].age >= menuSlash[i].life) menuSlash.splice(i, 1);
+      }
+      // Sparks: drift + decay
+      for (let i = menuSparks.length - 1; i >= 0; i--) {
+        const sp = menuSparks[i];
+        sp.age += dt;
+        if (sp.age >= sp.life) { menuSparks.splice(i, 1); continue; }
+        sp.x += sp.vx * dt; sp.y += sp.vy * dt;
+        sp.vx *= Math.pow(0.92, dt * 60);
+        sp.vy *= Math.pow(0.92, dt * 60);
+      }
+      // Periodic foe spawn ~ every 0.9s
+      this.spawnTimer = (this.spawnTimer || 0) - dt;
+      if (this.spawnTimer <= 0) {
+        menuSpawnFoe();
+        this.spawnTimer = 0.7 + Math.random() * 0.8;
+      }
+    }
+    function menuRender(now) {
+      // Backdrop fade (motion-trail)
+      mctx.fillStyle = 'rgba(4, 6, 18, 0.32)';
+      mctx.fillRect(0, 0, menuW, menuH);
+      // Sparks
+      for (const sp of menuSparks) {
+        const a = Math.max(0, 1 - sp.age / sp.life);
+        mctx.globalAlpha = a;
+        mctx.fillStyle = sp.color;
+        mctx.fillRect(Math.round(sp.x - 1), Math.round(sp.y - 1), 2, 2);
+      }
+      // Shots (mage missiles)
+      for (const s of menuShots) {
+        const a = Math.max(0.2, 1 - s.age / s.life);
+        mctx.globalAlpha = a;
+        mctx.fillStyle = s.color;
+        mctx.shadowColor = s.color;
+        mctx.shadowBlur = 6;
+        mctx.beginPath();
+        mctx.arc(s.x, s.y, 3, 0, Math.PI * 2);
+        mctx.fill();
+      }
+      mctx.shadowBlur = 0;
+      // Foes (shade dots)
+      for (const f of menuFoes) {
+        mctx.globalAlpha = 0.92;
+        mctx.fillStyle = '#0a0410';
+        mctx.beginPath(); mctx.arc(f.x, f.y, f.r + 1, 0, Math.PI * 2); mctx.fill();
+        mctx.fillStyle = '#3d2954';
+        mctx.beginPath(); mctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); mctx.fill();
+        mctx.fillStyle = '#ff5566';
+        mctx.fillRect(Math.round(f.x - 2), Math.round(f.y - 1), 1, 1);
+        mctx.fillRect(Math.round(f.x + 1), Math.round(f.y - 1), 1, 1);
+      }
+      // Slash visuals (assassin)
+      for (const sl of menuSlash) {
+        const a = Math.max(0, 1 - sl.age / sl.life);
+        mctx.globalAlpha = a;
+        mctx.strokeStyle = '#5effff';
+        mctx.shadowColor = '#5effff';
+        mctx.shadowBlur = 8;
+        mctx.lineWidth = 2;
+        mctx.beginPath(); mctx.moveTo(sl.x1, sl.y1); mctx.lineTo(sl.x2, sl.y2); mctx.stroke();
+      }
+      mctx.shadowBlur = 0;
+      // Heroes (tiny pixel circles + class accent)
+      for (const h of menuHeroes) {
+        mctx.globalAlpha = 1;
+        // Shadow
+        mctx.fillStyle = 'rgba(0,0,0,0.55)';
+        mctx.fillRect(Math.round(h.x - 5), Math.round(h.y + 6), 10, 2);
+        // Body
+        mctx.fillStyle = '#0a0410';
+        mctx.beginPath(); mctx.arc(h.x, h.y, 7, 0, Math.PI * 2); mctx.fill();
+        mctx.fillStyle = h.tint.body;
+        mctx.beginPath(); mctx.arc(h.x, h.y, 5.5, 0, Math.PI * 2); mctx.fill();
+        // Accent pip (cape/crest)
+        mctx.fillStyle = h.tint.accent;
+        mctx.fillRect(Math.round(h.x - 1), Math.round(h.y + 3), 2, 3);
+        // Glint
+        mctx.fillStyle = h.tint.glint;
+        mctx.fillRect(Math.round(h.x - 2), Math.round(h.y - 4), 1, 1);
+        // Knight: rotating sword
+        if (h.kind === 'knight') {
+          const ang = h.t * 7;
+          mctx.strokeStyle = '#e6ecf7';
+          mctx.shadowColor = '#d4e6ff';
+          mctx.shadowBlur = 4;
+          mctx.lineWidth = 1.8;
+          mctx.beginPath();
+          mctx.moveTo(h.x, h.y);
+          mctx.lineTo(h.x + Math.cos(ang) * 14, h.y + Math.sin(ang) * 14);
+          mctx.stroke();
+        }
+        // Mage: staff tip glint
+        if (h.kind === 'mage') {
+          mctx.fillStyle = '#ffd966';
+          mctx.fillRect(Math.round(h.x + 4), Math.round(h.y - 5), 2, 2);
+        }
+        mctx.shadowBlur = 0;
+      }
+      mctx.globalAlpha = 1;
+    }
+    const menuCtx = { spawnTimer: 0 };
+    function menuLoop(now) {
+      const dt = Math.min(0.05, (now - menuLastT) / 1000);
+      menuLastT = now;
+      menuUpdate.call(menuCtx, dt);
+      menuRender(now);
+      menuRAF = requestAnimationFrame(menuLoop);
+    }
+    function startMenuDemo() {
+      if (menuRAF) return;
+      menuCanvas.style.display = 'block';
+      resizeMenu();
+      menuSeedHeroes();
+      menuFoes.length = 0;
+      menuShots.length = 0;
+      menuSlash.length = 0;
+      menuSparks.length = 0;
+      menuCtx.spawnTimer = 0;
+      menuLastT = performance.now();
+      menuRAF = requestAnimationFrame(menuLoop);
+    }
+    function stopMenuDemo() {
+      if (menuRAF) cancelAnimationFrame(menuRAF);
+      menuRAF = 0;
+      menuCanvas.style.display = 'none';
+    }
     // Boot
     resize();
     player.x = W / 2; player.y = H / 2;
     requestAnimationFrame(loop);
+    // Start the menu demo immediately so the intro screen has motion
+    startMenuDemo();
   })();
   </script>
 </body>
