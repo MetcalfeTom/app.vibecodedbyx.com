@@ -856,6 +856,32 @@
       .sloppy-bar-center { display: none; }
       .sloppy-bar-username { max-width: 80px; }
     }
+    /* === Right-cluster compression on small screens ===
+       Avoid the new 📝/📺/💬/🔔 buttons getting pushed past the right viewport
+       edge when the cluster overflows. -right has display:flex with no wrap,
+       so anything beyond the viewport becomes invisible. Three tweaks: */
+    @media (max-width: 720px) {
+      /* Drop the redundant "← sloppy.live" home link — the left-side
+         brand logo + identity link already cover this affordance. */
+      .sloppy-bar-home { display: none; }
+    }
+    @media (max-width: 540px) {
+      /* Tighten the right-cluster gap so the 6 icon buttons + Teleport
+         fit on narrow viewports. */
+      .sloppy-bar-right { gap: 4px; }
+      /* Collapse the Teleport button to emoji-only — keep the icon visible
+         (font-size restored just on the .sloppy-bar-teleport-icon span). */
+      .sloppy-bar-teleport { font-size: 0; padding: 5px 7px; }
+      .sloppy-bar-teleport .sloppy-bar-teleport-icon { font-size: 14px; }
+      /* Belt-and-suspenders: if SOME overflow still happens (e.g. an extra
+         badge or a wider system font), let users scroll the cluster
+         horizontally instead of losing buttons forever. */
+      .sloppy-bar-right {
+        overflow-x: auto;
+        scrollbar-width: none;            /* Firefox */
+      }
+      .sloppy-bar-right::-webkit-scrollbar { display: none; } /* WebKit */
+    }
     /* Recent Apps Dropdown */
     .sloppy-bar-dropdown-wrapper {
       position: relative;
