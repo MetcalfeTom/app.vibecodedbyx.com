@@ -189,6 +189,21 @@
   let _sloppyVoteCount = 0;
   let _sloppyVoteUserVoted = false;
 
+  // === Chat state ===
+  // Compact live-chat toggle that streams from sloppygram_messages. The chat
+  // panel is mutually exclusive with the bell panel — opening one closes the
+  // other. Subscription is opened on first panel-open and torn down on close
+  // to keep idle tabs from holding a websocket. While the panel is closed,
+  // new messages bump _chatUnseenCount which surfaces as a badge on the
+  // chat button. The user's own messages don't count against unseen.
+  const CHAT_PAGE_SIZE = 25;
+  const CHAT_MSG_MAX = 500; // client-side cap on outbound message length
+  let _chatPanelOpen = false;
+  let _chatUnseenCount = 0;
+  let _chatMessages = [];     // newest at the end
+  let _chatChannel = null;
+  let _chatSendingLock = false;
+
   // === Notification state ===
   // Persisted log of recent notifications, capped at 30, newest-first.
   // Each entry: { id, type, icon, msg, ts, read, action?: {label, href} }
@@ -1282,6 +1297,321 @@
     }
     .sloppy-bar-bell-badge.show { transform: scale(1); }
 
+    /* === Chat toggle button (sibling of bell) === */
+    .sloppy-bar-chat {
+      position: relative;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #ddd;
+      border-radius: 14px;
+      padding: 5px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      line-height: 1;
+    }
+    .sloppy-bar-chat:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(0,221,255,0.45);
+      color: #fff;
+    }
+    .sloppy-bar-chat.has-unseen {
+      animation: sloppy-chat-pop 0.5s ease-out;
+    }
+    @keyframes sloppy-chat-pop {
+      0%   { transform: scale(1); }
+      40%  { transform: scale(1.18); }
+      100% { transform: scale(1); }
+    }
+    .sloppy-bar-chat-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #00ddff, #5eff8a);
+      color: #07111a;
+      font-size: 9px;
+      font-weight: 800;
+      line-height: 16px;
+      text-align: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      pointer-events: none;
+      transform: scale(0);
+      transition: transform 0.18s cubic-bezier(.5,1.7,.4,1);
+    }
+    .sloppy-bar-chat-badge.show { transform: scale(1); }
+
+    /* === Chat panel — dark charcoal + phosphor green CRT theme === */
+    .sloppy-bar-chat-panel {
+      position: fixed;
+      ${options.position}: 44px;
+      right: 12px;
+      width: 340px;
+      max-width: calc(100vw - 24px);
+      height: 440px;
+      max-height: 75vh;
+      background: #0a0a0a;
+      background-image:
+        radial-gradient(ellipse at top, rgba(51,255,102,0.06) 0, transparent 60%),
+        repeating-linear-gradient(0deg, rgba(51,255,102,0.04) 0 1px, transparent 1px 3px);
+      border: 1px solid #33ff66;
+      border-radius: 8px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.7), 0 0 22px rgba(51,255,102,0.22), inset 0 0 30px rgba(51,255,102,0.05);
+      z-index: 100001;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      font-family: 'VT323', 'JetBrains Mono', 'SF Mono', monospace;
+      color: #33ff66;
+      text-shadow: 0 0 1px rgba(51,255,102,0.6), 0 0 4px rgba(51,255,102,0.25);
+      animation: sloppy-np-in 0.18s ease-out;
+    }
+    .sloppy-bar-chat-panel.open { display: flex; }
+    .sloppy-chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-bottom: 1px solid #1a8a3a;
+      background: rgba(0,12,4,0.85);
+      flex-shrink: 0;
+    }
+    .sloppy-chat-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #9dffb8;
+      text-shadow: 0 0 6px rgba(51,255,102,0.55);
+      font-family: 'VT323', monospace;
+    }
+    .sloppy-chat-title .live-dot {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #33ff66;
+      margin-right: 6px;
+      box-shadow: 0 0 8px #33ff66;
+      animation: sloppy-chat-livepulse 1.4s ease-in-out infinite;
+      vertical-align: middle;
+    }
+    @keyframes sloppy-chat-livepulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+    .sloppy-chat-pop-out {
+      background: transparent;
+      border: 1px solid #1a8a3a;
+      color: #33ff66;
+      font-size: 10px;
+      font-family: 'VT323', monospace;
+      padding: 2px 8px;
+      border-radius: 0;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-decoration: none;
+      text-shadow: 0 0 4px rgba(51,255,102,0.5);
+    }
+    .sloppy-chat-pop-out:hover {
+      color: #9dffb8;
+      border-color: #33ff66;
+      background: rgba(51,255,102,0.08);
+    }
+    .sloppy-chat-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-height: 0;
+      font-family: 'VT323', monospace;
+    }
+    .sloppy-chat-list::-webkit-scrollbar { width: 8px; }
+    .sloppy-chat-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.4); }
+    .sloppy-chat-list::-webkit-scrollbar-thumb {
+      background: #0d5520;
+      box-shadow: 0 0 4px rgba(51,255,102,0.5);
+    }
+    .sloppy-chat-msg {
+      padding: 2px 6px 3px;
+      border-left: 2px solid #0d5520;
+      transition: border-left-color 0.15s, background 0.1s;
+      word-wrap: break-word;
+      line-height: 1.25;
+    }
+    .sloppy-chat-msg:hover {
+      border-left-color: #33ff66;
+      background: rgba(51,255,102,0.03);
+    }
+    .sloppy-chat-msg.own {
+      border-left-color: #ffb74d;
+      background: rgba(255,183,77,0.04);
+    }
+    .sloppy-chat-msg-user {
+      font-size: 13px;
+      font-weight: 400;
+      color: #9dffb8;
+      letter-spacing: 0.02em;
+      text-shadow: 0 0 5px rgba(51,255,102,0.55);
+    }
+    .sloppy-chat-msg-user::after { content: '@sloppy'; color: #1a8a3a; font-size: 11px; margin-left: 1px; }
+    .sloppy-chat-msg.own .sloppy-chat-msg-user {
+      color: #ffb74d;
+      text-shadow: 0 0 5px rgba(255,183,77,0.55);
+    }
+    .sloppy-chat-msg.own .sloppy-chat-msg-user::after { color: rgba(255,183,77,0.4); }
+    .sloppy-chat-msg-time {
+      font-size: 11px;
+      color: #1a8a3a;
+      margin-left: 5px;
+      letter-spacing: 0.03em;
+    }
+    .sloppy-chat-msg-time::before { content: '['; }
+    .sloppy-chat-msg-time::after { content: ']'; }
+    .sloppy-chat-msg-body {
+      font-size: 14px;
+      color: #33ff66;
+      margin-top: 0;
+      line-height: 1.25;
+      padding-left: 12px;
+      position: relative;
+    }
+    .sloppy-chat-msg-body::before {
+      content: '▸';
+      position: absolute;
+      left: 0;
+      color: #1a8a3a;
+    }
+    .sloppy-chat-msg.own .sloppy-chat-msg-body { color: #9dffb8; }
+    .sloppy-chat-msg.own .sloppy-chat-msg-body::before { color: #ffb74d; }
+    .sloppy-chat-msg-body img {
+      max-width: 100%;
+      max-height: 100px;
+      border: 1px solid #1a8a3a;
+      margin-top: 3px;
+      display: block;
+      filter: contrast(0.95);
+    }
+    .sloppy-chat-msg-icon {
+      display: inline-block;
+      font-size: 10px;
+      color: #1a8a3a;
+      margin-right: 3px;
+    }
+    .sloppy-chat-empty {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #1a8a3a;
+      font-size: 13px;
+      font-family: 'VT323', monospace;
+      letter-spacing: 0.04em;
+      text-align: center;
+      padding: 20px;
+    }
+    .sloppy-chat-loading {
+      padding: 16px;
+      text-align: center;
+      color: #1a8a3a;
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      font-family: 'VT323', monospace;
+      text-transform: uppercase;
+    }
+    .sloppy-chat-input-row {
+      display: flex;
+      gap: 6px;
+      padding: 8px 10px;
+      border-top: 1px solid #1a8a3a;
+      background: rgba(0,12,4,0.85);
+      flex-shrink: 0;
+    }
+    .sloppy-chat-input {
+      flex: 1;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid #1a8a3a;
+      color: #9dffb8;
+      padding: 4px 8px 4px 22px;
+      border-radius: 0;
+      font-size: 14px;
+      font-family: 'VT323', monospace;
+      outline: none;
+      resize: none;
+      min-height: 28px;
+      max-height: 80px;
+      text-shadow: 0 0 4px rgba(51,255,102,0.5);
+      position: relative;
+      caret-color: #33ff66;
+    }
+    .sloppy-chat-input:focus {
+      border-color: #33ff66;
+      box-shadow: 0 0 12px rgba(51,255,102,0.25);
+    }
+    .sloppy-chat-input::placeholder { color: #0d5520; font-family: inherit; }
+    /* "$_" prompt symbol overlay using a wrapper sibling, simpler approach using bg-image */
+    .sloppy-chat-input-row::before {
+      content: '$_';
+      position: relative;
+      left: 12px;
+      top: 6px;
+      color: #1a8a3a;
+      font-family: 'VT323', monospace;
+      font-size: 14px;
+      pointer-events: none;
+      margin-right: -16px;
+      animation: sloppy-chat-caret 1s steps(2) infinite;
+    }
+    @keyframes sloppy-chat-caret {
+      0%, 50% { opacity: 1; color: #33ff66; }
+      51%, 100% { opacity: 0.4; color: #1a8a3a; }
+    }
+    .sloppy-chat-send {
+      background: transparent;
+      color: #9dffb8;
+      border: 1px solid #33ff66;
+      border-radius: 0;
+      padding: 0 12px;
+      font-family: 'VT323', monospace;
+      font-size: 14px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 0.15s;
+      text-shadow: 0 0 6px rgba(51,255,102,0.5);
+      box-shadow: 0 0 8px rgba(51,255,102,0.15);
+    }
+    .sloppy-chat-send::before { content: '['; color: #1a8a3a; }
+    .sloppy-chat-send::after  { content: ']'; color: #1a8a3a; }
+    .sloppy-chat-send:hover:not(:disabled) {
+      background: rgba(51,255,102,0.12);
+      box-shadow: 0 0 18px rgba(51,255,102,0.4);
+    }
+    .sloppy-chat-send:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
+    .sloppy-chat-anon-notice {
+      font-family: 'VT323', monospace;
+      font-size: 12px;
+      color: #1a8a3a;
+      padding: 8px 10px;
+      text-align: center;
+      border-top: 1px solid #1a8a3a;
+      background: rgba(0,12,4,0.85);
+      letter-spacing: 0.04em;
+    }
+    .sloppy-chat-anon-notice a { color: #33ff66; text-decoration: none; border-bottom: 1px dashed currentColor; }
+    .sloppy-chat-anon-notice a:hover { color: #9dffb8; }
+    @media (prefers-reduced-motion: reduce) {
+      .sloppy-bar-chat-panel { background-image: none; }
+      .sloppy-chat-input-row::before { animation: none; opacity: 1; }
+    }
+
     /* === Notification panel === */
     .sloppy-bar-notif-panel {
       position: fixed;
@@ -1566,6 +1896,16 @@
   styleEl.textContent = styles;
   document.head.appendChild(styleEl);
 
+  // Preload VT323 for the chat panel's CRT theme — graceful fallback if the
+  // host page or browser blocks it (next monospace in stack takes over).
+  if (!document.querySelector('link[data-sloppy-font="vt323"]')) {
+    var _fontLink = document.createElement('link');
+    _fontLink.rel = 'stylesheet';
+    _fontLink.href = 'https://fonts.googleapis.com/css2?family=VT323&display=swap';
+    _fontLink.setAttribute('data-sloppy-font', 'vt323');
+    document.head.appendChild(_fontLink);
+  }
+
   // Inject viewport-fit=cover if missing (safe area support for notched phones)
   const vpMeta = document.querySelector('meta[name="viewport"]');
   if (vpMeta && !vpMeta.content.includes('viewport-fit')) {
@@ -1796,6 +2136,9 @@
         <button class="sloppy-bar-bell${_notifUnreadCount > 0 ? ' has-unread' : ''}" onclick="window.sloppyBarToggleNotifications(event)" title="Notifications" aria-label="Notifications" aria-haspopup="true" aria-expanded="${_notifPanelOpen}">
           🔔<span class="sloppy-bar-bell-badge${_notifUnreadCount > 0 ? ' show' : ''}" id="sloppy-bar-bell-badge">${_notifUnreadCount > 99 ? '99+' : _notifUnreadCount}</span>
         </button>
+        <button class="sloppy-bar-chat${_chatUnseenCount > 0 ? ' has-unseen' : ''}" onclick="window.sloppyBarToggleChat(event)" title="Live global chat" aria-label="Live chat" aria-haspopup="true" aria-expanded="${_chatPanelOpen}">
+          💬<span class="sloppy-bar-chat-badge${_chatUnseenCount > 0 ? ' show' : ''}" id="sloppy-bar-chat-badge">${_chatUnseenCount > 99 ? '99+' : _chatUnseenCount}</span>
+        </button>
         <button class="sloppy-bar-teleport" onclick="window.sloppyBarTeleport()" title="Random app adventure!">
           <span class="sloppy-bar-teleport-icon">🌀</span> Teleport
         </button>
@@ -1819,6 +2162,259 @@
       bar.onclick = null;
     }
   }
+
+  // ===================================================================
+  // === LIVE CHAT: compact panel toggled from the header ===
+  // ===================================================================
+  function _chatRelTime(iso) {
+    var diff = Date.now() - new Date(iso).getTime();
+    if (diff < 30000) return 'now';
+    if (diff < 60000) return Math.floor(diff/1000) + 's';
+    if (diff < 3600000) return Math.floor(diff/60000) + 'm';
+    if (diff < 86400000) return Math.floor(diff/3600000) + 'h';
+    return Math.floor(diff/86400000) + 'd';
+  }
+  function _chatEsc(s) {
+    return String(s == null ? '' : s).replace(/[<>&"]/g, function(c) {
+      return ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;' })[c];
+    });
+  }
+  function _chatRenderMsgBody(m) {
+    // message_type can be 'text', 'image', 'drawing', 'gif'
+    if (m.message_type === 'drawing' && m.drawing_data) {
+      return '<img src="' + _chatEsc(m.drawing_data) + '" alt="doodle">';
+    }
+    if (m.message_type === 'image' && m.image_data) {
+      return (m.content ? _chatEsc(m.content) + '<br>' : '') +
+             '<img src="' + _chatEsc(m.image_data) + '" alt="image">';
+    }
+    return _chatEsc(m.content || '');
+  }
+  function _chatRender() {
+    var panel = document.getElementById('sloppy-bar-chat-panel');
+    if (!panel) return;
+    var list = panel.querySelector('.sloppy-chat-list');
+    if (!list) return;
+    if (_chatMessages.length === 0) {
+      list.innerHTML = '<div class="sloppy-chat-empty">no messages yet · be the first to type</div>';
+      return;
+    }
+    var myId = currentUser && currentUser.id;
+    list.innerHTML = _chatMessages.map(function(m) {
+      var isOwn = myId && m.user_id === myId;
+      var typeIcon = '';
+      if (m.message_type === 'drawing') typeIcon = '<span class="sloppy-chat-msg-icon">✏</span>';
+      else if (m.message_type === 'image') typeIcon = '<span class="sloppy-chat-msg-icon">🖼</span>';
+      else if (m.message_type === 'gif') typeIcon = '<span class="sloppy-chat-msg-icon">▶</span>';
+      return '<div class="sloppy-chat-msg' + (isOwn ? ' own' : '') + '">' +
+        '<span class="sloppy-chat-msg-user">' + _chatEsc(m.username || 'anon') + '</span>' +
+        '<span class="sloppy-chat-msg-time">· ' + _chatRelTime(m.created_at) + '</span>' +
+        '<div class="sloppy-chat-msg-body">' + typeIcon + _chatRenderMsgBody(m) + '</div>' +
+      '</div>';
+    }).join('');
+    // auto-scroll to bottom (newest)
+    list.scrollTop = list.scrollHeight;
+  }
+  async function _chatLoadInitial() {
+    if (!supabase) return;
+    var panel = document.getElementById('sloppy-bar-chat-panel');
+    if (!panel) return;
+    var list = panel.querySelector('.sloppy-chat-list');
+    if (list && _chatMessages.length === 0) {
+      list.innerHTML = '<div class="sloppy-chat-loading">loading…</div>';
+    }
+    try {
+      var res = await supabase
+        .from('sloppygram_messages')
+        .select('id, username, content, image_data, drawing_data, message_type, user_id, created_at')
+        .order('created_at', { ascending: false })
+        .limit(CHAT_PAGE_SIZE);
+      if (res.error) throw res.error;
+      // newest-first → reverse to oldest-first for the list
+      _chatMessages = (res.data || []).reverse();
+      _chatRender();
+    } catch (e) {
+      console.warn('[chat] load failed', e);
+      if (list) list.innerHTML = '<div class="sloppy-chat-empty">could not load chat</div>';
+    }
+  }
+  function _chatSubscribe() {
+    if (_chatChannel || !supabase) return;
+    try {
+      _chatChannel = supabase.channel('header-chat-stream')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sloppygram_messages' }, function(payload) {
+          var m = payload && payload.new;
+          if (!m) return;
+          // De-dup by id (in case we already inserted optimistically)
+          if (_chatMessages.some(function(x){ return x.id === m.id; })) return;
+          _chatMessages.push(m);
+          if (_chatMessages.length > CHAT_PAGE_SIZE * 2) {
+            _chatMessages.splice(0, _chatMessages.length - CHAT_PAGE_SIZE * 2);
+          }
+          // If the panel is open, render; otherwise bump unseen badge (skip own messages)
+          if (_chatPanelOpen) {
+            _chatRender();
+          } else if (currentUser && m.user_id !== currentUser.id) {
+            _chatUnseenCount = Math.min(99, _chatUnseenCount + 1);
+            _updateChatBadge();
+          }
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('[chat] subscribe failed', e);
+    }
+  }
+  function _chatUnsubscribe() {
+    if (!_chatChannel) return;
+    try { supabase.removeChannel(_chatChannel); } catch (_) {}
+    _chatChannel = null;
+  }
+  function _updateChatBadge() {
+    var badge = document.getElementById('sloppy-bar-chat-badge');
+    if (!badge) return;
+    if (_chatUnseenCount > 0) {
+      badge.textContent = _chatUnseenCount > 99 ? '99+' : String(_chatUnseenCount);
+      badge.classList.add('show');
+      var btn = badge.parentElement;
+      if (btn) {
+        btn.classList.remove('has-unseen');
+        void btn.offsetWidth;
+        btn.classList.add('has-unseen');
+        btn.setAttribute('aria-expanded', String(_chatPanelOpen));
+      }
+    } else {
+      badge.classList.remove('show');
+      badge.textContent = '0';
+    }
+  }
+  function _renderChatPanel() {
+    var panel = document.getElementById('sloppy-bar-chat-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'sloppy-bar-chat-panel';
+      panel.className = 'sloppy-bar-chat-panel';
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-label', 'Live global chat');
+      panel.innerHTML =
+        '<div class="sloppy-chat-header">' +
+          '<div class="sloppy-chat-title"><span class="live-dot"></span>live · global chat</div>' +
+          '<a class="sloppy-chat-pop-out" href="/sloppy-chat" title="open the full chat app">full ↗</a>' +
+        '</div>' +
+        '<div class="sloppy-chat-list" aria-live="polite"></div>' +
+        '<div class="sloppy-chat-input-row">' +
+          '<textarea class="sloppy-chat-input" id="sloppy-chat-input" placeholder="say something… (enter to send, shift+enter newline)" rows="1" maxlength="' + CHAT_MSG_MAX + '"></textarea>' +
+          '<button class="sloppy-chat-send" id="sloppy-chat-send" type="button">send</button>' +
+        '</div>' +
+        '<div class="sloppy-chat-anon-notice" id="sloppy-chat-anon-notice" style="display:none">' +
+          'sign in via <a href="/sloppy-id">/sloppy-id</a> to send messages — read-only otherwise' +
+        '</div>';
+      document.body.appendChild(panel);
+
+      // Wire input + send
+      var input = panel.querySelector('#sloppy-chat-input');
+      var send  = panel.querySelector('#sloppy-chat-send');
+      input.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          _chatSend();
+        } else if (ev.key === 'Escape') {
+          window.sloppyBarToggleChat();
+        }
+      });
+      input.addEventListener('input', function() {
+        send.disabled = input.value.trim().length === 0;
+      });
+      send.addEventListener('click', _chatSend);
+      send.disabled = true;
+    }
+    // Hide send + show anon notice if not logged in
+    var anon = panel.querySelector('#sloppy-chat-anon-notice');
+    var inputRow = panel.querySelector('.sloppy-chat-input-row');
+    if (currentUser) {
+      anon.style.display = 'none';
+      inputRow.style.display = 'flex';
+    } else {
+      anon.style.display = 'block';
+      inputRow.style.display = 'none';
+    }
+    panel.classList.add('open');
+    _chatRender();
+  }
+  function _hideChatPanel() {
+    var panel = document.getElementById('sloppy-bar-chat-panel');
+    if (panel) panel.classList.remove('open');
+    _chatPanelOpen = false;
+    var btn = document.querySelector('.sloppy-bar-chat');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+  async function _chatSend() {
+    if (_chatSendingLock) return;
+    if (!currentUser) return;
+    var input = document.getElementById('sloppy-chat-input');
+    if (!input) return;
+    var text = input.value.trim();
+    if (!text) return;
+    if (text.length > CHAT_MSG_MAX) text = text.slice(0, CHAT_MSG_MAX);
+    _chatSendingLock = true;
+    var send = document.getElementById('sloppy-chat-send');
+    if (send) send.disabled = true;
+    // Resolve username from header context first, then user_metadata
+    var uname = (userContext.username && userContext.username !== 'Guest')
+                  ? userContext.username
+                  : (currentUser.user_metadata && (currentUser.user_metadata.user_name || currentUser.user_metadata.username)) || 'anon';
+    var avatar = (userContext.avatarUrl || userContext.avatar || '👤');
+    try {
+      var res = await supabase.from('sloppygram_messages').insert({
+        username: uname.toString().slice(0, 32),
+        avatar: typeof avatar === 'string' && !/^(https?:|data:)/.test(avatar) ? avatar : null,
+        avatar_url: typeof avatar === 'string' && /^(https?:|data:)/.test(avatar) ? avatar : null,
+        content: text,
+        message_type: 'text',
+        user_id: currentUser.id
+      }).select('id, username, content, message_type, user_id, created_at').single();
+      if (res.error) throw res.error;
+      // Optimistic insertion (Realtime will also fire — dedup'd by id check in subscribe handler)
+      if (res.data) {
+        _chatMessages.push(res.data);
+        if (_chatPanelOpen) _chatRender();
+      }
+      input.value = '';
+    } catch (e) {
+      console.warn('[chat] send failed', e);
+      try { _showToast('Chat send failed: ' + (e.message || 'unknown'), { type: 'error' }); } catch (_) {}
+    } finally {
+      _chatSendingLock = false;
+      if (send) send.disabled = false;
+      if (input) input.focus();
+    }
+  }
+
+  window.sloppyBarToggleChat = function(ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    if (_chatPanelOpen) { _hideChatPanel(); return; }
+    // Close the bell panel if it's open (mutual exclusion)
+    if (_notifPanelOpen) { try { _hideNotifPanel(); } catch (_) {} }
+    _chatPanelOpen = true;
+    _renderChatPanel();
+    // Clear unseen badge on open
+    _chatUnseenCount = 0;
+    _updateChatBadge();
+    // Lazy-load + subscribe on first open
+    if (_chatMessages.length === 0) _chatLoadInitial();
+    _chatSubscribe();
+    // Outside-click closer
+    setTimeout(function() {
+      var off = function(e) {
+        var panel = document.getElementById('sloppy-bar-chat-panel');
+        if (!panel) return document.removeEventListener('click', off);
+        if (panel.contains(e.target)) return;
+        if (e.target.closest('.sloppy-bar-chat')) return;
+        _hideChatPanel();
+        document.removeEventListener('click', off);
+      };
+      document.addEventListener('click', off);
+    }, 0);
+  };
 
   // === Realtime notifications subscription ===
   // Subscribes to postgres_changes INSERT on the `notifications` table
@@ -2148,6 +2744,8 @@
   window.sloppyBarToggleNotifications = function(ev) {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
     if (_notifPanelOpen) { _hideNotifPanel(); return; }
+    // Mutual exclusion: close chat panel if open
+    if (_chatPanelOpen) { try { _hideChatPanel(); } catch (_) {} }
     _notifPanelOpen = true;
     _renderNotifPanel();
     var bell = document.querySelector('.sloppy-bar-bell');
