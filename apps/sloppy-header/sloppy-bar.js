@@ -2782,8 +2782,10 @@
   let _twitchLoaded = false;   // true once the iframe is mounted
 
   function _twitchDefaultChannel() {
-    try { return localStorage.getItem(TWITCH_CHANNEL_KEY) || 'sloppy'; }
-    catch { return 'sloppy'; }
+    // Default to 'sloppy_ai' (the AI streamer's channel) per chat request.
+    // localStorage override still wins if the user typed a different channel.
+    try { return localStorage.getItem(TWITCH_CHANNEL_KEY) || 'sloppy_ai'; }
+    catch { return 'sloppy_ai'; }
   }
   function _twitchSaveGeometry(rect) {
     try { localStorage.setItem(TWITCH_GEOMETRY_KEY, JSON.stringify(rect)); } catch (_) {}
@@ -2808,7 +2810,7 @@
     var ph = window.location.hostname;
     if (ph && parents.indexOf(ph) === -1) parents.push(ph);
     var parentParam = parents.map(function(h) { return 'parent=' + encodeURIComponent(h); }).join('&');
-    var safeChannel = String(channel || 'sloppy').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 25) || 'sloppy';
+    var safeChannel = String(channel || 'sloppy_ai').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 25) || 'sloppy_ai';
     var src = 'https://player.twitch.tv/?channel=' + encodeURIComponent(safeChannel) + '&' + parentParam + '&muted=true&autoplay=true';
     body.innerHTML = '<iframe src="' + src + '" allow="autoplay; fullscreen" allowfullscreen="true" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" title="Twitch player"></iframe>';
     _twitchLoaded = true;
