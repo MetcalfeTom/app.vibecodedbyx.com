@@ -1345,6 +1345,153 @@
     }
     .sloppy-bar-chat-badge.show { transform: scale(1); }
 
+    /* === Twitch toggle button === */
+    .sloppy-bar-twitch {
+      position: relative;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #ddd;
+      border-radius: 14px;
+      padding: 5px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      line-height: 1;
+    }
+    .sloppy-bar-twitch:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(145,71,255,0.5);
+      color: #fff;
+    }
+
+    /* === Twitch stream window: scalable + movable, lazy-loaded iframe === */
+    .sloppy-twitch-window {
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      width: 480px;
+      height: 320px;
+      min-width: 240px;
+      min-height: 180px;
+      max-width: 96vw;
+      max-height: 80vh;
+      background: #0d0a14;
+      border: 1px solid #9147ff;
+      border-radius: 8px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.6), 0 0 28px rgba(145,71,255,0.28);
+      z-index: 100001;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      font-family: 'JetBrains Mono', 'SF Mono', monospace;
+      color: #efeaff;
+    }
+    .sloppy-twitch-window.open { display: flex; }
+    .sloppy-twitch-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      background: linear-gradient(180deg, rgba(145,71,255,0.18), rgba(145,71,255,0.06));
+      border-bottom: 1px solid rgba(145,71,255,0.25);
+      flex-shrink: 0;
+      cursor: move;
+      user-select: none;
+      touch-action: none;
+    }
+    .sloppy-twitch-title {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: #d9ccff;
+    }
+    .sloppy-twitch-title .tw-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #f23f4c; box-shadow: 0 0 6px #f23f4c;
+      animation: sloppy-tw-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes sloppy-tw-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    .sloppy-twitch-channel-input {
+      flex: 1;
+      max-width: 140px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #efeaff;
+      padding: 3px 7px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 11px;
+      outline: none;
+      margin: 0 8px;
+    }
+    .sloppy-twitch-channel-input:focus { border-color: #9147ff; }
+    .sloppy-twitch-controls { display: flex; gap: 4px; }
+    .sloppy-twitch-btn {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #bbb;
+      width: 22px; height: 22px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1;
+      padding: 0;
+    }
+    .sloppy-twitch-btn:hover { color: #fff; border-color: #9147ff; background: rgba(145,71,255,0.18); }
+    .sloppy-twitch-body {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      background: #000;
+    }
+    .sloppy-twitch-body iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+    .sloppy-twitch-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      color: #888;
+      font-size: 12px;
+      text-align: center;
+      padding: 18px;
+    }
+    .sloppy-twitch-empty .play {
+      font-size: 36px;
+      color: #9147ff;
+      opacity: 0.7;
+      cursor: pointer;
+      transition: transform 0.15s, opacity 0.15s;
+    }
+    .sloppy-twitch-empty .play:hover { transform: scale(1.15); opacity: 1; }
+    .sloppy-twitch-resize {
+      position: absolute;
+      right: 0; bottom: 0;
+      width: 16px; height: 16px;
+      cursor: nwse-resize;
+      background:
+        linear-gradient(135deg, transparent 50%, rgba(145,71,255,0.6) 50%, rgba(145,71,255,0.6) 60%, transparent 60%, transparent 70%, rgba(145,71,255,0.6) 70%, rgba(145,71,255,0.6) 80%, transparent 80%);
+      touch-action: none;
+    }
+    @media (max-width: 540px) {
+      .sloppy-twitch-window { width: calc(100vw - 16px); height: 50vh; right: 8px; top: 60px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sloppy-twitch-title .tw-dot { animation: none; }
+    }
+
     /* === Chat panel — dark charcoal + phosphor green CRT theme === */
     .sloppy-bar-chat-panel {
       position: fixed;
@@ -2139,6 +2286,9 @@
         <button class="sloppy-bar-chat${_chatUnseenCount > 0 ? ' has-unseen' : ''}" onclick="window.sloppyBarToggleChat(event)" title="Live global chat" aria-label="Live chat" aria-haspopup="true" aria-expanded="${_chatPanelOpen}">
           💬<span class="sloppy-bar-chat-badge${_chatUnseenCount > 0 ? ' show' : ''}" id="sloppy-bar-chat-badge">${_chatUnseenCount > 99 ? '99+' : _chatUnseenCount}</span>
         </button>
+        <button class="sloppy-bar-twitch" onclick="window.sloppyBarToggleTwitch(event)" title="Twitch live stream" aria-label="Twitch stream" aria-haspopup="true">
+          📺
+        </button>
         <button class="sloppy-bar-teleport" onclick="window.sloppyBarTeleport()" title="Random app adventure!">
           <span class="sloppy-bar-teleport-icon">🌀</span> Teleport
         </button>
@@ -2162,6 +2312,182 @@
       bar.onclick = null;
     }
   }
+
+  // ===================================================================
+  // === TWITCH STREAM WINDOW: scalable + movable, lazy-loaded iframe ===
+  // ===================================================================
+  // The window is rendered the first time the user clicks 📺. The iframe
+  // is NOT loaded until the user explicitly hits the ▶ play button —
+  // this keeps Twitch's tracker scripts + autoplay video off the page
+  // for users who never expand the player. Channel persists to
+  // localStorage so subsequent toggles remember it.
+  const TWITCH_CHANNEL_KEY = 'sloppy_twitch_channel';
+  const TWITCH_GEOMETRY_KEY = 'sloppy_twitch_geom_v1';
+  let _twitchOpen = false;
+  let _twitchLoaded = false;   // true once the iframe is mounted
+
+  function _twitchDefaultChannel() {
+    try { return localStorage.getItem(TWITCH_CHANNEL_KEY) || 'sloppy'; }
+    catch { return 'sloppy'; }
+  }
+  function _twitchSaveGeometry(rect) {
+    try { localStorage.setItem(TWITCH_GEOMETRY_KEY, JSON.stringify(rect)); } catch (_) {}
+  }
+  function _twitchLoadGeometry() {
+    try {
+      var raw = localStorage.getItem(TWITCH_GEOMETRY_KEY);
+      if (!raw) return null;
+      var g = JSON.parse(raw);
+      if (typeof g !== 'object' || g == null) return null;
+      return g;
+    } catch { return null; }
+  }
+  function _twitchMountIframe(channel) {
+    var win = document.getElementById('sloppy-twitch-window');
+    if (!win) return;
+    var body = win.querySelector('.sloppy-twitch-body');
+    if (!body) return;
+    var parent = encodeURIComponent(window.location.hostname || 'sloppy.live');
+    // Cross-domain hostnames Twitch enforces: each one our app might run under
+    var parents = ['sloppy.live', 'app.sloppy.live'];
+    var ph = window.location.hostname;
+    if (ph && parents.indexOf(ph) === -1) parents.push(ph);
+    var parentParam = parents.map(function(h) { return 'parent=' + encodeURIComponent(h); }).join('&');
+    var safeChannel = String(channel || 'sloppy').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 25) || 'sloppy';
+    var src = 'https://player.twitch.tv/?channel=' + encodeURIComponent(safeChannel) + '&' + parentParam + '&muted=true&autoplay=true';
+    body.innerHTML = '<iframe src="' + src + '" allow="autoplay; fullscreen" allowfullscreen="true" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" title="Twitch player"></iframe>';
+    _twitchLoaded = true;
+  }
+  function _twitchUnmountIframe() {
+    var win = document.getElementById('sloppy-twitch-window');
+    if (!win) return;
+    var body = win.querySelector('.sloppy-twitch-body');
+    if (!body) return;
+    body.innerHTML =
+      '<div class="sloppy-twitch-empty">' +
+        '<span class="play" id="sloppy-twitch-play" title="play stream">▶</span>' +
+        '<div>stream not loaded yet · click ▶ to start</div>' +
+      '</div>';
+    var play = body.querySelector('#sloppy-twitch-play');
+    if (play) play.addEventListener('click', function() {
+      var input = document.getElementById('sloppy-twitch-channel');
+      _twitchMountIframe(input ? input.value.trim() : _twitchDefaultChannel());
+    });
+    _twitchLoaded = false;
+  }
+  function _renderTwitchWindow() {
+    var win = document.getElementById('sloppy-twitch-window');
+    if (!win) {
+      win = document.createElement('div');
+      win.id = 'sloppy-twitch-window';
+      win.className = 'sloppy-twitch-window';
+      win.setAttribute('role', 'dialog');
+      win.setAttribute('aria-label', 'Twitch stream player');
+      var defaultCh = _twitchDefaultChannel();
+      win.innerHTML =
+        '<div class="sloppy-twitch-header" id="sloppy-twitch-header">' +
+          '<div class="sloppy-twitch-title"><span class="tw-dot" aria-hidden="true"></span>twitch</div>' +
+          '<input type="text" class="sloppy-twitch-channel-input" id="sloppy-twitch-channel" value="' + defaultCh.replace(/[<>&"]/g, '') + '" placeholder="channel" maxlength="25" aria-label="Twitch channel">' +
+          '<div class="sloppy-twitch-controls">' +
+            '<button class="sloppy-twitch-btn" id="sloppy-twitch-reload" title="reload stream" type="button">↻</button>' +
+            '<button class="sloppy-twitch-btn" id="sloppy-twitch-stop"   title="stop stream"   type="button">■</button>' +
+            '<button class="sloppy-twitch-btn" id="sloppy-twitch-close"  title="close"         type="button">✕</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sloppy-twitch-body" id="sloppy-twitch-body"></div>' +
+        '<div class="sloppy-twitch-resize" id="sloppy-twitch-resize" aria-hidden="true"></div>';
+      document.body.appendChild(win);
+
+      // Restore geometry
+      var geom = _twitchLoadGeometry();
+      if (geom) {
+        if (typeof geom.left === 'number')   win.style.left   = geom.left + 'px';
+        if (typeof geom.top === 'number')    win.style.top    = geom.top  + 'px';
+        if (typeof geom.width === 'number')  win.style.width  = geom.width  + 'px';
+        if (typeof geom.height === 'number') win.style.height = geom.height + 'px';
+        if (typeof geom.left === 'number') win.style.right = 'auto';
+      }
+
+      // Wire controls
+      var inp    = win.querySelector('#sloppy-twitch-channel');
+      var reload = win.querySelector('#sloppy-twitch-reload');
+      var stop   = win.querySelector('#sloppy-twitch-stop');
+      var close  = win.querySelector('#sloppy-twitch-close');
+      inp.addEventListener('change', function() {
+        try { localStorage.setItem(TWITCH_CHANNEL_KEY, inp.value.trim()); } catch (_) {}
+        if (_twitchLoaded) _twitchMountIframe(inp.value.trim());
+      });
+      inp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); /* triggers change */ }
+      });
+      reload.addEventListener('click', function() { _twitchMountIframe(inp.value.trim()); });
+      stop.addEventListener('click', _twitchUnmountIframe);
+      close.addEventListener('click', function() { window.sloppyBarToggleTwitch(); });
+
+      // Drag from the header
+      var header = win.querySelector('#sloppy-twitch-header');
+      var drag = null;
+      header.addEventListener('pointerdown', function(e) {
+        if (e.target.closest('input, button')) return; // don't drag from controls
+        header.setPointerCapture(e.pointerId);
+        var r = win.getBoundingClientRect();
+        drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height };
+        win.style.right = 'auto';
+      });
+      header.addEventListener('pointermove', function(e) {
+        if (!drag) return;
+        var x = Math.max(0, Math.min(window.innerWidth  - 60, e.clientX - drag.dx));
+        var y = Math.max(0, Math.min(window.innerHeight - 30, e.clientY - drag.dy));
+        win.style.left = x + 'px';
+        win.style.top  = y + 'px';
+      });
+      header.addEventListener('pointerup', function() {
+        if (!drag) return;
+        drag = null;
+        var r = win.getBoundingClientRect();
+        _twitchSaveGeometry({ left: r.left, top: r.top, width: r.width, height: r.height });
+      });
+
+      // Resize handle (bottom-right corner)
+      var grip = win.querySelector('#sloppy-twitch-resize');
+      var rz = null;
+      grip.addEventListener('pointerdown', function(e) {
+        grip.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        var r = win.getBoundingClientRect();
+        rz = { startX: e.clientX, startY: e.clientY, w: r.width, h: r.height, left: r.left, top: r.top };
+        win.style.right = 'auto';
+      });
+      grip.addEventListener('pointermove', function(e) {
+        if (!rz) return;
+        var w = Math.max(240, Math.min(window.innerWidth - rz.left - 8, rz.w + (e.clientX - rz.startX)));
+        var h = Math.max(180, Math.min(window.innerHeight - rz.top - 8, rz.h + (e.clientY - rz.startY)));
+        win.style.width  = w + 'px';
+        win.style.height = h + 'px';
+      });
+      grip.addEventListener('pointerup', function() {
+        if (!rz) return;
+        rz = null;
+        var r = win.getBoundingClientRect();
+        _twitchSaveGeometry({ left: r.left, top: r.top, width: r.width, height: r.height });
+      });
+
+      // Initial empty state (no iframe yet → no autoplay until user clicks ▶)
+      _twitchUnmountIframe();
+    }
+    win.classList.add('open');
+  }
+  function _hideTwitchWindow() {
+    var win = document.getElementById('sloppy-twitch-window');
+    if (win) win.classList.remove('open');
+    _twitchOpen = false;
+  }
+  window.sloppyBarToggleTwitch = function(ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    if (_twitchOpen) { _hideTwitchWindow(); return; }
+    _twitchOpen = true;
+    _renderTwitchWindow();
+  };
 
   // ===================================================================
   // === LIVE CHAT: compact panel toggled from the header ===
