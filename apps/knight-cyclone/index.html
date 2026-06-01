@@ -1440,7 +1440,19 @@
     // Refresh the online count once per second (cheap, no need to tick every frame)
     setInterval(() => {
       if (!hudOnline) return;
-      hudOnline.textContent = (mpOnlineCount > 0 ? mpOnlineCount : '·');
+      if (mpStatus === 'online') {
+        hudOnline.textContent = String(mpOnlineCount || 1);
+        hudOnline.style.color = '#5eff8a';
+      } else if (mpStatus === 'connecting') {
+        hudOnline.textContent = '…';
+        hudOnline.style.color = '#ffd966';
+      } else if (mpStatus === 'error') {
+        hudOnline.textContent = '✕';
+        hudOnline.style.color = '#ff5566';
+      } else {
+        hudOnline.textContent = '·';
+        hudOnline.style.color = '';
+      }
     }, 1000);
     const hudCombo = document.getElementById('hud-combo');
     const hudBest  = document.getElementById('hud-best');
@@ -3162,12 +3174,43 @@
     let mpLastSend = 0;
     let mpOnlineCount = 0;
     const mpPeers = {};               // id → { x, y, class, name, hp, lastSeen, alpha }
-    async function mpConnect() {
-      if (mpJoined) return;
+    let mpStatus = 'idle';           // 'idle' | 'connecting' | 'online' | 'error'
+    let mpRetryAt = 0;
+    async function mpEnsureSession() {
       const sb = window._leaderboardSupabase;
-      if (!sb || !sb.channel) return;
+      if (!sb) return null;
       try {
-        mpChannel = sb.channel(MP_CHANNEL, { config: { broadcast: { self: false }, presence: { key: mpClientId } } });
+        const { data: { session } } = await sb.auth.getSession();
+        if (session) return session;
+        const { data, error } = await sb.auth.signInAnonymously();
+        if (error) { console.warn('[mp] anon sign-in failed', error); return null; }
+        return data.session;
+      } catch (e) {
+        console.warn('[mp] session err', e);
+        return null;
+      }
+    }
+    async function mpConnect() {
+      if (mpJoined || mpStatus === 'connecting') return;
+      const sb = window._leaderboardSupabase;
+      if (!sb || !sb.channel) {
+        mpStatus = 'error';
+        console.warn('[mp] supabase client unavailable, retrying in 2s');
+        mpRetryAt = performance.now() + 2000;
+        return;
+      }
+      mpStatus = 'connecting';
+      console.log('[mp] connecting as', mpClientId);
+      // Realtime broadcast needs an authenticated session in the project's
+      // default config, even for anonymous broadcasts. Ensure one first.
+      await mpEnsureSession();
+      try {
+        mpChannel = sb.channel(MP_CHANNEL, {
+          config: {
+            broadcast: { self: false, ack: false },
+            presence: { key: mpClientId }
+          }
+        });
         mpChannel.on('broadcast', { event: 'pos' }, (msg) => {
           const p = msg && msg.payload;
           if (!p || !p.id || p.id === mpClientId) return;
@@ -3180,33 +3223,59 @@
           peer.lastSeen = performance.now();
         });
         mpChannel.on('presence', { event: 'sync' }, () => {
-          const state = mpChannel.presenceState();
-          mpOnlineCount = Object.keys(state || {}).length;
+          try {
+            const st = mpChannel.presenceState();
+            mpOnlineCount = Object.keys(st || {}).length;
+            console.log('[mp] presence sync — online:', mpOnlineCount);
+          } catch (e) { console.warn('[mp] presence sync err', e); }
         });
-        const status = await new Promise((resolve) => {
-          mpChannel.subscribe(async (st) => {
+        mpChannel.on('presence', { event: 'join' },  ({ key }) => console.log('[mp] peer joined', key));
+        mpChannel.on('presence', { event: 'leave' }, ({ key }) => {
+          console.log('[mp] peer left', key);
+          if (mpPeers[key]) delete mpPeers[key];
+        });
+        const subStatus = await new Promise((resolve) => {
+          // Race the subscribe callback against a 6s timeout
+          const t = setTimeout(() => resolve('TIMED_OUT_LOCAL'), 6000);
+          mpChannel.subscribe(async (st, err) => {
+            console.log('[mp] subscribe status:', st, err || '');
             if (st === 'SUBSCRIBED') {
+              clearTimeout(t);
               try {
                 const name = (localStorage.getItem(LB_NAME_KEY) || 'hero').slice(0, 18);
                 await mpChannel.track({ id: mpClientId, name });
-              } catch {}
+              } catch (te) { console.warn('[mp] track err', te); }
               resolve('SUBSCRIBED');
             } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') {
+              clearTimeout(t);
               resolve(st);
             }
           });
         });
-        if (status === 'SUBSCRIBED') {
+        if (subStatus === 'SUBSCRIBED') {
           mpJoined = true;
+          mpStatus = 'online';
+          console.log('[mp] SUBSCRIBED to', MP_CHANNEL);
         } else {
+          console.warn('[mp] subscribe failed:', subStatus);
+          mpStatus = 'error';
           try { mpChannel.unsubscribe(); } catch {}
           mpChannel = null;
+          mpRetryAt = performance.now() + 3000;
         }
       } catch (e) {
         console.warn('[mp] connect failed', e);
+        mpStatus = 'error';
         mpChannel = null;
+        mpRetryAt = performance.now() + 3000;
       }
     }
+    // Periodic auto-reconnect when offline / errored
+    setInterval(() => {
+      if (mpJoined || mpStatus === 'connecting') return;
+      if (performance.now() < mpRetryAt) return;
+      mpConnect().catch(() => {});
+    }, 1000);
     function mpDisconnect() {
       if (!mpChannel) return;
       try { mpChannel.unsubscribe(); } catch {}
@@ -3216,11 +3285,14 @@
       for (const k in mpPeers) delete mpPeers[k];
     }
     function mpTick(now) {
-      // Periodic position broadcast — only while actively playing
-      if (!mpJoined || state !== 'playing') return;
+      if (!mpJoined) return;
       const interval = 1000 / MP_SEND_HZ;
       if (now - mpLastSend < interval) return;
       mpLastSend = now;
+      // Broadcast even from intro / death screens so players see each
+      // other while picking a class. Non-playing peers fall to a
+      // default position so they don't clutter the active arena.
+      const isPlaying = state === 'playing';
       try {
         const name = (localStorage.getItem(LB_NAME_KEY) || 'hero').slice(0, 18);
         mpChannel.send({
@@ -3230,12 +3302,12 @@
             id: mpClientId,
             name,
             class: playerClass,
-            x: Math.round(player.x),
-            y: Math.round(player.y),
+            x: isPlaying ? Math.round(player.x) : -9999,
+            y: isPlaying ? Math.round(player.y) : -9999,
             hp: player.hearts,
             t: now
           }
-        });
+        }).catch(() => {});
       } catch (e) { /* swallow — non-fatal */ }
       // Drop stale peers
       for (const id in mpPeers) {
