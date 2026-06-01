@@ -18,6 +18,13 @@
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
   const RECENT_APPS_KEY = 'sloppy_recent_apps';
   const MAX_RECENT_APPS = 8;
+  // Version string used to cache-bust child resources (sync worker) and
+  // exposed on window.SLOPPY_BAR_VERSION so apps can append it to their
+  // own <script src="/sloppy-header/sloppy-bar.js?v=…"> tags too.
+  // Bump this string when shipping changes that need to defeat the
+  // browser/CDN HTTP cache (e.g. tweaks chat is reporting as 'stale').
+  const BAR_VERSION = '2026-06-01a';
+  try { window.SLOPPY_BAR_VERSION = BAR_VERSION; } catch (_) {}
   // Consolidated to primary instance — previous header instance (dtfaplmockmwvgyqxbep) is dead/unreachable
   const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
@@ -354,7 +361,7 @@
   function initSyncWorker() {
     if (typeof SharedWorker === 'undefined') return;
     try {
-      syncWorker = new SharedWorker('/sloppy-header/sloppy-sync-worker.js', { name: 'sloppy-sync' });
+      syncWorker = new SharedWorker('/sloppy-header/sloppy-sync-worker.js?v=' + BAR_VERSION, { name: 'sloppy-sync' });
       syncWorker.port.onmessage = handleWorkerMessage;
       syncWorker.onerror = function(err) {
         console.warn('[SloppyBar] SharedWorker error, falling back to BroadcastChannel', err);
@@ -758,6 +765,21 @@
     .sloppy-bar-toggle:hover {
       color: #00ddff;
     }
+    .sloppy-bar-hardreload {
+      background: none;
+      border: 1px solid ${options.theme === 'light' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.18)'};
+      color: ${options.theme === 'light' ? '#888' : '#888'};
+      cursor: pointer;
+      width: 22px; height: 22px;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1;
+      border-radius: 3px;
+      transition: color 0.15s, border-color 0.15s, transform 0.6s;
+      margin-right: 4px;
+    }
+    .sloppy-bar-hardreload:hover { color: #ffd966; border-color: #ffd966; }
+    .sloppy-bar-hardreload.spinning { transform: rotate(720deg); color: #ffd966; }
     .sloppy-bar-auth-btn {
       background: linear-gradient(135deg, #00ddff, #00ff88);
       color: #0a0a0f;
@@ -2485,6 +2507,9 @@
           <a href="/sloppy-id" class="sloppy-bar-auth-btn">Connect Twitter</a>
         ` : ''}
         <a href="https://sloppy.live" class="sloppy-bar-home">← sloppy.live</a>
+        <button class="sloppy-bar-hardreload" onclick="window.sloppyBarHardReload(event)" title="Hard reload — clear caches + service workers then reload (v${BAR_VERSION})" aria-label="Hard reload">
+          ♻
+        </button>
         <button class="sloppy-bar-toggle" onclick="window.sloppyBarToggle()" title="${isMinimized ? 'Expand' : 'Minimize'}">
           ${isMinimized ? '◀' : '▼'}
         </button>
@@ -3757,6 +3782,54 @@
     render();
     // Prevent event bubbling
     event?.stopPropagation();
+  };
+
+  // ===================================================================
+  // === HARD RELOAD — nuke browser caches + service workers + reload ==
+  // ===================================================================
+  // Chat asked for an escape hatch when stale index.html (or any other
+  // asset) is being served from the browser/CDN cache. This button:
+  //   1) deletes every Cache API entry the page can touch
+  //   2) unregisters any ServiceWorker registered for this scope
+  //   3) wipes our own in-memory + localStorage 'shared' caches
+  //   4) reloads the page with a fresh ?_r= cache-buster on the URL.
+  // It does NOT touch auth tokens or per-app saves.
+  window.sloppyBarHardReload = async function(ev) {
+    if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+    var btn = document.querySelector('.sloppy-bar-hardreload');
+    if (btn) btn.classList.add('spinning');
+    // 1) Cache API
+    try {
+      if (typeof caches !== 'undefined' && caches.keys) {
+        var keys = await caches.keys();
+        await Promise.all(keys.map(function(k) { return caches.delete(k); }));
+        console.log('[SloppyBar] cleared', keys.length, 'cache entries');
+      }
+    } catch (e) { console.warn('[SloppyBar] cache clear failed', e); }
+    // 2) ServiceWorkers
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        var regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(function(r) { return r.unregister(); }));
+        console.log('[SloppyBar] unregistered', regs.length, 'service workers');
+      }
+    } catch (e) { console.warn('[SloppyBar] SW unregister failed', e); }
+    // 3) In-memory + the bar's own shared context cache
+    try {
+      if (typeof cachedContext !== 'undefined') cachedContext = null;
+      // Don't nuke auth tokens — but DO clear the recent-apps cache + worker cache
+      localStorage.removeItem(RECENT_APPS_KEY);
+      localStorage.removeItem('sloppy_bar_shared_context_v1');
+    } catch (e) {}
+    // 4) Reload with a fresh cache-buster query param
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.set('_r', Date.now().toString(36));
+      window.location.replace(url.toString());
+    } catch (e) {
+      // Fallback for older browsers / weird URLs
+      window.location.reload();
+    }
   };
 
   // Global dropdown toggle function
