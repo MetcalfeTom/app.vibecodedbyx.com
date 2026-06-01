@@ -261,6 +261,29 @@
       }
     } catch (e) {}
   })();
+  // ===================================================================
+  // === IFRAME-WRAPPER DETECTION ======================================
+  // ===================================================================
+  // nginx wraps every app inside /_bar/index.html — an outer iframe
+  // host that ALREADY renders its own voting/teleport/karma bar at the
+  // top of the viewport. When this inner sloppy-bar.js ALSO renders a
+  // vote button, chat sees two upvote pills stacked vertically. Detect
+  // that case (we're embedded in any same-origin parent that owns a
+  // sloppy-bar) and suppress our own duplicate vote button so only the
+  // outer one renders.
+  let _isInsideWrapper = false;
+  (function() {
+    try {
+      if (window.self === window.top) return;     // standalone, render normally
+      // Same-origin iframe: peek at parent to check for an outer bar.
+      // Cross-origin throws on document access — treat as not-wrapped.
+      const parentBar = window.parent && window.parent.document &&
+        (window.parent.document.getElementById('sloppy-bar') ||
+         window.parent.document.querySelector('.sloppy-bar, .bar-vote, [data-sloppy-wrapper]'));
+      if (parentBar) _isInsideWrapper = true;
+    } catch (_) { /* cross-origin parent — assume standalone */ }
+  })();
+  function _shouldRenderVote() { return !!_sloppyVoteSlug && !_isInsideWrapper; }
 
   // === SharedWorker state (Phase 3) ===
   let syncWorker = null;
@@ -2491,7 +2514,7 @@
       </div>
       ` : ''}
       <div class="sloppy-bar-right">
-        ${_sloppyVoteSlug ? `<button class="sloppy-bar-vote${_sloppyVoteUserVoted ? ' voted' : ''}" onclick="window.sloppyBarVote()" title="${_sloppyVoteUserVoted ? 'Remove vote' : 'Upvote this app'}">
+        ${_shouldRenderVote() ? `<button class="sloppy-bar-vote${_sloppyVoteUserVoted ? ' voted' : ''}" onclick="window.sloppyBarVote()" title="${_sloppyVoteUserVoted ? 'Remove vote' : 'Upvote this app'}">
           <span class="sloppy-vote-arrow">${_sloppyVoteUserVoted ? '▲' : '△'}</span>${_sloppyVoteCount > 0 ? `<span class="sloppy-vote-count">${_sloppyVoteCount}</span>` : ''}
         </button>` : ''}
         <button class="sloppy-bar-bell${_notifUnreadCount > 0 ? ' has-unread' : ''}" onclick="window.sloppyBarToggleNotifications(event)" title="Notifications" aria-label="Notifications" aria-haspopup="true" aria-expanded="${_notifPanelOpen}">
