@@ -404,8 +404,37 @@
       width: 12,
       angVel: 7.2,
       baseAngVel: 7.2,
-      trail: []
+      trail: [],          // legacy single trail (kept so older code paths don't crash)
+      trails: [[]]        // per-blade trails for Zenith: trails[i] is blade i's tip history
     };
+
+    // ============================================================
+    // ZENITH UPGRADE PATH — extra rotating blades around the knight
+    // ------------------------------------------------------------
+    // Tiers unlock at fixed wave thresholds. Each tier adds another
+    // blade evenly spaced around the player's rotation circle (so
+    // 4 blades end up at offsets 0°, 90°, 180°, 270° relative to the
+    // primary sword's angle). Higher tiers also have their own name
+    // + tint shown in the floater + bestiary description.
+    // Tier 0 = base (1 blade), Tier 4 = ZENITH (5 blades).
+    // ============================================================
+    const ZENITH_TIERS = [
+      { wave: 1,  blades: 1, name: 'CURSED BLADE',   tint: '#e6ecf7' },
+      { wave: 3,  blades: 2, name: 'TWIN CYCLONE',   tint: '#9ad6ff' },
+      { wave: 6,  blades: 3, name: 'TRIFORCE',       tint: '#9affb3' },
+      { wave: 9,  blades: 4, name: 'CROSS STORM',    tint: '#ffb24d' },
+      { wave: 12, blades: 5, name: 'ZENITH',         tint: '#ffd966' },
+    ];
+    let zenithTier = 0;             // current tier index into ZENITH_TIERS
+    function zenithBladeCount() { return ZENITH_TIERS[zenithTier].blades; }
+    function zenithBladeAngles() {
+      // Returns the angle of each blade this frame.
+      const n = zenithBladeCount();
+      const result = new Array(n);
+      const step = (Math.PI * 2) / n;
+      for (let i = 0; i < n; i++) result[i] = sword.angle + step * i;
+      return result;
+    }
 
     let score = 0;
     let wave = 1;
@@ -853,6 +882,7 @@
         eyeTwitch: Math.random() * Math.PI * 2,
         bob: Math.random() * Math.PI * 2,      // for zombie lurch + goblin wiggle
         dagger: Math.random() * Math.PI * 2,   // goblin dagger flash phase
+        hitCD: 0,                              // anti-multi-hit cooldown (sec)
         // Shared AI state machine (used by giants AND zombies):
         // giants: 'moving' | 'charging' | 'slamming' | 'cooldown'
         // zombies: 'walking' | 'tellLunge' | 'lunging' | 'lungeCD'
@@ -902,6 +932,29 @@
         // Light shake to celebrate growth
         shake(4);
       }
+      // ZENITH check — promote the player to the highest tier they qualify for
+      let nextTier = zenithTier;
+      for (let t = ZENITH_TIERS.length - 1; t > zenithTier; t--) {
+        if (wave >= ZENITH_TIERS[t].wave) { nextTier = t; break; }
+      }
+      if (nextTier > zenithTier) {
+        zenithTier = nextTier;
+        const tierInfo = ZENITH_TIERS[zenithTier];
+        floaters.push({
+          x: player.x, y: player.y - 26, vy: -38, life: 2.4, age: 0,
+          text: '✦ ' + tierInfo.name + ' ✦', color: tierInfo.tint
+        });
+        floaters.push({
+          x: player.x, y: player.y + 10, vy: -18, life: 2.4, age: 0,
+          text: tierInfo.blades + ' BLADES', color: tierInfo.tint
+        });
+        sword.angVel = sword.baseAngVel + Math.min(8, wave * 0.18) + zenithTier * 0.4;
+        spawnSparks(player.x, player.y, 36, tierInfo.tint);
+        spawnSparks(player.x, player.y, 18, '#ffffff');
+        shake(14);
+        pauseFor(0.08);
+        announce(tierInfo.name + ' unlocked, ' + tierInfo.blades + ' blades');
+      }
       waveTimer = 0;
     }
 
@@ -938,14 +991,19 @@
       // Sword swing
       sword.angle += sword.angVel * dt;
       while (sword.angle > Math.PI * 2) sword.angle -= Math.PI * 2;
-      // Trail: record tip position
-      const tipX = player.x + Math.cos(sword.angle) * sword.length;
-      const tipY = player.y + Math.sin(sword.angle) * sword.length;
-      sword.trail.push({ x: tipX, y: tipY, age: 0 });
-      // Cap trail length
-      if (sword.trail.length > 30) sword.trail.shift();
-      // Age trail
-      for (const t of sword.trail) t.age += dt;
+      // Trail: record tip position FOR EACH ZENITH BLADE
+      const _bladeAngs = zenithBladeAngles();
+      while (sword.trails.length < _bladeAngs.length) sword.trails.push([]);
+      while (sword.trails.length > _bladeAngs.length) sword.trails.pop();
+      for (let bi = 0; bi < _bladeAngs.length; bi++) {
+        const ba = _bladeAngs[bi];
+        const tipX = player.x + Math.cos(ba) * sword.length;
+        const tipY = player.y + Math.sin(ba) * sword.length;
+        const tr = sword.trails[bi];
+        tr.push({ x: tipX, y: tipY, age: 0 });
+        if (tr.length > 30) tr.shift();
+        for (const t of tr) t.age += dt;
+      }
 
       // Spawning
       spawnTimer -= dt;
@@ -998,40 +1056,47 @@
         e.eyeTwitch += dt * 6;
         e.bob += dt * (e.type === 'zombie' ? 4 : e.type === 'giant' ? 3 : 8);
         e.dagger += dt * 14;
+        // Per-enemy hit cooldown decay (fixes the middle-sword "infinite
+        // damage" bug where wide angularHalfWidth let the same enemy
+        // soak multiple hits per revolution).
+        if (e.hitCD > 0) e.hitCD = Math.max(0, e.hitCD - dt);
 
-        // === SWORD HIT-TEST (full blade length) ===
+        // === SWORD HIT-TEST (full blade length, ALL Zenith blades) ===
         const distToPlayer = d;
         const reach = sword.length + e.r;
-        // skip enemies BEYOND the blade tip or fully inside the knight
-        if (distToPlayer < reach && distToPlayer > player.r * 0.4) {
+        // skip enemies BEYOND any blade's tip or fully inside the knight
+        if (distToPlayer < reach && distToPlayer > player.r * 0.4 && e.hitCD === 0) {
           const angleToEnemy = Math.atan2(e.y - player.y, e.x - player.x);
-          // Shortest signed angle delta from CURRENT sword.angle to enemy angle
-          let delta = angleToEnemy - sword.angle;
-          while (delta > Math.PI) delta -= Math.PI * 2;
-          while (delta < -Math.PI) delta += Math.PI * 2;
-          // The sword swept counterclockwise (positive angVel) from
-          // (sword.angle - sweptThisFrame) to sword.angle. An enemy gets
-          // hit if it's anywhere within that swept wedge, with a small
-          // forgiveness pad on both ends so fast enemies don't tunnel.
           const sweptThisFrame = sword.angVel * dt;
-          // Account for the enemy's PHYSICAL angular width at this distance.
-          // Without this, enemies clipping the middle of the blade dodge
-          // hits because only their center-point was angle-checked — fixed
-          // by adding asin(e.r / d) so any part of the enemy circle that
-          // overlaps the swept wedge counts as a hit.
-          const angularHalfWidth = Math.asin(Math.min(0.95, e.r / Math.max(8, distToPlayer)));
-          const pad = 0.22 + angularHalfWidth;
-          // delta is in radians: an enemy "behind" the sword's leading
-          // edge has delta in [-sweptThisFrame - pad, +pad].
-          if (delta > -(sweptThisFrame + pad) && delta < pad) {
+          // Cap angular subtension at 0.45 rad (~26°) so very-close enemies
+          // can't be hit by every blade at once — that's what produced the
+          // infinite damage bug. Combined with hitCD, an enemy can only
+          // take ONE damage tick per ~0.22s no matter how many blades clip
+          // them in a frame.
+          const angularHalfWidth = Math.min(0.45, Math.asin(Math.min(0.95, e.r / Math.max(8, distToPlayer))));
+          const pad = 0.18 + angularHalfWidth;
+          let hitByBlade = -1;
+          for (let bi = 0; bi < _bladeAngs.length; bi++) {
+            const bAng = _bladeAngs[bi];
+            let delta = angleToEnemy - bAng;
+            while (delta > Math.PI) delta -= Math.PI * 2;
+            while (delta < -Math.PI) delta += Math.PI * 2;
+            if (delta > -(sweptThisFrame + pad) && delta < pad) {
+              hitByBlade = bi;
+              break;
+            }
+          }
+          if (hitByBlade !== -1) {
+            e.hitCD = 0.22;   // per-enemy cooldown — see comment above
             e.hp--;
             if (e.hp <= 0) {
               killEnemy(e);
             } else {
               // Chip hit: knockback + spark + tiny damage number floater
               const knockback = e.type === 'giant' ? 3 : 14;  // giants barely flinch
-              e.x += Math.cos(sword.angle) * knockback;
-              e.y += Math.sin(sword.angle) * knockback;
+              const kbAng = _bladeAngs[hitByBlade];
+              e.x += Math.cos(kbAng) * knockback;
+              e.y += Math.sin(kbAng) * knockback;
               spawnSparks(e.x, e.y, 8, '#cfd8e6');
               floaters.push({
                 x: e.x + (Math.random() - 0.5) * 8,
@@ -1368,6 +1433,8 @@
       sword.angVel = sword.baseAngVel;
       sword.length = SWORD_BASE_LEN;
       sword.trail.length = 0;
+      sword.trails = [[]];
+      zenithTier = 0;
       score = 0; kills = 0; wave = 1; combo = 1; comboTimer = 0;
       waveTimer = 0; spawnTimer = 0.6;
       enemies.length = 0; sparks.length = 0; floaters.length = 0; shockwaves.length = 0;
@@ -1516,21 +1583,23 @@
     }
 
     function drawSwordTrail() {
-      // Pixel-art trail: a chain of small squares stepping from oldest→newest
-      // tip positions, with alpha tapering down by age. No anti-aliased
-      // strokes — every dot is a hard rectangle to keep the chunky look.
-      if (sword.trail.length < 2) return;
+      // Pixel-art trail: one chain of squares per Zenith blade, tinted
+      // by the current tier so multi-blade tier-ups look visually rich.
       const px = PIXEL_SIZE;
+      const tint = ZENITH_TIERS[zenithTier].tint;
       ctx.save();
-      for (const t of sword.trail) {
-        const lifeRatio = 1 - Math.min(1, t.age / 0.35);
-        if (lifeRatio <= 0.05) continue;
-        ctx.globalAlpha = lifeRatio * 0.6;
-        const sz = px * (1 + Math.round(lifeRatio * 2));
-        ctx.fillStyle = '#d4e6ff';
-        ctx.fillRect(Math.round(t.x - sz/2), Math.round(t.y - sz/2), sz, sz);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(Math.round(t.x - sz/4), Math.round(t.y - sz/4), Math.max(1, sz/2), Math.max(1, sz/2));
+      for (const trail of sword.trails) {
+        if (!trail || trail.length < 2) continue;
+        for (const t of trail) {
+          const lifeRatio = 1 - Math.min(1, t.age / 0.35);
+          if (lifeRatio <= 0.05) continue;
+          ctx.globalAlpha = lifeRatio * 0.55;
+          const sz = px * (1 + Math.round(lifeRatio * 2));
+          ctx.fillStyle = tint;
+          ctx.fillRect(Math.round(t.x - sz/2), Math.round(t.y - sz/2), sz, sz);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(Math.round(t.x - sz/4), Math.round(t.y - sz/4), Math.max(1, sz/2), Math.max(1, sz/2));
+        }
       }
       ctx.restore();
     }
@@ -1559,46 +1628,51 @@
       } else {
         drawSprite(kFrame, cx, cy);
       }
-      // Sword — chunky pixel line of square segments from knight outward along sword.angle
-      // Bypass the smooth blade for a real pixel-art weapon.
+      // Swords — render ALL Zenith blades (1..5 depending on tier).
+      // Each blade is drawn as the chunky pixel chain: grip → crossguard → blade.
+      // The active tier tint colors the blade body so higher tiers look distinct.
       const segCount = Math.floor(sword.length / px) + 1;
-      const ca = Math.cos(sword.angle), sa = Math.sin(sword.angle);
+      const tint = ZENITH_TIERS[zenithTier].tint;
+      const bladeAngs = zenithBladeAngles();
       ctx.save();
-      // 1) Grip — short brown stub (3 cells)
-      for (let i = 0; i < 3; i++) {
-        const dx = Math.round(cx + ca * (i * px));
-        const dy = Math.round(cy + sa * (i * px));
-        ctx.fillStyle = '#3a2618';
-        ctx.fillRect(dx - Math.round(px/2), dy - Math.round(px/2), px, px);
-      }
-      // 2) Crossguard — gold T at start of blade
-      const gx = Math.round(cx + ca * (3 * px));
-      const gy = Math.round(cy + sa * (3 * px));
-      const perpX = -sa, perpY = ca;
-      ctx.fillStyle = '#d9a43a';
-      for (let k = -2; k <= 2; k++) {
-        const xx = Math.round(gx + perpX * (k * px));
-        const yy = Math.round(gy + perpY * (k * px));
-        ctx.fillRect(xx - Math.round(px/2), yy - Math.round(px/2), px, px);
-      }
-      // 3) Blade — bright cells along the angle, with a thinner darker shadow line on one side
-      for (let i = 4; i < segCount; i++) {
-        const dx = Math.round(cx + ca * (i * px));
-        const dy = Math.round(cy + sa * (i * px));
-        // shadow side (perpendicular -1)
-        ctx.fillStyle = '#7a8aa0';
-        const shx = Math.round(dx + perpX * px);
-        const shy = Math.round(dy + perpY * px);
-        ctx.fillRect(shx - Math.round(px/2), shy - Math.round(px/2), px, px);
-        // main blade
-        ctx.fillStyle = i === segCount - 1 ? '#ffffff' : '#e6ecf7';
-        ctx.fillRect(dx - Math.round(px/2), dy - Math.round(px/2), px, px);
-        // highlight side (perpendicular +1) only every other cell for a pixel-art glint
-        if (i % 2 === 0) {
-          ctx.fillStyle = '#ffffff';
-          const hx = Math.round(dx - perpX * px);
-          const hy = Math.round(dy - perpY * px);
-          ctx.fillRect(hx - Math.round(px/2), hy - Math.round(px/2), px, px);
+      for (const ba of bladeAngs) {
+        const ca = Math.cos(ba), sa = Math.sin(ba);
+        const perpX = -sa, perpY = ca;
+        // 1) Grip — short brown stub (3 cells)
+        for (let i = 0; i < 3; i++) {
+          const dx = Math.round(cx + ca * (i * px));
+          const dy = Math.round(cy + sa * (i * px));
+          ctx.fillStyle = '#3a2618';
+          ctx.fillRect(dx - Math.round(px/2), dy - Math.round(px/2), px, px);
+        }
+        // 2) Crossguard — gold T at start of blade
+        const gx = Math.round(cx + ca * (3 * px));
+        const gy = Math.round(cy + sa * (3 * px));
+        ctx.fillStyle = '#d9a43a';
+        for (let k = -2; k <= 2; k++) {
+          const xx = Math.round(gx + perpX * (k * px));
+          const yy = Math.round(gy + perpY * (k * px));
+          ctx.fillRect(xx - Math.round(px/2), yy - Math.round(px/2), px, px);
+        }
+        // 3) Blade — bright cells along the angle (tinted by tier)
+        for (let i = 4; i < segCount; i++) {
+          const dx = Math.round(cx + ca * (i * px));
+          const dy = Math.round(cy + sa * (i * px));
+          // shadow side
+          ctx.fillStyle = '#7a8aa0';
+          const shx = Math.round(dx + perpX * px);
+          const shy = Math.round(dy + perpY * px);
+          ctx.fillRect(shx - Math.round(px/2), shy - Math.round(px/2), px, px);
+          // main blade tinted by Zenith tier
+          ctx.fillStyle = i === segCount - 1 ? '#ffffff' : tint;
+          ctx.fillRect(dx - Math.round(px/2), dy - Math.round(px/2), px, px);
+          // highlight cell every other step for a pixel-art glint
+          if (i % 2 === 0) {
+            ctx.fillStyle = '#ffffff';
+            const hx = Math.round(dx - perpX * px);
+            const hy = Math.round(dy - perpY * px);
+            ctx.fillRect(hx - Math.round(px/2), hy - Math.round(px/2), px, px);
+          }
         }
       }
       ctx.restore();
