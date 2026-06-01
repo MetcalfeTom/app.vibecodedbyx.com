@@ -27,7 +27,12 @@
   const options = {
     position: script?.getAttribute('data-position') || 'bottom',
     theme: script?.getAttribute('data-theme') || 'dark',
-    minimized: script?.getAttribute('data-minimized') !== 'false',
+    // Default EXPANDED — the bar now hosts bell/chat/notepad/twitch/teleport/
+    // ecosystem dropdown/voting. Defaulting to a tiny pill hid all of that
+    // behind a click most users never made. Apps that prefer the compact pill
+    // (e.g. visualization-heavy ones where every bottom px counts) can opt in
+    // with <script data-minimized="true" ...>.
+    minimized: script?.getAttribute('data-minimized') === 'true',
     hideKarma: script?.getAttribute('data-hide-karma') === 'true',
     hideLinks: script?.getAttribute('data-hide-links') === 'true'
   };
