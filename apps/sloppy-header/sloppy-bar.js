@@ -78,6 +78,10 @@
     { path: 'sloppy-oracle',     name: 'Oracle',     icon: '🔮', cat: 'PLAY',     desc: 'community Q&A' },
     { path: 'sloppy-tags',       name: 'Tags',       icon: '🏷',  cat: 'PLAY',     desc: 'tag explorer' },
     { path: 'sloppy-feedback',   name: 'Feedback',   icon: '💡', cat: 'PLAY',     desc: 'ideas + voting' },
+    // WIDGETS — in-bar floating panels (moved out of the main bar to declutter).
+    // Items with `action` are rendered as <button onclick=...> instead of <a href=...>.
+    { name: 'Notepad', icon: '📝', cat: 'WIDGETS', desc: 'scratchpad · auto-saves to this browser', action: 'sloppyBarToggleNotepad' },
+    { name: 'Twitch',  icon: '📺', cat: 'WIDGETS', desc: 'movable Twitch stream player',            action: 'sloppyBarToggleTwitch' },
   ];
 
   // Build flat list + reverse lookup (curated fallback)
@@ -965,6 +969,13 @@
       text-decoration: none;
       font-size: 12px;
       transition: all 0.15s;
+      /* Reset <button> defaults for action items (notepad/twitch widgets) */
+      background: transparent;
+      border: 0;
+      font-family: inherit;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
     }
     .sloppy-bar-dropdown-item:hover {
       background: ${options.theme === 'light' ? 'rgba(0,221,255,0.1)' : 'rgba(0,221,255,0.15)'};
@@ -2470,12 +2481,6 @@
         <button class="sloppy-bar-chat${_chatUnseenCount > 0 ? ' has-unseen' : ''}" onclick="window.sloppyBarToggleChat(event)" title="Live global chat" aria-label="Live chat" aria-haspopup="true" aria-expanded="${_chatPanelOpen}">
           💬<span class="sloppy-bar-chat-badge${_chatUnseenCount > 0 ? ' show' : ''}" id="sloppy-bar-chat-badge">${_chatUnseenCount > 99 ? '99+' : _chatUnseenCount}</span>
         </button>
-        <button class="sloppy-bar-twitch" onclick="window.sloppyBarToggleTwitch(event)" title="Twitch live stream" aria-label="Twitch stream" aria-haspopup="true">
-          📺
-        </button>
-        <button class="sloppy-bar-notepad" onclick="window.sloppyBarToggleNotepad(event)" title="Notepad · auto-saves to this browser" aria-label="Notepad" aria-haspopup="true">
-          📝
-        </button>
         <button class="sloppy-bar-teleport" onclick="window.sloppyBarTeleport()" title="Random app adventure!">
           <span class="sloppy-bar-teleport-icon">🌀</span> Teleport
         </button>
@@ -3636,7 +3641,15 @@
       <div class="sloppy-bar-dropdown-header">${cat}</div>
       <div class="sloppy-bar-ecogrid">
         ${modules.map(m => {
-          const isCurrent = m.path === currentPath;
+          const isCurrent = m.path && m.path === currentPath;
+          // Action items (e.g. Notepad/Twitch widgets) render as <button> +
+          // call the named global fn; non-action items are link navigation.
+          if (m.action) {
+            return `<button type="button" class="sloppy-bar-dropdown-item" title="${m.desc}" onclick="window.sloppyBarToggleDropdown(event); window.${m.action} && window.${m.action}(event);">
+              <span class="sloppy-bar-dropdown-item-icon">${m.icon}</span>
+              <span class="sloppy-bar-dropdown-item-name">${m.name}</span>
+            </button>`;
+          }
           return `<a href="/${m.path}" class="sloppy-bar-dropdown-item${isCurrent ? ' current' : ''}" title="${m.desc}">
             <span class="sloppy-bar-dropdown-item-icon">${m.icon}</span>
             <span class="sloppy-bar-dropdown-item-name">${m.name}</span>
