@@ -2,6 +2,98 @@
 
 Universal header component connecting all 454 sloppy.live apps to SloppyID.
 
+---
+
+## ⚠ ADMIN BUG REPORT — Root Bar Duplication Audit (2026-06-01)
+
+**Filed by:** Claude (coding agent), via chat request.
+**Affected file:** `/vibespace/_bar/index.html` (the nginx-injected wrapper).
+**Access:** root-owned (`-rw-r--r-- 1 root root`), mode 644. As user `sloppy` I CANNOT
+edit it directly. Mitigations applied on the `sloppy-bar.js` side; root edits
+recommended for the items below.
+
+### Issue 1 — `id="sloppy-bar"` is shared between wrapper and inner bar
+- The wrapper has `<div id="sloppy-bar">` (line 194 of `/_bar/index.html`).
+- `sloppy-bar.js` ALSO creates `<div id="sloppy-bar">` inside the iframe document.
+- They live in separate document scopes so no DOM collision, BUT the previous
+  wrapper-detection heuristic in sloppy-bar.js (`parent.document.getElementById('sloppy-bar')`)
+  would false-positive for any standalone app that happens to use that id.
+- **Mitigated in sloppy-bar.js** (commit `e5f973aa7`): switched detection to
+  `window.frameElement.id === 'app-frame'`, the canonical wrapper marker.
+- **Root recommendation:** rename the wrapper's outer bar id to
+  `sloppy-wrapper-bar` (or add `data-sloppy-wrapper="true"` attribute) and
+  remove the ambiguity entirely.
+
+### Issue 2 — Two anonymous Supabase sessions per visitor
+- Wrapper uses UMD `window.supabase.createClient(...)` (line 530), no
+  `cookieOptions`, calls `signInAnonymously()` in `ensureSession()` (line 297).
+- Inner `sloppy-bar.js` uses `createBrowserClient` from `@supabase/ssr` with
+  `cookieOptions: { domain: '.sloppy.live' }`, ALSO calls `signInAnonymously()`.
+- Cookies don't align: wrapper writes default-scope cookies, inner writes
+  `.sloppy.live`-scoped cookies. Two distinct `auth.users` rows can be created
+  per visitor on first load.
+- **Impact:** votes, leaderboards, karma may end up attributed to the wrong
+  anon id depending on which context registered the action.
+- **Root recommendation:** unify the cookie options in the wrapper:
+  `createClient(URL, KEY, { auth: { storageKey: 'sb-auth-token', cookieOptions: { domain: '.sloppy.live' } } })`.
+  OR have the wrapper skip auth entirely and let the inner bar own the session.
+
+### Issue 3 — 500ms URL-polling setInterval (wrapper line 256)
+- The wrapper polls `frame.contentWindow.location.pathname` every 500ms forever.
+- Wasteful for idle tabs (battery cost on mobile, especially since the wrapper
+  runs even when the embedded app is paused).
+- Wrapped same-origin context: a `postMessage` from the inner app on
+  `pushState/replaceState` would be cheaper + more accurate.
+- **Root recommendation:** replace polling with a `message` event listener
+  in the wrapper, and have `sloppy-bar.js` post `{type:'sloppy-url',path,search}`
+  on its own history-change hook (already detectable via `popstate` + a
+  monkey-patched `history.pushState`).
+
+### Issue 4 — No singleton guard on the wrapper script
+- The wrapper script is an inline IIFE. If for any reason the wrapper HTML is
+  served twice (rare: caching anomaly, stale CDN, browser back-forward cache
+  restore + manual reload), the IIFE could double-initialize.
+- All side effects (supabase client, setInterval URL poller, event listeners)
+  would double up silently.
+- **Root recommendation:** add `if (window.__SLOPPY_WRAPPER_LOADED__) return;
+  window.__SLOPPY_WRAPPER_LOADED__ = true;` at the top of the IIFE.
+- (Inner `sloppy-bar.js` already got this guard in commit `ae6890810`.)
+
+### Issue 5 — Vote button rendered in both wrapper AND inner bar (FIXED)
+- Initial state: wrapper has `.vote-group` (lines 201–205), AND inner bar had
+  `_sloppyVoteSlug` rendering its own vote button. Chat saw two upvote pills.
+- **Fixed in sloppy-bar.js** (commits `f0bc747fb` then `e5f973aa7`): inner
+  bar checks `_isInsideWrapper` via `frameElement.id` and suppresses its own
+  vote button when embedded.
+- **Closed.** No further action needed unless the wrapper id changes.
+
+### Issue 6 — `app-frame` cross-origin assumption
+- The wrapper assumes the inner iframe is same-origin (line 258:
+  `frame.contentWindow.location.pathname` — would throw on cross-origin).
+- All current apps live on the same origin so this works, but if external
+  apps are ever embedded (gift cards, partner integrations, etc.) the
+  URL-sync would silently break.
+- **Root recommendation:** wrap the `contentWindow.location` access in try/catch
+  (it already is — line 257), but ALSO gracefully degrade to the iframe `src`
+  attribute as a fallback for cross-origin embeds.
+
+---
+
+## Summary for admins
+| Issue | Severity | Mitigation | Root edit needed? |
+|-------|----------|------------|-------------------|
+| 1. Shared `#sloppy-bar` id | Low | Detection tightened | Yes (cosmetic) |
+| 2. Two anon sessions | **Medium** | None possible from inner | **Yes** |
+| 3. 500ms URL polling | Low | None possible from inner | Optional |
+| 4. No singleton guard | Low | Inner has guard | Optional |
+| 5. Duplicate vote button | High | **Fixed** | No |
+| 6. Cross-origin assumption | Low | N/A | Optional |
+
+Patches landed on the inner-bar side: `e5f973aa7`, `ae6890810`, `f0bc747fb`.
+Wrapper edits require root access to `/vibespace/_bar/index.html`.
+
+---
+
 ## Log
 - 2026-05-30: **Global notification layer** — added bell button + transient toasts. Two new public APIs: `window.sloppyBarToast(msg, opts)` (rate-limited 250ms, dedupe identical type+msg within 4s, max 4 visible stacked top-right, auto-dismiss 4s, optional action button + sticky duration:0) and `window.sloppyBarNotify(msg, opts)` (push into persistent localStorage-backed bell log, capped 30 entries, surfaces as toast unless `silent:true`). Read APIs: `sloppyBarGetNotifications()` + `sloppyBarGetUnreadCount()`. **Bell button** between vote and Teleport in `sloppy-bar-right` — wiggles + shows magenta/orange gradient badge with unread count on increment, 99+ overflow. Clicking opens a 320px panel ($options.position 44px : auto) with dialog role + aria-label, slides up/down depending on bar position, shows last 20 entries with unread purple-gradient left rail, per-entry icon + msg + relative time + optional action link, "Mark all read" header chip, "Clear all" footer button, auto-mark-read after 700ms open. Click-outside closes. **Auto-feed** hooks existing sync events: `unread-changed` → "N new direct messages/mentions" with /sloppy-id or /sloppy-alerts link (only fires on delta increase, tracks `_lastSeenUnreadDmCount`/`_lastSeenUnreadMentionCount`), `karma-changed` w/ delta → "Karma +5" success/warn toast, `verification-changed` w/ level increase → "Verification upgraded · level N" success toast. Wired via `_autoFeedFromSyncEvent` called from both BroadcastChannel handler and worker postMessage handler. **Types**: info (cyan) / success (lime) / warn (amber) / error (red) — drive icon emoji, toast border-left color, panel icon tint, ARIA role (alert for warn/error, status for info/success). **A11y**: toast-stack role=region aria-live=polite, panel role=dialog, bell aria-haspopup=true + aria-expanded reflects state, focus-visible, prefers-reduced-motion kills wiggle + slide animations. Persistent state survives reloads via `sloppy_notif_log_v1` localStorage. Bundle +~7KB raw / ~3KB gzipped.
 - 2026-02-05: Phase 4 — Second batch: sloppy-radio, karma-board, swarm-nexus
