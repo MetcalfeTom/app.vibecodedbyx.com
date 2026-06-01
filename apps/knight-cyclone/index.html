@@ -118,6 +118,7 @@
     .hud-stats .val.score   { color: var(--gold);  text-shadow: 0 0 8px rgba(217,164,58,0.5); }
     .hud-stats .val.wave    { color: var(--moon);  text-shadow: 0 0 8px rgba(212,230,255,0.5); }
     .hud-stats .val.combo   { color: var(--blood); text-shadow: 0 0 8px rgba(181,30,43,0.5); }
+    .hud-stats .val.hearts  { color: #ff5566;     text-shadow: 0 0 8px rgba(255,85,102,0.55); letter-spacing: 2px; }
     .hud-stats .val.best    { color: var(--ink-dim); }
 
     /* ============ ARENA ============ */
@@ -286,6 +287,7 @@
         <span class="tag">the blade never stops</span>
       </div>
       <div class="hud-stats">
+        <div><span class="lbl">hearts</span><span class="val hearts" id="hud-hearts">♥♥</span></div>
         <div><span class="lbl">score</span><span class="val score"   id="hud-score">0</span></div>
         <div><span class="lbl">wave</span> <span class="val wave"    id="hud-wave">1</span></div>
         <div><span class="lbl">combo</span><span class="val combo"   id="hud-combo">×1</span></div>
@@ -346,8 +348,14 @@
     const ctx = canvas.getContext('2d');
     const overlayIntro = document.getElementById('overlay-intro');
     const overlayEnd   = document.getElementById('overlay-end');
-    const hudScore = document.getElementById('hud-score');
-    const hudWave  = document.getElementById('hud-wave');
+    const hudScore  = document.getElementById('hud-score');
+    const hudWave   = document.getElementById('hud-wave');
+    const hudHearts = document.getElementById('hud-hearts');
+    function updateHeartsHud() {
+      let s = '';
+      for (let i = 0; i < player.maxHearts; i++) s += (i < player.hearts ? '♥' : '♡');
+      hudHearts.textContent = s;
+    }
     const hudCombo = document.getElementById('hud-combo');
     const hudBest  = document.getElementById('hud-best');
 
@@ -377,7 +385,13 @@
       x: 0, y: 0, r: 14,
       speed: 230,           // px/s
       hp: 1,
+      hearts: 2,            // 2-heart health system. 0 = game over.
+      maxHearts: 2,
+      iframes: 0,           // seconds of damage immunity remaining
     };
+    const PLAYER_DODGE_CHANCE = 0.15;     // 15% chance to evade any damage
+    const PLAYER_IFRAMES_HIT  = 0.9;      // grace period after taking a heart
+    const PLAYER_IFRAMES_DODGE= 0.45;     // shorter window after a dodge
     // Sword — length is dynamic: grows on wave advance, shrinks on goblin nicks.
     const SWORD_BASE_LEN = 80;
     const SWORD_MIN_LEN  = 40;     // floor so it can never fully disappear
@@ -404,11 +418,13 @@
     let best = parseInt(localStorage.getItem('knight_cyclone_best') || '0', 10);
     let bestWave = parseInt(localStorage.getItem('knight_cyclone_best_wave') || '0', 10);
     hudBest.textContent = best;
+    updateHeartsHud();
 
     const enemies = [];     // {x,y,r,type,hp,maxHp,speed,reward,vx,vy,deathT,dead, aiState, aiTimer, slamRadius}
     const sparks  = [];     // {x,y,vx,vy,life,age,color,size}
     const floaters= [];     // {x,y,vy,life,age,text,color}
     const shockwaves = [];  // {x,y,r,maxR,life,age,damaged} — giant ground-slam aftermath
+    const heartDrops = [];  // {x,y,vx,vy,life,age,bob} — collectible heart pickups
 
     // === JUICE: screen shake + hit-stop freeze ===
     // shakeAmp lerps down each frame; render() offsets the canvas by a random
@@ -917,6 +933,8 @@
 
       // Knight breathing cycle (slow 2Hz alternation between F0 and F1)
       knightAnimT += dt * 2.2;
+      // Damage-immunity countdown
+      if (player.iframes > 0) player.iframes = Math.max(0, player.iframes - dt);
       // Sword swing
       sword.angle += sword.angVel * dt;
       while (sword.angle > Math.PI * 2) sword.angle -= Math.PI * 2;
@@ -1027,14 +1045,21 @@
         }
 
         // Player contact: goblins are the "nick" — they shrink the blade
-        // and die themselves; everything else still kills the knight.
+        // and die themselves; everything else damages the knight (1 heart
+        // per touch, routed through damagePlayer for dodge + iframes).
         if (Math.hypot(ddx, ddy) < e.r + player.r - 2) {
           if (e.type === 'goblin' && !e.dead) {
             goblinNick(e);
             continue;
           }
-          gameOver();
-          return;
+          const tookHit = damagePlayer('contact');
+          if (tookHit) {
+            // Knock the offending enemy back a bit so it doesn't grind the i-frames
+            const kbA = Math.atan2(e.y - player.y, e.x - player.x);
+            e.x += Math.cos(kbA) * 22;
+            e.y += Math.sin(kbA) * 22;
+          }
+          if (state === 'over') return;
         }
       }
 
@@ -1049,11 +1074,52 @@
           // Hit if player is inside the leading edge (with thickness)
           if (wd <= w.r && wd >= w.r - 24) {
             w.damaged = true;
-            gameOver();
-            return;
+            damagePlayer('shockwave');
+            if (state === 'over') return;
           }
         }
         if (w.age >= w.life) shockwaves.splice(i, 1);
+      }
+
+      // Heart-drop pickups: gentle gravity until they land, then a slow bob.
+      // Pickup on overlap (player.r + 14). Despawn after life seconds.
+      for (let i = heartDrops.length - 1; i >= 0; i--) {
+        const hd = heartDrops[i];
+        hd.age += dt;
+        hd.bob += dt * 3;
+        if (hd.age >= hd.life) { heartDrops.splice(i, 1); continue; }
+        if (!hd.landed) {
+          hd.vy += 220 * dt;
+          hd.x  += hd.vx * dt;
+          hd.y  += hd.vy * dt;
+          hd.vx *= Math.pow(0.85, dt * 60);
+          // Land once vertical motion settles + we've fallen past initial pop
+          if (hd.age > 0.55 && Math.abs(hd.vy) < 60) {
+            hd.landed = true;
+            hd.vx = 0; hd.vy = 0;
+          }
+        }
+        // Magnet toward player when within ~80px (juicy auto-collect feel)
+        const dx = player.x - hd.x, dy = player.y - hd.y;
+        const dh = Math.hypot(dx, dy) || 0.001;
+        if (dh < 90) {
+          const pull = (1 - dh / 90) * 360 * dt;
+          hd.x += (dx / dh) * pull;
+          hd.y += (dy / dh) * pull;
+        }
+        // Pickup
+        if (dh < player.r + 12 && player.hearts < player.maxHearts) {
+          player.hearts += 1;
+          updateHeartsHud();
+          spawnSparks(hd.x, hd.y, 16, '#ff5566');
+          spawnSparks(hd.x, hd.y, 8, '#ffffff');
+          floaters.push({
+            x: hd.x, y: hd.y - 12, vy: -40, life: 1.0, age: 0,
+            text: '+1 ♥', color: '#ff5566'
+          });
+          heartDrops.splice(i, 1);
+          continue;
+        }
       }
 
       // Particle update
@@ -1224,6 +1290,8 @@
       const isBig = e.type === 'giant' || e.type === 'brute';
       spawnSparks(e.x, e.y, isBig ? 36 : 18, e.color);
       spawnSparks(e.x, e.y, isBig ? 14 : 6, '#ffffff');
+      // Heart drop chance (only if not capped)
+      tryDropHeart(e);
       if (e.type === 'giant') {
         // Giants die with serious flair: heavy shake + brief freeze frame +
         // extra debris burst + a dramatic floater
@@ -1303,14 +1371,86 @@
       score = 0; kills = 0; wave = 1; combo = 1; comboTimer = 0;
       waveTimer = 0; spawnTimer = 0.6;
       enemies.length = 0; sparks.length = 0; floaters.length = 0; shockwaves.length = 0;
+      heartDrops.length = 0;
       shakeAmp = 0; flashAlpha = 0; hitPause = 0;
+      player.hearts = player.maxHearts;
+      player.iframes = 0;
       hudScore.textContent = '0';
       hudWave.textContent = '1';
       updateComboHud();
+      updateHeartsHud();
       overlayIntro.classList.add('hidden');
       overlayEnd.classList.add('hidden');
       announce('the blade rises');
     }
+    // ============================================================
+    // PLAYER DAMAGE — dodge roll → i-frames → heart decrement → death
+    // ------------------------------------------------------------
+    // Every potential lethal hit (contact, shockwave) now routes through
+    // here. 15% of all damage events evade with a cyan "DODGE!" floater.
+    // Otherwise consume 1 heart with a brief grace window so the same
+    // enemy can't burn through both hearts in a single touch.
+    // Returns true if damage was actually taken (caller may want to
+    // skip further per-frame logic for that enemy).
+    // ============================================================
+    function damagePlayer(source) {
+      if (state !== 'playing') return false;
+      if (player.iframes > 0) return false;  // already invincible
+      // Dodge roll
+      if (Math.random() < PLAYER_DODGE_CHANCE) {
+        player.iframes = PLAYER_IFRAMES_DODGE;
+        floaters.push({
+          x: player.x, y: player.y - 24, vy: -56, life: 1.1, age: 0,
+          text: 'DODGE!', color: '#5effff'
+        });
+        spawnSparks(player.x, player.y, 14, '#5effff');
+        shake(6);
+        announce('dodge');
+        return false;
+      }
+      // Real hit — burn a heart
+      player.hearts -= 1;
+      player.iframes = PLAYER_IFRAMES_HIT;
+      updateHeartsHud();
+      flash(0.45);
+      shake(18);
+      pauseFor(0.05);
+      spawnSparks(player.x, player.y, 22, '#ff5566');
+      floaters.push({
+        x: player.x, y: player.y - 24, vy: -50, life: 1.0, age: 0,
+        text: '-1 ♥', color: '#ff5566'
+      });
+      if (player.hearts <= 0) {
+        gameOver();
+        return true;
+      }
+      return true;
+    }
+
+    // Chance to drop a heart on enemy death. Stronger enemies = better odds.
+    function tryDropHeart(e) {
+      // No drops if player is already topped up (don't waste them)
+      if (player.hearts >= player.maxHearts) return;
+      const dropChance =
+        e.type === 'giant'  ? 0.85 :
+        e.type === 'brute'  ? 0.32 :
+        e.type === 'zombie' ? 0.10 :
+        e.type === 'wraith' ? 0.05 :
+        e.type === 'shade'  ? 0.04 :
+        0;
+      if (Math.random() > dropChance) return;
+      // Pop the heart outward with light gravity. It bobs in place once it lands.
+      const ang = Math.random() * Math.PI * 2;
+      const sp  = 30 + Math.random() * 40;
+      heartDrops.push({
+        x: e.x, y: e.y,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp - 60,    // pop up
+        life: 10, age: 0, bob: Math.random() * Math.PI * 2,
+        landed: false
+      });
+    }
+
     function gameOver() {
       state = 'over';
       // Death is the biggest impact in the game — go all-out.
@@ -1407,7 +1547,18 @@
       ctx.restore();
       // Knight sprite — gentle breathing cycle by toggling F0/F1
       const kFrame = KNIGHT_FRAMES[(Math.sin(knightAnimT) > 0 ? 1 : 0)];
-      drawSprite(kFrame, cx, cy);
+      // i-frame flicker: blink every 80ms while invincible. Tinted cyan
+      // briefly after a dodge so the player can see the grace window.
+      if (player.iframes > 0) {
+        const tick = Math.floor(performance.now() / 80) % 2 === 0;
+        if (tick) {
+          drawSprite(kFrame, cx, cy, { alpha: 0.55, tint: '#5effff' });
+        } else {
+          drawSprite(kFrame, cx, cy, { alpha: 0.7 });
+        }
+      } else {
+        drawSprite(kFrame, cx, cy);
+      }
       // Sword — chunky pixel line of square segments from knight outward along sword.angle
       // Bypass the smooth blade for a real pixel-art weapon.
       const segCount = Math.floor(sword.length / px) + 1;
@@ -1587,6 +1738,66 @@
       }
     }
 
+    // Pixel-art heart drop sprite — drawn each frame at the collectible's
+    // current position. 8-cell heart with darker outline + light glint,
+    // gentle bob, and a low-opacity halo pulse so it reads against ground.
+    function drawHeartDrops() {
+      const px = PIXEL_SIZE;
+      for (const hd of heartDrops) {
+        // Fade in the last 1.5s of life so the player knows it's expiring
+        const remaining = hd.life - hd.age;
+        const alpha = remaining < 1.5 ? Math.max(0.25, remaining / 1.5) : 1;
+        const bobY = Math.round(Math.sin(hd.bob) * 1.5);
+        const x = Math.round(hd.x);
+        const y = Math.round(hd.y + bobY);
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.35;
+        // Pink halo
+        ctx.fillStyle = '#ff5566';
+        ctx.beginPath();
+        ctx.arc(x, y, 10 + Math.sin(hd.bob * 1.4) * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = alpha;
+        // 7×6 heart in 3×3 cells. Layout:
+        //  ## ##
+        // #####
+        // #####
+        // .###.
+        // ..#..
+        const heart = [
+          [0,1,1,0,1,1,0],
+          [1,1,1,1,1,1,1],
+          [1,1,1,1,1,1,1],
+          [0,1,1,1,1,1,0],
+          [0,0,1,1,1,0,0],
+          [0,0,0,1,0,0,0],
+        ];
+        const cx = x - Math.floor(heart[0].length * px / 2);
+        const cy = y - Math.floor(heart.length    * px / 2);
+        // Outline pass (darker red)
+        ctx.fillStyle = '#5a0a16';
+        for (let ry = 0; ry < heart.length; ry++) {
+          for (let rx = 0; rx < heart[0].length; rx++) {
+            if (!heart[ry][rx]) continue;
+            ctx.fillRect(cx + rx * px - 1, cy + ry * px - 1, px + 2, px + 2);
+          }
+        }
+        // Body fill
+        ctx.fillStyle = '#ff5566';
+        for (let ry = 0; ry < heart.length; ry++) {
+          for (let rx = 0; rx < heart[0].length; rx++) {
+            if (!heart[ry][rx]) continue;
+            ctx.fillRect(cx + rx * px, cy + ry * px, px, px);
+          }
+        }
+        // Glint cells (upper-left)
+        ctx.fillStyle = '#ffd0d8';
+        ctx.fillRect(cx + 1 * px, cy + 1 * px, px, px);
+        ctx.fillRect(cx + 2 * px, cy + 0 * px, px, px);
+        ctx.restore();
+      }
+    }
+
     function drawSparks() {
       // Pixel-art sparks: filled axis-aligned squares, no antialiasing or glow.
       // Size snaps to PIXEL_SIZE multiples for the chunky look.
@@ -1636,6 +1847,7 @@
       drawSwordTrail();
       drawShockwaves();   // BEHIND enemies so the ring shows the AOE footprint
       drawEnemies();
+      drawHeartDrops();   // BELOW knight + sparks so the sword can sweep over them visually
       drawSparks();
       drawKnight();
       drawFloaters();
