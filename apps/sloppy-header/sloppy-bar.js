@@ -2466,7 +2466,6 @@
             ${renderDropdown()}
           </div>
         </div>
-        <a href="/system-health" class="sloppy-bar-link" title="System Status">🩺 Health</a>
       </div>
       ` : ''}
       <div class="sloppy-bar-right">
