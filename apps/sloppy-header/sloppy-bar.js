@@ -2459,8 +2459,7 @@
       </div>
       ${!options.hideLinks ? `
       <div class="sloppy-bar-center">
-        <a href="/karma-board" class="sloppy-bar-link" title="Karma Leaderboard">📊 Karma</a>
-        <span class="sloppy-bar-vault-wrap"><a href="/sloppy-id" class="sloppy-bar-link" title="Your Data Vault">🪪 Vault</a><span class="sloppy-bar-notif-dot ${userContext.unreadCount > 0 ? 'show' : ''}" id="sloppy-bar-notif"></span></span>
+        <span class="sloppy-bar-vault-wrap"><button class="sloppy-bar-link sloppy-bar-karma-trigger" type="button" onclick="window.sloppyBarToggleKarma(event)" title="Open the Karma leaderboard in an inline panel">📊 Karma</button><span class="sloppy-bar-notif-dot ${userContext.unreadCount > 0 ? 'show' : ''}" id="sloppy-bar-notif"></span></span>
         <div class="sloppy-bar-dropdown-wrapper">
           <span class="sloppy-bar-link sloppy-bar-apps-trigger" onclick="window.sloppyBarToggleDropdown(event)" title="Ecosystem · all modules + recent apps">🚀 Apps</span>
           <div class="sloppy-bar-dropdown ${dropdownOpen ? 'open' : ''}" id="sloppy-bar-dropdown">
@@ -2679,6 +2678,75 @@
     if (panel) panel.classList.remove('open');
     _notepadPanelOpen = false;
   }
+  // ===================================================================
+  // === KARMA LEADERBOARD WINDOW ======================================
+  // ===================================================================
+  // Inline iframe to /karma-board, lazy-mounted on first toggle. Lives
+  // bottom-right above the bar so it sits next to the trigger button.
+  // Replaces the old 🪪 Vault link — chat preferred a peek at the karma
+  // standings over a navigation away from the current app.
+  let _karmaOpen = false;
+  let _karmaMounted = false;
+  function _ensureKarmaWindowStyles() {
+    if (document.getElementById('sloppy-bar-karma-style')) return;
+    var st = document.createElement('style');
+    st.id = 'sloppy-bar-karma-style';
+    st.textContent = '\
+    .sloppy-karma-window{position:fixed;bottom:60px;right:14px;width:min(420px,calc(100vw - 28px));height:min(560px,calc(100vh - 90px));background:#0d1018;border:2px solid #3a2c5a;border-radius:6px;box-shadow:0 6px 32px rgba(0,0,0,0.6),0 0 26px rgba(180,120,255,0.18);z-index:99999;display:flex;flex-direction:column;overflow:hidden;font-family:"JetBrains Mono",monospace;color:#cdd6ea}\
+    .sloppy-karma-header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:linear-gradient(180deg,#221830,#160f22);border-bottom:1px solid #3a2c5a;font-size:0.78rem;letter-spacing:0.12em;text-transform:uppercase;color:#bb8cff;user-select:none}\
+    .sloppy-karma-header .k-title{flex:1}\
+    .sloppy-karma-btn{background:#1a1224;border:1px solid #3a2c5a;color:#cdd6ea;width:26px;height:26px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:0.9rem;line-height:1;padding:0}\
+    .sloppy-karma-btn:hover{background:#2a1a3e;color:#fff}\
+    .sloppy-karma-body{flex:1;background:#06030c;position:relative}\
+    .sloppy-karma-body iframe{position:absolute;inset:0;width:100%;height:100%;border:0}\
+    .sloppy-karma-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#7a6c92;font-style:italic;font-size:0.85rem}';
+    document.head.appendChild(st);
+  }
+  function _karmaMountIframe() {
+    var win = document.getElementById('sloppy-karma-window');
+    if (!win) return;
+    var body = win.querySelector('.sloppy-karma-body');
+    if (!body) return;
+    body.innerHTML = '<iframe src="/karma-board/?embed=1" title="Karma leaderboard" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" loading="lazy"></iframe>';
+    _karmaMounted = true;
+  }
+  function _renderKarmaWindow() {
+    _ensureKarmaWindowStyles();
+    var win = document.getElementById('sloppy-karma-window');
+    if (!win) {
+      win = document.createElement('div');
+      win.id = 'sloppy-karma-window';
+      win.className = 'sloppy-karma-window';
+      win.setAttribute('role', 'dialog');
+      win.setAttribute('aria-label', 'Karma leaderboard');
+      win.innerHTML =
+        '<div class="sloppy-karma-header">' +
+          '<div class="k-title">📊 Karma · Leaderboard</div>' +
+          '<button class="sloppy-karma-btn" id="sloppy-karma-reload" title="reload" type="button">↻</button>' +
+          '<a class="sloppy-karma-btn" id="sloppy-karma-popout"  title="open full page" href="/karma-board" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none">↗</a>' +
+          '<button class="sloppy-karma-btn" id="sloppy-karma-close" title="close" type="button">✕</button>' +
+        '</div>' +
+        '<div class="sloppy-karma-body"><div class="sloppy-karma-empty">loading karma board…</div></div>';
+      document.body.appendChild(win);
+      win.querySelector('#sloppy-karma-close').addEventListener('click', function() { window.sloppyBarToggleKarma(); });
+      win.querySelector('#sloppy-karma-reload').addEventListener('click', function() { _karmaMountIframe(); });
+    }
+    if (!_karmaMounted) _karmaMountIframe();
+  }
+  window.sloppyBarToggleKarma = function(ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    var win = document.getElementById('sloppy-karma-window');
+    if (_karmaOpen && win) {
+      win.style.display = 'none';
+      _karmaOpen = false;
+    } else {
+      _renderKarmaWindow();
+      var w = document.getElementById('sloppy-karma-window');
+      if (w) w.style.display = 'flex';
+      _karmaOpen = true;
+    }
+  };
+
   window.sloppyBarToggleNotepad = function(ev) {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
     if (_notepadPanelOpen) { _hideNotepadPanel(); return; }
