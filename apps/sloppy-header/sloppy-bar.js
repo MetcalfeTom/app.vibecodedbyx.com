@@ -283,22 +283,29 @@
   // === IFRAME-WRAPPER DETECTION ======================================
   // ===================================================================
   // nginx wraps every app inside /_bar/index.html — an outer iframe
-  // host that ALREADY renders its own voting/teleport/karma bar at the
-  // top of the viewport. When this inner sloppy-bar.js ALSO renders a
-  // vote button, chat sees two upvote pills stacked vertically. Detect
-  // that case (we're embedded in any same-origin parent that owns a
-  // sloppy-bar) and suppress our own duplicate vote button so only the
-  // outer one renders.
+  // host that ALREADY renders its own voting/teleport bar at the top
+  // of the viewport. When this inner sloppy-bar.js ALSO renders a vote
+  // button, chat sees two upvote pills stacked vertically. The wrapper
+  // mounts the app inside <iframe id="app-frame">, so the cleanest
+  // detection is `window.frameElement.id === 'app-frame'` — that's
+  // UNIQUE to the wrapper context and avoids the false positives that
+  // the previous parent.document #sloppy-bar lookup could trigger if
+  // an app happened to use the same id.
   let _isInsideWrapper = false;
   (function() {
     try {
       if (window.self === window.top) return;     // standalone, render normally
-      // Same-origin iframe: peek at parent to check for an outer bar.
-      // Cross-origin throws on document access — treat as not-wrapped.
-      const parentBar = window.parent && window.parent.document &&
-        (window.parent.document.getElementById('sloppy-bar') ||
-         window.parent.document.querySelector('.sloppy-bar, .bar-vote, [data-sloppy-wrapper]'));
-      if (parentBar) _isInsideWrapper = true;
+      // frameElement returns the <iframe> this window is mounted in
+      // (or null/undefined). Throws SecurityError on cross-origin.
+      const fe = window.frameElement;
+      if (fe && fe.id === 'app-frame') { _isInsideWrapper = true; return; }
+      // Fallback: same-origin parent that exposes a sloppy-wrapper marker.
+      const parentDoc = window.parent && window.parent.document;
+      if (parentDoc && (
+          parentDoc.querySelector('iframe#app-frame') ||
+          parentDoc.querySelector('[data-sloppy-wrapper]'))) {
+        _isInsideWrapper = true;
+      }
     } catch (_) { /* cross-origin parent — assume standalone */ }
   })();
   function _shouldRenderVote() { return !!_sloppyVoteSlug && !_isInsideWrapper; }
