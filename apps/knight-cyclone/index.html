@@ -923,6 +923,76 @@
       '.': 'transparent',
     });
 
+    // --- UNDEAD KING (17×21): the true boss. Crowned skull-king with
+    //     glowing yellow eyes, draped tattered cape, and a held bone
+    //     scepter. Frame F1 shifts cape ripples + crown gem glints. ---
+    const UK_PAL = {
+      '.': 'transparent',
+      'o': '#0a0410',        // outline
+      'b': '#e8e0c8',        // bleached bone (highlight)
+      'B': '#9a9078',        // bone shadow
+      'y': '#ffd966',        // gold crown
+      'Y': '#9e6e1c',        // gold crown shadow
+      'g': '#ffe1a0',        // gem highlight (cream-gold)
+      'e': '#ffeb6e',        // glowing eye core
+      'E': '#ff9a1a',        // glowing eye outer
+      'c': '#5a0a16',        // dark crimson cape
+      'C': '#a01828',        // crimson cape highlight
+      's': '#1a0a08',        // scepter shaft
+      'r': '#ff4455',        // red gem
+    };
+    const UNDEAD_KING_F0 = makeSprite([
+      '.....oyoyoyo.....',  // crown spikes
+      '....oygygygyo....',
+      '....oyYygYyYo....',  // crown band w/ red gem (r)
+      '...oyYrYrYrYyo...',
+      '....oybbbbbyo....',  // forehead bone (under crown)
+      '...obBbbbbBbBo...',
+      '..obB.eeEe.Bbo...',  // eye sockets dark, glowing
+      '..obB.eeEe.Bbo...',
+      '..obBbbbbbBbBo...',
+      '...obBBBbBBBbo...',  // nasal cavity / cheek shadow
+      '...obB.bbb.Bbo...',
+      '..obBb.bbb.bBBo..',  // jaw line
+      '.obBBBbbbbbbBBBo.',  // shoulder bones (broad)
+      'oCcccBBBBBBBccccCo',  // cape over shoulders
+      'oCcccccccccccccCso',  // cape body row 1 + scepter shaft top
+      '.oCccccccccccCcsbo',  // scepter shaft + bone tip
+      '..oCcccccccccCsBo.',
+      '...oCcccccccCso..',
+      '....oCcCcccCo....',
+      '.....oCCCCCo.....',  // cape tail
+      '......ooooo......',
+    ], UK_PAL);
+    const UNDEAD_KING_F1 = makeSprite([
+      '.....oyoyoyo.....',
+      '....oygygygyo....',
+      '....oyYygYyYo....',
+      '...oyYrYRYrYyo...',  // gem pulse (R=brighter red)
+      '....oybbbbbyo....',
+      '...obBbbbbBbBo...',
+      '..obB.eEEe.Bbo...',  // eye glow flicker
+      '..obB.eEEe.Bbo...',
+      '..obBbbbbbBbBo...',
+      '...obBBBbBBBbo...',
+      '...obB.bbb.Bbo...',
+      '..obBb.bbb.bBBo..',
+      '.obBBBbbbbbbBBBo.',
+      'oCccccBBBBBBccccCo',  // cape shifted (rib hint)
+      'oCcccccccccccccCso',
+      '.oCcccccccccCcCsbo',  // cape ripple + scepter glint
+      '..oCccccccccCBso.',
+      '...oCcccccccCso..',
+      '....oCcCccCCo....',  // tail flutter
+      '.....oCcCcCo.....',
+      '......ooooo......',
+    ], { ...UK_PAL, R: '#ffd0ff' });   // brighter pulse color for the gem
+    // Spawn-mode flag + handle to current king (only one alive at a time)
+    let undeadKingAlive = false;
+    let undeadKingHandle = null;
+    // Boss spawn schedule — wave numbers when the King appears
+    const UNDEAD_KING_WAVES = new Set([10, 15, 20, 25, 30]);
+
     // Per-type frames arrays. drawEnemies picks F0/F1 from e.bob phase.
     const SPRITE_BY_TYPE = {
       shade:  [SHADE_SPRITE_F0,  SHADE_SPRITE_F1],
@@ -930,7 +1000,8 @@
       brute:  [BRUTE_SPRITE],
       goblin: [GOBLIN_SPRITE_F0, GOBLIN_SPRITE_F1],
       zombie: [ZOMBIE_SPRITE_F0, ZOMBIE_SPRITE_F1],
-      giant:  [GIANT_SPRITE]
+      giant:  [GIANT_SPRITE],
+      'undead-king': [UNDEAD_KING_F0, UNDEAD_KING_F1]
     };
     const KNIGHT_FRAMES = [KNIGHT_SPRITE_F0, KNIGHT_SPRITE_F1];
     let knightAnimT = 0;   // breathing/idle timer for knight sprite
@@ -1147,7 +1218,131 @@
     function e_initialAiState(type) {
       if (type === 'giant')  return 'moving';
       if (type === 'zombie') return 'walking';
+      if (type === 'undead-king') return 'roaming';
       return 'moving';
+    }
+
+    // ============================================================
+    // UNDEAD KING — true boss
+    // ------------------------------------------------------------
+    // Spawns at waves 10/15/20/25/30 (set in UNDEAD_KING_WAVES). HP
+    // scales with the wave it appears on. Two phases gated by HP:
+    // Phase 1 (>50%): roams slowly, summons 2 shades every ~3.5s
+    // Phase 2 (<50%): also fires homing bone-bolts every ~2.0s,
+    //                 moves faster, summon cadence drops to 2.4s
+    // Death drops 2 hearts + 500 score + heavy juice.
+    // ============================================================
+    const kingBolts = [];  // {x,y,vx,vy,life,age,r} — homing bone projectiles
+    function spawnUndeadKing() {
+      // Always spawn from the top of the arena center for dramatic effect
+      const x = W / 2;
+      const y = 60;
+      const hp = 90 + wave * 12;
+      undeadKingAlive = true;
+      const king = {
+        x, y, r: 32, type: 'undead-king',
+        hp, maxHp: hp, speed: 28, reward: 500, color: '#ffd966',
+        vx: 0, vy: 0, deathT: 0, dead: false,
+        eyeTwitch: Math.random() * Math.PI * 2,
+        bob: 0, dagger: 0, hitCD: 0,
+        aiState: 'roaming',
+        aiTimer: 1.2,         // first summon delay
+        bossSummonCD: 0,
+        bossBoltCD: 1.8,
+        bossPhase: 1,
+        slamRadius: 0
+      };
+      enemies.push(king);
+      undeadKingHandle = king;
+      // Dramatic spawn banner
+      floaters.push({
+        x: W / 2, y: H / 2 - 40, vy: -8, life: 3.2, age: 0,
+        text: '👑 THE UNDEAD KING RISES 👑', color: '#ffd966'
+      });
+      floaters.push({
+        x: W / 2, y: H / 2 - 8, vy: -8, life: 3.2, age: 0,
+        text: 'wave ' + wave + ' · boss', color: '#ff5566'
+      });
+      shake(28);
+      pauseFor(0.18);
+      flash(0.7);
+      spawnSparks(x, y, 48, '#ffd966');
+      spawnSparks(x, y, 22, '#ff4455');
+      announce('the undead king rises');
+    }
+    function updateUndeadKingAI(e, dt, distToPlayer, ddx, ddy) {
+      e.aiTimer -= dt;
+      e.bossSummonCD -= dt;
+      e.bossBoltCD -= dt;
+      // Phase transition at 50% HP — once-only, single juicy moment
+      if (e.bossPhase === 1 && e.hp <= e.maxHp * 0.5) {
+        e.bossPhase = 2;
+        floaters.push({
+          x: e.x, y: e.y - 50, vy: -22, life: 2.0, age: 0,
+          text: 'WRATH', color: '#ff5566'
+        });
+        spawnSparks(e.x, e.y, 30, '#ff5566');
+        shake(14);
+        announce('the king is wrathful');
+      }
+      const mul = enemySpeedMul();
+      const speedMul = e.bossPhase === 2 ? 1.65 : 1.0;
+      const summonRate = e.bossPhase === 2 ? 2.4 : 3.5;
+      const boltRate   = e.bossPhase === 2 ? 2.0 : 9999;  // no bolts in phase 1
+      // Keep some distance — circle the player instead of melee-chasing
+      const dirX = ddx / (distToPlayer || 0.0001);
+      const dirY = ddy / (distToPlayer || 0.0001);
+      // The king prefers to stay ~220px from the player. Move toward if
+      // farther, drift perpendicular if closer (circle-strafe vibe).
+      const PREF_DIST = 220;
+      if (distToPlayer > PREF_DIST + 60) {
+        e.vx = dirX * e.speed * speedMul * mul;
+        e.vy = dirY * e.speed * speedMul * mul;
+      } else if (distToPlayer < PREF_DIST - 60) {
+        e.vx = -dirX * e.speed * 0.6 * speedMul * mul;
+        e.vy = -dirY * e.speed * 0.6 * speedMul * mul;
+      } else {
+        // Perpendicular drift — strafe around the knight
+        e.vx = -dirY * e.speed * 0.8 * speedMul * mul;
+        e.vy =  dirX * e.speed * 0.8 * speedMul * mul;
+      }
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+      // Clamp inside the arena
+      const inset = 50;
+      e.x = Math.max(inset, Math.min(W - inset, e.x));
+      e.y = Math.max(inset, Math.min(H - inset, e.y));
+      // SUMMON — spawn 2 shades at the king's position
+      if (e.bossSummonCD <= 0) {
+        e.bossSummonCD = summonRate;
+        for (let k = 0; k < 2; k++) {
+          const ang = Math.random() * Math.PI * 2;
+          enemies.push({
+            x: e.x + Math.cos(ang) * 28,
+            y: e.y + Math.sin(ang) * 28,
+            r: 13, type: 'shade',
+            hp: 1, maxHp: 1, speed: 55 + wave * 2, reward: 6,
+            color: '#3d2954',
+            vx: 0, vy: 0, deathT: 0, dead: false,
+            eyeTwitch: Math.random() * Math.PI * 2,
+            bob: Math.random() * Math.PI * 2,
+            dagger: 0, hitCD: 0,
+            aiState: 'moving', aiTimer: 0, slamRadius: 0
+          });
+        }
+        spawnSparks(e.x, e.y, 14, '#9a5cd0');
+      }
+      // BONE BOLT — phase 2 only, aimed at the player
+      if (e.bossBoltCD <= 0 && distToPlayer < 600) {
+        e.bossBoltCD = boltRate;
+        const sp = 180;
+        kingBolts.push({
+          x: e.x, y: e.y,
+          vx: dirX * sp, vy: dirY * sp,
+          life: 4.0, age: 0, r: 8
+        });
+        spawnSparks(e.x, e.y, 6, '#e8e0c8');
+      }
     }
 
     // ============================================================
@@ -1165,6 +1360,11 @@
       wave++;
       hudWave.textContent = wave;
       sword.angVel = sword.baseAngVel + Math.min(8, wave * 0.18);
+      // Undead King appears at milestone waves. Spawn him at the start of
+      // the wave; he gates the next advance with his giant HP pool.
+      if (UNDEAD_KING_WAVES.has(wave) && !undeadKingAlive) {
+        spawnUndeadKing();
+      }
       // Blade grows on each new wave — claws back some length the goblins
       // chipped off and also rewards survival with reach. Capped at MAX.
       const newLen = Math.min(SWORD_MAX_LEN, sword.length + SWORD_WAVE_GROWTH);
@@ -1297,6 +1497,8 @@
           updateGiantAI(e, dt, d, ddx, ddy);
         } else if (e.type === 'zombie') {
           updateZombieAI(e, dt, d, ddx, ddy);
+        } else if (e.type === 'undead-king') {
+          updateUndeadKingAI(e, dt, d, ddx, ddy);
         } else {
           const spd = e.speed * enemySpeedMul();
           e.vx = (ddx / d) * spd;
@@ -1395,6 +1597,32 @@
           }
         }
         if (w.age >= w.life) shockwaves.splice(i, 1);
+      }
+
+      // Undead-King homing bolts: slight homing toward player + collision check
+      for (let i = kingBolts.length - 1; i >= 0; i--) {
+        const b = kingBolts[i];
+        b.age += dt;
+        if (b.age >= b.life) { kingBolts.splice(i, 1); continue; }
+        // Gentle homing — re-aim 18% per second toward player
+        const tdx = player.x - b.x, tdy = player.y - b.y;
+        const td = Math.hypot(tdx, tdy) || 0.001;
+        const turnK = 0.45;
+        b.vx += ((tdx / td) * 180 - b.vx) * Math.min(1, turnK * dt);
+        b.vy += ((tdy / td) * 180 - b.vy) * Math.min(1, turnK * dt);
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        // Despawn outside arena
+        if (b.x < -40 || b.x > W + 40 || b.y < -40 || b.y > H + 40) {
+          kingBolts.splice(i, 1); continue;
+        }
+        // Hit player
+        if (Math.hypot(player.x - b.x, player.y - b.y) < player.r + b.r - 2) {
+          damagePlayer('king-bolt');
+          spawnSparks(b.x, b.y, 12, '#e8e0c8');
+          kingBolts.splice(i, 1);
+          if (state === 'over') return;
+        }
       }
 
       // Heart-drop pickups: gentle gravity until they land, then a slow bob.
@@ -1608,7 +1836,40 @@
       spawnSparks(e.x, e.y, isBig ? 14 : 6, '#ffffff');
       // Heart drop chance (only if not capped)
       tryDropHeart(e);
-      if (e.type === 'giant') {
+      if (e.type === 'undead-king') {
+        // BOSS DEATH — full juice + heart bounty + score banner
+        shake(38);
+        pauseFor(0.22);
+        flash(0.85);
+        spawnSparks(e.x, e.y, 100, '#ffd966');
+        spawnSparks(e.x, e.y, 60, '#ff5566');
+        spawnSparks(e.x, e.y, 30, '#ffffff');
+        // Force-drop 2 hearts even if player is capped (overheal up to maxHearts only,
+        // but the visual is still satisfying)
+        for (let dh = 0; dh < 2; dh++) {
+          const ang = Math.random() * Math.PI * 2;
+          heartDrops.push({
+            x: e.x, y: e.y,
+            vx: Math.cos(ang) * (40 + Math.random() * 40),
+            vy: Math.sin(ang) * 30 - 90,
+            life: 12, age: 0, bob: Math.random() * Math.PI * 2,
+            landed: false
+          });
+        }
+        floaters.push({
+          x: e.x, y: e.y - 50, vy: -22, life: 2.8, age: 0,
+          text: '👑 KING SLAIN 👑', color: '#ffd966'
+        });
+        floaters.push({
+          x: e.x, y: e.y - 18, vy: -18, life: 2.8, age: 0,
+          text: '+' + Math.round(e.reward * combo), color: '#ffd966'
+        });
+        undeadKingAlive = false;
+        undeadKingHandle = null;
+        // Clear bolts since they belong to the boss
+        kingBolts.length = 0;
+        announce('the king has fallen');
+      } else if (e.type === 'giant') {
         // Giants die with serious flair: heavy shake + brief freeze frame +
         // extra debris burst + a dramatic floater
         shake(22);
@@ -1690,6 +1951,9 @@
       waveTimer = 0; spawnTimer = 0.6;
       enemies.length = 0; sparks.length = 0; floaters.length = 0; shockwaves.length = 0;
       heartDrops.length = 0;
+      kingBolts.length = 0;
+      undeadKingAlive = false;
+      undeadKingHandle = null;
       shakeAmp = 0; flashAlpha = 0; hitPause = 0;
       player.hearts = player.maxHearts;
       player.iframes = 0;
@@ -2142,6 +2406,62 @@
         ctx.restore();
       }
     }
+    // Boss HP bar — spans the top of the arena. Only shown while the king
+    // is alive. Pulses gold and shifts to crimson in phase 2.
+    function drawBossBar() {
+      if (!undeadKingAlive || !undeadKingHandle || undeadKingHandle.dead) return;
+      const k = undeadKingHandle;
+      const ratio = Math.max(0, k.hp / k.maxHp);
+      const margin = 60;
+      const barW = W - margin * 2;
+      const barH = 14;
+      const barX = margin;
+      const barY = 18;
+      ctx.save();
+      // Frame
+      ctx.fillStyle = '#0a0410';
+      ctx.fillRect(barX - 3, barY - 3, barW + 6, barH + 6);
+      ctx.fillStyle = '#3a0a14';
+      ctx.fillRect(barX, barY, barW, barH);
+      // Fill (gradient by phase)
+      const fillW = Math.round(barW * ratio);
+      const fillCol = k.bossPhase === 2 ? '#ff5566' : '#ffd966';
+      ctx.fillStyle = fillCol;
+      ctx.fillRect(barX, barY, fillW, barH);
+      // Halfway marker
+      const halfX = barX + Math.round(barW * 0.5);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(halfX, barY - 2, 1, barH + 4);
+      // Label
+      ctx.fillStyle = '#ffd966';
+      ctx.font = 'bold 14px Cinzel, serif';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = 'rgba(255,217,102,0.7)';
+      ctx.shadowBlur = 8;
+      ctx.fillText('👑 THE UNDEAD KING' + (k.bossPhase === 2 ? ' · WRATH' : ''), W / 2, barY - 6);
+      ctx.restore();
+    }
+    // Pixel-art bone-bolts: white-cream filled square with a darker bone
+    // outline and a tiny tip glint. Slight rotation by velocity direction.
+    function drawKingBolts() {
+      const px = PIXEL_SIZE;
+      for (const b of kingBolts) {
+        const ang = Math.atan2(b.vy, b.vx);
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(ang);
+        ctx.fillStyle = '#9a9078';
+        ctx.fillRect(-7, -3, 14, 6);
+        ctx.fillStyle = '#e8e0c8';
+        ctx.fillRect(-6, -2, 12, 4);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(4, -1, 2, 2);   // tip glint
+        // Trailing crumb
+        ctx.fillStyle = 'rgba(232,224,200,0.55)';
+        ctx.fillRect(-10, -1, 3, 2);
+        ctx.restore();
+      }
+    }
     function drawFloaters() {
       for (const f of floaters) {
         const alpha = Math.max(0, 1 - f.age / f.life);
@@ -2175,8 +2495,11 @@
       drawHeartDrops();   // BELOW knight + sparks so the sword can sweep over them visually
       drawSparks();
       drawKnight();
+      drawKingBolts();
       drawFloaters();
       ctx.restore();
+      // Boss HP bar (UI layer, AFTER shake restore so it stays fixed)
+      drawBossBar();
       // JUICE — red full-screen flash on damage (drawn OVER shake)
       if (flashAlpha > 0.01) {
         ctx.save();
