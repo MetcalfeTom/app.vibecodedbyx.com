@@ -119,6 +119,7 @@
     .hud-stats .val.wave    { color: var(--moon);  text-shadow: 0 0 8px rgba(212,230,255,0.5); }
     .hud-stats .val.combo   { color: var(--blood); text-shadow: 0 0 8px rgba(181,30,43,0.5); }
     .hud-stats .val.hearts  { color: #ff5566;     text-shadow: 0 0 8px rgba(255,85,102,0.55); letter-spacing: 2px; }
+    .hud-stats .val.online  { color: #5eff8a;     text-shadow: 0 0 8px rgba(94,255,138,0.5); }
     .hud-stats .val.best    { color: var(--ink-dim); }
 
     /* ============ ACHIEVEMENT TOAST ============ */
@@ -1139,6 +1140,7 @@
         <div><span class="lbl">combo</span><span class="val combo"   id="hud-combo">×1</span></div>
         <div><span class="lbl">best</span> <span class="val best"    id="hud-best">0</span></div>
         <div><span class="lbl">special</span><span class="val special" id="hud-special">READY</span></div>
+        <div><span class="lbl">online</span><span class="val online" id="hud-online">·</span></div>
         <button type="button" id="btn-achievements" class="hud-bestiary" title="View achievements" aria-label="View achievements">🏆</button>
         <button type="button" id="btn-accessories" class="hud-bestiary" title="Accessories" aria-label="Accessories">🎒</button>
         <button type="button" id="btn-bestiary" class="hud-bestiary" title="Open the bestiary (B)" aria-label="Open the bestiary">📖</button>
@@ -1434,6 +1436,12 @@
       else hudSpecial.textContent = specialCD.toFixed(1) + 's';
       if (typeof updateTouchSpecialButton === 'function') updateTouchSpecialButton();
     }
+    const hudOnline = document.getElementById('hud-online');
+    // Refresh the online count once per second (cheap, no need to tick every frame)
+    setInterval(() => {
+      if (!hudOnline) return;
+      hudOnline.textContent = (mpOnlineCount > 0 ? mpOnlineCount : '·');
+    }, 1000);
     const hudCombo = document.getElementById('hud-combo');
     const hudBest  = document.getElementById('hud-best');
 
@@ -3130,6 +3138,158 @@
       const el = document.getElementById(id);
       if (el) el.addEventListener('click', fn);
     }
+    // ============================================================
+    // MULTIPLAYER — lightweight position sync via Supabase Realtime
+    // ------------------------------------------------------------
+    // Broadcast-only channel. Each client sends {id, name, class, x, y,
+    // hp, t} every ~100ms while playing. Peers older than 2.5s are
+    // garbage-collected. Other heroes render as semi-transparent ghosts
+    // with a class-tinted halo + name floater above. No enemy sync —
+    // the arena stays solo, players just SEE each other.
+    // ============================================================
+    const MP_CHANNEL = 'a_heros_story_room_v1';
+    const MP_SEND_HZ = 10;           // broadcasts per second
+    const MP_STALE_MS = 2500;        // peer drops if no msg within 2.5s
+    const mpClientId = (() => {
+      try { return localStorage.getItem('mp_client_id') || ''; } catch { return ''; }
+    })() || (() => {
+      const id = Math.random().toString(36).slice(2, 10);
+      try { localStorage.setItem('mp_client_id', id); } catch {}
+      return id;
+    })();
+    let mpChannel = null;
+    let mpJoined = false;
+    let mpLastSend = 0;
+    let mpOnlineCount = 0;
+    const mpPeers = {};               // id → { x, y, class, name, hp, lastSeen, alpha }
+    async function mpConnect() {
+      if (mpJoined) return;
+      const sb = window._leaderboardSupabase;
+      if (!sb || !sb.channel) return;
+      try {
+        mpChannel = sb.channel(MP_CHANNEL, { config: { broadcast: { self: false }, presence: { key: mpClientId } } });
+        mpChannel.on('broadcast', { event: 'pos' }, (msg) => {
+          const p = msg && msg.payload;
+          if (!p || !p.id || p.id === mpClientId) return;
+          let peer = mpPeers[p.id];
+          if (!peer) peer = mpPeers[p.id] = { alpha: 0 };
+          peer.x = p.x; peer.y = p.y;
+          peer.class = p.class || 'knight';
+          peer.name = String(p.name || 'hero').slice(0, 18);
+          peer.hp = p.hp;
+          peer.lastSeen = performance.now();
+        });
+        mpChannel.on('presence', { event: 'sync' }, () => {
+          const state = mpChannel.presenceState();
+          mpOnlineCount = Object.keys(state || {}).length;
+        });
+        const status = await new Promise((resolve) => {
+          mpChannel.subscribe(async (st) => {
+            if (st === 'SUBSCRIBED') {
+              try {
+                const name = (localStorage.getItem(LB_NAME_KEY) || 'hero').slice(0, 18);
+                await mpChannel.track({ id: mpClientId, name });
+              } catch {}
+              resolve('SUBSCRIBED');
+            } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') {
+              resolve(st);
+            }
+          });
+        });
+        if (status === 'SUBSCRIBED') {
+          mpJoined = true;
+        } else {
+          try { mpChannel.unsubscribe(); } catch {}
+          mpChannel = null;
+        }
+      } catch (e) {
+        console.warn('[mp] connect failed', e);
+        mpChannel = null;
+      }
+    }
+    function mpDisconnect() {
+      if (!mpChannel) return;
+      try { mpChannel.unsubscribe(); } catch {}
+      mpChannel = null;
+      mpJoined = false;
+      mpOnlineCount = 0;
+      for (const k in mpPeers) delete mpPeers[k];
+    }
+    function mpTick(now) {
+      // Periodic position broadcast — only while actively playing
+      if (!mpJoined || state !== 'playing') return;
+      const interval = 1000 / MP_SEND_HZ;
+      if (now - mpLastSend < interval) return;
+      mpLastSend = now;
+      try {
+        const name = (localStorage.getItem(LB_NAME_KEY) || 'hero').slice(0, 18);
+        mpChannel.send({
+          type: 'broadcast',
+          event: 'pos',
+          payload: {
+            id: mpClientId,
+            name,
+            class: playerClass,
+            x: Math.round(player.x),
+            y: Math.round(player.y),
+            hp: player.hearts,
+            t: now
+          }
+        });
+      } catch (e) { /* swallow — non-fatal */ }
+      // Drop stale peers
+      for (const id in mpPeers) {
+        if (now - mpPeers[id].lastSeen > MP_STALE_MS) delete mpPeers[id];
+      }
+    }
+    // Render ghost peers — semi-transparent class sprite + name floater
+    function drawMpPeers() {
+      const now = performance.now();
+      for (const id in mpPeers) {
+        const p = mpPeers[id];
+        const age = now - p.lastSeen;
+        if (age > MP_STALE_MS) continue;
+        // Fade peer in over the first 250ms; fade out as staleness approaches
+        const fresh = Math.min(1, (now - (p._spawnAt || (p._spawnAt = now))) / 250);
+        const decay = age > MP_STALE_MS - 600 ? Math.max(0, (MP_STALE_MS - age) / 600) : 1;
+        p.alpha = fresh * decay * 0.7;   // never fully opaque so peer reads as "ghost"
+        const frames = PLAYER_FRAMES[p.class] || KNIGHT_FRAMES;
+        const sprite = frames[0];
+        // Pixel shadow
+        ctx.save();
+        ctx.globalAlpha = p.alpha * 0.45;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(Math.round(p.x - 12), Math.round(p.y + 14), 24, PIXEL_SIZE);
+        ctx.restore();
+        // Sprite (no flicker, no Zenith blades — keep peers simple)
+        drawSprite(sprite, p.x, p.y, { alpha: p.alpha });
+        // Class-tinted halo so peers are distinguishable at a glance
+        const tint = (CLASSES[p.class] || CLASSES.knight).accent;
+        ctx.save();
+        ctx.globalAlpha = p.alpha * 0.35;
+        ctx.strokeStyle = tint;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = tint;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 22, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        // Name floater above the sprite
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.font = 'bold 11px JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#0a0410';
+        ctx.fillText(p.name || 'hero', p.x + 1, p.y - 38);
+        ctx.fillStyle = tint;
+        ctx.fillText(p.name || 'hero', p.x, p.y - 39);
+        ctx.restore();
+      }
+    }
+    // Auto-connect on page load (after supabase client is ready)
+    setTimeout(() => { mpConnect().catch(() => {}); }, 600);
+
     // Bootstrap audio on any first canvas interaction so users who just
     // jump in still get sound after toggling the slider.
     const _bootAudioOnce = () => {
@@ -5161,6 +5321,7 @@
       drawEnemies();
       drawHeartDrops();   // BELOW knight + sparks so the sword can sweep over them visually
       drawSparks();
+      drawMpPeers();      // ghost peers — behind local knight so player stays the focus
       drawKnight();
       drawMissiles();
       drawNinjaStrikes();
@@ -5204,6 +5365,8 @@
       // Shake decay (independent of hitPause so shake feels uninterrupted)
       shakeAmp = Math.max(0, shakeAmp - 60 * dt);
       flashAlpha = Math.max(0, flashAlpha - 1.6 * dt);
+      // Multiplayer position broadcast (rate-limited inside)
+      mpTick(now);
       render(now);
       requestAnimationFrame(loop);
     }
