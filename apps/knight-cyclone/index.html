@@ -1350,11 +1350,41 @@
 
   <p class="sr-only" id="sr-status" aria-live="polite"></p>
 
-  <!-- Supabase client for the global leaderboard. Loaded ahead of the
-       main game script so window.supabase is available when needed. -->
+  <!-- Supabase client tailored for THIS game.
+       The shared /supabase-config-fixed.js client enables session
+       persistence, which throws in browsers with strict tracking
+       protection (Safari ITP, Firefox ETP, Brave shields) when
+       localStorage is partitioned or blocked. Those errors propagate
+       into the Realtime subscribe path and brick the multiplayer
+       connection. We build a dedicated client here with persistence
+       fully disabled — auth still works (anon sign-in happens fresh
+       each session), but nothing tries to write to storage during
+       init. -->
   <script type="module">
-    import supabase from '/supabase-config-fixed.js';
+    import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@0.7.0/+esm";
+    const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
+    // In-memory storage adapter — looks like Storage but never touches
+    // real localStorage, so tracking-protection browsers don't throw.
+    const memStore = new Map();
+    const memStorage = {
+      getItem: (k) => memStore.has(k) ? memStore.get(k) : null,
+      setItem: (k, v) => { memStore.set(k, String(v)); },
+      removeItem: (k) => { memStore.delete(k); }
+    };
+    const supabase = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storage: memStorage,
+        storageKey: 'ahs-mem-auth'
+      },
+      cookieOptions: { name: 'ahs-no-cookie', path: '/', sameSite: 'lax' }
+    });
     window._leaderboardSupabase = supabase;
+    // Notify any code waiting for the client (multiplayer auto-connect)
+    try { window.dispatchEvent(new Event('ahs-supabase-ready')); } catch {}
   </script>
   <script>
   (function(){
@@ -3366,8 +3396,17 @@
         ctx.restore();
       }
     }
-    // Auto-connect on page load (after supabase client is ready)
-    setTimeout(() => { mpConnect().catch(() => {}); }, 600);
+    // Auto-connect as soon as the dedicated supabase client is ready.
+    // The module script dispatches 'ahs-supabase-ready' when it sets
+    // window._leaderboardSupabase. Race that against a 600ms fallback
+    // in case the module already loaded before this listener attached.
+    function _mpKickoff() { mpConnect().catch(() => {}); }
+    if (window._leaderboardSupabase) {
+      setTimeout(_mpKickoff, 50);
+    } else {
+      window.addEventListener('ahs-supabase-ready', _mpKickoff, { once: true });
+      setTimeout(_mpKickoff, 1200);  // fallback if event missed for any reason
+    }
 
     // Bootstrap audio on any first canvas interaction so users who just
     // jump in still get sound after toggling the slider.
