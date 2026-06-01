@@ -1614,6 +1614,7 @@
     supabase.auth.onAuthStateChange((event, session) => {
       var prevAuth = userContext.isAuthenticated;
       var prevProvider = userContext.authProvider;
+      var prevUserId = userContext.userId;
       currentUser = session?.user;
       cacheTimestamp = 0; // Force refresh
       syncContext(); // Update auth fields immediately
@@ -1628,10 +1629,15 @@
           event: event // 'SIGNED_IN', 'SIGNED_OUT', 'TOKEN_REFRESHED', etc.
         });
       }
+      // Re-subscribe to notifications when user changes
+      if (prevUserId !== userContext.userId) {
+        _subscribeToNotifications();
+      }
       fetchUserData();
     });
 
     await fetchUserData();
+    _subscribeToNotifications();
   }
 
   // Fetch user data
@@ -1811,6 +1817,91 @@
       };
     } else {
       bar.onclick = null;
+    }
+  }
+
+  // === Realtime notifications subscription ===
+  // Subscribes to postgres_changes INSERT on the `notifications` table
+  // filtered by recipient_id = current user. Any app on the network can
+  // INSERT into `notifications` with {recipient_id, type, title, body, url,
+  // source_app} and the header will:
+  //   1. Surface a toast (via _pushNotification → _showToast)
+  //   2. Add an entry to the persistent bell log (cap 30, localStorage-backed)
+  //   3. Bump the unread badge on the bell button
+  //   4. Re-emit the legacy `unread-changed` event so the red dot on the
+  //      Vault link stays in sync with the bell badge
+  //
+  // The channel is torn down + recreated on user change. Only the leader
+  // tab subscribes — non-leader tabs get the notification via the existing
+  // BroadcastChannel propagation when the leader pushes it into the log.
+  var _notifChannel = null;
+  function _subscribeToNotifications() {
+    // Always tear down any prior channel first
+    if (_notifChannel) {
+      try { supabase.removeChannel(_notifChannel); } catch (_) {}
+      _notifChannel = null;
+    }
+    if (!supabase || !currentUser) return;
+    // Only the leader tab subscribes — non-leaders receive via BroadcastChannel
+    if (syncWorker && syncWorkerReady && !isLeaderTab) return;
+    try {
+      _notifChannel = supabase.channel('header-notif-' + currentUser.id)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: 'recipient_id=eq.' + currentUser.id
+        }, function(payload) {
+          var row = payload && payload.new;
+          if (!row) return;
+          var iconMap = {
+            mention:  '@',
+            dm:       '💌',
+            vote:     '▲',
+            comment:  '💬',
+            follow:   '👤',
+            reaction: '✨',
+            karma:    '⚡',
+            achievement: '🏆',
+            custom:   'ℹ'
+          };
+          var icon = iconMap[row.type] || iconMap.custom;
+          var typeMap = {
+            vote:    'success',
+            karma:   'success',
+            achievement: 'success',
+            mention: 'info',
+            dm:      'info',
+            comment: 'info',
+            follow:  'info',
+            reaction:'info',
+            custom:  'info'
+          };
+          var toastType = typeMap[row.type] || 'info';
+          // Push into the persistent bell log (also surfaces a toast)
+          try {
+            _pushNotification(row.title || 'New notification', {
+              type: toastType,
+              icon: icon,
+              source: row.source_app || row.type || 'app',
+              action: row.url ? { label: 'open', href: row.url } : null
+            });
+          } catch (e) { console.warn('[notif] push failed', e); }
+          // Re-broadcast as unread-changed so the legacy red dot on the
+          // Vault link updates too. Increment whichever bucket matches
+          // the notification type (dm vs mentions vs other → bucket as
+          // mentions). The existing handlers debounce + dedupe.
+          try {
+            var isDm = row.type === 'dm';
+            var counts = isDm
+              ? { dms: 1, mentions: 0 }
+              : { dms: 0, mentions: 1 };
+            broadcastEvent('unread-changed', counts);
+          } catch (e) {}
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('[notif] subscribe failed (non-fatal)', e);
     }
   }
 
