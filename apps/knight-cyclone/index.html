@@ -1350,6 +1350,12 @@
 
   <p class="sr-only" id="sr-status" aria-live="polite"></p>
 
+  <!-- Sloppy-header sync hub. Provides cross-tab/cross-app identity
+       (Twitch username if authenticated, anon ID otherwise), karma,
+       theme, etc. via window.sloppyBarGetContext() + window.sloppyBarOn().
+       Loaded async so a slow header script can't delay the game. -->
+  <script src="/sloppy-header/sloppy-bar.js" defer></script>
+
   <!-- Supabase client tailored for THIS game.
        The shared /supabase-config-fixed.js client enables session
        persistence, which throws in browsers with strict tracking
@@ -3406,6 +3412,52 @@
     } else {
       window.addEventListener('ahs-supabase-ready', _mpKickoff, { once: true });
       setTimeout(_mpKickoff, 1200);  // fallback if event missed for any reason
+    }
+
+    // ============================================================
+    // SLOPPY-HEADER INTEGRATION — pull cross-tab identity (Twitch
+    // username if logged in, anon id otherwise) and use it as the
+    // canonical name for both the leaderboard AND multiplayer ghosts.
+    // When the user logs in / out in another tab, identity-changed
+    // fires here and we re-broadcast the new name on the next mp tick.
+    // The "returning from AFK" case: Twitch session refresh updates
+    // username in the header, this listener catches it, and the next
+    // multiplayer position broadcast carries the new handle so peers
+    // immediately see them as the authenticated user.
+    // ============================================================
+    function applySloppyIdentity(ctx) {
+      if (!ctx || !ctx.username) return;
+      const name = String(ctx.username).slice(0, 18);
+      try { localStorage.setItem(LB_NAME_KEY, name); } catch {}
+      // Pre-fill the leaderboard input if visible + still empty/default
+      if (lbNameInput && (!lbNameInput.value || lbNameInput.dataset._fromSloppy === '1')) {
+        lbNameInput.value = name;
+        lbNameInput.dataset._fromSloppy = '1';
+      }
+      // Re-track presence under the new name so peers see the update
+      if (mpJoined && mpChannel) {
+        try { mpChannel.track({ id: mpClientId, name }); } catch {}
+      }
+      console.log('[sloppy] identity synced:', name, ctx.isAuthenticated ? '(authed)' : '(anon)');
+    }
+    function hookSloppyHeader() {
+      if (typeof window.sloppyBarGetContext !== 'function') return false;
+      window.sloppyBarGetContext(applySloppyIdentity);
+      if (typeof window.sloppyBarOn === 'function') {
+        window.sloppyBarOn('identity-changed', (e) => applySloppyIdentity(e && e.data || window.sloppyBarGetContext()));
+        window.sloppyBarOn('auth-changed',     () => {
+          const ctx = window.sloppyBarGetContext();
+          if (ctx && ctx.username) applySloppyIdentity(ctx);
+        });
+      }
+      return true;
+    }
+    // Header script is deferred — poll briefly until it appears, then hook.
+    if (!hookSloppyHeader()) {
+      let _slpAttempts = 0;
+      const _slpInt = setInterval(() => {
+        if (hookSloppyHeader() || ++_slpAttempts > 30) clearInterval(_slpInt);
+      }, 250);
     }
 
     // Bootstrap audio on any first canvas interaction so users who just
