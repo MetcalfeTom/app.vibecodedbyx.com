@@ -1437,21 +1437,27 @@
       if (typeof updateTouchSpecialButton === 'function') updateTouchSpecialButton();
     }
     const hudOnline = document.getElementById('hud-online');
-    // Refresh the online count once per second (cheap, no need to tick every frame)
+    // Refresh the online count once per second (cheap, no need to tick every frame).
+    // The HUD pill's title attr surfaces the last mp error so users (and chat
+    // helpers) can hover/long-press to see WHY it's red without opening DevTools.
     setInterval(() => {
       if (!hudOnline) return;
       if (mpStatus === 'online') {
         hudOnline.textContent = String(mpOnlineCount || 1);
         hudOnline.style.color = '#5eff8a';
+        hudOnline.parentElement.title = 'Multiplayer: ' + mpOnlineCount + ' online';
       } else if (mpStatus === 'connecting') {
         hudOnline.textContent = '…';
         hudOnline.style.color = '#ffd966';
+        hudOnline.parentElement.title = 'Multiplayer: connecting…';
       } else if (mpStatus === 'error') {
         hudOnline.textContent = '✕';
         hudOnline.style.color = '#ff5566';
+        hudOnline.parentElement.title = 'Multiplayer error: ' + (mpLastErr || 'unknown') + ' — retrying…';
       } else {
         hudOnline.textContent = '·';
         hudOnline.style.color = '';
+        hudOnline.parentElement.title = 'Multiplayer: idle';
       }
     }, 1000);
     const hudCombo = document.getElementById('hud-combo');
@@ -3176,38 +3182,35 @@
     const mpPeers = {};               // id → { x, y, class, name, hp, lastSeen, alpha }
     let mpStatus = 'idle';           // 'idle' | 'connecting' | 'online' | 'error'
     let mpRetryAt = 0;
-    async function mpEnsureSession() {
-      const sb = window._leaderboardSupabase;
-      if (!sb) return null;
-      try {
-        const { data: { session } } = await sb.auth.getSession();
-        if (session) return session;
-        const { data, error } = await sb.auth.signInAnonymously();
-        if (error) { console.warn('[mp] anon sign-in failed', error); return null; }
-        return data.session;
-      } catch (e) {
-        console.warn('[mp] session err', e);
-        return null;
-      }
-    }
+    let mpLastErr = '';              // surfaced on-screen for chat to debug
     async function mpConnect() {
       if (mpJoined || mpStatus === 'connecting') return;
       const sb = window._leaderboardSupabase;
-      if (!sb || !sb.channel) {
+      if (!sb) {
         mpStatus = 'error';
-        console.warn('[mp] supabase client unavailable, retrying in 2s');
+        mpLastErr = 'no supabase client (cdn load failing?)';
+        console.warn('[mp]', mpLastErr);
         mpRetryAt = performance.now() + 2000;
         return;
       }
+      if (typeof sb.channel !== 'function') {
+        mpStatus = 'error';
+        mpLastErr = 'sb.channel not a function — wrong client?';
+        console.warn('[mp]', mpLastErr, sb);
+        mpRetryAt = performance.now() + 4000;
+        return;
+      }
       mpStatus = 'connecting';
+      mpLastErr = '';
       console.log('[mp] connecting as', mpClientId);
-      // Realtime broadcast needs an authenticated session in the project's
-      // default config, even for anonymous broadcasts. Ensure one first.
-      await mpEnsureSession();
+      // Skip mpEnsureSession — anon broadcast works without explicit
+      // sign-in in this project (other apps in the repo follow the
+      // same pattern), and the ensure was masking the real subscribe
+      // status with auth noise.
       try {
         mpChannel = sb.channel(MP_CHANNEL, {
           config: {
-            broadcast: { self: false, ack: false },
+            broadcast: { self: false },
             presence: { key: mpClientId }
           }
         });
@@ -3235,8 +3238,8 @@
           if (mpPeers[key]) delete mpPeers[key];
         });
         const subStatus = await new Promise((resolve) => {
-          // Race the subscribe callback against a 6s timeout
-          const t = setTimeout(() => resolve('TIMED_OUT_LOCAL'), 6000);
+          // Race the subscribe callback against an 8s timeout
+          const t = setTimeout(() => resolve('TIMED_OUT_LOCAL'), 8000);
           mpChannel.subscribe(async (st, err) => {
             console.log('[mp] subscribe status:', st, err || '');
             if (st === 'SUBSCRIBED') {
@@ -3248,6 +3251,7 @@
               resolve('SUBSCRIBED');
             } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') {
               clearTimeout(t);
+              if (err) mpLastErr = String(err.message || err);
               resolve(st);
             }
           });
@@ -3255,15 +3259,18 @@
         if (subStatus === 'SUBSCRIBED') {
           mpJoined = true;
           mpStatus = 'online';
+          mpLastErr = '';
           console.log('[mp] SUBSCRIBED to', MP_CHANNEL);
         } else {
-          console.warn('[mp] subscribe failed:', subStatus);
+          mpLastErr = mpLastErr || ('subscribe ' + subStatus);
+          console.warn('[mp] subscribe failed:', subStatus, mpLastErr);
           mpStatus = 'error';
           try { mpChannel.unsubscribe(); } catch {}
           mpChannel = null;
           mpRetryAt = performance.now() + 3000;
         }
       } catch (e) {
+        mpLastErr = String(e && e.message || e);
         console.warn('[mp] connect failed', e);
         mpStatus = 'error';
         mpChannel = null;
