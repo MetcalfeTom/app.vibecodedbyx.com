@@ -1365,6 +1365,159 @@
       color: #fff;
     }
 
+    /* === Notepad toggle button === */
+    .sloppy-bar-notepad {
+      position: relative;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #ddd;
+      border-radius: 14px;
+      padding: 5px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      line-height: 1;
+    }
+    .sloppy-bar-notepad:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,224,102,0.55);
+      color: #fff;
+    }
+
+    /* === Notepad panel: yellow-legal-pad-on-dark aesthetic === */
+    .sloppy-bar-notepad-panel {
+      position: fixed;
+      ${options.position}: 44px;
+      right: 12px;
+      width: 340px;
+      max-width: calc(100vw - 24px);
+      height: 420px;
+      max-height: 75vh;
+      background: #1a1505;
+      background-image:
+        repeating-linear-gradient(0deg, transparent 0 23px, rgba(255,224,102,0.06) 23px 24px),
+        linear-gradient(180deg, rgba(255,224,102,0.04), transparent 30%);
+      border: 1px solid rgba(255,224,102,0.4);
+      border-radius: 8px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.6), 0 0 22px rgba(255,224,102,0.18);
+      z-index: 100001;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      font-family: 'JetBrains Mono', 'SF Mono', monospace;
+      color: #ffe8a0;
+      animation: sloppy-np-in 0.18s ease-out;
+    }
+    .sloppy-bar-notepad-panel.open { display: flex; }
+    /* Left margin "ruled" red line in classic legal-pad style */
+    .sloppy-bar-notepad-panel::before {
+      content: '';
+      position: absolute;
+      left: 38px;
+      top: 36px;
+      bottom: 32px;
+      width: 1px;
+      background: rgba(255,107,107,0.35);
+      pointer-events: none;
+    }
+    .sloppy-notepad-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 11px;
+      border-bottom: 1px solid rgba(255,224,102,0.2);
+      background: rgba(40,28,5,0.85);
+      flex-shrink: 0;
+      position: relative;
+      z-index: 2;
+    }
+    .sloppy-notepad-title {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: #ffe066;
+      text-shadow: 0 0 6px rgba(255,224,102,0.4);
+    }
+    .sloppy-notepad-status {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 9px;
+      color: rgba(255,232,160,0.55);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .sloppy-notepad-status .dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: #66ff9a;
+      box-shadow: 0 0 5px #66ff9a;
+      opacity: 0.4;
+      transition: opacity 0.2s;
+    }
+    .sloppy-notepad-status.dirty .dot { opacity: 0.4; background: #ffb347; box-shadow: 0 0 5px #ffb347; }
+    .sloppy-notepad-status.saved .dot { opacity: 1;   background: #66ff9a; }
+    .sloppy-notepad-status.saved.flash .dot { animation: sloppy-np-saveflash 0.55s ease-out; }
+    @keyframes sloppy-np-saveflash {
+      0% { transform: scale(0.5); opacity: 0; }
+      50% { transform: scale(1.4); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .sloppy-notepad-actions {
+      display: flex; gap: 4px;
+    }
+    .sloppy-notepad-actions button {
+      background: transparent;
+      border: 1px solid rgba(255,224,102,0.2);
+      color: rgba(255,232,160,0.7);
+      font-size: 10px;
+      font-family: inherit;
+      padding: 2px 7px;
+      border-radius: 3px;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .sloppy-notepad-actions button:hover { color: #fff; border-color: rgba(255,224,102,0.6); background: rgba(255,224,102,0.08); }
+    .sloppy-notepad-actions button.danger { color: #ff9a9a; border-color: rgba(255,107,107,0.3); }
+    .sloppy-notepad-actions button.danger:hover { background: rgba(255,107,107,0.12); border-color: rgba(255,107,107,0.6); color: #fff; }
+    .sloppy-notepad-textarea {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: #ffe8a0;
+      font-family: 'JetBrains Mono', 'SF Mono', monospace;
+      font-size: 13px;
+      line-height: 24px;             /* matches the 24px ruled-line spacing */
+      padding: 6px 12px 8px 54px;     /* leaves room for the margin line */
+      outline: none;
+      resize: none;
+      text-shadow: 0 0 4px rgba(255,224,102,0.2);
+      caret-color: #ffe066;
+      tab-size: 4;
+    }
+    .sloppy-notepad-textarea::placeholder { color: rgba(255,232,160,0.3); font-style: italic; }
+    .sloppy-notepad-textarea::-webkit-scrollbar { width: 8px; }
+    .sloppy-notepad-textarea::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    .sloppy-notepad-textarea::-webkit-scrollbar-thumb { background: rgba(255,224,102,0.18); border-radius: 4px; }
+    .sloppy-notepad-textarea::-webkit-scrollbar-thumb:hover { background: rgba(255,224,102,0.35); }
+    .sloppy-notepad-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 10px 6px;
+      font-size: 9px;
+      color: rgba(255,232,160,0.45);
+      letter-spacing: 0.04em;
+      border-top: 1px solid rgba(255,224,102,0.15);
+      background: rgba(40,28,5,0.5);
+      flex-shrink: 0;
+      position: relative;
+      z-index: 2;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sloppy-notepad-status.saved.flash .dot { animation: none; }
+    }
+
     /* === Twitch stream window: scalable + movable, lazy-loaded iframe === */
     .sloppy-twitch-window {
       position: fixed;
@@ -2289,6 +2442,9 @@
         <button class="sloppy-bar-twitch" onclick="window.sloppyBarToggleTwitch(event)" title="Twitch live stream" aria-label="Twitch stream" aria-haspopup="true">
           📺
         </button>
+        <button class="sloppy-bar-notepad" onclick="window.sloppyBarToggleNotepad(event)" title="Notepad · auto-saves to this browser" aria-label="Notepad" aria-haspopup="true">
+          📝
+        </button>
         <button class="sloppy-bar-teleport" onclick="window.sloppyBarTeleport()" title="Random app adventure!">
           <span class="sloppy-bar-teleport-icon">🌀</span> Teleport
         </button>
@@ -2312,6 +2468,203 @@
       bar.onclick = null;
     }
   }
+
+  // ===================================================================
+  // === NOTEPAD: persistent scratchpad in the header ===
+  // ===================================================================
+  // Single-textarea notepad with debounced auto-save to localStorage. The
+  // panel is mutually exclusive with the other floating header panels
+  // (notif/chat — Twitch can coexist since it's a separate movable window).
+  // Storage key is per-browser, NOT per-user — survives sign-out/sign-in
+  // intentionally (it's your local scratch, not a vaulted note). Use the
+  // Vault in /sloppy-id for cross-device persistent storage.
+  const NOTEPAD_KEY = 'sloppy_notepad_v1';
+  const NOTEPAD_META_KEY = 'sloppy_notepad_v1_meta';
+  const NOTEPAD_SAVE_DEBOUNCE_MS = 350;
+  const NOTEPAD_MAX_CHARS = 20000; // ~10 pages of text — generous but bounded
+  let _notepadPanelOpen = false;
+  let _notepadSaveTimer = null;
+  let _notepadDirty = false;
+
+  function _notepadLoad() {
+    try { return localStorage.getItem(NOTEPAD_KEY) || ''; }
+    catch { return ''; }
+  }
+  function _notepadLoadMeta() {
+    try {
+      var raw = localStorage.getItem(NOTEPAD_META_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+  function _notepadSave(text) {
+    try {
+      var trimmed = text.length > NOTEPAD_MAX_CHARS ? text.slice(0, NOTEPAD_MAX_CHARS) : text;
+      localStorage.setItem(NOTEPAD_KEY, trimmed);
+      localStorage.setItem(NOTEPAD_META_KEY, JSON.stringify({ ts: Date.now(), len: trimmed.length }));
+      _notepadDirty = false;
+      _notepadUpdateStatus('saved', true);
+      _notepadUpdateFooter();
+    } catch (e) {
+      _notepadUpdateStatus('error');
+    }
+  }
+  function _notepadUpdateStatus(state, flash) {
+    var s = document.getElementById('sloppy-notepad-status');
+    if (!s) return;
+    s.classList.remove('saved', 'dirty', 'flash');
+    if (state === 'saved') {
+      s.classList.add('saved');
+      if (flash) {
+        s.classList.add('flash');
+        setTimeout(function() { s.classList.remove('flash'); }, 600);
+      }
+      var lbl = s.querySelector('.label');
+      if (lbl) lbl.textContent = 'saved';
+    } else if (state === 'dirty') {
+      s.classList.add('dirty');
+      var lbl2 = s.querySelector('.label');
+      if (lbl2) lbl2.textContent = 'saving…';
+    } else if (state === 'error') {
+      s.classList.add('dirty');
+      var lbl3 = s.querySelector('.label');
+      if (lbl3) lbl3.textContent = 'save failed';
+    }
+  }
+  function _notepadUpdateFooter() {
+    var foot = document.getElementById('sloppy-notepad-footer');
+    var ta   = document.getElementById('sloppy-notepad-textarea');
+    if (!foot || !ta) return;
+    var meta = _notepadLoadMeta();
+    var len = ta.value.length;
+    var rel = meta && meta.ts ? _notepadRelTime(meta.ts) : 'never';
+    foot.innerHTML =
+      '<span>' + len.toLocaleString() + ' / ' + NOTEPAD_MAX_CHARS.toLocaleString() + ' chars</span>' +
+      '<span>saved ' + rel + '</span>';
+  }
+  function _notepadRelTime(ts) {
+    var diff = Date.now() - ts;
+    if (diff < 5000) return 'just now';
+    if (diff < 60000) return Math.floor(diff/1000) + 's ago';
+    if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+    return Math.floor(diff/86400000) + 'd ago';
+  }
+  function _notepadOnInput() {
+    var ta = document.getElementById('sloppy-notepad-textarea');
+    if (!ta) return;
+    if (ta.value.length > NOTEPAD_MAX_CHARS) {
+      ta.value = ta.value.slice(0, NOTEPAD_MAX_CHARS);
+    }
+    _notepadDirty = true;
+    _notepadUpdateStatus('dirty');
+    _notepadUpdateFooter();
+    clearTimeout(_notepadSaveTimer);
+    _notepadSaveTimer = setTimeout(function() { _notepadSave(ta.value); }, NOTEPAD_SAVE_DEBOUNCE_MS);
+  }
+  function _notepadFlushOnLeave() {
+    // Flush any pending save when the user navigates away — prevents the last
+    // ~350ms of typing from being lost on a fast tab close.
+    if (_notepadDirty) {
+      var ta = document.getElementById('sloppy-notepad-textarea');
+      if (ta) _notepadSave(ta.value);
+    }
+  }
+  // Best-effort save on page unload (sync localStorage call)
+  window.addEventListener('beforeunload', _notepadFlushOnLeave);
+  window.addEventListener('pagehide', _notepadFlushOnLeave);
+
+  function _renderNotepadPanel() {
+    var panel = document.getElementById('sloppy-bar-notepad-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'sloppy-bar-notepad-panel';
+      panel.className = 'sloppy-bar-notepad-panel';
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-label', 'Persistent notepad');
+      panel.innerHTML =
+        '<div class="sloppy-notepad-header">' +
+          '<div class="sloppy-notepad-title">📝 notepad</div>' +
+          '<div class="sloppy-notepad-status saved" id="sloppy-notepad-status"><span class="dot"></span><span class="label">saved</span></div>' +
+          '<div class="sloppy-notepad-actions">' +
+            '<button type="button" id="sloppy-notepad-copy" title="Copy all to clipboard">copy</button>' +
+            '<button type="button" id="sloppy-notepad-clear" class="danger" title="Clear notepad (cannot be undone)">clear</button>' +
+          '</div>' +
+        '</div>' +
+        '<textarea id="sloppy-notepad-textarea" class="sloppy-notepad-textarea" placeholder="scratch thoughts, links, snippets… auto-saves as you type. cleared only when you ask." spellcheck="false" autocomplete="off"></textarea>' +
+        '<div class="sloppy-notepad-footer" id="sloppy-notepad-footer"></div>';
+      document.body.appendChild(panel);
+
+      var ta    = panel.querySelector('#sloppy-notepad-textarea');
+      var copy  = panel.querySelector('#sloppy-notepad-copy');
+      var clear = panel.querySelector('#sloppy-notepad-clear');
+
+      // Populate from localStorage
+      ta.value = _notepadLoad();
+      _notepadUpdateFooter();
+
+      ta.addEventListener('input', _notepadOnInput);
+      ta.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') window.sloppyBarToggleNotepad();
+        // Cmd/Ctrl+S → force immediate save
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+          e.preventDefault();
+          clearTimeout(_notepadSaveTimer);
+          _notepadSave(ta.value);
+        }
+      });
+      copy.addEventListener('click', async function() {
+        try {
+          await navigator.clipboard.writeText(ta.value);
+          try { _showToast('Notepad copied to clipboard', { type: 'success' }); } catch (_) {}
+        } catch (_) {
+          // Fallback: select all so user can manually Cmd+C
+          ta.focus(); ta.select();
+        }
+      });
+      clear.addEventListener('click', function() {
+        if (ta.value.trim().length === 0) return;
+        if (!confirm('Clear the entire notepad? This cannot be undone.')) return;
+        ta.value = '';
+        _notepadSave('');
+        _notepadUpdateFooter();
+        ta.focus();
+      });
+    }
+    panel.classList.add('open');
+    // Focus the textarea after panel becomes visible
+    setTimeout(function() {
+      var ta = document.getElementById('sloppy-notepad-textarea');
+      if (ta) ta.focus();
+    }, 40);
+  }
+  function _hideNotepadPanel() {
+    // Flush any pending save before hiding
+    _notepadFlushOnLeave();
+    var panel = document.getElementById('sloppy-bar-notepad-panel');
+    if (panel) panel.classList.remove('open');
+    _notepadPanelOpen = false;
+  }
+  window.sloppyBarToggleNotepad = function(ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    if (_notepadPanelOpen) { _hideNotepadPanel(); return; }
+    // Mutual exclusion with other panels (Twitch stays — it's a separate movable window)
+    if (_notifPanelOpen) { try { _hideNotifPanel(); } catch (_) {} }
+    if (_chatPanelOpen)  { try { _hideChatPanel();  } catch (_) {} }
+    _notepadPanelOpen = true;
+    _renderNotepadPanel();
+    // Outside-click closer
+    setTimeout(function() {
+      var off = function(e) {
+        var panel = document.getElementById('sloppy-bar-notepad-panel');
+        if (!panel) return document.removeEventListener('click', off);
+        if (panel.contains(e.target)) return;
+        if (e.target.closest('.sloppy-bar-notepad')) return;
+        _hideNotepadPanel();
+        document.removeEventListener('click', off);
+      };
+      document.addEventListener('click', off);
+    }, 0);
+  };
 
   // ===================================================================
   // === TWITCH STREAM WINDOW: scalable + movable, lazy-loaded iframe ===
@@ -2718,8 +3071,9 @@
   window.sloppyBarToggleChat = function(ev) {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
     if (_chatPanelOpen) { _hideChatPanel(); return; }
-    // Close the bell panel if it's open (mutual exclusion)
-    if (_notifPanelOpen) { try { _hideNotifPanel(); } catch (_) {} }
+    // Mutual exclusion: close notif + notepad panels if open
+    if (_notifPanelOpen)   { try { _hideNotifPanel(); } catch (_) {} }
+    if (_notepadPanelOpen) { try { _hideNotepadPanel(); } catch (_) {} }
     _chatPanelOpen = true;
     _renderChatPanel();
     // Clear unseen badge on open
@@ -3070,8 +3424,9 @@
   window.sloppyBarToggleNotifications = function(ev) {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
     if (_notifPanelOpen) { _hideNotifPanel(); return; }
-    // Mutual exclusion: close chat panel if open
-    if (_chatPanelOpen) { try { _hideChatPanel(); } catch (_) {} }
+    // Mutual exclusion: close chat + notepad panels if open
+    if (_chatPanelOpen)    { try { _hideChatPanel(); } catch (_) {} }
+    if (_notepadPanelOpen) { try { _hideNotepadPanel(); } catch (_) {} }
     _notifPanelOpen = true;
     _renderNotifPanel();
     var bell = document.querySelector('.sloppy-bar-bell');
