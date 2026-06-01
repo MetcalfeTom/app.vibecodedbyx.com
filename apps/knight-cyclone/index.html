@@ -378,14 +378,19 @@
       speed: 230,           // px/s
       hp: 1,
     };
-    // Sword
+    // Sword — length is dynamic: grows on wave advance, shrinks on goblin nicks.
+    const SWORD_BASE_LEN = 80;
+    const SWORD_MIN_LEN  = 40;     // floor so it can never fully disappear
+    const SWORD_MAX_LEN  = 180;    // ceiling so the room doesn't get crowded out
+    const SWORD_WAVE_GROWTH = 6;   // px added per wave reached
+    const SWORD_NICK_LOSS = 9;     // px lost per goblin nick
     const sword = {
-      angle: 0,             // current rotation in radians
-      length: 80,           // distance from knight center to blade tip
-      width: 12,            // blade thickness (collision arc thickness)
-      angVel: 7.2,          // radians/sec (will tick up with combo)
+      angle: 0,
+      length: SWORD_BASE_LEN,
+      width: 12,
+      angVel: 7.2,
       baseAngVel: 7.2,
-      trail: []             // recent tip positions for trail rendering
+      trail: []
     };
 
     let score = 0;
@@ -404,6 +409,19 @@
     const sparks  = [];     // {x,y,vx,vy,life,age,color,size}
     const floaters= [];     // {x,y,vy,life,age,text,color}
     const shockwaves = [];  // {x,y,r,maxR,life,age,damaged} — giant ground-slam aftermath
+
+    // === JUICE: screen shake + hit-stop freeze ===
+    // shakeAmp lerps down each frame; render() offsets the canvas by a random
+    // vector scaled by shakeAmp so big impacts genuinely feel like impacts.
+    let shakeAmp = 0;
+    function shake(amount) { shakeAmp = Math.max(shakeAmp, amount); }
+    // hitPause = freeze gameplay for N seconds while still rendering (the
+    // "snappy hit" feeling — game pauses for a few frames on big kills/dmg).
+    let hitPause = 0;
+    function pauseFor(seconds) { hitPause = Math.max(hitPause, seconds); }
+    // Red full-screen flash on knight damage (goblin nick or about-to-die).
+    let flashAlpha = 0;
+    function flash(alpha) { flashAlpha = Math.max(flashAlpha, alpha); }
     const stars   = [];   // backdrop sparkle
     const tiles   = [];   // ground tile positions
     let frame = 0;
@@ -691,24 +709,26 @@
       // Roll order matters — earlier branches take priority. Rarest first.
       const roll = Math.random();
       let type, hp, speed, r, reward, color;
+      // HP scales harder per wave — chip damage matters more, multi-hit
+      // enemies are the norm by mid-late waves.
       if (wave >= 6 && roll < 0.05) {
         // GIANT — hulking high-HP mini-boss with a periodic ground-slam AOE
-        type = 'giant';  hp = 10 + wave * 2; speed = 22; r = 26; reward = 100; color = '#3a2030';
+        type = 'giant';  hp = 14 + wave * 3; speed = 22; r = 26; reward = 120; color = '#3a2030';
       } else if (wave >= 4 && roll < 0.13) {
-        // BRUTE — tall, tough armored shadow (3+ HP)
-        type = 'brute';  hp = 3 + Math.floor(wave / 4); speed = 38; r = 18; reward = 30; color = '#7d2030';
+        // BRUTE — armored tank, now tougher
+        type = 'brute';  hp = 4 + Math.floor(wave / 2); speed = 38; r = 18; reward = 35; color = '#7d2030';
       } else if (wave >= 3 && roll < 0.30) {
-        // ZOMBIE — slow lurcher, 2 HP, asymmetric red eyes
-        type = 'zombie'; hp = 2; speed = 32 + wave * 1.5; r = 13; reward = 18; color = '#5a7a3a';
+        // ZOMBIE — slow but durable
+        type = 'zombie'; hp = 2 + Math.floor(wave / 3); speed = 32 + wave * 1.5; r = 13; reward = 22; color = '#5a7a3a';
       } else if (wave >= 2 && roll < 0.50) {
-        // GOBLIN — quick green darter with a tiny dagger
-        type = 'goblin'; hp = 1; speed = 64 + wave * 3; r = 11; reward = 12; color = '#3d7a2a';
+        // GOBLIN — special: shortens the sword on contact instead of killing
+        type = 'goblin'; hp = 1 + Math.floor(wave / 4); speed = 64 + wave * 3; r = 11; reward = 16; color = '#3d7a2a';
       } else if (wave >= 2 && roll < 0.65) {
-        // WRAITH — fast wispy ghost
-        type = 'wraith'; hp = 1; speed = 78 + wave * 4; r = 11; reward = 14; color = '#9aa8c6';
+        // WRAITH — fast wispy ghost (still squishy but starts to bulk slightly)
+        type = 'wraith'; hp = 1 + Math.floor(wave / 5); speed = 78 + wave * 4; r = 11; reward = 16; color = '#9aa8c6';
       } else {
-        // SHADE — default cannon-fodder shadow blob
-        type = 'shade';  hp = 1; speed = 48 + wave * 3; r = 13; reward = 8;  color = '#3d2954';
+        // SHADE — default cannon-fodder, but starts taking 2 hits by wave 4
+        type = 'shade';  hp = 1 + Math.floor(wave / 4); speed = 48 + wave * 3; r = 13; reward = 10; color = '#3d2954';
       }
       enemies.push({
         x, y, r, type, hp, maxHp: hp, speed, reward, color,
@@ -727,11 +747,24 @@
       wave++;
       hudWave.textContent = wave;
       sword.angVel = sword.baseAngVel + Math.min(8, wave * 0.18);
-      // Tiny floater on the knight
+      // Blade grows on each new wave — claws back some length the goblins
+      // chipped off and also rewards survival with reach. Capped at MAX.
+      const newLen = Math.min(SWORD_MAX_LEN, sword.length + SWORD_WAVE_GROWTH);
+      const grown = newLen - sword.length;
+      sword.length = newLen;
+      // Floaters
       floaters.push({
-        x: player.x, y: player.y - 30, vy: -36, life: 1.6, age: 0,
+        x: player.x, y: player.y - 30, vy: -36, life: 1.8, age: 0,
         text: 'WAVE ' + wave, color: '#d4e6ff'
       });
+      if (grown > 0) {
+        floaters.push({
+          x: player.x, y: player.y - 8, vy: -22, life: 1.4, age: 0,
+          text: '+' + grown + ' BLADE', color: '#5eff8a'
+        });
+        // Light shake to celebrate growth
+        shake(4);
+      }
       waveTimer = 0;
     }
 
@@ -845,17 +878,29 @@
             if (e.hp <= 0) {
               killEnemy(e);
             } else {
-              // Knockback radially outward + spark
+              // Chip hit: knockback + spark + tiny damage number floater
               const knockback = e.type === 'giant' ? 3 : 14;  // giants barely flinch
               e.x += Math.cos(sword.angle) * knockback;
               e.y += Math.sin(sword.angle) * knockback;
-              spawnSparks(e.x, e.y, 6, '#cfd8e6');
+              spawnSparks(e.x, e.y, 8, '#cfd8e6');
+              floaters.push({
+                x: e.x + (Math.random() - 0.5) * 8,
+                y: e.y - 12, vy: -32, life: 0.7, age: 0,
+                text: '−1', color: '#ffd8d8'
+              });
+              // Big enemies feel weightier — tiny shake on each chip hit
+              if (e.type === 'giant' || e.type === 'brute') shake(2);
             }
           }
         }
 
-        // Player contact = death (giants kill on contact like everything else)
+        // Player contact: goblins are the "nick" — they shrink the blade
+        // and die themselves; everything else still kills the knight.
         if (Math.hypot(ddx, ddy) < e.r + player.r - 2) {
+          if (e.type === 'goblin' && !e.dead) {
+            goblinNick(e);
+            continue;
+          }
           gameOver();
           return;
         }
@@ -934,10 +979,13 @@
             life: 0.55, age: 0, damaged: false
           });
           // Big spark burst for impact
-          spawnSparks(e.x, e.y, 32, '#8a4a2a');
-          spawnSparks(e.x, e.y, 18, '#cfd8e6');
+          spawnSparks(e.x, e.y, 50, '#8a4a2a');
+          spawnSparks(e.x, e.y, 26, '#cfd8e6');
           // Float text
           floaters.push({ x: e.x, y: e.y - 30, vy: -28, life: 1.2, age: 0, text: 'SLAM!', color: '#ff8855' });
+          // JUICE — heavy shake + brief freeze-frame so the impact lands
+          shake(26);
+          pauseFor(0.06);
           e.aiState = 'slamming';
           e.aiTimer = GIANT_SLAM_TIME;
         }
@@ -969,11 +1017,61 @@
       updateComboHud();
       // Floater
       floaters.push({
-        x: e.x, y: e.y, vy: -42, life: 0.85, age: 0,
+        x: e.x, y: e.y, vy: -42, life: 0.95, age: 0,
         text: '+' + bonus + (combo >= 4 ? '!' : ''), color: combo >= 5 ? '#d9a43a' : '#cfd8e6'
       });
-      // Sparks
-      spawnSparks(e.x, e.y, 16, e.color);
+      // JUICE — scaled by enemy size + reward. Big kills feel BIG.
+      const isBig = e.type === 'giant' || e.type === 'brute';
+      spawnSparks(e.x, e.y, isBig ? 36 : 18, e.color);
+      spawnSparks(e.x, e.y, isBig ? 14 : 6, '#ffffff');
+      if (e.type === 'giant') {
+        // Giants die with serious flair: heavy shake + brief freeze frame +
+        // extra debris burst + a dramatic floater
+        shake(22);
+        pauseFor(0.085);
+        spawnSparks(e.x, e.y, 60, '#ff8855');
+        floaters.push({
+          x: e.x, y: e.y - 36, vy: -30, life: 1.6, age: 0,
+          text: 'GIANT FALLS', color: '#ffb74d'
+        });
+      } else if (e.type === 'brute') {
+        shake(10);
+        pauseFor(0.04);
+      } else if (combo >= 5) {
+        shake(3 + combo);  // bigger pop on high-combo regular kills
+        pauseFor(0.018);
+      } else {
+        shake(2);
+      }
+    }
+
+    // ============================================================
+    // GOBLIN NICK — they sacrifice themselves to shorten the blade.
+    // Sword length drops by SWORD_NICK_LOSS px (floored at SWORD_MIN_LEN),
+    // big red screen flash + heavy shake + hit-stop, the goblin dies.
+    // ============================================================
+    function goblinNick(e) {
+      const prevLen = sword.length;
+      sword.length = Math.max(SWORD_MIN_LEN, sword.length - SWORD_NICK_LOSS);
+      const lost = prevLen - sword.length;
+      // The goblin dies — but doesn't reward score (it landed a hit)
+      e.dead = true;
+      e.deathT = 0;
+      spawnSparks(e.x, e.y, 24, '#3d7a2a');
+      spawnSparks(player.x, player.y, 12, '#ff5566');
+      // Floaters
+      floaters.push({
+        x: player.x, y: player.y - 24, vy: -42, life: 1.4, age: 0,
+        text: lost > 0 ? ('−' + lost + ' BLADE') : 'NICKED',
+        color: '#ff5566'
+      });
+      // JUICE — this is a painful hit, treat it big
+      shake(18);
+      flash(lost > 0 ? 0.55 : 0.35);
+      pauseFor(0.07);
+      // Combo reset on damage taken
+      combo = 1;
+      updateComboHud();
     }
 
     function spawnSparks(x, y, n, color) {
@@ -1000,10 +1098,12 @@
       player.y = H / 2;
       sword.angle = 0;
       sword.angVel = sword.baseAngVel;
+      sword.length = SWORD_BASE_LEN;
       sword.trail.length = 0;
       score = 0; kills = 0; wave = 1; combo = 1; comboTimer = 0;
       waveTimer = 0; spawnTimer = 0.6;
       enemies.length = 0; sparks.length = 0; floaters.length = 0; shockwaves.length = 0;
+      shakeAmp = 0; flashAlpha = 0; hitPause = 0;
       hudScore.textContent = '0';
       hudWave.textContent = '1';
       updateComboHud();
@@ -1013,6 +1113,12 @@
     }
     function gameOver() {
       state = 'over';
+      // Death is the biggest impact in the game — go all-out.
+      shake(40);
+      flash(0.85);
+      pauseFor(0.16);
+      spawnSparks(player.x, player.y, 60, '#ff5566');
+      spawnSparks(player.x, player.y, 30, '#ffffff');
       const isBest = score > best;
       if (isBest) { best = score; try { localStorage.setItem('knight_cyclone_best', best); } catch {} hudBest.textContent = best; }
       if (wave > bestWave) { bestWave = wave; try { localStorage.setItem('knight_cyclone_best_wave', bestWave); } catch {} }
@@ -1286,6 +1392,16 @@
     }
 
     function render(now) {
+      // JUICE — screen shake. Translate the canvas by a random vector
+      // proportional to shakeAmp before drawing the world. Save/restore
+      // so HUD elements (which are outside canvas) aren't affected.
+      let sx = 0, sy = 0;
+      if (shakeAmp > 0.1) {
+        sx = (Math.random() - 0.5) * shakeAmp;
+        sy = (Math.random() - 0.5) * shakeAmp;
+      }
+      ctx.save();
+      ctx.translate(sx, sy);
       renderBg(now);
       drawSwordTrail();
       drawShockwaves();   // BEHIND enemies so the ring shows the AOE footprint
@@ -1293,6 +1409,14 @@
       drawSparks();
       drawKnight();
       drawFloaters();
+      ctx.restore();
+      // JUICE — red full-screen flash on damage (drawn OVER shake)
+      if (flashAlpha > 0.01) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(181, 30, 43, ' + flashAlpha.toFixed(3) + ')';
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      }
     }
 
     // ============================================================
@@ -1301,7 +1425,19 @@
     function loop(now) {
       const dt = Math.min(0.05, (now - lastT) / 1000);
       lastT = now;
-      update(dt);
+      // Hit-stop: if we're in a freeze-frame, run a near-zero dt so the
+      // world barely advances but sparks/animations still tick a bit and
+      // the canvas still renders. Creates the "snappy hit" feeling.
+      if (hitPause > 0) {
+        hitPause -= dt;
+        if (hitPause < 0) hitPause = 0;
+        update(dt * 0.05);  // mostly frozen; small slice for sparks/floaters
+      } else {
+        update(dt);
+      }
+      // Shake decay (independent of hitPause so shake feels uninterrupted)
+      shakeAmp = Math.max(0, shakeAmp - 60 * dt);
+      flashAlpha = Math.max(0, flashAlpha - 1.6 * dt);
       render(now);
       requestAnimationFrame(loop);
     }
