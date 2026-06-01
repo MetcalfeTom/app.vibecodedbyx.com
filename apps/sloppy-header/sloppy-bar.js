@@ -27,12 +27,11 @@
   const options = {
     position: script?.getAttribute('data-position') || 'bottom',
     theme: script?.getAttribute('data-theme') || 'dark',
-    // Default EXPANDED — the bar now hosts bell/chat/notepad/twitch/teleport/
-    // ecosystem dropdown/voting. Defaulting to a tiny pill hid all of that
-    // behind a click most users never made. Apps that prefer the compact pill
-    // (e.g. visualization-heavy ones where every bottom px counts) can opt in
-    // with <script data-minimized="true" ...>.
-    minimized: script?.getAttribute('data-minimized') === 'true',
+    // Default MINIMIZED again — chat requested the collapsed-pill default
+    // so the bar doesn't eat screen real estate on visualization / game
+    // apps. The toggle still lives at the corner, and apps that want the
+    // expanded bar by default can set <script data-minimized="false" ...>.
+    minimized: script?.getAttribute('data-minimized') !== 'false',
     hideKarma: script?.getAttribute('data-hide-karma') === 'true',
     hideLinks: script?.getAttribute('data-hide-links') === 'true'
   };
