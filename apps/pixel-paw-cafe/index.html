@@ -329,6 +329,39 @@
     .overlay-card button:active { transform: translate(1px,1px); box-shadow: 1px 1px 0 var(--bark); }
     .overlay-card button:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
 
+    /* ============ MUSIC TOGGLE (floating bottom-right) ============ */
+    .music-toggle {
+      position: fixed;
+      bottom: 14px;
+      right: 14px;
+      background: var(--milk);
+      border: 2.5px solid var(--bark);
+      border-radius: 24px;
+      padding: 0.4rem 0.9rem 0.45rem;
+      font-family: 'Caveat', cursive;
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--mocha);
+      cursor: pointer;
+      box-shadow: 2px 2px 0 var(--bark);
+      z-index: 12;
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      transition: transform 0.1s, filter 0.12s, background 0.15s;
+      min-height: 2.4rem;
+    }
+    .music-toggle:hover { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--bark); }
+    .music-toggle:focus-visible { outline: 3px solid var(--rose); outline-offset: 3px; }
+    .music-toggle .music-icon { font-size: 1.2rem; }
+    .music-toggle[aria-pressed="true"] {
+      background: var(--rose);
+      color: var(--milk);
+      animation: music-pulse 2s ease-in-out infinite;
+    }
+    @keyframes music-pulse {
+      0%, 100% { box-shadow: 2px 2px 0 var(--bark), 0 0 0 0 rgba(240,160,168,0.6); }
+      50%      { box-shadow: 2px 2px 0 var(--bark), 0 0 0 12px rgba(240,160,168,0); }
+    }
+
     /* ============ FOOTER NOTE ============ */
     .foot {
       text-align: center;
@@ -384,6 +417,10 @@
     </section>
 
     <p class="foot">made with chamomile · open all hours · cats welcome</p>
+
+    <button type="button" id="btn-music" class="music-toggle" aria-pressed="false" aria-label="Toggle lofi background music">
+      <span class="music-icon" aria-hidden="true">🎵</span> <span id="music-label">play lofi</span>
+    </button>
   </main>
 
   <!-- Intro -->
@@ -1350,6 +1387,197 @@
       document.getElementById('end-msg').textContent = msg;
       overlayEnd.classList.remove('hidden');
     }
+
+    // ============================================================
+    // LOFI MUSIC ENGINE — pure Web Audio synth piano + warm reverb.
+    // Chord progression: Cmaj7 → Am7 → Fmaj7 → G7, ~62 bpm, looping.
+    // Each chord plucks with a soft triangle+sine layer, runs through
+    // a lowpass filter (cozy "behind-the-rain" tone) into a noise-bed
+    // convolver reverb. A sparse top-line melody noodles randomly on
+    // notes from the C-major scale. Vinyl-style noise hiss layered
+    // underneath at very low volume gives the lo-fi crackle.
+    // ============================================================
+    let lofiCtx = null;
+    let lofiMaster = null, lofiWet = null, lofiNoise = null, lofiNoiseGain = null;
+    let lofiPlaying = false;
+    let lofiNextChordAt = 0;
+    let lofiNextMelodyAt = 0;
+    let lofiStep = 0;
+    let lofiRAF = 0;
+    // (chord notes Hz)
+    const LOFI_CHORDS = [
+      [261.63, 329.63, 392.00, 493.88],  // Cmaj7: C E G B
+      [220.00, 261.63, 329.63, 392.00],  // Am7:   A C E G
+      [174.61, 220.00, 261.63, 329.63],  // Fmaj7: F A C E
+      [196.00, 246.94, 293.66, 349.23]   // G7:    G B D F
+    ];
+    const LOFI_MELODY_NOTES = [523.25, 587.33, 659.25, 698.46, 783.99, 880.00];  // C5..A5
+
+    function lofiBuildReverbImpulse(ctx, durationSec, decay) {
+      const rate = ctx.sampleRate;
+      const len = Math.floor(rate * durationSec);
+      const buf = ctx.createBuffer(2, len, rate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = buf.getChannelData(ch);
+        for (let i = 0; i < len; i++) {
+          d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+        }
+      }
+      return buf;
+    }
+    function lofiBuildNoiseBuffer(ctx, durationSec) {
+      const rate = ctx.sampleRate;
+      const len = Math.floor(rate * durationSec);
+      const buf = ctx.createBuffer(1, len, rate);
+      const d = buf.getChannelData(0);
+      // Pinkish noise via leaky integrator
+      let prev = 0;
+      for (let i = 0; i < len; i++) {
+        const w = Math.random() * 2 - 1;
+        prev = (prev + 0.04 * w) / 1.04;
+        d[i] = prev * 1.5;
+      }
+      return buf;
+    }
+    function lofiInit() {
+      if (lofiCtx) return;
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return;
+      lofiCtx = new Ctor();
+      lofiMaster = lofiCtx.createGain();
+      lofiMaster.gain.value = 0;   // ramped up on play
+      lofiMaster.connect(lofiCtx.destination);
+      // Reverb bus — wet send into a 2s noise impulse
+      const convolver = lofiCtx.createConvolver();
+      convolver.buffer = lofiBuildReverbImpulse(lofiCtx, 2.2, 2.5);
+      lofiWet = lofiCtx.createGain();
+      lofiWet.gain.value = 0.42;
+      convolver.connect(lofiWet);
+      lofiWet.connect(lofiMaster);
+      // Background vinyl hiss
+      const noiseBuf = lofiBuildNoiseBuffer(lofiCtx, 4);
+      lofiNoise = lofiCtx.createBufferSource();
+      lofiNoise.buffer = noiseBuf;
+      lofiNoise.loop = true;
+      const noiseHp = lofiCtx.createBiquadFilter();
+      noiseHp.type = 'highpass';
+      noiseHp.frequency.value = 1100;
+      lofiNoiseGain = lofiCtx.createGain();
+      lofiNoiseGain.gain.value = 0;
+      lofiNoise.connect(noiseHp);
+      noiseHp.connect(lofiNoiseGain);
+      lofiNoiseGain.connect(lofiMaster);
+      lofiNoise.start();
+      // Expose for chord/melody routing
+      lofiCtx._reverb = convolver;
+    }
+    // Piano-ish pluck: triangle + sine an octave up, lowpass-filtered,
+    // ADSR envelope. Routes to both the master (dry) and the reverb bus.
+    function lofiPluck(freq, when, duration, gain) {
+      if (!lofiCtx) return;
+      const t = when;
+      const env = lofiCtx.createGain();
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(gain, t + 0.01);
+      env.gain.exponentialRampToValueAtTime(0.001, t + duration);
+      const lp = lofiCtx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1400;
+      lp.Q.value = 0.6;
+      const o1 = lofiCtx.createOscillator();
+      o1.type = 'triangle';
+      o1.frequency.value = freq;
+      o1.connect(lp);
+      const o2 = lofiCtx.createOscillator();
+      o2.type = 'sine';
+      o2.frequency.value = freq * 2;
+      const o2g = lofiCtx.createGain();
+      o2g.gain.value = 0.25;
+      o2.connect(o2g);
+      o2g.connect(lp);
+      lp.connect(env);
+      env.connect(lofiMaster);
+      // Send to reverb
+      const send = lofiCtx.createGain();
+      send.gain.value = 0.55;
+      env.connect(send);
+      send.connect(lofiCtx._reverb);
+      o1.start(t); o2.start(t);
+      o1.stop(t + duration + 0.1);
+      o2.stop(t + duration + 0.1);
+    }
+    function lofiScheduler() {
+      if (!lofiPlaying || !lofiCtx) return;
+      const now = lofiCtx.currentTime;
+      const lookahead = 0.5;
+      const CHORD_LEN = 3.8;       // ~62 bpm, one chord per 3.8s
+      const MELODY_INTERVAL = 1.4; // sparse top-line every ~1.4s
+      while (lofiNextChordAt < now + lookahead) {
+        const chord = LOFI_CHORDS[lofiStep % LOFI_CHORDS.length];
+        // Pluck each note with a small offset so it sounds like a roll
+        chord.forEach((f, i) => {
+          lofiPluck(f, lofiNextChordAt + i * 0.045, CHORD_LEN * 0.95, 0.10);
+        });
+        // Bass on the root, one octave down
+        lofiPluck(chord[0] / 2, lofiNextChordAt, CHORD_LEN * 0.95, 0.16);
+        lofiStep++;
+        lofiNextChordAt += CHORD_LEN;
+      }
+      while (lofiNextMelodyAt < now + lookahead) {
+        if (Math.random() < 0.55) {
+          const f = LOFI_MELODY_NOTES[Math.floor(Math.random() * LOFI_MELODY_NOTES.length)];
+          lofiPluck(f, lofiNextMelodyAt, 1.2, 0.08);
+        }
+        lofiNextMelodyAt += MELODY_INTERVAL + (Math.random() - 0.5) * 0.6;
+      }
+      lofiRAF = setTimeout(lofiScheduler, 200);
+    }
+    function lofiPlay() {
+      lofiInit();
+      if (!lofiCtx || lofiPlaying) return;
+      if (lofiCtx.state === 'suspended') lofiCtx.resume();
+      const t = lofiCtx.currentTime;
+      lofiPlaying = true;
+      lofiNextChordAt = t + 0.15;
+      lofiNextMelodyAt = t + 1.4;
+      lofiMaster.gain.cancelScheduledValues(t);
+      lofiMaster.gain.linearRampToValueAtTime(0.45, t + 1.6);
+      lofiNoiseGain.gain.cancelScheduledValues(t);
+      lofiNoiseGain.gain.linearRampToValueAtTime(0.035, t + 1.6);
+      lofiScheduler();
+    }
+    function lofiStop() {
+      if (!lofiCtx) return;
+      lofiPlaying = false;
+      const t = lofiCtx.currentTime;
+      lofiMaster.gain.cancelScheduledValues(t);
+      lofiMaster.gain.linearRampToValueAtTime(0, t + 0.4);
+      lofiNoiseGain.gain.cancelScheduledValues(t);
+      lofiNoiseGain.gain.linearRampToValueAtTime(0, t + 0.4);
+      if (lofiRAF) clearTimeout(lofiRAF);
+      lofiRAF = 0;
+    }
+    const btnMusic = document.getElementById('btn-music');
+    const musicLabel = document.getElementById('music-label');
+    btnMusic.addEventListener('click', () => {
+      if (lofiPlaying) {
+        lofiStop();
+        btnMusic.setAttribute('aria-pressed', 'false');
+        musicLabel.textContent = 'play lofi';
+      } else {
+        lofiPlay();
+        btnMusic.setAttribute('aria-pressed', 'true');
+        musicLabel.textContent = 'pause lofi';
+      }
+    });
+    // Auto-start lofi as soon as the player taps "open the cafe"
+    document.getElementById('btn-start').addEventListener('click', () => {
+      if (!lofiPlaying) {
+        lofiPlay();
+        btnMusic.setAttribute('aria-pressed', 'true');
+        musicLabel.textContent = 'pause lofi';
+      }
+    });
 
     // ============================================================
     // BOOT
