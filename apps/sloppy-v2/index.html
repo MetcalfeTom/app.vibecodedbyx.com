@@ -369,10 +369,18 @@
       if (v) try { localStorage.setItem(NAME_KEY, v); } catch {}
     });
 
-    function setStatus(state, txt) {
+    let lastErr = '';
+    function setStatus(state, txt, err) {
       statDot.classList.remove('online', 'connecting', 'err');
       statDot.classList.add(state);
       statText.textContent = txt;
+      if (err) {
+        lastErr = String(err.message || err);
+        statText.parentElement.title = 'Error: ' + lastErr + ' (hover or check console)';
+      } else if (state === 'online') {
+        statText.parentElement.title = 'Connected to ' + CHANNEL;
+        lastErr = '';
+      }
     }
 
     // ============================================================
@@ -422,28 +430,100 @@
     // peers see the text materialize character-by-character. On Enter,
     // we send a final 'd' to mark the message committed.
     // ============================================================
+    // ============================================================
+    // SAME-ORIGIN FALLBACK — if Supabase Realtime is unreachable
+    // (CORS reject on the project's allowed-origin list, jsdelivr
+    // blocked, websocket through corp proxy fails, etc.), we still
+    // want two tabs / two windows on the same browser to talk so
+    // the prototype is testable. BroadcastChannel is built into
+    // every modern browser, requires zero network, and has the
+    // same publish/subscribe shape we need.
+    // ============================================================
+    const localBus = (typeof BroadcastChannel !== 'undefined')
+      ? new BroadcastChannel('sloppy-v2-local-fallback-v1')
+      : null;
+    if (localBus) {
+      localBus.addEventListener('message', e => {
+        const m = e && e.data;
+        if (!m || !m.event || m.cid === CLIENT_ID) return;
+        if (m.event === 't') onRemoteStream(m.payload, false);
+        else if (m.event === 'd') onRemoteStream(m.payload, true);
+      });
+    }
+    function emitOnBoth(event, payload) {
+      // Realtime broadcast (peers on other devices)
+      if (channel && connected) {
+        try { channel.send({ type: 'broadcast', event, payload }).catch(() => {}); }
+        catch (e) { console.warn('[sv2] channel.send threw', e); }
+      }
+      // Local BroadcastChannel (same browser, other tabs) — always fires
+      if (localBus) {
+        try { localBus.postMessage({ event, cid: CLIENT_ID, payload }); }
+        catch (e) { console.warn('[sv2] localBus.postMessage threw', e); }
+      }
+    }
+
+    let retryAttempt = 0;
     function bootRealtime() {
       supabase = window._sv2_supabase;
       if (!supabase || !supabase.channel) {
-        setStatus('err', 'no client — retrying');
-        setTimeout(bootRealtime, 1500);
+        retryAttempt++;
+        const wait = Math.min(8000, 1000 * Math.pow(1.5, retryAttempt));
+        console.warn('[sv2] no supabase client (jsdelivr blocked? module load failed?). retry in', wait, 'ms');
+        setStatus('err', localBus ? 'offline · local tabs only' : 'offline · no client', new Error('Supabase client unavailable. Likely cause: CDN (@supabase/ssr) blocked by network, or the inline module script failed to load.'));
+        setTimeout(bootRealtime, wait);
         return;
       }
       setStatus('connecting', 'connecting…');
-      channel = supabase.channel(CHANNEL, {
-        config: { broadcast: { self: false } }
-      });
+      try {
+        channel = supabase.channel(CHANNEL, {
+          config: { broadcast: { self: false, ack: false } }
+        });
+      } catch (e) {
+        console.error('[sv2] channel() threw:', e);
+        setStatus('err', 'channel init failed', e);
+        setTimeout(bootRealtime, 3000);
+        return;
+      }
       channel.on('broadcast', { event: 't' }, ({ payload }) => onRemoteStream(payload, false));
       channel.on('broadcast', { event: 'd' }, ({ payload }) => onRemoteStream(payload, true));
-      channel.subscribe(status => {
-        console.log('[sv2] sub status:', status);
+      // Race the subscribe callback against an 8s timeout so we don't
+      // hang on a CORS preflight that never resolves
+      let resolved = false;
+      const timeout = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        console.warn('[sv2] subscribe timed out after 8s — falling back to local-only');
+        setStatus('err', localBus ? 'realtime timeout · local tabs only' : 'realtime timeout', new Error('Subscribe never resolved. Possible CORS / WebSocket reject from Supabase. Same-browser tabs still work via BroadcastChannel.'));
+        retryAttempt++;
+        const wait = Math.min(15000, 2000 * Math.pow(1.4, retryAttempt));
+        setTimeout(() => { try { channel.unsubscribe(); } catch {}; bootRealtime(); }, wait);
+      }, 8000);
+      channel.subscribe((status, err) => {
+        console.log('[sv2] sub status:', status, err || '');
         if (status === 'SUBSCRIBED') {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeout);
           connected = true;
+          retryAttempt = 0;
           setStatus('online', 'online · ' + CLIENT_ID.slice(2, 6));
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          if (resolved) {
+            // Lost connection AFTER we were online — try to reconnect
+            connected = false;
+            setStatus('err', localBus ? 'reconnecting · local tabs only' : 'reconnecting…', err);
+            setTimeout(() => { try { channel.unsubscribe(); } catch {}; bootRealtime(); }, 2500);
+            return;
+          }
+          resolved = true;
+          clearTimeout(timeout);
           connected = false;
-          setStatus('err', 'disconnected · retrying');
-          setTimeout(() => { try { channel.unsubscribe(); } catch {}; bootRealtime(); }, 2200);
+          console.error('[sv2] subscribe failed:', status, err);
+          setStatus('err', localBus ? 'realtime ' + status.toLowerCase() + ' · local tabs only' : 'realtime ' + status.toLowerCase(), err);
+          retryAttempt++;
+          const wait = Math.min(20000, 2500 * Math.pow(1.4, retryAttempt));
+          setTimeout(() => { try { channel.unsubscribe(); } catch {}; bootRealtime(); }, wait);
         }
       });
     }
@@ -493,11 +573,11 @@
       const now = Date.now();
       const text = textIn.value;
       if (!text) {
-        // If we emptied the input mid-stream, send a final empty 'd'
-        // to clear the peer's bubble. (Edge case: user backspaced all
-        // characters before sending.)
+        // If we emptied the input mid-stream, broadcast a final empty
+        // 'd' so the peer's bubble clears. (Edge case: user backspaced
+        // every character before sending.)
         if (activeMid) {
-          channel.send({ type: 'broadcast', event: 'd', payload: { cid: CLIENT_ID, name: nameOrAnon(), mid: activeMid, text: '', done: true } });
+          emitOnBoth('d', { cid: CLIENT_ID, name: nameOrAnon(), mid: activeMid, text: '', done: true });
           if (activeNode) activeNode.remove();
           activeMid = null; activeNode = null; lastSentText = '';
         }
@@ -513,12 +593,7 @@
         setMessageText(activeNode, text, true);
       }
       lastSentText = text;
-      try {
-        channel.send({
-          type: 'broadcast', event: 't',
-          payload: { cid: CLIENT_ID, name: nameOrAnon(), mid: activeMid, text }
-        }).catch(() => {});
-      } catch (_) {}
+      emitOnBoth('t', { cid: CLIENT_ID, name: nameOrAnon(), mid: activeMid, text });
     }
     function nameOrAnon() {
       const v = (nameIn.value || '').trim().slice(0, 16);
@@ -533,15 +608,11 @@
     function sendCurrent() {
       const text = (textIn.value || '').trim();
       if (!text) return;
-      if (!connected || !channel) return;
+      // Even offline: still let the local-tab fallback fire so two
+      // tabs on the same browser can chat without Supabase
       const mid = activeMid || newMid();
       const name = nameOrAnon();
-      try {
-        channel.send({
-          type: 'broadcast', event: 'd',
-          payload: { cid: CLIENT_ID, name, mid, text, done: true }
-        }).catch(() => {});
-      } catch (_) {}
+      emitOnBoth('d', { cid: CLIENT_ID, name, mid, text, done: true });
       // Finalize local bubble
       if (activeNode) {
         const caret = activeNode.querySelector('.caret');
