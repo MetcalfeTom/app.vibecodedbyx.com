@@ -1,6 +1,11 @@
 # mumblefy
 
 ## log
+- 2026-06-23: **PIVOT → singer flow coach** (per chat: "replace accent/singer modes with word-linking rules — vowel glides, consonant drops, syllable blending, input left / flow-optimized right"). Same two-pane layout, new engine.
+  - **flow(text, style, marks)** applies connected-speech rules between adjacent words: (1) CONSONANT DROPS — a final t/d in a cluster before a consonant drops to an apostrophe ("best friend"→"bes' friend", "and then"→"an' then"); (2) VOWEL GLIDES — vowel→vowel across a boundary gets a /w/ glide after back vowels ("go on"→"go‿won") or /y/ after front vowels ("the end"→"the‿yend"); (3) SYLLABLE BLENDING — a final consonant ties onto a following vowel ("friend‿i", "an‿apple"). Tokenizer preserves punctuation + line breaks; rules operate on word cores.
+  - **3 flow styles** (the picker cards, cumulative): 💬 Conversational (drops only) · 🎶 Singer Flow (drops + glides + liaison, default) · 🎤 Rap Flow (adds -ing→in'). 
+  - **marks pills** (repurposed intensity): clean (blended, glide letters inserted, no ties) · show links ‿ (default — the undertie teaches where to connect) · annotate. Verified: "the end of the best friend i go on and an apple" → "the‿yend‿of the bes' friend‿i go‿won‿and‿an‿apple".
+  - The old singer-slur STYLES + slur-intensity post-pass were removed in this pivot. Labels/title/og all updated to the coach framing.
 - 2026-06-23: **slur INTENSITY slider** (mild / medium / unhinged) per a re-request for the app. A deterministic post-pass `applyIntensity(text, level)` layers on top of whatever singer style is active: level 1 untouched, level 2 light extra vowel-stretch + soft final-stop drops, level 3 aggressive per-vowel stretch + interior-consonant dissolve + run-on word fusing + trailing elongations ("iii fooouund aaa looeee fooor meee"). Same FNV+mulberry seeding so it stays stable on re-render. 3 amber pills in the action row; default medium.
 - 2026-06-02: initial build. **Phonetic lyric converter** — paste lyrics, pick a singing voice, get them rewritten the way that singer actually pronounces them.
   - **7 singer styles**, each a pure text-transform function:
