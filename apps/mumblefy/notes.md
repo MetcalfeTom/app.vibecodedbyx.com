@@ -1,6 +1,7 @@
 # mumblefy
 
 ## log
+- 2026-06-23: **slur INTENSITY slider** (mild / medium / unhinged) per a re-request for the app. A deterministic post-pass `applyIntensity(text, level)` layers on top of whatever singer style is active: level 1 untouched, level 2 light extra vowel-stretch + soft final-stop drops, level 3 aggressive per-vowel stretch + interior-consonant dissolve + run-on word fusing + trailing elongations ("iii fooouund aaa looeee fooor meee"). Same FNV+mulberry seeding so it stays stable on re-render. 3 amber pills in the action row; default medium.
 - 2026-06-02: initial build. **Phonetic lyric converter** — paste lyrics, pick a singing voice, get them rewritten the way that singer actually pronounces them.
   - **7 singer styles**, each a pure text-transform function:
     - **Bon Iver** — soft falsetto mumble: drops final stops (t/d/k/p), softens t→d between vowels, -ing→in', you→yuh, the→th', collapses doubled letters, trails "mmm" hums on longer lines.
