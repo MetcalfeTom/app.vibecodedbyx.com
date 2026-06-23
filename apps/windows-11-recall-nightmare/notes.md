@@ -1,6 +1,13 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-06-23: **WINDOWS 12 PREVIEW · the Future tab finally opens something** per chat ask "add a Windows 12 preview that opens when the Future tab is clicked, with ads on the login screen and a subscription gate." Resolves the long-standing "Future tab is flavour-only" issue.
+  - **Trigger**: the Recall window's day tabs are now wired. Yesterday/Today just swap the active class; **Future ✦** calls openW12(). Won't fire if state.crashed (no future after the BSOD).
+  - **z-index 295** — above the lock/emoji/secure-boot overlays, below the BSOD (300) so a crash still wins.
+  - **3 stages**: (1) **boot flash** — ⊞ Windows12 "Copilot Edition · the future, today, for a small monthly fee", spinner + a 7-line boot ticker ("monetising your wallpaper…", "installing 3 ad partners…", "syncing your dreams to OneDrive (847% full)…"). ~4.2s. (2) **ad-choked login** — "future you · already logged in · we can't log you out", a password field placeholdered "Password (now an annual commitment)", plus a top banner ad + left/right ad rails + a gold sponsor bar, all reshuffling every 2.4s from a 9-line AD_LINES pool ("You are the 1,000,000th visitor to your own desktop", "Singles in your RAM want to connect"). Clicking any ad just swaps it — they never close. "Watch a 30s ad to skip ads" nags. (3) **subscription gate** — 3 tiers (Basic $9.99 "Boot the computer 3×/day", Pro+ $29.99 featured "the letter S on your keyboard", Sovereign $249 "own your own mouse cursor"). Hitting Subscribe bumps the price 1.4× ("price went up because you hovered") and declines your card for being "from the present". Fine print: "the Future was always a subscription. Cancel anytime (cancellation requires Windows 12 Pro+)."
+  - **Exits**: "I cannot afford the future" button (honest close), Esc, and a corner ✕ that 40% of the time shows ONE more ad before letting you go. Password is irrelevant — Enter/→ both route straight to the paywall.
+  - Self-contained appended <style> + <script> IIFE at the end of body; 41 hex colors validated, syntax-checked.
+
 - 2026-05-17: v1.22 — **SECURE BOOT EXPIRY · the panic-inducing UEFI lockout** per stacked chat asks: "add a panic-inducing secure boot expiry screen to the windows-11-recall-nightmare app" + "update windows-11-recall-nightmare with a secure boot expiry screen that locks the user out until they update their bios." The most panic-shaped overlay in the app yet — full BIOS-screen takeover with a real PC-speaker alarm and a 30-second fake BIOS update.
   - **TRIGGER** (two paths):
     1. **Periodic** — every 30s, 12% chance of firing if no other major overlay is active (BSOD, emoji-lock, login screen, fake-update). Average: one event per ~4 minutes of activity.
@@ -430,7 +437,6 @@
 ## issues
 - Recall window's `snap-detail` overlay is positioned absolute inside the window with a fixed top offset of 60px — if the title bar / search header ever gets taller it'll overlap. Hard-coded for now.
 - The conic-gradient orb in the takeover scales up via width/height to 200vmax — on very high-DPI 4K displays the GPU might briefly stutter. Tested fine on 1440p.
-- "Future" day tab in the Recall window doesn't actually filter — it's flavour. Could wire up to show retroactive screenshots after the crash (todo).
 - Welcome toast appears even on rebooted runs — by design, but if the player wants to play repeatedly the toast feels redundant. Could add a "play count > 1 skip toast" branch.
 - No save state across page reloads. Each visit is a fresh PC.
 
