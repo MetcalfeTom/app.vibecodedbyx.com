@@ -18,6 +18,11 @@ requested-by: truzegamer (chat) — "2D boss-rush fighter, Animator-vs-Animation
   - **Progression fix**: mutual-KO guard — if the player dies the same frame a boss dies, the delayed `showBossCard`/`win` no longer pops over the DEFEATED screen (now gated on `state==='play'`). This was the only real soft-lock path after Creeper King.
   - NOTE: there is no separate "Dark Lord hero" — the player is the orange "Chosen One" stick figure; the Ender/Obsidian Colossus is the dark-lord-style final boss.
 
+- 2026-06-24 (bugfix, truzegamer report): **underground spawn + punch-slide + progression-cache**.
+  - **Underground spawn**: the stick rig draws legs ~46px BELOW the hip, but the hip was grounded at the surface line, burying the feet. Added `FOOT=46` + `PG()=GROUND()-FOOT` as the player HIP rest line so feet land ON the grass surface. Bosses still rest at GROUND() (they draw upward from their base, so they were already correct).
+  - **Punch pushes the player**: run momentum carried through the attack and, with no player/boss collision, crept the player into/under the boss. Two fixes: (a) `this.vx*=0.18` on punch/kick start to plant the feet; (b) soft player↔boss separation each frame (`minSep=boss.w*0.42+16`) so you can't slide into the body — melee reach (72–84) stays longer than the gap, so hits still land.
+  - **Progression after Creeper King**: the mutual-KO guard (`state==='play'` gate on the delayed boss card / win) IS in the shipped file — verified via `git show HEAD`. Reporter was on a cached HTML; needs a hard refresh.
+
 ## issues
 - Melee connects on floating bosses even though they visually hover up (logical boss.y stays at ground). Acceptable arcade feel; revisit if it reads wrong.
 - Creeper explode block has a redundant double-condition (both call hurt(22,300)); harmless.
