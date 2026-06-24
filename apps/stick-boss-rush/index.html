@@ -130,6 +130,7 @@
       <span><b>A&nbsp;D</b> move</span><span><b>W</b> jump</span>
       <span><b>J</b> punch</span><span><b>K</b> kick</span>
       <span><b>SHIFT</b> dash</span><span><b>L</b> energy blast</span>
+      <span><b>CLICK</b> move+punch</span><span><b>R-CLICK</b> kick</span>
     </div>
     <button class="btn" id="start-btn">FIGHT</button>
   </div>
@@ -266,6 +267,23 @@ function pressEdge(act){
   if(act==='dash') player.tryDash();
   if(act==='special') player.trySpecial();
 }
+// ---- CLICK CONTROLS (desktop mouse playability) ----
+// Left-hold: walk toward cursor + auto-punch at the boss. Click high = jump.
+// Right-click = kick. Click well past the boss while adjacent still punches.
+let clickHold=false, clickX=0;
+function canvasPt(e){ const r=cv.getBoundingClientRect(); return { x:(e.clientX-r.left)*(W/r.width), y:(e.clientY-r.top)*(H/r.height) }; }
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('mousedown',e=>{
+  if(state!=='play'){ ac(); return; }
+  e.preventDefault(); ac();
+  const p=canvasPt(e);
+  if(e.button===2){ if(boss) player.facing=boss.x>player.x?1:-1; player.tryAttack('kick'); return; }
+  if(p.y < GROUND()-140) player.tryJump();   // tap up high to hop
+  clickHold=true; clickX=p.x;
+});
+cv.addEventListener('mousemove',e=>{ if(clickHold){ clickX=canvasPt(e).x; } });
+window.addEventListener('mouseup',()=>{ clickHold=false; });
+window.addEventListener('blur',()=>{ clickHold=false; });
 
 // ============================================================ FX
 let particles=[], shake=0, hitstop=0, floats=[];
@@ -280,6 +298,7 @@ function updFX(dt){
   for(const f of floats){ f.t+=dt; f.y-=40*dt; }
   floats=floats.filter(f=>f.t<f.life);
   if(shake>0) shake=Math.max(0,shake-dt*60);
+  if(phaseFlash>0) phaseFlash=Math.max(0,phaseFlash-dt);
 }
 function drawFX(){
   for(const p of particles){ const a=1-p.t/p.life; ctx.globalAlpha=a; ctx.fillStyle=p.col;
@@ -466,22 +485,32 @@ const BOSSES=[
     desc:'The final tyrant. It teleports behind you, slams the ground, and fires void orbs. End it.',
     w:108,h:130, reach:84, speed:160, float:true,
     ai(b,dt){
-      b.cd-=dt; b.anim+=dt*3; b.hover=Math.sin(b.anim*1.1)*18;
+      // PHASE TWO — at half health the Colossus hardens into obsidian:
+      // faster, shorter cooldowns, and a rain of void orbs from the sky.
+      if(!b.phase2 && b.hp<=b.maxhp*0.5) enterObsidian(b);
+      const cdk = b.phase2 ? 0.62 : 1;
+      b.cd-=dt; b.anim+=dt*(b.phase2?4:3); b.hover=Math.sin(b.anim*1.1)*18;
       const dx=player.x-b.x; b.dir=dx>0?1:-1;
+      // obsidian-only sky rain
+      if(b.phase2){ b.rainCd=(b.rainCd||0)-dt; if(b.rainCd<=0){ b.rainCd=1.6;
+        for(let i=0;i<4;i++){ const rx=rand(70,W-70);
+          projectiles.push({x:rx,y:-20,vx:0,vy:130,g:280,kind:'void',dmg:9,life:4,t:0}); }
+        SFX.blast(); } }
       if(b.tpT>0){ b.tpT-=dt; if(b.tpT<=0){ // appear behind/near player
         b.x=clamp(player.x - player.facing*120, 80, W-80); b.flash=.3; spark(b.x,b.y-50,30,'#b88aff',300,.6); } return; }
       const ad=Math.abs(dx);
       if(b.cd<=0){
         const r=Math.random();
-        if(r<.34){ b.tpT=.5; b.flash=.5; spark(b.x,b.y-50,24,'#b88aff',240,.5); b.cd=1.4; }
-        else if(r<.67){ // void orb spread
-          for(let i=-1;i<=1;i++){ projectiles.push({x:b.x,y:b.y+b.hover-50,vx:b.dir*300+i*60,vy:-120+i*40,g:160,kind:'void',dmg:13,life:3,t:0}); }
-          SFX.blast(); b.cd=1.7;
+        if(r<.34){ b.tpT=.5; b.flash=.5; spark(b.x,b.y-50,24,'#b88aff',240,.5); b.cd=1.4*cdk; }
+        else if(r<.67){ // void orb spread (wider in phase 2)
+          const arc=b.phase2?2:1;
+          for(let i=-arc;i<=arc;i++){ projectiles.push({x:b.x,y:b.y+b.hover-50,vx:b.dir*300+i*60,vy:-120+i*40,g:160,kind:'void',dmg:13,life:3,t:0}); }
+          SFX.blast(); b.cd=1.7*cdk;
         } else { // slam approach
-          b.slamT=.5; b.cd=1.9;
+          b.slamT=.5; b.cd=1.9*cdk;
         }
       }
-      if(b.slamT>0){ b.slamT-=dt; b.x+=b.dir*b.speed*1.4*dt; if(ad<b.reach){ player.hurt(14,320); b.slamT=0; shake=16; } }
+      if(b.slamT>0){ b.slamT-=dt; b.x+=b.dir*b.speed*1.4*dt; if(ad<b.reach){ player.hurt(b.phase2?17:14,320); b.slamT=0; shake=16; } }
       else if(ad>140) b.x+=b.dir*b.speed*.5*dt;
     },
     draw(b){ drawEnder(b); }
@@ -500,12 +529,22 @@ function bossHurt(dmg){
   SFX.bosshit(); updHpBars();
   if(boss.hp<=0) defeatBoss();
 }
+let phaseFlash=0;
+function enterObsidian(b){
+  b.phase2=true; b.flash=.6; b.speed=Math.round(b.speed*1.35); b.rainCd=1.2;
+  phaseFlash=1.3; shake=22; SFX.explode(); SFX.charge();
+  document.getElementById('boss-name').textContent='OBSIDIAN COLOSSUS';
+  floatText(W/2, H*0.4, 'PHASE II — OBSIDIAN', '#c79bff', true);
+  spark(b.x, b.y-60, 60, '#a64dff', 360, .9);
+}
 function defeatBoss(){
   spark(boss.x,boss.y-50,50,boss.color,300,.9); SFX.explode(); shake=18; kills++;
   const wasLast = bossIndex>=BOSSES.length-1;
   boss=null; projectiles=[];
-  if(wasLast){ setTimeout(win,600); }
-  else { bossIndex++; setTimeout(()=>showBossCard(bossIndex),700); }
+  // guard against a mutual-KO: if the player also died this frame (state==='end'),
+  // don't pop the next boss card over the DEFEATED screen and soft-lock the run.
+  if(wasLast){ setTimeout(()=>{ if(state==='play') win(); },600); }
+  else { bossIndex++; setTimeout(()=>{ if(state==='play') showBossCard(bossIndex); },700); }
 }
 
 // ============================================================ BOSS DRAW (blocky / Minecraft)
@@ -572,23 +611,29 @@ function drawBlaze(b){
 }
 function drawEnder(b){
   const t=tintBlocks(b), topY=b.y-b.h+b.hover, baseX=b.x-b.w/2, f=b.dir;
+  // obsidian phase-two palette: near-black body, glowing purple veins + eyes
+  const ob=b.phase2;
+  const haloC=ob?'rgba(166,77,255,.28)':'rgba(123,63,214,.18)';
+  const bodyC=ob?'#0d0a16':b.color, purC=ob?'#a64dff':b.dark, eyeC=ob?'#e6c2ff':b.eye, glowC=ob?'#a64dff':b.eye;
   // shadow halo
-  ctx.fillStyle='rgba(123,63,214,.18)'; ctx.beginPath(); ctx.ellipse(b.x,topY+b.h/2,b.w*.7,b.h*.55,0,0,Math.PI*2); ctx.fill();
-  const body=t||b.color, pur=t||b.dark;
+  ctx.fillStyle=haloC; ctx.beginPath(); ctx.ellipse(b.x,topY+b.h/2,b.w*.7,b.h*.55,0,0,Math.PI*2); ctx.fill();
+  const body=t||bodyC, pur=t||purC;
   // legs (long)
   px(baseX+18,topY+78,16,52,body); px(baseX+b.w-34,topY+78,16,52,body);
   // torso
   px(baseX+22,topY+38,b.w-44,54,body);
+  ctx.save(); if(ob){ ctx.shadowColor='#a64dff'; ctx.shadowBlur=6; }
   for(let i=0;i<14;i++){ const rx=baseX+24+((i*29)%(b.w-50)), ry=topY+42+((i*41)%48); px(rx,ry,6,6,pur); }
+  ctx.restore();
   // arms
   px(baseX+6,topY+40,14,60,body); px(baseX+b.w-20,topY+40,14,60,body);
   // head
   px(baseX+24,topY,b.w-48,42,body);
   // glowing eyes
-  const eye=t||b.eye; ctx.save(); ctx.shadowColor=b.eye; ctx.shadowBlur=14;
-  px(baseX+34,topY+14,14,8,eye); px(baseX+b.w-48,topY+14,14,8,eye); ctx.restore();
+  const eye=t||eyeC; ctx.save(); ctx.shadowColor=glowC; ctx.shadowBlur=ob?22:14;
+  px(baseX+34,topY+14,14,ob?10:8,eye); px(baseX+b.w-48,topY+14,14,ob?10:8,eye); ctx.restore();
   if(b.tpT>0){ ctx.globalAlpha=.5; px(baseX,topY,b.w,b.h,'#b88aff'); ctx.globalAlpha=1; }
-  if(Math.random()<.3) spark(b.x+rand(-40,40),topY+rand(0,b.h),1,'#b88aff',40,.6);
+  if(Math.random()<(ob?.55:.3)) spark(b.x+rand(-40,40),topY+rand(0,b.h),1,'#b88aff',ob?70:40,.6);
 }
 
 // ============================================================ PROJECTILES
@@ -693,12 +738,23 @@ function update(dt){
   player.dashCD=Math.max(0,player.dashCD-dt);
   player.iframe=Math.max(0,player.iframe-dt);
   player.special=clamp(player.special, 0, 100);
+  // CLICK / POINTER steering — held click walks you toward the cursor and
+  // auto-punches when you reach the boss; resolved into a movement direction.
+  let clickDir=0;
+  if(clickHold){
+    if(boss && Math.abs(boss.x-player.x) < 96){
+      if(player.canAct()){ player.facing=boss.x>player.x?1:-1; player.tryAttack('punch'); }
+    } else if(clickX < player.x-24){ clickDir=-1; }
+    else if(clickX > player.x+24){ clickDir=1; }
+  }
   if(player.canAct()){
     const sp=300;
     if(keys.left && !keys.right){ player.vx=-sp; player.facing=-1; }
     else if(keys.right && !keys.left){ player.vx=sp; player.facing=1; }
+    else if(clickDir<0){ player.vx=-sp; player.facing=-1; }
+    else if(clickDir>0){ player.vx=sp; player.facing=1; }
     else player.vx*=.7;
-    if(boss && player.onGround && !keys.left && !keys.right){ player.facing = boss.x>player.x?1:-1; }
+    if(boss && player.onGround && !keys.left && !keys.right && !clickDir){ player.facing = boss.x>player.x?1:-1; }
     player.action = (Math.abs(player.vx)>40&&player.onGround)?'run':(player.onGround?'idle':'jump');
   } else {
     player.aT+=dt; player.vx*=.86;
@@ -744,6 +800,8 @@ function render(){
   }
   drawBeam();
   drawFX();
+  // obsidian phase-two screen tint
+  if(phaseFlash>0){ ctx.fillStyle='rgba(120,40,200,'+(phaseFlash*0.32)+')'; ctx.fillRect(0,0,W,H); }
   ctx.restore();
 }
 
