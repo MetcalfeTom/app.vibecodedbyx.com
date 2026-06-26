@@ -11,6 +11,8 @@
   - **WCAG**: role=status aria-live on readout + viewers, role=log on feed, aria-pressed on kill button + mute, role=img + aria-label on mascot SVG, focus-visible amber rings, big (≥150px) target, rem units, prefers-reduced-motion kills all anim/transition.
   - Verified: JS syntax clean (dynamic `import()` inside async IIFE), head/title/og/favicon present.
 
+- 2026-06-26 (chat: "vendor the supabase cdn script locally"): replaced the CDN `import("…/+esm")` with a locally-vendored **UMD** bundle `supabase-js.js` (supabase-js@2.45.0 `dist/umd/supabase.js`, 108KB, self-contained — verified 0 external `/npm` imports). The `+esm` shim was NOT usable for vendoring: it's a 6KB entry that re-imports 6 sub-packages (auth/realtime/postgrest/storage/functions/node-fetch) from `/npm/...`, which would 404 against sloppy.live. Wired via a classic `<script src="./supabase-js.js">` in `<head>` (runs before the deferred `type=module` script, so `window.supabase` is ready); module now does `const {createClient}=window.supabase` with a guard → offlineMode if the bundle didn't load. App no longer depends on jsdelivr at runtime.
+
 ## issues
 - State is last-writer-wins ephemeral (no DB) — if two viewers flip within the same instant the room can briefly disagree until the next broadcast. Fine for a toy.
 - `whois`/`state` sync assumes at least one existing peer answers within 2.5s; otherwise a fresh tab assumes AWAKE default. Acceptable.
