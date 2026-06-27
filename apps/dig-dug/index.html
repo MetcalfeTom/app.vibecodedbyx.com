@@ -28,7 +28,7 @@ canvas{display:block;image-rendering:pixelated;border:2px solid #333;border-radi
 <body>
 <div id="hud">SCORE <span id="scoreEl">0</span> &nbsp; LIVES <span id="livesEl">3</span> &nbsp; LEVEL <span id="levelEl">1</span></div>
 <canvas id="cv"></canvas>
-<div id="msg">NEON DIG<br><span style="font-size:0.6em;color:rgba(0,255,255,0.4)">ARROWS/WASD TO MOVE &bull; SPACE TO PUMP<br>DIG TUNNELS &bull; INFLATE ENEMIES<br>PRESS ANY KEY TO START</span></div>
+<div id="msg">NEON DIG<br><span style="font-size:0.6em;color:rgba(0,255,255,0.4)">ARROWS/WASD TO MOVE &bull; SPACE TO PUMP<br>DIG TUNNELS &bull; INFLATE TILL THEY POP<br>M MUTES &bull; PRESS ANY KEY TO START</span></div>
 <div id="mobile">
 <button id="bu">▲</button>
 <div class="mrow"><button id="bl">◀</button><button id="ba">💨</button><button id="br">▶</button></div>
@@ -61,8 +61,57 @@ var DIRT_COLORS=['#8B6914','#7A5C12','#694F10','#583F0E','#47330C'];
 var DIRT_DARK=['#6B4F0E','#5A420C','#493709','#382B07','#2A2005'];
 
 // Game state
-var grid,player,enemies,pump,score,lives,level,state,rocks;
+var grid,player,enemies,pump,score,lives,level,state,rocks,parts=[];
 var keys={};
+
+// --- AUDIO (Web Audio synth SFX) ---
+var AC=null,muted=false,lastDig=0;
+function actx(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){} } return AC; }
+function unlockAudio(){ var a=actx(); if(a&&a.state==='suspended') a.resume(); }
+function noise(a,dur,decay){ var b=a.createBuffer(1,Math.max(1,a.sampleRate*dur|0),a.sampleRate),d=b.getChannelData(0);
+  for(var i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,decay||1); var s=a.createBufferSource(); s.buffer=b; return s; }
+function sndPump(level){ if(muted)return; var a=actx(); if(!a)return; var t=a.currentTime;
+  var ns=noise(a,0.12,1), bp=a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(600+level*1500,t); bp.Q.value=1.2;
+  var g=a.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.16,t+0.01); g.gain.exponentialRampToValueAtTime(0.001,t+0.12);
+  ns.connect(bp);bp.connect(g);g.connect(a.destination); ns.start(t);ns.stop(t+0.12);
+  var o=a.createOscillator(),og=a.createGain(); o.type='square'; o.frequency.setValueAtTime(220+level*480,t); o.frequency.linearRampToValueAtTime(320+level*640,t+0.1);
+  og.gain.setValueAtTime(0.05,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.12); o.connect(og);og.connect(a.destination); o.start(t);o.stop(t+0.12); }
+function sndPop(){ if(muted)return; var a=actx(); if(!a)return; var t=a.currentTime;
+  // squelchy body
+  var o=a.createOscillator(),g=a.createGain(); o.type='triangle'; o.frequency.setValueAtTime(420,t); o.frequency.exponentialRampToValueAtTime(70,t+0.18);
+  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.3,t+0.01); g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+  o.connect(g);g.connect(a.destination); o.start(t);o.stop(t+0.24);
+  // bright CRUNCH
+  var ns=noise(a,0.16,1.6), bp=a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(2600,t); bp.frequency.exponentialRampToValueAtTime(700,t+0.16); bp.Q.value=0.7;
+  var ng=a.createGain(); ng.gain.setValueAtTime(0.5,t); ng.gain.exponentialRampToValueAtTime(0.001,t+0.16);
+  ns.connect(bp);bp.connect(ng);ng.connect(a.destination); ns.start(t);ns.stop(t+0.16);
+  // squish sub-thump
+  var s=a.createOscillator(),sg=a.createGain(); s.type='sine'; s.frequency.setValueAtTime(150,t); s.frequency.exponentialRampToValueAtTime(45,t+0.2);
+  sg.gain.setValueAtTime(0.0001,t); sg.gain.linearRampToValueAtTime(0.26,t+0.02); sg.gain.exponentialRampToValueAtTime(0.001,t+0.25);
+  s.connect(sg);sg.connect(a.destination); s.start(t);s.stop(t+0.26); }
+function sndCrush(){ if(muted)return; var a=actx(); if(!a)return; var t=a.currentTime;
+  var o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.setValueAtTime(120,t); o.frequency.exponentialRampToValueAtTime(34,t+0.25);
+  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.4,t+0.01); g.gain.exponentialRampToValueAtTime(0.001,t+0.3);
+  o.connect(g);g.connect(a.destination); o.start(t);o.stop(t+0.32);
+  var ns=noise(a,0.22,1.2), lp=a.createBiquadFilter(); lp.type='lowpass'; lp.frequency.setValueAtTime(1200,t); lp.frequency.exponentialRampToValueAtTime(300,t+0.22);
+  var ng=a.createGain(); ng.gain.setValueAtTime(0.4,t); ng.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+  ns.connect(lp);lp.connect(ng);ng.connect(a.destination); ns.start(t);ns.stop(t+0.22); }
+function sndDig(now){ if(muted)return; var a=actx(); if(!a)return; if(now-lastDig<70)return; lastDig=now; var t=a.currentTime;
+  var ns=noise(a,0.06,1), bp=a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=380+Math.random()*220; bp.Q.value=1.5;
+  var g=a.createGain(); g.gain.setValueAtTime(0.05,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.06);
+  ns.connect(bp);bp.connect(g);g.connect(a.destination); ns.start(t);ns.stop(t+0.06); }
+function sndDie(){ if(muted)return; var a=actx(); if(!a)return; var t=a.currentTime;
+  var o=a.createOscillator(),g=a.createGain(); o.type='sawtooth'; o.frequency.setValueAtTime(440,t); o.frequency.exponentialRampToValueAtTime(55,t+0.5);
+  g.gain.setValueAtTime(0.22,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.55); o.connect(g);g.connect(a.destination); o.start(t);o.stop(t+0.56); }
+
+// --- POP PARTICLES (visual squish) ---
+function spawnPop(gx,gy,type){
+  var col=type==='pooka'?'#ff5555':'#55ff66', cx=(gx+0.5)*TILE, cy=(gy+0.5)*TILE;
+  for(var i=0;i<12;i++){ var ang=Math.random()*Math.PI*2, spd=24+Math.random()*64;
+    parts.push({x:cx,y:cy,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd-22,life:0.55+Math.random()*0.3,max:0.85,col:Math.random()<0.5?col:'#fff',sz:1+Math.random()*2}); }
+}
+function updateParts(dt){ for(var i=parts.length-1;i>=0;i--){ var p=parts[i]; p.life-=dt; if(p.life<=0){parts.splice(i,1);continue;} p.vy+=180*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; } }
+function drawParts(){ for(var i=0;i<parts.length;i++){ var p=parts[i]; X.globalAlpha=Math.max(0,p.life/p.max); X.fillStyle=p.col; X.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz); } X.globalAlpha=1; }
 
 function initLevel(){
   // Build grid: 0=empty, 1=dirt, 2=tunnel
@@ -113,6 +162,8 @@ function initLevel(){
 
   // Pump state
   pump={active:false,x:0,y:0,dir:0,len:0,timer:0,target:null};
+
+  parts=[];
 }
 
 function dig(x,y){
@@ -129,6 +180,8 @@ function init(){
 // --- INPUT ---
 document.addEventListener('keydown',function(e){
   keys[e.key.toLowerCase()]=true;
+  unlockAudio();
+  if(e.key.toLowerCase()==='m'){ muted=!muted; return; }
   if(state==='title'){init();msgEl.style.opacity='0';state='play';}
   if(state==='dead'){init();msgEl.style.opacity='0';state='play';}
   if(e.key===' ') e.preventDefault();
@@ -139,7 +192,7 @@ document.addEventListener('keyup',function(e){keys[e.key.toLowerCase()]=false;})
 var mDir={x:0,y:0},mPump=false;
 function mBtn(id,dx,dy){
   document.getElementById(id).addEventListener('touchstart',function(e){
-    e.preventDefault();e.stopPropagation();
+    e.preventDefault();e.stopPropagation();unlockAudio();
     if(state==='title'){init();msgEl.style.opacity='0';state='play';}
     if(state==='dead'){init();msgEl.style.opacity='0';state='play';}
     mDir.x=dx;mDir.y=dy;
@@ -151,6 +204,7 @@ function mBtn(id,dx,dy){
 mBtn('bu',0,-1);mBtn('bd',0,1);mBtn('bl',-1,0);mBtn('br',1,0);
 document.getElementById('ba').addEventListener('touchstart',function(e){
   e.preventDefault();
+  unlockAudio();
   if(state==='title'){init();msgEl.style.opacity='0';state='play';return;}
   mPump=true;
 },{passive:false});
@@ -182,9 +236,11 @@ function update(dt,now){
           if(rocks[ri].x===nx&&rocks[ri].y===ny&&!rocks[ri].crushed) blocked=true;
         }
         if(!blocked){
+          var wasDirt=ny>=SKY_ROWS&&grid[ny][nx]===1;
           player.x=nx;player.y=ny;
           if(ny>=SKY_ROWS) dig(nx,ny);
           player.digAnim=0.15;
+          if(wasDirt) sndDig(now);
         }
       }
     }
@@ -218,8 +274,11 @@ function update(dt,now){
           if(e.inflate>=1){
             // POP!
             e.alive=false;e.popTimer=0.5;
+            sndPop();spawnPop(e.x,e.y,e.type);
             var pts=(e.y-SKY_ROWS+1)*100;
             score+=pts;scoreEl.textContent=score;
+          } else {
+            sndPump(e.inflate);
           }
           break;
         }
@@ -336,6 +395,7 @@ function update(dt,now){
         for(var ei=0;ei<enemies.length;ei++){
           if(enemies[ei].alive&&enemies[ei].x===r.x&&enemies[ei].y===ny2){
             enemies[ei].alive=false;enemies[ei].popTimer=0.4;
+            sndCrush();spawnPop(enemies[ei].x,enemies[ei].y,enemies[ei].type);
             score+=500;scoreEl.textContent=score;
           }
         }
@@ -360,6 +420,9 @@ function update(dt,now){
     }
   }
 
+  // Squish particles
+  updateParts(dt);
+
   // Check level clear
   var aliveEnemies=0;
   for(var i=0;i<enemies.length;i++) if(enemies[i].alive) aliveEnemies++;
@@ -371,6 +434,7 @@ function update(dt,now){
 
 function playerDie(){
   if(!player.alive) return;
+  sndDie();
   player.alive=false;
   lives--;livesEl.textContent=lives;
   if(lives<=0){
@@ -507,6 +571,9 @@ function draw(now){
 
     X.restore();
   }
+
+  // Squish particles
+  drawParts();
 
   // Player
   if(player.alive){
