@@ -63,6 +63,9 @@
 
   .howto{ font-size:.66rem; color:var(--dim); margin:.2rem 0 .9rem; line-height:1.7; }
   .howto code{ color:var(--lime); background:rgba(182,242,58,.08); padding:.05rem .35rem; border-radius:4px; }
+  .irclog{ background:#070610; border:1px solid var(--line); border-radius:10px; padding:.5rem .6rem; margin:0 0 1rem;
+    font-family:'JetBrains Mono',monospace; font-size:.62rem; line-height:1.55; color:#8fa0c8; white-space:pre-wrap;
+    word-break:break-word; max-height:12rem; overflow-y:auto; }
 
   /* submit */
   .submit{ display:flex; gap:.5rem; margin-bottom:1rem; }
@@ -147,7 +150,9 @@
       <span class="pill">💡 <span id="cIdeas">0</span></span>
       <span class="pill">🗳️ <span id="cVotes">0</span></span>
     </span>
+    <button class="btn" id="logToggle" type="button" aria-expanded="false" aria-controls="ircLog">🔌 log</button>
   </div>
+  <pre class="irclog" id="ircLog" hidden aria-label="Twitch connection log" role="log"></pre>
   <p class="howto">
     In Twitch chat: <code>!idea make a snake game</code> to submit · <code>!vote 2</code> to back idea #2.
     Or add &amp; upvote right here. Top idea rises to the spotlight; the build log tracks what ships.
@@ -342,33 +347,60 @@
     netDot.className='dot'+(state==='live'?' on':state==='off'?' off':'');
     netTxt.textContent = state==='live'?('live · #'+channel) : state==='connecting'?'connecting…' : state==='off'?'disconnected':'offline';
   }
+  // ---- connection log (so server responses aren't swallowed) ----
+  var nick='', ircLines=[], logVisible=false, joined=false;
+  function renderLog(){ var el=document.getElementById('ircLog'); if(el){ el.textContent=ircLines.join('\n')||'(no traffic yet)'; el.scrollTop=el.scrollHeight; } }
+  function ircLog(text, dir){
+    var d=new Date(), p=function(n){return('0'+n).slice(-2);};
+    ircLines.push((dir||'·')+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())+'  '+text);
+    if(ircLines.length>120) ircLines.shift();
+    try{ console.debug('[bdb-irc]', dir||'·', text); }catch(e){}
+    if(logVisible) renderLog();
+  }
+  function sendIrc(line, mask){ try{ ws.send(line); }catch(e){} ircLog(mask?line.replace(/^PASS .*/,'PASS ****'):line,'»'); }
+
   function connect(){
     var c=clean(chanInput.value).toLowerCase().replace(/[^a-z0-9_]/g,''); if(!c){ toast('Enter a channel'); return; }
     channel=c; localStorage.setItem('bdb-chan',c); chanInput.value=c;
-    load(); render(); disconnect(); setNet('connecting'); openRealtime();
+    load(); render(); disconnect(); setNet('connecting'); joined=false; openRealtime();
+    ircLog('connecting to #'+channel+' …','i');
     try{
       ws=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-      ws.onopen=function(){ ws.send('CAP REQ :twitch.tv/tags'); ws.send('PASS SCHMOOPIIE');
-        ws.send('NICK justinfan'+Math.floor(Math.random()*99999)); ws.send('JOIN #'+channel); setNet('live'); };
+      ws.onopen=function(){
+        nick='justinfan'+Math.floor(Math.random()*99999);
+        sendIrc('CAP REQ :twitch.tv/tags'); sendIrc('PASS SCHMOOPIIE', true);
+        sendIrc('NICK '+nick); sendIrc('JOIN #'+channel);
+        ircLog('socket open → handshake sent; awaiting 001 / JOIN','i');
+        // status stays "connecting" until the SERVER confirms (001 or JOIN)
+      };
       ws.onmessage=function(ev){ ev.data.split('\r\n').forEach(handleIrc); };
-      ws.onclose=function(){ setNet('off'); scheduleReconnect(); };
-      ws.onerror=function(){ setNet('off'); };
-    }catch(e){ setNet('off'); }
+      ws.onclose=function(){ joined=false; setNet('off'); ircLog('socket closed','i'); scheduleReconnect(); };
+      ws.onerror=function(){ setNet('off'); ircLog('socket error','i'); };
+    }catch(e){ setNet('off'); ircLog('failed to open socket: '+e.message,'i'); }
   }
   function disconnect(){ if(ws){ try{ws.close();}catch(e){} ws=null; } clearTimeout(reconnectT); }
   function scheduleReconnect(){ clearTimeout(reconnectT); reconnectT=setTimeout(function(){ if(channel) connect(); },4000); }
 
   function handleIrc(line){
     if(!line) return;
-    if(line.indexOf('PING')===0){ if(ws) ws.send('PONG '+line.slice(5)); return; }
+    ircLog(line,'«');
+    if(line.indexOf('PING')===0){ if(ws){ ws.send('PONG '+line.slice(5)); ircLog('PONG '+line.slice(5),'»'); } return; }
     var tags={};
     if(line[0]==='@'){ var sp=line.indexOf(' '); line.slice(1,sp).split(';').forEach(function(kv){ var i=kv.indexOf('='); tags[kv.slice(0,i)]=kv.slice(i+1); }); line=line.slice(sp+1); }
-    var m=line.match(/^:([^!]+)![^ ]+ PRIVMSG #[^ ]+ :(.*)$/); if(!m) return;
-    var user=tags['display-name']||m[1], msgId=tags['id']||('tw-'+now()+'-'+Math.random().toString(36).slice(2,6)), text=m[2].trim();
-    var cmd=text.match(/^!(idea|build|prompt|suggest)\s+(.+)$/i);
-    if(cmd){ upsertPrompt({ id:'tw-'+msgId, text:cmd[2], author:user, source:'twitch', ts:now() }, false); return; }
-    var vm=text.match(/^!vote\s+#?(\d+)$/i);
-    if(vm){ var idx=parseInt(vm[1],10)-1; var q=sortedQueue(); if(q[idx]) addVote(q[idx].id,'tw:'+user.toLowerCase(), false); return; }
+    var m=line.match(/^:([^!]+)![^ ]+ PRIVMSG #[^ ]+ :(.*)$/);
+    if(m){
+      var user=tags['display-name']||m[1], msgId=tags['id']||('tw-'+now()+'-'+Math.random().toString(36).slice(2,6)), text=m[2].trim();
+      var cmd=text.match(/^!(idea|build|prompt|suggest)\s+(.+)$/i);
+      if(cmd){ upsertPrompt({ id:'tw-'+msgId, text:cmd[2], author:user, source:'twitch', ts:now() }, false); return; }
+      var vm=text.match(/^!vote\s+#?(\d+)$/i);
+      if(vm){ var idx=parseInt(vm[1],10)-1; var q=sortedQueue(); if(q[idx]) addVote(q[idx].id,'tw:'+user.toLowerCase(), false); }
+      return;
+    }
+    // non-PRIVMSG → real handshake confirmation / errors (no longer swallowed)
+    if(line.indexOf(' 001 ')>=0){ setNet('live'); ircLog('✓ authenticated — 001 welcome','i'); }
+    else if(line.indexOf(' CAP ')>=0 && line.indexOf('ACK')>=0){ ircLog('✓ CAP ACK (tags enabled)','i'); }
+    else if(line.indexOf(' JOIN ')>=0){ if(!joined){ joined=true; setNet('live'); ircLog('✓ JOIN confirmed for #'+channel,'i'); toast('Joined #'+channel); } }
+    else if(line.indexOf(' NOTICE ')>=0){ var nm=line.split(' :').slice(1).join(' :')||line; netTxt.textContent='notice'; ircLog('⚠ NOTICE: '+nm,'i'); toast('Twitch: '+nm.slice(0,60)); }
   }
 
   // ---------- Supabase Realtime broadcast (optional, app-origin sync) ----------
@@ -397,6 +429,11 @@
   // ---------- wire ----------
   connectBtn.addEventListener('click', connect);
   chanInput.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); connect(); } });
+  $('logToggle').addEventListener('click', function(){
+    logVisible=!logVisible; var el=$('ircLog'); el.hidden=!logVisible;
+    this.setAttribute('aria-expanded', logVisible?'true':'false'); this.textContent=logVisible?'🔌 hide log':'🔌 log';
+    if(logVisible) renderLog();
+  });
 
   // boot: restore any local state for last channel; auto-connect if we have one
   load(); render();
