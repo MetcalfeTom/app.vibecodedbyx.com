@@ -11,6 +11,8 @@
   - **Aesthetic**: retro TV broadcast eyecatch — deep-blue radial bluescreen + scanlines, silhouette in a spotlight vignette, chunky Lilita One title with navy stroke + yellow drop (homage, NOT the official logo), Space Mono HUD. Yellow/blue palette.
   - Verified: inline script syntax OK; DEX=151; no stray invalid colors.
 
+- 2026-06-27 (chat ask): **swapped 4-option multiple-choice → typed text input with fuzzy matching**. Removed the options grid + 1–4 key handler + distractor/shuffle logic. New `#guessForm` (text input + Guess button); submit on Enter. `fuzzyMatch(typed,answer)` = `normalize` (lowercase, ♀→f/♂→m, strip accents via NFD, drop all non-alphanumerics so "Mr. Mime"/"Farfetch'd"/"Nidoran♀" work) + Levenshtein distance with tolerance (1 for ≤6 chars, else 2) + a gender-stripped base accept ("nidoran" matches either Nidoran). **Wrong guess no longer ends the run** — input shakes red, clock keeps draining, retry until correct or timeout (timer is now the sole fail condition). Correct via fuzzy uses the same speed+streak scoring. Input auto-focuses each round; disabled during load/reveal/gameover. Verified: 12/12 fuzzy unit tests (typos, punctuation, gender symbols, no false positives on Raichu/Mewtwo/Gastly), no orphaned option refs, syntax clean.
+
 ## issues
 - Depends on raw.githubusercontent.com/PokeAPI being reachable at runtime. If a sprite 404s, the svg→png fallback covers it; if BOTH fail the round still shows a broken img (rare). Could add a skip-on-double-fail later.
 - dream-world SVGs don't exist for every Gen-1 id; those silently fall back to official-artwork PNG (still a clean black silhouette via the filter).
