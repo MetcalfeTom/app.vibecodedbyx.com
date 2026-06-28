@@ -295,6 +295,16 @@
     .midi-play:hover { background: rgba(128,128,128,0.15); }
     .midi-play:disabled { opacity: 0.4; cursor: default; }
     .midi-play:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+    .midi-viz { flex: 0 0 auto; width: 60px; height: 22px; border-radius: 4px; background: rgba(128,128,128,0.12); }
+    .midi-map-tools { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; }
+    .midi-map-tools[hidden] { display: none; }
+    .midi-map { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
+    .midi-chip { display: inline-flex; flex-direction: column; align-items: center; padding: 0.2rem 0.4rem; border: 1px solid rgba(128,128,128,0.3); border-radius: 6px; font-size: 0.82rem; line-height: 1.15; }
+    .midi-chip em { font-style: normal; font-size: 0.6rem; color: var(--amber); margin-top: 1px; }
+    .midi-chip em.rest { color: var(--ink-dim); }
+    .midi-chip.on { background: var(--amber); color: var(--bg); }
+    .midi-chip.on em { color: var(--bg); }
+    .midi-map-msg { font-size: 0.78rem; color: var(--ink-dim); }
     .ov-empty { font-family: 'Fraunces', serif; font-style: italic; color: var(--ink-dim); font-size: 0.85rem; opacity: 0.7; }
     .ov-chip {
       display: inline-flex; align-items: center; gap: 0.4rem;
@@ -406,6 +416,11 @@
         </label>
         <p class="midi-status" id="midi-status" role="status" aria-live="polite"></p>
         <div class="midi-list" id="midi-list"></div>
+        <div class="midi-map-tools" id="midi-map-tools" hidden>
+          <button type="button" class="btn" id="midi-map-btn">🎵 map pitches → lyrics</button>
+          <button type="button" class="btn" id="midi-sing-btn" disabled>▶ sing</button>
+        </div>
+        <div class="midi-map" id="midi-map" aria-live="polite"></div>
       </div>
     </section>
   </main>
@@ -929,23 +944,57 @@ i never knew you were the someone waiting for me`;
       var mCount = document.getElementById('midi-count');
       var mToggle= document.getElementById('midi-toggle');
       var mBody  = document.getElementById('midi-body');
+      var mMapTools = document.getElementById('midi-map-tools');
+      var mMapBtn   = document.getElementById('midi-map-btn');
+      var mSing     = document.getElementById('midi-sing-btn');
+      var mMap      = document.getElementById('midi-map');
       if (!mInput) return;
 
       // Web Audio melody preview state
       var FILE = null, actx = null, playingBtn = null, activeNodes = [], stopTimer = null;
+      var master = null, analyser = null, vizData = null, vizRAF = null, activeViz = null;
+      var mapping = null, singNodes = [], singTimers = [], singing = false;
       var PREVIEW_NOTES = 15;   // play the first N notes of a track
-      function audio(){ if (!actx){ try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){} } return actx; }
+      var NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+      function noteName(p){ return NOTE_NAMES[((p%12)+12)%12] + (Math.floor(p/12)-1); }
+      function audio(){
+        if (!actx){
+          try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){ return null; }
+          master = actx.createGain(); analyser = actx.createAnalyser(); analyser.fftSize = 256;
+          master.connect(analyser); analyser.connect(actx.destination);
+        }
+        return actx;
+      }
+      function drawViz(){
+        if (!activeViz || !analyser) return;
+        vizRAF = requestAnimationFrame(drawViz);
+        var c = activeViz, cx = c.getContext('2d'), W = c.width, H = c.height;
+        var n = analyser.frequencyBinCount;
+        if (!vizData || vizData.length !== n) vizData = new Uint8Array(n);
+        analyser.getByteFrequencyData(vizData);
+        cx.clearRect(0,0,W,H);
+        var bins = Math.min(n, 40), bw = W / bins;
+        for (var i=0;i<bins;i++){
+          var v = vizData[i] / 255, bh = Math.max(1, v*H);
+          cx.fillStyle = 'hsl(' + (38 + v*16) + ',72%,' + (42 + v*22) + '%)';
+          cx.fillRect(i*bw, H-bh, Math.max(1, bw-1), bh);
+        }
+      }
       function stopPreview(){
         if (stopTimer){ clearTimeout(stopTimer); stopTimer = null; }
+        if (vizRAF){ cancelAnimationFrame(vizRAF); vizRAF = null; }
         activeNodes.forEach(function(n){ try { n.stop(); } catch(e){} }); activeNodes = [];
+        if (activeViz){ var vcx = activeViz.getContext('2d'); if (vcx) vcx.clearRect(0,0,activeViz.width,activeViz.height); activeViz = null; }
         if (playingBtn){ playingBtn.textContent = '▶'; playingBtn = null; }
       }
-      function playTrack(tr, btn){
+      function playTrack(tr, btn, viz){
         var a = audio(); if (!a) return;
         if (a.state === 'suspended') a.resume();
         stopPreview();
         if (!tr.notes.length || !FILE) return;
         playingBtn = btn; btn.textContent = '⏹';
+        activeViz = viz || null;
+        if (activeViz && analyser){ cancelAnimationFrame(vizRAF); drawViz(); }
         var ppq = (FILE.division > 0) ? FILE.division : 96;
         var secPerTick = (FILE.tempo / 1e6) / ppq;
         if (!isFinite(secPerTick) || secPerTick <= 0) secPerTick = 0.5 / 96;
@@ -960,7 +1009,7 @@ i never knew you were the someone waiting for me`;
           g.gain.setValueAtTime(0.0001, st);
           g.gain.linearRampToValueAtTime(0.17, st + 0.012);
           g.gain.exponentialRampToValueAtTime(0.0006, en);
-          o.connect(g); g.connect(a.destination); o.start(st); o.stop(en + 0.03);
+          o.connect(g); g.connect(master || a.destination); o.start(st); o.stop(en + 0.03);
           activeNodes.push(o); if (en > last) last = en;
         });
         stopTimer = setTimeout(function(){ if (playingBtn === btn) stopPreview(); }, (last - a.currentTime) * 1000 + 120);
@@ -1024,13 +1073,75 @@ i never knew you were the someone waiting for me`;
       function updateSummary(){
         var picked = [].slice.call(mList.querySelectorAll('input:checked'))
           .map(function(c){ return c.parentNode.querySelector('b').textContent; });
-        mStat.textContent = picked.length ? ('🎤 vocal track: ' + picked.join(', '))
-          : (mList.children.length + ' tracks — tick the vocal one');
+        mStat.textContent = picked.length ? ('🎤 selected: ' + picked.join(' + '))
+          : (mList.children.length + ' tracks — tick the vocal one(s)');
         mCount.textContent = picked.length ? ('('+picked.length+')') : '';
+        if (mMapTools){
+          if (picked.length) mMapTools.removeAttribute('hidden');
+          else { mMapTools.setAttribute('hidden',''); if (mMap) mMap.innerHTML=''; mapping=null; stopSing(); }
+        }
+      }
+      function mergeSelectedNotes(){
+        if (!FILE) return [];
+        var idxs = [].slice.call(mList.querySelectorAll('input:checked')).map(function(c){ return +c.dataset.idx; });
+        var notes = [];
+        FILE.tracks.forEach(function(tr){ if (idxs.indexOf(tr.index) >= 0) notes = notes.concat(tr.notes); });
+        notes.sort(function(a,b){ return a.start - b.start || a.pitch - b.pitch; });
+        return notes;
+      }
+      function outputWords(){
+        var txt = (typeof output !== 'undefined' && output && output.textContent) || '';
+        if (!txt || txt.indexOf('appears here') !== -1) return [];
+        return txt.replace(/‿/g,'').split(/\s+/).filter(Boolean);
+      }
+      function mapToLyrics(){
+        stopSing();
+        var notes = mergeSelectedNotes(), words = outputWords();
+        mMap.innerHTML = '';
+        if (!notes.length){ mMap.innerHTML = '<span class="midi-map-msg">tick at least one track that has notes.</span>'; mapping = null; mSing.disabled = true; return; }
+        if (!words.length){ mMap.innerHTML = '<span class="midi-map-msg">mumblefy some lyrics first, then map.</span>'; mapping = null; mSing.disabled = true; return; }
+        mapping = [];
+        words.forEach(function(w, i){
+          var note = i < notes.length ? notes[i] : null;
+          mapping.push({ word: w, pitch: note ? note.pitch : null });
+          var chip = document.createElement('span'); chip.className = 'midi-chip'; chip.dataset.i = i;
+          chip.innerHTML = esc(w) + (note ? '<em>'+noteName(note.pitch)+'</em>' : '<em class="rest">·</em>');
+          mMap.appendChild(chip);
+        });
+        mSing.disabled = !mapping.some(function(m){ return m.pitch != null; });
+      }
+      function highlightChip(i){
+        var chips = mMap.querySelectorAll('.midi-chip');
+        for (var k=0;k<chips.length;k++) chips[k].classList.toggle('on', k===i);
+      }
+      function stopSing(){
+        singing = false;
+        singTimers.forEach(clearTimeout); singTimers = [];
+        singNodes.forEach(function(n){ try{ n.stop(); }catch(e){} }); singNodes = [];
+        if (mMap){ var on = mMap.querySelectorAll('.midi-chip.on'); for (var k=0;k<on.length;k++) on[k].classList.remove('on'); }
+        if (mSing) mSing.textContent = '▶ sing';
+      }
+      function sing(){
+        if (!mapping) return;
+        var a = audio(); if (!a) return; if (a.state==='suspended') a.resume();
+        stopPreview(); stopSing(); singing = true; mSing.textContent = '⏹ stop';
+        var step = 0.34, now = a.currentTime + 0.06;
+        mapping.forEach(function(m, i){
+          var st = now + i*step;
+          if (m.pitch != null){
+            var o = a.createOscillator(), g = a.createGain();
+            o.type = 'triangle'; o.frequency.value = 440*Math.pow(2,(m.pitch-69)/12);
+            g.gain.setValueAtTime(0.0001, st); g.gain.linearRampToValueAtTime(0.16, st+0.012); g.gain.exponentialRampToValueAtTime(0.0006, st+step*0.92);
+            o.connect(g); g.connect(master || a.destination); o.start(st); o.stop(st+step);
+            singNodes.push(o);
+          }
+          singTimers.push(setTimeout(function(){ highlightChip(i); }, Math.max(0,(st - a.currentTime)*1000)));
+        });
+        singTimers.push(setTimeout(stopSing, mapping.length*step*1000 + 200));
       }
       var rowSeq = 0;
       function render(data){
-        stopPreview(); mList.innerHTML='';
+        stopPreview(); stopSing(); if (mMap) mMap.innerHTML=''; mapping=null; mList.innerHTML='';
         data.tracks.forEach(function(tr){
           var id = 'mtk-' + (rowSeq++);
           var row = document.createElement('div'); row.className='midi-row';
@@ -1039,11 +1150,12 @@ i never knew you were the someone waiting for me`;
           var play = document.createElement('button'); play.type='button'; play.className='midi-play';
           play.textContent = '▶'; play.setAttribute('aria-label', 'preview ' + tr.name + ' melody');
           if (!tr.notes.length){ play.disabled = true; play.title = 'no notes to preview'; }
-          play.addEventListener('click', function(){ if (playingBtn === play) stopPreview(); else playTrack(tr, play); });
+          var viz = document.createElement('canvas'); viz.className='midi-viz'; viz.width=120; viz.height=44; viz.setAttribute('aria-hidden','true');
+          play.addEventListener('click', function(){ if (playingBtn === play) stopPreview(); else playTrack(tr, play, viz); });
           var meta = document.createElement('label'); meta.className='midi-meta'; meta.setAttribute('for', id);
           var chTxt = tr.channels.length ? (' · ch ' + tr.channels.join(',')) : '';
           meta.innerHTML = '<b>'+esc(tr.name)+'</b><small>'+tr.noteCount+' notes'+chTxt+'</small>';
-          row.appendChild(cb); row.appendChild(play); row.appendChild(meta); mList.appendChild(row);
+          row.appendChild(cb); row.appendChild(play); row.appendChild(viz); row.appendChild(meta); mList.appendChild(row);
         });
         updateSummary();
       }
@@ -1062,6 +1174,9 @@ i never knew you were the someone waiting for me`;
         fr.onerror = function(){ mStat.textContent = '⚠ failed to read file'; };
         fr.readAsArrayBuffer(f);
       });
+
+      mMapBtn.addEventListener('click', mapToLyrics);
+      mSing.addEventListener('click', function(){ if (singing) stopSing(); else sing(); });
     })();
 
     // Boot
