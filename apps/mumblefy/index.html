@@ -306,6 +306,9 @@
     .midi-chip.on em { color: var(--bg); }
     .midi-map-msg { font-size: 0.78rem; color: var(--ink-dim); }
     .midi-syl { font-size: 0.78rem; color: var(--ink-dim); display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+    .midi-chip { cursor: pointer; }
+    .midi-chip.sel { outline: 2px solid var(--amber); outline-offset: 1px; }
+    .midi-chip.loop { opacity: 0.78; }
     .ov-empty { font-family: 'Fraunces', serif; font-style: italic; color: var(--ink-dim); font-size: 0.85rem; opacity: 0.7; }
     .ov-chip {
       display: inline-flex; align-items: center; gap: 0.4rem;
@@ -420,6 +423,7 @@
         <div class="midi-map-tools" id="midi-map-tools" hidden>
           <button type="button" class="btn" id="midi-map-btn">🎵 map pitches → lyrics</button>
           <button type="button" class="btn" id="midi-sing-btn" disabled>▶ sing</button>
+          <button type="button" class="btn" id="midi-restart-btn" disabled title="restart from the selected syllable">⟲ from ◆</button>
           <label class="midi-syl"><input type="checkbox" id="midi-syl"> auto-split syllables</label>
         </div>
         <div class="midi-map" id="midi-map" aria-live="polite"></div>
@@ -951,12 +955,14 @@ i never knew you were the someone waiting for me`;
       var mSing     = document.getElementById('midi-sing-btn');
       var mMap      = document.getElementById('midi-map');
       var mSyl      = document.getElementById('midi-syl');
+      var mRestart  = document.getElementById('midi-restart-btn');
       if (!mInput) return;
 
       // Web Audio melody preview state
       var FILE = null, actx = null, playingBtn = null, activeNodes = [], stopTimer = null;
       var master = null, analyser = null, vizData = null, vizRAF = null, activeViz = null;
-      var mapping = null, singNodes = [], singTimers = [], singing = false;
+      var mapping = null, singNodes = [], selIndex = 0;
+      var playState = 'stopped', seq = [], seqTotal = 0, playStart = 0, hlRAF = null;
       var PREVIEW_NOTES = 15;   // play the first N notes of a track
       var NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
       function noteName(p){ return NOTE_NAMES[((p%12)+12)%12] + (Math.floor(p/12)-1); }
@@ -1141,54 +1147,96 @@ i never knew you were the someone waiting for me`;
         mMap.innerHTML = '';
         if (!notes.length){ mMap.innerHTML = '<span class="midi-map-msg">tick at least one track that has notes.</span>'; mapping = null; mSing.disabled = true; return; }
         if (!words.length){ mMap.innerHTML = '<span class="midi-map-msg">mumblefy some lyrics first, then map.</span>'; mapping = null; mSing.disabled = true; return; }
+        // ONE-TO-ONE, ZERO SKIPS: every syllable gets exactly one chip + one pitch.
+        // The first notes.length syllables take the real notes; any extra syllables
+        // loop the melody at a steady cadence after the last note (never silent).
+        var avgDur = 0; notes.forEach(function(n){ avgDur += n.dur; });
+        avgDur = Math.max(1, Math.round(avgDur / notes.length));
+        var lastEnd = notes[notes.length-1].start + notes[notes.length-1].dur;
         mapping = [];
         words.forEach(function(w, i){
-          var note = i < notes.length ? notes[i] : null;
-          mapping.push({ word: w, pitch: note ? note.pitch : null, start: note ? note.start : null, dur: note ? note.dur : null });
-          var chip = document.createElement('span'); chip.className = 'midi-chip'; chip.dataset.i = i;
-          chip.innerHTML = esc(w) + (note ? '<em>'+noteName(note.pitch)+'</em>' : '<em class="rest">·</em>');
+          var pitch, start, dur, looped = false;
+          if (i < notes.length){ var n = notes[i]; pitch = n.pitch; start = n.start; dur = n.dur; }
+          else { var src = notes[i % notes.length]; pitch = src.pitch; start = lastEnd + (i - notes.length) * avgDur; dur = avgDur; looped = true; }
+          mapping.push({ word: w, pitch: pitch, start: start, dur: dur });
+          var chip = document.createElement('span');
+          chip.className = 'midi-chip' + (looped ? ' loop' : '');
+          chip.dataset.i = i;
+          chip.innerHTML = esc(w) + '<em>'+noteName(pitch)+'</em>';
+          (function(idx){ chip.addEventListener('click', function(){ selectChip(idx); }); })(i);
           mMap.appendChild(chip);
         });
-        mSing.disabled = !mapping.some(function(m){ return m.pitch != null; });
+        selIndex = 0; markSelected();
+        mSing.disabled = mapping.length === 0;
+        if (mRestart) mRestart.disabled = mapping.length === 0;
       }
       function highlightChip(i){
         var chips = mMap.querySelectorAll('.midi-chip');
         for (var k=0;k<chips.length;k++) chips[k].classList.toggle('on', k===i);
       }
-      function stopSing(){
-        singing = false;
-        singTimers.forEach(clearTimeout); singTimers = [];
-        singNodes.forEach(function(n){ try{ n.stop(); }catch(e){} }); singNodes = [];
-        if (mMap){ var on = mMap.querySelectorAll('.midi-chip.on'); for (var k=0;k<on.length;k++) on[k].classList.remove('on'); }
-        if (mSing) mSing.textContent = '▶ sing';
+      function markSelected(){
+        var chips = mMap.querySelectorAll('.midi-chip');
+        for (var k=0;k<chips.length;k++) chips[k].classList.toggle('sel', k===selIndex);
       }
-      function sing(){
-        if (!mapping || !FILE) return;
-        var a = audio(); if (!a) return; if (a.state==='suspended') a.resume();
-        stopPreview(); stopSing(); singing = true; mSing.textContent = '⏹ stop';
-        // real rhythm: convert each note's parsed ticks → seconds via tempo/division
-        var ppq = (FILE.division > 0) ? FILE.division : 96;
-        var secPerTick = (FILE.tempo / 1e6) / ppq;
-        if (!isFinite(secPerTick) || secPerTick <= 0) secPerTick = 0.5 / 96;
-        // anchor on the first mapped note's start so playback begins immediately
-        var t0 = null;
-        for (var j=0;j<mapping.length;j++){ if (mapping[j].pitch != null && mapping[j].start != null){ t0 = mapping[j].start; break; } }
-        if (t0 == null) t0 = 0;
-        var now = a.currentTime + 0.06, last = now;
-        mapping.forEach(function(m, i){
-          if (m.pitch == null || m.start == null) return;           // trailing rests: no audio/highlight
-          var st = now + (m.start - t0) * secPerTick;
-          var dur = Math.min(Math.max((m.dur || 1) * secPerTick, 0.08), 2.0);
-          var en = st + dur;
+      function selectChip(i){ selIndex = i; markSelected(); }
+      function setPlayBtn(){
+        if (mSing) mSing.textContent = (playState==='playing') ? '⏸ pause' : (playState==='paused' ? '▶ resume' : '▶ sing');
+      }
+      // build the playback sequence (seconds) from `mapping`, starting at fromIndex
+      function buildSeq(fromIndex){
+        seq = []; seqTotal = 0;
+        if (!mapping || !mapping.length || !FILE) return;
+        var ppq = (FILE.division>0) ? FILE.division : 96;
+        var secPerTick = (FILE.tempo/1e6)/ppq; if (!isFinite(secPerTick)||secPerTick<=0) secPerTick = 0.5/96;
+        var from = Math.max(0, Math.min(fromIndex||0, mapping.length-1));
+        var t0 = mapping[from].start;
+        for (var i=from;i<mapping.length;i++){
+          var m = mapping[i];
+          var t = (m.start - t0) * secPerTick;
+          var d = Math.min(Math.max(m.dur * secPerTick, 0.08), 2.0);
+          seq.push({ t:t, dur:d, pitch:m.pitch, chip:i });
+          if (t + d > seqTotal) seqTotal = t + d;
+        }
+      }
+      function scheduleSeq(){
+        var a = actx; playStart = a.currentTime + 0.08;
+        seq.forEach(function(s){
+          var st = playStart + s.t, en = st + s.dur;
           var o = a.createOscillator(), g = a.createGain();
-          o.type = 'triangle'; o.frequency.value = 440*Math.pow(2,(m.pitch-69)/12);
+          o.type='triangle'; o.frequency.value = 440*Math.pow(2,(s.pitch-69)/12);
           g.gain.setValueAtTime(0.0001, st); g.gain.linearRampToValueAtTime(0.16, st+0.012); g.gain.exponentialRampToValueAtTime(0.0006, en);
-          o.connect(g); g.connect(master || a.destination); o.start(st); o.stop(en + 0.03);
+          o.connect(g); g.connect(master || a.destination); o.start(st); o.stop(en+0.03);
           singNodes.push(o);
-          singTimers.push(setTimeout(function(){ highlightChip(i); }, Math.max(0,(st - a.currentTime)*1000)));
-          if (en > last) last = en;
         });
-        singTimers.push(setTimeout(stopSing, (last - a.currentTime) * 1000 + 200));
+      }
+      function hlLoop(){
+        if (playState !== 'playing' || !actx) return;
+        hlRAF = requestAnimationFrame(hlLoop);
+        var elapsed = actx.currentTime - playStart;
+        if (elapsed >= seqTotal + 0.2){ stopSing(); return; }
+        var cur = -1;
+        for (var i=0;i<seq.length;i++){ if (seq[i].t <= elapsed) cur = seq[i].chip; else break; }
+        if (cur >= 0) highlightChip(cur);
+      }
+      function startPlay(fromIndex){
+        if (!mapping || !mapping.length) return;
+        var a = audio(); if (!a) return; if (a.state==='suspended') a.resume();
+        stopPreview(); stopSing();
+        buildSeq(fromIndex);
+        if (!seq.length) return;
+        scheduleSeq();
+        playState = 'playing'; setPlayBtn();
+        hlRAF = requestAnimationFrame(hlLoop);
+      }
+      function pausePlay(){ if (playState!=='playing' || !actx) return; actx.suspend(); playState='paused'; setPlayBtn(); }
+      function resumePlay(){ if (playState!=='paused' || !actx) return; actx.resume(); playState='playing'; setPlayBtn(); hlRAF = requestAnimationFrame(hlLoop); }
+      function togglePlay(){ if (playState==='playing') pausePlay(); else if (playState==='paused') resumePlay(); else startPlay(selIndex); }
+      function stopSing(){
+        if (hlRAF){ cancelAnimationFrame(hlRAF); hlRAF=null; }
+        singNodes.forEach(function(n){ try{ n.stop(); }catch(e){} }); singNodes = [];
+        if (actx && actx.state==='suspended') actx.resume();   // un-pause the clock for next playback
+        if (mMap){ var on = mMap.querySelectorAll('.midi-chip.on'); for (var k=0;k<on.length;k++) on[k].classList.remove('on'); }
+        playState='stopped'; setPlayBtn();
       }
       var rowSeq = 0;
       function render(data){
@@ -1227,7 +1275,8 @@ i never knew you were the someone waiting for me`;
       });
 
       mMapBtn.addEventListener('click', mapToLyrics);
-      mSing.addEventListener('click', function(){ if (singing) stopSing(); else sing(); });
+      mSing.addEventListener('click', togglePlay);
+      if (mRestart) mRestart.addEventListener('click', function(){ startPlay(selIndex); });
       if (mSyl) mSyl.addEventListener('change', function(){ if (mapping) mapToLyrics(); });
     })();
 
