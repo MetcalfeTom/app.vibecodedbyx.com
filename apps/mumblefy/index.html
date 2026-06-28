@@ -283,6 +283,14 @@
     .ov-addbtn:hover { filter: brightness(1.08); }
     .ov-addbtn:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     .ov-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
+    .midi-file { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; margin: 0.3rem 0; }
+    .midi-file input { font: inherit; max-width: 14rem; }
+    .midi-status { font-size: 0.78rem; color: var(--ink-dim); margin: 0.5rem 0; }
+    .midi-list { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.4rem; }
+    .midi-row { display: flex; align-items: center; gap: 0.55rem; padding: 0.4rem 0.55rem; border: 1px solid rgba(128,128,128,0.28); border-radius: 8px; cursor: pointer; }
+    .midi-row:hover { background: rgba(128,128,128,0.1); }
+    .midi-meta { display: flex; flex-direction: column; line-height: 1.2; }
+    .midi-meta small { font-size: 0.68rem; color: var(--ink-dim); }
     .ov-empty { font-family: 'Fraunces', serif; font-style: italic; color: var(--ink-dim); font-size: 0.85rem; opacity: 0.7; }
     .ov-chip {
       display: inline-flex; align-items: center; gap: 0.4rem;
@@ -378,6 +386,22 @@
           <button type="submit" class="ov-addbtn">+ add</button>
         </form>
         <div class="ov-list" id="ov-list"></div>
+      </div>
+    </section>
+
+    <section class="overrides" aria-label="MIDI track picker">
+      <button type="button" class="ov-toggle" id="midi-toggle" aria-expanded="false">
+        <span class="ov-chev" aria-hidden="true">▸</span> 🎹 MIDI track picker
+        <span class="ov-count" id="midi-count"></span>
+      </button>
+      <div class="ov-body" id="midi-body" hidden>
+        <p class="ov-hint">upload a .mid file to list its named tracks, then tick the one carrying the vocal melody. Reads track names &amp; note counts only — nothing leaves your browser.</p>
+        <label class="midi-file">
+          <input type="file" id="midi-input" accept=".mid,.midi,audio/midi,audio/x-midi">
+          <span>choose a MIDI file…</span>
+        </label>
+        <p class="midi-status" id="midi-status" role="status" aria-live="polite"></p>
+        <div class="midi-list" id="midi-list"></div>
       </div>
     </section>
   </main>
@@ -888,6 +912,104 @@ i never knew you were the someone waiting for me`;
       convert();
     });
     renderOverrides();
+
+    // ============================================================
+    // MIDI TRACK PICKER — parse an SMF client-side, list named tracks
+    // with checkboxes so a vocal track can be chosen. Reads track-name /
+    // instrument-name meta events + note counts ONLY (no note/lyric data).
+    // ============================================================
+    (function(){
+      var mInput = document.getElementById('midi-input');
+      var mList  = document.getElementById('midi-list');
+      var mStat  = document.getElementById('midi-status');
+      var mCount = document.getElementById('midi-count');
+      var mToggle= document.getElementById('midi-toggle');
+      var mBody  = document.getElementById('midi-body');
+      if (!mInput) return;
+
+      mToggle.addEventListener('click', function(){
+        var open = mBody.hasAttribute('hidden');
+        if (open) mBody.removeAttribute('hidden'); else mBody.setAttribute('hidden','');
+        mToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        mToggle.querySelector('.ov-chev').textContent = open ? '▾' : '▸';
+      });
+
+      function parseMidi(buf){
+        var dv = new DataView(buf), p = 0;
+        function u8(){ return dv.getUint8(p++); }
+        function u16(){ var v = dv.getUint16(p); p += 2; return v; }
+        function u32(){ var v = dv.getUint32(p); p += 4; return v; }
+        function tag(){ var s=''; for (var i=0;i<4;i++) s += String.fromCharCode(dv.getUint8(p++)); return s; }
+        function text(n){ var s=''; for (var i=0;i<n;i++){ var c=dv.getUint8(p++); if (c>=32 && c<127) s += String.fromCharCode(c); } return s; }
+        function vlq(){ var v=0,b,g=0; do { b=u8(); v=(v<<7)|(b&0x7f); } while ((b&0x80) && (++g<8)); return v; }
+
+        if (tag() !== 'MThd') throw new Error('not a Standard MIDI File');
+        var hlen=u32(), format=u16(), ntrks=u16(); u16(); p += Math.max(0, hlen-6);
+        var tracks=[];
+        for (var t=0; t<ntrks && p+8<=dv.byteLength; t++){
+          var id=tag(), len=u32(), end=Math.min(p+len, dv.byteLength);
+          if (id !== 'MTrk'){ p=end; continue; }
+          var name='', inst='', notes=0, channels={}, running=0;
+          while (p < end){
+            vlq();                       // delta time
+            if (p >= end) break;
+            var status = dv.getUint8(p);
+            if (status & 0x80){ p++; if (status < 0xf0) running = status; }
+            else status = running;
+            if (status === 0xff){ var mt=u8(), l=vlq(), tx=text(l);
+              if (mt===0x03 && !name) name = tx.trim(); else if (mt===0x04 && !inst) inst = tx.trim(); }
+            else if (status === 0xf0 || status === 0xf7){ p += vlq(); }
+            else { var hi=status&0xf0, ch=status&0x0f;
+              if (hi===0x90){ u8(); var vel=u8(); if (vel>0){ notes++; channels[ch]=(channels[ch]||0)+1; } }
+              else if (hi===0x80||hi===0xa0||hi===0xb0||hi===0xe0){ p += 2; }
+              else if (hi===0xc0||hi===0xd0){ p += 1; }
+              else break;               // unknown status — bail this track safely
+            }
+          }
+          p = end;
+          tracks.push({ index:t, name: name||inst||('Track '+(t+1)), notes:notes,
+            channels: Object.keys(channels).map(Number).sort(function(a,b){return a-b;}) });
+        }
+        return { format:format, ntrks:ntrks, tracks:tracks };
+      }
+
+      function esc(s){ return String(s).replace(/[&<>]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]; }); }
+      function updateSummary(){
+        var picked = [].slice.call(mList.querySelectorAll('input:checked'))
+          .map(function(c){ return c.parentNode.querySelector('b').textContent; });
+        mStat.textContent = picked.length ? ('🎤 vocal track: ' + picked.join(', '))
+          : (mList.children.length + ' tracks — tick the vocal one');
+        mCount.textContent = picked.length ? ('('+picked.length+')') : '';
+      }
+      function render(data){
+        mList.innerHTML='';
+        data.tracks.forEach(function(tr){
+          var row=document.createElement('label'); row.className='midi-row';
+          var cb=document.createElement('input'); cb.type='checkbox'; cb.dataset.idx=tr.index;
+          cb.addEventListener('change', updateSummary);
+          var meta=document.createElement('span'); meta.className='midi-meta';
+          var chTxt = tr.channels.length ? (' · ch ' + tr.channels.join(',')) : '';
+          meta.innerHTML = '<b>'+esc(tr.name)+'</b><small>'+tr.notes+' notes'+chTxt+'</small>';
+          row.appendChild(cb); row.appendChild(meta); mList.appendChild(row);
+        });
+        updateSummary();
+      }
+
+      mInput.addEventListener('change', function(e){
+        var f = e.target.files && e.target.files[0]; if (!f) return;
+        mStat.textContent = 'reading ' + f.name + '…';
+        var fr = new FileReader();
+        fr.onload = function(){
+          try {
+            var data = parseMidi(fr.result);
+            if (!data.tracks.length) throw new Error('no tracks found');
+            render(data);
+          } catch (err){ mList.innerHTML=''; mCount.textContent=''; mStat.textContent = '⚠ could not read that file: ' + err.message; }
+        };
+        fr.onerror = function(){ mStat.textContent = '⚠ failed to read file'; };
+        fr.readAsArrayBuffer(f);
+      });
+    })();
 
     // Boot
     convert();
