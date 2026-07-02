@@ -122,6 +122,7 @@
 - 2026-02-01: Added Sloppy Feed — standalone global timeline extracted from Sloppygram's post/feed system. Full post creation with captions (1000 chars), image URLs, hierarchical tags (parent/child via slash). Directional voting (up/down) on posts and comments, 8 emoji reactions with toggle, threaded comments with parent tracking, 3 sort modes (Newest, Top, Discussed), tag filtering. PAGE_SIZE=20 with manual load more for performance. Text-to-speech, delete own posts (RLS-safe). Real-time new posts/comments/threads via postgres_changes, presence for online count. Rate limiting across all actions. DM Serif Text + Geist Mono typography, purple/dark editorial aesthetic.
 
 ## issues
+ - +`app_votes` RLS is own-rows-only for SELECT (verified 2026-07-02 via insert/read-back probe): no client can aggregate global vote counts — the top-bar count and any votes-leaderboard app silently show per-user data. A global leaderboard needs a DB-side aggregate view/RPC (not creatable with current MCP tools). Don't burn time re-testing this.
 - CDN-based modules (three.js) mean JS console errors only surface in browser; rely on minimal syntax-only diffs for quick tweaks.
 - Large single-file apps: careful with 250-line output limits when inspecting; use targeted greps.
  - WebAudio requires a user gesture to start on mobile; always add a Start button to unlock audio.
