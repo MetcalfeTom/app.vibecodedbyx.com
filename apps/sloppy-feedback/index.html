@@ -479,17 +479,24 @@
         }
 
         // --- Load ---
+        // NOTE: feedback.votes (the counter column) can NOT be updated cross-user
+        // under RLS (the PATCH silently affects 0 rows), so scores are derived by
+        // aggregating feedback_votes rows, which are readable by everyone.
+        let voteTotals = {};
+        function scoreOf(f) { return voteTotals[f.id] || 0; }
         async function loadFeedback() {
             const [fbR, votesR] = await Promise.all([
-                supabase.from('feedback').select('*').order('votes', { ascending: false }),
-                currentUser
-                    ? supabase.from('feedback_votes').select('feedback_id, vote_type').eq('user_id', currentUser.id)
-                    : { data: [] }
+                supabase.from('feedback').select('*').order('created_at', { ascending: false }),
+                supabase.from('feedback_votes').select('feedback_id, vote_type, user_id')
             ]);
 
             feedbackData = fbR.data || [];
             feedbackVotes = {};
-            (votesR.data || []).forEach(v => { feedbackVotes[v.feedback_id] = v.vote_type; });
+            voteTotals = {};
+            (votesR.data || []).forEach(v => {
+                voteTotals[v.feedback_id] = (voteTotals[v.feedback_id] || 0) + (v.vote_type || 0);
+                if (currentUser && v.user_id === currentUser.id) feedbackVotes[v.feedback_id] = v.vote_type;
+            });
 
             updateStats();
             renderFeed();
@@ -497,7 +504,7 @@
 
         function updateStats() {
             document.getElementById('sIdeas').textContent = feedbackData.length;
-            const totalVotes = feedbackData.reduce((a, f) => a + Math.abs(f.votes || 0), 0);
+            const totalVotes = Object.values(voteTotals).reduce((a, n) => a + Math.abs(n), 0);
             document.getElementById('sVotes').textContent = totalVotes;
             const contributors = new Set(feedbackData.map(f => f.user_id)).size;
             document.getElementById('sContrib').textContent = contributors;
@@ -527,12 +534,12 @@
 
             // Sort
             if (activeSort === 'top') {
-                items.sort((a, b) => (b.votes || 0) - (a.votes || 0));
+                items.sort((a, b) => scoreOf(b) - scoreOf(a));
             } else if (activeSort === 'newest') {
                 items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             } else if (activeSort === 'controversial') {
                 // Items near 0 votes but with activity (approximated by having any votes at all)
-                items.sort((a, b) => Math.abs(a.votes || 0) - Math.abs(b.votes || 0));
+                items.sort((a, b) => Math.abs(scoreOf(a)) - Math.abs(scoreOf(b)));
             }
 
             return items;
@@ -555,7 +562,7 @@
         function renderCard(f) {
             const isOwn = currentUser && f.user_id === currentUser.id;
             const myVote = feedbackVotes[f.id] || 0;
-            const votes = f.votes || 0;
+            const votes = scoreOf(f);
             const voteClass = votes > 0 ? 'positive' : votes < 0 ? 'negative' : 'neutral';
 
             return `<div class="fb-card${isOwn ? ' own' : ''}">
@@ -586,29 +593,32 @@
             const fb = feedbackData.find(f => f.id === feedbackId);
             if (!fb) return;
 
+            // Only our own rows in feedback_votes are writable; totals are derived
+            // from everyone's rows, so no cross-user counter update is needed.
             if (current === direction) {
                 // Remove vote
-                await supabase.from('feedback_votes').delete()
+                const { error } = await supabase.from('feedback_votes').delete()
                     .eq('feedback_id', feedbackId).eq('user_id', currentUser.id);
-                fb.votes = (fb.votes || 0) - direction;
+                if (error) { showToast('Vote failed'); return; }
+                voteTotals[feedbackId] = scoreOf(fb) - direction;
                 feedbackVotes[feedbackId] = 0;
             } else {
                 // Remove old vote if changing
                 if (current !== 0) {
                     await supabase.from('feedback_votes').delete()
                         .eq('feedback_id', feedbackId).eq('user_id', currentUser.id);
-                    fb.votes = (fb.votes || 0) - current;
+                    voteTotals[feedbackId] = scoreOf(fb) - current;
                 }
                 // Insert new vote
-                await supabase.from('feedback_votes').insert({
+                const { error } = await supabase.from('feedback_votes').insert({
                     feedback_id: feedbackId, vote_type: direction, user_id: currentUser.id
                 });
-                fb.votes = (fb.votes || 0) + direction;
+                if (error) { showToast('Vote failed'); await loadFeedback(); return; }
+                voteTotals[feedbackId] = scoreOf(fb) + direction;
                 feedbackVotes[feedbackId] = direction;
             }
 
-            // Update feedback table vote count
-            await supabase.from('feedback').update({ votes: fb.votes }).eq('id', feedbackId);
+            updateStats();
             renderFeed();
         };
 
@@ -696,6 +706,21 @@
                 feedbackData = feedbackData.filter(f => f.id !== payload.old.id);
                 updateStats();
                 renderFeed();
+            });
+
+            // live vote totals (scores are derived from feedback_votes rows)
+            channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feedback_votes' }, payload => {
+                if (currentUser && payload.new.user_id === currentUser.id) return; // already applied locally
+                voteTotals[payload.new.feedback_id] = (voteTotals[payload.new.feedback_id] || 0) + (payload.new.vote_type || 0);
+                updateStats(); renderFeed();
+            });
+            channel.on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'feedback_votes' }, payload => {
+                const old = payload.old || {};
+                if (currentUser && old.user_id === currentUser.id) return;
+                if (old.feedback_id && old.vote_type) {
+                    voteTotals[old.feedback_id] = (voteTotals[old.feedback_id] || 0) - old.vote_type;
+                    updateStats(); renderFeed();
+                }
             });
 
             channel.subscribe();
