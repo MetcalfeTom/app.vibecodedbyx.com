@@ -36,7 +36,10 @@
     background:rgba(43,35,24,.92); border:2px solid var(--line); border-radius:6px;
     box-shadow:0 4px 14px rgba(0,0,0,.5); }
   .chatbox .bar{ background:linear-gradient(180deg,#57472f,#463823); font-size:.68rem; letter-spacing:.06em;
-    padding:.2rem .55rem; color:var(--gold); border-bottom:1px solid var(--line); }
+    padding:.2rem .55rem; color:var(--gold); border-bottom:1px solid var(--line);
+    cursor:grab; touch-action:none; user-select:none; }
+  .chatbox .bar:active{ cursor:grabbing; }
+  .chatbox.dragging{ opacity:.92; }
   .chatbox .log{ padding:.35rem .55rem; height:5.4rem; overflow-y:auto; font-size:.78rem; line-height:1.5; }
   .chatbox .log .sys{ color:#8fd2ff; }
   .chatbox .log .ex{ color:#cbbfa4; }
@@ -52,7 +55,10 @@
     background:rgba(43,35,24,.94); border:2px solid var(--line); border-radius:8px;
     box-shadow:0 4px 14px rgba(0,0,0,.5); padding:.5rem; }
   #side .bar{ font-size:.7rem; letter-spacing:.06em; color:var(--gold); border-bottom:1px solid var(--line);
-    padding-bottom:.25rem; margin-bottom:.4rem; display:flex; justify-content:space-between; align-items:center; }
+    padding-bottom:.25rem; margin-bottom:.4rem; display:flex; justify-content:space-between; align-items:center;
+    cursor:grab; touch-action:none; user-select:none; }
+  #side .bar:active{ cursor:grabbing; }
+  #side.dragging{ opacity:.92; box-shadow:0 10px 30px rgba(0,0,0,.7); }
   #side .bar .coins{ color:#ffd76a; }
   .skills{ display:grid; grid-template-columns:1fr 1fr; gap:.3rem; margin-bottom:.45rem; }
   .skill{ background:rgba(0,0,0,.25); border:1px solid var(--line); border-radius:6px; padding:.22rem .35rem;
@@ -64,6 +70,9 @@
   .cell:hover{ border-color:var(--gold); }
   .cell .n{ position:absolute; right:1px; bottom:0; font-size:.6rem; color:#ffe9a8; text-shadow:1px 1px 0 #000; }
   .cell.empty{ cursor:default; opacity:.55; }
+  body.lifting .cell.empty{ cursor:pointer; opacity:.8; border-style:dashed; }
+  body.lifting .cell.empty:hover{ border-color:var(--gold); }
+  .cell.lifted{ outline:2px solid var(--gold); outline-offset:1px; transform:translateY(-3px); box-shadow:0 4px 10px rgba(0,0,0,.5); }
   #questBtn{ width:100%; margin-top:.45rem; font-family:inherit; font-size:.8rem; color:#2b2318; font-weight:600;
     background:linear-gradient(180deg,#e8c877,#c9a34e); border:1px solid #7a6234; border-radius:6px;
     padding:.32rem; cursor:pointer; min-height:2.1rem; }
@@ -109,14 +118,14 @@
   <div class="brand" aria-hidden="true"><h1>SloppyScape</h1><div class="sub">a very small island · pop. 1</div></div>
 
   <div class="chatbox" aria-label="Game messages">
-    <div class="bar">All · Game</div>
+    <div class="bar" id="chatBar" title="drag to move panel">⠿ All · Game</div>
     <div class="log" id="log" role="log" aria-live="polite"></div>
   </div>
   <div class="hint" aria-hidden="true">left-click: act · right-click: options</div>
   <div id="ctx" role="menu" aria-label="Game actions"><div class="h">Choose Option <span>·</span></div><div id="ctxItems"></div></div>
 
   <aside id="side" aria-label="Skills and inventory">
-    <div class="bar"><span>Adventurer</span><span class="coins" id="coinsEl">🪙 0</span></div>
+    <div class="bar" id="sideBar" title="drag to move panel"><span>⠿ Adventurer</span><span class="coins" id="coinsEl">🪙 0</span></div>
     <div class="skills" id="skillsEl"></div>
     <div id="inv" aria-label="Inventory, 28 slots"></div>
     <button id="questBtn" type="button">📜 Quests</button>
@@ -201,19 +210,27 @@
   function persist(){ try{ localStorage.setItem('sloppyscape-save-v1', JSON.stringify(save)); }catch(e){} }
 
   function invCount(id){ return save.inv.reduce(function(n,s){ return n+(s&&s.id===id?s.n:0); },0); }
+  // inventory is a sparse 28-slot array — nulls keep slot POSITIONS stable
+  // so click-to-lift reordering survives adds/removes.
+  function firstFreeSlot(){ for(var i=0;i<28;i++){ if(!save.inv[i]) return i; } return -1; }
   function addItem(id,n){
     n=n||1;
     var stack=save.inv.find(function(s){ return s && s.id===id; });
     if(stack){ stack.n+=n; }
-    else if(save.inv.filter(Boolean).length>=28){ log('Your backpack is full.','sys'); return false; }
-    else save.inv.push({id:id,n:n});
+    else{
+      var slot=firstFreeSlot();
+      if(slot<0){ log('Your backpack is full.','sys'); return false; }
+      save.inv[slot]={id:id,n:n};
+    }
     renderInv(); persist(); return true;
   }
   function removeItem(id,n){
     n=n||1;
-    var stack=save.inv.find(function(s){ return s && s.id===id; });
-    if(!stack||stack.n<n) return false;
-    stack.n-=n; if(stack.n<=0) save.inv=save.inv.filter(function(s){ return s!==stack; });
+    var idx=-1;
+    for(var i=0;i<28;i++){ if(save.inv[i] && save.inv[i].id===id){ idx=i; break; } }
+    if(idx<0||save.inv[idx].n<n) return false;
+    save.inv[idx].n-=n;
+    if(save.inv[idx].n<=0) save.inv[idx]=null;   // keep the slot, free the space
     renderInv(); persist(); return true;
   }
 
@@ -272,18 +289,32 @@
     });
     document.getElementById('coinsEl').textContent='🪙 '+save.coins;
   }
+  var liftedIdx=null;
+  function cancelLift(){ liftedIdx=null; document.body.classList.remove('lifting'); }
   function renderInv(){
+    if(liftedIdx!==null && !save.inv[liftedIdx]) cancelLift();   // lifted stack vanished
     var el=document.getElementById('inv'); el.innerHTML='';
     for(var i=0;i<28;i++){
-      var s=save.inv[i];
+      var stk=save.inv[i];
       var c=document.createElement('button'); c.type='button';
-      if(s){
-        var it=ITEMS[s.id];
-        c.className='cell'; c.title=it.nm+' ×'+s.n;
-        c.setAttribute('aria-label', it.nm+' times '+s.n);
-        c.innerHTML='<span aria-hidden="true">'+it.em+'</span>'+(s.n>1?'<span class="n">'+s.n+'</span>':'');
-        (function(sid){
-          c.addEventListener('click', function(){ log('You examine the '+ITEMS[sid].nm.toLowerCase()+'.','me'); log(ITEMS[sid].ex,'ex'); });
+      if(stk){
+        var it=ITEMS[stk.id];
+        c.className='cell'+(liftedIdx===i?' lifted':'');
+        c.title=it.nm+' ×'+stk.n+(liftedIdx===null?' · click to lift':'');
+        c.setAttribute('aria-label', it.nm+' times '+stk.n+(liftedIdx===i?', lifted — click another slot to place':''));
+        c.innerHTML='<span aria-hidden="true">'+it.em+'</span>'+(stk.n>1?'<span class="n">'+stk.n+'</span>':'');
+        (function(sid,idx){
+          c.addEventListener('click', function(){
+            if(liftedIdx===null){                       // lift it
+              liftedIdx=idx; document.body.classList.add('lifting');
+              sndPop(); renderInv();
+            } else if(liftedIdx===idx){                 // put it back down
+              cancelLift(); renderInv();
+            } else {                                    // swap the two stacks
+              var tmp=save.inv[idx]; save.inv[idx]=save.inv[liftedIdx]; save.inv[liftedIdx]=tmp;
+              cancelLift(); sndPop(); persist(); renderInv();
+            }
+          });
           c.addEventListener('contextmenu', function(e){
             e.preventDefault(); e.stopPropagation();
             var items=[];
@@ -292,12 +323,23 @@
             }
             items.push({label:'Examine <b>'+ITEMS[sid].nm+'</b>', act:function(){ log(ITEMS[sid].ex,'ex'); }});
             // Tutorial Island drop restrictions lifted (chat ask) — tools drop too.
-            items.push({label:'Drop <b>'+ITEMS[sid].nm+'</b>', act:function(){ dropItem(sid); }});
+            items.push({label:'Drop <b>'+ITEMS[sid].nm+'</b>', act:function(){ cancelLift(); dropItem(sid); }});
             items.push({label:'Cancel', act:null});
             showMenu(e.clientX,e.clientY,items);
           });
-        })(s.id);
-      } else { c.className='cell empty'; c.disabled=true; c.setAttribute('aria-label','Empty slot'); }
+        })(stk.id,i);
+      } else {
+        c.className='cell empty';
+        c.setAttribute('aria-label', liftedIdx!==null?'Empty slot — click to place the lifted item':'Empty slot');
+        if(liftedIdx===null){ c.disabled=true; }
+        else (function(idx){
+          c.addEventListener('click', function(){
+            if(liftedIdx===null) return;
+            save.inv[idx]=save.inv[liftedIdx]; save.inv[liftedIdx]=null;
+            cancelLift(); sndPop(); persist(); renderInv();
+          });
+        })(i);
+      }
       el.appendChild(c);
     }
   }
@@ -1373,6 +1415,39 @@
   // snap camera to player at boot
   view.x=player.px-innerWidth/2; view.y=player.py-innerHeight/2;
   requestAnimationFrame(frame);
+
+  // ---- draggable panels (inisso): inventory + chat, grab the ⠿ header ----
+  function makeDraggable(panel, bar, key){
+    if(!panel||!bar) return;
+    function apply(x,y){
+      x=Math.max(0, Math.min(innerWidth-80, x));
+      y=Math.max(0, Math.min(innerHeight-40, y));
+      panel.style.left=x+'px'; panel.style.top=y+'px';
+      panel.style.right='auto'; panel.style.bottom='auto';
+      return {x:x,y:y};
+    }
+    if(save[key] && typeof save[key].x==='number'){ apply(save[key].x, save[key].y); }
+    var drag=null;
+    bar.addEventListener('pointerdown', function(e){
+      e.preventDefault();
+      var r=panel.getBoundingClientRect();
+      drag={ dx:e.clientX-r.left, dy:e.clientY-r.top };
+      panel.classList.add('dragging');
+      bar.setPointerCapture && bar.setPointerCapture(e.pointerId);
+    });
+    bar.addEventListener('pointermove', function(e){
+      if(!drag) return;
+      save[key]=apply(e.clientX-drag.dx, e.clientY-drag.dy);
+    });
+    function end(){ if(!drag) return; drag=null; panel.classList.remove('dragging'); persist(); }
+    bar.addEventListener('pointerup', end);
+    bar.addEventListener('pointercancel', end);
+    addEventListener('resize', function(){
+      if(save[key] && typeof save[key].x==='number'){ save[key]=apply(save[key].x, save[key].y); }
+    });
+  }
+  makeDraggable(document.getElementById('side'), document.getElementById('sideBar'), 'panelPos');
+  makeDraggable(document.querySelector('.chatbox'), document.getElementById('chatBar'), 'chatPos');
 
   function setOutlines(on){
     save.outlines=on; persist();
