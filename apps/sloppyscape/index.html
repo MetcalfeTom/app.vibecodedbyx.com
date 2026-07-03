@@ -193,8 +193,9 @@
   function lvlFromXp(xp){ var l=1; while(l<50 && xp>=Math.round(15*Math.pow(l,1.8))) l++; return l; }
   function xpForNext(l){ return Math.round(15*Math.pow(l,1.8)); }
 
-  var save={ skills:{wc:0,mine:0,fish:0,cook:0}, inv:[], coins:0, quests:null, qprog:{} };
+  var save={ skills:{wc:0,mine:0,fish:0,cook:0}, inv:[], coins:0, quests:null, qprog:{}, ground:[] };
   try{ var ld=JSON.parse(localStorage.getItem('sloppyscape-save-v1')||'null'); if(ld&&ld.skills) save=ld; }catch(e){}
+  if(!Array.isArray(save.ground)) save.ground=[];   // migrate pre-drop saves
   function persist(){ try{ localStorage.setItem('sloppyscape-save-v1', JSON.stringify(save)); }catch(e){} }
 
   function invCount(id){ return save.inv.reduce(function(n,s){ return n+(s&&s.id===id?s.n:0); },0); }
@@ -289,7 +290,7 @@
             }
             items.push({label:'Examine <b>'+ITEMS[sid].nm+'</b>', act:function(){ log(ITEMS[sid].ex,'ex'); }});
             if(sid!=='bronze_axe' && sid!=='tinderbox' && sid!=='net'){
-              items.push({label:'Drop <b>'+ITEMS[sid].nm+'</b>', act:function(){ removeItem(sid,1); log('You drop one '+ITEMS[sid].nm.toLowerCase()+'. The island absorbs it.','ex'); }});
+              items.push({label:'Drop <b>'+ITEMS[sid].nm+'</b>', act:function(){ dropItem(sid); }});
             }
             items.push({label:'Cancel', act:null});
             showMenu(e.clientX,e.clientY,items);
@@ -780,6 +781,18 @@
       ctx.fillRect(sx-1+Math.sin(now/160+s.phase)*3, sy-1, 2,2);
     });
 
+    // ground drops (flat on the tile, under everything that stands)
+    save.ground.forEach(function(g){
+      var gx=g.x*TILE-view.x+TILE/2, gy=g.y*TILE-view.y+TILE/2;
+      if(gx<-40||gy<-40||gx>vw+40||gy>vh+40) return;
+      ctx.fillStyle='rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(gx,gy+6,8,3,0,0,6.283); ctx.fill();
+      ctx.font='15px serif'; ctx.textAlign='center';
+      ctx.fillText(ITEMS[g.id]?ITEMS[g.id].em:'❓', gx, gy+7);
+      if(g.n>1){ ctx.font='600 10px "Pixelify Sans",monospace';
+        ctx.fillStyle='#000'; ctx.fillText('×'+g.n, gx+10, gy+11);
+        ctx.fillStyle='#ffe9a8'; ctx.fillText('×'+g.n, gx+9, gy+10); }
+    });
+
     // props + player, y-sorted
     var drawables=[];
     for(var p=0;p<props.length;p++){ var pr=props[p];
@@ -1068,6 +1081,7 @@
       player.px=tx; player.py=ty; player.x=next.x; player.y=next.y; player.path.shift();
       if(!player.path.length){
         if(pendingTalk && Math.hypot(player.x-tim.x,player.y-tim.y)<=1.6){ pendingTalk=false; timTalk(); }
+        if(pendingPickup && player.x===pendingPickup.x && player.y===pendingPickup.y){ var pg=pendingPickup; pendingPickup=null; takeGround(pg); }
         if(pendingNed && Math.hypot(player.x-ned.x,player.y-ned.y)<=1.6){ pendingNed=false; nedTalk(); }
         if(pendingAction && near(pendingAction.target, pendingAction.type==='fish'?1.8:1.6)){
           var pa2=pendingAction; pendingAction=null; startAction(pa2.type, pa2.target);
@@ -1099,6 +1113,40 @@
     logEl.appendChild(d); while(logEl.children.length>40) logEl.removeChild(logEl.firstChild);
     logEl.scrollTop=logEl.scrollHeight;
   }
+  // ---------- world drops (persistent ground items) ----------
+  function groundAt(x,y){ return save.ground.find(function(g){ return g.x===x && g.y===y; }); }
+  function dropItem(id){
+    if(!removeItem(id,1)) return;
+    var g=groundAt(player.x,player.y);
+    if(g && g.id===id){ g.n++; }
+    else if(g){ // tile occupied by a different item — nudge to an adjacent free walkable tile
+      var adj=[[0,1],[0,-1],[1,0],[-1,0]].map(function(d){return {x:player.x+d[0],y:player.y+d[1]};})
+        .find(function(cc){ return walkable(cc.x,cc.y) && !groundAt(cc.x,cc.y); });
+      if(adj) save.ground.push({id:id,n:1,x:adj.x,y:adj.y});
+      else { addItem(id,1); log('No room on the ground here.','sys'); return; }
+    }
+    else save.ground.push({id:id,n:1,x:player.x,y:player.y});
+    while(save.ground.length>60) save.ground.shift();   // cap world clutter, oldest fades
+    persist();
+    log('You drop one '+ITEMS[id].nm.toLowerCase()+'. It lands at your feet.','ex');
+  }
+  var pendingPickup=null;
+  function takeGround(g){
+    if(!save.ground.includes(g)) return;
+    if(!addItem(g.id, g.n)) return;         // backpack full — item stays on the ground
+    save.ground=save.ground.filter(function(x){ return x!==g; });
+    persist();
+    log('You take the '+ITEMS[g.id].nm.toLowerCase()+(g.n>1?' ×'+g.n:'')+'.','me');
+  }
+  function goTake(g){
+    ac();
+    if(player.x===g.x && player.y===g.y){ takeGround(g); return; }
+    var p=findPath(player.x,player.y,g.x,g.y);
+    if(p){ player.path=p; pendingPickup=g; pendingAction=null; pendingTalk=false;
+      marker={x:g.x,y:g.y,t:performance.now(),ok:true}; }
+    else log("You can't reach that.",'sys');
+  }
+
   // ---------- quests ----------
   var QUEST_DEFS={
     chop_logs:{ t:'Lumber Beginnings', d:'Chop {n} logs from regular trees', ns:[4,6,8], ev:'chop_logs', coins:12, xp:['wc',40] },
@@ -1173,7 +1221,7 @@
 
   // ---- actions (shared by left-click and the right-click menu) ----
   function walkTo(tx,ty){
-    action=null; pendingAction=null;      // moving cancels skilling
+    action=null; pendingAction=null; pendingPickup=null;   // moving cancels skilling + pickups
     var path=findPath(player.x,player.y,tx,ty);
     marker={x:tx,y:ty,t:performance.now(),ok:!!path};
     if(path){ player.path=path; }
@@ -1204,6 +1252,8 @@
     if(nedAt(t)){ marker={x:ned.x,y:ned.y,t:performance.now(),ok:true}; requestNedTalk(); return; }
     var sp=spotAt(t);
     if(sp){ goDo('fish', sp); return; }
+    var gI=groundAt(t.x,t.y);
+    if(gI){ goTake(gI); return; }
     var hit=props.find(function(p){ return p.x===t.x && p.y===t.y; });
     if(hit){
       if(hit.down){ log(hit.kind==='rock'?'The rock has been mined out. It needs a moment.':'Just a stump. Give it time.','ex'); return; }
@@ -1240,7 +1290,16 @@
     if(t.x<0||t.y<0||t.x>=W||t.y>=H){ hideMenu(); return; }
     var hit=props.find(function(p){ return p.x===t.x && p.y===t.y; });
     var sp=spotAt(t);
+    var gI2=groundAt(t.x,t.y);
     var items=[];
+    if(gI2){
+      items.push({label:'Take <b>'+(ITEMS[gI2.id]?ITEMS[gI2.id].nm:'item')+(gI2.n>1?' ×'+gI2.n:'')+'</b>', act:function(){ goTake(gI2); }});
+      items.push({label:'Examine <b>'+(ITEMS[gI2.id]?ITEMS[gI2.id].nm:'item')+'</b>', act:function(){ log(ITEMS[gI2.id]?ITEMS[gI2.id].ex:'A mystery.','ex'); }});
+      items.push({label:'Walk here', act:function(){ walkTo(t.x,t.y); }});
+      items.push({label:'Cancel', act:null});
+      showMenu(e.clientX, e.clientY, items);
+      return;
+    }
     if(nedAt(t)){
       items.push({label:'Talk-to <b>Fisherman Ned</b>', act:requestNedTalk});
       items.push({label:'Examine <b>Fisherman Ned</b>', act:function(){ log('You examine Fisherman Ned.','me'); log('He smells of pond and patience.','ex'); }});
