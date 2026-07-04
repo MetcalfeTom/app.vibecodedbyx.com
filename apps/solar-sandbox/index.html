@@ -57,6 +57,22 @@
   .hud b{ color:var(--ink); }
   #panelTab{ display:none; position:fixed; top:.7rem; right:.7rem; z-index:6; width:2.8rem; height:2.8rem;
     font-size:1.2rem; background:var(--panel); border:1px solid var(--line); border-radius:10px; cursor:pointer; color:var(--ink); }
+  #missions{ position:fixed; top:3rem; left:.9rem; z-index:5; width:13.5rem;
+    background:rgba(13,18,32,.9); border:1px solid var(--line); border-radius:12px; padding:.55rem .65rem; }
+  #missions .mt{ font-family:'Space Grotesk',sans-serif; font-size:.66rem; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--dim); margin-bottom:.4rem; display:flex; justify-content:space-between; align-items:center; }
+  #missions .mt b{ color:var(--sun); }
+  #missions ul{ list-style:none; margin:0; padding:0; }
+  #missions li{ font-size:.66rem; color:var(--dim); line-height:1.5; padding:.16rem 0; display:flex; gap:.4rem; align-items:flex-start; }
+  #missions li .bx{ flex:0 0 auto; width:.85rem; color:var(--line); }
+  #missions li.done{ color:var(--ink); }
+  #missions li.done .bx{ color:#57ffa0; }
+  #missions li.just{ animation:mjust .8s ease; }
+  @keyframes mjust{ 0%{ background:rgba(87,255,160,.25); } 100%{ background:transparent; } }
+  #missions .allclear{ margin-top:.4rem; font-family:'Space Grotesk',sans-serif; font-size:.7rem; font-weight:600;
+    color:#57ffa0; text-align:center; display:none; }
+  #missions.complete .allclear{ display:block; }
+  @media (max-width:760px){ #missions{ width:11rem; top:.7rem; font-size:.6rem; } }
   @media (max-width:760px){
     #panel{ display:none; }
     #panel.open{ display:block; top:4rem; }
@@ -67,6 +83,11 @@
 <body>
   <canvas id="c" role="application" aria-label="Solar system simulator. Drag to pan, wheel to zoom, drag from empty space to fling an asteroid."></canvas>
   <h1>SOLAR<b>·</b>SANDBOX</h1>
+  <div id="missions" aria-label="Mission objectives">
+    <div class="mt"><span>◎ Missions</span><b id="mCount">0/5</b></div>
+    <ul id="mlist"></ul>
+    <div class="allclear">✦ ALL OBJECTIVES CLEAR ✦</div>
+  </div>
   <button id="panelTab" type="button" aria-label="Toggle controls">🪐</button>
 
   <aside id="panel" aria-label="Simulation controls">
@@ -138,6 +159,35 @@
   // its drawn radius at this scale, so a physical satellite would be stripped by
   // the Sun — it rides Earth's live position instead).
   var iss={ ang:0, dist:11, on:true, trail:[] };
+  // ---------- mission objectives ----------
+  var MISSIONS=[
+    {id:'fling',   label:'Fling an asteroid into space', done:false},
+    {id:'follow',  label:'Focus-follow a planet', done:false},
+    {id:'heavy',   label:'Grow any body past 500 ⊕', done:false},
+    {id:'fast',    label:'Launch something over 1000 km/s', done:false},
+    {id:'collide', label:'Cause a collision merge', done:false}
+  ];
+  function renderMissions(){
+    var ul=document.getElementById('mlist'); if(!ul) return;
+    ul.innerHTML='';
+    var done=0;
+    MISSIONS.forEach(function(m){
+      if(m.done) done++;
+      var li=document.createElement('li');
+      li.className=(m.done?'done':'')+(m._just?' just':'');
+      li.innerHTML='<span class="bx">'+(m.done?'✔':'○')+'</span><span>'+m.label+'</span>';
+      m._just=false;
+      ul.appendChild(li);
+    });
+    document.getElementById('mCount').textContent=done+'/'+MISSIONS.length;
+    document.getElementById('missions').classList.toggle('complete', done===MISSIONS.length);
+  }
+  function completeMission(id){
+    var m=MISSIONS.find(function(x){ return x.id===id; });
+    if(m && !m.done){ m.done=true; m._just=true; renderMissions();
+      if(typeof beepM==='function') beepM(); }
+  }
+  function beepM(){ /* set below once AudioContext helper exists */ }
   var predLen=70;          // future-trail step count (slider)
   var follow=false;        // click-to-focus camera-follow toggle
   var particles=[], shocks=[];   // collision FX
@@ -234,29 +284,44 @@
     paint();
   }
 
-  function integrate(list, h){
-    // one symplectic (semi-implicit) Euler substep over an arbitrary body list
+  var _ax=[], _ay=[];
+  function accelInto(list){
+    // pairwise gravitational acceleration into reusable buffers
     for(var i=0;i<list.length;i++){
-      var a=list[i]; if(a.alive===false) continue;
-      var ax=0, ay=0;
+      var a=list[i]; if(a.alive===false){ _ax[i]=0; _ay[i]=0; continue; }
+      var sx=0, sy=0;
       for(var j=0;j<list.length;j++){
         if(i===j) continue;
         var b=list[j]; if(b.alive===false) continue;
         var dx=b.x-a.x, dy=b.y-a.y;
         var d2=dx*dx+dy*dy+SOFT2;
         var inv=1/Math.sqrt(d2);
-        var f=G*b.m*inv*inv*inv;      // G*m/d³ → multiply by (dx,dy)
-        ax+=dx*f; ay+=dy*f;
+        var f=G*b.m*inv*inv*inv;
+        sx+=dx*f; sy+=dy*f;
       }
-      a.vx+=ax*h; a.vy+=ay*h;
+      _ax[i]=sx; _ay[i]=sy;
     }
-    for(var k=0;k<list.length;k++){
+  }
+  function integrate(list, h){
+    // velocity Verlet (kick-drift-kick leapfrog) — 2nd-order symplectic.
+    // Audit (2026-07-04): the Earth/Mars radial excursion is PHYSICAL (Jupiter's
+    // secular perturbation, identical under Euler and Verlet); Verlet conserves
+    // energy tighter at high time-speed (0.009%→0.000%), so we use it.
+    var n=list.length;
+    accelInto(list);
+    for(var i=0;i<n;i++){
+      var a=list[i]; if(a.alive===false) continue;
+      a.vx+=_ax[i]*h*0.5; a.vy+=_ay[i]*h*0.5;
+      a.x+=a.vx*h; a.y+=a.vy*h;
+    }
+    accelInto(list);
+    for(var k=0;k<n;k++){
       var c2=list[k]; if(c2.alive===false) continue;
-      c2.x+=c2.vx*h; c2.y+=c2.vy*h;
+      c2.vx+=_ax[k]*h*0.5; c2.vy+=_ay[k]*h*0.5;
     }
   }
   function stepPhysics(dt){
-    var SUB=6, h=dt/SUB;
+    var SUB=4, h=dt/SUB;   // Verlet is 2nd-order — 4 substeps match old Euler's 6
     for(var s=0;s<SUB;s++){
       integrate(bodies, h);
       // collisions: merge (momentum-conserving)
@@ -291,6 +356,7 @@
             big.r=big.baseR*big.rMul;
             small.alive=false; merged++;
             spawnCollision(cxp, cyp, big.r, energy);
+            completeMission('collide');
             big.flashT=performance.now();               // the survivor pulses
             if(sel===small) select(null);
           }
@@ -330,6 +396,7 @@
     if(!sel) return;
     sel.mMul=Math.pow(10, parseFloat(this.value));
     sel.m=sel.baseM*sel.mMul; paintBody();
+    if(earthMass(sel)>=500) completeMission('heavy');
   });
   $('size').addEventListener('input', function(){
     if(!sel) return;
@@ -337,6 +404,7 @@
   });
   function setFollow(on){
     follow=on && !!sel;
+    if(follow) completeMission('follow');
     var b=$('bFocus');
     b.setAttribute('aria-pressed', follow?'true':'false');
     b.textContent = follow ? '🎯 following' : '🎯 focus';
@@ -460,6 +528,8 @@
           baseR:rr, rMul:1, r:rr, col:'#c9c2b8', x:drag.x0, y:drag.y0,
           vx:vx, vy:vy, trail:[], alive:true, asteroid:true, flashT:performance.now() });
         launchAt=performance.now(); launchPos={x:drag.x0,y:drag.y0,r:rr};
+        completeMission('fling');
+        if(cv.kms>=1000) completeMission('fast');
       } else {
         select(null);
       }
@@ -556,12 +626,15 @@
 
   function drawGalaxy(now){
     ctx.fillStyle='#04060d'; ctx.fillRect(0,0,W,H);
-    // parallax: galaxy is the FARTHEST layer → moves least with the camera
-    var gpx = -cam.x*0.045, gpy = -cam.y*0.045;
+    // core is anchored EXACTLY on the Sun's canvas position (so the galactic
+    // core and the star it hosts are one point); this also gives free parallax
+    // — as you pan/zoom, the projected Sun moves and the galaxy rides with it.
+    var sun0 = bodies[0];
+    var sc = (sun0 && sun0.alive) ? w2s(sun0.x, sun0.y) : { x:W/2, y:H/2 };
     var gz = 1 + (Math.log(cam.z)*0.06);                 // very subtle zoom response
     var scale = Math.max(W,H)/GAL * 1.7 * gz;
     ctx.save();
-    ctx.translate(W/2 + gpx, H/2 + gpy);
+    ctx.translate(sc.x, sc.y);
     ctx.rotate(now*0.000045);                            // slow rotation (~0.0026 rad/s)
     ctx.globalAlpha=0.9;
     ctx.drawImage(galaxy, -GAL*scale/2, -GAL*scale/2, GAL*scale, GAL*scale);
@@ -859,7 +932,7 @@
     return 'rgb('+Math.min(255,r+70)+','+Math.min(255,g+70)+','+Math.min(255,b+70)+')';
   }
 
-  seed(); buildChips();
+  seed(); buildChips(); renderMissions();
   requestAnimationFrame(frame);
 })();
 </script>
