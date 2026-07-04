@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tug of War</title>
+<link rel="icon" href="https://emojicdn.elk.sh/🪢">
+<meta property="og:title" content="Tug of War">
+<meta property="og:description" content="A rope in total darkness. Your cursor is the only light. Mash to pull. Don't let it snap.">
+<meta property="og:url" content="https://sloppy.live/tug-of-war">
+<meta property="og:image" content="https://image.pollinations.ai/prompt/dark%20void%20single%20spotlight%20revealing%20a%20glowing%20rope%20being%20pulled%20two%20directions%20minimal%20dramatic?width=1200&height=630&seed=4242&nologo=true">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bungee&family=Azeret+Mono:wght@400;600;700&family=Instrument+Serif:ital@1&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:none}
+canvas{display:block;width:100%;height:100%;position:fixed;inset:0}
+/* ── Overlays ── */
+.overlay{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.95);cursor:default}
+.overlay-card{text-align:center;max-width:420px;padding:2rem 2.5rem;border-radius:14px;
+  background:rgba(8,8,14,.95);border:1px solid rgba(255,255,255,.06)}
+.overlay-card h2{font-family:'Bungee',sans-serif;font-size:clamp(1.4rem,4vw,2rem);margin-bottom:.3rem}
+.overlay-card p{font-family:'Azeret Mono',monospace;font-size:.72rem;color:#666;margin:.35rem 0;line-height:1.6}
+.overlay-card b{color:#aaa}
+.btn{display:inline-block;padding:.6rem 1.8rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;
+  background:rgba(255,255,255,.03);color:#ccc;font-family:'Bungee',sans-serif;font-size:.8rem;
+  cursor:pointer;transition:background .2s;margin:.4rem}
+.btn:hover{background:rgba(255,255,255,.07)}
+.bl{color:#5b9aff}.rd{color:#ff5a5a}.yl{color:#ffd93d}.gn{color:#6bcb77}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div class="overlay" id="start-overlay">
+  <div class="overlay-card">
+    <h2><span class="bl">TUG</span> <span style="color:#333">of</span> <span class="rd">WAR</span></h2>
+    <p style="font-family:'Instrument Serif',serif;font-style:italic;font-size:.9rem;color:#555">
+      a rope in total darkness</p>
+    <p>Your cursor is the only light.<br>
+      The rope hides in the void &mdash; move to find it.<br>
+      Mash your key to pull. 60 seconds. Don't let it snap.</p>
+    <p><span class="bl">P1: A key (pull left)</span><br>
+       <span class="rd">P2: L key (pull right)</span><br>
+       <span style="color:#555">or click left/right half of screen</span></p>
+    <button class="btn" id="btn-start">enter the void &rarr;</button>
+  </div>
+</div>
+
+<div class="overlay" id="end-overlay" style="display:none">
+  <div class="overlay-card">
+    <h2 id="end-title"></h2>
+    <p id="end-msg"></p>
+    <p id="end-stats" style="font-size:.6rem;color:#555"></p>
+    <button class="btn" id="btn-again">again &rarr;</button>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+var cv=document.getElementById('cv');
+var ctx=cv.getContext('2d');
+
+// ─── Constants ───
+var ROUND_TIME=60;
+var SNAP_POS=100;
+var PULL_FORCE=2.8;
+var DECAY=0.55;
+var HALO_R=110;       // cursor light radius
+
+// ─── State ───
+var g={
+  pos:0, vel:0,
+  timer:ROUND_TIME, active:false, snapped:false,
+  blueClicks:0, redClicks:0,
+  winsBlue:0, winsRed:0,
+  mx:0, my:0,        // cursor position (canvas coords)
+  snapParticles:[],
+  duck:{x:0,y:0,found:false,quacked:false,glow:0} // hidden rubber duck easter egg
+};
+
+var W=0,H=0,dpr=1;
+
+// ─── Audio ───
+var aCtx;
+function getAC(){if(!aCtx) aCtx=new(window.AudioContext||window.webkitAudioContext)();return aCtx;}
+
+function sndPull(side){
+  var ac=getAC(),t=ac.currentTime;
+  var o=ac.createOscillator(),gn=ac.createGain();
+  o.type='triangle';
+  o.frequency.setValueAtTime(side==='blue'?280:340,t);
+  o.frequency.exponentialRampToValueAtTime(side==='blue'?180:220,t+.05);
+  gn.gain.setValueAtTime(.06,t);gn.gain.exponentialRampToValueAtTime(.001,t+.05);
+  o.connect(gn);gn.connect(ac.destination);o.start(t);o.stop(t+.06);
+}
+
+function sndSnap(){
+  var ac=getAC(),t=ac.currentTime;
+  // Crack
+  var n=ac.createBufferSource(),len=ac.sampleRate*.3|0;
+  var buf=ac.createBuffer(1,len,ac.sampleRate),d=buf.getChannelData(0);
+  for(var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.8);
+  n.buffer=buf;
+  var bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=2000;bp.Q.value=1;
+  var ng=ac.createGain();ng.gain.setValueAtTime(.35,t);ng.gain.exponentialRampToValueAtTime(.001,t+.3);
+  n.connect(bp);bp.connect(ng);ng.connect(ac.destination);n.start(t);n.stop(t+.3);
+  // Sub thud
+  var o=ac.createOscillator(),g2=ac.createGain();
+  o.type='sine';o.frequency.setValueAtTime(100,t);o.frequency.exponentialRampToValueAtTime(25,t+.35);
+  g2.gain.setValueAtTime(.25,t);g2.gain.exponentialRampToValueAtTime(.001,t+.35);
+  o.connect(g2);g2.connect(ac.destination);o.start(t);o.stop(t+.35);
+  // Whip
+  var o2=ac.createOscillator(),g3=ac.createGain();
+  o2.type='sawtooth';o2.frequency.setValueAtTime(3000,t);o2.frequency.exponentialRampToValueAtTime(300,t+.1);
+  g3.gain.setValueAtTime(.15,t);g3.gain.exponentialRampToValueAtTime(.001,t+.1);
+  o2.connect(g3);g3.connect(ac.destination);o2.start(t);o2.stop(t+.11);
+}
+
+function sndWin(){
+  var ac=getAC(),t=ac.currentTime;
+  [440,554,659,880].forEach(function(f,i){
+    var o=ac.createOscillator(),gn=ac.createGain();o.type='triangle';o.frequency.value=f;
+    gn.gain.setValueAtTime(0,t+i*.1);gn.gain.linearRampToValueAtTime(.07,t+i*.1+.02);
+    gn.gain.exponentialRampToValueAtTime(.001,t+i*.1+.3);
+    o.connect(gn);gn.connect(ac.destination);o.start(t+i*.1);o.stop(t+i*.1+.3);
+  });
+}
+
+function sndTick(){
+  var ac=getAC(),t=ac.currentTime;
+  var o=ac.createOscillator(),gn=ac.createGain();o.type='sine';o.frequency.value=660;
+  gn.gain.setValueAtTime(.025,t);gn.gain.exponentialRampToValueAtTime(.001,t+.03);
+  o.connect(gn);gn.connect(ac.destination);o.start(t);o.stop(t+.04);
+}
+
+function sndQuack(){
+  var ac=getAC(),t=ac.currentTime;
+  // Nasal quack: square wave with bandpass formant
+  [680,580].forEach(function(f,i){
+    var o=ac.createOscillator(),gn=ac.createGain(),bp=ac.createBiquadFilter();
+    o.type='square';o.frequency.setValueAtTime(f,t+i*.12);o.frequency.exponentialRampToValueAtTime(f*.7,t+i*.12+.1);
+    bp.type='bandpass';bp.frequency.value=1200;bp.Q.value=5;
+    gn.gain.setValueAtTime(0,t+i*.12);gn.gain.linearRampToValueAtTime(.1,t+i*.12+.01);
+    gn.gain.exponentialRampToValueAtTime(.001,t+i*.12+.1);
+    o.connect(bp);bp.connect(gn);gn.connect(ac.destination);o.start(t+i*.12);o.stop(t+i*.12+.12);
+  });
+}
+
+// ─── Input ───
+function pull(side){
+  if(!g.active||g.snapped) return;
+  sndPull(side);
+  if(side==='blue'){g.vel-=PULL_FORCE;g.blueClicks++;}
+  else{g.vel+=PULL_FORCE;g.redClicks++;}
+}
+
+document.addEventListener('keydown',function(e){
+  if(!g.active) return;
+  if(e.key==='a'||e.key==='A'){e.preventDefault();pull('blue');}
+  if(e.key==='l'||e.key==='L'){e.preventDefault();pull('red');}
+});
+
+// Click left half = blue, right half = red
+cv.addEventListener('pointerdown',function(e){
+  if(!g.active) return;
+  var x=e.clientX/window.innerWidth;
+  pull(x<.5?'blue':'red');
+});
+
+// Track cursor
+cv.addEventListener('pointermove',function(e){
+  g.mx=e.clientX;g.my=e.clientY;
+});
+// Touch
+cv.addEventListener('touchmove',function(e){
+  if(e.touches.length>0){g.mx=e.touches[0].clientX;g.my=e.touches[0].clientY;}
+},{passive:true});
+cv.addEventListener('touchstart',function(e){
+  if(!g.active||e.touches.length===0) return;
+  var x=e.touches[0].clientX/window.innerWidth;
+  g.mx=e.touches[0].clientX;g.my=e.touches[0].clientY;
+  pull(x<.5?'blue':'red');
+},{passive:true});
+
+// ─── Rope geometry ───
+function ropePoints(W,H,now){
+  var cx=W/2, cy=H/2;
+  var ropeLen=W*.65;
+  var offset=(g.pos/SNAP_POS)*(ropeLen/2);
+  var tension=Math.abs(g.pos)/SNAP_POS;
+  var sx=cx-ropeLen/2+offset;
+  var ex=cx+ropeLen/2+offset;
+  var pts=[];
+  var segments=60;
+  var wobbleAmp=1.5+tension*14;
+  var wobbleFreq=3+tension*7;
+  for(var i=0;i<=segments;i++){
+    var t=i/segments;
+    var x=sx+(ex-sx)*t;
+    var sag=Math.sin(t*Math.PI)*10*(1-tension*.6);
+    var wobble=Math.sin(t*wobbleFreq+now*.004)*wobbleAmp*Math.sin(t*Math.PI);
+    pts.push({x:x,y:cy+sag+wobble,t:t});
+  }
+  return {pts:pts,sx:sx,ex:ex,knotX:cx+offset,tension:tension,cy:cy};
+}
+
+// ─── Snap particles ───
+function spawnSnapParticles(x,y){
+  for(var i=0;i<30;i++){
+    var a=Math.random()*Math.PI*2;
+    var spd=60+Math.random()*180;
+    g.snapParticles.push({
+      x:x,y:y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,
+      life:1,decay:.4+Math.random()*.6,
+      r:1+Math.random()*2,
+      hue:Math.random()<.5?210:0
+    });
+  }
+}
+
+// ─── Draw ───
+function draw(now){
+  ctx.clearRect(0,0,W,H);
+
+  // Total black
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,W,H);
+
+  if(!g.active&&!g.snapped){return;}
+
+  var rope=ropePoints(W,H,now);
+  var mx=g.mx*dpr, my=g.my*dpr;
+  var haloR=HALO_R*dpr;
+
+  // ── Draw the scene to a temp layer, then mask with cursor halo ──
+  // We draw everything, then overlay black with a radial-gradient cutout at cursor
+
+  // Draw rope (always — will be masked)
+  var tension=rope.tension;
+
+  if(!g.snapped){
+    // Rope glow (subtle under-line)
+    ctx.lineWidth=(3+tension*3)*dpr;
+    ctx.lineCap='round';
+    ctx.globalAlpha=.15+tension*.2;
+    ctx.strokeStyle=g.pos<0?'#5b9aff':'#ff5a5a';
+    ctx.shadowColor=g.pos<0?'#5b9aff':'#ff5a5a';
+    ctx.shadowBlur=12*dpr;
+    ctx.beginPath();
+    ctx.moveTo(rope.pts[0].x*dpr,rope.pts[0].y*dpr);
+    for(var i=1;i<rope.pts.length;i++) ctx.lineTo(rope.pts[i].x*dpr,rope.pts[i].y*dpr);
+    ctx.stroke();
+    ctx.shadowBlur=0;ctx.globalAlpha=1;
+
+    // Main rope line
+    ctx.lineWidth=(2.5+tension*2)*dpr;
+    for(var s=0;s<rope.pts.length-1;s++){
+      var p1=rope.pts[s],p2=rope.pts[s+1];
+      var r=Math.floor(91+(255-91)*p1.t);
+      var gv=Math.floor(154+(90-154)*p1.t);
+      var b=Math.floor(255+(90-255)*p1.t);
+      ctx.strokeStyle='rgb('+r+','+gv+','+b+')';
+      ctx.beginPath();
+      ctx.moveTo(p1.x*dpr,p1.y*dpr);ctx.lineTo(p2.x*dpr,p2.y*dpr);ctx.stroke();
+    }
+
+    // Knot
+    var kx=rope.knotX*dpr, ky=rope.pts[30].y*dpr;
+    ctx.fillStyle='#ffd93d';
+    ctx.shadowColor='#ffd93d';ctx.shadowBlur=10*dpr;
+    ctx.beginPath();ctx.arc(kx,ky,(4+tension*2)*dpr,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=0;
+
+    // Player figures
+    var figSize=14*dpr;
+    // Blue team
+    ctx.fillStyle='#5b9aff';ctx.font='bold '+figSize+'px sans-serif';ctx.textAlign='center';
+    ctx.fillText('\u{1F9D1}',rope.sx*dpr-16*dpr,rope.cy*dpr+5*dpr);
+    // Red team
+    ctx.fillStyle='#ff5a5a';
+    ctx.fillText('\u{1F9D1}',rope.ex*dpr+16*dpr,rope.cy*dpr+5*dpr);
+
+  } else {
+    // Snapped rope halves
+    var snapX=rope.knotX*dpr;
+    ctx.lineWidth=3*dpr;ctx.lineCap='round';
+    // Left half drooping
+    ctx.strokeStyle='#5b9aff';ctx.globalAlpha=.6;
+    ctx.beginPath();ctx.moveTo(rope.sx*dpr,rope.cy*dpr);
+    ctx.quadraticCurveTo(snapX-30*dpr,rope.cy*dpr+40*dpr+Math.sin(now*.003)*8*dpr,snapX-6*dpr,rope.cy*dpr+30*dpr);
+    ctx.stroke();
+    // Right half drooping
+    ctx.strokeStyle='#ff5a5a';
+    ctx.beginPath();ctx.moveTo(rope.ex*dpr,rope.cy*dpr);
+    ctx.quadraticCurveTo(snapX+30*dpr,rope.cy*dpr+40*dpr+Math.sin(now*.003+1)*8*dpr,snapX+6*dpr,rope.cy*dpr+30*dpr);
+    ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+
+  // Snap particles
+  for(var sp=g.snapParticles.length-1;sp>=0;sp--){
+    var pt=g.snapParticles[sp];
+    ctx.fillStyle='hsla('+pt.hue+',90%,65%,'+pt.life+')';
+    ctx.beginPath();ctx.arc(pt.x*dpr,pt.y*dpr,pt.r*dpr,0,Math.PI*2);ctx.fill();
+  }
+
+  // ── Hidden rubber duck easter egg ──
+  var dk=g.duck;
+  if(!dk.found){
+    // Check if cursor is near the duck
+    var ddx=g.mx-dk.x, ddy=g.my-dk.y;
+    var dDist=Math.sqrt(ddx*ddx+ddy*ddy);
+    if(dDist<HALO_R*.6){
+      dk.glow=Math.min(1,dk.glow+0.03);
+      if(dDist<30&&!dk.quacked){
+        dk.quacked=true;dk.found=true;
+        sndQuack();
+      }
+    } else {
+      dk.glow=Math.max(0,dk.glow-0.02);
+    }
+  }
+  // Draw the duck (will be masked by darkness halo, so only visible when cursor is near)
+  if(!dk.found){
+    var dkx=dk.x*dpr, dky=dk.y*dpr;
+    // Gentle glow
+    ctx.shadowColor='#ffd93d';ctx.shadowBlur=(8+dk.glow*12)*dpr;
+    ctx.font=(20*dpr)+'px serif';ctx.textAlign='center';
+    ctx.globalAlpha=.7+dk.glow*.3;
+    ctx.fillText('\u{1F986}',dkx,dky+6*dpr);
+    ctx.shadowBlur=0;ctx.globalAlpha=1;
+    // Glow ring when close
+    if(dk.glow>.1){
+      ctx.strokeStyle='rgba(255,217,61,'+(dk.glow*.3)+')';
+      ctx.lineWidth=1.5*dpr;
+      ctx.beginPath();ctx.arc(dkx,dky,(14+dk.glow*6)*dpr,0,Math.PI*2);ctx.stroke();
+    }
+  } else {
+    // Found! Show briefly
+    var dkx2=dk.x*dpr, dky2=dk.y*dpr;
+    ctx.font=(22*dpr)+'px serif';ctx.textAlign='center';
+    ctx.shadowColor='#ffd93d';ctx.shadowBlur=20*dpr;
+    ctx.fillText('\u{1F986}',dkx2,dky2+6*dpr);
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#ffd93d';ctx.font='bold '+(9*dpr)+'px Azeret Mono,monospace';
+    ctx.fillText('quack!',dkx2,dky2-16*dpr);
+  }
+
+  // HUD text (always visible, drawn bright)
+  ctx.globalAlpha=1;
+  // Timer
+  var min=Math.floor(g.timer/60);
+  var sec=g.timer%60;
+  var timeStr=min+':'+(sec<10?'0':'')+sec;
+  ctx.font='bold '+(20*dpr)+'px Bungee,sans-serif';ctx.textAlign='center';
+  ctx.fillStyle=g.timer<=10?'#ff5a5a':'#ffd93d';
+  ctx.shadowColor=g.timer<=10?'#ff5a5a':'#ffd93d';ctx.shadowBlur=6*dpr;
+  ctx.fillText(timeStr,W*dpr/2,28*dpr);
+  ctx.shadowBlur=0;
+
+  // Position indicator (thin bar)
+  var barY=H*dpr-14*dpr;
+  var barW=W*dpr*.5;
+  var barX=(W*dpr-barW)/2;
+  ctx.fillStyle='rgba(255,255,255,.06)';
+  ctx.fillRect(barX,barY,barW,3*dpr);
+  // Center tick
+  ctx.fillStyle='rgba(255,255,255,.15)';
+  ctx.fillRect(barX+barW/2-1,barY-2*dpr,2,7*dpr);
+  // Position dot
+  var dotPct=(g.pos/SNAP_POS+1)/2; // 0..1
+  var dotClr=g.pos<-20?'#5b9aff':g.pos>20?'#ff5a5a':'#ffd93d';
+  ctx.fillStyle=dotClr;ctx.shadowColor=dotClr;ctx.shadowBlur=4*dpr;
+  ctx.beginPath();ctx.arc(barX+barW*dotPct,barY+1.5*dpr,3*dpr,0,Math.PI*2);ctx.fill();
+  ctx.shadowBlur=0;
+
+  // Snap zone indicators
+  if(tension>.5){
+    ctx.globalAlpha=(tension-.5)*1.5;
+    ctx.fillStyle='#ff5a5a';
+    ctx.font=(10*dpr)+'px Azeret Mono,monospace';ctx.textAlign='center';
+    if(g.pos<0) ctx.fillText('SNAP ZONE',barX+barW*.08,barY-4*dpr);
+    else ctx.fillText('SNAP ZONE',barX+barW*.92,barY-4*dpr);
+    ctx.globalAlpha=1;
+  }
+
+  // Wins
+  ctx.font=(9*dpr)+'px Azeret Mono,monospace';ctx.textAlign='right';
+  ctx.fillStyle='#333';
+  ctx.fillText('W: '+g.winsBlue+'-'+g.winsRed,W*dpr-10*dpr,18*dpr);
+
+  // Pull counts (subtle)
+  ctx.textAlign='left';ctx.fillStyle='rgba(91,154,255,.25)';
+  ctx.fillText(g.blueClicks+' pulls',10*dpr,H*dpr-6*dpr);
+  ctx.textAlign='right';ctx.fillStyle='rgba(255,90,90,.25)';
+  ctx.fillText(g.redClicks+' pulls',W*dpr-10*dpr,H*dpr-6*dpr);
+
+  // ── Darkness mask: cover everything except cursor halo ──
+  // We use a full-screen black rect with a radial gradient clip
+  // The trick: draw a black rect, then use destination-out to punch a hole at cursor
+  ctx.globalCompositeOperation='destination-in';
+  var grad=ctx.createRadialGradient(mx,my,0,mx,my,haloR);
+  grad.addColorStop(0,'rgba(255,255,255,1)');
+  grad.addColorStop(.5,'rgba(255,255,255,.7)');
+  grad.addColorStop(.8,'rgba(255,255,255,.15)');
+  grad.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W*dpr,H*dpr);
+  ctx.globalCompositeOperation='source-over';
+
+  // Re-draw HUD on top (outside the mask) so it's always visible
+  // Timer
+  ctx.font='bold '+(20*dpr)+'px Bungee,sans-serif';ctx.textAlign='center';
+  ctx.fillStyle=g.timer<=10?'#ff5a5a':'#ffd93d';
+  ctx.shadowColor=g.timer<=10?'#ff5a5a':'#ffd93d';ctx.shadowBlur=6*dpr;
+  ctx.fillText(timeStr,W*dpr/2,28*dpr);
+  ctx.shadowBlur=0;
+
+  // Position bar (re-draw)
+  ctx.fillStyle='rgba(255,255,255,.06)';
+  ctx.fillRect(barX,barY,barW,3*dpr);
+  ctx.fillStyle='rgba(255,255,255,.15)';
+  ctx.fillRect(barX+barW/2-1,barY-2*dpr,2,7*dpr);
+  ctx.fillStyle=dotClr;ctx.shadowColor=dotClr;ctx.shadowBlur=4*dpr;
+  ctx.beginPath();ctx.arc(barX+barW*dotPct,barY+1.5*dpr,3*dpr,0,Math.PI*2);ctx.fill();
+  ctx.shadowBlur=0;
+
+  // Wins (re-draw)
+  ctx.font=(9*dpr)+'px Azeret Mono,monospace';ctx.textAlign='right';
+  ctx.fillStyle='#333';
+  ctx.fillText('W: '+g.winsBlue+'-'+g.winsRed,W*dpr-10*dpr,18*dpr);
+
+  // Pull counts (re-draw)
+  ctx.textAlign='left';ctx.fillStyle='rgba(91,154,255,.3)';
+  ctx.fillText(g.blueClicks+' pulls',10*dpr,H*dpr-6*dpr);
+  ctx.textAlign='right';ctx.fillStyle='rgba(255,90,90,.3)';
+  ctx.fillText(g.redClicks+' pulls',W*dpr-10*dpr,H*dpr-6*dpr);
+
+  // Snap zone warning (re-draw)
+  if(tension>.5){
+    ctx.globalAlpha=(tension-.5)*1.5;
+    ctx.fillStyle='#ff5a5a';
+    ctx.font=(10*dpr)+'px Azeret Mono,monospace';ctx.textAlign='center';
+    if(g.pos<0) ctx.fillText('SNAP ZONE',barX+barW*.08,barY-4*dpr);
+    else ctx.fillText('SNAP ZONE',barX+barW*.92,barY-4*dpr);
+    ctx.globalAlpha=1;
+  }
+
+  // Cursor glow
+  ctx.fillStyle='rgba(255,255,255,.04)';
+  ctx.beginPath();ctx.arc(mx,my,4*dpr,0,Math.PI*2);ctx.fill();
+}
+
+// ─── Game loop ───
+var lastFrame=0, timerAcc=0;
+
+function loop(now){
+  requestAnimationFrame(loop);
+
+  var dt=now-lastFrame;lastFrame=now;
+  if(dt>200) dt=16;
+  var dtSec=dt/1000;
+
+  // Resize
+  var cw=window.innerWidth,ch=window.innerHeight;
+  dpr=window.devicePixelRatio||1;
+  W=cw;H=ch;
+  if(cv.width!==cw*dpr||cv.height!==ch*dpr){
+    cv.width=cw*dpr;cv.height=ch*dpr;
+  }
+
+  if(g.active&&!g.snapped){
+    // Physics
+    g.vel*=Math.pow(1-DECAY,dtSec);
+    g.pos+=g.vel*dtSec*10;
+
+    // Snap
+    if(g.pos<=-SNAP_POS||g.pos>=SNAP_POS){
+      g.pos=Math.max(-SNAP_POS,Math.min(SNAP_POS,g.pos));
+      doSnap(now);
+    }
+
+    // Timer
+    timerAcc+=dt;
+    while(timerAcc>=1000){
+      timerAcc-=1000;
+      g.timer--;
+      if(g.timer<=5&&g.timer>0) sndTick();
+      if(g.timer<=0){g.timer=0;endRound();break;}
+    }
+  }
+
+  // Update snap particles
+  for(var i=g.snapParticles.length-1;i>=0;i--){
+    var p=g.snapParticles[i];
+    p.x+=p.vx*dtSec;p.y+=p.vy*dtSec;
+    p.vy+=120*dtSec; // gravity
+    p.life-=p.decay*dtSec;
+    if(p.life<=0) g.snapParticles.splice(i,1);
+  }
+
+  draw(now);
+}
+
+// ─── Snap ───
+function doSnap(now){
+  g.snapped=true;g.active=false;
+  sndSnap();
+
+  // Spawn particles at knot position
+  var rope=ropePoints(W,H,now);
+  spawnSnapParticles(rope.knotX,rope.cy);
+
+  var winner=g.pos<=-SNAP_POS?'blue':'red';
+  if(winner==='blue') g.winsBlue++; else g.winsRed++;
+
+  setTimeout(function(){showEnd(winner,'SNAP');},1500);
+}
+
+// ─── End round ───
+function endRound(){
+  g.active=false;
+  var winner;
+  if(g.pos<-1) winner='blue';
+  else if(g.pos>1) winner='red';
+  else winner='draw';
+
+  if(winner==='blue') g.winsBlue++;
+  else if(winner==='red') g.winsRed++;
+
+  sndWin();
+  setTimeout(function(){showEnd(winner,'TIME');},800);
+}
+
+function showEnd(winner,reason){
+  var ov=document.getElementById('end-overlay');
+  var t=document.getElementById('end-title');
+  var m=document.getElementById('end-msg');
+  var s=document.getElementById('end-stats');
+
+  if(winner==='draw'){
+    t.textContent='DRAW';t.className='yl';
+    m.textContent='The rope held steady in the dark.';
+  } else {
+    t.textContent=(winner==='blue'?'BLUE':'RED')+' WINS';
+    t.className=winner==='blue'?'bl':'rd';
+    m.textContent=reason==='SNAP'
+      ?(winner==='blue'?'Red\'s side snapped in the darkness.':'Blue\'s side snapped in the darkness.')
+      :(winner==='blue'?'Blue dragged the rope through the void.':'Red dragged the rope through the void.');
+  }
+  s.textContent=reason+(reason==='SNAP'?' \u00B7 Rope broke':' \u00B7 Time\'s up')+
+    ' \u00B7 Pos: '+(g.pos>0?'+':'')+g.pos.toFixed(0)+
+    ' \u00B7 Blue: '+g.blueClicks+' \u00B7 Red: '+g.redClicks+
+    ' \u00B7 Wins: '+g.winsBlue+'\u2013'+g.winsRed;
+
+  ov.style.display='flex';
+}
+
+// ─── Reset ───
+function resetRound(){
+  g.pos=0;g.vel=0;g.timer=ROUND_TIME;
+  g.blueClicks=0;g.redClicks=0;
+  g.snapped=false;g.active=true;
+  g.snapParticles=[];
+  lastFrame=performance.now();timerAcc=0;
+  // Center cursor
+  g.mx=window.innerWidth/2;g.my=window.innerHeight/2;
+  // Place hidden duck at a random spot (avoid center rope area)
+  var dw=window.innerWidth, dh=window.innerHeight;
+  g.duck={
+    x:40+Math.random()*(dw-80),
+    y:(Math.random()<.5 ? 40+Math.random()*(dh*.3) : dh*.7+Math.random()*(dh*.25)),
+    found:false, quacked:false, glow:0
+  };
+}
+
+// ─── Boot ───
+document.getElementById('btn-start').addEventListener('click',function(){
+  document.getElementById('start-overlay').style.display='none';
+  getAC();
+  resetRound();
+});
+document.getElementById('btn-again').addEventListener('click',function(){
+  document.getElementById('end-overlay').style.display='none';
+  resetRound();
+});
+
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
