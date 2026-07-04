@@ -100,7 +100,7 @@
     </div>
     <div class="srow">prediction length <span class="val" id="predVal">70</span>
       <input type="range" id="pred" min="20" max="400" step="10" value="70" aria-label="Prediction trail length in steps" /></div>
-    <p class="note">🛰 ISS orbits Earth (visual LEO) · drag empty space = <b>fling an asteroid</b> · click a planet = select · wheel = zoom · drag planet-free space with <b>right button</b> (or pan mode on touch) to pan</p>
+    <p class="note">🛰 ISS orbits Earth · <b>drag empty space to aim an asteroid</b> — longer drag = bigger, faster rock; the dashed arc predicts its path · click a planet = select · wheel = zoom · drag planet-free space with <b>right button</b> (or pan mode on touch) to pan</p>
   </aside>
 
   <div class="hud">
@@ -128,6 +128,22 @@
   var iss={ ang:0, dist:11, on:true, trail:[] };
   var predLen=70;          // future-trail step count (slider)
   var follow=false;        // click-to-focus camera-follow toggle
+  var particles=[], shocks=[];   // collision FX
+  function spawnCollision(bx,by,bigR,energy){
+    // energy ~ (m*relspeed); scales debris count, spread, shockwave radius
+    var n=Math.min(90, 10+Math.round(energy*1.6));
+    var spread=6+Math.min(28, energy*0.5);
+    for(var i=0;i<n;i++){
+      var ang=Math.random()*6.283, sp=spread*(0.3+Math.random());
+      particles.push({ x:bx, y:by, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp,
+        life:1, decay:0.5+Math.random()*0.7, r:0.7+Math.random()*1.8,
+        col: Math.random()<0.5?'#ffd9a0':(Math.random()<0.5?'#ff9a52':'#fff3d0') });
+    }
+    shocks.push({ x:bx, y:by, r:bigR, max:bigR*(2.5+Math.min(6,energy*0.15)), life:1 });
+    flashAt=performance.now(); flashPos={x:bx,y:by,r:bigR*(2+Math.min(5,energy*0.1))};
+  }
+  var flashAt=0, flashPos=null;
+  var launchAt=0, launchPos=null;
 
   // real relative masses (Earth=1), game distances/radii
   var CATALOG=[
@@ -225,6 +241,11 @@
           var rr=(A.r+B.r)*0.7;
           if(ddx*ddx+ddy*ddy < rr*rr){
             var big=A.m>=B.m?A:B, small=A.m>=B.m?B:A;
+            // impact energy: reduced mass × relative speed (scales the FX)
+            var rvx=A.vx-B.vx, rvy=A.vy-B.vy, relsp=Math.hypot(rvx,rvy);
+            var mu=(A.m*B.m)/(A.m+B.m);
+            var energy=Math.sqrt(mu)*relsp*0.6 + Math.sqrt(small.m)*2;
+            var cxp=(A.x*A.m+B.x*B.m)/(A.m+B.m), cyp=(A.y*A.m+B.y*B.m)/(A.m+B.m);
             var tm=big.m+small.m;
             big.vx=(big.vx*big.m+small.vx*small.m)/tm;
             big.vy=(big.vy*big.m+small.vy*small.m)/tm;
@@ -232,6 +253,8 @@
             big.baseR=Math.cbrt(Math.pow(big.baseR,3)+Math.pow(small.baseR,3));
             big.r=big.baseR*big.rMul;
             small.alive=false; merged++;
+            spawnCollision(cxp, cyp, big.r, energy);
+            big.flashT=performance.now();               // the survivor pulses
             if(sel===small) select(null);
           }
         }
@@ -364,12 +387,17 @@
     if(!drag) return;
     if(drag.type==='fling'){
       if(drag.moved){
-        var vx=(drag.x1-drag.x0)*1.6, vy=(drag.y1-drag.y0)*1.6;
-        bodies.push({ id:bodies.length, nm:'Asteroid', baseM:0.02, mMul:1, m:0.02,
-          baseR:2.2, rMul:1, r:2.2, col:'#c9c2b8', x:drag.x0, y:drag.y0,
-          vx:vx, vy:vy, trail:[], alive:true, asteroid:true });
+        var dvx=drag.x1-drag.x0, dvy=drag.y1-drag.y0;
+        var pull=Math.hypot(dvx,dvy);
+        var vx=dvx*1.6, vy=dvy*1.6;
+        // bigger pull = bigger, heavier rock (visual + mass feedback)
+        var rr=2 + Math.min(6, pull*0.03);
+        var mm=0.01 + Math.min(4, pull*pull*0.00006);
+        bodies.push({ id:bodies.length, nm:'Asteroid', baseM:mm, mMul:1, m:mm,
+          baseR:rr, rMul:1, r:rr, col:'#c9c2b8', x:drag.x0, y:drag.y0,
+          vx:vx, vy:vy, trail:[], alive:true, asteroid:true, flashT:performance.now() });
+        launchAt=performance.now(); launchPos={x:drag.x0,y:drag.y0,r:rr};
       } else {
-        // simple click on empty space = pan-free deselect
         select(null);
       }
     }
@@ -504,6 +532,11 @@
         ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
         ctx.beginPath(); ctx.arc(p.x,p.y,r+5,0,6.283); ctx.stroke();
       }
+      if(b.flashT){ var bf=(performance.now()-b.flashT)/380;
+        if(bf>=1){ b.flashT=0; } else {
+          ctx.strokeStyle='rgba(255,220,150,'+(1-bf)+')'; ctx.lineWidth=2.5*(1-bf)+0.5;
+          ctx.beginPath(); ctx.arc(p.x,p.y, r+3+bf*r*1.5, 0, 6.283); ctx.stroke();
+        } }
       if(!b.asteroid && (b.moon? cam.z>1.1 : cam.z>0.35)){
         ctx.font='400 10px "Chivo Mono",monospace'; ctx.textAlign='center';
         ctx.fillStyle='rgba(223,230,245,.6)';
@@ -545,13 +578,77 @@
       }
     }
 
-    // fling preview
+    // fling preview: aim line + SIMULATED trajectory arc + power/size gauge
     if(drag && drag.type==='fling' && drag.moved){
       var a=w2s(drag.x0,drag.y0), b2=w2s(drag.x1,drag.y1);
-      ctx.strokeStyle='rgba(106,163,255,.8)'; ctx.lineWidth=1.5; ctx.setLineDash([5,4]);
-      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b2.x,b2.y); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle='#c9c2b8'; ctx.beginPath(); ctx.arc(a.x,a.y,3,0,6.283); ctx.fill();
+      var dvx=drag.x1-drag.x0, dvy=drag.y1-drag.y0, pull=Math.hypot(dvx,dvy);
+      var rr=2+Math.min(6,pull*0.03);
+      // predict path: integrate a ghost asteroid through the live gravity field
+      ctx.strokeStyle='rgba(255,180,120,.85)'; ctx.setLineDash([4,5]); ctx.lineWidth=1.4;
+      ctx.beginPath();
+      var gx=drag.x0, gy=drag.y0, gvx=dvx*1.6, gvy=dvy*1.6;
+      var pS=w2s(gx,gy); ctx.moveTo(pS.x,pS.y);
+      var hstep=((1/60)*22*(timeScale||1))/6;
+      for(var st=0; st<90; st++){
+        for(var sub=0; sub<4; sub++){
+          var ax2=0, ay2=0;
+          for(var bi=0; bi<bodies.length; bi++){ var bd=bodies[bi]; if(!bd.alive) continue;
+            var ex=bd.x-gx, ey=bd.y-gy, e2=ex*ex+ey*ey+SOFT2, iv=1/Math.sqrt(e2), ff=G*bd.m*iv*iv*iv;
+            ax2+=ex*ff; ay2+=ey*ff; }
+          gvx+=ax2*hstep; gvy+=ay2*hstep; gx+=gvx*hstep; gy+=gvy*hstep;
+        }
+        if(st%2===0){ var pp=w2s(gx,gy); ctx.lineTo(pp.x,pp.y); }
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+      // direct aim line
+      ctx.strokeStyle='rgba(106,163,255,.6)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b2.x,b2.y); ctx.stroke();
+      // ghost asteroid at launch point (sized to power)
+      ctx.fillStyle='rgba(201,194,184,.9)';
+      ctx.beginPath(); ctx.arc(a.x,a.y, Math.max(3, rr*cam.z), 0, 6.283); ctx.fill();
+      ctx.strokeStyle='rgba(255,200,150,.9)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(a.x,a.y, Math.max(3,rr*cam.z)+3, 0, 6.283); ctx.stroke();
+      // power/size label near cursor
+      ctx.font='600 11px "Chivo Mono",monospace'; ctx.textAlign='left';
+      ctx.fillStyle='#ffb478';
+      ctx.fillText('◐ power '+Math.min(999,Math.round(pull))+'  ·  size '+rr.toFixed(1), b2.x+10, b2.y-8);
+      // arrowhead at launch direction
+      var ang=Math.atan2(dvy,dvx);
+      ctx.save(); ctx.translate(b2.x,b2.y); ctx.rotate(ang);
+      ctx.fillStyle='rgba(106,163,255,.8)';
+      ctx.beginPath(); ctx.moveTo(6,0); ctx.lineTo(-4,-4); ctx.lineTo(-4,4); ctx.closePath(); ctx.fill();
+      ctx.restore();
     }
+
+    // ---- collision particles + shockwaves ----
+    for(var pi=particles.length-1; pi>=0; pi--){
+      var pt=particles[pi]; pt.life-=dt*pt.decay; if(pt.life<=0){ particles.splice(pi,1); continue; }
+      if(!paused){ pt.x+=pt.vx*dt*3; pt.y+=pt.vy*dt*3; pt.vx*=0.96; pt.vy*=0.96; }
+      var pp2=w2s(pt.x,pt.y);
+      ctx.globalAlpha=Math.max(0,pt.life); ctx.fillStyle=pt.col;
+      ctx.beginPath(); ctx.arc(pp2.x,pp2.y, Math.max(0.6,pt.r*cam.z*0.5), 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    for(var si=shocks.length-1; si>=0; si--){
+      var sh=shocks[si]; if(!paused) sh.life-=dt*1.4; if(sh.life<=0){ shocks.splice(si,1); continue; }
+      var rr2=(sh.r+(sh.max-sh.r)*(1-sh.life))*cam.z;
+      var sc=w2s(sh.x,sh.y);
+      ctx.strokeStyle='rgba(255,200,140,'+(sh.life*0.7)+')'; ctx.lineWidth=2*sh.life+0.5;
+      ctx.beginPath(); ctx.arc(sc.x,sc.y, rr2, 0, 6.283); ctx.stroke();
+    }
+    // impact flash
+    if(flashPos){ var fl=(performance.now()-flashAt)/260; if(fl>=1){ flashPos=null; } else {
+      var fc=w2s(flashPos.x,flashPos.y);
+      var fg=ctx.createRadialGradient(fc.x,fc.y,0,fc.x,fc.y,flashPos.r*cam.z*(1+fl*2));
+      fg.addColorStop(0,'rgba(255,245,215,'+(0.8*(1-fl))+')'); fg.addColorStop(1,'rgba(255,180,90,0)');
+      ctx.fillStyle=fg; ctx.beginPath(); ctx.arc(fc.x,fc.y,flashPos.r*cam.z*(1+fl*2),0,6.283); ctx.fill();
+    }}
+    // launch flash
+    if(launchPos){ var ll=(performance.now()-launchAt)/220; if(ll>=1){ launchPos=null; } else {
+      var lc=w2s(launchPos.x,launchPos.y);
+      ctx.strokeStyle='rgba(150,210,255,'+(1-ll)+')'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(lc.x,lc.y, launchPos.r*cam.z*(1+ll*3), 0, 6.283); ctx.stroke();
+    }}
     paint();
   }
   function librnd(n){ var x=Math.sin(n*127.1)*43758.5453; return x-Math.floor(x); }
