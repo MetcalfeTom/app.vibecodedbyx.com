@@ -93,6 +93,8 @@
     <div class="btnrow">
       <button id="bPause" type="button" aria-pressed="false">⏸ pause</button>
       <button id="bTrails" type="button" aria-pressed="true">∿ trails</button>
+      <button id="bGrid" type="button" aria-pressed="true">▦ grid</button>
+      <button id="bFuture" type="button" aria-pressed="false">⇢ future</button>
       <button id="bReset" class="warn" type="button">⟲ reset</button>
     </div>
     <p class="note">drag empty space = <b>fling an asteroid</b> · click a planet = select · wheel = zoom · drag planet-free space with <b>right button</b> (or pan mode on touch) to pan</p>
@@ -116,7 +118,7 @@
   // ---------- physics ----------
   var G0=0.02, G=G0;
   var SOFT2=4;                      // softening² prevents singularities
-  var bodies=[], merged=0, paused=false, timeScale=1, trailsOn=true;
+  var bodies=[], merged=0, paused=false, timeScale=1, trailsOn=true, gridOn=true, futureOn=false;
 
   // real relative masses (Earth=1), game distances/radii
   var CATALOG=[
@@ -125,13 +127,23 @@
     { nm:'Venus',   m:0.815, r:5.4, col:'#e8c07a', dist:105 },
     { nm:'Earth',   m:1,     r:5.8, col:'#5e9be8', dist:150 },
     { nm:'Mars',    m:0.107, r:4.2, col:'#e07a4a', dist:200 },
-    { nm:'Jupiter', m:318,   r:15,  col:'#d8a878', dist:290, ring:false },
-    { nm:'Saturn',  m:95,    r:12.5,col:'#e8d4a0', dist:380, ring:true },
+    { nm:'Jupiter', m:318,   r:9.5, col:'#d8a878', dist:290, ring:false },
+    { nm:'Saturn',  m:95,    r:8.5, col:'#e8d4a0', dist:380, ring:true },
     { nm:'Uranus',  m:14.5,  r:9,   col:'#9be0e0', dist:465 },
     { nm:'Neptune', m:17,    r:8.7, col:'#5e78e8', dist:545 }
   ];
+  // moons: orbit distance is from the PARENT. Only gas giants — at this scale
+  // the rocky planets' Hill spheres are smaller than their own drawn radius,
+  // so physics forbids them a stable moon. (We let physics win.)
+  // (Ganymede was tested at 21/22/23 units and got resonance-ejected by his
+  // siblings every time — three packed moons don't fit this compressed scale.)
+  var MOONS=[
+    { nm:'Io',     parent:'Jupiter', m:0.015, r:2.2, col:'#e8d47a', mdist:13 },
+    { nm:'Europa', parent:'Jupiter', m:0.008, r:2.0, col:'#d8c8b0', mdist:17 },
+    { nm:'Titan',  parent:'Saturn',  m:0.023, r:2.6, col:'#e8b45e', mdist:14 }
+  ];
   // planet mass unit relative to sun: scale so dynamics are lively but stable
-  var MUNIT=0.18;
+  var MUNIT=2.2;   // scaled up (ratios preserved) so gas giants can hold moons
 
   function seed(){
     bodies=[]; merged=0;
@@ -146,34 +158,47 @@
       }
       bodies.push(b);
     });
+    // moons: seeded prograde around their parent (parent velocity + local circular v)
+    MOONS.forEach(function(mo,k){
+      var par=bodies.find(function(b){ return b.nm===mo.parent; });
+      if(!par) return;
+      var v=Math.sqrt(G*par.m/mo.mdist);
+      bodies.push({ id:100+k, nm:mo.nm, baseM:mo.m*MUNIT, mMul:1, m:mo.m*MUNIT,
+        baseR:mo.r, rMul:1, r:mo.r, col:mo.col, ring:false,
+        x:par.x+mo.mdist, y:par.y, vx:par.vx, vy:par.vy+v,
+        trail:[], alive:true, asteroid:false, moon:true });
+    });
     // momentum balance so the system doesn't drift: sun gets tiny counter-velocity
     var px=0,py=0; bodies.forEach(function(b,i){ if(i>0){ px+=b.m*b.vx; py+=b.m*b.vy; } });
     bodies[0].vx=-px/bodies[0].m; bodies[0].vy=-py/bodies[0].m;
     paint();
   }
 
+  function integrate(list, h){
+    // one symplectic (semi-implicit) Euler substep over an arbitrary body list
+    for(var i=0;i<list.length;i++){
+      var a=list[i]; if(a.alive===false) continue;
+      var ax=0, ay=0;
+      for(var j=0;j<list.length;j++){
+        if(i===j) continue;
+        var b=list[j]; if(b.alive===false) continue;
+        var dx=b.x-a.x, dy=b.y-a.y;
+        var d2=dx*dx+dy*dy+SOFT2;
+        var inv=1/Math.sqrt(d2);
+        var f=G*b.m*inv*inv*inv;      // G*m/d³ → multiply by (dx,dy)
+        ax+=dx*f; ay+=dy*f;
+      }
+      a.vx+=ax*h; a.vy+=ay*h;
+    }
+    for(var k=0;k<list.length;k++){
+      var c2=list[k]; if(c2.alive===false) continue;
+      c2.x+=c2.vx*h; c2.y+=c2.vy*h;
+    }
+  }
   function stepPhysics(dt){
-    // symplectic (semi-implicit) Euler with substeps — stable for orbits
     var SUB=6, h=dt/SUB;
     for(var s=0;s<SUB;s++){
-      for(var i=0;i<bodies.length;i++){
-        var a=bodies[i]; if(!a.alive) continue;
-        var ax=0, ay=0;
-        for(var j=0;j<bodies.length;j++){
-          if(i===j) continue;
-          var b=bodies[j]; if(!b.alive) continue;
-          var dx=b.x-a.x, dy=b.y-a.y;
-          var d2=dx*dx+dy*dy+SOFT2;
-          var inv=1/Math.sqrt(d2);
-          var f=G*b.m*inv*inv*inv;      // G*m/d³ → multiply by (dx,dy)
-          ax+=dx*f; ay+=dy*f;
-        }
-        a.vx+=ax*h; a.vy+=ay*h;
-      }
-      for(var k=0;k<bodies.length;k++){
-        var c2=bodies[k]; if(!c2.alive) continue;
-        c2.x+=c2.vx*h; c2.y+=c2.vy*h;
-      }
+      integrate(bodies, h);
       // collisions: merge (momentum-conserving)
       for(var p=0;p<bodies.length;p++){
         var A=bodies[p]; if(!A.alive) continue;
@@ -264,6 +289,12 @@
     trailsOn=!trailsOn; this.setAttribute('aria-pressed',trailsOn);
     if(!trailsOn) bodies.forEach(function(b){ b.trail=[]; });
   });
+  $('bGrid').addEventListener('click', function(){
+    gridOn=!gridOn; this.setAttribute('aria-pressed',gridOn);
+  });
+  $('bFuture').addEventListener('click', function(){
+    futureOn=!futureOn; this.setAttribute('aria-pressed',futureOn);
+  });
   $('bReset').addEventListener('click', function(){ G=G0; $('g').value=0; $('gVal').textContent='×1.00'; seed(); select(null); });
   $('panelTab').addEventListener('click', function(){ $('panel').classList.toggle('open'); });
 
@@ -340,6 +371,27 @@
     }
 
     ctx.fillStyle='#05070f'; ctx.fillRect(0,0,W,H);
+
+    // background grid (world-space, adaptive spacing)
+    if(gridOn){
+      var tl=s2w(0,0), br=s2w(W,H);
+      var spacing=100;
+      while((br.x-tl.x)/spacing>60) spacing*=2;
+      ctx.lineWidth=1;
+      var gx0=Math.floor(tl.x/spacing)*spacing;
+      for(var gx=gx0; gx<=br.x; gx+=spacing){
+        var p1=w2s(gx,tl.y), p2=w2s(gx,br.y);
+        ctx.strokeStyle = Math.abs(gx)<1e-6 ? 'rgba(106,163,255,.22)' : 'rgba(60,74,110,.14)';
+        ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke();
+      }
+      var gy0=Math.floor(tl.y/spacing)*spacing;
+      for(var gy=gy0; gy<=br.y; gy+=spacing){
+        var p3=w2s(tl.x,gy), p4=w2s(br.x,gy);
+        ctx.strokeStyle = Math.abs(gy)<1e-6 ? 'rgba(106,163,255,.22)' : 'rgba(60,74,110,.14)';
+        ctx.beginPath(); ctx.moveTo(p3.x,p3.y); ctx.lineTo(p4.x,p4.y); ctx.stroke();
+      }
+    }
+
     // starfield (deterministic, cheap)
     ctx.fillStyle='rgba(220,230,245,.5)';
     for(var i=0;i<90;i++){
@@ -360,6 +412,33 @@
       }
       ctx.stroke(); ctx.globalAlpha=1;
     });
+
+    // prediction trails: clone the system, run the same integrator forward
+    if(futureOn){
+      var clone=bodies.filter(function(b){return b.alive;}).map(function(b){
+        return { x:b.x, y:b.y, vx:b.vx, vy:b.vy, m:b.m, col:b.col, alive:true };
+      });
+      var FRAMES=70, hp=((1/60)*22*(timeScale||1))/6;
+      var paths=clone.map(function(){ return []; });
+      for(var f=0; f<FRAMES; f++){
+        for(var sub=0; sub<6; sub++) integrate(clone, hp);
+        if(f%2===0) clone.forEach(function(cb,ci){ paths[ci].push(cb.x, cb.y); });
+      }
+      ctx.setLineDash([4,5]);
+      clone.forEach(function(cb,ci){
+        var path=paths[ci]; if(path.length<4) return;
+        ctx.strokeStyle=cb.col; ctx.globalAlpha=0.55; ctx.lineWidth=1.2;
+        ctx.beginPath();
+        var st=w2s(bodies.filter(function(b){return b.alive;})[ci].x, bodies.filter(function(b){return b.alive;})[ci].y);
+        ctx.moveTo(st.x,st.y);
+        for(var k=0;k<path.length;k+=2){ var pp=w2s(path[k],path[k+1]); ctx.lineTo(pp.x,pp.y); }
+        ctx.stroke();
+        var end=w2s(path[path.length-2],path[path.length-1]);
+        ctx.globalAlpha=0.8; ctx.fillStyle=cb.col;
+        ctx.beginPath(); ctx.arc(end.x,end.y,2.2,0,6.283); ctx.fill();
+      });
+      ctx.setLineDash([]); ctx.globalAlpha=1;
+    }
 
     // bodies
     bodies.forEach(function(b){
@@ -382,7 +461,7 @@
         ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
         ctx.beginPath(); ctx.arc(p.x,p.y,r+5,0,6.283); ctx.stroke();
       }
-      if(!b.asteroid && cam.z>0.35){
+      if(!b.asteroid && (b.moon? cam.z>1.1 : cam.z>0.35)){
         ctx.font='400 10px "Chivo Mono",monospace'; ctx.textAlign='center';
         ctx.fillStyle='rgba(223,230,245,.6)';
         ctx.fillText(b.nm, p.x, p.y-r-7);
