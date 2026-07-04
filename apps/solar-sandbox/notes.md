@@ -28,3 +28,4 @@
 - Velocity vectors toggle + per-body speed readout.
 - "What-if" presets (binary sun, rogue Jupiter, no Neptune).
 - Barnes-Hut if chat demands asteroid fields.
+- 2026-07-04: **Yeet Cap slider** (chat ask) — labeled "🚀 Yeet Cap", log-scale slider scaling the asteroid launch ceiling from **1 km/s to 300,000 km/s** (≈ light speed, flagged '⚡c' at the top). `MAXV_KMS=10^value`, `MAXV` recomputed live so capVel + the prediction arc both follow it instantly. Readout formats km/s → M km/s. Reset restores 30 km/s default. Endpoints verified (1 / 30 / 300,000). At max, asteroids leave the screen essentially instantly — as intended.
