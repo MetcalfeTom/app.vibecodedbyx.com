@@ -18,3 +18,4 @@
 - Safe-tile shrink mode ("sudden death" where stone tiles become scarce).
 - Two-player split-screen chaos.
 - Global leaderboard (Supabase, derived counts).
+- 2026-07-04 (chat QA ask "open it and check the tiles are pulsing correctly"): can't run a browser in the sandbox, so did a static animation audit instead — and it caught two real bugs. (1) `warnPulse` animated `background` between two radial-gradients, which is NOT interpolable → the amber warning flickered discretely at the 50% mark instead of pulsing. Now: static warn gradient, keyframes animate only box-shadow + filter brightness (both interpolable) → genuinely smooth pulse. (2) `bubble` animated `background-position` on a gradient with no `background-size` → that property was doing literally nothing (only the brightness half worked). Now: `background-size:170% 170%` so the lava hot-spot actually drifts 0→65%/80% + brightness. Verified keyframes now touch interpolable properties only.
