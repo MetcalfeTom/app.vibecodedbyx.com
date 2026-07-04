@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mesh Editor</title>
+<link rel="icon" href="https://emojicdn.elk.sh/%F0%9F%94%BA" />
+
+<meta name="description" content="A tiny 3D mesh editor with zero libraries — place vertices on the grid, connect them into faces, orbit your creation, export a real .OBJ file." />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Mesh Editor" />
+<meta property="og:description" content="Place vertices. Make faces. Export OBJ. No libraries — hand-rolled 3D." />
+<meta property="og:url" content="https://sloppy.live/mesh-editor/" />
+<meta property="og:image" content="https://image.pollinations.ai/prompt/wireframe%203d%20mesh%20being%20edited%20on%20a%20dark%20blueprint%20grid%2C%20vertices%20glowing%2C%20minimal%20technical%20aesthetic?width=1200&height=630&nologo=true&seed=345" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Chivo+Mono:wght@300;400;600&display=swap" rel="stylesheet" />
+
+<style>
+  :root{ --bg:#10141c; --panel:#171d28; --line:#2a3446; --ink:#dce6f2; --dim:#7d8ba0;
+    --accent:#5eb1ff; --gold:#f5c453; --red:#ef5350; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:100%}
+  html,body{height:100%}
+  body{ font-family:'Chivo Mono',monospace; background:var(--bg); color:var(--ink); overflow:hidden; }
+  canvas{ position:fixed; inset:0; display:block; }
+
+  .bar{ position:fixed; top:.7rem; left:50%; transform:translateX(-50%); z-index:5;
+    display:flex; gap:.35rem; flex-wrap:wrap; justify-content:center; max-width:96vw;
+    background:rgba(23,29,40,.92); border:1px solid var(--line); border-radius:12px; padding:.4rem; }
+  .bar button{ font-family:inherit; font-size:.72rem; font-weight:600; letter-spacing:.03em;
+    color:var(--dim); background:transparent; border:1px solid transparent; border-radius:8px;
+    padding:.42rem .65rem; cursor:pointer; min-height:2.3rem; }
+  .bar button:hover{ color:var(--ink); }
+  .bar button[aria-pressed="true"]{ color:var(--accent); border-color:var(--accent); background:rgba(94,177,255,.1); }
+  .bar button.act{ color:var(--gold); }
+  .bar button.danger{ color:var(--red); }
+  .bar button:disabled{ opacity:.35; cursor:default; }
+  .bar button:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+  .bar .sep{ width:1px; background:var(--line); margin:.2rem .15rem; }
+
+  .hud{ position:fixed; bottom:.8rem; left:.8rem; z-index:5; font-size:.66rem; color:var(--dim); line-height:1.7;
+    background:rgba(23,29,40,.85); border:1px solid var(--line); border-radius:10px; padding:.5rem .7rem; }
+  .hud b{ color:var(--ink); }
+  .hint{ position:fixed; bottom:.8rem; right:.8rem; z-index:5; font-size:.64rem; color:var(--dim); text-align:right;
+    line-height:1.7; max-width:17rem; background:rgba(23,29,40,.85); border:1px solid var(--line); border-radius:10px; padding:.5rem .7rem; }
+  .hint b{ color:var(--accent); }
+  h1{ position:fixed; top:.85rem; left:.9rem; z-index:5; font-size:.85rem; font-weight:600; letter-spacing:.14em; color:var(--dim); }
+  h1 b{ color:var(--accent); }
+  @media (max-width:720px){ .hint{ display:none; } h1{ display:none; } }
+</style>
+</head>
+<body>
+  <canvas id="c" role="application" aria-label="3D mesh editor viewport. Use the toolbar to switch between orbit, add vertex, and select modes."></canvas>
+  <h1>MESH<b>·</b>EDITOR</h1>
+
+  <div class="bar" role="toolbar" aria-label="Editor tools">
+    <button id="mOrbit" aria-pressed="true" type="button" title="drag to rotate view">🔄 orbit</button>
+    <button id="mAdd" aria-pressed="false" type="button" title="click the grid to place a vertex">➕ vertex</button>
+    <button id="mSel" aria-pressed="false" type="button" title="click vertices to select; drag to move">🎯 select</button>
+    <span class="sep"></span>
+    <button id="bFace" class="act" type="button" disabled title="connect 3-4 selected vertices">▲ make face</button>
+    <button id="bDel" class="danger" type="button" disabled>✕ delete</button>
+    <span class="sep"></span>
+    <button id="bUndo" type="button" disabled>↩ undo</button>
+    <button id="bSample" type="button">◇ sample</button>
+    <button id="bClear" class="danger" type="button">∅ clear</button>
+    <button id="bExport" class="act" type="button">⬇ .obj</button>
+  </div>
+
+  <div class="hud" role="status" aria-live="polite">
+    <div>verts <b id="nV">0</b> · faces <b id="nF">0</b> · sel <b id="nS">0</b></div>
+    <div id="modeLine">mode: <b>orbit</b></div>
+  </div>
+  <div class="hint">
+    <b>orbit</b>: drag rotate · wheel zoom<br>
+    <b>vertex</b>: click grid = place point<br>
+    <b>select</b>: click points (multi) → <b>make face</b><br>
+    drag a point to slide it · <b>shift-drag = height</b>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  var canvas=document.getElementById('c'), ctx=canvas.getContext('2d');
+  var $=function(id){return document.getElementById(id);};
+  var W=0,H=0,DPR=Math.min(2,window.devicePixelRatio||1);
+  function fit(){ W=innerWidth; H=innerHeight; canvas.width=W*DPR; canvas.height=H*DPR;
+    canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0); }
+  addEventListener('resize', fit); fit();
+
+  // ---------- mesh data ----------
+  var verts=[], faces=[], selected=[];
+  try{ var sv=JSON.parse(localStorage.getItem('mesh-editor-v1')||'null');
+    if(sv&&Array.isArray(sv.v)){ verts=sv.v; faces=sv.f||[]; } }catch(e){}
+  function saveMesh(){ try{ localStorage.setItem('mesh-editor-v1', JSON.stringify({v:verts,f:faces})); }catch(e){} }
+
+  // undo (bounded snapshots)
+  var undoStack=[];
+  function snapshot(){ undoStack.push(JSON.stringify({v:verts,f:faces}));
+    if(undoStack.length>40) undoStack.shift(); $('bUndo').disabled=false; }
+  function undo(){ var s=undoStack.pop(); if(!s) return;
+    var o=JSON.parse(s); verts=o.v; faces=o.f; selected=[];
+    $('bUndo').disabled=undoStack.length===0; saveMesh(); sync(); }
+
+  // ---------- camera: orbit around origin ----------
+  var cam={ yaw:0.7, pitch:0.42, dist:9 };
+  var FOV=560;
+  function proj(p){
+    // world → camera (yaw around Y, pitch around X) → perspective
+    var cy=Math.cos(cam.yaw), sy=Math.sin(cam.yaw);
+    var cx=Math.cos(cam.pitch), sx=Math.sin(cam.pitch);
+    var x=p[0]*cy - p[2]*sy, z1=p[0]*sy + p[2]*cy;
+    var y=p[1]*cx - z1*sx,  z=p[1]*sx + z1*cx + cam.dist;
+    if(z<0.1) z=0.1;
+    var s=FOV/z;
+    return { x:W/2 + x*s, y:H/2 - y*s, z:z, s:s };
+  }
+  // screen ray → Y=0 plane intersection (for vertex placement)
+  function screenToGrid(mx,my){
+    // build ray in camera space then rotate back to world
+    var dxc=(mx-W/2)/FOV, dyc=-(my-H/2)/FOV;
+    // camera basis inverse (undo pitch then yaw); camera origin in world:
+    var cy=Math.cos(cam.yaw), sy=Math.sin(cam.yaw);
+    var cx=Math.cos(cam.pitch), sx=Math.sin(cam.pitch);
+    function camToWorld(v){
+      var y=v[1]*cx + v[2]*sx, z1=-v[1]*sx + v[2]*cx;
+      var x=v[0]*cy + z1*sy,  z=-v[0]*sy + z1*cy;
+      return [x,y,z];
+    }
+    var org=camToWorld([0,0,-cam.dist]);
+    var dir=camToWorld([dxc,dyc,1]);
+    dir=[dir[0]-org[0], dir[1]-org[1], dir[2]-org[2]];
+    if(Math.abs(dir[1])<1e-6) return null;
+    var t=-org[1]/dir[1];
+    if(t<0) return null;
+    return [org[0]+dir[0]*t, 0, org[2]+dir[2]*t];
+  }
+
+  // ---------- modes + interaction ----------
+  var mode='orbit';
+  function setMode(m){
+    mode=m;
+    [['mOrbit','orbit'],['mAdd','add'],['mSel','select']].forEach(function(p){
+      $(p[0]).setAttribute('aria-pressed', p[1]===m?'true':'false');
+    });
+    $('modeLine').innerHTML='mode: <b>'+m+'</b>';
+    canvas.style.cursor = m==='orbit'?'grab' : m==='add'?'crosshair':'default';
+  }
+  $('mOrbit').addEventListener('click', function(){ setMode('orbit'); });
+  $('mAdd').addEventListener('click', function(){ setMode('add'); });
+  $('mSel').addEventListener('click', function(){ setMode('select'); });
+
+  var drag=null;
+  canvas.addEventListener('pointerdown', function(e){
+    canvas.setPointerCapture(e.pointerId);
+    if(mode==='orbit'){ drag={type:'orbit', x:e.clientX, y:e.clientY}; canvas.style.cursor='grabbing'; return; }
+    if(mode==='add'){
+      var p=screenToGrid(e.clientX,e.clientY);
+      if(p){ snapshot(); verts.push([+p[0].toFixed(3),0,+p[2].toFixed(3)]); saveMesh(); sync(); }
+      return;
+    }
+    // select mode: hit-test vertices (screen distance)
+    var hit=-1, bd=14;
+    verts.forEach(function(v,i){ var q=proj(v); var d=Math.hypot(q.x-e.clientX,q.y-e.clientY);
+      if(d<bd){ bd=d; hit=i; } });
+    if(hit>=0){
+      var idx=selected.indexOf(hit);
+      if(e.shiftKey && idx>=0){ selected.splice(idx,1); }
+      else if(idx<0){ selected.push(hit); }
+      drag={type:'vert', i:hit, x:e.clientX, y:e.clientY, moved:false, snap:false};
+    } else {
+      selected=[]; drag={type:'orbit', x:e.clientX, y:e.clientY};   // empty click = orbit anyway
+    }
+    sync();
+  });
+  canvas.addEventListener('pointermove', function(e){
+    if(!drag) return;
+    if(drag.type==='orbit'){
+      cam.yaw += (e.clientX-drag.x)*0.008;
+      cam.pitch = Math.max(-1.35, Math.min(1.35, cam.pitch + (e.clientY-drag.y)*0.006));
+      drag.x=e.clientX; drag.y=e.clientY;
+    } else if(drag.type==='vert'){
+      if(!drag.moved){ snapshot(); drag.moved=true; }
+      var v=verts[drag.i];
+      if(e.shiftKey){
+        // vertical: move along world Y using screen dy
+        var q=proj(v);
+        v[1] += -(e.clientY-drag.y)/q.s;
+      } else {
+        var p=screenToGrid(e.clientX,e.clientY);
+        if(p){ v[0]=p[0]; v[2]=p[2]; }   // slide on XZ, keep height
+      }
+      drag.x=e.clientX; drag.y=e.clientY;
+      saveMesh();
+    }
+  });
+  function endDrag(){ drag=null; if(mode==='orbit') canvas.style.cursor='grab'; }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('wheel', function(e){
+    e.preventDefault();
+    cam.dist=Math.max(2.5, Math.min(40, cam.dist * (e.deltaY>0?1.1:0.9)));
+  }, {passive:false});
+
+  // ---------- actions ----------
+  $('bFace').addEventListener('click', function(){
+    if(selected.length<3 || selected.length>4) return;
+    snapshot();
+    faces.push(selected.slice());
+    selected=[];
+    saveMesh(); sync();
+  });
+  $('bDel').addEventListener('click', function(){
+    if(!selected.length) return;
+    snapshot();
+    var kill=selected.slice().sort(function(a,b){return b-a;});
+    kill.forEach(function(i){
+      verts.splice(i,1);
+      faces=faces.filter(function(f){ return f.indexOf(i)<0; })
+        .map(function(f){ return f.map(function(vi){ return vi>i? vi-1 : vi; }); });
+    });
+    selected=[];
+    saveMesh(); sync();
+  });
+  $('bUndo').addEventListener('click', undo);
+  $('bClear').addEventListener('click', function(){
+    if(!verts.length && !faces.length) return;
+    snapshot(); verts=[]; faces=[]; selected=[]; saveMesh(); sync();
+  });
+  $('bSample').addEventListener('click', function(){
+    snapshot();
+    // a friendly little house
+    verts=[[-1.5,0,-1.5],[1.5,0,-1.5],[1.5,0,1.5],[-1.5,0,1.5],
+           [-1.5,1.6,-1.5],[1.5,1.6,-1.5],[1.5,1.6,1.5],[-1.5,1.6,1.5],[0,2.8,0]];
+    faces=[[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7],[4,5,8],[5,6,8],[6,7,8],[7,4,8],[0,3,2,1]];
+    selected=[]; saveMesh(); sync();
+  });
+  $('bExport').addEventListener('click', function(){
+    var lines=['# sloppy.live mesh-editor export'];
+    verts.forEach(function(v){ lines.push('v '+v[0].toFixed(4)+' '+v[1].toFixed(4)+' '+v[2].toFixed(4)); });
+    faces.forEach(function(f){ lines.push('f '+f.map(function(i){return i+1;}).join(' ')); });
+    var blob=new Blob([lines.join('\n')],{type:'text/plain'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download='mesh.obj'; a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 500);
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key==='1') setMode('orbit');
+    else if(e.key==='2') setMode('add');
+    else if(e.key==='3') setMode('select');
+    else if(e.key==='f'||e.key==='F') $('bFace').click();
+    else if(e.key==='Delete'||e.key==='Backspace') $('bDel').click();
+    else if((e.ctrlKey||e.metaKey) && e.key==='z'){ e.preventDefault(); undo(); }
+  });
+
+  function sync(){
+    $('nV').textContent=verts.length; $('nF').textContent=faces.length; $('nS').textContent=selected.length;
+    $('bFace').disabled=!(selected.length>=3 && selected.length<=4);
+    $('bDel').disabled=!selected.length;
+  }
+
+  // ---------- render ----------
+  var LIGHT=(function(){ var l=[0.5,0.8,0.35], m=Math.hypot(l[0],l[1],l[2]); return [l[0]/m,l[1]/m,l[2]/m]; })();
+  function frame(){
+    requestAnimationFrame(frame);
+    ctx.fillStyle='#10141c'; ctx.fillRect(0,0,W,H);
+
+    // grid (XZ plane)
+    ctx.lineWidth=1;
+    for(var i=-5;i<=5;i++){
+      var a=proj([i,0,-5]), b=proj([i,0,5]);
+      var c2=proj([-5,0,i]), d=proj([5,0,i]);
+      ctx.strokeStyle=i===0?'rgba(94,177,255,.35)':'rgba(70,86,110,.28)';
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      ctx.strokeStyle=i===0?'rgba(245,196,83,.3)':'rgba(70,86,110,.28)';
+      ctx.beginPath(); ctx.moveTo(c2.x,c2.y); ctx.lineTo(d.x,d.y); ctx.stroke();
+    }
+
+    // faces: painter's sort by centroid depth
+    var order=faces.map(function(f,i){
+      var cz=0; f.forEach(function(vi){ cz+=proj(verts[vi]).z; });
+      return {i:i, z:cz/f.length};
+    }).sort(function(a,b){ return b.z-a.z; });
+    order.forEach(function(o){
+      var f=faces[o.i];
+      if(f.some(function(vi){ return !verts[vi]; })) return;
+      var pts=f.map(function(vi){ return proj(verts[vi]); });
+      // world normal for shading (first three verts)
+      var A=verts[f[0]], B=verts[f[1]], C=verts[f[2]];
+      var u=[B[0]-A[0],B[1]-A[1],B[2]-A[2]], v=[C[0]-A[0],C[1]-A[1],C[2]-A[2]];
+      var n=[u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
+      var nm=Math.hypot(n[0],n[1],n[2])||1;
+      var lum=Math.abs(n[0]/nm*LIGHT[0]+n[1]/nm*LIGHT[1]+n[2]/nm*LIGHT[2]);
+      var shade=Math.round(30+lum*55);
+      ctx.fillStyle='hsla(210,60%,'+shade+'%,.82)';
+      ctx.strokeStyle='rgba(94,177,255,.7)'; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+      for(var k=1;k<pts.length;k++) ctx.lineTo(pts[k].x,pts[k].y);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    });
+
+    // vertices (drawn over faces, sized by depth)
+    verts.forEach(function(v,i){
+      var q=proj(v);
+      var r=Math.max(2.5, 5.5*q.s/ (FOV/cam.dist) * 3);
+      var sel=selected.indexOf(i)>=0;
+      ctx.fillStyle=sel?'#f5c453':'#dce6f2';
+      ctx.beginPath(); ctx.arc(q.x,q.y, sel?6:4, 0, 6.283); ctx.fill();
+      if(sel){ ctx.strokeStyle='#f5c453'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(q.x,q.y,10,0,6.283); ctx.stroke();
+        // selection order number
+        ctx.font='600 10px "Chivo Mono",monospace'; ctx.textAlign='center';
+        ctx.fillStyle='#10141c'; ctx.fillText(String(selected.indexOf(i)+1), q.x, q.y+3.5);
+      }
+      // height stalk if above/below grid
+      if(Math.abs(v[1])>0.01){
+        var base=proj([v[0],0,v[2]]);
+        ctx.strokeStyle='rgba(220,230,242,.25)'; ctx.lineWidth=1;
+        ctx.setLineDash([3,3]);
+        ctx.beginPath(); ctx.moveTo(q.x,q.y); ctx.lineTo(base.x,base.y); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+  }
+  requestAnimationFrame(frame);
+  setMode('orbit'); sync();
+})();
+</script>
+</body>
+</html>
