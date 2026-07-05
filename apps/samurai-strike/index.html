@@ -220,7 +220,7 @@
       <p><b class="p1tag">■ player one</b><br><span id="mkP1"></span></p>
       <p><b class="p2tag">■ player two</b><br><span id="mkP2"></span></p>
     </div>
-    <p style="margin-top:1.6rem;font-size:0.8rem;color:var(--dim);letter-spacing:0.15em;">one cut decides · blocked blades stagger the attacker · first to three</p>
+    <p style="margin-top:1.6rem;font-size:0.8rem;color:var(--dim);letter-spacing:0.15em;">one cut decides · blocked blades stagger the attacker · double-tap to dash · first to three</p>
   </div>
 
   <div class="overlay" id="pause" role="dialog" aria-modal="true" aria-label="Paused">
@@ -397,6 +397,18 @@ function sfxThunder(){
   og.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
   o.connect(og); og.connect(master);
   o.start(t); o.stop(t + 1.25);
+}
+function sfxDash(){
+  if(!ac || muted) return;
+  var t = ac.currentTime;
+  var n = noiseSrc(0.18), f = ac.createBiquadFilter(), g = ac.createGain();
+  f.type = 'bandpass'; f.Q.value = 1.1;
+  f.frequency.setValueAtTime(1400, t);
+  f.frequency.exponentialRampToValueAtTime(320, t + 0.16);
+  g.gain.setValueAtTime(0.16, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+  n.connect(f); f.connect(g); g.connect(master);
+  n.start(t); n.stop(t + 0.18);
 }
 var muteBtn = document.getElementById('muteBtn');
 muteBtn.addEventListener('click', function(){
@@ -580,7 +592,7 @@ var WIN_SCORE = 3;
 function makeFighter(x, dir, band){
   return {
     x: x, dir: dir, band: band,
-    state: 'idle', t: 0, walkT: 0,
+    state: 'idle', t: 0, walkT: 0, dashVx: 0,
     score: 0, hitDone: false, clashed: false,
     fallT: 0, trail: [],
     input: { left:false, right:false, block:false }
@@ -641,7 +653,7 @@ function resetRound(){
   A.x = W/2 - 240; A.dir = 1;
   B.x = W/2 + 240; B.dir = -1;
   fighters.forEach(function(f){
-    f.state = 'idle'; f.t = 0; f.fallT = 0; f.trail = [];
+    f.state = 'idle'; f.t = 0; f.fallT = 0; f.trail = []; f.dashVx = 0;
     f.hitDone = false; f.clashed = false;
     f.input.left = f.input.right = f.input.block = false;
   });
@@ -683,6 +695,8 @@ function trySlash(f){
 }
 function updateFighter(f, opp, dt){
   f.t += dt;
+  f.dashVx *= Math.exp(-6 * dt / 1000);
+  if(Math.abs(f.dashVx) < 20) f.dashVx = 0;
   var moving = false;
 
   if(f.state === 'idle' || f.state === 'walk'){
@@ -692,12 +706,14 @@ function updateFighter(f, opp, dt){
       var vx = 0;
       if(f.input.left) vx -= WALK;
       if(f.input.right) vx += WALK;
-      if(vx !== 0 && phase === 'fight' && struck){
-        /* step-by-step: the body surges as each foot plants, pauses between */
+      if(phase === 'fight' && struck && (vx !== 0 || f.dashVx !== 0)){
+        /* step-by-step: the body surges as each foot plants, pauses between.
+           dashVx is a friction-damped impulse (double-tap): ~3 step-lengths in ~0.5s */
         var pulse = 0.3 + 0.7 * Math.abs(Math.cos(f.walkT * 4.5));
-        f.x += vx * pulse * dt / 1000;
-        f.walkT += Math.abs(vx) * dt / 1000 * 0.01;
-        moving = true;
+        var move = vx * pulse + f.dashVx;
+        f.x += move * dt / 1000;
+        f.walkT += Math.abs(move) * dt / 1000 * 0.01;
+        moving = vx !== 0 || Math.abs(f.dashVx) > 20;
       }
       f.state = moving ? 'walk' : 'idle';
       f.dir = opp.x >= f.x ? 1 : -1;
@@ -867,11 +883,27 @@ document.addEventListener('keydown', function(e){
   if(phase === 'fight' && !paused){
     if(k === binds.p1.slash) trySlash(A);
     if(mode === '2p' && k === binds.p2.slash) trySlash(B);
+    if(k === binds.p1.left) tryDash(A, 'p1', -1);
+    if(k === binds.p1.right) tryDash(A, 'p1', 1);
+    if(mode === '2p' && k === binds.p2.left) tryDash(B, 'p2', -1);
+    if(mode === '2p' && k === binds.p2.right) tryDash(B, 'p2', 1);
   }
 });
 document.addEventListener('keyup', function(e){ keys[e.key.toLowerCase()] = false; });
 window.addEventListener('blur', function(){ keys = {}; });
 
+/* double-tap → dash: v0/k = 1326/6 ≈ 221px ≈ 3 step-lengths, 95% spent in 0.5s */
+var tapTimes = {};
+function tryDash(f, id, dir){
+  if(phase !== 'fight' || !struck || paused) return;
+  var now = performance.now();
+  var key = id + dir;
+  if(now - (tapTimes[key] || 0) < 260 && (f.state === 'idle' || f.state === 'walk')){
+    f.dashVx = dir * 1326;
+    sfxDash();
+  }
+  tapTimes[key] = now;
+}
 var tc = { left:false, right:false, block:false };
 function readInputs(){
   A.input.left = !!keys[binds.p1.left] || tc.left;
@@ -892,6 +924,8 @@ function bindHold(id, prop){
 }
 bindHold('tcL', 'left');
 bindHold('tcR', 'right');
+document.getElementById('tcL').addEventListener('pointerdown', function(){ tryDash(A, 'tc', -1); });
+document.getElementById('tcR').addEventListener('pointerdown', function(){ tryDash(A, 'tc', 1); });
 bindHold('tcB', 'block');
 document.getElementById('tcS').addEventListener('pointerdown', function(e){ e.preventDefault(); trySlash(A); });
 
@@ -1076,6 +1110,7 @@ function drawFighter(f, t){
 
   if(f.state === 'walk'){
     hiltY = 2 + Math.sin(f.walkT*2)*1.5;
+    lean += Math.max(-0.2, Math.min(0.2, f.dashVx * s * 0.00025));
   } else if(f.state === 'windup'){
     p = Math.min(1, f.t / WINDUP);
     lean = 0.05 - 0.27*p;
