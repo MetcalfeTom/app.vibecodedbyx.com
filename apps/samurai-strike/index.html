@@ -785,12 +785,15 @@ function updateFighter(f, opp, dt){
       if(f.input.left) vx -= WALK;
       if(f.input.right) vx += WALK;
       if(phase === 'fight' && struck && (vx !== 0 || f.dashVx !== 0)){
-        /* step-by-step: the body surges as each foot plants, pauses between.
-           dashVx is a friction-damped impulse (double-tap): ~3 step-lengths in ~0.5s */
-        var pulse = 0.12 + 0.88 * Math.pow(Math.abs(Math.cos(f.walkT * 4.5)), 1.6);   /* one cautious step at a time */
+        if(f.state !== 'walk' && vx !== 0){
+          /* instant start: snap the gait to a foot-plant so the first step surges at full speed */
+          f.walkT = Math.round(f.walkT * 4.5 / Math.PI) * Math.PI / 4.5;
+        }
+        var pulse = 0.12 + 0.88 * Math.pow(Math.abs(Math.cos(f.walkT * 4.5)), 1.6);
         var move = vx * pulse + f.dashVx;
         f.x += move * dt / 1000;
-        f.walkT += Math.abs(move) * dt / 1000 * 0.008;   /* cadence held down so extra speed = longer steps */
+        /* time-driven cadence — never feeds back through pulse into a slow-start deadlock */
+        f.walkT += dt / 1000 * 1.5 * (vx !== 0 ? 1 : Math.min(1, Math.abs(f.dashVx) / 200));
         moving = vx !== 0 || Math.abs(f.dashVx) > 20;
       }
       f.state = moving ? 'walk' : 'idle';
@@ -1221,6 +1224,19 @@ function ik(sx, sy, ex, ey, l1, l2, hintX, hintY){
   var use1 = (j1x - sx)*hintX + (j1y - sy)*hintY >= (j2x - sx)*hintX + (j2y - sy)*hintY;
   return use1 ? [j1x, j1y, ex, ey] : [j2x, j2y, ex, ey];
 }
+/* gait primitive: [0,π) = stance (foot travels front→back, planted),
+   [π,2π) = swing (foot arcs back→front with lift) */
+function footCycle(ph){
+  var TAU = Math.PI*2;
+  ph = ((ph % TAU) + TAU) % TAU;
+  if(ph < Math.PI){
+    var t = ph / Math.PI;
+    return { off: 1 - 2*t, lift: 0 };
+  }
+  var t2 = (ph - Math.PI) / Math.PI;
+  var sm = t2*t2*(3 - 2*t2);
+  return { off: -1 + 2*sm, lift: Math.sin(t2*Math.PI) };
+}
 function limbPath(sx, sy, seg){
   ctx.beginPath();
   ctx.moveTo(sx, sy);
@@ -1321,24 +1337,26 @@ function drawFighter(f, t){
   var front = f.state === 'block' ? 24 : 26;
   var back  = f.state === 'block' ? 22 : 18;
   var walking = f.state === 'walk';
-  /* asymmetric gait: the back foot plants ~0.7 rad after the front — no robot metronome */
-  var wOffF = walking ? Math.sin(f.walkT*4.5)*24 : 0;
-  var wOffB = walking ? Math.sin(f.walkT*4.5 - 0.7)*16 : 0;
   var heel = (f.state === 'walk' || f.state === 'block') ? 0 : -2.5;
+  /* plant-and-swing gait: a stance foot slides front→back (holding ground while the
+     body passes over it) while the other arcs forward lifted — strictly one at a time */
+  var ph = f.walkT * 4.5;
+  var fc = walking ? footCycle(ph) : { off: 0, lift: 0 };
+  var bc = walking ? footCycle(ph + Math.PI) : { off: 0, lift: 0 };
+  var fAnkX = s*(front + fc.off*12), fAnkY = -fc.lift*7;
+  var bAnkX = -s*(back - bc.off*9), bAnkY = (walking ? 0 : heel) - bc.lift*7;
   ctx.lineWidth = 5;
-  /* jointed legs: knees flex toward the opponent */
-  limbPath(0, hipY, ik(0, hipY, s*(front + wOffF), 0, 29, 29, s, 0.15));
-  limbPath(0, hipY, ik(0, hipY, -s*(back - wOffB), heel, 29, 29, -s, 0.35));
+  limbPath(0, hipY, ik(0, hipY, fAnkX, fAnkY, 29, 29, s, 0.15));
+  limbPath(0, hipY, ik(0, hipY, bAnkX, bAnkY, 29, 29, -s, 0.35));
   /* feet: front toes point at the opponent, back foot flares away */
   ctx.lineWidth = 4;
-  var fAnk = s*(front + wOffF), bAnk = -s*(back - wOffB);
   ctx.beginPath();
-  ctx.moveTo(fAnk, 0);
-  ctx.lineTo(fAnk + s*9, -1);
+  ctx.moveTo(fAnkX, fAnkY);
+  ctx.lineTo(fAnkX + s*9, fAnkY - 1);
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(bAnk, heel);
-  ctx.lineTo(bAnk - s*8, heel + 1);
+  ctx.moveTo(bAnkX, bAnkY + (walking ? 0 : heel === 0 ? 0 : 0));
+  ctx.lineTo(bAnkX - s*8, bAnkY + 1);
   ctx.stroke();
 
   ctx.lineWidth = 5;
