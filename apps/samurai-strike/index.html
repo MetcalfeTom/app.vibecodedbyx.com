@@ -410,6 +410,26 @@ function sfxDash(){
   n.connect(f); f.connect(g); g.connect(master);
   n.start(t); n.stop(t + 0.18);
 }
+function sfxShatter(){
+  if(!ac || muted) return;
+  var t = ac.currentTime;
+  for(var i = 0; i < 7; i++){
+    var of = ac.createOscillator(), g = ac.createGain();
+    of.type = 'square';
+    of.frequency.value = 2400 + Math.random()*2600;
+    var st = t + i*0.03 + Math.random()*0.02;
+    g.gain.setValueAtTime(0.08, st);
+    g.gain.exponentialRampToValueAtTime(0.001, st + 0.09);
+    of.connect(g); g.connect(master);
+    of.start(st); of.stop(st + 0.1);
+  }
+  var n = noiseSrc(0.25), hp = ac.createBiquadFilter(), ng = ac.createGain();
+  hp.type = 'highpass'; hp.frequency.value = 3000;
+  ng.gain.setValueAtTime(0.2, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+  n.connect(hp); hp.connect(ng); ng.connect(master);
+  n.start(t); n.stop(t + 0.25);
+}
 var muteBtn = document.getElementById('muteBtn');
 muteBtn.addEventListener('click', function(){
   muted = !muted;
@@ -594,6 +614,7 @@ function makeFighter(x, dir, band){
     x: x, dir: dir, band: band,
     state: 'idle', t: 0, walkT: 0, dashVx: 0,
     score: 0, hitDone: false, clashed: false,
+    blocks: 0, shattered: false, parryPress: 0,
     fallT: 0, trail: [],
     input: { left:false, right:false, block:false }
   };
@@ -700,7 +721,7 @@ function updateFighter(f, opp, dt){
   var moving = false;
 
   if(f.state === 'idle' || f.state === 'walk'){
-    if(f.input.block && phase === 'fight' && struck){
+    if(f.input.block && !f.shattered && phase === 'fight' && struck){
       f.state = 'block'; f.t = 0;
     } else {
       var vx = 0;
@@ -736,12 +757,22 @@ function updateFighter(f, opp, dt){
 
   f.x = Math.max(50, Math.min(W - 50, f.x));
 }
+function shatterBlade(f){
+  f.shattered = true;
+  if(f.state === 'block'){ f.state = 'idle'; f.t = 0; }
+  sparkBurst(f.x + f.dir*24, GROUND - 64);
+  sparkBurst(f.x + f.dir*30, GROUND - 80);
+  sfxShatter();
+  banner('折', 'blade shattered', true);
+  setTimeout(clearBanner, 900);
+}
 function resolveCombat(){
   for(var i = 0; i < 2; i++){
     var f = fighters[i], opp = fighters[1 - i];
     if(f.state !== 'slash' || f.hitDone) continue;
     var d = (opp.x - f.x) * f.dir;
-    if(d < REACH_MIN || d > REACH) continue;
+    var reach = f.shattered ? 72 : REACH;   /* half a blade cuts shorter */
+    if(d < REACH_MIN || d > reach) continue;
 
     if(opp.state === 'slash' && !f.clashed && !opp.clashed){
       f.clashed = opp.clashed = true;
@@ -755,8 +786,19 @@ function resolveCombat(){
       f.x -= f.dir * 30;
       sparkBurst(opp.x + opp.dir*30, GROUND - 62);
       sfxClang();
+      opp.blocks++;
+      if(opp.blocks >= 3 && !opp.shattered) shatterBlade(opp);
+      else if(opp.blocks === 2) sfxClack();   /* the blade complains */
     } else if(opp.state !== 'dead'){
-      kill(opp, f);
+      /* broken blade: no held guard, but a 100ms just-parry if block was pressed as the strike lands */
+      if(opp.shattered && opp.dir === -f.dir && performance.now() - opp.parryPress <= 100){
+        f.state = 'stagger'; f.t = 0; f.hitDone = true;
+        f.x -= f.dir * 34;
+        sparkBurst(opp.x + opp.dir*26, GROUND - 60);
+        sfxClang();
+      } else {
+        kill(opp, f);
+      }
     }
   }
 }
@@ -771,7 +813,7 @@ function separate(){
 }
 
 /* ─── AI ─── */
-var ai = { blockUntil: 0, retreatUntil: 0, pauseUntil: 0, sawWindup: false };
+var ai = { blockUntil: 0, retreatUntil: 0, pauseUntil: 0, sawWindup: false, sawSlash: false };
 function updateAi(now, dt){
   var f = B, opp = A;
   f.input.left = f.input.right = f.input.block = false;
@@ -782,9 +824,15 @@ function updateAi(now, dt){
   var away = opp.x > f.x ? 'left' : 'right';
   var diff = Math.min(0.75, 0.34 + totalRounds * 0.045);
 
-  if(now < ai.blockUntil){ f.input.block = true; return; }
+  if(f.shattered){
+    if(opp.state === 'slash' && !ai.sawSlash && d < 135){
+      ai.sawSlash = true;
+      if(Math.random() < diff) f.parryPress = now;
+    }
+    if(opp.state !== 'slash') ai.sawSlash = false;
+  } else if(now < ai.blockUntil){ f.input.block = true; return; }
 
-  if(opp.state === 'windup' && d < 185){
+  if(!f.shattered && opp.state === 'windup' && d < 185){
     if(!ai.sawWindup){
       ai.sawWindup = true;
       var roll = Math.random();
@@ -883,6 +931,8 @@ document.addEventListener('keydown', function(e){
   if(phase === 'fight' && !paused){
     if(k === binds.p1.slash) trySlash(A);
     if(mode === '2p' && k === binds.p2.slash) trySlash(B);
+    if(k === binds.p1.block) A.parryPress = performance.now();
+    if(mode === '2p' && k === binds.p2.block) B.parryPress = performance.now();
     if(k === binds.p1.left) tryDash(A, 'p1', -1);
     if(k === binds.p1.right) tryDash(A, 'p1', 1);
     if(mode === '2p' && k === binds.p2.left) tryDash(B, 'p2', -1);
@@ -927,6 +977,7 @@ bindHold('tcR', 'right');
 document.getElementById('tcL').addEventListener('pointerdown', function(){ tryDash(A, 'tc', -1); });
 document.getElementById('tcR').addEventListener('pointerdown', function(){ tryDash(A, 'tc', 1); });
 bindHold('tcB', 'block');
+document.getElementById('tcB').addEventListener('pointerdown', function(){ A.parryPress = performance.now(); });
 document.getElementById('tcS').addEventListener('pointerdown', function(e){ e.preventDefault(); trySlash(A); });
 
 /* ─── pause ─── */
@@ -1051,6 +1102,8 @@ function startMatch(m){
   initAudio();
   mode = m;
   A.score = B.score = 0;
+  A.blocks = B.blocks = 0;
+  A.shattered = B.shattered = false;
   totalRounds = 0;
   updateScoreUi();
   menuEl.classList.remove('show');
@@ -1217,7 +1270,8 @@ function drawFighter(f, t){
 
   /* katana — pale steel that catches the storm light */
   var a = swordA;
-  var tipX = hx + Math.cos(a)*s*62, tipY = hy + Math.sin(a)*62;
+  var bladeLen = f.shattered ? 31 : 62;
+  var tipX = hx + Math.cos(a)*s*bladeLen, tipY = hy + Math.sin(a)*bladeLen;
   ctx.strokeStyle = '#d8dceb';
   ctx.shadowColor = 'rgba(216,220,235,0.6)';
   ctx.shadowBlur = 5;
@@ -1225,11 +1279,17 @@ function drawFighter(f, t){
   ctx.beginPath();
   ctx.moveTo(hx - Math.cos(a)*s*8, hy - Math.sin(a)*8);
   ctx.quadraticCurveTo(
-    hx + Math.cos(a)*s*30 - Math.sin(a)*2,
-    hy + Math.sin(a)*30 + Math.cos(a)*2,
+    hx + Math.cos(a)*s*bladeLen*0.48 - Math.sin(a)*2,
+    hy + Math.sin(a)*bladeLen*0.48 + Math.cos(a)*2,
     tipX, tipY
   );
   ctx.stroke();
+  if(f.shattered){
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX + Math.cos(a + 0.9)*s*5, tipY + Math.sin(a + 0.9)*5);
+    ctx.stroke();
+  }
   ctx.strokeStyle = '#0c0a14';
   ctx.shadowBlur = 0;
   ctx.lineWidth = 6;
