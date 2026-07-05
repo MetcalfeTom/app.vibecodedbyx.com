@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lumen Vale</title>
-<meta name="description" content="An endless living valley — soar as a bird over shader-painted peaks, forests and lakes through a full day and night.">
+<meta name="description" content="You are the bird. Arrow keys to soar over an endless shader-painted valley of peaks, forests and lakes, day and night.">
 <link rel="icon" href="https://emojicdn.elk.sh/🏔️">
 <meta property="og:title" content="Lumen Vale">
-<meta property="og:description" content="An endless living valley — soar as a bird over shader-painted peaks, forests and lakes. Press F to fly.">
+<meta property="og:description" content="You are the bird. Arrow keys to soar — dive for speed, bank through canyons, over an endless living valley.">
 <meta property="og:url" content="https://sloppy.live/lumen-vale/">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://image.pollinations.ai/prompt/epic%20painterly%20mountain%20valley%20at%20golden%20hour%2C%20alpine%20lake%20mirror%20reflection%2C%20snowy%20ridges%2C%20pine%20forest%2C%20birds%20soaring%2C%20volumetric%20mist%2C%20dramatic%20sunset%20sky%2C%20rich%20saturated%20color%2C%20wide%20cinematic%20landscape.png?width=1200&height=630&seed=4127&model=flux&nologo=true">
@@ -87,18 +87,6 @@
   .panel button:hover{ border-color:var(--accent); transform:translateY(-2px); }
   .panel button:focus-visible{ outline:3px solid var(--accent); outline-offset:2px; }
   .panel button[aria-pressed="true"]{ color:var(--accent); border-color:var(--accent); }
-  #flyFwd{
-    position:fixed; left:1.1rem; bottom:1.1rem; z-index:6;
-    display:none; align-items:center; justify-content:center;
-    width:4.5rem; height:4.5rem; border-radius:50%;
-    font-family:inherit; font-size:1.4rem; color:var(--ink);
-    background:var(--glass); border:1px solid var(--edge);
-    backdrop-filter:blur(6px); cursor:pointer;
-    touch-action:none; user-select:none; -webkit-user-select:none;
-  }
-  #flyFwd.show{ display:flex; }
-  #flyFwd:focus-visible{ outline:3px solid var(--accent); outline-offset:2px; }
-  #flyFwd.held{ color:var(--accent); border-color:var(--accent); }
   #clock{
     position:fixed; right:1.1rem; top:1.1rem; z-index:5;
     font-size:0.7rem; letter-spacing:0.22em; color:var(--dim);
@@ -132,7 +120,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@1,300;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-<canvas id="scene" role="application" aria-label="Interactive endless 3D mountain landscape. Drag to orbit the camera, scroll or pinch to zoom. Press F for bird flight mode: WASD to fly, drag to look around, Shift to boost, Escape to exit. Buttons below control flight mode and the day cycle."></canvas>
+<canvas id="scene" role="application" aria-label="First-person bird simulator over an endless mountain landscape. You are always flying. Arrow keys steer: up and down control pitch, left and right bank into turns. Dive to gain speed. Press F or Escape for a calm orbit camera. Buttons below control camera mode and the day cycle."></canvas>
 <div class="vignette" aria-hidden="true"></div>
 
 <header id="hdr">
@@ -142,14 +130,13 @@
 
 <p id="clock" role="status" aria-live="off">—</p>
 
-<p class="hint" id="hint">drag to look · scroll to zoom · F to fly</p>
+<p class="hint" id="hint">↑ ↓ ← → to fly · dive to gain speed</p>
 
 <div class="panel" role="group" aria-label="Scene controls">
-  <button type="button" id="btnFly" aria-pressed="false" title="Toggle bird flight mode (F)">🕊 fly</button>
+  <button type="button" id="btnMode" aria-pressed="false" title="Switch to orbit camera (F)">🧭 orbit</button>
   <button type="button" id="btnPause" aria-pressed="false" title="Pause the sun">⏸ sun</button>
   <button type="button" id="btnSpeed" title="Day cycle speed">1×</button>
 </div>
-<button type="button" id="flyFwd" aria-label="Hold to fly forward">🕊</button>
 
 <div id="loading">growing the world…</div>
 <div id="err"><p>This landscape needs WebGL, which your browser or device declined to provide.<br>Try a different browser — the valley will wait.</p></div>
@@ -814,17 +801,16 @@ btnSpeed.addEventListener('click', () => {
   btnSpeed.textContent = SPEEDS[speedIdx] + '×';
 });
 
-/* ---------- bird flight mode ---------- */
-const btnFly = document.getElementById('btnFly');
-const flyFwd = document.getElementById('flyFwd');
+/* ---------- first-person bird simulator ---------- */
+const btnMode = document.getElementById('btnMode');
 const coarse = window.matchMedia('(pointer: coarse)').matches;
-let mode = 'orbit';
-let yaw = 0, pitch = 0, roll = 0, lookVelX = 0;
-const vel = new THREE.Vector3();
+let mode = 'bird';
+let yaw = 0, pitch = 0, bank = 0, airspeed = 62;
+const CRUISE = 62, V_MIN = 32, V_MAX = 210;
 const keys = {};
-let touchThrottle = false;
-let dragging = false, dragId = -1, lastX = 0, lastY = 0;
+let dragging = false, dragId = -1, dragSX = 0, dragSY = 0, dragBank = 0, dragPitch = 0;
 const baseFov = 55;
+let flapPhase = 0;
 
 function showHint(text){
   hint.textContent = text;
@@ -834,28 +820,51 @@ function showHint(text){
   showHint._t = setTimeout(hideHint, 9000);
 }
 
-function enterFly(){
-  mode = 'fly';
-  controls.autoRotate = false;
+/* the body you carry into first person: two wings + a beak, parented to the camera */
+scene.add(camera);
+const wingMat = new THREE.MeshLambertMaterial({ color: 0x2b2019, side: THREE.DoubleSide });
+function makeWing(mirror){
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    0, 0, -0.20,   1.7, 0.10, -0.05,   1.6, 0.04, 0.50,   0.05, 0, 0.45
+  ]), 3));
+  g.setIndex([0,1,2, 0,2,3]);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, wingMat);
+  if(mirror) m.scale.x = -1;
+  const grp = new THREE.Group();
+  grp.add(m);
+  grp.position.set(mirror ? -0.26 : 0.26, -0.62, -1.05);
+  camera.add(grp);
+  return grp;
+}
+const wingR = makeWing(false), wingL = makeWing(true);
+const beakGeo = new THREE.ConeGeometry(0.055, 0.34, 5);
+beakGeo.rotateX(-Math.PI/2);
+const beak = new THREE.Mesh(beakGeo, new THREE.MeshLambertMaterial({ color: 0xd9a03a }));
+beak.position.set(0, -0.46, -1.05);
+camera.add(beak);
+function setBodyVisible(v){ wingR.visible = wingL.visible = beak.visible = v; }
+
+function enterBird(){
+  mode = 'bird';
   controls.enabled = false;
+  controls.autoRotate = false;
   const d = camera.getWorldDirection(new THREE.Vector3());
   yaw = Math.atan2(-d.x, -d.z);
-  pitch = Math.asin(clamp01(d.y*0.5+0.5)*2-1);
-  roll = 0; lookVelX = 0;
-  vel.set(0,0,0);
+  pitch = Math.max(-0.5, Math.min(0.5, Math.asin(Math.max(-1, Math.min(1, d.y)))));
+  bank = 0; airspeed = CRUISE;
   camera.rotation.order = 'YXZ';
-  btnFly.setAttribute('aria-pressed','true');
-  btnFly.textContent = '🧭 orbit';
-  btnFly.title = 'Back to orbit camera (F)';
-  if(coarse) flyFwd.classList.add('show');
-  showHint(coarse ? 'drag to steer · hold 🕊 to fly' : 'WASD fly · drag to look · shift = boost');
+  setBodyVisible(true);
+  btnMode.textContent = '🧭 orbit';
+  btnMode.title = 'Switch to orbit camera (F)';
+  btnMode.setAttribute('aria-pressed', 'false');
+  showHint(coarse ? 'drag to steer · release to glide' : '↑ ↓ ← → to fly · dive to gain speed');
 }
-function exitFly(){
+function enterOrbit(){
   mode = 'orbit';
-  dragging = false;
-  flyFwd.classList.remove('show');
-  flyFwd.classList.remove('held');
-  touchThrottle = false;
+  dragging = false; dragBank = 0; dragPitch = 0;
+  setBodyVisible(false);
   const d = camera.getWorldDirection(new THREE.Vector3());
   controls.target.copy(camera.position).addScaledVector(d, 80);
   controls.target.y = Math.max(controls.target.y, 2);
@@ -863,82 +872,82 @@ function exitFly(){
   camera.updateProjectionMatrix();
   controls.enabled = true;
   controls.update();
-  btnFly.setAttribute('aria-pressed','false');
-  btnFly.textContent = '🕊 fly';
-  btnFly.title = 'Toggle bird flight mode (F)';
+  btnMode.textContent = '🕊 bird';
+  btnMode.title = 'Back to first-person bird (F)';
+  btnMode.setAttribute('aria-pressed', 'true');
+  showHint('drag to orbit · scroll to zoom · F to fly again');
 }
-btnFly.addEventListener('click', () => {
-  (mode === 'fly') ? exitFly() : enterFly();
-  btnFly.blur();  /* keep Space from re-toggling the button mid-flight */
+btnMode.addEventListener('click', () => {
+  (mode === 'bird') ? enterOrbit() : enterBird();
+  btnMode.blur();
 });
 
+/* steering by drag: horizontal offset = bank, vertical offset = pitch */
 canvas.addEventListener('pointerdown', e => {
-  if(mode !== 'fly' || dragging) return;
+  if(mode !== 'bird' || dragging) return;
   dragging = true; dragId = e.pointerId;
-  lastX = e.clientX; lastY = e.clientY;
+  dragSX = e.clientX; dragSY = e.clientY;
   canvas.setPointerCapture(e.pointerId);
   hideHint();
 });
 canvas.addEventListener('pointermove', e => {
-  if(mode !== 'fly' || !dragging || e.pointerId !== dragId) return;
-  const dx = e.clientX - lastX, dy = e.clientY - lastY;
-  lastX = e.clientX; lastY = e.clientY;
-  yaw   -= dx * 0.0032;
-  pitch -= dy * 0.0028;
-  pitch = Math.min(1.35, Math.max(-1.35, pitch));
-  lookVelX = lerp(lookVelX, dx, 0.35);
+  if(mode !== 'bird' || !dragging || e.pointerId !== dragId) return;
+  dragBank  = Math.max(-1, Math.min(1, (e.clientX - dragSX) / 110));
+  dragPitch = Math.max(-1, Math.min(1, (dragSY - e.clientY) / 110));
 });
-const endDrag = e => { if(e.pointerId === dragId) dragging = false; };
+const endDrag = e => { if(e.pointerId === dragId){ dragging = false; dragBank = 0; dragPitch = 0; } };
 canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', endDrag);
 
 window.addEventListener('keydown', e => {
-  if(e.key === 'f' || e.key === 'F'){ (mode === 'fly') ? exitFly() : enterFly(); return; }
-  if(mode !== 'fly') return;
-  if(e.key === 'Escape'){ exitFly(); return; }
+  if(e.key === 'f' || e.key === 'F'){ (mode === 'bird') ? enterOrbit() : enterBird(); return; }
+  if(mode !== 'bird') return;
+  if(e.key === 'Escape'){ enterOrbit(); return; }
   keys[e.code] = true;
-  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
-window.addEventListener('blur', () => { for(const k in keys) keys[k] = false; touchThrottle = false; });
+window.addEventListener('blur', () => { for(const k in keys) keys[k] = false; dragBank = 0; dragPitch = 0; });
 
-flyFwd.addEventListener('pointerdown', e => { e.preventDefault(); touchThrottle = true; flyFwd.classList.add('held'); });
-const throttleOff = () => { touchThrottle = false; flyFwd.classList.remove('held'); };
-flyFwd.addEventListener('pointerup', throttleOff);
-flyFwd.addEventListener('pointercancel', throttleOff);
-flyFwd.addEventListener('pointerleave', throttleOff);
+const _fwd = new THREE.Vector3();
+function updatePlayerFlight(dt){
+  const bankIn  = Math.max(-1, Math.min(1, (keys['ArrowRight'] ? 1 : 0) + (keys['ArrowLeft'] ? -1 : 0) + dragBank));
+  const pitchIn = Math.max(-1, Math.min(1, (keys['ArrowUp'] ? 1 : 0) + (keys['ArrowDown'] ? -1 : 0) + dragPitch));
 
-const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
-function updateFly(dt){
-  const fwdIn    = (keys['KeyW'] || keys['ArrowUp'] || touchThrottle ? 1 : 0) + (keys['KeyS'] || keys['ArrowDown'] ? -1 : 0);
-  const strafeIn = (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0) + (keys['KeyA'] || keys['ArrowLeft'] ? -1 : 0);
-  const vertIn   = (keys['Space'] || keys['KeyE'] ? 1 : 0) + (keys['KeyQ'] || keys['ControlLeft'] ? -1 : 0);
-  const boost = (keys['ShiftLeft'] || keys['ShiftRight']) ? 2.1 : 1;
-  const ACC = 280 * boost;
+  /* stall: bleed too much speed climbing and the nose drops on its own */
+  const stall = clamp01((40 - airspeed) / 8);
+  const pitchTarget = pitchIn*0.72 - stall*0.55;
+  pitch = lerp(pitch, pitchTarget, 1 - Math.exp(-3.2*dt));
+  bank  = lerp(bank, bankIn*0.85, 1 - Math.exp(-4.5*dt));
+  yaw  -= bank * dt * (0.75 + 45/airspeed);
+
+  /* energy: dive to gain, climb to bleed, drag pulls toward cruise */
+  airspeed += (-Math.sin(pitch)*55 - (airspeed - CRUISE)*0.30) * dt;
+  airspeed = Math.max(V_MIN, Math.min(V_MAX, airspeed));
 
   _fwd.set(-Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw)*Math.cos(pitch));
-  _right.set(Math.cos(yaw), 0, -Math.sin(yaw));
-  vel.addScaledVector(_fwd, fwdIn*ACC*dt);
-  vel.addScaledVector(_right, strafeIn*ACC*0.7*dt);
-  vel.y += vertIn*ACC*0.6*dt;
-  vel.multiplyScalar(Math.exp(-2.3*dt));
-  camera.position.addScaledVector(vel, dt);
+  camera.position.addScaledVector(_fwd, airspeed*dt);
 
-  /* stay above ground and water; the world itself is endless */
+  /* ground assist — birds don't faceplant */
   const gy = terrainH(camera.position.x, camera.position.z);
-  const minY = Math.max(gy + 3.0, 2.0);
-  if(camera.position.y < minY){ camera.position.y = minY; if(vel.y < 0) vel.y = 0; }
-  if(camera.position.y > 1200){ camera.position.y = 1200; if(vel.y > 0) vel.y = 0; }
+  const minY = Math.max(gy + 3.5, 2.2);
+  if(camera.position.y < minY){
+    camera.position.y = minY;
+    if(pitch < 0.12) pitch = lerp(pitch, 0.2, 1 - Math.exp(-8*dt));
+  }
+  if(camera.position.y > 1500){ camera.position.y = 1500; if(pitch > 0) pitch *= 0.9; }
 
-  /* banking roll from turning + strafing */
-  lookVelX *= Math.exp(-6*dt);
-  const rollTarget = Math.min(0.5, Math.max(-0.5, -strafeIn*0.20 - lookVelX*0.018));
-  roll = lerp(roll, rollTarget, 1 - Math.exp(-8*dt));
-  camera.rotation.set(pitch, yaw, roll);
+  camera.rotation.set(pitch, yaw, -bank*0.9);
 
-  /* speed-based fov kick */
-  const speed = vel.length();
-  const targetFov = baseFov + clamp01(speed/260)*13;
+  /* wings flap when climbing or slow; lock into a shallow V when gliding */
+  const flapping = pitchIn > 0.2 || airspeed < CRUISE - 6;
+  flapPhase += dt * (flapping ? 10 : 2.0);
+  const a = flapping ? Math.sin(flapPhase)*0.5 : 0.06 + Math.sin(flapPhase)*0.06;
+  wingR.rotation.z = a;
+  wingL.rotation.z = -a;
+
+  /* speed reads as field of view */
+  const targetFov = baseFov + clamp01((airspeed - CRUISE)/150) * (reduceMotion ? 6 : 16);
   if(Math.abs(camera.fov - targetFov) > 0.05){
     camera.fov = lerp(camera.fov, targetFov, 1 - Math.exp(-5*dt));
     camera.updateProjectionMatrix();
@@ -957,6 +966,10 @@ planChunks(true);
   let guard = 0;
   while(buildQueue.length && buildQueue[0].ring <= 1 && guard++ < 16) processQueue(1);
 }
+/* take off immediately — the app opens mid-glide */
+camera.position.set(-160, 150, 230);
+camera.lookAt(0, 60, 0);
+enterBird();
 
 /* ---------- loop ---------- */
 const clock = new THREE.Clock();
@@ -966,7 +979,7 @@ function frame(){
   const dt = Math.min(clock.getDelta(), 0.1);
   elapsed += dt;
   updateCycle(dt, elapsed);
-  if(mode === 'fly') updateFly(dt);
+  if(mode === 'bird') updatePlayerFlight(dt);
   else controls.update();
   planChunks(false);
   processQueue(dt > 0.03 ? 1 : 2);
