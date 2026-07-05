@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-05: v2.8 — clean-stickmen revert + stepped walk (chat ask; NOTE fighters were never pixel art — the 8px strokes read as "armor", so slimmed: body/arms/legs 8→5, katana 4, tsuba 6, head 11.5, feet 4). Walk is now **step-by-step**: velocity pulses `0.3+0.7|cos(walkT*4.5)|` (surge on foot-plant, near-pause between), cadence slowed (walkT factor 0.045→0.01 → ~1.2s per stride cycle, ~69px per footstep at 115 u/s avg), stride amplitude 16→20. Average speed unchanged from v2.4.
 - 2026-07-05: v2.7 — wooden dojo floor (chat ask, "no other changes" honored — only the ground block in drawBackgroundLow): wet stone → warm planks #55402f, horizontal plank lines every 5 low-res px (= 20 screen px) #3a2a1e w/ staggered end joints, storm-glow band bumped 0.12→0.16 + two faint cool sheen lines (rain-slick reflection).
 - 2026-07-05: v2.6 — block guard tuned (chat ask): hiltX 15→20, swordA −1.48→−1.66 — blade now tilts back TOWARD the head while standing clear in front of it (verified ~4.7px clearance from the helmet edge at head height; was ~1px = visually touching).
 - 2026-07-05: v2.5 — stance detail (chat ask): width front 22→26 / back 14→18 (block 24/22), back knee IK hint flipped to (−s, 0.35) so the rear knee flares BACKWARD (front stays toward opponent), and feet added — front foot 9px stroke pointing at the opponent, back foot 8px flaring away (rides the floating heel). Leg reach check: front 56.4 < 58 max ✓.
