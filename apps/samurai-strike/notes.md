@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-05: v4.2 — parry reflex + cautious steps (chat ask): for 500ms after any parry the defender blade eases toward the head-guard angle (swordA blends to −1.875 by pk=1−pf/500, then relaxes back — applies in block/idle/walk; block already there = no-op). Walk pulse deepened: 0.3+0.7|cos| → 0.12+0.88|cos|^1.6 — near-full stop between plants, sharper surge, avg speed ~15% lower.
 - 2026-07-05: v4.1 — wounded guard finalized (clarifying re-send): shattered idle/walk splits the arms — off-hand extends in a wary forward reach (ward point shX+38, +6; 90% extension, small fist dot) while the weapon hand pulls the stub to the chest (hilt 12,−10, swordA −1.35). Stab windup/recover re-anchored to chest position. First one-handed pose in the rig — the split lives in the arm-draw branch, not the pose table.
 - 2026-07-05: v4.0 — shattered wary reach (chat ask, truncated "then com[mit]"): broken-blade guard now extends both arms ~87% forward (hilt 16,−6 → 36,−12) with the stub angled inward (swordA −1.35) — warding-off body language. Shattered windup/recover re-anchored (36−34p/−12+8p/−1.35+1.25p; 44−8p/−2−10p/−1.35p).
 - 2026-07-05: v3.9 — hold-block glow (chat ask): guard state blade idles at glowK 0.5 (half the parry-flash intensity — white stroke, +10 shadowBlur, +1 width); parry flash still overrides to full 1.0 and the ring remains parry-only.
