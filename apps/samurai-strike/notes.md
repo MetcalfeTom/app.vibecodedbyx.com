@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-05: v4.5 — WALK 185 w/ cadence factor 0.008 (longer steps, similar rhythm); clash/parry sparks now render w/ the block-blade 50% glow (shadowColor = spark col @0.5, blur 15; shadow reset after loop — pools unaffected).
 - 2026-07-05: v4.4 — weightier strides (WALK 115→145, amp 24/16, cadence unchanged → ~90px per stride cycle) + shattered stub pushed forward off the face (hilt 12,−10 → 20,−6; windup/recover re-anchored 20−18p/−6+2p and 44−24p/−2−4p).
 - 2026-07-05: v4.3 — perfect-parry fix (chat bug report): (1) just-parry was shattered-only — a perfectly timed press w/ healthy blade resolved as plain held-block (state flips to block next frame), so no flash/ring. Now the kill branch accepts idle/walk defenders of ANY blade state w/ parryPress ≤150ms + facing. (2) held-block parry only flashes/rings when the press itself was ≤150ms old (perfect-timed); a stale held guard just clangs + keeps its steady 50% glow. (3) flash intensity 1.0→1.2 (120%: shadowBlur→29, width→+2.4, ring alpha clamps). Parry-reflex tilt + mechanics unchanged.
 - 2026-07-05: v4.2 — parry reflex + cautious steps (chat ask): for 500ms after any parry the defender blade eases toward the head-guard angle (swordA blends to −1.875 by pk=1−pf/500, then relaxes back — applies in block/idle/walk; block already there = no-op). Walk pulse deepened: 0.3+0.7|cos| → 0.12+0.88|cos|^1.6 — near-full stop between plants, sharper surge, avg speed ~15% lower.
