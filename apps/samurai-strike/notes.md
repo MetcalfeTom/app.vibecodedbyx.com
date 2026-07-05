@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-05: v2.4 — half-speed footwork (chat ask): WALK 230→115 u/s, stride amplitude 10→16 (walkT accumulation already scales w/ speed so cadence naturally halves too — slow, long, deliberate steps). Slash lunge untouched; AI distances unchanged (it creeps too now).
 - 2026-07-05: v2.3 — resting arms nearly straight (chat ask): idle hilt (34, +20 rel shoulder) = 39.4 of 42 reach → ~7px elbow fold, arm line ~30° below horizontal (forward + slightly down). Recover now constant hilt (34,2) — idle IS the recover end. Windup re-anchored 34−30p / 2−46p.
 - 2026-07-05: v2.2 — softer arm bend (chat ask): idle hands out/down a touch (hiltX 20, hiltY 12 → hilt dist ~36.6 vs 32.2) + asymmetric arm bones 22.5/19.5 (total reach 42 unchanged — slash full extension still reaches). Elbow fold offset ~13.6→~9.9px: relaxed-but-ready, not folded. Windup/walk/recover anchors re-matched; block kongō bend left deliberately deep.
 - 2026-07-05: v2.1 — young-kenshi posture (chat ask): lean 0.12→0.05 idle (block 0.04, windup/recover re-anchored), hips −46→−50 + spine 30→32 (taller, ~5px), block crouch 6→4, stance width front 18→22 / back 9→14 (block 20/20), leg IK segments 27→29 so wider stance keeps knee flexion. Trail wy spine constant updated to 32 (was easy to miss).
