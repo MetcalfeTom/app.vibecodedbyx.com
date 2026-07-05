@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-05: v2.5 — stance detail (chat ask): width front 22→26 / back 14→18 (block 24/22), back knee IK hint flipped to (−s, 0.35) so the rear knee flares BACKWARD (front stays toward opponent), and feet added — front foot 9px stroke pointing at the opponent, back foot 8px flaring away (rides the floating heel). Leg reach check: front 56.4 < 58 max ✓.
 - 2026-07-05: v2.4 — half-speed footwork (chat ask): WALK 230→115 u/s, stride amplitude 10→16 (walkT accumulation already scales w/ speed so cadence naturally halves too — slow, long, deliberate steps). Slash lunge untouched; AI distances unchanged (it creeps too now).
 - 2026-07-05: v2.3 — resting arms nearly straight (chat ask): idle hilt (34, +20 rel shoulder) = 39.4 of 42 reach → ~7px elbow fold, arm line ~30° below horizontal (forward + slightly down). Recover now constant hilt (34,2) — idle IS the recover end. Windup re-anchored 34−30p / 2−46p.
 - 2026-07-05: v2.2 — softer arm bend (chat ask): idle hands out/down a touch (hiltX 20, hiltY 12 → hilt dist ~36.6 vs 32.2) + asymmetric arm bones 22.5/19.5 (total reach 42 unchanged — slash full extension still reaches). Elbow fold offset ~13.6→~9.9px: relaxed-but-ready, not folded. Windup/walk/recover anchors re-matched; block kongō bend left deliberately deep.
