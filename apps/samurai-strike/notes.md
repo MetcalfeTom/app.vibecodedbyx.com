@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-05: v1.9 — strokes 8px body / 5.5px katana (tsuba 7 to match) + block pose blade now leans diagonally up-and-back toward the head (swordA −1.28→−1.92, hilt 18/−22) — high-cover guard silhouette. Parry geometry unaffected (block detection is state+facing based, not blade-position based).
 - 2026-07-05: v1.8 — strokes to 6px (chat ask): legs/spine/arms all 6, head r 12.5, headband 4 (widened to ±11), katana 4 (kept slimmer than body on purpose — a 6px blade reads as a club). If chat wants even chunkier, scale figure size too or it blobs.
 - 2026-07-05: v1.7 — thicker fighter strokes (chat ask): legs 3.4→4.2, spine 4→5, arms 3.2→4, katana 2.6→3.4, head r 10.5→11.5. Ribbon/tsuba unchanged. Bolder silhouettes vs the storm bg.
 - 2026-07-05: v1.6 — remap button on MAIN menu too (chat ask ×3) + persistence hardening: saveBinds now write-verifies (setItem → getItem compare → clear+retry once; private-mode/quota safe, falls back to in-session binds), extra saveBinds flush on closeRemap. remapReturn tracks pause vs menu origin so ✓ done restores the right overlay + focus. Load-path validation roundtrip test passed in node w/ storage stub.
