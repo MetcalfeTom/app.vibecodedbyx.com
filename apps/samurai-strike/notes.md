@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-05: v3.2 — guard precision pass (chat ask): swordA −1.70→−1.875 (exactly +10°), hiltX solved numerically (bisection over min blade-segment-to-head-circle distance) → 29.6 gives exactly 10.0px mask gap.
 - 2026-07-05: v3.1 — guard hands lowered (chat ask): hiltY −32→−14 (hands drop from chin to just below shoulder/chest), swordA −1.66→−1.70 (blade tilts further toward the head). Verified clearance ~3.6px off the mask at head height — floats clear, does not touch.
 - 2026-07-05: v3.0 — asymmetric gait (chat ask): back foot phase-lags front by 0.7 rad w/ smaller swing (wOffF sin(k)*20 / wOffB sin(k−0.7)*13) — feet plant offset, not metronome-mirrored. Dash unchanged and unaffected (it feeds walkT, so it strides through the asymmetric cycle too).
 - 2026-07-05: v2.9 — **double-tap dash** (chat ask): double-tap left/right (<260ms, keyboard via live binds + touch buttons) → friction-damped impulse dashVx=±1326 decaying exp(−6t) → measured 213px ≈ 3.1 step-lengths in 0.5s. Decays every tick regardless of state; only MOVES in idle/walk (slash lunge overrides). Dash feeds walkT (legs stride through it) + adds forward lean (dashVx*s*0.00025 clamp ±0.2). sfxDash = falling bandpass whoosh. separate() still prevents pass-through (dash-shove emerges). Menu footer mentions it.
