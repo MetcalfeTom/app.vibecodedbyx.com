@@ -11,3 +11,4 @@
 - Volume per pad
 - Multiple loop layers
 - Export loop as WAV
+- 2026-07-05: **Cathedral reverb** (chat ask). Synthesized 4s stone-room IR (stereo, RT60≈4s via exp(-6.9t/4), one-pole lowpass whose coefficient shrinks over the tail so highs die first, 7 sparse early slap-backs at 13–90ms with L/R polarity flip). ConvolverNode on a parallel wet bus: per-hit gain → masterGain (dry) + reverbSend → convolver → reverbWet(0.4) → masterGain. CATHEDRAL button (active by default) + V key toggle; wet gain ramps via setTargetAtTime(0.08) so live tails don't click. Mute still kills everything (masterGain).
