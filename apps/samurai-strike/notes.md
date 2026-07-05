@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-05: v2.7 — wooden dojo floor (chat ask, "no other changes" honored — only the ground block in drawBackgroundLow): wet stone → warm planks #55402f, horizontal plank lines every 5 low-res px (= 20 screen px) #3a2a1e w/ staggered end joints, storm-glow band bumped 0.12→0.16 + two faint cool sheen lines (rain-slick reflection).
 - 2026-07-05: v2.6 — block guard tuned (chat ask): hiltX 15→20, swordA −1.48→−1.66 — blade now tilts back TOWARD the head while standing clear in front of it (verified ~4.7px clearance from the helmet edge at head height; was ~1px = visually touching).
 - 2026-07-05: v2.5 — stance detail (chat ask): width front 22→26 / back 14→18 (block 24/22), back knee IK hint flipped to (−s, 0.35) so the rear knee flares BACKWARD (front stays toward opponent), and feet added — front foot 9px stroke pointing at the opponent, back foot 8px flaring away (rides the floating heel). Leg reach check: front 56.4 < 58 max ✓.
 - 2026-07-05: v2.4 — half-speed footwork (chat ask): WALK 230→115 u/s, stride amplitude 10→16 (walkT accumulation already scales w/ speed so cadence naturally halves too — slow, long, deliberate steps). Slash lunge untouched; AI distances unchanged (it creeps too now).
