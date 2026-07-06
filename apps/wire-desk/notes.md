@@ -19,6 +19,8 @@
 
 - 2026-07-06: v1.8 — jimbonz (2nd font complaint in a row): right-pane headline unreadable in Bodoni. Headlines (feed h3 @700 / story h2 @800 -0.01em / compose headline input) → **Bricolage Grotesque** (sharp characterful grotesque from the approved-fonts list — NOT Inter/system-ui, both banned by house rules), Helvetica Neue/Arial fallbacks. Bodoni survives as masthead nameplate + byline italic + ornament only. Result = classic modern-paper pairing: serif nameplate / bold sans heads / Source Serif reading body. Screenshot-verified in harness.
 
+- 2026-07-06: v1.9 — source archive at /wire-desk/download.zip (index.html + notes.md + supabase-config-fixed.js + ingest.js; all already-public files, anon key ships to browsers anyway). **Regenerate the zip when the app changes**: `cd apps/wire-desk && python3 -c "import zipfile; z=zipfile.ZipFile('download.zip','w',zipfile.ZIP_DEFLATED); [z.write(f) for f in ['index.html','notes.md','supabase-config-fixed.js','ingest.js']]"`.
+
 ## issues
 - **Headless-harness gotcha**: chromium headless_shell only advances animation frames on demand — a 0.35s CSS transition appears FROZEN mid-flight in screenshots/getComputedStyle (h3 read rgb(42,37,28) 1.2s after toggle). Verify color-correctness with page.emulateMedia({reducedMotion:'reduce'}) to disable transitions; don't chase it as an app bug.
 - **CDATA-before-tag-strip**: `<![CDATA[...]]>` contains no `>` until its terminator, so a naive `<[^>]*>` strip swallows the whole payload — BBC + NZ Herald wrap titles in CDATA and parsed to ZERO items until stripTags unwrapped CDATA first. Order: unwrap CDATA → strip tags → decode entities → strip again.
