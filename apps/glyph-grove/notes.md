@@ -1,0 +1,11 @@
+# Glyph Grove — notes
+
+## log
+- 2026-07-06: v1 — moody top-down word-collecting walk (2 near-identical chat asks merged + "HI at spawn" follow-up). **Grid**: 24×16 of 16px tiles on a 384×256 pixelated canvas (3:2 frame, CSS vignette + border glow). **Movement**: grid-locked with 130ms ease-in-out tween (Pokémon-style smooth), keydown steps IMMEDIATELY + `held` map for auto-repeat while held (lesson: frame-loop-only polling drops sub-frame taps — playwright caught it, real fast-tappers would too). Swipe-to-step on touch (26px threshold, re-anchors each step). **Letters**: 16 scattered glowing rune-tiles (freq-weighted bag `eeeee…z`, ≥3 vowels guaranteed), sine-pulse halo + float lift, serif glyph; walk onto one → into tray (pitch-rising pling). Refill +10 when board <6. **Word panel**: DOM tray in pickup order, live green border when tray ≥3 letters AND in dict; SPELL IT (Enter) validates against **7,228-word embedded dictionary** (words.js, google-10000-english filtered 3–8 alpha, 61KB) — valid = scrabble-ish letter values × length, score/best (localStorage)/words++, refill; invalid = red message + tray shake (no punishment). DROP (Backspace) returns last letter to an adjacent free cell. **HI greeting** (chat): 'h' at (13,8) + 'i' at (14,8) beside spawn — collecting exactly "hi" first fires "THE GROVE SAYS HI BACK" + chime (once). 16–23 rock slabs (never within 3 of spawn). **Aesthetic**: deep indigo void, gold #e8c476 accents, Cormorant Garamond italic title + Silkscreen HUD, lantern-wisp player w/ radial halo, 26 drifting mist blobs (killed by reduced-motion). WebAudio: steps/pling/word-arpeggio/bad-buzz, mute persisted. WCAG: role=application canvas w/ control summary, aria-live msg, aria-pressed mute, focus-visible, 44px buttons, rem type.
+
+## issues
+- Keydown must call tryStep directly — the frame-loop `held` polling misses taps shorter than one frame.
+- Dictionary is common-words only (7k) — chat may complain about missing legit words; can swap in a bigger list (wamerican not present in sandbox; fetched google-10000 via CDN at build time).
+
+## todos
+- Chat may want: timer/daily seed mode, ghost that chases you (moody!), letter decay, longer-word bonuses, Supabase leaderboard, more grove props (trees/stumps).
