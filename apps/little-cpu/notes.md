@@ -9,6 +9,7 @@
 - Fib demo stops BEFORE printing 144/233 (its own JZ logic when A+B==233) — correct per program, just noting the sequence ends at 89.
 - OUT prints decimal in the console but registers show hex — intentional (console = human, chips = machine).
 
+- 2026-07-06: v1.2 — "add two numbers" demo (chat ask): LDA 25 → ADD 17 → STA RESULT → OUT → HLT, heavily commented, now the DEFAULT program (cleanest on-ramp). Verified: OUT 42, RESULT byte 0A holds 2A.
 - Linear disassembler shows data bytes as bogus instructions (DB 12 renders as 'JZ 04' etc.) — classic von Neumann ambiguity, arguably a feature.
 
 ## todos
