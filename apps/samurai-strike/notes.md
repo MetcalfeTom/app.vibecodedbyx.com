@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-06: v5.3 — stride distance +60% (chat ask): WALK 150→200, cadence 1.15→0.95/s (1.47s cycle) → ~88px per step (was ~55); visual foot stride 18/13 amp, lift 8. Leg IK reach 29/29=58 still covers front+18+off... front 26+18=44 w/ hip drop — fine (clamps gracefully if ever short).
 - 2026-07-06: v5.2 — main-menu remap button renamed to "⌨ bind your own keys before fight you fool" (chat ask, verbatim). Pause-menu button stays "⌨ rebind keys".
 - 2026-07-06: v5.1 — menu key guide removed (chat ask): the P1/P2 .keys section is gone from the main menu; refreshBindUi now null-guards mkP1/mkP2 (bindings still visible + editable in the ⌨ rebind screen, which is the single source of key truth now).
 - 2026-07-06: v5.0 — **scene replaced** (chat ask): temple/torii/lanterns → stepped-silhouette mountain range LEFT (2 depth tones + snow caps), cliff RIGHT rising to a 3-tier winged Japanese castle keep w/ lit windows + shachihoko, battlefield MIDDLE ground (5 war banners on tilted poles — red/steel/violet — stuck spears, fallen gear, 2 dying ember glows). Storm sky/clouds/stars/rain/lightning systems untouched; dojo plank floor kept (explicit prior request). OG image reprompted (seed 4748), meta/aria updated. All in the 240×135 static prerender (var still named templeCv).
