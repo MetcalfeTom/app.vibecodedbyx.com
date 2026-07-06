@@ -1,6 +1,7 @@
 # Samurai Strike — notes
 
 ## log
+- 2026-07-06: v5.4 — **sky apparition** (chat ask): drawFighter gained a `ghost` opts param (x/y/scale/alpha override, spectral #cfd6ff ink instead of #0c0a14, trail suppressed). A 3× giant at (W/2±40 slow drift, y 335) alpha 0.065 renders between bg and duel, mirroring `lastActor` — whoever last committed to a windup or block (set in trySlash + block entry, default A). Pose/facing/parry-flash all inherited live since it reads the same fighter object. Barely visible by design — brightens naturally during that fighter parry flash.
 - 2026-07-06: v5.3 — stride distance +60% (chat ask): WALK 150→200, cadence 1.15→0.95/s (1.47s cycle) → ~88px per step (was ~55); visual foot stride 18/13 amp, lift 8. Leg IK reach 29/29=58 still covers front+18+off... front 26+18=44 w/ hip drop — fine (clamps gracefully if ever short).
 - 2026-07-06: v5.2 — main-menu remap button renamed to "⌨ bind your own keys before fight you fool" (chat ask, verbatim). Pause-menu button stays "⌨ rebind keys".
 - 2026-07-06: v5.1 — menu key guide removed (chat ask): the P1/P2 .keys section is gone from the main menu; refreshBindUi now null-guards mkP1/mkP2 (bindings still visible + editable in the ⌨ rebind screen, which is the single source of key truth now).
