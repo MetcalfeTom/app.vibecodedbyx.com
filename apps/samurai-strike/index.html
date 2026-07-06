@@ -245,7 +245,17 @@
       <button type="button" id="btnAi" class="ghostly">👻 duel the ghost <small>(1P)</small></button>
     </div>
     <div class="modes" style="margin-top:0.9rem;">
+      <button type="button" id="btnOnline" class="ghostly">🌐 online duel</button>
       <button type="button" id="btnMenuRemap" class="ghostly">⌨ bind your own keys before fight you fool</button>
+    </div>
+    <div id="onlinePanel" style="display:none;margin-top:1.1rem;">
+      <div class="modes">
+        <button type="button" id="btnCreate">create room</button>
+        <input id="joinCode" maxlength="4" autocomplete="off" spellcheck="false" placeholder="CODE" aria-label="Room code"
+          style="width:7rem;text-align:center;font-family:'Press Start 2P',monospace;font-size:0.8rem;letter-spacing:0.2em;background:rgba(234,226,216,0.08);border:2px solid rgba(234,226,216,0.5);color:var(--light);border-radius:0;min-height:2.75rem;text-transform:uppercase;">
+        <button type="button" id="btnJoin" class="ghostly">join</button>
+      </div>
+      <p id="onlineStatus" role="status" aria-live="polite" style="margin-top:0.8rem;font-size:0.72rem;letter-spacing:0.15em;color:var(--dim);">two browsers, one duel · host is player one · ESC leaves a live duel</p>
     </div>
     <p style="margin-top:1.6rem;font-size:0.8rem;color:var(--dim);letter-spacing:0.15em;">one cut decides · blocked blades stagger the attacker · double-tap to dash · first to three</p>
   </div>
@@ -996,12 +1006,20 @@ document.addEventListener('keydown', function(e){
   }
 
   if(k === 'escape'){
+    if((mode === 'host' || mode === 'guest') && phase !== 'menu'){ quitOnline('you left the duel'); return; }
     if(paused) resumeGame();
     else if(phase === 'intro' || phase === 'fight' || phase === 'kill') pauseGame();
     return;
   }
   keys[k] = true;
   if(phase === 'fight' && !paused){
+    if(mode === 'guest'){
+      if(k === binds.p1.slash) net.pend.s = 1;
+      if(k === binds.p1.block) net.pend.pp = 1;
+      if(k === binds.p1.left) guestTap(-1);
+      if(k === binds.p1.right) guestTap(1);
+      return;
+    }
     if(k === binds.p1.slash) trySlash(A);
     if(mode === '2p' && k === binds.p2.slash) trySlash(B);
     if(k === binds.p1.block) A.parryPress = performance.now();
@@ -1036,6 +1054,10 @@ function readInputs(){
     B.input.left = !!keys[binds.p2.left];
     B.input.right = !!keys[binds.p2.right];
     B.input.block = !!keys[binds.p2.block];
+  } else if(mode === 'host'){
+    B.input.left = !!net.guestIn.l;
+    B.input.right = !!net.guestIn.r;
+    B.input.block = !!net.guestIn.b;
   }
 }
 function bindHold(id, prop){
@@ -1057,7 +1079,7 @@ document.getElementById('tcS').addEventListener('pointerdown', function(e){ e.pr
 var pauseEl = document.getElementById('pause');
 var pauseBtn = document.getElementById('pauseBtn');
 function pauseGame(){
-  if(paused || phase === 'menu' || phase === 'victory') return;
+  if(paused || phase === 'menu' || phase === 'victory' || mode === 'host' || mode === 'guest') return;
   paused = true;
   keys = {};
   pauseEl.classList.add('show');
@@ -1165,6 +1187,180 @@ document.getElementById('btnRemapReset').addEventListener('click', function(){
 buildRemap();
 refreshBindUi();
 
+/* ─── online duel: Supabase Realtime, host-authoritative ───
+   host runs the whole simulation; guest sends inputs and renders snapshots. */
+var SB_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
+var sbClient = null, sbChan = null;
+var net = { code:null, role:null, ready:false, guestIn:{l:0,r:0,b:0}, sent:{}, pend:{}, lastInSend:0, lastSnap:0 };
+function setOnlineStatus(msg){ document.getElementById('onlineStatus').textContent = msg; }
+function roomCode(){
+  var AB = 'ABCDEFGHJKLMNPRSTUVWXYZ23456789', c = '';
+  for(var i = 0; i < 4; i++) c += AB[Math.floor(Math.random()*AB.length)];
+  return c;
+}
+async function ensureSb(){
+  if(sbClient) return sbClient;
+  var mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+  sbClient = mod.createClient(SB_URL, SB_KEY);
+  return sbClient;
+}
+async function openRoom(code, role){
+  setOnlineStatus('connecting…');
+  try{ await ensureSb(); }
+  catch(e){ setOnlineStatus('could not reach the realtime service — try again'); return; }
+  closeRoom();
+  net.code = code; net.role = role; net.ready = false;
+  net.guestIn = {l:0,r:0,b:0}; net.sent = {}; net.pend = {};
+  sbChan = sbClient.channel('urai-samu:room:' + code, {
+    config: { broadcast: { self:false }, presence: { key: role + '-' + Math.random().toString(36).slice(2,8) } }
+  });
+  sbChan.on('presence', { event:'sync' }, onPresence);
+  sbChan.on('broadcast', { event:'i' }, function(m){ onGuestInput(m.payload); });
+  sbChan.on('broadcast', { event:'s' }, function(m){ onSnapshot(m.payload); });
+  sbChan.subscribe(function(status){
+    if(status === 'SUBSCRIBED'){
+      sbChan.track({ role: role });
+      setOnlineStatus(role === 'h' ? 'room ' + code + ' · tell your challenger to join…' : 'joining room ' + code + '…');
+    } else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
+      setOnlineStatus('connection failed — try again');
+    }
+  });
+}
+function onPresence(){
+  if(!sbChan) return;
+  var st = sbChan.presenceState(), roles = [];
+  Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(pr){ roles.push(pr.role); }); });
+  var haveH = roles.indexOf('h') >= 0, haveG = roles.indexOf('g') >= 0;
+  if(haveH && haveG && !net.ready){
+    net.ready = true;
+    startMatch(net.role === 'h' ? 'host' : 'guest');
+  } else if(net.ready && (!haveH || !haveG) && (mode === 'host' || mode === 'guest')){
+    quitOnline('your opponent vanished into the storm');
+  }
+}
+function closeRoom(){
+  if(sbChan && sbClient){ try{ sbClient.removeChannel(sbChan); }catch(e){} }
+  sbChan = null;
+  net.code = null; net.role = null; net.ready = false;
+}
+function quitOnline(msg){
+  closeRoom();
+  if(mode === 'host' || mode === 'guest'){
+    mode = '2p';
+    phase = 'menu';
+    paused = false; tsTarget = 1; timeScale = 1;
+    winEl.classList.remove('show');
+    pauseEl.classList.remove('show');
+    pauseBtn.style.display = 'none';
+    document.getElementById('btnRematch').style.display = '';
+    clearBanner();
+    menuEl.classList.add('show');
+    document.getElementById('onlinePanel').style.display = 'block';
+  }
+  if(msg) setOnlineStatus(msg);
+}
+function onGuestInput(p){
+  if(mode !== 'host' || !p) return;
+  net.guestIn = p;
+  if(p.s) trySlash(B);
+  if(p.pp) B.parryPress = performance.now() - Math.min(250, Math.max(0, Date.now() - (p.at || Date.now())));
+  if(p.d && (B.state === 'idle' || B.state === 'walk')){ B.dashVx = p.d * 1326; sfxDash(); }
+}
+function packF(f, now){
+  return [Math.round(f.x), f.dir, f.state, Math.round(f.t), +f.walkT.toFixed(3), f.shattered?1:0,
+          f.blocks, Math.round(f.dashVx), f.backpedal?1:0, Math.min(9999, Math.round(now - f.parryFlash)), +f.fallT.toFixed(3)];
+}
+function hostSendSnap(now){
+  if(!sbChan || now - net.lastSnap < 50) return;
+  net.lastSnap = now;
+  sbChan.send({ type:'broadcast', event:'s', payload:{
+    ph: phase, st: struck ? 1 : 0, sa: A.score, sb: B.score, a: packF(A, now), b: packF(B, now)
+  }});
+}
+function guestSfx(f, oldSt, newSt){
+  if(newSt === 'slash') sfxSwoosh();
+  else if(newSt === 'clash'){ sparkBurst(f.x, GROUND - 66); sfxClang(); }
+  else if(newSt === 'stagger'){ sparkBurst(f.x + f.dir*26, GROUND - 60); sfxClang(); }
+  else if(newSt === 'dead'){ inkBurst(f.x, GROUND - 60, -f.dir, reduceMotion ? 10 : 26); sfxKill(); }
+}
+function unpackF(f, arr){
+  f.tx = arr[0];
+  f.dir = arr[1];
+  if(f.state !== arr[2]){ guestSfx(f, f.state, arr[2]); f.state = arr[2]; }
+  f.t = arr[3];
+  f.walkT = arr[4];
+  if(!f.shattered && arr[5]) sfxShatter();
+  f.shattered = !!arr[5];
+  f.blocks = arr[6];
+  f.dashVx = arr[7];
+  f.backpedal = !!arr[8];
+  if(arr[9] < 600) f.parryFlash = performance.now() - arr[9];
+  f.fallT = arr[10];
+}
+function onSnapshot(p){
+  if(mode !== 'guest' || !p) return;
+  unpackF(A, p.a); unpackF(B, p.b);
+  if(A.score !== p.sa || B.score !== p.sb){ A.score = p.sa; B.score = p.sb; updateScoreUi(); }
+  if(phase !== p.ph){
+    phase = p.ph;
+    if(p.ph === 'intro'){
+      pools = []; splats = [];
+      winEl.classList.remove('show');
+      tsTarget = 1; timeScale = 1;
+      banner('構え', 'ready'); sfxTaiko();
+    } else if(p.ph === 'kill'){
+      tsTarget = reduceMotion ? 1 : 0.22;
+      banner('一撃', 'one strike', true);
+    } else if(p.ph === 'victory'){
+      clearBanner(); tsTarget = 1;
+      var iWon = (net.role === 'h') === (A.score > B.score);
+      document.getElementById('winText').textContent = '勝利';
+      document.getElementById('winSub').textContent = iWon ? 'YOU PREVAIL' : 'THEY PREVAIL';
+      document.getElementById('btnRematch').style.display = 'none';   /* only the host restarts */
+      winEl.classList.add('show');
+    }
+  }
+  if(!struck && p.st){ struck = true; banner('斬れ！', 'strike!', true); sfxClack(); setTimeout(clearBanner, 700); }
+  if(struck && !p.st) struck = false;
+}
+function guestTap(dir){
+  var now2 = performance.now(), key = 'net' + dir;
+  if(now2 - (tapTimes[key] || 0) < 260) net.pend.d = dir;
+  tapTimes[key] = now2;
+}
+function guestSendInputs(now){
+  if(!sbChan) return;
+  var l = keys[binds.p1.left] ? 1 : 0, r = keys[binds.p1.right] ? 1 : 0, b = keys[binds.p1.block] ? 1 : 0;
+  var changed = l !== net.sent.l || r !== net.sent.r || b !== net.sent.b;
+  if(changed || net.pend.s || net.pend.pp || net.pend.d || now - net.lastInSend > 120){
+    sbChan.send({ type:'broadcast', event:'i', payload:{
+      l:l, r:r, b:b, s: net.pend.s ? 1 : 0, pp: net.pend.pp ? 1 : 0, d: net.pend.d || 0, at: Date.now()
+    }});
+    net.sent = { l:l, r:r, b:b };
+    net.pend = {};
+    net.lastInSend = now;
+  }
+}
+function guestTick(now, raw, dt){
+  guestSendInputs(now);
+  [A, B].forEach(function(f){
+    f.t += dt;
+    if(f.state === 'dead' && f.fallT < 1) f.fallT = Math.min(1, f.fallT + dt/380);
+    if(typeof f.tx === 'number') f.x += (f.tx - f.x) * Math.min(1, raw * 0.02);
+  });
+}
+document.getElementById('btnOnline').addEventListener('click', function(){
+  var pn = document.getElementById('onlinePanel');
+  pn.style.display = pn.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('btnCreate').addEventListener('click', function(){ openRoom(roomCode(), 'h'); });
+document.getElementById('btnJoin').addEventListener('click', function(){
+  var code = document.getElementById('joinCode').value.trim().toUpperCase();
+  if(code.length === 4) openRoom(code, 'g');
+  else setOnlineStatus('enter the 4-letter code first');
+});
+
 /* ─── menu / flow ─── */
 var menuEl = document.getElementById('menu');
 var winEl = document.getElementById('win');
@@ -1183,13 +1379,15 @@ function startMatch(m){
   menuEl.classList.remove('show');
   winEl.classList.remove('show');
   showTouch(coarse && mode === 'ai');
-  pauseBtn.style.display = 'block';
+  pauseBtn.style.display = (mode === 'host' || mode === 'guest') ? 'none' : 'block';
+  document.getElementById('btnRematch').style.display = '';
   resetRound();
 }
 document.getElementById('btn2p').addEventListener('click', function(){ startMatch('2p'); });
 document.getElementById('btnAi').addEventListener('click', function(){ startMatch('ai'); });
 document.getElementById('btnRematch').addEventListener('click', function(){ startMatch(mode); });
 document.getElementById('btnMenu').addEventListener('click', function(){
+  if(mode === 'host' || mode === 'guest'){ quitOnline('duel ended'); return; }
   winEl.classList.remove('show');
   menuEl.classList.add('show');
   phase = 'menu';
@@ -1519,7 +1717,15 @@ function frame(now){
   var dt = raw * timeScale;
 
   if(paused) dt = 0;
-  if(phase !== 'menu' && !paused){
+  if(phase !== 'menu' && !paused && mode === 'guest'){
+    guestTick(now, raw, dt);
+    fighters.forEach(function(f){
+      for(var gi = f.trail.length - 1; gi >= 0; gi--){
+        f.trail[gi].age += raw;
+        if(f.trail[gi].age > 240) f.trail.splice(gi, 1);
+      }
+    });
+  } else if(phase !== 'menu' && !paused){
     phaseT += raw;
 
     if(phase === 'intro'){
@@ -1548,9 +1754,9 @@ function frame(now){
           clearBanner();
           document.getElementById('winText').textContent = '勝利';
           document.getElementById('winSub').textContent =
-            mode === 'ai'
-              ? (winner === A ? 'YOU PREVAIL' : 'THE GHOST PREVAILS')
-              : (winner === A ? 'PLAYER ONE PREVAILS' : 'PLAYER TWO PREVAILS');
+            mode === 'ai'  ? (winner === A ? 'YOU PREVAIL' : 'THE GHOST PREVAILS')
+            : mode === 'host' ? (winner === A ? 'YOU PREVAIL' : 'THEY PREVAIL')
+            : (winner === A ? 'PLAYER ONE PREVAILS' : 'PLAYER TWO PREVAILS');
           winEl.classList.add('show');
         } else {
           resetRound();
@@ -1564,6 +1770,7 @@ function frame(now){
         if(f.trail[i].age > 240) f.trail.splice(i, 1);
       }
     });
+    if(mode === 'host') hostSendSnap(now);
   }
 
   /* pixel background scaled up crisp */
