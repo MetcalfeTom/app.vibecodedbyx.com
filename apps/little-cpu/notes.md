@@ -10,6 +10,7 @@
 - OUT prints decimal in the console but registers show hex — intentional (console = human, chips = machine).
 
 - 2026-07-06: v1.2 — "add two numbers" demo (chat ask): LDA 25 → ADD 17 → STA RESULT → OUT → HLT, heavily commented, now the DEFAULT program (cleanest on-ramp). Verified: OUT 42, RESULT byte 0A holds 2A.
+- 2026-07-06: v1.3 — live source-line highlighter (chat asked 2×): backdrop div behind a now-transparent textarea (exact shared font metrics, scroll-synced), assembler returns addr→source-line map, FETCH phase highlights the fetched instruction's line in translucent gold; editing the source clears the (stale) highlight until re-assemble; reset clears. Verified: highlight steps 1→2→3→4→5 through the add demo, edit clears, zero errors.
 - Linear disassembler shows data bytes as bogus instructions (DB 12 renders as 'JZ 04' etc.) — classic von Neumann ambiguity, arguably a feature.
 
 ## todos
