@@ -5,6 +5,8 @@
 
 - 2026-07-06: v1.1 — added **Stuff** (chat ask). stuff.co.nz/rss serves **Atom** (`<entry>`, link in `href` attr, `<published>` date) — parser now matches item|entry blocks, prefers href when `<link>` body is empty/non-URL, falls back published→updated for dates. Rail order: ALL / NZ HERALD / RNZ / STUFF / BBC / REUTERS / AL JAZEERA / COMMUNITY. DB seeded: 70 feed articles across 6 sources (12 each, NZ Herald 10).
 
+- 2026-07-06: v1.2 — chat reported stuck "connecting…" + no articles, suspected RLS. **RLS verified healthy** (bare anon key AND fresh session JWT both read rows via REST — unlike the app_votes quirk, select USING(true) works here). Actual bug: boot awaited `supabaseSession()` BEFORE `load()`, so a hung/slow auth (e.g. auth-lock contention with the nginx top bar's own supabase client) blocked reads that need no session at all. Fix: load()+subscribe() fire immediately; session resolves in background under an 8s Promise.race timeout and only gates compose/retract; load() retries 3× w/ backoff; "warming up the presses…" placeholder while fetching.
+
 ## issues
 - **CDATA-before-tag-strip**: `<![CDATA[...]]>` contains no `>` until its terminator, so a naive `<[^>]*>` strip swallows the whole payload — BBC + NZ Herald wrap titles in CDATA and parsed to ZERO items until stripTags unwrapped CDATA first. Order: unwrap CDATA → strip tags → decode entities → strip again.
 - Feeds have NO CORS headers — never try to fetch them from the browser; ingest.js is the only path. sloppy.live itself is unreachable from the sandbox (HTTP 000) while external domains work — don't burn time on curl-checking the live URL.
