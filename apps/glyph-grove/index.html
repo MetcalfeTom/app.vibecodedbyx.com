@@ -219,15 +219,13 @@
 </section>
 <p id="msg" role="status" aria-live="polite"></p>
 
-<script src="words.js"></script>
 <script>
 (function(){
 'use strict';
 
-var DICT = new Set(window.GG_WORDS || []);
-/* the bundled list starts at 3 letters — teach the grove the little words */
-'hi no so go my we he it at on in up us an as by do if is of or to be me am ah oh ox pi mu id ad ex ye yo'
-  .split(' ').forEach(function(w){ DICT.add(w); });
+/* word bank arrives as words.json — groups "2".."8"; game boots when loaded */
+var DICT = new Set();
+var BANK = null;
 /* the grove is polite: these never score, even with the letters in hand */
 var VULGAR = new Set(('fuck shit cunt bitch cock dick pussy asshole bastard whore slut fag faggot ' +
   'nigger nigga retard twat wank wanker prick bollocks piss tit tits boner cum jizz').split(' '));
@@ -284,12 +282,9 @@ function needLen(){ return Math.min(8, wcount + 2); }   /* lvl1=2, lvl2=3 … ca
 /* ── the level's target word: random from the dictionary, letters scattered
       across the ring; only ITS letters count when picked up ── */
 var target = '';
-var DICT_BY_LEN = {};
-function buildLenIndex(){
-  DICT.forEach(function(w){ (DICT_BY_LEN[w.length] = DICT_BY_LEN[w.length] || []).push(w); });
-}
+var got = 0;                 /* letters of the target collected IN ORDER */
 function pickTarget(){
-  var pool = DICT_BY_LEN[needLen()] || DICT_BY_LEN[3];
+  var pool = BANK[String(needLen())] || BANK['3'];
   for(var tries = 0; tries < 200; tries++){
     var w = pool[Math.floor(Math.random() * pool.length)];
     if(!usedWords.has(w) && !isVulgar(w)) return w;
@@ -338,7 +333,7 @@ function isWall(x, y){
 }
 function blocked(x, y){
   if(isWall(x, y)) return true;
-  return !!rooms[cur].rocks[key(x, y)];
+  return !!(rooms[cur].rocks && rooms[cur].rocks[key(x, y)]);
 }
 
 /* ── room generation ── */
@@ -473,7 +468,11 @@ function message(txt, kind){
 }
 function updateLevelUi(){
   document.getElementById('level').textContent = wcount + 1;
-  spellIn.placeholder = 'SPELL: ' + target.toUpperCase();
+  var done = target.slice(0, got).toUpperCase();
+  var rest = target.slice(got).toUpperCase();
+  spellIn.placeholder = got >= target.length
+    ? 'COMPLETE — SPELL IT!'
+    : 'SPELL: ' + done + '·' + rest + ' — NEXT: ' + target[got].toUpperCase();
 }
 function invTotal(){ var n = 0; for(var k in inv) n += inv[k]; return n; }
 function renderInv(){
@@ -568,6 +567,7 @@ function submitWord(){
 /* every solved word reshuffles the ring: new target, new rocks, new letters */
 function freshLevel(){
   target = pickTarget();
+  got = 0;
   rooms.forEach(function(r){ r.rocks = null; r.letters = {}; r.planted = false; r.plant = []; });
   /* deal the target's letters out to random rooms of the ring */
   for(var i = 0; i < target.length; i++)
@@ -598,7 +598,12 @@ document.addEventListener('keydown', function(e){
   var tag = (e.target && e.target.tagName || '').toLowerCase();
   if(tag === 'input' || tag === 'textarea') return;
   var k = e.key.toLowerCase();
-  if(k === 'enter'){ e.preventDefault(); spellIn.focus(); return; }
+  if(k === 'enter'){
+    e.preventDefault();
+    if(spellIn.value.trim()) submitWord();   /* auto-filled word submits directly */
+    else spellIn.focus();
+    return;
+  }
   var map = { w:'u', arrowup:'u', s:'d', arrowdown:'d', a:'l', arrowleft:'l', d:'r', arrowright:'r' };
   if(map[k]){
     e.preventDefault();
@@ -693,17 +698,57 @@ function onArrive(){
   var r = rooms[cur];
   if(r.letters[k]){
     var ch = r.letters[k];
-    /* only letters that appear in the target word count */
-    if(target.indexOf(ch) < 0){
-      message('"' + ch.toUpperCase() + '" HAS NO PLACE IN "' + target.toUpperCase() + '"', true);
-      sndBad();
+    /* letters must be taken IN ORDER — anything else detonates */
+    if(got >= target.length || ch !== target[got]){
+      boom(player.gx, player.gy);
+      message(got < target.length
+        ? 'WRONG LETTER! THE GROVE WANTS "' + target[got].toUpperCase() + '" NEXT'
+        : 'THE WORD IS COMPLETE — SPELL IT', true);
       return;
     }
     delete r.letters[k];
+    got++;
     inv[ch] = (inv[ch] || 0) + 1;
-    sndPick(Math.min(6, invTotal()));
+    sndPick(Math.min(6, got));
     renderInv();
+    updateLevelUi();
+    if(got >= target.length){
+      spellIn.value = target;
+      liveCheck();
+      message('SEQUENCE COMPLETE — PRESS ENTER TO SPELL "' + target.toUpperCase() + '"');
+    }
   }
+}
+
+/* ── wrong-touch explosion (pixel shards + shake, no libraries needed) ── */
+var boomParts = [], shakeUntil = 0;
+function boom(gx2, gy2){
+  var cx = (gx2 + 0.5) * TILE, cy = (gy2 + 0.5) * TILE;
+  for(var i = 0; i < 26; i++){
+    var a = Math.random() * 6.28, sp = 30 + Math.random() * 120;
+    boomParts.push({
+      x: cx, y: cy,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40,
+      life: 0.55 + Math.random() * 0.3,
+      col: ['#ff8c3a','#e8503a','#ffd98a','#fff3d0'][i % 4]
+    });
+  }
+  if(!reduceMotion) shakeUntil = performance.now() + 240;
+  snd(function(a2, t){
+    var len = a2.sampleRate * 0.25 | 0, buf = a2.createBuffer(1, len, a2.sampleRate), d = buf.getChannelData(0);
+    for(var n = 0; n < len; n++) d[n] = (Math.random()*2-1) * (1 - n/len);
+    var src = a2.createBufferSource(); src.buffer = buf;
+    var lp = a2.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    var g = a2.createGain(); g.gain.value = 0.14;
+    src.connect(lp); lp.connect(g); g.connect(a2.destination); src.start(t);
+    var o = a2.createOscillator(), g2 = a2.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(90, t);
+    o.frequency.exponentialRampToValueAtTime(35, t + 0.22);
+    g2.gain.setValueAtTime(0.16, t);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+    o.connect(g2); g2.connect(a2.destination); o.start(t); o.stop(t + 0.26);
+  });
 }
 
 /* ── mist ── */
@@ -714,6 +759,14 @@ for(var mi = 0; mi < 26; mi++){
 
 /* ── render ── */
 function draw(time){
+  var shaking = time < shakeUntil;
+  if(shaking){
+    ctx.fillStyle = '#05060f';
+    ctx.fillRect(0, 0, 384, 256);
+    var sAmp = 3 * (shakeUntil - time) / 240;
+    ctx.save();
+    ctx.translate(Math.round((Math.random()*2-1)*sAmp), Math.round((Math.random()*2-1)*sAmp));
+  }
   ctx.fillStyle = '#10131f';
   ctx.fillRect(0, 0, 384, 256);
   var d = doorDirs(cur);
@@ -902,6 +955,14 @@ function draw(time){
     egg._lt = 0;
   }
 
+  /* explosion shards */
+  for(var bp = 0; bp < boomParts.length; bp++){
+    var b2 = boomParts[bp];
+    ctx.globalAlpha = Math.max(0, Math.min(1, b2.life * 2.2));
+    ctx.fillStyle = b2.col;
+    ctx.fillRect(Math.round(b2.x), Math.round(b2.y), 2, 2);
+  }
+  ctx.globalAlpha = 1;
   /* room-change fade */
   if(fade > 0){
     ctx.globalAlpha = fade;
@@ -909,6 +970,7 @@ function draw(time){
     ctx.fillRect(0, 0, 384, 256);
     ctx.globalAlpha = 1;
   }
+  if(shaking) ctx.restore();
 }
 function ease(t){ return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2; }
 
@@ -919,6 +981,14 @@ function frame(now){
   var dt = Math.min(50, now - last);
   last = now;
   if(fade > 0) fade = Math.max(0, fade - dt / (reduceMotion ? 1 : 300));
+  for(var bi2 = boomParts.length - 1; bi2 >= 0; bi2--){
+    var bb = boomParts[bi2];
+    bb.life -= dt / 1000;
+    if(bb.life <= 0){ boomParts.splice(bi2, 1); continue; }
+    bb.x += bb.vx * dt / 1000;
+    bb.y += bb.vy * dt / 1000;
+    bb.vy += 260 * dt / 1000;
+  }
   if(player.t < 1){
     player.t = Math.min(1, player.t + dt / STEP_MS);
     if(player.t >= 1) onArrive();
@@ -963,10 +1033,21 @@ function fitFrame(){
 window.addEventListener('resize', fitFrame);
 window.addEventListener('orientationchange', fitFrame);
 
-/* ── boot ── */
-buildLenIndex();
-freshLevel();
-fade = 0;              /* no fade on first paint */
+/* ── boot: word bank first, then the grove wakes ── */
+spellIn.placeholder = 'THE GROVE IS WAKING…';
+fetch('words.json')
+  .then(function(r){ if(!r.ok) throw new Error('bank ' + r.status); return r.json(); })
+  .then(function(bank){
+    BANK = bank;
+    Object.keys(bank).forEach(function(len){
+      bank[len].forEach(function(w){ DICT.add(w); });
+    });
+    freshLevel();
+    fade = 0;            /* no fade on first paint */
+  })
+  .catch(function(){
+    message('THE WORD BANK FAILED TO LOAD — RELOAD THE PAGE', true);
+  });
 fitFrame();
 setTimeout(fitFrame, 300);   /* re-fit once fonts/panel settle */
 document.getElementById('roomHint').textContent = '· ' + rooms[0].set.toUpperCase().split('').join(' ');
