@@ -124,6 +124,22 @@
     padding-top:0.15rem;
   }
   .reg.flash{ border-color:var(--glow); box-shadow:0 0 0.9rem rgba(111,232,154,0.5); }
+  .reg.err{ animation:errFlash 0.5s steps(2) infinite; }
+  .reg.err .val{ color:var(--hot); }
+  @keyframes errFlash{
+    0%{ border-color:var(--hot); box-shadow:0 0 1.1rem rgba(255,122,92,0.7); }
+    100%{ border-color:var(--line); box-shadow:none; }
+  }
+  #alu.panic #aluBody{ animation:aluPanic 0.4s steps(2) infinite; }
+  #alu.panic #aluOp{ fill:var(--hot); }
+  @keyframes aluPanic{
+    0%{ stroke:var(--hot); fill:#2a100c; }
+    100%{ stroke:var(--line); fill:#0a1810; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .reg.err, #alu.panic #aluBody{ animation:none; }
+    .reg.err{ border-color:var(--hot); }
+  }
   /* ALU */
   #aluWrap{ display:flex; justify-content:center; padding:0.4rem 0 0.6rem; }
   svg#alu{ width:min(100%, 21rem); height:auto; }
@@ -202,6 +218,7 @@
       <option value="count">demo: count 1 → 5</option>
       <option value="fib">demo: fibonacci</option>
       <option value="mult">demo: 6 × 7 by addition</option>
+      <option value="divzero">demo: divide by zero 💥</option>
     </select>
     <textarea id="asm" spellcheck="false" aria-label="Assembly source"></textarea>
     <div class="btnrow">
@@ -212,7 +229,7 @@
       <summary style="cursor:pointer;min-height:2rem;">instruction set</summary>
       LDA a · STA a · LDI n — load/store/immediate<br>
       ADD a · SUB a · AND a · OR a · XOR a — ALU vs memory<br>
-      SHL · SHR — shift accumulator<br>
+      SHL · SHR — shift accumulator · DIV a — divide (÷0 = panic!)<br>
       JMP a · JZ a · JNZ a — jumps (Z flag)<br>
       OUT — print ACC · HLT — stop · DB n — data byte<br>
       labels end with “:” · comments start with “;”
@@ -233,6 +250,7 @@
       <div class="reg" id="rZ"><div class="nm">Z FLAG</div><div class="val">0</div></div>
       <div class="reg" id="rN"><div class="nm">N FLAG</div><div class="val">0</div></div>
       <div class="reg" id="rC"><div class="nm">C FLAG</div><div class="val">0</div></div>
+      <div class="reg" id="rE"><div class="nm">ERR</div><div class="val">0</div></div>
     </div>
     <div id="aluWrap">
       <svg id="alu" viewBox="0 0 340 150" role="img" aria-label="Arithmetic logic unit diagram">
@@ -271,15 +289,15 @@
 'use strict';
 
 /* ── ISA ── */
-var OPS = { NOP:0, LDA:1, STA:2, LDI:3, ADD:4, SUB:5, AND:6, OR:7, XOR:8, SHL:9, SHR:10, JMP:11, JZ:12, JNZ:13, OUT:14, HLT:15 };
-var HASARG = { LDA:1, STA:1, LDI:1, ADD:1, SUB:1, AND:1, OR:1, XOR:1, JMP:1, JZ:1, JNZ:1 };
+var OPS = { NOP:0, LDA:1, STA:2, LDI:3, ADD:4, SUB:5, AND:6, OR:7, XOR:8, SHL:9, SHR:10, JMP:11, JZ:12, JNZ:13, OUT:14, HLT:15, DIV:16 };
+var HASARG = { LDA:1, STA:1, LDI:1, ADD:1, SUB:1, AND:1, OR:1, XOR:1, JMP:1, JZ:1, JNZ:1, DIV:1 };
 var NAMES = Object.keys(OPS);
 function opName(code){ return NAMES.find(function(n){ return OPS[n] === code; }) || '??'; }
 
 /* ── machine state ── */
 var MEMSIZE = 64;
 var mem = new Uint8Array(MEMSIZE);
-var acc = 0, pc = 0, ir = null, irArg = null, z = 0, n = 0, c = 0;
+var acc = 0, pc = 0, ir = null, irArg = null, z = 0, n = 0, c = 0, err = 0;
 var phase = 0;               /* 0 fetch, 1 decode, 2 execute */
 var halted = false, touched = -1;
 var out = [];
@@ -335,10 +353,11 @@ function disasm(){
   while(a < MEMSIZE){
     var op = mem[a];
     var name = opName(op);
-    if(op < 16 && HASARG[name] && a + 1 < MEMSIZE){
+    var known = name !== '??';
+    if(known && HASARG[name] && a + 1 < MEMSIZE){
       lines[a] = name + ' ' + hex(mem[a+1]);
       a += 2;
-    } else if(op < 16 && !HASARG[name]){
+    } else if(known && !HASARG[name]){
       lines[a] = name === 'NOP' && mem[a] === 0 ? '' : name;
       a += 1;
     } else {
@@ -372,6 +391,7 @@ function render(){
   document.querySelector('#rZ .val').textContent = z;
   document.querySelector('#rN .val').textContent = n;
   document.querySelector('#rC .val').textContent = c;
+  document.querySelector('#rE .val').textContent = err;
   ['phF','phD','phE'].forEach(function(id, i){
     document.getElementById(id).classList.toggle('on', !halted && i === phase);
   });
@@ -486,6 +506,19 @@ function execute(){
       out.push(String(acc));
       narrate('EXECUTE: OUT — print ACC (' + acc + ').');
       break;
+    case 'DIV':
+      touched = irArg;
+      if(mem[irArg] === 0){
+        err = 1; halted = true; stopRun();
+        aluShow(acc, 0, '\u00f70!!', null);
+        document.getElementById('rE').classList.add('err');
+        document.getElementById('alu').classList.add('panic');
+        narrate('EXECUTE: DIV by mem[' + hex(irArg) + '] = 00 \u2014 \u26a0 ALU PANIC: DIVIDE BY ZERO. The machine faults. RESET to forgive it.');
+        break;
+      }
+      aluOp('\u00f7', mem[irArg], function(a,b){ return Math.floor(a / b); });
+      narrate('EXECUTE: ACC \u2190 ACC \u00f7 mem[' + hex(irArg) + '] \u2192 ' + hex(acc));
+      break;
     case 'HLT':
       halted = true;
       stopRun();
@@ -522,8 +555,10 @@ document.getElementById('btnRun').addEventListener('click', function(){
   document.getElementById('hz').oninput = function(){ if(running) tick(); };
 });
 function reset(keepMem){
-  acc = 0; pc = 0; ir = null; irArg = null; z = 0; n = 0; c = 0;
+  acc = 0; pc = 0; ir = null; irArg = null; z = 0; n = 0; c = 0; err = 0;
   phase = 0; halted = false; touched = -1; out = [];
+  document.getElementById('rE').classList.remove('err');
+  document.getElementById('alu').classList.remove('panic');
   stopRun();
   if(!keepMem) mem = new Uint8Array(MEMSIZE);
   aluShow(null, null, 'ALU', null);
@@ -551,6 +586,19 @@ document.getElementById('btnAsm').addEventListener('click', function(){
 
 /* ── demos ── */
 var DEMOS = {
+  divzero: [
+    '; a division that goes fine\u2026 then one that does not',
+    '      LDA TWELVE',
+    '      DIV FOUR    ; 12 \u00f7 4',
+    '      OUT         ; 3',
+    '      LDA TWELVE',
+    '      DIV NOTHING ; uh oh.',
+    '      OUT         ; never reached',
+    '      HLT',
+    'TWELVE:  DB 12',
+    'FOUR:    DB 4',
+    'NOTHING: DB 0'
+  ].join('\n'),
   count: [
     '; count 1..5, printing each',
     '      LDI 1',
@@ -616,7 +664,7 @@ demoSel.addEventListener('change', loadDemo);
 
 /* debug/testing */
 window.__cpu = function(){
-  return { acc: acc, pc: pc, z: z, halted: halted, out: out.slice(), phase: phase, mem0: mem[0] };
+  return { acc: acc, pc: pc, z: z, err: err, halted: halted, out: out.slice(), phase: phase, mem0: mem[0] };
 };
 window.__cpuStep = microStep;
 
