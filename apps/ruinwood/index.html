@@ -203,6 +203,26 @@
     box-shadow:none !important;
   }
   .bindBtn.listening{ color:var(--glow) !important; border-color:var(--glow) !important; }
+  #hintbar{
+    position:absolute;
+    left:50%; bottom:13%;
+    transform:translateX(-50%);
+    background:rgba(8,14,10,0.82);
+    border:1px solid rgba(143,196,106,0.4);
+    box-shadow:2px 2px 0 rgba(0,0,0,0.5);
+    padding:0.25rem 0.9rem;
+    font-size:clamp(0.9rem, 2.2vw, 1.1rem);
+    color:var(--dim);
+    z-index:5;
+    white-space:nowrap;
+    opacity:1;
+    transition:opacity 1.4s ease;
+    pointer-events:none;
+  }
+  #hintbar.gone{ opacity:0; }
+  #hintbar[hidden]{ display:none; }
+  @media (pointer: coarse){ #hintbar{ display:none; } }
+  @media (prefers-reduced-motion: reduce){ #hintbar{ transition:none; } }
   .tc{ position:absolute; z-index:7; display:none; }
   .tc.show{ display:block; }
   #dpad{ left:4%; bottom:5%; width:9.5rem; height:9.5rem; }
@@ -248,10 +268,14 @@
   </div>
 
   <p id="dialog" role="status" aria-live="polite"><span id="dialogText"></span><span class="cue" id="dialogCue"></span></p>
+  <p id="hintbar" hidden></p>
 
   <div class="overlay show" id="menu" role="dialog" aria-label="World generator">
     <h2>RUINWOOD</h2>
     <p class="tag">every seed grows a different forest.<br>somewhere in each one: a single ruin.</p>
+    <div class="row" id="continueRow" hidden style="margin-bottom:0.8rem;">
+      <button type="button" id="btnContinue">↩ continue</button>
+    </div>
     <div class="row">
       <input id="seedIn" maxlength="8" placeholder="SEED" autocomplete="off" spellcheck="false" aria-label="World seed">
       <button type="button" id="btnGrow">grow world</button>
@@ -682,6 +706,7 @@ document.addEventListener('keydown', function(e){
   var isBound = ACTIONS.some(function(a){ return binds[a] === k; });
   if(isBound || k === ' ' || k.indexOf('arrow') === 0 || k === "'" || k === '/') e.preventDefault();
   keys[k] = true;
+  if(isBound) fadeHints();   /* first real input: the hints have done their job */
   if(k === binds.use) use();
   if(k === binds.attack) attack();
 });
@@ -866,6 +891,7 @@ function use(){
       player.hasSword = true;
       sndChime(true);
       heartsUi();
+      saveState();
       say(['a sword, point-down in the earth. rust only on the guard.',
            'you draw it. the woods go quiet for one breath.',
            'the shades will mind you now. (' + keyLabel(binds.attack) + ' to swing)']);
@@ -876,6 +902,7 @@ function use(){
     if(!altarFound){
       altarFound = true;
       sndChime(true);
+      saveState();
       say([
         'a low stone altar, swept clean by wind.',
         'letters survive on its face:',
@@ -1254,6 +1281,26 @@ function render(time){
     pr(Math.round(px + Math.cos(sa)*7) - 1, Math.round(py - 2 + Math.sin(sa)*7) - 1, 2, 2, '#e8f0dc');
     pr(Math.round(px + Math.cos(sa)*5), Math.round(py - 2 + Math.sin(sa)*5), 1, 1, '#b8c8a8');
   }
+  /* pulsing E-prompt when facing something worth touching */
+  var ftx = Math.floor(player.x / TILE) + player.fx;
+  var fty = Math.floor(player.y / TILE) + player.fy;
+  if(ftx >= 0 && fty >= 0 && ftx < MW && fty < MH){
+    var ft = map[fty*MW + ftx];
+    if(ft === T_ALTAR || ft === T_SWORD || ft === T_PORTAL || ft === T_WELL || ft === T_HUT){
+      var bx = Math.round((ftx + 0.5) * TILE - camX * TILE);
+      var by = Math.round(fty * TILE - camY * TILE) - 4;
+      ctx.globalAlpha = reduceMotion ? 0.9 : 0.5 + 0.45 * Math.sin(time * 0.007);
+      var lab = keyLabel(binds.use).slice(0, 3);
+      var bw = 4 + lab.length * 4;
+      pr(bx - (bw >> 1) - 1, by - 8, bw + 2, 9, '#0a120c');          /* square badge */
+      pr(bx - (bw >> 1), by - 7, bw, 7, '#1c2e1e');
+      ctx.fillStyle = '#ffd98a';
+      ctx.font = '7px "VT323", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(lab, bx, by - 1);
+      ctx.globalAlpha = 1;
+    }
+  }
   /* fireflies at the ruin */
   if(!reduceMotion && ruin){
     for(var i = 0; i < 3; i++){
@@ -1309,6 +1356,7 @@ function frame(now){
       travelCd = now + 1500;
       sndPortal();
       generate(seedStr, depth + 1, true);
+      saveState();
       say('world ' + (depth + 1) + ' — ' + biome.name + '. ' + biome.foe.name + ' move between the trees.');
     }
   } else {
@@ -1318,26 +1366,95 @@ function frame(now){
 }
 requestAnimationFrame(frame);
 
+/* ── save-state: the woods remember where you stood ── */
+function saveState(){
+  if(!map) return;
+  try{
+    localStorage.setItem('ruinwood-save-v1', JSON.stringify({
+      seed: seedStr, depth: depth,
+      x: Math.round(player.x), y: Math.round(player.y),
+      hp: player.hp, sword: player.hasSword, altar: altarFound
+    }));
+  }catch(e){}
+}
+function loadSave(){
+  try{
+    var s = JSON.parse(localStorage.getItem('ruinwood-save-v1'));
+    if(s && typeof s.seed === 'string' && s.seed && typeof s.depth === 'number' &&
+       s.depth >= 0 && s.depth < 60 && typeof s.x === 'number' && typeof s.y === 'number') return s;
+  }catch(e){}
+  return null;
+}
+setInterval(function(){ if(map && !frozen()) saveState(); }, 5000);
+
+/* ── fading keyboard hints ── */
+var hintbar = document.getElementById('hintbar');
+var hintT = 0;
+function showHints(){
+  hintbar.textContent =
+    keyLabel(binds.up) + keyLabel(binds.left) + keyLabel(binds.down) + keyLabel(binds.right) +
+    ' wander · ' + keyLabel(binds.use) + ' examine · ' + keyLabel(binds.attack) + ' slash';
+  hintbar.hidden = false;
+  hintbar.classList.remove('gone');
+  clearTimeout(hintT);
+  hintT = setTimeout(fadeHints, 8000);
+}
+function fadeHints(){
+  clearTimeout(hintT);
+  hintbar.classList.add('gone');
+}
+
 /* ── menu wiring ── */
 var menuEl = document.getElementById('menu');
+function showTouch(){
+  if(!coarse) return;
+  document.getElementById('dpad').classList.add('show');
+  document.getElementById('tcE').classList.add('show');
+  document.getElementById('tcA').classList.add('show');
+}
 function grow(str){
   player.hasSword = false;   /* a new world means a new blade to find */
   player.swimAcc = 0;
   generate((str || randSeed()).toUpperCase());
   menuEl.classList.remove('show');
-  if(coarse){
-    document.getElementById('dpad').classList.add('show');
-    document.getElementById('tcE').classList.add('show');
-    document.getElementById('tcA').classList.add('show');
-  }
+  showTouch();
+  showHints();
+  saveState();
   say('the woods of ' + seedStr + '. something old waits inside.');
 }
+function continueGame(){
+  var s = loadSave();
+  if(!s) return;
+  player.hasSword = false;
+  player.swimAcc = 0;
+  /* replay the portal chain so deep worlds regrow exactly (biome pick
+     depends on the previous world's roll) */
+  for(var d = 0; d <= s.depth; d++) generate(s.seed, d, d > 0);
+  if(!wadeAt(s.x, s.y)){ player.x = s.x; player.y = s.y; }
+  player.hp = Math.min(3, Math.max(1, s.hp | 0));
+  player.hasSword = !!s.sword;
+  altarFound = !!s.altar;
+  heartsUi();
+  menuEl.classList.remove('show');
+  showTouch();
+  showHints();
+  say('the woods of ' + seedStr + (depth > 0 ? ', world ' + (depth + 1) : '') + '. they remember where you stood.');
+}
+function refreshContinue(){
+  var s = loadSave();
+  var row = document.getElementById('continueRow');
+  row.hidden = !s;
+  if(s) document.getElementById('btnContinue').textContent =
+    '↩ continue ' + s.seed + (s.depth > 0 ? ' · world ' + (s.depth + 1) : '');
+}
+document.getElementById('btnContinue').addEventListener('click', continueGame);
 document.getElementById('btnGrow').addEventListener('click', function(){
   grow(document.getElementById('seedIn').value.trim());
 });
 document.getElementById('btnLucky').addEventListener('click', function(){ grow(); });
 document.getElementById('btnNew').addEventListener('click', function(){
   document.getElementById('seedIn').value = '';
+  refreshContinue();
   menuEl.classList.add('show');
 });
 document.getElementById('seedIn').addEventListener('keydown', function(e){
@@ -1356,6 +1473,7 @@ try{
   }
 })();
 refreshBinds();
+refreshContinue();
 })();
 </script>
 </body>
