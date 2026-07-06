@@ -327,7 +327,7 @@ var T_WATER=0, T_SHORE=1, T_GRASS=2, T_TREE=3, T_ROCK=4, T_FLOWER=5, T_SHROOM=6,
 var SOLID = {};
 [T_WATER, T_TREE, T_ROCK, T_WALL, T_PILLAR, T_HUT, T_WELL].forEach(function(t){ SOLID[t] = true; });
 
-var TILE = 8, VW = 30, VH = 20, MW = 72, MH = 52;
+var TILE = 8, VW = 30, VH = 20, MW = 96, MH = 68;
 var canvas = document.getElementById('world');
 var ctx = canvas.getContext('2d');
 canvas.width = VW * TILE;   /* 240 */
@@ -599,11 +599,24 @@ function generate(str, d, atPortal){
     map[swy*MW + swx] = T_SWORD;
     sword = { x: swx, y: swy };
   }
+  if(!sword){
+    /* dense ring around spawn: exhaustively take the eligible tile nearest ~9 out */
+    var bestSw = null, bestScore = 1e9;
+    for(var by2 = 2; by2 < MH - 2; by2++)
+      for(var bx2 = 2; bx2 < MW - 2; bx2++){
+        var bt = map[by2*MW + bx2];
+        if(bt !== T_GRASS && bt !== T_TGRASS && bt !== T_FLOWER) continue;
+        var bsc = Math.abs(Math.hypot(bx2 - spawn.x, by2 - spawn.y) - 9);
+        if(bsc < bestScore){ bestScore = bsc; bestSw = { x: bx2, y: by2 }; }
+      }
+    if(bestSw){ map[bestSw.y*MW + bestSw.x] = T_SWORD; sword = bestSw; }
+  }
 
   /* roaming shades — more (and quicker) the deeper you go */
   enemies = [];
   poofs = [];
-  var wantN = Math.min(24, 12 + depth * 2);
+  /* two-thirds the old count, in a ~75% larger world — the woods breathe now */
+  var wantN = Math.min(16, 8 + depth);
   for(var en = 0; en < 900 && enemies.length < wantN; en++){
     var ex = 2 + Math.floor(rng() * (MW - 4));
     var ey = 2 + Math.floor(rng() * (MH - 4));
@@ -685,7 +698,7 @@ var shakeUntil = 0;
 /* ── keys (remappable) ── */
 var DEF_BINDS = { up:'w', down:'s', left:'a', right:'d', use:'e', attack:' ' };
 var ACTIONS = ['up','down','left','right','use','attack'];
-var LABELS = { up:'walk up', down:'walk down', left:'walk left', right:'walk right', use:'examine (E)', attack:'sword swing' };
+var LABELS = { up:'walk up', down:'walk down', left:'walk left', right:'walk right', use:'examine (E)', attack:'attack (fist / sword)' };
 var binds;
 try{ binds = JSON.parse(localStorage.getItem('ruinwood-keys-v1')); }catch(e){}
 if(!binds || ACTIONS.some(function(a){ return typeof (binds||{})[a] !== 'string'; })){
@@ -737,7 +750,7 @@ function refreshBinds(){
   });
   document.getElementById('menuKeys').innerHTML =
     '<kbd>' + keyLabel(binds.up) + keyLabel(binds.left) + keyLabel(binds.down) + keyLabel(binds.right) +
-    '</kbd> wander · <kbd>' + keyLabel(binds.use) + '</kbd> examine · <kbd>' + keyLabel(binds.attack) + '</kbd> slash · remappable';
+    '</kbd> wander · <kbd>' + keyLabel(binds.use) + '</kbd> examine · <kbd>' + keyLabel(binds.attack) + '</kbd> strike · remappable';
 }
 ACTIONS.forEach(function(a){
   var row = document.createElement('div');
@@ -799,19 +812,19 @@ function sndStep(water){
     o.start(t); o.stop(t + 0.15);
   });
 }
-function sndSwing(){
+function sndSwing(fist){
   snd(function(a, t){
-    var len = a.sampleRate * 0.09 | 0, buf = a.createBuffer(1, len, a.sampleRate), dd = buf.getChannelData(0);
+    var len = a.sampleRate * (fist ? 0.12 : 0.09) | 0, buf = a.createBuffer(1, len, a.sampleRate), dd = buf.getChannelData(0);
     for(var i = 0; i < len; i++) dd[i] = Math.random()*2 - 1;
     var n = a.createBufferSource(); n.buffer = buf;
     var f = a.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2;
-    f.frequency.setValueAtTime(900, t);
-    f.frequency.exponentialRampToValueAtTime(2600, t + 0.08);
+    f.frequency.setValueAtTime(fist ? 320 : 900, t);
+    f.frequency.exponentialRampToValueAtTime(fist ? 700 : 2600, t + 0.08);
     var g = a.createGain();
-    g.gain.setValueAtTime(0.12, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    g.gain.setValueAtTime(fist ? 0.09 : 0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + (fist ? 0.12 : 0.09));
     n.connect(f); f.connect(g); g.connect(a.destination);
-    n.start(t); n.stop(t + 0.09);
+    n.start(t); n.stop(t + 0.13);
   });
 }
 function sndThud(low){
@@ -943,31 +956,30 @@ function frozen(){
   return document.getElementById('menu').classList.contains('show') ||
          remapEl.classList.contains('show');
 }
-var noSwordHintT = 0;
 function attack(){
   if(frozen() || !map) return;
   var now = performance.now();
-  if(!player.hasSword){
-    if(now > noSwordHintT && !dialogEl.classList.contains('show')){
-      noSwordHintT = now + 3000;
-      say('your hands are empty. somewhere in these woods, a blade stands waiting.');
-    }
-    return;
-  }
   if(now < player.atkCd) return;
-  player.atkCd = now + 300;
+  /* no blade yet? you still have fists: slow, feeble, but they stagger */
+  var armed = player.hasSword;
+  player.atkCd = now + (armed ? 300 : 750);
   player.swingT = now;
-  sndSwing();
+  player.swingFist = !armed;
+  sndSwing(!armed);
+  if(!armed && !player._fistNoted){
+    player._fistNoted = true;
+    say('bare knuckles. they will do — barely. the woods hold a better answer.');
+  }
   for(var i = 0; i < enemies.length; i++){
     var e = enemies[i];
     if(e.dead) continue;
     var dx = e.x - player.x, dy = e.y - player.y;
     var dist = Math.hypot(dx, dy);
-    if(dist > 12) continue;
+    if(dist > (armed ? 12 : 9)) continue;
     if(dx * player.fx + dy * player.fy < -1) continue;   /* only in front */
-    e.hp--;
-    e.hurtUntil = now + 260;
-    var kn = (e.type === 'brute' ? 10 : 26) / Math.max(1, dist);
+    e.hp -= armed ? 1 : 0.5;
+    e.hurtUntil = now + (armed ? 260 : 520);   /* the punch stuns longer than it hurts */
+    var kn = (armed ? (e.type === 'brute' ? 10 : 26) : (e.type === 'brute' ? 5 : 13)) / Math.max(1, dist);
     e.kx = dx * kn; e.ky = dy * kn;
     if(e.hp <= 0){
       e.dead = true; e.deadT = 0;
@@ -1297,13 +1309,18 @@ function render(time){
     pr(px + (player.fx >= 0 ? 1 : -2), py - 1 - bob, 1, 2, '#8a4a28');  /* satchel hints facing */
   }
   ctx.globalAlpha = 1;
-  /* sword swing arc */
-  var swp = (nowT - player.swingT) / 140;
+  /* swing arc: blade sweep, or a stubby fist jab */
+  var swp = (nowT - player.swingT) / (player.swingFist ? 220 : 140);
   if(swp >= 0 && swp <= 1){
     var baseA = Math.atan2(player.fy, player.fx);
-    var sa = baseA + (swp - 0.5) * 1.7;
-    pr(Math.round(px + Math.cos(sa)*7) - 1, Math.round(py - 2 + Math.sin(sa)*7) - 1, 2, 2, '#e8f0dc');
-    pr(Math.round(px + Math.cos(sa)*5), Math.round(py - 2 + Math.sin(sa)*5), 1, 1, '#b8c8a8');
+    if(player.swingFist){
+      var jab = Math.sin(swp * Math.PI) * 6;
+      pr(Math.round(px + Math.cos(baseA)*jab) - 1, Math.round(py - 2 + Math.sin(baseA)*jab) - 1, 2, 2, '#e8c49a');
+    } else {
+      var sa = baseA + (swp - 0.5) * 1.7;
+      pr(Math.round(px + Math.cos(sa)*7) - 1, Math.round(py - 2 + Math.sin(sa)*7) - 1, 2, 2, '#e8f0dc');
+      pr(Math.round(px + Math.cos(sa)*5), Math.round(py - 2 + Math.sin(sa)*5), 1, 1, '#b8c8a8');
+    }
   }
   /* pulsing E-prompt when facing something worth touching */
   var ftx = Math.floor(player.x / TILE) + player.fx;
@@ -1424,7 +1441,7 @@ var hintT = 0;
 function showHints(){
   hintbar.textContent =
     keyLabel(binds.up) + keyLabel(binds.left) + keyLabel(binds.down) + keyLabel(binds.right) +
-    ' wander · ' + keyLabel(binds.use) + ' examine · ' + keyLabel(binds.attack) + ' slash';
+    ' wander · ' + keyLabel(binds.use) + ' examine · ' + keyLabel(binds.attack) + ' strike';
   hintbar.hidden = false;
   hintbar.classList.remove('gone');
   clearTimeout(hintT);
