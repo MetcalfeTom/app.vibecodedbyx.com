@@ -1,0 +1,12 @@
+# Benzingrad — notes
+
+## log
+- 2026-07-06: v1 — crowdsourced gas price map (chat ask: pins, ruble tags, timestamped submissions, heatmap, route-cost leaderboard, single HTML no frameworks). **Map**: hand-drawn 1000×700 SVG of fictional city Benzingrad (vilnius-eats precedent — no tile libs): block pattern, river Benzinka, ring road + 4 avenues w/ dashed mustard centerlines, 5 district labels. **Pins**: SVG teardrops colored by price percentile (hsl 120→0 green→red), Russo One ₽/L tag above w/ paint-order stroke; click → cream popup (price ₽, fuel АИ-92/95/98/ДТ, station, relative timestamp), auto-hides 4.2s. **Submissions**: map click → dashed pending ring + form (price ₽/L stored as INTEGER KOPECKS — create_table has no float type!, fuel select, station) → gas_pins insert (uid from vendored supabase-config-fixed + 8s-timeout background auth, reads never gated — wire-desk lessons applied, incl. boot watchdog + relative import). Realtime INSERT prepends live. **Heatmap**: 1000×700 canvas overlay (mix-blend screen, 0.65 opacity, toggle) — radial gradient per pin, green→amber→red by normalized price, 130px radius. **Route-cost leaderboard**: route mode → click A→B → dist (1px=20m) × 8L/100km × cheapest АИ-95 within 120px of segment (fallback: cheapest anywhere) → save named route to gas_routes → board sorts cheapest-first (top 10). **Tables**: gas_pins{x,y,price(kopecks),fuel,station}, gas_routes{name,ax..by,fuel,cost,dist} — default RLS. Seeded 8 stations via REST (GOTCHA: bash $UID is a readonly builtin=1000 — use another var name for auth user ids!). **E2E on the REAL backend from the harness** (supabase reachable from sandbox): 8 pins render + popup w/ timestamp ✓, submit → insert + "спасибо, comrade" (9 pins) ✓, route 12.4km → 58.54₽ saved to leaderboard ✓, heatmap pixels verified at pin coords ✓, zero page errors. Fonts Russo One + Rubik, post-soviet road-atlas palette (asphalt/mustard/red).
+
+## issues
+- TEST GOTCHA: sampling a 1000px-wide canvas with a 4000-BYTE stride = one sample per ROW (all x=0) — looked like an empty heatmap; sample at feature coords instead.
+- litres display was ×100 off at first (cost math was always right); fixed.
+- price stored in kopecks (int) — divide by 100 everywhere; create_table offers no float/numeric.
+
+## todos
+- Fuel-type filter for pins/heatmap, decay/fade for stale prices (>7d), delete-own-pin UI, consumption slider for routes, district average chips.
