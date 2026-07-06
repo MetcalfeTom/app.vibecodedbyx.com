@@ -663,16 +663,30 @@ function renderEmptyStory(){
 }
 
 /* ── data ── */
+let loadTries = 0;
 async function load(){
+  if(!articles.length){
+    feedList.textContent = '';
+    const li = document.createElement('li');
+    li.className = 'feed-empty';
+    li.textContent = 'warming up the presses…';
+    feedList.appendChild(li);
+  }
   const { data, error } = await supabase.from(TABLE)
     .select('id, headline, source, content, byline, user_id, created_at, link, kind')
     .order('created_at', { ascending:false })
     .limit(MAXROWS);
-  if(error){ setStatus('err', 'wire down — reload?'); return; }
+  if(error){
+    setStatus('err', 'wire down — retrying…');
+    if(loadTries++ < 3) setTimeout(load, 2500 * loadTries);
+    else setStatus('err', 'wire down — reload the page');
+    return;
+  }
+  loadTries = 0;
   articles = data || [];
   setStatus('live', articles.length + ' on the wire');
   renderFeed();
-  renderEmptyStory();
+  if(activeId == null) renderEmptyStory();
 }
 function subscribe(){
   supabase.channel('wire-desk-live')
@@ -741,17 +755,24 @@ $('composeForm').addEventListener('submit', async e => {
 $('searchIn').addEventListener('input', e => { query = e.target.value.trim(); renderFeed(); });
 $('btnBack').addEventListener('click', () => storyPane.classList.remove('open'));
 
-/* ── boot ── */
+/* ── boot ──
+   Reading the wire needs NO session (RLS allows select to anon), so load
+   immediately. Auth resolves in the background with a hard timeout — it
+   only gates composing/retracting, and supabaseSession() can stall when
+   another client on the page holds the auth lock. Never let it block reads. */
 renderRail();
 renderEmptyStory();
 try{ $('cByline').value = localStorage.getItem('wire-desk-byline') || ''; }catch(_){}
+load().then(subscribe);
 (async () => {
   try{
-    const session = await supabaseSession();
+    const session = await Promise.race([
+      supabaseSession(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('auth timeout')), 8000)),
+    ]);
     uid = session && session.user ? session.user.id : null;
-  }catch(e){ /* reads still work without a session */ }
-  await load();
-  subscribe();
+    if(uid && activeId != null) openStory(activeId);  /* reveal retract on own story */
+  }catch(e){ /* anonymous reading is fine; compose will say "no session" */ }
 })();
 </script>
 </body>
