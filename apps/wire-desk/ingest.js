@@ -143,6 +143,38 @@ async function sb(path, opts = {}, token) {
       failed.push(feed.source + ' (' + e.message.slice(0, 80) + ')');
     }
   }
+  /* full-text extraction: fetch article pages server-side, strip to paragraphs.
+     Covers fresh links + a slice of backlog lacking fulltext. */
+  try {
+    const have = new Set((await sb('/rest/v1/wire_fulltext?select=link&order=created_at.desc&limit=1000', { method: 'GET' }, token)).map(r => r.link));
+    const all = await sb('/rest/v1/' + TABLE + '?select=link&kind=eq.feed&order=created_at.desc&limit=200', { method: 'GET' }, token);
+    const want = all.map(r => r.link).filter(l => l && !have.has(l) && !l.includes('news.google.com')).slice(0, 40);
+    let extracted = 0;
+    for (const link of want) {
+      try {
+        const html = await fetchText(link);
+        let scope = html;
+        const art = html.match(/<article[\s>][\s\S]*?<\/article>/i);
+        if (art) scope = art[0];
+        scope = scope.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ');
+        const paras = [...scope.matchAll(/<p[\s>][\s\S]*?<\/p>/gi)]
+          .map(m => stripTags(m[0]))
+          .filter(t => t.length > 60 && !/cookie|subscribe|newsletter|sign up|advertis/i.test(t.slice(0, 80)));
+        const body = paras.join('\n\n').slice(0, 7000);
+        if (body.length < 300) continue;    // extraction too thin — skip
+        await sb('/rest/v1/wire_fulltext', {
+          method: 'POST',
+          body: JSON.stringify({ link, body, user_id: uid }),
+          headers: { Prefer: 'return=minimal' },
+        }, token);
+        extracted++;
+      } catch (e) { /* page fetch failed — fine, fall back stays summary */ }
+    }
+    console.log('fulltext extracted: ' + extracted + '/' + want.length);
+  } catch (e) {
+    console.log('fulltext pass FAILED: ' + e.message.slice(0, 80));
+  }
+
   /* weather snapshot for the app's adblock-proof fallback */
   try {
     const wx = await fetchText('https://api.open-meteo.com/v1/forecast?latitude=-36.85,-41.29&longitude=174.76,174.78&current=temperature_2m,weather_code,wind_speed_10m&timezone=Pacific%2FAuckland');
