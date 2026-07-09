@@ -143,6 +143,19 @@ async function sb(path, opts = {}, token) {
       failed.push(feed.source + ' (' + e.message.slice(0, 80) + ')');
     }
   }
+  /* weather snapshot for the app's adblock-proof fallback */
+  try {
+    const wx = await fetchText('https://api.open-meteo.com/v1/forecast?latitude=-36.85,-41.29&longitude=174.76,174.78&current=temperature_2m,weather_code,wind_speed_10m&timezone=Pacific%2FAuckland');
+    const parsed = JSON.parse(wx);
+    await sb('/rest/v1/wire_weather', {
+      method: 'POST',
+      body: JSON.stringify({ payload: parsed, user_id: uid }),
+      headers: { Prefer: 'return=minimal' },
+    }, token);
+    console.log('weather snapshot stored');
+  } catch (e) {
+    console.log('weather snapshot FAILED: ' + e.message.slice(0, 80));
+  }
   console.log('DONE: inserted ' + inserted + (failed.length ? ' | FAILED: ' + failed.join(', ') : ''));
   if (inserted === 0 && failed.length === FEEDS.length) process.exit(1);
 })().catch(e => { console.error('FATAL:', e.message); process.exit(1); });
