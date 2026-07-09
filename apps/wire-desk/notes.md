@@ -21,6 +21,8 @@
 
 - 2026-07-06: v1.9 — source archive at /wire-desk/download.zip (index.html + notes.md + supabase-config-fixed.js + ingest.js; all already-public files, anon key ships to browsers anyway). **Regenerate the zip when the app changes**: `cd apps/wire-desk && python3 -c "import zipfile; z=zipfile.ZipFile('download.zip','w',zipfile.ZIP_DEFLATED); [z.write(f) for f in ['index.html','notes.md','supabase-config-fixed.js','ingest.js']]"`.
 
+- 2026-07-09: ops check (chat ask) — cron job existed but had NOT run since seeding (newest article was 3 days old; crons only fire while a session is awake). Ran ingest manually: +70 fresh across all 6 feeds (BBC/AJ war coverage from minutes ago) — INGESTER FULLY HEALTHY, scheduling is the weak link. Re-armed durable cron as 66b86796 (old 1db4db23 deleted; fresh 7-day expiry from 2026-07-09). REALITY: headlines refresh whenever a session is active around :43 odd hours, else they age gracefully until the next session runs the ingester — any future session can also just run `node apps/wire-desk/ingest.js` when touching this app.
+
 ## issues
 - **Headless-harness gotcha**: chromium headless_shell only advances animation frames on demand — a 0.35s CSS transition appears FROZEN mid-flight in screenshots/getComputedStyle (h3 read rgb(42,37,28) 1.2s after toggle). Verify color-correctness with page.emulateMedia({reducedMotion:'reduce'}) to disable transitions; don't chase it as an app bug.
 - **CDATA-before-tag-strip**: `<![CDATA[...]]>` contains no `>` until its terminator, so a naive `<[^>]*>` strip swallows the whole payload — BBC + NZ Herald wrap titles in CDATA and parsed to ZERO items until stripTags unwrapped CDATA first. Order: unwrap CDATA → strip tags → decode entities → strip again.
