@@ -129,7 +129,8 @@
 <div id="stats" aria-live="off">
   <span>ROUND TRIP <b id="sRtt">6.0s</b></span><br>
   <span>IN FLIGHT <b id="sFly">0</b> packets · <b id="sBits">0</b> bits</span><br>
-  <span>CYCLES <b id="sCyc">0</b></span>
+  <span>CYCLES <b id="sCyc">0</b></span><br>
+  <span>XOR KEY <b>0x2A</b> · LAST CHECKSUM <b id="sSum">—</b></span>
 </div>
 
 <main id="deck" aria-label="Transmission controls">
@@ -137,6 +138,7 @@
     <input id="msg" maxlength="24" placeholder="type a message to store in the void…" aria-label="Message to store as packets">
     <button type="button" class="hot" id="btnSend">⬆ UPLOAD TO ORBIT</button>
     <button type="button" id="btnClear">PURGE</button>
+    <button type="button" id="btnCipher" aria-pressed="false">🔓 XOR CIPHER: OFF</button>
   </div>
   <div class="row">
     <label class="sl">RETURN DELAY <span id="sDelay">6.0s</span>
@@ -182,6 +184,18 @@ var delayS = 6;              /* full round trip target, seconds */
 var cycles = 0;
 var msgSeq = 0;
 var rebuilt = {};            /* per-message reconstruction at home planet */
+var checksums = {};          /* mid -> expected checksum */
+var cipherOn = false;
+var XOR_KEY = 42;
+function cipherChar(ch){
+  var c = (ch.charCodeAt(0) ^ XOR_KEY);
+  return String.fromCharCode(33 + (c % 94));
+}
+function checksum(str){
+  var sum = 0;
+  for(var i = 0; i < str.length; i++) sum = (sum + str.charCodeAt(i)) & 255;
+  return '0x' + sum.toString(16).toUpperCase().padStart(2, '0');
+}
 var arrivedFresh = 0;
 
 function launch(ch, fromIdx, seq, total, mid){
@@ -193,13 +207,16 @@ function launch(ch, fromIdx, seq, total, mid){
     x: fp[0], y: fp[1],
     target: 1 - fromIdx,
     speed: dist / (delayS / 2),   /* one leg = half the round trip */
-    hue: fromIdx === 0 ? 172 : 22,
+    hue: cipherOn ? 285 : (fromIdx === 0 ? 172 : 22),
+    enc: cipherOn,
+    scramble: performance.now(),
     trail: []
   });
 }
 function uploadMessage(text){
   var t = text.toUpperCase().replace(/\s+/g, '·');
   var mid = ++msgSeq;
+  checksums[mid] = checksum(t);
   for(var i = 0; i < t.length; i++){
     (function(ch, i, total){
       setTimeout(function(){ launch(ch, 0, i, total, mid); }, i * 260);
@@ -226,6 +243,13 @@ function esc(s){
   d.textContent = s;
   return d.innerHTML;
 }
+
+var cipherBtn = document.getElementById('btnCipher');
+cipherBtn.addEventListener('click', function(){
+  cipherOn = !cipherOn;
+  cipherBtn.textContent = cipherOn ? '🔐 XOR CIPHER: ON' : '🔓 XOR CIPHER: OFF';
+  cipherBtn.setAttribute('aria-pressed', cipherOn ? 'true' : 'false');
+});
 
 var delayIn = document.getElementById('delay');
 delayIn.addEventListener('input', function(){
@@ -267,15 +291,22 @@ function frame(now){
       var np = planetPos(planets[pk.target]);
       var nd = Math.hypot(np[0] - pk.x, np[1] - pk.y);
       pk.speed = nd / (delayS / 2);
-      pk.hue = pk.target === 1 ? 172 : 22;
+      pk.enc = cipherOn;
+      pk.hue = pk.enc ? 285 : (pk.target === 1 ? 172 : 22);
+      pk.scramble = now;
       if(arrivedHome){
         cycles++;
         if(pk.seq === 0) rebuilt[pk.mid] = '';
         rebuilt[pk.mid] = (rebuilt[pk.mid] || '') + pk.ch;
         arrivedFresh = now;
         if(pk.seq === pk.total - 1){
+          var got = checksum(rebuilt[pk.mid] || '');
+          var want = checksums[pk.mid] || got;
+          var ok = got === want;
+          document.getElementById('sSum').textContent = got + (ok ? ' ✓' : ' ✗');
           document.getElementById('readout').innerHTML =
-            'memory read-out: <b>' + esc(rebuilt[pk.mid] || '') + '</b> <span class="fresh">✓ intact after ' + cycles + ' arrivals</span>';
+            'memory read-out: <b>' + esc(rebuilt[pk.mid] || '') + '</b> ' +
+            '<span class="fresh">' + (ok ? '✓ checksum ' + got + ' verified' : '✗ CORRUPTED (' + got + ' ≠ ' + want + ')') + ' · lap ' + cycles + '</span>';
         }
       }
     } else {
@@ -338,10 +369,31 @@ function draw(now){
     ctx.beginPath();
     ctx.arc(pk.x, pk.y, 2.4 * SCALE, 0, 6.29);
     ctx.fill();
-    ctx.fillStyle = 'hsl(' + pk.hue + ', 95%, 75%)';
+    /* XOR scramble animation at hops; cipher glyph while encrypted */
+    var scrT = now - (pk.scramble || 0);
+    var shown;
+    if(scrT < 380){
+      shown = String.fromCharCode(33 + Math.floor(Math.random() * 94));
+      ctx.globalAlpha = 0.85;
+    } else {
+      shown = pk.enc ? cipherChar(pk.ch) : pk.ch;
+    }
+    if(pk.enc){
+      /* rotating dashed key-ring marks encrypted flight */
+      ctx.strokeStyle = 'hsla(285, 90%, 75%, 0.8)';
+      ctx.lineWidth = 1.2 * SCALE;
+      ctx.setLineDash([3 * SCALE, 4 * SCALE]);
+      ctx.lineDashOffset = -now * 0.02;
+      ctx.beginPath();
+      ctx.arc(pk.x, pk.y, 7 * SCALE, 0, 6.29);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = scrT < 380 ? '#ffffff' : 'hsl(' + pk.hue + ', 95%, 75%)';
     ctx.font = (11 * SCALE) + 'px "Space Mono", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(pk.ch, pk.x, pk.y - 8 * SCALE);
+    ctx.fillText(shown, pk.x, pk.y - 8 * SCALE);
+    ctx.globalAlpha = 1;
   });
   /* planets on top */
   planets.forEach(function(p, idx){
@@ -381,7 +433,9 @@ setTimeout(function(){ uploadMessage('HELLO VOID'); }, 900);
 
 /* debug/testing */
 window.__pp = function(){
-  return { packets: packets.length, cycles: cycles, rebuilt: rebuilt, delay: delayS };
+  return { packets: packets.length, cycles: cycles, rebuilt: rebuilt, delay: delayS,
+    cipher: cipherOn, encCount: packets.filter(function(p){ return p.enc; }).length,
+    sample: packets[0] ? { ch: packets[0].ch, enc: packets[0].enc, cipher: cipherChar(packets[0].ch) } : null };
 };
 })();
 </script>
