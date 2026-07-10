@@ -1,0 +1,13 @@
+# abstract-anatomy · notes
+
+## log
+- 2026-07-10: v1 (chat ask: single-page text analysis tool — paste research abstract, extract problems/limitations/solutions/references). **Two-tier analysis**: primary = Pollinations `text.pollinations.ai/openai` POST, model 'openai', jsonMode, 24s AbortController timeout, strict-JSON prompt demanding verbatim quotes (≤180 chars) + plain-language notes (≤110). `normalizeItems` is deliberately loose — live testing showed the model sometimes returns `{id,citation}` instead of `{quote,note}` for references, so it accepts quote/citation/text/reference/id keys. 3-layer JSON extractor (direct / fenced / brace-slice) + deprecation-banner guard. Fallback = local cue-phrase heuristic (sentence split + per-category regex cue banks, best-scoring bucket wins, ≤6 each) with a visible mode badge "local heuristic (AI unreachable)". **References always get a local regex pass** (merged/deduped with AI output): `[1]`/`[2,3]`/`[4-6]`, `(Chen et al., 2022)`, `Chen et al. (2022)`, `doi:10.x/…`, `arXiv:NNNN.NNNNN` — all 4 formats verified in node against the sample. **Annotated specimen**: quotes fuzzy-matched back into the text (exact → first-70-chars → first-8-words), overlaps dropped (sort by start, longest first), rendered as `<mark class="m-cat">` with per-category tint + underline; clicking a finding card scrolls + flashes its mark. 2×2 category grid (crimson problems / ochre limitations / sage solutions / indigo references), counts, empty states. Markdown report export via clipboard. Sample abstract button (VesselFormer, fictional). Ctrl/Cmd+Enter analyzes. **Aesthetic**: peer-review desk — warm paper w/ fiber grain, double-rule masthead "Abstract Anatomy" in Young Serif (Anatomy crimson), Source Serif 4 body, Red Hat Mono labels. WCAG: rem everywhere, semantic sections, role=status + aria-live, focus-visible 3px, ≥2.75rem targets, prefers-reduced-motion. Pollinations OG (flux seed 4471). Debug hook `__anatomy {analyze, heuristic, findReferences, state}`.
+
+## issues
+- Pollinations 'openai' model spends tokens on a `reasoning` field before `content` — responses can take 10-20s on long abstracts; spinner copy says so. If it starts timing out routinely, consider `model:'mistral'`.
+- AI quotes occasionally paraphrase despite the verbatim instruction → those items simply don't get a highlight (findRange returns null) but still show in the card list. Acceptable degradation.
+
+## todos
+- URL-param sharing (?text= base64) for sharing a dissection.
+- Optional DOI lookup enrichment (needs a CORS-friendly API — check crossref).
+- PDF-paste cleanup pass (strip line-break hyphenation).
