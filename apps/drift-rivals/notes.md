@@ -1,0 +1,13 @@
+# drift-rivals · notes
+
+## log
+- 2026-07-11: v1 (chat ask: top-down HTML5 racing, 5 AI racers, drift physics, adaptive AI that learns the player's driving style). **Track**: seeded (mulberry32) 12-control-point catmull-rom loop (240 samples, y squashed .78), per-point normals + lookahead curvature; drawn as thick stroked polyline (dark rim / asphalt / dashed centerline), start-line checker, cactus/rock deco, camera-follow, warm dusk vignette, minimap canvas. "NEW TRACK" reroll persists seed. **Drift physics**: velocity split into forward/lateral vs heading; lateral grip bleeds at GRIP .86 normally, .965 while SPACE held (drift) → the car slides; steering authority scales with forward speed; slip>60 → skid marks (capped 2600) + smoke puffs; off-track (dist to nearest centerline pt > width/2+8) → heavy drag. **5 rivals** (VEX/MIRA/OTTO/KIRA/JUNO): lookahead-point steering (+learned lateral lineOff), curvature-based target speed w/ per-car skill .86–.94, brake when 25% over. **Adaptive AI (the honest version)**: player corners (curv>.18, ≥.35s) are sampled — drift used?, avg lateral offset, entry speed — EMA'd into a persistent profile {pace, drift, brakeLate, line, samples} (localStorage). Rivals apply it scaled by adaptation=min(1,samples/40): driftStyle → chance they handbrake sharp corners, brakeLate → later brake points, lineOff → copy your line bias, pace → skill eases toward 46s-baseline/your-EMA-lap (clamped .8–1.18). HUD "RIVAL AI · STUDYING YOU" bar + rotating insight notes ("drift usage 63% — noted"); menu shows what they remember; "MAKE THEM FORGET" wipes. Profile saved only on race end. **Race flow**: 3-2-1-GO countdown, 3 laps, position from cp progress, lap/best times, results table, DNF grace (all rivals home + 15s → race ends, player DNF). Touch: steer/gas/brake/DRIFT buttons. Tektur + IBM Plex Mono, sunset desert palette. Pollinations OG (flux seed 9917). **Sim-tested + 2 bugs fixed pre-ship**: (1) grid cars crossed the start line immediately → phantom lap 1 + a 0.2s "lap" poisoning the pace profile — lap now derives from floor(prog/N); (2) race never ended if player idled — added DNF grace. Verified: no spurious laps, first AI lap ~10s, all 5 finish, race ends, pace stays null without a real player lap. Hook `__race {state,start,step,key,skipCount,track,profile}`.
+
+## issues
+- Laps are arcade-short (~10s) — if chat wants longer, raise ctrl radius (430) + samples, not VMAX.
+- Adaptation is deliberately capped (skill clamp .8–1.18) so rivals never become unbeatable — tune there, not in ACCEL.
+
+## todos
+- Ghost replay of your best lap.
+- Surface variety (sand traps that force drift).
+- Supabase lap-time leaderboard per track seed.
