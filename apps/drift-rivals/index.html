@@ -217,9 +217,11 @@ function makeCar(name,color,isAI,gridIdx){
     x:p.x+p.nx*row*TRACK_W*.22, y:p.y+p.ny*row*TRACK_W*.22,
     h:Math.atan2(p.ty,p.tx), vx:0, vy:0,
     cp:track.N-1-gridIdx*4, prog:-gridIdx*4, lap:0, done:false, finishT:0,
-    steer:0, throttle:0, brake:0, drift:false, slip:0,
+    steer:0, throttle:0, brake:0, drift:false, slip:0, wobble:0,
     /* ai personality + adaptation slots */
     skill:.86+gridIdx*.02+Math.random()*.06, lineOff:0, driftStyle:profile.drift, brakeLate:profile.brakeLate,
+    persona:{block:.25+Math.random()*.6, aggro:.15+Math.random()*.55, side:Math.random()<.5?-1:1},
+    passSide:0, passT:0,
     lapStart:0, marks:[]};
 }
 function newRace(){
@@ -266,9 +268,11 @@ function stepCar(car,dt){
   if(vf>VMAX)vf=VMAX; if(vf<-90)vf=-90;
   vf*=Math.pow(.72,dt);            // rolling drag
   var grip=car.drift?GRIP_DRIFT:GRIP;
+  if(car.wobble>0){ grip=Math.min(.96,grip+.06); car.wobble-=dt; }
   vl*=Math.pow(1-grip,dt*3.2);     // lateral grip bleed
-  /* steering scales with speed */
+  /* steering scales with speed (+ bump wobble jitter) */
   car.h+=car.steer*STEER*dt*Math.max(-1,Math.min(1,vf/160));
+  if(car.wobble>0) car.h+=Math.sin(car.wobble*34)*1.7*dt;
   car.vx=fx*vf+-fy*vl; car.vy=fy*vf+fx*vl;
   car.slip=Math.abs(vl);
   /* off-track drag */
@@ -342,20 +346,92 @@ function studyPlayer(dt){
 function learnNote(txt){ document.getElementById('study-note').textContent='» '+txt; }
 function hudStudy(){ document.getElementById('study-bar').style.width=Math.round(st.adapt*100)+'%'; }
 
-/* ── AI driver ── */
+/* ── car-car collision + bump physics ── */
+var CAR_R=13, REST=.45;
+function collideCars(){
+  var cars=st.cars;
+  for(var i=0;i<cars.length;i++)for(var j=i+1;j<cars.length;j++){
+    var a=cars[i], b=cars[j];
+    var dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy);
+    if(d===0||d>=CAR_R*2) continue;
+    var nx=dx/d, ny=dy/d, overlap=CAR_R*2-d;
+    /* positional separation 50/50 */
+    a.x-=nx*overlap/2; a.y-=ny*overlap/2;
+    b.x+=nx*overlap/2; b.y+=ny*overlap/2;
+    /* impulse along normal (equal mass) */
+    var rvn=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;
+    if(rvn<0){
+      var imp=-(1+REST)*rvn/2;
+      a.vx-=nx*imp; a.vy-=ny*imp;
+      b.vx+=nx*imp; b.vy+=ny*imp;
+      var hard=Math.abs(rvn);
+      if(hard>70){
+        a.wobble=Math.max(a.wobble,Math.min(.5,hard/500));
+        b.wobble=Math.max(b.wobble,Math.min(.5,hard/500));
+        for(var s2=0;s2<6;s2++){
+          var pa=Math.random()*6.283, pv=30+Math.random()*120;
+          st.smoke.push({x:(a.x+b.x)/2,y:(a.y+b.y)/2,r:2+Math.random()*3,life:.35,
+                         vx:Math.cos(pa)*pv,vy:Math.sin(pa)*pv});
+        }
+        if(!a.ai||!b.ai){ sBump(); }
+      }
+    }
+  }
+}
+var lastBump=0;
+var sBump=function(){ var now=Date.now(); if(now-lastBump<160)return; lastBump=now;
+  snd(function(c){ tone(c,'square',110,50,.12,.2); }); };
+
+/* lateral offset of a car from the track centerline at its cp */
+function latOf(car){
+  var p=track.pts[car.cp];
+  return (car.x-p.x)*p.nx+(car.y-p.y)*p.ny;
+}
+
+/* ── AI driver: race line + block + draft + overtake ── */
 function aiDrive(car,dt){
   var N=track.N;
-  var look=10+Math.floor(Math.hypot(car.vx,car.vy)/40);
+  var v=Math.hypot(car.vx,car.vy);
+  /* situational awareness */
+  var ahead=null,aD=1e9, behind=null,bD=1e9;
+  st.cars.forEach(function(o){
+    if(o===car||o.done) return;
+    var dp=o.prog-car.prog;
+    var wd=Math.hypot(o.x-car.x,o.y-car.y);
+    if(dp>0&&dp<26&&wd<aD){ ahead=o; aD=wd; }
+    if(dp<0&&dp>-20&&wd<bD){ behind=o; bD=wd; }
+  });
+  /* target lateral offset */
+  var targetOff=car.lineOff;
+  if(car.passT>0){ car.passT-=dt; targetOff=car.passSide*TRACK_W*.3; }        // committed pass
+  else if(ahead&&aD<95){
+    /* overtake setup: go the other side of the car ahead; draft first if lined up */
+    var aOff=latOf(ahead);
+    car.passSide=aOff>=0?-1:1;
+    if(aD<48&&Math.abs(latOf(car)-aOff)<14){ /* in the tow — draft boost then commit */
+      car.passT=1.4+Math.random();
+    }
+    targetOff=car.passSide*TRACK_W*.28;
+  }
+  else if(behind&&bD<130&&Math.random()<car.persona.block){
+    /* blocking: mirror the chaser's line */
+    targetOff=Math.max(-TRACK_W*.3,Math.min(TRACK_W*.3,latOf(behind)));
+  }
+  car.lineOff+=(targetOff-car.lineOff)*Math.min(1,dt*3.2);
+  /* steering toward lookahead + offset */
+  var look=10+Math.floor(v/40);
   var tp=track.pts[(car.cp+look)%N];
   var tx=tp.x+tp.nx*car.lineOff, ty=tp.y+tp.ny*car.lineOff;
   var want=Math.atan2(ty-car.y,tx-car.x);
   var da=want-car.h; while(da>3.1416)da-=6.283; while(da<-3.1416)da+=6.283;
   car.steer=Math.max(-1,Math.min(1,da*2.2));
+  /* speed plan */
   var aheadCurv=0;
-  for(var a=4;a<18;a++) aheadCurv=Math.max(aheadCurv,track.pts[(car.cp+a)%N].curv);
-  var v=Math.hypot(car.vx,car.vy);
-  var brakePoint=.34-car.brakeLate*.18;          // learned: brake later
+  for(var a2=4;a2<18;a2++) aheadCurv=Math.max(aheadCurv,track.pts[(car.cp+a2)%N].curv);
+  var brakePoint=.34-car.brakeLate*.18;
   var wantV=VMAX*car.skill*(1-Math.min(.62,aheadCurv*(brakePoint*4)));
+  if(car.passT>0) wantV*=1.07;                                   // slipstream surge
+  if(ahead&&aD<34&&Math.random()>car.persona.aggro*(0.4+st.adapt*.6)) wantV=Math.min(wantV,v*.92); // avoid ram… unless aggressive
   car.throttle=v<wantV?1:.1;
   car.brake=v>wantV*1.25?1:0;
   /* learned drift habit in sharp corners */
@@ -388,6 +464,7 @@ function update(dt){
     if(c.ai&&c.done){ c.throttle=0; c.brake=.5; }
     stepCar(c,dt);
   });
+  collideCars();
   studyPlayer(dt);
   /* standings */
   var order=st.cars.slice().sort(function(a,b){
@@ -587,7 +664,8 @@ window.__race={
   key:function(k,d){ keys[k]=d!==false; },
   skipCount:function(){ if(st){ st.phase='race'; document.getElementById('count').classList.remove('on'); st.cars.forEach(function(c){c.lapStart=st.t;}); } },
   track:function(){ return track; },
-  profile:function(){ return profile; }
+  profile:function(){ return profile; },
+  cars:function(){ return st?st.cars:null; }
 };
 })();
 </script>
