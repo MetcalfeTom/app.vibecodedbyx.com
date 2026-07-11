@@ -68,6 +68,11 @@ textarea#glsl{
   background:#120c18; color:#cdbfe0; border:1px solid var(--vein); border-radius:8px; padding:.8rem; white-space:pre;
 }
 .toolrow{display:flex; gap:.6rem; flex-wrap:wrap; margin-top:.7rem; align-items:center;}
+.edgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.3rem 1.2rem; margin-top:.8rem;}
+.edrow{display:grid; grid-template-columns:3.4rem 1fr 3.4rem; align-items:center; gap:.5rem; font-size:.68rem;}
+.edrow label{margin:0;}
+.edrow output{color:var(--gold); text-align:right; font-size:.68rem;}
+.edrow input[type=range]{width:100%; min-height:2.2rem;}
 .copied{color:var(--ok); font-size:.72rem;}
 footer{text-align:center; font-size:.66rem; color:var(--dim); margin-top:1.6rem; line-height:1.9;}
 body.drag main{outline:4px dashed var(--gold); outline-offset:-8px; border-radius:14px;}
@@ -112,6 +117,18 @@ body.drag main{outline:4px dashed var(--gold); outline-offset:-8px; border-radiu
       <button id="stop-btn" type="button" disabled>stop</button>
       <button id="replay-btn" type="button" disabled>▶ replay build-up</button></span>
     </div>
+  </section>
+
+  <section class="panel" id="edit-panel" style="display:none;" aria-labelledby="h-edit">
+    <h2 id="h-edit">④ Edit lab <small>· click the shader image to pick a splat · sliders are live</small></h2>
+    <div class="toolrow" style="margin-top:0;">
+      <button id="ed-prev" type="button" aria-label="Previous splat">‹</button>
+      <b id="ed-idx" style="color:var(--gold); min-width:9rem; text-align:center;">—</b>
+      <button id="ed-next" type="button" aria-label="Next splat">›</button>
+      <button id="ed-del" type="button">✕ delete splat</button>
+      <span id="ed-psnr" style="margin-left:auto; font-size:.75rem; color:var(--dim);"></span>
+    </div>
+    <div class="edgrid" id="edgrid"></div>
   </section>
 
   <section class="panel" aria-labelledby="h-out">
@@ -315,12 +332,29 @@ function initGL(){
   gl=glCv.getContext('webgl2');
   if(!gl){ setStatus('WebGL2 unavailable — preview disabled (export still works).',true); }
 }
+var uSel=null,uSelP=null,uSelC=null,uRing=null;
 function compilePreview(glslBody,N){
   if(!gl) return false;
   var vs='#version 300 es\nvoid main(){vec2 p=vec2(gl_VertexID==1?3.:-1.,gl_VertexID==2?3.:-1.);gl_Position=vec4(p,0,1);}';
   var body=glslBody.replace(/void mainImage[\s\S]*$/,'');
-  var fs='#version 300 es\nprecision highp float;\nuniform vec2 iResolution;\nuniform float uCount;\nout vec4 O;\n'+
-    body.replace('col += C[i].rgb','if(float(i)>=uCount) break;\n    col += C[i].rgb')+
+  /* live-edit hooks: the selected splat is overridden by uniforms so
+     sliders never trigger a recompile; a gold ring marks it */
+  body=body
+    .replace('vec2 d = p - P[i].xy;',
+      'vec4 PP = (i==uSel) ? uSelP : P[i];\n    vec4 CC = (i==uSel) ? uSelC : C[i];\n    vec2 d = p - PP.xy;')
+    .replace('float ca = cos(C[i].w), sa = sin(C[i].w);','float ca = cos(CC.w), sa = sin(CC.w);')
+    .replace('d /= P[i].zw;','d /= PP.zw;')
+    .replace('col += C[i].rgb','if(float(i)>=uCount) break;\n    col += CC.rgb')
+    .replace('return col;',
+      'if(uRing>0.5 && uSel>=0){\n'+
+      '    vec2 rd = p - uSelP.xy;\n'+
+      '    float rca = cos(uSelC.w), rsa = sin(uSelC.w);\n'+
+      '    rd = vec2(rca*rd.x + rsa*rd.y, -rsa*rd.x + rca*rd.y) / uSelP.zw;\n'+
+      '    col = mix(col, vec3(1.0,0.75,0.3), smoothstep(0.14,0.02,abs(length(rd)-1.0))*0.85);\n'+
+      '  }\n  return col;');
+  var fs='#version 300 es\nprecision highp float;\nuniform vec2 iResolution;\nuniform float uCount;\n'+
+    'uniform int uSel;\nuniform vec4 uSelP;\nuniform vec4 uSelC;\nuniform float uRing;\nout vec4 O;\n'+
+    body+
     '\nvoid main(){\n vec2 uv=gl_FragCoord.xy/iResolution; uv.y=1.0-uv.y;\n O=vec4(clamp(img(uv),0.,1.),1.);\n}';
   function sh(type,src){
     var s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
@@ -333,15 +367,22 @@ function compilePreview(glslBody,N){
   gl.linkProgram(p);
   if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error('link: '+gl.getProgramInfoLog(p));
   if(prog) gl.deleteProgram(prog);
-  prog=p; uCount=gl.getUniformLocation(p,'uCount'); uRes=gl.getUniformLocation(p,'iResolution');
+  prog=p;
+  uCount=gl.getUniformLocation(p,'uCount'); uRes=gl.getUniformLocation(p,'iResolution');
+  uSel=gl.getUniformLocation(p,'uSel'); uSelP=gl.getUniformLocation(p,'uSelP');
+  uSelC=gl.getUniformLocation(p,'uSelC'); uRing=gl.getUniformLocation(p,'uRing');
   return true;
 }
-function drawGL(count){
+function drawGL(count,sel,selSp,ring){
   if(!gl||!prog) return;
   gl.viewport(0,0,glCv.width,glCv.height);
   gl.useProgram(prog);
   gl.uniform2f(uRes,glCv.width,glCv.height);
   gl.uniform1f(uCount,count);
+  gl.uniform1i(uSel,sel==null?-1:sel);
+  gl.uniform1f(uRing,ring?1:0);
+  if(selSp){ gl.uniform4f(uSelP,selSp.x,selSp.y,selSp.sx,selSp.sy); gl.uniform4f(uSelC,selSp.r,selSp.g,selSp.b,selSp.a); }
+  else{ gl.uniform4f(uSelP,0,0,1,1); gl.uniform4f(uSelC,0,0,0,0); }
   gl.drawArrays(gl.TRIANGLES,0,3);
 }
 
@@ -367,6 +408,7 @@ function beginFit(){
   fitting=true; t0=performance.now();
   fit=makeFitter(target,TW,TH);
   $('fit-btn').disabled=true; $('stop-btn').disabled=false; $('replay-btn').disabled=true;
+  $('edit-panel').style.display='none'; editIdx=-1; editLive=null; editDirty=false; constsStale=false;
   var N=wantN, i=0;
   /* while fitting, preview on 2d ctx — recreate canvas to free any GL context */
   var fresh=glCv.cloneNode(); glCv.parentNode.replaceChild(fresh,glCv); glCv=fresh;
@@ -399,6 +441,7 @@ function beginFit(){
       if(compilePreview(code,fit.splats.length)){
         drawGL(fit.splats.length);
         $('replay-btn').disabled=false;
+        editOpen();
         setStatus('✓ transmuted — '+fit.splats.length+' splats, '+psnr(mse).toFixed(1)+' dB. the right image is your shader running.');
       }
     }catch(e){
@@ -410,9 +453,122 @@ function beginFit(){
 $('fit-btn').addEventListener('click',beginFit);
 $('stop-btn').addEventListener('click',function(){ fitting=false; });
 
+/* ═══ edit lab: live splat tweaking ═══ */
+var editIdx=-1, editLive=null, editOrig=null, editDirty=false, constsStale=false, commitT=null;
+var ED_FIELDS=[
+  ['x','pos x',0,1,0.1],['y','pos y',0,1,0.1],
+  ['sx','scale x',0.6,1,0.1],['sy','scale y',0.6,1,0.1],
+  ['a','rotation',0,3.1416,0.01],
+  ['r','red ±',-1,1,0.01],['g','green ±',-1,1,0.01],['b','blue ±',-1,1,0.01]
+];
+var edInputs={};
+function buildEdRows(){
+  var g2=$('edgrid'); g2.innerHTML=''; edInputs={};
+  ED_FIELDS.forEach(function(fd){
+    var row=document.createElement('div'); row.className='edrow';
+    var lab=document.createElement('label'); lab.textContent=fd[1]; lab.htmlFor='ed-'+fd[0];
+    var inp=document.createElement('input'); inp.type='range'; inp.id='ed-'+fd[0];
+    inp.min=fd[2]; inp.max=fd[3]; inp.step=fd[4];
+    var out=document.createElement('output'); out.htmlFor='ed-'+fd[0];
+    inp.addEventListener('input',function(){
+      if(editIdx<0||!editLive) return;
+      editLive[fd[0]]=+inp.value;
+      out.value=(+inp.value).toFixed(2);
+      editDirty=true; constsStale=true;
+      drawGL(fit.splats.length, editIdx, editLive, true);
+      clearTimeout(commitT); commitT=setTimeout(softCommit,350);
+    });
+    row.appendChild(lab); row.appendChild(inp); row.appendChild(out);
+    g2.appendChild(row);
+    edInputs[fd[0]]={inp:inp,out:out};
+  });
+}
+function edRanges(){   /* image-dependent slider ranges */
+  edInputs.x.inp.min=0; edInputs.x.inp.max=TW; edInputs.x.inp.step=0.25;
+  edInputs.y.inp.min=0; edInputs.y.inp.max=TH; edInputs.y.inp.step=0.25;
+  edInputs.sx.inp.min=0.6; edInputs.sx.inp.max=Math.max(TW,TH)*0.7; edInputs.sx.inp.step=0.25;
+  edInputs.sy.inp.min=0.6; edInputs.sy.inp.max=Math.max(TW,TH)*0.7; edInputs.sy.inp.step=0.25;
+}
+function editOpen(){
+  if(!Object.keys(edInputs).length) buildEdRows();
+  edRanges();
+  editIdx=-1; editLive=null; editDirty=false; constsStale=false;
+  $('edit-panel').style.display='block';
+  $('ed-idx').textContent='click the image →';
+  updEdPsnr();
+}
+function updEdPsnr(){ if(fit) $('ed-psnr').textContent='psnr '+psnr(fit.lossTotal()).toFixed(1)+' dB'; }
+/* soft commit: write live values into the model + regen code text.
+   The GPU already shows it via the uniform override; consts recompile
+   lazily on selection switch / replay. */
+function softCommit(){
+  if(editIdx<0||!editLive||!fit) return;
+  fit.apply(editOrig,-1); fit.apply(editLive,1);
+  var sp=fit.splats[editIdx];
+  ED_FIELDS.forEach(function(fd){ sp[fd[0]]=editLive[fd[0]]; });
+  editOrig={x:sp.x,y:sp.y,sx:sp.sx,sy:sp.sy,a:sp.a,r:sp.r,g:sp.g,b:sp.b};
+  $('glsl').value=genGLSL(fit,TW,TH);
+  editDirty=false;
+  updEdPsnr();
+}
+function recompileIfStale(){
+  if(!constsStale||!fit) return;
+  clearTimeout(commitT); if(editDirty) softCommit();
+  try{ compilePreview($('glsl').value, fit.splats.length); constsStale=false; }
+  catch(e){ setStatus('recompile hiccup: '+e.message,true); }
+}
+function selectSplat(i){
+  if(!fit||!fit.splats.length) return;
+  clearTimeout(commitT); if(editDirty) softCommit();
+  recompileIfStale();
+  var n=fit.splats.length;
+  editIdx=((i%n)+n)%n;
+  var sp=fit.splats[editIdx];
+  editLive={x:sp.x,y:sp.y,sx:sp.sx,sy:sp.sy,a:sp.a,r:sp.r,g:sp.g,b:sp.b};
+  editOrig={x:sp.x,y:sp.y,sx:sp.sx,sy:sp.sy,a:sp.a,r:sp.r,g:sp.g,b:sp.b};
+  ED_FIELDS.forEach(function(fd){
+    edInputs[fd[0]].inp.value=editLive[fd[0]];
+    edInputs[fd[0]].out.value=(+editLive[fd[0]]).toFixed(2);
+  });
+  $('ed-idx').textContent='splat '+(editIdx+1)+' / '+n;
+  drawGL(n, editIdx, editLive, true);
+}
+$('ed-prev').addEventListener('click',function(){ if(editIdx>=0) selectSplat(editIdx-1); else selectSplat(0); });
+$('ed-next').addEventListener('click',function(){ selectSplat(editIdx+1); });
+$('ed-del').addEventListener('click',function(){
+  if(editIdx<0||!fit) return;
+  clearTimeout(commitT); editDirty=false;
+  fit.apply(editOrig,-1);
+  fit.splats.splice(editIdx,1);
+  $('glsl').value=genGLSL(fit,TW,TH);
+  try{ compilePreview($('glsl').value, fit.splats.length); constsStale=false; }
+  catch(e){ setStatus('recompile hiccup: '+e.message,true); }
+  updEdPsnr();
+  if(fit.splats.length){ selectSplat(Math.min(editIdx,fit.splats.length-1)); }
+  else{ editIdx=-1; $('ed-idx').textContent='no splats left'; drawGL(0); }
+  setStatus('splat deleted — '+fit.splats.length+' remain.');
+});
+/* pick a splat by clicking the shader canvas */
+document.addEventListener('click',function(e){
+  if(fitting||!fit||!prog) return;
+  if(e.target!==glCv) return;
+  var r=glCv.getBoundingClientRect();
+  var px=(e.clientX-r.left)/r.width*TW, py=(e.clientY-r.top)/r.height*TH;
+  var best=-1, bi=-1;
+  fit.splats.forEach(function(sp,i){
+    var dx=px-sp.x, dy=py-sp.y;
+    var ca=Math.cos(sp.a), sa=Math.sin(sp.a);
+    var rx=(ca*dx+sa*dy)/sp.sx, ry=(-sa*dx+ca*dy)/sp.sy;
+    var w2=Math.exp(-(rx*rx+ry*ry))*(Math.abs(sp.r)+Math.abs(sp.g)+Math.abs(sp.b));
+    if(w2>best){ best=w2; bi=i; }
+  });
+  if(bi>=0) selectSplat(bi);
+});
+
 /* replay build-up: animate uCount 0→N on the compiled shader */
 $('replay-btn').addEventListener('click',function(){
   if(!gl||!prog||!fit) return;
+  recompileIfStale();
   var N=fit.splats.length, start=performance.now(), dur=2600;
   var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   if(reduce){ drawGL(N); return; }
