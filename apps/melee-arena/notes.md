@@ -1,0 +1,13 @@
+# melee-arena · notes
+
+## log
+- 2026-07-11: v1 (chat ask ×4, consistent spec: MeleeArena — 2D semi-top-down 45° pixel melee fighter, 4 unique characters, character select, AI opponents, balanced stat matrix). **45° projection**: flat world rect, screen-y = `H*.30+(y-AR.y0)*0.62` (YSQ compression), upright sprites, y-sorted draw order, elliptical shadows, fx ellipses squashed by YSQ. **Fighters (stat matrix — dps band 25.5–34.6, each buys power differently)**: BRUTE hammer (hp140/spd150/dmg26/cd.85/rng50, SP QUAKE 6s aoe slam r78+kb340), BLADE sword (100/200/16/.5/44, SP WHIRL 5s 360° r58), WISP daggers (78/250/9/.26/36, SP FLICKER 4s blink-strike 150u + 0.25s iframes), MONK staff (110/185/14/.55/62 longest reach narrow arc, SP GALE 4.5s frontal sweep kb420 — control not damage). **Sprites**: one 12×16 pixel map body, per-char palette (c1/c2/skin), rendered to offscreen canvas ×3 (roster ×4), face-flip via ctx.scale(-1,1), walk bob + attack lunge; weapons drawn procedurally (hammer/sword/daggers/staff) rotating −1.2→+1.2 rad through the 0.22s swing. **Combat**: arc melee (range+arc vs atan2 diff), 0.22s hitstun + 0.28s hit-iframes + knockback w/ exp decay, universal dash (0.16s, 1.1s cd, 0.24s iframes). **Rounds**: best-of-3 (first to 2), 60s timer (hp% decides timeout), intro/FIGHT/KO banner phases w/ phaseT auto-advance. **AI**: 0.18–0.33s think ticks — keeps `wantDist` = 75% of own range (retreats to 220% at <30% hp 50% of time), strafes ±, 30% reactive dash when foe mid-swing within range+30, 55% special when in special-range, 80% attack in range; steering = approach-error + perpendicular strafe blend. CPU picks a random char each match. **HUD**: fighting-game mirrored hp bars (gold→red hurt tint), round pips, center clock, Jersey 10 + Silkscreen, dusk-dojo palette (terracotta floor, rope ring, sky band). Touch: joystick + ATK/SPC/DASH. WCAG basics + reduced-motion. Pollinations OG (flux seed 6260). **Sim-tested** (node stubs): stat matrix printout, attack dmg, special dmg (fresh-match isolation — see gotcha), AI killed idle player 2-0 and reached end screen. Hook `__melee {chars,choose,state,step,key,atk,spec,dash,place,forcePhase}`.
+
+## issues
+- TEST GOTCHA: hit-iframes (0.28s) swallow a follow-up special in unit tests, and stepping the sim lets the AI stun the player — isolate special-damage assertions in a FRESH match (choose→forcePhase→place→spec) instead of waiting out timers.
+- `place()` teleports fighters but AI aim updates next think tick (≤0.33s) — expected.
+
+## todos
+- Local 2P hot-seat (second keyboard cluster) — army-architect precedent.
+- Per-char victory quips on the end screen.
+- Difficulty selector (AI think-rate + reaction odds).
