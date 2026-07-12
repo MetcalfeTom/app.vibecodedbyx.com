@@ -1,0 +1,12 @@
+# doughmentum · notes
+
+## log
+- 2026-07-12: v1 (chat ask, message truncated at "collectible toppings make the pi—": pizza platformer, moving arrow tap-locked for direction, power meter for launch distance; read the cut-off as "make the pizza complete/bigger" — both implemented). **One-button golf-platformer**: phase machine aim→power→fly→aim. AIM: arrow ping-pongs −14°..194° via sin(t·2.2); tap locks angle. POWER: bar oscillates 0..1 at sin(t·3.4−π/2) (starts at 0); tap launches at v=200+p·560. FLY: gravity 980, circle-vs-AABB collision (closest-point + normal reflect, restitution .38, top-landing friction), rest detection (grounded & |v|<22) → next shot from rest point (recorded = golf lie). Void fall → respawn at last rest. **Pizza building**: start as bare dough (r16, sad little face); each topping grows r by 1.6 and paints a layer (sauce disc → cheese + blob → pepperoni dots ×2/pickup → shroom slices → basil leaves). **Oven gate**: needs ALL toppings ("needs full pie" → "OVEN READY" + glow). **Hot coals**: knock off the most recent topping and return it to its original spawn + fiery bounce (forgiving loop, no death). 5 hand-built levels (par 3/4/5/6/8; tutorial flat → steps → gaps+coals → vertical tower → gauntlet), strokes vs par grading ("chef's kiss" ≤ par−1), campaign total on finish. Camera lerp+clamp, checkered-tablecloth parallax, flour poofs, spin from vx. Audio: lock blip, launch whoosh scaled by power, boing by impact, nom arpeggio rising per topping count, highpass sizzle, oven jingle. R restart, M mute. Node 18/18: 5-level structural audit (fields, oven/spawn over platforms, sauce+cheese everywhere), phase transitions, stroke count, settle-to-aim after real flight, pickup+growth, oven refusal when incomplete, clear when complete, level advance, scorch returns topping to world, void respawn, 60 render frames. Lilita One + Courgette, tomato/cheese/basil on warm kitchen dark.
+
+## issues
+- Reachability verified by launch-range math (max range ≈ 590px flat, biggest designed gap ≈ 300px) not by auto-solver — if chat reports a stuck spot, tune that platform.
+- Power bar hue math produces green→amber→red; at very low power you can softlock into a crevice — R restart is the escape hatch.
+
+## todos
+- Level editor + share via hash; wind fans; sticky (cheese-string) walls.
+- Truncated request follow-up: ask chat what "toppings make the pi…" was meant to end with — if it was "pizza faster", add per-topping physics modifiers.
