@@ -95,6 +95,8 @@ tr:hover td{background:#faf8f2;}
 .badge.low{background:#fbe4de; color:var(--red);}
 .badge.ok{background:var(--teal-soft); color:var(--teal);}
 .badge.role{background:#eee9dc; color:#6a5a30;}
+.badge.pend{background:#fdf0d8; color:#9a6a18;}
+#appr-badge{color:#ffd8a0; font-size:.68rem;}
 td .mini{font-size:.62rem; color:var(--dim);}
 button.icon{background:none; border:1px solid var(--line); border-radius:8px; cursor:pointer; min-width:2.4rem; min-height:2.4rem; font-size:.85rem;}
 button.icon:hover{border-color:var(--teal);}
@@ -178,6 +180,8 @@ button.pcard .ps{font-size:.62rem; color:var(--dim);}
     <button class="nav" data-page="inv" type="button">📦 Inventory</button>
     <button class="nav" data-page="pos" type="button">🧾 New Sale</button>
     <button class="nav" data-page="sales" type="button">🗂 Sales Log</button>
+    <button class="nav" data-page="requests" type="button">📮 Restock</button>
+    <button class="nav" data-page="approvals" type="button">✅ HQ Approvals <span id="appr-badge"></span></button>
     <button class="nav" data-page="branches" type="button">🏬 Branches</button>
     <button class="nav" data-page="users" type="button">👥 Users</button>
     <div class="spacer"></div>
@@ -262,13 +266,26 @@ function seed(){
         by:d%3===0?'u-cashier':'u-manager', lines:lines, total:Math.round(total*100)/100});
     }
   }
-  return {branches:branches, products:products, sales:sales, seededAt:now};
+  /* a couple of restock requests so HQ has something to review */
+  var requests=[
+    {id:'r-seed1', at:now-3*3600000, pid:products[2].id, name:products[2].name, branch:'b1', qty:24,
+     note:'cold brew flying off the shelf', by:'u-cashier', status:'pending', decidedBy:null, decidedAt:null, reason:''},
+    {id:'r-seed2', at:now-26*3600000, pid:products[14].id, name:products[14].name, branch:'b2', qty:12,
+     note:'', by:'u-manager', status:'pending', decidedBy:null, decidedAt:null, reason:''},
+    {id:'r-seed0', at:now-2*86400000, pid:products[7].id, name:products[7].name, branch:'b1', qty:20,
+     note:'', by:'u-cashier', status:'approved', decidedBy:'u-admin', decidedAt:now-86400000*1.8, reason:''}
+  ];
+  return {branches:branches, products:products, sales:sales, requests:requests, seededAt:now};
 }
 var DB=null;
 function load(){
   try{
     var raw=localStorage.getItem(KEY);
-    if(raw){ DB=JSON.parse(raw); return; }
+    if(raw){
+      DB=JSON.parse(raw);
+      if(!DB.requests) DB.requests=[];   /* migrate pre-v1.2 saves */
+      return;
+    }
   }catch(e){}
   DB=seed(); save();
 }
@@ -276,9 +293,9 @@ function save(){ try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){} 
 
 /* ═══════════ roles & session ═══════════ */
 var PERM={
-  admin:  {pages:['dash','inv','pos','sales','branches','users'], editProducts:true, deleteProducts:true, editBranches:true, allBranches:true},
-  manager:{pages:['dash','inv','pos','sales'], editProducts:true, deleteProducts:false, editBranches:false, allBranches:false},
-  cashier:{pages:['inv','pos','sales'], editProducts:false, deleteProducts:false, editBranches:false, allBranches:false}
+  admin:  {pages:['dash','inv','pos','sales','approvals','branches','users'], editProducts:true, deleteProducts:true, editBranches:true, allBranches:true, approve:true, request:false},
+  manager:{pages:['dash','inv','pos','sales','requests'], editProducts:true, deleteProducts:false, editBranches:false, allBranches:false, approve:false, request:true},
+  cashier:{pages:['inv','pos','sales','requests'], editProducts:false, deleteProducts:false, editBranches:false, allBranches:false, approve:false, request:true}
 };
 var session=null;   /* {userId} */
 function me(){ return USERS.find(function(u){ return u.id===session; }); }
@@ -308,13 +325,19 @@ function logout(){
 function branchName(id){ var b=DB.branches.find(function(x){return x.id===id;}); return b?b.name:id; }
 
 /* ═══════════ nav / router ═══════════ */
-var PAGES={dash:'Dashboard', inv:'Inventory', pos:'New Sale', sales:'Sales Log', branches:'Branches', users:'Users'};
+var PAGES={dash:'Dashboard', inv:'Inventory', pos:'New Sale', sales:'Sales Log', requests:'Restock Requests', approvals:'HQ Approvals', branches:'Branches', users:'Users'};
 var curPage='dash';
 function buildNav(){
   var pages=PERM[me().role].pages;
   document.querySelectorAll('aside .nav').forEach(function(b){
     b.style.display=pages.indexOf(b.dataset.page)>=0?'':'none';
   });
+  updateApprBadge();
+}
+function pendingCount(){ return DB.requests.filter(function(r){ return r.status==='pending'; }).length; }
+function updateApprBadge(){
+  var n=pendingCount();
+  $('appr-badge').textContent=n?('('+n+')'):'';
 }
 function buildBranchSel(){
   var sel=$('branch-sel'); sel.innerHTML='';
@@ -358,7 +381,7 @@ function go(page){
   $('page-title').textContent=PAGES[page];
   document.querySelectorAll('aside .nav').forEach(function(b){ b.classList.toggle('on',b.dataset.page===page); });
   var C=$('content'); C.innerHTML='';
-  ({dash:renderDash, inv:renderInv, pos:renderPOS, sales:renderSales, branches:renderBranches, users:renderUsers})[page](C);
+  ({dash:renderDash, inv:renderInv, pos:renderPOS, sales:renderSales, requests:renderRequests, approvals:renderApprovals, branches:renderBranches, users:renderUsers})[page](C);
 }
 
 /* ═══════════ aggregates (pure, testable) ═══════════ */
@@ -612,6 +635,123 @@ function renderSales(C){
    }).join('')+'</tbody></table></div>';
 }
 
+/* ── restock requests (cashier + manager) ── */
+function createRequest(pid,qty,note){
+  if(!PERM[me().role].request) return {ok:false, err:'your role cannot file requests'};
+  qty=Math.floor(+qty||0);
+  if(qty<1) return {ok:false, err:'quantity must be at least 1'};
+  var p=DB.products.find(function(x){ return x.id===pid; });
+  if(!p) return {ok:false, err:'pick a product'};
+  var br=myBranch();
+  var dup=DB.requests.find(function(r){ return r.status==='pending'&&r.pid===pid&&r.branch===br; });
+  if(dup) return {ok:false, err:'already a pending request for '+p.name};
+  DB.requests.push({id:'r'+Date.now()+'-'+Math.floor(Math.random()*999), at:Date.now(), pid:pid, name:p.name,
+    branch:br, qty:qty, note:String(note||'').slice(0,120), by:session, status:'pending', decidedBy:null, decidedAt:null, reason:''});
+  save(); updateApprBadge();
+  return {ok:true};
+}
+function decideRequest(id,approve,reason){
+  if(!PERM[me().role].approve) return {ok:false, err:'admins only'};
+  var r=DB.requests.find(function(x){ return x.id===id; });
+  if(!r||r.status!=='pending') return {ok:false, err:'request not pending'};
+  r.status=approve?'approved':'denied';
+  r.decidedBy=session; r.decidedAt=Date.now(); r.reason=String(reason||'').slice(0,120);
+  if(approve){
+    var p=DB.products.find(function(x){ return x.id===r.pid; });
+    if(p) p.stock[r.branch]=(p.stock[r.branch]||0)+r.qty;
+  }
+  save(); updateApprBadge();
+  return {ok:true};
+}
+function fmtWhen(t){
+  var d=new Date(t);
+  return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+function statusBadge(s){
+  return '<span class="badge '+(s==='pending'?'pend':s==='approved'?'ok':'low')+'">'+s+'</span>';
+}
+function renderRequests(C){
+  var br=myBranch();
+  var lows=DB.products.filter(function(p){ return (p.stock[br]||0)<=p.low; });
+  var mine=DB.requests.filter(function(r){ return r.branch===br; }).sort(function(a,b){ return b.at-a.at; });
+  C.innerHTML=
+   '<div class="card"><h3>Request stock from HQ — '+esc(branchName(br))+'</h3>'+
+    (lows.length?'<p style="font-size:.7rem;color:var(--dim);margin:.2rem 0 .5rem;">running low right now:</p>'+
+     '<div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.8rem;">'+
+     lows.map(function(p){ return '<button class="act ghost" style="font-size:.68rem;" data-quick="'+p.id+'">'+esc(p.name)+' · '+(p.stock[br]||0)+' left</button>'; }).join('')+
+     '</div>':'<p style="font-size:.7rem;color:var(--dim);">nothing critically low — you can still request ahead.</p>')+
+    '<div class="topbar" style="margin:0;">'+
+     '<select id="rq-prod" aria-label="Product to request">'+DB.products.map(function(p){
+        return '<option value="'+p.id+'">'+esc(p.name)+' (has '+(p.stock[br]||0)+')</option>'; }).join('')+'</select>'+
+     '<input id="rq-qty" type="number" min="1" value="24" style="width:6rem;" aria-label="Quantity">'+
+     '<input id="rq-note" type="text" placeholder="note (optional)" style="flex:1;min-width:10rem;" aria-label="Note">'+
+     '<button class="act" id="rq-send" type="button">send to HQ</button>'+
+    '</div></div>'+
+   '<div class="card"><h3>Requests from '+esc(branchName(br))+'</h3>'+
+    (mine.length?'<table><thead><tr><th>filed</th><th>item</th><th>qty</th><th>by</th><th>status</th><th>hq note</th></tr></thead><tbody>'+
+     mine.map(function(r){
+       var by=USERS.find(function(u){ return u.id===r.by; });
+       return '<tr><td class="mono">'+fmtWhen(r.at)+'</td><td><b>'+esc(r.name)+'</b>'+(r.note?'<div class="mini">“'+esc(r.note)+'”</div>':'')+'</td>'+
+         '<td class="mono">'+r.qty+'</td><td>'+(by?esc(by.name.split(' ')[0]):'—')+'</td>'+
+         '<td>'+statusBadge(r.status)+'</td><td class="mini">'+esc(r.reason||'')+'</td></tr>';
+     }).join('')+'</tbody></table>':'<p style="color:var(--dim);font-size:.75rem;">no requests yet.</p>')+
+   '</div>';
+  C.querySelectorAll('[data-quick]').forEach(function(b){
+    b.addEventListener('click',function(){ $('rq-prod').value=b.dataset.quick; $('rq-qty').focus(); });
+  });
+  $('rq-send').addEventListener('click',function(){
+    var r=createRequest($('rq-prod').value,$('rq-qty').value,$('rq-note').value);
+    if(r.ok){ toast('request sent to HQ'); go('requests'); }
+    else toast(r.err);
+  });
+}
+/* ── HQ approvals (admin) ── */
+function renderApprovals(C){
+  if(!PERM[me().role].approve){ C.innerHTML='<div class="card">admin only.</div>'; return; }
+  var pend=DB.requests.filter(function(r){ return r.status==='pending'; }).sort(function(a,b){ return a.at-b.at; });
+  var hist=DB.requests.filter(function(r){ return r.status!=='pending'; }).sort(function(a,b){ return b.decidedAt-a.decidedAt; }).slice(0,30);
+  C.innerHTML=
+   '<div class="card"><h3>Pending — '+pend.length+'</h3>'+
+    (pend.length?'<table><thead><tr><th>filed</th><th>branch</th><th>item</th><th>qty</th><th>stock now</th><th>by</th><th>decide</th></tr></thead><tbody>'+
+     pend.map(function(r){
+       var p=DB.products.find(function(x){ return x.id===r.pid; });
+       var by=USERS.find(function(u){ return u.id===r.by; });
+       var cur=p?(p.stock[r.branch]||0):'—';
+       var lowNote=p&&cur<=p.low?' <span class="badge low">low</span>':'';
+       return '<tr><td class="mono">'+fmtWhen(r.at)+'</td><td>'+esc(branchName(r.branch))+'</td>'+
+        '<td><b>'+esc(r.name)+'</b>'+(r.note?'<div class="mini">“'+esc(r.note)+'”</div>':'')+'</td>'+
+        '<td class="mono">+'+r.qty+'</td><td class="mono">'+cur+lowNote+'</td>'+
+        '<td>'+(by?esc(by.name.split(' ')[0]):'—')+'</td>'+
+        '<td><button class="act" style="min-height:2.4rem;padding:.3rem .7rem;" data-ok="'+r.id+'">approve</button> '+
+        '<button class="act danger" style="min-height:2.4rem;padding:.3rem .7rem;" data-no="'+r.id+'">deny</button></td></tr>';
+     }).join('')+'</tbody></table>':'<p style="color:var(--dim);font-size:.75rem;">inbox zero — no pending requests.</p>')+
+   '</div>'+
+   '<div class="card"><h3>Decision history</h3>'+
+    (hist.length?'<table><thead><tr><th>decided</th><th>branch</th><th>item</th><th>qty</th><th>status</th><th>note</th></tr></thead><tbody>'+
+     hist.map(function(r){
+       return '<tr><td class="mono">'+fmtWhen(r.decidedAt)+'</td><td>'+esc(branchName(r.branch))+'</td>'+
+         '<td>'+esc(r.name)+'</td><td class="mono">'+r.qty+'</td><td>'+statusBadge(r.status)+'</td>'+
+         '<td class="mini">'+esc(r.reason||'')+'</td></tr>';
+     }).join('')+'</tbody></table>':'<p style="color:var(--dim);font-size:.75rem;">no decisions yet.</p>')+
+   '</div>';
+  C.querySelectorAll('[data-ok]').forEach(function(b){
+    b.addEventListener('click',function(){
+      var r=decideRequest(b.dataset.ok,true,'');
+      if(r.ok){ toast('approved — stock added'); go('approvals'); } else toast(r.err);
+    });
+  });
+  C.querySelectorAll('[data-no]').forEach(function(b){
+    b.addEventListener('click',function(){
+      var id=b.dataset.no;
+      openModal('Deny request',
+        '<label for="m-reason">reason (shown to the branch)</label><input id="m-reason" type="text" placeholder="e.g. supplier out until Friday">',
+        function(){
+          var r=decideRequest(id,false,$('m-reason').value);
+          if(r.ok){ toast('denied'); go('approvals'); } else toast(r.err);
+        });
+    });
+  });
+}
 function renderBranches(C){
   if(!can('editBranches')){ C.innerHTML='<div class="card">admin only.</div>'; return; }
   C.innerHTML='<div class="card"><div class="topbar" style="margin-bottom:.6rem;"><div class="grow"></div>'+
@@ -742,7 +882,9 @@ window.__stk={
   setBranch:function(b){ curBranch=b; },
   addToCart:addToCart, cartTotal:cartTotal, checkout:checkout, cartRef:function(){ return cart; },
   salesByDay:salesByDay, revenueByBranch:revenueByBranch, topProducts:topProducts,
-  lowStockCount:lowStockCount, stockOf:stockOf
+  lowStockCount:lowStockCount, stockOf:stockOf,
+  createRequest:createRequest, decideRequest:decideRequest,
+  requests:function(){ return DB.requests; }, pendingCount:pendingCount
 };
 })();
 </script>
