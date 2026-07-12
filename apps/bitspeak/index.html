@@ -15,7 +15,7 @@
 <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
 :root{ --void:#020803; --glass:#041104; --ph:#3aff6e; --ph-dim:#1d8a3e; --ph-dark:#0e3d1d;
-  --amber:#ffb454; --err:#ff5e5e; --focus:#8fd4ff; }
+  --amber:#ffb454; --err:#ff5e5e; --focus:#8fd4ff; --peach:#ffbe98; --peach-hot:#ff9e73; }
 *{box-sizing:border-box;}
 html{font-size:100%;}
 body{margin:0; min-height:100vh; background:var(--void); color:var(--ph); font-family:'Share Tech Mono',monospace;
@@ -57,6 +57,9 @@ textarea::placeholder{color:var(--ph-dark);}
 #out .sep{color:var(--ph-dark);}
 #out .txt-ch{font-size:1.15rem;}
 #out .bad{color:var(--err); text-shadow:0 0 6px rgba(255,94,94,.6);}
+#out .g.play-hl{background:rgba(255,190,152,.28); border-radius:3px; box-shadow:0 0 10px rgba(255,158,115,.5);}
+#viz{display:block; width:100%; height:4rem; margin-top:.7rem; background:rgba(2,14,4,.6);
+  border:1px solid var(--ph-dark); border-radius:8px;}
 #cursor{display:inline-block; width:.55em; height:1.05em; background:var(--ph); vertical-align:text-bottom;
   box-shadow:0 0 8px rgba(58,255,110,.9); animation:blink 1.06s steps(1) infinite;}
 @keyframes blink{50%{opacity:0;}}
@@ -80,12 +83,15 @@ textarea::placeholder{color:var(--ph-dark);}
       <button id="mode-btn" type="button" aria-pressed="false">mode: text → binary</button>
       <button id="sep-btn" type="button" aria-pressed="true">spaces: on</button>
       <button id="copy-btn" type="button">copy output</button>
+      <button id="play-btn" type="button">▶ play bits</button>
+      <button id="mute-btn" type="button" aria-pressed="false">sound: on</button>
       <span id="copy-ok" aria-hidden="true">✓ copied</span>
     </div>
     <label class="prompt" for="src">&gt; input</label>
     <textarea id="src" spellcheck="false" autocomplete="off"
       placeholder="type something… it becomes binary as you type"></textarea>
     <div id="out-wrap"><div id="out" aria-hidden="true"></div></div>
+    <canvas id="viz" aria-hidden="true"></canvas>
     <div id="status">
       <span>chars <b id="st-ch">0</b></span>
       <span>bytes <b id="st-by">0</b></span>
@@ -205,10 +211,12 @@ $('copy-btn').addEventListener('click',function(){
 $('mode-btn').addEventListener('click',function(){
   /* carry the conversation across: encoding output becomes decode input & vice versa */
   var carry=outputString();
+  if(typeof stopPlay==='function'&&playing) stopPlay();
   mode=(mode==='enc')?'dec':'enc';
   this.textContent='mode: '+(mode==='enc'?'text → binary':'binary → text');
   this.setAttribute('aria-pressed', mode==='dec'?'true':'false');
   $('src').value=carry;
+  prevSrc=carry;
   $('src').placeholder=mode==='enc'?'type something… it becomes binary as you type':'paste 0s and 1s… 01001000 01101001';
   render();
 });
@@ -220,28 +228,154 @@ $('sep-btn').addEventListener('click',function(){
 });
 $('src').addEventListener('input',render);
 
-/* tiny key blips */
-var AC=null, muted=false, lastBlip=0;
-addEventListener('keydown',function(e){
-  if(e.key.toLowerCase()==='m'&&e.target.tagName!=='TEXTAREA'){ muted=!muted; return; }
-  if(e.target.id!=='src'||muted) return;
-  var now=Date.now(); if(now-lastBlip<28) return; lastBlip=now;
+/* ═══ bit audio: 0 = low tone, 1 = high tone ═══ */
+var F0=520, F1=1040, BIT_DUR=.062;
+var AC=null, master=null, analyser=null, muted=false;
+function ensureAC(){
+  if(AC) return AC;
   try{
-    AC=AC||new (window.AudioContext||window.webkitAudioContext)();
-    var o=AC.createOscillator(),g=AC.createGain();
-    o.type='square'; o.frequency.value=1800+Math.random()*500;
-    g.gain.setValueAtTime(.015,AC.currentTime);
-    g.gain.exponentialRampToValueAtTime(.0001,AC.currentTime+.045);
-    o.connect(g).connect(AC.destination); o.start(); o.stop(AC.currentTime+.06);
-  }catch(e2){}
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    master=AC.createGain(); master.gain.value=muted?0:1;
+    analyser=AC.createAnalyser(); analyser.fftSize=1024; analyser.smoothingTimeConstant=.55;
+    master.connect(analyser); analyser.connect(AC.destination);
+  }catch(e){}
+  return AC;
+}
+function scheduleBit(bit,t,dur,vol){
+  var o=AC.createOscillator(),g=AC.createGain();
+  o.type='square'; o.frequency.value=bit==='1'?F1:F0;
+  g.gain.setValueAtTime(.0001,t);
+  g.gain.linearRampToValueAtTime(vol,t+.008);
+  g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  o.connect(g).connect(master); o.start(t); o.stop(t+dur+.02);
+}
+function playBits(bits,vol){
+  if(!bits.length||!ensureAC()) return;
+  if(AC.state==='suspended') AC.resume();
+  var t=AC.currentTime+.02;
+  for(var i=0;i<bits.length;i++) scheduleBit(bits[i],t+i*BIT_DUR,BIT_DUR*.9,vol||.05);
+}
+/* pure helpers (node-tested) */
+function bitsOfText(str){ return binText(toBin(str),false); }
+function diffAdded(prev,next){
+  if(next.length>prev.length&&next.slice(0,prev.length)===prev) return next.slice(prev.length);
+  return null;
+}
+/* live: newly typed chars sing their bits */
+var prevSrc='';
+function playTyped(newVal){
+  var added=diffAdded(prevSrc,newVal);
+  prevSrc=newVal;
+  if(muted||added===null){ if(added===null&&!muted&&AC) playBits('0',.03); return; }
+  var bits=(mode==='enc')?bitsOfText(added):added.replace(/[^01]/g,'');
+  if(bits.length>24) bits=bits.slice(0,24);   /* paste guard */
+  playBits(bits,.045);
+}
+/* full-stream playback with byte highlight */
+var playing=false, playTimer=null, hlTimer=null;
+var PLAY_CAP=600;
+function playAll(){
+  if(playing){ stopPlay(); return; }
+  var src=$('src').value;
+  var bits=(mode==='enc')?bitsOfText(src):src.replace(/[^01]/g,'');
+  if(!bits.length) return;
+  var truncated=bits.length>PLAY_CAP;
+  if(truncated) bits=bits.slice(0,PLAY_CAP);
+  if(!ensureAC()) return;
+  if(AC.state==='suspended') AC.resume();
+  playing=true;
+  $('play-btn').textContent='■ stop';
+  playBits(bits,.06);
+  if(truncated) $('st-note').innerHTML='<span class="warn">playing first '+PLAY_CAP+' bits of '+((mode==='enc')?bitsOfText(src).length:src.replace(/[^01]/g,'').length)+'</span>';
+  /* byte highlight sweep (encode mode has byte groups in DOM) */
+  var groups=$('out').querySelectorAll('.g');
+  var byteSpans=[];
+  groups.forEach(function(gr){ gr.querySelectorAll('.byte').forEach(function(b){ byteSpans.push(b.parentNode); }); });
+  var startT=(window.performance&&performance.now)?performance.now():0;
+  if(byteSpans.length&&startT){
+    hlTimer=setInterval(function(){
+      var el=(performance.now()-startT)/1000;
+      var bi=Math.floor(el/BIT_DUR/8);
+      groups.forEach(function(gr){ gr.classList.remove('play-hl'); });
+      if(byteSpans[bi]) byteSpans[bi].classList.add('play-hl');
+    },40);
+  }
+  playTimer=setTimeout(stopPlay, bits.length*BIT_DUR*1000+150);
+}
+function stopPlay(){
+  playing=false;
+  $('play-btn').textContent='▶ play bits';
+  clearTimeout(playTimer); clearInterval(hlTimer);
+  $('out').querySelectorAll('.g').forEach(function(gr){ gr.classList.remove('play-hl'); });
+  if(AC&&master){ /* soft-kill scheduled tail */
+    master.gain.cancelScheduledValues(AC.currentTime);
+    master.gain.setValueAtTime(0,AC.currentTime);
+    master.gain.setTargetAtTime(muted?0:1,AC.currentTime+.05,.02);
+  }
+}
+$('play-btn').addEventListener('click',playAll);
+function setMuted(v){
+  muted=v;
+  $('mute-btn').textContent='sound: '+(muted?'off':'on');
+  $('mute-btn').setAttribute('aria-pressed',muted?'true':'false');
+  if(AC&&master) master.gain.setTargetAtTime(muted?0:1,AC.currentTime,.02);
+}
+$('mute-btn').addEventListener('click',function(){ setMuted(!muted); });
+addEventListener('keydown',function(e){
+  if(e.key.toLowerCase()==='m'&&e.target.tagName!=='TEXTAREA') setMuted(!muted);
 });
+$('src').addEventListener('input',function(){ playTyped(this.value); });
+
+/* ═══ peach waveform visualizer ═══ */
+var viz=$('viz'), vctx=viz.getContext('2d');
+var reduceMotion=false;
+try{ reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+var wave=new Uint8Array(1024);
+function drawViz(){
+  requestAnimationFrame(drawViz);
+  var w=viz.clientWidth, h=viz.clientHeight;
+  if(!w||!h) return;
+  if(viz.width!==w||viz.height!==h){ viz.width=w; viz.height=h; }
+  vctx.clearRect(0,0,w,h);
+  var rms=0, n=0;
+  vctx.beginPath();
+  if(analyser){
+    analyser.getByteTimeDomainData(wave);
+    n=analyser.fftSize;
+    for(var i=0;i<n;i++){
+      var v=(wave[i]-128)/128;
+      rms+=v*v;
+      var x=i/(n-1)*w, y=h/2+v*(h/2-4);
+      if(i===0) vctx.moveTo(x,y); else vctx.lineTo(x,y);
+    }
+    rms=Math.sqrt(rms/n);
+  }else{
+    vctx.moveTo(0,h/2); vctx.lineTo(w,h/2);
+  }
+  var pulse=reduceMotion?0:Math.min(1,rms*6);
+  vctx.strokeStyle='#ffbe98';
+  vctx.lineWidth=1.6+pulse*1.6;
+  vctx.shadowColor='#ff9e73';
+  vctx.shadowBlur=6+pulse*22;
+  vctx.stroke();
+  vctx.shadowBlur=0;
+  if(pulse>.02){
+    vctx.globalAlpha=pulse*.18;
+    vctx.fillStyle='#ffbe98';
+    vctx.fillRect(0,0,w,h);
+    vctx.globalAlpha=1;
+  }
+}
+drawViz();
 
 $('src').value='Hello, world.';
+prevSrc='Hello, world.';
 render();
 $('src').focus();
 
 window.__bs={ toBin:toBin, binText:binText, fromBin:fromBin, looksBinary:looksBinary,
-  setMode:function(m){ mode=m; }, render:render, out:outputString };
+  setMode:function(m){ mode=m; }, render:render, out:outputString,
+  bitsOfText:bitsOfText, diffAdded:diffAdded, playTyped:playTyped, playAll:playAll, stopPlay:stopPlay, setMuted:setMuted };
 })();
 </script>
 </body>
