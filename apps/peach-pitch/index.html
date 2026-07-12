@@ -64,6 +64,11 @@ input[type=range]#morph:focus-visible{outline:3px solid var(--focus); outline-of
 #msg.err{color:var(--demon-hot); font-weight:600;}
 #player-row{display:none; align-items:center; gap:.7rem; justify-content:center; margin-top:.6rem; flex-wrap:wrap;}
 #player-row.on{display:flex;}
+#card.dragging{outline:4px dashed var(--peach-deep); outline-offset:-8px; background:rgba(255,232,214,.97);}
+#file-row{display:none; align-items:center; gap:.6rem; justify-content:center; margin-top:.6rem; flex-wrap:wrap;
+  background:#fff3e8; border:1px dashed #d89878; border-radius:12px; padding:.5rem .8rem;}
+#file-row.on{display:flex;}
+#file-name{font-size:.68rem; color:#7a4030; max-width:14rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 audio{height:2.75rem;}
 a.dl{font-size:.7rem; color:var(--demon); font-weight:600;}
 a.dl:focus-visible{outline:3px solid var(--focus); outline-offset:2px;}
@@ -79,6 +84,14 @@ footer{font-size:.62rem; color:rgba(255,243,234,.85); letter-spacing:.1em; text-
   <div class="row">
     <button id="start-btn" type="button">🎙 start microphone</button>
     <button id="demo-btn" type="button">no mic? demo voice</button>
+    <button id="file-btn" type="button">📁 audio file</button>
+    <input id="file-in" type="file" accept="audio/*" hidden aria-hidden="true">
+  </div>
+  <div id="file-row">
+    <span id="file-name"></span>
+    <button id="file-play" type="button">▶ play thru fx</button>
+    <button id="file-render" type="button">⬇ render .wav</button>
+    <button id="file-clear" type="button">✕</button>
   </div>
   <div class="row" role="group" aria-label="Voice modes">
     <button class="mode" id="m-morph" type="button" aria-pressed="true">🍑 morph slider</button>
@@ -258,8 +271,124 @@ function buildGraph(inputNode){
 function stopInput(){
   if(srcNode){ try{ srcNode.disconnect(); }catch(e){} srcNode=null; }
   if(demoNodes){ demoNodes.forEach(function(n){ try{ n.stop&&n.stop(); n.disconnect(); }catch(e){} }); demoNodes=null; }
-  if(micStream){ micStream.getTracks().forEach(function(t){ t.stop(); }); micStream=null; }
+  if(micStream){
+    micStream.getTracks().forEach(function(t){ t.stop(); });
+    micStream=null;
+    var sb=$('start-btn'); sb.disabled=false; sb.textContent='🎙 start microphone';
+  }
+  stopFilePlayback();
 }
+/* ═══ audio file: drag & drop / picker → play through fx, or offline-render a wav ═══ */
+var fileBuf=null, fileSrcNode=null;
+function stopFilePlayback(){
+  if(fileSrcNode){
+    try{ fileSrcNode.onended=null; fileSrcNode.stop(); fileSrcNode.disconnect(); }catch(e){}
+    fileSrcNode=null;
+    $('file-play').textContent='▶ play thru fx';
+    if(monitorGain&&AC) monitorGain.gain.setTargetAtTime($('monitor-btn').getAttribute('aria-pressed')==='true'?1:0,AC.currentTime,.03);
+  }
+}
+function loadFile(file){
+  if(!file){ return; }
+  if(file.type&&file.type.indexOf('audio')!==0&&!/\.(mp3|wav|ogg|m4a|webm|flac|aac)$/i.test(file.name)){
+    err('that does not look like an audio file'); return;
+  }
+  if(!ensureAC()){ err('web audio unavailable'); return; }
+  var rd=new FileReader();
+  rd.onload=function(){
+    AC.decodeAudioData(rd.result).then(function(buf){
+      fileBuf=buf;
+      $('file-name').textContent=file.name+' · '+buf.duration.toFixed(1)+'s';
+      $('file-row').classList.add('on');
+      msg('file loaded — play it through the effect, or render a processed .wav.');
+      announce('audio file loaded: '+file.name);
+    }).catch(function(){ err('could not decode that audio file'); });
+  };
+  rd.onerror=function(){ err('could not read that file'); };
+  rd.readAsArrayBuffer(file);
+}
+$('file-btn').addEventListener('click',function(){ $('file-in').click(); });
+$('file-in').addEventListener('change',function(){ loadFile(this.files[0]); this.value=''; });
+['dragover','dragenter'].forEach(function(ev){
+  document.addEventListener(ev,function(e){ e.preventDefault(); $('card').classList.add('dragging'); });
+});
+['dragleave','drop'].forEach(function(ev){
+  document.addEventListener(ev,function(e){ e.preventDefault(); if(ev==='drop'||e.target===document.documentElement) $('card').classList.remove('dragging'); });
+});
+document.addEventListener('drop',function(e){
+  if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+});
+$('file-play').addEventListener('click',function(){
+  if(fileSrcNode){ stopFilePlayback(); return; }
+  if(!fileBuf||!ensureAC()) return;
+  stopInput();
+  fileSrcNode=AC.createBufferSource();
+  fileSrcNode.buffer=fileBuf;
+  if(!proc) buildGraph(fileSrcNode); else fileSrcNode.connect(proc);
+  srcNode=null;
+  /* files are not the mic — force-monitor so you actually hear it */
+  if(monitorGain) monitorGain.gain.setTargetAtTime(1,AC.currentTime,.03);
+  var self=this;
+  fileSrcNode.onended=function(){ stopFilePlayback(); };
+  fileSrcNode.start();
+  self.textContent='■ stop';
+  msg('playing through '+P.mode+' — tweak the slider live.');
+});
+$('file-clear').addEventListener('click',function(){
+  stopFilePlayback(); fileBuf=null;
+  $('file-row').classList.remove('on');
+});
+/* offline render through the SAME pure engine (no audio graph needed) */
+function renderBuffer(buf,params){
+  var sr=buf.sampleRate, len=buf.length, mono=new Float32Array(len), c, i;
+  for(c=0;c<buf.numberOfChannels;c++){
+    var d=buf.getChannelData(c);
+    for(i=0;i<len;i++) mono[i]+=d[i]/buf.numberOfChannels;
+  }
+  var eng=createEngine(sr), out=new Float32Array(len), BLK=2048;
+  var ib=new Float32Array(BLK), ob=new Float32Array(BLK);
+  for(var pos=0;pos<len;pos+=BLK){
+    var nn=Math.min(BLK,len-pos);
+    ib.fill(0); ob.fill(0);
+    for(i=0;i<nn;i++) ib[i]=mono[pos+i];
+    eng.process(ib,ob,params);
+    for(i=0;i<nn;i++) out[pos+i]=ob[i];
+  }
+  return out;
+}
+function wavBytes(samples,sr){
+  var n=samples.length, buf=new ArrayBuffer(44+n*2), v=new DataView(buf);
+  function ws(off,s){ for(var i=0;i<s.length;i++) v.setUint8(off+i,s.charCodeAt(i)); }
+  ws(0,'RIFF'); v.setUint32(4,36+n*2,true); ws(8,'WAVE'); ws(12,'fmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  ws(36,'data'); v.setUint32(40,n*2,true);
+  for(var i=0;i<n;i++){
+    var s=Math.max(-1,Math.min(1,samples[i]));
+    v.setInt16(44+i*2, s<0?s*0x8000:s*0x7FFF, true);
+  }
+  return new Uint8Array(buf);
+}
+$('file-render').addEventListener('click',function(){
+  if(!fileBuf) return;
+  var self=this;
+  self.textContent='rendering…'; self.disabled=true;
+  setTimeout(function(){   /* let the label paint */
+    try{
+      var out=renderBuffer(fileBuf,{mode:P.mode,morph:P.morph});
+      var bytes=wavBytes(out,fileBuf.sampleRate);
+      var blob=new Blob([bytes],{type:'audio/wav'});
+      var url=URL.createObjectURL(blob);
+      $('player').src=url;
+      $('dl').href=url; $('dl').setAttribute('download','peach-pitch-'+P.mode+'.wav');
+      $('player-row').classList.add('on');
+      msg('rendered with '+P.mode+' — playing below, download link ready.');
+      $('player').play().catch(function(){});
+      announce('render complete');
+    }catch(e){ err('render failed'); }
+    self.textContent='⬇ render .wav'; self.disabled=false;
+  },30);
+});
 function ensureAC(){
   if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return null; } }
   if(AC.state==='suspended') AC.resume();
@@ -398,7 +527,8 @@ function err(t){ var m=$('msg'); m.textContent=t; m.className='err'; announce(t)
 function announce(t){ $('sr-status').textContent=t; }
 
 window.__pp={ makeShifter:makeShifter, detectPitch:detectPitch, snapToScale:snapToScale,
-  morphParams:morphParams, createEngine:createEngine, params:P };
+  morphParams:morphParams, createEngine:createEngine, params:P,
+  renderBuffer:renderBuffer, wavBytes:wavBytes, loadFile:loadFile };
 })();
 </script>
 </body>
