@@ -45,7 +45,9 @@ button:focus-visible{outline:3px solid var(--focus); outline-offset:3px;}
 #joy .nub{position:absolute; left:50%; top:50%; width:2.8rem; height:2.8rem; margin:-1.4rem; border-radius:50%; background:rgba(255,138,60,.4); border:2px solid var(--carrot);}
 #t-swing{position:fixed; right:1.2rem; bottom:1.6rem; width:5rem; height:5rem; border-radius:50%; z-index:8; display:none;
   font-size:.8rem; border:3px solid var(--carrot); background:rgba(255,138,60,.25); color:var(--carrot); box-shadow:none;}
-@media (pointer:coarse){ #joy,#t-swing{display:block;} }
+#t-squid{position:fixed; right:6.8rem; bottom:5rem; width:3.4rem; height:3.4rem; border-radius:50%; z-index:8; display:none;
+  font-size:1.2rem; border:3px solid var(--ink); background:rgba(122,78,224,.25); color:var(--ink); box-shadow:none; padding:0;}
+@media (pointer:coarse){ #joy,#t-swing,#t-squid{display:block;} }
 #sr-status{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0);}
 </style>
 </head>
@@ -79,6 +81,7 @@ button:focus-visible{outline:3px solid var(--focus); outline-offset:3px;}
 
 <div id="joy" aria-hidden="true"><div class="ring"></div><div class="nub" id="nub"></div></div>
 <button id="t-swing" type="button" aria-label="Swing bat">SWING</button>
+<button id="t-squid" type="button" aria-label="Launch squid missile">🦑</button>
 <p id="sr-status" role="status" aria-live="polite"></p>
 
 <script>
@@ -102,7 +105,8 @@ var state={mode:'menu', t:0, wave:0, score:0, combo:1, comboT:0, hearts:3, shake
 try{ state.best=parseInt(localStorage.getItem('rbs-best')||'0',10)||0; }catch(e){}
 $('best').textContent=state.best;
 var R={x:192,y:120,vx:0,vy:0,face:0,swingT:0,swingAnim:0,inv:0,hop:0};
-var SQ={cd:0, rate:1.3, shots:1, level:0};
+var SQ={cd:0, rate:1.3, shots:1, level:0, mode:'hat', reformT:0};
+var SQM=null;   /* the squid, when it is a missile */
 var enemies=[], inks=[], parts=[], floats=[], pickups=[], spawnQ=[];
 var keys={}, aim={x:250,y:120}, joy={x:0,y:0,on:false};
 
@@ -115,7 +119,8 @@ var ETYPES={
 function startGame(){
   state.mode='play'; state.wave=0; state.score=0; state.combo=1; state.comboT=0; state.hearts=3; state.kills=0;
   R={x:192,y:120,vx:0,vy:0,face:0,swingT:0,swingAnim:0,inv:0,hop:0};
-  SQ={cd:0, rate:1.3, shots:1, level:0};
+  SQ={cd:0, rate:1.3, shots:1, level:0, mode:'hat', reformT:0};
+  SQM=null;
   enemies=[]; inks=[]; parts=[]; floats=[]; pickups=[]; spawnQ=[];
   $('menu-ov').classList.remove('on');
   $('hearts').textContent='3'; $('score').textContent='0';
@@ -199,6 +204,85 @@ function killEnemy(e,cause){
   else if(roll<.2) pickups.push({kind:'ink',x:e.x,y:e.y,t:0});
 }
 
+/* ═══════════ squid missile ═══════════ */
+function launchSquid(){
+  if(state.mode!=='play') return;
+  if(SQ.mode==='missile'){ detonateSquid(); return; }   /* second press = early boom */
+  if(SQ.mode!=='hat') return;
+  SQ.mode='missile';
+  SQM={x:R.x, y:R.y-34, vx:Math.cos(R.face)*150, vy:Math.sin(R.face)*150, t:3, grabbed:[]};
+  launchSnd();
+  announce('squid away. three seconds.');
+}
+function detonateSquid(){
+  if(!SQM) return;
+  var bx=SQM.x, by=SQM.y;
+  burst(bx,by,'#7a4ee0',18); burst(bx,by,'#b89aff',12);
+  state.shake=Math.max(state.shake,8);
+  boomSnd();
+  /* grabbed enemies are done for — bonus per captive */
+  SQM.grabbed.forEach(function(e){
+    if(e.dead) return;
+    bumpCombo(e.x,e.y);
+    addScore(e.score*2, e.x, e.y);
+    e.dead=true; state.kills++;
+    burst(e.x,e.y,e.c,6);
+  });
+  /* area blast */
+  enemies.forEach(function(e){
+    if(e.dead) return;
+    var d=Math.hypot(e.x-bx,e.y-by);
+    if(d<36){
+      e.hp-=5; e.stun=Math.max(e.stun,1.2);
+      if(e.hp<=0) killEnemy(e,'squid');
+    }
+  });
+  floats.push({x:bx,y:by-10,txt:'SPLAT',life:.9,c:'#b89aff',big:true});
+  SQM=null;
+  SQ.mode='reforming';
+  SQ.reformT=2;
+}
+function stepSquidMissile(dt){
+  if(!SQM) return;
+  SQM.t-=dt;
+  /* homing toward nearest un-grabbed enemy */
+  var best=null, bd=1e9;
+  enemies.forEach(function(e){
+    if(e.dead||e.state==='grabbed') return;
+    var d=Math.hypot(e.x-SQM.x,e.y-SQM.y);
+    if(d<bd){ bd=d; best=e; }
+  });
+  if(best){
+    var dx=best.x-SQM.x, dy=best.y-SQM.y, d=Math.hypot(dx,dy)||1;
+    var want={x:dx/d*160, y:dy/d*160};
+    SQM.vx+=(want.x-SQM.vx)*Math.min(1,dt*5);
+    SQM.vy+=(want.y-SQM.vy)*Math.min(1,dt*5);
+  }
+  SQM.x+=SQM.vx*dt; SQM.y+=SQM.vy*dt;
+  SQM.x=Math.max(6,Math.min(IW-6,SQM.x));
+  SQM.y=Math.max(16,Math.min(IH-8,SQM.y));
+  /* ink trail */
+  if(Math.random()<dt*30) parts.push({x:SQM.x,y:SQM.y+3,vx:(Math.random()-.5)*20,vy:10,life:.4,c:'#7a4ee0'});
+  /* grab everything it touches */
+  enemies.forEach(function(e){
+    if(e.dead||e.state==='grabbed') return;
+    if(Math.hypot(e.x-SQM.x,e.y-SQM.y)<e.r+7){
+      e.state='grabbed';
+      SQM.grabbed.push(e);
+      grabSnd();
+      floats.push({x:e.x,y:e.y-6,txt:'GRABBED',life:.6,c:'#b89aff'});
+    }
+  });
+  /* captives cluster around the squid */
+  SQM.grabbed.forEach(function(e,i){
+    if(e.dead) return;
+    var ang=i*2.1+state.t*4;
+    e.x=SQM.x+Math.cos(ang)*(7+e.r);
+    e.y=SQM.y+Math.sin(ang)*(7+e.r);
+  });
+  if(SQM.t<=0) detonateSquid();
+}
+
 /* ═══════════ update ═══════════ */
 function step(dt){
   state.t+=dt;
@@ -227,9 +311,15 @@ function step(dt){
   R.y=Math.max(30,Math.min(IH-14,R.y+R.vy*dt));
   R.face=Math.atan2(aim.y-R.y,aim.x-R.x);
   R.swingT-=dt; R.swingAnim-=dt; R.inv-=dt;
-  /* squid fortress: auto-lob ink */
+  /* squid missile / reform cycle */
+  if(SQ.mode==='missile') stepSquidMissile(dt);
+  else if(SQ.mode==='reforming'){
+    SQ.reformT-=dt;
+    if(SQ.reformT<=0){ SQ.mode='hat'; reformSnd(); announce('squid reformed on the hat'); }
+  }
+  /* squid fortress: auto-lob ink (only while ON the hat) */
   SQ.cd-=dt;
-  if(SQ.cd<=0&&enemies.length){
+  if(SQ.mode==='hat'&&SQ.cd<=0&&enemies.length){
     SQ.cd=SQ.rate;
     var targets=enemies.filter(function(e){ return !e.dead&&e.state==='alive'; })
       .sort(function(a,b){ return Math.hypot(a.x-R.x,a.y-R.y)-Math.hypot(b.x-R.x,b.y-R.y); })
@@ -260,6 +350,7 @@ function step(dt){
   for(var ei=enemies.length-1;ei>=0;ei--){
     var e=enemies[ei];
     if(e.dead){ enemies.splice(ei,1); continue; }
+    if(e.state==='grabbed') continue;   /* captive of the squid */
     e.stun-=dt;
     if(e.state==='flung'){
       e.x+=e.vx*dt; e.y+=e.vy*dt;
@@ -272,7 +363,7 @@ function step(dt){
       if(sp>90){
         for(var oi=0;oi<enemies.length;oi++){
           var o=enemies[oi];
-          if(o===e||o.dead||o.state==='flung') continue;
+          if(o===e||o.dead||o.state!=='alive') continue;
           if(Math.hypot(o.x-e.x,o.y-e.y)<e.r+o.r+1){
             o.hp-=2;
             o.vx=e.vx*.5; o.vy=e.vy*.5; o.state='flung';
@@ -420,6 +511,18 @@ function render(){
     px(x-2,y-2,4,4,'#7a4ee0'); px(x-1,y-1,2,2,'#b89aff');
   });
   drawRabbit();
+  /* the squid missile in flight */
+  if(SQM){
+    var mx=SQM.x|0, my=SQM.y|0;
+    var wig=Math.round(Math.sin(state.t*18)*1.5);
+    px(mx-4,my-3+wig,8,5,'#9a6ee8');
+    px(mx-3,my-5+wig,6,2,'#9a6ee8');
+    px(mx-3,my-1+wig,1,1,'#ff5e5e'); px(mx+2,my-1+wig,1,1,'#ff5e5e');   /* angry eyes */
+    for(var t3=0;t3<4;t3++) px(mx-4+t3*2, my+2+((t3%2)?wig:-wig),1,3,'#8a5ed8');
+    /* fuse pips */
+    var pips=Math.ceil(SQM.t);
+    for(var p3=0;p3<pips;p3++) px(mx-3+p3*3,my-8,2,2,'#ffd36e');
+  }
   /* particles */
   parts.forEach(function(q){ px(q.x,q.y,2,2,q.c); });
   /* floats */
@@ -454,20 +557,27 @@ function drawRabbit(){
   px(x-7,y-14,14,2,'#2a2438');   /* brim */
   px(x-4,y-30,8,16,'#2a2438');   /* stack */
   px(x-4,y-26,8,2,'#7a4ee0');    /* band */
-  /* THE SQUID FORTRESS on top */
-  var sqBob=Math.round(Math.sin(state.t*2.2)*1.5*(reduceMotion?0:1));
-  var sy=y-34+sqBob;
-  px(x-4,sy-4,8,6,'#9a6ee8');            /* mantle */
-  px(x-3,sy-6,6,2,'#9a6ee8');
-  px(x-3,sy,1,1,'#fff'); px(x+2,sy,1,1,'#fff');
-  px(x-3,sy+1,1,1,'#2a1a4a'); px(x+2,sy+1,1,1,'#2a1a4a');
-  /* tentacles curl over the hat */
-  for(var t2=0;t2<4;t2++){
-    var tx=x-5+t2*3;
-    px(tx,sy+2+((t2%2)?1:0),1,3,'#8a5ed8');
+  /* THE SQUID FORTRESS on top (when home) */
+  if(SQ.mode==='hat'){
+    var sqBob=Math.round(Math.sin(state.t*2.2)*1.5*(reduceMotion?0:1));
+    var sy=y-34+sqBob;
+    px(x-4,sy-4,8,6,'#9a6ee8');
+    px(x-3,sy-6,6,2,'#9a6ee8');
+    px(x-3,sy,1,1,'#fff'); px(x+2,sy,1,1,'#fff');
+    px(x-3,sy+1,1,1,'#2a1a4a'); px(x+2,sy+1,1,1,'#2a1a4a');
+    for(var t2=0;t2<4;t2++){
+      var tx=x-5+t2*3;
+      px(tx,sy+2+((t2%2)?1:0),1,3,'#8a5ed8');
+    }
+    if(SQ.cd<.3&&enemies.length){ px(x-1,sy-6,2,1,'#d8b8ff'); }
+  }else if(SQ.mode==='reforming'){
+    /* ink coalescing back onto the hat */
+    var pr=1-(SQ.reformT/2);
+    ctx.globalAlpha=.3+pr*.6;
+    px(x-Math.round(3*pr),y-32-Math.round(2*pr),Math.round(6*pr)+1,Math.round(4*pr)+1,'#7a4ee0');
+    ctx.globalAlpha=1;
+    if(Math.random()<.3) parts.push({x:x+(Math.random()-.5)*20,y:y-34+(Math.random()-.5)*14,vx:(x-(x+(Math.random()-.5)*20))*2,vy:0,life:.3,c:'#7a4ee0'});
   }
-  /* squid charge glow when about to fire */
-  if(SQ.cd<.3&&enemies.length){ px(x-1,sy-6,2,1,'#d8b8ff'); }
   /* THE BAT */
   var fa=R.face;
   var swingProg=R.swingAnim>0?(1-(R.swingAnim/.22)):1;
@@ -534,12 +644,17 @@ function comboSnd(c){ tone(440+c*60,.08,'square',.07); }
 function hurtSnd(){ tone(160,.25,'sawtooth',.12,60); }
 function waveHorn(){ tone(220,.2,'square',.08); setTimeout(function(){tone(330,.25,'square',.08);},140); }
 function gameOverSnd(){ [330,262,196,131].forEach(function(f,i){ setTimeout(function(){tone(f,.22,'sawtooth',.1);},i*140); }); }
+function launchSnd(){ noiseHit(.1,1600); tone(880,.2,'sine',.08,220); }
+function grabSnd(){ tone(500,.09,'triangle',.09,700); }
+function boomSnd(){ noiseHit(.2,400); tone(90,.35,'sine',.16,30); tone(600,.15,'sawtooth',.08,120); }
+function reformSnd(){ [392,523,659].forEach(function(f,i){ setTimeout(function(){tone(f,.09,'triangle',.08);},i*60); }); }
 
 /* ═══════════ input ═══════════ */
 addEventListener('keydown',function(e){
   var k=e.key.toLowerCase(); keys[k]=true;
   if(k==='m') muted=!muted;
   if(k===' '&&state.mode==='play'){ e.preventDefault(); swing(); }
+  if(k==='q'&&state.mode==='play'){ e.preventDefault(); launchSquid(); }
   if(state.mode==='play'&&['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].indexOf(k)>=0) e.preventDefault();
 });
 addEventListener('keyup',function(e){ keys[e.key.toLowerCase()]=false; });
@@ -548,7 +663,12 @@ function toInternal(e){
   return {x:(e.clientX-r.left)/r.width*IW, y:(e.clientY-r.top)/r.height*IH};
 }
 canvas.addEventListener('pointermove',function(e){ aim=toInternal(e); });
-canvas.addEventListener('pointerdown',function(e){ aim=toInternal(e); if(state.mode==='play') swing(); });
+canvas.addEventListener('pointerdown',function(e){
+  aim=toInternal(e);
+  if(state.mode!=='play') return;
+  if(e.button===2) launchSquid(); else swing();
+});
+canvas.addEventListener('contextmenu',function(e){ e.preventDefault(); });
 $('start-btn').addEventListener('click',startGame);
 $('again-btn').addEventListener('click',function(){
   $('end-ov').classList.remove('on');
@@ -568,6 +688,7 @@ function jUpd(e){
 joyEl.addEventListener('touchstart',function(e){ e.preventDefault(); joyId=e.changedTouches[0].identifier; jUpd(e); },{passive:false});
 joyEl.addEventListener('touchmove',function(e){ e.preventDefault(); jUpd(e); },{passive:false});
 joyEl.addEventListener('touchend',function(e){ e.preventDefault(); joyId=null; joy.on=false; joy.x=joy.y=0; nub.style.left='50%'; nub.style.top='50%'; },{passive:false});
+$('t-squid').addEventListener('touchstart',function(e){ e.preventDefault(); launchSquid(); },{passive:false});
 $('t-swing').addEventListener('touchstart',function(e){
   e.preventDefault();
   /* auto-aim swing at nearest enemy on touch */
@@ -584,8 +705,9 @@ requestAnimationFrame(frame);
 window.__rbs={
   state:function(){ return {mode:state.mode, wave:state.wave, score:state.score, combo:state.combo,
     hearts:state.hearts, enemies:enemies.length, inks:inks.length, pickups:pickups.length,
-    squid:{rate:SQ.rate, shots:SQ.shots, level:SQ.level}}; },
-  start:startGame, step:step, swing:swing,
+    squid:{rate:SQ.rate, shots:SQ.shots, level:SQ.level, mode:SQ.mode, reformT:SQ.reformT},
+    missile:SQM?{x:SQM.x,y:SQM.y,t:SQM.t,grabbed:SQM.grabbed.length}:null}; },
+  start:startGame, step:step, swing:swing, launchSquid:launchSquid, detonateSquid:detonateSquid,
   rabbit:function(){ return R; },
   enemiesRef:function(){ return enemies; },
   pickupsRef:function(){ return pickups; },
