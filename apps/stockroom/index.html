@@ -107,6 +107,10 @@ td .mini{font-size:.62rem; color:var(--dim);}
 button.icon{background:none; border:1px solid var(--line); border-radius:8px; cursor:pointer; min-width:2.4rem; min-height:2.4rem; font-size:.85rem;}
 button.icon:hover{border-color:var(--teal);}
 button.icon:focus-visible{outline:3px solid var(--focus);}
+button.linkish{background:none; border:0; cursor:pointer; font-family:'Sora',sans-serif; font-size:.78rem; color:var(--ink);
+  padding:.2rem 0; min-height:2.4rem; text-align:left;}
+button.linkish:hover{color:var(--teal);}
+button.linkish:focus-visible{outline:3px solid var(--focus); outline-offset:2px;}
 /* POS */
 .pos{display:grid; grid-template-columns:1fr 17rem; gap:1rem;}
 .pgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr)); gap:.6rem;}
@@ -256,9 +260,10 @@ function catNames(){ return DB.categories.map(function(c){ return c.name; }); }
 function seed(){
   var r=mulberry(4242);
   var branches=[
-    {id:'b1', name:'Harbor', addr:'2 Quay Lane'},
-    {id:'b2', name:'Midtown', addr:'118 Elm Ave'},
-    {id:'b3', name:'Airport', addr:'Terminal 2'}
+    {id:'hq', name:'Central Office', type:'central', code:'HQ-000', addr:'1 Fleet Plaza'},
+    {id:'b1', name:'Harbor', type:'branch', code:'HAR-001', addr:'2 Quay Lane'},
+    {id:'b2', name:'Midtown', type:'branch', code:'MID-002', addr:'118 Elm Ave'},
+    {id:'b3', name:'Airport', type:'branch', code:'AIR-003', addr:'Terminal 2'}
   ];
   var names=[['Avocado (each)','Produce',1.8],['Sourdough Loaf','Bakery',4.2],['Cold Brew 330ml','Drinks',3.5],
     ['Bananas 1kg','Produce',1.6],['Croissant','Bakery',2.1],['Sparkling Water','Drinks',1.2],
@@ -277,7 +282,7 @@ function seed(){
   for(var d=13;d>=0;d--){
     var n=4+Math.floor(r()*9);
     for(var s=0;s<n;s++){
-      var br=branches[Math.floor(r()*3)].id;
+      var br=branches[Math.floor(r()*branches.length)].id;
       var lines=[], total=0, ln=1+Math.floor(r()*3);
       for(var li=0;li<ln;li++){
         var p=products[Math.floor(r()*products.length)];
@@ -320,6 +325,10 @@ function load(){
         DB.suppliers=defaultSuppliers();
         DB.products.forEach(function(p,i){ if(!p.supplier) p.supplier='s'+(i%3+1); });
       }
+      DB.branches.forEach(function(b,i){  /* migrate pre-v1.6: branch type + code */
+        if(!b.type) b.type='branch';
+        if(!b.code) b.code=genBranchCode(b.name,i);
+      });
       DB.products.forEach(function(p){    /* migrate pre-v1.5: per-branch selling prices */
         if(!p.prices){
           p.prices={};
@@ -367,6 +376,41 @@ function logout(){
   $('lg-user').focus();
 }
 function branchName(id){ var b=DB.branches.find(function(x){return x.id===id;}); return b?b.name:id; }
+function genBranchCode(name,i){
+  var stem=String(name||'').replace(/[^a-zA-Z]/g,'').slice(0,3).toUpperCase();
+  while(stem.length<3) stem+='X';
+  return stem+'-'+String(i+1).padStart(3,'0');
+}
+function addBranch(d){
+  if(!can('editBranches')) return {ok:false, err:'admins only'};
+  var name=String(d.name||'').trim();
+  if(!name) return {ok:false, err:'name required'};
+  var type=d.type==='central'?'central':'branch';
+  var code=String(d.code||'').trim().toUpperCase();
+  if(!/^[A-Z0-9-]{2,10}$/.test(code)) return {ok:false, err:'code: 2–10 chars, A–Z 0–9 dash'};
+  if(DB.branches.some(function(b){ return b.code.toUpperCase()===code; })) return {ok:false, err:'branch code taken'};
+  var nb={id:'b'+Date.now(), name:name, type:type, code:code, addr:String(d.addr||'').trim()};
+  DB.branches.push(nb);
+  DB.products.forEach(function(p){ p.stock[nb.id]=0; if(p.prices) p.prices[nb.id]=p.price; });
+  save();
+  return {ok:true, branch:nb};
+}
+function updateBranch(id,d){
+  if(!can('editBranches')) return {ok:false, err:'admins only'};
+  var b=DB.branches.find(function(x){ return x.id===id; });
+  if(!b) return {ok:false, err:'no such branch'};
+  if(d.name!==undefined){ var nm=String(d.name).trim(); if(!nm) return {ok:false, err:'name required'}; b.name=nm; }
+  if(d.type!==undefined) b.type=d.type==='central'?'central':'branch';
+  if(d.code!==undefined){
+    var code=String(d.code).trim().toUpperCase();
+    if(!/^[A-Z0-9-]{2,10}$/.test(code)) return {ok:false, err:'code: 2–10 chars, A–Z 0–9 dash'};
+    if(DB.branches.some(function(x){ return x.id!==id&&x.code.toUpperCase()===code; })) return {ok:false, err:'branch code taken'};
+    b.code=code;
+  }
+  if(d.addr!==undefined) b.addr=String(d.addr).trim();
+  save();
+  return {ok:true};
+}
 
 /* ═══════════ nav / router ═══════════ */
 var PAGES={dash:'Dashboard', products:'Products', inv:'Inventory', pos:'New Sale', sales:'Sales Log', requests:'Restock Requests', approvals:'HQ Approvals', suppliers:'Suppliers', categories:'Categories', branches:'Branches', users:'User Management', profile:'My Profile'};
@@ -815,7 +859,8 @@ function renderCategories(C){
 
 var cart=[];
 function renderPOS(C){
-  var posBranch=can('allBranches')?(curBranch==='all'?DB.branches[0].id:curBranch):myBranch();
+  var firstRetail=(DB.branches.find(function(b){ return b.type!=='central'; })||DB.branches[0]).id;
+  var posBranch=can('allBranches')?(curBranch==='all'?firstRetail:curBranch):myBranch();
   cart=[];
   C.innerHTML='<p style="font-size:.72rem;color:var(--dim);margin:0 0 .7rem;">ringing up at <b>'+esc(branchName(posBranch))+'</b></p>'+
    '<div class="pos"><div class="pgrid" id="pos-grid"></div>'+
@@ -1021,15 +1066,15 @@ function renderApprovals(C){
 }
 function renderBranches(C){
   if(!can('editBranches')){ C.innerHTML='<div class="card">admin only.</div>'; return; }
-  C.innerHTML='<div class="card"><div class="topbar" style="margin-bottom:.6rem;"><div class="grow"></div>'+
+  C.innerHTML='<div class="card"><div class="topbar" style="margin-bottom:.6rem;">'+
+   '<p class="mini" style="margin:0;color:var(--dim);">click a name to edit</p><div class="grow"></div>'+
    '<button class="act" id="add-branch" type="button">+ branch</button></div>'+
-   '<table><thead><tr><th>branch</th><th>address</th><th>units</th><th>revenue (14d)</th><th></th></tr></thead><tbody>'+
+   '<table><thead><tr><th>name</th><th>type</th><th>branch code</th><th>address</th></tr></thead><tbody>'+
    DB.branches.map(function(b){
-     var units=DB.products.reduce(function(a,p){ return a+(p.stock[b.id]||0); },0);
-     var rev=DB.sales.filter(function(s){ return s.branch===b.id; }).reduce(function(a,s){ return a+s.total; },0);
-     return '<tr><td><b>'+esc(b.name)+'</b></td><td>'+esc(b.addr)+'</td><td class="mono">'+units+'</td>'+
-       '<td class="mono">$'+rev.toFixed(2)+'</td>'+
-       '<td><button class="icon" data-edit-b="'+b.id+'" aria-label="Edit branch '+esc(b.name)+'">✏️</button></td></tr>';
+     return '<tr><td><button class="linkish" data-edit-b="'+b.id+'" aria-label="Edit '+esc(b.name)+'"><b>'+esc(b.name)+'</b> ✏️</button></td>'+
+       '<td><span class="badge '+(b.type==='central'?'role':'ok')+'">'+(b.type==='central'?'central office':'branch')+'</span></td>'+
+       '<td class="mono">'+esc(b.code)+'</td>'+
+       '<td>'+esc(b.addr)+'</td></tr>';
    }).join('')+'</tbody></table></div>';
   $('add-branch').addEventListener('click',function(){ branchModal(null); });
   C.querySelectorAll('[data-edit-b]').forEach(function(b){ b.addEventListener('click',function(){ branchModal(b.dataset.editB); }); });
@@ -1270,16 +1315,17 @@ function branchModal(bid){
   var b=bid?DB.branches.find(function(x){ return x.id===bid; }):null;
   openModal(b?'Edit branch':'New branch',
     '<label for="m-bname">name</label><input id="m-bname" type="text" value="'+(b?esc(b.name):'')+'">'+
+    '<label for="m-btype">type</label><select id="m-btype">'+
+      '<option value="branch"'+(b&&b.type==='branch'?' selected':'')+'>branch</option>'+
+      '<option value="central"'+(b&&b.type==='central'?' selected':'')+'>central office</option></select>'+
+    '<label for="m-bcode">branch code</label><input id="m-bcode" type="text" value="'+(b?esc(b.code):'')+'" placeholder="e.g. HAR-004">'+
     '<label for="m-baddr">address</label><input id="m-baddr" type="text" value="'+(b?esc(b.addr):'')+'">',
     function(){
-      var name=$('m-bname').value.trim(); if(!name){ toast('name required'); return false; }
-      if(b){ b.name=name; b.addr=$('m-baddr').value.trim(); }
-      else{
-        var nb={id:'b'+Date.now(), name:name, addr:$('m-baddr').value.trim()};
-        DB.branches.push(nb);
-        DB.products.forEach(function(p){ p.stock[nb.id]=0; });
-      }
-      save(); buildBranchSel(); go('branches'); toast('branch saved');
+      var d={name:$('m-bname').value, type:$('m-btype').value, code:$('m-bcode').value, addr:$('m-baddr').value};
+      if(!b&&!d.code.trim()) d.code=genBranchCode(d.name,DB.branches.length);
+      var r=b?updateBranch(b.id,d):addBranch(d);
+      if(!r.ok){ toast(r.err); return false; }
+      buildBranchSel(); go('branches'); toast('branch saved');
     });
 }
 function delProduct(pid){
@@ -1323,7 +1369,8 @@ window.__stk={
   users:function(){ return USERS; }, addUser:addUser, updateUser:updateUser, deleteUser:deleteUser, setRole:setRole,
   addCategory:addCategory, renameCategory:renameCategory, deleteCategory:deleteCategory,
   addSupplier:addSupplier, updateSupplier:updateSupplier, deleteSupplier:deleteSupplier, setLow:setLow,
-  createProduct:createProduct, priceAt:priceAt, setPrice:setPrice, priceRange:priceRange
+  createProduct:createProduct, priceAt:priceAt, setPrice:setPrice, priceRange:priceRange,
+  addBranch:addBranch, updateBranch:updateBranch, genBranchCode:genBranchCode
 };
 })();
 </script>
