@@ -1,0 +1,13 @@
+# rabbitbatsquid · notes
+
+## log
+- 2026-07-13: v1 (chat ask: "RabbitBatSquid — rabbit in a tall hat swings a bat, squid rides the hat as a mobile fortress, pixel art, chaotic arcade action"). **Pixel pipeline**: internal 384×216 canvas, CSS pixelated upscale (integer when ≥1.6×), snapped px() rects. **The totem**: pixel rabbit (ears, hop bob, blink i-frames) + TALL hat (brim + 16px stack + violet band) + squid perched on top (mantle, eyes, 4 tentacles curling over the hat, bob, charge-glow pip before firing). **Bat**: pointer-aimed swing (click/space, 0.42s cd), 34px arc ±1.25rad — hit enemies become BOWLING BALLS (flung 300+wave·8, wall bounces w/ boing, friction) that smash other enemies at sp>90: victim takes 2, inherits half velocity (chains propagate!), combo ×2..×8 (2.4s window) multiplies all score, chain kills pay double. **Squid fortress**: auto-lobs arcing ink at nearest enemy every 1.3s (sin-arc projectile, 16px splash, 1 dmg + 0.9s stun); 🟣 ink-jar drops upgrade it alternating rate−0.25 (floor 0.5) / +1 shot (max 3 targets). **Enemies**: frog (hops), crow (flies straight, flap anim), mole (tanky), bigfrog (w4+); wave n = 4+2n, hp/speed scale mildly. 🥕 heals (3 hearts cap), bite = 1 heart + knockback + 1.1s i-frames. localStorage best. Touch: joystick + SWING button with auto-aim-at-nearest. Sounds: whack (noise+square), swish, boing, splat, ink pew, splash, munch, squid-up arpeggio, combo pitch ladder, wave horn, descending game over. 14/14 headless checks (swing arc directionality — behind-enemy immune, fling velocity, bowling chain over travel frames [one test artifact: single-step gave no travel time], squid autonomy + splash kill, ink upgrade path, bite/heal/game-over/best, 384×216 assertion, 60 chaos frames). Silkscreen + VT323, dusk-meadow palette.
+
+## issues
+- Crows fly straight at you and don't dodge — reads fine at pixel scale, could orbit later.
+- No pause key (arcade purity); add P if chat asks.
+
+## todos
+- Boss every 5 waves (giant mole? crow king?); squid ultimate at level 6 (ink nova).
+- Two-player? second totem?
+- Screen-wrap mode mutator.
