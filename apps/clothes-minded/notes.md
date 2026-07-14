@@ -1,6 +1,7 @@
 # clothes-minded · notes
 
 ## log
+- 2026-07-14: v2.0 (chat: 3D runway + rename-when-Angie-speaks). Raw WebGL: uKind frag (0 floor lane/plank/spot/fog; 1 crowd wall bobbing heads + flash glints; 2 model billboard from 256×384 offscreen re-rendered per frame, FLIP_Y; 3 beam quad). Camera eye(0,1.9,3.6)→(0,1,−4); px 0-450-1000 → depth −11→−1.5→3.5 (grows as approaches). use3d = g3Ensure && !reduceMotion; mid-walk try/catch → seamless 2D drop. RENAME PENDING Angie. Stub NOTE: proxy getContext must return FALSE from getShaderParameter or fake-GL 'compiles'.
 - 2026-07-14: v1.0 (chat: "fashion runway game with design, craft, and scoring"). Three-phase loop × 5 looks per season.
   **DESIGN**: brief = 1 of 10 themes w/ 5-dim target vector [bold, elegant, cozy, edgy, minimal]; every option (5 silhouettes, 5 fabrics w/ sheen+flow physics, 10 swatches, 5 patterns, 5 accents) carries its own attr vector; live mannequin preview on canvas (procedural figure + garment per silhouette, pattern fills generated on 48px tiles: stripes/polka/floral/geo, fabric sheen gradient + flow flutter).
   **CRAFT**: stitch minigame — needle oscillates over seam, 5 golden zones, tap/space; accuracy avg = construction %, needle speed scales with round.
