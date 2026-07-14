@@ -63,6 +63,8 @@ button[aria-pressed="true"]{background:var(--ink); color:var(--bone); border-col
 /* runway */
 #runway-box{position:relative; margin-top:.8rem;}
 #runway{width:100%; display:block; background:#0d0a07; border:1.5px solid var(--ink);}
+#runway3d{position:absolute; inset:0; width:100%; height:100%; display:none; border:1.5px solid var(--ink);}
+body.gl-runway #runway3d{display:block;}
 #judges{display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.7rem; margin:.8rem 0;}
 .judge{background:var(--card); border:1.5px solid var(--line); padding:.7rem .9rem; opacity:.35; transition:opacity .3s;}
 .judge.rev{opacity:1; border-left:5px solid var(--fux);}
@@ -121,7 +123,8 @@ footer{margin-top:1.4rem; font-family:'IBM Plex Mono',monospace; font-size:.62re
 
   <!-- RUNWAY -->
   <section class="phase" id="ph-runway" aria-label="Runway phase">
-    <div id="runway-box"><canvas id="runway" width="900" height="420" aria-hidden="true"></canvas></div>
+    <div id="runway-box"><canvas id="runway" width="900" height="420" aria-hidden="true"></canvas>
+      <canvas id="runway3d" width="900" height="420" aria-hidden="true"></canvas></div>
     <div id="judges">
       <div class="judge" id="j0"><h3>Mara Minim</h3><p class="jt">high priestess of less</p><p class="jc"></p><p class="js"></p></div>
       <div class="judge" id="j1"><h3>Leo Baroque</h3><p class="jt">apostle of more</p><p class="jc"></p><p class="js"></p></div>
@@ -151,7 +154,7 @@ footer{margin-top:1.4rem; font-family:'IBM Plex Mono',monospace; font-size:.62re
 <footer>
   every garment is drawn from your choices · nothing is prefabricated ·
   <button id="btn-mute" type="button" aria-pressed="false" style="min-height:2.2rem; padding:.15rem .6rem; font-size:.62rem;">♪ sound: off</button>
-  <br><span id="build-info">build <b>v1.0</b> · commit <code id="build-hash">4992abbd4</code></span>
+  <br><span id="build-info">build <b>v2.0</b> · commit <code id="build-hash">4992abbd4</code></span>
 </footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 <script>
@@ -515,10 +518,125 @@ function startCraft(){
   announce('atelier: five stitches. press space or tap when the needle crosses the gold.');
 }
 
+/* ═══ 3D runway (raw WebGL, billboard model; silent fallback to the 2D scene) ═══ */
+var G3={ok:false,tried:false,gl:null,cv:null,U:{},bufs:{},tex:null,off:null};
+function g3Ensure(){
+  if(G3.ok) return true; if(G3.tried) return false; G3.tried=true;
+  try{
+    G3.cv=$('runway3d');
+    var gl=G3.cv.getContext('webgl',{antialias:true});
+    if(!gl||!gl.createShader) return false;
+    G3.gl=gl;
+    function sh(t,s,n){ var x=gl.createShader(t); gl.shaderSource(x,s); gl.compileShader(x);
+      if(!gl.getShaderParameter(x,gl.COMPILE_STATUS)) throw new Error(n+': '+gl.getShaderInfoLog(x)); return x; }
+    var vs=sh(gl.VERTEX_SHADER,'attribute vec3 aP; attribute vec2 aU; uniform mat4 uPV; varying vec3 vP; varying vec2 vU;'+
+      'void main(){ vP=aP; vU=aU; gl_Position=uPV*vec4(aP,1.0); }','v');
+    var fs=sh(gl.FRAGMENT_SHADER,
+      'precision mediump float; varying vec3 vP; varying vec2 vU;'+
+      'uniform int uKind; uniform sampler2D uTex; uniform float uT; uniform float uFlash;'+
+      'float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }'+
+      'void main(){'+
+      ' if(uKind==0){'+                                                    /* catwalk floor */
+      '   float lane=step(abs(vP.x),1.6);'+
+      '   float plank=smoothstep(0.42,0.5,abs(fract(vP.z*1.2)-0.5));'+
+      '   vec3 base=mix(vec3(0.05,0.04,0.03), vec3(0.93,0.9,0.84)*(0.8+0.2*plank), lane);'+
+      '   float spot=exp(-dot(vP.xz-vec2(0.0,-1.5),vP.xz-vec2(0.0,-1.5))*0.12);'+
+      '   base+=vec3(1.0,0.9,0.7)*spot*0.5+vec3(uFlash*0.25);'+
+      '   float fog=1.0-smoothstep(6.0,16.0,length(vP.xz));'+
+      '   gl_FragColor=vec4(base*fog,1.0);'+
+      ' } else if(uKind==1){'+                                             /* crowd wall */
+      '   float head=smoothstep(0.5,0.42,length(vec2(fract(vU.x*14.0)-0.5,(vU.y-0.35-0.05*sin(uT*2.0+floor(vU.x*14.0)))*1.6)));'+
+      '   vec3 base=mix(vec3(0.03,0.025,0.02), vec3(0.1,0.08,0.06), head);'+
+      '   base+=vec3(1.0)*uFlash*head*0.4*hash(vec2(floor(vU.x*14.0),floor(uT*8.0)));'+
+      '   gl_FragColor=vec4(base,1.0);'+
+      ' } else if(uKind==2){'+                                             /* model billboard */
+      '   vec4 t=texture2D(uTex,vU); if(t.a<0.1) discard;'+
+      '   gl_FragColor=vec4(t.rgb*(0.85+uFlash*0.3),t.a);'+
+      ' } else {'+                                                         /* spotlight beam */
+      '   float d=abs(vU.x-0.5)/(0.12+vU.y*0.5);'+
+      '   float a=(1.0-smoothstep(0.6,1.0,d))*(1.0-vU.y)*0.18;'+
+      '   gl_FragColor=vec4(1.0,0.93,0.75,a); } }','f');
+    var pr=gl.createProgram(); gl.attachShader(pr,vs); gl.attachShader(pr,fs); gl.linkProgram(pr);
+    if(!gl.getProgramParameter(pr,gl.LINK_STATUS)) throw new Error('link');
+    gl.useProgram(pr);
+    ['uPV','uKind','uTex','uT','uFlash'].forEach(function(u){ G3.U[u]=gl.getUniformLocation(pr,u); });
+    G3.U.aP=gl.getAttribLocation(pr,'aP'); G3.U.aU=gl.getAttribLocation(pr,'aU');
+    function buf(d){ var b=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,b);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(d),gl.STATIC_DRAW); b.n=d.length/5; return b; }
+    G3.bufs.floor=buf([-8,0,-14,0,0, 8,0,-14,1,0, 8,0,4,1,1, -8,0,-14,0,0, 8,0,4,1,1, -8,0,4,0,1]);
+    G3.bufs.crowd=buf([-8,0,-14,0,0, 8,0,-14,1,0, 8,2.6,-14,1,1, -8,0,-14,0,0, 8,2.6,-14,1,1, -8,2.6,-14,0,1]);
+    G3.bufs.dyn=gl.createBuffer();
+    G3.tex=gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,G3.tex);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    G3.off=document.createElement('canvas'); G3.off.width=256; G3.off.height=384;
+    gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+    G3.ok=true;
+    try{ console.log('[clothes-3d] ✅ runway shaders compiled'); }catch(e2){}
+  }catch(e){ G3.ok=false; try{ console.warn('[clothes-3d] ⚠️ 2D runway fallback —', e&&e.message); }catch(e2){} }
+  return G3.ok;
+}
+function g3M4(){ /* fixed camera: eye(0,1.9,3.6) → (0,1.0,-4) */
+  function mul(a,b){ var o=new Array(16); for(var r=0;r<4;r++)for(var c=0;c<4;c++){ var s=0;
+    for(var k=0;k<4;k++) s+=a[k*4+c]*b[r*4+k]; o[r*4+c]=s; } return o; }
+  var fv=0.85, asp=900/420, n=0.1, f=40, tt=1/Math.tan(fv/2);
+  var P=[tt/asp,0,0,0, 0,tt,0,0, 0,0,(f+n)/(n-f),-1, 0,0,2*f*n/(n-f),0];
+  var e=[0,1.9,3.6], c=[0,1.0,-4];
+  var zx=e[0]-c[0],zy=e[1]-c[1],zz=e[2]-c[2],zl=Math.hypot(zx,zy,zz); zx/=zl;zy/=zl;zz/=zl;
+  var xx=zz, xy=0, xz=-zx, xl=Math.hypot(xx,xy,xz); xx/=xl;xz/=xl;
+  var yx=zy*xz-zz*xy, yy=zz*xx-zx*xz, yz=zx*xy-zy*xx;
+  var V=[xx,yx,zx,0, xy,yy,zy,0, xz,yz,zz,0,
+    -(xx*e[0]+xy*e[1]+xz*e[2]),-(yx*e[0]+yy*e[1]+yz*e[2]),-(zx*e[0]+zy*e[1]+zz*e[2]),1];
+  return mul(P,V);
+}
+function g3Quad(cx,y0,cz,w,h){
+  var gl=G3.gl, hw=w/2;
+  var v=[cx-hw,y0,cz,0,0, cx+hw,y0,cz,1,0, cx+hw,y0+h,cz,1,1, cx-hw,y0,cz,0,0, cx+hw,y0+h,cz,1,1, cx-hw,y0+h,cz,0,1];
+  gl.bindBuffer(gl.ARRAY_BUFFER,G3.bufs.dyn);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(v),gl.DYNAMIC_DRAW);
+  g3Attrs(); gl.drawArrays(gl.TRIANGLES,0,6);
+}
+function g3Attrs(){
+  var gl=G3.gl;
+  gl.enableVertexAttribArray(G3.U.aP); gl.vertexAttribPointer(G3.U.aP,3,gl.FLOAT,false,20,0);
+  gl.enableVertexAttribArray(G3.U.aU); gl.vertexAttribPointer(G3.U.aU,2,gl.FLOAT,false,20,12);
+}
+function g3Frame(t,walkZ,pose,flash){
+  var gl=G3.gl, cv=G3.cv;
+  var w=cv.clientWidth||900, h=cv.clientHeight||420, dpr=Math.min(2,window.devicePixelRatio||1);
+  if(cv.width!==Math.round(w*dpr)){ cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); gl.viewport(0,0,cv.width,cv.height); }
+  /* render the dressed model into the billboard texture */
+  var og=G3.off.getContext('2d');
+  if(og&&og.clearRect){
+    og.clearRect(0,0,256,384);
+    drawModel(og,128,376,1.05,state.design,t,pose);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+    gl.bindTexture(gl.TEXTURE_2D,G3.tex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,G3.off);
+  }
+  gl.clearColor(0.05,0.04,0.03,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.uniformMatrix4fv(G3.U.uPV,false,new Float32Array(g3M4()));
+  gl.uniform1f(G3.U.uT,t); gl.uniform1f(G3.U.uFlash,flash);
+  gl.uniform1i(G3.U.uKind,0); gl.bindBuffer(gl.ARRAY_BUFFER,G3.bufs.floor); g3Attrs(); gl.drawArrays(gl.TRIANGLES,0,6);
+  gl.uniform1i(G3.U.uKind,1); gl.bindBuffer(gl.ARRAY_BUFFER,G3.bufs.crowd); g3Attrs(); gl.drawArrays(gl.TRIANGLES,0,6);
+  gl.depthMask(false);
+  gl.uniform1i(G3.U.uKind,2); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(G3.U.uTex,0);
+  gl.bindTexture(gl.TEXTURE_2D,G3.tex);
+  g3Quad(0,0,walkZ,1.5,2.25);
+  gl.uniform1i(G3.U.uKind,3);
+  g3Quad(0,0,-1.5,3.4,4.4);
+  gl.depthMask(true);
+}
+
 /* ═══ runway phase ═══ */
 var rwAnim=null;
 function startRunway(){
   setPhase('runway');
+  var use3d=g3Ensure()&&!reduceMotion;
+  document.body.classList.toggle('gl-runway',use3d);
   ['j0','j1','j2'].forEach(function(id){ var el=$(id);
     el.classList.remove('rev');
     el.querySelector('.jc').textContent=''; el.querySelector('.js').textContent=''; });
@@ -558,11 +676,20 @@ function startRunway(){
     if(phase2==='in'){ px+=reduceMotion?900:2.8; if(px>=450){ px=450; phase2='pose'; poseT=t; } }
     else if(phase2==='pose'){ if(t-poseT>2.4){ phase2='out'; } }
     else if(phase2==='out'){ px+=3.4; if(px>1000){ endWalk(); return; } }
-    drawModel(ctx,px,392,1.5,state.design,t,phase2==='pose'?1:0);
+    if(use3d){
+      /* px 0→450→1000 maps to catwalk depth −11→−1.5→3.5 (toward camera then past) */
+      var wz = px<=450 ? -11+(px/450)*9.5 : -1.5+((px-450)/550)*5;
+      var fl = phase2==='pose'&&Math.random()<0.3 ? 1 : 0;
+      if(fl) noiseBurst(.03,.05,4000);
+      try{ g3Frame(t, wz, phase2==='pose'?1:0, fl); }catch(err){ use3d=false; document.body.classList.remove('gl-runway'); }
+    }else{
+      drawModel(ctx,px,392,1.5,state.design,t,phase2==='pose'?1:0);
+    }
     rwAnim=requestAnimationFrame(scene);
   }
   function endWalk(){
     cancelAnimationFrame(rwAnim);
+    document.body.classList.remove('gl-runway');
     stopBeat();
     revealJudges();
   }
@@ -646,7 +773,7 @@ newBrief();
 paintPreview();
 announce('welcome to the atelier. design a look for the brief: '+state.brief.n);
 
-window.__cm={ state:state, SILS:SILS, FABS:FABS, SWATCHES:SWATCHES, PATS:PATS, ACCS:ACCS, THEMES:THEMES, JUDGES:JUDGES,
+window.__cm={ state:state, g3:{ensure:g3Ensure, ok:function(){return G3.ok;}, tried:function(){return G3.tried;}}, SILS:SILS, FABS:FABS, SWATCHES:SWATCHES, PATS:PATS, ACCS:ACCS, THEMES:THEMES, JUDGES:JUDGES,
   designAttrs:designAttrs, briefMatch:briefMatch, harmony:harmony, hexHue:hexHue, craftScore:craftScore,
   judgeScore:judgeScore, newBrief:newBrief, setPhase:setPhase, startCraft:startCraft, nextLook:nextLook,
   seasonEnd:seasonEnd, newSeason:newSeason };
