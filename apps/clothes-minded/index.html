@@ -87,6 +87,10 @@ footer{margin-top:1.4rem; font-family:'IBM Plex Mono',monospace; font-size:.62re
 #view-bench{display:none;}
 body.view-bench #view-bench{display:block;}
 body.view-bench #view-runway{display:none;}
+#view-machine{display:none;}
+body.view-machine #view-machine{display:block;}
+body.view-machine #view-runway,body.view-machine #view-bench{display:none;}
+body.view-bench #view-machine{display:none;}
 #view-bench button{background:#1d2436; color:#e8dfc8; border-color:#2e3850; border-radius:8px;}
 #view-bench button:hover{border-color:#c9a24e; color:#c9a24e;}
 #view-bench button[aria-pressed="true"]{background:#c9a24e; border-color:#c9a24e; color:#1a1408;}
@@ -129,6 +133,7 @@ body.view-bench #view-runway{display:none;}
 <div id="view-toggle" role="group" aria-label="House views">
   <button id="v-runway" type="button" aria-pressed="true">👗 runway house</button>
   <button id="v-bench" type="button" aria-pressed="false">🧵 the bench</button>
+  <button id="v-machine" type="button" aria-pressed="false">⚙ machine room</button>
 </div>
 <main>
   <div id="view-runway">
@@ -231,11 +236,27 @@ body.view-bench #view-runway{display:none;}
   </div>
 
   </section>
+  <section id="view-machine" aria-label="The machine room — sewing machine simulator">
+    <div class="bar">
+      <button id="mc-foot" type="button" aria-pressed="false">🦶 presser foot: UP</button>
+      <label style="display:inline-flex;align-items:center;gap:.5rem;font-size:.7rem;font-family:'IBM Plex Mono',monospace;">foot pedal
+        <input id="mc-pedal" type="range" min="0" max="100" value="0" aria-label="foot pedal speed" style="width:9rem;accent-color:#d81b7c;"></label>
+      <button id="mc-fix" type="button" hidden>🔧 fix it</button>
+      <button id="mc-new" type="button">new fabric</button>
+      <span class="lbl" id="mc-stats">bobbin ▓▓▓▓▓ · needle ok</span>
+    </div>
+    <div id="bench" style="border-radius:12px;">
+      <canvas id="mach" width="900" height="560" role="application"
+        aria-label="Sewing machine. Lower the presser foot, press the pedal to sew, and drag the fabric to steer the seam along the chalk line. Watch the bobbin and mind the pins."></canvas>
+      <div id="mc-hint" style="position:absolute;left:50%;bottom:.55rem;transform:translateX(-50%);font-size:.6rem;letter-spacing:.14em;color:rgba(232,223,200,.55);pointer-events:none;white-space:nowrap;">slide the fabric under the needle · lower the foot · ease the pedal · follow the chalk</div>
+    </div>
+    <p class="lbl" id="mc-result" style="text-align:center;font-size:.7rem;margin:.5rem 0;"></p>
+  </section>
 </main>
 <footer>
   every garment is drawn from your choices · nothing is prefabricated ·
   <button id="btn-mute" type="button" aria-pressed="false" style="min-height:2.2rem; padding:.15rem .6rem; font-size:.62rem;">♪ sound: off</button>
-  <br><span id="build-info">build <b>v5.0</b> · commit <code id="build-hash">79f13cd90</code></span>
+  <br><span id="build-info">build <b>v6.0</b> · commit <code id="build-hash">79f13cd90</code></span>
 </footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 <script>
@@ -854,6 +875,7 @@ newBrief();
 paintPreview();
 announce('welcome to the atelier. design a look for the brief: '+state.brief.n);
 
+window.__cmAudio={ blip:blip, noise:noiseBurst, muted:function(){ return muted; } };
 window.__cm={ state:state, g3:{ensure:g3Ensure, ok:function(){return G3.ok;}, tried:function(){return G3.tried;}}, SILS:SILS, FABS:FABS, SWATCHES:SWATCHES, PATS:PATS, ACCS:ACCS, THEMES:THEMES, JUDGES:JUDGES,
   designAttrs:designAttrs, briefMatch:briefMatch, harmony:harmony, hexHue:hexHue, craftScore:craftScore,
   judgeScore:judgeScore, newBrief:newBrief, setPhase:setPhase, startCraft:startCraft, nextLook:nextLook,
@@ -1505,15 +1527,289 @@ window.__db={ P:function(){return P;}, C:function(){return C;}, stitches:functio
 </script>
 <script>
 (function(){
-  function $(id){ return document.getElementById(id); }
-  function setView(v){
-    document.body.classList.toggle('view-bench', v==='bench');
-    $('v-runway').setAttribute('aria-pressed', v==='runway'?'true':'false');
-    $('v-bench').setAttribute('aria-pressed', v==='bench'?'true':'false');
+'use strict';
+function $(id){ return document.getElementById(id); }
+function announce(t){ $('sr-status').textContent=t; }
+/* ═══ the machine room: top-down sewing machine with honest failure modes ═══ */
+var FW=16, FH=26, SP=17;
+var M={P:[],C:[], foot:false, pedal:0, pedalPrev:0, pedalPrevT:0,
+  needle:{x:450,y:170}, pinned:-1, grab:-1,
+  bobbin:0, bobbinCap:0, broken:false, tangled:false, fixT:0, fixing:null,
+  stitches:[], rows:{}, crooked:0, mistakes:0, done:false,
+  pins:[], stitchAcc:0, lastLat:0};
+function chalkCol(row){ return (FW-1)/2 + Math.sin(row*0.35)*2.4; }
+function mNew(){
+  M.P=[]; M.C=[]; M.stitches=[]; M.rows={}; M.crooked=0; M.mistakes=0; M.done=false;
+  M.broken=false; M.tangled=false; M.fixing=null; M.pinned=-1; M.grab=-1;
+  M.bobbinCap=120+Math.floor(Math.random()*60); M.bobbin=M.bobbinCap;
+  var ox=450-(FW-1)*SP/2, oy=250;
+  for(var j=0;j<FH;j++) for(var i=0;i<FW;i++)
+    M.P.push({x:ox+i*SP, y:oy+j*SP, px:ox+i*SP, py:oy+j*SP});
+  for(var j2=0;j2<FH;j2++) for(var i2=0;i2<FW;i2++){
+    var a=j2*FW+i2;
+    if(i2<FW-1) M.C.push({a:a,b:a+1,r:SP});
+    if(j2<FH-1) M.C.push({a:a,b:a+FW,r:SP});
+    if(i2<FW-1&&j2<FH-1) M.C.push({a:a,b:a+FW+1,r:SP*1.414});
   }
-  $('v-runway').addEventListener('click',function(){ setView('runway'); });
-  $('v-bench').addEventListener('click',function(){ setView('bench'); });
-  window.__cmView=setView;
+  M.pins=[];
+  [Math.floor(FH*0.3)*FW+2, Math.floor(FH*0.55)*FW+(FW-3), Math.floor(FH*0.8)*FW+3]
+    .forEach(function(i3){ M.pins.push(i3); });
+  $('mc-result').textContent='';
+  mStats();
+  announce('fresh fabric on the bed — slide it under the needle to begin. three pins glint near the edges.');
+}
+function mStats(){
+  var bb=M.bobbinCap?Math.ceil(M.bobbin/M.bobbinCap*5):0, bar='';
+  for(var i=0;i<5;i++) bar+= i<bb?'▓':'░';
+  $('mc-stats').textContent='bobbin '+bar+(M.bobbin<=0?' EMPTY!':'')+
+    ' · needle '+(M.broken?'BROKEN!':'ok')+(M.tangled?' · BIRDNEST!':'');
+}
+function mProblem(kind,label){
+  M.mistakes++;
+  M.broken = kind==='needle' ? true : M.broken;
+  M.tangled = kind==='tangle' ? true : M.tangled;
+  if(kind==='bobbin'){ /* silent — that's the cruelty */ }
+  $('mc-fix').hidden=false;
+  $('mc-fix').textContent='🔧 '+label;
+  M.fixing=null;
+  mStats();
+  if(kind!=='bobbin'){
+    try{ if(window.__cmAudio&&!window.__cmAudio.muted()){ window.__cmAudio.noise(.12,.25,900); window.__cmAudio.blip(140,.25,'sawtooth',.2); } }catch(e){}
+    announce(label);
+  }
+}
+$('mc-fix').addEventListener('click',function(){
+  if(M.fixing) return;
+  var need = M.broken?'needle':(M.tangled?'tangle':'bobbin');
+  var dur = need==='needle'?3:need==='tangle'?2:2.5;
+  M.fixing={what:need, t:dur};
+  announce(need==='needle'?'fitting a fresh needle…':need==='tangle'?'picking out the birdnest…':'winding the bobbin…');
+});
+function mFixTick(dt){
+  if(!M.fixing) return;
+  M.fixing.t-=dt;
+  $('mc-fix').textContent='🔧 '+Math.max(0,M.fixing.t).toFixed(1)+'s…';
+  if(M.fixing.t<=0){
+    if(M.fixing.what==='needle') M.broken=false;
+    if(M.fixing.what==='tangle') M.tangled=false;
+    if(M.fixing.what==='bobbin'){ M.bobbin=M.bobbinCap=120+Math.floor(Math.random()*60); }
+    M.fixing=null;
+    var more=M.broken?'needle snapped':M.tangled?'thread birdnest':(M.bobbin<=0?'bobbin empty':null);
+    if(more){ $('mc-fix').textContent='🔧 fix: '+more; }
+    else $('mc-fix').hidden=true;
+    mStats(); announce('mended. sew on.');
+  }
+}
+var stitchClock=0;
+function mStep(dt){
+  if(M.done) return;
+  mFixTick(dt);
+  /* verlet, table friction, no gravity — pure drag physics */
+  for(var i=0;i<M.P.length;i++){
+    var p=M.P[i];
+    var vx=(p.x-p.px)*0.80, vy=(p.y-p.py)*0.80;
+    p.px=p.x; p.py=p.y; p.x+=vx; p.y+=vy;
+  }
+  if(M.grab>=0&&M.grabTo){
+    var g=M.P[M.grab];
+    g.x+=(M.grabTo.x-g.x)*0.3; g.y+=(M.grabTo.y-g.y)*0.3;   /* hand pulls; cloth resists */
+  }
+  for(var it=0; it<3; it++){
+    for(var c2=0;c2<M.C.length;c2++){
+      var c=M.C[c2], a=M.P[c.a], b=M.P[c.b];
+      var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1e-6;
+      var diff=(d-c.r)/d*0.5;
+      var mx=dx*diff, my=dy*diff;
+      if(c.a!==M.pinned){ a.x+=mx; a.y+=my; }
+      if(c.b!==M.pinned){ b.x-=mx; b.y-=my; }
+    }
+    if(M.pinned>=0){ M.P[M.pinned].x=M.needle.x; M.P[M.pinned].y=M.needle.y; }
+  }
+  /* the needle grips the fabric while the foot is down */
+  if(M.foot&&!M.broken){
+    if(M.pinned<0){
+      var ni=mNearest(M.needle.x,M.needle.y,30);
+      if(ni>=0){ M.pinned=ni; }
+    }
+  }else M.pinned=-1;
+  /* pedal → stitches + feed */
+  var sp=M.pedal/100;
+  var canSew=M.foot&&!M.broken&&!M.tangled&&sp>0.02&&M.pinned>=0;
+  if(canSew){
+    /* feed dogs push the cloth away (screen up) */
+    var feed=sp*1.7;
+    for(var i5=0;i5<M.P.length;i5++){ if(i5===M.pinned) continue; M.P[i5].y-=feed*dt*60*0.35; }
+    /* lateral strain on a screaming machine snaps the needle */
+    var g2=M.P[M.pinned];
+    var lat=Math.abs((g2.x-M.needle.x));
+    if(sp>0.85&&M.lastLat>6){ mProblem('needle','the needle SNAPPED — replace it'); return; }
+    M.lastLat=M.grab>=0?Math.abs(M.grabTo?M.grabTo.x-M.needle.x:0)*0.04:0;
+    stitchClock+=dt*sp*14;
+    while(stitchClock>=1){
+      stitchClock-=1;
+      var idx=M.pinned, row=Math.floor(idx/FW), col=idx%FW;
+      /* sewing over a pin: instant snap */
+      var overPin=M.pins.some(function(pi){
+        if(pi===idx||pi===idx-1||pi===idx+1||pi===idx-FW||pi===idx+FW) return true;   /* stitching the pinned weave itself */
+        return Math.hypot(M.P[pi].x-M.needle.x, M.P[pi].y-M.needle.y)<14;
+      });
+      if(overPin){ mProblem('needle','you sewed over a PIN — needle gone'); return; }
+      var ghost=M.bobbin<=0;
+      var dev=Math.abs(col-chalkCol(row));
+      var crooked=dev>2.2;
+      if(crooked&&!ghost) M.crooked++;
+      M.stitches.push({i:idx, ghost:ghost, crooked:crooked});
+      if(!ghost&&dev<3.5) M.rows[row]=true;
+      if(!ghost){
+        M.bobbin--;
+        if(M.bobbin<=0) mProblem('bobbin','the bobbin ran EMPTY — wind it');
+        mStats();
+      }
+      try{ if(window.__cmAudio&&!window.__cmAudio.muted()) window.__cmAudio.blip(ghost?300:520,.03,'square',.04); }catch(e){}
+      /* release + re-grip = the stitch advance */
+      M.pinned=mNearest(M.needle.x,M.needle.y,30);
+      if(M.pinned<0) break;
+    }
+    /* completion */
+    var covered=Object.keys(M.rows).length;
+    if(covered>=Math.floor((FH-4)*0.85)) mFinish();
+  }
+  M.pedalPrev=M.pedal;
+}
+function mNearest(x,y,r){
+  var best=-1, bd=r*r;
+  for(var i=0;i<M.P.length;i++){
+    var dx=M.P[i].x-x, dy=M.P[i].y-y, d=dx*dx+dy*dy;
+    if(d<bd){ bd=d; best=i; }
+  }
+  return best;
+}
+function mFinish(){
+  M.done=true;
+  var real=M.stitches.filter(function(s){ return !s.ghost; }).length;
+  var devSum=0;
+  M.stitches.forEach(function(s){ if(!s.ghost){ var row=Math.floor(s.i/FW); devSum+=Math.abs(s.i%FW-chalkCol(row)); } });
+  var avgDev=real?devSum/real:9;
+  var score=Math.max(0,Math.round(100 - avgDev*14 - M.mistakes*8 - M.crooked*1.5));
+  var grade=score>=90?'S':score>=75?'A':score>=60?'B':score>=40?'C':'D';
+  var best='';
+  try{ var b=parseInt(localStorage.getItem('cm-mach-best')||'0',10)||0;
+    if(score>b){ localStorage.setItem('cm-mach-best',String(score)); best=' · NEW HOUSE BEST'; }
+    else best=' · best '+b;
+  }catch(e){}
+  $('mc-result').textContent='seam complete — grade '+grade+' ('+score+') · drift '+avgDev.toFixed(1)+' · crooked '+M.crooked+' · mishaps '+M.mistakes+best;
+  announce($('mc-result').textContent);
+}
+/* render */
+var mcv=$('mach'), mctx=mcv.getContext('2d');
+function mRender(){
+  if(!mctx||!mctx.fillRect) return;
+  mctx.clearRect(0,0,900,560);
+  mctx.fillStyle='#1a2033'; mctx.fillRect(0,0,900,560);
+  mctx.fillStyle='#232b44'; mctx.fillRect(60,40,780,480);
+  /* fabric quads */
+  for(var j=0;j<FH-1;j++) for(var i=0;i<FW-1;i++){
+    var a=M.P[j*FW+i], b=M.P[j*FW+i+1], c=M.P[(j+1)*FW+i+1], d=M.P[(j+1)*FW+i];
+    mctx.fillStyle=(i+j)%2?'#5e7a9b':'#587494';
+    mctx.beginPath(); mctx.moveTo(a.x,a.y); mctx.lineTo(b.x,b.y); mctx.lineTo(c.x,c.y); mctx.lineTo(d.x,d.y);
+    mctx.closePath(); mctx.fill();
+  }
+  /* chalk line */
+  mctx.strokeStyle='rgba(255,255,255,.75)'; mctx.setLineDash([6,5]); mctx.lineWidth=2;
+  mctx.beginPath();
+  for(var r2=1;r2<FH-1;r2++){
+    var cc=chalkCol(r2), ci=Math.floor(cc), t=cc-ci;
+    var p1=M.P[r2*FW+ci], p2=M.P[r2*FW+Math.min(FW-1,ci+1)];
+    var x=p1.x+(p2.x-p1.x)*t, y=p1.y+(p2.y-p1.y)*t;
+    if(r2===1) mctx.moveTo(x,y); else mctx.lineTo(x,y);
+  }
+  mctx.stroke(); mctx.setLineDash([]);
+  /* stitches */
+  M.stitches.forEach(function(s){
+    var p=M.P[s.i];
+    mctx.fillStyle=s.ghost?'rgba(216,27,124,.16)':(s.crooked?'#e05840':'#d81b7c');
+    mctx.fillRect(p.x-2,p.y-1,5,3);
+  });
+  /* pins */
+  M.pins.forEach(function(pi){
+    var p=M.P[pi];
+    mctx.fillStyle='#c9a24e'; mctx.beginPath(); mctx.arc(p.x,p.y,4.5,0,7); mctx.fill();
+    mctx.strokeStyle='#c9a24e'; mctx.lineWidth=1.5;
+    mctx.beginPath(); mctx.moveTo(p.x,p.y); mctx.lineTo(p.x+9,p.y-9); mctx.stroke();
+  });
+  /* machine arm + needle + presser foot */
+  mctx.fillStyle='#2c3552'; mctx.fillRect(M.needle.x-120,20,240,70);
+  mctx.fillStyle='#39456b'; mctx.fillRect(M.needle.x-30,90,60,44);
+  mctx.strokeStyle=M.broken?'#e05840':'#e8dfc8'; mctx.lineWidth=3;
+  mctx.beginPath(); mctx.moveTo(M.needle.x,134);
+  mctx.lineTo(M.needle.x, M.broken?152:M.needle.y); mctx.stroke();
+  if(M.broken){ mctx.strokeStyle='#e05840';
+    mctx.beginPath(); mctx.moveTo(M.needle.x-6,158); mctx.lineTo(M.needle.x+7,171); mctx.moveTo(M.needle.x+7,158); mctx.lineTo(M.needle.x-6,171); mctx.stroke(); }
+  mctx.fillStyle=M.foot?'#c9a24e':'rgba(201,162,78,.4)';
+  mctx.fillRect(M.needle.x-22, M.foot?M.needle.y+4:M.needle.y-26, 44, 8);
+  if(M.tangled){
+    mctx.strokeStyle='#d81b7c'; mctx.lineWidth=1.5;
+    for(var k2=0;k2<9;k2++){ mctx.beginPath();
+      mctx.arc(M.needle.x+Math.sin(k2*2.3)*14, M.needle.y+8+Math.cos(k2*1.7)*9, 5+k2%4, 0, 5.2); mctx.stroke(); }
+  }
+}
+/* input */
+$('mc-foot').addEventListener('click',function(){
+  M.foot=!M.foot;
+  this.textContent='🦶 presser foot: '+(M.foot?'DOWN':'UP');
+  this.setAttribute('aria-pressed',M.foot?'true':'false');
+  announce(M.foot?'presser foot down — the needle grips the cloth':'presser foot up — the cloth is free');
+});
+var pedalT=0;
+$('mc-pedal').addEventListener('input',function(){
+  var v=parseInt(this.value,10)||0, now=pedalT;
+  /* flooring it from a standstill births the birdnest */
+  if(M.foot&&!M.tangled&&!M.broken&&M.pedal<15&&v>70){
+    M.pedal=0; this.value=0;
+    mProblem('tangle','you FLOORED it — thread birdnest! clear it');
+    return;
+  }
+  M.pedal=v;
+});
+$('mc-new').addEventListener('click',mNew);
+$('mach').addEventListener('pointerdown',function(e){
+  var r=this.getBoundingClientRect();
+  var x=(e.clientX-r.left)*(900/(r.width||900)), y=(e.clientY-r.top)*(560/(r.height||560));
+  M.grab=mNearest(x,y,34); M.grabTo={x:x,y:y};
+  try{ this.setPointerCapture(e.pointerId); }catch(err){}
+});
+$('mach').addEventListener('pointermove',function(e){
+  if(M.grab<0) return;
+  var r=this.getBoundingClientRect();
+  M.grabTo={x:(e.clientX-r.left)*(900/(r.width||900)), y:(e.clientY-r.top)*(560/(r.height||560))};
+});
+$('mach').addEventListener('pointerup',function(){ M.grab=-1; M.grabTo=null; });
+/* loop */
+var mLast=0;
+function mFrame(ts){
+  requestAnimationFrame(mFrame);
+  if(!document.body.classList.contains('view-machine')){ mLast=ts; return; }
+  var dt=Math.min(0.05,(ts-mLast)/1000||0.016); mLast=ts;
+  pedalT+=dt;
+  mStep(dt);
+  mRender();
+}
+mNew();
+requestAnimationFrame(mFrame);
+window.__mach={ M:function(){return M;}, neu:mNew, step:mStep, chalkCol:chalkCol, nearest:mNearest,
+  problem:mProblem, finish:mFinish, fixTick:mFixTick, stats:mStats };
+/* view switching */
+function setView(v){
+  document.body.classList.toggle('view-bench', v==='bench');
+  document.body.classList.toggle('view-machine', v==='machine');
+  $('v-runway').setAttribute('aria-pressed', v==='runway'?'true':'false');
+  $('v-bench').setAttribute('aria-pressed', v==='bench'?'true':'false');
+  $('v-machine').setAttribute('aria-pressed', v==='machine'?'true':'false');
+}
+$('v-runway').addEventListener('click',function(){ setView('runway'); });
+$('v-bench').addEventListener('click',function(){ setView('bench'); });
+$('v-machine').addEventListener('click',function(){ setView('machine'); });
+window.__cmView=setView;
 })();
 </script>
 </body>
