@@ -91,6 +91,10 @@ body.view-bench #view-runway{display:none;}
 body.view-machine #view-machine{display:block;}
 body.view-machine #view-runway,body.view-machine #view-bench{display:none;}
 body.view-bench #view-machine{display:none;}
+#view-trace{display:none;}
+body.view-trace #view-trace{display:block;}
+body.view-trace #view-runway,body.view-trace #view-bench,body.view-trace #view-machine{display:none;}
+body.view-bench #view-trace,body.view-machine #view-trace{display:none;}
 #view-bench button{background:#1d2436; color:#e8dfc8; border-color:#2e3850; border-radius:8px;}
 #view-bench button:hover{border-color:#c9a24e; color:#c9a24e;}
 #view-bench button[aria-pressed="true"]{background:#c9a24e; border-color:#c9a24e; color:#1a1408;}
@@ -142,6 +146,8 @@ body.view-bench #view-machine{display:none;}
   <button id="v-machine" type="button" aria-pressed="false">② 🪡 sewing</button>
   <span class="ws-sep" aria-hidden="true">→</span>
   <button id="v-press" type="button" aria-pressed="false">③ 🔥 pressing</button>
+  <span class="ws-sep" aria-hidden="true">·</span>
+  <button id="v-trace" type="button" aria-pressed="false">✏ tracing table (flat)</button>
 </div>
 <main>
   <div id="view-runway">
@@ -244,6 +250,18 @@ body.view-bench #view-machine{display:none;}
   </div>
 
   </section>
+  <section id="view-trace" aria-label="The tracing table — flat pencil workflow">
+    <div class="bar">
+      <span class="lbl" id="tt-phase">① trace the cut line</span>
+      <button id="tt-new" type="button">fresh pattern</button>
+      <span class="lbl" id="tt-score"></span>
+    </div>
+    <div id="bench" style="border-radius:12px; background:#ece5d3;">
+      <canvas id="ttc" width="900" height="560" role="application"
+        aria-label="Flat tracing table. Draw with your finger or mouse: trace the dashed cut line, then the seam, then rub the wrinkles away. Pure pencil, no 3D."></canvas>
+      <div style="position:absolute;left:50%;bottom:.55rem;transform:translateX(-50%);font-size:.6rem;letter-spacing:.14em;color:rgba(58,55,51,.55);pointer-events:none;white-space:nowrap;" id="tt-hint">your finger is the scissors — follow the dashes</div>
+    </div>
+  </section>
   <section id="view-machine" aria-label="The machine room — sewing machine simulator">
     <div class="bar">
       <button id="mc-foot" type="button" aria-pressed="false">🦶 presser foot: UP</button>
@@ -264,7 +282,7 @@ body.view-bench #view-machine{display:none;}
 <footer>
   every garment is drawn from your choices · nothing is prefabricated ·
   <button id="btn-mute" type="button" aria-pressed="false" style="min-height:2.2rem; padding:.15rem .6rem; font-size:.62rem;">♪ sound: off</button>
-  <br><span id="build-info">build <b>v6.1</b> · commit <code id="build-hash">c75510292</code></span>
+  <br><span id="build-info">build <b>v7.0</b> · commit <code id="build-hash">c75510292</code></span>
 </footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 <script>
@@ -1806,13 +1824,166 @@ mNew();
 requestAnimationFrame(mFrame);
 window.__mach={ M:function(){return M;}, neu:mNew, step:mStep, chalkCol:chalkCol, nearest:mNearest,
   problem:mProblem, finish:mFinish, fixTick:mFixTick, stats:mStats };
+/* ═══ the tracing table: the whole workflow, flat — finger as the only tool ═══ */
+var TT={phase:0, cover:[], seamCover:[], blot:[], acc:[], seamAcc:[], t:0, done:false, stroking:false, last:null};
+var TT_CUT=[], TT_SEAM=[];
+(function(){
+  /* a bodice-ish pattern piece, sampled densely */
+  var out=[[250,120],[420,90],[600,110],[680,200],[660,330],[700,460],[480,500],[260,470],[200,330],[210,200]];
+  function sample(pts,per,closed){
+    var res=[];
+    var n=closed?pts.length:pts.length-1;
+    for(var i=0;i<n;i++){
+      var a=pts[i], b=pts[(i+1)%pts.length];
+      var L=Math.hypot(b[0]-a[0],b[1]-a[1]), steps=Math.max(2,Math.round(L/per));
+      for(var s2=0;s2<steps;s2++) res.push([a[0]+(b[0]-a[0])*s2/steps, a[1]+(b[1]-a[1])*s2/steps]);
+    }
+    return res;
+  }
+  TT_CUT=sample(out,9,true);
+  var seam=[[300,180],[420,150],[560,170],[610,250],[590,340],[620,430],[470,450],[300,420],[260,320],[270,230]];
+  TT_SEAM=sample(seam,9,true);
+})();
+var tcv=$('ttc'), tctx=tcv.getContext('2d');
+var ttStrokes=null;
+function ttNew(){
+  TT.phase=0; TT.done=false; TT.t=0; TT.last=null;
+  TT.cover=TT_CUT.map(function(){ return false; });
+  TT.seamCover=TT_SEAM.map(function(){ return false; });
+  TT.acc=[]; TT.seamAcc=[];
+  TT.blot=[];
+  for(var i=0;i<7;i++)
+    TT.blot.push({x:280+((i*163)%340), y:200+((i*211)%230), heat:0});
+  ttStrokes=document.createElement('canvas'); ttStrokes.width=900; ttStrokes.height=560;
+  $('tt-phase').textContent='① trace the cut line';
+  $('tt-hint').textContent='your finger is the scissors — follow the dashes';
+  $('tt-score').textContent='';
+  ttRender();
+  announce('fresh pattern paper. phase one: trace the dashed cut line with your finger.');
+}
+function ttPencil(g,x1,y1,x2,y2,col,w){
+  g.strokeStyle=col; g.lineWidth=w; g.lineCap='round';
+  g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
+  g.globalAlpha=0.35;
+  g.beginPath(); g.moveTo(x1+0.8,y1+1.2); g.lineTo(x2+0.8,y2+1.2); g.stroke();
+  g.globalAlpha=1;
+}
+function ttSegment(x1,y1,x2,y2){
+  var g=ttStrokes&&ttStrokes.getContext?ttStrokes.getContext('2d'):null;
+  if(TT.done) return;
+  if(TT.phase===0){
+    if(g&&g.beginPath) ttPencil(g,x1,y1,x2,y2,'rgba(58,55,51,.85)',2.2);
+    ttMark(TT_CUT,TT.cover,TT.acc,x2,y2,12);
+    var cov=TT.cover.filter(Boolean).length/TT.cover.length;
+    if(cov>=0.9){ TT.phase=1;
+      $('tt-phase').textContent='② trace the seam';
+      $('tt-hint').textContent='the finger becomes the needle — the dash-dot line, steady now';
+      announce('cut traced. phase two: the seam.'); }
+  }else if(TT.phase===1){
+    if(g&&g.beginPath) ttPencil(g,x1,y1,x2,y2,'rgba(216,27,124,.8)',2);
+    ttMark(TT_SEAM,TT.seamCover,TT.seamAcc,x2,y2,9);
+    var cov2=TT.seamCover.filter(Boolean).length/TT.seamCover.length;
+    if(cov2>=0.9){ TT.phase=2;
+      $('tt-phase').textContent='③ rub the wrinkles away';
+      $('tt-hint').textContent='the finger becomes the iron — small circles over the scribbles';
+      announce('seam traced. phase three: press.'); }
+  }else{
+    TT.blot.forEach(function(b){
+      if(Math.hypot(x2-b.x,y2-b.y)<30) b.heat=Math.min(1,b.heat+0.045);
+    });
+    if(TT.blot.every(function(b){ return b.heat>=1; })) ttFinish();
+  }
+}
+function ttMark(path,cover,acc,x,y,tol){
+  var bestD=1e9;
+  for(var i=0;i<path.length;i++){
+    var d=Math.hypot(path[i][0]-x, path[i][1]-y);
+    if(d<bestD) bestD=d;
+    if(d<tol) cover[i]=true;
+  }
+  if(bestD<40) acc.push(bestD);
+}
+function ttFinish(){
+  TT.done=true;
+  var avg=function(a){ return a.length?a.reduce(function(x,y){return x+y;},0)/a.length:20; };
+  var cutA=avg(TT.acc), seamA=avg(TT.seamAcc);
+  var score=Math.max(0,Math.round(100-cutA*4-seamA*5-TT.t*0.4));
+  var grade=score>=90?'S':score>=75?'A':score>=60?'B':score>=40?'C':'D';
+  var best='';
+  try{ var b=parseInt(localStorage.getItem('cm-trace-best')||'0',10)||0;
+    if(score>b){ localStorage.setItem('cm-trace-best',String(score)); best=' · NEW BEST'; }
+    else best=' · best '+b;
+  }catch(e){}
+  $('tt-phase').textContent='pressed & done';
+  $('tt-score').textContent='grade '+grade+' ('+score+') · cut drift '+cutA.toFixed(1)+'px · seam drift '+seamA.toFixed(1)+'px'+best;
+  announce('the flat pattern is finished. '+$('tt-score').textContent);
+  ttRender();
+}
+function ttRender(){
+  if(!tctx||!tctx.fillRect) return;
+  tctx.clearRect(0,0,900,560);
+  tctx.fillStyle='#ece5d3'; tctx.fillRect(0,0,900,560);
+  tctx.strokeStyle='rgba(120,110,90,.14)'; tctx.lineWidth=1;
+  for(var gx=0;gx<900;gx+=36){ tctx.beginPath(); tctx.moveTo(gx,0); tctx.lineTo(gx,560); tctx.stroke(); }
+  for(var gy=0;gy<560;gy+=36){ tctx.beginPath(); tctx.moveTo(0,gy); tctx.lineTo(900,gy); tctx.stroke(); }
+  /* cut target: pencil dashes */
+  tctx.strokeStyle='rgba(58,55,51,.5)'; tctx.setLineDash([7,6]); tctx.lineWidth=1.6;
+  tctx.beginPath();
+  TT_CUT.forEach(function(pt,i){ if(i===0) tctx.moveTo(pt[0],pt[1]); else tctx.lineTo(pt[0],pt[1]); });
+  tctx.closePath(); tctx.stroke();
+  /* seam target: dash-dot, revealed from phase 2 */
+  if(TT.phase>=1){
+    tctx.strokeStyle='rgba(216,27,124,.45)'; tctx.setLineDash([9,4,2,4]);
+    tctx.beginPath();
+    TT_SEAM.forEach(function(pt,i){ if(i===0) tctx.moveTo(pt[0],pt[1]); else tctx.lineTo(pt[0],pt[1]); });
+    tctx.closePath(); tctx.stroke();
+  }
+  tctx.setLineDash([]);
+  /* wrinkles, phase 3 */
+  if(TT.phase>=2){
+    TT.blot.forEach(function(b){
+      if(b.heat>=1) return;
+      tctx.strokeStyle='rgba(58,55,51,'+(0.5*(1-b.heat))+')'; tctx.lineWidth=1.4;
+      for(var k=0;k<4;k++){
+        tctx.beginPath();
+        tctx.arc(b.x+Math.sin(k*2.1)*7, b.y+Math.cos(k*1.6)*6, 8+k*3, k*0.8, k*0.8+4.4);
+        tctx.stroke();
+      }
+    });
+  }
+  /* the pencil work */
+  if(ttStrokes) try{ tctx.drawImage(ttStrokes,0,0); }catch(e){}
+}
+function ttPos(e){
+  var r=tcv.getBoundingClientRect();
+  return { x:(e.clientX-r.left)*(900/(r.width||900)), y:(e.clientY-r.top)*(560/(r.height||560)) };
+}
+tcv.addEventListener('pointerdown',function(e){
+  e.preventDefault();
+  TT.stroking=true; TT.last=ttPos(e);
+  try{ tcv.setPointerCapture(e.pointerId); }catch(err){}
+});
+tcv.addEventListener('pointermove',function(e){
+  if(!TT.stroking||!TT.last) return;
+  var m=ttPos(e);
+  ttSegment(TT.last.x,TT.last.y,m.x,m.y);
+  TT.last=m;
+  ttRender();
+});
+tcv.addEventListener('pointerup',function(){ TT.stroking=false; TT.last=null; });
+$('tt-new').addEventListener('click',ttNew);
+setInterval(function(){ if(document.body.classList.contains('view-trace')&&!TT.done) TT.t+=0.25; },250);
+ttNew();
+window.__trace={ TT:function(){return TT;}, neu:ttNew, segment:ttSegment, CUT:TT_CUT, SEAM:TT_SEAM, finish:ttFinish };
+
 /* view switching: the workshop reads left to right — cut, sew, press */
 var WS_STEP={cut:'workshop step 1 of 3 — cutting at the bench', machine:'workshop step 2 of 3 — sewing at the machine', press:'workshop step 3 of 3 — pressing at the bench'};
 function setView(v){
   var bench = v==='cut'||v==='press'||v==='bench';
   document.body.classList.toggle('view-bench', bench);
   document.body.classList.toggle('view-machine', v==='machine');
-  ['runway','cut','machine','press'].forEach(function(x){
+  document.body.classList.toggle('view-trace', v==='trace');
+  ['runway','cut','machine','press','trace'].forEach(function(x){
     var b=$('v-'+x); if(b) b.setAttribute('aria-pressed', (x===v||(x==='cut'&&v==='bench'))?'true':'false');
   });
   if(v==='cut'&&window.__db){ try{ window.__db.setTool('cut'); }catch(e){} }
@@ -1823,6 +1994,7 @@ $('v-runway').addEventListener('click',function(){ setView('runway'); });
 $('v-cut').addEventListener('click',function(){ setView('cut'); });
 $('v-machine').addEventListener('click',function(){ setView('machine'); });
 $('v-press').addEventListener('click',function(){ setView('press'); });
+$('v-trace').addEventListener('click',function(){ setView('trace'); });
 window.__cmView=setView;
 })();
 </script>
