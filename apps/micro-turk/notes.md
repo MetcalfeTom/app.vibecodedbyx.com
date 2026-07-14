@@ -12,3 +12,4 @@
 - Worker leaderboard (top earners from ledger).
 - Inline reject-note form instead of prompt().
 - "My work" filter tab; task detail permalink.
+- 2026-07-14 v2.0: MTurk rebrand — orange masthead, two-col SVG landing (worker CRT / blue $ pig), 1770 cabinet strip, rainforest disclaimer. v3.0: Marci's Training Hall — 3 evergreen HOUSE tasks (fixed uuids 000…001/2/3, no task rows): label-photo (pollinations seed 1770), sentiment (3 in-card sentences), audio-transcribe (SpeechSynthesis speaks AUDIO_TEXT). All workers claim in parallel; community review (anyone but author, 1 review/claim, self-review guarded); requester_name='HOUSE' flag makes balances() MINT instead of debit. Ledger renders 🏛 the house. TEST GOTCHA: slicing app source into a harness captured `var reviews=[]` which silently shadowed the same-named function param → {} balances; rename harness params away from app globals.
