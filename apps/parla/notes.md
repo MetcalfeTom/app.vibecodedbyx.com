@@ -48,3 +48,4 @@
 ## todos
 - Audio pronunciation (SpeechSynthesis lang voices — es-ES/fr-FR/it-IT).
 - More decks (numbers, phrases); reverse typing mode; daily streak.
+- 2026-07-14 v12.1/v12.2: TTS voice engine — v12.1 enumerates all SpeechSynthesis voices to console at load (+ onvoiceschanged for late arrival), picks Spanish by ladder es-MX → es-US/419 → LatAm-named → non-Castilian → any es, binds u.voice, prints real name w/ 'Latin American ✓'. v12.2 adds 🗣 gender toggle beside 🔊 (auto→♀→♂, persisted parla-tts-gender): ladder reruns gender-filtered first via genderOf() (explicit tags checked female-BEFORE-male since 'female'⊃'male'; ~60-name heuristic w/ \b guards so Juan≠Juana), honest fallback when device lacks a matching voice, click re-speaks current word as audition. GOTCHA that bit: python replace anchors written as \\uXXXX literals never match files containing real emoji/✓ chars — use real UTF-8 chars in heredocs + per-anchor asserts (rep() helper).
