@@ -11,3 +11,4 @@
 - Re-engrave sections when/if MarciPopsis delivers the actual blueprint.
 - Shared deposits via supabase, per-drawer counts.
 - A "vault door" load animation (big dial spin) — high-impact page-load moment.
+- 2026-07-14 v2.0: MarciPopsis's REAL blueprint arrived — re-engraved from the interpreted seven moods to the nine exact pillars, verbatim order: Mindset, Blueprint, Cursed Patterns, Testing, Git Archaeology, CI/CD, Observability Logs, Production Horror Stories, Security. Drawer anatomy kept (palette/relics/chord/deposit) but themed per pillar; deposit prompts now pillar-specific (v.dep field); deposits key bumped to v2 (ids changed). Message was truncated at "each…" — if the tail specified per-pillar contents, they can slot into the existing drawer anatomy without structural change.
