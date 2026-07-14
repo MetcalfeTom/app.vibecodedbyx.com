@@ -346,7 +346,7 @@ body.flat-only #v-runway, body.flat-only .ws-sep, body.flat-only .ws-label{displ
 <footer>
   every garment is drawn from your choices · nothing is prefabricated ·
   <button id="btn-mute" type="button" aria-pressed="false" style="min-height:2.2rem; padding:.15rem .6rem; font-size:.62rem;">♪ sound: off</button>
-  <br><span id="build-info">build <b>v17.0</b> · commit <code id="build-hash">e51aa33b0</code></span>
+  <br><span id="build-info">build <b>v18.0</b> · commit <code id="build-hash">e51aa33b0</code></span>
 </footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 <script>
@@ -1038,16 +1038,41 @@ function p3Ensure(){
     P3.ren.shadowMap.enabled=true;
     P3.scene=new THREE.Scene();
     P3.cam=new THREE.PerspectiveCamera(38, 360/480, 0.1, 40);
-    P3.scene.add(new THREE.AmbientLight(0xfff2dd, 0.55));
-    var key=new THREE.DirectionalLight(0xffffff, 0.9);
-    key.position.set(2.2,3.4,2.6); key.castShadow=true;
+    /* three-point rig: KEY (warm, shadowed) · FILL (cool, soft) · BACK/RIM (bright separation) */
+    P3.scene.add(new THREE.AmbientLight(0xfff2dd, 0.3));
+    var key=new THREE.DirectionalLight(0xfff1dc, 1.05);
+    key.position.set(2.4,3.2,2.4); key.castShadow=true;
     key.shadow.mapSize.width=1024; key.shadow.mapSize.height=1024;
     P3.scene.add(key);
-    var rim=new THREE.DirectionalLight(0xd81b7c, 0.25); rim.position.set(-3,-1,-2); P3.scene.add(rim);
+    var fill=new THREE.DirectionalLight(0xbfd4ff, 0.38);
+    fill.position.set(-2.8,1.4,1.8);
+    P3.scene.add(fill);
+    var back=new THREE.DirectionalLight(0xffe9f2, 0.85);
+    back.position.set(-0.6,2.6,-3.2);                     /* behind + above: carves the rim */
+    P3.scene.add(back);
     var floor=new THREE.Mesh(new THREE.CircleGeometry(1.4,40), new THREE.ShadowMaterial({opacity:0.35}));
     floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; P3.scene.add(floor);
     var ring=new THREE.Mesh(new THREE.RingGeometry(1.15,1.2,40), new THREE.MeshBasicMaterial({color:0x2c2438,side:THREE.DoubleSide}));
     ring.rotation.x=-Math.PI/2; ring.position.y=0.002; P3.scene.add(ring);
+    /* volumetric beam: custom shader cone — fresnel-faded, height-graded, additive */
+    var beamMat=new THREE.ShaderMaterial({
+      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide,
+      uniforms:{ uT:{value:0} },
+      vertexShader:'varying vec3 vN; varying vec3 vV; varying float vY;'+
+        'void main(){ vN=normalize(normalMatrix*normal); vec4 mv=modelViewMatrix*vec4(position,1.0);'+
+        ' vV=normalize(-mv.xyz); vY=position.y; gl_Position=projectionMatrix*mv; }',
+      fragmentShader:'varying vec3 vN; varying vec3 vV; varying float vY; uniform float uT;'+
+        'void main(){'+
+        ' float fres=pow(abs(dot(normalize(vN),normalize(vV))),1.6);'+       /* edges fade — the cone reads as air */
+        ' float grade=smoothstep(-1.3,1.3,vY)*0.5+0.15;'+
+        ' float flick=0.92+0.08*sin(uT*2.1+vY*3.0);'+
+        ' gl_FragColor=vec4(1.0,0.94,0.82, fres*grade*flick*0.16); }'
+    });
+    var beam=new THREE.Mesh(new THREE.ConeGeometry(1.05,2.9,36,1,true), beamMat);
+    beam.position.set(0.35,1.85,0.3);
+    beam.rotation.z=-0.12;
+    P3.scene.add(beam);
+    P3.beamMat=beamMat;
     /* volumetric body: lathe torso + primitive limbs, all shadow-casting */
     /* skin texture: authored procedurally in-app (self-contained > fetching; and it's ours outright) */
     function makeSkinTexture(){
@@ -1081,13 +1106,47 @@ function p3Ensure(){
       return tex;
     }
     var skinTex=makeSkinTexture();
+    function makeNormalMap(){
+      try{
+        var srcC=skinTex&&skinTex.image; if(!srcC) return null;
+        var g0=srcC.getContext('2d'); if(!g0||!g0.getImageData) return null;
+        var W2=srcC.width, H2=srcC.height;
+        var img=g0.getImageData(0,0,W2,H2).data;
+        function lum(x,y){
+          x=(x+W2)%W2; y=(y+H2)%H2;
+          var i=(y*W2+x)*4;
+          return (img[i]*0.3+img[i+1]*0.59+img[i+2]*0.11)/255;
+        }
+        var nc=document.createElement('canvas'); nc.width=W2; nc.height=H2;
+        var g1=nc.getContext('2d');
+        var out=g1.createImageData(W2,H2), od=out.data;
+        for(var y2=0;y2<H2;y2++) for(var x2=0;x2<W2;x2++){
+          var dx=(lum(x2+1,y2)-lum(x2-1,y2))*2.4;         /* sobel-ish gradients → tangent-space normal */
+          var dy=(lum(x2,y2+1)-lum(x2,y2-1))*2.4;
+          var nz=1/Math.sqrt(dx*dx+dy*dy+1);
+          var o=(y2*W2+x2)*4;
+          od[o]=Math.round(((-dx*nz)*0.5+0.5)*255);
+          od[o+1]=Math.round(((dy*nz)*0.5+0.5)*255);
+          od[o+2]=Math.round((nz*0.5+0.5)*255);
+          od[o+3]=255;
+        }
+        g1.putImageData(out,0,0);
+        var nt=new THREE.CanvasTexture(nc);
+        nt.wrapS=THREE.RepeatWrapping; nt.wrapT=THREE.RepeatWrapping;
+        nt.repeat.set(2.5,2.5);
+        return nt;
+      }catch(e){ return null; }
+    }
+    var skinNrm=makeNormalMap();
     var skinM=new THREE.MeshStandardMaterial({color:0xe3ae7e, map:skinTex, roughness:0.5, metalness:0.02, emissive:0x1c0d06, emissiveIntensity:0.3});
+    if(skinNrm){ skinM.normalMap=skinNrm; skinM.normalScale=new THREE.Vector2(0.35,0.35); }   /* pores catch the light */
     skinM.onBeforeCompile=function(shader){
       /* cheap subsurface: fresnel rim translucency — light bleeds warm through thin edges */
       shader.fragmentShader=shader.fragmentShader.replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\n'+
         'float sssRim = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 2.3);\n'+
-        'totalEmissiveRadiance += vec3(0.55, 0.22, 0.12) * sssRim * 0.34;');
+        'totalEmissiveRadiance += vec3(0.55, 0.22, 0.12) * sssRim * 0.34;\n'+
+        'totalEmissiveRadiance += vec3(0.95, 0.92, 0.88) * pow(sssRim, 4.2) * 0.22;');   /* rim specular highlight */
     };
     P3.scene.add(new THREE.HemisphereLight(0xfff4e0, 0x3a2a20, 0.45));   /* sky-warm over ground-shadow = soft skin falloff */
     var hairM=new THREE.MeshStandardMaterial({color:0x241a10, roughness:0.9});
@@ -1343,6 +1402,7 @@ function p3Frame(){
   }
   P3.cam.position.set(Math.sin(P3.yaw)*P3.dist, 1.1+Math.sin(P3.pitch)*P3.dist*0.6, Math.cos(P3.yaw)*P3.dist);
   P3.cam.lookAt(0,0.95,0);
+  if(P3.beamMat) P3.beamMat.uniforms.uT.value=performance.now()/1000;
   p3Texture();
   P3.ren.render(P3.scene,P3.cam);
 }
