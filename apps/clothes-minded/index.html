@@ -214,6 +214,11 @@ body.view-bench #view-runway{display:none;}
     <button id="b-curtain" type="button">hang a new bolt</button>
     <button id="b-overhead" type="button">lay a bolt overhead</button>
     <button id="b-unpin" type="button">release all pins</button>
+    <span class="lbl">trials</span>
+    <button id="tr-cut" type="button">🏆✂ scissor trial</button>
+    <button id="tr-stitch" type="button">🏆🪡 needle trial</button>
+    <button id="tr-iron" type="button">🏆🔥 iron trial</button>
+    <span class="lbl" id="tr-board">bests — ✂ 0 · 🪡 0 · 🔥 0</span>
     <span class="lbl">fabric</span>
     <button class="swatch" data-c="#b8523f" style="background:#b8523f" type="button" aria-pressed="false" aria-label="madder red"></button>
     <button class="swatch" data-c="#5e7a9b" style="background:#5e7a9b" type="button" aria-pressed="true" aria-label="woad blue"></button>
@@ -227,7 +232,7 @@ body.view-bench #view-runway{display:none;}
 <footer>
   every garment is drawn from your choices · nothing is prefabricated ·
   <button id="btn-mute" type="button" aria-pressed="false" style="min-height:2.2rem; padding:.15rem .6rem; font-size:.62rem;">♪ sound: off</button>
-  <br><span id="build-info">build <b>v3.0</b> · commit <code id="build-hash">4fe8797cb</code></span>
+  <br><span id="build-info">build <b>v4.0</b> · commit <code id="build-hash">4fe8797cb</code></span>
 </footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 <script>
@@ -1057,6 +1062,7 @@ function render(){
     ctx.strokeStyle='#d8557c'; ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(SCR[stitchA].x,SCR[stitchA].y,8,0,7); ctx.stroke();
   }
+  trOverlay();
   $('hud').textContent='threads '+C.length+' · stitches '+stitches.filter(function(s2){ return edge[key(s2.a,s2.b)]; }).length+' · pins '+P.filter(function(p){ return p.pin; }).length;
 }
 
@@ -1125,16 +1131,17 @@ function ironStroke(a,b){
   return pressed;
 }
 function cutStroke(a,b){
-  var cutN=0;
+  var cutN=0, removed=[];
   for(var i=C.length-1;i>=0;i--){
     var c=C[i];
     if(!SCR[c.a]||!SCR[c.b]) continue;
     var mx=(SCR[c.a].x+SCR[c.b].x)/2, my=(SCR[c.a].y+SCR[c.b].y)/2;
     if(segDist2(mx,my,a.x,a.y,b.x,b.y)<81){              /* within 9px of the blade path */
       C.splice(i,1); delete edge[key(c.a,c.b)];
-      cutN++;
+      removed.push(c); cutN++;
     }
   }
+  if(removed.length&&typeof trCutFeedback==='function') trCutFeedback(removed);
   return cutN;
 }
 cv.addEventListener('pointerdown',function(e){
@@ -1176,6 +1183,7 @@ cv.addEventListener('pointerup',function(e){
         if(!edge[key(stitchA,idx)]){
           addC(stitchA,idx,SPACING*0.15,true);
           stitches.push({a:stitchA,b:idx});
+          if(typeof trStitch==='function') trStitch(stitchA,idx);
           announce('seam sewn');
         }
         stitchA=-1;
@@ -1207,6 +1215,123 @@ Array.prototype.forEach.call(document.querySelectorAll('.swatch'),function(b){
   });
 });
 
+/* ═══ trials: the tools, timed and scored ═══ */
+var TR={mode:null,timeLeft:0,score:0,combo:1,data:null};
+function trBest(k){ try{ return parseInt(localStorage.getItem('cm-tr-'+k)||'0',10)||0; }catch(e){ return 0; } }
+function trBoard(){
+  $('tr-board').textContent='bests — ✂ '+trBest('cut')+' · 🪡 '+trBest('stitch')+' · 🔥 '+trBest('iron');
+}
+function roughness(){
+  var v=0,n=0;
+  for(var i=0;i<C.length;i++){ var c=C[i]; if(c.stitch) continue;
+    var a=P[c.a],b=P[c.b];
+    v+=Math.abs(Math.hypot(b.x-a.x,b.y-a.y,b.z-a.z)-c.rest); n++; }
+  return n?v/n:0;
+}
+function startTrial(kind){
+  spawnBolt('curtain');
+  TR.mode=kind; TR.score=0; TR.combo=1;
+  if(kind==='cut'){
+    setTool('cut'); TR.timeLeft=20;
+    TR.data={targets:{},total:0,hit:0};
+    for(var i2=2;i2<CW-3;i2++){                       /* a gold seam-line snakes across the cloth */
+      var row=Math.round(14+Math.sin(i2*0.5)*4);
+      var a=row*CW+i2, right=a+1, down=a+CW;
+      [ [a,right],[a,down] ].forEach(function(pr){
+        var k2=key(pr[0],pr[1]);
+        if(edge[k2]){ TR.data.targets[k2]=true; TR.data.total++; }
+      });
+    }
+    announce('scissor trial: cut ONLY the gold seam-line. 20 seconds. stray cuts break your combo.');
+  }else if(kind==='stitch'){
+    setTool('stitch'); TR.timeLeft=30;
+    TR.data={pairs:[],idx:0};
+    [4,9,14,19,24,29].forEach(function(row){
+      TR.data.pairs.push([row*CW+3, row*CW+CW-4]);
+    });
+    announce('needle trial: sew the six glowing pairs, top to bottom. 30 seconds.');
+  }else{
+    setTool('iron'); TR.timeLeft=25;
+    P.forEach(function(pp){ if(pp.pin) return;
+      pp.x+=(Math.random()-.5)*.03; pp.z+=(Math.random()-.5)*.03;
+      pp.ox=pp.x; pp.oy=pp.y; pp.oz=pp.z; });
+    TR.data={r0:roughness(), lastR:roughness()};
+    announce('iron trial: press the crumpled bolt smooth. 25 seconds.');
+  }
+  $('hint').textContent='🏆 trial running — '+kind;
+}
+function endTrial(won){
+  var k=TR.mode; TR.mode=null;
+  var final=Math.max(0,Math.round(TR.score+(won?TR.timeLeft*15:0)));
+  var best=trBest(k), rec=final>best;
+  if(rec){ try{ localStorage.setItem('cm-tr-'+k,String(final)); }catch(e){} }
+  trBoard();
+  $('hint').textContent=(won?'🏆 trial complete — ':'⏱ time! — ')+final+' pts'+(rec?' · NEW BEST':' · best '+Math.max(best,final));
+  announce($('hint').textContent);
+}
+function trCutFeedback(removed){
+  if(TR.mode!=='cut') return;
+  removed.forEach(function(c){
+    var k2=key(c.a,c.b);
+    if(TR.data.targets[k2]){
+      delete TR.data.targets[k2]; TR.data.hit++;
+      TR.combo=Math.min(8,TR.combo+1);
+      TR.score+=10*TR.combo;
+    }else{
+      TR.combo=1; TR.score=Math.max(0,TR.score-6);
+    }
+  });
+  if(TR.data.hit>=TR.data.total) endTrial(true);
+}
+function trStitch(a,b){
+  if(TR.mode!=='stitch') return;
+  var want=TR.data.pairs[TR.data.idx];
+  if(want&&((a===want[0]&&b===want[1])||(a===want[1]&&b===want[0]))){
+    TR.combo=Math.min(8,TR.combo+1);
+    TR.score+=50*TR.combo;
+    TR.data.idx++;
+    if(TR.data.idx>=TR.data.pairs.length) endTrial(true);
+  }else{
+    TR.combo=1; TR.score=Math.max(0,TR.score-15);
+  }
+}
+function trTick(dt){
+  if(!TR.mode) return;
+  TR.timeLeft-=dt;
+  if(TR.mode==='iron'){
+    var r=roughness();
+    if(r<TR.data.lastR*0.965){ TR.combo=Math.min(8,TR.combo+1); TR.score+=4*TR.combo; }
+    TR.data.lastR=r;
+    if(r<0.0018){ endTrial(true); return; }
+  }
+  if(TR.timeLeft<=0) endTrial(false);
+}
+function trOverlay(){
+  if(!TR.mode) return;
+  if(TR.mode==='cut'){
+    ctx.strokeStyle='#c9a24e'; ctx.lineWidth=3;
+    for(var k2 in TR.data.targets){
+      var c=edge[k2]; if(!c) { delete TR.data.targets[k2]; continue; }
+      if(!SCR[c.a]||!SCR[c.b]) continue;
+      ctx.beginPath(); ctx.moveTo(SCR[c.a].x,SCR[c.a].y); ctx.lineTo(SCR[c.b].x,SCR[c.b].y); ctx.stroke();
+    }
+  }else if(TR.mode==='stitch'){
+    var want=TR.data.pairs[TR.data.idx];
+    if(want&&SCR[want[0]]&&SCR[want[1]]){
+      ctx.strokeStyle='#c9a24e'; ctx.lineWidth=3;
+      [want[0],want[1]].forEach(function(i3){
+        ctx.beginPath(); ctx.arc(SCR[i3].x,SCR[i3].y,10,0,7); ctx.stroke();
+      });
+    }
+  }
+  ctx.fillStyle='#c9a24e'; ctx.font='bold 15px IBM Plex Mono';
+  ctx.fillText('🏆 '+Math.max(0,TR.timeLeft).toFixed(1)+'s   score '+Math.round(TR.score)+'   combo ×'+TR.combo, 14, cv.height-16);
+}
+['cut','stitch','iron'].forEach(function(k){
+  $('tr-'+k).addEventListener('click',function(){ startTrial(k); });
+});
+trBoard();
+
 /* loop */
 var lastT=0;
 function frame(ts){
@@ -1214,6 +1339,7 @@ function frame(ts){
   if(!document.body.classList.contains('view-bench')){ lastT=ts; return; }
   var dt=Math.min(0.03,(ts-lastT)/1000||0.016); lastT=ts;
   step(0.016);
+  trTick(dt);
   if(!reduceMotion||true) render();                      /* sim IS the app; rM users still need to see their work */
   if(!cam.userTouched&&!reduceMotion) cam.yaw+=0.0004;   /* whisper-slow turntable until first orbit */
 }
@@ -1229,6 +1355,7 @@ window.__db={ P:function(){return P;}, C:function(){return C;}, stitches:functio
   edgeAlive:function(a,b){ return !!edge[key(a,b)]; },
   step:step, spawnBolt:spawnBolt, cutStroke:cutStroke, project:project, unproject:unproject,
   nearestParticle:nearestParticle, setTool:setTool, cam:cam, BODY:BODY, ironStroke:ironStroke,
+  startTrial:startTrial, endTrial:endTrial, TR:function(){return TR;}, roughness:roughness, trStitchFn:trStitch,
   addStitch:function(a,b){ addC(a,b,SPACING*0.15,true); stitches.push({a:a,b:b}); },
   render:render, SCR:function(){return SCR;}, CW:CW, CH:CH, SPACING:SPACING };
 })();
