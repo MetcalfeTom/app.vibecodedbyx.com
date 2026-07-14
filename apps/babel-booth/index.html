@@ -58,6 +58,10 @@ h1 em{ color:var(--vu); font-style:normal; }
 .vu{ flex:1; height:1.1rem; border:2px solid #14100a; border-radius:99px; background:#1d1409; overflow:hidden; }
 .vu i{ display:block; height:100%; width:0%; background:linear-gradient(90deg, var(--ok), var(--vu) 70%, var(--onair)); transition:width .08s linear; }
 .timer{ font-family:'Space Mono', monospace; font-size:.85rem; color:var(--bake); min-width:4.2rem; text-align:right; }
+.gain-row{ display:flex; align-items:center; gap:.7rem; margin:0 0 1rem; font-family:'Space Mono', monospace; font-size:.72rem; color:var(--bake); }
+.gain-row input[type="range"]{ flex:1; accent-color:var(--vu); min-height:2.75rem; cursor:pointer; }
+.gain-row input:focus-visible{ outline:3px solid var(--vu); outline-offset:2px; }
+#gain-val{ min-width:3.2rem; text-align:right; font-weight:700; color:var(--cream); }
 .controls{ display:flex; gap:.7rem; justify-content:center; flex-wrap:wrap; }
 button{
   min-height:2.75rem; padding:.55rem 1.4rem; cursor:pointer; border-radius:.4rem;
@@ -121,6 +125,11 @@ footer{ text-align:center; margin-top:2.4rem; font-family:'Space Mono', monospac
     <div class="vu" role="img" aria-label="microphone level meter"><i id="vu-fill"></i></div>
     <span class="timer" id="timer">00.0s</span>
   </div>
+  <div class="gain-row">
+    <label for="gain">mic gain</label>
+    <input type="range" id="gain" min="0.5" max="3" step="0.1" value="1" aria-label="microphone gain multiplier">
+    <span id="gain-val" aria-hidden="true">×1.0</span>
+  </div>
   <div class="controls">
     <button type="button" id="load-btn">⚙ load the interpreter (~40 MB, once)</button>
     <button type="button" id="rec-btn" disabled>🎙 hold the floor</button>
@@ -152,7 +161,7 @@ footer{ text-align:center; margin-top:2.4rem; font-family:'Space Mono', monospac
 
 <footer>
   🎙 audio never leaves this page · model cached by your browser ·
-  <span id="build-info">build <b>v1.1</b> · 2026-07-14 · commit <code id="build-hash">18ce31e57</code></span>
+  <span id="build-info">build <b>v1.2</b> · 2026-07-14 · commit <code id="build-hash">18ce31e57</code></span>
 </footer>
 </main>
 
@@ -164,6 +173,18 @@ env.allowLocalModels=false;
 var asr=null, media=null, recorder=null, chunks=[];
 var audioCtx=null, analyser=null, vuRAF=0, recStart=0, timerIV=0;
 var MAX_SEC=30;
+var gainNode=null;
+function gainVal(){ return parseFloat($('gain').value)||1; }
+/* raw mic → GainNode → MediaStreamDestination: the recorder hears the BOOSTED signal */
+function boostedStream(raw){
+  audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  var srcN=audioCtx.createMediaStreamSource(raw);
+  gainNode=audioCtx.createGain(); gainNode.gain.value=gainVal();
+  var dest=audioCtx.createMediaStreamDestination();
+  srcN.connect(gainNode); gainNode.connect(dest);
+  return dest.stream;
+}
 
 function $(id){ return document.getElementById(id); }
 function setStatus(msg){ $('status').textContent=msg; }
@@ -207,16 +228,13 @@ async function startRec(){
     setStatus('⚠ microphone denied — the booth needs the mic to interpret'); return;
   }
   chunks=[];
-  recorder=new MediaRecorder(media);
+  recorder=new MediaRecorder(boostedStream(media));
   recorder.ondataavailable=function(e){ if(e.data.size) chunks.push(e.data); };
   recorder.onstop=onStopped;
   recorder.start();
-  /* VU meter */
-  audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
-  if(audioCtx.state==='suspended') audioCtx.resume();
-  var srcNode=audioCtx.createMediaStreamSource(media);
+  /* VU meter reads POST-gain, so the meter shows what whisper will hear */
   analyser=audioCtx.createAnalyser(); analyser.fftSize=512;
-  srcNode.connect(analyser);
+  gainNode.connect(analyser);
   var buf=new Uint8Array(analyser.frequencyBinCount);
   (function vu(){
     analyser.getByteTimeDomainData(buf);
@@ -333,7 +351,7 @@ $('test-btn').onclick=async function(){
   try{
     var stream=await navigator.mediaDevices.getUserMedia({audio:true});
     diagPerm();                                    /* permission may have just flipped to granted */
-    var tchunks=[]; var trec=new MediaRecorder(stream);
+    var tchunks=[]; var trec=new MediaRecorder(boostedStream(stream));   /* test hears the same gain the booth does */
     trec.ondataavailable=function(e){ if(e.data.size) tchunks.push(e.data); };
     var n=3;
     btn.textContent='🔴 recording… say something! ('+n+')';
@@ -372,6 +390,19 @@ $('test-btn').onclick=async function(){
     testing=false;
   }
 };
+
+/* gain slider: live readout, live mid-recording adjustment, persisted */
+$('gain').addEventListener('input', function(){
+  $('gain-val').textContent='×'+gainVal().toFixed(1);
+  if(gainNode) gainNode.gain.value=gainVal();
+  try{ localStorage.setItem('babel-gain', String(gainVal())); }catch(e){}
+});
+(function(){
+  try{
+    var g=parseFloat(localStorage.getItem('babel-gain'));
+    if(g>=0.5&&g<=3){ $('gain').value=String(g); $('gain-val').textContent='×'+g.toFixed(1); }
+  }catch(e){}
+})();
 
 /* capability check */
 if(!window.WebAssembly){ setStatus('⚠ this browser lacks WebAssembly — the booth cannot operate'); $('load-btn').disabled=true; }
