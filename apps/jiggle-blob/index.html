@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jiggle Blob — a tiny physics toy</title>
+<meta name="description" content="One falling blob with jiggle physics. Grab it, fling it, watch it squash and wobble. No canvas — just a div that stretches.">
+<meta property="og:title" content="Jiggle Blob">
+<meta property="og:description" content="Grab the blob. Fling the blob. The blob forgives you. No canvas, just one very stretchy div.">
+<meta property="og:url" content="https://sloppy.live/jiggle-blob">
+<meta property="og:image" content="https://image.pollinations.ai/prompt/cute%20green%20jelly%20blob%20with%20big%20eyes%20mid%20bounce%2C%20squash%20and%20stretch%2C%20pastel%20room%2C%20soft%20shadows%2C%20flat%20illustration?width=1200&height=630&nologo=true&seed=77&model=flux">
+<meta property="og:type" content="website">
+<link rel="icon" href="https://emojicdn.elk.sh/🫠">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chewy&display=swap" rel="stylesheet">
+<style>
+*{ box-sizing:border-box; margin:0; padding:0; }
+html{ font-size:100%; }
+body{
+  min-height:100vh; overflow:hidden; touch-action:none;
+  background:linear-gradient(180deg, #fde8ef 0%, #f6efe2 62%, #e2d8c4 62.5%, #d8cdb6 100%);
+  font-family:'Chewy', cursive; user-select:none;
+}
+h1{
+  position:fixed; top:1.2rem; left:50%; transform:translateX(-50%);
+  font-size:clamp(1.4rem, 5vw, 2.2rem); font-weight:400; color:#b06a8a; letter-spacing:.06em;
+  pointer-events:none;
+}
+#hint{
+  position:fixed; top:4.2rem; left:50%; transform:translateX(-50%);
+  font-size:1rem; color:#a89a80; pointer-events:none; transition:opacity 1.2s;
+}
+#hint.gone{ opacity:0; }
+#shadow{
+  position:fixed; width:130px; height:26px; border-radius:50%;
+  background:rgba(90,70,50,.25); filter:blur(6px); pointer-events:none;
+}
+#blob{
+  position:fixed; width:130px; height:130px; cursor:grab;
+  background:radial-gradient(circle at 34% 28%, #c9f27e, #8fd44a 55%, #5ca832);
+  border-radius:48% 52% 55% 45% / 55% 48% 52% 45%;
+  box-shadow:inset -10px -14px 24px rgba(60,110,30,.35), inset 8px 10px 18px rgba(255,255,255,.45);
+  will-change:transform;
+}
+#blob:active{ cursor:grabbing; }
+#blob::before{
+  content:""; position:absolute; left:22%; top:14%; width:26%; height:16%;
+  background:rgba(255,255,255,.65); border-radius:50%; transform:rotate(-18deg);
+}
+.eye{
+  position:absolute; top:34%; width:17%; height:20%;
+  background:#fff; border-radius:50%; overflow:hidden;
+}
+.eye.l{ left:24%; } .eye.r{ right:24%; }
+.pupil{ position:absolute; width:52%; height:46%; background:#2a2416; border-radius:50%; left:24%; top:27%; }
+footer{
+  position:fixed; bottom:.4rem; left:50%; transform:translateX(-50%);
+  font-family:monospace; font-size:.55rem; letter-spacing:.1em; color:rgba(90,70,50,.5); pointer-events:none;
+}
+</style>
+</head>
+<body>
+<h1>jiggle blob</h1>
+<p id="hint">grab it · fling it · it forgives you</p>
+<div id="shadow" aria-hidden="true"></div>
+<div id="blob" role="img" aria-label="a green jelly blob with googly eyes. drag to throw it around."><div class="eye l"><div class="pupil" id="pl"></div></div><div class="eye r"><div class="pupil" id="pr"></div></div></div>
+<footer><span id="build-info">build <b>v1.0</b> · 2026-07-15 · commit <code id="build-hash">0000000</code></span></footer>
+
+<script>
+/* ── the whole physics engine: one body, two springs ── */
+var R=65;                                     /* blob radius (px) */
+var G=2400, REST=0.58, AIR=0.999, FLOOR_FRIC=0.985;
+function mkSpring(k,c){ return {s:0, v:0, k:k, c:c}; }
+function stepSpring(sp, dt){
+  var a=-sp.k*sp.s - sp.c*sp.v;
+  sp.v+=a*dt; sp.s+=sp.v*dt;
+  return sp.s;
+}
+var squash=mkSpring(170, 8.5);                /* impact squash: negative = flat, positive = tall */
+var wobble=mkSpring(120, 4.5);                /* slow gooey secondary wobble */
+
+var W=innerWidth, H=innerHeight;
+var x=W/2, y=H*0.2, vx=60, vy=0;
+var held=false, hx=0, hy=0, px=0, py=0, pvx=0, pvy=0, lastPT=0;
+var mx=W/2, my=H/2;
+var blob=document.getElementById('blob'), shadow=document.getElementById('shadow');
+var pl=document.getElementById('pl'), pr=document.getElementById('pr');
+var floorY=function(){ return H*0.625; };     /* the room's floor line */
+var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+var interacted=false;
+
+blob.addEventListener('pointerdown', function(e){
+  held=true; interacted=true;
+  document.getElementById('hint').classList.add('gone');
+  blob.setPointerCapture(e.pointerId);
+  hx=e.clientX-x; hy=e.clientY-y;
+  px=e.clientX; py=e.clientY; lastPT=performance.now();
+  squash.v+=3.2;                              /* startled jiggle on grab */
+});
+addEventListener('pointermove', function(e){
+  mx=e.clientX; my=e.clientY;
+  if(!held) return;
+  var now=performance.now(), dt=Math.max(8,(now-lastPT))/1000;
+  pvx=(e.clientX-px)/dt; pvy=(e.clientY-py)/dt;
+  px=e.clientX; py=e.clientY; lastPT=now;
+  x=e.clientX-hx; y=e.clientY-hy;
+  vx=0; vy=0;
+});
+addEventListener('pointerup', function(){
+  if(!held) return;
+  held=false;
+  vx=Math.max(-2600, Math.min(2600, pvx));   /* the fling */
+  vy=Math.max(-2600, Math.min(2600, pvy));
+  wobble.v+=Math.min(6, Math.hypot(pvx,pvy)/260);
+});
+addEventListener('resize', function(){ W=innerWidth; H=innerHeight; });
+
+var last=performance.now();
+(function loop(now){
+  requestAnimationFrame(loop);
+  var dt=Math.min(0.033,(now-last)/1000); last=now;
+  if(!held){
+    vy+=G*dt; vx*=AIR;
+    x+=vx*dt; y+=vy*dt;
+    var fy=floorY();
+    if(y+R>fy){                               /* floor bounce → vertical squash */
+      y=fy-R;
+      if(vy>60){ squash.v-=Math.min(9, vy/130); }
+      vy=-vy*REST;
+      if(Math.abs(vy)<70) vy=0;
+      vx*=FLOOR_FRIC;
+    }
+    if(x-R<0){ x=R; vx=-vx*REST; squash.v+=Math.min(7, Math.abs(vx)/160); }
+    if(x+R>W){ x=W-R; vx=-vx*REST; squash.v+=Math.min(7, Math.abs(vx)/160); }
+    if(y-R<0){ y=R; vy=-vy*REST; }
+  }
+  stepSpring(squash, dt);
+  stepSpring(wobble, dt);
+  if(!reduce&&!held&&Math.abs(vy)<5&&Math.abs(squash.v)<0.05){
+    wobble.v+=Math.sin(now/900)*0.004;        /* idle breathing, imperceptible push */
+  }
+  var s=Math.max(-0.42, Math.min(0.42, squash.s));
+  var w=reduce?0:wobble.s*0.15;
+  var sy=1+s, sx=1-s*0.9;                     /* volume-ish preserving squash */
+  var tilt=Math.max(-14, Math.min(14, vx*0.008));
+  blob.style.transform='translate('+(x-R)+'px,'+(y-R)+'px) rotate('+tilt+'deg) scale('+(sx+w)+','+(sy-w)+')';
+  blob.style.transformOrigin='50% 100%';
+  /* pupils chase the cursor */
+  var dx=mx-x, dy=my-y, d=Math.hypot(dx,dy)||1;
+  var ex=(dx/d)*26, ey=(dy/d)*20;
+  pl.style.transform='translate('+ex+'%,'+ey+'%)';
+  pr.style.transform='translate('+ex+'%,'+ey+'%)';
+  /* shadow: shrinks + fades with height */
+  var fy2=floorY();
+  var h=Math.max(0, fy2-(y+R));
+  var k=Math.max(0.35, 1-h/(H*0.5));
+  shadow.style.transform='translate('+(x-65*k)+'px,'+(fy2-10)+'px) scale('+k+','+k+')';
+  shadow.style.opacity=0.15+0.2*k;
+})(last);
+</script>
+</body>
+</html>
