@@ -10,3 +10,4 @@
 ## todos
 - Optional webcam slouch detection was deliberately NOT built (privacy); revisit only if chat begs.
 - Custom work/break lengths if asked.
+- 2026-07-15 v1.1: full commissioned routine (8 moves, exact order: chin tucks / doorway chest / wall angels / cat-cow / thoracic extension / upper trap / scapular squeezes / cobra), 20–30s each. REAL BUG caught by the fit-test: stretchPlan pushed-then-never-checked, so the last move could overrun the break by up to 30s — now admits only moves that fully fit (verified 16 offsets, all plans within margin, long break covers all 8). Message truncated at "each" — assumed "each 20–30s"; if per-move durations were specified, send them.
