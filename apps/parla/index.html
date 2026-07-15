@@ -671,7 +671,7 @@ body.debug-locate #levelup-banner{opacity:.25; border:5px dashed #ff1a1a; paddin
 <footer>
   accents are friendly here: <i>cafe</i> counts for <i>café</i> (you'll still see the proper spelling) ·
   progress saves per language in your browser · swipe works on touch, arrows on keys
-  <br><span id="build-info">build <b>v12.4</b> · 2026-07-14 · commit <code id="build-hash">0ab8f562f</code></span>
+  <br><span id="build-info">build <b>v12.5</b> · 2026-07-14 · commit <code id="build-hash">0ab8f562f</code></span>
 </footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 
@@ -773,7 +773,14 @@ $('tts-gender').onclick=function(){
   try{ localStorage.setItem('parla-tts-gender', next); }catch(e){}
   this.textContent='🗣 voice: '+GLABEL[next];
   pickVoices();
-  announce('voice preference: '+GLABEL[next]);
+  var vv=TTS_VOICE[lang], info=TTS_INFO[lang];
+  if(vv&&info&&info.count<2){
+    announce('voice preference '+GLABEL[next]+' — but this device has only one '+lang+' voice ('+vv.name+'); install more voices in system settings to hear a difference');
+  }else{
+    announce('voice preference: '+GLABEL[next]+(vv?' — now speaking with '+vv.name:''));
+  }
+  this.title='preferred voice gender — current model: '+(vv?vv.name+' ('+vv.lang+')':'system default');
+  console.log('[parla-tts] toggle → '+next+' · '+lang+' voice model: '+(vv?vv.name+' ('+vv.lang+')':'none'));
   speakTarget(currentIdx());                        /* audition the new voice immediately */
 };
 $('tts-toggle').textContent='🔊 tts: '+(ttsOn()?'on':'off');
@@ -786,6 +793,7 @@ function updateTargetButtons(){
 }
 var TTS_LANG={en:'en-GB',es:'es-MX',fr:'fr-FR',it:'it-IT',de:'de-DE'};
 var TTS_VOICE={};
+var TTS_INFO={};   /* per-language: how many candidate voices, and whether the gender pick was name-matched */
 function ttsGender(){ try{ var g=localStorage.getItem('parla-tts-gender'); return (g==='f'||g==='m')?g:'m'; }catch(e){ return 'm'; } }  /* two states only; legacy 'auto' reads as ♂ */
 function genderOf(v){
   var n=(v.name||'');
@@ -802,18 +810,34 @@ function pickVoices(){
     if(!vs.length) return;
     console.log('[parla-tts] '+vs.length+' voices on this device:');
     vs.forEach(function(v){ console.log('  · '+v.name+' ('+v.lang+')'+(v.default?' [device default]':'')); });
-    function firstMatch(tests){
-      for(var i=0;i<tests.length;i++){
-      for(var j=0;j<vs.length;j++){ if(tests[i](vs[j])) return vs[j]; } }
-      return null;
-    }
     var gpref=ttsGender();
-    function pickPref(tests){
-      if(gpref!=='auto'){
-        var hit=firstMatch(tests.map(function(t){ return function(v){ return t(v)&&genderOf(v)===gpref; }; }));
-        if(hit) return hit;                       /* same ladder, gender-filtered — falls through if no such voice exists */
+    /* ALL candidates in ladder order (dedup) — not just the first hit. This is the v12.5 fix:
+       on devices whose voice names carry no gender (every Google/Chrome voice), the old code
+       fell back to the SAME voice for ♀ and ♂ — label flipped, audio did not. Now each gender
+       owns a different slot in the candidate list, so the toggle audibly swaps whenever
+       the device has 2+ voices for the language. */
+    function orderedCands(tests){
+      var out=[], seen={};
+      for(var i=0;i<tests.length;i++){
+        for(var j=0;j<vs.length;j++){
+          var v=vs[j], k=v.name+'|'+v.lang;
+          if(!seen[k]&&tests[i](v)){ seen[k]=1; out.push(v); }
+        }
       }
-      return firstMatch(tests);
+      return out;
+    }
+    function pickPref(tests, infoKey){
+      var cands=orderedCands(tests);
+      if(infoKey) TTS_INFO[infoKey]={count:cands.length, gendered:false};
+      if(!cands.length) return null;
+      if(gpref!=='auto'){
+        for(var i=0;i<cands.length;i++){
+          if(genderOf(cands[i])===gpref){ if(infoKey) TTS_INFO[infoKey].gendered=true; return cands[i]; }
+        }
+        var slot=gpref==='f'?0:1;                 /* no gender labels: ♀→slot 0, ♂→slot 1 — different models */
+        return cands[Math.min(slot, cands.length-1)];
+      }
+      return cands[0];
     }
     TTS_VOICE.es=pickPref([
       function(v){ return /^es[-_]MX/i.test(v.lang); },                       /* es-MX first, as requested */
@@ -821,19 +845,19 @@ function pickVoices(){
       function(v){ return /^es/i.test(v.lang)&&/(mexic|latin|americ)/i.test(v.name); },
       function(v){ return /^es/i.test(v.lang)&&!/^es[-_]ES/i.test(v.lang); }, /* any Spanish that isn't Castilian */
       function(v){ return /^es/i.test(v.lang); }                              /* last resort: any Spanish */
-    ]);
+    ], 'es');
     ['en','fr','it','de'].forEach(function(l2){
       var code=TTS_LANG[l2];
       TTS_VOICE[l2]=pickPref([
         function(v){ return v.lang.replace('_','-').toLowerCase()===code.toLowerCase(); },
         function(v){ return v.lang.slice(0,2).toLowerCase()===l2; }
-      ]);
+      ], l2);
     });
     if(TTS_VOICE.es){
       var latam=/MX|US|419/i.test(TTS_VOICE.es.lang)||/(mexic|latin|americ)/i.test(TTS_VOICE.es.name);
       console.log('[parla-tts] 🎙 Spanish default voice → "'+TTS_VOICE.es.name+'" ('+TTS_VOICE.es.lang+')'+
         (latam?' — Latin American ✓':' — no LatAm Spanish on this device; nearest Spanish voice in use')+
-        (gpref==='auto'?'':' · gender pref '+(gpref==='f'?'♀':'♂')+(genderOf(TTS_VOICE.es)===gpref?' matched ✓':' — no matching-gender voice on this device; best available used')));
+        (gpref==='auto'?'':' · gender pref '+(gpref==='f'?'♀':'♂')+(TTS_INFO.es&&TTS_INFO.es.gendered?' matched by name ✓':(TTS_INFO.es&&TTS_INFO.es.count>1?' — no gendered names here, so each gender gets a DIFFERENT voice slot':' — only ONE voice for this language; toggle cannot change the sound'))));
     }else console.log('[parla-tts] no Spanish voice installed on this device');
   }catch(e){}
 }
@@ -2652,7 +2676,7 @@ setLang(native==='es'?'en':'es');
 setMode('cards');
 try{ if(localStorage.getItem('parla-immersive')==='on'){ if(!immersiveEnter(lang,true)) localStorage.setItem('parla-immersive','off'); } }catch(e){}
 
-window.__vc={ version:'v12.4', words:WORDS, langs:LANGS,
+window.__vc={ version:'v12.5', words:WORDS, langs:LANGS,
   normalize:normalize, checkAnswer:checkAnswer, makeChoices:makeChoices,
   setLang:setLang, setMode:setMode, setNative:setNative, natOf:natOf, speak:speak, ttsOn:ttsOn,
   ttsVoices:function(){ return TTS_VOICE; }, relistVoices:pickVoices,
