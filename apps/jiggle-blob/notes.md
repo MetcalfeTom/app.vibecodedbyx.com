@@ -9,3 +9,4 @@
 
 ## todos
 - Only if chat asks: a second blob that collides; blob face reacts on hard impacts (o-mouth).
+- 2026-07-15 v1.1–v1.6: sloppy_ai skin (visor scan-eye, headphones, persisted); GRV/SPD/AGR faders → v1.4 vertical DJ mixer (rotated ranges, LED readouts, BNC restitution 0–1 default .5 per spec, max-speed kept as 4th channel vs "three sliders" spec — additive compromise); v1.4.1 glow; v1.5 LUX darkness overlay (max 88pct) + impact flashes above the dark; v1.5.1 collision console log (BEFORE reduced-motion return) + max-int32 z; v1.6 point flash → directional bridge glow (per-surface gradients + per-axis scale keyframes, skin-colored via --glow-hot/--glow-mid vars). Blob is now a tunable nightclub instrument.
