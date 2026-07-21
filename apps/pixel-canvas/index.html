@@ -89,6 +89,15 @@ h1 .em{ color: var(--accent); }
   box-shadow: 0 0 8px rgba(0,0,0,0.20);
 }
 .live.online .dot{ background: #4caf50; box-shadow: 0 0 8px rgba(76, 175, 80, 0.7); animation: blink 1.6s ease-in-out infinite; }
+.live.counter{ margin-left: 0.35rem; }
+.live.counter #pxTotal{ color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+.live.counter.pop #pxTotal{ animation: countPop 0.35s; }
+@keyframes countPop{ 40%{ transform: scale(1.25); } }
+.swatch.dice{
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; line-height: 1;
+  background: conic-gradient(#d62828 0 25%, #fcbf49 0 50%, #2a9d8f 0 75%, #6c2bd9 0 100%);
+}
 .live.connecting .dot{ background: #ffb74d; animation: blink 0.8s ease-in-out infinite; }
 .live.fail .dot{ background: #ef5350; }
 @keyframes blink{ 0%,100%{ opacity: 1; } 50%{ opacity: 0.4; } }
@@ -236,6 +245,7 @@ footer .credit{ color: var(--accent); }
     <h1>Pixel <span class="em">Canvas</span></h1>
     <p class="tag">paint together · live · 48 × 48 grid</p>
     <div class="live connecting" id="liveBadge"><span class="dot"></span><span id="liveText">connecting…</span></div>
+    <div class="live counter" id="countBadge" title="every pixel ever placed on this canvas, by everyone"><span aria-hidden="true">▦</span>&nbsp;<span id="pxTotal" aria-live="off">—</span>&nbsp;pixels placed · ever</div>
   </header>
 
   <div class="frame">
@@ -383,11 +393,33 @@ function buildPalette(){
     b.addEventListener('click', () => selectColor(i));
     paletteEl.appendChild(b);
   });
+  /* 🎲 random mode — every painted cell rolls its own color */
+  const d = document.createElement('button');
+  d.type = 'button';
+  d.className = 'swatch dice';
+  d.setAttribute('role', 'radio');
+  d.setAttribute('aria-checked', 'false');
+  d.setAttribute('aria-pressed', 'false');
+  d.setAttribute('aria-label', 'random color');
+  d.title = 'random · every pixel rolls a new color (D)';
+  d.textContent = '🎲';
+  d.addEventListener('click', () => selectColor(DICE_IDX));
+  paletteEl.appendChild(d);
+}
+const DICE_IDX = PALETTE.length;   // the 🎲 sits after the 16 colors
+let randomMode = false;
+function randomHex(){
+  return PALETTE[1 + Math.floor(Math.random() * (PALETTE.length - 1))].hex;   // any color except eraser
 }
 function selectColor(i){
   currentColorIdx = i;
-  currentColor = PALETTE[i].hex;
-  isErasing = !!PALETTE[i].erase;
+  randomMode = (i === DICE_IDX);
+  if (!randomMode){
+    currentColor = PALETTE[i].hex;
+    isErasing = !!PALETTE[i].erase;
+  } else {
+    isErasing = false;
+  }
   paletteEl.querySelectorAll('.swatch').forEach((el, j) => {
     el.setAttribute('aria-checked', String(j === i));
     el.setAttribute('aria-pressed', String(j === i));
@@ -403,6 +435,7 @@ window.addEventListener('keydown', (e) => {
                 'q':11,'w':12,'e':13,'r':14,'t':15 };
   if (e.code === 'KeyE' && (e.shiftKey || e.altKey)){ e.preventDefault(); selectColor(0); return; }
   const k = e.key.toLowerCase();
+  if (k === 'd'){ selectColor(DICE_IDX); return; }
   if (map[k] !== undefined && map[k] < PALETTE.length){
     selectColor(map[k]);
   }
@@ -431,12 +464,12 @@ function paintCell(x, y, color){
   drawCell(x, y);
   return true;
 }
-function broadcastPaint(x, y){
+function broadcastPaint(x, y, col){
   if (!mp.channel) return;
   try {
     mp.channel.send({
       type: 'broadcast', event: 'paint',
-      payload: { x, y, c: isErasing ? null : currentColor, from: mp.uid }
+      payload: { x, y, c: isErasing ? null : col, from: mp.uid }
     });
   } catch(e){}
 }
@@ -450,9 +483,12 @@ function handlePaintEvent(e){
   lastPaintX = cell.x; lastPaintY = cell.y;
 }
 function paintAndBroadcast(x, y){
-  const changed = paintCell(x, y, currentColor);
+  const col = randomMode ? randomHex() : currentColor;   // 🎲 rolls per cell
+  const changed = paintCell(x, y, col);
   if (changed){
-    broadcastPaint(x, y);
+    broadcastPaint(x, y, col);
+    queueDb(x, y, isErasing ? '' : col);
+    if (!isErasing) bumpTotal(1);
     saveLocalDebounced();
   }
 }
@@ -461,7 +497,9 @@ function paintLine(x0, y0, x1, y1){
   const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
   let err = dx + dy, x = x0, y = y0;
   while (true){
-    paintAndBroadcast(x, y);
+    // skip the line's start cell — the previous stroke segment already painted
+    // it (matters in 🎲 mode, where a repaint re-rolls the color)
+    if (x !== x0 || y !== y0) paintAndBroadcast(x, y);
     if (x === x1 && y === y1) break;
     const e2 = err * 2;
     if (e2 >= dy){ err += dy; x += sx; }
@@ -548,6 +586,11 @@ document.getElementById('btn-clear').addEventListener('click', () => {
   if (mp.channel){
     try { mp.channel.send({ type: 'broadcast', event: 'clear', payload: { from: mp.uid } }); } catch(e){}
   }
+  // persist the wipe: a reset marker row — pixels older than it stay in
+  // history (the all-time counter keeps them) but never render again
+  if (db.uid){
+    supabase.from('pixel_canvas').insert({ user_id: db.uid, x: 0, y: 0, color: '', kind: 'reset' }).then(() => {});
+  }
   showToast('🧹 canvas cleared');
 });
 
@@ -625,6 +668,7 @@ async function startMultiplayer(){
     if (x < 0 || x >= GRID || y < 0 || y >= GRID) return;
     grid[y][x] = c || null;
     drawCell(x, y);
+    if (c) bumpTotal(1);   // a peer placed a pixel — count it live
     saveLocalDebounced();
   });
   ch.on('broadcast', { event: 'clear' }, ({ payload }) => {
@@ -677,10 +721,99 @@ async function startMultiplayer(){
   mp.channel = ch;
 }
 
+/* ── PERSISTENCE + ALL-TIME COUNTER (v2) ──
+   Table pixel_canvas: kind 'px' rows are placed pixels (color '' = erase),
+   kind 'reset' rows are board wipes. The board renders px rows AFTER the
+   latest reset; the counter counts every px row EVER (wipes can't erase
+   history). Writes are batched: drag-painting queues cells and flushes one
+   bulk insert per 900ms. */
+const db = { uid: null, queue: [], timer: null, total: null };
+
+async function ensureAuth(){
+  try {
+    const s = await supabase.auth.getSession();
+    let u = s.data.session && s.data.session.user;
+    if (!u){
+      const r = await supabase.auth.signInAnonymously();
+      u = r.data && r.data.session && r.data.session.user;
+    }
+    db.uid = (u && u.id) || null;
+  } catch(e){ db.uid = null; }
+}
+function queueDb(x, y, color){
+  if (!db.uid) return;
+  db.queue.push({ user_id: db.uid, x, y, color, kind: 'px' });
+  if (!db.timer) db.timer = setTimeout(flushDb, 900);
+}
+async function flushDb(){
+  db.timer = null;
+  const batch = db.queue.splice(0, 400);
+  if (!batch.length) return;
+  try { await supabase.from('pixel_canvas').insert(batch); } catch(e){}
+  if (db.queue.length) db.timer = setTimeout(flushDb, 900);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushDb();
+});
+
+const countBadge = document.getElementById('countBadge');
+const pxTotalEl = document.getElementById('pxTotal');
+function paintTotal(pop){
+  if (db.total === null) return;
+  pxTotalEl.textContent = db.total.toLocaleString('en-US');
+  if (pop){
+    countBadge.classList.remove('pop'); void countBadge.offsetWidth; countBadge.classList.add('pop');
+  }
+}
+function bumpTotal(n){
+  if (db.total === null) return;
+  db.total += n;
+  paintTotal(true);
+}
+async function refreshTotal(){
+  try {
+    const { count, error } = await supabase.from('pixel_canvas')
+      .select('*', { count: 'exact', head: true }).eq('kind', 'px');
+    if (!error && typeof count === 'number'){
+      db.total = count + db.queue.length;
+      paintTotal(false);
+    }
+  } catch(e){}
+}
+
+async function loadFromDb(){
+  try {
+    const { data: resets } = await supabase.from('pixel_canvas')
+      .select('created_at').eq('kind', 'reset')
+      .order('created_at', { ascending: false }).limit(1);
+    let q = supabase.from('pixel_canvas')
+      .select('x,y,color').eq('kind', 'px')
+      .order('created_at', { ascending: true }).limit(4000);
+    if (resets && resets.length) q = q.gt('created_at', resets[0].created_at);
+    const { data: px, error } = await q;
+    if (error || !px) return false;
+    let touched = false;
+    for (const p of px){
+      if (Number.isInteger(p.x) && Number.isInteger(p.y) && p.x >= 0 && p.x < GRID && p.y >= 0 && p.y < GRID){
+        grid[p.y][p.x] = (p.color && /^#[0-9a-f]{6}$/i.test(p.color)) ? p.color : null;
+        touched = true;
+      }
+    }
+    if (touched){ drawAll(); saveLocal(); }
+    return touched;
+  } catch(e){ return false; }
+}
+
 /* ── BOOT ── */
 loadLocal();
 drawAll();
 startMultiplayer();
+(async () => {
+  await ensureAuth();
+  await loadFromDb();      // authoritative shared state overrides local backup
+  await refreshTotal();
+  setInterval(refreshTotal, 45000);
+})();
 </script>
 </body>
 </html>
