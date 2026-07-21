@@ -659,7 +659,7 @@
   <main>
     <div class="status-bar">
       <span id="statusText">loading featured snaps…</span>
-      <span id="apiInfo" title="codetabs CORS proxy → Snapcraft v1 API · amd64">api · v1 via proxy · amd64</span>
+      <span id="apiInfo" title="CORS proxy failover chain → Snapcraft v1 API · amd64">api · v1 via proxy · amd64</span>
     </div>
     <div class="grid" id="grid" aria-live="polite"></div>
     <div class="load-sentinel hidden" id="loadSentinel" role="status" aria-live="polite"></div>
@@ -671,17 +671,40 @@
     'use strict';
 
     // Direct base — the Snapcraft v1 API doesn't send Access-Control-Allow-Origin,
-    // so any browser fetch from sloppy.live is CORS-blocked. We route through
-    // the codetabs public proxy (returns ACAO: *). The proxy strips custom
-    // request headers, so we DON'T send X-Ubuntu-Series / X-Ubuntu-Architecture
-    // — fortunately /search works without them. /details and v2 /info both
-    // require those headers and can't be used through the proxy, so the detail
-    // modal reads from the already-cached search result instead of fetching.
+    // so any browser fetch from sloppy.live is CORS-blocked. We route through a
+    // public CORS proxy. Public proxies rotate through outages (2026-07-19:
+    // codetabs AND allorigins/raw both 522 — Cloudflare origin-timeout — while
+    // api.snapcraft.io itself answered in 0.25s), so apiFetch now runs a
+    // FAILOVER CHAIN and remembers whichever proxy worked. All proxies strip
+    // custom request headers, so we DON'T send X-Ubuntu-Series /
+    // X-Ubuntu-Architecture — fortunately /search works without them. /details
+    // and v2 /info both require those headers and can't be used through any
+    // proxy, so the detail modal reads from the cached search result instead.
     const DIRECT_BASE = 'https://api.snapcraft.io/api/v1/snaps';
-    const PROXY_PREFIX = 'https://api.codetabs.com/v1/proxy/?quest=';
     const STORE_URL = 'https://snapcraft.io';
     const PAGE_SIZE = 24;
-    function proxied(url) { return PROXY_PREFIX + encodeURIComponent(url); }
+    // Each proxy: wrap(directUrl) → proxied URL, unwrap(Response) → parsed JSON.
+    // allorigins /get wraps the body as {"contents":"data:...;base64,<b64>"} —
+    // its /raw endpoint shares codetabs' outage, but /get runs on a live backend.
+    const PROXIES = [
+      { name: 'cors.lol',   wrap: u => 'https://api.cors.lol/?url=' + encodeURIComponent(u),
+        unwrap: r => r.json() },
+      { name: 'codetabs',   wrap: u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
+        unwrap: r => r.json() },
+      { name: 'allorigins', wrap: u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u),
+        unwrap: async r => {
+          const j = await r.json();
+          const c = j && j.contents;
+          if (typeof c !== 'string') throw new Error('empty proxy envelope');
+          if (c.startsWith('data:')) {
+            const i = c.indexOf('base64,');
+            if (i === -1) throw new Error('unexpected envelope encoding');
+            return JSON.parse(atob(c.slice(i + 7)));
+          }
+          return JSON.parse(c);
+        } },
+    ];
+    let proxyIdx = 0;   // sticky: first proxy that answers keeps the job for the session
 
     // The 20 known categories. Probed from /v2/snaps/categories — same as
     // v1 sections, just hardcoded to skip a network round-trip on boot.
@@ -795,16 +818,37 @@
       return DIRECT_BASE + '/search?' + p.toString();
     }
     async function apiFetch(directUrl) {
-      // No custom headers — codetabs strips them, and v1 /search doesn't need
-      // them anyway. Going through the proxy is the only way to satisfy CORS.
-      const r = await fetch(proxied(directUrl), { headers: { 'Accept': 'application/hal+json' } });
-      if (!r.ok) {
-        if (r.status === 429) throw new Error('proxy rate limit · slow down a moment');
-        if (r.status === 403) throw new Error('proxy denied · try again in a sec');
-        if (r.status === 502 || r.status === 503) throw new Error('proxy down · retry');
-        throw new Error('HTTP ' + r.status);
+      // Try the sticky proxy first, then fail over through the rest. Each
+      // attempt gets a 10s abort — a 522ing proxy otherwise hangs ~20s before
+      // answering, and we'd rather move down the chain than make chat wait.
+      let lastErr = null;
+      for (let n = 0; n < PROXIES.length; n++) {
+        const idx = (proxyIdx + n) % PROXIES.length;
+        const p = PROXIES[idx];
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10000);
+        try {
+          const r = await fetch(p.wrap(directUrl), {
+            headers: { 'Accept': 'application/hal+json' },
+            signal: ctrl.signal,
+          });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const data = await p.unwrap(r);   // parse failure = proxy mangled it → next
+          proxyIdx = idx;
+          paintApiInfo();
+          return data;
+        } catch (e) {
+          lastErr = e;
+        } finally {
+          clearTimeout(timer);
+        }
       }
-      return r.json();
+      throw new Error('all 3 CORS proxies unreachable (' + (lastErr && lastErr.message || 'network') + ') · snap data can’t flow right now, retry in a minute');
+    }
+    function paintApiInfo() {
+      const p = PROXIES[proxyIdx];
+      apiInfoEl.textContent = 'api · v1 via ' + p.name + ' · ' + state.arch;
+      apiInfoEl.title = p.name + ' CORS proxy → Snapcraft v1 API · ' + state.arch;
     }
     function filterByArch(results, arch) {
       if (!arch) return results;
@@ -1152,7 +1196,7 @@
     });
     archSel.addEventListener('change', () => {
       state.arch = archSel.value;
-      apiInfoEl.textContent = 'api · v1 via proxy · ' + state.arch;
+      paintApiInfo();
       writeHash();
       searchAndRender(true);
     });
@@ -1227,7 +1271,7 @@
     renderChips();
     paintToggles();
     searchClear.classList.toggle('show', !!state.query);
-    apiInfoEl.textContent = 'api · v1 via proxy · ' + state.arch;
+    paintApiInfo();
     searchAndRender(true);
   })();
   </script>
