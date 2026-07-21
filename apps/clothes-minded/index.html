@@ -260,6 +260,7 @@ body.flat-only #v-runway, body.flat-only .ws-sep, body.flat-only .ws-label{displ
           <h4>body type</h4><div class="lkrow" id="lk-body"></div>
           <h4>hair style</h4><div class="lkrow" id="lk-hair"></div>
           <h4>hair colour</h4><div class="lkrow" id="lk-haircol"></div>
+          <h4>model</h4><div class="lkrow" id="lk-model"></div>
           <h4>custom model</h4>
           <div class="lkrow">
             <button id="lk-glb" type="button">📦 load .glb</button>
@@ -422,7 +423,7 @@ body.flat-only #v-runway, body.flat-only .ws-sep, body.flat-only .ws-label{displ
 <footer>
   every garment is drawn from your choices · nothing is prefabricated ·
   <button id="btn-mute" type="button" aria-pressed="false" style="min-height:2.2rem; padding:.15rem .6rem; font-size:.62rem;">♪ sound: off</button>
-  <br><span id="build-info">build <b>v30.1</b> · commit <code id="build-hash">350c2920c</code></span>
+  <br><span id="build-info">build <b>v31.0</b> · commit <code id="build-hash">350c2920c</code></span>
 </footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 <script>
@@ -1674,14 +1675,26 @@ function p3Ensure(){
       /* order matters: UpLeg regexes can also match Leg names — prefer exact tiers */
       return found.hips?found:null;
     }
-    P3.loadGlb=function(file){
+    /* v31: hide only HER meshes — garments stay on, the rig keeps animating as
+       the retarget source, and bodyG's transform still carries the walk. */
+    P3.hideHerMeshes=function(hide){
+      P3.bodyG.traverse(function(n2){
+        if(!n2.isMesh) return;
+        if(n2===P3.shell||n2===P3.shellB) return;          /* the wardrobe stays dressed */
+        n2.visible=!hide;
+      });
+      if(!hide) P3.setMannequin(P3.mannState);             /* reapply state-correct visibilities */
+    };
+    P3.loadGlb=function(file, opts){
+      opts=opts||{};
       var note=$('lk-note');
-      if(note) note.textContent='reading '+(file.name||'model')+'…';
+      if(note) note.textContent='reading '+(opts.label||file.name||'model')+'…';
       withGltfLoader(function(err,loader){
         if(err){ if(note) note.textContent='loader unavailable ('+err.message+') — the CDN said no'; return; }
-        var url=URL.createObjectURL(file);
+        var url=typeof file==='string'?file:URL.createObjectURL(file);
+        var revoke=typeof file==='string'?function(){}:function(){ URL.revokeObjectURL(url); };
         loader.load(url, function(gltf){
-          URL.revokeObjectURL(url);
+          revoke();
           try{
             if(P3.ext) P3.restoreHer(true);
             var root=gltf.scene;
@@ -1697,27 +1710,41 @@ function p3Ensure(){
             root.traverse(function(n2){ if(n2.isMesh){ n2.castShadow=true; } });
             P3.scene.add(root);
             var bones=mapBones(root);
+            /* mannequin mode PREFERS the retarget (our runway walk) even when the
+               model ships its own clips — Michelle brings a samba we don't need */
+            var useRetarget=!!bones&&(opts.asMannequin||!(gltf.animations&&gltf.animations.length));
             var mixer=null;
-            if(gltf.animations&&gltf.animations.length){
+            if(!useRetarget&&gltf.animations&&gltf.animations.length){
               mixer=new THREE.AnimationMixer(root);
               mixer.clipAction(gltf.animations[0]).play();   /* it brought its own moves — let it dance */
             }
             var rest={};
-            if(bones&&!mixer){
+            if(useRetarget){
               Object.keys(bones).forEach(function(k){ rest[k]=bones[k].rotation.clone(); });
             }
-            P3.ext={root:root, bones:mixer?null:bones, rest:rest, mixer:mixer, lastT:performance.now()/1000, spin:!bones&&!mixer};
-            P3.bodyG.visible=false; P3.shell.visible=false; P3.shellB.visible=false;
+            P3.ext={root:root, bones:useRetarget?bones:null, rest:rest, mixer:mixer,
+              lastT:performance.now()/1000, spin:!useRetarget&&!mixer, asMann:!!opts.asMannequin};
+            if(opts.asMannequin){
+              P3.hideHerMeshes(true);                        /* skin off, wardrobe on, rig still drives */
+            }else{
+              P3.bodyG.visible=false; P3.shell.visible=false; P3.shellB.visible=false;
+            }
             var rb=$('lk-restore'); if(rb) rb.hidden=false;
-            var how=mixer?'playing its own animation':(bones?'retargeted — she lends it her walk':'no rig found — turntable guest');
-            if(note) note.textContent=(file.name||'model')+' on stage · '+how;
-            announce('custom model loaded: '+how);
+            var mrow=$('lk-model'); if(mrow&&mrow.children.length===2){
+              mrow.children[0].setAttribute('aria-pressed', opts.asMannequin?'false':'true');
+              mrow.children[1].setAttribute('aria-pressed', opts.asMannequin?'true':'false');
+            }
+            var how=mixer?'playing its own animation':(useRetarget?'retargeted — she lends it her walk':'no rig found — turntable guest');
+            if(note) note.textContent=(opts.label||file.name||'model')+' on stage · '+how;
+            announce((opts.label||'custom model')+' loaded: '+how);
           }catch(e3){ if(note) note.textContent='that .glb resisted: '+(e3&&e3.message); }
         }, undefined, function(){ URL.revokeObjectURL(url); if(note) note.textContent='could not parse that file as .glb/.gltf'; });
       });
     };
     P3.restoreHer=function(silent){
+      var wasMann=false;
       if(P3.ext){
+        wasMann=!!P3.ext.asMann;
         P3.scene.remove(P3.ext.root);
         P3.ext.root.traverse(function(n2){
           if(n2.isMesh){ if(n2.geometry) n2.geometry.dispose();
@@ -1728,7 +1755,12 @@ function p3Ensure(){
         P3.ext=null;
       }
       P3.bodyG.visible=true;
+      if(wasMann) P3.hideHerMeshes(false);                  /* un-hide her skin, state-correctly */
       P3.shell.visible=!P3.study; P3.shellB.visible=!P3.study;
+      var mrow=$('lk-model'); if(mrow&&mrow.children.length===2){
+        mrow.children[0].setAttribute('aria-pressed','true');
+        mrow.children[1].setAttribute('aria-pressed','false');
+      }
       var rb=$('lk-restore'); if(rb) rb.hidden=true;
       var note=$('lk-note'); if(note&&!silent) note.textContent='she takes the stage again.';
       if(!silent) announce('the house model returns');
@@ -1775,7 +1807,24 @@ function p3Ensure(){
         row.appendChild(bt2);
       });
     }
+    var MICHELLE_URL='https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/Michelle.glb';
+    P3.loadMichelle=function(){
+      var note=$('lk-note');
+      if(P3.ext&&P3.ext.asMann){ if(note) note.textContent='Michelle is already on the runway.'; return; }
+      P3.loadGlb(MICHELLE_URL, {asMannequin:true, label:'Michelle', name:'Michelle.glb'});
+    };
     function buildLookPanel(){
+      var mrow=$('lk-model');
+      if(mrow){
+        mrow.innerHTML='';
+        [['her (sculpted)',function(){ P3.restoreHer(); }],['michelle (photoreal)',function(){ P3.loadMichelle(); }]].forEach(function(pair,i){
+          var mb3=document.createElement('button');
+          mb3.type='button'; mb3.textContent=pair[0];
+          mb3.setAttribute('aria-pressed', String(i===0));
+          mb3.addEventListener('click', pair[1]);
+          mrow.appendChild(mb3);
+        });
+      }
       lkButtons('lk-skin', P3.SKINS, function(){return P3.skinIdx;}, function(i){ P3.setSkin(i); }, true);
       lkButtons('lk-body', P3.BODIES, function(){return P3.bodyIdx;}, function(i){ P3.setBody(i); });
       lkButtons('lk-hair', P3.HAIR_STYLES, function(){return P3.HAIR_STYLES.indexOf(P3.hairStyle);}, function(i){ P3.setHair(P3.HAIR_STYLES[i]); });
