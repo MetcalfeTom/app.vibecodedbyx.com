@@ -320,6 +320,7 @@
   function fillNoMatch(){
     for(var r=0;r<ROWS;r++) for(var c=0;c<COLS;c++){
       if(cells[r][c].type===STONE_T) continue;             // stones survive reshuffles
+      if(cells[r][c].special) continue;                    // v4.4: earned specials survive too
       var t, tries=0;
       do{ t=randType(); tries++; }
       while(tries<30 && (
@@ -449,16 +450,59 @@
     }
     return false;
   }
-  // every legal swap available right now, best (biggest resulting match) first
+  /* ═══ v4.4 (Angie): full-board move detection with PRIORITIES ═══
+     Every legal swap is scored, not just sized:
+       base        = biggest run it makes
+       +8/+15      = forges a rocket (4-run) / a rainbow (5-run)
+       +12         = forges a bomb (L/T intersection)
+       +4 × chain  = predicted SECOND-WAVE matches after gravity (cascade lookahead
+                     on a types-only board clone — cheap, no specials simulated)
+       rainbow swaps (invisible to match-scan) are injected explicitly,
+       scored by how much of the partner colour they would burn. */
+  function cloneTypes(){ var g=[]; for(var r=0;r<ROWS;r++){ g[r]=[]; for(var c=0;c<COLS;c++) g[r][c]=cells[r][c].type; } return g; }
+  function cascadePreview(set){
+    var g=cloneTypes();
+    for(var k in set){ var p=k.split(','); g[+p[0]][+p[1]]=-1; }
+    for(var c=0;c<COLS;c++){ var w=ROWS-1;
+      for(var r=ROWS-1;r>=0;r--){ if(g[r][c]>=0){ if(w!==r){ g[w][c]=g[r][c]; g[r][c]=-1; } w--; } } }
+    var second=0;
+    for(var r2=0;r2<ROWS;r2++){ var run=1; for(var c2=1;c2<=COLS;c2++){
+      if(c2<COLS&&g[r2][c2]>=0&&g[r2][c2]<NTYPES&&g[r2][c2]===g[r2][c2-1]){ run++; }
+      else { if(run>=3) second+=run; run=1; } } }
+    for(var c3=0;c3<COLS;c3++){ var run2=1; for(var r3=1;r3<=ROWS;r3++){
+      if(r3<ROWS&&g[r3][c3]>=0&&g[r3][c3]<NTYPES&&g[r3][c3]===g[r3-1][c3]){ run2++; }
+      else { if(run2>=3) second+=run2; run2=1; } } }
+    return second;
+  }
+  function scoreSwap(g){
+    var score=g.maxRun;
+    var spawns=computeSpawns(g.runs||[], null);
+    for(var i=0;i<spawns.length;i++){
+      score += spawns[i].kind==='bomb'?12 : spawns[i].kind==='rainbow'?15 : 8;
+    }
+    score += 4*Math.min(6, Math.floor(cascadePreview(g.set)/3));   // cascade priority, capped
+    return score;
+  }
   function collectMoves(){
     function swap(a,b){ var t=cells[a.r][a.c].type; cells[a.r][a.c].type=cells[b.r][b.c].type; cells[b.r][b.c].type=t; }
     var out=[];
     for(var r=0;r<ROWS;r++) for(var c=0;c<COLS;c++){
-      if(cells[r][c].type===STONE_T) continue;
+      var here=cells[r][c];
+      if(here.type===STONE_T) continue;
       var dirs=[]; if(c<COLS-1&&cells[r][c+1].type!==STONE_T) dirs.push({r:r,c:c+1}); if(r<ROWS-1&&cells[r+1][c].type!==STONE_T) dirs.push({r:r+1,c:c});
       for(var d=0;d<dirs.length;d++){ var a={r:r,c:c}, b=dirs[d];
-        swap(a,b); var g=findMatches(); swap(a,b);
-        if(g.count) out.push({ a:a, b:b, gain:g.maxRun }); }
+        var A=cells[a.r][a.c], B=cells[b.r][b.c];
+        /* rainbow swaps never show up as runs — inject them with their true worth */
+        if(A.special==='rainbow'||B.special==='rainbow'){
+          var other=A.special==='rainbow'?B:A;
+          if(other.type>=0&&other.type<NTYPES){
+            var burn=0; for(var rr=0;rr<ROWS;rr++) for(var cc=0;cc<COLS;cc++) if(cells[rr][cc].type===other.type) burn++;
+            out.push({ a:a, b:b, gain:20+burn });
+          }
+          continue;
+        }
+        swap(a,b); var g=findMatches(); var sc=g.count?scoreSwap(g):0; swap(a,b);
+        if(g.count) out.push({ a:a, b:b, gain:sc }); }
     }
     out.sort(function(x,y){ return y.gain-x.gain; });
     return out;
@@ -621,7 +665,15 @@
     if(m.count){ beginClear(m); }
     else { combo=0; updHUD(); setGoal(); mode='idle';
       voyCheckEnd();
-      if(!ended && !hasMoves()){ live.textContent='No moves — reshuffling.'; fillNoMatch(); while(!hasMoves()) fillNoMatch(); }
+      if(!ended && !hasMoves()){
+        live.textContent='No valid swaps anywhere — reshuffling (your special gems and stones stay put).';
+        var guard=0;
+        do { fillNoMatch(); } while(!hasMoves() && ++guard<30);
+        if(guard>=30){ /* pathological: clear specials as a last resort and refill */
+          for(var gr=0;gr<ROWS;gr++) for(var gc=0;gc<COLS;gc++) cells[gr][gc].special=null;
+          do { fillNoMatch(); } while(!hasMoves());
+        }
+      }
     }
   }
 
