@@ -88,7 +88,7 @@
   </div>
   <div class="stage">
     <canvas id="cv" width="960" height="540" role="application"
-      aria-label="Barn platformer. Arrow keys or A and D to run, space or W to jump. Reach the barn door on the right. Clearing the level lets you place one permanent obstacle with the mouse."></canvas>
+      aria-label="Barn platformer. Arrow keys or A and D to run, space or W to jump. Hold toward a wall while airborne to wall slide, and jump to spring off it. Reach the barn door on the right. Clearing the level lets you place one permanent obstacle with the mouse."></canvas>
     <div class="placebar" id="placebar" role="group" aria-label="Choose your obstacle">
       <div class="t">🏆 YOU CLEARED IT — now make it worse. pick one, then click the barn:</div>
       <div class="opts" id="placeOpts"></div>
@@ -99,7 +99,7 @@
     <button id="tJ" type="button">JUMP</button>
     <button id="tR" type="button">▶</button>
   </div>
-  <p class="foot"><kbd>←→</kbd>/<kbd>A D</kbd> run · <kbd>space</kbd>/<kbd>W</kbd> jump · <kbd>R</kbd> restart · <kbd>X</kbd> scrap wet trap · every trap here was placed AND proven beatable by its builder — the 200 freshest confirmed traps survive.</p>
+  <p class="foot"><kbd>←→</kbd>/<kbd>A D</kbd> run · <kbd>space</kbd>/<kbd>W</kbd> jump · <kbd>R</kbd> restart · <kbd>X</kbd> scrap wet trap · hug a wall to slide, jump to spring off it · every trap here was placed AND proven beatable by its builder — the 200 freshest confirmed traps survive.</p>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
@@ -108,7 +108,7 @@
      error'). So this build catches raw exceptions AT THE SOURCE: it probes the
      exact import chain itself with dynamic import() + fetch, logs every finding
      (console + on-canvas), and names the failing link instead of shrugging. */
-  window.__BARN_BUILD='v2.2';   /* bump every deploy — the sentinel compares against the served copy */
+  window.__BARN_BUILD='v2.3';   /* bump every deploy — the sentinel compares against the served copy */
   window.__barnLog=[];
   /* fresh-build sentinel (the stale-cache killer): the 'still saving on
      placement' report was a v2.0 cache — the code at HEAD had one insert path,
@@ -210,7 +210,8 @@
     /* ── state ── */
     const st={
       obs:[],                      // {kind,x,y,phase}
-      p:{ x:START.x+20, y:START.y-40, vx:0, vy:0, w:24, h:34, ground:false, coyote:0, buffer:0, face:1 },
+      p:{ x:START.x+20, y:START.y-40, vx:0, vy:0, w:24, h:34, ground:false, coyote:0, buffer:0, face:1,
+          wallDir:0, wallT:0, lock:0, kickVx:0, sliding:false },
       mode:'run',                  // run | place
       pending:null,                // the wet-paint trap awaiting proof
       clears:0, deaths:0,
@@ -259,14 +260,37 @@
       const p=st.p;
       const L=keys.ArrowLeft||keys.KeyA||hold.L, R=keys.ArrowRight||keys.KeyD||hold.R;
       p.vx=(R?RUN:0)-(L?RUN:0);
+      /* wall-jump kick lockout: for a beat after springing off, momentum owns
+         the chicken — holding back toward the wall can't cancel the kick */
+      p.lock-=dt;
+      if(p.lock>0) p.vx=p.kickVx;
       if(p.vx) p.face=p.vx>0?1:-1;
-      p.coyote-=dt; p.buffer-=dt;
+      p.coyote-=dt; p.buffer-=dt; p.wallT-=dt;
       if(p.buffer>0&&p.coyote>0){ p.vy=-JUMP; p.coyote=0; p.buffer=0; }
+      else if(p.buffer>0&&p.wallT>0&&!p.ground){
+        /* WALL JUMP: spring off the vertical surface, away and up */
+        p.vy=-JUMP*0.95;
+        p.kickVx=-p.wallDir*RUN*1.35;
+        p.lock=0.16; p.vx=p.kickVx; p.face=p.kickVx>0?1:-1;
+        p.wallT=0; p.buffer=0;
+        sndWallKick();
+      }
       p.vy=Math.min(900,p.vy+GRAV*dt);
-      // x
+      // x — vertical-surface contact registers wall touch (airborne only)
       p.x+=p.vx*dt;
-      for(const r of rects()){ if(hit(p,r)){ p.x = p.vx>0 ? r.x-p.w : r.x+r.w; } }
+      for(const r of rects()){ if(hit(p,r)){
+        if(!p.ground){ p.wallDir=p.vx>0?1:-1; p.wallT=0.12; }
+        p.x = p.vx>0 ? r.x-p.w : r.x+r.w;
+      } }
+      if(p.x<=0&&!p.ground){ p.wallDir=-1; p.wallT=0.12; }
+      if(p.x>=W-p.w&&!p.ground){ p.wallDir=1; p.wallT=0.12; }
       p.x=Math.max(0,Math.min(W-p.w,p.x));
+      /* WALL SLIDE: airborne, falling, still hugging the wall → friction caps the fall */
+      p.sliding=false;
+      if(!p.ground&&p.wallT>0&&p.vy>0&&((p.wallDir>0&&R)||(p.wallDir<0&&L))){
+        p.vy=Math.min(p.vy,140);
+        p.sliding=true;
+      }
       // y
       p.y+=p.vy*dt;
       p.ground=false;
@@ -411,6 +435,7 @@
     const sndWin=()=>{ boop(523,784,0.12,0.07,'triangle'); setTimeout(()=>boop(784,1046,0.16,0.07,'triangle'),110); };
     const sndBoing=()=>boop(180,520,0.16,0.07,'sine');
     const sndNail=()=>boop(160,70,0.09,0.09,'square');
+    const sndWallKick=()=>boop(330,660,0.1,0.06,'triangle');
 
     /* ── draw ── */
     function drawObstacle(o){
@@ -494,6 +519,11 @@
       X.fillStyle='#f2ead8'; X.fillRect(p.x+(p.face>0?14:4),p.y+6,6,6);
       X.fillStyle='#1c130c'; X.fillRect(p.x+(p.face>0?17:5),p.y+8,3,3);
       X.fillStyle='#c23a2a'; X.fillRect(p.x+8,p.y-4,8,6);   // comb: our runner is a chicken too
+      if(p.sliding){
+        X.fillStyle='rgba(242,232,213,0.5)';
+        const wx=p.wallDir>0?p.x+p.w:p.x-3;
+        X.fillRect(wx, p.y+6, 3, 4); X.fillRect(wx, p.y+16, 3, 4); X.fillRect(wx, p.y+26, 3, 4);
+      }
       if(st.mode==='place'){
         X.fillStyle='rgba(20,14,8,0.35)'; X.fillRect(0,0,W,H*0.12);
       }
