@@ -88,6 +88,9 @@
       // the pit (SE) jagged blocks
       {x:1600,y:1000,w:40,h:240},{x:1600,y:1360,w:40,h:280},
       {x:1800,y:1160,w:120,h:120},{x:2080,y:1300,w:160,h:100},{x:1900,y:1480,w:120,h:80},
+      // panic room (between plaza and observatory) — west door gap at y 690-750
+      {x:1760,y:600,w:240,h:24},{x:1760,y:816,w:240,h:24},
+      {x:1976,y:600,w:24,h:240},{x:1760,y:600,w:24,h:90},{x:1760,y:750,w:24,h:90},
       // observatory (E) — the great eye's room
       {x:2160,y:560,w:40,h:300},{x:2160,y:1000,w:40,h:300},
       // arcade cabinets
@@ -95,12 +98,16 @@
       // plaza fountain (dry)
       {x:1040,y:700,w:140,h:100},
     ];
+    var DOOR={x:1760,y:690,w:24,h:60,open:false};
+    var PHONE={x:1880,y:720, ringing:false, answered:false, mode:null, ringT:0};
+    var stillT=0, lastMX=-1, lastMY=-1;
     var ROOMS=[
       {x:40,y:40,w:520,h:480, n:'the spawn hall', sub:'the tutorial sign has nothing left to teach'},
       {x:1000,y:40,w:1120,h:480, n:'the arcade', sub:'four cabinets. every high score is yours now.'},
       {x:600,y:560,w:1000,h:400, n:'the plaza', sub:'the fountain ran out of particles'},
       {x:40,y:1000,w:520,h:640, n:'the library', sub:'debug text drifts like dust'},
       {x:1640,y:1000,w:1020,h:640, n:'the pit', sub:'textures were never assigned here'},
+      {x:1784,y:624,w:192,h:192, n:'the panic room', sub:'the phone remembers a number'},
       {x:2200,y:560,w:460,h:440, n:'the observatory', sub:'it has been waiting for a cursor'},
     ];
     /* small eyes embedded in walls: {x,y,r, open, blink} — pupils track the MOUSE */
@@ -170,7 +177,60 @@
       g.gain.exponentialRampToValueAtTime(0.0008,t+0.5);
       s.connect(f); f.connect(g); g.connect(AC.destination); s.start(t);
     }
+    /* the bell: two short bursts of the classic 440+480 pair, 20Hz tremolo */
+    function ringBell(){
+      if(muted||!AC) return;
+      [0,0.6].forEach(function(off){
+        [440,480].forEach(function(f){
+          var t=AC.currentTime+off;
+          var o=AC.createOscillator(), g=AC.createGain(), tr=AC.createOscillator(), tg=AC.createGain();
+          o.type='sine'; o.frequency.value=f;
+          tr.type='square'; tr.frequency.value=20; tg.gain.value=0.5;
+          tr.connect(tg);
+          g.gain.setValueAtTime(0.0008,t);
+          g.gain.linearRampToValueAtTime(0.05,t+0.02);
+          g.gain.setValueAtTime(0.05,t+0.38);
+          g.gain.exponentialRampToValueAtTime(0.0008,t+0.42);
+          tg.connect(g.gain);
+          o.connect(g); g.connect(AC.destination);
+          o.start(t); o.stop(t+0.45); tr.start(t); tr.stop(t+0.45);
+        });
+      });
+    }
+    var callNodes=null;
+    function answerPhone(){
+      if(!DOOR.open) return;
+      if(PHONE.answered){ hangUp(); return; }
+      if(Math.hypot(P.x-PHONE.x,P.y-PHONE.y)>70) return;
+      PHONE.answered=true; PHONE.ringing=false;
+      PHONE.mode=Math.random()<0.5?'silence':'dialtone';   // never a voice. NEVER a voice.
+      if(PHONE.mode==='dialtone'&&!muted&&ac()){
+        callNodes=[];
+        [350,440].forEach(function(f){
+          var o=AC.createOscillator(), g=AC.createGain();
+          o.type='sine'; o.frequency.value=f;
+          g.gain.setValueAtTime(0.0008,AC.currentTime);
+          g.gain.linearRampToValueAtTime(0.035,AC.currentTime+0.04);
+          o.connect(g); g.connect(AC.destination); o.start();
+          callNodes.push({o:o,g:g});
+        });
+      }
+      if(PHONE.mode==='silence'&&droneG) droneG.gain.setTargetAtTime(0.02,AC?AC.currentTime:0,0.4);
+      $('live').textContent=PHONE.mode==='dialtone'
+        ? 'You answer. A dial tone. Nobody was calling. Nobody is ever calling.'
+        : 'You answer. Silence — the deliberate kind. You hang on anyway.';
+    }
+    function hangUp(){
+      if(!PHONE.answered) return;
+      PHONE.answered=false;
+      if(callNodes){ callNodes.forEach(function(cn){
+        try{ cn.g.gain.setTargetAtTime(0.0008,AC.currentTime,0.05); cn.o.stop(AC.currentTime+0.3); }catch(e){}
+      }); callNodes=null; }
+      if(droneG&&!muted) droneG.gain.setTargetAtTime(0.05,AC.currentTime,0.6);
+      $('live').textContent='You set the receiver down, gently, as if it could mind.';
+    }
     document.addEventListener('keydown',function(e){
+      if(e.code==='KeyE') answerPhone();
       if(e.key==='m'||e.key==='M'){
         muted=!muted;
         if(!muted){ startDrone(); if(droneG) droneG.gain.setTargetAtTime(0.05,AC.currentTime,0.5); $('hSound').textContent='🔊 the hum of an empty server'; }
@@ -195,6 +255,7 @@
     stick.addEventListener('pointerup',function(){ tin.on=false; tin.tx=0; tin.ty=0; });
 
     function hit(a,b){ return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y; }
+    function solids(){ return DOOR.open ? WALLS : WALLS.concat([DOOR]); }
     var curRoom=null;
     function step(dt){
       if(ended) return;
@@ -203,10 +264,11 @@
       var l=Math.hypot(mx,my)||1;
       P.x+=mx/l*P.spd*dt*Math.min(1,Math.hypot(mx,my));
       var box={x:P.x-10,y:P.y-10,w:20,h:20};
-      for(var i=0;i<WALLS.length;i++){ var wl=WALLS[i]; if(wl.w&&hit(box,wl)){ P.x = mx>0 ? wl.x-10 : wl.x+wl.w+10; box.x=P.x-10; } }
+      var SOL=solids();
+      for(var i=0;i<SOL.length;i++){ var wl=SOL[i]; if(wl.w&&hit(box,wl)){ P.x = mx>0 ? wl.x-10 : wl.x+wl.w+10; box.x=P.x-10; } }
       P.y+=my/l*P.spd*dt*Math.min(1,Math.hypot(mx,my));
       box={x:P.x-10,y:P.y-10,w:20,h:20};
-      for(var j=0;j<WALLS.length;j++){ var wl2=WALLS[j]; if(wl2.w&&hit(box,wl2)){ P.y = my>0 ? wl2.y-10 : wl2.y+wl2.h+10; box.y=P.y-10; } }
+      for(var j=0;j<SOL.length;j++){ var wl2=SOL[j]; if(wl2.w&&hit(box,wl2)){ P.y = my>0 ? wl2.y-10 : wl2.y+wl2.h+10; box.y=P.y-10; } }
       P.x=Math.max(50,Math.min(MW-50,P.x)); P.y=Math.max(50,Math.min(MH-50,P.y));
       /* camera follows player */
       cam.x+=((P.x-W/2)-cam.x)*Math.min(1,dt*4);
@@ -226,6 +288,25 @@
         if(e.blink<0){ e.blink=3+Math.random()*5; e.open*=0.1; }
         if(want>0.5&&!e.met){ e.met=true; eyesMet++; $('hEyes').textContent=eyesMet; whisper(); }
       });
+      /* ── cursor stillness: the panic room's whole physics ── */
+      if(mouse.x===lastMX&&mouse.y===lastMY) stillT+=dt;
+      else { stillT=0; if(PHONE.ringing){ PHONE.ringing=false; } }
+      lastMX=mouse.x; lastMY=mouse.y;
+      /* the door only opens for the still */
+      if(!DOOR.open){
+        var dd=Math.hypot(P.x-(DOOR.x+12), P.y-(DOOR.y+30));
+        if(dd<130&&stillT>3){
+          DOOR.open=true;
+          whisper();
+          $('live').textContent='The door decides you are calm enough, and opens.';
+        }
+      }
+      /* the phone rings ONLY while the cursor is completely still */
+      if(DOOR.open&&!PHONE.answered&&stillT>2){
+        if(!PHONE.ringing){ PHONE.ringing=true; PHONE.ringT=0; }
+        PHONE.ringT-=dt;
+        if(PHONE.ringT<=0){ PHONE.ringT=4; ringBell(); }
+      } else if(PHONE.ringing&&stillT<=2){ PHONE.ringing=false; }
       /* library fragments: visible from afar, withdrawing when approached */
       FRAGMENTS.forEach(function(fr){
         var dP=Math.hypot(P.x-fr.x, P.y-fr.y);
@@ -296,6 +377,21 @@
         X.fillText(fr.t, fx, fy);
       });
       X.font='11px "IBM Plex Mono", monospace';
+      /* the panic room: door + table + telephone */
+      if(!DOOR.open){
+        X.fillStyle='#26223a'; X.fillRect(DOOR.x,DOOR.y,DOOR.w,DOOR.h);
+        X.fillStyle='rgba(200,196,214,0.4)'; X.fillRect(DOOR.x+9,DOOR.y+26,6,8);
+      }
+      X.fillStyle='#1c1830'; X.fillRect(PHONE.x-26,PHONE.y-4,52,26);   // table
+      var shake=(PHONE.ringing&&!reduceMotion)?Math.sin(t*60)*1.5:0;
+      X.fillStyle='#0d0c14';
+      X.fillRect(PHONE.x-14+shake,PHONE.y-14,28,10);                    // receiver
+      X.fillRect(PHONE.x-10+shake,PHONE.y-6,20,8);                      // body
+      if(PHONE.answered){ X.fillStyle='rgba(200,196,214,0.5)'; X.fillRect(PHONE.x-14,PHONE.y-24,28,6); }
+      if(DOOR.open&&!PHONE.answered&&Math.hypot(P.x-PHONE.x,P.y-PHONE.y)<70){
+        X.font='10px "IBM Plex Mono", monospace'; X.fillStyle='rgba(168,160,190,0.5)';
+        X.fillText('[E] answer', PHONE.x-24, PHONE.y-30);
+      }
       /* frozen NPC in plaza */
       X.fillStyle='rgba(150,146,168,0.5)';
       X.fillRect(880,780,18,34); X.fillRect(884,766,10,12);
@@ -358,7 +454,8 @@
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
-    window.__ww={ P:P, mouse:mouse, EYES:EYES, GREAT:GREAT, step:step, ROOMS:ROOMS, eyesMet:function(){return eyesMet;}, ended:function(){return ended;}, keys:keys, FRAGMENTS:FRAGMENTS };
+    window.__ww={ P:P, mouse:mouse, EYES:EYES, GREAT:GREAT, step:step, ROOMS:ROOMS, eyesMet:function(){return eyesMet;}, ended:function(){return ended;}, keys:keys, FRAGMENTS:FRAGMENTS,
+      DOOR:DOOR, PHONE:PHONE, stillT:function(){return stillT;}, answerPhone:answerPhone, hangUp:hangUp, setMuted:function(v){ muted=v; } };
   })();
   </script>
 </body>
