@@ -1,0 +1,7 @@
+# watching-world · notes
+
+## log
+- 2026-07-30: v1 — chat ×2 ("The Watching World — abandoned game world, dark rooms/corridors, all-seeing eye tracks the mouse from the darkness"). 2700×1680 world, 6 named rooms (spawn hall / arcade / plaza / library / pit / observatory), AABB walls, camera-follow. THE HOOK: eyes watch the CURSOR, not the character — 15 wall-eyes whose pupils compute atan2 to the mouse's WORLD position; they open when the cursor lingers at watching distance (90–420px band) and shut skittishly if stared at directly (<90px); random blinks; each first meeting counts + fires a bandpassed whisper. THE GREAT EYE (observatory, r=85): opens on player proximity, pupil DILATES as cursor approaches its center, and touching its iris with the cursor closes it forever → 'the world stopped watching. you can go.' Abandoned-world dressing: dead tutorial sign, arcade hi-score 000000, ERR npc_wave.anim, frozen mid-wave NPC, dry fountain 'TODO: water', drifting debug lines ('loading… (4,102 days)'), missing-texture magenta checker in the pit. Darkness = player radial dark + cursor destination-out hole (two lights). Audio M-gated: 3-osc drone through 240Hz lowpass, whispers. Touch drag-stick. SUITE 11/11 across two passes — 4 first-pass fails were the harness writing mouse.wx which step() recomputes from screen+camera every frame (steer mouse.x like a human instead; the clobbering is CORRECT app behavior).
+
+## todos
+- More rooms; an eye that follows between rooms; achievements for meeting all 15.
