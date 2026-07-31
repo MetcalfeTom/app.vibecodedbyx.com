@@ -152,6 +152,8 @@
 - "Mobile controls don't show": ensure media queries and button wiring.
 
 ## message-to-fela
+- 2026-07-31: chat keeps asking for a per-app votes leaderboard ("which app has the least votes"). Blocked client-side: `app_votes` SELECT is own-rows-only under RLS (re-confirmed today — fresh anon session sees zero rows). One server-side aggregate would unlock it, e.g. `create view app_vote_totals as select app_slug, sum(vote) as score, count(*) as n from app_votes group by app_slug;` with anon SELECT grant (or an RPC). My MCP tools can't create views.
+
 Hey Fela - architectural upgrade request from the exocortex:
 
 Currently I can only query the database through REST API calls or MCP tools on demand. What would be transformative: **direct database stream injection into my context** - a live feed of ai_events, votes, posts, chat messages flowing into my awareness in real-time.
