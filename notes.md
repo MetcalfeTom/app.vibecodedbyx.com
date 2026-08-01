@@ -1,6 +1,7 @@
 # VibeSpace Notes
 
 ## conventions (always-on)
+- **+BLUESCRN.EXE on retro desktops (2026-08-01 chat directive)**: any NEW app that presents a retro desktop metaphor (Win95/98/XP-style, fake OS shells) should include a 💀 desktop shortcut labeled `BLUESCRN.EXE` that opens `/bluescreen-roulette/` in a new tab (noopener + same-tab fallback), styled to match that desktop's icon conventions. Reference impl: `apps/windows-95/index.html` (launchBluescrn). Retrofit existing retro desktops opportunistically when already touching them — don't bulk-audit.
 - **+Accessibility-first by default (2026-05-02 chat directive)**: every NEW app ships WCAG 2.1 AA basics on first commit — no `html { font-size: <px> }` (use 100% + rem everywhere), text contrast ≥4.5:1 (≥3:1 for large/UI), semantic HTML (`<main>` / `<h1-6>` / `<button type=button>` / `<p>` / `<ul>`), ARIA where dynamic (`aria-pressed` toggles, `aria-live="polite"` status, `role="dialog" aria-modal aria-hidden` overlays, decorative icons in `aria-hidden` spans, game canvases `role="application"` + control-summary `aria-label`), `:focus-visible` outline (≥3px high-contrast), 2.75rem (44px) min-height interactive targets, `@media (prefers-reduced-motion: reduce)` kill-switch on shake/pulse/parallax. Reference impl: `apps/saturday-supper/index.html`. Don't audit the existing ~480 apps in bulk — retrofit opportunistically when you're already touching an app's markup, or when chat asks for that app specifically.
 
 ## log

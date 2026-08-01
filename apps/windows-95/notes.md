@@ -3,6 +3,7 @@
 A nostalgic Windows 95 desktop experience with classic teal background.
 
 ## log
+- 2026-08-01: Added the glass hole (per chat) — a circular porthole SUNK into the teal desktop (inverted Win95 bevel = recessed, glass shine gradients, a blurred 🕹️ bobbing beneath the surface that sharpens on hover; fixed position, deliberately NOT draggable — holes don't move). Double-click opens a proper Win95 "Glass Hole" window: 🚧 UNDER CONSTRUCTION banner, "your favorite games will surface here soon", an inset panel pointing at the already-installed games, and an authentic <marquee> asking chat which games belong under the glass. Mobile: repositions bottom-right at 56px. Future: this is the designated slot for a games launcher if chat names favorites.
 - 2026-08-01: Added BLUESCRN.EXE desktop shortcut (per chat) — 💀 icon at top of third column, double-click plays the click sound and opens /bluescreen-roulette/ in a new tab (noopener; popup-block falls back to same-tab). Handler is deliberately isolated from openWindow. Label-keyed icon-position persistence picks it up automatically (draggable like the rest). Both script blocks re-parsed clean.
 - 2026-01-22: Added draggable desktop icons with position persistence
 - 2026-01-22: Changed to classic solid teal (#008080) background, removed tropical theme
