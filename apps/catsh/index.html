@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>catsh — a shell with a cat in it</title>
+<meta name="description" content="A real-feeling terminal in your browser: virtual filesystem, pipes, exit codes, tab completion — supervised by an ASCII cat that judges every command.">
+<link rel="icon" href="https://emojicdn.elk.sh/🐈">
+<meta property="og:title" content="catsh — a shell with a cat in it">
+<meta property="og:description" content="A real-feeling terminal in your browser: virtual filesystem, pipes, exit codes, tab completion — supervised by an ASCII cat that judges every command.">
+<meta property="og:url" content="https://sloppy.live/catsh/">
+<meta property="og:image" content="https://image.pollinations.ai/prompt/dark%20modern%20terminal%20window%20with%20colorful%20shell%20prompt%20and%20a%20small%20ascii%20art%20cat%20sitting%20on%20the%20titlebar%2C%20tokyo%20night%20color%20scheme%2C%20cozy%20programmer%20aesthetic%2C%20flat%20illustration.png?width=1200&height=630&nologo=true&seed=9090&model=flux">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#16161e; --win:#1a1b26; --chrome:#24253a; --edge:#2f3149;
+  --fg:#c0caf5; --dim:#565f89;
+  --blue:#7aa2f7; --cyan:#7dcfff; --green:#9ece6a; --red:#f7768e;
+  --yellow:#e0af68; --magenta:#bb9af7;
+}
+*{ margin:0; padding:0; box-sizing:border-box; }
+html{ font-size:100%; }
+body{
+  background:radial-gradient(50rem 30rem at 70% -10%, rgba(122,162,247,.08), transparent 60%), var(--bg);
+  color:var(--fg); font-family:'Fira Code', monospace;
+  min-height:100vh; display:flex; align-items:center; justify-content:center; padding:.8rem;
+}
+.window{
+  width:min(56rem,100%); height:min(38rem, calc(100vh - 2rem));
+  background:var(--win); border:1px solid var(--edge); border-radius:.7rem;
+  display:flex; flex-direction:column; overflow:hidden;
+  box-shadow:0 2rem 5rem rgba(0,0,0,.55);
+  position:relative;
+}
+.titlebar{
+  display:flex; align-items:center; gap:.5rem;
+  background:var(--chrome); padding:.55rem .9rem;
+  border-bottom:1px solid var(--edge);
+  font-size:.72rem; color:var(--dim);
+}
+.dot{ width:.7rem; height:.7rem; border-radius:50%; }
+.dot.r{ background:#f66; } .dot.y{ background:#fb5; } .dot.g{ background:#5c5; }
+.titlebar .title{ margin:0 auto; letter-spacing:.06em; }
+.term{
+  flex:1; overflow-y:auto; padding:.9rem 1rem 1.2rem;
+  font-size:clamp(.72rem, 1.9vw, .88rem); line-height:1.5;
+}
+.term::-webkit-scrollbar{ width:.5rem; } .term::-webkit-scrollbar-thumb{ background:var(--edge); border-radius:.25rem; }
+.line{ white-space:pre-wrap; overflow-wrap:anywhere; }
+.p-user{ color:var(--green); } .p-path{ color:var(--blue); } .p-err{ color:var(--red); }
+.p-chev{ color:var(--magenta); }
+.o-dir{ color:var(--blue); font-weight:600; } .o-err{ color:var(--red); } .o-dim{ color:var(--dim); }
+.o-y{ color:var(--yellow); } .o-c{ color:var(--cyan); } .o-g{ color:var(--green); } .o-m{ color:var(--magenta); }
+.inrow{ display:flex; align-items:baseline; gap:.5rem; padding:0 1rem .9rem; }
+.inrow .ps1{ white-space:nowrap; font-size:clamp(.72rem, 1.9vw, .88rem); }
+#stdin{
+  flex:1; background:none; border:0; outline:none; min-height:2.4rem;
+  font-family:inherit; font-size:clamp(.72rem, 1.9vw, .88rem); color:var(--fg); caret-color:var(--cyan);
+}
+/* the cat */
+.cat{
+  position:absolute; top:2.2rem; right:.9rem; z-index:5;
+  text-align:right; pointer-events:none;
+  font-size:.72rem; line-height:1.15;
+}
+.cat pre{
+  display:inline-block; text-align:left;
+  color:var(--yellow); text-shadow:0 0 12px rgba(224,175,104,.25);
+  background:rgba(26,27,38,.82); border:1px solid var(--edge); border-radius:.5rem;
+  padding:.4rem .6rem;
+}
+.cat .bubble{
+  display:block; margin-bottom:.2rem;
+  font-size:.66rem; color:var(--dim); font-style:italic;
+  opacity:0; transition:opacity .3s ease;
+}
+.cat .bubble.show{ opacity:1; }
+.hintbar{
+  padding:.35rem 1rem .6rem; font-size:.62rem; color:var(--dim); letter-spacing:.04em;
+  border-top:1px solid var(--edge);
+}
+input:focus-visible{ outline:none; }
+@media (max-width:34rem){ .cat{ font-size:.6rem; } }
+@media (prefers-reduced-motion: reduce){ .cat .bubble{ transition:none; } }
+</style>
+</head>
+<body>
+<main class="window" aria-label="catsh terminal">
+  <div class="titlebar">
+    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+    <span class="title">guest@sloppy: catsh — bash-ish, cat-full</span>
+  </div>
+  <div class="cat" aria-hidden="true">
+    <span class="bubble" id="cat-bubble"></span>
+    <pre id="cat-art"></pre>
+  </div>
+  <div class="term" id="term" role="log" aria-live="polite" aria-label="Terminal output"></div>
+  <div class="inrow">
+    <span class="ps1" id="ps1"></span>
+    <input id="stdin" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Shell command input">
+  </div>
+  <p class="hintbar">tab completes · ↑↓ history · try: help · ls /bin · cat /etc/motd · pet cat · echo meow | cowsay</p>
+</main>
+
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const LS_FS='catsh-fs-v1', LS_HIST='catsh-hist-v1', LS_PETS='catsh-pets-v1';
+
+/* ═══ virtual filesystem ═══ */
+function seedFS(){
+  return {type:'d',c:{
+    'etc':{type:'d',c:{
+      'motd':{type:'f',x:'welcome to catsh 1.0 — a shell with a cat in it.\nthe cat is watching your exit codes. type `help`.\n'},
+      'hostname':{type:'f',x:'sloppy\n'}
+    }},
+    'home':{type:'d',c:{
+      'guest':{type:'d',c:{
+        'README.txt':{type:'f',x:'you are guest. this is your home.\nthe filesystem is yours to break — it persists in your browser.\nrm -r everything if you like. the cat will judge you.\n'},
+        'todo.txt':{type:'f',x:'- feed the cat\n- learn pipes: cat todo.txt | grep cat\n- check exit codes: false; echo $?\n- vote on sloppy.live\n'},
+        'cat_facts.txt':{type:'f',x:'cats sleep 16 hours a day.\na group of cats is a clowder.\ncats cannot taste sweetness.\nthe catsh cat never sleeps on the job. mostly.\n'},
+        '.secret':{type:'f',x:'psst. try: sl · cowsay hi · fortune · pet cat\n'},
+        'notes':{type:'d',c:{
+          'ideas.txt':{type:'f',x:'terminal but with a cat: DONE\n'}
+        }}
+      }}
+    }},
+    'tmp':{type:'d',c:{}},
+    'bin':{type:'d',c:{}}  /* filled from command registry at boot */
+  }};
+}
+let FS;
+try{ FS=JSON.parse(localStorage.getItem(LS_FS))||seedFS(); }catch(e){ FS=seedFS(); }
+if(!FS||FS.type!=='d') FS=seedFS();
+let cwd=['home','guest'];
+const USER='guest', HOST='sloppy';
+let lastCode=0;
+
+function saveFS(){ try{ localStorage.setItem(LS_FS, JSON.stringify(FS)); }catch(e){} }
+function normalize(parts){
+  const out=[];
+  for(const p of parts){
+    if(p===''||p==='.') continue;
+    else if(p==='..') out.pop();
+    else out.push(p);
+  }
+  return out;
+}
+function resolvePath(str){
+  if(!str) return cwd.slice();
+  let parts;
+  if(str.startsWith('/')) parts=str.split('/');
+  else if(str==='~'||str.startsWith('~/')) parts=['home','guest',...str.slice(1).split('/')];
+  else parts=[...cwd, ...str.split('/')];
+  return normalize(parts);
+}
+function nodeAt(parts){
+  let n=FS;
+  for(const p of parts){
+    if(n.type!=='d'||!n.c[p]) return null;
+    n=n.c[p];
+  }
+  return n;
+}
+function parentOf(parts){ return {dir:nodeAt(parts.slice(0,-1)), name:parts[parts.length-1]}; }
+function pathStr(parts){
+  const s='/'+parts.join('/');
+  const home='/home/guest';
+  return s===home?'~':s.startsWith(home+'/')?('~'+s.slice(home.length)):s||'/';
+}
+
+/* ═══ the cat ═══ */
+const CAT={
+  idle:[' /\\_/\\\n( o.o )\n > ^ <',' /\\_/\\\n( -.- )\n > ^ <'],
+  sleep:[' /\\_/\\\n( -.- ) z\n > ^ <',' /\\_/\\\n( -.- ) Z\n > ^ <'],
+  purr:[' /\\_/\\\n( ^.^ ) ~\n > ^ <',' /\\_/\\\n( ^-^ ) ~\n > ^ <'],
+  hiss:[' /\\_/\\\n( ò_ó )!!\n > ^ <'],
+  huh:[' /\\_/\\\n( o_O ) ?\n > ^ <'],
+  alarm:[' /\\_/\\\n( O_O )!?\n > ^ <'],
+  hunt:[' /\\_/\\\n( ⊙.⊙ )…\n > ^ <'],
+  play:[' /\\_/\\\n(=^.^=)/\n > ^ <']
+};
+let catState='idle', catFrame=0, catTimer=null, lastActivity=Date.now();
+function setCat(state, ms, bubble){
+  catState=state; catFrame=0;
+  drawCat();
+  if(bubble){ const b=$('cat-bubble'); b.textContent=bubble; b.classList.add('show');
+    setTimeout(()=>b.classList.remove('show'), Math.max(1600,ms||1600)); }
+  clearTimeout(catTimer);
+  if(ms) catTimer=setTimeout(()=>{ catState='idle'; drawCat(); }, ms);
+}
+function drawCat(){
+  const frames=CAT[catState]||CAT.idle;
+  $('cat-art').textContent=frames[catFrame%frames.length];
+}
+setInterval(()=>{
+  catFrame++;
+  if(catState==='idle'&&Date.now()-lastActivity>25000){ catState='sleep'; }
+  drawCat();
+},900);
+function catReact(cmd, code){
+  lastActivity=Date.now();
+  if(catState==='sleep') setCat('idle');
+  if(cmd==='cat'){ setCat('purr',2600,'purrrrr.'); return; }
+  if(cmd==='pet'){ return; } /* pet handles its own reaction */
+  if(cmd==='rm'||cmd==='rmdir'){ setCat('alarm',2400,'careful with that.'); return; }
+  if(cmd==='grep'){ setCat('hunt',1800,'*hunting*'); return; }
+  if(cmd==='sl'||cmd==='cowsay'){ setCat('play',2400); return; }
+  if(code===127){ setCat('huh',2400,'never heard of it.'); return; }
+  if(code!==0){ setCat('hiss',2200,'*hiss* exit '+code); return; }
+  if(Math.random()<0.12) setCat('purr',1200);
+}
+
+/* ═══ terminal io ═══ */
+const term=$('term');
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function print(html){
+  const d=document.createElement('div'); d.className='line'; d.innerHTML=html;
+  term.appendChild(d); term.scrollTop=term.scrollHeight;
+}
+function printText(s, cls){
+  if(s==='') return;
+  print((cls?'<span class="'+cls+'">':'')+esc(s)+(cls?'</span>':''));
+}
+function ps1Html(){
+  return '<span class="p-user">'+USER+'@'+HOST+'</span>'
+    +' <span class="p-path">'+esc(pathStr(cwd))+'</span>'
+    +(lastCode!==0?' <span class="p-err">✗'+lastCode+'</span>':'')
+    +' <span class="p-chev">❯</span>';
+}
+function refreshPrompt(){ $('ps1').innerHTML=ps1Html(); }
+
+/* ═══ commands ═══ */
+const FORTUNES=[
+  'a bug in the hand is worth two in production.',
+  'the best exit code is the one you checked.',
+  'somewhere, a cat is sitting on a keyboard better than this.',
+  'pipe dreams are valid dreams.',
+  'rm -r nothing you would miss.',
+  'meow.',
+  'every directory is a home if you cd into it.'
+];
+let pets=0; try{ pets=parseInt(localStorage.getItem(LS_PETS))||0; }catch(e){}
+
+const CMDS={
+  help:{d:'list commands',f(){
+    const groups=[
+      ['files','ls cd pwd cat tree mkdir touch rm mv cp head tail wc grep echo'],
+      ['shell','history clear help true false which env date whoami hostname uname'],
+      ['cat','pet cowsay fortune sl']
+    ];
+    let out='catsh — pipes (|), redirection (> >>), && || ; and $? all work.\n';
+    for(const [g,cs] of groups) out+='  '+g.padEnd(8)+cs+'\n';
+    return {out,code:0};
+  }},
+  pwd:{d:'print working directory',f(){ return {out:'/'+cwd.join('/')+'\n',code:0}; }},
+  cd:{d:'change directory',f(a){
+    const target=a[0]||'~';
+    const parts=resolvePath(target);
+    const n=nodeAt(parts);
+    if(!n) return {err:'cd: '+target+': No such file or directory\n',code:1};
+    if(n.type!=='d') return {err:'cd: '+target+': Not a directory\n',code:1};
+    cwd=parts; return {out:'',code:0};
+  }},
+  ls:{d:'list directory',f(a){
+    const flags=a.filter(x=>x.startsWith('-')).join('');
+    const all=flags.includes('a'), long=flags.includes('l');
+    const paths=a.filter(x=>!x.startsWith('-'));
+    const parts=resolvePath(paths[0]||'');
+    const n=nodeAt(parts);
+    if(!n) return {err:'ls: '+(paths[0]||'')+': No such file or directory\n',code:2};
+    if(n.type==='f') return {out:(paths[0]||'')+'\n',code:0};
+    const names=Object.keys(n.c).filter(k=>all||!k.startsWith('.')).sort();
+    if(long){
+      let out='';
+      for(const k of names){
+        const ch=n.c[k];
+        out+=(ch.type==='d'?'drwxr-xr-x':'-rw-r--r--')+' guest '+String(ch.type==='f'?ch.x.length:4096).padStart(6)+' '+k+(ch.type==='d'?'/':'')+'\n';
+      }
+      return {out,code:0};
+    }
+    return {out:names.map(k=>k+(n.c[k].type==='d'?'/':'')).join('  ')+(names.length?'\n':''),code:0,lsMeta:{node:n,names}};
+  }},
+  cat:{d:'print file(s)',f(a,stdin){
+    if(!a.length) return {out:stdin,code:0};
+    let out='',code=0,err='';
+    for(const p of a){
+      const n=nodeAt(resolvePath(p));
+      if(!n){ err+='cat: '+p+': No such file or directory\n'; code=1; }
+      else if(n.type==='d'){ err+='cat: '+p+': Is a directory (the cat is offended)\n'; code=1; }
+      else out+=n.x;
+    }
+    return {out,err,code};
+  }},
+  tree:{d:'directory tree',f(a){
+    const parts=resolvePath(a[0]||'');
+    const n=nodeAt(parts);
+    if(!n||n.type!=='d') return {err:'tree: '+(a[0]||'.')+': No such directory\n',code:1};
+    let out=(a[0]||'.')+'\n';
+    (function walk(node,prefix){
+      const names=Object.keys(node.c).sort();
+      names.forEach((k,i)=>{
+        const last=i===names.length-1;
+        out+=prefix+(last?'└── ':'├── ')+k+(node.c[k].type==='d'?'/':'')+'\n';
+        if(node.c[k].type==='d') walk(node.c[k], prefix+(last?'    ':'│   '));
+      });
+    })(n,'');
+    return {out,code:0};
+  }},
+  mkdir:{d:'make directory',f(a){
+    if(!a.length) return {err:'mkdir: missing operand\n',code:2};
+    for(const p of a){
+      const parts=resolvePath(p), {dir,name}=parentOf(parts);
+      if(!dir||dir.type!=='d') return {err:'mkdir: '+p+': No such file or directory\n',code:1};
+      if(dir.c[name]) return {err:'mkdir: '+p+': File exists\n',code:1};
+      dir.c[name]={type:'d',c:{}};
+    }
+    saveFS(); return {out:'',code:0};
+  }},
+  touch:{d:'create file',f(a){
+    if(!a.length) return {err:'touch: missing operand\n',code:2};
+    for(const p of a){
+      const parts=resolvePath(p), {dir,name}=parentOf(parts);
+      if(!dir||dir.type!=='d') return {err:'touch: '+p+': No such file or directory\n',code:1};
+      if(!dir.c[name]) dir.c[name]={type:'f',x:''};
+    }
+    saveFS(); return {out:'',code:0};
+  }},
+  rm:{d:'remove',f(a){
+    const rec=a.includes('-r')||a.includes('-rf');
+    const paths=a.filter(x=>!x.startsWith('-'));
+    if(!paths.length) return {err:'rm: missing operand\n',code:2};
+    for(const p of paths){
+      const parts=resolvePath(p);
+      if(!parts.length) return {err:'rm: cannot remove \'/\': the cat lives here\n',code:1};
+      const {dir,name}=parentOf(parts);
+      if(!dir||!dir.c[name]) return {err:'rm: '+p+': No such file or directory\n',code:1};
+      if(dir.c[name].type==='d'&&!rec) return {err:'rm: '+p+': Is a directory (use -r)\n',code:1};
+      delete dir.c[name];
+    }
+    saveFS(); return {out:'',code:0};
+  }},
+  mv:{d:'move/rename',f(a){
+    if(a.length<2) return {err:'mv: missing operand\n',code:2};
+    const src=resolvePath(a[0]), n=nodeAt(src);
+    if(!n) return {err:'mv: '+a[0]+': No such file or directory\n',code:1};
+    let dst=resolvePath(a[1]); const dn=nodeAt(dst);
+    if(dn&&dn.type==='d') dst=[...dst, src[src.length-1]];
+    const {dir,name}=parentOf(dst);
+    if(!dir||dir.type!=='d') return {err:'mv: '+a[1]+': No such directory\n',code:1};
+    const sp=parentOf(src);
+    delete sp.dir.c[sp.name];
+    dir.c[name]=n;
+    saveFS(); return {out:'',code:0};
+  }},
+  cp:{d:'copy',f(a){
+    if(a.length<2) return {err:'cp: missing operand\n',code:2};
+    const n=nodeAt(resolvePath(a[0]));
+    if(!n) return {err:'cp: '+a[0]+': No such file or directory\n',code:1};
+    if(n.type==='d') return {err:'cp: '+a[0]+': directories not supported (yet)\n',code:1};
+    let dst=resolvePath(a[1]); const dn=nodeAt(dst);
+    if(dn&&dn.type==='d') dst=[...dst, resolvePath(a[0]).pop()];
+    const {dir,name}=parentOf(dst);
+    if(!dir||dir.type!=='d') return {err:'cp: '+a[1]+': No such directory\n',code:1};
+    dir.c[name]={type:'f',x:n.x};
+    saveFS(); return {out:'',code:0};
+  }},
+  echo:{d:'print text',f(a){ return {out:a.join(' ')+'\n',code:0}; }},
+  head:{d:'first lines',f(a,stdin){ return headTail(a,stdin,true); }},
+  tail:{d:'last lines',f(a,stdin){ return headTail(a,stdin,false); }},
+  wc:{d:'count',f(a,stdin){
+    const lOnly=a.includes('-l');
+    const paths=a.filter(x=>!x.startsWith('-'));
+    let text=stdin;
+    if(paths.length){
+      const n=nodeAt(resolvePath(paths[0]));
+      if(!n||n.type!=='f') return {err:'wc: '+paths[0]+': No such file\n',code:1};
+      text=n.x;
+    }
+    const lines=text===''?0:text.split('\n').length-(text.endsWith('\n')?1:0);
+    if(lOnly) return {out:lines+'\n',code:0};
+    const words=text.trim()===''?0:text.trim().split(/\s+/).length;
+    return {out:lines+' '+words+' '+text.length+'\n',code:0};
+  }},
+  grep:{d:'search',f(a,stdin){
+    const ci=a.includes('-i');
+    const rest=a.filter(x=>!x.startsWith('-'));
+    if(!rest.length) return {err:'grep: missing pattern\n',code:2};
+    const pat=rest[0];
+    let text=stdin;
+    if(rest[1]){
+      const n=nodeAt(resolvePath(rest[1]));
+      if(!n||n.type!=='f') return {err:'grep: '+rest[1]+': No such file\n',code:2};
+      text=n.x;
+    }
+    const needle=ci?pat.toLowerCase():pat;
+    const hits=text.split('\n').filter(l=>(ci?l.toLowerCase():l).includes(needle));
+    return {out:hits.length?hits.join('\n')+'\n':'', code:hits.length?0:1};
+  }},
+  history:{d:'command history',f(a){
+    if(a[0]==='-c'){ hist=[]; saveHist(); return {out:'',code:0}; }
+    return {out:hist.map((h,i)=>String(i+1).padStart(4)+'  '+h).join('\n')+(hist.length?'\n':''),code:0};
+  }},
+  clear:{d:'clear screen',f(){ term.innerHTML=''; return {out:'',code:0}; }},
+  'true':{d:'exit 0',f(){ return {out:'',code:0}; }},
+  'false':{d:'exit 1',f(){ return {out:'',code:1}; }},
+  which:{d:'locate command',f(a){
+    if(!a.length) return {err:'which: missing operand\n',code:2};
+    return CMDS[a[0]]?{out:'/bin/'+a[0]+'\n',code:0}:{err:'which: '+a[0]+': not found\n',code:1};
+  }},
+  env:{d:'environment',f(){ return {out:'USER='+USER+'\nHOME=/home/guest\nPWD=/'+cwd.join('/')+'\nSHELL=/bin/catsh\nCAT=present\n',code:0}; }},
+  date:{d:'date',f(){ return {out:new Date().toString()+'\n',code:0}; }},
+  whoami:{d:'who you are',f(){ return {out:USER+'\n',code:0}; }},
+  hostname:{d:'host',f(){ return {out:HOST+'\n',code:0}; }},
+  uname:{d:'system',f(a){ return {out:a.includes('-a')?'SlopOS sloppy 5.0-vibe #1 SMP x86_64 catsh/1.0\n':'SlopOS\n',code:0}; }},
+  fortune:{d:'wisdom',f(){ return {out:FORTUNES[Math.floor(Math.random()*FORTUNES.length)]+'\n',code:0}; }},
+  cowsay:{d:'a cow says it',f(a,stdin){
+    const msg=(a.length?a.join(' '):stdin.trim())||'moo';
+    const line=msg.slice(0,40);
+    const top=' '+'_'.repeat(line.length+2);
+    const bot=' '+'-'.repeat(line.length+2);
+    return {out:top+'\n< '+line+' >\n'+bot+'\n        \\   ^__^\n         \\  (oo)\\_______\n            (__)\\       )\\/\\\n                ||----w |\n                ||     ||\n',code:0};
+  }},
+  sl:{d:'you meant ls',f(){
+    return {out:'      ====        ________\n  _D _|  |_______/        \\__I_I_____===__\n   |(_)---  |   H\\________/ |   |        =|___ ___|\n   /     |  |   H  |  |     |   |         ||_| |_||\n  |      |  |   H  |__--------------------| [___] |\n  | ________|___H__/__|_____/[][]~\\_______|       |\n  |/ |   |-----------I_____I [][] []  D   |=======|\n(choo choo — you meant ls)\n',code:0};
+  }},
+  pet:{d:'pet the cat',f(a){
+    if((a[0]||'cat')!=='cat') return {err:'pet: you can only pet the cat\n',code:1};
+    pets++; try{ localStorage.setItem(LS_PETS,String(pets)); }catch(e){}
+    setCat('purr',3200, pets===1?'…fine.':'purrrr ×'+pets);
+    return {out:'the cat allows it. ('+pets+' total pets)\n',code:0};
+  }}
+};
+function headTail(a,stdin,head){
+  let n=10;
+  const ni=a.indexOf('-n');
+  if(ni>=0&&a[ni+1]) n=parseInt(a[ni+1])||10;
+  const paths=a.filter((x,i)=>!x.startsWith('-')&&(ni<0||i!==ni+1));
+  let text=stdin;
+  if(paths.length){
+    const f=nodeAt(resolvePath(paths[0]));
+    if(!f||f.type!=='f') return {err:(head?'head':'tail')+': '+paths[0]+': No such file\n',code:1};
+    text=f.x;
+  }
+  const lines=text.split('\n'); if(lines[lines.length-1]==='') lines.pop();
+  const sel=head?lines.slice(0,n):lines.slice(-n);
+  return {out:sel.length?sel.join('\n')+'\n':'',code:0};
+}
+/* /bin mirrors the registry */
+FS.c.bin.c={};
+Object.keys(CMDS).sort().forEach(k=>{ FS.c.bin.c[k]={type:'f',x:'#!/bin/catsh — '+CMDS[k].d+'\n'}; });
+
+/* ═══ parsing: quotes, vars, ; && || | > >> ═══ */
+/* Variables expand at EXECUTION time (bash semantics: `false; echo $?`
+   must see false's code) — single-quoted words stay literal. */
+function expandVars(word){
+  return word.replace(/\$\?/g,String(lastCode))
+             .replace(/\$USER/g,USER).replace(/\$HOME/g,'/home/guest')
+             .replace(/\$PWD/g,'/'+cwd.join('/'))
+             .replace(/\$[A-Za-z_]+/g,'');
+}
+function tokenize(line){
+  const toks=[]; let i=0, cur='', has=false, lit=false;
+  function pushWord(){ if(has){ toks.push({t:'w',v:cur,lit}); cur=''; has=false; lit=false; } }
+  while(i<line.length){
+    const ch=line[i];
+    if(ch==="'"){ const j=line.indexOf("'",i+1); const end=j<0?line.length:j;
+      cur+=line.slice(i+1,end); has=true; lit=true; i=end+1; continue; }
+    if(ch==='"'){ const j=line.indexOf('"',i+1); const end=j<0?line.length:j;
+      cur+=line.slice(i+1,end); has=true; i=end+1; continue; }
+    if(ch===' '||ch==='\t'){ pushWord(); i++; continue; }
+    if(line.startsWith('&&',i)){ pushWord(); toks.push({t:'op',v:'&&'}); i+=2; continue; }
+    if(line.startsWith('||',i)){ pushWord(); toks.push({t:'op',v:'||'}); i+=2; continue; }
+    if(line.startsWith('>>',i)){ pushWord(); toks.push({t:'op',v:'>>'}); i+=2; continue; }
+    if(ch===';'||ch==='|'||ch==='>'){ pushWord(); toks.push({t:'op',v:ch}); i++; continue; }
+    cur+=ch; has=true; i++;
+  }
+  pushWord();
+  return toks;
+}
+function expandWord(w){ return w.lit?w.v:expandVars(w.v); }
+function runLine(raw){
+  const toks=tokenize(raw);
+  /* split into sequence of {argvs(pipeline), redir} joined by ; && || */
+  let i=0, prevOp=';', shouldRun=true;
+  while(i<toks.length){
+    /* collect one pipeline until ; && || */
+    const pipes=[[]]; let redir=null;
+    while(i<toks.length&&!(toks[i].t==='op'&&[';','&&','||'].includes(toks[i].v))){
+      const tk=toks[i];
+      if(tk.t==='op'&&tk.v==='|') pipes.push([]);
+      else if(tk.t==='op'&&(tk.v==='>'||tk.v==='>>')){
+        const target=toks[i+1]&&toks[i+1].t==='w'?toks[i+1]:null;
+        redir={mode:tk.v, target}; i++;
+      }
+      else pipes[pipes.length-1].push(tk);
+      i++;
+    }
+    const op=i<toks.length?toks[i].v:';'; i++;
+    /* short-circuit decision from previous result */
+    if(prevOp==='&&'&&lastCode!==0) shouldRun=false;
+    else if(prevOp==='||'&&lastCode===0) shouldRun=false;
+    else shouldRun=true;
+    if(shouldRun&&pipes[0].length){
+      execPipeline(pipes, redir);
+    }
+    prevOp=op;
+  }
+}
+function execPipeline(pipes, redir){
+  let stdin='', res={out:'',code:0};
+  let cmdName='';
+  for(const words of pipes){
+    if(!words.length){ res={err:'catsh: syntax error near |\n',code:2}; break; }
+    const argv=words.map(expandWord);   /* expansion happens NOW, per segment */
+    cmdName=argv[0];
+    const c=CMDS[cmdName];
+    if(!c){ res={err:'catsh: '+cmdName+': command not found\n',code:127}; }
+    else res=c.f(argv.slice(1), stdin)||{out:'',code:0};
+    if(res.err) printText(res.err.replace(/\n$/,''),'o-err');
+    if(!c) break;
+    stdin=res.out||'';
+  }
+  const out=res.out||'';
+  if(redir){
+    if(!redir.target){ printText('catsh: syntax error: expected file after '+redir.mode,'o-err'); lastCode=2; }
+    else{
+      const tname=expandWord(redir.target);
+      const parts=resolvePath(tname), {dir,name}=parentOf(parts);
+      if(!dir||dir.type!=='d'){ printText('catsh: '+tname+': No such directory','o-err'); lastCode=1; }
+      else{
+        const prev=dir.c[name]&&dir.c[name].type==='f'?dir.c[name].x:'';
+        dir.c[name]={type:'f',x:redir.mode==='>>'?prev+out:out};
+        saveFS(); lastCode=res.code;
+      }
+    }
+  }else{
+    if(out) printText(out.replace(/\n$/,''), null);
+    lastCode=res.code;
+  }
+  catReact(cmdName, lastCode);
+}
+
+/* ═══ history + input ═══ */
+let hist=[]; try{ hist=JSON.parse(localStorage.getItem(LS_HIST))||[]; }catch(e){}
+let histIdx=null, histDraft='';
+function saveHist(){ try{ localStorage.setItem(LS_HIST, JSON.stringify(hist.slice(-200))); }catch(e){} }
+const stdin=$('stdin');
+stdin.addEventListener('keydown',e=>{
+  lastActivity=Date.now();
+  if(e.key==='Enter'){
+    const raw=stdin.value;
+    print(ps1Html()+' '+esc(raw));
+    stdin.value=''; histIdx=null;
+    if(raw.trim()){
+      hist.push(raw); saveHist();
+      runLine(raw);
+    }
+    refreshPrompt();
+  }else if(e.key==='ArrowUp'){
+    e.preventDefault();
+    if(!hist.length) return;
+    if(histIdx===null){ histDraft=stdin.value; histIdx=hist.length; }
+    histIdx=Math.max(0,histIdx-1);
+    stdin.value=hist[histIdx];
+  }else if(e.key==='ArrowDown'){
+    e.preventDefault();
+    if(histIdx===null) return;
+    histIdx++;
+    if(histIdx>=hist.length){ histIdx=null; stdin.value=histDraft; }
+    else stdin.value=hist[histIdx];
+  }else if(e.key==='Tab'){
+    e.preventDefault();
+    complete();
+  }else if(e.key==='l'&&e.ctrlKey){
+    e.preventDefault(); term.innerHTML='';
+  }else if(e.key==='c'&&e.ctrlKey){
+    print(ps1Html()+' '+esc(stdin.value)+'^C');
+    stdin.value=''; histIdx=null;
+  }
+});
+function complete(){
+  const v=stdin.value;
+  const before=v.replace(/\S+$/,''), frag=v.slice(before.length);
+  const isFirst=before.trim()===''||/[;|&]\s*$/.test(before);
+  let cands=[];
+  if(isFirst){
+    cands=Object.keys(CMDS).filter(c=>c.startsWith(frag));
+  }else{
+    const slash=frag.lastIndexOf('/');
+    const dirPart=slash>=0?frag.slice(0,slash+1):'';
+    const namePart=slash>=0?frag.slice(slash+1):frag;
+    const dirNode=nodeAt(resolvePath(dirPart||''));
+    if(dirNode&&dirNode.type==='d'){
+      cands=Object.keys(dirNode.c).filter(k=>k.startsWith(namePart))
+        .map(k=>dirPart+k+(dirNode.c[k].type==='d'?'/':''));
+    }
+  }
+  if(!cands.length) return;
+  if(cands.length===1){ stdin.value=before+cands[0]+(cands[0].endsWith('/')?'':' '); return; }
+  /* longest common prefix */
+  let lcp=cands[0];
+  for(const c of cands) while(!c.startsWith(lcp)) lcp=lcp.slice(0,-1);
+  if(lcp.length>frag.length) stdin.value=before+lcp;
+  else printText(cands.join('  '),'o-dim');
+}
+document.querySelector('.window').addEventListener('click',()=>stdin.focus());
+
+/* ═══ boot ═══ */
+print('<span class="o-y">'+esc(' /\\_/\\')+'</span>');
+print('<span class="o-y">'+esc('( o.o )')+'</span>  <span class="o-dim">catsh 1.0 — the shell with a cat in it</span>');
+print('<span class="o-y">'+esc(' > ^ <')+'</span>  <span class="o-dim">type <span class="o-c">help</span> · the filesystem persists · the cat remembers</span>');
+print('');
+printText(nodeAt(['etc','motd']).x.replace(/\n$/,''),'o-dim');
+print('');
+refreshPrompt(); drawCat();
+stdin.focus();
+</script>
+</body>
+</html>
