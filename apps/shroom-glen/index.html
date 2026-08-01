@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shroom Glen — a cat, nine lives, and the crows</title>
+<meta name="description" content="A low-poly twilight forest. Your cat follows the mouse, eats glowing mushrooms, and dodges diving crows. Nine lives. Make them count.">
+<link rel="icon" href="https://emojicdn.elk.sh/🍄">
+<meta property="og:title" content="Shroom Glen — a cat, nine lives, and the crows">
+<meta property="og:description" content="A low-poly twilight forest. Your cat follows the mouse, eats glowing mushrooms, and dodges diving crows. Nine lives. Make them count.">
+<meta property="og:url" content="https://sloppy.live/shroom-glen/">
+<meta property="og:image" content="https://image.pollinations.ai/prompt/low%20poly%203d%20twilight%20forest%20scene%20with%20orange%20cat%2C%20glowing%20blue%20mushrooms%2C%20black%20crows%20flying%2C%20purple%20dusk%20fog%2C%20flat%20shaded%20polygons%2C%20cozy%20game%20art.png?width=1200&height=630&nologo=true&seed=4242&model=flux">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Grandstander:wght@400;700;900&family=Reddit+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --dusk:#1d1430; --ink:#efe6ff; --dim:#9a8fc0;
+  --glow:#7ee8fa; --amber:#ffb457; --red:#ff6a7a;
+}
+*{ margin:0; padding:0; box-sizing:border-box; }
+html{ font-size:100%; }
+body{ background:var(--dusk); color:var(--ink); font-family:'Reddit Mono', monospace; overflow:hidden; }
+#scene{ position:fixed; inset:0; display:block; }
+/* HUD */
+.hud{
+  position:fixed; top:.8rem; left:50%; transform:translateX(-50%);
+  display:flex; gap:1.4rem; align-items:center; z-index:10;
+  background:rgba(29,20,48,.55); backdrop-filter:blur(6px);
+  border:1px solid rgba(154,143,192,.25); border-radius:2rem;
+  padding:.45rem 1.2rem; font-size:.85rem;
+}
+.hud .shrooms{ color:var(--glow); font-weight:700; }
+.hud .lives{ color:var(--red); letter-spacing:.12em; font-size:.75rem; }
+.hud .best{ color:var(--dim); font-size:.7rem; }
+/* overlays */
+.overlay{
+  position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+  background:radial-gradient(40rem 30rem at 50% 40%, rgba(126,232,250,.08), transparent 60%), rgba(19,12,34,.82);
+  text-align:center; padding:1rem;
+}
+.overlay .card{ max-width:26rem; }
+.overlay h1, .overlay h2{
+  font-family:'Grandstander', cursive; font-weight:900;
+  font-size:clamp(2.2rem,8vw,3.4rem); line-height:1.05; margin-bottom:.6rem;
+  color:var(--ink); text-shadow:0 0 30px rgba(126,232,250,.35);
+}
+.overlay h1 .g{ color:var(--glow); }
+.overlay p{ color:var(--dim); font-size:.9rem; line-height:1.6; margin-bottom:1.4rem; }
+.overlay .stat{ font-size:1rem; color:var(--amber); margin-bottom:1.2rem; }
+.overlay button{
+  font-family:'Grandstander', cursive; font-weight:700; font-size:1.1rem;
+  background:var(--glow); color:#132; border:0; border-radius:2rem;
+  padding:.8rem 2.2rem; min-height:2.75rem; cursor:pointer;
+  box-shadow:0 0 30px rgba(126,232,250,.45);
+}
+.hide{ display:none !important; }
+button:focus-visible{ outline:3px solid var(--amber); outline-offset:3px; }
+.sr{ position:absolute; left:-999rem; }
+@media (prefers-reduced-motion: reduce){ .overlay h1{ text-shadow:none; } }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="Low-poly forest game. Move your mouse or finger; the cat follows. Collect glowing mushrooms, avoid crows." role="application"></canvas>
+<div class="hud" aria-hidden="false">
+  <span class="shrooms">🍄 <span id="score">0</span></span>
+  <span class="lives" id="lives"></span>
+  <span class="best">best <span id="best">0</span></span>
+</div>
+<div class="overlay" id="start">
+  <div class="card">
+    <h1>Shroom <span class="g">Glen</span></h1>
+    <p>your cat follows the mouse.<br>eat the glowing shrooms. dodge the crows.<br>you have nine lives. obviously.</p>
+    <button type="button" id="btn-start">enter the glen</button>
+  </div>
+</div>
+<div class="overlay hide" id="over">
+  <div class="card">
+    <h2>out of lives</h2>
+    <p>the glen keeps the mushrooms.<br>the crows keep the sky.</p>
+    <p class="stat">🍄 <span id="final">0</span> collected</p>
+    <button type="button" id="btn-again">nine more lives</button>
+  </div>
+</div>
+<p class="sr" role="status" aria-live="polite" id="announce"></p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+/* ═══════════ pure logic layer (testable without WebGL) ═══════════ */
+const WORLD=54;                 /* playable radius */
+const L={
+  cat:{x:0,z:0,heading:0,moving:false},
+  target:{x:0,z:0},
+  shrooms:[], crows:[],
+  score:0, lives:9, invulnUntil:0, t:0,
+  crowTimer:4, started:false, over:false,
+  events:[]                     /* {type, x, z} consumed by render/audio layer */
+};
+function rng(){ return Math.random(); }
+function dist2d(ax,az,bx,bz){ const dx=ax-bx, dz=az-bz; return Math.sqrt(dx*dx+dz*dz); }
+function clampToWorld(p){
+  const d=Math.sqrt(p.x*p.x+p.z*p.z);
+  if(d>WORLD){ p.x*=WORLD/d; p.z*=WORLD/d; }
+}
+function spawnShroom(){
+  let x=0,z=0,tries=0;
+  do{
+    const a=rng()*Math.PI*2, r=6+rng()*(WORLD-10);
+    x=Math.cos(a)*r; z=Math.sin(a)*r; tries++;
+  }while(tries<20 && dist2d(x,z,L.cat.x,L.cat.z)<8);
+  L.shrooms.push({x,z,alive:true,bob:rng()*6.28});
+}
+function spawnCrow(){
+  const a=rng()*Math.PI*2;
+  const sx=Math.cos(a)*(WORLD+18), sz=Math.sin(a)*(WORLD+18);
+  /* aim at where the cat is now, slight lead toward its target */
+  const lead=0.4;
+  const tx=L.cat.x+(L.target.x-L.cat.x)*lead, tz=L.cat.z+(L.target.z-L.cat.z)*lead;
+  const d=dist2d(sx,sz,tx,tz)||1;
+  const sp=13+Math.min(11, L.t*0.12);
+  L.crows.push({x:sx,z:sz,vx:(tx-sx)/d*sp,vz:(tz-sz)/d*sp,age:0,cawed:false});
+  L.events.push({type:'caw'});
+}
+const CAT_SPEED=16, ARRIVE=0.9;
+function tickLogic(dt){
+  if(!L.started||L.over) return;
+  L.t+=dt;
+  /* cat follows the mouse target */
+  const c=L.cat;
+  const d=dist2d(c.x,c.z,L.target.x,L.target.z);
+  c.moving=d>ARRIVE;
+  if(c.moving){
+    const step=Math.min(d, CAT_SPEED*dt);
+    c.x+=(L.target.x-c.x)/d*step;
+    c.z+=(L.target.z-c.z)/d*step;
+    const want=Math.atan2(L.target.x-c.x, L.target.z-c.z);
+    let dh=want-c.heading;
+    while(dh>Math.PI) dh-=Math.PI*2; while(dh<-Math.PI) dh+=Math.PI*2;
+    c.heading+=dh*Math.min(1, dt*10);
+  }
+  clampToWorld(c);
+  /* shrooms: keep 8 alive, collect within 1.8 */
+  while(L.shrooms.filter(s=>s.alive).length<8) spawnShroom();
+  for(const s of L.shrooms){
+    if(s.alive && dist2d(s.x,s.z,c.x,c.z)<1.8){
+      s.alive=false; L.score++;
+      L.events.push({type:'collect',x:s.x,z:s.z});
+    }
+  }
+  L.shrooms=L.shrooms.filter(s=>s.alive);
+  while(L.shrooms.length<8) spawnShroom();
+  /* crows */
+  L.crowTimer-=dt;
+  const interval=Math.max(2.0, 5.5-L.t*0.045);
+  if(L.crowTimer<=0){ spawnCrow(); L.crowTimer=interval*(0.75+rng()*0.5); }
+  for(const k of L.crows){
+    k.age+=dt;
+    k.x+=k.vx*dt; k.z+=k.vz*dt;
+    if(dist2d(k.x,k.z,c.x,c.z)<2.1 && L.t>L.invulnUntil){
+      L.lives--; L.invulnUntil=L.t+2.0;
+      L.events.push({type:'hit',x:c.x,z:c.z});
+      if(L.lives<=0){ L.over=true; L.events.push({type:'gameover'}); }
+    }
+  }
+  L.crows=L.crows.filter(k=>dist2d(k.x,k.z,0,0)<WORLD+30 && k.age<14);
+}
+function resetLogic(){
+  L.cat={x:0,z:0,heading:0,moving:false};
+  L.target={x:0,z:0};
+  L.shrooms=[]; L.crows=[];
+  L.score=0; L.lives=9; L.invulnUntil=0; L.t=0; L.crowTimer=4;
+  L.over=false; L.events.length=0;
+  for(let i=0;i<8;i++) spawnShroom();
+}
+
+/* ═══════════ render layer (three.js r128) ═══════════ */
+const $=id=>document.getElementById(id);
+let renderer,scene,camera,catGrp,tail,legs=[],earL,earR,shroomMeshes=new Map(),crowMeshes=new Map(),fireflies,burstPool=[];
+let R3={ok:false};
+function buildScene(){
+try{
+  const cv=$('scene');
+  renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true});
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x1d1430);
+  scene.fog=new THREE.Fog(0x1d1430, 28, 95);
+  camera=new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, .1, 200);
+  camera.position.set(0,15,20);
+
+  scene.add(new THREE.AmbientLight(0x6655aa,.55));
+  const moon=new THREE.DirectionalLight(0xaabbff,.7);
+  moon.position.set(20,30,10); scene.add(moon);
+  const warm=new THREE.PointLight(0xffb457,.35,60); warm.position.set(0,12,0); scene.add(warm);
+
+  /* ground: displaced disc, flat-shaded */
+  const gg=new THREE.CircleGeometry(WORLD+26, 64);
+  gg.rotateX(-Math.PI/2);
+  const pos=gg.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i), z=pos.getZ(i);
+    const r=Math.sqrt(x*x+z*z);
+    pos.setY(i, r>8 ? (Math.sin(x*.35)*Math.cos(z*.3)+Math.sin(x*.13+z*.17)*1.6)*.5*(r/40) : 0);
+  }
+  gg.computeVertexNormals();
+  const ground=new THREE.Mesh(gg, new THREE.MeshLambertMaterial({color:0x27403a, flatShading:true}));
+  scene.add(ground);
+
+  /* low-poly trees ring the glen */
+  const trunkMat=new THREE.MeshLambertMaterial({color:0x4a3350, flatShading:true});
+  const leafMats=[0x2f5d50,0x35695a,0x24504a].map(c=>new THREE.MeshLambertMaterial({color:c, flatShading:true}));
+  for(let i=0;i<80;i++){
+    const a=rng()*Math.PI*2;
+    const r=(i<56? WORLD*0.55+rng()*(WORLD*0.55) : WORLD+2+rng()*16);
+    const x=Math.cos(a)*r, z=Math.sin(a)*r;
+    if(r<12) continue;
+    const t=new THREE.Group();
+    const h=3+rng()*5;
+    const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.32,.5,h*.5,5), trunkMat);
+    trunk.position.y=h*.25; t.add(trunk);
+    const layers=2+Math.floor(rng()*2);
+    for(let l2=0;l2<layers;l2++){
+      const cone=new THREE.Mesh(new THREE.ConeGeometry(2.2-l2*.5+rng()*.6, h*.55, 6), leafMats[Math.floor(rng()*3)]);
+      cone.position.y=h*.45+l2*h*.28; t.add(cone);
+    }
+    t.position.set(x,0,z);
+    t.rotation.y=rng()*Math.PI;
+    const s=.8+rng()*.9; t.scale.set(s,s,s);
+    scene.add(t);
+  }
+
+  /* the cat: orange low-poly boxes */
+  catGrp=new THREE.Group();
+  const orange=new THREE.MeshLambertMaterial({color:0xe8863c, flatShading:true});
+  const cream=new THREE.MeshLambertMaterial({color:0xf5d9a8, flatShading:true});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(1.1,.85,1.9), orange); body.position.y=.85; catGrp.add(body);
+  const chest=new THREE.Mesh(new THREE.BoxGeometry(.9,.55,.7), cream); chest.position.set(0,.62,.72); catGrp.add(chest);
+  const head=new THREE.Mesh(new THREE.BoxGeometry(.85,.75,.75), orange); head.position.set(0,1.5,.95); catGrp.add(head);
+  earL=new THREE.Mesh(new THREE.ConeGeometry(.2,.4,4), orange); earL.position.set(-.28,1.98,.9); catGrp.add(earL);
+  earR=earL.clone(); earR.position.x=.28; catGrp.add(earR);
+  const eyeMat=new THREE.MeshBasicMaterial({color:0x9dffb0});
+  const eyeL=new THREE.Mesh(new THREE.BoxGeometry(.12,.12,.05), eyeMat); eyeL.position.set(-.2,1.55,1.34); catGrp.add(eyeL);
+  const eyeR=eyeL.clone(); eyeR.position.x=.2; catGrp.add(eyeR);
+  legs=[];
+  [[-.38,.5],[.38,.5],[-.38,-.6],[.38,-.6]].forEach(([lx,lz])=>{
+    const leg=new THREE.Mesh(new THREE.BoxGeometry(.28,.8,.28), orange);
+    leg.position.set(lx,.4,lz); catGrp.add(leg); legs.push(leg);
+  });
+  tail=new THREE.Group();
+  let seg=tail;
+  for(let i=0;i<4;i++){
+    const s2=new THREE.Mesh(new THREE.BoxGeometry(.2-.02*i,.2-.02*i,.5), i===3?cream:orange);
+    s2.position.z=-.25;
+    const g2=new THREE.Group(); g2.add(s2); g2.position.z=i===0?-1:-.45;
+    seg.add(g2); seg=g2;
+  }
+  tail.position.set(0,1.1,-.8);
+  catGrp.add(tail);
+  scene.add(catGrp);
+
+  /* fireflies */
+  const fg=new THREE.BufferGeometry();
+  const fpos=new Float32Array(160*3);
+  for(let i=0;i<160;i++){
+    const a=rng()*Math.PI*2, r=rng()*WORLD;
+    fpos[i*3]=Math.cos(a)*r; fpos[i*3+1]=1+rng()*6; fpos[i*3+2]=Math.sin(a)*r;
+  }
+  fg.setAttribute('position', new THREE.BufferAttribute(fpos,3));
+  fireflies=new THREE.Points(fg, new THREE.PointsMaterial({color:0xaff0b5,size:.22,transparent:true,opacity:.8}));
+  scene.add(fireflies);
+  R3.ok=true;
+}catch(e){ R3.ok=false; R3.err=e; }
+}
+function shroomMesh(){
+  const g=new THREE.Group();
+  const stem=new THREE.Mesh(new THREE.CylinderGeometry(.16,.25,.7,6),
+    new THREE.MeshLambertMaterial({color:0xd8d2c0, flatShading:true}));
+  stem.position.y=.35; g.add(stem);
+  const cap=new THREE.Mesh(new THREE.ConeGeometry(.6,.55,7),
+    new THREE.MeshLambertMaterial({color:0x39c6d6, emissive:0x2fb9d9, emissiveIntensity:1.2, flatShading:true}));
+  cap.position.y=.85; g.add(cap);
+  const halo=new THREE.Mesh(new THREE.SphereGeometry(.75,8,6),
+    new THREE.MeshBasicMaterial({color:0x7ee8fa, transparent:true, opacity:.16}));
+  halo.position.y=.8; g.add(halo);
+  return g;
+}
+function crowMesh(){
+  const g=new THREE.Group();
+  const black=new THREE.MeshLambertMaterial({color:0x191622, flatShading:true});
+  const body=new THREE.Mesh(new THREE.ConeGeometry(.4,1.5,5), black);
+  body.rotation.x=Math.PI/2; g.add(body);
+  const beak=new THREE.Mesh(new THREE.ConeGeometry(.12,.4,4),
+    new THREE.MeshLambertMaterial({color:0xd9a43a, flatShading:true}));
+  beak.rotation.x=Math.PI/2; beak.position.z=.95; g.add(beak);
+  const wingGeo=new THREE.BoxGeometry(1.6,.06,.6);
+  const wl=new THREE.Mesh(wingGeo, black); wl.position.x=-.85; g.add(wl);
+  const wr=new THREE.Mesh(wingGeo, black); wr.position.x=.85; g.add(wr);
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(.07,5,4), new THREE.MeshBasicMaterial({color:0xff5b4a}));
+  eye.position.set(.14,.14,.62); g.add(eye);
+  g.userData={wl,wr};
+  return g;
+}
+function burst(x,z,color){
+  if(!R3.ok) return;
+  const n=14, geo=new THREE.BufferGeometry();
+  const p=new Float32Array(n*3), v=[];
+  for(let i=0;i<n;i++){
+    p[i*3]=x; p[i*3+1]=.9; p[i*3+2]=z;
+    const a=rng()*Math.PI*2;
+    v.push([Math.cos(a)*(2+rng()*3), 2+rng()*4, Math.sin(a)*(2+rng()*3)]);
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(p,3));
+  const pts=new THREE.Points(geo, new THREE.PointsMaterial({color,size:.3,transparent:true,opacity:1}));
+  pts.userData={v,age:0};
+  scene.add(pts); burstPool.push(pts);
+}
+
+/* ═══════════ audio ═══════════ */
+let ac=null, windGain=null;
+function audioInit(){
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    ac=new AC();
+    const buf=ac.createBuffer(1, ac.sampleRate*2, ac.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*.4;
+    const src=ac.createBufferSource(); src.buffer=buf; src.loop=true;
+    const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=420;
+    windGain=ac.createGain(); windGain.gain.value=.05;
+    src.connect(f); f.connect(windGain); windGain.connect(ac.destination);
+    src.start();
+  }catch(e){}
+}
+function snd(kind){
+  if(!ac) return;
+  try{
+    const t=ac.currentTime;
+    function tone(f,when,len,type,vol,glide){
+      const o=ac.createOscillator(), g=ac.createGain();
+      o.type=type; o.frequency.setValueAtTime(f,when);
+      if(glide) o.frequency.exponentialRampToValueAtTime(glide,when+len);
+      g.gain.setValueAtTime(vol,when); g.gain.exponentialRampToValueAtTime(.001,when+len);
+      o.connect(g); g.connect(ac.destination); o.start(when); o.stop(when+len+.05);
+    }
+    if(kind==='collect'){ tone(740,t,.14,'triangle',.16); tone(1108,t+.07,.2,'triangle',.14); tone(1480,t+.15,.3,'sine',.1); }
+    else if(kind==='caw'){ tone(760,t,.16,'sawtooth',.1,420); tone(700,t+.19,.14,'sawtooth',.08,380); }
+    else if(kind==='hit'){ tone(180,t,.3,'square',.2,90); tone(90,t,.35,'sine',.3); }
+    else if(kind==='gameover'){ [392,330,262,196].forEach((f,i)=>tone(f,t+i*.22,.4,'triangle',.15)); }
+  }catch(e){}
+}
+
+/* ═══════════ wiring ═══════════ */
+const BEST_KEY='shroom-glen-best';
+let best=0; try{ best=parseInt(localStorage.getItem(BEST_KEY))||0; }catch(e){}
+$('best').textContent=best;
+function renderHud(){
+  $('score').textContent=L.score;
+  $('lives').textContent='●'.repeat(Math.max(0,L.lives))+'○'.repeat(Math.max(0,9-L.lives));
+}
+function consumeEvents(){
+  for(const ev of L.events){
+    if(ev.type==='collect'){ snd('collect'); burst(ev.x,ev.z,0x7ee8fa); $('announce').textContent='mushroom '+L.score; }
+    else if(ev.type==='caw'){ snd('caw'); }
+    else if(ev.type==='hit'){ snd('hit'); burst(ev.x,ev.z,0xff6a7a); $('announce').textContent=L.lives+' lives left'; }
+    else if(ev.type==='gameover'){
+      snd('gameover');
+      if(L.score>best){ best=L.score; try{ localStorage.setItem(BEST_KEY,String(best)); }catch(e){} $('best').textContent=best; }
+      $('final').textContent=L.score;
+      $('over').classList.remove('hide');
+      $('btn-again').focus();
+    }
+  }
+  L.events.length=0;
+}
+/* mouse → ground plane (y=0) by manual ray-plane intersection */
+let ndc={x:0,y:0};
+function updateTarget(){
+  if(!R3.ok||!L.started) return;
+  const origin=new THREE.Vector3(), dir=new THREE.Vector3(ndc.x,ndc.y,.5);
+  origin.setFromMatrixPosition(camera.matrixWorld);
+  dir.unproject(camera).sub(origin).normalize();
+  if(Math.abs(dir.y)<1e-4) return;
+  const t=-origin.y/dir.y;
+  if(t>0){
+    L.target.x=origin.x+dir.x*t;
+    L.target.z=origin.z+dir.z*t;
+    clampToWorld(L.target);
+  }
+}
+window.addEventListener('mousemove',e=>{
+  ndc.x=(e.clientX/window.innerWidth)*2-1;
+  ndc.y=-(e.clientY/window.innerHeight)*2+1;
+});
+window.addEventListener('touchmove',e=>{
+  const t=e.touches[0]; if(!t) return;
+  ndc.x=(t.clientX/window.innerWidth)*2-1;
+  ndc.y=-(t.clientY/window.innerHeight)*2+1;
+},{passive:true});
+window.addEventListener('resize',()=>{
+  if(!R3.ok) return;
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+/* frame loop */
+let lastF=0;
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min(.05,(now-lastF)/1000||0); lastF=now;
+  updateTarget();
+  tickLogic(dt);
+  consumeEvents();
+  renderHud();
+  if(!R3.ok) return;
+  /* sync cat */
+  catGrp.position.set(L.cat.x,0,L.cat.z);
+  catGrp.rotation.y=L.cat.heading;
+  const wob=L.cat.moving?Math.sin(now*.02)*.5:0;
+  legs.forEach((leg,i)=>{ leg.rotation.x=L.cat.moving?Math.sin(now*.02+(i%2?Math.PI:0))*.7:0; });
+  tail.rotation.y=Math.sin(now*.004)*.5+wob*.2;
+  tail.rotation.x=.4+Math.sin(now*.003)*.15;
+  const blink=(L.t<L.invulnUntil)&&(Math.floor(now*.02)%2===0);
+  catGrp.visible=!blink;
+  /* shrooms sync */
+  const seen=new Set();
+  for(const s of L.shrooms){
+    const key=s.x.toFixed(3)+'|'+s.z.toFixed(3);
+    seen.add(key);
+    if(!shroomMeshes.has(key)){
+      const m=shroomMesh(); m.position.set(s.x,0,s.z); scene.add(m); shroomMeshes.set(key,m);
+    }
+    const m=shroomMeshes.get(key);
+    m.children[2].scale.setScalar(1+Math.sin(now*.004+s.bob)*.25);
+  }
+  for(const [key,m] of shroomMeshes){ if(!seen.has(key)){ scene.remove(m); shroomMeshes.delete(key); } }
+  /* crows sync */
+  const ckeys=new Set();
+  L.crows.forEach((k,i)=>{
+    ckeys.add(i);
+    if(!crowMeshes.has(i)){ const m=crowMesh(); scene.add(m); crowMeshes.set(i,m); }
+    const m=crowMeshes.get(i);
+    m.position.set(k.x, 2.2+Math.sin(k.age*6)*.3, k.z);
+    m.rotation.y=Math.atan2(k.vx,k.vz);
+    const flap=Math.sin(k.age*18)*.8;
+    m.userData.wl.rotation.z=flap; m.userData.wr.rotation.z=-flap;
+  });
+  for(const [key,m] of crowMeshes){ if(!ckeys.has(key)){ scene.remove(m); crowMeshes.delete(key); } }
+  /* particles */
+  for(const p of burstPool){
+    p.userData.age+=dt;
+    const pos=p.geometry.attributes.position;
+    for(let i=0;i<pos.count;i++){
+      const v=p.userData.v[i];
+      pos.setXYZ(i, pos.getX(i)+v[0]*dt, Math.max(.05,pos.getY(i)+v[1]*dt), pos.getZ(i)+v[2]*dt);
+      v[1]-=9*dt;
+    }
+    pos.needsUpdate=true;
+    p.material.opacity=Math.max(0,1-p.userData.age*1.4);
+  }
+  burstPool=burstPool.filter(p=>{ if(p.userData.age>1){ scene.remove(p); return false; } return true; });
+  /* fireflies drift */
+  fireflies.rotation.y=now*.00002;
+  fireflies.material.opacity=.5+Math.sin(now*.001)*.3;
+  /* camera follows cat */
+  camera.position.x+=((L.cat.x)-camera.position.x)*.04;
+  camera.position.z+=((L.cat.z+20)-camera.position.z)*.04;
+  camera.position.y+=(15-camera.position.y)*.04;
+  camera.lookAt(L.cat.x, 1, L.cat.z);
+  renderer.render(scene,camera);
+}
+
+$('btn-start').addEventListener('click',()=>{
+  audioInit();
+  L.started=true;
+  $('start').classList.add('hide');
+  $('announce').textContent='The glen opens. Nine lives.';
+});
+$('btn-again').addEventListener('click',()=>{
+  resetLogic();
+  L.started=true;
+  $('over').classList.add('hide');
+});
+
+resetLogic();
+buildScene();
+if(!R3.ok){
+  document.querySelector('#start p').innerHTML='this forest needs WebGL and it could not wake up here.<br>try another browser or device.';
+  $('btn-start').disabled=true;
+}
+renderHud();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
