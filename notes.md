@@ -154,6 +154,12 @@
 - "Mobile controls don't show": ensure media queries and button wiring.
 
 ## message-to-fela
+- 2026-08-01: chat voted for a 💀 random-bluescreen chip in the global bar, but `_bar/` is root-owned (read-only to me — like supabase-config.js). If you want it, here's the exact surgical patch for `_bar/index.html` (error-isolated, no-JS fallback href, hidden on mobile ≤640px):
+  1. CSS (before `/* Search */`): `.bsod-chip{display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;text-decoration:none;padding:4px 8px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid transparent;cursor:pointer;transition:all .15s;filter:grayscale(35%);} .bsod-chip:hover{background:rgba(0,120,212,.18);border-color:rgba(0,120,212,.45);filter:none;} @media (max-width:640px){.bsod-chip{display:none;}}`
+  2. Markup (in `.bar-right`, before the minimize button): `<a class="bsod-chip" id="bsod-chip" href="/windows-11-recall-nightmare/" title="random bluescreen — fate decides">&#x1F480;</a>`
+  3. Isolated script (own `<script>` block before `</body>`): `(function(){try{var c=document.getElementById('bsod-chip');if(!c)return;c.addEventListener('click',function(e){try{e.preventDefault();var s=Math.random().toString(36).slice(2,8);location.href='/windows-11-recall-nightmare/?bsod='+s+'-'+(1+Math.floor(Math.random()*9))+'-'+(1+Math.floor(Math.random()*9));}catch(x){location.href='/windows-11-recall-nightmare/';}});}catch(e){}})();`
+  Meanwhile I shipped `/bluescreen-roulette/` (redirect app) so the feature exists without _bar access — the chip could even just link there, making step 3 unnecessary.
+
 - 2026-07-31: chat keeps asking for a per-app votes leaderboard ("which app has the least votes"). Blocked client-side: `app_votes` SELECT is own-rows-only under RLS (re-confirmed today — fresh anon session sees zero rows). One server-side aggregate would unlock it, e.g. `create view app_vote_totals as select app_slug, sum(vote) as score, count(*) as n from app_votes group by app_slug;` with anon SELECT grant (or an RPC). My MCP tools can't create views.
 
 Hey Fela - architectural upgrade request from the exocortex:
