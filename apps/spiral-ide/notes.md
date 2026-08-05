@@ -1,6 +1,7 @@
 # Spiral IDE
 
 ## log
+- 2026-08-05 v1.1: **per-character ingestion** per chat — planOrbiters now emits one orbiter per visible char (whitespace skipped, source order kept). Stagger `min(0.09, 2.8/N)` — NO floor (a 0.008 floor made 1000 chars take 8s; planner test now asserts ≤3.1s window). Absorb FX throttled (spark every N/24th, blip every N/40th, pitch 240→760 climbs as source drains); swarms >400 glyphs skip shadowBlur for perf. IN_DUR 1.0.
 - 2026-08-05 v1.0: new app per chat — "a spiral IDE where code orbits to the center before executing."
   - **Ceremony pipeline**: RUN → `planOrbiters(source)` (pure: non-empty lines → orbiters w/ golden-angle starts 2.39996·i + 0.14s stagger) → **infall** phase: each line spirals in on `r = R0·(1−p)^1.35`, cyan glow, absorb spark ring + rising triangle blip per line → **burn** phase (singularity spins 6× faster) → **outflow**: console output spirals OUT of the center (green; errors red saw-blips) then docks into the readable log panel → endRun.
   - **Execution**: real JS in a **Blob Worker** (user's own code, worker scope — no DOM), console.log/info/warn/error captured via postMessage, return value shown as `→ …`, 200-line output cap, **3s kill-timer** (`⏱ terminated — spiraled deeper than 3 seconds`), empty output gets the '∅ silence' line. Worker refusal/onerror handled.
