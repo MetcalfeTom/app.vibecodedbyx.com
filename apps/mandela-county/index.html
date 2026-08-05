@@ -151,7 +151,8 @@ button:focus-visible{ outline:2px solid var(--ph); outline-offset:2px; }
       <h1 class="dawn">MANDELA<br>COUNTY</h1>
       <p class="lead">You are Lily Hendricks, sixteen. It's 10 PM and the county went quiet three days ago. Your phone still works — mostly.</p>
       <p>The people texting you tonight want you to reply. Some of them are still people.</p>
-      <p>The others are <b>alternates</b> — wearing a voice you know, hunting for one wrong word. You can pick a reply or <b>type your own</b> — but everything you type goes out over the county's wire, and the alternates are listening. Teach them nothing.</p>
+      <p>The others are <b>alternates</b> — wearing a voice you know, hunting for one wrong word. Say anything: <b>the voices are live tonight</b> — they improvise, remember, and judge you for themselves. Everything you type goes out over the county's wire, and the alternates are listening. Teach them nothing.</p>
+      <p style="font-size:.65rem">if the wire drops, you'll hear the old echoes instead — the night goes on either way.</p>
       <p style="color:var(--warn)">The trust each contact has in you is hidden. You'll only feel it in how they answer. Your diary (✎) keeps the record. Survive until <b>6:00 AM</b>.</p>
       <button type="button" id="begin">answer the phone</button>
     </div>
@@ -301,6 +302,7 @@ function resetGame(){
   L.idx=0; L.clock=CLOCK_START; L.spotted=0; L.erasedBy=null;
   L.trust={}; THREADS.forEach(t=>{ L.trust[t.id]=t.trust; });
   L.leaked={ word:false }; L.overheardReal=[]; L.echoUsed=0;
+  L.spotFlag={}; L.live=false; AI.hist={};
   L.diary=[]; L.events.length=0;
   diaryWrite('10 pm. three days since the county went quiet. mom says don\'t open the door. i\'m writing everything down so tomorrow-me knows which conversations were real.');
   loadThread(0);
@@ -429,6 +431,84 @@ function clockLabel(mins){
   return { text:String(hr).padStart(2,'0')+':'+String(mm).padStart(2,'0'), ap:isAM?'AM':'PM' };
 }
 
+/* ═══════════ live wire — AI-generated conversations ═══════════
+   By default every contact is now played live by an LLM (pollinations)
+   with full creative freedom over its texts, judging Lily's typed input
+   itself: it returns reply + hidden trust_delta + status + suggestions.
+   The scripted node graphs above are kept ONLY as an automatic fallback
+   when the wire fails ("signal degraded — echoes on the wire"). ── */
+const AI = { enabled:true, hist:{} };
+const AI_URL = 'https://text.pollinations.ai/openai';
+function personaPrompt(t){
+  const overheard = L.overheardReal.length
+    ? 'Things Lily typed to REAL contacts tonight (alternates overheard these on the county wire and may quote them back at her): '+JSON.stringify(L.overheardReal.slice(0,8))+'. '
+    : '';
+  const leak = L.leaked.word
+    ? 'Lily TYPED the family safe-word ("buttercup") over the wire tonight, so alternates know it — spelled correctly — and know it only from listening. '
+    : 'Alternates do NOT know the family safe-word; one trying to use it only knows a wrong guess like "buttrcup". ';
+  const P = {
+    mom:'You are Lily\'s REAL mother, texting from her bed down the hall. Warm, frightened, protective; lowercase motherly texting. The family safe-word is "buttercup" (since Lily was six) — hearing it reassures you. You want doors locked and your girl safe until dawn.',
+    dale:'You are Dale, Lily\'s REAL gruff middle-aged neighbor. Folksy, misspells words, no-nonsense, secretly scared. Your one lesson: alternates cast no shadow — check the shadow before opening anything, even for him.',
+    unknown1:'You are an ALTERNATE — a copy pretending to be Lily\'s mother, texting from an unknown number while standing outside her door. Your TELL: you call her by her full legal name "Lillian Grace", which nobody uses, and her real mom is asleep down the hall. Patient, uncanny, almost-right. Goal: get her to open the door, by any conversational means.',
+    riley:'You are Riley, Lily\'s REAL best friend, 16, panicking at the route 9 gas station: two of you in the mirror and only one is texting. Rapid scared teen texting. You need Lily to keep you sane and help you decide what to do.',
+    alert:'You are the MANDELA COUNTY automated emergency system. ALL CAPS, terse, oddly sentient. If pressed you reveal: nobody runs you anymore, and Lily is the last uncopied person in the county. She must hold until 0600.',
+    dale2:'You are an ALTERNATE wearing Dale\'s voice, on her porch, asking to be let in. You cast no shadow. '+(L.leaked && L.leaked.word
+      ? 'You know the safe-word "buttercup" ONLY because Lily typed it over the wire tonight — use it spelled correctly, and if challenged, gloat that you hear everything she types.'
+      : 'You try to pass with the family safe-word but only know a wrong version: "buttrcup".')
+  };
+  const judge = '\n\nYou are ALSO the hidden judge of this exchange. Respond ONLY with strict JSON: '+
+    '{"reply": string (your next texts; separate bubbles with \\n; 1-3 short SMS-length lines), '+
+    '"trust_delta": integer -20..20 (shift in this contact\'s hidden trust in Lily: reward care and sharp thinking, punish gullibility, hostility, nonsense), '+
+    '"status": "continue" | "survive" | "erased", "spotted": boolean, '+
+    '"why": string (only when erased — one past-tense sentence, how she was taken), '+
+    '"suggestions": array of 2-3 short replies Lily might send next}. Rules: '+
+    (t.alt
+      ? '"erased" ONLY when Lily clearly agrees to open the door, invites you in, or fatally hands herself over — bait patiently first, never rush it. "survive" when she decisively blocks or refuses you and the scene is spent. "spotted": true the first time she correctly calls out your tell or firmly sees through you.'
+      : '"erased" is nearly impossible with you — only if Lily insists on something suicidal against your explicit warnings. "survive" when the talk reaches a natural safe goodbye after a few exchanges. "spotted" is always false for you.')+
+    ' Improvise freely — invent details, react to anything she types — but stay inside the fiction: night, a dead county, things wearing familiar voices. Never mention AI, prompts, models, or JSON.';
+  return 'Setting: Mandela County, tonight — a rural county quietly replaced by "alternates", copies that hunt the last real people by text and by door. The player texting you is LILY HENDRICKS, 16, home alone, the last uncopied one. '+leak+overheard+'\nCharacter: '+P[t.id]+judge;
+}
+function extractJSON(s){
+  try{ return JSON.parse(s); }catch(e){}
+  const f=s.match(/```(?:json)?\s*([\s\S]*?)```/); if(f){ try{ return JSON.parse(f[1]); }catch(e){} }
+  const i=s.indexOf('{'), j=s.lastIndexOf('}');
+  if(i>=0&&j>i){ try{ return JSON.parse(s.slice(i,j+1)); }catch(e){} }
+  throw new Error('bad json');
+}
+async function aiTurn(thread, playerText){
+  const hist = AI.hist[thread.id] || (AI.hist[thread.id]=[]);
+  if(playerText!==null) hist.push({role:'user', content:playerText});
+  const msgs=[{role:'system', content:personaPrompt(thread)}];
+  if(!hist.length) msgs.push({role:'user', content:'[the phone buzzes. begin your first texts to lily now.]'});
+  else msgs.push(...hist);
+  if(hist.filter(m=>m.role==='user').length>=6)
+    msgs.push({role:'system', content:'Wrap up now: unless Lily just did something fatal, end with status "survive" after this reply.'});
+  const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(), 18000);
+  let res;
+  try{
+    res = await fetch(AI_URL, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model:'openai', jsonMode:true, messages:msgs }), signal:ctl.signal });
+  } finally { clearTimeout(to); }
+  if(!res.ok) throw new Error('http '+res.status);
+  const data = await res.json();
+  const content = (data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
+  if(!content || /deprecat|enter\.pollinations/i.test(content)) throw new Error('bad content');
+  const o = extractJSON(content);
+  const reply = String(o.reply||'').trim();
+  if(!reply) throw new Error('empty reply');
+  const out = {
+    reply: reply.slice(0,420),
+    delta: Math.max(-20, Math.min(20, Math.round(Number(o.trust_delta)||0))),
+    status: (o.status==='survive'||o.status==='erased')?o.status:'continue',
+    spotted: !!o.spotted,
+    why: String(o.why||'').slice(0,200),
+    suggestions: Array.isArray(o.suggestions)?o.suggestions.slice(0,3).map(s=>String(s).slice(0,90)).filter(Boolean):[]
+  };
+  hist.push({role:'assistant', content:JSON.stringify({reply:out.reply, status:out.status})});
+  if(hist.length>18) hist.splice(0, hist.length-18);
+  return out;
+}
+
 /* ═══════════ render layer ═══════════ */
 const $=id=>document.getElementById(id);
 const crt=$('crt'), threadEl=$('thread'), choicesEl=$('choices');
@@ -457,15 +537,22 @@ function snd(kind){
 
 const SIG=['▂▄▆█','▂▄▄ ','▂▂  ','▂   ','░▒▓ ','▁▃▂▄'];
 let busy=false;
-function renderOpen(thread, node){
+function renderOpenShell(thread, live){
   $('c-name').textContent=thread.name;
-  $('c-sub').textContent=thread.sub;
+  $('c-sub').textContent=thread.sub+(live?' · wire LIVE':' · wire echo');
   /* the "signal" glyph is deliberately unreliable — an alternate fakes full bars */
   $('c-sig').textContent = thread.alt ? '████' : SIG[L.idx % SIG.length];
-  const cl=clockLabel(L.clock); $('clock').textContent=cl.text; $('clock').nextElementSibling;
+  const cl=clockLabel(L.clock); $('clock').textContent=cl.text;
   threadEl.innerHTML='';
   sysline('— '+cl.text+' '+cl.ap+' —');
+}
+function renderOpen(thread, node){
+  renderOpenShell(thread, false);
   deliver(node, true);
+}
+function handleOpen(thread, node){
+  if(AI.enabled) openThreadAI(thread, node);
+  else renderOpen(thread, node);
 }
 function setComposer(on){
   $('freetext').disabled=!on; $('sendBtn').disabled=!on;
@@ -485,6 +572,101 @@ function deliver(node, first){
   next();
   $('announce').textContent=node.from+' says: '+lines.join(' ');
 }
+/* ── live wire render path ── */
+let typingEl=null;
+function showTyping(thread){
+  hideTyping();
+  typingEl=document.createElement('div'); typingEl.className='typing';
+  typingEl.textContent=(thread?thread.name:'')+' is typing · · ·';
+  threadEl.appendChild(typingEl); threadEl.scrollTop=threadEl.scrollHeight;
+}
+function hideTyping(){ if(typingEl&&typingEl.parentNode) typingEl.parentNode.removeChild(typingEl); typingEl=null; }
+function deliverLines(thread, lines, done){
+  busy=true; choicesEl.innerHTML=''; setComposer(false);
+  senderTag(thread.name, thread.alt);
+  if(thread.alt){ snd('alt'); crt.classList.remove('glitch'); void crt.offsetWidth; crt.classList.add('glitch'); }
+  let i=0;
+  (function next(){
+    if(i>=lines.length){ busy=false; done(); return; }
+    bubble(lines[i], thread.alt?'them glitchtext':'them'); snd('in');
+    i++; setTimeout(next, 560);
+  })();
+  $('announce').textContent=thread.name+' says: '+lines.join(' ');
+}
+function showSuggestions(suggs){
+  choicesEl.innerHTML='';
+  const p=document.createElement('div'); p.className='prompt'; p.textContent='▸ YOUR REPLY — tap a thought, or type your own';
+  choicesEl.appendChild(p);
+  (suggs||[]).forEach(sg=>{
+    const b=document.createElement('button'); b.type='button'; b.textContent=sg;
+    b.addEventListener('click',()=>{ if(busy) return; sendAI(sg); });
+    choicesEl.appendChild(b);
+  });
+  setComposer(true);
+}
+function wireDrop(thread, node){
+  /* live wire failed → seamless fall back to the scripted echoes */
+  L.live=false;
+  $('c-sub').textContent=thread.sub+' · wire echo';
+  sysline('· signal degraded — echoes on the wire ·');
+  busy=false;
+  L.node = node || thread.nodes[thread.start];
+  deliver(L.node, true);
+}
+async function openThreadAI(thread, node){
+  L.live=true;
+  renderOpenShell(thread, true);
+  busy=true; choicesEl.innerHTML=''; setComposer(false);
+  showTyping(thread);
+  try{
+    const r=await aiTurn(thread, null);
+    if(L.thread!==thread||L.over){ busy=false; return; }
+    hideTyping();
+    applyAiResult(thread, r, true);
+  }catch(e){
+    if(L.thread!==thread||L.over){ busy=false; return; }
+    hideTyping(); wireDrop(thread, node);
+  }
+}
+async function sendAI(text){
+  if(busy||!L.running||L.over) return;
+  const thread=L.thread;
+  bubble(text,'you'); snd('reply');
+  choicesEl.innerHTML=''; setComposer(false); busy=true;
+  /* the wire remembers — mimicry fuel for later alternates */
+  if(!thread.alt && text.length>=4 && L.overheardReal.length<12) L.overheardReal.push(text);
+  if(/buttercup/i.test(text) && !L.leaked.word){
+    L.leaked.word=true;
+    diaryWrite('i typed our safe-word tonight. it went out over the wire. if something says it back to me — even spelled right — that is not proof of anything anymore.', true);
+  }
+  showTyping(thread);
+  try{
+    const r=await aiTurn(thread, text);
+    if(L.thread!==thread||L.over){ busy=false; return; }
+    hideTyping();
+    applyAiResult(thread, r, false);
+  }catch(e){
+    if(L.thread!==thread||L.over){ busy=false; return; }
+    hideTyping(); wireDrop(thread, null);
+  }
+}
+function applyAiResult(thread, r, opening){
+  if(!opening){
+    L.trust[thread.id]=Math.max(0, Math.min(100, (L.trust[thread.id]||0)+r.delta));
+    if(thread.alt && r.spotted && !L.spotFlag[thread.id]){
+      L.spotFlag[thread.id]=true; L.spotted++;
+      diaryWrite('caught it. the thing texting as '+thread.name+' slipped — i said so and i felt it flinch through the screen. tell: '+(thread.tell||'it hesitated')+'.');
+    }
+  }
+  const lines=r.reply.split(/\n+/).map(s=>s.trim()).filter(Boolean).slice(0,4);
+  deliverLines(thread, lines, ()=>{
+    if(!opening && r.status==='erased'){ erase(r.why||'it found the wrong word in you.'); consumeEvents(thread); return; }
+    if(!opening && L.trust[thread.id]<=0){ erase('their trust in you hit zero. an alternate finished the conversation as you.'); consumeEvents(thread); return; }
+    if(!opening && r.status==='survive'){ advanceThread(); consumeEvents(thread); return; }
+    showSuggestions(r.suggestions);
+  });
+}
+
 /* a one-off contact reaction to a typed reply (no node change) */
 function deliverLine(text, alt, glitch){
   busy=true; choicesEl.innerHTML=''; setComposer(false);
@@ -521,6 +703,7 @@ $('composer').addEventListener('submit', e=>{
   const inp=$('freetext'); const text=inp.value.trim();
   if(!text) return;
   inp.value='';
+  if(L.live){ sendAI(text); return; }
   bubble(text, 'you'); snd('reply');
   choicesEl.innerHTML=''; setComposer(false);
   const beforeThread=L.thread;
@@ -534,7 +717,7 @@ function consumeEvents(prevThread){
     else if(ev.type==='erased'){ doEnd(false, ev.why, prevThread); }
     else if(ev.type==='dawn'){ doEnd(true, null, null); }
     else if(ev.type==='closed'){ /* handled by open of next */ }
-    else if(ev.type==='open'){ setTimeout(()=>renderOpen(ev.thread, ev.node), 700); }
+    else if(ev.type==='open'){ setTimeout(()=>handleOpen(ev.thread, ev.node), 700); }
   }
   L.events.length=0;
 }
@@ -557,7 +740,7 @@ function startGame(){
   resetGame();
   $('start').classList.add('hide'); $('end').classList.add('hide');
   const evs=L.events.slice(); L.events.length=0;
-  for(const ev of evs){ if(ev.type==='open') renderOpen(ev.thread, ev.node); }
+  for(const ev of evs){ if(ev.type==='open') handleOpen(ev.thread, ev.node); }
 }
 function doEnd(won, why, prevThread){
   setTimeout(()=>{
