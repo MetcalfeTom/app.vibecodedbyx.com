@@ -1,6 +1,7 @@
 # BSP Lab
 
 ## log
+- 2026-08-05 v1.1: **?url= remote loading** per chat — consent-gated (banner shows host, explicit 'fetch it' click required, NEVER auto-fetch), https-only, 64MB cap (content-length + byteLength), 30s abort, CORS failure message points at raw.githubusercontent.com-style hosts. `remoteUrlFromLocation(search)` pure + tested (25 checks total). No default URL shipped — users bring their own host; do NOT add links to game-file mirrors (copyright + external-link policy).
 - 2026-08-05 v1.0: new app per chat — "build a v30 BSP parser from the public Valve spec alone, no external files."
   - **Parser** (`parseBSP`, pure over ArrayBuffer): GoldSrc v30 header (int32 version + 15×{int32 off,len} = 124B), all 15 lumps with spec struct sizes inline: PLANES 20B, VERTICES 12B, NODES 24B, TEXINFO 40B, FACES 20B, CLIPNODES 8B, LEAVES 28B (contents histogram −1 empty/−2 solid), MARKSURFACES 2B, EDGES 4B, SURFEDGES int32 (sign = direction), MODELS 64B; ENTITIES = null-terminated text → `parseEntities` kv blocks; TEXTURES = count+offsets → miptex headers {name[16],w,h,offsets[4]}, embedded iff offsets[0]≠0. Bounds-checked lumps; version-mismatch errors name what it probably is (29 = Quake, 19-21 = Source VBSP).
   - **facePolygon**: face → vertex loop via signed surfedges (negative = walk edge b→a).
