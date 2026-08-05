@@ -1,5 +1,8 @@
 # Windows 95
 
+## keep (standing rules)
+- **BLUESCRN.EXE stays**: the 💀 desktop shortcut to /bluescreen-roulette/ is a chat-mandated site convention (see /vibespace/notes.md conventions + persistent memory). Never remove it in refactors; this app is the reference implementation other retro desktops copy.
+
 A nostalgic Windows 95 desktop experience with classic teal background.
 
 ## log
