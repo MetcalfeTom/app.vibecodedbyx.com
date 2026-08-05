@@ -302,7 +302,7 @@ function resetGame(){
   L.idx=0; L.clock=CLOCK_START; L.spotted=0; L.erasedBy=null;
   L.trust={}; THREADS.forEach(t=>{ L.trust[t.id]=t.trust; });
   L.leaked={ word:false }; L.overheardReal=[]; L.echoUsed=0;
-  L.spotFlag={}; L.live=false; AI.hist={};
+  L.spotFlag={}; L.live=false; AI.hist={}; AI.lastReply={}; L._lastSent=null;
   L.diary=[]; L.events.length=0;
   diaryWrite('10 pm. three days since the county went quiet. mom says don\'t open the door. i\'m writing everything down so tomorrow-me knows which conversations were real.');
   loadThread(0);
@@ -437,7 +437,7 @@ function clockLabel(mins){
    itself: it returns reply + hidden trust_delta + status + suggestions.
    The scripted node graphs above are kept ONLY as an automatic fallback
    when the wire fails ("signal degraded — echoes on the wire"). ── */
-const AI = { enabled:true, hist:{} };
+const AI = { enabled:true, hist:{}, lastReply:{} };
 const AI_URL = 'https://text.pollinations.ai/openai';
 function personaPrompt(t){
   const overheard = L.overheardReal.length
@@ -468,6 +468,15 @@ function personaPrompt(t){
     ' Improvise freely — invent details, react to anything she types — but stay inside the fiction: night, a dead county, things wearing familiar voices. Never mention AI, prompts, models, or JSON.';
   return 'Setting: Mandela County, tonight — a rural county quietly replaced by "alternates", copies that hunt the last real people by text and by door. The player texting you is LILY HENDRICKS, 16, home alone, the last uncopied one. '+leak+overheard+'\nCharacter: '+P[t.id]+judge;
 }
+/* dedup throttle: identical text re-sent within 4s is an accidental echo
+   (double-tap / pipeline stutter) — swallow it instead of re-entering the wire */
+function isEchoSpam(text){
+  const n = String(text).trim().toLowerCase();
+  const now = performance.now();
+  if(L._lastSent && L._lastSent.n===n && now-L._lastSent.at<4000) return true;
+  L._lastSent = { n, at:now };
+  return false;
+}
 function extractJSON(s){
   try{ return JSON.parse(s); }catch(e){}
   const f=s.match(/```(?:json)?\s*([\s\S]*?)```/); if(f){ try{ return JSON.parse(f[1]); }catch(e){} }
@@ -483,27 +492,40 @@ async function aiTurn(thread, playerText){
   else msgs.push(...hist);
   if(hist.filter(m=>m.role==='user').length>=6)
     msgs.push({role:'system', content:'Wrap up now: unless Lily just did something fatal, end with status "survive" after this reply.'});
-  const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(), 18000);
-  let res;
-  try{
-    res = await fetch(AI_URL, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ model:'openai', jsonMode:true, messages:msgs }), signal:ctl.signal });
-  } finally { clearTimeout(to); }
-  if(!res.ok) throw new Error('http '+res.status);
-  const data = await res.json();
-  const content = (data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
-  if(!content || /deprecat|enter\.pollinations/i.test(content)) throw new Error('bad content');
-  const o = extractJSON(content);
-  const reply = String(o.reply||'').trim();
-  if(!reply) throw new Error('empty reply');
-  const out = {
-    reply: reply.slice(0,420),
-    delta: Math.max(-20, Math.min(20, Math.round(Number(o.trust_delta)||0))),
-    status: (o.status==='survive'||o.status==='erased')?o.status:'continue',
-    spotted: !!o.spotted,
-    why: String(o.why||'').slice(0,200),
-    suggestions: Array.isArray(o.suggestions)?o.suggestions.slice(0,3).map(s=>String(s).slice(0,90)).filter(Boolean):[]
-  };
+  let out = null;
+  for(let attempt=0; attempt<2; attempt++){
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(), 18000);
+    let res;
+    try{
+      res = await fetch(AI_URL, { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ model:'openai', jsonMode:true, messages:msgs }), signal:ctl.signal });
+    } finally { clearTimeout(to); }
+    if(!res.ok) throw new Error('http '+res.status);
+    const data = await res.json();
+    const content = (data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
+    if(!content || /deprecat|enter\.pollinations/i.test(content)) throw new Error('bad content');
+    const o = extractJSON(content);
+    const reply = String(o.reply||'').trim();
+    if(!reply) throw new Error('empty reply');
+    out = {
+      reply: reply.slice(0,420),
+      delta: Math.max(-20, Math.min(20, Math.round(Number(o.trust_delta)||0))),
+      status: (o.status==='survive'||o.status==='erased')?o.status:'continue',
+      spotted: !!o.spotted,
+      why: String(o.why||'').slice(0,200),
+      suggestions: Array.isArray(o.suggestions)?o.suggestions.slice(0,3).map(s=>String(s).slice(0,90)).filter(Boolean):[]
+    };
+    /* generation-loop breaker: same reply as last turn = the model is looping.
+       First offense: nudge + retry once. Second: the voice is spent — wrap the thread. */
+    if(out.reply !== AI.lastReply[thread.id]) break;
+    if(attempt===0){
+      msgs.push({role:'system', content:'You just repeated your previous message verbatim. Do not repeat yourself — move the scene forward with something new.'});
+    } else {
+      out.reply = out.reply + '\n…the voice catches, stuck on its own words, and the line goes quiet.';
+      out.status = 'survive'; out.spotted = false;
+    }
+  }
+  AI.lastReply[thread.id] = out.reply;
   hist.push({role:'assistant', content:JSON.stringify({reply:out.reply, status:out.status})});
   if(hist.length>18) hist.splice(0, hist.length-18);
   return out;
@@ -703,6 +725,7 @@ $('composer').addEventListener('submit', e=>{
   const inp=$('freetext'); const text=inp.value.trim();
   if(!text) return;
   inp.value='';
+  if(isEchoSpam(text)){ sysline('· the wire swallows the echo — you just said that ·'); return; }
   if(L.live){ sendAI(text); return; }
   bubble(text, 'you'); snd('reply');
   choicesEl.innerHTML=''; setComposer(false);
