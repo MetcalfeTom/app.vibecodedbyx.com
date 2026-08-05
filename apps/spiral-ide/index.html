@@ -152,12 +152,16 @@ const EXAMPLES = {
 function planOrbiters(source){
   // every visible CHARACTER becomes an orbiter, in source order; whitespace
   // doesn't fly (nothing to see) but the full source still executes verbatim.
+  // No entry deadline: each character orbits as long as it wants — its own
+  // duration and lap count from a deterministic hash (testable, still 'free').
   const chars = [...source].filter(ch => ch.trim().length);
-  const N = chars.length;
-  const stagger = Math.min(0.09, 2.8/Math.max(1,N));   // whole swarm enters within ~3s regardless of size
-  return chars.map((text, i) => ({ text, i, delay: i*stagger, absorbed:false }));
+  const rnd = i => { const v = Math.sin(i*12.9898 + 78.233)*43758.5453; return v - Math.floor(v); };
+  return chars.map((text, i) => ({
+    text, i, delay: i*0.012,
+    dur: 1.4 + rnd(i)*3.2,           // 1.4s sprinters … 4.6s lingerers
+    laps: 3.5 + rnd(i*7.13)*6,       // how much it swirls on the way down
+    absorbed:false }));
 }
-const IN_DUR = 1.0;                // seconds for one character to spiral in
 
 /* ============ spiral stage ============ */
 const cv = $('cv'), ctx = cv.getContext('2d');
@@ -222,11 +226,11 @@ function draw(t, dt){
     ctx.textAlign='center'; ctx.textBaseline='middle';
     for(const o of RUN.orbiters){
       if(o.absorbed) continue;
-      const p = Math.max(0, Math.min(1, (RUN.t - o.delay)/IN_DUR));
+      const p = Math.max(0, Math.min(1, (RUN.t - o.delay)/o.dur));
       if(p < 1) allDone = false;
       if(p <= 0){ allDone = false; continue; }
       if(p >= 1){ absorb(o); continue; }
-      const th = o.i*2.39996 + p*5.6;          // golden-angle start + swirl
+      const th = o.i*2.39996 + p*o.laps;       // golden-angle start + its own swirl
       const rr = R0 * Math.pow(1-p, 1.3) + 6;
       const x = CX + Math.cos(th)*rr, y = CY + Math.sin(th)*rr*0.86;
       const sc = 0.5 + (1-p)*0.6;
@@ -245,22 +249,30 @@ function draw(t, dt){
       maybeFinish();
     }
   }
-  /* outflowing results */
-  for(let i=RUN.outFlying.length-1;i>=0;i--){
+  /* outflowing results — characters, one at a time.
+     Dock strictly in launch order: iterate forward, splice afterwards —
+     reverse iteration scrambled same-frame arrivals ('alpah'). */
+  const arrived = [];
+  for(let i=0;i<RUN.outFlying.length;i++){
     const f = RUN.outFlying[i];
-    f.p += dt/1.0;
-    if(f.p>=1){ dockOut(f); RUN.outFlying.splice(i,1); continue; }
-    const th = f.i*1.9 + (1-f.p)*4.2 + Math.PI;
+    f.p += dt/0.9;
+    if(f.p>=1){ arrived.push(i); continue; }
+    if(!f.ch.trim()) continue;                 // spaces fly invisibly (order keepers)
+    const th = f.gi*1.1 + (1-f.p)*4.2 + Math.PI;
     const rr = R0*0.62*Math.pow(f.p,0.8) + 8;
     const x = CX + Math.cos(th)*rr, y = CY + Math.sin(th)*rr*0.86;
-    ctx.font = '13px "Fira Code", monospace';
+    ctx.font = '15px "Fira Code", monospace';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillStyle = (f.kind==='err'?'rgba(255,95,122,':'rgba(139,224,90,')+(0.4+0.6*f.p)+')';
-    ctx.shadowColor = f.kind==='err'?'rgba(255,95,122,0.6)':'rgba(139,224,90,0.6)';
-    ctx.shadowBlur = 10*(1-f.p);
-    ctx.fillText(f.text.slice(0,48), x, y);
+    if(RUN.outFlying.length<300){
+      ctx.shadowColor = f.kind==='err'?'rgba(255,95,122,0.6)':'rgba(139,224,90,0.6)';
+      ctx.shadowBlur = 8*(1-f.p);
+    }
+    ctx.fillText(f.ch, x, y);
     ctx.shadowBlur = 0;
   }
+  for(const idx of arrived) dockOut(RUN.outFlying[idx]);
+  for(let k=arrived.length-1;k>=0;k--) RUN.outFlying.splice(arrived[k],1);
   /* sparks */
   for(let i=RUN.sparks.length-1;i>=0;i--){
     const s = RUN.sparks[i];
@@ -271,17 +283,29 @@ function draw(t, dt){
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(CX,CY,8+k*34,0,Math.PI*2); ctx.stroke();
   }
-  /* outflow pump */
+  /* outflow pump: decompose lines into a character stream */
   if((RUN.phase==='burn'||RUN.phase==='outflow') && RUN.workerDone){
-    RUN.phase = 'outflow';
-    RUN.pumpT = (RUN.pumpT||0) + dt;
-    if(RUN.outQueue.length && RUN.pumpT > 0.12){
-      RUN.pumpT = 0;
+    if(RUN.phase!=='outflow'){ RUN.phase='outflow'; $('status').textContent='OUTFLOW · CHARACTERS RETURNING'; }
+    if(!RUN.stream && RUN.outQueue.length){
       const msg = RUN.outQueue.shift();
-      RUN.outFlying.push({ ...msg, p:0, i:RUN.outCount=(RUN.outCount||0)+1 });
-      blip(500 + (RUN.outCount%8)*60, msg.kind==='err'?'sawtooth':'sine');
+      RUN.stream = { chars:[...msg.text], kind:msg.kind, pos:0, line:{ el:null, kind:msg.kind } };
+      if(!RUN.stream.chars.length) RUN.stream.chars = [' '];
     }
-    if(!RUN.outQueue.length && !RUN.outFlying.length) endRun();
+    if(RUN.stream){
+      const backlog = (RUN.stream.chars.length - RUN.stream.pos) +
+        RUN.outQueue.reduce((a,m)=>a+m.text.length, 0);
+      const rate = Math.max(25, Math.min(400, backlog/6));   // whole outflow lands within ~6s
+      RUN.emitAcc = (RUN.emitAcc||0) + rate*dt;
+      while(RUN.emitAcc >= 1 && RUN.stream){
+        RUN.emitAcc -= 1;
+        const ch = RUN.stream.chars[RUN.stream.pos++];
+        RUN.outCount = (RUN.outCount||0)+1;
+        RUN.outFlying.push({ ch, kind:RUN.stream.kind, gi:RUN.outCount, p:0, line:RUN.stream.line });
+        if(ch.trim() && RUN.outCount % 6 === 0) blip(480 + (RUN.outCount%24)*14, RUN.stream.kind==='err'?'sawtooth':'sine');
+        if(RUN.stream.pos >= RUN.stream.chars.length) RUN.stream = null;
+      }
+    }
+    if(!RUN.outQueue.length && !RUN.stream && !RUN.outFlying.length) endRun();
   }
   RUN.spinBoost = Math.max(0, RUN.spinBoost - dt*3);
 }
@@ -293,10 +317,12 @@ function absorb(o){
     blip(240 + (o.i/N)*520, 'triangle');     // pitch climbs as the source drains
 }
 function dockOut(f){
-  const d = document.createElement('div');
-  d.className = f.kind==='err' ? 'e' : 'l';
-  d.textContent = f.text;
-  $('out').appendChild(d);
+  if(!f.line.el){
+    f.line.el = document.createElement('div');
+    f.line.el.className = f.kind==='err' ? 'e' : 'l';
+    $('out').appendChild(f.line.el);
+  }
+  f.line.el.textContent += f.ch;
   $('out').scrollTop = $('out').scrollHeight;
 }
 
@@ -371,12 +397,12 @@ function runCode(){
   RUN.active = true; RUN.t = 0;
   RUN.orbiters = planOrbiters(source);
   RUN.outQueue = []; RUN.outFlying = []; RUN.sparks = [];
-  RUN.outCount = 0; RUN.pumpT = 0;
+  RUN.outCount = 0; RUN.pumpT = 0; RUN.stream = null; RUN.emitAcc = 0;
   RUN.phase = REDUCED ? 'burn' : 'infall';
   if(REDUCED) RUN.orbiters.forEach(o=>o.absorbed=true);
   RUN.spinBoost = 2;
   $('runBtn').disabled = true;
-  $('status').textContent = 'INFALL · '+RUN.orbiters.length+' CHARACTERS STREAMING IN';
+  $('status').textContent = 'INFALL · '+RUN.orbiters.length+' CHARACTERS ORBITING FREELY';
   execute(source);
 }
 
