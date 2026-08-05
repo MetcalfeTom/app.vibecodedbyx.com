@@ -1,0 +1,21 @@
+# Slime Lab 3D
+
+## log
+- 2026-08-05 v1.0: **from-scratch three.js build** per chat vote (separate app from 2D slime-lab by design — no shared code per repo rules). three.js r128 from cdnjs (no OrbitControls dep — custom orbit).
+  - **Scene**: dark room + fog, wooden table + play mat (receiveShadow), warm SpotLight casting PCF-soft 2048px shadow maps (all props castShadow), violet point fill, hemisphere ambient. sRGB output.
+  - **Bowl**: LatheGeometry ceramic (12-point profile, outer wall up + inner wall down for rim thickness), DoubleSide standard material.
+  - **Camera**: custom orbit — drag empty space = az/el (el clamped 0.12–1.35 so you can't go under the table), wheel + 2-finger pinch = dolly 4.5–18, idle auto-drift until first pointerdown (killed by prefers-reduced-motion).
+  - **Mix pipeline** (same 4-stage machine as 2D, reimplemented): hold ON the bowl to pour (glue stream cylinder, level rises, liquid = CircleGeometry disc with CPU vertex waves keyed to stir speed); hold to drip activator — **real-time drips**: sphere particles with gravity; landing in the goo → expanding RingGeometry splash ripple + plink; landing on the **inner wall → sticks and slides down the ceramic** as a stretched viscous streak (radius follows the lathe profile via `wallYAt`) until it merges with a ripple; missing everything → table splat. Tap 3× to sprinkle mix-ins (beads=spheres, stars=octahedrons, glitter=metallic tetrahedrons — real meshes with shadows, fall + rest on the goo + orbit while stirring); drag circles ON the liquid to stir (angular-sweep tracking, spoon group follows raycast point clamped into the bowl, color lerps glue→pigment, bubbles rise and pop with ripples).
+  - **Blob**: post-mix sphere with squash-stretch scale springs, gravity + table bounce + circular wall bounds, mix-ins parented onto its surface; click = poke impulse, drag = kinematic fling. Recipe panel: 6 pigments + 3 add-in chips (pigment recolors a live blob).
+  - **Inputs**: raycast decides gameplay vs orbit (bowl hit = act, elsewhere = orbit). Enter/⏭ auto-completes stage, R = new batch, M = mute. Tiny synth (squish/drip/blip/crunch).
+  - **Tests**: parse + id check (check-3d.js) + full-pipeline boot smoke under a hand-stubbed THREE (smoke-3d.js, 7 checks green: pour→drip/slide→sprinkle→stir→blob→reset). CDN reachability verified (200). Cannot render-test headless — visual QA is chat's job.
+
+## issues
+- r128 has no Vector3.randomDirection — guarded fallback in makeBlob; keep the guard if upgrading three.
+- Liquid is a flat disc with vertex waves, not a fluid sim; drip "slide" approximates the lathe profile analytically (0.9 + y/H·1.16) — update both if the bowl profile changes.
+- No bowl-tier progression here yet (2D app has it) — natural next feature if chat asks.
+
+## todos
+- Port bowl tiers (plastic/glass/mixer) into 3D; glass = transmission material.
+- Soft-body blob (vertex springs) instead of scale-squash.
+- Charms as emoji sprites.
