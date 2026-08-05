@@ -81,6 +81,7 @@ button{ font-family:'IBM Plex Mono', monospace; cursor:pointer; }
   <div class="bench" role="group" aria-label="Recipe bench">
     <h2>PIGMENT</h2><div class="row" id="swatchRow"></div>
     <h2>MIX-INS</h2><div class="row" id="chipRow"></div>
+    <h2>BOWL · <span id="batchCount"></span></h2><div class="row" id="bowlRow"></div>
     <button class="mix" id="mixBtn" type="button">🥣 NEW BATCH</button>
   </div>
   <div class="tools">
@@ -106,18 +107,40 @@ const ADDINS = [
 const recipe = { pigment:0, addins:{ beads:true, stars:false, glitter:true } };
 const GLUE_COL = 0xf3ead9;
 
+/* 3-tier bowls: mix batches to unlock */
+const BOWLS = {
+  plastic:{ name:'🥣 Plastic', need:0, bubbles:'manual', motor:false, stirMul:0.85 },
+  glass:  { name:'🔥 Glass',   need:3, bubbles:'auto',   motor:false, stirMul:1.3 },
+  mixer:  { name:'⚡ Mixer',   need:7, bubbles:'none',   motor:true,  stirMul:1 },
+};
+const OMEGA_MAX = 22;
+let PROG = { batches:0, bowl:'plastic' };
+try{
+  const s = JSON.parse(localStorage.getItem('slime-lab-3d-progress-v1'));
+  if(s && BOWLS[s.bowl]) PROG = { batches:Math.max(0, s.batches|0), bowl:s.bowl };
+}catch(e){}
+if(PROG.batches < BOWLS[PROG.bowl].need) PROG.bowl='plastic';
+function saveProg(){ try{ localStorage.setItem('slime-lab-3d-progress-v1', JSON.stringify(PROG)); }catch(e){} }
+
 /* ============ pure-ish stage machine ============ */
 const STIR_NEED = Math.PI*2*2.2;
 let MIX = null;   // {stage, level, actLevel, sprinkles, stir, ...}
 function freshBatch(){
   MIX = { stage:0, level:0, actLevel:0, sprinkles:0, stir:0, stirVel:0,
-    pouring:false, stirring:false, lastAng:null, dripT:0 };
+    pouring:false, stirring:false, lastAng:null, dripT:0,
+    bowl:BOWLS[PROG.bowl], motor:false, omega:0, whirl:0, hintT:0 };
+  applyBowl(PROG.bowl);
   setHint(stageHint());
   resetMixScene();
 }
 function stageHint(){
+  if(MIX && MIX.stage===3){
+    if(MIX.bowl.motor) return '⚡ hold on the bowl to run the mixer — watch the g-force';
+    if(MIX.bowl.bubbles==='manual') return '🥄 stir circles on the goo — steer the spoon over bubbles to pop them';
+    return '🥄 drag circles on the goo to stir — the heat pops bubbles for you';
+  }
   return ['🍯 hold on the bowl to pour glue','💧 hold on the bowl to drip activator',
-          '✨ tap the bowl 3× to sprinkle mix-ins','🥄 drag circles on the goo to stir — drag elsewhere to orbit'][MIX?MIX.stage:0];
+          '✨ tap the bowl 3× to sprinkle mix-ins','🥄 stir'][MIX?MIX.stage:0];
 }
 function advMix(n){ MIX.stage=n; MIX.pouring=false; setHint(stageHint()); sBlip(0.3+n*0.1); }
 function autoStep(){
@@ -161,15 +184,68 @@ const mat2 = new THREE.Mesh(
   new THREE.MeshStandardMaterial({ color:0x9a86c8, roughness:0.95 }));
 mat2.position.y = 0.03; mat2.receiveShadow = true; scene.add(mat2);
 
-/* ceramic bowl (lathe) */
+/* three tier bowls (lathe) */
 const BOWL_R = 2.0, BOWL_H = 1.6;
 const prof = [];
 [[0,0.04],[0.9,0.06],[1.5,0.28],[1.88,0.85],[2.02,1.45],[2.06,1.6],[1.96,1.6],[1.9,1.42],[1.6,0.8],[1.15,0.42],[0.35,0.3],[0,0.3]]
   .forEach(p=>prof.push(new THREE.Vector2(p[0], p[1])));
-const bowl = new THREE.Mesh(
-  new THREE.LatheGeometry(prof, 56),
-  new THREE.MeshStandardMaterial({ color:0xf5eee0, roughness:0.28, metalness:0.04, side:THREE.DoubleSide }));
-bowl.castShadow = true; bowl.receiveShadow = true; scene.add(bowl);
+function tierGroup(){ const g = new THREE.Group(); scene.add(g); return g; }
+/* — plastic: matte low-poly (10 radial segments, flat shaded) — */
+const gPlastic = tierGroup();
+{
+  const m = new THREE.Mesh(new THREE.LatheGeometry(prof, 10),
+    new THREE.MeshStandardMaterial({ color:0xa8d3be, roughness:0.96, metalness:0, flatShading:true, side:THREE.DoubleSide }));
+  m.castShadow = m.receiveShadow = true; gPlastic.add(m);
+}
+/* — heated glass: transparent walls + pulsing orange coil glow — */
+const gGlass = tierGroup();
+let coil = null, coilLight = null;
+{
+  const m = new THREE.Mesh(new THREE.LatheGeometry(prof, 56),
+    new THREE.MeshPhysicalMaterial({ color:0xdff2f9, roughness:0.06, metalness:0, transparent:true, opacity:0.32, side:THREE.DoubleSide }));
+  m.castShadow = false; m.receiveShadow = true; gGlass.add(m);
+  coil = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.09, 10, 40),
+    new THREE.MeshStandardMaterial({ color:0x50200a, emissive:0xff6a22, emissiveIntensity:1.2, roughness:0.6 }));
+  coil.rotation.x = Math.PI/2; coil.position.y = 0.12; gGlass.add(coil);
+  coilLight = new THREE.PointLight(0xff8a30, 0.9, 7);
+  coilLight.position.set(0, 0.6, 0); gGlass.add(coilLight);
+}
+/* — electric mixer: steel bowl, base unit, arm + whisk — */
+const gSteel = tierGroup();
+let whisk = null, led = null;
+{
+  const m = new THREE.Mesh(new THREE.LatheGeometry(prof, 56),
+    new THREE.MeshStandardMaterial({ color:0xcfd3dd, roughness:0.3, metalness:0.85, side:THREE.DoubleSide }));
+  m.castShadow = m.receiveShadow = true; gSteel.add(m);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.7, 0.35, 32),
+    new THREE.MeshStandardMaterial({ color:0x3a3f52, roughness:0.5, metalness:0.4 }));
+  base.position.y = 0.05; base.receiveShadow = base.castShadow = true; gSteel.add(base);
+  led = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8),
+    new THREE.MeshStandardMaterial({ color:0x222222, emissive:0x113311, emissiveIntensity:1 }));
+  led.position.set(2.2, 0.28, 0.8); gSteel.add(led);
+  const armV = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4.6, 0.3),
+    new THREE.MeshStandardMaterial({ color:0x565b70, roughness:0.4, metalness:0.6 }));
+  armV.position.set(2.6, 2.3, 0); armV.castShadow = true; gSteel.add(armV);
+  const armH = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.28, 0.3),
+    new THREE.MeshStandardMaterial({ color:0x565b70, roughness:0.4, metalness:0.6 }));
+  armH.position.set(1.25, 4.5, 0); armH.castShadow = true; gSteel.add(armH);
+  whisk = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.3, 8),
+    new THREE.MeshStandardMaterial({ color:0x9aa0b4, roughness:0.3, metalness:0.8 }));
+  shaft.position.y = 2.75; whisk.add(shaft);
+  for(let i=0;i<3;i++){
+    const loop = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.03, 8, 20),
+      new THREE.MeshStandardMaterial({ color:0xb8bdcf, roughness:0.25, metalness:0.85 }));
+    loop.rotation.y = i*Math.PI/3; loop.position.y = 1.12; loop.castShadow = true; whisk.add(loop);
+  }
+  gSteel.add(whisk);
+}
+function applyBowl(key){
+  gPlastic.visible = key==='plastic';
+  gGlass.visible = key==='glass';
+  gSteel.visible = key==='mixer';
+}
+applyBowl(PROG.bowl);
 
 /* liquid disc with CPU wave */
 const LIQ_SEG = 48;
@@ -339,6 +415,7 @@ cvEl.addEventListener('pointerdown', e=>{
   if(MIX && overBowl(pt)){
     if(MIX.stage<=1){ MIX.pouring = true; pointerMode='pour'; }
     else if(MIX.stage===2){ doSprinkle(); pointerMode='orbit'; }
+    else if(MIX.bowl.motor){ MIX.motor = true; pointerMode='pour'; }
     else { pointerMode='stir'; MIX.stirring=true; MIX.lastAng = Math.atan2(pt.z, pt.x); }
   } else pointerMode='orbit';
   cvEl.setPointerCapture(e.pointerId);
@@ -356,7 +433,7 @@ cvEl.addEventListener('pointermove', e=>{
       if(MIX.lastAng!==null){
         let d = a-MIX.lastAng;
         while(d>Math.PI) d-=Math.PI*2; while(d<-Math.PI) d+=Math.PI*2;
-        MIX.stir += Math.abs(d); MIX.stirVel = Math.min(1, Math.abs(d)*9);
+        MIX.stir += Math.abs(d)*MIX.bowl.stirMul; MIX.stirVel = Math.min(1, Math.abs(d)*9);
       }
       MIX.lastAng = a;
     }
@@ -373,7 +450,7 @@ cvEl.addEventListener('pointermove', e=>{
   }
 });
 function endPointer(){
-  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.lastAng=null; }
+  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.motor=false; MIX.lastAng=null; }
   if(blob) blob.userData.held=false;
   pointerMode=null;
 }
@@ -405,15 +482,28 @@ function resetMixScene(){
   liqMat.color.set(GLUE_COL);
 }
 function finishMix(){
+  const leftover = MIX.bowl.bubbles==='manual' ? bubbles.length : 0;
   MIX = null;
   bottle.visible = dropper.visible = spoon.visible = stream.visible = false;
   sprinkles.forEach(m=>scene.remove(m)); sprinkles.length=0;
   bubbles.forEach(m=>scene.remove(m)); bubbles.length=0;
   liquid.visible = false;
+  PROG.batches++; saveProg();
   blob = makeBlob();
+  for(let i=0;i<leftover;i++){   // trapped air rides the slime
+    const bb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6),
+      new THREE.MeshStandardMaterial({ color:0xffffff, transparent:true, opacity:0.4, roughness:0.1 }));
+    const v = new THREE.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1).normalize();
+    bb.position.copy(v.multiplyScalar(0.75));
+    blob.add(bb);
+  }
   sSquish(1);
-  setHint('🫠 poke it! drag it! orbit around it! · NEW BATCH to mix again');
-  setTimeout(()=>document.getElementById('hint').classList.add('gone'), 6000);
+  const unlocked = Object.keys(BOWLS).find(k=>BOWLS[k].need===PROG.batches);
+  buildBowls();
+  setHint(unlocked ? '🔓 '+BOWLS[unlocked].name+' unlocked — pick it on the bench!'
+    : leftover>0 ? '😬 '+leftover+' air bubble'+(leftover===1?'':'s')+' got trapped in your slime… · NEW BATCH to retry'
+    : '🫠 poke it! drag it! orbit around it! · NEW BATCH to mix again');
+  setTimeout(()=>document.getElementById('hint').classList.add('gone'), 7000);
 }
 
 /* ============ animate ============ */
@@ -438,7 +528,7 @@ function animate(now){
     /* tools visibility + pose */
     bottle.visible = MIX.stage===0;
     dropper.visible = MIX.stage===1;
-    spoon.visible = MIX.stage===3;
+    spoon.visible = MIX.stage===3 && !MIX.bowl.motor;
     stream.visible = MIX.pouring && MIX.stage===0;
     bottle.rotation.z = MIX.pouring ? 2.4 : 0.4 + Math.sin(t*0.8)*0.05;
     dropper.rotation.z = MIX.pouring ? 0.5 : 0.15;
@@ -458,15 +548,46 @@ function animate(now){
       /* CPU wave — amplitude keyed to stirring */
       const pos = liqGeo.attributes.position;
       const amp = 0.015 + MIX.stirVel*0.06;
+      const vort = MIX.bowl.motor ? (MIX.omega/OMEGA_MAX)*0.5 : 0;
       for(let i=0;i<pos.count;i++){
         const bx = liqBase[i*3], bz = liqBase[i*3+2];
-        pos.setY(i, Math.sin(bx*6 + t*4 + bz*4)*amp + Math.sin(bz*7 - t*3)*amp*0.6);
+        const rd = Math.min(1, Math.hypot(bx,bz));
+        pos.setY(i, Math.sin(bx*6 + t*4 + bz*4)*amp + Math.sin(bz*7 - t*3)*amp*0.6
+          - vort*(1-rd)*(1-rd));
       }
       pos.needsUpdate = true;
+      if(coil && gGlass.visible){
+        const pulse = 0.8 + 0.5*Math.sin(t*5);
+        coil.material.emissiveIntensity = pulse*1.4;
+        if(coilLight) coilLight.intensity = pulse;
+      }
       /* stirring: bubbles + decay */
       if(MIX.stage===3){
         MIX.stirVel *= Math.max(0, 1-5*dt);
-        if(Math.random()<dt*2 && bubbles.length<8 && m<0.95) spawnBubble();
+        if(MIX.bowl.bubbles!=='none' && Math.random()<dt*2 && bubbles.length<8 && m<0.95) spawnBubble();
+        /* electric mixer: hold = motor, whisk spins, vortex forms, g-force live */
+        if(MIX.bowl.motor){
+          MIX.omega = Math.max(0, Math.min(OMEGA_MAX, MIX.omega + (MIX.motor? 15*dt : -24*dt)));
+          MIX.whirl += MIX.omega*dt;
+          MIX.stir += MIX.omega*dt*0.30;
+          MIX.stirVel = MIX.omega/OMEGA_MAX;
+          if(whisk) whisk.rotation.y = MIX.whirl;
+          if(led) led.material.emissive.set(MIX.motor ? 0x2bff5a : 0x113311);
+          const gF = MIX.omega*MIX.omega*2/9.8*0.22;
+          MIX.hintT += dt;
+          if(MIX.omega>0.5 && MIX.hintT>0.2){
+            MIX.hintT = 0;
+            setHint('⚡ mixer '+Math.round(Math.min(1,MIX.stir/STIR_NEED)*100)+'% · '+gF.toFixed(1)+' g'+(gF>3.6?' ⚠ overspin':''));
+          }
+          if(gF>3.6 && Math.random()<0.3){   // goo flings off the rim
+            const a = Math.random()*Math.PI*2, rr = liqRadiusAt(y);
+            const m2 = new THREE.Mesh(dripGeo, new THREE.MeshStandardMaterial({ color:PIGMENTS[recipe.pigment], roughness:0.3 }));
+            m2.castShadow = true;
+            m2.position.set(Math.cos(a)*rr, y+0.1, Math.sin(a)*rr);
+            m2.userData = { vy:1.4, vx:Math.cos(a)*3.2, vz:Math.sin(a)*3.2 };
+            scene.add(m2); drips.push(m2);
+          }
+        }
         if(MIX.stir>=STIR_NEED){ finishMix(); requestAnimationFrame(animate); return; }
       }
     }
@@ -497,6 +618,7 @@ function animate(now){
     }
     ud.vy -= 9.8*dt;
     d.position.y += ud.vy*dt;
+    d.position.x += (ud.vx||0)*dt; d.position.z += (ud.vz||0)*dt;
     const rr = Math.hypot(d.position.x, d.position.z);
     const lr = liqRadiusAt(surf);
     if(rr > lr && rr <= 2.02 && d.position.y <= wallYAt(rr)){
@@ -542,13 +664,18 @@ function animate(now){
       s.rotation.y += (REDUCED?0:dt*2);
     }
   }
-  /* bubbles rise a touch and pop */
+  /* bubbles rise; heated glass pops them by itself, plastic needs the spoon */
   for(let i=bubbles.length-1;i>=0;i--){
     const b = bubbles[i];
     b.userData.age += dt;
     b.position.y += dt*0.08;
-    b.scale.setScalar(1 + b.userData.age*0.4);
-    if(b.userData.age>1.1){
+    b.scale.setScalar(1 + Math.min(1.4, b.userData.age*0.4));
+    let popped = MIX && MIX.bowl.bubbles==='auto' && b.userData.age>1.1;
+    if(!popped && MIX && MIX.bowl.bubbles==='manual' && MIX.stage===3 && spoon.visible){
+      const dx=b.position.x-spoon.position.x, dz=b.position.z-spoon.position.z;
+      if(Math.hypot(dx,dz) < 0.42) popped = true;
+    }
+    if(popped){
       spawnRipple(b.position.x, b.position.z, b.position.y-0.02);
       sBlip(0.15);
       scene.remove(b); bubbles.splice(i,1);
@@ -684,7 +811,21 @@ document.addEventListener('keydown', e=>{
   if(e.key==='r'||e.key==='R'){ audioInit(); freshBatch(); }
   if(e.key==='Enter'){ audioInit(); autoStep(); }
 });
-buildSwatches(); buildChips();
+function buildBowls(){
+  const row=$('bowlRow'); row.innerHTML='';
+  Object.keys(BOWLS).forEach(k=>{
+    const bd=BOWLS[k], locked = PROG.batches < bd.need;
+    const b=document.createElement('button'); b.type='button'; b.className='chip'; b.disabled=locked;
+    b.textContent = locked ? '🔒 '+(bd.need-PROG.batches)+' more' : bd.name;
+    b.style.opacity = locked ? 0.45 : 1;
+    b.setAttribute('aria-pressed', String(!locked && PROG.bowl===k));
+    b.setAttribute('aria-label', bd.name+(locked?' — locked, mix '+(bd.need-PROG.batches)+' more batches':''));
+    b.addEventListener('click', ()=>{ if(locked) return; PROG.bowl=k; saveProg(); buildBowls(); if(!MIX) applyBowl(k); });
+    row.appendChild(b);
+  });
+  $('batchCount').textContent = PROG.batches+' mixed';
+}
+buildSwatches(); buildChips(); buildBowls();
 requestAnimationFrame(t=>{ lastT=t; animate(t); });
 </script>
 </body>
