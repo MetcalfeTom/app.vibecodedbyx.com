@@ -322,9 +322,51 @@ window.addEventListener('resize', resize); resize();
 const N = 30;
 const blob = { cx:0, cy:0, vx:0, vy:0, r:0, sx:1, sy:1, sxv:0, syv:0, pts:[], grounded:false };
 let decor = { glitter:[], beads:[], charms:[] };
-let MIX = null;               // active mixing animation {t, stage}
-const MIX_DUR = 2.7;
+let MIX = null;               // interactive mixing session
+const STIR_NEED = Math.PI*2*2.2;   // ~2.2 full spoon turns
 const GLUE_LIQ = { white:'#f7f2e9', clear:'#d7ecf4', pearl:'#f3eaf7', glow:'#eaffdc' };
+const MIX_HINTS = [
+  '🍯 press & hold to pour the glue to the line',
+  '💧 hold to drizzle the activator on top',
+  '✨ tap 3× to sprinkle pigment + add-ins',
+  '🥄 drag circles in the bowl to stir it all together',
+];
+function mixGeo(){
+  const r = baseR();
+  const bw = r*2.3, bh = r*1.7, bx = W/2, by = matY, topY = by - bh;
+  const maxLiq = bh*0.60, actH = bh*0.16;
+  const glueH = MIX.level*maxLiq, actHc = MIX.actLevel*actH;
+  return { bx, by, bw, bh, topY, maxLiq, actH, glueH, actHc,
+    surfaceY: by - glueH - actHc, cy: by - bh*0.4 };
+}
+function updateMixHint(){
+  $('hint').textContent = MIX_HINTS[MIX.stage] + '  (Enter = auto)';
+  $('hint').classList.remove('gone');
+}
+function advMix(n){
+  MIX.stage = n; MIX.pouring = false;
+  bedGain(0);
+  sSquish(0.25);
+  if(n===3) sMix();
+  updateMixHint();
+}
+function sprinkle(p){
+  const g = mixGeo();
+  MIX.sprinkles++;
+  const cxs = Math.max(g.bx-g.bw*0.34, Math.min(g.bx+g.bw*0.34, p.x));
+  const kinds = ['pig','pig','pig'];
+  if(P.glitter) kinds.push('gl','gl','gl','gl');
+  if(P.beads) kinds.push('bd','bd','bd');
+  for(let i=0;i<8+Math.floor(Math.random()*5);i++){
+    const k = kinds[Math.floor(Math.random()*kinds.length)];
+    MIX.parts.push({ k, x:cxs+(Math.random()-.5)*g.bw*0.4, y:g.topY-30-Math.random()*26,
+      vy:40+Math.random()*80, rest:false });
+  }
+  if(P.charms) MIX.parts.push({ k:'ch', em:CHARM_EMOJI[MIX.sprinkles%CHARM_EMOJI.length],
+    x:cxs+(Math.random()-.5)*g.bw*0.3, y:g.topY-40, vy:60, rest:false });
+  sCrunch(0.35);
+  if(MIX.sprinkles>=3) advMix(3);
+}
 
 function baseR(){ return Math.max(52, Math.min(96, Math.min(W,H)*0.16)); }
 function buildBlob(dropIn){
@@ -347,24 +389,35 @@ function refreshDecor(){
   if(P.charms)  for(let i=0;i<5;i++)  decor.charms.push({ a:i/5*Math.PI*2+rnd()*0.5, d:0.35+rnd()*0.3, em:CHARM_EMOJI[i], rot:(rnd()-.5)*0.9 });
 }
 function freshBatch(){
-  MIX = { t:0, stage:0 };
-  sMix();
-  $('hint').classList.remove('gone');
-  setTimeout(()=>$('hint').classList.add('gone'), 5200);
+  MIX = { stage:0, level:0, actLevel:0, sprinkles:0, parts:[],
+    stir:0, stirVel:0, pouring:false, stirring:false, lastAng:null,
+    px:W/2, py:0, halfTurns:0 };
+  updateMixHint();
 }
 function finishMix(){
   MIX = null;
+  bedGain(0);
   buildBlob(false);
   blob.syv = -3.2; blob.sxv = 1.8;   // birth wobble
   sSquish(0.9);
   if(P.beads) sCrunch(0.5);
+  $('hint').textContent = '👆 drag to stretch · tap to poke · fling to throw';
+  setTimeout(()=>$('hint').classList.add('gone'), 3500);
 }
 
 /* pointer */
 const grab = { on:false, x:0, y:0, px:0, py:0, vx:0, vy:0, t0:0, moved:0, gi:-1 };
 function evPos(e){ const r = cv.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
 cv.addEventListener('pointerdown', e=>{
-  audioInit(); if(MIX) return;
+  audioInit();
+  if(MIX){
+    const p = evPos(e); MIX.px = p.x; MIX.py = p.y;
+    if(MIX.stage<=1){ MIX.pouring = true; }
+    else if(MIX.stage===2){ sprinkle(p); }
+    else { const g = mixGeo(); MIX.stirring = true; MIX.lastAng = Math.atan2(p.y-g.cy, p.x-g.bx); }
+    cv.setPointerCapture(e.pointerId);
+    return;
+  }
   const p = evPos(e);
   const d = Math.hypot(p.x-blob.cx, p.y-blob.cy);
   if(d < blob.r*Math.max(blob.sx,blob.sy)*1.35){
@@ -378,6 +431,24 @@ cv.addEventListener('pointerdown', e=>{
   }
 });
 cv.addEventListener('pointermove', e=>{
+  if(MIX){
+    const p = evPos(e); MIX.px = p.x; MIX.py = p.y;
+    if(MIX.stage===3 && MIX.stirring){
+      const g = mixGeo();
+      const a = Math.atan2(p.y-g.cy, p.x-g.bx);
+      if(MIX.lastAng!==null){
+        let d = a - MIX.lastAng;
+        while(d>Math.PI) d -= Math.PI*2;
+        while(d<-Math.PI) d += Math.PI*2;
+        MIX.stir += Math.abs(d);
+        MIX.stirVel = Math.min(1, Math.abs(d)*9);
+        const ht = Math.floor(MIX.stir/Math.PI);
+        if(ht > MIX.halfTurns){ MIX.halfTurns = ht; sSquish(0.14 + 0.1*Math.min(1,MIX.stir/STIR_NEED)); }
+      }
+      MIX.lastAng = a;
+    }
+    return;
+  }
   if(!grab.on) return; const p = evPos(e);
   grab.moved += Math.hypot(p.x-grab.x, p.y-grab.y);
   grab.x = p.x; grab.y = p.y;
@@ -405,8 +476,14 @@ function endGrab(fling){
   }
   stretchGain(0);
 }
-cv.addEventListener('pointerup', ()=>endGrab(true));
-cv.addEventListener('pointercancel', ()=>endGrab(false));
+cv.addEventListener('pointerup', ()=>{
+  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.lastAng=null; return; }
+  endGrab(true);
+});
+cv.addEventListener('pointercancel', ()=>{
+  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.lastAng=null; return; }
+  endGrab(false);
+});
 function angDist(a,b){ let d = Math.abs(a-b)%(Math.PI*2); return d>Math.PI ? Math.PI*2-d : d; }
 
 /* sim */
@@ -416,8 +493,29 @@ function step(now){
   const G = 1500;
 
   if(MIX){
-    MIX.t += dt;
-    if(MIX.t >= MIX_DUR){ finishMix(); }
+    if(MIX.pouring && MIX.stage===0){
+      MIX.level = Math.min(1, MIX.level + dt/1.6);
+      bedGain(0.09, 300);
+      if(MIX.level>=1) advMix(1);
+    } else if(MIX.pouring && MIX.stage===1){
+      MIX.actLevel = Math.min(1, MIX.actLevel + dt/1.1);
+      bedGain(0.07, 850);
+      if(MIX.actLevel>=1) advMix(2);
+    } else if(MIX.stage===3){
+      MIX.stirVel *= Math.max(0, 1-6*dt);
+      bedGain(MIX.stirVel*0.08, 480);
+    } else {
+      bedGain(0);
+    }
+    // falling sprinkles settle on the current surface
+    const g = mixGeo();
+    for(const p of MIX.parts){
+      if(!p.rest){
+        p.vy += 900*dt; p.y += p.vy*dt;
+        if(p.y >= g.surfaceY-2){ p.y = g.surfaceY-2; p.rest = true; }
+      } else { p.y = Math.min(p.y, g.surfaceY-2); }
+    }
+    if(MIX.stage===3 && MIX.stir >= STIR_NEED){ finishMix(); }
     else { drawMix(now/1000); requestAnimationFrame(step); return; }
   }
 
@@ -522,120 +620,162 @@ function lerpColor(h1, h2, k){
   const bl = Math.round((a&255) + (((b&255)-(a&255))*k));
   return 'rgb('+r+','+g+','+bl+')';
 }
+function beakerPath(g){
+  const inset = g.bw*0.08;
+  ctx.beginPath();
+  ctx.moveTo(g.bx-g.bw/2+inset, g.topY);
+  ctx.lineTo(g.bx-g.bw/2, g.by-6); ctx.quadraticCurveTo(g.bx-g.bw/2, g.by, g.bx-g.bw/2+8, g.by);
+  ctx.lineTo(g.bx+g.bw/2-8, g.by); ctx.quadraticCurveTo(g.bx+g.bw/2, g.by, g.bx+g.bw/2, g.by-6);
+  ctx.lineTo(g.bx+g.bw/2-inset, g.topY);
+  ctx.closePath();
+  return inset;
+}
 function drawMix(t){
   drawRoom();
-  const u = Math.min(1, MIX.t/MIX_DUR);
-  const r = baseR();
-  const bx = W/2, bw = r*2.3, bh = r*1.7;
-  const by = matY;              // beaker base sits on the mat
-  const topY = by - bh;
-  // phase → liquid level + color
+  const g = mixGeo();
+  const m = Math.min(1, MIX.stir/STIR_NEED);          // stir blend 0..1
   const liq = GLUE_LIQ[recipe.glue];
-  let lvl, col, stage;
-  if(u < 0.34){ stage = 0; lvl = 0.10 + (u/0.34)*0.50; col = liq; }
-  else if(u < 0.55){ stage = 1; const k=(u-0.34)/0.21; lvl = 0.60+0.14*k; col = lerpColor(liq, P.color, k); }
-  else if(u < 0.74){ stage = 2; lvl = 0.74+0.10*((u-0.55)/0.19); col = P.color; }
-  else { stage = 3; lvl = 0.84; col = P.color; }
-  if(stage !== MIX.stage){
-    MIX.stage = stage;
-    if(stage===1) sSquish(0.22);
-    else if(stage===2){ sSquish(0.25); if(P.beads) sCrunch(0.25); }
-    else if(stage===3) sMix();
-  }
-  const wob = stage===3 && !REDUCED ? Math.sin(t*22)*0.02 : 0;
+  const stage = MIX.stage;
+  const wob = (stage===3 && MIX.stirVel>0.05 && !REDUCED) ? Math.sin(t*22)*0.015*MIX.stirVel : 0;
   ctx.save();
-  ctx.translate(bx, by); ctx.rotate(wob); ctx.translate(-bx, -by);
-  // liquid (clipped to beaker shape)
-  const inset = bw*0.08;
+  ctx.translate(g.bx, g.by); ctx.rotate(wob); ctx.translate(-g.bx, -g.by);
+
+  /* liquid layers, clipped to bowl */
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(bx-bw/2+inset, topY);
-  ctx.lineTo(bx-bw/2, by-6); ctx.quadraticCurveTo(bx-bw/2, by, bx-bw/2+8, by);
-  ctx.lineTo(bx+bw/2-8, by); ctx.quadraticCurveTo(bx+bw/2, by, bx+bw/2, by-6);
-  ctx.lineTo(bx+bw/2-inset, topY);
-  ctx.closePath();
+  const inset = beakerPath(g);
   ctx.clip();
-  const ly = by - bh*lvl*0.95;
-  ctx.fillStyle = col;
-  ctx.beginPath();
-  ctx.moveTo(bx-bw/2, ly + Math.sin(t*5)*2);
-  for(let x=-bw/2; x<=bw/2; x+=10){
-    const swirl = stage===3 ? Math.sin(t*14 + x*0.15)*4 : Math.sin(t*5 + x*0.08)*2;
-    ctx.lineTo(bx+x, ly + swirl);
+  const glueTop = g.by - g.glueH;
+  const wave = x => Math.sin(t*5 + x*0.08)*2 + (m>0 ? Math.sin(t*13 + x*0.15)*5*m*(0.3+MIX.stirVel) : 0);
+  // glue layer (blends toward final pigment color as you stir)
+  if(MIX.level>0){
+    ctx.fillStyle = lerpColor(liq, P.color, m);
+    ctx.beginPath();
+    ctx.moveTo(g.bx-g.bw/2, glueTop + wave(-g.bw/2));
+    for(let x=-g.bw/2; x<=g.bw/2; x+=10) ctx.lineTo(g.bx+x, glueTop + wave(x));
+    ctx.lineTo(g.bx+g.bw/2, g.by); ctx.lineTo(g.bx-g.bw/2, g.by);
+    ctx.closePath(); ctx.fill();
   }
-  ctx.lineTo(bx+bw/2, by); ctx.lineTo(bx-bw/2, by);
-  ctx.closePath(); ctx.fill();
-  // stir vortex highlight
-  if(stage===3){
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 3;
+  // activator layer floats on top until stirred in
+  if(MIX.actLevel>0){
+    ctx.fillStyle = hexA('#cfe8f2', 0.92*(1-m*0.85));
+    ctx.beginPath();
+    ctx.moveTo(g.bx-g.bw/2, g.surfaceY + wave(-g.bw/2)*0.7);
+    for(let x=-g.bw/2; x<=g.bw/2; x+=10) ctx.lineTo(g.bx+x, g.surfaceY + wave(x)*0.7);
+    ctx.lineTo(g.bx+g.bw/2, glueTop+3); ctx.lineTo(g.bx-g.bw/2, glueTop+3);
+    ctx.closePath(); ctx.fill();
+    // layer boundary line, fades as it blends
+    ctx.strokeStyle = 'rgba(51,37,74,'+(0.28*(1-m))+')'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for(let x=-g.bw/2; x<=g.bw/2; x+=10){
+      const y = glueTop + wave(x)*0.8;
+      x===-g.bw/2 ? ctx.moveTo(g.bx+x, y) : ctx.lineTo(g.bx+x, y);
+    }
+    ctx.stroke();
+  }
+  // unmixed glue streaks swirl while stirring, vanish when done
+  if(m>0 && m<0.97){
+    ctx.strokeStyle = hexA(liq==='#f7f2e9'?'#ffffff':liq, 0.55*(1-m));
+    ctx.lineWidth = 4;
     for(let i=0;i<3;i++){
-      const sa = t*6 + i*2.1;
+      const sa = t*4 + i*2.1 + m*6;
       ctx.beginPath();
-      ctx.ellipse(bx, ly+14+i*10, bw*0.28*(1-i*0.22), 6, Math.sin(sa)*0.3, sa, sa+2.2);
+      ctx.ellipse(g.bx, g.surfaceY+14+i*10, g.bw*0.28*(1-i*0.22), 5+m*3, Math.sin(sa)*0.3, sa, sa+2.0);
       ctx.stroke();
     }
   }
-  // sinking add-ins during sprinkle + stir
-  if(stage>=2){
-    const items = [];
-    if(P.glitter) for(let i=0;i<10;i++) items.push({k:'g', i});
-    if(P.beads)   for(let i=0;i<6;i++)  items.push({k:'b', i});
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    items.forEach(it=>{
-      const ph = it.i*1.7 + (it.k==='b'?9:0);
-      const ix = bx + Math.sin(ph)*bw*0.34;
-      const iy = ly + 8 + ((t*26 + ph*31) % Math.max(10, (by-ly-14)));
-      if(it.k==='g'){ ctx.fillRect(ix-1.5, iy-1.5, 3, 3); }
-      else { ctx.beginPath(); ctx.arc(ix, iy, 3.4, 0, Math.PI*2); ctx.fill(); }
-    });
+  // sprinkled parts: rest on the surface, get pulled around while stirring
+  for(let i=0;i<MIX.parts.length;i++){
+    const p = MIX.parts[i];
+    const jx = p.rest && m>0 ? Math.sin(t*4+i*1.7)*g.bw*0.06*m : 0;
+    const jy = p.rest && m>0 ? (Math.sin(t*3+i)*0.5+0.5)*(g.by-8-p.y)*m*0.7 : 0;
+    const al = p.k==='ch' ? 1 : 1-m*0.55;
+    if(p.k==='pig'){ ctx.fillStyle = hexA(P.color, al); ctx.fillRect(p.x+jx-2, p.y+jy-2, 4, 4); }
+    else if(p.k==='gl'){ ctx.fillStyle = 'rgba(255,255,255,'+(0.95*al)+')'; ctx.fillRect(p.x+jx-1.6, p.y+jy-1.6, 3.2, 3.2); }
+    else if(p.k==='bd'){ ctx.fillStyle = 'rgba(255,255,255,'+(0.85*al)+')'; ctx.beginPath(); ctx.arc(p.x+jx, p.y+jy, 3.3, 0, Math.PI*2); ctx.fill(); }
+    else { ctx.font='17px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.globalAlpha = al; ctx.fillText(p.em, p.x+jx, p.y+jy); ctx.globalAlpha = 1; }
   }
   ctx.restore();
-  // falling stream / drips above the beaker
+
+  /* fill target lines */
+  ctx.strokeStyle = 'rgba(51,37,74,0.5)'; ctx.lineWidth = 2; ctx.setLineDash([6,5]);
   if(stage===0){
-    ctx.fillStyle = liq;
-    ctx.fillRect(bx-4, 0, 8, Math.max(0, topY+bh*(1-lvl)*0.2));
-    ctx.beginPath(); ctx.ellipse(bx, Math.max(10,topY-6), 7, 5, 0, 0, Math.PI*2); ctx.fill();
+    const yl = g.by - g.maxLiq;
+    ctx.beginPath(); ctx.moveTo(g.bx-g.bw/2+6, yl); ctx.lineTo(g.bx+g.bw/2-6, yl); ctx.stroke();
   } else if(stage===1){
-    ctx.fillStyle = P.color;
-    for(let i=0;i<3;i++){
-      const dy = (t*300 + i*90) % (topY+30);
-      ctx.beginPath(); ctx.arc(bx + (i-1)*14, dy, 5, 0, Math.PI*2); ctx.fill();
-    }
-  } else if(stage===2){
-    for(let i=0;i<5;i++){
-      const dy = (t*340 + i*67) % (topY+26);
-      const dx = bx + (i-2)*17;
-      if(P.glitter && i%2===0){ ctx.fillStyle='rgba(255,255,255,0.95)'; ctx.fillRect(dx-2, dy-2, 4, 4); }
-      else { ctx.fillStyle='rgba(215,236,244,0.9)'; ctx.beginPath(); ctx.arc(dx, dy, 3.5, 0, Math.PI*2); ctx.fill(); }
-    }
-    if(P.charms){
-      ctx.font='18px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-      const dy = (t*180) % (topY+20);
-      ctx.fillText(CHARM_EMOJI[Math.floor(u*24)%CHARM_EMOJI.length], bx+bw*0.28, dy);
-    }
-  } else {
-    // stir rod
-    const sa = t*6;
-    const rx = bx + Math.cos(sa)*bw*0.22;
-    ctx.strokeStyle = '#8a6b4a'; ctx.lineWidth = 7; ctx.lineCap='round';
-    ctx.beginPath(); ctx.moveTo(rx + bw*0.18, Math.max(6, topY-56)); ctx.lineTo(rx, ly+16); ctx.stroke();
+    const yl = g.by - g.maxLiq - g.actH;
+    ctx.beginPath(); ctx.moveTo(g.bx-g.bw/2+6, yl); ctx.lineTo(g.bx+g.bw/2-6, yl); ctx.stroke();
   }
-  // glass on top
+  ctx.setLineDash([]);
+
+  /* pouring stream */
+  if(MIX.pouring && stage<=1){
+    const sx = Math.max(g.bx-g.bw*0.3, Math.min(g.bx+g.bw*0.3, MIX.px));
+    ctx.fillStyle = stage===0 ? liq : 'rgba(207,232,242,0.9)';
+    const sw = stage===0 ? 7 : 4;
+    ctx.fillRect(sx-sw/2, g.topY-46, sw, Math.max(0, g.surfaceY-(g.topY-46)));
+    for(let i=0;i<3;i++){
+      const dy = g.surfaceY - ((t*260+i*37) % 30);
+      ctx.beginPath(); ctx.ellipse(sx+(i-1)*4, dy, 3, 4, 0, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  /* tools */
+  ctx.lineCap='round';
+  const toolX = Math.max(g.bx-g.bw*0.3, Math.min(g.bx+g.bw*0.3, MIX.px));
+  if(stage===0){ // glue bottle
+    ctx.save();
+    ctx.translate(toolX, g.topY-58); ctx.rotate(MIX.pouring?0.9:0.45);
+    ctx.fillStyle = '#fffdf7'; ctx.strokeStyle = 'rgba(51,37,74,0.8)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-14,-52,28,52,7) : ctx.rect(-14,-52,28,52); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffb62e'; ctx.fillRect(-6,-2,12,14); ctx.strokeRect(-6,-2,12,14);
+    ctx.fillStyle = 'rgba(51,37,74,0.7)'; ctx.font='700 10px "Space Mono",monospace'; ctx.textAlign='center';
+    ctx.save(); ctx.rotate(-Math.PI/2); ctx.fillText('GLUE', 26, 2); ctx.restore();
+    ctx.restore();
+  } else if(stage===1){ // activator dropper
+    ctx.save();
+    ctx.translate(toolX, g.topY-56); ctx.rotate(MIX.pouring?0.65:0.3);
+    ctx.fillStyle = '#dff2f9'; ctx.strokeStyle = 'rgba(51,37,74,0.8)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-9,-42,18,42,6) : ctx.rect(-9,-42,18,42); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#35d6b1'; ctx.fillRect(-5,-1,10,10); ctx.strokeRect(-5,-1,10,10);
+    ctx.restore();
+  } else if(stage===2){ // shaker
+    const shake = (!REDUCED && MIX.parts.some(p=>!p.rest)) ? Math.sin(t*40)*3 : 0;
+    ctx.save();
+    ctx.translate(toolX+shake, g.topY-64);
+    ctx.fillStyle = '#f4ecdd'; ctx.strokeStyle = 'rgba(51,37,74,0.8)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-13,-30,26,38,6) : ctx.rect(-13,-30,26,38); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(51,37,74,0.7)';
+    for(let i=-1;i<=1;i++) ctx.beginPath(), ctx.arc(i*7, 12, 1.8, 0, Math.PI*2), ctx.fill();
+    ctx.restore();
+  } else { // spoon follows the pointer
+    const spx = Math.max(g.bx-g.bw*0.36, Math.min(g.bx+g.bw*0.36, MIX.px));
+    const spy = Math.max(g.topY-10, Math.min(g.by-14, MIX.py));
+    ctx.strokeStyle = '#8a6b4a'; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.moveTo(spx+g.bw*0.2, Math.max(6, g.topY-62)); ctx.lineTo(spx, spy); ctx.stroke();
+    ctx.fillStyle = '#a5825c';
+    ctx.beginPath(); ctx.ellipse(spx, spy+6, 9, 12, 0, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(51,37,74,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  /* glass on top */
   ctx.strokeStyle = 'rgba(51,37,74,0.75)'; ctx.lineWidth = 3.5; ctx.lineJoin='round';
-  ctx.beginPath();
-  ctx.moveTo(bx-bw/2+inset-10, topY); ctx.lineTo(bx-bw/2+inset, topY);   // left lip
-  ctx.lineTo(bx-bw/2, by-6); ctx.quadraticCurveTo(bx-bw/2, by, bx-bw/2+8, by);
-  ctx.lineTo(bx+bw/2-8, by); ctx.quadraticCurveTo(bx+bw/2, by, bx+bw/2, by-6);
-  ctx.lineTo(bx+bw/2-inset, topY); ctx.lineTo(bx+bw/2-inset+10, topY);   // right lip
+  beakerPath(g);
   ctx.stroke();
   ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(bx-bw/2+inset*1.6, topY+bh*0.18); ctx.lineTo(bx-bw/2+inset*0.7, by-14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(g.bx-g.bw/2+inset*1.6, g.topY+g.bh*0.18); ctx.lineTo(g.bx-g.bw/2+inset*0.7, g.by-14); ctx.stroke();
   ctx.restore();
-  // label
+
+  /* progress label */
   ctx.fillStyle = 'rgba(51,37,74,0.85)';
   ctx.font = '700 13px "Space Mono", monospace'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
-  const labels = ['pouring '+GLUES[recipe.glue].name.toLowerCase()+' glue…','adding '+PIGMENTS[recipe.pigment].name+' pigment…','drizzling '+ACTS[recipe.act].name.toLowerCase()+' + add-ins…','stirring…'];
-  ctx.fillText(labels[stage], bx, Math.max(20, topY-64));
+  const pct = v => Math.round(v*100)+'%';
+  const labels = [
+    GLUES[recipe.glue].name.toLowerCase()+' glue · '+pct(MIX.level),
+    ACTS[recipe.act].name.toLowerCase()+' activator · '+pct(MIX.actLevel),
+    'sprinkle '+PIGMENTS[recipe.pigment].name+' + add-ins · '+MIX.sprinkles+'/3',
+    'stir · '+pct(Math.min(1, MIX.stir/STIR_NEED)),
+  ];
+  ctx.fillText(labels[stage], g.bx, Math.max(20, g.topY-80));
 }
 function draw(t){
   drawRoom();
@@ -736,6 +876,12 @@ function stretchGain(v){
   stretchF.frequency.setTargetAtTime(180+P.pitch*260, AC.currentTime, 0.05);
   stretchG.gain.setTargetAtTime(v*0.10, AC.currentTime, 0.06);
 }
+/* pour/stir bed reuses the looped noise (glue=low glug, activator=high trickle, stir=mid slosh) */
+function bedGain(v, f){
+  if(!AC||!stretchG) return;
+  if(f) stretchF.frequency.setTargetAtTime(f, AC.currentTime, 0.05);
+  stretchG.gain.setTargetAtTime(v, AC.currentTime, 0.06);
+}
 function sSquish(i){
   if(!AC) return; i = Math.max(0.08, Math.min(1,i));
   const t = AC.currentTime;
@@ -816,9 +962,16 @@ $('muteBtn').addEventListener('click', function(){
   if(master) master.gain.setTargetAtTime(muted?0:0.8, AC.currentTime, 0.03);
 });
 document.addEventListener('keydown', e=>{
-  if(e.target.tagName==='INPUT') return;
+  if(e.target.tagName==='INPUT'||e.target.tagName==='BUTTON') return;
   if(e.key==='m'||e.key==='M') $('muteBtn').click();
-  if(e.key==='r'||e.key==='R'){ audioInit(); freshBatch(); }
+  if(e.key==='r'||e.key==='R'){ audioInit(); derive(); freshBatch(); }
+  if(e.key==='Enter' && MIX){ // keyboard fallback: complete the current step
+    audioInit();
+    if(MIX.stage===0){ MIX.level=1; advMix(1); }
+    else if(MIX.stage===1){ MIX.actLevel=1; advMix(2); }
+    else if(MIX.stage===2){ while(MIX.sprinkles<3) sprinkle({x:W/2, y:0}); }
+    else MIX.stir = STIR_NEED;
+  }
 });
 
 /* ============================== BOOT ============================== */
