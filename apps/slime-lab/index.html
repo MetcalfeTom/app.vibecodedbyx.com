@@ -386,10 +386,11 @@ const MIX_HINTS = [
   '✨ tap 3× to sprinkle pigment + add-ins',
   '🥄 drag circles in the bowl to stir it all together',
 ];
-const TILT = 0.30;   // third-person camera tilt: ellipse ry/rx ratio (fake-3D, no engine needed)
+let TILT = 0.30;     // camera pitch: ellipse ry/rx ratio (drag outside the bowl to change)
+let CAMYAW = 0;      // camera yaw around the bowl axis
 function mixGeo(){
   const r = baseR();
-  const bw = r*2.5, bh = r*1.6, bx = W/2, by = matY, topY = by - bh;
+  const bw = r*2.5, bh = r*1.6*(1.25 - TILT*0.85), bx = W/2, by = matY, topY = by - bh;
   const maxLiq = bh*0.60, actH = bh*0.16;
   const glueH = MIX.level*maxLiq, actHc = MIX.actLevel*actH;
   const rx = bw/2, ry = rx*TILT;
@@ -407,11 +408,38 @@ function spoonPos(g){
   if(n>1){ dx/=n; dy/=n; }
   return { x:g.bx+dx, y:g.surfaceY+dy };
 }
+/* orbit camera: rotate every surface-bound entity around the bowl axis in
+   ellipse space — physics (bubbles, drips, popping, landing) is untouched
+   because it always runs in the current screen frame */
+function forSurfaceEnts(fn){
+  MIX.parts.forEach(p=>{ if(p.rest) fn(p); });
+  MIX.bubbles.forEach(fn); MIX.scrapes.forEach(fn); MIX.trail.forEach(fn);
+  MIX.ripples.forEach(fn);
+}
+function orbitYaw(dg){
+  const g = mixGeo();
+  forSurfaceEnts(p=>{
+    const u = (p.x-g.bx)/Math.max(1,g.srx), e = (p.y-g.surfaceY)/Math.max(0.001,g.sry);
+    const a = Math.atan2(e,u)+dg, r = Math.hypot(u,e);
+    p.x = g.bx + Math.cos(a)*g.srx*r;
+    p.y = g.surfaceY + Math.sin(a)*g.sry*r;
+  });
+  CAMYAW += dg;
+}
+function orbitPitch(nt){
+  nt = Math.max(0.14, Math.min(0.55, nt));
+  if(nt===TILT) return;
+  const g0 = mixGeo();
+  TILT = nt;
+  const g1 = mixGeo();
+  const f = g1.sry/Math.max(0.001,g0.sry);
+  forSurfaceEnts(p=>{ p.y = g1.surfaceY + (p.y-g0.surfaceY)*f; });
+}
 function updateMixHint(){
   let h = MIX_HINTS[MIX.stage];
   if(MIX.stage===3 && MIX.bowl.motor) h = '⚡ press & hold to run the mixer — watch the g-force';
   else if(MIX.stage===3 && MIX.bowl.bubbles==='manual') h = '🥄 stir circles — run the spoon over air bubbles to pop them!';
-  $('hint').textContent = h + '  (Enter = auto)';
+  $('hint').textContent = h + ' · drag empty space to orbit 🌀 (Enter = auto)';
   $('hint').classList.remove('gone');
 }
 function advMix(n){
@@ -532,10 +560,13 @@ cv.addEventListener('pointerdown', e=>{
   audioInit();
   if(MIX){
     const p = evPos(e); MIX.px = p.x; MIX.py = p.y;
-    if(MIX.stage<=1){ MIX.pouring = true; }
+    const g = mixGeo();
+    const inside = Math.abs(p.x-g.bx) < g.rx*1.35 && p.y > g.topY-95;
+    if(!inside){ MIX.orbiting = true; MIX.ox = p.x; MIX.oy = p.y; }
+    else if(MIX.stage<=1){ MIX.pouring = true; }
     else if(MIX.stage===2){ sprinkle(p); }
     else if(MIX.bowl.motor){ MIX.motor = true; }
-    else { const g = mixGeo(); MIX.stirring = true; MIX.lastAng = Math.atan2(p.y-g.cy, p.x-g.bx); }
+    else { MIX.stirring = true; MIX.lastAng = Math.atan2(p.y-g.cy, p.x-g.bx); }
     cv.setPointerCapture(e.pointerId);
     return;
   }
@@ -554,6 +585,12 @@ cv.addEventListener('pointerdown', e=>{
 cv.addEventListener('pointermove', e=>{
   if(MIX){
     const p = evPos(e); MIX.px = p.x; MIX.py = p.y;
+    if(MIX.orbiting){
+      orbitYaw((p.x-MIX.ox)*0.012);
+      orbitPitch(TILT + (p.y-MIX.oy)*0.0025);
+      MIX.ox = p.x; MIX.oy = p.y;
+      return;
+    }
     if(MIX.stage===3 && MIX.stirring){
       const g = mixGeo();
       const a = Math.atan2(p.y-g.cy, p.x-g.bx);
@@ -598,11 +635,11 @@ function endGrab(fling){
   stretchGain(0);
 }
 cv.addEventListener('pointerup', ()=>{
-  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.motor=false; MIX.lastAng=null; return; }
+  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.motor=false; MIX.orbiting=false; MIX.lastAng=null; return; }
   endGrab(true);
 });
 cv.addEventListener('pointercancel', ()=>{
-  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.motor=false; MIX.lastAng=null; return; }
+  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.motor=false; MIX.orbiting=false; MIX.lastAng=null; return; }
   endGrab(false);
 });
 function angDist(a,b){ let d = Math.abs(a-b)%(Math.PI*2); return d>Math.PI ? Math.PI*2-d : d; }
@@ -637,7 +674,7 @@ function step(now){
     for(const p of MIX.parts){
       if(!p.rest){
         p.vy += 900*dt; p.y += p.vy*dt;
-        if(p.y >= landY(p)){ p.y = landY(p); p.rest = true; MIX.ripples.push({x:p.x, t:0, small:true}); }
+        if(p.y >= landY(p)){ p.y = landY(p); p.rest = true; MIX.ripples.push({x:p.x, y:p.y, t:0, small:true}); }
       } else { p.y = Math.min(p.y, landY(p)); }
     }
     // activator drips: spawn while drizzling, fall, splash into ripples
@@ -652,7 +689,7 @@ function step(now){
     for(const d of MIX.drips){ d.vy += 1500*dt; d.y += d.vy*dt; }
     MIX.drips = MIX.drips.filter(d=>{
       if(d.y >= g.surfaceY-2){
-        MIX.ripples.push({x:d.x, t:0});
+        MIX.ripples.push({x:d.x, y:g.surfaceY, t:0});
         for(let k=0;k<3;k++) MIX.splashes.push({x:d.x, y:g.surfaceY-3, vx:(Math.random()-.5)*100, vy:-70-Math.random()*70, life:0});
         if(Math.random()<0.5) sSquish(0.08);
         return false;
@@ -676,13 +713,13 @@ function step(now){
     MIX.bubbles.forEach(b=>b.age+=dt);
     if(MIX.bowl.bubbles==='auto'){
       MIX.bubbles = MIX.bubbles.filter(b=>{
-        if(b.age>1.1){ MIX.ripples.push({x:b.x, t:0, small:true}); if(Math.random()<0.6) sSquish(0.07); return false; }
+        if(b.age>1.1){ MIX.ripples.push({x:b.x, y:b.y, t:0, small:true}); if(Math.random()<0.6) sSquish(0.07); return false; }
         return true;
       });
     } else if(MIX.stage===3 && MIX.stirring){
       const sp = spoonPos(g);
       MIX.bubbles = MIX.bubbles.filter(b=>{
-        if(Math.hypot(b.x-sp.x, b.y-sp.y) < 14+b.r){ MIX.ripples.push({x:b.x, t:0, small:true}); sSquish(0.12); return false; }
+        if(Math.hypot(b.x-sp.x, b.y-sp.y) < 14+b.r){ MIX.ripples.push({x:b.x, y:b.y, t:0, small:true}); sSquish(0.12); return false; }
         return true;
       });
     }
@@ -850,11 +887,12 @@ function drawMix(t){
   ctx.save();
   ctx.translate(g.bx, g.by); ctx.rotate(wob); ctx.translate(-g.bx, -g.by);
 
-  /* soft directional shadow — lamp sits up-left, shadow falls down-right */
+  /* soft directional shadow — lamp up-left; depth follows the camera pitch */
+  const shH = 3 + TILT*22;
   ctx.fillStyle = 'rgba(51,37,74,0.10)';
-  ctx.beginPath(); ctx.ellipse(g.bx+16, g.by+6, g.bw*0.52, 10, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(g.bx+16, g.by+shH*0.6, g.bw*0.52, shH, 0, 0, Math.PI*2); ctx.fill();
   ctx.fillStyle = 'rgba(51,37,74,0.15)';
-  ctx.beginPath(); ctx.ellipse(g.bx+6, g.by+4, g.bw*0.40, 7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(g.bx+6, g.by+shH*0.4, g.bw*0.40, shH*0.7, 0, 0, Math.PI*2); ctx.fill();
 
   /* bowl body — per tier */
   bowlPath(g); ctx.closePath();
@@ -869,18 +907,24 @@ function drawMix(t){
     ctx.strokeStyle = 'rgba(51,37,74,0.18)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.ellipse(g.bx, g.by-g.bh*0.18, g.rx*0.62, g.rx*0.62*TILT, 0, 0.15*Math.PI, 0.85*Math.PI); ctx.stroke();
     for(let i=0;i<8;i++){
-      const sx = g.bx + ((i*73)%140-70)/100*g.rx*0.8;
+      const wc = Math.cos(i*0.83 + CAMYAW);          // world angle + camera yaw
+      if(wc < -0.15) continue;                        // scratch is behind the bowl
+      const sx = g.bx + wc*g.rx*0.78;
       const sy = g.topY + g.bh*(0.25+((i*37)%50)/100*0.55);
       const sl = 8+((i*29)%18), sa = ((i*53)%100)/100*1.2-0.6;
-      ctx.strokeStyle = 'rgba(51,37,74,'+(0.10+((i*13)%3)*0.03)+')'; ctx.lineWidth = 1.2;
+      ctx.strokeStyle = 'rgba(51,37,74,'+((0.10+((i*13)%3)*0.03)*Math.min(1,(wc+0.15)/0.5))+')'; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.moveTo(sx-Math.cos(sa)*sl, sy-Math.sin(sa)*sl); ctx.lineTo(sx+Math.cos(sa)*sl, sy+Math.sin(sa)*sl); ctx.stroke();
     }
-    // peeling sticker
-    ctx.save(); ctx.translate(g.bx+g.rx*0.45, g.topY+g.bh*0.5); ctx.rotate(-0.12);
+    // peeling sticker rides the bowl as the camera orbits
+    const stc = Math.cos(0.42 + CAMYAW);
+    if(stc > -0.1){
+    ctx.save(); ctx.globalAlpha = Math.min(1,(stc+0.1)/0.5);
+    ctx.translate(g.bx + stc*g.rx*0.6, g.topY+g.bh*0.5); ctx.rotate(-0.12); ctx.scale(Math.max(0.25,Math.abs(stc)+0.25), 1);
     ctx.fillStyle = '#fffdf7'; ctx.strokeStyle = 'rgba(51,37,74,0.6)'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-19,-9,38,18,3) : ctx.rect(-19,-9,38,18); ctx.fill(); ctx.stroke();
     ctx.fillStyle = 'rgba(51,37,74,0.7)'; ctx.font='700 8px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('SLOP™', 0, 0); ctx.restore();
+    }
     ctx.restore();
   } else if(st==='glass'){
     ctx.fillStyle = 'rgba(235,248,252,0.30)'; ctx.fill();
@@ -985,7 +1029,7 @@ function drawMix(t){
     for(const r of MIX.ripples){
       const k = r.t/0.8, rw = (r.small?0.18:0.34)*g.srx*k + 3;
       ctx.strokeStyle = 'rgba(255,255,255,'+(0.6*(1-k))+')'; ctx.lineWidth = r.small?1.5:2;
-      ctx.beginPath(); ctx.ellipse(r.x, g.surfaceY, rw, rw*TILT, 0, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(r.x, r.y!==undefined?r.y:g.surfaceY, rw, rw*TILT, 0, 0, Math.PI*2); ctx.stroke();
     }
     // splash droplets
     ctx.fillStyle = 'rgba(214,238,247,0.9)';
