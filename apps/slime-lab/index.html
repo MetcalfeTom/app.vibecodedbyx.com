@@ -68,6 +68,8 @@ button.opt{
 button.opt .em{ font-size:1.1rem; line-height:1; }
 button.opt:hover{ transform:translateY(-2px); }
 button.opt[aria-pressed="true"]{ background:var(--sun); box-shadow:2px 2px 0 var(--ink); }
+button.opt:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
+button.opt small{ font-size:.58rem; color:var(--ink-soft); }
 .doserow{ display:flex; align-items:center; gap:.6rem; }
 input[type=range]{
   flex:1; appearance:none; -webkit-appearance:none; height:2.75rem; background:transparent; cursor:pointer;
@@ -180,6 +182,11 @@ canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
         <div class="chips" id="chipRow" role="group" aria-label="Toggle add-ins"></div>
       </section>
 
+      <section class="card" aria-labelledby="h-bowl">
+        <h2 id="h-bowl"><span class="dot" style="background:var(--lime)"></span>Bowl <span id="batchCount" style="margin-left:auto;font-family:'Space Mono',monospace;font-size:.62rem;text-transform:none;letter-spacing:.02em;color:var(--ink-soft)"></span></h2>
+        <div class="optrow three" id="bowlRow" role="group" aria-label="Choose your bowl — better bowls unlock as you mix batches"></div>
+      </section>
+
       <button class="mixbtn" id="mixBtn" type="button">🥣 MIX A FRESH BATCH</button>
     </div>
 
@@ -229,6 +236,25 @@ const ADDINS = [
   { key:'charms',  name:'charms', em:'🦄' },
 ];
 const CHARM_EMOJI = ['🦄','🍓','⭐','🌙','🍬'];
+
+/* ── bowl progression: mix batches → unlock better hardware ──
+   plastic: scratched, surface friction (slower stir), air bubbles you must pop with the spoon
+   heated glass: coil-warmed, auto-pops bubbles, smoother stir
+   electric mixer: motorized whisk, hold to spin, live centrifugal readout */
+const BOWLS = {
+  plastic:{ name:'Plastic', em:'🥣', need:0, style:'plastic', bubbles:'manual', motor:false, stirMul:0.85 },
+  glass:  { name:'Heated Glass', em:'🔥', need:3, style:'glass', bubbles:'auto', motor:false, stirMul:1.3 },
+  mixer:  { name:'Electric Mixer', em:'⚡', need:7, style:'steel', bubbles:'none', motor:true, stirMul:1 },
+};
+const OMEGA_MAX = 22;      // rad/s — electric mixer top speed
+let PROG = { batches:0, bowl:'plastic' };
+try{
+  const s = JSON.parse(localStorage.getItem('slime-lab-progress-v1'));
+  if(s && BOWLS[s.bowl]) PROG = { batches:Math.max(0, s.batches|0), bowl:s.bowl };
+}catch(e){}
+if(PROG.batches < BOWLS[PROG.bowl].need) PROG.bowl = 'plastic';
+function saveProg(){ try{ localStorage.setItem('slime-lab-progress-v1', JSON.stringify(PROG)); }catch(e){} }
+let LAST_BUBBLES = 0;      // unpopped air bubbles carried into the finished slime (plastic tier)
 
 const recipe = { glue:'white', act:'borax', dose:0.55, pigment:1, addins:{ glitter:true, beads:false, stars:false, foam:false, charms:false } };
 let P = {}; // derived physics/sound params
@@ -297,6 +323,21 @@ function buildChips(){
     row.appendChild(b);
   });
 }
+function buildBowls(){
+  const row = $('bowlRow'); row.innerHTML='';
+  Object.keys(BOWLS).forEach(k=>{
+    const bd = BOWLS[k], locked = PROG.batches < bd.need;
+    const b = document.createElement('button');
+    b.type='button'; b.className='opt'; b.disabled = locked;
+    b.innerHTML = '<span class="em" aria-hidden="true">'+(locked?'🔒':bd.em)+'</span>'+bd.name+
+      (locked ? '<small>mix '+(bd.need-PROG.batches)+' more</small>' : '');
+    b.setAttribute('aria-pressed', String(!locked && PROG.bowl===k));
+    b.title = locked ? 'unlocks after '+bd.need+' batches' : bd.name;
+    b.addEventListener('click', ()=>{ if(locked) return; PROG.bowl=k; saveProg(); buildBowls(); });
+    row.appendChild(b);
+  });
+  $('batchCount').textContent = PROG.batches+' batch'+(PROG.batches===1?'':'es');
+}
 function pipHTML(n){ let s=''; for(let i=0;i<5;i++) s+='<span class="pip'+(i<n?' on':'')+'"></span>'; return s; }
 function updateReadout(){
   $('mStretch').innerHTML = pipHTML(Math.round(Math.min(5, (P.stretchMax-1)/4.2*5+0.6)));
@@ -335,7 +376,7 @@ window.addEventListener('resize', resize); resize();
 
 const N = 30;
 const blob = { cx:0, cy:0, vx:0, vy:0, r:0, sx:1, sy:1, sxv:0, syv:0, pts:[], grounded:false };
-let decor = { glitter:[], beads:[], charms:[] };
+let decor = { glitter:[], beads:[], stars:[], foam:[], charms:[], bubbles:[] };
 let MIX = null;               // interactive mixing session
 const STIR_NEED = Math.PI*2*2.2;   // ~2.2 full spoon turns
 const GLUE_LIQ = { white:'#f7f2e9', clear:'#d7ecf4', pearl:'#f3eaf7', glow:'#eaffdc' };
@@ -359,8 +400,18 @@ function mixGeo(){
   return { bx, by, bw, bh, topY, maxLiq, actH, glueH, actHc, rx, ry, hwAt, srx, sry,
     surfaceY: by - liqH, cy: by - bh*0.4 };
 }
+function spoonPos(g){
+  let dx = MIX.px - g.bx, dy = MIX.py - g.surfaceY;
+  const u = dx/Math.max(1,g.srx*0.62), v = dy/Math.max(1,g.sry*0.62);
+  const n = Math.hypot(u,v);
+  if(n>1){ dx/=n; dy/=n; }
+  return { x:g.bx+dx, y:g.surfaceY+dy };
+}
 function updateMixHint(){
-  $('hint').textContent = MIX_HINTS[MIX.stage] + '  (Enter = auto)';
+  let h = MIX_HINTS[MIX.stage];
+  if(MIX.stage===3 && MIX.bowl.motor) h = '⚡ press & hold to run the mixer — watch the g-force';
+  else if(MIX.stage===3 && MIX.bowl.bubbles==='manual') h = '🥄 stir circles — run the spoon over air bubbles to pop them!';
+  $('hint').textContent = h + '  (Enter = auto)';
   $('hint').classList.remove('gone');
 }
 function advMix(n){
@@ -406,7 +457,8 @@ function buildBlob(dropIn){
 }
 function refreshDecor(){
   const rnd = Math.random;
-  decor.glitter = []; decor.beads = []; decor.stars = []; decor.foam = []; decor.charms = [];
+  decor.glitter = []; decor.beads = []; decor.stars = []; decor.foam = []; decor.charms = []; decor.bubbles = [];
+  for(let i=0;i<LAST_BUBBLES;i++) decor.bubbles.push({ a:Math.random()*Math.PI*2, d:Math.sqrt(Math.random())*0.7, r:2+Math.random()*2 });
   if(P.glitter) for(let i=0;i<42;i++) decor.glitter.push({ a:rnd()*Math.PI*2, d:Math.sqrt(rnd())*0.88, ph:rnd()*Math.PI*2, sp:1.5+rnd()*3 });
   if(P.beads)   for(let i=0;i<16;i++) decor.beads.push({ a:rnd()*Math.PI*2, d:Math.sqrt(rnd())*0.78, r:2.5+rnd()*2.5, tint:i%3 });
   if(P.stars)   for(let i=0;i<8;i++)  decor.stars.push({ a:rnd()*Math.PI*2, d:Math.sqrt(rnd())*0.74, r:3.5+rnd()*2.5, rot:rnd()*Math.PI });
@@ -443,18 +495,34 @@ function freshBatch(){
   MIX = { stage:0, level:0, actLevel:0, sprinkles:0, parts:[],
     stir:0, stirVel:0, pouring:false, stirring:false, lastAng:null,
     px:W/2, py:0, halfTurns:0,
-    drips:[], ripples:[], splashes:[], trail:[], dripT:0 };
+    drips:[], ripples:[], splashes:[], trail:[], dripT:0,
+    bowl: BOWLS[PROG.bowl],
+    bubbles:[], bubT:0, scrapes:[], scrapeT:0,
+    motor:false, omega:0, whirl:0, maxG:0 };
+  LAST_BUBBLES = 0;
   updateMixHint();
 }
 function finishMix(){
+  const leftover = MIX.bowl.bubbles==='manual' ? MIX.bubbles.length : 0;
   MIX = null;
   bedGain(0);
+  LAST_BUBBLES = leftover;
+  PROG.batches++; saveProg();
   buildBlob(false);
   blob.syv = -3.2; blob.sxv = 1.8;   // birth wobble
   sSquish(0.9);
   if(P.beads) sCrunch(0.5);
-  $('hint').textContent = '👆 drag to stretch · tap to poke · fling to throw';
-  setTimeout(()=>$('hint').classList.add('gone'), 3500);
+  const unlocked = Object.values(BOWLS).find(b=>b.need===PROG.batches);
+  buildBowls();
+  if(unlocked){
+    $('hint').textContent = '🔓 '+unlocked.name+' unlocked — pick it on the bench!';
+    setTimeout(()=>$('hint').classList.add('gone'), 6000);
+  } else {
+    $('hint').textContent = leftover>0
+      ? '😬 '+leftover+' air bubble'+(leftover===1?'':'s')+' got trapped in your slime…'
+      : '👆 drag to stretch · tap to poke · fling to throw';
+    setTimeout(()=>$('hint').classList.add('gone'), 3500);
+  }
 }
 
 /* pointer */
@@ -466,6 +534,7 @@ cv.addEventListener('pointerdown', e=>{
     const p = evPos(e); MIX.px = p.x; MIX.py = p.y;
     if(MIX.stage<=1){ MIX.pouring = true; }
     else if(MIX.stage===2){ sprinkle(p); }
+    else if(MIX.bowl.motor){ MIX.motor = true; }
     else { const g = mixGeo(); MIX.stirring = true; MIX.lastAng = Math.atan2(p.y-g.cy, p.x-g.bx); }
     cv.setPointerCapture(e.pointerId);
     return;
@@ -492,7 +561,7 @@ cv.addEventListener('pointermove', e=>{
         let d = a - MIX.lastAng;
         while(d>Math.PI) d -= Math.PI*2;
         while(d<-Math.PI) d += Math.PI*2;
-        MIX.stir += Math.abs(d);
+        MIX.stir += Math.abs(d) * MIX.bowl.stirMul;   // plastic drags, heated glass glides
         MIX.stirVel = Math.min(1, Math.abs(d)*9);
         const ht = Math.floor(MIX.stir/Math.PI);
         if(ht > MIX.halfTurns){ MIX.halfTurns = ht; sSquish(0.14 + 0.1*Math.min(1,MIX.stir/STIR_NEED)); }
@@ -529,11 +598,11 @@ function endGrab(fling){
   stretchGain(0);
 }
 cv.addEventListener('pointerup', ()=>{
-  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.lastAng=null; return; }
+  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.motor=false; MIX.lastAng=null; return; }
   endGrab(true);
 });
 cv.addEventListener('pointercancel', ()=>{
-  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.lastAng=null; return; }
+  if(MIX){ MIX.pouring=false; MIX.stirring=false; MIX.motor=false; MIX.lastAng=null; return; }
   endGrab(false);
 });
 function angDist(a,b){ let d = Math.abs(a-b)%(Math.PI*2); return d>Math.PI ? Math.PI*2-d : d; }
@@ -594,6 +663,56 @@ function step(now){
     MIX.ripples = MIX.ripples.filter(r=>r.t<0.8);
     MIX.splashes.forEach(s=>{ s.vy+=900*dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.life+=dt; });
     MIX.splashes = MIX.splashes.filter(s=>s.life<0.5 && s.y<g.surfaceY+6);
+    /* air bubbles: plastic makes them (pop with the spoon), heated glass pops them itself */
+    const mNow = Math.min(1, MIX.stir/STIR_NEED);
+    if(MIX.stage===3 && MIX.bowl.bubbles!=='none' && mNow<0.96){
+      MIX.bubT += dt;
+      if(MIX.bubT > (MIX.bowl.bubbles==='manual'?0.5:0.65) && MIX.bubbles.length<6){
+        MIX.bubT = 0;
+        const u = Math.random()*1.5-0.75;
+        MIX.bubbles.push({ x:g.bx+u*g.srx, y:g.surfaceY+(Math.random()*0.7-0.2)*g.sry*Math.sqrt(Math.max(0,1-u*u*0.9)), r:2.5+Math.random()*2.5, age:0 });
+      }
+    }
+    MIX.bubbles.forEach(b=>b.age+=dt);
+    if(MIX.bowl.bubbles==='auto'){
+      MIX.bubbles = MIX.bubbles.filter(b=>{
+        if(b.age>1.1){ MIX.ripples.push({x:b.x, t:0, small:true}); if(Math.random()<0.6) sSquish(0.07); return false; }
+        return true;
+      });
+    } else if(MIX.stage===3 && MIX.stirring){
+      const sp = spoonPos(g);
+      MIX.bubbles = MIX.bubbles.filter(b=>{
+        if(Math.hypot(b.x-sp.x, b.y-sp.y) < 14+b.r){ MIX.ripples.push({x:b.x, t:0, small:true}); sSquish(0.12); return false; }
+        return true;
+      });
+    }
+    /* plastic surface friction: fading scrape marks + gritty scratch tone */
+    if(MIX.stage===3 && MIX.bowl.style==='plastic' && MIX.stirring && MIX.stirVel>0.1){
+      MIX.scrapeT += dt;
+      if(MIX.scrapeT > 0.12){
+        MIX.scrapeT = 0;
+        const sp = spoonPos(g);
+        MIX.scrapes.push({ x:sp.x, y:sp.y+4, rot:Math.atan2(sp.y-g.surfaceY, sp.x-g.bx)+Math.PI/2, life:0 });
+      }
+      bedGain(0.05+MIX.stirVel*0.06, 900);
+    }
+    MIX.scrapes.forEach(s=>s.life+=dt);
+    MIX.scrapes = MIX.scrapes.filter(s=>s.life<1.2);
+    /* electric mixer: hold to spin, live centrifugal force */
+    if(MIX.stage===3 && MIX.bowl.motor){
+      MIX.omega = Math.max(0, Math.min(OMEGA_MAX, MIX.omega + (MIX.motor? 16*dt : -26*dt)));
+      MIX.whirl += MIX.omega*dt;
+      MIX.stir += MIX.omega*dt*0.30;
+      MIX.stirVel = MIX.omega/OMEGA_MAX;
+      const gForce = MIX.omega*MIX.omega*(g.srx/1000)/9.8;
+      MIX.maxG = Math.max(MIX.maxG, gForce);
+      if(MIX.omega>0.5) bedGain(0.04+MIX.stirVel*0.10, 90+MIX.omega*26);
+      if(gForce > 3.6 && Math.random()<0.25){   // overspin: goo flings off the rim
+        const a = Math.random()*Math.PI*2;
+        MIX.splashes.push({ x:g.bx+Math.cos(a)*g.srx, y:g.surfaceY+Math.sin(a)*g.sry,
+          vx:Math.cos(a)*220, vy:-90+Math.sin(a)*60, life:0 });
+      }
+    }
     if(MIX.stage===3 && MIX.stir >= STIR_NEED){ finishMix(); }
     else { drawMix(now/1000); requestAnimationFrame(step); return; }
   }
@@ -725,7 +844,8 @@ function drawMix(t){
   const liq = GLUE_LIQ[recipe.glue];
   const stage = MIX.stage;
   const mixedCol = lerpColor(liq, P.color, m);
-  const riX = g.rx*0.90, riY = riX*TILT;              // inner rim (ceramic wall thickness)
+  const st = MIX.bowl.style;
+  const riX = g.rx*(st==='steel'?0.88:st==='plastic'?0.93:0.90), riY = riX*TILT;   // wall thickness per bowl
   const wob = (stage===3 && MIX.stirVel>0.05 && !REDUCED) ? Math.sin(t*22)*0.015*MIX.stirVel : 0;
   ctx.save();
   ctx.translate(g.bx, g.by); ctx.rotate(wob); ctx.translate(-g.bx, -g.by);
@@ -736,25 +856,83 @@ function drawMix(t){
   ctx.fillStyle = 'rgba(51,37,74,0.15)';
   ctx.beginPath(); ctx.ellipse(g.bx+6, g.by+4, g.bw*0.40, 7, 0, 0, Math.PI*2); ctx.fill();
 
-  /* glossy ceramic body */
+  /* bowl body — per tier */
   bowlPath(g); ctx.closePath();
-  const glaze = ctx.createLinearGradient(g.bx-g.rx, g.topY, g.bx+g.rx, g.by);
-  glaze.addColorStop(0, '#fdf9f1'); glaze.addColorStop(0.45, '#f4ebdc'); glaze.addColorStop(1, '#d8cab6');
-  ctx.fillStyle = glaze; ctx.fill();
-  ctx.save();
-  bowlPath(g); ctx.closePath(); ctx.clip();
-  // specular gleam (upper-left) — the "glossy"
-  const spec = ctx.createRadialGradient(g.bx-g.rx*0.45, g.topY+g.bh*0.28, 2, g.bx-g.rx*0.45, g.topY+g.bh*0.28, g.bw*0.30);
-  spec.addColorStop(0, 'rgba(255,255,255,0.85)'); spec.addColorStop(0.4, 'rgba(255,255,255,0.25)'); spec.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = spec; ctx.fillRect(g.bx-g.rx, g.topY, g.bw, g.bh);
-  // warm bounce light from the lit table (lower-right)
-  const warm = ctx.createRadialGradient(g.bx+g.rx*0.5, g.by-4, 2, g.bx+g.rx*0.5, g.by-4, g.bw*0.36);
-  warm.addColorStop(0, 'rgba(255,214,150,0.30)'); warm.addColorStop(1, 'rgba(255,214,150,0)');
-  ctx.fillStyle = warm; ctx.fillRect(g.bx-g.rx, g.topY, g.bw, g.bh);
-  // painted pigment stripe below the rim, tied to the recipe
-  ctx.strokeStyle = hexA(P.color, 0.55); ctx.lineWidth = 7;
-  ctx.beginPath(); ctx.ellipse(g.bx, g.topY+g.bh*0.26, g.rx*0.96, g.ry*0.96, 0, 0.12*Math.PI, 0.88*Math.PI); ctx.stroke();
-  ctx.restore();
+  if(st==='plastic'){
+    const pg = ctx.createLinearGradient(g.bx-g.rx, g.topY, g.bx+g.rx, g.by);
+    pg.addColorStop(0,'#d4ecdf'); pg.addColorStop(0.5,'#bfe0cf'); pg.addColorStop(1,'#9cc7b2');
+    ctx.fillStyle = pg; ctx.fill();
+    ctx.save(); bowlPath(g); ctx.closePath(); ctx.clip();
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.beginPath(); ctx.ellipse(g.bx-g.rx*0.45, g.topY+g.bh*0.3, g.bw*0.14, g.bh*0.3, 0.3, 0, Math.PI*2); ctx.fill();
+    // molded ridge + years of scrape marks
+    ctx.strokeStyle = 'rgba(51,37,74,0.18)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(g.bx, g.by-g.bh*0.18, g.rx*0.62, g.rx*0.62*TILT, 0, 0.15*Math.PI, 0.85*Math.PI); ctx.stroke();
+    for(let i=0;i<8;i++){
+      const sx = g.bx + ((i*73)%140-70)/100*g.rx*0.8;
+      const sy = g.topY + g.bh*(0.25+((i*37)%50)/100*0.55);
+      const sl = 8+((i*29)%18), sa = ((i*53)%100)/100*1.2-0.6;
+      ctx.strokeStyle = 'rgba(51,37,74,'+(0.10+((i*13)%3)*0.03)+')'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(sx-Math.cos(sa)*sl, sy-Math.sin(sa)*sl); ctx.lineTo(sx+Math.cos(sa)*sl, sy+Math.sin(sa)*sl); ctx.stroke();
+    }
+    // peeling sticker
+    ctx.save(); ctx.translate(g.bx+g.rx*0.45, g.topY+g.bh*0.5); ctx.rotate(-0.12);
+    ctx.fillStyle = '#fffdf7'; ctx.strokeStyle = 'rgba(51,37,74,0.6)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-19,-9,38,18,3) : ctx.rect(-19,-9,38,18); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(51,37,74,0.7)'; ctx.font='700 8px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('SLOP™', 0, 0); ctx.restore();
+    ctx.restore();
+  } else if(st==='glass'){
+    ctx.fillStyle = 'rgba(235,248,252,0.30)'; ctx.fill();
+    ctx.save(); bowlPath(g); ctx.closePath(); ctx.clip();
+    // liquid layers visible through the glass side
+    const glueTopY = g.by - g.glueH;
+    const wv = x => Math.sin(t*5 + x*0.08)*2;
+    if(MIX.level>0){
+      ctx.fillStyle = hexA(lerpColor(liq, P.color, m), 0.85);
+      ctx.beginPath(); ctx.moveTo(g.bx-g.rx, glueTopY+wv(-g.rx));
+      for(let x=-g.rx; x<=g.rx; x+=12) ctx.lineTo(g.bx+x, glueTopY+wv(x));
+      ctx.lineTo(g.bx+g.rx, g.by); ctx.lineTo(g.bx-g.rx, g.by); ctx.closePath(); ctx.fill();
+    }
+    if(MIX.actLevel>0){
+      ctx.fillStyle = hexA('#cfe8f2', 0.8*(1-m*0.85));
+      ctx.fillRect(g.bx-g.rx, g.surfaceY, g.bw, g.glueH?glueTopY-g.surfaceY:g.by-g.surfaceY);
+    }
+    // glass spec + heating coil aglow beneath
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(g.bx-g.rx*0.8, g.topY+g.bh*0.18); ctx.quadraticCurveTo(g.bx-g.rx*0.72, g.topY+g.bh*0.6, g.bx-g.bw*0.18, g.by-8); ctx.stroke();
+    ctx.restore();
+    const coil = 0.55+0.3*Math.sin(t*6);
+    ctx.strokeStyle = 'rgba(255,120,40,'+coil+')'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.ellipse(g.bx, g.by-3, g.bw*0.24, 5, 0, 0.1*Math.PI, 0.9*Math.PI); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,180,80,'+(coil*0.5)+')'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(g.bx, g.by-7, g.bw*0.3, 6, 0, 0.12*Math.PI, 0.88*Math.PI); ctx.stroke();
+    if(!REDUCED) for(let i=0;i<3;i++){ // heat shimmer rising off the rim
+      const hx = g.bx + (i-1)*g.rx*0.5, hp = (t*0.7+i*0.33)%1;
+      ctx.strokeStyle = 'rgba(255,200,140,'+(0.20*(1-hp))+')'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(hx, g.topY-6-hp*26);
+      ctx.quadraticCurveTo(hx+4, g.topY-14-hp*26, hx, g.topY-22-hp*26); ctx.stroke();
+    }
+  } else { // steel — electric mixer bowl on its base unit
+    const mg = ctx.createLinearGradient(g.bx-g.rx, 0, g.bx+g.rx, 0);
+    mg.addColorStop(0,'#b9bcc8'); mg.addColorStop(0.25,'#eef0f5'); mg.addColorStop(0.5,'#9fa2b0');
+    mg.addColorStop(0.75,'#e2e4ea'); mg.addColorStop(1,'#aab0bc');
+    ctx.fillStyle = mg; ctx.fill();
+    ctx.save(); bowlPath(g); ctx.closePath(); ctx.clip();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(g.bx-g.rx*0.4, g.topY+g.bh*0.35, g.bw*0.06, g.bh*0.42, 0.15, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+    // base unit with power LED
+    ctx.fillStyle = '#d0d2dc'; ctx.strokeStyle = 'rgba(51,37,74,0.8)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(g.bx-g.bw*0.30, g.by+2, g.bw*0.60, 22, 6) : ctx.rect(g.bx-g.bw*0.30, g.by+2, g.bw*0.60, 22); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = MIX.motor ? '#4dff6a' : 'rgba(51,37,74,0.35)';
+    ctx.beginPath(); ctx.arc(g.bx-g.bw*0.21, g.by+13, 3.5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(51,37,74,0.75)'; ctx.font='700 9px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('MX-9', g.bx+g.bw*0.16, g.by+13);
+    // overhead arm holding the whisk
+    ctx.strokeStyle = 'rgba(51,37,74,0.8)'; ctx.lineWidth = 3; ctx.fillStyle = '#d0d2dc';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(g.bx-14, Math.max(4,g.topY-84), g.bw*0.44, 16, 5) : ctx.rect(g.bx-14, Math.max(4,g.topY-84), g.bw*0.44, 16); ctx.fill(); ctx.stroke();
+  }
 
   /* rim with visible thickness */
   ctx.fillStyle = '#f8f1e4';
@@ -812,6 +990,27 @@ function drawMix(t){
     // splash droplets
     ctx.fillStyle = 'rgba(214,238,247,0.9)';
     for(const s of MIX.splashes){ ctx.beginPath(); ctx.arc(s.x, s.y, 1.8, 0, Math.PI*2); ctx.fill(); }
+    // air bubbles on the goo
+    for(const b of MIX.bubbles){
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(b.x, b.y, b.r, b.r*0.75, 0, 0, Math.PI*2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath(); ctx.arc(b.x-b.r*0.3, b.y-b.r*0.35, 0.9, 0, Math.PI*2); ctx.fill();
+    }
+    // fresh scrape marks in the plastic
+    for(const s of MIX.scrapes){
+      const a = (1-s.life/1.2)*0.35;
+      ctx.strokeStyle = 'rgba(51,37,74,'+a+')'; ctx.lineWidth = 1.4;
+      ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.rot);
+      ctx.beginPath(); ctx.moveTo(-7,0); ctx.lineTo(7,0); ctx.stroke(); ctx.restore();
+    }
+    // mixer vortex dimple
+    if(MIX.bowl.motor && MIX.omega>3){
+      const vd = MIX.omega/OMEGA_MAX;
+      ctx.fillStyle = 'rgba(51,37,74,'+(0.22*vd)+')';
+      ctx.beginPath(); ctx.ellipse(g.bx, g.surfaceY, g.srx*0.28*vd+4, (g.srx*0.28*vd+4)*TILT, 0, 0, Math.PI*2); ctx.fill();
+    }
     // spoon blend trail
     for(let i=0;i<MIX.trail.length;i++){
       const tp = MIX.trail[i], k = i/MIX.trail.length;
@@ -909,12 +1108,21 @@ function drawMix(t){
     ctx.fillStyle = 'rgba(51,37,74,0.7)';
     for(let i=-1;i<=1;i++) ctx.beginPath(), ctx.arc(i*7, 12, 1.8, 0, Math.PI*2), ctx.fill();
     ctx.restore();
+  } else if(MIX.bowl.motor){ // whisk hangs from the arm, spins with the motor
+    const wy = g.surfaceY - g.sry*0.2;
+    ctx.strokeStyle = 'rgba(51,37,74,0.85)'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(g.bx, Math.max(20,g.topY-70)); ctx.lineTo(g.bx, wy-14); ctx.stroke();
+    const spin = MIX.whirl;
+    for(let i=0;i<2;i++){
+      const wr = 13*Math.abs(Math.cos(spin+i*Math.PI/2))+3;
+      ctx.strokeStyle = 'rgba(120,126,140,0.95)'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(g.bx, wy, wr, 16*TILT+10, 0, 0, Math.PI*2); ctx.stroke();
+    }
+    ctx.fillStyle = '#d0d2dc'; ctx.strokeStyle = 'rgba(51,37,74,0.8)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(g.bx, wy-16, 6, 0, Math.PI*2); ctx.fill(); ctx.stroke();
   } else { // wooden spoon, head dips into the goo
-    let dx = MIX.px - g.bx, dy = MIX.py - g.surfaceY;
-    const u = dx/Math.max(1,g.srx*0.62), v = dy/Math.max(1,g.sry*0.62);
-    const n = Math.hypot(u,v);
-    if(n>1){ dx/=n; dy/=n; }
-    const spx = g.bx + dx, spy = g.surfaceY + dy;
+    const sp = spoonPos(g);
+    const spx = sp.x, spy = sp.y;
     if(MIX.stirring){ MIX.trail.push({x:spx, y:spy+3}); if(MIX.trail.length>14) MIX.trail.shift(); }
     else if(MIX.trail.length) MIX.trail.shift();
     // shadow of the head on the goo
@@ -954,7 +1162,9 @@ function drawMix(t){
     GLUES[recipe.glue].name.toLowerCase()+' glue · '+pct(MIX.level),
     ACTS[recipe.act].name.toLowerCase()+' activator · '+pct(MIX.actLevel),
     'sprinkle '+PIGMENTS[recipe.pigment].name+' + add-ins · '+MIX.sprinkles+'/3',
-    'stir · '+pct(Math.min(1, MIX.stir/STIR_NEED)),
+    MIX.bowl.motor
+      ? 'mixer · '+pct(Math.min(1, MIX.stir/STIR_NEED))+' · '+(MIX.omega*MIX.omega*(g.srx/1000)/9.8).toFixed(1)+' g'+(MIX.omega*MIX.omega*(g.srx/1000)/9.8>3.6?' ⚠ overspin':'')
+      : 'stir · '+pct(Math.min(1, MIX.stir/STIR_NEED)),
   ];
   ctx.fillText(labels[stage], g.bx, Math.max(20, g.topY-80));
 }
@@ -990,6 +1200,11 @@ function draw(t){
 
   // inclusions ride the deformation
   const px = (a,d)=>({ x: blob.cx + Math.cos(a)*blob.r*blob.sx*d, y: blob.cy + Math.sin(a)*blob.r*blob.sy*d });
+  decor.bubbles.forEach(bb=>{
+    const p = px(bb.a, bb.d);
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, bb.r, 0, Math.PI*2); ctx.stroke();
+  });
   decor.foam.forEach(fm=>{
     const p = px(fm.a, fm.d);
     drawFoam(p.x, p.y, fm.r, 0.55);
@@ -1164,7 +1379,7 @@ document.addEventListener('keydown', e=>{
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 buildOpts('glueRow', GLUES, 'glue', ()=>applyTweak());
 buildOpts('actRow', ACTS, 'act', ()=>applyTweak());
-buildSwatches(); buildChips();
+buildSwatches(); buildChips(); buildBowls();
 $('stamp').textContent = VER;
 derive();
 buildBlob(true);
