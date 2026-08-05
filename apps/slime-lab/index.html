@@ -322,6 +322,9 @@ window.addEventListener('resize', resize); resize();
 const N = 30;
 const blob = { cx:0, cy:0, vx:0, vy:0, r:0, sx:1, sy:1, sxv:0, syv:0, pts:[], grounded:false };
 let decor = { glitter:[], beads:[], charms:[] };
+let MIX = null;               // active mixing animation {t, stage}
+const MIX_DUR = 2.7;
+const GLUE_LIQ = { white:'#f7f2e9', clear:'#d7ecf4', pearl:'#f3eaf7', glow:'#eaffdc' };
 
 function baseR(){ return Math.max(52, Math.min(96, Math.min(W,H)*0.16)); }
 function buildBlob(dropIn){
@@ -343,13 +346,26 @@ function refreshDecor(){
   if(P.beads)   for(let i=0;i<16;i++) decor.beads.push({ a:rnd()*Math.PI*2, d:Math.sqrt(rnd())*0.78, r:2.5+rnd()*2.5 });
   if(P.charms)  for(let i=0;i<5;i++)  decor.charms.push({ a:i/5*Math.PI*2+rnd()*0.5, d:0.35+rnd()*0.3, em:CHARM_EMOJI[i], rot:(rnd()-.5)*0.9 });
 }
-function freshBatch(){ buildBlob(true); sMix(); $('hint').classList.remove('gone'); setTimeout(()=>$('hint').classList.add('gone'), 3500); }
+function freshBatch(){
+  MIX = { t:0, stage:0 };
+  sMix();
+  $('hint').classList.remove('gone');
+  setTimeout(()=>$('hint').classList.add('gone'), 5200);
+}
+function finishMix(){
+  MIX = null;
+  buildBlob(false);
+  blob.syv = -3.2; blob.sxv = 1.8;   // birth wobble
+  sSquish(0.9);
+  if(P.beads) sCrunch(0.5);
+}
 
 /* pointer */
 const grab = { on:false, x:0, y:0, px:0, py:0, vx:0, vy:0, t0:0, moved:0, gi:-1 };
 function evPos(e){ const r = cv.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
 cv.addEventListener('pointerdown', e=>{
-  audioInit(); const p = evPos(e);
+  audioInit(); if(MIX) return;
+  const p = evPos(e);
   const d = Math.hypot(p.x-blob.cx, p.y-blob.cy);
   if(d < blob.r*Math.max(blob.sx,blob.sy)*1.35){
     grab.on = true; grab.x = grab.px = p.x; grab.y = grab.py = p.y;
@@ -398,6 +414,12 @@ let last = performance.now();
 function step(now){
   const dt = Math.min(0.033, (now-last)/1000); last = now;
   const G = 1500;
+
+  if(MIX){
+    MIX.t += dt;
+    if(MIX.t >= MIX_DUR){ finishMix(); }
+    else { drawMix(now/1000); requestAnimationFrame(step); return; }
+  }
 
   // pointer velocity (smoothed)
   if(grab.on){
@@ -481,8 +503,7 @@ function step(now){
 }
 
 /* ============================== RENDER ============================== */
-function draw(t){
-  // room
+function drawRoom(){
   const wall = ctx.createLinearGradient(0,0,0,H);
   wall.addColorStop(0,'#f3e9fb'); wall.addColorStop(1,'#e4d6f2');
   ctx.fillStyle = wall; ctx.fillRect(0,0,W,H);
@@ -493,6 +514,131 @@ function draw(t){
   ctx.fillStyle = '#b89ede'; ctx.fillRect(0, matY, W, 6);
   ctx.strokeStyle = 'rgba(51,37,74,0.12)'; ctx.lineWidth = 1;
   for(let x=0;x<W;x+=34){ ctx.beginPath(); ctx.moveTo(x, matY+8); ctx.lineTo(x, H); ctx.stroke(); }
+}
+function lerpColor(h1, h2, k){
+  const a = parseInt(h1.slice(1),16), b = parseInt(h2.slice(1),16);
+  const r = Math.round((a>>16) + (((b>>16)-(a>>16))*k));
+  const g = Math.round(((a>>8)&255) + ((((b>>8)&255)-((a>>8)&255))*k));
+  const bl = Math.round((a&255) + (((b&255)-(a&255))*k));
+  return 'rgb('+r+','+g+','+bl+')';
+}
+function drawMix(t){
+  drawRoom();
+  const u = Math.min(1, MIX.t/MIX_DUR);
+  const r = baseR();
+  const bx = W/2, bw = r*2.3, bh = r*1.7;
+  const by = matY;              // beaker base sits on the mat
+  const topY = by - bh;
+  // phase → liquid level + color
+  const liq = GLUE_LIQ[recipe.glue];
+  let lvl, col, stage;
+  if(u < 0.34){ stage = 0; lvl = 0.10 + (u/0.34)*0.50; col = liq; }
+  else if(u < 0.55){ stage = 1; const k=(u-0.34)/0.21; lvl = 0.60+0.14*k; col = lerpColor(liq, P.color, k); }
+  else if(u < 0.74){ stage = 2; lvl = 0.74+0.10*((u-0.55)/0.19); col = P.color; }
+  else { stage = 3; lvl = 0.84; col = P.color; }
+  if(stage !== MIX.stage){
+    MIX.stage = stage;
+    if(stage===1) sSquish(0.22);
+    else if(stage===2){ sSquish(0.25); if(P.beads) sCrunch(0.25); }
+    else if(stage===3) sMix();
+  }
+  const wob = stage===3 && !REDUCED ? Math.sin(t*22)*0.02 : 0;
+  ctx.save();
+  ctx.translate(bx, by); ctx.rotate(wob); ctx.translate(-bx, -by);
+  // liquid (clipped to beaker shape)
+  const inset = bw*0.08;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(bx-bw/2+inset, topY);
+  ctx.lineTo(bx-bw/2, by-6); ctx.quadraticCurveTo(bx-bw/2, by, bx-bw/2+8, by);
+  ctx.lineTo(bx+bw/2-8, by); ctx.quadraticCurveTo(bx+bw/2, by, bx+bw/2, by-6);
+  ctx.lineTo(bx+bw/2-inset, topY);
+  ctx.closePath();
+  ctx.clip();
+  const ly = by - bh*lvl*0.95;
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(bx-bw/2, ly + Math.sin(t*5)*2);
+  for(let x=-bw/2; x<=bw/2; x+=10){
+    const swirl = stage===3 ? Math.sin(t*14 + x*0.15)*4 : Math.sin(t*5 + x*0.08)*2;
+    ctx.lineTo(bx+x, ly + swirl);
+  }
+  ctx.lineTo(bx+bw/2, by); ctx.lineTo(bx-bw/2, by);
+  ctx.closePath(); ctx.fill();
+  // stir vortex highlight
+  if(stage===3){
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 3;
+    for(let i=0;i<3;i++){
+      const sa = t*6 + i*2.1;
+      ctx.beginPath();
+      ctx.ellipse(bx, ly+14+i*10, bw*0.28*(1-i*0.22), 6, Math.sin(sa)*0.3, sa, sa+2.2);
+      ctx.stroke();
+    }
+  }
+  // sinking add-ins during sprinkle + stir
+  if(stage>=2){
+    const items = [];
+    if(P.glitter) for(let i=0;i<10;i++) items.push({k:'g', i});
+    if(P.beads)   for(let i=0;i<6;i++)  items.push({k:'b', i});
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    items.forEach(it=>{
+      const ph = it.i*1.7 + (it.k==='b'?9:0);
+      const ix = bx + Math.sin(ph)*bw*0.34;
+      const iy = ly + 8 + ((t*26 + ph*31) % Math.max(10, (by-ly-14)));
+      if(it.k==='g'){ ctx.fillRect(ix-1.5, iy-1.5, 3, 3); }
+      else { ctx.beginPath(); ctx.arc(ix, iy, 3.4, 0, Math.PI*2); ctx.fill(); }
+    });
+  }
+  ctx.restore();
+  // falling stream / drips above the beaker
+  if(stage===0){
+    ctx.fillStyle = liq;
+    ctx.fillRect(bx-4, 0, 8, Math.max(0, topY+bh*(1-lvl)*0.2));
+    ctx.beginPath(); ctx.ellipse(bx, Math.max(10,topY-6), 7, 5, 0, 0, Math.PI*2); ctx.fill();
+  } else if(stage===1){
+    ctx.fillStyle = P.color;
+    for(let i=0;i<3;i++){
+      const dy = (t*300 + i*90) % (topY+30);
+      ctx.beginPath(); ctx.arc(bx + (i-1)*14, dy, 5, 0, Math.PI*2); ctx.fill();
+    }
+  } else if(stage===2){
+    for(let i=0;i<5;i++){
+      const dy = (t*340 + i*67) % (topY+26);
+      const dx = bx + (i-2)*17;
+      if(P.glitter && i%2===0){ ctx.fillStyle='rgba(255,255,255,0.95)'; ctx.fillRect(dx-2, dy-2, 4, 4); }
+      else { ctx.fillStyle='rgba(215,236,244,0.9)'; ctx.beginPath(); ctx.arc(dx, dy, 3.5, 0, Math.PI*2); ctx.fill(); }
+    }
+    if(P.charms){
+      ctx.font='18px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      const dy = (t*180) % (topY+20);
+      ctx.fillText(CHARM_EMOJI[Math.floor(u*24)%CHARM_EMOJI.length], bx+bw*0.28, dy);
+    }
+  } else {
+    // stir rod
+    const sa = t*6;
+    const rx = bx + Math.cos(sa)*bw*0.22;
+    ctx.strokeStyle = '#8a6b4a'; ctx.lineWidth = 7; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(rx + bw*0.18, Math.max(6, topY-56)); ctx.lineTo(rx, ly+16); ctx.stroke();
+  }
+  // glass on top
+  ctx.strokeStyle = 'rgba(51,37,74,0.75)'; ctx.lineWidth = 3.5; ctx.lineJoin='round';
+  ctx.beginPath();
+  ctx.moveTo(bx-bw/2+inset-10, topY); ctx.lineTo(bx-bw/2+inset, topY);   // left lip
+  ctx.lineTo(bx-bw/2, by-6); ctx.quadraticCurveTo(bx-bw/2, by, bx-bw/2+8, by);
+  ctx.lineTo(bx+bw/2-8, by); ctx.quadraticCurveTo(bx+bw/2, by, bx+bw/2, by-6);
+  ctx.lineTo(bx+bw/2-inset, topY); ctx.lineTo(bx+bw/2-inset+10, topY);   // right lip
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(bx-bw/2+inset*1.6, topY+bh*0.18); ctx.lineTo(bx-bw/2+inset*0.7, by-14); ctx.stroke();
+  ctx.restore();
+  // label
+  ctx.fillStyle = 'rgba(51,37,74,0.85)';
+  ctx.font = '700 13px "Space Mono", monospace'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  const labels = ['pouring '+GLUES[recipe.glue].name.toLowerCase()+' glue…','adding '+PIGMENTS[recipe.pigment].name+' pigment…','drizzling '+ACTS[recipe.act].name.toLowerCase()+' + add-ins…','stirring…'];
+  ctx.fillText(labels[stage], bx, Math.max(20, topY-64));
+}
+function draw(t){
+  drawRoom();
 
   // shadow
   const shw = blob.r*blob.sx*1.15, shy = Math.max(0.25, 1-Math.max(0,(matY-blob.cy-blob.r))/300);
