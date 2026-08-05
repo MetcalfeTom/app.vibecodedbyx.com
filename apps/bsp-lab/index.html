@@ -128,6 +128,11 @@ td.num{ text-align:right; font-variant-numeric:tabular-nums; }
     <span id="fileinfo">no map loaded — the slab is empty</span>
   </div>
   <div class="error hide" id="err" role="alert"></div>
+  <div class="drop hide" id="urlbar" style="border-style:solid">
+    <span style="font-size:.75rem">🔗 this link wants to load a remote map from <b id="urlhost"></b> — nothing is fetched until you say so.</span>
+    <button class="demo" id="urlGo" type="button">fetch it</button>
+    <button class="demo" id="urlNo" type="button">ignore</button>
+  </div>
 
   <div class="grid hide" id="results">
     <section class="card">
@@ -478,6 +483,55 @@ function loadBuffer(buf, label){
   renderPanel();
   const wads=(BSP.entities[0]&&BSP.entities[0].wad)?' · wads: '+BSP.entities[0].wad.split(';').filter(Boolean).length:'';
   $('search').placeholder='filter · '+BSP.entities.length+' entities · '+BSP.textures.length+' textures'+wads;
+}
+/* ── remote map via ?url= — explicit consent, https-only, capped ──
+   The URL is never auto-fetched: the host is shown and the user must click.
+   Fetched bytes are only ever parsed as data (bounds-checked), never executed. */
+const MAX_REMOTE_BYTES = 64*1024*1024;
+function remoteUrlFromLocation(search){
+  const u = new URLSearchParams(search).get('url');
+  if(!u) return null;
+  let p;
+  try{ p = new URL(u); }catch(e){ return { error:'the url parameter is not a valid URL' }; }
+  if(p.protocol !== 'https:') return { error:'remote maps must be served over https' };
+  return { url:p.href, host:p.hostname };
+}
+async function fetchRemote(url){
+  const ctl = new AbortController();
+  const to = setTimeout(()=>ctl.abort(), 30000);
+  let res;
+  try{
+    res = await fetch(url, { signal:ctl.signal });
+  }catch(e){
+    throw new Error('fetch failed — the host must allow cross-origin requests (CORS). '+
+      'Hosts like raw.githubusercontent.com send the right headers; most game mirrors do not.');
+  } finally { clearTimeout(to); }
+  if(!res.ok) throw new Error('host answered '+res.status+' '+(res.statusText||''));
+  const len = Number(res.headers && res.headers.get && res.headers.get('content-length'));
+  if(isFinite(len) && len > MAX_REMOTE_BYTES) throw new Error('file is '+(len/1048576).toFixed(0)+' MB — cap is 64 MB');
+  const buf = await res.arrayBuffer();
+  if(buf.byteLength > MAX_REMOTE_BYTES) throw new Error('file exceeds the 64 MB cap');
+  return buf;
+}
+{
+  const rq = remoteUrlFromLocation(location.search);
+  if(rq && rq.error){ showError('?url= ignored: '+rq.error); }
+  else if(rq){
+    $('urlhost').textContent = rq.host;
+    $('urlbar').classList.remove('hide');
+    $('urlGo').addEventListener('click', async ()=>{
+      $('urlGo').disabled = true; $('urlGo').textContent = 'fetching…';
+      try{
+        const buf = await fetchRemote(rq.url);
+        $('urlbar').classList.add('hide');
+        loadBuffer(buf, rq.url.split('/').pop() || rq.host);
+      }catch(e){
+        $('urlbar').classList.add('hide');
+        showError('remote map: '+e.message);
+      }
+    });
+    $('urlNo').addEventListener('click', ()=>$('urlbar').classList.add('hide'));
+  }
 }
 $('file').addEventListener('change', e=>{
   const f=e.target.files[0]; if(!f) return;
