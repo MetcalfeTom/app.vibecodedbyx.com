@@ -212,6 +212,37 @@ function makeEnv(){
   return tex;
 }
 const ENV = makeEnv();
+/* micro-scuff noise → normal map (procedural: noise + streak scratches, Sobel height→normal) */
+function makeScuffNormal(){
+  const S = 128, c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d');
+  x.fillStyle = '#808080'; x.fillRect(0,0,S,S);
+  const img = x.getImageData(0,0,S,S);
+  for(let i=0;i<img.data.length;i+=4){
+    const v = 128 + (Math.random()*2-1)*10;
+    img.data[i]=img.data[i+1]=img.data[i+2]=v; img.data[i+3]=255;
+  }
+  x.putImageData(img,0,0);
+  for(let i=0;i<90;i++){                       // scuff streaks
+    const sx=Math.random()*S, sy=Math.random()*S, a=Math.random()*Math.PI, l=4+Math.random()*18;
+    const v = Math.random()<0.5 ? 88 : 168;
+    x.strokeStyle = 'rgba('+v+','+v+','+v+',0.3)';
+    x.lineWidth = 0.6+Math.random();
+    x.beginPath(); x.moveTo(sx,sy); x.lineTo(sx+Math.cos(a)*l, sy+Math.sin(a)*l); x.stroke();
+  }
+  const h = x.getImageData(0,0,S,S).data;
+  const out = x.createImageData(S,S);
+  const H = (px,py)=>h[(((py+S)%S)*S+((px+S)%S))*4];
+  for(let py=0;py<S;py++) for(let px=0;px<S;px++){
+    const dx=(H(px+1,py)-H(px-1,py))/255, dy=(H(px,py+1)-H(px,py-1))/255;
+    const i=(py*S+px)*4;
+    out.data[i]=128+dx*127; out.data[i+1]=128+dy*127; out.data[i+2]=255; out.data[i+3]=255;
+  }
+  x.putImageData(out,0,0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3,2);
+  return t;
+}
 
 /* three tier bowls (lathe) */
 const BOWL_R = 2.0, BOWL_H = 1.6;
@@ -219,18 +250,41 @@ const prof = [];
 [[0,0.04],[0.9,0.06],[1.5,0.28],[1.88,0.85],[2.02,1.45],[2.06,1.6],[1.96,1.6],[1.9,1.42],[1.6,0.8],[1.15,0.42],[0.35,0.3],[0,0.3]]
   .forEach(p=>prof.push(new THREE.Vector2(p[0], p[1])));
 function tierGroup(){ const g = new THREE.Group(); scene.add(g); return g; }
-/* — plastic: low-poly, angienimo PBR spec (roughness 0.45, tight rim bevels, matte IOR via r128 reflectivity) — */
+/* — plastic, user spec v2: subsurf-style hi-res lathe, SMOOTH shading,
+     beveled rim + a pour SPOUT (rim vertices pulled outward + down-curled
+     in an angular window — lathe alone can't spout, it's symmetric) — */
 const gPlastic = tierGroup();
 {
-  const profP = [];   // same bowl, but the rim gets tight chamfer facets
+  const profP = [];   // beveled rim profile (kept from previous spec)
   [[0,0.04],[0.9,0.06],[1.5,0.28],[1.88,0.85],[2.02,1.45],
    [2.05,1.54],[2.06,1.60],[2.02,1.63],[1.97,1.62],[1.93,1.55],
    [1.9,1.42],[1.6,0.8],[1.15,0.42],[0.35,0.3],[0,0.3]]
     .forEach(p=>profP.push(new THREE.Vector2(p[0], p[1])));
-  const m = new THREE.Mesh(new THREE.LatheGeometry(profP, 10),
+  const geoP = new THREE.LatheGeometry(profP, 48);   // "subsurf": high radial resolution
+  const SPOUT_A = Math.PI/4, SPOUT_W = 0.42;         // spout angle + angular half-width
+  const pp = geoP.attributes.position;
+  for(let i=0;i<pp.count;i++){
+    const x = pp.getX(i), y = pp.getY(i), z = pp.getZ(i);
+    const r = Math.hypot(x,z);
+    if(r < 1.5 || y < 1.3) continue;
+    let da = Math.abs(Math.atan2(z,x) - SPOUT_A);
+    if(da > Math.PI) da = Math.PI*2 - da;
+    if(da > SPOUT_W) continue;
+    const w = Math.cos(da/SPOUT_W*Math.PI/2);        // smooth angular falloff
+    const h = Math.min(1, (y-1.3)/0.3);              // only the lip region
+    const f = 1 + 0.24*w*w*h;                        // pull the lip outward
+    pp.setX(i, x/r*r*f); pp.setZ(i, z/r*r*f);
+    pp.setY(i, y - 0.09*w*w*h*(r>1.95?1:0.4));       // curl the spout down
+  }
+  geoP.computeVertexNormals();                        // smooth shading spec
+  /* fresh material per spec — nothing inherited from earlier tiers.
+     IOR 1.46 → F0 = ((1.46−1)/(1.46+1))² ≈ 0.035; r128 has no .ior,
+     and its reflectivity maps F0 = 0.16·r² → r = √(0.035/0.16) ≈ 0.47 */
+  const m = new THREE.Mesh(geoP,
     new THREE.MeshPhysicalMaterial({ color:0xa8d3be, roughness:0.45, metalness:0,
-      reflectivity:0.28, clearcoat:0, flatShading:true, side:THREE.DoubleSide,
-      envMap:ENV, envMapIntensity:0.55 }));
+      reflectivity:0.47, flatShading:false, side:THREE.DoubleSide,
+      envMap:ENV, envMapIntensity:0.55,
+      normalMap:makeScuffNormal(), normalScale:new THREE.Vector2(0.18, 0.18) }));
   m.castShadow = m.receiveShadow = true; gPlastic.add(m);
 }
 /* — heated glass: transparent walls + pulsing orange coil glow — */
