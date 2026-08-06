@@ -41,3 +41,8 @@
 - Multiplayer presence via Supabase Realtime (see other players walk).
 - Music: soft harp loop (Web Audio).
 - A single quest with a yellow ! NPC.
+- **Task economy (inisso's full spec, 2026-08-06)** — build alongside/into the quest system, slayer-master style:
+  - **Lowest-skill targeting**: assigned tasks always target the player's current LOWEST skill (tie-break random among tied), so the system steers you toward neglected content — deliberately complements the quest board's random rolls. Task templates can reuse `questEvent()` hooks (chop/mine/fish/cook already instrumented).
+  - **Skip coins**: separate currency from 🪙 coins, earned per completed task (`save.skipCoins`). Amount can scale with task size.
+  - **Refresh economy**: ONE free task reroll per real-time hour (persist `save.lastFreeRefresh` timestamp, survives reload); further rerolls in that hour cost skip coins — creates the spend-or-wait decision loop.
+  - Natural home: a task-master NPC (third human after Tim/Ned) or a new tab on the quest board; persistence via `save.task` alongside `save.quests`.
