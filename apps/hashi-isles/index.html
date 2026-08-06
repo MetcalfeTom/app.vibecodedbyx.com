@@ -255,6 +255,7 @@ function loadPuzzle(n){
   cur = n;
   puzzle = genPuzzle(n);
   bridges = {};
+  restoreBoard(n);
   selected = -1;
   $('boardMsg').textContent = 'chart ' + n + ' · ' + puzzle.isles.length + ' islands';
   $('boardMsg').className = '';
@@ -262,6 +263,75 @@ function loadPuzzle(n){
   draw();
 }
 function pairKey(a, b){ return Math.min(a,b) + '-' + Math.max(a,b); }
+
+/* ── in-progress bridge persistence (boldlibrarian's ask) ──
+   local always; mirrored to AP server data storage when connected so the
+   board auto-restores on reconnect, even from another device. */
+function serializeBridges(){ return Object.entries(bridges).map(([k,v]) => k + ':' + v).join(','); }
+function parseBridgeStr(s){
+  const out = {};
+  String(s || '').split(',').forEach(t => {
+    const m = t.match(/^(\d+)-(\d+):([12])$/);
+    if(m && +m[1] < +m[2]) out[m[1] + '-' + m[2]] = +m[3];
+  });
+  return out;
+}
+function boardKey(n){ return 'hashi-isles-board:' + n; }
+function saveBoard(){
+  try{
+    const s = serializeBridges();
+    if(s) localStorage.setItem(boardKey(cur), s);
+    else localStorage.removeItem(boardKey(cur));
+  }catch(e){}
+  queueServerSync();
+}
+function restoreBoard(n){
+  let s = null;
+  try{ s = localStorage.getItem(boardKey(n)); }catch(e){}
+  if(!s) return;
+  const saved = parseBridgeStr(s);
+  for(const pk in saved){
+    const [a, b] = pk.split('-').map(Number);
+    if(a < puzzle.isles.length && b < puzzle.isles.length && canBridge(a, b)) bridges[pk] = saved[pk];
+  }
+}
+let apSlot = '', syncT = null, apStorageOk = true;
+function storageKeyFor(n){ return 'hashi_isles:' + (apSlot || 'slot') + ':' + n; }
+function queueServerSync(){
+  if(!connected || !apStorageOk) return;
+  clearTimeout(syncT);
+  syncT = setTimeout(() => {
+    try{
+      const st = client && client.storage;
+      if(st && typeof st.prepare === 'function')
+        st.prepare(storageKeyFor(cur), '').replace(serializeBridges()).commit(false);
+      else if(st && typeof st.set === 'function')
+        st.set(storageKeyFor(cur), serializeBridges());
+      else { apStorageOk = false; logLine('⚠ bridge sync: local-only (no data storage API)'); }
+    }catch(e){ apStorageOk = false; logLine('⚠ bridge sync: local-only (' + (e && e.message || 'storage error') + ')'); }
+  }, 700);
+}
+async function pullServerBoards(){
+  if(!connected) return;
+  try{
+    const st = client && client.storage;
+    if(!st || typeof st.fetch !== 'function') return;
+    const keys = [];
+    for(let n = 1; n <= N_PUZZLES; n++) keys.push(storageKeyFor(n));
+    const data = await st.fetch(keys);
+    let got = 0;
+    for(let n = 1; n <= N_PUZZLES; n++){
+      const v = data && data[storageKeyFor(n)];
+      if(typeof v === 'string' && v){
+        try{ localStorage.setItem(boardKey(n), v); got++; }catch(e){}
+      }
+    }
+    if(got){
+      logLine('📥 restored ' + got + ' in-progress chart' + (got === 1 ? '' : 's') + ' from the server');
+      loadPuzzle(cur);
+    }
+  }catch(e){ /* server or lib without storage support — local layer still holds */ }
+}
 function bridgeCells(A, B){
   const cells = [];
   if(A.x === B.x)
@@ -330,6 +400,7 @@ canvas.addEventListener('pointerdown', e => {
     const pk = pairKey(selected, hit);
     bridges[pk] = ((bridges[pk] || 0) + 1) % 3;
     if(!bridges[pk]) delete bridges[pk];
+    saveBoard();
     sndClick();
     selected = -1;
     draw();
@@ -340,7 +411,7 @@ canvas.addEventListener('pointerdown', e => {
     draw();
   }
 });
-$('clearBtn').addEventListener('click', () => { bridges = {}; selected = -1; draw(); });
+$('clearBtn').addEventListener('click', () => { bridges = {}; selected = -1; saveBoard(); draw(); });
 
 function onSolved(){
   $('boardMsg').textContent = '🌉 CHART ' + cur + ' BRIDGED!';
@@ -501,12 +572,14 @@ $('apBtn').addEventListener('click', async () => {
     try{ client.socket.on('disconnected', () => { connected = false; apUi(); apMsg('connection lost'); }); }catch(e){}
     await client.login(url, slot, 'Hashiwokakero', { password: pass, itemsHandling: 7 });
     connected = true;
+    apSlot = slot; apStorageOk = true;
     window.__hiClient = client;
     $('sSlot').textContent = slot;
     apUi();
     refreshApState();
     logLine('⚓ connected to the multiworld.');
     loadPuzzle(Math.min(cur, unlockedCount()));
+    pullServerBoards();
   }catch(err){
     const hint = apUrlHint(apUrlFor(host));
     apMsg('failed: ' + (err && err.message ? err.message : err) + (hint ? ' · ' + hint : ''));
