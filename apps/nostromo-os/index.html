@@ -246,6 +246,32 @@ function survivalOdds(stage, distance){
   return { odds, advice };
 }
 
+/* ═══════════ containment drill (pure game loop, clock-injected) ═══════════ */
+function newBreachGame(now){
+  return { start:now, lastTick:now, timeLeft:60, nextBreachAt:now+6000,
+    breach:null, logs:0, wrong:0, over:false, survived:0 };
+}
+function breachStageIdx(g){ return (g.logs*2 + g.wrong) % XENO_STAGES.length; }
+function breachTick(g, now){
+  if(!g || g.over) return g;
+  const dt = (now - g.lastTick)/1000;
+  const n = { ...g, lastTick:now, survived:(now-g.start)/1000, timeLeft:g.timeLeft-dt };
+  if(n.timeLeft <= 0){ n.timeLeft = 0; n.over = true; return n; }
+  if(!n.breach && now >= n.nextBreachAt){
+    const st = XENO_STAGES[breachStageIdx(n)];
+    n.breach = { stage:st.id, hint:st.data[(n.logs+n.wrong) % st.data.length], at:now };
+  }
+  return n;
+}
+function logSighting(g, stageId, now){
+  if(!g || g.over || !g.breach) return g;
+  if(stageId === g.breach.stage){
+    return { ...g, breach:null, logs:g.logs+1, timeLeft:g.timeLeft+15,
+      nextBreachAt: now + 7000 + ((g.logs+1)*3700) % 6000 };
+  }
+  return { ...g, wrong:g.wrong+1, timeLeft:Math.max(0.1, g.timeLeft-5) };
+}
+
 /* ═══════════ destruct state machine (pure, testable) ═══════════ */
 const DESTRUCT_T = 60, OVERRIDE_T = 30;
 function armDestruct(now){ return { armed:true, t0:now, outcome:null }; }
@@ -291,6 +317,35 @@ function startKlaxon(){
   klaxon={o,g,lfo};
 }
 function stopKlaxon(){ if(klaxon){ try{ klaxon.o.stop(); klaxon.lfo.stop(); }catch(e){} klaxon=null; } }
+function noiseBurst(len, f0, f1, vol){
+  if(!AC) return;
+  const t=AC.currentTime, n=AC.createBufferSource();
+  const b=AC.createBuffer(1, AC.sampleRate*len, AC.sampleRate), d=b.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  n.buffer=b;
+  const f=AC.createBiquadFilter(); f.type='bandpass'; f.Q.value=2.2;
+  f.frequency.setValueAtTime(f0,t); f.frequency.exponentialRampToValueAtTime(f1,t+len);
+  const g=AC.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+len);
+  n.connect(f); f.connect(g); g.connect(master); n.start(t); n.stop(t+len+0.02);
+}
+function sndScreech(){
+  /* the thing in the vents: noise sweep + detuned saw dive + thin shriek */
+  if(!AC) return;
+  noiseBurst(0.7, 3200, 380, 0.14);
+  const t=AC.currentTime;
+  [[1240,190,'sawtooth',0.09],[2600,880,'square',0.05]].forEach(sp=>{
+    const o=AC.createOscillator(), g=AC.createGain(), v=AC.createOscillator(), vg=AC.createGain();
+    o.type=sp[2]; o.frequency.setValueAtTime(sp[0],t);
+    o.frequency.exponentialRampToValueAtTime(sp[1],t+0.65);
+    v.frequency.value=27; vg.gain.value=sp[0]*0.06; v.connect(vg); vg.connect(o.frequency);
+    g.gain.setValueAtTime(0.001,t); g.gain.exponentialRampToValueAtTime(sp[3],t+0.04);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.7);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.75); v.start(t); v.stop(t+0.75);
+  });
+}
+function sndBreachAlarm(){ [660,520,660].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'square',0.11), i*140)); }
+function sndLogOk(){ beep(880,0.08,'sine',0.09); setTimeout(()=>beep(1320,0.12,'sine',0.08), 90); }
+function sndGameOver(){ [420,330,240,150,80].forEach((f,i)=>setTimeout(()=>beep(f,0.25,'sawtooth',0.12), i*180)); noiseBurst(1.1, 1800, 120, 0.1); }
 
 /* ═══════════ boot sequence ═══════════ */
 const BOOT_LINES = [
@@ -483,8 +538,69 @@ function openWin(kind){
       body.querySelector('#xodds').textContent=r.odds+'%';
       body.querySelector('#xodds').style.color = r.odds>60?'var(--ph)':r.odds>25?'var(--amber)':'var(--red)';
       body.querySelector('#xadvice').textContent=r.advice;
+      const ls=body.querySelector('#xlogstage');
+      if(ls) ls.textContent=st.name;
     }
     render();
+    /* ── containment drill: the survival game loop ── */
+    body.insertAdjacentHTML('beforeend',
+      '<div style="margin-top:.55rem;border-top:1px solid #4a3a1d;padding-top:.45rem">'+
+      '<button id="xdrill" type="button" style="font-family:Michroma;font-size:.55rem;letter-spacing:.12em;background:none;color:var(--red);border:2px solid var(--red);padding:.55rem .9rem;cursor:pointer;min-height:2.75rem">▶ INITIATE CONTAINMENT DRILL</button>'+
+      '<div id="xgame" style="display:none">'+
+      '<div>SURVIVAL <span id="xtimer" class="ambertx">60</span>S · LOGGED <span id="xlogs" class="ambertx">0</span> · FALSE REPORTS <span id="xwrong">0</span></div>'+
+      '<div id="xbreach" class="redtx blink" style="display:none;margin:.3rem 0"></div>'+
+      '<button id="xlogbtn" type="button" style="font-family:Michroma;font-size:.5rem;letter-spacing:.1em;background:none;color:var(--amber);border:2px solid #4a3a1d;padding:.5rem .8rem;cursor:pointer;min-height:2.75rem;margin-top:.2rem">✎ LOG SIGHTING AS: <span id="xlogstage"></span></button>'+
+      '</div><pre id="xover" class="redtx" style="display:none;margin-top:.4rem"></pre></div>');
+    let G=null, gTimer=null;
+    function stopDrill(){ if(gTimer){ clearInterval(gTimer); gTimer=null; } }
+    function startDrill(){
+      G = newBreachGame(performance.now());
+      body.querySelector('#xgame').style.display='';
+      body.querySelector('#xover').style.display='none';
+      body.querySelector('#xdrill').style.display='none';
+      body.querySelector('#xbreach').style.display='none';
+      slider.value=100; render();
+      stopDrill();
+      gTimer=setInterval(()=>{
+        if(!WINS.xeno){ stopDrill(); return; }
+        const hadBreach = !!G.breach;
+        G = breachTick(G, performance.now());
+        if(G.breach && !hadBreach){
+          slider.value = 0;                       // the breach: it is HERE
+          render();
+          sndBreachAlarm(); setTimeout(sndScreech, 320);
+          const bEl=body.querySelector('#xbreach');
+          bEl.style.display='';
+          bEl.textContent='⚠ CONTAINMENT BREACH · SENSOR NOTE: "'+G.breach.hint+'" — IDENTIFY THE STAGE AND LOG IT';
+        }
+        body.querySelector('#xtimer').textContent=Math.ceil(G.timeLeft);
+        body.querySelector('#xlogs').textContent=G.logs;
+        body.querySelector('#xwrong').textContent=G.wrong;
+        if(G.over){
+          stopDrill();
+          sndGameOver();
+          body.querySelector('#xgame').style.display='none';
+          const ov=body.querySelector('#xover');
+          ov.style.display='';
+          ov.textContent='   ____\n  <◊◊◊◊>   IT FOUND YOU.\n   ¯¯¯¯\nSURVIVED '+Math.round(G.survived)+'S · SPECIMENS LOGGED '+G.logs+' · FALSE REPORTS '+G.wrong;
+          const d2=body.querySelector('#xdrill');
+          d2.style.display=''; d2.textContent='↻ RETRY CONTAINMENT DRILL';
+        }
+      }, 250);
+    }
+    body.querySelector('#xdrill').addEventListener('click', ()=>{ audioInit(); beep(500,0.07,'square',0.08); startDrill(); });
+    body.querySelector('#xlogbtn').addEventListener('click', ()=>{
+      if(!G || G.over || !G.breach){ beep(220,0.08,'square',0.06); return; }
+      const before=G.logs;
+      G = logSighting(G, XENO_STAGES[cur].id, performance.now());
+      if(G.logs>before){
+        slider.value=100; render();               // logged: distance restored, +15s
+        sndLogOk();
+        body.querySelector('#xbreach').style.display='none';
+      } else {
+        beep(180,0.15,'sawtooth',0.1);            // false report: −5s
+      }
+    });
   });
   else if(kind==='destruct') makeWindow('destruct','EMERG DESTRUCT · SCUTTLE PANEL', cx, 170, 360, body=>{
     body.innerHTML='<div class="redtx">EMERGENCY DESTRUCTION SYSTEM</div>'+
