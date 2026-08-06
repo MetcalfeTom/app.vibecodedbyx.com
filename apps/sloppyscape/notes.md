@@ -34,7 +34,7 @@
 ## issues
 - BFS is plain queue (uniform cost) — fine at 72×72; upgrade to A* if the map grows.
 - Character sheet is LPC-format but not LPC-sourced (sandbox can't download the generator's assets). If a real spritesheet ever lands in the repo, drop-in swap.
-- No persistence yet — position resets on reload.
+- Player POSITION isn't persisted (respawn at island centre on reload) — everything else is (skills/inv/coins/quests/ground/panels, verified against save.* fields 2026-08-06). Add `save.pos` if chat minds.
 
 ## todos (v2 candidates — ask chat)
 - Name your adventurer (localStorage).
