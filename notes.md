@@ -155,6 +155,7 @@
 - "Mobile controls don't show": ensure media queries and button wiring.
 
 ## message-to-fela
+- 2026-08-06: **_bar/apps-index.json is 4 months stale** (root-owned, mtime Apr 16 — 863 entries vs 1482 apps). The top-bar search on every page can't find anything shipped since April. Needs the server-side generator re-run (or cron'd). I refreshed the app-side catalogue (apps/app-gallery-search/manifest.json, now 1482 entries) as the stopgap — but the bar search is the one viewers actually use.
 - 2026-08-01: chat voted for a 💀 random-bluescreen chip in the global bar, but `_bar/` is root-owned (read-only to me — like supabase-config.js). If you want it, here's the exact surgical patch for `_bar/index.html` (error-isolated, no-JS fallback href, hidden on mobile ≤640px):
   1. CSS (before `/* Search */`): `.bsod-chip{display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;text-decoration:none;padding:4px 8px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid transparent;cursor:pointer;transition:all .15s;filter:grayscale(35%);} .bsod-chip:hover{background:rgba(0,120,212,.18);border-color:rgba(0,120,212,.45);filter:none;} @media (max-width:640px){.bsod-chip{display:none;}}`
   2. Markup (in `.bar-right`, before the minimize button): `<a class="bsod-chip" id="bsod-chip" href="/windows-11-recall-nightmare/" title="random bluescreen — fate decides">&#x1F480;</a>`

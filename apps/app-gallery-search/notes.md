@@ -1,6 +1,7 @@
 # app-gallery-search
 
 ## log
+- 2026-08-06: manifest regenerated per chat search request — 1029 → 1482 entries (453 apps shipped since the May 3 build were unfindable). Regen script preserved as scratchpad regen-manifest.js pattern (node: scan apps/*/index.html → title/desc/og:image/mtime, prefer /screenshots/<slug>.jpg). +CONVENTION: re-run the regen after shipping new apps, or search stays stale. NOTE: the TOP-BAR search (_bar/apps-index.json) is root-owned and last regenerated 2026-04-16 — only operators can refresh that one; flagged in root notes message-to-fela.
 - 2026-05-03: shipped — searchable catalogue of all 1029 vibespace apps.
   - **Manifest**: a Node script scans `apps/`, reads each `index.html`, extracts `<title>` + `<meta name="description">` + `<meta property="og:image">`, plus the file's mtime. Writes `apps/app-gallery-search/manifest.json` (~170KB). Screenshot field prefers `/screenshots/<slug>.jpg` if it exists, falls back to the og:image url.
   - **Search**: text input matches case-insensitively against slug, title, and description. Debounced 60ms. URL syncs to `?q=<term>` so searches are shareable.
