@@ -1,6 +1,7 @@
 # Nostromo OS
 
 ## log
+- 2026-08-06 v1.1: **SPECIMEN FILE** per chat — xenomorph catalog panel, amber CRT. `XENO_STAGES` (5 cards: ovo/hug/burst/drone/queen — art uses \\n escapes rendered via replace at display) + `survivalOdds(stage, distance)` pure: closeness=(1−d/100)^0.7, odds=100−threat·10·closeness, floor 2% (threat 10) / 5%, advice tiers ending 'FORGET THE CAT. (SHE WILL NOT.)'. Stage tabs + distance slider (accent amber). MOTHER pattern /specimen|catalog|.../ crosslinks. **BUG**: 'catalog' matched MOTHER's /cat/ → Jones answer; cat pattern now \\bcat\\b|kitty. Tests 23/23 (incl. monotone-odds sweep + drone 99%→2%).
 - 2026-08-06 v1.0: new app per chat — retrofuturistic Nostromo OS desktop sim (Alien 1979 / MU/TH/UR 6000).
   - **Boot sequence**: typed POST log (Weyland-Yutani header, CPU checks, core-memory counter 0→2048K with rising blips, hypersleep/reactor/nav lines, "PRIORITY ONE DIRECTIVE [HELD]") ending at INTERFACE 2037; click or Space skips; REBOOT button reruns it.
   - **CRT**: scanline overlay + curvature vignette + 6s flicker keyframe (killed by prefers-reduced-motion), green phosphor base with **amber window chrome** per chat ("draggable amber window panels") — terminals stay green, panel borders/titlebars amber like the film's mixed consoles.
