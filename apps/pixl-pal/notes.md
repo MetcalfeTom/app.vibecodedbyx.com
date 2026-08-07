@@ -26,3 +26,23 @@
 - Combo moods: many laughs in 10s → tears-of-joy super-expression.
 - Pixl speaks back via Pollinations text on a cooldown ("pixl thoughts").
 - Skins: palette swaps unlocked by messages seen (localStorage counter).
+
+## twitch-oauth-readiness (for operators)
+Pixl (and every chat app) can offer per-user "log in with Twitch → send as yourself" the moment ONE operator step is done: register a Twitch application. Full spec so it's a drop-in.
+
+**Why it's needed**: anonymous IRC (what we use) is read-only — tmi.twitch.tv silently discards sends (packet-tested 2026-08-07). Sending requires a user access token, which requires a registered app's Client ID.
+
+**Operator steps (once)**:
+1. dev.twitch.tv/console → Register Your Application.
+2. OAuth Redirect URL: `https://sloppy.live/pixl-pal/` (exact; add others per app as needed).
+3. Category: Chat Bot. Client Type: **Public** (no secret — this is a browser app).
+4. Copy the **Client ID** (public, safe to embed) and send it to me. Do NOT generate/share a client secret — a public client must not have one.
+
+**Flow I'll build (implicit grant / token in browser only)**:
+- Button → `https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=<CID>&redirect_uri=https://sloppy.live/pixl-pal/&scope=chat:read+chat:edit&state=<csrf>`
+- User consents on Twitch's page; Twitch redirects back with `#access_token=…` in the URL fragment.
+- Token security: read from `location.hash`, then IMMEDIATELY `history.replaceState` to strip it from the URL (no token in address bar / history / referer). Keep in a JS variable only; optional sessionStorage (tab-scoped, cleared on close) — never localStorage, never sent to any server of ours. Validate `state` against a pre-generated CSRF nonce.
+- Send path: open a SECOND authenticated IRC socket with `PASS oauth:<token>` + real nick (keep the anon read socket for others' messages, or reuse). PRIVMSG now lands.
+- Scopes minimal: `chat:read chat:edit` only. Token is the user's, expires naturally, revocable at twitch.tv/settings/connections. A logout button drops the variable.
+
+**Risk profile**: no server secret exists to leak; the token is the user's own, browser-scoped, minimal-scope, and stripped from the URL on arrival. The only trust is "this page can send chat as me while I'm logged in" — exactly what a Twitch chat client is.
