@@ -421,42 +421,76 @@ function stepDemo(dt){
   }
 }
 
-/* ---------- twitch (anonymous IRC — repo-proven bridge) ---------- */
-var ws=null, wsChan='';
+/* ---------- twitch (anonymous IRC — repo-proven bridge) ----------
+   Debug logging per coldpresss's reconnect report: every connection-state
+   transition prints to the console as [pixl-pal:irc]. Open devtools to watch. */
+var ws=null, wsChan='', wsGen=0, wsAttempt=0, reconnectTimer=null;
+function dbg(){
+  var a=['%c[pixl-pal:irc]','color:#b48ae8;font-weight:bold',
+    new Date().toISOString().slice(11,23)];
+  for(var i=0;i<arguments.length;i++) a.push(arguments[i]);
+  try{ console.log.apply(console, a); }catch(e){}
+}
 function setPill(cls,txt){
   var p=document.getElementById('pill');
   p.className='pill '+cls;
   document.getElementById('pillTxt').textContent=txt;
 }
-function connectTwitch(chan){
+function scheduleReconnect(chan, gen){
+  if(gen!==wsGen) { dbg('stale socket (gen',gen,'vs',wsGen,') — NOT scheduling reconnect'); return; }
+  wsAttempt++;
+  var delay=Math.min(30000, 3500*Math.pow(2, wsAttempt-1));
+  dbg('scheduling reconnect #'+wsAttempt,'to #'+chan,'in',Math.round(delay/1000)+'s');
+  setPill('err','reconnecting ×'+wsAttempt+'…');
+  clearTimeout(reconnectTimer);
+  reconnectTimer=setTimeout(function(){
+    if(gen===wsGen && wsChan===chan) connectTwitch(chan, true);
+    else dbg('reconnect cancelled — channel or generation changed');
+  }, delay);
+}
+function connectTwitch(chan, isRetry){
   chan=(chan||'').toLowerCase().trim().replace(/^#/,'').replace(/[^a-z0-9_]/g,'');
   if(!chan) return;
-  if(ws){ try{ ws.close(); }catch(e){} ws=null; }
+  if(!isRetry) wsAttempt=0;
+  clearTimeout(reconnectTimer);
+  wsGen++;
+  var gen=wsGen;
+  dbg('connect attempt (gen',gen+') → #'+chan, isRetry?'(retry #'+wsAttempt+')':'(fresh)');
+  if(ws){ dbg('closing previous socket'); try{ ws.onclose=null; ws.close(); }catch(e){} ws=null; }
   wsChan=chan;
   setPill('','connecting…');
   try{
     ws=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-  }catch(e){ setPill('err','connection failed'); return; }
-  ws.onopen=function(){
-    ws.send('PASS SCHMOOPIIE');
-    ws.send('NICK justinfan'+Math.floor(Math.random()*80000+1000));
-    ws.send('JOIN #'+chan);
+  }catch(e){ dbg('WebSocket constructor threw:', e.message); setPill('err','connection failed'); return; }
+  var sock=ws;
+  sock.onopen=function(){
+    if(gen!==wsGen){ dbg('stale socket opened (gen',gen,') — closing'); try{ sock.close(); }catch(e){} return; }
+    var nick='justinfan'+Math.floor(Math.random()*80000+1000);
+    dbg('socket OPEN · registering as',nick,'· joining #'+chan);
+    sock.send('PASS SCHMOOPIIE');
+    sock.send('NICK '+nick);
+    sock.send('JOIN #'+chan);
     setPill('live','live · #'+chan);
     demoOn=false;
     document.getElementById('sr').textContent='Connected to '+chan+' chat.';
   };
-  ws.onmessage=function(ev){
+  sock.onmessage=function(ev){
+    if(gen!==wsGen) return;
     String(ev.data).split('\r\n').forEach(function(raw){
       if(!raw) return;
-      if(raw.indexOf('PING')===0){ ws.send('PONG :tmi.twitch.tv'); return; }
+      if(raw.indexOf('PING')===0){ dbg('PING → PONG'); sock.send('PONG :tmi.twitch.tv'); return; }
+      if(raw.indexOf(' 366 ')>=0){ dbg('JOIN confirmed (366 end-of-names) — connection healthy, attempt counter reset'); wsAttempt=0; return; }
+      if(raw.indexOf('NOTICE')>=0){ dbg('server NOTICE:', raw.slice(0,140)); return; }
+      if(raw.indexOf('RECONNECT')>=0){ dbg('server sent RECONNECT — obeying'); try{ sock.close(); }catch(e){} return; }
       var m=raw.match(/^:(\w+)!\S+ PRIVMSG #\S+ :(.*)$/);
       if(m) handleChat(m[1], m[2], false);
     });
   };
-  ws.onclose=function(){
-    if(wsChan===chan){ setPill('err','reconnecting…'); setTimeout(function(){ if(wsChan===chan) connectTwitch(chan); }, 3500); }
+  sock.onclose=function(ev){
+    dbg('socket CLOSED · code',ev&&ev.code,'· reason',JSON.stringify(ev&&ev.reason||''),'· wasClean',ev&&ev.wasClean,'· gen',gen);
+    if(gen===wsGen && wsChan===chan) scheduleReconnect(chan, gen);
   };
-  ws.onerror=function(){ setPill('err','chat error'); };
+  sock.onerror=function(){ dbg('socket ERROR (details are hidden by browsers — see the close code next)'); setPill('err','chat error'); };
   try{ localStorage.setItem('pixl-pal-chan', chan); }catch(e){}
 }
 document.getElementById('connectBtn').addEventListener('click', function(){
