@@ -425,6 +425,18 @@ function stepDemo(dt){
    Debug logging per coldpresss's reconnect report: every connection-state
    transition prints to the console as [pixl-pal:irc]. Open devtools to watch. */
 var ws=null, wsChan='', wsGen=0, wsAttempt=0, reconnectTimer=null;
+var lastDataAt=0, watchdogTimer=null;
+var WATCHDOG_CHECK_MS=30000, WATCHDOG_STALE_MS=330000;   // Twitch pings ~5min; 5.5min silence = dead socket
+function watchdogCheck(gen){
+  if(gen!==wsGen){ clearInterval(watchdogTimer); return 'stale-gen'; }
+  var silent=performance.now()-lastDataAt;
+  if(silent>WATCHDOG_STALE_MS){
+    dbg('watchdog: no data for',Math.round(silent/1000)+'s (threshold '+Math.round(WATCHDOG_STALE_MS/1000)+'s) — forcing reconnect');
+    try{ ws && ws.close(); }catch(e){}
+    return 'reconnect';
+  }
+  return 'healthy';
+}
 function dbg(){
   var a=['%c[pixl-pal:irc]','color:#b48ae8;font-weight:bold',
     new Date().toISOString().slice(11,23)];
@@ -463,6 +475,10 @@ function connectTwitch(chan, isRetry){
     ws=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
   }catch(e){ dbg('WebSocket constructor threw:', e.message); setPill('err','connection failed'); return; }
   var sock=ws;
+  lastDataAt=performance.now();
+  clearInterval(watchdogTimer);
+  watchdogTimer=setInterval(function(){ watchdogCheck(gen); }, WATCHDOG_CHECK_MS);
+  dbg('watchdog armed: reconnect if silent >'+Math.round(WATCHDOG_STALE_MS/1000)+'s');
   sock.onopen=function(){
     if(gen!==wsGen){ dbg('stale socket opened (gen',gen,') — closing'); try{ sock.close(); }catch(e){} return; }
     var nick='justinfan'+Math.floor(Math.random()*80000+1000);
@@ -476,6 +492,7 @@ function connectTwitch(chan, isRetry){
   };
   sock.onmessage=function(ev){
     if(gen!==wsGen) return;
+    lastDataAt=performance.now();
     String(ev.data).split('\r\n').forEach(function(raw){
       if(!raw) return;
       if(raw.indexOf('PING')===0){ dbg('PING → PONG'); sock.send('PONG :tmi.twitch.tv'); return; }
@@ -487,6 +504,7 @@ function connectTwitch(chan, isRetry){
     });
   };
   sock.onclose=function(ev){
+    clearInterval(watchdogTimer);
     dbg('socket CLOSED · code',ev&&ev.code,'· reason',JSON.stringify(ev&&ev.reason||''),'· wasClean',ev&&ev.wasClean,'· gen',gen);
     if(gen===wsGen && wsChan===chan) scheduleReconnect(chan, gen);
   };
@@ -552,7 +570,8 @@ function frame(now){
 fit();
 requestAnimationFrame(frame);
 window.__PAL={ classifyMessage:classifyMessage, react:react, handleChat:handleChat,
-  get A(){return A;}, stepAvatar:stepAvatar, drawAvatar:drawAvatar };
+  get A(){return A;}, stepAvatar:stepAvatar, drawAvatar:drawAvatar,
+  wd:{ check:watchdogCheck, get lastDataAt(){return lastDataAt;}, age:function(ms){ lastDataAt=performance.now()-ms; }, get gen(){return wsGen;} } };
 </script>
 </body>
 </html>
