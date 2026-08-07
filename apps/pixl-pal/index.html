@@ -88,6 +88,17 @@ body{
   padding:0 .3rem; margin-right:.25rem; vertical-align:middle;
 }
 #feed .line .ex{ margin-left:.3rem; font-size:.7rem; }
+.oauthrow{ padding:.5rem .8rem; border-bottom:1px solid var(--edge); }
+.oauthrow button{
+  width:100%; font-family:inherit; font-size:.72rem; font-weight:600;
+  background:#3a2a55; color:#c9b8e8; border:1px solid #4a3a68; border-radius:.4rem;
+  padding:.5rem; cursor:pointer; min-height:2.5rem;
+}
+.oauthrow button:not(:disabled){ background:#9146FF; color:#fff; border-color:#9146FF; }
+.oauthrow button:not(:disabled):hover{ filter:brightness(1.1); }
+.oauthrow button:disabled{ opacity:.55; cursor:not-allowed; }
+.oauthrow button.authed{ background:#1f6f3f; border-color:#2a8a4f; color:#eafff0; }
+.oauthnote{ font-size:.56rem; color:var(--dim); margin-top:.3rem; line-height:1.4; }
 .sayrow{
   display:flex; gap:.4rem; padding:.6rem .8rem .8rem; border-top:1px solid var(--edge);
 }
@@ -137,6 +148,10 @@ body{
     <div class="twitchrow">
       <input id="chanIn" placeholder="twitch channel (e.g. sloppy_ai)" aria-label="Twitch channel to read chat from" autocomplete="off" />
       <button type="button" id="connectBtn">connect</button>
+    </div>
+    <div class="oauthrow">
+      <button type="button" id="oauthBtn" disabled aria-describedby="oauthNote">🔒 log in with Twitch to chat as yourself</button>
+      <p class="oauthnote" id="oauthNote">login is dormant until an operator registers a Twitch app · setup pending</p>
     </div>
     <div id="feed" role="log" aria-live="off" aria-label="Chat messages"></div>
     <div class="sayrow">
@@ -475,6 +490,112 @@ function handleIrcParsed(pl){
   return null;
 }
 
+/* ═══════════ TWITCH OAUTH SCAFFOLD (dormant until Client ID is set) ═══════════
+   DROP-IN ACTIVATION: paste the operator's registered public Client ID below
+   and the whole flow lights up — button enables, implicit-grant login works,
+   an authenticated send socket opens. Empty = honestly disabled, no fake login. */
+var OAUTH={
+  CLIENT_ID: '',                                  // ← operator pastes the public Client ID here
+  REDIRECT: location.origin + '/pixl-pal/',
+  SCOPES: 'chat:read chat:edit',
+  token: null, login: null
+};
+function oauthBuildUrl(cid, redirect, scopes, state){
+  return 'https://id.twitch.tv/oauth2/authorize'
+    + '?response_type=token'
+    + '&client_id=' + encodeURIComponent(cid)
+    + '&redirect_uri=' + encodeURIComponent(redirect)
+    + '&scope=' + encodeURIComponent(scopes)
+    + '&state=' + encodeURIComponent(state);
+}
+function oauthParseReturn(hash){
+  var h=String(hash||'').replace(/^#/,'');
+  if(!h) return null;
+  var out={};
+  h.split('&').forEach(function(kv){
+    var i=kv.indexOf('=');
+    if(i>=0) out[decodeURIComponent(kv.slice(0,i))]=decodeURIComponent(kv.slice(i+1));
+  });
+  return out.access_token ? out : null;
+}
+function oauthReady(){ return /^[a-z0-9]{20,40}$/i.test(OAUTH.CLIENT_ID); }
+function oauthLogin(){
+  if(!oauthReady()) return;
+  var state=(Math.random().toString(36)+Math.random().toString(36)).slice(2,26);
+  try{ sessionStorage.setItem('pixl-oauth-state', state); }catch(e){}
+  location.href=oauthBuildUrl(OAUTH.CLIENT_ID, OAUTH.REDIRECT, OAUTH.SCOPES, state);
+}
+function oauthHandleReturn(){
+  var ret=oauthParseReturn(location.hash);
+  if(!ret) return false;
+  try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
+  var saved=''; try{ saved=sessionStorage.getItem('pixl-oauth-state')||''; }catch(e){}
+  if(!ret.state || ret.state!==saved){ dbg('oauth: state mismatch — token discarded'); return false; }
+  OAUTH.token=ret.access_token;
+  try{ sessionStorage.setItem('pixl-oauth-token', OAUTH.token); }catch(e){}
+  fetchOauthLogin();
+  return true;
+}
+function fetchOauthLogin(){
+  fetch('https://id.twitch.tv/oauth2/validate', { headers:{ Authorization:'OAuth '+OAUTH.token } })
+    .then(function(r){ return r.ok?r.json():Promise.reject('invalid'); })
+    .then(function(j){ OAUTH.login=j.login; onOauthAuthed(); })
+    .catch(function(){ dbg('oauth: token failed validation'); oauthLogout(); });
+}
+var sendSock=null;
+function onOauthAuthed(){
+  var b=document.getElementById('oauthBtn');
+  b.classList.add('authed'); b.disabled=false;
+  b.textContent='✓ '+OAUTH.login+' — log out';
+  document.getElementById('oauthNote').textContent='you can now send to chat as yourself. token is in this tab only.';
+  document.getElementById('sayIn').placeholder='send to #'+(wsChan||'chat')+' as '+OAUTH.login+'…';
+  dbg('oauth: authed as', OAUTH.login);
+}
+function oauthLogout(){
+  OAUTH.token=null; OAUTH.login=null;
+  try{ sessionStorage.removeItem('pixl-oauth-token'); }catch(e){}
+  if(sendSock){ try{ sendSock.close(); }catch(e){} sendSock=null; }
+  applyOauthState();
+}
+function sendAsUser(chan, text){
+  if(!OAUTH.token || !OAUTH.login) return false;
+  if(!sendSock || sendSock.readyState!==1){
+    sendSock=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+    sendSock.onopen=function(){
+      sendSock.send('PASS oauth:'+OAUTH.token);
+      sendSock.send('NICK '+OAUTH.login);
+      sendSock.send('JOIN #'+chan);
+      setTimeout(function(){ sendSock.send('PRIVMSG #'+chan+' :'+text); }, 400);
+    };
+    return true;
+  }
+  sendSock.send('PRIVMSG #'+chan+' :'+text);
+  return true;
+}
+function applyOauthState(){
+  var b=document.getElementById('oauthBtn'), note=document.getElementById('oauthNote');
+  if(!b) return;
+  if(OAUTH.token && OAUTH.login){ onOauthAuthed(); return; }
+  if(oauthReady()){
+    b.disabled=false; b.classList.remove('authed');
+    b.textContent='🟣 log in with Twitch to chat as yourself';
+    note.textContent='opens Twitch\'s own consent page · minimal scopes (chat only) · token stays in this tab';
+  } else {
+    b.disabled=true; b.classList.remove('authed');
+    b.textContent='🔒 log in with Twitch (setup pending)';
+    note.textContent='dormant until an operator registers a Twitch app · see notes.md → twitch-oauth-readiness';
+  }
+}
+document.getElementById('oauthBtn').addEventListener('click', function(){
+  if(OAUTH.token) oauthLogout(); else oauthLogin();
+});
+(function bootOauth(){
+  try{ OAUTH.token=sessionStorage.getItem('pixl-oauth-token')||null; }catch(e){}
+  if(oauthHandleReturn()){ /* fresh login */ }
+  else if(OAUTH.token && oauthReady()){ fetchOauthLogin(); }
+  else applyOauthState();
+})();
+
 /* ---------- twitch (anonymous IRC — repo-proven bridge) ----------
    Debug logging per coldpresss's reconnect report: every connection-state
    transition prints to the console as [pixl-pal:irc]. Open devtools to watch. */
@@ -600,6 +721,13 @@ function sayLocal(){
   if(!t) return;
   if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
   demoOn=false;
+  if(OAUTH.token && OAUTH.login && wsChan){       // authed → send to the real chat as yourself
+    if(sendAsUser(wsChan, t)){
+      handleChat(OAUTH.login, t, false);          // echo locally so Pixl reacts immediately
+      inp.value=''; inp.focus();
+      return;
+    }
+  }
   var expr=handleChat('you', t, false);
   document.getElementById('sr').textContent='Pixl reacts: '+expr;
   inp.value=''; inp.focus();
@@ -628,7 +756,8 @@ requestAnimationFrame(frame);
 window.__PAL={ classifyMessage:classifyMessage, react:react, handleChat:handleChat,
   get A(){return A;}, stepAvatar:stepAvatar, drawAvatar:drawAvatar,
   wd:{ check:watchdogCheck, get lastDataAt(){return lastDataAt;}, age:function(ms){ lastDataAt=performance.now()-ms; }, get gen(){return wsGen;} },
-  parseIrcLine:parseIrcLine, handleIrcParsed:handleIrcParsed };
+  parseIrcLine:parseIrcLine, handleIrcParsed:handleIrcParsed,
+  oauth:{ ready:oauthReady, buildUrl:oauthBuildUrl, parseReturn:oauthParseReturn, cfg:OAUTH, applyState:applyOauthState } };
 </script>
 </body>
 </html>
