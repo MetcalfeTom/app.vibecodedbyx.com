@@ -1,6 +1,7 @@
 # pixl-pal (Pixl Pal)
 
 ## log
+- 2026-08-07: **scale fix per coldpresss** ("Pixl's too big and the speech bubble is cut off — scale down ~30%"). Sprite cell formula Wc/26,Hc/24 → Wc/37,Hc/34 (measured ~32% smaller: P 28→19 on desktop). Speech bubble now CLAMPED inside the canvas on both axes (left ≥8, right ≤W−8, top ≥P*3.4) so no viewport can cut it off. Added a __PAL_LAYOUT debug hook (P + bubble bounds) and exposed drawAvatar for deterministic probing — the first phone probe "failure" turned out to be the known headless single-rAF artifact, not a layout bug; with a direct draw call the bubble fits on 1280×800, 360×640, and 320×568. Scratch → atomic deploy.
 - 2026-08-07: v1 per chat ("VTuber-style pixel avatar app that reacts to chat messages with different expressions — standalone, same page layout as stream"). Single-file, no deps, all-original character and art.
   - **Layout** mirrors a stream page: big avatar stage left, chat column right (status pill, Twitch channel connect row, scrolling feed, "say something" input). Mobile stacks stage-over-chat; expression test bar hides.
   - **Pixl** (original character): 20×18 string-map pixel sprite (lavender body, cream belly, face plate, teal headset with pads, ahoge, outline) scaled to fit with crisp cells; blinks on a 2–6s timer, idle bob, occasional look-around saccades, blush always.
