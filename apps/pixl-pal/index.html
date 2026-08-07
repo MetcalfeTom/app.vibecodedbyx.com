@@ -150,15 +150,34 @@ body{
 <script>
 'use strict';
 /* ============================ [PURE-BEGIN] ============================ */
+function unescapeTag(v){
+  return String(v||'').replace(/\\s/g,' ').replace(/\\:/g,';').replace(/\\\\/g,'\\');
+}
+function parseIrcLine(raw){
+  var tags={}, rest=String(raw||'');
+  if(rest[0]==='@'){
+    var sp=rest.indexOf(' ');
+    if(sp<0) return null;
+    rest.slice(1,sp).split(';').forEach(function(kv){
+      var i=kv.indexOf('=');
+      if(i<0) tags[kv]='';
+      else tags[kv.slice(0,i)]=unescapeTag(kv.slice(i+1));
+    });
+    rest=rest.slice(sp+1);
+  }
+  var m=rest.match(/^:([^!\s]+)\S*\s+(\S+)\s?([^:]*?)(?:\s*:(.*))?$/);
+  if(!m) return null;
+  return { tags:tags, user:m[1], cmd:m[2], params:(m[3]||'').trim(), text:m[4]||'' };
+}
 var EXPR_RULES=[
-  ['laugh',     /\b(l(o+l)+|lmao+|lmfao+|rofl|ha(ha)+|he(he)+|jaja+|kekw?)\b|😂|🤣/i],
+  ['laugh',     /\b(l(o+l)+|lmao+|lmfao+|rofl|ha(ha)+|he(he)+|jaja+|kekw?|lul|omegalul)\b|😂|🤣/i],
   ['hype',      /\b(pog\w*|hype+|lets? ?go+|gg|banger|insane)\b|🔥|🎉|⚡/i],
   ['love',      /\b(love|luv|uwu|owo|cute|adorable|precious)\b|❤|💜|💖|😍|🥰/i],
   ['angry',     /\b(angry|mad|rage|wtf|ugh|grr+|scam)\b|😡|🤬|>:\(/i],
-  ['sad',       /\b(sad|cry(ing)?|rip|pain|oof|sigh)\b|😢|😭|;-?\(/i],
-  ['surprised', /\b(what|whoa+|woah+|wow+|omg|no way|huh)\b|😮|😱|‽|!{2,}/i],
-  ['confused',  /\?{2,}|🤔|\b(wut|wat|confused)\b/i],
-  ['sleepy',    /\b(sleep(y)?|tired|boring|bored|zzz+)\b|😴|💤/i],
+  ['sad',       /\b(sad|cry(ing)?|rip|pain|oof|sigh|sadge|biblethump)\b|😢|😭|;-?\(/i],
+  ['surprised', /\b(what|whoa+|woah+|wow+|omg|no way|huh|monkas|wutface)\b|😮|😱|‽|!{2,}/i],
+  ['confused',  /\?{2,}|🤔|\b(wut|wat|confused|kappa)\b/i],
+  ['sleepy',    /\b(sleep(y)?|tired|boring|bored|zzz+|residentsleeper)\b|😴|💤/i],
   ['happy',     /\b(nice|good|great|yay+|happy|hello|hi|hey|thanks|ty)\b|😊|🙂|:\)|:D/i]
 ];
 function classifyMessage(text){
@@ -380,13 +399,26 @@ function nameColor(name){
 }
 var EXPR_EMOJI={ happy:'😊', laugh:'😂', hype:'🔥', love:'💜', angry:'😡', sad:'😢',
   surprised:'😮', confused:'🤔', sleepy:'😴', notice:'👀' };
-function handleChat(user, text, isDemo){
+function feedSystem(msg){
+  var line=document.createElement('div');
+  line.className='line';
+  var b=document.createElement('b'); b.style.color='#e8c46a'; b.textContent=msg;
+  line.appendChild(b);
+  var feed=document.getElementById('feed');
+  feed.appendChild(line);
+  while(feed.children.length>80) feed.removeChild(feed.firstChild);
+  feed.scrollTop=feed.scrollHeight;
+}
+function handleChat(user, text, isDemo, tags){
   var expr=classifyMessage(text);
+  if(expr==='notice' && tags && tags.emotes){ expr='happy'; }   // a Twitch emote is a feeling too
   react(expr);
+  var shownName=(tags && tags['display-name']) || user;
+  var color=(tags && /^#[0-9a-fA-F]{6}$/.test(tags.color||'')) ? tags.color : nameColor(user);
   var line=document.createElement('div');
   line.className='line';
   if(isDemo){ var d=document.createElement('span'); d.className='demo'; d.textContent='demo'; line.appendChild(d); }
-  var b=document.createElement('b'); b.style.color=nameColor(user); b.textContent=user+': ';
+  var b=document.createElement('b'); b.style.color=color; b.textContent=shownName+': ';
   line.appendChild(b);
   line.appendChild(document.createTextNode(String(text).slice(0,200)));
   var ex=document.createElement('span'); ex.className='ex'; ex.textContent=EXPR_EMOJI[expr];
@@ -419,6 +451,28 @@ function stepDemo(dt){
     var m=DEMO[demoI%DEMO.length]; demoI++;
     handleChat(m[0], m[1], true);
   }
+}
+
+function handleIrcParsed(pl){
+  if(pl.cmd==='PRIVMSG'){
+    handleChat(pl.user, pl.text, false, pl.tags);
+    return 'chat';
+  }
+  if(pl.cmd==='USERNOTICE'){
+    var mid=pl.tags['msg-id']||'';
+    if(mid==='raid'){
+      react('hype');
+      feedSystem('⚡ '+(pl.tags['msg-param-displayName']||pl.tags['display-name']||'someone')+' raids with '+(pl.tags['msg-param-viewerCount']||'?')+' viewers!');
+      return 'raid';
+    }
+    if(/^(sub|resub|subgift|anonsubgift|submysterygift)$/.test(mid)){
+      react('love');
+      feedSystem('💜 '+(pl.tags['display-name']||'someone')+' subscribed!');
+      return 'sub';
+    }
+    return 'usernotice';
+  }
+  return null;
 }
 
 /* ---------- twitch (anonymous IRC — repo-proven bridge) ----------
@@ -482,7 +536,8 @@ function connectTwitch(chan, isRetry){
   sock.onopen=function(){
     if(gen!==wsGen){ dbg('stale socket opened (gen',gen,') — closing'); try{ sock.close(); }catch(e){} return; }
     var nick='justinfan'+Math.floor(Math.random()*80000+1000);
-    dbg('socket OPEN · registering as',nick,'· joining #'+chan);
+    dbg('socket OPEN · registering as',nick,'· joining #'+chan,'· requesting tags+commands caps');
+    sock.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
     sock.send('PASS SCHMOOPIIE');
     sock.send('NICK '+nick);
     sock.send('JOIN #'+chan);
@@ -496,11 +551,12 @@ function connectTwitch(chan, isRetry){
     String(ev.data).split('\r\n').forEach(function(raw){
       if(!raw) return;
       if(raw.indexOf('PING')===0){ dbg('PING → PONG'); sock.send('PONG :tmi.twitch.tv'); return; }
-      if(raw.indexOf(' 366 ')>=0){ dbg('JOIN confirmed (366 end-of-names) — connection healthy, attempt counter reset'); wsAttempt=0; return; }
-      if(raw.indexOf('NOTICE')>=0){ dbg('server NOTICE:', raw.slice(0,140)); return; }
-      if(raw.indexOf('RECONNECT')>=0){ dbg('server sent RECONNECT — obeying'); try{ sock.close(); }catch(e){} return; }
-      var m=raw.match(/^:(\w+)!\S+ PRIVMSG #\S+ :(.*)$/);
-      if(m) handleChat(m[1], m[2], false);
+      var pl=parseIrcLine(raw);
+      if(!pl) return;
+      if(pl.cmd==='366'){ dbg('JOIN confirmed (366) — tags cap active, attempt counter reset'); wsAttempt=0; return; }
+      if(pl.cmd==='NOTICE'){ dbg('server NOTICE:', raw.slice(0,140)); return; }
+      if(pl.cmd==='RECONNECT'){ dbg('server sent RECONNECT — obeying'); try{ sock.close(); }catch(e){} return; }
+      handleIrcParsed(pl);
     });
   };
   sock.onclose=function(ev){
@@ -571,7 +627,8 @@ fit();
 requestAnimationFrame(frame);
 window.__PAL={ classifyMessage:classifyMessage, react:react, handleChat:handleChat,
   get A(){return A;}, stepAvatar:stepAvatar, drawAvatar:drawAvatar,
-  wd:{ check:watchdogCheck, get lastDataAt(){return lastDataAt;}, age:function(ms){ lastDataAt=performance.now()-ms; }, get gen(){return wsGen;} } };
+  wd:{ check:watchdogCheck, get lastDataAt(){return lastDataAt;}, age:function(ms){ lastDataAt=performance.now()-ms; }, get gen(){return wsGen;} },
+  parseIrcLine:parseIrcLine, handleIrcParsed:handleIrcParsed };
 </script>
 </body>
 </html>
