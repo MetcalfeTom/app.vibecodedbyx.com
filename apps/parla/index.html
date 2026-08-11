@@ -718,7 +718,7 @@ body.debug-locate #levelup-banner{opacity:.25; border:5px dashed #ff1a1a; paddin
 <footer>
   accents are friendly here: <i>cafe</i> counts for <i>café</i> (you'll still see the proper spelling) ·
   progress saves per language in your browser · swipe works on touch, arrows on keys
-  <br><span id="build-info">build <b>v13.5</b> · 2026-08-11 · commit <code id="build-hash">83423dddc</code></span>
+  <br><span id="build-info">build <b>v13.6</b> · 2026-08-11 · commit <code id="build-hash">pending</code></span>
 </footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 
@@ -2157,6 +2157,157 @@ $('ct-board').addEventListener('click',function(e){
 $('ct-reset').addEventListener('click',function(){ if(ct.node){ var n=ct.node; ct.pos=n.start.slice(); ct.stars=n.stars.map(function(s){ return s.slice(); }); ct.moves=0; ctBoard(); } });
 $('ct-quit').addEventListener('click',function(){ $('ct-lesson').hidden=true; ct.node=null; ctRender(); ftTreeBack(); });
 
+/* ═══ engine (v13.6): Stockfish via cdnjs worker, gambit alpha-beta as fallback ═══ */
+var ENG_LEVELS=[
+  { key:'off',  label:'🤖 engine: off' },
+  { key:'easy', label:'🤖 easy',        skill:2,  mt:120, rank:1 },
+  { key:'tough',label:'🤖 tough',       skill:10, mt:300, rank:2 },
+  { key:'gm',   label:'🤖 grandmaster', skill:20, mt:800, rank:4 }
+];
+var engLevel=0;
+try{ var savedEng=parseInt(localStorage.getItem('parla-engine')||'0',10); if(savedEng>=0&&savedEng<ENG_LEVELS.length) engLevel=savedEng; }catch(e){}
+var SF={ worker:null, state:'idle', queue:null, thinkGen:0, mode:null };
+function engLog(){ try{ console.log.apply(console, ['[parla:engine]'].concat([].slice.call(arguments))); }catch(e){} }
+function boardToFen(bd, turn, moves){
+  var out=[];
+  for(var r=0;r<8;r++){
+    var row='', empty=0;
+    for(var c=0;c<8;c++){
+      var pc=bd[r*8+c];
+      if(!pc){ empty++; continue; }
+      if(empty){ row+=empty; empty=0; }
+      row+=pc;
+    }
+    if(empty) row+=empty;
+    out.push(row);
+  }
+  return out.join('/')+' '+(turn==='w'?'w':'b')+' - - 0 '+(Math.floor((moves||0)/2)+1);
+}
+function uciToMove(uci){
+  if(!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)) return null;
+  function sq(f,r){ return (8-(+r))*8 + 'abcdefgh'.indexOf(f); }
+  return { from:sq(uci[0],uci[1]), to:sq(uci[2],uci[3]), promo:uci[4]||null };
+}
+function sfLoad(cb){
+  if(SF.state==='ready'||SF.state==='local'){ cb(); return; }
+  if(SF.state==='loading'){ SF.queue=cb; return; }
+  SF.state='loading';
+  var done=false;
+  var giveUp=setTimeout(function(){ if(done) return; done=true; SF.state='local'; SF.mode='local'; engLog('engine: stockfish load timeout — tavern engine steps in'); cb(); }, 20000);
+  try{
+    var shim="importScripts('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');";
+    var w=new Worker(URL.createObjectURL(new Blob([shim],{type:'application/javascript'})));
+    var uciok=false;
+    w.onmessage=function(e){
+      var line=String(e.data);
+      if(line.indexOf('uciok')>=0 && !uciok){ uciok=true; w.postMessage('isready'); }
+      else if(uciok && line.indexOf('readyok')>=0 && !done){
+        done=true; clearTimeout(giveUp);
+        SF.worker=w; SF.state='ready'; SF.mode='stockfish';
+        engLog('engine: stockfish ready (cdnjs shim)');
+        cb();
+        if(SF.queue){ var q=SF.queue; SF.queue=null; q(); }
+      }
+      else if(SF.onBest && line.indexOf('bestmove')===0){
+        var mv=line.split(/\s+/)[1];
+        var h=SF.onBest; SF.onBest=null; h(mv);
+      }
+    };
+    w.onerror=function(){
+      if(done) return;
+      done=true; clearTimeout(giveUp);
+      SF.state='local'; SF.mode='local';
+      engLog('engine: stockfish worker error — tavern engine steps in');
+      cb();
+    };
+    w.postMessage('uci');
+  }catch(err){
+    if(!done){
+      done=true; clearTimeout(giveUp);
+      SF.state='local'; SF.mode='local';
+      engLog('engine: worker construction failed — tavern engine steps in');
+      cb();
+    }
+  }
+}
+function engineThink(){
+  if(!engLevel || tut.on || ft.over || ft.turn!=='b' || ftView!=='board') return;
+  var lv=ENG_LEVELS[engLevel];
+  var gen=++SF.thinkGen;
+  engThinking=true;
+  ftRender();
+  sfLoad(function(){
+    if(gen!==SF.thinkGen){ return; }
+    if(SF.mode==='stockfish'){
+      SF.worker.postMessage('setoption name Skill Level value '+lv.skill);
+      SF.worker.postMessage('position fen '+boardToFen(ft.bd, ft.turn, ft.moves));
+      var moveDog=setTimeout(function(){
+        if(gen!==SF.thinkGen || !SF.onBest) return;
+        SF.onBest=null;
+        engLog('engine: stockfish silent on this move — tavern engine substitutes');
+        var best=gbBestBlack(ft.bd, lv.rank);
+        if(best) applyEngineMove('abcdefgh'[best[0]%8]+(8-Math.floor(best[0]/8))+'abcdefgh'[best[1]%8]+(8-Math.floor(best[1]/8)));
+        else { engThinking=false; ft.over='white wins — the engine has no moves'; ftSave(); ftRender(); }
+      }, lv.mt+8000);
+      SF.onBest=function(mv){
+        if(gen!==SF.thinkGen) return;
+        clearTimeout(moveDog);
+        applyEngineMove(mv);
+      };
+      SF.worker.postMessage('go movetime '+lv.mt);
+    } else {
+      setTimeout(function(){
+        if(gen!==SF.thinkGen) return;
+        var best=gbBestBlack(ft.bd, lv.rank);
+        if(!best){ engThinking=false; ft.over='white wins — the engine has no moves'; ftSave(); ftRender(); return; }
+        applyEngineMove('abcdefgh'[best[0]%8]+(8-Math.floor(best[0]/8))+'abcdefgh'[best[1]%8]+(8-Math.floor(best[1]/8)));
+      }, 400);
+    }
+  });
+}
+var engThinking=false;
+function applyEngineMove(uci){
+  engThinking=false;
+  if(ft.over){ ftRender(); return; }
+  if(!uci || uci==='(none)'){
+    ft.over='white wins — the engine resigns';
+    ftSave(); ftRender();
+    announce('the engine has no move. you win.');
+    return;
+  }
+  var m=uciToMove(uci);
+  if(!m){ engLog('engine: unparseable move '+uci); ftRender(); return; }
+  var mover=ft.bd[m.from], taken=ft.bd[m.to];
+  ft.bd[m.to]=mover; ft.bd[m.from]='';
+  /* guards for moves our FEN forbids but engines love anyway */
+  if(mover && mover.toLowerCase()==='k' && Math.abs((m.to%8)-(m.from%8))===2){
+    var row=Math.floor(m.from/8);
+    if(m.to%8===6){ ft.bd[row*8+5]=ft.bd[row*8+7]; ft.bd[row*8+7]=''; }
+    else { ft.bd[row*8+3]=ft.bd[row*8+0]; ft.bd[row*8+0]=''; }
+  }
+  if(mover && mover.toLowerCase()==='p' && !taken && (m.to%8)!==(m.from%8)){
+    ft.bd[Math.floor(m.from/8)*8 + (m.to%8)]='';
+  }
+  if(m.promo && mover){ ft.bd[m.to]= mover==='p'? m.promo : m.promo.toUpperCase(); }
+  ft.moves++;
+  if(taken && taken.toUpperCase()==='K'){
+    ft.over='black wins — ♔ captured by the engine';
+    announce(ft.over);
+  } else {
+    ft.turn='w';
+    announce('engine: '+gbPieceName(mover||'p')+' to '+uci.slice(2,4)+(taken?', takes '+gbPieceName(taken):''));
+  }
+  ftSave(); ftRender();
+}
+function cycleEngine(){
+  engLevel=(engLevel+1)%ENG_LEVELS.length;
+  try{ localStorage.setItem('parla-engine', String(engLevel)); }catch(e){}
+  SF.thinkGen++; engThinking=false;
+  ftRender();
+  if(engLevel && ft.turn==='b' && !ft.over) engineThink();
+  announce(engLevel? 'engine on: '+ENG_LEVELS[engLevel].key+' — you play white' : 'engine off — hot-seat chess');
+}
+
 /* ═══ free board — the chess tab's front door (v13.2). Tree kept behind 'lessons'. ═══ */
 var ftView='board';
 var FT_GLYPH={P:'♙',N:'♘',B:'♗',R:'♖',Q:'♕',K:'♔',p:'♟',n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'};
@@ -2198,6 +2349,7 @@ function ftRender(){
     +'<button type="button" id="ft-new"'+(tut.on?' disabled title="finish the tutorial first"':'')+'>↺ new game</button>'
     +'<button type="button" id="ft-lessons"'+(tut.on?' disabled title="finish the tutorial first"':'')+'>♟ lessons · '+ftMastered()+'/'+CT_TREE.length+' kept</button>'
     +(tut.on?'':'<button type="button" id="ft-tut">📖 tutorial</button>')
+    +'<button type="button" id="ft-eng"'+(tut.on?' disabled':'')+'>'+ENG_LEVELS[engLevel].label+(engThinking?' · thinking…':'')+'</button>'
     +'</div>'
     +'<div id="ft-board" role="grid" aria-label="Free chessboard, '+(ft.turn==='w'?'white':'black')+' to move">';
   for(var i=0;i<64;i++){
@@ -2277,6 +2429,7 @@ $('sk-map').addEventListener('click', function(e){
   if(t.id==='ft-lessons'){ if(tut.on) return; ftView='tree'; ctRender(); ftTreeBack(); return; }
   if(t.id==='ft-back'){ ftView='board'; ftRender(); return; }
   if(t.id==='ft-tut'){ tutStart(); return; }
+  if(t.id==='ft-eng'){ if(!tut.on) cycleEngine(); return; }
   if(t.id==='ft-tut-exit'){ tutEnd(false); return; }
   if(t.id==='ft-tut-done'){ tutEnd(true); return; }
   if(tut.on){
@@ -2302,6 +2455,7 @@ $('sk-map').addEventListener('click', function(e){
     return;
   }
   if(ftView!=='board' || ft.over) return;
+  if(engThinking || (engLevel && ft.turn==='b')) return;   // the engine's clock is running
   var cell=t.closest('.ct-cell'); if(!cell || !cell.dataset.i) return;
   var i=+cell.dataset.i, pc=ft.bd[i];
   if(ftSel>=0 && gbMoves(ft.bd, ftSel).indexOf(i)>=0){
@@ -2318,6 +2472,7 @@ $('sk-map').addEventListener('click', function(e){
       announce((gbIsW(mover)?'white':'black')+' '+gbPieceName(mover)+' to '+gbSqName(i)+(taken?', takes '+gbPieceName(taken):''));
     }
     ftSel=-1; ftSave(); ftRender();
+    if(engLevel && !ft.over && ft.turn==='b') engineThink();
     return;
   }
   if(pc && ((ft.turn==='w')===gbIsW(pc))){ ftSel=(ftSel===i? -1 : i); ftRender(); }
@@ -2336,6 +2491,7 @@ function setMapMode(m){
 $('map-lang').onclick=function(){ setMapMode('lang'); };
 $('map-chess').onclick=function(){ setMapMode('chess'); };
 (function(){ $('map-lang').setAttribute('aria-pressed', mapMode==='lang'?'true':'false'); $('map-chess').setAttribute('aria-pressed', mapMode==='chess'?'true':'false'); })();
+if(engLevel && ft.turn==='b' && !ft.over) setTimeout(engineThink, 800);
 
 /* seal battles: the guardian must fall */
 var skB={active:false,node:0,depth:0,exam:false,hp:0,max:0,name:'',qs:[],qi:0,mc:null,locked:false,timer:null};
@@ -3185,6 +3341,8 @@ window.__vc={ version:'v13.0', words:WORDS, langs:LANGS,
   get tRev(){return tRev;}, nextType:nextType, newTypeRound:newTypeRound,
   get ft(){return ft;}, ftNew:ftNew, ftRender:ftRender, get ftView(){return ftView;}, gbMoves:gbMoves,
   get tut(){return tut;}, TUT:TUT, tutStart:tutStart, tutEnd:tutEnd,
+  boardToFen:boardToFen, uciToMove:uciToMove, applyEngineMove:applyEngineMove, engineThink:engineThink,
+  cycleEngine:cycleEngine, get engLevel(){return engLevel;}, get SF(){return SF;}, get engThinking(){return engThinking;},
   setLang:setLang, setMode:setMode, setNative:setNative, natOf:natOf, speak:speak, ttsOn:ttsOn,
   ttsVoices:function(){ return TTS_VOICE; }, relistVoices:pickVoices,
   nativeState:function(){ return {native:native, target:lang}; },
