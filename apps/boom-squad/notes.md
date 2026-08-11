@@ -10,6 +10,8 @@
   - **A11y**: real buttons everywhere (wires included, labeled by position+color), aria-live strike/defuse announcements, role=dialog result, ≥2.75rem controls, reduced-motion trims simon glow. No positioned overlays over interactive areas (the parla lesson is fresh).
   - Verified: syntax + id cross-check; 21-check probe — all 9 wire branches, all 5 button rules, keypad column sort, both simon maps, 200-bomb generator solvability, correct-wire defuse via real click, keypad + simon click-through defusals, wrong-wire strike, manual contains table-derived text (columns, wire rules, simon vowel table), three strikes → boom overlay. 0 errors.
 
+- 2026-08-11: **butt decals** per chat — one crooked inspection sticker per module (dashed amber border, alternating tilt): 🍑 REAR ARMED (wires), ( ‿ ) QA PASSED (button), 🍑 BUTT-DIAL ONLY (keypad), INSPECTED BY 🍑 №2 (simon). All pointer-events:none + aria-hidden; hit-tested per the parla lesson: every decal center falls through, wires still defuse. Probe 5/5.
+
 ## issues
 - Timer-digit release rule uses the displayed M:SS string — ':' never matches, as intended.
 
