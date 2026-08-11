@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reverse Snake — eat to shrink, walls make you grow</title>
+<meta name="description" content="Snake with the rules flipped: food shrinks your tail, walls punish you with growth, and only your own body can end you.">
+<link rel="icon" href="https://emojicdn.elk.sh/🐍">
+<meta property="og:title" content="Reverse Snake">
+<meta property="og:description" content="Eat to shrink. Walls make you grow. Don't meet yourself.">
+<meta property="og:url" content="https://sloppy.live/reverse-snake/">
+<meta property="og:image" content="https://image.pollinations.ai/prompt/a%20neon%20mint%20snake%20game%20on%20dark%20grid%2C%20snake%20uncoiling%20and%20shrinking%2C%20retro%20arcade%20minimalism%2C%20coral%20food%20dot%2C%20crisp%20pixels?width=1200&height=630&nologo=true&seed=2424&model=flux&format=png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+15&family=Chivo+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d1410; --board:#101a14; --grid:#16241c; --ink:#e8f2ea; --dim:#6f8a78;
+  --snake:#5ee8a8; --snake2:#2fa870; --food:#ff6a5e; --wall:#e8b04a;
+}
+html{ font-size:100%; }
+*{ box-sizing:border-box; margin:0; }
+body{
+  min-height:100vh; display:flex; flex-direction:column; align-items:center;
+  background:var(--bg); color:var(--ink); font-family:'Chivo Mono', monospace;
+  padding:1rem .8rem 2.5rem;
+}
+h1{
+  font-family:'Jersey 15', monospace; font-weight:400; font-size:clamp(2rem,7vw,3.2rem);
+  letter-spacing:.06em; color:var(--snake); text-shadow:0 0 18px rgba(94,232,168,.35);
+}
+.tag{ color:var(--dim); font-size:.85rem; margin-bottom:.8rem; text-align:center; }
+.hud{ display:flex; gap:1.4rem; margin-bottom:.6rem; font-size:.9rem; }
+.hud b{ font-family:'Jersey 15', monospace; font-weight:400; font-size:1.5rem; color:var(--snake); }
+.hud .len b{ color:var(--wall); }
+canvas{
+  display:block; background:var(--board); border:2px solid var(--grid); border-radius:.5rem;
+  max-width:min(92vw, 34rem); height:auto; touch-action:none;
+}
+.msg{
+  margin-top:.7rem; min-height:1.4rem; font-size:.9rem; color:var(--dim); text-align:center;
+}
+.msg .over{ color:var(--food); font-weight:700; }
+.controls{ margin-top:.6rem; display:flex; gap:.6rem; }
+button{
+  font-family:'Chivo Mono', monospace; font-weight:700; font-size:.85rem; color:var(--bg);
+  background:var(--snake); border:none; border-radius:.5rem; padding:.55rem 1.1rem;
+  min-height:2.75rem; cursor:pointer;
+}
+button.ghost{ background:none; color:var(--dim); border:1px solid var(--grid); }
+button.ghost:hover{ color:var(--ink); border-color:var(--snake); }
+button:hover{ filter:brightness(1.1); }
+:focus-visible{ outline:3px solid var(--wall); outline-offset:2px; }
+.rules{ margin-top:1rem; font-size:.78rem; color:var(--dim); text-align:center; line-height:1.7; }
+.rules b{ color:var(--ink); font-weight:700; }
+.sr-only{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+</style>
+</head>
+<body>
+<h1>REVERSE SNAKE</h1>
+<p class="tag">the rules are backwards. lunch is a diet. architecture is carbs.</p>
+<div class="hud">
+  <span>eaten <b id="score">0</b></span>
+  <span class="len">length <b id="len">12</b></span>
+  <span>best <b id="best">0</b></span>
+</div>
+<canvas id="game" width="528" height="528" role="application" aria-label="Reverse snake game. Arrow keys or WASD to steer, swipe on touch. Eating food shrinks your tail; crossing a wall wraps you around and grows it."></canvas>
+<p class="msg" id="msg">arrows / WASD to move · eat to shrink · walls wrap you and add +3</p>
+<div class="controls">
+  <button type="button" id="startBtn">▶ start</button>
+  <button type="button" class="ghost" id="pauseBtn">pause</button>
+</div>
+<p class="rules"><b>🍎 food: −2 tail</b> · <b>🧱 wall: wrap +3 tail</b> · <b>💀 your own tail: the end</b><br>get shorter to go faster · P pause · R restart</p>
+<p class="sr-only" role="status" aria-live="polite" id="sr"></p>
+
+<script>
+'use strict';
+var N=24, CELL=22;
+var cv=document.getElementById('game'), ctx=cv.getContext('2d');
+var msg=document.getElementById('msg'), sr=document.getElementById('sr');
+var BEST_KEY='reverse-snake-best';
+var best=0; try{ best=parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0; }catch(e){}
+document.getElementById('best').textContent=best;
+var S=null, timer=null, AC=null;
+function blip(f,d,t,v){
+  if(!AC) return;
+  try{
+    var o=AC.createOscillator(), g=AC.createGain();
+    o.type=t||'square'; o.frequency.value=f;
+    g.gain.setValueAtTime(v||.06, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, AC.currentTime+(d||.1));
+    o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime+(d||.1)+.02);
+  }catch(e){}
+}
+function freshState(){
+  var snake=[];
+  for(var i=0;i<12;i++) snake.push([12-i, 12]);   // start LONG — shrinking is the game
+  return { snake:snake, dir:[1,0], nextDir:[1,0], food:null, eaten:0, over:false, paused:false, wallFlash:0, started:false };
+}
+function placeFood(){
+  var occ={};
+  S.snake.forEach(function(c){ occ[c[0]+','+c[1]]=1; });
+  var x,y;
+  do{ x=Math.floor(Math.random()*N); y=Math.floor(Math.random()*N); }while(occ[x+','+y]);
+  S.food=[x,y];
+}
+function speedMs(){
+  /* shorter snake = faster snake: reward the diet */
+  return Math.max(70, 60 + S.snake.length*7);
+}
+function schedule(){
+  clearTimeout(timer);
+  if(!S.over && !S.paused && S.started) timer=setTimeout(tick, speedMs());
+}
+function tick(){
+  S.dir=S.nextDir;
+  var h=[S.snake[0][0]+S.dir[0], S.snake[0][1]+S.dir[1]];
+  var hitWall=false;
+  if(h[0]<0||h[0]>=N||h[1]<0||h[1]>=N){
+    hitWall=true;
+    h[0]=(h[0]+N)%N; h[1]=(h[1]+N)%N;           // wrap through the wall…
+  }
+  // self collision?
+  var bodyToCheck=S.snake.slice(0, S.snake.length-1);   // tail cell moves away unless we grow
+  if(hitWall) bodyToCheck=S.snake;                       // growing: tail stays put
+  var dead=bodyToCheck.some(function(c){ return c[0]===h[0]&&c[1]===h[1]; });
+  if(dead){ gameOver(); return; }
+  S.snake.unshift(h);
+  if(hitWall){
+    // …and pay the toll: +3 segments (duplicate tail cells; they unfold as you move)
+    var t=S.snake[S.snake.length-1];
+    for(var i=0;i<3;i++) S.snake.push([t[0],t[1]]);
+    S.wallFlash=3;
+    blip(140,.12,'sawtooth',.08);
+    sr.textContent='Wall! Plus three segments, length '+S.snake.length;
+  } else if(S.food && h[0]===S.food[0] && h[1]===S.food[1]){
+    // eating SHRINKS: drop the new tail growth AND two more
+    S.snake.pop();
+    if(S.snake.length>3) S.snake.pop();
+    if(S.snake.length>3) S.snake.pop();
+    S.eaten++;
+    placeFood();
+    blip(760,.08,'triangle',.08); blip(1020,.09,'triangle',.05);
+    sr.textContent='Ate food, shrank to '+S.snake.length;
+  } else {
+    S.snake.pop();
+  }
+  if(S.wallFlash>0) S.wallFlash--;
+  render(); hud(); schedule();
+}
+function gameOver(){
+  S.over=true;
+  clearTimeout(timer);
+  if(S.eaten>best){ best=S.eaten; try{ localStorage.setItem(BEST_KEY, String(best)); }catch(e){} }
+  hud();
+  msg.innerHTML='<span class="over">you met yourself. '+S.eaten+' eaten.</span> press R or ▶ to try again';
+  sr.textContent='Game over. '+S.eaten+' food eaten.';
+  blip(220,.3,'sawtooth',.08); setTimeout(function(){ blip(140,.4,'sawtooth',.07); },140);
+  render();
+}
+function hud(){
+  document.getElementById('score').textContent=S.eaten;
+  document.getElementById('len').textContent=S.snake.length;
+  document.getElementById('best').textContent=best;
+}
+function render(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.strokeStyle='#16241c'; ctx.lineWidth=1;
+  ctx.beginPath();
+  for(var i=1;i<N;i++){
+    ctx.moveTo(i*CELL,0); ctx.lineTo(i*CELL,cv.height);
+    ctx.moveTo(0,i*CELL); ctx.lineTo(cv.width,i*CELL);
+  }
+  ctx.stroke();
+  if(S.wallFlash>0){
+    ctx.strokeStyle='rgba(232,176,74,.7)'; ctx.lineWidth=6;
+    ctx.strokeRect(3,3,cv.width-6,cv.height-6);
+  }
+  if(S.food){
+    ctx.fillStyle='#ff6a5e';
+    ctx.beginPath();
+    ctx.arc((S.food[0]+.5)*CELL,(S.food[1]+.5)*CELL, CELL*.34, 0, 6.29);
+    ctx.fill();
+  }
+  S.snake.forEach(function(c,i){
+    var t=i/Math.max(1,S.snake.length-1);
+    ctx.fillStyle= S.over? '#8a4038' : (i===0? '#c8ffe0' : 'rgb('+Math.round(94-40*t)+','+Math.round(232-100*t)+','+Math.round(168-60*t)+')');
+    var pad=i===0? 1.5 : 2.5;
+    ctx.fillRect(c[0]*CELL+pad, c[1]*CELL+pad, CELL-pad*2, CELL-pad*2);
+  });
+}
+function start(){
+  S=freshState();
+  S.started=true;
+  placeFood();
+  msg.textContent='eat to shrink · shorter = faster · don\'t meet yourself';
+  if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  hud(); render(); schedule();
+  sr.textContent='Game started';
+}
+function setDir(x,y){
+  if(!S || S.over) return;
+  if(S.snake.length>1 && S.dir[0]===-x && S.dir[1]===-y) return;   // no instant reversal
+  S.nextDir=[x,y];
+}
+document.addEventListener('keydown', function(e){
+  var map={ ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
+            w:[0,-1], s:[0,1], a:[-1,0], d:[1,0], W:[0,-1], S:[0,1], A:[-1,0], D:[1,0] };
+  if(map[e.key]){
+    e.preventDefault();
+    if(!S || !S.started || S.over) start();
+    setDir(map[e.key][0], map[e.key][1]);
+    return;
+  }
+  if(e.key==='p'||e.key==='P'){ togglePause(); }
+  if(e.key==='r'||e.key==='R'){ start(); }
+});
+var touchStart=null;
+cv.addEventListener('pointerdown', function(e){ touchStart=[e.clientX,e.clientY]; });
+cv.addEventListener('pointerup', function(e){
+  if(!touchStart) return;
+  var dx=e.clientX-touchStart[0], dy=e.clientY-touchStart[1];
+  touchStart=null;
+  if(Math.abs(dx)<14 && Math.abs(dy)<14){ if(!S||!S.started||S.over) start(); return; }
+  if(!S || !S.started || S.over) start();
+  if(Math.abs(dx)>Math.abs(dy)) setDir(dx>0?1:-1, 0); else setDir(0, dy>0?1:-1);
+});
+function togglePause(){
+  if(!S || S.over || !S.started) return;
+  S.paused=!S.paused;
+  document.getElementById('pauseBtn').textContent=S.paused?'resume':'pause';
+  msg.textContent=S.paused? 'paused — P to resume' : 'eat to shrink · don\'t meet yourself';
+  schedule();
+}
+document.getElementById('startBtn').addEventListener('click', start);
+document.getElementById('pauseBtn').addEventListener('click', togglePause);
+S=freshState(); render(); hud();
+window.__RS={ get S(){return S;}, tick:tick, start:start, setDir:setDir, placeFood:placeFood, speedMs:speedMs, freshState:freshState };
+</script>
+</body>
+</html>
