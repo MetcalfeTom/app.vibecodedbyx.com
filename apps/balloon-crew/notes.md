@@ -13,6 +13,8 @@
 
 - 2026-08-11 (focused test round, per chat): **numeric-steering → console-frame integration verified 8/8 on the deployed file**: steer decision line logged, 150 ASCII frame lines appended AFTER it, every frame prints the voted target (85), altitude parses monotonically convergent 40→≥80, dist stays non-negative (dt-floor regression), full-canvas phosphor sample green. NO rendering issue found — the round's two initial reds were probe-side (expected convergence in 0.5s when the easing deliberately takes ~2.5s; pixel sample window missed all sprites). Easing pace documented as intentional.
 
+- 2026-08-11: **visible terminal console** (chat: "fix the blank visible debug console"). Diagnosis: the 📟 terminal mode implied an on-page console but narration only reached devtools — visibly blank to users. Fix: #debugCon panel under the vote HUD, shown ONLY in ascii mode (greeting line on first attach): steering events APPEND (60-line cap, autoscroll) while the per-frame line UPDATES IN PLACE as a status footer — no scroll-flood. Same emitters still console.log/debug for devtools. Steering mechanics untouched (probe: target math exact through the same round). Deployed-UI-path probe 11/11: hidden by default, real-button toggle shows+greets, status line is a frame line and changes across ticks, vote + decision lines visible, status narrates new target, line cap, hides when off.
+
 ## issues
 - Median steering means a coordinated chat can fly precisely — intended. A troll typing 0 is one vote among many; the median shrugs.
 
