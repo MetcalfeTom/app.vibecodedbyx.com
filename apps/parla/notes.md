@@ -1,6 +1,7 @@
 # parla · notes
 
 ## log
+- 2026-08-12: v13.9.11 — "community" removed per chat. Final note: "Parla is an independent project. It is not affiliated with, endorsed by, or connected to any language-learning company."
 - 2026-08-12: v13.9.10 — note trimmed per chat (vibe-jam phrase removed): "Parla is an independent community project. It is not affiliated with, endorsed by, or connected to any language-learning company."
 - 2026-08-12: v13.9.9 — footer note polished per chat: "Parla is an independent community project, built live during this channel's vibe jam. It is not affiliated with, endorsed by, or connected to any language-learning company." Same id, zero styling attributes (inherits footer), meaning preserved, 3/3 probe.
 - 2026-08-12: v13.9.8 — **independent-project note** (chat): one footer line above the build stamp — "parla is an independent hobby project from this channel's vibe jam — not affiliated with, endorsed by, or connected to any language-learning company." Zero style/name changes (inherits footer styling). Probe 4/4: note visible with the key phrases, title + h1 untouched, build stamp intact.
