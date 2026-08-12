@@ -65,6 +65,8 @@
 
 - 2026-08-12 v13.9: **battle: next card waits for the attack to land** (chat). Old flow dealt the next round on a flat 950ms while the battle-screen cinematic ran up to ~1500ms (+480ms poses) — questions arrived mid-swing. btQueueNext() replaces the timeout: polls bsState.open at 100ms, requires the screen CLOSED for a 350ms settle (and ≥950ms total so fast paths keep their rhythm), 4s hard cap so a stuck cinematic can never freeze the battle. Covers hit/miss/foe-turn paths uniformly. Probe 6/6: answer locks, next card HELD at 1.6s under a held-open cinematic (old code would have dealt at 950ms), deals <1s after hideBattleScreen, 4 fresh choices, stuck-screen cap releases by 4s.
 
+- 2026-08-12 v13.9.1: **question card concealed during the swing** (chat follow-up to v13.9). bsShow adds .resolving to #pane-battle (visibility:hidden on q-word/q-sub/bt-choices), hideBattleScreen removes it, and startBattleRound also removes it as a safety so the 4s stuck-cinematic cap always reveals a playable card. Probe 5/5: visible at start, concealed while the cinematic holds (choices + question both computed hidden), revealed on resolution, fresh round visible with 4 choices, cap path reveals.
+
 ## issues
 - ~~Verbs 'to ' prefix~~ RESOLVED v13.1 (checkAnswerRev strips on compare).
 - ~~Masculine-only adjectives~~ RESOLVED v13.1 (ALT map; the linguists lobbied and won).
