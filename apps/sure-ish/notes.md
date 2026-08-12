@@ -1,0 +1,21 @@
+# sure-ish (an uncertainty-aware interface)
+
+## log
+- 2026-08-12: v1 per chat ("preserve the existing prototype as a scratch demo, create a separate uncertainty-aware GUI project") + same-session extension ("read-only simulation monitor: motion first, then timing and audio noise — provenance, uncertainty, aberrations, audit history, confirmation-gated termination"). Single file, Newsreader italic + Sono, warm paper/teal/madder palette (deliberately the anti-observatory).
+  - **Four instruments, all measuring real noise**: frame cadence (rAF intervals, ring 240), timer drift (asked-16ms-vs-delivered chain), hand steadiness (3s pointer-tremor trials, RMS px), reaction time (tap-when-teal trials, false starts DISCARDED AND ANNOUNCED — "honesty includes your mistakes").
+  - **The uncertainty grammar (house rules on the page)**: never a bare number (95% CI + sd + n badge on every reading); no data ≠ zero (empty states say "unknown, not perfect"); BLUR IS HONEST — the big value renders with CSS blur ∝ relative CI width and only sharpens as evidence accumulates; CI band drawn over the observed range; live histograms for the passive pair.
+  - **Confidence-gated action**: "certify this device (sure-ish)" unlocks at 3-of-4 confident instruments; the gate explains its state either way; the certificate prints every value WITH its interval and n, "valid only as far as its error bars", unmeasured instruments stated not hidden.
+  - **Simulation monitor (read-only)**: 14-particle random-walk sim on canvas; channels come online STAGED AND LOGGED — motion at 0.6s, step timing at 4.2s, audio noise at 8.2s. Per-channel: value+CI+blur, provenance line (equation, seed, asked-vs-delivered). **Injector/detector separation**: the sim rarely injects ground-truth kicks/noise-bursts (logged as such); the monitor independently flags |z|>4 aberrations against its own history (logged, card flashes madder). Append-only audit trail (t+s timestamps, 80-entry cap): attach, channel arrivals, 6s snapshots with ±CI, listens, aberrations, termination attempts. **Confirmation-gated termination** — the monitor's ONLY control: button → typed TERMINATE required; wrong text = REFUSED + logged + still running; correct = loops actually cleared, channels stamped terminated·final, canvas dead with stamp, final audit entry. Optional 2s "listen" plays the same noise process, only on click.
+  - **Docs**: brief.md (uncertainty/consent/provenance/simulation-health conjectures C1–C13, each with falsification criteria) + /gguf-sensor-scope.md (GGUF sensor scoped ONLY, not implemented — hard boundaries: no inference/downloads/network/eval, sliced reads).
+  - Verified: syntax; static+dynamic id cross-check; 15/15 probe (no-data honesty wording, feed-seam distributions → confident state, CI+n rendering, blur applied, gate opens at 3-of-4, certificate with CIs, channels online in staged ORDER in the audit text, provenance lines, forced |z| aberration detected+logged, wrong-text termination REFUSED with sim still alive, typed TERMINATE → terminated everywhere + loops cleared, snapshots present). Screenshot reviewed (blur gradient across n=3 vs n=118 clearly visible; certificate + dead canvas stamp correct).
+  - Observatory banner updated same commit: "PROTOTYPE — preserved as a scratch demo" + pointer to sure-ish (text only, behavior untouched, syntax re-verified).
+
+## issues
+- Headless shell fires rAF once → frame-cadence instrument accumulates only in real browsers; probes use the __SURE.feed seam (documented sandbox artifact, same as pixl-pal/balloon-crew).
+- Steadiness trials need a pointer — mobile works via touch-hold (pointerdown starts, pointerleave cancels) but tremor baselines differ wildly between mouse/finger; that's honest, but chat may compare numbers across devices.
+- The aberration detector CAN fire on real system hiccups (tab throttling spikes timing z-scores) — that's a feature (it's real), but expect chat reports of "random red flashes" on busy machines.
+
+## todos
+- Warm-up masking for the timing channel (first ~10 samples after tab refocus are throttle artifacts).
+- Export "lab report" PNG (instruments + certificate + audit tail).
+- GGUF sensor: BUILD ONLY WHEN CHAT SAYS GO — scope frozen in /gguf-sensor-scope.md, inherits C1–C9.
