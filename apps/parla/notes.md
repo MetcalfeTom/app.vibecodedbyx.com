@@ -1,6 +1,7 @@
 # parla · notes
 
 ## log
+- 2026-08-12: v13.9.12 — "zero cephalopods" removed from the header tagline per chat (now "sixty core words · four languages"). Everything else untouched.
 - 2026-08-12: v13.9.11 — "community" removed per chat. Final note: "Parla is an independent project. It is not affiliated with, endorsed by, or connected to any language-learning company."
 - 2026-08-12: v13.9.10 — note trimmed per chat (vibe-jam phrase removed): "Parla is an independent community project. It is not affiliated with, endorsed by, or connected to any language-learning company."
 - 2026-08-12: v13.9.9 — footer note polished per chat: "Parla is an independent community project, built live during this channel's vibe jam. It is not affiliated with, endorsed by, or connected to any language-learning company." Same id, zero styling attributes (inherits footer), meaning preserved, 3/3 probe.
