@@ -67,6 +67,8 @@
 
 - 2026-08-12 v13.9.1: **question card concealed during the swing** (chat follow-up to v13.9). bsShow adds .resolving to #pane-battle (visibility:hidden on q-word/q-sub/bt-choices), hideBattleScreen removes it, and startBattleRound also removes it as a safety so the 4s stuck-cinematic cap always reveals a playable card. Probe 5/5: visible at start, concealed while the cinematic holds (choices + question both computed hidden), revealed on resolution, fresh round visible with 4 choices, cap path reveals.
 
+- 2026-08-12 v13.9.2: **Angienimo's report REPRODUCED and fixed — v13.9/.1 had gated the WRONG PATH.** presentTurn() short-circuits in battle mode: the battle TAB never opens the bs cinematic (that serves map-seals/duels); attacks play as INLINE arena animations (bslunge/bshurt ≈680ms) — so the bsShow conceal hook never fired there and the card stayed visible, exactly as reported. Reproduction probe on the deployed file: arena animating + card visible + .resolving absent = confirmed. Fix on the real path: btAnswer conceals after a 320ms feedback window (players still SEE the correct/wrong flash — pedagogy kept) for battle mode; startBattleRound reveal already in place; timing gate needs no change (inline anims end ≈680ms < the 950ms floor). Verify 6/6: feedback flash visible → concealed during inline animation → fresh card revealed; wrong-answer path identical. +LESSON: when a wrapper branches per mode (presentTurn), a fix hooked into ONE branch must be probed in EVERY mode that renders the effect.
+
 ## issues
 - ~~Verbs 'to ' prefix~~ RESOLVED v13.1 (checkAnswerRev strips on compare).
 - ~~Masculine-only adjectives~~ RESOLVED v13.1 (ALT map; the linguists lobbied and won).
