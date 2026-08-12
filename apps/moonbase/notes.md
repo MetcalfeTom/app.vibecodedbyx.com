@@ -1,0 +1,19 @@
+# moonbase (Moonbase — Selene-3 life support console)
+
+## log
+- 2026-08-12: v1 per chat ("polished life-support-first dashboard: oxygen, power, water, shelter, alerts, rover-return deadline") + immediate follow-up ("prioritize rover routes: readable lunar map, terrain hazards, battery range, safe-return line, route selection"). Single file, Michroma + Red Hat Mono, phosphor-green console.
+  - **Life-support-first**: four vitals dominate — O₂ (ppO₂ kPa, reserve, generation, CO₂ scrubber load), POWER (bus kW, solar w/ compressed 8-min lunar day curve, battery, load), WATER (reserve L, reclamation %, electrolysis draw), SHELTER (hull %, cabin temp, pressure, berm). Each card: status lamp (nominal/caution/warning by thresholds), big value recolored by severity, sparkline (140-sample ring), and CONTEXTUAL fix button appearing only with its condition (swap scrubber / cycle dust vibration / backflush filter / hull patch). Header shows worst-of status.
+  - **Sim** (1 Hz, one step() path for live loop AND probes): interlocked systems — electrolysis needs power+water; saturated scrubber raises load and degrades ppO₂; dust events cut solar; filter saturation cuts reclamation; micrometeorites dent hull. Random events alert at caution/warning; alerts dedupe while unacked, require human ACK, cap 40.
+  - **Rover routes (chat priority)**: 3 selectable sorties on a readable km-grid lunar map (scale bar, named features: Aristarchus Jr., Pit-7, Kestrel Ridge, Old Crater 12) — A rim survey 2.6 km clean, B Pit-7 skylight 4.2 km through soft regolith, C Kestrel ice 6.0 km past a boulder field at range limit. Hazard zones (amber soft / red boulder, dashed) slow the rover and DOUBLE battery burn; battery range ring (cyan, live radius from remaining charge) and a red SAFE-RETURN marker on the active route show the point beyond which battery can't bring them home — crossing it forces an immediate turnback warning. Route buttons: instant when docked, queue for next sortie mid-drive (amber queued state). Deadline (suit O₂) sized per route; margin vs ETA computed on return leg; <180s caution, <90s warning, passed = reserve-O₂ warning.
+  - **SCREENSHOT-CAUGHT DESIGN FLAW (the probe missed it)**: v1 deadlines were arithmetically unwinnable — 2.6 km round trip at 10 km/h ≈ 31 min against a 7-min deadline; EVERY sortie blew it. The numeric probe "passed" because it only asserted that warnings fire. Fix: TIMEWARP=8 on rover motion + ETA (matching the compressed lunar day). Post-fix probe: sortie A docks WITH margin and zero deadline-passed alerts; route C completes; battery consumed. LESSON: assert the NOMINAL path succeeds, not just that failure paths alarm — and look at the screenshot with mission-designer eyes, not just pixel counters.
+  - Verified 15/15 (vitals ranges, sparkline pixels, scrubber warning→fix→resolve, ACK flow, overall escalation, mid-sortie queueing, queued route departs w/ route-sized deadline, boulder-field slowdown alert, battery drain, forced safe-return turnback, deadline warning + red timer, map layers amber/red/green/cyan all present) + 6/6 winnable-mission suite + screenshot.
+
+## issues
+- Vitals drift is gentle by design — long idle sessions trend nominal. If chat wants pressure, raise event rates or add a "hard mode" (solar storm, airlock fault).
+- Battery range ring radius uses a simplified /2.15 out-and-back heuristic — good enough visually, not exact vs route geometry.
+- Alert feed timestamps use sortie-mission seconds (T+mm:ss); after ~100 min the mm field wraps oddly in mmss() (minutes >99 display fine actually — 3-digit).
+
+## todos
+- Solar storm event: shelter-in-place order, radiation meter, EVA recall.
+- Sortie log panel (per-sortie stats: route, margin, battery used, hazards crossed).
+- Optional Twitch integration: chat votes the next route (the read-only IRC bridge pattern).
