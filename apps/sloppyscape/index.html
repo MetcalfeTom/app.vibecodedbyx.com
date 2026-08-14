@@ -190,6 +190,7 @@
   <div id="questov" role="dialog" aria-modal="true" aria-label="Quest board">
     <div class="qpanel">
       <h2>📜 The Quest Board <button id="questX" type="button" aria-label="Close">✕</button></h2>
+      <div id="tasksec" aria-label="Task master assignment"></div>
       <div id="qlist"></div>
     </div>
   </div>
@@ -262,6 +263,9 @@
   var save={ skills:{wc:0,mine:0,fish:0,cook:0}, inv:[], coins:0, quests:null, qprog:{}, ground:[] };
   try{ var ld=JSON.parse(localStorage.getItem('sloppyscape-save-v1')||'null'); if(ld&&ld.skills) save=ld; }catch(e){}
   if(!Array.isArray(save.ground)) save.ground=[];   // migrate pre-drop saves
+  if(typeof save.skipCoins!=='number') save.skipCoins=0;            // task economy (inisso spec)
+  if(typeof save.lastFreeRefresh!=='number') save.lastFreeRefresh=0;
+  if(save.task===undefined) save.task=null;
   if(typeof save.outlines!=='boolean') save.outlines=true;   // ground item outlines default ON
   if(typeof save.skills.mh==='number'){                      // Combat split into three arts (chat ask)
     var mhThird=Math.floor(save.skills.mh/3);
@@ -1756,6 +1760,7 @@
   }
   if(!save.quests) rollQuests();
   function questEvent(ev){
+    taskEvent(ev);
     var hit=false;
     (save.quests||[]).forEach(function(q){
       if(q.claimed) return;
@@ -1766,6 +1771,7 @@
     if(hit){ persist(); renderQuests(); }
   }
   function renderQuests(){
+    renderTasks();
     var el=document.getElementById('qlist'); if(!el) return;
     el.innerHTML='';
     (save.quests||[]).forEach(function(q,qi){
@@ -1796,6 +1802,79 @@
       card.appendChild(b);
       el.appendChild(card);
     });
+  }
+  // ---------- task economy (inisso's spec, 2026-08-06): lowest-skill targeting,
+  // skip coins, one free reroll per real-time hour then skip-coin-paid ----------
+  var TASK_DEFS={
+    wc:  { ev:'chop_logs', d:'Chop {n} logs',                 ns:[5,7,9]  },
+    mine:{ ev:'mine_ore',  d:'Mine {n} ores',                 ns:[4,6,8]  },
+    fish:{ ev:'fish_any',  d:'Catch {n} fish',                ns:[4,6,8]  },
+    cook:{ ev:'cook_fish', d:'Cook {n} fish (unburnt)',       ns:[3,4,6]  },
+    acc: { ev:'slap_rat',  d:'Defeat {n} beach rats',         ns:[2,3,4]  },
+    agg: { ev:'slap_rat',  d:'Defeat {n} beach rats',         ns:[2,3,4]  },
+    stu: { ev:'slap_rat',  d:'Defeat {n} beach rats',         ns:[2,3,4]  }
+  };
+  var REROLL_COST=3, FREE_REROLL_MS=3600000;
+  function lvlFromXp(xp){ var L=1; while(L<50 && xp>=xpForNext(L)) L++; return L; }
+  function lowestSkill(){
+    var keys=Object.keys(TASK_DEFS), min=Infinity, tied=[];
+    keys.forEach(function(k){
+      var lv=lvlFromXp(save.skills[k]||0);
+      if(lv<min){ min=lv; tied=[k]; }
+      else if(lv===min){ tied.push(k); }
+    });
+    return tied[Math.floor(Math.random()*tied.length)];   // tie-break random among tied
+  }
+  function assignTask(){
+    var sk=lowestSkill(), def=TASK_DEFS[sk];
+    var n=def.ns[Math.floor(Math.random()*def.ns.length)];
+    save.task={ sk:sk, ev:def.ev, n:n, done:0,
+      coins:n*4, skip:Math.max(1,Math.round(n/2)), xp:n*12 };
+    persist(); renderTasks();
+  }
+  function taskEvent(ev){
+    var t=save.task;
+    if(!t||t.done>=t.n||t.ev!==ev) return;
+    t.done++;
+    if(t.done>=t.n){
+      save.coins+=t.coins; save.skipCoins+=t.skip;
+      grantXp(t.sk, t.xp);
+      sndQuest();
+      log('🎯 Task complete: '+TASK_DEFS[t.sk].d.replace('{n}',t.n)+' — 🪙'+t.coins+' + ⏭️'+t.skip+' skip coin'+(t.skip>1?'s':'')+'!','tim','world');
+      setTimeout(assignTask, 700);
+    }
+    persist(); renderTasks();
+  }
+  function rerollState(){
+    var freeIn=save.lastFreeRefresh+FREE_REROLL_MS-Date.now();
+    return freeIn<=0? { free:true } : { free:false, waitMin:Math.ceil(freeIn/60000), afford:save.skipCoins>=REROLL_COST };
+  }
+  function rerollTask(){
+    var st=rerollState();
+    if(st.free){ save.lastFreeRefresh=Date.now(); }
+    else if(save.skipCoins>=REROLL_COST){ save.skipCoins-=REROLL_COST; }
+    else { log('Not enough skip coins — the task master shrugs. Come back later, or do the work.','sys'); return false; }
+    log('🎯 Task rerolled'+(st.free?' (free — next free in an hour)':' (−'+REROLL_COST+' ⏭️)')+'.','me','player');
+    assignTask();
+    return true;
+  }
+  function renderTasks(){
+    var el=document.getElementById('tasksec'); if(!el) return;
+    if(!save.task) assignTask();
+    var t=save.task, def=TASK_DEFS[t.sk];
+    var pct=Math.min(100, Math.round(t.done/t.n*100));
+    var st=rerollState();
+    el.innerHTML='<div class="qcard" style="border-left:4px solid #8a5a2a;">'
+      +'<div class="t">🎯 Task Master · targets your lowest skill</div>'
+      +'<div class="r">'+SKILLS[t.sk].em+' <b>'+SKILLS[t.sk].nm+'</b> (lvl '+lvlFromXp(save.skills[t.sk]||0)+') — '+def.d.replace('{n}',t.n)
+      +' · reward: 🪙'+t.coins+' + ⏭️'+t.skip+' + '+t.xp+' xp</div>'
+      +'<div class="qbar"><i style="width:'+pct+'%"></i></div>'
+      +'<div class="r">'+t.done+' / '+t.n+' · skip coins: ⏭️'+save.skipCoins+'</div></div>';
+    var b=document.createElement('button'); b.type='button';
+    b.textContent= st.free? 'Reroll task (free)' : 'Reroll task (⏭️'+REROLL_COST+' · free in '+st.waitMin+'m)';
+    if(!st.free && !st.afford) b.disabled=true;
+    b.addEventListener('click', rerollTask);
+    el.firstChild.appendChild(b);
   }
   var questov=document.getElementById('questov');
   function openQuests(){ renderQuests(); questov.classList.add('open'); }
@@ -2093,6 +2172,10 @@
     log('A pond glitters inland. Fisherman Ned has a net with your name on it.','sys');
     log('⛵ A boat at the south dock sails back to Lummy, if you\'re homesick.','sys');
   }
+  // parity-probe seam (additive, read/drive only)
+  window.__SS_TASK={ get save(){ return save; }, lowestSkill:lowestSkill, assignTask:assignTask,
+    taskEvent:taskEvent, rerollTask:rerollTask, rerollState:rerollState, renderTasks:renderTasks,
+    lvlFromXp:lvlFromXp, TASK_DEFS:TASK_DEFS, questEvent:questEvent };
 })();
 </script>
 </body>
