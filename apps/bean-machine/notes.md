@@ -1,6 +1,7 @@
 # bean-machine (Bean Machine — how much coffee, exactly)
 
 ## log
+- 2026-08-14: v1.2 — subtle scattered-bean SVG background (data-URI tile, 5.5% opacity, creases included) + new slogan "every cup, counted to the bean". Verified 4/4 (bg applied, slogan, math + origins regression). Also added to the recall-nightmare desktop as bean-machine.lnk (6/6 harness).
 - 2026-08-14: v1.1 — **warm beans + origins** (chat): SVG bean pile under the result (crease + highlight, warm browns, slight rotations; 1 drawn bean ≈ 2g stated; caps at 60 with an honest "+N more" note; zero-case has grace); 6 origin countries (Colombia/Ethiopia/Brazil/Kenya/Guatemala/Sumatra) with classic tasting-note lines and per-origin bean colors (Ethiopia lighter, Sumatra darkest); origin persists — FIXED a real bug where savePrefs overwrote the store without origin, so any recalc wiped the choice. Ratio math re-verified after the calc-wrap: 500ml→30g, 2L→120g, 750ml@44→66g, 3cups→43.2g, display rounding intact. 18/18.
 - 2026-08-14: v1 per chat ("calculate coffee beans for volume, support grams/pounds/ounces, adjustable 30g per 500ml ratio, clear accessible interface, verify thoroughly"). Single file, Young Serif + Inclusive Sans, crema/espresso warmth.
   - **Core math**: beans_g = volume_ml × ratio/500; inputs ml / liters / cups(240) / fl oz(29.5735); outputs g (headline) + oz(÷28.3495) + lb(÷453.592) + ≈scoops(10g standard, footnoted); the math line shows the whole computation openly incl. ml conversion.
