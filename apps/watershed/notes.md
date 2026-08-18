@@ -100,6 +100,16 @@
   away). 9/9 switch probe + ALL FIVE suites green (19+7+10+17+2 = 64 checks total)
   + screenshot + boot probe after atomic deploy.
 
+- 2026-08-18 v1.7: **sticky control dock** (chat request). The sky-&-time card dissolved
+  into a compact position:sticky dock (top:.4rem, z-20) directly under the mode switch:
+  ▶ play · ⛈ storm · 📌 baseline · rain slider w/ visible label+readout · status line
+  (ellipsized ≥720px, full-width wrap below). SAME element IDs relocated — zero JS
+  changes, every handler and every probe still binds. 8/8 dock probe (role, sticky
+  computed style, containment, label kept, play/rain/storm functional from new home)
+  + all six prior suites green (72 checks total; visuals suite needed an isolated
+  re-run — batch chromium launches flake its double-rAF, noted before) + screenshot
+  + boot probe after atomic deploy.
+
 ## issues
 - **THE modeling lesson**: daily hard-capped infiltration (mm/day) made all land types
   converge under big storms (forest peak 13.6k vs city 17.5k — only 1.3×) because any
