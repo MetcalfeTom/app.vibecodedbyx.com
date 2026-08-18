@@ -49,6 +49,17 @@
   (exists, 3 blocks, DOM-and-visually above .cols, full width, content phrases, grid
   columns, seam intact) + screenshot + boot probe after atomic deploy.
 
+- 2026-08-18 v1.3: **hardware-differences warning block** (#hwwarn, amber-bordered card
+  directly under add-unit where the dropdowns invite the mistakes): 5 topics —
+  interfaces (slowest link sets tempo, check the actual port), capacities (marketed vs
+  ~90% formatted, buy 2× today's data), reliability (SSD sudden-silent / HDD noisy but
+  drop-shy / cloud is a contract; nothing replaces test restores), encryption (software
+  over mystery firmware; lost key = very secure brick, key on paper twice),
+  compatibility (filesystems/enclosures/ports; verify mounts on the RESTORE machine).
+  7/7 layout probe (presence, 5 topics, keyword coverage, amber border, position between
+  form and rack nav, visible height, seam+explainer intact) + 32/32 regression +
+  screenshot + boot probe after atomic deploy.
+
 ## issues
 - Corruption odds re-roll if you unassign+reassign a type — acceptable (it's a new copy).
 - Terminal output uses innerHTML with fixed strings; user input echoed via runCmd is
