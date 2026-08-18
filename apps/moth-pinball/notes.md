@@ -35,3 +35,12 @@
 - Fix: **one-way gate** — the wall push at `!G.inLane` now seals [426,37→426,120]; the exit flag flips only on crossing the wall line leftward (dropped the y<110 clause so the gate never closes on a launching ball mid-corridor). Visible as a cyan dashed gate wire + hinge dot whenever the ball is in play.
 - Real-trajectory suite (gate-probe, 6/6): A) 6 no-teleport launches all exit; B) 25 s of live play with seeded pseudo-random flipper flapping — ball never re-enters the shaft; C) 4 realistic mouth attacks from the table side all repelled; D) nothing wedges in the top-right pocket; E) launch still passes outward. Plus mp2 regression 14/14.
 - Probe lesson: first attack draft teleported balls INSIDE the sealed pocket — a state real play cannot reach — and "failed". Adversarial probes must attack through reachable trajectories, or they test fiction.
+
+## 2026-08-18 · three-stage mission ladder (chat request: teach → risk → recover, non-score rewards)
+- **M state** (per-game, reset in newGame; lifetime clears in localStorage 'mothpin-ladder'):
+  - Stage 1 FIRST LIGHT (teach): ring all four words on one ball (the existing jackpot). Reward: **Moth's Blessing** — one saved ball (drain returns the ball instead of costing one; strictly one-time).
+  - Stage 2 HOT WINGS (risky combo): 3 *different* bumpers within a 6s window — forces upper-table play instead of safe cradling. Live chip shows n/3 + countdown (0.2s throttled UI refresh in step). Reward: **wings widen 80→94** (FLIP len drives both physics and drawWing).
+  - Stage 3 THE RECOVERY: armed display when reached, pays only on the LAST ball (balls===1) — recall the memory again → **extra ball** + ladder-cleared count persisted.
+- UI: #missions chip strip (locked/active/done states), visually-hidden aria-live announcer that speaks only on stage transitions (no combo spam). Banners for each reward.
+- Hooks: missionBumperHit in the bumper collision, missionJackpot at end of jackpot(), saver check at top of the drain branch, resets in newGame.
+- Suites: ladder-probe **16/16** (boot chips, S1 grant, blessing saves exactly once, S2 window fairness — 3 distinct over >6s does NOT pass, wing widening, S3 gating with balls remaining, last-ball payout, persistence, full reset). Gate suite 6/6. mp2 core 14/14 after two documented intentional-change updates: stage-1 banner may replace the jackpot banner (h-jack ×1 remains the jackpot proof), and drainCosts now asserts the blessing interplay (saved once, then next drain costs).
