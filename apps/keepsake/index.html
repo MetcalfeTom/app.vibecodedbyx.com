@@ -63,6 +63,28 @@ details#archive summary:focus-visible{ outline:3px solid var(--gold); }
 .frag button{ font-size:.7rem; min-height:2.2rem; margin-top:.25rem; }
 .privacy{ font-size:.8rem; line-height:1.7; color:var(--dim); border-left:4px solid var(--gold); padding-left:.7rem; }
 .privacy b{ color:var(--ink); }
+/* permission ledger + activity log */
+.ledger{ display:flex; flex-direction:column; gap:.5rem; }
+.perm{ display:flex; gap:.7rem; align-items:flex-start; border:1px solid #e0d5ba; border-radius:.4rem;
+  padding:.6rem .8rem; background:#fffdf6; }
+.perm .pbody{ flex:1; }
+.perm b{ font-size:.95rem; }
+.perm .pdesc{ font-size:.78rem; color:var(--dim); line-height:1.55; margin:.15rem 0 0; }
+.perm .pstate{ font-size:.7rem; font-style:italic; margin-top:.2rem; }
+.perm .pstate.ok{ color:#4a6a3a; } .perm .pstate.no{ color:var(--ember); }
+.perm button{ flex:none; }
+.perm button[data-granted="1"]{ border-color:var(--ember); color:var(--ember); }
+#sketchwrap{ display:none; margin-top:.7rem; }
+#sketchwrap.on{ display:block; }
+#sketch{ border:1.5px solid #d8cba8; border-radius:.4rem; background:#fffdf6; touch-action:none; cursor:crosshair;
+  display:block; width:100%; max-width:20rem; }
+#mem-sketch{ display:none; max-width:14rem; border:1px solid #e0d5ba; border-radius:.4rem; margin-top:.6rem; }
+#mem-sketch.on{ display:block; }
+#actlog{ font-size:.78rem; line-height:1.7; }
+#actlog li{ border-top:1px dashed #e0d5ba; padding:.3rem 0; list-style:none; }
+#actlog li time{ color:var(--dim); font-size:.7rem; margin-right:.4rem; }
+#log-list{ margin:.5rem 0 0; padding:0; max-height:14rem; overflow:auto; }
+.speaknote{ font-size:.72rem; font-style:italic; color:var(--dim); line-height:1.6; }
 footer{ text-align:center; font-style:italic; color:var(--dim); font-size:.8rem; margin-top:1rem; line-height:1.8; }
 @media (prefers-reduced-motion: reduce){ #memory.on{ animation:none; } }
 </style>
@@ -81,6 +103,11 @@ footer{ text-align:center; font-style:italic; color:var(--dim); font-size:.8rem;
       <div><label for="place">place</label><input type="text" id="place" placeholder="the old kitchen" autocomplete="off"></div>
       <div><label for="names">names <span style="text-transform:none">(comma-separated)</span></label><input type="text" id="names" placeholder="mara, tobias" autocomplete="off"></div>
     </div>
+    <div id="sketchwrap">
+      <label>sketch (optional)</label>
+      <canvas id="sketch" width="240" height="160" aria-label="Sketch pad — draw a small doodle to attach to this fragment"></canvas>
+      <button type="button" class="quiet" id="btn-sketch-clear" style="margin-top:.3rem">wipe the sketch</button>
+    </div>
     <button type="button" class="act" id="btn-keep">keep it</button>
     <p id="savemsg" aria-live="polite"></p>
   </section>
@@ -96,9 +123,29 @@ footer{ text-align:center; font-style:italic; color:var(--dim); font-size:.8rem;
     <button type="button" class="act warm" id="btn-bring">🕯 bring one back</button>
     <div id="memory" aria-live="polite">
       <p id="mem-text"></p>
+      <img id="mem-sketch" alt="Sketch attached to this memory">
       <p id="mem-meta"></p>
+      <button type="button" class="quiet" id="btn-speak" hidden style="margin-top:.5rem">🔈 read it to me</button>
     </div>
     <p id="nomatch" aria-live="polite"></p>
+  </section>
+
+  <section aria-label="Permission ledger">
+    <h2>the permission ledger</h2>
+    <p style="font-size:.82rem;color:var(--dim);line-height:1.65;margin:0 0 .6rem">Every capability Keepsake has is listed here, in plain words, with a one-tap revoke. Revoking never deletes your data — it only stops the doing.</p>
+    <div class="ledger" id="ledger"></div>
+    <p class="speaknote" style="margin-top:.6rem">honesty note for <b>speaking</b>: it uses your browser/OS voice engine. Keepsake itself still sends nothing anywhere — but on some systems that engine may fetch its voice from the network. If that matters, leave it revoked.</p>
+  </section>
+
+  <section aria-label="Local activity log">
+    <details>
+      <summary style="cursor:pointer;font-style:italic;color:var(--dim);min-height:2.2rem;font-size:.9rem">the activity log (<span id="log-count">0</span> entries) — what Keepsake did, and when</summary>
+      <div id="actlog">
+        <p style="font-size:.74rem;color:var(--dim);font-style:italic">local only, like everything else. Newest first, capped at 200.</p>
+        <button type="button" class="quiet" id="btn-log-clear">clear the log</button>
+        <ul id="log-list" aria-live="polite"></ul>
+      </div>
+    </details>
   </section>
 
   <section aria-label="Archive and privacy">
@@ -257,12 +304,172 @@ $('btn-wipe').addEventListener('click', function(){
   $('savemsg').textContent='the pocket is empty, and that is allowed.';
 });
 
-$('btn-keep').addEventListener('click', keep);
-$('btn-bring').addEventListener('click', bring);
+/* ═══ permission ledger ═══ */
+var PERMS={
+  save:{ name:'save', desc:'write new fragments into this browser\'s storage. Revoked: the keep button politely refuses.', def:true },
+  recall:{ name:'recall', desc:'read stored fragments back to you when you ask. Revoked: the pocket stays closed.', def:true },
+  draw:{ name:'drawing', desc:'show a sketch pad and attach small doodles to fragments. Off until you ask.', def:false },
+  speak:{ name:'speaking', desc:'read a resurfaced memory aloud with your browser\'s voice engine. Off until you ask.', def:false }
+};
+function ledgerLoad(){
+  try{
+    var L=JSON.parse(localStorage.getItem('keepsake-ledger-v1')||'null');
+    if(L) return L;
+  }catch(e){}
+  var fresh={};
+  Object.keys(PERMS).forEach(function(k){ fresh[k]={ granted:PERMS[k].def, at:Date.now() }; });
+  try{ localStorage.setItem('keepsake-ledger-v1', JSON.stringify(fresh)); }catch(e){}
+  logEv('ledger initialized — save & recall granted (core), drawing & speaking revoked (opt-in)');
+  return fresh;
+}
+function ledgerSave(L){ try{ localStorage.setItem('keepsake-ledger-v1', JSON.stringify(L)); }catch(e){} }
+function can(k){ var L=ledgerLoad(); return !!(L[k]&&L[k].granted); }
+function setPerm(k, granted){
+  var L=ledgerLoad();
+  L[k]={ granted:granted, at:Date.now() };
+  ledgerSave(L);
+  logEv('permission "'+PERMS[k].name+'" '+(granted?'granted':'revoked')+' by you');
+  if(k==='speak' && !granted){ try{ speechSynthesis.cancel(); }catch(e){} }
+  paintLedger(); applyGates();
+}
+function paintLedger(){
+  var L=ledgerLoad(), host=$('ledger');
+  host.innerHTML='';
+  Object.keys(PERMS).forEach(function(k){
+    var st=L[k], row=document.createElement('div');
+    row.className='perm';
+    row.innerHTML='<div class="pbody"><b>'+PERMS[k].name+'</b>'+
+      '<p class="pdesc">'+PERMS[k].desc+'</p>'+
+      '<p class="pstate '+(st.granted?'ok':'no')+'">'+(st.granted?'granted':'revoked')+' · '+new Date(st.at).toLocaleString()+'</p></div>';
+    var b=document.createElement('button');
+    b.type='button'; b.className='quiet';
+    b.dataset.granted=st.granted?'1':'0';
+    b.dataset.perm=k;
+    b.textContent=st.granted? 'revoke':'grant';
+    b.setAttribute('aria-label', (st.granted?'Revoke ':'Grant ')+PERMS[k].name+' permission');
+    b.addEventListener('click', function(){ setPerm(k, !st.granted); });
+    row.appendChild(b);
+    host.appendChild(row);
+  });
+}
+function applyGates(){
+  $('sketchwrap').classList.toggle('on', can('draw'));
+  $('btn-speak').hidden=!can('speak');
+}
+
+/* ═══ local activity log ═══ */
+function logLoad(){ try{ return JSON.parse(localStorage.getItem('keepsake-log-v1')||'[]'); }catch(e){ return []; } }
+function logEv(ev){
+  var L=logLoad();
+  L.unshift({ t:Date.now(), ev:ev });
+  if(L.length>200) L.length=200;
+  try{ localStorage.setItem('keepsake-log-v1', JSON.stringify(L)); }catch(e){}
+  paintLog();
+}
+function paintLog(){
+  var L=logLoad();
+  var lc=$('log-count'); if(lc) lc.textContent=L.length;
+  var host=$('log-list'); if(!host) return;
+  host.innerHTML='';
+  L.forEach(function(e2){
+    var li=document.createElement('li');
+    li.innerHTML='<time>'+new Date(e2.t).toLocaleString()+'</time>'+e2.ev.replace(/</g,'&lt;');
+    host.appendChild(li);
+  });
+}
+$('btn-log-clear').addEventListener('click', function(){
+  try{ localStorage.setItem('keepsake-log-v1','[]'); }catch(e){}
+  paintLog();
+});
+
+/* ═══ sketch pad (draw permission) ═══ */
+var skC=$('sketch'), skX=skC.getContext('2d'), skDirty=false, skDown=false;
+skX.fillStyle='#fffdf6'; skX.fillRect(0,0,240,160);
+skX.strokeStyle='#a3542c'; skX.lineWidth=2.4; skX.lineCap='round';
+function skPos(e){
+  var r=skC.getBoundingClientRect();
+  return [(e.clientX-r.left)*(240/r.width), (e.clientY-r.top)*(160/r.height)];
+}
+skC.addEventListener('pointerdown', function(e){
+  if(!can('draw')) return;
+  skDown=true; skDirty=true;
+  var p2=skPos(e);
+  skX.beginPath(); skX.moveTo(p2[0],p2[1]);
+  skC.setPointerCapture(e.pointerId);
+});
+skC.addEventListener('pointermove', function(e){
+  if(!skDown) return;
+  var p2=skPos(e);
+  skX.lineTo(p2[0],p2[1]); skX.stroke();
+});
+skC.addEventListener('pointerup', function(){ skDown=false; });
+function skClear(){
+  skX.fillStyle='#fffdf6'; skX.fillRect(0,0,240,160);
+  skX.strokeStyle='#a3542c'; skDirty=false;
+}
+$('btn-sketch-clear').addEventListener('click', skClear);
+
+/* ═══ speak (speak permission) ═══ */
+var lastMemory=null;
+$('btn-speak').addEventListener('click', function(){
+  if(!can('speak') || !lastMemory) return;
+  try{
+    var u=new SpeechSynthesisUtterance(lastMemory.text);
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+    logEv('a memory was read aloud (speaking)');
+  }catch(e){}
+});
+
+/* ═══ gate the core actions ═══ */
+var _keep=keep;
+keep=function(){
+  if(!can('save')){
+    $('savemsg').textContent='saving is revoked in the ledger — re-grant it to keep fragments.';
+    return null;
+  }
+  var beforeN=load().length;
+  var hadSketch=can('draw')&&skDirty;
+  var f=_keep();
+  if(f){
+    if(hadSketch){
+      f.sketch=skC.toDataURL('image/png');
+      var list=load().map(function(x){ return x.id===f.id? f:x; });
+      save(list); skClear();
+    }
+    logEv('fragment kept'+(f.sketch?' (with sketch)':'')+(f.mood?' · mood '+f.mood:''));
+  }
+  return f;
+};
+var _bring=bring;
+bring=function(){
+  if(!can('recall')){
+    $('memory').classList.remove('on');
+    $('nomatch').textContent='recall is revoked in the ledger — the pocket stays closed until you re-grant it.';
+    return null;
+  }
+  var f=_bring();
+  if(f){
+    lastMemory=f;
+    logEv('one memory resurfaced ('+ageOf(f)+')');
+    var ms=$('mem-sketch');
+    if(f.sketch){ ms.src=f.sketch; ms.classList.add('on'); }
+    else{ ms.classList.remove('on'); ms.removeAttribute('src'); }
+  }
+  return f;
+};
+/* export + wipe leave their marks too */
+$('btn-export').addEventListener('click', function(){ logEv('everything exported to a file'); });
+var _origWipeHandler=null;
+
+$('btn-keep').addEventListener('click', function(){ keep(); });
+$('btn-bring').addEventListener('click', function(){ bring(); });
+paintLedger(); applyGates(); paintLog();
 paintArchive();
 
-window.__KS={ keep:keep, bring:bring, pickOne:pickOne, matches:matches, ageOf:ageOf,
-  load:load, save:save, setMood:setMood, get S(){ return S; }, paintArchive:paintArchive };
+window.__KS={ get keep(){ return keep; }, get bring(){ return bring; }, pickOne:pickOne, matches:matches, ageOf:ageOf,
+  load:load, save:save, setMood:setMood, get S(){ return S; }, paintArchive:paintArchive,
+  can:can, setPerm:setPerm, ledgerLoad:ledgerLoad, logLoad:logLoad, logEv:logEv,
+  skMark:function(){ skDirty=true; skX.fillRect(10,10,30,30); }, get lastMemory(){ return lastMemory; } };
 })();
 </script>
 </body>
