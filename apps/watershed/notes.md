@@ -61,6 +61,15 @@
   reusing one composed-probe filename across a for-loop of chromium launches raced —
   isolate per-suite files.
 
+- 2026-08-18 v1.4: **illustrated rain** (chat: match the landscape style, preserve
+  hydrology+tests). All driven by S.lastRain, all deterministic (positions from k+S.day
+  hashes, no Math.random): intensity 0–1 from (rain−4)/60 → even grey-blue wash over
+  the valley (uniform, so the terrain-ramp probe stays fair), 14–84 slanted round-cap
+  droplets, up to 16 splash ellipses on the ground, and 2–6 puffy storm clouds along
+  the ridge sky once rain passes 18mm, darkening with intensity. Visual-only; engine
+  untouched. All three suites green on SEPARATE composed files (19/19 + 7/7 + 10/10)
+  + century-storm screenshot + boot probe after atomic deploy.
+
 ## issues
 - **THE modeling lesson**: daily hard-capped infiltration (mm/day) made all land types
   converge under big storms (forest peak 13.6k vs city 17.5k — only 1.3×) because any
