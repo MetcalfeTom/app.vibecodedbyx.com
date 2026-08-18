@@ -1,6 +1,22 @@
 # Keepsake — notes
 
 ## log
+- 2026-08-18 v1.2: **the moth** (chat: local proposal queue for moth-generated
+  sketches/poems/memory trails, ALL requiring approval). 5th ledger capability
+  ('the moth', revoked by default; ledgerLoad migrates existing ledgers — new
+  capabilities join as revoked). Invited-only (button, no background autonomy):
+  drafts ONE proposal per invite into 'keepsake-moth-queue-v1' (persists; pocket
+  untouched): CUT-UP POEM assembled strictly from the user's own words (probe asserts
+  every poem word ∈ user's fragment words ∪ mood names — "nothing invented" is
+  verified, not vibes), MEMORY TRAIL (3 same-mood fragments, oldest first), SKETCH
+  (mirrored bezier ink-wings seeded from the source fragment's timestamp —
+  deterministic, captioned "for: …"). Graceful lacks-messages when the pocket can't
+  support a kind. APPROVAL GATE: approve writes a moth:true fragment (needs SAVE
+  permission — probe-verified interplay), decline discards unsaved; both logged;
+  approved sketches resurface with their image. 20/20 moth suite + 21/21 ledger
+  regression (5-row update documented) + 22/22 core + still zero network requests
+  + screenshot of a poem and ink-wings awaiting judgment.
+
 - 2026-08-18 v1.1: **permission ledger + activity log + one-tap revoke** (chat request,
   4 capabilities). LEDGER ('keepsake-ledger-v1'): save & recall granted at init (core),
   DRAWING & SPEAKING revoked until asked — each row states in plain words what it
