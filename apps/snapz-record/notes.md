@@ -1,4 +1,4 @@
-# Snapz Record — notes + voice snips
+# Snapz Recorder — notes + voice snips
 
 ## log
 - 2026-08-18: v1.0 per chat ("sleek prototype for quick text notes and lightweight audio capture, clear recording controls"). Single file, Unbounded + Space Mono, charcoal/volt-yellow/record-red.
@@ -26,3 +26,4 @@
   - **Safe mic handling, twice over**: (1) input rides the existing v1.1 analyser-only listener — probe re-asserts ZERO MediaRecorder constructions on the game path; (2) SPACE is a first-class equal input, so mic denial loses nothing; (3) finishRound force-releases the mic if the listener is live (track-stop asserted) — the game never keeps ears past the music.
   - RH.now() clock seam = fully simulatable rounds in probes. Suite 17/17 incl. v1.1 regression (notes, detector truths, seams).
   - Probe lesson (recurring): textarea VALUES are invisible to textContent — assert on .value. And count ids from data, not memory (#feed, not #notelist).
+- 2026-08-18 (4): rename per chat — "Snapz Record" → "Snapz Recorder" everywhere it renders: <title>, og:title, styled h1 (Snapz.Recorder), notes.md heading. Folder/slug stays snapz-record (URL stability — apps never move). Full 17/17 suite re-run on the renamed file; rhythm game + recording untouched.
