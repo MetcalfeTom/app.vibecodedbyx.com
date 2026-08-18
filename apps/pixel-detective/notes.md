@@ -1,6 +1,20 @@
 # Pixel Detective — notes
 
 ## log
+- 2026-08-18 v1.1: **case 6 · the lighthouse code** (chat request: white/blue/green/red
+  light filters, distinct hidden numbers, science, challenge mode). Subtractive-color
+  physics done honestly: digits inked in GREY (absorbs all → white lamp), YELLOW
+  (absorbs blue), MAGENTA (absorbs green), CYAN (absorbs red) on a pale lighthouse
+  scene; filters multiply the image by their transmission ([1,.07,.07] etc.) — an ink
+  goes dark ONLY under light it absorbs, and the explainer connects it to real
+  narrow-band forensic photography. Per-filter tool notes teach each reveal. 4-digit
+  code answer (fixed 3719 for the case). KEEPER'S CHALLENGE after solving: digits
+  reshuffle randomly, 45s oil timer, best time in localStorage. Case-6 UI swaps the
+  forensic toolbar for the lamp row. Probe now 28/28 incl. pixel-measured absorption
+  (cyan lum ~91 under red vs wall ~254; thresholds set from measurement, not vibes)
+  and a screenshot-vs-pixels dispute resolved the right way: my eye claimed the magenta
+  digit showed under red; getImageData said (230,5,14) vs wall (225,16,15) — invisible.
+  Pixels win.
 - 2026-08-18 v1.0: steganography-detection teaching game, 5 cases, all evidence drawn
   procedurally (192×128, seeded mulberry32 — deterministic for probes). Cases/tools:
   1 faint ink (+6 on a FLAT wall → contrast boost ×14 around median), 2 LSB (blue&1
