@@ -1,6 +1,17 @@
 # Keepsake — notes
 
 ## log
+- 2026-08-18 v1.3: **gradual trail preview** (chat prototype request). When a trail
+  invite finds fewer than 3 same-mood fragments, trailStatus() picks the CLOSEST mood
+  and paints a dashed preview panel: N-of-3 header, progress bar, real steps as solid
+  excerpts + missing steps as ghost slots ("… one more quiet fragment goes here"),
+  explicit "a preview, not a proposal — nothing to approve yet" (zero buttons,
+  probe-enforced). The forming message names the mood and the count. keep() refreshes
+  a visible preview LIVE, announcing "🥾 the trail is complete — invite the moth"
+  at 3/3; drafting the unlocked trail hides the preview. Empty-pocket invites keep
+  the plain lacks message (no preview of nothing). 10/10 preview probe + full
+  regression stack 20/21/22 + screenshot at 2-of-3.
+
 - 2026-08-18 v1.2: **the moth** (chat: local proposal queue for moth-generated
   sketches/poems/memory trails, ALL requiring approval). 5th ledger capability
   ('the moth', revoked by default; ledgerLoad migrates existing ledgers — new
