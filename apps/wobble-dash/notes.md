@@ -12,6 +12,14 @@
   Probe seam `window.__WD = {G, press, step, reset, CHECKPOINTS, COURSE, fall}`.
   13/13 probe checks ×3 stable runs + mid-race screenshot review.
 
+- 2026-08-18 v1.1: **ghost of your best run** (the chosen "surprising playful update").
+  step() records a 10Hz tape [t, x, lean, fallen] (cap 3000 samples, falls included —
+  recording continues inside the fallen branch), finish() saves it to localStorage
+  'wobble-ghost' on new best. Next runs replay it as a translucent grey runner labelled
+  "👻 past you", interpolated via ghostAt(t) with a teleport guard (no lerp across
+  respawn x-jumps), smug arm-wave at the finish. Finish lines: "you outran your ghost" /
+  "the ghost remains undefeated". 9/9 ghost probe + original 13/13 still green + screenshot.
+
 ## issues
 - **Unified game clock (the big lesson)**: press() originally timed strides with
   `performance.now()` while step() ran simulated dt — mixed clocks made the probe flaky
@@ -22,5 +30,4 @@
 - say() still uses performance.now() for message hold timing — display-only, fine.
 
 ## todos
-- The queued "surprising playful update" (my choice) — next task.
 - Possible: photo-finish freeze-frame, ghost replay of your best run.

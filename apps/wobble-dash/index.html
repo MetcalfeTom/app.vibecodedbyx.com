@@ -94,13 +94,20 @@ var $=function(id){ return document.getElementById(id); };
 var cv=$('game'), cx=cv.getContext('2d'), W=cv.width, H=cv.height;
 var GROUND=H-84, COURSE=100, CHECKPOINTS=[25,50,75];
 
-var G;
+var G, GHOST=null, ghostI=0;
+function loadGhost(){
+  try{ var g=JSON.parse(localStorage.getItem('wobble-ghost')||'null');
+       GHOST=(Array.isArray(g)&&g.length>4)? g : null; }
+  catch(e){ GHOST=null; }
+}
 function reset(full){
   G={ x:0, v:0, lean:0, due:'L', lastPress:0, clock:0, t:0, running:false,
       fallen:false, fallT:0, falls:0, stumbleT:0, cp:0, done:false,
-      legPhase:0, msgT:0,
+      legPhase:0, msgT:0, trace:[], recAcc:0,
       best:+(localStorage.getItem('wobble-best')||0) };
-  say('press <b>Q</b> then <b>P</b>. then Q. then P. you sense the pattern.');
+  loadGhost(); ghostI=0;
+  say('press <b>Q</b> then <b>P</b>. then Q. then P. you sense the pattern.'+
+      (GHOST? '<br><small>👻 past-you is here. they know what they did.</small>':''));
 }
 function say(html,hold){
   $('msg').innerHTML=html;
@@ -163,9 +170,15 @@ function finish(){
   G.done=true;
   var t=G.t;
   var newBest= !G.best || t<G.best;
-  if(newBest){ G.best=t; localStorage.setItem('wobble-best', t.toFixed(1)); }
+  if(newBest){
+    G.best=t; localStorage.setItem('wobble-best', t.toFixed(1));
+    G.trace.push([+t.toFixed(2), COURSE, 0, 0]);
+    try{ localStorage.setItem('wobble-ghost', JSON.stringify(G.trace)); }catch(e){}
+  }
   var grade= t<25?'olympian (suspicious)': t<40?'genuinely athletic': t<60?'respectable wobble': t<90?'scenic route': 'a journey of self-discovery';
-  say('🏁 <b>'+t.toFixed(1)+'s</b> — '+grade+(newBest?' · <b>NEW BEST!</b>':'')+' · '+G.falls+' fall'+(G.falls===1?'':'s')+' · R to run again',60000);
+  var bestTag= newBest? (GHOST? ' · <b>you outran your ghost 👻</b>' : ' · <b>NEW BEST!</b>')
+             : (GHOST? ' · <small>the ghost remains undefeated</small>' : '');
+  say('🏁 <b>'+t.toFixed(1)+'s</b> — '+grade+bestTag+' · '+G.falls+' fall'+(G.falls===1?'':'s')+' · R to run again',60000);
   blip(523,0.3,'square',0.06); blip(784,0.3,'square',0.05); blip(1047,0.5,'square',0.05);
   paintBest();
 }
@@ -175,6 +188,11 @@ function step(dt){
   G.t+=dt;
   if(G.fallen){
     G.fallT+=dt;
+    G.recAcc+=dt;
+    if(G.recAcc>=0.1 && G.trace.length<3000){
+      G.recAcc=0;
+      G.trace.push([+G.t.toFixed(2), +G.x.toFixed(2), +G.lean.toFixed(3), 1]);
+    }
     if(G.fallT>1.5){
       G.fallen=false; G.lean=0; G.v=0;
       G.x= G.cp? CHECKPOINTS[G.cp-1] : 0;
@@ -191,6 +209,12 @@ function step(dt){
   var idle=G.clock-G.lastPress;
   if(G.v>0.8 && idle>0.85) G.lean += 0.5*dt;         /* stopped striding mid-run */
   if(G.stumbleT>0) G.stumbleT-=dt;
+  /* ghost tape: 10Hz samples of [t, x, lean, fallen] */
+  G.recAcc+=dt;
+  if(G.recAcc>=0.1 && G.trace.length<3000){
+    G.recAcc=0;
+    G.trace.push([+G.t.toFixed(2), +G.x.toFixed(2), +G.lean.toFixed(3), G.fallen?1:0]);
+  }
   if(Math.abs(G.lean)>0.62) fall();
   /* checkpoints */
   if(G.cp<CHECKPOINTS.length && G.x>=CHECKPOINTS[G.cp]){
@@ -202,6 +226,36 @@ function step(dt){
 }
 
 /* ── render ── */
+function ghostAt(t){
+  /* advance cursor along the tape; interpolate x + lean */
+  if(!GHOST) return null;
+  var n=GHOST.length;
+  if(t>=GHOST[n-1][0]) return {x:GHOST[n-1][1], l:0, f:0, done:true};
+  while(ghostI<n-2 && GHOST[ghostI+1][0]<=t) ghostI++;
+  var a=GHOST[ghostI], b=GHOST[Math.min(n-1,ghostI+1)];
+  var span=b[0]-a[0], u= span>0? Math.min(1,Math.max(0,(t-a[0])/span)) : 0;
+  /* don't interpolate across a respawn teleport (x jumps backward) */
+  if(b[1]<a[1]-1) u= u<0.5? 0:1;
+  return { x:a[1]+(b[1]-a[1])*u, l:a[2]+(b[2]-a[2])*u, f:(u<0.5?a[3]:b[3]), done:false };
+}
+function drawGhost(px,py,lean,fallenF,doneF){
+  cx.save();
+  cx.translate(px,py);
+  cx.globalAlpha=0.38;
+  if(fallenF) cx.rotate((lean>=0?1:-1)*Math.PI/2);
+  else cx.rotate(lean*0.9);
+  cx.lineWidth=6; cx.lineCap='round'; cx.strokeStyle='#7d8aa0';
+  cx.beginPath(); cx.moveTo(0,-34); cx.lineTo(-9,-6); cx.moveTo(0,-34); cx.lineTo(9,-6); cx.stroke();
+  cx.beginPath(); cx.moveTo(0,-34); cx.lineTo(0,-66); cx.stroke();
+  var wave=doneF? Math.sin(performance.now()/160)*6 : 0;   /* smug wave at the finish */
+  cx.beginPath(); cx.moveTo(0,-58); cx.lineTo(12,-70-wave); cx.moveTo(0,-58); cx.lineTo(-12,-50); cx.stroke();
+  cx.fillStyle='#aeb8c8'; cx.beginPath(); cx.arc(0,-76,10,0,7); cx.fill();
+  cx.rotate(fallenF? -(lean>=0?1:-1)*Math.PI/2 : -lean*0.9);
+  cx.globalAlpha=0.55; cx.fillStyle='#5d6a80';
+  cx.font='12px Sniglet, cursive'; cx.textAlign='center';
+  cx.fillText('👻 past you', 0, -94);
+  cx.restore();
+}
 function drawRunner(px,py){
   var lean=G.lean, ph=G.legPhase, run=Math.min(1,G.v/6);
   cx.save();
@@ -306,6 +360,14 @@ function draw(){
       }
     }
   }
+  /* ghost of your best run, behind the live runner */
+  if(GHOST && G.running && !G.done){
+    var gp=ghostAt(G.t);
+    if(gp){
+      var gsx=RX+(gp.x-G.x)*SCALE;
+      if(gsx>-80 && gsx<W+80) drawGhost(gsx, GROUND+8, gp.l, gp.f, gp.done);
+    }
+  }
   drawRunner(RX,GROUND+8);
   /* HUD */
   $('h-dist').textContent=Math.min(COURSE,G.x).toFixed(0)+' m';
@@ -345,8 +407,8 @@ function frame(t){
 }
 requestAnimationFrame(frame);
 
-window.__WD={ get G(){ return G; }, press:press, step:step, reset:reset,
-  CHECKPOINTS:CHECKPOINTS, COURSE:COURSE, fall:fall };
+window.__WD={ get G(){ return G; }, get GHOST(){ return GHOST; }, press:press, step:step,
+  reset:reset, ghostAt:ghostAt, CHECKPOINTS:CHECKPOINTS, COURSE:COURSE, fall:fall };
 })();
 </script>
 </body>
