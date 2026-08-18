@@ -1,6 +1,26 @@
 # parla · notes
 
 ## log
+- 2026-08-18 v13.10.0: **Speaking Studio** (chat-scoped path B, then chat said build).
+  New 'speak' mode (nav 🎙, pane, setMode-integrated w/ spLeave cleanup hook). THREE
+  tracks: pronunciation (word+meaning → model TTS → MediaRecorder take → compare →
+  self-rate again/hard/good/easy), listening (TTS speaks hidden word → 4 native-lang
+  options, 1 correct + 3 distractors, auto-scored, no mic needed), conversation (SENT
+  sentence in target+native → record → compare → rate). Privacy: gate before first mic
+  use ("never uploaded... memory only... mic released the moment you stop"), ack in
+  'parla-speak-privacy-ack', takes are blob+objectURL in memory ONLY (revoked on
+  replace/leave), stream tracks stopped after every recording; denied → honest notice,
+  listening keeps working. Ratings: 'parla-speak-v1' {prn|lst|cnv}{lang}{idx:{r,n,t}},
+  selection = unseen-first random, else lowest-rating-then-oldest. Stats line per track.
+  VERIFICATION: logic suite 19/23 (the 4 misses = real getUserMedia stalls under the
+  virtual clock — documented harness limit) + recording state-machine/a11y suite 14/14
+  via injected gum+MediaRecorder stubs (start/stop/blob/url/play/release/re-record/
+  leave-mid-recording/aria-pressed tabs/aria-live/pane label). TWO bugs the probes
+  caught: (1) SP.acked snapshots localStorage at init — probes must set the LIVE flag;
+  (2) `.sp-row{display:flex}` silently beat the UA [hidden] rule → rating row visible
+  before any take (screenshot caught it; fixed with [hidden]{display:none !important};
+  probe upgraded to COMPUTED visibility — attribute checks lie when author CSS sets
+  display). Boot probe + screenshots.
 - 2026-08-12: v13.9.12 — "zero cephalopods" removed from the header tagline per chat (now "sixty core words · four languages"). Everything else untouched.
 - 2026-08-12: v13.9.11 — "community" removed per chat. Final note: "Parla is an independent project. It is not affiliated with, endorsed by, or connected to any language-learning company."
 - 2026-08-12: v13.9.10 — note trimmed per chat (vibe-jam phrase removed): "Parla is an independent community project. It is not affiliated with, endorsed by, or connected to any language-learning company."
