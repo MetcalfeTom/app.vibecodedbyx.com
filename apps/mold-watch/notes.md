@@ -22,3 +22,10 @@
   - Run the week: 550ms/day animation (sync seam for probes), 🦠 badges on casualties, per-food verdicts reusing the SAFE language verbatim ("DISCARD the whole item, and never a taste check" / "eyes only") + neighbor-blame percentages. Score = fresh-days of 42, best persisted.
   - Whole-page language audit re-run WITH game text: still zero sensory-checking advice.
   - Suites: game-probe 16/16, core mw-probe 17/17 regression.
+- 2026-08-18 (3): v1.2 — LEVEL 2: THE LEAKY PACKAGE (two chat requests merged: leak containment + removable shelves/guards/spores/sparkle).
+  - **Prep**: raw chicken spawns on an upper shelf (3-spot cycle, never bottom — the USDA bottom-shelf-in-a-tray rule is the lesson, cited by name). Tools: move the meat (tap-tap), 2 absorbent pads (capacity 3, tap empty cells), 1 shelf guard (tap a food — deflects drips ONWARD, protection not absorption), and a dedicated 🧻 tray-under-meat toggle (capacity 5, costs a pad). TRAY UX LESSON: first design placed the tray by tapping the meat's own cell — impossible, that tap picks the meat up; the suite caught it, control extracted.
+  - **Run**: 5 days, drips fall down the column: tray → pads (saturate) → guarded food (deflect) → food (☣ contaminate once, "bacteria are invisible — no look can clear it") → floor puddle.
+  - **Cleanup**: ordered 5-step checklist (discard contaminated → bin pads → hot soapy wash → sanitize per label → 20-second hands), wrong taps shake + retry penalty. Then **removable shelf scrub**: lift the shelf out, 8 zones, corners need 2 passes, 2 hidden spores per round revealed only by washing ("you find them by washing, never by inspection") → ✨ SPOTLESS SHELF sparkle badge.
+  - **Scoring**: bottom-shelf +20, absorbed ×10, contam −15, puddles −10, cleanup 30−3/retry, shelf +15, spores +5 each; grades A–D; best persisted.
+  - **Calm bells**: sine-only through a 900Hz lowpass, peaks ≤0.05 — the suite's stub-AC audit asserts every voice sine and max gain ≤0.06, mute = zero nodes.
+  - Suites: l2-probe 25/25, neighbors game 16/16, core 17/17 (58 checks).
