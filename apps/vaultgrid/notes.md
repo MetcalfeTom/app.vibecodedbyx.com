@@ -42,6 +42,13 @@
   (ransomware sweeps the set), same-provider clouds. 16/16 advisor probe + 32/32
   regression + screenshot; label-clear papercut from v1.0 screenshot also fixed.
 
+- 2026-08-18 v1.2: **top-of-app 3-2-1 explainer** (#explainer aside between masthead and
+  .cols): three numeral blocks — 3 three copies (original + two INDEPENDENT copies, no
+  shared disk/roof/cable fate), 2 two media kinds, 1 one offsite & offline. Teal/amber/
+  blue numerals w/ glow, single-column ≤720px. Layout probe 8/8 at 1280 AND 390px
+  (exists, 3 blocks, DOM-and-visually above .cols, full width, content phrases, grid
+  columns, seam intact) + screenshot + boot probe after atomic deploy.
+
 ## issues
 - Corruption odds re-roll if you unassign+reassign a type — acceptable (it's a new copy).
 - Terminal output uses innerHTML with fixed strings; user input echoed via runCmd is
