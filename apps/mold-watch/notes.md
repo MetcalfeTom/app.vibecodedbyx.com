@@ -16,3 +16,9 @@
 ## todos
 - "My fridge" mode: add your own items w/ purchase dates → live countdown badges
 - Print-friendly one-page safety card
+- 2026-08-18 (2): v1.1 — THE NEIGHBORS GAME per chat ("playful aging-nearby mini-game, safe educational verdicts, no tasting prompts").
+  - 2×4 shelf, six foods, two empty slots (spacing IS the strategy — probed: spaced layout scores 23+ vs packed 18). Tap-a-chip-tap-a-slot placement (mobile-first, no drag needed); tapping a placed item picks it back up.
+  - **Real science engine**: ethylene emitters (banana 2×, apple 2×, tomato 1×) boost sensitive neighbors' aging (+25%/emitter level); moldy items spore-drift +1.2/day to orthogonal neighbors (raised from 0.7 — integer-day math swallowed the weaker drift, caught by suite). Chips carry tags (emits⇈ / listens / spore-prone) + title tooltips with the why.
+  - Run the week: 550ms/day animation (sync seam for probes), 🦠 badges on casualties, per-food verdicts reusing the SAFE language verbatim ("DISCARD the whole item, and never a taste check" / "eyes only") + neighbor-blame percentages. Score = fresh-days of 42, best persisted.
+  - Whole-page language audit re-run WITH game text: still zero sensory-checking advice.
+  - Suites: game-probe 16/16, core mw-probe 17/17 regression.
