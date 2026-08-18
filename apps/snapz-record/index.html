@@ -107,6 +107,27 @@ header h1 .z{ color:var(--volt); }
 #feed .rowbtns button:focus-visible{ outline:2px solid var(--volt); outline-offset:2px; }
 #empty{ color:#5c5b66; text-align:center; font-size:.85rem; padding:1.2rem 0; }
 #empty[hidden]{ display:none !important; }
+/* ── snap listener ── */
+#snapepanel{ background:var(--card); border:1.5px solid var(--line); border-radius:1rem; padding:.7rem .9rem; }
+#snapehead{ display:flex; align-items:center; gap:.7rem; }
+#lsnbtn{
+  font-family:'Unbounded',sans-serif; font-weight:400; font-size:.72rem;
+  min-height:2.75rem; padding:.3rem .8rem; border-radius:.7rem; cursor:pointer;
+  background:transparent; color:var(--ink); border:1.5px solid var(--line);
+}
+#lsnbtn[aria-pressed="true"]{ background:var(--volt); color:#191d05; border-color:var(--volt); }
+#lsnbtn:focus-visible{ outline:3px solid var(--volt); outline-offset:2px; }
+#lsncount{ margin-left:auto; font-size:1rem; color:var(--volt); }
+#lsnstate{ font-size:.72rem; color:var(--ink2); margin:.4rem 0; }
+#lsnstate.live{ color:var(--volt); }
+#lsnlevel{ height:.35rem; background:#26262e; border-radius:.2rem; overflow:hidden; }
+#lsnfill{ height:100%; width:0%; background:var(--ok); border-radius:.2rem; transition:width .1s linear; }
+#lsnmarks{ display:flex; gap:.35rem; flex-wrap:wrap; min-height:1.6rem; margin-top:.5rem; }
+#lsnmarks .mark{
+  font-size:.66rem; color:#191d05; background:var(--volt); border-radius:.4rem;
+  padding:.15rem .4rem; animation:markpop .35s ease-out;
+}
+@keyframes markpop{ 0%{ transform:scale(.3); } 70%{ transform:scale(1.15); } 100%{ transform:scale(1); } }
 footer{ font-size:.68rem; color:var(--ink2); text-align:center; line-height:1.8; margin-top:.4rem; }
 @media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
 </style>
@@ -133,9 +154,18 @@ footer{ font-size:.68rem; color:var(--ink2); text-align:center; line-height:1.8;
   </div>
   <button type="button" id="reccancel" hidden>discard</button>
 </section>
+<section id="snapepanel" aria-label="Finger-snap detection">
+  <div id="snapehead">
+    <button type="button" id="lsnbtn" aria-pressed="false" aria-label="Turn on live snap detection. The microphone is open only while this is on, and nothing is recorded — audio is analyzed and discarded in the moment.">👂 snap listener: off</button>
+    <span id="lsncount">⌁ 0</span>
+  </div>
+  <p id="lsnstate" role="status" aria-live="polite">off — mic closed. detection analyzes live and records nothing.</p>
+  <div id="lsnlevel" aria-hidden="true"><div id="lsnfill"></div></div>
+  <div id="lsnmarks" aria-label="Detected snaps"></div>
+</section>
 <ul id="feed"></ul>
 <p id="empty">nothing snapped yet — a note or a snip, whichever is faster</p>
-<footer>notes persist in your browser · audio is session-memory only, by design<br>R toggles recording · vote on sloppy.live if the big red button feels right<br><span id="buildstamp" role="note" aria-label="Build information" style="font-family:'Space Mono',monospace;font-size:.62rem;opacity:.65;">build v1.0 · 2026-08-18 · 3e4743248</span></footer>
+<footer>notes persist in your browser · audio is session-memory only, by design<br>R toggles recording · vote on sloppy.live if the big red button feels right<br><span id="buildstamp" role="note" aria-label="Build information" style="font-family:'Space Mono',monospace;font-size:.62rem;opacity:.65;">build v1.1 · 2026-08-18 · pending</span></footer>
 </main>
 <script>
 (function(){
@@ -239,6 +269,86 @@ addEventListener('keydown', function(e){
 });
 
 /* ── timeline ── */
+/* ── live snap detection: analyse-and-discard, never record ── */
+var LSN={ on:false, stream:null, ac:null, an:null, timer:null,
+  snaps:0, lastSnap:-9999, quietAvg:0, pending:false };
+function processFrame(timeArr, freqArr, now){
+  /* a finger snap: sharp broadband transient rising out of quiet */
+  var peak=0, sum=0;
+  for(var i=0;i<timeArr.length;i++){
+    var v=Math.abs(timeArr[i]-128)/128;
+    if(v>peak) peak=v;
+    sum+=v*v;
+  }
+  var rms=Math.sqrt(sum/timeArr.length);
+  var hi=0, half=freqArr.length>>1;
+  for(var j=half;j<freqArr.length;j++) hi+=freqArr[j];
+  hi=hi/(freqArr.length-half)/255;
+  var wasQuiet=LSN.quietAvg<0.12;
+  var isSnap= peak>0.4 && hi>0.18 && wasQuiet && (now-LSN.lastSnap)>300;
+  LSN.quietAvg=LSN.quietAvg*0.8+rms*0.2;
+  if(isSnap) LSN.lastSnap=now;
+  return { snap:isSnap, level:rms };
+}
+function snapMark(){
+  LSN.snaps++;
+  $('lsncount').textContent='⌁ '+LSN.snaps;
+  var d=new Date();
+  var m=document.createElement('span');
+  m.className='mark';
+  m.textContent='⌁ '+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+  var box=$('lsnmarks');
+  box.insertBefore(m, box.firstChild);
+  while(box.children.length>20) box.removeChild(box.lastChild);
+}
+function lsnUI(){
+  $('lsnbtn').textContent='👂 snap listener: '+(LSN.on?'on':'off');
+  $('lsnbtn').setAttribute('aria-pressed', String(LSN.on));
+  $('lsnstate').className=LSN.on?'live':'';
+  $('lsnstate').textContent= LSN.on
+    ? 'listening — mic LIVE, analyzing only. nothing is stored, snaps become markers.'
+    : 'off — mic closed. detection analyzes live and records nothing.';
+  if(!LSN.on) $('lsnfill').style.width='0%';
+}
+function lsnStart(){
+  if(LSN.on || LSN.pending) return;
+  LSN.pending=true;
+  navigator.mediaDevices.getUserMedia({ audio:true }).then(function(stream){
+    LSN.pending=false;
+    LSN.stream=stream;
+    LSN.ac=new (window.AudioContext||window.webkitAudioContext)();
+    var src=LSN.ac.createMediaStreamSource(stream);
+    LSN.an=LSN.ac.createAnalyser();
+    LSN.an.fftSize=1024;
+    src.connect(LSN.an);   /* analyser only — no recorder exists on this path */
+    LSN.on=true;
+    var tArr=new Uint8Array(LSN.an.fftSize);
+    var fArr=new Uint8Array(LSN.an.frequencyBinCount);
+    LSN.timer=setInterval(function(){
+      LSN.an.getByteTimeDomainData(tArr);
+      LSN.an.getByteFrequencyData(fArr);
+      var r=processFrame(tArr, fArr, performance.now());
+      $('lsnfill').style.width=Math.min(100, r.level*260)+'%';
+      if(r.snap) snapMark();
+    }, 50);
+    lsnUI();
+  }).catch(function(){
+    LSN.pending=false; LSN.on=false;
+    lsnUI();
+    $('lsnstate').textContent='mic unavailable — snap detection stays off. notes and manual snips still work.';
+  });
+}
+function lsnStop(){
+  if(!LSN.on) return;
+  LSN.on=false;
+  clearInterval(LSN.timer); LSN.timer=null;
+  if(LSN.stream){ LSN.stream.getTracks().forEach(function(t){ t.stop(); }); LSN.stream=null; }
+  if(LSN.ac){ try{ LSN.ac.close(); }catch(e){} LSN.ac=null; }
+  LSN.an=null;
+  lsnUI();
+}
+$('lsnbtn').addEventListener('click', function(){ if(LSN.on) lsnStop(); else lsnStart(); });
+
 function delNote(id){
   S.notes=S.notes.filter(function(n){ return n.id!==id; });
   saveNotes(); render();
@@ -306,7 +416,7 @@ function render(){
 render();
 recUI();
 
-window.__SZ={ S:S, REC:REC, snips:function(){ return SNIPS; }, addNote:addNote,
+window.__SZ={ S:S, REC:REC, LSN:LSN, processFrame:processFrame, snapMark:snapMark, lsnStart:lsnStart, lsnStop:lsnStop, snips:function(){ return SNIPS; }, addNote:addNote,
   startRec:startRec, stopRec:stopRec, cancelRec:cancelRec, delNote:delNote, delSnip:delSnip, render:render };
 })();
 </script>
