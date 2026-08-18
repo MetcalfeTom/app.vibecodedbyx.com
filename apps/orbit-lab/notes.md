@@ -51,6 +51,29 @@
   + 22/22 observatory regressions (two stale probe indices updated for the Moon row —
   app logic verified correct by the new probe first) + tall screenshot + boot probe.
 
+- 2026-08-18 v1.3: **playful experiments trio + chaos freedom + size what-ifs** (three
+  chat messages in one pass). **Rewindable timeline**: refactored ALL observatory angles
+  to exact analytic functions of O.years (syncAngles) → rewind button (dir ×−1) and a
+  ±20yr timeline scrubber are DRIFT-FREE by construction; probe asserts path-independence
+  to 1e-12. **Eclipse alignment**: eclipseState(t) detects 2D syzygies (Moon within
+  0.06 rad of the Earth→Sun line = solar; anti = lunar), edge-triggered counters, beam
+  on canvas, eclbar overlay, "jump to next alignment" via findNextAlignment scan;
+  sources honestly note real eclipses need the 5.1° node crossings — pointed at Umbra
+  for the real calendar. **Collision warnings**: laneConflicts (what-if a′ within 6% of
+  a planet's lane) → rose ghost ring + COLLISION WATCH text citing orbit-clearing and
+  name-dropping MOID. **Chaos Twins** (creative-freedom pick): rogue moon (0.22·GM,
+  r=190, softened +220 — admitted) turns the lab into a restricted 3-body problem;
+  FIRE launches twins 0.1% apart, live separation + doublings readout, divergence chord
+  drawn, orbital-element labels honestly SUSPENDED in-mode, prediction admitted to lie;
+  CHAOS MODE card added; off by default (existing tests preserved). **Planet-size
+  what-ifs**: ×0.25–4 slider (radius ×s, mass ∝s³ at const density) → R′/M′/g×/v_esc×
+  readouts, habitability warnings (<0.5 thin-air Mars problem; >1.6 mini-Neptune,
+  cited Rogers 2015 by name; 0.8–1.25 comfy zone; giants branch), honest "orbit
+  UNCHANGED — Kepler asks about the Sun" line, selected dot scales on orrery,
+  ↩ back-to-real-data reset (reversibility). 25/25 new-feature probe + ALL regressions
+  green (24 lab + 20 v1.2 + 22 observatory = 91 checks) + screenshot of twins at
+  7.6 doublings + boot probe after atomic deploy.
+
 ## issues
 - step() is externally drivable (internal clock only) — probes never touch rAF.
 - Escape detection needs r>2600 AND outbound AND ε>0; escaping sats take real minutes
