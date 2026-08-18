@@ -1,6 +1,21 @@
 # parla · notes
 
 ## log
+- 2026-08-18 v13.11.0: **battle voice check** (chat: pronunciation → rewards/streaks,
+  privacy-first, graceful). HONEST DESIGN: local detection verifies THAT you spoke
+  (RMS voice-activity ≥250ms in a 3.2s window via AnalyserNode), never HOW WELL — the
+  privacy card and announce lines say so plainly; production practice is the real
+  pedagogy. Nothing recorded/stored/sent — live level meter only; mic opens on toggle,
+  releases on toggle-off AND on leaving battle (setMode hook). Flow: correct btAnswer →
+  say-it chip (word + live meter) rides the resolution wait, THEN btQueueNext — wrong
+  answers and quiet windows reset the streak. Rewards are COSMETIC ONLY (damage math
+  untouched, stated in code): burst FX on the chip, 🔥 streak counter + persistent best
+  (store 'voicebest'), milestone pop at 3/5/10s. Graceful: no gum/denied/no AudioContext
+  → 'voice: unavailable', battles unchanged. A11y: aria-pressed toggle, aria-live chip,
+  announce() on every outcome, reduced-motion kills burst/pop. Probes: 18/18 voice layer
+  (stubbed gum + _rmsOverride driving bvTick deterministically) + 14/14 studio regression
+  + 19/23 logic (same 4 documented virtual-clock gUM misses). Screenshot verified chip,
+  meter, streak, colosseum intact.
 - 2026-08-18 v13.10.0: **Speaking Studio** (chat-scoped path B, then chat said build).
   New 'speak' mode (nav 🎙, pane, setMode-integrated w/ spLeave cleanup hook). THREE
   tracks: pronunciation (word+meaning → model TTS → MediaRecorder take → compare →
