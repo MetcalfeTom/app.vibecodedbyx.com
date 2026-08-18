@@ -1,6 +1,16 @@
 # Pixel Detective — notes
 
 ## log
+- 2026-08-18 v1.2: **spoilers out, earned clues in** (chat request). Case briefs
+  rewritten atmospheric and tool-free (probe asserts no tool names leak). New clue
+  ladder per case: 3 stepwise clues (vague → category → names-the-tool), EARNED via
+  investigation effort — tool/filter switches +1, wrong accusations +3 ("legwork"),
+  +1 per 10s — unlocking at 5/12/20; button shows honest progress text, capped at 3,
+  reset per case. Explanations PRESERVED for later review two ways: the post-solve
+  explainer stays exactly as before, plus a new 📁 closed-cases archive card
+  (details/summary per solved case, persists across cases). 13/13 clue probe
+  (no-spoilers sweep, gating, no-double-dip, cap, archive) + full 28/28 regression.
+
 - 2026-08-18 v1.1: **case 6 · the lighthouse code** (chat request: white/blue/green/red
   light filters, distinct hidden numbers, science, challenge mode). Subtractive-color
   physics done honestly: digits inked in GREY (absorbs all → white lamp), YELLOW
