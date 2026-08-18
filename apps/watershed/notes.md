@@ -110,6 +110,14 @@
   re-run — batch chromium launches flake its double-rAF, noted before) + screenshot
   + boot probe after atomic deploy.
 
+- 2026-08-18 v1.8: **story panel promoted beside the valley** (chat request): #story
+  card moved to the TOP of the right column (first sibling), 2px forest border + soft
+  shadow for prominence; in story mode it now sits directly beside the map on desktop.
+  Free-play mode still hides it (brushes rise back to top). Placement probe 4/4 at BOTH
+  1280 and 390 widths (first-in-column, beside-valley rect check desktop-only, border
+  ≥2px, mode toggling intact) + all seven suites green (80 checks total; visuals suite
+  again needed an isolated re-run — batch flake, known).
+
 ## issues
 - **THE modeling lesson**: daily hard-capped infiltration (mm/day) made all land types
   converge under big storms (forest peak 13.6k vs city 17.5k — only 1.3×) because any
