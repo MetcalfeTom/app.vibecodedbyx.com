@@ -73,6 +73,17 @@
   Screenshot lesson: scrollIntoView before --screenshot captures past the page → blank
   frame; use a tall viewport instead.
 
+- 2026-08-18 v1.5: **setup-usability pass** (chat asked for an end-to-end review + the
+  highest-impact fixes). Findings→fixes: (1) blank-page problem — new ✨ demo-grid button
+  (3 units, 5 assignments, 2 tested / 3 deliberately untested so drills+advisor+checkups
+  all demo instantly; two-click confirm when a grid already exists, self-disarms in 4s);
+  (2) no post-mount guidance — mounting now flashes the new unit panel + teal "next:
+  tick which data it should hold" hint; (3) hardware warnings pushed mobile setup far
+  down — #hwwarn is now a <details> (open on ≥980px, folded on phones, summary keeps
+  the amber h2 + hint); (4) duplicate auto-labels made rack-nav rows ambiguous — mount()
+  suffixes ' #2' etc. 12/12 usability probe + 2/2 mobile fold probe + 32/32 and 16/16
+  regressions + demo-state screenshot + boot probe after atomic deploy.
+
 ## issues
 - Corruption odds re-roll if you unassign+reassign a type — acceptable (it's a new copy).
 - Terminal output uses innerHTML with fixed strings; user input echoed via runCmd is
