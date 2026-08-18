@@ -1,6 +1,19 @@
 # parla · notes
 
 ## log
+- 2026-08-18 v13.12.0: **battle replay** (chat: hear your recording privately before
+  continuing, clear delete controls). OPT-IN 🔁 toggle beside the voice toggle (appears
+  only when voice is on; DEFAULT OFF so the no-recording promise stays literally true
+  by default and the 18-check suite stays byte-compatible). With replay on: the
+  MediaRecorder rides the say-window on the existing stream; a heard word opens a
+  dashed replay bar — ▶ listen (Audio from object URL, tab-memory only) and
+  🗑 delete & continue; continuing deletes either way, the bar says so, and the next
+  battle round is DEFERRED until you choose. Silent windows keep nothing. Privacy card
+  gained the replay clause (memory-only, deleted on continue/delete). Probe-caught bug
+  pre-ship: toggling replay off with a take pending cleared audio but stranded the
+  deferred continue — battle stalled; toggle-off now releases it. 11/11 replay probe +
+  17→18/18 voice regression (one expected-phrase update for the reworded privacy card,
+  documented) + 14/14 studio regression.
 - 2026-08-18 v13.11.0: **battle voice check** (chat: pronunciation → rewards/streaks,
   privacy-first, graceful). HONEST DESIGN: local detection verifies THAT you spoke
   (RMS voice-activity ≥250ms in a 3.2s window via AnalyserNode), never HOW WELL — the

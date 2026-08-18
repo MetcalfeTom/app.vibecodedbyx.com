@@ -568,6 +568,13 @@ body.debug-locate #levelup-banner{opacity:.25; border:5px dashed #ff1a1a; paddin
 @keyframes bv-burst{ 0%{ transform:scale(1); box-shadow:0 0 0 rgba(232,185,77,0); } 45%{ transform:scale(1.12); box-shadow:0 0 22px rgba(232,185,77,.8); } 100%{ transform:scale(1); } }
 #bv-meter{ width:3.4rem; height:.55rem; border-radius:.3rem; background:#ddd4c2; overflow:hidden; position:relative; }
 #bv-meter::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:calc(var(--lv,0)*100%); background:#2e7d4f; }
+#bv-replay{ display:flex; gap:.5rem; align-items:center; justify-content:center; flex-wrap:wrap;
+  margin:.4rem auto; padding:.5rem .9rem; max-width:28rem; border:2px dashed #33538a; border-radius:.7rem;
+  font-size:.8rem; background:rgba(51,83,138,.08); }
+#bv-replay[hidden]{ display:none !important; }
+#bv-replay button{ min-height:2.75rem; }
+.bv-rnote{ flex-basis:100%; font-size:.66rem; opacity:.7; }
+#bt-replay[aria-pressed="true"]{ background:#33538a; color:#fff; }
 @media (prefers-reduced-motion: reduce){ #bv-streak.milestone,#bv-chip.heard{ animation:none; } }
 </style>
 </head>
@@ -693,13 +700,20 @@ body.debug-locate #levelup-banner{opacity:.25; border:5px dashed #ff1a1a; paddin
     <p id="bt-log" role="status">a word-beast blocks the stacks…</p>
     <div id="bv-row">
       <button type="button" id="bt-voice" aria-pressed="false">🎤 voice: off</button>
+      <button type="button" id="bt-replay" aria-pressed="false" hidden>🔁 replay: off</button>
       <span id="bv-streak" hidden>🔥 voice streak ×<b id="bv-n">0</b> · best <b id="bv-best">0</b></span>
     </div>
     <div id="bv-privacy" hidden>
-      <p><b>Battle voice check:</b> a live level meter listens for <b>that you spoke</b> — nothing is recorded, stored, or sent anywhere, ever. It can't judge <i>how well</i> you said it (that skill is yours); it rewards saying words out loud, which is how mouths learn. The mic stays open only while this toggle is on and only in battle.</p>
+      <p><b>Battle voice check:</b> a live level meter listens for <b>that you spoke</b> — nothing is stored or sent anywhere, ever. If you also switch on <b>replay</b>, your take is held in this tab's memory just long enough for you to hear it, then deleted when you continue (or sooner, with the delete button). It can't judge <i>how well</i> you said it (that skill is yours); it rewards saying words out loud, which is how mouths learn. The mic stays open only while this toggle is on and only in battle.</p>
       <button type="button" id="bv-ack">I understand — enable voice check</button>
     </div>
     <div id="bv-chip" hidden role="status" aria-live="polite"><span id="bv-chip-word"></span><i id="bv-meter"></i></div>
+    <div id="bv-replay" hidden role="group" aria-label="Your recording — private replay before continuing">
+      <span>🎧 your take, for your ears only:</span>
+      <button type="button" id="bv-play">▶ listen</button>
+      <button type="button" id="bv-delete">🗑 delete &amp; continue</button>
+      <span class="bv-rnote">continuing deletes it either way — it never leaves this tab.</span>
+    </div>
     <p class="q-sub" id="bt-dir">strike true — translate to english</p>
     <p class="q-word" id="bt-word">—</p>
     <div id="bt-timer" aria-hidden="true"><i></i></div>
@@ -3783,6 +3797,7 @@ $('sp-ack').addEventListener('click',function(){
    Purely cosmetic: streaks + sparkle; battle damage math is untouched. ═══ */
 var BV={ on:false, unavail:false, stream:null, ac:null, an:null, buf:null,
          streak:0, open:false, voicedMs:0, elapsed:0, doneCb:null, raf:null,
+         replayOn:false, rec:null, chunks:[], takeBlob:null, takeUrl:null,
          acked:(function(){ try{ return localStorage.getItem('parla-voice-ack')==='1'; }catch(e){ return false; } })(),
          _rmsOverride:null, _gumOverride:null };
 var BV_WINDOW=3200, BV_NEED=250, BV_THR=0.025;
@@ -3827,12 +3842,19 @@ function bvEnable(){
     $('bt-voice').setAttribute('aria-pressed','true');
     $('bt-voice').removeAttribute('data-unavail');
     $('bt-voice').textContent='🎤 voice: on';
+    $('bt-replay').hidden=false;
     bvPaintStreak();
     announce('voice check on — after a correct answer, say the word aloud');
   }).catch(function(){ bvSetUnavailable(); });
 }
 function bvDisable(){
   BV.on=false;
+  BV.replayOn=false;
+  $('bt-replay').hidden=true;
+  $('bt-replay').setAttribute('aria-pressed','false');
+  $('bt-replay').textContent='🔁 replay: off';
+  bvClearTake();
+  if(BV.doneCb){ var cb=BV.doneCb; BV.doneCb=null; cb(); }
   bvStopStream();
   $('bt-voice').setAttribute('aria-pressed','false');
   $('bt-voice').textContent='🎤 voice: off';
@@ -3859,6 +3881,24 @@ function bvTick(dt){
 function bvResolve(heard){
   BV.open=false;
   if(BV.raf){ cancelAnimationFrame(BV.raf); BV.raf=null; }
+  var wantReplay=false;
+  if(BV.rec){
+    try{
+      if(BV.rec.state==='recording'){
+        BV.rec.onstop=function(){
+          if(heard && BV.replayOn && BV.chunks.length){
+            BV.takeBlob=new Blob(BV.chunks,{type:BV.rec&&BV.rec.mimeType||'audio/webm'});
+            BV.takeUrl=URL.createObjectURL(BV.takeBlob);
+            $('bv-replay').hidden=false;
+            announce('your take is ready to replay — it stays in this tab until you continue or delete it');
+          }
+        };
+        BV.rec.stop();
+        wantReplay=heard && BV.replayOn;
+      }
+    }catch(e){}
+    BV.rec=null;
+  }
   var chip=$('bv-chip');
   if(heard){
     BV.streak++;
@@ -3879,11 +3919,32 @@ function bvResolve(heard){
   }
   bvPaintStreak();
   setTimeout(function(){ chip.hidden=true; chip.classList.remove('heard'); },900);
+  if(wantReplay){ return; }             /* doneCb waits for listen/delete/continue */
   var cb=BV.doneCb; BV.doneCb=null;
   if(cb) cb();
 }
+function bvContinueAfterReplay(){
+  bvClearTake();
+  announce('take deleted — onward');
+  var cb=BV.doneCb; BV.doneCb=null;
+  if(cb) cb();
+}
+function bvClearTake(){
+  if(BV.takeUrl){ try{ URL.revokeObjectURL(BV.takeUrl); }catch(e){} }
+  BV.takeBlob=null; BV.takeUrl=null;
+  $('bv-replay').hidden=true;
+}
 function bvSayWindow(word, done){
   BV.open=true; BV.voicedMs=0; BV.elapsed=0; BV.doneCb=done;
+  bvClearTake();
+  if(BV.replayOn && BV.stream && typeof MediaRecorder!=='undefined'){
+    try{
+      BV.chunks=[];
+      BV.rec=new MediaRecorder(BV.stream);
+      BV.rec.ondataavailable=function(ev){ if(ev.data&&ev.data.size) BV.chunks.push(ev.data); };
+      BV.rec.start();
+    }catch(e){ BV.rec=null; }
+  }
   var chip=$('bv-chip');
   chip.hidden=false; chip.classList.remove('heard');
   $('bv-chip-word').textContent='🎤 say it aloud: '+word;
@@ -3902,6 +3963,23 @@ $('bt-voice').addEventListener('click', function(){
   if(BV.unavail) return;
   if(BV.on) bvDisable(); else bvEnable();
 });
+$('bt-replay').addEventListener('click', function(){
+  BV.replayOn=!BV.replayOn;
+  this.setAttribute('aria-pressed', BV.replayOn?'true':'false');
+  this.textContent='🔁 replay: '+(BV.replayOn?'on':'off');
+  if(!BV.replayOn){
+    /* a pending take must release the deferred continue, or the battle stalls */
+    if(BV.doneCb && !BV.open) bvContinueAfterReplay();
+    else bvClearTake();
+  }
+  announce(BV.replayOn? 'replay on — after a spoken word you can hear your take before continuing':'replay off — takes are no longer kept, even briefly');
+});
+$('bv-play').addEventListener('click', function(){
+  if(!BV.takeUrl) return;
+  var a=new Audio(BV.takeUrl);
+  a.play().catch(function(){});
+});
+$('bv-delete').addEventListener('click', bvContinueAfterReplay);
 $('bv-ack').addEventListener('click', function(){
   BV.acked=true;
   try{ localStorage.setItem('parla-voice-ack','1'); }catch(e){}
@@ -3924,6 +4002,7 @@ window.__vc={ version:'v13.0', words:WORDS, langs:LANGS,
   setLang:setLang, setMode:setMode, setNative:setNative, natOf:natOf, speak:speak, ttsOn:ttsOn,
   get SP(){ return SP; }, spNextIdx:spNextIdx, spRate:spRate, spStore:spStore, spDeal:spDeal,
   get BV(){ return BV; }, bvEnable:bvEnable, bvDisable:bvDisable, bvSayWindow:bvSayWindow,
+  bvContinueAfterReplay:bvContinueAfterReplay, bvClearTake:bvClearTake,
   bvTick:bvTick, bvResolve:bvResolve, bvSetUnavailable:bvSetUnavailable,
   spRecord:spRecord, spSetTrack:spSetTrack, spAnswer:spAnswer, spLeave:spLeave, spModelText:spModelText,
   ttsVoices:function(){ return TTS_VOICE; }, relistVoices:pickVoices,
