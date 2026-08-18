@@ -68,3 +68,8 @@
   - **New permanent invariant: the family-exclusivity sweep** — ~3000 hue/sat/light points asserted to vote in at most ONE family. It immediately caught TWO pre-existing overlaps: warm-white pixels (tiny HSL denominators fake high saturation) read milk as banana, and dark olive (h 42–50, l .3–.45) voted in both brown and yellow. Yellow is now banded l .45–.85. Milk-white asserted invisible.
   - Limits panel updated honestly: "milk stays invisible on purpose — white is the counter's color"; golden crusts will still fool the cheese band.
   - Suites: bench 16/16 + 9 regressions = **124 checks green**. Patch-script lesson repeated (limits old-string mismatched line wrapping → script died half-way; caught by suite scores, re-applied whole).
+- 2026-08-18 (13): v2.1 — FAST MANUAL AUTOCOMPLETE per chat ("typed entries as source of truth, photo evidence optional").
+  - New #fastname combobox at the TOP of the stock sheet (proper ARIA: role=combobox, aria-expanded, aria-activedescendant, listbox options): type → up to 6 suggestions (catalog prefix > substring > remembered customs), each showing its usual shelf life (~7d · fridge). **Enter = instantly stocked** with catalog defaults + typical expiry, input cleared, focus retained → rapid-fire pantry entry (probed: 3 items in 3 enters). Arrows steer, Escape closes, click works.
+  - **Typed truth**: custom entries land verbatim (no expiry guessed), remembered in 'shelf-life-names' (cap 30) and re-suggested marked "yours".
+  - **Photo demoted honestly**: strip moved BELOW the fast row, copy now "📷 optional: photo evidence — it only ever suggests; what you type decides."
+  - Suites: fast-probe 14/14 first run + all 10 regressions (16/15/12/8/17/23/15/7/5/6) = **138 checks green**.
