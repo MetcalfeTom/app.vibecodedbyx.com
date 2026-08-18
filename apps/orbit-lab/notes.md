@@ -20,6 +20,20 @@
   Azeret Mono chalkboard. 24/24 probe incl. simulation truths (v_circ launch holds
   r∈[86,94] over a full period; slow crashes; 44 u/s escapes past 2600u) + screenshot.
 
+- 2026-08-18 v1.1: **Solar System Observatory** section (chat: "cited solar-system
+  observatory with real planetary data, editable what-if parameters, clear source
+  references"). 8 planets with NASA NSSDCA Planetary Fact Sheet values (a/e/T/v/M/R,
+  rounded; cited BY NAME ONLY — no external links per house security rules, the
+  citation says so). Orrery: log-compressed rings (ringR=42+95·log10(1+3a)), planets
+  advancing at true Kepler rates (probe verified Mercury/Neptune angular ratio =
+  T_nep/T_merc), oversized dots + on-canvas honesty labels. What-if editor: planet
+  select (table rows click too), a′ input + Sun-mass slider → T′=√(a′³/M☉′),
+  v′≈29.78·√(M/a) flagged as circular approximation; mint dashed ghost orbit + ghost
+  planet at the what-if rate. Sources panel: DATA (NSSDCA/Williams) / MATH (Kepler III)
+  / DRAWN-NOT-TRUE (scaling confession). Second IIFE, own seam __OB.
+  22/22 probe (incl. table-vs-Kepler consistency within 2% and zero <a> tags in
+  sources) + 24/24 lab regression + tall screenshot + boot probe after atomic deploy.
+
 ## issues
 - step() is externally drivable (internal clock only) — probes never touch rAF.
 - Escape detection needs r>2600 AND outbound AND ε>0; escaping sats take real minutes
