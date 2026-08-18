@@ -1,5 +1,8 @@
 # VibeSpace Notes
 
+## visitor book
+- +nisso was here to make a app
+
 ## conventions (always-on)
 - **+NEVER batch-edit a live app's index.html in place (2026-08-06, learned from the sloppyscape blue-box incident)**: apps serve straight from disk, so every intermediate write is INSTANTLY live — a half-applied refactor gave real users a boot-crash "blue box" for minutes. For any multi-step edit: work on a scratch copy (scratchpad or app-dir temp file), run checks there, then atomically `cp` over index.html. Single small Edits are fine. Big rebuilds for popular apps should go out as `<app>/beta.html` (isolated localStorage key + BETA ribbon) for chat to test before promotion.
 - **+BLUESCRN.EXE on retro desktops (2026-08-01 chat directive)**: any NEW app that presents a retro desktop metaphor (Win95/98/XP-style, fake OS shells) should include a 💀 desktop shortcut labeled `BLUESCRN.EXE` that opens `/bluescreen-roulette/` in a new tab (noopener + same-tab fallback), styled to match that desktop's icon conventions. Reference impl: `apps/windows-95/index.html` (launchBluescrn). Retrofit existing retro desktops opportunistically when already touching them — don't bulk-audit.
