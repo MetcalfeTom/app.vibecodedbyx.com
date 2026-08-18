@@ -13,3 +13,4 @@
 - Reorder (drag or up/down buttons)
 - Per-day archive ("yesterday's page" flip)
 - Optional custom category tabs
+- 2026-08-18 (2): calm chime per chat — replaced the bright C5/E5/G5 triangle arpeggio with a gentle bell: sine-only voices at A3/E4/A4 (each with a quiet octave partial at ~1/4 gain), 0.45s note spacing, 90ms soft attack, 2.6s exponential decay, peak gain 0.045 (was 0.12), all routed through a 1100Hz Q0.4 lowpass. Verified via stubbed AudioContext driven through the REAL session-finish path (7/7: sine-only, lowpass present, peak ≤0.05, spacing ≥0.4s, low register, mute creates zero nodes) + full 24/24 regression. Atomic deploy.
