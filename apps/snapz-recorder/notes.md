@@ -37,3 +37,7 @@
   - **Sampling blind gap**: fftSize 1024 ≈ 21–23ms observed window polled every 50ms → ~57% of audio never seen; a snap in the gap simply didn't exist. Fixed: fftSize 2048 (~46ms window) + 20ms poll → continuous coverage (window > gap).
   - **Backup input**: Space → Ctrl (Left or Right), per chat. Copy updated (SPACE→CTRL), suite updated: ctrl-playable-space-inert asserts Ctrl judges AND Space is now inert. Standing suite saved at scratchpad sz-suite-v14.txt.
   - Suites: timing 4/4 (both fast spacings both-detected, ring suppression, coverage) + full regression 17/17. Thresholds (peak .4, hi .18, quiet .12) inspected and left alone — truth tests all pass; the misses were pure timing.
+- 2026-08-18 (8): v1.5 — SNAP BUDDY per chat: cute volt blob living above the beat lane. Pure CSS/DOM, aria-hidden, zero control changes.
+  - Idle bob always; demo: slides (springy left transition) to each pulsing dot; perfect → groove (jump+arm-raise, slides to the hit beat); good → bounce; miss → wobble in place (mouth flips to frown via .wobble); round clear → 3-jump party, fail → wobble; budHome() recenters at round end.
+  - budDance uses remove-classes → void offsetWidth reflow → re-add, so rapid snaps retrigger animations. prefers-reduced-motion kills ALL buddy animation + the slide transition.
+  - Suites: buddy 6/6 (exists+hidden, groove+move-to-37.5%, bounce, wobble, round-end react+recenter, reduced-motion kill) + full regression 17/17. Screenshot reviewed.
