@@ -90,6 +90,16 @@
   engine and free-play experiments untouched. 17/17 story+heron+flicker probe + 2/2
   purple pixel probe + 19/19 + 7/7 + 10/10 regressions (55 total) + screenshots.
 
+- 2026-08-18 v1.6: **top-level mode switch + chapter preview** (chat request). Prominent
+  segmented switch under the masthead (STORY MODE / FREE PLAY, aria-pressed, big
+  targets); modes toggle #story vs #experiments via [data-mode-hidden] display:none —
+  elements stay in DOM so every existing probe still binds (.click() works on hidden
+  elements). Chapter preview: 6 chips in the story card (locked grey / current green /
+  done pale-green), painted by paintPreview() on every stRender + mode change. Story
+  state persists across mode flips. Default = free play (sandbox-first, story one tap
+  away). 9/9 switch probe + ALL FIVE suites green (19+7+10+17+2 = 64 checks total)
+  + screenshot + boot probe after atomic deploy.
+
 ## issues
 - **THE modeling lesson**: daily hard-capped infiltration (mm/day) made all land types
   converge under big storms (forest peak 13.6k vs city 17.5k — only 1.3×) because any
