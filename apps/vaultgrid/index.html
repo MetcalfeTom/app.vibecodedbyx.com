@@ -120,6 +120,19 @@ label{ font-size:.58rem; color:var(--dim); display:block; margin-bottom:.2rem; l
 #report .verdict{ font-size:.7rem; margin-top:.55rem; padding:.5rem .6rem; border-radius:.4rem; font-weight:700; }
 .verdict.good{ background:rgba(95,208,122,.12); color:var(--ok); }
 .verdict.bad{ background:rgba(232,85,85,.12); color:var(--red); }
+/* placement advisor */
+.adt{ border:1px solid var(--edge); border-radius:.45rem; padding:.55rem .65rem; margin-bottom:.55rem; background:#0e161a; }
+.adt h3{ font-size:.66rem; margin:0 0 .35rem; font-weight:700; }
+.adt h3 .chk{ margin-left:.4rem; }
+.arow{ display:flex; gap:.5rem; align-items:flex-start; font-size:.6rem; line-height:1.65; padding:.3rem 0; border-top:1px dashed #1c2a30; }
+.arow .aic{ flex:none; width:1.1rem; text-align:center; }
+.arow .abody{ flex:1; }
+.arow .abody b{ color:var(--teal); }
+.arow .awarn{ display:block; color:var(--amber); font-size:.56rem; }
+.arow .aneed{ color:var(--dim); letter-spacing:.08em; text-transform:uppercase; font-size:.52rem; display:block; }
+.arow button{ flex:none; font-size:.54rem; min-height:1.9rem; padding:.2rem .55rem; }
+.arow.sat .aic{ color:var(--ok); } .arow.rec .aic{ color:var(--amber); } .arow.gap .aic{ color:var(--red); }
+
 /* terminal */
 #term{ background:#070d10; border:1px solid var(--edge); border-radius:.4rem; padding:.6rem .7rem; margin:0 0 .5rem;
   font-size:.62rem; line-height:1.8; max-height:14rem; overflow:auto; white-space:pre-wrap; word-break:break-word; color:#a8c8bc; }
@@ -213,6 +226,12 @@ footer{ text-align:center; color:var(--dim); font-size:.62rem; margin-top:1.4rem
         <h2>summary --resilience</h2>
         <div id="sumbody"></div>
         <div id="verdict"></div>
+      </section>
+
+      <section class="card" aria-label="Placement advisor">
+        <h2>advise --placement</h2>
+        <div id="advisor"></div>
+        <p class="legend">three seats per data type: <b>local</b> (fast restore, second media) · <b>offsite</b> (survives the building) · <b>offline</b> (no cable for ransomware to follow). One unit may hold several seats. Recommendations only use units with real free space; failing hardware is never recommended.</p>
       </section>
 
       <section class="card" aria-label="Inventory panels">
@@ -578,7 +597,7 @@ function paintGrid(){
     host.appendChild(u);
   });
 }
-function paintAll(){ paintDataTypes(); paintNav(); paintSummary(); paintGrid(); }
+function paintAll(){ paintDataTypes(); paintNav(); paintSummary(); paintGrid(); paintAdvisor(); }
 setInterval(function(){
   [].forEach.call(document.querySelectorAll('.unit'), function(u){
     var d=S.disks.filter(function(x){ return x.id===+u.dataset.id; })[0];
@@ -601,6 +620,111 @@ var SC_TITLES={ drivefail:'DRILL · DRIVE FAILURE', fire:'DRILL · HOUSE FIRE', 
     save(); paintAll();
   });
 });
+
+/* ── placement advisor ── */
+function freeTB(d){ return d.tb - diskUsed(d); }
+function candidateFor(need, dt){
+  /* rank non-failing units with space, not already holding this type */
+  var cands=S.disks.filter(function(d){
+    if(d.assigns[dt] || d.health==='failing') return false;
+    if(freeTB(d) < S.data[dt].tb - 1e-9) return false;
+    if(need==='local') return !isOffsite(d);
+    if(need==='offsite') return isOffsite(d);
+    return !isConnected(d);   /* offline */
+  });
+  cands.sort(function(a,b){
+    var hp={healthy:0,aging:1};
+    return (hp[a.health]-hp[b.health])
+      || ((need==='local'? speedOf(b)-speedOf(a) : 0))
+      || (freeTB(b)-freeTB(a));
+  });
+  return cands[0]||null;
+}
+function unitWarnings(d){
+  var w=[];
+  if(d.health==='aging') w.push('aging hardware — fine today, plan its successor');
+  if(d.kind==='cloud'&&d.red==='single') w.push('single-region cloud: their bad day becomes yours');
+  if(d.kind==='cloud'&&d.lat==='high') w.push('cold tier: restores wait '+CLOUD_LATENCY_H.high+'h before the first byte');
+  if(d.loc==='desk') w.push('always plugged in — ransomware can follow the cable');
+  return w;
+}
+function independenceWarnings(dt){
+  var ds=copiesOf(dt), w=[];
+  if(!ds.length) return w;
+  if(ds.every(function(d){ return !isOffsite(d); }))
+    w.push('every backup copy sleeps under the same roof as the original — one fire ends the whole story');
+  if(ds.length && ds.every(function(d){ return isConnected(d); }))
+    w.push('every copy is reachable from the primary machine — one ransomware run sweeps the entire set');
+  var prov={};
+  ds.forEach(function(d){ if(d.kind==='cloud') prov[d.provider]=(prov[d.provider]||0)+1; });
+  Object.keys(prov).forEach(function(pn){
+    if(prov[pn]>1) w.push(prov[pn]+' copies ride the same provider ('+pn+') — that is one basket wearing two labels');
+  });
+  return w;
+}
+function advisePlacement(dt){
+  var assigned=copiesOf(dt);
+  var steps=[];
+  [['local','a second copy inside the house, on different media, for fast everyday restores'],
+   ['offsite','a copy that survives fire, flood, and burglary'],
+   ['offline','a copy no malware can reach from the primary']].forEach(function(pair){
+    var need=pair[0], why=pair[1];
+    var holder=assigned.filter(function(d){
+      if(need==='local') return !isOffsite(d);
+      if(need==='offsite') return isOffsite(d);
+      return !isConnected(d);
+    })[0];
+    if(holder){
+      steps.push({ need:need, state:'sat', unit:holder, why:why, warns:unitWarnings(holder),
+        txt:'covered by <b>'+holder.label+'</b>'+(holder.assigns[dt].tested? '':' <span class="awarn">⚠ copy never test-restored</span>') });
+      return;
+    }
+    var rec=candidateFor(need, dt);
+    if(rec){
+      steps.push({ need:need, state:'rec', unit:rec, why:why, warns:unitWarnings(rec),
+        txt:'recommend <b>'+rec.label+'</b> — '+freeTB(rec).toFixed(1)+' TB free, '+mediaOf(rec)+' media'+(isOffsite(rec)?', offsite':'')+(!isConnected(rec)?', unplugged/offline':'') });
+    } else {
+      var mountAdvice= need==='local'? 'mount an external HDD or SSD kept at home'
+        : need==='offsite'? 'mount a cloud entry, or a drive that lives at the office or a relative\'s'
+        : 'mount an unplugged shelf drive, an offsite drive, or a cold-archive cloud tier';
+      steps.push({ need:need, state:'gap', unit:null, why:why, warns:[],
+        txt:'no suitable unit on the rack — '+mountAdvice });
+    }
+  });
+  return { dt:dt, steps:steps, indep:independenceWarnings(dt),
+           allSat:steps.every(function(st){ return st.state==='sat'; }) };
+}
+function paintAdvisor(){
+  var host=$('advisor'); host.innerHTML='';
+  var act=activeTypes();
+  if(!act.length){ host.innerHTML='<p class="legend">no data types selected.</p>'; return; }
+  act.forEach(function(dt){
+    var adv=advisePlacement(dt);
+    var box=document.createElement('div'); box.className='adt';
+    box.innerHTML='<h3>'+DATA_DEFS[dt].name+' <span class="chk '+(adv.allSat?'pass':'warn')+'">'+(adv.allSat?'all seats filled':'seats open')+'</span></h3>';
+    adv.steps.forEach(function(st){
+      var row=document.createElement('div'); row.className='arow '+st.state;
+      var ic= st.state==='sat'? '✓' : st.state==='rec'? '→' : '✗';
+      row.innerHTML='<span class="aic" aria-hidden="true">'+ic+'</span>'+
+        '<span class="abody"><span class="aneed">'+st.need+' — '+st.why+'</span>'+st.txt+
+        st.warns.map(function(w){ return '<span class="awarn">⚠ '+w+'</span>'; }).join('')+'</span>';
+      if(st.state==='rec'){
+        var b=document.createElement('button');
+        b.type='button'; b.textContent='assign';
+        b.setAttribute('aria-label','Assign '+DATA_DEFS[dt].name+' to '+st.unit.label);
+        b.addEventListener('click', function(){ toggleAssign(st.unit.id, dt); });
+        row.appendChild(b);
+      }
+      box.appendChild(row);
+    });
+    adv.indep.forEach(function(w){
+      var row=document.createElement('div'); row.className='arow gap';
+      row.innerHTML='<span class="aic" aria-hidden="true">⛓</span><span class="abody"><span class="aneed">independence</span><span class="awarn" style="color:var(--red)">'+w+'</span></span>';
+      box.appendChild(row);
+    });
+    host.appendChild(box);
+  });
+}
 
 /* ── terminal ── */
 function termPrint(lines){
@@ -691,6 +815,8 @@ window.__VG={ get S(){ return S; }, addDisk:function(kind,over){
   summary:summary, verdictText:verdictText, resilientTB:resilientTB, isOffsite:isOffsite,
   isConnected:isConnected, speedOf:speedOf, pickUnlucky:pickUnlucky, lostIn:lostIn,
   diskUsed:diskUsed, paintAll:paintAll, runCmd:runCmd, cmdAudit:cmdAudit, cmdFailover:cmdFailover,
+  advisePlacement:advisePlacement, candidateFor:candidateFor, freeTB:freeTB, unitWarnings:unitWarnings,
+  independenceWarnings:independenceWarnings,
   fresh:function(){ S=fresh(); save(); paintAll(); } };
 })();
 </script>

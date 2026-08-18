@@ -31,6 +31,17 @@
   19/11/5+6 TB, unlucky ordering, rigged fire+ransom drills incl. deception, terminal
   commands, LED classes g,a,b,r, persistence) + boot probe post-deploy + screenshot.
 
+- 2026-08-18 v1.1: **3-2-1 placement advisor** (advise --placement card), per two chat
+  requests. Per active data type, three "seats": LOCAL (fast restore, second media),
+  OFFSITE (survives the building), OFFLINE (!isConnected — no cable for ransomware).
+  Each seat: ✓ covered-by (with never-test-restored flag) / → recommendation from REAL
+  mounted units with free capacity (candidateFor ranks healthy>aging, speed for local,
+  free space; failing NEVER recommended) with one-click assign / ✗ gap with concrete
+  mount advice. Unit warnings: aging, single-region cloud, cold latency, desk-connected.
+  **Independence warnings** (⛓ red rows): all-copies-same-roof, all-copies-connected
+  (ransomware sweeps the set), same-provider clouds. 16/16 advisor probe + 32/32
+  regression + screenshot; label-clear papercut from v1.0 screenshot also fixed.
+
 ## issues
 - Corruption odds re-roll if you unassign+reassign a type — acceptable (it's a new copy).
 - Terminal output uses innerHTML with fixed strings; user input echoed via runCmd is
