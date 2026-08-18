@@ -1,0 +1,20 @@
+# Shelf Life — 3D pantry & fridge inventory prototype
+
+## log
+- 2026-08-18: v1 per chat request. Mobile-first single file, zero network at runtime (fonts/OG only).
+  - **3D units**: CSS perspective box (back wall + rotateY side + frame), fridge = steel/mint w/ interior glow, pantry = wood; 3 shelves each (rotateX'd surface + lip), items as emoji tiles popped translateZ(1.6rem) with expiry dot, qty badge, name plate.
+  - **Drag between shelf zones**: pointer events + fixed-position ghost; unit tabs are drop targets for cross-unit moves (elementFromPoint); shelf resolution is BAND-BASED (pointer Y over the box divided in 3) because projected 3D shelves overlap in screen space — elementFromPoint at a shelf's rect center genuinely hit the wrong plane in testing. Tap-without-move opens the detail sheet.
+  - **Cataloguing**: 30-item CATALOG (name/emoji/default home/typical shelf-life days); quick-pick fills name+emoji+unit+auto expiry (today+typical, editable); free-text items fine. Detail sheet: qty stepper, expiry edit, eaten/toss (tracked), move-unit.
+  - **Expiry nudges**: state fresh/soon(≤3d)/dead; aria-live nudge strip prioritizes expired (names) then eat-soon (with day counts); dots on tiles; detail sheet notes ("expires today — tonight is its night").
+  - **Meal brain (local)**: 14 RECIPES w/ needs+plus keys; suggest() pure fn — full matches "ready now (with your X & Y)", missing-one "just missing X", and expiring-item boost ("uses your milk before it turns") ranked to the top. No network, fully testable.
+  - Suite sl-probe 23/23 incl. REAL pointer-event drag through the 3D transform, probe-vs-projection lesson, computed-visibility guard.
+  - Design-review catches: (1) empty-state overlay showed over stocked shelves — author display:flex beat UA [hidden]; fixed with [hidden]{display:none !important} + a computed-style suite check (repeat offender — lesson bank). (2) probe qty check assumed qty 1 — fixed to assert delta (count-from-data lesson, again).
+
+## issues
+- Drag drop resolution is band-based by design (projected 3D shelves overlap; exact plane hits mislead) — if shelf count changes, bands auto-follow SHELVES.
+- Emoji render as tofu in headless probes only.
+
+## todos
+- Shopping-list generation from missing recipe ingredients
+- Waste stats page (eaten vs tossed over time)
+- Barcode-ish quick re-add of recently removed items
