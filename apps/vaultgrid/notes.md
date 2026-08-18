@@ -1,0 +1,40 @@
+# VaultGrid — notes
+
+## log
+- 2026-08-18 v1.0 (shipped as one pass, chat steered live across 10 messages):
+  backup inventory & disaster terminal, simulator sibling of backup-rack. NOTE: chat
+  referenced "the established plan" — no prior VaultGrid plan existed; built from the
+  live directives + backup-rack lineage, said so honestly.
+  **Inventory core** (prioritized per chat): dropdown-driven add-unit form — kind
+  SSD/HDD/cloud; capacity TB (validated 0.05–1000); interface NVMe/SATA/USB3/TB (disk)
+  or provider/latency-tier/redundancy (cloud); health healthy/aging/failing; location
+  desk/shelf/office/relative. Editable (edit loads form, save re-mounts, shrink blocked
+  below used capacity), removable, persisted (localStorage vaultgrid-v2). Label field
+  clears after mount (screenshot-found papercut).
+  **Derived facts**: speedOf by kind+iface/latency; isOffsite (office/relative/cloud);
+  isConnected (desk, or cloud low-latency sync — ransomware surface); resilientTB
+  (failing ×0, aging ×0.5); per-unit simulated temps (base by kind/loc + load + sine).
+  **LED rack nav**: green/amber/red = health, blue = cloud, blink rates by severity,
+  click scrolls+flashes the unit panel; .fx fast-blink feedback from terminal commands.
+  **Summary**: raw vs usable-resilient TB (formula shown), on-site/offsite split,
+  3-2-1 per data type, untested count, plain-language verdict (good/mid/bad border)
+  built from sentence parts.
+  **Drills** (deceptive, health-aware): drivefail kills failing>aging>busiest;
+  fire = primary+on-site; ransomware = primary+connected; cloudgone. Untested copies
+  carry hidden corruption rolled at assignment by health (25/40/60%) — revealed only
+  in drills ("DECEPTION") or by test-restore (finds+re-copies).
+  **Terminal**: help/status/clear/drill <sc>/test-failover (per-type takeover paths +
+  longest path, coin-flip warnings on untested)/audit-backups (read-only findings sweep
+  + LED shaming). All commands stated as simulations.
+  Michroma + Martian Mono, phosphor-terminal scanlines. 32/32 end-to-end probe
+  (engine math, validation, edit, capacity refusal, 3-2-1, summary numbers hand-computed
+  19/11/5+6 TB, unlucky ordering, rigged fire+ransom drills incl. deception, terminal
+  commands, LED classes g,a,b,r, persistence) + boot probe post-deploy + screenshot.
+
+## issues
+- Corruption odds re-roll if you unassign+reassign a type — acceptable (it's a new copy).
+- Terminal output uses innerHTML with fixed strings; user input echoed via runCmd is
+  angle-bracket-escaped in the unknown-command line — keep that if editing.
+
+## todos
+- `drill all` chained scenario report; export grid as JSON like tnr-lab's evidence chain.
