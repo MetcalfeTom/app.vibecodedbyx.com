@@ -34,6 +34,23 @@
   22/22 probe (incl. table-vs-Kepler consistency within 2% and zero <a> tags in
   sources) + 24/24 lab regression + tall screenshot + boot probe after atomic deploy.
 
+- 2026-08-18 v1.2: **deep-review pass** (chat: Moon, realistic rotation timing, richer
+  options, cited controls). **Moon**: NSSDCA lunar elements (a=384,400 km, T=27.32 d
+  sidereal, e=0.055, rot=655.7 h = tidally locked, probe asserts day≈month), indented
+  table row after Earth, orrery ring around Earth's moving dot at dispR=16 (~40×
+  exaggerated — confessed in sources AND on-canvas), real 27.32-d rhythm (probe:
+  moonTheta/earthTheta = 365.25/27.32). What-if gains "Moon (of Earth)" with an ANCHOR
+  SWITCH: same Kepler law, units become Moon-distances/Earth-masses/sidereal months
+  ("same third law, different landlord"). **Rotation**: signed sidereal hours per planet,
+  rotation tick drawn on each dot, retrograde (Venus, Uranus) spins backwards + red tick
+  + ↺retro table flag; probe asserts Earth/Jupiter rot ratio = 23.9/9.9. **Richer
+  options**: 5-step time-warp select (1 h/s → 1.2 yr/s, labeled by what each reveals),
+  pause/resume, t=0 reset, labels toggle; canvas caption shows t (days under 0.2 yr),
+  warp, PAUSED. **Cited controls**: warp row carries "ratios stay locked to NSSDCA
+  sidereal values" tag; sources add ROTATION & MOON cite. 20/20 new probe + 24/24 lab
+  + 22/22 observatory regressions (two stale probe indices updated for the Moon row —
+  app logic verified correct by the new probe first) + tall screenshot + boot probe.
+
 ## issues
 - step() is externally drivable (internal clock only) — probes never touch rAF.
 - Escape detection needs r>2600 AND outbound AND ε>0; escaping sats take real minutes
