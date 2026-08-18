@@ -57,3 +57,9 @@
   - Uncertainty labels (likely/maybe/faint) persist through every state.
   - **REAL BUG caught by regressions**: the "missed:" typed-add path pushed {name, keep} without the new state field — typed items silently fell through the confirmed filter and never shipped. Fixed (state:'confirmed' on push).
   - Suites: wf-probe 15/15 NEW + 8 regressions updated-and-green (conf 12, region 8, photo 17, core 23, bold 15, gallery 7, cam 5, bands 6) = **108 checks**. Intentional updates: commit copy "confirmed", all-pending defaults.
+- 2026-08-18 (11): v1.9 — INACCURACY INSPECTION + TRANSPARENCY per chat.
+  - **Empirical bench first** (7 synthetic hard cases on the live guesser): wood table → carrot:likely+bread:likely+beans:maybe (!), terracotta mug → tomato:likely, skin/dim/white → nothing, orange fruit → carrot, green packaging → lettuce family.
+  - **Real accuracy bug found & fixed**: orange and brown hue tests OVERLAPPED (h 18–42, mid sat, l ≤.45) — the same dark-warm pixels voted in both families, so one table became three confident foods. Orange now requires l>.45 or sa>.6 (real carrot at (237,145,33) still reads carrot — asserted).
+  - **Transparency**: every guess carries its evidence `share`; badges read "✓ likely · 34%"; the fixer names "red (34% of the photo)". New ⚠ limitations panel states the MEASURED failures verbatim (table→bread, mug→tomato, no oranges in the catalogue, dim/white→nothing), owns "it will be wrong often", and lands the thesis: *the workflow is the accuracy*. Copy audited: zero perfect-recognition claims (scoped to main — the audit initially self-matched its own regex source in body; lesson re-banked).
+  - **Correction workflow**: "✕ dismiss all — that's not food" one-tap clears every photo guess (the table-photo case).
+  - Suites: bench 12/12 + 9 regressions green (15/12/8/17/23/15/7/5/6) = **120 checks**. Intentional update: region fixer label now carries the share.
