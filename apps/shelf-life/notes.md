@@ -18,3 +18,11 @@
 - Shopping-list generation from missing recipe ingredients
 - Waste stats page (eaten vs tossed over time)
 - Barcode-ish quick re-add of recently removed items
+- 2026-08-18 (2): BOLD PAIRING CHALLENGE per chat (two requests merged; second added "delayed explanations").
+  - Opt-in card under the meal panel: off by default with an invite; S.bold={enabled,allergies,skipped,done} migrated onto old saves, everything localStorage-only.
+  - 14 curated PAIRINGS (honey+cheese, garlic+honey, banana+cheese/cartola, eggs+soy, oats+tomato, lemon+pasta…) each with an honest food-logic why. Only pairings whose BOTH ingredients sit on your actual shelves are offered (reuses fuzzy have()).
+  - **Delayed explanation**: the why is hidden behind "why would this work? →" per pairing; re-hides when the card changes (dataset.revealed keyed by pairing id, not persisted).
+  - **Allergy warnings**: ALLERGENS map (dairy/egg/gluten/fish/soy) → chips on every card ("contains: dairy" / "none of the big five"); device-local allergy checkboxes FILTER matching pairings out entirely with a hidden-count note.
+  - **Skip controls**: skip → persists + advances; "bring skipped back" reset; "dared it ⚡" tallies a score ("coward's shelves" until first dare). Exhausted/empty states distinct.
+  - First-impression fix from screenshot review: default seed had ZERO valid pairings — added honey + lemon to seeds (unlocks 4 dares + enriches meal matches).
+  - Suites: bp-probe 15/15, core regression 23/23.
