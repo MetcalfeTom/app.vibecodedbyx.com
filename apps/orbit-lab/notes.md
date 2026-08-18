@@ -74,6 +74,18 @@
   green (24 lab + 20 v1.2 + 22 observatory = 91 checks) + screenshot of twins at
   7.6 doublings + boot probe after atomic deploy.
 
+- 2026-08-18 v1.4: **baseline-vs-mass-change overlay with perturbation vectors** (chat
+  request, regression tests explicitly demanded). perturbArrows() (pure, seam-exposed):
+  12 arrows on the selected planet's BASELINE ring showing the CHANGE in solar pull —
+  rose inward when ΔM☉>0, blue outward when <0, length 6+min(22,|ΔM|·18), none within
+  |ΔM|<0.01, none in Moon-anchor mode, none when overlay off. Baseline ring drawn solid
+  in planet color at α.55 under the existing mint what-if ghost; canvas legend states
+  ΔM☉ and arrow meaning; panel label explains solid/dashed/arrows + reversibility.
+  overlay:on/off toggle (aria-pressed, hides label), ↩ back-to-real clears everything.
+  10/10 overlay probe + ALL FOUR regression suites re-run green (24+20+22+25) = 101
+  checks on the file + screenshot (Earth at ΔM☉=+0.80: inward arrows, tighter mint lane,
+  T′×0.75/v′×1.34) + boot probe after atomic deploy.
+
 ## issues
 - step() is externally drivable (internal clock only) — probes never touch rAF.
 - Escape detection needs r>2600 AND outbound AND ε>0; escaping sats take real minutes
