@@ -40,3 +40,9 @@
   - **Preserving current data safely**: before every apply, the current notebook is stashed to 'loose-leaf-v1-backup' (itself an importable export) — an accidental import is always recoverable. Message says so.
   - Suites: data-probe 11/11 (roundtrip exactness, hostile-field cleaning incl. XSS-shaped text + junk keys + over-depth, three refusal paths, stash, collision repair, labelled UI) + all 5 regressions (11/18/20/22/7) = **89 checks**.
   - Patch lesson (again): the '/* ── tabs ── */' anchor died in the v2.0 rework — anchor-count ALL blocks before running a multi-block patch (a counting pre-pass beats a mid-script assert).
+- 2026-08-18 (11): v2.8 — RECURRING RITUALS per chat ("gentle streaks, rotating weather moods, tiny surprise notes"). Inspection first: zero recurrence existed (grep recur = 0).
+  - ↻ ritual toggle per goal (due row, opt-in, persisted). dayRoll(dateISO) at boot: completed rituals streak+1, missed reset QUIETLY to "fresh start — streaks regrow" (probe asserts no shame vocabulary), pages reset (done flags) with pomos/tallies kept, same-day rolls no-op.
+  - **Weather moods**: 7 skies (☀️🌤🌧🌫🌈❄🍃), hash-of-date deterministic, ≥3 distinct per week probed; each carries a mood rule ("rainy-day pace: half-speed counts double"). Ritual line on goal pages: weather · green streak · mood rule; contents rows wear ↻N markers.
+  - **Surprise notes**: hash(goal·date)%3 — deterministic occasional margin scribbles ("the moth approves") via dataMsg on ritual completion, no reward economy.
+  - cleanTask carries recur through validated import (streak coerced, lastReset date-checked, absent for non-recurring).
+  - Suites: rit-probe 15/15 + data 11, auto 11, ll5 18, ll3 20, ll4 22, chime 7 = **104 checks**. Patch used an anchor-count PRE-PASS (all 9 anchors verified before any replace — the lesson from the last two half-dead patches, now practice).
