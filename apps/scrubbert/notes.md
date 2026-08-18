@@ -17,3 +17,4 @@
 - Pan / whisk / ladle guest items every 10th wash
 - Sticker sheet page 2 with layout persistence
 - Tiny ambient sink-drip loop (optional, off by default)
+- 2026-08-18 (2): v1.1 — GENTLE DAMAGE-PREVIEW per chat, kept true to the no-fail contract. Every spatula now wears a seeded ♥ decal under the sauce (unbreakable BY CONSTRUCTION — drawn on the spatula, not in the erasable grime layer; no damage state exists in code, the suite asserts it). 🔍 care preview toggle overlays amber cells where sauce remains + a dashed ring labeling the delicate zone. Hurried strokes over the heart (7+ in 500ms) earn only a gentle word — "light touches ✋ (it forgives you)" — throttled 2.5s, Scrubbert squishes apologetically; an all-gentle wash appends "gentle hands over the little heart, too." to the praise. BUG caught by suite: the warn throttle initialized at 0 suppressed all warnings for the first 2.5s of page life — warnAt now starts at −99999. Suites: care 7/7, core 14/14.
