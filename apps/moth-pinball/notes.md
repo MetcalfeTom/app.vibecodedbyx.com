@@ -23,3 +23,9 @@
 
 ## todos
 - Slingshots + a spinner if chat wants a fuller table; tilt/nudge.
+
+## 2026-08-18 · launch lane trap fixed (chat report, repro-confirmed)
+- **The trap was total**: launch vy was −(860–920) from y=640, giving apexes of 167–195px — but the lane's inner wall tops out at y=120. The ball could NEVER leave the plunger lane; it just rose, fell back, and drained. The original 14-suite missed it because bumper/flipper tests teleported the ball into the table.
+- Fix, three parts: (1) launch vy now −(1020–1070) — √(2·880·530)≈966 is the bare minimum to clear, so every launch reaches the top; (2) new **top guide curve** segments [468,120→440,44]→[440,44→380,14] catch the rising ball and roll it left onto the table (also softens re-entry from above); (3) lane-exit flag now also flips when the ball crosses left of the wall, not only above y=110.
+- Verified: 3-launch reliability repro (exits true/true/true, apexes 36–38), full mp2 suite 14/14, screenshot of the ball mid-deflection off the guide.
+- Lesson (stream-wide): never let a probe teleport past the one path real players must travel — launch reliability needed its own no-teleport trial.
