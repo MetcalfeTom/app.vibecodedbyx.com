@@ -560,8 +560,12 @@ body.debug-locate #levelup-banner{opacity:.25; border:5px dashed #ff1a1a; paddin
 #bv-privacy{ max-width:32rem; margin:.5rem auto; padding:.7rem .9rem; border:2px solid #c8a24b; border-radius:.6rem;
   font-size:.82rem; line-height:1.6; background:rgba(200,162,75,.08); text-align:left; }
 #bv-privacy button{ margin-top:.4rem; min-height:2.75rem; }
-#bv-chip{ display:flex; gap:.6rem; align-items:center; justify-content:center; margin:.4rem auto; padding:.5rem .9rem;
-  max-width:22rem; border:2px solid #2e7d4f; border-radius:2rem; font-weight:700; background:rgba(46,125,79,.1); }
+#bv-chip{ display:flex; gap:.6rem; align-items:center; justify-content:center; flex-wrap:wrap; margin:.4rem auto; padding:.5rem .9rem;
+  max-width:26rem; border:2px solid #2e7d4f; border-radius:1.2rem; font-weight:700; background:rgba(46,125,79,.1); }
+#bv-ptt{ min-height:2.75rem; }
+#bv-ptt[data-live="1"]{ background:#c0392b; color:#fff; animation:sp-pulse 1.2s ease-in-out infinite; }
+#bv-skip{ min-height:2.75rem; font-size:.7rem; }
+@media (prefers-reduced-motion: reduce){ #bv-ptt[data-live="1"]{ animation:none; } }
 #bv-chip[hidden]{ display:none !important; }
 #bv-privacy[hidden]{ display:none !important; }
 #bv-chip.heard{ animation:bv-burst .6s ease; border-color:#e8b94d; background:rgba(232,185,77,.2); }
@@ -704,10 +708,13 @@ body.debug-locate #levelup-banner{opacity:.25; border:5px dashed #ff1a1a; paddin
       <span id="bv-streak" hidden>🔥 voice streak ×<b id="bv-n">0</b> · best <b id="bv-best">0</b></span>
     </div>
     <div id="bv-privacy" hidden>
-      <p><b>Battle voice check:</b> a live level meter listens for <b>that you spoke</b> — nothing is stored or sent anywhere, ever. If you also switch on <b>replay</b>, your take is held in this tab's memory just long enough for you to hear it, then deleted when you continue (or sooner, with the delete button). It can't judge <i>how well</i> you said it (that skill is yours); it rewards saying words out loud, which is how mouths learn. The mic stays open only while this toggle is on and only in battle.</p>
+      <p><b>Battle voice check — strictly push-to-talk:</b> the microphone opens <b>only between your explicit start and stop presses</b> — never automatically, never between rounds, never while a card is just sitting there. A live level meter listens for <b>that you spoke</b>; nothing is stored or sent anywhere, ever. If you also switch on <b>replay</b>, your take is held in this tab's memory just long enough for you to hear it, then deleted when you continue (or sooner, with the delete button). It can't judge <i>how well</i> you said it (that skill is yours); it rewards saying words out loud, which is how mouths learn. The mic stays open only while this toggle is on and only in battle.</p>
       <button type="button" id="bv-ack">I understand — enable voice check</button>
     </div>
-    <div id="bv-chip" hidden role="status" aria-live="polite"><span id="bv-chip-word"></span><i id="bv-meter"></i></div>
+    <div id="bv-chip" hidden role="status" aria-live="polite"><span id="bv-chip-word"></span><i id="bv-meter"></i>
+      <button type="button" id="bv-ptt">🎙 start speaking</button>
+      <button type="button" id="bv-skip">⏭ skip</button>
+    </div>
     <div id="bv-replay" hidden role="group" aria-label="Your recording — private replay before continuing">
       <span>🎧 your take, for your ears only:</span>
       <button type="button" id="bv-play">▶ listen</button>
@@ -3798,6 +3805,7 @@ $('sp-ack').addEventListener('click',function(){
 var BV={ on:false, unavail:false, stream:null, ac:null, an:null, buf:null,
          streak:0, open:false, voicedMs:0, elapsed:0, doneCb:null, raf:null,
          replayOn:false, rec:null, chunks:[], takeBlob:null, takeUrl:null,
+         listening:false, idleT:null, capT:null,
          acked:(function(){ try{ return localStorage.getItem('parla-voice-ack')==='1'; }catch(e){ return false; } })(),
          _rmsOverride:null, _gumOverride:null };
 var BV_WINDOW=3200, BV_NEED=250, BV_THR=0.025;
@@ -3825,30 +3833,24 @@ function bvStopStream(){
 function bvEnable(){
   if(!BV.acked){ $('bv-privacy').hidden=false; return; }
   $('bv-privacy').hidden=true;
-  var gum=BV._gumOverride||(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices));
-  if(!gum || typeof AudioContext==='undefined' && typeof webkitAudioContext==='undefined'){ bvSetUnavailable(); return; }
-  gum({ audio:true }).then(function(stream){
-    BV.stream=stream;
-    try{
-      if(!BV._rmsOverride){
-        BV.ac=new (window.AudioContext||window.webkitAudioContext)();
-        var src=BV.ac.createMediaStreamSource(stream);
-        BV.an=BV.ac.createAnalyser(); BV.an.fftSize=512;
-        BV.buf=new Uint8Array(BV.an.fftSize);
-        src.connect(BV.an);
-      }
-    }catch(e){ bvSetUnavailable(); return; }
-    BV.on=true; BV.unavail=false;
-    $('bt-voice').setAttribute('aria-pressed','true');
-    $('bt-voice').removeAttribute('data-unavail');
-    $('bt-voice').textContent='🎤 voice: on';
-    $('bt-replay').hidden=false;
-    bvPaintStreak();
-    announce('voice check on — after a correct answer, say the word aloud');
-  }).catch(function(){ bvSetUnavailable(); });
+  /* v13.13: ARMING ONLY — no mic is touched here. Strict push-to-talk means the
+     stream exists solely between the user's explicit start and stop presses. */
+  var gumExists=BV._gumOverride||(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+  if(!gumExists){ bvSetUnavailable(); return; }
+  BV.on=true; BV.unavail=false;
+  $('bt-voice').setAttribute('aria-pressed','true');
+  $('bt-voice').removeAttribute('data-unavail');
+  $('bt-voice').textContent='🎤 voice: armed';
+  $('bt-replay').hidden=false;
+  bvPaintStreak();
+  announce('voice check armed — after a correct answer, press start speaking; the mic opens only between your start and stop');
 }
 function bvDisable(){
   BV.on=false;
+  BV.listening=false;
+  if(BV.idleT){ clearTimeout(BV.idleT); BV.idleT=null; }
+  if(BV.capT){ clearTimeout(BV.capT); BV.capT=null; }
+  $('bv-chip').hidden=true; BV.open=false;
   BV.replayOn=false;
   $('bt-replay').hidden=true;
   $('bt-replay').setAttribute('aria-pressed','false');
@@ -3870,16 +3872,17 @@ function bvRMS(){
   return Math.sqrt(sum/BV.buf.length);
 }
 function bvTick(dt){
-  if(!BV.open) return;
+  if(!BV.listening) return;
   BV.elapsed+=dt;
   var rms=bvRMS();
   if(rms>BV_THR) BV.voicedMs+=dt;
   $('bv-meter').style.setProperty('--lv', Math.min(1, rms*8));
-  if(BV.voicedMs>=BV_NEED){ bvResolve(true); }
-  else if(BV.elapsed>=BV_WINDOW){ bvResolve(false); }
+  /* v13.13: no auto-resolve on voiced — the user's STOP press is the judge's gavel.
+     (The 6s cap is a safety net, not a listener.) */
 }
 function bvResolve(heard){
-  BV.open=false;
+  BV.open=false; BV.listening=false;
+  if(BV.idleT){ clearTimeout(BV.idleT); BV.idleT=null; }
   if(BV.raf){ cancelAnimationFrame(BV.raf); BV.raf=null; }
   var wantReplay=false;
   if(BV.rec){
@@ -3913,9 +3916,9 @@ function bvResolve(heard){
     }
     announce('spoken aloud — voice streak '+BV.streak+(mile?' — milestone!':''));
   }else{
-    if(BV.streak>0) announce('the window passed quietly — voice streak rests at zero');
+    if(BV.streak>0) announce('the mic heard silence between your start and stop — voice streak rests at zero');
     BV.streak=0;
-    $('bv-chip-word').textContent='…the window passed — next time, out loud!';
+    $('bv-chip-word').textContent='…heard nothing between start and stop — next time, out loud!';
   }
   bvPaintStreak();
   setTimeout(function(){ chip.hidden=true; chip.classList.remove('heard'); },900);
@@ -3935,29 +3938,79 @@ function bvClearTake(){
   $('bv-replay').hidden=true;
 }
 function bvSayWindow(word, done){
-  BV.open=true; BV.voicedMs=0; BV.elapsed=0; BV.doneCb=done;
+  BV.open=true; BV.voicedMs=0; BV.elapsed=0; BV.doneCb=done; BV.listening=false;
   bvClearTake();
-  if(BV.replayOn && BV.stream && typeof MediaRecorder!=='undefined'){
-    try{
-      BV.chunks=[];
-      BV.rec=new MediaRecorder(BV.stream);
-      BV.rec.ondataavailable=function(ev){ if(ev.data&&ev.data.size) BV.chunks.push(ev.data); };
-      BV.rec.start();
-    }catch(e){ BV.rec=null; }
-  }
   var chip=$('bv-chip');
   chip.hidden=false; chip.classList.remove('heard');
-  $('bv-chip-word').textContent='🎤 say it aloud: '+word;
+  $('bv-chip-word').textContent='say it aloud: '+word;
   $('bv-meter').style.setProperty('--lv',0);
-  if(!BV._rmsOverride){
-    var lastT=null;
-    (function loop(t){
-      if(!BV.open) return;
-      if(lastT!==null) bvTick(t-lastT);
-      lastT=t;
-      BV.raf=requestAnimationFrame(loop);
-    })(performance.now());
-  }
+  $('bv-ptt').textContent='🎙 start speaking';
+  $('bv-ptt').removeAttribute('data-live');
+  $('bv-ptt').disabled=false; $('bv-skip').disabled=false;
+  /* idle window: if ignored, dismiss NEUTRALLY (no listening ever happened) */
+  if(BV.idleT) clearTimeout(BV.idleT);
+  BV.idleT=setTimeout(function(){
+    if(BV.open && !BV.listening) bvSkip(true);
+  }, 10000);
+}
+function pttStart(){
+  if(!BV.open || BV.listening) return;
+  if(BV.idleT){ clearTimeout(BV.idleT); BV.idleT=null; }
+  var gum=BV._gumOverride||(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices));
+  if(!gum){ bvSetUnavailable(); bvSkip(true); return; }
+  gum({ audio:true }).then(function(stream){
+    if(!BV.open){ try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} return; }
+    BV.stream=stream; BV.listening=true; BV.voicedMs=0; BV.elapsed=0;
+    try{
+      if(!BV._rmsOverride){
+        BV.ac=new (window.AudioContext||window.webkitAudioContext)();
+        var src=BV.ac.createMediaStreamSource(stream);
+        BV.an=BV.ac.createAnalyser(); BV.an.fftSize=512;
+        BV.buf=new Uint8Array(BV.an.fftSize);
+        src.connect(BV.an);
+      }
+      if(BV.replayOn && typeof MediaRecorder!=='undefined'){
+        BV.chunks=[];
+        BV.rec=new MediaRecorder(stream);
+        BV.rec.ondataavailable=function(ev){ if(ev.data&&ev.data.size) BV.chunks.push(ev.data); };
+        BV.rec.start();
+      }
+    }catch(e){}
+    $('bv-ptt').textContent='■ stop & judge';
+    $('bv-ptt').setAttribute('data-live','1');
+    announce('microphone open — speak, then press stop');
+    if(!BV._rmsOverride){
+      var lastT=null;
+      (function loop(t){
+        if(!BV.listening) return;
+        if(lastT!==null) bvTick(t-lastT);
+        lastT=t;
+        BV.raf=requestAnimationFrame(loop);
+      })(performance.now());
+    }
+    if(BV.capT) clearTimeout(BV.capT);
+    BV.capT=setTimeout(function(){ if(BV.listening) pttStop(); }, 6000);   /* safety cap */
+  }).catch(function(){ bvSetUnavailable(); bvSkip(true); });
+}
+function pttStop(){
+  if(!BV.listening) return;
+  BV.listening=false;
+  if(BV.capT){ clearTimeout(BV.capT); BV.capT=null; }
+  if(BV.raf){ cancelAnimationFrame(BV.raf); BV.raf=null; }
+  var heard=BV.voicedMs>=BV_NEED;
+  bvResolve(heard);                        /* resolve stops recorder + shows result */
+  bvStopStream();                          /* mic dies with the press, always */
+  announce('microphone released');
+}
+function bvSkip(auto){
+  if(!BV.open) return;
+  BV.open=false; BV.listening=false;
+  if(BV.idleT){ clearTimeout(BV.idleT); BV.idleT=null; }
+  bvStopStream();
+  $('bv-chip').hidden=true;
+  if(!auto) announce('skipped — streak untouched');
+  var cb=BV.doneCb; BV.doneCb=null;
+  if(cb) cb();
 }
 $('bt-voice').addEventListener('click', function(){
   if(BV.unavail) return;
@@ -3985,6 +4038,10 @@ $('bv-ack').addEventListener('click', function(){
   try{ localStorage.setItem('parla-voice-ack','1'); }catch(e){}
   bvEnable();
 });
+$('bv-ptt').addEventListener('click', function(){
+  if(BV.listening) pttStop(); else pttStart();
+});
+$('bv-skip').addEventListener('click', function(){ bvSkip(false); });
 
 setMode('cards');
 try{ if(localStorage.getItem('parla-immersive')==='on'){ if(!immersiveEnter(lang,true)) localStorage.setItem('parla-immersive','off'); } }catch(e){}
@@ -4003,6 +4060,7 @@ window.__vc={ version:'v13.0', words:WORDS, langs:LANGS,
   get SP(){ return SP; }, spNextIdx:spNextIdx, spRate:spRate, spStore:spStore, spDeal:spDeal,
   get BV(){ return BV; }, bvEnable:bvEnable, bvDisable:bvDisable, bvSayWindow:bvSayWindow,
   bvContinueAfterReplay:bvContinueAfterReplay, bvClearTake:bvClearTake,
+  pttStart:pttStart, pttStop:pttStop, bvSkip:bvSkip,
   bvTick:bvTick, bvResolve:bvResolve, bvSetUnavailable:bvSetUnavailable,
   spRecord:spRecord, spSetTrack:spSetTrack, spAnswer:spAnswer, spLeave:spLeave, spModelText:spModelText,
   ttsVoices:function(){ return TTS_VOICE; }, relistVoices:pickVoices,

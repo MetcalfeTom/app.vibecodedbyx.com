@@ -1,6 +1,19 @@
 # parla · notes
 
 ## log
+- 2026-08-18 v13.13.0: **strict push-to-talk** (chat's direct order: explicit start/
+  stop, never auto-record or auto-listen). CONTRACT CHANGE from v13.11–12: enabling the
+  toggle now only ARMS ("voice: armed") — zero mic access on enable (probe counts gum
+  calls === 0); the say-chip opens DEAF with 🎙 start-speaking + ⏭ skip buttons; the
+  stream/analyser/recorder exist solely between the user's start press and stop press
+  (6s safety cap, mic released the instant of stop); voiced audio no longer auto-
+  resolves — "the user's STOP press is the judge's gavel"; ignoring the chip for 10s
+  auto-skips NEUTRALLY (no mic ever opened, streak untouched — skipping ≠ failing;
+  an explicit silent session still resets). Replay recorder rides only the session.
+  Privacy card leads with "strictly push-to-talk… never automatically, never between
+  rounds". Disable/leave aborts any open chip + session. 13/13 new-contract probe
+  (gum-call counting is the load-bearing check) + 14/14 studio regression; the old
+  v13.11/12 voice suites are superseded by design (they TESTED auto-listen).
 - 2026-08-18 v13.12.0: **battle replay** (chat: hear your recording privately before
   continuing, clear delete controls). OPT-IN 🔁 toggle beside the voice toggle (appears
   only when voice is on; DEFAULT OFF so the no-recording promise stays literally true
