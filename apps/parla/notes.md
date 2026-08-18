@@ -1,6 +1,17 @@
 # parla · notes
 
 ## log
+- 2026-08-18 v13.13.1: **replay-lifecycle inspection** (chat: find the first-word-only
+  bug, fix only CONFIRMED issues). Reproduce-first verdict: the reported first-word-only
+  symptom did NOT reproduce — a 3-session async-timing repro (fake MediaRecorder with
+  onstop on later tasks, like real Chrome) showed bar/blob/deferral/delete/cleanup
+  clean on words 1, 2 AND 3, streak 3. What inspection DID confirm (delayed-gum repro):
+  double-pressing 🎙 during the permission gap fired getUserMedia TWICE and leaked the
+  first live stream past session stop — a real PTT-privacy violation. Fixed minimally
+  with BV.pending guard (one press, one acquisition; cleared on resolve/reject).
+  Post-fix: leak repro shows single acquisition + zero leaks; 13/13 PTT contract +
+  3-session replay both green. If chat still sees first-word-only in the wild, need
+  the exact steps — the happy path is provably clean under async timing.
 - 2026-08-18 v13.13.0: **strict push-to-talk** (chat's direct order: explicit start/
   stop, never auto-record or auto-listen). CONTRACT CHANGE from v13.11–12: enabling the
   toggle now only ARMS ("voice: armed") — zero mic access on enable (probe counts gum
