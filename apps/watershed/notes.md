@@ -36,6 +36,17 @@
   pixel terrain ramp, colFlow tracking, cue show/expire/storm, running highlight)
   + screenshot review + boot probe after atomic deploy.
 
+- 2026-08-18 v1.2: **four teaching upgrades** (from my audit, chat ordered all four).
+  A) HYETOGRAPH: rain bars hang from the hydrograph top (textbook convention), 38px
+  band with divider, Q-line remapped below; pixel-probed blue-dominant bar over a storm
+  day. B) WATER-BUDGET BAR: stacked soaked/→GW/evaporated/runoff scaled to their sum
+  (honest caption: ET draws on stored moisture → budget of flows), title tooltips,
+  inline % labels ≥14% width; required tracking S.lastPerc (percolation) — additive
+  only, hydrology untouched. C) GROUNDWATER GAUGE: 0–60k fill + "feeding the river
+  N/day as baseflow →" line. D) COLORBLIND LETTERS: toggle overlays F/W/A/C/B per tile
+  (fillText-count probed: +288 calls when on). 10/10 probe + 19/19 hydrology + 7/7
+  visuals regressions + screenshot + boot probe after atomic deploy.
+
 ## issues
 - **THE modeling lesson**: daily hard-capped infiltration (mm/day) made all land types
   converge under big storms (forest peak 13.6k vs city 17.5k — only 1.3×) because any
