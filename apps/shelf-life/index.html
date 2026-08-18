@@ -66,6 +66,119 @@ $('bp-reveal').addEventListener('click', function(){
   renderBold();
 });
 
+/* ── local photo guesser: hue-bucket voting over downscaled pixels (pure fn) ── */
+var HUE_GUESSES=[
+  { name:'red', test:function(h,sa,l){ return (h<18||h>=345)&&sa>.32&&l>.18&&l<.72; }, items:['tomato','berries'] },
+  { name:'orange', test:function(h,sa,l){ return h>=18&&h<42&&sa>.38&&l>.25&&l<.7; }, items:['carrot'] },
+  { name:'yellow', test:function(h,sa,l){ return h>=42&&h<70&&sa>.35&&l>.3; }, items:['banana','lemon'] },
+  { name:'green', test:function(h,sa,l){ return h>=70&&h<170&&sa>.22&&l>.12&&l<.75; }, items:['lettuce','cucumber','peas'] },
+  { name:'brown', test:function(h,sa,l){ return h>=18&&h<50&&sa>.18&&sa<=.55&&l>=.15&&l<=.45; }, items:['bread','beans'] },
+  { name:'white', test:function(h,sa,l){ return sa<.14&&l>.72; }, items:['milk','eggs','rice'] }
+];
+function guessIngredients(pixels, w, h){
+  var votes={};
+  for(var i=0;i<w*h*4;i+=4){
+    var r=pixels[i]/255, g=pixels[i+1]/255, b=pixels[i+2]/255;
+    var mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2;
+    var sa=mx===mn?0:(mx-mn)/(1-Math.abs(2*l-1));
+    var hue=0;
+    if(mx!==mn){
+      if(mx===r) hue=60*(((g-b)/(mx-mn))%6);
+      else if(mx===g) hue=60*(((b-r)/(mx-mn))+2);
+      else hue=60*(((r-g)/(mx-mn))+4);
+      if(hue<0) hue+=360;
+    }
+    HUE_GUESSES.forEach(function(hg){ if(hg.test(hue,sa,l)) votes[hg.name]=(votes[hg.name]||0)+1; });
+  }
+  var ranked=Object.keys(votes).filter(function(k){ return votes[k]>w*h*0.04; })
+    .sort(function(a,b){ return votes[b]-votes[a]; });
+  var out=[];
+  ranked.forEach(function(fam){
+    HUE_GUESSES.forEach(function(hg){
+      if(hg.name===fam) hg.items.forEach(function(it){ if(out.length<6 && out.indexOf(it)===-1) out.push(it); });
+    });
+  });
+  return out;
+}
+
+/* ── photo sheet flow: guesses stay EDITABLE until committed ── */
+var GUESSES=[];
+function openPhoto(){
+  $('photowrap').hidden=false;
+  GUESSES=[]; renderGuesses();
+  $('photopreview').hidden=true;
+  $('guesslabel').hidden=true; $('guessaddrow').hidden=true;
+  var dl=$('cataloglist');
+  if(!dl.childNodes.length) CATALOG.forEach(function(c){ var o=document.createElement('option'); o.value=c[0]; dl.appendChild(o); });
+  $('phototake').focus();
+}
+function closePhoto(){ $('photowrap').hidden=true; }
+function setGuesses(names){
+  GUESSES=names.map(function(n){ return { name:n, keep:true }; });
+  $('guesslabel').hidden=false; $('guessaddrow').hidden=false;
+  renderGuesses();
+}
+function renderGuesses(){
+  var g=$('guesschips'); g.textContent='';
+  GUESSES.forEach(function(gu,ix){
+    var b=document.createElement('button');
+    b.type='button';
+    b.setAttribute('aria-pressed', String(gu.keep));
+    var cat=null;
+    for(var i=0;i<CATALOG.length;i++) if(CATALOG[i][0]===gu.name) cat=CATALOG[i];
+    b.textContent=(cat?cat[1]+' ':'')+gu.name;
+    b.setAttribute('aria-label', (gu.keep?'Keep ':'Discarded: ')+gu.name+'. Activate to toggle.');
+    b.addEventListener('click', function(){ gu.keep=!gu.keep; renderGuesses(); });
+    g.appendChild(b);
+  });
+  var kept=GUESSES.filter(function(x){ return x.keep; }).length;
+  var pc=$('photocommit');
+  pc.hidden=GUESSES.length===0;
+  pc.textContent='put '+kept+' item'+(kept===1?'':'s')+' on shelves';
+  pc.disabled=kept===0;
+}
+$('photobtn').addEventListener('click', function(){ closeSheet(); openPhoto(); });
+$('phototake').addEventListener('click', function(){ $('photoinput').click(); });
+$('photoinput').addEventListener('change', function(){
+  var f=$('photoinput').files && $('photoinput').files[0];
+  if(!f) return;
+  var img=new Image();
+  var url=URL.createObjectURL(f);
+  img.onload=function(){
+    var cv=$('photopreview'), cx2=cv.getContext('2d');
+    cv.hidden=false;
+    cx2.drawImage(img,0,0,96,96);
+    URL.revokeObjectURL(url);
+    var data=cx2.getImageData(0,0,96,96).data;
+    var names=guessIngredients(data,96,96);
+    setGuesses(names);
+    if(!names.length) $('guesslabel').hidden=false, $('guessaddrow').hidden=false,
+      $('guesslabel').textContent='couldn\'t make out colors — add things by hand below:';
+  };
+  img.src=url;
+});
+$('guessaddbtn').addEventListener('click', function(){
+  var v=$('guessadd').value.trim().toLowerCase();
+  if(!v) return;
+  if(!GUESSES.some(function(g){ return g.name===v; })) GUESSES.push({ name:v, keep:true });
+  $('guessadd').value='';
+  $('guesslabel').hidden=false; $('guessaddrow').hidden=false;
+  renderGuesses();
+});
+$('guessadd').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); $('guessaddbtn').click(); } });
+$('photocommit').addEventListener('click', function(){
+  var t=todayISO();
+  GUESSES.filter(function(g){ return g.keep; }).forEach(function(g){
+    var cat=null;
+    for(var i=0;i<CATALOG.length;i++) if(CATALOG[i][0]===g.name) cat=CATALOG[i];
+    addItem({ name:g.name, emoji:cat?cat[1]:'🍽', unit:cat?cat[2]:'pantry', shelf:1,
+      qty:1, expiry:cat? addDays(t,cat[3]) : null });
+  });
+  closePhoto();
+});
+$('photocancel').addEventListener('click', closePhoto);
+$('photowrap').addEventListener('click', function(e){ if(e.target===$('photowrap')) closePhoto(); });
+
 /* ── unit tabs ── */
 #units{ display:flex; gap:.5rem; }
 #units button{
@@ -249,6 +362,43 @@ $('bp-reveal').addEventListener('click', function(){
 #sv-cancel{ background:transparent; color:var(--ink2); border:2px solid #d8c9ae; }
 #sheet .actions button:focus-visible{ outline:3px solid var(--ink); outline-offset:2px; }
 #lifehint{ font-size:.78rem; color:var(--ink2); margin:.2rem 0 0; }
+/* ── photo capture sheet ── */
+#photowrap[hidden]{ display:none !important; }
+#photowrap{ position:fixed; inset:0; z-index:45; background:rgba(30,24,16,.5); display:flex; align-items:flex-end; justify-content:center; }
+#photosheet{
+  background:var(--cream); width:100%; max-width:30rem; border-radius:1.1rem 1.1rem 0 0;
+  padding:1rem 1rem 1.3rem; max-height:85vh; overflow-y:auto;
+}
+#photosheet h2{ font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:1.15rem; margin:0 0 .4rem; }
+.photonote{ font-size:.8rem; color:var(--ink2); line-height:1.45; margin:0 0 .6rem; }
+#photobtn{
+  width:100%; font-family:'Short Stack',cursive; font-size:.88rem; color:var(--accent);
+  background:var(--mint); border:2px dashed var(--accent); border-radius:.6rem;
+  min-height:2.75rem; padding:.4rem .6rem; cursor:pointer; margin:0 0 .7rem;
+}
+#photobtn:focus-visible{ outline:3px solid var(--ink); outline-offset:2px; }
+#phototake{
+  width:100%; font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:1rem;
+  background:var(--accent); color:var(--cream); border:none; border-radius:.7rem;
+  min-height:2.9rem; cursor:pointer; margin:0 0 .6rem;
+}
+#phototake:focus-visible{ outline:3px solid var(--ink); outline-offset:2px; }
+#photopreview{ border-radius:.6rem; border:2px solid #d8c9ae; margin:0 0 .5rem; width:6rem; height:6rem; object-fit:cover; }
+#photopreview[hidden]{ display:none !important; }
+#guesslabel{ font-size:.85rem; color:var(--ink2); margin:.1rem 0 .35rem; }
+#guesslabel[hidden], #guessaddrow[hidden], #photocommit[hidden]{ display:none !important; }
+#guesschips{ display:flex; flex-wrap:wrap; gap:.4rem; margin:0 0 .5rem; }
+#guesschips button{
+  font-family:'Short Stack',cursive; font-size:.85rem; min-height:2.75rem;
+  border-radius:.6rem; padding:.3rem .6rem; cursor:pointer;
+  background:var(--mint); border:2px solid var(--accent); color:var(--ink);
+}
+#guesschips button[aria-pressed="false"]{ background:#f1e8d6; border-color:#d8c9ae; color:var(--ink2); text-decoration:line-through; }
+#guesschips button:focus-visible{ outline:3px solid var(--ink); outline-offset:1px; }
+#photosheet .actions button{ flex:1; font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:1rem; min-height:2.9rem; border-radius:.7rem; cursor:pointer; }
+#photocancel{ background:transparent; color:var(--ink2); border:2px solid #d8c9ae; }
+#photocommit{ background:var(--fresh); color:var(--cream); border:none; }
+#guessaddbtn{ min-height:2.75rem; min-width:3.5rem; border-radius:.6rem; border:2px solid var(--accent); background:transparent; color:var(--accent); font-family:'Bricolage Grotesque',sans-serif; font-weight:800; cursor:pointer; }
 /* ── item detail sheet ── */
 #detail .dname{ font-size:1.3rem; }
 #detail .qtyrow button{
@@ -333,6 +483,7 @@ footer{ font-size:.72rem; color:var(--ink2); text-align:center; line-height:1.7;
 <div id="sheetwrap" hidden>
   <div id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheettitle">
     <h2 id="sheettitle">stock an item</h2>
+    <button type="button" id="photobtn">📷 or snap your groceries — guesses stay editable</button>
     <div id="catgrid" aria-label="Common items"></div>
     <div class="row">
       <label for="f-name">name</label>
@@ -357,6 +508,27 @@ footer{ font-size:.72rem; color:var(--ink2); text-align:center; line-height:1.7;
   </div>
 </div>
 
+<div id="photowrap" hidden>
+  <div id="photosheet" role="dialog" aria-modal="true" aria-labelledby="phototitle">
+    <h2 id="phototitle">📷 snap your groceries</h2>
+    <p class="photonote">the photo <strong>never leaves your device</strong> — the guesses are local color guesswork, not cloud vision. that's why you get to fix them before anything lands on a shelf.</p>
+    <input type="file" id="photoinput" accept="image/*" capture="environment" class="visually-hidden" aria-label="Take or choose a photo">
+    <button type="button" id="phototake">take / choose a photo</button>
+    <canvas id="photopreview" width="96" height="96" hidden aria-hidden="true"></canvas>
+    <p id="guesslabel" hidden>my guesses — tap to keep or discard, then fix what I missed:</p>
+    <div id="guesschips"></div>
+    <div class="row" id="guessaddrow" hidden>
+      <label for="guessadd">missed:</label>
+      <input id="guessadd" type="text" maxlength="40" list="cataloglist" placeholder="add what I couldn't see…">
+      <datalist id="cataloglist"></datalist>
+      <button type="button" id="guessaddbtn">add</button>
+    </div>
+    <div class="actions">
+      <button type="button" id="photocancel">cancel</button>
+      <button type="button" id="photocommit" hidden>put 0 items on shelves</button>
+    </div>
+  </div>
+</div>
 <div id="detailwrap" hidden>
   <div id="detail" class="" role="dialog" aria-modal="true" aria-labelledby="d-name">
     <h2 id="d-name" class="dname"></h2>
@@ -793,6 +965,119 @@ $('bp-reveal').addEventListener('click', function(){
   renderBold();
 });
 
+/* ── local photo guesser: hue-bucket voting over downscaled pixels (pure fn) ── */
+var HUE_GUESSES=[
+  { name:'red', test:function(h,sa,l){ return (h<18||h>=345)&&sa>.32&&l>.18&&l<.72; }, items:['tomato','berries'] },
+  { name:'orange', test:function(h,sa,l){ return h>=18&&h<42&&sa>.38&&l>.25&&l<.7; }, items:['carrot'] },
+  { name:'yellow', test:function(h,sa,l){ return h>=42&&h<70&&sa>.35&&l>.3; }, items:['banana','lemon'] },
+  { name:'green', test:function(h,sa,l){ return h>=70&&h<170&&sa>.22&&l>.12&&l<.75; }, items:['lettuce','cucumber','peas'] },
+  { name:'brown', test:function(h,sa,l){ return h>=18&&h<50&&sa>.18&&sa<=.55&&l>=.15&&l<=.45; }, items:['bread','beans'] },
+  { name:'white', test:function(h,sa,l){ return sa<.14&&l>.72; }, items:['milk','eggs','rice'] }
+];
+function guessIngredients(pixels, w, h){
+  var votes={};
+  for(var i=0;i<w*h*4;i+=4){
+    var r=pixels[i]/255, g=pixels[i+1]/255, b=pixels[i+2]/255;
+    var mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2;
+    var sa=mx===mn?0:(mx-mn)/(1-Math.abs(2*l-1));
+    var hue=0;
+    if(mx!==mn){
+      if(mx===r) hue=60*(((g-b)/(mx-mn))%6);
+      else if(mx===g) hue=60*(((b-r)/(mx-mn))+2);
+      else hue=60*(((r-g)/(mx-mn))+4);
+      if(hue<0) hue+=360;
+    }
+    HUE_GUESSES.forEach(function(hg){ if(hg.test(hue,sa,l)) votes[hg.name]=(votes[hg.name]||0)+1; });
+  }
+  var ranked=Object.keys(votes).filter(function(k){ return votes[k]>w*h*0.04; })
+    .sort(function(a,b){ return votes[b]-votes[a]; });
+  var out=[];
+  ranked.forEach(function(fam){
+    HUE_GUESSES.forEach(function(hg){
+      if(hg.name===fam) hg.items.forEach(function(it){ if(out.length<6 && out.indexOf(it)===-1) out.push(it); });
+    });
+  });
+  return out;
+}
+
+/* ── photo sheet flow: guesses stay EDITABLE until committed ── */
+var GUESSES=[];
+function openPhoto(){
+  $('photowrap').hidden=false;
+  GUESSES=[]; renderGuesses();
+  $('photopreview').hidden=true;
+  $('guesslabel').hidden=true; $('guessaddrow').hidden=true;
+  var dl=$('cataloglist');
+  if(!dl.childNodes.length) CATALOG.forEach(function(c){ var o=document.createElement('option'); o.value=c[0]; dl.appendChild(o); });
+  $('phototake').focus();
+}
+function closePhoto(){ $('photowrap').hidden=true; }
+function setGuesses(names){
+  GUESSES=names.map(function(n){ return { name:n, keep:true }; });
+  $('guesslabel').hidden=false; $('guessaddrow').hidden=false;
+  renderGuesses();
+}
+function renderGuesses(){
+  var g=$('guesschips'); g.textContent='';
+  GUESSES.forEach(function(gu,ix){
+    var b=document.createElement('button');
+    b.type='button';
+    b.setAttribute('aria-pressed', String(gu.keep));
+    var cat=null;
+    for(var i=0;i<CATALOG.length;i++) if(CATALOG[i][0]===gu.name) cat=CATALOG[i];
+    b.textContent=(cat?cat[1]+' ':'')+gu.name;
+    b.setAttribute('aria-label', (gu.keep?'Keep ':'Discarded: ')+gu.name+'. Activate to toggle.');
+    b.addEventListener('click', function(){ gu.keep=!gu.keep; renderGuesses(); });
+    g.appendChild(b);
+  });
+  var kept=GUESSES.filter(function(x){ return x.keep; }).length;
+  var pc=$('photocommit');
+  pc.hidden=GUESSES.length===0;
+  pc.textContent='put '+kept+' item'+(kept===1?'':'s')+' on shelves';
+  pc.disabled=kept===0;
+}
+$('photobtn').addEventListener('click', function(){ closeSheet(); openPhoto(); });
+$('phototake').addEventListener('click', function(){ $('photoinput').click(); });
+$('photoinput').addEventListener('change', function(){
+  var f=$('photoinput').files && $('photoinput').files[0];
+  if(!f) return;
+  var img=new Image();
+  var url=URL.createObjectURL(f);
+  img.onload=function(){
+    var cv=$('photopreview'), cx2=cv.getContext('2d');
+    cv.hidden=false;
+    cx2.drawImage(img,0,0,96,96);
+    URL.revokeObjectURL(url);
+    var data=cx2.getImageData(0,0,96,96).data;
+    var names=guessIngredients(data,96,96);
+    setGuesses(names);
+    if(!names.length) $('guesslabel').hidden=false, $('guessaddrow').hidden=false,
+      $('guesslabel').textContent='couldn\'t make out colors — add things by hand below:';
+  };
+  img.src=url;
+});
+$('guessaddbtn').addEventListener('click', function(){
+  var v=$('guessadd').value.trim().toLowerCase();
+  if(!v) return;
+  if(!GUESSES.some(function(g){ return g.name===v; })) GUESSES.push({ name:v, keep:true });
+  $('guessadd').value='';
+  $('guesslabel').hidden=false; $('guessaddrow').hidden=false;
+  renderGuesses();
+});
+$('guessadd').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); $('guessaddbtn').click(); } });
+$('photocommit').addEventListener('click', function(){
+  var t=todayISO();
+  GUESSES.filter(function(g){ return g.keep; }).forEach(function(g){
+    var cat=null;
+    for(var i=0;i<CATALOG.length;i++) if(CATALOG[i][0]===g.name) cat=CATALOG[i];
+    addItem({ name:g.name, emoji:cat?cat[1]:'🍽', unit:cat?cat[2]:'pantry', shelf:1,
+      qty:1, expiry:cat? addDays(t,cat[3]) : null });
+  });
+  closePhoto();
+});
+$('photocancel').addEventListener('click', closePhoto);
+$('photowrap').addEventListener('click', function(e){ if(e.target===$('photowrap')) closePhoto(); });
+
 /* ── unit tabs ── */
 ['fridge','pantry'].forEach(function(u){
   $('tab-'+u).addEventListener('click', function(){ S.unit=u; save(); render(); });
@@ -885,7 +1170,8 @@ $('d-move').addEventListener('click', function(){
 });
 addEventListener('keydown', function(e){
   if(e.key!=='Escape') return;
-  if(!$('detailwrap').hidden) closeDetail();
+  if(!$('photowrap').hidden) closePhoto();
+  else if(!$('detailwrap').hidden) closeDetail();
   else if(!$('sheetwrap').hidden) closeSheet();
 });
 
@@ -910,6 +1196,7 @@ if(!S.items.length && !localStorage.getItem(KEY)){
 render();
 
 window.__SL={ S:S, CATALOG:CATALOG, RECIPES:RECIPES, PAIRINGS:PAIRINGS, ALLERGENS:ALLERGENS,
+  guessIngredients:guessIngredients, openPhoto:openPhoto, setGuesses:setGuesses,
   pickPairing:pickPairing, pairingTags:pairingTags, renderBold:renderBold, addItem:addItem, moveItem:moveItem,
   removeItem:removeItem, findItem:findItem, suggest:suggest, expiryState:expiryState,
   daysLeft:daysLeft, addDays:addDays, todayISO:todayISO, render:render, save:save, load:load,

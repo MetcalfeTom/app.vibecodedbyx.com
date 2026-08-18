@@ -26,3 +26,9 @@
   - **Skip controls**: skip → persists + advances; "bring skipped back" reset; "dared it ⚡" tallies a score ("coward's shelves" until first dare). Exhausted/empty states distinct.
   - First-impression fix from screenshot review: default seed had ZERO valid pairings — added honey + lemon to seeds (unlocks 4 dares + enriches meal matches).
   - Suites: bp-probe 15/15, core regression 23/23.
+- 2026-08-18 (3): LOCAL PHOTO CAPTURE per chat — optional, honest, editable-before-suggest.
+  - Entry: dashed "📷 or snap your groceries" strip atop the stock sheet → dedicated bottom sheet. `<input type=file accept=image/* capture=environment>` → objectURL → 96×96 canvas → revoked immediately. **The photo never leaves the device** and the sheet says so in bold.
+  - **Guesser is honestly local**: guessIngredients(pixels,w,h) — pure HSL hue-bucket voting (red/orange/yellow/green/brown/white families → catalog candidates, 4% pixel threshold, max 6). Labeled as "color guesswork, not cloud vision". Dark/unreadable photos yield zero guesses + a hand-add prompt, never fake confidence.
+  - **Editable before suggestions** (the actual req): guesses render as keep/discard chips (aria-pressed, strikethrough when discarded), a "missed:" input with catalog datalist adds more; commit button live-counts kept items. NOTHING touches shelves, storage, or the recipe panel until commit — probe asserts suggestions are byte-identical pre-commit. On commit: catalog defaults (emoji/home/typical expiry) applied, sheets close, meal brain updates.
+  - Zero-network guarantee probed with a fetch+XHR sentry across the entire flow (0 calls).
+  - Suites: ph-probe 15/15 (incl. synthetic-pixel guesser cases: red→tomato, green→lettuce, dark→none, mixed→both), core 23/23, bold pairing 15/15.
