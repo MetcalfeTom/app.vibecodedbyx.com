@@ -47,6 +47,20 @@
   (fillText-count probed: +288 calls when on). 10/10 probe + 19/19 hydrology + 7/7
   visuals regressions + screenshot + boot probe after atomic deploy.
 
+- 2026-08-18 v1.3: **illustrated landscape view** (chat: replace grid map, preserve
+  hydrology/controls/accessibility/tests). Cell model + paint hit-testing UNCHANGED —
+  only rendering: seamless ground (full CW×CH fills, per-tile deterministic jitter via
+  th(i) integer hash — no Math.random, stable frame to frame), drawTileDeco() per land:
+  forest 2-3 conifers+trunks, wetland pool+3 curved reeds, farm 3 furrows+wheat dot,
+  city 2 hash-height buildings w/ lit windows, bare cracks+pebble; eroded tiles (<0.7
+  soil) drop decoration for a single crack over browned base. Letters toggle moved to
+  tile corner (bold, clear of decorations). Terrain ramp/contours/chevrons/runoff
+  streams/moisture glints all preserved. ALL suites green: 19/19 + 7/7 + 10/10 — with
+  one honest probe update: terrain-ramp pixel check became a 100×14 area average
+  (decorations make single-pixel sampling unfair; documented). Loop-harness lesson:
+  reusing one composed-probe filename across a for-loop of chromium launches raced —
+  isolate per-suite files.
+
 ## issues
 - **THE modeling lesson**: daily hard-capped infiltration (mm/day) made all land types
   converge under big storms (forest peak 13.6k vs city 17.5k — only 1.3×) because any
