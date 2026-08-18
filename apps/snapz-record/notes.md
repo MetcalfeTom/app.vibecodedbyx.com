@@ -20,3 +20,9 @@
   - **Permission-safe fallback**: denial → listener stays off with "mic unavailable — notes and manual snips still work". Track release + ac.close() on stop (probed). Double-start pending guard.
   - Anchor pre-pass caught a duplicate '/* ── timeline ── */' comment BEFORE any write — the discipline pays.
   - Suites: lsn-probe 11/11 + core sz-probe 11/11.
+- 2026-08-18 (3): v1.2 — SNAP RHYTHM GAME per chat ("timed patterns, combo scoring, misses, rounds, safe microphone handling").
+  - 🎵 panel above the listener: 5 rounds (90→126bpm, straight 4s → syncopated 10-beat), beat lane dots (offbeats drawn smaller), demo playback with gentle sine ticks + pulsing dots, 4-tick count-in, then SNAP IT BACK capture phase.
+  - **Scoring**: ±70ms perfect (100×combo) / ±150ms good (60×combo) / else miss; combo climbs to ×4, resets on miss; matched beats can't double-score (nearest-UNMATCHED-beat assignment); unhit beats become misses at round end; ≥70% hit unlocks the next round.
+  - **Safe mic handling, twice over**: (1) input rides the existing v1.1 analyser-only listener — probe re-asserts ZERO MediaRecorder constructions on the game path; (2) SPACE is a first-class equal input, so mic denial loses nothing; (3) finishRound force-releases the mic if the listener is live (track-stop asserted) — the game never keeps ears past the music.
+  - RH.now() clock seam = fully simulatable rounds in probes. Suite 17/17 incl. v1.1 regression (notes, detector truths, seams).
+  - Probe lesson (recurring): textarea VALUES are invisible to textContent — assert on .value. And count ids from data, not memory (#feed, not #notelist).
