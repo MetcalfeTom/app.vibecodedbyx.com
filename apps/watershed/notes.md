@@ -22,6 +22,20 @@
   baseflow-share >4× city, GW contrast, recycling, wetland cleans+buffers, erosion,
   century storm, painting/controls/experiments/narration) + screenshot review.
 
+- 2026-08-18 v1.1: **visual clarity pass** (two chat requests merged: terrain/river/
+  legend/cues + hierarchy/contrast/runoff-cues). Terrain: per-row brightness ramp
+  (1.14−r·0.036, pixel-probed top-vs-bottom), dashed contours at 60/120/180m + ridge
+  label, faint downhill chevrons. RUNOFF CUES: per-column S.colFlow recorded in stepDay;
+  columns carrying >12mm draw translucent blue downhill streams, opacity ∝ flow.
+  River: dark banks, animated flow dashes (offset from S.day — deterministic), banks
+  flush tan→red-tint in flood, bold labeled. HTML legend (9 chips incl. eroded/
+  waterlogged/runoff-streak explanations). Guided cues: first-run ①②③ steps overlay at
+  day 0; experiments set a "👀 watch for" banner (#cue, expires after ~70 sim days,
+  fade-day printed), running experiment button highlighted; century storm gets its own
+  20-day cue. Hydrology untouched: 19/19 regression + 7/7 visuals probe (legend count,
+  pixel terrain ramp, colFlow tracking, cue show/expire/storm, running highlight)
+  + screenshot review + boot probe after atomic deploy.
+
 ## issues
 - **THE modeling lesson**: daily hard-capped infiltration (mm/day) made all land types
   converge under big storms (forest peak 13.6k vs city 17.5k — only 1.3×) because any
