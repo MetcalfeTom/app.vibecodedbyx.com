@@ -1,6 +1,16 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-08-18: **parla.lnk** joins the desktop (chat request: clearly labeled, harmless,
+  no external links). Speech-bubble ñ icon + tri-color language dots; sat-window titled
+  "Parla — sixty core words, four languages (harmless language trainer)"; lazy iframe
+  /parla/?bare=1 (relative — same-site, probe-asserted no http src); registered in the
+  shared launcher loop as ['di-parla','parla']. Verified via the verbatim-extraction
+  harness (icon+window+loop lifted verbatim, sibling launchers stubbed so the shared
+  loop registers — NEW HARNESS LESSON: the loop touches all pairs, so extracted probes
+  must stub every sibling or die on the first missing id): 8/8 (icon+tabindex+label,
+  lazy-before, click opens, lazy src loads, same-site, close works, Enter opens,
+  honest title). Boot probe post-deploy.
 - 2026-08-14: **bean-machine.lnk** (chat) — steaming-cup-with-beans icon opens /bean-machine/?bare=1 in a crema sat-window ("☕ Bean Machine — every cup, counted"). Fourth shared-loop registration, three additive blocks, 6/6 harness first try.
 - 2026-08-14: **good-glow.lnk** (chat) — honey-jar-with-orbs icon opens /good-glow/?bare=1 in a warm cream sat-window titled "🫙 Good Glow — private, on this device". Registered ['di-goodglow','goodglow'] in the shared launcher loop; three additive blocks. PRIVACY PRESERVED: lazy iframe (nothing loads until clicked — probe asserts empty src pre-click), relative same-origin path (no third-party frame; good-glow's localStorage stays same-origin so the jar persists), title states the privacy stance. Verified 9/9 FIRST TRY (all harness lessons pre-applied): lazy, opens+loads, closes, keyboard opens, src stable, siblings preserved (repair-lens still launches), same-origin, privacy title.
 - 2026-08-13: **repair-lens.lnk** (chat) — cyan AR-reticle-and-wrench icon with amber hazard chevron, opens /repair-lens/?bare=1 in a sat-window ("Repair Lens — camera stays off"). Registered ['di-repairlens','repairlens'] in the shared launcher loop; three additive blocks, nothing else touched. Verified 7/7 first try via the verbatim-extraction harness WITH last time's three lessons pre-applied (iframe closed in extraction, newline-anchored forEach closer, closedLog naming) — plus a siblings-preserved check (umbra still opens).
