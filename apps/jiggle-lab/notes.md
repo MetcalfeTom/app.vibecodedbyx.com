@@ -17,3 +17,9 @@
 - Energy graph over time (KE/PE split — great teaching)
 - Charge-flavored atoms with attraction/repulsion pairs
 - Save/share little molecule builds
+- 2026-08-18 (2): v1.1 — WATER PHASE TRANSITIONS + pro visuals per chat.
+  - **Water demo** (🧊 button): 9 bent trios; O atoms are w-tagged. Two-tier bonding: strong intra-molecular coils (snap 62%) vs **weak inter-molecular bonds** (k=16, rest=50, snap at 50% strain, drawn dashed cyan) that FORM dynamically when cool O atoms come within 62px (≤3 per O). Plus a gentle long-range attraction (52–150px, T<45) — the van-der-Waals cartoon that makes condensation physically happen (without it, drained-cold steam froze in place scattered; the suite caught it at 3 re-formed bonds).
+  - Result: real phase loops — cold knits ICE (phase line names it), warm melts weak bonds first with "that's melting, not breaking molecules" captions, hot boils to intact flying molecules, cooling condenses + refreezes. Suite measured 11 weak bonds cold → 0 hot → re-formed on cooling.
+  - **Pro rendering**: offscreen bg layer (vignette + faint grid + frame), strong bonds drawn as actual coils (amplitude tightens with strain — a stretched spring LOOKS stretched), weak bonds dashed, atoms as radial-gradient shaded spheres w/ rim + speed glow.
+  - Education: new info paragraph (strong-inside vs weak-between; why ice melts long before molecules break; the attraction note). Phase hints water-aware (ICE/LIQUID/STEAM).
+  - Suites: water-probe 9/9, core jl-probe 18/18 regression. v1.1 stamped.
