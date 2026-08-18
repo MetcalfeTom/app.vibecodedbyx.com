@@ -41,3 +41,8 @@
   - **Conservative guesser**: white bucket REMOVED (counters/packaging false-positive machine — solid white now guesses nothing and says so in the sheet copy), pixel floor 4%→9%, one item per family unless the family exceeds 25% dominance, hard cap 4 guesses. Copy updated: "deliberately conservative — fix and fill the rest below."
   - Probe lesson: my first "conservative" assert contradicted the spec — at 50/50 BOTH families are dominant and rightly open up; the honest test is the 20/80 split (minor red → tomato only; dominant yellow → full family).
   - Suites: bands 6/6, photo 17/17 (updated for the new behavior), core 23/23, bold 15/15, gallery 7/7, header-cam 5/5.
+- 2026-08-18 (8): v1.6 — CONFIDENCE-TIERED DETECTION per chat ("every plausible visible item with confidence labels, conservatively").
+  - guessIngredientsDetailed(): family >25% → first item LIKELY + siblings MAYBE; 9–25% → first MAYBE + siblings FAINT; 4–9% → first item FAINT only; white still excluded; cap 8. Old guessIngredients() kept as the conservative wrapper (faint filtered, cap 4) — zero behavior change for existing callers, proven by the untouched 17/17 photo suite.
+  - **Conservative-by-default UI**: chips carry ✓ likely (green) / ? maybe (amber) / ~ faint (grey) badges; likely+maybe start ticked, FAINT starts crossed out — opt hunches in explicitly. aria-labels carry the confidence. Commit counts respect it. Sheet copy explains the tiers.
+  - Probe lesson: chips rebuild on toggle — held node references go stale; re-query after every click.
+  - Suites: conf-probe 12/12 + six regressions (photo 17, core 23, bold 15, gallery 7, cam 5, bands 6) = 85 checks green.
