@@ -157,6 +157,20 @@ label{ font-size:.58rem; color:var(--dim); display:block; margin-bottom:.2rem; l
 .arow button{ flex:none; font-size:.54rem; min-height:1.9rem; padding:.2rem .55rem; }
 .arow.sat .aic{ color:var(--ok); } .arow.rec .aic{ color:var(--amber); } .arow.gap .aic{ color:var(--red); }
 
+/* checkup alerts */
+#ckbadge{ display:inline-block; min-width:1.3rem; text-align:center; background:var(--red); color:#fff;
+  border-radius:1rem; font-size:.58rem; padding:.08rem .3rem; margin-left:.35rem; }
+#ckbadge.zero{ background:#1d3a2a; color:var(--ok); }
+.ck{ display:flex; gap:.5rem; align-items:center; font-size:.62rem; line-height:1.6;
+  padding:.4rem .5rem; border-left:3px solid var(--edge); margin-bottom:.35rem; background:#0e161a; }
+.ck.over{ border-color:var(--red); } .ck.soon{ border-color:var(--amber); }
+.ck .cbody{ flex:1; }
+.ck .ckind{ display:block; font-size:.52rem; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
+.ck .cwhen{ font-size:.56rem; font-weight:700; }
+.ck.over .cwhen{ color:var(--red); } .ck.soon .cwhen{ color:var(--amber); }
+.ck button{ flex:none; font-size:.54rem; min-height:1.9rem; padding:.2rem .55rem; }
+#ckall{ font-size:.62rem; color:var(--ok); }
+
 /* terminal */
 #term{ background:#070d10; border:1px solid var(--edge); border-radius:.4rem; padding:.6rem .7rem; margin:0 0 .5rem;
   font-size:.62rem; line-height:1.8; max-height:14rem; overflow:auto; white-space:pre-wrap; word-break:break-word; color:#a8c8bc; }
@@ -266,6 +280,13 @@ footer{ text-align:center; color:var(--dim); font-size:.62rem; margin-top:1.4rem
         </div>
         <div id="report" aria-live="polite"></div>
       </section>
+
+      <section class="card" aria-label="Recurring checkup alerts">
+        <h2>checkup --alerts<span id="ckbadge" class="zero">0</span></h2>
+        <div id="checkups"></div>
+        <p id="ckall" hidden>✓ nothing due — the grid is being looked after.</p>
+        <p class="legend">recurring clocks: <b>restore tests</b> every 180 days per copy · <b>drive health review</b> every 90 days per disk · <b>sync review</b> every 30 days · <b>offsite verification</b> every 120 days per offsite unit. Marking done restarts that clock.</p>
+      </section>
     </div>
 
     <div>
@@ -334,11 +355,23 @@ function fresh(){
 function load(){
   try{
     var raw=JSON.parse(localStorage.getItem('vaultgrid-v2')||'null');
-    if(raw && raw.data && Array.isArray(raw.disks)){ S=raw; nextId=raw.nextId||100; return; }
+    if(raw && raw.data && Array.isArray(raw.disks)){ S=raw; nextId=raw.nextId||100; migrate(); return; }
   }catch(e){}
-  S=fresh();
+  S=fresh(); migrate();
 }
 function save(){ S.nextId=nextId; try{ localStorage.setItem('vaultgrid-v2', JSON.stringify(S)); }catch(e){} }
+function migrate(){
+  var now=Date.now();
+  if(!S.syncReviewedAt) S.syncReviewedAt=now;
+  S.disks.forEach(function(d){
+    if(!d.healthCheckedAt) d.healthCheckedAt=now;
+    if(!d.offsiteCheckedAt) d.offsiteCheckedAt=now;
+    Object.keys(d.assigns).forEach(function(dt){
+      var a=d.assigns[dt];
+      if(a.tested && !a.testedAt) a.testedAt=now;
+    });
+  });
+}
 
 /* ── unit derived facts ── */
 function speedOf(d){
@@ -398,6 +431,7 @@ function mount(){
     editingId=null; $('btn-add').textContent='MOUNT UNIT ▸';
   } else {
     r.d.id=nextId++;
+    r.d.healthCheckedAt=Date.now(); r.d.offsiteCheckedAt=Date.now();
     S.disks.push(r.d);
     msg.textContent='✓ '+r.d.label+' mounted to the rack.'; msg.className='okc';
   }
@@ -451,7 +485,7 @@ function testRestore(diskId, dt){
   var d=S.disks.filter(function(x){ return x.id===diskId; })[0];
   if(!d||!d.assigns[dt]) return null;
   var a=d.assigns[dt], found=a.corrupt;
-  a.corrupt=false; a.tested=true;
+  a.corrupt=false; a.tested=true; a.testedAt=Date.now();
   save(); paintAll();
   flashMsg(found
     ? '🕳 test restore on '+d.label+' FOUND SILENT CORRUPTION in '+DATA_DEFS[dt].name+' — re-copied clean. Tests beat trust.'
@@ -644,7 +678,7 @@ function paintGrid(){
     host.appendChild(u);
   });
 }
-function paintAll(){ paintDataTypes(); paintNav(); paintSummary(); paintGrid(); paintAdvisor(); }
+function paintAll(){ paintDataTypes(); paintNav(); paintSummary(); paintGrid(); paintAdvisor(); paintCheckups(); }
 setInterval(function(){
   [].forEach.call(document.querySelectorAll('.unit'), function(u){
     var d=S.disks.filter(function(x){ return x.id===+u.dataset.id; })[0];
@@ -773,6 +807,65 @@ function paintAdvisor(){
   });
 }
 
+/* ── recurring checkups ── */
+var CK_DAYS={ restore:180, health:90, sync:30, offsite:120 };
+var DAY=86400000;
+function dueDays(ts, kind){ return Math.floor((Date.now()-ts)/DAY) - CK_DAYS[kind]; }
+function checkups(){
+  var items=[];
+  items.push({ id:'sync', kind:'sync', label:'review that scheduled backups actually ran lately',
+    over:dueDays(S.syncReviewedAt,'sync') });
+  S.disks.forEach(function(d){
+    if(d.kind!=='cloud')
+      items.push({ id:'health-'+d.id, kind:'health', unit:d,
+        label:'health review of '+d.label+' (SMART / listen / reseat)', over:dueDays(d.healthCheckedAt,'health') });
+    if(isOffsite(d))
+      items.push({ id:'offsite-'+d.id, kind:'offsite', unit:d,
+        label:'verify the offsite copy at '+d.label+' really exists and is current', over:dueDays(d.offsiteCheckedAt,'offsite') });
+    Object.keys(d.assigns).forEach(function(dt){
+      var a=d.assigns[dt];
+      var ts= a.testedAt || 0;
+      items.push({ id:'restore-'+d.id+'-'+dt, kind:'restore', unit:d, dt:dt,
+        label:'test restore of '+DATA_DEFS[dt].name+' from '+d.label+(a.tested? '':' (never tested!)'),
+        over: a.tested? dueDays(ts,'restore') : 9999 });
+    });
+  });
+  return items.sort(function(a,b){ return b.over-a.over; });
+}
+function markCheckup(item){
+  if(item.kind==='sync') S.syncReviewedAt=Date.now();
+  else if(item.kind==='health') item.unit.healthCheckedAt=Date.now();
+  else if(item.kind==='offsite') item.unit.offsiteCheckedAt=Date.now();
+  else if(item.kind==='restore'){ testRestore(item.unit.id, item.dt); return; }
+  save(); paintAll();
+}
+var CK_ACTION={ restore:'test restore', health:'mark checked', sync:'mark reviewed', offsite:'mark verified' };
+function paintCheckups(){
+  var host=$('checkups'); if(!host) return;
+  host.innerHTML='';
+  var items=checkups();
+  var due=items.filter(function(i){ return i.over>=0; });
+  var soon=items.filter(function(i){ return i.over<0 && i.over>=-14; });
+  var badge=$('ckbadge');
+  badge.textContent=due.length;
+  badge.className= due.length? '':'zero';
+  $('ckall').hidden= !!(due.length||soon.length);
+  due.concat(soon).forEach(function(item){
+    var row=document.createElement('div');
+    row.className='ck '+(item.over>=0?'over':'soon');
+    var when= item.over===9999? 'NEVER DONE'
+      : item.over>=0? 'overdue by '+item.over+'d' : 'due in '+(-item.over)+'d';
+    row.innerHTML='<span class="cbody"><span class="ckind">'+item.kind+'</span>'+item.label+
+      ' · <span class="cwhen">'+when+'</span></span>';
+    var b=document.createElement('button');
+    b.type='button'; b.textContent=CK_ACTION[item.kind];
+    b.setAttribute('aria-label', CK_ACTION[item.kind]+': '+item.label);
+    b.addEventListener('click', function(){ markCheckup(item); });
+    row.appendChild(b);
+    host.appendChild(row);
+  });
+}
+
 /* ── terminal ── */
 function termPrint(lines){
   var t=$('term');
@@ -863,8 +956,8 @@ window.__VG={ get S(){ return S; }, addDisk:function(kind,over){
   isConnected:isConnected, speedOf:speedOf, pickUnlucky:pickUnlucky, lostIn:lostIn,
   diskUsed:diskUsed, paintAll:paintAll, runCmd:runCmd, cmdAudit:cmdAudit, cmdFailover:cmdFailover,
   advisePlacement:advisePlacement, candidateFor:candidateFor, freeTB:freeTB, unitWarnings:unitWarnings,
-  independenceWarnings:independenceWarnings,
-  fresh:function(){ S=fresh(); save(); paintAll(); } };
+  independenceWarnings:independenceWarnings, checkups:checkups, markCheckup:markCheckup, CK_DAYS:CK_DAYS,
+  fresh:function(){ S=fresh(); migrate(); save(); paintAll(); } };
 })();
 </script>
 </body>

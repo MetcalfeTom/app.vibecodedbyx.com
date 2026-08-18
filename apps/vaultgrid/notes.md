@@ -60,6 +60,19 @@
   form and rack nav, visible height, seam+explainer intact) + 32/32 regression +
   screenshot + boot probe after atomic deploy.
 
+- 2026-08-18 v1.4: **recurring checkup alerts** (checkup --alerts card + red count badge):
+  four clocks — restore tests 180d per copy (never-tested = instant NEVER DONE, over=9999),
+  drive health review 90d per non-cloud disk, sync review 30d app-wide, offsite
+  verification 120d per offsite unit. Timestamps: migrate() stamps missing fields on
+  load AND on seam fresh() (probe caught NaN clocks when seam reset skipped migration —
+  fixed in app); mount stamps healthCheckedAt/offsiteCheckedAt; testRestore stamps
+  testedAt. Due list sorted worst-first, overdue red / due-within-14d amber, per-kind
+  action buttons (test restore routes to the real testRestore; others reset their clock).
+  16/16 probe (rigged clocks, sort order, badge counts, marks reset, persistence) +
+  32/32 regression + full-page screenshot + boot probe after atomic deploy.
+  Screenshot lesson: scrollIntoView before --screenshot captures past the page → blank
+  frame; use a tall viewport instead.
+
 ## issues
 - Corruption odds re-roll if you unassign+reassign a type — acceptable (it's a new copy).
 - Terminal output uses innerHTML with fixed strings; user input echoed via runCmd is
