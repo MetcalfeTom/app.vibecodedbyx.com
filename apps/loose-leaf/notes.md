@@ -25,3 +25,4 @@
   - **Editable goal names**: already-inline ttext inputs proven on goal pages by test.
   - **Responsive pass**: overflow-x guard, tightened rows/buttons/tabs at ≤600px, verified by 390×844 screenshots (two rounds — first round showed crushed text + wrapped plan button, fixed).
   - Suites: ll5 (new features) 18/18, ll3 20/20 (2 checks updated for the page model — boot lands on contents now), ll4 (pages/notebook) 22/22, chime 7/7.
+- 2026-08-18 (5): build stamp per chat — "build v2.2 · 2026-08-18 · 7449b523c" (notebook-edition commit) bottom-right of the stats row, Space Mono .62rem, faded ink. Layout verified unchanged (the scrollWidth overhang flagged by the stamp probe is the pre-existing intentional tab protrusion, identical pre/post). Suite 18/18. Version convention going forward: v1 initial, +.1 per feature release, feature-commit hash in the stamp (parla convention).
