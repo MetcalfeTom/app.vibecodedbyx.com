@@ -59,6 +59,12 @@ input[type=range]{ width:100%; accent-color:var(--forest); }
 #gwline{ font-family:'Sometype Mono',monospace; font-size:.56rem; color:var(--dim); }
 #btn-pattern[aria-pressed="true"]{ background:var(--ink); color:var(--paper); }
 #status{ font-size:.8rem; font-style:italic; color:#41503a; line-height:1.6; min-height:2.6rem; margin-top:.4rem; }
+#story .stx{ font-size:.82rem; line-height:1.7; margin:0 0 .6rem; }
+#story .stx b{ color:var(--forest); }
+#story button{ display:block; width:100%; text-align:left; margin-bottom:.4rem; line-height:1.5; font-size:.66rem; }
+#story button small{ display:block; color:var(--dim); font-size:.56rem; font-family:'Faustina',serif; font-style:italic; }
+#story .chnum{ font-family:'Sometype Mono',monospace; font-size:.56rem; letter-spacing:.14em; color:var(--dim); text-transform:uppercase; }
+#story .report{ border-left:3px solid var(--wet); padding-left:.6rem; font-size:.78rem; line-height:1.7; margin:.5rem 0; }
 #experiments button{ display:block; width:100%; text-align:left; margin-bottom:.45rem; line-height:1.5; }
 #experiments button small{ display:block; color:var(--dim); font-size:.58rem; font-family:'Faustina',serif; font-style:italic; }
 #explain{ font-size:.8rem; line-height:1.7; }
@@ -138,8 +144,16 @@ footer{ text-align:center; font-size:.78rem; font-style:italic; color:var(--dim)
         <div id="balance"></div>
       </div>
 
+      <div class="card" id="story">
+        <h2>the valley journal · story mode</h2>
+        <div id="storybody">
+          <p class="stx">Prefer to be guided? The journal walks you through the valley's choices — development, harvest, restoration, and one terrible storm — and reads the river's verdict after each. The science underneath is identical to free play.</p>
+          <button type="button" id="btn-story">📖 begin the story</button>
+        </div>
+      </div>
+
       <div class="card" id="experiments">
-        <h2>experiments</h2>
+        <h2>experiments · free play</h2>
         <button type="button" data-x="pave">🏙 pave the valley<small>hypothesis: impervious ground turns rain into instant river — flashy floods, thin dry-season flow.</small></button>
         <button type="button" data-x="clearcut">🪓 clear-cut to farms<small>hypothesis: less canopy = less infiltration and less recycled rain — bigger peaks, browner water.</small></button>
         <button type="button" data-x="rewet">🦆 restore the wetlands<small>hypothesis: a sponge belt above the river flattens floods and filters the runoff.</small></button>
@@ -183,8 +197,10 @@ function reset(){
       hist:[], baseline:null,
       lastRain:0, lastInfil:0, lastET:0, lastRunoff:0, lastBase:0, lastPerc:0, cue:null,
       patterns:false,
+      wetCycles:0, cycleMaxPol:0, cycleMaxWet:0, heron:{ active:false, p:0 }, heronFlights:0,
+      visT:0, qVis:0, colFlowVis:[],
       colFlow:[] };
-  for(var cf=0;cf<COLS;cf++) S.colFlow.push(0);
+  for(var cf=0;cf<COLS;cf++){ S.colFlow.push(0); S.colFlowVis.push(0); }
   for(var i=0;i<COLS*ROWS;i++){
     var r=Math.floor(i/COLS);
     S.cells.push( r<4? 'forest' : r<7? 'farm' : r<9? (i%COLS<8?'city':'farm') : r<10? 'farm':'wet' );
@@ -256,7 +272,24 @@ function stepDay(){
   if(S.Q<QLOW) S.droughtDays++;
   S.hist.push({ d:S.day, Q:S.Q, rain:rain });
   if(S.hist.length>240) S.hist.shift();
+  /* healthy-wetland-cycle bookkeeping: three good seasons summon the heron */
+  S.cycleMaxPol=Math.max(S.cycleMaxPol, S.pol);
+  for(var wj=0;wj<S.wetStore.length;wj++) if(S.wetStore[wj]>S.cycleMaxWet) S.cycleMaxWet=S.wetStore[wj];
+  if(S.day%120===0){
+    var wetFrac=S.cells.filter(function(cc){ return cc==='wet'; }).length/(COLS*ROWS);
+    var healthy= wetFrac>=0.08 && S.cycleMaxPol<140 && S.cycleMaxWet>60;
+    S.wetCycles= healthy? S.wetCycles+1 : 0;
+    if(S.wetCycles>=3){
+      S.wetCycles=0; S.heronFlights++;
+      var reduce=false;
+      try{ reduce=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+      S.heron={ active:!reduce, p:0 };
+      exline('heron-'+S.day, '<b>a heron has arrived.</b> Three healthy wetland seasons in a row — clean water, working marshes — and the valley\'s quietest resident approves. Herons fish where wetlands filter; their presence is the ecosystem\'s own signature.', false);
+    }
+    S.cycleMaxPol=0; S.cycleMaxWet=0;
+  }
   narrate(rain);
+  stTick();
 }
 
 /* ── narration: explanations reacting to state ── */
@@ -318,6 +351,10 @@ cvL.addEventListener('pointerup', function(){ painting=false; });
 function shade(hex, f){
   var n=parseInt(hex.slice(1),16), r=(n>>16)&255, g=(n>>8)&255, b=n&255;
   return 'rgb('+Math.round(r*f)+','+Math.round(g*f)+','+Math.round(b*f)+')';
+}
+/* flood crossfade: 0 = calm blue, 1 = full warning red; eased qVis prevents flicker */
+function floodMix(q){
+  return Math.max(0, Math.min(1, (q/QFLOOD-0.85)/0.25));
 }
 /* per-tile stable hash for illustration variety */
 function th(i){ var x=(i*2654435761)>>>0; return ((x>>>8)%1000)/1000; }
@@ -400,7 +437,9 @@ function drawLand(){
   }
   /* runoff streams: translucent water sliding down loaded columns */
   for(var rc=0;rc<COLS;rc++){
-    var fl=S.colFlow[rc]||0;
+    /* smoothed toward the data — kills the per-tick vertical flashing */
+    S.colFlowVis[rc]+=((S.colFlow[rc]||0)-S.colFlowVis[rc])*0.06;
+    var fl=S.colFlowVis[rc];
     if(fl>12){
       var al=Math.min(0.45, fl/500);
       var rg=cxL.createLinearGradient(0,0,0,cvL.height-46);
@@ -444,7 +483,7 @@ function drawLand(){
     cxL.strokeStyle='rgba(214,228,244,'+(0.35+inten*0.3).toFixed(2)+')';
     cxL.lineWidth=1.2; cxL.lineCap='round';
     for(var k=0;k<nD;k++){
-      var sx=(k*97+S.day*31)%cvL.width, sy=(k*53+S.day*17)%(cvL.height-70);
+      var sx=(k*97+Math.round(S.visT*11))%cvL.width, sy=(k*53+Math.round(S.visT*150))%(cvL.height-70);
       var ln=6+inten*9;
       cxL.beginPath(); cxL.moveTo(sx,sy); cxL.lineTo(sx-ln*0.35, sy+ln); cxL.stroke();
     }
@@ -453,8 +492,8 @@ function drawLand(){
     cxL.strokeStyle='rgba(214,228,244,'+(0.3+inten*0.2).toFixed(2)+')';
     cxL.lineWidth=1;
     for(var q=0;q<nS;q++){
-      var px2=(q*151+S.day*29)%cvL.width;
-      var py2=CH*(2+((q*7+S.day)%10))+CH*0.85;
+      var px2=(q*151+Math.round(S.visT)*29)%cvL.width;
+      var py2=CH*(2+((q*7+Math.round(S.visT))%10))+CH*0.85;
       if(py2<cvL.height-52){
         cxL.beginPath(); cxL.ellipse(px2, py2, 3.5, 1.4, 0, 0, 7); cxL.stroke();
       }
@@ -463,7 +502,7 @@ function drawLand(){
     if(S.lastRain>18){
       var nC=2+Math.round(inten*4);
       for(var j=0;j<nC;j++){
-        var cx2=(j*277+S.day*13)%cvL.width;
+        var cx2=(j*277+Math.round(S.visT*5))%cvL.width;
         cxL.fillStyle='rgba(112,124,142,'+(0.22+inten*0.3).toFixed(2)+')';
         cxL.beginPath();
         cxL.arc(cx2, 8, 8, 0, 7);
@@ -475,15 +514,31 @@ function drawLand(){
     }
   }
   /* river strip: width breathes with Q */
-  var rh=14+Math.min(26, S.Q/220);
+  S.qVis+=(S.Q-S.qVis)*0.06;                            /* eased — the river breathes, never strobes */
+  var rh=14+Math.min(26, S.qVis/220);
+  var fm=floodMix(S.qVis);
   var grad=cxL.createLinearGradient(0,cvL.height-46,0,cvL.height);
-  grad.addColorStop(0, S.Q>QFLOOD? '#c24a3b':'#3a6ea8');
-  grad.addColorStop(1,'#20456e');
-  cxL.fillStyle= S.Q>QFLOOD? '#e3c2ae':'#d8d4c4';       /* banks flush when flooding */
+  grad.addColorStop(0,'#3a6ea8'); grad.addColorStop(1,'#20456e');   /* body stays honest blue */
+  cxL.fillStyle= fm>0.5? '#e3c2ae':'#d8d4c4';
   cxL.fillRect(0,cvL.height-46,cvL.width,46);
   var ry=cvL.height-23-rh/2;
   cxL.fillStyle=grad;
   cxL.fillRect(0,ry,cvL.width,rh);
+  if(fm>0){
+    /* the water NEVER changes hue (red-over-blue reads purple — the reported bug).
+       flooding speaks through a red rim, flushed banks, and white foam instead. */
+    cxL.strokeStyle='rgba(194,74,59,'+(fm*0.95).toFixed(2)+')'; cxL.lineWidth=3;
+    cxL.beginPath(); cxL.moveTo(0,ry-2.5); cxL.lineTo(cvL.width,ry-2.5);
+    cxL.moveTo(0,ry+rh+2.5); cxL.lineTo(cvL.width,ry+rh+2.5); cxL.stroke();
+    if(fm>0.3){
+      cxL.strokeStyle='rgba(235,242,250,'+(fm*0.65).toFixed(2)+')'; cxL.lineWidth=1.6;
+      cxL.setLineDash([9,13]); cxL.lineDashOffset=-(S.visT*40)%22;
+      cxL.beginPath(); cxL.moveTo(0,ry+rh*0.25); cxL.lineTo(cvL.width,ry+rh*0.25); cxL.stroke();
+      cxL.lineDashOffset=-(S.visT*40+11)%22;
+      cxL.beginPath(); cxL.moveTo(0,ry+rh*0.55); cxL.lineTo(cvL.width,ry+rh*0.55); cxL.stroke();
+      cxL.setLineDash([]);
+    }
+  }
   cxL.strokeStyle='#183654'; cxL.lineWidth=2;           /* banks */
   cxL.beginPath(); cxL.moveTo(0,ry); cxL.lineTo(cvL.width,ry);
   cxL.moveTo(0,ry+rh); cxL.lineTo(cvL.width,ry+rh); cxL.stroke();
@@ -496,6 +551,29 @@ function drawLand(){
   cxL.setLineDash([]);
   cxL.fillStyle='#26301f'; cxL.font='bold 13px Sometype Mono, monospace'; cxL.textAlign='left';
   cxL.fillText('▼ THE RIVER · Q='+Math.round(S.Q)+' '+(S.Q>QFLOOD?'· FLOOD — over the banks':S.Q<QLOW?'· drought-thin':'')+' · turbidity '+Math.round(S.pol), 10, cvL.height-6);
+  /* the heron: a quiet glide over the wetland belt, earned not scripted */
+  if(S.heron.active){
+    var hp=S.heron.p;
+    var hx=hp*(cvL.width+160)-80;
+    var hy=cvL.height-46-CH*2.4-Math.sin(hp*Math.PI)*66;
+    var flap=Math.sin(hp*26)*0.55;
+    cxL.save();
+    cxL.translate(hx,hy);
+    cxL.strokeStyle='rgba(74,92,108,.85)'; cxL.lineWidth=2; cxL.lineCap='round';
+    /* body + trailing legs */
+    cxL.beginPath(); cxL.moveTo(-9,2); cxL.lineTo(7,-1); cxL.stroke();
+    cxL.lineWidth=1.2;
+    cxL.beginPath(); cxL.moveTo(-9,2); cxL.lineTo(-16,4.5); cxL.stroke();
+    /* S-curved neck + head + bill */
+    cxL.lineWidth=1.6;
+    cxL.beginPath(); cxL.moveTo(7,-1); cxL.quadraticCurveTo(11,-5, 14,-2); cxL.stroke();
+    cxL.beginPath(); cxL.moveTo(14,-2); cxL.lineTo(19,-3); cxL.stroke();
+    /* slow wingbeat */
+    cxL.lineWidth=2;
+    cxL.beginPath(); cxL.moveTo(-1,0); cxL.quadraticCurveTo(-4,-8-flap*9, -12,-10-flap*13); cxL.stroke();
+    cxL.beginPath(); cxL.moveTo(-1,0); cxL.quadraticCurveTo(-4,6+flap*7, -11,8+flap*10); cxL.stroke();
+    cxL.restore();
+  }
 }
 var cvH=$('hydro'), cxH=cvH.getContext('2d');
 function drawHydro(){
@@ -659,6 +737,120 @@ function transform(fn){
   });
 });
 
+/* ── story mode: guided chapters with deliberate choices ── */
+var ST={ ch:-1, phase:'idle', until:0, m:null, prev:null };
+function stMetricsStart(){
+  ST.m={ maxQ:0, maxPol:0, floods0:S.floodDays, droughts0:S.droughtDays, day0:S.day };
+}
+var CHAPTERS=[
+  { title:'I · The Inheritance',
+    text:'The valley is yours now — forest on the ridge, farms in the middle, a small town, a marsh by the water. Before deciding anything, spend a season just <b>listening to the river</b>.',
+    choices:[ { label:'⏵ live through one season', hint:'120 days pass; the journal takes notes.', dur:120, apply:function(){} } ],
+    report:function(m){ return 'A season passed. The river peaked at <b>'+Math.round(m.maxQ)+'</b>, flooded '+(S.floodDays-m.floods0)+' day(s), and carried a worst turbidity of '+Math.round(m.maxPol)+'. Remember these numbers — every choice from here will move them.'; } },
+  { title:'II · The Offer',
+    text:'A developer spreads blueprints on your table: <b>pave the mid-valley</b>. Jobs, they promise. The river is not consulted.',
+    choices:[
+      { label:'🏙 approve it all', hint:'rows of asphalt replace the farms.', dur:120,
+        apply:function(){ transform(function(i,r){ return r>=4&&r<9? 'city':S.cells[i]; }); } },
+      { label:'🏘 approve half, keep a greenbelt', hint:'development, but a forest strip stays.', dur:120,
+        apply:function(){ transform(function(i,r){ return (r>=4&&r<7)? 'city' : r===7? 'forest' : S.cells[i]; }); } },
+      { label:'🌾 refuse the offer', hint:'the valley stays as it is.', dur:120, apply:function(){} }
+    ],
+    report:function(m){ return 'Season\'s verdict: peak <b>'+Math.round(m.maxQ)+'</b>, '+(S.floodDays-m.floods0)+' flood day(s), worst turbidity '+Math.round(m.maxPol)+'. '+(ST.prev? 'Last season peaked at '+Math.round(ST.prev.maxQ)+' — the difference is your signature on the land.':''); } },
+  { title:'III · The Harvest Question',
+    text:'Grain prices are up. The ridge forest could be fields by spring. The soil has opinions it can only express later.',
+    choices:[
+      { label:'🪓 clear the whole ridge', hint:'maximum acreage, minimum canopy.', dur:120,
+        apply:function(){ transform(function(i,r){ return S.cells[i]==='forest'? 'farm':S.cells[i]; }); } },
+      { label:'🌲 cut half, keep half', hint:'a compromise the wind can live with.', dur:120,
+        apply:function(){ transform(function(i,r){ return (S.cells[i]==='forest'&&(i%2===0))? 'farm':S.cells[i]; }); } },
+      { label:'🍃 leave the forest standing', hint:'the drinker keeps its job.', dur:120, apply:function(){} }
+    ],
+    report:function(m){ return 'Peak <b>'+Math.round(m.maxQ)+'</b> · '+(S.floodDays-m.floods0)+' flood day(s) · worst turbidity '+Math.round(m.maxPol)+'. Cleared canopy shows up first as browner water, then as sharper peaks — and slightly thinner rain (recycling lost).'; } },
+  { title:'IV · The Restoration',
+    text:'The river has been sending bills. Time to invest in the land itself.',
+    choices:[
+      { label:'🦆 restore a wetland belt', hint:'a sponge between the land and the river.', dur:120,
+        apply:function(){ transform(function(i,r){ return r>=9? 'wet':S.cells[i]; }); } },
+      { label:'🌲 reforest the ridge', hint:'slow medicine, deep roots.', dur:120,
+        apply:function(){ transform(function(i,r){ return r<4? 'forest':S.cells[i]; }); } },
+      { label:'🌍 both — the full restoration', hint:'wetland belt and ridge forest together.', dur:120,
+        apply:function(){ transform(function(i,r){ return r>=9? 'wet' : r<4? 'forest' : S.cells[i]; }); } }
+    ],
+    report:function(m){ return 'Peak <b>'+Math.round(m.maxQ)+'</b> · '+(S.floodDays-m.floods0)+' flood day(s) · worst turbidity '+Math.round(m.maxPol)+'. Restoration pays in the currencies of softer peaks and cleaner water — and if the marshes stay healthy three seasons running, watch the sky.'; } },
+  { title:'V · The Reckoning',
+    text:'The forecast uses words nobody wants: a <b>century storm</b> — three days of 120 mm. It will not negotiate. Your valley meets it as it is.',
+    choices:[ { label:'⛈ face the storm', hint:'20 days, storm included. No re-rolls.', dur:20,
+        apply:function(){ S.stormLeft=3; } } ],
+    report:function(m){ var fd=S.floodDays-m.floods0;
+      return fd===0? 'Peak <b>'+Math.round(m.maxQ)+'</b> and <b>zero flood days</b>. The storm came and the land drank it. That is what all those choices were for.'
+        : 'Peak <b>'+Math.round(m.maxQ)+'</b> and <b>'+fd+' flood day(s)</b>. The storm found what the choices left open. The river forgives nothing, but it does forget — rebuild and try again.'; } },
+  { title:'VI · Epilogue',
+    text:'', choices:[],
+    report:function(){ return ''; } }
+];
+function stRender(){
+  var host=$('storybody');
+  if(ST.ch<0){ return; }
+  var ch=CHAPTERS[ST.ch];
+  var html='<p class="chnum">'+ch.title+'</p>';
+  if(ST.ch===5){
+    /* epilogue */
+    html+='<p class="stx">The journal closes on day '+S.day+': <b>'+S.floodDays+'</b> flood days, <b>'+S.droughtDays+'</b> drought days lifetime. '
+      +(S.heronFlights>0? 'And the heron came — '+S.heronFlights+' flight'+(S.heronFlights>1?'s':'')+' over marshes healthy enough to fish. The valley\'s quietest resident approved of you.'
+                        : 'The heron never came. Three healthy wetland seasons in a row would summon it — the valley keeps that door open.')
+      +'</p><p class="stx">Free play is yours below — the science was identical all along.</p>';
+    html+='<button type="button" data-st="restart">📖 read the story again</button>';
+    host.innerHTML=html;
+    host.querySelector('[data-st="restart"]').addEventListener('click', function(){ ST.ch=0; ST.phase='choose'; ST.prev=null; stRender(); });
+    return;
+  }
+  if(ST.phase==='choose'){
+    html+='<p class="stx">'+ch.text+'</p>';
+    ch.choices.forEach(function(c,ci){
+      html+='<button type="button" data-st="'+ci+'">'+c.label+'<small>'+c.hint+'</small></button>';
+    });
+    host.innerHTML=html;
+    [].forEach.call(host.querySelectorAll('[data-st]'), function(b){
+      b.addEventListener('click', function(){ stChoose(+b.dataset.st); });
+    });
+  } else if(ST.phase==='running'){
+    html+='<p class="stx">the season is unfolding… <b>day '+S.day+'</b> of '+ST.until+'. The journal is watching the river.</p>';
+    host.innerHTML=html;
+  } else if(ST.phase==='report'){
+    html+='<div class="report">'+ch.report(ST.m)+'</div>';
+    html+='<button type="button" data-st="next">▸ next chapter</button>';
+    host.innerHTML=html;
+    host.querySelector('[data-st="next"]').addEventListener('click', function(){
+      ST.prev=ST.m; ST.ch++; ST.phase='choose'; stRender();
+    });
+  }
+}
+function stChoose(ci){
+  var ch=CHAPTERS[ST.ch];
+  var c=ch.choices[ci];
+  c.apply();
+  stMetricsStart();
+  ST.until=S.day+c.dur;
+  ST.phase='running';
+  if(!S.playing) $('btn-play').click();
+  stRender();
+}
+function stTick(){
+  if(ST.phase!=='running') return;
+  ST.m.maxQ=Math.max(ST.m.maxQ, S.Q);
+  ST.m.maxPol=Math.max(ST.m.maxPol, S.pol);
+  if(S.day>=ST.until){
+    ST.phase='report';
+    if(S.playing) $('btn-play').click();
+    stRender();
+  } else if(S.day%10===0) stRender();
+}
+$('btn-story').addEventListener('click', function(){
+  ST.ch=0; ST.phase='choose'; ST.prev=null;
+  stRender();
+});
+
 /* ── loop ── */
 reset();
 $('rainread').textContent=S.rainBase+' mm/day (seasonal cycle on top)';
@@ -668,13 +860,23 @@ function frame(t){
     acc+=(t-last)/1000;
     while(acc>0.25){ acc-=0.25; stepDay(); }
   }
+  if(last!==null){
+    var rm=false;
+    try{ rm=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+    if(!rm) S.visT+=(t-last)/1000;
+  }
+  if(last!==null && S.heron.active){
+    S.heron.p+=(t-last)/1000*0.075;   /* ~13s glide */
+    if(S.heron.p>=1) S.heron.active=false;
+  }
   last=t;
   drawLand(); drawHydro(); paintBalance(); paintCue();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-window.__WS={ get S(){ return S; }, stepDay:stepDay, reset:reset, LAND:LAND,
+window.__WS={ get S(){ return S; }, stepDay:stepDay, reset:reset, LAND:LAND, floodMix:floodMix,
+  get ST(){ return ST; }, CHAPTERS:CHAPTERS, stChoose:stChoose, stRender:stRender,
   setCue:setCue, paintCue:paintCue, paintBudget:paintBudget, drawLand:drawLand, drawHydro:drawHydro,
   paintCellAt:paintCellAt, transform:transform, stormOn:stormOn,
   COLS:COLS, ROWS:ROWS, QFLOOD:QFLOOD, QLOW:QLOW, EXPS:EXPS };

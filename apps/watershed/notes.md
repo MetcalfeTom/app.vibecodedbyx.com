@@ -70,6 +70,26 @@
   untouched. All three suites green on SEPARATE composed files (19/19 + 7/7 + 10/10)
   + century-storm screenshot + boot probe after atomic deploy.
 
+- 2026-08-18 v1.5: **heron milestone + anti-flicker + purple fix + STORY MODE** (three
+  chat requests, one deploy). **Heron**: every 120d season scores healthy-wetland if
+  wetFrac≥8% AND cycle max turbidity<140 AND wetlands actually stored >60mm; three
+  consecutive → subtle 13s heron glide (S-neck, slow wingbeat, drawn in canvas) +
+  narration; prefers-reduced-motion gets narration only (no flight); counter resets so
+  it recurs; probes: wet valley 360d → 1 flight, city valley → 0. **Anti-flicker**
+  (chat-reported "vertical flashing"): runoff columns ease via colFlowVis (+6%/frame),
+  rain/splash/cloud positions drift on continuous S.visT (frozen under reduced motion)
+  instead of re-hashing 4×/s. **Purple river** (chat-reported): first fix (red translucent
+  wash over blue) LITERALLY RECREATED the purple — caught by my own screenshot. Real
+  fix: water NEVER changes hue; flooding = red rim lines at banks + flushed banks +
+  white foam dashes + label; qVis easing kills the threshold flip-flicker; pixel probe
+  asserts flooded body stays blue-dominant (b>r+30). **Story mode** "The Valley
+  Journal": 6 chapters (Inheritance listen-season / The Offer 3 choices / Harvest
+  Question / Restoration / century-storm Reckoning / Epilogue with lifetime stats +
+  heron acknowledgment + restart); ST machine (choose→running→report), per-chapter
+  metrics (maxQ/maxPol/flood delta) vs previous chapter, auto-pause at chapter end;
+  engine and free-play experiments untouched. 17/17 story+heron+flicker probe + 2/2
+  purple pixel probe + 19/19 + 7/7 + 10/10 regressions (55 total) + screenshots.
+
 ## issues
 - **THE modeling lesson**: daily hard-capped infiltration (mm/day) made all land types
   converge under big storms (forest peak 13.6k vs city 17.5k — only 1.3×) because any
