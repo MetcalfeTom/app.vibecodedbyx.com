@@ -23,3 +23,10 @@
   - **Pro rendering**: offscreen bg layer (vignette + faint grid + frame), strong bonds drawn as actual coils (amplitude tightens with strain — a stretched spring LOOKS stretched), weak bonds dashed, atoms as radial-gradient shaded spheres w/ rim + speed glow.
   - Education: new info paragraph (strong-inside vs weak-between; why ice melts long before molecules break; the attraction note). Phase hints water-aware (ICE/LIQUID/STEAM).
   - Suites: water-probe 9/9, core jl-probe 18/18 regression. v1.1 stamped.
+- 2026-08-18 (3): v1.2 — CO₂ + SUBLIMATION + quips + real-world lines per chat.
+  - **CO₂ template** (◎ chip): O=C=O with amber carbon carrying the weak-bond site; straightness enforced by the same keeper-spring trick as the bent trio, but full-span (probe measures ≤30° off 180 after settling — the info panel contrasts "bent vs dead straight").
+  - **Sublimation is engineered honestly**: WEAK gained per-substance `formT` ceilings (h2o 45, co2 14) gating BOTH bond formation and the condensation attraction. CO₂'s glue (k=6, snap 0.22) neither re-knits nor gets attractive help above T=14, so heating dry ice jumps solid→gas with no liquid band. Measured in-suite: at T=30, CO₂ weak bonds ≤2 while water holds ≥4 (its liquid stage) — the "no liquid stage" claim is a tested number, not copy.
+  - **Collision quips**: 6 rotating physics one-liners (momentum, pressure, heat diffusion, sound, smell diffusion) fired by >320-speed impacts, 6s cooldown, never clobbering an active caption (probe drains the caption first — that suppression is by design).
+  - **Real-world lines** (#realworld italic under the phase): freezer/-18°C, cold-glass condensation, kettle plume, stage-fog −78.5°C, freeze-drying, soda fizz, tire pressure, absolute zero. Mapped from phase text on change.
+  - Dry ice demo button (9 CO₂ at T=4). Phase hints substance-aware (dominant site tag). refreshUI exposed in seam (probe needed it — rAF hadn't ticked between sim and assert).
+  - Suites: co2-probe 10/10, water 9/9, core 18/18. Probe fixes this round: inverted angle assert (164° IS straight), missing UI refresh, caption drain before quip test.
