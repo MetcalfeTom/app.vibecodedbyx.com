@@ -152,7 +152,8 @@ li.done > .trow .ttext{ color:#96917e; text-decoration:line-through; text-decora
 #stats{
   margin:1.4rem 0 0; color:var(--ink2); font-size:.95rem; display:flex; gap:1.2rem; flex-wrap:wrap; align-items:center;
 }
-#mutebtn{ margin-left:auto; }
+#datamsg{ margin-left:auto; font-family:'Caveat',cursive; font-size:1.05rem; color:var(--green); }
+#exportbtn, #importbtn{ font-size:1.1rem; }
 #buildstamp{ font-family:'Space Mono',monospace; font-size:.62rem; color:#a89a80; text-align:right; margin:.5rem 0 0; }
 /* ── focus overlay ── */
 #focus[hidden]{ display:none !important; }
@@ -321,9 +322,13 @@ li.done > .trow .ttext{ color:#96917e; text-decoration:line-through; text-decora
   <div id="stats" aria-live="polite">
     <span id="st-done"></span>
     <span id="st-focus"></span>
+    <span id="datamsg" aria-live="polite"></span>
+    <button type="button" class="tbtn" id="exportbtn" title="download the notebook as a file" aria-label="Export notebook as JSON file">⇩</button>
+    <button type="button" class="tbtn" id="importbtn" title="restore a notebook file" aria-label="Import notebook from JSON file">⇧</button>
+    <input type="file" id="importfile" accept=".json,application/json" class="visually-hidden" aria-hidden="true" tabindex="-1">
     <button type="button" class="tbtn" id="mutebtn" aria-pressed="false" title="chime on focus finish">🔔</button>
   </div>
-  <p id="buildstamp" role="note" aria-label="Build information">build v2.6 · 2026-08-18 · 796a3c6ea</p>
+  <p id="buildstamp" role="note" aria-label="Build information">build v2.7 · 2026-08-18 · pending</p>
 </div>
 </main>
 
@@ -674,6 +679,77 @@ $('addform').addEventListener('submit', function(e){
   $('addinput').focus();
 });
 
+/* ── validated export / import: clean rebuild, stash before replace ── */
+var BACKUP_KEY='loose-leaf-v1-backup';
+function cleanTask(t, depth){
+  if(!t || typeof t.text!=='string' || !t.text.trim()) return null;
+  var out={
+    id:Math.max(1, t.id|0),
+    text:String(t.text).slice(0,140),
+    done:!!t.done,
+    pomos:Math.max(0, t.pomos|0),
+    est: (typeof t.est==='number' && t.est>0 && t.est<600)? Math.round(t.est) : null,
+    due: (typeof t.due==='string' && /^\d{4}-\d{2}-\d{2}$/.test(t.due))? t.due : null,
+    created: (typeof t.created==='number' && t.created>0)? t.created : null,
+    subs:[]
+  };
+  if(depth<MAX_DEPTH && Array.isArray(t.subs)){
+    t.subs.forEach(function(st){
+      var c=cleanTask(st, depth+1);
+      if(c) out.subs.push(c);
+    });
+  }
+  return out;
+}
+function exportData(){
+  return JSON.stringify({ app:'loose-leaf', version:1,
+    exported:new Date().toISOString().slice(0,10), state:{ tasks:S.tasks, focusDone:S.focusDone } }, null, 1);
+}
+function validateImport(text){
+  var obj;
+  try{ obj=JSON.parse(text); }catch(e){ return { err:'that file is not valid JSON.' }; }
+  var raw= obj && obj.state && Array.isArray(obj.state.tasks)? obj.state.tasks
+    : (obj && Array.isArray(obj.tasks)? obj.tasks : null);
+  if(!raw) return { err:'no notebook found in that file — expected a loose-leaf export.' };
+  var tasks=[];
+  raw.forEach(function(t){ var c=cleanTask(t,1); if(c) tasks.push(c); });
+  if(raw.length && !tasks.length) return { err:'that file held no readable goals — nothing was changed.' };
+  var maxId=0;
+  (function walk(list){ list.forEach(function(t){ if(t.id>maxId) maxId=t.id; walk(t.subs); }); })(tasks);
+  return { tasks:tasks,
+    focusDone: obj.state && typeof obj.state.focusDone==='number'? Math.max(0,obj.state.focusDone|0) : 0,
+    nextId:maxId+1 };
+}
+function applyImport(v){
+  try{ localStorage.setItem(BACKUP_KEY, exportData()); }catch(e){}   /* the old notebook is stashed first */
+  S.tasks=v.tasks; S.nextId=v.nextId; S.focusDone=v.focusDone; S.page=0;
+  save(); render();
+}
+function dataMsg(t){ $('datamsg').textContent=t; setTimeout(function(){ if($('datamsg').textContent===t) $('datamsg').textContent=''; }, 6000); }
+$('exportbtn').addEventListener('click', function(){
+  var blob=new Blob([exportData()], { type:'application/json' });
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='loose-leaf-'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+  dataMsg('notebook exported ✓');
+});
+$('importbtn').addEventListener('click', function(){ $('importfile').click(); });
+$('importfile').addEventListener('change', function(){
+  var f=this.files && this.files[0];
+  this.value='';
+  if(!f) return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    var v=validateImport(String(rd.result));
+    if(v.err){ dataMsg('⚠ '+v.err); return; }
+    applyImport(v);
+    dataMsg('imported '+v.tasks.length+' goal'+(v.tasks.length===1?'':'s')+' ✓ (previous notebook stashed)');
+  };
+  rd.readAsText(f);
+});
+
 /* ── focus timer ── */
 var FO={ open:false, taskId:null, total:25*60, left:25*60, running:false };
 function fmt(sec){
@@ -857,7 +933,8 @@ if(!S.tasks.length && !localStorage.getItem(KEY)){
 }
 render();
 
-window.__LL={ S:S, get FO(){ return FO; }, get AUTO(){ return AUTO; }, runPlan:runPlan, autoStartNext:autoStartNext, setPage:setPage, setDue:setDue, dueText:dueText, isOverdue:isOverdue, addTask:addTask, addSmart:addSmart, generateSteps:generateSteps,
+window.__LL={ S:S, get FO(){ return FO; }, get AUTO(){ return AUTO; }, runPlan:runPlan, autoStartNext:autoStartNext,
+  exportData:exportData, validateImport:validateImport, applyImport:applyImport, cleanTask:cleanTask, setPage:setPage, setDue:setDue, dueText:dueText, isOverdue:isOverdue, addTask:addTask, addSmart:addSmart, generateSteps:generateSteps,
   addSub:addSub, setDone:setDone, editTask:editTask, delTask:delTask, findTask:findTask,
   render:render, save:save, load:load,
   openFocus:openFocus, tickFocus:tickFocus, finishFocus:finishFocus, closeFocus:closeFocus };
