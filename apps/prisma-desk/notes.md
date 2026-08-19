@@ -17,3 +17,4 @@
 
 ## todos
 - binary outcomes (log OR), funnel plot, CSV export, if researchers in chat want more.
+- 2026-08-19 (2): v1.1 — JOY LAYER per chat, nothing obscured: right-edge MARKER TABS (7 colored notebook tabs, real anchor nav with focus outlines, hidden <760px so mobile is never covered), per-section WASHI TAPE patterns (stripes/dots on the existing tape pseudo), 4 aria-hidden corner STICKERS (📎🔬☕🌿, opacity .5, pointer-events none), and PROGRESS STAMPS that are DERIVED FROM STATE, never decorative lies: COLLECTED ✓ (records>0), DOUBLE-CHECKED κ (dual-rated>0), INCLUDED! (included>0), DIAMOND DAY ◆ (≥1 computable effect) — each role=img with "progress stamp:" aria-label, spring-in animation (reduced-motion stilled), and the probe proves they VANISH when the state empties. Suite 23/23.
