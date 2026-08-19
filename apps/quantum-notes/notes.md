@@ -12,3 +12,4 @@
 
 ## todos
 - S/T phase gates + a phase-kickback demo; 3rd qubit + GHZ, if chat wants depth.
+- 2026-08-19 (2): typography per chat — Georgia serif → clean system sans (-apple-system/'Segoe UI'/'Helvetica Neue'/Arial) EVERYWHERE including all 7 canvas ctx.font sites (dial, both histograms, amplitude labels). Layout untouched, no-external-assets holds (system stack, no font CDN). Full 16/16 re-run.
