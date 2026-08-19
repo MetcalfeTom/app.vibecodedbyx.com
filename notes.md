@@ -145,6 +145,7 @@
 - CDN-based modules (three.js) mean JS console errors only surface in browser; rely on minimal syntax-only diffs for quick tweaks.
 - Large single-file apps: careful with 250-line output limits when inspecting; use targeted greps.
  - WebAudio requires a user gesture to start on mobile; always add a Start button to unlock audio.
+ - +Headless audio-clock starvation (weather-loom, 2026-08-19): headless chromium has no output device, so AudioContext.currentTime barely advances and setTargetAtTime values never converge — probes must capture the SCHEDULED TARGET (monkey-patch setTargetAtTime) instead of reading gain.value after a wait.
  - OG tags must include a .png image URL; emojicdn works in a pinch but custom PNGs look better.
  - Root supabase-config.js may expect premium UI nodes; prefer per-app copy with null checks. Fixed version at /supabase-config-fixed.js (localhost cookie domain + null-safe DOM).
  - Root supabase-config.js is a read-only bind mount — cannot be edited directly. Use /supabase-config-fixed.js for new apps.
