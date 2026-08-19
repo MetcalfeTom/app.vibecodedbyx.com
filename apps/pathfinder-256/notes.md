@@ -1,0 +1,10 @@
+# Pathfinder 256 — A* multi-agent sandbox
+
+## log
+- 2026-08-19: v1.0 — built per two chat requests landing together. 256×256 grid (65,536 cells) on a 512px pixelated canvas. REAL A*: binary heap of (f<<16|idx)-encoded ints with lazy deletion, generation-stamped typed arrays (no per-call clearing), 4-dir manhattan, 30k expansion cap, honest null on no-route; probe-verified straight lines (len = manhattan+1), forced detours through a one-gap wall, sealed = null. AGGRO is coordinated + obstacle-aware per the follow-up: initial aggro needs Bresenham LINE OF SIGHT (walls block), a chasing monster then alerts idle neighbors within the radius (pack join, no LOS needed — they heard the call), disengage beyond 2R. Player A*-walks to the gold goal; monsters chase with per-tick repath budget 16 (round-robin), monster-monster collision (wait if next cell occupied), tag = kind pause. EDITABLE MAP DATA, two formats, import auto-detects: compact JSON (RLE walls + spawns) and the requested NUMERIC GRID — 256 rows × 256 digits, 0 empty · 1 wall · 2 player · 3 goal · 4 monster; both roundtrip probe-verified byte-identical, rejections are specific and kind ("row 2 has 2 cells — every row needs 256 digits"). TRAILS: Uint8 layers stamped 255 on every agent move, −5/tick decay, cyan/red translucent render, toggleable. Controls: step (N), play/pause (Space, aria-pressed), reset (R), speed 1–30 t/s, aggro radius 4–64, brush 1–8, seeded cellular-cave generator (2 smoothing passes, spawn carve-out, guaranteed route via L-corridor fallback), clear. Canvas keyboard editing: tabindex + role=application, arrows move cursor (shift=8), Enter paints. Probe 21/21 (one probe-side fix: grid import collects monsters row-major, so probe now finds monsters by coordinates, not assumed order).
+
+## issues
+- monster identity from grid import is row-major scan order — anything asserting on monster order must match by coordinates.
+
+## todos
+- 8-direction toggle, weighted terrain (cost 2 mud digit), flow-field mode comparison, if chat asks.
