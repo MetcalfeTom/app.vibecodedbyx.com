@@ -1,6 +1,7 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-08-19: **quantum-notes.lnk** per chat ("original inline quantum icon"). Original atom-dial SVG in the notes app's own palette (cream tile #f7f4ec, indigo double orbit, rust nucleus + electron, italic ψ) between parla.lnk and bean-machine.lnk; paper-toned sat-window "⚛ Quantum Notes — qubits taught honestly (a course, not a pitch)" lazy-loading /quantum-notes/?bare=1 (same-site, probe-asserted). Twelfth shared-loop registration, three additive blocks, all 15 script blocks parse. Harness 8/8 first try (all documented lessons pre-applied): accessible icon (tabindex/title/svg/label), lazy, opens+loads, same-site, close, Enter, src-stable, siblings preserved.
 - 2026-08-18: **parla.lnk** joins the desktop (chat request: clearly labeled, harmless,
   no external links). Speech-bubble ñ icon + tri-color language dots; sat-window titled
   "Parla — sixty core words, four languages (harmless language trainer)"; lazy iframe
