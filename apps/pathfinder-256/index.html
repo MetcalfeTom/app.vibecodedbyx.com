@@ -150,6 +150,22 @@ grid: arrows move the cursor, Enter paints).</p>
   </div>
 
   <div class="panel">
+    <h3>stress test</h3>
+    <p style="margin:.2rem 0 .4rem; font-size:.7rem; color:var(--ink2);">fresh seeded caves, 20
+    players chasing randomized destinations, 100 monsters on the beat. repeatable: same seed,
+    same run, tick for tick. everything simulates in this browser — nothing leaves the page.</p>
+    <div class="slider">
+      <label for="stseed">seed</label>
+      <input type="number" id="stseed" value="4242" min="0" max="999999" aria-label="Stress test seed, repeatable"
+        style="flex:1; min-width:6rem; font-family:inherit; font-size:.78rem; background:#0a0e13; color:var(--ink); border:1.5px solid var(--line); border-radius:.4rem; padding:.35rem .5rem; min-height:2.2rem;">
+    </div>
+    <div class="btnrow">
+      <button type="button" id="strun">⚡ run stress test</button>
+      <button type="button" id="stexit" hidden>← exit, restore my map</button>
+    </div>
+  </div>
+
+  <div class="panel">
     <h3>readout</h3>
     <div id="stats" aria-live="polite">
       <span>tick <b id="s-tick">0</b></span>
@@ -157,13 +173,16 @@ grid: arrows move the cursor, Enter paints).</p>
       <span>chasing <b id="s-aggro">0</b></span>
       <span>tagged <b id="s-caught">0</b></span>
       <span>last A* expanded <b id="s-exp">–</b></span>
+      <span>players <b id="s-pl">1</b></span>
+      <span>tick ms <b id="s-ms">–</b></span>
+      <span>A*/tick <b id="s-astar">–</b></span>
     </div>
   </div>
 </div>
 </div>
 
 <footer>A* with a binary heap, four directions, manhattan heart · no external assets · vote on sloppy.live if the monsters found you<br>
-<span id="buildstamp" role="note" aria-label="Build information" style="font-size:.6rem;opacity:.65;">build v1.1 · 2026-08-19 · a1ac481ec</span></footer>
+<span id="buildstamp" role="note" aria-label="Build information" style="font-size:.6rem;opacity:.65;">build v1.2 · 2026-08-19 · pending</span></footer>
 </main>
 <script>
 (function(){
@@ -178,7 +197,8 @@ function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
 /* ---------- world ---------- */
 var walls=new Uint8Array(SZ);
 var spawn={ player:[20,128], goal:[236,128], monsters:[], routes:null };
-var sim={ tick:0, running:false, caught:0, player:null, goal:null, monsters:[], lastExp:0 };
+var sim={ tick:0, running:false, caught:0, player:null, goal:null, players:[], monsters:[], lastExp:0,
+          met:{ms:[],calls:0,exp:0}, stressSeed:null, srng:null };
 var tool='wall', brush=3, aggroR=24, speed=8, timer=null, idleMode='patrol';
 
 function idx(x,y){ return y*N+x; }
@@ -199,7 +219,8 @@ function hpop(){ var top=heap[0], last=heap.pop();
       if(m===i) break; var t=heap[m]; heap[m]=heap[i]; heap[i]=t; i=m; } }
   return top; }
 
-function astarReal(sx,sy,tx,ty){
+function astarReal(sx,sy,tx,ty,cap){
+  cap=cap||EXP_CAP;
   if(!inb(sx,sy)||!inb(tx,ty)) return null;
   var S=idx(sx,sy), T=idx(tx,ty);
   if(walls[T]||walls[S]) return null;
@@ -212,8 +233,8 @@ function astarReal(sx,sy,tx,ty){
     var key=hpop(), cur=key&0xFFFF;
     if(closedGen[cur]===GEN) continue;
     closedGen[cur]=GEN;
-    if(cur===T){ sim.lastExp=exp; return rebuild(cur); }
-    if(++exp>EXP_CAP){ sim.lastExp=exp; return null; }
+    if(cur===T){ sim.lastExp=exp; sim.met.calls++; sim.met.exp+=exp; return rebuild(cur); }
+    if(++exp>cap){ sim.lastExp=exp; sim.met.calls++; sim.met.exp+=exp; return null; }
     var cx=cur&0xFF, cy=cur>>8;
     var g2=gCost[cur]+1;
     for(var d=0;d<4;d++){
@@ -227,7 +248,7 @@ function astarReal(sx,sy,tx,ty){
       }
     }
   }
-  sim.lastExp=exp;
+  sim.lastExp=exp; sim.met.calls++; sim.met.exp+=exp;
   return null;
 }
 function rebuild(t){
@@ -267,7 +288,7 @@ function genRoute(x,y){
     tries++;
     var nx=x+Math.floor(r()*37)-18, ny=y+Math.floor(r()*37)-18;
     if(!inb(nx,ny) || walls[idx(nx,ny)] || (nx===x&&ny===y)) continue;
-    if(!astarReal(x,y,nx,ny)) continue;
+    if(!astarReal(x,y,nx,ny,6000)) continue;
     pts.push([nx,ny]);
   }
   return pts;
@@ -284,43 +305,85 @@ function ensureRoutes(){
 function resetRun(){
   sim.tick=0; sim.caught=0; sim.lastExp=0;
   trailP.fill(0); trailM.fill(0);
-  sim.player={ x:spawn.player[0], y:spawn.player[1], path:null, pi:0 };
-  sim.goal={ x:spawn.goal[0], y:spawn.goal[1] };
   sim.rng=mulberry(9001);
-  ensureRoutes();
-  sim.monsters=spawn.monsters.map(function(m,i){
-    return { x:m[0], y:m[1], aggro:false, path:null, pi:0, target:-1,
-             route:spawn.routes[i].map(function(p){return idx(p[0],p[1]);}), ri:0, wpath:null, wpi:0 };
-  });
-  planPlayer();
+  sim.met={ms:[],calls:0,exp:0};
+  if(sim.stressSeed!=null){
+    // stress mode: 20 seeded players with randomized destinations, 100 seeded monsters
+    sim.srng=mulberry(sim.stressSeed^0x5bd1);
+    sim.players=[];
+    for(var si=0;si<20;si++){
+      var c=openCellFrom(sim.srng);
+      sim.players.push({ x:c[0], y:c[1], path:null, pi:0, goal:{x:c[0],y:c[1]}, done:false });
+    }
+    sim.monsters=[];
+    for(var sj=0;sj<100;sj++){
+      var mc=openCellFrom(sim.srng);
+      var srt=genRoute(mc[0],mc[1]);
+      sim.monsters.push({ x:mc[0], y:mc[1], aggro:false, path:null, pi:0, target:-1,
+        route:srt.map(function(p2){return idx(p2[0],p2[1]);}), ri:0, wpath:null, wpi:0 });
+    }
+    sim.player=sim.players[0]; sim.goal=sim.players[0].goal;
+    sim.players.forEach(function(pl){ newStressGoal(pl); });
+  }else{
+    sim.players=[{ x:spawn.player[0], y:spawn.player[1], path:null, pi:0,
+                   goal:{x:spawn.goal[0], y:spawn.goal[1]}, done:false }];
+    sim.player=sim.players[0]; sim.goal=sim.players[0].goal;
+    ensureRoutes();
+    sim.monsters=spawn.monsters.map(function(m,i){
+      return { x:m[0], y:m[1], aggro:false, path:null, pi:0, target:-1,
+               route:spawn.routes[i].map(function(p){return idx(p[0],p[1]);}), ri:0, wpath:null, wpi:0 };
+    });
+    planPlayer();
+  }
   stats(); draw();
 }
+function planFor(pl){
+  pl.path=astarReal(pl.x,pl.y,pl.goal.x,pl.goal.y); pl.pi=0; pl.done=false;
+}
 function planPlayer(){
-  var p=sim.player, g=sim.goal;
-  p.path=astarReal(p.x,p.y,g.x,g.y); p.pi=0;
-  if(!p.path && (p.x!==g.x || p.y!==g.y))
+  var p=sim.players[0];
+  planFor(p);
+  if(!p.path && (p.x!==p.goal.x || p.y!==p.goal.y))
     status('no route from player to goal — carve a corridor or regenerate.');
 }
 function tick(){
+  var mt0=performance.now();
   sim.tick++;
+  sim.met.calls=0; sim.met.exp=0;
   decayTrails();
-  var p=sim.player;
-  // player advances toward goal
-  if(p.path && p.pi<p.path.length-1){
-    var nxt=p.path[p.pi+1];
-    if(walls[nxt]){ planPlayer(); }
-    else { p.pi++; p.x=nxt&0xFF; p.y=nxt>>8; trailP[nxt]=255; }
-    if(p.x===sim.goal.x && p.y===sim.goal.y){
-      status('the player reached the goal at tick '+sim.tick+'. the monsters file a complaint.');
-      pause();
+  // players advance toward their goals
+  sim.players.forEach(function(pl){
+    if(pl.path && pl.pi<pl.path.length-1){
+      var nxt=pl.path[pl.pi+1];
+      if(walls[nxt]){ planFor(pl); }
+      else { pl.pi++; pl.x=nxt&0xFF; pl.y=nxt>>8; trailP[nxt]=255; }
     }
+    if(pl.x===pl.goal.x && pl.y===pl.goal.y){
+      if(sim.stressSeed!=null){ newStressGoal(pl); }
+      else if(!pl.done){
+        pl.done=true;
+        status('the player reached the goal at tick '+sim.tick+'. the monsters file a complaint.');
+        pause();
+      }
+    }
+  });
+  // monsters — phase A: disengage + line-of-sight aggro vs NEAREST player (obstacle-aware)
+  var budget=REPATH_BUDGET;
+  var pSet={};
+  sim.players.forEach(function(pl){ pSet[idx(pl.x,pl.y)]=true; });
+  function nearestPlayer(m){
+    var best=sim.players[0], bd=Infinity;
+    for(var q=0;q<sim.players.length;q++){
+      var pl=sim.players[q];
+      var dx=m.x-pl.x, dy=m.y-pl.y, d2=dx*dx+dy*dy;
+      if(d2<bd){ bd=d2; best=pl; }
+    }
+    return { pl:best, d2:bd };
   }
-  // monsters — phase A: disengage + line-of-sight aggro (obstacle-aware)
-  var pIdx=idx(p.x,p.y), budget=REPATH_BUDGET;
   sim.monsters.forEach(function(m){
-    var dx=m.x-p.x, dy=m.y-p.y, d2=dx*dx+dy*dy;
-    if(m.aggro && d2>4*aggroR*aggroR){ m.aggro=false; m.path=null; m.wpath=null; }
-    if(!m.aggro && d2<=aggroR*aggroR && los(m.x,m.y,p.x,p.y)){ m.aggro=true; m.path=null; m.wpath=null; }
+    var np=nearestPlayer(m);
+    if(m.aggro && np.d2>4*aggroR*aggroR){ m.aggro=false; m.path=null; m.wpath=null; }
+    if(!m.aggro && np.d2<=aggroR*aggroR && los(m.x,m.y,np.pl.x,np.pl.y)){ m.aggro=true; m.path=null; m.wpath=null; }
   });
   // phase B: pack coordination — a chasing monster alerts idle neighbors within the radius
   var pack=sim.monsters.filter(function(m){return m.aggro;});
@@ -337,11 +400,12 @@ function tick(){
   for(var k=0;k<n;k++){
     var m=sim.monsters[(start+k)%n];
     if(!m.aggro) continue;
-    var needPath = !m.path || m.pi>=m.path.length-1 || m.target!==pIdx ||
+    var np2=nearestPlayer(m), tp=np2.pl, tIdx=idx(tp.x,tp.y);
+    var needPath = !m.path || m.pi>=m.path.length-1 || m.target!==tIdx ||
                    walls[m.path[m.pi+1]];
     if(needPath && budget>0){
       budget--;
-      m.path=astarReal(m.x,m.y,p.x,p.y); m.pi=0; m.target=pIdx;
+      m.path=astarReal(m.x,m.y,tp.x,tp.y); m.pi=0; m.target=tIdx;
     }
     if(m.path && m.pi<m.path.length-1){
       var nx2=m.path[m.pi+1];
@@ -351,11 +415,13 @@ function tick(){
         occ[nx2]=true; trailM[nx2]=255;
       }
     }
-    if(m.x===p.x && m.y===p.y){
+    if(pSet[idx(m.x,m.y)]){
       sim.caught++;
       m.aggro=false; m.path=null;
-      status('tagged at tick '+sim.tick+'! the monster is very pleased with itself. (paused — step or play to continue)');
-      pause();
+      if(sim.stressSeed==null){
+        status('tagged at tick '+sim.tick+'! the monster is very pleased with itself. (paused — step or play to continue)');
+        pause();
+      }
     }
   }
   // phase D: unaggroed behavior — patrol fixed waypoints, wander, or stand still
@@ -371,7 +437,7 @@ function tick(){
           var nx3=w.x+(dir===0?1:dir===1?-1:0), ny3=w.y+(dir===2?1:dir===3?-1:0);
           if(!inb(nx3,ny3)) continue;
           var ni3=ny3*N+nx3;
-          if(walls[ni3] || occ[ni3] || ni3===pIdx) continue;
+          if(walls[ni3] || occ[ni3] || pSet[ni3]) continue;
           delete occ[idx(w.x,w.y)];
           w.x=nx3; w.y=ny3; occ[ni3]=true; trailM[ni3]=255;
           break;
@@ -391,12 +457,15 @@ function tick(){
       if(!w.wpath || w.wpath.length<2) continue;
     }
     var nxt2=w.wpath[w.wpi+1];
-    if(!walls[nxt2] && !occ[nxt2] && nxt2!==pIdx){
+    if(!walls[nxt2] && !occ[nxt2] && !pSet[nxt2]){
       delete occ[idx(w.x,w.y)];
       w.wpi++; w.x=nxt2&0xFF; w.y=nxt2>>8;
       occ[nxt2]=true; trailM[nxt2]=255;
     }
   }
+  var mdt=performance.now()-mt0;
+  sim.met.ms.push(mdt);
+  if(sim.met.ms.length>60) sim.met.ms.shift();
   stats(); draw();
 }
 function play(){
@@ -576,6 +645,41 @@ function randomMap(seed, density){
   spawn.routes=null;
 }
 
+/* ---------- stress test — browser-only, seeded, repeatable ---------- */
+var stressSnapshot=null;
+function openCellFrom(r){
+  for(var t=0;t<400;t++){
+    var x=Math.floor(r()*N), y=Math.floor(r()*N);
+    if(!walls[idx(x,y)]) return [x,y];
+  }
+  return [128,128];
+}
+function newStressGoal(pl){
+  for(var t=0;t<5;t++){
+    var c=openCellFrom(sim.srng);
+    var path=astarReal(pl.x,pl.y,c[0],c[1]);
+    if(path){ pl.goal.x=c[0]; pl.goal.y=c[1]; pl.path=path; pl.pi=0; return; }
+  }
+  pl.path=null;
+}
+function enterStress(seed){
+  pause();
+  if(sim.stressSeed==null) stressSnapshot=exportData();
+  sim.stressSeed=seed;
+  randomMap(seed, .42);
+  resetRun();
+  $('stexit').hidden=false;
+  status('stress test: seed '+seed+' — '+sim.players.length+' players, '+sim.monsters.length+
+         ' monsters, all pathing in this browser. same seed = same run, every time.');
+}
+function exitStress(){
+  pause();
+  sim.stressSeed=null;
+  $('stexit').hidden=true;
+  if(stressSnapshot){ importData(stressSnapshot); stressSnapshot=null; }
+  status('back to the sandbox — your old map is restored, untouched.');
+}
+
 /* ---------- render ---------- */
 var cv=$('board'), cx=cv.getContext('2d');
 function draw(){
@@ -596,15 +700,15 @@ function draw(){
   // walls
   cx.fillStyle='#38536b';
   for(var i=0;i<SZ;i++) if(walls[i]) cx.fillRect((i&0xFF)*2, (i>>8)*2, 2, 2);
-  var p=sim.player;
-  // aggro ring
-  if($('showring').checked){
+  var p=sim.players[0];
+  // aggro ring (player one)
+  if($('showring').checked && sim.stressSeed==null){
     cx.strokeStyle='rgba(232,106,90,.35)'; cx.lineWidth=1;
     cx.beginPath(); cx.arc(p.x*2+1, p.y*2+1, aggroR*2, 0, Math.PI*2); cx.stroke();
   }
   // paths
   if($('showpaths').checked){
-    if(p.path){ pline(p.path, p.pi, 'rgba(90,215,232,.45)'); }
+    sim.players.forEach(function(pl){ if(pl.path) pline(pl.path, pl.pi, 'rgba(90,215,232,.45)'); });
     sim.monsters.forEach(function(m){ if(m.aggro && m.path) pline(m.path, m.pi, 'rgba(232,106,90,.3)'); });
   }
   // patrol waypoints
@@ -615,13 +719,15 @@ function draw(){
       m.route.forEach(function(wp){ cx.fillRect((wp&0xFF)*2-1, (wp>>8)*2-1, 3, 3); });
     });
   }
-  // goal, monsters, player
-  cx.fillStyle='#e8b95a'; cx.fillRect(sim.goal.x*2-2, sim.goal.y*2-2, 6, 6);
+  // goals, monsters, players
+  cx.fillStyle='#e8b95a';
+  sim.players.forEach(function(pl){ cx.fillRect(pl.goal.x*2-2, pl.goal.y*2-2, 6, 6); });
   sim.monsters.forEach(function(m){
     cx.fillStyle = m.aggro ? '#e86a5a' : '#9b7bb8';
     cx.fillRect(m.x*2-1, m.y*2-1, 4, 4);
   });
-  cx.fillStyle='#5ad7e8'; cx.fillRect(p.x*2-2, p.y*2-2, 6, 6);
+  cx.fillStyle='#5ad7e8';
+  sim.players.forEach(function(pl){ cx.fillRect(pl.x*2-2, pl.y*2-2, 6, 6); });
   // keyboard cursor
   if(curOn){
     cx.strokeStyle='#e8b95a'; cx.lineWidth=1;
@@ -642,6 +748,15 @@ function stats(){
   $('s-aggro').textContent=sim.monsters.filter(function(m){return m.aggro;}).length;
   $('s-caught').textContent=sim.caught;
   $('s-exp').textContent=sim.lastExp||'–';
+  $('s-pl').textContent=sim.players.length;
+  if(sim.met.ms.length){
+    var mx=0, sum=0;
+    sim.met.ms.forEach(function(v){ sum+=v; if(v>mx) mx=v; });
+    $('s-ms').textContent=(sum/sim.met.ms.length).toFixed(1)+' avg / '+mx.toFixed(1)+' max';
+    $('s-astar').textContent=sim.met.calls+' ('+sim.met.exp+' exp)';
+  }else{
+    $('s-ms').textContent='–'; $('s-astar').textContent='–';
+  }
 }
 function status(t){ $('status').textContent=t; }
 
@@ -709,6 +824,12 @@ $('randmap').addEventListener('click', function(){
   pause(); randomMap(Math.floor(Math.random()*100000), .42); resetRun();
 });
 $('clearmap').addEventListener('click', function(){ pause(); walls.fill(0); resetRun(); status('walls cleared. open country.'); });
+$('strun').addEventListener('click', function(){
+  var sd=parseInt($('stseed').value,10);
+  if(isNaN(sd)||sd<0) sd=4242;
+  enterStress(sd); play();
+});
+$('stexit').addEventListener('click', exitStress);
 $('exportbtn').addEventListener('click', function(){
   $('mapdata').value=exportData(); status('map exported as JSON — copy it anywhere.');
 });
@@ -749,6 +870,7 @@ window.__PF={ N:N, walls:function(){return walls;}, sim:function(){return sim;},
   genRoute:genRoute, ensureRoutes:ensureRoutes,
   exportData:exportData, exportGrid:exportGrid, importData:importData, randomMap:randomMap,
   resetRun:resetRun, running:function(){return sim.running;},
+  stress:enterStress, unstress:exitStress, met:function(){return sim.met;},
   trails:function(){return {p:trailP, m:trailM};} };
 })();
 </script>
