@@ -1,6 +1,7 @@
 # windows-11-recall-nightmare · notes
 
 ## log
+- 2026-08-19 (2): **prisma-desk.lnk** per chat. Icon in the desk's own language: ruled notebook tile with red margin line, three pen-blue PRISMA flow boxes with connectors, two exclusion stubs, rust forest diamond. Cream sat-window "◆ PRISMA Desk — meta-analysis, every formula on the page" lazy-loading /prisma-desk/?bare=1. Thirteenth shared-loop registration, three additive blocks, 15 script blocks parse, harness 7/7 first try (siblings-preserved via quantum-notes).
 - 2026-08-19: **quantum-notes.lnk** per chat ("original inline quantum icon"). Original atom-dial SVG in the notes app's own palette (cream tile #f7f4ec, indigo double orbit, rust nucleus + electron, italic ψ) between parla.lnk and bean-machine.lnk; paper-toned sat-window "⚛ Quantum Notes — qubits taught honestly (a course, not a pitch)" lazy-loading /quantum-notes/?bare=1 (same-site, probe-asserted). Twelfth shared-loop registration, three additive blocks, all 15 script blocks parse. Harness 8/8 first try (all documented lessons pre-applied): accessible icon (tabindex/title/svg/label), lazy, opens+loads, same-site, close, Enter, src-stable, siblings preserved.
 - 2026-08-18: **parla.lnk** joins the desktop (chat request: clearly labeled, harmless,
   no external links). Speech-bubble ñ icon + tri-color language dots; sat-window titled
