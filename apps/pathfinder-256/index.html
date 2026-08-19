@@ -73,7 +73,8 @@ footer{ text-align:center; font-size:.66rem; color:var(--ink2); border-top:1px s
 <h1>PATHFINDER <b>256</b></h1>
 <p id="sub">65,536 cells, honest A*. paint walls, drop monsters, set the aggro radius, and watch the
 chase one tick at a time. monsters need line of sight to notice you — then they tell their friends,
-and everyone disengages past double the radius. click sets cells; keyboard works too (focus the
+and everyone disengages past double the radius. off duty they walk fixed patrol routes (or wander,
+or stand still — your choice). click sets cells; keyboard works too (focus the
 grid: arrows move the cursor, Enter paints).</p>
 
 <div id="layout">
@@ -118,6 +119,11 @@ grid: arrows move the cursor, Enter paints).</p>
       <input type="range" id="aggro" min="4" max="64" value="24">
       <output id="aggroo" for="aggro">24</output>
     </div>
+    <div class="btnrow" id="idlemode" role="group" aria-label="Idle monster behavior when not chasing" style="margin:.35rem 0;">
+      <button type="button" data-idle="patrol" aria-pressed="true">⇄ patrol routes</button>
+      <button type="button" data-idle="wander" aria-pressed="false">∿ random wander</button>
+      <button type="button" data-idle="still" aria-pressed="false">■ stand still</button>
+    </div>
     <label class="chk"><input type="checkbox" id="showpaths" checked> show paths</label>
     <label class="chk"><input type="checkbox" id="showring" checked> show aggro ring</label>
     <label class="chk"><input type="checkbox" id="showtrails" checked> show trails</label>
@@ -157,7 +163,7 @@ grid: arrows move the cursor, Enter paints).</p>
 </div>
 
 <footer>A* with a binary heap, four directions, manhattan heart · no external assets · vote on sloppy.live if the monsters found you<br>
-<span id="buildstamp" role="note" aria-label="Build information" style="font-size:.6rem;opacity:.65;">build v1.0 · 2026-08-19 · 66f227f13</span></footer>
+<span id="buildstamp" role="note" aria-label="Build information" style="font-size:.6rem;opacity:.65;">build v1.1 · 2026-08-19 · pending</span></footer>
 </main>
 <script>
 (function(){
@@ -171,9 +177,9 @@ function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
 
 /* ---------- world ---------- */
 var walls=new Uint8Array(SZ);
-var spawn={ player:[20,128], goal:[236,128], monsters:[] };
+var spawn={ player:[20,128], goal:[236,128], monsters:[], routes:null };
 var sim={ tick:0, running:false, caught:0, player:null, goal:null, monsters:[], lastExp:0 };
-var tool='wall', brush=3, aggroR=24, speed=8, timer=null;
+var tool='wall', brush=3, aggroR=24, speed=8, timer=null, idleMode='patrol';
 
 function idx(x,y){ return y*N+x; }
 function inb(x,y){ return x>=0 && y>=0 && x<N && y<N; }
@@ -253,14 +259,38 @@ function decayTrails(){
   }
 }
 
+/* fixed patrol routes — seeded from spawn position, wall-aware, A*-reachable */
+function genRoute(x,y){
+  var r=mulberry(x*7919 + y*104729 + 12345);
+  var pts=[[x,y]], tries=0;
+  while(pts.length<3 && tries<14){
+    tries++;
+    var nx=x+Math.floor(r()*37)-18, ny=y+Math.floor(r()*37)-18;
+    if(!inb(nx,ny) || walls[idx(nx,ny)] || (nx===x&&ny===y)) continue;
+    if(!astarReal(x,y,nx,ny)) continue;
+    pts.push([nx,ny]);
+  }
+  return pts;
+}
+function ensureRoutes(){
+  if(!spawn.routes) spawn.routes=[];
+  while(spawn.routes.length>spawn.monsters.length) spawn.routes.pop();
+  for(var i=0;i<spawn.monsters.length;i++){
+    if(!spawn.routes[i]) spawn.routes[i]=genRoute(spawn.monsters[i][0], spawn.monsters[i][1]);
+  }
+}
+
 /* ---------- sim ---------- */
 function resetRun(){
   sim.tick=0; sim.caught=0; sim.lastExp=0;
   trailP.fill(0); trailM.fill(0);
   sim.player={ x:spawn.player[0], y:spawn.player[1], path:null, pi:0 };
   sim.goal={ x:spawn.goal[0], y:spawn.goal[1] };
-  sim.monsters=spawn.monsters.map(function(m){
-    return { x:m[0], y:m[1], aggro:false, path:null, pi:0, target:-1 };
+  sim.rng=mulberry(9001);
+  ensureRoutes();
+  sim.monsters=spawn.monsters.map(function(m,i){
+    return { x:m[0], y:m[1], aggro:false, path:null, pi:0, target:-1,
+             route:spawn.routes[i].map(function(p){return idx(p[0],p[1]);}), ri:0, wpath:null, wpi:0 };
   });
   planPlayer();
   stats(); draw();
@@ -289,8 +319,8 @@ function tick(){
   var pIdx=idx(p.x,p.y), budget=REPATH_BUDGET;
   sim.monsters.forEach(function(m){
     var dx=m.x-p.x, dy=m.y-p.y, d2=dx*dx+dy*dy;
-    if(m.aggro && d2>4*aggroR*aggroR){ m.aggro=false; m.path=null; }
-    if(!m.aggro && d2<=aggroR*aggroR && los(m.x,m.y,p.x,p.y)){ m.aggro=true; m.path=null; }
+    if(m.aggro && d2>4*aggroR*aggroR){ m.aggro=false; m.path=null; m.wpath=null; }
+    if(!m.aggro && d2<=aggroR*aggroR && los(m.x,m.y,p.x,p.y)){ m.aggro=true; m.path=null; m.wpath=null; }
   });
   // phase B: pack coordination — a chasing monster alerts idle neighbors within the radius
   var pack=sim.monsters.filter(function(m){return m.aggro;});
@@ -328,6 +358,45 @@ function tick(){
       pause();
     }
   }
+  // phase D: unaggroed behavior — patrol fixed waypoints, wander, or stand still
+  var idleBudget=8;
+  for(var k2=0;k2<n;k2++){
+    var w=sim.monsters[(start+k2)%n];
+    if(w.aggro || idleMode==='still') continue;
+    if(idleMode==='wander'){
+      if(sim.rng()<0.6){
+        var d0=Math.floor(sim.rng()*4);
+        for(var dd=0;dd<4;dd++){
+          var dir=(d0+dd)%4;
+          var nx3=w.x+(dir===0?1:dir===1?-1:0), ny3=w.y+(dir===2?1:dir===3?-1:0);
+          if(!inb(nx3,ny3)) continue;
+          var ni3=ny3*N+nx3;
+          if(walls[ni3] || occ[ni3] || ni3===pIdx) continue;
+          delete occ[idx(w.x,w.y)];
+          w.x=nx3; w.y=ny3; occ[ni3]=true; trailM[ni3]=255;
+          break;
+        }
+      }
+      continue;
+    }
+    // patrol: half speed, budgeted A* replans between waypoints
+    if(!w.route || w.route.length<2) continue;
+    if((sim.tick+k2)%2) continue;
+    if(!w.wpath || w.wpi>=w.wpath.length-1 || walls[w.wpath[w.wpi+1]]){
+      if(idleBudget<=0) continue;
+      idleBudget--;
+      w.ri=(w.ri+1)%w.route.length;
+      var wp=w.route[w.ri];
+      w.wpath=astarReal(w.x,w.y, wp&0xFF, wp>>8); w.wpi=0;
+      if(!w.wpath || w.wpath.length<2) continue;
+    }
+    var nxt2=w.wpath[w.wpi+1];
+    if(!walls[nxt2] && !occ[nxt2] && nxt2!==pIdx){
+      delete occ[idx(w.x,w.y)];
+      w.wpi++; w.x=nxt2&0xFF; w.y=nxt2>>8;
+      occ[nxt2]=true; trailM[nxt2]=255;
+    }
+  }
   stats(); draw();
 }
 function play(){
@@ -361,14 +430,21 @@ function paint(x,y){
   }else if(tool==='monster'){
     if(spawn.monsters.length>=MAXMON){ status('monster cap ('+MAXMON+') — remove some first.'); return; }
     walls[idx(x,y)]=0; spawn.monsters.push([x,y]);
-    sim.monsters.push({x:x,y:y,aggro:false,path:null,pi:0,target:-1});
+    if(!spawn.routes) spawn.routes=[];
+    var rt=genRoute(x,y);
+    spawn.routes.push(rt);
+    sim.monsters.push({x:x,y:y,aggro:false,path:null,pi:0,target:-1,
+      route:rt.map(function(p){return idx(p[0],p[1]);}), ri:0, wpath:null, wpi:0});
   }else if(tool==='unmonster'){
     var best=-1, bd=1e9;
     sim.monsters.forEach(function(m,i){
       var d=(m.x-x)*(m.x-x)+(m.y-y)*(m.y-y);
       if(d<bd){ bd=d; best=i; }
     });
-    if(best>=0 && bd<=144){ sim.monsters.splice(best,1); spawn.monsters.splice(best,1); }
+    if(best>=0 && bd<=144){
+      sim.monsters.splice(best,1); spawn.monsters.splice(best,1);
+      if(spawn.routes) spawn.routes.splice(best,1);
+    }
   }
   stats(); draw();
 }
@@ -381,9 +457,11 @@ function exportData(){
     else { runs.push(count); cur=walls[i]; count=1; }
   }
   runs.push(count);
+  ensureRoutes();
   return JSON.stringify({ v:1, size:N, first:walls[0], walls:runs,
     player:spawn.player.slice(), goal:spawn.goal.slice(),
-    monsters:spawn.monsters.map(function(m){return m.slice();}) });
+    monsters:spawn.monsters.map(function(m){return m.slice();}),
+    routes:spawn.routes.map(function(rt){return rt.map(function(p){return p.slice();});}) });
 }
 /* numeric grid format: 256 lines × 256 digits — 0 empty · 1 wall · 2 player · 3 goal · 4 monster */
 function exportGrid(){
@@ -419,7 +497,7 @@ function importGrid(str){
   }
   if(!pl||!gl) return 'the grid needs one player (2) and one goal (3).';
   if(mons.length>MAXMON) return 'too many monsters — cap is '+MAXMON+'.';
-  walls=w2; spawn.player=pl; spawn.goal=gl; spawn.monsters=mons;
+  walls=w2; spawn.player=pl; spawn.goal=gl; spawn.monsters=mons; spawn.routes=null;
   trailP.fill(0); trailM.fill(0);
   resetRun();
   return null;
@@ -436,8 +514,26 @@ function importData(str){
   if(!pair(d.player) || !pair(d.goal)) return 'player and goal must be [x,y] inside 0–255.';
   if(!Array.isArray(d.monsters) || !d.monsters.every(pair) || d.monsters.length>MAXMON)
     return 'monsters must be up to '+MAXMON+' [x,y] pairs inside 0–255.';
+  if(d.routes!==undefined){
+    if(!Array.isArray(d.routes) || d.routes.length!==d.monsters.length)
+      return 'routes must be one waypoint list per monster ('+d.monsters.length+' lists).';
+    for(var ri=0;ri<d.routes.length;ri++){
+      var rt=d.routes[ri];
+      if(!Array.isArray(rt) || rt.length<1 || rt.length>6 || !rt.every(pair))
+        return 'route '+(ri+1)+' must be 1–6 [x,y] waypoints inside 0–255.';
+    }
+  }
   var v=d.first?1:0, i2=0;
   d.walls.forEach(function(r){ walls.fill(v, i2, i2+r); i2+=r; v=1-v; });
+  if(d.routes!==undefined){
+    for(var ri2=0;ri2<d.routes.length;ri2++)
+      for(var wi=0;wi<d.routes[ri2].length;wi++)
+        if(walls[idx(d.routes[ri2][wi][0], d.routes[ri2][wi][1])])
+          return 'route '+(ri2+1)+' waypoint '+(wi+1)+' sits on a wall.';
+    spawn.routes=d.routes.map(function(rt){return rt.map(function(p){return p.slice();});});
+  }else{
+    spawn.routes=null;
+  }
   spawn.player=d.player.slice(); spawn.goal=d.goal.slice();
   spawn.monsters=d.monsters.map(function(m){return m.slice();});
   walls[idx(spawn.player[0],spawn.player[1])]=0;
@@ -477,6 +573,7 @@ function randomMap(seed, density){
     for(var cy2=ya;cy2<=yb;cy2++) for(var w2=-1;w2<=1;w2++) if(inb(x1+w2,cy2)) walls[idx(x1+w2,cy2)]=0;
     status('caves carved (a corridor was added so the goal stays reachable).');
   }
+  spawn.routes=null;
 }
 
 /* ---------- render ---------- */
@@ -509,6 +606,14 @@ function draw(){
   if($('showpaths').checked){
     if(p.path){ pline(p.path, p.pi, 'rgba(90,215,232,.45)'); }
     sim.monsters.forEach(function(m){ if(m.aggro && m.path) pline(m.path, m.pi, 'rgba(232,106,90,.3)'); });
+  }
+  // patrol waypoints
+  if($('showpaths').checked && idleMode==='patrol'){
+    cx.fillStyle='rgba(155,123,184,.55)';
+    sim.monsters.forEach(function(m){
+      if(m.aggro || !m.route) return;
+      m.route.forEach(function(wp){ cx.fillRect((wp&0xFF)*2-1, (wp>>8)*2-1, 3, 3); });
+    });
   }
   // goal, monsters, player
   cx.fillStyle='#e8b95a'; cx.fillRect(sim.goal.x*2-2, sim.goal.y*2-2, 6, 6);
@@ -579,6 +684,16 @@ Array.prototype.forEach.call(document.querySelectorAll('#tools button'), functio
     });
   });
 });
+Array.prototype.forEach.call(document.querySelectorAll('#idlemode button'), function(b){
+  b.addEventListener('click', function(){
+    idleMode=b.getAttribute('data-idle');
+    Array.prototype.forEach.call(document.querySelectorAll('#idlemode button'), function(o){
+      o.setAttribute('aria-pressed', String(o===b));
+    });
+    status('idle behavior: '+(idleMode==='patrol'?'fixed patrol routes.':idleMode==='wander'?'random wandering.':'standing very still.'));
+    draw();
+  });
+});
 $('brush').addEventListener('input', function(){ brush=+this.value; $('brusho').textContent=brush; });
 $('speed').addEventListener('input', function(){
   speed=+this.value; $('speedo').textContent=speed;
@@ -630,6 +745,8 @@ document.addEventListener('keydown', function(e){
 window.__PF={ N:N, walls:function(){return walls;}, sim:function(){return sim;},
   spawn:function(){return spawn;}, astar:astarReal, los:los, tick:tick, paint:paint,
   setTool:function(t){tool=t;}, setAggro:function(a){aggroR=a;},
+  setIdle:function(m){idleMode=m;}, idle:function(){return idleMode;},
+  genRoute:genRoute, ensureRoutes:ensureRoutes,
   exportData:exportData, exportGrid:exportGrid, importData:importData, randomMap:randomMap,
   resetRun:resetRun, running:function(){return sim.running;},
   trails:function(){return {p:trailP, m:trailM};} };
