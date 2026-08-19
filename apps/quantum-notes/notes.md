@@ -49,3 +49,4 @@
   - Index shifts: machines→10, timeline→11, open→12, cat→13 (task idx too), lab→14, study→15.
   - PROBE NOTE: wiz suite chain outgrew --virtual-time-budget=18000 — rAF freezes when virtual time exhausts, failing lab-time-advances spuriously. Budget → 40000. (Lesson: a frozen animation check late in a long async suite = budget starvation before code blame.)
   - Suites: reg 26/26 + wiz 24/24.
+- 2026-08-19 (11): blue+green dotted lines removed per chat: senpai bubbles' dashed indigo border → borderless indigo-tint background (grouping preserved without the line); machines-diagram photonic dashed teal rays deleted (aria-label already didn't mention them). RUST dashes intentionally KEPT (Z's mirror needle — aria describes it; QKD tripwire; ion halo; lab ghost curve) — they are neither blue nor green, and two carry meaning. Sweep-assert added: any surviving dasharray must be rust. Suites 26/26 + 24/24.
