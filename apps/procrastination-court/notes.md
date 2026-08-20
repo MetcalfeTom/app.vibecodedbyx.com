@@ -1,0 +1,10 @@
+# The Court of Later — a procrastination courtroom
+
+## log
+- 2026-08-20: v1.0 — built per chat: evidence, excuses, verdicts, kind next steps. Five staged screens (intake → trial → verdict → sentence → court order) + persistent docket. NO-SHAME COVENANT: the court prosecutes tasks, not people; verdicts are whimsical reframes only (probe sweeps lazy/shame/pathetic/worthless/failure/disappoint — 'guilty' is allowed, it IS the joke). INTAKE: task + deferred-since (4 tiers up to "an era — geologists are interested") + 6 instead-chips. TRIAL: generated transcript (role=log) — clerk announces "the people (you) v. task", prosecution presents lettered exhibits from the intake, Judge Owl invites excuses "weighed on their genuine merits — some excuses are real information". EXCUSE DOCKET: 6 classics with hidden merit scores (fear-of-imperfection merit 2 + perfection flag, "I work better under pressure" merit 0 "(The court has heard this one before.)"), custom excuses admissible (merit 1, style points), 3 max with a kind decline. VERDICTS deterministic from the case (fnv seed): merit ≥5 → NOT GUILTY dismissed; perfection → "misdemeanor of care"; long deferral + heavy avoidance → "productive avoidance (the court admires the clean kitchen)"; else seeded coin between molehill-protocols and being-a-person. Gavel bang animation + soft synth thunk. SENTENCE: 3 seeded tiny steps (bad-first-sentence, witness, crumbs, 2-min timer, silly location, next-physical-action) — choosing one draws up a parchment COURT ORDER ("SO ORDERED · BE KIND · START SMALL") and files the case. Built-in 2-MINUTE TIMER (injectable TM.now — clock pinned first per the Snapz lesson) ending "you showed up. that was the whole sentence." DOCKET: localStorage cases with case-closed buttons ("the court rises briefly in your honor"). New-case resets + trims custom excuses. Probe 12/12 first run.
+
+## issues
+- none.
+
+## todos
+- appeal process (reroll sentence once), a jury of past-closed cases nodding, printable order, if chat asks.
