@@ -1,0 +1,10 @@
+# GREENHOUSE.EXE — Fernby, a moody 90s plant pet
+
+## log
+- 2026-08-20: v1.0 — built per chat: feeding, rhythm, gardening, moods, reset. A teenage fern in a teal Win95-ish greenhouse window (glass roof stripes, beveled buttons). NO-GUILT COVENANT (pocket-moss lineage): moods are weather, never punishments; nothing can die; stats floor at 0 with droopy visuals only; absence decay capped at 600s ("missed you but did not suffer"); probe sweeps banned vocabulary (with the covenant-phrase exemption — the mendel 'protocol' lesson struck again: our own "not punishments" footer tripped the sweep). FEEDING: water +28 / plant food +24, clamped, polite declines at ≥95. MOODS derived (parched/soggy/gloomy/photosynthesizing/content + seeded DRAMATIC — 15% roll every 60s, 12s long, "no cause was found. it will pass"); mouth path + frond droop/saturation react; fernbox aria-label carries the mood. RHYTHM — the grow beat: 8 beats at 90bpm, ±140ms window, tap button or Space, per-beat dot feedback; ≥6 hits = groove (vibe +20, sway animation, killed by reduced-motion); misses are forgiven ("the beat forgives"). RH.now is injectable — probe pins a fake clock FIRST (the Snapz lesson) and walks exact beat times: 7 hits + 1 in-grid miss (probe fix: a 500ms-late tap rounds past the grid to 'off', not 'miss' — 200ms lands in-grid). GARDENING: 6 pots, 3 seeds (sprout/cactus/tulip), stages 0-3 at 45s each, harvest to shelf (+vibe), busy pots explain themselves. RESET: 🪴 repot — fresh state, seeded drama rng reset, storage cleared, "nothing was lost that mattered." 3 labeled progressbars, status aria-live, per-pot aria-labels. Probe 14/14 after three probe-side fixes (drama flag lingering from the 100000s decay run shadowed mood checks; the off-grid miss; the covenant sweep).
+
+## issues
+- long step() runs roll the drama dice many times — clear dramaticUntil before asserting other moods.
+
+## todos
+- weather through the glass roof (rain days boost moisture), a shelf gallery, fernby humming when grooved, if chat asks.
