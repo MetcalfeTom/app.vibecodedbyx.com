@@ -1,0 +1,11 @@
+# The Steep & Story — a cozy tea-blending bench
+
+## log
+- 2026-08-20: v1.0 — built per chat: ingredient cards, steep timer, tasting notes, gentle reset. PANTRY: 12 ingredient cards (4 bases + 8 botanicals), each with flavor prose, a stat vector (warm/floral/bright/spice/calm), caffeine level, and an ideal steep — aria-labels teach ("likes about 3 minutes"). BOWL: up to 4 with a kind cap ("a fifth voice and nobody gets heard"), chip removal. STEEP TIMER: 1-5 min slider, BENCH TIME compression (a steeping minute passes in two seconds, stated honestly in the footer), CSS steam while steeping (reduced-motion killed), injectable TM.now (clock pinned first in probes — the Snapz lesson holds), one-pot-at-a-time decline, empty bowl → "steeping plain water is technically meditation." TASTING NOTES: pure deterministic taste(ids, steep) — dominant + whisper note, steep verdict vs the blend's averaged ideal (shy / sweet spot ("the kettle is quietly proud") / a touch long / stern-with-honey for delicate oversteeps / "grandmother's kitchen" for hardy blends), caffeine forecast (proper lift / gentle lift / "night-safe. the moon approves"), seeded pairing (rainy window, cracked-spine paperback, one good biscuit…). SHELF: save with seeded name suggestions ("Calm Attic" — deterministic per blend, order-independent), persisted, brew-again reloads bowl+steep "exactly as remembered"; rinse spares the shelf; clear shelf notes "the cups you drank still counted." Probe 15/15 after fixture fixes (Math.round(2.5)=3 shifted the sweet-spot fixture; the hardy fixture needed delta≥2; the covenant phrase "no wrong blends" tripped its own sweep TWICE — sub and footer phrasings — the fourth covenant-exemption incident) + one real bug the screenshot caught: "It entirely night-safe" — the caffeine lines now all fit the "It …" template.
+
+## issues
+- covenant phrases keep tripping their own vocabulary sweeps (4th incident) — when writing kind-vocab probes, exempt the covenant lines FIRST, and check both sub and footer phrasings.
+- generated prose must be read assembled, not per-fragment — the screenshot caught a template grammar break the probes' regex greps sailed past.
+
+## todos
+- seasonal pantry rotations, a "surprise me" blend button, steep-temperature flavor text, if chat asks.
