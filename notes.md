@@ -146,6 +146,7 @@
 - Large single-file apps: careful with 250-line output limits when inspecting; use targeted greps.
  - WebAudio requires a user gesture to start on mobile; always add a Start button to unlock audio.
  - +Mid-write foreign-glyph corruption is MULTI-ALPHABET (5 incidents by 2026-08-19: �putation, astonishment, ココ, 近, категor): sweep every new write with r'[一-鿿а-яА-Я]' + '\x08' asserts — CJK-only sweeps miss Cyrillic.
+ - +Layout truths need geometry assertions: all 12 logic probes passed while every postcard rendered as a 40px chip — an inline <span> flip-inner ignored its height (postcard-drawer, 2026-08-20). Screenshots catch it; better: one getBoundingClientRect size assertion per visual card/grid component. preserve-3d inners must be display:block.
  - +Games with rAF-driven physics need a freeze seam (__X.freeze) from day one — probing step() against a live loop double-steps state (neon-circuit, 2026-08-20). Sibling of the headless-audio lesson: aria-live readouts update in handlers, never wait for the next frame (aquasaver, neon-circuit).
  - +Headless audio-clock starvation (weather-loom, 2026-08-19): headless chromium has no output device, so AudioContext.currentTime barely advances and setTargetAtTime values never converge — probes must capture the SCHEDULED TARGET (monkey-patch setTargetAtTime) instead of reading gain.value after a wait.
  - OG tags must include a .png image URL; emojicdn works in a pinch but custom PNGs look better.
