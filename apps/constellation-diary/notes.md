@@ -1,0 +1,13 @@
+# Constellation Diary — draw your own sky
+
+## log
+- 2026-08-28: v1.0 — built per public request ("polished interactive constellation diary with draggable stars, saved arrangements, and accessible controls"). STARS ARE REAL BUTTONS (not canvas): each star is a 2.75rem `<button type=button>` positioned in % inside `#sky` (role=application), with a descriptive aria-label ("Vega (star 2), blazing, 80% across, 30% down, joined to 1 star. Selected — press another star to join them") refreshed on every change; `aria-pressed` = selected. LINES are an SVG (`viewBox 0 0 100 100`, `preserveAspectRatio=none`, `vector-effect:non-scaling-stroke`) so % coordinates map 1:1 with the buttons. INPUT MODEL: pointer drag with capture (4px dead-zone; a drag sets `suppressClick` so the trailing click never selects); arrows nudge 1% (Shift 5%); press star A then star B toggles a line and moves selection to B so you can chain-draw; B cycles brightness; N focuses the star-name input; Delete removes and refocuses the neighbour; Esc deselects; double-click empty sky adds a star at that point. Two-step "armed" pattern for destructive buttons (clear / forget): first press relabels to "sure? …", second within 4s fires. DIARY: name + entry autosave into `current`; "save to diary" snapshots into `saved[]` (updates in place when the open sky has an id; "update page" label), each card gets an SVG thumbnail (viewBox 100×75, y×.75) + open/forget. localStorage `constellation-diary-v1` = {current, saved}. "copy as text" writes a plain-text page to the clipboard, falls back to reading it aloud in the status line. Meteor streak every 11s, killed under reduced-motion (`#meteor{display:none}`). Fonts: Bodoni Moda italic + Azeret Mono. Suites: desktop 45/45 (boot, geometry, elementFromPoint hit-test, drag, nudge, join/unjoin, brightness, naming, save/open/forget two-step, persistence, injection-inert via textContent, contrast, reduced-motion CSS, build stamp), mobile 6/6 (no overflow, single column, star reachable, 40px+ targets).
+
+## issues
+- Probe lesson (this build): `addStar` originally rebuilt every star button, which detached elements a test held — fixed by making add/remove incremental (`makeStar`), which is also better for focus stability. Keep `renderStars()` only for full rebuilds (open/clear).
+- Screenshots taken at page load catch the staggered `rise` entrance animation at low opacity — use the shot-tail that strips it (`shot-tail.html` in the job tmp) or you'll think the page is empty.
+
+## todos
+- export the sky as PNG (canvas render of stars + lines) if chat asks.
+- optional "real sky" mode: preset famous constellations to trace over.
+- per-star colour temperature (warm/cool) if chat wants more than brightness.
