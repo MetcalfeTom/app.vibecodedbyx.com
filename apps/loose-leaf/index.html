@@ -551,9 +551,145 @@ function generateSteps(text){
   for(var i=0;i<TEMPLATES.length;i++) if(TEMPLATES[i][0].test(low)) return fill(TEMPLATES[i][1]);
   return fill([['define done for {t}',5],['one ten-minute piece',10],['the main push',25],['review & wrap up',10]]);
 }
+/* ── paragraph planner (v4.13): any length of text → a headline + line-sized steps, nothing dropped ── */
+var LINE=48;   /* comfortable characters per ruled line: longer sentences split at list boundaries; a lone long clause stays whole */
+/* openers that only sequence ("and then…", "also…") drop; ordinals and "next / finally" drop only when they are set off by a comma or colon */
+var LEAD_RE=/^(?:(?:and then|and|then|also|so|plus)\b[\s,:\-–—]*|(?:next|finally|lastly|first|firstly|second|secondly|third|thirdly|later|meanwhile|after that|afterwards)\s*[,:\-–—]\s*)/i;
+var ABBR_RE=/(?:^|[\s(\[])(?:[a-z]|e\.g|i\.e|etc|vs|dr|mrs|approx|min|max|fig|para|vol|sec|ch|pp)\.$/i;
+/* list boundaries: commas, semicolons, dashes, and the sequencing conjunctions — "before / while / because / or" stay attached, they carry a condition */
+var CLAUSE_RE=/(,\s+|;\s*|\s+[-–—]\s+|\s+(?:and then|and|then|plus|as well as)\s+)/i;
+function tidyPiece(x){
+  x=String(x).replace(/\s+/g,' ').replace(/^[\s\-–—•*·>]+|[\s,;:.!?]+$/g,'').trim();
+  x=x.replace(LEAD_RE,'').replace(/^[\s,;:]+/,'');
+  if(/^\(.*\)$/.test(x)) x=x.slice(1,-1).trim();
+  return x? cap1(x) : '';
+}
+function wordsOf(x){ return x? x.trim().split(/\s+/).length : 0; }
+function estFor(text){ var w=wordsOf(text); return w<=4? 5 : w<=10? 10 : w<=18? 15 : 20; }
+/* one sentence per unit: hard breaks (newlines, bullets, "1. 2. 3." lists) first, then . ! ? and ; boundaries — abbreviations rejoin */
+function unitsOf(text){
+  var out=[];
+  String(text).replace(/\r/g,'').split(/\n+/).forEach(function(ln){
+    ln=ln.trim(); if(!ln) return;
+    var isBullet=/^[\-–—•*·>]\s+/.test(ln);
+    ln=ln.replace(/^[\-–—•*·>]\s+/,'');
+    var chunks=[ln];
+    var marks=ln.match(/(?:^|\s)\d{1,2}[.)]\s/g);
+    if(marks && marks.length>=2 && /^(?:[^:]{0,40}:\s*)?1[.)]\s/.test(ln))     /* "1. … 2. …" counted from one: an inline list */
+      chunks=ln.split(/(?:^|\s+)(?=\d{1,2}[.)]\s)/).map(function(c){ return c.replace(/^\d{1,2}[.)]\s*/,'').trim(); }).filter(Boolean);
+    chunks.forEach(function(c){
+      var raw=c.replace(/([.!?])\s+(?=\S)/g,'$1\n').replace(/;\s*/g,'\n').split('\n');
+      var acc=[];
+      raw.forEach(function(s){
+        s=s.trim(); if(!s) return;
+        if(acc.length && ABBR_RE.test(acc[acc.length-1])) acc[acc.length-1]+=' '+s;
+        else acc.push(s);
+      });
+      acc.forEach(function(s){ out.push({ s:s, bullet:isBullet, line:ln }); });
+    });
+  });
+  return out;
+}
+/* pieces of one sentence at list boundaries; unless told not to, pieces under three words fold back into their neighbour with the original joiner */
+function clausesOf(s, noFold){
+  var raw=String(s).split(CLAUSE_RE), out=[], sep=null;
+  for(var i=0;i<raw.length;i++){
+    if(i%2===1){ sep=raw[i]; continue; }
+    var p=tidyPiece(raw[i]); if(!p) continue;
+    if(!noFold && out.length && (wordsOf(p)<3 || wordsOf(out[out.length-1])<3)){
+      var j=/^\s*[,;]/.test(sep||'')? ', ' : /[-–—]/.test(sep||'')? ' — ' : ' '+String(sep||'and').trim().toLowerCase()+' ';
+      out[out.length-1]+=j+p.charAt(0).toLowerCase()+p.slice(1);
+    } else out.push(p);
+  }
+  return out.length? out : (tidyPiece(s)? [tidyPiece(s)] : []);
+}
+/* a short handle for the contents page: the whole sentence when it fits, else the first clause / last word before the line ends, with … */
+function headline(s, max){
+  max=max||LINE;
+  var t=tidyPiece(s);
+  if(t.length<=max) return t;
+  var cut=t.slice(0, max-1);
+  var m=cut.search(/[,;:]\s[^,;:]*$/);
+  if(m>=12) cut=cut.slice(0,m);
+  else { var sp=cut.lastIndexOf(' '); if(sp>=12) cut=cut.slice(0,sp); }
+  return cut.replace(/[\s,;:\-–—]+$/,'')+'…';
+}
+/* "Heading: the rest" → the heading, when it is one short clause */
+function colonHead(s){
+  var m=String(s).match(/^([^:]{3,}):\s+(\S.*)$/);
+  if(!m) return null;
+  var head=tidyPiece(m[1]);
+  if(!head || head.length>LINE || clausesOf(m[1]).length!==1 || /^https?$/i.test(head)) return null;
+  return { head:head, rest:m[2] };
+}
+function leaf(x){ return { text:x, est:estFor(x) }; }
+function stepFromSentence(u){
+  var s=u.s, ch=colonHead(s);
+  if(ch){
+    var items=clausesOf(ch.rest, true);
+    if(items.length>=2) return { text:ch.head, subs:items.map(leaf) };
+    return leaf(tidyPiece(s));
+  }
+  var whole=tidyPiece(s), cl=clausesOf(s);
+  if(!cl.length) return null;
+  if(cl.length===1 || whole.length<=LINE) return leaf(whole);
+  return { text:cl[0], subs:cl.slice(1).map(leaf) };
+}
+function templateSteps(text){ return generateSteps(text).map(function(st){ return { text:st.text, est:st.est }; }); }
+function planFromText(text){
+  var raw=String(text||'').trim();
+  var units=unitsOf(raw);
+  if(!units.length) return { title:raw, steps:[] };
+  /* "Heading: …" on the first line names the goal outright */
+  var title=null, ch=colonHead(units[0].s);
+  if(ch){ title=ch.head; units[0]={ s:ch.rest, bullet:false, line:units[0].line }; }
+  /* a title, a word or one short sentence: the planning templates keep doing their job */
+  if(units.length===1){
+    var one=units[0].s, whole=tidyPiece(one);
+    if(!ch && whole.length<=LINE && clausesOf(one).length<3) return { title:whole||raw, steps:templateSteps(one) };
+    var items=ch? clausesOf(one, true).map(leaf) : null;
+    if(!items || items.length<2){
+      var st1=stepFromSentence(units[0]);
+      items=st1? (st1.subs? [leaf(st1.text)].concat(st1.subs) : [st1]) : [];
+    }
+    if(items.length<2) items=templateSteps(one);
+    return { title:title||headline(one), steps:items };
+  }
+  /* a paragraph: the first sentence names the goal and stays a step, unless it is plainly a heading line */
+  var first=units[0], firstText=tidyPiece(first.s), multiline=/\n/.test(raw);
+  var isHeading=!ch && multiline && !first.bullet && !/[.!?:]$/.test(first.line) && firstText.length<=LINE &&
+    clausesOf(first.s).length===1 && wordsOf(firstText)<=7 &&
+    units.slice(1).some(function(u){ return u.bullet || /[.!?]$/.test(u.s); });
+  if(isHeading){ title=firstText; units=units.slice(1); }
+  if(!title) title=headline(first.s);
+  var steps=[];
+  if(ch){ var lead=clausesOf(units[0].s, true); if(lead.length>=2){ steps=lead.map(leaf); units=units.slice(1); } }   /* "Heading: a, b, c. More." — the list items are the first steps */
+  units.forEach(function(u){ var st=stepFromSentence(u); if(st) steps.push(st); });
+  if(!steps.length) steps=templateSteps(title);
+  /* a long paragraph reads better in parts of six: part → its sentences (nested lists fold back to one line each) */
+  if(steps.length>12){
+    var parts=[], size=6;
+    for(var i=0;i<steps.length;i+=size){
+      var chunk=steps.slice(i,i+size).map(function(st){
+        if(!st.subs) return st;
+        return leaf(st.text+': '+st.subs.map(function(x){ return x.text.charAt(0).toLowerCase()+x.text.slice(1); }).join(', '));
+      });
+      parts.push({ text:'part '+(parts.length+1)+' · '+headline(chunk[0].text, LINE-10), subs:chunk });
+    }
+    steps=parts;
+  }
+  steps.forEach(function(st){ if(st.subs){ st.est=st.subs.reduce(function(a,x){ return a+(x.est||0); },0)||null; } });
+  return { title:title||raw, steps:steps };
+}
+/* ── end paragraph planner ── */
 function addSmart(text){
-  var t=makeTask(text);
-  generateSteps(text).forEach(function(st){ t.subs.push(makeTask(st.text, st.est)); });
+  var plan=planFromText(text);
+  var t=makeTask(plan.title);
+  plan.steps.forEach(function(st){
+    var step=makeTask(st.text, st.est);
+    (st.subs||[]).forEach(function(ss){ step.subs.push(makeTask(ss.text, ss.est)); });
+    t.subs.push(step);
+  });
   S.tasks.push(t);
   save();
   setPage(S.tasks.length);            /* flip straight to the new goal's page */
@@ -1373,7 +1509,7 @@ dayRoll(todayKey());
 render();
 
 window.__LL={ S:S, get FO(){ return FO; }, get AUTO(){ return AUTO; }, runPlan:runPlan, autoStartNext:autoStartNext,
-  exportData:exportData, validateImport:validateImport, applyImport:applyImport, cleanTask:cleanTask,
+  exportData:exportData, validateImport:validateImport, applyImport:applyImport, cleanTask:cleanTask, planFromText:planFromText, generateSteps:generateSteps,
   toggleRitual:toggleRitual, dayRoll:dayRoll, moodFor:moodFor, surpriseFor:surpriseFor, ritualLine:ritualLine, WMOODS:WMOODS,
   flowerFrac:flowerFrac, flowerStage:flowerStage, drawFlower:drawFlower, STAGE_EMOJI:STAGE_EMOJI, ageBand:ageBand, renderStains:renderStains, setPage:setPage, setDue:setDue, dueText:dueText, isOverdue:isOverdue, addTask:addTask, addSmart:addSmart, generateSteps:generateSteps,
   addSub:addSub, setDone:setDone, editTask:editTask, delTask:delTask, findTask:findTask,
