@@ -169,6 +169,8 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
   min-height:2.75rem; padding:0 .7rem; letter-spacing:.06em;
 }
 .sel{ cursor:pointer; text-transform:uppercase; }
+.cplay{ text-transform:none; max-width:13rem; }
+.fold{ opacity:.8; }
 .cfilter{ width:8.5rem; font-weight:300; letter-spacing:0; }
 .cfilter::placeholder{ color:var(--mute); }
 .sel:focus-visible, .cfilter:focus-visible, .row .btn:focus-visible, .tog:focus-visible{ outline:3px solid var(--amber); outline-offset:2px; }
@@ -228,6 +230,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 @media (max-width:640px){
   .crate{ padding:.8rem; }
   .cfilter{ width:100%; }
+  .cplay{ max-width:100%; }
   .cspacer{ display:none; }
   .next{ grid-template-columns:auto minmax(0,1fr); }
   .next .btn{ grid-column:1 / -1; }
@@ -267,7 +270,9 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
       <span class="ccount" id="ccount">empty</span>
       <span class="cspacer"></span>
       <label class="btn load" id="cimportBtn">＋ import<input type="file" accept="audio/*" multiple class="sr" id="cimport" aria-label="Import audio files into the crate"></label>
+      <label class="btn load" id="cfolderBtn" title="Import a whole folder — sub-folders become playlists">＋ folder<input type="file" webkitdirectory multiple class="sr" id="cfolder" aria-label="Import a folder of audio files; sub-folders become playlists"></label>
       <input type="search" class="cfilter" id="cfilter" placeholder="filter…" aria-label="Filter crate by name">
+      <select class="sel cplay" id="cplay" aria-label="Filter by playlist (from imported folder structure)" hidden></select>
       <select class="sel" id="csort" aria-label="Sort crate">
         <option value="match">sort · match</option>
         <option value="added">sort · added</option>
@@ -289,7 +294,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
       <button type="button" class="btn" id="cnextLoad">→ B</button>
     </div>
     <ul class="rows" id="crows" aria-label="Tracks in the crate"></ul>
-    <p class="cempty" id="cempty"><b>Your crate is empty.</b><br>Import tracks (or drop them here) — each one gets its BPM and Camelot key read once and kept in this browser. Whatever's playing, the crate ranks what should go next.</p>
+    <p class="cempty" id="cempty"><b>Your crate is empty.</b><br>Import tracks (or drop them here) — each one gets its BPM and Camelot key read once and kept in this browser. Whatever's playing, the crate ranks what should go next.<br>＋ folder imports a whole directory — its sub-folders become playlists you can flip through.</p>
   </section>
 
   <div class="xf">
@@ -819,7 +824,7 @@ var X = window.__X; if (!X) return;
 var decks = X.decks, $ = function(s, r){ return (r || document).querySelector(s); };
 var DB = 'harmony-crate-v1', STORE = 'tracks', PREFS = 'harmony-crate-prefs-v1';
 var els = {
-  crate: $('#crate'), count: $('#ccount'), file: $('#cimport'), filter: $('#cfilter'), sort: $('#csort'), compat: $('#ccompat'),
+  crate: $('#crate'), count: $('#ccount'), file: $('#cimport'), folderIn: $('#cfolder'), play: $('#cplay'), filter: $('#cfilter'), sort: $('#csort'), compat: $('#ccompat'),
   status: $('#cstatus'), next: $('#cnext'), nextLbl: $('#cnextLbl'), nextName: $('#cnextName'), nextWhy: $('#cnextWhy'), nextLoad: $('#cnextLoad'),
   rows: $('#crows'), empty: $('#cempty'), seg: $('#crate .seg')
 };
@@ -987,29 +992,78 @@ var lastAdded = 0;
 function stamp(){ lastAdded = Math.max(Date.now(), lastAdded + 1); return lastAdded; }
 function isAudio(f){ return /^audio\//.test(f.type || '') || /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|webm|aif|aiff)$/i.test(f.name || ''); }
 function dupOf(f){ for (var i = 0; i < crate.length; i++){ var r = crate[i]; if (r.fileName === f.name && r.size === f.size) return r; } return null; }
+function relOf(f){ return String(f.webkitRelativePath || f._rel || '').replace(/^\/+/, ''); }
+function dirOf(p){ var i = p.lastIndexOf('/'); return i > 0 ? p.slice(0, i) : ''; }
+function inPlaylist(r, p){ var f = r.folder || ''; return f === p || f.indexOf(p + '/') === 0; }
+function playlists(){
+  var seen = {}, out = [];
+  crate.forEach(function(r){
+    var f = r.folder || ''; if (!f) return;
+    var parts = f.split('/'), path = '';
+    parts.forEach(function(seg){ path = path ? path + '/' + seg : seg; if (!seen[path]){ seen[path] = true; out.push(path); } });
+  });
+  out.sort();
+  return out.map(function(p){
+    var n = 0; crate.forEach(function(r){ if (inPlaylist(r, p)) n++; });
+    return { path: p, depth: p.split('/').length - 1, name: p.slice(p.lastIndexOf('/') + 1), count: n };
+  });
+}
+function filesFromEntries(entries){
+  var out = [];
+  function walk(entry, prefix){
+    return new Promise(function(res){
+      if (!entry) return res();
+      if (entry.isFile) entry.file(function(f){ try{ f._rel = prefix + entry.name; }catch(e){} out.push(f); res(); }, function(){ res(); });
+      else if (entry.isDirectory){
+        var rd = entry.createReader(), all = [];
+        (function more(){
+          rd.readEntries(function(es){
+            if (!es.length){ Promise.all(all.map(function(en){ return walk(en, prefix + entry.name + '/'); })).then(res); return; }
+            for (var i = 0; i < es.length; i++) all.push(es[i]);
+            more();
+          }, function(){ res(); });
+        })();
+      } else res();
+    });
+  }
+  return Promise.all(entries.map(function(en){ return walk(en, ''); })).then(function(){ return out; });
+}
+var batchN = 0, batchDone = 0, batchNote = '', skipNote = '', playSel = '', plSig = '';
 
-function importFiles(list){
-  var files = Array.prototype.slice.call(list || []), added = 0, dups = 0, bad = 0;
+function importFiles(list, fromFolder){
+  var files = Array.prototype.slice.call(list || []), added = 0, dups = 0, bad = 0, filed = 0;
   files.forEach(function(f){
     if (!isAudio(f)){ bad++; return; }
-    if (dupOf(f)){ dups++; return; }
-    var rec = { id: uid(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, size: f.size, type: f.type || '', blob: f, added: stamp(), dur: null, bpm: null, key: null, done: false, manual: false };
+    var rp = relOf(f), dup = dupOf(f);
+    if (dup){
+      dups++;
+      if (rp && !dup.relPath){ dup.relPath = rp; dup.folder = dirOf(rp); persist(dup); filed++; }
+      return;
+    }
+    var rec = { id: uid(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, size: f.size, type: f.type || '', relPath: rp || null, folder: rp ? dirOf(rp) : '', blob: f, added: stamp(), dur: null, bpm: null, key: null, done: false, manual: false };
     crate.push(rec); byId[rec.id] = rec; persist(rec); queue.push(rec); added++;
   });
+  batchN += added;
   var msg = [];
-  if (added) msg.push(added + ' added');
-  if (dups) msg.push(dups + ' already in the crate');
-  if (bad) msg.push(bad + " skipped — not audio");
+  if (added) msg.push(added + ' added' + (fromFolder ? ' from the folder' : ''));
+  if (dups) msg.push(dups + ' already in the crate — skipped' + (filed ? ' (' + filed + ' filed into playlists)' : ''));
+  if (bad) msg.push(bad + " skipped — not audio (mp3, wav, flac + friends)");
+  if (added){ batchNote = msg.join(' · '); if (dups || bad){ var sn = msg.slice(1).join(' · '); skipNote = skipNote ? skipNote + ' · ' + sn : sn; } }
   if (msg.length) status(msg.join(' · '), bad && !added ? 'err' : '');
   render(); pump();
   return added;
 }
 function persist(rec){ if (!storageOk) return Promise.resolve(); return dbPut(rec).catch(function(){ storageOk = false; status("browser storage is blocked — the crate won't survive a reload", 'err'); }); }
 function pump(){
-  if (pumping) return; var rec = queue.shift(); if (!rec) { if (crate.length) status(''); return; }
+  if (pumping) return; var rec = queue.shift();
+  if (!rec){
+    if (batchN > 1 && batchDone >= batchN) status(batchN + ' tracks read — bpm + key stored' + (skipNote ? ' · ' + skipNote : ''));
+    else if (crate.length && els.status.className.indexOf('busy') >= 0) status('');
+    batchN = batchDone = 0; batchNote = ''; skipNote = ''; return;
+  }
   if (!byId[rec.id]){ pump(); return; }
   pumping = true; rec.state = 'decoding'; render();
-  status('reading ' + rec.name + '…' + (queue.length ? ' (' + queue.length + ' more queued)' : ''), 'busy');
+  status((batchNote ? batchNote + ' — ' : '') + 'reading ' + rec.name + '…' + (batchN > 1 ? ' (' + Math.min(batchDone + 1, batchN) + ' of ' + batchN + ')' : queue.length ? ' (' + queue.length + ' more queued)' : ''), 'busy');
   readBlob(rec.blob).then(decode).then(function(buf){
     if (!byId[rec.id]) return;
     rec.dur = buf.duration; rec.state = 'analysing'; render();
@@ -1018,6 +1072,7 @@ function pump(){
   }).catch(function(e){ if (byId[rec.id]) rec.err = /decod/i.test(String(e && e.message || e)) || !rec.dur ? "couldn't decode" : 'analysis failed'; })
   .then(function(){
     if (byId[rec.id]){ rec.done = true; rec.state = null; persist(rec); }
+    if (batchN) batchDone++;
     pumping = false; render(); pump();
   });
 }
@@ -1092,7 +1147,8 @@ function ranked(){
     var on = decks.A._crateId === r.id ? 'A' : decks.B._crateId === r.id ? 'B' : null;
     return { r: r, s: s, on: on, isRef: !!(ref && ref.id === r.id) };
   });
-  if (q) items = items.filter(function(it){ return it.r.name.toLowerCase().indexOf(q) >= 0; });
+  if (playSel) items = items.filter(function(it){ return it.isRef || inPlaylist(it.r, playSel); });
+  if (q) items = items.filter(function(it){ return it.r.name.toLowerCase().indexOf(q) >= 0 || (it.r.relPath || '').toLowerCase().indexOf(q) >= 0; });
   if (prefs.compat && ref) items = items.filter(function(it){ return it.isRef || (it.s && it.s.mixable); });
   var mode = prefs.sort === 'match' && !ref ? 'added' : prefs.sort;
   items.sort(function(a, b){
@@ -1110,6 +1166,18 @@ function render(){
   var R = ranked(), ref = R.ref, other = R.deck ? (R.deck.L === 'A' ? 'B' : 'A') : 'A';
   els.count.textContent = crate.length ? crate.length + (crate.length === 1 ? ' track' : ' tracks') + (queue.length || pumping ? ' · reading' : '') : 'empty';
   els.empty.hidden = crate.length > 0;
+  /* playlists from imported folder structure */
+  var pls = playlists();
+  if (playSel && !pls.some(function(p){ return p.path === playSel; })){ playSel = ''; }
+  els.play.hidden = !pls.length;
+  var sig = pls.map(function(p){ return p.path + ':' + p.count; }).join('|');
+  if (sig !== plSig){
+    plSig = sig;
+    els.play.innerHTML = '<option value="">playlist · all</option>' + pls.map(function(p){
+      return '<option value="' + esc(p.path) + '">' + new Array(p.depth + 1).join('  ') + (p.depth ? '↳ ' : '') + esc(p.name) + ' (' + p.count + ')</option>';
+    }).join('');
+  }
+  els.play.value = playSel;
   /* next up */
   var best = null;
   if (ref) for (var i = 0; i < R.items.length; i++){ var it = R.items[i]; if (!it.isRef && !it.on && it.s && it.s.mixable){ best = it; break; } }
@@ -1140,6 +1208,7 @@ function render(){
     if (it.isRef) meta.push('<span class="on">on ' + it.on + ' · reference</span>'); else if (it.on) meta.push('<span class="on">on ' + it.on + '</span>');
     meta.push(r.bpm ? r.bpm.toFixed(1) + ' bpm' : (r.state ? r.state + '…' : r.err ? '<span class="rel ok0">' + esc(r.err) + '</span>' : r.done ? 'bpm —' : 'queued'));
     if (r.dur) meta.push(fmtTime(r.dur));
+    if (r.folder) meta.push('<span class="fold" title="' + esc(r.relPath || '') + '">▸ ' + esc(r.folder) + '</span>');
     if (r.key && r.key.conf < 0.25 && !r.manual) meta.push('key ?');
     if (r.manual) meta.push('edited');
     if (s && !it.isRef) meta.push('<em class="rel ok' + s.ok + (s.warn ? ' warn' : '') + '"' + (s.why ? ' title="' + esc(s.why) + '"' : '') + '>' + (s.label ? esc(s.label) + ' ' + s.score + ' · ' : '') + esc(s.text) + '</em>');
@@ -1147,7 +1216,7 @@ function render(){
       ? '<span class="cname">' + esc(r.name) + '</span>' +
         '<input class="ein ebpm" type="number" min="40" max="240" step="0.1" value="' + (r.bpm ? r.bpm.toFixed(1) : '') + '" aria-label="BPM for ' + esc(r.name) + '" placeholder="bpm">' +
         '<input class="ein ekey" type="text" list="camlist" value="' + (r.key ? r.key.camelot : '') + '" aria-label="Camelot key for ' + esc(r.name) + '" placeholder="key e.g. 8A" maxlength="3">'
-      : '<span class="cname" title="' + esc(r.fileName) + '">' + esc(r.name) + '</span><span class="cmeta">' + meta.join(' · ') + '</span>';
+      : '<span class="cname" title="' + esc(r.relPath || r.fileName) + '">' + esc(r.name) + '</span><span class="cmeta">' + meta.join(' · ') + '</span>';
     var acts = editing === r.id
       ? '<button type="button" class="btn save" data-id="' + r.id + '">save</button><button type="button" class="btn cancel" data-id="' + r.id + '">cancel</button>'
       : '<button type="button" class="btn to" data-id="' + r.id + '" data-deck="A" aria-label="Load ' + esc(r.name) + ' into deck A"' + (it.on === 'A' ? ' disabled' : '') + '>→A</button>' +
@@ -1172,9 +1241,20 @@ function render(){
 
 /* ── events ── */
 els.file.addEventListener('change', function(){ importFiles(els.file.files); els.file.value = ''; });
+els.folderIn.addEventListener('change', function(){ importFiles(els.folderIn.files, true); els.folderIn.value = ''; });
+els.play.addEventListener('change', function(){ playSel = els.play.value; render(); });
 els.crate.addEventListener('dragover', function(e){ e.preventDefault(); e.stopPropagation(); els.crate.classList.add('over'); });
 els.crate.addEventListener('dragleave', function(){ els.crate.classList.remove('over'); });
-els.crate.addEventListener('drop', function(e){ e.preventDefault(); e.stopPropagation(); els.crate.classList.remove('over'); if (e.dataTransfer) importFiles(e.dataTransfer.files); });
+els.crate.addEventListener('drop', function(e){
+  e.preventDefault(); e.stopPropagation(); els.crate.classList.remove('over');
+  var dt = e.dataTransfer; if (!dt) return;
+  var entries = [], items = dt.items;
+  if (items) for (var i = 0; i < items.length; i++){ var en = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null; if (en) entries.push(en); }
+  if (entries.some(function(en){ return en.isDirectory; })){
+    status('reading the folder…', 'busy');
+    filesFromEntries(entries).then(function(fs){ importFiles(fs, true); });
+  } else importFiles(dt.files);
+});
 els.filter.addEventListener('input', render);
 els.sort.addEventListener('change', function(){ prefs.sort = els.sort.value; savePrefs(); render(); });
 els.crate.addEventListener('keydown', function(e){ if (e.target.tagName === 'SELECT') e.stopPropagation(); });
@@ -1214,6 +1294,8 @@ ready = dbAll().then(function(rows){
 
 window.__C = { crate: crate, byId: byId, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck,
   crateScore: crateScore, scoreFor: scoreFor, harmonic: harmonic, tempo: tempo, parseCam: parseCam, prefs: prefs, ready: ready, decode: decode,
+  playlists: playlists, inPlaylist: inPlaylist, relOf: relOf, dirOf: dirOf, filesFromEntries: filesFromEntries,
+  get playSel(){ return playSel; }, set playSel(v){ playSel = v; render(); }, get batch(){ return { n: batchN, done: batchDone }; },
   get queue(){ return queue; }, get pumping(){ return pumping; }, get storageOk(){ return storageOk; } };
 })();
 </script>
