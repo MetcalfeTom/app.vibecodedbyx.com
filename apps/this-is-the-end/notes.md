@@ -1,0 +1,12 @@
+# This Is The End — a clearly fictional collapse forecast
+
+## log
+- 2026-08-31: v1.0. Two public requests merged into one app (they arrived minutes apart, clearly the same idea refining): "safe end-of-world simulator with population, technology, resources, random shocks, and cooperation-versus-panic sliders; branching forecasts with world peace excluded as an outcome" + "This Is The End as a clearly fictional collapse forecast app with population, technology, resources, aliens, AI, and uncertainty ranges". Seven dials (population drive / technology pace / resource appetite / random shocks / alien activity / AI acceleration / cooperation↔panic) + timeline seed. Engine in `<script id="engine">` (pure, node-testable, module.exports): mulberry PRNG, FIXED 7 draws per year so forks replay the identical stream; shocks (7 types) + alien events (gifts possible when coop ≥ .5!) + AI events (optimizer scare / deepfake crisis / grey-goo rumor); panic sharpens damage + burns resources, coop blunts + speeds tech. `ewBranches` = baseline + first 3 damaging events × {dodged, amplified} (≤7 lines); `ewBand` = 12 sibling-seed runs → p10/p90 band + outcome tally = the uncertainty range. Outcomes: 7, NONE is world peace — shown struck-through as "excluded as an outcome, by design". Fan chart canvas: band underlay, heavy baseline, thin branch lines, fork dots. 1970s civil-defense pamphlet look, Young Serif + Sometype Mono. BALANCE LESSON: first cut's AI dial was net-NEGATIVE for tech even in calm centuries while its aria-label promised a boost — the node check "AI accelerates technology" caught the label lying (45 vs 48); boost 0.4→0.75, scare damage 0.9→0.55. Node suite 17 ENGINE ALL OK (determinism, fork prefix/divergence, coop>panic across 40 seeds, dial gating for aliens/AI, gifts, band shape/tally/bracketing, ≥5 endings reachable, no-peace assert, collapse padding); browser 20/20 at 320/390/1100.
+
+## issues
+- First request's tail was truncated ("…excluded as an outcome, a") — whatever followed never arrived; if chat repeats an ask about this app, check for that lost clause.
+- The model is a TOY (says so in a dashed red banner). If anyone asks for realism, the answer is a kind no — its wrongness is a feature and the fiction banner is load-bearing.
+
+## todos
+- share-a-timeline: seed+dials in the URL hash so chat can trade apocalypses.
+- a "council log" prose recap of the century's events, if chat asks.
