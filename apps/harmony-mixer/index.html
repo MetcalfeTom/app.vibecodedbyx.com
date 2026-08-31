@@ -88,6 +88,9 @@ h1 b{ font-weight:800; }
   color:var(--mute); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; text-align:center; padding:0 1rem;
 }
 .wave .status:empty{ display:none; }
+.zoomrow{ display:flex; flex-direction:column; gap:.15rem; width:100%; max-width:12rem; color:var(--mute); font-size:.66rem; letter-spacing:.1em; text-transform:uppercase; }
+.zoomrow input{ width:100%; min-height:2.75rem; cursor:pointer; }
+.zoomrow b{ color:#ece9e2; font-weight:600; }
 .wave .status{ background:rgba(14,15,18,.55); color:var(--ink); animation:pulse 1.4s ease-in-out infinite; }
 .wave .status.err{ color:var(--red); animation:none; }
 .wave.has .hint{ display:none; }
@@ -264,6 +267,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
         <button type="button" class="btn lock" id="lock" aria-pressed="false" title="Match the follower deck's tempo to the master (keeps following the master's pitch fader)">Tempo lock</button>
         <button type="button" class="btn dir" id="dir" hidden title="Swap which deck is master">A → B</button>
       </div>
+      <label class="zoomrow"><span>grid zoom · both decks <b id="zoomv">1×</b></span><input type="range" id="zoom" min="0" max="6" step="0.25" value="0" aria-label="Beat grid zoom for both decks, 1x to 64x — the scrollwheel over a waveform zooms too"></label>
     </div>
     <section class="deck" id="deckB" aria-label="Deck B"></section>
   </div>
@@ -355,25 +359,37 @@ function monoDownsample(chans, factor){
 
 function hann(N){ var w = new Float32Array(N); for (var i = 0; i < N; i++) w[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N); return w; }
 
-/* spectral-flux onset strength → autocorrelation tempo estimate; returns BPM or null */
-function detectBPM(x, sr){
+/* spectral-flux onset strength (STFT 1024/128): `on` = full-band positive log-magnitude flux per frame,
+   `low` = positive LINEAR-magnitude flux below 160 Hz (kick band — linear so a concentrated kick outweighs diffuse noise), fr = frames/s */
+function onsetEnvelope(x, sr){
   var N = 1024, hop = 128, fr = sr / hop, nF = Math.floor((x.length - N) / hop);
-  if (nF < fr * 6) return null;
-  var win = hann(N), re = new Float32Array(N), im = new Float32Array(N), half = N >> 1;
-  var prev = new Float32Array(half), cur = new Float32Array(half), on = new Float32Array(nF), mean = 0, i, k;
+  if (nF < 2) return null;
+  var win = hann(N), re = new Float32Array(N), im = new Float32Array(N), half = N >> 1, kLow = Math.max(1, Math.min(half - 1, Math.floor(160 * N / sr)));
+  var prev = new Float32Array(half), cur = new Float32Array(half), prevL = new Float32Array(kLow + 1), on = new Float32Array(nF), low = new Float32Array(nF), i, k;
   for (var f = 0; f < nF; f++){
     var p = f * hop;
     for (i = 0; i < N; i++){ re[i] = x[p + i] * win[i]; im[i] = 0; }
     fftInPlace(re, im);
-    var flux = 0;
+    var flux = 0, lf = 0;
     for (k = 1; k < half; k++){
-      cur[k] = Math.log(1 + 20 * Math.sqrt(re[k] * re[k] + im[k] * im[k]));
+      var m = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+      cur[k] = Math.log(1 + 20 * m);
       var d = cur[k] - prev[k]; if (d > 0) flux += d;
+      if (k <= kLow){ var dl = m - prevL[k]; if (dl > 0) lf += dl; prevL[k] = m; }
     }
-    on[f] = f ? flux : 0; mean += on[f];
+    on[f] = f ? flux : 0; low[f] = f ? lf : 0;
     var t = prev; prev = cur; cur = t;
   }
-  mean /= nF; for (i = 0; i < nF; i++) on[i] -= mean;
+  return { on: on, low: low, fr: fr };
+}
+
+/* onset envelope → autocorrelation tempo estimate; returns BPM or null */
+function tempoFromOnsets(onRaw, fr){
+  var nF = onRaw.length, i, k;
+  if (nF < fr * 6) return null;
+  var on = new Float32Array(nF), mean = 0;
+  for (i = 0; i < nF; i++) mean += onRaw[i];
+  mean /= nF; for (i = 0; i < nF; i++) on[i] = onRaw[i] - mean;
   var minLag = Math.floor(fr * 60 / 200), maxLag = Math.ceil(fr * 60 / 60), acN = Math.min(maxLag * 8 + 3, nF - 1);
   var ac = new Float64Array(acN + 1);
   for (var lag = minLag; lag <= acN; lag++){ var s = 0; for (i = 0; i + lag < nF; i++) s += on[i] * on[i + lag]; ac[lag] = s / (nF - lag); }
@@ -397,6 +413,7 @@ function detectBPM(x, sr){
   var L = den ? num / den : bestLag;
   return 60 * fr / L;
 }
+function detectBPM(x, sr){ var e = onsetEnvelope(x, sr); return e ? tempoFromOnsets(e.on, e.fr) : null; }
 
 /* accumulate spectral peaks between 55 Hz and 2 kHz into a 12-bin chroma (amplitude spectrum in) */
 function chromaFromMag(mag, binHz, chroma){
@@ -476,6 +493,156 @@ function chordFromChroma(chroma){
   if (!best || best.s < 0.62) return null;
   return { root: best.root, minor: best.minor, name: PC_NAMES[best.root] + (best.minor ? 'm' : ''), score: best.s };
 }
+
+/* ── beat grid (v1.2) ──
+   A regular grid t(n) = beat0 + n·60/bpm fitted to the onset envelope, then to the waveform:
+   1. for the autocorrelation tempo and its ½, 2, ⅔ and 3/2 multiples: comb search over the phase (integer frames,
+      parabolic refine), then up to 3 rounds of weighted least squares — every expected beat is matched to the strongest
+      envelope peak within ±20 % of the period (weight = peak height / distance) and period + phase are re-fitted. This
+      turns a ±0.1 BPM autocorrelation guess into a grid that stays on the beat for a whole track.
+   2. the candidate that wins is the one whose grid points carry the most onset energy AND explain the most peak
+      energy (× the mild 120-centred prior; the autocorrelation pick gets a 15 % benefit of the doubt) — so an
+      accented bar can't talk the picker into ⅔ tempo, and half time loses to full time because it leaves kicks unexplained.
+   3. fine phase: a 2.9 ms energy-rise envelope of the waveform itself, comb-searched −40…+120 ms around the frame-level
+      phase — the STFT frames peak a constant ~70 ms before the actual attack, this puts beat0 on the transient.
+   4. downbeat = whichever of four consecutive beat slots carries the most onset energy (kick band counted double).
+   conf = min(share of beats with a peak, how much stronger the grid points are than the average frame), 0…1.
+   Returns null when there is no usable pulse. */
+function beatGrid(env, bpm, x, sr){
+  if (!env || !(bpm > 0)) return null;
+  var raw = env.on, lowE = env.low, fr = env.fr, nF = raw.length, i, k, n, q;
+  var rmean = 0, lmean = 0; for (i = 0; i < nF; i++){ rmean += raw[i]; lmean += lowE[i]; } rmean /= nF; lmean /= nF;
+  if (!(rmean > 0)) return null;
+  /* the envelope the grid is fitted to: full-band flux plus a strong kick-band term (both mean-normalised) —
+     hats and noise bursts light up every bin of the log flux, kicks define the beat */
+  var on = new Float32Array(nF), mean = 0;
+  /* the kick band only gets a say when it is sparse (its top decile far above its mean) — real kicks are, a tone's leakage isn't */
+  var lsort = Array.prototype.slice.call(lowE).sort(function(p1, p2){ return p2 - p1; }), ltop = 0, nl = Math.max(1, Math.floor(nF / 10));
+  for (i = 0; i < nl; i++) ltop += lsort[i]; ltop /= nl;
+  var sigLow = lmean > 0 ? Math.max(0, Math.min(1, (ltop / lmean - 2) / 4)) : 0;
+  for (i = 0; i < nF; i++){ on[i] = raw[i] / rmean + (lmean > 0 ? 3 * sigLow * lowE[i] / lmean : 0); mean += on[i]; } mean /= nF;
+  var kw = on, kmean = mean, low = lowE;
+  var pkT = [], pkW = [], pkK = [], totK = 0;
+  for (i = 1; i < nF - 1; i++) if (on[i] > mean && on[i] >= on[i - 1] && on[i] > on[i + 1]){
+    var a = on[i - 1], c = on[i + 1], d2 = a - 2 * on[i] + c, o2 = d2 !== 0 ? 0.5 * (a - c) / d2 : 0, kk0 = on[i] - mean;
+    pkT.push(i + (Math.abs(o2) < 1 ? o2 : 0)); pkW.push(kk0); pkK.push(kk0); totK += kk0;
+  }
+  if (pkT.length < 8) return null;
+  function fit(P){
+    if (!(P > 2) || nF < P * 8) return null;
+    function comb(ph){ var t = 0; for (var m = 0; ph + m * P < nF; m++){ var j = Math.round(ph + m * P); if (j >= 0 && j < nF) t += on[j]; } return t; }
+    var nPh = Math.ceil(P), best = -Infinity, bestPh = 0, s;
+    for (var ph = 0; ph < nPh; ph++){ s = comb(ph); if (s > best){ best = s; bestPh = ph; } }
+    if (!(best > 0)) return null;
+    var y0 = comb(bestPh - 1), y2 = comb(bestPh + 1), dd = y0 - 2 * best + y2, off = dd !== 0 ? 0.5 * (y0 - y2) / dd : 0;
+    if (!(Math.abs(off) < 1)) off = 0;
+    var phase = bestPh + off, period = P, matched = 0, nBeats = 0, n, q, j, tol;
+    for (var it = 0; it < 3; it++){
+      var sw = 0, swn = 0, swt = 0, swnn = 0, swnt = 0; j = 0; tol = period * 0.2; matched = 0; nBeats = 0;
+      for (n = 0; phase + n * period < nF; n++){
+        var tExp = phase + n * period; nBeats++;
+        while (j < pkT.length && pkT[j] < tExp - tol) j++;
+        var bi = -1, bw = 0;
+        for (q = j; q < pkT.length && pkT[q] <= tExp + tol; q++){ var w = pkW[q] / (1 + Math.abs(pkT[q] - tExp) / tol); if (w > bw){ bw = w; bi = q; } }
+        if (bi < 0) continue;
+        matched++; var t = pkT[bi];
+        sw += bw; swn += bw * n; swt += bw * t; swnn += bw * n * n; swnt += bw * n * t;
+      }
+      var den = sw * swnn - swn * swn;
+      if (matched < 8 || !(Math.abs(den) > 1e-9)) break;
+      var b = (sw * swnt - swn * swt) / den, a0 = (swt - b * swn) / sw;
+      if (!(Math.abs(b / P - 1) < 0.03)) break; /* a fit that walks away from the tempo estimate is noise, keep the last good one */
+      period = b; phase = a0;
+    }
+    phase -= Math.floor(phase / period) * period;
+    /* quality: how strong are the grid points, how much peak energy do they explain */
+    var gridSum = 0, gridK = 0, nB = 0, explained = 0; tol = period * 0.15;
+    for (n = 0; phase + n * period < nF - 1; n++){
+      var tt = phase + n * period, ii = Math.floor(tt), fr2 = tt - ii, vk = 0;
+      for (q = Math.max(0, ii - 1); q <= Math.min(nF - 1, ii + 1); q++) if (kw[q] > vk) vk = kw[q];
+      gridSum += on[ii] * (1 - fr2) + on[ii + 1] * fr2; gridK += vk; nB++; /* exact-frame read: noise averages to 1× mean, a real beat to its peak */
+    }
+    for (q = 0; q < pkT.length; q++){ var nn = Math.round((pkT[q] - phase) / period); if (Math.abs(pkT[q] - (phase + nn * period)) <= tol) explained += pkK[q]; }
+    return { period: period, phase: phase, matched: nBeats ? matched / nBeats : 0, ratio: nB ? gridSum / nB / mean : 0, kratio: nB ? gridK / nB / kmean : 0, explained: totK ? explained / totK : 0 };
+  }
+  var P0 = 60 * fr / bpm, cands = [1, 0.5, 2, 2 / 3, 1.5], best = null;
+  for (k = 0; k < cands.length; k++){
+    var P = P0 * cands[k], cb = 60 * fr / P;
+    if (cb < 55 || cb > 210) continue;
+    var r = fit(P); if (!r) continue;
+    var lb = Math.log(cb / 120) / Math.LN2, prior = Math.exp(-0.5 * (lb / 1.1) * (lb / 1.1));
+    r.score = r.kratio * r.explained * prior * (cands[k] === 1 ? 1.15 : 1);
+    if (env.debug) env.debug.push({ mul: cands[k], bpm: 60 * fr / r.period, kratio: r.kratio, ratio: r.ratio, explained: r.explained, prior: prior, score: r.score, phase: r.phase / fr, matched: r.matched });
+    if (!best || r.score > best.score) best = r;
+  }
+  if (!best) return null;
+  var period = best.period, phase = best.phase, per = period / fr, beat0 = phase / fr;
+  /* fine phase against the waveform */
+  if (x && sr && x.length > sr){
+    var B = 32, nBl = Math.floor(x.length / B), bs = B / sr, e = new Float32Array(nBl), dE = new Float32Array(nBl), dur = x.length / sr;
+    for (i = 0; i < nBl; i++){ var s2 = 0, base = i * B; for (var j2 = 0; j2 < B; j2++){ var v2 = x[base + j2]; s2 += v2 * v2; } e[i] = Math.log(1 + 30 * Math.sqrt(s2 / B)); }
+    for (i = 1; i < nBl; i++){ var d3 = e[i] - e[i - 1]; dE[i] = d3 > 0 ? d3 : 0; }
+    var dMin = Math.round(-0.04 / bs), dMax = Math.round(0.12 / bs), scores = new Float64Array(dMax - dMin + 1), bestD = 0, bestS = -Infinity;
+    for (var dl = dMin; dl <= dMax; dl++){
+      var sc = 0;
+      for (n = 0; beat0 + n * per < dur; n++){ var kk = Math.round((beat0 + n * per) / bs) + dl; if (kk >= 1 && kk < nBl) sc += dE[kk]; }
+      scores[dl - dMin] = sc; if (sc > bestS){ bestS = sc; bestD = dl; }
+    }
+    if (bestS > 0){
+      var ix = bestD - dMin, ya = ix > 0 ? scores[ix - 1] : bestS, yc = ix < scores.length - 1 ? scores[ix + 1] : bestS, d4 = ya - 2 * bestS + yc, o4 = d4 !== 0 ? 0.5 * (ya - yc) / d4 : 0;
+      if (!(Math.abs(o4) < 1)) o4 = 0;
+      beat0 += (bestD + o4) * bs;
+    }
+  }
+  /* downbeat from the frame-level grid, then carry the bar numbering through the beat0 normalisation */
+  var slot = [0, 0, 0, 0];
+  for (n = 0; phase + n * period < nF; n++){
+    i = Math.round(phase + n * period); var v3 = 0;
+    for (q = Math.max(0, i - 1); q <= Math.min(nF - 1, i + 1); q++) v3 = Math.max(v3, on[q] + (lmean > 0 ? 2 * low[q] / lmean : 0));
+    slot[n & 3] += v3;
+  }
+  var db = 0; for (k = 1; k < 4; k++) if (slot[k] > slot[db]) db = k;
+  var shift = Math.floor(beat0 / per); beat0 -= shift * per; db = ((db + shift) % 4 + 4) % 4;
+  /* peakiness gate: drums make a sparse envelope (top decile ≫ mean); a swelling pad or noise does not, however well a grid "fits" it */
+  var sorted = Array.prototype.slice.call(on).sort(function(p1, p2){ return p2 - p1; }), top = 0, nTop = Math.max(1, Math.floor(nF / 10));
+  for (i = 0; i < nTop; i++) top += sorted[i]; top /= nTop;
+  var pulse = Math.max(0, Math.min(1, (top / mean - 2) / 2));
+  var conf = Math.min(best.matched, Math.max(0, Math.min(1, (best.ratio - 1.1) / 1.4)), pulse);
+  if (env.debug) env.debug.push({ fine: beat0 - phase / fr, beat0: beat0, conf: conf });
+  return { bpm: 60 * fr / period, beat0: beat0, downbeat: db, conf: conf };
+}
+
+/* grid helpers: t is track time in seconds */
+function beatAt(grid, t){ return (t - grid.beat0) * grid.bpm / 60; }                       /* fractional beat number */
+function beatPhase(grid, t){ var b = beatAt(grid, t); return b - Math.floor(b); }             /* 0 = on the beat */
+function nearestBeat(grid, t){ return grid.beat0 + Math.round(beatAt(grid, t)) * 60 / grid.bpm; }
+function barBeat(grid, t){ var n = Math.floor(beatAt(grid, t)); return ((n - grid.downbeat) % 4 + 4) % 4; } /* 0..3, 0 = downbeat */
+/* seconds to add to the follower's position so its beats land on the master's — the smallest move, never more than half a beat */
+function alignDelta(gm, tm, gf, tf){ var e = beatPhase(gm, tm) - beatPhase(gf, tf); e -= Math.round(e); return e * 60 / gf.bpm; }
+/* phase error of the follower against the master in beats, wrapped to (−½, ½] */
+function phaseError(gm, tm, gf, tf){ var e = beatPhase(gm, tm) - beatPhase(gf, tf); return e - Math.round(e); }
+
+/* content fingerprint: sample count + 128 coarse RMS segments (6-bit) hashed twice with FNV-1a → 16 hex chars.
+   Survives renames and re-encodes of the same audio; the same file in the same browser always maps to the same cues. */
+function fingerprint(chan, sr){
+  var n = chan.length, segs = 128, stride = 16, h1 = 0x811c9dc5, h2 = 0x050c5d1f;
+  function mix(v){ h1 = Math.imul(h1 ^ v, 16777619) >>> 0; h2 = Math.imul(h2 ^ (v + 0x9e3779b9), 16777619) >>> 0; }
+  mix(n & 0xffff); mix(n >>> 16); mix(sr & 0xffff);
+  for (var s = 0; s < segs; s++){
+    var a = Math.floor(s * n / segs), b = Math.floor((s + 1) * n / segs), acc = 0, cnt = 0;
+    for (var i = a; i < b; i += stride){ var v = chan[i]; acc += v * v; cnt++; }
+    var rms = cnt ? Math.sqrt(acc / cnt) : 0;
+    mix(Math.min(63, Math.round(rms * 90)));
+  }
+  return ('00000000' + h1.toString(16)).slice(-8) + ('00000000' + h2.toString(16)).slice(-8);
+}
+
+/* everything the worker computes for a track: tempo, beat grid, key */
+function analyseTrack(x, sr){
+  var env = onsetEnvelope(x, sr), bpm = env ? tempoFromOnsets(env.on, env.fr) : null, grid = bpm ? beatGrid(env, bpm, x, sr) : null;
+  if (grid && grid.conf < 0.25) grid = null;
+  return { bpm: grid ? grid.bpm : bpm, key: detectKey(x, sr), grid: grid };
+}
 </script>
 
 <script>
@@ -504,7 +671,7 @@ function analyse(mono, sr){
     try{
       if (!worker){
         var src = document.getElementById('dsp').textContent +
-          '\nself.onmessage=function(e){var d=e.data;try{postMessage({id:d.id,bpm:detectBPM(d.mono,d.sr),key:detectKey(d.mono,d.sr)});}catch(err){postMessage({id:d.id,error:String(err)});}};';
+          '\nself.onmessage=function(e){var d=e.data;try{var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid});}catch(err){postMessage({id:d.id,error:String(err)});}};';
         workerURL = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
         worker = new Worker(workerURL);
         worker.onmessage = function(e){ var j = jobs[e.data.id]; if (!j) return; delete jobs[e.data.id]; e.data.error ? j.rej(new Error(e.data.error)) : j.res(e.data); };
@@ -514,7 +681,7 @@ function analyse(mono, sr){
       worker.postMessage({ id: id, mono: mono, sr: sr }, [mono.buffer]);
     }catch(err){
       /* no workers? run inline */
-      try{ res({ bpm: detectBPM(mono, sr), key: detectKey(mono, sr) }); }catch(e2){ rej(e2); }
+      try{ res(analyseTrack(mono, sr)); }catch(e2){ rej(e2); }
     }
   });
 }
@@ -544,7 +711,7 @@ function deckMarkup(L){
 function Deck(L, el){
   var d = this;
   d.L = L; d.el = el; el.innerHTML = deckMarkup(L);
-  d.buffer = null; d.name = ''; d.bpm = null; d.key = null; d.rate = 1; d.vol = 1; d.xf = Math.SQRT1_2;
+  d.buffer = null; d.name = ''; d.bpm = null; d.key = null; d.grid = null; d.rate = 1; d.vol = 1; d.xf = Math.SQRT1_2;
   d.playing = false; d.posAtStart = 0; d.tStart = 0; d.src = null; d.nodes = null;
   d.chroma = new Float32Array(12); d.chord = null; d.chordCand = null; d.chordVotes = 0; d.fftBuf = null;
   d.q = {
@@ -572,11 +739,20 @@ function Deck(L, el){
   d.q.pitch.addEventListener('input', function(){ d.setRate(1 + parseFloat(d.q.pitch.value) / 100); if (state.lock && state.master === d.L) applyLock(); });
   d.q.vol.addEventListener('input', function(){ d.setVol(parseInt(d.q.vol.value, 10) / 100); });
   var seeking = false;
-  function seekAt(e){ var r = d.q.wave.getBoundingClientRect(); var x = (e.clientX - r.left) / r.width; d.seek(Math.max(0, Math.min(1, x)) * (d.buffer ? d.buffer.duration : 0)); }
+  function seekAt(e){
+    var r = d.q.wave.getBoundingClientRect(), x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    var vw2 = d.viewWindow();
+    d.seek(vw2.zoomed ? vw2.t0 + x * (vw2.t1 - vw2.t0) : x * (d.buffer ? d.buffer.duration : 0));
+  }
   d.q.wave.addEventListener('pointerdown', function(e){ if (!d.buffer) return; seeking = true; d.q.wave.setPointerCapture(e.pointerId); seekAt(e); });
   d.q.wave.addEventListener('pointermove', function(e){ if (seeking) seekAt(e); });
   d.q.wave.addEventListener('pointerup', function(){ seeking = false; });
   d.q.wave.addEventListener('pointercancel', function(){ seeking = false; });
+  d.q.wave.addEventListener('wheel', function(e){
+    if (!d.buffer) return;
+    e.preventDefault();
+    setZoom(ZOOM.z * Math.pow(1.25, e.deltaY < 0 ? 1 : -1));
+  }, { passive: false });
   d.q.wave.addEventListener('keydown', function(e){
     if (!d.buffer) return; var step = d.buffer.duration * 0.02;
     if (e.key === 'ArrowLeft'){ e.preventDefault(); d.seek(d.pos() - step); }
@@ -592,7 +768,7 @@ Deck.prototype.renderTime = function(){
 Deck.prototype.setStatus = function(t, err){ this.q.status.textContent = t || ''; this.q.status.classList.toggle('err', !!err); };
 Deck.prototype.loadFile = function(file){
   var d = this;
-  d.stop(); d.buffer = null; d.bpm = null; d.key = null; d.chord = null; d.posAtStart = 0;
+  d.stop(); d.buffer = null; d.bpm = null; d.key = null; d.grid = null; d.chord = null; d.posAtStart = 0;
   d.name = file.name.replace(/\.[^.]+$/, '');
   d.q.track.textContent = d.name; d.q.track.classList.add('has'); d.q.track.title = file.name;
   d.setColor(null); d.render(); d.setStatus('decoding…');
@@ -606,7 +782,7 @@ Deck.prototype.loadFile = function(file){
 };
 Deck.prototype.setBuffer = function(buf, name){
   var d = this;
-  d.stop(); d.buffer = buf; d.name = name || d.name; d.posAtStart = 0; d.bpm = null; d.key = null;
+  d.stop(); d.buffer = buf; d.name = name || d.name; d.posAtStart = 0; d.bpm = null; d.key = null; d.grid = null;
   d.q.track.textContent = d.name; d.q.track.classList.add('has');
   d.q.wave.classList.add('has'); d.renderTime();
   d.setColor(null); d.draw(); d.render(); d.setStatus('reading bpm + key…');
@@ -615,7 +791,7 @@ Deck.prototype.setBuffer = function(buf, name){
   var mono = monoDownsample(chans, factor), token = d.buffer;
   return analyse(mono, sr).then(function(r){
     if (d.buffer !== token) return;
-    d.bpm = r.bpm; d.key = r.key; d.setStatus('');
+    d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.setStatus('');
     d.setColor(r.key ? camelotColor(r.key.n, r.key.letter) : null);
     d.draw(); d.render(); applyLock(); renderCentre();
   }, function(){ if (d.buffer === token) d.setStatus('analysis failed — deck still plays', true); d.render(); });
@@ -674,7 +850,7 @@ Deck.prototype.render = function(){
   d.el.classList.toggle('playing', d.playing);
   var eb = d.effBpm();
   q.bpmv.textContent = eb ? eb.toFixed(1) : '—';
-  q.orig.textContent = d.bpm ? 'original ' + d.bpm.toFixed(1) : (d.buffer ? 'original —' : 'no track');
+  q.orig.textContent = d.bpm ? 'original ' + d.bpm.toFixed(1) + (d.grid ? (d.grid.conf < 0.6 ? ' · loose grid' : '') : ' · no grid') : (d.buffer ? 'original —' : 'no track');
   if (d.key){ q.badge.textContent = d.key.camelot; q.badge.classList.add('has'); q.keyname.textContent = d.key.name + (d.key.conf < 0.25 ? ' ?' : ''); }
   else { q.badge.textContent = '—'; q.badge.classList.remove('has'); q.keyname.textContent = '—'; }
   var pv = (d.rate - 1) * 100; q.pv.textContent = (pv >= 0 ? '+' : '') + pv.toFixed(1) + '%'; q.pv.classList.toggle('warn', Math.abs(pv) > 8.05);
@@ -683,12 +859,78 @@ Deck.prototype.render = function(){
   q.pitch.disabled = locked; q.pitchLab.classList.toggle('locked', locked);
   if (!d.playing) q.chordv.textContent = '·';
 };
+/* ── zoomable synchronized beat grid — DISPLAY ONLY: nothing here touches rate, nodes or scheduling ── */
+var ZOOM = { z: 1 };
+try{ var zs0 = parseFloat(localStorage.getItem('harmony-grid-zoom')); if (zs0 >= 1 && zs0 <= 64) ZOOM.z = zs0; }catch(e){}
+function setZoom(z){
+  z = Math.max(1, Math.min(64, z));
+  ZOOM.z = z;
+  try{ localStorage.setItem('harmony-grid-zoom', String(z)); }catch(e){}
+  var el = document.getElementById('zoom'), lab = document.getElementById('zoomv');
+  if (el && Math.abs(Math.pow(2, parseFloat(el.value)) - z) > z * 0.01) el.value = (Math.log(z) / Math.LN2).toFixed(2);
+  if (lab) lab.textContent = (z >= 10 ? Math.round(z) : Math.round(z * 10) / 10) + '×';
+  if (typeof decks === 'object' && decks.A){ decks.A.draw(); decks.B.draw(); }
+}
+(function(){
+  var el = document.getElementById('zoom'), lab = document.getElementById('zoomv');
+  if (!el) return;
+  el.value = (Math.log(ZOOM.z) / Math.LN2).toFixed(2);
+  if (lab) lab.textContent = (ZOOM.z >= 10 ? Math.round(ZOOM.z) : Math.round(ZOOM.z * 10) / 10) + '×';
+  el.addEventListener('input', function(){ setZoom(Math.pow(2, parseFloat(el.value))); });
+})();
+Deck.prototype.viewWindow = function(){
+  var d = this, dur = d.buffer ? d.buffer.duration : 0;
+  if (!dur || ZOOM.z <= 1.001) return { t0: 0, t1: dur, zoomed: false };
+  var span = dur / ZOOM.z, p = d.playing ? d.pos() : d.posAtStart;
+  var t0 = Math.max(0, Math.min(dur - span, p - span / 2));
+  return { t0: t0, t1: t0 + span, zoomed: true };
+};
+Deck.prototype.gridUsable = function(){
+  var d = this; return !!(d.grid && d.grid.conf >= 0.25 && d.bpm && Math.abs(d.bpm / d.grid.bpm - 1) <= 0.03);
+};
+Deck.prototype.drawGrid = function(g, w, h, t0, t1){
+  var d = this; if (!d.gridUsable()) return;
+  var gr = d.grid, per = 60 / gr.bpm, span = t1 - t0;
+  var pxPerBeat = per / span * w;
+  g.fillStyle = '#ece9e2';
+  if (pxPerBeat >= 4){
+    var n0 = Math.max(0, Math.ceil((Math.max(0, t0) - gr.beat0) / per));
+    for (var n = n0; gr.beat0 + n * per <= t1; n++){
+      var t = gr.beat0 + n * per, bar = ((n - gr.downbeat) % 4 + 4) % 4 === 0;
+      g.globalAlpha = bar ? 0.5 : 0.2;
+      g.fillRect(Math.round((t - t0) / span * w), 0, bar ? 2 : 1, h);
+    }
+  } else {
+    var step = 4 * per; while (step / span * w < 5) step *= 2;
+    var start = gr.beat0 + gr.downbeat * per;
+    var k0 = Math.max(0, Math.ceil((t0 - start) / step));
+    g.globalAlpha = 0.35;
+    for (var t2 = start + k0 * step; t2 <= t1; t2 += step) g.fillRect(Math.round((t2 - t0) / span * w), 0, 1, h);
+  }
+  g.globalAlpha = 1;
+};
+Deck.prototype.drawZoomed = function(g, w, h, t0, t1){
+  var d = this, ch = d.buffer.getChannelData(0), sr = d.buffer.sampleRate, mid = h / 2;
+  var a0 = Math.floor(t0 * sr), a1 = Math.min(ch.length, Math.floor(t1 * sr)), per = (a1 - a0) / w;
+  var step = Math.max(1, Math.floor(per / 8));
+  g.fillStyle = d.color || '#6b6f78'; g.globalAlpha = 0.85;
+  for (var x = 0; x < w; x++){
+    var a = a0 + Math.floor(x * per), b = a0 + Math.floor((x + 1) * per), mn = 0, mx = 0;
+    for (var i = a; i < b; i += step){ var v = ch[i] || 0; if (v < mn) mn = v; if (v > mx) mx = v; }
+    var y0 = mid + mn * mid * 0.92, y1 = mid + mx * mid * 0.92;
+    g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0)));
+  }
+  g.globalAlpha = 1;
+  d.drawGrid(g, w, h, t0, t1);
+};
 Deck.prototype.draw = function(){
   var d = this, cv = d.q.canvas, dpr = window.devicePixelRatio || 1;
   var w = Math.max(1, Math.round(cv.clientWidth || 300)), h = Math.max(1, Math.round(cv.clientHeight || 80));
   if (cv.width !== w * dpr || cv.height !== h * dpr){ cv.width = w * dpr; cv.height = h * dpr; }
   var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
   if (!d.buffer) { d.peaks = null; return; }
+  var vz = d.viewWindow();
+  if (vz.zoomed){ d.drawZoomed(g, w, h, vz.t0, vz.t1); d.drawHead(g, w, h, vz); return; }
   if (!d.peaks || d.peaks.length !== w * 2){
     var ch = d.buffer.getChannelData(0), n = ch.length, per = n / w, pk = new Float32Array(w * 2), step = Math.max(1, Math.floor(per / 400));
     for (var x = 0; x < w; x++){
@@ -702,11 +944,13 @@ Deck.prototype.draw = function(){
   var mid = h / 2;
   for (x = 0; x < w; x++){ var y0 = mid + d.peaks[x * 2] * mid * 0.92, y1 = mid + d.peaks[x * 2 + 1] * mid * 0.92; g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0))); }
   g.globalAlpha = 1;
+  d.drawGrid(g, w, h, 0, d.buffer.duration);
   d.drawHead(g, w, h);
 };
-Deck.prototype.drawHead = function(g, w, h){
+Deck.prototype.drawHead = function(g, w, h, vw){
   if (!this.buffer) return;
-  var p = this.pos() / this.buffer.duration, x = Math.round(p * w);
+  var pos = this.pos(), p = pos / this.buffer.duration;
+  var x = vw && vw.zoomed ? Math.round((pos - vw.t0) / (vw.t1 - vw.t0) * w) : Math.round(p * w);
   g.fillStyle = 'rgba(14,15,18,.55)'; g.fillRect(0, 0, x, h);
   g.fillStyle = '#ece9e2'; g.fillRect(x, 0, 2, h);
   this.q.wave.setAttribute('aria-valuenow', Math.round(p * 100));
@@ -717,9 +961,15 @@ Deck.prototype.tick = function(){
   if (Math.round(cv.clientWidth) !== Math.round(w)) { d.draw(); return; }
   var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
-  g.fillStyle = d.color || '#6b6f78'; g.globalAlpha = 0.85; var mid = h / 2;
-  if (d.peaks) for (var x = 0; x < w; x++){ var y0 = mid + d.peaks[x * 2] * mid * 0.92, y1 = mid + d.peaks[x * 2 + 1] * mid * 0.92; g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0))); }
-  g.globalAlpha = 1; d.drawHead(g, w, h);
+  var vz = d.viewWindow();
+  if (vz.zoomed){ d.drawZoomed(g, w, h, vz.t0, vz.t1); }
+  else {
+    g.fillStyle = d.color || '#6b6f78'; g.globalAlpha = 0.85; var mid = h / 2;
+    if (d.peaks) for (var x = 0; x < w; x++){ var y0 = mid + d.peaks[x * 2] * mid * 0.92, y1 = mid + d.peaks[x * 2 + 1] * mid * 0.92; g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0))); }
+    g.globalAlpha = 1;
+    d.drawGrid(g, w, h, 0, d.buffer.duration);
+  }
+  d.drawHead(g, w, h, vz);
   d.q.el.textContent = fmtTime(d.pos());
   d.renderTime();
   if (d.playing && d.nodes) d.tickChord();
@@ -829,7 +1079,7 @@ window.addEventListener('resize', function(){ decks.A.draw(); decks.B.draw(); })
 renderCentre();
 
 /* test seam */
-window.__X = { decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { ZOOM: ZOOM, setZoom: setZoom, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
@@ -886,14 +1136,14 @@ function analyse(mono, sr){
     try{
       if (!worker){
         var src = document.getElementById('dsp').textContent +
-          '\nself.onmessage=function(e){var d=e.data;try{postMessage({id:d.id,bpm:detectBPM(d.mono,d.sr),key:detectKey(d.mono,d.sr)});}catch(err){postMessage({id:d.id,error:String(err)});}};';
+          '\nself.onmessage=function(e){var d=e.data;try{var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid});}catch(err){postMessage({id:d.id,error:String(err)});}};';
         worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
         worker.onmessage = function(e){ var j = jobs[e.data.id]; if (!j) return; delete jobs[e.data.id]; e.data.error ? j.rej(new Error(e.data.error)) : j.res(e.data); };
         worker.onerror = function(e){ for (var k in jobs) jobs[k].rej(new Error(e.message || 'worker error')); jobs = {}; worker = null; };
       }
       var id = ++jobId; jobs[id] = { res: res, rej: rej };
       worker.postMessage({ id: id, mono: mono, sr: sr }, [mono.buffer]);
-    }catch(err){ try{ res({ bpm: detectBPM(mono, sr), key: detectKey(mono, sr) }); }catch(e2){ rej(e2); } }
+    }catch(err){ try{ res(analyseTrack(mono, sr)); }catch(e2){ rej(e2); } }
   });
 }
 var octx = null;
@@ -1086,7 +1336,7 @@ function pump(){
     if (!byId[rec.id]) return;
     rec.dur = buf.duration; rec.state = 'analysing'; render();
     var m = monoOf(buf);
-    return analyse(m.mono, m.sr).then(function(r){ if (!byId[rec.id]) return; if (!rec.manual){ rec.bpm = r.bpm; rec.key = r.key; } rec.err = null; });
+    return analyse(m.mono, m.sr).then(function(r){ if (!byId[rec.id]) return; if (!rec.manual){ rec.bpm = r.bpm; rec.key = r.key; } rec.grid = r.grid || null; rec.err = null; });
   }).catch(function(e){ if (byId[rec.id]) rec.err = /decod/i.test(String(e && e.message || e)) || !rec.dur ? "couldn't decode" : 'analysis failed'; })
   .then(function(){
     if (byId[rec.id]){ rec.done = true; rec.state = null; persist(rec); }
@@ -1111,7 +1361,7 @@ function setMeta(rec, bpm, camStr){
 }
 function applyMeta(d, rec){
   if (!rec.bpm && !rec.key) return;
-  d.bpm = rec.bpm; d.key = rec.key; d.setColor(keyColor(rec.key)); d.setStatus(''); d.draw(); d.render(); X.applyLock(); X.renderCentre();
+  d.bpm = rec.bpm; d.key = rec.key; d.grid = rec.grid || d.grid || null; d.setColor(keyColor(rec.key)); d.setStatus(''); d.draw(); d.render(); X.applyLock(); X.renderCentre();
 }
 function loadTo(rec, L){
   var d = decks[L]; if (!d || !rec) return Promise.resolve();
@@ -1138,12 +1388,12 @@ DeckP.setBuffer = function(buf, name){
     var rec = d._crateId && byId[d._crateId];
     if (rec){
       if (rec.manual || (rec.bpm && rec.key)) applyMeta(d, rec);
-      else if (d.bpm || d.key){ rec.bpm = rec.bpm || d.bpm; rec.key = rec.key || d.key; rec.done = true; persist(rec); }
+      else if (d.bpm || d.key){ rec.bpm = rec.bpm || d.bpm; rec.key = rec.key || d.key; rec.grid = rec.grid || d.grid || null; rec.done = true; persist(rec); }
     } else if (d._file && isAudio(d._file)){
       var f = d._file, dup = dupOf(f);
-      if (dup){ d._crateId = dup.id; if (!dup.bpm && d.bpm){ dup.bpm = d.bpm; dup.key = dup.key || d.key; persist(dup); } }
+      if (dup){ d._crateId = dup.id; if (!dup.bpm && d.bpm){ dup.bpm = d.bpm; dup.key = dup.key || d.key; dup.grid = dup.grid || d.grid || null; persist(dup); } }
       else {
-        var nr = { id: uid(), name: d.name, fileName: f.name, size: f.size, type: f.type || '', blob: f, added: stamp(), dur: buf.duration, bpm: d.bpm, key: d.key, done: true, manual: false };
+        var nr = { id: uid(), name: d.name, fileName: f.name, size: f.size, type: f.type || '', blob: f, added: stamp(), dur: buf.duration, bpm: d.bpm, key: d.key, grid: d.grid || null, done: true, manual: false };
         crate.push(nr); byId[nr.id] = nr; persist(nr); d._crateId = nr.id; status(nr.name + ' added to the crate');
       }
       d._file = null;
