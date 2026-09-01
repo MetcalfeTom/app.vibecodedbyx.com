@@ -1,0 +1,14 @@
+# Breadbin BASIC — C64-inspired home computer
+
+## log
+- 2026-09-01: v1.0 per a public request ("safe C64-inspired emulator with BASIC prompt, keyboard input, RUN button, and bundled pixel demo"). NOT a real 6502 emulator — an original tiny BASIC interpreter (safe by construction: recursive-descent expression evaluator, **no eval/Function anywhere**; user input is only ever data to this parser). Dialect: PRINT (; ,), LET/assign, IF…THEN (lineno or stmt), GOTO, GOSUB/RETURN, FOR/NEXT/STEP (nested), REM, END, CLS, INPUT (waits + feeds), COLOR 0-15, PLOT x,y on 160×100; funcs RND/INT/ABS/SIN/COS/SQR/LEN; string vars `$`; `:` statement separator (quote-aware); C64-style errors "?SYNTAX ERROR IN 40", true=-1. Machine seam `bbMachine(io)` pure + node-testable (`<script id="basic">`); **budgeted drain(n)** — the UI pump runs 600 stmts/30ms so `10 GOTO 10` can never freeze the page; ESC = BREAK. Screen: 320×200 canvas, 40×25 text grid (Press Start 2P) over a 2×2-block pixel layer, C64 palette, blue-on-blue boot banner "**** BREADBIN 64 BASIC V2 ****", blinking block cursor when idle. Input: canvas keydown + hidden #kbd input (mobile soft keyboards via the input event), tap-to-focus. Deck: RUN / LOAD DEMO / LIST / STOP / NEW + power LED. Demo: 16-line program (double sine in 15 colors + RND sparkles + sign-off). Fonts Press Start 2P + Overpass Mono; beige case chrome. No BLUESCRN.EXE: the retro-desktop convention covers fake OS desktops, not home-computer shells (noted deliberately).
+- Suites: interpreter node 24/24 (precedence, print separators, string concat, IF both forms + string compare, nested FOR + negative STEP, GOSUB/RETURN + its error, UNDEF'D/SYNTAX/TYPE MISMATCH with line numbers, COLOR clamp + PLOT bounds, seeded RND, INPUT wait/feed, budget keeps an endless loop 'running', BREAK, direct mode, LIST order, NEW, demo → done + 381 px in ≥8 colors + sign-off); browser 22/22 ×3 widths (boot banner, typing/echo/backspace via real key events, soft-keyboard input path, stored vs run, typed RUN, LOAD DEMO 16 lines, LED, pixels >300 + canvas ink in ≥6 hues, endless-loop liveness + ESC BREAK, LIST, geometry/hit/stamp).
+- BOOT-ORDER LESSON: the rAF render loop started before boot's clearAll() → cells[0].join crashed the whole IIFE and the seam never landed, with NOTHING in --enable-logging stderr — the error surfaced only via a pre-<body>-script window error hook composed into a debug page. Initialize state at declaration, not at boot.
+
+## issues
+- INPUT in direct mode is rejected (needs a running program) — C64 did the same, keep it.
+- PRINT of a float rounds at 1e-6 (bbFmt) — good enough for a toy; don't chase C64's 9-digit float formatting.
+
+## todos
+- SAVE/LOAD listings to localStorage slots, if chat asks.
+- a couple more bundled demos (starfield, maze-of-slashes 10 PRINT CHR$…) — needs CHR$/string funcs first.
