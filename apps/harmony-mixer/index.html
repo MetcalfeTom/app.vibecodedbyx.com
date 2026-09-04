@@ -96,6 +96,11 @@ h1 b{ font-weight:800; }
 .stackpanel .shead .stitle{ font-family:var(--disp); font-weight:800; font-size:.95rem; letter-spacing:.04em; text-transform:uppercase; }
 .stackpanel .ssub{ color:var(--mute); font-size:.66rem; letter-spacing:.08em; text-transform:uppercase; }
 #stack{ display:block; width:100%; height:9rem; border-radius:.5rem; background:#101216; touch-action:none; cursor:ew-resize; }
+.syncrow{ display:flex; gap:.45rem; flex-wrap:wrap; }
+.syncrow .btn{ font-size:.72rem; }
+.syncrow .btn.sync.on{ background:var(--dk, #2e6f6a); color:#0e0f12; border-color:transparent; }
+.syncrow .btn.nudge{ min-width:2.75rem; }
+#drift.locked{ color:#7fd3a0; }
 @media (max-width:640px){ .stackpanel{ display:none; } }
 .wave .status{ background:rgba(14,15,18,.55); color:var(--ink); animation:pulse 1.4s ease-in-out infinite; }
 .wave .status.err{ color:var(--red); animation:none; }
@@ -279,7 +284,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
   </div>
 
   <section class="stackpanel" id="stackpanel" aria-label="Aligned timeline">
-    <div class="shead"><span class="stitle">aligned timeline</span><span class="ssub">deck A over deck B · playheads pinned centre · lanes scale with pitch, so locked tempos show matching grids · hold a lane to pause it, drag to scrub it · scrollwheel zooms</span></div>
+    <div class="shead"><span class="stitle">aligned timeline</span><span class="ssub">deck A over deck B · playheads pinned centre · lanes scale with pitch, so locked tempos show matching grids · hold a lane to pause it, drag to scrub it · scrollwheel zooms</span><span class="ssub" id="drift" role="status" aria-live="off"></span></div>
     <canvas id="stack" role="img" aria-label="Stacked shared-timeline view: deck A's waveform over deck B's, both playheads fixed at the centre line, beat grids visible for alignment. Holding a lane pauses that deck while held; dragging left or right scrubs it. Lane windows scale with each deck's pitch"></canvas>
   </section>
 
@@ -325,7 +330,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
   </div>
 </main>
 <footer>
-  <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · pitch changes key like vinyl</p>
+  <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
   <span id="buildstamp" role="note" aria-label="Build information">build v1.7 · 2026-09-03 · 3e34ce798</span>
 </footer>
 
@@ -716,6 +721,12 @@ function deckMarkup(L){
         '<label class="fader pitch"><span>pitch <b class="pv">0.0%</b></span><input type="range" min="-8" max="8" step="0.1" value="0" aria-label="Deck ' + L + ' pitch, percent"></label>' +
         '<label class="fader vol"><span>level <b class="vv">100</b></span><input type="range" min="0" max="100" value="100" aria-label="Deck ' + L + ' level"></label>' +
       '</div>' +
+      '<div class="syncrow">' +
+        '<button type="button" class="btn klock" aria-pressed="true" title="Keylock: tempo changes keep the musical key (pitch-preserving). Off = vinyl mode, pitch follows speed.">♪ keylock</button>' +
+        '<button type="button" class="btn sync" aria-pressed="false" title="Match this deck\'s tempo to the other deck and align the beat grids on their transients">⇄ sync</button>' +
+        '<button type="button" class="btn nudge nm" title="Hold to ease this deck back a touch">−</button>' +
+        '<button type="button" class="btn nudge np" title="Hold to hurry this deck a touch">+</button>' +
+      '</div>' +
     '</div>';
 }
 
@@ -723,13 +734,15 @@ function Deck(L, el){
   var d = this;
   d.L = L; d.el = el; el.innerHTML = deckMarkup(L);
   d.buffer = null; d.name = ''; d.bpm = null; d.key = null; d.grid = null; d.rate = 1; d.vol = 1; d.xf = Math.SQRT1_2;
+  d.keylock = true; d.bend = 1; d.mediaURL = null; d.el2 = null; d.mediaSrc = null;
   d.playing = false; d.posAtStart = 0; d.tStart = 0; d.src = null; d.nodes = null;
   d.chroma = new Float32Array(12); d.chord = null; d.chordCand = null; d.chordVotes = 0; d.fftBuf = null;
   d.q = {
     track: $('.track', el), bpmv: $('.bpmv', el), orig: $('.orig', el), badge: $('.camelot', el), keyname: $('.keyname', el),
     chordv: $('.chordv', el), wave: $('.wave', el), canvas: $('canvas', el), status: $('.status', el), el: $('.el', el), tot: $('.tot', el),
     cue: $('.cue', el), play: $('.play', el), pitch: $('.pitch input', el), pv: $('.pv', el), vol: $('.vol input', el), vv: $('.vv', el),
-    file: $('input[type=file]', el), pitchLab: $('.fader.pitch', el)
+    file: $('input[type=file]', el), pitchLab: $('.fader.pitch', el),
+    klock: $('.klock', el), sync: $('.sync', el), nm: $('.nm', el), np: $('.np', el)
   };
   d.color = null;
   d.q.file.addEventListener('change', function(){ if (d.q.file.files[0]) d.loadFile(d.q.file.files[0]); d.q.file.value = ''; });
@@ -749,6 +762,19 @@ function Deck(L, el){
   d.q.cue.addEventListener('click', function(){ d.cue(); });
   d.q.pitch.addEventListener('input', function(){ d.setRate(1 + parseFloat(d.q.pitch.value) / 100); if (state.lock && state.master === d.L) applyLock(); });
   d.q.vol.addEventListener('input', function(){ d.setVol(parseInt(d.q.vol.value, 10) / 100); });
+  d.q.klock.addEventListener('click', function(){
+    d.keylock = !d.keylock;
+    d.q.klock.setAttribute('aria-pressed', String(d.keylock));
+    d.q.klock.textContent = d.keylock ? '♪ keylock' : '♪ vinyl';
+    d.applyRate();
+  });
+  d.q.sync.addEventListener('click', function(){ toggleSync(d); });
+  [[d.q.nm, 0.96], [d.q.np, 1.04]].forEach(function(pair){
+    var b = pair[0], f = pair[1];
+    b.addEventListener('pointerdown', function(e){ e.preventDefault(); SYNCST.nudging = true; d.bend = f; d.applyRate(); });
+    var up = function(){ if (SYNCST.nudging){ SYNCST.nudging = false; d.bend = 1; d.applyRate(); } };
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up);
+  });
   /* v1.5: vinyl-style hold — the press is a finger on the record (sound pauses while held),
      release restores the prior state, and horizontal drag scrubs directionally, scaled by the
      visible window so a zoomed view scrubs finely. Nothing seeks on a plain click. */
@@ -797,6 +823,7 @@ Deck.prototype.setStatus = function(t, err){ this.q.status.textContent = t || ''
 Deck.prototype.loadFile = function(file){
   var d = this;
   d.stop(); d.buffer = null; d.bpm = null; d.key = null; d.grid = null; d.chord = null; d.posAtStart = 0;
+  d.setMedia(file);
   d.name = file.name.replace(/\.[^.]+$/, '');
   d.q.track.textContent = d.name; d.q.track.classList.add('has'); d.q.track.title = file.name;
   d.setColor(null); d.render(); d.setStatus('decoding…');
@@ -825,6 +852,31 @@ Deck.prototype.setBuffer = function(buf, name){
   }, function(){ if (d.buffer === token) d.setStatus('analysis failed — deck still plays', true); d.render(); });
 };
 Deck.prototype.setColor = function(c){ this.color = c; this.el.style.setProperty('--dk', c || '#6b6f78'); document.documentElement.style.setProperty('--dk' + this.L.toLowerCase(), c || '#4c4f57'); };
+/* pitch-preserving playback: an <audio> element per deck (preservesPitch) routed into the same graph.
+   The buffer-source path stays as fallback when no media blob exists. */
+Deck.prototype.setMedia = function(blob){
+  var d = this;
+  if (!blob) return;
+  if (d.mediaURL){ try{ URL.revokeObjectURL(d.mediaURL); }catch(e){} }
+  d.mediaURL = URL.createObjectURL(blob);
+  if (!d.el2){
+    d.el2 = new Audio();
+    d.el2.preload = 'auto';
+    d.el2.addEventListener('ended', function(){
+      if (d.playing){ d.playing = false; d.posAtStart = d.buffer ? d.buffer.duration : 0; d.render(); }
+    });
+  }
+  d.el2.src = d.mediaURL;
+  try{ d.el2.preservesPitch = d.keylock; }catch(e){}
+};
+Deck.prototype.applyRate = function(){
+  var d = this, r = d.rate * (d.bend || 1);
+  if (d.el2 && d.mediaURL){
+    d.el2.playbackRate = r;
+    try{ d.el2.preservesPitch = d.keylock; }catch(e){}
+  }
+  if (d.src){ try{ d.src.playbackRate.setValueAtTime(r, ctx.currentTime); }catch(e){} }
+};
 Deck.prototype.ensureNodes = function(){
   var d = this, c = audio();
   if (d.nodes) return d.nodes;
@@ -838,14 +890,29 @@ Deck.prototype.ensureNodes = function(){
 };
 Deck.prototype.pos = function(){
   if (!this.buffer) return 0;
-  var p = this.playing ? this.posAtStart + (ctx.currentTime - this.tStart) * this.rate : this.posAtStart;
+  var p;
+  if (this.playing && this.el2 && this.mediaURL) p = this.el2.currentTime;
+  else p = this.playing ? this.posAtStart + (ctx.currentTime - this.tStart) * this.rate : this.posAtStart;
   return Math.max(0, Math.min(this.buffer.duration, p));
 };
 Deck.prototype.play = function(){
   var d = this; if (!d.buffer || d.playing) return;
   var c = audio(), n = d.ensureNodes();
   if (d.posAtStart >= d.buffer.duration - 0.05) d.posAtStart = 0;
-  var s = c.createBufferSource(); s.buffer = d.buffer; s.playbackRate.value = d.rate; s.connect(n.an);
+  if (d.el2 && d.mediaURL){
+    if (!d.mediaSrc){ try{ d.mediaSrc = c.createMediaElementSource(d.el2); }catch(e){ d.mediaSrc = null; } }
+    if (d.mediaSrc){
+      try{ d.mediaSrc.disconnect(); }catch(e){}
+      d.mediaSrc.connect(n.an);
+      d.el2.currentTime = d.posAtStart;
+      d.playing = true;
+      d.applyRate();
+      d.el2.play().catch(function(){});
+      d.render();
+      return;
+    }
+  }
+  var s = c.createBufferSource(); s.buffer = d.buffer; s.playbackRate.value = d.rate * (d.bend || 1); s.connect(n.an);
   var mySrc = s;
   s.onended = function(){ if (d.src !== mySrc) return; var p = d.pos(); d.playing = false; d.src = null; d.posAtStart = p; d.render(); };
   s.start(0, d.posAtStart); d.src = s; d.tStart = c.currentTime; d.playing = true; d.render();
@@ -853,19 +920,23 @@ Deck.prototype.play = function(){
 Deck.prototype.stop = function(){
   var d = this; if (!d.playing) return;
   var p = d.pos(); var s = d.src; d.src = null; d.playing = false; d.posAtStart = p;
-  try{ s.stop(); }catch(e){}
+  if (d.el2 && d.mediaURL){ try{ d.el2.pause(); }catch(e){} }
+  try{ if (s) s.stop(); }catch(e){}
   d.chord = null; d.render();
 };
 Deck.prototype.toggle = function(){ this.playing ? this.stop() : this.play(); };
 Deck.prototype.cue = function(){ this.stop(); this.posAtStart = 0; this.render(); };
 Deck.prototype.seek = function(t){
   var d = this; if (!d.buffer) return; t = Math.max(0, Math.min(d.buffer.duration, t));
-  if (d.playing){ d.stop(); d.posAtStart = t; d.play(); } else { d.posAtStart = t; d.render(); }
+  if (d.playing && d.el2 && d.mediaURL){ d.el2.currentTime = t; d.posAtStart = t; d.render(); }
+  else if (d.playing){ d.stop(); d.posAtStart = t; d.play(); }
+  else { d.posAtStart = t; d.render(); }
 };
 Deck.prototype.setRate = function(r){
   var d = this; r = Math.max(0.5, Math.min(2, r));
   if (d.playing){ d.posAtStart = d.pos(); d.tStart = ctx.currentTime; }
-  d.rate = r; if (d.src) d.src.playbackRate.setValueAtTime(r, ctx.currentTime);
+  d.rate = r;
+  d.applyRate();
   d.render();
 };
 Deck.prototype.setVol = function(v){ this.vol = v; if (this.nodes) this.nodes.vg.gain.setTargetAtTime(v, ctx.currentTime, 0.02); this.q.vv.textContent = Math.round(v * 100); };
@@ -1174,13 +1245,65 @@ if (stackCv){
   stackCv.addEventListener('pointerup', laneRelease);
   stackCv.addEventListener('pointercancel', laneRelease);
 }
-function loop(){ decks.A.tick(); decks.B.tick(); drawStack(); schedule(loop); }
+/* ── hybrid beat sync: coarse SNAP onto the transient-fitted grids, fine PLL bend to hold phase ── */
+var SYNCST = { A: false, B: false, nudging: false };
+function beatSecondsOf(d){ return d.grid ? 60 / (d.grid.bpm * d.rate) : null; }
+function toggleSync(f){
+  var m = f.L === 'A' ? decks.B : decks.A;
+  if (SYNCST[f.L]){ SYNCST[f.L] = false; f.bend = 1; f.applyRate(); syncUi(); return; }
+  if (!m.buffer || !f.buffer){ f.setStatus('sync needs a track on both decks', true); setTimeout(function(){ f.setStatus(''); }, 1800); return; }
+  if (!m.grid || !f.grid){ f.setStatus('sync needs beat grids on both decks (still analysing?)', true); setTimeout(function(){ f.setStatus(''); }, 1800); return; }
+  var em = m.grid.bpm * m.rate, rate = em / f.grid.bpm;
+  if (rate < 0.5 || rate > 2){ f.setStatus('tempos too far apart to sync', true); setTimeout(function(){ f.setStatus(''); }, 1800); return; }
+  f.setRate(rate);
+  var mPos = m.playing ? m.pos() : m.posAtStart;
+  var fPos = f.playing ? f.pos() : f.posAtStart;
+  var delta = alignDelta(m.grid, mPos, f.grid, fPos);
+  f.seek(fPos + delta);
+  SYNCST[f.L] = true; SYNCST[f.L === 'A' ? 'B' : 'A'] = false;
+  syncUi();
+}
+function syncUi(){
+  ['A', 'B'].forEach(function(L){
+    decks[L].q.sync.setAttribute('aria-pressed', String(!!SYNCST[L]));
+    decks[L].q.sync.classList.toggle('on', !!SYNCST[L]);
+  });
+}
+setInterval(function(){
+  ['A', 'B'].forEach(function(L){
+    if (!SYNCST[L]) return;
+    var f = decks[L], m = decks[L === 'A' ? 'B' : 'A'];
+    function calm(){ if (f.bend !== 1){ f.bend = 1; f.applyRate(); } }
+    if (SYNCST.nudging) return;   /* a held nudge owns the bend — the PLL must not touch it */
+    if (!(m.playing && f.playing && m.grid && f.grid)) return calm();
+    var pm = m.grid.bpm * m.rate, pf = f.grid.bpm * f.rate;
+    if (Math.abs(pm / pf - 1) > 0.03) return calm();   /* tempos drifted (hand edit / fader) — stand down */
+    var eRaw = phaseError(m.grid, m.pos(), f.grid, f.pos());
+    if (Math.abs(eRaw) > 0.06){ f._emaE = 0; f.seek(f.pos() + eRaw * 60 / (f.grid.bpm * f.rate)); return calm(); }
+    /* media currentTime is jittery (~±15 ms) — smooth the error so the PLL rides it out */
+    var e = f._emaE = (f._emaE === undefined ? eRaw : f._emaE * 0.6 + eRaw * 0.4);
+    if (Math.abs(e) < 0.002) return calm();
+    var adj = Math.max(-0.015, Math.min(0.015, e * 0.3));
+    f.bend = 1 + adj; f.applyRate();
+  });
+}, 50);
+function updateDrift(){
+  var el = document.getElementById('drift'); if (!el) return;
+  var A = decks.A, B = decks.B;
+  if (A.grid && B.grid && A.buffer && B.buffer && (A.playing || B.playing)){
+    var e = phaseError(A.grid, A.pos(), B.grid, B.pos());
+    var ms = Math.round(e * 60 / (A.grid.bpm * A.rate) * 1000);
+    el.textContent = Math.abs(ms) < 10 ? 'transient-locked · drift ' + ms + ' ms' : 'drift ' + (ms > 0 ? '+' : '') + ms + ' ms';
+    el.className = 'ssub ' + (Math.abs(ms) < 10 ? 'locked' : '');
+  } else el.textContent = '';
+}
+function loop(){ decks.A.tick(); decks.B.tick(); drawStack(); updateDrift(); schedule(loop); }
 schedule(loop);
 window.addEventListener('resize', function(){ decks.A.draw(); decks.B.draw(); });
 renderCentre();
 
 /* test seam */
-window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
@@ -1466,7 +1589,9 @@ function applyMeta(d, rec){
 }
 function loadTo(rec, L){
   var d = decks[L]; if (!d || !rec) return Promise.resolve();
+  if (rec.missing) return Promise.resolve();
   d._crateId = rec.id; d._file = null; lastLoaded = L;
+  d.setMedia(rec.blob);
   d.q.track.textContent = rec.name; d.q.track.classList.add('has'); d.setStatus('loading from crate…');
   render();
   return readBlob(rec.blob).then(decode).then(function(buf){
