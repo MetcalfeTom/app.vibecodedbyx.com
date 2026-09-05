@@ -1,6 +1,7 @@
 # Harmony Mixer — notes
 
 ## design notes (chat-requested, not yet built)
+- **Shared-canvas click-lanes vs duplicate canvases — MEASURED 2026-09-05** (chat asked for repaint cost before any rework): on live v2.1 @1137px, 60-frame means — shared (current drawStack): 1.86–1.93 ms/frame across 1×/8×/64× zoom; duplicate per-lane canvases (identical sampling arithmetic): 0.65–1.23 ms/frame. Duplicates are ~1 ms cheaper, BUT both are ≤12% of the 16.7 ms frame budget → **no rework justified**. The shared design's extra ~1 ms is mostly the per-lane save/clip/restore, not the architecture — if that millisecond is ever wanted, replace clip() with manual y-offset math INSIDE the current shared canvas; do not split canvases (it would fork the lane-scrub hit-testing for a rounding-error win). Probe: hm/repaint-tail.html.
 - **Inverted-Camelot vocal highlight** (chat, 2026-09-04): highlight crate rows whose key sits OPPOSITE on the Camelot wheel (±6 steps — the energy-clash zone) as candidates for vocal/acapella layering — the classic trick where a harmonically "wrong" pairing works for spoken/vocal overlays. Sketch: a `vocal` chip in the crate row when |ref.n − rec.n| mod 12 == 6, tooltip explaining the trick, OFF by default behind a toggle. Recorded as requested; do not build until chat asks.
 
 ## log
