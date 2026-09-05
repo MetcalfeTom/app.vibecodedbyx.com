@@ -99,6 +99,7 @@ h1 b{ font-weight:800; }
 .syncrow{ display:flex; gap:.45rem; flex-wrap:wrap; }
 .syncrow .btn{ font-size:.72rem; }
 .syncrow .btn.sync.on{ background:var(--dk, #2e6f6a); color:#0e0f12; border-color:transparent; }
+.syncrow .btn.loop.on{ background:#7ec97a; color:#0e0f12; border-color:transparent; }
 .syncrow .btn.nudge{ min-width:2.75rem; }
 #drift.locked{ color:#7fd3a0; }
 @media (max-width:640px){ .stackpanel{ display:none; } }
@@ -730,6 +731,13 @@ function deckMarkup(L){
         '<select class="sel presel" aria-label="Pre-count length in bars">' +
           '<option value="0.5">½ bar</option><option value="1" selected>1 bar</option><option value="2">2 bars</option><option value="4">4 bars</option>' +
         '</select>' +
+        '<button type="button" class="btn loop" aria-pressed="false" title="Loop: repeat a whole number of bars from here, snapped to this deck\'s beat grid">↻ loop</button>' +
+        '<select class="sel loopsel" aria-label="Loop length in bars">' +
+          '<option value="1">1 bar</option><option value="2">2 bars</option><option value="4" selected>4 bars</option><option value="8">8 bars</option>' +
+        '</select>' +
+        '<select class="sel resetsel" aria-label="Reset duration: how far back a double-click on this deck\'s lane handle rewinds">' +
+          '<option value="0">to cue (0:00)</option><option value="1">back 1 bar</option><option value="4" selected>back 4 bars</option><option value="8">back 8 bars</option>' +
+        '</select>' +
       '</div>' +
     '</div>';
 }
@@ -739,6 +747,7 @@ function Deck(L, el){
   d.L = L; d.el = el; el.innerHTML = deckMarkup(L);
   d.buffer = null; d.name = ''; d.bpm = null; d.key = null; d.grid = null; d.rate = 1; d.vol = 1; d.xf = Math.SQRT1_2;
   d.keylock = true; d.bend = 1; d.mediaURL = null; d.el2 = null; d.mediaSrc = null;
+  d.loopOn = false; d.loopA = null; d.loopB = null; d.resetSecs = null;
   d.playing = false; d.posAtStart = 0; d.tStart = 0; d.src = null; d.nodes = null;
   d.chroma = new Float32Array(12); d.chord = null; d.chordCand = null; d.chordVotes = 0; d.fftBuf = null;
   d.q = {
@@ -746,7 +755,8 @@ function Deck(L, el){
     chordv: $('.chordv', el), wave: $('.wave', el), canvas: $('canvas', el), status: $('.status', el), el: $('.el', el), tot: $('.tot', el),
     cue: $('.cue', el), play: $('.play', el), pitch: $('.pitch input', el), pv: $('.pv', el), vol: $('.vol input', el), vv: $('.vv', el),
     file: $('input[type=file]', el), pitchLab: $('.fader.pitch', el),
-    klock: $('.klock', el), sync: $('.sync', el), nm: $('.nm', el), np: $('.np', el), pre: $('.pre', el), presel: $('.presel', el)
+    klock: $('.klock', el), sync: $('.sync', el), nm: $('.nm', el), np: $('.np', el), pre: $('.pre', el), presel: $('.presel', el),
+    loop: $('.loop', el), loopsel: $('.loopsel', el), resetsel: $('.resetsel', el)
   };
   d.color = null;
   d.q.file.addEventListener('change', function(){ if (d.q.file.files[0]) d.loadFile(d.q.file.files[0]); d.q.file.value = ''; });
@@ -774,6 +784,9 @@ function Deck(L, el){
   });
   d.q.sync.addEventListener('click', function(){ toggleSync(d); });
   d.q.pre.addEventListener('click', function(){ d.preCount(); });
+  d.q.loop.addEventListener('click', function(){ d.toggleLoop(); });
+  d.q.loopsel.addEventListener('change', function(){ if (d.loopOn) d.setLoop(true); });
+  [d.q.loopsel, d.q.resetsel].forEach(function(sel){ sel.addEventListener('keydown', function(e){ e.stopPropagation(); }); });
   d.q.presel.addEventListener('change', function(){});
   d.q.presel.addEventListener('keydown', function(e){ e.stopPropagation(); });
   [[d.q.nm, 0.96], [d.q.np, 1.04]].forEach(function(pair){
@@ -977,6 +990,53 @@ Deck.prototype.preCount = function(){
   if (d.playing) d.seek(t);              /* live seek — no pause, no restart, rendering just follows pos */
   else { d.posAtStart = t; d.render(); d.play(); }
 };
+/* looping: a whole number of bars from the current position, snapped to this deck's grid,
+   so a looping deck stays on the same beat phase (and an engaged sync survives). */
+Deck.prototype.barSecs = function(){ return this.grid ? 4 * (60 / this.grid.bpm) : null; };
+Deck.prototype.setLoop = function(on){
+  var d = this;
+  if (!on){ d.loopOn = false; d.loopA = d.loopB = null; d.renderLoop(); return; }
+  if (!d.buffer) return;
+  if (!d.grid){ d.setStatus('loop needs a beat grid (still analysing?)', true); setTimeout(function(){ d.setStatus(''); }, 1800); return; }
+  var bar = d.barSecs(), bars = parseFloat(d.q.loopsel.value) || 4;
+  var from = d.playing ? d.pos() : d.posAtStart;
+  var beat = 60 / d.grid.bpm;
+  var n = Math.floor((from - d.grid.beat0) / beat);          /* snap the start onto the grid */
+  var a = Math.max(0, d.grid.beat0 + n * beat);
+  var b = a + bars * bar;
+  if (b > d.buffer.duration){ b = d.buffer.duration; a = Math.max(0, b - bars * bar); }
+  d.loopA = a; d.loopB = b; d.loopOn = true;
+  d.renderLoop();
+};
+Deck.prototype.toggleLoop = function(){ this.setLoop(!this.loopOn); };
+Deck.prototype.renderLoop = function(){
+  var d = this;
+  d.q.loop.setAttribute('aria-pressed', String(!!d.loopOn));
+  d.q.loop.classList.toggle('on', !!d.loopOn);
+  d.draw();
+};
+/* the loop wrap: checked every frame, jumps back by whole bars (phase-preserving, no restart) */
+Deck.prototype.loopTick = function(){
+  var d = this;
+  if (!d.loopOn || !d.playing || d.loopA == null) return;
+  var p = d.pos();
+  if (p >= d.loopB - 0.005 || p < d.loopA - 0.5) d.seek(d.loopA);
+};
+/* double-clicking a lane handle resets this deck by the adjustable reset duration */
+Deck.prototype.resetBy = function(){
+  var d = this;
+  if (!d.buffer) return;
+  var bars = parseFloat(d.q.resetsel.value);
+  if (isNaN(bars)) bars = 4;
+  var t;
+  if (bars === 0) t = 0;
+  else {
+    if (!d.grid){ d.setStatus('bar reset needs a beat grid — using 0:00', true); setTimeout(function(){ d.setStatus(''); }, 1800); t = 0; }
+    else t = Math.max(0, (d.playing ? d.pos() : d.posAtStart) - bars * d.barSecs());
+  }
+  d.resetSecs = t;
+  if (d.playing) d.seek(t); else { d.posAtStart = t; d.render(); d.draw(); }
+};
 Deck.prototype.effBpm = function(){ return this.bpm ? this.bpm * this.rate : null; };
 Deck.prototype.render = function(){
   var d = this, q = d.q;
@@ -1084,6 +1144,14 @@ Deck.prototype.draw = function(){
 };
 Deck.prototype.drawHead = function(g, w, h, vw){
   if (!this.buffer) return;
+  if (this.loopOn && this.loopA != null){
+    var dur0 = this.buffer.duration;
+    var xa, xb;
+    if (vw && vw.zoomed){ xa = (this.loopA - vw.t0) / (vw.t1 - vw.t0) * w; xb = (this.loopB - vw.t0) / (vw.t1 - vw.t0) * w; }
+    else { xa = this.loopA / dur0 * w; xb = this.loopB / dur0 * w; }
+    g.fillStyle = 'rgba(126,201,122,.16)'; g.fillRect(xa, 0, Math.max(1, xb - xa), h);
+    g.fillStyle = 'rgba(126,201,122,.75)'; g.fillRect(Math.round(xa), 0, 1, h); g.fillRect(Math.round(xb) - 1, 0, 1, h);
+  }
   var pos = this.pos(), p = pos / this.buffer.duration;
   var x = vw && vw.zoomed ? Math.round((pos - vw.t0) / (vw.t1 - vw.t0) * w) : Math.round(p * w);
   g.fillStyle = 'rgba(14,15,18,.55)'; g.fillRect(0, 0, x, h);
@@ -1277,6 +1345,7 @@ if (stackCv){
     SLANE.d.posAtStart = Math.max(0, Math.min(SLANE.d.buffer.duration, SLANE.pos0 + dx / r.width * vw2.span));
     SLANE.d.render();
   });
+  stackCv.addEventListener('dblclick', function(e){ var d = laneDeckAt(e); if (d.buffer) d.resetBy(); });
   var laneRelease = function(){ if (!SLANE) return; if (SLANE.wasPlaying) SLANE.d.play(); SLANE = null; };
   stackCv.addEventListener('pointerup', laneRelease);
   stackCv.addEventListener('pointercancel', laneRelease);
@@ -1333,13 +1402,13 @@ function updateDrift(){
     el.className = 'ssub ' + (Math.abs(ms) < 10 ? 'locked' : '');
   } else el.textContent = '';
 }
-function loop(){ decks.A.tick(); decks.B.tick(); drawStack(); updateDrift(); schedule(loop); }
+function loop(){ decks.A.loopTick(); decks.B.loopTick(); decks.A.tick(); decks.B.tick(); drawStack(); updateDrift(); schedule(loop); }
 schedule(loop);
 window.addEventListener('resize', function(){ decks.A.draw(); decks.B.draw(); });
 renderCentre();
 
 /* test seam */
-window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
