@@ -679,7 +679,7 @@ function camelotColor(n, letter){
   var h = ((170 - (n - 1) * 30) % 360 + 360) % 360;
   return letter === 'A' ? 'hsl(' + h + ' 62% 70%)' : 'hsl(' + h + ' 85% 56%)';
 }
-function fmtTime(s){ s = Math.max(0, s || 0); var m = Math.floor(s / 60), r = Math.floor(s % 60); return m + ':' + (r < 10 ? '0' : '') + r; }
+function fmtTime(s){ s = s || 0; var neg = s < 0; s = Math.abs(s); var m = Math.floor(s / 60), r = Math.floor(s % 60); return (neg ? '-' : '') + m + ':' + (r < 10 ? '0' : '') + r; }
 
 /* ── analysis worker built from the DSP block ── */
 var workerURL = null, worker = null, jobs = {}, jobId = 0;
@@ -748,7 +748,7 @@ function Deck(L, el){
   d.buffer = null; d.name = ''; d.bpm = null; d.key = null; d.grid = null; d.rate = 1; d.vol = 1; d.xf = Math.SQRT1_2;
   d.keylock = true; d.bend = 1; d.mediaURL = null; d.el2 = null; d.mediaSrc = null;
   d.loopOn = false; d.loopA = null; d.loopB = null; d.resetSecs = null;
-  d.playing = false; d.posAtStart = 0; d.tStart = 0; d.src = null; d.nodes = null;
+  d.playing = false; d.posAtStart = 0; d.tStart = 0; d.src = null; d.nodes = null; d.preRoll = false;
   d.chroma = new Float32Array(12); d.chord = null; d.chordCand = null; d.chordVotes = 0; d.fftBuf = null;
   d.q = {
     track: $('.track', el), bpmv: $('.bpmv', el), orig: $('.orig', el), badge: $('.camelot', el), keyname: $('.keyname', el),
@@ -812,7 +812,7 @@ function Deck(L, el){
     hold.moved = true;
     var r = d.q.wave.getBoundingClientRect(), vw2 = d.viewWindow();
     var span = vw2.zoomed ? (vw2.t1 - vw2.t0) : d.buffer.duration;
-    d.posAtStart = Math.max(0, Math.min(d.buffer.duration, hold.pos0 + dx / r.width * span));
+    d.posAtStart = Math.max(-d.preLimit(), Math.min(d.buffer.duration, hold.pos0 + dx / r.width * span));
     d.render();
   });
   function waveRelease(){
@@ -907,6 +907,7 @@ Deck.prototype.setMedia = function(blob){
 };
 Deck.prototype.applyRate = function(){
   var d = this, r = d.rate * (d.bend || 1);
+  if (d.playing && d.preRoll){ d.posAtStart = d.pos(); d.tStart = ctx.currentTime; }
   if (d.el2 && d.mediaURL){
     d.el2.playbackRate = r;
     try{ d.el2.preservesPitch = d.keylock; }catch(e){}
@@ -927,14 +928,16 @@ Deck.prototype.ensureNodes = function(){
 Deck.prototype.pos = function(){
   if (!this.buffer) return 0;
   var p;
-  if (this.playing && this.el2 && this.mediaURL) p = this.el2.currentTime;
+  if (this.playing && this.preRoll) p = this.posAtStart + (ctx.currentTime - this.tStart) * this.rate * (this.bend || 1);
+  else if (this.playing && this.el2 && this.mediaURL) p = this.el2.currentTime;
   else p = this.playing ? this.posAtStart + (ctx.currentTime - this.tStart) * this.rate : this.posAtStart;
-  return Math.max(0, Math.min(this.buffer.duration, p));
+  return Math.max(-this.preLimit(), Math.min(this.buffer.duration, p));
 };
 Deck.prototype.play = function(){
   var d = this; if (!d.buffer || d.playing) return;
   var c = audio(), n = d.ensureNodes();
   if (d.posAtStart >= d.buffer.duration - 0.05) d.posAtStart = 0;
+  if (d.posAtStart < 0){ d.preRoll = true; d.tStart = c.currentTime; d.playing = true; d.render(); return; }
   if (d.el2 && d.mediaURL){
     if (!d.mediaSrc){ try{ d.mediaSrc = c.createMediaElementSource(d.el2); }catch(e){ d.mediaSrc = null; } }
     if (d.mediaSrc){
@@ -955,7 +958,7 @@ Deck.prototype.play = function(){
 };
 Deck.prototype.stop = function(){
   var d = this; if (!d.playing) return;
-  var p = d.pos(); var s = d.src; d.src = null; d.playing = false; d.posAtStart = p;
+  var p = d.pos(); var s = d.src; d.src = null; d.playing = false; d.preRoll = false; d.posAtStart = p;
   if (d.el2 && d.mediaURL){ try{ d.el2.pause(); }catch(e){} }
   try{ if (s) s.stop(); }catch(e){}
   d.chord = null; d.render();
@@ -963,7 +966,20 @@ Deck.prototype.stop = function(){
 Deck.prototype.toggle = function(){ this.playing ? this.stop() : this.play(); };
 Deck.prototype.cue = function(){ this.stop(); this.posAtStart = 0; this.render(); };
 Deck.prototype.seek = function(t){
-  var d = this; if (!d.buffer) return; t = Math.max(0, Math.min(d.buffer.duration, t));
+  var d = this; if (!d.buffer) return; t = Math.max(-d.preLimit(), Math.min(d.buffer.duration, t));
+  if (t < 0){
+    /* before 0:00 nothing can sound — a playing deck silences its engine and counts on the virtual clock */
+    if (d.playing){
+      if (!d.preRoll){
+        if (d.el2 && d.mediaURL){ try{ d.el2.pause(); }catch(e){} }
+        var sOld = d.src; d.src = null; try{ if (sOld){ sOld.onended = null; sOld.stop(); } }catch(e){}
+        d.preRoll = true;
+      }
+      d.posAtStart = t; d.tStart = ctx.currentTime; d.render();
+    } else { d.posAtStart = t; d.render(); }
+    return;
+  }
+  if (d.playing && d.preRoll){ d.preRoll = false; d.playing = false; d.posAtStart = t; d.play(); return; }
   if (d.playing && d.el2 && d.mediaURL){ d.el2.currentTime = t; d.posAtStart = t; d.render(); }
   else if (d.playing){ d.stop(); d.posAtStart = t; d.play(); }
   else { d.posAtStart = t; d.render(); }
@@ -979,6 +995,16 @@ Deck.prototype.setVol = function(v){ this.vol = v; if (this.nodes) this.nodes.vg
 Deck.prototype.setXf = function(g){ this.xf = g; if (this.nodes) this.nodes.xg.gain.setTargetAtTime(g, ctx.currentTime, 0.02); };
 /* pre-count: jump back N whole bars on this deck's own grid, then play. Whole bars in track
    time keep the beat-grid phase identical, so an engaged sync is preserved by construction. */
+/* four-bar pre-roll: how far before 0:00 this deck may be scrubbed. Needs a beat grid
+   (the limit is four bars of THIS deck's tempo); without one the old 0:00 floor stands. */
+Deck.prototype.preLimit = function(){ var b = this.barSecs(); return b ? 4 * b : 0; };
+/* the 0-crossing: checked each frame; hand the exact virtual position (a few ms past zero)
+   to the real engine so the grid phase is continuous even when the frame fires late */
+Deck.prototype.preTick = function(){
+  var d = this; if (!d.playing || !d.preRoll) return;
+  var p = d.posAtStart + (ctx.currentTime - d.tStart) * d.rate * (d.bend || 1);
+  if (p >= 0){ d.preRoll = false; d.playing = false; d.posAtStart = p; d.play(); }
+};
 Deck.prototype.preCount = function(){
   var d = this;
   if (!d.buffer) return;
@@ -1077,7 +1103,7 @@ Deck.prototype.viewWindow = function(){
   var d = this, dur = d.buffer ? d.buffer.duration : 0;
   if (!dur || ZOOM.z <= 1.001) return { t0: 0, t1: dur, zoomed: false };
   var span = dur / ZOOM.z, p = d.playing ? d.pos() : d.posAtStart;
-  var t0 = Math.max(0, Math.min(dur - span, p - span / 2));
+  var t0 = Math.max(-d.preLimit(), Math.min(dur - span, p - span / 2));
   return { t0: t0, t1: t0 + span, zoomed: true };
 };
 Deck.prototype.gridUsable = function(){
@@ -1089,7 +1115,7 @@ Deck.prototype.drawGrid = function(g, w, h, t0, t1){
   var pxPerBeat = per / span * w;
   g.fillStyle = '#ece9e2';
   if (pxPerBeat >= 4){
-    var n0 = Math.max(0, Math.ceil((Math.max(0, t0) - gr.beat0) / per));
+    var n0 = Math.ceil((t0 - gr.beat0) / per);
     for (var n = n0; gr.beat0 + n * per <= t1; n++){
       var t = gr.beat0 + n * per, bar = ((n - gr.downbeat) % 4 + 4) % 4 === 0;
       g.globalAlpha = bar ? 0.5 : 0.2;
@@ -1156,7 +1182,7 @@ Deck.prototype.drawHead = function(g, w, h, vw){
   var x = vw && vw.zoomed ? Math.round((pos - vw.t0) / (vw.t1 - vw.t0) * w) : Math.round(p * w);
   g.fillStyle = 'rgba(14,15,18,.55)'; g.fillRect(0, 0, x, h);
   g.fillStyle = '#ece9e2'; g.fillRect(x, 0, 2, h);
-  this.q.wave.setAttribute('aria-valuenow', Math.round(p * 100));
+  this.q.wave.setAttribute('aria-valuenow', Math.max(0, Math.round(p * 100)));
 };
 Deck.prototype.tick = function(){
   var d = this; if (!d.buffer) return;
@@ -1342,7 +1368,7 @@ if (stackCv){
     if (!SLANE.moved && Math.abs(dx) < 4) return;
     SLANE.moved = true;
     var r = stackCv.getBoundingClientRect(), vw2 = stackWindow(SLANE.d);
-    SLANE.d.posAtStart = Math.max(0, Math.min(SLANE.d.buffer.duration, SLANE.pos0 + dx / r.width * vw2.span));
+    SLANE.d.posAtStart = Math.max(-SLANE.d.preLimit(), Math.min(SLANE.d.buffer.duration, SLANE.pos0 + dx / r.width * vw2.span));
     SLANE.d.render();
   });
   stackCv.addEventListener('dblclick', function(e){ var d = laneDeckAt(e); if (d.buffer) d.resetBy(); });
@@ -1402,7 +1428,7 @@ function updateDrift(){
     el.className = 'ssub ' + (Math.abs(ms) < 10 ? 'locked' : '');
   } else el.textContent = '';
 }
-function loop(){ decks.A.loopTick(); decks.B.loopTick(); decks.A.tick(); decks.B.tick(); drawStack(); updateDrift(); schedule(loop); }
+function loop(){ decks.A.preTick(); decks.B.preTick(); decks.A.loopTick(); decks.B.loopTick(); decks.A.tick(); decks.B.tick(); drawStack(); updateDrift(); schedule(loop); }
 schedule(loop);
 window.addEventListener('resize', function(){ decks.A.draw(); decks.B.draw(); });
 renderCentre();
@@ -1524,7 +1550,7 @@ function parseCam(str){
   return { tonic: tonic, minor: minor, name: PC_NAMES[tonic] + (minor ? ' minor' : ' major'), camelot: n + letter, n: n, letter: letter, conf: 1 };
 }
 function keyColor(key){ return key ? X.camelotColor(key.n, key.letter) : null; }
-function fmtTime(s){ s = Math.max(0, s || 0); var m = Math.floor(s / 60), r = Math.floor(s % 60); return m + ':' + (r < 10 ? '0' : '') + r; }
+function fmtTime(s){ s = s || 0; var neg = s < 0; s = Math.abs(s); var m = Math.floor(s / 60), r = Math.floor(s % 60); return (neg ? '-' : '') + m + ':' + (r < 10 ? '0' : '') + r; }
 function fmtPitch(p){ return (p >= 0 ? '+' : '−') + Math.abs(p).toFixed(1) + '%'; }
 
 /* ── scoring: Camelot relationship × tempo distance (within the ±8% fader, half/double time allowed) ── */
