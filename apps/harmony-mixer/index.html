@@ -106,6 +106,11 @@ h1 b{ font-weight:800; }
 .syncrow .btn{ font-size:.72rem; }
 .syncrow .btn.sync.on{ background:var(--dk, #2e6f6a); color:#0e0f12; border-color:transparent; }
 .syncrow .btn.loop.on{ background:#7ec97a; color:#0e0f12; border-color:transparent; }
+.btn.small{ min-width:2.75rem; padding:0 .6rem; font-size:.72rem; }
+.dhead .btn.small{ color:var(--mute); }
+.dhead .btn.small:hover{ color:var(--ink); }
+.strans{ display:inline-flex; gap:.4rem; }
+.strans .btn[aria-pressed="true"]{ background:var(--dk, #2e6f6a); color:#0e0f12; border-color:transparent; }
 .syncrow .btn.voc.half{ border-color:#e0b64f; color:#e0b64f; }
 .syncrow .btn.voc.on{ background:#ece9e2; color:#0e0f12; border-color:transparent; }
 .syncrow .btn.nudge{ min-width:2.75rem; }
@@ -292,7 +297,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
   </div>
 
   <section class="stackpanel" id="stackpanel" aria-label="Aligned timeline">
-    <div class="shead"><span class="stitle">aligned timeline</span><label class="zoomrow"><span>grid zoom · both decks <b id="zoomv">1×</b></span><input type="range" id="zoom" min="0" max="6" step="0.25" value="0" aria-label="Beat grid zoom for both decks, 1x to 64x — the scrollwheel over a waveform zooms too"></label><span class="ssub">deck A over deck B · playheads pinned centre · lanes scale with pitch, so locked tempos show matching grids · hold a lane to pause it, drag to scrub it · scrollwheel zooms</span><span class="ssub" id="drift" role="status" aria-live="off"></span></div>
+    <div class="shead"><span class="stitle">aligned timeline</span><span class="strans"><button type="button" class="btn small" id="stA" aria-pressed="false" disabled title="Play or pause deck A from the timeline">A ▶</button><button type="button" class="btn small" id="stB" aria-pressed="false" disabled title="Play or pause deck B from the timeline">B ▶</button></span><label class="zoomrow"><span>grid zoom · both decks <b id="zoomv">1×</b></span><input type="range" id="zoom" min="0" max="6" step="0.25" value="0" aria-label="Beat grid zoom for both decks, 1x to 64x — the scrollwheel over a waveform zooms too"></label><span class="ssub">deck A over deck B · playheads pinned centre · lanes scale with pitch, so locked tempos show matching grids · hold a lane to pause it, drag to scrub it · scrollwheel zooms</span><span class="ssub" id="drift" role="status" aria-live="off"></span></div>
     <canvas id="stack" role="img" aria-label="Stacked shared-timeline view: deck A's waveform over deck B's, both playheads fixed at the centre line, beat grids visible for alignment. Holding a lane pauses that deck while held; dragging left or right scrubs it. Lane windows scale with each deck's pitch"></canvas>
   </section>
 
@@ -714,6 +719,8 @@ function analyse(mono, sr){
 function deckMarkup(L){
   return '<div class="dhead"><span class="dletter" aria-hidden="true">' + L + '</span>' +
     '<label class="btn load">load<input type="file" accept="audio/*" class="sr" aria-label="Load an audio file into deck ' + L + '"></label>' +
+    '<button type="button" class="btn small rescan" title="Re-scan BPM, key and beat grid — playback keeps running, the old grid stays until the new one lands" aria-label="Re-scan deck ' + L + '">⟳</button>' +
+    '<button type="button" class="btn small eject" title="Eject: clear this deck (the crate keeps the track)" aria-label="Eject deck ' + L + '">⏏</button>' +
     '<span class="track">no track</span></div>' +
     '<div class="reads">' +
       '<div class="read"><span class="lbl">bpm</span><span class="val bpmv" aria-live="polite">—</span><span class="sm orig">original —</span></div>' +
@@ -765,7 +772,8 @@ function Deck(L, el){
     cue: $('.cue', el), play: $('.play', el), pitch: $('.pitch input', el), pv: $('.pv', el), vol: $('.vol input', el), vv: $('.vv', el),
     file: $('input[type=file]', el), pitchLab: $('.fader.pitch', el),
     klock: $('.klock', el), sync: $('.sync', el), nm: $('.nm', el), np: $('.np', el), pre: $('.pre', el), presel: $('.presel', el),
-    loop: $('.loop', el), loopsel: $('.loopsel', el), resetsel: $('.resetsel', el), voc: $('.voc', el)
+    loop: $('.loop', el), loopsel: $('.loopsel', el), resetsel: $('.resetsel', el), voc: $('.voc', el),
+    rescan: $('.rescan', el), eject: $('.eject', el)
   };
   d.color = null;
   d.q.file.addEventListener('change', function(){ if (d.q.file.files[0]) d.loadFile(d.q.file.files[0]); d.q.file.value = ''; });
@@ -794,6 +802,8 @@ function Deck(L, el){
   d.q.pre.addEventListener('click', function(){ d.preCount(); });
   d.q.loop.addEventListener('click', function(){ d.toggleLoop(); });
   d.q.voc.addEventListener('click', function(){ d.vocMark(); });
+  d.q.rescan.addEventListener('click', function(){ d.rescan(); });
+  d.q.eject.addEventListener('click', function(){ d.eject(); });
   d.q.loopsel.addEventListener('change', function(){ if (d.loopOn) d.setLoop(true); });
   [d.q.loopsel, d.q.resetsel].forEach(function(sel){ sel.addEventListener('keydown', function(e){ e.stopPropagation(); }); });
   d.q.presel.addEventListener('change', function(){});
@@ -897,15 +907,40 @@ Deck.prototype.setBuffer = function(buf, name){
   d.q.track.textContent = d.name; d.q.track.classList.add('has');
   d.q.wave.classList.add('has'); d.renderTime();
   d.setColor(null); d.draw(); d.render(); d.setStatus('reading bpm + key…');
+  return d.rescan();
+};
+/* re-scan the CURRENT buffer in the background: playback keeps running and the existing
+   bpm/key/grid stay in place until the fresh results land (atomic swap — no null-grid window,
+   so an engaged sync never chases a missing grid mid-scan). */
+Deck.prototype.rescan = function(){
+  var d = this, buf = d.buffer;
+  if (!buf){ d.setStatus('nothing to scan — load a track first', true); setTimeout(function(){ d.setStatus(''); }, 1800); return Promise.resolve(); }
+  d.setStatus(d.bpm ? 'rescanning…' : 'reading bpm + key…');
   var chans = []; for (var c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
   var factor = Math.max(1, Math.round(buf.sampleRate / 11025)), sr = buf.sampleRate / factor;
-  var token = d.buffer;
+  var token = buf;
   return monoDownsampleAsync(chans, factor).then(function(mono){ return analyse(mono, sr); }).then(function(r){
     if (d.buffer !== token) return;
     d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.setStatus('');
     d.setColor(r.key ? camelotColor(r.key.n, r.key.letter) : null);
     d.draw(); d.render(); applyLock(); renderCentre();
   }, function(){ if (d.buffer === token) d.setStatus('analysis failed — deck still plays', true); d.render(); });
+};
+/* eject: clear the deck completely; the crate keeps its copy. resetTrackState (v2.7) already
+   handles marks, cached artwork and disengaging sync in both directions. */
+Deck.prototype.eject = function(){
+  var d = this;
+  if (!d.buffer && !d.name) return;
+  d.stop();
+  d.buffer = null; d.bpm = null; d.key = null; d.grid = null; d.chord = null; d.posAtStart = 0; d.name = '';
+  d.resetTrackState();
+  if (d.mediaURL){ try{ URL.revokeObjectURL(d.mediaURL); }catch(e){} d.mediaURL = null; }
+  if (d.el2){ try{ d.el2.removeAttribute('src'); d.el2.load(); }catch(e){} }
+  d.q.track.textContent = 'no track'; d.q.track.classList.remove('has'); d.q.track.title = '';
+  d.q.wave.classList.remove('has');
+  d.setColor(null); d.renderTime(); d.render(); d.draw();
+  try{ applyLock(); renderCentre(); }catch(e){}
+  d.setStatus('ejected — deck clear'); setTimeout(function(){ d.setStatus(''); }, 1600);
 };
 Deck.prototype.setColor = function(c){ this.color = c; this.el.style.setProperty('--dk', c || '#6b6f78'); document.documentElement.style.setProperty('--dk' + this.L.toLowerCase(), c || '#4c4f57'); };
 /* pitch-preserving playback: an <audio> element per deck (preservesPitch) routed into the same graph.
@@ -1117,6 +1152,7 @@ Deck.prototype.effBpm = function(){ return this.bpm ? this.bpm * this.rate : nul
 Deck.prototype.render = function(){
   var d = this, q = d.q;
   q.play.textContent = d.playing ? 'pause' : 'play'; q.play.setAttribute('aria-pressed', d.playing ? 'true' : 'false');
+  try{ if (typeof renderSTrans === 'function') renderSTrans(); }catch(e){}
   q.play.disabled = q.cue.disabled = !d.buffer;
   d.el.classList.toggle('playing', d.playing);
   var eb = d.effBpm();
@@ -1499,6 +1535,18 @@ window.addEventListener('resize', function(){ decks.A.draw(); decks.B.draw(); })
 renderCentre();
 
 /* test seam */
+var sT = { A: document.getElementById('stA'), B: document.getElementById('stB') };
+function renderSTrans(){
+  ['A', 'B'].forEach(function(L){
+    var d = decks[L], b = sT[L];
+    if (!b) return;
+    b.disabled = !d.buffer;
+    b.textContent = L + ' ' + (d.playing ? '❚❚' : '▶');
+    b.setAttribute('aria-pressed', String(!!d.playing));
+  });
+}
+['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
+renderSTrans();
 window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
