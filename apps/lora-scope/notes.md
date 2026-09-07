@@ -1,0 +1,12 @@
+# LoRa Scope — notes
+
+## log
+- 2026-09-07 v1.0 — built per two chat requests merged (the LoRa visualizer spec: light-blue radio UI, free open-hardware materials, simulated chirps, packet decoding, byte explanations, signal details, diagnostics, replay, JSON export; then "finish LoRa Scope hornet mode" adding the non-invasive hornet detector with vibration+temperature telemetry, threshold explanations, simulated packets, human-review alerts). Everything simulated and says so structurally: zero anchors (materials are NAMES to search — Semtech AN1200.22, TTN docs, LoRaWAN 1.0.x spec, Meshtastic, Heltec/LilyGO/RAK boards, gr-lora), no external scripts, "no radio · no RF" pill. Chirp scope: spectrogram-style canvas — 8 preamble up-chirps, 2 amber sync down-chirps, then one wrapped up-chirp per SF-bit symbol taken from the real packet bits. Packet: LoRaWAN-1.0-shaped uplink (MHDR/DevAddr LE/FCtrl/FCnt LE/FPort/payload/MIC), every byte click-annotated, honesty in the annotations (payload shown UNencrypted; MIC is a labelled toy FNV checksum). Airtime = the SX1276 datasheet equations (hand-checked in node: SF7/125k/CR4:5/25B → 48 payload symbols, 61.696ms; LDRO auto at SF11+/125k). Link = free-space + distance-growing clutter TOY (labelled sim) tuned so the 0.1–6km slider spans ok→warn→bad; SNR floors per SF from the Semtech modem guide. Hive sentinel: 3 scenarios (calm/windy drill/hornet), deterministic series, thresholds each with why + caution + named sources (Bencsik accelerometer work; Ono et al., Nature 1995 heat-balling ~46°C), flags are REVIEW SUGGESTED with confidence — a human marks reviewed; explicitly no traps/sprays/auto-action; FPort-21 telemetry frames (vib×10, temp×2, flag) decode through the same byte grid via "frame latest reading". JSON export carries bench + sentinel, declares simulated:true. ENGINE 59/59 node + LORA 34/34 at 1200/390/320.
+
+## issues
+- rAF does NOT tick under file:// + --virtual-time-budget in this headless setup — the replay loop is deliberately setTimeout-driven (identical live) so probes can drive it; probes also backdate anim.t0 since performance.now freezes during JS under virtual time.
+- A `<select>` sizes to its longest option and can overflow 320px — capped at 86vw in the phone media query; keep option labels short.
+
+## todos
+- Downlink frame variant (MHDR 0x60) with its own annotations.
+- A second sentinel packet in the replay queue (history strip).
