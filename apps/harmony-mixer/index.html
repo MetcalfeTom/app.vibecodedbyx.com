@@ -306,6 +306,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
     <div class="chead">
       <h2>Cr<b>a</b>te</h2>
       <span class="ccount" id="ccount">empty</span>
+      <span class="ssub" id="scanstate" role="status" aria-live="off"></span>
       <span class="cspacer"></span>
       <label class="btn load" id="cimportBtn">＋ import<input type="file" accept="audio/*" multiple class="sr" id="cimport" aria-label="Import audio files into the crate"></label>
       <label class="btn load" id="cfolderBtn" title="Import a whole folder — sub-folders become playlists">＋ folder<input type="file" webkitdirectory multiple class="sr" id="cfolder" aria-label="Import a folder of audio files; sub-folders become playlists"></label>
@@ -706,7 +707,48 @@ function fmtTime(s){ s = s || 0; var neg = s < 0; s = Math.abs(s); var m = Math.
 
 /* ── analysis worker built from the DSP block ── */
 var workerURL = null, worker = null, jobs = {}, jobId = 0;
-function analyse(mono, sr){
+/* deck-scan scheduler: one job at a time on the deck worker, the PLAYING (active) deck's
+   jobs jump queued paused-deck jobs, every state visible. The crate has its own worker
+   (scope twin) so imports can never block this queue — verified, not assumed. */
+var DSCAN = { q: [], running: null, failed: [], done: 0, log: [], failNext: false };
+function analyse(mono, sr, meta){
+  meta = meta || { label: 'deck', playing: false };
+  return new Promise(function(res, rej){
+    var job = { mono: mono, sr: sr, meta: meta, res: res, rej: rej };
+    var pri = meta.playing ? 0 : 1, at = DSCAN.q.length;
+    for (var i = 0; i < DSCAN.q.length; i++){ if ((DSCAN.q[i].meta.playing ? 0 : 1) > pri){ at = i; break; } }
+    DSCAN.q.splice(at, 0, job);
+    scanState(); dispatchScan();
+  });
+}
+function dispatchScan(){
+  if (DSCAN.running || !DSCAN.q.length) return;
+  var job = DSCAN.running = DSCAN.q.shift();
+  DSCAN.log.push(job.meta.label);
+  scanState();
+  var run = DSCAN.failNext
+    ? (DSCAN.failNext = false, Promise.reject(new Error('injected test failure')))
+    : runAnalyse(job.mono, job.sr);
+  run.then(function(r){
+    DSCAN.running = null; DSCAN.done++; scanState(); job.res(r); dispatchScan();
+  }, function(e){
+    DSCAN.running = null; DSCAN.failed.push({ label: job.meta.label, error: String(e && e.message || e) });
+    scanState(); job.rej(e); dispatchScan();
+  });
+}
+function scanState(){
+  var el = document.getElementById('scanstate'); if (!el) return;
+  var parts = [];
+  if (DSCAN.running) parts.push('scanning ' + DSCAN.running.meta.label);
+  if (DSCAN.q.length) parts.push(DSCAN.q.length + ' deck scan' + (DSCAN.q.length > 1 ? 's' : '') + ' queued' + (DSCAN.q.some(function(j){ return j.meta.playing; }) ? ' · playing deck first' : ''));
+  if (DSCAN.failed.length){ parts.push(DSCAN.failed.length + ' failed'); el.title = DSCAN.failed.map(function(f){ return f.label + ': ' + f.error; }).join(' · '); }
+  var c = window.__crateScanInfo ? window.__crateScanInfo() : null;
+  if (c && (c.pumping || c.queued)) parts.push('crate: reading' + (c.name ? ' ' + c.name : '') + (c.queued ? ' · ' + c.queued + ' queued' : '') + ' (own worker)');
+  if (c && c.failed) parts.push('crate: ' + c.failed + ' failed');
+  el.textContent = parts.length ? parts.join(' · ') : '';
+}
+window.__scanStateRefresh = scanState;
+function runAnalyse(mono, sr){
   return new Promise(function(res, rej){
     try{
       if (!worker){
@@ -927,7 +969,7 @@ Deck.prototype.rescan = function(){
   var chans = []; for (var c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
   var factor = Math.max(1, Math.round(buf.sampleRate / 11025)), sr = buf.sampleRate / factor;
   var token = buf;
-  return monoDownsampleAsync(chans, factor).then(function(mono){ return analyse(mono, sr); }).then(function(r){
+  return monoDownsampleAsync(chans, factor).then(function(mono){ return analyse(mono, sr, { label: 'deck ' + d.L, playing: d.playing }); }).then(function(r){
     if (d.buffer !== token) return;
     d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.setStatus('');
     d.setColor(r.key ? camelotColor(r.key.n, r.key.letter) : null);
@@ -1559,7 +1601,7 @@ function renderSTrans(){
 }
 ['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
 renderSTrans();
-window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
@@ -1755,6 +1797,11 @@ function refOf(d){ return d ? { bpm: d.effBpm(), key: d.key, id: d._crateId || n
 
 /* ── the crate ── */
 var crate = [], byId = {}, queue = [], pumping = false, ready;
+window.__crateScanInfo = function(){
+  var cur = null;
+  for (var i = 0; i < crate.length; i++) if (crate[i].state){ cur = crate[i]; break; }
+  return { pumping: pumping, queued: queue.length, name: cur ? cur.name : '', failed: crate.filter(function(r){ return r.err; }).length };
+};
 function status(t, cls){ els.status.textContent = t || ''; els.status.className = 'cstatus' + (cls ? ' ' + cls : ''); }
 function uid(){ return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 var lastAdded = 0;
@@ -1934,6 +1981,7 @@ function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return { '&': 
 var editing = null, armed = null, armT = 0;
 function render(){
   var R = ranked(), ref = R.ref, other = R.deck ? (R.deck.L === 'A' ? 'B' : 'A') : 'A';
+  if (window.__scanStateRefresh) try{ window.__scanStateRefresh(); }catch(e){}
   els.count.textContent = crate.length ? crate.length + (crate.length === 1 ? ' track' : ' tracks') + (queue.length || pumping ? ' · reading' : '') : 'empty';
   els.empty.hidden = crate.length > 0;
   /* playlists from imported folder structure */
