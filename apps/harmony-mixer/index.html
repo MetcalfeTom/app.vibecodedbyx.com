@@ -114,6 +114,18 @@ h1 b{ font-weight:800; }
 .strans .btn[aria-pressed="true"]{ background:var(--dk, #2e6f6a); color:#0e0f12; border-color:transparent; }
 .syncrow .btn.voc.half{ border-color:#e0b64f; color:#e0b64f; }
 .syncrow .btn.voc.on{ background:#ece9e2; color:#0e0f12; border-color:transparent; }
+.syncrow .btn.phbtn[aria-pressed="true"]{ background:var(--dk, #2e6f6a); color:#0e0f12; border-color:transparent; }
+.phrasestrip{ grid-column:1 / -1; margin-top:.5rem; border:1px solid var(--line); border-radius:.6rem; padding:.5rem .6rem; background:var(--panel2, #17181d); }
+.phrasestrip .phead{ display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+.phrasestrip .phhint{ color:var(--mute, #8a8f98); font-size:.62rem; }
+.plist{ list-style:none; margin:.45rem 0 0; padding:0; display:grid; gap:.3rem; }
+.plist li{ display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; font-size:.72rem; }
+.plist .pdot{ width:.7rem; height:.7rem; border-radius:.2rem; flex:none; }
+.plist .pt{ font-variant-numeric:tabular-nums; min-width:6.5rem; }
+.plist .pconf{ font-size:.62rem; letter-spacing:.06em; text-transform:uppercase; color:var(--mute, #8a8f98); }
+.plist .pconf.strong{ color:#7ec97a; } .plist .pconf.fair{ color:#e0b64f; } .plist .pconf.guess{ color:#c98a7a; } .plist .pconf.user{ color:#ece9e2; }
+.plist .pbtns{ margin-left:auto; display:inline-flex; gap:.3rem; }
+.plist .pempty{ color:var(--mute, #8a8f98); font-size:.68rem; }
 .syncrow .btn.nudge{ min-width:2.75rem; }
 #drift.locked{ color:#7fd3a0; }
 @media (max-width:640px){ #stack, .stackpanel .ssub{ display:none; } }
@@ -665,6 +677,73 @@ function phaseError(gm, tm, gf, tf, mult){ mult = mult || 1; var e = beatPhase(g
 
 /* content fingerprint: sample count + 128 coarse RMS segments (6-bit) hashed twice with FNV-1a → 16 hex chars.
    Survives renames and re-encodes of the same audio; the same file in the same browser always maps to the same cues. */
+/* ── phrase markers (v3.2) ──
+   Sections suggested LOCALLY from a per-bar energy envelope; four colour roles; every
+   suggestion carries a confidence label; everything is editable and edits win. */
+var PH_ROLES = { intro: '#7ec97a', build: '#e0b64f', drop: '#ff5a7a', outro: '#59a8d6' };
+function phraseEnergy(chan, sr, barSec, dur){
+  var bars = Math.max(4, Math.floor(dur / barSec)), env = new Float64Array(bars);
+  for (var b = 0; b < bars; b++){
+    var a = Math.floor(b * barSec * sr), z = Math.min(chan.length, Math.floor((b + 1) * barSec * sr)), acc = 0, n = 0;
+    for (var i = a; i < z; i += 64){ var v = chan[i]; acc += v * v; n++; }
+    env[b] = n ? Math.sqrt(acc / n) : 0;
+  }
+  return env;
+}
+function phraseLabel(conf){ return conf >= 0.7 ? 'strong' : conf >= 0.45 ? 'fair' : 'guess'; }
+/* env (per-bar energy) → markers [{bar, role, conf, source:'auto'}]. Pure; bar 0 marker = intro. */
+function phraseSuggest(env){
+  var n = env.length, i, mx = 0, mn = Infinity;
+  for (i = 0; i < n; i++){ if (env[i] > mx) mx = env[i]; if (env[i] < mn) mn = env[i]; }
+  var range = Math.max(1e-9, mx - mn);
+  function norm(i2){ return (env[Math.max(0, Math.min(n - 1, i2))] - mn) / range; }
+  function winMean(a, z){ var acc = 0, c = 0; for (var k = Math.max(0, a); k < Math.min(n, z); k++){ acc += norm(k); c++; } return c ? acc / c : 0; }
+  /* boundaries: locally-maximal sustained level shifts (4-bar windows), ≥4 bars apart */
+  var cands = [];
+  for (i = 4; i < n - 2; i++){
+    var d2 = winMean(i, i + 4) - winMean(i - 4, i);
+    cands.push({ bar: i, d: d2 });
+  }
+  var bounds = [];
+  for (i = 0; i < cands.length; i++){
+    var c2 = cands[i], mag = Math.abs(c2.d);
+    if (mag < 0.18) continue;
+    var isMax = true;
+    for (var j = Math.max(0, i - 3); j <= Math.min(cands.length - 1, i + 3); j++) if (Math.abs(cands[j].d) > mag){ isMax = false; break; }
+    if (!isMax) continue;
+    if (bounds.length && c2.bar - bounds[bounds.length - 1].bar < 4){
+      if (mag <= Math.abs(bounds[bounds.length - 1].d)) continue;
+      bounds.pop();
+    }
+    bounds.push(c2);
+  }
+  /* markers: bar 0 + each boundary; role from the level AFTER the boundary; conf from
+     shift size + an 8-bar phrasing bonus (dance music breathes in eights) */
+  var marks = [{ bar: 0, role: 'intro', conf: Math.min(0.95, 0.5 + (1 - winMean(0, 8)) * 0.4), source: 'auto' }];
+  bounds.slice(0, 11).forEach(function(b2){
+    var lvl = winMean(b2.bar, b2.bar + 8);
+    var role = lvl >= 0.62 ? 'drop' : (b2.bar >= n - 12 && lvl < 0.4) ? 'outro' : (b2.d > 0 ? 'build' : 'break');
+    if (role === 'break') role = lvl < 0.35 ? 'outro' : 'build';
+    if (b2.bar < n - 12 && role === 'outro' && lvl >= 0.25) role = 'build';
+    var conf = Math.min(0.95, Math.abs(b2.d) * 1.8 + (b2.bar % 8 === 0 ? 0.2 : 0));
+    marks.push({ bar: b2.bar, role: role, conf: +conf.toFixed(2), source: 'auto' });
+  });
+  return marks;
+}
+/* per-track persistence: content fingerprint → markers, in localStorage, capped at 60 tracks */
+var PH_KEY = 'harmony-phrases-v1';
+function phraseStore(){ try{ return JSON.parse(localStorage.getItem(PH_KEY) || '{}'); }catch(e){ return {}; } }
+function phraseSave(fp, marks){
+  if (!fp) return;
+  try{
+    var st = phraseStore();
+    st[fp] = { m: marks, at: Date.now() };
+    var keys = Object.keys(st);
+    if (keys.length > 60){ keys.sort(function(a2, b2){ return (st[a2].at || 0) - (st[b2].at || 0); }); delete st[keys[0]]; }
+    localStorage.setItem(PH_KEY, JSON.stringify(st));
+  }catch(e){}
+}
+function phraseLoad(fp){ var st = phraseStore(); return st[fp] ? st[fp].m : null; }
 function fingerprint(chan, sr){
   var n = chan.length, segs = 128, stride = 16, h1 = 0x811c9dc5, h2 = 0x050c5d1f;
   function mix(v){ h1 = Math.imul(h1 ^ v, 16777619) >>> 0; h2 = Math.imul(h2 ^ (v + 0x9e3779b9), 16777619) >>> 0; }
@@ -803,6 +882,15 @@ function deckMarkup(L){
           '<option value="1">1 bar</option><option value="2">2 bars</option><option value="4" selected>4 bars</option><option value="8">8 bars</option>' +
         '</select>' +
         '<button type="button" class="btn voc" aria-pressed="false" title="Vocal section: press once to mark its start at the playhead, again to mark the end — the section shows inverted on the waveform as a vocal cue; press a third time to clear">✱ vocal</button>' +
+        '<button type="button" class="btn phbtn" aria-pressed="false" title="Phrase markers: local energy suggestions with confidence labels, four colour roles, all editable">◈ phrases</button>' +
+      '</div>' +
+      '<div class="phrasestrip" hidden>' +
+        '<div class="phead">' +
+          '<button type="button" class="btn small phsug" title="Suggest sections from this track\'s own energy — local analysis, no network">↯ suggest</button>' +
+          '<button type="button" class="btn small phadd" title="Add a marker at the playhead">＋ at playhead</button>' +
+          '<span class="phhint">suggestions are guesses with labels — your edits win and stick to this track</span>' +
+        '</div>' +
+        '<ul class="plist"></ul>' +
       '</div>' +
     '</div>';
 }
@@ -813,7 +901,7 @@ function Deck(L, el){
   d.buffer = null; d.name = ''; d.bpm = null; d.key = null; d.grid = null; d.rate = 1; d.vol = 1; d.xf = Math.SQRT1_2;
   d.keylock = true; d.bend = 1; d.mediaURL = null; d.el2 = null; d.mediaSrc = null;
   d.loopOn = false; d.loopA = null; d.loopB = null; d.resetSecs = null;
-  d.vocA = null; d.vocB = null;
+  d.vocA = null; d.vocB = null; d.phrases = []; d.fp = null;
   d.playing = false; d.posAtStart = 0; d.tStart = 0; d.src = null; d.nodes = null; d.preRoll = false;
   d.chroma = new Float32Array(12); d.chord = null; d.chordCand = null; d.chordVotes = 0; d.fftBuf = null;
   d.q = {
@@ -823,7 +911,8 @@ function Deck(L, el){
     file: $('input[type=file]', el), pitchLab: $('.fader.pitch', el),
     klock: $('.klock', el), sync: $('.sync', el), nm: $('.nm', el), np: $('.np', el), pre: $('.pre', el), presel: $('.presel', el),
     loop: $('.loop', el), loopsel: $('.loopsel', el), voc: $('.voc', el),
-    rescan: $('.rescan', el), eject: $('.eject', el)
+    rescan: $('.rescan', el), eject: $('.eject', el),
+    phbtn: $('.phbtn', el), phstrip: $('.phrasestrip', el), phsug: $('.phsug', el), phadd: $('.phadd', el), plist: $('.plist', el)
   };
   d.color = null;
   d.q.file.addEventListener('change', function(){ if (d.q.file.files[0]) d.loadFile(d.q.file.files[0]); d.q.file.value = ''; });
@@ -853,6 +942,22 @@ function Deck(L, el){
   d.q.loop.addEventListener('click', function(){ d.toggleLoop(); });
   d.q.voc.addEventListener('click', function(){ d.vocMark(); });
   d.q.rescan.addEventListener('click', function(){ d.rescan(); });
+  d.q.phbtn.addEventListener('click', function(){
+    var open = d.q.phstrip.hidden;
+    d.q.phstrip.hidden = !open;
+    d.q.phbtn.setAttribute('aria-pressed', String(open));
+    if (open && !d.phrases.length && d.buffer && d.grid) d.suggestPhrases();
+    d.renderPhrases();
+  });
+  d.q.phsug.addEventListener('click', function(){ d.suggestPhrases(); });
+  d.q.phadd.addEventListener('click', function(){
+    if (!d.buffer) return;
+    var t = Math.max(0, d.playing ? d.pos() : d.posAtStart);
+    var bar = d.barSecs() ? Math.round(t / d.barSecs()) : Math.round(t / 2);
+    d.phrases.push({ bar: bar, role: 'build', conf: 1, source: 'user' });
+    d.phrases.sort(function(a2, b2){ return a2.bar - b2.bar; });
+    d.phrasesChanged();
+  });
   d.q.eject.addEventListener('click', function(){ d.eject(); });
   d.q.loopsel.addEventListener('change', function(){ if (d.loopOn) d.setLoop(true); });
   d.q.loopsel.addEventListener('keydown', function(e){ e.stopPropagation(); });
@@ -938,7 +1043,7 @@ Deck.prototype.resetTrackState = function(){
   var d = this;
   d.peaks = null;
   d.loopOn = false; d.loopA = null; d.loopB = null;
-  d.vocA = null; d.vocB = null; d.resetSecs = null; d.preRoll = false;
+  d.vocA = null; d.vocB = null; d.resetSecs = null; d.preRoll = false; d.phrases = []; d.fp = null;
   if (d.q.loop){ d.q.loop.setAttribute('aria-pressed', 'false'); d.q.loop.classList.remove('on'); }
   if (d.q.voc){ d.q.voc.setAttribute('aria-pressed', 'false'); d.q.voc.classList.remove('on'); d.q.voc.classList.remove('half'); }
   try{
@@ -956,6 +1061,9 @@ Deck.prototype.setBuffer = function(buf, name){
   d.buffer = buf; d.name = name || d.name; d.posAtStart = 0; d.bpm = null; d.key = null; d.grid = null;
   d.q.track.textContent = d.name; d.q.track.classList.add('has');
   d.q.wave.classList.add('has'); d.renderTime();
+  try{ d.fp = fingerprint(buf.getChannelData(0), buf.sampleRate); }catch(e){ d.fp = null; }
+  var kept = d.fp ? phraseLoad(d.fp) : null;
+  if (kept){ d.phrases = kept; d.renderPhrases(); }
   d.setColor(null); d.draw(); d.render(); d.setStatus('reading bpm + key…');
   return d.rescan();
 };
@@ -1169,6 +1277,54 @@ Deck.prototype.vocMark = function(){
   d.q.voc.classList.toggle('half', d.vocA != null && d.vocB == null);
   d.draw();
 };
+Deck.prototype.suggestPhrases = function(){
+  var d = this;
+  if (!d.buffer) return;
+  if (!d.grid){ d.setStatus('phrase suggestions need a beat grid (still analysing?)', true); setTimeout(function(){ d.setStatus(''); }, 1800); return; }
+  var env = phraseEnergy(d.buffer.getChannelData(0), d.buffer.sampleRate, d.barSecs(), d.buffer.duration);
+  var user = d.phrases.filter(function(m){ return m.source === 'user'; });
+  var auto = phraseSuggest(env);
+  /* edits win: an auto marker within 2 bars of a user marker yields to it */
+  d.phrases = user.concat(auto.filter(function(a2){
+    return !user.some(function(u){ return Math.abs(u.bar - a2.bar) < 2; });
+  })).sort(function(a2, b2){ return a2.bar - b2.bar; });
+  d.phrasesChanged();
+};
+Deck.prototype.phrasesChanged = function(){
+  var d = this;
+  phraseSave(d.fp, d.phrases);
+  d.renderPhrases(); d.draw();
+};
+Deck.prototype.renderPhrases = function(){
+  var d = this, ul = d.q.plist; if (!ul) return;
+  ul.textContent = '';
+  var bar = d.barSecs() || 2;
+  d.phrases.forEach(function(m, i){
+    var li = document.createElement('li');
+    var t = m.bar * bar, mm = Math.floor(t / 60), ss = Math.floor(t % 60);
+    li.innerHTML = '<i class="pdot" style="background:' + (PH_ROLES[m.role] || '#888') + '"></i>' +
+      '<span class="pt">' + mm + ':' + (ss < 10 ? '0' : '') + ss + ' · bar ' + m.bar + '</span>' +
+      '<select class="sel prole" aria-label="Role for the marker at bar ' + m.bar + '">' +
+        ['intro', 'build', 'drop', 'outro'].map(function(r2){ return '<option value="' + r2 + '"' + (r2 === m.role ? ' selected' : '') + '>' + r2 + '</option>'; }).join('') +
+      '</select>' +
+      '<span class="pconf ' + (m.source === 'user' ? 'user' : phraseLabel(m.conf)) + '">' + (m.source === 'user' ? 'set by you' : phraseLabel(m.conf) + ' ' + Math.round(m.conf * 100) + '%') + '</span>' +
+      '<span class="pbtns">' +
+      '<button type="button" class="btn small pnm" aria-label="Move marker one bar earlier">‹</button>' +
+      '<button type="button" class="btn small pnp" aria-label="Move marker one bar later">›</button>' +
+      '<button type="button" class="btn small pdel" aria-label="Delete this marker">✕</button></span>';
+    li.querySelector('.prole').addEventListener('change', function(){ m.role = this.value; m.source = 'user'; d.phrasesChanged(); });
+    li.querySelector('.pnm').addEventListener('click', function(){ m.bar = Math.max(0, m.bar - 1); m.source = 'user'; d.phrases.sort(function(a2, b2){ return a2.bar - b2.bar; }); d.phrasesChanged(); });
+    li.querySelector('.pnp').addEventListener('click', function(){ m.bar++; m.source = 'user'; d.phrases.sort(function(a2, b2){ return a2.bar - b2.bar; }); d.phrasesChanged(); });
+    li.querySelector('.pdel').addEventListener('click', function(){ d.phrases.splice(i, 1); d.phrasesChanged(); });
+    ul.appendChild(li);
+  });
+  if (!d.phrases.length){
+    var li2 = document.createElement('li');
+    li2.className = 'pempty';
+    li2.textContent = d.buffer ? 'no markers yet — ↯ suggest reads this track’s energy locally' : 'load a track first';
+    ul.appendChild(li2);
+  }
+};
 Deck.prototype.renderLoop = function(){
   var d = this;
   d.q.loop.setAttribute('aria-pressed', String(!!d.loopOn));
@@ -1331,6 +1487,16 @@ Deck.prototype.drawHead = function(g, w, h, vw){
       }
     } else { g.fillStyle = '#ece9e2'; g.fillRect(Math.round(vxa), 0, 2, h); }
     if (this.vocB != null && x >= vxa && x <= vxb){ g.fillStyle = '#14161a'; g.fillRect(x, 0, 2, h); }
+  }
+  if (this.phrases && this.phrases.length){
+    var barPx = (this.barSecs() || 2) / this.buffer.duration * w;
+    for (var pi = 0; pi < this.phrases.length; pi++){
+      var pm = this.phrases[pi], px2 = Math.round(pm.bar * barPx);
+      if (px2 < 0 || px2 > w) continue;
+      g.fillStyle = PH_ROLES[pm.role] || '#888';
+      g.globalAlpha = 0.9; g.fillRect(px2, 0, 2, h);
+      g.fillRect(px2, 0, 7, 6); g.globalAlpha = 1;
+    }
   }
   this.q.wave.setAttribute('aria-valuenow', Math.max(0, Math.round(p * 100)));
 };
@@ -1601,7 +1767,7 @@ function renderSTrans(){
 }
 ['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
 renderSTrans();
-window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
