@@ -648,9 +648,19 @@ function beatPhase(grid, t){ var b = beatAt(grid, t); return b - Math.floor(b); 
 function nearestBeat(grid, t){ return grid.beat0 + Math.round(beatAt(grid, t)) * 60 / grid.bpm; }
 function barBeat(grid, t){ var n = Math.floor(beatAt(grid, t)); return ((n - grid.downbeat) % 4 + 4) % 4; } /* 0..3, 0 = downbeat */
 /* seconds to add to the follower's position so its beats land on the master's — the smallest move, never more than half a beat */
-function alignDelta(gm, tm, gf, tf){ var e = beatPhase(gm, tm) - beatPhase(gf, tf); e -= Math.round(e); return e * 60 / gf.bpm; }
+/* half/double folding: the multiple of the follower's tempo (half, same or double) that puts
+   the required rate nearest 1.0 — so a 70/140 pair plays at rate 1 with beats mapped 2:1
+   instead of a brutal 50% stretch. Log distance so 0.5 and 2 weigh equally. */
+function foldMult(refBpm, bpm){
+  var best = 1, bd = Infinity;
+  [0.5, 1, 2].forEach(function(mm){ var d = Math.abs(Math.log(refBpm / (bpm * mm))); if (d < bd){ bd = d; best = mm; } });
+  return best;
+}
+/* mult-aware phase: error measured in MASTER beats — the follower's phase is scaled by the
+   fold multiple so a 2:1 pair reads a stable error instead of a drifting one. */
+function alignDelta(gm, tm, gf, tf, mult){ mult = mult || 1; var e = beatPhase(gm, tm) - mult * beatPhase(gf, tf); e -= Math.round(e); return e * 60 / (gf.bpm * mult); }
 /* phase error of the follower against the master in beats, wrapped to (−½, ½] */
-function phaseError(gm, tm, gf, tf){ var e = beatPhase(gm, tm) - beatPhase(gf, tf); return e - Math.round(e); }
+function phaseError(gm, tm, gf, tf, mult){ mult = mult || 1; var e = beatPhase(gm, tm) - mult * beatPhase(gf, tf); return e - Math.round(e); }
 
 /* content fingerprint: sample count + 128 coarse RMS segments (6-bit) hashed twice with FNV-1a → 16 hex chars.
    Survives renames and re-encodes of the same audio; the same file in the same browser always maps to the same cues. */
@@ -896,6 +906,7 @@ Deck.prototype.resetTrackState = function(){
     var oL = d.L === 'A' ? 'B' : 'A';
     if (SYNCST[d.L]){ SYNCST[d.L] = false; d.bend = 1; d.applyRate(); }
     if (SYNCST[oL]){ SYNCST[oL] = false; decks[oL].bend = 1; decks[oL].applyRate(); }
+    SYNCMULT[d.L] = 1; SYNCMULT[oL] = 1;
     syncUi();
   }catch(e){}
   d.draw();
@@ -1369,7 +1380,7 @@ function renderCentre(){
 }
 function applyLock(){
   var m = decks[state.master], s = decks[state.master === 'A' ? 'B' : 'A'];
-  if (state.lock && m.bpm && s.bpm){ s.setRate(m.effBpm() / s.bpm); }
+  if (state.lock && m.bpm && s.bpm){ var fm = foldMult(m.effBpm(), s.bpm); s.setRate(m.effBpm() / (s.bpm * fm)); }
   decks.A.render(); decks.B.render();
 }
 $('#lock').addEventListener('click', function(){
@@ -1479,18 +1490,20 @@ if (stackCv){
 }
 /* ── hybrid beat sync: coarse SNAP onto the transient-fitted grids, fine PLL bend to hold phase ── */
 var SYNCST = { A: false, B: false, nudging: false };
+var SYNCMULT = { A: 1, B: 1 };
 function beatSecondsOf(d){ return d.grid ? 60 / (d.grid.bpm * d.rate) : null; }
 function toggleSync(f){
   var m = f.L === 'A' ? decks.B : decks.A;
-  if (SYNCST[f.L]){ SYNCST[f.L] = false; f.bend = 1; f.applyRate(); syncUi(); return; }
+  if (SYNCST[f.L]){ SYNCST[f.L] = false; SYNCMULT[f.L] = 1; f.bend = 1; f.applyRate(); syncUi(); return; }
   if (!m.buffer || !f.buffer){ f.setStatus('sync needs a track on both decks', true); setTimeout(function(){ f.setStatus(''); }, 1800); return; }
   if (!m.grid || !f.grid){ f.setStatus('sync needs beat grids on both decks (still analysing?)', true); setTimeout(function(){ f.setStatus(''); }, 1800); return; }
-  var em = m.grid.bpm * m.rate, rate = em / f.grid.bpm;
+  var em = m.grid.bpm * m.rate, mult = foldMult(em, f.grid.bpm), rate = em / (f.grid.bpm * mult);
   if (rate < 0.5 || rate > 2){ f.setStatus('tempos too far apart to sync', true); setTimeout(function(){ f.setStatus(''); }, 1800); return; }
   f.setRate(rate);
+  SYNCMULT[f.L] = mult;
   var mPos = m.playing ? m.pos() : m.posAtStart;
   var fPos = f.playing ? f.pos() : f.posAtStart;
-  var delta = alignDelta(m.grid, mPos, f.grid, fPos);
+  var delta = alignDelta(m.grid, mPos, f.grid, fPos, mult);
   f.seek(fPos + delta);
   SYNCST[f.L] = true; SYNCST[f.L === 'A' ? 'B' : 'A'] = false;
   syncUi();
@@ -1508,10 +1521,11 @@ setInterval(function(){
     function calm(){ if (f.bend !== 1){ f.bend = 1; f.applyRate(); } }
     if (SYNCST.nudging) return;   /* a held nudge owns the bend — the PLL must not touch it */
     if (!(m.playing && f.playing && m.grid && f.grid)) return calm();
+    var SM = SYNCMULT[L] || 1;
     var pm = m.grid.bpm * m.rate, pf = f.grid.bpm * f.rate;
-    if (Math.abs(pm / pf - 1) > 0.03) return calm();   /* tempos drifted (hand edit / fader) — stand down */
-    var eRaw = phaseError(m.grid, m.pos(), f.grid, f.pos());
-    if (Math.abs(eRaw) > 0.06){ f._emaE = 0; f.seek(f.pos() + eRaw * 60 / (f.grid.bpm * f.rate)); return calm(); }
+    if (Math.abs(pm / (pf * SM) - 1) > 0.03) return calm();   /* tempos drifted (hand edit / fader) — stand down */
+    var eRaw = phaseError(m.grid, m.pos(), f.grid, f.pos(), SM);
+    if (Math.abs(eRaw) > 0.06){ f._emaE = 0; f.seek(f.pos() + eRaw * 60 / (f.grid.bpm * SM)); return calm(); }
     /* media currentTime is jittery (~±15 ms) — smooth the error so the PLL rides it out */
     var e = f._emaE = (f._emaE === undefined ? eRaw : f._emaE * 0.6 + eRaw * 0.4);
     if (Math.abs(e) < 0.002) return calm();
@@ -1523,8 +1537,10 @@ function updateDrift(){
   var el = document.getElementById('drift'); if (!el) return;
   var A = decks.A, B = decks.B;
   if (A.grid && B.grid && A.buffer && B.buffer && (A.playing || B.playing)){
-    var e = phaseError(A.grid, A.pos(), B.grid, B.pos());
-    var ms = Math.round(e * 60 / (A.grid.bpm * A.rate) * 1000);
+    var e, refBpm;
+    if (SYNCST.A){ e = -phaseError(B.grid, B.pos(), A.grid, A.pos(), SYNCMULT.A); refBpm = B.grid.bpm * B.rate; }
+    else { e = phaseError(A.grid, A.pos(), B.grid, B.pos(), SYNCST.B ? SYNCMULT.B : 1); refBpm = A.grid.bpm * A.rate; }
+    var ms = Math.round(e * 60 / refBpm * 1000);
     el.textContent = Math.abs(ms) < 10 ? 'transient-locked · drift ' + ms + ' ms' : 'drift ' + (ms > 0 ? '+' : '') + ms + ' ms';
     el.className = 'ssub ' + (Math.abs(ms) < 10 ? 'locked' : '');
   } else el.textContent = '';
@@ -1547,7 +1563,7 @@ function renderSTrans(){
 }
 ['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
 renderSTrans();
-window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
