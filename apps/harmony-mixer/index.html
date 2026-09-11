@@ -2626,12 +2626,284 @@ ready = dbAll().then(function(rows){
   render(); pump();
 }, function(){ storageOk = false; status("browser storage is blocked — imports work but won't survive a reload", 'err'); render(); });
 
-window.__C = { crate: crate, byId: byId, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck, played: function(){ return PLAYED; }, resetPlayed: function(){ PLAYED = {}; render(); }, SL: function(){ return SL; }, slAdd: slAdd, renderSetlist: renderSetlist, slReload: function(){ try{ var sv2 = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv2 && Array.isArray(sv2.ids)) SL = { ids: sv2.ids, at: (typeof sv2.at === 'number' ? sv2.at : null) }; }catch(e){} renderSetlist(); },
+window.__C = { crate: crate, byId: byId, persist: persist, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck, played: function(){ return PLAYED; }, resetPlayed: function(){ PLAYED = {}; render(); }, SL: function(){ return SL; }, slAdd: slAdd, renderSetlist: renderSetlist, slReload: function(){ try{ var sv2 = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv2 && Array.isArray(sv2.ids)) SL = { ids: sv2.ids, at: (typeof sv2.at === 'number' ? sv2.at : null) }; }catch(e){} renderSetlist(); },
   crateScore: crateScore, scoreFor: scoreFor, harmonic: harmonic, tempo: tempo, parseCam: parseCam, prefs: prefs, ready: ready, decode: decode,
   playlists: playlists, inPlaylist: inPlaylist, relOf: relOf, dirOf: dirOf, filesFromEntries: filesFromEntries,
   get playSel(){ return playSel; }, set playSel(v){ playSel = v; render(); }, get batch(){ return { n: batchN, done: batchDone }; },
   get queue(){ return queue; }, get pumping(){ return pumping; }, get storageOk(){ return storageOk; } };
 })();
+</script>
+<script id="adj">
+/* ── AutoDJ · MILESTONE ONE (v4.0) ───────────────────────────────────────────
+   Simulation only, by design: this module PLANS mixes and rehearses them dry —
+   it never calls play/seek/applyRate/applyXf, which a spy test pins. Live
+   auto-mixing is milestone two, if chat approves it.
+   Pure planning core (equalPower / snapDownbeat / planTransition / planQueue)
+   is dual-exported for node tests. */
+(function(root){
+'use strict';
+/* ── the equal-power scaffolding: the SAME curve applyXf uses for the manual fader ── */
+function equalPower(t){
+  t = Math.max(0, Math.min(1, t));
+  return { a: Math.cos(t * Math.PI / 2), b: Math.sin(t * Math.PI / 2) };
+}
+function snapDownbeat(grid, sec){
+  /* nearest bar line at or before sec (grid.downbeat carries the bar-1 anchor) */
+  if (!grid) return sec;
+  var bar = 4 * 60 / grid.bpm, d0 = grid.downbeat != null ? grid.downbeat : grid.beat0;
+  var n = Math.floor((sec - d0) / bar);
+  return Math.max(0, d0 + n * bar);
+}
+/* out/inn are plain infos: { name, bpm, key(camelot string|null), rate, dur, grid, cue:{in,out} } */
+function planTransition(out, inn, HM){
+  var warn = [], bars = 8;
+  if (!out || !inn || !out.dur || !inn.dur) return null;
+  if (!out.grid || !inn.grid) warn.push('needs a beat grid on both tracks');
+  var outBar = out.grid ? 4 * 60 / (out.grid.bpm * (out.rate || 1)) : 4 * 60 / (out.bpm || 120);
+  if (out.dur < 24 * outBar) bars = 4;
+  var dur = bars * outBar;
+  var outStart = out.cue && out.cue.out != null ? out.cue.out : (out.dur - dur - 2 * outBar);
+  if (out.grid) outStart = snapDownbeat(out.grid, Math.max(0, Math.min(out.dur - dur, outStart)));
+  else outStart = Math.max(0, Math.min(out.dur - dur, outStart));
+  var inStart = inn.cue && inn.cue.in != null ? inn.cue.in : (inn.grid ? snapDownbeat(inn.grid, inn.grid.downbeat != null ? inn.grid.downbeat : inn.grid.beat0) : 0);
+  /* what the incoming deck WOULD need (reported, never applied) */
+  var rateNote = null;
+  if (out.bpm && inn.bpm){
+    var eff = out.bpm * (out.rate || 1), mult = 1, best = Math.abs(Math.log(eff / inn.bpm));
+    [0.5, 2].forEach(function(m){ var e2 = Math.abs(Math.log(eff / (inn.bpm * m))); if (e2 < best){ best = e2; mult = m; } });
+    var need = eff / (inn.bpm * mult);
+    rateNote = { mult: mult, rate: need, pct: (need - 1) * 100 };
+    if (Math.abs(rateNote.pct) > 8) warn.push('big pitch bend: ' + rateNote.pct.toFixed(1) + '%');
+  } else warn.push('bpm unknown on one side');
+  var score = null, label = '';
+  if (HM && typeof HM.matchScore === 'function'){
+    try{
+      var r = HM.matchScore({ bpm: out.bpm, camelot: out.key }, { bpm: inn.bpm, camelot: inn.key });
+      score = r.score; label = r.label || '';
+      if (score != null && score < 40) warn.push('rough key/tempo match');
+    }catch(e){}
+  }
+  return { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn };
+}
+function planQueue(entries, HM){
+  /* entries: [{name,bpm,key,dur,grid,cue,src}] in play order → one plan per adjacent pair */
+  var rows = [];
+  for (var i = 0; i + 1 < entries.length; i++){
+    rows.push({ from: entries[i], to: entries[i + 1], plan: planTransition(entries[i], entries[i + 1], HM) });
+  }
+  return rows;
+}
+var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue };
+if (typeof module !== 'undefined' && module.exports){ module.exports = api; return; }
+
+/* ── browser wiring (display-only) ── */
+var X = root.__X, C = root.__C; if (!X || !C) return;
+var decks = X.decks, $ = function(sl, r){ return (r || document).querySelector(sl); };
+var CUE_KEY = 'harmony-mixcues-v1', cues = {};
+try{ cues = JSON.parse(localStorage.getItem(CUE_KEY) || '{}') || {}; }catch(e){}
+function cueKey(d){ return d._crateId ? d._crateId : ('name:' + (d.name || '')); }
+function cueGet(k){ return cues[k] || {}; }
+function cueSet(k, which, sec){
+  cues[k] = cues[k] || {};
+  if (sec == null) delete cues[k][which]; else cues[k][which] = Math.round(sec * 100) / 100;
+  try{ localStorage.setItem(CUE_KEY, JSON.stringify(cues)); }catch(e){}
+  var rec = C.byId[k];
+  if (rec){ rec.mixIn = cues[k]['in']; rec.mixOut = cues[k]['out']; if (C.persist) C.persist(rec); }
+}
+function deckInfo(d){
+  if (!d || !d.buffer) return null;
+  var k = cueKey(d);
+  return { name: d.name, bpm: d.bpm, key: d.key ? d.key.camelot : null, rate: d.rate || 1,
+           dur: d.buffer.duration, grid: d.grid, cue: cueGet(k), k: k };
+}
+function recInfo(rec){
+  var c = cues[rec.id] || {};
+  return { name: rec.name, bpm: rec.bpm, key: rec.key ? rec.key.camelot : null, rate: 1,
+           dur: rec.dur || 0, grid: rec.grid || null,
+           cue: { 'in': c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut }, k: rec.id };
+}
+/* ── panel markup, inserted after the aligned timeline ── */
+var sec = document.createElement('section');
+sec.className = 'stackpanel adjpanel'; sec.id = 'autodj';
+sec.setAttribute('aria-label', 'AutoDJ milestone one — simulation only');
+sec.innerHTML =
+  '<div class="shead"><span class="stitle">autodj · milestone 1</span>' +
+  '<div class="sgroup">' +
+  '<button type="button" class="btn small" id="adjsim">↻ simulate queue</button>' +
+  '<button type="button" class="btn small" id="adjdry" disabled title="Rehearse the A→B hand-off on screen — audio is untouched">▶ dry-run A→B</button>' +
+  '</div>' +
+  '<span class="ssub">simulation only — plans and rehearses, never touches playback. live auto-mixing is milestone two.</span></div>' +
+  '<div class="adjcues">' +
+  ['A', 'B'].map(function(L){
+    return '<div class="adjcue" data-l="' + L + '"><b>' + L + '</b>' +
+      '<button type="button" class="btn small adjin" disabled title="Save where this track should ENTER a mix (at the playhead, snapped to the bar)">⇥ mix-in @ head</button>' +
+      '<button type="button" class="btn small adjout" disabled title="Save where this track should LEAVE (at the playhead, snapped to the bar)">↦ mix-out @ head</button>' +
+      '<span class="adjread" aria-live="off"></span></div>';
+  }).join('') + '</div>' +
+  '<canvas id="adjwave" height="84" role="img" aria-label="Transition preview: outgoing deck A strip above incoming deck B strip, the planned crossfade window shaded, with the equal-power gain curves"></canvas>' +
+  '<div class="ssub" id="adjstatus" role="status" aria-live="polite"></div>' +
+  '<ol class="adjq" id="adjq"></ol>';
+var stackEl = $('#stackpanel');
+stackEl.parentNode.insertBefore(sec, stackEl.nextSibling);
+var st = document.createElement('style');
+st.textContent =
+  '.adjpanel{ margin-top:.6rem; }' +
+  '.adjcues{ display:flex; gap:.9rem; flex-wrap:wrap; padding:.3rem .6rem; }' +
+  '.adjcue{ display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; font-size:.68rem; }' +
+  '.adjcue b{ color:var(--ac, #7ec97a); }' +
+  '.adjread{ font-size:.6rem; opacity:.75; }' +
+  '#adjwave{ width:100%; display:block; }' +
+  '.adjq{ list-style:none; margin:.3rem 0 0; padding:0 .6rem .5rem; display:flex; flex-direction:column; gap:.25rem; }' +
+  '.adjq li{ font-size:.64rem; display:flex; gap:.6rem; flex-wrap:wrap; align-items:baseline; }' +
+  '.adjq .sc{ font-variant-numeric:tabular-nums; min-width:2.2rem; }' +
+  '.adjq .ok{ color:#7ec97a; } .adjq .mid{ color:#e0b64f; } .adjq .bad{ color:#e0584a; }' +
+  '.adjq .wrn{ opacity:.7; font-size:.58rem; }';
+document.head.appendChild(st);
+var wave = $('#adjwave'), wctx = wave.getContext('2d');
+function statusMsg(t){ $('#adjstatus').textContent = t; }
+/* mini peak cache — keyed on CONTENT identity, never surface size (the v2.7 lesson) */
+var pkCache = {};
+function miniPeaks(d){
+  var key = (d._crateId || d.name || '?') + ':' + d.buffer.length;
+  if (pkCache[key]) return pkCache[key];
+  var ch = d.buffer.getChannelData(0), N = 240, out = new Float32Array(N), stride = Math.max(1, Math.floor(ch.length / N / 24));
+  for (var i = 0; i < N; i++){
+    var a = Math.floor(i * ch.length / N), b = Math.floor((i + 1) * ch.length / N), m = 0;
+    for (var j = a; j < b; j += stride){ var v = Math.abs(ch[j]); if (v > m) m = v; }
+    out[i] = m;
+  }
+  pkCache[key] = out;
+  return out;
+}
+function currentPlan(){
+  var a = deckInfo(decks.A), b = deckInfo(decks.B);
+  if (!a || !b) return null;
+  return { a: a, b: b, plan: planTransition(a, b, root.HarmonyMatch) };
+}
+function drawPreview(prog){
+  var cp = currentPlan();
+  var W = wave.width = wave.clientWidth || 600, H = wave.height;
+  wctx.fillStyle = '#101216'; wctx.fillRect(0, 0, W, H);
+  if (!cp || !cp.plan){ wctx.fillStyle = '#5a6272'; wctx.font = '11px system-ui'; wctx.fillText('load + analyse both decks to preview the A→B hand-off', 12, H / 2); return; }
+  var p = cp.plan;
+  [['A', cp.a, decks.A, 4], ['B', cp.b, decks.B, H / 2 + 4]].forEach(function(row){
+    var info = row[1], y0 = row[3], hh = H / 2 - 8, pk = miniPeaks(row[2]);
+    var winA = (row[0] === 'A' ? p.outStart : p.inStart) / info.dur;
+    var winB = winA + p.dur / info.dur;
+    for (var x = 0; x < 240; x++){
+      var fr = x / 240, inWin = fr >= winA && fr <= winB;
+      wctx.fillStyle = inWin ? (row[0] === 'A' ? '#e0b64f' : '#7ec97a') : '#3a4152';
+      var h2 = Math.max(1, pk[x] * hh);
+      wctx.fillRect(x / 240 * W, y0 + (hh - h2) / 2, Math.max(1, W / 240 - 1), h2);
+    }
+    wctx.fillStyle = '#8b93a7'; wctx.font = '10px system-ui';
+    wctx.fillText(row[0] + ' · ' + (info.name || ''), 6, y0 + 10);
+  });
+  /* equal-power gain curves across the shaded window + the ghost fader */
+  var wx0 = p.outStart / cp.a.dur * W, wx1 = wx0 + p.dur / cp.a.dur * W;
+  wctx.strokeStyle = 'rgba(224,182,79,.9)'; wctx.beginPath();
+  for (var gx = 0; gx <= 40; gx++){ var t = gx / 40, g = equalPower(t); var X2 = wx0 + t * (wx1 - wx0); gx ? wctx.lineTo(X2, H / 2 - g.a * (H / 2 - 10)) : wctx.moveTo(X2, H / 2 - g.a * (H / 2 - 10)); }
+  wctx.stroke();
+  wctx.strokeStyle = 'rgba(126,201,122,.9)'; wctx.beginPath();
+  for (gx = 0; gx <= 40; gx++){ var t2 = gx / 40, g2 = equalPower(t2); var X3 = wx0 + t2 * (wx1 - wx0); gx ? wctx.lineTo(X3, H - g2.b * (H / 2 - 10)) : wctx.moveTo(X3, H - g2.b * (H / 2 - 10)); }
+  wctx.stroke();
+  if (prog != null){
+    var fx = wx0 + prog * (wx1 - wx0);
+    wctx.strokeStyle = '#fff'; wctx.lineWidth = 2;
+    wctx.beginPath(); wctx.moveTo(fx, 0); wctx.lineTo(fx, H); wctx.stroke(); wctx.lineWidth = 1;
+    var g3 = equalPower(prog);
+    wctx.fillStyle = '#d5d9e4'; wctx.font = '10px system-ui';
+    wctx.fillText('ghost fader ' + Math.round(prog * 100) + '% · A ' + g3.a.toFixed(2) + ' · B ' + g3.b.toFixed(2), Math.min(W - 150, Math.max(4, fx + 6)), 12);
+  }
+}
+/* ── dry-run: rehearses the hand-off on screen over ~5s; audio untouched ── */
+var dry = null;
+function dryRun(){
+  if (dry){ clearInterval(dry.t); dry = null; $('#adjdry').textContent = '▶ dry-run A→B'; statusMsg('dry-run stopped — nothing was touched.'); drawPreview(null); return; }
+  var cp = currentPlan();
+  if (!cp || !cp.plan){ statusMsg('dry-run needs both decks loaded and analysed.'); return; }
+  var p = cp.plan, T = 5000, t0 = Date.now();
+  $('#adjdry').textContent = '⏹ stop dry-run';
+  statusMsg('rehearsing: ' + p.bars + ' bars from ' + fmtT(p.outStart) + ' on A into ' + fmtT(p.inStart) + ' on B' +
+    (p.rateNote ? ' · B would run ' + (p.rateNote.pct >= 0 ? '+' : '') + p.rateNote.pct.toFixed(1) + '%' + (p.rateNote.mult !== 1 ? ' at ' + p.rateNote.mult + '×' : '') : '') + ' — simulation only.');
+  dry = { t: setInterval(function(){
+    var pr = (Date.now() - t0) / T;
+    if (pr >= 1){
+      clearInterval(dry.t); dry = null;
+      $('#adjdry').textContent = '▶ dry-run A→B';
+      drawPreview(1);
+      statusMsg('dry-run complete — the real fader, rates and playheads were never touched.');
+      return;
+    }
+    drawPreview(pr);
+  }, 50) };
+}
+function fmtT(s2){ var m = Math.floor(s2 / 60); return m + ':' + ('0' + Math.floor(s2 % 60)).slice(-2); }
+/* ── queue simulation from the decks + setlist (metadata only, no decoding) ── */
+function simulate(){
+  var entries = [];
+  var a = deckInfo(decks.A), b = deckInfo(decks.B);
+  if (a){ a.src = 'deck A'; entries.push(a); }
+  if (b){ b.src = 'deck B'; entries.push(b); }
+  (C.SL().ids || []).forEach(function(id){
+    var rec = C.byId[id];
+    if (rec && !rec.missing){ var ri = recInfo(rec); ri.src = 'setlist'; entries.push(ri); }
+  });
+  var rows = planQueue(entries, root.HarmonyMatch);
+  var ol = $('#adjq');
+  ol.innerHTML = '';
+  if (!entries.length){ statusMsg('nothing to simulate — load a deck or build a setlist.'); return rows; }
+  if (!rows.length){ statusMsg('one track only — add more to the setlist to simulate hand-offs.'); return rows; }
+  rows.forEach(function(r){
+    var li = document.createElement('li');
+    var sc = r.plan && r.plan.score != null ? Math.round(r.plan.score) : null;
+    var cls = sc == null ? 'wrn' : sc >= 70 ? 'ok' : sc >= 40 ? 'mid' : 'bad';
+    li.innerHTML = '<span class="sc ' + cls + '">' + (sc == null ? '·' : sc) + '</span>' +
+      '<span>' + esc(r.from.name || '?') + ' → ' + esc(r.to.name || '?') + '</span>' +
+      (r.plan ? '<span class="wrn">' + r.plan.bars + ' bars' +
+        (r.plan.rateNote ? ' · ' + (r.plan.rateNote.pct >= 0 ? '+' : '') + r.plan.rateNote.pct.toFixed(1) + '%' + (r.plan.rateNote.mult !== 1 ? ' @' + r.plan.rateNote.mult + '×' : '') : '') +
+        (r.plan.warnings.length ? ' · ' + r.plan.warnings.join(' · ') : '') + '</span>' : '<span class="wrn">unplannable</span>');
+    ol.appendChild(li);
+  });
+  statusMsg(rows.length + ' hand-off' + (rows.length > 1 ? 's' : '') + ' planned across decks + setlist — a rehearsal on paper, nothing loaded or played.');
+  return rows;
+}
+function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+/* ── cue buttons ── */
+function renderCues(){
+  ['A', 'B'].forEach(function(L){
+    var d = decks[L], row = $('.adjcue[data-l="' + L + '"]'), has = !!(d && d.buffer);
+    $('.adjin', row).disabled = !has;
+    $('.adjout', row).disabled = !has;
+    var read = $('.adjread', row);
+    if (!has){ read.textContent = 'no track'; return; }
+    var c = cueGet(cueKey(d));
+    read.textContent = 'in ' + (c['in'] != null ? fmtT(c['in']) : '—') + ' · out ' + (c.out != null ? fmtT(c.out) : '—');
+  });
+  $('#adjdry').disabled = !(decks.A.buffer && decks.B.buffer && decks.A.grid && decks.B.grid);
+}
+['A', 'B'].forEach(function(L){
+  var row = $('.adjcue[data-l="' + L + '"]');
+  $('.adjin', row).addEventListener('click', function(){ saveCue(L, 'in'); });
+  $('.adjout', row).addEventListener('click', function(){ saveCue(L, 'out'); });
+});
+function saveCue(L, which){
+  var d = decks[L]; if (!d || !d.buffer) return;
+  var p = d.playing ? d.pos() : d.posAtStart;
+  var snapped = d.grid ? snapDownbeat(d.grid, p) : p;
+  cueSet(cueKey(d), which, snapped);
+  renderCues(); drawPreview(null);
+  statusMsg('deck ' + L + ' mix-' + which + ' saved at ' + fmtT(snapped) + (d.grid ? ' (bar-snapped)' : '') + ' — remembered for this track.');
+}
+$('#adjsim').addEventListener('click', simulate);
+$('#adjdry').addEventListener('click', dryRun);
+setInterval(renderCues, 1200);
+renderCues();
+setTimeout(function(){ drawPreview(null); }, 400);
+root.__ADJ = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
+  cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
+  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; } };
+})(typeof window !== 'undefined' ? window : this);
 </script>
 <script>
 /* ── freshness: if the server has a newer build than this tab is running (stale HTTP cache after a deploy), reload once ── */
