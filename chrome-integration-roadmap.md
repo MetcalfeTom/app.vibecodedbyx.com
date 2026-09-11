@@ -1,0 +1,94 @@
+# Chrome Integration Roadmap — wrapper vs script chrome, Vault handoff
+**ROADMAP ONLY — NOTHING HERE IS IMPLEMENTED.** Written 2026-09-11 per chat's ask, after the
+read-only mapping of `apps/sloppy-header/` and `apps/sloppy-id/`. Companion to that report;
+every claim below was verified against the current tree. Modifies nothing.
+
+## 1 · The two chromes, compared (verified state)
+
+| | **Wrapper chrome** (`_bar/index.html`) | **Script chrome** (`sloppy-header/sloppy-bar.js`) |
+|---|---|---|
+| Delivery | Server serves the wrapper at `sloppy.live/<app>/`; real app loads in an iframe as `?bare=1` | `<script src="/sloppy-header/sloppy-bar.js">` pasted into each app |
+| Coverage | Effectively all ~1,600 apps (server-side) | 531 apps (older cohort; newer apps never adopted it) |
+| Ownership | **Root-owned — only Fela can deploy changes** | Repo-owned, freely editable |
+| Capabilities | Brand, vote, app search, minimize | Identity chip, context API (`sloppyBarGetContext/On/Emit/Refresh`), sync hub (BroadcastChannel `sloppy-sync` + SharedWorker cache), karma panel, notifications, global chat, teleport, vote, hard-reload |
+| Identity/Vault | None — no auth, no context | Full: profile context, trust badges, unread relay, auth delegation to sloppy-id |
+| Version | (server) | `2026-06-01a`, self-reported via `window.SLOPPY_BAR_VERSION` |
+| Known defect | Search index (`_bar/apps-index.json`) stale since April | **No `bare=1` detection** → the 531 script-chrome apps show **DOUBLE chrome** inside the wrapper (verified: zero hits for `bare` in sloppy-bar.js) |
+
+**Verdict the milestones follow:** the wrapper wins on coverage and survivability, the script wins
+on capability. Integration = the wrapper stays the shell; the script's *capabilities* become an
+opt-in layer any app (or the wrapper itself) can load — exactly once.
+
+## 2 · Vault handoff (the identity contract)
+
+Today identity flows only through `sloppy-bar.js` → `sloppy-id` ("Vault"): context cache,
+`identity-changed`/`karma-changed`/`unread-changed` events, auth delegation. The wrapper has no
+part in it. Defined handoff:
+
+- **Contract payload** (already the de-facto shape in `sloppyBarGetContext`): `{ userId, username,
+  avatar, karma, trust, unread, anonMode }` — versioned as `ctx.v = 1`; consumers must ignore
+  unknown fields.
+- **Transport**: wrapper → app iframe via `postMessage({type:'sloppy-ctx', v:1, ctx})` on load +
+  on every `identity-changed`; app → wrapper via `postMessage({type:'sloppy-ctx-request'})`.
+  Inside an app, the existing `sloppyBarGetContext()` API stays the single read surface — it
+  gains a wrapper-bridge backend, so the 531 existing consumers keep working unchanged.
+- **Single source of truth**: `sloppygram_profiles` (already consolidated); the Vault app
+  (`sloppy-id`) remains the only WRITE surface for profile/verification data.
+- **Dedup rule**: `sloppy-bar.js` learns one guard — if `location.search` carries `bare=1` (i.e.
+  running inside the wrapper) it renders NO visible bar, keeps only the context/sync APIs. That
+  single guard retires the double-chrome defect without removing anything.
+
+## 3 · Consent
+
+- **Tiered by design**: anonymous browsing stays the default; nothing identity-shaped reaches an
+  app until the user is signed in AND the app asks for context.
+- **Per-app consent**: the first `sloppy-ctx-request` from an app the user hasn't approved pops a
+  wrapper-owned prompt ("Share your SloppyID profile with <app>? [once / always / never]").
+  Decisions stored in the Vault (`sloppyid_vault` key `consent:<app-slug>`), editable and
+  revocable in sloppy-id's existing Privacy section.
+- **Anon mode wins**: the existing `sloppyid_anon_mode` flag short-circuits all handoffs to the
+  anonymous payload regardless of stored consents.
+- **No silent expansion**: apps that never call the API never see the prompt; consent text names
+  exactly the fields in the v1 payload, nothing open-ended.
+
+## 4 · Rollback
+
+- **Every milestone ships behind a kill switch**: a `sloppy-chrome-flags` localStorage key plus a
+  `?chrome=legacy` URL override force the pre-milestone behavior; the old code paths stay intact
+  (not deleted) for at least two milestones after being superseded.
+- **Wrapper changes are Fela-gated**: `_bar/` is root-owned, so every wrapper-side step ships as a
+  tested patch + one-line revert instruction in `message-to-fela` (precedent: the 2026-08-01 bsod
+  chip patch). If a wrapper step can't land, the milestone's app-side half still works standalone
+  — no step may depend on both sides landing together.
+- **Version pinning**: `sloppy-bar.js` already stamps `BAR_VERSION`; each milestone bumps it and
+  the hard-reload button (already shipped) is the user-facing unstick. A regression means
+  restoring the previous `sloppy-bar.js` byte-for-byte from git — apps reference it unversioned,
+  so one file revert rolls back all 531 consumers at once.
+- **Data rollback**: consent keys are additive rows in `sloppyid_vault`; disabling the consent
+  milestone simply stops reading them. No migrations, nothing destructive, ever.
+
+## 5 · Milestones (each independently shippable, verified, reversible)
+
+- **M0 — Truth pass (repo-only, no behavior change).** Land this doc; add a probe that loads a
+  script-chrome app under a simulated wrapper and ASSERTS the double chrome (pinning the defect
+  before fixing it). Rollback: delete doc.
+- **M1 — De-dup guard.** The `bare=1` no-visible-bar guard in `sloppy-bar.js`, APIs kept alive.
+  Verify: M0 probe flips to asserting single chrome + context API still answers in all 531-app
+  pattern (sampled suite). Rollback: revert one file.
+- **M2 — Wrapper context bridge (Fela-gated).** Wrapper gains the `sloppy-ctx` postMessage
+  bridge; `sloppyBarGetContext` learns the bridge backend with its current path as fallback.
+  Verify: context reaches a bar-less app inside a mock wrapper, headless. Rollback: wrapper
+  revert line + flag.
+- **M3 — Consent prompt + Vault storage.** Prompt in the wrapper, decisions in `sloppyid_vault`,
+  Privacy-section management UI in sloppy-id. Verify: once/always/never + anon-mode-wins probes.
+  Rollback: flag off → M2 behavior (no prompt, no handoff to unapproved apps).
+- **M4 — Adoption + retirement.** New-app boilerplate stops pasting the bar script (wrapper
+  provides everything); stale `apps-index.json` regeneration handed to Fela alongside. Verify:
+  one new app built bar-less passes the context suite. Rollback: boilerplate revert.
+- **Gate rule:** no milestone starts until the previous one's suite has run green on live bytes
+  for a full session, and chat has said go — the same approval cadence Harmony's AutoDJ used.
+
+## Open questions (verify before M1, not assumed)
+1. Does the wrapper's 500ms title/URL poll interact with a hidden bar's DOM at all? (Believed no.)
+2. Exact count of apps loading BOTH chromes with visible overlap on phones (sample 10 of the 531).
+3. Whether any of the 531 rely on the bar's *visible* UI (vote button position) in their own CSS.
