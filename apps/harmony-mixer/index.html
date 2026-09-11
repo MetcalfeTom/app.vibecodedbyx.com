@@ -259,6 +259,8 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 .cmain{ min-width:0; display:flex; flex-direction:column; gap:.1rem; }
 .cname{ font-weight:600; font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cmeta .plyd{ color:#7ec97a; }
+.cmeta .dupb{ color:#e0b64f; }
+.cmeta .btn.rmdup{ min-height:1.7rem; min-width:auto; padding:0 .45rem; font-size:.58rem; vertical-align:middle; }
 .sldrawer{ position:fixed; top:0; right:0; bottom:0; width:20rem; max-width:92vw; background:var(--panel, #17181d); border-left:1px solid var(--line, #2c2f36); z-index:40; padding:.8rem .9rem; overflow-y:auto; }
 .slhead{ display:flex; align-items:center; gap:.6rem; }
 .slhead strong{ font-family:var(--disp); text-transform:uppercase; letter-spacing:.06em; font-size:.9rem; }
@@ -2112,6 +2114,37 @@ window.__cratePlayed = function(id){ if (!byId[id] || PLAYED[id]) return; PLAYED
 /* ── setlist workspace (v3.8): an ordered plan, separate from the crate.
    SAFETY: list edits never touch decks, playback, crate contents or suggestions;
    the only playback affordances are the explicit per-row → A / → B loads. ── */
+/* content fingerprint for DUPLICATE identity — deliberately FINER than the phrase-marker
+   fingerprint (512 segments, 8-bit RMS, sample-exact): tracks that merely share an energy
+   shape (same bed, kicks a few ms apart) must NOT collide, or real tracks get flagged. */
+function crateFp(chan, sr){
+  var n = chan.length, segs = 512, stride = 8, h1 = 0x811c9dc5, h2 = 0x050c5d1f;
+  function mix(v){ h1 = Math.imul(h1 ^ v, 16777619) >>> 0; h2 = Math.imul(h2 ^ (v + 0x9e3779b9), 16777619) >>> 0; }
+  mix(n & 0xffff); mix(n >>> 16); mix(sr & 0xffff);
+  for (var s2 = 0; s2 < segs; s2++){
+    var a = Math.floor(s2 * n / segs), b = Math.floor((s2 + 1) * n / segs), acc = 0, cnt = 0;
+    for (var i = a; i < b; i += stride){ var v = chan[i]; acc += v * v; cnt++; }
+    mix(Math.min(255, Math.round((cnt ? Math.sqrt(acc / cnt) : 0) * 720)));
+  }
+  return ('00000000' + h1.toString(16)).slice(-8) + ('00000000' + h2.toString(16)).slice(-8);
+}
+/* content-identity duplicates (v3.8.1): the same audio under a new name or a re-tag is
+   FLAGGED, never deleted — the newer record points at the older via dupOf. */
+function dupScan(rec){
+  if (!rec || !rec.fp) return;
+  for (var i = 0; i < crate.length; i++){
+    var o = crate[i];
+    if (o.id === rec.id || !o.fp || o.fp !== rec.fp) continue;
+    var newer = (rec.added || 0) >= (o.added || 0) ? rec : o;
+    var older = newer === rec ? o : rec;
+    if (newer.dupOf === older.id) return;
+    newer.dupOf = older.id;
+    /* adopt path metadata the way the metadata fast path always has */
+    if (newer.relPath && !older.relPath){ older.relPath = newer.relPath; older.folder = newer.folder; persist(older); }
+    persist(newer);
+    return;
+  }
+}
 var SL_KEY = 'harmony-setlist-v1';
 var SL = { ids: [], at: null };
 try{ var sv = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv && Array.isArray(sv.ids)) SL = { ids: sv.ids, at: (typeof sv.at === 'number' ? sv.at : null) }; }catch(e){}
@@ -2281,6 +2314,7 @@ function pump(){
   readBlob(rec.blob).then(decode).then(function(buf){
     if (!byId[rec.id]) return;
     rec.dur = buf.duration; rec.state = 'analysing'; render();
+    try{ rec.fp = crateFp(buf.getChannelData(0), buf.sampleRate); dupScan(rec); }catch(e){}
     return monoOfAsync(buf).then(function(m){ return analyse(m.mono, m.sr); }).then(function(r){ if (!byId[rec.id]) return; if (!rec.manual){ rec.bpm = r.bpm; rec.key = r.key; } rec.grid = r.grid || null; rec.err = null; });
   }).catch(function(e){ if (byId[rec.id]) rec.err = /decod/i.test(String(e && e.message || e)) || !rec.dur ? "couldn't decode" : 'analysis failed'; })
   .then(function(){
@@ -2318,6 +2352,7 @@ function loadTo(rec, L){
   return readBlob(rec.blob).then(decode).then(function(buf){
     if (d._crateId !== rec.id) return;
     if (!rec.dur){ rec.dur = buf.duration; persist(rec); }
+    if (!rec.fp){ try{ rec.fp = crateFp(buf.getChannelData(0), buf.sampleRate); dupScan(rec); persist(rec); }catch(e){} }
     var pr = d.setBuffer(buf, rec.name);
     applyMeta(d, rec); render();
     return pr;
@@ -2409,6 +2444,7 @@ function render(){
   if (ref) for (var i = 0; i < R.items.length; i++){
     var it = R.items[i];
     if (it.isRef || it.on || !it.s || !it.s.mixable) continue;
+    if (it.r.dupOf && byId[it.r.dupOf]) continue;        /* a content duplicate never gets suggested */
     if (PLAYED[it.r.id]){ playedMixable++; continue; }   /* played tonight — suggestions move on */
     best = it; break;
   }
@@ -2443,6 +2479,7 @@ function render(){
     if (r.key && r.key.conf < 0.25 && !r.manual) meta.push('key ?');
     if (r.manual) meta.push('edited');
     if (PLAYED[r.id]) meta.push('<span class="plyd">✓ played</span>');
+    if (r.dupOf && byId[r.dupOf]) meta.push('<span class="dupb" title="identical audio content — flagged, never auto-deleted">⧉ duplicate of ' + esc(byId[r.dupOf].name) + '</span> <button type="button" class="btn rmdup" data-id="' + r.id + '">remove copy</button>');
     if (s && !it.isRef) meta.push('<em class="rel ok' + s.ok + (s.warn ? ' warn' : '') + '"' + (s.why ? ' title="' + esc(s.why) + '"' : '') + '>' + (s.label ? esc(s.label) + ' ' + s.score + ' · ' : '') + esc(s.text) + '</em>');
     var main = editing === r.id
       ? '<span class="cname">' + esc(r.name) + '</span>' +
@@ -2498,6 +2535,7 @@ els.rows.addEventListener('click', function(e){
   var b = e.target.closest('button'); if (!b) return; var r = byId[b.dataset.id]; if (!r) return;
   if (b.classList.contains('to')) loadTo(r, b.dataset.deck);
   else if (b.classList.contains('sl')) slAdd(r.id);
+  else if (b.classList.contains('rmdup')){ if (r.dupOf) remove(r); }   /* one click — safe because only the flagged COPY can carry it */
   else if (b.classList.contains('ed')){ editing = r.id; armed = null; render(); }
   else if (b.classList.contains('cancel')){ editing = null; render(); }
   else if (b.classList.contains('save')){
