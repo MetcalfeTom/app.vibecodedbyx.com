@@ -2727,12 +2727,14 @@ var sec = document.createElement('section');
 sec.className = 'stackpanel adjpanel'; sec.id = 'autodj';
 sec.setAttribute('aria-label', 'AutoDJ milestone one — simulation only');
 sec.innerHTML =
-  '<div class="shead"><span class="stitle">autodj · milestone 1</span>' +
+  '<div class="shead"><span class="stitle">autodj · milestone 2</span>' +
   '<div class="sgroup">' +
   '<button type="button" class="btn small" id="adjsim">↻ simulate queue</button>' +
   '<button type="button" class="btn small" id="adjdry" disabled title="Rehearse the A→B hand-off on screen — audio is untouched">▶ dry-run A→B</button>' +
+  '<button type="button" class="btn small" id="adjlive" disabled title="Execute ONE live hand-off: cue the incoming deck at its mix-in, sync it, ride the equal-power fader, stop the outgoing deck. Touch anything to take over">⚡ auto-mix</button>' +
+  '<button type="button" class="btn small" id="adjstop" hidden title="Stop the autopilot immediately — everything stays exactly where it is">⏹ stop mix</button>' +
   '</div>' +
-  '<span class="ssub">simulation only — plans and rehearses, never touches playback. live auto-mixing is milestone two.</span></div>' +
+  '<span class="ssub">simulate + dry-run never touch playback · ⚡ auto-mix DOES drive one hand-off — any touch takes over, ⏹ stops it, flagged duplicates are blocked from the autopilot (mixing them manually stays yours).</span></div>' +
   '<div class="adjcues">' +
   ['A', 'B'].map(function(L){
     return '<div class="adjcue" data-l="' + L + '"><b>' + L + '</b>' +
@@ -2885,7 +2887,9 @@ function renderCues(){
     var c = cueGet(cueKey(d));
     read.textContent = 'in ' + (c['in'] != null ? fmtT(c['in']) : '—') + ' · out ' + (c.out != null ? fmtT(c.out) : '—');
   });
-  $('#adjdry').disabled = !(decks.A.buffer && decks.B.buffer && decks.A.grid && decks.B.grid);
+  var ready = !(decks.A.buffer && decks.B.buffer && decks.A.grid && decks.B.grid);
+  $('#adjdry').disabled = ready;
+  $('#adjlive').disabled = ready;
 }
 ['A', 'B'].forEach(function(L){
   var row = $('.adjcue[data-l="' + L + '"]');
@@ -2900,6 +2904,84 @@ function saveCue(L, which){
   renderCues(); drawPreview(null);
   statusMsg('deck ' + L + ' mix-' + which + ' saved at ' + fmtT(snapped) + (d.grid ? ' (bar-snapped)' : '') + ' — remembered for this track.');
 }
+/* ── MILESTONE TWO: one live hand-off with takeover, stop, dup-blocking, sim fallback ── */
+var LIVE = null, injecting = false, testDurMs = null;
+var xfEl = document.getElementById('xfader');
+function fallback(msg){
+  if (!dry) dryRun();                                  /* start the rehearsal FIRST… */
+  statusMsg(msg + (dry ? ' — dry-run rehearsal running instead (audio untouched).' : ' — no dry-run possible either.'));
+  return null;                                         /* …so the REASON stays on screen */
+}
+function liveRun(opts){
+  opts = opts || {};
+  if (LIVE) return null;
+  if (dry) dryRun();                                   /* a live mix replaces a running rehearsal */
+  var a = deckInfo(decks.A), b = deckInfo(decks.B);
+  if (!a || !b || !decks.A.grid || !decks.B.grid) return fallback('auto-mix needs both decks loaded and analysed');
+  var outL = decks.A.playing && !decks.B.playing ? 'A'
+           : decks.B.playing && !decks.A.playing ? 'B'
+           : decks.A.playing && decks.B.playing ? (parseInt(xfEl.value, 10) <= 500 ? 'A' : 'B') : null;
+  if (!outL) return fallback('auto-mix needs a playing deck to mix out of');
+  var innL = outL === 'A' ? 'B' : 'A', out = decks[outL], inn = decks[innL];
+  /* duplicate BLOCKING: the autopilot refuses flagged copies — deliberate manual mixing stays yours */
+  var innRec = inn._crateId ? C.byId[inn._crateId] : null, outRec = out._crateId ? C.byId[out._crateId] : null;
+  var dupWhy = innRec && innRec.dupOf && C.byId[innRec.dupOf] ? 'is a flagged duplicate of "' + C.byId[innRec.dupOf].name + '"'
+             : (innRec && outRec && innRec.fp && innRec.fp === outRec.fp ? 'is the same audio as the outgoing track' : null);
+  if (dupWhy) return fallback('duplicate BLOCKED: deck ' + innL + ' ' + dupWhy + ' — autopilot refuses; mix it manually if you mean it');
+  var plan = planTransition(deckInfo(out), deckInfo(inn), root.HarmonyMatch);
+  if (!plan || plan.warnings.some(function(w){ return /beat grid/.test(w); })) return fallback('no viable plan for this pair');
+  /* GO — real actions from here */
+  inn.seek(plan.inStart);
+  if (!inn.playing) inn.play();
+  if (!X.SYNCST[innL]) X.toggleSync(inn);
+  if (!X.SYNCST[innL]) return fallback('sync refused the pair (tempos too far apart?)');
+  LIVE = { t0: Date.now(), from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
+           durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
+  document.getElementById('adjstop').hidden = false;
+  document.getElementById('adjlive').textContent = '⚡ mixing…';
+  statusMsg('LIVE: mixing ' + outL + ' → ' + innL + ' over ' + plan.bars + ' bars — touch the fader or a transport to take over, ⏹ to stop.');
+  LIVE.timer = setInterval(liveTick, 50);
+  return LIVE;
+}
+function liveTick(){
+  if (!LIVE) return;
+  var t = Math.min(1, (Date.now() - LIVE.t0) / LIVE.durMs);
+  injecting = true;
+  xfEl.value = Math.round(LIVE.from + t * (LIVE.to - LIVE.from));
+  X.applyXf();
+  injecting = false;
+  drawPreview(t);
+  if (t >= 1) finishLive();
+}
+function finishLive(){
+  var innL = LIVE.innL, outL = LIVE.outL;
+  clearInterval(LIVE.timer); LIVE = null;
+  decks[outL].stop();
+  if (X.SYNCST[innL]) X.toggleSync(decks[innL]);        /* release: bend resets to 1, the deck is free */
+  document.getElementById('adjstop').hidden = true;
+  document.getElementById('adjlive').textContent = '⚡ auto-mix';
+  statusMsg('hand-off complete — deck ' + innL + ' is live, sync released, deck ' + outL + ' stopped.');
+}
+function takeover(why){
+  if (!LIVE) return;
+  clearInterval(LIVE.timer); LIVE = null;
+  document.getElementById('adjstop').hidden = true;
+  document.getElementById('adjlive').textContent = '⚡ auto-mix';
+  statusMsg(why === 'stop'
+    ? 'auto-mix STOPPED — fader and decks stay exactly where they were; they are yours.'
+    : 'MANUAL TAKEOVER — the autopilot let go mid-flight; fader and decks stay where you grabbed them (sync still engaged).');
+}
+xfEl.addEventListener('input', function(){ if (!injecting) takeover('manual'); }, true);
+['A', 'B'].forEach(function(L){
+  ['play', 'cue'].forEach(function(k2){
+    var el2 = decks[L].q && decks[L].q[k2];
+    if (el2) el2.addEventListener('click', function(){ takeover('manual'); }, true);
+  });
+});
+var stackCv = document.getElementById('stack');
+if (stackCv) stackCv.addEventListener('pointerdown', function(){ takeover('manual'); }, true);
+document.getElementById('adjstop').addEventListener('click', function(){ takeover('stop'); });
+document.getElementById('adjlive').addEventListener('click', function(){ liveRun(); });
 $('#adjsim').addEventListener('click', simulate);
 $('#adjdry').addEventListener('click', dryRun);
 setInterval(renderCues, 1200);
@@ -2907,7 +2989,8 @@ renderCues();
 setTimeout(function(){ drawPreview(null); }, 400);
 root.__ADJ = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
-  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; } };
+  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; },
+  liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; } };
 })(typeof window !== 'undefined' ? window : this);
 </script>
 <script>
