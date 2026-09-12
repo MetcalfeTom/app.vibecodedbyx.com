@@ -135,7 +135,22 @@ Per chat's constraint this round modified NO app files. Deliverables:
   `sloppyBarGetContext` to consume the bridge with its current path as fallback — and the
   Fela deploy of the wrapper patch itself (root-owned).
 
-## Open questions (verify before M2 app-side, not assumed)
+## M2 app-side results (shipped 2026-09-12, commit 2520f9318)
+The bridge CLIENT in `sloppy-bar.js` (`2026-09-12b`). Production stays disconnected by
+construction: the wrapper bridge is not deployed, so today this posts exactly ONE request into
+a void and changes nothing — the S1 scenario proves that shape directly. Acceptance 16/16
+re-run on deployed bytes: S1 disconnected (one request, no storm, guard holds, local path
+healthy) · S2 connected against the VERBATIM wrapper patch (anon answer injected nothing;
+a sloppy-sync broadcast flowed wrapper→push→merge; `sloppyBarGetContext` returned the
+identity; identity-changed fired — with S3/S4 cross-validating that the broadcast alone
+never merges, isolating the bridge as the path) · S3 `chrome=legacy` (zero requests, bar
+visible, context untouched — the full pre-M1/M2 world from one flag) · S4 standalone (zero
+messages, all 531 outside-wrapper consumers untouched). M1 acceptance 10/10 re-run (one
+declared migration: version assert now `>= 2026-09-12a`). Rollback: `git revert 2520f9318`.
+**Remaining M2: the wrapper deploy itself — entirely in Fela's hands (patch + instructions
+already in message-to-fela). M3 (consent) NOT started — gate rule.**
+
+## Open questions (verify before M3, not assumed)
 1. Does the wrapper's 500ms title/URL poll interact with a hidden bar's DOM at all? (Believed no.)
 2. Exact count of apps loading BOTH chromes with visible overlap on phones (sample 10 of the 531).
 3. Whether any of the 531 rely on the bar's *visible* UI (vote button position) in their own CSS.
