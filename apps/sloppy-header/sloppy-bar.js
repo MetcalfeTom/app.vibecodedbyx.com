@@ -41,7 +41,7 @@
   // own <script src="/sloppy-header/sloppy-bar.js?v=…"> tags too.
   // Bump this string when shipping changes that need to defeat the
   // browser/CDN HTTP cache (e.g. tweaks chat is reporting as 'stale').
-  const BAR_VERSION = '2026-09-12a'; // M1: wrapper de-dup guard (chrome-integration-roadmap.md)
+  const BAR_VERSION = '2026-09-12b'; // M1 guard + M2 app-side bridge client (chrome-integration-roadmap.md)
   try { window.SLOPPY_BAR_VERSION = BAR_VERSION; } catch (_) {}
   // ── M1 duplicate-chrome guard ─────────────────────────────────────────────
   // Inside the site wrapper (which loads every app as ?bare=1 and draws its own
@@ -4243,6 +4243,41 @@
     if (!eventName) return;
     broadcastEvent(eventName, data || {});
   };
+
+  // ── M2 app-side bridge client (chrome-integration-roadmap.md) ─────────────
+  // Inside the wrapper, ask it for context and merge answers into userContext.
+  // DORMANT IN PRODUCTION TODAY: the wrapper bridge is not deployed, so the one
+  // request below lands in a void and nothing changes. When Fela lands
+  // _bar-m2-ctx-bridge.js, answers start flowing with no further app changes.
+  // The existing local context path is untouched and remains the fallback.
+  // Same kill switch as M1 (chrome=legacy / sloppy-chrome-flags).
+  try {
+    if (IN_WRAPPER && window.parent && window.parent !== window) {
+      window.addEventListener('message', function (ev) {
+        try {
+          if (ev.origin !== location.origin) return;          /* same-origin only */
+          if (ev.source !== window.parent) return;            /* only OUR wrapper */
+          var d = ev.data || {};
+          if (d.type !== 'sloppy-ctx' || d.v !== 1 || !d.ctx) return;
+          if (d.ctx.ready !== true) return;                   /* the wrapper's anon default never overwrites local data */
+          var changed = false;
+          for (var k in userContext) {
+            if (Object.prototype.hasOwnProperty.call(d.ctx, k) && userContext[k] !== d.ctx[k]) {
+              userContext[k] = d.ctx[k];
+              changed = true;
+            }
+          }
+          if (changed) {
+            userContext.ready = true;
+            userContext.timestamp = Date.now();
+            try { broadcastEvent('context-ready', Object.assign({}, userContext)); } catch (e) {}
+            try { broadcastEvent('identity-changed', Object.assign({}, userContext)); } catch (e) {}
+          }
+        } catch (e) {}
+      });
+      try { window.parent.postMessage({ type: 'sloppy-ctx-request' }, location.origin); } catch (e) {}
+    }
+  } catch (e) {}
 
   /**
    * Force-refresh the user context from DB + localStorage.
