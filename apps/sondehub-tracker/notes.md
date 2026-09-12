@@ -1,0 +1,19 @@
+# SondeHub Tracker (unofficial) — notes
+
+## log
+- v1.0 (2026-09-12): Built per four chat requests in one session: (1) "SondeHub tracker with terrain filters farmland/cities/rural/woods using documented public endpoints only"; (2) continent/country/region selectors from SAFE LOCAL metadata; (3) help panel explaining radiosondes + parachute descent; (4) SondeHub open-source volunteer-network attribution "with a source link" — delivered as NAMED attribution (sondehub.org as text, zero anchors) per the standing no-external-links rule, and the panel says so explicitly.
+- **Endpoints (both verified from the sandbox before building, CORS `*` confirmed)**: `api.v2.sondehub.org/sondes?last=10800` (GET, documented public API) and `overpass-api.de/api/interpreter` (POST, landuse/natural within 400m + place within 3km). Politeness is structural: NOTHING fetched until the user clicks load; terrain classification is per-click or an abortable bulk of the 8 lowest with 1.6s gaps; results cached per serial in localStorage; auto-refresh opt-in at 90s.
+- Terrain classify (pure, node-tested): farmland (farmland/meadow/orchard/vineyard/farmyard/greenhouse), woods (forest/wood), cities (residential/commercial/industrial/retail landuse + city/town/suburb/quarter/neighbourhood places; villages/hamlets deliberately NOT cities), rural = nothing specific found (honest why-string). Tie order farmland > woods > cities, documented in code.
+- Geo hierarchy (LOCAL ONLY — no network): embedded approximate bounding boxes for 7 continents, 24 sonde-active countries, and sub-continental regions; `geoOf(lat,lon)` stamped at parse time; cascading selects with counts; continent change resets the lower levels; composes with terrain chips (AND). Labelled "(approx boxes)" everywhere incl. the detail line's caution. ORDERING LESSONS (+, any bbox gazetteer): a small country's box can still swallow a neighbour's second city — Austria's box contains Munich and Norway's contains Helsinki AND Stockholm; order boxes to get the biggest cities right (DE before AT; FI, SE before NO) and document the survivors (Toronto lands in the US box — the 49th-parallel line can't cut the Great Lakes).
+- Map: no tiles, no assets — lat/lon scatter on an adaptive graticule, fit to the visible set; ▲ ascending cyan / ▼ descending amber / ▼! low red; terrain-colored rings once classified; click selects nearest.
+- Help `<details>` (closed by default per the UX rule): radiosondes are real instruments (temp/humidity/pressure/wind, ~twice daily, forecasts depend on them), balloon burst at ~20–35km, and the parachute exists to make a few hundred grams of falling electronics land gently — plus the volunteer-network paragraph and recovery manners.
+- Test seam: `setFetch()` swaps the network for fixtures — suites run fully hermetic with real hosts BLACKHOLED via host-resolver-rules; one separate real-wire smoke proved 60 live sondes loaded + rendered and a busy Overpass handled gracefully.
+- Verified: engine 28/28 node (classification incl. tie/villages, states, bounds/projection/grid, parseSondes ON THE REAL CAPTURED PAYLOAD, geoOf hierarchy incl. the documented Toronto approximation, overpass query shape); original browser suite 20/20 ×3 widths PRESERVED VERBATIM through both feature additions; geo/help suite 19/19 ×3; real-wire smoke 5/5.
+
+## issues
+- Overpass rate-limits bursty clients; the app stays polite (1.6s gaps, cache, abort) and reports "busy" honestly — never retry-storm it.
+- Bounding boxes are NOT borders; border towns can land one box over (said in the UI). If chat wants exactness, that's a real boundary dataset decision, not a tweak.
+
+## todos
+- Landing prediction overlay via SondeHub's documented predictions endpoint (separate approval — one more endpoint).
+- Per-sonde ground-track history (`/sonde/<serial>` documented endpoint).
