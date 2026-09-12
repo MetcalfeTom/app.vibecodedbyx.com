@@ -150,6 +150,17 @@ declared migration: version assert now `>= 2026-09-12a`). Rollback: `git revert 
 **Remaining M2: the wrapper deploy itself — entirely in Fela's hands (patch + instructions
 already in message-to-fela). M3 (consent) NOT started — gate rule.**
 
+## M1.1 amend (shipped 2026-09-12, commit 49fc28292) — after chat's invisibility report
+Diagnosis (read-only, 7/7): the M1 hide removed the only entry points to karma/bell/chat/
+teleport/identity inside the wrapper, and bare=1 alone triggered hiding even top-level (zero
+chrome on copied ?bare=1 links). Amend: IN_WRAPPER additionally requires `window.frameElement`
+non-null (real same-origin embedding; top-level/cross-origin fail OPEN to a visible bar), and
+inside the wrapper the bar boots as the minimized S-PILL instead of display:none — dedup kept
+(no duplicate full bar), capabilities one tap away, pill click expands (user choice wins),
+data-m1-hidden retired for data-m1-pill. Verified on deployed bytes: m11 11/11, M2 scenarios
+16/16 (one declared migration: S1 pill instead of hidden), true top-level ?bare=1 load = the
+normal default bar with zero pill flags. Rollback: `git revert 49fc28292`.
+
 ## Open questions (verify before M3, not assumed)
 1. Does the wrapper's 500ms title/URL poll interact with a hidden bar's DOM at all? (Believed no.)
 2. Exact count of apps loading BOTH chromes with visible overlap on phones (sample 10 of the 531).
