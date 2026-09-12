@@ -88,6 +88,26 @@ part in it. Defined handoff:
 - **Gate rule:** no milestone starts until the previous one's suite has run green on live bytes
   for a full session, and chat has said go — the same approval cadence Harmony's AutoDJ used.
 
+## M0 probe results (run 2026-09-12, read-only — no code changed)
+Approved and executed. Recipe: mock wrapper page (40px bar + `<iframe src=app?bare=1>`) served
+same-origin, with the server also answering the app-absolute `/sloppy-header/sloppy-bar.js`
+path so the fixture app (`mouse-mood`, one of the 531) runs its production bytes VERBATIM —
+bar script byte-identical, version `2026-06-01a` confirmed executing inside the frame.
+
+**10/10 assertions at 1200px and 390px. The defect is pinned:**
+- `#sloppy-bar` renders visible inside the iframe despite `?bare=1` — `display:flex`,
+  32px tall, under the 40px wrapper bar; no opt-out branch exists to run.
+- Manifestation nuance (screenshot): on a fresh profile the script chrome appears as its
+  floating minimized "S sloppy.live" pill bottom-left — still a second chrome layer, and both
+  layers carry vote affordances (the duplicated concern).
+- The capability surface M1 must preserve is confirmed alive in the same run:
+  `sloppyBarGetContext` / `sloppyBarOn` / `sloppyBarEmit` all functions; a context call
+  answers without throwing.
+
+This probe (wrapper mock + assertions) is the M1 acceptance test in waiting: after the de-dup
+guard, the same run must flip to "no visible bar, APIs still answer". M1 remains NOT started —
+awaiting chat's go per the gate rule.
+
 ## Open questions (verify before M1, not assumed)
 1. Does the wrapper's 500ms title/URL poll interact with a hidden bar's DOM at all? (Believed no.)
 2. Exact count of apps loading BOTH chromes with visible overlap on phones (sample 10 of the 531).
