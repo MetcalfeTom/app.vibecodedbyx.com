@@ -117,7 +117,25 @@ bytes: GUARD bar invisible at 0px with APIs answering; LEGACY visible (rollback 
 STANDALONE visible and untouched. Rollback: `git revert f364a9529` (one file, all 531
 consumers at once). **M2 (wrapper context bridge, Fela-gated) NOT started — gate rule.**
 
-## Open questions (verify before M2, not assumed)
+## M2 progress (read-only start, 2026-09-12 — wrapper patch written + proven, NOT deployed)
+Per chat's constraint this round modified NO app files. Deliverables:
+- **The exact wrapper patch**: `_bar-m2-ctx-bridge.js` at the repo root — one error-isolated
+  script block for Fela to paste before `</body>` in `_bar/index.html`. Same-origin
+  request/response (`sloppy-ctx-request` → `{type:'sloppy-ctx', v:1, ctx}`), live updates by
+  joining the existing `BroadcastChannel('sloppy-sync')` fabric, honest anonymous payload until
+  a signed-in tab broadcasts, field names matching the bar's own `userContext`.
+- **One-frame proof (M2A, 8/8)**: a bar-less app inside a mock wrapper running the VERBATIM
+  patch bytes received the v1 anonymous context on request, then an UNSOLICITED update when
+  `identity-changed` was broadcast on `sloppy-sync` (ready flipped true, identity carried), and
+  a sandboxed null-origin frame received silence (strict same-origin held).
+- **Rollback evidence (M2B, 3/3)**: with `sloppy-chrome-flags = "noctx"` the same wrapper+patch
+  boots and the bridge NEVER answers — the pre-M2 world, no deploy needed; clearing the flag
+  restores answers on the next load. Deploy-level revert stays one deletion of the script block.
+- **Not done yet (rest of M2, needs its own go)**: the app-side backend — teaching
+  `sloppyBarGetContext` to consume the bridge with its current path as fallback — and the
+  Fela deploy of the wrapper patch itself (root-owned).
+
+## Open questions (verify before M2 app-side, not assumed)
 1. Does the wrapper's 500ms title/URL poll interact with a hidden bar's DOM at all? (Believed no.)
 2. Exact count of apps loading BOTH chromes with visible overlap on phones (sample 10 of the 531).
 3. Whether any of the 531 rely on the bar's *visible* UI (vote button position) in their own CSS.
