@@ -41,7 +41,7 @@
   // own <script src="/sloppy-header/sloppy-bar.js?v=…"> tags too.
   // Bump this string when shipping changes that need to defeat the
   // browser/CDN HTTP cache (e.g. tweaks chat is reporting as 'stale').
-  const BAR_VERSION = '2026-09-12b'; // M1 guard + M2 app-side bridge client (chrome-integration-roadmap.md)
+  const BAR_VERSION = '2026-09-12c'; // M1.1 amend: real-wrapper check + S-pill dedup (chrome-integration-roadmap.md)
   try { window.SLOPPY_BAR_VERSION = BAR_VERSION; } catch (_) {}
   // ── M1 duplicate-chrome guard ─────────────────────────────────────────────
   // Inside the site wrapper (which loads every app as ?bare=1 and draws its own
@@ -54,7 +54,11 @@
     const q = String(location.search || '');
     const legacy = /[?&]chrome=legacy\b/.test(q) ||
       (function(){ try { return String(localStorage.getItem('sloppy-chrome-flags') || '').indexOf('legacy') >= 0; } catch (_) { return false; } })();
-    IN_WRAPPER = !legacy && /[?&]bare=1\b/.test(q);
+    /* M1.1: bare=1 alone is NOT proof of the wrapper — a top-level visit to a
+       copied ?bare=1 link must keep its chrome. Require a REAL same-origin
+       embedding (frameElement non-null). Cross-origin or top-level → visible. */
+    var embedded = (function () { try { return window.frameElement !== null; } catch (_) { return false; } })();
+    IN_WRAPPER = !legacy && embedded && /[?&]bare=1\b/.test(q);
   } catch (_) { IN_WRAPPER = false; }
   // Consolidated to primary instance — previous header instance (dtfaplmockmwvgyqxbep) is dead/unreachable
   const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
@@ -227,6 +231,10 @@
   let currentUser = null;
   let userData = { karma: 0, rank: null, premium: false, username: 'Guest', trustScore: 0, verificationLevel: 0, verifiedProviders: [] };
   let isMinimized = options.minimized;
+  // M1.1: inside the wrapper, dedup means the MINIMIZED S-PILL, not a vanished
+  // bar — karma/chat/bell/teleport stay one tap away. Forced only at boot; the
+  // pill's own click expands to the full bar (the user's explicit choice wins).
+  if (IN_WRAPPER) isMinimized = true;
   let cacheTimestamp = 0;
   let dropdownOpen = false;
 
@@ -2521,9 +2529,9 @@
       document.body.appendChild(bar);
     }
     if (IN_WRAPPER) {
-      // M1 guard: the wrapper already provides the visible chrome. The element
-      // stays in the DOM (nothing downstream can null-crash) but paints nothing.
-      try { bar.style.setProperty('display', 'none', 'important'); bar.setAttribute('data-m1-hidden', '1'); } catch (_) {}
+      // M1.1: no full second bar by default inside the wrapper — but never
+      // invisible either. The pill marker lets probes pin this state.
+      try { bar.removeAttribute('data-m1-hidden'); bar.setAttribute('data-m1-pill', '1'); } catch (_) {}
     }
 
     bar.className = 'sloppy-bar' + (isMinimized ? ' minimized' : '');
