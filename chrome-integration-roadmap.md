@@ -108,7 +108,16 @@ This probe (wrapper mock + assertions) is the M1 acceptance test in waiting: aft
 guard, the same run must flip to "no visible bar, APIs still answer". M1 remains NOT started —
 awaiting chat's go per the gate rule.
 
-## Open questions (verify before M1, not assumed)
+## M1 results (shipped 2026-09-12, commit f364a9529)
+Approved and implemented — one file (`sloppy-bar.js`), version `2026-09-12a`. Guard is
+hide-not-skip (element stays in the DOM; paints nothing when `bare=1`), detection fail-safe
+(errors → legacy behavior), kill switch live (`?chrome=legacy` / localStorage flag).
+Acceptance = the M0 probe flipped, three frames, 10/10 at 1200+390, re-run on the deployed
+bytes: GUARD bar invisible at 0px with APIs answering; LEGACY visible (rollback proven);
+STANDALONE visible and untouched. Rollback: `git revert f364a9529` (one file, all 531
+consumers at once). **M2 (wrapper context bridge, Fela-gated) NOT started — gate rule.**
+
+## Open questions (verify before M2, not assumed)
 1. Does the wrapper's 500ms title/URL poll interact with a hidden bar's DOM at all? (Believed no.)
 2. Exact count of apps loading BOTH chromes with visible overlap on phones (sample 10 of the 531).
 3. Whether any of the 531 rely on the bar's *visible* UI (vote button position) in their own CSS.
