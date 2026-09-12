@@ -41,8 +41,21 @@
   // own <script src="/sloppy-header/sloppy-bar.js?v=…"> tags too.
   // Bump this string when shipping changes that need to defeat the
   // browser/CDN HTTP cache (e.g. tweaks chat is reporting as 'stale').
-  const BAR_VERSION = '2026-06-01a';
+  const BAR_VERSION = '2026-09-12a'; // M1: wrapper de-dup guard (chrome-integration-roadmap.md)
   try { window.SLOPPY_BAR_VERSION = BAR_VERSION; } catch (_) {}
+  // ── M1 duplicate-chrome guard ─────────────────────────────────────────────
+  // Inside the site wrapper (which loads every app as ?bare=1 and draws its own
+  // bar) this script used to paint a SECOND chrome. The guard hides the visible
+  // bar there while keeping every API (context, events, sync hub) alive.
+  // Fail-safe: any error in detection means IN_WRAPPER=false → today's behavior.
+  // Kill switch: ?chrome=legacy or localStorage sloppy-chrome-flags~"legacy".
+  let IN_WRAPPER = false;
+  try {
+    const q = String(location.search || '');
+    const legacy = /[?&]chrome=legacy\b/.test(q) ||
+      (function(){ try { return String(localStorage.getItem('sloppy-chrome-flags') || '').indexOf('legacy') >= 0; } catch (_) { return false; } })();
+    IN_WRAPPER = !legacy && /[?&]bare=1\b/.test(q);
+  } catch (_) { IN_WRAPPER = false; }
   // Consolidated to primary instance — previous header instance (dtfaplmockmwvgyqxbep) is dead/unreachable
   const SUPABASE_URL = 'https://yjyxteqzhhmtrgcaekgz.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
@@ -2506,6 +2519,11 @@
       bar.id = 'sloppy-bar';
       bar.className = 'sloppy-bar' + (isMinimized ? ' minimized' : '');
       document.body.appendChild(bar);
+    }
+    if (IN_WRAPPER) {
+      // M1 guard: the wrapper already provides the visible chrome. The element
+      // stays in the DOM (nothing downstream can null-crash) but paints nothing.
+      try { bar.style.setProperty('display', 'none', 'important'); bar.setAttribute('data-m1-hidden', '1'); } catch (_) {}
     }
 
     bar.className = 'sloppy-bar' + (isMinimized ? ' minimized' : '');
