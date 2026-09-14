@@ -113,6 +113,7 @@ footer #buildstamp{ margin-left:auto; opacity:.7; font-family:ui-monospace, mono
       <h2 style="font-size:.85rem">Shelf favourites</h2>
       <div id="sortrow">
         <button type="button" class="bt" id="sortRate" style="font-size:.64rem; min-height:2.4rem">sort my shelf by rating</button>
+        <button type="button" class="bt" id="resetPhotos" style="font-size:.64rem; min-height:2.4rem">↺ reset all photos</button>
       </div>
       <ul id="faves"></ul>
     </div>
@@ -212,8 +213,9 @@ else root.MugEng = api;
 var E = window.MugEng;
 var $ = function(s){ return document.querySelector(s); };
 var KEY = 'mug-shelf-v1';
-var ST = { owned: [], ratings: {}, saucers: 0, visits: 3, lastTs: Date.now(), visitN: 0 };
+var ST = { owned: [], ratings: {}, saucers: 0, visits: 3, lastTs: Date.now(), visitN: 0, photos: {} };
 try{ var raw = JSON.parse(localStorage.getItem(KEY)); if (raw && Array.isArray(raw.owned)) ST = raw; }catch(e){}
+if (!ST.photos) ST.photos = {};   /* migration for v1.0/v1.1 saves */
 var NOW = function(){ return Date.now(); };   /* seam: probes replace the clock */
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(ST)); }catch(e){} }
 /* ── original mug illustration (procedural, per spec) ── */
@@ -320,6 +322,36 @@ function drawMug(cv, spec, scale){
   }
   c.restore();
 }
+/* ── real-twin photos: local upload (downscaled, stored) or validated URL (displayed, never stored as data) ── */
+var PHOTO_CAP = 150 * 1024, PHOTO_TOTAL_CAP = 2.5 * 1024 * 1024;
+function photoTotal(){ var t = 0; for (var k in ST.photos){ if (ST.photos[k].kind === 'data') t += ST.photos[k].v.length; } return t; }
+function validUrl(u){
+  u = String(u || '').trim();
+  if (!/^https?:\/\//i.test(u)) return null;     /* http(s) only — nothing else is ever loaded */
+  if (u.length > 2000) return null;
+  return u;
+}
+function setPhoto(id, kind, v){
+  ST.photos[id] = { kind: kind, v: v };
+  save(); renderAll();
+}
+function clearPhoto(id){ delete ST.photos[id]; save(); renderAll(); }
+function clearAllPhotos(){ ST.photos = {}; save(); renderAll(); status('all real-twin photos removed — artwork only, like the day the kiln opened.'); }
+function downscale(file, cb){
+  var img = new Image();
+  var url = URL.createObjectURL(file);
+  img.onload = function(){
+    var s2 = Math.min(1, 512 / Math.max(img.width, img.height));
+    var cv2 = document.createElement('canvas');
+    cv2.width = Math.max(1, Math.round(img.width * s2));
+    cv2.height = Math.max(1, Math.round(img.height * s2));
+    cv2.getContext('2d').drawImage(img, 0, 0, cv2.width, cv2.height);
+    URL.revokeObjectURL(url);
+    cb(cv2.toDataURL('image/jpeg', 0.8), cv2.width, cv2.height);
+  };
+  img.onerror = function(){ URL.revokeObjectURL(url); cb(null); };
+  img.src = url;
+}
 /* ── UI state ── */
 var currentTrio = null, selected = null;
 function status(t){ $('#status').textContent = t; }
@@ -400,6 +432,7 @@ function renderChecklist(){
         sl.appendChild(cv); drawMug(cv, m);
       } else sl.innerHTML = '<span class="sil">?</span>';
       if (m.rare) sl.innerHTML += '<span class="star" aria-hidden="true">★</span>';
+      if (ST.photos[m.id]) sl.innerHTML += '<span class="star" style="left:-2px; right:auto; color:#8fb8d9" aria-hidden="true">📷</span>';
       sl.addEventListener('click', function(){ selected = m.id; renderAll(); });
       g.appendChild(sl);
     });
@@ -426,6 +459,58 @@ function renderDetail(){
       save(); renderAll();
     });
   });
+  /* ── real twin: photo/URL of YOUR actual mug, artwork always the fallback ── */
+  if (owned){
+    var ph = ST.photos[selected];
+    var tw = document.createElement('div');
+    tw.id = 'twin';
+    tw.innerHTML = '<div class="sub" style="margin-top:.5rem"><b>real twin</b> — a photo of your actual mug (stays in your browser; artwork returns if it ever fails)</div>' +
+      '<div id="twinview">' + (ph
+        ? '<img id="twinimg" alt="Your photo of this mug" referrerpolicy="no-referrer" style="max-width:9rem; max-height:9rem; border-radius:.5rem; border:2px solid #3d5c48; display:block; margin:.3rem 0">'
+        : '<div class="sub" id="twinnone" style="margin:.25rem 0">none yet — the artwork above stands in.</div>') + '</div>' +
+      '<div id="twinerr" class="sub" role="status" aria-live="polite" style="color:#e0a08a"></div>' +
+      '<div style="display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.25rem">' +
+      '<label class="bt" style="font-size:.62rem; display:inline-flex; align-items:center; cursor:pointer">📷 upload photo<input type="file" id="twinfile" accept="image/*" style="position:absolute; width:1px; height:1px; opacity:0" aria-label="Upload a photo of your real mug"></label>' +
+      '<input id="twinurl" type="url" placeholder="https:// image url" aria-label="Image URL of your real mug" style="font:inherit; font-size:.62rem; min-height:2.5rem; border-radius:.4rem; border:2px solid #5a7d64; background:#28472f; color:var(--ink); padding:0 .5rem; flex:1; min-width:9rem">' +
+      '<button type="button" class="bt" id="twingo" style="font-size:.62rem">preview</button>' +
+      (ph ? '<button type="button" class="bt" id="twinreset" style="font-size:.62rem">↺ reset to artwork</button>' : '') +
+      '</div>';
+    $('#dmeta').appendChild(tw);
+    if (ph){
+      var im = tw.querySelector('#twinimg');
+      im.onerror = function(){
+        /* fallback rule: a photo that stops loading is dropped, artwork returns */
+        clearPhoto(selected);
+        status('that image stopped loading — back to the original artwork.');
+      };
+      im.src = ph.v;
+    }
+    tw.querySelector('#twinfile').addEventListener('change', function(){
+      var f = this.files && this.files[0];
+      if (!f) return;
+      if (!/^image\//.test(f.type)){ tw.querySelector('#twinerr').textContent = 'that is not an image file.'; return; }
+      downscale(f, function(dataUrl){
+        if (!dataUrl){ tw.querySelector('#twinerr').textContent = 'could not read that image.'; return; }
+        if (dataUrl.length > PHOTO_CAP){ tw.querySelector('#twinerr').textContent = 'photo too detailed even after downscaling — try a smaller one.'; return; }
+        if (photoTotal() + dataUrl.length > PHOTO_TOTAL_CAP){ tw.querySelector('#twinerr').textContent = 'photo shelf is full — reset some twins first.'; return; }
+        setPhoto(selected, 'data', dataUrl);
+        status('real twin saved — it lives only in this browser.');
+      });
+    });
+    tw.querySelector('#twingo').addEventListener('click', function(){
+      var u = validUrl(tw.querySelector('#twinurl').value);
+      if (!u){ tw.querySelector('#twinerr').textContent = 'only plain https:// image links work here.'; return; }
+      tw.querySelector('#twinerr').textContent = 'checking that image…';
+      var probe = new Image();
+      probe.referrerPolicy = 'no-referrer';
+      var to = setTimeout(function(){ probe.src = ''; tw.querySelector('#twinerr').textContent = 'that URL did not answer — artwork stays.'; }, 8000);
+      probe.onload = function(){ clearTimeout(to); setPhoto(selected, 'url', u); status('linked preview saved — if it ever breaks, the artwork returns.'); };
+      probe.onerror = function(){ clearTimeout(to); tw.querySelector('#twinerr').textContent = 'that URL did not load as an image — artwork stays.'; };
+      probe.src = u;
+    });
+    var rst = tw.querySelector('#twinreset');
+    if (rst) rst.addEventListener('click', function(){ clearPhoto(selected); status('back to the original artwork.'); });
+  }
 }
 function renderFaves(){
   var rated = ST.owned.filter(function(id){ return ST.ratings[id]; })
@@ -438,10 +523,12 @@ function renderAll(){ renderTrio(); renderChecklist(); renderDetail(); renderFav
 $('#visit').addEventListener('click', function(){ visit(null); });
 document.querySelectorAll('.hunt').forEach(function(b){ b.addEventListener('click', function(){ visit(b.dataset.s); }); });
 $('#sortRate').addEventListener('click', function(){ renderFaves(); status('shelf sorted by your ratings.'); });
+$('#resetPhotos').addEventListener('click', clearAllPhotos);
 setInterval(tickRegen, 5000);
 renderAll();
 status(ST.owned.length ? 'welcome back — the kiln kept warm.' : 'the counter is open. first visit is on the house.');
 window.__M = { E: E, get ST(){ return ST; }, set ST(v){ ST = v; }, visit: visit, keep: keep,
+  setPhoto: setPhoto, clearPhoto: clearPhoto, validUrl: validUrl, photoTotal: photoTotal,
   get trio(){ return currentTrio; }, select: function(id){ selected = id; renderAll(); },
   setNow: function(f){ NOW = f; }, renderAll: renderAll, drawMug: drawMug, save: save };
 })();
