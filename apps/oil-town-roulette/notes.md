@@ -7,6 +7,7 @@
 - Verified: engine 20/20 node (wheel weights + angles, per-disaster spawn envelopes, gravity, catch window incl. rejects, bounce-lands-at-pen from 3 distances, ground outcomes, scoring, pits never under the pen ×20 seeds); browser 14/14 ×3 widths (spin→round, staged rescue→pen save, pit loss, muddy miss, golden save, wagon momentum + clamp, round→wheel loop + shift log, live ink, a11y/touch/overflow); mid-avalanche screenshot.
 
 ## issues
+- 2026-09-14 AUDIT (chat asked "did scorpion features ship?"): NO. An UNCOMMITTED edit to index.html (engine block only) adds a 5th wheel slice GIANT SCORPION (weight 10 → 110 total), a boss state machine (makeScorpion/stepScorpion/shockZone/inShock/cheeseHit/spawnCheese) and a `scorpion` spawnCow branch — but NOTHING in the game loop calls it: no boss drawn, no slams/stun, no cheese, no S.scorpion. Because apps serve from disk, viewers DO see the scorpion slice and a scorpion round = cows flung from mid-screen with no boss. Probed: original 14/14 ×3 widths still green, scorpion round runs 400 frames with zero errors; node suite 19/20 (the "4 distinct slice angles" check needs 5 if this stays). Decision pending with chat: finish wiring (draw + slam/stun + cheese cannon + stamp v1.1) or `git checkout -- index.html` back to v1.0.
 - Terrain is random per round by design; probes must pin S.pits (and spawnT/spawned) before staging outcomes.
 
 ## todos
