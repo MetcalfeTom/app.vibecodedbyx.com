@@ -1,0 +1,14 @@
+# Take a Number — notes
+
+## log
+- v1.0 (2026-09-16): Built per chat ("polished single-page app with a prominent button that generates and displays a random number, including range controls and reset") plus the follow-up minutes later ("0–10 defaults, mechanical click sounds, seven gold glow, verify the published page"). No prior random-number app existed (random-greeting is unrelated). Wall-mounted deli ticket dispenser: one big TAKE A NUMBER button (Space/Enter too), ticket tears off with a flick-through reveal and its serial, range from/to inputs with inline validation (whole numbers, from < to, ±1e9 cap; button disables on error and the old range is kept), "no repeats until every number is used" mode (fresh start when switched on; exhausts with a clear message and re-arms when the range widens), Reset (0–10, repeats allowed, history cleared, glow cleared), ticket history strip (latest 24, count), state persisted in localStorage (range, mode, last 60 tickets, sound preference). `<script id="eng">` = pure picker: crypto.getRandomValues + rejection sampling (uniform), dense-path leftover pick for no-repeat past half full, history cap 200. A drawn seven turns the ticket gold (pulsing glow, "lucky seven" label, two-note chime); every pull gets a mechanical lever click + tear tick (WebAudio, toggle "clicks: on/off", persisted; reduced-motion drops the delays and animations). Lilita One + Radio Canada, teal wall / red box / cream paper / gold accent.
+- Verified: engine 25/25 node (validation cases, uniform(6) evenness over 60k draws, all faces reachable, no-repeat drains 3 and 1000 uniquely, negative ranges, reset/refused-range behaviour, determinism, hygiene); browser 43/43 at 1200/390/320 (button prominence + ≥44px targets, live region, click/Space/Enter pulls in 0–10, strip caps at 24, range 7–9 hits exactly three values, error/disable/aria-invalid paths, negative range, no-repeats exhaustion + re-arm, persistence, reset UI + storage, seven gold vs eight plain, sound toggle persistence, contrast ≥4.5:1, no overflow); screenshots both widths.
+- "Verify the published page": sloppy.live is not reachable from this sandbox (documented), so verification = the committed file is byte-identical to the tested scratch file and is pushed; apps serve straight from disk.
+
+## issues
+- Turning no-repeats ON must NOT back-fill "used" from the history — earlier pulls (possibly from another range) exhausted a 1–5 raffle instantly (probe caught [0,0,0,0,0]). Reload with the mode on does restore used from the saved history, which is the intended session-resume case.
+- Speaker emoji is tofu in headless font stacks — text labels for toggles.
+- Screenshot injection lesson: the spin interval overwrites a forced number ~330 ms later; force the state after the interval or accept the screenshot shows a spun value.
+
+## todos
+- Multiple-ticket pull (draw N at once), copy-to-clipboard, shareable "I got 7".
