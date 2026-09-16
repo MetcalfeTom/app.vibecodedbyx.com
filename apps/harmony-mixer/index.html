@@ -401,7 +401,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.3 · 2026-09-16 · 73d6bd636</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.4 · 2026-09-16 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -1123,7 +1123,7 @@ Deck.prototype.resetTrackState = function(){
 Deck.prototype.setBuffer = function(buf, name){
   var d = this;
   d.stop(); d.buffer = null; d.resetTrackState();
-  d.buffer = buf; d.name = name || d.name; d.posAtStart = 0; d.bpm = null; d.key = null; d.grid = null;
+  d.buffer = buf; d.name = name || d.name; d.posAtStart = 0; d.bpm = null; d.key = null; d.grid = null; d.scanDone = false;
   d.q.track.textContent = d.name; d.q.track.classList.add('has');
   d.q.wave.classList.add('has'); d.renderTime();
   try{ d.fp = fingerprint(buf.getChannelData(0), buf.sampleRate); }catch(e){ d.fp = null; }
@@ -1144,10 +1144,10 @@ Deck.prototype.rescan = function(){
   var token = buf;
   return monoDownsampleAsync(chans, factor).then(function(mono){ return analyse(mono, sr, { label: 'deck ' + d.L, playing: d.playing }); }).then(function(r){
     if (d.buffer !== token) return;
-    d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.setStatus('');
+    d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.scanDone = true; d.setStatus('');
     d.setColor(r.key ? camelotColor(r.key.n, r.key.letter) : null);
     d.draw(); d.render(); applyLock(); renderCentre();
-  }, function(){ if (d.buffer === token) d.setStatus('analysis failed — deck still plays', true); d.render(); });
+  }, function(){ if (d.buffer === token){ d.scanDone = true; d.setStatus('analysis failed — deck still plays', true); } d.render(); });
 };
 /* eject: clear the deck completely; the crate keeps its copy. resetTrackState (v2.7) already
    handles marks, cached artwork and disengaging sync in both directions. */
@@ -2735,6 +2735,8 @@ function cueSet(k, which, sec){
   var rec = C.byId[k];
   if (rec){ rec.mixIn = cues[k]['in']; rec.mixOut = cues[k]['out']; if (C.persist) C.persist(rec); }
 }
+/* gridless (v4.4): a deck counts as analysed once its scan has finished — a gated or failed grid is a fact, not a wait */
+function analysed(d){ return !!(d && d.buffer && (d.scanDone || d.grid)); }
 function deckInfo(d){
   if (!d || !d.buffer) return null;
   var k = cueKey(d);
@@ -2914,7 +2916,7 @@ function renderCues(){
     var c = cueGet(cueKey(d));
     read.textContent = 'in ' + (c['in'] != null ? fmtT(c['in']) : '—') + ' · out ' + (c.out != null ? fmtT(c.out) : '—');
   });
-  var ready = !(decks.A.buffer && decks.B.buffer && decks.A.grid && decks.B.grid);
+  var ready = !(analysed(decks.A) && analysed(decks.B));
   $('#adjdry').disabled = ready;
   $('#adjlive').disabled = ready;
 }
@@ -2944,7 +2946,7 @@ function liveRun(opts){
   if (LIVE) return null;
   if (dry) dryRun();                                   /* a live mix replaces a running rehearsal */
   var a = deckInfo(decks.A), b = deckInfo(decks.B);
-  if (!a || !b || !decks.A.grid || !decks.B.grid) return fallback('auto-mix needs both decks loaded and analysed');
+  if (!a || !b || !analysed(decks.A) || !analysed(decks.B)) return fallback('auto-mix needs both decks loaded and analysed');
   var outL = decks.A.playing && !decks.B.playing ? 'A'
            : decks.B.playing && !decks.A.playing ? 'B'
            : decks.A.playing && decks.B.playing ? (parseInt(xfEl.value, 10) <= 500 ? 'A' : 'B') : null;
@@ -2956,9 +2958,17 @@ function liveRun(opts){
              : (innRec && outRec && innRec.fp && innRec.fp === outRec.fp ? 'is the same audio as the outgoing track' : null);
   if (dupWhy) return fallback('duplicate BLOCKED: deck ' + innL + ' ' + dupWhy + ' — autopilot refuses; mix it manually if you mean it');
   var plan = planTransition(deckInfo(out), deckInfo(inn), root.HarmonyMatch);
-  if (!plan || plan.warnings.some(function(w){ return /beat grid/.test(w); })) return fallback('no viable plan for this pair');
+  if (!plan) return fallback('no viable plan for this pair');
+  var gridless = !out.grid || !inn.grid;
   /* GO — real actions from here */
-  if (inn.playing){
+  if (gridless){
+    /* CUE-TIMED hand-off: no beat grid on one side, so no tempo lock is possible — the blend runs from the
+       saved (or default) mix-in / mix-out cues at the tracks' own tempos. Used to be refused outright. */
+    inn.seek(plan.inStart);
+    if (!inn.playing) inn.play();
+    LIVE = { t0: Date.now(), pending: false, gridless: true, from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
+             durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
+  } else if (inn.playing){
     /* the DJ already has the incoming deck running: engage sync live, as before (no bar wait) */
     inn.seek(plan.inStart);
     if (!X.SYNCST[innL]) X.toggleSync(inn);
@@ -2979,7 +2989,7 @@ function liveRun(opts){
   }
   document.getElementById('adjstop').hidden = false;
   document.getElementById('adjlive').textContent = '⚡ mixing…';
-  statusMsg('LIVE: mixing ' + outL + ' → ' + innL + ' over ' + plan.bars + ' bars' + (LIVE.pending ? ' — starting ' + innL + ' on the next bar line (' + LIVE.sch.waitSec.toFixed(2) + ' s)' : '') + ' — touch the fader or a transport to take over, ⏹ to stop.');
+  statusMsg('LIVE: mixing ' + outL + ' → ' + innL + ' over ' + plan.bars + ' bars' + (LIVE.pending ? ' — starting ' + innL + ' on the next bar line (' + LIVE.sch.waitSec.toFixed(2) + ' s)' : '') + (LIVE.gridless ? ' — no beat grid on deck ' + (!out.grid ? outL : innL) + ': blending by cue points, no tempo sync' : '') + ' — touch the fader or a transport to take over, ⏹ to stop.');
   LIVE.timer = setInterval(liveTick, 50);
   return LIVE;
 }
@@ -3109,7 +3119,7 @@ function chainTick(){
   }
   var live = decks[CHAIN.liveL], next = decks[CHAIN.nextL];
   if (!live.playing){ CHAIN.armed = false; CHAIN.nextId = null; chainNote('deck ' + CHAIN.liveL + ' stopped — chain waits for a playing deck'); return; }
-  if (!next.buffer || !next.grid || (CHAIN.nextId && next._crateId !== CHAIN.nextId)) return;   /* still loading or analysing */
+  if (!next.buffer || !analysed(next) || (CHAIN.nextId && next._crateId !== CHAIN.nextId)) return;   /* still loading or analysing (a gridless but finished scan counts as ready) */
   if (!CHAIN.plan){
     CHAIN.plan = planTransition(deckInfo(live), deckInfo(next), root.HarmonyMatch);
     if (!CHAIN.plan){ CHAIN.armed = false; CHAIN.retryAt = Date.now() + 3000; chainNote('no viable plan for the next pair — chain waits'); return; }
