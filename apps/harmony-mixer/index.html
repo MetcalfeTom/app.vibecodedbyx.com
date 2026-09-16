@@ -401,7 +401,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.2 · 2026-09-16 · 29eea4df8</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.3 · 2026-09-16 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -2650,7 +2650,7 @@ function equalPower(t){
 function snapDownbeat(grid, sec){
   /* nearest bar line at or before sec (grid.downbeat carries the bar-1 anchor) */
   if (!grid) return sec;
-  var bar = 4 * 60 / grid.bpm, d0 = grid.downbeat != null ? grid.downbeat : grid.beat0;
+  var bar = 4 * 60 / grid.bpm, d0 = barAnchor(grid);
   var n = Math.floor((sec - d0) / bar);
   return Math.max(0, d0 + n * bar);
 }
@@ -2665,7 +2665,7 @@ function planTransition(out, inn, HM){
   var outStart = out.cue && out.cue.out != null ? out.cue.out : (out.dur - dur - 2 * outBar);
   if (out.grid) outStart = snapDownbeat(out.grid, Math.max(0, Math.min(out.dur - dur, outStart)));
   else outStart = Math.max(0, Math.min(out.dur - dur, outStart));
-  var inStart = inn.cue && inn.cue.in != null ? inn.cue.in : (inn.grid ? snapDownbeat(inn.grid, inn.grid.downbeat != null ? inn.grid.downbeat : inn.grid.beat0) : 0);
+  var inStart = inn.cue && inn.cue.in != null ? inn.cue.in : (inn.grid ? snapDownbeat(inn.grid, barAnchor(inn.grid)) : 0);
   /* what the incoming deck WOULD need (reported, never applied) */
   var rateNote = null;
   if (out.bpm && inn.bpm){
@@ -2693,7 +2693,32 @@ function planQueue(entries, HM){
   }
   return rows;
 }
-var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue };
+/* SYNC FIRST (v4.3): the outgoing deck's next bar line and the real-time wait to reach it.
+   outPos/outDur in track seconds, outRate = effective playback rate. Within `tol` seconds AFTER a
+   bar line counts as being on it (a media clock is ±15 ms anyway) so a hand-off pressed right on
+   the one does not wait a whole bar; a bar line past the end of the track means "start now". */
+/* The beat fitter reports grid.downbeat as a BEAT INDEX 0–3 (which beat after beat0 is the one), not a
+   time — the v4.0 planner read it as seconds, so its "bar lines" sat off the beat grid by a fraction of
+   a beat. barAnchor() = the first bar line in seconds: an integer 0–3 is an index, anything else
+   (legacy fixtures, hand-written grids) is taken as seconds. Every bar computation below uses it. */
+function barAnchor(grid){
+  if (!grid || !(grid.bpm > 0)) return 0;
+  var per = 60 / grid.bpm, db = grid.downbeat;
+  if (db == null) return grid.beat0 || 0;
+  if (db === Math.floor(db) && db >= 0 && db <= 3) return (grid.beat0 || 0) + db * per;
+  return db;
+}
+function syncFirstSchedule(outGrid, outPos, outRate, outDur, tol){
+  if (!outGrid || !(outGrid.bpm > 0)) return null;
+  tol = tol == null ? 0.03 : tol; outRate = outRate || 1;
+  var bar = 4 * 60 / outGrid.bpm, d0 = barAnchor(outGrid);
+  var k = Math.ceil((outPos - d0 - tol) / bar);
+  var tNext = d0 + k * bar;
+  if (tNext < outPos) tNext = outPos;
+  if (outDur != null && tNext > outDur) tNext = outPos;
+  return { tNext: tNext, waitSec: (tNext - outPos) / outRate, bar: bar };
+}
+var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor };
 if (typeof module !== 'undefined' && module.exports){ module.exports = api; return; }
 
 /* ── browser wiring (display-only) ── */
@@ -2933,20 +2958,65 @@ function liveRun(opts){
   var plan = planTransition(deckInfo(out), deckInfo(inn), root.HarmonyMatch);
   if (!plan || plan.warnings.some(function(w){ return /beat grid/.test(w); })) return fallback('no viable plan for this pair');
   /* GO — real actions from here */
-  inn.seek(plan.inStart);
-  if (!inn.playing) inn.play();
-  if (!X.SYNCST[innL]) X.toggleSync(inn);
-  if (!X.SYNCST[innL]) return fallback('sync refused the pair (tempos too far apart?)');
-  LIVE = { t0: Date.now(), from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
-           durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
+  if (inn.playing){
+    /* the DJ already has the incoming deck running: engage sync live, as before (no bar wait) */
+    inn.seek(plan.inStart);
+    if (!X.SYNCST[innL]) X.toggleSync(inn);
+    if (!X.SYNCST[innL]) return fallback('sync refused the pair (tempos too far apart?)');
+    LIVE = { t0: Date.now(), pending: false, from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
+             durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
+  } else {
+    /* SYNC FIRST: tempo-lock the PAUSED incoming deck (toggleSync reads posAtStart, no clock jitter),
+       park it exactly on its mix-in downbeat, then start it on the outgoing deck's next bar line. */
+    inn.seek(plan.inStart);
+    if (!X.SYNCST[innL]) X.toggleSync(inn);
+    if (!X.SYNCST[innL]) return fallback('sync refused the pair (tempos too far apart?)');
+    inn.seek(plan.inStart);                                   /* override the nearest-beat nudge: bars align, not just beats */
+    var sch = syncFirstSchedule(out.grid, out.pos(), out.rate * (out.bend || 1), out.buffer.duration);
+    LIVE = { t0: null, pending: true, sch: sch, from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
+             durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
+    LIVE.armTimer = setTimeout(fireLive, Math.max(0, sch.waitSec * 1000 - 6));
+  }
   document.getElementById('adjstop').hidden = false;
   document.getElementById('adjlive').textContent = '⚡ mixing…';
-  statusMsg('LIVE: mixing ' + outL + ' → ' + innL + ' over ' + plan.bars + ' bars — touch the fader or a transport to take over, ⏹ to stop.');
+  statusMsg('LIVE: mixing ' + outL + ' → ' + innL + ' over ' + plan.bars + ' bars' + (LIVE.pending ? ' — starting ' + innL + ' on the next bar line (' + LIVE.sch.waitSec.toFixed(2) + ' s)' : '') + ' — touch the fader or a transport to take over, ⏹ to stop.');
   LIVE.timer = setInterval(liveTick, 50);
   return LIVE;
 }
+function fireLive(){
+  if (!LIVE || !LIVE.pending) return;
+  var out = decks[LIVE.outL], inn = decks[LIVE.innL];
+  var outRate = out.rate * (out.bend || 1), innRate = inn.rate * (inn.bend || 1);
+  var r = out.pos() - LIVE.sch.tNext;                       /* residual: out-track seconds past (+) or before (−) the bar line */
+  var target = LIVE.plan.inStart + (r / outRate) * innRate; /* so the incoming downbeat lands exactly on it */
+  inn.seek(target);
+  inn.play();
+  inn._emaE = 0; inn._snapCool = Date.now() + 2000;         /* the PLL stays out of it until the start is verified */
+  LIVE.fired = { outPos: out.pos(), residual: r, target: target, t: Date.now(), samples: 0, corrections: 0, e0: null, e1: null };
+  /* SETTLE + VERIFY: a media element starts with real latency (tens to hundreds of ms) — the fader is still
+     parked on the outgoing side, so the incoming deck is silent while we measure the true phase and fix it. */
+  var lastPos = inn.pos(), advancing = 0, SM = X.SYNCMULT[LIVE.innL] || 1;
+  LIVE.settleTimer = setInterval(function(){
+    if (!LIVE || !LIVE.pending){ clearInterval(LIVE && LIVE.settleTimer); return; }
+    var p = inn.pos(); LIVE.fired.samples++;
+    if (p > lastPos + 0.005) advancing++; lastPos = p;
+    var waited = Date.now() - LIVE.fired.t;
+    if (advancing < 2 && waited < 900) return;                /* clock not moving yet */
+    var e = X.phaseError(out.grid, out.pos(), inn.grid, p, SM);
+    if (LIVE.fired.e0 === null) LIVE.fired.e0 = e;
+    if (Math.abs(e) > 0.03 && LIVE.fired.corrections < 2 && waited < 1400){
+      inn.seek(p + e * 60 / (inn.grid.bpm * SM)); LIVE.fired.corrections++; advancing = 0; lastPos = inn.pos(); return;
+    }
+    LIVE.fired.e1 = e; LIVE.fired.settleMs = waited;
+    clearInterval(LIVE.settleTimer); LIVE.settleTimer = null;
+    inn._emaE = 0; inn._snapCool = Date.now() + 400;
+    LIVE.pending = false; LIVE.t0 = Date.now();               /* NOW the fader rides */
+    statusMsg('LIVE: mixing ' + LIVE.outL + ' → ' + LIVE.innL + ' over ' + LIVE.plan.bars + ' bars — touch the fader or a transport to take over, ⏹ to stop.');
+  }, 30);
+}
 function liveTick(){
   if (!LIVE) return;
+  if (LIVE.pending){ drawPreview(0); return; }             /* sync first: the fader does not move until the incoming deck has started */
   var t = Math.min(1, (Date.now() - LIVE.t0) / LIVE.durMs);
   injecting = true;
   xfEl.value = Math.round(LIVE.from + t * (LIVE.to - LIVE.from));
@@ -2967,7 +3037,7 @@ function finishLive(){
 }
 function takeover(why){
   if (!LIVE) return;
-  clearInterval(LIVE.timer); LIVE = null;
+  clearInterval(LIVE.timer); if (LIVE.armTimer) clearTimeout(LIVE.armTimer); if (LIVE.settleTimer) clearInterval(LIVE.settleTimer); LIVE = null;
   document.getElementById('adjstop').hidden = true;
   document.getElementById('adjlive').textContent = '⚡ auto-mix';
   statusMsg(why === 'stop'
@@ -3065,7 +3135,7 @@ root.__ADJ = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransitio
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible,
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; },
-  liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; } };
+  liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor };
 })(typeof window !== 'undefined' ? window : this);
 </script>
 <script>
