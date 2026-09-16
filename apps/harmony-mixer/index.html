@@ -401,7 +401,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.1 · 2026-09-11 · 87ac42ce8</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.2 · 2026-09-16 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -2733,8 +2733,9 @@ sec.innerHTML =
   '<button type="button" class="btn small" id="adjdry" disabled title="Rehearse the A→B hand-off on screen — audio is untouched">▶ dry-run A→B</button>' +
   '<button type="button" class="btn small" id="adjlive" disabled title="Execute ONE live hand-off: cue the incoming deck at its mix-in, sync it, ride the equal-power fader, stop the outgoing deck. Touch anything to take over">⚡ auto-mix</button>' +
   '<button type="button" class="btn small" id="adjstop" hidden title="Stop the autopilot immediately — everything stays exactly where it is">⏹ stop mix</button>' +
+  '<button type="button" class="btn small" id="adjchain" aria-pressed="false" title="Opt-in: after every completed hand-off, load the next eligible setlist track into the freed deck and fire the next auto-mix when the live deck reaches its mix-out. Skips tracks already played tonight, tracks on a deck, and fingerprint duplicates. Any touch or ⏹ switches the chain off">⛓ chain: off</button>' +
   '</div>' +
-  '<span class="ssub">simulate + dry-run never touch playback · ⚡ auto-mix DOES drive one hand-off — any touch takes over, ⏹ stops it, flagged duplicates are blocked from the autopilot (mixing them manually stays yours).</span></div>' +
+  '<span class="ssub">simulate + dry-run never touch playback · ⚡ auto-mix DOES drive one hand-off — any touch takes over, ⏹ stops it, flagged duplicates are blocked from the autopilot (mixing them manually stays yours) · ⛓ chain (off by default) keeps queueing from the setlist, hand-off after hand-off, until you touch something.</span></div>' +
   '<div class="adjcues">' +
   ['A', 'B'].map(function(L){
     return '<div class="adjcue" data-l="' + L + '"><b>' + L + '</b>' +
@@ -2750,6 +2751,7 @@ stackEl.parentNode.insertBefore(sec, stackEl.nextSibling);
 var st = document.createElement('style');
 st.textContent =
   '.adjpanel{ margin-top:.6rem; }' +
+  '.adjpanel .shead .sgroup{ flex-wrap:wrap; justify-content:flex-end; row-gap:.4rem; }' +
   '.adjcues{ display:flex; gap:.9rem; flex-wrap:wrap; padding:.3rem .6rem; }' +
   '.adjcue{ display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; font-size:.68rem; }' +
   '.adjcue b{ color:var(--ac, #7ec97a); }' +
@@ -2961,6 +2963,7 @@ function finishLive(){
   document.getElementById('adjstop').hidden = true;
   document.getElementById('adjlive').textContent = '⚡ auto-mix';
   statusMsg('hand-off complete — deck ' + innL + ' is live, sync released, deck ' + outL + ' stopped.');
+  if (CHAIN.on) chainArm(innL, outL);
 }
 function takeover(why){
   if (!LIVE) return;
@@ -2970,6 +2973,7 @@ function takeover(why){
   statusMsg(why === 'stop'
     ? 'auto-mix STOPPED — fader and decks stay exactly where they were; they are yours.'
     : 'MANUAL TAKEOVER — the autopilot let go mid-flight; fader and decks stay where you grabbed them (sync still engaged).');
+  chainOff(why === 'stop' ? '⏹' : 'takeover');
 }
 xfEl.addEventListener('input', function(){ if (!injecting) takeover('manual'); }, true);
 ['A', 'B'].forEach(function(L){
@@ -2987,7 +2991,78 @@ $('#adjdry').addEventListener('click', dryRun);
 setInterval(renderCues, 1200);
 renderCues();
 setTimeout(function(){ drawPreview(null); }, 400);
+/* ── CHAIN (v4.2, opt-in, OFF by default): uninterrupted auto-queueing from the setlist.
+   After each completed hand-off the freed deck receives the next ELIGIBLE setlist track and the next
+   auto-mix fires when the live deck reaches the planned mix-out. Eligible = in the setlist, present,
+   not played tonight, not on the live deck, not a flagged duplicate, and not the same fingerprint as
+   the live track or anything played tonight. Every real action still goes through liveRun(), so the
+   duplicate block, takeover and ⏹ rails are untouched — and any of them switches the chain off. ── */
+var CHAIN = { on: false, armed: false, liveL: null, nextL: null, nextId: null, plan: null, timer: null, loads: 0, retryAt: 0 };
+var chainBtn = document.getElementById('adjchain');
+function chainNote(t){ statusMsg('chain: ' + t); }
+function chainSetBtn(){ chainBtn.setAttribute('aria-pressed', String(CHAIN.on)); chainBtn.textContent = '⛓ chain: ' + (CHAIN.on ? 'on' : 'off'); }
+function chainEligible(rec, liveRec, played, fps){
+  if (!rec || rec.missing) return false;
+  if (played[rec.id]) return false;
+  if (liveRec && rec.id === liveRec.id) return false;
+  if (rec.dupOf && C.byId[rec.dupOf]) return false;               /* flagged copy of another crate track */
+  if (rec.fp && fps[rec.fp]) return false;                         /* same audio as the live track or anything played tonight */
+  return true;
+}
+function chainPick(liveRec, preferId){
+  var ids = C.SL().ids || [], played = C.played ? C.played() : {}, fps = {};
+  if (liveRec && liveRec.fp) fps[liveRec.fp] = true;
+  for (var id in played){ var pr = C.byId[id]; if (pr && pr.fp) fps[pr.fp] = true; }
+  if (preferId && ids.indexOf(preferId) >= 0 && chainEligible(C.byId[preferId], liveRec, played, fps)) return C.byId[preferId];
+  for (var i = 0; i < ids.length; i++){ var rec = C.byId[ids[i]]; if (chainEligible(rec, liveRec, played, fps)) return rec; }
+  return null;
+}
+function chainArm(liveL, freeL){
+  CHAIN.armed = false; CHAIN.plan = null; CHAIN.liveL = liveL; CHAIN.nextL = freeL;
+  var live = decks[liveL], free = decks[freeL], liveRec = live._crateId ? C.byId[live._crateId] : null;
+  if (free.playing){ chainNote('deck ' + freeL + ' is playing — not touching it; chain waits'); return null; }
+  var rec = chainPick(liveRec, free._crateId || null);
+  if (!rec){ CHAIN.nextId = null; chainNote('setlist exhausted — nothing eligible left (played tonight, on the live deck, or a fingerprint duplicate); deck ' + liveL + ' plays out'); return null; }
+  CHAIN.nextId = rec.id; CHAIN.armed = true;
+  if (free._crateId === rec.id && free.buffer){ chainNote('armed with "' + rec.name + '" already on deck ' + freeL + ' — next hand-off fires at deck ' + liveL + '\'s mix-out'); return rec; }
+  CHAIN.loads++;
+  chainNote('loading "' + rec.name + '" into deck ' + freeL + ' — next hand-off fires at deck ' + liveL + '\'s mix-out');
+  C.loadTo(rec, freeL);
+  return rec;
+}
+function chainTick(){
+  if (!CHAIN.on || LIVE) return;
+  if (!CHAIN.armed){
+    var pl = ['A', 'B'].filter(function(L){ return decks[L].playing; });
+    if (pl.length === 1 && Date.now() >= CHAIN.retryAt){ var L = pl[0]; chainArm(L, L === 'A' ? 'B' : 'A'); if (!CHAIN.armed) CHAIN.retryAt = Date.now() + 3000; /* exhausted / waiting: look again in 3 s (setlist edits revive it) */ }
+    return;
+  }
+  var live = decks[CHAIN.liveL], next = decks[CHAIN.nextL];
+  if (!live.playing){ CHAIN.armed = false; CHAIN.nextId = null; chainNote('deck ' + CHAIN.liveL + ' stopped — chain waits for a playing deck'); return; }
+  if (!next.buffer || !next.grid || (CHAIN.nextId && next._crateId !== CHAIN.nextId)) return;   /* still loading or analysing */
+  if (!CHAIN.plan){
+    CHAIN.plan = planTransition(deckInfo(live), deckInfo(next), root.HarmonyMatch);
+    if (!CHAIN.plan){ CHAIN.armed = false; CHAIN.retryAt = Date.now() + 3000; chainNote('no viable plan for the next pair — chain waits'); return; }
+  }
+  if (live.pos() >= CHAIN.plan.outStart){
+    CHAIN.armed = false; CHAIN.plan = null;
+    if (!liveRun()) chainOff('the autopilot refused this hand-off');
+  }
+}
+function chainToggle(){
+  CHAIN.on = !CHAIN.on; CHAIN.armed = false; CHAIN.plan = null; CHAIN.nextId = null; CHAIN.retryAt = 0; chainSetBtn();
+  chainNote(CHAIN.on ? 'on — after each hand-off the next eligible setlist track is loaded into the freed deck and mixed in at the live deck\'s mix-out; any touch or ⏹ switches it off' : 'off');
+  if (CHAIN.on) chainTick();
+}
+function chainOff(why){
+  if (!CHAIN.on) return;
+  CHAIN.on = false; CHAIN.armed = false; CHAIN.plan = null; CHAIN.nextId = null; chainSetBtn();
+  $('#adjstatus').textContent += ' · chain switched off (' + why + ')';
+}
+chainBtn.addEventListener('click', chainToggle);
+CHAIN.timer = setInterval(chainTick, 250);
 root.__ADJ = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
+  chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible,
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; },
   liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; } };
