@@ -1,0 +1,11 @@
+# Exoforecast — notes
+
+## log
+- v1.0 (2026-09-17): Built per chat ("playful fictional-planet weather generator with selectable planets, climates, impossible weather, and atmospheric visuals"). No fictional multi-planet weather app existed (mars-weather is real Mars; chaos/soup/neon-weather are Earth-flavoured). Eight invented planets (Veltrix IV, Oonwe, Brask, Seraphine-7, Kolm, Nihl, Auralis, Thessaly Deep) each with a native climate, moons, day length, gravity, a sky gradient and a glow colour; eight climates (Glass Desert, Methane Monsoon, Crystal Tundra, Spore Jungle, Volcanic Twilight, Quiet Void, Aurora Belt, Ammonia Ocean) each with ≥6 impossible conditions, skies, precipitation, visibility, advisories, a temperature band in a made-up unit (with an "about N K, if that helps") and a canvas effect (glass shards, upward rain, chiming snow, spores, embers, star field, aurora ribbons, spray). `<script id="eng">` = pure: forecast(planet, climate, sol, salt) seeded by FNV of the tuple → deterministic; the five-sol outlook uses the same seed path so tomorrow's outlook equals tomorrow's forecast; climate override ("imported climate"), unknown ids fall back. UI: planet pills, climate select, next sol, reroll (salt), copy report (clipboard raced against a 900 ms timeout with a fallback message), state persisted; sky gradient + accent follow the planet; moons seeded per planet; lightning flashes on the violent climates; reduced-motion stills the particles. Bricolage Grotesque (opsz 96, 200/800) + Xanh Mono italic.
+- Verified: engine 21/21 node (data shape, band/units, determinism, outlook consistency, salt, override/fallbacks, sol clamp, every condition reachable within 300 sols, temp spread, hygiene); browser 26/26 at 1200/390/320 (pills/select/targets, live region, render matches engine, canvas painted, per-planet fx + moons, planet switch resets sol, sky var follows, climate override, next/reroll, persistence, all 8 planets render every field, contrast ≥4.5 over every sky, share status); screenshots both widths.
+
+## issues
+- Moons are drawn behind the translucent pills on phones — harmless, but keep moon y ≤ 0.4 so they never sit behind the report card text.
+
+## todos
+- Planet "postcards" (PNG export of the report), a sol-by-sol history strip, sound (the aurora that hums wants to hum).
