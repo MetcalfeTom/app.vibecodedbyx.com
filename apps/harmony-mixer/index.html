@@ -279,6 +279,8 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 .slrows{ list-style:none; margin:0; padding:0; display:grid; gap:.4rem; }
 .slrows li{ background:var(--panel2, #1d1f26); border:1px solid var(--line, #2c2f36); border-radius:.5rem; padding:.4rem .5rem; font-size:.72rem; }
 .slrows li.ghost{ opacity:.55; border-style:dashed; }
+.slrows li.auto{ border-style:dashed; border-color:#4a5568; }
+.slrows .sltag{ font-size:.58rem; letter-spacing:.06em; text-transform:uppercase; border-radius:.3rem; padding:.08rem .35rem; background:#2a3140; color:#c7cfe0; white-space:nowrap; }
 .slrows .sltop{ display:flex; gap:.4rem; align-items:baseline; }
 .slrows .slnum{ color:var(--mute); font-variant-numeric:tabular-nums; }
 .slrows .slname{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
@@ -416,7 +418,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.8 · 2026-09-17 · 69873da6d</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.9 · 2026-09-17 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -2251,14 +2253,25 @@ function dupScan(rec){
   }
 }
 var SL_KEY = 'harmony-setlist-v1';
-var SL = { ids: [], at: null };
-try{ var sv = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv && Array.isArray(sv.ids)) SL = { ids: sv.ids, at: (typeof sv.at === 'number' ? sv.at : null) }; }catch(e){}
+var SL = { ids: [], at: null, auto: [] };
+var PASSED = {};   /* session only: setlist ids the DJ removed tonight — the pool fallback never resurrects them */
+try{ var sv = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv && Array.isArray(sv.ids)) SL = { ids: sv.ids, at: (typeof sv.at === 'number' ? sv.at : null), auto: Array.isArray(sv.auto) ? sv.auto : [] }; }catch(e){}
 function slSave(){ try{ localStorage.setItem(SL_KEY, JSON.stringify(SL)); }catch(e){} }
 function slClamp(){ if (SL.at !== null){ SL.at = Math.max(0, Math.min(SL.ids.length, SL.at)); if (SL.at === SL.ids.length) SL.at = null; } }
 function slAdd(id){
+  delete PASSED[id];                       /* an explicit add is the DJ's decision — it wins over an earlier removal */
   var at = SL.at === null ? SL.ids.length : SL.at;
   SL.ids.splice(at, 0, id);
   if (SL.at !== null) SL.at++;            /* the request marker advances so consecutive requests keep order */
+  slClamp(); slSave(); renderSetlist();
+}
+/* pool-fallback rows (v4.9): appended by the chain, tagged auto, removable like any row */
+function slAddAuto(id){ if (!byId[id]) return false; SL.ids.push(id); if (SL.auto.indexOf(id) < 0) SL.auto.push(id); slClamp(); slSave(); renderSetlist(); return true; }
+function slDropAuto(id, passed){
+  var i = SL.ids.lastIndexOf(id);
+  if (i >= 0){ SL.ids.splice(i, 1); if (SL.at !== null && i < SL.at) SL.at--; }
+  if (SL.ids.indexOf(id) < 0) SL.auto = SL.auto.filter(function(x){ return x !== id; });
+  if (passed) PASSED[id] = true;
   slClamp(); slSave(); renderSetlist();
 }
 function fmtDur(sec){ sec = Math.round(sec || 0); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
@@ -2300,12 +2313,12 @@ function slLoadSaved(name, append){
   var ids = [], missing = 0;
   L.tracks.forEach(function(t){ var id = slResolve(t); if (id) ids.push(id); else missing++; });
   if (append){ SL.ids = SL.ids.concat(ids); }
-  else { SL.ids = ids; SL.at = null; }
+  else { SL.ids = ids; SL.at = null; SL.auto = []; }
   slClamp(); slSave(); renderSetlist();
   slMsg((append ? 'appended' : 'loaded') + ' "' + name + '": ' + ids.length + ' track' + (ids.length === 1 ? '' : 's') + (missing ? ' · ' + missing + ' not in this crate, skipped' : ''), false);
   return true;
 }
-function slClear(){ var n = SL.ids.length; SL.ids = []; SL.at = null; slSave(); renderSetlist(); slMsg('cleared ' + n + ' track' + (n === 1 ? '' : 's') + ' — the crate is untouched'); }
+function slClear(){ var n = SL.ids.length; SL.ids = []; SL.at = null; SL.auto = []; slSave(); renderSetlist(); slMsg('cleared ' + n + ' track' + (n === 1 ? '' : 's') + ' — the crate is untouched'); }
 function slDeleteSaved(name){ if (!SLS[name]) return false; delete SLS[name]; slsSave(); slsRender(); slMsg('deleted saved setlist "' + name + '"'); return true; }
 function slExportJSON(name){
   name = String(name || '').trim() || 'setlist';
@@ -2385,14 +2398,15 @@ function renderSetlist(){
       return;
     }
     if (rec.dur){ total += rec.dur; if (SL.at !== null && i >= SL.at) afterMark += rec.dur; }
-    var trans = '';
+    var trans = '', isAuto = SL.auto.indexOf(id) >= 0;
+    if (isAuto) li.className = 'auto';
     if (prevRec){
       var sc = null;
       try{ sc = scoreFor({ bpm: prevRec.bpm, key: prevRec.key }, rec); }catch(e){}
       if (sc) trans = '<span class="sltrans ok' + sc.ok + '" title="' + esc(sc.why || sc.text || '') + '">' + (sc.label ? esc(sc.label) + ' ' : '') + sc.score + '</span>';
     }
     li.innerHTML = '<div class="sltop"><span class="slnum">' + (i + 1) + '.</span>' +
-      '<span class="slname" title="' + esc(rec.name) + '">' + esc(rec.name) + '</span>' + trans + '</div>' +
+      '<span class="slname" title="' + esc(rec.name) + '">' + esc(rec.name) + '</span>' + (isAuto ? '<span class="sltag" title="Picked from the crate by the chain\'s pool fallback because the setlist ran dry — ✕ vetoes it for tonight">auto · pool</span>' : '') + trans + '</div>' +
       '<div class="slmeta">' + (rec.key ? rec.key.camelot + ' · ' : '') + (rec.bpm ? rec.bpm.toFixed(1) + ' bpm' : 'bpm —') + (rec.dur ? ' · ' + fmtDur(rec.dur) : '') + (PLAYED[id] ? ' · <span class="plyd">✓ played</span>' : '') + (rec.dupOf && byId[rec.dupOf] ? ' · <span class="dupb" title="identical audio to another crate track — playing it deliberately is fine; this is only a heads-up">⧉ dup of ' + esc(byId[rec.dupOf].name) + '</span>' : '') + '</div>' +
       '<div class="slbtns">' +
       '<button type="button" class="btn mark" data-i="' + i + '" aria-pressed="' + (SL.at === i + 1) + '" title="Requests land after this track" aria-label="Set the request insertion point after ' + esc(rec.name) + '">⌄</button>' +
@@ -2436,7 +2450,7 @@ document.getElementById('slrows').addEventListener('click', function(e){
   else if (b.classList.contains('slup') && i > 0){ var t = SL.ids[i - 1]; SL.ids[i - 1] = SL.ids[i]; SL.ids[i] = t; if (SL.at === i + 1) SL.at = i; else if (SL.at === i) SL.at = i + 1; }
   else if (b.classList.contains('sldn') && i < SL.ids.length - 1){ var t2 = SL.ids[i + 1]; SL.ids[i + 1] = SL.ids[i]; SL.ids[i] = t2; if (SL.at === i + 1) SL.at = i + 2; else if (SL.at === i + 2) SL.at = i + 1; }
   else if (b.classList.contains('slto')){ var rec = byId[SL.ids[i]]; if (rec) loadTo(rec, b.dataset.deck); return; }
-  else if (b.classList.contains('slrm')){ SL.ids.splice(i, 1); if (SL.at !== null && i < SL.at) SL.at--; }
+  else if (b.classList.contains('slrm')){ var rid = SL.ids[i]; SL.ids.splice(i, 1); if (SL.at !== null && i < SL.at) SL.at--; PASSED[rid] = true; if (SL.ids.indexOf(rid) < 0) SL.auto = SL.auto.filter(function(x){ return x !== rid; }); }
   slClamp(); slSave(); renderSetlist();
 });
 window.__crateScanInfo = function(){
@@ -2775,7 +2789,7 @@ ready = dbAll().then(function(rows){
   render(); pump();
 }, function(){ storageOk = false; status("browser storage is blocked — imports work but won't survive a reload", 'err'); render(); });
 
-window.__C = { crate: crate, byId: byId, persist: persist, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck, played: function(){ return PLAYED; }, resetPlayed: function(){ PLAYED = {}; render(); }, SL: function(){ return SL; }, slAdd: slAdd, renderSetlist: renderSetlist, SLS: function(){ return SLS; }, slsReload: slsReload, slSaveAs: slSaveAs, slLoadSaved: slLoadSaved, slClear: slClear, slDeleteSaved: slDeleteSaved, slExportJSON: slExportJSON, slImportText: slImportText, slResolve: slResolve, slArmState: function(){ return SL_ARM.key; }, slReload: function(){ try{ var sv2 = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv2 && Array.isArray(sv2.ids)) SL = { ids: sv2.ids, at: (typeof sv2.at === 'number' ? sv2.at : null) }; }catch(e){} renderSetlist(); },
+window.__C = { crate: crate, byId: byId, persist: persist, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck, played: function(){ return PLAYED; }, resetPlayed: function(){ PLAYED = {}; render(); }, SL: function(){ return SL; }, slAdd: slAdd, renderSetlist: renderSetlist, SLS: function(){ return SLS; }, passed: function(){ return PASSED; }, slAddAuto: slAddAuto, slDropAuto: slDropAuto, scoreFor: scoreFor, slsReload: slsReload, slSaveAs: slSaveAs, slLoadSaved: slLoadSaved, slClear: slClear, slDeleteSaved: slDeleteSaved, slExportJSON: slExportJSON, slImportText: slImportText, slResolve: slResolve, slArmState: function(){ return SL_ARM.key; }, slReload: function(){ try{ var sv2 = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv2 && Array.isArray(sv2.ids)) SL = { ids: sv2.ids, at: (typeof sv2.at === 'number' ? sv2.at : null), auto: Array.isArray(sv2.auto) ? sv2.auto : [] }; }catch(e){} renderSetlist(); },
   crateScore: crateScore, scoreFor: scoreFor, harmonic: harmonic, tempo: tempo, parseCam: parseCam, prefs: prefs, ready: ready, decode: decode,
   playlists: playlists, inPlaylist: inPlaylist, relOf: relOf, dirOf: dirOf, filesFromEntries: filesFromEntries,
   get playSel(){ return playSel; }, set playSel(v){ playSel = v; render(); }, get batch(){ return { n: batchN, done: batchDone }; },
@@ -2867,7 +2881,22 @@ function syncFirstSchedule(outGrid, outPos, outRate, outDur, tol){
   if (outDur != null && tNext > outDur) tNext = outPos;
   return { tNext: tNext, waitSec: (tNext - outPos) / outRate, bar: bar };
 }
-var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor };
+/* ── pool fallback (v4.9): rank crate rows against the live deck. Pure — eligibility and scoring are injected. ── */
+var POOL_FLOOR = 50;   /* match.js "playable" floor: below it the deck plays out rather than forcing a bad pair */
+function poolRank(rows, eligible, scoreFn, floor){
+  floor = floor == null ? POOL_FLOOR : floor;
+  var out = [];
+  for (var i = 0; i < (rows || []).length; i++){
+    var r = rows[i]; if (!r || !eligible(r)) continue;
+    var sc = null; try{ sc = scoreFn(r); }catch(e){ sc = null; }
+    var score = sc && typeof sc.score === 'number' ? sc.score : -1;
+    if (score < floor) continue;
+    out.push({ rec: r, score: score, label: (sc && sc.label) || '' });
+  }
+  out.sort(function(a, b){ return (b.score - a.score) || ((a.rec.added || 0) - (b.rec.added || 0)) || String(a.rec.name || '').localeCompare(String(b.rec.name || '')); });
+  return out;
+}
+var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR };
 if (typeof module !== 'undefined' && module.exports){ module.exports = api; return; }
 
 /* ── browser wiring (display-only) ── */
@@ -2910,6 +2939,7 @@ sec.innerHTML =
   '<button type="button" class="btn small" id="adjlive" disabled title="Execute ONE live hand-off: cue the incoming deck at its mix-in, sync it, ride the equal-power fader, stop the outgoing deck. Touch anything to take over">⚡ auto-mix</button>' +
   '<button type="button" class="btn small" id="adjstop" hidden title="Stop the autopilot immediately — everything stays exactly where it is">⏹ stop mix</button>' +
   '<button type="button" class="btn small" id="adjchain" aria-pressed="false" title="Opt-in: after every completed hand-off, load the next eligible setlist track into the freed deck and fire the next auto-mix when the live deck reaches its mix-out. Skips tracks already played tonight, tracks on a deck, and fingerprint duplicates. Any touch or ⏹ switches the chain off">⛓ chain: off</button>' +
+  '<button type="button" class="btn small" id="adjpool" aria-pressed="false" title="Opt-in extra tier for the chain: when the setlist has nothing eligible left, pick the best-matching unplayed crate track (match score 50 or better against the live deck) and append it to the setlist as an auto entry you can veto. Never starts from silence; ⏹ or any touch still switches the chain off">+ pool: off</button>' +
   '</div>' +
   '<span class="ssub">simulate + dry-run never touch playback · ⚡ auto-mix DOES drive one hand-off — any touch takes over, ⏹ stops it, flagged duplicates are blocked from the autopilot (mixing them manually stays yours) · ⛓ chain (off by default) keeps queueing from the setlist, hand-off after hand-off, until you touch something.</span></div>' +
   '<div class="adjcues">' +
@@ -2925,6 +2955,7 @@ sec.innerHTML =
         '<button type="button" class="btn small cuex" title="Forget this cue (the planner falls back to its default)" aria-label="Clear the mix-' + w + ' cue">✕</button></span>'; }).join('') +
       '</div>';
   }).join('') + '</div>' +
+  '<p id="nownext" aria-live="off"><b>now</b> <span id="nnNow">—</span> <b>next</b> <span id="nnNext">—</span></p>' +
   '<p id="queuestate" aria-live="off"></p>' +
   '<canvas id="adjwave" height="84" role="img" aria-label="Transition preview: outgoing deck A strip above incoming deck B strip, the planned crossfade window shaded, with the equal-power gain curves"></canvas>' +
   '<div class="ssub" id="adjstatus" role="status" aria-live="polite"></div>' +
@@ -2944,6 +2975,9 @@ st.textContent =
   '.cuechip .cuelbl{ font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; color:#8a94a8; }' +
   '.cuechip .cueval{ font-variant-numeric:tabular-nums; min-width:2.6rem; }' +
   '.cuechip .btn.small{ min-height:2.75rem; padding:.2rem .45rem; }' +
+  '#nownext{ font-size:.72rem; margin:.45rem 0 0; display:flex; gap:.45rem; flex-wrap:wrap; align-items:baseline; }' +
+  '#nownext b{ font-size:.58rem; letter-spacing:.1em; text-transform:uppercase; color:#8a94a8; font-weight:600; }' +
+  '#nownext span{ font-weight:600; min-width:0; overflow-wrap:anywhere; }' +
   '#queuestate{ font-size:.66rem; color:#8a94a8; margin:.35rem 0 0; line-height:1.5; }' +
   '#queuestate b{ color:#c7cfe0; font-weight:600; }' +
   '#adjwave{ width:100%; display:block; }' +
@@ -3263,7 +3297,8 @@ function queueState(){
   else parts.push('<b>auto-mix</b>: nothing running');
   if (typeof CHAIN !== 'undefined'){
     if (!CHAIN.on) parts.push('<b>chain</b>: off — hand-offs happen only when you press ⚡');
-    else if (CHAIN.armed){ var nr = CHAIN.nextId && C.byId[CHAIN.nextId]; parts.push('<b>chain</b>: armed — ' + (nr ? '"' + esc(nr.name) + '"' : 'the next track') + ' on deck ' + CHAIN.nextL + ' fires at deck ' + CHAIN.liveL + '\'s mix-out'); }
+    else if (CHAIN.armed){ var nr = CHAIN.nextId && C.byId[CHAIN.nextId]; parts.push('<b>chain</b>: armed — ' + (nr ? '"' + esc(nr.name) + '"' : 'the next track') + ' on deck ' + CHAIN.nextL + ' fires at deck ' + CHAIN.liveL + '\'s mix-out' + (CHAIN.fromPool ? ' (from the pool — setlist exhausted)' : '')); }
+    else if (CHAIN.pool && Date.now() < CHAIN.retryAt) parts.push('<b>chain</b>: on, not armed — setlist and pool both exhausted (or unplannable), looking again in a moment');
     else parts.push('<b>chain</b>: on, not armed — ' + (Date.now() < CHAIN.retryAt ? 'setlist exhausted or unplannable, looking again in a moment' : 'waiting for exactly one playing deck'));
   }
   el.innerHTML = parts.join(' · ');
@@ -3275,7 +3310,7 @@ function queueState(){
    the live track or anything played tonight. Every real action still goes through liveRun(), so the
    duplicate block, takeover and ⏹ rails are untouched — and any of them switches the chain off. ── */
 var CHAIN_LEAD = 0.3;   /* seconds: chain tick (0.25) + margin — must stay under one bar at any supported tempo */
-var CHAIN = { on: false, armed: false, liveL: null, nextL: null, nextId: null, plan: null, timer: null, loads: 0, retryAt: 0 };
+var CHAIN = { on: false, armed: false, liveL: null, nextL: null, nextId: null, plan: null, timer: null, loads: 0, retryAt: 0, pool: false, fromPool: false };
 var chainBtn = document.getElementById('adjchain');
 function chainNote(t){ statusMsg('chain: ' + t); queueState(); }
 function chainSetBtn(){ chainBtn.setAttribute('aria-pressed', String(CHAIN.on)); chainBtn.textContent = '⛓ chain: ' + (CHAIN.on ? 'on' : 'off'); }
@@ -3287,28 +3322,45 @@ function chainEligible(rec, liveRec, played, fps){
   if (rec.fp && fps[rec.fp]) return false;                         /* same audio as the live track or anything played tonight */
   return true;
 }
-function chainPick(liveRec, preferId){
-  var ids = C.SL().ids || [], played = C.played ? C.played() : {}, fps = {};
+function chainPick(liveRec, preferId, skipAuto){
+  var ids = C.SL().ids || [], auto = skipAuto ? (C.SL().auto || []) : [], played = C.played ? C.played() : {}, fps = {};
   if (liveRec && liveRec.fp) fps[liveRec.fp] = true;
   for (var id in played){ var pr = C.byId[id]; if (pr && pr.fp) fps[pr.fp] = true; }
-  if (preferId && ids.indexOf(preferId) >= 0 && chainEligible(C.byId[preferId], liveRec, played, fps)) return C.byId[preferId];
-  for (var i = 0; i < ids.length; i++){ var rec = C.byId[ids[i]]; if (chainEligible(rec, liveRec, played, fps)) return rec; }
+  if (preferId && ids.indexOf(preferId) >= 0 && auto.indexOf(preferId) < 0 && chainEligible(C.byId[preferId], liveRec, played, fps)) return C.byId[preferId];
+  for (var i = 0; i < ids.length; i++){ if (auto.indexOf(ids[i]) >= 0) continue; var rec = C.byId[ids[i]]; if (chainEligible(rec, liveRec, played, fps)) return rec; }
   return null;
+}
+/* pool fallback: the best-matching unplayed crate track against the LIVE deck's effective tempo + key — same eligibility as the
+   setlist, plus "not passed over tonight" (a setlist ✕ is a decision), plus the match floor. null = play out. */
+function poolPick(liveRec, live){
+  var played = C.played ? C.played() : {}, passed = C.passed ? C.passed() : {}, fps = {};
+  if (liveRec && liveRec.fp) fps[liveRec.fp] = true;
+  for (var id in played){ var pr = C.byId[id]; if (pr && pr.fp) fps[pr.fp] = true; }
+  var ref = live && live.buffer ? { bpm: live.effBpm ? live.effBpm() : live.bpm, key: live.key } : (liveRec ? { bpm: liveRec.bpm, key: liveRec.key } : null);
+  if (!ref || !ref.bpm) return null;
+  var ranked = poolRank(C.crate, function(r){ return !!r.done && !r.err && !passed[r.id] && chainEligible(r, liveRec, played, fps); }, function(r){ return C.scoreFor(ref, r); });
+  return ranked.length ? ranked[0] : null;
 }
 function chainArm(liveL, freeL){
   CHAIN.armed = false; CHAIN.plan = null; CHAIN.liveL = liveL; CHAIN.nextL = freeL;
   var live = decks[liveL], free = decks[freeL], liveRec = live._crateId ? C.byId[live._crateId] : null;
   if (free.playing){ chainNote('deck ' + freeL + ' is playing — not touching it; chain waits'); return null; }
-  var rec = chainPick(liveRec, free._crateId || null);
-  if (!rec){ CHAIN.nextId = null; chainNote('setlist exhausted — nothing eligible left (played tonight, on the live deck, or a fingerprint duplicate); deck ' + liveL + ' plays out'); return null; }
-  CHAIN.nextId = rec.id; CHAIN.armed = true;
-  if (free._crateId === rec.id && free.buffer){ chainNote('armed with "' + rec.name + '" already on deck ' + freeL + ' — next hand-off fires at deck ' + liveL + '\'s mix-out'); return rec; }
+  var rec = chainPick(liveRec, free._crateId || null), fromPool = false, poolWhy = '';
+  if (!rec && CHAIN.pool){
+    var pp = poolPick(liveRec, live);
+    if (pp){ rec = pp.rec; fromPool = true; C.slAddAuto(rec.id); poolWhy = ' — setlist exhausted, from the POOL (match ' + pp.score + ', appended to the setlist as auto; ✕ it there to veto)'; }
+    else poolWhy = ' · pool: no unplayed crate track scores ' + POOL_FLOOR + ' or better against the live deck';
+  }
+  if (!rec){ CHAIN.nextId = null; CHAIN.fromPool = false; chainNote('setlist exhausted — nothing eligible left (played tonight, on the live deck, or a fingerprint duplicate)' + (CHAIN.pool ? poolWhy : '') + '; deck ' + liveL + ' plays out'); return null; }
+  CHAIN.nextId = rec.id; CHAIN.armed = true; CHAIN.fromPool = fromPool;
+  if (free._crateId === rec.id && free.buffer){ chainNote('armed with "' + rec.name + '" already on deck ' + freeL + ' — next hand-off fires at deck ' + liveL + '\'s mix-out' + poolWhy); return rec; }
   CHAIN.loads++;
-  chainNote('loading "' + rec.name + '" into deck ' + freeL + ' — next hand-off fires at deck ' + liveL + '\'s mix-out');
+  chainNote('loading "' + rec.name + '" into deck ' + freeL + ' — next hand-off fires at deck ' + liveL + '\'s mix-out' + poolWhy);
   C.loadTo(rec, freeL);
   return rec;
 }
 function chainTick(){
+  renderNowNext();
   if (!CHAIN.on || LIVE) return;
   if (!CHAIN.armed){
     var pl = ['A', 'B'].filter(function(L){ return decks[L].playing; });
@@ -3316,7 +3368,18 @@ function chainTick(){
     return;
   }
   var live = decks[CHAIN.liveL], next = decks[CHAIN.nextL];
-  if (!live.playing){ CHAIN.armed = false; CHAIN.nextId = null; chainNote('deck ' + CHAIN.liveL + ' stopped — chain waits for a playing deck'); return; }
+  if (!live.playing){ CHAIN.armed = false; CHAIN.nextId = null; CHAIN.fromPool = false; chainNote('deck ' + CHAIN.liveL + ' stopped — chain waits for a playing deck'); return; }
+  /* v4.9: the chain only fires what is IN the setlist — a ✕ on the armed row (setlist or auto) disarms it and the next tick picks again */
+  if (CHAIN.nextId && (C.SL().ids || []).indexOf(CHAIN.nextId) < 0){
+    var gone = C.byId[CHAIN.nextId]; CHAIN.armed = false; CHAIN.nextId = null; CHAIN.plan = null; CHAIN.fromPool = false; CHAIN.retryAt = 0;
+    chainNote('"' + (gone ? gone.name : 'the next track') + '" left the setlist — disarmed, picking again'); return;
+  }
+  /* v4.9: a pool pick is provisional — a setlist track that becomes eligible before it fires wins (the auto row is dropped, not vetoed) */
+  if (CHAIN.fromPool){
+    var better = chainPick(live._crateId ? C.byId[live._crateId] : null, null, true);
+    if (better){ var dropped = CHAIN.nextId; CHAIN.armed = false; CHAIN.nextId = null; CHAIN.plan = null; CHAIN.fromPool = false; CHAIN.retryAt = 0; C.slDropAuto(dropped, false);
+      chainNote('setlist edit wins — "' + better.name + '" replaces the pool pick'); return; }
+  }
   if (!next.buffer || !analysed(next) || (CHAIN.nextId && next._crateId !== CHAIN.nextId)) return;   /* still loading or analysing (a gridless but finished scan counts as ready) */
   if (!CHAIN.plan){
     CHAIN.plan = planTransition(deckInfo(live), deckInfo(next), root.HarmonyMatch);
@@ -3331,19 +3394,42 @@ function chainTick(){
   }
 }
 function chainToggle(){
-  CHAIN.on = !CHAIN.on; CHAIN.armed = false; CHAIN.plan = null; CHAIN.nextId = null; CHAIN.retryAt = 0; chainSetBtn();
+  CHAIN.on = !CHAIN.on; CHAIN.armed = false; CHAIN.plan = null; CHAIN.nextId = null; CHAIN.retryAt = 0; CHAIN.fromPool = false; chainSetBtn();
   chainNote(CHAIN.on ? 'on — after each hand-off the next eligible setlist track is loaded into the freed deck and mixed in at the live deck\'s mix-out; any touch or ⏹ switches it off' : 'off');
   if (CHAIN.on) chainTick();
 }
 function chainOff(why){
   if (!CHAIN.on) return;
-  CHAIN.on = false; CHAIN.armed = false; CHAIN.plan = null; CHAIN.nextId = null; chainSetBtn();
+  CHAIN.on = false; CHAIN.armed = false; CHAIN.plan = null; CHAIN.nextId = null; CHAIN.fromPool = false; chainSetBtn();
   $('#adjstatus').textContent += ' · chain switched off (' + why + ')';
 }
 chainBtn.addEventListener('click', chainToggle);
+/* pool tier (v4.9): its own opt-in switch next to the chain, session only, off at boot */
+var poolBtn = document.getElementById('adjpool');
+function poolSetBtn(){ poolBtn.setAttribute('aria-pressed', String(CHAIN.pool)); poolBtn.textContent = '+ pool: ' + (CHAIN.pool ? 'on' : 'off'); }
+poolBtn.addEventListener('click', function(){
+  CHAIN.pool = !CHAIN.pool; poolSetBtn(); CHAIN.retryAt = 0;
+  if (!CHAIN.pool && CHAIN.fromPool){ var d0 = CHAIN.nextId; CHAIN.armed = false; CHAIN.nextId = null; CHAIN.plan = null; CHAIN.fromPool = false; C.slDropAuto(d0, false); }
+  chainNote(CHAIN.pool
+    ? 'pool fallback ON — when the setlist runs dry, the best-matching unplayed crate track (match ' + POOL_FLOOR + ' or better) is appended as an auto entry and mixed in; ⏹ or any touch still switches the chain off' + (CHAIN.on ? '' : ' (the chain itself is off — switch it on to use this)')
+    : 'pool fallback off — the chain stops at the end of the setlist');
+});
+/* now / next (v4.9): saved crate titles for what is live and what is armed, refreshed every chain tick */
+function titleOf(d){ if (!d || !d.buffer) return null; var r = d._crateId ? C.byId[d._crateId] : null; return r ? r.name : (d.name || null); }
+function nowNext(){
+  var now, next, src = null, pl = ['A', 'B'].filter(function(L){ return decks[L].playing; });
+  if (LIVE) now = 'deck ' + LIVE.outL + ' "' + (titleOf(decks[LIVE.outL]) || '?') + '" → deck ' + LIVE.innL + ' "' + (titleOf(decks[LIVE.innL]) || '?') + '"' + (LIVE.pending ? ' · waiting for the bar line' : ' · mixing');
+  else now = pl.length ? pl.map(function(L){ return 'deck ' + L + ' "' + (titleOf(decks[L]) || '?') + '"'; }).join(' + ') : '—';
+  if (CHAIN.on && CHAIN.armed && CHAIN.nextId){ var nr = C.byId[CHAIN.nextId]; src = CHAIN.fromPool ? 'pool' : 'setlist'; next = '"' + (nr ? nr.name : '?') + '" on deck ' + CHAIN.nextL + ' · from the ' + src + ' · at deck ' + CHAIN.liveL + '\'s mix-out'; }
+  else if (CHAIN.on) next = LIVE ? 'picked after this hand-off' : (pl.length !== 1 ? 'waiting for exactly one playing deck' : (Date.now() < CHAIN.retryAt ? 'nothing eligible — ' + (CHAIN.pool ? 'setlist and pool exhausted' : 'setlist exhausted (pool fallback off)') : 'picking…'));
+  else { var idle = ['A', 'B'].filter(function(L){ return !decks[L].playing && decks[L].buffer; }); next = idle.length && !LIVE ? '"' + titleOf(decks[idle[0]]) + '" loaded on deck ' + idle[0] + ' · not armed (press ⚡ or switch the chain on)' : '—'; }
+  return { now: now, next: next, source: src };
+}
+var nnLast = '';
+function renderNowNext(){ var el = document.getElementById('nnNow'); if (!el) return; var s2 = nowNext(), key = s2.now + '|' + s2.next; if (key === nnLast) return; nnLast = key; el.textContent = s2.now; document.getElementById('nnNext').textContent = s2.next; }
 CHAIN.timer = setInterval(chainTick, 250);
 root.__ADJ = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
-  chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD,
+  chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext,
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; },
   liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor };
