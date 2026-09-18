@@ -418,7 +418,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.9 · 2026-09-18 · 90cb35322</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.9.1 · 2026-09-18 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -2896,7 +2896,48 @@ function poolRank(rows, eligible, scoreFn, floor){
   out.sort(function(a, b){ return (b.score - a.score) || ((a.rec.added || 0) - (b.rec.added || 0)) || String(a.rec.name || '').localeCompare(String(b.rec.name || '')); });
   return out;
 }
-var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR };
+/* ── hybrid crossfade curve (v4.9.1): pure. spec = { mix 0..1, tailOut 0..0.5, headIn 0..0.5 }.
+   mix blends equal-power (0) toward a steep cut (1); tailOut holds the OUTGOING at full for that share of the window
+   before it falls; headIn brings the INCOMING to full that share early. mix 0 + no tails reproduces equalPower exactly.
+   Power guard: never louder than +0.5 dB over the equal-power crossover — the incoming is trimmed to the headroom the
+   outgoing leaves, never clipped, so an outgoing hold is exact and an early-full incoming arrives as soon as headroom allows. ── */
+var CURVE_DEFAULT = { mix: 0, tailOut: 0, headIn: 0 }, CURVE_CAP = 1.122;
+function curveNorm(spec){
+  spec = spec || {};
+  var c = function(v, hi){ v = +v; if (!(v >= 0)) v = 0; return Math.min(hi, v); };
+  return { mix: c(spec.mix, 1), tailOut: c(spec.tailOut, 0.5), headIn: c(spec.headIn, 0.5) };
+}
+function curveIsDefault(spec){ var n = curveNorm(spec); return n.mix === 0 && n.tailOut === 0 && n.headIn === 0; }
+function cutShape(u){
+  u = Math.max(0, Math.min(1, u)); var k = 7;
+  var sg = 1 / (1 + Math.exp(-k * (u - 0.5))), s0 = 1 / (1 + Math.exp(k * 0.5)), s1 = 1 / (1 + Math.exp(-k * 0.5));
+  return (sg - s0) / (s1 - s0);
+}
+function curveAt(t, spec){
+  t = Math.max(0, Math.min(1, t));
+  if (t <= 0) return { a: 1, b: 0 };
+  if (t >= 1) return { a: 0, b: 1 };
+  if (!spec) return equalPower(t);
+  var n = curveNorm(spec);
+  if (n.mix === 0 && n.tailOut === 0 && n.headIn === 0) return equalPower(t);
+  var uo = Math.max(0, Math.min(1, (t - n.tailOut) / (1 - n.tailOut)));
+  var ui = Math.max(0, Math.min(1, t / (1 - n.headIn)));
+  var eo = Math.cos(uo * Math.PI / 2), ei = Math.sin(ui * Math.PI / 2);
+  var co = 1 - cutShape(uo), ci = cutShape(ui);
+  var a = eo + (co - eo) * n.mix, b = ei + (ci - ei) * n.mix;
+  /* the OUTGOING lane keeps precedence: a hold the DJ asked for is honoured exactly; the incoming is trimmed to the cap
+     until the outgoing has fallen far enough to leave it headroom (both lanes stay monotonic by construction) */
+  b = Math.min(b, Math.sqrt(Math.max(0, CURVE_CAP - a * a)));
+  return { a: a, b: b };
+}
+function curveWords(spec, tailBeats, headBeats){
+  var n = curveNorm(spec), w = n.mix === 0 ? 'equal-power' : n.mix <= 0.35 ? 'smooth with a little cut' : n.mix <= 0.65 ? 'hybrid' : n.mix < 1 ? 'cut-leaning' : 'hard cut';
+  if (tailBeats > 0) w += ' · outgoing holds ' + tailBeats + (tailBeats === 1 ? ' beat' : ' beats');
+  if (headBeats > 0) w += ' · incoming full ' + headBeats + (headBeats === 1 ? ' beat' : ' beats') + ' early (as headroom allows)';
+  return w;
+}
+var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR,
+  curveAt: curveAt, curveNorm: curveNorm, curveIsDefault: curveIsDefault, curveWords: curveWords, cutShape: cutShape, CURVE_DEFAULT: CURVE_DEFAULT, CURVE_CAP: CURVE_CAP };
 if (typeof module !== 'undefined' && module.exports){ module.exports = api; return; }
 
 /* ── browser wiring (display-only) ── */
@@ -2913,6 +2954,16 @@ function cueSet(k, which, sec){
   var rec = C.byId[k];
   if (rec){ rec.mixIn = cues[k]['in']; rec.mixOut = cues[k]['out']; if (C.persist) C.persist(rec); }
 }
+/* hybrid curve store (v4.9.1): cues[key].curve for the track that LEAVES; cues['*'].curve = a default for every hand-off without its own */
+function curveGet(k){ var c = k && cues[k] && cues[k].curve; return c ? curveNorm(c) : null; }
+function curveSet(k, spec){
+  if (!k) return;
+  cues[k] = cues[k] || {};
+  if (!spec || curveIsDefault(spec)) delete cues[k].curve; else cues[k].curve = curveNorm(spec);
+  if (!Object.keys(cues[k]).length) delete cues[k];
+  try{ localStorage.setItem(CUE_KEY, JSON.stringify(cues)); }catch(e){}
+}
+function rideCurve(outKey){ return curveGet(outKey) || curveGet('*'); }
 /* gridless (v4.4): a deck counts as analysed once its scan has finished — a gated or failed grid is a fact, not a wait */
 function analysed(d){ return !!(d && d.buffer && (d.scanDone || d.grid)); }
 function deckInfo(d){
@@ -2957,7 +3008,15 @@ sec.innerHTML =
   }).join('') + '</div>' +
   '<p id="nownext" aria-live="off"><b>now</b> <span id="nnNow">—</span> <b>next</b> <span id="nnNext">—</span></p>' +
   '<p id="queuestate" aria-live="off"></p>' +
-  '<canvas id="adjwave" height="84" role="img" aria-label="Transition preview: outgoing deck A strip above incoming deck B strip, the planned crossfade window shaded, with the equal-power gain curves"></canvas>' +
+  '<canvas id="adjwave" height="84" role="img" aria-label="Transition preview: outgoing deck A strip above incoming deck B strip, the planned crossfade window shaded, with the gain curves"></canvas>' +
+  '<div class="curverow" id="curverow" role="group" aria-label="Crossfade curve for the track on deck A when it leaves a mix">' +
+    '<span class="cvlbl">curve · A leaving</span>' +
+    '<label class="cvmix">mix <input type="range" id="cvmix" min="0" max="100" step="5" value="0" aria-label="Crossfade shape: 0 equal-power, 100 hard cut"> <span class="cueval" id="cvmixv">equal-power</span></label>' +
+    '<span class="cuechip"><b class="cuelbl">tail</b><button type="button" class="btn small" id="cvtailm" aria-label="Outgoing holds one beat less">−</button><span class="cueval" id="cvtailv">0 beats</span><button type="button" class="btn small" id="cvtailp" aria-label="Outgoing holds one beat more">+</button></span>' +
+    '<span class="cuechip"><b class="cuelbl">head</b><button type="button" class="btn small" id="cvheadm" aria-label="Incoming reaches full one beat later">−</button><span class="cueval" id="cvheadv">0 beats</span><button type="button" class="btn small" id="cvheadp" aria-label="Incoming reaches full one beat earlier">+</button></span>' +
+    '<button type="button" class="btn small" id="cvreset" title="Back to equal-power for this track">reset</button>' +
+    '<button type="button" class="btn small" id="cvall" aria-pressed="false" title="Use this shape for every hand-off whose outgoing track has no shape of its own (press again to clear)">use for all</button>' +
+    '<span class="cvwords" id="cvwords"></span></div>' +
   '<div class="ssub" id="adjstatus" role="status" aria-live="polite"></div>' +
   '<ol class="adjq" id="adjq"></ol>';
 var stackEl = $('#stackpanel');
@@ -2978,6 +3037,12 @@ st.textContent =
   '#nownext{ font-size:.72rem; margin:.45rem 0 0; display:flex; gap:.45rem; flex-wrap:wrap; align-items:baseline; }' +
   '#nownext b{ font-size:.58rem; letter-spacing:.1em; text-transform:uppercase; color:#8a94a8; font-weight:600; }' +
   '#nownext span{ font-weight:600; min-width:0; overflow-wrap:anywhere; }' +
+  '.curverow{ display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; margin:.35rem 0 0; font-size:.7rem; }' +
+  '.curverow .cvlbl{ font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; color:#8a94a8; }' +
+  '.curverow .cvmix{ display:inline-flex; align-items:center; gap:.3rem; }' +
+  '.curverow input[type=range]{ width:7rem; min-height:2.75rem; accent-color:#e0b64f; }' +
+  '.curverow .btn.small{ min-height:2.75rem; }' +
+  '.curverow .cvwords{ flex-basis:100%; color:#8a94a8; font-size:.62rem; }' +
   '#queuestate{ font-size:.66rem; color:#8a94a8; margin:.35rem 0 0; line-height:1.5; }' +
   '#queuestate b{ color:#c7cfe0; font-weight:600; }' +
   '#adjwave{ width:100%; display:block; }' +
@@ -2987,7 +3052,68 @@ st.textContent =
   '.adjq .ok{ color:#7ec97a; } .adjq .mid{ color:#e0b64f; } .adjq .bad{ color:#e0584a; }' +
   '.adjq .wrn{ opacity:.7; font-size:.58rem; }';
 document.head.appendChild(st);
-var wave = $('#adjwave'), wctx = wave.getContext('2d');
+var wave = $('#adjwave'), wctx = wave.getContext('2d'), PREVIEW_WIN = null;
+/* ── curve editor (v4.9.1): edits the shape stored for the track on deck A; beats snap to each deck's own grid ── */
+function curveTarget(){ return decks.A && decks.A.buffer ? cueKey(decks.A) : null; }
+function curveBeatSec(d){ return d && d.grid ? 60 / d.grid.bpm : 1; }
+function curveBeats(frac, dur, beatSec){ return dur > 0 ? Math.round(frac * dur / beatSec) : 0; }
+function curveState(){
+  var k = curveTarget(), cp = k ? currentPlan() : null, dur = cp && cp.plan ? cp.plan.dur : 0;
+  var own = curveGet(k), spec = own || curveGet('*') || CURVE_DEFAULT;
+  return { k: k, dur: dur, own: own, spec: curveNorm(spec), tail: curveBeats(spec.tailOut, dur, curveBeatSec(decks.A)), head: curveBeats(spec.headIn, dur, curveBeatSec(decks.B)) };
+}
+function curveUI(){
+  var row = document.getElementById('curverow'); if (!row) return;
+  var st = curveState(), off = !st.k;
+  ['cvmix', 'cvtailm', 'cvtailp', 'cvheadm', 'cvheadp', 'cvreset', 'cvall'].forEach(function(id){ document.getElementById(id).disabled = off; });
+  var mixEl = document.getElementById('cvmix');
+  if (document.activeElement !== mixEl) mixEl.value = Math.round(st.spec.mix * 100);
+  document.getElementById('cvmixv').textContent = st.spec.mix === 0 ? 'equal-power' : Math.round(st.spec.mix * 100) + '% cut';
+  document.getElementById('cvtailv').textContent = st.tail + (st.tail === 1 ? ' beat' : ' beats');
+  document.getElementById('cvheadv').textContent = st.head + (st.head === 1 ? ' beat' : ' beats');
+  document.getElementById('cvall').setAttribute('aria-pressed', String(!!curveGet('*')));
+  document.getElementById('cvwords').textContent = off ? 'load deck A to shape how its track leaves' : curveWords(st.spec, st.tail, st.head) + (st.own ? ' · saved for this track' : curveGet('*') ? ' · the shared default' : ' · default') + (st.dur ? '' : ' · beats need a planned window');
+}
+function curveEdit(patch, why){
+  var st = curveState(); if (!st.k) return;
+  var next = curveNorm({ mix: patch.mix != null ? patch.mix : st.spec.mix, tailOut: patch.tailOut != null ? patch.tailOut : st.spec.tailOut, headIn: patch.headIn != null ? patch.headIn : st.spec.headIn });
+  curveSet(st.k, next); curveUI(); drawPreview(null);
+  var s2 = curveState(); statusMsg('curve for "' + (decks.A.name || 'deck A') + '": ' + curveWords(s2.spec, s2.tail, s2.head) + (why ? ' (' + why + ')' : ''));
+}
+(function(){
+  var g = function(id){ return document.getElementById(id); };
+  g('cvmix').addEventListener('input', function(){ curveEdit({ mix: parseInt(this.value, 10) / 100 }); });
+  function nudge(which, dir){ var st = curveState(); if (!st.k || !st.dur) return; var beatSec = curveBeatSec(which === 'tailOut' ? decks.A : decks.B), beats = (which === 'tailOut' ? st.tail : st.head) + dir;
+    var frac = Math.max(0, Math.min(0.5, beats * beatSec / st.dur)); var p = {}; p[which] = frac; curveEdit(p, (which === 'tailOut' ? 'tail ' : 'head ') + Math.round(frac * st.dur / beatSec) + ' beats'); }
+  g('cvtailm').addEventListener('click', function(){ nudge('tailOut', -1); }); g('cvtailp').addEventListener('click', function(){ nudge('tailOut', 1); });
+  g('cvheadm').addEventListener('click', function(){ nudge('headIn', -1); }); g('cvheadp').addEventListener('click', function(){ nudge('headIn', 1); });
+  g('cvreset').addEventListener('click', function(){ var st = curveState(); if (!st.k) return; curveSet(st.k, null); curveUI(); drawPreview(null); statusMsg('curve for "' + (decks.A.name || 'deck A') + '" reset — ' + (curveGet('*') ? 'the shared default applies' : 'equal-power')); });
+  g('cvall').addEventListener('click', function(){ var st = curveState(); if (!st.k) return;
+    if (curveGet('*')){ curveSet('*', null); statusMsg('shared default cleared — hand-offs without their own shape ride equal-power'); }
+    else { curveSet('*', st.spec); statusMsg('"' + curveWords(st.spec, st.tail, st.head) + '" is now the default for every hand-off without its own shape'); }
+    curveUI(); drawPreview(null); });
+  /* drag on the preview: near the tail handle → tail (snapped to A's beats), near the head handle → head (B's beats), elsewhere in the window → vertical = mix */
+  var drag = null;
+  wave.addEventListener('pointerdown', function(e){
+    var st = curveState(); if (!st.k || !PREVIEW_WIN || !st.dur) return;
+    var r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (PREVIEW_WIN.W / r.width), y = (e.clientY - r.top) * (PREVIEW_WIN.H / r.height), w = PREVIEW_WIN;
+    if (x < w.x0 - 8 || x > w.x1 + 8) return;
+    var tx = w.x0 + st.spec.tailOut * (w.x1 - w.x0), hx = w.x0 + (1 - st.spec.headIn) * (w.x1 - w.x0);
+    drag = Math.abs(x - tx) <= 10 && y < w.H / 2 ? 'tailOut' : Math.abs(x - hx) <= 10 && y >= w.H / 2 ? 'headIn' : 'mix';
+    try{ wave.setPointerCapture(e.pointerId); }catch(e2){}
+    e.preventDefault();
+  });
+  wave.addEventListener('pointermove', function(e){
+    if (!drag) return; var st = curveState(), w = PREVIEW_WIN; if (!st.k || !w) return;
+    var r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (w.W / r.width), y = (e.clientY - r.top) * (w.H / r.height), frac = (x - w.x0) / (w.x1 - w.x0), p = {};
+    if (drag === 'mix') p.mix = Math.round(Math.max(0, Math.min(1, 1 - y / w.H)) * 20) / 20;
+    else if (drag === 'tailOut'){ var bs = curveBeatSec(decks.A); p.tailOut = Math.max(0, Math.min(0.5, Math.round(frac * st.dur / bs) * bs / st.dur)); }
+    else { var bs2 = curveBeatSec(decks.B); p.headIn = Math.max(0, Math.min(0.5, Math.round((1 - frac) * st.dur / bs2) * bs2 / st.dur)); }
+    curveEdit(p);
+  });
+  function endDrag(){ drag = null; }
+  wave.addEventListener('pointerup', endDrag); wave.addEventListener('pointercancel', endDrag);
+})();
 function statusMsg(t){ $('#adjstatus').textContent = t; }
 /* mini peak cache — keyed on CONTENT identity, never surface size (the v2.7 lesson) */
 var pkCache = {};
@@ -3027,19 +3153,25 @@ function drawPreview(prog){
     wctx.fillStyle = '#8b93a7'; wctx.font = '10px system-ui';
     wctx.fillText(row[0] + ' · ' + (info.name || ''), 6, y0 + 10);
   });
-  /* equal-power gain curves across the shaded window + the ghost fader */
-  var wx0 = p.outStart / cp.a.dur * W, wx1 = wx0 + p.dur / cp.a.dur * W;
+  /* gain curves across the shaded window (the curve in force for A's track, equal-power by default) + the ghost fader */
+  var wx0 = p.outStart / cp.a.dur * W, wx1 = wx0 + p.dur / cp.a.dur * W, spec = rideCurve(cp.a.k);
+  PREVIEW_WIN = { x0: wx0, x1: wx1, W: W, H: H };
   wctx.strokeStyle = 'rgba(224,182,79,.9)'; wctx.beginPath();
-  for (var gx = 0; gx <= 40; gx++){ var t = gx / 40, g = equalPower(t); var X2 = wx0 + t * (wx1 - wx0); gx ? wctx.lineTo(X2, H / 2 - g.a * (H / 2 - 10)) : wctx.moveTo(X2, H / 2 - g.a * (H / 2 - 10)); }
+  for (var gx = 0; gx <= 60; gx++){ var t = gx / 60, g = curveAt(t, spec); var X2 = wx0 + t * (wx1 - wx0); gx ? wctx.lineTo(X2, H / 2 - g.a * (H / 2 - 10)) : wctx.moveTo(X2, H / 2 - g.a * (H / 2 - 10)); }
   wctx.stroke();
   wctx.strokeStyle = 'rgba(126,201,122,.9)'; wctx.beginPath();
-  for (gx = 0; gx <= 40; gx++){ var t2 = gx / 40, g2 = equalPower(t2); var X3 = wx0 + t2 * (wx1 - wx0); gx ? wctx.lineTo(X3, H - g2.b * (H / 2 - 10)) : wctx.moveTo(X3, H - g2.b * (H / 2 - 10)); }
+  for (gx = 0; gx <= 60; gx++){ var t2 = gx / 60, g2 = curveAt(t2, spec); var X3 = wx0 + t2 * (wx1 - wx0); gx ? wctx.lineTo(X3, H - g2.b * (H / 2 - 10)) : wctx.moveTo(X3, H - g2.b * (H / 2 - 10)); }
   wctx.stroke();
+  if (spec){   /* handles: tail on the outgoing lane, head on the incoming lane */
+    var n = curveNorm(spec), tx = wx0 + n.tailOut * (wx1 - wx0), hx = wx0 + (1 - n.headIn) * (wx1 - wx0);
+    wctx.fillStyle = '#e0b64f'; wctx.fillRect(tx - 3, 4, 6, H / 2 - 8);
+    wctx.fillStyle = '#7ec97a'; wctx.fillRect(hx - 3, H / 2 + 4, 6, H / 2 - 8);
+  }
   if (prog != null){
     var fx = wx0 + prog * (wx1 - wx0);
     wctx.strokeStyle = '#fff'; wctx.lineWidth = 2;
     wctx.beginPath(); wctx.moveTo(fx, 0); wctx.lineTo(fx, H); wctx.stroke(); wctx.lineWidth = 1;
-    var g3 = equalPower(prog);
+    var g3 = curveAt(prog, spec);
     wctx.fillStyle = '#d5d9e4'; wctx.font = '10px system-ui';
     wctx.fillText('ghost fader ' + Math.round(prog * 100) + '% · A ' + g3.a.toFixed(2) + ' · B ' + g3.b.toFixed(2), Math.min(W - 150, Math.max(4, fx + 6)), 12);
   }
@@ -3115,7 +3247,7 @@ function renderCues(){
     ['in', 'out'].forEach(function(w){ var chip = $('.cuechip[data-w="' + w + '"]', row); var v = c[w]; chip.hidden = v == null; if (v == null) return;
       $('.cuelbl', chip).textContent = 'mix-' + w; $('.cueval', chip).textContent = fmtT(v) + (d.grid ? ' · bar ' + Math.round((v - barAnchor(d.grid)) / (4 * 60 / d.grid.bpm)) : ''); });
   });
-  queueState();
+  queueState(); curveUI();
   var ready = !(analysed(decks.A) && analysed(decks.B));
   $('#adjdry').disabled = ready;
   $('#adjlive').disabled = ready;
@@ -3239,11 +3371,23 @@ function liveTick(){
   if (LIVE.pending){ drawPreview(0); return; }             /* sync first: the fader does not move until the incoming deck has started */
   var t = Math.min(1, (Date.now() - LIVE.t0) / LIVE.durMs);
   injecting = true;
-  xfEl.value = Math.round(LIVE.from + t * (LIVE.to - LIVE.from));
-  X.applyXf();
+  if (LIVE.curve === undefined) LIVE.curve = rideCurve(cueKey(decks[LIVE.outL]));   /* resolved once, on the first riding tick */
+  if (!LIVE.curve){ xfEl.value = Math.round(LIVE.from + t * (LIVE.to - LIVE.from)); X.applyXf(); }   /* default: the v4.1 path, untouched */
+  else rideHybrid(t, LIVE.curve);
   injecting = false;
   drawPreview(t);
   if (t >= 1) finishLive();
+}
+/* hybrid ride (v4.9.1): gains straight from curveAt, scaled from wherever the fader started; the thumb parks at the
+   equal-power-equivalent position for display only (still under `injecting`, so a real touch is still a takeover) */
+function rideHybrid(t, spec){
+  if (!LIVE.g0){ var x0 = LIVE.from / 1000, gA0 = Math.cos(x0 * Math.PI / 2), gB0 = Math.sin(x0 * Math.PI / 2); LIVE.g0 = LIVE.outL === 'A' ? { out: gA0, inn: gB0 } : { out: gB0, inn: gA0 }; }
+  var g = curveAt(t, spec), go = LIVE.g0.out * g.a, gi = LIVE.g0.inn + (1 - LIVE.g0.inn) * g.b;
+  decks[LIVE.outL].setXf(go); decks[LIVE.innL].setXf(gi);
+  var gA = LIVE.outL === 'A' ? go : gi, gB = LIVE.outL === 'A' ? gi : go;
+  xfEl.value = Math.round(Math.atan2(gB, gA) / (Math.PI / 2) * 1000);
+  $('#xfA').style.opacity = 0.35 + 0.65 * gA; $('#xfB').style.opacity = 0.35 + 0.65 * gB;
+  LIVE.gains = { A: gA, B: gB, t: t };
 }
 function finishLive(){
   var innL = LIVE.innL, outL = LIVE.outL;
@@ -3429,7 +3573,7 @@ var nnLast = '';
 function renderNowNext(){ var el = document.getElementById('nnNow'); if (!el) return; var s2 = nowNext(), key = s2.now + '|' + s2.next; if (key === nnLast) return; nnLast = key; el.textContent = s2.now; document.getElementById('nnNext').textContent = s2.next; }
 CHAIN.timer = setInterval(chainTick, 250);
 root.__ADJ = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
-  chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext,
+  chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; },
   liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor };
