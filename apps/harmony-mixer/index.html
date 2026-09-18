@@ -221,6 +221,19 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
   min-height:2.75rem; padding:0 .7rem; letter-spacing:.06em;
 }
 .sel{ cursor:pointer; text-transform:uppercase; }
+/* view knobs (v4.10): a rotary skin over an existing <select>; the select keeps the state */
+.knob{ display:inline-grid; justify-items:center; align-content:center; min-width:2.75rem; min-height:2.75rem; padding:.1rem .25rem; cursor:ns-resize; user-select:none; -webkit-user-select:none; touch-action:none; border-radius:.5rem; color:var(--mute); }
+.knob svg{ width:2rem; height:2rem; display:block; }
+.knob .kring{ fill:#12161e; stroke:var(--line, #2c2f36); stroke-width:2; }
+.knob .kticks line{ stroke:#4a5568; stroke-width:1.5; }
+.knob .kticks line.on{ stroke:var(--amber, #e0b64f); }
+.knob .kneedle{ stroke:var(--amber, #e0b64f); stroke-width:3; stroke-linecap:round; transition:transform .12s; }
+.knob .kdot{ fill:var(--amber, #e0b64f); }
+.knob .kcap{ font-size:.55rem; letter-spacing:.08em; text-transform:uppercase; line-height:1; margin-bottom:.1rem; }
+.knob .kval{ font-size:.6rem; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; color:#c7cfe0; line-height:1.2; }
+.knob:focus-visible{ outline:3px solid var(--amber); outline-offset:2px; }
+.knobbed{ position:absolute !important; width:1px !important; height:1px !important; padding:0 !important; border:0 !important; margin:0 !important; overflow:hidden !important; clip:rect(0 0 0 0); white-space:nowrap; }
+@media (prefers-reduced-motion:reduce){ .knob .kneedle{ transition:none; } }
 .cplay{ text-transform:none; max-width:13rem; }
 .fold{ opacity:.8; }
 .cfilter{ width:8.5rem; font-weight:300; letter-spacing:0; }
@@ -418,7 +431,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.9.1 · 2026-09-18 · cff497e05</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.10 · 2026-09-18 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -3030,6 +3043,7 @@ st.textContent =
   '.adjcue b{ color:var(--ac, #7ec97a); }' +
   '.adjread{ font-size:.6rem; opacity:.75; }' +
   '.adjcue{ flex-wrap:wrap; row-gap:.3rem; }' +
+  '.cuechip[hidden]{ display:none; }' +
   '.cuechip{ display:inline-flex; align-items:center; gap:.25rem; font-size:.7rem; padding:.15rem .35rem; border:1px solid #2a3140; border-radius:.5rem; background:#12161e; }' +
   '.cuechip .cuelbl{ font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; color:#8a94a8; }' +
   '.cuechip .cueval{ font-variant-numeric:tabular-nums; min-width:2.6rem; }' +
@@ -3578,6 +3592,90 @@ root.__ADJ = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransitio
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; },
   liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor };
 })(typeof window !== 'undefined' ? window : this);
+</script>
+<script id="knobcore">
+/* ── view-knob maths (v4.10): pure, node-testable. A knob is a skin over a discrete option list. ── */
+(function(root){
+'use strict';
+var K = {
+  angle: function(i, n){ return n < 2 ? 0 : -135 + 270 * i / (n - 1); },
+  step: function(i, n, d, wrap){ if (!(n > 0)) return 0; var j = i + d; if (wrap) return ((j % n) + n) % n; return Math.max(0, Math.min(n - 1, j)); },
+  keyDelta: function(key){ var m = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 3, PageDown: -3 }; if (key in m) return m[key]; if (key === 'Home') return 'home'; if (key === 'End') return 'end'; return null; },
+  wheelDelta: function(dy){ return dy > 0 ? 1 : dy < 0 ? -1 : 0; },
+  dragIndex: function(startI, dy, pxPer, n){ return K.step(startI, n, Math.round(-dy / (pxPer || 24)), false); },
+  clickIndex: function(i, n){ return K.step(i, n, 1, true); },
+  PX_PER_STEP: 24, CLICK_PX: 4
+};
+if (typeof module !== 'undefined' && module.exports) module.exports = K; else root.__KNOBCORE = K;
+})(typeof window !== 'undefined' ? window : this);
+</script>
+<script>
+/* ── view knobs (v4.10, reversible): bind a rotary to an existing <select>. The select stays in the DOM as the
+   state — every knob turn writes select.value and fires ONE change event; programmatic select writes re-render
+   the knob. Remove this block (or call __KNOBS.detach()) and the selects are back exactly as they were. ── */
+(function(){
+'use strict';
+var K = window.__KNOBCORE; if (!K) return;
+var KNOBS = [];
+function attachKnob(sel, opts){
+  if (!sel || sel._knob) return null;
+  opts = opts || {};
+  var k = document.createElement('span'), idx = -1, timer = null, obs = null, drag = null;
+  k.className = 'knob'; k.tabIndex = 0; k.setAttribute('role', 'spinbutton');
+  k.setAttribute('aria-label', opts.label || sel.getAttribute('aria-label') || 'value');
+  if (sel.title) k.title = sel.title;
+  k.innerHTML = (opts.caption ? '<span class="kcap" aria-hidden="true">' + opts.caption + '</span>' : '') +
+    '<svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><circle class="kring" cx="24" cy="24" r="17"/><g class="kticks"></g><line class="kneedle" x1="24" y1="24" x2="24" y2="10"/><circle class="kdot" cx="24" cy="24" r="3"/></svg><span class="kval" aria-hidden="true"></span>';
+  var ticks = k.querySelector('.kticks'), needle = k.querySelector('.kneedle'), val = k.querySelector('.kval');
+  function text(i){ var o = sel.options[i]; if (!o) return ''; var t = o.textContent.trim(); return opts.strip ? t.replace(opts.strip, '') : t; }
+  function buildTicks(){ var n = sel.options.length, h = ''; for (var i = 0; i < n; i++){ var a = K.angle(i, n) * Math.PI / 180; h += '<line x1="' + (24 + Math.sin(a) * 19).toFixed(2) + '" y1="' + (24 - Math.cos(a) * 19).toFixed(2) + '" x2="' + (24 + Math.sin(a) * 22).toFixed(2) + '" y2="' + (24 - Math.cos(a) * 22).toFixed(2) + '"/>'; } ticks.innerHTML = h; }
+  function render(){
+    var n = sel.options.length, i = sel.selectedIndex; if (i < 0) i = 0;
+    if (ticks.children.length !== n) buildTicks();
+    idx = i;
+    needle.setAttribute('transform', 'rotate(' + K.angle(i, n).toFixed(2) + ' 24 24)');
+    for (var t = 0; t < ticks.children.length; t++) ticks.children[t].setAttribute('class', t <= i ? 'on' : '');
+    val.textContent = text(i);
+    k.setAttribute('aria-valuemin', '0'); k.setAttribute('aria-valuemax', String(Math.max(0, n - 1))); k.setAttribute('aria-valuenow', String(i)); k.setAttribute('aria-valuetext', text(i));
+  }
+  function set(i){
+    var n = sel.options.length; i = Math.max(0, Math.min(n - 1, i));
+    if (i === sel.selectedIndex) return false;
+    sel.value = sel.options[i].value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    render(); return true;
+  }
+  k.addEventListener('keydown', function(e){
+    var d = K.keyDelta(e.key); if (d === null) return;
+    e.preventDefault(); e.stopPropagation();
+    var n = sel.options.length;
+    set(d === 'home' ? 0 : d === 'end' ? n - 1 : K.step(sel.selectedIndex, n, d, false));
+  });
+  k.addEventListener('wheel', function(e){ e.preventDefault(); e.stopPropagation(); var d = K.wheelDelta(e.deltaY); if (d) set(K.step(sel.selectedIndex, sel.options.length, d, false)); }, { passive: false });
+  k.addEventListener('pointerdown', function(e){ drag = { y0: e.clientY, i0: sel.selectedIndex, moved: false }; try{ k.setPointerCapture(e.pointerId); }catch(e2){} e.preventDefault(); });
+  k.addEventListener('pointermove', function(e){ if (!drag) return; var dy = e.clientY - drag.y0; if (Math.abs(dy) >= K.CLICK_PX) drag.moved = true; if (drag.moved) set(K.dragIndex(drag.i0, dy, K.PX_PER_STEP, sel.options.length)); });
+  function up(e){ if (!drag) return; var d = drag; drag = null; if (!d.moved) set(K.clickIndex(sel.selectedIndex, sel.options.length)); }
+  k.addEventListener('pointerup', up); k.addEventListener('pointercancel', function(){ drag = null; });
+  sel.addEventListener('change', render);
+  obs = new MutationObserver(function(){ buildTicks(); render(); }); obs.observe(sel, { childList: true, subtree: true, characterData: true });
+  timer = setInterval(function(){ if (sel.selectedIndex !== idx) render(); }, 400);   /* programmatic value writes without a change event */
+  sel.classList.add('knobbed'); sel.setAttribute('aria-hidden', 'true'); sel.tabIndex = -1;
+  sel.parentNode.insertBefore(k, sel.nextSibling);
+  render();
+  var handle = { el: k, sel: sel, render: render, detach: function(){ clearInterval(timer); obs.disconnect(); sel.removeEventListener('change', render); k.remove(); sel.classList.remove('knobbed'); sel.removeAttribute('aria-hidden'); sel.removeAttribute('tabindex'); delete sel._knob; var at = KNOBS.indexOf(handle); if (at >= 0) KNOBS.splice(at, 1); } };
+  sel._knob = handle; KNOBS.push(handle);
+  return handle;
+}
+function attachAll(){
+  var out = [];
+  var X = window.__X, decks = X && X.decks ? X.decks : {};
+  Array.prototype.forEach.call(document.querySelectorAll('.presel'), function(sel){ var L = Object.keys(decks).filter(function(k){ return decks[k].q && decks[k].q.presel === sel; })[0] || ''; var h = attachKnob(sel, { caption: 'rewind', label: 'Rewind amount in bars for the pre-count and the timeline reset' + (L ? ', deck ' + L : '') }); if (h) out.push(h); });
+  var cs = document.getElementById('csort'); var h2 = attachKnob(cs, { caption: 'sort', label: 'Sort the crate by', strip: /^sort\s*·\s*/ }); if (h2) out.push(h2);
+  return out;
+}
+attachAll();
+window.__KNOBS = { list: function(){ return KNOBS.slice(); }, attach: attachAll, detach: function(){ KNOBS.slice().forEach(function(h){ h.detach(); }); }, attachKnob: attachKnob };
+})();
 </script>
 <script>
 /* ── freshness: if the server has a newer build than this tab is running (stale HTTP cache after a deploy), reload once ── */
