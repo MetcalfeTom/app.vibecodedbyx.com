@@ -231,6 +231,8 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 .knob .kdot{ fill:var(--amber, #e0b64f); }
 .knob .kcap{ font-size:.55rem; letter-spacing:.08em; text-transform:uppercase; line-height:1; margin-bottom:.1rem; }
 .knob .kval{ font-size:.6rem; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; color:#c7cfe0; line-height:1.2; text-align:center; display:block; }
+.btn.mk.half{ border-color:var(--amber, #e0b64f); box-shadow:inset 0 0 0 1px var(--amber, #e0b64f); }
+.btn.mk.on{ background:var(--amber, #e0b64f); color:#111; border-color:transparent; }
 .knob .ksub{ font-size:.55rem; letter-spacing:.04em; white-space:nowrap; color:var(--mute); line-height:1.1; text-align:center; display:block; }
 .knob:focus-visible{ outline:3px solid var(--amber); outline-offset:2px; }
 .knobbed{ position:absolute !important; width:1px !important; height:1px !important; min-width:0 !important; padding:0 !important; border:0 !important; margin:0 !important; overflow:hidden !important; clip:rect(0 0 0 0); white-space:nowrap; }
@@ -432,7 +434,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.11 · 2026-09-18 · e728b51b7</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.12 · 2026-09-18 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -3701,6 +3703,88 @@ function attachAll(){
 }
 attachAll();
 window.__KNOBS = { list: function(){ return KNOBS.slice(); }, attach: attachAll, detach: function(){ KNOBS.slice().forEach(function(h){ h.detach(); }); }, attachKnob: attachKnob };
+})();
+</script>
+<script id="mkcore">
+/* ── marker-loop core (v4.12 prototype): pure, node-testable ── */
+(function(root){
+'use strict';
+var MK = {
+  MIN_BARS: 1/8,
+  snap: function(p, grid, lock){ p = Math.max(0, p); if (!lock || !grid || !grid.bpm) return p; var beat = 60 / grid.bpm, n = Math.round((p - grid.beat0) / beat); return Math.max(0, grid.beat0 + n * beat); },
+  plan: function(a, b, minSpan, dur){
+    if (a == null || b == null) return { ok: false, why: 'incomplete' };
+    if (dur != null) b = Math.min(b, dur);
+    if (b < a) return { ok: false, why: 'end before start' };
+    if (b - a < minSpan - 1e-9) return { ok: false, why: 'too short', need: minSpan };
+    return { ok: true, a: a, b: b, span: b - a };
+  },
+  fmt: function(sec){ var m = Math.floor(sec / 60), r = sec - m * 60; return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1); },
+  label: function(a, b){ return MK.fmt(a) + ' → ' + MK.fmt(b); }
+};
+if (typeof module !== 'undefined' && module.exports) module.exports = MK; else root.__MKCORE = MK;
+})(typeof window !== 'undefined' ? window : this);
+</script>
+<script>
+/* ── Start/End marker loops (v4.12 PROTOTYPE, hook-only): one compact button per deck — press once to set the START at the
+   playhead, again to set the END, again to release. The loop runs FORWARD ONLY on the media path between the two markers
+   (any span ≥ 1/8 bar, snapped to the beat under grid lock). Nothing in the loop engine changed: this block wraps
+   setLoop / loopTick / renderLoop / resetTrackState and adds the button. Remove the two blocks and it is gone. ── */
+(function(){
+'use strict';
+var X = window.__X, MK = window.__MKCORE; if (!X || !MK || !X.decks) return;
+var D = Object.getPrototypeOf(X.decks.A);
+function ui(d){
+  var b = d.q && d.q.mk; if (!b) return; var st = d.mk;
+  var on = !!(st && st.on), half = !!(st && st.a != null && !on);
+  b.classList.toggle('on', on); b.classList.toggle('half', half); b.setAttribute('aria-pressed', String(on));
+  b.textContent = on ? '◆ A→B' : half ? '◆ end' : '◆ start';
+  b.setAttribute('aria-label', on ? ('Marker loop on, ' + MK.label(d.loopA, d.loopB) + ' — press to release') : half ? ('Start marker set at ' + MK.fmt(st.a) + ' — press to set the end at the playhead') : 'Set the loop start marker at the playhead');
+}
+function flash(d, t, bad){ d.setStatus(t, bad); clearTimeout(d._mkT); d._mkT = setTimeout(function(){ d.setStatus(''); }, 2200); }
+function press(d){
+  if (!d.buffer) return;
+  if (!d.grid){ flash(d, 'markers need a beat grid (still analysing?)', true); return; }
+  var p = Math.max(0, Math.min(d.buffer.duration, d.playing ? d.pos() : d.posAtStart));
+  var st = d.mk || (d.mk = { a: null, b: null, on: false });
+  if (st.on){ d.setLoop(false); return; }                                   /* the setLoop hook clears the markers */
+  var q = MK.snap(p, d.grid, d.gridLock);
+  if (st.a == null){ st.a = q; ui(d); flash(d, 'loop start at ' + MK.fmt(q) + (d.gridLock ? ' (beat-snapped)' : '') + ' — press again at the end'); return; }
+  var plan = MK.plan(st.a, q, MK.MIN_BARS * d.barSecs(), d.buffer.duration);
+  if (!plan.ok){
+    if (plan.why === 'end before start'){ st.a = q; ui(d); flash(d, 'that was before the start — start moved to ' + MK.fmt(q) + ', press again at the end', true); }
+    else flash(d, 'too short — the end must be at least 1/8 bar after the start', true);
+    return;
+  }
+  st.b = plan.b; st.on = true;
+  var forced = d.loopDir !== 'fwd'; if (forced) d.loopDir = 'fwd';        /* marker loops are forward only */
+  var wasBuf = d.loopEngine === 'buffer'; d.releaseLoopEngine(false);
+  d.loopA = plan.a; d.loopB = plan.b; d.loopOn = true;
+  if (wasBuf && d.playing){ d.playing = false; d.play(); }                 /* leaving the buffer engine must resume the media path */
+  d.renderLoop(); ui(d);
+  flash(d, 'marker loop ' + MK.label(plan.a, plan.b) + ', forward' + (forced ? ' (direction reset to forward)' : ''));
+}
+var oSet = D.setLoop; D.setLoop = function(on){ var d = this; d.mk = null; var r = oSet.apply(d, arguments); ui(d); return r; };
+var oTick = D.loopTick; D.loopTick = function(){
+  var d = this;
+  if (d.mk && d.mk.on){ if (!d.loopOn || !d.playing || d.loopA == null) return; var p = d.pos(); if (p >= d.loopB - 0.005 || p < d.loopA - 0.5) d.seek(d.loopA); return; }
+  return oTick.apply(d, arguments);
+};
+var oRender = D.renderLoop; D.renderLoop = function(){
+  var d = this, r = oRender.apply(d, arguments);
+  if (d.mk && d.mk.on && d.q.loop){ d.q.loop.textContent = '↻ ' + MK.label(d.loopA, d.loopB); d.q.loop.setAttribute('aria-label', 'Marker loop on, ' + MK.label(d.loopA, d.loopB) + ', forward — click to release'); }
+  ui(d); return r;
+};
+var oReset = D.resetTrackState; D.resetTrackState = function(){ this.mk = null; var r = oReset.apply(this, arguments); ui(this); return r; };
+Object.keys(X.decks).forEach(function(L){
+  var d = X.decks[L]; if (!d.q || !d.q.ldir) return;
+  var b = document.createElement('button'); b.type = 'button'; b.className = 'btn small mk'; b.setAttribute('aria-pressed', 'false');
+  b.title = 'Marker loop (prototype): press once to set the START at the playhead, again to set the END; the loop runs forward between them. Press again to release. Under grid lock the markers snap to the beat.';
+  d.q.ldir.insertAdjacentElement('afterend', b); d.q.mk = b;
+  b.addEventListener('click', function(){ press(d); });
+  ui(d);
+});
+window.__MK = { press: press, core: MK, ui: ui };
 })();
 </script>
 <script>
