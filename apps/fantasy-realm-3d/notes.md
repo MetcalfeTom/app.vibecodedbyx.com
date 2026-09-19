@@ -8,5 +8,6 @@
 - Fixture lessons: a walk test from the start pad runs into trees — test speed in the tree-free clearing; a dodge ROLLS the hero out of the Knight's reach, so an i-frame test must hold position; the 100 ms dt clamp means "wait 0.7 s" is seven steps, not one; read WebGL pixels from a mid-height band, a corner is often one flat colour.
 
 ## todos
+- 2026-09-19 plan (see fantasy-realm/notes.md "SAFE INCREMENTAL 3D REPLACEMENT PLAN"): this app stays the arena/art reference; the main game gets a 3D LENS over its turn engine instead of a second rules engine here.
 - More than one encounter type (wolves on the corridor), a lock-on for the camera during the fight, footstep/hit sounds behind a mute toggle.
 - Knight leash could use a visible clearing boundary.
