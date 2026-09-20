@@ -1,0 +1,12 @@
+# Jimbonz's Top Twenty — notes
+
+## log
+- v1.0 (2026-09-20): built per chat ("Jimbonz's modern USA top-twenty Twitch leaderboard with sortable rankings, category filters, timestamp, preview, details, and clearly labeled mock data"). EVERYTHING IS MOCK and says so: a gold `role=note` banner at the top, a "mock channel" line in every details panel, a "MOCK PREVIEW · NOT A STREAM" badge on the canvas, a `mock` tag on every channel. No network, no Twitch API or host names anywhere (needle-scanned), no real streamer names — channels are two-word animal handles from a seeded pool (PixelOtter, FrostHeron…). Pure `<script id="eng">` (dual-exported `JT`): `generate(seed)` → 20 rows (viewers with a geometric fall-off, followers, previous-snapshot viewers → trend, uptime, peak, 30-day avg, a US state, title, tags, hue), `sort(rows,key,dir)` with rank tie-break, `filter`, `counts`, `defaultDir` (text/rank ascending first, numbers descending first), `fmt` (950 · 1.5K · 12K · 2.4M), `uptime`, `trendText`, `stamp` (UTC). UI: seven sortable `<th><button>` columns with `aria-sort`, category chips with counts (`aria-pressed`), a UTC "mock snapshot … · seed N" line + "new snapshot" (reseeds), rows as keyboard buttons (Enter/Space open, Escape closes), a sticky details aside with a GENERATED 16:9 canvas preview (gradient scene, blocks, bars, fake LIVE + viewer overlay — never an image of anyone) and a definition list; filter + sort persist in `jimbonz-top-twenty-v1`. Phones (≤640): the header row is visually hidden, rows become 3-column grid cards with a select + direction button for sorting. Fonts: Sora + IBM Plex Mono — chosen for READABILITY because jimbonz complained twice before (ramen-rater, wire-desk) about unreadable headline fonts. eng 26/26, probe 34/34 @1200 + 33/33 @390/320, screenshots reviewed.
+
+## issues
+- Two `<td>`s cannot share one grid-area on the phone card layout — they overprint (screenshot caught followers and uptime on top of each other; the probe now asserts no two cells of a row overlap). Give every cell its own area.
+- A headless `--screenshot` after the app scrolls (details `scrollIntoView` on phones) captures a blank page — stage the shot with `scrollTo(0,0)` and a tall window instead.
+
+## todos
+- A "compare two channels" view, and a sparkline of mock viewer history per channel (would need a seeded series per row).
+- Keyboard shortcut to jump between rows in the details panel (j/k) — chat did not ask; keep it small.
