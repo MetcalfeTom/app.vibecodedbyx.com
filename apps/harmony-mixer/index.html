@@ -438,7 +438,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.14 · 2026-09-19 · 561d1d391</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.15 · 2026-09-19 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -2838,8 +2838,16 @@ function snapDownbeat(grid, sec){
   /* nearest bar line at or before sec (grid.downbeat carries the bar-1 anchor) */
   if (!grid) return sec;
   var bar = 4 * 60 / grid.bpm, d0 = barAnchor(grid);
-  var n = Math.floor((sec - d0) / bar);
+  var n = Math.floor((sec - d0) / bar + 1e-6);   /* v4.15: a lattice point re-snapped stays put (float dust used to send it a bar back) */
   return Math.max(0, d0 + n * bar);
+}
+/* v4.15: NEAREST bar line — for saved mix cues. A cue saved before the grid existed (or on an older fit of the
+   same track) can sit a beat or two off the current lattice; a mix that starts there is a half-bar off for good,
+   because the sync PLL only ever corrects modulo one beat. */
+function snapBarNear(grid, sec){
+  if (!grid || !(grid.bpm > 0)) return sec;
+  var bar = 4 * 60 / grid.bpm, d0 = barAnchor(grid);
+  return Math.max(0, d0 + Math.round((sec - d0) / bar) * bar);
 }
 /* out/inn are plain infos: { name, bpm, key(camelot string|null), rate, dur, grid, cue:{in,out} } */
 function planTransition(out, inn, HM){
@@ -2849,10 +2857,10 @@ function planTransition(out, inn, HM){
   var outBar = out.grid ? 4 * 60 / (out.grid.bpm * (out.rate || 1)) : 4 * 60 / (out.bpm || 120);
   if (out.dur < 24 * outBar) bars = 4;
   var dur = bars * outBar;
-  var outStart = out.cue && out.cue.out != null ? out.cue.out : (out.dur - dur - 2 * outBar);
+  var outStart = out.cue && out.cue.out != null ? snapBarNear(out.grid, out.cue.out) : (out.dur - dur - 2 * outBar);
   if (out.grid) outStart = snapDownbeat(out.grid, Math.max(0, Math.min(out.dur - dur, outStart)));
   else outStart = Math.max(0, Math.min(out.dur - dur, outStart));
-  var inStart = inn.cue && inn.cue.in != null ? inn.cue.in : (inn.grid ? snapDownbeat(inn.grid, barAnchor(inn.grid)) : 0);
+  var inStart = inn.cue && inn.cue.in != null ? snapBarNear(inn.grid, inn.cue.in) : (inn.grid ? snapDownbeat(inn.grid, barAnchor(inn.grid)) : 0);
   /* what the incoming deck WOULD need (reported, never applied) */
   var rateNote = null;
   if (out.bpm && inn.bpm){
@@ -2895,7 +2903,7 @@ function barAnchor(grid){
   if (db === Math.floor(db) && db >= 0 && db <= 3) return (grid.beat0 || 0) + db * per;
   return db;
 }
-function syncFirstSchedule(outGrid, outPos, outRate, outDur, tol){
+function syncFirstSchedule(outGrid, outPos, outRate, outDur, tol, loop){
   if (!outGrid || !(outGrid.bpm > 0)) return null;
   tol = tol == null ? 0.03 : tol; outRate = outRate || 1;
   var bar = 4 * 60 / outGrid.bpm, d0 = barAnchor(outGrid);
@@ -2903,7 +2911,37 @@ function syncFirstSchedule(outGrid, outPos, outRate, outDur, tol){
   var tNext = d0 + k * bar;
   if (tNext < outPos) tNext = outPos;
   if (outDur != null && tNext > outDur) tNext = outPos;
-  return { tNext: tNext, waitSec: (tNext - outPos) / outRate, bar: bar };
+  var sch = { tNext: tNext, waitSec: (tNext - outPos) / outRate, bar: bar };
+  /* v4.15: a forward LOOP on the outgoing deck that wraps before that bar line never reaches it — the deck jumps
+     back to the loop start instead. The next phrase event is that wrap, so the hand-off fires there and
+     barLanding() seats the incoming on whatever bar phase the loop start has (a half-bar loop used to fire a few
+     ms BEFORE its own wrap: the incoming was placed two beats in, the outgoing then jumped back — half a bar off
+     for the rest of the blend, invisible to the beat-modulo PLL). */
+  if (loop && loop.a != null && loop.b != null && loop.b > loop.a && outPos <= loop.b + 1e-6 && tNext > loop.b - 0.005){
+    sch.tNext = loop.a; sch.waitSec = Math.max(0, (loop.b - outPos) / outRate); sch.wrap = true;
+  }
+  return sch;
+}
+/* v4.15 BAR-PHASE LANDING: where to start the incoming deck so that its bar phase equals the outgoing deck's bar
+   phase at that instant — in master beats, folded through the sync multiple, wrapped to the NEAREST bar line so a
+   fire a few ms early never lands a bar late. On a bar line this is the old residual formula to the microsecond;
+   after a loop wrap or a late timer it is still right, where "seconds past a bar line" pointed at a line the
+   deck never reached (and could start the incoming a whole bar early, in silence). */
+function barLanding(outGrid, outPos, innGrid, inStart, mult){
+  mult = mult || 1;
+  if (!outGrid || !(outGrid.bpm > 0) || !innGrid || !(innGrid.bpm > 0)) return inStart;
+  var p = ((outPos - barAnchor(outGrid)) * outGrid.bpm / 60) % 4; p = (p + 4) % 4;   /* master beats into the bar */
+  if (p > 2) p -= 4;                                                                 /* nearest bar line: (−2, 2] */
+  return inStart + (p / mult) * 60 / innGrid.bpm;
+}
+/* v4.15: the outgoing deck's forward loop as the scheduler sees it (null when none, or when it runs backwards —
+   sync rests during reverse / ping-pong loops anyway) */
+function liveLoop(d){ return d && d.loopOn && d.loopA != null && d.loopB != null && (d.loopDir || 'fwd') === 'fwd' ? { a: d.loopA, b: d.loopB } : null; }
+/* v4.15: the outgoing position as a CONTINUOUS number across a loop wrap — a reading in the back half of the loop
+   just before the wrap counts as "that much before the loop start", so the landing is the same on either side of it */
+function loopContinuous(pos, loop){
+  if (!loop || !(loop.b > loop.a)) return pos;
+  return pos >= loop.a + (loop.b - loop.a) / 2 ? loop.a - (loop.b - pos) : pos;
 }
 /* ── pool fallback (v4.9): rank crate rows against the live deck. Pure — eligibility and scoring are injected. ── */
 var POOL_FLOOR = 50;   /* match.js "playable" floor: below it the deck plays out rather than forcing a bad pair */
@@ -2960,7 +2998,7 @@ function curveWords(spec, tailBeats, headBeats){
   if (headBeats > 0) w += ' · incoming full ' + headBeats + (headBeats === 1 ? ' beat' : ' beats') + ' early (as headroom allows)';
   return w;
 }
-var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR,
+var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, snapBarNear: snapBarNear, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, barLanding: barLanding, loopContinuous: loopContinuous, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR,
   curveAt: curveAt, curveNorm: curveNorm, curveIsDefault: curveIsDefault, curveWords: curveWords, cutShape: cutShape, CURVE_DEFAULT: CURVE_DEFAULT, CURVE_CAP: CURVE_CAP };
 if (typeof module !== 'undefined' && module.exports){ module.exports = api; return; }
 
@@ -3337,12 +3375,17 @@ function liveRun(opts){
     LIVE = { t0: Date.now(), pending: false, gridless: true, from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
              durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
   } else if (inn.playing){
-    /* the DJ already has the incoming deck running: engage sync live, as before (no bar wait) */
-    inn.seek(plan.inStart);
+    /* v4.15: the DJ already has the incoming deck running. It used to be seeked to its mix-in cue and nudged to the
+       nearest BEAT right here (no bar wait) — the outgoing deck was wherever it was inside its bar, so a bar offset
+       of 0–3 beats (2 = half a bar) survived the whole blend: the sync PLL is beat-modulo and never sees it. Now it
+       takes the SAME bar-line schedule as a paused deck: tempo-lock now, re-seat it on its mix-in downbeat when the
+       outgoing deck reaches its next bar line (fireLive; play() is a no-op on a running deck). */
     if (!X.SYNCST[innL]) X.toggleSync(inn);
     if (!X.SYNCST[innL]) return fallback('sync refused the pair (tempos too far apart?)');
-    LIVE = { t0: Date.now(), pending: false, from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
-             durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
+    var schP = syncFirstSchedule(out.grid, out.pos(), out.rate * (out.bend || 1), out.buffer.duration, undefined, liveLoop(out));
+    LIVE = { t0: null, pending: true, sch: schP, from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
+             durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan, innWasPlaying: true };
+    LIVE.armTimer = setTimeout(fireLive, Math.max(0, schP.waitSec * 1000 - 6));
   } else {
     /* SYNC FIRST: tempo-lock the PAUSED incoming deck (toggleSync reads posAtStart, no clock jitter),
        park it exactly on its mix-in downbeat, then start it on the outgoing deck's next bar line. */
@@ -3350,14 +3393,14 @@ function liveRun(opts){
     if (!X.SYNCST[innL]) X.toggleSync(inn);
     if (!X.SYNCST[innL]) return fallback('sync refused the pair (tempos too far apart?)');
     inn.seek(plan.inStart);                                   /* override the nearest-beat nudge: bars align, not just beats */
-    var sch = syncFirstSchedule(out.grid, out.pos(), out.rate * (out.bend || 1), out.buffer.duration);
+    var sch = syncFirstSchedule(out.grid, out.pos(), out.rate * (out.bend || 1), out.buffer.duration, undefined, liveLoop(out));
     LIVE = { t0: null, pending: true, sch: sch, from: parseInt(xfEl.value, 10), to: innL === 'B' ? 1000 : 0,
              durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
     LIVE.armTimer = setTimeout(fireLive, Math.max(0, sch.waitSec * 1000 - 6));
   }
   document.getElementById('adjstop').hidden = false;
   document.getElementById('adjlive').textContent = '⚡ mixing…';
-  statusMsg('LIVE: mixing ' + outL + ' → ' + innL + ' over ' + plan.bars + ' bars' + (LIVE.pending ? ' — starting ' + innL + ' on the next bar line (' + LIVE.sch.waitSec.toFixed(2) + ' s)' : '') + (LIVE.gridless ? ' — no beat grid on deck ' + (!out.grid ? outL : innL) + ': blending by cue points, no tempo sync' : '') + ' — touch the fader or a transport to take over, ⏹ to stop.');
+  statusMsg('LIVE: mixing ' + outL + ' → ' + innL + ' over ' + plan.bars + ' bars' + (LIVE.pending ? ' — ' + (LIVE.innWasPlaying ? 're-seating ' : 'starting ') + innL + (LIVE.sch.wrap ? ' on deck ' + outL + '\'s loop wrap (its next bar line is outside the loop; ' : ' on the next bar line (') + LIVE.sch.waitSec.toFixed(2) + ' s)' : '') + (LIVE.gridless ? ' — no beat grid on deck ' + (!out.grid ? outL : innL) + ': blending by cue points, no tempo sync' : '') + ' — touch the fader or a transport to take over, ⏹ to stop.');
   LIVE.timer = setInterval(liveTick, 50);
   return LIVE;
 }
@@ -3365,12 +3408,16 @@ function fireLive(){
   if (!LIVE || !LIVE.pending) return;
   var out = decks[LIVE.outL], inn = decks[LIVE.innL];
   var outRate = out.rate * (out.bend || 1), innRate = inn.rate * (inn.bend || 1);
-  var r = out.pos() - LIVE.sch.tNext;                       /* residual: out-track seconds past (+) or before (−) the bar line */
-  var target = LIVE.plan.inStart + (r / outRate) * innRate; /* so the incoming downbeat lands exactly on it */
+  var SM0 = X.SYNCMULT[LIVE.innL] || 1;
+  var outAt = loopContinuous(out.pos(), LIVE.sch.wrap ? liveLoop(out) : null);
+  var r = outAt - LIVE.sch.tNext;                           /* residual: out-track seconds past (+) or before (−) the bar line / loop wrap */
+  /* v4.15: seat the incoming by BAR PHASE (same numbers as inStart + residual on a bar line; still right across a
+     loop wrap or a late timer, and never a whole bar early) so its downbeat lands exactly on the outgoing one */
+  var target = barLanding(out.grid, outAt, inn.grid, LIVE.plan.inStart, SM0);
   inn.seek(target);
   inn.play();
   inn._emaE = 0; inn._snapCool = Date.now() + 2000;         /* the PLL stays out of it until the start is verified */
-  LIVE.fired = { outPos: out.pos(), residual: r, target: target, t: Date.now(), samples: 0, corrections: 0, e0: null, e1: null };
+  LIVE.fired = { outPos: out.pos(), outAt: outAt, wrap: !!LIVE.sch.wrap, residual: r, target: target, t: Date.now(), samples: 0, corrections: 0, e0: null, e1: null };
   /* SETTLE + VERIFY: a media element starts with real latency (tens to hundreds of ms) — the fader is still
      parked on the outgoing side, so the incoming deck is silent while we measure the true phase and fix it. */
   var lastPos = inn.pos(), advancing = 0, SM = X.SYNCMULT[LIVE.innL] || 1;
@@ -3603,7 +3650,7 @@ root.__ADJ = { equalPower: equalPower, snapDownbeat: snapDownbeat, planTransitio
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; },
-  liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor };
+  liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor, barLanding: barLanding, snapBarNear: snapBarNear, loopContinuous: loopContinuous, liveLoop: liveLoop };
 })(typeof window !== 'undefined' ? window : this);
 </script>
 <script id="knobcore">
