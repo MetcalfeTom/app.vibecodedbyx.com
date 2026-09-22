@@ -1,0 +1,13 @@
+# One Button Meteor — notes
+
+## log
+- v1.0 (2026-09-22): built per chat ("one-button meteor dodge game with keyboard and mouse controls, shield pulse, pilot naming, score, and streak tracking"). No existing app matched (meteor-panic is a tap-the-meteors reflex game; the dodge apps are two-axis), so this is a fresh single-file app. ONE BUTTON: any key, click or tap flips the ship's drift direction; two presses inside 0.25 s are a SHIELD PULSE (the second press UNDOES the first flip, then pulses — a double-tap is a pulse, not a turn), 0.6 s of safety that bounces meteors off the hull and shoves everything within 140 px away, 4 s cooldown shown as a draining ring, and it resets the streak. Score = survival time × (1 + streak/10) plus 25 × the same multiplier per NEAR MISS (a meteor passing inside 16 px of the hull); the streak counts chained near misses, best streak kept per run. Pilot naming: a 12-char callsign (control chars and angle brackets stripped, tabs/newlines become spaces), remembered with a local roster (best score + best streak + runs per pilot, top 8 by score) under `one-button-meteor-v1`; the HUD's "best" is the current pilot's best. Pure `<script id="eng">` (dual-exported `OBM`): seeded storm (`makeRun(seed,name)`, `step(dt,{tap})`, dt clamped to 0.1 s), spawn interval 0.9 → 0.28 s over 60 s, fall speed ramps, `recordRun`/`rosterNorm`. Canvas 480×720 in a 2:3 stage that fits 82dvh, HUD over it, cooldown ring SVG, start/over overlays (Enter in the name box launches; any key on game-over restarts; "change pilot" returns to naming). Chakra Petch + Azeret Mono, navy/cyan/orange/violet. TESTS: eng 32/32, probe 31/31 ×3 widths (Space, any key, click, double-tap → ring ON → cooldown → PULSE, near-miss HUD + live region, painted frame with cyan ship + orange meteor by pixel scan, game-over panel + roster + best, restart by button and key, rename flow), screenshots 1200 + 390 reviewed.
+
+## issues
+- `step()` clamps dt to 0.1 s, so a fixture that "waits 0.3 s" with one call only waits 0.1 — space taps with several 0.1 s steps or the second tap reads as a double-tap. Same for the probe (`wait(s)` helper).
+- The storm is live during control tests: park it (`spawnIn=1e9`, clear meteors) right after `start(seed)` or the ship dies mid-probe and every later check fails for the wrong reason.
+- A near-miss must be judged BEFORE the meteor moves in a step — a 4000 px/s fixture leaves the band in one step and used to be counted as a plain dodge.
+
+## todos
+- Sound (a mute toggle whose first tap is the audio gesture), a brief hit-stop on the pulse, and a streak flame on the HUD at ×5.
+- A per-pilot "runs" history sparkline.
