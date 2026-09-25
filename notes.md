@@ -11,6 +11,9 @@
 - **+Build-stamp standard (2026-08-18 chat directive)**: every NEW app ships a visible build stamp — `<span id="buildstamp" role="note" aria-label="Build information">build vX.Y · YYYY-MM-DD · <short-hash></span>` — faded monospace ≤.7rem at the end of the footer (or a fixed corner pill), never affecting layout. Version starts v1.0, +0.1 per feature release; hash = the feature commit (stamp in a follow-up commit or with the next feature). Applied 2026-08-18 to the actively-maintained set: parla, clothes-minded, knight-cyclone (attrs normalized on existing stamps), loose-leaf, shelf-life, moth-pinball, spark-circus. Do NOT bulk-retrofit the ~1480 existing apps (no-batch-edit-live-apps rule); add stamps opportunistically when already touching an app.
 
 ## log
+- 2026-09-25: fantasy-realm-3d v1.12.0, the big forest (world 48×48 → 124×80, trees on a spatial grid, terrain in fog-culled chunks, people scaled .74). LESSONS:
+  - (+) RE-HIT: a rAF loop must clamp dt ≥ 0. Any code that resets `last=performance.now()` (closing a menu) can hand the next frame an EARLIER stamp, and a timer like `hold=max(0,hold-dt)` then grows. A camera 'hold' reached 1.8 s and the camera stopped following turns.
+  - (+) Headless 'NO TITLE' / timeouts under machine load are often random stalls. Rerun once, or trace with console markers, before you bisect. `pkill -f headless_shell` inside a Bash call kills that call's own shell (exit 144).
 - 2026-09-25: fantasy-realm-3d v1.11.0, a three-helper art pass (rig, world, ux) merged as ordered patch scripts, plus Dark Elves per fannar22. LESSONS:
   - (+) Split helpers by SEAM (engine / characters / world / css+hud), and have each ship an exact-string patch with count asserts. Then the merge is just applying them in order.
   - (+) Never run two headless Chromium instances at once: parallel WebGL runs stall and look like an infinite loop. It cost ~15 minutes of bisecting a non-bug.
