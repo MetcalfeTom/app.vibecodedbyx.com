@@ -3391,6 +3391,8 @@ function planTransition(out, inn, HM){
   if (!out.grid || !inn.grid) warn.push(out.gridDoubt || inn.gridDoubt ? 'beat grid disagrees with the tagged BPM — cue-timed, tempo from the tags' : 'needs a beat grid on both tracks');
   var outBar = out.grid ? 4 * 60 / (out.grid.bpm * (out.rate || 1)) : 4 * 60 / (out.bpm || 120);
   if (out.dur < 24 * outBar) bars = 4;
+  var ob = out.cue && out.cue.bars;   /* v4.33 (pushedbutton): the overlap slid by hand in the rehearsal window, saved with the leaving track */
+  if (ob >= 1 && ob <= OVERLAP_MAX && ob === Math.floor(ob)) bars = Math.min(ob, Math.max(1, Math.floor(out.dur / outBar) - 2));
   var dur = bars * outBar;
   var outStart = out.cue && out.cue.out != null ? snapBarNear(out.grid, out.cue.out) : (out.dur - dur - 2 * outBar);
   if (out.grid) outStart = snapDownbeat(out.grid, Math.max(0, Math.min(out.dur - dur, outStart)));
@@ -3498,7 +3500,7 @@ function poolRank(rows, eligible, scoreFn, floor){
    before it falls; headIn brings the INCOMING to full that share early. mix 0 + no tails reproduces equalPower exactly.
    Power guard: never louder than +0.5 dB over the equal-power crossover — the incoming is trimmed to the headroom the
    outgoing leaves, never clipped, so an outgoing hold is exact and an early-full incoming arrives as soon as headroom allows. ── */
-var CURVE_DEFAULT = { mix: 0, tailOut: 0, headIn: 0 }, CURVE_CAP = 1.122;
+var CURVE_DEFAULT = { mix: 0, tailOut: 0, headIn: 0 }, CURVE_CAP = 1.122, OVERLAP_MAX = 32;
 function curveNorm(spec){
   spec = spec || {};
   var c = function(v, hi){ v = +v; if (!(v >= 0)) v = 0; return Math.min(hi, v); };
@@ -3534,7 +3536,7 @@ function curveWords(spec, tailBeats, headBeats){
   return w;
 }
 var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, snapBarNear: snapBarNear, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, barLanding: barLanding, loopContinuous: loopContinuous, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR,
-  curveAt: curveAt, curveNorm: curveNorm, curveIsDefault: curveIsDefault, curveWords: curveWords, cutShape: cutShape, CURVE_DEFAULT: CURVE_DEFAULT, CURVE_CAP: CURVE_CAP };
+  curveAt: curveAt, curveNorm: curveNorm, curveIsDefault: curveIsDefault, curveWords: curveWords, cutShape: cutShape, CURVE_DEFAULT: CURVE_DEFAULT, CURVE_CAP: CURVE_CAP, OVERLAP_MAX: OVERLAP_MAX };
 if (typeof module !== 'undefined' && module.exports){ module.exports = api; return; }
 
 /* ── browser wiring (display-only) ── */
@@ -3561,6 +3563,14 @@ function curveSet(k, spec){
   try{ localStorage.setItem(CUE_KEY, JSON.stringify(cues)); }catch(e){}
 }
 function rideCurve(outKey){ return curveGet(outKey) || curveGet('*'); }
+/* v4.33 overlap store: cues[key].bars on the LEAVING track; null = the planner's own 8 (4 on a short track) */
+function overlapSet(k, nb){
+  if (!k) return;
+  cues[k] = cues[k] || {};
+  if (nb == null) delete cues[k].bars; else cues[k].bars = nb;
+  if (!Object.keys(cues[k]).length) delete cues[k];
+  try{ localStorage.setItem(CUE_KEY, JSON.stringify(cues)); }catch(e){}
+}
 /* gridless (v4.4): a deck counts as analysed once its scan has finished — a gated or failed grid is a fact, not a wait */
 function analysed(d){ return !!(d && d.buffer && (d.scanDone || d.grid)); }
 function deckInfo(d){
@@ -3573,7 +3583,7 @@ function recInfo(rec){
   var c = cues[rec.id] || {};
   return { name: rec.name, bpm: rec.bpm, key: rec.key ? rec.key.camelot : null, rate: 1,
            dur: rec.dur || 0, grid: rec.grid && X.gridTrust(rec.bpm, rec.grid) ? rec.grid : null, gridDoubt: !!rec.grid && !X.gridTrust(rec.bpm, rec.grid),
-           cue: { 'in': c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut }, k: rec.id };
+           cue: { 'in': c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut, bars: c.bars }, k: rec.id };
 }
 /* ── panel markup, inserted after the aligned timeline ── */
 var sec = document.createElement('section');
@@ -3606,7 +3616,11 @@ sec.innerHTML =
   }).join('') + '</div>' +
   '<p id="nownext" aria-live="off"><b>now</b> <span id="nnNow">—</span> <b>next</b> <span id="nnNext">—</span></p>' +
   '<p id="queuestate" aria-live="off"></p>' +
-  '<canvas id="adjwave" height="120" role="img" aria-label="Rehearsal timeline: the outgoing track\'s ending on the top lane in red, the incoming track entering on the lower lane in blue, the overlapping crossfade window in purple, with the gain curves"></canvas>' +
+  '<canvas id="adjwave" height="120" title="Slide a lane sideways to push the tracks together (more overlap) or pull them apart (less)" role="img" aria-label="Rehearsal timeline: the outgoing track\'s ending on the top lane in red, the incoming track entering on the lower lane in blue, the overlapping crossfade window in purple, with the gain curves"></canvas>' +
+  '<div class="ovrow" role="group" aria-label="Overlap: how long both tracks play together"><span class="cuechip" id="ovchip"><b class="cuelbl">overlap</b>' +
+    '<button type="button" class="btn small" id="ovm" disabled aria-label="Pull the tracks apart: one bar less overlap">−</button><span class="cueval" id="ovv">—</span>' +
+    '<button type="button" class="btn small" id="ovp" disabled aria-label="Push the tracks together: one bar more overlap">+</button></span>' +
+    '<span class="cvwords" id="ovwords">slide a lane sideways: red right or blue left pushes the tracks together</span></div>' +
   '<div class="curverow" id="curverow" role="group" aria-label="Crossfade curve for the track on deck A when it leaves a mix">' +
     '<span class="cvlbl">curve · A leaving</span>' +
     '<label class="cvmix">mix <input type="range" id="cvmix" min="0" max="100" step="5" value="0" aria-label="Crossfade shape: 0 equal-power, 100 hard cut"> <span class="cueval" id="cvmixv">equal-power</span></label>' +
@@ -3644,7 +3658,11 @@ st.textContent =
   '.curverow .cvwords{ flex-basis:100%; color:#8a94a8; font-size:.62rem; }' +
   '#queuestate{ font-size:.66rem; color:#8a94a8; margin:.35rem 0 0; line-height:1.5; }' +
   '#queuestate b{ color:#c7cfe0; font-weight:600; }' +
-  '#adjwave{ width:100%; display:block; }' +
+  '#adjwave{ width:100%; display:block; cursor:grab; touch-action:pan-y; }' +
+  '#adjwave.sliding{ cursor:grabbing; }' +
+  '.ovrow{ display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; margin:.35rem 0 0; font-size:.7rem; }' +
+  '.ovrow .btn.small{ min-height:2.75rem; min-width:2.75rem; }' +
+  '.ovrow .cvwords{ color:#8a94a8; font-size:.62rem; }' +
   '.adjq{ list-style:none; margin:.3rem 0 0; padding:0 .6rem .5rem; display:flex; flex-direction:column; gap:.25rem; }' +
   '.adjq li{ font-size:.64rem; display:flex; gap:.6rem; flex-wrap:wrap; align-items:baseline; }' +
   '.adjq .sc{ font-variant-numeric:tabular-nums; min-width:2.2rem; }' +
@@ -3691,29 +3709,85 @@ function curveEdit(patch, why){
     if (curveGet('*')){ curveSet('*', null); statusMsg('shared default cleared — hand-offs without their own shape ride equal-power'); }
     else { curveSet('*', st.spec); statusMsg('"' + curveWords(st.spec, st.tail, st.head) + '" is now the default for every hand-off without its own shape'); }
     curveUI(); drawPreview(null); });
-  /* drag on the preview: near the tail handle → tail (snapped to A's beats), near the head handle → head (B's beats), elsewhere in the window → vertical = mix */
-  var drag = null;
+  /* drag on the preview: near the tail handle → tail (snapped to A's beats), near the head handle → head (B's beats),
+     v4.33 (pushedbutton): anywhere else on a lane → slide the overlap (red right / blue left = more); inside the window
+     the first move decides — sideways slides, up/down shapes the mix */
+  var drag = null, slide = null;
   wave.addEventListener('pointerdown', function(e){
-    var st = curveState(); if (!st.k || !PREVIEW_WIN || !st.dur) return;
-    var r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (PREVIEW_WIN.W / r.width), y = (e.clientY - r.top) * (PREVIEW_WIN.H / r.height), w = PREVIEW_WIN;
-    if (x < w.x0 - 8 || x > w.x1 + 8) return;
-    var tx = w.x0 + st.spec.tailOut * (w.x1 - w.x0), hx = w.x0 + (1 - st.spec.headIn) * (w.x1 - w.x0);
-    drag = Math.abs(x - tx) <= 10 && y < w.H / 2 ? 'tailOut' : Math.abs(x - hx) <= 10 && y >= w.H / 2 ? 'headIn' : 'mix';
+    var g = RH_WIN; if (!g) return;
+    var r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (g.W / r.width), y = (e.clientY - r.top) * (g.H / r.height);
+    var st = curveState(), w = PREVIEW_WIN, cv = !!(st.k && w && st.dur), m = 'slide';
+    if (cv && x >= w.x0 - 8 && x <= w.x1 + 8){
+      var tx = w.x0 + st.spec.tailOut * (w.x1 - w.x0), hx = w.x0 + (1 - st.spec.headIn) * (w.x1 - w.x0);
+      m = Math.abs(x - tx) <= 10 && y < w.H / 2 ? 'tailOut' : Math.abs(x - hx) <= 10 && y >= w.H / 2 ? 'headIn' : 'pick';
+    }
+    if ((m === 'slide' || m === 'pick') && (LIVE || dry)){
+      if (m === 'slide'){ statusMsg('the overlap is locked while ' + (LIVE ? 'an auto-mix' : 'a dry-run') + ' is running'); return; }
+      m = 'mix';
+    }
+    drag = m; slide = { x: x, y: y, side: y < g.H / 2 ? 'out' : 'in', s: null };
     try{ wave.setPointerCapture(e.pointerId); }catch(e2){}
     e.preventDefault();
   });
   wave.addEventListener('pointermove', function(e){
-    if (!drag) return; var st = curveState(), w = PREVIEW_WIN; if (!st.k || !w) return;
+    if (!drag) return;
+    if (drag === 'pick' || drag === 'slide'){
+      var g = RH_WIN; if (!g || !slide) return;
+      var r0 = wave.getBoundingClientRect(), x0 = (e.clientX - r0.left) * (g.W / r0.width), y0 = (e.clientY - r0.top) * (g.H / r0.height);
+      if (drag === 'pick'){ var ax0 = Math.abs(x0 - slide.x), ay0 = Math.abs(y0 - slide.y); if (Math.max(ax0, ay0) < 6) return; drag = ax0 >= ay0 ? 'slide' : 'mix'; }
+      if (drag === 'slide'){
+        if (!slide.s){ slide.s = slideStart(slide.side, true); if (!slide.s){ drag = null; return; } wave.classList.add('sliding'); }
+        slideTo(slide.s, x0 - slide.x); return;
+      }
+    }
+    var st = curveState(), w = PREVIEW_WIN; if (!st.k || !w) return;
     var r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (w.W / r.width), y = (e.clientY - r.top) * (w.H / r.height), frac = (x - w.x0) / (w.x1 - w.x0), p = {};
     if (drag === 'mix') p.mix = Math.round(Math.max(0, Math.min(1, 1 - y / w.H)) * 20) / 20;
     else if (drag === 'tailOut'){ var bs = curveBeatSec(decks.A); p.tailOut = Math.max(0, Math.min(0.5, Math.round(frac * st.dur / bs) * bs / st.dur)); }
     else { var bs2 = curveBeatSec(decks.B); p.headIn = Math.max(0, Math.min(0.5, Math.round((1 - frac) * st.dur / bs2) * bs2 / st.dur)); }
     curveEdit(p);
   });
-  function endDrag(){ drag = null; }
+  function endDrag(){ var was = slide && slide.s; drag = null; slide = null; wave.classList.remove('sliding'); if (was) slideEnd(); }
   wave.addEventListener('pointerup', endDrag); wave.addEventListener('pointercancel', endDrag);
 })();
 function statusMsg(t){ $('#adjstatus').textContent = t; }
+/* ── v4.33 overlap slide (pushedbutton): push the lanes together for more overlap, pull them apart for less.
+   Whole bars. The END of the mix stays where it was on the leaving song and the start moves: a saved mix-out cue
+   moves with it (−N bars for +N bars of overlap), without one the planner's end-anchored default already does. ── */
+function overlapAuto(out){ var ob = out.grid ? 240 / (out.grid.bpm * (out.rate || 1)) : 240 / (out.bpm || 120); return out.dur < 24 * ob ? 4 : 8; }   /* = planTransition's own pick */
+function slideStart(side, hold){
+  if (LIVE || dry) return null;
+  var v = rehearseView(false); if (!v || !RH_WIN) return null;
+  var p = v.plan, bpm = v.out.grid ? v.out.grid.bpm : v.out.bpm, cu = cueGet(v.out.k), outBar = p.dur / p.bars;
+  if (hold) rhHold = { side: side, bars0: p.bars, tMin: RH_WIN.tMin, tMax: RH_WIN.tMax };
+  return { k: v.out.k, name: decks[v.outL].name || ('deck ' + v.outL), side: side, bars0: p.bars, cur: p.bars, out0: cu.out, trackBar: 240 / (bpm || 120),
+           pxBar: RH_WIN.pxBar, auto: overlapAuto(v.out), max: Math.min(OVERLAP_MAX, Math.max(1, Math.floor(v.out.dur / outBar) - 2)) };
+}
+function slideBars(sl, nb){
+  nb = Math.max(1, Math.min(sl.max, nb)); if (nb === sl.cur) return false;
+  sl.cur = nb;
+  overlapSet(sl.k, nb === sl.auto ? null : nb);
+  if (sl.out0 != null) cueSet(sl.k, 'out', Math.max(0, sl.out0 - (nb - sl.bars0) * sl.trackBar));
+  renderCues(); curveUI(); drawPreview(null);
+  var p2 = (currentPlan() || {}).plan;
+  statusMsg('overlap ' + nb + (nb === 1 ? ' bar' : ' bars') + (p2 ? ' (' + p2.dur.toFixed(1) + ' s)' : '') + ' for "' + sl.name + '" leaving' + (nb === sl.auto ? ' — back to the default' : ' — saved with the track'));
+  return true;
+}
+function slideTo(sl, dx){ return slideBars(sl, sl.bars0 + Math.round(dx / sl.pxBar) * (sl.side === 'out' ? 1 : -1)); }
+function slideEnd(){ if (!rhHold) return; rhHold = null; drawPreview(null); }
+function overlapStep(d){
+  var sl = slideStart('out', false);
+  if (!sl){ statusMsg(LIVE || dry ? 'the overlap is locked while ' + (LIVE ? 'an auto-mix' : 'a dry-run') + ' is running' : 'load and analyse both decks to set the overlap'); return; }
+  if (!slideBars(sl, sl.bars0 + d)) statusMsg('overlap ' + sl.cur + (sl.cur === 1 ? ' bar' : ' bars') + ' — ' + (d < 0 ? 'that is the shortest it goes' : 'that is the longest this track allows'));
+}
+function overlapUI(v){
+  var m = document.getElementById('ovm'), pb = document.getElementById('ovp'), val = document.getElementById('ovv'); if (!m) return;
+  var lock = !v || !!LIVE || !!dry, t = v ? v.plan.bars + (v.plan.bars === 1 ? ' bar' : ' bars') + (cueGet(v.out.k).bars ? ' · set' : '') : '—';
+  if (m.disabled !== lock){ m.disabled = lock; pb.disabled = lock; }
+  if (val.textContent !== t) val.textContent = t;
+}
+document.getElementById('ovm').addEventListener('click', function(){ overlapStep(-1); });
+document.getElementById('ovp').addEventListener('click', function(){ overlapStep(1); });
 /* mini peak cache — keyed on CONTENT identity, never surface size (the v2.7 lesson) */
 var pkCache = {};
 function miniPeaks(d){
@@ -3802,6 +3876,15 @@ function rehearseAxis(v){
   var tMax = Math.max(d + after, Math.min(aLeft + 1.5, d * 2.5 + after));
   return { tMin: -lead, tMax: tMax, aLeft: aLeft, endInView: aLeft <= tMax, endsMidMix: aLeft < d };
 }
+/* v4.33: while a lane is being slid the view holds still — sliding red keeps the blue entry put (t = 0), sliding blue
+   keeps the red track put, so the lane under the finger is the one that moves. Re-zooms if the window outgrows it. */
+var rhHold = null, RH_WIN = null;
+function rhAxis(v){
+  var a = rehearseAxis(v); if (!rhHold) return a;
+  var sh = rhHold.side === 'in' ? (v.plan.bars - rhHold.bars0) * v.plan.dur / v.plan.bars : 0, t0 = rhHold.tMin + sh, t1 = rhHold.tMax + sh;
+  if (t0 > -0.25 || t1 < v.plan.dur + 0.25) return a;
+  return { tMin: t0, tMax: t1, aLeft: a.aLeft, endInView: a.aLeft <= t1, endsMidMix: a.endsMidMix };
+}
 function rhFit(t, maxW){ if (wctx.measureText(t).width <= maxW) return t; while (t.length > 1 && wctx.measureText(t + '…').width > maxW) t = t.slice(0, -1); return t + '…'; }
 function rhTag(t, x, y, col){ var w = wctx.measureText(t).width; wctx.fillStyle = RH.box; wctx.fillRect(x - 3, y - 10, w + 6, 13); wctx.fillStyle = col; wctx.fillText(t, x, y); return w; }
 function rhCurve(pt, col){   /* a gain curve with a dark underlay, so it reads over the purple overlap */
@@ -3821,13 +3904,15 @@ function drawPreview(prog, waitSec){
   }
   var W = wave.width = wave.clientWidth || 600, H = wave.height;
   wctx.fillStyle = RH.bg; wctx.fillRect(0, 0, W, H);
-  if (!v){ PREVIEW_WIN = null; wctx.fillStyle = '#8b93a7'; wctx.font = '11px system-ui'; wctx.fillText('load + analyse both decks to rehearse the hand-off', 12, H / 2);
+  if (!v){ PREVIEW_WIN = null; RH_WIN = null; overlapUI(null); wctx.fillStyle = '#8b93a7'; wctx.font = '11px system-ui'; wctx.fillText('load + analyse both decks to rehearse the hand-off', 12, H / 2);
     rhLabel('Rehearsal timeline: load and analyse both decks to rehearse the hand-off'); return; }
-  var p = v.plan, ax = rehearseAxis(v), span = ax.tMax - ax.tMin, od = decks[v.outL], id = decks[v.innL];
+  var p = v.plan, ax = rhAxis(v), span = ax.tMax - ax.tMin, od = decks[v.outL], id = decks[v.innL];
   var xAt = function(t){ return (t - ax.tMin) / span * W; };
   var wx0 = xAt(0), wx1 = xAt(p.dur), spec = rideCurve(v.out.k), mid = Math.round(H / 2), hh = mid - 8;
   /* the curve editor shapes deck A's exit — its drag handles only exist while A is the outgoing deck (top lane) */
   PREVIEW_WIN = v.outL === 'A' ? { x0: wx0, x1: wx1, W: W, H: H, tMin: ax.tMin, tMax: ax.tMax } : null;
+  RH_WIN = { x0: wx0, x1: wx1, W: W, H: H, tMin: ax.tMin, tMax: ax.tMax, pxBar: p.dur / p.bars / span * W };
+  overlapUI(v);
   /* the overlap band behind both lanes */
   wctx.fillStyle = RH.band; wctx.fillRect(wx0, 0, wx1 - wx0, H);
   var N = Math.max(40, Math.floor(W / 3));   /* whole-pixel bars: crisp, and exact colours */
@@ -3884,7 +3969,7 @@ function drawPreview(prog, waitSec){
   if (wctx.measureText(bl).width > rroom) bl = rhFit(v.innL + ' in · ' + (id.name || ''), rroom);
   rhTag(bl, Math.max(6, W - wctx.measureText(bl).width - 6), H - 6, RH.incTxt);
   /* overlap label centred on the divider */
-  var ol = 'overlap · ' + p.bars + ' bars · ' + p.dur.toFixed(1) + ' s', ow = wctx.measureText(ol).width, oc = Math.max(ow / 2 + 4, Math.min(W - ow / 2 - 4, (wx0 + wx1) / 2));
+  var ol = 'overlap ⇆ ' + p.bars + (p.bars === 1 ? ' bar · ' : ' bars · ') + p.dur.toFixed(1) + ' s', ow = wctx.measureText(ol).width, oc = Math.max(ow / 2 + 4, Math.min(W - ow / 2 - 4, (wx0 + wx1) / 2));
   wctx.fillStyle = RH.bg; wctx.fillRect(oc - ow / 2 - 4, mid - 7, ow + 8, 14);
   wctx.fillStyle = RH.overTxt; wctx.fillText(ol, oc - ow / 2, mid + 4);
   if (prog != null){
@@ -4370,7 +4455,7 @@ CHAIN.timer = setInterval(chainTick, 250);
 root.__ADJ = { HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
-  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
+  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rhAxis: rhAxis, get rhWin(){ return RH_WIN; }, get rhHold(){ return rhHold; }, slideStart: slideStart, slideTo: slideTo, slideBars: slideBars, slideEnd: slideEnd, overlapStep: overlapStep, overlapSet: overlapSet, overlapAuto: overlapAuto, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
   liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor, barLanding: barLanding, snapBarNear: snapBarNear, loopContinuous: loopContinuous, liveLoop: liveLoop };
 })(typeof window !== 'undefined' ? window : this);
 </script>
