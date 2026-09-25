@@ -536,7 +536,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.31 · 2026-09-25 · 27d7712b0</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.32 · 2026-09-25 · staged</span>
 </footer>
 
 <script id="dsp">
@@ -3606,7 +3606,7 @@ sec.innerHTML =
   }).join('') + '</div>' +
   '<p id="nownext" aria-live="off"><b>now</b> <span id="nnNow">—</span> <b>next</b> <span id="nnNext">—</span></p>' +
   '<p id="queuestate" aria-live="off"></p>' +
-  '<canvas id="adjwave" height="84" role="img" aria-label="Transition preview: outgoing deck A strip above incoming deck B strip, the planned crossfade window shaded, with the gain curves"></canvas>' +
+  '<canvas id="adjwave" height="120" role="img" aria-label="Rehearsal timeline: the outgoing track\'s ending on the top lane in red, the incoming track entering on the lower lane in blue, the overlapping crossfade window in purple, with the gain curves"></canvas>' +
   '<div class="curverow" id="curverow" role="group" aria-label="Crossfade curve for the track on deck A when it leaves a mix">' +
     '<span class="cvlbl">curve · A leaving</span>' +
     '<label class="cvmix">mix <input type="range" id="cvmix" min="0" max="100" step="5" value="0" aria-label="Crossfade shape: 0 equal-power, 100 hard cut"> <span class="cueval" id="cvmixv">equal-power</span></label>' +
@@ -3639,7 +3639,7 @@ st.textContent =
   '.curverow{ display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; margin:.35rem 0 0; font-size:.7rem; }' +
   '.curverow .cvlbl{ font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; color:#8a94a8; }' +
   '.curverow .cvmix{ display:inline-flex; align-items:center; gap:.3rem; }' +
-  '.curverow input[type=range]{ width:7rem; min-height:2.75rem; accent-color:#e0b64f; }' +
+  '.curverow input[type=range]{ width:7rem; min-height:2.75rem; accent-color:#f2604a; }' +
   '.curverow .btn.small{ min-height:2.75rem; }' +
   '.curverow .cvwords{ flex-basis:100%; color:#8a94a8; font-size:.62rem; }' +
   '#queuestate{ font-size:.66rem; color:#8a94a8; margin:.35rem 0 0; line-height:1.5; }' +
@@ -3768,6 +3768,51 @@ function rehearseView(useNow){
   v.outSpan = p.dur * outRate; v.inSpan = p.dur * innRate;
   return v;
 }
+/* v4.32 rehearsal timeline (pushedbutton, 2026-09-23: "outgoing track on the left, emphasizing the song's ending;
+   incoming track on the right in blue; overlapping waveform regions in purple"). ONE shared time axis in real seconds,
+   t = 0 where the overlap starts, zoomed on the hand-off. Top lane = the OUTGOING deck: red before the overlap, purple
+   while both play, faded after, and an END line where its song stops (or a note saying how far off it is). Lower lane =
+   the INCOMING deck: ghosted before it enters, purple in the overlap, solid blue after. Direction, anchors, rates and the
+   bar-line lead all come from rehearseView (v4.19) unchanged, so the dry run, ⚡ and this picture still agree. Display
+   only: it reads buffers and never touches a deck. PREVIEW_WIN still spans the overlap and the curve handles keep their
+   lanes (tail on top, head below), so the curve editor's drags work as before (they exist while A is outgoing). */
+var RH = { out: '#f2604a', outDim: 'rgba(242,96,74,.28)', outTxt: '#f7a193', inc: '#5aa2f0', incGhost: 'rgba(90,162,240,.16)', incTxt: '#a3cbf6',
+           over: '#b27cf2', band: 'rgba(178,124,242,.14)', edge: 'rgba(178,124,242,.85)', overTxt: '#dcc4fa', bg: '#101216', box: 'rgba(16,18,22,.84)' };
+var winPk = {}, winPkKeys = [];
+function rangePeaks(d, t0, t1, n){   /* peaks of d's track between t0..t1 (track seconds) in n columns; -1 = outside the track */
+  var key = (d._crateId || d.name || '?') + ':' + d.buffer.length + ':' + t0.toFixed(3) + ':' + t1.toFixed(3) + ':' + n;
+  if (winPk[key]) return winPk[key];
+  var ch = d.buffer.getChannelData(0), sr = d.buffer.sampleRate, out = new Float32Array(n);
+  for (var i = 0; i < n; i++){
+    var a = Math.floor((t0 + (t1 - t0) * i / n) * sr), b = Math.floor((t0 + (t1 - t0) * (i + 1) / n) * sr), m = 0;
+    if (b <= 0 || a >= ch.length){ out[i] = -1; continue; }
+    a = Math.max(0, a); b = Math.min(ch.length, Math.max(b, a + 1));
+    for (var j = a, stp = Math.max(1, Math.floor((b - a) / 48)); j < b; j += stp){ var v2 = Math.abs(ch[j]); if (v2 > m) m = v2; }
+    out[i] = m;
+  }
+  winPk[key] = out; winPkKeys.push(key);
+  if (winPkKeys.length > 16) delete winPk[winPkKeys.shift()];
+  return out;
+}
+/* pure: the visible span in REAL seconds from the start of the overlap. A lead-in of 0.6 × the overlap (≥ 6 s, never
+   before the song starts), room after it, stretched to take in the outgoing song's end when that is near. */
+function rehearseAxis(v){
+  var d = v.plan.dur, r = v.outRate || 1, aLeft = (v.out.dur - v.outAt) / r;
+  var lead = Math.min(Math.max(0, v.outAt / r), Math.max(d * 0.6, 6)), after = Math.max(d * 0.6, 6);
+  var tMax = Math.max(d + after, Math.min(aLeft + 1.5, d * 2.5 + after));
+  return { tMin: -lead, tMax: tMax, aLeft: aLeft, endInView: aLeft <= tMax, endsMidMix: aLeft < d };
+}
+function rhFit(t, maxW){ if (wctx.measureText(t).width <= maxW) return t; while (t.length > 1 && wctx.measureText(t + '…').width > maxW) t = t.slice(0, -1); return t + '…'; }
+function rhTag(t, x, y, col){ var w = wctx.measureText(t).width; wctx.fillStyle = RH.box; wctx.fillRect(x - 3, y - 10, w + 6, 13); wctx.fillStyle = col; wctx.fillText(t, x, y); return w; }
+function rhCurve(pt, col){   /* a gain curve with a dark underlay, so it reads over the purple overlap */
+  [RH.box, col].forEach(function(c, k){
+    wctx.strokeStyle = c; wctx.lineWidth = k ? 1.5 : 4; wctx.beginPath();
+    for (var gx = 0; gx <= 60; gx++){ var q = pt(gx / 60); gx ? wctx.lineTo(q[0], q[1]) : wctx.moveTo(q[0], q[1]); }
+    wctx.stroke();
+  });
+  wctx.lineWidth = 1;
+}
+function rhLabel(t){ if (wave.getAttribute('aria-label') !== t) wave.setAttribute('aria-label', t); }
 function drawPreview(prog, waitSec){
   var v = dry && dry.v ? dry.v : rehearseView(false);
   if (v && LIVE && LIVE.plan){   /* a running ⚡ mix: draw ITS frozen plan, from where it really starts */
@@ -3775,48 +3820,84 @@ function drawPreview(prog, waitSec){
     v.outAt = LIVE.sch ? LIVE.sch.tNext : LIVE.plan.outStart; v.mode = 'live';
   }
   var W = wave.width = wave.clientWidth || 600, H = wave.height;
-  wctx.fillStyle = '#101216'; wctx.fillRect(0, 0, W, H);
-  if (!v){ PREVIEW_WIN = null; wctx.fillStyle = '#5a6272'; wctx.font = '11px system-ui'; wctx.fillText('load + analyse both decks to preview the hand-off', 12, H / 2); return; }
-  var p = v.plan, win = {};
-  win[v.outL] = { x0: v.outAt / v.out.dur, x1: (v.outAt + v.outSpan) / v.out.dur, col: '#e0b64f' };
-  win[v.innL] = { x0: v.inAt / v.inn.dur, x1: (v.inAt + v.inSpan) / v.inn.dur, col: '#7ec97a' };
-  [['A', decks.A, 4], ['B', decks.B, H / 2 + 4]].forEach(function(row){
-    var L = row[0], y0 = row[2], hh = H / 2 - 8, pk = miniPeaks(row[1]), w = win[L];
-    for (var x = 0; x < 240; x++){
-      var fr = x / 240, inWin = fr >= w.x0 && fr <= w.x1;
-      wctx.fillStyle = inWin ? w.col : '#3a4152';
-      var h2 = Math.max(1, pk[x] * hh);
-      wctx.fillRect(x / 240 * W, y0 + (hh - h2) / 2, Math.max(1, W / 240 - 1), h2);
+  wctx.fillStyle = RH.bg; wctx.fillRect(0, 0, W, H);
+  if (!v){ PREVIEW_WIN = null; wctx.fillStyle = '#8b93a7'; wctx.font = '11px system-ui'; wctx.fillText('load + analyse both decks to rehearse the hand-off', 12, H / 2);
+    rhLabel('Rehearsal timeline: load and analyse both decks to rehearse the hand-off'); return; }
+  var p = v.plan, ax = rehearseAxis(v), span = ax.tMax - ax.tMin, od = decks[v.outL], id = decks[v.innL];
+  var xAt = function(t){ return (t - ax.tMin) / span * W; };
+  var wx0 = xAt(0), wx1 = xAt(p.dur), spec = rideCurve(v.out.k), mid = Math.round(H / 2), hh = mid - 8;
+  /* the curve editor shapes deck A's exit — its drag handles only exist while A is the outgoing deck (top lane) */
+  PREVIEW_WIN = v.outL === 'A' ? { x0: wx0, x1: wx1, W: W, H: H, tMin: ax.tMin, tMax: ax.tMax } : null;
+  /* the overlap band behind both lanes */
+  wctx.fillStyle = RH.band; wctx.fillRect(wx0, 0, wx1 - wx0, H);
+  var N = Math.max(40, Math.floor(W / 3));   /* whole-pixel bars: crisp, and exact colours */
+  var po = rangePeaks(od, v.outAt + ax.tMin * v.outRate, v.outAt + ax.tMax * v.outRate, N);
+  var pi = rangePeaks(id, v.inAt + ax.tMin * v.innRate, v.inAt + ax.tMax * v.innRate, N);
+  var norm = function(pk){ var m = 0.05; for (var k = 0; k < pk.length; k++) if (pk[k] > m) m = pk[k]; return m; };
+  var no = norm(po), ni = norm(pi);
+  for (var i = 0; i < N; i++){
+    var t = ax.tMin + (i + 0.5) / N * span, x = Math.round(i / N * W), cw = Math.max(1, Math.round((i + 1) / N * W) - x - 1), inWin = t >= 0 && t <= p.dur;
+    if (po[i] >= 0){   /* outgoing: its ending — solid red before the mix, purple while both play, faded once the mix is done */
+      var h1 = Math.max(1, po[i] / no * hh);
+      wctx.fillStyle = inWin ? RH.over : t < 0 ? RH.out : RH.outDim;
+      wctx.fillRect(x, 4 + (hh - h1) / 2, cw, h1);
     }
-    wctx.fillStyle = '#8b93a7'; wctx.font = '10px system-ui';
-    wctx.fillText(L + (L === v.outL ? ' out' : ' in') + ' · ' + (row[1].name || ''), 6, y0 + 10);
-  });
-  /* gain curves across the OUTGOING window (the curve ⚡ would ride = the outgoing track's shape, equal-power by default) + the ghost fader */
-  var oy = v.outL === 'A' ? 0 : H / 2, iy = v.outL === 'A' ? H / 2 : 0;
-  var wx0 = win[v.outL].x0 * W, wx1 = win[v.outL].x1 * W, spec = rideCurve(v.out.k);
-  /* the curve editor shapes deck A's exit — its drag handles only exist while A is the outgoing deck */
-  PREVIEW_WIN = v.outL === 'A' ? { x0: wx0, x1: wx1, W: W, H: H } : null;
-  wctx.strokeStyle = 'rgba(224,182,79,.9)'; wctx.beginPath();
-  for (var gx = 0; gx <= 60; gx++){ var t = gx / 60, g = curveAt(t, spec); var X2 = wx0 + t * (wx1 - wx0), Y2 = oy + H / 2 - g.a * (H / 2 - 10); gx ? wctx.lineTo(X2, Y2) : wctx.moveTo(X2, Y2); }
-  wctx.stroke();
-  wctx.strokeStyle = 'rgba(126,201,122,.9)'; wctx.beginPath();
-  for (gx = 0; gx <= 60; gx++){ var t2 = gx / 60, g2 = curveAt(t2, spec); var X3 = wx0 + t2 * (wx1 - wx0), Y3 = iy + H / 2 - g2.b * (H / 2 - 10); gx ? wctx.lineTo(X3, Y3) : wctx.moveTo(X3, Y3); }
-  wctx.stroke();
+    if (pi[i] >= 0){   /* incoming: silent (ghosted) before its mix-in, purple in the overlap, solid blue after */
+      var h2 = Math.max(1, pi[i] / ni * hh);
+      wctx.fillStyle = inWin ? RH.over : t < 0 ? RH.incGhost : RH.inc;
+      wctx.fillRect(x, mid + 4 + (hh - h2) / 2, cw, h2);
+    }
+  }
+  /* window edges + lane divider */
+  wctx.fillStyle = RH.edge; wctx.fillRect(Math.round(wx0) - 1, 0, 2, H); wctx.fillRect(Math.round(wx1) - 1, 0, 2, H);
+  wctx.fillStyle = 'rgba(255,255,255,.06)'; wctx.fillRect(0, mid, W, 1);
+  /* gain curves across the overlap (the curve ⚡ would ride = the outgoing track's shape, equal-power by default) */
+  rhCurve(function(u){ var g = curveAt(u, spec); return [wx0 + u * (wx1 - wx0), mid - g.a * (mid - 10)]; }, RH.out);
+  rhCurve(function(u){ var g = curveAt(u, spec); return [wx0 + u * (wx1 - wx0), H - g.b * (mid - 10)]; }, RH.inc);
   if (spec && PREVIEW_WIN){   /* handles: tail on the outgoing lane, head on the incoming lane */
     var n = curveNorm(spec), tx = wx0 + n.tailOut * (wx1 - wx0), hx = wx0 + (1 - n.headIn) * (wx1 - wx0);
-    wctx.fillStyle = '#e0b64f'; wctx.fillRect(tx - 3, 4, 6, H / 2 - 8);
-    wctx.fillStyle = '#7ec97a'; wctx.fillRect(hx - 3, H / 2 + 4, 6, H / 2 - 8);
+    wctx.fillStyle = RH.bg; wctx.fillRect(tx - 4, 3, 8, mid - 6); wctx.fillRect(hx - 4, mid + 3, 8, mid - 6);
+    wctx.fillStyle = RH.out; wctx.fillRect(tx - 3, 4, 6, mid - 8);
+    wctx.fillStyle = RH.inc; wctx.fillRect(hx - 3, mid + 4, 6, mid - 8);
   }
+  wctx.font = '10px system-ui';
+  /* the outgoing song's ending: an END line where its track stops, or how far past the view it is */
+  var endTxt;
+  if (ax.endInView){
+    var ex = xAt(ax.aLeft);
+    wctx.fillStyle = RH.out; wctx.fillRect(Math.round(ex) - 1, 2, 2, mid - 4);
+    var et = (ax.endsMidMix ? 'song ends mid-mix · ' : 'end · ') + fmtT(v.out.dur), ew = wctx.measureText(et).width;
+    rhTag(et, Math.max(4, Math.min(W - ew - 4, ex - ew - 6)), mid - 12, RH.outTxt);
+    endTxt = ax.endsMidMix ? 'runs out ' + (p.dur - ax.aLeft).toFixed(1) + ' s before the overlap ends' : 'ends ' + Math.max(0, ax.aLeft - p.dur).toFixed(1) + ' s after the overlap';
+  } else {
+    var rem = v.out.dur - (v.outAt + ax.tMax * v.outRate), rt = 'end ' + fmtT(v.out.dur) + ' · ' + fmtT(rem) + ' past the view →', rw = wctx.measureText(rt).width;
+    rhTag(rt, W - rw - 6, mid - 12, RH.outTxt);
+    endTxt = 'ends at ' + fmtT(v.out.dur) + ', past the view';
+  }
+  /* lane labels on top: outgoing top-left, incoming bottom-right — the long form where it fits beside the overlap,
+     else the short v4.19 form ("A out · name"), trimmed to the free space */
+  var lroom = Math.max(wx0 - 12, W * 0.3), rroom = Math.max(W - wx1 - 12, W * 0.3);
+  var al = v.outL + ' · ' + (od.name || '') + ' · outgoing';
+  if (wctx.measureText(al).width > lroom) al = rhFit(v.outL + ' out · ' + (od.name || ''), lroom);
+  rhTag(al, 6, 14, RH.outTxt);
+  var bl = 'incoming · ' + (id.name || '') + ' · ' + v.innL;
+  if (wctx.measureText(bl).width > rroom) bl = rhFit(v.innL + ' in · ' + (id.name || ''), rroom);
+  rhTag(bl, Math.max(6, W - wctx.measureText(bl).width - 6), H - 6, RH.incTxt);
+  /* overlap label centred on the divider */
+  var ol = 'overlap · ' + p.bars + ' bars · ' + p.dur.toFixed(1) + ' s', ow = wctx.measureText(ol).width, oc = Math.max(ow / 2 + 4, Math.min(W - ow / 2 - 4, (wx0 + wx1) / 2));
+  wctx.fillStyle = RH.bg; wctx.fillRect(oc - ow / 2 - 4, mid - 7, ow + 8, 14);
+  wctx.fillStyle = RH.overTxt; wctx.fillText(ol, oc - ow / 2, mid + 4);
   if (prog != null){
     var fx = wx0 + prog * (wx1 - wx0);
-    wctx.strokeStyle = '#fff'; wctx.lineWidth = 2;
-    wctx.beginPath(); wctx.moveTo(fx, 0); wctx.lineTo(fx, H); wctx.stroke(); wctx.lineWidth = 1;
     var g3 = curveAt(prog, spec), gl = {}; gl[v.outL] = g3.a; gl[v.innL] = g3.b;
-    wctx.fillStyle = '#d5d9e4'; wctx.font = '10px system-ui';
     var txt = waitSec != null ? 'fader parked · ' + v.innL + ' starts on ' + (v.wrap ? v.outL + '\'s loop wrap' : 'the next bar line') + ' in ' + waitSec.toFixed(1) + ' s'
-            : 'ghost fader ' + Math.round(prog * 100) + '% · bar ' + Math.min(p.bars, Math.floor(prog * p.bars) + 1) + '/' + p.bars + ' · A ' + gl.A.toFixed(2) + ' · B ' + gl.B.toFixed(2);
-    wctx.fillText(txt, Math.min(W - wctx.measureText(txt).width - 4, Math.max(4, fx + 6)), 12);
+            : (W < 560 ? 'ghost ' : 'ghost fader ') + Math.round(prog * 100) + '% · bar ' + Math.min(p.bars, Math.floor(prog * p.bars) + 1) + '/' + p.bars + ' · A ' + gl.A.toFixed(2) + ' · B ' + gl.B.toFixed(2);
+    rhTag(txt, Math.min(W - wctx.measureText(txt).width - 4, Math.max(4, fx + 6)), 30, '#e4e7ee');
+    wctx.strokeStyle = '#fff'; wctx.lineWidth = 2;   /* the ghost fader goes on last: nothing may hide it */
+    wctx.beginPath(); wctx.moveTo(fx, 0); wctx.lineTo(fx, H); wctx.stroke(); wctx.lineWidth = 1;
   }
+  rhLabel('Rehearsal timeline, ' + v.outL + ' to ' + v.innL + ': the outgoing track on deck ' + v.outL + ' (red, top lane, left) ' + endTxt +
+    '; the incoming track on deck ' + v.innL + ' (blue, lower lane, right) enters at ' + fmtT(v.inAt) + '; they overlap for ' + p.bars + ' bars, ' + p.dur.toFixed(1) + ' s (purple), with the gain curves');
 }
 /* ── dry-run: rehearses the hand-off ⚡ would do, on screen and at its real pace; audio untouched ── */
 var dry = null, dryDurMs = null;   /* dryDurMs: probe seam only — null = the plan's real length */
@@ -4131,6 +4212,14 @@ $('#adjdry').addEventListener('click', dryRun);
 setInterval(renderCues, 1200);
 renderCues();
 setTimeout(function(){ drawPreview(null); }, 400);
+/* v4.32: while nothing rehearses or mixes, redraw the rehearsal window when what it shows changes — a track loads or
+   finishes analysing, a rate or cue moves, the direction flips, the panel is resized. Display only. */
+var rhSigLast = '';
+function rhSig(){
+  return ['A', 'B'].map(function(L){ var d = decks[L]; return d && d.buffer ? [d._crateId || d.name, d.buffer.length, analysed(d), (d.rate || 1).toFixed(4), d.grid ? d.grid.bpm : 0, JSON.stringify(cueGet(cueKey(d)))].join(':') : '-'; }).join('|') +
+    '|' + rehearseDir().outL + '|' + wave.clientWidth;
+}
+setInterval(function(){ if (dry || LIVE) return; var s2 = rhSig(); if (s2 !== rhSigLast){ rhSigLast = s2; drawPreview(null); } }, 700);
 /* ── QUEUE STATE explainer (v4.6): every queue this page runs, in plain words, in one place ── */
 function queueState(){
   var el = document.getElementById('queuestate'); if (!el) return;
@@ -4281,7 +4370,7 @@ CHAIN.timer = setInterval(chainTick, 250);
 root.__ADJ = { HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
-  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, set dryDurMs(v){ dryDurMs = v; },
+  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
   liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor, barLanding: barLanding, snapBarNear: snapBarNear, loopContinuous: loopContinuous, liveLoop: liveLoop };
 })(typeof window !== 'undefined' ? window : this);
 </script>
