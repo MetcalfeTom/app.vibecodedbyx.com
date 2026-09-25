@@ -694,6 +694,10 @@ class Tetris {
         }
     }
 
+    escHtml(v) {
+        return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     async loadLeaderboard() {
         const container = document.getElementById('tetris-leaderboard');
 
@@ -724,8 +728,8 @@ class Tetris {
 
             container.innerHTML = leaderboard.map((entry, index) => `
                 <div style="display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #e0e0e0;">
-                    <span style="flex: 1;">${index + 1}. ${entry.name || 'Anonymous'}</span>
-                    <span style="font-weight: bold;">${entry.score.toLocaleString()}</span>
+                    <span style="flex: 1;">${index + 1}. ${this.escHtml(entry.name || 'Anonymous')}</span>
+                    <span style="font-weight: bold;">${this.escHtml(entry.score.toLocaleString())}</span>
                 </div>
             `).join('');
         } catch (error) {
