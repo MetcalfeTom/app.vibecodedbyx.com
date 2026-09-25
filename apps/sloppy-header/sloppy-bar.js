@@ -4414,6 +4414,7 @@
 
     // Listen for postMessage events from parent page (iframe apps can emit to header)
     window.addEventListener('message', function(e) {
+      if (e.origin !== location.origin) return;   /* only our own apps; a foreign page must not read the user context or push sync events */
       if (!e.data || !e.data.type) return;
       // Allow apps to emit sync events via postMessage
       if (e.data.type === 'sloppy-sync-emit' && e.data.event) {
