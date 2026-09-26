@@ -25,3 +25,4 @@ Branching story: Alex at a crossroads, city vs countryside. 90 scenes, 52 ending
 
 ## notes
 - Headless probe: `scratchpad/gaunt/novprobe.js` walks the shortest route to an ending (BFS over `story`).
+- 2026-09-26: removed the `<script src="supabase-config.js">` tag: the local config is an ES module (starts with import), so as a classic script it threw a SyntaxError on every visit, and nothing in the story ever used it. Load sweep now errs:0. (The local supabase-config.js file is left in place, unused.)
