@@ -579,6 +579,33 @@ def bake_system_partial() -> dict:
     return sys_block
 
 
+def bake_pressure() -> dict:
+    """/proc/pressure/{cpu,memory,io} → {res: {some|full: {avg10, avg60,
+    avg300, total}}}, the shape index.html (VITALS / PULSE / PSI panel)
+    reads. Empty dict if PSI isn't exposed; caller keeps the old block."""
+    out = {}
+    for res in ('cpu', 'memory', 'io'):
+        txt = safe_read(f'/proc/pressure/{res}')
+        if not txt:
+            continue
+        block = {}
+        for line in txt.splitlines():
+            parts = line.split()
+            if not parts or parts[0] not in ('some', 'full'):
+                continue
+            vals = dict(kv.split('=', 1) for kv in parts[1:] if '=' in kv)
+            try:
+                block[parts[0]] = {
+                    'avg10': float(vals['avg10']), 'avg60': float(vals['avg60']),
+                    'avg300': float(vals['avg300']), 'total': int(vals['total']),
+                }
+            except (KeyError, ValueError):
+                pass
+        if block:
+            out[res] = block
+    return out
+
+
 def regen() -> int:
     if not OUT.exists():
         print(f'[regen] {OUT} not found — refusing to create from scratch', file=sys.stderr)
@@ -616,6 +643,12 @@ def regen() -> int:
             existing = data.get('system') or {}
             existing.update(sys_part)
             data['system'] = existing
+
+        psi = bake_pressure()
+        if psi:
+            rt = data.get('runtime') or {}
+            rt['pressure'] = psi
+            data['runtime'] = rt
     except subprocess.CalledProcessError as e:
         print(f'[regen] git/du failure: {e}', file=sys.stderr)
         return 2
