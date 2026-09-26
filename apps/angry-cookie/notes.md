@@ -17,3 +17,4 @@
 - Stages: Happy (0-10), Denial (11-20), Anger (21-40), Rage (41-60), Bargaining (61-80), Depression (81-100), Sadness (101-120), Acceptance (121+)
 - Each stage has unique messages and emoji faces
 - Final stage (Acceptance) shows cookie has achieved inner peace
+- 2026-09-26: CSP now allows Google Fonts (Rubik was silently blocked); removed old 'View All Apps' backlink
