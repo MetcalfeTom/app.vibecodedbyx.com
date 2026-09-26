@@ -211,6 +211,7 @@
 - 7 progressive bosses with increasing HP
 - Live at https://sloppy.live/chat-boss-battle
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
+- 2026-09-26: first-visit how-to card (bottom-centre; lifted above the music button on phones): tap anywhere to fire at the boss, banana bounces hit 2x, the chat bots fight alongside you. Visitors can't type the listed chat commands, so tap-to-shoot was undiscoverable (esp. on phones with no gun cursor). Shows once (localStorage chat-boss-battle_howto_seen), pointer-events:none, fades on the first tap or after 12 s.
 
 ## Features
 - **Chat Commands**: Simple commands like !attack, !slash, !fireball
