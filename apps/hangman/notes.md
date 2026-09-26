@@ -13,6 +13,7 @@
 - 2026-09-26 · team pill in together mode: words solved – hanged over the last 20 shared rounds (+ the current one once it ends), refreshed every 20 s. First live hour: 2–3.
 - 2026-09-26 · phones: categories are one swipeable strip (no heading, no counts), smaller gallows and a two-line feed, so the word and keyboard are on the first screen.
 - 2026-09-26 · live badge: in solo mode the together button shows a pulsing count of players who guessed in the last 5 min (read-only query every 30 s, no sign-in; `window.hmNetClient`).
+- 2026-09-26 · auto-next in together mode: when a shared word you guessed in ends, the end screen counts down (7–9.5 s, jittered per player) and starts the next word by itself. Players who sat the word out get no countdown, so idle tabs never create rounds. The first timer to fire creates the round, and the others' nextTogether sees it and joins. The button or Enter still skips the wait.
 - Earlier: neon solo game, 8 built-in categories, custom lists in localStorage.
 
 ## how together mode works
