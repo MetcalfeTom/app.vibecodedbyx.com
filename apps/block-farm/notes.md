@@ -6,6 +6,7 @@
 
 - 2026-09-26: Day/night (Gleam is a Stardew player): HUD clock runs 6am → 2am over the 90 s day (`clockHour()` from `S.time % F.DAY_LEN`), golden-hour orange tint from 5pm, navy night tint (0.6) from 7:30pm with 14 twinkling fireflies, page background darkens via `--night` + `body.night`; news nudges at 6am ("rise and shine"), 8pm ("sun is setting") and midnight ("farmers should be in bed"). Purely visual, growth unchanged.
 - 2026-09-26: Chicken coop: coop tile fixed at (11,8) bottom-right (old saves: a crop there refunds its seed, a farmer standing there steps left). Hens 20c at the stall (max 4). Using the coop collects waiting eggs and fills the trough with wheat from the bag (3 per hen); at every sunrise each hen eats 1 wheat and lays an egg (egg cap 4/hen). Eggs sell for 8 with "sell everything". Hens are purely visual in the UI (`flock`): peck around grass/dirt, waddle into the coop after 8:20pm, come out at sunrise; drawn 1.35×. Eggs HUD chip appears once you own a hen. Local og.png (golden-hour farm with hens) replaces the remote pollinations image
+- 2026-09-26: Sound (v1.3): WebAudio-only sfx, no files — till thunk, water swish, can refill bubbles, plant pop, harvest two-note, coin ping at the stall/sell, cluck on coop use + hen purchase, a synthesized rooster at 6am when you own hens, soft ambient clucks every 7–16 s while hens are out. `sfxFor(msg)` picks the sound from the action message. Footer "sound on/off" toggle stored in `bf_muted`. Buildstamp bumped to v1.3
 ## issues
 - Big-dt growth: advancing one stage per tick AND decrementing wetness before the growth check made a 40 s seam step grow nothing — growth now loops stages and uses min(dt, wet-before). Real play never hit it (dt clamped to .25) but tab-away catch-up would have.
 - rAF's first timestamp can be BELOW a performance.now() taken at script start under virtual time → negative dt → day 0. Clamp dt ≥ 0 in the loop and in tick().
@@ -13,4 +14,4 @@
 - Tiny5 digits read as dotted glyphs at small sizes — HUD numbers use the body font.
 
 ## todos
-- Crop wilting if left dry too long; sprinkler block; more crops (berries); sound (clucks!); sell prices that drift per day; hens with names; golden egg rarity.
+- Crop wilting if left dry too long; sprinkler block; more crops (berries); sell prices that drift per day; hens with names; golden egg rarity.
