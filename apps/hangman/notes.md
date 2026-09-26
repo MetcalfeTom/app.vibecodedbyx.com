@@ -14,6 +14,7 @@
 - 2026-09-26 · phones: categories are one swipeable strip (no heading, no counts), smaller gallows and a two-line feed, so the word and keyboard are on the first screen.
 - 2026-09-26 · live badge: in solo mode the together button shows a pulsing count of players who guessed in the last 5 min (read-only query every 30 s, no sign-in; `window.hmNetClient`).
 - 2026-09-26 · auto-next in together mode: when a shared word you guessed in ends, the end screen counts down (7–9.5 s, jittered per player) and starts the next word by itself. Players who sat the word out get no countdown, so idle tabs never create rounds. The first timer to fire creates the round, and the others' nextTogether sees it and joins. The button or Enter still skips the wait.
+- 2026-09-26 · Fantasy Realm word list (voice's idea, with fannar22 in chat): 33 names from our fantasy-realm-3d game (Snagtooth, Duskhollow, Falsity, Doug, Chain Shirt, Hammer Mark…). Playable solo and together. Add new realm names here when the game grows.
 - Earlier: neon solo game, 8 built-in categories, custom lists in localStorage.
 
 ## how together mode works
