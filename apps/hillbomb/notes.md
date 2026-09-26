@@ -10,6 +10,8 @@ Tatum's idea (2026-09-26): "a game like subway surfers, except you are running d
 
 - v1.2: game-over and pause cards sit on a dark panel (unreadable over bright houses), HUD hidden behind them; cable car starts gentler (7 m/s + 0.095/s) so one early car bonk isn't instantly fatal.
 
+- v1.3: easter egg — now and then (after 120 m, ~1 in 30 s) a paper cup tumbles down the sidewalk ahead of you, bouncing higher off the crossings (from a story on stream about a cup that got away on a steep street). Visual only.
+
 ## balance (fast-forward bots, `__hb.sim(dt)`)
 - idle bot caught at ~83 s / 1 km; careful bot ~3.5 min / 4.7 km, top ~146 km/h; wall-spam bot 2–3 min.
 
