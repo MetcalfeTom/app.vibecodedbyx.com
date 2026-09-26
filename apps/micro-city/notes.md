@@ -18,6 +18,7 @@
 - 2026-01-20: Added save/load feature using localStorage (auto-loads on start)
 - 2026-01-20: MAJOR OVERHAUL - Added challenging mechanics (fires, crime, pollution, power, services, bankruptcy)
 - 2026-01-19: Initial creation - SimCity style city builder
+- 2026-09-26: phones (≤600px): toolbar is one swipeable row of 46px-tall tool buttons (section labels hidden, cost under the name, right-edge fade, no scrollbar) instead of five stacked boxes eating ~240px above the map; desktop layout unchanged.
 
 ## features (v2 - Challenge Update)
 - 36x36 grid city building
@@ -184,4 +185,3 @@
 
 ## todos
 - More goals / a few rotating challenges after the 12 (e.g. zero pollution city)
-- 2026-09-26: phones (≤600px): toolbar is one swipeable row of 46px-tall tool buttons (section labels hidden, cost under the name, right-edge fade, no scrollbar) instead of five stacked boxes eating ~240px above the map; desktop layout unchanged.
