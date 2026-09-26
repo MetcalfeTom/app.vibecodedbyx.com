@@ -30,6 +30,10 @@ Endless 2D paper-plane glider. Built on stream 2026-09-26 from Tatum's (sloppy.l
 
 - 2026-09-26: landscape phones (Tatum: hold it sideways): compact cards under 460px height (3-column stats, buttons in one row, cards scroll if needed); portrait touch screens get a 'turn your phone sideways' tip on the title card. Checked at 760×320 (the real height under the 40px site bar).
 
+- 2026-09-26: pause card shows the whole flight as one small drawing (x squeezed to fit, heights stretched; red = swoops). The global `canvas{position:fixed}` rule was scoped to `#c` so the second canvas stays in the card.
+- 2026-09-26: hills ~35% lower (Tatum: 'the next hill always feels unfairly tall'). Measured the rise from each valley to the next peak: before, the median was 480–520 past 100 m (needs ~650 speed at the valley); now 250–320 (max ~440), so a solid swoop clears a typical hill and the tallest need a greedy dive. Terrain: 130/35/8 amplitudes, growth capped at ×1.35 over 5 km. Careful bot: a crash every ~50 s, clean runs up to ~1 km.
+- Height can't run away (Tatum's worry): every boost needs a trip down to the grass, and drag (KD·v²) eats very high speeds; the climb from v=700 is ~580 at most.
+
 ## issues
 - Sim (bot pilots, scratchpad nd-flow.js), v1 numbers:
   - A careful bot crashes about every 30 s with 700–870 m clean runs.
