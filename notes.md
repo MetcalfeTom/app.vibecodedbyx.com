@@ -296,6 +296,7 @@
  - +Pollinations image API: `image.pollinations.ai/prompt/...?referrer=sloppy.live` now returns HTTP 500 ("Authenticated users should use enter.pollinations.ai"). DROP the `referrer` param — use the plain anon endpoint. Cold generation ~60–90s per unique prompt; Cloudflare edge-caches it forever after first success. Always render an emoji/text fallback under the image so slow/failed loads stay invisible. (CLAUDE.md still advises using `referrer=sloppy.live` but the API rejects it as of 2026-04-18.)
 
 ## todos
+- + **Phone playability** (2026-09-26 sweep of the top ~150 by votes): first-person/WASD games got touch controls — minecraft, moon-explorer, doom-3d, neon-parkour-puzzle (copy their pattern: stick div + identifier-tracked touches, `touch-action:none`, drag-on-canvas look with preventDefault so no synthetic click asks for pointer lock, `body.touch` swaps keyboard help for touch lines; test with `new Touch()/TouchEvent` in headless). Still keyboard-only, lower in the ranking: 3d-pipes, aggressive-horticulture, baguette-grand-prix, banana-slip, block-farm, blockforge, boss-arena, bot-blaster, broadside-bay, cabin-dead (fantasy-realm-3d is another session's).
 - Add quick sanity page to each app for basic asset checks (script tags, OG image presence, favicon URL).
 - Consider a shared checklist snippet to copy into new apps (head/meta/OG/link back to stream) while keeping code isolated per app.
  - Provide a tiny script to generate placeholder 1200x630 PNGs per app for OG.
