@@ -15,6 +15,7 @@
   - Added debug overlay with population counts and reproduction log
   - Fixed child size calculation: children were dying immediately due to multiplicative size decay below death threshold (5). Added Math.max(10, ...) floor
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
+- 2026-09-26: first-visit how-to line above the shape bar (choose a shape, tap the darkness to spawn it, watch what they become). The old corner instructions are near-invisible (#333) and hidden on phones. Shows once (localStorage mysterious-life_howto_seen), pointer-events:none, fades on the first tap in the world or after 12 s.
 
 ## issues
 - Child size decay was causing multi-generational population collapse (FIXED)
