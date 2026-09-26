@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-09-26: Mayor's goals — 12-step Win95 goal window over the map (roads → homes → power → 50 people → shops → factory → park → 300 → police+fire → 1,000 → expand → 5,000), each pays a small grant ($200–$3000). `goalIdx` saved with the city; old saves without it skip goals they already meet (no grant). Minimize button in the title bar
 - 2026-09-26: og-image.png added — the og:image meta pointed at a file that never existed, so shares had no picture. Screenshot of a sample town (headless, twemoji swapped in for the emoji glyphs).
 - 2026-01-20: Road connectivity matters! Buildings without road access generate no income/population, red corner indicator
 - 2026-01-20: REBALANCE v4 - Perfect scaling: crime/fire/happiness now scale with city size, diminishing returns on parks
@@ -179,3 +180,6 @@
 
 ## issues
 - None yet
+
+## todos
+- More goals / a few rotating challenges after the 12 (e.g. zero pollution city)
