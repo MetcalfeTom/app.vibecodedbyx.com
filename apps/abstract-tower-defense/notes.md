@@ -14,6 +14,7 @@
   - Keys: 1/2/3 pick tower, Space start wave, F speed, U upgrade, S sell, Esc close panel
   - Rebalanced with a greedy bot: basic range 110/rate 36, rapid 0.5 dmg/rate 12, enemy hp (2+1.6w)×(1+max(0,w−6)×0.1). Bot with 14 towers survives to ~wave 15.
   - New og-image.png from a real wave-5 frame
+- 2026-09-26: FROST tower (key 4, 120c): icy pulse every 45 ticks hits everything in range 85 for 0.3 dmg and slows it 35/45/55% (LV1-3) for 75 ticks; tanks only half as slowed. Slowed enemies get a pale ring. Panel shows SLOW %
 
 ## issues
 - Canvas colors must be 6-digit hex: code appends 2-digit alpha (`color + '44'`); `#0ff44` is invalid and canvas silently keeps the previous fillStyle
@@ -21,7 +22,7 @@
 
 ## todos
 - Maybe a second map / path choice
-- Maybe special abilities (slow field, splash tower)
+- Maybe a splash tower (frost slow is done)
 - Leaderboard for best wave (supabase) if chat wants one
 
 ## notes
