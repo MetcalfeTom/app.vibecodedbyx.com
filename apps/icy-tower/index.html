@@ -201,6 +201,11 @@
       line-height: 1.6;
       margin-bottom: 8px;
     }
+    .modal p.modal-tips {
+      color: #9fe3ff;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+    }
 
     .modal-controls {
       margin: 24px 0;
@@ -436,6 +441,7 @@
           <div class="modal-icon">🧊</div>
           <h1>ICY TOWER</h1>
           <p>Climb the frozen tower before it crumbles beneath you.</p>
+          <p class="modal-tips">Run first to jump higher · bounce off the walls · skip floors for combos</p>
           <div class="modal-controls">
             <kbd>A</kbd> <kbd>D</kbd> Move · <kbd>Space</kbd> Jump · <kbd>P</kbd> Pause
           </div>
@@ -544,7 +550,8 @@
       jumpForce: -14,
       moveAccel: 1.1,
       moveDecel: 0.88,
-      maxSpeed: 7,
+      maxSpeed: 9,
+      runUp: 0.12,
       airControl: 0.7,
       cameraSmooth: 0.08,
     };
@@ -621,7 +628,7 @@
       return difficulty;
     }
 
-    function createPlatform(y) {
+    function createPlatform(y, n) {
       const difficulty = getDifficulty(y);
 
       // Platform width: starts wide (15-30% of screen), shrinks to (8-15% of screen)
@@ -634,7 +641,7 @@
       const x = Math.random() * (W - w);
       const type = Math.random() < 0.12 ? 'special' : 'normal';
       const hue = 180 + Math.random() * 40; // Cyan-blue range
-      return { x, y, w, h: 12, type, hue, glow: 0 };
+      return { x, y, w, h: 12, type, hue, glow: 0, n, bumps: [Math.random() * 2, Math.random() * 2, Math.random() * 2] };
     }
 
     function getPlatformGap(y) {
@@ -665,18 +672,24 @@
       player.trail = [];
       player.glowIntensity = 0;
 
-      game.platforms.push({ x: 0, y: H * 0.75, w: W, h: 16, type: 'ground', hue: 200, glow: 0 });
+      game.platforms.push({ x: 0, y: H * 0.75, w: W, h: 16, type: 'ground', hue: 200, glow: 0, n: 0, bumps: [1, 0.5, 1.5] });
+      game.landedN = 0;
+      game.topN = 40;
+      game.scroll = 0;
+      game.scrollLevel = 0;
+      game.scrollClock = 0;
+      game.hurryT = 0;
 
       // First platform at fixed height above ground (easily reachable with basic jump)
       const groundY = H * 0.75;
       let y = groundY - 70; // ~70px above ground, well within jump range
-      const firstPlat = createPlatform(y);
+      const firstPlat = createPlatform(y, 1);
       game.platforms.push(firstPlat);
 
       // Generate remaining platforms with progressive difficulty
       for (let i = 0; i < 39; i++) {
         y -= getPlatformGap(y);
-        const plat = createPlatform(y);
+        const plat = createPlatform(y, i + 2);
         game.platforms.push(plat);
         if (Math.random() < 0.1 && y < H - 100) {
           const types = ['double', 'slow', 'boost'];
@@ -741,8 +754,8 @@
       if (game.comboTimer > 0) {
         game.comboTimer -= dt;
         if (game.comboTimer <= 0) {
-          game.combo = Math.max(1, game.combo - 1);
-          game.comboTimer = game.combo > 1 ? 2000 : 0;
+          game.combo = 1;
+          game.comboTimer = 0;
         }
       }
 
@@ -754,8 +767,14 @@
 
       // Player movement
       const accel = PHYSICS.moveAccel * (player.grounded ? 1 : PHYSICS.airControl);
-      if (input.left) { player.vx -= accel * dtNorm; player.facingRight = false; }
-      else if (input.right) { player.vx += accel * dtNorm; player.facingRight = true; }
+      // past cruise speed you only gain slowly (and barely in the air): a real run-up buys the big jumps
+      const cruise = PHYSICS.maxSpeed * 0.62;
+      const push = (dir) => {
+        const fast = Math.sign(player.vx) === dir && Math.abs(player.vx) >= cruise;
+        player.vx += dir * (fast ? PHYSICS.runUp * (player.grounded ? 1 : 0.3) : accel) * dtNorm;
+      };
+      if (input.left) { push(-1); player.facingRight = false; }
+      else if (input.right) { push(1); player.facingRight = true; }
       else { player.vx *= Math.pow(PHYSICS.moveDecel, dtNorm); }
 
       const maxSpd = PHYSICS.maxSpeed * (game.effects.boost > 0 ? 1.25 : 1);
@@ -765,7 +784,8 @@
       if (input.jumpPressed) {
         const jumpMod = game.effects.boost > 0 ? 1.25 : 1;
         if (player.grounded) {
-          player.vy = PHYSICS.jumpForce * jumpMod;
+          const run = Math.max(0, Math.min(1, (Math.abs(player.vx) - 4) / 5));
+          player.vy = PHYSICS.jumpForce * jumpMod * (1 + 0.4 * run);
           player.grounded = false;
           player.jumpsLeft = game.effects.double > 0 ? 1 : 0;
           player.glowIntensity = 1;
@@ -788,9 +808,20 @@
       player.x += player.vx * dtNorm;
       player.y += player.vy * dtNorm;
 
-      // Wrap
-      if (player.x < -player.width) player.x = W;
-      if (player.x > W) player.x = -player.width;
+      // Walls: in the air you bounce off and keep your speed, on the ground you just stop
+      if (player.x < 0 || player.x > W - player.width) {
+        const hitLeft = player.x < 0;
+        player.x = hitLeft ? 0 : W - player.width;
+        if (!player.grounded && Math.abs(player.vx) > 2.5) {
+          player.vx = -player.vx * 0.92;
+          player.facingRight = player.vx > 0;
+          player.glowIntensity = 0.7;
+          playSound(260, 0.05, 'triangle', 0.08);
+          for (let i = 0; i < 6; i++) spawnParticle(hitLeft ? 2 : W - 2, player.y + player.height / 2, (hitLeft ? 1 : -1) * (1 + Math.random() * 3), (Math.random() - 0.5) * 4, 'rgba(180, 235, 255, 0.9)', 0.4, 2 + Math.random() * 2);
+        } else {
+          player.vx = 0;
+        }
+      }
 
       // Trail
       if (Math.abs(player.vy) > 3 || Math.abs(player.vx) > 4) {
@@ -821,14 +852,25 @@
           landed = true;
           plat.glow = 1;
 
-          const screenY = plat.y - game.cameraY;
-          if (screenY < H * 0.55 && plat.type !== 'ground') {
-            game.floor++;
-            game.combo = Math.min(10, game.combo + 1);
-            game.comboTimer = 2500;
-            playSound(300 + game.combo * 50, 0.06, 'sine');
+          if (plat.n > game.landedN) {
+            const jumped = plat.n - game.landedN;
+            game.landedN = plat.n;
+            game.floor = Math.max(game.floor, plat.n);
+            if (jumped >= 2) {
+              game.combo = Math.min(10, game.combo + 1);
+              game.comboTimer = 3000;
+              playSound(300 + game.combo * 50, 0.06, 'sine');
+            } else {
+              game.combo = 1;
+              game.comboTimer = 0;
+              playSound(300, 0.04, 'sine', 0.06);
+            }
             spawnLandingParticles(player.x + player.width / 2, player.y + player.height);
             checkAchievements();
+          } else if (plat.n < game.landedN) {
+            game.landedN = plat.n;
+            game.combo = 1;
+            game.comboTimer = 0;
           }
           break;
         }
@@ -851,6 +893,19 @@
         }
       }
 
+      // The tower starts sinking once you are a few floors up, and speeds up every 30 s
+      if (game.floor >= 5) {
+        game.scrollClock += dt;
+        const level = 1 + Math.floor(game.scrollClock / 30000);
+        if (level !== game.scrollLevel) {
+          game.scrollLevel = level;
+          if (level > 1 && level <= 8) { game.hurryT = 1800; playSound(880, 0.08, 'square', 0.06); playSound(660, 0.12, 'square', 0.06); }
+        }
+        game.scroll = Math.min(3.6, 0.55 + (game.scrollLevel - 1) * 0.45);
+      }
+      if (game.hurryT > 0) game.hurryT -= dt;
+      game.cameraTargetY -= game.scroll * (game.effects.slow > 0 ? 0.5 : 1) * dtNorm;
+
       // Camera
       game.cameraTargetY = Math.min(game.cameraTargetY, player.y - H * 0.45);
       game.cameraY += (game.cameraTargetY - game.cameraY) * PHYSICS.cameraSmooth * dtNorm;
@@ -863,7 +918,7 @@
       while (game.platforms.length < 45) {
         const topY = Math.min(...game.platforms.map(p => p.y));
         const newY = topY - getPlatformGap(topY);
-        const plat = createPlatform(newY);
+        const plat = createPlatform(newY, ++game.topN);
         game.platforms.push(plat);
         if (Math.random() < 0.1) {
           const types = ['double', 'slow', 'boost'];
@@ -935,6 +990,18 @@
 
       const cam = game.cameraY;
 
+      // Ice walls: you bounce off these
+      const wallGrad = ctx.createLinearGradient(0, 0, 7, 0);
+      wallGrad.addColorStop(0, 'rgba(170, 225, 255, 0.45)');
+      wallGrad.addColorStop(1, 'rgba(170, 225, 255, 0)');
+      ctx.fillStyle = wallGrad;
+      ctx.fillRect(0, 0, 7, H);
+      ctx.save();
+      ctx.translate(W, 0);
+      ctx.scale(-1, 1);
+      ctx.fillRect(0, 0, 7, H);
+      ctx.restore();
+
       // Christmas platforms with snow
       for (const plat of game.platforms) {
         const py = plat.y - cam;
@@ -943,7 +1010,7 @@
         const glowAmount = 6 + plat.glow * 15;
 
         // Glow - alternating red and green
-        const isRed = plat.hue % 2 === 0;
+        const isRed = Math.floor(plat.hue) % 2 === 0;
         ctx.shadowColor = plat.type === 'special' ? '#ffd700' : (isRed ? '#ff4444' : '#44ff44');
         ctx.shadowBlur = glowAmount;
 
@@ -981,8 +1048,20 @@
         for (let i = 0; i < 3; i++) {
           const bx = plat.x + (plat.w / 4) * (i + 0.5);
           ctx.beginPath();
-          ctx.arc(bx, py - 2, 4 + Math.random() * 2, 0, Math.PI * 2);
+          ctx.arc(bx, py - 2, 4 + plat.bumps[i], 0, Math.PI * 2);
           ctx.fill();
+        }
+
+        // Every tenth floor carries its number
+        if (plat.n > 0 && plat.n % 10 === 0) {
+          ctx.font = '900 10px Orbitron, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#fff';
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+          ctx.shadowBlur = 3;
+          ctx.fillText(String(plat.n), plat.x + plat.w / 2, py + plat.h / 2 + 1);
+          ctx.shadowBlur = 0;
         }
       }
 
@@ -1130,6 +1209,21 @@
       ctx.fillRect(player.width / 2 - 10, player.height / 2 - 8, 8, 8);
 
       ctx.restore();
+
+      // HURRY UP! when the tower speeds up
+      if (game.hurryT > 0) {
+        const k = Math.min(1, game.hurryT / 400, (1800 - game.hurryT) / 150);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, k);
+        ctx.font = '900 ' + Math.round(Math.min(44, W * 0.1)) + 'px Orbitron, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffd700';
+        ctx.shadowColor = '#ff4444';
+        ctx.shadowBlur = 18;
+        ctx.fillText('HURRY UP!', W / 2, H * 0.2 + Math.sin(game.hurryT / 60) * 3);
+        ctx.restore();
+      }
 
       // HUD
       document.getElementById('floor').textContent = game.floor;
