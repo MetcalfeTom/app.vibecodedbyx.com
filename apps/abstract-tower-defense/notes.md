@@ -17,7 +17,7 @@
 
 ## issues
 - Canvas colors must be 6-digit hex: code appends 2-digit alpha (`color + '44'`); `#0ff44` is invalid and canvas silently keeps the previous fillStyle
-- Portrait phones get a small board (fit-to-width 16:10); touch hit radius for towers is enlarged (15 css px)
+- Tall screens (portrait phones) turn the board 90° (`rot`): ctx transform maps world (x,y) → screen (H−y, x); toWorld/toCss/label() and health bars + level pips handle it. Touch hit radius for towers is enlarged (15 css px)
 
 ## todos
 - Maybe a second map / path choice
