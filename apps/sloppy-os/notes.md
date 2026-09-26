@@ -92,6 +92,7 @@
   - Walking uses real frame time (same speed at 60/120 Hz)
   - HUD: clock moved under the logo (it was hidden behind the LIVE button); icon-only SNAP/LIVE under 560px so the logo isn't covered
   - DOOR DIRECTORY: 🗝️ DOORS button (top-left, z above the start overlay) or M opens a <dialog> of all 60 doors, A–Z with search (Enter picks the first match); picking one drops you in front of that door facing it (works from the Sneaker Room too), desktop re-locks the pointer, phones stay in touch mode. Keys are ignored while typing in the search
+  - Foyer: stone walls like the hallway (per-wall `stoneWall(w,h)` clones keep 4-unit tiles), softer lilac marble + pillars (the white was glaring), transition walls beside the arch now face the foyer (they were turned 90° and left see-through gaps)
   - og.png (1200×630 real hallway render) replaces the emoji og:image; title "SloppyOS Mansion"
 
 ## features
