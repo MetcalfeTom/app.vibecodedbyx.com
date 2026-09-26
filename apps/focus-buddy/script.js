@@ -540,20 +540,83 @@ function attachEventListeners() {
   }
 
   if (els.ambientToggle && els.ambientAudio) {
+    // FocusFM streams a hosted track; if that can't play (offline, blocked, gone),
+    // a soft pad + brown-noise bed is made right in the browser instead
+    let playing = false;
+    let synth = null;
+    const setLabel = () => {
+      els.ambientToggle.textContent = playing ? "Pause FocusFM 🔇" : "Play FocusFM 🔊";
+    };
     els.ambientToggle.addEventListener("click", () => {
-      if (els.ambientAudio.paused) {
+      if (!playing) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!synth && AC) synth = { ctx: new AC(), master: null };
+        if (synth) synth.ctx.resume();
         els.ambientAudio
           .play()
           .then(() => {
-            els.ambientToggle.textContent = "Pause FocusFM 🔇";
+            playing = true;
+            setLabel();
           })
-          .catch((error) => console.warn("Audio playback blocked", error));
+          .catch(() => {
+            if (!synth) return;
+            if (!synth.master) buildSynthAmbient(synth);
+            synth.master.gain.setTargetAtTime(0.16, synth.ctx.currentTime, 0.8);
+            playing = true;
+            setLabel();
+          });
       } else {
         els.ambientAudio.pause();
-        els.ambientToggle.textContent = "Play FocusFM 🔊";
+        if (synth && synth.master) synth.master.gain.setTargetAtTime(0, synth.ctx.currentTime, 0.25);
+        playing = false;
+        setLabel();
       }
     });
   }
+}
+
+function buildSynthAmbient(synth) {
+  const ctx = synth.ctx;
+  const master = ctx.createGain();
+  master.gain.value = 0;
+  master.connect(ctx.destination);
+  // brown-noise bed, like distant rain
+  const len = ctx.sampleRate * 4;
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < len; i++) {
+    last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+    data[i] = last * 3.5;
+  }
+  const noise = ctx.createBufferSource();
+  noise.buffer = buf;
+  noise.loop = true;
+  const lowpass = ctx.createBiquadFilter();
+  lowpass.type = "lowpass";
+  lowpass.frequency.value = 520;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.value = 0.55;
+  noise.connect(lowpass).connect(noiseGain).connect(master);
+  noise.start();
+  // a slow, breathing A-major pad
+  [220, 277.18, 329.63, 440].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    osc.detune.value = (i - 1.5) * 4;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.045;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.05 + i * 0.03;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 0.03;
+    lfo.connect(lfoGain).connect(gain.gain);
+    osc.connect(gain).connect(master);
+    osc.start();
+    lfo.start();
+  });
+  synth.master = master;
 }
 
 async function hydrateSession() {
