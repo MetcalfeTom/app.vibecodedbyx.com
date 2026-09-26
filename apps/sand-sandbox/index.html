@@ -232,6 +232,10 @@
             <span class="material-dot" style="background:#228b22"></span>
             <span>Plant</span>
         </button>
+        <button class="material-btn" data-mat="seeds">
+            <span class="material-dot" style="background:radial-gradient(circle,#ffd23f 30%,#ff5fa2 32%)"></span>
+            <span>Seeds</span>
+        </button>
         <button class="material-btn" data-mat="eraser">
             <span class="material-dot" style="background:#1a1a1a;border:1px solid #444"></span>
             <span>Eraser</span>
@@ -256,7 +260,7 @@
     </div>
 
     <div class="status-bar">
-        <span class="tips">Click & drag to draw • Fire burns wood & oil • Water extinguishes fire • Acid dissolves most things</span>
+        <span class="tips">Click & drag to draw • Fire burns wood & oil • Water extinguishes fire • Wet seeds grow flowers • Acid dissolves most things</span>
         <span class="particle-count" id="particleCount">Particles: 0</span>
     </div>
 
@@ -275,13 +279,14 @@
         const H = canvas.height;
 
         // Material types
-        const EMPTY = 0, SAND = 1, WATER = 2, STONE = 3, FIRE = 4, LAVA = 5, ICE = 6, WOOD = 7, OIL = 8, ACID = 9, POWDER = 10, PLANT = 11, STEAM = 12;
+        const EMPTY = 0, SAND = 1, WATER = 2, STONE = 3, FIRE = 4, LAVA = 5, ICE = 6, WOOD = 7, OIL = 8, ACID = 9, POWDER = 10, PLANT = 11, STEAM = 12, SEED = 13, SPROUT = 14, FLOWER = 15;
 
         // Particle grid + color variation grid
         const grid = new Uint8Array(W * H);
         const colorVar = new Uint8Array(W * H); // 0-3 color variation per particle
         const moved = new Uint8Array(W * H); // tick stamp: a particle moves at most once per frame
         const vel = new Uint8Array(W * H);   // fall speed in quarter cells, travels with the particle
+        const life = new Uint8Array(W * H);  // how much taller a sprout will grow before it flowers
         let tick = 1;
 
         let currentMat = SAND;
@@ -304,10 +309,14 @@
             [ACID]: ['#7fff00', '#8aff1a', '#6be600', '#9fff33'],
             [POWDER]: ['#4a4a4a', '#3d3d3d', '#555555', '#424242'],
             [PLANT]: ['#228b22', '#2e9d2e', '#1a7a1a', '#3cb043'],
-            [STEAM]: ['#c8c8c8', '#d4d4d4', '#bcbcbc', '#e0e0e0']
+            [STEAM]: ['#c8c8c8', '#d4d4d4', '#bcbcbc', '#e0e0e0'],
+            [SEED]: ['#e2c044', '#d4b03a', '#ebcc55', '#c9a52f'],
+            [SPROUT]: ['#9be35a', '#a8ee66', '#8fd84e', '#b2f070'],
+            // one colour per flower: pink, yellow (the middle), violet, coral
+            [FLOWER]: ['#ff5fa2', '#ffd23f', '#b983ff', '#ff7a59']
         };
 
-        const matNames = { sand: SAND, water: WATER, stone: STONE, fire: FIRE, lava: LAVA, ice: ICE, wood: WOOD, oil: OIL, acid: ACID, powder: POWDER, plant: PLANT, eraser: EMPTY };
+        const matNames = { sand: SAND, water: WATER, stone: STONE, fire: FIRE, lava: LAVA, ice: ICE, wood: WOOD, oil: OIL, acid: ACID, powder: POWDER, plant: PLANT, seeds: SEED, eraser: EMPTY };
 
         const NEIGHBORS = [[0, 1], [0, -1], [1, 0], [-1, 0]];
         const SOLID_BRUSH = { [EMPTY]: 1, [STONE]: 1, [WOOD]: 1, [ICE]: 1, [PLANT]: 1 };
@@ -350,6 +359,23 @@
             vel[idx(x, ny)] = v;
         }
 
+        // A sprout that has run out of growth (or hit something) opens into a flower
+        function bloom(x, y) {
+            const petal = [0, 2, 3][Math.floor(Math.random() * 3)];
+            const r = 2 + Math.floor(Math.random() * 3);
+            for (let dy = -r; dy <= r; dy++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    const d = dx * dx + dy * dy;
+                    if (d > r * r + 1) continue;
+                    const t = get(x + dx, y + dy);
+                    if (d > 0 && t !== EMPTY && t !== WATER) continue;
+                    const i = idx(x + dx, y + dy);
+                    grid[i] = FLOWER; vel[i] = 0; moved[i] = tick;
+                    colorVar[i] = d <= r * r / 4 ? 1 : petal;
+                }
+            }
+        }
+
         // Draw with interpolation for smooth lines
         function draw(x, y) {
             const r = brushSize;
@@ -357,7 +383,7 @@
                 for (let dy = -r; dy <= r; dy++) {
                     if (dx*dx + dy*dy <= r*r) {
                         const px = Math.floor(x + dx), py = Math.floor(y + dy);
-                        if (SOLID_BRUSH[currentMat] || Math.random() < 0.4) {
+                        if (SOLID_BRUSH[currentMat] || Math.random() < (currentMat === SEED ? 0.03 : 0.4)) {
                             set(px, py, currentMat);
                         }
                     }
@@ -472,7 +498,7 @@
                                     }
                                 }
                             }
-                            if (neighbor === PLANT && Math.random() < 0.05) {
+                            if ((neighbor === PLANT || neighbor === SEED || neighbor === SPROUT || neighbor === FLOWER) && Math.random() < 0.05) {
                                 set(x + dx, y + dy, FIRE);
                             }
                         });
@@ -558,6 +584,47 @@
                             const growDir = [[0,-1],[1,0],[-1,0]][Math.floor(Math.random() * 3)];
                             if (get(x + growDir[0], y + growDir[1]) === EMPTY) {
                                 set(x + growDir[0], y + growDir[1], PLANT);
+                            }
+                        }
+                    }
+                    // SEED physics: falls like sand and sinks in water; once it is wet and resting on something, it sprouts
+                    else if (mat === SEED) {
+                        if (below === EMPTY) {
+                            fall(x, y);
+                        } else if (below === WATER || below === OIL) {
+                            swap(x, y, x, y + 1);
+                        } else if (below !== SEED && (above === WATER || left === WATER || right === WATER) && Math.random() < 0.02) {
+                            set(x, y, SPROUT);
+                            life[i0] = 30 + Math.floor(Math.random() * 70);
+                            moved[i0] = tick;
+                        } else if (belowL === EMPTY && Math.random() < 0.5) {
+                            swap(x, y, x - 1, y + 1);
+                        } else if (belowR === EMPTY && Math.random() < 0.5) {
+                            swap(x, y, x + 1, y + 1);
+                        }
+                    }
+                    // SPROUT physics: the growing tip climbs (through air or water), leaves a stem and the odd leaf, then flowers
+                    else if (mat === SPROUT) {
+                        if (Math.random() < 0.15) {
+                            if (life[i0] === 0) { bloom(x, y); continue; }
+                            const dx = Math.random() < 0.7 ? 0 : (Math.random() < 0.5 ? -1 : 1);
+                            const t = get(x + dx, y - 1);
+                            if (t === EMPTY || t === WATER) {
+                                const left0 = life[i0] - 1;
+                                set(x, y, PLANT);
+                                set(x + dx, y - 1, SPROUT);
+                                const ni = idx(x + dx, y - 1);
+                                life[ni] = left0; moved[ni] = tick;
+                                if (Math.random() < 0.15) { // a leaf reaching out and up
+                                    const s = Math.random() < 0.5 ? -1 : 1, len = 2 + Math.floor(Math.random() * 3);
+                                    for (let k = 1; k <= len; k++) {
+                                        const lx = x + s * k, ly = y - (k >> 1);
+                                        if (get(lx, ly) !== EMPTY && get(lx, ly) !== WATER) break;
+                                        set(lx, ly, PLANT);
+                                    }
+                                }
+                            } else {
+                                life[i0] = life[i0] > 8 ? life[i0] - 8 : 0; // blocked: try another way a few times, then flower
                             }
                         }
                     }
@@ -740,7 +807,7 @@
 
         // Keyboard shortcuts
         document.addEventListener('keydown', e => {
-            const shortcuts = { '1': 'sand', '2': 'water', '3': 'stone', '4': 'wood', '5': 'fire', '6': 'oil', '7': 'lava', '8': 'ice', '9': 'acid', '0': 'eraser' };
+            const shortcuts = { '1': 'sand', '2': 'water', '3': 'stone', '4': 'wood', '5': 'fire', '6': 'oil', '7': 'lava', '8': 'ice', '9': 'acid', '0': 'eraser', 's': 'seeds' };
             if (shortcuts[e.key]) {
                 document.querySelector('.material-btn.active')?.classList.remove('active');
                 document.querySelector(`[data-mat="${shortcuts[e.key]}"]`)?.classList.add('active');

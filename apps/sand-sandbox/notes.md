@@ -15,10 +15,12 @@
   - **water really puts fire out now** (the tip always claimed it): water touching fire turns those flames into steam or nothing and boils off itself 35% of the time; before, the water just vanished into steam and the fire kept going. Water reactions (lava → stone, fire) now run BEFORE movement and `continue` — they used to run after a swap on stale neighbour values, so they could hit the wrong cell.
   - Headless probe: 10 checks (fire ≤1 cell/frame, bottom-row water spreads, solid brush, 140k-grain frame ~20–28 ms in headless CPU, fall acceleration, landing, levelling, no errors).
 
+- 2026-09-26: **Seeds** (Fela asked for Sand Sandbox love): SEED falls like sand and sinks through water; once wet (water above/left/right) and resting on something that isn't another seed, 2%/frame it becomes a SPROUT with `life` 30–99 (new `life` Uint8Array, not moved by swap — sprouts never swap). The sprout tip climbs 15%/frame through air or water (70% straight up), leaves PLANT behind plus a 2–4-cell leaf now and then; blocked tips lose 8 life per try; at life 0 `bloom()` paints a round FLOWER (radius 2–4, yellow middle = colorVar 1, petals one of pink/violet/coral — colorVar is set explicitly, not random). Fire burns seeds/sprouts/flowers like plant. Seeds brush at 3% density so they sprinkle. Key S. Material ids now fill the 16-slot LUT (0–15) — a 17th material needs `new Uint32Array(32 * 4)`.
+
 ## issues
 - Grid is 800×500 at 1 cell per canvas pixel; big scenes cost ~20+ ms/frame on slow CPUs. If phones struggle, halve the grid (400×250 at 2px cells) — all physics is resolution-agnostic.
 - The old "Gravity: ON/OFF" toggle always paused the whole simulation; since 2026-09-26 it is labelled ⏸ Pause / ▶ Play (P or G), the variable is still `gravity`.
 - Tall water columns still take a few seconds to level (only surface/edge cells can move sideways).
 
 ## todos
-- Ideas: save/share a scene, more materials (sponge, seeds, electricity), wind, pause/step, bigger cells option on phones.
+- Ideas: save/share a scene, more materials (sponge, electricity), wind, pause/step, bigger cells option on phones.
