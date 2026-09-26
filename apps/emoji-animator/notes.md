@@ -7,6 +7,7 @@
 - 2026-09-26: three new presets — JAM (two head-bobs per loop, tilting left then right), PEEK (rises from the bottom edge, glances around, ducks back out of frame; smoothstep in/out, hidden ~6% of the loop), FLIP (coin-flip turn with a small hop; sx clamped away from 0). All seamless over t∈[0,1), node-swept for NaNs.
 - 2026-09-26: GIF 'edges for' choice — dark chat (default, blends alpha 24–254 onto Twitch dark #18181b), light chat (onto #fff, file gets -light), anywhere (sharp 1-bit cut at 128). The result preview sits on that chat colour.
 
+- 2026-09-26 v1.2: EFFECT row — hearts (three rising, alternating sides), sparkles (four twinkling corners), sweat (💦 slides down), anger (💢 throbs), zzz (two rising 💤), speed (white streaks behind the emote). Pure `FX[name](t)` → sprites in unit coords, seamless at t=0/1, drawn in screen space (they do not spin with the emote; speed lines draw behind). Baked into the GIF too; filename gets the effect (emote-bounce-sparkles-112.gif).
 ## issues
 - WebM recording unsupported on some iOS Safari — caught, status explains, PNG still works.
 - Emoji render varies by platform font (as Twitch emotes do by platform, so arguably a feature).
