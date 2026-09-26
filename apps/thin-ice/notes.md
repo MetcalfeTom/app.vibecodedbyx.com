@@ -21,6 +21,7 @@ Curling × minesweeper (Tatum's idea, 2026-09-26 stream). Top-down frozen lake a
 - v1.4: end-of-sheet reveal ripples up the lake row by row (with a creak) instead of popping in at once.
 - v1.5: lakes with ring goals (see rules), no guaranteed-safe button, more throw variance.
 - v1.6: sheet sits above the site bar (36px reserved at the bottom), hint says "pull down anywhere" (grabbing the stone at the bottom of a phone left no room to pull), and a rubber band shows the drag.
+- v1.7: phone vibration on clacks, creaks and splashes (off when muted or with reduced motion).
 
 ## issues
 - The creak hint may give away too much (a long slow approach cracks several squares). Watch chat; could make it probabilistic or narrower.
