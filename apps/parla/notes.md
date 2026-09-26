@@ -1,6 +1,22 @@
 # parla · notes
 
 ## log
+- 2026-09-26 v13.13.2: **phone layout + a lying toggle** (helper refresh pass, no chat ask). Found by
+  probing, not by reports: (1) the header battle strip was nowrap and ~423px wide, so on every phone
+  the page scrolled sideways and the ally sprite sat cut off past the left edge (negative overflow
+  can't be scrolled to). Now names ellipsize (max 9rem), the strip may wrap on desktop, and under
+  40rem each fighter is a grid nameplate (sprite | name over hp bar | Lv badge) while the combo chip
+  rides the header's top-right corner instead of reserving invisible room. (2) Under 34rem the eight
+  mode tabs are a 4×2 grid (was three ragged rows) — the flashcard and its buttons now fit a 390×844
+  screen without scrolling. (3) 📢 sentences toggle said "tap only" with aria-pressed="undefined" on
+  every fresh load while autoplay was actually ON: paintSentAuto() ran in the v12.4 top-level block
+  BEFORE `var sentAuto` was assigned (hoisted undefined), and the first click then "changed" nothing
+  visible. Repaint added right after the var is real. (4) "🌐 I speak" now reads before the language
+  dropdown (CSS order, no DOM move). Probe: multi-width iframe harness (320/390/768/1280, one headless
+  run) 84/84 — no h-scroll with longest ally+boss names, strip inside the viewport, chip overlaps
+  nothing, 8 mode buttons ≥44px + elementFromPoint hits, battle-fs still hides the tabs, 8-pane tour,
+  toggle boot/click/persist. PROBE GOTCHA: re-read clientWidth per pane — short panes drop the
+  scrollbar and cw jumps 375→390 (my first tour flagged two false overflows).
 - 2026-08-18 v13.13.1: **replay-lifecycle inspection** (chat: find the first-word-only
   bug, fix only CONFIRMED issues). Reproduce-first verdict: the reported first-word-only
   symptom did NOT reproduce — a 3-session async-timing repro (fake MediaRecorder with
