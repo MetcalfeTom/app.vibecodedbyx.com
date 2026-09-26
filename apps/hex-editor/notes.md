@@ -17,6 +17,7 @@ A ghost "writes" a small program (typewriter animation) and hides a classic secu
 
 - 2026-09-26: the ghost wears a witch hat (heks = witch in Dutch, marci's pun); it hops when you catch a curse. Share image re-shot with the hat. Autocomplete popup stays inside the editor on long lines.
 - 2026-09-26: sounds, synthesized with WebAudio (no files): a breath of air when a candle goes out, a wailing ghost when you catch a curse, a blip when suggestions pop up, a low chord when the last candle dies. 🔊 button in the header; mute saved in localStorage 'hexEditorMute' (separate from SAVE, so "forget everything" keeps it).
+- 2026-09-26: THE CANDY JAR — shared top 10 of best hauls (supabase table hex_editor_candy, one row per user_id; default RLS: read all, write own). Haul = best candy per program + best autocomplete run (max 42), so replaying a file can't pad it; ties go to whoever hit 42 first (perfect_at), then earliest. Twitch players show their handle (user_metadata.user_name/preferred_username/name); anonymous players get 'a nameless <soul> #nnn' from their id; no free-text names. Arrival only READS; anonymous sign-in happens only when there's candy to submit.
 
 ## issues
 - Scroll with into(el) (window.scrollTo), never scrollIntoView: the app also runs in an iframe on the Recall desktop, and scrollIntoView scrolls the parent page too.
@@ -25,6 +26,7 @@ A ghost "writes" a small program (typewriter animation) and hides a classic secu
 - On phones the grid needs minmax(0,1fr), or the code's min-content width scrolls the whole page sideways.
 - Autocomplete probe: gaunt/autoprobe.js + mkhexa.sh/runhexa.sh (#good full run, #bad 3 misses, #shot popup open).
 - Headless probe: scratchpad gaunt/hexprobe.js + runhex.sh (#menu, #win|i|top|ide|rev, #lose|i, #og|0). The BASIC gutter is empty, so compare the <code> text, not the whole line.
+- Probes: gameplay probe builds (mkhex.sh/mkhexa.sh) strip the candy-jar module — on 127.0.0.1 the anon session DID write real rows (2 test rows, table recreated). Live jar test = runjar.sh (hx.sloppy.live mapping) and it deletes its own row.
 
 ## todos
 - More autocomplete lines (BASIC skin not used yet; C++ SCORES.CPP added as line 9); a daily ghost (same 8 for everyone that day).
