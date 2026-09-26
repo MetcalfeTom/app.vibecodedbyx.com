@@ -8,6 +8,8 @@ Tatum's idea (2026-09-26): "a game like subway surfers, except you are running d
 
 - v1.1: sound (wind that opens with speed, footsteps, cable car bell that rings faster as it closes in, whoosh on clean moves, thud on stumbles, crash) with a mute button (`hillbomb:mute`). Slide is now a baseball slide (it sank into the street — Tatum). Camera higher and looking further ahead (Pushed: too low to read the street); when the car closes in, the camera rises and pulls back over its roof.
 
+- v1.2: game-over and pause cards sit on a dark panel (unreadable over bright houses), HUD hidden behind them; cable car starts gentler (7 m/s + 0.095/s) so one early car bonk isn't instantly fatal.
+
 ## balance (fast-forward bots, `__hb.sim(dt)`)
 - idle bot caught at ~83 s / 1 km; careful bot ~3.5 min / 4.7 km, top ~146 km/h; wall-spam bot 2–3 min.
 
