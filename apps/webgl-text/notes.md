@@ -39,3 +39,5 @@
 
 ## 2026-09-26
 - The effect never drew on Chrome: vertex (default highp) and fragment (mediump) shaders both declared u_time/u_mouse/u_resolution, and ANGLE refuses to link uniforms whose precisions differ → program null → getAttribLocation TypeError. Fragment now has its own `u_ftime` (set alongside u_time) and no unused shared uniforms. Old "Built live at | View All Apps" footer removed.
+- The word was one quad of 4 corners, so the vertex ripple could only tilt the whole thing — now a 96×24 grid mesh, letters actually bend. Quad height follows the canvas aspect (rebuilt on resize) so the word keeps its 4:1 shape; phones were squashing it. touchmove drives the ripple on phones.
+- Real og.png (1200×630 render with the ripple mid-word) replaces the emojicdn og:image; og:url trailing slash, twitter tags, concrete description.
