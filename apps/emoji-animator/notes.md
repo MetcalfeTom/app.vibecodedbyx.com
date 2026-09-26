@@ -5,12 +5,13 @@
 - 2026-09-26 v1.1: 🎞️ save GIF — a tiny GIF encoder lives in the page (median-cut palette shared by all frames, LZW, NETSCAPE loop, alpha<128 → see-through index 255). Bakes ONE seamless loop at the current anim + speed: frames = round(25/speed) capped at 60 (Twitch's animated-emote cap), delay = loop/frames. Sizes 112 (Twitch, default: says whether it fits the 1 MB limit) / 256 / 512. Shows the result (looping img + info + a download-again link). Probe: 112 bounce 25 fr 12 KB ~0.1 s; 512 rave 0.3× 60 fr 145 KB ~1.2 s; every frame LZW-decodes back exactly.
 - 2026-09-26: og.png (1200×630: onion-skinned bouncing 🦐 + the three Twitch sizes + 'save it as a GIF' chip) replaces the pollinations og:image.
 - 2026-09-26: three new presets — JAM (two head-bobs per loop, tilting left then right), PEEK (rises from the bottom edge, glances around, ducks back out of frame; smoothstep in/out, hidden ~6% of the loop), FLIP (coin-flip turn with a small hop; sx clamped away from 0). All seamless over t∈[0,1), node-swept for NaNs.
+- 2026-09-26: GIF 'edges for' choice — dark chat (default, blends alpha 24–254 onto Twitch dark #18181b), light chat (onto #fff, file gets -light), anywhere (sharp 1-bit cut at 128). The result preview sits on that chat colour.
 
 ## issues
 - WebM recording unsupported on some iOS Safari — caught, status explains, PNG still works.
 - Emoji render varies by platform font (as Twitch emotes do by platform, so arguably a feature).
 - hue-rotate ctx.filter is ignored by a few older browsers → rave loses color cycle but keeps motion.
-- GIF has 1-bit transparency: soft emoji edges get a hard cut at alpha 128 (normal for GIF emotes). Headless chromium has no colour emoji font — probe builds @font-face the twemoji ttf from sloppy-desktop.
+- GIF has 1-bit transparency: the edges choice blends soft rims onto the chat colour (a dark-chat GIF shows a faint dark rim on light chat — that's why light is offered). Headless chromium has no colour emoji font — probe builds @font-face the twemoji ttf from sloppy-desktop.
 
 ## todos
 - Per-frame onion-skin / frame-by-frame mode.
