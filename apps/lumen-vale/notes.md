@@ -1,6 +1,7 @@
 # Lumen Vale — notes
 
 ## log
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 - 2026-09-26: **fireflies** at dusk + night — 320 glowing points (70% yellow-green, 30% amber), own tiny ShaderMaterial so the dot size is clamped (4px min so far ones read, 26px×DPR max so flying through one never balloons), additive + colour-scaled fading. The swarm is a wrap-around box (R 280) centred AHEAD of the camera by altitude×1.5 (max 340) — from cruising height you'd otherwise never see them, they'd all be under you. Wander + bob + cubic blink; reduce-motion = steady glow, no drift. Fade: dayF-driven ffK, swarm edge, <10u from camera, none above 55 (snow) or in open sea. Headless-verified (none by day, ~200 lit at midnight, no errors).
 - 2026-09-26: first real runtime check — headless Chromium with SwiftShader WebGL: three r128 loads, every shader compiles, zero console errors/warnings, boots mid-glide as designed. og.png is that screenshot (replaces the pollinations og:image).
 - 2026-07-05: v4.1 — chase cam 50% closer (chat ask said "key-drums" but meant this app's drone cam): offsets 4.2 back / 5.4 up → 2.1 / 2.7. lookAt unchanged — shallower angle at close range reads as pursuit.

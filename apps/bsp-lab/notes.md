@@ -1,6 +1,7 @@
 # BSP Lab
 
 ## log
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 - 2026-08-05 v1.2 (`f5b3e50`): **skylight in the demo chamber** per chat — 8 new verts trace a jagged sliver in the ceiling plane wound into an 8-edge face (loop builder now handles arbitrary polygon sizes; plane clamped ≤5), marks/leaf/node/model bumped to 7 faces; +light_environment entity ("skylight crack"). Viewer draws a vertical light curtain + floor pool for `BSP.demo` maps only (flag set by demo button via loadBuffer's isDemo param), behind the wireframe. **Incident**: a stray NUL byte appeared in the source (external tooling — same process that touches screenshots?), which makes grep treat the file as BINARY and silently breaks text-anchor patches; if patches mysteriously stop matching, check `tr -d '\0' | wc -c` vs `wc -c` first. Restored NUL→space. Tests 26/26.
 - REMINDER: stamp = FEATURE commit hash (not the stamp commit's own) — three sed mismatches today came from forgetting which hash the current stamp holds; grep the actual `const VER` line before sed.
 - 2026-08-05 v1.1: **?url= remote loading** per chat — consent-gated (banner shows host, explicit 'fetch it' click required, NEVER auto-fetch), https-only, 64MB cap (content-length + byteLength), 30s abort, CORS failure message points at raw.githubusercontent.com-style hosts. `remoteUrlFromLocation(search)` pure + tested (25 checks total). No default URL shipped — users bring their own host; do NOT add links to game-file mirrors (copyright + external-link policy).

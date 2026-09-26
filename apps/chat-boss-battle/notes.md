@@ -210,6 +210,7 @@
 - Auto-simulates attacks for demo purposes
 - 7 progressive bosses with increasing HP
 - Live at https://sloppy.live/chat-boss-battle
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## Features
 - **Chat Commands**: Simple commands like !attack, !slash, !fireball

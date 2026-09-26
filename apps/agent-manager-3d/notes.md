@@ -117,6 +117,7 @@
   - Stats panel showing total agents, active count, connections
   - Agent info panel when selected
   - Orbitron font for sci-fi feel
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## features
 - Low-poly procedural terrain with height variation

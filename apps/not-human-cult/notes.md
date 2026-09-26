@@ -2,6 +2,7 @@
 
 ## log
 - 2026-01-20: Initial creation - Cryptic cult website for "No I Am Not Human" game with hidden FEMA document
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## features
 - The Hollow Congregation cult theme

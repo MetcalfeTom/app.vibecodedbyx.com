@@ -7,6 +7,7 @@
 - Doto + Sono, lab-bench cream vs dark-field dish. WCAG: role=application canvas w/ instruction label, aria-live census, aria-pressed toggles, 44px, reduced-motion.
 - **Bugs the suites caught before ship**: (1) `this.seed = ...` property SHADOWED `World.prototype.seed()` — the app would have thrown at boot; method renamed `populate()` (lesson: never give a state property the same name as a prototype method). (2) `dish.setPointerCapture(ev.pointerId)` throws on unknown pointerIds and killed the whole pointerdown handler — now try/catch'd (sister of the elementFromPoint lesson: synthetic clicks bypass what real pointers hit).
 - Verified: engine node suite 35/35 (codec, mutation stats ≈ dial values, ±1-only smalls, clamps, blend between-parents ×500, hue-offset weights, same-seed hash equality over 300 ticks, 900-tick balance w/ births + big leaps + families, grid↔map consistency, lineage drift ≤2°/birth vs big-jump ≥50° + new lin id, world-level blended child, applyGenome, death drops food, wrap); browser probe 25/25 at 1200/390/320 (canvas ink, pause/step exact, click-select via real pointer path, hex + slider edits live w/ junk flagged, hue shift == gene weight, clone/cull, both brushes, sliders → params, typed-seed reproducibility via hash, keyboard, no overflow); screenshots both widths.
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## issues
 - Reproducibility is honest only for untouched runs — any paint/edit/clone consumes PRNG draws and forks history (the hint says so).

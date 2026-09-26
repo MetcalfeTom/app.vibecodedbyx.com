@@ -2,6 +2,7 @@
 
 ## log
 - 2025-12-29: Initial creation - pixel art game where player navigates crowded party to reach bathroom before accident meter fills
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD, hidden h1.
 
 ## issues
 - None yet

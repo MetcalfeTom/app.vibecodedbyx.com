@@ -11,6 +11,7 @@ Branching story: Alex at a crossroads, city vs countryside. 90 scenes, 52 ending
   - localStorage: `crossroads_path` (resume where you left off), `crossroads_endings` (found keys).
   - Images: `loading=lazy`, removed on error.
   - New og.png, sharper description.
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## issues
 - Endings used to be dead ends (no restart). Fixed.

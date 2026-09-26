@@ -3,6 +3,7 @@
 Global collaborative graffiti wall. Spray paint together with everyone in realtime!
 
 ## log
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 - 2026-09-26: v2 "one wall" rescue
   - ROOT BUG: loaded /supabase-config.js as a classic script — it's an ES module, so SUPABASE_URL was never set and the app silently ran in local mode (no sync, nothing saved, likely since the config became a module). Now `import('/supabase-config-fixed.js')` + supabaseSession(); inserts carry user_id
   - Fixed 1920×1080 wall canvas shared by everyone (old strokes were raw screen pixels, so phone art landed in a desktop's top-left). Landscape screens see the whole wall; tall phones get scale 0.5, two-finger slide, wheel/right-drag on desktop, minimap (tap to jump)

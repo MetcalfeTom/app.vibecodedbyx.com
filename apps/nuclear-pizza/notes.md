@@ -12,6 +12,7 @@
   - Hold/drag on the canvas to steer (touch aims 60 css px above the finger); old 4 buttons removed
   - WebAudio blips + geiger ticks, mute (M / button, `nuclearPizzaMuted`)
   - Only game keys preventDefault'd; rads meter bar in HUD; og.png from a staged frame
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## features
 - Drive a neon pizza scooter through radioactive wasteland

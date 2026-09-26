@@ -4,6 +4,7 @@ A poem celebrating the command line interface, with downloadable PDF.
 
 ## Log
 - 2024-12-23: Created - poem with terminal aesthetic and PDF download
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## Features
 - Terminal window aesthetic (macOS style)

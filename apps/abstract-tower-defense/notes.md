@@ -17,6 +17,7 @@
 - 2026-09-26: FROST tower (key 4, 120c): icy pulse every 45 ticks hits everything in range 85 for 0.3 dmg and slows it 35/45/55% (LV1-3) for 75 ticks; tanks only half as slowed. Slowed enemies get a pale ring. Panel shows SLOW %
 
 - 2026-09-26: Maps — MAP button cycles S-BEND (classic), BOLT (enemy hp ×1.1) and SPIRAL (long path, core in the middle, hp ×1.5); only before wave 1 starts (switching resets the run). Choice in `atd_map`; best wave kept per map (`atd_best` for S-BEND, `atd_best_<NAME>` for others). Exit can be mid-board now (core drawn as a glowing circle there). Phone controls leave room for the mute button
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## issues
 - Canvas colors must be 6-digit hex: code appends 2-digit alpha (`color + '44'`); `#0ff44` is invalid and canvas silently keeps the previous fillStyle

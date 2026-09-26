@@ -20,6 +20,7 @@
   - New bubbles burst upward with heat energy
   - Touch support for mobile
   - Hint text shows on load, fades after interaction
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## features
 - Metaball rendering for smooth gooey blob visuals

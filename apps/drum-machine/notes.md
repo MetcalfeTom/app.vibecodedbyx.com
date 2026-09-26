@@ -43,6 +43,7 @@
   - Clear and randomize functions
   - Visualizer bars
   - Neon magenta/cyan theme
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## features
 - 16-step sequencer grid

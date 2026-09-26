@@ -8,6 +8,7 @@
 - Guestbook with classic 2000s usernames and comments
 - Baggy jeans emoji as decoration
 - Silver chain borders for authenticity
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## Issues
 - None yet

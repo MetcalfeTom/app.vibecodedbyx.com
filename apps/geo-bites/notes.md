@@ -77,6 +77,7 @@
   - **PULL THE LEVER button**: 5.6mm bottom shadow that compresses to 0.8mm on press — same tactile-clack pattern as ship-or-sink's lever. Disabled until search returns results, then enabled.
   - **List view neon retint**: dark glassmorphic cards with magenta hover border, lime "open" / rose "closed" / dim "unknown" badges, gold cuisine accent, cyan italic kind label. Diagonal stripe pattern for unknown-state rows.
   - **Empty state in slot**: when 0 open + 0 unknown, the reel window stops spinning and shows "no open spots — try a wider radius" instead of leaving the spinner mid-cycle.
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
 ## issues
 - Overpass occasionally rate-limits — the `[timeout:25]` in the QL keeps queries cheap but a hot key spam can still 429. Single user, low volume, fine for now.

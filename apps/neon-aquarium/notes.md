@@ -14,6 +14,7 @@ Glowing fish ecosystem with predator-prey dynamics, lightning strikes, and place
 - 2026-03-23: V3 — Removed chat bar, added species selector sidebar with all 7 fish types. Added 4 placeable decor types (Coral, Rock, Anemone, Crystal) with neon glow rendering. localStorage persistence for fish, decor, and feed count. Auto-saves every 10 seconds. Clear Tank button. Toggle sidebar with +Fish button.
 - 2026-03-23: V2 — Added predator-prey system (fish size 16+ hunt smaller ones), neon lightning strikes on click (branching bolts scare predators away, shrink them). Predators have red-tinted aura and red pupils.
 - 2026-03-23: Initial build. 7 species, canvas aquarium, chat-based feeding, Supabase realtime.
+- 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD, hidden h1.
 
 ## issues
 - None currently
