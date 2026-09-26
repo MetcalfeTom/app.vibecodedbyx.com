@@ -134,7 +134,7 @@ function addSeg() {
   else if (L.end) seg = { d0: d0, len: L.wharf ? 70 : 3000, s: 0, cross: true, end: true, pier: !!L.wharf, sea: !L.wharf };
   else if (d0 >= BAY) { seg = { d0: d0, len: 34, s: 0, cross: true, end: true, wharf: true }; BAYD = d0; }
   else if (!L.cross) seg = { d0: d0, len: 16, s: 0.02, cross: true };
-  else { var k = clamp(d0 / 2500, 0, 1); seg = { d0: d0, len: 80 + Math.floor(rnd() * 40), s: 0.14 + 0.16 * k + rnd() * 0.07, cross: false }; }
+  else { var k = clamp(d0 / 2500, 0, 1); seg = { d0: d0, len: 80 + Math.floor(rnd() * 40), s: 0.14 + 0.16 * k + rnd() * 0.07, cross: false }; seg.curve = d0 < 150 ? 0 : (rnd() < 0.5 ? -1 : 1) * (0.35 + rnd() * 0.65); }
   seg.y0 = y0; seg.i = n; genObs(seg); segs.push(seg); return seg;
 }
 /* things in the way: a sawhorse to jump, a sign to slide under, a parked car to dodge or (at speed) vault */
@@ -174,11 +174,11 @@ var skyT = new THREE.CanvasTexture(skyC); scene.background = skyT;
 var hemi = new THREE.HemisphereLight(0xe6d8ff, 0x9a6a5a, 0.95), amb = new THREE.AmbientLight(0xffe6d0, 0.18); scene.add(hemi); scene.add(amb);
 var sun = new THREE.DirectionalLight(0xffc49a, 0.95); scene.add(sun); scene.add(sun.target);
 var sunDisc = new THREE.Mesh(new THREE.CircleGeometry(38, 40), new THREE.MeshBasicMaterial({ color: 0xffe2a8, fog: false }));
-scene.add(sunDisc);
+sunDisc.material.userData.bent = 'no'; scene.add(sunDisc);
 var bay = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshBasicMaterial({ color: 0x8e8fc4 }));
 bay.rotation.x = -Math.PI / 2; scene.add(bay);
 var moon = new THREE.Mesh(new THREE.CircleGeometry(16, 32), new THREE.MeshBasicMaterial({ color: 0xf4efe6, fog: false, transparent: true, opacity: 0 }));
-scene.add(moon);
+moon.material.userData.bent = 'no'; scene.add(moon);
 /* ================= the day runs out before you do: the sun sets over the bay as your run gets longer, then the streetlights own the hill ================= */
 // three looks (afternoon, sunset, night), blended by how far down the hill you are
 var DUSK = [
@@ -204,15 +204,32 @@ function duskTick(dt) {
   moon.material.opacity = clamp((duskK - 0.6) / 0.3, 0, 1);
   if (mode === 'run') { if (duskK > 0.3 && !P.dusk) { P.dusk = 1; call('dusk', 1); } if (duskK > 0.6 && P.dusk === 1) { P.dusk = 2; call('night', 1); } }
 }
-var sunDY = -20;
+var sunDY = -20, bendN = 0;
+function bendTick(dt) {
+  var sg = mode === 'title' || !P ? null : segAt(P.d + 45), target = sg && sg.curve ? sg.curve * 0.0021 : 0;
+  BEND.value += (target - BEND.value) * Math.min(1, dt * 0.8);
+  if (++bendN % 30 === 1) bendAll();
+}
 // the sun's path on the water: broken streaks, thicker toward the horizon
 var glintC = document.createElement('canvas'); glintC.width = 64; glintC.height = 512;
 (function () { var g = glintC.getContext('2d'); for (var i = 0; i < 260; i++) { var y = Math.random() * 512, w = 6 + Math.random() * 34 * (0.4 + y / 512); g.fillStyle = 'rgba(255,' + (150 + Math.floor(Math.random() * 70)) + ',96,' + (0.35 + Math.random() * 0.6) + ')'; g.fillRect(32 - w / 2 + (Math.random() - 0.5) * (64 - w), 512 - y, w, 1 + Math.random() * 2.5); } })();
 var glint = new THREE.Mesh(new THREE.PlaneGeometry(9, 660), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(glintC), transparent: true, opacity: 0, depthWrite: false, fog: false }));
-glint.rotation.x = -Math.PI / 2; scene.add(glint);
+glint.rotation.x = -Math.PI / 2; glint.material.userData.bent = 'no'; scene.add(glint);
 
 var HOUSE = ['#f4c7b6', '#b7dbd2', '#f6e2a0', '#cdb9e6', '#9fc6ea', '#f3a9a1', '#f7d7c1', '#c6e2a9'];
-var matL = new THREE.MeshLambertMaterial({ vertexColors: true }), matB = new THREE.MeshBasicMaterial({ vertexColors: true });
+/* Tatum: curved streets. The street stays straight underneath (all the physics), but every material bends the world sideways
+   the further ahead it is (x += bend * z² in view space), the trick Subway Surfers uses, so the road swings left and right ahead of you */
+var BEND = { value: 0 };
+function bendMat(m) {
+  if (m.userData.bent) return m; m.userData.bent = true;
+  m.onBeforeCompile = function (sh) {
+    sh.uniforms.uBend = BEND;
+    sh.vertexShader = 'uniform float uBend;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  mvPosition.x += uBend * mvPosition.z * mvPosition.z; gl_Position = projectionMatrix * mvPosition;');
+  };
+  m.needsUpdate = true; return m;
+}
+function bendAll() { scene.traverse(function (o) { if (o.material && !o.material.userData.bent) bendMat(o.material); }); }
+var matL = bendMat(new THREE.MeshLambertMaterial({ vertexColors: true })), matB = bendMat(new THREE.MeshBasicMaterial({ vertexColors: true }));
 function Geo() { this.p = []; this.c = []; }
 Geo.prototype.quad = function (a, b, c, d, col) {
   var P = this.p, C = this.c, cc = new THREE.Color(col);
@@ -315,7 +332,7 @@ function buildSeg(sg) {
   scene.add(G); sg.g = G;
 }
 var MC = {};
-function mat(c, basic) { var k = c + (basic ? 'b' : ''); return MC[k] || (MC[k] = basic ? new THREE.MeshBasicMaterial({ color: c }) : new THREE.MeshLambertMaterial({ color: c })); }
+function mat(c, basic) { var k = c + (basic ? 'b' : ''); return MC[k] || (MC[k] = bendMat(basic ? new THREE.MeshBasicMaterial({ color: c }) : new THREE.MeshLambertMaterial({ color: c }))); }
 var UBOX = new THREE.BoxGeometry(1, 1, 1); UBOX.userData.shared = true;
 function obMesh(ob) {
   var g = new THREE.Group(), gy = groundY(ob.d + ob.len / 2);
@@ -479,11 +496,13 @@ function stepRun(p, dt) {
   var sg = segAt(p.d), s = sg.s;
   if (p.wall) {
     // wall-running along the house fronts: fast, clear of everything in the street, but gravity wins in about a second
-    p.v = Math.max(0, p.v + (G * s * 0.62 + 0.6 - 0.0021 * p.v * p.v) * dt);
+    // on the outside of a bend the houses act like a banked track: you keep your height longer and pick up speed
+    var bank = sg.curve && p.wall === -Math.sign(sg.curve) ? Math.abs(sg.curve) : 0;
+    p.v = Math.max(0, p.v + (G * s * 0.62 + 0.6 + 2.6 * bank - 0.0021 * p.v * p.v) * dt);
     p.d += p.v * dt; p.wallT += dt; p.x += (p.wall * WX - p.x) * Math.min(1, dt * 14);
-    p.wvy -= 7 * dt; p.wh += p.wvy * dt; p.y = groundY(p.d) + p.wh;
+    p.wvy -= 7 * (1 - 0.55 * bank) * dt; p.wh += p.wvy * dt; p.y = groundY(p.d) + p.wh;
     var ws = segAt(p.d);
-    if (ws.cross || p.wh < 0.3 || p.wallT > 1.8) wallOff(p, false);
+    if (ws.cross || p.wh < 0.3 || p.wallT > 1.8 + 0.9 * bank) wallOff(p, false);
   } else {
   if (!p.air) {
     var a = G * s * 0.62 - 0.3 - 0.0021 * p.v * p.v + (p.v < VRUN ? 2.4 : 0);
@@ -548,7 +567,7 @@ function lane(p, dir) {
   // steer into the houses while airborne from an outside lane and you run along the wall
   if (p.air && p.wallOk && ((p.lane === 0 && dir < 0) || (p.lane === 2 && dir > 0)) && rel > 0.35 && !sg.cross && sg.d0 + sg.len - p.d > 6) {
     p.wall = dir; p.wallOk = false; p.wallT = 0; p.wh = rel; p.wvy = clamp(p.vy + p.v * sg.s, 3.2, 4.6); p.air = false; p.act = null;
-    events.push({ type: 'wallOn' }); return;
+    events.push({ type: 'wallOn', bank: !!(sg.curve && dir === -Math.sign(sg.curve) && Math.abs(sg.curve) > 0.3) }); return;
   }
   p.lane = clamp(p.lane + dir, 0, 2);
 }
@@ -584,7 +603,7 @@ function handleEvents() {
       if (e.kind === 'car' || e.f >= 0.4) pop(LABEL[e.kind][e.f >= 0.7 ? 1 : 0] + (e.streak > 1 ? ' ×' + e.streak : ''), '+' + kmh(e.dv) + ' km/h');
       snd('whoosh', e.f);
     } else if (e.type === 'hit') { pop(e.kind === 'car' ? 'bonk' : 'stumble', e.slow ? 'too slow to vault · 55+ km/h' : 'speed lost'); shake = e.kind === 'car' ? 0.5 : 0.3; snd('thud', 1); call(e.kind === 'car' ? 'bonk' : 'stumble', e.kind === 'car' ? 2 : 1); say(e.kind === 'car' ? 'You hit a parked car and lost most of your speed.' : 'Stumble. You lost speed.'); }
-    else if (e.type === 'wallOn') { P.walls++; pop('wall run'); snd('whoosh', 0.5); call('wall', 1); }
+    else if (e.type === 'wallOn') { P.walls++; pop(e.bank ? 'banked!' : 'wall run', e.bank ? 'outside of the bend' : ''); snd('whoosh', 0.5); call('wall', 1); }
     else if (e.type === 'wallOff' && e.kick) { pop('wall kick', '+' + kmh(e.dv) + ' km/h'); snd('whoosh', 1); call('kick', 0); }
     else if (e.type === 'flip') call('flip', 1);
     else if (e.type === 'land') { if (e.t > 0.25) snd('land'); }
@@ -725,6 +744,7 @@ function placeCam(k) {
   cam.position.x += (px - cam.position.x) * k; cam.position.y += (py - cam.position.y) * k; cam.position.z = pz;
   if (shake > 0 && !reduce) { cam.position.x += (Math.random() - 0.5) * shake * 0.5; cam.position.y += (Math.random() - 0.5) * shake * 0.4; }
   cam.lookAt(P.x * 0.3 * (1 - w) - 6 * w, ly + 0.2 + w * 2, -(P.d + ahead + w * 60));
+  cam.rotateZ(BEND.value * 40);
   cam.fov += (fovT - cam.fov) * Math.min(1, k); cam.updateProjectionMatrix();
   sunDisc.position.set(-60, groundY(P.d) + sunDY, -P.d - 700); sunDisc.lookAt(cam.position);
   moon.position.set(120, groundY(P.d) + 150 + 60 * duskK, -P.d - 650); moon.lookAt(cam.position);
@@ -771,7 +791,7 @@ function placeCar() {
 function frame(now) {
   var dt = Math.min(0.033, (now - last) / 1000 || 0); last = now;
   shake = Math.max(0, shake - dt * 1.5);
-  duskTick(dt);
+  duskTick(dt); bendTick(dt);
   if (mode === 'run') { stepRun(P, dt); streamWorld(P.d); handleEvents(); pose(P); placeCar(); cupTick(dt); placeReach(); commentate(); placeCam(Math.min(1, dt * 7)); hud(); audioTick(dt); }
   else if (mode === 'caught' || mode === 'over') {
     reach.visible = false;
