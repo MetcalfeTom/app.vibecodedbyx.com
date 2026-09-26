@@ -15,6 +15,8 @@ A ghost "writes" a small program (typewriter animation) and hides a classic secu
 - 2026-09-26: HAUNTED AUTOCOMPLETE (marci: "autocomplete that gives wrong completion", "dangerous options"), 7th menu card. 8 half-written lines (py/js/c/cs: SQL, innerHTML, strcpy, md5 passwords, Math.random sessions, exec, BinaryFormatter, verify=False); the ghost types, a listbox pops up with 3 completions. Cursed ones wear tempting tags (★ recommended / fixes the error), the safe one has none; options + rounds are shuffled. Safe pick +2 candy, cursed = candle out; 3 out ends the run. After each pick: what people say + all three with verdicts. Summary at the end; best in SAVE.best.auto {candy,lost,safe,of}. Keys: ↑↓, Enter/Tab/Space, 1-3, or click.
   - Recall desktop has a ghost shortcut (hex-editor.lnk, Haunted files) that opens /hex-editor/?bare=1 in a window.
 
+- 2026-09-26: the ghost wears a witch hat (heks = witch in Dutch, marci's pun); it hops when you catch a curse. Share image re-shot with the hat. Autocomplete popup stays inside the editor on long lines.
+
 ## issues
 - Scroll with into(el) (window.scrollTo), never scrollIntoView: the app also runs in an iframe on the Recall desktop, and scrollIntoView scrolls the parent page too.
 - Nothing is ever executed: the programs are display-only data (LANGS in the page script). Keep it that way. Never eval user text or load code from URLs.
@@ -25,4 +27,4 @@ A ghost "writes" a small program (typewriter animation) and hides a classic secu
 
 ## todos
 - More autocomplete lines (C++ / BASIC skins aren't used yet); a daily ghost (same 8 for everyone that day).
-- More programs per language (random pick), a shared candy leaderboard (supabase), a witch hat for the ghost (heks).
+- More programs per language (random pick), a shared candy leaderboard (supabase).
