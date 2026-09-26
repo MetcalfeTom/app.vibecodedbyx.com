@@ -1,0 +1,16 @@
+# Wordslide
+
+Word search with gravity (idea, path rules and name from Tatum on stream, 2026-09-26). A 7×9 board of wooden letter tiles; swipe (or tap) a snaking path of orthogonally touching tiles (no diagonals, no tile twice) to spell a 3+ letter word. The word pops and every column collapses — letters above tumble down, making new words and breaking old ones. No refill: clear as much of the board as you can before no words remain.
+
+## log
+- 2026-09-26: v1. Western wood-type look (Rye title, Alfa Slab One tiles, Newsreader text; parchment + walnut tray + rust). Daily board (seed = UTC date, same for everyone) + "New board" free play. WANTED list = 5 words currently on the board (DFS over orthogonal paths, `findWords()`), pays ×2; a wanted word broken by a slide shows "fell apart". Points 10·n(n−1)/2 (3→30, 5→100, 7→210). Perfect clear +500. End: tumbleweed rolls by, card with score + "skyline" of leftover tiles, share text with 🟫/⬜ rows (navigator.share on touch, clipboard elsewhere). Keyboard: arrows move (roving tabindex), Enter picks / plays, Backspace undoes, Esc clears. Rope trail SVG sits under the tiles (shows in the gaps). Sounds: synthesized clacks when tiles land, chime by word length, buzz on a miss; mute saved.
+- Board gen: plants 7 words (5–7 letters) as random orthogonal snakes, fills the rest from an English-frequency letter bag (~38% vowels, no q). A fresh board has ~50–60 findable words.
+
+## issues
+- Class-name collision: the header is `.head` — the path's last tile was `.head` too and inherited the header's flex/grid-area/animation (letter jammed in a corner). Tile class is now `.tip`. Don't reuse generic class names for tiles.
+- Word list is hand-written (words.js, ~3.3k words). Chat (Tatum) wants real words that aren't on it to count → plan: keep bounties from the curated list, validate against a bigger list.
+
+## todos
+- Bigger validation list (inflections + more base words); bounties stay curated.
+- Ideas: anvil tile that must be dug out, wildcard blank tile (voice pitched these; ask chat).
+- Daily streaks / comparing skylines.
