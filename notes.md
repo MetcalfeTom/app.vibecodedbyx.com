@@ -278,6 +278,7 @@
  - OG tags must include a .png image URL; emojicdn works in a pinch but custom PNGs look better.
  - Root supabase-config.js may expect premium UI nodes; prefer per-app copy with null checks. Fixed version at /supabase-config-fixed.js (localhost cookie domain + null-safe DOM).
  - Root supabase-config.js is a read-only bind mount — cannot be edited directly. Use /supabase-config-fixed.js for new apps.
+ - + Both configs are ES MODULES: `<script src="/supabase-config.js">` as a classic script throws and never sets window.SUPABASE_URL, and neither module exports SUPABASE_URL/SUPABASE_ANON_KEY. Apps written that way silently run offline forever (graffiti-wall, the-abyss, dev-tribute, agent-manager-3d were all dead until 2026-09-26). Right way: `const m = await import('/supabase-config-fixed.js'); const db = m.default; const { user } = await m.supabaseSession();` (session only when you need user_id). Apps that fetch the file text and regex out the key also work.
  - +**Live supabase checks from the sandbox:** on http://127.0.0.1 the cookie session does not stick, so every insert fails RLS ("new row violates row-level security").
    - Serve the page and add `--host-resolver-rules=MAP hm.sloppy.live 127.0.0.1:<port>` to headless_shell, then open http://hm.sloppy.live/…. Now the session sticks and inserts work.
    - `--virtual-time-budget` races past real network, so for live checks use `--remote-debugging-port` and poll the page title (hangman scratch `live3.sh`, 2026-09-26).
