@@ -13,6 +13,7 @@ Idea by KaiTheTiger (sloppy.live chat, 2026-09-26): "like a Picrew, but better b
   - Download PNG: 1200×800 canvas — character SVG serialized as an image + name/species/palette drawn with the page fonts (fonts don't load inside an SVG-as-image, so text is drawn on canvas)
   - Fonts: Bagel Fat One + Sometype Mono; sketchbook paper look with tape
   - Toe lines on paws + feet, eyes blink (CSS .eye scaleY, not in the export)
+  - Stripes + Spots markings (pattern shapes per part via pat(key), mirrored with mx()), Tiger preset (for Kai)
 
 ## issues
 - SVG fills are attributes (not CSS classes) so the serialized SVG exports with colors
