@@ -151,3 +151,5 @@
 
 ## issues
 - None yet
+
+- 2026-09-26: Realm sync was dead — loaded /supabase-config.js as a classic script (it's an ES module → SyntaxError, SUPABASE_URL never set). Now `import('/supabase-config-fixed.js')`, client = default export; visitor session made lazily via supabaseSession() only when joining a faction / capturing (realmUser()). Dropped the unused unpkg supabase-js script. Verified in headless: loads with no errors, client ready.
