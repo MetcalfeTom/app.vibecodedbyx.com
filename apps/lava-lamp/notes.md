@@ -1,6 +1,7 @@
 # Neon Lava Lamp
 
 ## log
+- 2026-09-26: Classic bottle. `glassHalfWidth(fy)` (neck 50 → belly 94 at 70% → 74 at the base) drives everything: renderer draws only inside it (1px AA edge + darker toward the walls), blob walls (`2·hw − 10`, clamped at 1.4 r since wax draws to ~1.5 r), click hit-test, and the SVG glass outline/shine built at load. Cap and base are SVG cones (`.lamp-back` behind the canvas holds the collar's back half, `.lamp-front` on top). Bulb warmth fixed — the fluid tint was brightest at the top, now brightest just above the bulb. Wax: shadows go toward a deep saturated wax colour (dark = primary × ~0.45), colours drift only 40% toward the glow colour, sheen tinted with the glow colour on the lit side. New og.png.
 - 2026-09-26: Smooth wax + layout pass.
   - Wax shading rewritten: the outline still comes from the 1/d² metaball field, but lighting uses a second soft (1 − d²/S²)³ dome field (S = 2.4r) so merged blobs light as one piece — the old "nearest blob" shading drew hard creases/facets where blobs met. Light from the bulb below, glow-tinted sheen, thin edges pick up the glow colour, anti-aliased edge.
   - Colour blend weight is (f²/(d²+f²))² — broad and never zero. A kernel that hits zero at its reach made crisp pale patches (colour flipped to a fallback there).
