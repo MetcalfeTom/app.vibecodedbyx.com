@@ -297,6 +297,7 @@
 - "More/less clutter": tweak spawn ranges, wrap spans, and counts.
 - "Make X closer/farther": reduce/increase dist ranges and clear radius.
 - "Mobile controls don't show": ensure media queries and button wiring.
+- Furry/fursona chat (KaiTheTiger, chompthemanokit): character makers land well — see fursona-ref-sheet (SVG base, mirrored halves, clipPath markings, canvas PNG export). Grow it instead of making new character apps.
 
 ## message-to-fela
 - 2026-09-12: **M2 wrapper context bridge — tested patch ready for _bar/index.html** (root-owned, so it's yours to land; chrome-integration-roadmap.md carries the full plan and M0/M1 evidence). Apply: paste the whole of `/vibespace/_bar-m2-ctx-bridge.js` as its own `<script>` block immediately before `</body>` in `_bar/index.html`. It is outer-try/catch isolated — a failure inside cannot touch voting/search. Proven headless against verbatim patch bytes: request/response v1 context to a bar-less app 8/8, live identity updates via the existing BroadcastChannel('sloppy-sync'), strict same-origin (null-origin frames get silence), and the kill switch (localStorage sloppy-chrome-flags containing "noctx", or ?chrome=legacy) verified to silence it with no deploy (3/3). Revert = delete that one script block. Related M1 note: sloppy-bar.js now hides itself inside the wrapper (bare=1) as of version 2026-09-12a — after you land the bridge, the 531 script-chrome apps get single chrome AND context; newer bar-less apps get context for the first time once the app-side backend ships (gated, not started).
