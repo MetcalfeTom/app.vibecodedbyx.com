@@ -1,6 +1,7 @@
 # BREAKOUT_MATRIX — notes
 
 ## log
+- 2026-09-26: og:image is now an absolute URL (a bare 'og-image.png' isn't resolved by most link-preview crawlers).
 - 2025-12-05: Added real `og-image.png` (1200x630 PNG) for rich link previews. Implemented Share button with Web Share API + clipboard fallback. Minor head additions (`description`, `theme-color`, `og:image:width/height`).
 - 2025-12-05: Added Supabase leaderboard (`breakout_terminal_scores`) with anonymous auth fallback. In-game submit UI shown on Game Over; Top 10 panel with refresh.
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
