@@ -4,7 +4,8 @@ log:
 - v1: initial playable Icy Tower clone with canvas physics, mobile controls, leaderboard via Supabase (table icy_tower_scores), OG metadata, favicon, and livestream backlink.
 
 issues:
-- Leaderboard is polluted: fake 999999999-style rows inserted straight through the API on 2026-08-18 plus pre-v3 farmed floors. The client can't stop direct inserts (RLS only checks user_id); a fresh season table + a plausibility cap on display is the likely fix.
+- Old board (icy_tower_scores) was polluted: fake 999999999-style rows inserted straight through the API on 2026-08-18, an insulting name, plus pre-v3 farmed floors. Left untouched; the app no longer reads it.
+- Season 2 = table **icy_tower_season_two** (score = floor, best_combo, secs, user_id auto). Display filter: 0 < score ≤ 5000, score ≤ secs×5+10 (a real climb tops out around 3.5 floors/s), one row per user_id (best). Direct API inserts are still possible — the filter only stops the lazy ones.
 - Supabase root config can throw errors if elements missing; this app uses a scoped copy with null-safe premium toggles.
 - Physics tuned for responsiveness; browser differences in high-DPI scaling can affect jump feel slightly.
 - Sound uses WebAudio oscillator beeps; some mobile browsers require user interaction before audio.
