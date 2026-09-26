@@ -1,0 +1,1 @@
+- 2026-09-26: removed the emoji from the <title>/og:title (the favicon already carries it).

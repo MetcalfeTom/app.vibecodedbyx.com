@@ -28,3 +28,4 @@ An idle clicker game about harvesting silence from the void.
 - Add prestige/rebirth system
 - Add achievements
 - Add more upgrade tiers
+- 2026-09-26: og tags used name="og:…" (ignored by link previews) → property=; og:image pointed at a missing og-image.png → real og.png (1200×630 render mid-harvest); meta description + twitter tags added.
