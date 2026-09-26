@@ -293,6 +293,21 @@
       background: rgba(0,255,255,0.2);
       border-color: #0ff;
     }
+    .pattern-btn.stamping { background: rgba(0,255,255,0.28); border-color: #0ff; box-shadow: 0 0 12px rgba(0,255,255,.6); color: #fff; }
+    .pattern-btn:focus-visible { outline: 2px solid #0ff; outline-offset: 2px; }
+
+    /* stamp mode: a ghost of the pattern follows the pointer, click/tap drops it */
+    .stamp-bar { position: fixed; top: 142px; left: 12px; right: 12px; margin: 0 auto; width: fit-content; z-index: 120; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+      background: rgba(4,10,14,.88); border: 1px solid #0ff; border-radius: 12px; padding: 8px 10px 8px 14px; box-shadow: 0 0 18px rgba(0,255,255,.35); 
+      font-family: 'Orbitron', sans-serif; color: #bff; font-size: 11px; letter-spacing: .06em; animation: stampIn .25s ease-out; }
+    .stamp-bar[hidden] { display: none; }
+    .stamp-bar b { color: #fff; font-weight: 700; text-shadow: 0 0 8px #0ff; }
+    .stamp-bar button { font-family: 'Orbitron', sans-serif; font-size: 10px; letter-spacing: .08em; color: #0ff; background: rgba(0,255,255,.08); border: 1px solid rgba(0,255,255,.5); border-radius: 8px; padding: 0 12px; min-height: 36px; cursor: pointer; }
+    .stamp-bar button:hover { background: rgba(0,255,255,.22); }
+    .stamp-bar button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    .stamp-bar #stampDone { color: #ff5c8a; border-color: rgba(255,92,138,.6); background: rgba(255,92,138,.08); }
+    @keyframes stampIn { from { opacity: 0; transform: translateY(-6px); } }
+    @media (prefers-reduced-motion: reduce) { .stamp-bar { animation: none; } }
 
     
     @media (max-width: 600px) {
@@ -300,9 +315,14 @@
       .btn { padding: 8px 12px; font-size: 10px; }
       .divider { display: none; }
       .stat { min-width: 60px; }
-      .patterns { top: auto; bottom: 100px; right: 5px; }
+      .patterns { top: 134px; bottom: auto; left: 0; right: 0; flex-direction: row; overflow-x: auto; padding: 0 10px 4px; scrollbar-width: none; }
+      .patterns::-webkit-scrollbar { display: none; }
+      .pattern-btn { flex: none; min-height: 36px; }
       .big-seed { padding: 11px 22px; font-size: 14px; letter-spacing: 0.12em; min-height: 44px; }
       .big-seed-wrap { top: 68px; }
+      .stamp-bar { top: 182px; gap: 6px; padding: 6px 8px; font-size: 10px; }
+      .stamp-bar button { padding: 0 9px; }
+      .stamp-hint { display: none; }
     }
     @media (prefers-reduced-motion: reduce){
       .big-seed, .big-seed .die, .color-btn.cycle { animation: none !important; }
@@ -335,6 +355,13 @@
     <button class="pattern-btn" data-pattern="lwss">LWSS</button>
     <button class="pattern-btn" data-pattern="rpenta">R-Pentomino</button>
     <button class="pattern-btn" data-pattern="acorn">Acorn</button>
+  </div>
+
+  <div class="stamp-bar" id="stampBar" role="region" aria-label="Pattern stamp" hidden>
+    <span id="stampText"></span>
+    <button type="button" id="stampRot" aria-keyshortcuts="R">⟳ ROTATE</button>
+    <button type="button" id="stampCenter">◎ CENTER</button>
+    <button type="button" id="stampDone" aria-keyshortcuts="Escape">✕ DONE</button>
   </div>
 
   <div class="controls">
@@ -846,23 +873,26 @@
 
     // Event listeners
     canvas.addEventListener('mousedown', e => {
+      if (stamp) { const r = canvas.getBoundingClientRect(); aimStamp(e.clientX - r.left, e.clientY - r.top); dropStamp(); return; }
       isDrawing = true;
       const rect = canvas.getBoundingClientRect();
       toggleCell(e.clientX - rect.left, e.clientY - rect.top);
     });
 
     canvas.addEventListener('mousemove', e => {
+      if (stamp) { const r = canvas.getBoundingClientRect(); aimStamp(e.clientX - r.left, e.clientY - r.top); return; }
       if (!isDrawing) return;
       const rect = canvas.getBoundingClientRect();
       setCell(e.clientX - rect.left, e.clientY - rect.top, 1);
     });
 
     canvas.addEventListener('mouseup', () => isDrawing = false);
-    canvas.addEventListener('mouseleave', () => isDrawing = false);
+    canvas.addEventListener('mouseleave', () => { isDrawing = false; if (stamp) stampAt = null; });
 
     // Touch support
     canvas.addEventListener('touchstart', e => {
       e.preventDefault();
+      if (stamp) { const r = canvas.getBoundingClientRect(), t = e.touches[0]; aimStamp(t.clientX - r.left, t.clientY - r.top); return; }   // finger aims, lifting drops
       isDrawing = true;
       const rect = canvas.getBoundingClientRect();
       const touch = e.touches[0];
@@ -871,13 +901,14 @@
 
     canvas.addEventListener('touchmove', e => {
       e.preventDefault();
+      if (stamp) { const r = canvas.getBoundingClientRect(), t = e.touches[0]; aimStamp(t.clientX - r.left, t.clientY - r.top); return; }
       if (!isDrawing) return;
       const rect = canvas.getBoundingClientRect();
       const touch = e.touches[0];
       setCell(touch.clientX - rect.left, touch.clientY - rect.top, 1);
     }, { passive: false });
 
-    canvas.addEventListener('touchend', () => isDrawing = false);
+    canvas.addEventListener('touchend', () => { isDrawing = false; if (stamp && stampAt) dropStamp(); });
 
     // Control buttons
     document.getElementById('playBtn').addEventListener('click', () => {
@@ -932,11 +963,71 @@
       });
     });
 
-    // Pattern buttons
+    // Pattern buttons → stamp mode: the pattern follows the pointer as a ghost, click/tap drops a copy (as many as you like)
+    let stamp = null, stampAt = null;
+    function rotateCells(c) { return c[0].map((_, x) => c.map(r => r[x]).reverse()); }
+    function stampLabel() { return stamp ? (document.querySelector('.pattern-btn[data-pattern="' + stamp.name + '"]') || {}).textContent || stamp.name : ''; }
+    function startStamp(name) {
+      if (!PATTERNS[name]) return;
+      stamp = { name, cells: PATTERNS[name].map(r => r.slice()), turns: 0 };
+      stampAt = null;
+      document.querySelectorAll('.pattern-btn').forEach(b => { const on = b.dataset.pattern === name; b.classList.toggle('stamping', on); b.setAttribute('aria-pressed', String(on)); });
+      document.getElementById('stampText').innerHTML = '<b></b><span class="stamp-hint"> — ' + (matchMedia('(pointer: coarse)').matches ? 'tap' : 'click') + ' the grid to drop it</span>';
+      document.querySelector('#stampText b').textContent = stampLabel().toUpperCase();
+      document.getElementById('stampBar').hidden = false;
+    }
+    function endStamp() {
+      stamp = null; stampAt = null;
+      document.querySelectorAll('.pattern-btn').forEach(b => { b.classList.remove('stamping'); b.setAttribute('aria-pressed', 'false'); });
+      document.getElementById('stampBar').hidden = true;
+    }
+    function rotateStamp() { if (!stamp) return; stamp.cells = rotateCells(stamp.cells); stamp.turns = (stamp.turns + 1) % 4; }
+    function aimStamp(x, y) {
+      const ci = Math.floor(x / CELL_SIZE), cj = Math.floor(y / CELL_SIZE);
+      stampAt = { i: ci - Math.floor(stamp.cells[0].length / 2), j: cj - Math.floor(stamp.cells.length / 2) };
+    }
+    function centerAt() { return { i: Math.floor(cols / 2 - stamp.cells[0].length / 2), j: Math.floor(rows / 2 - stamp.cells.length / 2) }; }
+    function dropStamp(at) {
+      if (!stamp) return 0;
+      at = at || stampAt || centerAt();
+      let n = 0;
+      stamp.cells.forEach((row, dj) => row.forEach((v, di) => {
+        if (!v) return;
+        const i = ((at.i + di) % cols + cols) % cols, j = ((at.j + dj) % rows + rows) % rows;   // the world wraps, so do stamps
+        if (!grid[i][j]) { grid[i][j] = 1; ageGrid[i][j] = 1; n++; }
+      }));
+      updateStats();
+      return n;
+    }
+    function drawStamp() {
+      if (!stamp || !stampAt) return;
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.shadowColor = '#0ff'; ctx.shadowBlur = 10;
+      stamp.cells.forEach((row, dj) => row.forEach((v, di) => {
+        if (!v) return;
+        const i = ((stampAt.i + di) % cols + cols) % cols, j = ((stampAt.j + dj) % rows + rows) % rows;
+        ctx.fillRect(i * CELL_SIZE + 1, j * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+      }));
+      ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(0,255,255,0.7)'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+      ctx.strokeRect(stampAt.i * CELL_SIZE - 2.5, stampAt.j * CELL_SIZE - 2.5, stamp.cells[0].length * CELL_SIZE + 5, stamp.cells.length * CELL_SIZE + 5);
+      ctx.restore();
+    }
     document.querySelectorAll('.pattern-btn').forEach(btn => {
+      btn.setAttribute('aria-pressed', 'false');
       btn.addEventListener('click', () => {
-        placePattern(btn.dataset.pattern);
+        if (stamp && stamp.name === btn.dataset.pattern) { endStamp(); return; }   // second press puts it away
+        startStamp(btn.dataset.pattern);
       });
+    });
+    document.getElementById('stampRot').addEventListener('click', rotateStamp);
+    document.getElementById('stampCenter').addEventListener('click', () => { dropStamp(centerAt()); });
+    document.getElementById('stampDone').addEventListener('click', endStamp);
+    document.addEventListener('keydown', e => {
+      if (!stamp) return;
+      const tg = e.target && e.target.tagName;
+      if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); rotateStamp(); }
+      else if (e.key === 'Escape') { endStamp(); }
     });
 
     // Game loop
@@ -946,6 +1037,7 @@
         lastUpdate = timestamp;
       }
       draw();
+      drawStamp();
       requestAnimationFrame(gameLoop);
     }
 
