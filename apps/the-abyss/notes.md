@@ -17,3 +17,5 @@
 - Audio whisper SFX on each cast (synthesized).
 - Variable descent speed: lower-energy whispers fall slower than ALL CAPS shouts.
 - Color tint message text by the speaker's hue (currently only the "who" label is tinted).
+
+- 2026-09-26: Realtime was dead: it imported /supabase-config-fixed.js expecting SUPABASE_URL/SUPABASE_ANON_KEY named exports, which don't exist (the module only exports a ready client as default), so it always fell back to solo. Now uses `cfg.default` as the client (verified live in headless: label reaches "live"). og.png from a staged frame replaces the remote pollinations image; og:url on app.sloppy.live

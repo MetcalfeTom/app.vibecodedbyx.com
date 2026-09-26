@@ -15,3 +15,5 @@
 - Persist a global tribute count in supabase (single `dev_tribute_count` row that everyone increments).
 - Mobile haptic feedback on click via `navigator.vibrate`.
 - "Sustained" mode: hold Space to fire continuous rockets at chase rate.
+
+- 2026-09-26: Realtime was dead: it imported /supabase-config-fixed.js expecting SUPABASE_URL/SUPABASE_ANON_KEY named exports, which don't exist (the module only exports a ready client as default), so it always fell back to solo. Now uses `cfg.default` as the client (verified live in headless: label reaches "live"). og.png from a staged frame replaces the remote pollinations image; og:url on app.sloppy.live
