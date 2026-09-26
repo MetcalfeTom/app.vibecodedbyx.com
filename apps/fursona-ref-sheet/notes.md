@@ -15,6 +15,7 @@ Idea by KaiTheTiger (sloppy.live chat, 2026-09-26): "like a Picrew, but better b
   - Toe lines on paws + feet, eyes blink (CSS .eye scaleY, not in the export)
   - Stripes + Spots markings (pattern shapes per part via pat(key), mirrored with mx()), Tiger preset (for Kai)
   - Extras: horns, wings (behind body), bandana, glasses; regions horns/wings/accent (palette rows only when on); Dragon preset. Hash param x=; old saves + 7-color links get EXTRA_C defaults
+- 2026-09-26: Square glasses extra next to the round ones (Kai's idea); picking one swaps the other off. Old links with `glasses` still mean round
 
 ## issues
 - SVG fills are attributes (not CSS classes) so the serialized SVG exports with colors
