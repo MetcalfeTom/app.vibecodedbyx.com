@@ -1,6 +1,7 @@
 # Neon Life - Conway's Game of Life
 
 ## log
+- 2026-09-26: 🔗 SHARE — the live cells go into the URL as standard Life RLE (#r=<rule>&p=<rle>; lifeEncode/lifeDecode, node round-trip tested incl. the Gosper gun text from the wiki). Copies the link (clipboard, else a selectable link box in the toast) and puts it in the address bar. Opening a shared link loads the pattern centred, with its rule, PAUSED, toast 'press ▶ PLAY'; a broken link falls back to the random seed. Toast sits above the controls on desktop, under the seed button on phones; tap to dismiss. og.png replaces the pollinations og:image.
 - 2026-01-09: Initial creation
   - Neon glowing cells
   - Click/drag to draw cells
