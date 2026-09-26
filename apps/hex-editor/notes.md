@@ -10,6 +10,7 @@ A ghost "writes" a small program (typewriter animation) and hides a classic secu
   - Mail program, Turbo C++ blue: command injection through std::system
   - AI agenda, C# (Visual Studio): prompt injection + an AI with every tool that runs without confirmation (2 curses)
   - Coffin door, C (green phosphor vi), bonus: gets() buffer overflow
+- 2026-09-26: each curse also says what people would say when it hits them ("someone downloaded my files", "it just crashed"), marci: use the words people use when their computer doesn't work.
   - Candy: each curse found = 3 minus wrong clicks so far on that file (min 1). Progress + best per program in localStorage 'hexEditor'.
 
 ## issues
