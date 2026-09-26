@@ -28,6 +28,8 @@ Endless 2D paper-plane glider. Built on stream 2026-09-26 from Tatum's (sloppy.l
 
 - 2026-09-26: portrait phones: plane at 20% from the left (not 30%) and a wider view (min 660 world units) so the next hill shows earlier. Tatum's first clean-run report: 775 m, "a fun challenge".
 
+- 2026-09-26: landscape phones (Tatum: hold it sideways): compact cards under 460px height (3-column stats, buttons in one row, cards scroll if needed); portrait touch screens get a 'turn your phone sideways' tip on the title card. Checked at 760×320 (the real height under the 40px site bar).
+
 ## issues
 - Sim (bot pilots, scratchpad nd-flow.js), v1 numbers:
   - A careful bot crashes about every 30 s with 700–870 m clean runs.
