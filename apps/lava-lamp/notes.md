@@ -1,6 +1,12 @@
 # Neon Lava Lamp
 
 ## log
+- 2026-09-26: Smooth wax + layout pass.
+  - Wax shading rewritten: the outline still comes from the 1/d² metaball field, but lighting uses a second soft (1 − d²/S²)³ dome field (S = 2.4r) so merged blobs light as one piece — the old "nearest blob" shading drew hard creases/facets where blobs met. Light from the bulb below, glow-tinted sheen, thin edges pick up the glow colour, anti-aliased edge.
+  - Colour blend weight is (f²/(d²+f²))² — broad and never zero. A kernel that hits zero at its reach made crisp pale patches (colour flipped to a fallback there).
+  - Blob colours computed once per frame (getColor used to run Date.now per pixel per blob).
+  - Layout: title / lamp / controls in one column; `fitLamp()` scales the 280×500 lamp into the room left (0.45–1.35×), so the panel never covers the base. WAX/GLOW/FLUID pickers tucked behind a MIX toggle; preset chips are real buttons with aria-pressed; canvas has an aria-label.
+  - og.png (1200×630) instead of the emojicdn image.
 - 2026-04-08: Three bugs fixed together after vivax_dev feedback:
   1. **Canvas only rendered the top-left quarter.** Root cause: `canvas.width/height` was set to `200*scale` (400×760) with `ctx.scale(2,2)`, but `putImageData` ignores the ctx transform, so a 200×380 ImageData was written into just the top-left of the 400×760 bitmap. Fixed by dropping the scale and making bitmap match logical size.
   2. **Canvas didn't cover the whole lamp container.** Canvas was absolutely positioned at (40,50) with 200×380 inside a 280×500 container, leaving gaps at the rim. Changed canvas to `inset: 0; width: 100%; height: 100%`, bumped bitmap to 280×500, and introduced a fluid inset (FLUID_X=40, FLUID_Y=50, FLUID_W=200, FLUID_H=380). Metaball renderer now writes only inside the fluid inset and leaves the rest transparent (the cap/base overlay hides it). Click/touch handlers remap via a new `canvasToFluid()` helper that also rejects taps outside the fluid region.
@@ -30,7 +36,8 @@
 - Click/tap to create bubbles and push nearby blobs
 
 ## issues
-- None yet
+- `.control-row{display:flex}` beats the `hidden` attribute — keep the `[hidden]{display:none!important}` rule.
+- Headless check: pure-node render of renderMetaballs (stub ctx) is the quickest way to see shading bugs without browser compositing.
 
 ## todos
 - Could add drag interaction for continuous bubble creation
