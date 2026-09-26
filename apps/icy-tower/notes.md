@@ -22,3 +22,4 @@ todos:
 notes:
 - Table: icy_tower_scores (score int, display_name text, user_id auto via RLS tool, timestamps auto).
 - Always pass user_id when inserting. Reads are public per default policy.
+- 2026-09-26: touch pads (◀ ▲ ▶) now also show on any touch screen (pointer: coarse), not only ≤768px — tablets had no way to play. Start screen shows "◀ ▶ Run · ▲ Jump" on touch screens instead of the A/D/Space keys. SEO title/description/JSON-LD.
