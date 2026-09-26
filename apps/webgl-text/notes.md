@@ -36,3 +36,6 @@
 - Text canvas: 1024x256 resolution
 - Wave frequency: 20.0 for texture distortion
 - Color shift intensity: 0.3 * distortion amount
+
+## 2026-09-26
+- The effect never drew on Chrome: vertex (default highp) and fragment (mediump) shaders both declared u_time/u_mouse/u_resolution, and ANGLE refuses to link uniforms whose precisions differ → program null → getAttribLocation TypeError. Fragment now has its own `u_ftime` (set alongside u_time) and no unused shared uniforms. Old "Built live at | View All Apps" footer removed.
