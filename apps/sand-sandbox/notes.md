@@ -14,7 +14,7 @@
 
 ## issues
 - Grid is 800×500 at 1 cell per canvas pixel; big scenes cost ~20+ ms/frame on slow CPUs. If phones struggle, halve the grid (400×250 at 2px cells) — all physics is resolution-agnostic.
-- "Gravity: OFF" really pauses the whole simulation (updatePhysics returns early) — the label is a misnomer.
+- The old "Gravity: ON/OFF" toggle always paused the whole simulation; since 2026-09-26 it is labelled ⏸ Pause / ▶ Play (P or G), the variable is still `gravity`.
 - Tall water columns still take a few seconds to level (only surface/edge cells can move sideways).
 
 ## todos
