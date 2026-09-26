@@ -207,10 +207,15 @@ def bake_usage_history(cap: int = 1800) -> list:
                 rows.append(cur)
             h, iso, subj = line.split('\t', 2)
             m = re.match(r'([a-z0-9-]+):', subj)
+            # Only trust the subject prefix if it is a real apps/ slug
+            # ("security:", "recall-nightmare:" etc. are not); otherwise
+            # fall through to the first touched apps/<slug>/ path below.
+            real = _real_slugs()
+            pref = m.group(1) if m else ''
             cur = {
                 'hash': h[:7], 'when_iso': iso,
                 'subject': subj[:200],
-                'app': m.group(1) if m else '',
+                'app': pref if pref and (not real or pref in real) else '',
             }
         elif cur and line.startswith('apps/'):
             parts = line.split('/')
@@ -448,6 +453,9 @@ def bake_chat_credits() -> tuple[list, int, float, dict]:
             for m in pat.finditer(subj):
                 h = m.group(1).lower()
                 if h in BOT_HANDLES or h in TECH_BLOCKLIST:
+                    continue
+                # Commit hashes in "(d15fa7481)" stamp subjects are not handles.
+                if re.fullmatch(r'[0-9a-f]{7,40}', h):
                     continue
                 # Auto-accept only if shape is unambiguous (digit or underscore).
                 # Plain-letter strong matches are still recorded for `strong`
