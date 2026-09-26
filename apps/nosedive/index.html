@@ -130,7 +130,7 @@ function ground(x) {
 function slope(x) { return (ground(x + 1) - ground(x - 1)) / 2; }
 function newFlight() {
   return { x: 0, y: ground(0) + 330, v: 190, th: REST, stalled: false, grounded: false, dive: null, boost: 0, rec: null,
-    t: 0, bestSwoop: 0, kisses: 0, crashes: 0, streak: 0, bestStreak: 0, maxV: 190, runFrom: 0, bestRun: 0, top: 0, dips: 0, misted: false, events: [] };
+    t: 0, bestSwoop: 0, kisses: 0, crashes: 0, streak: 0, bestStreak: 0, maxV: 190, runFrom: 0, bestRun: 0, top: 0, dips: 0, misted: false, loft: 0, events: [] };
 }
 function swoop(s, dv) {
   var avg = dv.sum / dv.t / D2R;
@@ -158,17 +158,20 @@ function crumple(s, hard) {
 }
 function sky(s, clear, dt) {
   if (s.y > s.top) { s.top = s.y; FLOOR = Math.max(FLOOR, s.top - FLOOR_GAP); }
+  // the cloud's parting shove: a buoyant lift that fades over about a second, so you leave with room to dive
+  if (s.loft > 0) { s.y += s.loft * dt; s.loft = Math.max(0, s.loft - 260 * dt); }
   if (clear >= 0) { if (clear > 12) s.misted = false; return false; }
   if (!s.misted) {
     s.misted = true; s.dips++; s.dive = null;
     if (s.streak) s.events.push({ type: 'streakLost', n: s.streak });
     s.streak = 0; s.events.push({ type: 'mist', x: s.x, y: s.y });
   }
-  // thick cloud: speed settles to a slow drift, the nose lifts, and the cloud floats you back out
+  // thick cloud: it catches you, lifts the nose and throws you back out with some speed (Tatum: dips felt sticky)
   s.stalled = false; s.boost = 0;
-  s.v += (150 - s.v) * Math.min(1, 1.6 * dt);
-  s.th += (10 * D2R - s.th) * Math.min(1, 3 * dt);
-  s.y += Math.min(-clear, 60) * 2.2 * dt;
+  s.v += (210 - s.v) * Math.min(1, 2.2 * dt);
+  s.th += (18 * D2R - s.th) * Math.min(1, 4 * dt);
+  s.y += Math.min(-clear, 60) * 3 * dt;
+  s.loft = 240;
   return true;
 }
 function step(s, stick, dt) {
@@ -373,14 +376,56 @@ function audioTick() {
   if (!AC) return;
   var t = AC.currentTime, on = mode === 'fly' && !muted && s && !s.rec;
   windF.frequency.setTargetAtTime(200 + (s ? s.v : 0) * 1.7, t, 0.12);
-  windG.gain.setTargetAtTime(on ? 0.008 + Math.min(1, s.v / 700) * 0.06 : 0, t, 0.2);
+  var calm = SKY && s ? Math.min(1, climbed() / 120) : 0;
+  calm = calm * calm * (3 - 2 * calm);
+  windG.gain.setTargetAtTime(on ? (0.008 + Math.min(1, s.v / 700) * 0.06) * (1 - 0.7 * calm) : 0, t, 0.2);
+  musicTick(t, calm);
+}
+/* the sky tune (Tatum's idea): a slow music box that fades in as the wind quietens with height */
+var mus = null, CHORDS = [
+  [[50, 57, 61, 64], [66, 69, 73, 74, 76, 78, 81]],
+  [[47, 54, 57, 62], [66, 69, 71, 74, 76, 78, 81]],
+  [[43, 50, 54, 59], [66, 67, 71, 74, 76, 78, 79]],
+  [[45, 52, 57, 59], [64, 66, 69, 71, 73, 76, 78]]
+];
+function hz(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function musicTick(t, calm) {
+  var live = SKY && s && !muted && (mode === 'fly' || mode === 'paused');
+  if (!mus) {
+    if (!live || calm < 0.01) return;
+    var g = AC.createGain(), lp = AC.createBiquadFilter(), del = AC.createDelay(2), fb = AC.createGain(), wet = AC.createGain();
+    g.gain.value = 0; lp.type = 'lowpass'; lp.frequency.value = 2600; del.delayTime.value = 0.63; fb.gain.value = 0.36; wet.gain.value = 0.3;
+    g.connect(lp); lp.connect(AC.destination); lp.connect(del); del.connect(fb); fb.connect(del); del.connect(wet); wet.connect(AC.destination);
+    mus = { g: g, next: t + 0.3, step: 0, i: 3 };
+  }
+  var fast = s ? Math.min(1, Math.max(0, (s.v - 170) / 330)) : 0;
+  var lvl = live ? calm * (mode === 'paused' ? 0.45 : 1 - 0.55 * fast) : 0;
+  mus.g.gain.setTargetAtTime(lvl * 0.9, t, muted ? 0.05 : 1.5);
+  if (!live || lvl < 0.005) { mus.next = Math.max(mus.next, t + 0.1); return; }
+  var beat = 0.72 + 0.22 * PAL.stars;
+  while (mus.next < t + 0.25) {
+    var t0 = mus.next, ch = CHORDS[Math.floor(mus.step / 8) % CHORDS.length], pool = ch[1];
+    if (mus.step % 8 === 0) ch[0].forEach(function (m, k) { voice(hz(m), t0 + k * 0.04, beat * 8.6, k ? 0.022 : 0.03, 1.4, 'triangle'); });
+    if (mus.step % 8 !== 7 && Math.random() < (mus.step % 2 ? 0.35 : 0.7)) {
+      mus.i = Math.max(0, Math.min(pool.length - 1, mus.i + [-2, -1, -1, 1, 1, 2][Math.floor(Math.random() * 6)]));
+      var f = hz(pool[mus.i] + (Math.random() < PAL.aur * 0.3 ? 12 : 0));
+      voice(f, t0, 2.2, 0.045, 0.01); voice(f * 2, t0, 0.9, 0.008, 0.01);
+    }
+    mus.step++; mus.next += beat;
+  }
+}
+function voice(f, t0, dur, vol, att, type) {
+  var o = AC.createOscillator(), e = AC.createGain();
+  o.type = type || 'sine'; o.frequency.value = f;
+  e.gain.setValueAtTime(0.0001, t0); e.gain.exponentialRampToValueAtTime(vol, t0 + att); e.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(e); e.connect(mus.g); o.start(t0); o.stop(t0 + dur + 0.05);
 }
 function chime(f) {
   if (!AC || muted) return;
-  var t = AC.currentTime, notes = [523.25, 659.25, 783.99, 1046.5], n = 1 + Math.min(3, Math.floor(f * 8));
+  var t = AC.currentTime, notes = SKY ? [587.33, 739.99, 880, 1174.66] : [523.25, 659.25, 783.99, 1046.5], n = 1 + Math.min(3, Math.floor(f * 8));
   for (var i = 0; i < n; i++) {
     var o = AC.createOscillator(), g = AC.createGain(), t0 = t + i * 0.07;
-    o.type = 'sine'; o.frequency.value = notes[i] * (SKY ? Math.pow(2, (band % 6) / 6) : 1);
+    o.type = 'sine'; o.frequency.value = notes[i];
     g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.9);
     o.connect(g); g.connect(AC.destination); o.start(t0); o.stop(t0 + 1);
   }
@@ -722,7 +767,7 @@ document.addEventListener('visibilitychange', function () {
   else if (AC && AC.resume) AC.resume();
 });
 requestAnimationFrame(frame);
-window.__nd = { pal: function () { return PAL; }, climbed: climbed, setSky: setSky, floor: function () { return FLOOR; }, step: step, newFlight: newFlight, ground: ground, seed: seed, throwPlane: throwPlane, state: function () { return s; }, trail: function () { return trail; }, mode: function () { return mode; }, setMode: setMode };
+window.__nd = { mus: function () { return mus && { step: mus.step, gain: mus.g.gain.value, t: AC.currentTime, state: AC.state }; }, pal: function () { return PAL; }, climbed: climbed, setSky: setSky, floor: function () { return FLOOR; }, step: step, newFlight: newFlight, ground: ground, seed: seed, throwPlane: throwPlane, state: function () { return s; }, trail: function () { return trail; }, mode: function () { return mode; }, setMode: setMode };
 })();
 </script>
 </body>
