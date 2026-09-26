@@ -91,6 +91,7 @@
   - Phones/tablets actually work: drag anywhere to look, hold ↑ ← ↓ → to walk (D-pad shows for `pointer: coarse` or ≤768px), tap a door on screen to go in (`enterAt(ndc, reach)` shared with the desktop centre-click); ghost click after a touch is ignored. Before, movement only ran with pointer lock, which phones never get
   - Walking uses real frame time (same speed at 60/120 Hz)
   - HUD: clock moved under the logo (it was hidden behind the LIVE button); icon-only SNAP/LIVE under 560px so the logo isn't covered
+  - DOOR DIRECTORY: 🗝️ DOORS button (top-left, z above the start overlay) or M opens a <dialog> of all 60 doors, A–Z with search (Enter picks the first match); picking one drops you in front of that door facing it (works from the Sneaker Room too), desktop re-locks the pointer, phones stay in touch mode. Keys are ignored while typing in the search
   - og.png (1200×630 real hallway render) replaces the emoji og:image; title "SloppyOS Mansion"
 
 ## features
@@ -151,6 +152,7 @@ Right wall:
 12. Sneaker Room - magenta (special 3D portal)
 
 ## todos
+- Hallway is 400 units long; doors are listed with the far end first in the arrays (i=0 at z=190, spawn at z=-210)
 - Add more rooms behind doors (not just links)
 - Add ambient sounds/music
 - Add decorations along hallway walls
