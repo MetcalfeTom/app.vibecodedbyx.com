@@ -10,6 +10,8 @@
   - **render via a colour LUT** into a Uint32 view (was parseInt on hex strings for 400k pixels every frame).
   - stone, wood, ice, plant (and the eraser) paint solid; loose materials still sprinkle at 40%.
   - removed the "All Apps" backlink (the site bar has it); real og.png (headless shot of a scene); this notes file.
+  - **portrait phones get a tall world**: before W/H are read, if `.canvas-wrap` is <700 wide and taller than wide, the canvas becomes 400 × (fits the wrap, 300–900) — no more letterboxed strip. W/H are consts after that, all code uses them.
+  - tips line fades 1.5 s after your first stroke.
   - Headless probe: 10 checks (fire ≤1 cell/frame, bottom-row water spreads, solid brush, 140k-grain frame ~20–28 ms in headless CPU, fall acceleration, landing, levelling, no errors).
 
 ## issues
