@@ -3,7 +3,7 @@
 Curling × minesweeper (Tatum's idea, 2026-09-26 stream). Top-down frozen lake at night; 7×11 grid of frosted squares; thin-spot density depends on the lake (12% on lake 1, +3% per lake, max 33%). No square is guaranteed safe (the button used to be, which made 65%-power spam trivial).
 
 ## rules as built
-- Drag down anywhere and let go (slingshot): angle ±15°, power maps linearly to slide distance (pow 1 ≈ 16.5 squares; the house centre needs ≈ 65%). Jitter per throw: ±3% distance, ±0.008 rad angle.
+- Pull down anywhere and let go (slingshot, the drag can start anywhere on the canvas): angle ±15°, power maps linearly to slide distance (pow 1 ≈ 16.5 squares; the house centre needs ≈ 65%). Jitter per throw: ±3% distance, ±0.008 rad angle.
 - Where a stone stops, its square uncovers with the minesweeper number (8-neighbour count); zeros flood-fill. +1 point per square.
 - Speed is safety: over a thin spot a stone sinks below SINK (0.9 sq/s), and between SINK and CREAK (1.7) the ice creaks and a crack is drawn (the "whisper" hint). Open water (a hole left by a sunk stone) sinks anything under CREAK.
 - Hold (pointer/Space/S) to sweep: less friction (1.6 → 1.25, a full-length sweep slides ~28% farther) and half the curl. Curl button ↺/↑/↻ (C key): sideways pull that grows as the stone slows.
@@ -20,6 +20,7 @@ Curling × minesweeper (Tatum's idea, 2026-09-26 stream). Top-down frozen lake a
 - v1.3: keyboard flagging — F opens a gold square cursor, arrows move it, F/Enter/Space toggles a flag, Escape goes back to aiming; the status line reads out each square.
 - v1.4: end-of-sheet reveal ripples up the lake row by row (with a creak) instead of popping in at once.
 - v1.5: lakes with ring goals (see rules), no guaranteed-safe button, more throw variance.
+- v1.6: sheet sits above the site bar (36px reserved at the bottom), hint says "pull down anywhere" (grabbing the stone at the bottom of a phone left no room to pull), and a rubber band shows the drag.
 
 ## issues
 - The creak hint may give away too much (a long slow approach cracks several squares). Watch chat; could make it probabilistic or narrower.
