@@ -589,21 +589,25 @@ function onsetEnvelope(x, sr){
   if (nF < 2) return null;
   var win = hann(N), re = new Float32Array(N), im = new Float32Array(N), half = N >> 1, kLow = Math.max(1, Math.min(half - 1, Math.floor(160 * N / sr)));
   var prev = new Float32Array(half), cur = new Float32Array(half), prevL = new Float32Array(kLow + 1), on = new Float32Array(nF), low = new Float32Array(nF), i, k;
+  /* v4.36 downbeat evidence: hi = flux above ~2 kHz (claps, snares), bands = DB_NB log-spaced bands 40 Hz–2.5 kHz (log magnitude) */
+  var kHi = Math.min(half - 1, Math.floor(2000 * N / sr)), hi = new Float32Array(nF), bands = new Float32Array(nF * DB_NB), bOf = new Int16Array(half), bN = new Float32Array(DB_NB);
+  for (k = 0; k < half; k++){ var hz = k * sr / N; bOf[k] = hz < 40 || hz > 2500 ? -1 : Math.min(DB_NB - 1, Math.floor(Math.log(hz / 40) / Math.log(2500 / 40) * DB_NB)); if (bOf[k] >= 0) bN[bOf[k]]++; }
   for (var f = 0; f < nF; f++){
     var p = f * hop;
     for (i = 0; i < N; i++){ re[i] = x[p + i] * win[i]; im[i] = 0; }
     fftInPlace(re, im);
-    var flux = 0, lf = 0;
+    var flux = 0, lf = 0, hf = 0, bo = f * DB_NB;
     for (k = 1; k < half; k++){
       var m = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
       cur[k] = Math.log(1 + 20 * m);
-      var d = cur[k] - prev[k]; if (d > 0) flux += d;
+      var d = cur[k] - prev[k]; if (d > 0){ flux += d; if (k >= kHi) hf += d; }
+      if (bOf[k] >= 0) bands[bo + bOf[k]] += cur[k] / bN[bOf[k]];
       if (k <= kLow){ var dl = m - prevL[k]; if (dl > 0) lf += dl; prevL[k] = m; }
     }
-    on[f] = f ? flux : 0; low[f] = f ? lf : 0;
+    on[f] = f ? flux : 0; low[f] = f ? lf : 0; hi[f] = f ? hf : 0;
     var t = prev; prev = cur; cur = t;
   }
-  return { on: on, low: low, fr: fr };
+  return { on: on, low: low, hi: hi, bands: bands, fr: fr };
 }
 
 /* onset envelope → autocorrelation tempo estimate; returns BPM or null */
@@ -817,14 +821,9 @@ function beatGrid(env, bpm, x, sr){
       beat0 += (bestD + o4) * bs;
     }
   }
-  /* downbeat from the frame-level grid, then carry the bar numbering through the beat0 normalisation */
-  var slot = [0, 0, 0, 0];
-  for (n = 0; phase + n * period < nF; n++){
-    i = Math.round(phase + n * period); var v3 = 0;
-    for (q = Math.max(0, i - 1); q <= Math.min(nF - 1, i + 1); q++) v3 = Math.max(v3, on[q] + (lmean > 0 ? 2 * low[q] / lmean : 0));
-    slot[n & 3] += v3;
-  }
-  var db = 0; for (k = 1; k < 4; k++) if (slot[k] > slot[db]) db = k;
+  /* downbeat from the frame-level grid (v4.36 vote, see downbeatVote), then carry the bar numbering through the beat0 normalisation */
+  var dv = downbeatVote(env, phase, period), db = dv.db;
+  if (env.debug) env.debug.push({ downbeat: dv });
   var shift = Math.floor(beat0 / per); beat0 -= shift * per; db = ((db + shift) % 4 + 4) % 4;
   /* peakiness gate: drums make a sparse envelope (top decile ≫ mean); a swelling pad or noise does not, however well a grid "fits" it */
   var sorted = Array.prototype.slice.call(on).sort(function(p1, p2){ return p2 - p1; }), top = 0, nTop = Math.max(1, Math.floor(nF / 10));
@@ -832,7 +831,80 @@ function beatGrid(env, bpm, x, sr){
   var pulse = Math.max(0, Math.min(1, (top / mean - 2) / 2));
   var conf = Math.min(best.matched, Math.max(0, Math.min(1, (best.ratio - 1.1) / 1.4)), pulse);
   if (env.debug) env.debug.push({ fine: beat0 - phase / fr, beat0: beat0, conf: conf });
-  return { bpm: 60 * fr / period, beat0: beat0, downbeat: db, conf: conf };
+  return { bpm: 60 * fr / period, beat0: beat0, downbeat: db, conf: conf, dbv: 2 };   /* dbv 2 = the v4.36 downbeat vote found this ONE */
+}
+
+/* v4.36 DOWNBEAT VOTE (pushedbutton 2026-09-26: "autodj seems to be off by a beat on a lot of mixes").
+   The old rule — whichever of four beat slots carries the most onset energy — hands the "one" to the clap on 2 or 4 in
+   most four-on-the-floor music (kicks equal on every beat, the clap adds energy): 9 of 12 synthetic dance fixtures
+   came out a beat off. Five pieces of evidence, each a per-slot score around 0, summed:
+   · backbeat: claps / snares (flux above 2 kHz) on two alternate slots mean the one is the slot BEFORE the first of them
+   · kick: a heavier or only kick (kick band) on a slot (1&3 patterns, an accented one)
+   · change: the spectrum between consecutive beats — chords and bass notes change on the bar line
+   · sections: squared change of the 4-beat average spectrum — parts enter and leave on bar lines (squared, so a
+     clean step on the bar beats the smeared steps a beat either side)
+   · first beat: DJ tracks start on a bar — a small nudge towards the slot of the first beat with a real hit
+   phase/period are the frame-level grid; slot k = beats phase + n·period with n ≡ k (mod 4). */
+var DB_NB = 24;
+/* per-slot evidence from per-beat values: how far each slot's mean sits from the overall mean, in standard errors,
+   with a dead zone (|z| < 1.5 says nothing) and a cap (z 5 = full vote) so noise stays out and no single cue shouts */
+function dbSlotZ(v, n0){
+  var sum = [0, 0, 0, 0], cnt = [0, 0, 0, 0], all = 0, all2 = 0, N = 0, n, k;
+  for (n = n0 || 0; n < v.length; n++){ var x = v[n]; if (!(x === x)) continue; sum[n & 3] += x; cnt[n & 3]++; all += x; all2 += x * x; N++; }
+  var out = [0, 0, 0, 0]; if (N < 16) return out;
+  var m = all / N, sd = Math.sqrt(Math.max(1e-12, all2 / N - m * m));
+  for (k = 0; k < 4; k++){ if (!cnt[k]) continue; var z = (sum[k] / cnt[k] - m) / (sd / Math.sqrt(cnt[k])), a = Math.abs(z); out[k] = a < 1.5 ? 0 : (z > 0 ? 1 : -1) * Math.min(1, (a - 1.5) / 3.5); }
+  return out;
+}
+function downbeatVote(env, phase, period){
+  var on = env.on, low = env.low, hi = env.hi, B = env.bands, nF = on.length, n, q, k, b, i;
+  var nB = 0; while (phase + (nB + 1) * period < nF - 1) nB++;
+  var z = [0, 0, 0, 0], sc = { back: z.slice(), kick: z.slice(), change: z.slice(), sect: z.slice(), first: z.slice() };
+  if (nB < 16) return { db: 0, sc: sc, tot: z.slice(), margin: 0 };
+  function at(arr, t){ var i0 = Math.round(t), v = 0; for (var j = Math.max(0, i0 - 1); j <= Math.min(nF - 1, i0 + 1); j++) if (arr[j] > v) v = arr[j]; return v; }
+  var loV = [], hiV = [], lm = 0;
+  for (n = 0; n < nB; n++){ loV.push(at(low, phase + n * period)); lm += loV[n] / nB; }
+  /* high band RELATIVE to the kick band: a louder kick is brighter too, a clap is brightness without the thump */
+  for (n = 0; n < nB; n++) hiV.push(hi ? at(hi, phase + n * period) / (loV[n] + 0.25 * lm + 1e-9) : NaN);
+  /* backbeat: + for the slot whose 2 and 4 carry the claps */
+  var hz = dbSlotZ(hiV);
+  for (k = 0; k < 4; k++) sc.back[k] = (hz[(k + 1) & 3] + hz[(k + 3) & 3] - hz[k] - hz[(k + 2) & 3]) / 2;
+  sc.kick = dbSlotZ(loV);
+  if (B){
+    /* beat-synchronous spectrum: mean band values over each beat's frames */
+    /* a frame's window is ~93 ms long and the grid sits on the onset frame, which STARTS ~60 ms before the hit: without
+       trimming, the last frames of each beat already hear the next kick (and a loud one "changes" the beat before it) */
+    var S = new Float32Array(nB * DB_NB), chV = [NaN], seV = [NaN, NaN, NaN, NaN], hw = Math.max(1, Math.min(Math.floor(period / 4), Math.round(0.046 * env.fr)));
+    for (n = 0; n < nB; n++){
+      /* fractional frame weights at both edges: with a whole-frame window each slot rounds differently (a 40.37-frame
+         beat), and on a steady loop that rounding alone looks like a per-slot pattern */
+      var a0 = phase + n * period + hw, a1 = phase + (n + 1) * period - hw, c = 0;
+      for (i = Math.max(0, Math.floor(a0 + 0.5)); i <= Math.min(nF - 1, Math.ceil(a1 - 0.5)); i++){
+        var w = Math.min(a1, i + 0.5) - Math.max(a0, i - 0.5); if (w <= 0) continue;
+        for (b = 0; b < DB_NB; b++) S[n * DB_NB + b] += w * B[i * DB_NB + b]; c += w;
+      }
+      if (c) for (b = 0; b < DB_NB; b++) S[n * DB_NB + b] /= c;
+    }
+    /* change in SHAPE, not level: each beat's spectrum minus its own mean, so a louder kick on the one (the same sound,
+       just more of it) isn't a "change" — it would light up the beat after it just as much */
+    var lv = new Float32Array(nB); for (n = 0; n < nB; n++){ var sm = 0; for (b = 0; b < DB_NB; b++) sm += S[n * DB_NB + b]; lv[n] = sm / DB_NB; }
+    for (n = 1; n < nB; n++){ var d = 0; for (b = 0; b < DB_NB; b++) d += Math.abs(S[n * DB_NB + b] - lv[n] - S[(n - 1) * DB_NB + b] + lv[n - 1]); chV.push(d); }
+    for (n = 4; n < nB; n++){
+      if (n + 4 > nB){ seV.push(NaN); continue; }
+      var d2 = 0;
+      for (b = 0; b < DB_NB; b++){ var a1 = 0, a0 = 0; for (q = 0; q < 4; q++){ a1 += S[(n + q) * DB_NB + b]; a0 += S[(n - 1 - q) * DB_NB + b]; } d2 += Math.abs(a1 - a0) / 4; }
+      seV.push(d2 * d2);
+    }
+    sc.change = dbSlotZ(chV); sc.sect = dbSlotZ(seV);
+  }
+  /* first beat: where the kick pattern starts — the first kick-band hit above 20 % of the 90th percentile that the
+     next two bars repeat (a one-off thump or a noisy intro doesn't count) */
+  var srt = loV.slice().sort(function(p1, p2){ return p1 - p2; }), p90 = srt[Math.floor(srt.length * 0.9)], th = 0.2 * p90;
+  for (n = 0; n + 8 < nB; n++) if (loV[n] > th && loV[n + 4] > th && loV[n + 8] > th){ sc.first[n & 3] = 0.3; break; }
+  var tot = z.slice(), db = 0;
+  for (k = 0; k < 4; k++){ tot[k] = sc.back[k] + sc.kick[k] + sc.change[k] + sc.sect[k] + sc.first[k]; if (tot[k] > tot[db]) db = k; }
+  var srt2 = tot.slice().sort(function(p1, p2){ return p2 - p1; });
+  return { db: db, sc: sc, tot: tot, margin: srt2[0] - srt2[1] };
 }
 
 /* grid helpers: t is track time in seconds */
@@ -1093,6 +1165,7 @@ function deckMarkup(L){
         '<button type="button" class="btn small glock" aria-pressed="true" title="Grid lock ON: loops snap onto the beat grid. Turn off to loop from the EXACT playhead — free loops fight an engaged sync at every wrap">⊞ grid</button>' +
         '<button type="button" class="btn small ldir" title="Loop direction: forward → · reverse ← · ping-pong ⇄. Reverse and ping-pong play a reversed copy on the sample engine (keylock rests; sync rests too)" aria-label="Loop direction: forward">→</button>' +
         '<button type="button" class="btn voc" aria-pressed="false" title="Vocal section: press once to mark its start at the playhead, again to mark the end — the section shows inverted on the waveform as a vocal cue; press a third time to clear">✱ vocal</button>' +
+        '<button type="button" class="btn small onebtn" title="Tap the 1: press on the first beat of a bar while it plays (or park the playhead on it) — the bar lines move there and stay with this track. For when the found ONE sits a beat off">tap the 1</button>' +
         '<button type="button" class="btn phbtn" aria-pressed="false" aria-label="phrases" title="Phrase markers: local energy suggestions with confidence labels, four colour roles, all editable"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.5L14.5 8 8 14.5 1.5 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg></button>' +
       '</div>' +
       '<div class="cuepads" role="group" aria-label="Phrase pads" hidden></div>' +
@@ -1129,7 +1202,7 @@ function Deck(L, el){
     klock: $('.klock', el), sync: $('.sync', el), nm: $('.nm', el), np: $('.np', el), pre: $('.pre', el), presel: $('.presel', el),
     loop: $('.loop', el), lmin: $('.lmin', el), lplus: $('.lplus', el), lread: $('.lread', el), glock: $('.glock', el), ldir: $('.ldir', el), voc: $('.voc', el),
     rescan: $('.rescan', el), eject: $('.eject', el),
-    phbtn: $('.phbtn', el), phstrip: $('.phrasestrip', el), phsug: $('.phsug', el), phadd: $('.phadd', el), plist: $('.plist', el), pads: $('.cuepads', el), pcount: $('.pcount', el), pclick: $('.pclick', el), pclickl: $('.pclickl', el), pcwin: $('.pcwin', el)
+    onebtn: $('.onebtn', el), phbtn: $('.phbtn', el), phstrip: $('.phrasestrip', el), phsug: $('.phsug', el), phadd: $('.phadd', el), plist: $('.plist', el), pads: $('.cuepads', el), pcount: $('.pcount', el), pclick: $('.pclick', el), pclickl: $('.pclickl', el), pcwin: $('.pcwin', el)
   };
   d.color = null;
   d.q.file.addEventListener('change', function(){ if (d.q.file.files[0]) d.loadFile(d.q.file.files[0]); d.q.file.value = ''; });
@@ -1160,6 +1233,7 @@ function Deck(L, el){
   d.q.loop.addEventListener('click', function(){ d.toggleLoop(); });
   d.q.voc.addEventListener('click', function(){ d.vocMark(); });
   d.q.rescan.addEventListener('click', function(){ d.rescan(); });
+  d.q.onebtn.addEventListener('click', function(){ d.setOne(); });
   d.q.phbtn.addEventListener('click', function(){
     var open = d.q.phstrip.hidden;
     if (!open){ clearTimeout(d._phArmT); d._phArm = null; }   /* closing the editor disarms a pending delete; edits are already saved */
@@ -1512,6 +1586,23 @@ Deck.prototype.preCount = function(){
 /* looping: a whole number of bars from the current position, snapped to this deck's grid,
    so a looping deck stays on the same beat phase (and an engaged sync survives). */
 Deck.prototype.barSecs = function(){ return this.grid ? 4 * (60 / this.grid.bpm) : null; };
+/* v4.36 TAP THE 1 (pushedbutton: "if the grid aligned the mix would work"): the beat nearest the playhead becomes the ONE.
+   While playing, what you hear trails the media clock and a tap trails the beat — ONE_TAP_LAG (real seconds) comes off first;
+   nearest-beat rounding forgives ±half a beat. The grid is edited in place (the crate record shares it) and saved. */
+var ONE_TAP_LAG = 0.1;
+Deck.prototype.setOne = function(){
+  var d = this, g = d.grid, st = function(t){ d.setStatus(t); clearTimeout(d._oneT); d._oneT = setTimeout(function(){ d.setStatus(''); }, 2600); };
+  if (!d.buffer || !g || !(g.bpm > 0)){ st(d.buffer ? 'no beat grid on this track — nothing to count from' : 'load a track first'); return false; }
+  var per = 60 / g.bpm, t = d.pos() - (d.playing ? ONE_TAP_LAG * d.rate * (d.bend || 1) : 0);
+  var db = ((Math.round((t - g.beat0) / per) % 4) + 4) % 4, a0 = gridAnchor(g), old = ((Math.round((a0 - g.beat0) / per) % 4) + 4) % 4, mv = (db - old + 4) % 4;
+  g.downbeat = db; g.dbv = 2; g.dbUser = true;
+  var C = window.__C, rec = C && d._crateId ? C.byId[d._crateId] : null;
+  if (rec){ rec.grid = g; try{ C.persist(rec); }catch(e){} }
+  d.draw(); d.render(); try{ d.renderPhrases(); }catch(e){}
+  try{ var J = window.__ADJ; if (J && J.drawPreview) J.drawPreview(null); if (J && J.renderCues) J.renderCues(); }catch(e){}
+  st(mv === 0 ? 'the 1 was already there — kept, and now it stays' : 'the 1 moved ' + (mv === 1 ? 'a beat later' : mv === 3 ? 'a beat earlier' : 'half a bar') + (rec ? ' — saved with the track' : ''));
+  return { db: db, moved: mv };
+};
 /* v4.22: phrase marker bar n sits on the nth bar line of the BEAT MAP (phase of the first downbeat). It used to be
    n × bar from 0:00 — up to a bar off the real downbeats. No beat map shown → the shown BPM from 0:00. */
 Deck.prototype.phraseBar = function(){ return this.gridUsable() ? this.barSecs() : this.bpm ? 240 / this.bpm : (this.barSecs() || 2); };
@@ -3114,14 +3205,33 @@ function pump(){
   readBlob(rec.blob).then(decode).then(function(buf){
     if (!byId[rec.id]) return;
     rec.dur = buf.duration; rec.state = 'analysing'; render();
-    try{ rec.fp = crateFp(buf.getChannelData(0), buf.sampleRate); dupScan(rec); }catch(e){}
-    return monoOfAsync(buf).then(function(m){ return analyse(m.mono, m.sr); }).then(function(r){ if (!byId[rec.id]) return; if (!rec.manual){ rec.bpm = r.bpm; rec.key = r.key; } rec.grid = r.grid || null; rec.err = null; });
-  }).catch(function(e){ if (byId[rec.id]) rec.err = /decod/i.test(String(e && e.message || e)) || !rec.dur ? "couldn't decode" : 'analysis failed'; })
+    if (!rec._dbRefresh) try{ rec.fp = crateFp(buf.getChannelData(0), buf.sampleRate); dupScan(rec); }catch(e){}
+    return monoOfAsync(buf).then(function(m){ return analyse(m.mono, m.sr); }).then(function(r){ if (!byId[rec.id]) return;
+      if (rec._dbRefresh){ oneRefreshed(rec, r.grid); return; }
+      if (!rec.manual){ rec.bpm = r.bpm; rec.key = r.key; } rec.grid = r.grid || null; rec.err = null; });
+  }).catch(function(e){ if (rec._dbRefresh){ rec._dbRefresh = false; return; }   /* a failed re-check changes nothing; next visit tries again */
+    if (byId[rec.id]) rec.err = /decod/i.test(String(e && e.message || e)) || !rec.dur ? "couldn't decode" : 'analysis failed'; })
   .then(function(){
     if (byId[rec.id]){ rec.done = true; rec.state = null; persist(rec); }
     if (batchN) batchDone++;
     pumping = false; render(); pump();
   });
+}
+/* v4.36: grids found before the downbeat vote (no dbv) get their ONE re-checked once, in the background. Only the grid
+   changes — in place, so a deck holding this record follows at once; bpm, key and cues stay as they were. */
+function oneStale(r){ return !!(r && r.done && r.grid && r.grid.bpm > 0 && r.grid.dbv !== 2 && !r.grid.dbUser); }
+function recheckOnes(){
+  var n = 0;
+  crate.forEach(function(r){ if (oneStale(r) && !r._dbRefresh && queue.indexOf(r) < 0){ r._dbRefresh = true; queue.push(r); n++; } });
+  if (n){ batchNote = 'finding the 1 again (' + n + (n === 1 ? ' track' : ' tracks') + ')'; pump(); }
+  return n;
+}
+function oneRefreshed(rec, g){
+  rec._dbRefresh = false;
+  if (!rec.grid){ rec.grid = g || null; }
+  else if (g && Math.abs(g.bpm - rec.grid.bpm) / rec.grid.bpm < 0.005){ var was = gridAnchor(rec.grid); for (var k in g) rec.grid[k] = g[k]; rec._oneMoved = Math.abs(gridAnchor(rec.grid) - was) > 0.01; }
+  else rec.grid.dbv = 2;   /* a different tempo now? keep the grid you had, and don't ask again */
+  ['A', 'B'].forEach(function(L){ var d = X.decks[L]; if (d && d._crateId === rec.id){ try{ d.draw(); d.render(); d.renderPhrases(); }catch(e){} } });
 }
 function remove(rec){
   if (!byId[rec.id]) return;
@@ -3360,11 +3470,11 @@ document.body.appendChild(dl);
 /* ── boot: restore the crate, resume anything that never finished analysing ── */
 ready = dbAll().then(function(rows){
   rows.sort(function(a, b){ return a.added - b.added; });
-  rows.forEach(function(r){ if (!r || !r.id || !r.blob) return; r.state = null; if (r.added > lastAdded) lastAdded = r.added; crate.push(r); byId[r.id] = r; if (!r.done) queue.push(r); });
-  render(); pump();
+  rows.forEach(function(r){ if (!r || !r.id || !r.blob) return; r.state = null; r._dbRefresh = false; if (r.added > lastAdded) lastAdded = r.added; crate.push(r); byId[r.id] = r; if (!r.done) queue.push(r); });
+  render(); pump(); recheckOnes();
 }, function(){ storageOk = false; status("browser storage is blocked — imports work but won't survive a reload", 'err'); render(); });
 
-window.__C = { crate: crate, byId: byId, persist: persist, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck, played: function(){ return PLAYED; }, resetPlayed: playedReset, playedReload: function(){ playedLoad(); render(); }, PLAYED_KEY: PLAYED_KEY, SL: function(){ return SL; }, slAdd: slAdd, renderSetlist: renderSetlist, SLS: function(){ return SLS; }, passed: function(){ return PASSED; }, slAddAuto: slAddAuto, slDropAuto: slDropAuto, scoreFor: scoreFor, slsReload: slsReload, slSaveAs: slSaveAs, slLoadSaved: slLoadSaved, slClear: slClear, slDeleteSaved: slDeleteSaved, slExportJSON: slExportJSON, slImportText: slImportText, slResolve: slResolve, slArmState: function(){ return SL_ARM.key; }, slReload: function(){ try{ var sv2 = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv2 && Array.isArray(sv2.ids)) SL = { ids: sv2.ids, at: (typeof sv2.at === 'number' ? sv2.at : null), auto: Array.isArray(sv2.auto) ? sv2.auto : [] }; }catch(e){} renderSetlist(); },
+window.__C = { recheckOnes: recheckOnes, oneStale: oneStale, crate: crate, byId: byId, persist: persist, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck, played: function(){ return PLAYED; }, resetPlayed: playedReset, playedReload: function(){ playedLoad(); render(); }, PLAYED_KEY: PLAYED_KEY, SL: function(){ return SL; }, slAdd: slAdd, renderSetlist: renderSetlist, SLS: function(){ return SLS; }, passed: function(){ return PASSED; }, slAddAuto: slAddAuto, slDropAuto: slDropAuto, scoreFor: scoreFor, slsReload: slsReload, slSaveAs: slSaveAs, slLoadSaved: slLoadSaved, slClear: slClear, slDeleteSaved: slDeleteSaved, slExportJSON: slExportJSON, slImportText: slImportText, slResolve: slResolve, slArmState: function(){ return SL_ARM.key; }, slReload: function(){ try{ var sv2 = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv2 && Array.isArray(sv2.ids)) SL = { ids: sv2.ids, at: (typeof sv2.at === 'number' ? sv2.at : null), auto: Array.isArray(sv2.auto) ? sv2.auto : [] }; }catch(e){} renderSetlist(); },
   crateScore: crateScore, scoreFor: scoreFor, harmonic: harmonic, tempo: tempo, parseCam: parseCam, prefs: prefs, ready: ready, decode: decode,
   playlists: playlists, inPlaylist: inPlaylist, relOf: relOf, dirOf: dirOf, filesFromEntries: filesFromEntries,
   get playSel(){ return playSel; }, set playSel(v){ playSel = v; render(); }, get batch(){ return { n: batchN, done: batchDone }; },
