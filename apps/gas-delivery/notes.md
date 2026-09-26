@@ -7,6 +7,7 @@
   - GPS location tracking
   - Supabase order storage
   - Order history tracking
+- 2026-09-26: Sign-in, placing orders and "My Orders" worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. gas_delivery_orders.
 
 ## features
 - 3 tank size options (small/medium/large)

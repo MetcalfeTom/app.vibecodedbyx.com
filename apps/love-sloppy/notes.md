@@ -8,6 +8,7 @@
   - Color picker for messages
   - Anonymous auth for submissions
   - Clean typography with DM Sans and Fraunces
+- 2026-09-26: Guestbook loading, sign-in and signing worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. love_sloppy_guestbook.
 
 ## features
 - Clean, minimalist design

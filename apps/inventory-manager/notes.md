@@ -1,6 +1,7 @@
 # Stock Manager
 
 ## log
+- 2026-09-26: Sign-in, stock/transfer loading and saving worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. Tables: inventory_products, inventory_transfers.
 - 2026-01-10: Added dimension fields for size and color
   - Size and Color fields in add/edit modal
   - Size/Color column in stock table

@@ -1,6 +1,7 @@
 # Swarm Intelligence Nexus
 
 ## log
+- 2026-09-26: Sign-in, proposals, voting, delegations, comments, amendments and the ecosystem pulse worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. Tables: swarm_proposals, swarm_votes, swarm_delegations, swarm_proposal_comments, swarm_proposal_amendments, sloppygram_messages, sloppygram_posts, ai_events (+ pulse leaderboard tables). The inline window.supabase error reporter in <head> is still inert (nothing sets window.supabase) — left as is.
 - 2026-02-05: Phase 4 — Migrated to header sync hub context
   - Auth delegation: checks sloppyBarGetContext() before signInAnonymously()
   - loadUserProfile() uses header context fast path for username + avatar (1 DB query eliminated)

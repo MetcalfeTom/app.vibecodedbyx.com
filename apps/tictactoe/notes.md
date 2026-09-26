@@ -1,6 +1,7 @@
 # Pirate's Plunder - X Marks the Spot
 
 ## log
+- 2026-09-26: Player stats load/save and the Hall of Pirates leaderboard worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. tictactoe_stats.
 - 2026-01-07: Pirate theme applied - gold/teal colors, Pirata One font, pirate-themed UI text
 - 2026-01-06: Initial creation - full-featured TicTacToe for Slayen's class upgrade
 

@@ -1,6 +1,7 @@
 # Neon Tetris
 
 ## log
+- 2026-09-26: Sign-in, leaderboard, score submit and duel rooms worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. tetris_leaderboard, tetris_duels.
 - 2026-03-26: Bug fixes — null pointer guard on keyboard/mobile input before game start, line clear race condition fix (prevent overlapping clears during 200ms animation)
 - 2026-02-01: Hold Piece & Combo System
   - Hold piece: press C or Shift to store current piece, swap on next hold

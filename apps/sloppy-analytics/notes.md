@@ -3,6 +3,7 @@
 Centralized analytics dashboard tracking teleport usage and app popularity across the SloppyID ecosystem.
 
 ## Log
+- 2026-09-26: Teleport stats loading and the realtime feed worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. Table: sloppy_analytics.
 - 2026-01-27: Initial creation
   - Real-time teleport tracking
   - Top destinations leaderboard

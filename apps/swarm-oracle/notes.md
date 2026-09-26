@@ -3,6 +3,7 @@
 Prediction market where users bet karma on outcomes. The collective wisdom of the swarm.
 
 ## Log
+- 2026-09-26: Sign-in, predictions, betting, trust scores and the leaderboard worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. Tables: swarm_predictions, swarm_prediction_bets, sloppygram_profiles, sloppygram_karma, sloppyid_verifications.
 - 2026-02-05: Phase 4 — Migrated to header sync hub context
   - loadUserProfile() uses sloppyBarGetContext() as fast path (profile, karma, trust) — 3 DB queries eliminated
   - loadUserTrustScore() extracted renderUserTrustBadge() for reuse

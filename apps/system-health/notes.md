@@ -3,6 +3,7 @@
 Real-time monitoring of sloppy.live database tables and services.
 
 ## Log
+- 2026-09-26: Connection checks, table counts, SloppyID stats and active users worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. Tables: users, sloppygram_karma, sloppyid_vault (+ row counts of the listed tables).
 - 2026-01-27: Initial creation
   - 70+ database tables organized into 13 categories
   - Real-time row counts for each table

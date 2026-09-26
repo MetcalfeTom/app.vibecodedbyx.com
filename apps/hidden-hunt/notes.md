@@ -4,6 +4,7 @@
 
 ## log
 - 2026-04-11: Initial build. 5 themed scenes (Enchanted Forest, Desert Ruins, Ocean Depths, Volcanic Cavern, Crystal Tundra), each procedurally generated with seeded RNG. Letters drawn at reduced opacity in theme-matching colors to camouflage them. Click/tap to reveal — gold glow ring on hit, red ring + 2s time penalty on miss. 3 hints per scene (highlights a random unfound letter). Target bar shows word progress. 15 word pool. DM Serif Text + IBM Plex Mono typography, warm gold-on-dark aesthetic.
+- 2026-09-26: Sign-in, the leaderboard and score submit worked again: config is an ES module, the classic script tag threw and left `supabase` undefined — now imported and awaited. hidden_hunt_leaderboard.
 
 ## features
 - 5 procedural scene themes with distinct palettes and elements
