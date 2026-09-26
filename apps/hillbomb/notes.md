@@ -16,6 +16,8 @@ Tatum's idea (2026-09-26): "a game like subway surfers, except you are running d
 
 - v1.5 (Tatum: jump size wasn't intuitive): a ring on the street in your lane shows where a jump right now would land (simulated over the real terrain each frame, so crests stretch it); it turns gold once you're fast enough to vault a parked car. Hidden in the air, on walls, sliding and stumbling.
 
+- v1.6 (Pushed: Red Bull Soapbox Derby style commentary): an over-the-top commentator calls the run — start, 50/80/100/130 km/h, 500 m…5 km, vaults, clean hops/slides, streaks, stumbles, car bonks, wall runs/kicks, flips, big air, the cable car closing in (<14 m) and falling back (>45 m), the paper cup, getting caught. Caption bottom-centre (#call, aria-live) + browser speechSynthesis (prefers an en-GB voice), mic button toggles the voice (`hillbomb:voice`), sound mute also hushes it. Rate-limited: 3.4 s between lines (0.9 s for priority ≥2), same kind not within 9 s. Fixed: #pop used class 'go', which is the button style → it rendered as an orange sticker; now 'show'.
+
 ## balance (fast-forward bots, `__hb.sim(dt)`)
 - idle bot caught at ~83 s / 1 km; careful bot ~3.5 min / 4.7 km, top ~146 km/h; wall-spam bot 2–3 min.
 
