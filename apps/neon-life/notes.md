@@ -65,3 +65,4 @@
 - Add zoom controls
 - Add grid size options
 - Add step back feature
+- 2026-09-26: phones — RANDOM SEED pill wrapped onto two lines and sat on the pattern row (fixed wrap at left:50% only gets half the viewport as shrink-to-fit width) → white-space:nowrap; pattern row gets a right-edge fade so it reads as scrollable.
