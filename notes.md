@@ -283,6 +283,7 @@
    - Validate rows client-side, e.g. the word must be in a built-in list, so junk rows from devtools are skipped.
    - Probe with an in-page fake client (thenable query builder); then do one live check.
  - Some app hosts fall back to `index.html` for unknown asset paths; ensure `og-image.png` actually exists to avoid OG preview failures.
+ - 2026-09-26 sweep: 372 apps point og:image at a local file that doesn't exist (micro-city was one, fixed). Fix it whenever you touch an app: headless screenshot → og.png, check the file exists before committing.
  - +Pollinations image API: `image.pollinations.ai/prompt/...?referrer=sloppy.live` now returns HTTP 500 ("Authenticated users should use enter.pollinations.ai"). DROP the `referrer` param — use the plain anon endpoint. Cold generation ~60–90s per unique prompt; Cloudflare edge-caches it forever after first success. Always render an emoji/text fallback under the image so slow/failed loads stay invisible. (CLAUDE.md still advises using `referrer=sloppy.live` but the API rejects it as of 2026-04-18.)
 
 ## todos
