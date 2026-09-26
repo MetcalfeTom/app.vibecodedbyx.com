@@ -1,6 +1,7 @@
 # Fantasy Realm 3D — notes
 
 ## log
+- v1.42.0 (2026-09-26): HOVER NAMES (mouse only). Hovering anything you can pick (mobs, the Knight, villagers, guards) shows a small tag at the pointer: name · level. It is in the consider colour once you have considered or fought that foe, otherwise in its reaction colour. The cursor becomes a pointer. Direct ray hits only (pickAt slop 0), throttled to ~9 Hz; the tag hides on leave, while dragging the camera, or with a button held.
 - v1.41.0 (2026-09-26): SNAGTOOTH'S ROAR WAKES THE BATS. When he wakes, every living bat within 10 m of him (and within 10.5 m of you, so they keep you in mind) wakes too, with its own line ("His roar shakes the cave roof…"). Bats still wake on their own at 5.5 m. Test: scratch gaunt/roar.js.
 - v1.40.1 (2026-09-26): starting a new adventure (after you fall) switches auto-attack off quietly, so the old "auto-attack off" line no longer pops up after a restart.
 - v1.40.0 (2026-09-26): CAVE BATS (jjj_nnn_hh's idea; the voice's story: they tolerate Snagtooth for his scraps, hate the wolves) — MOBS.bat 'cave bat' lv4 12hp dmg 2–4 hit .8, DROPS 1–5c; three spawn after the goblin guards (so older mob ids stay put; tests t.js/cave.js updated) at the back of the cave. Engine: waking sets circT 1.5 s — the bat circles you sideways and its attack timer is frozen until then (the chase code clamps atkT to period while closing in, so a longer atkT alone never worked); one wake line per 20 s. Page: batModel() is a plain Group (no rig — animRig returns early), batPose() hangs it upside down under the roof (+2.55) while roosting, flaps at chest height with a flutter when awake, dips when it bites, glows when hit; ring .8. Also: touch AUTO button (#tAuto, left of strike) — the same toggle as the 1 key, lit (aria-pressed) while auto-attack runs, synced in hud(); the "auto-attack on" toast names your bound key. Dark Forest directions for players: east of the village (x>100), past the Cursed Knight's clearing (HOME x92); Duskhollow ~x131–137.
@@ -85,7 +86,7 @@
 - Fixture lessons: a walk test from the start pad runs into trees — test speed in the tree-free clearing; a dodge ROLLS the hero out of the Knight's reach, so an i-frame test must hold position; the 100 ms dt clamp means "wait 0.7 s" is seven steps, not one; read WebGL pixels from a mid-height band, a corner is often one flat colour.
 
 ## todos
-- names over heads: maybe the cat (a different name at every house — voice idea), mobs' names on hover?
+- names over heads: maybe the cat (a different name at every house — voice idea). (Mob names on hover: done v1.42.0.)
 - The race name 'Wolfman' is TEMPORARY: fannar wants Chomp's creator chompthemanokit to name it when they show up.
 - Soft cap idea (voice): stat points past 100 give half — not asked for yet.
 - Cave ideas from chat (not promised): bats (v1.40.0, jjj_nnn_hh; v1.41.0 they also wake when Snagtooth roars); a torn traveler's note by the throne; Doug recognising the chain shirt's hammer mark. The soup pot has no collider (you can walk through it).
