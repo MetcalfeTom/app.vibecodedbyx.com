@@ -1,6 +1,7 @@
 # Neon Giraffe Clicker
 
 ## Log
+- 2026-09-26: 🏆 Achievements — 13 fart-themed trophies (First Toot, Gust Front, Category Five, Kaboom, Repeat Offender, Crab Whisperer, Hydra, Dressed Up, Mad Milliner, Robot Butler, Sleep Farter, Gas Tycoon, Gas Giant). `achStats` {farts, booms, crabs, afk} + `achGot` saved in the neonGiraffe save (`ach`, `stats`); old saves are credited quietly (no toast flood). Checked in updateUpgradeButtons(); gold toast slides up from the bottom one at a time with a 3-note chime; 🏆 n/13 button beside the stats opens the Trophy Shelf dialog (Escape/backdrop close, focus returns).
 - 2026-09-26: progress SAVES now (localStorage 'neonGiraffe': clicks + owned counts + time; every 5 s, on buy, on hide/pagehide). Auto-clickers keep earning while you're away (max 2 h) → WELCOME BACK toast with the amount. Giraffe drawing scaled 0.855 and shifted so tall hats (wizard) and the hooves are no longer cut off by the 300×400 canvas. og.png (real screenshot) replaces the emoji og:image.
 - 2026-01-11: Initial creation
   - Neon giraffe with animated wobble
@@ -33,6 +34,6 @@
 - Particle systems for farts and bones
 
 ## Todos
-- Add more hat types (cowboy, wizard, etc.)
-- Add achievements
+- More hats? (already 8: top, party, crown, viking, beret, propeller, wizard, sombrero)
+- Achievements done — maybe secret ones (e.g. click the crab 50 times)
 - Add more upgrade tiers
