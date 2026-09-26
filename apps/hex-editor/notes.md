@@ -16,6 +16,7 @@ A ghost "writes" a small program (typewriter animation) and hides a classic secu
   - Recall desktop has a ghost shortcut (hex-editor.lnk, Haunted files) that opens /hex-editor/?bare=1 in a window.
 
 ## issues
+- Scroll with into(el) (window.scrollTo), never scrollIntoView: the app also runs in an iframe on the Recall desktop, and scrollIntoView scrolls the parent page too.
 - Nothing is ever executed: the programs are display-only data (LANGS in the page script). Keep it that way. Never eval user text or load code from URLs.
 - `#ide{display:grid}` beat the hidden attribute → global `[hidden]{display:none!important}`.
 - On phones the grid needs minmax(0,1fr), or the code's min-content width scrolls the whole page sideways.
