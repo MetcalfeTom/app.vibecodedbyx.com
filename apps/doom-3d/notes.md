@@ -14,6 +14,7 @@
 - Health/ammo/kills HUD
 - Game over screen with restart
 - Pointer lock for proper FPS controls
+- 2026-09-26: touch controls — stick bottom-left moves (same units as the gamepad stick), drag the view to look, SHOOT (hold = ~5 shots/s), BFG and JUMP buttons; start screen shows touch lines instead of WASD on touch screens; compact one-line HUD on touch. Before this, phones could not move or shoot at all (every tap only retried pointer lock).
 
 ## Issues
 - None yet
