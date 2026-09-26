@@ -65,3 +65,4 @@
 - Add ship upgrades
 - Add power-ups (speed boost, rapid fire)
 - Add sound effects
+- 2026-09-26: sign-in + leaderboard were dead: `<script src="/supabase-config.js">` loads an ES module as a classic script (SyntaxError, `supabase` never defined → "Could not load scores"). Now `const supabaseReady=import('/supabase-config.js')` and each async function does `const supabase=(await supabaseReady).default` (resolve to the module, not the client — a thenable stub client would be unwrapped). Insert errors are now checked. Table: sea_scourge_leaderboard. Stub-tested: signs in, queries top 10, shows "No scores yet".
