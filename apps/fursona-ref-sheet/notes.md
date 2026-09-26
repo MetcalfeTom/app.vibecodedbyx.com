@@ -14,13 +14,14 @@ Idea by KaiTheTiger (sloppy.live chat, 2026-09-26): "like a Picrew, but better b
   - Fonts: Bagel Fat One + Sometype Mono; sketchbook paper look with tape
   - Toe lines on paws + feet, eyes blink (CSS .eye scaleY, not in the export)
   - Stripes + Spots markings (pattern shapes per part via pat(key), mirrored with mx()), Tiger preset (for Kai)
+  - Extras: horns, wings (behind body), bandana, glasses; regions horns/wings/accent (palette rows only when on); Dragon preset. Hash param x=; old saves + 7-color links get EXTRA_C defaults
 
 ## issues
 - SVG fills are attributes (not CSS classes) so the serialized SVG exports with colors
 - Mobile: grids need minmax(0,1fr) and inputs width:100%, otherwise the page scrolls sideways
 
 ## todos
-- More bases (side view? chubby/tall body types), more ear/tail shapes (dragon horns, wings, curly husky tail)
+- More bases (side view? chubby/tall body types), curly husky tail, more accessories (scarf, hat, collar)
 - Pads / toe beans, stripes & spots markings, freckles
 - Gallery of chat's fursonas (supabase) if chat wants it
 
