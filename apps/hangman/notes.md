@@ -1,6 +1,7 @@
 # Hangman (neon edition)
 
 ## log
+- 2026-09-26: Fantasy Realm list +6 from today's realm update: SMITH, FISHING POLE, TIN OF WORMS, FRIED FISH, BRASS BELL, DOGGY PADDLE (39 words).
 - 2026-09-26 · **Guess together mode** (linka_chat asked for a word game chat plays together). Solo / together switch in the header.
   - Everyone in together mode shares one word and one set of 6 lives.
   - Each player can guess one letter every 3 s. The client enforces 3 s, and the replay ignores letters closer than 2 s apart by server time.
