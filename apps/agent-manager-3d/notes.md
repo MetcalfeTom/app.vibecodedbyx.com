@@ -155,3 +155,5 @@
 - 2026-09-26: Realm sync was dead — loaded /supabase-config.js as a classic script (it's an ES module → SyntaxError, SUPABASE_URL never set). Now `import('/supabase-config-fixed.js')`, client = default export; visitor session made lazily via supabaseSession() only when joining a faction / capturing (realmUser()). Dropped the unused unpkg supabase-js script. Verified in headless: loads with no errors, client ready.
 - 2026-09-26: og.png (was pointing at a missing og-image.png), title → "Realm of Agents" to match the in-app name
 - TODO: bottom-left panels (Classes / System Status / Choose Your Guild) overlap on ~700px-tall screens
+
+- 2026-09-26: panel overlap fixed — guild picker is now a centred dialog (role=dialog, cards keyboard-focusable, "Just watch for now" skip + Esc hide it for the visit only); it used to sit at top:50%+280px, i.e. mostly below the screen. Class legend now docks under the chronicle (top: 5rem+262px) and hides under 700px height so it can't cover System Status.
