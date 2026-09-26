@@ -85,6 +85,14 @@
   - Patrols full length of hallway
   - Seamless looping patrol movement
 
+- 2026-09-26: Rescue pass
+  - Walls/floor/ceiling were pitch black since January: the Poly Haven photo texture was `.clone()`d before it loaded, so the clones never got an image. Replaced with a painted canvas stone texture (`makeStoneTexture`, dark ashlar blocks, seeded) — no 2.7 MB download; repeats set so blocks stay square (4-unit tiles)
+  - Door names are flat neon signs on the wall above each door and icons sit flat on the door (the camera-facing sprites sank half into the wall and got cut off, e.g. "ics Balls"); sign text shrinks to fit; icon plate has depthWrite:false so it doesn't punch a hole in the see-through door
+  - Phones/tablets actually work: drag anywhere to look, hold ↑ ← ↓ → to walk (D-pad shows for `pointer: coarse` or ≤768px), tap a door on screen to go in (`enterAt(ndc, reach)` shared with the desktop centre-click); ghost click after a touch is ignored. Before, movement only ran with pointer lock, which phones never get
+  - Walking uses real frame time (same speed at 60/120 Hz)
+  - HUD: clock moved under the logo (it was hidden behind the LIVE button); icon-only SNAP/LIVE under 560px so the logo isn't covered
+  - og.png (1200×630 real hallway render) replaces the emoji og:image; title "SloppyOS Mansion"
+
 ## features
 - 3D first-person navigation (WASD + mouse)
 - Pointer lock for immersive controls
@@ -150,4 +158,5 @@ Right wall:
 - Add more special rooms like Sneaker Room
 
 ## issues
-- None yet
+- Textures: never `.clone()` a TextureLoader texture before its onLoad — clones keep image=undefined and render black forever
+- Headless can't render emoji in the canvas door icons (tofu); real browsers are fine
