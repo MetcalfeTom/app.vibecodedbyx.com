@@ -27,3 +27,5 @@
 - Stages: Happy (0-10), Denial (11-20), Anger (21-40), Rage (41-60), Bargaining (61-80), Depression (81-100), Sadness (101-120), Acceptance (121+)
 - faces[] and insults{} data kept from the original; FACE{} in the script draws each stage
 - `window.__ck` = { clicks (get/set), paint, drawFace } for headless tests
+
+- 2026-09-26: App script was dead on load — `import { supabase, supabaseSession }` from the root config, which has no named `supabase` export (SyntaxError kills the whole module). Now `import supabase, { supabaseSession } from '/supabase-config-fixed.js'`; verified loading with a stub db (no errors, db calls run).

@@ -27,3 +27,5 @@
 - Color scheme: Black bg, purple (#8a2be2), magenta (#ff00ff), green (#0f0), red (#8b0000)
 - Space Mono font for that retro-futuristic terminal feel
 - Mobile responsive design
+
+- 2026-09-26: App script was dead on load — `import { supabase, supabaseSession }` from the root config, which has no named `supabase` export (SyntaxError kills the whole module). Now `import supabase, { supabaseSession } from '/supabase-config-fixed.js'`; verified loading with a stub db (no errors, db calls run).

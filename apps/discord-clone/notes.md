@@ -29,3 +29,5 @@
 - Messages persist across sessions
 - Anonymous users can chat as guests
 - Authenticated users show their profile name
+
+- 2026-09-26: App script was dead on load — `import { supabase, supabaseSession }` from the root config, which has no named `supabase` export (SyntaxError kills the whole module). Now `import supabase, { supabaseSession } from '/supabase-config-fixed.js'`; verified loading with a stub db (no errors, db calls run).
