@@ -26,6 +26,8 @@ Endless 2D paper-plane glider. Built on stream 2026-09-26 from Tatum's (sloppy.l
   - Sound: band-passed wind noise with speed, sine chime per swoop (more notes when bigger), high-passed noise crinkle on a crash. Mute is saved.
   - Pause (button / Esc / P, auto when the tab is hidden): stats card, Keep gliding, Share (copies text), New throw.
 
+- 2026-09-26: portrait phones: plane at 20% from the left (not 30%) and a wider view (min 660 world units) so the next hill shows earlier. Tatum's first clean-run report: 775 m, "a fun challenge".
+
 ## issues
 - Sim (bot pilots, scratchpad nd-flow.js), v1 numbers:
   - A careful bot crashes about every 30 s with 700–870 m clean runs.
