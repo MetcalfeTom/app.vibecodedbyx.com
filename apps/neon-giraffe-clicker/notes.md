@@ -1,6 +1,7 @@
 # Neon Giraffe Clicker
 
 ## Log
+- 2026-09-26: progress SAVES now (localStorage 'neonGiraffe': clicks + owned counts + time; every 5 s, on buy, on hide/pagehide). Auto-clickers keep earning while you're away (max 2 h) → WELCOME BACK toast with the amount. Giraffe drawing scaled 0.855 and shifted so tall hats (wizard) and the hooves are no longer cut off by the 300×400 canvas. og.png (real screenshot) replaces the emoji og:image.
 - 2026-01-11: Initial creation
   - Neon giraffe with animated wobble
   - Click to fart and earn points
@@ -34,5 +35,4 @@
 ## Todos
 - Add more hat types (cowboy, wizard, etc.)
 - Add achievements
-- Save progress to localStorage
 - Add more upgrade tiers
