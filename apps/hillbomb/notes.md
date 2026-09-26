@@ -14,6 +14,8 @@ Tatum's idea (2026-09-26): "a game like subway surfers, except you are running d
 
 - v1.4 (Tatum: jumps should depend on momentum): jump impulse 4.6 + 0.2·v (was 5 + 0.16·v) so a fast jump is visibly higher and much longer; above 24 m/s (~86 km/h) the jump is a front flip over the expected air time; bonking a car mid-jump pops 'too slow to vault · 55+ km/h' (vault needs peak ≥ 1.15 m → v ≥ ~15.5 m/s).
 
+- v1.5 (Tatum: jump size wasn't intuitive): a ring on the street in your lane shows where a jump right now would land (simulated over the real terrain each frame, so crests stretch it); it turns gold once you're fast enough to vault a parked car. Hidden in the air, on walls, sliding and stumbling.
+
 ## balance (fast-forward bots, `__hb.sim(dt)`)
 - idle bot caught at ~83 s / 1 km; careful bot ~3.5 min / 4.7 km, top ~146 km/h; wall-spam bot 2–3 min.
 
