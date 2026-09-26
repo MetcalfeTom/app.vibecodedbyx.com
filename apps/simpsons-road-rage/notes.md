@@ -8,12 +8,13 @@
   - leaderboard: only scores 1..30 (there are 30 donuts), best per user_id, top 8. Real table was clean (max 27) at the time.
   - new og-image.png (start card over the town), title/description no longer talk about Three.js.
 
+  - **sound** (WebAudio, no files): engine = saw + sub-octave square through a lowpass that follow speed (turbo opens the filter), donut chomp that climbs in pitch with your combo, bus honk + thud (1.2 s cooldown — the overlap check fires every frame), descending jingle at shift end. 🔊 chip / M key mutes, remembered.
+
 ## issues
 - `populateDonuts()` runs at top level before later `const`s exist → the donut kit is a lazily built `var`. Keep new top-level consts above their first use.
 - No building collisions — you can drive through everything (and donuts spawn inside buildings).
 - Headless probe: scratch `gaunt/mkrr.sh` swaps the supabase import for a local stub (`sbstub.js`) so tests never write to the real table.
 
 ## todos
-- sound (engine hum, donut chomp, bus honk)
 - building collisions or keep donuts on/near roads
 - more Springfield landmarks (Kwik-E-Mart, the plant with glowing rods)

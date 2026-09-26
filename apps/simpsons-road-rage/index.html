@@ -45,6 +45,7 @@
         box-shadow: 0 4px 0 var(--ink); text-align: center; min-width: 72px; }
       .chip .label { display: block; font-size: 0.64rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.6; }
       .chip .value { display: inline-block; font-family: var(--display); font-size: 1.55rem; line-height: 1.05; }
+      .chip.mute { pointer-events: auto; cursor: pointer; font-size: 1.3rem; min-width: 0; padding: 4px 10px; font-family: inherit; color: var(--ink); }
       .chip.low .value { color: #e0262f; animation: pulse 0.5s ease-in-out infinite alternate; }
       @keyframes pulse { to { transform: scale(1.14); } }
 
@@ -103,6 +104,7 @@
       <div class="chip" id="timeChip"><span class="label">Shift</span><span class="value" id="timer">75</span></div>
       <div class="chip"><span class="label">Donuts</span><span class="value" id="donuts">0</span></div>
       <div class="chip"><span class="label">Speed</span><span class="value" id="speed">0</span></div>
+      <button class="chip mute" id="muteBtn" aria-pressed="false" aria-label="Sound on (M to mute)" title="Sound (M)">🔊</button>
     </div>
     <div class="toast" id="message" role="status" aria-live="polite"></div>
 
@@ -335,7 +337,78 @@
         toastTimer = setTimeout(() => messageEl.classList.remove('show'), 1800);
       }
 
+      // ---- sound: engine that follows your speed, donut chomp, bus honk, end-of-shift jingle ----
+      const sfx = { ac: null, muted: false, eng: null };
+      try { sfx.muted = localStorage.getItem('srr_muted') === '1'; } catch (_) {}
+      const muteBtn = document.getElementById('muteBtn');
+      function drawMute() {
+        muteBtn.textContent = sfx.muted ? '🔇' : '🔊';
+        muteBtn.setAttribute('aria-pressed', String(sfx.muted));
+        muteBtn.setAttribute('aria-label', sfx.muted ? 'Sound off (M to unmute)' : 'Sound on (M to mute)');
+      }
+      function toggleMute() {
+        sfx.muted = !sfx.muted;
+        try { localStorage.setItem('srr_muted', sfx.muted ? '1' : '0'); } catch (_) {}
+        if (sfx.ac) sfx.master.gain.setTargetAtTime(sfx.muted ? 0 : 0.8, sfx.ac.currentTime, 0.05);
+        drawMute();
+      }
+      muteBtn.addEventListener('click', toggleMute);
+      document.addEventListener('keydown', (e) => { if (e.code === 'KeyM' && e.target !== nameInput) toggleMute(); });
+      drawMute();
+      function audioOn() {
+        if (sfx.ac) { sfx.ac.resume?.(); return; }
+        try {
+          const ac = new (window.AudioContext || window.webkitAudioContext)();
+          sfx.ac = ac;
+          sfx.master = ac.createGain();
+          sfx.master.gain.value = sfx.muted ? 0 : 0.8;
+          sfx.master.connect(ac.destination);
+          const o1 = ac.createOscillator(), o2 = ac.createOscillator(), lp = ac.createBiquadFilter(), g = ac.createGain();
+          o1.type = 'sawtooth'; o2.type = 'square'; o2.detune.value = -1200;
+          lp.type = 'lowpass'; lp.frequency.value = 500; lp.Q.value = 3;
+          g.gain.value = 0;
+          o1.connect(lp); o2.connect(lp); lp.connect(g).connect(sfx.master);
+          o1.start(); o2.start();
+          sfx.eng = { o1, o2, lp, g };
+        } catch (_) { sfx.ac = null; }
+      }
+      function engineTick(speed, boosting, on) {
+        if (!sfx.eng) return;
+        const t = sfx.ac.currentTime, e = sfx.eng, f = 38 + speed * 2.1 + (boosting ? 18 : 0);
+        e.o1.frequency.setTargetAtTime(f, t, 0.08);
+        e.o2.frequency.setTargetAtTime(f, t, 0.08);
+        e.lp.frequency.setTargetAtTime(380 + speed * 22 + (boosting ? 500 : 0), t, 0.1);
+        e.g.gain.setTargetAtTime(on ? 0.05 + Math.min(speed, 60) / 60 * 0.05 : 0, t, 0.12);
+      }
+      function blip(freqs, type, len, vol, gap) {
+        if (!sfx.ac) return;
+        const t0 = sfx.ac.currentTime;
+        freqs.forEach((f, i) => {
+          const o = sfx.ac.createOscillator(), g = sfx.ac.createGain(), t = t0 + i * gap;
+          o.type = type; o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+          o.connect(g).connect(sfx.master);
+          o.start(t); o.stop(t + len + 0.02);
+        });
+      }
+      const chomp = (combo) => blip([660 * Math.pow(1.06, Math.min(combo, 12)), 990 * Math.pow(1.06, Math.min(combo, 12))], 'square', 0.09, 0.12, 0.06);
+      function honk() {
+        if (!sfx.ac) return;
+        const t = sfx.ac.currentTime;
+        [311, 392].forEach((f) => {
+          const o = sfx.ac.createOscillator(), g = sfx.ac.createGain();
+          o.type = 'square'; o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.02);
+          g.gain.setValueAtTime(0.09, t + 0.32); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+          o.connect(g).connect(sfx.master); o.start(t); o.stop(t + 0.42);
+        });
+        blip([90, 55], 'sine', 0.2, 0.3, 0.05);
+      }
+
       function startShift() {
+        audioOn();
         state.donuts = 0;
         state.combo = 0;
         state.bestCombo = 0;
@@ -359,6 +432,8 @@
 
       function endShift() {
         state.playing = false;
+        engineTick(0, false, false);
+        blip([784, 659, 523, 392], 'triangle', 0.35, 0.16, 0.16);
         state.gameOverShown = true;
         Object.keys(keyState).forEach((k) => (keyState[k] = false));
         document.getElementById('cardTitle').textContent = 'Shift over!';
@@ -843,6 +918,7 @@
         orbit.target.lerp(car.mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0)), 0.12);
 
         speedEl.textContent = Math.round(car.speed).toString();
+        engineTick(car.speed, boost > 0, true);
       }
 
       function updateTraffic(delta) {
@@ -859,6 +935,7 @@
           if (donut.position.distanceTo(carPos) < 3) {
             donutsGroup.remove(donut);
             state.donuts += 1;
+            chomp(state.combo);
             state.combo += 1;
             state.bestCombo = Math.max(state.bestCombo, state.combo);
             elapsed = Math.max(0, elapsed - 2);
@@ -868,6 +945,7 @@
 
         trafficGroup.children.forEach((bus) => {
           if (bus.position.distanceTo(carPos) < 4.5) {
+            if (car.speed > 4 && clock.elapsedTime - (state.lastHonk || -9) > 1.2) { honk(); state.lastHonk = clock.elapsedTime; }
             car.speed *= 0.4;
             if (state.combo || car.speed > 4) toast("D'oh! Watch the buses");
             state.combo = 0;
