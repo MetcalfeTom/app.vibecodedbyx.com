@@ -1,6 +1,19 @@
 # parla · notes
 
 ## log
+- 2026-09-26 v13.14.0: **study candles** (the old "daily streak" todo, dressed for the candlelit
+  library). The first right answer of a local calendar day lights a candle: a small chip at the end
+  of the tagline — "🕯 3 days" — hidden until you've ever studied. Lit today = warm glow (flicker off
+  under reduced motion); studied yesterday but not yet today = grey "at risk" chip whose title says
+  "get one word right today to keep it burning"; a missed day hides it and the next right answer
+  restarts at 1 (best kept). Hook = one guarded `dayTick()` line at the end of award(), so every mode
+  counts (cards knew-it, choice, typing, battle, rematch, map drill, chess gate). Storage: NEW global
+  key `parla-days` {last:'YYYY-MM-DD' local, n, best} — global on purpose (the habit is yours, not a
+  language's); no existing key touched; corrupt JSON → treated as empty. Announced via sr-status.
+  Seam: __vc.days {tick(now), live(now), paint(now), key, state, reload}. Probe 22/22 state (boot
+  hidden, 1st award lights "1 day" + stores + announces, same-day no-op, tomorrow → 2, at-risk grey,
+  lapsed hidden, gap resets n but keeps best, Jan31→Feb1 and Dec31→Jan1 roll, corrupt storage, real
+  quiz click lights it) + layout 86/86 at 320/390/768/1280 (chip in view, never under the combo chip).
 - 2026-09-26 v13.13.2: **phone layout + a lying toggle** (helper refresh pass, no chat ask). Found by
   probing, not by reports: (1) the header battle strip was nowrap and ~423px wide, so on every phone
   the page scrolled sideways and the ally sprite sat cut off past the left edge (negative overflow
