@@ -3,6 +3,14 @@
 Global collaborative graffiti wall. Spray paint together with everyone in realtime!
 
 ## log
+- 2026-09-26: v2 "one wall" rescue
+  - ROOT BUG: loaded /supabase-config.js as a classic script — it's an ES module, so SUPABASE_URL was never set and the app silently ran in local mode (no sync, nothing saved, likely since the config became a module). Now `import('/supabase-config-fixed.js')` + supabaseSession(); inserts carry user_id
+  - Fixed 1920×1080 wall canvas shared by everyone (old strokes were raw screen pixels, so phone art landed in a desktop's top-left). Landscape screens see the whole wall; tall phones get scale 0.5, two-finger slide, wheel/right-drag on desktop, minimap (tap to jump)
+  - Strokes are densified to evenly spaced points (size×0.3) so replay from the DB is a line, not dots; live broadcast `paint` {a,s,c,z,p:[x,y,…]} every 60 ms, remote side joins points of the same stroke `s`
+  - Saves batched (≤400 rows every 0.9 s); load = newest 30k rows in 1000-row pages, painted 1500/frame
+  - Network input validated: colour must be #rrggbb, size clamped 5–60, points inside the wall, names as text
+  - Bricks baked into the canvas (saved PNG has them); old "clear wall" removed (it only cleared your screen); channel renamed graffiti-wall-v2 (old cached clients spoke screen coords)
+  - Pointer events (pen/mouse/touch), coalesced events, aria-pressed toolbar, keys 1–7 colours, [ ] size; og.png
 - 2026-01-25: Added realtime collaboration
   - Supabase realtime channel for broadcasting strokes
   - Other artists' cursors visible with their names
@@ -31,7 +39,6 @@ Global collaborative graffiti wall. Spray paint together with everyone in realti
 - 3 brush sizes: small, medium, large
 - Custom spray cursor with pulsing ring
 - Dark brick wall background
-- Clear wall button
 - Save artwork as PNG
 - Header fades when drawing starts
 
@@ -91,3 +98,7 @@ Global collaborative graffiti wall. Spray paint together with everyone in realti
 
 ## issues
 - None yet
+
+## issues
+- Many older apps may have the same classic-script supabase-config bug (69 apps reference window.SUPABASE_ANON_KEY) — worth an audit
+- Headless test: `window.__gwTest` skips connect; `__gw.conn = {db, userId, channel, live}` injects fakes
