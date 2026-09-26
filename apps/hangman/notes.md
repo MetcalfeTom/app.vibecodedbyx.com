@@ -12,6 +12,7 @@
 - 2026-09-26 · Português word list (30 words, accents dropped so everything is on the A-Z keys), playable solo and together.
 - 2026-09-26 · team pill in together mode: words solved – hanged over the last 20 shared rounds (+ the current one once it ends), refreshed every 20 s. First live hour: 2–3.
 - 2026-09-26 · phones: categories are one swipeable strip (no heading, no counts), smaller gallows and a two-line feed, so the word and keyboard are on the first screen.
+- 2026-09-26 · live badge: in solo mode the together button shows a pulsing count of players who guessed in the last 5 min (read-only query every 30 s, no sign-in; `window.hmNetClient`).
 - Earlier: neon solo game, 8 built-in categories, custom lists in localStorage.
 
 ## how together mode works
