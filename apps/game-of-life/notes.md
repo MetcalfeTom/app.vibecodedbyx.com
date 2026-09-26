@@ -3,6 +3,7 @@
 N-state cellular automata with clickable transition matrix editor.
 
 ## log
+- 2026-09-26: FIX first visit — with no saved settings the rules were never loaded (empty transition matrix), so every cell died on the first tick. Now defaults to Conway, and a saved empty rule set (from those broken visits) is treated as unsaved. Also added og-image.png (the link preview pointed at a missing file).
 - 2026-03-20: Initial build. Full-screen grid with 8px cells, wrapping edges. Draw cells by clicking/dragging (toggle on/off). Play/Pause, Step, Clear controls. Speed slider (1-30 gen/sec). 6 pattern presets: Glider, Blinker, Pulsar, LWSS, R-pentomino, Random. Subtle glow pass. Generation and population counters. Typed arrays for performance. Responsive resize preserves cells. iOS safe area support. Space Grotesk + JetBrains Mono typography, green-on-dark terminal aesthetic.
 
 - 2026-03-20: Added custom rules + multi-state cells with birth/survive inputs and 8 rule presets.
