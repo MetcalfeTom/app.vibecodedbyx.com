@@ -8,6 +8,7 @@
   - The end screen shows who guessed the last letter or made the final miss. "Next shared word" starts a round only when the current one is over, or stale after 10 minutes.
   - While a word is live, a category click only picks the list for the next word.
   - Solo stats are untouched in together mode. The chosen mode is remembered.
+- 2026-09-26 · og.png is now a real screenshot of together mode (1200×630).
 - Earlier: neon solo game, 8 built-in categories, custom lists in localStorage.
 
 ## how together mode works
@@ -27,4 +28,4 @@
 ## todos
 - Maybe show recent shared rounds (won/lost) as a streak for the whole group.
 - A Portuguese word list (linka_chat writes in Portuguese).
-- og:image is still a pollinations URL. Swap it for a local og.png.
+
