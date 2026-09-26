@@ -1,6 +1,7 @@
 # Analog Computer Dashboard
 
 ## log
+- 2026-09-26: knobs turn with a finger (pointer events + touch-action:none; they only listened for mouse drags), and the header wraps on phones (the status lights ran off the right edge).
 - 2026-01-18: Initial creation
   - 4 vibrating voltage meters
   - Patch bay with 12 signal nodes
