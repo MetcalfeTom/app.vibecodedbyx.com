@@ -26,5 +26,5 @@ A ghost "writes" a small program (typewriter animation) and hides a classic secu
 - Headless probe: scratchpad gaunt/hexprobe.js + runhex.sh (#menu, #win|i|top|ide|rev, #lose|i, #og|0). The BASIC gutter is empty, so compare the <code> text, not the whole line.
 
 ## todos
-- More autocomplete lines (C++ / BASIC skins aren't used yet); a daily ghost (same 8 for everyone that day).
+- More autocomplete lines (BASIC skin not used yet; C++ SCORES.CPP added as line 9); a daily ghost (same 8 for everyone that day).
 - More programs per language (random pick), a shared candy leaderboard (supabase).
