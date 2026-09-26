@@ -6,7 +6,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const getCookieDomain = () => {
   const h = typeof window !== 'undefined' ? window.location.hostname : '';
-  const prod = h === 'sloppy.live' || h === 'sloppy.live';
+  const prod = h === 'sloppy.live' || h.endsWith('.sloppy.live');
   return prod ? '.sloppy.live' : '.youreabsolutelyright.xyz';
 };
 
