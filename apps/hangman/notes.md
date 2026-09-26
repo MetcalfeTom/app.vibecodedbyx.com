@@ -9,6 +9,7 @@
   - While a word is live, a category click only picks the list for the next word.
   - Solo stats are untouched in together mode. The chosen mode is remembered.
 - 2026-09-26 · og.png is now a real screenshot of together mode (1200×630).
+- 2026-09-26 · Português word list (30 words, accents dropped so everything is on the A-Z keys), playable solo and together.
 - Earlier: neon solo game, 8 built-in categories, custom lists in localStorage.
 
 ## how together mode works
@@ -27,5 +28,5 @@
 
 ## todos
 - Maybe show recent shared rounds (won/lost) as a streak for the whole group.
-- A Portuguese word list (linka_chat writes in Portuguese).
+
 
