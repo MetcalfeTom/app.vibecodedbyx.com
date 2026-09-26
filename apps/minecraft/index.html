@@ -202,6 +202,42 @@
                 font-size: 12px;
             }
         }
+        /* Touch controls (phones/tablets): stick to walk, drag to look, tap to mine or build */
+        canvas { display: block; touch-action: none; }
+        #touchUI { display: none; }
+        body.touch #touchUI { display: block; }
+        body.touch #controls { display: none; }
+        body.touch .color-toggle { left: auto; right: 10px; }
+        #joy {
+            position: absolute; left: 22px; bottom: 92px; width: 124px; height: 124px;
+            border-radius: 50%; background: rgba(0,0,0,0.28); border: 2px solid rgba(255,255,255,0.35);
+            z-index: 110; touch-action: none;
+        }
+        #joyKnob {
+            position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+            border-radius: 50%; background: rgba(255,255,255,0.6); box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            pointer-events: none;
+        }
+        .tbtn {
+            position: absolute; right: 22px; width: 68px; height: 68px; border-radius: 50%;
+            background: rgba(0,0,0,0.45); border: 2px solid rgba(255,255,255,0.4); color: #fff;
+            z-index: 110; touch-action: none; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; font: bold 10px 'Arial', sans-serif; gap: 1px;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .tbtn span { font-size: 24px; line-height: 1; }
+        .tbtn:active, .tbtn.held { background: rgba(255,255,255,0.3); }
+        #jumpBtn { bottom: 92px; }
+        #modeBtn { bottom: 172px; }
+        #modeBtn.build { border-color: #4CAF50; background: rgba(76,175,80,0.45); }
+        #touchHint {
+            position: absolute; left: 50%; top: 58%; transform: translateX(-50%);
+            width: max-content; max-width: min(88vw, 420px); text-align: center;
+            background: rgba(0,0,0,0.65); color: #fff; font-size: 14px; line-height: 1.5;
+            padding: 10px 16px; border-radius: 10px; z-index: 105; pointer-events: none;
+            opacity: 0; transition: opacity 0.6s ease;
+        }
+        #touchHint.show { opacity: 1; }
     </style>
     <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "Minecraft 3D", "description": "Roam a blocky 3D world of hills and trees in this Minecraft-inspired building game: mine blocks and place grass, stone, wood, leaves, sand and water.", "url": "https://app.sloppy.live/minecraft/", "image": "https://app.sloppy.live/minecraft/og.png", "isAccessibleForFree": true, "inLanguage": "en", "gamePlatform": "Web browser", "genre": "Sandbox"}</script>
 </head>
@@ -240,6 +276,13 @@
         </div>
 
         <div id="crosshair"></div>
+
+        <div id="touchUI">
+            <div id="joy" aria-label="Move stick"><div id="joyKnob"></div></div>
+            <button class="tbtn" id="modeBtn" aria-label="Tapping mines blocks (switch to building)"><span>⛏️</span>MINE</button>
+            <button class="tbtn" id="jumpBtn" aria-label="Jump"><span>⤒</span>JUMP</button>
+            <div id="touchHint" role="note">stick to walk · drag to look<br>tap to mine the block under the +<br>⛏️ button switches to building 🧱</div>
+        </div>
 
     </div>
 
@@ -284,6 +327,7 @@
 
             // Create camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.rotation.order = 'YXZ'; // yaw then pitch, so looking up never tilts the horizon
             camera.position.copy(player.position);
 
             // Create renderer
@@ -319,6 +363,7 @@
 
             // Set up event listeners
             setupEventListeners();
+            setupTouchControls();
 
             // Hide loading screen
             document.getElementById('loading').style.display = 'none';
@@ -433,10 +478,9 @@
 
         // Handle mouse interaction
         function onMouseClick(event) {
+            if (event.target !== renderer.domElement) return; // buttons and inventory don't mine
             if (event.button === 0) { // Left click - mine
                 handleBlockInteraction(true);
-            } else if (event.button === 2) { // Right click - place
-                handleBlockInteraction(false);
             }
         }
 
@@ -474,18 +518,22 @@
             // Mouse events
             document.addEventListener('click', onMouseClick);
             document.addEventListener('contextmenu', (e) => e.preventDefault());
+            // Right click places (browsers never send 'click' for the right button)
+            document.addEventListener('mousedown', (e) => {
+                if (e.button === 2 && e.target === renderer.domElement) handleBlockInteraction(false);
+            });
 
             document.addEventListener('mousemove', (event) => {
                 if (document.pointerLockElement) {
-                    mouseX += event.movementX * 0.002;
+                    mouseX -= event.movementX * 0.002;
                     mouseY -= event.movementY * 0.002;
                     mouseY = Math.max(-Math.PI/2, Math.min(Math.PI/2, mouseY));
                 }
             });
 
             // Pointer lock
-            document.addEventListener('click', () => {
-                if (!document.pointerLockElement) {
+            document.addEventListener('click', (e) => {
+                if (!document.pointerLockElement && e.target === renderer.domElement) {
                     renderer.domElement.requestPointerLock();
                 }
             });
@@ -524,6 +572,102 @@
             window.addEventListener('resize', onWindowResize);
         }
 
+        // Touch controls: stick to walk, drag anywhere to look, tap to mine or build at the crosshair
+        const joy = { id: null, x: 0, y: 0 };
+        let touchMode = 'mine';
+        function setupTouchControls() {
+            const stick = document.getElementById('joy'), knob = document.getElementById('joyKnob');
+            const hint = document.getElementById('touchHint');
+            let hintTimer = null;
+            function hideHint() { hint.classList.remove('show'); clearTimeout(hintTimer); }
+            function enable() {
+                if (document.body.classList.contains('touch')) return;
+                document.body.classList.add('touch');
+                let seen = false;
+                try { seen = localStorage.getItem('minecraft_howto_seen') === '1'; } catch (e) {}
+                if (!seen) {
+                    try { localStorage.setItem('minecraft_howto_seen', '1'); } catch (e) {}
+                    setTimeout(() => hint.classList.add('show'), 600);
+                    hintTimer = setTimeout(hideHint, 12000);
+                }
+            }
+            if (window.matchMedia && matchMedia('(pointer: coarse)').matches) enable();
+            window.addEventListener('touchstart', enable, { passive: true });
+
+            const R = 46;
+            function moveStick(t) {
+                const r = stick.getBoundingClientRect();
+                let dx = t.clientX - (r.left + r.width / 2), dy = t.clientY - (r.top + r.height / 2);
+                const d = Math.hypot(dx, dy);
+                if (d > R) { dx *= R / d; dy *= R / d; }
+                joy.x = dx / R; joy.y = dy / R;
+                knob.style.transform = `translate(${dx}px, ${dy}px)`;
+            }
+            function endStick(e) {
+                for (const t of e.changedTouches) if (t.identifier === joy.id) {
+                    joy.id = null; joy.x = 0; joy.y = 0; knob.style.transform = '';
+                }
+            }
+            stick.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const t = e.changedTouches[0];
+                joy.id = t.identifier; moveStick(t);
+            }, { passive: false });
+            stick.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                for (const t of e.changedTouches) if (t.identifier === joy.id) moveStick(t);
+            }, { passive: false });
+            stick.addEventListener('touchend', endStick);
+            stick.addEventListener('touchcancel', endStick);
+
+            // Look: drag on the world. A quick tap that barely moves mines/builds at the crosshair.
+            const cv = renderer.domElement, looks = {};
+            cv.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // no synthetic click (that would mine) and no page zoom/scroll
+                for (const t of e.changedTouches) {
+                    looks[t.identifier] = { x: t.clientX, y: t.clientY, sx: t.clientX, sy: t.clientY, t: performance.now() };
+                }
+            }, { passive: false });
+            cv.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                for (const t of e.changedTouches) {
+                    const l = looks[t.identifier];
+                    if (!l) continue;
+                    mouseX -= (t.clientX - l.x) * 0.006;
+                    mouseY -= (t.clientY - l.y) * 0.006;
+                    mouseY = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseY));
+                    l.x = t.clientX; l.y = t.clientY;
+                }
+            }, { passive: false });
+            function endLook(e) {
+                for (const t of e.changedTouches) {
+                    const l = looks[t.identifier];
+                    if (!l) continue;
+                    delete looks[t.identifier];
+                    const tap = Math.hypot(t.clientX - l.sx, t.clientY - l.sy) < 12 && performance.now() - l.t < 350;
+                    if (e.type === 'touchend' && tap) { handleBlockInteraction(touchMode === 'mine'); hideHint(); }
+                }
+            }
+            cv.addEventListener('touchend', endLook);
+            cv.addEventListener('touchcancel', endLook);
+
+            const jump = document.getElementById('jumpBtn');
+            const jumpOn = (e) => { e.preventDefault(); keys['Space'] = true; jump.classList.add('held'); };
+            const jumpOff = () => { keys['Space'] = false; jump.classList.remove('held'); };
+            jump.addEventListener('touchstart', jumpOn, { passive: false });
+            jump.addEventListener('touchend', jumpOff);
+            jump.addEventListener('touchcancel', jumpOff);
+
+            const mode = document.getElementById('modeBtn');
+            mode.addEventListener('click', () => {
+                touchMode = touchMode === 'mine' ? 'build' : 'mine';
+                const build = touchMode === 'build';
+                mode.classList.toggle('build', build);
+                mode.innerHTML = build ? '<span>🧱</span>BUILD' : '<span>⛏️</span>MINE';
+                mode.setAttribute('aria-label', build ? 'Tapping builds blocks (switch to mining)' : 'Tapping mines blocks (switch to building)');
+            });
+        }
+
         function selectInventorySlot(index) {
             document.querySelectorAll('.inventory-slot').forEach(slot => {
                 slot.classList.remove('active');
@@ -550,6 +694,7 @@
             if (keys['KeyS']) moveVector.z += 1;
             if (keys['KeyA']) moveVector.x -= 1;
             if (keys['KeyD']) moveVector.x += 1;
+            if (joy.id !== null) { moveVector.x += joy.x; moveVector.z += joy.y; }
 
             // Apply camera rotation to movement
             moveVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), mouseX);
