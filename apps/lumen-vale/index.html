@@ -697,6 +697,97 @@ function updateBirds(dt, t, dayF){
   birdMesh.instanceMatrix.needsUpdate = true;
 }
 
+/* ---------- fireflies (dusk + night) ---------- */
+const FF_N = 320, FF_R = 280;
+const ffPos = new Float32Array(FF_N*3), ffCol = new Float32Array(FF_N*3);
+const ffGeo = new THREE.BufferGeometry();
+ffGeo.setAttribute('position', new THREE.BufferAttribute(ffPos, 3));
+ffGeo.setAttribute('glow', new THREE.BufferAttribute(ffCol, 3));
+/* additive, so a dark colour is simply no light: fading = scaling the colour.
+   Own shader so the dot size is clamped: far ones stay visible, near ones never balloon */
+const ffUniforms = { uScale: { value: 400 }, uMax: { value: 26 } };
+const ffMat = new THREE.ShaderMaterial({
+  uniforms: ffUniforms,
+  vertexShader: `
+    attribute vec3 glow;
+    uniform float uScale, uMax;
+    varying vec3 vGlow;
+    void main(){
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = clamp(14.0 * uScale / -mv.z, 4.0, uMax);
+      vGlow = glow;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    varying vec3 vGlow;
+    void main(){
+      vec2 p = gl_PointCoord - 0.5;
+      float r2 = dot(p, p) * 4.0;
+      float a = exp(-r2 * 5.0) * 0.75 + exp(-r2 * 22.0);
+      gl_FragColor = vec4(vGlow * a, 1.0);
+    }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+});
+const fireflies = new THREE.Points(ffGeo, ffMat);
+fireflies.frustumCulled = false;
+scene.add(fireflies);
+const ffs = [];
+{
+  const rnd = makeRand(4711);
+  for(let i=0;i<FF_N;i++){
+    const warm = rnd() < 0.3;
+    ffs.push({
+      x: (rnd()*2-1)*FF_R, z: (rnd()*2-1)*FF_R, g: 0,
+      h: 1.5 + rnd()*rnd()*16,
+      ph: rnd()*Math.PI*2, bl: 0.35 + rnd()*0.6, dr: rnd()*Math.PI*2,
+      c: warm ? [1.0, 0.78, 0.32] : [0.72, 1.0, 0.36]
+    });
+  }
+}
+let ffK = 0, ffRR = 0;
+const _ffDir = new THREE.Vector3();
+function updateFireflies(dt, t, dayF){
+  ffK += ((1 - sstep(0.04, 0.3, dayF)) - ffK) * (1 - Math.exp(-1.5*dt));
+  fireflies.visible = ffK > 0.01;
+  if(!fireflies.visible) return;
+  /* the swarm box sits where you look: under you when low, out ahead when you soar high */
+  const px = camera.position.x, cy = camera.position.y, pz = camera.position.z, D = FF_R*2;
+  camera.getWorldDirection(_ffDir);
+  const fl = Math.hypot(_ffDir.x, _ffDir.z) || 1;
+  const lead = Math.min(Math.max((cy - terrainH(px, pz)) * 1.5, 0), 340);
+  const cx = px + _ffDir.x/fl*lead, cz = pz + _ffDir.z/fl*lead;
+  ffUniforms.uScale.value = renderer.domElement.height * 0.5;
+  ffUniforms.uMax.value = 26 * renderer.getPixelRatio();
+  for(let k=0;k<12;k++){ const f = ffs[ffRR]; f.g = terrainH(f.x, f.z); ffRR = (ffRR+1) % FF_N; }
+  for(let i=0;i<FF_N;i++){
+    const f = ffs[i];
+    if(!reduceMotion){
+      f.dr += Math.sin(t*0.7 + f.ph*3) * 0.9 * dt;
+      f.x += Math.cos(f.dr) * 1.6 * dt;
+      f.z += Math.sin(f.dr) * 1.6 * dt;
+    }
+    /* the swarm is a box that wraps around you, so it never runs out */
+    const ox = f.x - cx, oz = f.z - cz;
+    if(Math.abs(ox) > FF_R || Math.abs(oz) > FF_R){
+      if(Math.abs(ox) > FF_R) f.x -= Math.round(ox/D)*D;
+      if(Math.abs(oz) > FF_R) f.z -= Math.round(oz/D)*D;
+      f.g = terrainH(f.x, f.z);
+    }
+    const y = Math.max(f.g, 0.6) + f.h + (reduceMotion ? 0 : Math.sin(t*0.9 + f.ph)*0.8);
+    ffPos[i*3] = f.x; ffPos[i*3+1] = y; ffPos[i*3+2] = f.z;
+    const bb = 0.5 + 0.5*Math.sin(t*f.bl*2.2 + f.ph), blink = reduceMotion ? 0.6 : bb*bb*bb;
+    const dh = Math.hypot(f.x - cx, f.z - cz), d3 = Math.hypot(f.x - px, y - cy, f.z - pz);
+    const a = ffK * (0.15 + 0.85*blink)
+      * (1 - sstep(FF_R*0.7, FF_R, dh))      /* fade at the edge of the swarm */
+      * sstep(3, 10, d3)                     /* no giant blob when you fly through one */
+      * (1 - sstep(38, 55, f.g))             /* none up on the snow */
+      * sstep(-5, 0, f.g);                   /* a few over the shallows, none at sea */
+    ffCol[i*3] = f.c[0]*a; ffCol[i*3+1] = f.c[1]*a; ffCol[i*3+2] = f.c[2]*a;
+  }
+  ffGeo.attributes.position.needsUpdate = true;
+  ffGeo.attributes.glow.needsUpdate = true;
+}
+
 /* ---------- day/night palettes ---------- */
 const C = hex => new THREE.Color(hex);
 const PAL = {
@@ -1113,6 +1204,7 @@ function frame(){
   water.position.set(camera.position.x, 0, camera.position.z);
   sky.position.copy(camera.position);
   updateBirds(dt, elapsed, dayF);
+  updateFireflies(dt, elapsed, dayF);
   renderer.render(scene, camera);
 }
 frame();
