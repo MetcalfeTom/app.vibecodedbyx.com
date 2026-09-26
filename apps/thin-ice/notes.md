@@ -15,13 +15,14 @@ Curling × minesweeper (Tatum's idea, 2026-09-26 stream). Top-down frozen lake a
 - v1.0 (2026-09-26): first version.
 - v1.1: sweeping toned down (full sweep was +68% distance, now ~+28%), curl stronger (~0.9 square of drift on a house shot).
 - v1.2: creak band narrowed (CREAK 2.1 → 1.7; open water still sinks under 2.1), last throw leaves a dotted trail while you aim the next, and a white tick on the power ring marks the last power.
+- v1.3: keyboard flagging — F opens a gold square cursor, arrows move it, F/Enter/Space toggles a flag, Escape goes back to aiming; the status line reads out each square.
 
 ## issues
 - The creak hint may give away too much (a long slow approach cracks several squares). Watch chat; could make it probabilistic or narrower.
 
 ## todos
 - Multiple ends / difficulty ramp; opponent stones (a rival AI team) for real curling takeouts.
-- Keyboard flagging (flags are pointer-only right now).
+
 - Stone trails / replay of the last throw.
 
 ## testing
