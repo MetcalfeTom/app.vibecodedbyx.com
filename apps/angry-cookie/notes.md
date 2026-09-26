@@ -15,6 +15,7 @@
   - "Bake a fresh cookie" reset at acceptance
   - Scores fixed: old code only ever *updated* global_stats rows that never existed, so nothing was saved. Now per-player rows in user_stats (app 'angry-cookie', keys 'clicks' and 'best'): update own row, insert if none. Everyone = sum of clicks, record = max best. Saves batched 1.5 s after the last click + on pagehide.
   - Local og.png (rage frame)
+  - Crunch sound per click (filtered noise: sharper when angry, soft and low when sad), mute button bottom right (`ac_muted`)
 
 ## Issues
 - The old global_stats rows for this app never existed (anon reads empty) → old totals are lost, starting fresh
