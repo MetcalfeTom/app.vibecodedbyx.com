@@ -5,6 +5,8 @@
 - 2025-12-05: Added Supabase leaderboard (`breakout_terminal_scores`) with anonymous auth fallback. In-game submit UI shown on Game Over; Top 10 panel with refresh.
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 
+- 2026-09-26: the start / game-over panel (`#gameMessage`) was `position: fixed` in the middle of the window, so on phones it hung below the playfield; now it lives in a `.stage` wrapper with the canvas and is absolutely centred over it (max-width min(92vw, 520px), tighter padding/fonts under 600 px). Local supabase-config.js cookie domain fixed for app.sloppy.live (see root notes).
+
 ## issues
 - Server returns `index.html` for missing assets (observed before adding an OG image), so OG crawlers would not see a real image without a file present. Ensure `og-image.png` exists in-app.
 - LocalStorage high score key: `breakoutHighScore` — keep stable to avoid resets.
