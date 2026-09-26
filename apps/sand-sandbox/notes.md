@@ -12,6 +12,7 @@
   - removed the "All Apps" backlink (the site bar has it); real og.png (headless shot of a scene); this notes file.
   - **portrait phones get a tall world**: before W/H are read, if `.canvas-wrap` is <700 wide and taller than wide, the canvas becomes 400 × (fits the wrap, 300–900) — no more letterboxed strip. W/H are consts after that, all code uses them.
   - tips line fades 1.5 s after your first stroke.
+  - **water really puts fire out now** (the tip always claimed it): water touching fire turns those flames into steam or nothing and boils off itself 35% of the time; before, the water just vanished into steam and the fire kept going. Water reactions (lava → stone, fire) now run BEFORE movement and `continue` — they used to run after a swap on stale neighbour values, so they could hit the wrong cell.
   - Headless probe: 10 checks (fire ≤1 cell/frame, bottom-row water spreads, solid brush, 140k-grain frame ~20–28 ms in headless CPU, fall acceleration, landing, levelling, no errors).
 
 ## issues
