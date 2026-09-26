@@ -371,6 +371,7 @@
     <div class="stat-pills" id="tPills" role="status" aria-live="polite" hidden>
       <span class="pill players">players <span class="v" id="pPlayers">1</span></span>
       <span class="pill wins">round <span class="v" id="pRound">—</span></span>
+      <span class="pill streak" title="shared words solved – hanged, last 20 rounds">team <span class="v" id="pTeam">0–0</span></span>
     </div>
     <div class="stat-pills" id="soloPills" role="status" aria-live="polite">
       <span class="pill streak">streak <span class="v" id="pStreak">0</span></span>
@@ -1012,11 +1013,41 @@
     newBtnEl.hidden = state.status === 'playing' && !isStale();
     if (!net.flashT) netLine();
   }
+  // Team record: replay the last 20 finished rounds, refreshed every 20 s or on a new round.
+  const team = { at: 0, key: 0, won: 0, lost: 0 };
+  async function teamTick(){
+    const cur = net.round;
+    if (!cur || (team.key === cur.id && Date.now() - team.at < 20000)) return;
+    team.at = Date.now(); team.key = cur.id;
+    try {
+      const r = await net.client.from('hangman_rounds').select('id,cat,word,created_at')
+        .lt('id', cur.id).order('id', { ascending: false }).limit(20);
+      if (r.error) return;
+      const rounds = (r.data || []).filter(x => roundWord(x));
+      let won = 0, lost = 0;
+      if (rounds.length){
+        const g = await net.client.from('hangman_guesses').select('round_id,letter,name,user_id,created_at')
+          .in('round_id', rounds.map(x => x.id)).order('id', { ascending: true }).limit(3000);
+        if (g.error) return;
+        rounds.forEach(x => {
+          const st = replay(net.words[x.id], g.data.filter(y => y.round_id === x.id)).status;
+          if (st === 'won') won++; else if (st === 'lost') lost++;
+        });
+      }
+      team.won = won; team.lost = lost;
+      renderTeam();
+    } catch (_){}
+  }
+  function renderTeam(){
+    const st = net.rp ? net.rp.status : 'playing';
+    document.getElementById('pTeam').textContent = (team.won + (st === 'won' ? 1 : 0)) + '–' + (team.lost + (st === 'lost' ? 1 : 0));
+  }
   function renderFeed(){
     const rp = net.rp;
     const names = new Set(rp.counted.map(c => c.who)); names.add(net.name);
     document.getElementById('pPlayers').textContent = names.size;
     document.getElementById('pRound').textContent = '#' + net.round.id;
+    renderTeam();
     feedEl.innerHTML = rp.counted.length
       ? rp.counted.slice(-4).reverse().map(c =>
           '<li class="' + (c.ok ? 'ok' : 'no') + (c.pend ? ' pend' : '') + '"><b>' + c.letter + '</b><span class="who">' +
@@ -1071,6 +1102,7 @@
       net.pending = net.pending.filter(p => !gs.some(g => g.user_id === net.me && String(g.letter).toUpperCase() === p.letter));
       if (net.failed){ net.failed = 0; netLine(); }
       applyNet();
+      teamTick();
     } catch (e){
       net.failed++;
       netLine('⚠ lost the shared word · retrying…', true);

@@ -10,6 +10,7 @@
   - Solo stats are untouched in together mode. The chosen mode is remembered.
 - 2026-09-26 · og.png is now a real screenshot of together mode (1200×630).
 - 2026-09-26 · Português word list (30 words, accents dropped so everything is on the A-Z keys), playable solo and together.
+- 2026-09-26 · team pill in together mode: words solved – hanged over the last 20 shared rounds (+ the current one once it ends), refreshed every 20 s. First live hour: 2–3.
 - Earlier: neon solo game, 8 built-in categories, custom lists in localStorage.
 
 ## how together mode works
@@ -27,6 +28,6 @@
 - Someone could read the word from the network tab. The scramble only prevents accidental spoilers.
 
 ## todos
-- Maybe show recent shared rounds (won/lost) as a streak for the whole group.
+
 
 
