@@ -1,6 +1,7 @@
 # Deutsch Dash
 
 ## log
+- 2026-09-26: og-image.png added (a real 1200×630 screenshot of the app) — the link preview pointed at a file that didn't exist, so shared links showed no picture.
 - 2026-01-04: Expanded vocabulary to 388 words - 50+ added to B2 and C1 levels
 - 2026-01-04: Added Hans the Tutor - snarky German teacher who zaps wrong answers
 - 2026-01-04: Fixed word repetition - deck system ensures no repeats until exhausted

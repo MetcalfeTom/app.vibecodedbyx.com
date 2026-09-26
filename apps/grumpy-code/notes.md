@@ -1,6 +1,7 @@
 # Grumpy Code
 
 ## log
+- 2026-09-26: og-image.png added (a real 1200×630 screenshot of the app) — the link preview pointed at a file that didn't exist, so shared links showed no picture.
 - 2026-04-17: Added two dedicated topic roasts: `nuxt_hydration` (SSR/hydrate/mismatch triggers) with 8 lines about <ClientOnly>, Date.now() in setup, server/client disagreement; and `node_modules` (node_modules/package-lock/pnpm/bundle size triggers) with 10 lines about is-even, 1.2GB folders, lock file size. Priority above generic `code` bucket so they match first.
 - 2026-04-17: Created. Retro phosphor-green CRT terminal with scanlines, vignette, and flicker. Boot sequence + ASCII logo. Local roast engine: topic detection (code/bug/help/love/life/ai/hi/thanks/joke/why/yes/no) with pattern-matched templates, plus openers/verdicts/closers. Echoes a word from user input for personalized snark. Mood system (6 levels: BARELY AWAKE → EERILY CALM) and patience gauge that decays with verbose/interrogative prompts. Slash commands: /help, /mood, /patience, /stats, /self, /clear, /reboot, /about, /theme (5 CRT phosphor themes), /compliment. Typewriter animation, command history (↑/↓), Ctrl+L to clear. Fully offline — no network. VT323 + Major Mono Display typography.
 

@@ -1,6 +1,7 @@
 # Beatbox Booth
 
 ## log
+- 2026-09-26: og-image.png added (a real 1200×630 screenshot of the app) — the link preview pointed at a file that didn't exist, so shared links showed no picture.
 - 2026-04-17: Created. 16-step sequencer with 6 synthesized percussion rows (Kick/Snare/HiHat/OpenHat/Clap/Bass) using Web Audio (oscillators + filtered noise) and a 7th VOCAL row driven by SpeechSynthesis. Per-step custom syllables on the vocal row. 8 notation presets (Boots & Cats, Hip-Hop Boom Bap, Trap, Dubstep, DnB Amen, Reggaeton, House, Beatbox Cypher). BPM 60–160, swing 0–40%, voice picker, rate/pitch sliders. Live notation strip below grid (B/K/t/ts/X/F + custom vocal text). Save/load to localStorage. Bungee + Space Mono typography, tape-deck cream/red/orange palette.
 
 ## issues

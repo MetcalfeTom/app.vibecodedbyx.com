@@ -1,6 +1,7 @@
 # SYNTH STATION
 
 ## log
+- 2026-09-26: og-image.png added (a real 1200×630 screenshot of the app) — the link preview pointed at a file that didn't exist, so shared links showed no picture.
 - 2026-01-10: Added legato/dragging notes for longer sustain
   - Click and drag to create notes spanning multiple steps
   - Notes sustain for their full length (95% gate)

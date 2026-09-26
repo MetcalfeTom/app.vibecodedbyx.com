@@ -1,6 +1,7 @@
 # Alpha-Blast
 
 ## log
+- 2026-09-26: og-image.png added (a real 1200×630 screenshot of the app) — the link preview pointed at a file that didn't exist, so shared links showed no picture.
 - 2026-01-03: Initial creation - neon typing game with falling letters
 
 ## features
