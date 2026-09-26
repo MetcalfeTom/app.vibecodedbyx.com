@@ -16,6 +16,7 @@ A ghost "writes" a small program (typewriter animation) and hides a classic secu
   - Recall desktop has a ghost shortcut (hex-editor.lnk, Haunted files) that opens /hex-editor/?bare=1 in a window.
 
 - 2026-09-26: the ghost wears a witch hat (heks = witch in Dutch, marci's pun); it hops when you catch a curse. Share image re-shot with the hat. Autocomplete popup stays inside the editor on long lines.
+- 2026-09-26: sounds, synthesized with WebAudio (no files): a breath of air when a candle goes out, a wailing ghost when you catch a curse, a blip when suggestions pop up, a low chord when the last candle dies. 🔊 button in the header; mute saved in localStorage 'hexEditorMute' (separate from SAVE, so "forget everything" keeps it).
 
 ## issues
 - Scroll with into(el) (window.scrollTo), never scrollIntoView: the app also runs in an iframe on the Recall desktop, and scrollIntoView scrolls the parent page too.
