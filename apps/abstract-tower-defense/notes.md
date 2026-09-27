@@ -40,7 +40,7 @@
 - Tall screens (portrait phones) turn the board 90° (`rot`): ctx transform maps world (x,y) → screen (H−y, x); toWorld/toCss/label() and health bars + level pips handle it. Touch hit radius for towers is enlarged (15 css px)
 
 ## todos
-- Maybe a splash tower (frost slow is done)
+- (splash tower shipped; watch the wave-20 boss for casual players)
 
 ## notes
 - `window.__td` exposes G, step, TYPES, stat, openPanel, upgrade, sell, startWave, resize for headless tests
