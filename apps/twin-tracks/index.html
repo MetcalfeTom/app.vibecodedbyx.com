@@ -43,6 +43,8 @@ h1::after{content:attr(data-t);position:absolute;left:0;top:0;color:var(--red);m
 .btn.ghost:hover{background:var(--ink);color:var(--paper)}
 .fine{margin:1.4rem 0 0;color:var(--dim);font-size:.74rem;max-width:34rem;animation:rise .7s .35s both}
 .fine b{font-weight:500;color:var(--ink)}
+.fine.mem{margin-top:.6rem}
+.linkish{font:inherit;color:var(--red);background:none;border:0;padding:.2rem 0;min-height:24px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 body.dragging::after{content:"Drop it. I'm listening.";position:fixed;inset:12px;border:3px dashed var(--red);display:grid;place-items:center;background:rgba(243,237,226,.93);font:800 clamp(1.6rem,6vw,3rem) "Bricolage Grotesque",Georgia,serif;z-index:60;pointer-events:none}
 
 /* scanning */
@@ -137,6 +139,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
       <button class="btn ghost" id="pickFiles" type="button">Choose files</button>
     </div>
     <p class="fine"><b>Nothing leaves your computer.</b> Your browser reads the files right here. It can't delete them either, so you get a list of what to remove. You can also drop a folder anywhere on the page.</p>
+    <p class="fine mem" id="memNote" hidden>I remember <b id="memN"></b> songs I listened to before, so the next deep listen skips them. <button class="linkish" id="forgetBtn" type="button">Forget them</button></p>
     <input type="file" id="dirInput" webkitdirectory multiple hidden>
     <input type="file" id="fileInput" multiple accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.flac,.wav,.aif,.aiff,.webm" hidden>
   </section>
@@ -170,7 +173,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v1.2 · 2026-09-27</span></footer>
+  <footer><span role="note" aria-label="Build information">build v1.3 · 2026-09-27</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
@@ -453,19 +456,23 @@ async function deepListen() {
   // one listen per family of identical music
   const todo = [];
   items.forEach(it => { if (!it.err && !it.nodec && !it.fp && famOf(it)[0] === it) todo.push(it); });
+  setProgress(0, 1, 'Remembering songs I heard before…', '');
+  const hits = await cacheGet(todo);
+  if (hits) todo.splice(0, todo.length, ...todo.filter(it => !it.fp));
   let next = 0, done = 0;
   const t0 = performance.now();
   const worker = async () => {
     while (!stopFlag && next < todo.length) {
       const it = todo[next++];
       const secs = (performance.now() - t0) / 1000, left = done > 3 ? (todo.length - done) * secs / done : 0;
-      setProgress(done, todo.length, 'Listening to ' + (done + 1) + ' of ' + todo.length + (left > 90 ? ' · about ' + Math.round(left / 60) + ' min left' : left > 0 ? ' · under 2 min left' : ''), it.path);
+      setProgress(done, todo.length, (hits ? hits + ' remembered · ' : '') + 'Listening to ' + (done + 1) + ' of ' + todo.length + (left > 90 ? ' · about ' + Math.round(left / 60) + ' min left' : left > 0 ? ' · under 2 min left' : ''), it.path);
       await fpOf(it);
       done++;
       await tick();
     }
   };
   await Promise.all([worker(), worker()]);
+  await cachePut(null, true);
   if (!stopFlag) deepDone = true;
   setProgress(1, 1, 'Comparing…', '');
   await tick();
@@ -475,9 +482,63 @@ async function deepListen() {
 
 async function fpOf(it) {
   if (it.fp || it.nodec) return it.fp;
-  try { it.fp = fingerprint(await decode(await it.file.arrayBuffer())); } catch (e) { it.fp = null; }
-  famOf(it).forEach(m => { if (it.fp) m.fp = it.fp; else m.nodec = "couldn't be decoded (DRM, damaged, or a format your browser can't play)"; });
-  return it.fp;
+  let fp = null;
+  try { fp = fingerprint(await decode(await it.file.arrayBuffer())); } catch (e) {}
+  if (fp) { setFp(it, fp); cachePut(it); }
+  else famOf(it).forEach(m => { m.nodec = "couldn't be decoded (DRM, damaged, or a format your browser can't play)"; });
+  return fp;
+}
+function setFp(it, fp) { famOf(it).forEach(m => { m.fp = fp; }); }
+
+// ---------- memory: songs I've listened to are remembered in this browser, so the next deep listen skips them ----------
+const FPV = 1;   // bump when the fingerprint changes
+let dbP = null;
+function db() {
+  if (!dbP) dbP = new Promise(res => {
+    try {
+      const rq = indexedDB.open('twin-tracks', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('fp');
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = rq.onblocked = () => res(null);
+    } catch (e) { res(null); }
+  });
+  return dbP;
+}
+const fpKey = it => FPV + '|' + it.path + '|' + it.size + '|' + (it.file.lastModified || 0);
+async function cacheGet(list) {
+  const d = await db();
+  if (!d) return 0;
+  let hits = 0;
+  for (let i = 0; i < list.length; i += 300) {
+    const part = list.slice(i, i + 300);
+    await new Promise(res => {
+      try {
+        const tx = d.transaction('fp'), st = tx.objectStore('fp');
+        part.forEach(it => { const rq = st.get(fpKey(it)); rq.onsuccess = () => { if (rq.result && rq.result.d && !it.fp) { setFp(it, rq.result); hits++; } }; });
+        tx.oncomplete = tx.onerror = tx.onabort = res;
+      } catch (e) { res(); }
+    });
+  }
+  return hits;
+}
+let putBuf = [];
+async function cachePut(it, flush) {
+  if (it) famOf(it).forEach(m => putBuf.push([fpKey(m), m.fp]));
+  if (!flush && putBuf.length < 25) return;
+  const batch = putBuf; putBuf = [];
+  const d = await db();
+  if (!d || !batch.length) return;
+  try { const tx = d.transaction('fp', 'readwrite'), st = tx.objectStore('fp'); batch.forEach(([k, v]) => st.put(v, k)); } catch (e) {}
+}
+async function cacheCount() {
+  const d = await db();
+  if (!d) return 0;
+  return new Promise(res => { try { const rq = d.transaction('fp').objectStore('fp').count(); rq.onsuccess = () => res(rq.result); rq.onerror = () => res(0); } catch (e) { res(0); } });
+}
+async function showMemory() {
+  const n = await cacheCount();
+  $('memNote').hidden = !n;
+  $('memN').textContent = n.toLocaleString();
 }
 
 async function match() {
@@ -755,7 +816,9 @@ function listenFor(el) {
   if (g.listening) return;
   g.listening = true;
   lazyQ = lazyQ.then(async () => {
+    await cacheGet(g.rows.map(r => r.it).filter(it => !it.fp));
     for (const r of g.rows) await fpOf(r.it);
+    await cachePut(null, true);
     spanOf(g);
     if (!el.isConnected) return;
     el.querySelectorAll('.row').forEach(rowEl => { rowEl.querySelector('.facts').innerHTML = factsOf(g.rows[+rowEl.dataset.r]); });
@@ -883,7 +946,12 @@ $('dirInput').onchange = e => { if (e.target.files.length) scanFiles(e.target.fi
 $('fileInput').onchange = e => { if (e.target.files.length) scanFiles(e.target.files); e.target.value = ''; };
 $('stopBtn').onclick = () => { stopFlag = true; $('scanTitle').textContent = 'Wrapping up…'; };
 $('deepBtn').onclick = () => { stopPlayback(); deepListen(); };
-$('againBtn').onclick = () => { stopPlayback(); urls.forEach(u => URL.revokeObjectURL(u)); urls.clear(); items = []; groups = []; updateDock(); show('hero'); };
+$('forgetBtn').onclick = async () => {
+  const d = await db();
+  try { d.transaction('fp', 'readwrite').objectStore('fp').clear().onsuccess = () => { showMemory(); toast('Forgotten. Next time I listen from scratch.'); }; } catch (e) { toast("Couldn't clear it."); }
+};
+showMemory();
+$('againBtn').onclick = () => { stopPlayback(); urls.forEach(u => URL.revokeObjectURL(u)); urls.clear(); items = []; groups = []; updateDock(); show('hero'); showMemory(); };
 $('filterBar').addEventListener('click', e => {
   const b = e.target.closest('.chip'); if (!b) return;
   filter = b.dataset.f;
