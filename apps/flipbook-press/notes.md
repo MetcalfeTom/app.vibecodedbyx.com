@@ -17,6 +17,13 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
   - `drawCover()`: a bordered card with the title (Shrikhand, auto-fit to the cell) and "flick me →"; its tab shows ★. Title defaults to the file name (placeholder), editable in `#coverTxt` (40 chars). `document.fonts.load('40px Shrikhand')` re-renders the sheets once the font arrives.
   - Checkboxes `#holdChk` / `#coverChk` in the options; the cover text row hides with the cover off.
 
+- v1.2 (2026-09-27): sound words (pushedbutton: "I'll have to do the sound myself" for Otis's squeaky ball).
+  - `words=[{t,at,i}]`: a word is stamped at a source time (not a frame index), so trim and fps changes keep it on the right moment; `span={a,b,n}` records the times the current frames were pulled at, `wordFrames(w)` maps a word to frames (half a second, at least 3 frames).
+  - `pic(k)` returns looks[k] or a cached copy with the word drawn in (`drawWord`: a 13-spike comic burst in a top corner, alternating right/left per word; pops in at 0.62×, 1.14× on its second frame, then wobbles; white burst + dark text, yellow burst + pink text in colour ink). Preview and sheets both draw `pic()`.
+  - UI in a `<details>` under the preview: text (14 chars, upper-cased, placeholder SQUEAK!) + "Stamp it here" (stamps at the current preview frame, pauses); chips with × to remove, "(trimmed out)" when outside the trim.
+  - Cover: the title now wraps onto 1–3 lines, whichever is biggest (tall phone videos get narrow covers), and "flick me →" shrinks to fit (pushedbutton spotted the F running into the staple tab on portrait videos).
+  - Probe modes word / wsheet / wcol (stamps BOING! at frame 10 and SQUEAK! at frame 23) and portrait (a 270×480 source named "Otis in the garden").
+
 ## issues
 - Headless can't pick a real file; the `rec` probe records a canvas to webm instead. H.264 MP4 isn't testable in the headless shell.
 - iOS Safari sometimes draws a blank first frame from an unplayed video; `videoSource` does a muted play()/pause() after loading.
