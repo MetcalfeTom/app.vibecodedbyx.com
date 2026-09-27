@@ -197,6 +197,45 @@
             transform: translate(-50%, -50%) scale(1.1);
         }
 
+        /* done food keeps cooking: it smokes, then burns */
+        .cooking-item.smoking { animation: smoke-wobble 0.35s ease-in-out infinite alternate; }
+        .cooking-item.smoking::after {
+            content: '💨'; position: absolute; top: -0.7em; right: -0.6em; font-size: 0.55em;
+            animation: smoke-rise 0.9s ease-out infinite;
+        }
+        .cooking-item.burnt { filter: grayscale(1) brightness(0.35) !important; box-shadow: none !important; }
+        .burner.has-burnt::after {
+            content: 'BURNT · tap to bin'; position: absolute; bottom: -14px; left: 50%; transform: translateX(-50%);
+            font-size: 0.75em; font-weight: 800; white-space: nowrap; color: #fff; background: #2D3436;
+            padding: 2px 10px; border-radius: 10px; z-index: 11; pointer-events: none;
+        }
+        @keyframes smoke-wobble { from { transform: translate(-50%, -50%) rotate(-4deg); } to { transform: translate(-50%, -50%) rotate(4deg); } }
+        @keyframes smoke-rise { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-14px); } }
+
+        .stat.lives { background: #FF7675; letter-spacing: 2px; }
+        .stat.best { background: #A29BFE; }
+
+        .shift-over {
+            position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px;
+            background: rgba(45, 52, 54, 0.55);
+        }
+        .shift-over[hidden] { display: none; }
+        .shift-card {
+            background: #FFF8E7; border-radius: 22px; padding: 26px 28px; width: min(380px, 100%);
+            text-align: center; box-shadow: 0 18px 50px rgba(0,0,0,0.3); color: #2D3436;
+            animation: card-pop 0.35s cubic-bezier(.2,1.4,.4,1);
+        }
+        .shift-card h2 { font-size: 2em; color: #D63031; line-height: 1.1; }
+        .shift-card .big { font-size: 3.4em; font-weight: 800; line-height: 1; margin: 10px 0 2px; color: #E17055; }
+        .shift-card p { margin: 6px 0; }
+        .shift-card .newbest { color: #00A085; font-weight: 800; }
+        .shift-card .serve-button { margin: 16px auto 0; }
+        .shift-card .serve-button:focus-visible { outline: 3px solid #2D3436; outline-offset: 3px; }
+        @keyframes card-pop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) {
+            .cooking-item.smoking, .cooking-item.smoking::after, .shift-card { animation: none; }
+        }
+
         .cooking-timer {
             position: absolute;
             top: -40px;
@@ -436,13 +475,29 @@
             }
 
             .stats {
-                flex-direction: column;
-                gap: 10px;
+                flex-wrap: wrap;
+                gap: 8px;
+                font-size: 0.9em;
             }
 
             .stat {
                 text-align: center;
+                padding: 6px 12px;
             }
+
+            /* phone: ingredients as a 3x2 tray and both burners side by side, so the stove stays in reach */
+            .ingredients-panel {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+                padding: 14px;
+            }
+            .ingredients-panel h3 { grid-column: 1 / -1; margin-bottom: 2px; }
+            .ingredient { margin: 0; justify-content: center; text-align: center; padding: 8px 4px; min-height: 44px; }
+            .ingredient > div { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 0.9em; }
+            .ingredient-icon { margin-right: 0; }
+            .burners { grid-template-columns: 1fr 1fr; }
+            .plate { width: 150px; height: 150px; margin: 36px auto 14px; }
         }
     </style>
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame","name":"Breakfast Chef","description":"Cook eggs, bacon, pancakes, toast, sausage and hash browns on two burners, plate them up and serve each customer's order before their timer runs out.","url":"https://app.sloppy.live/breakfast-game/","image":"https://app.sloppy.live/breakfast-game/og.png","isAccessibleForFree":true,"inLanguage":"en","gamePlatform":"Web browser","genre":"Cooking"}</script>
@@ -456,6 +511,8 @@
                 <div class="stat">Score: <span id="score">0</span></div>
                 <div class="stat">Orders Completed: <span id="ordersCompleted">0</span></div>
                 <div class="stat">Level: <span id="level">1</span></div>
+                <div class="stat lives" aria-label="Missed orders left"><span id="lives">❤️❤️❤️</span></div>
+                <div class="stat best">Best: <span id="best">0</span></div>
             </div>
         </div>
 
@@ -537,6 +594,17 @@
 
     <div class="notification" id="notification"></div>
 
+    <div class="shift-over" id="shiftOver" hidden>
+        <div class="shift-card" role="dialog" aria-modal="true" aria-labelledby="shiftTitle">
+            <h2 id="shiftTitle">Kitchen closed!</h2>
+            <p>Three hungry customers walked out.</p>
+            <div class="big" id="shiftScore">0</div>
+            <p>points · <span id="shiftOrders">0</span></p>
+            <p id="shiftBest"></p>
+            <button class="serve-button" id="newShift">Start a new shift 🍳</button>
+        </div>
+    </div>
+
     <div class="howto" id="howto" role="note">
         <b>How to cook</b>
         <ol>
@@ -554,9 +622,16 @@
         let currentOrders = [];
         let completedFood = [];
         let burners = {
-            1: { active: false, food: null, timer: null, timeLeft: 0 },
-            2: { active: false, food: null, timer: null, timeLeft: 0 }
+            1: { active: false, food: null, timer: null, timeLeft: 0, burnTimer: null, burnt: false },
+            2: { active: false, food: null, timer: null, timeLeft: 0, burnTimer: null, burnt: false }
         };
+        const MAX_MISSES = 3;
+        const BURN_SECS = 7; // how long cooked food survives on a hot pan
+        let misses = 0;
+        let orderGen = null;
+        let shiftOver = false;
+        let best = 0;
+        try { best = parseInt(localStorage.getItem('breakfast_best') || '0', 10) || 0; } catch (e) {}
 
         // Food cooking times (in seconds)
         const cookingTimes = {
@@ -586,12 +661,14 @@
 
         // Start the game
         function startGame() {
+            clearInterval(orderGen);
             generateOrder();
-            setInterval(generateOrder, 20000); // New order every 20 seconds
+            orderGen = setInterval(generateOrder, 20000); // New order every 20 seconds
         }
 
         // Generate a random customer order
         function generateOrder() {
+            if (shiftOver) return;
             const customer = customerNames[Math.floor(Math.random() * customerNames.length)];
             const numItems = Math.min(Math.floor(level / 2) + 1, 4); // More items as level increases
             const availableFoods = Object.keys(cookingTimes);
@@ -603,7 +680,7 @@
             }
 
             const order = {
-                id: Date.now(),
+                id: Date.now() + Math.floor(Math.random() * 1000),
                 customer: customer,
                 items: orderItems,
                 timeLimit: 60 + (level * 10), // More time for higher levels
@@ -617,7 +694,7 @@
 
         // Start countdown timer for an order
         function startOrderTimer(order) {
-            const timer = setInterval(() => {
+            const timer = order.timer = setInterval(() => {
                 order.timeLeft--;
                 if (order.timeLeft <= 0) {
                     clearInterval(timer);
@@ -669,10 +746,15 @@
                 clearInterval(burner.timer);
                 burner.active = false;
                 burnerElement.classList.remove('active');
+                const t = burnerElement.querySelector('.cooking-timer');
+                if (t) t.remove();
                 showNotification('Cooking stopped!', 'error');
-            } else if (burner.food && !burner.active) {
+            } else if (burner.food && !burner.active && burner.timeLeft > 0) {
                 // Start cooking existing food
                 startCooking(burnerNum);
+            } else if (burner.food && burner.timeLeft <= 0) {
+                // done (or burnt) food: a tap anywhere on the pan takes it off
+                removeFoodFromBurner(burnerNum);
             }
         }
 
@@ -693,8 +775,10 @@
             }
 
             // Add food to burner
+            if (shiftOver) return;
             burners[availableBurner].food = foodType;
             burners[availableBurner].timeLeft = cookingTimes[foodType];
+            burners[availableBurner].burnt = false;
 
             // Update display
             const burnerElement = document.getElementById(`burner${availableBurner}`);
@@ -717,7 +801,7 @@
             const burner = burners[burnerNum];
             const burnerElement = document.getElementById(`burner${burnerNum}`);
 
-            if (!burner.food) return;
+            if (!burner.food || burner.timeLeft <= 0 || shiftOver) return;
 
             burner.active = true;
             burnerElement.classList.add('active');
@@ -764,6 +848,27 @@
                 foodElement.style.filter = 'brightness(1.2)';
                 foodElement.style.boxShadow = '0 0 10px gold';
             }
+
+            // Left on the pan it smokes, then burns
+            let burnLeft = BURN_SECS;
+            clearInterval(burner.burnTimer);
+            burner.burnTimer = setInterval(() => {
+                burnLeft--;
+                const el = burnerElement.querySelector('.cooking-item');
+                if (!burner.food || !el) { clearInterval(burner.burnTimer); return; }
+                if (burnLeft === 3) {
+                    el.classList.add('smoking');
+                    showNotification(`The ${burner.food} is smoking! Plate it!`, 'error');
+                }
+                if (burnLeft <= 0) {
+                    clearInterval(burner.burnTimer);
+                    burner.burnt = true;
+                    el.classList.remove('smoking');
+                    el.classList.add('burnt');
+                    burnerElement.classList.add('has-burnt');
+                    showNotification(`The ${burner.food} burned! Tap it to bin it.`, 'error');
+                }
+            }, 1000);
         }
 
         // Remove food from burner (move to plate)
@@ -775,16 +880,22 @@
 
             // Check if food is cooked
             if (burner.active || burner.timeLeft > 0) {
-                showNotification('Food is still cooking!', 'error');
+                // an unlit pan: let the tap fall through to the burner, which lights it
+                if (burner.active) showNotification('Food is still cooking!', 'error');
                 return;
             }
 
-            // Move food to completed plate
-            completedFood.push(burner.food);
-            updatePlateDisplay();
+            const wasBurnt = burner.burnt;
+            if (!wasBurnt) {
+                // Move food to completed plate
+                completedFood.push(burner.food);
+                updatePlateDisplay();
+            }
 
             // Clear burner
             clearInterval(burner.timer);
+            clearInterval(burner.burnTimer);
+            burner.burnt = false;
             burner.food = null;
             burner.active = false;
             burner.timeLeft = 0;
@@ -799,10 +910,10 @@
                 timerElement.remove();
             }
 
-            burnerElement.classList.remove('active');
+            burnerElement.classList.remove('active', 'has-burnt');
             updateServeButton();
 
-            showNotification('Food moved to plate!', 'success');
+            showNotification(wasBurnt ? 'Into the bin. Cook a fresh one!' : 'Food moved to plate!', wasBurnt ? 'error' : 'success');
         }
 
         // Update plate display
@@ -878,6 +989,7 @@
         function completeOrder(orderId) {
             const order = currentOrders.find(o => o.id === orderId);
             if (!order) return;
+            clearInterval(order.timer);
 
             // Calculate score based on time remaining
             const timeBonus = Math.max(0, order.timeLeft * 10);
@@ -903,16 +1015,59 @@
 
         // Fail an order (time ran out)
         function failOrder(orderId) {
+            if (shiftOver || !currentOrders.some(o => o.id === orderId)) return;
             currentOrders = currentOrders.filter(o => o.id !== orderId);
             renderOrders();
-            showNotification('Order failed - time ran out! ⏰', 'error');
+            misses++;
+            updateStats();
+            if (misses >= MAX_MISSES) { endShift(); return; }
+            showNotification('A customer walked out! ⏰ ' + (MAX_MISSES - misses) + ' left before closing.', 'error');
         }
+
+        function endShift() {
+            shiftOver = true;
+            clearInterval(orderGen);
+            currentOrders.forEach(o => clearInterval(o.timer));
+            Object.values(burners).forEach(b => { clearInterval(b.timer); clearInterval(b.burnTimer); });
+            const newBest = score > best;
+            if (newBest) { best = score; try { localStorage.setItem('breakfast_best', String(best)); } catch (e) {} }
+            updateStats();
+            document.getElementById('shiftScore').textContent = score;
+            document.getElementById('shiftOrders').textContent = ordersCompleted + (ordersCompleted === 1 ? ' order served' : ' orders served');
+            const bestEl = document.getElementById('shiftBest');
+            bestEl.textContent = newBest && score > 0 ? 'New best shift! 🏆' : 'Best shift: ' + best;
+            bestEl.className = newBest && score > 0 ? 'newbest' : '';
+            document.getElementById('shiftOver').hidden = false;
+            document.getElementById('newShift').focus();
+        }
+
+        function newShift() {
+            score = 0; ordersCompleted = 0; level = 1; misses = 0; shiftOver = false;
+            currentOrders.forEach(o => clearInterval(o.timer));
+            currentOrders = [];
+            completedFood = [];
+            Object.keys(burners).forEach(n => {
+                const b = burners[n];
+                clearInterval(b.timer); clearInterval(b.burnTimer);
+                Object.assign(b, { active: false, food: null, timer: null, timeLeft: 0, burnTimer: null, burnt: false });
+                const el = document.getElementById('burner' + n);
+                el.classList.remove('active', 'has-burnt');
+                el.querySelectorAll('.cooking-item, .cooking-timer').forEach(x => x.remove());
+            });
+            updatePlateDisplay(); updateServeButton(); updateStats(); renderOrders();
+            document.getElementById('shiftOver').hidden = true;
+            showNotification('New shift! Orders are coming in.', 'success');
+            startGame();
+        }
+        document.getElementById('newShift').onclick = newShift;
 
         // Update game statistics
         function updateStats() {
             document.getElementById('score').textContent = score;
             document.getElementById('ordersCompleted').textContent = ordersCompleted;
             document.getElementById('level').textContent = level;
+            document.getElementById('lives').textContent = '❤️'.repeat(MAX_MISSES - misses) + '🖤'.repeat(misses);
+            document.getElementById('best').textContent = Math.max(best, score);
         }
 
         // Show notification
@@ -927,6 +1082,7 @@
         }
 
         // Start the game when page loads
+        updateStats();
         window.addEventListener('load', () => {
             showNotification('Welcome to Breakfast Chef! Click ingredients to add them to burners.', 'success');
             setTimeout(startGame, 2000);
