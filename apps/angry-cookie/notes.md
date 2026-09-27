@@ -17,6 +17,10 @@
   - Local og.png (rage frame)
   - Crunch sound per click (filtered noise: sharper when angry, soft and low when sad), mute button bottom right (`ac_muted`)
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
+- 2026-09-27: Glow-up
+  - Bug: after click 80 (and after "Bake a fresh cookie") the cookie never squished again. `restart()` only removed the class it re-added, so a leftover `.shake` (later in the CSS) masked `.squish`. It now clears both. Headless: 0 → 1 animation per click at 86 and after reset.
+  - Rage vignette now fades in and out: `@property --vig` registered, so the existing `transition: --vig .6s` actually animates (it used to snap).
+  - Contrast: stage labels opacity .55 → .7, active label darker red #b3302f (AA at 9.5-10px); mute button 42 → 44px.
 
 ## Issues
 - The old global_stats rows for this app never existed (anon reads empty) → old totals are lost, starting fresh
