@@ -141,6 +141,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
     </div>
     <p class="fine"><b>Nothing leaves your computer.</b> Your browser reads the files right here. It can't delete them either, so you get a list of what to remove. You can also drop a folder anywhere on the page.</p>
     <p class="fine mem" id="memNote" hidden>I remember <b id="memN"></b> songs I listened to before, so the next deep listen skips them. <button class="linkish" id="forgetBtn" type="button">Forget them</button></p>
+    <p class="fine mem" id="backNote" hidden>Moved files with the script and changed your mind? <button class="linkish" id="saveBack" type="button">Get the put-back script</button></p>
     <p class="fine mem" id="markNote" hidden>Your marks are saved too (<b id="markN"></b> marked for removal). They come back when you scan the same folder. <button class="linkish" id="forgetMarks" type="button">Clear marks</button></p>
     <input type="file" id="dirInput" webkitdirectory multiple hidden>
     <input type="file" id="fileInput" multiple accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.flac,.wav,.aif,.aiff,.webm" hidden>
@@ -176,7 +177,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v1.8 · 2026-09-27</span></footer>
+  <footer><span role="note" aria-label="Build information">build v1.9 · 2026-09-27</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
@@ -568,6 +569,9 @@ function saveMarks() {
 async function showMemory() {
   const nm = Object.keys(marks).length;
   $('markNote').hidden = !nm;
+  let moved = false;
+  try { moved = !!localStorage.getItem('twin-tracks.moved'); } catch (e) {}
+  $('backNote').hidden = !nm && !moved;
   $('markN').textContent = nm.toLocaleString();
   const n = await cacheCount();
   $('memNote').hidden = !n;
@@ -1005,17 +1009,49 @@ function shScript(p) {
     '[ $f = 1 ] || { echo "None of the marked files are next to this script."; echo ' + q('Move it ' + p.where + ' and run it again.') + '; echo "Already ran it? Then the files are waiting in ' + QDIR + '."; exit 1; }',
     ...p.m.map(it => 'm ' + q(p.rel(it))), 'echo "Moved $n files into ' + QDIR + '. Check them, then delete that folder."', ''].join('\n');
 }
+// undo: put everything in _twin-tracks-removed back where it came from. It needs no list: the folder mirrors the paths.
+function backBat() {
+  return ['@echo off', 'chcp 65001 >nul', 'cd /d "%~dp0"', `if exist "${QDIR}\\" goto run`,
+    `echo There is no ${QDIR} folder next to this script.`, 'echo Put it in the same folder as the move script and double-click it again.', 'pause', 'exit /b', ':run',
+    'set back=0', 'set kept=0', 'set fail=0', `echo Twin Tracks: putting the files in ${QDIR} back where they came from`,
+    // the whole list is read before anything moves; names with ! % ^ & stay intact (delayed expansion only inside :one)
+    `for /f "delims=" %%F in ('dir /s /b /a-d "${QDIR}" 2^>nul') do if /i not "%%~nxF"=="Thumbs.db" if /i not "%%~nxF"=="desktop.ini" (set "f=%%F" & call :one)`,
+    `for /f "delims=" %%D in ('dir /s /b /ad "${QDIR}" 2^>nul ^| sort /r') do rd "%%D" 2>nul`, `rd "${QDIR}" 2>nul`,
+    'echo Put back %back% files.', `if %kept% gtr 0 echo %kept% stayed in ${QDIR}: a file with that name is already in its place.`,
+    'if %fail% gtr 0 echo %fail% could not be moved. Is a music player using them?', 'pause', 'exit /b', '',
+    ':one', 'setlocal EnableDelayedExpansion', `set "r=!f:*${QDIR}\\=!"`, 'set "res=kept"',
+    'if not exist "!r!" (', '  for %%D in ("!r!") do mkdir "%%~dpD" 2>nul', '  move "!f!" "!r!" >nul 2>nul && set "res=back" || set "res=fail"', ')',
+    'endlocal & set "res=%res%"', 'set /a %res%+=1', 'goto :eof', ''].join('\r\n');
+}
+function backSh() {
+  return ['#!/bin/sh', '# Twin Tracks put-back script: moves everything in ' + QDIR + ' back where it came from, never over a file that is already there',
+    'cd "$(dirname "$0")" || exit 1', 'Q=' + QDIR,
+    '[ -d "$Q" ] || { echo "There is no $Q folder next to this script."; echo "Put it in the same folder as the move script and run it again."; exit 1; }',
+    'n=0; k=0; t=$(mktemp) || exit 1', 'find "$Q" -type f ! -name .DS_Store > "$t"',
+    'while IFS= read -r p; do', '  r=${p#"$Q"/}', '  if [ -e "$r" ]; then k=$((k+1)); else mkdir -p "$(dirname "$r")" && mv -n -- "$p" "$r" && n=$((n+1)); fi', 'done < "$t"',
+    'rm -f "$t"', 'find "$Q" -name .DS_Store -delete 2>/dev/null; find "$Q" -depth -type d -empty -exec rmdir {} \\; 2>/dev/null',
+    'echo "Put back $n files."', '[ $k = 0 ] || echo "$k stayed in $Q: a file with that name is already in its place."', ''].join('\n');
+}
 const isWin = /Win/i.test(navigator.platform || navigator.userAgent);
+function saveText(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+$('saveBack').onclick = () => {
+  const name = isWin ? 'twin-tracks-put-back.bat' : 'twin-tracks-put-back.sh';
+  saveText(name, isWin ? backBat() : backSh());
+  toast(`Saved ${name}. Put it next to the ${QDIR} folder (where the move script was) and ${isWin ? 'double-click it' : 'run it with sh'}. Every file goes back to its old place.`, 12000);
+};
 $('saveScript').onclick = () => {
   const p = scriptPlan();
   if (!p) { toast('The move script needs a scanned folder. Choose a folder instead of single files.'); return; }
   const name = isWin ? 'twin-tracks-move.bat' : 'twin-tracks-move.sh';
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([isWin ? batScript(p) : shScript(p)], { type: 'text/plain' }));
-  a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  toast(`Saved ${name}. First move it ${p.where}, then ${isWin ? 'double-click it' : 'run it with sh'}. It moves the files into ${QDIR}; nothing gets deleted.`, 12000);
+  saveText(name, isWin ? batScript(p) : shScript(p));
+  try { localStorage.setItem('twin-tracks.moved', '1'); } catch (e) {}
+  toast(`Saved ${name}. First move it ${p.where}, then ${isWin ? 'double-click it' : 'run it with sh'}. It moves the files into ${QDIR}; nothing gets deleted, and the put-back script on the start page undoes it.`, 12000);
 };
 // one click for a whole pile: byte-proven sets by default, "same audio" only when that filter is picked, "maybe" never
 function bulkSets() { return groups.filter(g => filter === 'all' ? g.tier === 'exact' || g.tier === 'tags' || g.tier === 'pcm' : filter !== 'maybe' && g.tier === filter); }
