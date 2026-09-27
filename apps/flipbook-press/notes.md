@@ -12,6 +12,10 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
   - Ink meter: mean darkness of each sheet → "% ink per sheet", compared with a 5% page of plain text, plus the IT manager's mood.
   - Preview canvas flicks at the chosen fps; drag across it to flick by hand, arrow keys step. Tap a sheet for a close-up `<dialog>`.
   - Probe: scratchpad flip/mkprobe.py → gaunt/sw/fb/index.html, modes ball, ink<name>, fps60, card, rec (MediaRecorder webm → loadFile), bad, sheet<size>, og.
+- v1.1 (2026-09-27): a title cover and held ends.
+  - `sequence()` builds the page order: -1 = cover, then frame 0 twice more, every frame, then the last frame 3 more times (hold is on by default and only kicks in from 6 frames). Held copies get their own tab numbers so the staple order stays obvious.
+  - `drawCover()`: a bordered card with the title (Shrikhand, auto-fit to the cell) and "flick me →"; its tab shows ★. Title defaults to the file name (placeholder), editable in `#coverTxt` (40 chars). `document.fonts.load('40px Shrikhand')` re-renders the sheets once the font arrives.
+  - Checkboxes `#holdChk` / `#coverChk` in the options; the cover text row hides with the cover off.
 
 ## issues
 - Headless can't pick a real file; the `rec` probe records a canvas to webm instead. H.264 MP4 isn't testable in the headless shell.
@@ -19,4 +23,4 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 
 ## todos
 - Real-device check of print scaling (some print dialogs default to "fit to page", the page says print at 100%).
-- Maybe: hold frames at the start and end (a few repeats flick nicer), reverse order option, crop/zoom to the subject, a cover page.
+- Maybe: reverse order option (flick from the back), crop/zoom to the subject.
