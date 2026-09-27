@@ -678,12 +678,39 @@
       io.observe(b);
     }
   }
+  // the tile you tapped lifts off the wall and settles where the art hangs
+  function flyIn(item) {
+    if (!item.drawn || matchMedia('(prefers-reduced-motion: reduce)').matches || !document.body.animate) return;
+    const from = item.el.getBoundingClientRect();
+    const ghost = document.createElement('canvas');
+    ghost.width = item.cv.width;
+    ghost.height = item.cv.height;
+    ghost.getContext('2d').drawImage(item.cv, 0, 0);
+    ghost.className = 'ghost';
+    ghost.setAttribute('aria-hidden', 'true');
+    const place = r => Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+    place(from);
+    document.body.appendChild(ghost);
+    let tries = 0;
+    (function go() {
+      if (queued && tries++ < 60) return requestAnimationFrame(go);
+      const to = art.getBoundingClientRect();
+      if (!to.width) return ghost.remove();
+      place(to);
+      const fly = ghost.animate([
+        { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})` },
+        { transform: 'none' },
+      ], { duration: 650, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+      fly.onfinish = () => ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260 }).onfinish = () => ghost.remove();
+    })();
+  }
   function openPiece(item, loom) {
     wallScroll = scrollY;
     S.pal = item.st.pal;
     S.aspect = '1:1';
     S.layers = item.st.layers.map((l, i, arr) => ({ ...l, id: S.nextId++, p: { ...l.p }, open: i === arr.length - 1 }));
     enterEditor();
+    flyIn(item);
     toast(loom ? 'Slide things around, then + add a layer to stack another loom' : 'Yours now: slide, reseed, stack more');
   }
   function showView(gallery) {
