@@ -3,6 +3,7 @@
 Stacking puzzle: every block squishes under the weight stacked above it. Use all the blocks and land the top of the tower in the pink band. Idea by Tatum (sloppy.live chat, 2026-09-27 16:51: "stack blocks which compress based on the amount of weight above them").
 
 ## log
+- v1.7 (2026-09-27): SPRING (code k, sizes 1+2, d 1). Hooke's law instead of the soft curve: MAT.spring sp .1 top 1.3 min .4, sq() = max(min, top − load×sp): 30% TALLER than its size with nothing on it, 3 kg = true size, bottoms out at 9 kg (class .bottomed, label "bottomed out"; labels show +x% when stretched). No bulge (k:0). Coil look = one tilted stripe gradient tiled 6× with background-size 100% 16.667%, so the coil squeezes with the block. Boing sound. Levels 20–22 (bands from scratch squish/solve.js, one winning order each, nearest miss 3.5 / 2.5 / 0.9 cm). Maker palette + share code k; Workshop gets springs after streak 2 (ORDER); POOL_DAILY untouched so dailies don't change.
 - 2026-09-27 og.png refresh: share image now shows the crushed box, a squished sponge, iron and jelly with the top landing on the line (rendered from the real game, win UI hidden).
 - v1.6.2 (2026-09-27): FASTER WORKSHOP. 7-block Workshop stacks took up to 635 ms headless (makeLevel filtered all ~2500 orders for every candidate band: O(n²), times up to 6 maxHit passes). Now: perms(n) memoised, solveAll memoised on the exact ordered block keys (last one only; order kept so shuffles and the daily stay identical), and makeLevel counts hits / nearest miss with binary search over the sorted totals: same results, max 43 ms. Probes: 40 Workshop gens all solvable, today's daily unchanged, share links fine.
 - v1.6.1 (2026-09-27): JIGGLE. jiggle(ids,oldF,newF,self) after every drop and take-off: blocks whose squish changed by >2.5 % (and the landed block) get .jig (squash) or .jup (spring back) using the individual `scale` property with transform-origin bottom, so it never fights the translateX(-50%) centring or the drop/reject/shake animations (translate/rotate). Staggered 45 ms per block downwards; animationend clears the class and inline delay. Reduced motion already neutralises it.
@@ -27,5 +28,5 @@ Stacking puzzle: every block squishes under the weight stacked above it. Use all
 - (none reported yet)
 
 ## todos
-- more materials chat might like (marshmallow? cheese? springs?) — add to ORDER only, never to POOL_DAILY
+- more materials chat might like (marshmallow? cheese?) — add to ORDER only, never to POOL_DAILY
 - drag to insert mid-tower (now only top drops)
