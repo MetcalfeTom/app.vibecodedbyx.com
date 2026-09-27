@@ -129,6 +129,14 @@
   // while you drag on the art it redraws small and fast; letting go paints it at full size
   let draft = false;
   const dcv = document.createElement('canvas'), dctx = dcv.getContext('2d'), dcache = new Map();
+  // sliders get the same treatment: quick sketches while they move, the full painting once they rest
+  let settleT = 0;
+  function live() {
+    draft = true;
+    clearTimeout(settleT);
+    settleT = setTimeout(() => { if (!drag) { draft = false; schedule(); } }, 200);
+    schedule();
+  }
 
   let queued = false;
   function schedule() {
@@ -227,7 +235,7 @@
   function fmt(d, v) { return d.step < 1 ? (+v).toFixed(d.step < 0.1 ? 2 : 1) : String(Math.round(v)); }
 
   // the two settings you can also drag on the art: sideways (x) and up/down (y)
-  const PAD = { flow: ['scale', 'curl'], circles: ['maxR', 'gap'], truchet: ['size', 'width'], ridges: ['amp', 'scale'], glass: ['count', 'lead'], topo: ['scale', 'warp'], harmono: ['detune', 'decay'], subdiv: ['depth', 'gap'], rays: ['x', 'y'], grain: ['scale', 'density'] };
+  const PAD = { flow: ['scale', 'curl'], circles: ['maxR', 'gap'], truchet: ['size', 'width'], ridges: ['amp', 'scale'], glass: ['count', 'lead'], topo: ['scale', 'warp'], harmono: ['detune', 'decay'], subdiv: ['depth', 'gap'], rays: ['x', 'y'], grain: ['scale', 'density'], tartan: ['thread', 'stripes'], stitch: ['size', 'motif'], kilim: ['scale', 'teeth'] };
   function padOf(gen) {
     const nums = GENS[gen].params.filter(d => !d.options);
     const pick = (PAD[gen] || []).map(k => nums.find(d => d.k === k)).filter(Boolean);
@@ -322,7 +330,7 @@
           L.p[d.k] = d.options ? t.value : +t.value;
           if (!d.options) t.nextElementSibling.textContent = fmt(d, t.value);
         } else return;
-        schedule();
+        t.type === 'range' ? live() : schedule();
       });
       li.querySelectorAll('input[type=range]').forEach(paintFill);
       ul.appendChild(li);
@@ -452,8 +460,8 @@
   // ---------- remix: a fresh composition that still looks intentional ----------
   // a background that covers the canvas, something drawn over it, and sometimes a dusting of grain
   const ROLES = {
-    base: [['glass', { fillp: [0.85, 1] }], ['subdiv', { fillp: [0.9, 1], depth: [5, 6, 7, 8] }], ['truchet', {}], ['flow', {}], ['topo', { style: ['bands', 'bands + lines'] }], ['rays', { style: ['wedges', 'wedges + rings'] }]],
-    mid: [['circles', {}], ['ridges', {}], ['topo', { style: ['lines'] }], ['glass', { style: ['outline'] }], ['rays', { style: ['beams', 'rings'] }], ['flow', {}], ['truchet', {}]],
+    base: [['glass', { fillp: [0.85, 1] }], ['subdiv', { fillp: [0.9, 1], depth: [5, 6, 7, 8] }], ['truchet', {}], ['flow', {}], ['topo', { style: ['bands', 'bands + lines'] }], ['rays', { style: ['wedges', 'wedges + rings'] }], ['tartan', {}], ['kilim', {}], ['stitch', { style: ['knit', 'beads'] }]],
+    mid: [['circles', {}], ['ridges', {}], ['topo', { style: ['lines'] }], ['glass', { style: ['outline'] }], ['rays', { style: ['beams', 'rings'] }], ['flow', {}], ['truchet', {}], ['stitch', { style: ['cross-stitch'] }]],
   };
   function rollLayer(R, gen, force) {
     const p = defaults(gen);
@@ -469,9 +477,11 @@
   function rollPiece(R) {
     const one = arr => arr[Math.floor(R() * arr.length)];
     const pal = Math.floor(R() * PALETTES.length), dark = lum(PALETTES[pal].bg) < 0.4;
-    const [bg, bf] = one(ROLES.base);
-    let [mg, mf] = one(ROLES.mid);
-    while (mg === bg && R() < 0.8) [mg, mf] = one(ROLES.mid);
+    // only looms that actually loaded can be rolled
+    const base = ROLES.base.filter(r => GENS[r[0]]), mid = ROLES.mid.filter(r => GENS[r[0]]);
+    const [bg, bf] = one(base);
+    let [mg, mf] = one(mid);
+    while (mg === bg && R() < 0.8) [mg, mf] = one(mid);
     const blends = dark ? ['source-over', 'screen', 'screen', 'overlay', 'difference'] : ['source-over', 'multiply', 'multiply', 'color-burn', 'soft-light'];
     const layers = [
       makeLayer(bg, { p: rollLayer(R, bg, bf), opacity: +(0.8 + R() * 0.2).toFixed(2) }),
@@ -545,7 +555,8 @@
     ['flow', 0, 5, 6], ['circles', 1, 6, 7], ['truchet', 2, 7, 8], ['ridges', 3, 8, 9], ['glass', 4, 9, 10],
     ['topo', 5, 10, 11], ['harmono', 6, 11, 12], ['subdiv', 7, 12, 13], ['rays', 8, 13, 14],
     ['grain', 9, 14, 15, { style: 'halftone', color: 'palette', size: 7, density: 0.7, scale: 1.2 }],
-  ];
+    ['tartan', 2, 21, 22], ['stitch', 4, 23, 24], ['kilim', 6, 25, 26, { layout: 'medallion' }],
+  ].filter(t => GENS[t[0]]);
   // looms beyond the first ten join the front row automatically
   Object.keys(GENS).forEach((id, k) => { if (!TILES.some(t => t[0] === id)) TILES.push([id, (k * 5) % PALETTES.length, 100 + k, 200 + k]); });
 
@@ -597,7 +608,7 @@
     w.busy = null;
     if (item) {
       item.painting = false;
-      if (m.fail) paintHere(item);
+      if (m.fail) { window.__wallFails = (window.__wallFails || 0) + 1; paintHere(item); }
       else if (!near.has(item)) m.bmp.close();
       else {
         const t0 = performance.now();
