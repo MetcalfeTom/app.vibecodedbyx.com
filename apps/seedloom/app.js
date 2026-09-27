@@ -649,6 +649,9 @@
     { pal: 11, aspect: '9:16', layers: [['rays', 1111, 'source-over', 1, 1, { rays: 28, rings: 6, x: 0.5, y: 0.78, twist: 0.8, style: 'wedges + rings' }], ['ridges', 2222, 'source-over', 1, 1, { lines: 30, amp: 120, scale: 2.4, focus: 0.3, width: 2, fill: 'yes', color: 'fade' }]] },
     { pal: 2, aspect: '4:5', layers: [['subdiv', 1919, 'source-over', 1, 1, { depth: 7, chance: 0.7, gap: 0, round: 0, fillp: 1, style: 'mondrian' }], ['grain', 7, 'multiply', 0.4, 1, { style: 'halftone', density: 0.5, size: 3, scale: 1.4, angle: 45, color: 'ink' }]] },
     { pal: 5, aspect: '1:1', layers: [['topo', 606, 'source-over', 1, 1, { levels: 14, scale: 1.4, warp: 0.9, detail: 4, style: 'bands + lines', width: 1 }], ['circles', 707, 'overlay', 0.8, 1, { count: 90, minR: 8, maxR: 110, gap: 10, style: 'targets', width: 2 }]] },
+    { pal: 6, aspect: '1:1', layers: [['marble', 311, 'source-over', 1, 1, { comb: 'waves', drops: 50, pull: 1.3, veins: 'hair' }], ['chladni', 312, 'multiply', 0.9, 1, { n: 6, m: 3, color: 'one', sand: 1.4 }]] },
+    { pal: 3, aspect: '4:5', layers: [['marble', 321, 'source-over', 1, 1, { layout: 'bullseye', comb: 'swirl', drops: 70, pull: 1.6 }], ['grain', 322, 'source-over', 0.35, 1, { style: 'speckle', color: 'paper', size: 1.2, density: 0.3 }]] },
+    { pal: 0, aspect: '1:1', layers: [['chladni', 331, 'source-over', 1, 1, { plate: 'both', n: 5, m: 4, color: 'depth', sand: 1.8 }], ['rays', 332, 'screen', 0.35, 1, { style: 'rings' }]] },
   ];
 
 
