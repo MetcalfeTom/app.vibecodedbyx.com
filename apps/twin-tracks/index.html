@@ -105,6 +105,13 @@ body.dragging::after{content:"Drop it. I'm listening.";position:fixed;inset:12px
 .flipres.meh b{color:#8a5a00}
 .flipres.bad b{color:var(--red)}
 .hint{font-size:.7rem;color:var(--dim);padding:.55rem .9rem;border-top:1px dashed var(--line);margin:0}
+.facts .cut{color:var(--red);font-weight:500}
+.cutbox{margin:0 0 1.4rem;padding:.2rem 1rem .8rem;border:2px solid var(--red);background:rgba(199,54,31,.05)}
+.cutbox summary{color:var(--ink);font-weight:500}
+.cutbox p{margin:.2rem 0 .5rem}
+.cutbox ul{margin:0;padding-left:1.1rem}
+.cutbox li{margin:.3rem 0}
+.cutbox li b{color:var(--ink);font-weight:500}
 .empty{font-family:"Bricolage Grotesque",Georgia,serif;font-size:1.3rem;padding:2rem 0}
 details{margin:1.6rem 0;font-size:.75rem;color:var(--dim)}
 details summary{cursor:pointer;min-height:40px;display:flex;align-items:center}
@@ -177,11 +184,12 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
       <button class="btn ghost" id="suggestExact" type="button">Mark the extras</button>
     </div>
     <p class="prefer" id="preferBox" hidden><label for="preferSel">★ goes to</label><select id="preferSel"></select></p>
+    <details class="cutbox" id="cutBox" hidden><summary id="cutSum"></summary><p id="cutTxt"></p><ul id="cutList"></ul></details>
     <div id="groups"></div>
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v2.0 · 2026-09-27</span></footer>
+  <footer><span role="note" aria-label="Build information">build v2.1 · 2026-09-27</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
@@ -353,9 +361,71 @@ function setProgress(done, total, line, now) {
 // are the same recording, whatever their tags, cover art or file names say.
 async function bytesAt(f, a, b) { return new Uint8Array(await f.slice(Math.max(0, a), Math.min(f.size, b)).arrayBuffer()); }
 const txt = (u, i, n) => String.fromCharCode(...u.subarray(i, i + n));
+// a copy that stopped halfway still carries its full-length header: hold the two up against each other
+function crc8(u, a, b) { let c = 0; for (let i = a; i < b; i++) { c ^= u[i]; for (let k = 0; k < 8; k++) c = c & 128 ? ((c << 1) ^ 7) & 255 : (c << 1) & 255; } return c; }
+// one FLAC frame header: where its samples start and end
+function flacFrame(u, i, fixedBs) {
+  const b2 = u[i + 2], b3 = u[i + 3], bsc = b2 >> 4, src = b2 & 15;
+  if (!bsc || src === 15 || (b3 >> 4) > 10 || (b3 & 1) || ((b3 >> 1) & 7) === 3) return null;
+  const c = u[i + 4], len = c < 0x80 ? 0 : c < 0xC0 ? -1 : c < 0xE0 ? 1 : c < 0xF0 ? 2 : c < 0xF8 ? 3 : c < 0xFC ? 4 : c < 0xFE ? 5 : c === 0xFE ? 6 : -1;
+  if (len < 0 || i + 5 + len + 3 > u.length) return null;
+  let num = len ? c & (0x7F >> (len + 1)) : c;
+  for (let k = 1; k <= len; k++) { const x = u[i + 4 + k]; if ((x & 0xC0) !== 0x80) return null; num = num * 64 + (x & 63); }
+  let p = i + 5 + len, bs = bsc === 1 ? 192 : bsc <= 5 ? 576 << (bsc - 2) : bsc >= 8 ? 256 << (bsc - 8) : 0;
+  if (bsc === 6) bs = u[p++] + 1; else if (bsc === 7) { bs = ((u[p] << 8) | u[p + 1]) + 1; p += 2; }
+  if (src === 12) p += 1; else if (src === 13 || src === 14) p += 2;
+  if (p >= u.length || crc8(u, i, p) !== u[p]) return null;
+  const st = u[i + 1] & 1 ? num : num * fixedBs;
+  return { s: st, e: st + bs };
+}
+// the last frame that follows on from the one before it says how far the music really gets
+async function flacEnd(f, a0, n, fixedBs) {
+  for (const span of [32768, 163840]) {
+    const st = Math.max(a0, n - span), u = await bytesAt(f, st, n), later = [];
+    for (let i = u.length - 6; i >= 0; i--) {
+      if (u[i] !== 0xFF || (u[i + 1] & 0xFE) !== 0xF8) continue;
+      const fr = flacFrame(u, i, fixedBs);
+      if (!fr) continue;
+      const next = later.find(x => x.s === fr.e);
+      if (next) return next.e;
+      later.push(fr);
+    }
+    if (st === a0) break;
+  }
+  return null;
+}
+// MP3: a Xing/Info or VBRI header in the first frame counts the frames and bytes the song should have
+function mp3Want(u) {
+  if (u.length < 64 || u[0] !== 0xFF || (u[1] & 0xE0) !== 0xE0) return null;
+  const ver = (u[1] >> 3) & 3, lay = (u[1] >> 1) & 3, sri = (u[2] >> 2) & 3, mono = (u[3] >> 6) === 3;
+  if (ver === 1 || lay !== 1 || sri === 3 || (u[2] >> 4) === 15) return null;
+  const sr = [44100, 48000, 32000][sri] / (ver === 3 ? 1 : ver === 2 ? 2 : 4), spf = ver === 3 ? 1152 : 576;
+  const xo = 4 + (ver === 3 ? (mono ? 17 : 32) : (mono ? 9 : 17));
+  const be = i => ((u[i] << 24) >>> 0) + ((u[i + 1] << 16) | (u[i + 2] << 8) | u[i + 3]);
+  let frames = 0, bytes = 0;
+  const tag = txt(u, xo, 4);
+  if (tag === 'Xing' || tag === 'Info') { const fl = be(xo + 4); let p = xo + 8; if (fl & 1) { frames = be(p); p += 4; } if (fl & 2) bytes = be(p); }
+  else if (txt(u, 36, 4) === 'VBRI') { bytes = be(46); frames = be(50); }
+  return frames ? { dur: frames * spf / sr, bytes } : null;
+}
+// a copy that never finished can keep its full size and leave the rest as empty bytes
+async function zeroTail(f, a0, a1) {
+  const zero = async (a, b) => (await bytesAt(f, a, b)).every(x => x === 0);
+  if (a1 - a0 < 262144 || !(await zero(a1 - 4096, a1))) return null;
+  let lo = a0, hi = a1 - 4096;
+  while (hi - lo > 4096) { const mid = Math.floor((lo + hi) / 2); if (await zero(mid, mid + 4096)) hi = mid; else lo = mid; }
+  return a1 - hi >= 131072 && a1 - hi >= (a1 - a0) * 0.03 ? hi : null;
+}
 async function audioSpan(f) {
   const n = f.size;
-  let a0 = 0, a1 = n, fmt = 'a';
+  let a0 = 0, a1 = n, fmt = 'a', pcm = '', want = 0, cut = null;
+  const done = async () => {
+    if (!cut && fmt !== 'wav' && !/\.(aif|aiff)$/i.test(f.name)) {
+      const z = await zeroTail(f, a0, a1);
+      if (z != null) { const frac = (z - a0) / (a1 - a0); cut = { zero: true, frac, at: want ? frac * want : null }; }
+    }
+    return { a0, a1: Math.max(a0, a1), fmt, pcm, want, cut };
+  };
   let h = await bytesAt(f, 0, 4096);
   // ID3v2 tags up front (MP3, AAC, sometimes FLAC), maybe several, maybe with a footer
   for (let k = 0; k < 4 && txt(h, 0, 3) === 'ID3' && h.length >= 10; k++) {
@@ -366,7 +436,7 @@ async function audioSpan(f) {
   }
   if (txt(h, 0, 4) === 'fLaC') {
     // FLAC: skip the metadata blocks (tags, pictures, padding); the frames are the music
-    fmt = 'flac'; let off = a0 + 4, pcm = '';
+    fmt = 'flac'; let off = a0 + 4, bs = 0, rate = 0, total = 0;
     for (let k = 0; k < 200; k++) {
       const b = await bytesAt(f, off, off + 4);
       if (b.length < 4) break;
@@ -374,37 +444,59 @@ async function audioSpan(f) {
       if (k === 0 && (b[0] & 127) === 0 && ((b[1] << 16) | (b[2] << 8) | b[3]) === 34) {
         const si = await bytesAt(f, off + 4, off + 38);
         const md5 = Array.from(si.subarray(18, 34), x => x.toString(16).padStart(2, '0')).join('');
-        const rate = (si[10] << 12) | (si[11] << 4) | (si[12] >> 4), ch = ((si[12] >> 1) & 7) + 1, bits = (((si[12] & 1) << 4) | (si[13] >> 4)) + 1;
-        const total = (si[13] & 15) * 4294967296 + ((si[14] << 24) >>> 0) + ((si[15] << 16) | (si[16] << 8) | si[17]);
+        rate = (si[10] << 12) | (si[11] << 4) | (si[12] >> 4);
+        const ch = ((si[12] >> 1) & 7) + 1, bits = (((si[12] & 1) << 4) | (si[13] >> 4)) + 1;
+        total = (si[13] & 15) * 4294967296 + ((si[14] << 24) >>> 0) + ((si[15] << 16) | (si[16] << 8) | si[17]);
+        bs = (si[2] << 8) | si[3];
         if (si.length === 34 && /[^0]/.test(md5) && total) pcm = [md5, rate, ch, bits, total].join(':');
       }
       off += 4 + ((b[1] << 16) | (b[2] << 8) | b[3]);
       if (b[0] & 128) break;
     }
     a0 = Math.min(off, n);
-    if (pcm) return { a0, a1, fmt, pcm };
+    if (rate && total && bs) {
+      want = total / rate;
+      const end = await flacEnd(f, a0, n, bs);
+      if (end != null && total - end > rate * 2) cut = { at: end / rate };
+    }
+    if (pcm) return done();
   } else if (txt(h, 0, 4) === 'RIFF' && txt(h, 8, 4) === 'WAVE') {
     // WAV: only the data chunk counts, not the INFO tags around it
-    fmt = 'wav'; let off = a0 + 12;
+    fmt = 'wav'; let off = a0 + 12, rateB = 0;
     for (let k = 0; k < 64 && off + 8 <= n; k++) {
-      const b = await bytesAt(f, off, off + 8), len = b[4] | (b[5] << 8) | (b[6] << 16) | (b[7] << 24) >>> 0;
-      if (txt(b, 0, 4) === 'data') return { a0: off + 8, a1: Math.min(n, off + 8 + (len >>> 0)), fmt };
-      off += 8 + (len >>> 0) + (len & 1);
+      const b = await bytesAt(f, off, off + 8), len = (b[4] | (b[5] << 8) | (b[6] << 16) | (b[7] << 24)) >>> 0;
+      if (txt(b, 0, 4) === 'fmt ') { const c = await bytesAt(f, off + 8, off + 20); rateB = (c[8] | (c[9] << 8) | (c[10] << 16) | (c[11] << 24)) >>> 0; }
+      if (txt(b, 0, 4) === 'data') {
+        a0 = off + 8; a1 = Math.min(n, a0 + len);
+        if (rateB && len && len !== 0xFFFFFFFF) { want = len / rateB; if (a0 + len - n > rateB * 2) cut = { at: (n - a0) / rateB }; }
+        return done();
+      }
+      off += 8 + len + (len & 1);
     }
     return { a0: 0, a1: n, fmt };
   } else if (txt(h, 4, 4) === 'ftyp') {
-    // M4A: the music lives in the mdat box; tags live in moov
-    fmt = 'mp4'; let off = a0;
+    // M4A: the music lives in the mdat box; tags live in moov (and moov's mvhd says how long the song is)
+    fmt = 'mp4'; let off = a0, md = null;
     for (let k = 0; k < 64 && off + 8 <= n; k++) {
       const b = await bytesAt(f, off, off + 16);
       let len = ((b[0] << 24) >>> 0) + ((b[1] << 16) | (b[2] << 8) | b[3]), head = 8;
       if (len === 1) { len = (((b[8] << 24) >>> 0) + ((b[9] << 16) | (b[10] << 8) | b[11])) * 4294967296 + ((b[12] << 24) >>> 0) + ((b[13] << 16) | (b[14] << 8) | b[15]); head = 16; }
       else if (len === 0) len = n - off;
-      if (txt(b, 4, 4) === 'mdat') return { a0: off + head, a1: Math.min(n, off + len), fmt };
-      if (len < 8) break;
+      const typ = txt(b, 4, 4);
+      if (typ === 'moov' && !want) {
+        const m = await bytesAt(f, off + 8, off + 48), v1 = m[8] === 1;
+        const be = i => ((m[i] << 24) >>> 0) + ((m[i + 1] << 16) | (m[i + 2] << 8) | m[i + 3]);
+        if (m.length === 40 && txt(m, 4, 4) === 'mvhd') { const ts = be(v1 ? 28 : 20), du = v1 ? be(32) * 4294967296 + be(36) : be(24); if (ts && du) want = du / ts; }
+      }
+      // a box that runs past the end of the file: the copy stopped partway
+      if (off + len > n && len >= 8) cut = typ === 'mdat' ? { frac: Math.max(0, (n - off - head) / (len - head)) } : {};
+      if (typ === 'mdat' && !md) md = [off + head, Math.min(n, off + len)];
+      if (len < 8 || off + len >= n) break;
       off += len;
     }
-    return { a0: 0, a1: n, fmt };
+    if (cut && cut.frac != null && want) cut.at = cut.frac * want;
+    if (md) { a0 = md[0]; a1 = md[1]; } else { a0 = 0; a1 = n; }
+    return done();
   }
   // tags at the end: ID3v1 (128 bytes), then an APE tag in front of it
   if (fmt !== 'wav' && n - a0 > 256) {
@@ -416,7 +508,11 @@ async function audioSpan(f) {
       if (size + (hasHead ? 32 : 0) < a1 - a0) a1 -= size + (hasHead ? 32 : 0);
     }
   }
-  return { a0, a1: Math.max(a0, a1), fmt };
+  if (fmt === 'a') {
+    const x = mp3Want(await bytesAt(f, a0, a0 + 192));
+    if (x) { want = x.dur; const have = a1 - a0; if (x.bytes && have < x.bytes * 0.97 && x.bytes - have > 65536) cut = { at: want * have / x.bytes }; }
+  }
+  return done();
 }
 
 let fams = new Map();   // ahash -> files with the same music bytes
@@ -582,7 +678,21 @@ async function showMemory() {
   $('memN').textContent = n.toLocaleString();
 }
 
+// the rough shape of the first half minute, rebuilt from the loudness changes: a cheap first check for cut-off copies
+const CUMS = new WeakMap();
+function cumOf(X) {
+  let c = CUMS.get(X);
+  if (!c) { c = []; for (let b = 0; b < BANDS; b++) { const a = new Float32Array(Math.min(600, X.len)); let s = 0; for (let i = 0; i < a.length; i++) { s += X.d[b][i]; a[i] = s; } c.push(a); } CUMS.set(X, c); }
+  return c;
+}
+function headSim(A, B) {
+  const N = Math.min(600, A.len, B.len), ca = cumOf(A), cb = cumOf(B), va = new Float32Array(48), vb = new Float32Array(48);
+  for (let b = 0; b < BANDS; b++) for (let q = 0; q < 12; q++) { const i = Math.floor((q + 0.5) * N / 12); va[b * 12 + q] = ca[b][i]; vb[b * 12 + q] = cb[b][i]; }
+  return corr(va, vb, 0, 8);
+}
 async function match() {
+  // a song that decodes shorter than its own header promises stopped early
+  items.forEach(it => { if (it.fp && it.want && !it.cut && it.fp.dur < it.want - Math.max(2, it.want * 0.03)) it.cut = { at: it.fp.dur }; });
   // families of identical music share one node
   const nodes = [], seen = new Set();
   items.forEach(it => {
@@ -613,6 +723,19 @@ async function match() {
       else if (s.score >= MAYBE) maybes.push([order[i], order[j], s]);
     }
     if (performance.now() - t0 > 40) { setProgress(i, order.length, 'Comparing ' + (i + 1) + ' of ' + order.length); await tick(); t0 = performance.now(); }
+  }
+  // a copy that stopped early still sounds like its whole twin up to the cut
+  const isCut = n => n.members.some(m => m.cut);
+  const whole = order.filter(n => !isCut(n));
+  for (const c of order) {
+    if (!isCut(c) || c.fp.len < 200) continue;
+    const want = c.members[0].want;
+    for (const w of whole) {
+      if (find(w) === find(c) || w.fp.dur < c.fp.dur + 2 || (want && Math.abs(w.fp.dur - want) > DUR_SLACK + 1)) continue;
+      if (headSim(c.fp, w.fp) < COARSE || quickSim(c.fp, w.fp) < QUICK) continue;
+      if (similarity(c.fp, w.fp).score >= SAME) { parent.set(find(c), find(w)); break; }
+    }
+    if (performance.now() - t0 > 40) { await tick(); t0 = performance.now(); }
   }
   const comps = new Map();
   nodes.forEach(n => { const r = find(n); comps.set(r, (comps.get(r) || []).concat(n)); });   // not listened to (or too short): copies by bytes or checksum still count
@@ -657,8 +780,10 @@ try { prefer = localStorage.getItem('twin-tracks.prefer') || ''; } catch (e) {}
 function topOf(it) { const p = it.path.split('/'); return p.length > 2 ? p[1] : ''; }
 function setKeeper(g) {
   const worth = g.tier === 'pcm' ? it => -it.size - (/(\(\d+\)|\bcopy\b|kopie|copia|\bdup)/i.test(it.name) ? 1e12 : 0) - it.path.length : keepScore;
-  const mine = prefer ? g.rows.filter(r => topOf(r.it) === prefer) : [];
-  const pool = mine.length ? mine : g.rows;
+  // a cut-off copy never gets the ★ while a whole one is there
+  const ok = g.rows.filter(r => !r.it.cut), base = ok.length ? ok : g.rows;
+  const mine = prefer ? base.filter(r => topOf(r.it) === prefer) : [];
+  const pool = mine.length ? mine : base;
   let best = pool[0];
   pool.forEach(r => { if (worth(r.it) > worth(best.it)) best = r; });
   g.rows.forEach(r => { r.keeper = r === best; });
@@ -814,6 +939,16 @@ function renderResults() {
   $('skipped').hidden = !bad.length && !ignoredCount && !stopped;
   $('skippedSum').textContent = [bad.length ? bad.length + (bad.length === 1 ? " file" : " files") + " I couldn't read" : '', ignoredCount ? ignoredCount + ' non-music files ignored' : '', stopped ? 'stopped early: ' + left + ' not listened to' : ''].filter(Boolean).join(' · ');
   $('skippedList').innerHTML = bad.map(i => `<li>${esc(i.path)}: ${esc(i.err || i.nodec)}</li>`).join('');
+  // songs that stop early, with or without a whole twin
+  const cut = items.filter(i => i.cut);
+  const saved = new Set(groups.filter(g => g.tier !== 'maybe' && g.rows.some(r => !r.it.cut)).flatMap(g => g.rows.map(r => r.it)));
+  const alone = cut.filter(i => !saved.has(i)).length;
+  $('cutBox').hidden = !cut.length;
+  $('cutBox').open = cut.length <= 8;
+  $('cutSum').textContent = '✂ ' + cut.length + (cut.length === 1 ? ' file stops early' : ' files stop early');
+  $('cutTxt').textContent = 'Usually a copy that never finished: the file says how long the song is, and the music runs out sooner. ' +
+    (!alone ? '★ never goes to a cut copy.' : !deepDone ? 'Deep listen checks the rest against whole copies.' : alone === cut.length ? 'None of these has a whole copy here, so copy them again from where they came from.' : alone + ' have no whole copy here: copy those again from where they came from.');
+  $('cutList').innerHTML = cut.map(i => `<li><b>${esc(i.path)}</b>: ${esc(cutTxt(i))} · ${saved.has(i) ? 'whole copy found' : deepDone ? 'no whole copy here' : 'no whole copy found yet'}</li>`).join('');
   applyMarks();
   drawGroups();
   updateDock();
@@ -829,7 +964,8 @@ function drawGroups() {
     const el = document.createElement('article');
     el.className = 'group';
     el.style.animationDelay = Math.min(gi, 8) * 40 + 'ms';
-    const how = g.tier === 'exact' ? 'same bytes' : g.tier === 'tags' ? 'same music bytes, different tags' : g.tier === 'pcm' ? 'same samples, packed differently' : Math.round(g.sim * 100) + '% alike';
+    const cuts = g.rows.filter(r => r.it.cut).length;
+    const how = (g.tier === 'exact' ? 'same bytes' : g.tier === 'tags' ? 'same music bytes, different tags' : g.tier === 'pcm' ? 'same samples, packed differently' : Math.round(g.sim * 100) + '% alike') + (cuts ? ' · ' + cuts + ' cut off' : '');
     el.innerHTML = `<header><span class="tier ${g.tier}">${label[g.tier]}</span>
       <span class="gmeta">${g.rows.length} files · ${how} · ${mb(g.waste)} extra</span>
       <button class="mini" type="button" data-act="rest">Keep ★, mark the rest</button></header>` +
@@ -847,6 +983,7 @@ function drawGroups() {
         </div>`;
       }).join('') +
       (g.tier === 'maybe' ? `<p class="hint">These are close but not a sure match: a live take, a remaster or a different edit. Give them a listen.</p>` : '') +
+      (cuts ? `<p class="hint">✂ A copy that stops early is missing the end of the song. ★ always goes to a whole copy.</p>` : '') +
       (g.tier === 'pcm' ? `<p class="hint">Every FLAC stores a checksum of its own sound. These match, so they play back sample for sample the same; only the compression or the tags differ. ★ is the smallest file.</p>` : '');
     el._g = g;
     host.appendChild(el);
@@ -870,9 +1007,17 @@ function drawGroups() {
   });
 }
 
+function cutTxt(it) {
+  const c = it.cut;
+  if (!c) return '';
+  if (c.at != null && it.want) return 'stops at ' + mmss(c.at) + ' of ' + mmss(it.want);
+  if (c.zero) return 'ends in empty bytes, about ' + Math.round(c.frac * 100) + '% is there';
+  if (c.frac != null) return 'about ' + Math.round(c.frac * 100) + '% of it is there';
+  return 'the end of the file is missing';
+}
 function factsOf(r) {
   const it = r.it, f = it.fp;
-  return (f ? Math.round(it.size * 8 / 1000 / Math.max(1, f.dur)) + ' kbps · ' : '') + mb(it.size) + (f ? ' · ' + mmss(f.dur) : '') + ' · ' + esc(it.ext) +
+  return (it.cut ? '<b class="cut">✂ ' + esc(cutTxt(it)) + '</b> · ' : '') + (f ? Math.round(it.size * 8 / 1000 / Math.max(1, f.dur)) + ' kbps · ' : '') + mb(it.size) + (f ? ' · ' + mmss(f.dur) : '') + ' · ' + esc(it.ext) +
     (r.off && Math.abs(r.off) >= 0.05 ? ' · starts ' + Math.abs(r.off).toFixed(2) + ' s ' + (r.off > 0 ? 'later' : 'earlier') : '');
 }
 
