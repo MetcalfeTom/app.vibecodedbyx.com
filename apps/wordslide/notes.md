@@ -12,9 +12,8 @@ Word search with gravity (idea, path rules and name from Tatum on stream, 2026-0
 
 ## issues
 - Class-name collision: the header is `.head` — the path's last tile was `.head` too and inherited the header's flex/grid-area/animation (letter jammed in a corner). Tile class is now `.tip`. Don't reuse generic class names for tiles.
-- Word list is hand-written (words.js, ~3.3k words). Chat (Tatum) wants real words that aren't on it to count → plan: keep bounties from the curated list, validate against a bigger list.
+- Word list: bounties come from the hand-picked words.js; any real word counts via words-extra.js + inflections + the 275k jsDelivr list (v1.1/v1.2, done).
 
 ## todos
-- Bigger validation list (inflections + more base words); bounties stay curated.
 - Ideas: anvil tile that must be dug out, wildcard blank tile (voice pitched these; ask chat).
 - Daily streaks / comparing skylines.
