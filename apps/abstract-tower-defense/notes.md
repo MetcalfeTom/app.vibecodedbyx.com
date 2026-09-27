@@ -18,6 +18,12 @@
 
 - 2026-09-26: Maps — MAP button cycles S-BEND (classic), BOLT (enemy hp ×1.1) and SPIRAL (long path, core in the middle, hp ×1.5); only before wave 1 starts (switching resets the run). Choice in `atd_map`; best wave kept per map (`atd_best` for S-BEND, `atd_best_<NAME>` for others). Exit can be mid-board now (core drawn as a glowing circle there). Phone controls leave room for the mute button
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
+- 2026-09-27: Glow-up (keys + phone edges)
+  - Space = START WAVE works after clicking buttons: bar/panel/mute buttons `preventDefault` on mousedown so a click no longer leaves focus on them. Before, Space re-pressed the last clicked button: another paid UPGRADE, or MAP again (which resets the run and wipes placed towers). Tab focus unchanged. Verified with real CDP mouse/key input
+  - Ctrl/Cmd/Alt combos ignored by the key handler (Ctrl+S used to SELL the selected tower, Ctrl+F toggled speed)
+  - hud() cache key now includes `waveActive`, so START WAVE / MAP grey out the moment a wave starts (before, they looked clickable until the first kill changed credits)
+  - Safe-area padding (`env(safe-area-inset-*)`) on the container and mute button, since the viewport uses `viewport-fit=cover` (iPhone home bar / landscape notch)
+  - Contrast: HUD labels and control buttons #666/#777 → #8a8a9a (≥4.5:1), tower key hints #555 → #777
 
 ## issues
 - Canvas colors must be 6-digit hex: code appends 2-digit alpha (`color + '44'`); `#0ff44` is invalid and canvas silently keeps the previous fillStyle
