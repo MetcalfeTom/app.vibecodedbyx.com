@@ -23,7 +23,7 @@ issues:
 todos:
 - Share today's ghost with friends (a ghost string in the share link?).
 - Add premium visual themes and particle effects.
- - Persist achievements per user in DB if requested; add unique power-up art.
+ - Persist achievements per user in DB if requested; (unique power-up art: done v4.4).
 
 notes:
 - Table: icy_tower_scores (score int, display_name text, user_id auto via RLS tool, timestamps auto).
