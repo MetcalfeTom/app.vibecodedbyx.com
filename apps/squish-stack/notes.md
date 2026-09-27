@@ -1,0 +1,23 @@
+# Squish Stack
+
+Stacking puzzle: every block squishes under the weight stacked above it. Use all the blocks and land the top of the tower in the pink band. Idea by Tatum (sloppy.live chat, 2026-09-27 16:51: "stack blocks which compress based on the amount of weight above them").
+
+## log
+- v1.0 (2026-09-27): first build. 7 materials (sponge, jelly, rubber soft; wood, glass, stone, iron solid; glass cracks above 6 kg). 12 campaign levels, Workshop (endless, seeded generator, streak) opens after 6 cleared. Hint = next right block for the current stack (or which block is wrong). Tap tray to drop on top, tap a stacked block to take it off. Keys 1–9, Backspace, H, R, N. Progress in localStorage `squish-stack.v1`.
+
+## model
+- block weight w = density × size (size 1 or 2 = 10 or 20 cm). Load on a block = sum of weights above it.
+- squish f = min + (1−min)/(1 + load/k) for soft materials, 1 for solid. Height = size×10×f. Soft blocks bulge wider as they squish (width × (1 + .55(1−f))).
+- MAT: sponge d1 k1.2 min.28 · jelly d2 k3.5 min.4 · rubber d2 k9 min.55 · wood d2 · glass d2 cap 6 · stone d4 · iron d7.
+- Win check uses the total rounded to 0.1 cm (same as displayed).
+- Campaign bands were chosen offline (scratch camp.js: brute force of all distinct orders; 1 winning order on most levels, 2 on L5/L10, 6 on L11 "reach high"). If you change MAT numbers, RE-CHECK every band — the headless probe `solve` mode auto-plays every level's first solution through the real buttons.
+- Endless: n = 4 + streak/2 (max 7), band 1.0/0.8/0.7 cm, makeLevel() retries (maxHit up to 6, gap ≥ .15/.1 cm between band edges and the nearest miss).
+
+## issues
+- (none reported yet)
+
+## todos
+- sounds: soft squelch on landing, clack for solid, glass crack
+- more materials chat might like (marshmallow? cheese? a balloon that lifts = negative weight? springs?)
+- daily puzzle with a shared seed
+- drag to insert mid-tower (now only top drops)
