@@ -1,4 +1,5 @@
 log:
+- v4.1 (2026-09-27): Daily Tower + ghost. A second start button (and a swap button on game over) picks `game.mode` 'daily' or 'classic'; Try Again/Space keep the mode. Tower layout randomness goes through `rand()`: `Math.random` in classic, `mulberry32(YYYYMMDD UTC)` in daily (platform widths/x/type/bumps, gaps, power-up spawns; particles and snow stay on Math.random, so never call rand() from anything visual or the layout drifts). x and widths scale with W, so phones and desktops get the same sequence in different proportions. Daily runs record [x‰ of W, y from ground] every 100 ms (`game.rec`, cap 9000 values); on game over a run that beats today's `icy-daily` localStorage entry replaces it, and next daily run replays it as a translucent Santa ghost with a BEST N label (a GHOST marker at the top edge when it's above the screen, fades 1.5 s after its run ends). Game over line says new daily best / ghost still leads. Short phones (max-height 720px) get a compact modal, and the overlay scrolls instead of clipping. Headless-checked: same daily layout on repeat, classic differs, ghost save/load, 1280x800, 400x800 and 375x667.
 - v4 (2026-09-27): tower zones. Every 50 floors (`ZONE_H`) the tower changes material, cycling through `ZONES`: Snowy Pines (0), Timber Hall (50), Neon Circuit (100), Candy Clouds (150), Bone Crypt (200), Starlight (250), then round again. Each platform is drawn in the zone of its own floor number, so the next zone's material shows up above you. `drawTopping()` paints snow, wood grain, blinking circuit lights, frosting with sprinkles, bone knobs or twinkling stars. Sky, walls and falling particles crossfade over 1.6 s (`zonePrev`/`zoneIdx`/`zoneFade`). Landing past a boundary calls `enterZone()`: a ZONE N / NAME banner at H*0.27 (clear of the praise text at 0.34), an arpeggio and a burst. Achievements `zone2` (Timber!) and `zone6` (Starlight). Game over shows your zone and how many floors to the next world (#finalZone). The ground (floor 0) always stays snowy. Headless-checked at 1280x800 (zones 2 and 4) and 400x800 (zone 6) with a test-only `window.__icy` hook; 0 errors.
 - 2026-09-27: glow-up (keyboard + pause fixes, headless-verified with real CDP keypresses). Keydown now ignores keys typed in the name box (typing W or a space used to restart the game and lose the save form); a jump key only restarts 0.8 s after death (`restartAfter`), so mashing jump while falling no longer skips the game-over screen; during play Space/arrows are preventDefault'ed so a mouse-focused Pause/Sound button is not re-clicked by every jump. Canvas shows a PAUSED banner (tap canvas or P to resume); queued jumps are dropped on resume. `.game-wrap` uses 100dvh so phone toolbars don't cover the touch pads; touchcancel releases a pad. :focus-visible ring, press-scale on buttons, label for=playerName, aria-labels on the ◀ ▲ ▶ pads.
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
@@ -16,9 +17,9 @@ issues:
  - Power-up spawn chance currently 8%; tune difficulty based on feedback.
 
 todos:
-- Add ghost replay of best run.
+- Share today's ghost with friends (a ghost string in the share link?).
 - Add premium visual themes and particle effects.
-- Add daily challenge seed and daily leaderboard.
+- Daily leaderboard (needs its own table; daily runs currently go to the season board like classic ones).
  - Persist achievements per user in DB if requested; add unique power-up art.
 
 notes:
