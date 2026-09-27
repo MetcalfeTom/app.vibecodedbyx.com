@@ -1,6 +1,7 @@
 # Neon Life - Conway's Game of Life
 
 ## log
+- 2026-09-27: bug pass (the code-review list, tested headless 5/5 at 1280×800 and 390×844; the old file fails 4). Canvas height = innerHeight − canvas top − the fixed .controls bar height (re-measured by a ResizeObserver when the bar re-wraps or the font loads): the flat −120 hid ~21 rows under the bar on phones. The loop owes the simulation ms (`stepAcc`, up to 4 steps a frame, 250 ms cap) so SPEED 31–60 is real (60 → 60 gen/s; before it topped out ~30–40). STEP while running pauses and then steps. :focus-visible outline on .btn, .color-btn, range and select.
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 - 2026-09-26: 🖐 STAMP MODE — a pattern button no longer dumps the pattern in the centre: it picks it up as a glowing ghost (white cells + dashed box) that follows the mouse; click drops a copy (OR-ed in, wraps around the torus), keep clicking for more. Touch: finger aims, lifting drops. Bar under RANDOM SEED: ⟳ ROTATE (or R, 90° clockwise), ◎ CENTER (drop in the middle, keyboard-friendly), ✕ DONE (or Escape, or press the same pattern again). Pattern buttons get aria-pressed. Phones: patterns are a swipeable row under the seed button (they used to hide under the controls), stamp bar below it. `placePattern()` kept but unused.
 - 2026-09-26: 🔗 SHARE — the live cells go into the URL as standard Life RLE (#r=<rule>&p=<rle>; lifeEncode/lifeDecode, node round-trip tested incl. the Gosper gun text from the wiki). Copies the link (clipboard, else a selectable link box in the toast) and puts it in the address bar. Opening a shared link loads the pattern centred, with its rule, PAUSED, toast 'press ▶ PLAY'; a broken link falls back to the random seed. Toast sits above the controls on desktop, under the seed button on phones; tap to dismiss. og.png replaces the pollinations og:image.
@@ -60,7 +61,6 @@
 - Death: All other live cells die
 
 ## todos
-- (2026-09-27, found by code reading, untested) canvas.height = innerHeight - 120 ignores the wrapping fixed .controls bar, so on phones ~20 rows run hidden under it (size from header/controls offsetHeight); SPEED above ~30 does nothing on 60 Hz (needs a time accumulator); range inputs have outline:none, no :focus-visible on .btn/.color-btn; STEP does nothing while running (pause then step).
 - Add more patterns (LWSS, MWSS, HWSS)
 - (done: stamp + rotate) maybe mirror/flip too
 - Add save/load functionality
