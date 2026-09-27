@@ -1,6 +1,7 @@
 # Slap Battle — notes
 
 ## log
+- 2026-09-27: pick your own fighter (Sakura 🧚‍♀️, Taro 🤠, Neko 🐱, Robo 🤖, Oni 👹) above the rival picker; looks only, same slap for everyone. Saved in localStorage slap_me; names flow into the HUD, banner, 1P button and spoken lines. In 2P, player two stays Yuki.
 - 2026-09-26 — **v2 manga makeover** (was a plain two-colour turn game with system font, no og image, and only playable with two people):
   - paper + halftone look, Dela Gothic One + DotGothic16, fighting-game skewed health bars with a white "recent damage" ghost, speed lines + glow behind whoever's turn it is.
   - **1 Player mode**: Yuki is a CPU who slaps at 72–112% of *your* average swipe speed (so it stays close on any device); both 100 hp. 2 Players keeps the old rule: Yuki 120 hp because Sakura always swings first.
@@ -19,4 +20,3 @@
 
 ## todos
 - a shared "hardest slap" board? (would need a plausibility cap — mouse flicks can hit 6000+ px/s)
-- pick your own fighter too (P1 is always Sakura)
