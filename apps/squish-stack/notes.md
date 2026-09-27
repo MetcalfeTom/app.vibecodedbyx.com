@@ -3,6 +3,7 @@
 Stacking puzzle: every block squishes under the weight stacked above it. Use all the blocks and land the top of the tower in the pink band. Idea by Tatum (sloppy.live chat, 2026-09-27 16:51: "stack blocks which compress based on the amount of weight above them").
 
 ## log
+- v1.1 (2026-09-27): SOUND. All WebAudio-synthesized, no files: a landing sound per material (squelch sponge, wobble jelly, boing rubber, clack wood, chime glass, thud stone, clank iron) + an extra squelch scaled by how much the blocks below got squished; crack for a rejected glass overload, pop on take-off, 4-note win arpeggio. ♪ toggle in the header (localStorage `squish-stack.snd`).
 - v1.0 (2026-09-27): first build. 7 materials (sponge, jelly, rubber soft; wood, glass, stone, iron solid; glass cracks above 6 kg). 12 campaign levels, Workshop (endless, seeded generator, streak) opens after 6 cleared. Hint = next right block for the current stack (or which block is wrong). Tap tray to drop on top, tap a stacked block to take it off. Keys 1–9, Backspace, H, R, N. Progress in localStorage `squish-stack.v1`.
 
 ## model
@@ -17,7 +18,6 @@ Stacking puzzle: every block squishes under the weight stacked above it. Use all
 - (none reported yet)
 
 ## todos
-- sounds: soft squelch on landing, clack for solid, glass crack
 - more materials chat might like (marshmallow? cheese? a balloon that lifts = negative weight? springs?)
 - daily puzzle with a shared seed
 - drag to insert mid-tower (now only top drops)
