@@ -33,6 +33,7 @@
   - Juice: kill particles, glow trails, recoil, shake + red flash on core hits, boss death slow-mo, wave-clear sweep; particle caps 420 desktop / 220 phone / 100 reduced motion (no shake, flash or slow-mo there)
   - Balance (helper's greedy bot): S-BEND waves 25-28, BOLT 25-27, SPIRAL 21-24; the wave-20 boss is a spike for casual players (watch feedback)
   - `window.__td` has more hooks (SPECS, KINDS, TUNE, buildWave, callEarly, chooseSpec, noCards, hold...). build() returns true or a reason string (truthy!), so test with `=== true`
+- 2026-09-27: **v3.1 world board** — supabase table `atd_scores` (map, wave, kills, towers, secs, name, user_id; default RLS). Game over (3+ waves, beating your own posted best on that map, localStorage `atd_posted_<MAP>`) posts the run: Twitch users post under their Twitch name, anonymous players type a callsign once (`atd_name`, cleaned to `[\w .-]`, 16 chars). The game-over panel shows the map's top 10 (one row per player, best first) plus your rank; HUD **WORLD** (🏆 on phones) shows the map record and opens the board with map tabs (the game pauses while it's open, `boardOpen`). `G.steps` counts sim ticks; rows need wave ≤ secs/4 + 3 (a maxed bot calling every wave early needs ~11 s/wave by wave 10). Tests stub the db with `window.__atdDb` (gaunt/atdboard_test.py); never post real rows from tests.
 
 ## issues
 - Canvas colors must be 6-digit hex: code appends 2-digit alpha (`color + '44'`); `#0ff44` is invalid and canvas silently keeps the previous fillStyle
@@ -40,7 +41,6 @@
 
 ## todos
 - Maybe a splash tower (frost slow is done)
-- Leaderboard for best wave (supabase) if chat wants one
 
 ## notes
 - `window.__td` exposes G, step, TYPES, stat, openPanel, upgrade, sell, startWave, resize for headless tests
