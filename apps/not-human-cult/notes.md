@@ -52,4 +52,4 @@
 - Add location map with marked sites
 
 ## issues
-- None yet
+- 2026-09-27: on a 390px phone the title's CONGREGATION ran off the right edge (2.5rem + 8px tracking). Fixed with clamp() on size and letter-spacing.
