@@ -1,6 +1,11 @@
 # Sand Sandbox — notes
 
 ## log
+- 2026-09-27: **electricity**: METAL (16, solid, key M), BATTERY (17, solid, key B) and a SPARK tool (18, never stored in the grid, key Z).
+  - A pulse runs through metal (4 cells a frame) and water (1 a frame, diagonals every other frame so the front spreads in octagon rings). `zap` = flash brightness (×0.7 a frame), `cool` = 16 frames before a cell can carry current again, so pulses never run backwards. `heads` = the front, `lit` = cells still fading; electricity() runs after updatePhysics only when either is non-empty.
+  - Batteries jolt their neighbours every 45 physics frames. Current touching gunpowder or oil sets it alight, plants/seeds 30%, wood 4%, ice melts 5%. Acid eats metal and batteries like anything else.
+  - Render: zap blends a cell toward #bef5ff; bright cells feed a `volt` glow map that mixes into the fire glow (orange ↔ electric blue). Clear (button or C) also clears the current.
+  - Headless probe: wire pulse reached 650 cells away and set off a gunpowder pile, a pool lit in rings, spark tool charged 192 cells, 42-58 fps, 0 errors at 1400x900 and 390x844.
 - 2026-09-26: polish pass (5th most-voted app, untouched since May):
   - **moved-this-frame stamps** (`moved` Uint8Array vs `tick`): the bottom-to-top scan used to re-process anything that moved UP, so fire and steam rocketed to the top in one frame; sideways movers could also run with the scan. Every swap stamps the destination; stamped cells are skipped.
   - **bottom row was frozen**: the scan started at `H - 2`, so particles on the last row never moved (water there never spread). Now starts at `H - 1` (`get()` treats out-of-bounds as STONE).
@@ -29,4 +34,4 @@
 - Tall water columns still take a few seconds to level (only surface/edge cells can move sideways).
 
 ## todos
-- Ideas: save/share a scene, more materials (sponge, electricity), wind, pause/step, bigger cells option on phones.
+- Ideas: save/share a scene, more materials (sponge; electricity done), wind, pause/step, bigger cells option on phones.
