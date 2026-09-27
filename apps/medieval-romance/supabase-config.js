@@ -92,13 +92,11 @@ export async function isUserPremium() {
 async function displayContentBasedOnPremiumStatus() {
   const isPremium = await isUserPremium();
 
-  if (isPremium) {
-    document.getElementById("premium-content").style.display = "block";
-    document.getElementById("upgrade-button").style.display = "none";
-  } else {
-    document.getElementById("premium-content").style.display = "none";
-    document.getElementById("upgrade-button").style.display = "block";
-  }
+  // this app has no premium elements: stay quiet instead of an unhandled rejection
+  const pc = document.getElementById("premium-content");
+  const ub = document.getElementById("upgrade-button");
+  if (pc) pc.style.display = isPremium ? "block" : "none";
+  if (ub) ub.style.display = isPremium ? "none" : "block";
 }
 
 // Call the function when your app loads
