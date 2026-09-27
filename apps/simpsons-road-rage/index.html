@@ -87,11 +87,16 @@
       /* touch controls */
       .touch-controls { position: fixed; bottom: 18px; right: 20px; display: none; gap: 10px; pointer-events: none; }
       .touch-controls button { width: 58px; height: 58px; border-radius: 16px; border: 3px solid var(--ink); background: var(--cream);
-        color: var(--ink); font-size: 1.4rem; font-weight: 600; box-shadow: 0 4px 0 var(--ink); pointer-events: auto; }
+        color: var(--ink); font-size: 1.4rem; font-weight: 600; box-shadow: 0 4px 0 var(--ink); pointer-events: auto;
+        touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; transition: transform 0.06s, box-shadow 0.06s; }
+      .touch-controls button.on { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); background: var(--yellow); }
       .touch-stick { position: fixed; bottom: 18px; left: 20px; width: 120px; height: 120px; border-radius: 50%;
-        border: 3px solid rgba(29, 27, 51, 0.5); background: rgba(255, 248, 225, 0.45); pointer-events: auto; touch-action: none; display: none; }
+        border: 3px solid rgba(29, 27, 51, 0.5); background: rgba(255, 248, 225, 0.45); pointer-events: auto; touch-action: none; display: none; transition: background 0.15s; }
       .touch-stick::after { content: ""; position: absolute; width: 56px; height: 56px; border-radius: 50%; background: var(--cream);
-        border: 3px solid var(--ink); top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        border: 3px solid var(--ink); top: 50%; left: 50%; transform: translate(calc(-50% + var(--kx, 0px)), calc(-50% + var(--ky, 0px)));
+        transition: transform 0.18s cubic-bezier(0.2, 1.6, 0.4, 1); }
+      .touch-stick.held { background: rgba(255, 248, 225, 0.7); }
+      .touch-stick.held::after { transition: none; background: var(--yellow); }
       @media (hover: none) { .touch-controls, .touch-stick { display: block; } .touch-controls { display: flex; } }
       @media (max-width: 480px) { .chip { min-width: 62px; padding: 3px 8px 0; } .chip .value { font-size: 1.3rem; } .toast { top: 76px; } }
       @media (prefers-reduced-motion: reduce) { .card, .chip.low .value { animation: none; } }
@@ -298,7 +303,13 @@
       const TOTAL_TIME = 75;
 
       const keyState = {};
-      document.addEventListener("keydown", (e) => (keyState[e.code] = true));
+      document.addEventListener("keydown", (e) => {
+        keyState[e.code] = true;
+        // Space is turbo: it must never "press" a focused button (the 🔊 chip while driving, or Drive again
+        // via key-repeat / mashing the instant the shift ends). No held-key repeats into the name box either.
+        if (e.code !== 'Space' && e.code !== 'Enter' && e.code !== 'NumpadEnter') return;
+        if (e.repeat || (e.target !== nameInput && (state.playing || performance.now() - state.endedAt < 800))) e.preventDefault();
+      });
       document.addEventListener("keyup", (e) => (keyState[e.code] = false));
 
       const touchStick = document.getElementById("touchStick");
@@ -431,6 +442,7 @@
 
       function endShift() {
         state.playing = false;
+        state.endedAt = performance.now();
         engineTick(0, false, false);
         blip([784, 659, 523, 392], 'triangle', 0.35, 0.16, 0.16);
         state.gameOverShown = true;
@@ -457,6 +469,7 @@
         saved: false,
         gameOverShown: false,
         skidTimer: 0,
+        endedAt: -1e9,
       };
 
       function buildCar() {
@@ -806,45 +819,56 @@
 
       function setupTouchControls() {
         if (!matchMedia("(hover: none)").matches) return;
+        // read the finger that is ON the pad (targetTouches), not touches[0]: when brake/turbo was pressed first,
+        // touches[0] was that thumb and steering went dead, so brake + turn (drifting) never worked on phones
         touchStick.addEventListener("touchstart", (event) => {
-          const touch = event.touches[0];
+          const touch = event.changedTouches[0];
           touchStick.dataset.startX = touch.clientX;
           touchStick.dataset.startY = touch.clientY;
+          touchStick.classList.add("held");
           event.preventDefault();
         });
 
         touchStick.addEventListener("touchmove", (event) => {
-          const touch = event.touches[0];
-          const startX = parseFloat(touchStick.dataset.startX || "0");
-          const startY = parseFloat(touchStick.dataset.startY || "0");
-          const dx = (touch.clientX - startX) / 45;
-          const dy = (touch.clientY - startY) / 45;
+          const touch = event.targetTouches[0];
+          if (!touch) return;
+          const ox = touch.clientX - parseFloat(touchStick.dataset.startX || "0");
+          const oy = touch.clientY - parseFloat(touchStick.dataset.startY || "0");
+          const dx = ox / 45, dy = oy / 45;
           keyState["ArrowUp"] = dy < -0.3;
           keyState["ArrowDown"] = dy > 0.3;
           keyState["ArrowLeft"] = dx < -0.3;
           keyState["ArrowRight"] = dx > 0.3;
+          const k = Math.min(1, 32 / (Math.hypot(ox, oy) || 1)); // knob follows the thumb, up to 32px
+          touchStick.style.setProperty("--kx", `${ox * k}px`);
+          touchStick.style.setProperty("--ky", `${oy * k}px`);
           event.preventDefault();
         });
 
-        touchStick.addEventListener("touchend", () => {
+        const stickUp = (event) => {
+          if (event.targetTouches.length) return;
           keyState["ArrowUp"] = keyState["ArrowDown"] = keyState["ArrowLeft"] = keyState["ArrowRight"] = false;
-        });
+          touchStick.classList.remove("held");
+          touchStick.style.setProperty("--kx", "0px");
+          touchStick.style.setProperty("--ky", "0px");
+        };
+        touchStick.addEventListener("touchend", stickUp);
+        touchStick.addEventListener("touchcancel", stickUp);
 
-        boostBtn.addEventListener("touchstart", (event) => {
-          event.preventDefault();
-          keyState["Space"] = true;
-        });
-        boostBtn.addEventListener("touchend", () => (keyState["Space"] = false));
-
-        brakeBtn.addEventListener("touchstart", (event) => {
-          event.preventDefault();
-          keyState["ArrowDown"] = true;
-        });
-        brakeBtn.addEventListener("touchend", () => (keyState["ArrowDown"] = false));
-
-        resetBtn.addEventListener("touchstart", (event) => {
-          event.preventDefault();
-          resetCar();
+        // brake uses KeyS so letting go of the pad no longer cancels a held brake (both used ArrowDown)
+        [[boostBtn, "Space"], [brakeBtn, "KeyS"], [resetBtn, null]].forEach(([btn, code]) => {
+          btn.addEventListener("touchstart", (event) => {
+            event.preventDefault();
+            btn.classList.add("on");
+            if (code) keyState[code] = true;
+            else resetCar();
+          });
+          const up = () => {
+            btn.classList.remove("on");
+            if (code) keyState[code] = false;
+          };
+          btn.addEventListener("touchend", up);
+          btn.addEventListener("touchcancel", up);
         });
       }
 
