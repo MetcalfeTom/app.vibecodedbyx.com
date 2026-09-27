@@ -25,6 +25,15 @@
   - Safe-area padding (`env(safe-area-inset-*)`) on the container and mute button, since the viewport uses `viewport-fit=cover` (iPhone home bar / landscape notch)
   - Contrast: HUD labels and control buttons #666/#777 → #8a8a9a (≥4.5:1), tower key hints #555 → #777
 
+- 2026-09-27: **v3 "big upgrade"** (built by a helper as beta.html, checked by me headless at 1280x800 and 390x844 with 0 errors, then promoted; the old version is kept at classic.html)
+  - SPLASH tower (key 5, 140c): slow shells with an area burst, +30% damage to chilled enemies
+  - LV4 paths: after LV3 each tower picks A/B in the panel (keys A/B): Basic twin/overcharge, Rapid shred/chain, Sniper pierce/execute, Frost freeze/brittle, Splash cluster/napalm
+  - New enemies: shielded (shield bar breaks first), splitter (2 minis), healer (heal pulse), a named boss every 10th wave with an HP/shield bar on top (wave 10 = MONOLITH). A one-time "new enemy" card each (`atd_seen`)
+  - Next-wave strip under the HUD; CALL EARLY +Nc starts the next wave before the board is clear
+  - Juice: kill particles, glow trails, recoil, shake + red flash on core hits, boss death slow-mo, wave-clear sweep; particle caps 420 desktop / 220 phone / 100 reduced motion (no shake, flash or slow-mo there)
+  - Balance (helper's greedy bot): S-BEND waves 25-28, BOLT 25-27, SPIRAL 21-24; the wave-20 boss is a spike for casual players (watch feedback)
+  - `window.__td` has more hooks (SPECS, KINDS, TUNE, buildWave, callEarly, chooseSpec, noCards, hold...). build() returns true or a reason string (truthy!), so test with `=== true`
+
 ## issues
 - Canvas colors must be 6-digit hex: code appends 2-digit alpha (`color + '44'`); `#0ff44` is invalid and canvas silently keeps the previous fillStyle
 - Tall screens (portrait phones) turn the board 90° (`rot`): ctx transform maps world (x,y) → screen (H−y, x); toWorld/toCss/label() and health bars + level pips handle it. Touch hit radius for towers is enlarged (15 css px)
