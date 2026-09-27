@@ -1,6 +1,7 @@
 # BREAKOUT_MATRIX — notes
 
 ## log
+- 2026-09-27: bug pass (the code-review list, now tested headless 18/18 at 1280×800 and 390×760; the old file fails 11 of them). The page scrolls again (body was overflow:hidden, so Share and TOP SCORES were cut off on short screens; container uses margin:auto 0 to stay centred when it fits; canvas touch-action:none). Keys typed in the name box are ignored by the game (Space used to restart and lose the form). The LEVEL N banner has a `banner` class that hides INITIALIZE and the old score form, and its timer (`msgTimer`) is cleared by gameOver/startGame so it can't hide the game over panel. startGame hides the form and blurs the focused button. Mouse/touch paddle input scales by canvas.width / rect.width (phones moved the paddle at ~0.6×). Submit: nothing for score 0, button disabled after a save until the next game over (one row per game). Lives show 5 before the first game.
 - 2026-09-26: og:image is now an absolute URL (a bare 'og-image.png' isn't resolved by most link-preview crawlers).
 - 2025-12-05: Added real `og-image.png` (1200x630 PNG) for rich link previews. Implemented Share button with Web Share API + clipboard fallback. Minor head additions (`description`, `theme-color`, `og:image:width/height`).
 - 2025-12-05: Added Supabase leaderboard (`breakout_terminal_scores`) with anonymous auth fallback. In-game submit UI shown on Game Over; Top 10 panel with refresh.
@@ -13,7 +14,6 @@
 - LocalStorage high score key: `breakoutHighScore` — keep stable to avoid resets.
 
 ## todos
-- (2026-09-27, found by code reading, untested) body overflow:hidden hides Share + TOP SCORES below the fold (let the page scroll, preventDefault game keys, canvas touch-action:none); Space in the name box restarts the game; level-up banner shows INITIALIZE (resets to level 1) and the old submit box; touch/mouse paddle input not scaled to the CSS-shrunk canvas on phones; speed tied to refresh rate; multiball power-up does nothing; per-level speed-up is lost (resetBall zeroes it first).
 - Add basic SFX toggle and simple bounce sound.
 - Show a visible "PAUSED" ribbon when `P` is pressed.
 - Optional Supabase leaderboard (RLS-safe inserts with `user_id`).
