@@ -1,6 +1,7 @@
 # Sand Sandbox — notes
 
 ## log
+- 2026-09-27: new og.png (rendered from a copy of the app, scratchpad gaunt/sw/sand/og.html): dunes, a battery on a stone pillar wired into a pool that lights up in rings, a burning post, flowers; tagline "pour, burn, flood, zap".
 - 2026-09-27: **🔗 Share**: saves the grid (deflate-raw via CompressionStream, base64) to supabase `sand_scenes` (id bigserial, w, h, cells, data text, user_id; default RLS: read all, insert own) and copies `?s=<id>`. Opening `?s=<id>` loads it: scaled down to fit (never up), centred, standing on the floor; cell values above BATTERY are dropped. Limits: ≥50 cells, data ≤400k chars, 30 shares a day per browser (localStorage `sandShares`), same scene twice reuses the link. A typical scene is ~2-3 KB. Probed with an in-memory fake db: save → reopen gives the identical grid, phone opening a desktop scene scales it to 400 wide.
 - 2026-09-27: **electricity**: METAL (16, solid, key M), BATTERY (17, solid, key B) and a SPARK tool (18, never stored in the grid, key Z).
   - A pulse runs through metal (4 cells a frame) and water (1 a frame, diagonals every other frame so the front spreads in octagon rings). `zap` = flash brightness (×0.7 a frame), `cool` = 16 frames before a cell can carry current again, so pulses never run backwards. `heads` = the front, `lit` = cells still fading; electricity() runs after updatePhysics only when either is non-empty.
