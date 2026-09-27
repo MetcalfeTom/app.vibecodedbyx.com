@@ -541,6 +541,26 @@ def safe_read(path: str) -> str | None:
         return None
 
 
+def scrub(data: dict) -> dict:
+    """data.json is public: drop infrastructure details nobody needs to see
+    (internal IP, host names, kernel/process command lines, MCP host, probe URLs)."""
+    sysb = data.get('system') or {}
+    for k in ('host', 'hostname', 'cmdline', 'version_full'):
+        sysb.pop(k, None)
+    for p in (data.get('runtime') or {}).get('top_procs') or []:
+        p.pop('cmdline', None)
+    net = data.get('network') or {}
+    if 'iface_ip' in net:
+        net['iface_ip'] = 'private'
+    for L in net.get('listeners') or []:
+        L['ip'] = '*'
+    for pr in net.get('probes') or []:
+        pr.pop('url', None)
+    for m in (data.get('llm') or {}).get('mcp_servers') or []:
+        m.pop('host', None)
+    return data
+
+
 def bake_system_partial() -> dict:
     """Best-effort host metadata. Lighter than the full snapshot bake — we
     keep the existing system/runtime/network/llm blocks if this fails."""
@@ -654,6 +674,7 @@ def regen() -> int:
         return 2
 
     data['generated_iso'] = stamp
+    scrub(data)
 
     tmp = OUT.with_suffix('.json.tmp')
     tmp.write_text(json.dumps(data, indent=2))
