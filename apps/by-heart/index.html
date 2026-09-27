@@ -69,6 +69,17 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 .card .tools button:hover{color:var(--chalk);background:rgba(255,255,255,.07)}
 .shared{border:2px dashed var(--yellow);padding:1rem 1.1rem;margin:0 0 1.4rem;border-radius:6px;display:flex;flex-wrap:wrap;gap:.8rem;align-items:center}
 .shared p{margin:0;flex:1 1 16rem}
+/* v1.5 memory checks */
+.due{border:2px solid rgba(242,212,92,.5);background:rgba(242,212,92,.06);padding:.9rem 1.1rem;margin:0 0 1.4rem;border-radius:8px 4px 10px 6px;display:flex;flex-wrap:wrap;gap:.8rem;align-items:center;animation:rise .6s .5s both}
+.due p{margin:0;flex:1 1 16rem;font:italic 400 1.1rem/1.35 "Newsreader",Georgia,serif}
+.due p b{font-style:normal;font-weight:600;color:var(--yellow)}
+.due small{display:block;font:400 .66rem/1.5 "Azeret Mono",monospace;letter-spacing:.06em;color:var(--dim);font-style:normal;margin-top:.2rem}
+.card .when{font:600 .6rem "Azeret Mono",monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-top:.6rem}
+.card .when.now{color:var(--yellow)}
+.card .when.now::before{content:'';display:inline-block;width:.45rem;height:.45rem;border-radius:50%;background:var(--yellow);margin-right:.45rem;vertical-align:.05rem;animation:pulse 2.4s ease-in-out infinite}
+.card.isdue{border-color:rgba(242,212,92,.42)}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.card .when.now::before{animation:none}}
 footer{margin:3rem 0 0;font-size:.66rem;color:var(--dim);letter-spacing:.05em}
 
 /* editor */
@@ -169,9 +180,13 @@ input[type=text]:focus,textarea:focus{border-color:var(--faint);outline:none}
       <p id="sharedLine">Someone sent you <b id="sharedTitle"></b> to learn.</p>
       <button class="btn go" id="sharedGo" type="button">Learn it</button>
     </div>
+    <div class="due" id="dueBox" hidden>
+      <p><span id="dueLine"></span><small>A quick round from memory keeps it from slipping away. Each clean check waits longer before the next.</small></p>
+      <button class="btn go" id="dueGo" type="button">Check it</button>
+    </div>
     <div class="shelf-head"><h2>Your texts</h2><div class="acts"><button class="btn small" id="swapBtn" type="button">Share · import</button><button class="btn small" id="newBtn" type="button">+ New text</button></div></div>
     <ul class="shelf" id="shelf"></ul>
-    <footer><span id="buildstamp" role="note" aria-label="Build information">build v1.4 · 2026-09-27</span></footer>
+    <footer><span id="buildstamp" role="note" aria-label="Build information">build v1.5 · 2026-09-27</span></footer>
   </section>
 
   <section class="swap" id="swap" hidden aria-labelledby="swapH">
@@ -248,9 +263,11 @@ input[type=text]:focus,textarea:focus{border-color:var(--faint);outline:none}
       <dt>time</dt><dd id="dTime"></dd>
       <dt>speed</dt><dd id="dWpm"></dd>
       <dt>your best here</dt><dd id="dBest"></dd>
+      <dt id="dNextL" hidden>next memory check</dt><dd id="dNext" hidden></dd>
     </dl>
     <div class="row">
       <button class="btn go" id="harderBtn" type="button">Fade it more →</button>
+      <button class="btn go" id="nextDueBtn" type="button" hidden>Next check →</button>
       <button class="btn" id="againBtn" type="button">Again</button>
     </div>
     <div class="row">
@@ -301,14 +318,14 @@ function drawShelf() {
   ul.innerHTML = '';
   store.texts.forEach((t, i) => {
     const li = document.createElement('li');
-    li.className = 'card';
+    li.className = 'card' + (isDue(t) ? ' isdue' : '');
     li.style.animationDelay = (0.6 + Math.min(i, 8) * 0.06) + 's';
     const first = t.text.split('\n').find(l => l.trim()) || '';
     const ladder = LEVELS.map((name, l) => {
       const b = t.best && t.best[l];
       return `<span class="${b && b.acc >= 0.9 ? 'won' : ''}">${name} <b>${b ? Math.round(b.acc * 100) + '%' : '·'}</b></span>`;
     }).join('');
-    li.innerHTML = `<button class="open" type="button"><div class="t">${esc(t.title)}</div><div class="first">${esc(first)}</div><div class="ladder" aria-label="Best scores per level">${ladder}</div></button>
+    li.innerHTML = `<button class="open" type="button"><div class="t">${esc(t.title)}</div><div class="first">${esc(first)}</div><div class="ladder" aria-label="Best scores per level">${ladder}</div>${t.rev ? `<div class="when${isDue(t) ? ' now' : ''}">${whenTxt(t)}</div>` : ''}</button>
       <div class="tools"><button type="button" class="sh" aria-label="Send ${esc(t.title)} to a friend" title="Send to a friend">↗</button><button type="button" class="ed" aria-label="Edit ${esc(t.title)}" title="Edit">✎</button></div>`;
     const open = li.querySelector('.open');
     let hold = 0, peeked = false;
@@ -326,7 +343,31 @@ function drawShelf() {
     ul.appendChild(li);
   });
   if (!store.texts.length) ul.innerHTML = '<li class="lede" style="animation:none">Nothing here yet. Add the first thing you want to learn.</li>';
+  drawDue();
 }
+
+// ---------- v1.5 memory checks: a text you can type from memory comes back after 1, 2, 4, 8… days ----------
+// t.rev = {box, due, last} in local day numbers; only a By heart round (level 3) with 90 %+ clean words moves it along
+const GAPS = [1, 2, 4, 8, 16, 32, 64];
+function today() { const d = new Date(); return Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000); }
+function isDue(t) { return !!(t.rev && t.rev.due <= today()); }
+function dueList() { return store.texts.filter(isDue).sort((a, b) => a.rev.due - b.rev.due); }
+function inDays(n) { return n <= 0 ? 'today' : n === 1 ? 'tomorrow' : 'in ' + (n < 14 ? n + ' days' : n < 60 ? Math.round(n / 7) + ' weeks' : Math.round(n / 30) + ' months'); }
+function whenTxt(t) { return t.rev ? (isDue(t) ? 'memory check today' : 'next check ' + inDays(t.rev.due - today())) : ''; }
+function review(t, acc) {
+  const d = today(), r = t.rev;
+  if (acc >= 0.9) {
+    if (!r) t.rev = { box: 0, due: d + GAPS[0], last: d };
+    else if (r.due <= d) { r.box = Math.min(GAPS.length - 1, r.box + 1); r.due = d + GAPS[r.box]; r.last = d; }
+    else r.last = d;   // early rounds keep the date
+  } else if (r) { r.box = Math.max(0, r.box - (r.due <= d ? 2 : 1)); r.due = Math.min(r.due, d + GAPS[r.box]); if (r.due <= d) r.due = d + 1; r.last = d; }
+}
+function drawDue() {
+  const due = dueList();
+  $('dueBox').hidden = !due.length;
+  if (due.length) $('dueLine').innerHTML = due.length === 1 ? 'Time to check <b>' + esc(due[0].title) + '</b>.' : '<b>' + due.length + ' texts</b> are due for a memory check.';
+}
+$('dueGo').onclick = () => { const d = dueList()[0]; if (d) practice(d.id, 3); };
 
 // ---------- editor ----------
 let editing = null;
@@ -352,7 +393,7 @@ $('saveBtn').onclick = () => {
   if (!tokenize(text).words.length) { toast('Put some words in first.'); $('textIn').focus(); return; }
   if (!title) title = text.split(/\s+/).slice(0, 5).join(' ').replace(/[,.;:!?]+$/, '');
   let t = editing && byId(editing);
-  if (t) { if (t.text !== text) t.best = {}; t.title = title; t.text = text; }
+  if (t) { if (t.text !== text) { t.best = {}; delete t.rev; } t.title = title; t.text = text; }
   else { t = { id: 't' + Date.now().toString(36), title, text, best: {} }; store.texts.unshift(t); }
   save();
   if (editing) { show('home'); drawShelf(); toast('Saved.'); }
@@ -518,6 +559,8 @@ function finish() {
   const old = t.best[l];
   const better = !old || acc > old.acc || (acc === old.acc && secs < old.secs);
   if (better) t.best[l] = { acc, secs: Math.round(secs * 10) / 10 };
+  const wasDue = isDue(t);
+  if (l === 3) review(t, acc);
   save();
   drawSheet(); drawStats();
   $('say').blur();
@@ -533,9 +576,14 @@ function finish() {
   $('dWpm').textContent = wpm ? wpm + ' words a minute' : '—';
   $('dBest').textContent = better && old ? 'new best!' : better ? 'first time here' : Math.round(old.acc * 100) + '% in ' + mmss(old.secs);
   $('harderBtn').hidden = l === 3;
+  const nx = l === 3 ? dueList().filter(d => d !== t)[0] : null;
+  $('nextDueBtn').hidden = !nx;
+  if (nx) { $('nextDueBtn').textContent = 'Next check: ' + nx.title + ' →'; $('nextDueBtn').onclick = () => practice(nx.id, 3); }
+  $('dNextL').hidden = $('dNext').hidden = !(l === 3 && t.rev);
+  if (l === 3 && t.rev) $('dNext').textContent = inDays(t.rev.due - today()) + (acc >= 0.9 && wasDue ? ' · it sticks longer each time' : acc < 0.9 ? ' · a shorter gap, to firm it up' : '');
   $('harderBtn').textContent = l < 3 ? 'Try ' + LEVELS[l + 1] + ' →' : '';
   $('done').hidden = false;
-  $(l < 3 ? 'harderBtn' : 'againBtn').focus();
+  $(l < 3 ? 'harderBtn' : nx ? 'nextDueBtn' : 'againBtn').focus();
 }
 $('harderBtn').onclick = () => practice(cur.t.id, cur.level + 1);
 $('againBtn').onclick = () => practice(cur.t.id, cur.level);
