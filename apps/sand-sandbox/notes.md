@@ -1,6 +1,10 @@
 # Sand Sandbox — notes
 
 ## log
+- 2026-09-27: **🐟 Fish** (tool, key F, `FISH = 19`, never stored in the grid, so shared scenes don't carry them). `fish[]` agents (point + 12x6 sprite drawn into `pix` after the grid, 6x3 for babies) updated by `updateFish()` after electricity when not paused; cap 150.
+  - In water (`swim`: the head cell is water, or water 2 above and below / left and right, so a sprout or grain in the way doesn't count): random wander + darts, loose schooling (align, drift together, keep 5 apart within 30 cells), stay 4 below the surface and above the bottom, turn before leaving the water. They spot seeds (8 random looks a frame in ±40x±25), chase them as they sink and eat them at the mouth; every 2nd seed hatches a baby (small sprite for 900 frames). Probe: 80 seeds over a pond → ~30 eaten, 20 fish → 31.
+  - Out of water: fall, flop (6% a frame), fade from 420 frames, dead at 600. Fire, lava or acid within 2 cells kills (grey, belly-up, gone after 70 frames). Current (zap > 60 at the head or 2 cells around) stuns 150-210 frames: belly-up, pale, drifting up.
+- 2026-09-27: **fix: current in water now dies out.** A pulse used to live forever in a big pond (broken rings re-lit each other once `cool` ran out, like spiral waves): 400 frames after one spark a pond still had ~3000 heads and ~52000 lit cells, costing ~7 ms a frame. Now `amp[]` carries what is left of a pulse: metal passes it whole, each water cell costs 2 (dies ~120 cells out), water flashes at max(50, amp), and a pulse under 60 no longer sets things alight. Batteries and the spark tool charge at 255. Same probe: 0 heads, 0 lit, 6 ms a physics frame instead of 13.
 - 2026-09-27: new og.png (rendered from a copy of the app, scratchpad gaunt/sw/sand/og.html): dunes, a battery on a stone pillar wired into a pool that lights up in rings, a burning post, flowers; tagline "pour, burn, flood, zap".
 - 2026-09-27: **🔗 Share**: saves the grid (deflate-raw via CompressionStream, base64) to supabase `sand_scenes` (id bigserial, w, h, cells, data text, user_id; default RLS: read all, insert own) and copies `?s=<id>`. Opening `?s=<id>` loads it: scaled down to fit (never up), centred, standing on the floor; cell values above BATTERY are dropped. Limits: ≥50 cells, data ≤400k chars, 30 shares a day per browser (localStorage `sandShares`), same scene twice reuses the link. A typical scene is ~2-3 KB. Probed with an in-memory fake db: save → reopen gives the identical grid, phone opening a desktop scene scales it to 400 wide.
 - 2026-09-27: **electricity**: METAL (16, solid, key M), BATTERY (17, solid, key B) and a SPARK tool (18, never stored in the grid, key Z).
@@ -36,4 +40,4 @@
 - Tall water columns still take a few seconds to level (only surface/edge cells can move sideways).
 
 ## todos
-- Ideas: a gallery of shared scenes (sand_scenes is readable), more materials (sponge; electricity done), wind, pause/step, bigger cells option on phones.
+- Ideas: a gallery of shared scenes (sand_scenes is readable); fish in shared scenes (a list next to the grid); more creatures (birds? ants that dig?); more materials (sponge; electricity done), wind, pause/step, bigger cells option on phones.
