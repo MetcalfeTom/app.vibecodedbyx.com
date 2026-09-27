@@ -3,6 +3,7 @@
 Stacking puzzle: every block squishes under the weight stacked above it. Use all the blocks and land the top of the tower in the pink band. Idea by Tatum (sloppy.live chat, 2026-09-27 16:51: "stack blocks which compress based on the amount of weight above them").
 
 ## log
+- v1.2 (2026-09-27): DAILY STACK. Same puzzle for everyone each UTC day: genDaily(dayKey) = FNV hash of "YYYY-MM-DD" → rng → genStack(R, 6 blocks, 0.8 cm band). makeLevel now shuffles with Fisher–Yates (sort with a random comparator gives different orders in different browsers → different dailies). Open from the Levels dialog (pink button, always unlocked) or #daily in the URL. Win card: "Copy result" (clipboard; falls back to showing the text). SV.daily[day] = best moves. Win card moved below the stage (it covered tall towers), tray hides on a win; global [hidden]{display:none!important}. Probe: 30 days → 30 distinct stacks, 0 fallbacks, same day = same stack.
 - v1.1 (2026-09-27): SOUND. All WebAudio-synthesized, no files: a landing sound per material (squelch sponge, wobble jelly, boing rubber, clack wood, chime glass, thud stone, clank iron) + an extra squelch scaled by how much the blocks below got squished; crack for a rejected glass overload, pop on take-off, 4-note win arpeggio. ♪ toggle in the header (localStorage `squish-stack.snd`).
 - v1.0 (2026-09-27): first build. 7 materials (sponge, jelly, rubber soft; wood, glass, stone, iron solid; glass cracks above 6 kg). 12 campaign levels, Workshop (endless, seeded generator, streak) opens after 6 cleared. Hint = next right block for the current stack (or which block is wrong). Tap tray to drop on top, tap a stacked block to take it off. Keys 1–9, Backspace, H, R, N. Progress in localStorage `squish-stack.v1`.
 
@@ -19,5 +20,4 @@ Stacking puzzle: every block squishes under the weight stacked above it. Use all
 
 ## todos
 - more materials chat might like (marshmallow? cheese? a balloon that lifts = negative weight? springs?)
-- daily puzzle with a shared seed
 - drag to insert mid-tower (now only top drops)
