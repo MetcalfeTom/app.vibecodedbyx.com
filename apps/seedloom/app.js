@@ -536,6 +536,69 @@
     try { await navigator.clipboard.writeText(url); toast('Link copied: anyone who opens it sees this exact piece'); }
     catch (e) { toast('The link is in your address bar: copy it from there'); }
   };
+  let lastHung = '';
+  $('hangBtn').onclick = async () => {
+    const btn = $('hangBtn');
+    if (btn.disabled) return;
+    if (!S.layers.some(l => l.on)) { toast('Nothing to hang yet: switch a layer on first'); return; }
+    const recipe = packState(), key = JSON.stringify(recipe);
+    if (key === lastHung) { toast('This one is already on the wall'); return; }
+    if (key.length > 6000) { toast('Too many layers to hang this one: try a few less'); return; }
+    let log = [];
+    try { log = JSON.parse(localStorage.getItem('seedloom-hung') || '[]').filter(t => Date.now() - t < 864e5); } catch (e) {}
+    if (log.length && Date.now() - log[log.length - 1] < 30000) { toast('Let the paint dry: you can hang another piece in half a minute'); return; }
+    if (log.length >= 20) { toast('Twenty pieces today! Leave the wall some room and come back tomorrow'); return; }
+    btn.disabled = true;
+    toast('Hanging it on the wall…');
+    try {
+      const { db, session } = await getDb();
+      const { user } = await session();
+      const { error } = await db.from('seedloom_pieces').insert({ recipe, user_id: user.id });
+      if (error) throw error;
+      lastHung = key;
+      log.push(Date.now());
+      try { localStorage.setItem('seedloom-hung', JSON.stringify(log)); } catch (e) {}
+      const st = parseState(recipe);
+      if (st) { hungSeen.add(key); hung.unshift(st); }
+      toast('Hung! ' + pieceTitle() + ' is on the wall for everyone now');
+    } catch (e) { toast('The wall is not answering right now: try again in a bit'); }
+    btn.disabled = false;
+  };
+
+  // ---------- the shared wall: pieces visitors hung for everyone ----------
+  // only the recipe is stored (no names, no text), and every recipe is checked by parseState before it is shown
+  let dbP = null;
+  const getDb = () => dbP || (dbP = window.__seedloomDb ? Promise.resolve(window.__seedloomDb)
+    : import('/supabase-config.js').then(m => ({ db: m.default, session: m.supabaseSession })));
+  const hung = [], hungSeen = new Set(), hungPerUser = {};
+  let hungCursor = null, hungMore = true, hungLoading = false, hungFirst = true;
+  async function loadHung() {
+    if (hungLoading || !hungMore) return;
+    hungLoading = true;
+    try {
+      const { db } = await getDb();
+      let q = db.from('seedloom_pieces').select('id, recipe, user_id, created_at').order('created_at', { ascending: false }).limit(60);
+      if (hungCursor) q = q.lt('created_at', hungCursor);
+      const { data, error } = await q;
+      if (error) throw error;
+      if (!data || data.length < 60) hungMore = false;
+      for (const row of data || []) {
+        hungCursor = row.created_at;
+        const key = JSON.stringify(row.recipe);
+        if (!key || key.length > 8000 || hungSeen.has(key)) continue;
+        // one visitor can't take over the wall
+        if ((hungPerUser[row.user_id] = (hungPerUser[row.user_id] || 0) + 1) > 6) continue;
+        hungSeen.add(key);
+        const st = parseState(row.recipe);
+        if (st && st.layers.some(l => l.on)) hung.push(st);
+      }
+    } catch (e) { hungMore = false; }
+    hungLoading = false;
+    hungFirst = false;
+    queueFill();
+  }
+  // the looms fill the first screen while the shared pieces load; after 2.5s the wall carries on without them
+  setTimeout(() => { if (hungFirst) { hungFirst = false; queueFill(); } }, 2500);
 
   // ---------- presets for a first visit ----------
   const PRESETS = [
@@ -666,14 +729,19 @@
     const grid = $('gGrid');
     for (let k = 0; k < n; k++) {
       const idx = wall.length;
-      let st, name;
+      let st, name, fromWall = false;
+      // past the looms, wait (briefly) for the visitors' pieces so they start right after them
+      if (idx === TILES.length && hungFirst) { if (!hungLoading) loadHung(); return; }
       if (idx < TILES.length) {
         const [gen, pal, seed, ns, over] = TILES[idx];
         st = { pal, aspect: '1:1', layers: [makeLayer(gen, { seed, ns, p: Object.assign(defaults(gen), over || {}) })] };
         name = GENS[gen].name;
       } else {
         if (idx === TILES.length) presetOrder = PRESETS.map((_, i) => i).sort(() => Math.random() - 0.5);
-        st = presetOrder.length && idx % 3 === 0 ? parseState(PRESETS[presetOrder.pop()]) : rollPiece(Math.random);
+        // every other spot goes to a piece a visitor hung, while there are any
+        if (idx % 2 === 1 && hung.length) { st = hung.shift(); fromWall = true; }
+        else st = presetOrder.length && idx % 3 === 0 ? parseState(PRESETS[presetOrder.pop()]) : rollPiece(Math.random);
+        if (hung.length < 4) loadHung();
         st.aspect = '1:1';
         name = pieceTitle(st);
       }
@@ -681,9 +749,9 @@
       b.type = 'button';
       b.className = 'g-tile';
       b.setAttribute('role', 'listitem');
-      b.setAttribute('aria-label', name + (idx < TILES.length ? ': ' + GENS[st.layers[0].gen].blurb : '') + '. Open it in the editor');
-      b.innerHTML = `<canvas width="1" height="1" aria-hidden="true"></canvas><span class="g-label" aria-hidden="true">${name}</span>`;
-      const item = { st, el: b, cv: b.querySelector('canvas'), drawn: false };
+      b.setAttribute('aria-label', name + (idx < TILES.length ? ': ' + GENS[st.layers[0].gen].blurb : fromWall ? ', hung by a visitor' : '') + '. Open it in the editor');
+      b.innerHTML = `<canvas width="1" height="1" aria-hidden="true"></canvas><span class="g-label" aria-hidden="true">${name}${fromWall ? '<i>hung by a visitor</i>' : ''}</span>`;
+      const item = { st, el: b, cv: b.querySelector('canvas'), drawn: false, fromWall };
       b._item = item;
       b.onclick = () => openPiece(item, idx < TILES.length);
       grid.appendChild(b);
@@ -724,7 +792,7 @@
     S.layers = item.st.layers.map((l, i, arr) => ({ ...l, id: S.nextId++, p: { ...l.p }, open: i === arr.length - 1 }));
     enterEditor();
     flyIn(item);
-    toast(loom ? 'Slide things around, then + add a layer to stack another loom' : 'Yours now: slide, reseed, stack more');
+    toast(loom ? 'Slide things around, then + add a layer to stack another loom' : item.fromWall ? 'A visitor hung this one: make it yours, then hang your version' : 'Yours now: slide, reseed, stack more');
   }
   function showView(gallery) {
     $('gallery').hidden = !gallery;
