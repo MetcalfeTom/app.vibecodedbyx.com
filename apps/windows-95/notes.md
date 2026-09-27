@@ -6,6 +6,7 @@
 A nostalgic Windows 95 desktop experience with classic teal background.
 
 ## log
+- 2026-09-27: Glow-up, phone + keyboard input fixes (49 added lines, nothing removed). (1) The _ □ × title-bar buttons didn't work on phones: the header's `ontouchstart` → `startDrag` called `preventDefault()`, which swallowed the tap's click. `startDrag` now returns early when the press lands on a `.window-control`. (2) Desktop icons couldn't be opened on phones: `startIconDrag` cancels touchstart (needed for dragging), so browsers never fire `dblclick`. Now a tap selects and tapping the selected icon again (or a double-tap) opens it: onEnd dispatches a synthetic `dblclick`, so the inline handlers stay the single source of truth. The glass hole gets its own 450 ms double-tap detector (cancels the 2nd touchend so a native dblclick can't open it twice) plus `touch-action: manipulation`. (3) Keyboard: icons and the glass hole get tabindex=0, role=button, an aria-label from their label, Enter/Space → dblclick, and a dotted white `:focus-visible` rectangle. Verified headless with synthetic touch/key events; 0 JS errors before and after.
 - 2026-08-01: Added the glass hole (per chat) — a circular porthole SUNK into the teal desktop (inverted Win95 bevel = recessed, glass shine gradients, a blurred 🕹️ bobbing beneath the surface that sharpens on hover; fixed position, deliberately NOT draggable — holes don't move). Double-click opens a proper Win95 "Glass Hole" window: 🚧 UNDER CONSTRUCTION banner, "your favorite games will surface here soon", an inset panel pointing at the already-installed games, and an authentic <marquee> asking chat which games belong under the glass. Mobile: repositions bottom-right at 56px. Future: this is the designated slot for a games launcher if chat names favorites.
 - 2026-08-01: Added BLUESCRN.EXE desktop shortcut (per chat) — 💀 icon at top of third column, double-click plays the click sound and opens /bluescreen-roulette/ in a new tab (noopener; popup-block falls back to same-tab). Handler is deliberately isolated from openWindow. Label-keyed icon-position persistence picks it up automatically (draggable like the rest). Both script blocks re-parsed clean.
 - 2026-01-22: Added draggable desktop icons with position persistence
@@ -39,7 +40,10 @@ A nostalgic Windows 95 desktop experience with classic teal background.
 - screensavers/*.js - Various screensaver implementations
 
 ## issues
-- None currently known
+- Any new `touchstart` handler that calls preventDefault() kills click/dblclick for everything inside it on phones. Let buttons through (see startDrag) or synthesize the action on touchend.
+- Phone (≤480px): windows are forced to `width:100vw` but the ≤768 rule's `max-width:95vw` still caps them, leaving a ~20px teal strip on the right (cosmetic, left as is).
+- Calculator button labels sit in the top-left corner of each key (`.calc-button` is a div with no centering).
+- Start → Games submenu lacks Icy Tower, and it only opens on hover.
 
 ## todos
 - Add more Control Panel options
