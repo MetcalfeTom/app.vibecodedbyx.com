@@ -75,6 +75,7 @@ body.dragging::after{content:"Drop it. I'm listening.";position:fixed;inset:12px
 .tier.same{color:var(--teal)}
 .tier.maybe{color:var(--red)}
 .tier.tags{color:var(--ochre)}
+.tier.pcm{color:#28508a}
 .gmeta{color:var(--dim);font-size:.74rem}
 .mini{margin-left:auto;min-height:36px;padding:.3rem .7rem;border:2px solid var(--ink);background:transparent;cursor:pointer;font-size:.7rem}
 .mini:hover{background:var(--ink);color:var(--paper)}
@@ -166,6 +167,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
       <button class="chip" data-f="all" aria-pressed="true">All<span class="n" id="nAll"></span></button>
       <button class="chip" data-f="exact" aria-pressed="false">Exact copies<span class="n" id="nExact"></span></button>
       <button class="chip" data-f="tags" aria-pressed="false">Retagged<span class="n" id="nTags"></span></button>
+      <button class="chip" data-f="pcm" aria-pressed="false">Lossless<span class="n" id="nPcm"></span></button>
       <button class="chip" data-f="same" aria-pressed="false">Same audio<span class="n" id="nSame"></span></button>
       <button class="chip" data-f="maybe" aria-pressed="false">Maybe<span class="n" id="nMaybe"></span></button>
       <button class="btn ghost" id="suggestExact" type="button">Mark the extras</button>
@@ -174,7 +176,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v1.7 · 2026-09-27</span></footer>
+  <footer><span role="note" aria-label="Build information">build v1.8 · 2026-09-27</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
@@ -359,14 +361,23 @@ async function audioSpan(f) {
   }
   if (txt(h, 0, 4) === 'fLaC') {
     // FLAC: skip the metadata blocks (tags, pictures, padding); the frames are the music
-    fmt = 'flac'; let off = a0 + 4;
+    fmt = 'flac'; let off = a0 + 4, pcm = '';
     for (let k = 0; k < 200; k++) {
       const b = await bytesAt(f, off, off + 4);
       if (b.length < 4) break;
+      // STREAMINFO carries an MD5 of the decoded samples: the same audio packed at another compression level has the same one
+      if (k === 0 && (b[0] & 127) === 0 && ((b[1] << 16) | (b[2] << 8) | b[3]) === 34) {
+        const si = await bytesAt(f, off + 4, off + 38);
+        const md5 = Array.from(si.subarray(18, 34), x => x.toString(16).padStart(2, '0')).join('');
+        const rate = (si[10] << 12) | (si[11] << 4) | (si[12] >> 4), ch = ((si[12] >> 1) & 7) + 1, bits = (((si[12] & 1) << 4) | (si[13] >> 4)) + 1;
+        const total = (si[13] & 15) * 4294967296 + ((si[14] << 24) >>> 0) + ((si[15] << 16) | (si[16] << 8) | si[17]);
+        if (si.length === 34 && /[^0]/.test(md5) && total) pcm = [md5, rate, ch, bits, total].join(':');
+      }
       off += 4 + ((b[1] << 16) | (b[2] << 8) | b[3]);
       if (b[0] & 128) break;
     }
     a0 = Math.min(off, n);
+    if (pcm) return { a0, a1, fmt, pcm };
   } else if (txt(h, 0, 4) === 'RIFF' && txt(h, 8, 4) === 'WAVE') {
     // WAV: only the data chunk counts, not the INFO tags around it
     fmt = 'wav'; let off = a0 + 12;
@@ -573,8 +584,16 @@ async function match() {
   });
   // compare tracks of about the same length (only the ones I've listened to)
   const order = nodes.filter(n => n.fp && n.fp.len >= 100).sort((a, b) => a.fp.tdur - b.fp.tdur);
-  const parent = new Map(order.map(n => [n, n]));
+  const parent = new Map(nodes.map(n => [n, n]));
   const find = n => { while (parent.get(n) !== n) { parent.set(n, parent.get(parent.get(n))); n = parent.get(n); } return n; };
+  // FLACs whose STREAMINFO checksums match decode to the very same samples, whatever their frames look like
+  const byPcm = new Map();
+  nodes.forEach(n => n.members.forEach(m => {
+    if (!m.pcm) return;
+    const o = byPcm.get(m.pcm);
+    if (!o) byPcm.set(m.pcm, n);
+    else if (find(o) !== find(n)) parent.set(find(n), find(o));
+  }));
   const maybes = [];
   let t0 = performance.now();
   for (let i = 0; i < order.length; i++) {
@@ -588,16 +607,16 @@ async function match() {
     if (performance.now() - t0 > 40) { setProgress(i, order.length, 'Comparing ' + (i + 1) + ' of ' + order.length); await tick(); t0 = performance.now(); }
   }
   const comps = new Map();
-  order.forEach(n => { const r = find(n); comps.set(r, (comps.get(r) || []).concat(n)); });
-  nodes.filter(n => !parent.has(n)).forEach(n => comps.set(n, [n]));   // not listened to (or too short): copies by bytes still count
+  nodes.forEach(n => { const r = find(n); comps.set(r, (comps.get(r) || []).concat(n)); });   // not listened to (or too short): copies by bytes or checksum still count
   const out = [];
   comps.forEach(ns => {
     const files = ns.reduce((s, n) => s + n.members.length, 0);
     if (files < 2) return;
-    out.push(makeGroup(ns, ns.length === 1 ? famTier(ns[0].members) : 'same'));
+    const pcm = ns[0].members[0].pcm;
+    out.push(makeGroup(ns, ns.length === 1 ? famTier(ns[0].members) : pcm && ns.every(n => n.members[0].pcm === pcm) ? 'pcm' : 'same'));
   });
   maybes.forEach(([a, b, s]) => { if (find(a) !== find(b)) out.push(makeGroup([a, b], 'maybe', s.score)); });
-  const rank = { exact: 0, tags: 1, same: 2, maybe: 3 };
+  const rank = { exact: 0, tags: 1, pcm: 2, same: 3, maybe: 4 };
   out.sort((x, y) => rank[x.tier] - rank[y.tier] || y.waste - x.waste);
   return out;
 }
@@ -613,15 +632,17 @@ function makeGroup(nodes, tier, score) {
   const ref = nodes[0].fp;
   const rows = [];
   nodes.forEach((n, k) => {
-    const off = k === 0 || !ref ? 0 : similarity(ref, n.fp).offset;
+    const off = k === 0 || !ref || !n.fp ? 0 : similarity(ref, n.fp).offset;
     n.members.forEach(it => rows.push({ it, off }));
   });
   let best = rows[0];
-  rows.forEach(r => { if (keepScore(r.it) > keepScore(best.it)) best = r; });
+  const worth = tier === 'pcm' ? it => -it.size - (/(\(\d+\)|\bcopy\b|kopie|copia|\bdup)/i.test(it.name) ? 1e12 : 0) - it.path.length : keepScore;
+  rows.forEach(r => { if (worth(r.it) > worth(best.it)) best = r; });
   best.keeper = true;
   const waste = rows.reduce((s, r) => s + (r === best ? 0 : r.it.size), 0);
   let sim = score;
-  if (tier === 'same') sim = Math.min(...nodes.slice(1).map(n => similarity(ref, n.fp).score));
+  if (tier === 'same') sim = ref ? Math.min(...nodes.slice(1).map(n => n.fp ? similarity(ref, n.fp).score : 1)) : 1;
+  if (tier === 'pcm') sim = 1;
   const g = { tier, rows, waste, sim };
   spanOf(g);
   return g;
@@ -646,7 +667,7 @@ async function monoAt(it) {
   return out;
 }
 function flipable(g, r) {
-  if (g.tier === 'exact' || g.tier === 'tags' || r.keeper) return false;
+  if (g.tier === 'exact' || g.tier === 'tags' || g.tier === 'pcm' || r.keeper) return false;
   const k = g.rows.find(x => x.keeper);
   return !(r.it.ahash && k.it.ahash === r.it.ahash);
 }
@@ -748,7 +769,7 @@ function renderResults() {
     ? `<b>Stopped partway.</b> ${left} songs still haven't been listened to. I'll pick up where I left off.`
     : `<b>That was the quick sweep.</b> Re-rips, other bitrates and other formats only show up when I listen to every song. ${left > 300 ? 'With ' + left + ' songs, that is a coffee break.' : 'It takes a minute or two.'}`;
   $('deepBtn').textContent = heard ? 'Keep listening ☕' : 'Deep listen ☕';
-  ['all', 'exact', 'tags', 'same', 'maybe'].forEach(t => {
+  ['all', 'exact', 'tags', 'pcm', 'same', 'maybe'].forEach(t => {
     const n = $('n' + t[0].toUpperCase() + t.slice(1));
     n.textContent = count(t);
     n.parentNode.hidden = t !== 'all' && !count(t);
@@ -770,12 +791,12 @@ function drawGroups() {
   const host = $('groups');
   const shown = groups.filter(g => filter === 'all' || g.tier === filter);
   host.innerHTML = shown.length ? '' : `<p class="empty">Nothing here.</p>`;
-  const label = { exact: 'Exact copy', tags: 'Retagged copy', same: 'Same audio', maybe: 'Maybe the same' };
+  const label = { exact: 'Exact copy', tags: 'Retagged copy', pcm: 'Lossless twin', same: 'Same audio', maybe: 'Maybe the same' };
   shown.forEach((g, gi) => {
     const el = document.createElement('article');
     el.className = 'group';
     el.style.animationDelay = Math.min(gi, 8) * 40 + 'ms';
-    const how = g.tier === 'exact' ? 'same bytes' : g.tier === 'tags' ? 'same music bytes, different tags' : Math.round(g.sim * 100) + '% alike';
+    const how = g.tier === 'exact' ? 'same bytes' : g.tier === 'tags' ? 'same music bytes, different tags' : g.tier === 'pcm' ? 'same samples, packed differently' : Math.round(g.sim * 100) + '% alike';
     el.innerHTML = `<header><span class="tier ${g.tier}">${label[g.tier]}</span>
       <span class="gmeta">${g.rows.length} files · ${how} · ${mb(g.waste)} extra</span>
       <button class="mini" type="button" data-act="rest">Keep ★, mark the rest</button></header>` +
@@ -792,7 +813,8 @@ function drawGroups() {
           <div class="wave" aria-hidden="true"><canvas></canvas><div class="head"></div></div>
         </div>`;
       }).join('') +
-      (g.tier === 'maybe' ? `<p class="hint">These are close but not a sure match: a live take, a remaster or a different edit. Give them a listen.</p>` : '');
+      (g.tier === 'maybe' ? `<p class="hint">These are close but not a sure match: a live take, a remaster or a different edit. Give them a listen.</p>` : '') +
+      (g.tier === 'pcm' ? `<p class="hint">Every FLAC stores a checksum of its own sound. These match, so they play back sample for sample the same; only the compression or the tags differ. ★ is the smallest file.</p>` : '');
     el._g = g;
     host.appendChild(el);
     el.querySelector('[data-act=rest]').onclick = () => { g.rows.forEach(r => { r.it.gone = !r.keeper; }); syncGroup(el); };
@@ -996,11 +1018,11 @@ $('saveScript').onclick = () => {
   toast(`Saved ${name}. First move it ${p.where}, then ${isWin ? 'double-click it' : 'run it with sh'}. It moves the files into ${QDIR}; nothing gets deleted.`, 12000);
 };
 // one click for a whole pile: byte-proven sets by default, "same audio" only when that filter is picked, "maybe" never
-function bulkSets() { return groups.filter(g => filter === 'all' ? g.tier === 'exact' || g.tier === 'tags' : filter !== 'maybe' && g.tier === filter); }
+function bulkSets() { return groups.filter(g => filter === 'all' ? g.tier === 'exact' || g.tier === 'tags' || g.tier === 'pcm' : filter !== 'maybe' && g.tier === filter); }
 function bulkLabel() {
   const n = bulkSets().length, b = $('suggestExact');
   b.hidden = !n;
-  b.textContent = filter === 'all' ? `Mark the extras in ${n} byte-proven ${n === 1 ? 'set' : 'sets'}` : (n === 1 ? 'Mark the extras in this set' : `Mark the extras in these ${n} sets`);
+  b.textContent = filter === 'all' ? `Mark the extras in ${n} proven ${n === 1 ? 'set' : 'sets'}` : (n === 1 ? 'Mark the extras in this set' : `Mark the extras in these ${n} sets`);
 }
 $('suggestExact').onclick = () => {
   const gs = bulkSets();
