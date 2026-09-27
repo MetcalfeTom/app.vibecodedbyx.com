@@ -214,6 +214,8 @@
 
         .stat.lives { background: #FF7675; letter-spacing: 2px; }
         .stat.best { background: #A29BFE; }
+        .stat.sound { background: #55EFC4; border: 0; font: inherit; cursor: pointer; min-width: 44px; }
+        .stat.sound:focus-visible { outline: 3px solid #2D3436; outline-offset: 2px; }
 
         .shift-over {
             position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px;
@@ -532,6 +534,7 @@
                 <div class="stat">Level: <span id="level">1</span></div>
                 <div class="stat lives" aria-label="Missed orders left"><span id="lives">❤️❤️❤️</span></div>
                 <div class="stat best">Best: <span id="best">0</span></div>
+                <button class="stat sound" id="soundBtn" type="button" aria-pressed="true" aria-label="Kitchen sounds">🔊</button>
             </div>
         </div>
 
@@ -640,6 +643,52 @@
         let level = 1;
         let currentOrders = [];
         let completedFood = [];
+        // kitchen sounds, synthesized: a sizzle while a pan is lit, a ding when food is done
+        const sfx = (() => {
+            let ctx = null, on = true, sizzleGain = null;
+            try { on = localStorage.getItem('breakfast_sound') !== 'off'; } catch (e) {}
+            function start() {
+                if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+                const C = window.AudioContext || window.webkitAudioContext;
+                if (!C) return;
+                ctx = new C();
+                // looping white noise through a band-pass reads as oil in a pan
+                const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+                const d = buf.getChannelData(0);
+                for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (Math.random() < 0.97 ? 0.35 : 1);
+                const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+                const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3200; bp.Q.value = 0.7;
+                sizzleGain = ctx.createGain(); sizzleGain.gain.value = 0;
+                src.connect(bp).connect(sizzleGain).connect(ctx.destination); src.start();
+            }
+            document.addEventListener('pointerdown', start, true);
+            document.addEventListener('keydown', start, true);
+            function tone(freq, at, dur, type, vol) {
+                if (!ctx || !on) return;
+                const t = ctx.currentTime + at, o = ctx.createOscillator(), g = ctx.createGain();
+                o.type = type || 'sine'; o.frequency.value = freq;
+                g.gain.setValueAtTime(0.0001, t);
+                g.gain.exponentialRampToValueAtTime(vol || 0.15, t + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+                o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + dur + 0.05);
+            }
+            return {
+                get on() { return on; },
+                toggle() { on = !on; try { localStorage.setItem('breakfast_sound', on ? 'on' : 'off'); } catch (e) {} return on; },
+                sizzle(level) { if (sizzleGain) sizzleGain.gain.setTargetAtTime(on ? level : 0, ctx.currentTime, 0.15); },
+                ding() { tone(1568, 0, 0.5); tone(2093, 0.12, 0.7); },
+                serve() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.07, 0.35, 'triangle', 0.12)); },
+                walkout() { tone(233, 0, 0.25, 'square', 0.05); tone(175, 0.2, 0.45, 'square', 0.05); },
+                burn() { tone(110, 0, 0.6, 'sawtooth', 0.06); }
+            };
+        })();
+        (function () {
+            const b = document.getElementById('soundBtn');
+            const draw = () => { b.textContent = sfx.on ? '🔊' : '🔇'; b.setAttribute('aria-pressed', String(sfx.on)); };
+            b.onclick = () => { sfx.toggle(); draw(); };
+            draw();
+        })();
+
         let burners = {
             1: { active: false, food: null, timer: null, timeLeft: 0, burnTimer: null, burnt: false },
             2: { active: false, food: null, timer: null, timeLeft: 0, burnTimer: null, burnt: false }
@@ -869,6 +918,7 @@
             }
 
             showNotification(`${burner.food} is ready! Click to move to plate.`, 'success');
+            sfx.ding();
 
             // Change food appearance to indicate it's ready
             const foodElement = burnerElement.querySelector('.cooking-item');
@@ -894,6 +944,7 @@
                     el.classList.remove('smoking');
                     el.classList.add('burnt');
                     burnerElement.classList.add('has-burnt');
+                    sfx.burn();
                     showNotification(`The ${burner.food} burned! Tap it to bin it.`, 'error');
                 }
             }, 1000);
@@ -1040,6 +1091,7 @@
             updateStats();
             renderOrders();
             showNotification(`Order completed! +${totalScore} points`, 'success');
+            sfx.serve();
         }
 
         // Fail an order (time ran out)
@@ -1048,6 +1100,7 @@
             currentOrders = currentOrders.filter(o => o.id !== orderId);
             renderOrders();
             misses++;
+            sfx.walkout();
             updateStats();
             if (misses >= MAX_MISSES) { endShift(); return; }
             showNotification('A customer walked out! ⏰ ' + (MAX_MISSES - misses) + ' left before closing.', 'error');
@@ -1112,6 +1165,11 @@
 
         // Start the game when page loads
         updateStats();
+        // the sizzle follows the lit pans: louder with two
+        setInterval(() => {
+            const lit = shiftOver ? 0 : Object.values(burners).filter(b => b.active).length;
+            sfx.sizzle(lit * 0.05);
+        }, 300);
         window.addEventListener('load', () => {
             showNotification('Welcome to Breakfast Chef! Click ingredients to add them to burners.', 'success');
             setTimeout(startGame, 2000);
