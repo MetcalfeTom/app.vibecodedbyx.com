@@ -633,14 +633,14 @@
   const io = new IntersectionObserver(entries => {
     for (const e of entries) {
       const item = e.target._item;
-      if (e.isIntersecting) { near.add(item); if (!item.drawn && !item.painting && !queue.includes(item)) queue.push(item); pump(); }
+      if (e.isIntersecting) { near.add(item); if (!item.full && !item.painting && !queue.includes(item)) queue.push(item); pump(); }
       else {
         near.delete(item);
         // far away tiles give their pixels back; they are redrawn from their recipe when you scroll back
-        if (item.drawn && wall.length > 48) { item.cv.width = item.cv.height = 1; item.drawn = false; }
+        if (item.drawn && wall.length > 96) { item.cv.width = item.cv.height = 1; item.drawn = item.full = false; item.el.classList.remove('in'); }
       }
     }
-  }, { rootMargin: '700px 0px' });
+  }, { rootMargin: '1400px 0px' });
   // keep a couple of screens of wall ready below you, however fast you scroll
   let filling = false;
   function fillWall() {
@@ -648,7 +648,14 @@
     for (let guard = 0; guard < 8 && $('wallEnd').getBoundingClientRect().top < innerHeight * 2.5; guard++) addTiles(12);
   }
   const queueFill = () => { if (!filling) { filling = true; requestAnimationFrame(() => { filling = false; fillWall(); }); } };
-  addEventListener('scroll', queueFill, { passive: true });
+  // while the wall moves, the pointer stops hovering tiles (no restyles mid-scroll)
+  let scrollT = 0;
+  addEventListener('scroll', () => {
+    queueFill();
+    if (!document.body.classList.contains('scrolling')) document.body.classList.add('scrolling');
+    clearTimeout(scrollT);
+    scrollT = setTimeout(() => document.body.classList.remove('scrolling'), 140);
+  }, { passive: true });
   addEventListener('resize', queueFill);
   // tiles are painted by a small pool of background workers when the browser can (OffscreenCanvas),
   // otherwise one per frame right here
@@ -657,7 +664,7 @@
   try {
     if (typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap !== 'undefined' && new OffscreenCanvas(1, 1).getContext('2d')) {
       const libs = [...document.scripts].map(sc => sc.getAttribute('src') || '').filter(src => /^gens[\w-]*\.js(\?[\w.=]*)?$/.test(src));
-      const n = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
+      const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
       for (let k = 0; k < n; k++) {
         const w = new Worker('wall-worker.js');
         w.busy = null;
@@ -682,6 +689,9 @@
         item.cv.getContext('2d').drawImage(m.bmp, 0, 0);
         m.bmp.close();
         shown(item, t0);
+        // a quick sketch goes back in line for its full-size painting
+        if (item.sketchJob) queue.push(item);
+        else item.full = true;
       }
     }
     pump();
@@ -696,12 +706,21 @@
     const t0 = performance.now(), s = tileRes(item);
     item.cv.width = item.cv.height = s;
     try { composite(item.cv.getContext('2d'), s, s, new Map(), item.st); } catch (e) { console.error(e); }
+    item.full = true;
     shown(item, t0);
   }
+  // the tile closest to what you are looking at goes first, so a fast scroll never waits behind tiles far below
   function nextItem() {
-    let item;
-    while ((item = queue.shift()) && (item.drawn || item.painting || !near.has(item))) {}
-    return item;
+    let best = -1, bestD = Infinity;
+    const mid = innerHeight / 2;
+    for (let k = queue.length - 1; k >= 0; k--) {
+      const it = queue[k];
+      if (it.full || it.painting || !near.has(it)) { queue.splice(k, 1); if (best > k) best--; continue; }
+      // empty tiles before sharpening sketches
+      const r = it.el.getBoundingClientRect(), d = Math.abs(r.top + r.height / 2 - mid) + (it.drawn ? 1e6 : 0);
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    return best < 0 ? undefined : queue.splice(best, 1)[0];
   }
   function pump() {
     if (pool.length) {
@@ -713,7 +732,10 @@
         item.painting = true;
         w.busy = item;
         jobs.set(id, item);
-        w.postMessage({ id, s: tileRes(item), pal: PALETTES[item.st.pal], layers: item.st.layers });
+        // with a backlog (a fast scroll), empty tiles get a half-size sketch first: 4x fewer pixels, sharpened right after
+        const full = tileRes(item), sketch = !item.drawn && queue.length >= pool.length;
+        item.sketchJob = sketch;
+        w.postMessage({ id, s: sketch ? Math.max(120, full >> 1) : full, pal: PALETTES[item.st.pal], layers: item.st.layers });
       }
       return;
     }
