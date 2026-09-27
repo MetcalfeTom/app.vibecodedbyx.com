@@ -60,6 +60,7 @@
 - Death: All other live cells die
 
 ## todos
+- (2026-09-27, found by code reading, untested) canvas.height = innerHeight - 120 ignores the wrapping fixed .controls bar, so on phones ~20 rows run hidden under it (size from header/controls offsetHeight); SPEED above ~30 does nothing on 60 Hz (needs a time accumulator); range inputs have outline:none, no :focus-visible on .btn/.color-btn; STEP does nothing while running (pause then step).
 - Add more patterns (LWSS, MWSS, HWSS)
 - (done: stamp + rotate) maybe mirror/flip too
 - Add save/load functionality

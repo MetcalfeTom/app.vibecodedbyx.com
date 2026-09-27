@@ -7,3 +7,4 @@
 ## issues
 
 ## todos
+- (2026-09-27, found by code reading, untested) timer can double-speed after a fast restart (endGame never clears the startTimer tick); leftover 🧯 extinguisher still clickable on Game Over (+30 after the shown score, so Save stores a different number); level-up uses score % 80 === 0 and gets stuck once +30/1.5x shifts the score (use a nextLevelAt threshold); laptops spawn at y=0 so flames clip and the 🏆 button covers top-right laptops (spawn from ~60px); phone Game Over card may overflow (input min-width 220px).
