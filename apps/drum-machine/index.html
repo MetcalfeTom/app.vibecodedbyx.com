@@ -794,6 +794,34 @@
       .note-cell { width: 28px; height: 18px; }
       .piano-key { width: 35px; height: 18px; font-size: 0.5em; }
     }
+
+    /* mute / solo per track */
+    .track-info { width: 152px; }
+    .track-info .track-name { width: 62px; white-space: nowrap; }
+    .ms {
+      width: 22px; height: 22px; padding: 0; flex-shrink: 0;
+      background: #181818; border: 1px solid #333; border-radius: 4px;
+      color: #777; font-family: inherit; font-size: 0.62em; font-weight: 700; cursor: pointer;
+    }
+    .ms:hover { border-color: #666; color: #ccc; }
+    .ms.mute[aria-pressed="true"] { background: #ff3355; border-color: #ff3355; color: #111; }
+    .ms.solo[aria-pressed="true"] { background: var(--yellow); border-color: var(--yellow); color: #111; }
+    .ms:focus-visible, .action-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    .track.silent .steps { opacity: 0.3; }
+    .track.silent .track-name { text-decoration: line-through; }
+    .beat-toast {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      background: #111; color: var(--yellow); border: 1px solid var(--yellow);
+      padding: 10px 16px; border-radius: 8px; font-size: 0.8em; letter-spacing: 1px;
+      max-width: calc(100vw - 32px); text-align: center;
+      z-index: 50; pointer-events: none; opacity: 0; transition: opacity 0.3s;
+    }
+    .beat-toast.show { opacity: 1; }
+    @media (max-width: 700px) {
+      .track-info { width: 126px; gap: 4px; }
+      .track-info .track-name { width: 50px; }
+      .ms { width: 20px; height: 20px; }
+    }
   </style>
   <script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebApplication", "name": "SYNTH STATION", "description": "Program drum patterns, paint saw-lead melodies on a piano roll, add arpeggios, swing and sidechain pump, or roll a random house, trap or techno beat.", "url": "https://app.sloppy.live/drum-machine/", "isAccessibleForFree": true, "inLanguage": "en", "applicationCategory": "MultimediaApplication", "operatingSystem": "Any"}</script>
 </head>
@@ -819,6 +847,7 @@
       <div class="action-btns">
         <button class="action-btn" onclick="clearAll()">CLEAR</button>
         <button class="action-btn" onclick="randomize()">RANDOM</button>
+        <button class="action-btn" id="shareBeat" title="Copy a link to this beat">SHARE</button>
       </div>
     </div>
 
@@ -1489,7 +1518,7 @@
 
       // Play drum sounds
       tracks.forEach((track, ti) => {
-        if (pattern[ti][step]) {
+        if (pattern[ti][step] && trackAudible(ti)) {
           playSound(track.sound, track.volume);
 
           // Trigger sidechain on kick
@@ -2181,6 +2210,116 @@
 
     // Start
     init();
+  </script>
+  <script>
+    // ---------- mute / solo per track ----------
+    const trackMS = tracks.map(() => ({ m: false, s: false }));
+    function trackAudible(ti) {
+      return trackMS.some(t => t.s) ? trackMS[ti].s : !trackMS[ti].m;
+    }
+    function drawMS() {
+      document.querySelectorAll('#sequencer .track').forEach((row, ti) => {
+        row.querySelector('.ms.mute').setAttribute('aria-pressed', String(trackMS[ti].m));
+        row.querySelector('.ms.solo').setAttribute('aria-pressed', String(trackMS[ti].s));
+        row.classList.toggle('silent', !trackAudible(ti));
+      });
+    }
+    document.querySelectorAll('#sequencer .track').forEach((row, ti) => {
+      const info = row.querySelector('.track-info');
+      info.insertAdjacentHTML('beforeend',
+        `<button class="ms mute" aria-pressed="false" aria-label="Mute ${tracks[ti].name}" title="Mute">M</button>` +
+        `<button class="ms solo" aria-pressed="false" aria-label="Solo ${tracks[ti].name}" title="Solo">S</button>`);
+      info.querySelector('.mute').onclick = () => { trackMS[ti].m = !trackMS[ti].m; drawMS(); };
+      info.querySelector('.solo').onclick = () => { trackMS[ti].s = !trackMS[ti].s; drawMS(); };
+    });
+
+    // ---------- your beat survives a reload, and travels as a link ----------
+    const BEAT_KEY = 'synth-station-beat-v1';
+    const BEAT_CONTROLS = ['swingSlider', 'reverbSlider', 'chorusSlider', 'glideSlider', 'detuneSlider', 'filterSlider',
+      'arpMode', 'arpRate', 'arpOctaves', 'scAmount', 'scRelease', 'scAttack', 'scaleSelect', 'rootSelect', 'densitySelect'];
+    function beatSnapshot() {
+      const c = {};
+      BEAT_CONTROLS.forEach(id => { const el = document.getElementById(id); if (el) c[id] = el.value; });
+      return {
+        v: 1, bpm,
+        d: pattern.map(row => row.reduce((a, on, i) => on ? a | (1 << i) : a, 0)),
+        l: leadPattern.slice(), n: leadNoteLengths.slice(), c,
+        arp: arpEnabled, sc: sidechainEnabled,
+        ms: trackMS.map(t => (t.m ? 1 : 0) | (t.s ? 2 : 0))
+      };
+    }
+    function applyBeat(o) {
+      if (!o || o.v !== 1 || !Array.isArray(o.d)) return false;
+      Object.entries(o.c || {}).forEach(([id, val]) => {
+        const el = BEAT_CONTROLS.includes(id) && document.getElementById(id);
+        if (!el) return;
+        if (el.tagName === 'SELECT' && ![...el.options].some(op => op.value === String(val))) return;
+        el.value = String(val);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      if (o.bpm) { document.getElementById('bpmInput').value = o.bpm; updateBPM(); }
+      pattern.forEach((row, ti) => row.forEach((_, si) => { row[si] = !!((o.d[ti] | 0) & (1 << si)); updateStepUI(ti, si); }));
+      for (let i = 0; i < 16; i++) {
+        const note = Array.isArray(o.l) ? Number(o.l[i]) : -1;
+        leadPattern[i] = Number.isInteger(note) && note >= 0 && note < leadNotes.length ? note : -1;
+        const len = Array.isArray(o.n) ? Number(o.n[i]) | 0 : 1;
+        leadNoteLengths[i] = Math.max(1, Math.min(16 - i, len || 1));
+      }
+      refreshNoteDisplay();
+      if (!!o.arp !== arpEnabled) toggleArp();
+      if (!!o.sc !== sidechainEnabled) toggleSidechain();
+      if (Array.isArray(o.ms)) trackMS.forEach((t, i) => { t.m = !!(o.ms[i] & 1); t.s = !!(o.ms[i] & 2); });
+      drawMS();
+      return true;
+    }
+    let lastSaved = '', saveTimer = 0;
+    function saveBeat() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        const json = JSON.stringify(beatSnapshot());
+        if (json === lastSaved) return;
+        lastSaved = json;
+        try { localStorage.setItem(BEAT_KEY, json); } catch (e) {}
+        // the beat changed, so an old #beat= link in the address bar would reload the wrong one
+        if (location.hash.indexOf('beat=') >= 0) history.replaceState(null, '', location.pathname + location.search);
+      }, 150);
+    }
+    ['click', 'input', 'change', 'pointerup', 'touchend', 'keyup'].forEach(t => document.addEventListener(t, saveBeat, true));
+
+    function b64u(str) { return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+    function unb64u(str) { return decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/')))); }
+    function beatToast(msg) {
+      let t = document.querySelector('.beat-toast');
+      if (!t) { t = document.createElement('div'); t.className = 'beat-toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+      t.textContent = msg; t.classList.add('show');
+      clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
+    }
+    document.getElementById('shareBeat').onclick = () => {
+      const url = location.origin + location.pathname + '#beat=' + b64u(JSON.stringify(beatSnapshot()));
+      if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+        navigator.share({ title: 'My beat on Synth Station', url }).catch(() => {});
+        return;
+      }
+      const fallback = () => { history.replaceState(null, '', url); beatToast('LINK IS IN THE ADDRESS BAR, COPY IT'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => beatToast('LINK COPIED, SEND IT TO A FRIEND'), fallback);
+      } else fallback();
+    };
+
+    (function restoreBeat() {
+      const m = location.hash.match(/beat=([A-Za-z0-9_-]+)/);
+      if (m) {
+        let ok = false;
+        try { ok = applyBeat(JSON.parse(unb64u(m[1]))); } catch (e) {}
+        if (ok) { beatToast('SHARED BEAT LOADED, PRESS PLAY'); return; }
+        beatToast('THAT BEAT LINK IS BROKEN, HERE IS YOUR LAST BEAT');
+      }
+      try {
+        const saved = JSON.parse(localStorage.getItem(BEAT_KEY) || 'null');
+        if (saved) applyBeat(saved);
+      } catch (e) {}
+      lastSaved = JSON.stringify(beatSnapshot());
+    })();
   </script>
 <script src="/sloppy-header/sloppy-bar.js"></script>
 </body>

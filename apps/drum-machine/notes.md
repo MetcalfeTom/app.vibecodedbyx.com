@@ -1,6 +1,7 @@
 # SYNTH STATION
 
 ## log
+- 2026-09-27: **your beat sticks around + share links + mute/solo.** Everything (drum grid, lead notes and lengths, BPM, every slider/select, arp and sidechain toggles, mute/solo) autosaves to localStorage `synth-station-beat-v1` after any click/input (capture-phase listener, 150 ms debounce, writes only on change) and comes back on reload. SHARE copies `#beat=<base64url JSON>` (native share sheet on touch screens; address-bar fallback); opening such a link loads that beat with a toast, and the first edit saves it locally and clears the hash. M/S buttons per track: solo wins over mute, silent rows dim with a struck-through name; playStep checks `trackAudible(ti)`. Headless-verified: save → reload restores identical state, share → wipe storage → reload from link restores identical state, 390 px + 1280 px layouts.
 - 2026-09-26: og-image.png added (a real 1200×630 screenshot of the app) — the link preview pointed at a file that didn't exist, so shared links showed no picture.
 - 2026-01-10: Added legato/dragging notes for longer sustain
   - Click and drag to create notes spanning multiple steps
@@ -95,8 +96,6 @@
 - Responsive for mobile
 
 ## todos
-- Add save/load patterns to localStorage
-- Add track mute/solo
 - Add pattern length options (8/16/32)
 - Add individual track volume sliders
 - Add export to WAV
