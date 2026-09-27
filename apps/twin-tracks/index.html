@@ -68,6 +68,9 @@ body.dragging::after{content:"Drop it. I'm listening.";position:fixed;inset:12px
 .chip[aria-pressed=true]{background:var(--ink);color:var(--paper)}
 .chip .n{opacity:.6;margin-left:.3em}
 .bar .btn{margin-left:auto;min-height:40px;padding:.45rem .8rem;font-size:.74rem}
+.prefer{display:flex;flex-wrap:wrap;gap:.4rem .6rem;align-items:center;margin:-.6rem 0 1.4rem;font-size:.74rem;color:var(--dim)}
+.prefer select{font:500 .74rem "Martian Mono",ui-monospace,monospace;color:var(--ink);background:var(--card);border:2px solid var(--ink);border-radius:0;min-height:36px;padding:.3rem .5rem;max-width:100%}
+.prefer select:focus-visible{outline:3px solid var(--red);outline-offset:2px}
 .group{background:var(--card);border:2px solid var(--ink);margin:0 0 1.2rem;box-shadow:6px 6px 0 var(--paper2);animation:rise .4s both}
 .group>header{display:flex;flex-wrap:wrap;gap:.4rem .7rem;align-items:center;padding:.7rem .9rem;border-bottom:2px solid var(--ink)}
 .tier{font-size:.66rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;padding:.2rem .5rem;border:2px solid currentColor}
@@ -173,11 +176,12 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
       <button class="chip" data-f="maybe" aria-pressed="false">Maybe<span class="n" id="nMaybe"></span></button>
       <button class="btn ghost" id="suggestExact" type="button">Mark the extras</button>
     </div>
+    <p class="prefer" id="preferBox" hidden><label for="preferSel">★ goes to</label><select id="preferSel"></select></p>
     <div id="groups"></div>
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v1.9 · 2026-09-27</span></footer>
+  <footer><span role="note" aria-label="Build information">build v2.0 · 2026-09-27</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
@@ -639,17 +643,41 @@ function makeGroup(nodes, tier, score) {
     const off = k === 0 || !ref || !n.fp ? 0 : similarity(ref, n.fp).offset;
     n.members.forEach(it => rows.push({ it, off }));
   });
-  let best = rows[0];
-  const worth = tier === 'pcm' ? it => -it.size - (/(\(\d+\)|\bcopy\b|kopie|copia|\bdup)/i.test(it.name) ? 1e12 : 0) - it.path.length : keepScore;
-  rows.forEach(r => { if (worth(r.it) > worth(best.it)) best = r; });
-  best.keeper = true;
-  const waste = rows.reduce((s, r) => s + (r === best ? 0 : r.it.size), 0);
   let sim = score;
   if (tier === 'same') sim = ref ? Math.min(...nodes.slice(1).map(n => n.fp ? similarity(ref, n.fp).score : 1)) : 1;
   if (tier === 'pcm') sim = 1;
-  const g = { tier, rows, waste, sim };
+  const g = { tier, rows, waste: 0, sim };
+  setKeeper(g);
   spanOf(g);
   return g;
+}
+// ★ = the best copy, from the preferred folder when the set has one there
+let prefer = '';
+try { prefer = localStorage.getItem('twin-tracks.prefer') || ''; } catch (e) {}
+function topOf(it) { const p = it.path.split('/'); return p.length > 2 ? p[1] : ''; }
+function setKeeper(g) {
+  const worth = g.tier === 'pcm' ? it => -it.size - (/(\(\d+\)|\bcopy\b|kopie|copia|\bdup)/i.test(it.name) ? 1e12 : 0) - it.path.length : keepScore;
+  const mine = prefer ? g.rows.filter(r => topOf(r.it) === prefer) : [];
+  const pool = mine.length ? mine : g.rows;
+  let best = pool[0];
+  pool.forEach(r => { if (worth(r.it) > worth(best.it)) best = r; });
+  g.rows.forEach(r => { r.keeper = r === best; });
+  g.waste = g.rows.reduce((s, r) => s + (r === best ? 0 : r.it.size), 0);
+}
+// the folder picker only shows when the sets span two or more top folders
+function preferUI() {
+  const seen = new Map();
+  groups.forEach(g => new Set(g.rows.map(r => topOf(r.it)).filter(Boolean)).forEach(t => seen.set(t, (seen.get(t) || 0) + 1)));
+  const tops = [...seen].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 24);
+  const multi = groups.some(g => new Set(g.rows.map(r => topOf(r.it))).size > 1);
+  const sel = $('preferSel');
+  $('preferBox').hidden = !multi || tops.length < 2;
+  sel.textContent = '';
+  const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); };
+  opt('', 'the best-sounding copy');
+  tops.forEach(([t, n]) => opt(t, `the copy in "${t}" (${n} ${n === 1 ? 'set' : 'sets'})`));
+  if (prefer && !seen.has(prefer)) opt(prefer, `the copy in "${prefer}"`);
+  sel.value = prefer;
 }
 // the shared clock the waveforms are drawn on
 function spanOf(g) {
@@ -779,6 +807,7 @@ function renderResults() {
     n.parentNode.hidden = t !== 'all' && !count(t);
   });
   $('filterBar').hidden = !groups.length;
+  preferUI();
   bulkLabel();
   const bad = items.filter(i => i.err || i.nodec);
   const stopped = !deepDone && heard && left;
@@ -1033,6 +1062,18 @@ function backSh() {
     'echo "Put back $n files."', '[ $k = 0 ] || echo "$k stayed in $Q: a file with that name is already in its place."', ''].join('\n');
 }
 const isWin = /Win/i.test(navigator.platform || navigator.userAgent);
+$('preferSel').onchange = () => {
+  prefer = $('preferSel').value;
+  try { if (prefer) localStorage.setItem('twin-tracks.prefer', prefer); else localStorage.removeItem('twin-tracks.prefer'); } catch (e) {}
+  const was = groups.map(g => g.rows.find(r => r.keeper));
+  groups.forEach(setKeeper);
+  const moved = groups.filter((g, i) => g.rows.find(r => r.keeper) !== was[i]);
+  // a set whose extras were marked keeps the same shape: its new ★ stays, the old one goes
+  moved.forEach((g, i) => { const k = g.rows.find(r => r.keeper), o = was[groups.indexOf(g)]; g.rows.forEach(r => { delete r.flipTxt; delete r.flip; }); if (!o.it.gone && g.rows.every(r => r === o || r.it.gone)) { o.it.gone = true; k.it.gone = false; } });
+  const y = scrollY;
+  drawGroups(); updateDock(); scrollTo(0, y);
+  toast(moved.length ? `★ moved in ${moved.length} ${moved.length === 1 ? 'set' : 'sets'}.` : 'Every ★ was already there.');
+};
 function saveText(name, text) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
