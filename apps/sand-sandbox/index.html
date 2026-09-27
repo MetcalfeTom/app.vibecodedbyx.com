@@ -590,7 +590,7 @@
         // (a launching rocket's exhaust lights its neighbours), and it bursts high over the world
         const rockets = [], rocketS = { tpl: null };
         let rocketT = 0;
-        function addRocket(x, y) {
+        function addRocket(x, y, c) {
             if (rockets.length >= 60) return;
             const tpl = rocketS.tpl = rocketTpl(), n = tpl.length, hw = tpl[0].length >> 1;
             let b = Math.max(0, y);
@@ -601,8 +601,10 @@
             const k = { x, y: top, x0: x, y0: top, bx: Math.round(x + (x - W / 2) * 0.3 + (Math.random() - 0.5) * 6), span: H * 0.45, st: 0, c: Math.random() * 4 | 0, v: 0, h: 0,
                 apex: Math.round(Math.max(H * 0.06, top - H * (0.3 + Math.random() * 0.3))), R: Math.round(Math.min(W, H * 1.2) * (0.05 + Math.random() * 0.02)) };
             // (bx: they fan out from the middle, and they all curve by height climbed, so a row of them never crosses paths)
+            if (c !== undefined) k.c = c;
             qRocket(rocketS, k, true);
             rockets.push(k);
+            return k;
         }
         function updateRockets() {
             const tpl = rocketS.tpl, n = tpl.length, hw = tpl[0].length >> 1;
@@ -1545,15 +1547,20 @@
         }
         const b64 = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(bin); };
         async function packScene() {
-            const z = new Blob([grid]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+            // standing rockets leave the cells and ride along as x,foot,colour after a third '~', so they still fly in the copy
+            const cells = grid.slice(), rks = rockets.filter(k => k.st === 0), tpl = rocketS.tpl;
+            for (const k of rks) tpl.forEach((row, dy) => { for (let dx = 0; dx < row.length; dx++) { const x = k.x - (row.length >> 1) + dx, y = k.dy + dy; if (row[dx] !== '.' && inBounds(x, y)) cells[y * W + x] = EMPTY; } });
+            const z = new Blob([cells]).stream().pipeThrough(new CompressionStream('deflate-raw'));
             // the fish ride along after a '~': x,y,colour;x,y,colour...
             const live = fish.filter(f => !f.dead).slice(0, FISH_MAX).map(f => (f.x | 0) + ',' + (f.y | 0) + ',' + f.c);
             // and the birds after a second '~'
             const flock = birds.filter(b => !b.dead).slice(0, BIRD_MAX).map(b => (b.x | 0) + ',' + (b.y | 0) + ',' + b.c);
-            return b64(new Uint8Array(await new Response(z).arrayBuffer())) + (live.length || flock.length ? '~' + live.join(';') : '') + (flock.length ? '~' + flock.join(';') : '');
+            const parts = [b64(new Uint8Array(await new Response(z).arrayBuffer())), live.join(';'), flock.join(';'), rks.map(k => k.x + ',' + (k.dy + tpl.length - 1) + ',' + k.c).join(';')];
+            while (parts.length > 1 && !parts[parts.length - 1]) parts.pop();
+            return parts.join('~');
         }
         async function unpackScene(data, w, h) {
-            const [cells, school, flock] = data.split('~');
+            const [cells, school, flock, rks] = data.split('~');
             const bin = atob(cells), bytes = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
             const z = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
@@ -1568,6 +1575,11 @@
             for (const s of (flock || '').split(';').slice(0, BIRD_MAX)) {
                 const m = /^(\d{1,4}),(\d{1,4}),(\d)$/.exec(s);
                 if (m && +m[1] < w && +m[2] < h && +m[3] < BIRD_COL.length) out.birds.push([+m[1], +m[2], +m[3]]);
+            }
+            out.rockets = [];
+            for (const s of (rks || '').split(';').slice(0, 60)) {
+                const m = /^(\d{1,4}),(\d{1,4}),(\d)$/.exec(s);
+                if (m && +m[1] < w && +m[2] < h && +m[3] < 4) out.rockets.push([+m[1], +m[2], +m[3]]);
             }
             return out;
         }
@@ -1585,6 +1597,8 @@
             }
             for (const [fx, fy, c] of src.fish || []) { const f = addFish(ox + fx * k, oy + fy * k); if (f) f.c = c; }
             for (const [bx, by, c] of src.birds || []) { const b = addBird(ox + bx * k, oy + by * k); if (b) b.c = c; }
+            // a rocket drops from just above where its foot stood onto whatever is there now
+            for (const [rx, ry, c] of src.rockets || []) addRocket(Math.round(ox + rx * k), Math.round(oy + ry * k) - 2, c);
         }
         let dbP = null;
         const getDb = () => dbP || (dbP = import('/supabase-config.js').then(m => ({ db: m.default, session: m.supabaseSession })));
@@ -1606,7 +1620,7 @@
                 const data = await packScene();
                 if (data.length > 400000) throw new Error('big');
                 // fish swimming around don't make it a new scene, only new cells or a different school size do
-                const same = data.split('~')[0] + '|' + fish.filter(f => !f.dead).length + '|' + birds.filter(b => !b.dead).length;
+                const same = data.split('~')[0] + '|' + fish.filter(f => !f.dead).length + '|' + birds.filter(b => !b.dead).length + '|' + data.split('~')[3];
                 if (same === lastShared.same) link = lastShared.link;
                 else {
                     const { db, session } = await getDb();
