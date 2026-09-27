@@ -420,6 +420,7 @@
         const moved = new Uint8Array(W * H); // tick stamp: a particle moves at most once per frame
         const vel = new Uint8Array(W * H);   // fall speed in quarter cells, travels with the particle
         const life = new Uint8Array(W * H);  // how much taller a sprout will grow before it flowers
+        const fuel = new Uint8Array(W * H);  // frames of burning left in a fire that was oil (0 = an ordinary flame)
         let tick = 1;
         // Electricity: current runs through metal (fast) and water (slow) as a pulse. zap = how bright a cell
         // flashes (fades), cool = frames before that cell can carry current again, so a pulse never runs backwards
@@ -472,13 +473,20 @@
                 grid[i] = mat;
                 colorVar[i] = Math.floor(Math.random() * 4);
                 vel[i] = 0;
+                fuel[i] = 0;
             }
+        }
+        // burning oil stays where the oil was (pooled, or floating on water) and feeds a flame for a second or two
+        function lightOil(x, y) {
+            set(x, y, FIRE);
+            if (inBounds(x, y)) fuel[idx(x, y)] = 70 + (Math.random() * 60 | 0);
         }
         function swap(x1, y1, x2, y2) {
             const i1 = idx(x1, y1), i2 = idx(x2, y2);
             const tmp = grid[i1]; grid[i1] = grid[i2]; grid[i2] = tmp;
             const tmpC = colorVar[i1]; colorVar[i1] = colorVar[i2]; colorVar[i2] = tmpC;
             const tmpV = vel[i1]; vel[i1] = vel[i2]; vel[i2] = tmpV;
+            const tmpF = fuel[i1]; fuel[i1] = fuel[i2]; fuel[i2] = tmpF;
             moved[i2] = tick;
         }
 
@@ -527,7 +535,8 @@
             cool[j] = COOL; amp[j] = a; zap[j] = grid[j] === WATER ? Math.max(50, a) : 255; heads.push(j); lit.push(j);
         }
         function zapHit(x, y, m) {
-            if (m === POWDER || m === OIL) set(x, y, FIRE);
+            if (m === OIL) lightOil(x, y);
+            else if (m === POWDER) set(x, y, FIRE);
             else if ((m === PLANT || m === SEED || m === SPROUT || m === FLOWER) && Math.random() < 0.3) set(x, y, FIRE);
             else if (m === WOOD && Math.random() < 0.04) set(x, y, FIRE);
             else if (m === ICE && Math.random() < 0.05) set(x, y, WATER);
@@ -599,7 +608,8 @@
                         const px = Math.floor(x + dx), py = Math.floor(y + dy);
                         if (SOLID_BRUSH[currentMat] || Math.random() < (currentMat === SEED ? 0.03 : 0.4)) {
                             if (Q && !qInk(px, py)) continue;
-                            set(px, py, currentMat);
+                            if (currentMat === FIRE && get(px, py) === OIL) lightOil(px, py); // painting fire onto oil sets it burning
+                            else set(px, py, currentMat);
                         }
                     }
                 }
@@ -1041,9 +1051,11 @@
                         // Water + Lava = Stone, with a burst of steam
                         if (below === LAVA) { set(x, y + 1, STONE); set(x, y, STEAM); continue; }
                         // Water + Fire: the flame goes out with a hiss, and a little water boils off
-                        if (below === FIRE || above === FIRE || left === FIRE || right === FIRE) {
+                        // (burning oil floating on top is left alone: oil fires burn on water)
+                        const slick = above === FIRE && fuel[i0 - W] > 0;
+                        if (below === FIRE || (above === FIRE && !slick) || left === FIRE || right === FIRE) {
                             for (const [dx, dy] of NEIGHBORS) {
-                                if (get(x + dx, y + dy) === FIRE) set(x + dx, y + dy, Math.random() < 0.5 ? STEAM : EMPTY);
+                                if (get(x + dx, y + dy) === FIRE && !(dy === -1 && slick)) set(x + dx, y + dy, Math.random() < 0.5 ? STEAM : EMPTY);
                             }
                             if (Math.random() < 0.35) set(x, y, STEAM);
                             continue;
@@ -1062,18 +1074,31 @@
                     }
                     // FIRE physics
                     else if (mat === FIRE) {
-                        // Fire dies randomly
-                        if (Math.random() < 0.03) {
-                            set(x, y, EMPTY);
-                            continue;
-                        }
-                        // Fire rises
-                        if (above === EMPTY && Math.random() < 0.7) {
-                            swap(x, y, x, y - 1);
-                        } else if (Math.random() < 0.2) {
-                            const dir = Math.random() < 0.5 ? -1 : 1;
-                            if (get(x + dir, y - 1) === EMPTY) {
-                                swap(x, y, x + dir, y - 1);
+                        const f = fuel[i0];
+                        if (f) {
+                            // burning oil: stays put (falls if nothing holds it), throws flames up, heats oil two cells away
+                            if (f === 1) { set(x, y, EMPTY); continue; }
+                            fuel[i0] = f - 1;
+                            if (below === EMPTY) fall(x, y);
+                            else {
+                                if (above === EMPTY && Math.random() < 0.3) set(x, y - 1, FIRE);
+                                if (get(x - 2, y) === OIL && Math.random() < 0.04) lightOil(x - 2, y);
+                                if (get(x + 2, y) === OIL && Math.random() < 0.04) lightOil(x + 2, y);
+                            }
+                        } else {
+                            // Fire dies randomly
+                            if (Math.random() < 0.03) {
+                                set(x, y, EMPTY);
+                                continue;
+                            }
+                            // Fire rises
+                            if (above === EMPTY && Math.random() < 0.7) {
+                                swap(x, y, x, y - 1);
+                            } else if (Math.random() < 0.2) {
+                                const dir = Math.random() < 0.5 ? -1 : 1;
+                                if (get(x + dir, y - 1) === EMPTY) {
+                                    swap(x, y, x + dir, y - 1);
+                                }
                             }
                         }
                         // Fire burns wood
@@ -1082,8 +1107,8 @@
                             if (neighbor === WOOD && Math.random() < 0.02) {
                                 set(x + dx, y + dy, FIRE);
                             }
-                            if (neighbor === OIL && Math.random() < 0.1) {
-                                set(x + dx, y + dy, FIRE);
+                            if (neighbor === OIL && Math.random() < (f ? 0.3 : 0.1)) {
+                                lightOil(x + dx, y + dy);
                             }
                             if (neighbor === POWDER && Math.random() < 0.3) {
                                 set(x + dx, y + dy, FIRE);
@@ -1124,6 +1149,7 @@
                             if (neighbor === WOOD && Math.random() < 0.05) {
                                 set(x + dx, y + dy, FIRE);
                             }
+                            if (neighbor === OIL && Math.random() < 0.1) lightOil(x + dx, y + dy);
                         });
                     }
                     // OIL physics
@@ -1425,7 +1451,7 @@
             document.getElementById('brushVal').textContent = brushSize;
         });
 
-        function clearWorld() { grid.fill(EMPTY); zap.fill(0); cool.fill(0); heads = []; lit = []; fish.length = 0; birds.length = 0; drops.length = 0; }
+        function clearWorld() { grid.fill(EMPTY); fuel.fill(0); zap.fill(0); cool.fill(0); heads = []; lit = []; fish.length = 0; birds.length = 0; drops.length = 0; }
         document.getElementById('clearBtn').addEventListener('click', clearWorld);
 
         // Pausing freezes the whole world, so you can build a scene and then let it loose
