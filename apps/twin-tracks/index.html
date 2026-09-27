@@ -159,7 +159,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v1.0 · 2026-09-27</span></footer>
+  <footer><span role="note" aria-label="Build information">build v1.1 · 2026-09-27</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
@@ -178,7 +178,7 @@ const FPS = 20;           // loudness frames per second
 const HOP = SR / FPS;
 const PPS = 25;           // waveform peaks per second, for drawing
 const MAX_FRAMES = 4 * 60 * FPS;  // compare at most the first 4 minutes
-const SAME = 0.8, MAYBE = 0.62, MAX_LAG = 16, DUR_SLACK = 6;
+const SAME = 0.8, MAYBE = 0.62, COARSE = 0.6, QUICK = 0.5, MAX_LAG = 16, DUR_SLACK = 3;
 
 const $ = id => document.getElementById(id);
 let items = [];     // {file, path, name, size, ext, hash, fp, err}
@@ -250,15 +250,23 @@ function fingerprint(ab) {
     for (let i = 0; i < L; i++) { const cur = S(b, s0 + i + 1); arr[i] = Math.max(-127, Math.min(127, Math.round((cur - prev) * 60))); prev = cur; }
     d.push(arr);
   }
-  // a coarse 48-step loudness shape, for a quick "not even close" check
-  const coarse = new Float32Array(48), span = Math.max(1, fine - s0f);
+  // a coarse shape: 48 steps x 4 bands. Real twins match it almost exactly, so it screens out
+  // nearly every other song before the expensive comparison (that keeps big libraries fast)
+  const coarse = new Float32Array(48 * BANDS), span = Math.max(1, fine - s0f);
   for (let q = 0; q < 48; q++) {
     const a0 = s0f + Math.floor(q * span / 48), a1 = Math.max(a0 + 1, s0f + Math.floor((q + 1) * span / 48));
-    let s = 0, c = 0;
-    for (let f = a0; f < a1 && f < fine; f++, c++) for (let b = 0; b < BANDS; b++) s += E[b][f];
-    coarse[q] = c ? s / c : floor * BANDS;
+    for (let b = 0; b < BANDS; b++) {
+      let s = 0, c = 0;
+      for (let f = a0; f < a1 && f < fine; f++, c++) s += E[b][f];
+      coarse[b * 48 + q] = c ? s / c : floor;
+    }
   }
-  return { dur: ab.duration, pk, s0, d, len: L, coarse };
+  // each band's shape only, not how loud the band is overall
+  for (let b = 0; b < BANDS; b++) {
+    let m = 0; for (let q = 0; q < 48; q++) m += coarse[b * 48 + q];
+    m /= 48; for (let q = 0; q < 48; q++) coarse[b * 48 + q] -= m;
+  }
+  return { dur: ab.duration, tdur: ab.duration - s0 / FPS, pk, s0, d, len: L, coarse };
 }
 
 function corr(a, b, lag, minN) {
@@ -268,6 +276,31 @@ function corr(a, b, lag, minN) {
   for (let i = i0; i < i1; i++) { const x = a[i], y = b[i + lag]; sa += x; sb += y; saa += x * x; sbb += y * y; sab += x * y; }
   const va = saa - sa * sa / n, vb = sbb - sb * sb / n;
   return va > 0 && vb > 0 ? (sab - sa * sb / n) / Math.sqrt(va * vb) : 0;
+}
+
+// the same comparison on a 20-second slice from the middle: rules out most pairs cheaply
+function corrWin(a, b, st, w, lag) {
+  let n = 0, sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+  for (let i = st, e = st + w; i < e; i++) {
+    const j = i + lag;
+    if (j < 0 || j >= b.length) continue;
+    const x = a[i], y = b[j]; n++; sa += x; sb += y; saa += x * x; sbb += y * y; sab += x * y;
+  }
+  if (n < 60) return 0;
+  const va = saa - sa * sa / n, vb = sbb - sb * sb / n;
+  return va > 0 && vb > 0 ? (sab - sa * sb / n) / Math.sqrt(va * vb) : 0;
+}
+function quickSim(A, B) {
+  const n = Math.min(A.len, B.len), w = Math.min(400, n - 2 * MAX_LAG);
+  if (w < 200) return 1;   // short tracks go straight to the full comparison
+  const st = Math.max(MAX_LAG, Math.min(Math.floor(n * 0.3), n - w - MAX_LAG));
+  let best = -1;
+  for (let l = -MAX_LAG; l <= MAX_LAG; l++) {
+    let c = 0;
+    for (let b = 0; b < BANDS; b++) c += corrWin(A.d[b], B.d[b], st, w, l);
+    if (c / BANDS > best) best = c / BANDS;
+  }
+  return best;
 }
 
 // how alike two tracks sound: the loudness changes of all four bands, best over a few lags
@@ -352,15 +385,15 @@ async function match() {
     nodeOf.set(key, node); nodes.push(node);
   });
   // compare tracks of about the same length
-  const order = nodes.filter(n => n.fp.len >= 100).sort((a, b) => a.fp.dur - b.fp.dur);
+  const order = nodes.filter(n => n.fp.len >= 100).sort((a, b) => a.fp.tdur - b.fp.tdur);
   const parent = new Map(order.map(n => [n, n]));
   const find = n => { while (parent.get(n) !== n) { parent.set(n, parent.get(parent.get(n))); n = parent.get(n); } return n; };
   const maybes = [];
   let t0 = performance.now();
   for (let i = 0; i < order.length; i++) {
-    for (let j = i + 1; j < order.length && order[j].fp.dur - order[i].fp.dur <= DUR_SLACK; j++) {
+    for (let j = i + 1; j < order.length && order[j].fp.tdur - order[i].fp.tdur <= DUR_SLACK; j++) {
       const A = order[i].fp, B = order[j].fp;
-      if (corr(A.coarse, B.coarse, 0, 8) < 0.5) continue;
+      if (corr(A.coarse, B.coarse, 0, 8) < COARSE || quickSim(A, B) < QUICK) continue;
       const s = similarity(A, B);
       if (s.score >= SAME) parent.set(find(order[j]), find(order[i]));
       else if (s.score >= MAYBE) maybes.push([order[i], order[j], s]);
