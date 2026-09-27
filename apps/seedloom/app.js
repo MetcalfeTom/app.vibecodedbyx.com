@@ -126,19 +126,28 @@
     return a >= b ? [longSide, Math.round(longSide * b / a)] : [Math.round(longSide * a / b), longSide];
   }
   const previewLong = () => (innerWidth < 860 ? 1100 : 1400);
+  // while you drag on the art it redraws small and fast; letting go paints it at full size
+  let draft = false;
+  const dcv = document.createElement('canvas'), dctx = dcv.getContext('2d'), dcache = new Map();
 
   let queued = false;
   function schedule() {
     if (queued) return;
     queued = true;
-    $('busy').classList.add('on');
+    if (!draft) $('busy').classList.add('on');
     // two frames: let the "weaving" pill paint before a heavy layer blocks the thread
     requestAnimationFrame(() => requestAnimationFrame(() => {
       queued = false;
       const [W, H] = size(previewLong());
       if (art.width !== W || art.height !== H) { art.width = W; art.height = H; }
-      for (const id of cache.keys()) if (!S.layers.some(l => l.id === id)) cache.delete(id);
-      composite(actx, W, H, cache);
+      for (const m of [cache, dcache]) for (const id of m.keys()) if (!S.layers.some(l => l.id === id)) m.delete(id);
+      if (draft) {
+        const [w, h] = size(560);
+        if (dcv.width !== w || dcv.height !== h) { dcv.width = w; dcv.height = h; }
+        composite(dctx, w, h, dcache);
+        actx.drawImage(dcv, 0, 0, W, H);
+      } else composite(actx, W, H, cache);
+      drawThumbs(draft ? dcache : cache);
       $('busy').classList.remove('on');
       updateLabel();
       art.setAttribute('aria-label', 'Generated artwork: ' + S.layers.filter(l => l.on).map(l => GENS[l.gen].name).join(', ') + ' in the ' + PALETTES[S.pal].name + ' palette');
@@ -192,7 +201,8 @@
       b.setAttribute('aria-label', pal.name + ' palette');
       b.title = pal.name;
       b.setAttribute('aria-pressed', i === S.pal);
-      b.innerHTML = [pal.bg, ...pal.c].map(c => `<i style="background:${c}"></i>`).join('');
+      // the ground fills the card, its five inks run along the bottom
+      b.style.background = `linear-gradient(90deg, ${pal.c.map((c, k) => `${c} ${k * 20}% ${(k + 1) * 20}%`).join(', ')}) bottom / 100% 38% no-repeat, ${pal.bg}`;
       b.onclick = () => { S.pal = i; syncPalettes(); refreshMenu(); schedule(); };
       box.appendChild(b);
     });
@@ -216,6 +226,29 @@
   const paintFill = r => r.style.setProperty('--fill', ((r.value - r.min) / (r.max - r.min) * 100) + '%');
   function fmt(d, v) { return d.step < 1 ? (+v).toFixed(d.step < 0.1 ? 2 : 1) : String(Math.round(v)); }
 
+  // the two settings you can also drag on the art: sideways (x) and up/down (y)
+  const PAD = { flow: ['scale', 'curl'], circles: ['maxR', 'gap'], truchet: ['size', 'width'], ridges: ['amp', 'scale'], glass: ['count', 'lead'], topo: ['scale', 'warp'], harmono: ['detune', 'decay'], subdiv: ['depth', 'gap'], rays: ['x', 'y'], grain: ['scale', 'density'] };
+  function padOf(gen) {
+    const nums = GENS[gen].params.filter(d => !d.options);
+    const pick = (PAD[gen] || []).map(k => nums.find(d => d.k === k)).filter(Boolean);
+    for (const d of nums) if (pick.length < 2 && !pick.includes(d)) pick.push(d);
+    return pick;
+  }
+  const openLayer = () => S.layers.find(l => l.open) || S.layers[S.layers.length - 1];
+
+  function drawThumbs(store) {
+    const bg = PALETTES[S.pal].bg;
+    for (const th of $('layers').querySelectorAll('canvas.thumb')) {
+      const x = th.getContext('2d'), hit = store.get(+th.dataset.id);
+      x.fillStyle = bg;
+      x.fillRect(0, 0, th.width, th.height);
+      if (hit) {
+        const s = Math.min(hit.cv.width, hit.cv.height);
+        x.drawImage(hit.cv, (hit.cv.width - s) / 2, (hit.cv.height - s) / 2, s, s, 0, 0, th.width, th.height);
+      }
+    }
+  }
+
   function buildLayers() {
     const ul = $('layers');
     ul.innerHTML = '';
@@ -226,27 +259,32 @@
       li.className = 'layer' + (L.open ? ' open' : '') + (L.on ? '' : ' hidden-layer');
       const g = GENS[L.gen];
       const bodyId = 'lb' + L.id;
+      const pad = padOf(L.gen), rest = g.params.filter(d => !d.options && !pad.includes(d));
+      const num = (d, axis) => `<div class="ctl"><label for="p${L.id}${d.k}">${d.label}${axis ? `<i class="axis" aria-hidden="true" title="or drag ${axis === 'x' ? 'sideways' : 'up and down'} on the art">${axis === 'x' ? '↔' : '↕'}</i>` : ''}</label><input type="range" id="p${L.id}${d.k}" data-k="${d.k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${L.p[d.k]}"><output>${fmt(d, L.p[d.k])}</output></div>`;
       li.innerHTML = `
         <div class="layer-head">
-          <button type="button" class="layer-name" aria-expanded="${L.open}" aria-controls="${bodyId}">${g.name}<small>${L.blend === 'source-over' ? '' : BLENDS.find(b => b[0] === L.blend)[1]}</small></button>
+          <button type="button" class="layer-name" aria-expanded="${L.open}" aria-controls="${bodyId}"><canvas class="thumb" data-id="${L.id}" width="96" height="96" aria-hidden="true"></canvas><span>${g.name}<small>${L.blend === 'source-over' ? '' : BLENDS.find(b => b[0] === L.blend)[1]}</small></span></button>
           <button type="button" class="icon" data-a="eye" aria-pressed="${L.on}" aria-label="Show ${g.name}" title="Show / hide">${L.on ? '◉' : '○'}</button>
           <button type="button" class="icon" data-a="dice" aria-label="Reseed ${g.name}" title="Reseed: same settings, new roll">⚄</button>
         </div>
         <div class="layer-body" id="${bodyId}">
-          <div class="ctl"><label for="bl${L.id}">blend</label><select id="bl${L.id}" data-a="blend">${BLENDS.map(([v, n]) => `<option value="${v}"${v === L.blend ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
-          <div class="ctl"><label for="op${L.id}">opacity</label><input type="range" id="op${L.id}" data-a="opacity" min="0" max="1" step="0.01" value="${L.opacity}"><output>${Math.round(L.opacity * 100)}%</output></div>
-          ${g.params.map(d => d.options
-            ? `<div class="ctl opts"><span class="lbl" id="p${L.id}${d.k}">${d.label}</span><div class="row" role="group" aria-labelledby="p${L.id}${d.k}">${d.options.map(o => `<button type="button" class="opt" data-k="${d.k}" data-v="${o}" aria-pressed="${o === L.p[d.k]}">${o}</button>`).join('')}</div></div>`
-            : `<div class="ctl"><label for="p${L.id}${d.k}">${d.label}</label><input type="range" id="p${L.id}${d.k}" data-k="${d.k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${L.p[d.k]}"><output>${fmt(d, L.p[d.k])}</output></div>`).join('')}
-          <div class="layer-tools">
-            <button type="button" class="icon" data-a="up" aria-label="Move ${g.name} up" title="Draw later (move up)" ${idx === S.layers.length - 1 ? 'disabled' : ''}>↑</button>
-            <button type="button" class="icon" data-a="down" aria-label="Move ${g.name} down" title="Draw earlier (move down)" ${idx === 0 ? 'disabled' : ''}>↓</button>
-            <button type="button" class="icon" data-a="dup" aria-label="Duplicate ${g.name}" title="Duplicate">⧉</button>
-            <button type="button" class="icon" data-a="reset" aria-label="Reset ${g.name} settings" title="Reset settings">↺</button>
-            <button type="button" class="icon" data-a="del" aria-label="Delete ${g.name}" title="Delete" ${S.layers.length === 1 ? 'disabled' : ''}>✕</button>
-          </div>
+          ${g.params.filter(d => d.options).map(d => `<div class="ctl opts"><span class="lbl" id="p${L.id}${d.k}">${d.label}</span><div class="row" role="group" aria-labelledby="p${L.id}${d.k}">${d.options.map(o => `<button type="button" class="opt" data-k="${d.k}" data-v="${o}" aria-pressed="${o === L.p[d.k]}">${o}</button>`).join('')}</div></div>`).join('')}
+          ${pad.map((d, i) => num(d, i ? 'y' : 'x')).join('')}
+          <div class="ctl mix"><label for="bl${L.id}">mix</label><select id="bl${L.id}" data-a="blend">${BLENDS.map(([v, n]) => `<option value="${v}"${v === L.blend ? ' selected' : ''}>${n}</option>`).join('')}</select><input type="range" data-a="opacity" aria-label="${g.name} opacity" min="0" max="1" step="0.01" value="${L.opacity}"><output>${Math.round(L.opacity * 100)}%</output></div>
+          <details class="more"${L.more ? ' open' : ''}><summary>more</summary><div>
+            ${rest.map(d => num(d)).join('')}
+            <div class="layer-tools">
+              <button type="button" class="icon" data-a="up" aria-label="Move ${g.name} up" title="Draw later (move up)" ${idx === S.layers.length - 1 ? 'disabled' : ''}>↑</button>
+              <button type="button" class="icon" data-a="down" aria-label="Move ${g.name} down" title="Draw earlier (move down)" ${idx === 0 ? 'disabled' : ''}>↓</button>
+              <button type="button" class="icon" data-a="dup" aria-label="Duplicate ${g.name}" title="Duplicate">⧉</button>
+              <button type="button" class="icon" data-a="reset" aria-label="Reset ${g.name} settings" title="Reset settings">↺</button>
+              <button type="button" class="icon" data-a="del" aria-label="Delete ${g.name}" title="Delete" ${S.layers.length === 1 ? 'disabled' : ''}>✕</button>
+            </div>
+          </div></details>
         </div>`;
-      li.querySelector('.layer-name').onclick = () => { L.open = !L.open; buildLayers(); };
+      // one layer open at a time: opening this one folds the others
+      li.querySelector('.layer-name').onclick = () => { const was = L.open; S.layers.forEach(l => l.open = false); L.open = !was; buildLayers(); };
+      li.querySelector('details').addEventListener('toggle', e => { L.more = e.target.open; });
       li.addEventListener('click', e => {
         const opt = e.target.closest('.opt');
         if (opt) {
@@ -264,8 +302,8 @@
           if (j < 0 || j >= S.layers.length) return;
           [S.layers[idx], S.layers[j]] = [S.layers[j], S.layers[idx]];
         } else if (a === 'dup') {
+          S.layers.forEach(l => l.open = false);
           S.layers.splice(idx + 1, 0, makeLayer(L.gen, { p: { ...L.p }, blend: L.blend, opacity: L.opacity, open: true }));
-          L.open = false;
         } else if (a === 'reset') L.p = defaults(L.gen);
         else if (a === 'del') { if (S.layers.length > 1) S.layers.splice(idx, 1); }
         buildLayers();
@@ -289,7 +327,73 @@
       li.querySelectorAll('input[type=range]').forEach(paintFill);
       ul.appendChild(li);
     });
+    drawThumbs(cache);
   }
+
+  // ---------- play right on the art: drag to morph the open layer, tap to reroll it ----------
+  let drag = null, hudT = 0;
+  function hud(text) {
+    const h = $('hud');
+    h.textContent = text;
+    h.classList.add('on');
+    clearTimeout(hudT);
+    hudT = setTimeout(() => h.classList.remove('on'), drag ? 60000 : 1100);
+  }
+  function hideHint() {
+    $('hint').classList.add('gone');
+    try { localStorage.setItem('seedloom-hint', '1'); } catch (e) {}
+  }
+  function syncSliders(L) {
+    for (const d of GENS[L.gen].params) {
+      const inp = document.getElementById('p' + L.id + d.k);
+      if (!inp || inp.type !== 'range') continue;
+      inp.value = L.p[d.k];
+      paintFill(inp);
+      inp.nextElementSibling.textContent = fmt(d, L.p[d.k]);
+    }
+  }
+  art.addEventListener('pointerdown', e => {
+    if (e.button > 0 || !S.layers.length) return;
+    const L = openLayer(), [dx, dy] = padOf(L.gen);
+    try { art.setPointerCapture(e.pointerId); } catch (err) {}
+    drag = { L, dx, dy, x: e.clientX, y: e.clientY, px: dx ? L.p[dx.k] : 0, py: dy ? L.p[dy.k] : 0, r: art.getBoundingClientRect(), moved: false };
+    hideHint();
+  });
+  art.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const mx = e.clientX - drag.x, my = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(mx, my) < 6) return;
+    if (!drag.moved) { drag.moved = true; draft = true; art.classList.add('dragging'); }
+    const set = (d, start, frac) => {
+      if (!d) return;
+      const v = Math.min(d.max, Math.max(d.min, start + frac * (d.max - d.min)));
+      drag.L.p[d.k] = +(d.min + Math.round((v - d.min) / d.step) * d.step).toFixed(4);
+    };
+    set(drag.dx, drag.px, mx / drag.r.width);
+    // the sun in Rays follows your finger; everything else grows as you drag up
+    set(drag.dy, drag.py, (drag.dy && drag.dy.k === 'y' ? my : -my) / drag.r.height);
+    hud([drag.dx, drag.dy].filter(Boolean).map(d => d.label + ' ' + fmt(d, drag.L.p[d.k])).join('   ·   '));
+    syncSliders(drag.L);
+    schedule();
+  });
+  function endDrag(e) {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    if (d.moved) {
+      draft = false;
+      art.classList.remove('dragging');
+      hud($('hud').textContent);
+      schedule();
+    } else if (e.type === 'pointerup') {
+      d.L.seed = newSeed();
+      delete d.L.ns;
+      hud('new roll · ' + GENS[d.L.gen].name.toLowerCase());
+      schedule();
+    }
+  }
+  art.addEventListener('pointerup', endDrag);
+  art.addEventListener('pointercancel', endDrag);
 
   // Add-a-layer menu with a live thumbnail per generator, in the current palette
   const thumbCache = new Map();
@@ -321,7 +425,7 @@
       b.innerHTML = `<canvas width="160" height="160" aria-hidden="true"></canvas><span><b>${g.name}</b><br>${g.blurb}</span>`;
       b.onclick = () => {
         const dark = lum(PALETTES[S.pal].bg) < 0.4;
-        S.layers.forEach(l => l.open = false);
+        S.layers.forEach(l => { l.open = false; });
         S.layers.push(makeLayer(id, { open: true, blend: S.layers.length ? (dark ? 'screen' : 'multiply') : 'source-over', opacity: S.layers.length ? 0.85 : 1 }));
         toggleMenu(false);
         buildLayers();
@@ -590,6 +694,9 @@
   }
   function enterEditor() {
     showView(false);
+    let seen = false;
+    try { seen = !!localStorage.getItem('seedloom-hint'); } catch (e) {}
+    $('hint').classList.toggle('gone', seen);
     syncPalettes();
     buildAspects();
     buildLayers();
