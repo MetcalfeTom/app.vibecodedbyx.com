@@ -182,6 +182,14 @@
         }
         .particle-count { font-family: monospace; white-space: nowrap; }
         .tips { opacity: 0.7; transition: opacity 0.8s; }
+        #toast {
+            position: fixed; left: 50%; bottom: 56px; transform: translate(-50%, 12px); max-width: min(92vw, 560px);
+            background: #1d1a15; color: #f3e3cc; border: 1px solid #d4a574; border-radius: 10px; padding: 10px 14px;
+            font-size: 0.85rem; box-shadow: 0 10px 30px rgba(0,0,0,.5); opacity: 0; pointer-events: none;
+            transition: opacity .25s, transform .25s; z-index: 50; overflow-wrap: anywhere;
+        }
+        #toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+        #toast a { color: #ffd9a8; }
         .tips.used { opacity: 0; }
         @media (max-width: 768px) {
             .header h1 { font-size: 1.1em; }
@@ -278,6 +286,7 @@
 
         <button class="control-btn" id="clearBtn">Clear</button>
         <button class="control-btn" id="gravityBtn" aria-pressed="false" title="Freeze everything (P)">⏸ Pause</button>
+        <button class="control-btn" id="shareBtn" title="Save this scene and copy a link to it">🔗 Share</button>
     </div>
 
     <div class="canvas-wrap">
@@ -288,6 +297,7 @@
         <span class="tips">Drag to draw • Fire burns wood & oil • Water extinguishes fire • Wet seeds grow flowers • Batteries pulse current down metal wires</span>
         <span class="particle-count" id="particleCount">Particles: 0</span>
     </div>
+    <div id="toast" role="status" aria-live="polite"></div>
 
     <script>
         const canvas = document.getElementById('sandbox');
@@ -954,7 +964,98 @@
             }
         });
 
+        // ---------- sharing: a scene is its grid, deflated; saved to sand_scenes and opened with ?s=<id> ----------
+        const toastEl = document.getElementById('toast');
+        let toastT = 0;
+        function toast(msg, link) {
+            toastEl.textContent = msg;
+            if (link) { toastEl.append(' '); const a = document.createElement('a'); a.href = link; a.textContent = link; toastEl.append(a); }
+            toastEl.classList.add('show');
+            clearTimeout(toastT);
+            toastT = setTimeout(() => toastEl.classList.remove('show'), link ? 9000 : 3500);
+        }
+        const b64 = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+        async function packScene() {
+            const z = new Blob([grid]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+            return b64(new Uint8Array(await new Response(z).arrayBuffer()));
+        }
+        async function unpackScene(data, w, h) {
+            const bin = atob(data), bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const z = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+            const out = new Uint8Array(await new Response(z).arrayBuffer());
+            if (out.length !== w * h) throw new Error('size');
+            return out;
+        }
+        // a scene made on another screen size is scaled to fit (never up) and stands on the floor
+        function placeScene(src, w, h) {
+            clearWorld();
+            const k = Math.min(1, W / w, H / h), sw = Math.floor(w * k), sh = Math.floor(h * k);
+            const ox = Math.floor((W - sw) / 2), oy = H - sh;
+            for (let y = 0; y < sh; y++) {
+                const sy = Math.min(h - 1, Math.floor(y / k));
+                for (let x = 0; x < sw; x++) {
+                    const m = src[sy * w + Math.min(w - 1, Math.floor(x / k))];
+                    if (m && m <= BATTERY) { const i = idx(ox + x, oy + y); grid[i] = m; colorVar[i] = Math.floor(Math.random() * 4); }
+                }
+            }
+        }
+        let dbP = null;
+        const getDb = () => dbP || (dbP = import('/supabase-config.js').then(m => ({ db: m.default, session: m.supabaseSession })));
+        const shareBtn = document.getElementById('shareBtn');
+        let lastShared = '';
+        shareBtn.addEventListener('click', async () => {
+            if (shareBtn.disabled) return;
+            let n = 0;
+            for (let i = 0; i < grid.length; i++) if (grid[i]) n++;
+            if (n < 50) { toast('Draw something first, then share it'); return; }
+            let log = [];
+            try { log = JSON.parse(localStorage.getItem('sandShares') || '[]').filter(t => Date.now() - t < 864e5); } catch (e) {}
+            if (log.length >= 30) { toast('Thirty scenes today! Come back tomorrow for more'); return; }
+            shareBtn.disabled = true;
+            const was = shareBtn.textContent;
+            shareBtn.textContent = '⏳ Saving';
+            let link = '';
+            try {
+                const data = await packScene();
+                if (data.length > 400000) throw new Error('big');
+                if (data === lastShared.data) link = lastShared.link;
+                else {
+                    const { db, session } = await getDb();
+                    const { user } = await session();
+                    const { data: row, error } = await db.from('sand_scenes').insert({ w: W, h: H, cells: n, data, user_id: user.id }).select('id').single();
+                    if (error || !row || row.id == null) throw error || new Error('no row');
+                    link = location.origin + location.pathname + '?s=' + row.id;
+                    lastShared = { data, link };
+                    log.push(Date.now());
+                    try { localStorage.setItem('sandShares', JSON.stringify(log)); } catch (e) {}
+                    try { history.replaceState(null, '', '?s=' + row.id); } catch (e) {}
+                }
+                let copied = false;
+                try { await navigator.clipboard.writeText(link); copied = true; } catch (e) {}
+                toast(copied ? 'Link copied! Anyone who opens it gets this scene:' : 'Saved! Your scene lives here:', link);
+            } catch (e) {
+                toast(e && e.message === 'big' ? 'This scene is too busy to save: clear a bit and try again' : 'Could not save right now: try again in a moment');
+            }
+            shareBtn.disabled = false;
+            shareBtn.textContent = was;
+        });
+        async function openShared() {
+            const sid = new URLSearchParams(location.search).get('s');
+            if (!sid || !/^\d{1,12}$/.test(sid)) return;
+            try {
+                const { db } = await getDb();
+                const { data: row, error } = await db.from('sand_scenes').select('w, h, data').eq('id', sid).single();
+                if (error || !row) throw error || new Error('missing');
+                const w = row.w | 0, h = row.h | 0;
+                if (w < 50 || h < 50 || w > 2000 || h > 2000 || typeof row.data !== 'string' || row.data.length > 400000) throw new Error('bad');
+                placeScene(await unpackScene(row.data, w, h), w, h);
+                toast('A shared scene: press ⏸ to freeze it, or add your own chaos');
+            } catch (e) { toast('That shared scene could not be opened'); }
+        }
+
         // Start
+        openShared();
         loop();
     </script>
 <script src="/sloppy-header/sloppy-bar.js"></script>
