@@ -91,11 +91,16 @@
 
   // ---------- rendering ----------
   const cache = new Map();
+  const layerKey = (L, W, H, pal) => JSON.stringify([L.gen, L.seed, L.ns, L.p, pal.bg, pal.c, W, H]);
+  // cached layers are canvases, or ImageBitmaps when a worker painted them
+  const isCanvas = c => typeof HTMLCanvasElement !== 'undefined' && c instanceof HTMLCanvasElement;
+  const drop = hit => { if (hit && !isCanvas(hit.cv) && hit.cv.close) hit.cv.close(); };
   function renderLayer(L, W, H, pal, store) {
-    const key = JSON.stringify([L.gen, L.seed, L.ns, L.p, pal.bg, pal.c, W, H]);
+    const key = layerKey(L, W, H, pal);
     const hit = store.get(L.id);
     if (hit && hit.key === key) return hit.cv;
-    const cv = hit ? hit.cv : document.createElement('canvas');
+    if (hit && !isCanvas(hit.cv)) drop(hit);
+    const cv = hit && isCanvas(hit.cv) ? hit.cv : document.createElement('canvas');
     cv.width = W; cv.height = H;
     const x = cv.getContext('2d');
     x.clearRect(0, 0, W, H);
@@ -138,6 +143,35 @@
     schedule();
   }
 
+  // full-size paintings: each layer goes to a background worker when there are any, so the page never freezes;
+  // a quick sketch shows the change at once and the sharp version replaces it when every layer is back
+  const edQueue = [], inflight = new Set(), noAsync = new Set();
+  let draftSig = '';
+  function fullAsync(W, H) {
+    const pal = PALETTES[S.pal];
+    let missing = 0;
+    for (const L of S.layers) {
+      if (!L.on || L.opacity <= 0) continue;
+      const key = layerKey(L, W, H, pal), hit = cache.get(L.id);
+      if ((hit && hit.key === key) || noAsync.has(key)) continue;
+      missing++;
+      if (!inflight.has(key)) { inflight.add(key); edQueue.push({ ed: true, lid: L.id, key, W, H }); }
+    }
+    if (missing) pump();
+    return missing > 0;
+  }
+  // the job still matches what the layer looks like now
+  function edLive(job) {
+    const L = S.layers.find(l => l.id === job.lid);
+    return L && L.on && L.opacity > 0 && layerKey(L, job.W, job.H, PALETTES[S.pal]) === job.key ? L : null;
+  }
+  function edDone(job, m) {
+    inflight.delete(job.key);
+    if (m.fail) { noAsync.add(job.key); schedule(); return; }
+    if (edLive(job)) { drop(cache.get(job.lid)); cache.set(job.lid, { key: job.key, cv: m.bmp }); schedule(); }
+    else m.bmp.close();
+  }
+
   let queued = false;
   function schedule() {
     if (queued) return;
@@ -148,15 +182,20 @@
       queued = false;
       const [W, H] = size(previewLong());
       if (art.width !== W || art.height !== H) { art.width = W; art.height = H; }
-      for (const m of [cache, dcache]) for (const id of m.keys()) if (!S.layers.some(l => l.id === id)) m.delete(id);
-      if (draft) {
-        const [w, h] = size(560);
-        if (dcv.width !== w || dcv.height !== h) { dcv.width = w; dcv.height = h; }
-        composite(dctx, w, h, dcache);
-        actx.drawImage(dcv, 0, 0, W, H);
-      } else composite(actx, W, H, cache);
-      drawThumbs(draft ? dcache : cache);
-      $('busy').classList.remove('on');
+      for (const m of [cache, dcache]) for (const id of m.keys()) if (!S.layers.some(l => l.id === id)) { drop(m.get(id)); m.delete(id); }
+      const pending = !draft && pool.length > 0 && fullAsync(W, H);
+      if (draft || pending) {
+        const sig = JSON.stringify(packState()) + W + 'x' + H;
+        if (draft || sig !== draftSig) {
+          const [w, h] = size(560);
+          if (dcv.width !== w || dcv.height !== h) { dcv.width = w; dcv.height = h; }
+          composite(dctx, w, h, dcache);
+          actx.drawImage(dcv, 0, 0, W, H);
+          draftSig = sig;
+        }
+      } else { composite(actx, W, H, cache); draftSig = ''; }
+      drawThumbs(draft || pending ? dcache : cache);
+      if (!pending) $('busy').classList.remove('on');
       updateLabel();
       art.setAttribute('aria-label', 'Generated artwork: ' + S.layers.filter(l => l.on).map(l => GENS[l.gen].name).join(', ') + ' in the ' + PALETTES[S.pal].name + ' palette');
       persist();
@@ -666,11 +705,17 @@
       const libs = [...document.scripts].map(sc => sc.getAttribute('src') || '').filter(src => /^gens[\w-]*\.js(\?[\w.=]*)?$/.test(src));
       const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
       for (let k = 0; k < n; k++) {
-        const w = new Worker('wall-worker.js');
+        const w = new Worker('wall-worker.js?v=1.6');
         w.busy = null;
         w.postMessage({ init: libs });
         w.onmessage = e => done(w, e.data);
-        w.onerror = () => { pool.splice(pool.indexOf(w), 1); if (w.busy) { w.busy.painting = false; queue.unshift(w.busy); } w.terminate(); pump(); };
+        w.onerror = () => {
+          pool.splice(pool.indexOf(w), 1);
+          if (w.busy && w.busy.ed) { inflight.delete(w.busy.key); noAsync.add(w.busy.key); schedule(); }
+          else if (w.busy) { w.busy.painting = false; queue.unshift(w.busy); }
+          w.terminate();
+          pump();
+        };
         pool.push(w);
       }
     }
@@ -679,7 +724,8 @@
     const item = jobs.get(m.id);
     jobs.delete(m.id);
     w.busy = null;
-    if (item) {
+    if (item && item.ed) edDone(item, m);
+    else if (item) {
       item.painting = false;
       if (m.fail) { window.__wallFails = (window.__wallFails || 0) + 1; paintHere(item); }
       else if (!near.has(item)) m.bmp.close();
@@ -726,6 +772,16 @@
     if (pool.length) {
       for (const w of pool) {
         if (w.busy) continue;
+        // the piece you are editing goes before the wall
+        let job;
+        while ((job = edQueue.shift()) && !edLive(job)) inflight.delete(job.key);
+        if (job) {
+          const id = ++jobId;
+          w.busy = job;
+          jobs.set(id, job);
+          w.postMessage({ id, w: job.W, h: job.H, raw: true, pal: PALETTES[S.pal], layers: [edLive(job)] });
+          continue;
+        }
         const item = nextItem();
         if (!item) return;
         const id = ++jobId;
