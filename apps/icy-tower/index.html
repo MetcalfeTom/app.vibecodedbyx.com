@@ -437,6 +437,23 @@
       margin-bottom: 12px;
     }
 
+    .lb-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+    .lb-tab {
+      flex: 1;
+      padding: 7px 4px;
+      font: inherit;
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: rgba(0, 255, 255, 0.5);
+      background: none;
+      border: 1px solid rgba(0, 255, 255, 0.15);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .lb-tab.on { color: #e8fbff; background: rgba(0, 255, 255, 0.1); border-color: rgba(0, 255, 255, 0.45); }
+    .lb-tab:focus-visible { outline: 2px solid #9fe3ff; outline-offset: 2px; }
+
     .leaderboard {
       background: rgba(0, 0, 0, 0.3);
       border: 1px solid rgba(0, 255, 255, 0.1);
@@ -552,7 +569,10 @@
 
     <div class="sidebar">
       <div>
-        <div class="section-title">Leaderboard · Season 2</div>
+        <div class="lb-tabs" role="tablist" aria-label="Leaderboard">
+          <button type="button" class="lb-tab on" role="tab" aria-selected="true" data-lb="season">Season 2</button>
+          <button type="button" class="lb-tab" role="tab" aria-selected="false" data-lb="daily">Today</button>
+        </div>
         <div class="leaderboard" id="leaderboard">
           <div class="lb-row header">
             <span>#</span><span>Player</span><span>Floor</span>
@@ -690,6 +710,7 @@
     // Tower layout randomness. Classic: a fresh tower every run. Daily: one seed per UTC day, so
     // everyone climbs the same tower today and your ghost replays on the same platforms.
     let rand = Math.random;
+    let dailyTop = null; // today's #1 on the daily board, once loaded
     function mulberry32(a) {
       return function () {
         a |= 0; a = a + 0x6D2B79F5 | 0;
@@ -784,6 +805,7 @@
 
     function resetWorld() {
       const day = todayKey();
+      game.runDay = day;
       rand = game.mode === 'daily' ? mulberry32(+day.replace(/-/g, '')) : Math.random;
       game.ghost = game.mode === 'daily' ? loadDaily() : null;
       game.rec = [];
@@ -1638,9 +1660,11 @@
     };
     function refreshDailySub() {
       const d = loadDaily();
-      document.getElementById('dailySub').textContent = d
-        ? 'Your ghost from floor ' + d.floor + ' is waiting · same tower for everyone today'
-        : 'Same tower for everyone today · race your ghost';
+      const top = dailyTop ? "Today's top: floor " + dailyTop.score + ' by ' + (dailyTop.display_name || 'Anon').slice(0, 20) : '';
+      document.getElementById('dailySub').textContent = [
+        d ? 'Your ghost: floor ' + d.floor : 'Same tower for everyone today',
+        top || (d ? 'same tower for everyone today' : 'race your ghost'),
+      ].join(' · ');
     }
     refreshDailySub();
     document.getElementById('playAgainBtn').onclick = () => { gameOverOverlay.classList.remove('show'); startGame(); };
@@ -1685,6 +1709,7 @@
       document.getElementById('finalFloor').textContent = game.floor;
       let dailyNote = '';
       document.getElementById('modeSwapText').textContent = game.mode === 'daily' ? 'Classic tower' : '❄ Daily Tower';
+      document.querySelector('label[for="playerName"]').textContent = game.mode === 'daily' ? "Save to today's tower" : 'Enter your name';
       if (game.mode === 'daily') {
         const prev = loadDaily();
         if (!prev || game.floor > prev.floor) {
@@ -1764,22 +1789,44 @@
       loadLeaderboard();
     }
 
+    // Season 2 and Today's Tower share one panel. Both keep one row per player and only climbs a
+    // human could make (a real climb tops out around 3.5 floors a second).
+    let lbMode = 'season';
+    async function fetchBoard(mode) {
+      let q = supabase.from(mode === 'daily' ? 'icy_tower_daily' : 'icy_tower_season_two').select('score, display_name, best_combo, secs, user_id');
+      if (mode === 'daily') q = q.eq('day', todayKey());
+      const { data: rows, error } = await q.order('score', { ascending: false }).limit(100);
+      if (error) throw error;
+      const seen = new Set();
+      return (rows || []).filter(r => {
+        const ok = r.score > 0 && r.score <= 5000 && r.secs > 0 && r.score <= r.secs * 5 + 10;
+        const who = r.user_id || r.display_name;
+        if (!ok || seen.has(who)) return false;
+        seen.add(who);
+        return true;
+      });
+    }
+    function setLbMode(mode) {
+      lbMode = mode;
+      document.querySelectorAll('.lb-tab').forEach(b => {
+        const on = b.dataset.lb === mode;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-selected', on);
+      });
+      loadLeaderboard();
+    }
+    document.querySelectorAll('.lb-tab').forEach(b => b.onclick = () => setLbMode(b.dataset.lb));
+
     async function loadLeaderboard() {
       try {
-        const { data: rows, error } = await supabase.from('icy_tower_season_two').select('score, display_name, best_combo, secs, user_id').order('score', { ascending: false }).limit(100);
-        // Season 2 (the sinking tower): one row per player, and only climbs a human could make
-        const seen = new Set();
-        const data = (rows || []).filter(r => {
-          const ok = r.score > 0 && r.score <= 5000 && r.secs > 0 && r.score <= r.secs * 5 + 10;
-          const who = r.user_id || r.display_name;
-          if (!ok || seen.has(who)) return false;
-          seen.add(who);
-          return true;
-        }).slice(0, 8);
-        if (error) throw error;
+        const mode = lbMode;
+        const all = await fetchBoard(mode);
+        if (mode !== lbMode) return;
+        const data = all.slice(0, 8);
+        if (mode === 'daily') showDailyTop(all);
         const header = '<div class="lb-row header"><span>#</span><span>Player</span><span>Floor</span></div>';
         if (!data || data.length === 0) {
-          leaderboardEl.innerHTML = header + '<div class="lb-row"><span></span><span style="opacity:0.4">Season 2 just started. Be the first!</span><span></span></div>';
+          leaderboardEl.innerHTML = header + '<div class="lb-row"><span></span><span style="opacity:0.4">' + (mode === 'daily' ? "Nobody has climbed today's tower yet. Be the first!" : 'Season 2 just started. Be the first!') + '</span><span></span></div>';
           return;
         }
         leaderboardEl.innerHTML = header + data.map((r, i) => {
@@ -1790,6 +1837,15 @@
     }
 
     document.getElementById('refreshBtn').onclick = loadLeaderboard;
+
+    // Today's leader on the Daily Tower button, so phones (no sidebar) see it too
+    function showDailyTop(rows) {
+      dailyTop = rows && rows.length ? rows[0] : null;
+      refreshDailySub();
+    }
+    async function loadDailyTop() {
+      try { showDailyTop(await fetchBoard('daily')); } catch (e) {}
+    }
 
     const saveScoreBtn = document.getElementById('saveScoreBtn');
     const skipSaveBtn = document.getElementById('skipSaveBtn');
@@ -1802,10 +1858,23 @@
       saveError.style.display = 'none';
       try {
         const name = (playerNameInput.value || 'Player').slice(0, 20);
-        const { error } = await supabase.from('icy_tower_season_two').insert([{ score: game.lastFloor, display_name: name, best_combo: game.lastCombo, secs: game.lastSecs, user_id: currentUser?.id }]);
+        const row = { score: game.lastFloor, display_name: name, best_combo: game.lastCombo, secs: game.lastSecs, user_id: currentUser?.id };
+        const daily = game.mode === 'daily';
+        if (daily) row.day = game.runDay;
+        const { error } = await supabase.from(daily ? 'icy_tower_daily' : 'icy_tower_season_two').insert([row]);
         if (error) throw error;
         saveBlock.style.display = 'none';
         unlock('savedScore');
+        if (daily) {
+          // Where you landed on today's board, right on the game-over card
+          try {
+            const rows = await fetchBoard('daily');
+            showDailyTop(rows);
+            const rank = rows.filter(r => r.score > game.lastFloor).length + 1;
+            document.getElementById('finalZone').insertAdjacentHTML('beforeend', '<br><b>#' + rank + '</b> on today\'s tower of ' + Math.max(rank, rows.length));
+          } catch (e) {}
+          if (lbMode !== 'daily') { setLbMode('daily'); return; }
+        }
         loadLeaderboard();
       } catch (e) {
         saveError.textContent = 'Error: ' + e.message;
@@ -1818,6 +1887,7 @@
     resetWorld();
     draw();
     initAuth();
+    loadDailyTop();
   </script>
 <script src="/sloppy-header/sloppy-bar.js"></script>
 </body>
