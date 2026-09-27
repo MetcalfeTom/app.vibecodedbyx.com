@@ -756,6 +756,7 @@
             return b;
         }
         const B_HAZ = [[0, 1], [0, -2], [0, -5], [0, -10], [4, -5], [-4, -5], [3, -9], [6, -10]]; // spots checked for fire and current
+        const B_SHY = [[12, -6], [12, 4], [0, 10], [0, 20], [7, 14], [0, 30], [-6, 16]];
         function groundBelow(x, y, max) { for (let d = 1; d <= max; d++) if (!airAt(x, y + d)) return d; return max + 1; }
         function splash(x, y) { for (let q = 0; q < 12; q++) drops.push({ x: x + (Math.random() - 0.5) * 6, y, vx: (Math.random() - 0.5) * 2.2, vy: -1.2 - Math.random() * 2, l: 45 }); }
         function birdMove(b, wet) {
@@ -818,6 +819,11 @@
                     b.flap += 0.2; b.glide += 0.013;
                     const gd = groundBelow(cx, cy, 70);
                     if (gd < 22) b.vy -= 0.06; else if (gd > 60) b.vy += 0.025;
+                    // shy of flames: climb away from fire or lava below or ahead, and turn back from flames at head height
+                    if ((frame + k) % 3 === 0) for (const [ox, oy] of B_SHY) {
+                        const m = get(cx + ox * b.dir, cy + oy);
+                        if (m === FIRE || m === LAVA) { b.vy -= 0.6; if (oy < 0) b.vx = -b.vx; break; }
+                    }
                     b.vy += Math.sin(b.flap * 0.3) * 0.015;
                     if (!airAt(b.x + b.dir * 9, b.y) || !airAt(b.x + b.dir * 9, b.y + 3)) {
                         b.vy -= 0.3;
@@ -1574,8 +1580,23 @@
             for (let y = y0; y <= y1; y++) { const row = y * W; for (let x = x0; x <= x1; x++) if (grid[row + x] === m) n++; }
             return n;
         }
+        // embers: each burning cell has chance p to throw one 2..2+reach cells sideways (always right in a wind);
+        // it settles on the first thing below it and lights leaves, grass and wood
+        function qEmbers(x0, y0, x1, y1, p, reach, wind) {
+            x0 = Math.max(0, x0 | 0); y0 = Math.max(0, y0 | 0); x1 = Math.min(W - 1, x1 | 0); y1 = Math.min(H - 1, y1 | 0);
+            for (let y = y0; y <= y1; y++) {
+                const row = y * W;
+                for (let x = x0; x <= x1; x++) {
+                    if (grid[row + x] !== FIRE || Math.random() > p) continue;
+                    const d = 2 + (Math.random() * reach | 0), tx = wind || Math.random() < 0.5 ? x + d : x - d;
+                    let ty = y + (Math.random() * 5 | 0) - 2, t = get(tx, ty);
+                    for (let n = 0; n < 40 && (t === EMPTY || t === FIRE || t === STEAM); n++) t = get(tx, ++ty);
+                    if (t === PLANT || t === WOOD) set(tx, ty, FIRE);
+                }
+            }
+        }
         const qFloor = () => { qBox(0, H - 6, W - 1, H - 1, STONE); return H - 7; };
-        let QW = 0.1, QR = 12, QB = 7; // Firebreak: ember chance per burning cell per gust, how far embers fly, rows of dry brush
+        let QW = 0.1, QR = 12, QB = 7, QF = 70, QM = 0.08, QN = 8; // Firebreak: ember chance per burning cell per gust, how far embers fly, rows of dry brush
         const qSecs = s => Math.max(0, Math.ceil(s - Q.f / 60));
 
         const Q_LEVELS = [
@@ -1632,22 +1653,8 @@
                     for (let y = 0; y <= top; y++) for (let x = 0; x < W * 0.1; x++) { const m = grid[y * W + x]; if (m === PLANT || m === WOOD) set(x, y, FIRE); }
                     s.lit = 0;
                 },
-                // wind: burning cells throw embers a few cells to the right; one that lands on leaves, grass or wood lights it
-                tick(s) {
-                    if (Q.f % 4) return;
-                    const k = W / 800, x1 = s.cab[2], y0 = Math.max(0, s.top - 140);
-                    for (let y = y0; y <= s.top; y++) {
-                        const row = y * W;
-                        for (let x = 0; x < x1; x++) {
-                            if (grid[row + x] !== FIRE || Math.random() > QW) continue;
-                            // the ember drifts right and settles on the first thing below it
-                            const tx = x + 2 + (Math.random() * QR * k | 0);
-                            let ty = y + (Math.random() * 5 | 0) - 2, t = get(tx, ty);
-                            for (let d = 0; d < 40 && (t === EMPTY || t === FIRE || t === STEAM); d++) t = get(tx, ++ty);
-                            if (t === PLANT || t === WOOD) set(tx, ty, FIRE);
-                        }
-                    }
-                },
+                // wind: every 4 frames burning cells throw embers to the right (see qEmbers)
+                tick(s) { if (Q.f % 4 === 0) qEmbers(0, s.top - 140, s.cab[2], s.top, QW, QR * W / 800, true); },
                 check(s) {
                     const pct = Math.round(100 * qCount(WOOD, ...s.cab) / s.wood0), left = qSecs(45);
                     // no flames anywhere for 1.5 s means the fire is out
@@ -1680,13 +1687,65 @@
                     if (gone > 0.75) return { text: 'Boom!', win: true };
                     return { text: gone > 0.02 ? `Burning… ${Math.round(gone * 100)}%` : 'Gunpowder intact' };
                 }
+            },
+            {
+                icon: '🐟', name: 'Feeding Time', goal: 'Grow the school to 12 fish',
+                brief: 'Three hungry fish and a handful of seeds. Every two seeds a fish eats hatches a baby, and seeds that reach the bottom are wasted.',
+                tip: 'Drop them right over a fish.',
+                palette: ['seeds'], inkAbs: QF, brush: 3,
+                build(s) {
+                    const top = qFloor(), x0 = Math.round(W * 0.08), x1 = Math.round(W * 0.92), depth = Math.round(Math.min(H * 0.4, 170));
+                    qBox(x0, top - depth, x0 + 4, top, STONE);
+                    qBox(x1 - 4, top - depth, x1, top, STONE);
+                    qBox(x0 + 5, top - depth + 14, x1 - 5, top, WATER);
+                    for (let k = 0; k < 3; k++) addFish(x0 + 40 + Math.random() * (x1 - x0 - 80), top - depth * 0.45);
+                },
+                check(s) {
+                    const n = fish.filter(f => !f.dead).length, text = `Fish ${Math.min(n, 12)}/12`;
+                    if (n >= 12) return { text, win: true };
+                    if (!n) return { text, lose: 'The pond is empty' };
+                    return { text };
+                }
+            },
+            {
+                icon: '🐦', name: 'Gone Fishing', goal: 'Let the birds catch 3 fish',
+                brief: 'The birds are starving, but a mat of dry reeds covers the pond. Burn it open so they can dive for fish.',
+                tip: 'Keep the flames away from the birds.',
+                palette: ['fire'], ink: 0.3, brush: 3,
+                build(s) {
+                    const top = qFloor(), x0 = Math.round(W * 0.2), x1 = Math.round(W * 0.8), depth = Math.round(Math.min(H * 0.2, 70)), sy = top - depth + 8;
+                    qBox(x0, top - depth, x0 + 4, top, STONE);
+                    qBox(x1 - 4, top - depth, x1, top, STONE);
+                    qBox(x0 + 5, sy, x1 - 5, top, WATER);
+                    qBox(x0 + 5, sy - 6, x1 - 5, sy - 3, PLANT);
+                    const posts = [x0 - 40, x1 + 32];
+                    for (const px of posts) qBox(px, sy - 40, px + 7, top, STONE);
+                    for (let k = 0; k < 18; k++) addFish(x0 + 20 + Math.random() * (x1 - x0 - 40), sy + 8 + Math.random() * (top - sy - 16));
+                    // two sit on the posts, the rest of the flock circles high above
+                    for (let k = 0; k < QN; k++) {
+                        const b = k < 2 ? addBird(posts[k] + 3, sy - 41) : addBird(W * 0.1 + Math.random() * W * 0.8, Math.max(20, sy - 80 - Math.random() * 60));
+                        if (b && k < 2) { b.mode = 1; b.vx = b.vy = 0; b.t = 200 + Math.random() * 300 | 0; }
+                    }
+                    Object.assign(s, { c0: birdCaught, x0, x1, sy });
+                },
+                // the reeds are dry: flames spread through the mat by throwing embers both ways
+                tick(s) { if (Q.f % 4 === 0) qEmbers(s.x0, s.sy - 70, s.x1, s.sy, QM, 6, false); },
+                check(s) {
+                    const n = birdCaught - s.c0, text = `Fish caught ${Math.min(n, 3)}/3`;
+                    if (n >= 3) return { text, win: true };
+                    if (!birds.some(b => !b.dead)) return { text, lose: 'The birds got singed' };
+                    if (!fish.some(f => !f.dead)) return { text, lose: 'No fish left' };
+                    return { text };
+                }
             }
         ];
 
         function qInk(x, y) {
             if (!inBounds(x, y)) return false;
             const m = grid[idx(x, y)];
-            if (m === currentMat || (m !== EMPTY && m !== FIRE && m !== STEAM)) return false;
+            // fire may also be painted onto anything that burns
+            const burns = currentMat === FIRE && (m === PLANT || m === WOOD || m === OIL || m === POWDER || m === SEED || m === SPROUT || m === FLOWER);
+            if (m === currentMat || (m !== EMPTY && m !== FIRE && m !== STEAM && !burns)) return false;
             if (Q.ink <= 0) { Q.dryHit = true; return false; }
             Q.ink--;
             return true;
@@ -1716,7 +1775,7 @@
             closePicker();
             clearWorld();
             Q = { i, L, s: {}, f: 0, blooms: [], over: false, dry: 0, dryHit: false };
-            Q.ink = Q.inkMax = Math.round(L.ink * (W + H));
+            Q.ink = Q.inkMax = L.inkAbs || Math.round(L.ink * (W + H));
             L.build(Q.s);
             // only this level's materials show; the free-play buttons step aside
             document.querySelectorAll('.material-btn').forEach(b => { b.hidden = !L.palette.includes(b.dataset.mat); });
