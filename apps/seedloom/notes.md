@@ -9,6 +9,8 @@ Generative art playground. Every generator is hand-written canvas code (no libra
   - Remix: base layer (covers canvas) + overlay layer + 55% grain; 30% of the time a hand-tuned preset instead. "Surprise me" on the wall loads a preset.
   - Share: state JSON (v, pal, aspect, layers [gen, seed, blend, opacity, on, params, ns?]) base64url in #w=. Every value is validated against the generator's param ranges on load (cleanParams).
 
+- v1.1: Fela's art direction: the wall is full-bleed (rows of tiles that fill the whole screen, row count picked so cells are closest to square, canvases object-fit: cover), no gaps, no visible text (sr-only h1), names only on hover as tiny spaced caps in Syne. Editor restyled: hairline sliders, stripe palettes, option words instead of selects, hairline layer list, text buttons + one orange remix pill, museum label under the art (title from seeds, e.g. "Burnt Quarry", plus medium line). Saved PNG is named after the title.
+
 ## architecture
 - gens.js: window.SL = { TAU, rng, makeNoise, pick, hexA, mix, GENS }. Generator = { name, blurb, params:[{k,label,min,max,step,def}|{k,label,options,def}], draw(ctx,w,h,p,R,pal,N,u) } where pal={bg,c:[5]}, u=min(w,h)/1000 (all sizes in u so a piece looks the same at every resolution), R = seeded rng for layout, N = seeded noise {n2, fbm}.
 - A generator draws on a transparent layer canvas; app.js fills pal.bg underneath and composites layers with globalCompositeOperation + globalAlpha.

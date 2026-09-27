@@ -71,6 +71,21 @@
   }
   const packState = () => ({ v: 1, pal: S.pal, aspect: S.aspect, layers: S.layers.map(l => [l.gen, l.seed, l.blend, +l.opacity.toFixed(2), l.on ? 1 : 0, l.p].concat(l.ns != null ? [l.ns] : [])) });
 
+  // ---------- the museum label: a title that belongs to this exact piece ----------
+  const WORD_A = ['Quiet', 'Copper', 'Hollow', 'Late', 'Salt', 'Paper', 'Velvet', 'Northern', 'Slow', 'Amber', 'Iron', 'Silver', 'Tidal', 'Burnt', 'Pale', 'Folded', 'Distant', 'Sunday', 'Wild', 'Borrowed', 'Glass', 'Lunar', 'Humming', 'Winter'];
+  const WORD_B = ['Harbour', 'Orchard', 'Signal', 'Weather', 'Garden', 'Current', 'Choir', 'Lantern', 'Meridian', 'Archive', 'Tide', 'Ember', 'Atlas', 'Hymn', 'Field', 'Echo', 'Parade', 'Quarry', 'Window', 'Engine', 'Letter', 'Delta', 'Loom', 'Static'];
+  function pieceTitle() {
+    let h = 2166136261 ^ S.pal;
+    for (const l of S.layers) if (l.on) { h = Math.imul(h ^ l.seed, 16777619); h = Math.imul(h ^ l.gen.length * 131, 16777619); }
+    h >>>= 0;
+    return WORD_A[h % WORD_A.length] + ' ' + WORD_B[(h >>> 8) % WORD_B.length];
+  }
+  function updateLabel() {
+    const on = S.layers.filter(l => l.on);
+    $('artTitle').textContent = pieceTitle();
+    $('artMedium').textContent = (on.length ? on.slice().reverse().map(l => GENS[l.gen].name.toLowerCase()).join(' over ') : 'bare canvas') + ' · ' + PALETTES[S.pal].name.toLowerCase() + ' palette · ' + S.aspect;
+  }
+
   // ---------- rendering ----------
   const cache = new Map();
   function renderLayer(L, W, H, pal, store) {
@@ -122,6 +137,7 @@
       for (const id of cache.keys()) if (!S.layers.some(l => l.id === id)) cache.delete(id);
       composite(actx, W, H, cache);
       $('busy').classList.remove('on');
+      updateLabel();
       art.setAttribute('aria-label', 'Generated artwork: ' + S.layers.filter(l => l.on).map(l => GENS[l.gen].name).join(', ') + ' in the ' + PALETTES[S.pal].name + ' palette');
       persist();
     }));
@@ -151,8 +167,7 @@
       b.setAttribute('aria-label', pal.name + ' palette');
       b.title = pal.name;
       b.setAttribute('aria-pressed', i === S.pal);
-      b.style.background = pal.bg;
-      b.innerHTML = pal.c.map(c => `<i style="background:${c}"></i>`).join('');
+      b.innerHTML = [pal.bg, ...pal.c].map(c => `<i style="background:${c}"></i>`).join('');
       b.onclick = () => { S.pal = i; syncPalettes(); refreshMenu(); schedule(); };
       box.appendChild(b);
     });
@@ -173,6 +188,7 @@
     }
   }
 
+  const paintFill = r => r.style.setProperty('--fill', ((r.value - r.min) / (r.max - r.min) * 100) + '%');
   function fmt(d, v) { return d.step < 1 ? (+v).toFixed(d.step < 0.1 ? 2 : 1) : String(Math.round(v)); }
 
   function buildLayers() {
@@ -187,7 +203,7 @@
       const bodyId = 'lb' + L.id;
       li.innerHTML = `
         <div class="layer-head">
-          <button type="button" class="layer-name" aria-expanded="${L.open}" aria-controls="${bodyId}">${g.name}</button>
+          <button type="button" class="layer-name" aria-expanded="${L.open}" aria-controls="${bodyId}">${g.name}<small>${L.blend === 'source-over' ? '' : BLENDS.find(b => b[0] === L.blend)[1]}</small></button>
           <button type="button" class="icon" data-a="eye" aria-pressed="${L.on}" aria-label="Show ${g.name}" title="Show / hide">${L.on ? '◉' : '○'}</button>
           <button type="button" class="icon" data-a="dice" aria-label="Reseed ${g.name}" title="Reseed: same settings, new roll">⚄</button>
         </div>
@@ -195,9 +211,9 @@
           <div class="ctl"><label for="bl${L.id}">blend</label><select id="bl${L.id}" data-a="blend">${BLENDS.map(([v, n]) => `<option value="${v}"${v === L.blend ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
           <div class="ctl"><label for="op${L.id}">opacity</label><input type="range" id="op${L.id}" data-a="opacity" min="0" max="1" step="0.01" value="${L.opacity}"><output>${Math.round(L.opacity * 100)}%</output></div>
           ${g.params.map(d => d.options
-            ? `<div class="ctl"><label for="p${L.id}${d.k}">${d.label}</label><select id="p${L.id}${d.k}" data-k="${d.k}">${d.options.map(o => `<option${o === L.p[d.k] ? ' selected' : ''}>${o}</option>`).join('')}</select></div>`
+            ? `<div class="ctl opts"><span class="lbl" id="p${L.id}${d.k}">${d.label}</span><div class="row" role="group" aria-labelledby="p${L.id}${d.k}">${d.options.map(o => `<button type="button" class="opt" data-k="${d.k}" data-v="${o}" aria-pressed="${o === L.p[d.k]}">${o}</button>`).join('')}</div></div>`
             : `<div class="ctl"><label for="p${L.id}${d.k}">${d.label}</label><input type="range" id="p${L.id}${d.k}" data-k="${d.k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${L.p[d.k]}"><output>${fmt(d, L.p[d.k])}</output></div>`).join('')}
-          <div class="row">
+          <div class="layer-tools">
             <button type="button" class="icon" data-a="up" aria-label="Move ${g.name} up" title="Draw later (move up)" ${idx === S.layers.length - 1 ? 'disabled' : ''}>↑</button>
             <button type="button" class="icon" data-a="down" aria-label="Move ${g.name} down" title="Draw earlier (move down)" ${idx === 0 ? 'disabled' : ''}>↓</button>
             <button type="button" class="icon" data-a="dup" aria-label="Duplicate ${g.name}" title="Duplicate">⧉</button>
@@ -207,6 +223,13 @@
         </div>`;
       li.querySelector('.layer-name').onclick = () => { L.open = !L.open; buildLayers(); };
       li.addEventListener('click', e => {
+        const opt = e.target.closest('.opt');
+        if (opt) {
+          L.p[opt.dataset.k] = opt.dataset.v;
+          opt.parentElement.querySelectorAll('.opt').forEach(o => o.setAttribute('aria-pressed', o === opt));
+          schedule();
+          return;
+        }
         const a = e.target.closest('[data-a]')?.dataset.a;
         if (!a || e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
         if (a === 'eye') L.on = !L.on;
@@ -228,6 +251,7 @@
       });
       li.addEventListener('input', e => {
         const t = e.target;
+        if (t.type === 'range') paintFill(t);
         if (t.dataset.a === 'opacity') { L.opacity = +t.value; t.nextElementSibling.textContent = Math.round(L.opacity * 100) + '%'; }
         else if (t.dataset.a === 'blend') L.blend = t.value;
         else if (t.dataset.k) {
@@ -237,6 +261,7 @@
         } else return;
         schedule();
       });
+      li.querySelectorAll('input[type=range]').forEach(paintFill);
       ul.appendChild(li);
     });
   }
@@ -346,7 +371,7 @@
           if (!blob) { toast('Could not save the image, try a smaller canvas'); return; }
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = 'seedloom-' + S.layers.map(l => l.seed.toString(36)).join('-').slice(0, 40) + '.png';
+          a.download = 'seedloom-' + pieceTitle().toLowerCase().replace(/ /g, '-') + '.png';
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -392,7 +417,7 @@
   function buildGallery() {
     const grid = $('gGrid');
     grid.innerHTML = '';
-    TILES.forEach(([gen, pal, seed], i) => {
+    TILES.forEach(([gen], i) => {
       const g = GENS[gen], b = document.createElement('button');
       b.type = 'button';
       b.className = 'g-tile';
@@ -403,11 +428,32 @@
       b.onclick = () => startWith(i);
       grid.appendChild(b);
     });
+    layoutGallery();
   }
+  // Hang the tiles in rows that fill the whole screen: pick the row count whose cells come out closest to square
+  let galleryRows = 0;
+  function layoutGallery() {
+    const grid = $('gGrid'), tiles = [...grid.querySelectorAll('.g-tile')], n = tiles.length;
+    const W = grid.clientWidth || innerWidth, H = grid.clientHeight || innerHeight;
+    let best = 1, score = Infinity;
+    for (let r = 1; r <= n; r++) {
+      const cols = Math.ceil(n / r), s = Math.abs(Math.log((W / cols) / (H / r)));
+      if (s < score) { score = s; best = r; }
+    }
+    if (best === galleryRows && grid.children.length && grid.firstElementChild.classList.contains('g-row')) return;
+    galleryRows = best;
+    const rows = [];
+    for (let r = 0; r < best; r++) { const row = document.createElement('div'); row.className = 'g-row'; row.setAttribute('role', 'presentation'); rows.push(row); }
+    // spread the tiles so row lengths differ by at most one
+    let k = 0;
+    rows.forEach((row, r) => { const count = Math.floor(n / best) + (r < n % best ? 1 : 0); for (let c = 0; c < count; c++) row.appendChild(tiles[k++]); });
+    grid.replaceChildren(...rows);
+  }
+  addEventListener('resize', () => { if (!$('gallery').hidden) layoutGallery(); });
   function drawTiles() {
     if (tilesDrawn) return;
     tilesDrawn = true;
-    const tiles = [...$('gGrid').children];
+    const tiles = [...$('gGrid').querySelectorAll('.g-tile')];
     let i = 0;
     (function next() { // one tile per frame so the wall fills in instead of freezing
       if (i >= TILES.length) return;
@@ -422,7 +468,7 @@
   function showView(gallery) {
     $('gallery').hidden = !gallery;
     $('app').hidden = gallery;
-    if (gallery) { toggleMenu(false); drawTiles(); $('continueBtn').hidden = !S.layers.length; }
+    if (gallery) { toggleMenu(false); layoutGallery(); drawTiles(); }
     scrollTo(0, 0);
   }
   function startWith(i) {
@@ -439,11 +485,8 @@
     buildLayers();
     refreshMenu();
     schedule();
-    $('backBtn').focus({ preventScroll: true });
   }
   $('backBtn').onclick = () => showView(true);
-  $('continueBtn').onclick = () => enterEditor();
-  $('surpriseBtn').onclick = () => { loadPreset(); enterEditor(); };
 
   let presetBag = [];
   function loadPreset() {
