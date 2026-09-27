@@ -11,6 +11,7 @@
   - K.O. screen with stats (slaps, hardest, criticals), Rematch / Change mode. aria-live announcements, focusable buttons, reduced-motion respected.
   - og.png is a real frozen mid-slap frame (1200×630). Dropped the unused supabase-config include.
 - 2026-09-26: Rival picker for 1 Player: Yuki 👸 (matches your energy, 100hp), Kage 🥷 (quick CPU turns, 35% crits, 80hp), Kuma 🐻 (150hp, wild 0.45–1.55× swings, slow), Obaa-chan 👵 (steady 0.98–1.12×, 90hp). Choice saved in localStorage `slap_rival`; 2P always uses Yuki
+- 2026-09-27: glow-up (small fixes): (1) the CPU banner said "YUKI WINDS UP…" against every rival, so it now uses the rival's name (KUMA / KAGE / OBAA-CHAN). (2) On phones, big bursts like KA-POW!!! (≈520px wide) were cut off at the screen edge and the katakana went off-screen. `boom()` now shrinks the word to fit the arena and clamps the burst's x so it stays fully visible. Desktop is unchanged. (3) Tapping during the CPU's turn used to do nothing; it now shows a "<rival>'s turn, brace!" hint. hint() also removes any older hint first, so repeated wrong swipes no longer stack. Headless: 0 errors at 400×800 and 1280×800.
 
 ## issues
 - Old history: keyboard controls were added then removed on purpose (916676da8) — swipe only.
