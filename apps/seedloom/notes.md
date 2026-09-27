@@ -3,6 +3,7 @@
 Generative art playground. Every generator is hand-written canvas code (no libraries, no AI images). Layers of generators are composited with blend modes; the UI is sliders, palettes, aspect chips, reseed dice, remix, save PNG, share link.
 
 ## log
+- v1.2 (2026-09-27): the landing is now an endless wall. The ten looms come first, then hand-tuned presets shuffled in with fresh remixes forever as you scroll. Tiles paint in a pool of background workers (wall-worker.js, OffscreenCanvas) with a one-per-frame fallback; far-off tiles free their pixels and repaint from their recipe. Tap any tile to edit it; back returns to the same scroll spot. Undo/redo (buttons + Ctrl/Cmd+Z, Shift+Z / Ctrl+Y), R remix, Esc back. Harmonograph no longer appears in remixes (it only works solo, per Fela). Scripts are versioned (?v=) after a black-screen report that looked like a stale cache.
 - 2026-09-27 v1.0: built for xyzfela's request ("stunning generative art playground, you generating all the code, combined with UI tools").
   - 10 generators in gens.js: flow, circles, truchet, ridges, glass (voronoi by half-plane clipping), topo (marching squares, bands via per-cell above-threshold polygons with full-cell run merging), harmono, subdiv, rays, grain.
   - Landing = the "wall of looms" (Fela loved the stream screenshot of all ten side by side and asked for exactly that as the start page, no borders, clean and artistic). Tiles use [gen, palette, seed, noise seed] so clicking a tile opens the same picture in the editor (layer.ns = noise seed; dropped on reseed).
@@ -24,3 +25,7 @@ Generative art playground. Every generator is hand-written canvas code (no libra
 ## todos
 - More generators (Fela: "add more of them").
 - Undo/redo; drag to reorder layers.
+
+## wall notes
+- The worker imports every `gens*.js` script listed in index.html (regex in app.js), so new loom files just need a script tag. A loom that touches `document` fails in the worker and that tile falls back to the main thread.
+- rollPiece(R) returns a {pal, aspect, layers} recipe without touching S; remix() applies one. parseState() validates a recipe; loadState() applies it.

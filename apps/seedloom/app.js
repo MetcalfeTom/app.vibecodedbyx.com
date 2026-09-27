@@ -49,8 +49,8 @@
     }
     return out;
   }
-  function loadState(obj) {
-    if (!obj || !Array.isArray(obj.layers)) return false;
+  function parseState(obj) {
+    if (!obj || !Array.isArray(obj.layers)) return null;
     const layers = [];
     for (const l of obj.layers.slice(0, 12)) {
       const [gen, seed, blend, opacity, on, p, ns] = l;
@@ -63,10 +63,13 @@
         ...(Number.isInteger(ns) && ns >= 0 ? { ns: ns >>> 0 } : {}),
       });
     }
-    if (!layers.length) return false;
-    S.layers = layers;
-    S.pal = Number.isInteger(obj.pal) && PALETTES[obj.pal] ? obj.pal : 0;
-    S.aspect = ASPECTS[obj.aspect] ? obj.aspect : '1:1';
+    if (!layers.length) return null;
+    return { layers, pal: Number.isInteger(obj.pal) && PALETTES[obj.pal] ? obj.pal : 0, aspect: ASPECTS[obj.aspect] ? obj.aspect : '1:1' };
+  }
+  function loadState(obj) {
+    const st = parseState(obj);
+    if (!st) return false;
+    Object.assign(S, st);
     return true;
   }
   const packState = () => ({ v: 1, pal: S.pal, aspect: S.aspect, layers: S.layers.map(l => [l.gen, l.seed, l.blend, +l.opacity.toFixed(2), l.on ? 1 : 0, l.p].concat(l.ns != null ? [l.ns] : [])) });
@@ -74,9 +77,9 @@
   // ---------- the museum label: a title that belongs to this exact piece ----------
   const WORD_A = ['Quiet', 'Copper', 'Hollow', 'Late', 'Salt', 'Paper', 'Velvet', 'Northern', 'Slow', 'Amber', 'Iron', 'Silver', 'Tidal', 'Burnt', 'Pale', 'Folded', 'Distant', 'Sunday', 'Wild', 'Borrowed', 'Glass', 'Lunar', 'Humming', 'Winter'];
   const WORD_B = ['Harbour', 'Orchard', 'Signal', 'Weather', 'Garden', 'Current', 'Choir', 'Lantern', 'Meridian', 'Archive', 'Tide', 'Ember', 'Atlas', 'Hymn', 'Field', 'Echo', 'Parade', 'Quarry', 'Window', 'Engine', 'Letter', 'Delta', 'Loom', 'Static'];
-  function pieceTitle() {
-    let h = 2166136261 ^ S.pal;
-    for (const l of S.layers) if (l.on) { h = Math.imul(h ^ l.seed, 16777619); h = Math.imul(h ^ l.gen.length * 131, 16777619); }
+  function pieceTitle(st = S) {
+    let h = 2166136261 ^ st.pal;
+    for (const l of st.layers) if (l.on) { h = Math.imul(h ^ l.seed, 16777619); h = Math.imul(h ^ l.gen.length * 131, 16777619); }
     h >>>= 0;
     return WORD_A[h % WORD_A.length] + ' ' + WORD_B[(h >>> 8) % WORD_B.length];
   }
@@ -102,13 +105,13 @@
     store.set(L.id, { key, cv });
     return cv;
   }
-  function composite(ctx, W, H, store) {
-    const pal = PALETTES[S.pal];
+  function composite(ctx, W, H, store, st = S) {
+    const pal = PALETTES[st.pal];
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     ctx.fillStyle = pal.bg;
     ctx.fillRect(0, 0, W, H);
-    for (const L of S.layers) {
+    for (const L of st.layers) {
       if (!L.on || L.opacity <= 0) continue;
       const cv = renderLayer(L, W, H, pal, store);
       ctx.globalAlpha = L.opacity;
@@ -143,10 +146,32 @@
     }));
   }
   let persistT = 0;
+  // history: a snapshot once things settle, so a slider drag is one undo step
+  const past = [], future = [];
+  let current = null, restoring = false;
   function persist() {
     clearTimeout(persistT);
-    persistT = setTimeout(() => { try { localStorage.setItem('seedloom-state', JSON.stringify(packState())); } catch (e) {} }, 400);
+    persistT = setTimeout(() => {
+      const snap = JSON.stringify(packState());
+      if (!restoring && current && snap !== current) { past.push(current); if (past.length > 60) past.shift(); future.length = 0; }
+      restoring = false;
+      current = snap;
+      syncHistory();
+      try { localStorage.setItem('seedloom-state', snap); } catch (e) {}
+    }, 350);
   }
+  function syncHistory() { $('undoBtn').hidden = !past.length; $('redoBtn').hidden = !future.length; }
+  function travel(from, to) {
+    if (!from.length) return;
+    to.push(current);
+    current = from.pop();
+    restoring = true;
+    const open = S.layers.findIndex(l => l.open);
+    loadState(JSON.parse(current));
+    if (S.layers[open]) S.layers[open].open = true;
+    syncPalettes(); buildAspects(); buildLayers(); schedule(); syncHistory();
+  }
+  const undo = () => travel(past, future), redo = () => travel(future, past);
 
   // ---------- UI ----------
   function toast(msg) {
@@ -324,7 +349,7 @@
   // a background that covers the canvas, something drawn over it, and sometimes a dusting of grain
   const ROLES = {
     base: [['glass', { fillp: [0.85, 1] }], ['subdiv', { fillp: [0.9, 1], depth: [5, 6, 7, 8] }], ['truchet', {}], ['flow', {}], ['topo', { style: ['bands', 'bands + lines'] }], ['rays', { style: ['wedges', 'wedges + rings'] }]],
-    mid: [['circles', {}], ['ridges', {}], ['topo', { style: ['lines'] }], ['harmono', {}], ['glass', { style: ['outline'] }], ['rays', { style: ['beams', 'rings'] }], ['flow', {}], ['truchet', {}]],
+    mid: [['circles', {}], ['ridges', {}], ['topo', { style: ['lines'] }], ['glass', { style: ['outline'] }], ['rays', { style: ['beams', 'rings'] }], ['flow', {}], ['truchet', {}]],
   };
   function rollLayer(R, gen, force) {
     const p = defaults(gen);
@@ -337,19 +362,24 @@
     }
     return p;
   }
-  function remix() {
-    const R = Math.random, one = arr => arr[Math.floor(R() * arr.length)];
-    S.pal = Math.floor(R() * PALETTES.length);
-    const dark = lum(PALETTES[S.pal].bg) < 0.4;
+  function rollPiece(R) {
+    const one = arr => arr[Math.floor(R() * arr.length)];
+    const pal = Math.floor(R() * PALETTES.length), dark = lum(PALETTES[pal].bg) < 0.4;
     const [bg, bf] = one(ROLES.base);
     let [mg, mf] = one(ROLES.mid);
     while (mg === bg && R() < 0.8) [mg, mf] = one(ROLES.mid);
     const blends = dark ? ['source-over', 'screen', 'screen', 'overlay', 'difference'] : ['source-over', 'multiply', 'multiply', 'color-burn', 'soft-light'];
-    S.layers = [
+    const layers = [
       makeLayer(bg, { p: rollLayer(R, bg, bf), opacity: +(0.8 + R() * 0.2).toFixed(2) }),
       makeLayer(mg, { p: rollLayer(R, mg, mf), blend: one(blends), opacity: +(0.7 + R() * 0.3).toFixed(2), open: true }),
     ];
-    if (R() < 0.55) S.layers.push(makeLayer('grain', { p: rollLayer(R, 'grain', { style: ['speckle', 'speckle', 'halftone'], color: ['ink', 'paper'], size: [0.8, 1.2, 1.6], density: [0.2, 0.3, 0.45] }), blend: 'source-over', opacity: +(0.25 + R() * 0.3).toFixed(2) }));
+    if (R() < 0.55) layers.push(makeLayer('grain', { p: rollLayer(R, 'grain', { style: ['speckle', 'speckle', 'halftone'], color: ['ink', 'paper'], size: [0.8, 1.2, 1.6], density: [0.2, 0.3, 0.45] }), blend: 'source-over', opacity: +(0.25 + R() * 0.3).toFixed(2) }));
+    return { pal, aspect: '1:1', layers };
+  }
+  function remix() {
+    const st = rollPiece(Math.random);
+    S.pal = st.pal;
+    S.layers = st.layers;
     syncPalettes();
     buildLayers();
     refreshMenu();
@@ -399,7 +429,6 @@
     { pal: 9, aspect: '4:5', layers: [['truchet', 777, 'source-over', 0.22, 1, { size: 90, style: 'arcs', width: 3, colors: 1 }], ['ridges', 1983, 'source-over', 1, 1, { lines: 56, amp: 170, scale: 3.2, focus: 0.8, width: 1.4, fill: 'yes', color: 'one' }]] },
     { pal: 1, aspect: '1:1', layers: [['truchet', 31337, 'source-over', 1, 1, { size: 64, style: 'weave', width: 13, colors: 3 }], ['circles', 5150, 'multiply', 0.75, 1, { count: 40, minR: 30, maxR: 200, gap: 20, style: 'filled', width: 2 }]] },
     { pal: 4, aspect: '4:5', layers: [['glass', 2718, 'source-over', 1, 1, { count: 180, pattern: 'sunflower', lead: 7, fillp: 1, style: 'glass' }], ['grain', 88, 'source-over', 0.35, 1, { style: 'speckle', density: 0.3, size: 1.2, scale: 2, angle: 30, color: 'paper' }]] },
-    { pal: 8, aspect: '16:9', layers: [['topo', 4040, 'source-over', 1, 1, { levels: 26, scale: 1.6, warp: 1.1, detail: 4, style: 'lines', width: 1.1 }], ['harmono', 1234, 'screen', 0.9, 1, { ratio: '2:3', detune: 0.012, decay: 0.004, turns: 260, size: 0.8, width: 0.8, color: 'gradient' }]] },
     { pal: 11, aspect: '9:16', layers: [['rays', 1111, 'source-over', 1, 1, { rays: 28, rings: 6, x: 0.5, y: 0.78, twist: 0.8, style: 'wedges + rings' }], ['ridges', 2222, 'source-over', 1, 1, { lines: 30, amp: 120, scale: 2.4, focus: 0.3, width: 2, fill: 'yes', color: 'fade' }]] },
     { pal: 2, aspect: '4:5', layers: [['subdiv', 1919, 'source-over', 1, 1, { depth: 7, chance: 0.7, gap: 0, round: 0, fillp: 1, style: 'mondrian' }], ['grain', 7, 'multiply', 0.4, 1, { style: 'halftone', density: 0.5, size: 3, scale: 1.4, angle: 45, color: 'ink' }]] },
     { pal: 5, aspect: '1:1', layers: [['topo', 606, 'source-over', 1, 1, { levels: 14, scale: 1.4, warp: 0.9, detail: 4, style: 'bands + lines', width: 1 }], ['circles', 707, 'overlay', 0.8, 1, { count: 90, minR: 8, maxR: 110, gap: 10, style: 'targets', width: 2 }]] },
@@ -413,78 +442,151 @@
     ['topo', 5, 10, 11], ['harmono', 6, 11, 12], ['subdiv', 7, 12, 13], ['rays', 8, 13, 14],
     ['grain', 9, 14, 15, { style: 'halftone', color: 'palette', size: 7, density: 0.7, scale: 1.2 }],
   ];
-  // looms beyond the first ten join the wall automatically
+  // looms beyond the first ten join the front row automatically
   Object.keys(GENS).forEach((id, k) => { if (!TILES.some(t => t[0] === id)) TILES.push([id, (k * 5) % PALETTES.length, 100 + k, 200 + k]); });
-  let tileRes = 0;
-  function buildGallery() {
+
+  // ---------- the endless wall: the looms first, then hand-tuned pieces and fresh remixes forever ----------
+  const wall = [];
+  let presetOrder = [], wallScroll = 0;
+  const near = new Set(), queue = [];
+  const io = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      const item = e.target._item;
+      if (e.isIntersecting) { near.add(item); if (!item.drawn && !item.painting && !queue.includes(item)) queue.push(item); pump(); }
+      else {
+        near.delete(item);
+        // far away tiles give their pixels back; they are redrawn from their recipe when you scroll back
+        if (item.drawn && wall.length > 48) { item.cv.width = item.cv.height = 1; item.drawn = false; }
+      }
+    }
+  }, { rootMargin: '700px 0px' });
+  // keep a couple of screens of wall ready below you, however fast you scroll
+  let filling = false;
+  function fillWall() {
+    if ($('gallery').hidden) return;
+    for (let guard = 0; guard < 8 && $('wallEnd').getBoundingClientRect().top < innerHeight * 2.5; guard++) addTiles(12);
+  }
+  const queueFill = () => { if (!filling) { filling = true; requestAnimationFrame(() => { filling = false; fillWall(); }); } };
+  addEventListener('scroll', queueFill, { passive: true });
+  addEventListener('resize', queueFill);
+  // tiles are painted by a small pool of background workers when the browser can (OffscreenCanvas),
+  // otherwise one per frame right here
+  const pool = [], jobs = new Map();
+  let jobId = 0, pumping = false;
+  try {
+    if (typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap !== 'undefined' && new OffscreenCanvas(1, 1).getContext('2d')) {
+      const libs = [...document.scripts].map(sc => sc.getAttribute('src') || '').filter(src => /^gens[\w-]*\.js(\?[\w.=]*)?$/.test(src));
+      const n = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
+      for (let k = 0; k < n; k++) {
+        const w = new Worker('wall-worker.js');
+        w.busy = null;
+        w.postMessage({ init: libs });
+        w.onmessage = e => done(w, e.data);
+        w.onerror = () => { pool.splice(pool.indexOf(w), 1); if (w.busy) { w.busy.painting = false; queue.unshift(w.busy); } w.terminate(); pump(); };
+        pool.push(w);
+      }
+    }
+  } catch (e) { pool.length = 0; }
+  function done(w, m) {
+    const item = jobs.get(m.id);
+    jobs.delete(m.id);
+    w.busy = null;
+    if (item) {
+      item.painting = false;
+      if (m.fail) paintHere(item);
+      else if (!near.has(item)) m.bmp.close();
+      else {
+        const t0 = performance.now();
+        item.cv.width = item.cv.height = m.bmp.width;
+        item.cv.getContext('2d').drawImage(m.bmp, 0, 0);
+        m.bmp.close();
+        shown(item, t0);
+      }
+    }
+    pump();
+  }
+  const tileRes = item => Math.min(760, Math.max(240, Math.round(item.el.getBoundingClientRect().width * Math.min(2, devicePixelRatio || 1))));
+  function shown(item, t0) {
+    item.drawn = true;
+    item.el.classList.add('in');
+    (window.__wallMs = window.__wallMs || []).push(Math.round(performance.now() - t0));
+  }
+  function paintHere(item) {
+    const t0 = performance.now(), s = tileRes(item);
+    item.cv.width = item.cv.height = s;
+    try { composite(item.cv.getContext('2d'), s, s, new Map(), item.st); } catch (e) { console.error(e); }
+    shown(item, t0);
+  }
+  function nextItem() {
+    let item;
+    while ((item = queue.shift()) && (item.drawn || item.painting || !near.has(item))) {}
+    return item;
+  }
+  function pump() {
+    if (pool.length) {
+      for (const w of pool) {
+        if (w.busy) continue;
+        const item = nextItem();
+        if (!item) return;
+        const id = ++jobId;
+        item.painting = true;
+        w.busy = item;
+        jobs.set(id, item);
+        w.postMessage({ id, s: tileRes(item), pal: PALETTES[item.st.pal], layers: item.st.layers });
+      }
+      return;
+    }
+    if (pumping) return;
+    pumping = true;
+    requestAnimationFrame(function step() {
+      const item = nextItem();
+      if (!item) { pumping = false; return; }
+      paintHere(item);
+      requestAnimationFrame(step);
+    });
+  }
+  function addTiles(n) {
     const grid = $('gGrid');
-    grid.innerHTML = '';
-    TILES.forEach(([gen], i) => {
-      const g = GENS[gen], b = document.createElement('button');
+    for (let k = 0; k < n; k++) {
+      const idx = wall.length;
+      let st, name;
+      if (idx < TILES.length) {
+        const [gen, pal, seed, ns, over] = TILES[idx];
+        st = { pal, aspect: '1:1', layers: [makeLayer(gen, { seed, ns, p: Object.assign(defaults(gen), over || {}) })] };
+        name = GENS[gen].name;
+      } else {
+        if (idx === TILES.length) presetOrder = PRESETS.map((_, i) => i).sort(() => Math.random() - 0.5);
+        st = presetOrder.length && idx % 3 === 0 ? parseState(PRESETS[presetOrder.pop()]) : rollPiece(Math.random);
+        st.aspect = '1:1';
+        name = pieceTitle(st);
+      }
+      const b = document.createElement('button');
       b.type = 'button';
       b.className = 'g-tile';
       b.setAttribute('role', 'listitem');
-      b.style.setProperty('--i', i);
-      b.setAttribute('aria-label', g.name + ': ' + g.blurb + '. Start weaving with it');
-      b.innerHTML = `<canvas width="500" height="500" aria-hidden="true"></canvas><span class="g-label" aria-hidden="true">${g.name}</span>`;
-      b.onclick = () => startWith(i);
+      b.setAttribute('aria-label', name + (idx < TILES.length ? ': ' + GENS[st.layers[0].gen].blurb : '') + '. Open it in the editor');
+      b.innerHTML = `<canvas width="1" height="1" aria-hidden="true"></canvas><span class="g-label" aria-hidden="true">${name}</span>`;
+      const item = { st, el: b, cv: b.querySelector('canvas'), drawn: false };
+      b._item = item;
+      b.onclick = () => openPiece(item, idx < TILES.length);
       grid.appendChild(b);
-    });
-    layoutGallery();
-  }
-  // Hang the tiles in rows that fill the whole screen: pick the row count whose cells come out closest to square
-  let galleryRows = 0;
-  function layoutGallery() {
-    const grid = $('gGrid'), tiles = [...grid.querySelectorAll('.g-tile')], n = tiles.length;
-    const W = grid.clientWidth || innerWidth, H = grid.clientHeight || innerHeight;
-    let best = 1, score = Infinity;
-    for (let r = 1; r <= n; r++) {
-      const cols = Math.ceil(n / r), s = Math.abs(Math.log((W / cols) / (H / r)));
-      if (s < score) { score = s; best = r; }
+      wall.push(item);
+      io.observe(b);
     }
-    if (best === galleryRows && grid.children.length && grid.firstElementChild.classList.contains('g-row')) return;
-    galleryRows = best;
-    const rows = [];
-    for (let r = 0; r < best; r++) { const row = document.createElement('div'); row.className = 'g-row'; row.setAttribute('role', 'presentation'); rows.push(row); }
-    // spread the tiles so row lengths differ by at most one
-    let k = 0;
-    rows.forEach((row, r) => { const count = Math.floor(n / best) + (r < n % best ? 1 : 0); for (let c = 0; c < count; c++) row.appendChild(tiles[k++]); });
-    grid.replaceChildren(...rows);
   }
-  let wallT = 0;
-  addEventListener('resize', () => { if ($('gallery').hidden) return; layoutGallery(); clearTimeout(wallT); wallT = setTimeout(drawTiles, 300); });
-  // Tiles render at the size they are shown (sharp on retina), with the same seeds, so the picture is identical at any size
-  function drawTiles() {
-    const tiles = [...$('gGrid').querySelectorAll('.g-tile')];
-    let need = 0;
-    for (const t of tiles) { const r = t.getBoundingClientRect(); need = Math.max(need, r.width, r.height); }
-    need = Math.min(900, Math.max(320, Math.ceil(need * Math.min(2, devicePixelRatio || 1) / 50) * 50));
-    if (need <= tileRes) return;
-    tileRes = need;
-    let i = 0;
-    (function next() { // one tile per frame so the wall fills in instead of freezing
-      if (i >= TILES.length || tileRes !== need) return;
-      const [gen, pi, seed, ns, over] = TILES[i], pal = PALETTES[pi], cv = tiles[i].querySelector('canvas'), x = cv.getContext('2d');
-      cv.width = cv.height = need;
-      x.fillStyle = pal.bg;
-      x.fillRect(0, 0, need, need);
-      try { GENS[gen].draw(x, need, need, Object.assign(defaults(gen), over || {}), rng(seed), pal, makeNoise(rng(ns)), need / 1000); } catch (e) { console.error(gen, e); }
-      i++;
-      requestAnimationFrame(next);
-    })();
+  function openPiece(item, loom) {
+    wallScroll = scrollY;
+    S.pal = item.st.pal;
+    S.aspect = '1:1';
+    S.layers = item.st.layers.map((l, i, arr) => ({ ...l, id: S.nextId++, p: { ...l.p }, open: i === arr.length - 1 }));
+    enterEditor();
+    toast(loom ? 'Slide things around, then + add a layer to stack another loom' : 'Yours now: slide, reseed, stack more');
   }
   function showView(gallery) {
     $('gallery').hidden = !gallery;
     $('app').hidden = gallery;
-    if (gallery) { toggleMenu(false); layoutGallery(); drawTiles(); }
-    scrollTo(0, 0);
-  }
-  function startWith(i) {
-    const [gen, pi, seed, ns, over] = TILES[i];
-    S.pal = pi;
-    S.layers = [makeLayer(gen, { seed, ns, open: true, p: Object.assign(defaults(gen), over || {}) })];
-    enterEditor();
-    toast('Slide things around, then + add a layer to stack another loom');
+    if (gallery) { toggleMenu(false); if (!wall.length) addTiles(TILES.length + 14); scrollTo(0, wallScroll); queueFill(); }
+    else scrollTo(0, 0);
   }
   function enterEditor() {
     showView(false);
@@ -495,6 +597,18 @@
     schedule();
   }
   $('backBtn').onclick = () => showView(true);
+  $('undoBtn').onclick = undo;
+  $('redoBtn').onclick = redo;
+  // keys for people who live on the keyboard; never while typing or on a form control
+  addEventListener('keydown', e => {
+    if ($('app').hidden || e.target.closest('input, select, textarea')) return;
+    const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+    if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    else if (mod && k === 'y') { e.preventDefault(); redo(); }
+    else if (mod || e.altKey) return;
+    else if (k === 'r') $('remixBtn').click();
+    else if (k === 'escape') showView(true);
+  });
 
   let presetBag = [];
   function loadPreset() {
@@ -516,7 +630,6 @@
     buildPalettes();
     buildAspects();
     buildMenu();
-    buildGallery();
     if (shared) enterEditor();
     else showView(true);
   }
