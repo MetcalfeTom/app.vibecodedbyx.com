@@ -274,7 +274,7 @@
   function fmt(d, v) { return d.step < 1 ? (+v).toFixed(d.step < 0.1 ? 2 : 1) : String(Math.round(v)); }
 
   // the two settings you can also drag on the art: sideways (x) and up/down (y)
-  const PAD = { flow: ['scale', 'curl'], circles: ['maxR', 'gap'], truchet: ['size', 'width'], ridges: ['amp', 'scale'], glass: ['count', 'lead'], topo: ['scale', 'warp'], harmono: ['detune', 'decay'], subdiv: ['depth', 'gap'], rays: ['x', 'y'], grain: ['scale', 'density'], tartan: ['thread', 'stripes'], stitch: ['size', 'motif'], kilim: ['scale', 'teeth'], coral: ['zoom', 'mutate'], branch: ['reach', 'wander'], phyllo: ['twist', 'size'], attractor: ['morph', 'glow'], moire: ['spread', 'warp'], iso: ['fill', 'melt'] };
+  const PAD = { flow: ['scale', 'curl'], circles: ['maxR', 'gap'], truchet: ['size', 'width'], ridges: ['amp', 'scale'], glass: ['count', 'lead'], topo: ['scale', 'warp'], harmono: ['detune', 'decay'], subdiv: ['depth', 'gap'], rays: ['x', 'y'], grain: ['scale', 'density'], tartan: ['thread', 'stripes'], stitch: ['size', 'motif'], kilim: ['scale', 'teeth'], coral: ['zoom', 'mutate'], branch: ['reach', 'wander'], phyllo: ['twist', 'size'], attractor: ['morph', 'glow'], moire: ['spread', 'warp'], iso: ['fill', 'melt'], marble: ['size', 'pull'], chladni: ['n', 'm'] };
   function padOf(gen) {
     const nums = GENS[gen].params.filter(d => !d.options);
     const pick = (PAD[gen] || []).map(k => nums.find(d => d.k === k)).filter(Boolean);
@@ -499,8 +499,8 @@
   // ---------- remix: a fresh composition that still looks intentional ----------
   // a background that covers the canvas, something drawn over it, and sometimes a dusting of grain
   const ROLES = {
-    base: [['glass', { fillp: [0.85, 1] }], ['subdiv', { fillp: [0.9, 1], depth: [5, 6, 7, 8] }], ['truchet', {}], ['flow', {}], ['topo', { style: ['bands', 'bands + lines'] }], ['rays', { style: ['wedges', 'wedges + rings'] }], ['tartan', {}], ['kilim', {}], ['stitch', { style: ['knit', 'beads'] }], ['coral', { style: ['bands', 'relief'] }], ['moire', {}]],
-    mid: [['circles', {}], ['ridges', {}], ['topo', { style: ['lines'] }], ['glass', { style: ['outline'] }], ['rays', { style: ['beams', 'rings'] }], ['flow', {}], ['truchet', {}], ['stitch', { style: ['cross-stitch'] }], ['branch', {}], ['phyllo', {}], ['coral', { style: ['lines', 'ink'] }], ['attractor', {}], ['iso', {}]],
+    base: [['glass', { fillp: [0.85, 1] }], ['subdiv', { fillp: [0.9, 1], depth: [5, 6, 7, 8] }], ['truchet', {}], ['flow', {}], ['topo', { style: ['bands', 'bands + lines'] }], ['rays', { style: ['wedges', 'wedges + rings'] }], ['tartan', {}], ['kilim', {}], ['stitch', { style: ['knit', 'beads'] }], ['coral', { style: ['bands', 'relief'] }], ['moire', {}], ['marble', {}], ['marble', { comb: ['nonpareil', 'waves', 'swirl'] }]],
+    mid: [['circles', {}], ['ridges', {}], ['topo', { style: ['lines'] }], ['glass', { style: ['outline'] }], ['rays', { style: ['beams', 'rings'] }], ['flow', {}], ['truchet', {}], ['stitch', { style: ['cross-stitch'] }], ['branch', {}], ['phyllo', {}], ['coral', { style: ['lines', 'ink'] }], ['attractor', {}], ['iso', {}], ['chladni', {}]],
   };
   function rollLayer(R, gen, force) {
     const p = defaults(gen);
@@ -661,6 +661,7 @@
     ['tartan', 2, 21, 22], ['stitch', 4, 23, 24], ['kilim', 6, 25, 26, { layout: 'medallion' }],
     ['coral', 0, 27, 28], ['branch', 6, 29, 30], ['phyllo', 8, 31, 32],
     ['attractor', 4, 33, 34], ['moire', 3, 35, 36], ['iso', 8, 37, 38],
+    ['marble', 1, 39, 40, { comb: 'nonpareil', drops: 60 }], ['chladni', 0, 41, 42],
   ].filter(t => GENS[t[0]]);
   // looms beyond the first ten join the front row automatically
   Object.keys(GENS).forEach((id, k) => { if (!TILES.some(t => t[0] === id)) TILES.push([id, (k * 5) % PALETTES.length, 100 + k, 200 + k]); });
