@@ -26,6 +26,8 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 
 - v1.2.1: stamping a word gives a rubber-stamp thunk (the preview dips, a short low sine knock; no motion with reduced motion).
 
+- v1.3 (2026-09-27): speech and thought bubbles next to the sound burst (the voice's idea). A kind picker (`wkind`: burst / say / think) above the text box; words now carry `k`. Bubbles use Courier Prime, keep the case, up to 24 characters, wrap to 2 lines, and stay 1.2 s (bursts 0.5 s). `drawBubble`: 'say' is a rounded box with a tail toward the middle, 'think' a bumpy cloud (quadratic bumps) with two trailing dots. Chips show 💥/💬/💭. Cover wrap only when it makes the title 15% bigger and the block stays under 46% of the height (the 2-line landscape title crowded "flick me"). Probe modes bubble / bubsheet.
+
 ## issues
 - Headless can't pick a real file; the `rec` probe records a canvas to webm instead. H.264 MP4 isn't testable in the headless shell.
 - iOS Safari sometimes draws a blank first frame from an unplayed video; `videoSource` does a muted play()/pause() after loading.
