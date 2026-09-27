@@ -559,7 +559,8 @@
       log.push(Date.now());
       try { localStorage.setItem('seedloom-hung', JSON.stringify(log)); } catch (e) {}
       const st = parseState(recipe);
-      if (st) { hungSeen.add(key); hung.unshift(st); }
+      hungSeen.add(key);
+      if (st && !hangNearby(st)) hung.unshift(st);
       toast('Hung! ' + pieceTitle() + ' is on the wall for everyone now');
     } catch (e) { toast('The wall is not answering right now: try again in a bit'); }
     btn.disabled = false;
@@ -745,19 +746,35 @@
         st.aspect = '1:1';
         name = pieceTitle(st);
       }
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'g-tile';
-      b.setAttribute('role', 'listitem');
-      b.setAttribute('aria-label', name + (idx < TILES.length ? ': ' + GENS[st.layers[0].gen].blurb : fromWall ? ', hung by a visitor' : '') + '. Open it in the editor');
-      b.innerHTML = `<canvas width="1" height="1" aria-hidden="true"></canvas><span class="g-label" aria-hidden="true">${name}${fromWall ? '<i>hung by a visitor</i>' : ''}</span>`;
-      const item = { st, el: b, cv: b.querySelector('canvas'), drawn: false, fromWall };
-      b._item = item;
-      b.onclick = () => openPiece(item, idx < TILES.length);
-      grid.appendChild(b);
+      const item = makeTile(st, name, idx < TILES.length ? 'loom' : fromWall ? 'hung' : '');
+      grid.appendChild(item.el);
       wall.push(item);
-      io.observe(b);
+      io.observe(item.el);
     }
+  }
+  const TAGS = { hung: 'hung by a visitor', yours: 'hung by you' };
+  function makeTile(st, name, kind) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'g-tile' + (kind === 'yours' ? ' yours' : '');
+    b.setAttribute('role', 'listitem');
+    b.setAttribute('aria-label', name + (kind === 'loom' ? ': ' + GENS[st.layers[0].gen].blurb : TAGS[kind] ? ', ' + TAGS[kind] : '') + '. Open it in the editor');
+    b.innerHTML = `<canvas width="1" height="1" aria-hidden="true"></canvas><span class="g-label" aria-hidden="true">${name}${TAGS[kind] ? '<i>' + TAGS[kind] + '</i>' : ''}</span>`;
+    const item = { st, el: b, cv: b.querySelector('canvas'), drawn: false, fromWall: kind === 'hung' };
+    b._item = item;
+    b.onclick = () => openPiece(item, kind === 'loom');
+    return item;
+  }
+  // a piece you just hung goes up right next to the one you opened, so it is there when you walk back
+  function hangNearby(st) {
+    const at = lastOpened ? wall.indexOf(lastOpened) : -1;
+    if (at < 0) return false;
+    st.aspect = '1:1';
+    const item = makeTile(st, pieceTitle(st), 'yours');
+    lastOpened.el.after(item.el);
+    wall.splice(at + 1, 0, item);
+    io.observe(item.el);
+    return true;
   }
   // the tile you tapped lifts off the wall and settles where the art hangs
   function flyIn(item) {
@@ -785,8 +802,10 @@
       fly.onfinish = () => ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260 }).onfinish = () => ghost.remove();
     })();
   }
+  let lastOpened = null;
   function openPiece(item, loom) {
     wallScroll = scrollY;
+    lastOpened = item;
     S.pal = item.st.pal;
     S.aspect = '1:1';
     S.layers = item.st.layers.map((l, i, arr) => ({ ...l, id: S.nextId++, p: { ...l.p }, open: i === arr.length - 1 }));
