@@ -698,7 +698,7 @@
   addEventListener('resize', queueFill);
   // tiles are painted by a small pool of background workers when the browser can (OffscreenCanvas),
   // otherwise one per frame right here
-  const pool = [], jobs = new Map();
+  const pool = [], jobs = new Map(), exQueue = [];
   let jobId = 0, pumping = false;
   try {
     if (typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap !== 'undefined' && new OffscreenCanvas(1, 1).getContext('2d')) {
@@ -712,6 +712,7 @@
         w.onerror = () => {
           pool.splice(pool.indexOf(w), 1);
           if (w.busy && w.busy.ed) { inflight.delete(w.busy.key); noAsync.add(w.busy.key); schedule(); }
+          else if (w.busy && w.busy.expo) w.busy.res(exHere(w.busy));
           else if (w.busy) { w.busy.painting = false; queue.unshift(w.busy); }
           w.terminate();
           pump();
@@ -725,6 +726,7 @@
     jobs.delete(m.id);
     w.busy = null;
     if (item && item.ed) edDone(item, m);
+    else if (item && item.expo) item.res(m.fail ? exHere(item) : m.bmp);
     else if (item) {
       item.painting = false;
       if (m.fail) { window.__wallFails = (window.__wallFails || 0) + 1; paintHere(item); }
@@ -780,6 +782,14 @@
           w.busy = job;
           jobs.set(id, job);
           w.postMessage({ id, w: job.W, h: job.H, raw: true, pal: PALETTES[S.pal], layers: [edLive(job)] });
+          continue;
+        }
+        // then the exhibition's next painting
+        if (exQueue.length) {
+          const ej = exQueue.shift(), id = ++jobId;
+          w.busy = ej;
+          jobs.set(id, ej);
+          w.postMessage({ id, w: ej.W, h: ej.H, pal: PALETTES[ej.st.pal], layers: ej.st.layers });
           continue;
         }
         const item = nextItem();
@@ -838,7 +848,7 @@
     b.setAttribute('role', 'listitem');
     b.setAttribute('aria-label', name + (kind === 'loom' ? ': ' + GENS[st.layers[0].gen].blurb : TAGS[kind] ? ', ' + TAGS[kind] : '') + '. Open it in the editor');
     b.innerHTML = `<canvas width="1" height="1" aria-hidden="true"></canvas><span class="g-label" aria-hidden="true">${name}${TAGS[kind] ? '<i>' + TAGS[kind] + '</i>' : ''}</span>`;
-    const item = { st, el: b, cv: b.querySelector('canvas'), drawn: false, fromWall: kind === 'hung' };
+    const item = { st, name, kind, el: b, cv: b.querySelector('canvas'), drawn: false, fromWall: kind === 'hung' };
     b._item = item;
     b.onclick = () => openPiece(item, kind === 'loom');
     return item;
@@ -922,6 +932,188 @@
     else if (k === 'escape') showView(true);
   });
 
+
+  // ---------- exhibition: the wall one piece at a time, filling the screen, slowly drifting ----------
+  const EX_DWELL = 9000;
+  const ex = { on: false, idx: 0, list: [], cache: new Map(), front: 0, seq: 0, playing: true, timer: 0, idleT: 0, lock: null, size: '' };
+  const exEl = $('expo'), exCvs = [...exEl.querySelectorAll('.ex-cv')];
+  function exSize() {
+    const dpr = Math.min(2, devicePixelRatio || 1), w = innerWidth * dpr, h = innerHeight * dpr;
+    const k = Math.min(1, Math.sqrt(2.1e6 / (w * h)));
+    return [Math.max(2, Math.round(w * k)), Math.max(2, Math.round(h * k))];
+  }
+  function exHere(job) {
+    const c = document.createElement('canvas');
+    c.width = job.W;
+    c.height = job.H;
+    try { composite(c.getContext('2d'), job.W, job.H, new Map(), job.st); } catch (e) { console.error(e); }
+    return c;
+  }
+  // the i-th piece of the show: the wall's own tiles in order, then fresh remixes once past its end
+  function exItem(i) {
+    if (!ex.list[i]) {
+      if (i >= wall.length - 3) addTiles(8);
+      const t = wall[i];
+      const st = t ? t.st : rollPiece(Math.random);
+      ex.list[i] = { st, tile: t || null, name: t ? t.name : pieceTitle(st), kind: t ? t.kind : '' };
+    }
+    return ex.list[i];
+  }
+  function exGet(i) {
+    const [W, H] = exSize(), key = W + 'x' + H;
+    let c = ex.cache.get(i);
+    if (c && c.key === key) return c.p;
+    if (c) exFree(c);
+    const st = { ...exItem(i).st, aspect: '' };
+    const p = new Promise(res => {
+      const job = { expo: true, st, W, H, res };
+      if (pool.length) { exQueue.push(job); pump(); }
+      else setTimeout(() => res(exHere(job)), 30);
+    });
+    ex.cache.set(i, c = { key, p });
+    return p;
+  }
+  function exFree(c) { c.p.then(b => { if (b && b.close) b.close(); }); }
+  function exPrune() {
+    for (const [i, c] of ex.cache) if (i < ex.idx - 1 || i > ex.idx + 1) { exFree(c); ex.cache.delete(i); }
+  }
+  function exMeta(it) {
+    const on = it.st.layers.filter(l => l.on !== false);
+    const looms = on.slice().reverse().map(l => GENS[l.gen].name.toLowerCase()).join(' over ');
+    const tag = it.kind === 'loom' ? 'one of the looms' : TAGS[it.kind] || 'a fresh remix';
+    return `${looms} · ${PALETTES[it.st.pal].name.toLowerCase()} palette · <em>${tag}</em>`;
+  }
+  async function exShow(i) {
+    i = Math.max(0, i);
+    const my = ++ex.seq, it = exItem(i);
+    clearTimeout(ex.timer);
+    exEl.classList.add('waiting');
+    const src = await exGet(i);
+    if (my !== ex.seq || !ex.on) return;
+    exEl.classList.remove('waiting');
+    const back = exCvs[1 - ex.front], front = exCvs[ex.front];
+    back.width = src.width;
+    back.height = src.height;
+    try { back.getContext('2d').drawImage(src, 0, 0); } catch (e) { ex.cache.delete(i); return; }
+    back.style.setProperty('--dx', (Math.random() * 3 - 1.5).toFixed(2) + '%');
+    back.style.setProperty('--dy', (Math.random() * 3 - 1.5).toFixed(2) + '%');
+    back.style.transformOrigin = `${20 + Math.random() * 60}% ${20 + Math.random() * 60}%`;
+    back.classList.remove('drift');
+    void back.offsetWidth;
+    back.classList.add('on', 'drift');
+    back.setAttribute('aria-label', it.name + ': ' + exMeta(it).replace(/<[^>]+>/g, ''));
+    front.classList.remove('on');
+    front.setAttribute('aria-label', '');
+    ex.front = 1 - ex.front;
+    ex.idx = i;
+    const lab = $('exLabel');
+    $('exTitle').textContent = it.name;
+    $('exMeta').innerHTML = exMeta(it);
+    lab.classList.remove('fresh');
+    void lab.offsetWidth;
+    lab.classList.add('fresh');
+    exArm();
+    exPrune();
+    exGet(i + 1);
+  }
+  // the next piece comes after the dwell; the thin line at the bottom counts it down
+  function exArm() {
+    clearTimeout(ex.timer);
+    const bar = $('exProg');
+    bar.style.transition = 'none';
+    bar.style.width = '0';
+    if (!ex.playing) return;
+    void bar.offsetWidth;
+    bar.style.transition = `width ${EX_DWELL}ms linear`;
+    bar.style.width = '100%';
+    ex.timer = setTimeout(() => exShow(ex.idx + 1), EX_DWELL);
+  }
+  function exPlay(on) {
+    ex.playing = on;
+    $('exPlay').textContent = on ? '❚❚' : '▶';
+    $('exPlay').setAttribute('aria-label', on ? 'Pause the exhibition' : 'Play the exhibition');
+    exArm();
+  }
+  function exWake() {
+    exEl.classList.remove('idle');
+    clearTimeout(ex.idleT);
+    ex.idleT = setTimeout(() => { if (!exEl.contains(document.activeElement) || document.activeElement === document.body || matchMedia('(hover: hover)').matches) exEl.classList.add('idle'); }, 2600);
+  }
+  function exOpen() {
+    if (ex.on) return;
+    ex.on = true;
+    // start from the piece in the middle of your screen (past the loom samples)
+    let start = TILES.length, bestD = Infinity;
+    const mid = innerHeight / 2;
+    wall.forEach((t, k) => { const r = t.el.getBoundingClientRect(), d = Math.abs(r.top + r.height / 2 - mid) + Math.abs(r.left + r.width / 2 - innerWidth / 2) * 0.5; if (d < bestD) { bestD = d; start = k; } });
+    ex.list = [];
+    ex.idx = Math.max(start, Math.min(TILES.length, wall.length - 1));
+    exEl.hidden = false;
+    document.documentElement.classList.add('expo-on');
+    $('gallery').inert = true;
+    $('exFull').hidden = !(document.fullscreenEnabled && exEl.requestFullscreen);
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(l => { ex.lock = l; }, () => {}); } catch (e) {}
+    exPlay(true);
+    exWake();
+    $('exPlay').focus({ preventScroll: true });
+    exShow(ex.idx);
+  }
+  function exClose(weave) {
+    if (!ex.on) return;
+    ex.on = false;
+    ex.seq++;
+    clearTimeout(ex.timer);
+    clearTimeout(ex.idleT);
+    exQueue.length = 0;
+    for (const c of ex.cache.values()) exFree(c);
+    ex.cache.clear();
+    exCvs.forEach(c => { c.classList.remove('on', 'drift'); c.width = c.height = 1; });
+    exEl.hidden = true;
+    document.documentElement.classList.remove('expo-on');
+    $('gallery').inert = false;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (ex.lock) { ex.lock.release().catch(() => {}); ex.lock = null; }
+    const it = ex.list[ex.idx];
+    // the wall behind has followed the show, so you come back to where it was
+    if (it && it.tile && it.tile.el.isConnected) it.tile.el.scrollIntoView({ block: 'center' });
+    queueFill();
+    if (weave && it) openPiece(it.tile || { st: it.st, fromWall: false, drawn: false }, it.kind === 'loom');
+    else if (it && it.tile) it.tile.el.focus({ preventScroll: true });
+    else $('expoBtn').focus({ preventScroll: true });
+  }
+  $('expoBtn').onclick = exOpen;
+  $('exPrev').onclick = () => { exWake(); if (ex.idx > 0) exShow(ex.idx - 1); };
+  $('exNext').onclick = () => { exWake(); exShow(ex.idx + 1); };
+  $('exPlay').onclick = () => { exWake(); exPlay(!ex.playing); };
+  $('exWeave').onclick = () => exClose(true);
+  $('exClose').onclick = () => exClose(false);
+  $('exFull').onclick = () => { exWake(); document.fullscreenElement ? document.exitFullscreen().catch(() => {}) : exEl.requestFullscreen().catch(() => {}); };
+  exEl.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') exWake(); });
+  // tapping the art: first tap shows the controls, the next one moves on
+  exEl.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    if (exEl.classList.contains('idle')) exWake();
+    else { exWake(); exShow(ex.idx + 1); }
+  });
+  addEventListener('keydown', e => {
+    if (!ex.on || e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    if (k === 'Escape') { if (!document.fullscreenElement) exClose(false); }
+    else if (k === 'ArrowRight') { exShow(ex.idx + 1); }
+    else if (k === 'ArrowLeft') { if (ex.idx > 0) exShow(ex.idx - 1); }
+    else if (k === ' ' && !e.target.closest('button')) { e.preventDefault(); exPlay(!ex.playing); }
+    else if (k === 'f' || k === 'F') { if (!$('exFull').hidden) $('exFull').click(); }
+    else if (k === 'Tab') {
+      // keep the keyboard inside the show while it is open
+      const bs = [...exEl.querySelectorAll('button')].filter(b => !b.hidden), a = bs.indexOf(document.activeElement);
+      if (e.shiftKey ? a <= 0 : a === bs.length - 1) { e.preventDefault(); bs[e.shiftKey ? bs.length - 1 : 0].focus(); }
+    }
+    else return;
+    exWake();
+  });
+  let exResizeT = 0;
+  addEventListener('resize', () => { if (!ex.on) return; clearTimeout(exResizeT); exResizeT = setTimeout(() => { if (ex.on) exShow(ex.idx); }, 400); });
+
   let presetBag = [];
   function loadPreset() {
     if (!presetBag.length) presetBag = PRESETS.map((_, i) => i).sort(() => Math.random() - 0.5);
@@ -944,6 +1136,8 @@
     buildMenu();
     if (shared) enterEditor();
     else showView(true);
+    // #show opens the exhibition by itself, a screensaver link; it waits (briefly) for the visitors' pieces to arrive
+    if (location.hash === '#show') (function go(n) { if (wall.length <= TILES.length + 2 && n < 40) return setTimeout(go, 100, n + 1); exOpen(); })(0);
   }
   window.addEventListener('hashchange', () => {
     const m = location.hash.match(/^#w=([A-Za-z0-9_-]{1,20000})$/);
