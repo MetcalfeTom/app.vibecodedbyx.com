@@ -517,7 +517,9 @@
         function addFish(x, y, baby) {
             if (fish.length >= FISH_MAX || !inBounds(x | 0, y | 0)) return;
             const d = Math.random() < 0.5 ? -1 : 1;
-            fish.push({ x, y, vx: d * (0.3 + Math.random() * 0.3), vy: 0, dir: d, c: Math.random() * FISH_COL.length | 0, dry: 0, dead: 0, stun: 0, fed: 0, baby: baby ? 900 : 0 });
+            const f = { x, y, vx: d * (0.3 + Math.random() * 0.3), vy: 0, dir: d, c: Math.random() * FISH_COL.length | 0, dry: 0, dead: 0, stun: 0, fed: 0, baby: baby ? 900 : 0 };
+            fish.push(f);
+            return f;
         }
         const wetAt = (x, y) => get(x | 0, y | 0) === WATER;
         const openAt = (x, y) => { const m = get(x | 0, y | 0); return m === EMPTY || m === WATER || m === STEAM || m === FIRE; };
@@ -1118,14 +1120,22 @@
         const b64 = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(bin); };
         async function packScene() {
             const z = new Blob([grid]).stream().pipeThrough(new CompressionStream('deflate-raw'));
-            return b64(new Uint8Array(await new Response(z).arrayBuffer()));
+            // the fish ride along after a '~': x,y,colour;x,y,colour...
+            const live = fish.filter(f => !f.dead).slice(0, FISH_MAX).map(f => (f.x | 0) + ',' + (f.y | 0) + ',' + f.c);
+            return b64(new Uint8Array(await new Response(z).arrayBuffer())) + (live.length ? '~' + live.join(';') : '');
         }
         async function unpackScene(data, w, h) {
-            const bin = atob(data), bytes = new Uint8Array(bin.length);
+            const [cells, school] = data.split('~');
+            const bin = atob(cells), bytes = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
             const z = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
             const out = new Uint8Array(await new Response(z).arrayBuffer());
             if (out.length !== w * h) throw new Error('size');
+            out.fish = [];
+            for (const s of (school || '').split(';').slice(0, FISH_MAX)) {
+                const m = /^(\d{1,4}),(\d{1,4}),(\d)$/.exec(s);
+                if (m && +m[1] < w && +m[2] < h && +m[3] < FISH_COL.length) out.fish.push([+m[1], +m[2], +m[3]]);
+            }
             return out;
         }
         // a scene made on another screen size is scaled to fit (never up) and stands on the floor
@@ -1140,6 +1150,7 @@
                     if (m && m <= BATTERY) { const i = idx(ox + x, oy + y); grid[i] = m; colorVar[i] = Math.floor(Math.random() * 4); }
                 }
             }
+            for (const [fx, fy, c] of src.fish || []) { const f = addFish(ox + fx * k, oy + fy * k); if (f) f.c = c; }
         }
         let dbP = null;
         const getDb = () => dbP || (dbP = import('/supabase-config.js').then(m => ({ db: m.default, session: m.supabaseSession })));
@@ -1160,14 +1171,16 @@
             try {
                 const data = await packScene();
                 if (data.length > 400000) throw new Error('big');
-                if (data === lastShared.data) link = lastShared.link;
+                // fish swimming around don't make it a new scene, only new cells or a different school size do
+                const same = data.split('~')[0] + '|' + fish.filter(f => !f.dead).length;
+                if (same === lastShared.same) link = lastShared.link;
                 else {
                     const { db, session } = await getDb();
                     const { user } = await session();
                     const { data: row, error } = await db.from('sand_scenes').insert({ w: W, h: H, cells: n, data, user_id: user.id }).select('id').single();
                     if (error || !row || row.id == null) throw error || new Error('no row');
                     link = location.origin + location.pathname + '?s=' + row.id;
-                    lastShared = { data, link };
+                    lastShared = { same, link };
                     log.push(Date.now());
                     try { localStorage.setItem('sandShares', JSON.stringify(log)); } catch (e) {}
                     try { history.replaceState(null, '', '?s=' + row.id); } catch (e) {}
