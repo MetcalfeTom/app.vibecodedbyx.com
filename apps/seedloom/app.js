@@ -413,7 +413,9 @@
     ['topo', 5, 10, 11], ['harmono', 6, 11, 12], ['subdiv', 7, 12, 13], ['rays', 8, 13, 14],
     ['grain', 9, 14, 15, { style: 'halftone', color: 'palette', size: 7, density: 0.7, scale: 1.2 }],
   ];
-  let tilesDrawn = false;
+  // looms beyond the first ten join the wall automatically
+  Object.keys(GENS).forEach((id, k) => { if (!TILES.some(t => t[0] === id)) TILES.push([id, (k * 5) % PALETTES.length, 100 + k, 200 + k]); });
+  let tileRes = 0;
   function buildGallery() {
     const grid = $('gGrid');
     grid.innerHTML = '';
@@ -449,18 +451,24 @@
     rows.forEach((row, r) => { const count = Math.floor(n / best) + (r < n % best ? 1 : 0); for (let c = 0; c < count; c++) row.appendChild(tiles[k++]); });
     grid.replaceChildren(...rows);
   }
-  addEventListener('resize', () => { if (!$('gallery').hidden) layoutGallery(); });
+  let wallT = 0;
+  addEventListener('resize', () => { if ($('gallery').hidden) return; layoutGallery(); clearTimeout(wallT); wallT = setTimeout(drawTiles, 300); });
+  // Tiles render at the size they are shown (sharp on retina), with the same seeds, so the picture is identical at any size
   function drawTiles() {
-    if (tilesDrawn) return;
-    tilesDrawn = true;
     const tiles = [...$('gGrid').querySelectorAll('.g-tile')];
+    let need = 0;
+    for (const t of tiles) { const r = t.getBoundingClientRect(); need = Math.max(need, r.width, r.height); }
+    need = Math.min(900, Math.max(320, Math.ceil(need * Math.min(2, devicePixelRatio || 1) / 50) * 50));
+    if (need <= tileRes) return;
+    tileRes = need;
     let i = 0;
     (function next() { // one tile per frame so the wall fills in instead of freezing
-      if (i >= TILES.length) return;
+      if (i >= TILES.length || tileRes !== need) return;
       const [gen, pi, seed, ns, over] = TILES[i], pal = PALETTES[pi], cv = tiles[i].querySelector('canvas'), x = cv.getContext('2d');
+      cv.width = cv.height = need;
       x.fillStyle = pal.bg;
-      x.fillRect(0, 0, cv.width, cv.height);
-      try { GENS[gen].draw(x, cv.width, cv.height, Object.assign(defaults(gen), over || {}), rng(seed), pal, makeNoise(rng(ns)), cv.width / 1000); } catch (e) { console.error(gen, e); }
+      x.fillRect(0, 0, need, need);
+      try { GENS[gen].draw(x, need, need, Object.assign(defaults(gen), over || {}), rng(seed), pal, makeNoise(rng(ns)), need / 1000); } catch (e) { console.error(gen, e); }
       i++;
       requestAnimationFrame(next);
     })();
