@@ -1,6 +1,7 @@
 # Fake News Generator
 
 ## Log
+- 2026-09-27: Headlines were mostly broken: placeholders are singular ({activity}, {device}) but the word banks are plural (activities, devices), so the old exact-key replace left "{activity}" in the text. Now one replace callback tries key, key+s, key+es, y→ies, then the other categories' banks, then generic words. 3000 generated headlines in node: 0 leftover braces.
 - 2025-10-21: Initial creation
   - Created satirical news headline and article generator
   - 7 categories: Politics, Tech, Science, Sports, Entertainment, Business, Lifestyle
