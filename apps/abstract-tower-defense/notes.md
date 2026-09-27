@@ -1,6 +1,14 @@
 # Abstract Tower Defense
 
 ## log
+- 2026-09-27: **v3.2 new maps + map picker** (built in scratch, tested headless at 1280x800 and 390x844 portrait/rotated, 0 errors)
+  - FORK (hp ×1.1): two entrances (top/bottom left) whose lanes merge at (480,250), then a short chicane to the core on the right edge. Spawns alternate lanes (`G.spawnN`), so a branch-only tower sees half the enemies; the pocket between the branches (~380,250) sees both
+  - CROSS (hp ×1.4): one long path (1960) that crosses itself at (400,250): first pass horizontal, second vertical; the closed lobe top-right and the four crossing quadrants hit enemies on both passes
+  - Engine: a map is `path` or `paths` (lanes, same length so "first" targeting stays fair, shared end). `LANES[i] = {pts, segs, len}`, `pointAt(d, lane)`, enemies carry `e.lane` (splitter minis / broodmother drones inherit it), `SEGS` = all lanes (build check), path drawn as ONE stroke with a subpath per lane (shared/crossing stretches don't double their alpha). Entrance chevrons on every map
+  - MAP (before wave 1) opens a picker: a card per map with a mini drawing (turned like the board on tall screens, one row per map there), tag from hp (<1.05 NORMAL, <1.45 HARD, else BRUTAL), blurb, your best. Arrows/Home/End move, Enter picks, Esc/BACK/backdrop close, Tab trapped, aria-label per card, aria-current on the playing map. Picking the playing map just closes (no reset). Focus goes back to MAP only if opened by keyboard (mouse: blur, so Space stays START WAVE)
+  - New maps append at the END of MAPS (atd_map stores the index); bests `atd_best_FORK` / `atd_best_CROSS`; world board posts/filters them by name like the others (5 tabs fit one row at 390px)
+  - `.board` width min(360px, 100%) (92vw poked 4px out of the overlay on 390px phones → sideways scrollbar). Version stamp v3.2 next to the title. Meta/JSON-LD say five maps
+  - Balance (my greedy bot, 5 strategies, `window.__td.MAPS[i].hp` editable live): S-BEND 19-22, BOLT 13-20, SPIRAL 10-20, FORK@1.1 19-24, CROSS@1.4 19-21. My bot is ~5 waves weaker than the v3 helper's (S-BEND 25-28), so a strong bot should land ~24-27. FORK has a cliff: at hp 1.2+ half the strategies die at the wave-10 boss, and early waves leak when the first towers sit on one branch
 - 2025-12-28: Initial creation — 3 tower types (Basic cyan, Rapid green, Sniper magenta), neon circles on an S-path, waves, credits, Orbitron neon look.
 - 2026-09-26: Engine rewrite (v2)
   - Fixed 800×500 world scaled to fit the screen (towers no longer drift off the path on resize), DPR-crisp canvas
@@ -37,10 +45,13 @@
 
 ## issues
 - Canvas colors must be 6-digit hex: code appends 2-digit alpha (`color + '44'`); `#0ff44` is invalid and canvas silently keeps the previous fillStyle
+- Multi-lane maps: every lane in `paths` must have the SAME length (targeting compares `e.d` across lanes) and they share the last point (core). Anything that needs a position on the path must pass the enemy's lane: `pointAt(d, e.lane)`
 - Tall screens (portrait phones) turn the board 90° (`rot`): ctx transform maps world (x,y) → screen (H−y, x); toWorld/toCss/label() and health bars + level pips handle it. Touch hit radius for towers is enlarged (15 css px)
 
 ## todos
 - (splash tower shipped; watch the wave-20 boss for casual players)
+- watch FORK early waves with real players (two entrances confuse new players; hp 1.1 kept gentle on purpose)
+- maybe a map-specific og/share line or a "map of the week" on the world board
 
 ## notes
 - `window.__td` exposes G, step, TYPES, stat, openPanel, upgrade, sell, startWave, resize for headless tests
