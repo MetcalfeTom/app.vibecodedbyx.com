@@ -47,4 +47,4 @@
 
 ## todos
 - Ideas: a gallery of shared scenes (sand_scenes is readable); more creatures (ants that dig? a cat that stalks the birds?); more materials (sponge; electricity done), wind, pause/step, bigger cells option on phones.
-- Challenges next: an oil-fuse level (thin oil trails fizzle like thin grass, would need embers too); acid digging; a daily challenge; show cleared count on the button. Maybe a level counter on the button, and a daily challenge.
+- Challenges next: an oil-fuse level (thin oil trails fizzle like thin grass, would need embers too); acid digging; a daily challenge. (Star tally on the button: done.) and a daily challenge.
