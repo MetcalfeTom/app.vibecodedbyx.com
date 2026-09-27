@@ -30,6 +30,8 @@
             overflow: hidden;
             touch-action: none;
             color: var(--text);
+            -webkit-user-select: none;
+            user-select: none; /* dragging a stroke across the page shouldn't select text */
             height: 100vh;
             display: flex;
             flex-direction: column;
@@ -142,6 +144,11 @@
             background: var(--accent);
             cursor: pointer;
         }
+        .material-btn:focus-visible, .control-btn:focus-visible, input[type="range"]:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .material-btn:active, .control-btn:active { transform: scale(0.94); }
         .canvas-wrap {
             flex: 1;
             display: flex;
@@ -149,14 +156,17 @@
             align-items: center;
             padding: 15px;
             min-height: 0;
+            background: radial-gradient(ellipse 70% 60% at 50% 100%, rgba(212,165,116,0.07), transparent 70%);
         }
         #sandbox {
             background: #0a0a0a;
             border-radius: 12px;
             cursor: crosshair;
+            touch-action: none;
             max-width: 100%;
             max-height: 100%;
-            box-shadow: 0 0 60px rgba(0,0,0,0.5), inset 0 0 1px rgba(255,255,255,0.1);
+            /* a faint sandy rim so you can see where the world ends */
+            box-shadow: 0 0 0 1px rgba(212,165,116,0.22), 0 0 60px rgba(0,0,0,0.5);
         }
         .status-bar {
             background: var(--surface);
@@ -164,12 +174,13 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 12px;
             font-size: 0.8em;
             color: var(--text-dim);
             border-top: 1px solid var(--border);
             flex-shrink: 0;
         }
-        .particle-count { font-family: monospace; }
+        .particle-count { font-family: monospace; white-space: nowrap; }
         .tips { opacity: 0.7; transition: opacity 0.8s; }
         .tips.used { opacity: 0; }
         @media (max-width: 768px) {
@@ -258,7 +269,7 @@
     </div>
 
     <div class="canvas-wrap">
-        <canvas id="sandbox" width="800" height="500"></canvas>
+        <canvas id="sandbox" width="800" height="500" role="img" aria-label="Sandbox: drag, or hold still to pour, the picked material"></canvas>
     </div>
 
     <div class="status-bar">
@@ -399,6 +410,19 @@
             for (let i = 0; i <= steps; i++) {
                 const t = i / steps;
                 draw(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+            }
+        }
+
+        // Holding the button (or a finger) still keeps pouring: loose stuff streams into the empty cells under the cursor
+        function pour(x, y) {
+            if (currentMat === EMPTY) { draw(x, y); return; } // the eraser keeps erasing whatever falls in
+            if (SOLID_BRUSH[currentMat]) return;
+            const r = brushSize, p = currentMat === SEED ? 0.01 : 0.12;
+            for (let dy = -r; dy <= r; dy++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    const px = Math.floor(x + dx), py = Math.floor(y + dy);
+                    if (dx*dx + dy*dy <= r*r && get(px, py) === EMPTY && Math.random() < p) set(px, py, currentMat);
+                }
             }
         }
 
@@ -719,6 +743,7 @@
 
         // Main loop
         function loop() {
+            if (isDrawing && lastMouse && gravity) pour(lastMouse.x, lastMouse.y);
             updatePhysics();
             render();
             requestAnimationFrame(loop);
@@ -740,21 +765,25 @@
         canvas.addEventListener('pointerdown', () => setTimeout(() => tipsEl.classList.add('used'), 1500), { once: true });
 
         canvas.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
             isDrawing = true;
             const pos = getPos(e);
             draw(pos.x, pos.y);
             lastMouse = pos;
         });
 
-        canvas.addEventListener('mousemove', e => {
+        // Tracked on the window, so a stroke that slips past the edge keeps painting right up to the wall
+        // and picks up again when you come back in; letting go anywhere ends it
+        window.addEventListener('mousemove', e => {
             if (!isDrawing) return;
+            if (!(e.buttons & 1)) { isDrawing = false; lastMouse = null; return; } // released somewhere we didn't hear about
             const pos = getPos(e);
             if (lastMouse) drawLine(lastMouse.x, lastMouse.y, pos.x, pos.y);
             lastMouse = pos;
         });
 
-        canvas.addEventListener('mouseup', () => { isDrawing = false; lastMouse = null; });
-        canvas.addEventListener('mouseleave', () => { isDrawing = false; lastMouse = null; });
+        window.addEventListener('mouseup', () => { isDrawing = false; lastMouse = null; });
+        window.addEventListener('blur', () => { isDrawing = false; lastMouse = null; });
 
         canvas.addEventListener('touchstart', e => {
             e.preventDefault();
@@ -777,14 +806,26 @@
             isDrawing = false;
             lastMouse = null;
         });
+        canvas.addEventListener('touchcancel', () => { isDrawing = false; lastMouse = null; });
 
         // Controls
-        document.querySelectorAll('.material-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelector('.material-btn.active')?.classList.remove('active');
-                btn.classList.add('active');
-                currentMat = matNames[btn.dataset.mat];
+        const KEYS = { '1': 'sand', '2': 'water', '3': 'stone', '4': 'wood', '5': 'fire', '6': 'oil', '7': 'lava', '8': 'ice', '9': 'acid', '0': 'eraser', 's': 'seeds' };
+        function pick(btn) {
+            if (!btn) return;
+            document.querySelectorAll('.material-btn').forEach(b => {
+                b.classList.toggle('active', b === btn);
+                b.setAttribute('aria-pressed', String(b === btn));
             });
+            currentMat = matNames[btn.dataset.mat];
+        }
+        document.querySelectorAll('.material-btn').forEach(btn => {
+            // on phones only the colour dot shows, so every swatch carries its name (and its key) for tooltips and screen readers
+            const name = btn.querySelector('span:last-child').textContent;
+            const key = Object.keys(KEYS).find(k => KEYS[k] === btn.dataset.mat);
+            btn.setAttribute('aria-label', name);
+            btn.title = key ? `${name} (${key.toUpperCase()})` : name;
+            btn.setAttribute('aria-pressed', String(btn.classList.contains('active')));
+            btn.addEventListener('click', () => pick(btn));
         });
 
         document.getElementById('brushSize').addEventListener('input', e => {
@@ -809,14 +850,12 @@
 
         // Keyboard shortcuts
         document.addEventListener('keydown', e => {
-            const shortcuts = { '1': 'sand', '2': 'water', '3': 'stone', '4': 'wood', '5': 'fire', '6': 'oil', '7': 'lava', '8': 'ice', '9': 'acid', '0': 'eraser', 's': 'seeds' };
-            if (shortcuts[e.key]) {
-                document.querySelector('.material-btn.active')?.classList.remove('active');
-                document.querySelector(`[data-mat="${shortcuts[e.key]}"]`)?.classList.add('active');
-                currentMat = matNames[shortcuts[e.key]];
-            }
-            if (e.key === 'c') grid.fill(EMPTY);
-            if (e.key === 'g' || e.key === 'p') {
+            // Ctrl/Cmd+C is copy, not "wipe my whole world"; holding P shouldn't flicker pause on and off
+            if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+            const k = e.key.toLowerCase();
+            if (KEYS[k]) pick(document.querySelector(`[data-mat="${KEYS[k]}"]`));
+            if (k === 'c') grid.fill(EMPTY);
+            if (k === 'g' || k === 'p') {
                 setPaused(gravity);
             }
         });
