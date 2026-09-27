@@ -313,6 +313,7 @@
 
 ## todos
 - Harmony (publishing blocked, see memory): bug from pushedbutton 2026-09-27 22:14 UTC — in the rehearsal window the HEAD and TAIL handles on the crossfader curve only show when Deck 1 is live; with Deck 2 live they're missing (probably drawn for the A→B direction only). Fix first when publishing works again.
+- Harmony (publishing blocked): bug from pushedbutton 2026-09-27 22:34 UTC — the deck count-up/count-down clocks stopped following playback: they only show the current time when you toggle them (so the per-frame/interval repaint of the time label is missing or gated). Fix together with the handles bug above.
 - + **Phone playability** (2026-09-26 sweep of the top ~150 by votes): first-person/WASD games got touch controls — minecraft, moon-explorer, doom-3d, neon-parkour-puzzle (copy their pattern: stick div + identifier-tracked touches, `touch-action:none`, drag-on-canvas look with preventDefault so no synthetic click asks for pointer lock, `body.touch` swaps keyboard help for touch lines; test with `new Touch()/TouchEvent` in headless). Still keyboard-only, lower in the ranking: 3d-pipes, aggressive-horticulture, baguette-grand-prix, banana-slip, block-farm, blockforge, boss-arena, bot-blaster, broadside-bay, cabin-dead (fantasy-realm-3d is another session's).
 - Add quick sanity page to each app for basic asset checks (script tags, OG image presence, favicon URL).
 - Consider a shared checklist snippet to copy into new apps (head/meta/OG/link back to stream) while keeping code isolated per app.
