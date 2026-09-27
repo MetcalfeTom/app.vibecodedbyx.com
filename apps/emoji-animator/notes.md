@@ -9,6 +9,7 @@
 
 - 2026-09-26 v1.2: EFFECT row — hearts (three rising, alternating sides), sparkles (four twinkling corners), sweat (💦 slides down), anger (💢 throbs), zzz (two rising 💤), speed (white streaks behind the emote). Pure `FX[name](t)` → sprites in unit coords, seamless at t=0/1, drawn in screen space (they do not spin with the emote; speed lines draw behind). Baked into the GIF too; filename gets the effect (emote-bounce-sparkles-112.gif).
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
+- 2026-09-27 glow-up: (1) `.gifout{display:flex}` beat the `hidden` attribute, so an empty GIF result box (broken image alt text + a dead "download it again" link to #) showed on first load. Added `.gifout[hidden]{display:none}`. (2) A drop that missed the stage (for example onto the "upload / drop" button) opened the image in the tab and left the app. A document-level dragover/drop now catches it and uses the file (it skips events the stage already handled, via defaultPrevented). (3) Buttons scale to .94 while pressed, turned off under reduced motion. The upload label and speed slider get the mint focus ring. Build stamp left alone.
 ## issues
 - WebM recording unsupported on some iOS Safari — caught, status explains, PNG still works.
 - Emoji render varies by platform font (as Twitch emotes do by platform, so arguably a feature).
