@@ -61,6 +61,9 @@
     .tool-btn { background: var(--win-face); border: 2px solid; border-color: var(--win-light) var(--win-dark) var(--win-dark) var(--win-light); padding: 3px 6px; font-family: inherit; font-size: 11px; color: var(--win-text); cursor: pointer; display: flex; align-items: center; gap: 4px; }
     .tool-btn:hover { background: #d4d4d4; }
     .tool-btn:active { border-color: var(--win-dark) var(--win-light) var(--win-light) var(--win-dark); padding: 4px 5px 2px 7px; }
+    .tool-btn.armed { background: #ffe082; animation: armPulse .5s steps(2) infinite; }
+    @keyframes armPulse { 50% { background: #ff8a65; } }
+    .tool-btn.disaster-btn:disabled { opacity: .5; cursor: wait; }
     .tool-btn.active { border-color: var(--win-dark) var(--win-light) var(--win-light) var(--win-dark); background: #a0a0a0; padding: 4px 5px 2px 7px; }
     .tool-cost { margin-left: auto; font-size: 10px; color: #444; }
 
@@ -322,6 +325,13 @@
         </div>
       </div>
       <div class="tool-section">
+        <div class="tool-label">Disasters</div>
+        <div class="tools">
+          <button class="tool-btn disaster-btn" data-disaster="tornado" title="Tornado (free): A twister sweeps across your city and flattens whatever it touches. Click twice to unleash it.">🌪️ Tornado<span class="tool-cost">click 2x</span></button>
+          <button class="tool-btn disaster-btn" data-disaster="quake" title="Earthquake (free): The ground shakes, buildings lose levels, roads crack and fires break out near the epicentre. Click twice to unleash it.">🌋 Quake<span class="tool-cost">click 2x</span></button>
+        </div>
+      </div>
+      <div class="tool-section">
         <div class="tool-label">Game</div>
         <div class="tools">
           <button class="tool-btn new-btn" onclick="showNewGameModal()" title="New Game: Start a fresh city from scratch. You can save your current city first. Starts with $10,000 funds on a 36x36 grid!">🆕 New</button>
@@ -425,6 +435,7 @@
       if(!gameActive)return;
       const cost=2000;
       if(money<cost){showAlert('💸 Need $2,000!');return;}
+      clearDisasters();
       if(gridSize>=60){showAlert('🗺️ Max size reached!');return;}
       money-=cost;
       const oldSize=gridSize;
@@ -473,6 +484,7 @@
 
     document.querySelectorAll('.tool-btn').forEach(btn=>{
       btn.addEventListener('click',()=>{
+        if(!btn.dataset.tool)return;
         document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
         btn.classList.add('active');
         selectedTool=btn.dataset.tool;
@@ -766,6 +778,7 @@
           }
         }
       }
+      drawDisasterFx();
       ctx.restore();
     }
 
@@ -1164,6 +1177,169 @@
     }
 
 
+    // ---------- Disasters: a tornado or an earthquake on demand (SimCity-style chaos) ----------
+    let tornado=null,quake=null,rubble=new Map(),disasterRAF=0,disasterLast=0;
+    function addRubble(x,y){rubble.set(x+','+y,performance.now()+90000);}
+    function clearDisasters(){tornado=null;quake=null;rubble=new Map();canvas.style.transform='';}
+
+    // Click once to arm (the button blinks), again within 3 s to unleash
+    document.querySelectorAll('.disaster-btn').forEach(btn=>{
+      const label=btn.innerHTML;
+      btn.addEventListener('click',()=>{
+        if(!gameActive)return;
+        if(!btn.classList.contains('armed')){
+          document.querySelectorAll('.disaster-btn.armed').forEach(b=>{b.classList.remove('armed');b.innerHTML=b.dataset.label;});
+          btn.dataset.label=label;
+          btn.classList.add('armed');
+          btn.innerHTML=(btn.dataset.disaster==='tornado'?'🌪️':'🌋')+' Sure?<span class="tool-cost">click again</span>';
+          clearTimeout(btn._armT);
+          btn._armT=setTimeout(()=>{btn.classList.remove('armed');btn.innerHTML=label;},3000);
+          return;
+        }
+        clearTimeout(btn._armT);
+        btn.classList.remove('armed');btn.innerHTML=label;
+        if(btn.dataset.disaster==='tornado')startTornado();else startQuake();
+      });
+    });
+    function syncDisasterBtns(){
+      document.querySelectorAll('.disaster-btn').forEach(b=>{b.disabled=b.dataset.disaster==='tornado'?!!tornado:!!(quake&&quake.t<3);});
+    }
+
+    function wreck(x,y){
+      if(x<0||y<0||x>=gridSize||y>=gridSize||grid[y][x]===EMPTY)return 0;
+      grid[y][x]=EMPTY;buildings[y][x]=0;onFire[y][x]=0;
+      addRubble(x,y);
+      return 1;
+    }
+
+    function startTornado(){
+      if(tornado||!gameActive)return;
+      const g=gridSize,side=Math.floor(Math.random()*4),r=g*(0.2+Math.random()*0.6);
+      const start=[[-1.5,r,0],[g+1.5,r,Math.PI],[r,-1.5,Math.PI/2],[r,g+1.5,-Math.PI/2]][side];
+      tornado={x:start[0],y:start[1],ang:start[2],spin:0,t:0,hits:0,cell:'',debris:Array.from({length:14},()=>({r:0.3+Math.random()*1.4,a:Math.random()*6.28,s:2+Math.random()*3}))};
+      showAlert('🌪️ TORNADO!');
+      syncDisasterBtns();
+      runDisasters();
+    }
+
+    function updateTornado(dt){
+      const T=tornado,g=gridSize;
+      T.t+=dt;T.spin+=dt*9;
+      // wander, with a gentle pull toward the middle so it crosses the city
+      const want=Math.atan2(g/2-T.y,g/2-T.x);
+      let d=want-T.ang;while(d>Math.PI)d-=Math.PI*2;while(d<-Math.PI)d+=Math.PI*2;
+      if(T.t<g/5)T.ang+=d*0.4*dt;
+      T.ang+=(Math.random()-0.5)*2.4*dt;
+      const sp=2.4+Math.sin(T.t*1.7)*0.6;
+      T.x+=Math.cos(T.ang)*sp*dt;T.y+=Math.sin(T.ang)*sp*dt;
+      const cx=Math.floor(T.x),cy=Math.floor(T.y),key=cx+','+cy;
+      if(key!==T.cell){
+        T.cell=key;
+        T.hits+=wreck(cx,cy);
+        // it's wider than one tile: sometimes it takes a neighbour too
+        const px=Math.round(-Math.sin(T.ang)),py=Math.round(Math.cos(T.ang));
+        if(Math.random()<0.55)T.hits+=wreck(cx+px,cy+py);
+        if(Math.random()<0.3)T.hits+=wreck(cx-px,cy-py);
+      }
+      const out=T.x<-2.5||T.y<-2.5||T.x>g+2.5||T.y>g+2.5;
+      if((out&&T.t>1.5)||T.t>30){
+        showAlert(T.hits?'🌪️ The tornado wrecked '+T.hits+' tile'+(T.hits===1?'':'s'):'🌪️ The tornado missed everything!');
+        tornado=null;
+        updateUI();
+      }
+    }
+
+    function startQuake(){
+      if((quake&&quake.t<3)||!gameActive)return;
+      const g=gridSize,ex=2+Math.random()*(g-4),ey=2+Math.random()*(g-4),R=Math.max(8,g*0.3);
+      let hurt=0;
+      for(let y=0;y<g;y++)for(let x=0;x<g;x++){
+        const dd=Math.hypot(x+0.5-ex,y+0.5-ey);if(dd>R)continue;
+        const p=0.6*(1-dd/R),t=grid[y][x];
+        if(t===RES||t===COM||t===IND){
+          if(buildings[y][x]>0&&Math.random()<p){buildings[y][x]--;hurt++;if(buildings[y][x]===0)addRubble(x,y);if(Math.random()<0.1)onFire[y][x]=3;}
+        }else if(t===ROAD){if(Math.random()<p*0.35){hurt+=wreck(x,y);}}
+        else if(t!==EMPTY&&Math.random()<p*0.4){hurt+=wreck(x,y);}
+      }
+      // cracks running out from the epicentre
+      const cracks=[];
+      const n=4+Math.floor(Math.random()*3);
+      for(let i=0;i<n;i++){
+        let a=i/n*Math.PI*2+Math.random()*0.8,x=ex,y=ey;const pts=[[x,y]];
+        const len=6+Math.floor(Math.random()*6);
+        for(let k=0;k<len;k++){a+=(Math.random()-0.5)*0.9;x+=Math.cos(a)*1.1;y+=Math.sin(a)*1.1;pts.push([x,y]);}
+        cracks.push(pts);
+      }
+      quake={x:ex,y:ey,R,t:0,cracks};
+      showAlert('🌋 EARTHQUAKE! '+hurt+' tile'+(hurt===1?'':'s')+' damaged');
+      syncDisasterBtns();
+      updateUI();
+      runDisasters();
+    }
+
+    function runDisasters(){
+      if(disasterRAF)return;
+      disasterLast=performance.now();
+      const step=now=>{
+        const dt=Math.max(0,Math.min(0.05,(now-disasterLast)/1000));disasterLast=Math.max(disasterLast,now);
+        if(tornado)updateTornado(dt);
+        if(quake){
+          quake.t+=dt;
+          const k=Math.max(0,1-quake.t/2.6);
+          canvas.style.transform=k>0?`translate(${(Math.random()-0.5)*10*k}px,${(Math.random()-0.5)*8*k}px)`:'';
+        }
+        draw();
+        syncDisasterBtns();
+        disasterRAF=(tornado||(quake&&quake.t<3))?requestAnimationFrame(step):0;
+      };
+      disasterRAF=requestAnimationFrame(step);
+    }
+
+    // Drawn on top of the city by draw()
+    function drawDisasterFx(){
+      const now=performance.now();
+      if(rubble.size){
+        for(const[k,until]of rubble){
+          if(until<now){rubble.delete(k);continue;}
+          const[x,y]=k.split(',').map(Number);
+          if(x>=gridSize||y>=gridSize||grid[y][x]!==EMPTY){rubble.delete(k);continue;}
+          const a=Math.min(1,(until-now)/15000),px=x*CELL,py=y*CELL;
+          ctx.fillStyle=`rgba(90,80,70,${0.7*a})`;ctx.fillRect(px+1,py+1,CELL-2,CELL-2);
+          ctx.fillStyle=`rgba(160,150,135,${0.9*a})`;
+          for(let i=0;i<5;i++){const h=(x*73+y*151+i*97)%100;ctx.fillRect(px+2+(h%9),py+2+((h*7)%9),2+(i%2),2);}
+        }
+      }
+      if(quake&&quake.t<30){
+        const a=Math.min(1,(30-quake.t)/8);
+        ctx.lineCap='round';ctx.lineJoin='round';
+        for(const pts of quake.cracks){
+          ctx.beginPath();pts.forEach(([x,y],i)=>i?ctx.lineTo(x*CELL,y*CELL):ctx.moveTo(x*CELL,y*CELL));
+          ctx.strokeStyle=`rgba(20,14,10,${0.85*a})`;ctx.lineWidth=3;ctx.stroke();
+          ctx.strokeStyle=`rgba(255,120,40,${0.35*a})`;ctx.lineWidth=1;ctx.stroke();
+        }
+        if(quake.t<3){
+          const r=(quake.t%1)*quake.R*CELL;
+          ctx.strokeStyle=`rgba(255,160,60,${0.6*(1-quake.t%1)})`;ctx.lineWidth=2;
+          ctx.beginPath();ctx.arc(quake.x*CELL,quake.y*CELL,r,0,Math.PI*2);ctx.stroke();
+        }
+        if(quake.t>=30)quake=null;
+      }
+      if(tornado){
+        const T=tornado,cx=T.x*CELL,cy=T.y*CELL,S=CELL*2.3;
+        const sh=ctx.createRadialGradient(cx,cy,0,cx,cy,S*1.3);
+        sh.addColorStop(0,'rgba(40,40,50,0.55)');sh.addColorStop(1,'rgba(40,40,50,0)');
+        ctx.fillStyle=sh;ctx.beginPath();ctx.arc(cx,cy,S*1.3,0,Math.PI*2);ctx.fill();
+        for(let arm=0;arm<3;arm++){
+          ctx.beginPath();
+          for(let i=0;i<=26;i++){const r=i/26*S,a=-T.spin+arm*2.094+i*0.32;i?ctx.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r):ctx.moveTo(cx,cy);}
+          ctx.strokeStyle='rgba(235,235,240,0.85)';ctx.lineWidth=2.4;ctx.stroke();
+        }
+        ctx.fillStyle='#2a2a33';ctx.beginPath();ctx.arc(cx,cy,2.5,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#8d6e63';
+        for(const d of T.debris){const a=d.a-T.spin*d.s/6,r=d.r*CELL;ctx.fillRect(cx+Math.cos(a)*r-1,cy+Math.sin(a)*r-1,2.5,2.5);}
+      }
+    }
+
     // ---------- Mayor's goals: a short path that teaches the game, each pays a small grant ----------
     let goalIdx=0;
     function tiles(t,built){let c=0;for(let y=0;y<gridSize;y++)for(let x=0;x<gridSize;x++)if(grid[y][x]===t&&(!built||buildings[y][x]>0))c++;return c;}
@@ -1276,6 +1452,7 @@
         const save=JSON.parse(data);
         // Restore grid size (default to 36 for old saves)
         const savedSize=save.gridSize||36;
+        clearDisasters();
         initGrid(savedSize);
         for(let y=0;y<gridSize;y++){
           for(let x=0;x<gridSize;x++){
@@ -1374,6 +1551,7 @@
     }
 
     function resetGame(){
+      clearDisasters();
       // Reset grid size and zoom
       zoomLevel=1;
       initGrid(36);

@@ -1,6 +1,7 @@
 # Micro City
 
 ## log
+- 2026-09-27: **Disasters** toolbar section. 🌪️ Tornado and 🌋 Quake are free; click once to arm (button blinks "Sure?"), again within 3 s to unleash. Tornado enters from a random edge, wanders with a pull toward the middle at ~2.4 tiles/s and `wreck()`s its tile plus sometimes a neighbour (grid → EMPTY, rubble left behind); alert with the count when it leaves. Quake: random epicentre, radius max(8, 30% of map); zones lose a level (p = 0.6 × falloff, 10% of those catch fire), roads crack away (p × 0.35), services/power/parks can be destroyed (p × 0.4); screen shake 2.6 s (canvas transform), cracks fade over 30 s, pulse rings. Overlays drawn by `drawDisasterFx()` at the end of draw(); a rAF loop runs only while a tornado or shake is active. Rubble is visual only (Map "x,y" → expiry, 90 s, dropped when the tile is rebuilt), cleared on new game, load and expand. Also fixed: New/Save/Load/Expand buttons used to clear the selected tool (they have no data-tool). rAF timestamps can be earlier than performance.now(): dt is clamped at 0 (negative dt gave a negative arc radius).
 - 2026-09-26: SEO — descriptive title/meta description, schema.org JSON-LD.
 - 2026-09-26: Mayor's goals — 12-step Win95 goal window over the map (roads → homes → power → 50 people → shops → factory → park → 300 → police+fire → 1,000 → expand → 5,000), each pays a small grant ($200–$3000). `goalIdx` saved with the city; old saves without it skip goals they already meet (no grant). Minimize button in the title bar
 - 2026-09-26: og-image.png added — the og:image meta pointed at a file that never existed, so shares had no picture. Screenshot of a sample town (headless, twemoji swapped in for the emoji glyphs).
@@ -177,7 +178,7 @@
 - Add water system
 - Add education buildings
 - Add health facilities
-- Add natural disasters (tornado, earthquake)
+- More disasters: monster, flood; optional random disasters setting (off by default)
 - Add difficulty settings
 
 ## issues
