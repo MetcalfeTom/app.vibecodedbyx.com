@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-09-27: search placeholder shows the real app count once the index loads (it said 1200+ while 1,641 were indexed).
 - 2026-01-13: Created app directory listing all sloppy.live apps
 
 ## features
