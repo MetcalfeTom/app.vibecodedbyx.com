@@ -1,6 +1,12 @@
 # Abstract Tower Defense
 
 ## log
+- 2026-09-27: **v3.3 daily challenge** (built in scratch, probed headless at 1280x800, 390x844 and 375x667, 0 errors)
+  - `makeDaily(day)`: FNV hash of 'atd'+UTC date seeds one of the 5 maps and one of 8 TWISTS (GOLD RUSH, GLASS CORE, SWARM, HASTE, SCRAPYARD, NO SNIPERS, DUO, OVERTIME), so everyone gets the same challenge that day. A twist is a partial `MOD` over `NOMOD` {start, core, hp, speed, count, reward, clear, cost, costOf{type}, ban[]}; DUO bans all but a seeded pair (always includes a workable one: basic+frost/splash/sniper or rapid+sniper) and starts with 300c
+  - `MOD` is wired into fresh() (credits/core), hpBase, mkEnemy speed/reward, buildWave count, the clear bonus, and `costOf(type)` everywhere a tower price is used (build, canPlace, upCost, tower bar). Banned tower buttons are disabled with OFF; pickType/canPlace refuse them
+  - Map picker: a gold DAILY card first (today's map drawing, twist, your best today, time until the next one); `curCard()` = 0 when playing the daily, mapIdx+1 otherwise. `setMap(i, d)` with a daily sets `daily`, never writes `atd_map`. HUD map label says DAILY. A gold dot on MAP until you open today's daily (`atd_dseen`)
+  - World board: scores go to `atd_scores` with map `'D' + date` (e.g. D2026-09-27), best in `atd_best_D<date>`, posted best `atd_posted_D<date>`. The board has a DAILY tab (today's). REINITIALIZE after midnight UTC rolls to the new day's challenge
+  - Balance with the greedy bot (4 strategies, all maps): most twists land within ±3 waves of the map's normal; SWARM is ~+3 easier, GOLD RUSH/OVERTIME ~−1 to −3, DUO rapid+sniper hardest (8-14). Cut: rapid+splash and splash+sniper DUO pairs (bot died at wave 3-5: nothing cheap to open with), rapid+frost (7-11); GLASS CORE went 5→8 core (SPIRAL leaks early)
 - 2026-09-27: **v3.2 new maps + map picker** (built in scratch, tested headless at 1280x800 and 390x844 portrait/rotated, 0 errors)
   - FORK (hp ×1.1): two entrances (top/bottom left) whose lanes merge at (480,250), then a short chicane to the core on the right edge. Spawns alternate lanes (`G.spawnN`), so a branch-only tower sees half the enemies; the pocket between the branches (~380,250) sees both
   - CROSS (hp ×1.4): one long path (1960) that crosses itself at (400,250): first pass horizontal, second vertical; the closed lobe top-right and the four crossing quadrants hit enemies on both passes
@@ -51,7 +57,7 @@
 ## todos
 - (splash tower shipped; watch the wave-20 boss for casual players)
 - watch FORK early waves with real players (two entrances confuse new players; hp 1.1 kept gentle on purpose)
-- maybe a map-specific og/share line or a "map of the week" on the world board
+- maybe a share line for the daily result ("wave 17 on today's FORK · SWARM"); more twists (no upgrades? fog?)
 
 ## notes
 - `window.__td` exposes G, step, TYPES, stat, openPanel, upgrade, sell, startWave, resize for headless tests
