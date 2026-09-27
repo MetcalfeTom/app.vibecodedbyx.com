@@ -13,6 +13,7 @@
 - LocalStorage high score key: `breakoutHighScore` — keep stable to avoid resets.
 
 ## todos
+- (2026-09-27, found by code reading, untested) body overflow:hidden hides Share + TOP SCORES below the fold (let the page scroll, preventDefault game keys, canvas touch-action:none); Space in the name box restarts the game; level-up banner shows INITIALIZE (resets to level 1) and the old submit box; touch/mouse paddle input not scaled to the CSS-shrunk canvas on phones; speed tied to refresh rate; multiball power-up does nothing; per-level speed-up is lost (resetBall zeroes it first).
 - Add basic SFX toggle and simple bounce sound.
 - Show a visible "PAUSED" ribbon when `P` is pressed.
 - Optional Supabase leaderboard (RLS-safe inserts with `user_id`).
