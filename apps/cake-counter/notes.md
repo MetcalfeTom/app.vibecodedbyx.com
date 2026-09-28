@@ -20,6 +20,14 @@ Requested by angienimo: "a game where you bake cakes based on the customer's req
   - Accessibility: aria-live, reduced motion, 44px targets.
   - og.png is 1200x630.
 
+- **v1.1 (2026-09-28)**: "make the cake game more fun" (angienimo).
+  - Streak: every perfect cake in a row adds (streak−1)×2 coins, capped at +10; a 🔥 ×N chip shows in the HUD from ×2. A miss or a walk-out resets it.
+  - Day plan from day 2: customer 2 is a **regular** coming back for "the usual" (their stored order from an earlier day; a "Remind me?" button shows it for −30% patience; perfect without it = +8). Customers 3–4 are **rush hour** (60% patience, coins ×2). On even days customer 5 is **Mona Gâteau** in person (VIP: an order from day+2, coins ×2, +15 for a perfect cake). Her result sets the review floor or ceiling.
+  - The end-of-day card names tomorrow's regular (G.nu, picked from today's served customers with ≥2 stars) and has a **shop**: Shop radio 45 (4 s grace per order), Comfy chairs 60 (+20% patience) and Tip jar 80 (tips ×1.5), one-time purchases.
+  - Save gained streak, up, book (id → {req, day}) and nu.
+  - Stale arrival callbacks are guarded by G.tok.
+  - The card section class is `.ups`. `.shop` is the scene container, so never reuse that name.
+
 ## issues
 - Orders are capped at 185 chars by rejection sampling in `genOrder` (40 tries). New phrases that are much longer will be rejected silently and make orders repetitive, so keep new phrases short.
 - Every order must be unambiguous. Anything not mentioned is free choice. If you add a riddle, make sure it maps to exactly one pantry item.
@@ -29,7 +37,7 @@ Requested by angienimo: "a game where you bake cakes based on the customer's req
 - Emoji (coin, bin, serve icon) render as boxes in headless screenshots. That is fine.
 
 ## todos
-- Extras chat might like: seasonal customers, a "rush hour" day, custom cake names.
+- Extras chat might like: seasonal customers, custom cake names, a queue of two customers at once.
 - A shared leaderboard of best days (would need a supabase table; left out for v1).
 - More toppings or layer shapes (e.g. a square cake) if chat asks for variety.
 - Sound toggle in a hidden settings corner.
