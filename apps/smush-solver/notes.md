@@ -24,6 +24,7 @@ A helper for the word game Smush (Tatum's idea and rules, 2026-09-28 on stream).
 Hot-sauce label: cream paper, chili red #cf2f19, mustard gold #e0a21f, ink #241913. Fraunces (900, SOFT 100) + Martian Mono. Chunky tiles with 5 pips, the golden tile glows, the spicy tile gets a 🌶️ and a red border.
 
 ## log
+- 2026-09-28 v1.1: pangram bonus (Tatum 19:58-20:01: a fixed bonus for a pangram as the FIRST word, possibly several pangrams, always open with one): c.pan = uses every plain letter; pangrams pinned on top until the first word, gold PANGRAM badge, bonus amount settable in the word-list box (localStorage `smush_pbonus`, default 0 = unknown). Speed: the DP keeps one word per letter-mix (max value) → 1.8 s built-in / 4.7 s on a 260k list in node; per-row search budget = clamp(3e6/rows, 1000, 4000) plus a 25k retry for rows with no finish found → 0 false 'no finish found' on both test lists (was 184 at a flat 400). NB: timing the worker source with eval() in node is ~20× slow (sloppy-eval scope); use vm.runInThisContext (scratchpad smush/tw.js).
 - 2026-09-28 v1: board entry with uses −/+ and letter values, spicy tile tap, ranked candidates (score now / with look-ahead), played ✓ (takes uses from the fullest tile with that letter, undo), ✗ game says no (with undo toast), find box, best finish plan, BYOD file picker, new game keeps letters.
 
 ## issues
