@@ -189,7 +189,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v2.2 · 2026-09-28</span></footer>
+  <footer><span role="note" aria-label="Build information">build v2.3 · 2026-09-28</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
@@ -894,19 +894,52 @@ function align(a, b, guess) {
   const c = search(a8, b8, Math.floor(start / 8), Math.floor(len / 8), g8 - 40, g8 + 40) * 8;
   return search(a, b, start, len, c - 12, c + 12);
 }
+// Copies rarely start on the same sample: another ripper or encoder adds its own few samples of delay,
+// so b is read between its samples (windowed sinc, 32 taps) at the fraction that cancels best
+function fracTaps(phi) {
+  const h = new Float32Array(32);
+  let s = 0;
+  for (let k = 0; k < 32; k++) {
+    const x = k - 15 - phi;
+    h[k] = (x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x)) * (0.42 + 0.5 * Math.cos(Math.PI * x / 16) + 0.08 * Math.cos(Math.PI * x / 8));
+    s += h[k];
+  }
+  for (let k = 0; k < 32; k++) h[k] /= s;
+  return h;
+}
+// b lined up with a over [i0, i1): y[i - off] is b at i + lag + phi (phi 0: b's own samples, no copy)
+function lineUp(b, lag, phi, i0, i1) {
+  if (!phi) return { y: b, off: -lag };
+  const h = fracTaps(phi), y = new Float32Array(i1 - i0);
+  for (let i = i0; i < i1; i++) { let v = 0; const j = i + lag - 15; for (let k = 0; k < 32; k++) v += b[j + k] * h[k]; y[i - i0] = v; }
+  return { y, off: i0 };
+}
+// what's left of a after taking away the best-scaled b, over [i0, i1)
+function leftover(a, L, i0, i1, keep) {
+  const y = L.y, o = L.off;
+  let ab = 0, bb = 0, aa = 0;
+  for (let i = i0; i < i1; i++) { const x = a[i], v = y[i - o]; ab += x * v; bb += v * v; aa += x * x; }
+  const g = bb > 0 ? ab / bb : 0, res = keep ? new Float32Array(Math.min(i1 - i0, keep)) : null;
+  let rr = 0;
+  for (let i = i0; i < i1; i++) { const d = a[i] - g * y[i - o]; rr += d * d; if (res && i - i0 < res.length) res[i - i0] = d; }
+  return { db: aa > 0 ? 10 * Math.log10(Math.max(rr, 1e-12 * aa) / aa) : 0, res };
+}
 async function flipTest(k, r) {
   const a = await monoAt(k.it), b = await monoAt(r.it);
   const lag = align(a, b, Math.round((r.off - k.off) * NSR));
-  // best gain (and polarity) for b, then what's left after subtracting it
-  let ab = 0, bb = 0, aa = 0;
-  const i0 = Math.max(0, -lag), i1 = Math.min(a.length, b.length - lag);
-  for (let i = i0; i < i1; i++) { const x = a[i], y = b[i + lag]; ab += x * y; bb += y * y; aa += x * x; }
-  const g = bb > 0 ? ab / bb : 0;
-  const keep = Math.min(i1 - i0, NSR * 60), res = new Float32Array(Math.max(0, keep));
-  let rr = 0;
-  for (let i = i0; i < i1; i++) { const d = a[i] - g * b[i + lag]; rr += d * d; if (i - i0 < keep) res[i - i0] = d; }
-  const db = aa > 0 ? 10 * Math.log10(Math.max(rr, 1e-12 * aa) / aa) : 0;
-  return { db, res, start: i0 / NSR };
+  // try fractions of a sample on 3 s from the middle, then refine around the best
+  const f0 = Math.max(15 - lag, 0), f1 = Math.min(a.length, b.length - lag - 16);
+  const len = Math.min(NSR * 3, f1 - f0), w0 = Math.max(f0, Math.min(Math.floor(a.length * 0.3), f1 - len));
+  let phi = 0;
+  if (len > NSR / 2) {
+    const tryAt = p => leftover(a, lineUp(b, lag, p, w0, w0 + len), w0, w0 + len, 0).db;
+    let bestDb = tryAt(0);
+    for (let p = -0.5; p <= 0.5; p += 0.125) if (p) { const d = tryAt(p); if (d < bestDb - 0.5) { bestDb = d; phi = p; } }
+    for (const step of [0.0625, 0.03125]) if (phi) for (const p of [phi - step, phi + step]) { const d = tryAt(p); if (d < bestDb) { bestDb = d; phi = p; } }
+  }
+  const i0 = phi ? f0 : Math.max(0, -lag), i1 = phi ? f1 : Math.min(a.length, b.length - lag);
+  const out = leftover(a, lineUp(b, lag, phi, i0, i1), i0, i1, NSR * 60);
+  return { db: out.db, res: out.res, start: i0 / NSR, lag: lag + phi };
 }
 function flipVerdict(db) {
   if (db <= -80) return ['good', 'cancels to silence', 'identical audio'];
