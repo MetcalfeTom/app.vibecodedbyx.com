@@ -347,7 +347,10 @@ export function init(A) {
     for (const sd of [-1, 1]) { k.lathe('#fff', [[0.001, 0.065], [0.03, 0.07], [0.036, 0.1], [0.048, 0.22], [0.056, 0.4], [0.052, 0.47], [0.068, 0.6], [0.082, 0.78], [0.085, 0.89], [0.001, 0.9]], 0, 0, sd * 0.085, 1, 1, 1, 6); k.put(new THREE.SphereGeometry(0.05, 7, 5), '#2c2622', 0.045, 0.045, sd * 0.085, 0, 0, 0, 2.1, 0.9, 1); }
     k.lathe('#fff', [[0.001, 0.83], [0.14, 0.84], [0.165, 0.9], [0.15, 0.97], [0.001, 0.98]], 0, 0, 0, 0.75, 1, 1.1, 8); }), crowdV, NC, true);
   const TORSOC = winst(cg(k => { k.lathe('#fff', [[0.001, 0.93], [0.155, 0.93], [0.15, 1.02], [0.152, 1.12], [0.17, 1.24], [0.185, 1.33], [0.17, 1.41], [0.11, 1.46], [0.045, 1.49], [0.001, 1.49]], 0, 0, 0, 0.72, 1, 1.08, 8); for (const sd of [-1, 1]) k.put(new THREE.SphereGeometry(0.058, 7, 5), '#fff', 0, 1.395, sd * 0.19); }), crowdV, NC, true);
-  const ARMC = winst(cg(k => k.lathe('#fff', [[0.001, -0.54], [0.028, -0.53], [0.034, -0.44], [0.036, -0.3], [0.04, -0.26], [0.046, -0.1], [0.05, 0], [0.001, 0.02]], 0, 0, 0, 1, 1, 1, 5)), crowdV, NC * 2);
+  // jointed arms: an upper arm (sleeve; its open top hides in the shoulder ball) hung from the shoulder and a forearm (sleeve or bare skin) from the elbow, LU below it; the hand sits LF past the elbow
+  const LU = 0.28, LF = 0.295;
+  const ARMC = winst(cg(k => k.lathe('#fff', [[0.001, -0.305], [0.03, -0.3], [0.039, -0.275], [0.046, -0.1], [0.047, 0]], 0, 0, 0, 1, 1, 1, 5)), crowdV, NC * 2);
+  const ARMF = winst(cg(k => k.lathe('#fff', [[0.001, 0.036], [0.028, 0.03], [0.037, 0.006], [0.036, -0.06], [0.031, -0.18], [0.026, -0.258], [0.001, -0.268]], 0, 0, 0, 1, 1, 1, 5)), crowdV, NC * 2);
   const HANDC = winst(new THREE.SphereGeometry(0.036, 6, 5).scale(1.1, 1.2, 0.8), SKIN, NC * 2);
   const HEADC = winst(cg(k => {
     k.cyl('#fff', 0.005, 1.5, 0, 0.044, 0.05, 0.12, 0, 0, 0, 'b', 6);
@@ -359,9 +362,37 @@ export function init(A) {
   const HAIRS = winst(hairG(false), crowdV, NC), HAIRL = winst(hairG(true), crowdV, NC);
   const CAP = winst(cg(k => { k.put(new THREE.SphereGeometry(0.108, 10, 5, 0, PI * 2, 0, PI / 2), '#fff', -0.005, 1.668, 0, 0, 0, 0, 1.06, 0.55, 0.98); k.put(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 10), '#fff', 0.085, 1.672, 0, 0, 0, -0.12, 1, 1, 1.2); }), crowdV, NC);
   const PANTS = ['#2b3a55', '#3b3b3b', '#5a4632', '#1f2a3a', '#6b6f78', '#caa77a', '#2f3b2c'], HAIRC = ['#2a1d14', '#5a3a22', '#c9a063', '#1b1b1b', '#8c4a2f', '#b8b0a4', '#3b2a1e'], CAPC = ['#4a4038', '#2f3a2f', '#6b5a44', '#1f2430', '#8a6a4a', '#b8322a'];
-  const PM = new THREE.Matrix4(), AM = new THREE.Matrix4(), T1 = new THREE.Matrix4(), T2 = new THREE.Matrix4(), ZERO = new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4), HM = new THREE.Matrix4(), T3 = new THREE.Matrix4();
+  const PM = new THREE.Matrix4(), AM = new THREE.Matrix4(), T1 = new THREE.Matrix4(), ZERO = new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4), HM = new THREE.Matrix4();
+  // arm posing in body space (feet at 0, facing +X, right = +Z): aS shoulder, aU upper-arm and aF forearm directions (unit), aH the hand after limb()
+  const aS = new THREE.Vector3(), aE = new THREE.Vector3(), aH = new THREE.Vector3(), aU = new THREE.Vector3(), aF = new THREE.Vector3(), bU = new THREE.Vector3(), bF = new THREE.Vector3();
+  const aN = new THREE.Vector3(), aX = new THREE.Vector3(), aY = new THREE.Vector3(), aP = new THREE.Vector3(), AB = new THREE.Matrix4();
+  const bend = (ux, uy, uz, fx, fy, fz) => { aU.set(ux, uy, uz).normalize(); aF.set(fx, fy, fz).normalize(); };
+  // two-bone IK: put the hand at (tx,ty,tz), the elbow bowing toward the pole (px,py,pz)
+  function reach(tx, ty, tz, px, py, pz) {
+    aF.set(tx, ty, tz).sub(aS); let d = aF.length(); aF.divideScalar(d || 1); d = Math.max(0.05, Math.min(LU + LF - 0.004, d));
+    const a = (LU * LU - LF * LF + d * d) / (2 * d), h = Math.sqrt(Math.max(0, LU * LU - a * a));
+    aP.set(px, py, pz).addScaledVector(aF, -aP.dot(aF)); if (aP.lengthSq() < 1e-8) aP.set(-1, 0, 0); aP.normalize();
+    aU.copy(aF).multiplyScalar(a).addScaledVector(aP, h).divideScalar(LU);
+    aF.multiplyScalar((d - a) / LF).addScaledVector(aP, -h / LF);
+  }
+  const mixPose = k => { aU.lerpVectors(bU, aU, k).normalize(); aF.lerpVectors(bF, aF, k).normalize(); };   // blend from the saved pose (bU,bF) toward the current one
+  // writes upper arm, forearm and hand instance k from aS/aU/aF under PM, aE/aH = elbow/hand (body space)
+  function limb(k) {
+    aE.copy(aS).addScaledVector(aU, LU); aH.copy(aE).addScaledVector(aF, LF);
+    aN.crossVectors(aU, aF); if (aN.lengthSq() < 1e-6) { aN.set(1, 0, 0).cross(aU); if (aN.lengthSq() < 1e-6) aN.set(0, 0, 1); } aN.normalize();
+    aY.copy(aU).negate(); aX.crossVectors(aY, aN); AB.makeBasis(aX, aY, aN).setPosition(aS); AM.multiplyMatrices(PM, AB); ARMC.setMatrixAt(k, AM);
+    aY.copy(aF).negate(); aX.crossVectors(aY, aN); AB.makeBasis(aX, aY, aN).setPosition(aH); AM.multiplyMatrices(PM, AB); HANDC.setMatrixAt(k, AM);
+    AB.setPosition(aE); AM.multiplyMatrices(PM, AB); ARMF.setMatrixAt(k, AM);
+  }
+  // a hand flag / hanky: the stick carries on from the forearm, the cloth faces the street and flies outward
+  function flagAt(j) {
+    aY.copy(aF); aN.set(-1, 0, 0).addScaledVector(aY, aY.x); if (aN.lengthSq() < 1e-6) aN.set(0, 1, 0); aN.normalize(); aX.crossVectors(aY, aN);
+    AB.makeBasis(aX, aY, aN).setPosition(aH); AM.multiplyMatrices(PM, AB); HF.setMatrixAt(j, AM);
+  }
+  // 0..1 now and then: open for a fraction L of an 8-beat cycle, eased in and out over half a beat
+  const now8 = (beat, ph, L) => { const t = beat / 8 + ph - Math.floor(beat / 8 + ph), k = Math.min(1, t / 0.06, Math.max(0, L - t) / 0.06); return k * k * (3 - 2 * k); };
   // each person's colours, set per building slot; only people in view get packed into the instance buffers each frame
-  const CCOL = Array.from({ length: NC }, () => ({ sh: new THREE.Color(), pa: new THREE.Color(), sk: new THREE.Color(), ha: new THREE.Color(), ca: new THREE.Color(), fl: new THREE.Color() }));
+  const CCOL = Array.from({ length: NC }, () => ({ sh: new THREE.Color(), pa: new THREE.Color(), sk: new THREE.Color(), ha: new THREE.Color(), ca: new THREE.Color(), fl: new THREE.Color(), fo: new THREE.Color() }));
   const frus = new THREE.Frustum(), PV = new THREE.Matrix4(), BB = new THREE.Box3();
   const farM = new THREE.MeshBasicMaterial(), FAR = winst(box1, farM, NB);
   const XF = winst(flagG, flagM, NB * 12);
@@ -595,11 +626,12 @@ export function init(A) {
         const j = s * CPB + c, pj = i * CPB + c, cc = A.CROWD[Math.floor(hsh(pj + 0.3) * A.CROWD.length)];
         const q = CCOL[j]; q.sh.set(cc); q.fl.set(S.bunt[Math.floor(hsh(pj + 0.45) * S.bunt.length)]); q.pa.set(PANTS[Math.floor(hsh(pj + 0.52) * PANTS.length)]);
         q.sk.set(A.SKIN[Math.floor(hsh(pj + 0.8) * A.SKIN.length)]); q.ha.set(HAIRC[Math.floor(hsh(pj + 0.57) * HAIRC.length)]); q.ca.set(CAPC[Math.floor(hsh(pj + 0.63) * CAPC.length)]);
+        q.fo.copy(hsh(pj + 0.77) < (n === 'carnival' ? 0.6 : n === 'march' ? 0.25 : 0.4) ? q.sk : q.sh);   // short sleeves / rolled up: bare forearms
       }
     }
     BLD.count = nb; CORN.count = nc; FRAME.count = nf; WIN.count = nw; DOOR.count = nd; AWN.count = NB; SIGN.count = NB; POST.count = np; LAMP.count = nl; LPOOL.count = nl; if (tod !== null) winPaint(true); FLAG.count = nfl; FAR.count = nfar;
-    LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = NC; ARMC.count = HANDC.count = NC * 2; XF.count = nxf; CF.count = ncf;
-    for (const m of [BLD, CORN, FRAME, WIN, DOOR, AWN, SIGN, POST, LAMP, FLAG, FAR, LEGS, TORSOC, ARMC, HANDC, HEADC, HAIRS, HAIRL, CAP, XF, HF, CF]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+    LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = NC; ARMC.count = ARMF.count = HANDC.count = NC * 2; XF.count = nxf; CF.count = ncf;
+    for (const m of [BLD, CORN, FRAME, WIN, DOOR, AWN, SIGN, POST, LAMP, FLAG, FAR, LEGS, TORSOC, ARMC, ARMF, HANDC, HEADC, HAIRS, HAIRL, CAP, XF, HF, CF]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     aSign.needsUpdate = true;
   }
   const Lt = () => LIGHT[sty];
@@ -617,44 +649,67 @@ export function init(A) {
         const pj = i * CPB + c, h1 = hsh(pj + 0.1);
         if (h1 < 0.1) continue;
         const q = CCOL[s * CPB + c];
-        TORSOC.setColorAt(j, q.sh); ARMC.setColorAt(j * 2, q.sh); ARMC.setColorAt(j * 2 + 1, q.sh); LEGS.setColorAt(j, q.pa); HF.setColorAt(j, q.fl);
+        TORSOC.setColorAt(j, q.sh); ARMC.setColorAt(j * 2, q.sh); ARMC.setColorAt(j * 2 + 1, q.sh); ARMF.setColorAt(j * 2, q.fo); ARMF.setColorAt(j * 2 + 1, q.fo); LEGS.setColorAt(j, q.pa); HF.setColorAt(j, q.fl);
         HEADC.setColorAt(j, q.sk); HANDC.setColorAt(j * 2, q.sk); HANDC.setColorAt(j * 2 + 1, q.sk); HAIRS.setColorAt(j, q.ha); HAIRL.setColorAt(j, q.ha); CAP.setColorAt(j, q.ca);
         const kid = hsh(pj + 0.9) < 0.12, hf = kid ? 0.6 + hsh(pj + 0.5) * 0.1 : 0.9 + hsh(pj + 0.5) * 0.16, row = c & 1;
         const x = x0 + (c - 2.5) * 0.72 + (h1 - 0.5) * 0.3, z = -4.05 - row * 0.8 - hsh(pj + 0.2) * 0.15;
         // moods: 0 cheers, 1 claps on the beat, 2 sways, 3 waves, 4 films it on a phone, 5 dances, 6 just watches
-        const mood = Math.floor(hsh(pj + 0.44) * 7), hype = exc > hsh(pj + 0.6) * 0.9, on = st.playing && hype;
-        const jump = on ? Math.max(0, Math.sin((beat + hsh(pj) * 0.3) * PI * 2)) * 0.07 * exc * (mood < 2 || mood === 5 ? 1 : mood === 4 ? 0 : 0.35) : 0;
+        // while the band plays everyone moves: the hyped (exc past their own threshold) go big, the rest keep a warm, smaller version (wa grows with exc)
+        const mood = Math.floor(hsh(pj + 0.44) * 7), hype = exc > hsh(pj + 0.6) * 0.9, pl = st.playing, on = pl && hype, wa = on ? 1 : pl ? 0.3 + 0.35 * Math.min(1, exc * 1.6) : 0;
+        const bt = Math.max(0, Math.sin((beat + hsh(pj) * 0.3) * PI * 2));
+        const jump = on ? bt * 0.07 * exc * (mood < 2 || mood === 5 ? 1 : mood === 4 ? 0 : 0.35) : pl ? bt * 0.018 * wa * (mood === 4 ? 0 : mood === 6 ? 0.4 : 1) : 0;
         // everyone turns a little toward the band as it passes, and their heads follow it the rest of the way
         const tb = Math.max(-PI / 2 - 1.1, Math.min(-PI / 2 + 1.1, Math.atan2(z, bw - x))), b0 = -PI / 2 + (hsh(pj + 0.66) - 0.5) * 0.6;
-        let yaw = lerp(b0, tb, st.playing ? (mood === 4 ? 0.65 : 0.35) : 0.08), roll;
-        if (on && mood === 5) yaw += Math.sin(beat * PI + pj) * 0.32;
-        if (on && (mood === 2 || mood === 5)) roll = Math.sin(beat * PI + pj) * (mood === 2 ? 0.075 : 0.045);
+        let yaw = lerp(b0, tb, pl ? (mood === 4 ? 0.65 : 0.35) : 0.08), roll;
+        if (pl && mood === 5) yaw += Math.sin(beat * PI + pj) * 0.32 * wa;
+        if (pl && (mood === 2 || mood === 5)) roll = Math.sin(beat * PI + pj) * (mood === 2 ? 0.075 : 0.045) * Math.min(1, 0.4 + wa);
         else roll = Math.sin(now * 0.45 + pj * 2.3) * 0.022;   // shifting their weight
         _o.position.set(x, 0.16 + jump, z); _o.rotation.set(0, yaw, 0); _o.scale.setScalar(hf); _o.updateMatrix(); PM.copy(_o.matrix); T1.makeRotationX(roll); PM.multiply(T1);
-        // heads track the band while it plays; between songs people look about and chat with their neighbours
+        // heads track the band while it plays (nodding on the beat); between songs people look about and chat with their neighbours
         let hy, nod;
-        if (st.playing) { hy = Math.max(-0.9, Math.min(0.9, tb - yaw)); nod = on ? (mood === 0 ? 0.12 : 0) - Math.max(0, Math.sin((beat + hsh(pj) * 0.3) * PI * 2)) * (mood === 2 || mood === 6 ? 0.11 : 0.06) : -Math.max(0, Math.sin(beat * PI * 2)) * 0.05 * hsh(pj + 0.88); }
+        if (pl) { hy = Math.max(-0.9, Math.min(0.9, tb - yaw)); nod = (on && mood === 0 ? 0.12 : 0) - bt * (mood === 2 || mood === 6 ? 0.11 : 0.06) * (on ? 1 : 0.25 + wa); }
         else { const g = Math.sin(now * 0.31 + pj * 3.1) + 0.5 * Math.sin(now * 0.73 + pj); hy = Math.max(-1, Math.min(1, g * 0.7)); nod = Math.sin(now * 0.5 + pj) * 0.04; }
         T1.makeTranslation(0, 1.5, 0); HM.multiplyMatrices(PM, T1); T1.makeRotationY(hy); HM.multiply(T1); T1.makeRotationZ(nod); HM.multiply(T1); T1.makeTranslation(0, -1.5, 0); HM.multiply(T1);
         LEGS.setMatrixAt(j, PM); TORSOC.setMatrixAt(j, PM); HEADC.setMatrixAt(j, HM);
         const capOn = hsh(pj + 0.61) < 0.16, lng = !capOn && !kid && hsh(pj + 0.71) < 0.42;
         HAIRS.setMatrixAt(j, lng ? ZERO : HM); HAIRL.setMatrixAt(j, lng ? HM : ZERO); CAP.setMatrixAt(j, capOn ? HM : ZERO);
-        const flag = mood !== 4 && hsh(pj + 0.33) > 0.62, film = on && mood === 4;
+        const flag = mood !== 4 && hsh(pj + 0.33) > 0.62, film = pl && mood === 4, rv = hsh(pj + 0.93), cross = rv < 0.2 && !flag, alt = hsh(pj + 0.97) < 0.5;
         for (let a = 0; a < 2; a++) {
           const sd = a ? 1 : -1, fa = a && flag;
-          T1.makeTranslation(0, 1.4, sd * 0.2); AM.multiplyMatrices(PM, T1);
-          if (fa) T1.makeRotationX(-sd * ((on ? 2.5 : 1.95) + (on ? Math.sin(now * 6 + pj + a) * 0.25 : 0)));
-          else if (!on) { T1.makeRotationX(-sd * (0.07 + 0.03 * Math.sin(now * 0.8 + pj))); T2.makeRotationZ(0.05 * Math.sin(now * 0.6 + pj * 1.7)); T1.multiply(T2); }
-          else if (mood === 0) { const pu = 0.5 + 0.5 * Math.sin((beat + a * 0.5) * PI * 2 + pj); T1.makeRotationX(sd * 0.42); T2.makeRotationZ(2.2 + 0.5 * pu); T1.multiply(T2); }   // both arms up, pumping to the beat
-          else if (mood === 1) { const kk = Math.max(0, Math.sin((beat * 2 + hsh(pj) * 0.2) * PI * 2)); T1.makeRotationX(sd * (0.36 + 0.17 * kk)); T2.makeRotationZ(0.8); T1.multiply(T2); }
-          else if (mood === 3 && a) T1.makeRotationX(-sd * (2.4 + Math.sin(now * 7.5 + pj) * 0.38));
-          else if (film && a) { T1.makeRotationX(sd * 0.06); T2.makeRotationZ(1.52); T1.multiply(T2); }
-          else if (mood === 5) { const sw = Math.sin(beat * PI + a * PI + pj); T1.makeRotationX(-sd * 0.28); T2.makeRotationZ(0.95 + 0.55 * sw); T1.multiply(T2); }
-          else { T1.makeRotationX(-sd * (0.08 + (mood === 2 ? 0.06 * Math.sin(beat * PI + a) : 0))); T2.makeRotationZ(mood === 2 ? 0.22 * Math.sin(beat * PI + a * PI) : -0.05); T1.multiply(T2); }
-          AM.multiply(T1); ARMC.setMatrixAt(j * 2 + a, AM);
-          if (a) { if (film && !fa) { T2.copy(T1).invert(); T3.makeTranslation(0, -0.6, 0); HM.multiplyMatrices(AM, T3); HM.multiply(T2); PHONE.setMatrixAt(j, HM); } else PHONE.setMatrixAt(j, ZERO); }
-          T1.makeTranslation(0, -0.575, 0); AM.multiply(T1); HANDC.setMatrixAt(j * 2 + a, AM);
-          if (a) { if (fa) { T1.makeRotationX(PI + Math.sin(now * (on ? 5 : 1.5) + pj) * (on ? 0.4 : 0.15)); AM.multiply(T1); T1.makeRotationY(PI / 2); AM.multiply(T1); HF.setMatrixAt(j, AM); } else HF.setMatrixAt(j, ZERO); }
+          aS.set(0, 1.4, sd * 0.2);
+          // at rest: arms crossed, hands on the hips (one or both, elbows out) or hanging with a slight bend
+          if (cross) { if (a) bend(0.36, -0.9, -0.18, 0.48, 0.34, -0.81); else bend(0.34, -0.93, 0.17, 0.3, 0.12, 0.94); }
+          else if (rv < 0.42 && (a || rv < 0.31)) reach(-0.015, 1.0, sd * 0.19, -0.35, 0, sd);
+          else reach(0.075 + 0.012 * Math.sin(now * 0.8 + pj + a), 0.84, sd * (0.255 + 0.01 * Math.sin(now * 0.6 + pj * 1.7)), -1, 0, sd * 0.3);
+          if (fa) {   // hand flag: held up at an angle, waved from the elbow once the band plays
+            const u = 1.35 + 0.7 * wa, f = 1.95 + 0.75 * wa + (pl ? (0.1 + 0.22 * wa) * Math.sin(now * (3 + 3 * wa) + pj) : 0.08 * Math.sin(now * 1.5 + pj));
+            bend(0.12, -Math.cos(u), Math.sin(u), 0.12, -Math.cos(f), Math.sin(f));
+          } else if (pl) {
+            bU.copy(aU); bF.copy(aF);
+            if (mood === 0) {   // cheer: fists up in a V, punching from the elbow on the beat (both when hyped; one now and then when not)
+              const k = on ? 1 : a === (pj & 1) ? now8(beat, hsh(pj + 0.31), 0.2 + 0.4 * wa) : 0;
+              if (k > 0) { const pu = Math.max(0, Math.cos((beat + hsh(pj) * 0.15 + (alt ? a * 0.5 : 0)) * PI * 2)), r = 0.46 + (0.05 + 0.055 * wa) * pu * pu; reach(0.2 * r, 1.4 + 0.82 * r, sd * (0.2 + 0.54 * r), -0.3, -0.4, sd); if (k < 1) mixPose(k); }
+            } else if (mood === 1) {   // clap: hands meet in front of the chest, every beat when hyped, softly on 2 and 4 when not
+              const cb = on ? beat + hsh(pj) * 0.1 : (beat - 1) / 2 + hsh(pj) * 0.05, g = Math.sqrt(Math.sin(PI * (cb - Math.floor(cb))));
+              reach(on ? 0.3 - 0.03 * g : 0.26 - 0.02 * g, on ? 1.2 + 0.03 * (1 - g) : 1.12 + 0.02 * (1 - g), sd * (0.036 + (on ? 0.13 : 0.05 + 0.08 * wa) * g), -0.2, -1, sd * 0.6);
+            } else if (mood === 2) {   // sway: loose arms swinging with the body
+              const s2 = Math.sin(beat * PI + a * PI) * Math.min(1, 0.3 + wa);
+              reach(0.07 + 0.09 * s2, 0.845 + 0.02 * Math.abs(s2), sd * (0.25 + 0.03 * s2), -1, 0, sd * 0.25);
+            } else if (mood === 3 && a) {   // wave: upper arm out to the side, forearm up, waving from the elbow (now and then when not hyped)
+              const k = on ? 1 : now8(beat, hsh(pj + 0.31), 0.25 + 0.4 * wa);
+              if (k > 0) { const u = on ? 1.65 : 1.05 + 0.5 * wa, w = 0.12 + (on ? 0.5 : 0.3) * Math.sin(now * 7.5 + pj); bend(0.3, -Math.cos(u), sd * Math.sin(u), 0.15, Math.cos(w), sd * Math.sin(w)); if (k < 1) mixPose(k); }
+            } else if (film && a) {   // film: phone up at eye height, a little off to the side
+              reach(0.33, 1.58 + 0.008 * Math.sin(now * 3.1 + pj), 0.09, 0, -1, 0.8);
+            } else if (mood === 5) {   // dance: bent-arm pumps (elbows ~90 degrees), or raise-the-roof when hyped
+              if (on && !alt) { const pu = Math.max(0, Math.cos((beat + hsh(pj) * 0.1) * PI * 2)); bend(0.2, -0.25 + 0.55 * pu, sd, 0.1, 1, -sd * 0.2); }
+              else { const sw = Math.sin(beat * PI + a * PI + pj), al = 0.25 + 0.5 * sw * Math.min(1, 0.3 + wa), gm = on ? 1.6 : 1.25 + 0.3 * wa; bend(Math.sin(al), -Math.cos(al), sd * 0.3, Math.sin(al + gm), -Math.cos(al + gm), sd * 0.05); }
+            }
+          }
+          limb(j * 2 + a);
+          if (a) {
+            if (film) { AB.makeTranslation(aH.x + 0.012, aH.y - 0.035, aH.z); AM.multiplyMatrices(PM, AB); PHONE.setMatrixAt(j, AM); } else PHONE.setMatrixAt(j, ZERO);
+            if (fa) flagAt(j); else HF.setMatrixAt(j, ZERO);
+          }
         }
         j++;
       }
@@ -671,23 +726,21 @@ export function init(A) {
       _o.position.set(xt + (1 - e) * 0.8, (e < 0.3 ? 0.16 : 0) + bob, lerp(-4.2, zt, e)); _o.rotation.set(0, (1 - e) * -PI / 2 + Math.sin(ph * 0.5) * 0.25 * e, Math.sin(ph) * 0.05 * e); _o.scale.setScalar(hf); _o.updateMatrix();
       FPM[nFol].copy(_o.matrix); FPH[nFol] = ph; FCL[nFol] = q.pa; nFol++;
       T1.makeTranslation(-world.position.x, 0, 0); PM.multiplyMatrices(T1, _o.matrix);   // the crowd meshes live in the scrolling world group
-      TORSOC.setColorAt(j, q.sh); ARMC.setColorAt(j * 2, q.sh); ARMC.setColorAt(j * 2 + 1, q.sh); LEGS.setColorAt(j, q.pa); HF.setColorAt(j, WHITE3);
+      TORSOC.setColorAt(j, q.sh); ARMC.setColorAt(j * 2, q.sh); ARMC.setColorAt(j * 2 + 1, q.sh); ARMF.setColorAt(j * 2, q.fo); ARMF.setColorAt(j * 2 + 1, q.fo); LEGS.setColorAt(j, q.pa); HF.setColorAt(j, WHITE3);
       HEADC.setColorAt(j, q.sk); HANDC.setColorAt(j * 2, q.sk); HANDC.setColorAt(j * 2 + 1, q.sk); HAIRS.setColorAt(j, q.ha); HAIRL.setColorAt(j, q.ha); CAP.setColorAt(j, q.ca);
       LEGS.setMatrixAt(j, ZERO); TORSOC.setMatrixAt(j, PM); HEADC.setMatrixAt(j, PM); PHONE.setMatrixAt(j, ZERO);
       const capOn = hsh(pj + 0.61) < 0.2, lng = !capOn && hsh(pj + 0.71) < 0.45;
       HAIRS.setMatrixAt(j, lng ? ZERO : PM); HAIRL.setMatrixAt(j, lng ? PM : ZERO); CAP.setMatrixAt(j, capOn ? PM : ZERO);
       const hk = sty === 'jazz' && f % 2 === 0;
       for (let a = 0; a < 2; a++) {
-        const sd = a ? 1 : -1, fa = a && hk, up = a || f % 3 !== 1 ? 2.3 : 0.5;
-        T1.makeTranslation(0, 1.4, sd * 0.2); AM.multiplyMatrices(PM, T1);
-        T1.makeRotationX(-sd * (0.08 + (up + Math.sin(now * 5 + pj + a * 1.3) * 0.3) * e)); AM.multiply(T1); ARMC.setMatrixAt(j * 2 + a, AM);
-        T1.makeTranslation(0, -0.575, 0); AM.multiply(T1); HANDC.setMatrixAt(j * 2 + a, AM);
-        if (a) { if (fa) { T1.makeRotationX(PI + Math.sin(now * 5 + pj) * 0.4); AM.multiply(T1); T1.makeRotationY(PI / 2); AM.multiply(T1); HF.setMatrixAt(j, AM); } else HF.setMatrixAt(j, ZERO); }
+        const sd = a ? 1 : -1, fa = a && hk, up = a || f % 3 !== 1 ? 2.3 : 0.5, u = 0.08 + up * 0.8 * e, fw = u + (0.25 + up * 0.12 + Math.sin(now * 5 + pj + a * 1.3) * 0.35) * e;
+        aS.set(0, 1.4, sd * 0.2); bend(0.15, -Math.cos(u), sd * Math.sin(u), 0.15, -Math.cos(fw), sd * Math.sin(fw)); limb(j * 2 + a);   // hands up, waving from the elbow
+        if (a) { if (fa) flagAt(j); else HF.setMatrixAt(j, ZERO); }
       }
       j++;
     }
-    LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = j; ARMC.count = HANDC.count = j * 2;
-    for (const M of [LEGS, TORSOC, ARMC, HANDC, HEADC, HAIRS, HAIRL, CAP, HF]) { M.instanceMatrix.needsUpdate = true; M.instanceColor.needsUpdate = true; }
+    LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = j; ARMC.count = ARMF.count = HANDC.count = j * 2;
+    for (const M of [LEGS, TORSOC, ARMC, ARMF, HANDC, HEADC, HAIRS, HAIRL, CAP, HF]) { M.instanceMatrix.needsUpdate = true; M.instanceColor.needsUpdate = true; }
     PHONE.count = j; PHONE.instanceMatrix.needsUpdate = true;
   }
 
