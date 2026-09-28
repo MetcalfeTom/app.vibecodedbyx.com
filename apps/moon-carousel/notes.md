@@ -27,7 +27,7 @@ Slides of the real Moon for any place and time: phase, tilt as seen from that sp
 - Patch the WebM duration into the EBML header after recording (fix-webm-duration style) so players can seek.
 - Safari: record MP4 (MediaRecorder 'video/mp4') when WebM isn't available, instead of only the contact sheet. Untested here.
 - Compare: a second "you" pin on the ☉ table; maybe "schedule follows place 2" option.
-- (done v1.6) hand-traced seas. Maybe next: a faint colour (Tranquillitatis bluish, Imbrium brownish), and an og.png with the new Moon.
+- (done) (done v1.6) hand-traced seas. Maybe next: a faint colour (Tranquillitatis bluish, Imbrium brownish), and an og.png with the new Moon.
 
 ## notes
 - Test harness: scratch moon/mkt.sh builds gaunt/mc with probes (probe.js checks all modes, probe2 renders the texture and phases, probe3 composes og.png).
