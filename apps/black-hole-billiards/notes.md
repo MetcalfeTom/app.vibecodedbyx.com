@@ -7,6 +7,7 @@ Pool on a table in space: planets and stars bend shots, pockets are black holes.
 - v1.1: table 8 Moon Cue (Tatum): the cue ball has gravity (cueM 3e6) and tugs balls it passes; dotted ring shows its reach (sqrt(cueM/MUS)). Tugged balls carry b.ex so move() doesn't put them back to rest.
 - v1.2: longer aim preview (620 units on tables 1-4, 420 after) after Tatum found the gravity learning curve steep.
 - v1.3: danger hum: a low tone that rises in pitch and volume as the moving cue ball nears a black hole (inspired by fannar22's projector-booth alarms). sfx exported on window.__bhb for probes; probe hash hum=1 samples the gain.
+- v1.4: combo pops (Tatum): 2+ balls in one shot shows neon DOUBLE! / TRIPLE! / QUADRUPLE! / SUPERNOVA! / BIG BANG! near the pocket with a rising chime. Probe hash pop=1 forces a double.
 
 ## issues
 - Resting balls ignore gravity until hit (static friction MUS=420). When placing balls, keep |g| < MUS at every spot; the probe prints gmax per table.
