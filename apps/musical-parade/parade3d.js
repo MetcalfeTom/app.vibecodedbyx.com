@@ -382,7 +382,7 @@ export function init(A) {
   const FWNC = fwPal([['#ff2fd6', '#27f3ff'], ['#27f3ff', '#b84dff'], ['#ffb3f0', '#ff2fd6'], ['#b84dff', '#ffffff']]);
   const FWGOLD = new THREE.Color('#ffc45a'), FWH1 = new THREE.Color('#ff4f8b'), FWH2 = new THREE.Color('#ffc9dc'), FWEMB = new THREE.Color('#ffb070');
   const FWDRAG = [3.2, 1.55, 2.3, 1.55, 1.7], FWGRAV = [1.2, 2.4, 3.4, 2.4, 1.6];   // per type: 0 ember, 1 spark, 2 willow, 3 glitter, 4 heart
-  const SHELLS = []; let fwOn = false, fwB0 = 0, fwLast = -1, fwCam = 0, fwFlash = 0, fwI = 0, fwHi = 0, fwAlive = 0, fwAx = 0, fwAz = 0, fwPx = 1, fwPz = 0, fwSp = 14, curYa = 0, curBeat = 0, fwU = 0, fwShows = 0, fwYo = 0;
+  const SHELLS = []; let fwRush = false, fwRate = 2, fwOn = false, fwB0 = 0, fwLast = -1, fwCam = 0, fwFlash = 0, fwI = 0, fwHi = 0, fwAlive = 0, fwAx = 0, fwAz = 0, fwPx = 1, fwPz = 0, fwSp = 14, curYa = 0, curBeat = 0, fwU = 0, fwShows = 0, fwYo = 0;
   function fwSpark(x, y, z, vx, vy, vz, col, life, type) {
     const i = fwI, k = i * 3; fwI = (fwI + 1) % FWN;
     fwP[k] = x; fwP[k + 1] = y; fwP[k + 2] = z; fwV[k] = vx; fwV[k + 1] = vy; fwV[k + 2] = vz;
@@ -423,9 +423,14 @@ export function init(A) {
     else if (b < 31) { fwLaunch(-0.8, 3, false); fwLaunch(0, b & 1 ? 1 : 0, true); fwLaunch(0.8, 3, false); }
     else if (b === 31) { fwLaunch(0, 2, true); fwLaunch(-0.6, 2, true); fwLaunch(0.6, 2, true); fwLaunch(-0.3, 3, false); fwLaunch(0.3, 3, false); }
   }
-  function fwReady() { return fwOn ? 2 : st.playing && (S.neon || night > 0.5) ? 1 : 0; }
+  // 0 no button, 1 ready by day (the sky hurries to nightfall first), 2 running, 3 ready at night
+  function fwReady() { return fwOn || fwRush ? 2 : !st.playing ? 0 : S.neon || night > 0.5 ? 3 : tod !== null ? 1 : 0; }
   function fireworks() {
-    if (fwReady() !== 1) return false;
+    const s = fwReady(); if (s !== 1 && s !== 3) return false;
+    if (s === 1) { fwRush = true; fwRate = Math.max(1.5, ((21 - tod % 24) % 24 + 24) % 24 / 2.2); return true; }
+    return fwGo();
+  }
+  function fwGo() {
     fwOn = true; fwShows++; fwB0 = Math.ceil(curBeat); fwLast = -1; fwYo = (cam.aspect < 1 ? 3 : 4) + (S.neon ? 4.5 : 0);
     const dx = -Math.sin(curYa), dz = -Math.cos(curYa);   // straight ahead of the camera, over the rooftops
     fwAx = camX - 0.2 + dx * 26; fwAz = -0.2 + dz * 26; fwPx = -dz; fwPz = dx; fwSp = 17 * Math.min(1, 0.15 + cam.aspect * 0.85);
@@ -433,7 +438,7 @@ export function init(A) {
   }
   // tests: fast-forward the show (headless renders a frame a second)
   function fwSim(sec) { for (let i = 0, n = Math.round(sec * 30); i < n; i++) fwStep(1 / 30, curBeat + (st.bpm || 100) / 1800, fwU); camX = null; return fwAlive; }
-  function fwStop() { fwOn = false; SHELLS.length = 0; fwL.fill(0); fwC.fill(0); fwHi = fwAlive = 0; fwFlash = 0; fwHemi.intensity = 0; FW.visible = false; }
+  function fwStop() { fwOn = fwRush = false; SHELLS.length = 0; fwL.fill(0); fwC.fill(0); fwHi = fwAlive = 0; fwFlash = 0; fwHemi.intensity = 0; FW.visible = false; }
   function fwStep(dt, beat, u) {
     curBeat = beat; fwU = u;
     if (fwOn) {
@@ -689,7 +694,7 @@ export function init(A) {
   function render(p, now, exc) {
     if (st.style !== sty) applyStyle();
     const dt = Math.min(0.05, Math.max(0, now - lastNow)); lastNow = now;
-    if (tod !== null) { if (st.playing) { tod += dt * DAYH; if (tod >= 28.5) tod -= 24; } applyDay(tod); }
+    if (tod !== null) { if (st.playing) { tod += dt * (fwRush ? fwRate : DAYH); if (tod >= 28.5) tod -= 24; } applyDay(tod); if (fwRush && night > 0.62) { fwRush = false; fwGo(); } }
     if (!lowQ && fps.length < 90) { fps.push(dt); if (fps.length === 90) { const av = fps.slice(20).reduce((a, b) => a + b, 0) / 70; if (av > 0.024) { lowQ = true; R.setPixelRatio(1); R.shadowMap.enabled = false; sun.castShadow = false; resize(); } } }
     const u = st.scroll * PX, b = Math.floor(u / BW); if (b !== base) setWorld(b);
     world.position.x = -(u - b * BW);
@@ -797,6 +802,6 @@ export function init(A) {
   function skip(dh) { return tod === null ? null : setHour(tod + dh); }
   function zoomBy(f) { const z = Math.max(0.28, Math.min(1.6, zoom * f)); if (Math.abs(z - zoom) < 1e-4) return false; zoom = z; return true; }
   function show(on) { canvas.hidden = !on; if (on) resize(); }
-  function stats() { return { calls: R.info.render.calls, tris: R.info.render.triangles, lowQ, fol: nFol, fw: fwAlive, fwOn, fwCam: +fwCam.toFixed(2), fwShows, fwLast, night: +night.toFixed(2) }; }
+  function stats() { return { calls: R.info.render.calls, tris: R.info.render.triangles, lowQ, fol: nFol, fw: fwAlive, fwOn, fwCam: +fwCam.toFixed(2), fwShows, rush: fwRush, hr: tod === null ? null : +tod.toFixed(2), fwLast, night: +night.toFixed(2) }; }
   return { render, resize, pick, proj, show, stats, orbit, screen, zoomBy, hour, setHour, skip, fireworks, fwReady, fwSim };
 }
