@@ -189,7 +189,7 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v2.1 · 2026-09-27</span></footer>
+  <footer><span role="note" aria-label="Build information">build v2.2 · 2026-09-28</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
@@ -690,7 +690,35 @@ function headSim(A, B) {
   for (let b = 0; b < BANDS; b++) for (let q = 0; q < 12; q++) { const i = Math.floor((q + 0.5) * N / 12); va[b * 12 + q] = ca[b][i]; vb[b * 12 + q] = cb[b][i]; }
   return corr(va, vb, 0, 8);
 }
+// a song that stops mid-sound: still loud in its last half second, no fade and no silence after it.
+// Real endings fade, ring out or leave a breath of silence; a copy cut short on a flaky transfer just stops
+function stopsLoud(fp) {
+  const pk = fp.pk;
+  if (!pk) return false;
+  const n = Math.min(pk.length, Math.floor(fp.dur * PPS)) - 1;   // full peak windows only, minus the very last
+  if (n < PPS * 20) return false;
+  const body = Array.from(pk.subarray(Math.floor(fp.s0 / FPS * PPS), n)).sort((a, b) => a - b), med = body[body.length >> 1];
+  if (!(med >= 8)) return false;
+  // the loudest moment of the last half second is as loud as the song usually gets, and the very end isn't silence
+  let half = 0, end = 0;
+  for (let i = n - 12; i < n; i++) half = Math.max(half, pk[i]);
+  for (let i = n - 3; i < n; i++) end = Math.max(end, pk[i]);
+  return half >= med * 0.6 && end >= med * 0.3;
+}
+// the first 30 s frame by frame (both start at their first loud moment): a copy of the same recording lines up
+// almost exactly, while songs that merely rise and fall alike don't
+function headD(A, B) {
+  const N = Math.min(600, A.len, B.len);
+  let best = 0;
+  for (let lag = -2; lag <= 2; lag++) {
+    let s = 0;
+    for (let b = 0; b < BANDS; b++) s += corrWin(A.d[b], B.d[b], 2, N - 4, lag);
+    if (s / BANDS > best) best = s / BANDS;
+  }
+  return best;
+}
 async function match() {
+  items.forEach(it => { if (it.cut && it.cut.loud) it.cut = null; });   // worked out again below
   // a song that decodes shorter than its own header promises stopped early
   items.forEach(it => { if (it.fp && it.want && !it.cut && it.fp.dur < it.want - Math.max(2, it.want * 0.03)) it.cut = { at: it.fp.dur }; });
   // families of identical music share one node
@@ -737,6 +765,19 @@ async function match() {
     }
     if (performance.now() - t0 > 40) { await tick(); t0 = performance.now(); }
   }
+  // no header gives it away, but it stops mid-sound and a longer song here starts exactly like it:
+  // maybe the end got lost on the way. Only ever a Maybe pair (a radio edit can end abruptly too), checked one by one
+  const louds = [], longest = whole.slice().reverse();
+  for (const c of whole) {
+    if (c.fp.len < 200 || !stopsLoud(c.fp)) continue;
+    for (const w of longest) {
+      if (w.fp.tdur < c.fp.tdur + 2) break;
+      if (find(w) === find(c) || headSim(c.fp, w.fp) < 0.8 || headD(c.fp, w.fp) < 0.6 || quickSim(c.fp, w.fp) < QUICK) continue;
+      const s = similarity(c.fp, w.fp);
+      if (s.score >= SAME) { louds.push([w, c, s]); break; }
+    }
+    if (performance.now() - t0 > 40) { await tick(); t0 = performance.now(); }
+  }
   const comps = new Map();
   nodes.forEach(n => { const r = find(n); comps.set(r, (comps.get(r) || []).concat(n)); });   // not listened to (or too short): copies by bytes or checksum still count
   const out = [];
@@ -747,6 +788,12 @@ async function match() {
     out.push(makeGroup(ns, ns.length === 1 ? famTier(ns[0].members) : pcm && ns.every(n => n.members[0].pcm === pcm) ? 'pcm' : 'same'));
   });
   maybes.forEach(([a, b, s]) => { if (find(a) !== find(b)) out.push(makeGroup([a, b], 'maybe', s.score)); });
+  louds.forEach(([w, c, s]) => {
+    c.members.forEach(m => { m.cut = { at: c.fp.dur, to: w.fp.dur, loud: true }; });
+    const g = makeGroup([w, c], 'maybe', s.score);
+    g.loud = true;
+    out.push(g);
+  });
   const rank = { exact: 0, tags: 1, pcm: 2, same: 3, maybe: 4 };
   out.sort((x, y) => rank[x.tier] - rank[y.tier] || y.waste - x.waste);
   return out;
@@ -941,12 +988,13 @@ function renderResults() {
   $('skippedList').innerHTML = bad.map(i => `<li>${esc(i.path)}: ${esc(i.err || i.nodec)}</li>`).join('');
   // songs that stop early, with or without a whole twin
   const cut = items.filter(i => i.cut);
-  const saved = new Set(groups.filter(g => g.tier !== 'maybe' && g.rows.some(r => !r.it.cut)).flatMap(g => g.rows.map(r => r.it)));
+  const saved = new Set(groups.filter(g => (g.tier !== 'maybe' || g.loud) && g.rows.some(r => !r.it.cut)).flatMap(g => g.rows.map(r => r.it)));
   const alone = cut.filter(i => !saved.has(i)).length;
   $('cutBox').hidden = !cut.length;
   $('cutBox').open = cut.length <= 8;
   $('cutSum').textContent = '✂ ' + cut.length + (cut.length === 1 ? ' file stops early' : ' files stop early');
-  $('cutTxt').textContent = 'Usually a copy that never finished: the file says how long the song is, and the music runs out sooner. ' +
+  $('cutTxt').textContent = (cut.every(i => i.cut.loud) ? 'Maybe a copy that never finished: it stops mid-sound where a longer copy here goes on. Play both, or try the flip test. ' :
+    'Usually a copy that never finished: the file says how long the song is, and the music runs out sooner' + (cut.some(i => i.cut.loud) ? ', or it stops mid-sound where a longer copy goes on' : '') + '. ') +
     (!alone ? '★ never goes to a cut copy.' : !deepDone ? 'Deep listen checks the rest against whole copies.' : alone === cut.length ? 'None of these has a whole copy here, so copy them again from where they came from.' : alone + ' have no whole copy here: copy those again from where they came from.');
   $('cutList').innerHTML = cut.map(i => `<li><b>${esc(i.path)}</b>: ${esc(cutTxt(i))} · ${saved.has(i) ? 'whole copy found' : deepDone ? 'no whole copy here' : 'no whole copy found yet'}</li>`).join('');
   applyMarks();
@@ -982,7 +1030,7 @@ function drawGroups() {
           <div class="wave" aria-hidden="true"><canvas></canvas><div class="head"></div></div>
         </div>`;
       }).join('') +
-      (g.tier === 'maybe' ? `<p class="hint">These are close but not a sure match: a live take, a remaster or a different edit. Give them a listen.</p>` : '') +
+      (g.loud ? `<p class="hint">One stops mid-sound where the other goes on: a copy cut short on the way, or a shorter edit. If the flip test cancels to silence, the part they share is the very same audio.</p>` : g.tier === 'maybe' ? `<p class="hint">These are close but not a sure match: a live take, a remaster or a different edit. Give them a listen.</p>` : '') +
       (cuts ? `<p class="hint">✂ A copy that stops early is missing the end of the song. ★ always goes to a whole copy.</p>` : '') +
       (g.tier === 'pcm' ? `<p class="hint">Every FLAC stores a checksum of its own sound. These match, so they play back sample for sample the same; only the compression or the tags differ. ★ is the smallest file.</p>` : '');
     el._g = g;
@@ -1010,6 +1058,7 @@ function drawGroups() {
 function cutTxt(it) {
   const c = it.cut;
   if (!c) return '';
+  if (c.loud) return 'stops mid-sound at ' + mmss(c.at);
   if (c.at != null && it.want) return 'stops at ' + mmss(c.at) + ' of ' + mmss(it.want);
   if (c.zero) return 'ends in empty bytes, about ' + Math.round(c.frac * 100) + '% is there';
   if (c.frac != null) return 'about ' + Math.round(c.frac * 100) + '% of it is there';
