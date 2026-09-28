@@ -8,8 +8,10 @@ Slides of the real Moon for any place and time: phase, tilt as seen from that sp
 - v1.1 (2026-09-28): Tatum's "billiard table": a top-down Sun–Earth–Moon view beside the caption (click the slide or ☉ Table). Earth turns by the Sun's local hour angle ("you" pin), the Moon sits at its hour angle from you, and a glowing fan marks the part of the Moon's daily circle above your horizon (half-width acos(−tan φ tan δ)), so the table always agrees with the slide on up/down. Hidden by default on phones. astro.js now also returns lst, H, Hs.
 - v1.2 (2026-09-28): clock (24 h / 12 h) and date format (28 Sep 2026 / Sep 28, 2026 / ISO 2026-09-28) in the tray, per Tatum; defaults guessed from the browser locale, remembered in localStorage (moonCarousel.fmt). The film date stamp follows the chosen order, like real cameras' date modes.
 - v1.2.1: Pause button had lamp-orange text on the lamp-orange button (the generic aria-pressed rule won); now dark text on amber (Tatum's report).
+- v1.3: table view blank for Tatum. Scripts now load with ?v=1.3 (a cached old astro.js lacked Hs/H); drawTable falls back to hourAngle() from az/alt/dec; try/catch shows the error in the caption; canvas height set in px (no aspect-ratio needed); NodeList.forEach replaced by each(); schedule buttons use label.on instead of :has().
 
 ## issues
+- Bump the ?v= on both script tags every release, or browsers mix a new app.js with an old astro.js.
 - Moon size on the slide is exaggerated (~40×); positions are real, the drawing is a diagram (footer says so).
 - Rise/set = upper limb on a flat horizon with 34′ refraction; good to a few minutes.
 - Daily mode ignores the start time (the time field hides in that mode).

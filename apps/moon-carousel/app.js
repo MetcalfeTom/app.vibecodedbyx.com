@@ -225,7 +225,8 @@ function drawTable(g,S,f,place,tz){
   g.fillStyle=sg;g.beginPath();g.arc(-S*.12,ey,S*.34,0,7);g.fill();
   g.strokeStyle='rgba(255,220,140,.12)';g.lineWidth=1;for(var k=-3;k<=3;k++){g.beginPath();g.moveTo(S*.2,ey+k*S*.1);g.lineTo(S*.97,ey+k*S*.1);g.stroke();}
   /* where "you" are: local solar hour angle turns Earth; the fan is the stretch of the Moon's daily circle above your horizon */
-  var obs=180+r.Hs,x=-Math.tan(place.lat*D2R)*Math.tan(r.moon.dec*D2R),H0=x<=-1?180:x>=1?0:Math.acos(x)/D2R,Hm=wrap180(r.H),mAng=obs-Hm,up=r.alt+r.size/2+.5667>=0;
+  var Hs=r.Hs!=null?r.Hs:hourAngle(r.sunAz,r.sunAlt,r.sun.dec,place.lat),Hmo=r.H!=null?r.H:hourAngle(r.az,r.alt,r.moon.dec,place.lat);
+  var obs=180+Hs,x=-Math.tan(place.lat*D2R)*Math.tan(r.moon.dec*D2R),H0=x<=-1?180:x>=1?0:Math.acos(x)/D2R,Hm=wrap180(Hmo),mAng=obs-Hm,up=r.alt+r.size/2+.5667>=0;
   if(H0>0){var fg=g.createRadialGradient(ex,ey,Re,ex,ey,Ro*1.45);fg.addColorStop(0,'rgba(255,212,138,.28)');fg.addColorStop(1,'rgba(255,212,138,.03)');g.fillStyle=fg;
     g.beginPath();g.moveTo(ex,ey);if(H0>=180)g.arc(ex,ey,Ro*1.45,0,7);else g.arc(ex,ey,Ro*1.45,A(obs+H0),A(obs-H0));g.closePath();g.fill();
     if(H0<180){g.strokeStyle='rgba(255,212,138,.55)';g.setLineDash([4,4]);g.lineWidth=1.2;[obs+H0,obs-H0].forEach(function(a){g.beginPath();g.moveTo(ex,ey);g.lineTo(ex+Math.cos(a*D2R)*Ro*1.45,ey-Math.sin(a*D2R)*Ro*1.45);g.stroke();});g.setLineDash([]);}}
@@ -252,10 +253,15 @@ function drawTable(g,S,f,place,tz){
   var yl=ex+Math.cos(obs*D2R)*(Re+S*.085),yy=ey-Math.sin(obs*D2R)*(Re+S*.085);g.fillStyle='#ffb36b';g.fillText('you',yl,yy);
   var p=parts(tz,f.t);g.textAlign='right';g.textBaseline='alphabetic';g.fillStyle='rgba(235,230,215,.6)';g.font='300 '+Math.round(fs*.85)+'px "IBM Plex Mono",monospace';
   g.fillText(tm(p)+' · '+(up?'Moon up':'Moon down'),S*.965,S*.955);}
+/* hour angle from altitude/azimuth (azimuth from north through east), so the table never depends on newer engine fields */
+function hourAngle(A,h,dec,lat){var a=A*D2R,e=h*D2R,d=dec*D2R,f=lat*D2R;
+  return Math.atan2(-Math.sin(a)*Math.cos(e)/Math.cos(d),(Math.sin(e)-Math.sin(f)*Math.sin(d))/(Math.cos(f)*Math.cos(d)))/D2R;}
 var tableOn=null;
 function renderTable(){var box=$('tableBox'),cv=$('table');if(!frames.length||!tableOn){box.hidden=true;box.parentNode.classList.add('notable');return;}
   box.hidden=false;box.parentNode.classList.remove('notable');var dpr=Math.min(2,window.devicePixelRatio||1),S=Math.round((cv.clientWidth||250)*dpr);
-  if(cv.width!==S){cv.width=S;cv.height=S;}var f=frames[st.slide],up=f.r.alt+f.r.size/2+.5667>=0;drawTable(cv.getContext('2d'),S,f,st.place,st.place.tz);
+  if(cv.width!==S){cv.width=S;cv.height=S;}cv.style.height=(S/dpr)+'px'; /* no aspect-ratio in older browsers */
+  var f=frames[st.slide],up=f.r.alt+f.r.size/2+.5667>=0;
+  try{drawTable(cv.getContext('2d'),S,f,st.place,st.place.tz);}catch(e){box.querySelector('figcaption').textContent='The table couldn\u2019t draw in this browser ('+e.message+').';return;}
   cv.setAttribute('aria-label','Top-down view: the Moon is '+Math.round(f.r.elong)+' degrees around its orbit from the Sun, and '+(up?'inside':'outside')+' the fan of sky above your horizon, so it is '+(up?'up':'down')+'.');}
 /* ---------- state ---------- */
 var st={place:null,mode:'daily',hm:'21:00',n:1,unit:3600000,off:30,frames:30,d0:'',t0:'',slide:0},frames=[],playing=null,thumbs=[];
@@ -284,11 +290,13 @@ function writeHash(){if(!st.place)return;var p=st.place,h=p.id!=='custom'?'p='+p
   h+='&d='+$('d0').value+'&t='+$('t0').value+'&m='+st.mode;
   if(st.mode==='daily')h+='&hm='+$('hm').value;else if(st.mode==='every')h+='&n='+$('n').value+'&u='+UNIT_KEY[$('unit').value];else h+='&o='+$('off').value;
   h+='&f='+$('frames').value+'&s='+st.slide;try{history.replaceState(null,'','#'+h);}catch(e){}}
+/* NodeList.forEach is missing in some older browsers */
+function each(sel,fn){var l=document.querySelectorAll(sel),i;for(i=0;i<l.length;i++)fn(l[i],i);}
 function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function fmtLat(v){return Math.abs(v).toFixed(2)+'°'+(v>=0?'N':'S');}
 function fmtLon(v){return Math.abs(v).toFixed(2)+'°'+(v>=0?'E':'W');}
-function setMode(m){st.mode=m;document.querySelectorAll('input[name=mode]').forEach(function(x){x.checked=x.value===m;});
-  document.querySelectorAll('.sub').forEach(function(x){x.hidden=!(x.dataset.for===m||(x.dataset.for==='rise'&&m==='set'));});
+function setMode(m){st.mode=m;each('input[name=mode]',function(x){x.checked=x.value===m;x.parentNode.className=x.checked?'on':'';});
+  each('.sub',function(x){x.hidden=!(x.dataset.for===m||(x.dataset.for==='rise'&&m==='set'));});
   $('t0').parentNode.hidden=m==='daily';
   $('offL').textContent=m==='set'?'minutes before it sets':'minutes after it rises';$('off').setAttribute('aria-label',m==='set'?'Minutes before moonset':'Minutes after moonrise');}
 
@@ -393,7 +401,7 @@ function init(){
       function(){status('No location shared. Type latitude and longitude instead.',true);},{timeout:12000,maximumAge:6e5});};
   $('now').onclick=function(){$('d0').value=todayIn(st.place.tz);var p=parts(st.place.tz,Date.now());$('t0').value=hhmm(p);rebuild();};
   ['d0','t0','hm','n','unit','off','frames'].forEach(function(id){$(id).addEventListener('change',rebuild);});
-  document.querySelectorAll('input[name=mode]').forEach(function(x){x.onchange=function(){setMode(this.value);rebuild();};});
+  each('input[name=mode]',function(x){x.onchange=function(){setMode(this.value);rebuild();};});
   $('prev').onclick=function(){stop();go(st.slide-1,true);};$('next').onclick=function(){stop();go(st.slide+1,true);};
   $('play').onclick=function(){playing?stop():play();};
   $('speed').onchange=function(){if(playing){stop();play();}};
