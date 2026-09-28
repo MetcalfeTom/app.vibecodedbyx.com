@@ -21,6 +21,6 @@
 - none reported yet
 
 ## todos
-- a crown on the title pigeon when you're today's top pigeon
+- (done) crown: when you are today's #1 your pigeon wears a crooked gold crown
 - moon that flaps at stage 35 (joke idea from stream)
 - bird skins (crow, seagull)
