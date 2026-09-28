@@ -36,6 +36,15 @@ function validTz(tz){try{dtf(tz);return true;}catch(e){return false;}}
 var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function pad(n){return (n<10?'0':'')+n;}
 function hhmm(p){return pad(p.h)+':'+pad(p.mi);}
+/* date and time formats: guessed from the browser, changeable in the tray, remembered per viewer */
+var FMT={clock:'24',date:'dmy'};
+(function(){try{var o=new Intl.DateTimeFormat(undefined,{hour:'numeric'}).resolvedOptions();FMT.clock=(o.hourCycle==='h12'||o.hourCycle==='h11'||o.hour12)?'12':'24';
+  var ps=new Intl.DateTimeFormat(undefined,{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date(2026,8,28)).filter(function(x){return x.type!=='literal';}).map(function(x){return x.type[0];}).join('');
+  FMT.date=ps==='mdy'?'mdy':ps==='ymd'?'iso':'dmy';}catch(e){}
+  try{var sv=JSON.parse(localStorage.getItem('moonCarousel.fmt')||'null');if(sv){if(sv.clock==='12'||sv.clock==='24')FMT.clock=sv.clock;if(['dmy','mdy','iso'].indexOf(sv.date)>=0)FMT.date=sv.date;}}catch(e){}})();
+function tm(p){if(FMT.clock==='24')return hhmm(p);return (p.h%12||12)+':'+pad(p.mi)+(p.h<12?' am':' pm');}
+function dt(p,yr,wd){var s=FMT.date==='iso'?(yr?p.y+'-':'')+pad(p.mo)+'-'+pad(p.d):FMT.date==='mdy'?MON[p.mo-1]+' '+p.d+(yr?', '+p.y:''):p.d+' '+MON[p.mo-1]+(yr?' '+p.y:'');return (wd?p.wd+' ':'')+s;}
+function stampOf(p){var y="'"+String(p.y).slice(2);return (FMT.date==='iso'?y+' '+p.mo+' '+pad(p.d):FMT.date==='mdy'?p.mo+' '+pad(p.d)+' '+y:pad(p.d)+' '+p.mo+' '+y)+'  '+tm(p);}
 function dayKey(p){return p.y*400+p.mo*32+p.d;}
 
 /* ---------- a procedural Moon map (albedo, selenographic lat/lon) ---------- */
@@ -242,7 +251,7 @@ function drawTable(g,S,f,place,tz){
   var lx=ex+Math.cos(mAng*D2R)*(Ro+Rm+fs*1.1),ly=ey-Math.sin(mAng*D2R)*(Ro+Rm+fs*1.1);g.fillText('Moon',Math.max(fs*1.6,Math.min(S-fs*1.6,lx)),Math.max(fs,Math.min(S-fs,ly)));
   var yl=ex+Math.cos(obs*D2R)*(Re+S*.085),yy=ey-Math.sin(obs*D2R)*(Re+S*.085);g.fillStyle='#ffb36b';g.fillText('you',yl,yy);
   var p=parts(tz,f.t);g.textAlign='right';g.textBaseline='alphabetic';g.fillStyle='rgba(235,230,215,.6)';g.font='300 '+Math.round(fs*.85)+'px "IBM Plex Mono",monospace';
-  g.fillText(hhmm(p)+' · '+(up?'Moon up':'Moon down'),S*.965,S*.955);}
+  g.fillText(tm(p)+' · '+(up?'Moon up':'Moon down'),S*.965,S*.955);}
 var tableOn=null;
 function renderTable(){var box=$('tableBox'),cv=$('table');if(!frames.length||!tableOn){box.hidden=true;box.parentNode.classList.add('notable');return;}
   box.hidden=false;box.parentNode.classList.remove('notable');var dpr=Math.min(2,window.devicePixelRatio||1),S=Math.round((cv.clientWidth||250)*dpr);
@@ -299,12 +308,12 @@ function build(){
   frames=times.map(function(t){return {t:t,r:Astro.at(t,p.lat,p.lon)};});
   st.slide=clamp(st.slide,0,frames.length-1);
   var a=parts(tz,frames[0].t),b=parts(tz,frames[frames.length-1].t);
-  $('span').textContent=frames.length+' slides · '+a.d+' '+MON[a.mo-1]+(a.y!==b.y?' '+a.y:'')+' → '+b.d+' '+MON[b.mo-1]+' '+b.y;
+  $('span').textContent=frames.length+' slides · '+dt(a,a.y!==b.y||FMT.date==='iso')+' → '+dt(b,true);
   status(frames.length<F?'Only found '+frames.length+' '+(st.mode==='rise'?'moonrises':'moonsets')+' in 400 days here.':'');
   makeStrip();render();writeHash();}
 
 /* ---------- the carousel strip ---------- */
-function label(f,tz,withDay){var p=parts(tz,f.t);return (withDay?p.wd+' ':'')+p.d+' '+MON[p.mo-1]+' '+hhmm(p);}
+function label(f,tz,withDay){var p=parts(tz,f.t);return dt(p,false,withDay)+' '+tm(p);}
 function makeStrip(){var s=$('strip'),tz=st.place.tz;s.innerHTML='';thumbs=[];
   frames.forEach(function(f,i){var b=document.createElement('button');b.className='mount'+(f.r.alt+f.r.size/2+.5667<0?' below':'');b.type='button';
     b.setAttribute('aria-label','Slide '+(i+1)+': '+label(f,tz,true)+', '+Astro.phaseName(f.r.elong)+', '+Math.round(f.r.k*100)+'% lit'+(f.r.alt+f.r.size/2+.5667<0?', below the horizon':''));
@@ -320,7 +329,7 @@ function describeSky(r){var h=r.alt+r.size/2+.5667;if(h>=0)return 'Up in the '+c
   return '<span class="down">Below the horizon, '+Math.round(-r.alt)+'° down in the '+compass(r.az)+'</span>';}
 function sunText(a){if(a>6)return 'Daylight, the Sun is '+Math.round(a)+'° up';if(a>-0.83)return 'Golden hour, the Sun is low';if(a>-6)return 'Civil twilight, the Sun just set or is about to rise';
   if(a>-12)return 'Nautical twilight';if(a>-18)return 'Astronomical twilight';return 'Full night, the Sun is '+Math.round(-a)+'° below';}
-function when(t,ref,tz){var p=parts(tz,t),q=parts(tz,ref);return (dayKey(p)!==dayKey(q)?p.wd+' ':'')+hhmm(p);}
+function when(t,ref,tz){var p=parts(tz,t),q=parts(tz,ref);return (dayKey(p)!==dayKey(q)?p.wd+' ':'')+tm(p);}
 function clock(r){var th=((r.chi-r.q)%360+360)%360,c=Math.round((360-th)/30)%12;return c===0?12:c;}
 function render(){
   var dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(Math.min(1800,slide.clientWidth*dpr||900)),h=Math.round(w*2/3);
@@ -328,11 +337,11 @@ function render(){
   if(!frames.length){sctx.fillStyle='#000';sctx.fillRect(0,0,w,h);$('caption').innerHTML='';$('count').textContent='';renderTable();return;}
   var f=frames[st.slide],r=f.r,tz=st.place.tz,c=around(f,st.place),up=r.alt+r.size/2+.5667>=0,p=parts(tz,f.t),
       note=up?'':(c.nextRise!=null?'rises '+when(c.nextRise,f.t,tz):'');
-  drawScene(sctx,w,h,f,st.place,{stamp:"'"+String(p.y).slice(2)+' '+p.mo+' '+pad(p.d)+'  '+hhmm(p),place:st.place.name,note:note,detail:true});
+  drawScene(sctx,w,h,f,st.place,{stamp:stampOf(p),place:st.place.name,note:note,detail:true});
   var rs;if(up)rs=(c.prevRise!=null?'rose '+when(c.prevRise,f.t,tz):'up all day')+' · '+(c.nextSet!=null?'sets <b>'+when(c.nextSet,f.t,tz)+'</b>':'doesn\u2019t set for over a day');
   else rs=(c.prevSet!=null?'set '+when(c.prevSet,f.t,tz):'down all day')+' · '+(c.nextRise!=null?'rises <b>'+when(c.nextRise,f.t,tz)+'</b>':'doesn\u2019t rise for over a day');
   var big=Math.round((r.size/.5181-1)*100),km=Math.round(r.moon.dist/100)*100;
-  $('caption').innerHTML='<h3 class="phase">'+Astro.phaseName(r.elong)+'<small>'+p.wd+' '+p.d+' '+MON[p.mo-1]+' '+p.y+', '+hhmm(p)+' · '+esc(st.place.name)+'</small></h3>'+
+  $('caption').innerHTML='<h3 class="phase">'+Astro.phaseName(r.elong)+'<small>'+dt(p,true,true)+', '+tm(p)+' · '+esc(st.place.name)+'</small></h3>'+
     '<dt>Lit</dt><dd><b>'+(r.k*100).toFixed(r.k>.995||r.k<.005?1:0)+'%</b> · '+r.age.toFixed(1)+' days since new'+(r.k>.03&&r.k<.97?' · lit side toward '+clock(r)+' o\u2019clock':'')+'</dd>'+
     '<dt>Sky</dt><dd>'+describeSky(r)+'</dd>'+
     '<dt>Rise · set</dt><dd>'+rs+'</dd>'+
@@ -392,6 +401,8 @@ function init(){
   tableOn=window.matchMedia?!window.matchMedia('(max-width:640px)').matches:true;$('tbl').setAttribute('aria-pressed',tableOn);
   function flipTable(){tableOn=!tableOn;$('tbl').setAttribute('aria-pressed',tableOn);renderTable();if(tableOn&&window.innerWidth<=640)$('tableBox').scrollIntoView({block:'nearest',behavior:'smooth'});}
   $('tbl').onclick=flipTable;slide.onclick=flipTable;
+  $('clock').value=FMT.clock;$('datef').value=FMT.date;
+  $('clock').onchange=$('datef').onchange=function(){FMT.clock=$('clock').value;FMT.date=$('datef').value;try{localStorage.setItem('moonCarousel.fmt',JSON.stringify(FMT));}catch(e){}build();};
   $('save').onclick=saveSlide;$('share').onclick=share;
   document.addEventListener('keydown',function(e){var t=e.target.tagName;if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;
     if(e.key==='ArrowRight'){stop();go(st.slide+1,true);e.preventDefault();}else if(e.key==='ArrowLeft'){stop();go(st.slide-1,true);e.preventDefault();}
@@ -404,10 +415,10 @@ function init(){
 
 function saveSlide(){if(!frames.length)return;var f=frames[st.slide],tz=st.place.tz,p=parts(tz,f.t),W=1500,H=1000,cv=document.createElement('canvas');cv.width=W;cv.height=H+150;
   var g=cv.getContext('2d');g.fillStyle='#e9e2d0';g.fillRect(0,0,W,H+150);
-  var inner=document.createElement('canvas');inner.width=W-60;inner.height=H-40;drawScene(inner.getContext('2d'),inner.width,inner.height,f,st.place,{stamp:"'"+String(p.y).slice(2)+' '+p.mo+' '+pad(p.d)+'  '+hhmm(p),detail:true});
+  var inner=document.createElement('canvas');inner.width=W-60;inner.height=H-40;drawScene(inner.getContext('2d'),inner.width,inner.height,f,st.place,{stamp:stampOf(p),detail:true});
   g.drawImage(inner,30,30);g.fillStyle='#2b2a33';g.font='italic 64px "Instrument Serif",Georgia,serif';g.textBaseline='alphabetic';
   g.fillText(Astro.phaseName(f.r.elong)+' · '+Math.round(f.r.k*100)+'% lit',34,H+62);
-  g.font='300 26px "IBM Plex Mono",monospace';g.fillStyle='#5b574b';g.fillText(st.place.name+' · '+p.wd+' '+p.d+' '+MON[p.mo-1]+' '+p.y+', '+hhmm(p)+' · '+(f.r.alt+f.r.size/2+.5667>=0?'up in the '+compass(f.r.az)+', '+Math.max(0,Math.round(f.r.alt))+'° high':'below the horizon'),36,H+112);
+  g.font='300 26px "IBM Plex Mono",monospace';g.fillStyle='#5b574b';g.fillText(st.place.name+' · '+dt(p,true,true)+', '+tm(p)+' · '+(f.r.alt+f.r.size/2+.5667>=0?'up in the '+compass(f.r.az)+', '+Math.max(0,Math.round(f.r.alt))+'° high':'below the horizon'),36,H+112);
   g.font='40px "Reenie Beanie",cursive';g.textAlign='right';g.fillStyle='#8a826c';g.fillText('Moon Carousel',W-36,H+112);
   cv.toBlob(function(b){if(!b){status('Couldn\u2019t make the picture, sorry.',true);return;}var a=document.createElement('a');a.href=URL.createObjectURL(b);
     a.download='moon-'+(st.place.id==='custom'?'sky':st.place.id)+'-'+p.y+pad(p.mo)+pad(p.d)+'-'+pad(p.h)+pad(p.mi)+'.png';document.body.appendChild(a);a.click();a.remove();
