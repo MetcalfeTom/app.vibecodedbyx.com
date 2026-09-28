@@ -396,6 +396,12 @@ export function init(A) {
   const frus = new THREE.Frustum(), PV = new THREE.Matrix4(), BB = new THREE.Box3();
   const farM = new THREE.MeshBasicMaterial(), FAR = winst(box1, farM, NB);
   const XF = winst(flagG, flagM, NB * 12);
+  // 360 camera: the shop row turned round to line the near side of the street (it shares the front row's instance buffers),
+  // and whichever row the camera ends up behind steps aside so the band stays in view
+  const FRONT = [BLD, CORN, FRAME, WIN, DOOR, AWN, SIGN], BACK = new THREE.Group(), BACKZ = 2.0;   // back row facade at z = 6.2 + BACKZ
+  BACK.rotation.y = PI; BACK.position.z = BACKZ; world.add(BACK);
+  const TWIN = FRONT.concat([FAR]).map(m => { const c = new THREE.InstancedMesh(m.geometry, m.material, 1); c.instanceMatrix = m.instanceMatrix; c.instanceColor = m.instanceColor; c.frustumCulled = false; c.receiveShadow = m.receiveShadow; c.count = 0; BACK.add(c); return [m, c]; });
+  const yardM = new THREE.MeshStandardMaterial({ roughness: 1 }), YARD = new THREE.Mesh(new THREE.PlaneGeometry(240, 150), yardM); YARD.rotation.x = -PI / 2; YARD.position.y = -0.06; YARD.receiveShadow = true; scene.add(YARD);
   const hfG = (() => { const k = new Kit(); k.cyl('#3a3a3a', 0, 0.2, 0, 0.008, 0.008, 0.4, 0, 0, 0, 'b', 5).box('#ffffff', 0.11, 0.33, 0, 0.2, 0.13, 0.006); return k.build().b; })();
   const hfM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }), HF = winst(hfG, hfM, NB * CPB);
   // phones held up to film the band: screen towards the holder, the video light on the back
@@ -532,7 +538,7 @@ export function init(A) {
     for (const m of [roadM, paveM, pave2M]) { if (m.map) m.map.dispose(); }
     roadM.map = roadTex(sty); roadM.map.repeat.set(240 / 3, 6.6 / 3); roadM.emissiveMap = neon ? roadM.map : null; roadM.emissive.set(neon ? '#ffffff' : '#000000'); roadM.emissiveIntensity = neon ? 0.55 : 0; roadM.needsUpdate = true;
     paveM.map = paveTex(sty); paveM.map.repeat.set(240 / 1.5, 2.9 / 1.5); pave2M.map = paveM.map.clone(); pave2M.map.repeat.set(240 / 1.5, 12 / 1.5); pave2M.map.needsUpdate = true; paveM.needsUpdate = pave2M.needsUpdate = true;
-    curbM.color.set(neon ? '#3a2a66' : '#b3aa9c');
+    curbM.color.set(neon ? '#3a2a66' : '#b3aa9c'); yardM.color.set(neon ? '#1a1030' : sty === 'jazz' ? '#6e5a52' : '#8d8577');
     if (signM.map) signM.map.dispose(); signM.map = signTex(S, sty); signM.needsUpdate = true;
     lampM.color.set(neon ? '#ff9fe8' : sty === 'jazz' ? '#ffd88a' : '#fff4d6'); lampB.copy(lampM.color);
     farM.color.set(Lt.farc);
@@ -859,7 +865,11 @@ export function init(A) {
     const k = camX === null ? 1 : Math.min(1, dt * 2); camX += (cx - camX) * k; camD += (want - camD) * k;
     const ya = y0 + yaw, pa = 0.2 + pitch - (PH ? 0.3 : 0.4) * fc, tx = camX - 0.2, ty = 1.15 + Math.max(0, 1 - zoom) * 0.5 + (PH ? 3.2 : 4.5) * fc, tz = -0.2; curYa = ya;
     const fv = FOV0 + (PH ? 8 : 20) * fc; if (Math.abs(cam.fov - fv) > 0.01) { cam.fov = fv; cam.updateProjectionMatrix(); }
-    cam.position.set(tx + Math.sin(ya) * Math.cos(pa) * camD, ty + Math.sin(pa) * camD, tz + Math.cos(ya) * Math.cos(pa) * camD); cam.lookAt(tx, ty, tz);
+    // from the far side the camera steps back and up, so it looks over the crowd's heads instead of into their hair
+    const bk = Math.max(0, -Math.cos(ya)), pb = pa + 0.22 * bk, cd = camD * (1 + (PH ? 0.55 : 0.35) * bk);
+    cam.position.set(tx + Math.sin(ya) * Math.cos(pb) * cd, ty + Math.sin(pb) * cd, tz + Math.cos(ya) * Math.cos(pb) * cd); cam.lookAt(tx, ty, tz);
+    const cz = cam.position.z, fOn = cz > -6.05, bOn = cz < 6.15 + BACKZ; for (const m of FRONT) m.visible = fOn;
+    for (const [m, c] of TWIN) { c.count = m.count; c.visible = bOn; } YARD.visible = !fOn || !bOn || pitch > 0.3;
     const so = sun.userData.off; sun.position.set(tx + so[0], so[1], tz + so[2]); sun.target.position.set(tx, 0, tz);
     const sp2 = tod !== null ? sun.userData.disc : LIGHT[sty].sunPos; sunD.position.set(tx + sp2[0], sp2[1], sp2[2]); sunD.scale.setScalar(S.neon ? 44 : dayOn || tod === null ? 34 : 13); sunD.lookAt(cam.position);
     // clouds drift slowly
@@ -885,7 +895,7 @@ export function init(A) {
     return best;
   }
   function proj(m) { const v = projM(m, 2.05); return [(v.x + 1) / 2 * A.VW(), (1 - v.y) / 2 * A.VH()]; }
-  function orbit(dx, dy) { yaw = Math.max(-1.0, Math.min(1.1, yaw - dx * 0.006)); pitch = Math.max(-0.14, Math.min(0.55, pitch + dy * 0.004)); }
+  function orbit(dx, dy) { yaw -= dx * 0.006; if (yaw > PI) yaw -= 2 * PI; else if (yaw < -PI) yaw += 2 * PI; pitch = Math.max(-0.14, Math.min(0.55, pitch + dy * 0.004)); }
   function screen(m) { const v = projM(m, 1.0), r = canvas.getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }
   // zoom in to see faces (0.28 = nose to nose), out to see the whole street; returns false at a limit so the page can scroll
   function hour() { return tod === null ? null : tod % 24; }
