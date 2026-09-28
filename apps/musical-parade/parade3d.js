@@ -235,6 +235,30 @@ function sunTex(S, neon) {
 }
 const STRIPE = ctex(64, 64, (g) => { for (let i = 0; i < 8; i++) { g.fillStyle = i & 1 ? '#ffffff' : '#e8e2d8'; g.fillRect(i * 8, 0, 8, 64); } g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, 56, 64, 8); });
 
+/* ---------- time of day: keyframes by hour (4.5 .. 28.5 wraps); each band keeps its own light at its home hour ---------- */
+const DAY = [
+  // hour, sky top, horizon, hemi sky, hemi ground, hemi i, sun colour, sun i, elevation deg, night
+  [4.5, '#0a0f2a', '#27305e', '#5a6ab0', '#1a1a2a', 0.82, '#a8c0ff', 1.1, 34, 1],
+  [5.4, '#1d2452', '#6a5a8a', '#7a78c8', '#2a2436', 0.75, '#ff9a6a', 0.35, 2, 0.7],
+  [6.4, '#5d6fb0', '#ffb98f', '#cfc8ee', '#5c4a44', 1.0, '#ffa877', 1.6, 6, 0.25],
+  [8.6, '#7ec3e6', '#fde9cf', '#e0f0ff', '#8a6c4c', 1.45, '#ffe8c8', 2.8, 30, 0],
+  [12.5, '#35bfe0', '#fff1b8', '#eafcff', '#b6955e', 1.8, '#fff7da', 3.3, 63, 0],
+  [15, '#8fcfc6', '#f7e7c4', '#e4f3ff', '#8a6c4c', 1.5, '#fff0d2', 3.0, 45, 0],
+  [18.3, '#4a4f86', '#f4a877', '#a9a2ff', '#6a4038', 1.15, '#ffb27a', 2.8, 15, 0.1],
+  [19.4, '#262b62', '#c0687a', '#8a82d0', '#3a2830', 0.9, '#ff8a6a', 1.1, 3, 0.45],
+  [20.2, '#121842', '#4a3e72', '#6a70b8', '#221e30', 0.72, '#b8b8ff', 0.35, 4, 0.8],
+  [21.8, '#070b22', '#1c2552', '#5a6ab0', '#1a1a2a', 0.82, '#a8c0ff', 1.15, 36, 1],
+  [28.5, '#0a0f2a', '#27305e', '#5a6ab0', '#1a1a2a', 0.82, '#a8c0ff', 1.1, 34, 1],
+];
+const HOME = { march: 15, jazz: 18.3, carnival: 12.5 }, DAYH = 24 / 300;
+const hdist = (a, b) => { const d = Math.abs(a - b) % 24; return Math.min(d, 24 - d); };
+function moonTex() {
+  return ctex(128, 128, (g) => {
+    const gr = g.createRadialGradient(64, 64, 20, 64, 64, 64); gr.addColorStop(0, 'rgba(236,242,255,1)'); gr.addColorStop(0.5, 'rgba(226,234,255,1)'); gr.addColorStop(0.56, 'rgba(200,214,255,.28)'); gr.addColorStop(1, 'rgba(200,214,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    g.fillStyle = 'rgba(150,160,190,.35)'; for (const [x, y, r] of [[52, 50, 7], [74, 66, 9], [58, 78, 5], [78, 46, 4]]) { g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
+  });
+}
+
 /* ---------- per-band light ---------- */
 const LIGHT = {
   march: { hemi: ['#e4f3ff', '#8a6c4c', 1.5], sun: ['#fff0d2', 3.0, [7, 13, 9]], fog: [26, 95], sunPos: [30, 26, -80], farc: '#7ea3a8' },
@@ -307,6 +331,7 @@ export function init(A) {
   const SIGN = new THREE.InstancedMesh(signG, signM, NB); SIGN.frustumCulled = false; SIGN.count = 0; world.add(SIGN);
   const POST = winst(new THREE.CylinderGeometry(0.055, 0.075, 1, 8).translate(0, 0.5, 0), PLAIN, NB);
   const lampM = new THREE.MeshBasicMaterial(), LAMP = winst(new THREE.SphereGeometry(0.2, 12, 8), lampM, NB);
+  const poolM = new THREE.MeshBasicMaterial({ color: '#ffc877', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }), LPOOL = new THREE.InstancedMesh(new THREE.CircleGeometry(1.25, 28).rotateX(-PI / 2), poolM, NB); LPOOL.frustumCulled = false; LPOOL.count = 0; LPOOL.renderOrder = 1; world.add(LPOOL);
   const flagG = new THREE.BufferGeometry(); flagG.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.17, 0, 0, 0.17, 0, 0, 0, -0.32, 0]), 3)); flagG.computeVertexNormals();
   const flagM = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.8 }), FLAG = winst(flagG, flagM, NB * 14);
   const crowdM = new THREE.MeshStandardMaterial({ roughness: 0.8 });
@@ -353,7 +378,8 @@ export function init(A) {
   const pm = new THREE.PMREMGenerator(R);
   function applyStyle() {
     sty = st.style; S = A.STY[sty]; const Lt = LIGHT[sty], neon = !!S.neon;
-    if (scene.background) scene.background.dispose(); scene.background = skyTex(S);
+    if (scene.background && scene.background !== dayT) scene.background.dispose(); scene.background = neon ? skyTex(S) : dayT;
+    tod = neon ? null : HOME[sty]; skyH = envH = -99; poolM.opacity = 0; winM.color.set('#ffffff'); METAL.envMapIntensity = 1.2;
     scene.fog = new THREE.Fog(C(S.sky[1]), Lt.fog[0], Lt.fog[1]);
     hemi.color.set(Lt.hemi[0]); hemi.groundColor.set(Lt.hemi[1]); hemi.userData.i = Lt.hemi[2];
     sun.color.set(Lt.sun[0]); sun.userData.i = Lt.sun[1]; sun.userData.off = Lt.sun[2];
@@ -362,20 +388,55 @@ export function init(A) {
     paveM.map = paveTex(sty); paveM.map.repeat.set(240 / 1.5, 2.9 / 1.5); pave2M.map = paveM.map.clone(); pave2M.map.repeat.set(240 / 1.5, 12 / 1.5); pave2M.map.needsUpdate = true; paveM.needsUpdate = pave2M.needsUpdate = true;
     curbM.color.set(neon ? '#3a2a66' : '#b3aa9c');
     if (signM.map) signM.map.dispose(); signM.map = signTex(S, sty); signM.needsUpdate = true;
-    lampM.color.set(neon ? '#ff9fe8' : sty === 'jazz' ? '#ffd88a' : '#fff4d6');
+    lampM.color.set(neon ? '#ff9fe8' : sty === 'jazz' ? '#ffd88a' : '#fff4d6'); lampB.copy(lampM.color);
     farM.color.set(Lt.farc);
-    if (sunM.map) sunM.map.dispose(); sunM.map = sunTex(S, neon); sunM.needsUpdate = true;
-    cfM.color.set(neon ? '#ffffff' : '#f4f0e6'); cloudM.color.set(sty === 'jazz' ? '#ffd2c4' : '#ffffff'); CLOUD.visible = !neon; STARS.visible = neon || sty === 'jazz'; STARS.material.opacity = neon ? 1 : 0.5; STARS.material.transparent = !neon;
-    // env map for the brass: a sky gradient with a bright sun blob
+    if (sunT) sunT.dispose(); sunM.map = sunT = sunTex(S, neon); sunM.color.set('#ffffff'); sunM.needsUpdate = true;
+    cfM.color.set(neon ? '#ffffff' : '#f4f0e6'); cloudM.color.set(sty === 'jazz' ? '#ffd2c4' : '#ffffff'); cloudM.opacity = 0.92; CLOUD.visible = !neon; STARS.visible = neon || sty === 'jazz'; STARS.material.opacity = neon ? 1 : 0.5; STARS.material.transparent = !neon;
+    if (neon) mkEnv(C(S.sky[0]), C(S.sky[1]), C(Lt.sun[0]).clone().multiplyScalar(3), Lt.sun[2]);
+    base = null; recs.forEach(r => r.key = ''); yaw = pitch = 0; zoom = 1;
+  }
+  // env map for the brass: a sky gradient with a bright sun blob
+  function mkEnv(top, hor, sc, dir) {
     const es = new THREE.Scene(); es.background = null;
-    const sg = new THREE.SphereGeometry(10, 24, 12), cols = new Float32Array(sg.attributes.position.count * 3), top = C(S.sky[0]), hor = C(S.sky[1]), gnd = C(ROAD[sty][1]);
+    const sg = new THREE.SphereGeometry(10, 24, 12), cols = new Float32Array(sg.attributes.position.count * 3), gnd = C(ROAD[sty][1]);
     for (let i = 0; i < sg.attributes.position.count; i++) { const y = sg.attributes.position.getY(i) / 10; _c.copy(y > 0 ? hor : gnd).lerp(y > 0 ? top : gnd, Math.min(1, Math.abs(y) * 1.6)); cols[i * 3] = _c.r; cols[i * 3 + 1] = _c.g; cols[i * 3 + 2] = _c.b; }
     sg.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     es.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-    const sb = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(Lt.sun[0]).multiplyScalar(neon ? 3 : 6) })); sb.position.set(Lt.sun[2][0], Lt.sun[2][1], Lt.sun[2][2]).normalize().multiplyScalar(8); es.add(sb);
+    const sb = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 8), new THREE.MeshBasicMaterial({ color: sc })); sb.position.set(dir[0], dir[1], dir[2]).normalize().multiplyScalar(8); es.add(sb);
     if (envT) envT.dispose(); envT = pm.fromScene(es, 0.02).texture; METAL.envMap = envT; METAL.needsUpdate = true;
     es.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
-    base = null; recs.forEach(r => r.key = ''); yaw = pitch = 0; zoom = 1;
+  }
+  // the moving sun: sample the keyframes, lean toward the band's own look near its home hour
+  const DK = { top: new THREE.Color(), hor: new THREE.Color(), hs: new THREE.Color(), hg: new THREE.Color(), sc: new THREE.Color() }, WHITE3 = new THREE.Color('#ffffff'), NIGHTF = new THREE.Color('#10152e'), WINN = new THREE.Color('#ffc86e').multiplyScalar(1.35), SUNE = new THREE.Color();
+  const dayC = document.createElement('canvas'); dayC.width = 4; dayC.height = 256; const dayT = new THREE.CanvasTexture(dayC); dayT.colorSpace = THREE.SRGBColorSpace;
+  const moonT = moonTex(), lampB = new THREE.Color();
+  let tod = null, skyH = -99, envH = -99, sunT = null, night = 0, dayOn = true;
+  function applyDay(h) {
+    let i = 0; while (i < DAY.length - 2 && DAY[i + 1][0] <= h) i++;
+    const a = DAY[i], b = DAY[i + 1], t0 = Math.min(1, Math.max(0, (h - a[0]) / (b[0] - a[0]))), t = t0 * t0 * (3 - 2 * t0), Lt = LIGHT[sty];
+    DK.top.copy(C(a[1])).lerp(C(b[1]), t); DK.hor.copy(C(a[2])).lerp(C(b[2]), t); DK.hs.copy(C(a[3])).lerp(C(b[3]), t); DK.hg.copy(C(a[4])).lerp(C(b[4]), t); DK.sc.copy(C(a[6])).lerp(C(b[6]), t);
+    let hi = lerp(a[5], b[5], t), si = lerp(a[7], b[7], t); const el = lerp(a[8], b[8], t); night = lerp(a[9], b[9], t);
+    const w = Math.max(0, 1 - hdist(h, HOME[sty]) / 2.2);
+    if (w > 0) { DK.top.lerp(C(S.sky[0]), w); DK.hor.lerp(C(S.sky[1]), w); DK.hs.lerp(C(Lt.hemi[0]), w); DK.hg.lerp(C(Lt.hemi[1]), w); DK.sc.lerp(C(Lt.sun[0]), w); hi = lerp(hi, Lt.hemi[2], w); si = lerp(si, Lt.sun[1], w); }
+    hemi.color.copy(DK.hs); hemi.groundColor.copy(DK.hg); hemi.userData.i = hi; sun.color.copy(DK.sc); sun.userData.i = si;
+    // sun from dawn to dusk, then the moon; the light stays a little in front so faces keep some light
+    dayOn = h >= 5.4 && h < 20.2;
+    const ang = dayOn ? Math.max(-1.45, Math.min(1.45, (h - 12.7) / 6.5 * 1.35)) : ((h < 5.4 ? h + 24 : h) - 25) / 4.8 * 0.9, e = Math.max(2, el) * PI / 180;
+    sun.userData.off = [Math.sin(ang) * 16 * Math.cos(e), Math.max(1.6, Math.sin(e) * 16), 6 + 3 * Math.cos(ang)];
+    sun.userData.disc = [Math.sin(ang) * 55 - 10, 3 + el * 0.55, -80];
+    const mp = dayOn ? sunT : moonT; if (sunM.map !== mp) { sunM.map = mp; sunM.needsUpdate = true; }
+    if (dayOn) sunM.color.copy(DK.sc).lerp(WHITE3, 0.55); else sunM.color.set('#ffffff');
+    scene.fog.color.copy(DK.hor);
+    if (Math.abs(h - skyH) > 0.03) {
+      skyH = h; const g = dayC.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
+      gr.addColorStop(0, '#' + DK.top.getHexString()); gr.addColorStop(0.62, '#' + DK.hor.getHexString()); gr.addColorStop(1, '#' + DK.hor.getHexString()); g.fillStyle = gr; g.fillRect(0, 0, 4, 256); dayT.needsUpdate = true;
+    }
+    if (hdist(h, envH) > 1.5) { envH = h; const o = sun.userData.off; mkEnv(DK.top, DK.hor, SUNE.copy(DK.sc).multiplyScalar(dayOn ? 6 : 2), o); }
+    METAL.envMapIntensity = 1.2 * (1 - 0.55 * night);
+    winM.color.copy(WHITE3).lerp(WINN, night); lampM.color.copy(lampB).multiplyScalar(1 + 0.9 * night); poolM.opacity = 0.42 * Math.max(0, night - 0.15) / 0.85;
+    farM.color.set(Lt.farc).lerp(NIGHTF, night * 0.8);
+    cloudM.color.copy(WHITE3).lerp(DK.hor, 0.35).multiplyScalar(1 - 0.72 * night); cloudM.opacity = 0.92 - 0.4 * night;
+    const so = Math.max(night, sty === 'jazz' ? 0.5 * w : 0); STARS.visible = so > 0.04; STARS.material.opacity = Math.min(1, so); STARS.material.transparent = true;
   }
 
   function setWorld(b) {
@@ -398,7 +459,7 @@ export function init(A) {
       put(AWN, s, x + 0.2, 2.42, -5.75, 3.4, 0.07, 1.1, S.bunt[Math.floor(hsh(i + 0.6) * S.bunt.length)], 0.34);
       put(SIGN, s, x + 0.2, 2.95, -6.1, 2.6, 0.62, 1); aSign.setX(s, 9 - (((i % 10) + 10) % 10));
       if ((i & 1) === 0) {
-        put(POST, np++, x - BW / 2, 0.16, -3.75, 1, 3.55, 1, neon ? '#2a2050' : '#23262e'); put(LAMP, nl++, x - BW / 2, 3.78, -3.75, 1, 1.1, 1, '#ffffff');
+        put(POST, np++, x - BW / 2, 0.16, -3.75, 1, 3.55, 1, neon ? '#2a2050' : '#23262e'); put(LPOOL, nl, x - BW / 2, 0.166, -4.7, 1.5, 1, 1); put(LAMP, nl++, x - BW / 2, 3.78, -3.75, 1, 1.1, 1, '#ffffff');
         for (let f = 0; f < 13; f++) { const t = (f + 0.5) / 13, fx = x - BW / 2 + t * BW * 2, fy = 3.45 - Math.sin(t * PI) * 0.75; put(FLAG, nfl++, fx, fy, -3.75, 1, 1, 1, S.bunt[(f + i) % S.bunt.length]); }
       }
       if ((i & 1) === 0) { const x0 = x - BW / 2 + 1.1; for (let f = 0; f < 12; f++) { const t = (f + 0.5) / 12, fz = lerp(-6.1, 8, t), fy = 6.1 - Math.sin(t * PI) * 1.25; _o.position.set(x0, fy, fz); _o.rotation.set(0, PI / 2, 0); _o.scale.set(1.1, 1.1, 1.1); _o.updateMatrix(); XF.setMatrixAt(nxf, _o.matrix); XF.setColorAt(nxf++, _c.set(S.bunt[(f + i * 3) % S.bunt.length])); } }
@@ -410,7 +471,7 @@ export function init(A) {
         q.sk.set(A.SKIN[Math.floor(hsh(pj + 0.8) * A.SKIN.length)]); q.ha.set(HAIRC[Math.floor(hsh(pj + 0.57) * HAIRC.length)]); q.ca.set(CAPC[Math.floor(hsh(pj + 0.63) * CAPC.length)]);
       }
     }
-    BLD.count = nb; CORN.count = nc; FRAME.count = nf; WIN.count = nw; DOOR.count = nd; AWN.count = NB; SIGN.count = NB; POST.count = np; LAMP.count = nl; FLAG.count = nfl; FAR.count = nfar;
+    BLD.count = nb; CORN.count = nc; FRAME.count = nf; WIN.count = nw; DOOR.count = nd; AWN.count = NB; SIGN.count = NB; POST.count = np; LAMP.count = nl; LPOOL.count = nl; FLAG.count = nfl; FAR.count = nfar;
     LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = NC; ARMC.count = HANDC.count = NC * 2; XF.count = nxf; CF.count = ncf;
     for (const m of [BLD, CORN, FRAME, WIN, DOOR, AWN, SIGN, POST, LAMP, FLAG, FAR, LEGS, TORSOC, ARMC, HANDC, HEADC, HAIRS, HAIRL, CAP, XF, HF, CF]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     aSign.needsUpdate = true;
@@ -486,6 +547,7 @@ export function init(A) {
   function render(p, now, exc) {
     if (st.style !== sty) applyStyle();
     const dt = Math.min(0.05, Math.max(0, now - lastNow)); lastNow = now;
+    if (tod !== null) { if (st.playing) { tod += dt * DAYH; if (tod >= 28.5) tod -= 24; } applyDay(tod); }
     if (!lowQ && fps.length < 90) { fps.push(dt); if (fps.length === 90) { const av = fps.slice(20).reduce((a, b) => a + b, 0) / 70; if (av > 0.024) { lowQ = true; R.setPixelRatio(1); R.shadowMap.enabled = false; sun.castShadow = false; resize(); } } }
     const u = st.scroll * PX, b = Math.floor(u / BW); if (b !== base) setWorld(b);
     world.position.x = -(u - b * BW);
@@ -548,7 +610,7 @@ export function init(A) {
     const ya = y0 + yaw, pa = 0.2 + pitch, tx = camX - 0.2, ty = 1.15 + Math.max(0, 1 - zoom) * 0.5, tz = -0.2;
     cam.position.set(tx + Math.sin(ya) * Math.cos(pa) * camD, ty + Math.sin(pa) * camD, tz + Math.cos(ya) * Math.cos(pa) * camD); cam.lookAt(tx, ty, tz);
     const so = sun.userData.off; sun.position.set(tx + so[0], so[1], tz + so[2]); sun.target.position.set(tx, 0, tz);
-    const sp2 = LIGHT[sty].sunPos; sunD.position.set(tx + sp2[0], sp2[1], sp2[2]); sunD.scale.setScalar(S.neon ? 44 : 34); sunD.lookAt(cam.position);
+    const sp2 = tod !== null ? sun.userData.disc : LIGHT[sty].sunPos; sunD.position.set(tx + sp2[0], sp2[1], sp2[2]); sunD.scale.setScalar(S.neon ? 44 : dayOn || tod === null ? 34 : 13); sunD.lookAt(cam.position);
     // clouds drift slowly
     let ci = 0; for (let c = 0; c < 6; c++) { const cxw = ((c * 37 - u * 0.25 + now * 0.3) % 220 + 220) % 220 - 110 + tx, cyw = 26 + (c % 3) * 5, czw = -95; for (let pff = 0; pff < 4; pff++) { _o.position.set(cxw + pff * 3.2 - 5, cyw + (pff & 1) * 1.4, czw); _o.rotation.set(0, 0, 0); _o.scale.set(3.2 + (pff & 1), 1.8 + (pff & 1) * 0.6, 1.5); _o.updateMatrix(); CLOUD.setMatrixAt(ci++, _o.matrix); } }
     CLOUD.count = ci; CLOUD.instanceMatrix.needsUpdate = true;
@@ -574,8 +636,11 @@ export function init(A) {
   function orbit(dx, dy) { yaw = Math.max(-1.0, Math.min(1.1, yaw - dx * 0.006)); pitch = Math.max(-0.14, Math.min(0.55, pitch + dy * 0.004)); }
   function screen(m) { const v = projM(m, 1.0), r = canvas.getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }
   // zoom in to see faces (0.28 = nose to nose), out to see the whole street; returns false at a limit so the page can scroll
+  function hour() { return tod === null ? null : tod % 24; }
+  function setHour(h) { if (tod === null) return null; tod = ((h - 4.5) % 24 + 24) % 24 + 4.5; applyDay(tod); return hour(); }
+  function skip(dh) { return tod === null ? null : setHour(tod + dh); }
   function zoomBy(f) { const z = Math.max(0.28, Math.min(1.6, zoom * f)); if (Math.abs(z - zoom) < 1e-4) return false; zoom = z; return true; }
   function show(on) { canvas.hidden = !on; if (on) resize(); }
   function stats() { return { calls: R.info.render.calls, tris: R.info.render.triangles, lowQ }; }
-  return { render, resize, pick, proj, show, stats, orbit, screen, zoomBy };
+  return { render, resize, pick, proj, show, stats, orbit, screen, zoomBy, hour, setHour, skip };
 }
