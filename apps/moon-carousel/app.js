@@ -288,6 +288,7 @@ function drawScene(ctx,W,H,f,place,o){
     [sx,sx-W,sx+W].forEach(function(x){var rg=ctx.createRadialGradient(x,hy,0,x,hy,W*.45);rg.addColorStop(0,'rgba(255,170,90,'+.55*gl+')');rg.addColorStop(1,'rgba(255,140,80,0)');ctx.fillStyle=rg;ctx.fillRect(0,0,W,hy+2);});}
   var R=H*.15*(r.size/.5181),top=R+H*.05,h=r.alt+r.size/2+.5667,mx=ax(r.az),my,up=h>=0;
   if(up){my=h<5?hy+R-2*R*(h/5):(hy-R)-(Math.min(h,90)-5)/85*Math.max(0,hy-R-top);}
+  if(o.detail)moonHit=up?[mx,my,R,W]:[Math.max(R*.42+4,Math.min(W-R*.42-4,mx)),hy+H*.125,R*.42,W];
   /* the Sun, when it's up */
   var sh=r.sunAlt+.8333,sunx=ax(r.sunAz),sR=H*.032;
   if(sh>0){var sy=sh<3?hy+sR-2*sR*(sh/3):(hy-sR)-(Math.min(sh,90)-3)/87*(hy-sR-sR*2);
@@ -297,7 +298,9 @@ function drawScene(ctx,W,H,f,place,o){
   var dayWash=1-smooth(-6,6,r.sunAlt)*.35,gain=dayWash;
   if(up){[mx,mx-W,mx+W].forEach(function(x){if(x<-R*2||x>W+R*2)return;
       var hg=ctx.createRadialGradient(x,my,R*.9,x,my,R*3.2);hg.addColorStop(0,'rgba(200,215,240,'+(.22*r.k*dark+.02)+')');hg.addColorStop(1,'rgba(200,215,240,0)');
-      ctx.fillStyle=hg;ctx.fillRect(x-R*3.2,my-R*3.2,R*6.4,R*6.4);
+      /* the glow goes round the disc, not over it, so the bright highlands don't burn out to flat white */
+      ctx.save();ctx.beginPath();ctx.rect(x-R*3.2,my-R*3.2,R*6.4,R*6.4);ctx.arc(x,my,R*.985,0,7);ctx.clip('evenodd');
+      ctx.fillStyle=hg;ctx.fillRect(x-R*3.2,my-R*3.2,R*6.4,R*6.4);ctx.restore();
       drawMoon(ctx,x,my,R,r,{gain:gain,earth:.11*dark,tint:lowTint(r.alt)});});}
   /* the ground */
   var ground=mix('#07080c','#1a2233',smooth(-10,10,r.sunAlt)*.9);ctx.fillStyle=ground;ctx.beginPath();ctx.moveTo(0,H);
@@ -513,7 +516,7 @@ function render(){
   slide.setAttribute('aria-label',Astro.phaseName(r.elong)+', '+Math.round(r.k*100)+' percent lit, '+(up?'up in the '+compass(r.az):'below the horizon')+', '+label(f,tz,true)+' in '+st.place.name);
   $('count').textContent=(st.slide+1)+' / '+frames.length;
   thumbs.forEach(function(b,i){b.setAttribute('aria-current',i===st.slide?'true':'false');});
-  renderTable();}
+  renderTable();if(cu.on)cuDraw();}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 /* slide the strip sideways only, so the page itself never jumps */
 function centerThumb(smooth){var t=thumbs[st.slide],s=$('strip');if(!t)return;var x=t.offsetLeft-s.offsetLeft-(s.clientWidth-t.offsetWidth)/2;
@@ -537,6 +540,131 @@ function clack(){if(!soundOn)return;try{ac=ac||new (window.AudioContext||window.
 function play(){if(playing||frames.length<2||rec)return;$('play').textContent='❚❚ Pause';$('play').setAttribute('aria-pressed','true');$('caption').setAttribute('aria-live','off');
   playing=setInterval(function(){go(st.slide+1);},+$('speed').value);}
 function stop(){if(!playing)return;clearInterval(playing);playing=null;$('play').textContent='▶ Play';$('play').setAttribute('aria-pressed','false');$('caption').setAttribute('aria-live','polite');writeHash();}
+
+/* ---------- up close: the slide's Moon big, turned the way it hangs in that sky, with names ---------- */
+/* [kind s sea / c crater / l landing, priority 1-3, lat, lon, name, sub, fact] */
+var NAMES=[
+ ['s',1,8.5,31.4,"Sea of Tranquility","Mare Tranquillitatis","Where Apollo 11 landed in 1969. Its lava is rich in titanium, which makes it look blue in colour-boosted photos."],
+ ['s',1,28,17.5,"Sea of Serenity","Mare Serenitatis","A round lava plain about 700 km across, filling an old impact basin. Apollo 17 landed on its eastern shore."],
+ ['s',1,32.8,-15.6,"Sea of Rains","Mare Imbrium","The biggest basin on the near side, about 1,100 km across: dug by an impact 3.9 billion years ago, then flooded by lava."],
+ ['s',1,18.4,-57.4,"Ocean of Storms","Oceanus Procellarum","The only ‘ocean’: a lava plain over 2,500 km long, the largest dark area on the Moon, with some of its youngest lava."],
+ ['s',1,17,59.1,"Sea of Crises","Mare Crisium","A dark oval near the eastern edge. It looks stretched north to south, but it’s really wider east to west; you see it at a slant."],
+ ['s',2,-7.8,51.3,"Sea of Fertility","Mare Fecunditatis","In 1970 the robot Luna 16 scooped up soil here and flew it back to Earth, the first sample brought home by a machine."],
+ ['s',2,-15.2,35.5,"Sea of Nectar","Mare Nectaris","A small round sea that names a whole age of the Moon’s history, the Nectarian, nearly 4 billion years ago."],
+ ['s',2,-21.3,-16.6,"Sea of Clouds","Mare Nubium","A broad, patchy lava plain south of the centre. The Straight Wall, a cliff over 100 km long, runs along its eastern side."],
+ ['s',2,-24.4,-38.6,"Sea of Moisture","Mare Humorum","A round sea about 390 km wide, with the flooded crater Gassendi on its northern shore."],
+ ['s',2,56,1.4,"Sea of Cold","Mare Frigoris","A long thin strip of lava across the far north, running along the top of the Sea of Rains."],
+ ['s',2,44.1,-31.5,"Bay of Rainbows","Sinus Iridum","Half a crater, opening onto the Sea of Rains. When the Sun rises there, its mountain rim lights up before the bay: the Golden Handle."],
+ ['s',3,13.3,3.6,"Sea of Vapours","Mare Vaporum","A small sea near the middle of the disc, with the Apennine mountains along its northern side."],
+ ['s',3,-10,-23.1,"Known Sea","Mare Cognitum","Named in 1964, after Ranger 7 sent back the first close-up pictures of the Moon on its way down to crash here."],
+ ['s',3,7.5,-30.9,"Sea of Islands","Mare Insularum","Lava dotted with islands of older, brighter ground, between Copernicus and Kepler."],
+ ['s',3,2.4,1.7,"Central Bay","Sinus Medii","The middle of the Moon’s face: the spot that points most directly at Earth."],
+ ['s',3,1.3,87.5,"Smyth’s Sea","Mare Smythii","Right on the eastern edge. You only see it well when the Moon’s slow wobble tips it toward you."],
+ ['s',3,13.3,86.1,"Sea of the Edge","Mare Marginis","Named for where it sits, on the very edge of the side that faces us."],
+ ['s',3,-19.4,-92.8,"Eastern Sea","Mare Orientale","A huge bullseye basin just around the western edge. It’s called Eastern because old maps had east and west swapped."],
+ ['s',3,-38.9,93,"Southern Sea","Mare Australe","A patchwork of dark lava pools on the southeastern edge."],
+ ['s',3,56.8,81.5,"Humboldt’s Sea","Mare Humboldtianum","Named after the explorer Alexander von Humboldt. It hugs the northeastern edge."],
+ ['c',1,-43.3,-11.2,"Tycho","85 km crater","A young crater, about 108 million years old. Its bright rays stretch across much of the Moon and shine best at full Moon."],
+ ['c',1,9.6,-20.1,"Copernicus","93 km crater","About 800 million years old, with terraced walls and a cluster of peaks in the middle. Easy to find with binoculars."],
+ ['c',1,23.7,-47.4,"Aristarchus","40 km crater","The brightest spot on the Moon. Its fresh rock is so bright it can show even on the dark part, lit only by earthshine."],
+ ['c',1,51.6,-9.4,"Plato","101 km crater","A crater flooded with dark lava, like a smooth oval pool on the northern shore of the Sea of Rains."],
+ ['c',1,-58.8,-14.1,"Clavius","225 km crater","One of the largest craters on this side, with an arc of smaller craters across its floor. In 2001: A Space Odyssey there’s a Moon base here."],
+ ['c',2,8.1,-38,"Kepler","32 km crater","A small bright crater with rays of its own, named after the astronomer who worked out how planets move."],
+ ['c',2,-5.2,-68.6,"Grimaldi","172 km crater","The darkest patch near the western edge: an old basin with a lava-filled floor."],
+ ['c',2,-8.9,61,"Langrenus","132 km crater","Named after Michael van Langren, who drew one of the first Moon maps with names, in 1645."],
+ ['c',2,-25.3,60.4,"Petavius","177 km crater","A big crater with a long crack running from its central peaks to the wall. It shows well a few days after new Moon."],
+ ['c',2,-11.4,26.4,"Theophilus","100 km crater","The youngest of a trio with Cyrillus and Catharina: it cuts right into the wall of Cyrillus."],
+ ['c',2,-9.2,-1.8,"Ptolemaeus","154 km crater","A huge, flat, shallow walled plain near the middle, named after the ancient astronomer Ptolemy."],
+ ['c',2,29.7,-4,"Archimedes","81 km crater","A lava-flooded crater in the Sea of Rains, near the Apennine mountains. Its flat floor looks like a dark coin."],
+ ['c',3,-13.4,-3.2,"Alphonsus","108 km crater","In 1965 Ranger 9 crashed here, sending pictures all the way down, shown live on TV."],
+ ['c',3,-18.2,-1.9,"Arzachel","97 km crater","The last of a chain with Ptolemaeus and Alphonsus: each one younger and sharper than the one before."],
+ ['c',3,31.8,29.9,"Posidonius","95 km crater","On the shore of the Sea of Serenity, with a floor full of cracks and ridges."],
+ ['c',3,14.5,-11.3,"Eratosthenes","58 km crater","It names a whole age of the Moon’s history, and sits at the tip of the Apennine mountains."],
+ ['c',3,50.2,17.4,"Aristoteles","88 km crater","A big northern crater, with its smaller twin Eudoxus just to the south."],
+ ['c',3,-17.6,-40.1,"Gassendi","110 km crater","A flooded crater on the northern shore of the Sea of Moisture, its floor split by long cracks."],
+ ['c',3,-44.3,-55.3,"Schickard","206 km crater","A huge flat crater near the southwestern edge, its floor part dark lava and part pale."],
+ ['c',3,16.1,46.8,"Proclus","28 km crater","A small bright crater with a fan of rays that’s missing on one side: the rock that made it came in at a low angle."],
+ ['c',3,53.9,57,"Endymion","125 km crater","A dark-floored crater near the northeastern edge, named after the shepherd the Moon goddess fell in love with."],
+ ['c',3,-5.1,5.2,"Hipparchus","138 km crater","A worn walled plain near the middle, named after the Greek astronomer who first measured how far away the Moon is."],
+ ['c',3,-3.3,-74.6,"Riccioli","139 km crater","Named after the priest who, in 1651, gave the Moon’s craters the names we still use."],
+ ['c',3,-1.9,47.6,"Messier","11 km crater","Two small craters with a double comet tail of rays, made by a rock that skimmed in almost sideways."],
+ ['c',3,73.4,-10.1,"Anaxagoras","50 km crater","A young crater near the north pole, its rays reaching all the way down to Plato."],
+ ['l',1,.674,23.473,"Apollo 11","July 1969","Neil Armstrong and Buzz Aldrin, the first people to walk on the Moon."],
+ ['l',2,-3.012,-23.422,"Apollo 12","Nov 1969","Pete Conrad and Alan Bean landed within walking distance of the robot Surveyor 3, and brought pieces of it home."],
+ ['l',2,-3.645,-17.471,"Apollo 14","Feb 1971","Alan Shepard hit two golf balls here."],
+ ['l',2,26.132,3.634,"Apollo 15","July 1971","The first Moon buggy, driven along Hadley Rille below the Apennine mountains."],
+ ['l',2,-8.973,15.5,"Apollo 16","April 1972","The first landing in the bright highlands."],
+ ['l',2,20.191,30.772,"Apollo 17","Dec 1972","The last time people walked on the Moon, so far."],
+ ['l',3,7.08,-64.37,"Luna 9","Feb 1966","The first spacecraft to land softly on the Moon and send back pictures from the ground."],
+ ['l',3,38.28,-35,"Lunokhod 1","Nov 1970","The first robot rover on another world, driven from Earth for ten months."],
+ ['l',3,44.12,-19.51,"Chang’e 3","Dec 2013","China’s first landing, with the little rover Yutu."],
+ ['l',3,43.06,-51.92,"Chang’e 5","Dec 2020","Brought 1.7 kg of Moon rock back to Earth, the first new samples since 1976."],
+ ['l',3,-69.37,32.32,"Chandrayaan-3","Aug 2023","India’s lander, the first to touch down near the Moon’s south pole."]];
+var cu={on:false,s:true,c:true,l:true,sel:-1,hov:-1,from:null,side:0},moonHit=null;
+function moonAxes(r){var a=(r.axis-r.q)*D2R,b=(r.chi-r.q)*D2R,ii=r.i*D2R,lL=r.libL*D2R,lB=r.libB*D2R,
+    zv=[Math.cos(lB)*Math.sin(lL),Math.sin(lB),Math.cos(lB)*Math.cos(lL)],xv=[Math.cos(lL),0,-Math.sin(lL)];
+  return {ca:Math.cos(a),sa:Math.sin(a),xv:xv,zv:zv,yv:[zv[1]*xv[2]-zv[2]*xv[1],zv[2]*xv[0]-zv[0]*xv[2],zv[0]*xv[1]-zv[1]*xv[0]],
+    S:[-Math.sin(ii)*Math.sin(b),Math.sin(ii)*Math.cos(b),Math.cos(ii)]};}
+/* the inverse of drawMoon's pixel walk: where a spot on the Moon lands on the disc (u right, v up, z toward us) and whether the Sun is up there */
+function onDisc(A,lat,lon){var P=vec(lat,lon),d=function(q){return P[0]*q[0]+P[1]*q[1]+P[2]*q[2];},xn=d(A.xv),yn=d(A.yv),z=d(A.zv),
+    u=xn*A.ca-yn*A.sa,v=xn*A.sa+yn*A.ca;return {u:u,v:v,z:z,lit:u*A.S[0]+v*A.S[1]+z*A.S[2]};}
+function openCu(from){if(!frames.length||rec)return;stop();cu.on=true;cu.sel=-1;cu.hov=-1;cu.from=from||document.activeElement;
+  $('cu').hidden=false;document.body.classList.add('cuon');cuDraw();$('cuX').focus();}
+function closeCu(){if(!cu.on)return;cu.on=false;$('cu').hidden=true;document.body.classList.remove('cuon');
+  var f=cu.from;cu.from=null;if(f&&f.focus&&f!==document.body)try{f.focus({preventScroll:true});}catch(e){f.focus();}}
+function cuK(side){return side<440?.47:.43;}
+function cuDraw(){if(!cu.on||!frames.length)return;
+  var f=frames[st.slide],r=f.r,p=parts(st.place.tz,f.t),box=$('cuStage'),cv=$('cuC'),
+      side=Math.max(160,Math.floor(Math.min(box.clientWidth,box.clientHeight))),dpr=Math.min(2,window.devicePixelRatio||1),Rc=side*cuK(side),
+      k=Math.min(dpr,460/Rc),N=Math.round(side*k),g;
+  cu.side=side;cv.style.width=cv.style.height=side+'px';$('cuL').style.width=$('cuL').style.height=side+'px';
+  if(cv.width!==N){cv.width=N;cv.height=N;}g=cv.getContext('2d');g.clearRect(0,0,N,N);
+  if(!TEX&&!texBusy)TEX=makeTex();
+  drawMoon(g,N/2,N/2,Rc*k,r,{gain:1,earth:.09,tint:[1,1,1]});
+  $('cuT').textContent=Astro.phaseName(r.elong);
+  $('cuS').textContent=dt(p,true,true)+', '+tm(p)+' · '+st.place.name+' · '+Math.round(r.k*100)+'% lit';
+  cuLabels(r,side,Rc);}
+function cuLabels(r,side,Rc){
+  var L=$('cuL'),A=moonAxes(r),lim=Rc<150?1:Rc<250?2:3,list=[],boxes=[],h='',i,n,q,x,y,w,hh,b,left,fs,ae=document.activeElement,
+      refocus=ae&&ae.parentNode===L?+ae.getAttribute('data-i'):-1;
+  for(i=0;i<NAMES.length;i++){n=NAMES[i];if(!cu[n[0]]||n[1]>lim&&i!==cu.sel)continue;q=onDisc(A,n[2],n[3]);if(q.z<(n[0]==='s'?.18:.1))continue;list.push([i,q]);}
+  /* the chosen one first, then by rank, seas before craters, sunlit before night */
+  list.sort(function(a,c){return (c[0]===cu.sel)-(a[0]===cu.sel)||NAMES[a[0]][1]-NAMES[c[0]][1]||'slc'.indexOf(NAMES[a[0]][0])-'slc'.indexOf(NAMES[c[0]][0])||(c[1].lit>0)-(a[1].lit>0);});
+  function hit(bx){for(var j=0;j<boxes.length;j++){var o=boxes[j];if(bx[0]<o[0]+o[2]+3&&o[0]<bx[0]+bx[2]+3&&bx[1]<o[1]+o[3]+2&&o[1]<bx[1]+bx[3]+2)return true;}return false;}
+  fs=Rc<150?12:Rc<250?14:16;
+  list.forEach(function(e){i=e[0];q=e[1];n=NAMES[i];x=side/2+q.u*Rc;y=side/2-q.v*Rc;left=false;
+    if(n[0]==='s'){w=n[4].length*fs*.43+6;hh=fs+2;b=null;
+      /* a sea's name can sit a little above or below its middle if something is in the way */
+      [0,-.9,.9,-1.7,1.7].some(function(k){var c=[x-w/2,y+k*hh-hh/2,w,hh];if(c[0]<1||c[0]+w>side-1||c[1]<1||c[1]+hh>side-1||hit(c))return false;b=c;y+=k*hh;return true;});if(!b)return;}
+    else{w=n[4].length*6.3+2;hh=12;b=[x+8,y-hh/2,w,hh];
+      if(b[0]+w>side-1||hit(b)){b=[x-8-w,y-hh/2,w,hh];left=true;if(b[0]<1||hit(b))return;}
+      if(hit([x-3,y-3,6,6]))return;boxes.push([x-3,y-3,6,6]);}
+    boxes.push(b);
+    h+='<button type="button" class="nm '+n[0]+(left?' lf':'')+(q.lit<0?' off':'')+(i===cu.sel?' sel':'')+'" data-i="'+i+'" style="left:'+x.toFixed(1)+'px;top:'+y.toFixed(1)+'px'+(n[0]==='s'?';font-size:'+fs+'px':'')+'"'+
+       (i===cu.sel?' aria-pressed="true"':' aria-pressed="false"')+'>'+esc(n[4])+'</button>';});
+  L.innerHTML=h;
+  if(refocus>=0){var nb=L.querySelector('[data-i="'+refocus+'"]');if(nb)nb.focus();}
+  cuFact(r);}
+function cuFact(r){var i=cu.hov>=0?cu.hov:cu.sel,el=$('cuF'),n,q;
+  if(i<0){el.innerHTML='<span class="hint">'+(window.matchMedia&&matchMedia('(hover:hover)').matches?'Point at':'Tap')+' a name to read about it.</span>';return;}
+  n=NAMES[i];q=onDisc(moonAxes((r||frames[st.slide].r)),n[2],n[3]);
+  el.innerHTML='<b>'+esc(n[4])+'</b><i>'+esc(n[5])+'</i>'+(q.z<.1?'<em>around the edge now</em>':q.lit<0?'<em>night there now</em>':'')+'<br>'+esc(n[6]);}
+function overMoon(e){if(!moonHit)return false;var b=slide.getBoundingClientRect();if(!b.width)return false;
+  var s=moonHit[3]/b.width,dx=(e.clientX-b.left)*s-moonHit[0],dy=(e.clientY-b.top)*s-moonHit[1],rr=Math.max(moonHit[2]*1.3,22*s);return dx*dx+dy*dy<rr*rr;}
+function wireCu(){
+  $('cuB').onclick=function(){openCu(this);};$('cuX').onclick=closeCu;
+  $('cuP').onclick=function(){go(st.slide-1,true);};$('cuN').onclick=function(){go(st.slide+1,true);};
+  ['s','c','l'].forEach(function(k){var b=$('cu_'+k);b.onclick=function(){cu[k]=!cu[k];this.setAttribute('aria-pressed',cu[k]);if(cu.sel>=0&&NAMES[cu.sel][0]===k&&!cu[k])cu.sel=-1;cuLabels(frames[st.slide].r,cu.side,cu.side*cuK(cu.side));};});
+  var L=$('cuL');
+  L.onclick=function(e){var t=e.target.closest('.nm');if(!t)return;var i=+t.getAttribute('data-i');cu.sel=cu.sel===i?-1:i;cu.hov=-1;
+    each('#cuL .nm',function(b){var on=+b.getAttribute('data-i')===cu.sel;b.classList.toggle('sel',on);b.setAttribute('aria-pressed',on);});cuFact();};
+  L.onmouseover=function(e){var t=e.target.closest('.nm');if(!t)return;cu.hov=+t.getAttribute('data-i');cuFact();};
+  L.onmouseout=function(e){var t=e.target.closest('.nm');if(!t||t.contains(e.relatedTarget))return;cu.hov=-1;cuFact();};
+  L.addEventListener('focusin',function(e){var t=e.target.closest('.nm');if(!t)return;cu.hov=+t.getAttribute('data-i');cuFact();});
+  L.addEventListener('focusout',function(){cu.hov=-1;cuFact();});
+  $('cu').addEventListener('click',function(e){if(e.target===this)closeCu();});
+  $('cu').addEventListener('keydown',function(e){if(e.key!=='Tab')return;var fs=this.querySelectorAll('button'),a=fs[0],z=fs[fs.length-1];
+    if(e.shiftKey&&document.activeElement===a){z.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===z){a.focus();e.preventDefault();}});}
 
 /* ---------- wiring ---------- */
 var tmr=null;function rebuild(){clearTimeout(tmr);tmr=setTimeout(function(){st.slide=0;build();},250);}
@@ -571,11 +699,11 @@ function init(){
   $('sound').onclick=function(){soundOn=!soundOn;this.setAttribute('aria-pressed',soundOn);this.textContent=soundOn?'🔊':'🔈';};
   tableOn=window.matchMedia?!window.matchMedia('(max-width:640px)').matches:true;$('tbl').setAttribute('aria-pressed',tableOn);
   function flipTable(){tableOn=!tableOn;$('tbl').setAttribute('aria-pressed',tableOn);renderTable();if(tableOn&&window.innerWidth<=640)$('tableBox').scrollIntoView({block:'nearest',behavior:'smooth'});}
-  $('tbl').onclick=flipTable;slide.onclick=flipTable;slide2.onclick=flipTable;
+  $('tbl').onclick=flipTable;slide.onclick=function(e){if(overMoon(e))openCu(slide);else flipTable();};slide.onmousemove=function(e){slide.style.cursor=overMoon(e)?'zoom-in':'';};wireCu();slide2.onclick=flipTable;
   $('clock').value=FMT.clock;$('datef').value=FMT.date;
   $('clock').onchange=$('datef').onchange=function(){FMT.clock=$('clock').value;FMT.date=$('datef').value;try{localStorage.setItem('moonCarousel.fmt',JSON.stringify(FMT));}catch(e){}build();};
   $('save').onclick=saveSlide;$('share').onclick=share;$('vid').onclick=saveVideo;$('sheet').onclick=saveSheet;
-  document.addEventListener('keydown',function(e){var t=e.target.tagName;if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;
+  document.addEventListener('keydown',function(e){var t=e.target.tagName;if(cu.on){if(e.key==='Escape'){closeCu();e.preventDefault();return;}if(e.key===' ')return;}if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;
     if(e.key==='ArrowRight'){stop();go(st.slide+1,true);e.preventDefault();}else if(e.key==='ArrowLeft'){stop();go(st.slide-1,true);e.preventDefault();}
     else if(e.key===' '&&t!=='BUTTON'){playing?stop():play();e.preventDefault();}});
   var rt=null;window.addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(render,120);});
@@ -676,7 +804,7 @@ function saveSheet(){if(!TEX)TEX=makeTex();if(!frames.length)return;vnote('Makin
     g.textAlign='right';g.fillStyle='#8a826c';g.font='500 12px "IBM Plex Mono",monospace';g.fillText(String(i+1),x+cardW-6,y+11);});
   cv.toBlob(function(b){if(!b){vnote('Couldn\u2019t make the picture in this browser, sorry. Save slide still works one at a time.',true);$('sheet').hidden=true;return;}
     download(b,'moon-carousel-'+slug(P)+(two?'-vs-'+slug(Q):'')+'-'+ymd(p0)+'-slides.png');vnote('Saved all '+n+' slides as one picture.',false);},'image/png');},30);}
-window.__moon={stampOf:stampOf,drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},texBusy:function(){return texBusy;},build:function(){build();},frames:function(){return frames;},frames2:function(){return frames2;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC,
+window.__moon={hit:function(){return moonHit;},openCu:openCu,closeCu:closeCu,cu:cu,names:NAMES,onDisc:onDisc,moonAxes:moonAxes,stampOf:stampOf,drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},texBusy:function(){return texBusy;},build:function(){build();},frames:function(){return frames;},frames2:function(){return frames2;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC,
   rec:function(){return rec;},lastDl:function(){return lastDl;},webmType:webmType};
 init();
 })();
