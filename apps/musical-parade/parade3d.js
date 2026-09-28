@@ -432,7 +432,7 @@ export function init(A) {
     else if (b === 31) { fwLaunch(0, 2, true); fwLaunch(-0.6, 2, true); fwLaunch(0.6, 2, true); fwLaunch(-0.3, 3, false); fwLaunch(0.3, 3, false); }
   }
   // 0 no button, 1 ready by day (the sky hurries to nightfall first), 2 running, 3 ready at night
-  function fwReady() { return fwOn || fwRush ? 2 : !st.playing ? 0 : S.neon || night > 0.5 ? 3 : tod !== null ? 1 : 0; }
+  function fwReady() { return fwOn || fwRush ? 2 : !st.playing || !S ? 0 : S.neon || night > 0.5 ? 3 : tod !== null ? 1 : 0; }
   function fireworks() {
     const s = fwReady(); if (s !== 1 && s !== 3) return false;
     if (s === 1) { fwRush = true; fwRate = Math.max(1.5, ((21 - tod % 24) % 24 + 24) % 24 / 2.2); return true; }
