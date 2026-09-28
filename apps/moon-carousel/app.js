@@ -45,7 +45,8 @@ var FMT={clock:'24',date:'dmy'};
   try{var sv=JSON.parse(localStorage.getItem('moonCarousel.fmt')||'null');if(sv){if(sv.clock==='12'||sv.clock==='24')FMT.clock=sv.clock;if(['dmy','mdy','iso'].indexOf(sv.date)>=0)FMT.date=sv.date;}}catch(e){}})();
 function tm(p){if(FMT.clock==='24')return hhmm(p);return (p.h%12||12)+':'+pad(p.mi)+(p.h<12?' am':' pm');}
 function dt(p,yr,wd){var s=FMT.date==='iso'?(yr?p.y+'-':'')+pad(p.mo)+'-'+pad(p.d):FMT.date==='mdy'?MON[p.mo-1]+' '+p.d+(yr?', '+p.y:''):p.d+' '+MON[p.mo-1]+(yr?' '+p.y:'');return (wd?p.wd+' ':'')+s;}
-function stampOf(p){var y="'"+String(p.y).slice(2);return (FMT.date==='iso'?y+' '+p.mo+' '+pad(p.d):FMT.date==='mdy'?p.mo+' '+pad(p.d)+' '+y:pad(p.d)+' '+p.mo+' '+y)+'  '+tm(p);}
+/* v1.5 the film stamp reads like the chosen formats (Tatum: it used to be bare numbers, '26 9 28, so the choice didn't show) */
+function stampOf(p){var y="'"+String(p.y).slice(2),m=MON[p.mo-1].toUpperCase();return (FMT.date==='iso'?p.y+'-'+pad(p.mo)+'-'+pad(p.d):FMT.date==='mdy'?m+' '+pad(p.d)+' '+y:pad(p.d)+' '+m+' '+y)+'  '+tm(p).toUpperCase();}
 function dayKey(p){return p.y*400+p.mo*32+p.d;}
 
 /* ---------- a procedural Moon map (albedo, selenographic lat/lon) ---------- */
@@ -549,7 +550,7 @@ function saveSheet(){if(!frames.length)return;vnote('Making the picture\u2026',f
     g.textAlign='right';g.fillStyle='#8a826c';g.font='500 12px "IBM Plex Mono",monospace';g.fillText(String(i+1),x+cardW-6,y+11);});
   cv.toBlob(function(b){if(!b){vnote('Couldn\u2019t make the picture in this browser, sorry. Save slide still works one at a time.',true);$('sheet').hidden=true;return;}
     download(b,'moon-carousel-'+slug(P)+(two?'-vs-'+slug(Q):'')+'-'+ymd(p0)+'-slides.png');vnote('Saved all '+n+' slides as one picture.',false);},'image/png');},30);}
-window.__moon={drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},build:function(){build();},frames:function(){return frames;},frames2:function(){return frames2;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC,
+window.__moon={stampOf:stampOf,drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},build:function(){build();},frames:function(){return frames;},frames2:function(){return frames2;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC,
   rec:function(){return rec;},lastDl:function(){return lastDl;},webmType:webmType};
 init();
 })();
