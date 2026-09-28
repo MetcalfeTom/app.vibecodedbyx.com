@@ -27,6 +27,7 @@ Build a marching band one player at a time; each instrument adds its part to an 
 
 - v1.9 (2026-09-28): THE MOVING SUN. In 3D the day passes while the band marches: morning light, golden hour on the shop fronts, twilight, then night with a moon, stars, lit windows and pools of lamplight on the pavement; the clock button skips ahead three hours. Synthwave stays a night band. Probe: hour=<h>.
 - v1.9.1: at dusk the windows go dark with the sky, then switch on one by one (every lit-type window, ~45 % of the dark ones; per-window threshold WTH, base colours WINB, repainted in winPaint when night moves 0.008 and after every setWorld).
+- og.png is now a 3D golden-hour frame (1200x630): probe og=1 makes the stage fill the viewport and overlays the Shrikhand title; `shot=sbcuotfg&wait=20000&style=march&look=3d&hour=17.2&og=1&zoom=0.85` at 1200,630 with 25 s extra (the camera needs the long wait to re-centre in headless).
 
 ## issues
 - The clock falls back to performance.now() until the AudioContext is running ('p' mode), then re-anchors to the audio clock ('a' mode).
