@@ -409,8 +409,19 @@ export function init(A) {
   // the moving sun: sample the keyframes, lean toward the band's own look near its home hour
   const DK = { top: new THREE.Color(), hor: new THREE.Color(), hs: new THREE.Color(), hg: new THREE.Color(), sc: new THREE.Color() }, WHITE3 = new THREE.Color('#ffffff'), NIGHTF = new THREE.Color('#10152e'), WINN = new THREE.Color('#ffc86e').multiplyScalar(1.35), SUNE = new THREE.Color();
   const dayC = document.createElement('canvas'); dayC.width = 4; dayC.height = 256; const dayT = new THREE.CanvasTexture(dayC); dayT.colorSpace = THREE.SRGBColorSpace;
-  const moonT = moonTex(), lampB = new THREE.Color();
-  let tod = null, skyH = -99, envH = -99, sunT = null, night = 0, dayOn = true;
+  const moonT = moonTex(), lampB = new THREE.Color(), WINB = new Float32Array(NB * 16 * 3), WTH = new Float32Array(NB * 16), WDK = new THREE.Color('#f0b55a').multiplyScalar(1.2), _w = new THREE.Color();
+  // at dusk the windows go dark with the sky, then switch on one by one (every lit-type window, ~45 % of the dark ones)
+  function winPaint(force) {
+    if (!force && Math.abs(night - winN) < 0.008) return; winN = night;
+    for (let k = 0; k < WIN.count; k++) {
+      const r = WINB[k * 3], g = WINB[k * 3 + 1], bb = WINB[k * 3 + 2], lit = r + g + bb > 1.2, th = WTH[k], f = 1 - 0.75 * night;
+      _w.setRGB(r * f, g * f, bb * f);
+      if (lit || th < 0.45) { const on = Math.min(1, Math.max(0, (night - 0.15 - th * 0.6) / 0.06)); if (on > 0) _w.lerp(lit ? _c.setRGB(WINN.r * Math.max(r, 0.9), WINN.g * Math.max(g, 0.8), WINN.b * Math.max(bb, 0.6)) : WDK, on); }
+      WIN.setColorAt(k, _w);
+    }
+    WIN.instanceColor.needsUpdate = true;
+  }
+  let tod = null, skyH = -99, envH = -99, sunT = null, night = 0, dayOn = true, winN = -1;
   function applyDay(h) {
     let i = 0; while (i < DAY.length - 2 && DAY[i + 1][0] <= h) i++;
     const a = DAY[i], b = DAY[i + 1], t0 = Math.min(1, Math.max(0, (h - a[0]) / (b[0] - a[0]))), t = t0 * t0 * (3 - 2 * t0), Lt = LIGHT[sty];
@@ -433,7 +444,7 @@ export function init(A) {
     }
     if (hdist(h, envH) > 1.5) { envH = h; const o = sun.userData.off; mkEnv(DK.top, DK.hor, SUNE.copy(DK.sc).multiplyScalar(dayOn ? 6 : 2), o); }
     METAL.envMapIntensity = 1.2 * (1 - 0.55 * night);
-    winM.color.copy(WHITE3).lerp(WINN, night); lampM.color.copy(lampB).multiplyScalar(1 + 0.9 * night); poolM.opacity = 0.42 * Math.max(0, night - 0.15) / 0.85;
+    winPaint(false); lampM.color.copy(lampB).multiplyScalar(1 + 0.9 * night); poolM.opacity = 0.42 * Math.max(0, night - 0.15) / 0.85;
     farM.color.set(Lt.farc).lerp(NIGHTF, night * 0.8);
     cloudM.color.copy(WHITE3).lerp(DK.hor, 0.35).multiplyScalar(1 - 0.72 * night); cloudM.opacity = 0.92 - 0.4 * night;
     const so = Math.max(night, sty === 'jazz' ? 0.5 * w : 0); STARS.visible = so > 0.04; STARS.material.opacity = Math.min(1, so); STARS.material.transparent = true;
@@ -451,7 +462,7 @@ export function init(A) {
       for (let y = 3.9, fl = 0; y + 1.5 < h - 0.4; y += 2.3, fl++) for (let c = -1; c <= 1; c++) {
         const wx = x + c * 1.35, wc = S.win[Math.floor(hsh(i * 7 + fl * 3 + c + 0.2) * S.win.length)];
         put(FRAME, nf++, wx, y + 0.72, -6.19, 0.98, 1.56, 0.08, neon ? '#0c0820' : '#f1e8d6');
-        put(WIN, nw++, wx, y + 0.72, -6.14, 0.82, 1.36, 1, wc);
+        put(WIN, nw++, wx, y + 0.72, -6.14, 0.82, 1.36, 1, wc); WINB[nw * 3 - 3] = _c.r; WINB[nw * 3 - 2] = _c.g; WINB[nw * 3 - 1] = _c.b; WTH[nw - 1] = hsh(i * 13 + fl * 5 + c * 7 + 0.37);
         if (!neon && hsh(i * 11 + fl + c * 3) > 0.72) put(FRAME, nf++, wx, y + 0.02, -6.02, 0.95, 0.14, 0.34, '#6b4a2e');
       }
       put(DOOR, nd++, x - 1.3, 0.16, -6.17, 0.95, 2.1, 0.08, neon ? '#120c26' : '#4a3222');
@@ -471,7 +482,7 @@ export function init(A) {
         q.sk.set(A.SKIN[Math.floor(hsh(pj + 0.8) * A.SKIN.length)]); q.ha.set(HAIRC[Math.floor(hsh(pj + 0.57) * HAIRC.length)]); q.ca.set(CAPC[Math.floor(hsh(pj + 0.63) * CAPC.length)]);
       }
     }
-    BLD.count = nb; CORN.count = nc; FRAME.count = nf; WIN.count = nw; DOOR.count = nd; AWN.count = NB; SIGN.count = NB; POST.count = np; LAMP.count = nl; LPOOL.count = nl; FLAG.count = nfl; FAR.count = nfar;
+    BLD.count = nb; CORN.count = nc; FRAME.count = nf; WIN.count = nw; DOOR.count = nd; AWN.count = NB; SIGN.count = NB; POST.count = np; LAMP.count = nl; LPOOL.count = nl; if (tod !== null) winPaint(true); FLAG.count = nfl; FAR.count = nfar;
     LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = NC; ARMC.count = HANDC.count = NC * 2; XF.count = nxf; CF.count = ncf;
     for (const m of [BLD, CORN, FRAME, WIN, DOOR, AWN, SIGN, POST, LAMP, FLAG, FAR, LEGS, TORSOC, ARMC, HANDC, HEADC, HAIRS, HAIRL, CAP, XF, HF, CF]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     aSign.needsUpdate = true;

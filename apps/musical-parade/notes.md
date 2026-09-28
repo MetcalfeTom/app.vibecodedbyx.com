@@ -26,6 +26,7 @@ Build a marching band one player at a time; each instrument adds its part to an 
 - v1.8 (2026-09-28): angienimo: "make the characters look like realistic 3d humans" / "including the crowd" / "not toys". Marchers rebuilt with human proportions: lathe torso with shoulders, jointed arms with cuffs, lathe thighs and shins with knees and real shoes, hands with thumbs, faces (eyes, brows, lips) and natural hair under re-fitted hats; synthwave players got pompadours and mullets so their faces show behind the visors. The sidewalk crowd became full-bodied people (kids, caps, long hair, clapping, waving, hand flags). Zoom with the mouse wheel or a pinch. Probe: zoom=<f>&yaw=<dx>.
 
 - v1.9 (2026-09-28): THE MOVING SUN. In 3D the day passes while the band marches: morning light, golden hour on the shop fronts, twilight, then night with a moon, stars, lit windows and pools of lamplight on the pavement; the clock button skips ahead three hours. Synthwave stays a night band. Probe: hour=<h>.
+- v1.9.1: at dusk the windows go dark with the sky, then switch on one by one (every lit-type window, ~45 % of the dark ones; per-window threshold WTH, base colours WINB, repainted in winPaint when night moves 0.008 and after every setWorld).
 
 ## issues
 - The clock falls back to performance.now() until the AudioContext is running ('p' mode), then re-anchors to the audio clock ('a' mode).
