@@ -368,6 +368,107 @@ export function init(A) {
   const cloudM = new THREE.MeshBasicMaterial({ fog: false, transparent: true, opacity: 0.92 }), CLOUD = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), cloudM, 24); CLOUD.frustumCulled = false; scene.add(CLOUD);
   const starG = new THREE.BufferGeometry(), sp = new Float32Array(600); for (let i = 0; i < 200; i++) { sp[i * 3] = (hsh(i) - 0.5) * 400; sp[i * 3 + 1] = 14 + hsh(i + 0.5) * 70; sp[i * 3 + 2] = -110 - hsh(i + 0.7) * 20; }
   starG.setAttribute('position', new THREE.BufferAttribute(sp, 3)); const STARS = new THREE.Points(starG, new THREE.PointsMaterial({ color: '#fff4e0', size: 1.4, sizeAttenuation: false, fog: false })); scene.add(STARS);
+  // fireworks: a night show over the rooftops. A shell goes up on a beat and bursts two beats later, on the beat;
+  // particles live in world coordinates (x + scroll) so the band marches past them. One Points draw call + a flash light.
+  const FWN = 2400, fwP = new Float32Array(FWN * 3), fwV = new Float32Array(FWN * 3), fwC = new Float32Array(FWN * 3), fwK = new Float32Array(FWN * 3), fwL = new Float32Array(FWN), fwL0 = new Float32Array(FWN), fwT = new Uint8Array(FWN);
+  const fwG = new THREE.BufferGeometry(), fwPA = new THREE.BufferAttribute(fwP, 3).setUsage(THREE.DynamicDrawUsage), fwCA = new THREE.BufferAttribute(fwC, 3).setUsage(THREE.DynamicDrawUsage);
+  fwG.setAttribute('position', fwPA); fwG.setAttribute('color', fwCA); fwG.setDrawRange(0, 0);
+  const fwDot = ctex(32, 32, (g, w) => { const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.22, 'rgba(255,255,255,.9)'); gr.addColorStop(0.5, 'rgba(255,255,255,.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, w); });
+  const FW = new THREE.Points(fwG, new THREE.PointsMaterial({ size: 1.6, map: fwDot, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  FW.frustumCulled = false; FW.renderOrder = 2; FW.visible = false; scene.add(FW);
+  const fwHemi = new THREE.HemisphereLight('#000000', '#000000', 0); scene.add(fwHemi);
+  const fwPal = a => a.map(q => q.map(c => new THREE.Color(c)));
+  const FWPC = fwPal([['#ff4a3d', '#ffd84a'], ['#44b8ff', '#ffffff'], ['#5cff86', '#fff07a'], ['#ff6ad8', '#9a7bff'], ['#ffb347', '#ff5a1f'], ['#ffffff', '#a8ecff']]);
+  const FWNC = fwPal([['#ff2fd6', '#27f3ff'], ['#27f3ff', '#b84dff'], ['#ffb3f0', '#ff2fd6'], ['#b84dff', '#ffffff']]);
+  const FWGOLD = new THREE.Color('#ffc45a'), FWH1 = new THREE.Color('#ff4f8b'), FWH2 = new THREE.Color('#ffc9dc'), FWEMB = new THREE.Color('#ffb070');
+  const FWDRAG = [3.2, 1.55, 2.3, 1.55, 1.7], FWGRAV = [1.2, 2.4, 3.4, 2.4, 1.6];   // per type: 0 ember, 1 spark, 2 willow, 3 glitter, 4 heart
+  const SHELLS = []; let fwOn = false, fwB0 = 0, fwLast = -1, fwCam = 0, fwFlash = 0, fwI = 0, fwHi = 0, fwAlive = 0, fwAx = 0, fwAz = 0, fwPx = 1, fwPz = 0, fwSp = 14, curYa = 0, curBeat = 0, fwU = 0, fwShows = 0, fwYo = 0;
+  function fwSpark(x, y, z, vx, vy, vz, col, life, type) {
+    const i = fwI, k = i * 3; fwI = (fwI + 1) % FWN;
+    fwP[k] = x; fwP[k + 1] = y; fwP[k + 2] = z; fwV[k] = vx; fwV[k + 1] = vy; fwV[k + 2] = vz;
+    fwK[k] = col.r; fwK[k + 1] = col.g; fwK[k + 2] = col.b; fwL[i] = fwL0[i] = life; fwT[i] = type; if (i >= fwHi) fwHi = i + 1;
+  }
+  function fwLaunch(sx, kind, big) {
+    const P = S.neon ? FWNC : FWPC, pal = P[Math.floor(Math.random() * P.length)];
+    const x = fwAx + fwPx * sx * fwSp + (Math.random() - 0.5) * 2.5 + fwU, z = fwAz + fwPz * sx * fwSp + (Math.random() - 0.5) * 4;
+    SHELLS.push({ x, z, y: 8, y0: 8, y1: 17.5 + fwYo + Math.random() * 4 + (big ? 2 : 0) - (kind === 4 ? 2 : 0), t: 0, d: Math.max(0.45, 120 / (st.bpm || 100)), kind, pal, big });
+    if (A.sfx) A.sfx(big ? 'whistle' : 'launch', 1);
+  }
+  function fwBurst(s) {
+    const kind = s.kind, big = s.big, n = kind === 2 ? (big ? 130 : 95) : kind === 4 || kind === 1 ? 110 : big ? 210 : 150, sp = (big ? 18 : 14.5) * (kind === 2 ? 1.2 : 1) * (0.9 + Math.random() * 0.2);
+    const c1 = kind === 2 ? FWGOLD : kind === 4 ? FWH1 : s.pal[0], c2 = kind === 4 ? FWH2 : s.pal[1], tA = Math.random() * PI, tB = 0.35 + Math.random() * 0.8;
+    for (let i = 0; i < n; i++) {
+      let dx, dy, dz, v = sp;
+      if (kind === 1) {        // ring, tilted
+        const a = i / n * 2 * PI, cx = Math.cos(a), cy = Math.sin(a), y1 = cy * Math.cos(tB), z1 = cy * Math.sin(tB);
+        dx = cx * Math.cos(tA) - z1 * Math.sin(tA); dz = cx * Math.sin(tA) + z1 * Math.cos(tA); dy = y1;
+      } else if (kind === 4) { // heart, facing the street
+        const a = i / n * 2 * PI, hx = 16 * Math.pow(Math.sin(a), 3) / 17, hy = (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) / 17;
+        dx = fwPx * hx; dz = fwPz * hx; dy = hy + 0.15; v = sp * 0.95;
+      } else {                 // peony / willow / glitter: a sphere
+        const u1 = Math.random() * 2 - 1, a = Math.random() * 2 * PI, r = Math.sqrt(1 - u1 * u1); dx = r * Math.cos(a); dy = u1; dz = r * Math.sin(a); v = sp * (0.82 + Math.random() * 0.18);
+      }
+      const col = kind === 2 ? c1 : kind === 4 ? (i % 4 ? c1 : c2) : i % 3 === 0 ? c2 : c1, life = kind === 2 ? 2.6 + Math.random() * 0.8 : 1.5 + Math.random() * 0.7;
+      fwSpark(s.x, s.y, s.z, dx * v, dy * v, dz * v, col, life, kind === 0 ? 1 : kind);
+    }
+    fwFlash = Math.min(2.2, fwFlash + (big ? 1.5 : 1)); fwHemi.color.copy(c1);
+    if (A.sfx) A.sfx(kind === 3 || kind === 2 ? 'crackle' : 'boom', big ? 1.4 : 1);
+  }
+  // the show: 8 bars, from a slow opening to a finale
+  function fwScript(b) {
+    if (b < 8) { if (!(b & 1)) fwLaunch([0, -0.6, 0.6, 0][b >> 1], [0, 1, 0, 3][b >> 1], false); }
+    else if (b < 16) fwLaunch(b & 1 ? 0.7 : -0.7, [0, 1, 0, 3][b & 3], false);
+    else if (b < 24) { if (!(b & 1)) { fwLaunch(-0.5, b & 2 ? 1 : 0, false); fwLaunch(0.5, b & 2 ? 0 : 3, false); if (b === 22) fwLaunch(0, 2, true); } }
+    else if (b < 28) { if (b === 24 || b === 26) fwLaunch(0, 4, b === 24); else fwLaunch(b & 1 ? 0.75 : -0.75, 0, false); }
+    else if (b < 31) { fwLaunch(-0.8, 3, false); fwLaunch(0, b & 1 ? 1 : 0, true); fwLaunch(0.8, 3, false); }
+    else if (b === 31) { fwLaunch(0, 2, true); fwLaunch(-0.6, 2, true); fwLaunch(0.6, 2, true); fwLaunch(-0.3, 3, false); fwLaunch(0.3, 3, false); }
+  }
+  function fwReady() { return fwOn ? 2 : st.playing && (S.neon || night > 0.5) ? 1 : 0; }
+  function fireworks() {
+    if (fwReady() !== 1) return false;
+    fwOn = true; fwShows++; fwB0 = Math.ceil(curBeat); fwLast = -1; fwYo = (cam.aspect < 1 ? 3 : 4) + (S.neon ? 4.5 : 0);
+    const dx = -Math.sin(curYa), dz = -Math.cos(curYa);   // straight ahead of the camera, over the rooftops
+    fwAx = camX - 0.2 + dx * 26; fwAz = -0.2 + dz * 26; fwPx = -dz; fwPz = dx; fwSp = 17 * Math.min(1, 0.15 + cam.aspect * 0.85);
+    return true;
+  }
+  // tests: fast-forward the show (headless renders a frame a second)
+  function fwSim(sec) { for (let i = 0, n = Math.round(sec * 30); i < n; i++) fwStep(1 / 30, curBeat + (st.bpm || 100) / 1800, fwU); camX = null; return fwAlive; }
+  function fwStop() { fwOn = false; SHELLS.length = 0; fwL.fill(0); fwC.fill(0); fwHi = fwAlive = 0; fwFlash = 0; fwHemi.intensity = 0; FW.visible = false; }
+  function fwStep(dt, beat, u) {
+    curBeat = beat; fwU = u;
+    if (fwOn) {
+      if (!st.playing) fwOn = false;
+      else {
+        let b = Math.floor(beat) - fwB0; if (b < fwLast - 2) { fwB0 = Math.floor(beat) - fwLast - 1; b = fwLast + 1; }
+        if (b - fwLast > 4) fwLast = b - 1;
+        while (fwLast < b) { fwLast++; if (fwLast >= 0 && fwLast < 32) fwScript(fwLast); }
+        if (b >= 36) fwOn = false;
+      }
+    }
+    fwCam += ((fwOn ? 1 : 0) - fwCam) * Math.min(1, dt * 1.3);
+    for (let i = SHELLS.length - 1; i >= 0; i--) {
+      const s = SHELLS[i]; s.t += dt; const f = Math.min(1, s.t / s.d); s.y = s.y0 + (s.y1 - s.y0) * (1 - (1 - f) * (1 - f));
+      fwSpark(s.x + (Math.random() - 0.5) * 0.12, s.y, s.z, (Math.random() - 0.5) * 0.4, -0.6, (Math.random() - 0.5) * 0.4, FWEMB, 0.4 + Math.random() * 0.2, 0);
+      if (f >= 1) { fwBurst(s); SHELLS.splice(i, 1); }
+    }
+    fwAlive = 0;
+    if (fwHi) {
+      for (let i = 0; i < fwHi; i++) {
+        if (fwL[i] <= 0) continue;
+        const k = i * 3, t = fwT[i]; fwL[i] -= dt;
+        if (fwL[i] <= 0) { fwC[k] = fwC[k + 1] = fwC[k + 2] = 0; continue; }
+        const dr = Math.exp(-dt * FWDRAG[t]); fwV[k] *= dr; fwV[k + 1] = fwV[k + 1] * dr - FWGRAV[t] * dt; fwV[k + 2] *= dr;
+        fwP[k] += fwV[k] * dt; fwP[k + 1] += fwV[k + 1] * dt; fwP[k + 2] += fwV[k + 2] * dt;
+        const lf = fwL[i] / fwL0[i]; let a = t === 2 ? lf : lf * lf * (t === 0 ? 0.7 : 1.35);
+        if (t === 3 && lf < 0.65) a *= Math.random() < 0.45 ? 2.2 : 0.08;
+        fwC[k] = fwK[k] * a; fwC[k + 1] = fwK[k + 1] * a; fwC[k + 2] = fwK[k + 2] * a; fwAlive++;
+      }
+      if (!fwAlive && !SHELLS.length) fwHi = 0;
+      fwPA.needsUpdate = fwCA.needsUpdate = true; fwG.setDrawRange(0, fwHi);
+    }
+    FW.visible = fwHi > 0; FW.position.x = -u;
+    fwFlash *= Math.exp(-dt * 4.5); fwHemi.intensity = fwFlash < 0.01 ? 0 : fwFlash * (S.neon ? 0.9 : 1.2);
+  }
   // solo spotlight
   const spotM = new THREE.MeshBasicMaterial({ color: '#fff3c8', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 1.25, 7, 28, 1, true), spotM); cone.position.y = 3.5;
@@ -378,6 +479,7 @@ export function init(A) {
   const pm = new THREE.PMREMGenerator(R);
   function applyStyle() {
     sty = st.style; S = A.STY[sty]; const Lt = LIGHT[sty], neon = !!S.neon;
+    fwStop();
     if (scene.background && scene.background !== dayT) scene.background.dispose(); scene.background = neon ? skyTex(S) : dayT;
     tod = neon ? null : HOME[sty]; skyH = envH = -99; poolM.opacity = 0; winM.color.set('#ffffff'); METAL.envMapIntensity = 1.2;
     scene.fog = new THREE.Fog(C(S.sky[1]), Lt.fog[0], Lt.fog[1]);
@@ -655,10 +757,12 @@ export function init(A) {
     hemi.intensity = hemi.userData.i * (1 - 0.45 * sa); sun.intensity = sun.userData.i * (1 - 0.55 * sa);
     // camera: fit the band, 3/4 view from the near sidewalk
     if (mn > mx) { mn = mx = X(LEADER); }
-    const y0 = cam.aspect < 1 ? 0.82 : 0.42, cx = (mn + mx) / 2, hw = ((mx - mn) / 2 + 1.5) * Math.cos(y0) + 1.2 * Math.sin(y0), vf = cam.fov * PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * cam.aspect);
-    const want = Math.min(30, Math.max(cam.aspect < 1 ? 7.2 : 6, hw / Math.tan(hf / 2) * 0.98)) * zoom;
+    const PH = cam.aspect < 1, FOV0 = PH ? 46 : 36, fc = fwCam * fwCam * (3 - 2 * fwCam);   // fc: the camera tilts up to the sky for fireworks
+    const y0 = cam.aspect < 1 ? 0.82 : 0.42, cx = (mn + mx) / 2, hw = ((mx - mn) / 2 + 1.5) * Math.cos(y0) + 1.2 * Math.sin(y0), vf = FOV0 * PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * cam.aspect);
+    const want = Math.min(30, Math.max(cam.aspect < 1 ? 7.2 : 6, hw / Math.tan(hf / 2) * 0.98)) * zoom * (1 + (PH ? 0.15 : 1) * fc);
     const k = camX === null ? 1 : Math.min(1, dt * 2); camX += (cx - camX) * k; camD += (want - camD) * k;
-    const ya = y0 + yaw, pa = 0.2 + pitch, tx = camX - 0.2, ty = 1.15 + Math.max(0, 1 - zoom) * 0.5, tz = -0.2;
+    const ya = y0 + yaw, pa = 0.2 + pitch - (PH ? 0.3 : 0.4) * fc, tx = camX - 0.2, ty = 1.15 + Math.max(0, 1 - zoom) * 0.5 + (PH ? 3.2 : 4.5) * fc, tz = -0.2; curYa = ya;
+    const fv = FOV0 + (PH ? 8 : 20) * fc; if (Math.abs(cam.fov - fv) > 0.01) { cam.fov = fv; cam.updateProjectionMatrix(); }
     cam.position.set(tx + Math.sin(ya) * Math.cos(pa) * camD, ty + Math.sin(pa) * camD, tz + Math.cos(ya) * Math.cos(pa) * camD); cam.lookAt(tx, ty, tz);
     const so = sun.userData.off; sun.position.set(tx + so[0], so[1], tz + so[2]); sun.target.position.set(tx, 0, tz);
     const sp2 = tod !== null ? sun.userData.disc : LIGHT[sty].sunPos; sunD.position.set(tx + sp2[0], sp2[1], sp2[2]); sunD.scale.setScalar(S.neon ? 44 : dayOn || tod === null ? 34 : 13); sunD.lookAt(cam.position);
@@ -666,6 +770,7 @@ export function init(A) {
     let ci = 0; for (let c = 0; c < 6; c++) { const cxw = ((c * 37 - u * 0.25 + now * 0.3) % 220 + 220) % 220 - 110 + tx, cyw = 26 + (c % 3) * 5, czw = -95; for (let pff = 0; pff < 4; pff++) { _o.position.set(cxw + pff * 3.2 - 5, cyw + (pff & 1) * 1.4, czw); _o.rotation.set(0, 0, 0); _o.scale.set(3.2 + (pff & 1), 1.8 + (pff & 1) * 0.6, 1.5); _o.updateMatrix(); CLOUD.setMatrixAt(ci++, _o.matrix); } }
     CLOUD.count = ci; CLOUD.instanceMatrix.needsUpdate = true;
     STARS.position.x = tx;
+    fwStep(dt, p / 4, u);
     R.render(scene, cam);
   }
 
@@ -692,6 +797,6 @@ export function init(A) {
   function skip(dh) { return tod === null ? null : setHour(tod + dh); }
   function zoomBy(f) { const z = Math.max(0.28, Math.min(1.6, zoom * f)); if (Math.abs(z - zoom) < 1e-4) return false; zoom = z; return true; }
   function show(on) { canvas.hidden = !on; if (on) resize(); }
-  function stats() { return { calls: R.info.render.calls, tris: R.info.render.triangles, lowQ, fol: nFol }; }
-  return { render, resize, pick, proj, show, stats, orbit, screen, zoomBy, hour, setHour, skip };
+  function stats() { return { calls: R.info.render.calls, tris: R.info.render.triangles, lowQ, fol: nFol, fw: fwAlive, fwOn, fwCam: +fwCam.toFixed(2), fwShows, fwLast, night: +night.toFixed(2) }; }
+  return { render, resize, pick, proj, show, stats, orbit, screen, zoomBy, hour, setHour, skip, fireworks, fwReady, fwSim };
 }
