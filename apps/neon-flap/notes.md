@@ -5,6 +5,7 @@
 - Fonts: Monoton (logo, stage banners, SPLAT) + Orbitron (numbers, UI).
 
 ## log
+- 2026-09-28: **Tally marks** (voice idea): every laser death (turret or tower, not in the demo) adds to `neonFlap.zaps`; every turret cap shows that many scratched tally marks (groups of five, right of the dome then left, max 10).
 - 2026-09-28: **First lasers at 10** (varj1: "the lasers should start at 10"): the first pipe spawned at score ≥ 9 always carries a turret (`turSeen`), then 15 % of pipes (24 % from 20) until the full laser stage at 27 (38 %). Stage table, swan unlock and laser mode unchanged. **Autopilot daydream**: in the demo the pilot's imagined futures are drawn ahead of the bird (faint cyan dotted = lives, red dashed ending in × = crash, the chosen plan bright cyan), recorded every 5th rollout step only while `demo`.
 - 2026-09-28: **Autopilot demo** (varj1: "add an autopilot to neon flap for demo purposes", "play the game as a regular player", "not crashing", "always swan"). After 7 s idle on the title (or the 🤖 WATCH THE AUTOPILOT button) a demo run starts with the swan: silent, no life/flap counting, no best/unlocks/board post, "🤖 AUTOPILOT · tap to take over" tag; any tap/key starts a real run with your own bird, a crash or hiding the tab returns to the title. Pilot (`apThink`, runs every 3rd step when `ap`): habit = flap when below gap centre + 28 + offset; for 7 offsets it rolls the habit and the opposite first action 150 steps (1.25 s) ahead with exact pipe physics (mode 1 sine, mode 2/3 bounce), turret aim→lock→fire, boss laser + drops, feathers as a bonus; keeps a full-survival plan closest to the centre. Probe: autoA 0→30 in 30 s, autoL 27→boss→48 in 4 of 5 runs (one unexplained crash at 42 on a mode-3 pipe), autoB clears the tower. `__nf.ap` turns it on in a normal run.
 - 2026-09-28: **THE WATER TOWER boss** at 40 (once per run): pipes stop, the tower rises on stilts with neon wings and eyes, tracks you for ~15.5 s: laser (aim .7 s → lock .38 s → fire, same crosshair pivot as turrets) and volleys of three ballistic water drips aimed around you, faster after 8 s. Survive → it sinks in puffs, SURVIVED THE TOWER +5, pipes resume. SFX horn + drip. Probe modes BossE/BossL/BossD/BossW (autopilot flies them).
@@ -37,7 +38,7 @@
 - (done) laser turrets
 - (done) LASER MODE toggle
 - (done) DARE pop bonus
-- kill tally marks on turrets that got you (voice idea)
+- (done) kill tally marks on turrets
 - autopilot: find the rare mode-3 crash (probe ring buffer in autoL records y/vy/gy/turret/apBest)
 - (done) secret swan
 - (done) WRONG WAY mirror flip
