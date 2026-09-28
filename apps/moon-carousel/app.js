@@ -21,7 +21,7 @@ var PLACES=[
   ['quito','Quito, on the equator',-0.18,-78.467,'America/Guayaquil'],['tromso','Tromsø, Arctic Norway',69.649,18.956,'Europe/Oslo'],
   ['svalbard','Longyearbyen, Svalbard',78.223,15.647,'Arctic/Longyearbyen'],['mcmurdo','McMurdo Station, Antarctica',-77.846,166.676,'Antarctica/McMurdo'],
   ['ushuaia','Ushuaia, Tierra del Fuego',-54.801,-68.303,'America/Argentina/Ushuaia'],['maunakea','Mauna Kea summit',19.821,-155.468,'Pacific/Honolulu'],
-  ['atacama','Atacama Desert',-23.029,-67.755,'America/Santiago']]]];
+  ['atacama','Atacama Desert',-23.029,-67.755,'America/Santiago'],['luxor','Luxor, Egypt',25.687,32.639,'Africa/Cairo']]]];
 var BYID={};PLACES.forEach(function(g){g[1].forEach(function(p){BYID[p[0]]={id:p[0],name:p[1],lat:p[2],lon:p[3],tz:p[4]};});});
 var UNITS={m:60000,h:3600000,d:86400000,w:604800000},UNIT_KEY={60000:'m',3600000:'h',86400000:'d',604800000:'w'};
 var BROWSER_TZ='UTC';try{BROWSER_TZ=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';}catch(e){}
@@ -229,11 +229,76 @@ function shadowOf(r){if(r.shadow!==undefined)return r.shadow;var z=shadowSize(r)
     for(i=-3;i<=3;i++)for(j=-3;j<=3;j++){dx=i/3.2;dy=j/3.2;if(dx*dx+dy*dy>1)continue;eclRGB(out,Math.sqrt((dx-out.x)*(dx-out.x)+(dy-out.y)*(dy-out.y)),c);sum+=.3*c[0]+.59*c[1]+.11*c[2];n++;}
     out.dim=sum/n;}
   r.shadow=out;return out;}
-function eclText(r){var E=shadowOf(r);if(!E)return '';
+function eclText(r,lat){var E=shadowOf(r),S;
+  if(!E){S=lat==null?null:sunCover(r,lat);if(!S||!S.ob||r.sunAlt<-.8)return '';
+    if(S.kind==='total')return 'A <b>total eclipse of the Sun</b>: the Moon hides all of it and the corona shines out. The one moment it’s safe to look without eclipse glasses';
+    if(S.kind==='annular')return 'An <b>annular eclipse</b>: a ring of Sun round the Moon, '+Math.round(S.ob*100)+'% covered. Eclipse glasses on';
+    return 'The Moon covers <b>'+Math.max(1,Math.round(S.ob*100))+'%</b> of the Sun. Eclipse glasses on';}
   if(E.mag>=1)return 'A <b>total eclipse</b>: the whole Moon is inside Earth’s shadow, lit only by the red light of every sunrise and sunset on Earth';
   if(E.mag>0)return 'A <b>partial eclipse</b>: '+Math.round(E.mag*100)+'% of the Moon’s width is in Earth’s dark shadow';
   return 'A <b>penumbral eclipse</b>: Earth’s faint outer shadow greys the '+(E.pmag>=1?'whole Moon':'edge nearest it');}
 
+/* ---------- eclipses of the Sun: the Moon seen from your own spot on Earth (Meeus ch. 40 parallax) ---------- */
+function sunCover(r,lat){if(r.elong>5&&r.elong<355)return null;if(r.sc&&r.sc.lat===lat)return r.sc;
+  var sp=6378.14/r.moon.dist,u=Math.atan(.99664719*Math.tan(lat*D2R)),rs=.99664719*Math.sin(u),rc=Math.cos(u),
+    a=r.moon.ra*D2R,d=r.moon.dec*D2R,H=r.H*D2R,
+    da=Math.atan2(-rc*sp*Math.sin(H),Math.cos(d)-rc*sp*Math.cos(H)),
+    d2=Math.atan2((Math.sin(d)-rs*sp)*Math.cos(da),Math.cos(d)-rc*sp*Math.cos(H)),a2=a+da,H2=H-da,la=lat*D2R,
+    alt=Math.asin(Math.sin(la)*Math.sin(d2)+Math.cos(la)*Math.cos(d2)*Math.cos(H2))/D2R,
+    az=((Math.atan2(Math.sin(H2),Math.cos(H2)*Math.sin(la)-Math.tan(d2)*Math.cos(la))/D2R+180)%360+360)%360,
+    sep=sepDeg(a2/D2R,d2/D2R,r.sun.ra,r.sun.dec),au=r.sun.dist/149597870.7,Rs=.26656/au,
+    Rm=r.size/2*(1+sp*Math.sin(Math.max(0,alt)*D2R)),   /* the Moon looks a touch bigger overhead: it's an Earth radius closer */
+    ex=((r.sunAz-az+540)%360-180)*Math.cos(alt*D2R),ey=r.sunAlt-alt,n=Math.sqrt(ex*ex+ey*ey)||1,
+    o={lat:lat,d:sep,rs:Rs,rm:Rm,ux:ex/n,uy:ey/n,mag:(Rs+Rm-sep)/(2*Rs),ob:0,kind:''};
+  if(sep<Rs+Rm){o.ob=sep<=Rm-Rs?1:sep<=Rs-Rm?Rm*Rm/(Rs*Rs):lens(Rs,Rm,sep)/(Math.PI*Rs*Rs);o.kind=sep<=Rm-Rs?'total':sep<=Rs-Rm?'annular':'partial';}
+  return (r.sc=o);}
+function lens(a,b,d){var x=(d*d+a*a-b*b)/(2*d),y=(d*d+b*b-a*a)/(2*d);
+  return a*a*Math.acos(clamp(x/a,-1,1))-x*Math.sqrt(Math.max(0,a*a-x*x))+b*b*Math.acos(clamp(y/b,-1,1))-y*Math.sqrt(Math.max(0,b*b-y*y));}
+/* the next eclipses of the Sun seen from a place, one lunation per step so a slow phone never freezes:
+   new Moons near a node, then the closest approach as seen from there */
+function solarJob(from,lat,lon,n,years){return {t:from-2*864e5,from:from,end:from+years*365.25*864e5,out:[],n:n,lat:lat,lon:lon,done:false};}
+function solarStep(j){var t=j.t,k,e,G=(Math.sqrt(5)-1)/2,a,b,c,dd,lat=j.lat,lon=j.lon;
+  function at(x){return Astro.at(x,lat,lon);}
+  function sepAt(x){var s=sunCover(at(x),lat);return s?s.d:9;}
+  e=Astro.at(t,0,0).elong;t+=((360-e)%360)/12.19*864e5;
+  for(k=0;k<4;k++){e=Astro.at(t,0,0).elong;t-=((e+540)%360-180)/12.19*864e5;}
+  if(Math.abs(Astro.at(t,0,0).moon.lat)<1.6){a=t-5*36e5;b=t+5*36e5;for(k=0;k<30;k++){c=b-G*(b-a);dd=a+G*(b-a);if(sepAt(c)<sepAt(dd))b=dd;else a=c;}
+    var tm=(a+b)/2,s=sunCover(at(tm),lat);
+    if(s&&s.d<s.rs+s.rm){var v=Math.max(1e-4,Math.sqrt(Math.max(0,Math.pow(sepAt(tm+6e5),2)-s.d*s.d))*6),   /* degrees an hour, the Moon across the Sun */
+        h1=Math.sqrt(Math.max(0,Math.pow(s.rs+s.rm,2)-s.d*s.d))/v*36e5,
+        h2=s.kind==='total'?Math.sqrt(Math.max(0,Math.pow(s.rm-s.rs,2)-s.d*s.d))/v*36e5:s.kind==='annular'?Math.sqrt(Math.max(0,Math.pow(s.rs-s.rm,2)-s.d*s.d))/v*36e5:0,
+        vis=[tm-h1*.9,tm-h1*.45,tm,tm+h1*.45,tm+h1*.9].map(function(x){return at(x).sunAlt>-.8;}),nv=vis.filter(Boolean).length;
+      if(nv&&tm+h1>j.from)j.out.push({t:tm,sun:1,kind:s.kind,mag:s.mag,ob:s.ob,h1:h1,h2:h2,seen:vis[2]&&nv===5?'up here':'up for part',lat:lat,lon:lon});}}
+  j.t=t+20*864e5;if(j.out.length>=j.n||j.t>=j.end)j.done=true;}
+/* the Sun at the Moon's scale, the Moon in front, and at totality the corona */
+function drawSunEclipse(g,x,y,R,r,S){var k=R/(r.size/2),Rs=S.rs*k,Rm=S.rm*k,sx=x+S.ux*S.d*k,sy=y-S.uy*S.d*k,L=1-S.ob,i,a,w,l,seed=Math.floor(r.jd/7)*9301+49297;
+  function rnd(){seed=(seed*9301+49297)%233280;return seed/233280;}
+  g.save();
+  if(S.kind==='total'||S.ob>.985&&S.rm>S.rs){var cA=S.kind==='total'?1:.35;g.globalCompositeOperation='lighter';
+    var cg=g.createRadialGradient(x,y,Rm*.96,x,y,Rm*3.4);cg.addColorStop(0,'rgba(236,240,255,'+.9*cA+')');cg.addColorStop(.12,'rgba(222,230,252,'+.42*cA+')');cg.addColorStop(.4,'rgba(205,215,245,'+.12*cA+')');cg.addColorStop(1,'rgba(200,210,240,0)');
+    g.fillStyle=cg;g.beginPath();g.arc(x,y,Rm*3.4,0,7);g.fill();
+    var eqA=rnd()*Math.PI,blur='filter' in g;   /* soft streamers that crowd round the Sun's equator */
+    if(blur)g.filter='blur('+Math.max(1,Rm*.035).toFixed(1)+'px)';
+    for(i=0;i<40;i++){a=rnd()<.6?eqA+(rnd()<.5?0:Math.PI)+(rnd()-.5)*1.2:rnd()*6.283;w=.07+rnd()*.24;l=Rm*(1.3+rnd()*(rnd()<.3?3:1.2));
+      var sg=g.createRadialGradient(x,y,Rm,x,y,l);sg.addColorStop(0,'rgba(240,244,255,'+(.1+rnd()*.14)*cA+')');sg.addColorStop(1,'rgba(230,236,255,0)');g.fillStyle=sg;
+      g.beginPath();g.moveTo(x+Math.cos(a-w)*Rm*.98,y+Math.sin(a-w)*Rm*.98);g.quadraticCurveTo(x+Math.cos(a)*l*.55,y+Math.sin(a)*l*.55,x+Math.cos(a)*l,y+Math.sin(a)*l);
+      g.quadraticCurveTo(x+Math.cos(a)*l*.55,y+Math.sin(a)*l*.55,x+Math.cos(a+w)*Rm*.98,y+Math.sin(a+w)*Rm*.98);g.closePath();g.fill();}
+    if(blur)g.filter='none';g.globalCompositeOperation='source-over';
+    if(S.kind==='total'){g.fillStyle='rgba(255,84,118,.9)';for(i=0;i<4;i++){a=rnd()*6.283;var pr=Rm*(.014+rnd()*.022);   /* prominences, little pink flames at the rim */
+        g.beginPath();g.ellipse(x+Math.cos(a)*Rm*1.005,y+Math.sin(a)*Rm*1.005,pr*1.5,pr,a+Math.PI/2,0,7);g.fill();}}}
+  if(S.kind!=='total'){var ga=.6*Math.pow(L,.55),gg=g.createRadialGradient(sx,sy,Rs*.9,sx,sy,Rs*4.6);gg.addColorStop(0,'rgba(255,248,226,'+ga+')');gg.addColorStop(1,'rgba(255,240,210,0)');
+    g.fillStyle=gg;g.beginPath();g.arc(sx,sy,Rs*4.6,0,7);g.fill();   /* the glare first: off the Sun the Moon is lost in it */
+    var sg2=g.createRadialGradient(sx,sy,0,sx,sy,Rs);sg2.addColorStop(0,'#fffef8');sg2.addColorStop(.72,'#fff3d8');sg2.addColorStop(1,'#ffcf88');
+    g.fillStyle=sg2;g.beginPath();g.arc(sx,sy,Rs,0,7);g.fill();}
+  if(S.kind==='annular'){g.globalCompositeOperation='lighter';var rg=g.createRadialGradient(x,y,Rm*.98,x,y,Rs*1.9);   /* the ring of fire */
+    rg.addColorStop(0,'rgba(255,215,140,.55)');rg.addColorStop(.25,'rgba(255,200,120,.2)');rg.addColorStop(1,'rgba(255,190,110,0)');g.fillStyle=rg;g.beginPath();g.arc(x,y,Rs*1.9,0,7);g.fill();g.globalCompositeOperation='source-over';}
+  /* the Moon is dark only against the Sun (and the corona); off the Sun it's lost in the sky */
+  g.save();g.beginPath();if(S.kind==='total'||S.ob>.985)g.arc(x,y,Rm,0,7);else g.arc(sx,sy,Rs+.5,0,7);g.clip();g.fillStyle='#07080c';g.beginPath();g.arc(x,y,Rm,0,7);g.fill();g.restore();
+  if(S.kind!=='total'){
+    if(S.ob>.985&&S.rm>S.rs){var bx=sx+S.ux*Rs,by=sy-S.uy*Rs,bg=g.createRadialGradient(bx,by,0,bx,by,Rs*.8);   /* the diamond ring */
+      bg.addColorStop(0,'rgba(255,255,255,1)');bg.addColorStop(.15,'rgba(255,252,240,.8)');bg.addColorStop(1,'rgba(255,245,225,0)');g.fillStyle=bg;g.beginPath();g.arc(bx,by,Rs*.8,0,7);g.fill();
+      g.strokeStyle='rgba(255,255,250,.6)';g.lineWidth=Math.max(1,Rs*.018);for(i=0;i<4;i++){a=i*Math.PI/4+.3;l=Rs*(i%2?.4:.85);g.beginPath();g.moveTo(bx-Math.cos(a)*l,by-Math.sin(a)*l);g.lineTo(bx+Math.cos(a)*l,by+Math.sin(a)*l);g.stroke();}}}
+  g.restore();}
 var moonBuf=document.createElement('canvas'),RELIEF=3;
 function drawMoon(ctx,cx,cy,R,r,o){
   if(!TEX&&!texBusy)TEX=makeTex();
@@ -302,40 +367,44 @@ function compass(az){return ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW'
 function wrap180(x){return ((x%360)+540)%360-180;}
 
 function drawScene(ctx,W,H,f,place,o){
-  o=o||{};var r=f.r,dimE=shadowOf(r)?shadowOf(r).dim:1,face=place.lat>=0?180:0,hy=H*.76,sk=skyAt(r.sunAlt),dark=smooth(-4,-14,r.sunAlt),sc=sceneFor(place),i;
+  o=o||{};var r=f.r,S=r.sunAlt>-.8?sunCover(r,place.lat):null,tt=S&&S.kind==='total'?1:0,dimO=S&&S.ob&&!tt?.62*Math.pow(smooth(.75,1,S.ob),1.6):0,sa=r.sunAlt>-9?r.sunAlt+(-9-r.sunAlt)*tt:r.sunAlt,
+    dimE=shadowOf(r)?shadowOf(r).dim:1,face=place.lat>=0?180:0,hy=H*.76,sk=skyAt(sa),dark=smooth(-4,-14,sa),sc=sceneFor(place),i;
   var gr=ctx.createLinearGradient(0,0,0,hy);gr.addColorStop(0,sk[0]);gr.addColorStop(1,sk[1]);ctx.fillStyle=gr;ctx.fillRect(0,0,W,hy+2);
+  if(dimO){ctx.fillStyle='rgba(8,16,38,'+dimO.toFixed(3)+')';ctx.fillRect(0,0,W,hy+2);}   /* the daylight thins as the Sun is covered */
   var ax=function(az){return W/2+wrap180(az-face)/180*W/2;};
   /* stars, washed out by twilight and by a bright Moon */
   if(dark>0){var sa=dark*(1-.45*r.k*dimE*(r.alt>0?1:0));ctx.fillStyle='#fff';
     sc.stars.forEach(function(s){ctx.globalAlpha=sa*(.25+.75*s[3]);var sz=Math.max(.6,W/900)*(s[2]>.85?1.7:1);ctx.fillRect(s[0]*W,s[1]*hy,sz,sz);});ctx.globalAlpha=1;}
   /* glow on the horizon where the Sun is */
-  if(r.sunAlt>-14&&r.sunAlt<12){var sx=ax(r.sunAz),gl=smooth(-14,-2,r.sunAlt)*(1-smooth(4,12,r.sunAlt));
+  if(tt>=1){var tg=ctx.createLinearGradient(0,hy-H*.17,0,hy);tg.addColorStop(0,'rgba(255,150,80,0)');tg.addColorStop(1,'rgba(255,165,95,.45)');ctx.fillStyle=tg;ctx.fillRect(0,hy-H*.17,W,H*.17+2);}   /* sunset all round the horizon */
+  if(r.sunAlt>-14&&r.sunAlt<12){var sx=ax(r.sunAz),gl=smooth(-14,-2,r.sunAlt)*(1-smooth(4,12,r.sunAlt))*(1-tt);
     [sx,sx-W,sx+W].forEach(function(x){var rg=ctx.createRadialGradient(x,hy,0,x,hy,W*.45);rg.addColorStop(0,'rgba(255,170,90,'+.55*gl+')');rg.addColorStop(1,'rgba(255,140,80,0)');ctx.fillStyle=rg;ctx.fillRect(0,0,W,hy+2);});}
   var R=H*.15*(r.size/.5181),top=R+H*.05,h=r.alt+r.size/2+.5667,mx=ax(r.az),my,up=h>=0;
   if(up){my=h<5?hy+R-2*R*(h/5):(hy-R)-(Math.min(h,90)-5)/85*Math.max(0,hy-R-top);}
   if(o.detail)moonHit=up?[mx,my,R,W]:[Math.max(R*.42+4,Math.min(W-R*.42-4,mx)),hy+H*.125,R*.42,W];
   /* the Sun, when it's up */
-  var sh=r.sunAlt+.8333,sunx=ax(r.sunAz),sR=H*.032;
-  if(sh>0){var sy=sh<3?hy+sR-2*sR*(sh/3):(hy-sR)-(Math.min(sh,90)-3)/87*(hy-sR-sR*2);
+  var sh=r.sunAlt+.8333,sunx=ax(r.sunAz),sR=H*.032,big=S&&up&&S.d<S.rs+S.rm+.35;
+  if(sh>0&&!big){var sy=sh<3?hy+sR-2*sR*(sh/3):(hy-sR)-(Math.min(sh,90)-3)/87*(hy-sR-sR*2);
     [sunx,sunx-W,sunx+W].forEach(function(x){var rg=ctx.createRadialGradient(x,sy,0,x,sy,sR*5);rg.addColorStop(0,'rgba(255,250,230,.95)');rg.addColorStop(.2,'rgba(255,240,200,.6)');rg.addColorStop(1,'rgba(255,230,180,0)');
       ctx.fillStyle=rg;ctx.beginPath();ctx.arc(x,sy,sR*5,0,7);ctx.fill();ctx.fillStyle='#fffdf2';ctx.beginPath();ctx.arc(x,sy,sR,0,7);ctx.fill();});}
   /* the Moon: halo, then the disc */
-  var dayWash=1-smooth(-6,6,r.sunAlt)*.35,gain=dayWash;
-  if(up){[mx,mx-W,mx+W].forEach(function(x){if(x<-R*2||x>W+R*2)return;
+  var dayWash=1-smooth(-6,6,sa)*.35,gain=dayWash;
+  if(big)[mx,mx-W,mx+W].forEach(function(x){if(x>-R*6&&x<W+R*6)drawSunEclipse(ctx,x,my,R,r,S);});
+  else if(up){[mx,mx-W,mx+W].forEach(function(x){if(x<-R*2||x>W+R*2)return;
       var hg=ctx.createRadialGradient(x,my,R*.9,x,my,R*3.2);hg.addColorStop(0,'rgba(200,215,240,'+(.22*r.k*dark*dimE+.02)+')');hg.addColorStop(1,'rgba(200,215,240,0)');
       /* the glow goes round the disc, not over it, so the bright highlands don't burn out to flat white */
       ctx.save();ctx.beginPath();ctx.rect(x-R*3.2,my-R*3.2,R*6.4,R*6.4);ctx.arc(x,my,R*.985,0,7);ctx.clip('evenodd');
       ctx.fillStyle=hg;ctx.fillRect(x-R*3.2,my-R*3.2,R*6.4,R*6.4);ctx.restore();
       drawMoon(ctx,x,my,R,r,{gain:gain,earth:.11*dark,tint:lowTint(r.alt)});});}
   /* the ground */
-  var ground=mix('#07080c','#1a2233',smooth(-10,10,r.sunAlt)*.9);ctx.fillStyle=ground;ctx.beginPath();ctx.moveTo(0,H);
+  var ground=mix('#07080c','#1a2233',smooth(-10,10,sa)*.9);ctx.fillStyle=ground;ctx.beginPath();ctx.moveTo(0,H);
   sc.hills.forEach(function(v,k){ctx.lineTo(k/64*W,hy-v*H*.5);});ctx.lineTo(W,H);ctx.closePath();ctx.fill();
   ctx.fillRect(0,hy,W,H-hy);
   var dx=sc.dome*W,dyb=hy-(sc.hills[Math.round(sc.dome*64)]*H*.5)+1,dw=H*.05;
   ctx.beginPath();ctx.arc(dx,dyb-dw*.9,dw,Math.PI,0);ctx.rect(dx-dw,dyb-dw*.9,dw*2,dw*.95);ctx.fill();
   sc.trees.forEach(function(t,k){var tx=t*W,ty=hy-(sc.hills[Math.round(t*64)]*H*.5)+2,th=H*(.05+k*.012);
     ctx.beginPath();ctx.moveTo(tx,ty-th);ctx.lineTo(tx+th*.32,ty);ctx.lineTo(tx-th*.32,ty);ctx.closePath();ctx.fill();});
-  if(dark<.5&&r.sunAlt>-8){ctx.fillStyle='rgba(255,236,190,'+(.5-dark)*.6+')';ctx.fillRect(dx+dw*.25,dyb-dw*1.25,dw*.18,dw*.28);}
+  if(dark<.5&&sa>-8){ctx.fillStyle='rgba(255,236,190,'+(.5-dark)*.6+')';ctx.fillRect(dx+dw*.25,dyb-dw*1.25,dw*.18,dw*.28);}
   /* compass along the horizon */
   var fs=Math.max(9,Math.round(H*.032));ctx.font='500 '+fs+'px "IBM Plex Mono",monospace';ctx.textAlign='center';ctx.textBaseline='top';
   COMPASS.forEach(function(n,k){var x=ax(k*45);if(x<fs||x>W-fs)return;ctx.fillStyle='rgba(230,225,210,'+(n.length===1?.55:.28)+')';
@@ -398,7 +467,9 @@ function drawTable(g,S,f,place,tz){
   function ball(x,y,R,dark,light){g.fillStyle=dark;g.beginPath();g.arc(x,y,R,0,7);g.fill();g.fillStyle=light;g.beginPath();g.arc(x,y,R,Math.PI/2,Math.PI*1.5);g.fill();
     var sh=g.createRadialGradient(x-R*.4,y-R*.4,R*.1,x,y,R);sh.addColorStop(0,'rgba(255,255,255,.25)');sh.addColorStop(1,'rgba(0,0,0,.25)');g.fillStyle=sh;g.beginPath();g.arc(x,y,R,0,7);g.fill();}
   ball(ex,ey,Re,'#10233f','#3f8fd6');
-  var mx=ex+Math.cos(mAng*D2R)*Ro,my=ey-Math.sin(mAng*D2R)*Ro;
+  var mx=ex+Math.cos(mAng*D2R)*Ro,my=ey-Math.sin(mAng*D2R)*Ro,Sc=!E&&r.sunAlt>-.8?sunCover(r,place.lat):null;
+  if(Sc&&Sc.ob){var px=ex+Math.cos(mAng*D2R)*Re,py=ey-Math.sin(mAng*D2R)*Re,nx=-Math.sin(mAng*D2R)*Rm,ny=-Math.cos(mAng*D2R)*Rm;   /* the Moon's shadow falling on you */
+    g.fillStyle='rgba(4,8,6,.55)';g.beginPath();g.moveTo(mx+nx,my+ny);g.lineTo(px,py);g.lineTo(mx-nx,my-ny);g.closePath();g.fill();}
   if(up){g.strokeStyle='rgba(255,212,138,.7)';g.lineWidth=1.5;g.beginPath();g.moveTo(ex+Math.cos(obs*D2R)*Re,ey-Math.sin(obs*D2R)*Re);g.lineTo(mx,my);g.stroke();}
   ball(mx,my,Rm,'#2a2c33',!E?'#e9e6dc':E.mag>=1?'#a34a2e':E.mag>0?'#c08a70':'#cbc4b6');
   /* you, standing on Earth */
@@ -538,7 +609,7 @@ function render(){
     slide2.setAttribute('aria-label',Astro.phaseName(r2.elong)+', '+(up2?'up in the '+compass(r2.az):'below the horizon')+', '+label(f2,z2,true)+' in '+q.name);}
   $('caption').innerHTML='<h3 class="phase">'+Astro.phaseName(r.elong)+'<small>'+dt(p,true,true)+', '+tm(p)+' · '+esc(st.place.name)+'</small></h3>'+
     '<dt>Lit</dt><dd><b>'+(r.k*100).toFixed(r.k>.995||r.k<.005?1:0)+'%</b> · '+r.age.toFixed(1)+' days since new'+(r.k>.03&&r.k<.97?' · lit side toward '+clock(r)+' o\u2019clock':'')+'</dd>'+
-    (eclText(r)?'<dt>Eclipse</dt><dd>'+eclText(r)+'</dd>':'')+
+    (eclText(r,st.place.lat)?'<dt>Eclipse</dt><dd>'+eclText(r,st.place.lat)+'</dd>':'')+
     '<dt>Sky</dt><dd>'+describeSky(r)+'</dd>'+also+
     '<dt>Rise · set</dt><dd>'+rs+'</dd>'+
     '<dt>Sun</dt><dd>'+sunText(r.sunAlt)+'</dd>'+
@@ -697,7 +768,12 @@ function wireCu(){
     if(e.shiftKey&&document.activeElement===a){z.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===z){a.focus();e.preventDefault();}});}
 
 /* ---------- the eclipse finder: walk the full Moons, close in on the moment the Moon passes nearest the shadow's middle ---------- */
-var eclList=null,eclPick='',eclBusy=0;
+var eclList=null,eclPick='',eclBusy=0,solJobs={};
+function solarFor(p){var key=p.lat.toFixed(2)+','+p.lon.toFixed(2),j=solJobs[key];
+  if(!j){j=solJobs[key]=solarJob(Date.now(),p.lat,p.lon,6,25);
+    setTimeout(function run(){var t0=performance.now();try{while(!j.done&&performance.now()-t0<25)solarStep(j);}catch(e){j.done=true;}if(j.done)fillEcl();else setTimeout(run,0);},450);}
+  return j;}
+function durTxt(ms){var s=Math.round(ms/1e3);return s<90?s+' seconds':Math.floor(s/60)+' min '+pad(s%60)+' s';}
 function findEclipses(from,n){var out=[],t=from-2*864e5,k,e,a,b,c,d,tm,z,s1,v,mag,pmag,G=(Math.sqrt(5)-1)/2,guard=0;
   function sep(x){return shadowSize(Astro.at(x,0,0)).s;}
   while(out.length<n&&guard++<90){e=Astro.at(t,0,0).elong;t+=(((180-e)+360)%360)/12.19*864e5;
@@ -716,15 +792,24 @@ function eclSeen(e,p){var a=[e.t-e.hU,e.t,e.t+e.hU].map(function(t){return Astro
   return n===3?'up here':n?'up for part':'not up here';}
 function fillEcl(){var sel=$('ecl');if(!sel||!st.place)return;
   if(!eclList){if(!eclBusy){eclBusy=1;setTimeout(function(){try{eclList=findEclipses(Date.now(),8);}catch(e){eclList=[];}fillEcl();},300);}return;}
-  var h='<option value="">Jump to an eclipse of the Moon…</option>';
-  [['up here','Up here the whole time'],['up for part','Up here for part of it'],['not up here','Below the horizon here']].forEach(function(g){var o='';
-    eclList.forEach(function(e,i){if(eclSeen(e,st.place)===g[0])o+='<option value="'+i+'">'+dt(parts(st.place.tz,e.t),true,false)+' · '+e.kind+'</option>';});
-    if(o)h+='<optgroup label="'+g[1]+'">'+o+'</optgroup>';});
-  if(!eclList.length)h='<option value="">No eclipses found</option>';
+  var h='<option value="">Jump to an eclipse…</option>',sj=solarFor(st.place),tz=st.place.tz;
+  function moonGroup(g){var o='';eclList.forEach(function(e,i){if(eclSeen(e,st.place)===g[0])o+='<option value="m'+i+'">'+dt(parts(tz,e.t),true,false)+' · '+e.kind+'</option>';});
+    if(o)h+='<optgroup label="'+g[1]+'">'+o+'</optgroup>';}
+  moonGroup(['up here','The Moon · up here the whole time']);
+  if(!sj.done)h+='<optgroup label="The Sun · seen from here"><option value="" disabled>looking…</option></optgroup>';
+  else if(sj.out.length){h+='<optgroup label="The Sun · seen from here">';sj.out.forEach(function(e,i){h+='<option value="s'+i+'">'+dt(parts(tz,e.t),true,false)+' · '+(e.kind==='partial'?Math.max(1,Math.round(e.ob*100))+'% covered':e.kind)+'</option>';});h+='</optgroup>';}
+  moonGroup(['up for part','The Moon · up for part of it']);moonGroup(['not up here','The Moon · below the horizon here']);
   sel.innerHTML=h;sel.value=eclPick;if(eclPick==='')$('eclH').textContent='';}
+function loadEcl(v){if(v.charAt(0)==='m')loadEclipse(+v.slice(1));else if(v.charAt(0)==='s')loadSolar(+v.slice(1));}
+function loadSolar(i){var e=solarFor(st.place).out[i];if(!e)return;
+  var step=clamp(Math.ceil((2*e.h1+20*6e4)/39/6e4),3,15)*6e4,mid=Math.ceil((e.h1+10*6e4)/step),start=Math.round((e.t-mid*step)/6e4)*6e4,p=parts(st.place.tz,start),q=parts(st.place.tz,e.t);
+  $('d0').value=p.y+'-'+pad(p.mo)+'-'+pad(p.d);$('t0').value=pad(p.h)+':'+pad(p.mi);setMode('every');$('n').value=step/6e4;$('unit').value=60000;$('frames').value=Math.min(100,2*mid+1);
+  clearTimeout(tmr);st.slide=mid;eclPick='s'+i;build();eclPick='';centerThumb(true);
+  $('eclH').textContent=(e.kind==='total'?'Totality lasts '+durTxt(2*e.h2)+' here, at ':e.kind==='annular'?'The ring of fire lasts '+durTxt(2*e.h2)+' here, at ':'The Moon covers '+Math.round(e.ob*100)+'% of the Sun at ')+
+    tm(q)+' '+st.place.name+' time'+(e.seen==='up here'?'. ':', with the Sun low: part of it happens below the horizon. ')+'Only ever look through eclipse glasses'+(e.kind==='total'?', except during totality':'')+'. Times are good to about a minute.';}
 function loadEclipse(i){var e=eclList&&eclList[i];if(!e)return;var pl=eclPlan(e),p=parts(st.place.tz,pl.start),q=parts(st.place.tz,e.t),seen=eclSeen(e,st.place);
   $('d0').value=p.y+'-'+pad(p.mo)+'-'+pad(p.d);$('t0').value=pad(p.h)+':'+pad(p.mi);setMode('every');$('n').value=pl.step/6e4;$('unit').value=60000;$('frames').value=pl.f;
-  clearTimeout(tmr);st.slide=pl.mid;eclPick=String(i);build();eclPick='';centerThumb(true);
+  clearTimeout(tmr);st.slide=pl.mid;eclPick='m'+i;build();eclPick='';centerThumb(true);
   $('eclH').textContent=(e.kind==='total'?'Totality lasts '+Math.round(2*e.hT/6e4)+' minutes, deepest at ':e.kind==='partial'?Math.round(e.mag*100)+'% of the Moon goes into the dark shadow, deepest at ':'Only the faint outer shadow, deepest at ')+
     tm(q)+' '+st.place.name+' time. '+(seen==='up here'?'The Moon is up the whole time here.':seen==='up for part'?'The Moon is only up for part of it here.':'The Moon is below the horizon here; try another place.');}
 
@@ -761,7 +846,7 @@ function init(){
   $('sound').onclick=function(){soundOn=!soundOn;this.setAttribute('aria-pressed',soundOn);this.textContent=soundOn?'🔊':'🔈';};
   tableOn=window.matchMedia?!window.matchMedia('(max-width:640px)').matches:true;$('tbl').setAttribute('aria-pressed',tableOn);
   function flipTable(){tableOn=!tableOn;$('tbl').setAttribute('aria-pressed',tableOn);renderTable();if(tableOn&&window.innerWidth<=640)$('tableBox').scrollIntoView({block:'nearest',behavior:'smooth'});}
-  $('tbl').onclick=flipTable;slide.onclick=function(e){if(overMoon(e))openCu(slide);else flipTable();};slide.onmousemove=function(e){slide.style.cursor=overMoon(e)?'zoom-in':'';};wireCu();$('ecl').onchange=function(){if(this.value!=='')loadEclipse(+this.value);};slide2.onclick=flipTable;
+  $('tbl').onclick=flipTable;slide.onclick=function(e){if(overMoon(e))openCu(slide);else flipTable();};slide.onmousemove=function(e){slide.style.cursor=overMoon(e)?'zoom-in':'';};wireCu();$('ecl').onchange=function(){if(this.value!=='')loadEcl(this.value);};slide2.onclick=flipTable;
   $('clock').value=FMT.clock;$('datef').value=FMT.date;
   $('clock').onchange=$('datef').onchange=function(){FMT.clock=$('clock').value;FMT.date=$('datef').value;try{localStorage.setItem('moonCarousel.fmt',JSON.stringify(FMT));}catch(e){}build();};
   $('save').onclick=saveSlide;$('share').onclick=share;$('vid').onclick=saveVideo;$('sheet').onclick=saveSheet;
@@ -866,7 +951,7 @@ function saveSheet(){if(!TEX)TEX=makeTex();if(!frames.length)return;vnote('Makin
     g.textAlign='right';g.fillStyle='#8a826c';g.font='500 12px "IBM Plex Mono",monospace';g.fillText(String(i+1),x+cardW-6,y+11);});
   cv.toBlob(function(b){if(!b){vnote('Couldn\u2019t make the picture in this browser, sorry. Save slide still works one at a time.',true);$('sheet').hidden=true;return;}
     download(b,'moon-carousel-'+slug(P)+(two?'-vs-'+slug(Q):'')+'-'+ymd(p0)+'-slides.png');vnote('Saved all '+n+' slides as one picture.',false);},'image/png');},30);}
-window.__moon={shadowOf:shadowOf,shadowSize:shadowSize,hit:function(){return moonHit;},openCu:openCu,closeCu:closeCu,cu:cu,names:NAMES,onDisc:onDisc,moonAxes:moonAxes,stampOf:stampOf,drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},texBusy:function(){return texBusy;},build:function(){build();},frames:function(){return frames;},frames2:function(){return frames2;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC,
+window.__moon={sunCover:sunCover,solarFor:solarFor,shadowOf:shadowOf,shadowSize:shadowSize,hit:function(){return moonHit;},openCu:openCu,closeCu:closeCu,cu:cu,names:NAMES,onDisc:onDisc,moonAxes:moonAxes,stampOf:stampOf,drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},texBusy:function(){return texBusy;},build:function(){build();},frames:function(){return frames;},frames2:function(){return frames2;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC,
   rec:function(){return rec;},lastDl:function(){return lastDl;},webmType:webmType};
 init();
 })();
