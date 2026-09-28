@@ -10,6 +10,7 @@ Slides of the real Moon for any place and time: phase, tilt as seen from that sp
 - v1.2.1: Pause button had lamp-orange text on the lamp-orange button (the generic aria-pressed rule won); now dark text on amber (Tatum's report).
 - v1.3: table view blank for Tatum. Scripts now load with ?v=1.3 (a cached old astro.js lacked Hs/H); drawTable falls back to hourAngle() from az/alt/dec; try/catch shows the error in the caption; canvas height set in px (no aspect-ratio needed); NodeList.forEach replaced by each(); schedule buttons use label.on instead of :has().
 - v1.3.1: the Sun's glow on the table spilled over the left rail (Tatum). Glow is clipped to the inner frame and the rails are drawn last.
+- v1.3.2: Vancouver, Edmonton and Toronto presets (fannar22 is in Edmonton).
 
 ## issues
 - Bump the ?v= on both script tags every release, or browsers mix a new app.js with an old astro.js.
