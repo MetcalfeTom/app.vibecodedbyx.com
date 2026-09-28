@@ -5,6 +5,7 @@
 - Fonts: Monoton (logo, stage banners, SPLAT) + Orbitron (numbers, UI).
 
 ## log
+- 2026-09-28: The demo idle timer resets on any touch, key, wheel or scroll anywhere on the page (bird picker, laser toggle included), so the autopilot only takes over a title screen nobody is using.
 - 2026-09-28: **One run is one night**: `night` eases 0→1 between scores 8 and 35 (a dark vertical gradient over the photo, lighter over the city band so its lights stay, stars up to 2.8× brighter); after the tower `bossDone` it eases back to 0 while `dawn` (cool top, warm peach horizon) rises. Both reset in start(), title = dusk. Probe modes nightA/nightB/nightC.
 - 2026-09-28: **Tally marks** (voice idea): every laser death (turret or tower, not in the demo) adds to `neonFlap.zaps`; every turret cap shows that many scratched tally marks (groups of five, right of the dome then left, max 10).
 - 2026-09-28: **First lasers at 10** (varj1: "the lasers should start at 10"): the first pipe spawned at score ≥ 9 always carries a turret (`turSeen`), then 15 % of pipes (24 % from 20) until the full laser stage at 27 (38 %). Stage table, swan unlock and laser mode unchanged. **Autopilot daydream**: in the demo the pilot's imagined futures are drawn ahead of the bird (faint cyan dotted = lives, red dashed ending in × = crash, the chosen plan bright cyan), recorded every 5th rollout step only while `demo`.
