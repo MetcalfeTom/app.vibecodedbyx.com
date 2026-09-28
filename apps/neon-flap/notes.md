@@ -22,5 +22,5 @@
 
 ## todos
 - (done) crown: when you are today's #1 your pigeon wears a crooked gold crown
-- moon that flaps at stage 35 (joke idea from stream)
+- (done) a moon in the sky; at 35 (EVERYTHING FLAPS) it grows wings, gets eyes and bobs
 - bird skins (crow, seagull)
