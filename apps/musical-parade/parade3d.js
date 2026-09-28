@@ -305,7 +305,7 @@ export function init(A) {
     k.put(new THREE.SphereGeometry(0.06, 14, 8), '#1a1a1a', 0.055, -0.43, 0, 0, 0, 0, 2.2, 0.75, 0.9);
     k.box('#141414', -0.04, -0.465, 0, 0.1, 0.02, 0.1); });
   const handG = (() => { const k = new Kit(); k.put(new THREE.SphereGeometry(0.037, 12, 8), '#fff', 0, 0, 0, 0, 0, 0, 1.15, 0.95, 0.8); k.put(new THREE.SphereGeometry(0.015, 8, 6), '#fff', 0.02, 0.026, 0, 0, 0, 0, 1.6, 1, 1); return k.build().b; })();
-  const MAXM = 24;
+  const MAXM = 32;
   function inst(g, m, n) { const x = new THREE.InstancedMesh(g, m, n); x.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); x.castShadow = true; x.frustumCulled = false; x.count = 0; scene.add(x); return x; }
   const HEADS = inst(headG, SKIN, MAXM), HANDS = inst(handG, SKIN, MAXM * 2), THIGH = inst(thighG, LEGM, MAXM * 2), SHIN = inst(shinG, LEGM, MAXM * 2);
 
@@ -489,7 +489,9 @@ export function init(A) {
   }
   const Lt = () => LIGHT[sty];
 
-  function crowd(p, now, exc) {
+  // second line: followers who step off the sidewalk and dance along behind a big band
+  const NFOL = 9, FJ = new Float32Array(NFOL), FPM = Array.from({ length: NFOL }, () => new THREE.Matrix4()), FPH = new Float32Array(NFOL), FCL = new Array(NFOL); let nFol = 0;
+  function crowd(p, now, exc, dt) {
     const beat = p / 4; let j = 0;
     PV.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); frus.setFromProjectionMatrix(PV);
     for (let s = 0; s < NB; s++) {
@@ -522,6 +524,33 @@ export function init(A) {
         }
         j++;
       }
+    }
+    let rx = 1e9; for (const m of A.alive()) rx = Math.min(rx, X(m)); if (rx > 1e8) rx = X(LEADER);
+    const want = st.playing ? Math.round(Math.max(0, Math.min(1, (exc - 0.45) / 0.5)) * (sty === 'jazz' ? 9 : 6)) : 0;
+    nFol = 0;
+    for (let f = 0; f < NFOL; f++) {
+      FJ[f] = f < want ? Math.min(1, FJ[f] + dt / 2.4) : Math.max(0, FJ[f] - dt / 1.6);
+      if (FJ[f] <= 0 || j >= NC) continue;
+      const e0 = FJ[f], e = e0 * e0 * (3 - 2 * e0), q = CCOL[(f * 17 + 5) % NC], pj = 900 + f * 7.3;
+      const xt = rx - 1.35 - Math.floor(f / 3) * 0.95 - (f % 2) * 0.25, zt = ((f % 3) - 1) * 1.15 + (hsh(pj) - 0.5) * 0.3;
+      const ph = beat * PI + f * 0.7, bob = Math.abs(Math.sin(ph)) * 0.06 * e, hf = 0.92 + hsh(pj + 0.5) * 0.14;
+      _o.position.set(xt + (1 - e) * 0.8, (e < 0.3 ? 0.16 : 0) + bob, lerp(-4.2, zt, e)); _o.rotation.set(0, (1 - e) * -PI / 2 + Math.sin(ph * 0.5) * 0.25 * e, Math.sin(ph) * 0.05 * e); _o.scale.setScalar(hf); _o.updateMatrix();
+      FPM[nFol].copy(_o.matrix); FPH[nFol] = ph; FCL[nFol] = q.pa; nFol++;
+      T1.makeTranslation(-world.position.x, 0, 0); PM.multiplyMatrices(T1, _o.matrix);   // the crowd meshes live in the scrolling world group
+      TORSOC.setColorAt(j, q.sh); ARMC.setColorAt(j * 2, q.sh); ARMC.setColorAt(j * 2 + 1, q.sh); LEGS.setColorAt(j, q.pa); HF.setColorAt(j, WHITE3);
+      HEADC.setColorAt(j, q.sk); HANDC.setColorAt(j * 2, q.sk); HANDC.setColorAt(j * 2 + 1, q.sk); HAIRS.setColorAt(j, q.ha); HAIRL.setColorAt(j, q.ha); CAP.setColorAt(j, q.ca);
+      LEGS.setMatrixAt(j, ZERO); TORSOC.setMatrixAt(j, PM); HEADC.setMatrixAt(j, PM);
+      const capOn = hsh(pj + 0.61) < 0.2, lng = !capOn && hsh(pj + 0.71) < 0.45;
+      HAIRS.setMatrixAt(j, lng ? ZERO : PM); HAIRL.setMatrixAt(j, lng ? PM : ZERO); CAP.setMatrixAt(j, capOn ? PM : ZERO);
+      const hk = sty === 'jazz' && f % 2 === 0;
+      for (let a = 0; a < 2; a++) {
+        const sd = a ? 1 : -1, fa = a && hk, up = a || f % 3 !== 1 ? 2.3 : 0.5;
+        T1.makeTranslation(0, 1.4, sd * 0.2); AM.multiplyMatrices(PM, T1);
+        T1.makeRotationX(-sd * (0.08 + (up + Math.sin(now * 5 + pj + a * 1.3) * 0.3) * e)); AM.multiply(T1); ARMC.setMatrixAt(j * 2 + a, AM);
+        T1.makeTranslation(0, -0.575, 0); AM.multiply(T1); HANDC.setMatrixAt(j * 2 + a, AM);
+        if (a) { if (fa) { T1.makeRotationX(PI + Math.sin(now * 5 + pj) * 0.4); AM.multiply(T1); T1.makeRotationY(PI / 2); AM.multiply(T1); HF.setMatrixAt(j, AM); } else HF.setMatrixAt(j, ZERO); }
+      }
+      j++;
     }
     LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = j; ARMC.count = HANDC.count = j * 2;
     for (const M of [LEGS, TORSOC, ARMC, HANDC, HEADC, HAIRS, HAIRL, CAP, HF]) { M.instanceMatrix.needsUpdate = true; M.instanceColor.needsUpdate = true; }
@@ -564,7 +593,7 @@ export function init(A) {
     world.position.x = -(u - b * BW);
     // ground scroll
     roadM.map.offset.x = (u / 3) % 1; paveM.map.offset.x = (u / 1.5) % 1; pave2M.map.offset.x = (u / 1.5) % 1;
-    crowd(p, now, exc);
+    crowd(p, now, exc, dt);
     // marchers
     const list = A.band().slice(); list.push(LEADER);
     const seen = new Set(), g = GAIT[sty] || GAIT.march;
@@ -607,6 +636,17 @@ export function init(A) {
       }
     }
     recs.forEach((r, m) => { if (!seen.has(m)) { scene.remove(r.g); recs.delete(m); } });
+    // followers' legs walk (they share the marchers' leg meshes)
+    for (let f = 0; f < nFol && nl < MAXM * 2 - 1; f++) {
+      const ph = FPH[f], cl = FCL[f];
+      for (let L = 0; L < 2; L++) {
+        const a = ph + L * PI, th = Math.sin(a) * 0.42, sh = -Math.max(0, Math.cos(a)) * 0.7;
+        off.makeTranslation(0, 0.94, L ? 0.085 : -0.085); rz.makeRotationZ(th); off.multiply(rz); _m.multiplyMatrices(FPM[f], off);
+        THIGH.setMatrixAt(nl, _m); _m2.makeTranslation(0, -0.47, 0); rz.makeRotationZ(sh); _m2.multiply(rz); _m.multiply(_m2); SHIN.setMatrixAt(nl, _m);
+        THIGH.setColorAt(nl, cl); SHIN.setColorAt(nl, cl); nl++;
+      }
+    }
+    if (nFol) mn = Math.min(mn, FPM[nFol - 1].elements[12] + 0.4);
     HEADS.count = nh; HANDS.count = nk; THIGH.count = SHIN.count = nl;
     for (const x of [HEADS, HANDS, THIGH, SHIN]) { x.instanceMatrix.needsUpdate = true; x.instanceColor.needsUpdate = true; }
     // spotlight + dimming
@@ -652,6 +692,6 @@ export function init(A) {
   function skip(dh) { return tod === null ? null : setHour(tod + dh); }
   function zoomBy(f) { const z = Math.max(0.28, Math.min(1.6, zoom * f)); if (Math.abs(z - zoom) < 1e-4) return false; zoom = z; return true; }
   function show(on) { canvas.hidden = !on; if (on) resize(); }
-  function stats() { return { calls: R.info.render.calls, tris: R.info.render.triangles, lowQ }; }
+  function stats() { return { calls: R.info.render.calls, tris: R.info.render.triangles, lowQ, fol: nFol }; }
   return { render, resize, pick, proj, show, stats, orbit, screen, zoomBy, hour, setHour, skip };
 }
