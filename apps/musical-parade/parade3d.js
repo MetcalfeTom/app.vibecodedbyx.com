@@ -392,7 +392,7 @@ export function init(A) {
     const P = S.neon ? FWNC : FWPC, pal = P[Math.floor(Math.random() * P.length)];
     const x = fwAx + fwPx * sx * fwSp + (Math.random() - 0.5) * 2.5 + fwU, z = fwAz + fwPz * sx * fwSp + (Math.random() - 0.5) * 4;
     SHELLS.push({ x, z, y: 8, y0: 8, y1: 17.5 + fwYo + Math.random() * 4 + (big ? 2 : 0) - (kind === 4 ? 2 : 0), t: 0, d: Math.max(0.45, 120 / (st.bpm || 100)), kind, pal, big });
-    if (A.sfx) A.sfx(big ? 'whistle' : 'launch', 1);
+    if (A.sfx) try { A.sfx(big ? 'whistle' : 'launch', 1); } catch (e) { A.sfx = null; }
   }
   function fwBurst(s) {
     const kind = s.kind, big = s.big, n = kind === 2 ? (big ? 130 : 95) : kind === 4 || kind === 1 ? 110 : big ? 210 : 150, sp = (big ? 18 : 14.5) * (kind === 2 ? 1.2 : 1) * (0.9 + Math.random() * 0.2);
@@ -412,7 +412,7 @@ export function init(A) {
       fwSpark(s.x, s.y, s.z, dx * v, dy * v, dz * v, col, life, kind === 0 ? 1 : kind);
     }
     fwFlash = Math.min(2.2, fwFlash + (big ? 1.5 : 1)); fwHemi.color.copy(c1);
-    if (A.sfx) A.sfx(kind === 3 || kind === 2 ? 'crackle' : 'boom', big ? 1.4 : 1);
+    if (A.sfx) try { A.sfx(kind === 3 || kind === 2 ? 'crackle' : 'boom', big ? 1.4 : 1); } catch (e) { A.sfx = null; }   // a sound hiccup must never take the 3D street down
   }
   // the show: 8 bars, from a slow opening to a finale
   function fwScript(b) {
