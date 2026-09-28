@@ -5,6 +5,7 @@
 - Fonts: Monoton (logo, stage banners, SPLAT) + Orbitron (numbers, UI).
 
 ## log
+- 2026-09-28: **DARE!** A turret that fired and missed (`tu.fired`) pops if the bird passes within 30 px across / 44 px up-down of its dome: sparks, smoke puffs, pop SFX, a small shake, DARE! text and +1 (counts as a gold-feather point). The dome stays scorched with a smoking wisp (`st:'dead'`). Rewards hugging the cap edge right after a shot. Probe mode dare (bot steers toward a spent turret).
 - 2026-09-28: **Falling scream** (varj1: "add scream sound when the bird crashes", "scream sound effect"): `scream(p0,vib)` two detuned saws through three bandpass formants (aah 900/1350/2700 sliding to 620/1000), pitch jumps to 1.12× then sinks to 0.42× over 1.25 s with a 5.5→8 Hz vibrato; starts 0.16 s after the bang + bird cry. Cut off by `screamStop(1)` when the bird hits the ground (not before 0.42 s in), with a thud. Pitch per bird: pigeon 560, crow 380, gull 820, gold 690 (wide operatic vibrato), swan 470.
 - 2026-09-28: **Laser mode** (varj1: "turrets from the first pipe"): a ⚡ LASER MODE toggle under the bird picker, shown once you've reached the lasers (same `neonFlap.swan` flag), saved as `neonFlap.lz`. On: turrets can spawn from the second pipe of the run. Runs still post to the daily board. Probe: tz_swan (button), lz_swan (turret lock at a low score).
 - 2026-09-28: **WRONG WAY** (varj1: "make the game randomly change direction"): from 12 on, after each passed pipe (once a 6-pipe cooldown runs out) a 22% chance of a siren + wobble + WRONG WAY! banner (1.1 s), then the whole world mirrors in a 0.45 s card flip (`mir` = cos, world drawn with scale(mir,1) around the centre over a dark fill). Mirrored for 4–6 pipes, then RIGHT WAY and flip back, 8-pipe cooldown. Visual only: controls and physics unchanged. In-world text (+1, shouts) is counter-mirrored to stay readable. State `fl` {st off/warn/flip/on}, reset in start(). Probe modes flipw / flipm / flip / flipback (`__nf.flipNow`).
@@ -32,7 +33,8 @@
 - (done) a moon in the sky; at 35 (EVERYTHING FLAPS) it grows wings, gets eyes and bobs
 - (done) laser turrets
 - (done) LASER MODE toggle
-- a turret you fly close past right after it fires overheats and pops (bonus)
+- (done) DARE pop bonus
+- kill tally marks on turrets that got you (voice idea)
 - (done) secret swan
 - (done) WRONG WAY mirror flip
 - a secret fifth bird (voice idea: top of the daily board three days running)
