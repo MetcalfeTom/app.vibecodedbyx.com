@@ -28,10 +28,12 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 
 - v1.3 (2026-09-27): speech and thought bubbles next to the sound burst (the voice's idea). A kind picker (`wkind`: burst / say / think) above the text box; words now carry `k`. Bubbles use Courier Prime, keep the case, up to 24 characters, wrap to 2 lines, and stay 1.2 s (bursts 0.5 s). `drawBubble`: 'say' is a rounded box with a tail toward the middle, 'think' a bumpy cloud (quadratic bumps) with two trailing dots. Chips show 💥/💬/💭. Cover wrap only when it makes the title 15% bigger and the block stays under 46% of the height (the 2-line landscape title crowded "flick me"). Probe modes bubble / bubsheet.
 
+- v1.4 (2026-09-28): zoom in on the subject. `#zoomAmt` slider (1–3×, step 0.25; NOT `#zoom`, that id is the sheet close-up dialog) under the trim, always shown. Frames are pulled already zoomed (grab() scales the grab canvas around `focus` before `src.drawAt`), so they stay sharp at Card size. A tap on the preview (moved < 6 px, < 500 ms) aims the zoom at that spot (`flickBox` = where drawFlick put the picture; new focus = old + (tap − 0.5)/zoom, clamped by `aim()` so the frame stays covered); Shift + arrows nudge it; drag still flicks. start() resets the focus to the middle. Probe modes zoom / zsheet.
+
 ## issues
 - Headless can't pick a real file; the `rec` probe records a canvas to webm instead. H.264 MP4 isn't testable in the headless shell.
 - iOS Safari sometimes draws a blank first frame from an unplayed video; `videoSource` does a muted play()/pause() after loading.
 
 ## todos
 - Real-device check of print scaling (some print dialogs default to "fit to page", the page says print at 100%).
-- Maybe: reverse order option (flick from the back), crop/zoom to the subject.
+- Maybe: reverse order option (flick from the back); low value, the numbered tabs already let you stack either way.
