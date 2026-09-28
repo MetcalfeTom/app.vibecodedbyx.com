@@ -28,6 +28,11 @@ Requested by angienimo: "a game where you bake cakes based on the customer's req
   - Stale arrival callbacks are guarded by G.tok.
   - The card section class is `.ups`. `.shop` is the scene container, so never reuse that name.
 
+- **v1.2 (2026-09-28)**: "make it a realistic cartoon" (angienimo). This is an art pass; the gameplay is unchanged.
+  - drawCake now shades everything with per-draw gradients (ids `ck<N>_…` from the GU counter, in a `<defs>` per SVG): cylinder light on the sponge sides, crumb dots, cream filling, a porcelain stand with a floor shadow, a rounded frosting skirt with a glossy dome and a pearl border, rounded glossy drips with beads, and shaded toppings (seeded strawberries, blueberries with crowns, gold stars, candles with stripes and a glow).
+  - soften(svg) runs after drawWho: every flat fill of at least 9 px becomes a radial gradient lit from the upper left, and the body gets a drop shadow. It skips INK, elements with an opacity attribute and elements with a class attribute.
+  - Scene: a warm window-light beam and a vignette (.scene::before/::after) and a shadow under the counter lip. The tray layer icons have cylinder gradients (ids `mi-<flavour>`).
+
 ## issues
 - Orders are capped at 185 chars by rejection sampling in `genOrder` (40 tries). New phrases that are much longer will be rejected silently and make orders repetitive, so keep new phrases short.
 - Every order must be unambiguous. Anything not mentioned is free choice. If you add a riddle, make sure it maps to exactly one pantry item.
