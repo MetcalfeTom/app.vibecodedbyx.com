@@ -42,6 +42,7 @@ class Kit {
     g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()));
     return this.put(g, c, a[0], a[1], a[2], 0, 0, 0, 1, 1, 1, L);
   }
+  lathe(c, pts, x, y, z, sx, sy, sz, seg, L) { const P = pts[0][1] > pts[pts.length - 1][1] ? pts.slice().reverse() : pts; return this.put(new THREE.LatheGeometry(P.map(p => new THREE.Vector2(p[0], p[1])), seg || 12), c, x, y, z, 0, 0, 0, sx, sy, sz, L); }
   frame(x, y, z, rx, ry, rz, fn) { const prev = this.X; _o.position.set(x, y, z); _o.rotation.set(rx, ry, rz); _o.scale.set(1, 1, 1); _o.updateMatrix(); this.X = _o.matrix.clone(); if (prev) this.X.premultiply(prev); fn(this); this.X = prev; return this; }
   build() { const o = {}; for (const k in this.L) o[k] = this.L[k].length ? merge(this.L[k]) : null; return o; }
 }
@@ -49,65 +50,87 @@ class Kit {
 /* ---------- marchers (face +X, feet at y=0, right hand side is +Z) ---------- */
 const BRASS = '#e7b545', BRASS2 = '#a8782a', SILVER = '#d9dee4', WHITE = '#f7f3ea', INK = '#1d2a44';
 const HAIR = ['#f5d36b', '#2b1a12', '#c4462f', '#efe6d6', '#6b3a1e', '#15121c', '#e07bd6', '#3de0ff'];
-const HEAD = [0.02, 1.6, 0];
-function arm(k, c, sh, hand, el) {
+const NAT = ['#2a1d14', '#5a3a22', '#c9a063', '#1b1b1b', '#8c4a2f', '#3b2a1e', '#6b4a2e', '#b8b0a4', '#231a16'];
+const HEAD = [0.03, 1.63, 0];
+// torso profile (radius, height), squashed front-to-back: a chest, a waist, hips and shoulders instead of a tin can
+const TORSO = [[0.001, 0.86], [0.15, 0.86], [0.168, 0.93], [0.162, 1.0], [0.148, 1.08], [0.165, 1.18], [0.185, 1.28], [0.19, 1.35], [0.175, 1.42], [0.12, 1.47], [0.05, 1.5], [0.001, 1.5]], TSX = 0.74, TSZ = 1.08;
+function fx(y) { for (let i = 1; i < TORSO.length; i++) { const a = TORSO[i - 1], b = TORSO[i]; if (b[1] > a[1] && y <= b[1]) return lerp(a[0], b[0], (y - a[1]) / (b[1] - a[1])) * TSX; } return 0.04; }
+function arm(k, c, sh, hand, el, cuff) {
   const e = el || [(sh[0] + hand[0]) / 2 - 0.05, Math.min(sh[1], hand[1]) - 0.1, (sh[2] + hand[2]) / 2 + (sh[2] > 0 ? 0.07 : -0.07)];
-  k.seg(c, sh, e, 0.05, 'b', 0.048).sph(c, e[0], e[1], e[2], 0.048).seg(c, e, hand, 0.045, 'b', 0.041);
+  k.seg(c, sh, e, 0.046, 'b', 0.039).sph(c, e[0], e[1], e[2], 0.039).seg(c, e, hand, 0.037, 'b', 0.031);
+  if (cuff) { const w = [lerp(e[0], hand[0], 0.72), lerp(e[1], hand[1], 0.72), lerp(e[2], hand[2], 0.72)], w2 = [lerp(e[0], hand[0], 0.9), lerp(e[1], hand[1], 0.9), lerp(e[2], hand[2], 0.9)]; k.seg(cuff, w, w2, 0.036, 'b', 0.035); }
 }
 function buildMarcher(sty, type, S, ti) {
   const k = new Kit(), lead = type === 'lead', T = lead ? S.L : S.T[type], neon = !!S.neon, jazz = sty === 'jazz', carn = sty === 'carnival', march = sty === 'march';
-  const coat = T.coat, trim = T.plume, armc = T.arm || coat, GL = neon ? 'g' : 'b';
+  const coat = T.coat, trim = T.plume, armc = T.arm || coat, hairC = neon && ti % 3 === 1 ? HAIR[ti % HAIR.length] : NAT[(ti * 5) % NAT.length];
   let hands = [[0.2, 1.05, -0.2], [0.2, 1.05, 0.2]], act = null, actAt = [0, 0, 0], handAct = -1;
-  // torso
-  k.cyl(coat, 0, 1.18, 0, 0.2, 0.16, 0.58, 0, 0, 0, 'b', 14);
-  k.put(new THREE.SphereGeometry(0.2, 14, 8, 0, PI * 2, 0, PI / 2), coat, 0, 1.46, 0, 0, 0, 0, 1, 0.42, 1);
-  k.cyl(jazz ? '#1b1b22' : carn ? trim : march ? WHITE : '#120c24', 0, 0.92, 0, 0.168, 0.168, 0.07);
-  k.cyl(coat, 0, 0.86, 0, 0.168, 0.15, 0.1);
+  // torso: one lathe, then shoulders
+  k.lathe(coat, TORSO, 0, 0, 0, TSX, 1, TSZ, 20);
+  k.sph(coat, 0, 1.4, -0.2, 0.064).sph(coat, 0, 1.4, 0.2, 0.064);
+  const belt = (c, y, h) => k.put(new THREE.CylinderGeometry(0.172, 0.172, h, 20), c, 0, y, 0, 0, 0, 0, TSX + 0.03, 1, TSZ + 0.02);
+  belt(jazz ? '#1b1b22' : carn ? trim : march ? WHITE : '#120c24', 0.93, 0.06);
+  const F = (y, d) => fx(y) + (d || 0.006);
   if (march) {
-    k.box(WHITE, 0.155, 1.2, 0, 0.012, 0.62, 0.06, 0.62, 0, 0).box(WHITE, 0.155, 1.2, 0, 0.012, 0.62, 0.06, -0.62, 0, 0);
-    for (let i = 0; i < 3; i++) k.sph(BRASS, 0.172, 1.06 + i * 0.12, 0, 0.017, 1, 1, 1, 'm');
-    k.sph(BRASS, 0, 1.47, -0.19, 0.075, 1, 0.45, 1.2, 'm').sph(BRASS, 0, 1.47, 0.19, 0.075, 1, 0.45, 1.2, 'm');
-    k.cyl(trim === WHITE || trim === '#fffaf0' ? '#b8322a' : trim, 0, 1.49, 0, 0.075, 0.09, 0.06);
+    for (const sd of [-1, 1]) { k.seg(WHITE, [F(0.97), 0.97, -sd * 0.12], [F(1.3, 0.01), 1.3, sd * 0.04], 0.016).seg(WHITE, [F(1.3, 0.01), 1.3, sd * 0.04], [0.06, 1.47, sd * 0.14], 0.016); }
+    for (let i = 0; i < 3; i++) k.sph(BRASS, F(1.06 + i * 0.12, 0.004), 1.06 + i * 0.12, 0, 0.016, 1, 1, 1, 'm');
+    k.sph(BRASS, 0, 1.455, -0.2, 0.072, 1, 0.38, 1.2, 'm').sph(BRASS, 0, 1.455, 0.2, 0.072, 1, 0.38, 1.2, 'm');
+    k.cyl(trim === WHITE || trim === '#fffaf0' ? '#b8322a' : trim, 0.005, 1.5, 0, 0.062, 0.072, 0.06);
   } else if (jazz) {
-    k.box(trim, 0.158, 1.3, 0, 0.012, 0.3, 0.05).box(trim, 0.16, 1.44, 0, 0.02, 0.05, 0.07);
-    if (!lead) { k.box('#2a2a33', 0.1, 1.2, -0.12, 0.02, 0.56, 0.035, 0, 0, 0.12).box('#2a2a33', 0.1, 1.2, 0.12, 0.02, 0.56, 0.035, 0, 0, 0.12); }
-    else { k.box(WHITE, 0.158, 1.34, 0, 0.012, 0.22, 0.1).box(trim, 0.17, 1.38, 0.1, 0.02, 0.08, 0.05); }
+    if (!lead) {
+      k.box(trim, F(1.3), 1.3, 0, 0.012, 0.24, 0.048).box(trim, F(1.43, 0.012), 1.43, 0, 0.02, 0.04, 0.06);
+      for (const sd of [-1, 1]) k.seg('#2a2a33', [F(0.97, 0.004), 0.97, sd * 0.1], [F(1.3, 0.004), 1.3, sd * 0.11], 0.012).seg('#2a2a33', [F(1.3, 0.004), 1.3, sd * 0.11], [0.02, 1.47, sd * 0.12], 0.012);
+    } else { k.box(WHITE, F(1.34, 0.002), 1.34, 0, 0.012, 0.22, 0.1).box(trim, F(1.38, 0.012), 1.38, 0.1, 0.02, 0.08, 0.05); }
+    k.cyl(WHITE, 0.005, 1.5, 0, 0.058, 0.066, 0.05);
   } else if (carn) {
-    k.box(trim, 0.02, 1.2, 0, 0.36, 0.08, 0.43, 0.7, 0, 0);
-    for (let i = 0; i < 9; i++) k.sph(i & 1 ? '#fff6c8' : trim, 0.16 * Math.cos(i * 0.7), 1.0 + (i % 5) * 0.09, 0.16 * Math.sin(i * 0.7), 0.018, 1, 1, 1, 'm');
-    k.cyl(trim, 0, 1.49, 0, 0.09, 0.1, 0.05);
+    k.seg(trim, [F(0.98), 0.98, -0.14], [F(1.32, 0.012), 1.32, 0.08], 0.03).seg(trim, [F(1.32, 0.012), 1.32, 0.08], [0.04, 1.47, 0.15], 0.03);
+    for (let i = 0; i < 9; i++) { const y = 1.0 + (i % 5) * 0.09, a = (i * 0.7) % (PI * 2) - PI / 2, rr = fx(y) / TSX + 0.006; k.sph(i & 1 ? '#fff6c8' : trim, rr * TSX * Math.cos(a), y, rr * TSZ * Math.sin(a), 0.016, 1, 1, 1, 'm'); }
+    k.cyl(trim, 0.005, 1.5, 0, 0.066, 0.075, 0.05);
   } else {
-    k.box(trim, 0.162, 1.18, 0, 0.012, 0.56, 0.02, 0, 0, 0, 'g').cyl(trim, 0, 1.49, 0, 0.085, 0.1, 0.035, 0, 0, 0, 'g', 12);
-    k.box(coat, 0, 1.44, -0.2, 0.2, 0.08, 0.12).box(coat, 0, 1.44, 0.2, 0.2, 0.08, 0.12);
+    k.seg(trim, [F(0.95, 0.003), 0.95, 0], [F(1.34, 0.006), 1.34, 0], 0.008, 'g').seg(trim, [F(1.34, 0.006), 1.34, 0], [F(1.45, 0.006), 1.45, 0], 0.008, 'g');
+    k.cyl(trim, 0.005, 1.5, 0, 0.066, 0.078, 0.035, 0, 0, 0, 'g', 12);
+    k.box(coat, 0, 1.445, -0.2, 0.2, 0.08, 0.12).box(coat, 0, 1.445, 0.2, 0.2, 0.08, 0.12);
   }
-  // eyes
-  if (!neon) k.sph('#1a1414', 0.118, 1.625, -0.045, 0.014).sph('#1a1414', 0.118, 1.625, 0.045, 0.014);
-  // hats
+  // face: eyes, brows, lips, then hair (neon wears a glowing visor instead of eyes)
   const hx = HEAD[0], hy = HEAD[1];
+  if (!neon) {
+    for (const sd of [-1, 1]) {
+      k.put(new THREE.SphereGeometry(0.0135, 8, 6), '#f2ece4', hx + 0.083, hy + 0.02, sd * 0.033, 0, 0, 0, 0.6, 1, 1);
+      k.put(new THREE.SphereGeometry(0.0078, 6, 5), '#2b1a12', hx + 0.089, hy + 0.02, sd * 0.033);
+      k.box(hairC, hx + 0.084, hy + 0.046, sd * 0.034, 0.012, 0.0075, 0.034, sd * 0.12, 0, 0);
+    }
+    k.put(new THREE.SphereGeometry(0.02, 8, 6), '#8e4a45', hx + 0.089, hy - 0.056, 0, 0, 0, 0, 0.42, 0.32, 1);
+  } else {
+    for (const sd of [-1, 1]) k.box(hairC, hx + 0.083, hy + 0.058, sd * 0.034, 0.012, 0.0075, 0.034, sd * 0.12, 0, 0);
+    k.put(new THREE.SphereGeometry(0.02, 8, 6), '#8e4a45', hx + 0.089, hy - 0.056, 0, 0, 0, 0, 0.42, 0.32, 1);
+  }
+  if (!(march && lead) && !neon) k.put(new THREE.SphereGeometry(0.104, 16, 12), hairC, hx - 0.02, hy + 0.014, 0, 0, 0, 0, 0.95, 1.08, 0.9);
+  // hats
   if (march) {
     if (lead) {
-      k.sph('#15151c', hx - 0.01, hy + 0.2, 0, 0.16, 1, 1.5, 1).cyl(BRASS, hx + 0.02, hy - 0.04, 0, 0.12, 0.12, 0.012, 0, 0, 0.3, 'm');
-      k.cyl(trim === WHITE ? '#fffaf0' : trim, hx - 0.02, hy + 0.3, 0.15, 0.03, 0.02, 0.34, -0.25, 0, 0).sph('#b8322a', hx - 0.02, hy + 0.47, 0.19, 0.045);
+      k.sph('#15151c', hx - 0.01, hy + 0.24, 0, 0.16, 1, 1.4, 1).tor(BRASS, hx + 0.012, hy - 0.03, 0, 0.098, 0.006, 0, PI / 2, 0.35, 0, 'm');
+      k.cyl(trim === WHITE ? '#fffaf0' : trim, hx - 0.02, hy + 0.34, 0.15, 0.03, 0.02, 0.34, -0.25, 0, 0).sph('#b8322a', hx - 0.02, hy + 0.51, 0.19, 0.045);
     } else {
-      k.cyl(INK, hx, hy + 0.15, 0, 0.125, 0.118, 0.24).cyl('#0d1320', hx + 0.09, hy + 0.04, 0, 0.09, 0.09, 0.012, 0, 0, -0.25);
-      k.put(new THREE.CircleGeometry(0.05, 12), BRASS, hx + 0.124, hy + 0.15, 0, 0, PI / 2, 0, 1, 1, 1, 'm');
-      k.cyl(BRASS, hx, hy + 0.27, 0, 0.126, 0.126, 0.012, 0, 0, 0, 'm');
-      k.cyl(trim, hx + 0.01, hy + 0.36, 0, 0.035, 0.018, 0.2).sph(trim, hx + 0.01, hy + 0.47, 0, 0.04, 1, 1.3, 1);
+      k.cyl(INK, hx - 0.01, hy + 0.14, 0, 0.115, 0.108, 0.22, 0, 0, 0, 'b', 18).cyl('#0d1320', hx + 0.075, hy + 0.04, 0, 0.085, 0.085, 0.012, 0, 0, -0.25);
+      k.put(new THREE.CircleGeometry(0.045, 12), BRASS, hx + 0.104, hy + 0.14, 0, 0, PI / 2, 0, 1, 1, 1, 'm');
+      k.cyl(BRASS, hx - 0.01, hy + 0.245, 0, 0.116, 0.116, 0.012, 0, 0, 0, 'm', 18);
+      k.cyl(trim, hx, hy + 0.34, 0, 0.032, 0.016, 0.2).sph(trim, hx, hy + 0.45, 0, 0.038, 1, 1.3, 1);
     }
   } else if (jazz) {
-    if (lead) { k.sph('#18181e', hx, hy + 0.08, 0, 0.13, 1, 0.8, 1).cyl('#18181e', hx, hy + 0.07, 0, 0.2, 0.2, 0.014).cyl(trim, hx, hy + 0.1, 0, 0.132, 0.132, 0.03); }
-    else { k.cyl(WHITE, hx + 0.01, hy + 0.13, 0, 0.14, 0.122, 0.07).cyl('#1b1b22', hx, hy + 0.08, 0, 0.123, 0.123, 0.045); k.box('#1b1b22', hx + 0.14, hy + 0.06, 0, 0.12, 0.012, 0.18, 0, 0, -0.12); k.put(new THREE.CircleGeometry(0.02, 8), BRASS, hx + 0.13, hy + 0.1, 0, 0, PI / 2, 0, 1, 1, 1, 'm'); }
+    if (lead) { k.sph('#18181e', hx - 0.01, hy + 0.1, 0, 0.125, 1, 0.8, 1).cyl('#18181e', hx - 0.01, hy + 0.088, 0, 0.2, 0.2, 0.014, 0, 0, 0, 'b', 18).cyl(trim, hx - 0.01, hy + 0.11, 0, 0.127, 0.127, 0.03, 0, 0, 0, 'b', 18); }
+    else { k.cyl(WHITE, hx - 0.005, hy + 0.14, 0, 0.13, 0.115, 0.07, 0, 0, 0, 'b', 16).cyl('#1b1b22', hx - 0.01, hy + 0.095, 0, 0.114, 0.114, 0.045, 0, 0, 0, 'b', 16); k.box('#1b1b22', hx + 0.12, hy + 0.078, 0, 0.1, 0.012, 0.16, 0, 0, -0.12); k.put(new THREE.CircleGeometry(0.02, 8), BRASS, hx + 0.105, hy + 0.11, 0, 0, PI / 2, 0, 1, 1, 1, 'm'); }
   } else if (carn) {
-    k.cyl(trim, hx, hy + 0.08, 0, 0.13, 0.125, 0.07);
+    k.cyl(trim, hx - 0.012, hy + 0.075, 0, 0.113, 0.108, 0.06, 0, 0, 0, 'b', 16);
     const n = lead ? 11 : 7, cols = [trim, coat, '#fff6c8'];
     for (let i = 0; i < n; i++) { const a = (i / (n - 1) - 0.5) * (lead ? 2.3 : 1.9); k.put(new THREE.SphereGeometry(0.1, 8, 6), cols[i % 3], hx - 0.05, hy + 0.12 + Math.cos(a) * 0.26, Math.sin(a) * 0.26, a, 0, 0, 0.18, lead ? 3.1 : 2.4, 0.7); }
-    k.sph('#fff6c8', hx + 0.1, hy + 0.1, 0, 0.03, 1, 1, 1, 'm');
+    k.sph('#fff6c8', hx + 0.088, hy + 0.08, 0, 0.026, 1, 1, 1, 'm');
   } else {
-    k.sph(HAIR[ti % HAIR.length], hx - 0.035, hy + 0.05, 0, 0.14, 1.15, 1.05, 1.18);
-    k.box(trim, hx + 0.11, hy + 0.03, 0, 0.03, 0.045, 0.2, 0, 0, 0, 'g');
+    k.put(new THREE.SphereGeometry(0.104, 16, 12), hairC, hx - 0.03, hy + 0.03, 0, 0, 0, 0, 0.95, 1.08, 0.9);
+    k.put(new THREE.SphereGeometry(0.1, 14, 10), hairC, hx - 0.01, hy + 0.1, 0, 0, 0, -0.35, 1.05, 0.7, 0.95);
+    k.put(new THREE.SphereGeometry(0.07, 12, 8), hairC, hx - 0.085, hy - 0.07, 0, 0, 0, 0, 0.7, 1.3, 1.05);
+    k.box(trim, hx + 0.092, hy + 0.022, 0, 0.02, 0.03, 0.17, 0, 0, 0, 'g');
   }
   // instruments
-  const sh = [[0.02, 1.42, -0.21], [0.02, 1.42, 0.21]];
+  const sh = [[0.01, 1.41, -0.2], [0.01, 1.41, 0.2]];
   if (type === 'snare') {
     k.cyl(coat, 0.32, 0.99, 0.02, 0.19, 0.19, 0.16, 0, 0, -0.12, 'b', 16).cyl(WHITE, 0.33, 1.075, 0.02, 0.186, 0.186, 0.01, 0, 0, -0.12, 'b', 16);
     k.tor(SILVER, 0.33, 1.07, 0.02, 0.19, 0.012, PI / 2, 0, -0.12, 0, 'm').tor(SILVER, 0.31, 0.91, 0.02, 0.19, 0.012, PI / 2, 0, -0.12, 0, 'm');
@@ -162,7 +185,8 @@ function buildMarcher(sty, type, S, ti) {
     else if (carn) { hands = [[0.2, 1.2, 0.2], [0.2, 1.5, 0.22]]; actAt = [0.2, 1.3, 0.22]; act = new Kit(); act.seg('#8a6a3a', [0, -0.3, 0], [0, 1.25, 0], 0.016).sph(BRASS, 0, 1.27, 0, 0.035, 1, 1, 1, 'm').box(trim, 0.36, 1.02, 0, 0.66, 0.42, 0.012).box(coat, 0.36, 1.02, 0, 0.66, 0.12, 0.016).box('#1fa37a', 0.36, 1.18, 0, 0.66, 0.1, 0.016); }
     else { k.frame(0.26, 1.18, 0.14, 0, 0, 0.42, f => { f.box(trim, 0, 0, 0, 0.5, 0.12, 0.06, 0, 0, 0, 'g').box(WHITE, 0.02, 0.07, 0, 0.3, 0.02, 0.05).box('#1a1030', 0.36, 0.02, 0, 0.26, 0.05, 0.04).box('#3de0ff', 0.48, 0.02, 0, 0.03, 0.08, 0.05, 0, 0, 0, 'g'); }); hands = [[0.3, 1.26, 0.18], [0.46, 1.33, 0.12]]; }
   }
-  if (!['bass'].includes(type)) { arm(k, armc, sh[0], hands[0]); arm(k, armc, sh[1], hands[1]); }
+  const cuff = march ? WHITE : jazz ? (lead ? WHITE : '#f4f0e6') : carn ? trim : null;
+  if (!['bass'].includes(type)) { arm(k, armc, sh[0], hands[0], null, cuff); arm(k, armc, sh[1], hands[1], null, cuff); }
   if (neon) { k.tor(trim, hands[0][0] - 0.03, hands[0][1], hands[0][2], 0.045, 0.01, 0, PI / 2, 0, 0, 'g'); k.tor(trim, hands[1][0] - 0.03, hands[1][1], hands[1][2], 0.045, 0.01, 0, PI / 2, 0, 0, 'g'); }
   const o = k.build();
   o.act = act ? act.build() : null; o.actAt = actAt; o.hands = hands; o.handAct = handAct;
@@ -242,10 +266,21 @@ export function init(A) {
   const BASIC = new THREE.MeshBasicMaterial();
 
   // shared instanced parts of marchers: heads, hands, thighs, shins
-  const headG = (() => { const k = new Kit(); k.sph('#fff', 0, 0, 0, 0.115, 1, 1.05, 0.98).sph('#fff', 0.105, -0.015, 0, 0.026, 1, 1, 0.9).sph('#fff', -0.005, -0.005, -0.112, 0.026, 0.6, 1, 0.5).sph('#fff', -0.005, -0.005, 0.112, 0.026, 0.6, 1, 0.5).cyl('#fff', -0.01, -0.13, 0, 0.05, 0.055, 0.1); return k.build().b; })();
-  const thighG = (() => { const k = new Kit(); k.cyl('#fff', 0, -0.22, 0, 0.078, 0.066, 0.46); return k.build().b; })();
-  const shinG = (() => { const k = new Kit(); k.cyl('#fff', 0, -0.2, 0, 0.066, 0.058, 0.42).box('#161616', 0.05, -0.43, 0, 0.25, 0.08, 0.11).box('#161616', 0.15, -0.405, 0, 0.05, 0.05, 0.1); return k.build().b; })();
-  const handG = new THREE.SphereGeometry(0.045, 10, 8);
+  // a head with a skull, jaw, nose, ears and neck (skin comes from the instance colour)
+  const headG = (() => { const k = new Kit();
+    k.put(new THREE.SphereGeometry(0.1, 20, 14), '#fff', 0, 0, 0, 0, 0, 0, 0.95, 1.16, 0.86);
+    k.put(new THREE.SphereGeometry(0.07, 16, 10), '#fff', 0.03, -0.055, 0, 0, 0, 0, 0.95, 0.85, 0.92);
+    k.cone('#fff', 0.105, -0.005, 0, 0.019, 0.05, 0, 0, -PI / 2, 'b', 8);
+    for (const sd of [-1, 1]) k.put(new THREE.SphereGeometry(0.028, 8, 6), '#fff', -0.005, -0.005, sd * 0.086, 0, 0, 0, 0.45, 1, 0.3);
+    k.cyl('#fff', -0.005, -0.14, 0, 0.045, 0.05, 0.12, 0, 0, 0, 'b', 12);
+    return k.build().b; })();
+  const lathe = (pts, seg, extra) => { const k = new Kit(); k.lathe('#fff', pts, 0, 0, 0, 1, 1, 1, seg); if (extra) extra(k); return k.build().b; };
+  const thighG = lathe([[0.001, 0], [0.08, -0.01], [0.083, -0.08], [0.072, -0.24], [0.058, -0.4], [0.05, -0.46], [0.001, -0.47]], 14);
+  const shinG = lathe([[0.001, 0.01], [0.052, 0], [0.058, -0.1], [0.052, -0.2], [0.04, -0.34], [0.036, -0.4], [0.001, -0.41]], 14, k => {
+    k.sph('#fff', 0.006, 0, 0, 0.052);
+    k.put(new THREE.SphereGeometry(0.06, 14, 8), '#1a1a1a', 0.055, -0.43, 0, 0, 0, 0, 2.2, 0.75, 0.9);
+    k.box('#141414', -0.04, -0.465, 0, 0.1, 0.02, 0.1); });
+  const handG = (() => { const k = new Kit(); k.put(new THREE.SphereGeometry(0.037, 12, 8), '#fff', 0, 0, 0, 0, 0, 0, 1.15, 0.95, 0.8); k.put(new THREE.SphereGeometry(0.015, 8, 6), '#fff', 0.02, 0.026, 0, 0, 0, 0, 1.6, 1, 1); return k.build().b; })();
   const MAXM = 24;
   function inst(g, m, n) { const x = new THREE.InstancedMesh(g, m, n); x.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); x.castShadow = true; x.frustumCulled = false; x.count = 0; scene.add(x); return x; }
   const HEADS = inst(headG, SKIN, MAXM), HANDS = inst(handG, SKIN, MAXM * 2), THIGH = inst(thighG, LEGM, MAXM * 2), SHIN = inst(shinG, LEGM, MAXM * 2);
@@ -275,8 +310,34 @@ export function init(A) {
   const flagG = new THREE.BufferGeometry(); flagG.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.17, 0, 0, 0.17, 0, 0, 0, -0.32, 0]), 3)); flagG.computeVertexNormals();
   const flagM = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.8 }), FLAG = winst(flagG, flagM, NB * 14);
   const crowdM = new THREE.MeshStandardMaterial({ roughness: 0.8 });
-  const CB = winst(new THREE.CapsuleGeometry(0.17, 0.46, 2, 8), crowdM, NB * CPB, true), CH = winst(new THREE.SphereGeometry(0.105, 8, 6), SKIN, NB * CPB), CA = winst(new THREE.CapsuleGeometry(0.045, 0.34, 1, 5), crowdM, NB * CPB * 2);
+  // the crowd: whole people from instanced parts (feet at y=0, facing +X, 1.72 m tall at scale 1)
+  const crowdV = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }), skinV = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
+  const NC = NB * CPB, cg = fn => { const k = new Kit(); fn(k); return k.build().b; };
+  const LEGS = winst(cg(k => {
+    for (const sd of [-1, 1]) { k.lathe('#fff', [[0.001, 0.065], [0.03, 0.07], [0.036, 0.1], [0.048, 0.22], [0.056, 0.4], [0.052, 0.47], [0.068, 0.6], [0.082, 0.78], [0.085, 0.89], [0.001, 0.9]], 0, 0, sd * 0.085, 1, 1, 1, 6); k.put(new THREE.SphereGeometry(0.05, 7, 5), '#2c2622', 0.045, 0.045, sd * 0.085, 0, 0, 0, 2.1, 0.9, 1); }
+    k.lathe('#fff', [[0.001, 0.83], [0.14, 0.84], [0.165, 0.9], [0.15, 0.97], [0.001, 0.98]], 0, 0, 0, 0.75, 1, 1.1, 8); }), crowdV, NC, true);
+  const TORSOC = winst(cg(k => { k.lathe('#fff', [[0.001, 0.93], [0.155, 0.93], [0.15, 1.02], [0.152, 1.12], [0.17, 1.24], [0.185, 1.33], [0.17, 1.41], [0.11, 1.46], [0.045, 1.49], [0.001, 1.49]], 0, 0, 0, 0.72, 1, 1.08, 8); for (const sd of [-1, 1]) k.put(new THREE.SphereGeometry(0.058, 7, 5), '#fff', 0, 1.395, sd * 0.19); }), crowdV, NC, true);
+  const ARMC = winst(cg(k => k.lathe('#fff', [[0.001, -0.54], [0.028, -0.53], [0.034, -0.44], [0.036, -0.3], [0.04, -0.26], [0.046, -0.1], [0.05, 0], [0.001, 0.02]], 0, 0, 0, 1, 1, 1, 5)), crowdV, NC * 2);
+  const HANDC = winst(new THREE.SphereGeometry(0.036, 6, 5).scale(1.1, 1.2, 0.8), SKIN, NC * 2);
+  const HEADC = winst(cg(k => {
+    k.cyl('#fff', 0.005, 1.5, 0, 0.044, 0.05, 0.12, 0, 0, 0, 'b', 6);
+    k.put(new THREE.SphereGeometry(0.1, 9, 7), '#fff', 0.01, 1.625, 0, 0, 0, 0, 0.95, 1.15, 0.86);
+    k.put(new THREE.SphereGeometry(0.068, 7, 5), '#fff', 0.04, 1.57, 0, 0, 0, 0, 0.95, 0.85, 0.9);
+    k.cone('#fff', 0.11, 1.615, 0, 0.016, 0.04, 0, 0, -PI / 2, 'b', 4);
+    for (const sd of [-1, 1]) k.put(new THREE.SphereGeometry(0.011, 4, 3), '#1d1614', 0.095, 1.642, sd * 0.032); }), skinV, NC);
+  const hairG = long => cg(k => { k.put(new THREE.SphereGeometry(0.104, 9, 6), '#fff', -0.012, 1.645, 0, 0, 0, 0, 1, 1.08, 0.95); if (long) k.put(new THREE.SphereGeometry(0.1, 8, 6), '#fff', -0.055, 1.52, 0, 0, 0, 0, 0.55, 1.55, 1.02); });
+  const HAIRS = winst(hairG(false), crowdV, NC), HAIRL = winst(hairG(true), crowdV, NC);
+  const CAP = winst(cg(k => { k.put(new THREE.SphereGeometry(0.108, 10, 5, 0, PI * 2, 0, PI / 2), '#fff', -0.005, 1.668, 0, 0, 0, 0, 1.06, 0.55, 0.98); k.put(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 10), '#fff', 0.085, 1.672, 0, 0, 0, -0.12, 1, 1, 1.2); }), crowdV, NC);
+  const PANTS = ['#2b3a55', '#3b3b3b', '#5a4632', '#1f2a3a', '#6b6f78', '#caa77a', '#2f3b2c'], HAIRC = ['#2a1d14', '#5a3a22', '#c9a063', '#1b1b1b', '#8c4a2f', '#b8b0a4', '#3b2a1e'], CAPC = ['#4a4038', '#2f3a2f', '#6b5a44', '#1f2430', '#8a6a4a', '#b8322a'];
+  const PM = new THREE.Matrix4(), AM = new THREE.Matrix4(), T1 = new THREE.Matrix4(), T2 = new THREE.Matrix4(), ZERO = new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4);
+  // each person's colours, set per building slot; only people in view get packed into the instance buffers each frame
+  const CCOL = Array.from({ length: NC }, () => ({ sh: new THREE.Color(), pa: new THREE.Color(), sk: new THREE.Color(), ha: new THREE.Color(), ca: new THREE.Color(), fl: new THREE.Color() }));
+  const frus = new THREE.Frustum(), PV = new THREE.Matrix4(), BB = new THREE.Box3();
   const farM = new THREE.MeshBasicMaterial(), FAR = winst(box1, farM, NB);
+  const XF = winst(flagG, flagM, NB * 12);
+  const hfG = (() => { const k = new Kit(); k.cyl('#3a3a3a', 0, 0.2, 0, 0.008, 0.008, 0.4, 0, 0, 0, 'b', 5).box('#ffffff', 0.11, 0.33, 0, 0.2, 0.13, 0.006); return k.build().b; })();
+  const hfM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }), HF = winst(hfG, hfM, NB * CPB);
+  const cfM = new THREE.MeshBasicMaterial(), CF = winst(new THREE.PlaneGeometry(0.07, 0.045).rotateX(-PI / 2), cfM, NB * 40);
   // sky bits
   const sunM = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, fog: false }), sunD = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), sunM); sunD.renderOrder = -1; scene.add(sunD);
   const cloudM = new THREE.MeshBasicMaterial({ fog: false, transparent: true, opacity: 0.92 }), CLOUD = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), cloudM, 24); CLOUD.frustumCulled = false; scene.add(CLOUD);
@@ -304,7 +365,7 @@ export function init(A) {
     lampM.color.set(neon ? '#ff9fe8' : sty === 'jazz' ? '#ffd88a' : '#fff4d6');
     farM.color.set(Lt.farc);
     if (sunM.map) sunM.map.dispose(); sunM.map = sunTex(S, neon); sunM.needsUpdate = true;
-    cloudM.color.set(sty === 'jazz' ? '#ffd2c4' : '#ffffff'); CLOUD.visible = !neon; STARS.visible = neon || sty === 'jazz'; STARS.material.opacity = neon ? 1 : 0.5; STARS.material.transparent = !neon;
+    cfM.color.set(neon ? '#ffffff' : '#f4f0e6'); cloudM.color.set(sty === 'jazz' ? '#ffd2c4' : '#ffffff'); CLOUD.visible = !neon; STARS.visible = neon || sty === 'jazz'; STARS.material.opacity = neon ? 1 : 0.5; STARS.material.transparent = !neon;
     // env map for the brass: a sky gradient with a bright sun blob
     const es = new THREE.Scene(); es.background = null;
     const sg = new THREE.SphereGeometry(10, 24, 12), cols = new Float32Array(sg.attributes.position.count * 3), top = C(S.sky[0]), hor = C(S.sky[1]), gnd = C(ROAD[sty][1]);
@@ -314,12 +375,12 @@ export function init(A) {
     const sb = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(Lt.sun[0]).multiplyScalar(neon ? 3 : 6) })); sb.position.set(Lt.sun[2][0], Lt.sun[2][1], Lt.sun[2][2]).normalize().multiplyScalar(8); es.add(sb);
     if (envT) envT.dispose(); envT = pm.fromScene(es, 0.02).texture; METAL.envMap = envT; METAL.needsUpdate = true;
     es.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
-    base = null; recs.forEach(r => r.key = ''); yaw = pitch = 0;
+    base = null; recs.forEach(r => r.key = ''); yaw = pitch = 0; zoom = 1;
   }
 
   function setWorld(b) {
     base = b; const n = st.style, neon = !!S.neon;
-    let nb = 0, nc = 0, nf = 0, nw = 0, nd = 0, np = 0, nl = 0, nfl = 0, nfar = 0;
+    let nb = 0, nc = 0, nf = 0, nw = 0, nd = 0, np = 0, nl = 0, nfl = 0, nfar = 0, nxf = 0, ncf = 0;
     const put = (mesh, i, x, y, z, sx, sy, sz, col, rx) => { _o.position.set(x, y, z); _o.rotation.set(rx || 0, 0, 0); _o.scale.set(sx, sy, sz); _o.updateMatrix(); mesh.setMatrixAt(i, _o.matrix); if (col && mesh.instanceColor) mesh.setColorAt(i, _c.set(col)); };
     for (let s = 0; s < NB; s++) {
       const i = b + s - (NB >> 1), x = (s - (NB >> 1)) * BW + BW / 2, h = (6.4 + hsh(i) * 5.8) * (neon ? 1.25 : 1), bc = S.bld[Math.floor(hsh(i + 0.3) * S.bld.length)];
@@ -340,39 +401,58 @@ export function init(A) {
         put(POST, np++, x - BW / 2, 0.16, -3.75, 1, 3.55, 1, neon ? '#2a2050' : '#23262e'); put(LAMP, nl++, x - BW / 2, 3.78, -3.75, 1, 1.1, 1, '#ffffff');
         for (let f = 0; f < 13; f++) { const t = (f + 0.5) / 13, fx = x - BW / 2 + t * BW * 2, fy = 3.45 - Math.sin(t * PI) * 0.75; put(FLAG, nfl++, fx, fy, -3.75, 1, 1, 1, S.bunt[(f + i) % S.bunt.length]); }
       }
+      if ((i & 1) === 0) { const x0 = x - BW / 2 + 1.1; for (let f = 0; f < 12; f++) { const t = (f + 0.5) / 12, fz = lerp(-6.1, 8, t), fy = 6.1 - Math.sin(t * PI) * 1.25; _o.position.set(x0, fy, fz); _o.rotation.set(0, PI / 2, 0); _o.scale.set(1.1, 1.1, 1.1); _o.updateMatrix(); XF.setMatrixAt(nxf, _o.matrix); XF.setColorAt(nxf++, _c.set(S.bunt[(f + i * 3) % S.bunt.length])); } }
+      for (let q = 0; q < 40; q++) { const qi = i * 40 + q; _o.position.set(x + (hsh(qi + 0.11) - 0.5) * BW, 0.012, -3.1 + hsh(qi + 0.27) * 6.2); _o.rotation.set(0, hsh(qi + 0.5) * PI, 0); _o.scale.setScalar(0.8 + hsh(qi + 0.7) * 0.6); _o.updateMatrix(); CF.setMatrixAt(ncf, _o.matrix); CF.setColorAt(ncf++, _c.set(A.CROWD[qi % A.CROWD.length])); }
       put(FAR, nfar++, x * 1.9, 0, -34 - hsh(i + 0.1) * 8, BW * 1.6, (14 + hsh(i + 0.4) * 22) * (neon ? 1.3 : 1), 6, Lt().farc);
       for (let c = 0; c < CPB; c++) {
         const j = s * CPB + c, pj = i * CPB + c, cc = A.CROWD[Math.floor(hsh(pj + 0.3) * A.CROWD.length)];
-        CB.setColorAt(j, _c.set(cc)); CA.setColorAt(j * 2, _c); CA.setColorAt(j * 2 + 1, _c); CH.setColorAt(j, _c.set(A.SKIN[Math.floor(hsh(pj + 0.8) * A.SKIN.length)]));
+        const q = CCOL[j]; q.sh.set(cc); q.fl.set(S.bunt[Math.floor(hsh(pj + 0.45) * S.bunt.length)]); q.pa.set(PANTS[Math.floor(hsh(pj + 0.52) * PANTS.length)]);
+        q.sk.set(A.SKIN[Math.floor(hsh(pj + 0.8) * A.SKIN.length)]); q.ha.set(HAIRC[Math.floor(hsh(pj + 0.57) * HAIRC.length)]); q.ca.set(CAPC[Math.floor(hsh(pj + 0.63) * CAPC.length)]);
       }
     }
     BLD.count = nb; CORN.count = nc; FRAME.count = nf; WIN.count = nw; DOOR.count = nd; AWN.count = NB; SIGN.count = NB; POST.count = np; LAMP.count = nl; FLAG.count = nfl; FAR.count = nfar;
-    CB.count = CH.count = NB * CPB; CA.count = NB * CPB * 2;
-    for (const m of [BLD, CORN, FRAME, WIN, DOOR, AWN, SIGN, POST, LAMP, FLAG, FAR, CB, CH, CA]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+    LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = NC; ARMC.count = HANDC.count = NC * 2; XF.count = nxf; CF.count = ncf;
+    for (const m of [BLD, CORN, FRAME, WIN, DOOR, AWN, SIGN, POST, LAMP, FLAG, FAR, LEGS, TORSOC, ARMC, HANDC, HEADC, HAIRS, HAIRL, CAP, XF, HF, CF]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     aSign.needsUpdate = true;
   }
   const Lt = () => LIGHT[sty];
 
   function crowd(p, now, exc) {
-    const beat = p / 4;
+    const beat = p / 4; let j = 0;
+    PV.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); frus.setFromProjectionMatrix(PV);
     for (let s = 0; s < NB; s++) {
-      const i = base + s - (NB >> 1), x0 = (s - (NB >> 1)) * BW + BW / 2;
+      const i = base + s - (NB >> 1), x0 = (s - (NB >> 1)) * BW + BW / 2, wx = x0 + world.position.x;
+      BB.min.set(wx - BW / 2 - 1.4, 0, -5.4); BB.max.set(wx + BW / 2 + 0.6, 2.7, -3.4);
+      if (!frus.intersectsBox(BB)) continue;
       for (let c = 0; c < CPB; c++) {
-        const j = s * CPB + c, pj = i * CPB + c, h1 = hsh(pj + 0.1), gap = h1 < 0.1;
-        const hf = gap ? 0.0001 : 0.82 + hsh(pj + 0.5) * 0.28 - (hsh(pj + 0.9) < 0.12 ? 0.25 : 0), row = c & 1;
+        const pj = i * CPB + c, h1 = hsh(pj + 0.1);
+        if (h1 < 0.1) continue;
+        const q = CCOL[s * CPB + c];
+        TORSOC.setColorAt(j, q.sh); ARMC.setColorAt(j * 2, q.sh); ARMC.setColorAt(j * 2 + 1, q.sh); LEGS.setColorAt(j, q.pa); HF.setColorAt(j, q.fl);
+        HEADC.setColorAt(j, q.sk); HANDC.setColorAt(j * 2, q.sk); HANDC.setColorAt(j * 2 + 1, q.sk); HAIRS.setColorAt(j, q.ha); HAIRL.setColorAt(j, q.ha); CAP.setColorAt(j, q.ca);
+        const kid = hsh(pj + 0.9) < 0.12, hf = kid ? 0.6 + hsh(pj + 0.5) * 0.1 : 0.9 + hsh(pj + 0.5) * 0.16, row = c & 1;
         const x = x0 + (c - 2.5) * 0.72 + (h1 - 0.5) * 0.3, z = -4.05 - row * 0.8 - hsh(pj + 0.2) * 0.15;
-        const hype = exc > hsh(pj + 0.6) * 0.9, jump = st.playing && hype ? Math.max(0, Math.sin((beat + hsh(pj) * 0.3) * PI * 2)) * 0.09 * exc : 0;
-        const y0 = 0.16 + jump, bh = (0.34 + 0.46) * hf, cy = y0 + bh / 2;
-        _o.position.set(x, cy, z); _o.rotation.set(0, 0, 0); _o.scale.set(1, hf, 1); _o.updateMatrix(); CB.setMatrixAt(j, _o.matrix);
-        _o.position.set(x + 0.01, y0 + bh + 0.09 * hf + 0.02, z); _o.scale.setScalar(gap ? 0.0001 : 1); _o.updateMatrix(); CH.setMatrixAt(j, _o.matrix);
-        const up = hype && st.playing ? 1 : 0.15 + 0.1 * Math.sin(now + pj), wav = st.playing && hype ? Math.sin(now * 6 + pj) * 0.25 : 0;
+        const hype = exc > hsh(pj + 0.6) * 0.9, on = st.playing && hype, jump = on ? Math.max(0, Math.sin((beat + hsh(pj) * 0.3) * PI * 2)) * 0.07 * exc : 0;
+        _o.position.set(x, 0.16 + jump, z); _o.rotation.set(0, -PI / 2 + (hsh(pj + 0.66) - 0.5) * 0.6, 0); _o.scale.setScalar(hf); _o.updateMatrix(); PM.copy(_o.matrix);
+        LEGS.setMatrixAt(j, PM); TORSOC.setMatrixAt(j, PM); HEADC.setMatrixAt(j, PM);
+        const capOn = hsh(pj + 0.61) < 0.16, lng = !capOn && !kid && hsh(pj + 0.71) < 0.42;
+        HAIRS.setMatrixAt(j, lng ? ZERO : PM); HAIRL.setMatrixAt(j, lng ? PM : ZERO); CAP.setMatrixAt(j, capOn ? PM : ZERO);
+        const flag = hsh(pj + 0.33) > 0.62, clap = hsh(pj + 0.77) < 0.5;
         for (let a = 0; a < 2; a++) {
-          const sd = a ? 1 : -1, ang = lerp(0.18, 2.7, up) + (a ? wav : -wav);
-          _o.position.set(x, y0 + bh * 0.8, z + sd * 0.19); _o.rotation.set(-sd * ang, 0, 0); _o.scale.setScalar(gap ? 0.0001 : hf); _o.translateY(-0.2); _o.updateMatrix(); CA.setMatrixAt(j * 2 + a, _o.matrix);
+          const sd = a ? 1 : -1, fa = a && flag;
+          T1.makeTranslation(0, 1.4, sd * 0.2); AM.multiplyMatrices(PM, T1);
+          if (on && clap && !fa) { const kk = Math.max(0, Math.sin((beat * 2 + hsh(pj) * 0.2) * PI * 2)); T1.makeRotationX(sd * (0.36 + 0.17 * kk)); T2.makeRotationZ(0.8); T1.multiply(T2); }
+          else if (on || fa) { T1.makeRotationX(-sd * ((fa ? (on ? 2.5 : 1.95) : 2.6) + (on ? Math.sin(now * 6 + pj + a) * 0.25 : 0))); }
+          else { T1.makeRotationX(-sd * (0.07 + 0.03 * Math.sin(now * 0.8 + pj))); T2.makeRotationZ(0.05 * Math.sin(now * 0.6 + pj * 1.7)); T1.multiply(T2); }
+          AM.multiply(T1); ARMC.setMatrixAt(j * 2 + a, AM);
+          T1.makeTranslation(0, -0.575, 0); AM.multiply(T1); HANDC.setMatrixAt(j * 2 + a, AM);
+          if (a) { if (fa) { T1.makeRotationX(PI + Math.sin(now * (on ? 5 : 1.5) + pj) * (on ? 0.4 : 0.15)); AM.multiply(T1); T1.makeRotationY(PI / 2); AM.multiply(T1); HF.setMatrixAt(j, AM); } else HF.setMatrixAt(j, ZERO); }
         }
+        j++;
       }
     }
-    CB.instanceMatrix.needsUpdate = CH.instanceMatrix.needsUpdate = CA.instanceMatrix.needsUpdate = true;
+    LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = j; ARMC.count = HANDC.count = j * 2;
+    for (const M of [LEGS, TORSOC, ARMC, HANDC, HEADC, HAIRS, HAIRL, CAP, HF]) { M.instanceMatrix.needsUpdate = true; M.instanceColor.needsUpdate = true; }
   }
 
   /* marcher records */
@@ -398,7 +478,7 @@ export function init(A) {
 
   const GAIT = { march: [1.2, 1, 0.025, 0], jazz: [0.5, 0.8, 0.02, 0.09], carnival: [0.62, 2, 0.05, 0.05], neon: [0.55, 1, 0.03, 0.06] };
   const GLOVE = { march: '#f7f3ea', carnival: '#f7f3ea', neon: '#1a1a22' };
-  let camX = 0, camD = 12, yaw = 0, pitch = 0, fps = [], lowQ = false, lastNow = 0;
+  let camX = 0, camD = 12, yaw = 0, pitch = 0, zoom = 1, fps = [], lowQ = false, lastNow = 0;
   const mat4 = new THREE.Matrix4(), off = new THREE.Matrix4(), rz = new THREE.Matrix4();
   function X(m) { return (m.x - A.VW() / 2) * PX; }
   function Z(m) { return (m.y - (A.VH() - 58)) * RZ; }
@@ -448,8 +528,8 @@ export function init(A) {
       mat4.copy(r.g.matrixWorld);
       for (let L = 0; L < 2; L++) {
         const up = (L === lg ? 1 : 0), th = go ? (up ? lift * g[0] : -lift * 0.14) : 0, sh = up ? -lift * g[0] * (sty === 'march' ? 1.05 : 0.9) : 0;
-        off.makeTranslation(0, 0.9 + r.up.position.y * 0.5, L ? 0.09 : -0.09); rz.makeRotationZ(th); off.multiply(rz); _m.multiplyMatrices(mat4, off);
-        THIGH.setMatrixAt(nl, _m); _m2.makeTranslation(0, -0.44, 0); rz.makeRotationZ(sh); _m2.multiply(rz); _m.multiply(_m2); SHIN.setMatrixAt(nl, _m);
+        off.makeTranslation(0, 0.94 + r.up.position.y * 0.5, L ? 0.085 : -0.085); rz.makeRotationZ(th); off.multiply(rz); _m.multiplyMatrices(mat4, off);
+        THIGH.setMatrixAt(nl, _m); _m2.makeTranslation(0, -0.47, 0); rz.makeRotationZ(sh); _m2.multiply(rz); _m.multiply(_m2); SHIN.setMatrixAt(nl, _m);
         const lc = m.leader && sty === 'jazz' ? '#1b1b22' : S.legs[0]; THIGH.setColorAt(nl, _c.set(lc)); SHIN.setColorAt(nl, _c); nl++;
       }
     }
@@ -463,9 +543,9 @@ export function init(A) {
     // camera: fit the band, 3/4 view from the near sidewalk
     if (mn > mx) { mn = mx = X(LEADER); }
     const y0 = cam.aspect < 1 ? 0.82 : 0.42, cx = (mn + mx) / 2, hw = ((mx - mn) / 2 + 1.5) * Math.cos(y0) + 1.2 * Math.sin(y0), vf = cam.fov * PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * cam.aspect);
-    const want = Math.min(30, Math.max(cam.aspect < 1 ? 7.2 : 6, hw / Math.tan(hf / 2) * 0.98));
+    const want = Math.min(30, Math.max(cam.aspect < 1 ? 7.2 : 6, hw / Math.tan(hf / 2) * 0.98)) * zoom;
     const k = camX === null ? 1 : Math.min(1, dt * 2); camX += (cx - camX) * k; camD += (want - camD) * k;
-    const ya = y0 + yaw, pa = 0.2 + pitch, tx = camX - 0.2, ty = 1.15, tz = -0.2;
+    const ya = y0 + yaw, pa = 0.2 + pitch, tx = camX - 0.2, ty = 1.15 + Math.max(0, 1 - zoom) * 0.5, tz = -0.2;
     cam.position.set(tx + Math.sin(ya) * Math.cos(pa) * camD, ty + Math.sin(pa) * camD, tz + Math.cos(ya) * Math.cos(pa) * camD); cam.lookAt(tx, ty, tz);
     const so = sun.userData.off; sun.position.set(tx + so[0], so[1], tz + so[2]); sun.target.position.set(tx, 0, tz);
     const sp2 = LIGHT[sty].sunPos; sunD.position.set(tx + sp2[0], sp2[1], sp2[2]); sunD.scale.setScalar(S.neon ? 44 : 34); sunD.lookAt(cam.position);
@@ -493,7 +573,9 @@ export function init(A) {
   function proj(m) { const v = projM(m, 2.05); return [(v.x + 1) / 2 * A.VW(), (1 - v.y) / 2 * A.VH()]; }
   function orbit(dx, dy) { yaw = Math.max(-1.0, Math.min(1.1, yaw - dx * 0.006)); pitch = Math.max(-0.14, Math.min(0.55, pitch + dy * 0.004)); }
   function screen(m) { const v = projM(m, 1.0), r = canvas.getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }
+  // zoom in to see faces (0.28 = nose to nose), out to see the whole street; returns false at a limit so the page can scroll
+  function zoomBy(f) { const z = Math.max(0.28, Math.min(1.6, zoom * f)); if (Math.abs(z - zoom) < 1e-4) return false; zoom = z; return true; }
   function show(on) { canvas.hidden = !on; if (on) resize(); }
   function stats() { return { calls: R.info.render.calls, tris: R.info.render.triangles, lowQ }; }
-  return { render, resize, pick, proj, show, stats, orbit, screen };
+  return { render, resize, pick, proj, show, stats, orbit, screen, zoomBy };
 }
