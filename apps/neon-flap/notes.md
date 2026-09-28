@@ -1,55 +1,25 @@
-# Neon Flap
+# Neon Flap — the flappier bird
+
+## art direction
+- A semi-realistic painted pigeon (grey body, iridescent green-violet neck, orange eye, sunset rim light) in a real dusk skyline photo (`bg.jpg`, pollinations, watermark cropped), flying through dark glass pipes with magenta neon edges. Photo far and soft, everything that can kill you sharp neon.
+- Fonts: Monoton (logo, stage banners, SPLAT) + Orbitron (numbers, UI).
 
 ## log
+- 2026-09-28: **v2 full rewrite for varj1** ("a flappier bird", "photorealistic", crash = "explosion", shout "Bacock!" after the Space Quest death). Logical 360 wide, height follows the stage aspect (560–820); fills the whole screen on portrait phones, 9:16 card on desktop. Fixed 1/120 step. Hard-down / lazy-up wing stroke with fanned primaries, squash, puff ring, shed feathers, "flap / FLAP FLAP / FLAPFLAPFLAP" streak text. Stages: 5 pipes wake up (bob + eyes that follow you), 10 pipes grow neon wings and flap on their own physics, 20 flock season (distant birds), 35 everything flaps. Golden feathers between pipes (+1). Crash: slow-mo, shake, flash, 28-feather burst + poof + BACOCK! text and squawk, pigeon tumbles and lands belly-up. Over panel: score, best, flaps this run, all-time flaps, stage reached. Synth SFX, sound toggle (M). Kept localStorage `neonFlapHighScore` so old bests carry over; new keys `neonFlap.flaps`, `neonFlap.snd`. og.png made from game shots.
 - 2026-01-02: Initial creation - neon Flappy Bird clone
 
-## features
-- Classic flappy bird mechanics
-- Tap/click/space to flap
-- Neon glowing pipes (magenta)
-- Glowing bird (cyan/teal)
-- Score counter
-- High score saved to localStorage
-- Game over screen with retry
-- New high score celebration
-- Animated wing flapping
-- Starfield background
-- Subtle grid overlay
+## tuning (v2)
+- gravity 1500, flap vy -440, max fall 760, hitbox r 12 (bird drawn ~1.22x), pipe width 58, caps 16 tall and 5 wider each side.
+- ST table: speed 162→192, gap 164→148, spacing 226→198.
+- Ceiling clamps (no death), ground kills.
 
-## design
-- Dark background with gradient
-- Cyan bird with glow effect
-- Magenta pipes with edge highlights
-- Orbitron font throughout
-- Responsive 9:16 aspect ratio
-- Twinkling star particles
-
-## technical
-- Canvas-based rendering
-- requestAnimationFrame game loop
-- localStorage for high score persistence
-- Touch and keyboard input
-- Collision detection with gap
-
-## game constants
-- Gravity: 0.4
-- Flap power: -7
-- Pipe speed: 3
-- Pipe gap: 150px
-- Pipe width: 60px
-- Spawn rate: every 100 frames
-
-## controls
-- Space bar: flap (also starts/restarts)
-- Click/tap canvas: flap
+## testing
+- Probe: scratchpad gaunt/sw/flap with a bot autopilot (flap when bird.y > next gap centre + 16). `window.__nf` debug hook (state, score, setScore to jump stages, step). Bot clears the winged stage fine.
 
 ## issues
-- None yet
+- none reported yet
 
 ## todos
-- Add sound effects
-- Add difficulty progression
-- Add different bird skins
-- Add online leaderboard (Supabase)
-- Add parallax background layers
-- Add particle trail on bird
+- a daily best / online leaderboard
+- moon that flaps at stage 35 (joke idea from stream)
+- bird skins (crow, seagull)
