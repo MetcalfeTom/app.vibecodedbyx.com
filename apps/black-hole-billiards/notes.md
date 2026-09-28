@@ -4,6 +4,7 @@ Pool on a table in space: planets and stars bend shots, pockets are black holes.
 
 ## log
 - v1.0: 7 tables (Flat Space, Pale Moon, Binary Stars, Asteroid Belt, Gas Giant, Slingshot, Event Horizon), par + stars, best shots in localStorage (bhb.best), slingshot drag aim with a gravity-bent preview (first 330 units, ghost ball at first contact), keyboard aim (arrows, space twice), portrait phones rotate the table 90°, WebAudio clacks and gulps (bhb.snd).
+- v1.1: table 8 Moon Cue (Tatum): the cue ball has gravity (cueM 3e6) and tugs balls it passes; dotted ring shows its reach (sqrt(cueM/MUS)). Tugged balls carry b.ex so move() doesn't put them back to rest.
 
 ## issues
 - Resting balls ignore gravity until hit (static friction MUS=420). When placing balls, keep |g| < MUS at every spot; the probe prints gmax per table.
@@ -11,7 +12,6 @@ Pool on a table in space: planets and stars bend shots, pockets are black holes.
 - `.panel[hidden]` needs its own display:none because .panel sets display:grid.
 
 ## todos
-- Tatum: a moon cue ball with its own gravity that tugs the balls it passes.
 - A drifting moon that moves only while balls roll.
 - Two-player hot seat.
 
