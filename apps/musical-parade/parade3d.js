@@ -21,7 +21,7 @@ function merge(list) {
   r.computeBoundingSphere(); return r;
 }
 class Kit {
-  constructor() { this.L = { b: [], m: [], g: [] }; this.X = null; }
+  constructor() { this.L = { b: [], m: [], g: [], hb: [], hm: [], hg: [] }; this.X = null; this.H = false; }
   put(geo, c, x, y, z, rx, ry, rz, sx, sy, sz, layer) {
     _o.position.set(x, y, z); _o.rotation.set(rx || 0, ry || 0, rz || 0); _o.scale.set(sx || 1, sy || sx || 1, sz || sx || 1); _o.updateMatrix();
     const g = geo.index ? geo.toNonIndexed() : geo; if (g !== geo) geo.dispose();
@@ -29,7 +29,7 @@ class Kit {
     g.applyMatrix4(_o.matrix); if (this.X) g.applyMatrix4(this.X);
     const k = C(c), n = g.attributes.position.count, a = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { a[i * 3] = k.r; a[i * 3 + 1] = k.g; a[i * 3 + 2] = k.b; }
-    g.setAttribute('color', new THREE.BufferAttribute(a, 3)); this.L[layer || 'b'].push(g); return this;
+    g.setAttribute('color', new THREE.BufferAttribute(a, 3)); this.L[this.H ? (layer === 'g' ? 'hg' : 'hb') : layer || 'b'].push(g); return this;
   }
   cyl(c, x, y, z, rt, rb, h, rx, ry, rz, L, seg) { return this.put(new THREE.CylinderGeometry(rt, rb, h, seg || 12), c, x, y, z, rx, ry, rz, 1, 1, 1, L); }
   sph(c, x, y, z, r, sx, sy, sz, L) { return this.put(new THREE.SphereGeometry(r, 12, 9), c, x, y, z, 0, 0, 0, sx || 1, sy || sx || 1, sz || sx || 1, L); }
@@ -66,14 +66,16 @@ function buildMarcher(sty, type, S, ti) {
   let hands = [[0.2, 1.05, -0.2], [0.2, 1.05, 0.2]], act = null, actAt = [0, 0, 0], handAct = -1;
   // torso: one lathe, then shoulders
   k.lathe(coat, TORSO, 0, 0, 0, TSX, 1, TSZ, 20);
-  k.sph(coat, 0, 1.4, -0.2, 0.064).sph(coat, 0, 1.4, 0.2, 0.064);
+  k.sph(coat, 0, 1.392, -0.192, 0.066, 1.05, 0.78, 1.05).sph(coat, 0, 1.392, 0.192, 0.066, 1.05, 0.78, 1.05);
   const belt = (c, y, h) => k.put(new THREE.CylinderGeometry(0.172, 0.172, h, 20), c, 0, y, 0, 0, 0, 0, TSX + 0.03, 1, TSZ + 0.02);
-  belt(jazz ? '#1b1b22' : carn ? trim : march ? WHITE : '#120c24', 0.93, 0.06);
+  belt(jazz || march ? '#1b1b22' : carn ? trim : '#120c24', 0.93, 0.06);
   const F = (y, d) => fx(y) + (d || 0.006);
   if (march) {
-    for (const sd of [-1, 1]) { k.seg(WHITE, [F(0.97), 0.97, -sd * 0.12], [F(1.3, 0.01), 1.3, sd * 0.04], 0.016).seg(WHITE, [F(1.3, 0.01), 1.3, sd * 0.04], [0.06, 1.47, sd * 0.14], 0.016); }
-    for (let i = 0; i < 3; i++) k.sph(BRASS, F(1.06 + i * 0.12, 0.004), 1.06 + i * 0.12, 0, 0.016, 1, 1, 1, 'm');
-    k.sph(BRASS, 0, 1.455, -0.2, 0.072, 1, 0.38, 1.2, 'm').sph(BRASS, 0, 1.455, 0.2, 0.072, 1, 0.38, 1.2, 'm');
+    const bc = trim === WHITE || trim === '#fffaf0' ? '#b8322a' : trim;
+    if (lead) for (const sd of [-1, 1]) k.seg(WHITE, [F(0.97), 0.97, -sd * 0.12], [F(1.3, 0.01), 1.3, sd * 0.04], 0.016).seg(WHITE, [F(1.3, 0.01), 1.3, sd * 0.04], [0.06, 1.47, sd * 0.14], 0.016);
+    else { k.box(bc, F(1.2, 0.002), 1.2, 0, 0.01, 0.5, 0.05); for (let i = 0; i < 4; i++) for (const sd of [-1, 1]) k.sph(BRASS, F(1.02 + i * 0.1, 0.006), 1.02 + i * 0.1, sd * 0.045, 0.012, 1, 1, 1, 'm'); }
+    if (lead) k.sph(BRASS, 0, 1.455, -0.2, 0.072, 1, 0.38, 1.2, 'm').sph(BRASS, 0, 1.455, 0.2, 0.072, 1, 0.38, 1.2, 'm');
+    else k.box(bc, 0, 1.448, -0.19, 0.15, 0.018, 0.085, 0.12, 0, 0).box(bc, 0, 1.448, 0.19, 0.15, 0.018, 0.085, -0.12, 0, 0);
     k.cyl(trim === WHITE || trim === '#fffaf0' ? '#b8322a' : trim, 0.005, 1.5, 0, 0.062, 0.072, 0.06);
   } else if (jazz) {
     if (!lead) {
@@ -90,8 +92,8 @@ function buildMarcher(sty, type, S, ti) {
     k.cyl(trim, 0.005, 1.5, 0, 0.066, 0.078, 0.035, 0, 0, 0, 'g', 12);
     k.box(coat, 0, 1.445, -0.2, 0.2, 0.08, 0.12).box(coat, 0, 1.445, 0.2, 0.2, 0.08, 0.12);
   }
-  // face: eyes, brows, lips, then hair (neon wears a glowing visor instead of eyes)
-  const hx = HEAD[0], hy = HEAD[1];
+  // face: eyes, brows, lips, then hair (neon wears a glowing visor instead of eyes); all of it rides on the head pivot
+  const hx = HEAD[0], hy = HEAD[1]; k.H = true;
   if (!neon) {
     for (const sd of [-1, 1]) {
       k.put(new THREE.SphereGeometry(0.0135, 8, 6), '#f2ece4', hx + 0.083, hy + 0.02, sd * 0.033, 0, 0, 0, 0.6, 1, 1);
@@ -110,10 +112,12 @@ function buildMarcher(sty, type, S, ti) {
       k.sph('#15151c', hx - 0.01, hy + 0.24, 0, 0.16, 1, 1.4, 1).tor(BRASS, hx + 0.012, hy - 0.03, 0, 0.098, 0.006, 0, PI / 2, 0.35, 0, 'm');
       k.cyl(trim === WHITE ? '#fffaf0' : trim, hx - 0.02, hy + 0.34, 0.15, 0.03, 0.02, 0.34, -0.25, 0, 0).sph('#b8322a', hx - 0.02, hy + 0.51, 0.19, 0.045);
     } else {
-      k.cyl(INK, hx - 0.01, hy + 0.14, 0, 0.115, 0.108, 0.22, 0, 0, 0, 'b', 18).cyl('#0d1320', hx + 0.075, hy + 0.04, 0, 0.085, 0.085, 0.012, 0, 0, -0.25);
-      k.put(new THREE.CircleGeometry(0.045, 12), BRASS, hx + 0.104, hy + 0.14, 0, 0, PI / 2, 0, 1, 1, 1, 'm');
-      k.cyl(BRASS, hx - 0.01, hy + 0.245, 0, 0.116, 0.116, 0.012, 0, 0, 0, 'm', 18);
-      k.cyl(trim, hx, hy + 0.34, 0, 0.032, 0.016, 0.2).sph(trim, hx, hy + 0.45, 0, 0.038, 1, 1.3, 1);
+      const bc = trim === WHITE || trim === '#fffaf0' ? '#b8322a' : trim;
+      k.cyl(INK, hx - 0.018, hy + 0.13, 0, 0.132, 0.106, 0.075, 0, 0, 0.06, 'b', 18).cyl(INK, hx - 0.024, hy + 0.17, 0, 0.128, 0.132, 0.012, 0, 0, 0.06, 'b', 18);
+      k.cyl(bc, hx - 0.008, hy + 0.083, 0, 0.109, 0.109, 0.032, 0, 0, 0.03, 'b', 18);
+      k.put(new THREE.CylinderGeometry(0.1, 0.1, 0.01, 16, 1, false, 0, PI), '#0d1320', hx + 0.022, hy + 0.064, 0, 0, 0, -0.2, 1.05, 1, 1.25);
+      k.seg(BRASS, [hx + 0.1, hy + 0.072, -0.07], [hx + 0.108, hy + 0.072, 0.07], 0.005, 'm');
+      k.put(new THREE.CircleGeometry(0.024, 10), BRASS, hx + 0.118, hy + 0.13, 0, 0, PI / 2, 0.06, 1, 1.2, 1, 'm');
     }
   } else if (jazz) {
     if (lead) { k.sph('#18181e', hx - 0.01, hy + 0.1, 0, 0.125, 1, 0.8, 1).cyl('#18181e', hx - 0.01, hy + 0.088, 0, 0.2, 0.2, 0.014, 0, 0, 0, 'b', 18).cyl(trim, hx - 0.01, hy + 0.11, 0, 0.127, 0.127, 0.03, 0, 0, 0, 'b', 18); }
@@ -129,6 +133,7 @@ function buildMarcher(sty, type, S, ti) {
     k.put(new THREE.SphereGeometry(0.07, 12, 8), hairC, hx - 0.085, hy - 0.07, 0, 0, 0, 0, 0.7, 1.3, 1.05);
     k.box(trim, hx + 0.092, hy + 0.022, 0, 0.02, 0.03, 0.17, 0, 0, 0, 'g');
   }
+  k.H = false;
   // instruments
   const sh = [[0.01, 1.41, -0.2], [0.01, 1.41, 0.2]];
   if (type === 'snare') {
@@ -354,7 +359,7 @@ export function init(A) {
   const HAIRS = winst(hairG(false), crowdV, NC), HAIRL = winst(hairG(true), crowdV, NC);
   const CAP = winst(cg(k => { k.put(new THREE.SphereGeometry(0.108, 10, 5, 0, PI * 2, 0, PI / 2), '#fff', -0.005, 1.668, 0, 0, 0, 0, 1.06, 0.55, 0.98); k.put(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 10), '#fff', 0.085, 1.672, 0, 0, 0, -0.12, 1, 1, 1.2); }), crowdV, NC);
   const PANTS = ['#2b3a55', '#3b3b3b', '#5a4632', '#1f2a3a', '#6b6f78', '#caa77a', '#2f3b2c'], HAIRC = ['#2a1d14', '#5a3a22', '#c9a063', '#1b1b1b', '#8c4a2f', '#b8b0a4', '#3b2a1e'], CAPC = ['#4a4038', '#2f3a2f', '#6b5a44', '#1f2430', '#8a6a4a', '#b8322a'];
-  const PM = new THREE.Matrix4(), AM = new THREE.Matrix4(), T1 = new THREE.Matrix4(), T2 = new THREE.Matrix4(), ZERO = new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4);
+  const PM = new THREE.Matrix4(), AM = new THREE.Matrix4(), T1 = new THREE.Matrix4(), T2 = new THREE.Matrix4(), ZERO = new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4), HM = new THREE.Matrix4(), T3 = new THREE.Matrix4();
   // each person's colours, set per building slot; only people in view get packed into the instance buffers each frame
   const CCOL = Array.from({ length: NC }, () => ({ sh: new THREE.Color(), pa: new THREE.Color(), sk: new THREE.Color(), ha: new THREE.Color(), ca: new THREE.Color(), fl: new THREE.Color() }));
   const frus = new THREE.Frustum(), PV = new THREE.Matrix4(), BB = new THREE.Box3();
@@ -362,6 +367,9 @@ export function init(A) {
   const XF = winst(flagG, flagM, NB * 12);
   const hfG = (() => { const k = new Kit(); k.cyl('#3a3a3a', 0, 0.2, 0, 0.008, 0.008, 0.4, 0, 0, 0, 'b', 5).box('#ffffff', 0.11, 0.33, 0, 0.2, 0.13, 0.006); return k.build().b; })();
   const hfM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }), HF = winst(hfG, hfM, NB * CPB);
+  // phones held up to film the band: screen towards the holder, the video light on the back
+  const phG = (() => { const k = new Kit(); k.box('#17171d', 0, 0.05, 0, 0.012, 0.13, 0.068).box('#cfe6ff', -0.0066, 0.05, 0, 0.0015, 0.114, 0.058).box('#ffffff', 0.0066, 0.1, 0.022, 0.0015, 0.012, 0.012); return k.build().b; })();
+  const PHONE = new THREE.InstancedMesh(phG, new THREE.MeshBasicMaterial({ vertexColors: true }), NB * CPB); PHONE.frustumCulled = false; PHONE.count = 0; world.add(PHONE);
   const cfM = new THREE.MeshBasicMaterial(), CF = winst(new THREE.PlaneGeometry(0.07, 0.045).rotateX(-PI / 2), cfM, NB * 40);
   // sky bits
   const sunM = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, fog: false }), sunD = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), sunM); sunD.renderOrder = -1; scene.add(sunD);
@@ -599,7 +607,7 @@ export function init(A) {
   // second line: followers who step off the sidewalk and dance along behind a big band
   const NFOL = 9, FJ = new Float32Array(NFOL), FPM = Array.from({ length: NFOL }, () => new THREE.Matrix4()), FPH = new Float32Array(NFOL), FCL = new Array(NFOL); let nFol = 0;
   function crowd(p, now, exc, dt) {
-    const beat = p / 4; let j = 0;
+    const beat = p / 4, bw = (camX === null ? 0 : camX) - world.position.x; let j = 0;
     PV.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); frus.setFromProjectionMatrix(PV);
     for (let s = 0; s < NB; s++) {
       const i = base + s - (NB >> 1), x0 = (s - (NB >> 1)) * BW + BW / 2, wx = x0 + world.position.x;
@@ -613,19 +621,38 @@ export function init(A) {
         HEADC.setColorAt(j, q.sk); HANDC.setColorAt(j * 2, q.sk); HANDC.setColorAt(j * 2 + 1, q.sk); HAIRS.setColorAt(j, q.ha); HAIRL.setColorAt(j, q.ha); CAP.setColorAt(j, q.ca);
         const kid = hsh(pj + 0.9) < 0.12, hf = kid ? 0.6 + hsh(pj + 0.5) * 0.1 : 0.9 + hsh(pj + 0.5) * 0.16, row = c & 1;
         const x = x0 + (c - 2.5) * 0.72 + (h1 - 0.5) * 0.3, z = -4.05 - row * 0.8 - hsh(pj + 0.2) * 0.15;
-        const hype = exc > hsh(pj + 0.6) * 0.9, on = st.playing && hype, jump = on ? Math.max(0, Math.sin((beat + hsh(pj) * 0.3) * PI * 2)) * 0.07 * exc : 0;
-        _o.position.set(x, 0.16 + jump, z); _o.rotation.set(0, -PI / 2 + (hsh(pj + 0.66) - 0.5) * 0.6, 0); _o.scale.setScalar(hf); _o.updateMatrix(); PM.copy(_o.matrix);
-        LEGS.setMatrixAt(j, PM); TORSOC.setMatrixAt(j, PM); HEADC.setMatrixAt(j, PM);
+        // moods: 0 cheers, 1 claps on the beat, 2 sways, 3 waves, 4 films it on a phone, 5 dances, 6 just watches
+        const mood = Math.floor(hsh(pj + 0.44) * 7), hype = exc > hsh(pj + 0.6) * 0.9, on = st.playing && hype;
+        const jump = on ? Math.max(0, Math.sin((beat + hsh(pj) * 0.3) * PI * 2)) * 0.07 * exc * (mood < 2 || mood === 5 ? 1 : mood === 4 ? 0 : 0.35) : 0;
+        // everyone turns a little toward the band as it passes, and their heads follow it the rest of the way
+        const tb = Math.max(-PI / 2 - 1.1, Math.min(-PI / 2 + 1.1, Math.atan2(z, bw - x))), b0 = -PI / 2 + (hsh(pj + 0.66) - 0.5) * 0.6;
+        let yaw = lerp(b0, tb, st.playing ? (mood === 4 ? 0.65 : 0.35) : 0.08), roll;
+        if (on && mood === 5) yaw += Math.sin(beat * PI + pj) * 0.32;
+        if (on && (mood === 2 || mood === 5)) roll = Math.sin(beat * PI + pj) * (mood === 2 ? 0.075 : 0.045);
+        else roll = Math.sin(now * 0.45 + pj * 2.3) * 0.022;   // shifting their weight
+        _o.position.set(x, 0.16 + jump, z); _o.rotation.set(0, yaw, 0); _o.scale.setScalar(hf); _o.updateMatrix(); PM.copy(_o.matrix); T1.makeRotationX(roll); PM.multiply(T1);
+        // heads track the band while it plays; between songs people look about and chat with their neighbours
+        let hy, nod;
+        if (st.playing) { hy = Math.max(-0.9, Math.min(0.9, tb - yaw)); nod = on ? (mood === 0 ? 0.12 : 0) - Math.max(0, Math.sin((beat + hsh(pj) * 0.3) * PI * 2)) * (mood === 2 || mood === 6 ? 0.11 : 0.06) : -Math.max(0, Math.sin(beat * PI * 2)) * 0.05 * hsh(pj + 0.88); }
+        else { const g = Math.sin(now * 0.31 + pj * 3.1) + 0.5 * Math.sin(now * 0.73 + pj); hy = Math.max(-1, Math.min(1, g * 0.7)); nod = Math.sin(now * 0.5 + pj) * 0.04; }
+        T1.makeTranslation(0, 1.5, 0); HM.multiplyMatrices(PM, T1); T1.makeRotationY(hy); HM.multiply(T1); T1.makeRotationZ(nod); HM.multiply(T1); T1.makeTranslation(0, -1.5, 0); HM.multiply(T1);
+        LEGS.setMatrixAt(j, PM); TORSOC.setMatrixAt(j, PM); HEADC.setMatrixAt(j, HM);
         const capOn = hsh(pj + 0.61) < 0.16, lng = !capOn && !kid && hsh(pj + 0.71) < 0.42;
-        HAIRS.setMatrixAt(j, lng ? ZERO : PM); HAIRL.setMatrixAt(j, lng ? PM : ZERO); CAP.setMatrixAt(j, capOn ? PM : ZERO);
-        const flag = hsh(pj + 0.33) > 0.62, clap = hsh(pj + 0.77) < 0.5;
+        HAIRS.setMatrixAt(j, lng ? ZERO : HM); HAIRL.setMatrixAt(j, lng ? HM : ZERO); CAP.setMatrixAt(j, capOn ? HM : ZERO);
+        const flag = mood !== 4 && hsh(pj + 0.33) > 0.62, film = on && mood === 4;
         for (let a = 0; a < 2; a++) {
           const sd = a ? 1 : -1, fa = a && flag;
           T1.makeTranslation(0, 1.4, sd * 0.2); AM.multiplyMatrices(PM, T1);
-          if (on && clap && !fa) { const kk = Math.max(0, Math.sin((beat * 2 + hsh(pj) * 0.2) * PI * 2)); T1.makeRotationX(sd * (0.36 + 0.17 * kk)); T2.makeRotationZ(0.8); T1.multiply(T2); }
-          else if (on || fa) { T1.makeRotationX(-sd * ((fa ? (on ? 2.5 : 1.95) : 2.6) + (on ? Math.sin(now * 6 + pj + a) * 0.25 : 0))); }
-          else { T1.makeRotationX(-sd * (0.07 + 0.03 * Math.sin(now * 0.8 + pj))); T2.makeRotationZ(0.05 * Math.sin(now * 0.6 + pj * 1.7)); T1.multiply(T2); }
+          if (fa) T1.makeRotationX(-sd * ((on ? 2.5 : 1.95) + (on ? Math.sin(now * 6 + pj + a) * 0.25 : 0)));
+          else if (!on) { T1.makeRotationX(-sd * (0.07 + 0.03 * Math.sin(now * 0.8 + pj))); T2.makeRotationZ(0.05 * Math.sin(now * 0.6 + pj * 1.7)); T1.multiply(T2); }
+          else if (mood === 0) { const pu = 0.5 + 0.5 * Math.sin((beat + a * 0.5) * PI * 2 + pj); T1.makeRotationX(sd * 0.42); T2.makeRotationZ(2.2 + 0.5 * pu); T1.multiply(T2); }   // both arms up, pumping to the beat
+          else if (mood === 1) { const kk = Math.max(0, Math.sin((beat * 2 + hsh(pj) * 0.2) * PI * 2)); T1.makeRotationX(sd * (0.36 + 0.17 * kk)); T2.makeRotationZ(0.8); T1.multiply(T2); }
+          else if (mood === 3 && a) T1.makeRotationX(-sd * (2.4 + Math.sin(now * 7.5 + pj) * 0.38));
+          else if (film && a) { T1.makeRotationX(sd * 0.06); T2.makeRotationZ(1.52); T1.multiply(T2); }
+          else if (mood === 5) { const sw = Math.sin(beat * PI + a * PI + pj); T1.makeRotationX(-sd * 0.28); T2.makeRotationZ(0.95 + 0.55 * sw); T1.multiply(T2); }
+          else { T1.makeRotationX(-sd * (0.08 + (mood === 2 ? 0.06 * Math.sin(beat * PI + a) : 0))); T2.makeRotationZ(mood === 2 ? 0.22 * Math.sin(beat * PI + a * PI) : -0.05); T1.multiply(T2); }
           AM.multiply(T1); ARMC.setMatrixAt(j * 2 + a, AM);
+          if (a) { if (film && !fa) { T2.copy(T1).invert(); T3.makeTranslation(0, -0.6, 0); HM.multiplyMatrices(AM, T3); HM.multiply(T2); PHONE.setMatrixAt(j, HM); } else PHONE.setMatrixAt(j, ZERO); }
           T1.makeTranslation(0, -0.575, 0); AM.multiply(T1); HANDC.setMatrixAt(j * 2 + a, AM);
           if (a) { if (fa) { T1.makeRotationX(PI + Math.sin(now * (on ? 5 : 1.5) + pj) * (on ? 0.4 : 0.15)); AM.multiply(T1); T1.makeRotationY(PI / 2); AM.multiply(T1); HF.setMatrixAt(j, AM); } else HF.setMatrixAt(j, ZERO); }
         }
@@ -646,7 +673,7 @@ export function init(A) {
       T1.makeTranslation(-world.position.x, 0, 0); PM.multiplyMatrices(T1, _o.matrix);   // the crowd meshes live in the scrolling world group
       TORSOC.setColorAt(j, q.sh); ARMC.setColorAt(j * 2, q.sh); ARMC.setColorAt(j * 2 + 1, q.sh); LEGS.setColorAt(j, q.pa); HF.setColorAt(j, WHITE3);
       HEADC.setColorAt(j, q.sk); HANDC.setColorAt(j * 2, q.sk); HANDC.setColorAt(j * 2 + 1, q.sk); HAIRS.setColorAt(j, q.ha); HAIRL.setColorAt(j, q.ha); CAP.setColorAt(j, q.ca);
-      LEGS.setMatrixAt(j, ZERO); TORSOC.setMatrixAt(j, PM); HEADC.setMatrixAt(j, PM);
+      LEGS.setMatrixAt(j, ZERO); TORSOC.setMatrixAt(j, PM); HEADC.setMatrixAt(j, PM); PHONE.setMatrixAt(j, ZERO);
       const capOn = hsh(pj + 0.61) < 0.2, lng = !capOn && hsh(pj + 0.71) < 0.45;
       HAIRS.setMatrixAt(j, lng ? ZERO : PM); HAIRL.setMatrixAt(j, lng ? PM : ZERO); CAP.setMatrixAt(j, capOn ? PM : ZERO);
       const hk = sty === 'jazz' && f % 2 === 0;
@@ -661,6 +688,7 @@ export function init(A) {
     }
     LEGS.count = TORSOC.count = HEADC.count = HAIRS.count = HAIRL.count = CAP.count = HF.count = j; ARMC.count = HANDC.count = j * 2;
     for (const M of [LEGS, TORSOC, ARMC, HANDC, HEADC, HAIRS, HAIRL, CAP, HF]) { M.instanceMatrix.needsUpdate = true; M.instanceColor.needsUpdate = true; }
+    PHONE.count = j; PHONE.instanceMatrix.needsUpdate = true;
   }
 
   /* marcher records */
@@ -674,17 +702,19 @@ export function init(A) {
   function rec(m) {
     let r = recs.get(m); const key = sty + '|' + (m.leader ? 'lead' : m.type);
     if (r && r.key === key) return r;
-    if (!r) { r = { g: new THREE.Group(), up: new THREE.Group(), meshes: [] }; r.g.add(r.up); scene.add(r.g); recs.set(m, r); }
+    if (!r) { r = { g: new THREE.Group(), up: new THREE.Group(), hd: new THREE.Group(), hdi: new THREE.Group(), meshes: [], sd: Math.random(), hs: m.leader ? 1.04 : 0.95 + Math.random() * 0.1 }; r.g.add(r.up); r.up.add(r.hd); r.hd.add(r.hdi); r.hd.position.set(0.02, 1.5, 0); r.hdi.position.set(-0.02, -1.5, 0); scene.add(r.g); recs.set(m, r); }
     r.meshes.forEach(x => { x.parent.remove(x); }); r.meshes = []; r.key = key;
     const G = geoFor(m.leader ? 'lead' : m.type);
     const mk = (geo, mat, parent) => { if (!geo) return null; const x = new THREE.Mesh(geo, mat); x.castShadow = true; parent.add(x); r.meshes.push(x); return x; };
-    mk(G.b, MAT, r.up); mk(G.m, METAL, r.up); mk(G.g, GLOW, r.up);
+    mk(G.b, MAT, r.up); mk(G.m, METAL, r.up); mk(G.g, GLOW, r.up); mk(G.hb, MAT, r.hdi); mk(G.hm, METAL, r.hdi); mk(G.hg, GLOW, r.hdi);
     r.act = null;
     if (G.act) { r.act = new THREE.Group(); r.act.position.fromArray(G.actAt); r.up.add(r.act); r.meshes.push(r.act); mk(G.act.b, MAT, r.act); mk(G.act.m, METAL, r.act); mk(G.act.g, GLOW, r.act); }
     r.G = G; return r;
   }
 
-  const GAIT = { march: [1.2, 1, 0.025, 0], jazz: [0.5, 0.8, 0.02, 0.09], carnival: [0.62, 2, 0.05, 0.05], neon: [0.55, 1, 0.03, 0.06] };
+  const GAIT = { march: [1.0, 1, 0.025, 0], jazz: [0.5, 0.8, 0.02, 0.09], carnival: [0.62, 2, 0.05, 0.05], neon: [0.55, 1, 0.03, 0.06] };
+  // [timing spread in steps, shoulder twist, head nod]: nobody in a real band is a clockwork copy of the next player
+  const LIFE = { march: [0.06, 0.03, 0.015], jazz: [0.24, 0.07, 0.06], carnival: [0.16, 0.08, 0.05], neon: [0.1, 0.05, 0.05] }, MOUTH = new Set(['bone', 'trumpet', 'flute', 'tuba']);
   const GLOVE = { march: '#f7f3ea', carnival: '#f7f3ea', neon: '#1a1a22' };
   let camX = 0, camD = 12, yaw = 0, pitch = 0, zoom = 1, fps = [], lowQ = false, lastNow = 0;
   const mat4 = new THREE.Matrix4(), off = new THREE.Matrix4(), rz = new THREE.Matrix4();
@@ -710,12 +740,18 @@ export function init(A) {
       const r = rec(m); seen.add(m);
       const x = X(m), z = Z(m), mv = Math.abs(m.tx - m.x) > 3 || m.gone, go = st.playing || mv;
       if (!m.gone) { mn = Math.min(mn, x); mx = Math.max(mx, x); }
-      let ph = (st.playing && !m.gone ? p / 4 : now * 2) * g[1]; const fr = ph - Math.floor(ph), lg = Math.floor(ph) & 1, lift = go ? Math.sin(fr * PI) : 0;
+      const lf = LIFE[sty] || LIFE.march;
+      let ph = (st.playing && !m.gone ? p / 4 : now * 2) * g[1] + (m.leader ? 0 : (r.sd - 0.5) * 2 * lf[0]); const fr = ph - Math.floor(ph), lg = Math.floor(ph) & 1, lift = go ? Math.sin(fr * PI) : 0, wa = ph * PI;
       const hit = Math.max(0, 1 - (now - m.hit) / 0.14);
       const isSolo = sm === m, sol = isSolo ? st.spotA : 0;
       r.g.position.set(x, 0, z); r.g.rotation.y = m.gone ? lerp(r.g.rotation.y, PI, Math.min(1, dt * 5)) : -0.75 * sol;
-      r.g.scale.setScalar(1 + 0.06 * sol);
-      r.up.position.y = go ? Math.abs(Math.sin(fr * PI)) * g[2] : 0;
+      r.g.scale.setScalar((1 + 0.06 * sol) * r.hs);
+      r.up.position.y = go ? (sty === 'march' ? Math.abs(Math.sin(fr * PI)) : Math.abs(Math.cos(wa))) * g[2] : 0;
+      r.up.rotation.y = go ? Math.sin(wa) * lf[1] : 0; r.up.position.z = go ? Math.sin(wa) * 0.012 : 0;
+      // heads: now and then a glance at the crowd (or a sneaky one at the camera), a nod on the beat; horn players keep their lips on the mouthpiece
+      if (m.gone || MOUTH.has(m.type) && !m.leader) r.hd.rotation.set(0, 0, 0);
+      else { const gq = now * 0.22 + r.sd * 9, gs = Math.floor(gq), gt = gq - gs, lk = hsh(gs * 1.7 + r.sd * 31) < (m.leader ? 0.7 : 0.45) ? Math.sin(Math.min(1, gt / 0.5) * PI) * (hsh(gs * 2.3 + r.sd * 17) < 0.62 ? 0.72 : -0.55) : 0;
+        r.hd.rotation.set(0, lk, go ? 0.02 - Math.abs(Math.sin(wa)) * lf[2] : 0); }
       r.up.rotation.x = go ? Math.sin(ph * PI) * g[3] : 0;
       r.up.rotation.z = (['bone', 'trumpet', 'flute', 'tuba'].includes(m.type) ? hit * 0.05 : 0) - (sty === 'neon' && go ? 0.04 * Math.sin(ph * PI * 2) : 0);
       if (r.act) {
@@ -730,13 +766,15 @@ export function init(A) {
       r.g.updateMatrixWorld(true);
       // head + hands
       mat4.copy(r.up.matrixWorld);
-      off.makeTranslation(HEAD[0], HEAD[1], HEAD[2]); _m.multiplyMatrices(mat4, off); HEADS.setMatrixAt(nh, _m); HEADS.setColorAt(nh, _c.set(m.skin || '#c58a62')); nh++;
+      off.makeTranslation(HEAD[0], HEAD[1], HEAD[2]); _m.multiplyMatrices(r.hdi.matrixWorld, off); HEADS.setMatrixAt(nh, _m); HEADS.setColorAt(nh, _c.set(m.skin || '#c58a62')); nh++;
       const gl = GLOVE[sty] || m.skin || '#c58a62';
       r.G.hands.forEach((hp, hi) => { let hx = hp[0]; if (hi === r.G.handAct && r.act) hx += r.act.position.x - r.G.actAt[0]; off.makeTranslation(hx, hp[1], hp[2]); _m.multiplyMatrices(mat4, off); HANDS.setMatrixAt(nk, _m); HANDS.setColorAt(nk, _c.set(gl)); nk++; });
       // legs
       mat4.copy(r.g.matrixWorld);
       for (let L = 0; L < 2; L++) {
-        const up = (L === lg ? 1 : 0), th = go ? (up ? lift * g[0] : -lift * 0.14) : 0, sh = up ? -lift * g[0] * (sty === 'march' ? 1.05 : 0.9) : 0;
+        // brass bands high-step; everyone else walks: both legs swing, the knee folds as the leg comes through
+        const up = (L === lg ? 1 : 0), aL = wa + L * PI, mh = sty === 'march';
+        const th = !go ? 0 : mh ? (up ? lift * g[0] : -lift * 0.22) : Math.sin(aL) * g[0], sh = !go ? 0 : mh ? (up ? -lift * g[0] * 1.05 : 0) : -Math.pow(Math.max(0, Math.cos(aL + 0.35)), 1.5) * g[0] * 1.7;
         off.makeTranslation(0, 0.94 + r.up.position.y * 0.5, L ? 0.085 : -0.085); rz.makeRotationZ(th); off.multiply(rz); _m.multiplyMatrices(mat4, off);
         THIGH.setMatrixAt(nl, _m); _m2.makeTranslation(0, -0.47, 0); rz.makeRotationZ(sh); _m2.multiply(rz); _m.multiply(_m2); SHIN.setMatrixAt(nl, _m);
         const lc = m.leader && sty === 'jazz' ? '#1b1b22' : S.legs[0]; THIGH.setColorAt(nl, _c.set(lc)); SHIN.setColorAt(nl, _c); nl++;
