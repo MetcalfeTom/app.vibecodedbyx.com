@@ -5,13 +5,14 @@ Slides of the real Moon for any place and time: phase, tilt as seen from that sp
 ## log
 - v1.0 (2026-09-28): astro.js (Meeus ch. 47 Moon, 25 Sun, 48 phase/bright limb, 53 optical libration, main nutation terms, ΔT) tested in scratch against Meeus 47.a, 48.a, 53.a and known new/full moons (all pass). app.js: procedural albedo map (maria as metaballs from real selenographic positions, craters, Tycho/Copernicus/Kepler rays), per-pixel disc with Lommel–Seeliger shading, earthshine, parallactic tilt, libration; panorama slide (facing S in the north, N in the south) with the Moon at its real altitude/azimuth, a ghost + "rises HH:MM" when below the horizon, Sun or ☉ ghost, twilight sky, low-Moon orange tint, film date stamp. Four schedules, 2–100 slides, filmstrip of mounted slides, play/pause with projector clack, save slide PNG, share link in the hash.
 
+- v1.1 (2026-09-28): Tatum's "billiard table": a top-down Sun–Earth–Moon view beside the caption (click the slide or ☉ Table). Earth turns by the Sun's local hour angle ("you" pin), the Moon sits at its hour angle from you, and a glowing fan marks the part of the Moon's daily circle above your horizon (half-width acos(−tan φ tan δ)), so the table always agrees with the slide on up/down. Hidden by default on phones. astro.js now also returns lst, H, Hs.
+
 ## issues
 - Moon size on the slide is exaggerated (~40×); positions are real, the drawing is a diagram (footer says so).
 - Rise/set = upper limb on a flat horizon with 34′ refraction; good to a few minutes.
 - Daily mode ignores the start time (the time field hides in that mode).
 
 ## todos
-- Tatum's idea: click a slide → a top-down "billiard table" of Sun, Earth and Moon (with a little observer on Earth) explaining why the slide looks that way.
 - Side-by-side compare of two places at the same instant (London vs Quito crescent).
 - Video export (MediaRecorder) of a carousel.
 - Maria edges are still a bit blobby; could hand-draw a few more shapes.

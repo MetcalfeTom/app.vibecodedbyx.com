@@ -82,7 +82,7 @@ function at(ms,lat,lon){
       libL=((lA-m.F)%360+540)%360-180,libB=Math.asin(-sin(W)*cos(m.lat)*sin(Ii)-sin(m.lat)*cos(Ii))*R2D;
   return {jd:J,moon:{lon:m.lon,lat:m.lat,dist:m.dist,ra:mq.ra,dec:mq.dec},sun:{ra:sq.ra,dec:sq.dec,dist:s.dist},
     psi:psi,i:i,k:k,chi:chi,axis:axis,q:q,alt:altTopo,az:az,sunAlt:sunAlt,sunAz:sunAz,elong:elong,waxing:elong<180,
-    libL:libL,libB:libB,age:elong/360*29.530589,size:.5181*384400/m.dist};}   /* apparent diameter in degrees */
+    lst:lst,H:n360(H),Hs:n360(Hs),libL:libL,libB:libB,age:elong/360*29.530589,size:.5181*384400/m.dist};}   /* apparent diameter in degrees */
 /* rise/set = the upper limb on the horizon: topocentric centre altitude + semi-diameter + 34′ of refraction = 0 */
 function h0(ms,lat,lon){var r=at(ms,lat,lon);return {r:r,h:r.alt+r.size/2+.5667};}
 /* rise and set within [from, to): a coarse 10-minute scan, then bisection to the second */

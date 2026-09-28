@@ -203,6 +203,51 @@ function around(f,place){if(f.ctx)return f.ctx;var ev=eventsIn(f.t-40*36e5,f.t+4
   ev.forEach(function(e){if(e.t<=f.t){if(e.rise)c.prevRise=e.t;else c.prevSet=e.t;}else{if(e.rise&&c.nextRise==null)c.nextRise=e.t;if(!e.rise&&c.nextSet==null)c.nextSet=e.t;}});
   return f.ctx=c;}
 
+
+/* ---------- the billiard table: Sun, Earth and Moon from above (Tatum's idea) ---------- */
+function drawTable(g,S,f,place,tz){
+  var r=f.r,ex=S*.58,ey=S*.5,Ro=S*.3,Re=S*.075,Rm=S*.042,A=function(deg){return -deg*D2R;}; /* math angle → canvas */
+  g.clearRect(0,0,S,S);
+  var fe=g.createRadialGradient(ex,ey,S*.05,ex,ey,S*.75);fe.addColorStop(0,'#1b4a3a');fe.addColorStop(1,'#0c2a21');
+  g.fillStyle=fe;g.fillRect(0,0,S,S);
+  g.strokeStyle='rgba(0,0,0,.35)';g.lineWidth=S*.03;g.strokeRect(0,0,S,S);g.strokeStyle='rgba(214,170,96,.5)';g.lineWidth=Math.max(1,S*.006);g.strokeRect(S*.018,S*.018,S*.964,S*.964);
+  /* sunlight from the left */
+  var sg=g.createRadialGradient(-S*.12,ey,S*.05,-S*.12,ey,S*.34);sg.addColorStop(0,'#fff6d8');sg.addColorStop(.45,'#ffd36b');sg.addColorStop(1,'rgba(255,190,80,0)');
+  g.fillStyle=sg;g.beginPath();g.arc(-S*.12,ey,S*.34,0,7);g.fill();
+  g.strokeStyle='rgba(255,220,140,.12)';g.lineWidth=1;for(var k=-3;k<=3;k++){g.beginPath();g.moveTo(S*.2,ey+k*S*.1);g.lineTo(S*.97,ey+k*S*.1);g.stroke();}
+  /* where "you" are: local solar hour angle turns Earth; the fan is the stretch of the Moon's daily circle above your horizon */
+  var obs=180+r.Hs,x=-Math.tan(place.lat*D2R)*Math.tan(r.moon.dec*D2R),H0=x<=-1?180:x>=1?0:Math.acos(x)/D2R,Hm=wrap180(r.H),mAng=obs-Hm,up=r.alt+r.size/2+.5667>=0;
+  if(H0>0){var fg=g.createRadialGradient(ex,ey,Re,ex,ey,Ro*1.45);fg.addColorStop(0,'rgba(255,212,138,.28)');fg.addColorStop(1,'rgba(255,212,138,.03)');g.fillStyle=fg;
+    g.beginPath();g.moveTo(ex,ey);if(H0>=180)g.arc(ex,ey,Ro*1.45,0,7);else g.arc(ex,ey,Ro*1.45,A(obs+H0),A(obs-H0));g.closePath();g.fill();
+    if(H0<180){g.strokeStyle='rgba(255,212,138,.55)';g.setLineDash([4,4]);g.lineWidth=1.2;[obs+H0,obs-H0].forEach(function(a){g.beginPath();g.moveTo(ex,ey);g.lineTo(ex+Math.cos(a*D2R)*Ro*1.45,ey-Math.sin(a*D2R)*Ro*1.45);g.stroke();});g.setLineDash([]);}}
+  /* the Moon's orbit, running anticlockwise */
+  g.strokeStyle='rgba(230,235,245,.35)';g.setLineDash([2,5]);g.lineWidth=1.2;g.beginPath();g.arc(ex,ey,Ro,0,7);g.stroke();g.setLineDash([]);
+  var aa=mAng+28;g.strokeStyle='rgba(230,235,245,.5)';g.beginPath();g.arc(ex,ey,Ro,A(mAng+14),A(aa),true);g.stroke();
+  var ax2=ex+Math.cos(aa*D2R)*Ro,ay2=ey-Math.sin(aa*D2R)*Ro,t=(aa+90)*D2R;g.fillStyle='rgba(230,235,245,.6)';g.beginPath();
+  g.moveTo(ax2+Math.cos(t)*6,ay2-Math.sin(t)*6);g.lineTo(ax2+Math.cos(t+2.5)*6,ay2-Math.sin(t+2.5)*6);g.lineTo(ax2+Math.cos(t-2.5)*6,ay2-Math.sin(t-2.5)*6);g.fill();
+  /* balls: lit half always faces the Sun */
+  function ball(x,y,R,dark,light){g.fillStyle=dark;g.beginPath();g.arc(x,y,R,0,7);g.fill();g.fillStyle=light;g.beginPath();g.arc(x,y,R,Math.PI/2,Math.PI*1.5);g.fill();
+    var sh=g.createRadialGradient(x-R*.4,y-R*.4,R*.1,x,y,R);sh.addColorStop(0,'rgba(255,255,255,.25)');sh.addColorStop(1,'rgba(0,0,0,.25)');g.fillStyle=sh;g.beginPath();g.arc(x,y,R,0,7);g.fill();}
+  ball(ex,ey,Re,'#10233f','#3f8fd6');
+  var mx=ex+Math.cos(mAng*D2R)*Ro,my=ey-Math.sin(mAng*D2R)*Ro;
+  if(up){g.strokeStyle='rgba(255,212,138,.7)';g.lineWidth=1.5;g.beginPath();g.moveTo(ex+Math.cos(obs*D2R)*Re,ey-Math.sin(obs*D2R)*Re);g.lineTo(mx,my);g.stroke();}
+  ball(mx,my,Rm,'#2a2c33','#e9e6dc');
+  /* you, standing on Earth */
+  var ox=ex+Math.cos(obs*D2R)*Re,oy=ey-Math.sin(obs*D2R)*Re,hx=ex+Math.cos(obs*D2R)*(Re+S*.035),hy=ey-Math.sin(obs*D2R)*(Re+S*.035);
+  g.strokeStyle='#ff9a3c';g.lineWidth=Math.max(2,S*.008);g.beginPath();g.moveTo(ox,oy);g.lineTo(hx,hy);g.stroke();g.fillStyle='#ff9a3c';g.beginPath();g.arc(hx,hy,S*.011,0,7);g.fill();
+  /* labels */
+  var fs=Math.round(S*.042);g.font='500 '+fs+'px "IBM Plex Mono",monospace';g.textBaseline='middle';
+  g.fillStyle='#3a2a08';g.textAlign='left';g.fillText('Sun',S*.03,ey);
+  g.fillStyle='rgba(235,240,250,.85)';g.textAlign='center';
+  var lx=ex+Math.cos(mAng*D2R)*(Ro+Rm+fs*1.1),ly=ey-Math.sin(mAng*D2R)*(Ro+Rm+fs*1.1);g.fillText('Moon',Math.max(fs*1.6,Math.min(S-fs*1.6,lx)),Math.max(fs,Math.min(S-fs,ly)));
+  var yl=ex+Math.cos(obs*D2R)*(Re+S*.085),yy=ey-Math.sin(obs*D2R)*(Re+S*.085);g.fillStyle='#ffb36b';g.fillText('you',yl,yy);
+  var p=parts(tz,f.t);g.textAlign='right';g.textBaseline='alphabetic';g.fillStyle='rgba(235,230,215,.6)';g.font='300 '+Math.round(fs*.85)+'px "IBM Plex Mono",monospace';
+  g.fillText(hhmm(p)+' · '+(up?'Moon up':'Moon down'),S*.965,S*.955);}
+var tableOn=null;
+function renderTable(){var box=$('tableBox'),cv=$('table');if(!frames.length||!tableOn){box.hidden=true;box.parentNode.classList.add('notable');return;}
+  box.hidden=false;box.parentNode.classList.remove('notable');var dpr=Math.min(2,window.devicePixelRatio||1),S=Math.round((cv.clientWidth||250)*dpr);
+  if(cv.width!==S){cv.width=S;cv.height=S;}var f=frames[st.slide],up=f.r.alt+f.r.size/2+.5667>=0;drawTable(cv.getContext('2d'),S,f,st.place,st.place.tz);
+  cv.setAttribute('aria-label','Top-down view: the Moon is '+Math.round(f.r.elong)+' degrees around its orbit from the Sun, and '+(up?'inside':'outside')+' the fan of sky above your horizon, so it is '+(up?'up':'down')+'.');}
 /* ---------- state ---------- */
 var st={place:null,mode:'daily',hm:'21:00',n:1,unit:3600000,off:30,frames:30,d0:'',t0:'',slide:0},frames=[],playing=null,thumbs=[];
 var slide=$('slide'),sctx=slide.getContext('2d');
@@ -280,7 +325,7 @@ function clock(r){var th=((r.chi-r.q)%360+360)%360,c=Math.round((360-th)/30)%12;
 function render(){
   var dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(Math.min(1800,slide.clientWidth*dpr||900)),h=Math.round(w*2/3);
   if(slide.width!==w){slide.width=w;slide.height=h;}
-  if(!frames.length){sctx.fillStyle='#000';sctx.fillRect(0,0,w,h);$('caption').innerHTML='';$('count').textContent='';return;}
+  if(!frames.length){sctx.fillStyle='#000';sctx.fillRect(0,0,w,h);$('caption').innerHTML='';$('count').textContent='';renderTable();return;}
   var f=frames[st.slide],r=f.r,tz=st.place.tz,c=around(f,st.place),up=r.alt+r.size/2+.5667>=0,p=parts(tz,f.t),
       note=up?'':(c.nextRise!=null?'rises '+when(c.nextRise,f.t,tz):'');
   drawScene(sctx,w,h,f,st.place,{stamp:"'"+String(p.y).slice(2)+' '+p.mo+' '+pad(p.d)+'  '+hhmm(p),place:st.place.name,note:note,detail:true});
@@ -295,7 +340,8 @@ function render(){
     '<dt>Distance</dt><dd>'+km.toLocaleString('en-US')+' km · looks '+(big===0?'average size':Math.abs(big)+'% '+(big>0?'bigger':'smaller')+' than average')+'</dd>';
   slide.setAttribute('aria-label',Astro.phaseName(r.elong)+', '+Math.round(r.k*100)+' percent lit, '+(up?'up in the '+compass(r.az):'below the horizon')+', '+label(f,tz,true)+' in '+st.place.name);
   $('count').textContent=(st.slide+1)+' / '+frames.length;
-  thumbs.forEach(function(b,i){b.setAttribute('aria-current',i===st.slide?'true':'false');});}
+  thumbs.forEach(function(b,i){b.setAttribute('aria-current',i===st.slide?'true':'false');});
+  renderTable();}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 /* slide the strip sideways only, so the page itself never jumps */
 function centerThumb(smooth){var t=thumbs[st.slide],s=$('strip');if(!t)return;var x=t.offsetLeft-s.offsetLeft-(s.clientWidth-t.offsetWidth)/2;
@@ -343,6 +389,9 @@ function init(){
   $('play').onclick=function(){playing?stop():play();};
   $('speed').onchange=function(){if(playing){stop();play();}};
   $('sound').onclick=function(){soundOn=!soundOn;this.setAttribute('aria-pressed',soundOn);this.textContent=soundOn?'🔊':'🔈';};
+  tableOn=window.matchMedia?!window.matchMedia('(max-width:640px)').matches:true;$('tbl').setAttribute('aria-pressed',tableOn);
+  function flipTable(){tableOn=!tableOn;$('tbl').setAttribute('aria-pressed',tableOn);renderTable();if(tableOn&&window.innerWidth<=640)$('tableBox').scrollIntoView({block:'nearest',behavior:'smooth'});}
+  $('tbl').onclick=flipTable;slide.onclick=flipTable;
   $('save').onclick=saveSlide;$('share').onclick=share;
   document.addEventListener('keydown',function(e){var t=e.target.tagName;if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;
     if(e.key==='ArrowRight'){stop();go(st.slide+1,true);e.preventDefault();}else if(e.key==='ArrowLeft'){stop();go(st.slide-1,true);e.preventDefault();}
