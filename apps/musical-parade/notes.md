@@ -11,13 +11,14 @@ Build a marching band one player at a time; each instrument adds its part to an 
 - v1.3 (2026-09-28): angienimo: "the artwork should be slightly more realistic". Kept the storybook style but added a lighting and depth pass: shaded side and highlight on every coat, faces in profile (nose, ear, brow, back-of-head shade), shine on the brass (tuba loop and bell, trumpet, trombone, cymbal glints), cornices and roof highlights on buildings, window mullions and sills, awning shadows, side shading on the crowd.
 - v1.3.1 (2026-09-28): angienimo: samba and synthwave cymbals still low. Shaker/hi-hat events (e.sh) are longer and louder with a 4.6 kHz body band that phone speakers can reproduce; accented synthwave hats ring open. Cymbal-only rms: samba .041, synthwave .034 -> .046 (march .045).
 - v1.3.2 (2026-09-28): angienimo: "make each instrument slightly more realistic" (the design). Snare tension rods + shell shade, bass drum lugs round the rim, cymbal lathe groove + centre bell, sousaphone piston caps + mouthpiece, trombone slide braces + bumper + mouthpiece, trumpet pistons + lower tube loop + mouthpiece, piccolo lip plate + key rod + shine, bell lyre shaded bars.
+- v1.4 (2026-09-28): Solos. Press and hold a marcher (380 ms) or Shift+1-8: they step out front into a spotlight (street dims, band steps back 50px), their instrument plays at 1.7x and everyone else at 0.3x for 4 bars from the next beat, with a per-instrument toast. Tap the soloist to end early; a quick tap on anyone else still sends them home. One-time tip toast when the band reaches 3.
 
 ## issues
 - The clock falls back to performance.now() until the AudioContext is running ('p' mode), then re-anchors to the audio clock ('a' mode).
 - Headless test copy: SP/parade/mkt.sh + probe.js (modes: default click-through test, audio=1 offline render (+style=, from=), og=1 og screenshot, idle=1, shot=<letters> screenshot, sw=1 switch bands mid-parade).
 - Per-band synth voices: pl(k) picks PLAYN for neon, else PLAY. Neon buildings are 0.62x tall and the sun rises with VH so it shows on phones.
 - Songs live in EV, rebuilt by buildSong(style); LOOP is 128 (march, carnival) or 256 (jazz). sched() counts steps from st.s0 and adds swing offsets (SWG) for jazz.
+- Solos: st.solo={id,k,from,to} in song steps; sgain(k,S) sets OUTK before each pl(k) call and out() inserts a gain node when OUTK!==1. Probe hold=1 tests hold/tap/auto-end; shot=...&solo=<letter> screenshots a solo.
 
 ## todos
-- Solo button: tap-and-hold a marcher for a solo.
 - Majorettes / flag twirlers (visual only).
