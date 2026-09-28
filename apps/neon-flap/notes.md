@@ -5,6 +5,7 @@
 - Fonts: Monoton (logo, stage banners, SPLAT) + Orbitron (numbers, UI).
 
 ## log
+- 2026-09-28: **Laser turrets** (varj1): new stage at 27, THE PIPES GOT LASERS (EVERYTHING FLAPS moved to index 5; mode 3 and moon checks now stageN>=5). From stage 4 on, 38% of pipes carry a neon dome turret on the gap side of a cap. States idle → aim (0.75 s, pipe 60–300 px ahead, dashed sight line, crosshair shrinks onto the bird) → lock (0.38 s, crosshair frozen where the bird was, fast blink, charge beep) → fire (0.15 s beam, muzzle flash, zap) → spent. The beam pivots around the locked crosshair (angle recomputed from the moving turret), so it doesn't sweep: stay off the crosshair and you live. Hit = perpendicular distance < r+1.5. Probe modes laser / laserf / laserrun (dodging bot, pipes held still).
 - 2026-09-28: **Birds to unlock** by all-time flaps (`neonFlap.flaps`): pigeon, crow 300, seagull 1000, golden pigeon 3000 (SK palette table drives drawBird/wing/feathers; picker chip on the title, locked birds show faded with the flap count; choice saved as `neonFlap.skin`; the over panel says when a run unlocked one). Each bird has its own last word on the crash (BACOCK! / CAW. / MINE!! / KA-CHING! with a coin burst). varj1: a loud explosion bang on the crash (full-band noise + sub thump), with a compressor on the master so it doesn't clip.
 - 2026-09-28: **Accordion polka** (varj1: "accordion music", "I was thinking a polka"): synthesized musette accordion (two saws detuned ±0.35 % + a square an octave down, low-pass 2.4 kHz), 16-bar original polka in C (C/G7/F), oom-pah left hand (bass on 1, chord on &, fifth on 2, chord on &), quarter = 120 + 9 per stage. Starts with each run, stops on the crash with a sinking wheeze. ♪ MUSIC button (key N, `neonFlap.mus`); SOUND (M) silences everything.
 - 2026-09-28: **Today's flock** daily board: table `neon_flap_scores` (score, name, flaps, secs, stage, day = UTC date, user_id). Read today's rows, one per player (dedupe by user_id on read), top 5 + your own row. After a run that beats your posted best today (localStorage `neonFlap.posted.<day>`) and passes a sanity check (score ≤ secs×1.6+2), it posts automatically once you have a name (`neonFlap.name`, prefilled from a Twitch login); otherwise a name field + POST shows. Title screen shows today's top pigeon. Offline → quiet message. App-scoped `supabase-config.js` (copy of icy-tower's), loaded by a module that sets `window.__nfDB` and fires `nfdb`. Probe swaps that module for a fake DB.
@@ -25,5 +26,8 @@
 ## todos
 - (done) crown: when you are today's #1 your pigeon wears a crooked gold crown
 - (done) a moon in the sky; at 35 (EVERYTHING FLAPS) it grows wings, gets eyes and bobs
-- laser turrets on late pipes that blink before they fire (varj1, idea pile)
+- (done) laser turrets
+- LASER MODE: turrets from the first pipe (varj1 asked)
+- a turret you fly close past right after it fires overheats and pops (bonus)
+- swan with a super long neck (varj1) as the secret fifth bird
 - a secret fifth bird (voice idea: top of the daily board three days running)
