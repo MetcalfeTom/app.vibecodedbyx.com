@@ -219,10 +219,10 @@ function drawTable(g,S,f,place,tz){
   g.clearRect(0,0,S,S);
   var fe=g.createRadialGradient(ex,ey,S*.05,ex,ey,S*.75);fe.addColorStop(0,'#1b4a3a');fe.addColorStop(1,'#0c2a21');
   g.fillStyle=fe;g.fillRect(0,0,S,S);
-  g.strokeStyle='rgba(0,0,0,.35)';g.lineWidth=S*.03;g.strokeRect(0,0,S,S);g.strokeStyle='rgba(214,170,96,.5)';g.lineWidth=Math.max(1,S*.006);g.strokeRect(S*.018,S*.018,S*.964,S*.964);
   /* sunlight from the left */
   var sg=g.createRadialGradient(-S*.12,ey,S*.05,-S*.12,ey,S*.34);sg.addColorStop(0,'#fff6d8');sg.addColorStop(.45,'#ffd36b');sg.addColorStop(1,'rgba(255,190,80,0)');
-  g.fillStyle=sg;g.beginPath();g.arc(-S*.12,ey,S*.34,0,7);g.fill();
+  g.save();g.beginPath();g.rect(S*.018,S*.018,S*.964,S*.964);g.clip(); /* keep the glow inside the rails */
+  g.fillStyle=sg;g.beginPath();g.arc(-S*.12,ey,S*.34,0,7);g.fill();g.restore();
   g.strokeStyle='rgba(255,220,140,.12)';g.lineWidth=1;for(var k=-3;k<=3;k++){g.beginPath();g.moveTo(S*.2,ey+k*S*.1);g.lineTo(S*.97,ey+k*S*.1);g.stroke();}
   /* where "you" are: local solar hour angle turns Earth; the fan is the stretch of the Moon's daily circle above your horizon */
   var Hs=r.Hs!=null?r.Hs:hourAngle(r.sunAz,r.sunAlt,r.sun.dec,place.lat),Hmo=r.H!=null?r.H:hourAngle(r.az,r.alt,r.moon.dec,place.lat);
@@ -252,7 +252,9 @@ function drawTable(g,S,f,place,tz){
   var lx=ex+Math.cos(mAng*D2R)*(Ro+Rm+fs*1.1),ly=ey-Math.sin(mAng*D2R)*(Ro+Rm+fs*1.1);g.fillText('Moon',Math.max(fs*1.6,Math.min(S-fs*1.6,lx)),Math.max(fs,Math.min(S-fs,ly)));
   var yl=ex+Math.cos(obs*D2R)*(Re+S*.085),yy=ey-Math.sin(obs*D2R)*(Re+S*.085);g.fillStyle='#ffb36b';g.fillText('you',yl,yy);
   var p=parts(tz,f.t);g.textAlign='right';g.textBaseline='alphabetic';g.fillStyle='rgba(235,230,215,.6)';g.font='300 '+Math.round(fs*.85)+'px "IBM Plex Mono",monospace';
-  g.fillText(tm(p)+' · '+(up?'Moon up':'Moon down'),S*.965,S*.955);}
+  g.fillText(tm(p)+' · '+(up?'Moon up':'Moon down'),S*.965,S*.955);
+  /* rails last, so nothing spills over them */
+  g.strokeStyle='#07170f';g.lineWidth=S*.036;g.strokeRect(0,0,S,S);g.strokeStyle='rgba(214,170,96,.55)';g.lineWidth=Math.max(1,S*.006);g.strokeRect(S*.018,S*.018,S*.964,S*.964);}
 /* hour angle from altitude/azimuth (azimuth from north through east), so the table never depends on newer engine fields */
 function hourAngle(A,h,dec,lat){var a=A*D2R,e=h*D2R,d=dec*D2R,f=lat*D2R;
   return Math.atan2(-Math.sin(a)*Math.cos(e)/Math.cos(d),(Math.sin(e)-Math.sin(f)*Math.sin(d))/(Math.cos(f)*Math.cos(d)))/D2R;}
