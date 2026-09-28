@@ -204,8 +204,8 @@ function drawScene(ctx,W,H,f,place,o){
 }
 
 /* ---------- rise and set, cached by UTC day ---------- */
-var evCache={},evKey='';
-function eventsIn(from,to,lat,lon){var k=lat.toFixed(3)+','+lon.toFixed(3);if(k!==evKey){evCache={};evKey=k;}
+var evCaches={},evN=0;
+function eventsIn(from,to,lat,lon){var k=lat.toFixed(3)+','+lon.toFixed(3),evCache=evCaches[k];if(!evCache){if(++evN>8){evCaches={};evN=1;}evCache=evCaches[k]={};}
   var out=[],DAY=864e5,c;for(c=Math.floor(from/DAY);c*DAY<to;c++){if(!evCache[c])evCache[c]=Astro.riseSet(c*DAY,(c+1)*DAY,lat,lon);
     evCache[c].forEach(function(e){if(e.t>=from&&e.t<to)out.push(e);});}
   return out;}
@@ -267,14 +267,19 @@ function renderTable(){var box=$('tableBox'),cv=$('table');if(!frames.length||!t
   try{drawTable(cv.getContext('2d'),S,f,st.place,st.place.tz);}catch(e){box.querySelector('figcaption').textContent='The table couldn\u2019t draw in this browser ('+e.message+').';return;}
   cv.setAttribute('aria-label','Top-down view: the Moon is '+Math.round(f.r.elong)+' degrees around its orbit from the Sun, and '+(up?'inside':'outside')+' the fan of sky above your horizon, so it is '+(up?'up':'down')+'.');}
 /* ---------- state ---------- */
-var st={place:null,mode:'daily',hm:'21:00',n:1,unit:3600000,off:30,frames:30,d0:'',t0:'',slide:0},frames=[],playing=null,thumbs=[];
-var slide=$('slide'),sctx=slide.getContext('2d');
+var st={place:null,place2:null,mode:'daily',hm:'21:00',n:1,unit:3600000,off:30,frames:30,d0:'',t0:'',slide:0},frames=[],frames2=[],playing=null,thumbs=[];
+var slide=$('slide'),sctx=slide.getContext('2d'),slide2=$('slide2'),sctx2=slide2.getContext('2d');
 
 function fillPlaces(){var s=$('place'),h='';PLACES.forEach(function(g){h+='<optgroup label="'+g[0]+'">';g[1].forEach(function(p){h+='<option value="'+p[0]+'">'+p[1]+'</option>';});h+='</optgroup>';});
-  s.innerHTML=h+'<option value="custom">Custom latitude / longitude</option>';
+  s.innerHTML=h+'<option value="custom">Custom latitude / longitude</option>';$('place2').innerHTML=s.innerHTML;
   try{if(Intl.supportedValuesOf){$('zones').innerHTML=Intl.supportedValuesOf('timeZone').map(function(z){return '<option value="'+z+'">';}).join('');}}catch(e){}}
 function guessPlace(){var best='london';Object.keys(BYID).forEach(function(k){if(BYID[k].tz===BROWSER_TZ)best=k;});return best;}
 function setPlace(id){var p=BYID[id];if(!p)return;st.place={id:id,name:p.name,lat:p.lat,lon:p.lon,tz:p.tz};$('place').value=id;$('lat').value=p.lat;$('lon').value=p.lon;$('tz').value=p.tz;}
+/* the second place (compare mode): same instants, its own sky */
+function placeOf(id){var p=BYID[id];return p?{id:id,name:p.name,lat:p.lat,lon:p.lon,tz:p.tz}:null;}
+function syncCmp(){var on=!!st.place2,b=$('cmp'),q=st.place2;b.setAttribute('aria-expanded',on);b.textContent=on?'\u2212 stop comparing':'+ compare with a second place';$('cmpBox').hidden=!on;
+  if(on){$('place2').value=q.id;$('lat2').value=q.lat;$('lon2').value=q.lon;$('tz2').value=q.tz;}}
+function cmpOn(){return !!st.place2&&frames.length>0&&frames2.length===frames.length;}
 function todayIn(tz){var p=parts(tz,Date.now());return p.y+'-'+pad(p.mo)+'-'+pad(p.d);}
 function nowHourIn(tz){var p=parts(tz,Date.now());return pad(p.h)+':00';}
 
@@ -288,11 +293,17 @@ function readHash(){var h=location.hash.slice(1);if(!h)return false;var q={};h.s
   if(['daily','every','rise','set'].indexOf(q.m)>=0)setMode(q.m);
   if(/^\d\d:\d\d$/.test(q.hm||''))$('hm').value=q.hm;if(q.n&&+q.n>0)$('n').value=Math.min(999,+q.n|0);
   if(q.u&&UNITS[q.u])$('unit').value=UNITS[q.u];if(q.o!=null&&isFinite(+q.o))$('off').value=clamp(+q.o|0,0,1440);
-  if(q.f)$('frames').value=clamp(+q.f|0,2,100);st.slide=clamp(+q.s|0,0,99);return true;}
+  if(q.f)$('frames').value=clamp(+q.f|0,2,100);st.slide=clamp(+q.s|0,0,99);
+  if(q.c&&BYID[q.c])st.place2=placeOf(q.c);
+  else if(q.clat!=null&&q.clon!=null&&q.clat!==''&&q.clon!==''&&isFinite(+q.clat)&&isFinite(+q.clon)){var la=clamp(+q.clat,-90,90),lo=clamp(+q.clon,-180,180);
+    st.place2={id:'custom',name:q.cname?q.cname.slice(0,40):(fmtLat(la)+' '+fmtLon(lo)),lat:la,lon:lo,tz:q.ctz&&validTz(q.ctz)?q.ctz:BROWSER_TZ};}
+  return true;}
 function writeHash(){if(!st.place)return;var p=st.place,h=p.id!=='custom'?'p='+p.id:'lat='+p.lat+'&lon='+p.lon+'&tz='+encodeURIComponent(p.tz);
   h+='&d='+$('d0').value+'&t='+$('t0').value+'&m='+st.mode;
   if(st.mode==='daily')h+='&hm='+$('hm').value;else if(st.mode==='every')h+='&n='+$('n').value+'&u='+UNIT_KEY[$('unit').value];else h+='&o='+$('off').value;
-  h+='&f='+$('frames').value+'&s='+st.slide;try{history.replaceState(null,'','#'+h);}catch(e){}}
+  h+='&f='+$('frames').value+'&s='+st.slide;
+  if(st.place2){var c=st.place2;h+=c.id!=='custom'?'&c='+c.id:'&clat='+c.lat+'&clon='+c.lon+'&ctz='+encodeURIComponent(c.tz);}
+  try{history.replaceState(null,'','#'+h);}catch(e){}}
 /* NodeList.forEach is missing in some older browsers */
 function each(sel,fn){var l=document.querySelectorAll(sel),i;for(i=0;i<l.length;i++)fn(l[i],i);}
 function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
@@ -315,25 +326,34 @@ function build(){
   else if(st.mode==='every'){var step=Math.max(1,+$('n').value|0)*(+$('unit').value);for(i=0;i<F;i++)times.push(start+i*step);}
   else{var off=clamp(+$('off').value||0,0,1440)*6e4,want=st.mode==='rise',t=start,lim=start+400*864e5;
     while(times.length<F&&t<lim){eventsIn(t,t+20*864e5,p.lat,p.lon).forEach(function(e){if(e.rise===want&&times.length<F)times.push(want?e.t+off:e.t-off);});t+=20*864e5;}
-    if(!times.length){frames=[];render();status('The Moon never '+(want?'rises':'sets')+' there within 400 days of that date. Polar nights are wild.',true);return;}}
+    if(!times.length){frames=[];frames2=[];render();status('The Moon never '+(want?'rises':'sets')+' there within 400 days of that date. Polar nights are wild.',true);return;}}
   frames=times.map(function(t){return {t:t,r:Astro.at(t,p.lat,p.lon)};});
+  var q2=st.place2;frames2=q2?times.map(function(t){return {t:t,r:Astro.at(t,q2.lat,q2.lon)};}):[];
   st.slide=clamp(st.slide,0,frames.length-1);
   var a=parts(tz,frames[0].t),b=parts(tz,frames[frames.length-1].t);
-  $('span').textContent=frames.length+' slides · '+dt(a,a.y!==b.y||FMT.date==='iso')+' → '+dt(b,true);
+  $('span').textContent=frames.length+' slides · '+dt(a,a.y!==b.y||FMT.date==='iso')+' → '+dt(b,true)+(q2?' · '+p.name+' and '+q2.name:'');
   status(frames.length<F?'Only found '+frames.length+' '+(st.mode==='rise'?'moonrises':'moonsets')+' in 400 days here.':'');
   makeStrip();render();writeHash();}
 
 /* ---------- the carousel strip ---------- */
 function label(f,tz,withDay){var p=parts(tz,f.t);return dt(p,false,withDay)+' '+tm(p);}
-function makeStrip(){var s=$('strip'),tz=st.place.tz;s.innerHTML='';thumbs=[];
-  frames.forEach(function(f,i){var b=document.createElement('button');b.className='mount'+(f.r.alt+f.r.size/2+.5667<0?' below':'');b.type='button';
-    b.setAttribute('aria-label','Slide '+(i+1)+': '+label(f,tz,true)+', '+Astro.phaseName(f.r.elong)+', '+Math.round(f.r.k*100)+'% lit'+(f.r.alt+f.r.size/2+.5667<0?', below the horizon':''));
-    b.innerHTML='<span class="dot"></span><span class="n">'+(i+1)+'</span><canvas width="10" height="10"></canvas><span class="lab">'+label(f,tz)+'</span>';
+function makeStrip(){var s=$('strip'),tz=st.place.tz,two=cmpOn(),q=st.place2,F=frames,F2=frames2;s.innerHTML='';thumbs=[];
+  frames.forEach(function(f,i){var b=document.createElement('button'),dn=f.r.alt+f.r.size/2+.5667<0,f2=two?F2[i]:null,dn2=two&&f2.r.alt+f2.r.size/2+.5667<0;
+    b.className='mount'+(two?' pair':'')+((two?dn&&dn2:dn)?' below':'');b.type='button';
+    b.setAttribute('aria-label','Slide '+(i+1)+': '+label(f,tz,true)+', '+Astro.phaseName(f.r.elong)+', '+Math.round(f.r.k*100)+'% lit'+(dn?', below the horizon':'')+(two?'; '+q.name+': '+label(f2,q.tz,true)+(dn2?', below the horizon':''):''));
+    b.innerHTML='<span class="dot"></span><span class="n">'+(i+1)+'</span><canvas width="10" height="10"></canvas>'+(two?'<span class="labs"><span class="lab">'+label(f,tz)+'</span><span class="lab">'+label(f2,q.tz)+'</span></span>':'<span class="lab">'+label(f,tz)+'</span>');
     b.onclick=function(){go(i,true);};s.appendChild(b);thumbs.push(b);});
-  var i=0,dpr=Math.min(2,window.devicePixelRatio||1);
-  (function batch(){var end=Math.min(frames.length,i+6);for(;i<end;i++){var cv=thumbs[i].querySelector('canvas'),w=Math.round(132*dpr),h=Math.round(88*dpr);cv.width=w;cv.height=h;
-      drawScene(cv.getContext('2d'),w,h,frames[i],st.place,{});}
-    if(i<frames.length)setTimeout(batch,0);})();}
+  var i=0,dpr=Math.min(2,window.devicePixelRatio||1),P=st.place,T=thumbs;
+  (function batch(){if(T!==thumbs)return;var end=Math.min(F.length,i+6);for(;i<end;i++){var cv=T[i].querySelector('canvas'),w=Math.round((two?268:132)*dpr),h=Math.round(88*dpr);cv.width=w;cv.height=h;
+      if(two)drawPair(cv.getContext('2d'),w,h,F[i],F2[i],P,q,{},{},Math.round(4*dpr),'#e9e2d0');else drawScene(cv.getContext('2d'),w,h,F[i],P,{});}
+    if(i<F.length)setTimeout(batch,0);})();}
+/* two skies in one picture: each half clipped, so glows never spill across */
+function drawPair(g,W,H,fa,fb,pa,pb,oa,ob,gap,gapColor){var w=Math.floor((W-gap)/2);g.fillStyle=gapColor;g.fillRect(0,0,W,H);
+  g.save();g.beginPath();g.rect(0,0,w,H);g.clip();drawScene(g,w,H,fa,pa,oa);g.restore();
+  g.save();g.translate(W-w,0);g.beginPath();g.rect(0,0,w,H);g.clip();drawScene(g,w,H,fb,pb,ob);g.restore();}
+function sceneOpts(f,place){var c=around(f,place),up=f.r.alt+f.r.size/2+.5667>=0,p=parts(place.tz,f.t);
+  return {stamp:stampOf(p),place:place.name,note:up?'':(c.nextRise!=null?'rises '+when(c.nextRise,f.t,place.tz):''),detail:true};}
+function sizeSlide(cv){var dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(Math.min(1800,cv.clientWidth*dpr||900)),h=Math.round(w*2/3);if(cv.width!==w){cv.width=w;cv.height=h;}return [w,h];}
 
 /* ---------- the big slide + caption ---------- */
 function describeSky(r){var h=r.alt+r.size/2+.5667;if(h>=0)return 'Up in the '+compass(r.az)+', <b>'+Math.max(0,Math.round(r.alt))+'°</b> above the horizon'+(r.alt<8?' · our air tints it orange this low':'');
@@ -343,18 +363,24 @@ function sunText(a){if(a>6)return 'Daylight, the Sun is '+Math.round(a)+'° up';
 function when(t,ref,tz){var p=parts(tz,t),q=parts(tz,ref);return (dayKey(p)!==dayKey(q)?p.wd+' ':'')+tm(p);}
 function clock(r){var th=((r.chi-r.q)%360+360)%360,c=Math.round((360-th)/30)%12;return c===0?12:c;}
 function render(){
-  var dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(Math.min(1800,slide.clientWidth*dpr||900)),h=Math.round(w*2/3);
-  if(slide.width!==w){slide.width=w;slide.height=h;}
-  if(!frames.length){sctx.fillStyle='#000';sctx.fillRect(0,0,w,h);$('caption').innerHTML='';$('count').textContent='';renderTable();return;}
+  var two=!!st.place2;slide2.hidden=!two;$('beam').classList.toggle('cmp',two);
+  var wh=sizeSlide(slide),w=wh[0],h=wh[1],wh2=two?sizeSlide(slide2):null;
+  if(!frames.length){sctx.fillStyle='#000';sctx.fillRect(0,0,w,h);if(two){sctx2.fillStyle='#000';sctx2.fillRect(0,0,wh2[0],wh2[1]);}$('caption').innerHTML='';$('count').textContent='';renderTable();return;}
   var f=frames[st.slide],r=f.r,tz=st.place.tz,c=around(f,st.place),up=r.alt+r.size/2+.5667>=0,p=parts(tz,f.t),
       note=up?'':(c.nextRise!=null?'rises '+when(c.nextRise,f.t,tz):'');
   drawScene(sctx,w,h,f,st.place,{stamp:stampOf(p),place:st.place.name,note:note,detail:true});
   var rs;if(up)rs=(c.prevRise!=null?'rose '+when(c.prevRise,f.t,tz):'up all day')+' · '+(c.nextSet!=null?'sets <b>'+when(c.nextSet,f.t,tz)+'</b>':'doesn\u2019t set for over a day');
   else rs=(c.prevSet!=null?'set '+when(c.prevSet,f.t,tz):'down all day')+' · '+(c.nextRise!=null?'rises <b>'+when(c.nextRise,f.t,tz)+'</b>':'doesn\u2019t rise for over a day');
-  var big=Math.round((r.size/.5181-1)*100),km=Math.round(r.moon.dist/100)*100;
+  var big=Math.round((r.size/.5181-1)*100),km=Math.round(r.moon.dist/100)*100,also='';
+  if(two&&frames2[st.slide]){var f2=frames2[st.slide],r2=f2.r,q=st.place2,z2=q.tz,p2=parts(z2,f2.t),c2=around(f2,q),up2=r2.alt+r2.size/2+.5667>=0;
+    drawScene(sctx2,wh2[0],wh2[1],f2,q,sceneOpts(f2,q));
+    also='<dt>Compare</dt><dd><b>'+esc(q.name)+'</b> · '+dt(p2,false,true)+', '+tm(p2)+' · '+
+      (up2?'up in the '+compass(r2.az)+', '+Math.max(0,Math.round(r2.alt))+'° high'+(c2.nextSet!=null?' · sets '+when(c2.nextSet,f2.t,z2):''):'<span class="down">below the horizon</span>'+(c2.nextRise!=null?' · rises '+when(c2.nextRise,f2.t,z2):''))+
+      (r2.k>.03&&r2.k<.97?' · lit side toward '+clock(r2)+' o\u2019clock':'')+'</dd>';
+    slide2.setAttribute('aria-label',Astro.phaseName(r2.elong)+', '+(up2?'up in the '+compass(r2.az):'below the horizon')+', '+label(f2,z2,true)+' in '+q.name);}
   $('caption').innerHTML='<h3 class="phase">'+Astro.phaseName(r.elong)+'<small>'+dt(p,true,true)+', '+tm(p)+' · '+esc(st.place.name)+'</small></h3>'+
     '<dt>Lit</dt><dd><b>'+(r.k*100).toFixed(r.k>.995||r.k<.005?1:0)+'%</b> · '+r.age.toFixed(1)+' days since new'+(r.k>.03&&r.k<.97?' · lit side toward '+clock(r)+' o\u2019clock':'')+'</dd>'+
-    '<dt>Sky</dt><dd>'+describeSky(r)+'</dd>'+
+    '<dt>Sky</dt><dd>'+describeSky(r)+'</dd>'+also+
     '<dt>Rise · set</dt><dd>'+rs+'</dd>'+
     '<dt>Sun</dt><dd>'+sunText(r.sunAlt)+'</dd>'+
     '<dt>Distance</dt><dd>'+km.toLocaleString('en-US')+' km · looks '+(big===0?'average size':Math.abs(big)+'% '+(big>0?'bigger':'smaller')+' than average')+'</dd>';
@@ -373,16 +399,16 @@ function go(i,user){if(!frames.length)return;st.slide=((i%frames.length)+frames.
   if(user)writeHash();}
 
 /* ---------- projector sound ---------- */
-var ac=null,soundOn=true;
+var ac=null,soundOn=true,recDest=null;
 function clack(){if(!soundOn)return;try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();
   var t=ac.currentTime,n=ac.createBuffer(1,ac.sampleRate*.06|0,ac.sampleRate),d=n.getChannelData(0),i;for(i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,3);
   var src=ac.createBufferSource(),bp=ac.createBiquadFilter(),g=ac.createGain();src.buffer=n;bp.type='bandpass';bp.frequency.value=1700;bp.Q.value=2.5;
-  g.gain.value=.28;src.connect(bp);bp.connect(g);g.connect(ac.destination);src.start(t);
+  g.gain.value=.28;src.connect(bp);bp.connect(g);g.connect(ac.destination);if(recDest)g.connect(recDest);src.start(t);
   var o=ac.createOscillator(),g2=ac.createGain();o.frequency.setValueAtTime(140,t);o.frequency.exponentialRampToValueAtTime(60,t+.07);
-  g2.gain.setValueAtTime(.18,t);g2.gain.exponentialRampToValueAtTime(.001,t+.09);o.connect(g2);g2.connect(ac.destination);o.start(t);o.stop(t+.1);}catch(e){}}
+  g2.gain.setValueAtTime(.18,t);g2.gain.exponentialRampToValueAtTime(.001,t+.09);o.connect(g2);g2.connect(ac.destination);if(recDest)g2.connect(recDest);o.start(t);o.stop(t+.1);}catch(e){}}
 
 /* ---------- playback ---------- */
-function play(){if(playing||frames.length<2)return;$('play').textContent='❚❚ Pause';$('play').setAttribute('aria-pressed','true');$('caption').setAttribute('aria-live','off');
+function play(){if(playing||frames.length<2||rec)return;$('play').textContent='❚❚ Pause';$('play').setAttribute('aria-pressed','true');$('caption').setAttribute('aria-live','off');
   playing=setInterval(function(){go(st.slide+1);},+$('speed').value);}
 function stop(){if(!playing)return;clearInterval(playing);playing=null;$('play').textContent='▶ Play';$('play').setAttribute('aria-pressed','false');$('caption').setAttribute('aria-live','polite');writeHash();}
 
@@ -392,6 +418,7 @@ function init(){
   fillPlaces();
   if(!readHash()){setPlace(guessPlace());$('d0').value=todayIn(st.place.tz);$('t0').value=nowHourIn(st.place.tz);setMode('daily');}
   else setMode(st.mode);
+  syncCmp();
   if(!$('t0').value)$('t0').value='21:00';
   $('place').onchange=function(){if(this.value==='custom'){st.place.id='custom';st.place.name=fmtLat(st.place.lat)+' '+fmtLon(st.place.lon);rebuild();return;}setPlace(this.value);rebuild();};
   function custom(){var la=+$('lat').value,lo=+$('lon').value;if(!isFinite(la)||!isFinite(lo)||$('lat').value===''||$('lon').value===''||Math.abs(la)>90||Math.abs(lo)>180){status('Latitude runs from −90 to 90, longitude from −180 to 180.',true);return;}
@@ -402,6 +429,13 @@ function init(){
     navigator.geolocation.getCurrentPosition(function(pos){var la=+pos.coords.latitude.toFixed(3),lo=+pos.coords.longitude.toFixed(3);$('lat').value=la;$('lon').value=lo;
       st.place={id:'custom',name:'My sky',lat:la,lon:lo,tz:BROWSER_TZ};$('tz').value=BROWSER_TZ;$('place').value='custom';status('');build();},
       function(){status('No location shared. Type latitude and longitude instead.',true);},{timeout:12000,maximumAge:6e5});};
+  $('cmp').onclick=function(){if(st.place2){st.place2=null;frames2=[];}else st.place2=placeOf(st.place.id==='quito'?'london':'quito');syncCmp();build();};
+  var tmr2=null;function rebuild2(){clearTimeout(tmr2);tmr2=setTimeout(build,250);}
+  $('place2').onchange=function(){if(!st.place2)return;if(this.value==='custom'){st.place2.id='custom';st.place2.name=fmtLat(st.place2.lat)+' '+fmtLon(st.place2.lon);}else st.place2=placeOf(this.value);syncCmp();rebuild2();};
+  function custom2(){var la=+$('lat2').value,lo=+$('lon2').value;if(!st.place2)return;if(!isFinite(la)||!isFinite(lo)||$('lat2').value===''||$('lon2').value===''||Math.abs(la)>90||Math.abs(lo)>180){status('Latitude runs from \u221290 to 90, longitude from \u2212180 to 180.',true);return;}
+    st.place2={id:'custom',name:fmtLat(la)+' '+fmtLon(lo),lat:la,lon:lo,tz:st.place2.tz};$('place2').value='custom';rebuild2();}
+  $('lat2').oninput=custom2;$('lon2').oninput=custom2;
+  $('tz2').onchange=function(){var z=this.value.trim();if(!st.place2)return;if(!validTz(z)){status('I don\u2019t know the time zone \u201c'+z+'\u201d. Try one like America/Guayaquil.',true);return;}st.place2.tz=z;if(st.place2.id!=='custom'){st.place2.id='custom';$('place2').value='custom';}rebuild2();};
   $('now').onclick=function(){$('d0').value=todayIn(st.place.tz);var p=parts(st.place.tz,Date.now());$('t0').value=hhmm(p);rebuild();};
   ['d0','t0','hm','n','unit','off','frames'].forEach(function(id){$(id).addEventListener('change',rebuild);});
   each('input[name=mode]',function(x){x.onchange=function(){setMode(this.value);rebuild();};});
@@ -411,10 +445,10 @@ function init(){
   $('sound').onclick=function(){soundOn=!soundOn;this.setAttribute('aria-pressed',soundOn);this.textContent=soundOn?'🔊':'🔈';};
   tableOn=window.matchMedia?!window.matchMedia('(max-width:640px)').matches:true;$('tbl').setAttribute('aria-pressed',tableOn);
   function flipTable(){tableOn=!tableOn;$('tbl').setAttribute('aria-pressed',tableOn);renderTable();if(tableOn&&window.innerWidth<=640)$('tableBox').scrollIntoView({block:'nearest',behavior:'smooth'});}
-  $('tbl').onclick=flipTable;slide.onclick=flipTable;
+  $('tbl').onclick=flipTable;slide.onclick=flipTable;slide2.onclick=flipTable;
   $('clock').value=FMT.clock;$('datef').value=FMT.date;
   $('clock').onchange=$('datef').onchange=function(){FMT.clock=$('clock').value;FMT.date=$('datef').value;try{localStorage.setItem('moonCarousel.fmt',JSON.stringify(FMT));}catch(e){}build();};
-  $('save').onclick=saveSlide;$('share').onclick=share;
+  $('save').onclick=saveSlide;$('share').onclick=share;$('vid').onclick=saveVideo;$('sheet').onclick=saveSheet;
   document.addEventListener('keydown',function(e){var t=e.target.tagName;if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA')return;
     if(e.key==='ArrowRight'){stop();go(st.slide+1,true);e.preventDefault();}else if(e.key==='ArrowLeft'){stop();go(st.slide-1,true);e.preventDefault();}
     else if(e.key===' '&&t!=='BUTTON'){playing?stop():play();e.preventDefault();}});
@@ -424,7 +458,7 @@ function init(){
   centerThumb(false);
   window.__moonReady=true;document.title='Moon Carousel';}
 
-function saveSlide(){if(!frames.length)return;var f=frames[st.slide],tz=st.place.tz,p=parts(tz,f.t),W=1500,H=1000,cv=document.createElement('canvas');cv.width=W;cv.height=H+150;
+function saveSlide(){if(!frames.length)return;if(cmpOn())return savePair();var f=frames[st.slide],tz=st.place.tz,p=parts(tz,f.t),W=1500,H=1000,cv=document.createElement('canvas');cv.width=W;cv.height=H+150;
   var g=cv.getContext('2d');g.fillStyle='#e9e2d0';g.fillRect(0,0,W,H+150);
   var inner=document.createElement('canvas');inner.width=W-60;inner.height=H-40;drawScene(inner.getContext('2d'),inner.width,inner.height,f,st.place,{stamp:stampOf(p),detail:true});
   g.drawImage(inner,30,30);g.fillStyle='#2b2a33';g.font='italic 64px "Instrument Serif",Georgia,serif';g.textBaseline='alphabetic';
@@ -437,6 +471,85 @@ function saveSlide(){if(!frames.length)return;var f=frames[st.slide],tz=st.place
 function share(){writeHash();var u=location.href;
   (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(u):Promise.reject()).then(function(){status('Link copied: it opens this exact carousel.');},
    function(){var i=document.createElement('input');i.value=u;document.body.appendChild(i);i.select();try{document.execCommand('copy');status('Link copied.');}catch(e){status('Copy the address bar to share this carousel.');}i.remove();});}
-window.__moon={drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},build:function(){build();},frames:function(){return frames;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC};
+/* ---------- downloads, the paired slide, the video, and the contact sheet ---------- */
+var lastDl=null;
+function download(blob,name){lastDl={name:name,size:blob.size,type:blob.type};var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(a.href);},60000);}
+function slug(p){return p.id==='custom'?'sky':p.id;}
+function ymd(p){return p.y+pad(p.mo)+pad(p.d);}
+function fit(g,s,max){if(g.measureText(s).width<=max)return s;while(s.length>3&&g.measureText(s+'\u2026').width>max)s=s.slice(0,-1);return s+'\u2026';}
+function skyShort(r){return r.alt+r.size/2+.5667>=0?'up in the '+compass(r.az)+', '+Math.max(0,Math.round(r.alt))+'° high':'below the horizon';}
+function savePair(){var f=frames[st.slide],f2=frames2[st.slide],P=st.place,Q=st.place2,p=parts(P.tz,f.t),SW=1080,SH=720,W=30+SW+20+SW+30,H=30+SH+150,cv=document.createElement('canvas');cv.width=W;cv.height=H;
+  var g=cv.getContext('2d');g.fillStyle='#e9e2d0';g.fillRect(0,0,W,H);
+  [[f,P,30],[f2,Q,30+SW+20]].forEach(function(a){var inner=document.createElement('canvas'),pp=parts(a[1].tz,a[0].t);inner.width=SW;inner.height=SH;
+    drawScene(inner.getContext('2d'),SW,SH,a[0],a[1],sceneOpts(a[0],a[1]));g.drawImage(inner,a[2],30);
+    g.font='300 24px "IBM Plex Mono",monospace';g.fillStyle='#5b574b';g.textAlign='left';g.textBaseline='alphabetic';
+    g.fillText(fit(g,a[1].name+' · '+dt(pp,true,true)+', '+tm(pp)+' · '+skyShort(a[0].r),SW-8),a[2]+4,30+SH+112);});
+  g.fillStyle='#2b2a33';g.font='italic 60px "Instrument Serif",Georgia,serif';g.fillText(Astro.phaseName(f.r.elong)+' · '+Math.round(f.r.k*100)+'% lit',34,30+SH+62);
+  g.font='40px "Reenie Beanie",cursive';g.textAlign='right';g.fillStyle='#8a826c';g.fillText('Moon Carousel',W-36,30+SH+62);
+  cv.toBlob(function(b){if(!b){status('Couldn\u2019t make the picture, sorry.',true);return;}
+    download(b,'moon-'+slug(P)+'-vs-'+slug(Q)+'-'+ymd(p)+'-'+pad(p.h)+pad(p.mi)+'.png');status('Slide saved.');},'image/png');}
+
+/* the video: the carousel played through, ~1.5 s a slide, recorded off a canvas as WebM */
+var rec=null,VSEC=1.5;
+function webmType(audio){if(!window.MediaRecorder)return null;var L=audio?['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm']:['video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm'],i;
+  if(typeof MediaRecorder.isTypeSupported!=='function')return 'video/webm';
+  for(i=0;i<L.length;i++){try{if(MediaRecorder.isTypeSupported(L[i]))return L[i];}catch(e){}}return null;}
+function vnote(msg,err,frac){var n=$('vidnote');n.hidden=false;n.className='vidnote'+(err?' err':'');$('vmsg').textContent=msg;
+  $('vbarBox').hidden=frac==null;if(frac!=null)$('vbar').style.width=Math.round(frac*100)+'%';$('sheet').hidden=!err;}
+function vidBtn(i,n){var b=$('vid');if(i==null){b.textContent='Save video';b.className='btn';b.setAttribute('aria-pressed','false');b.removeAttribute('aria-label');return;}
+  b.textContent='Stop '+i+'/'+n;b.className='btn rec';b.setAttribute('aria-pressed','true');b.setAttribute('aria-label','Stop recording, slide '+i+' of '+n);}
+function noVideo(why){vnote(why+' You can save all the slides as one picture instead.',true);}
+function saveVideo(){if(rec){rec.stop(true);return;}if(!frames.length)return;
+  var AC=window.AudioContext||window.webkitAudioContext,audio=soundOn&&!!AC,type=webmType(audio),cv=document.createElement('canvas');
+  if(!type&&audio){audio=false;type=webmType(false);}
+  if(!window.MediaRecorder||!type||typeof cv.captureStream!=='function'){noVideo('This browser can\u2019t record WebM video (some Safari versions can\u2019t).');return;}
+  stop();
+  var F=frames.slice(),F2=frames2.slice(),P=st.place,Q=st.place2,two=cmpOn(),W=two?1456:1200,H=two?480:800,g,stream,mr,chunks=[],cache={},cancelled=false,failed='',t0=0,timer=null,cur=-1,total=F.length*VSEC+.6;
+  cv.width=W;cv.height=H;g=cv.getContext('2d');
+  function pic(i){if(cache[i])return cache[i];var c=document.createElement('canvas'),x;c.width=W;c.height=H;x=c.getContext('2d');
+    if(two)drawPair(x,W,H,F[i],F2[i],P,Q,sceneOpts(F[i],P),sceneOpts(F2[i],Q),16,'#07080b');else drawScene(x,W,H,F[i],P,sceneOpts(F[i],P));
+    return cache[i]=c;}
+  try{g.drawImage(pic(0),0,0);stream=cv.captureStream(25);
+    if(audio){try{ac=ac||new AC();if(ac.state==='suspended')ac.resume();recDest=ac.createMediaStreamDestination();stream.addTrack(recDest.stream.getAudioTracks()[0]);}catch(e){recDest=null;}}
+    mr=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:5e6});}
+  catch(e){recDest=null;noVideo('Video recording couldn\u2019t start in this browser.');return;}
+  mr.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};
+  mr.onerror=function(e){failed=(e&&e.error&&e.error.name)||'error';if(mr.state!=='inactive')mr.stop();};
+  mr.onstop=function(){clearInterval(timer);recDest=null;rec=null;vidBtn();
+    if(failed){noVideo('The recorder stopped with an error ('+failed+').');return;}
+    if(cancelled){vnote('Recording stopped, nothing saved.',false);return;}
+    var blob=new Blob(chunks,{type:'video/webm'});
+    if(blob.size<2000){noVideo('The recording came out empty in this browser.');return;}
+    download(blob,'moon-carousel-'+slug(P)+(two?'-vs-'+slug(Q):'')+'-'+ymd(parts(P.tz,F[0].t))+'.webm');
+    vnote('Video saved: '+F.length+' slides, '+Math.round(total)+' s, '+(blob.size/1048576).toFixed(1)+' MB.',false);};
+  function frame(){var e=(performance.now()-t0)/1000,i=Math.min(F.length-1,Math.floor(e/VSEC)),u;
+    if(i!==cur){cur=i;delete cache[i-1];if(i<frames.length&&frames[i].t===F[i].t)go(i); /* the projector on screen plays along (and clacks into the video) */
+      vidBtn(i+1,F.length);vnote('Recording slide '+(i+1)+' of '+F.length+' \u2014 keep this tab open. Tap Stop to cancel.',false,(i+1)/F.length);}
+    g.globalCompositeOperation='source-over';g.drawImage(pic(i),0,0);u=(e-i*VSEC)/.32;
+    if(u<1){var b=u<.35?.05+1.2*u/.35:1.25-.25*(u-.35)/.65; /* the same clack flash as the projector */
+      if(b<1){g.fillStyle='rgba(0,0,0,'+(1-b).toFixed(3)+')';g.fillRect(0,0,W,H);}else{g.globalCompositeOperation='lighter';g.fillStyle='rgba(255,214,160,'+((b-1)*.45).toFixed(3)+')';g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over';}}
+    if(i+1<F.length&&e-i*VSEC>.5)pic(i+1); /* mount the next slide early */
+    if(e>=total){clearInterval(timer);if(mr.state!=='inactive')mr.stop();}}
+  rec={mr:mr,type:type,W:W,H:H,n:F.length,audio:!!recDest,at:function(){return cur;},stop:function(c){cancelled=!!c;clearInterval(timer);if(mr.state!=='inactive')mr.stop();}};
+  try{mr.start(1000);}catch(e){rec=null;recDest=null;noVideo('Video recording couldn\u2019t start in this browser.');return;}
+  t0=performance.now();frame();timer=setInterval(frame,40);}
+/* the fallback: every slide on one sheet, like a photographer's contact print */
+function saveSheet(){if(!frames.length)return;vnote('Making the picture\u2026',false);setTimeout(function(){
+  var two=cmpOn(),F=frames,F2=frames2,P=st.place,Q=st.place2,n=F.length,sw=two?240:300,sh=two?160:200,gap=two?6:0,cw=two?sw*2+gap:sw,cols=Math.min(n,two?3:5),rows=Math.ceil(n/cols),
+      pad=24,mt=14,cardW=cw+mt*2,cardH=mt+sh+46,W=pad+cols*(cardW+pad),H=118+rows*(cardH+pad),cv=document.createElement('canvas'),g,p0=parts(P.tz,F[0].t);
+  cv.width=W;cv.height=H;g=cv.getContext('2d');g.fillStyle='#121319';g.fillRect(0,0,W,H);
+  g.textAlign='left';g.textBaseline='alphabetic';g.fillStyle='#efe7d4';g.font='italic 56px "Instrument Serif",Georgia,serif';g.fillText('Moon Carousel',pad,66);
+  g.fillStyle='#a39b87';g.font='300 20px "IBM Plex Mono",monospace';g.fillText(fit(g,$('span').textContent,W-pad*2),pad,98);
+  F.forEach(function(f,i){var x=pad+(i%cols)*(cardW+pad),y=118+Math.floor(i/cols)*(cardH+pad);
+    g.fillStyle='#e9e2d0';g.fillRect(x,y,cardW,cardH);g.save();g.translate(x+mt,y+mt);
+    if(two)drawPair(g,cw,sh,f,F2[i],P,Q,{},{},gap,'#e9e2d0');else{g.beginPath();g.rect(0,0,sw,sh);g.clip();drawScene(g,sw,sh,f,P,{});}g.restore();
+    g.textAlign='left';g.textBaseline='alphabetic';g.fillStyle='#2b2a33';g.font='28px "Reenie Beanie",cursive';g.fillText(fit(g,label(f,P.tz),sw-4),x+mt,y+mt+sh+33);
+    if(two)g.fillText(fit(g,label(F2[i],Q.tz),sw-4),x+mt+sw+gap,y+mt+sh+33);
+    g.textAlign='right';g.fillStyle='#8a826c';g.font='500 12px "IBM Plex Mono",monospace';g.fillText(String(i+1),x+cardW-6,y+11);});
+  cv.toBlob(function(b){if(!b){vnote('Couldn\u2019t make the picture in this browser, sorry. Save slide still works one at a time.',true);$('sheet').hidden=true;return;}
+    download(b,'moon-carousel-'+slug(P)+(two?'-vs-'+slug(Q):'')+'-'+ymd(p0)+'-slides.png');vnote('Saved all '+n+' slides as one picture.',false);},'image/png');},30);}
+window.__moon={drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},build:function(){build();},frames:function(){return frames;},frames2:function(){return frames2;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC,
+  rec:function(){return rec;},lastDl:function(){return lastDl;},webmType:webmType};
 init();
 })();
