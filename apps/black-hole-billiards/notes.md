@@ -12,16 +12,25 @@ Pool on a table in space: planets and stars bend shots, pockets are black holes.
 - v1.5.1: chip says 'cleared' once the table is done, and no ready blip on the final settle (Tatum). Probe hash clear=1.
 - v1.6 (Tatum): the Gas Giant's ring draws its far half behind the planet; static friction MUS 420→900 so the zone where a slowing ball gets dragged onto a planet is smaller; moon cue mass 4.5e6 (reach ring ~71, near-miss tug ~110u); 2 stars now up to par+3 because a ball parked on a planet can cost shots through luck. Probe trap=1 counts balls ending on a planet over 40 random shots per table (~3-5%, same for both MUS values).
 - v1.7 (2026-09-28): table 9 Wormhole (chat vote, Tatum: W). A rock wall splits the table; portals [[330,130,690,390]] send a ball from one mouth to the other at the same velocity (warp(), PR=22, 0.35 s cooldown). The aim line breaks and continues out of the far ring. Whoosh sound.
+- v1.8 (2026-09-28): two-player hot seat + the drifting moon (both from the todo list).
+  - 2P: a small 1P/2P toggle top-right of the Tables card (1P default, not saved; the rules line only shows when 2P is picked). HUD swaps shots/par for P1 (cyan) / P2 (amber) chips with balls sunk, the shooter's chip is lit, the turn chip reads "P2's shot" in their colour, the cue ball's ready ring and power arc take the shooter's colour. A Monoton banner ("Player 2 / your shot", "again", "breaks") on every settle, aria-live says the same plus the score. Winner card: "Player N wins" / "Dead heat", balls + shots per player, Rematch / Next table / All tables. 2P never writes bhb.best.
+  - 2P rules: P1 breaks the first game, then the break alternates every finished game (Rematch or Next table; switching modes in the menu resets it to P1). Sink at least one numbered ball without scratching and you shoot again. A miss, or any scratch (cue ball in a pocket or in Event Horizon's hole), passes the turn; after a scratch the cue ball goes back on its spot. Balls sunk on a scratch shot still count for the shooter, so the scores always add up to the table's balls. The game ends when the table is cleared: most balls wins, equal is a dead heat (possible on the 6-ball tables).
+  - Drifting moon on Gas Giant (orb [580,250,170,150,+.16,-2.1], clockwise) and Slingshot (orb [500,250,168,140,-.16,.9]): R14, M2.5e6. orb=[cx,cy,rx,ry,rad/s,start]; drift() only runs inside step() (so it's frozen while aiming, in menus and after the table is done). predict() drifts it along with the preview ball and restores it (probe: preview vs real path 0.1u, a static-moon preview would be 0.9u off). Resting balls within R+BR+44 wake when |accel| >= MUS or on contact; contact below 40 u/s relative is inelastic so the moon shoves instead of juggling (turns still end in 3-5 s). The orbit is baked into the felt as a faint dotted ellipse; a halo + short fading tail show which way it drifts. Orbiting masses are left out of the baked spacetime-grid dents.
+  - Polish: a global [hidden]{display:none!important}, the menu opens focused on the first table (not the toggle), phone menu shows tables in two columns, on phones the table name moves up beside Tables/↺/♫ (the HUD row keeps only the numbers, so long names like Event Horizon no longer get cut).
 
 ## issues
 - Resting balls ignore gravity until hit (static friction MUS=900). When placing balls, keep |g| < MUS at every spot; the probe prints gmax per table.
 - Balls touching a planet drop the inward pull (move()), otherwise they jitter forever and the turn never ends. Turns are also capped at 22 s.
-- `.panel[hidden]` needs its own display:none because .panel sets display:grid.
+- `.panel[hidden]` needs its own display:none because .panel sets display:grid (v1.8 also added a global [hidden]{display:none!important}).
+- A ball resting on the moon's orbit gets woken as the moon arrives; on Gas Giant it can then roll down onto the giant (wake test: parked ball moved 75u onto the planet). Keep starting spots well off the orbits (moon probe gOrbitMax must stay < MUS: 660 / 239 now).
 
 ## todos
-- A drifting moon that moves only while balls roll.
-- Two-player hot seat.
+- 2P: optional player names (typed on the device, no fake defaults), ball-in-hand after a scratch, a mercy rule when one side can't be caught.
+- A table built around the moon (e.g. a moon that orbits between the cue and the pack, or two moons).
+- Online 2P would need a realtime channel; not planned.
 
 ## notes
 - World is 1000x500 with 46-unit rails; view() rotates for portrait, toWorld() inverts it.
 - Headless: SP/bhb/mkt.sh + probe.js (hash lv, ang, pow). Probe prints rest (balls awake at load, should be all 0), gmax, and one test shot per table.
+- v1.8 probe hashes: p2=1 (menu toggle + scripted miss/pot/scratch/pot/pot+scratch, winner card, rematch alternates the break, back to 1P), p2live=1&lv=N (real loop, synthetic touch drags, 4 alternating turns), tie=1 (dead heat, bhb.best untouched), moon=1 (gOrbitMax = max |g| at every ball spot over the whole orbit, frozen while aiming, predict restores it, preview deviation, wake test), screenshots: shot2p=1&lv=2, moonshot=1&lv=4&ang=-0.42&pow=0.8, duelshot=1, menu1/menu2.
+- Name clash to remember: load() has a local `var cue` (the cue ball), so the 2P banner function is banner(), not cue().
