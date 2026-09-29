@@ -1,6 +1,7 @@
 # graffiti-chaos-wall
 
 ## log
+- 2026-09-29: **graffiti_wall has no id column** (text, color, font, rotation, x, y, scale, author, user_id, created_at, updated_at), and the load asked for `id`, so every load failed ('column does not exist') in every version checked back to 0c4119cd7. Tags are now keyed '<user_id>@<created_at ms>' (tagKey reads REST and realtime timestamps; keyed() on load, insert and realtime). Paint-overs moved to new table graffiti_wall_covers (id bigserial, tag_key text); graffiti_wall_hides (tag_id bigint) is left unused. Wipe matches user_id + created_at. Probe stub gaunt/gcw/stubdb2.js mirrors the real columns and errors on a select of id.
 - 2026-09-29: the database module loads with a dynamic import, so the page still runs when the live host hands back a config without its default client (a static import stopped the whole wall). If loading or auth fails, the wall goes local: tags you spray are kept on this device (localStorage gcw.local.v1, last 60), you can wipe them, and the pill says "closed · your tags stay on this device". The pill is capped so it never runs under the sound button.
 - 2026-09-29: title and share text no longer promise "permanent / no takedowns" now that tags can be painted over.
 - 2026-09-29: phones: the status pill and the sound button no longer sit on top of the title (header gets 50px top padding under 680px).

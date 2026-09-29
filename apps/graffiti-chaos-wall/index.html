@@ -458,6 +458,21 @@ let offline = false;
 function localTags() { try { const a = JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }
 function saveLocal() { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(allTags.filter(isLocal).slice(-60))); } catch (_) {} }
 function isLocal(t) { return String(t.id).startsWith('local-'); }
+// tags have no id column, so each one is known by who sprayed it and when: '<user_id>@<created_at in ms>'
+// (reads both the REST timestamp and the realtime one, which has a space and a short zone)
+function tagKey(t) {
+  const s = String((t && t.created_at) || '');
+  const r = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d(?::?\d\d)?)?$/.exec(s);
+  let ms = NaN;
+  if (r) {
+    let tz = r[4] || 'Z';
+    if (tz !== 'Z') { if (tz.length === 3) tz += ':00'; else if (tz.length === 5) tz = tz.slice(0, 3) + ':' + tz.slice(3); }
+    ms = Date.parse(r[1] + 'T' + r[2] + '.' + ((r[3] || '') + '000').slice(0, 3) + tz);
+  }
+  return (t && t.user_id || '?') + '@' + (isNaN(ms) ? s : ms);
+}
+function keyed(t) { if (t && !isLocal(t)) t.id = tagKey(t); return t; }
+const COVERS = 'graffiti_wall_covers';
 
 const COLORS = [
   { v:'#ff2bd6', n:'pink' },
@@ -728,14 +743,14 @@ function refreshMarquee() {
 async function loadAll() {
   const { data, error } = await supabase
     .from('graffiti_wall')
-    .select('id, text, color, font, rotation, x, y, scale, author, created_at, user_id')
+    .select('text, color, font, rotation, x, y, scale, author, created_at, user_id')
     .order('created_at', { ascending: true })
     .limit(800);
   if (error) {
     goOffline('load failed: ' + error.message);
     return;
   }
-  allTags = data || [];
+  allTags = (data || []).map(keyed);
   await loadHides();
   // clear wall + render
   wall.querySelectorAll('.tag').forEach(t => t.remove());
@@ -793,6 +808,7 @@ async function submitTag() {
     return;
   }
   // local optimistic render — realtime will dedupe
+  keyed(data);
   if (!allTags.find(x => x.id === data.id)) {
     allTags.push(data);
     renderTag(data, true);
@@ -854,10 +870,10 @@ function addHide(tagId, uid) {
   h.add(uid); if (state.user && uid === state.user.id) myHides.add(tagId);
 }
 async function loadHides() {
-  const { data, error } = await supabase.from('graffiti_wall_hides').select('tag_id, user_id').limit(5000);
+  const { data, error } = await supabase.from(COVERS).select('tag_key, user_id').limit(5000);
   if (error) return;
   hides = new Map(); myHides.clear();
-  (data || []).forEach(r => addHide(r.tag_id, r.user_id));
+  (data || []).forEach(r => addHide(r.tag_key, r.user_id));
 }
 function tagEl(id) { return wall.querySelector('.tag[data-id="' + CSS.escape(String(id)) + '"]'); }
 function paintOut(id) {
@@ -891,12 +907,12 @@ document.addEventListener('click', (e) => { if (!tagMenu.hidden && !tagMenu.cont
 async function paintOver(t) {
   if (!state.user) { setStatus('warn', 'connecting…'); return; }
   addHide(t.id, state.user.id); paintOut(t.id); refreshMarquee(); liveStatus(); sprayPshhh(0.5);
-  const { error } = await supabase.from('graffiti_wall_hides').insert({ tag_id: t.id, user_id: state.user.id });
+  const { error } = await supabase.from(COVERS).insert({ tag_key: t.id, user_id: state.user.id });
   if (error) setStatus('err', 'paint-over only stuck for you: ' + error.message);
 }
 async function wipeMine(t) {
   if (isLocal(t)) { allTags = allTags.filter(x => x.id !== t.id); saveLocal(); paintOut(t.id); refreshMarquee(); liveStatus(); sprayPshhh(0.5); return; }
-  const { error } = await supabase.from('graffiti_wall').delete().eq('id', t.id);
+  const { error } = await supabase.from('graffiti_wall').delete().eq('user_id', t.user_id).eq('created_at', t.created_at);
   if (error) { setStatus('err', 'wipe failed: ' + error.message); return; }
   allTags = allTags.filter(x => x.id !== t.id); paintOut(t.id); refreshMarquee(); liveStatus(); sprayPshhh(0.5);
 }
@@ -920,7 +936,7 @@ if (supabase) supabase
   .on('postgres_changes',
     { event: 'INSERT', schema: 'public', table: 'graffiti_wall' },
     (payload) => {
-      const t = payload.new;
+      const t = keyed(payload.new);
       if (allTags.find(x => x.id === t.id)) return; // dedupe own insert
       allTags.push(t);
       renderTag(t, true);
@@ -932,11 +948,11 @@ if (supabase) supabase
 if (supabase) supabase
   .channel('graffiti-chaos-wall-hides-v1')
   .on('postgres_changes',
-    { event: 'INSERT', schema: 'public', table: 'graffiti_wall_hides' },
+    { event: 'INSERT', schema: 'public', table: COVERS },
     (payload) => {
-      const r = payload.new; if (!r || r.tag_id == null) return;
-      const t = allTags.find(x => x.id === r.tag_id), was = t && isHidden(t);
-      addHide(r.tag_id, r.user_id);
+      const r = payload.new; if (!r || r.tag_key == null) return;
+      const t = allTags.find(x => x.id === r.tag_key), was = t && isHidden(t);
+      addHide(r.tag_key, r.user_id);
       if (t && !was && isHidden(t)) { paintOut(t.id); refreshMarquee(); liveStatus(); }
     })
   .subscribe();
