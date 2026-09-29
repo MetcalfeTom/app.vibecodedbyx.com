@@ -497,7 +497,18 @@
   </div>
 
   <script type="module">
-    import supabase from '/supabase-config.js';
+    // the shared database file: on the live host it has come without its default client, and a failed static import
+    // stops the whole page, so load it softly and fall back to an offline client that answers every call with an error
+    const offlineErr = { message: 'the database is offline right now' };
+    function offlineQuery() { const p = Promise.resolve({ data: null, error: offlineErr, count: null }); const q = new Proxy(function () {}, { get: (t, k) => k === 'then' ? p.then.bind(p) : k === 'catch' ? p.catch.bind(p) : k === 'finally' ? p.finally.bind(p) : () => q, apply: () => q }); return q; }
+    const offlineClient = { from: () => offlineQuery(), rpc: () => offlineQuery(), channel: () => { const c = { on: () => c, subscribe: () => c, unsubscribe: () => {}, send: () => Promise.resolve() }; return c; }, removeChannel: () => {}, auth: { getUser: async () => ({ data: { user: null }, error: offlineErr }), getSession: async () => ({ data: { session: null }, error: null }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }), signInAnonymously: async () => ({ data: {}, error: offlineErr }) } };
+    let supabase = offlineClient, supabaseSession = async () => { throw new Error(offlineErr.message); };
+    try {
+      const mod = await import('/supabase-config.js');
+      if (typeof mod.supabaseSession === 'function') supabaseSession = mod.supabaseSession;
+      if (mod.default) supabase = mod.default;
+      else if (typeof mod.supabaseSession === 'function') { try { supabase = (await mod.supabaseSession()).client || offlineClient; } catch (_) {} }
+    } catch (e) { console.warn('database module did not load', e); }
 
     const canvas = document.getElementById('mandalaCanvas');
     const ctx = canvas.getContext('2d');
@@ -940,6 +951,7 @@
     }
 
     // === CHAT FREQUENCY MONITORING ===
+    let chatPulseOffline = false;
     async function fetchMessageCount() {
       try {
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
@@ -950,6 +962,7 @@
           .gte('created_at', fiveMinutesAgo);
 
         if (!error && count !== null) {
+          chatPulseOffline = false;
           const newCount = count;
           const delta = newCount - lastMessageCount;
 
@@ -968,9 +981,14 @@
           targetFrequency = Math.min(1, messagesPerMinute / 20);
 
           updateStats();
+        } else if (error) {
+          // chat pulse unreachable: the mandala keeps breathing on its own, the rate just reads as a dash
+          chatPulseOffline = true;
+          document.getElementById('msgRate').title = 'the chat pulse is offline right now';
+          updateStats();
         }
       } catch (err) {
-        console.error('[Prism Echo] Fetch error:', err);
+        console.warn('[Prism Echo] Fetch error:', err);
       }
     }
 
@@ -996,7 +1014,7 @@
     function updateStats() {
       const freqPercent = Math.round(chatFrequency * 100);
       document.getElementById('frequencyFill').style.width = freqPercent + '%';
-      document.getElementById('msgRate').textContent = messagesPerMinute;
+      document.getElementById('msgRate').textContent = chatPulseOffline ? '–' : messagesPerMinute;
       document.getElementById('msgRate').className = 'stat-value' + (messagesPerMinute > 10 ? ' high' : '');
       document.getElementById('symmetryVal').textContent = symmetry;
       document.getElementById('layersVal').textContent = layers;
@@ -1034,7 +1052,7 @@
 
     window.toggleRotation = function() {
       rotating = !rotating;
-      document.querySelector('.control-btn:nth-child(3)').classList.toggle('active', rotating);
+      document.querySelector('.tooltip-container:nth-child(3) .control-btn').classList.toggle('active', rotating);
     };
 
     window.regenerate = function() {
@@ -1059,7 +1077,7 @@
       setInterval(fetchMessageCount, 30000);
 
       // Set initial rotation button state
-      document.querySelector('.control-btn:nth-child(3)').classList.add('active');
+      document.querySelector('.tooltip-container:nth-child(3) .control-btn').classList.add('active');
 
       console.log('[Prism Echo] Initialized with Sacred Geometry');
       console.log('[Sacred] PHI =', PHI);

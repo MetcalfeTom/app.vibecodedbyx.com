@@ -3,6 +3,7 @@
 Procedural neon mandalas that pulse with chat energy, built on sacred geometry mathematics.
 
 ## log
+- 2026-09-29: the mandala draws again on the live site. The live /supabase-config.js has no default export, and the static import of it stopped the whole module (black canvas, every button a ReferenceError). It now loads softly with an offline fallback client; when the chat count can't load, MESSAGES/MIN reads '–' (tooltip: the chat pulse is offline right now). Also fixed the ROTATION highlight: its selector (.control-btn:nth-child(3)) matched nothing inside the tooltip wrappers and threw on load and on every toggle.
 - 2026-01-25: Tooltip System
   - Hover tooltips on all control buttons
   - Info panel (?) with sacred geometry explanations
