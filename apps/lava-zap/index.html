@@ -145,7 +145,7 @@
         <button class="ghost" id="quit">title</button>
         <button class="ghost snd" aria-pressed="true">sound on</button>
       </div>
-      <p class="lookset"><button class="chase" id="sens" type="button">look speed 1×</button> <button class="chase" id="invY" type="button" aria-pressed="false">invert up and down</button> <button class="chase" id="rawM" type="button" aria-pressed="true">raw mouse</button></p>
+      <p class="lookset"><button class="chase" id="sens" type="button">look speed 1×</button> <button class="chase" id="invY" type="button" aria-pressed="false">invert up and down</button> <button class="chase" id="rawM" type="button" aria-pressed="true">raw mouse</button> <button class="chase" id="liteM" type="button" aria-pressed="false">lite lamp</button></p>
       <p class="perf" id="perf" aria-live="polite"></p>
     </div>
   </section>
@@ -167,7 +167,7 @@
     </div>
   </section>
 </main>
-<span id="buildstamp" role="note" aria-label="Build information">build v1.7.6 &middot; 2026-09-29</span>
+<span id="buildstamp" role="note" aria-label="Build information">build v1.7.7 &middot; 2026-09-29</span>
 <script type="module">
 /* three is imported by its full address, no import map: a map can be ignored when anything loads a module before it */
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
@@ -197,6 +197,7 @@ function quality(raw) {
   if (qT < 1.5) return;
   const avg = qSum / qN; qT = qSum = qN = 0;
   if (qHold > 0) { qHold--; return; }
+  if (avg > 0.033 && prI === PR_STEPS.length - 1 && !LITE && liteAuto) { setLite(true); if (state === 'play') toast('Lite lamp on, so it keeps up'); return; }
   /* very slow (under 20 fps) skips two steps at once, so a struggling browser reaches a playable size in seconds */
   if (avg > 0.022 && prI < PR_STEPS.length - 1) { const j = Math.min(PR_STEPS.length - 1, prI + (avg > 0.05 ? 2 : 1)); while (prI < j) prBad[prI++] = true; qHold = 1; }
   else if (avg < 0.012 && prI > 0 && !prBad[prI - 1]) { prI--; qHold = 3; }
@@ -288,6 +289,24 @@ cap.position.y = TOP_Y; scene.add(cap);
 /* a rim where the glass meets the plate */
 const rim = new THREE.Mesh(new THREE.TorusGeometry(FLOOR_R + 0.05, 0.25, 8, 96).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#443044', metalness: 0.8, roughness: 0.3 }));
 scene.add(rim);
+/* the lite lamp, for browsers drawing without a graphics card (Tatum's idea). Measured in software rendering, the glass wall
+   filling the screen took two thirds of every frame even when drawn flat, so lite swaps it for a thin wire cage, draws the plate
+   unlit and drops the specks and the gun. Everything that tells you something stays: bubbles, the crosshair ring, the vent
+   streaks, the heater's flicker */
+const GLASS_M = glass.material, FLOOR_M = floor.material, CAP_M = cap.material, RIM_M = rim.material;
+const liteCage = (() => {
+  const P = [], RIBS = 28;
+  for (let y = 3; y < TOP_Y; y += 5) for (let i = 0; i < 72; i++) {
+    const a = i / 72 * 6.2832, b = (i + 1) / 72 * 6.2832, r = lampR(y) - 0.05;
+    P.push(Math.cos(a) * r, y, Math.sin(a) * r, Math.cos(b) * r, y, Math.sin(b) * r);
+  }
+  for (let i = 0; i < RIBS; i++) { const a = i / RIBS * 6.2832; for (let y = 0; y < TOP_Y; y += 1) P.push(Math.cos(a) * (lampR(y) - 0.05), y, Math.sin(a) * (lampR(y) - 0.05), Math.cos(a) * (lampR(y + 1) - 0.05), y + 1, Math.sin(a) * (lampR(y + 1) - 0.05)); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  const m = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#6a3a78', transparent: true, opacity: 0.7 })); m.visible = false; scene.add(m); return m;
+})();
+const liteFloor = new THREE.MeshBasicMaterial({ map: FLOOR_M.emissiveMap });
+const liteMetal = new THREE.MeshBasicMaterial({ color: '#1c1624' });
+let LITE = false;
 
 /* ---------- vents: slots in the glass that blow steady sideways currents across the lamp.
    Each one breathes on its own slow rhythm and sits in the same place all day, so a patient hunter
@@ -374,7 +393,8 @@ function drawAir(dt, t) {
     v.mouth.material.opacity = 0.12 + 0.25 * v.s;
   }
   const warn = surgeAt - t, flick = warn > 0 && warn < 2.2 ? (Math.sin(t * 38) > 0.2 ? 0.12 : 0) : 0;
-  floor.material.emissiveIntensity = 0.15 + 0.4 * surge + flick;
+  FLOOR_M.emissiveIntensity = 0.15 + 0.4 * surge + flick;
+  if (LITE) liteFloor.color.set(LAMP.ground).multiplyScalar(0.2 + 1.2 * FLOOR_M.emissiveIntensity);
   heater.intensity = 34 + 70 * surge + flick * 120;
 }
 const _f = new THREE.Vector3();
@@ -413,8 +433,9 @@ function applyLamp(i) {
   const li = ((i % LAMPS.length) + LAMPS.length) % LAMPS.length; LAMP = LAMPS[li]; FEEL = FEELS[li];
   LIQ.set(LAMP.liq); scene.fog.color.copy(LIQ);
   hemi.color.set(LAMP.sky); hemi.groundColor.set(LAMP.ground); capLight.color.set(LAMP.capL);
-  glass.material.emissive.set(LAMP.wall); glass.material.map.dispose(); glass.material.map = streakTexture(LAMP.streak); glass.material.needsUpdate = true;
-  cap.material.emissive.set(LAMP.lid);
+  GLASS_M.emissive.set(LAMP.wall); GLASS_M.map.dispose(); GLASS_M.map = streakTexture(LAMP.streak); GLASS_M.needsUpdate = true;
+  liteCage.material.color.set(LAMP.streak);
+  CAP_M.emissive.set(LAMP.lid); liteMetal.color.set(LAMP.lid);
   COOL.set(LAMP.wax[0]); MID.set(LAMP.wax[1]); HOT.set(LAMP.wax[2]);
   bubbles.material.color.set(LAMP.speck);
   for (const v of VENTS) v.ribbons.material.color.set(LAMP.air);
@@ -613,7 +634,7 @@ gun.add(gunBody, grip, collar, lampCap, gunGlass, ...gunWax, ...gunCoils, gunTip
 function syncGun() { gunHold.matrix.copy(camera.matrixWorld); gunHold.updateMatrixWorld(true); }
 function draw() {
   renderer.render(scene, camera);
-  if (!gun.visible) return;
+  if (!gun.visible || LITE) return;
   syncGun(); renderer.autoClear = false; renderer.clearDepth(); renderer.render(gunScene, camera); renderer.autoClear = true;
 }
 const GUN_Z = -0.42; let kick = 0;
@@ -1215,6 +1236,17 @@ try { sens = SENS.includes(+localStorage.getItem('lz.sens')) ? +localStorage.get
 function lookSet() { $('sens').textContent = 'look speed ' + sens + '×'; $('invY').setAttribute('aria-pressed', String(invY)); $('rawM').setAttribute('aria-pressed', String(rawM)); }
 $('sens').addEventListener('click', () => { sens = SENS[(SENS.indexOf(sens) + 1) % SENS.length]; try { localStorage.setItem('lz.sens', sens); } catch (e) {} lookSet(); });
 $('invY').addEventListener('click', () => { invY = !invY; try { localStorage.setItem('lz.invY', invY ? '1' : '0'); } catch (e) {} lookSet(); });
+/* lite lamp: switched on by itself for a browser without a graphics card, or when even the smallest size runs slow;
+   a choice made on the pause card sticks on this device */
+let liteAuto = true;
+function setLite(on) {
+  LITE = on;
+  glass.visible = !on; liteCage.visible = on; floor.material = on ? liteFloor : FLOOR_M; cap.material = on ? liteMetal : CAP_M; rim.material = on ? liteMetal : RIM_M;
+  bubbles.visible = !on; liteFloor.color.set(LAMP.ground).multiplyScalar(0.38);
+  $('liteM').setAttribute('aria-pressed', String(on));
+}
+try { const v = localStorage.getItem('lz.lite'); if (v === '1' || v === '0') liteAuto = false; setLite(v === '1' || (v === null && SOFT)); } catch (e) { setLite(SOFT); }
+$('liteM').addEventListener('click', () => { liteAuto = false; setLite(!LITE); try { localStorage.setItem('lz.lite', LITE ? '1' : '0'); } catch (e) {} });
 $('rawM').addEventListener('click', () => { rawM = !rawM; try { localStorage.setItem('lz.raw', rawM ? '1' : '0'); } catch (e) {} lookSet(); });
 lookSet();
 function look(dx, dy, k) { me.yaw -= dx * k * sens; me.pitch -= dy * k * sens * (invY ? -1 : 1); }
@@ -1328,7 +1360,7 @@ function frame(now) {
   draw();
 }
 renderer.setAnimationLoop(frame);
-window.__lz = { applyLamp, get lamp() { return LAMP.name; }, pf, get near() { return near; }, get feel() { return FEEL; }, VENTS, flowAt, blobs, me, camera, renderer, scene, start, fire, finish, pause, aimList, alive, placeCamera, get state() { return state; }, get stats() { return { elapsed, shots, triples, bonus, pushes, duds }; }, set elapsed(v) { elapsed = v; }, get mus() { return { st: AC && AC.state, step: musStep, next: musNext && musNext - AC.currentTime, pad: padI }; }, stepWax, lineReach, parseGhost, localGhost, get gh() { return gh; }, ghFig, get rec() { return rec; }, recStep, ghostStep, get look() { return { lockOK, lockFails, spikes, mAvg }; }, get pr() { return [prI, PR_STEPS[prI], renderer.getPixelRatio()]; }, get hudGhost() { return document.getElementById('hGhostN').textContent; }, set huddleOff(v) { huddleOff = v; }, render: draw };
+window.__lz = { applyLamp, get lamp() { return LAMP.name; }, pf, get near() { return near; }, get feel() { return FEEL; }, parts: { glass, floor, cap, rim, bubbles, gun, ventGroup, blobGroup }, setLite, get lite() { return LITE; }, SOFT, VENTS, flowAt, blobs, me, camera, renderer, scene, start, fire, finish, pause, aimList, alive, placeCamera, get state() { return state; }, get stats() { return { elapsed, shots, triples, bonus, pushes, duds }; }, set elapsed(v) { elapsed = v; }, get mus() { return { st: AC && AC.state, step: musStep, next: musNext && musNext - AC.currentTime, pad: padI }; }, stepWax, lineReach, parseGhost, localGhost, get gh() { return gh; }, ghFig, get rec() { return rec; }, recStep, ghostStep, get look() { return { lockOK, lockFails, spikes, mAvg }; }, get pr() { return [prI, PR_STEPS[prI], renderer.getPixelRatio()]; }, get hudGhost() { return document.getElementById('hGhostN').textContent; }, set huddleOff(v) { huddleOff = v; }, render: draw };
 </script>
 </body>
 </html>
