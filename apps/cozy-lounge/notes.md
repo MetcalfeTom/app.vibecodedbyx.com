@@ -1,6 +1,7 @@
 # Cozy Lounge
 
 ## log
+- 2026-09-29: messages were thrown away: the chat keyed each one on an `id` column that simple_chat_messages does not have, so every message (history, live, your own) was dropped and the lounge looked empty. Now a message is known by user_id + created_at (both timestamp formats) + length; a failed send says so in the status line instead of an alert.
 - 2026-04-07: Initial build — real-time chatroom with fireside aesthetic. Warm amber/cream palette on deep roasted-brown background, drifting ember particles, flickering fire glow at bottom, Fraunces serif + IBM Plex Mono. Join screen with cozy default name placeholders, then chat view with rounded speech-bubble messages (own messages glow amber on the right). Uses `simple_chat_messages` table (shared with simple-chat & system-health). Anonymous Supabase auth via supabaseSession(). Realtime via postgres_changes subscription + 4s poll fallback.
 
 ## features
