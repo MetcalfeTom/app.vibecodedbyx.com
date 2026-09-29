@@ -121,7 +121,7 @@
     </div>
   </section>
 </main>
-<span id="buildstamp" role="note" aria-label="Build information">build v1.0 &middot; 2026-09-29</span>
+<span id="buildstamp" role="note" aria-label="Build information">build v1.1 &middot; 2026-09-29</span>
 <script type="module">
 /* three is imported by its full address, no import map: a map can be ignored when anything loads a module before it */
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
@@ -204,6 +204,7 @@ function stepSpots(t) {
     sp.mesh.scale.setScalar(SPOT_R * 2.3 * pulse); sp.mesh.material.opacity = sp.heat;
     sp.halo.scale.setScalar(SPOT_R * 3.8); sp.halo.material.opacity = 0.22 * sp.heat;
   }
+  stepAir(t);
 }
 /* each bubble throws a soft warm glow on the plate below it, so you can find it without looking up */
 const shadowTex = glowTexture('rgba(255,190,120,0.9)', 'rgba(255,90,60,0.25)');
@@ -226,11 +227,101 @@ cap.position.y = TOP_Y; scene.add(cap);
 const rim = new THREE.Mesh(new THREE.TorusGeometry(FLOOR_R + 0.05, 0.25, 8, 96).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#443044', metalness: 0.8, roughness: 0.3 }));
 scene.add(rim);
 
-/* ---------- rising bubbles for depth ---------- */
-const NBUB = 260, bubPos = new Float32Array(NBUB * 3), bubRnd = mulberry32(99);
+/* ---------- vents: slots in the glass that blow steady sideways currents across the lamp.
+   Each one breathes on its own slow rhythm and sits in the same place all day, so a patient hunter
+   can learn where the air goes, even behind their back. You see a current by its streaks and by the specks it carries ---------- */
+const VENTS = [], VENT_F = 2.6, VENT_H = 1.9;
+function streakTex() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d'), r = mulberry32(7);
+  for (let i = 0; i < 22; i++) {
+    const y = 8 + r() * 48, len = 18 + r() * 80, px = r() * 256, h = 1.5 + r() * 3, a = 0.25 + r() * 0.6;
+    const g = x.createLinearGradient(px, 0, px + len, 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, `rgba(255,255,255,${a})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(px, y, len, h); if (px + len > 256) x.fillRect(px - 256, y, len, h);
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; return t;
+}
+function grilleTex() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64; const x = c.getContext('2d');
+  x.fillStyle = 'rgba(20,10,30,0.85)'; x.beginPath(); x.moveTo(18, 4); x.arcTo(124, 4, 124, 60, 14); x.arcTo(124, 60, 4, 60, 14); x.arcTo(4, 60, 4, 4, 14); x.arcTo(4, 4, 124, 4, 14); x.closePath(); x.fill();
+  for (let i = 0; i < 4; i++) { const g = x.createLinearGradient(0, 0, 128, 0); g.addColorStop(0, 'rgba(214,200,255,0.2)'); g.addColorStop(0.5, 'rgba(236,228,255,1)'); g.addColorStop(1, 'rgba(214,200,255,0.2)'); x.fillStyle = g; x.fillRect(16, 13 + i * 11, 96, 4); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const STREAK = streakTex(), GRILLE = grilleTex(), MOUTH_GEO = new THREE.PlaneGeometry(1, 1), MOUTH_TEX = glowTexture('rgba(225,215,255,0.8)', 'rgba(170,150,255,0.25)');
+const ventGroup = new THREE.Group(); scene.add(ventGroup);
+function makeVents(seed) {
+  const rnd = mulberry32(seed ^ 0xa17);
+  VENTS.forEach(v => { ventGroup.remove(v.grille, v.ribbons, v.mouth); v.ribbons.geometry.dispose(); v.ribbons.material.map.dispose(); v.ribbons.material.dispose(); v.grille.material.dispose(); v.mouth.material.dispose(); });
+  VENTS.length = 0;
+  const hs = [8.5 + rnd() * 4, 17 + rnd() * 5, 27 + rnd() * 6]; let th = rnd() * 6.283;
+  for (const vy of hs) {
+    th += 2.0 + rnd() * 0.9;
+    const R = lampR(vy), skew = (rnd() - 0.5) * 0.9;
+    const pos = new THREE.Vector3(Math.cos(th) * (R - 0.15), vy, Math.sin(th) * (R - 0.15));
+    const dir = new THREE.Vector3(-Math.cos(th + skew), 0, -Math.sin(th + skew));
+    const len = 2 * R * Math.cos(skew) - 0.6;
+    /* the ribbons of moving streaks, one mesh per vent, fading in from the slot and out at the far glass */
+    const P = [], C = [], U = [], I = [], SEG = 10;
+    for (let k = 0; k < 7; k++) {
+      const z0 = (rnd() * 2 - 1) * 1.3, y0 = (rnd() * 2 - 1) * VENT_H * 0.55, w = 0.35 + rnd() * 0.5, u0 = rnd();
+      const base = P.length / 3;
+      for (let s = 0; s <= SEG; s++) {
+        const t = s / SEG, xm = t * len, spread = 1 + 0.07 * xm, z = z0 * spread;
+        const f = Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.15)), 0.7) * (1 - 0.45 * t);
+        P.push(xm, y0, z - w * spread / 2, xm, y0, z + w * spread / 2);
+        C.push(f, f, f, f, f, f); U.push(u0 + xm / 7, 0, u0 + xm / 7, 1);
+        if (s < SEG) { const a = base + s * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setIndex(I);
+    const map = STREAK.clone(); map.needsUpdate = true;
+    const ribbons = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map, color: '#d8ccff', vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    ribbons.position.copy(pos); ribbons.rotation.y = Math.atan2(-dir.z, dir.x); ribbons.frustumCulled = false;
+    const grille = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 2.1), new THREE.MeshBasicMaterial({ map: GRILLE, transparent: true, depthWrite: false }));
+    grille.position.copy(pos); grille.lookAt(0, vy, 0);
+    const mouth = new THREE.Mesh(MOUTH_GEO, new THREE.MeshBasicMaterial({ map: MOUTH_TEX, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    mouth.position.copy(pos).addScaledVector(dir, 0.3); mouth.lookAt(0, vy, 0); mouth.scale.set(9, 5, 1);
+    ventGroup.add(ribbons, grille, mouth);
+    VENTS.push({ pos, dir, len, period: 9 + rnd() * 6, ph: rnd() * 6.283, s: 1, ribbons, grille, mouth });
+  }
+}
+/* the heater surge: every so often the plate flares and everything near the floor swells and lifts together */
+let surge = 0, surgeRnd = mulberry32(3), surgeAt = 40;
+function surgeOf(t) { const a = t - surgeAt; return a < 0 ? 0 : a < 1 ? a : a < 4 ? 1 : a < 6 ? (6 - a) / 2 : 0; }
+function stepAir(t) {
+  for (const v of VENTS) v.s = 0.62 + 0.38 * Math.sin(6.2832 * t / v.period + v.ph);
+  if (t - surgeAt > 6) surgeAt = t + 35 + surgeRnd() * 25;
+  surge = surgeOf(t);
+}
+function flowAt(x, y, z, out) {
+  out.set(0, 0, 0);
+  for (const v of VENTS) {
+    const dy = (y - v.pos.y) / VENT_H; if (dy * dy >= 1) continue;
+    const rx = x - v.pos.x, rz = z - v.pos.z, al = rx * v.dir.x + rz * v.dir.z; if (al < 0 || al > v.len) continue;
+    const lat = Math.abs(rx * v.dir.z - rz * v.dir.x), W = 1.7 + 0.1 * al; if (lat >= W) continue;
+    const f = v.s * (1 - dy * dy) * (1 - (lat / W) * (lat / W)) * (1 - 0.55 * al / v.len);
+    out.x += v.dir.x * f; out.z += v.dir.z * f;
+  }
+  return out;
+}
+function drawAir(dt, t) {
+  for (const v of VENTS) {
+    v.ribbons.material.map.offset.x -= dt * (0.25 + 0.3 * v.s);
+    v.ribbons.material.opacity = 0.12 + 0.22 * v.s;
+    v.grille.material.color.setScalar(0.55 + 0.45 * v.s);
+    v.mouth.material.opacity = 0.12 + 0.25 * v.s;
+  }
+  const warn = surgeAt - t, flick = warn > 0 && warn < 2.2 ? (Math.sin(t * 38) > 0.2 ? 0.12 : 0) : 0;
+  floor.material.emissiveIntensity = 0.15 + 0.4 * surge + flick;
+  heater.intensity = 34 + 70 * surge + flick * 120;
+}
+const _f = new THREE.Vector3();
+
+/* ---------- rising specks for depth; the currents carry them sideways ---------- */
+const NBUB = 420, bubPos = new Float32Array(NBUB * 3), bubRnd = mulberry32(99);
 for (let i = 0; i < NBUB; i++) { const a = bubRnd() * 6.283, y = bubRnd() * TOP_Y, r = Math.sqrt(bubRnd()) * (lampR(y) - 1); bubPos.set([Math.cos(a) * r, y, Math.sin(a) * r], i * 3); }
 const bubGeo = new THREE.BufferGeometry(); bubGeo.setAttribute('position', new THREE.BufferAttribute(bubPos, 3));
-const bubbles = new THREE.Points(bubGeo, new THREE.PointsMaterial({ color: '#ffc6ef', size: 0.12, transparent: true, opacity: 0.55, depthWrite: false }));
+const bubbles = new THREE.Points(bubGeo, new THREE.PointsMaterial({ color: '#ffd6f4', size: 0.2, map: glowTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0.5)'), transparent: true, opacity: 0.7, depthWrite: false }));
 scene.add(bubbles);
 
 /* ---------- the wax: separate blobs that rise when hot, sink when cool, swell and shrink ---------- */
@@ -282,6 +373,7 @@ function makeLamp(seed, n) {
   const rnd = mulberry32(seed);
   blobs.forEach(b => { blobGroup.remove(b.mesh, b.glow); b.mesh.material.dispose(); b.glow.material.dispose(); });
   spotRnd = mulberry32(seed ^ 0x5eed); spots.forEach((sp, i) => { placeSpot(sp, -i * 7); });
+  makeVents(seed); surgeRnd = mulberry32(seed ^ 0x5a6e); surgeAt = 30 + surgeRnd() * 20;
   blobs.length = 0;
   for (let i = 0; i < n; i++) {
     const y = 3 + rnd() * (TOP_Y - 8), r0 = 1.1 + rnd() * 1.3, a = rnd() * 6.283, d = Math.sqrt(rnd()) * (lampR(y) - r0 * 1.6 - 1);
@@ -303,11 +395,13 @@ function stepWax(dt, time) {
       if (b.heat < 0.5) { let best = null, bd = 1e9; for (const sp of spots) { const d = Math.hypot(b.p.x - sp.x, b.p.z - sp.z) - 12 * sp.heat; if (d < bd) { bd = d; best = sp; } }
         if (best) { const dx = best.x - b.p.x, dz = best.z - b.p.z, l = Math.hypot(dx, dz) || 1; b.v.x += dx / l * 0.7 * dt * (1 - b.p.y / 6); b.v.z += dz / l * 0.7 * dt * (1 - b.p.y / 6); } }
     } else if (b.p.y > TOP_Y - 7) b.heat -= dt * 0.2; else b.heat -= dt * 0.012;
+    if (b.p.y < 9) b.heat += dt * 0.28 * surge;
     b.heat = Math.min(1, Math.max(0, b.heat));
     b.r = b.r0 * (0.72 + 0.5 * b.heat);
     b.v.y += (b.heat - 0.5) * GRAV * dt;
     b.v.x += Math.sin(time * 0.35 * b.sway + b.ph) * 0.5 * dt;
     b.v.z += Math.cos(time * 0.3 * b.sway + b.ph * 1.7) * 0.5 * dt;
+    flowAt(b.p.x, b.p.y, b.p.z, _f); b.v.x += _f.x * VENT_F * dt; b.v.z += _f.z * VENT_F * dt;
     b.v.multiplyScalar(Math.exp(-DRAG * dt));
   }
   for (let i = 0; i < blobs.length; i++) for (let j = i + 1; j < blobs.length; j++) {
@@ -388,6 +482,7 @@ const GUN_Z = -0.42; let kick = 0;
 function placeGun() {
   const hh = Math.abs(GUN_Z) * Math.tan(camera.fov * Math.PI / 360), hw = hh * camera.aspect;
   gun.position.set(Math.min(0.2, hw * 0.66), -hh * 0.62, GUN_Z);
+  gun.scale.setScalar(0.62 * Math.min(1, 0.45 + camera.aspect * 0.6));
 }
 
 /* ---------- the beam and the spray of popped wax ---------- */
@@ -613,7 +708,7 @@ document.addEventListener('pointerlockerror', () => { lockOK = false; });
 let drag = null, stickId = null, stickO = null, lookId = null, lookP = null;
 cv.addEventListener('pointerdown', e => {
   if (e.pointerType === 'touch') {
-    if (!touch) { touch = true; document.body.classList.add('touch'); unlock(); }
+    if (!touch) { touch = true; document.body.classList.add('touch'); wasLocked = false; unlock(); }
     if (state !== 'play') return;
     if (e.clientX < innerWidth / 2 && stickId === null) { stickId = e.pointerId; stickO = { x: e.clientX, y: e.clientY }; const s = $('stick'); s.style.left = e.clientX + 'px'; s.style.top = e.clientY + 'px'; s.hidden = false; s.firstChild.style.transform = ''; }
     else if (lookId === null) { lookId = e.pointerId; lookP = { x: e.clientX, y: e.clientY }; }
@@ -684,17 +779,21 @@ function frame(now) {
   const ch = 1 - Math.min(1, cool / 0.42); gunRing.material.color.setRGB(0.2 + 0.3 * ch, 0.3 + 0.66 * ch, 0.4 + 0.6 * ch); gunTip.material.color.setRGB(0.3 + 0.57 * ch, 0.4 + 0.59 * ch, 0.5 + 0.5 * ch);
   gun.visible = state === 'play';
   for (const b of blobs) b.flash *= Math.exp(-5 * dt);
-  stepBeam(dt); stepDrops(dt);
+  stepBeam(dt); stepDrops(dt); drawAir(state === 'pause' ? 0 : dt, time);
   if (state !== 'pause') {
     const bp = bubGeo.attributes.position.array;
-    for (let i = 0; i < NBUB; i++) { bp[i * 3 + 1] += dt * (0.6 + (i % 7) * 0.15); if (bp[i * 3 + 1] > TOP_Y) bp[i * 3 + 1] = 0.2; }
+    for (let i = 0; i < NBUB; i++) {
+      const j = i * 3; bp[j + 1] += dt * (0.6 + (i % 7) * 0.15);
+      flowAt(bp[j], bp[j + 1], bp[j + 2], _f); bp[j] += _f.x * dt * 3.4; bp[j + 2] += _f.z * dt * 3.4;
+      if (bp[j + 1] > TOP_Y || Math.hypot(bp[j], bp[j + 2]) > lampR(bp[j + 1]) - 0.2) { const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * (FLOOR_R - 1); bp[j] = Math.cos(a) * r; bp[j + 1] = 0.2; bp[j + 2] = Math.sin(a) * r; }
+    }
     bubGeo.attributes.position.needsUpdate = true;
   }
   syncWax(time);
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);
-window.__lz = { blobs, me, camera, renderer, scene, start, fire, finish, pause, aimList, alive, placeCamera, get state() { return state; }, get stats() { return { elapsed, shots, triples, bonus }; }, render: () => renderer.render(scene, camera) };
+window.__lz = { VENTS, flowAt, blobs, me, camera, renderer, scene, start, fire, finish, pause, aimList, alive, placeCamera, get state() { return state; }, get stats() { return { elapsed, shots, triples, bonus }; }, render: () => renderer.render(scene, camera) };
 </script>
 </body>
 </html>
