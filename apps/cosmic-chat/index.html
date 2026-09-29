@@ -259,6 +259,44 @@
             color: #ff6b6b;
         }
 
+        .message-meta {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .void-hide {
+            background: none;
+            border: none;
+            color: #c38bff;
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            cursor: pointer;
+            padding: 0 2px;
+        }
+
+        .void-hide:hover,
+        .void-hide:focus-visible {
+            color: #ff00ff;
+            text-shadow: 0 0 8px #ff00ff;
+        }
+
+        .void-hidden-note {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #ff6b6b;
+        }
+
+        .void-note {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #ff00ff;
+        }
+
+        .void-note:empty {
+            display: none;
+        }
+
         .input-area {
             display: flex;
             gap: 10px;
@@ -401,27 +439,66 @@
                        maxlength="500">
                 <button class="send-btn" onclick="sendMessage()">TRANSMIT</button>
             </div>
+            <div class="void-note" id="voidNote" role="status" aria-live="polite"></div>
         </div>
     </div>
 
     <script type="module">
         import supabase, { supabaseSession } from '/supabase-config.js';
 
-        let user = null;
-        let messageCount = 0;
-        let corruptedCount = 0;
+        const MSGS = 'cosmic_messages';
+        const HIDES = 'cosmic_chat_hides';
+        const HIDE_AT = 2;          // hides from travelers other than the author that take a message down for everyone
+        const MAX_LEN = 500;
+        const NAME_LEN = 20;
 
-        // Initialize
+        let user = null;
+        const messages = [];        // oldest first
+        const nodes = new Map();    // message key -> its element on screen
+        const looks = new Map();    // message key -> { corrupted, text }, so a message keeps its glitch
+        const hides = new Map();    // message key -> Set of user ids
+        const myHides = new Set();
+
+        // The table has no id column, so a message is named by its author and its exact time (to the millisecond)
+        function msgKey(m) {
+            const t = String((m && m.created_at) || '');
+            const r = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d(?::?\d\d)?)?$/.exec(t);
+            let ms = NaN;
+            if (r) {
+                let tz = r[4] || 'Z';
+                if (tz !== 'Z') { if (tz.length === 3) tz += ':00'; else if (tz.length === 5) tz = tz.slice(0, 3) + ':' + tz.slice(3); }
+                ms = Date.parse(r[1] + 'T' + r[2] + '.' + ((r[3] || '') + '000').slice(0, 3) + tz);
+            }
+            if (isNaN(ms)) ms = Date.parse(t);
+            return ((m && m.user_id) || '?') + '@' + (isNaN(ms) ? t : ms);
+        }
+        function isOwn(m) { return !!(user && m.user_id === user.id); }
+        function hidesOn(m) {
+            let n = 0;
+            const set = hides.get(msgKey(m));
+            if (set) for (const u of set) if (u !== m.user_id) n++;
+            return n;
+        }
+        function isHidden(m) { return !isOwn(m) && (myHides.has(msgKey(m)) || hidesOn(m) >= HIDE_AT); }
+        function addHide(key, u) {
+            if (!hides.has(key)) hides.set(key, new Set());
+            hides.get(key).add(u);
+            if (user && u === user.id) myHides.add(key);
+        }
+        function note(t) { document.getElementById('voidNote').textContent = t || ''; }
+
+        // Initialize: the void loads even when the session doesn't
         async function init() {
             try {
                 const { user: currentUser } = await supabaseSession();
-                user = currentUser;
-                await loadMessages();
-                subscribeToMessages();
-                updateVoidStrength();
+                user = currentUser || null;
             } catch (e) {
                 console.error('Error initializing', e);
             }
+            if (!user) note('no session: you can read, reload the page to transmit');
+            await loadMessages();
+            subscribeToMessages();
+            updateVoidStrength();
         }
 
         // Create stars
@@ -451,30 +528,24 @@
             return corrupted;
         }
 
-        // Load messages
+        // Load messages, then the hides
         async function loadMessages() {
-            try {
-                const { data, error } = await supabase
-                    .from('cosmic_messages')
-                    .select('*')
-                    .order('created_at', { ascending: false })
-                    .limit(50);
-
-                if (error) throw error;
-
-                const messagesContainer = document.getElementById('messages');
-                messagesContainer.innerHTML = '';
-
-                if (data && data.length > 0) {
-                    data.reverse().forEach(msg => {
-                        displayMessage(msg);
-                    });
-                    messageCount = data.length;
-                    document.getElementById('messageCount').textContent = messageCount;
-                }
-            } catch (e) {
-                console.error('Error loading messages', e);
+            const res = await supabase
+                .from(MSGS)
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(50)
+                .then(r => r, e => ({ error: e }));
+            if (res.error) {
+                console.error('Error loading messages', res.error);
+                note('the void is unreachable right now, reload to try again');
+                return;
             }
+            // the hides: if they can't load, every message just stays up
+            const hr = await supabase.from(HIDES).select('message_id, user_id').limit(5000).then(r => r, e => ({ error: e }));
+            if (hr.error) console.warn('hides unavailable', hr.error);
+            else { hides.clear(); myHides.clear(); for (const h of hr.data || []) if (h.message_id != null) addHide(h.message_id, h.user_id); }
+            (res.data || []).reverse().forEach(addMessage);
         }
 
         // Escape HTML (visitor-written text is rendered as text)
@@ -484,96 +555,142 @@
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
+        function updateStats() {
+            let corrupted = 0;
+            for (const key of nodes.keys()) if (looks.get(key) && looks.get(key).corrupted) corrupted++;
+            document.getElementById('messageCount').textContent = nodes.size;
+            document.getElementById('corruptedCount').textContent = corrupted;
+        }
+
+        function addMessage(msg) {
+            if (!msg) return;
+            const key = msgKey(msg);
+            if (messages.some(m => msgKey(m) === key)) return;
+            messages.push(msg);
+            if (messages.length > 200) {
+                const old = messages.shift();
+                const el = nodes.get(msgKey(old));
+                if (el) { el.remove(); nodes.delete(msgKey(old)); }
+            }
+            if (!isHidden(msg)) displayMessage(msg);
+            updateStats();
+        }
+
         // Display message
         function displayMessage(msg) {
             const messagesContainer = document.getElementById('messages');
             const messageDiv = document.createElement('div');
+            const key = msgKey(msg);
 
-            const isCorrupted = msg.is_corrupted || Math.random() < 0.15;
-            const displayText = isCorrupted ? corruptText(msg.message) : msg.message;
+            if (!looks.has(key)) {
+                const corrupted = !!msg.is_corrupted || Math.random() < 0.15;
+                looks.set(key, { corrupted, text: corrupted ? corruptText(String(msg.message || '')) : msg.message });
+            }
+            const look = looks.get(key);
+            const own = isOwn(msg);
+            const hideBtn = own ? '' : `<button class="void-hide" type="button" data-key="${escapeHtml(key)}" aria-label="Hide this message" title="Hide it for you. Two hides take it down for everyone.">hide</button>`;
 
-            messageDiv.className = 'message' + (isCorrupted ? ' corrupted' : '');
+            messageDiv.className = 'message' + (look.corrupted ? ' corrupted' : '');
             messageDiv.innerHTML = `
                 <div class="message-header">
                     <span class="username">${escapeHtml(msg.username || 'Anonymous Void Traveler')}</span>
-                    <span class="timestamp">${new Date(msg.created_at).toLocaleTimeString()}</span>
+                    <span class="message-meta"><span class="timestamp">${new Date(msg.created_at).toLocaleTimeString()}</span>${hideBtn}</span>
                 </div>
-                <div class="message-text ${isCorrupted ? 'corrupted-text' : ''}">${escapeHtml(displayText)}</div>
+                <div class="message-text ${look.corrupted ? 'corrupted-text' : ''}">${escapeHtml(look.text)}</div>
+                <div class="void-hidden-note" hidden>hidden from everyone else by readers</div>
             `;
+            if (own && hidesOn(msg) >= HIDE_AT) messageDiv.querySelector('.void-hidden-note').hidden = false;
 
             messagesContainer.appendChild(messageDiv);
+            nodes.set(key, messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
 
-            if (isCorrupted) {
-                corruptedCount++;
-                document.getElementById('corruptedCount').textContent = corruptedCount;
-            }
+        // A message got a hide: take it off the screen, or tell its author
+        function refresh(key) {
+            const m = messages.find(x => msgKey(x) === key);
+            const el = nodes.get(key);
+            if (!m || !el) return;
+            if (isHidden(m)) { el.remove(); nodes.delete(key); }
+            else if (isOwn(m) && hidesOn(m) >= HIDE_AT) el.querySelector('.void-hidden-note').hidden = false;
+            updateStats();
+        }
+
+        async function hideMessage(key) {
+            if (!key) return;
+            if (!user) { note('no session: reload the page to hide messages'); return; }
+            addHide(key, user.id);
+            refresh(key);
+            const { error } = await supabase.from(HIDES).insert({ user_id: user.id, message_id: key }).then(r => r, e => ({ error: e }));
+            if (error) { console.warn('hide failed', error); note('hidden for you until you reload (the hide did not save)'); }
         }
 
         // Rate limiting
         let lastMessageTime = 0;
-        const MESSAGE_COOLDOWN = 1000; // 1 second between messages
+        const MESSAGE_COOLDOWN = 1500; // 1.5 seconds between messages
 
         // Send message
         window.sendMessage = async function() {
             const messageInput = document.getElementById('messageInput');
             const usernameInput = document.getElementById('username');
-            const message = messageInput.value.trim();
-            const username = usernameInput.value.trim() || 'Anonymous Void Traveler';
+            const message = messageInput.value.trim().slice(0, MAX_LEN);
+            const username = usernameInput.value.trim().slice(0, NAME_LEN) || 'Anonymous Void Traveler';
 
-            if (!message || !user) return;
+            if (!message) return;
+            if (!user) { note('no session: reload the page to transmit'); return; }
 
             // Rate limiting
             const now = Date.now();
             if (now - lastMessageTime < MESSAGE_COOLDOWN) {
-                alert('Please wait before sending another message.');
+                note('the void needs a second between transmissions');
                 return;
             }
-
-            // Input validation
-            if (message.length > 500) {
-                alert('Message is too long. Maximum 500 characters.');
-                return;
-            }
-            if (username.length > 50) {
-                alert('Username is too long. Maximum 50 characters.');
-                return;
-            }
-
             lastMessageTime = now;
+            note('');
 
-            try {
-                const isCorrupted = Math.random() < 0.2; // 20% chance of corruption
+            const isCorrupted = Math.random() < 0.2; // 20% chance of corruption
 
-                const { error } = await supabase
-                    .from('cosmic_messages')
-                    .insert({
-                        user_id: user.id,
-                        username: username,
-                        message: message,
-                        is_corrupted: isCorrupted
-                    });
+            const { data, error } = await supabase
+                .from(MSGS)
+                .insert({
+                    user_id: user.id,
+                    username: username,
+                    message: message,
+                    is_corrupted: isCorrupted
+                })
+                .select()
+                .single()
+                .then(r => r, e => ({ error: e }));
 
-                if (error) throw error;
-
-                messageInput.value = '';
-                messageCount++;
-                document.getElementById('messageCount').textContent = messageCount;
-            } catch (e) {
-                console.error('Error sending message', e);
+            if (error) {
+                console.error('Error sending message', error);
+                note('the transmission was lost: ' + (error.message || 'try again'));
+                return;
             }
+            messageInput.value = '';
+            addMessage(data);
         };
 
-        // Subscribe to new messages
+        // Live: new messages, and hides on their own channel so a missing table can't stop the chat
         function subscribeToMessages() {
             supabase
                 .channel('cosmic_messages')
                 .on('postgres_changes',
-                    { event: 'INSERT', schema: 'public', table: 'cosmic_messages' },
+                    { event: 'INSERT', schema: 'public', table: MSGS },
                     (payload) => {
-                        displayMessage(payload.new);
-                        messageCount++;
-                        document.getElementById('messageCount').textContent = messageCount;
+                        addMessage(payload.new);
+                    }
+                )
+                .subscribe();
+            supabase
+                .channel('cosmic_chat_hides')
+                .on('postgres_changes',
+                    { event: 'INSERT', schema: 'public', table: HIDES },
+                    (payload) => {
+                        const h = payload.new;
+                        if (!h || h.message_id == null) return;
+                        addHide(h.message_id, h.user_id);
+                        refresh(h.message_id);
                     }
                 )
                 .subscribe();
@@ -589,9 +706,14 @@
             }, 3000);
         }
 
+        document.getElementById('messages').addEventListener('click', (e) => {
+            const hb = e.target.closest('.void-hide');
+            if (hb) hideMessage(hb.dataset.key);
+        });
+
         // Enter key to send
         document.getElementById('messageInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.isComposing) {
                 sendMessage();
             }
         });
