@@ -21,6 +21,7 @@
   - Bug: after click 80 (and after "Bake a fresh cookie") the cookie never squished again. `restart()` only removed the class it re-added, so a leftover `.shake` (later in the CSS) masked `.squish`. It now clears both. Headless: 0 → 1 animation per click at 86 and after reset.
   - Rage vignette now fades in and out: `@property --vig` registered, so the existing `transition: --vig .6s` actually animates (it used to snap).
   - Contrast: stage labels opacity .55 → .7, active label darker red #b3302f (AA at 9.5-10px); mute button 42 → 44px.
+- 2026-09-29: clickable again on the live site. The live /supabase-config.js has no default export, and the static import of it stopped the whole module (the cookie ignored every click). It now loads softly with an offline fallback client; when scores can't load the 'everyone' box reads 'offline' (best stays in localStorage).
 
 ## Issues
 - The old global_stats rows for this app never existed (anon reads empty) → old totals are lost, starting fresh
