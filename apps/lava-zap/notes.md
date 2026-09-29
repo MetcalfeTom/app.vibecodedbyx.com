@@ -31,6 +31,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
   - vents whisper: whoosh only within about 13 m of the current, 0.07 max (Tatum: constant vent noise felt superfluous).
   - ghost of your best (local only for now): daily runs record x, z, yaw, pitch at 10 Hz plus every zap/push exactly (t, x, z, yaw, pitch, left); a new best is saved as `lz.ghost.<day>` ('g1;path;zaps;ms'). Next run a see-through cyan hunter (fresnel capsule, head, gun, floor glow, name sprite) replays it; its beams flash at its zaps, the HUD shows its bubbles left, a toast when it clears. Title chip toggles it (`lz.ghostMode`). Since today's lamp starts the same, its early beams go through the same pairs.
 - v1.4.1: arrow keys walk too (left/right strafe like A/D; Tatum). The ghost now keeps your fastest cleared run by time in the lamp, and the first recorded run fills in even when an older best (from before ghosts) is faster; the label says "your ghost".
+- v1.5: today's fastest ghost is shared. Table `lava_zap_ghosts` (day, name, time_ms, path text, one row per user per day, only a faster clear replaces it; runs under 8 s are not posted). The title loads the fastest clear of the day; the chip cycles race <name>'s ghost / race your ghost / no ghost (only modes that exist; `lz.ghostMode`, default 'best'). Renaming renames your ghost too. db() now memoises the sign-in promise so two saves at once never make two anonymous users. The stub (`stub.js`) keeps rows per table; `#shared` / `#sharedtitle` preload a ghost for Pilot A.
 
 ## Issues
 - Never go back to an import map or three r186 here: see v1.0.1.
@@ -39,7 +40,6 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 
 ## Todos
 - Maybe a flow-map overlay for beginners.
-- Shared ghost of today's fastest hunter (table lava_zap_ghosts, path as text), choose on the title chip.
 - Hard mode idea: refraction through bubbles.
 
 ## Probes
