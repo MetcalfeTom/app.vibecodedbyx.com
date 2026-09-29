@@ -16,6 +16,7 @@
   - **Performance** · HiDPI-aware canvas (`devicePixelRatio` capped at 2), additive-blend trails are the hot path. ~28 ghosts at 60fps stays under 5ms/frame on a 4-year-old MacBook. Trail length is the main knob (28-38 segments).
   - **Mobile** · responsive HUD shrink at 720px (help panel hidden, you-card width-capped, conn pill at 9.5px).
   - **OG image** · Pollinations flux seed 1313, "Neon ghost map of Earth at night, glowing cyan and magenta viewer trails drifting across continents, synthwave dotted world map, deep cosmic violet". No `referrer` param per project notes.
+- 2026-09-29: drifts again on the live site. The live /supabase-config.js has no default export, and the static import of it stopped the whole module (blank map). It now loads softly and uses the client from supabaseSession() for presence; if the file fails entirely, an offline client answers and the presence pill reads 'offline' while your own ghost still drifts.
 
 ## issues
 - Dot-matrix world map is intentionally rough (6° resolution, hand-traced). Greenland/Indonesia/Madagascar shapes are approximate. If chat asks for cartographic accuracy, swap in a higher-res bitmap or a GeoJSON path-based map.
