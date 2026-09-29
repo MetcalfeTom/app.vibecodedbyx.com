@@ -33,6 +33,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.4.1: arrow keys walk too (left/right strafe like A/D; Tatum). The ghost now keeps your fastest cleared run by time in the lamp, and the first recorded run fills in even when an older best (from before ghosts) is faster; the label says "your ghost".
 - v1.5: today's fastest ghost is shared. Table `lava_zap_ghosts` (day, name, time_ms, path text, one row per user per day, only a faster clear replaces it; runs under 8 s are not posted). The title loads the fastest clear of the day; the chip cycles race <name>'s ghost / race your ghost / no ghost (only modes that exist; `lz.ghostMode`, default 'best'). Renaming renames your ghost too. db() now memoises the sign-in promise so two saves at once never make two anonymous users. The stub (`stub.js`) keeps rows per table; `#shared` / `#sharedtitle` preload a ghost for Pilot A.
 - v1.5.1: phones in portrait: the gun sits higher and further in (x 0.42 hw, y -0.4 hh), clear of the ZAP and PUSH buttons.
+- v1.5.2: pops ring the lamp song: each popped bubble adds a bell note (triangle + a quiet 2.76x partial, 1.1 s, through the song's echo) two scale steps above the melody, rising by two steps per bubble in the zap, so a pair is a small chord and a triple an arpeggio. Pop chirp and hiss a bit softer, zap saw 0.1 -> 0.07. Offline render with triples: peak 0.16.
 
 ## Issues
 - Never go back to an import map or three r186 here: see v1.0.1.
