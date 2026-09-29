@@ -445,6 +445,27 @@
     .exhibit:hover .delete-link, .delete-link:focus { opacity: 1; }
     .delete-link:hover { background: var(--crimson); }
 
+    /* ============ FROSTED GLASS: a new exhibit waits for two visitors to vouch for it ============ */
+    .canvas-area.veiled img, .exhibit:hover .canvas-area.veiled img { filter: blur(26px) saturate(0.5) brightness(1.05); transform: scale(1.15); }
+    .veil {
+      position: absolute; inset: 0; z-index: 2; width: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.4rem;
+      padding: 1rem; min-height: 0; min-width: 0; border: 0; cursor: pointer;
+      background: repeating-linear-gradient(135deg, rgba(236,226,205,0.62) 0 7px, rgba(236,226,205,0.4) 7px 14px);
+      color: var(--ink); font-family: 'Special Elite', monospace; font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase;
+    }
+    .veil b { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 900; font-size: 1.05rem; letter-spacing: 0; text-transform: none; }
+    .veil i { font-style: normal; opacity: 0.7; }
+    .veil:hover b, .veil:focus-visible b { text-decoration: underline; text-underline-offset: 3px; }
+    .rope-link {
+      background: none; border: 0; box-shadow: none; padding: 0.2rem 0.3rem; min-height: 0; min-width: 0; cursor: pointer; opacity: 0.75;
+      text-decoration: underline dotted; text-underline-offset: 3px;
+      font-family: 'Special Elite', monospace; font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink);
+    }
+    .rope-link:active { transform: none; box-shadow: none; }
+    .rope-link:hover, .rope-link:focus-visible { color: var(--crimson); opacity: 1; }
+    .roped-note { display: block; margin-top: 0.3rem; font-family: 'Special Elite', monospace; font-size: 0.55rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--crimson); }
+
     /* ============ EMPTY STATE ============ */
     .empty {
       grid-column: 1 / -1;
@@ -757,6 +778,18 @@
     let votes = {};           // {meme_id: count}
     let myVotes = new Set();  // meme ids the current user voted
     let totalVotes = 0;
+    let voters = {};          // {meme_id: Set of user ids who loved it}
+    let flags = {};           // {meme_id: Set of user ids who roped it off}
+    let myFlags = new Set();  // meme ids you roped off
+    const revealed = new Set(); // unvouched exhibits you chose to look at, this visit
+    const CLEAR_AT = 2;       // loves from other visitors that lift the frosted glass for everyone
+    const ROPE_AT = 2;        // ropes from other visitors that take an exhibit off the walls for everyone
+    function addTo(map, id, u) { (map[id] = map[id] || new Set()).add(u); }
+    function dropFrom(map, id, u) { if (map[id]) map[id].delete(u); }
+    function othersIn(set, m) { let n = 0; if (set) for (const u of set) if (u !== m.user_id) n++; return n; }
+    function isOwnMeme(m) { return !!(currentUser && m.user_id === currentUser.id); }
+    function isRoped(m) { return !isOwnMeme(m) && (myFlags.has(m.id) || othersIn(flags[m.id], m) >= ROPE_AT); }
+    function isCleared(m) { return isOwnMeme(m) || othersIn(voters[m.id], m) >= CLEAR_AT; }
     let sortMode = 'top';     // 'top' | 'new' | 'random'
     let currentUser = null;
     let submitInFlight = false;
@@ -855,14 +888,28 @@
         .from('meme_museum_votes')
         .select('meme_id, user_id');
       votes = {};
+      voters = {};
       myVotes = new Set();
       totalVotes = 0;
       if (votesData) {
         for (const v of votesData) {
           votes[v.meme_id] = (votes[v.meme_id] || 0) + 1;
+          addTo(voters, v.meme_id, v.user_id);
           if (currentUser && v.user_id === currentUser.id) myVotes.add(v.meme_id);
           totalVotes++;
         }
+      }
+      // the ropes: an error here (say the table isn't reachable) just leaves every exhibit up
+      const { data: flagData, error: fErr } = await supabase
+        .from('meme_museum_flags')
+        .select('meme_id, user_id')
+        .limit(5000);
+      flags = {};
+      myFlags = new Set();
+      if (fErr) console.warn('ropes unavailable', fErr);
+      for (const f of (flagData || [])) {
+        addTo(flags, f.meme_id, f.user_id);
+        if (currentUser && f.user_id === currentUser.id) myFlags.add(f.meme_id);
       }
       render();
     }
@@ -890,10 +937,11 @@
     }
 
     function render() {
-      document.getElementById('count-exhibits').textContent = memes.length;
+      const onWalls = memes.filter(m => !isRoped(m));
+      document.getElementById('count-exhibits').textContent = onWalls.length;
       document.getElementById('count-votes').textContent = totalVotes;
 
-      if (!memes.length) {
+      if (!onWalls.length) {
         gallery.innerHTML = `<div class="empty">
           <div class="icon">🖼</div>
           <h3>The walls are bare.</h3>
@@ -901,7 +949,7 @@
         </div>`;
         return;
       }
-      const list = sortMemes();
+      const list = sortMemes().filter(m => !isRoped(m));
       const isOwn = (m) => currentUser && m.user_id === currentUser.id;
 
       gallery.innerHTML = list.map((m, idx) => {
@@ -911,6 +959,13 @@
         const rankBadge = sortMode === 'top' && idx < 3 && count > 0
           ? `<div class="rank-badge">№ ${idx + 1}</div>` : '';
         const imgSrc = isImageUrl(m.image_url) ? m.image_url : '';
+        const veiled = !!imgSrc && !isCleared(m) && !revealed.has(m.id);
+        const veil = veiled
+          ? `<button class="veil" type="button" data-act="reveal" data-id="${attr(m.id)}" aria-label="Not vouched for yet. Tap to look"><span>not vouched for yet</span><b>tap to look</b><i>${othersIn(voters[m.id], m)} of ${CLEAR_AT} visitors vouched</i></button>` : '';
+        const ropeBtn = !isOwn(m)
+          ? `<button class="rope-link" type="button" data-act="rope" data-id="${attr(m.id)}" aria-label="Rope off this exhibit">rope off</button>` : '';
+        const ropedNote = isOwn(m) && othersIn(flags[m.id], m) >= ROPE_AT
+          ? '<span class="roped-note">roped off by visitors: only you can see it</span>' : '';
         const imgHtml = imgSrc
           ? `<img src="${attr(imgSrc)}" alt="${attr(m.title || 'meme')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
              <div class="img-fallback" style="display:none"><span class="emoji">🖼</span><span>image unavailable</span></div>`
@@ -921,8 +976,9 @@
         return `<article class="exhibit ${rankClass}" data-id="${attr(m.id)}">
           ${rankBadge}
           <div class="frame">
-            <div class="canvas-area" data-act="zoom" data-src="${attr(imgSrc)}" data-title="${attr(m.title || '')}">
+            <div class="canvas-area${veiled ? ' veiled' : ''}" data-act="${veiled ? 'reveal' : 'zoom'}" data-id="${attr(m.id)}" data-src="${attr(imgSrc)}" data-title="${attr(m.title || '')}">
               ${imgHtml}
+              ${veil}
               ${deleteBtn}
             </div>
           </div>
@@ -934,12 +990,14 @@
               <span>${esc(curator)}</span>
               <span>${esc(relTime(m.created_at))}</span>
             </div>
+            ${ropedNote}
             <div class="vote-row">
               <button class="vote-btn" type="button" data-act="vote" data-id="${attr(m.id)}" aria-pressed="${voted}" aria-label="${voted ? 'Remove your vote' : 'Vote for this meme'}">
                 <span class="heart" aria-hidden="true"></span>
                 <span>${voted ? 'voted' : 'love it'}</span>
               </button>
               <span class="vote-count" aria-label="${count} votes">${count}</span>
+              ${ropeBtn}
             </div>
           </div>
         </article>`;
@@ -954,9 +1012,33 @@
       if (voteBtn) { handleVote(voteBtn.dataset.id, voteBtn); return; }
       const delBtn = e.target.closest('[data-act="del"]');
       if (delBtn) { handleDelete(delBtn.dataset.id); return; }
+      const rev = e.target.closest('[data-act="reveal"]');
+      if (rev) { revealed.add(rev.dataset.id); render(); return; }
+      const rope = e.target.closest('[data-act="rope"]');
+      if (rope) { handleRope(rope.dataset.id); return; }
       const zoom = e.target.closest('[data-act="zoom"]');
       if (zoom && zoom.dataset.src) { openLightbox(zoom.dataset.src, zoom.dataset.title); }
     });
+
+    // rope it off: gone for you at once, and off the walls for everyone once two visitors did
+    async function handleRope(memeId) {
+      if (!memeId || myFlags.has(memeId)) return;
+      if (!currentUser) {
+        await ensureAuth();
+        if (!currentUser) { toast('please refresh to rope things off'); return; }
+      }
+      myFlags.add(memeId);
+      addTo(flags, memeId, currentUser.id);
+      render();
+      toast(`roped off for you · ${ROPE_AT} ropes take it off the walls for everyone`);
+      try {
+        const { error } = await supabase.from('meme_museum_flags').insert({ user_id: currentUser.id, meme_id: memeId });
+        if (error) throw error;
+      } catch (err) {
+        console.warn('rope failed', err);
+        toast('the rope snapped: it stays hidden for you until you reload');
+      }
+    }
 
     async function handleVote(memeId, btn) {
       if (!memeId) return;
@@ -972,6 +1054,7 @@
       const wasVoted = myVotes.has(memeId);
 
       // Optimistic update
+      if (wasVoted) dropFrom(voters, memeId, currentUser.id); else addTo(voters, memeId, currentUser.id);
       if (wasVoted) {
         myVotes.delete(memeId);
         votes[memeId] = Math.max(0, (votes[memeId] || 1) - 1);
@@ -996,6 +1079,7 @@
         }
       } catch (err) {
         // Roll back optimistic
+        if (wasVoted) addTo(voters, memeId, currentUser.id); else dropFrom(voters, memeId, currentUser.id);
         if (wasVoted) {
           myVotes.add(memeId);
           votes[memeId] = (votes[memeId] || 0) + 1;
@@ -1155,6 +1239,7 @@
             const id = payload.new.meme_id;
             votes[id] = (votes[id] || 0) + 1;
             totalVotes++;
+            addTo(voters, id, payload.new.user_id);
             if (currentUser && payload.new.user_id === currentUser.id) myVotes.add(id);
             render();
           })
@@ -1162,7 +1247,17 @@
             const id = payload.old.meme_id;
             votes[id] = Math.max(0, (votes[id] || 1) - 1);
             totalVotes = Math.max(0, totalVotes - 1);
+            if (payload.old.user_id) dropFrom(voters, id, payload.old.user_id);
             if (currentUser && payload.old.user_id === currentUser.id) myVotes.delete(id);
+            render();
+          })
+          .subscribe();
+        // ropes on their own channel, so a missing table can't take the gallery's live updates down with it
+        supabase.channel('meme-museum-ropes')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'meme_museum_flags' }, (payload) => {
+            const f = payload.new;
+            addTo(flags, f.meme_id, f.user_id);
+            if (currentUser && f.user_id === currentUser.id) myFlags.add(f.meme_id);
             render();
           })
           .subscribe();
