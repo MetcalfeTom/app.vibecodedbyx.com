@@ -372,30 +372,41 @@ function drawScene(ctx,W,H,f,place,o){
   var gr=ctx.createLinearGradient(0,0,0,hy);gr.addColorStop(0,sk[0]);gr.addColorStop(1,sk[1]);ctx.fillStyle=gr;ctx.fillRect(0,0,W,hy+2);
   if(dimO){ctx.fillStyle='rgba(8,16,38,'+dimO.toFixed(3)+')';ctx.fillRect(0,0,W,hy+2);}   /* the daylight thins as the Sun is covered */
   var ax=function(az){return W/2+wrap180(az-face)/180*W/2;};
+  var Rn=H*.15*(r.size/.5181),R=Rn,top,h=r.alt+r.size/2+.5667,mx=ax(r.az),my,up=h>=0,fade=1,dS=1e9,k;
+  function mpos(){top=R+H*.05;my=h<5?hy+R-2*R*(h/5):(hy-R)-(Math.min(h,90)-5)/85*Math.max(0,hy-R-top);}
+  function sunD(){return Math.min(Math.hypot(mx-sunx,my-sy),Math.hypot(mx-sunx+W,my-sy),Math.hypot(mx-sunx-W,my-sy));}
+  var sh=r.sunAlt+.8333,sunx=ax(r.sunAz),sR=H*.032,big=S&&up&&S.d<S.rs+S.rm+.35,sy=sh<3?hy+sR-2*sR*(sh/3):(hy-sR)-(Math.min(sh,90)-3)/87*(hy-sR-sR*2);
+  if(up)mpos();
+  /* the Moon is drawn ~40x too big, so for days round new Moon it would sit on the Sun (Tatum). It makes room instead,
+     and within a day or so of new it's lost in the glare, as the real one is by day. Real eclipses (big) keep their size */
+  if(up&&sh>0&&!big){var gap=sR*1.6,Rmin=Rn*.3;for(k=0;k<4;k++){dS=sunD();R=Math.max(Rmin,Math.min(Rn,dS-gap));mpos();}
+    dS=sunD();fade=smooth(gap,gap+Rmin,dS);}
   /* stars, washed out by twilight and by a bright Moon */
   if(dark>0){var sa=dark*(1-.45*r.k*dimE*(r.alt>0?1:0));ctx.fillStyle='#fff';
-    sc.stars.forEach(function(s){ctx.globalAlpha=sa*(.25+.75*s[3]);var sz=Math.max(.6,W/900)*(s[2]>.85?1.7:1);ctx.fillRect(s[0]*W,s[1]*hy,sz,sz);});ctx.globalAlpha=1;}
+    ctx.save();if(up&&!big&&fade>.5){ctx.beginPath();ctx.rect(0,0,W,H);[mx,mx-W,mx+W].forEach(function(x){ctx.moveTo(x+R,my);ctx.arc(x,my,R,0,7);});ctx.clip('evenodd');}   /* the Moon hides the stars behind it */
+    sc.stars.forEach(function(s){ctx.globalAlpha=sa*(.25+.75*s[3]);var sz=Math.max(.6,W/900)*(s[2]>.85?1.7:1);ctx.fillRect(s[0]*W,s[1]*hy,sz,sz);});ctx.globalAlpha=1;ctx.restore();}
   /* glow on the horizon where the Sun is */
   if(tt>=1){var tg=ctx.createLinearGradient(0,hy-H*.17,0,hy);tg.addColorStop(0,'rgba(255,150,80,0)');tg.addColorStop(1,'rgba(255,165,95,.45)');ctx.fillStyle=tg;ctx.fillRect(0,hy-H*.17,W,H*.17+2);}   /* sunset all round the horizon */
   if(r.sunAlt>-14&&r.sunAlt<12){var sx=ax(r.sunAz),gl=smooth(-14,-2,r.sunAlt)*(1-smooth(4,12,r.sunAlt))*(1-tt);
     [sx,sx-W,sx+W].forEach(function(x){var rg=ctx.createRadialGradient(x,hy,0,x,hy,W*.45);rg.addColorStop(0,'rgba(255,170,90,'+.55*gl+')');rg.addColorStop(1,'rgba(255,140,80,0)');ctx.fillStyle=rg;ctx.fillRect(0,0,W,hy+2);});}
-  var R=H*.15*(r.size/.5181),top=R+H*.05,h=r.alt+r.size/2+.5667,mx=ax(r.az),my,up=h>=0;
-  if(up){my=h<5?hy+R-2*R*(h/5):(hy-R)-(Math.min(h,90)-5)/85*Math.max(0,hy-R-top);}
   if(o.detail)moonHit=up?[mx,my,R,W]:[Math.max(R*.42+4,Math.min(W-R*.42-4,mx)),hy+H*.125,R*.42,W];
   /* the Sun, when it's up */
-  var sh=r.sunAlt+.8333,sunx=ax(r.sunAz),sR=H*.032,big=S&&up&&S.d<S.rs+S.rm+.35;
-  if(sh>0&&!big){var sy=sh<3?hy+sR-2*sR*(sh/3):(hy-sR)-(Math.min(sh,90)-3)/87*(hy-sR-sR*2);
+  if(sh>0&&!big){
     [sunx,sunx-W,sunx+W].forEach(function(x){var rg=ctx.createRadialGradient(x,sy,0,x,sy,sR*5);rg.addColorStop(0,'rgba(255,250,230,.95)');rg.addColorStop(.2,'rgba(255,240,200,.6)');rg.addColorStop(1,'rgba(255,230,180,0)');
       ctx.fillStyle=rg;ctx.beginPath();ctx.arc(x,sy,sR*5,0,7);ctx.fill();ctx.fillStyle='#fffdf2';ctx.beginPath();ctx.arc(x,sy,sR,0,7);ctx.fill();});}
   /* the Moon: halo, then the disc */
   var dayWash=1-smooth(-6,6,sa)*.35,gain=dayWash;
   if(big)[mx,mx-W,mx+W].forEach(function(x){if(x>-R*6&&x<W+R*6)drawSunEclipse(ctx,x,my,R,r,S);});
   else if(up){[mx,mx-W,mx+W].forEach(function(x){if(x<-R*2||x>W+R*2)return;
-      var hg=ctx.createRadialGradient(x,my,R*.9,x,my,R*3.2);hg.addColorStop(0,'rgba(200,215,240,'+(.22*r.k*dark*dimE+.02)+')');hg.addColorStop(1,'rgba(200,215,240,0)');
+      if(fade<1){ctx.save();ctx.strokeStyle='rgba(225,232,250,'+(.5*(1-fade)).toFixed(3)+')';ctx.setLineDash([3,4]);ctx.lineWidth=Math.max(1,H/400);ctx.beginPath();ctx.arc(x,my,R,0,7);ctx.stroke();
+        if(o.detail&&fade<.5){var lf=Math.round(Math.max(9,H*.032)*.85),rt=sunx<x;ctx.fillStyle='rgba(225,232,250,'+(.8*(1-2*fade)).toFixed(3)+')';ctx.font='300 '+lf+'px \"IBM Plex Mono\",monospace';
+          ctx.textAlign=rt?'left':'right';ctx.textBaseline='middle';ctx.fillText('lost in the Sun’s glare',rt?x+R+6:x-R-6,my);}
+        ctx.restore();if(fade<.02)return;}
+      var hg=ctx.createRadialGradient(x,my,R*.9,x,my,R*3.2);hg.addColorStop(0,'rgba(200,215,240,'+((.22*r.k*dark*dimE+.02)*fade).toFixed(4)+')');hg.addColorStop(1,'rgba(200,215,240,0)');
       /* the glow goes round the disc, not over it, so the bright highlands don't burn out to flat white */
       ctx.save();ctx.beginPath();ctx.rect(x-R*3.2,my-R*3.2,R*6.4,R*6.4);ctx.arc(x,my,R*.985,0,7);ctx.clip('evenodd');
       ctx.fillStyle=hg;ctx.fillRect(x-R*3.2,my-R*3.2,R*6.4,R*6.4);ctx.restore();
-      drawMoon(ctx,x,my,R,r,{gain:gain,earth:.11*dark,tint:lowTint(r.alt)});});}
+      drawMoon(ctx,x,my,R,r,{gain:gain,earth:.11*dark,tint:lowTint(r.alt),alpha:fade});});}
   /* the ground */
   var ground=mix('#07080c','#1a2233',smooth(-10,10,sa)*.9);ctx.fillStyle=ground;ctx.beginPath();ctx.moveTo(0,H);
   sc.hills.forEach(function(v,k){ctx.lineTo(k/64*W,hy-v*H*.5);});ctx.lineTo(W,H);ctx.closePath();ctx.fill();
