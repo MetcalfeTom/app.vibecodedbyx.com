@@ -39,6 +39,7 @@
   - **WCAG basics** · `<canvas aria-label>`, role="status" on inputs, focus-visible orange outlines on all interactive elements, prefers-reduced-motion kills shake + hp-critical + blood-pulse animations, ≥44px button targets.
   - **Mobile** · sidebar collapses below the arena at 880px (becomes a 220px scroll). Top bar wraps to 2 columns. Arena keeps 5:3 aspect.
   - **OG image** · Pollinations flux seed 666, "Top-down industrial gauntlet arena with red glowing spikes, lasers, buzz saws and a screaming pixel character rushing toward a crusher, synthwave red and black". No `referrer` per project notes.
+- 2026-09-29: plays again on the live site. The live /supabase-config.js has no default export, and the static import of it stopped the whole module (arena, DIE button, everything). It now loads softly with an offline fallback client; the leaderboard and a failed submit say it is offline right now (best time stays in localStorage). Also: the empty/offline leaderboard line spans the sidebar instead of the 28px rank column, and the '✓ submitted' line stays hidden until a submit really lands.
 
 ## issues
 - Hazards are procedurally placed each game with rejection sampling — occasionally two crushers can spawn on overlapping vertical tracks and look weird. Minor.
