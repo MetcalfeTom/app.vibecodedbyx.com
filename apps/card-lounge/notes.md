@@ -12,6 +12,7 @@
   - **Log/chat sidebar**: aria-live polite. System lines render italic/dim (`joined`, `shuffled`, `cleared`). Card events show as `<who> drew <rank+suit>` with the suit colored. Chat shows the speaker's name in their swatch color. Capped at 120 entries, auto-scrolls.
   - **Connection status** pill top-right of header: red dot = disconnected, amber blinking = connecting, green = in the lounge. Driven by the channel.subscribe status callback.
   - **Accessibility**: rem units throughout, role=status + aria-live on connection pill, role=button + tabindex + Enter/Space keyboard activation on the deck stack, semantic <header>/<main>/<aside>/<section>, aria-label on table region + chat log, focus-visible amber outlines, 2.5rem min target on buttons, prefers-reduced-motion zeroes deck-hover transform + card transition.
+- 2026-09-29: opens again on the live site. The live /supabase-config.js has no default export, and the static import of it stopped the whole module (no deck, no table, no chat). It now loads softly and uses the client from supabaseSession(); the lounge only needs realtime channels, so it should work live. If the file fails entirely, an offline client lets you play a solo table and the status pill says 'offline · solo table'.
 
 ## issues
 - No room codes — everyone lands in the same `lobby` room. Could collide if 5+ strangers join simultaneously, but for the livestream it's fine. Easy follow-up: URL hash like `#code=ABCD`.
