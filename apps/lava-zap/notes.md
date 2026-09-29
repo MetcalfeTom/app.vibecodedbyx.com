@@ -20,6 +20,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.0 (2026-09-29): first person hunt in a 3D lava lamp (three r186). Bubbles heat on wandering hot spots, swell and rise, cool and shrink at the lid, sink. Crosshair counts bubbles on the line (×2 cyan, ×3 gold) and lights them faintly. Zap with click (pointer lock), space or the ZAP button; left-thumb stick and right-thumb look on phones. Pop spray, beam, gun kick and recharge ring. Title / pause (Esc, P) / cleared cards, sound toggle (M).
 - v1.0.1: Tatum hit two load errors live: "Unexpected token '{'" in one browser (three r186 uses class static blocks, which older engines can't parse) and "Error resolving module specifier three" in Firefox (the import map was ignored). Now three r170 is imported by its full URL, no import map.
 - v1.1: vents. Three slots in the glass at different heights (seeded per lamp) blow steady sideways currents that breathe on their own slow rhythm (9-15 s). You see them as lilac streak ribbons scrolling away from the grille and by the rising specks bending sideways in them; bubbles drift with them (force 2.6, about 1 m/s at the strongest). Heater surge every 35-60 s: the coils flicker for 2 s, then the plate flares and bubbles below 9 m heat up and rise together. Phones: smaller gun; a touch after a locked mouse no longer pauses.
+- v1.1.1: each vent has a soft whoosh (band-passed noise) that swells with its breath, gets louder near the current and is panned left/right to where it is, so you can hear the air behind you.
 
 ## Issues
 - Never go back to an import map or three r186 here: see v1.0.1.
@@ -27,7 +28,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - The dark disc you see when looking straight up is the lamp's lid, not a rendering bug.
 
 ## Todos
-- Vent sound (a soft whoosh that swells with each breath) and maybe a flow-map overlay for beginners.
+- Maybe a flow-map overlay for beginners.
 - Daily leaderboard (Supabase table, own inline client; the host /supabase-config.js has no default export).
 - Exact replays / ghost runs for speedrunners (Tatum: "runs will feel like choreography"): needs shots stamped to physics steps.
 - Hard mode idea: refraction through bubbles.
