@@ -55,6 +55,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.8.2 (2026-09-29): anyone's dance. Title/done board rows with a user_id are buttons (peekable) that open the #peek card: loadGhostOf(uid) fetches their ghost row for today, drawDance on #wDance with its own caption, squares line, and 'race X's ghost' (picked + ghMode 'pick', first in ghModes). Peek ids use a w prefix: the pause card already owns id pH. drawDance keeps animating while its card is up (was state === 'done'). look(): yaw calmed above 0.7 rad pitch, down to 40% near straight up (Tatum: looking up and nudging sideways spun wildly).
 - v1.8.3 (2026-09-29): liteMarks, four compass ribs (doubled, bright, north gold) plus matching floor spokes, visible only in lite. The cage and floor rings are rotationally uniform, so at ~12 fps a turn could read as a wild spin (Tatum's twitchy-look report); a guess, not confirmed.
 - v1.8.4 (2026-09-29): frame dt clamp 0.05 -> 0.1. Below 20 fps the whole lamp (walking, wax, clock) ran in slow motion; now real time down to 10 fps (Tatum: walking sluggish at ~12 fps). Fixed 60 Hz wax steps just take more steps per frame. Look speed never touched walking.
+- v1.8.5 (2026-09-29): pause chip 'vent arrows' (#arrM, lz.arrows) keeps the lite lamp's static vent arrows on in the full lamp too, a beginner's flow map. arrOn is declared beside LITE (makeVents reads it during the first warm()).
 
 ## Issues
 - Controls: any key that moves you must not also turn you (v1.6.4). Check `#arrows` yaw0 == yaw after touching key handling.
