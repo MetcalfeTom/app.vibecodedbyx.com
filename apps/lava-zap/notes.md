@@ -57,6 +57,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.8.4 (2026-09-29): frame dt clamp 0.05 -> 0.1. Below 20 fps the whole lamp (walking, wax, clock) ran in slow motion; now real time down to 10 fps (Tatum: walking sluggish at ~12 fps). Fixed 60 Hz wax steps just take more steps per frame. Look speed never touched walking.
 - v1.8.5 (2026-09-29): pause chip 'vent arrows' (#arrM, lz.arrows) keeps the lite lamp's static vent arrows on in the full lamp too, a beginner's flow map. arrOn is declared beside LITE (makeVents reads it during the first warm()).
 - v1.8.6 (2026-09-29): daily streak (lz.streak {d: DAYN, n}); bumped on any daily clear, shown on the done card, the title (with 'clear today's lamp to keep it going' when it was yesterday) and as a fire count in the share line. A missed day resets it.
+- v1.8.7 (2026-09-29): every lamp has its own glass. SHAPES[li] profiles (piecewise linear [y, r], base always 16 = FLOOR_R): Plum classic cone (unchanged), Lagoon round globe, Cola bottle, Absinthe hourglass (waist 10.5 at y 19-26), Tide tall tower. setShape() rebuilds glass, cap, lite cage and compass marks (glassGeo/capGeo/cageGeo/marksGeo). Title shows the shape word and an SVG outline (#tShape). #shapesim: 60 s of wax per shape, no blob past the glass, no NaN, heights spread. Dance map radius = max profile r.
 
 ## Issues
 - Controls: any key that moves you must not also turn you (v1.6.4). Check `#arrows` yaw0 == yaw after touching key handling.
