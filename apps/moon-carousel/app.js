@@ -892,20 +892,78 @@ function savePair(){if(!TEX)TEX=makeTex();var f=frames[st.slide],f2=frames2[st.s
   cv.toBlob(function(b){if(!b){status('Couldn\u2019t make the picture, sorry.',true);return;}
     download(b,'moon-'+slug(P)+'-vs-'+slug(Q)+'-'+ymd(p)+'-'+pad(p.h)+pad(p.mi)+'.png');status('Slide saved.');},'image/png');}
 
-/* the video: the carousel played through, ~1.5 s a slide, recorded off a canvas as WebM */
+/* the video: the carousel played through, ~1.5 s a slide, recorded off a canvas as WebM (MP4 where only that exists, i.e. Safari) */
 var rec=null,VSEC=1.5;
-function webmType(audio){if(!window.MediaRecorder)return null;var L=audio?['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm']:['video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm'],i;
+function firstType(L){for(var i=0;i<L.length;i++){try{if(MediaRecorder.isTypeSupported(L[i]))return L[i];}catch(e){}}return null;}
+function webmType(audio){if(!window.MediaRecorder)return null;
   if(typeof MediaRecorder.isTypeSupported!=='function')return 'video/webm';
-  for(i=0;i<L.length;i++){try{if(MediaRecorder.isTypeSupported(L[i]))return L[i];}catch(e){}}return null;}
+  return firstType(audio?['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm']:['video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm']);}
+function mp4Type(audio){if(!window.MediaRecorder||typeof MediaRecorder.isTypeSupported!=='function')return null;
+  return firstType(audio?['video/mp4;codecs=avc1,mp4a.40.2','video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4']:['video/mp4;codecs=avc1','video/mp4;codecs=avc1.42E01E','video/mp4']);}
+function vidType(audio){return webmType(audio)||mp4Type(audio);}
+/* Chrome's and Firefox's WebM has no Duration in Segment > Info, so players show no length and seek badly. webmScan reads the EBML layout (and when
+   the last block ends); webmDur returns {head,cut}: the file = head + the original bytes from cut on, with a Duration in Info. null = keep the original. */
+var EB_TOP={0x114D9B74:1,0x1549A966:1,0x1654AE6B:1,0x1F43B675:1,0x1C53BB6B:1,0x1043A770:1,0x1254C367:1,0x1941A469:1,0x1A45DFA3:1,0x18538067:1};
+function ebId(u,p){var b=u[p],w=1,v=0,i;if(!b)return null;while(w<=4&&!(b&(0x80>>(w-1))))w++;if(w>4||p+w>u.length)return null;
+  for(i=0;i<w;i++)v=v*256+u[p+i];return {v:v,w:w};}
+function ebSize(u,p){var b=u[p],w=1,v,i,unk;if(!b)return null;while(!(b&(0x80>>(w-1))))w++;if(p+w>u.length)return null;
+  v=b&(0xFF>>w);unk=v===(0xFF>>w);for(i=1;i<w;i++){v=v*256+u[p+i];if(u[p+i]!==255)unk=false;}return {v:v,w:w,unk:unk};}
+function ebFits(v,w){return v>=0&&v<Math.pow(2,7*w)-1;}
+function ebPut(v,w){var o=new Uint8Array(w),i;for(i=w-1;i>=0;i--){o[i]=v%256;v=Math.floor(v/256);}o[0]|=0x80>>(w-1);return o;}
+function ebCat(L){var n=0,o,p=0;L.forEach(function(a){n+=a.length;});o=new Uint8Array(n);L.forEach(function(a){o.set(a,p);p+=a.length;});return o;}
+function webmScan(u){var n=u.length,dv=new DataView(u.buffer,u.byteOffset,u.byteLength),S={scale:1e6,endMs:0},last={},prev={},endT=0,p,id,s,q,e,end;
+  function uint(q,k){var v=0;for(var i=0;i<k;i++)v=v*256+u[q+i];return v;}
+  function block(q,tc,d){var t=ebSize(u,q),r,x;if(!t||q+t.w+2>n)return;r=(u[q+t.w]<<8)|u[q+t.w+1];if(r&0x8000)r-=0x10000;x=tc+r;
+    if(d!=null)endT=Math.max(endT,x+d);if(last[t.v]==null||x>=last[t.v]){prev[t.v]=last[t.v];last[t.v]=x;}}
+  function kids(q,stop,unk,tc){var id,s,d,e,g,bl,bd; /* a Cluster's children; an unknown-size one ends at the next top-level id */
+    while(q<stop){id=ebId(u,q);if(!id||unk&&EB_TOP[id.v])return q;s=ebSize(u,q+id.w);if(!s||s.unk)return stop;d=q+id.w+s.w;e=d+s.v;if(e>n)return n;
+      if(id.v===0xE7)tc=uint(d,s.v);else if(id.v===0xA3)block(d,tc,null);
+      else if(id.v===0xA0){bl=-1;bd=null;for(g=d;g<e;){id=ebId(u,g);s=id&&ebSize(u,g+id.w);if(!s||s.unk)break;if(id.v===0xA1)bl=g+id.w+s.w;else if(id.v===0x9B)bd=uint(g+id.w+s.w,s.v);g+=id.w+s.w+s.v;}
+        if(bl>=0)block(bl,tc,bd);}
+      q=e;}
+    return q;}
+  id=ebId(u,0);if(!id||id.v!==0x1A45DFA3)return null;s=ebSize(u,4);if(!s||s.unk)return null;p=4+s.w+s.v;
+  id=ebId(u,p);if(!id||id.v!==0x18538067)return null;S.segAt=p+id.w;s=ebSize(u,S.segAt);if(!s)return null;S.seg=s;S.data=p=S.segAt+s.w;end=s.unk?n:Math.min(n,p+s.v);
+  while(p<end){id=ebId(u,p);if(!id)break;s=ebSize(u,p+id.w);if(!s)break;q=p+id.w+s.w;e=q+s.v;
+    if(id.v===0x1F43B675){p=kids(q,s.unk?end:Math.min(e,end),s.unk,0);continue;}
+    if(s.unk||e>n)break;
+    if(id.v===0x1549A966&&!S.info){S.info={at:p,sAt:p+id.w,s:s,data:q,end:e};
+      for(var k=q;k<e;){var ki=ebId(u,k),ks=ki&&ebSize(u,k+ki.w),kd;if(!ks||ks.unk)return null;kd=k+ki.w+ks.w;if(kd+ks.v>e)return null;
+        if(ki.v===0x2AD7B1&&ks.v)S.scale=uint(kd,ks.v);
+        else if(ki.v===0xBF)S.crc=1; /* a CRC over Info would go stale */
+        else if(ki.v===0x4489){S.durAt=k;S.durD=kd;S.durN=ks.v;S.durEnd=kd+ks.v;S.dur=ks.v===8?dv.getFloat64(kd):ks.v===4?dv.getFloat32(kd):NaN;}
+        k=kd+ks.v;}}
+    else if(id.v===0xEC&&S.info&&p===S.info.end)S.pad={at:p,s:s,end:e};
+    else if(id.v===0x114D9B74||id.v===0x1C53BB6B)S.pointers=1; /* a SeekHead or Cues: byte positions we would shift */
+    p=e;}
+  for(var t in last)endT=Math.max(endT,last[t]+(prev[t]!=null?Math.min(last[t]-prev[t],1e9/S.scale):0));
+  S.endMs=endT*S.scale/1e6;if(S.dur!=null)S.durMs=S.dur*S.scale/1e6;return S;}
+function webmDur(u,ms){var S=webmScan(u),I,v,f,body,sw,info,delta,cut,pad=null,seg=null,head;if(!S||!S.info)return null;
+  I=S.info;if(S.crc)return null;ms=S.endMs>0?S.endMs:ms;v=ms*1e6/S.scale;if(!(v>0)||!isFinite(v))return null;
+  f=new Uint8Array(8);new DataView(f.buffer).setFloat64(0,v);
+  if(S.durN===8||S.durN===4){head=u.slice(0,I.end);if(S.durN===8)head.set(f,S.durD);else new DataView(head.buffer).setFloat32(S.durD,v);return {head:head,cut:I.end,ms:ms,was:S.durMs};}
+  body=ebCat([u.subarray(I.data,S.durAt!=null?S.durAt:I.end),S.durAt!=null?u.subarray(S.durEnd,I.end):new Uint8Array(0),new Uint8Array([0x44,0x89,0x88]),f]);
+  for(sw=I.s.w;!ebFits(body.length,sw);sw++)if(sw>=8)return null;
+  info=ebCat([u.subarray(I.at,I.sAt),ebPut(body.length,sw),body]);delta=info.length-(I.end-I.at);cut=I.end;
+  if(delta&&S.pad){var P=S.pad,k=(P.end-P.at)-delta-1-P.s.w;if(k>=0&&ebFits(k,P.s.w)){pad=ebCat([new Uint8Array([0xEC]),ebPut(k,P.s.w),new Uint8Array(k)]);cut=P.end;delta=0;}}
+  if(delta&&S.pointers)return null;
+  if(delta&&!S.seg.unk){if(!ebFits(S.seg.v+delta,S.seg.w))return null;seg=ebPut(S.seg.v+delta,S.seg.w);}
+  head=ebCat([u.subarray(0,S.segAt),seg||u.subarray(S.segAt,S.data),u.subarray(S.data,I.at),info,pad||new Uint8Array(0)]);
+  return {head:head,cut:cut,ms:ms,was:S.durMs};}
+function finishVideo(blob,ms,cb){var done=false; /* WebM gets its length patched in; any trouble and the recording is saved as it came */
+  function out(b,fix){if(done)return;done=true;cb(b,fix);}
+  if(!/webm/.test(blob.type)||typeof FileReader!=='function'){out(blob,null);return;}
+  try{var rd=new FileReader();rd.onload=function(){var b=blob,r=null;try{r=webmDur(new Uint8Array(rd.result),ms);if(r)b=new Blob([r.head,blob.slice(r.cut)],{type:blob.type});}catch(e){b=blob;r=null;}out(b,r);};
+    rd.onerror=function(){out(blob,null);};rd.readAsArrayBuffer(blob);setTimeout(function(){out(blob,null);},15000);}catch(e){out(blob,null);}}
 function vnote(msg,err,frac){var n=$('vidnote');n.hidden=false;n.className='vidnote'+(err?' err':'');$('vmsg').textContent=msg;
   $('vbarBox').hidden=frac==null;if(frac!=null)$('vbar').style.width=Math.round(frac*100)+'%';$('sheet').hidden=!err;}
 function vidBtn(i,n){var b=$('vid');if(i==null){b.textContent='Save video';b.className='btn';b.setAttribute('aria-pressed','false');b.removeAttribute('aria-label');return;}
   b.textContent='Stop '+i+'/'+n;b.className='btn rec';b.setAttribute('aria-pressed','true');b.setAttribute('aria-label','Stop recording, slide '+i+' of '+n);}
 function noVideo(why){vnote(why+' You can save all the slides as one picture instead.',true);}
 function saveVideo(){if(!TEX)TEX=makeTex();if(rec){rec.stop(true);return;}if(!frames.length)return;
-  var AC=window.AudioContext||window.webkitAudioContext,audio=soundOn&&!!AC,type=webmType(audio),cv=document.createElement('canvas');
-  if(!type&&audio){audio=false;type=webmType(false);}
-  if(!window.MediaRecorder||!type||typeof cv.captureStream!=='function'){noVideo('This browser can\u2019t record WebM video (some Safari versions can\u2019t).');return;}
+  var AC=window.AudioContext||window.webkitAudioContext,audio=soundOn&&!!AC,type=vidType(audio),cv=document.createElement('canvas');
+  if(!type&&audio){audio=false;type=vidType(false);}
+  if(!window.MediaRecorder||!type||typeof cv.captureStream!=='function'){noVideo('This browser can\u2019t record a video of the slides.');return;}
   stop();
   var F=frames.slice(),F2=frames2.slice(),P=st.place,Q=st.place2,two=cmpOn(),W=two?1456:1200,H=two?480:800,g,stream,mr,chunks=[],cache={},cancelled=false,failed='',t0=0,timer=null,cur=-1,total=F.length*VSEC+.6;
   cv.width=W;cv.height=H;g=cv.getContext('2d');
@@ -921,10 +979,12 @@ function saveVideo(){if(!TEX)TEX=makeTex();if(rec){rec.stop(true);return;}if(!fr
   mr.onstop=function(){clearInterval(timer);recDest=null;rec=null;vidBtn();
     if(failed){noVideo('The recorder stopped with an error ('+failed+').');return;}
     if(cancelled){vnote('Recording stopped, nothing saved.',false);return;}
-    var blob=new Blob(chunks,{type:'video/webm'});
+    var mp4=/^video\/mp4/.test(type),blob=new Blob(chunks,{type:mp4?'video/mp4':'video/webm'}),ms=performance.now()-t0;
     if(blob.size<2000){noVideo('The recording came out empty in this browser.');return;}
-    download(blob,'moon-carousel-'+slug(P)+(two?'-vs-'+slug(Q):'')+'-'+ymd(parts(P.tz,F[0].t))+'.webm');
-    vnote('Video saved: '+F.length+' slides, '+Math.round(total)+' s, '+(blob.size/1048576).toFixed(1)+' MB.',false);};
+    vnote('Finishing the video\u2026',false);
+    finishVideo(blob,ms,function(b,fix){download(b,'moon-carousel-'+slug(P)+(two?'-vs-'+slug(Q):'')+'-'+ymd(parts(P.tz,F[0].t))+(mp4?'.mp4':'.webm'));
+      lastDl.raw=blob.size;lastDl.fixMs=fix?Math.round(fix.ms):null;
+      vnote('Video saved: '+F.length+' slides, '+Math.round(total)+' s, '+(b.size/1048576).toFixed(1)+' MB.',false);});};
   function frame(){var e=(performance.now()-t0)/1000,i=Math.min(F.length-1,Math.floor(e/VSEC)),u;
     if(i!==cur){cur=i;delete cache[i-1];if(i<frames.length&&frames[i].t===F[i].t)go(i); /* the projector on screen plays along (and clacks into the video) */
       vidBtn(i+1,F.length);vnote('Recording slide '+(i+1)+' of '+F.length+' \u2014 keep this tab open. Tap Stop to cancel.',false,(i+1)/F.length);}
@@ -952,6 +1012,6 @@ function saveSheet(){if(!TEX)TEX=makeTex();if(!frames.length)return;vnote('Makin
   cv.toBlob(function(b){if(!b){vnote('Couldn\u2019t make the picture in this browser, sorry. Save slide still works one at a time.',true);$('sheet').hidden=true;return;}
     download(b,'moon-carousel-'+slug(P)+(two?'-vs-'+slug(Q):'')+'-'+ymd(p0)+'-slides.png');vnote('Saved all '+n+' slides as one picture.',false);},'image/png');},30);}
 window.__moon={sunCover:sunCover,solarFor:solarFor,shadowOf:shadowOf,shadowSize:shadowSize,hit:function(){return moonHit;},openCu:openCu,closeCu:closeCu,cu:cu,names:NAMES,onDisc:onDisc,moonAxes:moonAxes,stampOf:stampOf,drawMoon:drawMoon,tex:function(){if(!TEX)TEX=makeTex();return TEX;},texBusy:function(){return texBusy;},build:function(){build();},frames:function(){return frames;},frames2:function(){return frames2;},st:st,go:go,drawScene:drawScene,parts:parts,wallToUTC:wallToUTC,
-  rec:function(){return rec;},lastDl:function(){return lastDl;},webmType:webmType};
+  rec:function(){return rec;},lastDl:function(){return lastDl;},webmType:webmType,mp4Type:mp4Type,vidType:vidType,webmScan:webmScan,webmDur:webmDur};
 init();
 })();
