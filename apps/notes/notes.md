@@ -1,9 +1,7 @@
-## log
-- 2026-09-29: +privacy fix. loadNotes() listed EVERY visitor's notes (select * with no user filter; the table is readable by all under default RLS). Now .eq('user_id', currentUser.id), and the realtime subscription filters user_id=eq.<me>. Writes were already owner-only by RLS. Rows stay readable through the API, so the app is not for secrets. Found in the 2026-09-29 public-text audit after the config sweep brought the app back online.
-
 # Notes App
 
 ## Log
+- 2026-09-29: +privacy fix. loadNotes() listed EVERY visitor's notes (select * with no user filter; the table is readable by all under default RLS). Now .eq('user_id', currentUser.id), and the realtime subscription filters user_id=eq.<me>. Writes were already owner-only by RLS. Rows stay readable through the API, so the app is not for secrets. Found in the 2026-09-29 public-text audit after the config sweep brought the app back online.
 - Initial creation: Clean, simple note-taking app
 - Features:
   - Create, edit, delete notes
