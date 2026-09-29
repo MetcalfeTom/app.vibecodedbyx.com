@@ -152,7 +152,7 @@
 - phone banking: the purse coin row sits up with the equipment, so on a phone you scroll the bag sheet up to reach it (v1.78.0); maybe a compact coin row above the bag while banking
 - (done v1.91.0) coldpresss 15:50: camera swings round behind you as you turn/run (lazy follow: only while moving, grabbing the view pauses it)
 - names over heads: maybe the cat (a different name at every house — voice idea). (Mob names on hover: done v1.42.0. Lizzie + Bobby tags: v1.68.0; Pell and the hens still have none.)
-- (done v1.93.0) KEYBOARD GAP: U on the current target runs npcOpen() (shop, trainer, banker, Chomp's ale, a body to loot, folk talk); fannar22 can pick another key if he likes (E/Q strafe, G pet, Enter chat, T target were taken).
+- (done v1.93.0) KEYBOARD GAP: U on the current target runs npcOpen() (shop, trainer, banker, Chomp's ale, a body to loot, folk talk); fannar22 can pick another key if they like (E/Q strafe, G pet, Enter chat, T target were taken).
 - The race name 'Wolfman' is TEMPORARY: fannar wants Chomp's creator chompthemanokit to name it when they show up.
 - Soft cap idea (voice): stat points past 100 give half — not asked for yet.
 - Cave ideas from chat (not promised): bats (v1.40.0, jjj_nnn_hh; v1.41.0 they also wake when Snagtooth roars); a torn traveler's note by the throne (v1.43.0); Doug recognising the chain shirt's hammer mark (v1.44.0, the traveler is Tam). The soup pot is solid since v1.45.0.
