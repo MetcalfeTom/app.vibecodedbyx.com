@@ -117,6 +117,19 @@ const SUPABASE_URL='https://yjyxteqzhhmtrgcaekgz.supabase.co';
 const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeXh0ZXF6aGhtdHJnY2Fla2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNTg3NDIsImV4cCI6MjA3MjkzNDc0Mn0.G8SRde7IN2QFW1EnASM8IS32IUYR2eenCCjdDdioiBU';
 const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 let selectedTheme='general',confessions=[],currentUser=null;
+/* confessions have no id column, and the likes column can only be changed by whoever wrote the confession,
+   so hearts live in their own table (confession_hearts), one row per visitor per confession, keyed by author + time */
+const HEARTS='confession_hearts';let heartCount=new Map(),myHearts=new Set();
+const confKey=c=>{const t=String(c.created_at||'').replace(' ','T').replace(/([+-]\d\d)$/,'$1:00'),ms=Date.parse(t);return (c.user_id||'?')+'@'+(isNaN(ms)?String(c.created_at):ms)};
+const likesOf=c=>(c.likes||0)+(heartCount.get(confKey(c))||0);
+const loadHearts=async()=>{
+try{
+const{data,error}=await supabase.from(HEARTS).select('confession_key,user_id').limit(5000);
+if(error)throw error;
+heartCount=new Map();myHearts=new Set();
+(data||[]).forEach(h=>{heartCount.set(h.confession_key,(heartCount.get(h.confession_key)||0)+1);if(currentUser&&h.user_id===currentUser.id)myHearts.add(h.confession_key)})
+}catch(error){console.error('Error loading hearts:',error)}
+};
 const init=async()=>{
 try{
 const{data:{session}}=await supabase.auth.getSession();
@@ -134,7 +147,7 @@ document.getElementById('confessionsWall').innerHTML='<div style="text-align:cen
 };
 const loadConfessions=async()=>{
 try{
-const{data,error}=await supabase.from('confessions').select('*').eq('is_approved',true).order('created_at',{ascending:false}).limit(50);
+const[{data,error}]=await Promise.all([supabase.from('confessions').select('*').eq('is_approved',true).order('created_at',{ascending:false}).limit(50),loadHearts()]);
 if(error)throw error;
 confessions=data||[];
 renderConfessions();
@@ -166,10 +179,13 @@ actionsDiv.style.display='flex';
 actionsDiv.style.alignItems='center';
 actionsDiv.style.gap='15px';
 const likeBtn=document.createElement('button');
-likeBtn.className='like-btn';
-likeBtn.onclick=()=>likeConfession(confession.id);
+const key=confKey(confession);
+likeBtn.className='like-btn'+(myHearts.has(key)?' liked':'');
+likeBtn.setAttribute('aria-pressed',String(myHearts.has(key)));
+likeBtn.setAttribute('aria-label',myHearts.has(key)?'You hearted this':'Heart this confession');
+likeBtn.onclick=()=>likeConfession(confession);
 const likeSpan=document.createElement('span');
-likeSpan.textContent=confession.likes||0;
+likeSpan.textContent=likesOf(confession);
 likeBtn.innerHTML='❤️ ';
 likeBtn.appendChild(likeSpan);
 const timeSpan=document.createElement('span');
@@ -214,20 +230,23 @@ submitBtn.textContent='Error - Try Again';
 setTimeout(()=>{submitBtn.textContent='Share Anonymously';submitBtn.disabled=false},2e3)
 }
 };
-const likeConfession=async confessionId=>{
+const likeConfession=async confession=>{
+if(!confession||!currentUser)return;
+const key=confKey(confession),had=myHearts.has(key),n=heartCount.get(key)||0;
+/* show it at once, put it back if the database says no */
+if(had){myHearts.delete(key);heartCount.set(key,Math.max(0,n-1))}else{myHearts.add(key);heartCount.set(key,n+1)}
+renderConfessions();updateStats();
 try{
-const confession=confessions.find(c=>c.id===confessionId);
-if(!confession)return;
-const newLikes=(confession.likes||0)+1;
-const{error}=await supabase.from('confessions').update({likes:newLikes}).eq('id',confessionId);
-if(error)throw error;
-confession.likes=newLikes;
-renderConfessions();
-updateStats()
-}catch(error){console.error('Error liking confession:',error)}
+const{error}=had?await supabase.from(HEARTS).delete().eq('confession_key',key).eq('user_id',currentUser.id):await supabase.from(HEARTS).insert({confession_key:key,user_id:currentUser.id});
+if(error)throw error
+}catch(error){
+console.error('Error liking confession:',error);
+if(had){myHearts.add(key)}else{myHearts.delete(key)}heartCount.set(key,n);
+renderConfessions();updateStats()
+}
 };
 const updateStats=()=>{
-const totalConfessions=confessions.length,totalLikes=confessions.reduce((sum,c)=>sum+(c.likes||0),0);
+const totalConfessions=confessions.length,totalLikes=confessions.reduce((sum,c)=>sum+likesOf(c),0);
 document.getElementById('totalConfessions').textContent=totalConfessions;
 document.getElementById('totalLikes').textContent=totalLikes
 };
