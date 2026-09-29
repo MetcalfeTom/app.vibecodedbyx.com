@@ -45,6 +45,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.7.2 (2026-09-29): pause card gains a "raw mouse" chip (on by default, lz.raw='0' switches to the ordinary lock) and a smoothness line: frames a second this run and hitches (frames over 34 ms), so a slow browser is easy to tell from a slow hand. Tatum (05:02) says v1.7.1 feels smoother and their slower times come from playing safe instead of risking triples.
 - v1.7.3 (2026-09-29): triples you let go. nearStep() notes when 3+ bubbles sat on the crosshair for over 0.3 s and the view moved on without a zap (any fire clears it); rec.m holds them (max 40, not packed into ghosts). The dance map draws them as dashed gold beams with a ring where you stood, and the caption counts them. Idea from Tatum's 05:02 remark that their slower times come from not risking triples.
 - v1.7.4 (2026-09-29): the dance map takes the colours of the lamp you cleared (tint(LAMP.liq) disc, tint(LAMP.ground) floor rings).
+- v1.7.5 (2026-09-29): triples feel like a prize: the beam burns gold and lingers 1.8x longer (showBeam(a,b,gold), beamLife), and #gold washes the screen edges gold for 0.7 s. Visual only, the clock is untouched. Probe #goldtri pins three bubbles on the line and fires.
 
 ## Issues
 - Controls: any key that moves you must not also turn you (v1.6.4). Check `#arrows` yaw0 == yaw after touching key handling.
