@@ -21,6 +21,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.0.1: Tatum hit two load errors live: "Unexpected token '{'" in one browser (three r186 uses class static blocks, which older engines can't parse) and "Error resolving module specifier three" in Firefox (the import map was ignored). Now three r170 is imported by its full URL, no import map.
 - v1.1: vents. Three slots in the glass at different heights (seeded per lamp) blow steady sideways currents that breathe on their own slow rhythm (9-15 s). You see them as lilac streak ribbons scrolling away from the grille and by the rising specks bending sideways in them; bubbles drift with them (force 2.6, about 1 m/s at the strongest). Heater surge every 35-60 s: the coils flicker for 2 s, then the plate flares and bubbles below 9 m heat up and rise together. Phones: smaller gun; a touch after a locked mouse no longer pauses.
 - v1.1.1: each vent has a soft whoosh (band-passed noise) that swells with its breath, gets louder near the current and is panned left/right to where it is, so you can hear the air behind you.
+- v1.2: today's board. Clearing today's lamp posts your run to Supabase table `lava_zap_runs` (day, name, score_ms, time_ms, triples, zaps; one row per user per day, only a better score replaces it). The title card lists today's top 5 (plus your row), the cleared card shows the board with a name box (defaults to your Twitch name, else "hunter xxxx"; stored in `lz.name`). A local best from before the board existed is posted once when the title loads. Own inline client (UMD supabase-js 2.39.0, async); offline shows a quiet line and keeps the local best. Tatum: 27.4 s on 2026-09-29 with the vents.
 
 ## Issues
 - Never go back to an import map or three r186 here: see v1.0.1.
@@ -29,9 +30,8 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 
 ## Todos
 - Maybe a flow-map overlay for beginners.
-- Daily leaderboard (Supabase table, own inline client; the host /supabase-config.js has no default export).
 - Exact replays / ghost runs for speedrunners (Tatum: "runs will feel like choreography"): needs shots stamped to physics steps.
 - Hard mode idea: refraction through bubbles.
 
 ## Probes
-Scratchpad `gaunt/lz3/p3.js`: `#pair` (stands where a line crosses eye height and fires), `#lone`, `#clear`, `#aim`, `#title`, `#og`.
+Scratchpad `gaunt/lz3/p3.js`: `#pair` (stands where a line crosses eye height and fires), `#lone`, `#clear`, `#aim`, `#title`, `#og`, `#board` and `#carry` (with `stub.js`, an in-memory stand-in for the database client that replaces the UMD script in t3.html; tests never write to the real table).
