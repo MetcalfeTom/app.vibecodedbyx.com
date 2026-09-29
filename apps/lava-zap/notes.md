@@ -63,6 +63,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.9.0 (2026-09-29): LIGHTS OUT, a third title button: today's lamp in the dark. The liquid drops to 20%, hemi 0.2, cap light off, glass/lid glow 12%, floor glow 60%; a SpotLight torch (added to the scene only in the dark, so the lit lamp never compiles it) follows the camera; bubbles get a uLit uniform (torch cone cos 0.87-0.955 out to 24-40 m, anything within 3.5-8 m, hot wax glows up to 0.3), eased per frame; lite rings use the same b.lit. CSS vignette body.dark.playing. Own best lz.dark.<date> on this device, no board, no ghost, share line says lights out; again replays it, the title restores the light and shows the dark best. Probes #dark #darkup #darklite #darkdone.
 - v1.9.1 (2026-09-29): SMOOTH MOUSE chip on the pause card (lz.smooth; on by itself when SOFT, i.e. no graphics card): locked-mouse movement goes into lookBuf and drains 1-exp(-dt/0.045) per frame, so a slow browser's lumps glide instead of stop-and-go (Tatum: better but robotic). Buffer cleared outside play and when toggled. Probe #smooth.
 - v1.9.2 (2026-09-29): in lights out you can hear the wax: a blob whose vertical speed flips past 0.25 (b.dir) gives a soft sine bloop panned from where it is, gliding up when it starts rising and down when it tips over, pitch by height, volume by distance. Dark + play only (the lit lamp stays calm). About one every 6 s. Probe #blorp.
+- v1.9.3 (2026-09-29): THE HOURGLASS TURNS OVER (the voice's pitch): on an hourglass lamp (shapeI 3), when half the wax is gone (alive <= 6, > 1), startFlip(): over FLIP_S 5 s flipG goes cos 1 -> -1, buoyancy x flipG (everything hangs still at the midpoint), at the midpoint the heat zones mirror (yy = TOP_Y - y), spots re-place under the lid (DoubleSide, radius from lampR(TOP_Y)), spot heat x |flipG|, heater light climbs 9 -> 37, floor glow x (1 - 0.7 flipK), lid glow x (1 + 2.5 flipK); a groan + hiss and a toast. resetFlip() in start before warm. Title word 'an hourglass that turns over'. Probes #flip #flipmid #flipup (Math.random forced so the random lamp is an hourglass).
 
 ## Issues
 - Controls: any key that moves you must not also turn you (v1.6.4). Check `#arrows` yaw0 == yaw after touching key handling.
@@ -73,7 +74,6 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 ## Todos
 - Maybe a flow-map overlay for beginners (v1.8.5 vent arrows chip is a first step).
 - Hard mode idea: refraction through bubbles. (v1.9.0 lights out is the first expert mode.)
-- The voice's pitch (idea only): the hourglass lamp slowly turns over once per run.
 
 ## Probes
 Scratchpad `gaunt/lz3/p3.js`: `#pair` (stands where a line crosses eye height and fires), `#lone`, `#clear`, `#aim`, `#title`, `#og`, `#board` and `#carry` (with `stub.js`, an in-memory stand-in for the database client that replaces the UMD script in t3.html; tests never write to the real table).
