@@ -8,7 +8,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - **Camera**: first person at eye height 1.7 m, FOV 72 (84 in portrait), no jumping, pitch -1.2..1.45.
 - **Hero**: the bubbles are the stars; the player is a small brass-and-glass ray gun with a tiny lava-lamp battery in the corner of the view.
 - **World**: foreground = heater plate (dark coil rings, wandering hot spots, a floor glow under each bubble); midground = the bubbles; background = glass walls with vertical streaks, rising specks, the lid.
-- **Sound**: calm and satisfying, not tense (Tatum): low brown-noise hum + 55 Hz drone, a crisp zap, round pops, a triangle chime for triples.
+- **Sound**: calm and satisfying, not tense (Tatum): the lamp song (slow pentatonic phrases + pad), a whisper of brown-noise hum + 55 Hz drone, vent whooshes, a crisp zap, round pops, a triangle chime for triples.
 - **Budget**: about 25-30 draw calls and 11k triangles in play (phone budget is 100-150 / 300k).
 
 ## Rules
@@ -23,6 +23,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.1.1: each vent has a soft whoosh (band-passed noise) that swells with its breath, gets louder near the current and is panned left/right to where it is, so you can hear the air behind you.
 - v1.2: today's board. Clearing today's lamp posts your run to Supabase table `lava_zap_runs` (day, name, score_ms, time_ms, triples, zaps; one row per user per day, only a better score replaces it). The title card lists today's top 5 (plus your row), the cleared card shows the board with a name box (defaults to your Twitch name, else "hunter xxxx"; stored in `lz.name`). A local best from before the board existed is posted once when the title loads. Own inline client (UMD supabase-js 2.39.0, async); offline shows a quiet line and keeps the local best. Tatum: 27.4 s on 2026-09-29 with the vents.
 - v1.2.1: the last two drift together. Tatum: "the worst part is waiting for the final 2 blobs to sink enough to line up". With two left, while no line through them reaches eye height comfortably inside the lamp (crossing point < FLOOR_R-5, not steeper than ~82°), they pull toward each other sideways (1.4 m/s²) and spread apart in height when level (1.1 m/s²), ramping in over 1.5 s; a toast says so once. Simulated from 6 bad starts: a line opens in 3-4.6 s with the drift, 30 s+ or never (within 40 s) without it.
+- v1.3: the lamp song (Tatum: "can you compose some gentle rising and falling tones BGM?"). Generative: phrases of 3-6 notes on an A major pentatonic (A3-B5, over the 55 Hz drone) that climb or sink one or two steps at a time, each note a sine plus a quiet octave triangle that swells in over 0.28 s with a small glide in its direction and fades over 3 s, through a lowpass and a 0.62 s echo; rests of 2.5-6 s between phrases; a 3-sine pad changes chord every 12 s (A, F#m, D sus, E). Scheduled 0.6 s ahead from a 250 ms timer; 40 % volume while paused. The brown-noise hum is down from 0.09 to 0.035. Offline render: peak 0.10, RMS about 0.02 (pops peak about 0.16). Probe page `gaunt/lz3/mus.html` renders 40 s offline and draws the notes.
 
 ## Issues
 - Never go back to an import map or three r186 here: see v1.0.1.
