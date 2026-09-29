@@ -9,7 +9,7 @@
  *    Now exported as opt-in function, no auto-execution.
  *
  * Apps can import from this file instead of supabase-config.js:
- *   import supabase, { supabaseSession, isUserPremium } from '/supabase-config-fixed.js';
+ *   import supabase, { supabaseSession, isUserPremium } from '/supabase-config.js';
  */
 
 import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@0.7.0/+esm";
