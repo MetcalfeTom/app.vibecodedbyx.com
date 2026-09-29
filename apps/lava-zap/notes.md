@@ -24,6 +24,12 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.2: today's board. Clearing today's lamp posts your run to Supabase table `lava_zap_runs` (day, name, score_ms, time_ms, triples, zaps; one row per user per day, only a better score replaces it). The title card lists today's top 5 (plus your row), the cleared card shows the board with a name box (defaults to your Twitch name, else "hunter xxxx"; stored in `lz.name`). A local best from before the board existed is posted once when the title loads. Own inline client (UMD supabase-js 2.39.0, async); offline shows a quiet line and keeps the local best. Tatum: 27.4 s on 2026-09-29 with the vents.
 - v1.2.1: the last two drift together. Tatum: "the worst part is waiting for the final 2 blobs to sink enough to line up". With two left, while no line through them reaches eye height comfortably inside the lamp (crossing point < FLOOR_R-5, not steeper than ~82°), they pull toward each other sideways (1.4 m/s²) and spread apart in height when level (1.1 m/s²), ramping in over 1.5 s; a toast says so once. Simulated from 6 bad starts: a line opens in 3-4.6 s with the drift, 30 s+ or never (within 40 s) without it.
 - v1.3: the lamp song (Tatum: "can you compose some gentle rising and falling tones BGM?"). Generative: phrases of 3-6 notes on an A major pentatonic (A3-B5, over the 55 Hz drone) that climb or sink one or two steps at a time, each note a sine plus a quiet octave triangle that swells in over 0.28 s with a small glide in its direction and fades over 3 s, through a lowpass and a 0.62 s echo; rests of 2.5-6 s between phrases; a 3-sine pad changes chord every 12 s (A, F#m, D sus, E). Scheduled 0.6 s ahead from a 250 ms timer; 40 % volume while paused. The brown-noise hum is down from 0.09 to 0.035. Offline render: peak 0.10, RMS about 0.02 (pops peak about 0.16). Probe page `gaunt/lz3/mus.html` renders 40 s offline and draws the notes.
+- v1.4 (Tatum's four notes, 04:19-04:22):
+  - zap and push split: left click / Space / ZAP only fires when two or more are in line (or the last bubble); otherwise a dud (low tick, crosshair wobble, no cooldown, toast the first 3 times). Right click / E / F / PUSH pushes the first bubble on the line (the old lone-hit shove). The done line counts pushes.
+  - seen-aim grace: each frame stores the aim that was drawn (`seen`); a zap that is invalid now but was valid in the last drawn frame fires along the seen line, then the view goes back. Lag no longer eats shots.
+  - adaptive resolution (`quality()`): 1.5 s windows of raw frame time; > 22 ms steps the pixel ratio down [dpr cap 1.75, 1.25, 1, 0.8, 0.6], < 12 ms steps back up but never to a level that was too slow. Probes set `window.__lzNoAdapt` (except `#adapt`).
+  - vents whisper: whoosh only within about 13 m of the current, 0.07 max (Tatum: constant vent noise felt superfluous).
+  - ghost of your best (local only for now): daily runs record x, z, yaw, pitch at 10 Hz plus every zap/push exactly (t, x, z, yaw, pitch, left); a new best is saved as `lz.ghost.<day>` ('g1;path;zaps;ms'). Next run a see-through cyan hunter (fresnel capsule, head, gun, floor glow, name sprite) replays it; its beams flash at its zaps, the HUD shows its bubbles left, a toast when it clears. Title chip toggles it (`lz.ghostMode`). Since today's lamp starts the same, its early beams go through the same pairs.
 
 ## Issues
 - Never go back to an import map or three r186 here: see v1.0.1.
@@ -32,7 +38,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 
 ## Todos
 - Maybe a flow-map overlay for beginners.
-- Exact replays / ghost runs for speedrunners (Tatum: "runs will feel like choreography"): needs shots stamped to physics steps.
+- Shared ghost of today's fastest hunter (table lava_zap_ghosts, path as text), choose on the title chip.
 - Hard mode idea: refraction through bubbles.
 
 ## Probes
