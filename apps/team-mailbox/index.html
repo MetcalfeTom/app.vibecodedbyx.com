@@ -51,6 +51,10 @@ header .count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--d
 #send-btn:disabled{opacity:0.4;cursor:default}
 .empty-state{text-align:center;padding:40px 20px;color:var(--dim);font-size:16px}
 #loading{text-align:center;padding:30px;color:var(--dim);font-family:'IBM Plex Mono',monospace;font-size:13px}
+.msg .hidden-note{font-family:'IBM Plex Mono',monospace;font-size:11px;font-style:italic;color:var(--dim);margin-top:6px}
+.msg .hide-btn:hover{color:#cc4444!important}
+#compose-note{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--name);margin-top:5px}
+#compose-note:empty{display:none}
 </style>
 </head>
 <body>
@@ -70,13 +74,20 @@ header .count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--d
   <div id="compose-inner">
     <div id="reply-indicator"><span id="reply-text"></span><button id="reply-cancel">&times;</button></div>
     <div id="compose-row">
-      <textarea id="msg-input" placeholder="Write a message..." rows="1"></textarea>
+      <textarea id="msg-input" placeholder="Write a message..." rows="1" maxlength="2000"></textarea>
       <button id="send-btn">Send</button>
     </div>
+    <div id="compose-note" role="status" aria-live="polite"></div>
   </div>
 </div>
 <script type="module">
 import supabase, { supabaseSession } from '/supabase-config.js';
+
+var MSGS='team_mailbox';
+var HIDES='team_mailbox_hides';
+var HIDE_AT=2;          // hides from readers other than the author that take a message down for everyone
+var SEND_GAP_MS=1500;   // one message per 1.5 seconds
+var MAX_LEN=2000;
 
 var thread=document.getElementById('thread');
 var countEl=document.getElementById('countEl');
@@ -86,13 +97,44 @@ var sendBtn=document.getElementById('send-btn');
 var nameInput=document.getElementById('name-input');
 var replyIndicator=document.getElementById('reply-indicator');
 var replyText=document.getElementById('reply-text');
+var composeNote=document.getElementById('compose-note');
 
 var userId=null;
 var username=localStorage.getItem('tm-username')||'';
 var replyTo=null;
 var messages=[];
+var lastSentAt=0;
+var hides=new Map();    // message key -> Set of user ids
+var myHides=new Set();
 
 nameInput.value=username;
+
+// The table has no id column, so a message is named by its author and its exact posting time (to the millisecond)
+function msgKey(m){
+  var t=String((m&&m.created_at)||'');
+  var r=/^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d(?::?\d\d)?)?$/.exec(t);
+  var ms=NaN;
+  if(r){
+    var tz=r[4]||'Z';
+    if(tz!=='Z'){ if(tz.length===3) tz+=':00'; else if(tz.length===5) tz=tz.slice(0,3)+':'+tz.slice(3); }
+    ms=Date.parse(r[1]+'T'+r[2]+'.'+((r[3]||'')+'000').slice(0,3)+tz);
+  }
+  if(isNaN(ms)) ms=Date.parse(t);
+  return ((m&&m.user_id)||'?')+'@'+(isNaN(ms)?t:ms);
+}
+function isOwn(m){return !!(userId&&m.user_id===userId);}
+function hidesOn(m){
+  var n=0,set=hides.get(msgKey(m));
+  if(set) set.forEach(function(u){if(u!==m.user_id) n++;});
+  return n;
+}
+function isHidden(m){return !isOwn(m)&&(myHides.has(msgKey(m))||hidesOn(m)>=HIDE_AT);}
+function addHide(key,u){
+  if(!hides.has(key)) hides.set(key,new Set());
+  hides.get(key).add(u);
+  if(userId&&u===userId) myHides.add(key);
+}
+function note(t){composeNote.textContent=t||'';}
 
 // Auto-resize textarea
 msgInput.addEventListener('input',function(){
@@ -109,80 +151,99 @@ nameInput.addEventListener('keydown',function(e){
   if(e.key==='Enter'){e.preventDefault();document.getElementById('name-save').click();}
 });
 
-// Init auth
+// Init auth, then the thread (the thread loads even when the session doesn't)
 async function init(){
   try{
     var sess=await supabaseSession();
-    userId=sess.user.id;
-    await loadMessages();
-    subscribeRealtime();
+    userId=sess&&sess.user?sess.user.id:null;
   }catch(e){
-    loadingEl.textContent='Error: '+e.message;
+    console.warn('session error',e);
   }
+  if(!userId) note('no session: you can read, reload the page to post');
+  await loadMessages();
+  subscribeRealtime();
 }
 
 async function loadMessages(){
-  var {data,error}=await supabase
-    .from('team_mailbox')
+  // the newest 200, oldest first
+  var res=await supabase
+    .from(MSGS)
     .select('*')
-    .order('created_at',{ascending:true})
-    .limit(200);
-  if(error){loadingEl.textContent='Error loading: '+error.message;return;}
-  messages=data||[];
+    .order('created_at',{ascending:false})
+    .limit(200)
+    .then(function(r){return r;},function(e){return {error:e};});
+  if(res.error){loadingEl.textContent='Error loading: '+(res.error.message||String(res.error));return;}
+  messages=(res.data||[]).reverse();
+  // the hides: if they can't load, every message just stays up
+  var hr=await supabase.from(HIDES).select('message_id, user_id').limit(5000).then(function(r){return r;},function(e){return {error:e};});
+  if(hr.error) console.warn('hides unavailable',hr.error);
+  else{hides.clear();myHides.clear();(hr.data||[]).forEach(function(h){if(h.message_id!=null) addHide(h.message_id,h.user_id);});}
   renderMessages();
   loadingEl.style.display='none';
 }
 
-function renderMessages(){
-  if(!messages.length){
+function renderMessages(stay){
+  var shown=messages.filter(function(m){return !isHidden(m);});
+  countEl.textContent=shown.length;
+  if(!shown.length){
     thread.innerHTML='<div class="empty-state">No messages yet. Be the first to post!</div>';
-    countEl.textContent='0';
     return;
   }
-  countEl.textContent=messages.length;
   var msgMap={};
-  messages.forEach(function(m){msgMap[m.id]=m;});
+  messages.forEach(function(m){if(m.id!=null) msgMap[m.id]=m;});
 
   var html='';
-  messages.forEach(function(m){
-    var isOwn=m.user_id===userId;
+  shown.forEach(function(m){
+    var own=isOwn(m);
+    var key=msgKey(m);
     var timeStr=new Date(m.created_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     var replyHtml='';
-    if(m.reply_to&&msgMap[m.reply_to]){
+    if(m.reply_to&&msgMap[m.reply_to]&&!isHidden(msgMap[m.reply_to])){
       var parent=msgMap[m.reply_to];
-      var preview=(parent.body||'').slice(0,60);
+      var preview=String(parent.body||'').slice(0,60);
       replyHtml='<div class="reply-badge" data-scroll="msg-'+m.reply_to+'">&#8617; '+escHtml(parent.username||'anon')+': '+escHtml(preview)+'</div>';
     }
-    html+='<div class="msg" id="msg-'+m.id+'">';
+    html+='<div class="msg"'+(m.id!=null?' id="msg-'+escAttr(m.id)+'"':'')+'>';
     html+=replyHtml;
     html+='<div class="meta"><span class="author">'+escHtml(m.username||'anon')+'</span><span class="time">'+timeStr+'</span></div>';
     html+='<div class="body">'+escHtml(m.body)+'</div>';
+    if(own&&hidesOn(m)>=HIDE_AT) html+='<div class="hidden-note">hidden from everyone else by readers</div>';
     html+='<div class="actions">';
-    html+='<button class="reply-btn" data-id="'+m.id+'" data-name="'+escAttr(m.username||'anon')+'">reply</button>';
-    if(isOwn) html+='<button class="del-btn" data-id="'+m.id+'">delete</button>';
+    html+='<button class="reply-btn" data-id="'+escAttr(m.id==null?'':m.id)+'" data-name="'+escAttr(m.username||'anon')+'">reply</button>';
+    if(own) html+='<button class="del-btn" data-key="'+escAttr(key)+'">delete</button>';
+    else html+='<button class="hide-btn" data-key="'+escAttr(key)+'" aria-label="Hide this message" title="Hide it for you. Two hides take it down for everyone.">hide</button>';
     html+='</div></div>';
   });
   thread.innerHTML=html;
   // Scroll to bottom
-  window.scrollTo(0,document.body.scrollHeight);
+  if(!stay) window.scrollTo(0,document.body.scrollHeight);
 }
 
-function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function escAttr(s){return s.replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escAttr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;');}
 
-// Reply and delete handlers
+// Reply, hide and delete handlers
 thread.addEventListener('click',function(e){
   var replyBtn=e.target.closest('.reply-btn');
   if(replyBtn){
-    replyTo=parseInt(replyBtn.dataset.id);
-    replyText.textContent='Replying to '+replyBtn.dataset.name;
-    replyIndicator.style.display='flex';
+    var rid=parseInt(replyBtn.dataset.id,10);
+    if(rid){
+      replyTo=rid;
+      replyText.textContent='Replying to '+replyBtn.dataset.name;
+      replyIndicator.style.display='flex';
+    }else{
+      // no message ids to link to: address the author in the text instead
+      var at='@'+replyBtn.dataset.name+' ';
+      if(msgInput.value.indexOf(at)!==0) msgInput.value=(at+msgInput.value).slice(0,MAX_LEN);
+    }
     msgInput.focus();
     return;
   }
+  var hideBtn=e.target.closest('.hide-btn');
+  if(hideBtn){hideMessage(hideBtn.dataset.key);return;}
   var delBtn=e.target.closest('.del-btn');
   if(delBtn){
-    deleteMessage(parseInt(delBtn.dataset.id));
+    deleteMessage(delBtn.dataset.key);
     return;
   }
   var scrollBadge=e.target.closest('.reply-badge');
@@ -199,44 +260,76 @@ document.getElementById('reply-cancel').addEventListener('click',function(){
 
 // Send message
 async function sendMessage(){
-  var body=msgInput.value.trim();
-  if(!body||!userId) return;
+  var body=msgInput.value.trim().slice(0,MAX_LEN);
+  if(!body) return;
+  if(!userId){note('no session: reload the page to post');return;}
+  var now=Date.now();
+  if(now-lastSentAt<SEND_GAP_MS){note('one message at a time, give it a second');return;}
+  lastSentAt=now;
+  note('');
   if(!username){username=nameInput.value.trim().slice(0,24)||'anon';localStorage.setItem('tm-username',username);}
   sendBtn.disabled=true;
-  var row={username:username,body:body.slice(0,2000),user_id:userId};
+  var row={username:username,body:body,user_id:userId};
   if(replyTo) row.reply_to=replyTo;
-  var {error}=await supabase.from('team_mailbox').insert(row);
+  var res=await supabase.from(MSGS).insert(row).select().single().then(function(r){return r;},function(e){return {error:e};});
   sendBtn.disabled=false;
-  if(error){alert('Send failed: '+error.message);return;}
+  if(res.error){note('couldn\'t send: '+(res.error.message||'try again'));return;}
   msgInput.value='';msgInput.style.height='auto';
+  if(res.data){var k=msgKey(res.data);if(!messages.find(function(x){return msgKey(x)===k;})){messages.push(res.data);renderMessages();}}
   replyTo=null;replyIndicator.style.display='none';
 }
 
 sendBtn.addEventListener('click',sendMessage);
 msgInput.addEventListener('keydown',function(e){
-  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendMessage();}
 });
 
-async function deleteMessage(id){
-  var {error}=await supabase.from('team_mailbox').delete().eq('id',id);
-  if(error){alert('Delete failed: '+error.message);return;}
-  messages=messages.filter(function(m){return m.id!==id;});
-  renderMessages();
+async function hideMessage(key){
+  if(!key) return;
+  if(!userId){note('no session: reload the page to hide messages');return;}
+  addHide(key,userId);
+  renderMessages(true);
+  var res=await supabase.from(HIDES).insert({user_id:userId,message_id:key}).then(function(r){return r;},function(e){return {error:e};});
+  if(res.error){console.warn('hide failed',res.error);note('hidden for you until you reload (the hide did not save)');}
 }
 
-// Realtime subscription
+async function deleteMessage(key){
+  var m=messages.find(function(x){return msgKey(x)===key;});
+  if(!m||!isOwn(m)) return;
+  var res=await supabase.from(MSGS).delete().eq('user_id',userId).eq('created_at',m.created_at).then(function(r){return r;},function(e){return {error:e};});
+  if(res.error){note('couldn\'t delete: '+(res.error.message||'try again'));return;}
+  messages=messages.filter(function(x){return msgKey(x)!==key;});
+  renderMessages(true);
+}
+
+// Realtime: messages, and hides on their own channel so a missing table can't stop the thread
 function subscribeRealtime(){
   supabase.channel('team-mailbox-changes')
-    .on('postgres_changes',{event:'INSERT',schema:'public',table:'team_mailbox'},function(payload){
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:MSGS},function(payload){
+      var m=payload.new;
+      if(!m) return;
+      var key=msgKey(m);
       // Avoid duplicates
-      if(!messages.find(function(m){return m.id===payload.new.id;})){
-        messages.push(payload.new);
+      if(!messages.find(function(x){return msgKey(x)===key;})){
+        messages.push(m);
+        if(messages.length>300) messages.shift();
         renderMessages();
       }
     })
-    .on('postgres_changes',{event:'DELETE',schema:'public',table:'team_mailbox'},function(payload){
-      messages=messages.filter(function(m){return m.id!==payload.old.id;});
-      renderMessages();
+    .on('postgres_changes',{event:'DELETE',schema:'public',table:MSGS},function(payload){
+      var o=payload.old;
+      if(!o||!o.user_id||!o.created_at) return;
+      var key=msgKey(o);
+      messages=messages.filter(function(m){return msgKey(m)!==key;});
+      renderMessages(true);
+    })
+    .subscribe();
+  supabase.channel('team-mailbox-hides')
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:HIDES},function(payload){
+      var h=payload.new;
+      if(!h||h.message_id==null) return;
+      addHide(h.message_id,h.user_id);
+      renderMessages(true);
     })
     .subscribe();
 }
