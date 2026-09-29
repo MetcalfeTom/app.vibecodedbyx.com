@@ -252,6 +252,61 @@
             font-size: 14px;
             line-height: 1.4;
             word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .chat-message.settled {
+            animation: none;
+        }
+
+        .chat-user {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+        }
+
+        .chat-user span {
+            overflow-wrap: anywhere;
+        }
+
+        .chat-hide {
+            background: none;
+            border: none;
+            color: #0a0;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: normal;
+            cursor: pointer;
+            padding: 2px 0 2px 6px;
+            opacity: 0.8;
+            flex-shrink: 0;
+        }
+
+        .chat-message:hover .chat-hide,
+        .chat-hide:focus-visible {
+            opacity: 1;
+        }
+
+        .chat-hide:hover {
+            color: #f33;
+            text-shadow: 0 0 6px #f33;
+        }
+
+        .chat-hidden-note {
+            color: #0a0;
+            font-size: 11px;
+            margin-top: 6px;
+        }
+
+        .chat-note {
+            color: #0ff;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .chat-note:empty {
+            display: none;
         }
 
         .chat-input-area {
@@ -384,6 +439,7 @@
                     maxlength="500"
                 ></textarea>
                 <button class="send-btn" onclick="sendMessage()">>>> SEND <<<</button>
+                <div class="chat-note" id="chatNote" role="status" aria-live="polite"></div>
             </div>
         </div>
     </div>
@@ -391,18 +447,59 @@
     <script type="module">
         import supabase, { supabaseSession } from '/supabase-config.js';
 
-        let user = null;
+        const MSGS = 'knowledge_messages';
+        const HIDES = 'knowledge_chaos_hides';
+        const HIDE_AT = 2;          // hides from seekers other than the author that take a message down for everyone
+        const SEND_GAP_MS = 1500;   // one message per 1.5 seconds
+        const MAX_LEN = 500;
+        const NAME_LEN = 20;
 
-        // Initialize
+        let user = null;
+        let messages = [];          // oldest first
+        let lastSentAt = 0;
+        const seen = new Set();     // keys already on screen, so only new messages slide in
+        const hides = new Map();    // message key -> Set of user ids
+        const myHides = new Set();
+
+        // The table has no id column, so a message is named by its author and its exact time (to the millisecond)
+        function msgKey(m) {
+            const t = String((m && m.created_at) || '');
+            const r = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d(?::?\d\d)?)?$/.exec(t);
+            let ms = NaN;
+            if (r) {
+                let tz = r[4] || 'Z';
+                if (tz !== 'Z') { if (tz.length === 3) tz += ':00'; else if (tz.length === 5) tz = tz.slice(0, 3) + ':' + tz.slice(3); }
+                ms = Date.parse(r[1] + 'T' + r[2] + '.' + ((r[3] || '') + '000').slice(0, 3) + tz);
+            }
+            if (isNaN(ms)) ms = Date.parse(t);
+            return ((m && m.user_id) || '?') + '@' + (isNaN(ms) ? t : ms);
+        }
+        function isOwn(m) { return !!(user && m.user_id === user.id); }
+        function hidesOn(m) {
+            let n = 0;
+            const set = hides.get(msgKey(m));
+            if (set) for (const u of set) if (u !== m.user_id) n++;
+            return n;
+        }
+        function isHidden(m) { return !isOwn(m) && (myHides.has(msgKey(m)) || hidesOn(m) >= HIDE_AT); }
+        function addHide(key, u) {
+            if (!hides.has(key)) hides.set(key, new Set());
+            hides.get(key).add(u);
+            if (user && u === user.id) myHides.add(key);
+        }
+        function note(t) { document.getElementById('chatNote').textContent = t || ''; }
+
+        // Initialize: the chat loads even when the session doesn't
         async function init() {
             try {
                 const { user: currentUser } = await supabaseSession();
-                user = currentUser;
-                await loadMessages();
-                subscribeToMessages();
+                user = currentUser || null;
             } catch (e) {
                 console.error('Error initializing', e);
             }
+            if (!user) note('no session: you can read, reload the page to post');
+            await loadMessages();
+            subscribeToMessages();
         }
 
         // Load video
@@ -429,29 +526,25 @@
             document.getElementById('videoFrame').src = `https://www.youtube.com/embed/${videoId}`;
         };
 
-        // Load messages
+        // Load messages, then the hides
         async function loadMessages() {
-            try {
-                const { data, error } = await supabase
-                    .from('knowledge_messages')
-                    .select('*')
-                    .order('created_at', { ascending: false })
-                    .limit(50);
-
-                if (error) throw error;
-
-                const container = document.getElementById('chatMessages');
-                // Keep system message
-                const systemMsg = container.firstElementChild;
-
-                if (data && data.length > 0) {
-                    data.reverse().forEach(msg => {
-                        displayMessage(msg, true);
-                    });
-                }
-            } catch (e) {
-                console.error('Error loading messages', e);
+            const res = await supabase
+                .from(MSGS)
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(50)
+                .then(r => r, e => ({ error: e }));
+            if (res.error) {
+                console.error('Error loading messages', res.error);
+                note('can\'t reach the chat right now, reload to try again');
+                return;
             }
+            messages = (res.data || []).reverse();
+            // the hides: if they can't load, every message just stays up
+            const hr = await supabase.from(HIDES).select('message_id, user_id').limit(5000).then(r => r, e => ({ error: e }));
+            if (hr.error) console.warn('hides unavailable', hr.error);
+            else { hides.clear(); myHides.clear(); for (const h of hr.data || []) if (h.message_id != null) addHide(h.message_id, h.user_id); }
+            render(true);
         }
 
         // Escape HTML (visitor-written text is rendered as text)
@@ -461,64 +554,116 @@
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
-        // Display message
-        function displayMessage(msg, skipScroll = false) {
-            const container = document.getElementById('chatMessages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'chat-message';
-
-            messageDiv.innerHTML = `
-                <div class="chat-user">${escapeHtml(msg.username || 'Anonymous')}</div>
+        function messageHtml(msg) {
+            const key = msgKey(msg);
+            const own = isOwn(msg);
+            const settled = seen.has(key);
+            seen.add(key);
+            const hideBtn = own ? '' : `<button class="chat-hide" type="button" data-key="${escapeHtml(key)}" aria-label="Hide this message" title="Hide it for you. Two hides take it down for everyone.">[hide]</button>`;
+            const hiddenNote = own && hidesOn(msg) >= HIDE_AT ? '<div class="chat-hidden-note">// hidden from everyone else by readers</div>' : '';
+            return `<div class="chat-message${settled ? ' settled' : ''}">
+                <div class="chat-user"><span>${escapeHtml(msg.username || 'Anonymous')}</span>${hideBtn}</div>
                 <div class="chat-text">${escapeHtml(msg.message)}</div>
-            `;
+                ${hiddenNote}
+            </div>`;
+        }
 
-            container.appendChild(messageDiv);
+        // Draw the chat: the system welcome, then every message nobody hid
+        function render(scroll) {
+            const container = document.getElementById('chatMessages');
+            const stick = scroll || container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+            container.innerHTML = `
+                <div class="chat-message settled">
+                    <div class="chat-user">SYSTEM</div>
+                    <div class="chat-text">Welcome to Knowledge Chaos. Share wisdom. Seek truth.</div>
+                </div>
+                ${messages.filter(m => !isHidden(m)).map(messageHtml).join('')}`;
+            if (stick) container.scrollTop = container.scrollHeight;
+        }
 
-            if (!skipScroll) {
-                container.scrollTop = container.scrollHeight;
-            }
+        function addMessage(m) {
+            if (!m) return;
+            const key = msgKey(m);
+            if (messages.some(x => msgKey(x) === key)) return;
+            messages.push(m);
+            if (messages.length > 200) messages.shift();
+            render();
         }
 
         // Send message
         window.sendMessage = async function() {
-            const username = document.getElementById('chatUsername').value.trim() || 'Anonymous';
-            const message = document.getElementById('chatInput').value.trim();
+            const username = document.getElementById('chatUsername').value.trim().slice(0, NAME_LEN) || 'Anonymous';
+            const message = document.getElementById('chatInput').value.trim().slice(0, MAX_LEN);
 
-            if (!message || !user) return;
+            if (!message) return;
+            if (!user) { note('no session: reload the page to post'); return; }
+            const now = Date.now();
+            if (now - lastSentAt < SEND_GAP_MS) { note('one message at a time, give it a second'); return; }
+            lastSentAt = now;
+            note('');
 
-            try {
-                const { error } = await supabase
-                    .from('knowledge_messages')
-                    .insert({
-                        user_id: user.id,
-                        username: username,
-                        message: message
-                    });
+            const { data, error } = await supabase
+                .from(MSGS)
+                .insert({
+                    user_id: user.id,
+                    username: username,
+                    message: message
+                })
+                .select()
+                .single()
+                .then(r => r, e => ({ error: e }));
 
-                if (error) throw error;
-
-                document.getElementById('chatInput').value = '';
-            } catch (e) {
-                console.error('Error sending message', e);
+            if (error) {
+                console.error('Error sending message', error);
+                note('couldn\'t send: ' + (error.message || 'try again'));
+                return;
             }
+            document.getElementById('chatInput').value = '';
+            addMessage(data);
         };
 
-        // Subscribe to messages
+        async function hideMessage(key) {
+            if (!key) return;
+            if (!user) { note('no session: reload the page to hide messages'); return; }
+            addHide(key, user.id);
+            render();
+            const { error } = await supabase.from(HIDES).insert({ user_id: user.id, message_id: key }).then(r => r, e => ({ error: e }));
+            if (error) { console.warn('hide failed', error); note('hidden for you until you reload (the hide did not save)'); }
+        }
+
+        // Live: messages, and hides on their own channel so a missing table can't stop the chat
         function subscribeToMessages() {
             supabase
                 .channel('knowledge_messages')
                 .on('postgres_changes',
-                    { event: 'INSERT', schema: 'public', table: 'knowledge_messages' },
+                    { event: 'INSERT', schema: 'public', table: MSGS },
                     (payload) => {
-                        displayMessage(payload.new);
+                        addMessage(payload.new);
+                    }
+                )
+                .subscribe();
+            supabase
+                .channel('knowledge_chaos_hides')
+                .on('postgres_changes',
+                    { event: 'INSERT', schema: 'public', table: HIDES },
+                    (payload) => {
+                        const h = payload.new;
+                        if (!h || h.message_id == null) return;
+                        addHide(h.message_id, h.user_id);
+                        render();
                     }
                 )
                 .subscribe();
         }
 
+        document.getElementById('chatMessages').addEventListener('click', (e) => {
+            const hb = e.target.closest('.chat-hide');
+            if (hb) hideMessage(hb.dataset.key);
+        });
+
         // Enter to send
         document.getElementById('chatInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
                 e.preventDefault();
                 sendMessage();
             }

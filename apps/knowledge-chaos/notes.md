@@ -1,6 +1,7 @@
 # Knowledge Chaos
 
 ## Log
+- 2026-09-29: +[hide] on others' messages: hidden for you at once, for everyone at HIDE_AT=2 hides from non-authors; the author sees '// hidden from everyone else by readers'. knowledge_messages has NO id column (the create_table tool only adds user_id/created_at/updated_at), so a message is keyed '<user_id>@<created_at in ms>' (msgKey parses REST and realtime timestamp formats). New table knowledge_chaos_hides (id bigserial, message_id TEXT holding that key, default RLS); hides load with limit 5000 after the messages and have their own realtime channel, so if they fail everything stays visible. The chat is now a messages array + render() (only new messages slide in). Also: 1.5 s send gap, 500/20 char cuts in JS, a status line under SEND for cooldown/send/hide errors (they only went to the console), own messages show right away via insert().select(), the chat loads even if the session fails, newlines kept (pre-wrap). Tested with a stub client only.
 - Initial creation: Minimal chaotic page with YouTube player and real-time chat
 - Theme: Matrix-style green-on-black terminal aesthetic
 - YouTube player with URL input and preset videos about deep knowledge
