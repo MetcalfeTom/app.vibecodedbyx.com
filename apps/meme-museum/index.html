@@ -786,17 +786,40 @@
   <p class="sr-only" id="sr-status" aria-live="polite"></p>
 
   <script type="module">
-    import supabase, { supabaseSession } from '/supabase-config.js';
+    // loaded so the page still opens when the host's shared file comes without its default client
+    let supabase = null, supabaseSession = async () => { throw new Error('the database module did not load'); };
+    try {
+      const mod = await import('/supabase-config.js');
+      if (typeof mod.supabaseSession === 'function') supabaseSession = mod.supabaseSession;
+      supabase = mod.default || null;
+      if (!supabase && typeof mod.supabaseSession === 'function') { try { supabase = (await mod.supabaseSession()).client || null; } catch (_) {} }
+    } catch (e) { console.warn('museum: the database module did not load', e); }
+    const STARS = 'meme_museum_stars', ROPES = 'meme_museum_ropes';
+    // exhibits have no id column, so each one is known by who hung it and when: '<user_id>@<created_at in ms>'
+    // (it reads both the REST timestamp and the realtime one, which has a space and a short zone)
+    function memeKey(m) {
+      const t = String((m && m.created_at) || '');
+      const r = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d:\d\d)(?:\.(\d+))?\s*(Z|[+-]\d\d(?::?\d\d)?)?$/.exec(t);
+      let ms = NaN;
+      if (r) {
+        let tz = r[4] || 'Z';
+        if (tz !== 'Z') { if (tz.length === 3) tz += ':00'; else if (tz.length === 5) tz = tz.slice(0, 3) + ':' + tz.slice(3); }
+        ms = Date.parse(r[1] + 'T' + r[2] + '.' + ((r[3] || '') + '000').slice(0, 3) + tz);
+      }
+      return (m && m.user_id || '?') + '@' + (isNaN(ms) ? t : ms);
+    }
+    function keyed(m) { if (m) m.id = memeKey(m); return m; }
+    const starRows = new Map();   // star row id -> [meme key, user id], so a realtime delete (which only carries the id) can be undone
 
     // ============================================================
     // State
     // ============================================================
     let memes = [];           // current meme list
-    let votes = {};           // {meme_id: count}
+    let votes = {};           // {meme key: count}
     let myVotes = new Set();  // meme ids the current user voted
     let totalVotes = 0;
-    let voters = {};          // {meme_id: Set of user ids who loved it}
-    let flags = {};           // {meme_id: Set of user ids who roped it off}
+    let voters = {};          // {meme key: Set of user ids who loved it}
+    let flags = {};           // {meme key: Set of user ids who roped it off}
     let myFlags = new Set();  // meme ids you roped off
     const revealed = new Set(); // unvouched exhibits you chose to look at, this visit
     const CLEAR_AT = 2;       // loves from other visitors that lift the frosted glass for everyone
@@ -894,7 +917,11 @@
     // ============================================================
     // Data fetch
     // ============================================================
+    function showClosed() {
+      gallery.innerHTML = '<div class="empty"><div class="icon">🔒</div><h3>closed tonight</h3><p>The vault doors won\'t open right now. Come back a little later.</p></div>';
+    }
     async function loadAll() {
+      if (!supabase) { showClosed(); return; }
       const { data: memesData, error: mErr } = await supabase
         .from('meme_museum_memes')
         .select('*')
@@ -902,38 +929,42 @@
         .limit(PAGE_SIZE);
       if (mErr) {
         console.error(mErr);
-        gallery.innerHTML = '<div class="empty"><div class="icon">⚠</div><h3>connection error</h3><p>The vault doors won\'t open. Please reload.</p></div>';
+        showClosed();
         return;
       }
-      memes = memesData || [];
+      memes = (memesData || []).map(keyed);
 
       // Fetch all votes in one query (small scale — fine to slurp)
       const { data: votesData } = await supabase
-        .from('meme_museum_votes')
-        .select('meme_id, user_id');
+        .from(STARS)
+        .select('id, meme_key, user_id')
+        .limit(5000);
+      starRows.clear();
       votes = {};
       voters = {};
       myVotes = new Set();
       totalVotes = 0;
       if (votesData) {
         for (const v of votesData) {
-          votes[v.meme_id] = (votes[v.meme_id] || 0) + 1;
-          addTo(voters, v.meme_id, v.user_id);
-          if (currentUser && v.user_id === currentUser.id) myVotes.add(v.meme_id);
+          starRows.set(v.id, [v.meme_key, v.user_id]);
+          if (voters[v.meme_key] && voters[v.meme_key].has(v.user_id)) continue;   // one love per visitor
+          votes[v.meme_key] = (votes[v.meme_key] || 0) + 1;
+          addTo(voters, v.meme_key, v.user_id);
+          if (currentUser && v.user_id === currentUser.id) myVotes.add(v.meme_key);
           totalVotes++;
         }
       }
       // the ropes: an error here (say the table isn't reachable) just leaves every exhibit up
       const { data: flagData, error: fErr } = await supabase
-        .from('meme_museum_flags')
-        .select('meme_id, user_id')
+        .from(ROPES)
+        .select('meme_key, user_id')
         .limit(5000);
       flags = {};
       myFlags = new Set();
       if (fErr) console.warn('ropes unavailable', fErr);
       for (const f of (flagData || [])) {
-        addTo(flags, f.meme_id, f.user_id);
-        if (currentUser && f.user_id === currentUser.id) myFlags.add(f.meme_id);
+        addTo(flags, f.meme_key, f.user_id);
+        if (currentUser && f.user_id === currentUser.id) myFlags.add(f.meme_key);
       }
       render();
     }
@@ -1064,7 +1095,7 @@
       render();
       toast(`roped off for you · ${ROPE_AT} ropes take it off the walls for everyone`);
       try {
-        const { error } = await supabase.from('meme_museum_flags').insert({ user_id: currentUser.id, meme_id: memeId });
+        const { error } = await supabase.from(ROPES).insert({ user_id: currentUser.id, meme_key: memeId });
         if (error) throw error;
       } catch (err) {
         console.warn('rope failed', err);
@@ -1100,12 +1131,12 @@
 
       try {
         if (wasVoted) {
-          const { error } = await supabase.from('meme_museum_votes').delete()
-            .eq('user_id', currentUser.id).eq('meme_id', memeId);
+          const { error } = await supabase.from(STARS).delete()
+            .eq('user_id', currentUser.id).eq('meme_key', memeId);
           if (error) throw error;
         } else {
-          const { error } = await supabase.from('meme_museum_votes').insert({
-            user_id: currentUser.id, meme_id: memeId
+          const { error } = await supabase.from(STARS).insert({
+            user_id: currentUser.id, meme_key: memeId
           });
           if (error) throw error;
         }
@@ -1129,7 +1160,9 @@
     async function handleDelete(memeId) {
       if (!memeId || !currentUser) return;
       if (!confirm('Remove this exhibit from the museum?')) return;
-      const { error } = await supabase.from('meme_museum_memes').delete().eq('id', memeId).eq('user_id', currentUser.id);
+      const m0 = memes.find(m => m.id === memeId);
+      if (!m0) return;
+      const { error } = await supabase.from('meme_museum_memes').delete().eq('user_id', currentUser.id).eq('created_at', m0.created_at);
       if (error) { toast('could not remove'); return; }
       memes = memes.filter(m => m.id !== memeId);
       delete votes[memeId];
@@ -1216,7 +1249,7 @@
         return;
       }
       lastSubmitAt = now;
-      memes.unshift(data);
+      memes.unshift(keyed(data));
       submitForm.reset();
       captionCount.textContent = '0';
       closeSubmit();
@@ -1257,39 +1290,48 @@
       try {
         const channel = supabase.channel('meme-museum-live')
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'meme_museum_memes' }, (payload) => {
-            if (!memes.find(m => m.id === payload.new.id)) {
-              memes.unshift(payload.new);
+            const nm = keyed(payload.new);
+            if (!memes.find(m => m.id === nm.id)) {
+              memes.unshift(nm);
               render();
             }
           })
           .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'meme_museum_memes' }, (payload) => {
-            memes = memes.filter(m => m.id !== payload.old.id);
-            delete votes[payload.old.id];
+            const o = payload.old || {};
+            if (!o.user_id || !o.created_at) return;   // without a primary key the event may not say which one went
+            const k = memeKey(o);
+            memes = memes.filter(m => m.id !== k);
+            delete votes[k];
             render();
           })
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'meme_museum_votes' }, (payload) => {
-            const id = payload.new.meme_id;
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: STARS }, (payload) => {
+            const id = payload.new.meme_key;
+            starRows.set(payload.new.id, [id, payload.new.user_id]);
+            if (voters[id] && voters[id].has(payload.new.user_id)) return;   // your own love, already counted
             votes[id] = (votes[id] || 0) + 1;
             totalVotes++;
             addTo(voters, id, payload.new.user_id);
             if (currentUser && payload.new.user_id === currentUser.id) myVotes.add(id);
             render();
           })
-          .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'meme_museum_votes' }, (payload) => {
-            const id = payload.old.meme_id;
+          .on('postgres_changes', { event: 'DELETE', schema: 'public', table: STARS }, (payload) => {
+            const row = starRows.get(payload.old && payload.old.id); if (!row) return;
+            starRows.delete(payload.old.id);
+            const [id, uid] = row;
+            if (!voters[id] || !voters[id].has(uid)) return;   // your own un-love, already taken off
             votes[id] = Math.max(0, (votes[id] || 1) - 1);
             totalVotes = Math.max(0, totalVotes - 1);
-            if (payload.old.user_id) dropFrom(voters, id, payload.old.user_id);
-            if (currentUser && payload.old.user_id === currentUser.id) myVotes.delete(id);
+            dropFrom(voters, id, uid);
+            if (currentUser && uid === currentUser.id) myVotes.delete(id);
             render();
           })
           .subscribe();
         // ropes on their own channel, so a missing table can't take the gallery's live updates down with it
         supabase.channel('meme-museum-ropes')
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'meme_museum_flags' }, (payload) => {
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: ROPES }, (payload) => {
             const f = payload.new;
-            addTo(flags, f.meme_id, f.user_id);
-            if (currentUser && f.user_id === currentUser.id) myFlags.add(f.meme_id);
+            addTo(flags, f.meme_key, f.user_id);
+            if (currentUser && f.user_id === currentUser.id) myFlags.add(f.meme_key);
             render();
           })
           .subscribe();
