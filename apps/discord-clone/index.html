@@ -273,6 +273,21 @@
             color: #dcddde;
         }
 
+        /* hide: two readers take a message down for everyone */
+        .message { position: relative; }
+        .msg-hide {
+            position: absolute; top: 4px; right: 4px; opacity: 0;
+            background: #202225; color: #b9bbbe; border: 1px solid #40444b; border-radius: 4px;
+            font-size: 11px; padding: 3px 9px; cursor: pointer;
+        }
+        .message:hover .msg-hide, .msg-hide:focus-visible { opacity: 1; }
+        .msg-hide:hover { color: #fff; background: #ed4245; border-color: #ed4245; }
+        @media (hover: none) { .msg-hide { opacity: 0.55; } }
+        .msg-note { font-size: 11px; color: #ed4245; margin-top: 2px; }
+        .chat-error { color: #faa61a; font-size: 13px; margin: 0 0 16px; }
+        .chat-error button { background: #5865f2; color: #fff; border: 0; border-radius: 4px; padding: 4px 10px; margin-left: 6px; cursor: pointer; }
+        .send-err { color: #faa61a; font-size: 12px; padding: 6px 2px 0; min-height: 1em; }
+
         /* Message Input */
         .message-input-container {
             padding: 16px;
@@ -428,8 +443,23 @@
     <script type="module">
         import supabase, { supabaseSession } from '/supabase-config.js';
 
+        /* the app's own tables. It used to point at the stream's chat table, whose columns don't match, so nothing ever saved */
+        const MSGS = 'discord_clone_messages';
+        const HIDES = 'discord_clone_hides';
+        const HIDE_AT = 2;          // hides from people other than the author that take a message down for everyone
+        const SEND_GAP_MS = 1500;   // one message per 1.5 seconds
+        const MAX_LEN = 2000;
+
+        const $ = id => document.getElementById(id);
         let currentUser = null;
+        let myName = 'Guest';
         let currentChannel = 'general';
+        let lastSentAt = 0;
+        let loadTok = 0;
+        let shown = [];             // the current channel's messages, oldest first
+        let loadErr = null;
+        const hides = new Map();    // message id -> Set of user ids
+        const myHides = new Set();
 
         const channelTopics = {
             general: 'Welcome to the general chat!',
@@ -438,15 +468,42 @@
             coding: 'Programming discussions and help'
         };
 
-        // Initialize user
+        function guestName(id) {
+            let h = 0;
+            for (const c of String(id || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+            return 'Guest-' + (h % 9000 + 1000);
+        }
+        // a display name, never the email address
+        function pickName(user) {
+            const m = (user && user.user_metadata) || {};
+            const n = m.preferred_username || m.nickname || m.user_name || m.name || m.full_name;
+            return String(n || guestName(user && user.id)).slice(0, 32);
+        }
+
+        function isOwn(m) { return !!(currentUser && m.user_id === currentUser.id); }
+        function hidesOn(m) {
+            let n = 0;
+            const set = hides.get(m.id);
+            if (set) for (const u of set) if (u !== m.user_id) n++;
+            return n;
+        }
+        function isHidden(m) { return !isOwn(m) && (myHides.has(m.id) || hidesOn(m) >= HIDE_AT); }
+        function addHide(id, u) {
+            if (!hides.has(id)) hides.set(id, new Set());
+            hides.get(id).add(u);
+            if (currentUser && u === currentUser.id) myHides.add(id);
+        }
+
         async function initUser() {
             try {
                 const { user } = await supabaseSession();
                 if (user) {
                     currentUser = user;
-                    const name = user.user_metadata?.name || user.email?.split('@')[0] || 'User';
-                    document.getElementById('userName').textContent = name;
-                    document.getElementById('userAvatar').textContent = name[0].toUpperCase();
+                    myName = pickName(user);
+                    $('userName').textContent = myName;
+                    $('userAvatar').textContent = myName[0].toUpperCase();
+                    for (const [id, set] of hides) if (set.has(user.id)) myHides.add(id);
+                    render();
                 }
             } catch (e) {
                 console.error('Auth error:', e);
@@ -455,103 +512,124 @@
 
         // Load messages for channel
         async function loadMessages(channel) {
-            try {
-                const { data, error } = await supabase
-                    .from('chat_messages')
-                    .select('*')
-                    .eq('channel', channel)
-                    .order('created_at', { ascending: true })
-                    .limit(50);
-
-                if (error) throw error;
-
-                const messagesDiv = document.getElementById('messages');
-                messagesDiv.innerHTML = `
-                    <div class="welcome-message">
-                        <h3>Welcome to #${channel}! 👋</h3>
-                        <p>This is the start of the channel. Say hello!</p>
-                    </div>
-                `;
-
-                if (data && data.length > 0) {
-                    data.forEach(msg => addMessageToUI(msg));
-                }
-            } catch (e) {
-                console.error('Error loading messages:', e);
+            const tok = ++loadTok;
+            const res = await supabase
+                .from(MSGS)
+                .select('id, channel, author, content, user_id, created_at')
+                .eq('channel', channel)
+                .order('created_at', { ascending: false })
+                .limit(80)
+                .then(r => r, e => ({ error: e }));
+            if (tok !== loadTok) return;
+            if (res.error) {
+                console.error('Error loading messages:', res.error);
+                loadErr = res.error.message || String(res.error);
+                shown = [];
+                render();
+                return;
             }
+            loadErr = null;
+            shown = (res.data || []).reverse();
+            // the hides: if they can't load, every message just stays up
+            const hr = await supabase.from(HIDES).select('message_id, user_id').limit(5000).then(r => r, e => ({ error: e }));
+            if (tok !== loadTok) return;
+            if (hr.error) console.warn('hides unavailable', hr.error);
+            else { hides.clear(); myHides.clear(); for (const h of hr.data || []) addHide(h.message_id, h.user_id); }
+            render();
         }
 
-        // Add message to UI
-        function addMessageToUI(message) {
-            const messagesDiv = document.getElementById('messages');
-            const messageEl = document.createElement('div');
-            messageEl.className = 'message';
-
+        function messageHtml(message) {
             const author = message.author || 'Anonymous';
             const avatar = author[0].toUpperCase();
-            const time = new Date(message.created_at).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit'
-            });
-
-            messageEl.innerHTML = `
-                <div class="message-avatar">${escapeHtml(avatar)}</div>
-                <div class="message-content">
-                    <div class="message-header">
-                        <span class="message-author">${escapeHtml(author)}</span>
-                        <span class="message-time">${time}</span>
+            const time = new Date(message.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            const own = isOwn(message);
+            const hideBtn = own ? '' : `<button class="msg-hide" type="button" data-id="${message.id}" aria-label="Hide this message">hide</button>`;
+            const note = own && hidesOn(message) >= HIDE_AT ? '<div class="msg-note">hidden from everyone else by readers</div>' : '';
+            return `<div class="message">
+                    <div class="message-avatar">${escapeHtml(avatar)}</div>
+                    <div class="message-content">
+                        <div class="message-header">
+                            <span class="message-author">${escapeHtml(author)}</span>
+                            <span class="message-time">${time}</span>
+                        </div>
+                        <div class="message-text">${escapeHtml(message.content)}</div>
+                        ${note}
                     </div>
-                    <div class="message-text">${escapeHtml(message.content)}</div>
-                </div>
-            `;
-
-            messagesDiv.appendChild(messageEl);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    ${hideBtn}
+                </div>`;
         }
+
+        function render() {
+            const messagesDiv = $('messages');
+            const stick = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < 80;
+            const err = loadErr
+                ? `<div class="chat-error" role="status">Can't reach the chat right now (${escapeHtml(loadErr.slice(0, 120))}). <button type="button" data-act="retry">Try again</button></div>`
+                : '';
+            messagesDiv.innerHTML = `
+                <div class="welcome-message">
+                    <h3>Welcome to #<span id="welcomeChannel">${escapeHtml(currentChannel)}</span>! 👋</h3>
+                    <p>This is the start of the channel. Say hello! Tap hide on a message you don't want to see: two hides take it down for everyone.</p>
+                </div>
+                ${err}
+                ${shown.filter(m => !isHidden(m)).map(messageHtml).join('')}`;
+            if (stick) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function sendNote(t) { $('sendErr').textContent = t || ''; }
 
         // Send message
-        async function sendMessage(content) {
-            if (!content.trim()) return;
-
-            try {
-                const author = document.getElementById('userName').textContent;
-                const message = {
-                    channel: currentChannel,
-                    author: author,
-                    content: content,
-                    user_id: currentUser?.id || 'anonymous'
-                };
-
-                const { error } = await supabase
-                    .from('chat_messages')
-                    .insert([message]);
-
-                if (error) throw error;
-
-                document.getElementById('messageInput').value = '';
-            } catch (e) {
-                console.error('Error sending message:', e);
-                // Fallback: add to UI immediately if DB fails
-                addMessageToUI({
-                    author: document.getElementById('userName').textContent,
-                    content: content,
-                    created_at: new Date().toISOString()
-                });
-                document.getElementById('messageInput').value = '';
+        async function sendMessage(raw) {
+            const content = String(raw || '').trim().slice(0, MAX_LEN);
+            if (!content) return;
+            const now = Date.now();
+            if (now - lastSentAt < SEND_GAP_MS) { sendNote('one message at a time, give it a second'); return; }
+            if (!currentUser) await initUser();
+            if (!currentUser) { sendNote('no session: reload the page to chat'); return; }
+            lastSentAt = now;
+            sendNote('');
+            const { data, error } = await supabase
+                .from(MSGS)
+                .insert([{ channel: currentChannel, author: myName, content, user_id: currentUser.id }])
+                .select()
+                .single()
+                .then(r => r, e => ({ error: e }));
+            if (error) {
+                console.error('Error sending message:', error);
+                sendNote("couldn't send: " + (error.message || 'try again'));
+                return;
             }
+            $('messageInput').value = '';
+            if (data && data.channel === currentChannel && !shown.some(m => m.id === data.id)) { shown.push(data); render(); }
         }
 
-        // Subscribe to new messages
+        async function hideMessage(id) {
+            if (!currentUser) await initUser();
+            if (!currentUser) { sendNote('no session: reload the page to hide messages'); return; }
+            addHide(id, currentUser.id);
+            render();
+            const { error } = await supabase.from(HIDES).insert({ user_id: currentUser.id, message_id: id }).then(r => r, e => ({ error: e }));
+            if (error) { console.warn('hide failed', error); sendNote('hidden for you until you reload (the hide did not save)'); }
+        }
+
+        // live: new messages, and hides on their own channel so a missing table can't stop the chat
         function subscribeToMessages() {
             supabase
-                .channel('chat_messages')
-                .on('postgres_changes', {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'chat_messages',
-                    filter: `channel=eq.${currentChannel}`
-                }, payload => {
-                    addMessageToUI(payload.new);
+                .channel('discord-clone-live')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: MSGS }, payload => {
+                    const m = payload.new;
+                    if (!m || m.channel !== currentChannel || shown.some(x => x.id === m.id)) return;
+                    shown.push(m);
+                    if (shown.length > 200) shown.shift();
+                    render();
+                })
+                .subscribe();
+            supabase
+                .channel('discord-clone-hides')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: HIDES }, payload => {
+                    const h = payload.new;
+                    if (!h || h.message_id == null) return;
+                    addHide(h.message_id, h.user_id);
+                    render();
                 })
                 .subscribe();
         }
@@ -559,16 +637,13 @@
         // Switch channel
         function switchChannel(channel) {
             currentChannel = channel;
-            document.getElementById('channelName').textContent = channel;
-            document.getElementById('channelTopic').textContent = channelTopics[channel];
-            document.getElementById('welcomeChannel').textContent = channel;
-            document.getElementById('messageInput').placeholder = `Message #${channel}`;
-
-            document.querySelectorAll('.channel[data-channel]').forEach(ch => {
-                ch.classList.remove('active');
-            });
+            $('channelName').textContent = channel;
+            $('channelTopic').textContent = channelTopics[channel];
+            $('messageInput').placeholder = `Message #${channel}`;
+            document.querySelectorAll('.channel[data-channel]').forEach(ch => ch.classList.remove('active'));
             document.querySelector(`[data-channel="${channel}"]`).classList.add('active');
-
+            shown = [];
+            render();
             loadMessages(channel);
         }
 
@@ -580,10 +655,20 @@
         }
 
         // Event listeners
-        document.getElementById('messageInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                sendMessage(e.target.value);
-            }
+        const sendErr = document.createElement('div');
+        sendErr.id = 'sendErr';
+        sendErr.className = 'send-err';
+        sendErr.setAttribute('role', 'status');
+        $('messageInput').after(sendErr);
+
+        $('messageInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.isComposing) sendMessage(e.target.value);
+        });
+
+        $('messages').addEventListener('click', (e) => {
+            const hb = e.target.closest('.msg-hide');
+            if (hb) { hideMessage(Number(hb.dataset.id)); return; }
+            if (e.target.closest('[data-act="retry"]')) loadMessages(currentChannel);
         });
 
         document.querySelectorAll('.channel[data-channel]').forEach(channel => {
@@ -596,26 +681,6 @@
         initUser();
         loadMessages('general');
         subscribeToMessages();
-
-        // Add demo messages if table is empty
-        setTimeout(async () => {
-            const { data } = await supabase
-                .from('chat_messages')
-                .select('*')
-                .limit(1);
-
-            if (!data || data.length === 0) {
-                const demoMessages = [
-                    { channel: 'general', author: 'Sloppy', content: 'Welcome to Chatter! 👋' },
-                    { channel: 'general', author: 'Bot', content: 'This is a real-time chat app built for VibeCodedByX!' },
-                    { channel: 'random', author: 'User123', content: 'Anyone here?' }
-                ];
-
-                for (const msg of demoMessages) {
-                    await supabase.from('chat_messages').insert([{ ...msg, user_id: 'system' }]);
-                }
-            }
-        }, 1000);
     </script>
 <script src="/sloppy-header/sloppy-bar.js"></script>
 </body>
