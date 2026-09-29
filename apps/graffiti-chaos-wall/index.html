@@ -386,6 +386,7 @@ h1 .y{color:var(--neonYellow);font-style:italic;font-family:'Bungee Inline', san
 }
 .status.warn{color:var(--neonYellow);border-color:rgba(255,240,75,0.4)}
 .status.err{color:var(--neonRed);border-color:rgba(255,58,82,0.4)}
+.status{max-width:calc(100vw - 110px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* never runs under the sound button */
 .status .pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--neonGreen);box-shadow:0 0 8px currentColor;margin-right:6px;vertical-align:middle;animation:bp 1.4s ease-in-out infinite}
 @keyframes bp { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
@@ -441,7 +442,22 @@ h1 .y{color:var(--neonYellow);font-style:italic;font-family:'Bungee Inline', san
 </div>
 
 <script type="module">
-import supabase, { supabaseSession } from '/supabase-config.js';
+// the database module, loaded so the wall still paints when it can't be reached:
+// the live host's shared file has come without its default client, and a failed static import would stop the whole page
+let supabase = null, supabaseSession = async () => { throw new Error('no database module'); };
+try {
+  const m = await import('/supabase-config.js');
+  if (typeof m.supabaseSession === 'function') supabaseSession = m.supabaseSession;
+  supabase = m.default || null;
+  if (!supabase && typeof m.supabaseSession === 'function') { try { supabase = (await m.supabaseSession()).client || null; } catch (_) {} }
+} catch (e) { console.warn('chaos wall: the database module did not load', e); }
+
+// === local wall: when the database is closed, your tags stay on this device ===
+const LOCAL_KEY = 'gcw.local.v1';
+let offline = false;
+function localTags() { try { const a = JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }
+function saveLocal() { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(allTags.filter(isLocal).slice(-60))); } catch (_) {} }
+function isLocal(t) { return String(t.id).startsWith('local-'); }
 
 const COLORS = [
   { v:'#ff2bd6', n:'pink' },
@@ -716,7 +732,7 @@ async function loadAll() {
     .order('created_at', { ascending: true })
     .limit(800);
   if (error) {
-    setStatus('err', 'load failed: ' + error.message);
+    goOffline('load failed: ' + error.message);
     return;
   }
   allTags = data || [];
@@ -743,10 +759,11 @@ async function submitTag() {
       rot: Math.round(-12 + Math.random() * 24),
     };
   }
-  if (!state.user) {
+  if (!state.user && !offline) {
     setStatus('warn', 'connecting…');
     return;
   }
+  if (offline) { sprayLocal(text); return; }
   state.posting = true;
   sprayBtn.disabled = true;
   sprayBtn.textContent = 'SPRAYING…';
@@ -787,6 +804,17 @@ async function submitTag() {
   state.pos = null;
   preview.classList.remove('show');
 }
+function sprayLocal(text) {
+  sprayPshhh(1);
+  const t = {
+    id: 'local-' + Date.now().toString(36), text: text.slice(0, 80), color: state.color, font: state.font,
+    rotation: state.pos.rot, x: Math.round(state.pos.xPct * 10000), y: Math.round(state.pos.yPct * 10000),
+    scale: Math.round(state.size * 100), author: (authorInput.value || '').trim().slice(0, 16) || 'anon',
+    created_at: new Date().toISOString(), user_id: 'local',
+  };
+  allTags.push(t); saveLocal(); renderTag(t, true); refreshMarquee(); liveStatus();
+  txt.value = ''; state.pos = null; preview.classList.remove('show');
+}
 sprayBtn.addEventListener('click', submitTag);
 
 function flash(el) {
@@ -807,7 +835,20 @@ const tagMenu = document.getElementById('tagMenu');
 let menuFor = null;
 function isHidden(t) { if (t.id == null) return false; if (myHides.has(t.id)) return true; const h = hides.get(t.id); return !!h && h.size >= HIDE_AT; }
 function visibleTags() { return allTags.filter(t => !isHidden(t)); }
-function liveStatus() { const n = visibleTags().length; setStatus('ok', `${n} tag${n === 1 ? '' : 's'} on the wall · live`); }
+function liveStatus() {
+  if (offline) { setStatus('warn', 'closed · your tags stay on this device'); return; }
+  const n = visibleTags().length; setStatus('ok', `${n} tag${n === 1 ? '' : 's'} on the wall · live`);
+}
+function goOffline(why) {
+  if (offline) return;
+  offline = true;
+  console.warn('chaos wall: painting locally,', why);
+  allTags = localTags();
+  wall.querySelectorAll('.tag').forEach(t => t.remove());
+  allTags.forEach(t => renderTag(t, false));
+  refreshMarquee();
+  liveStatus();
+}
 function addHide(tagId, uid) {
   let h = hides.get(tagId); if (!h) { h = new Set(); hides.set(tagId, h); }
   h.add(uid); if (state.user && uid === state.user.id) myHides.add(tagId);
@@ -829,7 +870,7 @@ function openTagMenu(e) {
   if (!tagMenu.hidden) { closeTagMenu(); if (e.target.closest('.tag[data-id]')) return true; }
   const el = e.target.closest('.tag[data-id]'); if (!el) return false;
   const t = allTags.find(x => String(x.id) === el.dataset.id); if (!t) return false;
-  const mine = state.user && t.user_id === state.user.id;
+  const mine = isLocal(t) || (state.user && t.user_id === state.user.id);
   menuFor = { t, x: e.clientX, y: e.clientY };
   tagMenu.innerHTML = '';
   const b1 = document.createElement('button'); b1.type = 'button'; b1.setAttribute('role', 'menuitem');
@@ -854,6 +895,7 @@ async function paintOver(t) {
   if (error) setStatus('err', 'paint-over only stuck for you: ' + error.message);
 }
 async function wipeMine(t) {
+  if (isLocal(t)) { allTags = allTags.filter(x => x.id !== t.id); saveLocal(); paintOut(t.id); refreshMarquee(); liveStatus(); sprayPshhh(0.5); return; }
   const { error } = await supabase.from('graffiti_wall').delete().eq('id', t.id);
   if (error) { setStatus('err', 'wipe failed: ' + error.message); return; }
   allTags = allTags.filter(x => x.id !== t.id); paintOut(t.id); refreshMarquee(); liveStatus(); sprayPshhh(0.5);
@@ -868,12 +910,12 @@ async function wipeMine(t) {
     setStatus('ok', 'connected · loading wall…');
     await loadAll();
   } catch (e) {
-    setStatus('err', 'auth failed: ' + (e.message || e));
+    goOffline('auth failed: ' + (e.message || e));
   }
 })();
 
 // === realtime ===
-supabase
+if (supabase) supabase
   .channel('graffiti-chaos-wall-v1')
   .on('postgres_changes',
     { event: 'INSERT', schema: 'public', table: 'graffiti_wall' },
@@ -887,7 +929,7 @@ supabase
       if (!state.muted) sprayPshhh(0.7);
     })
   .subscribe();
-supabase
+if (supabase) supabase
   .channel('graffiti-chaos-wall-hides-v1')
   .on('postgres_changes',
     { event: 'INSERT', schema: 'public', table: 'graffiti_wall_hides' },

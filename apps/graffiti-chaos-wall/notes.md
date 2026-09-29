@@ -1,6 +1,7 @@
 # graffiti-chaos-wall
 
 ## log
+- 2026-09-29: the database module loads with a dynamic import, so the page still runs when the live host hands back a config without its default client (a static import stopped the whole wall). If loading or auth fails, the wall goes local: tags you spray are kept on this device (localStorage gcw.local.v1, last 60), you can wipe them, and the pill says "closed · your tags stay on this device". The pill is capped so it never runs under the sound button.
 - 2026-09-29: title and share text no longer promise "permanent / no takedowns" now that tags can be painted over.
 - 2026-09-29: phones: the status pill and the sound button no longer sit on top of the title (header gets 50px top padding under 680px).
 - 2026-09-29: import /supabase-config.js (the -fixed file isn't served live, so the wall had been offline). Paint-over: tap a tag to paint over it or wipe your own; 2 paint-overs hide it for everyone. Tagline no longer says 'forever'.
