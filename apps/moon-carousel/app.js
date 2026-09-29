@@ -398,10 +398,14 @@ function drawScene(ctx,W,H,f,place,o){
   var dayWash=1-smooth(-6,6,sa)*.35,gain=dayWash;
   if(big)[mx,mx-W,mx+W].forEach(function(x){if(x>-R*6&&x<W+R*6)drawSunEclipse(ctx,x,my,R,r,S);});
   else if(up){[mx,mx-W,mx+W].forEach(function(x){if(x<-R*2||x>W+R*2)return;
-      if(fade<1){ctx.save();ctx.strokeStyle='rgba(225,232,250,'+(.5*(1-fade)).toFixed(3)+')';ctx.setLineDash([3,4]);ctx.lineWidth=Math.max(1,H/400);ctx.beginPath();ctx.arc(x,my,R,0,7);ctx.stroke();
-        if(o.detail&&fade<.5){var lf=Math.round(Math.max(9,H*.032)*.85),rt=sunx<x;ctx.fillStyle='rgba(225,232,250,'+(.8*(1-2*fade)).toFixed(3)+')';ctx.font='300 '+lf+'px \"IBM Plex Mono\",monospace';
-          ctx.textAlign=rt?'left':'right';ctx.textBaseline='middle';ctx.fillText('lost in the Sun’s glare',rt?x+R+6:x-R-6,my);}
-        ctx.restore();if(fade<.02)return;}
+      if(fade<1){ctx.save();ctx.beginPath();ctx.rect(x-R-4,my-R-4,2*R+8,2*R+8);[sunx,sunx-W,sunx+W].forEach(function(q){ctx.moveTo(q+sR*1.35,sy);ctx.arc(q,sy,sR*1.35,0,7);});ctx.clip('evenodd');   /* the ring passes behind the Sun */
+        ctx.strokeStyle='rgba(225,232,250,'+(.5*(1-fade)).toFixed(3)+')';ctx.setLineDash([3,4]);ctx.lineWidth=Math.max(1,H/400);ctx.beginPath();ctx.arc(x,my,R,0,7);ctx.stroke();ctx.restore();
+        /* the label sits on a dark pill on the side away from the Sun, so it reads on a bright sky (Tatum) */
+        if(o.detail&&fade<.5){var lf=Math.round(Math.max(9,H*.032)*.85),lt='lost in the Sun’s glare',tw,pd=lf*.55,lh=lf*1.6,lx,rt=sunx<x;ctx.save();ctx.font='400 '+lf+'px \"IBM Plex Mono\",monospace';tw=ctx.measureText(lt).width;
+          lx=rt?x+R+8:x-R-8-tw-2*pd;if(lx+tw+2*pd>W-4||lx<4)lx=rt?x-R-8-tw-2*pd:x+R+8;lx=Math.max(4,Math.min(W-4-tw-2*pd,lx));
+          ctx.globalAlpha=Math.min(1,(1-2*fade)*1.3);ctx.fillStyle='rgba(8,14,30,.66)';ctx.beginPath();if(ctx.roundRect)ctx.roundRect(lx,my-lh/2,tw+2*pd,lh,lh/2);else ctx.rect(lx,my-lh/2,tw+2*pd,lh);ctx.fill();
+          ctx.fillStyle='#e8eeff';ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText(lt,lx+pd,my+.5);ctx.restore();}
+        if(fade<.02)return;}
       var hg=ctx.createRadialGradient(x,my,R*.9,x,my,R*3.2);hg.addColorStop(0,'rgba(200,215,240,'+((.22*r.k*dark*dimE+.02)*fade).toFixed(4)+')');hg.addColorStop(1,'rgba(200,215,240,0)');
       /* the glow goes round the disc, not over it, so the bright highlands don't burn out to flat white */
       ctx.save();ctx.beginPath();ctx.rect(x-R*3.2,my-R*3.2,R*6.4,R*6.4);ctx.arc(x,my,R*.985,0,7);ctx.clip('evenodd');
