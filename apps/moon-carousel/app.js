@@ -51,6 +51,7 @@ function dayKey(p){return p.y*400+p.mo*32+p.d;}
 
 /* ---------- a procedural Moon map: albedo + relief, selenographic lat/lon (east +, the right side with north up) ---------- */
 var TW=1024,TH=512,TEX=null; /* 4 floats a texel: albedo, east slope, north slope, height (Moon radii) */
+var TNT=null; /* colour a texel, -1 blue (titanium-rich lava, fresh rays) to +1 orange (iron, volcanic glass); the highlands a warm grey */
 function ihash(x,y,z){var h=(Math.imul(x|0,374761393)+Math.imul(y|0,668265263)+Math.imul(z|0,1440662683))|0;h=Math.imul(h^(h>>>13),1274126177);h^=h>>>16;return (h>>>0)/4294967296;}
 function vnoise(x,y,z){var xi=Math.floor(x),yi=Math.floor(y),zi=Math.floor(z),xf=x-xi,yf=y-yi,zf=z-zi,
   u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf),w=zf*zf*(3-2*zf),
@@ -78,6 +79,9 @@ var MARIA=[
  [.62,'e', 13,86.5, 4,5], [.58,'e', 1.5,87.5, 5,6], [.62,'e', 57,81, 4,7], /* Marginis, Smythii, Humboldtianum */
  [.66,'e', -38,86, 3,5], [.66,'e', -45,95, 4,6], [.66,'e', -35,95, 3,4], [.68,'e', -47,80, 2.5,4], /* Australe, in patches */
  [.58,'e', -19,-93, 4,5], [.62,'e', -15,-85, 2.5,3.5], [.64,'e', -10,-83, 2,3]]; /* Orientale, Lacus Veris, Autumni */
+/* the seas' colours, as in stretched colour photos of the Moon: [lat, lon, radius in degrees, tint] (- blue, + orange-tan) */
+var MINS=[[8.5,31,10,-1],[28,17.5,7,.6],[15,-58,16,-.7],[-5,-40,10,-.5],[32,-28,9,-.6],[36,-10,7,.3],[56,0,15,.3],[17,59,7,.35],
+ [-8,51,8,.25],[13,3.6,4,.5],[26,-51,3.5,1],[-24,-39,6,-.2],[-20,-15,9,.15],[-15,35,5,.2],[-10,-22,5,-.3],[7,-25,7,-.3]];
 /* named craters: lat, lon, diameter km, kind (r = young with rays, d = lava floor, f = flat floor, o = old and worn, b = bright, p = central peak) */
 var CRATERS=[
  [-43.3,-11.2,85,'rp'],[9.6,-20.1,93,'rp'],[8.1,-38,32,'r'],[23.7,-47.4,40,'r'],[16.1,46.8,28,'r'],[73.4,-10.1,50,'r'],[61.8,50.3,31,'r'],[-32.5,54.2,74,'r'],
@@ -126,7 +130,7 @@ function blur(m,r){var t=new Float32Array(m.length),i,j,k,s0,s1,n=2*r+1,a,b;
     for(j=0;j<TH;j++){m[(j*TW+i)*2]=s0/n;m[(j*TW+i)*2+1]=s1/n;a=Math.min(TH-1,j+r+1);b=Math.max(0,j-r);s0+=t[(a*TW+i)*2]-t[(b*TW+i)*2];s1+=t[(a*TW+i)*2+1]-t[(b*TW+i)*2+1];}}}
 /* the bake is a list of short steps, so it can run in slices between frames */
 function texJob(){var S=[],T;
-  var A=new Float32Array(TW*TH),H=new Float32Array(TW*TH),MS=new Float32Array(TW*TH),sea,i,j,k,lat,lon,p,m,cov,dk,wx,wy,si,sj,e,hl,mr,seed=20260928;
+  var A=new Float32Array(TW*TH),H=new Float32Array(TW*TH),MS=new Float32Array(TW*TH),RY=new Float32Array(TW*TH),MN=null,sea,i,j,k,lat,lon,p,m,cov,dk,wx,wy,si,sj,e,hl,mr,seed=20260928;
   function rnd(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;}
   S.push(function(){sea=seaMask();});
   /* the smooth noise fields are baked at half size first, then read back blended */
@@ -192,8 +196,17 @@ function texJob(){var S=[],T;
     stamp(c[0],c[1],L,function(dd,k,la,lo){if(dd<r*1.05)return;var br=bearing(c[0],c[1],la,lo),sum=0,y,db,x,q;
       for(y=0;y<n;y++){q=rs[y];db=br-q[0];db-=Math.round(db/(2*Math.PI))*2*Math.PI;x=db*dd/(q[2]+dd*q[3]);
         if(x<3&&x>-3)sum+=q[4]*Math.exp(-x*x)*smooth(r*1.1,r*3.2,dd)*(1-smooth(q[1]*.3,q[1],dd));}
-      A[k]=Math.min(1.12,A[k]+s*(Math.min(1,sum)*(.45+.9*vnoise(dd*1.4,br*6,c[0]))+.5*smooth(r*3.5,r*1.2,dd)));});});
+      var ad=s*(Math.min(1,sum)*(.45+.9*vnoise(dd*1.4,br*6,c[0]))+.5*smooth(r*3.5,r*1.2,dd));A[k]=Math.min(1.12,A[k]+ad);RY[k]+=ad;});});
   stamp(7.5,-59,2.2,function(dd,k){A[k]=Math.min(1.05,A[k]+.14*smooth(2.2,.4,dd));}); });/* Reiner Gamma, the swirl */
+  /* colour: soft patches over the seas (worked out on a 2° grid, read back blended), mottled, and the fresh rays a little bluer */
+  S.push(function(){var CW=180,CH=90,CB=new Float32Array(CW*CH),ci,cj,q,sw,sv,x,y,x0,y0,fx,fy,b,MV=MINS.map(function(m){return vec(m[0],m[1]);});
+    for(cj=0;cj<CH;cj++)for(ci=0;ci<CW;ci++){q=vec(90-(cj+.5)/CH*180,(ci+.5)/CW*360-180);sw=.12;sv=0;
+      MINS.forEach(function(m,n){var d=angDist(q,MV[n]),g=Math.exp(-d*d/(m[2]*m[2]));sw+=g;sv+=g*m[3];});CB[cj*CW+ci]=sv/sw;}
+    MN=new Float32Array(TW*TH);
+    for(j=0;j<TH;j++){y=Math.max(0,Math.min(CH-1.001,(j+.5)/TH*CH-.5));y0=y|0;fy=y-y0;
+      for(i=0;i<TW;i++){k=j*TW+i;x=Math.max(0,Math.min(CW-1.001,(i+.5)/TW*CW-.5));x0=x|0;fx=x-x0;
+        b=(CB[y0*CW+x0]*(1-fx)+CB[y0*CW+x0+1]*fx)*(1-fy)+(CB[(y0+1)*CW+x0]*(1-fx)+CB[(y0+1)*CW+x0+1]*fx)*fy;
+        MN[k]=Math.max(-1,Math.min(1,MS[k]*(b+.5*(L(i,j,4)-.5))+(1-MS[k])*.12-Math.min(.5,RY[k]*2)));}}});
   /* slopes for the lighting */
   S.push(function(){T=new Float32Array(TW*TH*4);var dl=360/TW*D2R,dy2=2*180/TH*D2R,cl;
   for(j=0;j<TH;j++){lat=90-(j+.5)/TH*180;cl=Math.max(.08,Math.cos(lat*D2R));
@@ -201,7 +214,7 @@ function texJob(){var S=[],T;
       if(i<=I0||i>=I1||j===0||j===TH-1)continue;
       T[k*4+1]=(H[k+1]-H[k-1])/(2*dl*cl);T[k*4+2]=(H[k-TW]-H[k+TW])/dy2;}}
   });
-  return {S:S,T:function(){return T;}};}
+  return {S:S,T:function(){TNT=MN;return T;}};}
 function makeTex(){var t=performance.now(),j=texJob(),i;for(i=0;i<j.S.length;i++)j.S[i]();window.__bakeMs=Math.round(performance.now()-t);return j.T();}
 /* at page load: bake in slices so the page paints first, and the Moon develops a moment later */
 var texBusy=false;
@@ -303,7 +316,7 @@ var moonBuf=document.createElement('canvas'),RELIEF=3;
 function drawMoon(ctx,cx,cy,R,r,o){
   if(!TEX&&!texBusy)TEX=makeTex();
   var S=Math.ceil(R*2+4),c=moonBuf,g,img,px,x,y,u,v,d2,z,xn,yn,P0,P1,P2,la,lo,B,lit,es,aa,idx,dist,mu0,mr,cl,al,gx,gy,hh,tx,ty,x0,y0,fx,fy,xa,xb,r0,r1,w0,w1,w2,w3,
-      i0,i1,i2,i3,ee0,ee2,en0,en1,en2,se,sn,st,tanE,di,dj,sh,kk,ex,sx,sy,hk,mv,nn,kz,T=TEX,flat=!T,E=shadowOf(r),EC=[1,1,1];
+      i0,i1,i2,i3,ee0,ee2,en0,en1,en2,se,sn,st,tanE,di,dj,sh,kk,ex,sx,sy,hk,mv,nn,kz,T=TEX,flat=!T,E=shadowOf(r),EC=[1,1,1],MT=T&&TNT,mk=o.min==null?.08:o.min,mt,fr=1,fg=1,fb=1;
   c.width=S;c.height=S;g=c.getContext('2d');img=g.createImageData(S,S);px=img.data;
   var a=(r.axis-r.q)*D2R,b=(r.chi-r.q)*D2R,ii=r.i*D2R,ca=Math.cos(a),sa=Math.sin(a),
       Sx=-Math.sin(ii)*Math.sin(b),Sy=Math.sin(ii)*Math.cos(b),Sz=Math.cos(ii),
@@ -323,7 +336,8 @@ function drawMoon(ctx,cx,cy,R,r,o){
       if(flat)al=.74;else{tx=(lo+180)/360*TW-.5;ty=Math.max(0,Math.min(TH-1.001,(90-la)/180*TH-.5));x0=Math.floor(tx);y0=Math.floor(ty);fx=tx-x0;fy=ty-y0;
       xa=((x0%TW)+TW)%TW;xb=(xa+1)%TW;r0=y0*TW;r1=Math.min(TH-1,y0+1)*TW;
       w0=(1-fx)*(1-fy);w1=fx*(1-fy);w2=(1-fx)*fy;w3=fx*fy;i0=(r0+xa)*4;i1=(r0+xb)*4;i2=(r1+xa)*4;i3=(r1+xb)*4;
-      al=T[i0]*w0+T[i1]*w1+T[i2]*w2+T[i3]*w3;}
+      al=T[i0]*w0+T[i1]*w1+T[i2]*w2+T[i3]*w3;
+      if(MT&&mk){mt=(MT[i0>>2]*w0+MT[i1>>2]*w1+MT[i2>>2]*w2+MT[i3>>2]*w3)*mk;fr=1+mt*.8;fg=1+mt*.05;fb=Math.max(.25,1-mt*.9);}}
       mu0=u*Sx+v*Sy+z*Sz;mr=mu0;mv=z;hh=0;sh=1;
       if(K>0&&!flat&&mu0>-.12){kz=z<.3?K*smooth(0,.3,z):K;gx=(T[i0+1]*w0+T[i1+1]*w1+T[i2+1]*w2+T[i3+1]*w3)*kz;gy=(T[i0+2]*w0+T[i1+2]*w1+T[i2+2]*w2+T[i3+2]*w3)*kz;
         hh=(T[i0+3]*w0+T[i1+3]*w1+T[i2+3]*w2+T[i3+3]*w3)*kz;
@@ -341,9 +355,9 @@ function drawMoon(ctx,cx,cy,R,r,o){
       es=earth*(1-smooth(-.015,.035,mu0));B*=sh;
       idx=(y*S+x)*4;
       if(E)eclRGB(E,Math.sqrt((u-E.x)*(u-E.x)+(v-E.y)*(v-E.y)),EC);
-      px[idx]=Math.min(255,(al*B*lit*cr*gain*EC[0]+al*es*190));
-      px[idx+1]=Math.min(255,(al*B*lit*cg*gain*EC[1]+al*es*215));
-      px[idx+2]=Math.min(255,(al*B*lit*cb*gain*EC[2]+al*es*255));
+      px[idx]=Math.min(255,(al*B*lit*cr*gain*EC[0]*fr+al*es*190));
+      px[idx+1]=Math.min(255,(al*B*lit*cg*gain*EC[1]*fg+al*es*215));
+      px[idx+2]=Math.min(255,(al*B*lit*cb*gain*EC[2]*fb+al*es*255));
       px[idx+3]=255*aa;}}
   g.putImageData(img,0,0);
   ctx.save();ctx.globalAlpha=o.alpha==null?1:o.alpha;ctx.globalCompositeOperation='lighter';ctx.drawImage(c,cx-half,cy-half);ctx.restore();}
@@ -716,7 +730,7 @@ var NAMES=[
  ['l',3,44.12,-19.51,"Chang’e 3","Dec 2013","China’s first landing, with the little rover Yutu."],
  ['l',3,43.06,-51.92,"Chang’e 5","Dec 2020","Brought 1.7 kg of Moon rock back to Earth, the first new samples since 1976."],
  ['l',3,-69.37,32.32,"Chandrayaan-3","Aug 2023","India’s lander, the first to touch down near the Moon’s south pole."]];
-var cu={on:false,s:true,c:true,l:true,sel:-1,hov:-1,from:null,side:0},moonHit=null;
+var cu={on:false,s:true,c:true,l:true,m:false,sel:-1,hov:-1,from:null,side:0},moonHit=null;
 function moonAxes(r){var a=(r.axis-r.q)*D2R,b=(r.chi-r.q)*D2R,ii=r.i*D2R,lL=r.libL*D2R,lB=r.libB*D2R,
     zv=[Math.cos(lB)*Math.sin(lL),Math.sin(lB),Math.cos(lB)*Math.cos(lL)],xv=[Math.cos(lL),0,-Math.sin(lL)];
   return {ca:Math.cos(a),sa:Math.sin(a),xv:xv,zv:zv,yv:[zv[1]*xv[2]-zv[2]*xv[1],zv[2]*xv[0]-zv[0]*xv[2],zv[0]*xv[1]-zv[1]*xv[0]],
@@ -736,7 +750,7 @@ function cuDraw(){if(!cu.on||!frames.length)return;
   cu.side=side;cv.style.width=cv.style.height=side+'px';$('cuL').style.width=$('cuL').style.height=side+'px';
   if(cv.width!==N){cv.width=N;cv.height=N;}g=cv.getContext('2d');g.clearRect(0,0,N,N);
   if(!TEX&&!texBusy)TEX=makeTex();
-  drawMoon(g,N/2,N/2,Rc*k,r,{gain:1,earth:.09,tint:[1,1,1]});
+  drawMoon(g,N/2,N/2,Rc*k,r,{gain:1,earth:.09,tint:[1,1,1],min:cu.m?.4:.08});
   $('cuT').textContent=Astro.phaseName(r.elong);
   $('cuS').textContent=dt(p,true,true)+', '+tm(p)+' · '+st.place.name+' · '+Math.round(r.k*100)+'% lit';
   cuLabels(r,side,Rc);}
@@ -762,6 +776,7 @@ function cuLabels(r,side,Rc){
   if(refocus>=0){var nb=L.querySelector('[data-i="'+refocus+'"]');if(nb)nb.focus();}
   cuFact(r);}
 function cuFact(r){var i=cu.hov>=0?cu.hov:cu.sel,el=$('cuF'),n,q;
+  if(i<0&&cu.m){el.innerHTML='<b>Mineral Moon</b><i>colours stretched about five times</i><br>Blue lava is rich in titanium, orange-brown lava poorer in it, the pale highlands are old feldspar rock, and the orange patch by Aristarchus is volcanic glass.';return;}
   if(i<0){el.innerHTML='<span class="hint">'+(window.matchMedia&&matchMedia('(hover:hover)').matches?'Point at':'Tap')+' a name to read about it.</span>';return;}
   n=NAMES[i];q=onDisc(moonAxes((r||frames[st.slide].r)),n[2],n[3]);
   el.innerHTML='<b>'+esc(n[4])+'</b><i>'+esc(n[5])+'</i>'+(q.z<.1?'<em>around the edge now</em>':q.lit<0?'<em>night there now</em>':'')+'<br>'+esc(n[6]);}
@@ -771,6 +786,7 @@ function wireCu(){
   $('cuB').onclick=function(){openCu(this);};$('cuX').onclick=closeCu;
   $('cuP').onclick=function(){go(st.slide-1,true);};$('cuN').onclick=function(){go(st.slide+1,true);};
   ['s','c','l'].forEach(function(k){var b=$('cu_'+k);b.onclick=function(){cu[k]=!cu[k];this.setAttribute('aria-pressed',cu[k]);if(cu.sel>=0&&NAMES[cu.sel][0]===k&&!cu[k])cu.sel=-1;cuLabels(frames[st.slide].r,cu.side,cu.side*cuK(cu.side));};});
+  $('cu_m').onclick=function(){cu.m=!cu.m;this.setAttribute('aria-pressed',cu.m);cuDraw();};
   var L=$('cuL');
   L.onclick=function(e){var t=e.target.closest('.nm');if(!t)return;var i=+t.getAttribute('data-i');cu.sel=cu.sel===i?-1:i;cu.hov=-1;
     each('#cuL .nm',function(b){var on=+b.getAttribute('data-i')===cu.sel;b.classList.toggle('sel',on);b.setAttribute('aria-pressed',on);});cuFact();};
