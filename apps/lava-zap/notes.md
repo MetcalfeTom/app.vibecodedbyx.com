@@ -30,6 +30,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
   - adaptive resolution (`quality()`): 1.5 s windows of raw frame time; > 22 ms steps the pixel ratio down [dpr cap 1.75, 1.25, 1, 0.8, 0.6], < 12 ms steps back up but never to a level that was too slow. Probes set `window.__lzNoAdapt` (except `#adapt`).
   - vents whisper: whoosh only within about 13 m of the current, 0.07 max (Tatum: constant vent noise felt superfluous).
   - ghost of your best (local only for now): daily runs record x, z, yaw, pitch at 10 Hz plus every zap/push exactly (t, x, z, yaw, pitch, left); a new best is saved as `lz.ghost.<day>` ('g1;path;zaps;ms'). Next run a see-through cyan hunter (fresnel capsule, head, gun, floor glow, name sprite) replays it; its beams flash at its zaps, the HUD shows its bubbles left, a toast when it clears. Title chip toggles it (`lz.ghostMode`). Since today's lamp starts the same, its early beams go through the same pairs.
+- v1.4.1: arrow keys walk too (left/right strafe like A/D; Tatum). The ghost now keeps your fastest cleared run by time in the lamp, and the first recorded run fills in even when an older best (from before ghosts) is faster; the label says "your ghost".
 
 ## Issues
 - Never go back to an import map or three r186 here: see v1.0.1.
