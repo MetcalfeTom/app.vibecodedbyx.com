@@ -23,7 +23,7 @@
 - No delete/edit own messages (keeps UI simple)
 
 ## todos
-- Real OG image PNG (currently references og-image.png which may not exist)
+- (done 2026-09-29) og-image.png: the join screen over a roaring hearth
 - Typing indicators via presence
 - Reactions on messages
 - Message timestamps grouped by minute
