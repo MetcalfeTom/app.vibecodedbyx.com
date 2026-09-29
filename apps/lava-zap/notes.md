@@ -60,6 +60,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - v1.8.7 (2026-09-29): every lamp has its own glass. SHAPES[li] profiles (piecewise linear [y, r], base always 16 = FLOOR_R): Plum classic cone (unchanged), Lagoon round globe, Cola bottle, Absinthe hourglass (waist 10.5 at y 19-26), Tide tall tower. setShape() rebuilds glass, cap, lite cage and compass marks (glassGeo/capGeo/cageGeo/marksGeo). Title shows the shape word and an SVG outline (#tShape). #shapesim: 60 s of wax per shape, no blob past the glass, no NaN, heights spread. Dance map radius = max profile r.
 - v1.8.8 (2026-09-29): title line under the board: yesterday's lamp and its fastest clear (loadYesterday, one select on RUNS for YDAY, hidden when nobody played). Names go in as text nodes.
 - v1.8.9 (2026-09-29): mouse look under pointer lock splits each event into the mouse's own reports (getCoalescedEvents, used only when they add up to the event): a report many times bigger than its neighbours is a warp and is dropped, everything else goes through, so a slow browser's fat frame of movement is no longer thrown away (Tatum: tiny moves became giant spins, other moves vanished). Fallback without reports drops only a lone event over 30% of the screen. The pause card counts stalls (a frame 2.5x this browser's usual), not every frame over 34 ms (Tatum saw 917 hitches), plus mouse jumps ignored, and suggests raw mouse at 5+. Probe #mouse2.
+- v1.9.0 (2026-09-29): LIGHTS OUT, a third title button: today's lamp in the dark. The liquid drops to 20%, hemi 0.2, cap light off, glass/lid glow 12%, floor glow 60%; a SpotLight torch (added to the scene only in the dark, so the lit lamp never compiles it) follows the camera; bubbles get a uLit uniform (torch cone cos 0.87-0.955 out to 24-40 m, anything within 3.5-8 m, hot wax glows up to 0.3), eased per frame; lite rings use the same b.lit. CSS vignette body.dark.playing. Own best lz.dark.<date> on this device, no board, no ghost, share line says lights out; again replays it, the title restores the light and shows the dark best. Probes #dark #darkup #darklite #darkdone.
 
 ## Issues
 - Controls: any key that moves you must not also turn you (v1.6.4). Check `#arrows` yaw0 == yaw after touching key handling.
@@ -68,8 +69,9 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - The dark disc you see when looking straight up is the lamp's lid, not a rendering bug.
 
 ## Todos
-- Maybe a flow-map overlay for beginners.
-- Hard mode idea: refraction through bubbles.
+- Maybe a flow-map overlay for beginners (v1.8.5 vent arrows chip is a first step).
+- Hard mode idea: refraction through bubbles. (v1.9.0 lights out is the first expert mode.)
+- The voice's pitch (idea only): the hourglass lamp slowly turns over once per run.
 
 ## Probes
 Scratchpad `gaunt/lz3/p3.js`: `#pair` (stands where a line crosses eye height and fires), `#lone`, `#clear`, `#aim`, `#title`, `#og`, `#board` and `#carry` (with `stub.js`, an in-memory stand-in for the database client that replaces the UMD script in t3.html; tests never write to the real table).
