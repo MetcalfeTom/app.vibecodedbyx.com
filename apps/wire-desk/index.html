@@ -353,6 +353,20 @@
     letter-spacing:0.08em;
   }
   .btn-retract:hover{ background:rgba(168,36,20,0.08); }
+  /* the spike: readers take a community story off the wire */
+  .spike-row{ margin-top:1.5rem; padding-top:0.8rem; border-top:1px solid var(--rule); display:flex; flex-wrap:wrap; align-items:center; gap:0.4rem 0.9rem; }
+  .btn-spike{
+    font-size:0.8rem;
+    min-height:2.75rem;
+    padding:0.3rem 1rem;
+    background:transparent;
+    color:var(--dim);
+    border:1px dashed var(--rule-dark);
+    letter-spacing:0.08em;
+  }
+  .btn-spike:hover, .btn-spike:focus-visible{ color:var(--red); border-color:var(--red); }
+  .spike-note{ font-size:0.7rem; color:var(--dim); margin:0; }
+  .spiked-note{ margin-top:0.8rem; font-size:0.75rem; color:var(--red); letter-spacing:0.06em; }
   .btn-back{
     display:none;
     font-size:0.85rem;
@@ -581,6 +595,21 @@ let activeId = null;
 let query = '';
 let srcFilter = 'ALL';
 
+/* spikes: a reader spikes a community story and it's gone for them at once;
+   SPIKE_AT spikes from readers other than its author take it off the wire for everyone */
+const SPIKES = 'wire_desk_spikes';
+const SPIKE_AT = 2;
+const spikes = new Map();     /* story id -> Set of user ids */
+const mySpikes = new Set();
+function addSpike(id, u){
+  if(!spikes.has(id)) spikes.set(id, new Set());
+  spikes.get(id).add(u);
+  if(uid && u === uid) mySpikes.add(id);
+}
+function spikesOn(a){ let n = 0; const set = spikes.get(a.id); if(set) for(const u of set) if(u !== a.user_id) n++; return n; }
+function isSpiked(a){ return a.kind !== 'feed' && !(uid && a.user_id === uid) && (mySpikes.has(a.id) || spikesOn(a) >= SPIKE_AT); }
+let spikeMsgT = 0;
+
 /* priority rail: NZ desks first, then the global majors, then the community */
 const SOURCES = ['ALL', 'NZ Herald', 'RNZ', 'Stuff', 'BBC', 'Reuters', 'Al Jazeera', 'COMMUNITY'];
 
@@ -673,7 +702,7 @@ function matchesFilter(a){
 function renderFeed(){
   feedList.textContent = '';
   const q = query.toLowerCase();
-  let rows = articles.filter(matchesFilter);
+  let rows = articles.filter(a => !isSpiked(a) && matchesFilter(a));
   if(q) rows = rows.filter(a => (a.headline||'').toLowerCase().includes(q) || (a.source||'').toLowerCase().includes(q));
   if(!rows.length){
     const li = document.createElement('li');
@@ -726,7 +755,7 @@ function openStory(id){
   const a = articles.find(x => x.id === id);
   renderFeed();
   storyScroll.textContent = '';
-  if(!a){ renderEmptyStory(); return; }
+  if(!a || isSpiked(a)){ activeId = null; renderEmptyStory(); return; }
 
   const art = document.createElement('article');
   art.className = 'story';
@@ -833,11 +862,44 @@ function openStory(id){
       if(mobile()) storyPane.classList.remove('open');
     });
     art.appendChild(retract);
+    if(spikesOn(a) >= SPIKE_AT){
+      const sn = document.createElement('p');
+      sn.className = 'spiked-note';
+      sn.textContent = 'spiked by readers: only you can see this story now.';
+      art.appendChild(sn);
+    }
+  }
+
+  if(a.kind !== 'feed' && !(uid && a.user_id === uid)){
+    const row = document.createElement('div');
+    row.className = 'spike-row';
+    const spike = document.createElement('button');
+    spike.type = 'button';
+    spike.className = 'btn-spike';
+    spike.textContent = 'spike this story';
+    const note = document.createElement('p');
+    note.className = 'spike-note';
+    const n = spikesOn(a);
+    note.textContent = 'gone for you at once; off the wire for everyone after ' + SPIKE_AT + ' spikes' + (n ? ' (' + n + ' so far)' : '') + '.';
+    spike.addEventListener('click', () => spikeStory(a));
+    row.append(spike, note);
+    art.appendChild(row);
   }
 
   storyScroll.appendChild(art);
   if(mobile()){ storyPane.classList.add('open'); $('btnBack').focus(); }
   else storyScroll.scrollTop = 0;
+}
+async function spikeStory(a){
+  if(!uid){ setStatus('err', 'no session: reload the page to spike'); return; }
+  addSpike(a.id, uid);
+  activeId = null;
+  renderFeed(); renderEmptyStory();
+  if(mobile()) storyPane.classList.remove('open');
+  const { error } = await supabase.from(SPIKES).insert({ user_id: uid, story_id: a.id });
+  setStatus(error ? 'err' : 'live', error ? 'the spike bent: hidden for you until you reload' : 'spiked. ' + SPIKE_AT + ' spikes take a story off the wire');
+  clearTimeout(spikeMsgT);
+  spikeMsgT = setTimeout(() => setStatus('live', articles.length + ' on the wire'), 5000);
 }
 function renderEmptyStory(){
   storyScroll.textContent = '';
@@ -877,6 +939,10 @@ async function load(){
   }
   loadTries = 0;
   articles = data || [];
+  /* the spikes: if they can't load, every story just stays up */
+  const sp = await supabase.from(SPIKES).select('story_id, user_id').limit(5000);
+  if(sp.error) console.warn('spikes unavailable', sp.error);
+  else { spikes.clear(); mySpikes.clear(); for(const r of sp.data || []) addSpike(r.story_id, r.user_id); }
   setStatus('live', articles.length + ' on the wire');
   renderFeed();
   if(activeId == null) renderEmptyStory();
@@ -897,6 +963,17 @@ function subscribe(){
       articles = articles.filter(a => a.id !== gone);
       if(activeId === gone){ activeId = null; renderEmptyStory(); }
       setStatus('live', articles.length + ' on the wire');
+      renderFeed();
+    })
+    .subscribe();
+  /* spikes on their own channel so a missing table can't take the wire down with it */
+  supabase.channel('wire-desk-spikes')
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:SPIKES }, payload => {
+      const r = payload.new;
+      if(!r || r.story_id == null) return;
+      addSpike(r.story_id, r.user_id);
+      const a = articles.find(x => x.id === activeId);
+      if(a && isSpiked(a)){ activeId = null; renderEmptyStory(); }
       renderFeed();
     })
     .subscribe();
@@ -1011,6 +1088,7 @@ load().then(subscribe);
       new Promise((_, rej) => setTimeout(() => rej(new Error('auth timeout')), 8000)),
     ]);
     uid = session && session.user ? session.user.id : null;
+    if(uid){ for(const [id, set] of spikes) if(set.has(uid)) mySpikes.add(id); if(articles.length) renderFeed(); }
     if(uid && activeId != null) openStory(activeId);  /* reveal retract on own story */
   }catch(e){ /* anonymous reading is fine; compose will say "no session" */ }
 })();
