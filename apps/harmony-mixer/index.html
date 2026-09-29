@@ -354,6 +354,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 .cstatus:empty{ display:none; }
 .cstatus.busy{ color:var(--amber); animation:pulse 1.4s ease-in-out infinite; }
 .cstatus.err{ color:var(--red); }
+.ckeep{ color:#e0b64f; font-size:.66rem; letter-spacing:.04em; line-height:1.45; margin:0; }
 
 .next{ display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.8rem; align-items:center; background:var(--panel2); border-radius:.6rem; padding:.55rem .7rem; border-left:.25rem solid var(--dim); }
 .next.has{ border-left-color:var(--nk, var(--amber)); }
@@ -372,6 +373,9 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 .row.top{ border-left-color:var(--rk, var(--amber)); }
 .row.loaded{ opacity:.55; }
 .row.pending .badge{ color:var(--mute); }
+.row.missing .cname{ opacity:.62; }
+.cmeta .miss{ color:#e0b64f; }
+.row.missing .btn.to{ opacity:.35; cursor:not-allowed; }
 .row .badge{ min-width:3.2rem; font-size:1rem; }
 .row .badge.has{ color:#0e0f12; }
 .cmain{ min-width:0; display:flex; flex-direction:column; gap:.1rem; }
@@ -515,6 +519,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
       </div>
     </div>
     <p class="cstatus" id="cstatus" role="status" aria-live="polite"></p>
+    <p class="ckeep" id="ckeep" role="status" aria-live="polite" hidden></p>
     <div class="next" id="cnext" hidden>
       <span class="lbl" id="cnextLbl">next up</span>
       <span class="ntext"><span class="nname" id="cnextName"></span><span class="nwhy" id="cnextWhy"></span></span>
@@ -571,7 +576,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.39 · 2026-09-29 · eefef18d3</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.40 · 2026-09-29 · pending</span>
 </footer>
 
 <script id="dsp">
@@ -3174,10 +3179,13 @@ function filesFromEntries(entries){
 var batchN = 0, batchDone = 0, batchNote = '', skipNote = '', playSel = '', plSig = '';
 
 function importFiles(list, fromFolder){
-  var files = Array.prototype.slice.call(list || []), added = 0, dups = 0, bad = 0, filed = 0;
+  var files = Array.prototype.slice.call(list || []), added = 0, dups = 0, bad = 0, filed = 0, back = 0;
   files.forEach(function(f){
     if (!isAudio(f)){ bad++; return; }
     var rp = relOf(f), dup = dupOf(f);
+    if (dup && dup.missing){                                   /* v4.40: remembered without audio: the file brings it back */
+      reattach(dup, f); if (rp && !dup.relPath){ dup.relPath = rp; dup.folder = dirOf(rp); } persist(dup); back++; return;
+    }
     if (dup){
       dups++;
       if (rp && !dup.relPath){ dup.relPath = rp; dup.folder = dirOf(rp); persist(dup); filed++; }
@@ -3188,15 +3196,87 @@ function importFiles(list, fromFolder){
   });
   batchN += added;
   var msg = [];
+  if (back) msg.push(back + (back === 1 ? ' track' : ' tracks') + ' back from memory — bpm, key + grid kept, no re-scan');
   if (added) msg.push(added + ' added' + (fromFolder ? ' from the folder' : ''));
   if (dups) msg.push(dups + ' already in the crate — skipped' + (filed ? ' (' + filed + ' filed into playlists)' : ''));
   if (bad) msg.push(bad + " skipped — not audio (mp3, wav, flac + friends)");
   if (added){ batchNote = msg.join(' · '); if (dups || bad){ var sn = msg.slice(1).join(' · '); skipNote = skipNote ? skipNote + ' · ' + sn : sn; } }
-  if (msg.length) status(msg.join(' · '), bad && !added ? 'err' : '');
+  if (msg.length) status(msg.join(' · '), bad && !added && !back ? 'err' : '');
+  if (back) keepNote();
   render(); pump();
   return added;
 }
-function persist(rec){ if (!storageOk) return Promise.resolve(); return dbPut(rec).catch(function(e){ storageOk = false; storageErr = errInfo(e, rec); status("browser storage refused a save (" + storageErr.name + ") — the crate won't survive a reload · open Storage check below", 'err'); }); }
+function reattach(r, f){ r.blob = f; r.missing = false; r.aud = null; r._noKeep = false; if (!r.done && queue.indexOf(r) < 0) queue.push(r); }
+/* v4.40: the AUDIO lives in its own database (harmony-audio-v1), saved ONCE per song; the crate record (bpm, key, grid,
+   cues, playlists) is small and saved on every change. Saves go ONE AT A TIME (a folder import used to start a
+   whole-song save per file all at once). When the browser won't keep a song's audio (usually: out of room) the
+   record is kept anyway: next visit that track says "add the file again", and importing the same file (name + size)
+   brings it straight back, no re-scan. Only when even a small record can't be saved does the crate stop saving.
+   rec.aud: 'sep' = audio in harmony-audio-v1 · 'in' = an older record holding its audio inline · null = not kept. */
+var saveQ = [], saving = false, audioFull = false, audioFails = 0, audioErr = null, ADB = 'harmony-audio-v1', adbp = null;
+function adb(){
+  if (adbp) return adbp;
+  adbp = new Promise(function(res, rej){
+    try{
+      var r = indexedDB.open(ADB, 1);
+      r.onupgradeneeded = function(){ var d = r.result; if (!d.objectStoreNames.contains('a')) d.createObjectStore('a'); };
+      r.onsuccess = function(){ res(r.result); }; r.onerror = function(){ rej(r.error || new Error('indexedDB blocked')); };
+      r.onblocked = function(){ rej(new Error('indexedDB blocked')); };
+    }catch(e){ rej(e); }
+  });
+  return adbp;
+}
+function atx(mode, fn){
+  return adb().then(function(d){
+    return new Promise(function(res, rej){
+      var t = d.transaction('a', mode), out = fn(t.objectStore('a'));
+      t.oncomplete = function(){ res(out); }; t.onerror = function(){ rej(t.error); }; t.onabort = function(){ rej(t.error || new Error('aborted')); };
+    });
+  });
+}
+function audioAll(){ return atx('readonly', function(s){ return { k: s.getAllKeys(), v: s.getAll() }; }).then(function(o){ var m = {}; o.k.result.forEach(function(k, i){ m[k] = o.v.result[i]; }); return m; }); }
+function kept(r){ return r.aud === 'sep' || r.aud === 'in'; }
+function metaOf(rec){ var o = {}; for (var k in rec) if (k !== 'blob' && k !== 'missing' && k.charAt(0) !== '_') o[k] = rec[k]; o.blob = null; o.aud = rec.aud === 'sep' ? 'sep' : null; return o; }
+function isQuota(e){ return !!e && (/quota/i.test(e.name || '') || /quota|no space|disk is full|not enough space/i.test(String(e.message || ''))); }
+function persist(rec){
+  if (!storageOk || !rec || !rec.id) return Promise.resolve();
+  return new Promise(function(res){
+    for (var i = 0; i < saveQ.length; i++) if (saveQ[i].rec === rec){ saveQ[i].done.push(res); return; }   /* already waiting: it saves its newest state */
+    saveQ.push({ rec: rec, done: [res] }); saveNext();
+  });
+}
+function saveNext(){
+  if (saving) return; var job = saveQ.shift(); if (!job) return;
+  saving = true;
+  var fin = function(){ saving = false; job.done.forEach(function(f){ try{ f(); }catch(e){} }); saveNext(); };
+  if (job.del){ dbDel(job.del).then(function(){ return atx('readwrite', function(s){ s.delete(job.del); }); }).then(fin, fin); return; }
+  var rec = job.rec;
+  if (!storageOk || !byId[rec.id]){ fin(); return; }                 /* removed while it waited */
+  var legacy = rec.aud === 'in' && rec.blob, want = !!rec.blob && rec.aud !== 'sep' && !rec._noKeep && !audioFull;
+  var blocked = function(e2, e){ storageOk = false; storageErr = errInfo(e2 || e, rec); saveQ = [];
+    status("browser storage refused a save (" + storageErr.name + ") — the crate won't survive a reload · open Storage check below", 'err'); keepNote(); fin(); };
+  var failed = function(e){ audioFails++; audioErr = errInfo(e, rec); if (isQuota(e)) audioFull = true; };
+  (want ? atx('readwrite', function(s){ s.put(rec.blob, rec.id); }) : Promise.reject(null)).then(function(){
+    rec.aud = 'sep';
+    return dbPut(metaOf(rec)).then(function(){ fin(); }, function(e2){ atx('readwrite', function(s){ s.delete(rec.id); }).catch(function(){}); rec.aud = legacy ? 'in' : null; blocked(e2); });
+  }, function(e){
+    if (e) failed(e);
+    if (legacy) return dbPut(rec).then(function(){ fin(); }, function(e3){ if (!audioErr) failed(e3); keepNote(); fin(); });   /* an older record: its audio stays inline */
+    if (rec.blob && rec.aud !== 'sep') rec._noKeep = true;                      /* this song's audio isn't kept (this visit) */
+    return dbPut(metaOf(rec)).then(function(){ if (rec._noKeep) keepNote(); fin(); }, function(e2){ blocked(e2, e); });
+  });
+}
+function unkept(){ var n = 0; crate.forEach(function(r){ if (r.blob && !kept(r) && r._noKeep) n++; }); return n; }
+function keepNote(){
+  var el = document.getElementById('ckeep'); if (!el) return;
+  var miss = 0; crate.forEach(function(r){ if (r.missing) miss++; });
+  var n = unkept(), t = '';
+  if (!storageOk) t = '';
+  else if (n) t = (audioFull ? 'Browser storage is full' : 'The browser wouldn\'t keep some audio (' + (audioErr ? audioErr.name : 'error') + ')') + ': ' + n + (n === 1 ? ' song plays now but its audio won\'t be kept' : ' songs play now but their audio won\'t be kept') +
+    '. Their bpm, key and grid are kept, so next visit add the same folder again and they come straight back, no re-scan.';
+  else if (miss) t = miss + (miss === 1 ? ' track is' : ' tracks are') + ' remembered without audio (bpm, key and grid kept): add the same files or folder again and they come straight back.';
+  el.textContent = t; el.hidden = !t;
+}
 function pump(){
   if (pumping) return; var rec = queue.shift();
   if (!rec){
@@ -3204,7 +3284,7 @@ function pump(){
     else if (crate.length && els.status.className.indexOf('busy') >= 0) status('');
     batchN = batchDone = 0; batchNote = ''; skipNote = ''; return;
   }
-  if (!byId[rec.id]){ pump(); return; }
+  if (!byId[rec.id] || !rec.blob){ pump(); return; }
   pumping = true; rec.state = 'decoding'; render();
   status((batchNote ? batchNote + ' — ' : '') + 'reading ' + rec.name + '…' + (batchN > 1 ? ' (' + Math.min(batchDone + 1, batchN) + ' of ' + batchN + ')' : queue.length ? ' (' + queue.length + ' more queued)' : ''), 'busy');
   readBlob(rec.blob).then(decode).then(function(buf){
@@ -3227,7 +3307,7 @@ function pump(){
 function oneStale(r){ return !!(r && r.done && r.grid && r.grid.bpm > 0 && r.grid.dbv !== 2 && !r.grid.dbUser); }
 function recheckOnes(){
   var n = 0;
-  crate.forEach(function(r){ if (oneStale(r) && !r._dbRefresh && queue.indexOf(r) < 0){ r._dbRefresh = true; queue.push(r); n++; } });
+  crate.forEach(function(r){ if (oneStale(r) && r.blob && !r._dbRefresh && queue.indexOf(r) < 0){ r._dbRefresh = true; queue.push(r); n++; } });
   if (n){ batchNote = 'finding the 1 again (' + n + (n === 1 ? ' track' : ' tracks') + ')'; pump(); }
   return n;
 }
@@ -3242,7 +3322,8 @@ function remove(rec){
   if (!byId[rec.id]) return;
   delete byId[rec.id]; crate.splice(crate.indexOf(rec), 1);
   ['A', 'B'].forEach(function(L){ if (decks[L]._crateId === rec.id) decks[L]._crateId = null; });
-  if (storageOk) dbDel(rec.id).catch(function(){});
+  if (storageOk){ saveQ = saveQ.filter(function(j){ return j.rec !== rec; }); saveQ.push({ del: rec.id, done: [] }); saveNext(); }
+  keepNote();
   status('removed ' + rec.name); render();
 }
 function setMeta(rec, bpm, camStr){
@@ -3288,6 +3369,7 @@ DeckP.setBuffer = function(buf, name){
       else if (d.bpm || d.key){ rec.bpm = rec.bpm || d.bpm; rec.key = rec.key || d.key; rec.grid = rec.grid || d.grid || null; rec.done = true; persist(rec); }
     } else if (d._file && isAudio(d._file)){
       var f = d._file, dup = dupOf(f);
+      if (dup && dup.missing){ reattach(dup, f); persist(dup); keepNote(); }
       if (dup){ d._crateId = dup.id; if (!dup.bpm && d.bpm){ dup.bpm = d.bpm; dup.key = dup.key || d.key; dup.grid = dup.grid || d.grid || null; persist(dup); } }
       else {
         var nr = { id: uid(), name: d.name, fileName: f.name, size: f.size, type: f.type || '', blob: f, added: stamp(), dur: buf.duration, bpm: d.bpm, key: d.key, grid: d.grid || null, done: true, manual: false };
@@ -3360,6 +3442,7 @@ function render(){
     var it = R.items[i];
     if (it.isRef || it.on || !it.s || !it.s.mixable) continue;
     if (it.r.dupOf && byId[it.r.dupOf]) continue;        /* a content duplicate never gets suggested */
+    if (it.r.missing) continue;                          /* no audio here yet */
     if (PLAYED[it.r.id]){ playedMixable++; continue; }   /* played tonight — suggestions move on */
     best = it; break;
   }
@@ -3384,12 +3467,13 @@ function render(){
   /* rows */
   var html = R.items.map(function(it, idx){
     var r = it.r, s = it.s, col = keyColor(r.key), cls = 'row';
-    if (it.on) cls += ' loaded'; if (!r.done) cls += ' pending'; if (editing === r.id) cls += ' edit';
+    if (it.on) cls += ' loaded'; if (!r.done) cls += ' pending'; if (r.missing) cls += ' missing'; if (editing === r.id) cls += ' edit';
     if (R.mode === 'match' && s && s.mixable && !it.isRef && !it.on && idx < 3) cls += ' top';
     var meta = [];
     if (it.isRef) meta.push('<span class="on">on ' + it.on + ' · reference</span>'); else if (it.on) meta.push('<span class="on">on ' + it.on + '</span>');
     meta.push(r.bpm ? r.bpm.toFixed(1) + ' bpm' : (r.state ? r.state + '…' : r.err ? '<span class="rel ok0">' + esc(r.err) + '</span>' : r.done ? 'bpm —' : 'queued'));
     if (r.dur) meta.push(fmtTime(r.dur));
+    if (r.missing) meta.push('<span class="miss" title="The browser didn\'t keep this song\'s audio. Add the same file or folder again: bpm, key and grid come straight back.">audio not kept · add the file again</span>');
     if (r.folder) meta.push('<span class="fold" title="' + esc(r.relPath || '') + '">▸ ' + esc(r.folder) + '</span>');
     if (r.key && r.key.conf < 0.25 && !r.manual) meta.push('key ?');
     if (r.manual) meta.push('edited');
@@ -3403,8 +3487,8 @@ function render(){
       : '<span class="cname" title="' + esc(r.relPath || r.fileName) + '">' + esc(r.name) + '</span><span class="cmeta">' + meta.join(' · ') + '</span>';
     var acts = editing === r.id
       ? '<button type="button" class="btn save" data-id="' + r.id + '">save</button><button type="button" class="btn cancel" data-id="' + r.id + '">cancel</button>'
-      : '<button type="button" class="btn to" data-id="' + r.id + '" data-deck="A" aria-label="Load ' + esc(r.name) + ' into deck A"' + (it.on === 'A' ? ' disabled' : '') + '>→A</button>' +
-        '<button type="button" class="btn to" data-id="' + r.id + '" data-deck="B" aria-label="Load ' + esc(r.name) + ' into deck B"' + (it.on === 'B' ? ' disabled' : '') + '>→B</button>' +
+      : '<button type="button" class="btn to" data-id="' + r.id + '" data-deck="A" aria-label="Load ' + esc(r.name) + ' into deck A"' + (it.on === 'A' || r.missing ? ' disabled' : '') + '>→A</button>' +
+        '<button type="button" class="btn to" data-id="' + r.id + '" data-deck="B" aria-label="Load ' + esc(r.name) + ' into deck B"' + (it.on === 'B' || r.missing ? ' disabled' : '') + '>→B</button>' +
         '<button type="button" class="btn sl" data-id="' + r.id + '" aria-label="Add ' + esc(r.name) + ' to the setlist" title="Add to the setlist (never touches the decks)">+ set</button>' +
         '<button type="button" class="btn ed" data-id="' + r.id + '" aria-label="Edit BPM and key of ' + esc(r.name) + '" title="Edit bpm / key">✎</button>' +
         '<button type="button" class="btn x" data-id="' + r.id + '" aria-label="Remove ' + esc(r.name) + ' from the crate"' + (armed === r.id ? ' data-arm="1" title="Click again to remove"' : ' title="Remove"') + '>' + (armed === r.id ? 'sure?' : '×') + '</button>';
@@ -3475,8 +3559,11 @@ document.body.appendChild(dl);
 /* ── boot: restore the crate, resume anything that never finished analysing ── */
 ready = dbAll().then(function(rows){
   rows.sort(function(a, b){ return a.added - b.added; });
-  rows.forEach(function(r){ if (!r || !r.id || !r.blob) return; r.state = null; r._dbRefresh = false; if (r.added > lastAdded) lastAdded = r.added; crate.push(r); byId[r.id] = r; if (!r.done) queue.push(r); });
-  render(); pump(); recheckOnes();
+  var sep = rows.some(function(r){ return r && r.aud === 'sep' && !r.blob; });
+  return (sep ? audioAll().catch(function(e){ audioErr = errInfo(e, null); return {}; }) : Promise.resolve({})).then(function(A){
+  rows.forEach(function(r){ if (!r || !r.id) return; if (r.blob) r.aud = 'in'; else if (r.aud === 'sep' && A[r.id]) r.blob = A[r.id]; else r.aud = null;
+    r.missing = !r.blob; r.state = null; r._dbRefresh = false; if (r.added > lastAdded) lastAdded = r.added; crate.push(r); byId[r.id] = r; if (!r.done && !r.missing) queue.push(r); });
+  render(); pump(); recheckOnes(); keepNote(); });
 }, function(e){ storageOk = false; storageErr = errInfo(e, null); status("browser storage is blocked (" + storageErr.name + ") — imports work but won't survive a reload · open Storage check below", 'err'); render(); });
 
 window.__C = { recheckOnes: recheckOnes, oneStale: oneStale, crate: crate, byId: byId, persist: persist, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck, played: function(){ return PLAYED; }, resetPlayed: playedReset, playedReload: function(){ playedLoad(); render(); }, PLAYED_KEY: PLAYED_KEY, SL: function(){ return SL; }, slAdd: slAdd, renderSetlist: renderSetlist, SLS: function(){ return SLS; }, passed: function(){ return PASSED; }, slAddAuto: slAddAuto, slDropAuto: slDropAuto, scoreFor: scoreFor, slsReload: slsReload, slSaveAs: slSaveAs, slLoadSaved: slLoadSaved, slClear: slClear, slDeleteSaved: slDeleteSaved, slExportJSON: slExportJSON, slImportText: slImportText, slResolve: slResolve, slArmState: function(){ return SL_ARM.key; }, slReload: function(){ try{ var sv2 = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv2 && Array.isArray(sv2.ids)) SL = { ids: sv2.ids, at: (typeof sv2.at === 'number' ? sv2.at : null), auto: Array.isArray(sv2.auto) ? sv2.auto : [] }; }catch(e){} renderSetlist(); },
@@ -3484,7 +3571,7 @@ window.__C = { recheckOnes: recheckOnes, oneStale: oneStale, crate: crate, byId:
   playlists: playlists, inPlaylist: inPlaylist, relOf: relOf, dirOf: dirOf, filesFromEntries: filesFromEntries,
   get playSel(){ return playSel; }, set playSel(v){ playSel = v; render(); }, get batch(){ return { n: batchN, done: batchDone }; },
   get queue(){ return queue; }, get pumping(){ return pumping; }, get storageOk(){ return storageOk; },
-  get storageErr(){ return storageErr; }, savedKeys: function(){ return tx('readonly', function(s){ return s.getAllKeys(); }); } };
+  get storageErr(){ return storageErr; }, keepInfo: function(){ var m = 0; crate.forEach(function(r){ if (r.missing) m++; }); return { full: audioFull, fails: audioFails, err: audioErr, unkept: unkept(), missing: m, queued: saveQ.length + (saving ? 1 : 0) }; }, keepNote: keepNote, savedKeys: function(){ return tx('readonly', function(s){ return s.getAllKeys(); }); } };
 })();
 </script>
 <script id="adj">
@@ -5032,8 +5119,12 @@ function tests(){
   out.push(Promise.resolve().then(function(){ R.cookie = { k: navigator.cookieEnabled ? 'ok' : 'bad', n: 'site data', v: navigator.cookieEnabled ? 'allowed · ' + esc(browser()) : 'cookies are blocked, which usually blocks all site storage too · ' + esc(browser()) }; }));
   out.push((C && C.savedKeys && C.storageOk ? C.savedKeys() : Promise.resolve(null)).then(function(keys){
       var n = C ? C.crate.length : 0, sz = 0, E = C && C.storageErr; if (C) C.crate.forEach(function(r){ sz += r.blob && r.blob.size || 0; });
-      var saved = keys ? keys.length : null;
-      if (E) R.crate = { k: 'bad', n: 'crate saves', v: 'a save failed · ' + esc(E.name) + (E.msg ? ': ' + esc(E.msg) : ''), e: E,
+      var saved = keys ? keys.length : null, K = C && C.keepInfo ? C.keepInfo() : null, NA = K ? K.unkept + K.missing : 0;
+      if (!E && K && K.err) R.crate = { k: 'warn', n: 'crate saves', v: 'audio not kept for ' + NA + ' of ' + n + ' tracks · ' + esc(K.err.name) + (K.err.msg ? ': ' + esc(K.err.msg) : ''), e: K.err, na: NA,
+        sm: (K.err.track ? 'first while saving ' + esc(K.err.track) + (K.err.size ? ' (' + mb(K.err.size) + ')' : '') + ', ' : '') + when(K.err.at) + '. Their bpm, key and grid are still saved: add the same folder again next visit and they come straight back.' };
+      else if (!E && K && K.missing) R.crate = { k: 'warn', n: 'crate saves', v: K.missing + ' of ' + n + ' tracks remembered without audio · ' + mb(sz) + ' of audio kept', na: NA,
+        sm: 'The browser didn\'t keep their audio last time. Add the same files or folder again and they come straight back.' };
+      else if (E) R.crate = { k: 'bad', n: 'crate saves', v: 'a save failed · ' + esc(E.name) + (E.msg ? ': ' + esc(E.msg) : ''), e: E,
         sm: (E.track ? 'while saving ' + esc(E.track) + (E.size ? ' (' + mb(E.size) + ')' : '') + ', ' : '') + when(E.at) + '. ' + n + ' tracks in the crate now (' + mb(sz) + ' of audio). After a failed save the crate stops saving until the next visit.' };
       else R.crate = { k: saved !== null && saved < n ? 'warn' : 'ok', n: 'crate saves', v: n ? (saved === null ? n : saved + ' of ' + n) + ' tracks saved · ' + mb(sz) + ' of audio' : 'no tracks yet', sm: n ? '' : 'Import a few songs, then run this again.' }; },
     function(e){ R.crate = { k: 'bad', n: 'crate saves', v: 'couldn\'t count · ' + esc(en(e)) }; }));
@@ -5041,7 +5132,8 @@ function tests(){
 }
 function verdictOf(){ var E = R.crate && R.crate.e, q = R.quota && R.quota.q, free = q ? q.quota - q.usage : null;
   if (R.idb && R.idb.k === 'bad') return ['bad', 'This browser won\'t let Harmony store songs at this address, so the crate can\'t survive a reload. Usual causes: a private window, "block site data" in the browser\'s privacy settings, or a privacy extension.'];
-  if ((E && /quota/i.test(E.name + ' ' + E.msg)) || (big && big.k === 'bad' && /quota/i.test(big.v))) return ['bad', 'Out of room: the browser refused to store more songs (' + (E ? esc(E.name) : 'quota') + ').' + (q ? ' It gives this site ' + mb(q.quota) + ' and ' + mb(free) + ' is left.' : '') + ' The browser sizes this from the disk\'s free space, so free up disk space, or keep a smaller crate.'];
+  if ((E && /quota/i.test(E.name + ' ' + E.msg)) || (big && big.k === 'bad' && /quota/i.test(big.v))) return ['bad', 'Out of room: the browser refused to store more songs (' + (E ? esc(E.name) : 'quota') + ').' + (q ? ' It gives this site ' + mb(q.quota) + ' and ' + mb(free) + ' is left.' : '') + ' The browser sizes this from the disk\'s free space, so free up disk space, or keep a smaller crate.' + (R.crate && R.crate.k === 'warn' ? ' Harmony still keeps every song\'s bpm, key and grid: add the same folder again next visit and they come straight back, no re-scan.' : '')];
+  if (E && R.crate.k === 'warn' && !/DataClone/i.test(E.name)) return ['warn', 'The browser wouldn\'t keep the audio of some songs (' + esc(E.name) + '). Harmony still keeps their bpm, key and grid: add the same folder again next visit and they come straight back. Copy the line below into chat so Sloppy can see it.'];
   if (E && /DataClone/i.test(E.name)) return ['bad', 'Harmony tried to save something the browser can\'t store (' + esc(E.name) + '). That one\'s my bug, not your browser: tell Sloppy the line below.'];
   if (E) return ['bad', 'A crate save failed with ' + esc(E.name) + '. Harmony stops saving after that until the next visit. Copy the line below into chat so Sloppy can see it.'];
   if (big && big.k === 'bad') return ['bad', 'The 25 MB test save failed: ' + big.v + '. Songs that size won\'t be kept.'];
@@ -5054,6 +5146,7 @@ function chatLine(){ var q = R.quota && R.quota.q, E = R.crate && R.crate.e, C =
   if (q) bits.push('free ' + mb(q.quota - q.usage) + '/' + mb(q.quota));
   bits.push('kept ' + (R.keep && R.keep.k === 'ok' ? 'yes' : 'no'));
   if (C) bits.push('crate ' + C.crate.length); if (V) bits.push('visits ' + V.n + '/' + V.s);
+  if (R.crate && R.crate.na) bits.push('noaudio ' + R.crate.na);
   if (E) bits.push('err ' + E.name + (E.size ? ' @' + mb(E.size) : ''));
   return 'storage check: ' + bits.join(' · '); }
 function draw(){ var ord = ['crate', 'idb', 'ls', 'quota', 'keep', 'visits', 'addr', 'cookie'], h = '';
