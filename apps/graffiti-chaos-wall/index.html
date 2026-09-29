@@ -136,6 +136,18 @@ body{
   100% { opacity:1; transform:translate(-50%,-50%) rotate(var(--rot)) scale(var(--s));            filter:blur(0px); }
 }
 .tag.fresh{ animation:spray 0.55s cubic-bezier(.18,.9,.4,1.1) both; }
+.tag[data-id]{cursor:pointer}
+/* paint-over: a roller of wall-black wipes the tag, then it's gone */
+.tag.painted{pointer-events:none;animation:painted 0.9s ease-in forwards}
+.tag.painted::after{content:'';position:absolute;inset:-12px -18px;background:linear-gradient(180deg,#141016,#0b080d);border-radius:6px;box-shadow:0 0 0 2px rgba(0,0,0,.4) inset;transform-origin:left center;transform:scaleX(0);animation:roller 0.45s cubic-bezier(.5,0,.3,1) forwards}
+@keyframes roller{to{transform:scaleX(1)}}
+@keyframes painted{0%,55%{opacity:1}100%{opacity:0}}
+#tagMenu{position:fixed;z-index:60;display:flex;gap:6px;padding:6px;background:rgba(8,5,12,.94);border:1px solid rgba(255,255,255,.16);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.6);transform:translate(-50%,-100%)}
+#tagMenu[hidden]{display:none}
+#tagMenu button{font:700 12px/1 'Space Mono',monospace;letter-spacing:.04em;color:var(--neonWhite);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:10px 12px;min-height:40px;cursor:pointer;white-space:nowrap}
+#tagMenu button:hover,#tagMenu button:focus-visible{background:rgba(255,255,255,.14);outline:none;border-color:var(--neonCyan)}
+#tagMenu button.over{color:#0a0610;background:var(--neonYellow);border-color:var(--neonYellow)}
+@media (prefers-reduced-motion:reduce){.tag.painted,.tag.painted::after{animation-duration:.01s}}
 
 /* drips */
 .drip{
@@ -391,11 +403,12 @@ h1 .y{color:var(--neonYellow);font-style:italic;font-family:'Bungee Inline', san
 <body>
 <div id="wall"></div>
 <div id="preview"></div>
+<div id="tagMenu" role="menu" aria-label="This tag" hidden></div>
 
 <header>
   <div class="title-row">
     <h1>GRAFFITI <span class="c">CHAOS</span> <span class="y">WALL</span></h1>
-    <div class="tag-line">spray a permanent <em>unhinged thought</em> · everyone sees it forever</div>
+    <div class="tag-line">spray an <em>unhinged thought</em> · everyone sees it · tap any tag to paint over it</div>
   </div>
   <div class="marquee">
     <div class="marquee-track" id="marquee">
@@ -407,7 +420,7 @@ h1 .y{color:var(--neonYellow);font-style:italic;font-family:'Bungee Inline', san
 <button class="audio-toggle" id="audio">♪ ON</button>
 <div class="status" id="status"><span class="pulse"></span>connecting…</div>
 
-<div class="hint" id="hint">click anywhere to spray<span class="small">type below · pick a color · vandalize</span></div>
+<div class="hint" id="hint">click anywhere to spray<span class="small">type below · pick a color · tap a tag to paint over it</span></div>
 
 <div class="bar">
   <div class="input-card">
@@ -593,6 +606,7 @@ txt.addEventListener('input', updatePreview);
 
 // === wall click → set position ===
 wall.addEventListener('click', (e) => {
+  if (openTagMenu(e)) return;
   const xPct = e.clientX / window.innerWidth;
   const yPct = e.clientY / window.innerHeight;
   const rot = Math.round(-12 + Math.random() * 24);
@@ -620,7 +634,9 @@ function escape(t) {
 
 // === render tag ===
 function renderTag(t, fresh) {
+  if (isHidden(t)) return null;
   const el = document.createElement('div');
+  if (t.id != null) el.dataset.id = t.id;
   el.className = 'tag ' + (t.font || 'f-marker') + (fresh ? ' fresh' : '');
   el.style.left = (t.x / 10000) * window.innerWidth + 'px';
   el.style.top  = (t.y / 10000) * window.innerHeight + 'px';
@@ -679,7 +695,7 @@ function spawnDrips(parent, color) {
 // === marquee ===
 function refreshMarquee() {
   // newest 24 message texts
-  const recent = [...allTags].slice(-24).reverse();
+  const recent = visibleTags().slice(-24).reverse();
   if (recent.length === 0) {
     marquee.innerHTML = '<span class="dot">●</span><span style="opacity:0.6">be the first to spray something unhinged</span>';
     return;
@@ -695,7 +711,7 @@ function refreshMarquee() {
 async function loadAll() {
   const { data, error } = await supabase
     .from('graffiti_wall')
-    .select('id, text, color, font, rotation, x, y, scale, author, created_at')
+    .select('id, text, color, font, rotation, x, y, scale, author, created_at, user_id')
     .order('created_at', { ascending: true })
     .limit(800);
   if (error) {
@@ -703,11 +719,12 @@ async function loadAll() {
     return;
   }
   allTags = data || [];
+  await loadHides();
   // clear wall + render
   wall.querySelectorAll('.tag').forEach(t => t.remove());
   allTags.forEach(t => renderTag(t, false));
   refreshMarquee();
-  setStatus('ok', `${allTags.length} tag${allTags.length === 1 ? '' : 's'} on the wall · live`);
+  liveStatus();
 }
 
 async function submitTag() {
@@ -762,7 +779,7 @@ async function submitTag() {
     allTags.push(data);
     renderTag(data, true);
     refreshMarquee();
-    setStatus('ok', `${allTags.length} tags on the wall · live`);
+    liveStatus();
   }
   // reset input
   txt.value = '';
@@ -779,6 +796,66 @@ function flash(el) {
 function setStatus(kind, msg) {
   statusEl.className = 'status ' + (kind === 'err' ? 'err' : kind === 'warn' ? 'warn' : '');
   statusEl.innerHTML = `<span class="pulse"></span>${escape(msg)}`;
+}
+
+// === paint over: anyone can cover a tag. It goes at once for you, and for everyone once two people painted over it ===
+const HIDE_AT = 2;
+let hides = new Map();       // tag id -> Set of user ids who painted over it
+const myHides = new Set();
+const tagMenu = document.getElementById('tagMenu');
+let menuFor = null;
+function isHidden(t) { if (t.id == null) return false; if (myHides.has(t.id)) return true; const h = hides.get(t.id); return !!h && h.size >= HIDE_AT; }
+function visibleTags() { return allTags.filter(t => !isHidden(t)); }
+function liveStatus() { const n = visibleTags().length; setStatus('ok', `${n} tag${n === 1 ? '' : 's'} on the wall · live`); }
+function addHide(tagId, uid) {
+  let h = hides.get(tagId); if (!h) { h = new Set(); hides.set(tagId, h); }
+  h.add(uid); if (state.user && uid === state.user.id) myHides.add(tagId);
+}
+async function loadHides() {
+  const { data, error } = await supabase.from('graffiti_wall_hides').select('tag_id, user_id').limit(5000);
+  if (error) return;
+  hides = new Map(); myHides.clear();
+  (data || []).forEach(r => addHide(r.tag_id, r.user_id));
+}
+function tagEl(id) { return wall.querySelector('.tag[data-id="' + CSS.escape(String(id)) + '"]'); }
+function paintOut(id) {
+  const el = tagEl(id); if (!el) return;
+  el.classList.add('painted');
+  setTimeout(() => el.remove(), 950);
+}
+function closeTagMenu() { tagMenu.hidden = true; menuFor = null; }
+function openTagMenu(e) {
+  if (!tagMenu.hidden) { closeTagMenu(); if (e.target.closest('.tag[data-id]')) return true; }
+  const el = e.target.closest('.tag[data-id]'); if (!el) return false;
+  const t = allTags.find(x => String(x.id) === el.dataset.id); if (!t) return false;
+  const mine = state.user && t.user_id === state.user.id;
+  menuFor = { t, x: e.clientX, y: e.clientY };
+  tagMenu.innerHTML = '';
+  const b1 = document.createElement('button'); b1.type = 'button'; b1.setAttribute('role', 'menuitem');
+  b1.className = 'over'; b1.textContent = mine ? 'Wipe mine off' : 'Paint over it';
+  const b2 = document.createElement('button'); b2.type = 'button'; b2.setAttribute('role', 'menuitem'); b2.textContent = 'Spray here';
+  b1.onclick = (ev) => { ev.stopPropagation(); const m = menuFor; closeTagMenu(); if (m) (mine ? wipeMine(m.t) : paintOver(m.t)); };
+  b2.onclick = (ev) => { ev.stopPropagation(); const m = menuFor; closeTagMenu(); if (m) wall.dispatchEvent(new MouseEvent('click', { clientX: m.x, clientY: m.y, bubbles: true })); };
+  tagMenu.append(b1, b2);
+  tagMenu.hidden = false;
+  const w = tagMenu.offsetWidth, h = tagMenu.offsetHeight;
+  tagMenu.style.left = Math.max(w / 2 + 8, Math.min(window.innerWidth - w / 2 - 8, e.clientX)) + 'px';
+  tagMenu.style.top = Math.max(h + 8, e.clientY - 10) + 'px';
+  b1.focus();
+  return true;
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !tagMenu.hidden) closeTagMenu(); });
+document.addEventListener('click', (e) => { if (!tagMenu.hidden && !tagMenu.contains(e.target) && !wall.contains(e.target)) closeTagMenu(); });
+async function paintOver(t) {
+  if (!state.user) { setStatus('warn', 'connecting…'); return; }
+  addHide(t.id, state.user.id); paintOut(t.id); refreshMarquee(); liveStatus(); sprayPshhh(0.5);
+  const { error } = await supabase.from('graffiti_wall_hides').insert({ tag_id: t.id, user_id: state.user.id });
+  if (error) setStatus('err', 'paint-over only stuck for you: ' + error.message);
+}
+async function wipeMine(t) {
+  const { error } = await supabase.from('graffiti_wall').delete().eq('id', t.id);
+  if (error) { setStatus('err', 'wipe failed: ' + error.message); return; }
+  allTags = allTags.filter(x => x.id !== t.id); paintOut(t.id); refreshMarquee(); liveStatus(); sprayPshhh(0.5);
 }
 
 // === auth ===
@@ -805,8 +882,19 @@ supabase
       allTags.push(t);
       renderTag(t, true);
       refreshMarquee();
-      setStatus('ok', `${allTags.length} tags on the wall · live`);
+      liveStatus();
       if (!state.muted) sprayPshhh(0.7);
+    })
+  .subscribe();
+supabase
+  .channel('graffiti-chaos-wall-hides-v1')
+  .on('postgres_changes',
+    { event: 'INSERT', schema: 'public', table: 'graffiti_wall_hides' },
+    (payload) => {
+      const r = payload.new; if (!r || r.tag_id == null) return;
+      const t = allTags.find(x => x.id === r.tag_id), was = t && isHidden(t);
+      addHide(r.tag_id, r.user_id);
+      if (t && !was && isHidden(t)) { paintOut(t.id); refreshMarquee(); liveStatus(); }
     })
   .subscribe();
 
