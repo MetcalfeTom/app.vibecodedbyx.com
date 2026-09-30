@@ -68,6 +68,15 @@ button{font:inherit;color:inherit;cursor:pointer}
 .clock{margin-left:auto;font:700 1.6rem/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--brass);text-shadow:0 .1rem 0 rgba(0,0,0,.5)}
 .clock.hurry{color:var(--sd)}
 .clock.sd{color:var(--sd);animation:pulse .8s ease-in-out infinite}
+.seal{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:.4rem;min-width:2.75rem;min-height:2.75rem;padding:0 .15rem;background:none;border:0;color:var(--muted);font:700 .62rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;cursor:help}
+.seal i{display:grid;place-items:center;width:1.55rem;height:1.55rem;border-radius:50%;font-style:normal;font-size:.8rem;color:var(--paper);transform:rotate(-12deg);
+  background:radial-gradient(circle at 35% 30%, #dc5446, var(--red) 55%, var(--red-d));box-shadow:0 0 0 2px rgba(111,19,12,.55),0 0 0 4px rgba(201,41,30,.25),0 .15rem .35rem rgba(0,0,0,.55)}
+.seal:not([hidden]) + .clock{margin-left:.55rem}
+.seal.in i{animation:sealIn .5s cubic-bezier(.2,1.4,.4,1) both}
+.seal.lost i{filter:grayscale(1);opacity:.55}
+.seal:focus-visible{outline:2px solid var(--brass);outline-offset:2px;border-radius:.4rem}
+@keyframes sealIn{0%{opacity:0;transform:rotate(-50deg) scale(2.4)}60%{opacity:1}100%{transform:rotate(-12deg) scale(1)}}
+@media (max-width:430px){.seal span{display:none}}
 @keyframes pulse{50%{opacity:.45}}
 .tools{margin-left:auto;display:flex;gap:.5rem}
 .ibtn{min-width:2.75rem;min-height:2.75rem;padding:0 .7rem;border-radius:.6rem;background:rgba(10,4,2,.45);border:1px solid rgba(231,176,79,.6);color:var(--cream);font-size:.85rem}
@@ -194,7 +203,7 @@ h2{margin:.2rem 0 .4rem;text-align:center;font:clamp(2.2rem,11vw,3rem)/1 var(--d
   #snap{--s:min(34vh, 40vw, 12rem)}
 }
 @media (prefers-reduced-motion:reduce){
-  .smoke,.spin,.clock.sd{animation:none}
+  .smoke,.spin,.clock.sd,.seal.in i{animation:none}
   .table.shake{animation:none}
   .panel > *{animation:none}
   .card.in{animation:fadeIn .15s both}.card.in::after{animation:none}
@@ -212,6 +221,7 @@ h2{margin:.2rem 0 .4rem;text-align:center;font:clamp(2.2rem,11vw,3rem)/1 var(--d
     <header class="seat opp">
       <div class="stack" id="stackOpp" data-d="3" aria-hidden="true"></div>
       <div class="who"><span class="nm" id="nmOpp">Reg</span><span class="cnt"><b id="cntOpp">16</b>cards</span></div>
+      <button type="button" class="seal" id="seal" hidden><i aria-hidden="true">✓</i><span aria-hidden="true">fair deal</span></button>
       <div class="clock" id="clock" role="timer" aria-label="Time left">2:30</div>
     </header>
     <section class="piles" aria-label="Face-up piles">
@@ -281,7 +291,7 @@ h2{margin:.2rem 0 .4rem;text-align:center;font:clamp(2.2rem,11vw,3rem)/1 var(--d
     <p class="line" id="resLine">19 cards to 13</p>
     <dl class="stats">
       <div><dt>Snaps won</dt><dd id="stSnaps">0</dd></div>
-      <div><dt>Fastest</dt><dd id="stBest">–</dd></div>
+      <div><dt>Fastest</dt><dd id="stBest">none</dd></div>
       <div><dt>Wrong</dt><dd id="stFoul">0</dd></div>
     </dl>
     <div class="row">
@@ -321,6 +331,74 @@ const BOTS = {
   vic:   { name: 'Vic',   min: 270, max: 600,  miss: .05, fs: .005 }
 };
 
+/* ================= shadow: the guest's own copy of the deal, rebuilt from the shared seed.
+   It replays the host's events with the same mulberry32 + shuffle and checks every card and every ruling. ================= */
+class Shadow {
+  constructor(seed){
+    this.rnd = mulberry32(seed >>> 0);
+    const d = shuffle(Array.from({ length: 32 }, (_, i) => i), this.rnd);
+    this.st = [d.slice(0, 16), d.slice(16)]; this.pl = [[], []];
+    this.turn = this.rnd() < .5 ? 0 : 1; this.i = 0; this.seq = 0; this.mat = { 0: false }; this.ok = true; this.opened = false;
+  }
+  top(p){ const a = this.pl[p]; return a.length ? a[a.length - 1] : -1; }
+  isMatch(){ const a = this.top(0), b = this.top(1); return a >= 0 && b >= 0 && rk(a) === rk(b); }
+  tot(){ return [0, 1].map(p => this.st[p].length + this.pl[p].length); }
+  /* '' = the event fits this copy of the deal; otherwise what went wrong */
+  check(ev){
+    if (!this.ok) return '';
+    if (ev.i !== this.i + 1){ this.ok = false; return ''; }
+    this.i = ev.i;
+    const p = ev.p, cs = typeof ev.cs === 'number' ? ev.cs : -1, cn = c => RANKS[rk(c)] + SUITS[su(c)];
+    switch (ev.t){
+      case 'start': {
+        const d = this.st[0].concat(this.st[1]);
+        if (!Array.isArray(ev.deal) || ev.deal.length !== 32 || d.some((c, k) => ev.deal[k] !== c)) return 'the cards dealt aren’t the ones your two sealed numbers make';
+        if (ev.first !== this.turn) return 'the wrong player got the first flip';
+        this.opened = true; break;
+      }
+      case 'recycle':
+        if ((p !== 0 && p !== 1) || this.st[p].length) return 'a stack was turned over while it still had cards';
+        this.st[p] = this.pl[p]; this.pl[p] = []; break;
+      case 'flip': {
+        if (p !== this.turn) return 'a card was flipped out of turn';
+        if (!this.st[p].length) return 'a card came off an empty stack';
+        const c = this.st[p].shift();
+        if (ev.card !== c) return 'the table showed ' + (Number.isInteger(ev.card) && ev.card >= 0 && ev.card < 32 ? 'the ' + cn(ev.card) : 'a card') + ' where your copy of the deck has the ' + cn(c);
+        this.pl[p].push(c); this.turn = 1 - p; break;
+      }
+      case 'snap': {
+        if (p !== 0 && p !== 1) return 'a snap went to nobody';
+        if (!this.isMatch() || (cs >= 0 && this.mat[cs] !== true)) return 'a snap was given on cards that didn’t match';
+        const won = shuffle(this.pl[0].concat(this.pl[1]), this.rnd);
+        this.st[p].push(...won); this.pl = [[], []]; this.turn = 1 - p;
+        if (ev.n !== won.length) return 'a snap paid the wrong number of cards';
+        break;
+      }
+      case 'foul': {
+        if (p !== 0 && p !== 1) return 'a wrong snap went to nobody';
+        if (cs >= 0 && this.mat[cs] === true && this.seq - cs < 50) return 'a real match was called a wrong snap';
+        const o = 1 - p; let n = 0;
+        for (let k = 0; k < 2; k++){ let c; if (this.st[p].length) c = this.st[p].pop(); else if (this.pl[p].length) c = this.pl[p].shift(); else break; this.st[o].push(c); n++; }
+        if (ev.n !== n) return 'a wrong snap cost the wrong number of cards';
+        break;
+      }
+      case 'over': {
+        const t = this.tot(), w = ev.w, why = ev.why, seat = w === 0 || w === 1;
+        if (Array.isArray(ev.tot) && (ev.tot[0] !== t[0] || ev.tot[1] !== t[1])) return 'the final card count doesn’t add up';
+        if (why === 'cards' && (!seat || t[1 - w] !== 0)) return 'the game was ended while both players still had cards';
+        if ((why === 'time' || why === 'sudden') && (!seat || t[w] <= t[1 - w])) return 'the win went to the player with fewer cards';
+        if (why === 'draw' && t[0] !== t[1]) return 'a dead heat was called on uneven cards';
+        break;
+      }
+    }
+    if (typeof ev.seq === 'number') this.seq = ev.seq;
+    this.mat[this.seq] = this.isMatch();
+    if (Array.isArray(ev.tops) && (ev.tops[0] !== this.top(0) || ev.tops[1] !== this.top(1))) return 'the cards on the table don’t match your copy of the deal';
+    if (Array.isArray(ev.st) && (ev.st[0] !== this.st[0].length || ev.st[1] !== this.st[1].length)) return 'the stack sizes don’t match your copy of the deal';
+    return '';
+  }
+}
+
 /* ================= engine: the dealer. Runs on the host (or locally vs a bot). ================= */
 class Engine {
   constructor(o){
@@ -331,6 +409,7 @@ class Engine {
     this.phase = 'deal'; this.sudden = false; this.suddenEnd = 0; this.lock = [0, 0];
     this.stats = [{ snaps: 0, fs: 0, best: 0 }, { snaps: 0, fs: 0, best: 0 }];
     this.timers = new Set(); this.dead = false; this.judge = null; this.flipT = 0; this.paused = false; this.endAt = 0;
+    this.evn = 0; this.at = {};
   }
   later(ms, f){ const h = setTimeout(() => { this.timers.delete(h); if (!this.dead) f(); }, ms); this.timers.add(h); return h; }
   cancel(h){ if (h){ clearTimeout(h); this.timers.delete(h); } }
@@ -340,9 +419,9 @@ class Engine {
   totals(){ return [0, 1].map(p => this.st[p].length + this.pl[p].length); }
   left(){ return Math.max(0, Math.round(this.endAt - now())); }
   snapshot(){ return { seq: this.seq, st: [this.st[0].length, this.st[1].length], pl: [this.pl[0].length, this.pl[1].length], tops: [this.top(0), this.top(1)], left: this.left(), sd: this.sudden ? 1 : 0 }; }
-  emit(ev){ Object.assign(ev, this.snapshot()); this.o.emit(ev); }
-  bump(){ this.seq++; this.mat[this.seq] = this.isMatch(); delete this.mat[this.seq - 60]; }
-  start(){ this.endAt = now() + DEAL_MS + GAME_MS; this.emit({ t: 'start', first: this.turn }); this.later(DEAL_MS, () => { this.phase = 'play'; this.loop(); }); }
+  emit(ev){ Object.assign(ev, this.snapshot()); ev.i = ++this.evn; this.o.emit(ev); }
+  bump(){ this.seq++; this.mat[this.seq] = this.isMatch(); this.at[this.seq] = now(); delete this.mat[this.seq - 60]; delete this.at[this.seq - 60]; }
+  start(){ this.endAt = now() + DEAL_MS + GAME_MS; this.emit(this.o.online ? { t: 'start', first: this.turn, deal: this.st[0].concat(this.st[1]) } : { t: 'start', first: this.turn }); this.later(DEAL_MS, () => { this.phase = 'play'; this.loop(); }); }
   interval(){ const f = Math.min(1, Math.max(0, 1 - this.left() / GAME_MS)); return Math.round(1150 - 470 * f); }
   loop(){
     if (this.dead || this.paused || this.phase !== 'play') return;
@@ -367,24 +446,27 @@ class Engine {
     if (this.dead || this.paused || this.phase === 'over' || this.phase === 'deal' || this.phase === 'sweep') return;
     if (now() < this.lock[p]) return;
     seq = clampInt(seq, -1, 1e9); react = clampInt(react, 0, 9999);
+    /* the host times the guest itself: flip sent -> snap back, minus the round trip and 40 ms slack. Nobody beats 100 ms. */
+    if (p === 1 && this.o.lag && this.at[seq]) react = Math.max(react, Math.round(now() - this.at[seq] - this.o.lag() - 40));
+    react = Math.max(100, react);
     if (this.phase === 'judge'){ if (seq === this.judge.seq && !this.judge.c.some(x => x.p === p)) this.judge.c.push({ p, react }); return; }
-    if (seq !== this.seq){ if (this.mat[seq]){ this.emit({ t: 'late', p }); return; } return this.foul(p); }
-    if (!this.mat[seq]) return this.foul(p);
+    if (seq !== this.seq){ if (this.mat[seq]){ this.emit({ t: 'late', p }); return; } return this.foul(p, seq); }
+    if (!this.mat[seq]) return this.foul(p, seq);
     this.cancel(this.flipT);
-    if (!this.o.online) return this.award(p, react, 0);
+    if (!this.o.online) return this.award(p, react, 0, seq);
     this.phase = 'judge'; this.judge = { seq, c: [{ p, react }] };
-    this.later(JUDGE_MS, () => { const c = this.judge.c.sort((a, b) => a.react - b.react); this.judge = null; this.award(c[0].p, c[0].react, c[1] ? c[1].react : 0); });
+    this.later(JUDGE_MS, () => { const c = this.judge.c.sort((a, b) => a.react - b.react); this.judge = null; this.award(c[0].p, c[0].react, c[1] ? c[1].react : 0, seq); });
   }
-  award(p, react, vs){
+  award(p, react, vs, cs){
     this.phase = 'sweep';
     const won = shuffle(this.pl[0].concat(this.pl[1]), this.rnd);
     this.st[p].push(...won); this.pl = [[], []]; this.turn = 1 - p;
     const s = this.stats[p]; s.snaps++; if (react > 0 && (!s.best || react < s.best)) s.best = react;
     this.bump();
-    this.emit({ t: 'snap', p, n: won.length, react, vs });
+    this.emit({ t: 'snap', p, n: won.length, react, vs, cs });
     this.later(SWEEP_MS, () => { if (this.checkEnd()) return; this.phase = 'play'; this.flipT = this.later(450, () => this.loop()); });
   }
-  foul(p){
+  foul(p, cs){
     const o = 1 - p, before = this.top(p); let n = 0;
     for (let i = 0; i < 2; i++){
       let c;
@@ -393,7 +475,7 @@ class Engine {
     }
     this.stats[p].fs++; this.lock[p] = now() + LOCK_MS;
     if (this.top(p) !== before) this.bump();
-    this.emit({ t: 'foul', p, n });
+    this.emit({ t: 'foul', p, n, cs });
     this.checkEnd();
   }
   checkEnd(){
@@ -472,7 +554,7 @@ const sfx = {
 };
 
 /* ================= view ================= */
-const V = { seat: 0, names: ['You', 'Reg'], tops: [-1, -1], seq: 0, shownAt: 0, endAt: 0, live: false, lockUntil: 0, mode: null, sd: false, lastSec: -1, rival: 'reg', flips: 0 };
+const V = { seat: 0, names: ['You', 'Reg'], tops: [-1, -1], seq: 0, shownAt: 0, endAt: 0, live: false, lockUntil: 0, mode: null, sd: false, lastSec: -1, rival: 'reg', flips: 0, tally: null };
 const G = { engine: null, claim: null };
 const el = {
   board: $('#board'), pile: { me: $('#pileMe'), opp: $('#pileOpp') }, stack: { me: $('#stackMe'), opp: $('#stackOpp') },
@@ -581,7 +663,7 @@ function onEvent(ev){
   const p = ev.p === 0 || ev.p === 1 ? ev.p : -1, mine = p === V.seat, who = p >= 0 ? V.names[p] : '';
   switch (ev.t){
     case 'start':
-      resetBoard(); V.live = true; V.lockUntil = 0; V.endAt = 0; syncClock(clampInt(ev.left, 0, GAME_MS + 5000), 0);
+      resetBoard(); V.tally = [{ snaps: 0, fs: 0, best: 0 }, { snaps: 0, fs: 0, best: 0 }]; V.live = true; V.lockUntil = 0; V.endAt = 0; syncClock(clampInt(ev.left, 0, GAME_MS + 5000), 0);
       showDlg(null); stamp('READY?', 'vs ' + V.names[1 - V.seat], 'soft'); sfx.shuffle(); startClock(); showHint();
       say('Game on against ' + V.names[1 - V.seat] + '. Hit snap when the two top cards match.');
       if (NET.want){ NET.want.me = false; NET.want.opp = false; }
@@ -596,6 +678,7 @@ function onEvent(ev){
     case 'snap': {
       if (p < 0) break;
       const n = clampInt(ev.n, 0, 32), react = clampInt(ev.react, 0, 9999), vs = clampInt(ev.vs, 0, 9999);
+      if (V.tally){ const ts = V.tally[p]; ts.snaps++; if (react > 0 && (!ts.best || react < ts.best)) ts.best = react; }
       el.pile.me.lastElementChild && el.pile.me.lastElementChild.classList.add('hit');
       el.pile.opp.lastElementChild && el.pile.opp.lastElementChild.classList.add('hit');
       setTimeout(() => { sweepPile('me', side(p)); sweepPile('opp', side(p)); }, RM.matches ? 100 : 330);
@@ -616,6 +699,7 @@ function onEvent(ev){
     case 'foul': {
       if (p < 0) break;
       const n = clampInt(ev.n, 0, 2);
+      if (V.tally) V.tally[p].fs++;
       if (mine){ V.lockUntil = now() + LOCK_MS; lockBtn(); stamp('NOPE!', 'no match · −' + n + ' cards', 'foul'); say('Wrong snap. You pay ' + n + ' cards.'); }
       else { stamp('NOPE!', who + ' pays you ' + n, 'foul'); say(who + ' snapped wrong and pays you ' + n + ' cards.'); }
       sfx.buzz(); flyCards(p, 1 - p, n);
@@ -639,15 +723,15 @@ function gameOver(ev){
   V.live = false; stopClock(); drawClock();
   const w = ev.w === 0 || ev.w === 1 ? ev.w : -1, me = V.seat, opp = V.names[1 - me];
   const tot = Array.isArray(ev.tot) && ev.tot.length === 2 ? ev.tot.map(n => clampInt(n, 0, 32)) : [clampInt(el.cnt[side(0)].textContent, 0, 32), clampInt(el.cnt[side(1)].textContent, 0, 32)];
-  const st = Array.isArray(ev.stats) && ev.stats[me] ? ev.stats[me] : null;
+  const st = Array.isArray(ev.stats) && ev.stats[me] && typeof ev.stats[me] === 'object' ? ev.stats[me] : V.tally ? V.tally[me] : null;
   const won = w === me, why = String(ev.why || '');
   const kick = { cards: won ? opp + ' is cleaned out' : 'You ran out of cards', time: 'Time!', sudden: 'Sudden death!', left: opp + ' left the table', draw: 'Nobody snapped in sudden death' }[why] || 'Game over';
   $('#resKick').textContent = kick;
   $('#resTitle').textContent = w < 0 ? 'DEAD HEAT' : won ? 'YOU WIN' : opp.toUpperCase() + ' WINS';
   $('#resLine').textContent = tot[me] + (tot[me] === 1 ? ' card' : ' cards') + ' to ' + tot[1 - me];
-  $('#stSnaps').textContent = st ? clampInt(st.snaps, 0, 999) : '–';
-  $('#stBest').textContent = st && st.best ? clampInt(st.best, 0, 9999) + 'ms' : '–';
-  $('#stFoul').textContent = st ? clampInt(st.fs, 0, 999) : '–';
+  $('#stSnaps').textContent = st ? clampInt(st.snaps, 0, 999) : 0;
+  $('#stBest').textContent = st && st.best ? clampInt(st.best, 0, 9999) + 'ms' : 'none';
+  $('#stFoul').textContent = st ? clampInt(st.fs, 0, 999) : 0;
   $('#resNote').textContent = '';
   const again = $('#btnAgain'); again.disabled = false;
   again.textContent = V.mode === 'bot' ? 'Deal again' : 'Rematch';
@@ -666,7 +750,7 @@ function stopGame(){
 function rival(){ const r = document.querySelector('input[name="rival"]:checked'); return r && BOTS[r.value] ? r.value : 'reg'; }
 function startBot(){
   leaveOnline(true); stopGame();
-  const key = rival(), cfg = BOTS[key];
+  const key = rival(), cfg = BOTS[key]; hideSeal();
   V.mode = 'bot'; V.seat = 0; V.rival = key; V.names = ['You', cfg.name]; setNames();
   const eng = new Engine({ seed: rand32(), online: false, bot: { seat: 1, cfg }, emit: onEvent });
   G.engine = eng; G.claim = (seq, react) => eng.claim(0, seq, react);
@@ -932,22 +1016,137 @@ function beginOnline(role, tr, room, opp){
   NET.hb = setInterval(() => { if (NET.tr !== tr) return; tr.send({ t: 'ping' }); if (Date.now() - NET.heard > 9000) oppLeft(); }, 2000);
   showDlg(null); resetBoard(); stamp('MATCHED!', 'vs ' + opp.name, 'soft'); sfx.shuffle();
   say('Matched with ' + opp.name + '. Shuffling.');
-  if (role === 'host') setTimeout(() => { if (NET.tr === tr && !NET.gone) hostStartGame(); }, 1100);
-  else G.claim = (seq, react) => { if (NET.tr) NET.tr.send({ t: 'snap', seq, react }); };
+  NET.matchAt = Date.now(); NET.gno = 0; NET.inSeal = null; NET.fair = null; NET.shadow = null; NET.evQ = []; NET.roundOpen = false;
+  NET.rtts = []; NET.rttSent = {}; NET.rttK = 0; clearInterval(NET.rttIv);
+  if (role === 'host'){ [0, 250, 500].forEach(d => setTimeout(rttPing, d)); NET.rttIv = setInterval(rttPing, 10000); }
+  else G.claim = (seq, react) => { if (NET.tr) NET.tr.send({ t: 'snap', seq, react: T && T.cheatReact ? T.cheatReact : react }); };
+  fairRound();
 }
-function hostStartGame(){
+/* ---- round trip, measured by the host (median of the last 5, capped) ---- */
+function rttPing(){ if (NET.role !== 'host' || !NET.tr || NET.gone) return; const k = ++NET.rttK; NET.rttSent[k] = now(); NET.tr.send({ t: 'rtt', k }); }
+function rttBack(m){
+  if (NET.role !== 'host') return;
+  const k = clampInt(m.k, 0, 1e9), t0 = NET.rttSent[k]; if (!t0) return;
+  delete NET.rttSent[k]; NET.rtts.push(now() - t0); if (NET.rtts.length > 5) NET.rtts.shift();
+}
+function rttEst(){ const a = NET.rtts.slice().sort((x, y) => x - y); return a.length ? Math.min(600, a[a.length >> 1]) : 600; }
+
+/* ---- fair deal: each side seals SHA-256(nonce:room:seat), reveals only after both seals arrived,
+   seed = first 32 bits of SHA-256(hostNonce:guestNonce:room). Nobody picks the cards. ---- */
+const BAD = 'The deal didn’t check out', NOSEAL = 'No sealed deal';
+const SEAL_OK = 'Fair deal: both players sealed a number before the deal, so nobody picked the cards.';
+const SEAL_LOST = 'A message went missing, so the rest of this deal can’t be checked.';
+const hexOf = b => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
+const sha256 = str => crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+const sha256hex = async str => hexOf(await sha256(str));
+const seed32 = async str => new DataView(await sha256(str)).getUint32(0);
+const nonce32 = () => crypto.getRandomValues(new Uint32Array(1))[0];
+function hideSeal(){ const s = $('#seal'); s.hidden = true; s.classList.remove('in', 'lost'); }
+function showSeal(){ const s = $('#seal'); s.classList.remove('in', 'lost'); s.title = SEAL_OK; s.setAttribute('aria-label', SEAL_OK); s.hidden = false; void s.offsetWidth; s.classList.add('in'); }
+function sealLost(){ const s = $('#seal'); if (s.hidden || s.classList.contains('lost')) return; s.classList.add('lost'); s.title = SEAL_LOST; s.setAttribute('aria-label', SEAL_LOST); }
+function fairRound(){
+  if (!NET.tr || NET.gone) return;
+  const f = { g: ++NET.gno, n: 0, sent: false, their: '', opened: false, theirN: -1, done: false };
+  NET.fair = f; NET.shadow = null; NET.evQ = []; NET.roundOpen = true; hideSeal();
+  if (NET.inSeal && NET.inSeal.g === f.g) f.their = NET.inSeal.h;
+  NET.inSeal = null;
+  clearTimeout(NET.fairT);
+  NET.fairT = setTimeout(() => { if (NET.fair === f && !f.done) dealBad(NOSEAL, 'Couldn’t seal a fair deal with ' + NET.opp.name + '. Try again, or play ' + BOTS[rival()].name + '.'); }, 12000);
+  if (!(window.crypto && crypto.subtle && crypto.getRandomValues)) return dealBad(NOSEAL, 'This browser can’t seal numbers here, so there’s no fair deal to be had.');
+  f.n = nonce32();
+  sha256hex(f.n + ':' + NET.room + ':' + V.seat).then(h => {
+    if (NET.fair !== f || !NET.tr) return;
+    NET.tr.send({ t: 'seal', g: f.g, h }); f.sent = true; fairStep(f);
+  }, () => dealBad(NOSEAL, 'Couldn’t seal a number in this browser.'));
+}
+function fairStep(f){
+  if (NET.fair !== f || !NET.tr) return;
+  if (f.sent && f.their && !f.opened){ f.opened = true; NET.tr.send({ t: 'open', g: f.g, n: T && T.tamper === 'reveal' ? (f.n ^ 1) >>> 0 : f.n }); }
+  if (f.opened && f.theirN >= 0 && !f.done) fairDone(f);
+}
+function onSeal(m){
+  const g = clampInt(m.g, 0, 1e6), h = typeof m.h === 'string' && /^[0-9a-f]{64}$/.test(m.h) ? m.h : '';
+  if (!h) return;
+  const f = NET.fair;
+  if (f && f.g === g && !f.done){ if (!f.their){ f.their = h; fairStep(f); } }
+  else if (!f || g > f.g) NET.inSeal = { g, h };
+}
+async function onOpen(m){
+  const f = NET.fair;
+  if (!f || f.done || clampInt(m.g, 0, 1e6) !== f.g || f.theirN >= 0) return;
+  const who = NET.opp.name, n = m.n;
+  if (!Number.isInteger(n) || n < 0 || n > 4294967295) return dealBad(BAD, who + ' revealed something that isn’t a number.');
+  if (!f.their) return dealBad(BAD, who + ' revealed a number without sealing one first.');
+  const h = await sha256hex(n + ':' + NET.room + ':' + (1 - V.seat));
+  if (NET.fair !== f) return;
+  if (h !== f.their) return dealBad(BAD, who + '’s revealed number doesn’t match the one they sealed, so that deck never gets dealt.');
+  f.theirN = n; fairStep(f);
+}
+async function fairDone(f){
+  f.done = true;
+  const a = V.seat === 0 ? f.n : f.theirN, b = V.seat === 0 ? f.theirN : f.n;
+  const seed = await seed32(a + ':' + b + ':' + NET.room);
+  if (NET.fair !== f || NET.gone) return;
+  clearTimeout(NET.fairT); f.seed = seed;
+  if (NET.role === 'host'){
+    setTimeout(() => { if (NET.fair === f && !NET.gone && NET.tr){ hostStartGame(seed); showSeal(); } }, Math.max(0, 1100 - (Date.now() - NET.matchAt)));
+  } else {
+    NET.shadow = new Shadow(seed);
+    const q = NET.evQ; NET.evQ = []; q.forEach(guestEv);
+  }
+}
+function guestEv(ev){
+  if (!NET.shadow || NET.gone) return;
+  const bad = NET.shadow.check(ev);
+  if (bad) return dealBad(BAD, 'Game stopped: ' + bad + '.');
+  if (!NET.shadow.ok) sealLost();
+  onEvent(ev);
+  if (ev.t === 'start' && NET.shadow.opened){ NET.roundOpen = false; showSeal(); }
+}
+function dealBad(title, msg, fromThem){
+  if (V.mode !== 'online' || NET.gone) return;
+  if (!fromThem && NET.tr) NET.tr.send({ t: 'abort', why: title === NOSEAL ? 'seal' : 'deal' });
+  clearTimeout(NET.fairT); NET.fair = null; NET.shadow = null; NET.evQ = [];
+  if (G.engine){ G.engine.destroy(); G.engine = null; }
+  G.claim = null; V.live = false; stopClock(); hideSeal();
+  leaveOnline(true);
+  showDlg('dlgSearch'); $('#searchTitle').textContent = title; setSearch(msg);
+  NET.failed = true; $('#asLine').hidden = true;
+  const w = $('#btnWait'); w.textContent = 'Try again'; w.hidden = false;
+  const b = $('#btnBotInstead'); b.textContent = 'Play ' + BOTS[rival()].name + ' instead'; b.hidden = false; b.focus();
+  say(title + '. ' + msg);
+  console.warn('[snap-duel] ' + title + ': ' + msg);
+}
+$('#seal').addEventListener('click', () => {
+  const t = $('#seal').title || SEAL_OK;
+  el.hint.textContent = t; el.hint.classList.remove('gone'); clearTimeout(hintT); hintT = setTimeout(() => el.hint.classList.add('gone'), 6000); say(t);
+});
+function hostStartGame(seed){
   if (G.engine) G.engine.destroy();
-  NET.want = { me: false, opp: false };
-  const eng = new Engine({ seed: rand32(), online: true, bot: null, emit: ev => { onEvent(ev); if (NET.tr) NET.tr.send({ t: 'ev', ev }); } });
+  NET.want = { me: false, opp: false }; NET.roundOpen = false;
+  const g = NET.gno, tm = T && T.tamper;
+  const eng = new Engine({ seed: tm === 'seed' ? (seed ^ 1) >>> 0 : seed, online: true, bot: null, lag: T && T.noMeasure ? null : rttEst,
+    emit: ev => { onEvent(ev); if (NET.tr) NET.tr.send({ t: 'ev', g, ev }); } });
   G.engine = eng; G.claim = (seq, react) => eng.claim(0, seq, react);
   eng.start();
+  if (tm === 'swap'){ const a = eng.st[0], x = a[4]; a[4] = a[9]; a[9] = x; }
+  if (tm === 'award'){ const iv = setInterval(() => { if (eng.dead || G.engine !== eng) return clearInterval(iv);
+    if (eng.phase === 'play' && eng.seq > 8 && eng.top(0) >= 0 && eng.top(1) >= 0 && !eng.isMatch()){ clearInterval(iv); eng.cancel(eng.flipT); eng.award(0, 250, 0, eng.seq); } }, 50); }
 }
 function onNetMsg(m){
   if (!m || typeof m.t !== 'string' || !NET.opp) return;
   if (m.from !== NET.opp.cid){ if (m.t === 'hello' && NET.role === 'host' && typeof m.from === 'string') NET.tr.send({ t: 'full', to: m.from }); return; }
   NET.heard = Date.now();
   switch (m.t){
-    case 'ev': if (NET.role === 'join' && m.ev && typeof m.ev === 'object') onEvent(m.ev); break;
+    case 'ev':
+      if (NET.role !== 'join' || !m.ev || typeof m.ev !== 'object' || m.g !== NET.gno) break;
+      if (NET.shadow) guestEv(m.ev); else if (NET.fair && NET.evQ.length < 300) NET.evQ.push(m.ev);
+      break;
+    case 'seal': onSeal(m); break;
+    case 'open': onOpen(m); break;
+    case 'abort': dealBad(m.why === 'seal' ? NOSEAL : BAD, m.why === 'seal' ? 'Couldn’t seal a fair deal with ' + NET.opp.name + '.' : NET.opp.name + '’s check of the deal failed, so they stopped the game.', true); break;
+    case 'rtt': if (NET.role === 'join') NET.tr.send({ t: 'rttr', k: m.k }); break;
+    case 'rttr': rttBack(m); break;
     case 'snap': if (NET.role === 'host' && G.engine) G.engine.claim(1, m.seq, m.react); break;
     case 'hello': if (NET.role === 'host') NET.tr.send({ t: 'accept', to: m.from, name: NET.name }); break;
     case 'bye': oppLeft(); break;
@@ -961,12 +1160,12 @@ function requestRematch(){
 function noteRematch(){
   if (V.live) return;
   const n = $('#resNote');
-  if (NET.want.me && NET.want.opp){ n.textContent = 'Shuffling…'; if (NET.role === 'host') setTimeout(() => { if (!NET.gone && NET.tr) hostStartGame(); }, 400); return; }
+  if (NET.want.me && NET.want.opp){ n.textContent = 'Shuffling…'; if (!NET.roundOpen) setTimeout(() => { if (!NET.gone && NET.tr && !NET.roundOpen && !V.live) fairRound(); }, 300); return; }
   n.textContent = NET.want.me ? 'Waiting for ' + NET.opp.name + '…' : NET.opp.name + ' wants a rematch!';
 }
 function oppLeft(){
   if (V.mode !== 'online' || NET.gone) return;
-  NET.gone = true; clearInterval(NET.hb); clearTimeout(NET.presT);
+  NET.gone = true; clearInterval(NET.hb); clearTimeout(NET.presT); clearInterval(NET.rttIv); clearTimeout(NET.fairT);
   if (G.engine){ G.engine.destroy(); G.engine = null; }
   G.claim = null;
   if (NET.tr){ NET.tr.close(); NET.tr = null; }
@@ -977,7 +1176,7 @@ function oppLeft(){
 function leaveOnline(quiet){
   NET.token++; if (NET.hostStop) NET.hostStop(); clearInterval(NET.cd);
   if (NET.tr){ try { NET.tr.send({ t: 'bye' }); } catch (e) {} const tr = NET.tr; NET.tr = null; setTimeout(() => tr.close(), 150); }
-  clearInterval(NET.hb); clearTimeout(NET.presT); NET.gone = true;
+  clearInterval(NET.hb); clearTimeout(NET.presT); clearInterval(NET.rttIv); clearTimeout(NET.fairT); NET.gone = true;
   if (V.mode === 'online' || V.mode === 'search') V.mode = null;
 }
 window.addEventListener('pagehide', () => { if (NET.tr) try { NET.tr.send({ t: 'bye' }); } catch (e) {} if (NET.hostStop) NET.hostStop(); });
@@ -1002,7 +1201,7 @@ setInterval(peekLobby, 15000);
 const savedRival = LS.get('rival', 'reg');
 const rr = document.querySelector('input[name="rival"][value="' + (BOTS[savedRival] ? savedRival : 'reg') + '"]'); if (rr) rr.checked = true;
 toMenu();
-window.__snap = { V, G, NET, Engine, onEvent, startBot, pressSnap, findOpponent, cancelSearch, toMenu, leaveOnline, oppLeft, rk, BOTS, stamp, dbModule, peekLobby };
+window.__snap = { V, G, NET, Engine, onEvent, startBot, pressSnap, findOpponent, cancelSearch, toMenu, leaveOnline, oppLeft, rk, BOTS, stamp, dbModule, peekLobby, Shadow, rttEst };
 })();
 </script>
 </body>
