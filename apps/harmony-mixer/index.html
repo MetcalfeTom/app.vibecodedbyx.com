@@ -81,6 +81,9 @@ h1 b{ font-weight:800; }
 .val.chordv{ font-size:1.55rem; }
 .val.chordv sup{ font-size:.55em; vertical-align:top; font-weight:300; }
 .sm{ color:var(--mute); font-size:.62rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chordsw{ align-self:flex-start; background:none; border:0; padding:0; font:inherit; font-size:.62rem; color:var(--mute); cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px; }
+.chordsw:hover, .chordsw:focus-visible{ color:var(--ink, #ece9e2); }
+.chordsw[aria-pressed="false"]{ opacity:.7; }
 .sm.warn{ color:var(--amber); }
 .badge{
   display:inline-flex; align-items:center; justify-content:center; align-self:flex-start;
@@ -580,7 +583,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.43 · 2026-09-30</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.44 · 2026-09-30</span>
 </footer>
 
 <script id="dsp">
@@ -685,6 +688,15 @@ function tempoFromOnsets(onRaw, fr){
 function detectBPM(x, sr){ var e = onsetEnvelope(x, sr); return e ? tempoFromOnsets(e.on, e.fr) : null; }
 
 /* accumulate spectral peaks between 55 Hz and 2 kHz into a 12-bin chroma (amplitude spectrum in) */
+/* v4.44 (pushedbutton 21:40: "the aligned timeline is prone to stuttering when it's mixing. Maybe the live chord display is
+   something we can turn off to save processing?"): one switch for both decks, remembered. Off = no spectrum reads at all. */
+var CHORD_KEY = 'harmony-chords-v1', CHORDS_ON = true;
+try{ CHORDS_ON = localStorage.getItem(CHORD_KEY) !== 'off'; }catch(e){}
+function chordSwUi(){ document.querySelectorAll('.chordsw').forEach(function(b){ b.textContent = CHORDS_ON ? 'live' : 'off'; b.setAttribute('aria-pressed', String(CHORDS_ON));
+  b.title = CHORDS_ON ? 'Live chord reading is on. Click to switch it off on both decks and save processing while you mix' : 'Live chord reading is off. Click to switch it back on'; }); }
+function chordSw(on){ CHORDS_ON = !!on; try{ localStorage.setItem(CHORD_KEY, CHORDS_ON ? 'on' : 'off'); }catch(e){}
+  if (!CHORDS_ON && typeof decks === 'object') ['A', 'B'].forEach(function(L){ var d = decks[L]; d.chord = null; d.chordCand = null; d.chordVotes = 0; d.chroma.fill(0); d.q.chordv.textContent = '·'; });
+  chordSwUi(); }
 function chromaFromMag(mag, binHz, chroma){
   var k0 = Math.max(2, Math.ceil(55 / binHz)), k1 = Math.min(mag.length - 2, Math.floor(2000 / binHz)), mx = 0;
   for (var k = k0; k <= k1; k++) if (mag[k] > mx) mx = mag[k];
@@ -1178,7 +1190,7 @@ function deckMarkup(L){
     '<div class="reads">' +
       '<div class="read"><span class="lbl">bpm</span><span class="val bpmv" aria-live="polite">—</span><span class="sm orig">original —</span></div>' +
       '<div class="read"><span class="lbl">key</span><span class="badge camelot" aria-live="polite">—</span><span class="sm keyname">—</span></div>' +
-      '<div class="read"><span class="lbl">chord</span><span class="val chordv" aria-live="off">·</span><span class="sm">live</span></div>' +
+      '<div class="read"><span class="lbl">chord</span><span class="val chordv" aria-live="off">·</span><button type="button" class="sm chordsw" aria-pressed="true" aria-label="Live chord reading">live</button></div>' +
     '</div>' +
     '<div class="wave" role="slider" aria-label="Deck ' + L + ' position — click to seek this deck; hold pauses while held, drag left or right to scrub" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><canvas></canvas><div class="hint">drop a track here</div><div class="status"></div></div>' +
     '<div class="time"><span class="el">0:00</span><button type="button" class="tot" aria-pressed="false" aria-label="Deck ' + L + ' total time — click to show remaining" title="click: total ↔ remaining">0:00</button></div>' +
@@ -1262,6 +1274,7 @@ function Deck(L, el){
   d.q.play.addEventListener('click', function(){ d.toggle(); });
   d.q.fade8.addEventListener('click', function(){ d.fade8Toggle(); });
   d.q.cue.addEventListener('click', function(){ d.cue(); });
+  $('.chordsw', el).addEventListener('click', function(){ chordSw(!CHORDS_ON); });   /* v4.44 */
   d.q.pitch.addEventListener('input', function(){ d.setRate(1 + parseFloat(d.q.pitch.value) / 100); if (state.lock && state.master === d.L) applyLock(); });
   d.q.vol.addEventListener('input', function(){ d.setVol(parseInt(d.q.vol.value, 10) / 100); });
   d.q.klock.addEventListener('click', function(){
@@ -1537,6 +1550,20 @@ Deck.prototype.pos = function(){
   else if (this.playing && this.el2 && this.mediaURL) p = this.el2.currentTime;
   else p = this.playing ? this.posAtStart + (ctx.currentTime - this.tStart) * this.rate : this.posAtStart;
   return Math.max(-this.preLimit(), Math.min(this.buffer.duration, p));
+};
+/* v4.44 smooth display clock for the aligned timeline. With keylock on (the normal path for a loaded file) pos() reads the
+   <audio> element's currentTime, which arrives in uneven steps: ~3 ms off a straight line on average and up to 20 ms while a
+   mix bends the tempo (measured headless), so the zoomed lanes shook. The lanes now follow a clock that runs on
+   performance.now() at the deck's rate and eases 12% per frame toward pos(); a jump over 60 ms (seek, cue, loop wrap) snaps.
+   DISPLAY ONLY: sync, the planner, the bar-line launch and every timing path keep reading pos(). */
+Deck.prototype.viewPos = function(){
+  var d = this, p = d.pos();
+  if (!d.playing || d.preRoll || (d.loopOn && d.loopA != null && d.loopB - d.loopA < 0.5)){ d._vp = null; return p; }
+  var now = performance.now() / 1000, v = d._vp;
+  if (!v){ d._vp = { p: p, t: now }; return p; }
+  var guess = v.p + (now - v.t) * (d.rate || 1) * (d.bend || 1), err = p - guess, out = Math.abs(err) > 0.06 ? p : guess + err * 0.12;
+  v.p = out; v.t = now;
+  return out;
 };
 Deck.prototype.play = function(){
   var d = this; if (!d.buffer || d.playing) return;
@@ -2398,21 +2425,30 @@ Deck.prototype.tick = function(){
   d.renderTime();
   if (d.playing && d.nodes) d.tickChord();
 };
+/* v4.44: ~30 reads a second instead of every frame (each read is an 8192-point FFT on the page's own thread, about half of a
+   frame's work while two decks play), reused buffers instead of two new arrays per frame, and powers only for the bins
+   chromaFromMag looks at (55 Hz to 2 kHz). Smoothing and votes are rescaled so the chord changes about as fast as before. */
 Deck.prototype.tickChord = function(){
-  var d = this, an = d.nodes.an, buf = d.fftBuf; an.getFloatFrequencyData(buf);
-  var amp = new Float32Array(buf.length), any = false;
-  for (var i = 0; i < buf.length; i++){ var v = buf[i]; amp[i] = v > -100 ? Math.pow(10, v / 20) : 0; if (v > -55) any = true; }
-  var fresh = new Float32Array(12);
-  if (any) chromaFromMag(amp, ctx.sampleRate / an.fftSize, fresh);
-  for (i = 0; i < 12; i++) d.chroma[i] = d.chroma[i] * 0.72 + fresh[i] * 0.28;
+  if (!CHORDS_ON) return;
+  var d = this, now = performance.now();
+  if (now - (d._chT || 0) < 30) return;
+  d._chT = now;
+  var an = d.nodes.an, buf = d.fftBuf; an.getFloatFrequencyData(buf);
+  var binHz = ctx.sampleRate / an.fftSize, lim = Math.min(buf.length, Math.floor(2000 / binHz) + 3);
+  var amp = d._amp && d._amp.length === buf.length ? d._amp : (d._amp = new Float32Array(buf.length)), any = false;
+  for (var i = 0; i < buf.length; i++){ var v = buf[i]; if (i < lim) amp[i] = v > -100 ? Math.pow(10, v / 20) : 0; if (v > -55) any = true; }
+  var fresh = d._fresh || (d._fresh = new Float32Array(12)); fresh.fill(0);
+  if (any) chromaFromMag(amp, binHz, fresh);
+  for (i = 0; i < 12; i++) d.chroma[i] = d.chroma[i] * 0.52 + fresh[i] * 0.48;
   var ch = any ? chordFromChroma(d.chroma) : null, name = ch ? ch.name : null, cur = d.chord ? d.chord.name : null;
   if (name !== (d.chordCand ? d.chordCand.name : null)){ d.chordCand = ch; d.chordVotes = 0; }
-  else if (++d.chordVotes >= 3 && name !== cur){ d.chord = ch; d.q.chordv.textContent = ch ? ch.name : '·'; }
+  else if (++d.chordVotes >= 2 && name !== cur){ d.chord = ch; d.q.chordv.textContent = ch ? ch.name : '·'; }
 };
 
 /* ── centre: wheel, compatibility, lock ── */
 var state = { lock: false, master: 'A' };
 var decks = { A: new Deck('A', $('#deckA')), B: new Deck('B', $('#deckB')) };
+chordSwUi();   /* v4.44 */
 var wheel = $('#wheel'), segs = {}, nums = {};
 (function buildWheel(){
   var ns = 'http://www.w3.org/2000/svg';
@@ -2540,9 +2576,19 @@ var stackCv = document.getElementById('stack');
 var STACK_BASE = 24;   /* wall-seconds visible at 1x — each lane scales by its own rate, so locked tempos show matching grids */
 function stackWindow(d){
   if (!d.buffer) return null;
-  var span = (STACK_BASE / ZOOM.z) * d.rate, p = d.playing ? d.pos() : d.posAtStart;
+  var span = (STACK_BASE / ZOOM.z) * d.rate, p = d.playing ? d.viewPos() : d.posAtStart;   /* v4.44 smooth clock */
   /* quarter-way pin: a quarter of the window behind the head, three quarters of what's coming */
   return { t0: p - span * 0.25, t1: p + span * 0.75, span: span };
+}
+/* v4.44 the lanes read peaks from a min/max summary of every 64 samples, built once per track: the old read took 6 samples
+   per pixel column at offsets that moved with the playhead, so the scrolling waveforms shimmered frame to frame. */
+var LANE_BLK = 64;
+function laneSummary(d){
+  var buf = d.buffer;
+  if (d._lsum && d._lsum.buf === buf) return d._lsum;
+  var ch = buf.getChannelData(0), n = Math.ceil(ch.length / LANE_BLK), mn = new Float32Array(n), mx = new Float32Array(n);
+  for (var k = 0, i = 0; k < n; k++){ var lo = 0, hi = 0, e = Math.min(ch.length, i + LANE_BLK); for (; i < e; i++){ var v = ch[i]; if (v < lo) lo = v; else if (v > hi) hi = v; } mn[k] = lo; mx[k] = hi; }
+  return (d._lsum = { buf: buf, mn: mn, mx: mx });
 }
 function drawStackLane(g, d, w, laneH){
   var vw2 = stackWindow(d);
@@ -2552,13 +2598,14 @@ function drawStackLane(g, d, w, laneH){
     return;
   }
   var ch = d.buffer.getChannelData(0), sr = d.buffer.sampleRate, dur = d.buffer.duration;
-  var mid = laneH / 2, per = vw2.span * sr / w, step = Math.max(1, Math.floor(per / 6));
+  var mid = laneH / 2, per = vw2.span * sr / w, S = per >= LANE_BLK * 2 ? laneSummary(d) : null;
   g.fillStyle = d.color || '#6b6f78'; g.globalAlpha = 0.9;
   for (var x = 0; x < w; x++){
     var ta = vw2.t0 + x / w * vw2.span, tb = ta + vw2.span / w;
     if (tb <= 0 || ta >= dur) continue;
     var a = Math.max(0, Math.floor(ta * sr)), b = Math.min(ch.length, Math.floor(tb * sr)), mn = 0, mx = 0;
-    for (var i = a; i < b; i += step){ var v = ch[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (S){ for (var k = Math.floor(a / LANE_BLK), kb = Math.min(S.mn.length, Math.max(k + 1, Math.ceil(b / LANE_BLK))); k < kb; k++){ if (S.mn[k] < mn) mn = S.mn[k]; if (S.mx[k] > mx) mx = S.mx[k]; } }
+    else for (var i = a; i < b; i++){ var v = ch[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
     var y0 = mid + mn * mid * 0.92, y1 = mid + mx * mid * 0.92;
     g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0)));
   }
@@ -2712,7 +2759,7 @@ function renderSTrans(){
 }
 ['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
 renderSTrans();
-window.__X = { keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { chordSw: chordSw, get chordsOn(){ return CHORDS_ON; }, laneSummary: laneSummary, keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
@@ -5094,6 +5141,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.44', t:'Smoother timeline while mixing', d:'The aligned lanes follow a steady clock and stop shimmering, chord reading costs a fraction of what it did, and the live label under chord switches it off.', p:'reliability', i:'high', e:'med', st:'verified', ev:'prof/jit headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.43', t:'Fade handles for both decks', d:'The rehearsal curve follows whichever deck is leaving, its handles always show, and fades are set in beats so sliding the overlap no longer stretches them.', p:'creativity', i:'high', e:'med', st:'verified', ev:'v43 headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.42', t:'Tap the 1 moves the grid', d:'A tap on the one slides the whole beat grid onto your tap, same tempo; the song never moves.', p:'reliability', i:'high', e:'low', st:'verified', ev:'tap42 headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.38', t:'Vocal button retired', d:'The half-baked manual vocal marker is gone; the phrase markers already show where the singing sits.', p:'presentability', i:'low', e:'low', st:'verified', ev:'pushedbutton 2026-09-26' },
