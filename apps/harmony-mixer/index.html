@@ -583,7 +583,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.45 · 2026-09-30</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.46 · 2026-09-30</span>
 </footer>
 
 <script id="dsp">
@@ -3930,9 +3930,21 @@ function curveNorm(spec){
   var bt = function(v){ v = Math.round(+v); return v >= 1 ? Math.min(OVERLAP_MAX * 4, v) : null; };
   var n = { mix: c(spec.mix, 1), tailOut: c(spec.tailOut, 0.5), headIn: c(spec.headIn, 0.5) }, f = bt(spec.fall), r = bt(spec.rise);
   if (f != null){ n.fall = f; n.tailOut = 0; } if (r != null){ n.rise = r; n.headIn = 0; }
+  /* v4.46 FOUR CORNERS (pushedbutton 22:13-22:16: "a handle for the start, a handle for the left angle, a handle for the right
+     angle, a handle for the end", the autopilot still playing the mix): the incoming comes up between its two corners and the
+     outgoing goes down between its two, each ramp anywhere inside the overlap. Both songs play across the whole overlap: before
+     the incoming's first corner it runs silent underneath, after the outgoing's last one the old song runs out silent. Counted
+     in beats before the overlap END, which stays put on the leaving song when the overlap slides. Replaces fall/rise/tail/head. */
+  if (spec.w && typeof spec.w === 'object'){
+    var cb = function(v){ if (v == null) return null; v = Math.round(+v); return v >= 0 ? Math.min(OVERLAP_MAX * 4, v) : null; };
+    var w = { os: cb(spec.w.os), oe: cb(spec.w.oe), is: cb(spec.w.is), ie: cb(spec.w.ie) };
+    if (w.oe == null) w.oe = 0; if (w.ie == null) w.ie = 0;
+    if (w.os != null && w.os <= w.oe) w.os = w.oe + 1; if (w.is != null && w.is <= w.ie) w.is = w.ie + 1;
+    if (!(w.os == null && w.oe === 0 && w.is == null && w.ie === 0)){ n.w = w; n.tailOut = 0; n.headIn = 0; delete n.fall; delete n.rise; }
+  }
   return n;
 }
-function curveIsDefault(spec){ var n = curveNorm(spec); return n.mix === 0 && n.tailOut === 0 && n.headIn === 0 && n.fall == null && n.rise == null; }
+function curveIsDefault(spec){ var n = curveNorm(spec); return n.mix === 0 && n.tailOut === 0 && n.headIn === 0 && n.fall == null && n.rise == null && !n.w; }
 /* the shape as curveAt rides it over a window of `bars` bars: fall/rise become fractions of THAT window (a fall as long as the
    window or longer = the whole window); tailOut/headIn may then reach 1 - 1/beats, past the 0.5 an unresolved spec allows */
 function curveResolve(spec, bars){
@@ -3940,6 +3952,12 @@ function curveResolve(spec, bars){
   var n = curveNorm(spec), beats = Math.max(1, Math.round((bars || 0) * 4)) || 1, o = { mix: n.mix, tailOut: n.tailOut, headIn: n.headIn };
   if (n.fall != null) o.tailOut = n.fall >= beats ? 0 : 1 - n.fall / beats;
   if (n.rise != null) o.headIn = n.rise >= beats ? 0 : 1 - n.rise / beats;
+  if (n.w){   /* v4.46: the corners as fractions of THIS overlap; a ramp that no longer fits is squeezed to at least a beat */
+    var fr = function(v){ return v == null ? 0 : 1 - Math.min(v, beats) / beats; }, one = 1 / beats;
+    var ramp = function(a, b){ var s = fr(a), e = fr(b); if (e - s < one - 1e-9){ e = Math.min(1, s + one); s = e - one; } return [s, e]; };
+    var ro = ramp(n.w.os, n.w.oe), ri = ramp(n.w.is, n.w.ie);
+    o.ramps = true; o.os = ro[0]; o.oe = ro[1]; o.is = ri[0]; o.ie = ri[1];
+  }
   o.resolved = true;
   return o;
 }
@@ -3954,20 +3972,44 @@ function curveAt(t, spec){
   if (t >= 1) return { a: 0, b: 1 };
   if (!spec) return equalPower(t);
   var n = spec.resolved ? { mix: Math.max(0, Math.min(1, +spec.mix || 0)), tailOut: Math.max(0, Math.min(0.999, +spec.tailOut || 0)), headIn: Math.max(0, Math.min(0.999, +spec.headIn || 0)) } : curveNorm(spec);
-  if (n.mix === 0 && n.tailOut === 0 && n.headIn === 0) return equalPower(t);
-  var uo = Math.max(0, Math.min(1, (t - n.tailOut) / (1 - n.tailOut)));
-  var ui = Math.max(0, Math.min(1, t / (1 - n.headIn)));
+  /* v4.46: every shape is two ramps, the outgoing going down over [os, oe] and the incoming coming up over [is, ie]; the older
+     tail/head shapes are the ramps [tailOut, 1] and [0, 1 - headIn], so they ride exactly as before */
+  var os = n.tailOut, oe = 1, is = 0, ie = 1 - n.headIn;
+  if (spec.resolved && spec.ramps){ os = +spec.os || 0; oe = spec.oe == null ? 1 : +spec.oe; is = +spec.is || 0; ie = spec.ie == null ? 1 : +spec.ie; }
+  if (n.mix === 0 && os === 0 && oe === 1 && is === 0 && ie === 1) return equalPower(t);
+  var uo = Math.max(0, Math.min(1, (t - os) / Math.max(1e-9, oe - os)));
+  var ui = Math.max(0, Math.min(1, (t - is) / Math.max(1e-9, ie - is)));
   var eo = Math.cos(uo * Math.PI / 2), ei = Math.sin(ui * Math.PI / 2);
   var co = 1 - cutShape(uo), ci = cutShape(ui);
   var a = eo + (co - eo) * n.mix, b = ei + (ci - ei) * n.mix;
   /* the OUTGOING lane keeps precedence: a hold the DJ asked for is honoured exactly; the incoming is trimmed to the cap
      until the outgoing has fallen far enough to leave it headroom (both lanes stay monotonic by construction) */
+  if (spec.resolved && spec.ramps){
+    /* v4.46: drawn corners overlap the songs on purpose, so both are turned down TOGETHER when their sum would pass the cap:
+       a stretch where both ramps are up plays both songs at the same level (about -2.5 dB each) instead of holding the
+       incoming under the outgoing. Still never over +0.5 dB, and both lanes stay monotonic (a falls, b rises, the scale
+       only follows their sum). */
+    var pw = a * a + b * b;
+    if (pw > CURVE_CAP){ var sc = Math.sqrt(CURVE_CAP / pw); a *= sc; b *= sc; }
+    return { a: a, b: b };
+  }
   b = Math.min(b, Math.sqrt(Math.max(0, CURVE_CAP - a * a)));
   return { a: a, b: b };
 }
-function curveWords(spec, tailBeats, headBeats){
+/* v4.46: a spot in the overlap, in beats from its start, as bar + beat of the mix */
+function fadeSpot(p, beats){
+  if (!(beats > 0)) return '';
+  if (p <= 0) return 'the start'; if (p >= beats) return 'the end';
+  return 'bar ' + (Math.floor(p / 4) + 1) + (p % 4 ? ' beat ' + (p % 4 + 1) : '');
+}
+function curveWords(spec, tailBeats, headBeats, beats){
   var n = curveNorm(spec), w = n.mix === 0 ? 'equal-power' : n.mix <= 0.35 ? 'smooth with a little cut' : n.mix <= 0.65 ? 'hybrid' : n.mix < 1 ? 'cut-leaning' : 'hard cut';
   var bw = function(b){ return b + (b === 1 ? ' beat' : ' beats'); };
+  if (n.w){
+    if (beats > 0){ var r = curveResolve(n, beats / 4), sp = function(u){ return fadeSpot(Math.round(u * beats), beats); };
+      return w + ' · incoming comes up from ' + sp(r.is) + ' to ' + sp(r.ie) + ' · outgoing drops from ' + sp(r.os) + ' to ' + sp(r.oe); }
+    return w + ' · own fade corners';
+  }
   if (n.fall != null) w += ' · outgoing fades over its last ' + bw(n.fall);
   else if (tailBeats > 0) w += ' · outgoing holds ' + bw(tailBeats);
   if (n.rise != null) w += ' · incoming comes up over ' + bw(n.rise) + ' (as headroom allows)';
@@ -3975,7 +4017,7 @@ function curveWords(spec, tailBeats, headBeats){
   return w;
 }
 var api = { barPhaseError: barPhaseError, equalPower: equalPower, snapDownbeat: snapDownbeat, snapBarNear: snapBarNear, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, barLanding: barLanding, loopContinuous: loopContinuous, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR,
-  curveAt: curveAt, curveNorm: curveNorm, curveIsDefault: curveIsDefault, curveResolve: curveResolve, curveWords: curveWords, cutShape: cutShape, CURVE_DEFAULT: CURVE_DEFAULT, CURVE_CAP: CURVE_CAP, OVERLAP_MAX: OVERLAP_MAX };
+  curveAt: curveAt, fadeSpot: fadeSpot, curveNorm: curveNorm, curveIsDefault: curveIsDefault, curveResolve: curveResolve, curveWords: curveWords, cutShape: cutShape, CURVE_DEFAULT: CURVE_DEFAULT, CURVE_CAP: CURVE_CAP, OVERLAP_MAX: OVERLAP_MAX };
 if (typeof module !== 'undefined' && module.exports){ module.exports = api; return; }
 
 /* ── browser wiring (display-only) ── */
@@ -4064,8 +4106,8 @@ sec.innerHTML =
   '<div class="curverow" id="curverow" role="group" aria-label="Crossfade curve for the outgoing track when it leaves a mix">' +
     '<span class="cvlbl" id="cvlblt">curve · A leaving</span>' +
     '<label class="cvmix">mix <input type="range" id="cvmix" min="0" max="100" step="5" value="0" aria-label="Crossfade shape: 0 equal-power, 100 hard cut"> <span class="cueval" id="cvmixv">equal-power</span></label>' +
-    '<span class="cuechip"><b class="cuelbl">fade out</b><button type="button" class="btn small" id="cvtailm" aria-label="Outgoing fade one step shorter">−</button><span class="cueval" id="cvtailv">whole overlap</span><button type="button" class="btn small" id="cvtailp" aria-label="Outgoing fade one step longer">+</button></span>' +
-    '<span class="cuechip"><b class="cuelbl">fade in</b><button type="button" class="btn small" id="cvheadm" aria-label="Incoming fade-in one step shorter">−</button><span class="cueval" id="cvheadv">whole overlap</span><button type="button" class="btn small" id="cvheadp" aria-label="Incoming fade-in one step longer">+</button></span>' +
+    '<span class="cuechip"><b class="cuelbl">in comes up</b><button type="button" class="btn small" id="cvtailm" aria-label="Incoming ramp a bar earlier">−</button><span class="cueval" id="cvtailv">whole overlap</span><button type="button" class="btn small" id="cvtailp" aria-label="Incoming ramp a bar later">+</button></span>' +
+    '<span class="cuechip"><b class="cuelbl">out drops</b><button type="button" class="btn small" id="cvheadm" aria-label="Outgoing ramp a bar earlier">−</button><span class="cueval" id="cvheadv">whole overlap</span><button type="button" class="btn small" id="cvheadp" aria-label="Outgoing ramp a bar later">+</button></span>' +
     '<button type="button" class="btn small" id="cvreset" title="Back to equal-power for this track">reset</button>' +
     '<button type="button" class="btn small" id="cvall" aria-pressed="false" title="Use this shape for every hand-off whose outgoing track has no shape of its own (press again to clear)">use for all</button>' +
     '<span class="cvwords" id="cvwords"></span></div>' +
@@ -4109,7 +4151,7 @@ st.textContent =
   '.adjq .ok{ color:#7ec97a; } .adjq .mid{ color:#e0b64f; } .adjq .bad{ color:#e0584a; }' +
   '.adjq .wrn{ opacity:.7; font-size:.58rem; }';
 document.head.appendChild(st);
-var wave = $('#adjwave'), wctx = wave.getContext('2d'), PREVIEW_WIN = null;
+var wave = $('#adjwave'), wctx = wave.getContext('2d'), PREVIEW_WIN = null, RH_KNOBS = null;   /* v4.46: the four corner dots as drawn */
 /* ── curve editor (v4.9.1): edits the shape stored for the track that LEAVES. v4.43 (pushedbutton: the handles only showed
    while Deck 1 was live): that is the outgoing deck of rehearseDir, A or B, the same track ⚡ reads the shape from; lengths are
    beats of the mix (a quarter of the planned bar), the fade-out ending where the overlap ends, the fade-in starting where it starts ── */
@@ -4120,7 +4162,10 @@ function curveState(){
   var own = curveGet(k), spec = curveNorm(own || curveGet('*') || CURVE_DEFAULT), rs = curveResolve(spec, bars);
   var fall = beats ? (spec.fall != null ? Math.min(spec.fall, beats) : Math.round((1 - spec.tailOut) * beats)) : (spec.fall || 0);
   var rise = beats ? (spec.rise != null ? Math.min(spec.rise, beats) : Math.round((1 - spec.headIn) * beats)) : (spec.rise || 0);
-  return { L: L, d: decks[L], k: k, dur: dur, bars: bars, beats: beats, own: own, spec: spec, rs: rs, fall: fall, rise: rise,
+  /* v4.46: the four corners in beats from the overlap start (an older shape: its tail and head as ramps) */
+  var R = rs && rs.ramps ? rs : { os: rs ? rs.tailOut : 0, oe: 1, is: 0, ie: rs ? 1 - rs.headIn : 1 };
+  var cn = { os: Math.round(R.os * beats), oe: Math.round(R.oe * beats), is: Math.round(R.is * beats), ie: Math.round(R.ie * beats) };
+  return { L: L, d: decks[L], k: k, dur: dur, bars: bars, beats: beats, own: own, spec: spec, rs: rs, fall: fall, rise: rise, cn: cn,
            tail: beats ? Math.round(spec.tailOut * beats) : 0, head: beats ? Math.round(spec.headIn * beats) : 0 };
 }
 function curveLenTxt(fixed, n, beats, frac){ return fixed ? n + (n === 1 ? ' beat' : ' beats') : frac > 0 && beats ? n + ' beats · stretches' : 'whole overlap'; }
@@ -4132,28 +4177,35 @@ function curveUI(){
   var mixEl = document.getElementById('cvmix');
   if (document.activeElement !== mixEl) mixEl.value = Math.round(st.spec.mix * 100);
   document.getElementById('cvmixv').textContent = st.spec.mix === 0 ? 'equal-power' : Math.round(st.spec.mix * 100) + '% cut';
-  document.getElementById('cvtailv').textContent = curveLenTxt(st.spec.fall != null, st.fall, st.beats, st.spec.tailOut);
-  document.getElementById('cvheadv').textContent = curveLenTxt(st.spec.rise != null, st.rise, st.beats, st.spec.headIn);
+  document.getElementById('cvtailv').textContent = st.beats ? fadeSpot(st.cn.is, st.beats) + ' → ' + fadeSpot(st.cn.ie, st.beats) : 'whole overlap';
+  document.getElementById('cvheadv').textContent = st.beats ? fadeSpot(st.cn.os, st.beats) + ' → ' + fadeSpot(st.cn.oe, st.beats) : 'whole overlap';
   document.getElementById('cvall').setAttribute('aria-pressed', String(!!curveGet('*')));
-  document.getElementById('cvwords').textContent = off ? 'load the outgoing deck to shape how its track leaves' : curveWords(st.spec, st.tail, st.head) + (st.own ? ' · saved for this track' : curveGet('*') ? ' · the shared default' : ' · default') + (st.dur ? '' : ' · beats need a planned window');
+  document.getElementById('cvwords').textContent = off ? 'load the outgoing deck to shape how its track leaves' : curveWords(st.spec, st.tail, st.head, st.beats) + (st.own ? ' · saved for this track' : curveGet('*') ? ' · the shared default' : ' · default') + (st.dur ? '' : ' · beats need a planned window');
 }
 function curveEdit(patch, why){
   var st = curveState(); if (!st.k) return;
   var s = { mix: patch.mix != null ? patch.mix : st.spec.mix, tailOut: st.spec.tailOut, headIn: st.spec.headIn, fall: st.spec.fall, rise: st.spec.rise };
   if ('fall' in patch){ s.fall = patch.fall; s.tailOut = 0; } if ('rise' in patch){ s.rise = patch.rise; s.headIn = 0; }   /* null = back to the whole overlap */
+  if (patch.cn && st.beats){   /* v4.46: corners in beats from the overlap start → beats before its end; all four on the edges = no corners */
+    var B = st.beats, c = patch.cn, be = function(v){ v = Math.max(0, Math.min(B, Math.round(v))); return v <= 0 ? null : B - v; };
+    s = { mix: s.mix };
+    if (!(c.os <= 0 && c.oe >= B && c.is <= 0 && c.ie >= B)) s.w = { os: be(c.os), oe: be(c.oe), is: be(c.is), ie: be(c.ie) };
+  }
   curveSet(st.k, curveNorm(s)); curveUI(); drawPreview(null);
-  var s2 = curveState(); statusMsg('curve for "' + (s2.d && s2.d.name || 'deck ' + s2.L) + '" leaving: ' + curveWords(s2.spec, s2.tail, s2.head) + (why ? ' (' + why + ')' : ''));
+  var s2 = curveState(); statusMsg('curve for "' + (s2.d && s2.d.name || 'deck ' + s2.L) + '" leaving: ' + curveWords(s2.spec, s2.tail, s2.head, s2.beats) + (why ? ' (' + why + ')' : ''));
 }
 (function(){
   var g = function(id){ return document.getElementById(id); };
   g('cvmix').addEventListener('input', function(){ curveEdit({ mix: parseInt(this.value, 10) / 100 }); });
-  /* v4.43: one beat at a time up to 8 beats, then whole bars; as long as the overlap (or longer) = the whole overlap again */
-  function nudge(which, dir){ var st = curveState(); if (!st.k || !st.beats) return; var cur = which === 'fall' ? st.fall : st.rise;
-    var nx = dir > 0 ? (cur >= 8 ? (Math.floor(cur / 4) + 1) * 4 : cur + 1) : (cur > 8 ? (Math.ceil(cur / 4) - 1) * 4 : cur - 1);
-    nx = Math.max(1, Math.min(st.beats, nx)); var p = {}; p[which] = nx >= st.beats ? null : nx;
-    curveEdit(p, (which === 'fall' ? 'fade out ' : 'fade in ') + (nx >= st.beats ? 'the whole overlap' : nx + (nx === 1 ? ' beat' : ' beats'))); }
-  g('cvtailm').addEventListener('click', function(){ nudge('fall', -1); }); g('cvtailp').addEventListener('click', function(){ nudge('fall', 1); });
-  g('cvheadm').addEventListener('click', function(){ nudge('rise', -1); }); g('cvheadp').addEventListener('click', function(){ nudge('rise', 1); });
+  /* v4.46: − / + slide a whole ramp a bar earlier / later, its length kept (the corners on the preview set the lengths) */
+  function nudge(which, dir){ var st = curveState(); if (!st.k || !st.beats) return;
+    var c = { os: st.cn.os, oe: st.cn.oe, is: st.cn.is, ie: st.cn.ie }, a = which === 'in' ? 'is' : 'os', b = which === 'in' ? 'ie' : 'oe';
+    var d = Math.max(-c[a], Math.min(st.beats - c[b], dir * 4));
+    if (!d){ statusMsg('the ' + (which === 'in' ? 'incoming' : 'outgoing') + ' ramp is already at the ' + (dir < 0 ? 'start' : 'end') + ' of the overlap'); return; }
+    c[a] += d; c[b] += d;
+    curveEdit({ cn: c }, (which === 'in' ? 'incoming comes up ' : 'outgoing drops ') + fadeSpot(c[a], st.beats) + ' → ' + fadeSpot(c[b], st.beats)); }
+  g('cvtailm').addEventListener('click', function(){ nudge('in', -1); }); g('cvtailp').addEventListener('click', function(){ nudge('in', 1); });
+  g('cvheadm').addEventListener('click', function(){ nudge('out', -1); }); g('cvheadp').addEventListener('click', function(){ nudge('out', 1); });
   g('cvreset').addEventListener('click', function(){ var st = curveState(); if (!st.k) return; curveSet(st.k, null); curveUI(); drawPreview(null); statusMsg('curve for "' + (st.d && st.d.name || 'deck ' + st.L) + '" reset — ' + (curveGet('*') ? 'the shared default applies' : 'equal-power')); });
   g('cvall').addEventListener('click', function(){ var st = curveState(); if (!st.k) return;
     if (curveGet('*')){ curveSet('*', null); statusMsg('shared default cleared — hand-offs without their own shape ride equal-power'); }
@@ -4168,8 +4220,9 @@ function curveEdit(patch, why){
     var r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (g.W / r.width), y = (e.clientY - r.top) * (g.H / r.height);
     var st = curveState(), w = PREVIEW_WIN, cv = !!(st.k && w && st.beats), m = 'slide';
     if (cv && x >= w.x0 - 8 && x <= w.x1 + 8){
-      var tx = w.x0 + st.rs.tailOut * (w.x1 - w.x0), hx = w.x0 + (1 - st.rs.headIn) * (w.x1 - w.x0), tol = e.pointerType === 'touch' ? 16 : 10;
-      m = Math.abs(x - tx) <= tol && y < w.H / 2 ? 'fall' : Math.abs(x - hx) <= tol && y >= w.H / 2 ? 'rise' : 'pick';
+      var tol = e.pointerType === 'touch' ? 20 : 12, best = null, bd = 1e9;
+      (RH_KNOBS || []).forEach(function(kb){ var dd = Math.hypot(x - kb.x, (y - kb.y) * 0.6); if (dd < bd){ bd = dd; best = kb.id; } });
+      m = best && bd <= tol ? best : 'pick';
     }
     if ((m === 'slide' || m === 'pick') && (LIVE || dry)){
       if (m === 'slide'){ statusMsg('the overlap is locked while ' + (LIVE ? 'an auto-mix' : 'a dry-run') + ' is running'); return; }
@@ -4194,8 +4247,12 @@ function curveEdit(patch, why){
     var r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (w.W / r.width), y = (e.clientY - r.top) * (w.H / r.height), frac = (x - w.x0) / (w.x1 - w.x0), p = {};
     if (drag === 'mix') p.mix = Math.round(Math.max(0, Math.min(1, 1 - y / w.H)) * 20) / 20;
     else if (!st.beats) return;
-    else if (drag === 'fall'){ var fb = Math.max(1, Math.round((1 - frac) * st.beats)); if ((fb >= st.beats ? null : fb) === (st.spec.fall == null ? null : st.spec.fall)) return; p.fall = fb >= st.beats ? null : fb; }
-    else { var rb = Math.max(1, Math.round(frac * st.beats)); if ((rb >= st.beats ? null : rb) === (st.spec.rise == null ? null : st.spec.rise)) return; p.rise = rb >= st.beats ? null : rb; }
+    else {   /* v4.46: a corner, snapped to beats of the mix, never past its partner (a ramp is at least a beat) */
+      var c = { os: st.cn.os, oe: st.cn.oe, is: st.cn.is, ie: st.cn.ie }, bt2 = Math.round(Math.max(0, Math.min(1, frac)) * st.beats);
+      if (drag === 'os') bt2 = Math.min(c.oe - 1, bt2); else if (drag === 'is') bt2 = Math.min(c.ie - 1, bt2);
+      else if (drag === 'oe') bt2 = Math.max(c.os + 1, bt2); else if (drag === 'ie') bt2 = Math.max(c.is + 1, bt2); else return;
+      if (bt2 === c[drag]) return; c[drag] = bt2; p.cn = c;
+    }
     curveEdit(p);
   });
   function endDrag(){ var was = slide && slide.s; drag = null; slide = null; wave.classList.remove('sliding'); if (was) slideEnd(); }
@@ -4413,11 +4470,21 @@ function drawPreview(prog, waitSec){
   rhCurve(function(u){ var g = curveAt(u, spec); return [wx0 + u * (wx1 - wx0), mid - g.a * (mid - 10)]; }, RH.out);
   rhCurve(function(u){ var g = curveAt(u, spec); return [wx0 + u * (wx1 - wx0), H - g.b * (mid - 10)]; }, RH.inc);
   }
-  if (PREVIEW_WIN){   /* handles: where the outgoing starts to fade (top lane), where the incoming is up (lower lane); at the edges by default */
-    var n = spec || CURVE_DEFAULT, tx = wx0 + n.tailOut * (wx1 - wx0), hx = wx0 + (1 - n.headIn) * (wx1 - wx0);
-    wctx.fillStyle = RH.bg; wctx.fillRect(tx - 4, 3, 8, mid - 6); wctx.fillRect(hx - 4, mid + 3, 8, mid - 6);
-    wctx.fillStyle = RH.out; wctx.fillRect(tx - 3, 4, 6, mid - 8);
-    wctx.fillStyle = RH.inc; wctx.fillRect(hx - 3, mid + 4, 6, mid - 8);
+  RH_KNOBS = null;
+  if (PREVIEW_WIN){   /* v4.46 four corner dots ON the curves: where the outgoing starts to drop and is gone, where the incoming starts to
+       come up and is up; on the overlap edges by default. A thin guide line runs down from each so it reads across both lanes. */
+    var n = spec || CURVE_DEFAULT, R4 = n.ramps ? n : { os: n.tailOut || 0, oe: 1, is: 0, ie: 1 - (n.headIn || 0) };
+    var yA = function(u){ var g = curveAt(u, spec); return stack ? 6 + (1 - g.a) * (H - 12) : mid - g.a * (mid - 10); };
+    var yB = function(u){ var g = curveAt(u, spec); return stack ? 6 + (1 - g.b) * (H - 12) : H - g.b * (mid - 10); };
+    var ex = function(u){ return wx0 + u * (wx1 - wx0); }, yc = function(y){ return Math.max(8, Math.min(H - 8, y)); };
+    RH_KNOBS = [ { id: 'os', x: ex(R4.os), y: yc(yA(R4.os)), c: RH.out }, { id: 'oe', x: ex(R4.oe), y: yc(yA(R4.oe)), c: RH.out },
+                 { id: 'is', x: ex(R4.is), y: yc(yB(R4.is)), c: RH.inc }, { id: 'ie', x: ex(R4.ie), y: yc(yB(R4.ie)), c: RH.inc } ];
+    wctx.fillStyle = 'rgba(255,255,255,.14)';
+    RH_KNOBS.forEach(function(kb){ if (kb.x > wx0 + 2 && kb.x < wx1 - 2) wctx.fillRect(Math.round(kb.x), 2, 1, H - 4); });
+    RH_KNOBS.forEach(function(kb){
+      wctx.beginPath(); wctx.arc(kb.x, kb.y, 6.5, 0, Math.PI * 2); wctx.fillStyle = RH.bg; wctx.fill();
+      wctx.beginPath(); wctx.arc(kb.x, kb.y, 4.5, 0, Math.PI * 2); wctx.fillStyle = kb.c; wctx.fill();
+    });
   }
   wctx.font = '10px system-ui';
   /* the outgoing song's ending: an END line where its track stops, or how far past the view it is */
@@ -4931,7 +4998,7 @@ CHAIN.timer = setInterval(chainTick, 250);
 root.__ADJ = { HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
-  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rhAxis: rhAxis, get rhWin(){ return RH_WIN; }, get rhHold(){ return rhHold; }, slideStart: slideStart, slideTo: slideTo, slideBars: slideBars, slideEnd: slideEnd, overlapStep: overlapStep, overlapSet: overlapSet, overlapAuto: overlapAuto, rhSetStack: rhSetStack, get rhStack(){ return rhStackOn; }, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
+  drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rhAxis: rhAxis, get rhWin(){ return RH_WIN; }, get rhKnobs(){ return RH_KNOBS; }, curveEdit: curveEdit, get rhHold(){ return rhHold; }, slideStart: slideStart, slideTo: slideTo, slideBars: slideBars, slideEnd: slideEnd, overlapStep: overlapStep, overlapSet: overlapSet, overlapAuto: overlapAuto, rhSetStack: rhSetStack, get rhStack(){ return rhStackOn; }, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
   liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor, barLanding: barLanding, snapBarNear: snapBarNear, loopContinuous: loopContinuous, liveLoop: liveLoop };
 })(typeof window !== 'undefined' ? window : this);
 </script>
@@ -5158,6 +5225,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.46', t:'Four fade corners', d:'Drag four dots on the rehearsal preview: where the next song starts to come up and where it is in, where the old one starts to drop and where it is gone, anywhere inside the overlap. The auto-mix rides it.', p:'creativity', i:'high', e:'med', st:'verified', ev:'curve tests + headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.45', t:'No more beat-late mixes', d:'An incoming song that starts more than half a beat late is now pushed forward onto the bar, instead of back onto the previous beat.', p:'reliability', i:'high', e:'low', st:'verified', ev:'lag probe headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.44', t:'Smoother timeline while mixing', d:'The aligned lanes follow a steady clock and stop shimmering, chord reading costs a fraction of what it did, and the live label under chord switches it off.', p:'reliability', i:'high', e:'med', st:'verified', ev:'prof/jit headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.43', t:'Fade handles for both decks', d:'The rehearsal curve follows whichever deck is leaving, its handles always show, and fades are set in beats so sliding the overlap no longer stretches them.', p:'creativity', i:'high', e:'med', st:'verified', ev:'v43 headless · pushedbutton 2026-09-30' },
