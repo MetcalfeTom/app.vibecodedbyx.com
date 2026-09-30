@@ -45,6 +45,11 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   Town cards show food, what people live on and the town's decision; civ card lists materials.
   Night villagers get a warm glow so they read in the campfire era.
 
+- v1.3: settlers visibly walk (3 people with bundles, dashed trail) from the nearest town to a newly founded one;
+  a small group marker when zoomed out; tap them: who they are, where they go, why. Tapping a town from the overview
+  flies in (tp 14) so its people show; town card lists its inhabitants by name + job as buttons (tap = select person).
+  Tapping a town's centre prefers the town over a villager standing on it. Names persist and are unique per town.
+  Mammoths stop breeding after the thaw and die out (~-4000 at the latest). New seam `&car`; `__imp` exposes tap/cam/sel/SX/SY.
 ## issues
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
 - Probe mode (G.player=0) never declares war for civ 0 unless focus mil.
@@ -54,7 +59,6 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - Desktop bar: flex-basis does not count toward a flex container's max-content width in Chrome; give buttons an explicit width.
 
 ## todos
-- Aggregate group markers when zoomed out; settlers visibly walking to found a new town.
 - Horse domestication for the herd path, wonders drawn on the map.
 - Wonders drawn on the map, more event variety per path.
 - Sea path is picked less often than farm/herd; watch it.
