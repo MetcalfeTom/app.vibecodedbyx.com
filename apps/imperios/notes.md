@@ -22,8 +22,8 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 
 ## Test seams
 - `?probe=N&seed=X&trace=1` runs N headless games, JSON in title. Node harness: scratchpad nodeprobe.js.
-- `?shot=N&seed=X[&zoom=k][&ev=id][&info][&lang=es]` renders tick N paused; title "READY ..." / "FAIL ...".
-- `window.__imp` = {G,ARMY,NAVY,navyFront,tick,boot,renderOwn,fitView,startReplay,endReplay,RP,setLang,draw,tap,cam,sel,SX,SY}.
+- `?shot=N&seed=X[&zoom=k][&ev=id][&info][&dip[=civ]][&lang=es]` renders tick N paused (`&dip` opens the card of the neighbour with the longest border); title "READY ..." / "FAIL ...".
+- `window.__imp` = {G,ARMY,NAVY,navyFront,seaPath,seaLine,tick,boot,setSel,dipAct,giftCost,peaceCost,dipRow,renderOwn,fitView,startReplay,endReplay,RP,setLang,draw,tap,cam,sel,SX,SY}.
 
 ## log
 - v1.0 2026-09-30: first playable. Campfire opening, fire event, 3 paths, 8 eras, wars/alliances/rebels/
@@ -122,6 +122,14 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   then any sea), string-pulled into 1-3 legs. Ships follow s.path (s.wi), re-plot when the front changes or a returning fleet goes
   back to war (F.ret), and sail home along s.back to the harbour mouth (s.hx/hy), not to the town on land. Test: capefind.js
   (A1 t215-230 war 2,6 used to cross an island with 10 land samples; now 0). Formation spread can still brush a tiny island at close zoom.
+- v1.13: player diplomacy from a people's card (tap their land), once both sides are past the campfire era. Send gifts
+  (15+era*10+cities*3 gold, rel +18, chronicle line at most every 40 ticks), propose an alliance (needs rel >= 30, refused if they
+  are allied to someone you fight), break an alliance (rel -25), declare war (two taps within 4 s, blocked by a truce, -5 stability
+  if relations were friendly), ask for peace (not in the first 8 ticks of a war; tribute 20+era*15+cities*4 when they are 1.3x
+  stronger or winning, half when even, free when you are 1.3x stronger). Cooldown per people in G.dipT. Relation meter next to
+  the label. #info now keeps persistent .ib / .dip / .x children and only rewrites what changed, so buttons survive 10 ticks/s
+  (they used to be rebuilt every tick); worker chips are delegated on click+pointerup. One-time hint toast at era 1 (imp_dip).
+  No rnd in any of it: probes unchanged. Test: scratchpad dipt.js / dipt2.js.
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
