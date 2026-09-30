@@ -59,6 +59,9 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   component or span>16) whose packs are coloured by the material the other side lacks (cargoOf: needed first, then
   anything the receiver has no mine of, else goods/gold). Tap one: from/to, what it carries, why. Route motion now
   follows wclock (pauses with the game). Walker/caravan max size 16px at close zoom. Seam `&route`.
+- v1.6: herd-path civs ride horses from the Bronze Age (herders, hunters, traders on the road; card says "a caballo"),
+  herders at work graze a small flock of sheep, one-time hint toast "Toca a una persona..." the first time villagers
+  are on screen (localStorage imp_hint, skipped in shot mode). People buttons get a real space for screen readers.
 ## issues
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
 - Probe mode (G.player=0) never declares war for civ 0 unless focus mil.
