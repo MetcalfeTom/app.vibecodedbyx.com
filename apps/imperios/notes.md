@@ -22,7 +22,7 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 
 ## Test seams
 - `?probe=N&seed=X&trace=1` runs N headless games, JSON in title. Node harness: scratchpad nodeprobe.js.
-- `?shot=N&seed=X[&zoom=k][&ev=id][&info][&dip[=civ]][&lang=es]` renders tick N paused (`&dip` opens the card of the neighbour with the longest border); title "READY ..." / "FAIL ...".
+- `?shot=N&seed=X[&zoom=k][&ev=id][&info][&dip[=civ]][&env=gift][&lang=es]` renders tick N paused (`&dip` opens the card of the neighbour with the longest border); title "READY ..." / "FAIL ...".
 - `window.__imp` = {G,ARMY,NAVY,navyFront,seaPath,seaLine,tick,boot,setSel,dipAct,giftCost,peaceCost,dipRow,renderOwn,fitView,startReplay,endReplay,RP,setLang,draw,tap,cam,sel,SX,SY}.
 
 ## log
@@ -130,6 +130,12 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   the label. #info now keeps persistent .ib / .dip / .x children and only rewrites what changed, so buttons survive 10 ticks/s
   (they used to be rebuilt every tick); worker chips are delegated on click+pointerup. One-time hint toast at era 1 (imp_dip).
   No rnd in any of it: probes unchanged. Test: scratchpad dipt.js / dipt2.js.
+- v1.14: envoys. Every gift (card or border-tension envoys), alliance, broken alliance, declaration of war and peace (hooked in
+  chron() for ally/unally/war/peace, direct addEnvoy for gifts) sends someone from capital to capital, straight line, render-side
+  (ENV list, wclock timing, 3.2-14 s, war heralds faster). tp<8: a paper badge ringed in the sender's colour with a flag in the
+  message colour (gold gift, green ally, brown unally, red war, white peace); closer: a walker (era<2) or rider with the banner,
+  a pack horse with a chest for gifts, the civ's ship over water. Arrival: a ring in the message colour. Tap one for its card.
+  Seam `&env=<kind>[&eu=0.45][&ez=zoom][&esel][&efrom=them]`. O15 t200-329: 9 envoys, never more than 6 at once.
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
