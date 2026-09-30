@@ -88,6 +88,13 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   they walk home and fade. tp<4.6: a crossed-swords badge with both colours; 4.6-9: a small badge floats over each clash.
   Tap a formation (or badge): named after its home town ("El tercio de Tenoch"), troops, front gains, reserves, a soldier line.
   Seam `&army` (fly to a front, the player's first; `&army=1` opens the card; `&ay=` anchor); shot mode snaps armies to the front.
+- v1.10: sieges. warfare() rebuilds G.siege {cityId: {by, t (enemy tile), y (since year, kept while the same besieger holds)}}
+  every tick: any town of either side with an enemy tile in its 3x3. No rnd, probes unchanged. Player toast once per new
+  siege (12-tick cooldown G.sgT). Render: town smokes and burns; a camp toward the enemy tile (2 tents with pennants, 2 guards,
+  an engine by the besieger's era: ram <4, trebuchet 4, cannon 5+), projectile arcs with impact dust + flame. tp<4.6: a dashed
+  rotating ring in the besieger's colour. Captures raise the winner's flag over the town (fx 'flag', 3.6 s). City card row
+  "Asedio/Siege". Seams `&siege` (fly to a besieged town, player's first; `=1` card), `&flagfx` (flag on the capital, or the
+  besieged town with `&siege`). Siege ticks: seed 11 t260 (trebuchet, later cannon), 612 t210, C13 t240 (player's cannons).
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
