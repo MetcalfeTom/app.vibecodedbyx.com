@@ -55,6 +55,10 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   towns, era 3+), mint (gold, capital, era 3+), steam works (coal, era 6+), stone ring walls (stone; capital from era 2,
   pop>6 from era 4). Drawn at tp>=4 (forge glow + sparks, kiln/works smoke, turning mill wheel, walls back+front
   around the town). Town card lists buildings with their material dot. Person card has "Necesita" (needText).
+- v1.5: trade routes carry visible caravans (trader + pack donkey, or a sailing boat on sea routes: different land
+  component or span>16) whose packs are coloured by the material the other side lacks (cargoOf: needed first, then
+  anything the receiver has no mine of, else goods/gold). Tap one: from/to, what it carries, why. Route motion now
+  follows wclock (pauses with the game). Walker/caravan max size 16px at close zoom. Seam `&route`.
 ## issues
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
 - Probe mode (G.player=0) never declares war for civ 0 unless focus mil.
