@@ -23,7 +23,7 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 ## Test seams
 - `?probe=N&seed=X&trace=1` runs N headless games, JSON in title. Node harness: scratchpad nodeprobe.js.
 - `?shot=N&seed=X[&zoom=k][&ev=id][&info][&lang=es]` renders tick N paused; title "READY ..." / "FAIL ...".
-- `window.__imp` = {G,tick,boot,renderOwn,fitView,setLang,draw}.
+- `window.__imp` = {G,ARMY,tick,boot,renderOwn,fitView,setLang,draw,tap,cam,sel,SX,SY}.
 
 ## log
 - v1.0 2026-09-30: first playable. Campfire opening, fire event, 3 paths, 8 eras, wars/alliances/rebels/
@@ -79,6 +79,15 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   (granary = no famine for 60 ticks), herd fair/past (pastA grabs up to 6 border tiles, rel -30), sea isle (colonySpot:
   free coast >=9 tiles from home, other landmass preferred; foundCity + toast) / pir; comet for everyone from era 1.
   Seams `&ev=<id>&evch=A|B&evfly` (choose and fly to the newest city), `&won&wtk` (a conquered wonder).
+- v1.9: armies on the map (my pick for Arian's "más completo"). Sim only stores, never rolls: wd.y0 (start year),
+  wd.lw/lk (last clash winner, tiles taken) and wd.ft, a stable front tile (b's land touching a), re-picked after the claims
+  with (tick*7+t0*3)%n, so probes are unchanged. Render-side ARMY map: each side marches (1.4 tiles/s of wclock) from its
+  nearest town to the front and they clash side-on (side a left/right of the contact by sign(dx)); size from str share and
+  manpower (2-9), gear by era (clubs, spears, sword+round shield, men-at-arms kite shield + helmet, musketeers with hats +
+  smoke, riflemen), herd civs ride. Standard-bearer with a flag, sparks or smoke, dust, the winner leans forward. Peace =
+  they walk home and fade. tp<4.6: a crossed-swords badge with both colours; 4.6-9: a small badge floats over each clash.
+  Tap a formation (or badge): named after its home town ("El tercio de Tenoch"), troops, front gains, reserves, a soldier line.
+  Seam `&army` (fly to a front, the player's first; `&army=1` opens the card; `&ay=` anchor); shot mode snaps armies to the front.
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
@@ -92,3 +101,5 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - AI civs never get path events (player only); maybe let AI roll them silently for chronicle flavour.
 - Colonies land on the same continent when no other landmass has free coast; a boat walking there would be nice.
 - Sea path is picked less often than farm/herd; watch it.
+- AI wars only start from era 3-4 in probes, so clubs/spears armies show up only when the player declares an early war.
+- Armies on overseas wars (no shared border) don't show; a fleet would be nice.
