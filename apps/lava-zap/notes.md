@@ -85,3 +85,6 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 
 ## Probes
 Scratchpad `gaunt/lz3/p3.js`: `#pair` (stands where a line crosses eye height and fires), `#lone`, `#clear`, `#aim`, `#title`, `#og`, `#board` and `#carry` (with `stub.js`, an in-memory stand-in for the database client that replaces the UMD script in t3.html; tests never write to the real table).
+
+## log
+- 2026-09-30 v2.1.1: app_stats listed "Uncaught Error: Error creating WebGL context. @three.module.js" (1 visitor): a browser with 3D graphics switched off or unavailable. new THREE.WebGLRenderer is now in a try; on failure every card, #fire and #push are hidden and a new #nogl card says the lamp needs 3D (turn on hardware acceleration and restart, or another browser), then a top-level await that never settles stops the module, so nothing below runs without a renderer and no error is thrown. Tested headless with --disable-3d-apis at 390x844 (message, no errors) and normally at 1280x720 (title card, no errors).
