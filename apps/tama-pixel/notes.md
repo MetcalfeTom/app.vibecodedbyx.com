@@ -22,6 +22,7 @@ A pocket pet on an egg-shaped handheld: one-bit LCD, eight icons, three buttons.
 - Hats: HATS rows; a hat's bottom row overlaps the head's top row by 1. Jump pet can push a tall hat off the top of the LCD (clipped, fine).
 
 ## log
+- v2.3 (2026-09-30): the Park (first in the Play menu): your pet meets up to 6 pets other players had open in the last 3 days, one at a time (walks in, hearts, walks off), plus a cloud, a tree and a bird; the first meeting of a trip gives happy +1 and each meeting goes in the diary. Sharing: table tama_park (form, hat, gen, updated_at; one row per user, select-then-update, no names or text) pushed 6 s after load, on growing, on hat changes and every 5 min. Everything read back is checked against ART/HATS. ?offline or #offline keeps the page off the network: use it for every headless test.
 - v2.2 (2026-09-30): Memory game (arrows left/right, the sequence grows by one each round up to 10; 2 coins a round +5 at 5, happy +1 at 4), the pet talks: 15 lines per language when patted (60%) and on its own every 2.5-5 min when content, night 22:00-07:00 local drains energy 2.5x so pets go to bed at night (one 'yawns' line per night). tr() picks at random when a WORDS entry is an array.
 - v2.1 (2026-09-30): coins from games (Left-Right: 2 per hit +5 for 3 wins; Jump: 1 per rock +5 at 10), a Shop icon (cake 15, ball 25, bow 30, bunny ears 35, propeller beanie 40, wizard hat 60, crown 80), hats drawn on every form (hatTop finds the head at the sprite's centre), Play opens a game menu (Left-Right, Jump, Ball once bought), Jump game (40 ms loop, 5 px hitbox under the pet's centre, speed 26→44, ends at a hit or 20), cake in the feed menu, a Diary icon opening an HTML diary of the pet's life with renaming (A-Z0-9, 6), 5 icons per row. Coins, items and the diary carry over to the next egg.
 - v2.0 (2026-09-30): full rebuild as Tama Pixel SUPER: LCD renderer, 10 forms, 7 faces, 8 icons, feed menu (meal/snack), light/sleep, Left-Right game (5 rounds, 3 wins = happy +1), medicine, flush, 4 stats pages, scold/whine discipline, attention bell, evolution by care, going home + new egg, offline catch-up, WebAudio beeps, Spanish and English, og.png.
@@ -31,5 +32,5 @@ A pocket pet on an egg-shaped handheld: one-bit LCD, eight icons, three buttons.
 
 ## todos
 - A room upgrade in the shop, more food, a memory game.
-- Friends: visit another player's pet (supabase), pet talk via pollinations.
+- Park: show how many pets visited today; wave or gift a coin to a visitor.
 - Adults grow old and retire after a few days, with a hall of fame.
