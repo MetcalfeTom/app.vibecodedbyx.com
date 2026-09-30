@@ -117,6 +117,11 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   one per 1.2 s. clamp(snapshots*110, 9-28 s), holds the last frame 2.6 s, then restores camera, speed and the results screen.
   Buttons: results "▶ Ver la historia del mundo" (top of the card) and menu "Historia del mundo" (after the game starts).
   Esc / ✕ end it; map taps are ignored during it. Seam `&replay[=0.42]` (a number freezes at that fraction).
+- v1.12.1: fleets keep to the water. seaPath (render-side, once per course): straight if the line and a 0.9-tile corridor stay
+  at sea, else BFS over sea tiles (open water first: no land in the 8 round, except within 2 tiles of the harbour or the battle;
+  then any sea), string-pulled into 1-3 legs. Ships follow s.path (s.wi), re-plot when the front changes or a returning fleet goes
+  back to war (F.ret), and sail home along s.back to the harbour mouth (s.hx/hy), not to the town on land. Test: capefind.js
+  (A1 t215-230 war 2,6 used to cross an island with 10 land samples; now 0). Formation spread can still brush a tiny island at close zoom.
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
@@ -131,5 +136,4 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - Colonies land on the same continent when no other landmass has free coast; a boat walking there would be nice.
 - Sea path is picked less often than farm/herd; watch it.
 - AI wars only start from era 3-4 in probes, so clubs/spears armies show up only when the player declares an early war.
-- Fleets sail in straight lines from port to the battle and can cross a cape; a water path search would fix it.
 - Early fleets (canoes, galleys) only show when the player declares an early war (AI wars start era 3-4).

@@ -284,7 +284,7 @@ body.replay #hud,body.replay #chron,body.replay #bar,body.replay #info,body.repl
       <button type="button" class="btn" id="mHist"><b data-t="histW">Historia del mundo</b><small data-t="histWH"></small></button>
       <button type="button" class="btn" id="mNew"><b data-t="newWorld">Nuevo mundo</b><small data-t="newWorldH"></small></button>
       <button type="button" class="btn main" id="mClose"><b data-t="close">Cerrar</b></button>
-      <span id="buildstamp" role="note" aria-label="Build information">build v1.12 · 2026-09-30</span>
+      <span id="buildstamp" role="note" aria-label="Build information">build v1.12.1 · 2026-09-30</span>
     </div>
   </div>
 </main>
@@ -1491,6 +1491,29 @@ function navyFront(wd){const A=G.civs[wd.a],B=G.civs[wd.b];if(!A||!B||!A.alive||
   let dx=x2-x1,dy=y2-y1;const l=Math.hypot(dx,dy)||1;dx/=l;dy/=l;
   const st=ct=>{const X=w.tcx[ct.t],Y=w.tcy[ct.t],L=Math.hypot(m[0]-X,m[1]-Y)||1;for(let s=P*0.5;s<L;s+=P*0.5){const x=X+(m[0]-X)*s/L,y=Y+(m[1]-Y)*s/L;if(seaAt(x,y))return [x,y]}return [m[0],m[1]]};
   return {mx:m[0],my:m[1],dx,dy,hx:Math.abs(dx)>0.15?Math.sign(dx):1,pa:a.id,pb:b.id,sa:st(a),sb:st(b)}}
+/* v1.12.1 fleets keep to the water: BFS over sea tiles, then pull the string (a straight leg wherever the line stays at sea) */
+function seaLine(x0,y0,x1,y1,wd){const L=Math.hypot(x1-x0,y1-y0);if(!L)return true;const nx=-(y1-y0)/L*P*0.9,ny=(x1-x0)/L*P*0.9;
+  for(let s=P*0.4;s<L;s+=P*0.4){const x=x0+(x1-x0)*s/L,y=y0+(y1-y0)*s/L;if(!seaAt(x,y))return false;
+    if(wd&&s>P*1.5&&L-s>P*1.5&&(!seaAt(x+nx,y+ny)||!seaAt(x-nx,y-ny)))return false}return true}
+function seaPath(x0,y0,x1,y1){const w=G.w;if(seaLine(x0,y0,x1,y1,1))return [[x1,y1]];
+  const tA=w.pt[(clamp(y0,0,HPX-1)|0)*WPX+(clamp(x0,0,WPX-1)|0)],tB=w.pt[(clamp(y1,0,HPX-1)|0)*WPX+(clamp(x1,0,WPX-1)|0)];
+  if(w.terr[tA]!==SEA||w.terr[tB]!==SEA)return [[x1,y1]];
+  // open water first (no land in the 8 tiles round), hugging the coast only near the harbour and the battle, or when there is no other way
+  const opn=u=>{const x=u%W,y=u/W|0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const X=x+dx,Y=y+dy;if(X>=0&&Y>=0&&X<W&&Y<H&&w.terr[Y*W+X]!==SEA)return false}return true},
+    nr=(u,t)=>Math.max(Math.abs(u%W-t%W),Math.abs((u/W|0)-(t/W|0)))<=2;
+  let prev,ok=false;
+  for(const strict of [1,0]){prev=new Int32Array(N).fill(-1);const q=[tA];prev[tA]=tA;let hd=0;
+    while(hd<q.length){const t=q[hd++];if(t===tB){ok=true;break}const x=t%W,y=t/W|0;
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const X=x+dx,Y=y+dy;if(X<0||Y<0||X>=W||Y>=H)continue;const u=Y*W+X;
+        if(prev[u]>=0||w.terr[u]!==SEA||(dx&&dy&&(w.terr[y*W+X]!==SEA||w.terr[Y*W+x]!==SEA)))continue;
+        if(strict&&!opn(u)&&!nr(u,tA)&&!nr(u,tB))continue;prev[u]=t;q.push(u)}}
+    if(ok)break}
+  if(!ok)return [[x1,y1]];
+  const ts=[];for(let t=tB;t!==tA;t=prev[t])ts.push(t);ts.reverse();
+  const pts=ts.map(t=>[w.tcx[t],w.tcy[t]]);pts[pts.length-1]=[x1,y1];
+  const out=[];let cx=x0,cy=y0,i=0;
+  while(i<pts.length){let j=pts.length-1;while(j>i&&!seaLine(cx,cy,pts[j][0],pts[j][1],1))j--;out.push(pts[j]);cx=pts[j][0];cy=pts[j][1];i=j+1}
+  return out}
 function navySize(wd,i){const c=G.civs[i?wd.b:wd.a],o=G.civs[i?wd.a:wd.b],sh=c.str/((c.str+o.str)||1);return clamp(Math.round((1+3*sh)*(0.6+0.4*c.man))+(c.path==='sea'?1:0),1,5)}
 function fleetBurn(F,wd,s){return F.live&&wd&&wd.lw!=null&&wd.lw!==s.civ&&(wd.lk||0)>0&&F.s[0].eng&&F.s[1].eng}
 function stepFleets(gp,now){const dt=Math.min(250,Math.max(0,wclock-navyT)),rdt=Math.min(250,now-(stepFleets.n||now));navyT=wclock;stepFleets.n=now;const sp=dt*P*2.2/1000,gap=gp/cam.s,pl=G.spect?-1:G.player;
@@ -1498,17 +1521,22 @@ function stepFleets(gp,now){const dt=Math.min(250,Math.max(0,wclock-navyT)),rdt=
   for(const key in G.wars){const wd=G.wars[key];let F=NAVY.get(key),f=F&&F.f;
     if(f){const a=cityOf(f.pa),b=cityOf(f.pb);if(!a||!a.alive||a.civ!==wd.a||!b||!b.alive||b.civ!==wd.b)f=null}
     if(!f){if(NOFL.get(key)===G.tick)continue;f=navyFront(wd);if(!f){NOFL.set(key,G.tick);continue}}
-    if(!F){F={key,al:1,s:[0,1].map(i=>{const p=i?f.sb:f.sa;return {i,civ:i?wd.b:wd.a,port:i?f.pb:f.pa,x:p[0],y:p[1],eng:false,mv:0,n:navySize(wd,i),fc:i?-1:1}})};NAVY.set(key,F);
+    if(!F){F={key,al:1,s:[0,1].map(i=>{const p=i?f.sb:f.sa;return {i,civ:i?wd.b:wd.a,port:i?f.pb:f.pa,x:p[0],y:p[1],hx:p[0],hy:p[1],path:seaPath(p[0],p[1],f.mx,f.my),wi:0,eng:false,mv:0,n:navySize(wd,i),fc:i?-1:1}})};NAVY.set(key,F);
       if(!G.probe&&!qs.get('shot')&&(wd.a===pl||wd.b===pl)){const pt=cityOf(F.s[wd.a===pl?0:1].port);if(pt)toast(T().pp.flt.go(pt.name),true)}}
-    F.live=true;F.al=Math.min(1,F.al+rdt/600);F.f=f;
-    for(const s of F.s){const sg=s.i?1:-1,tx=f.mx+f.hx*sg*gap,ty=f.my+sg*gap*0.12,ddx=tx-s.x,ddy=ty-s.y,d=Math.hypot(ddx,ddy);s.n=navySize(wd,s.i);
-      if(navySnap||(s.eng&&d<P*0.6)||d<=sp){s.x=tx;s.y=ty;s.eng=true;s.mv=0}
-      else{s.eng=false;s.x+=ddx/d*sp;s.y+=ddy/d*sp;s.mv=Math.abs(ddx)>0.01?Math.sign(ddx):s.mv}
+    if(F.ret||F.f!==f)for(const s of F.s){s.path=seaPath(s.x,s.y,f.mx,f.my);s.wi=0;s.back=null}
+    F.ret=false;F.live=true;F.al=Math.min(1,F.al+rdt/600);F.f=f;
+    for(const s of F.s){const sg=s.i?1:-1,tx=f.mx+f.hx*sg*gap,ty=f.my+sg*gap*0.12;s.n=navySize(wd,s.i);let gx=tx,gy=ty,fin=true;
+      if(navySnap&&s.path)s.wi=s.path.length-1;
+      if(!s.eng&&s.path){while(s.wi<s.path.length-1&&Math.hypot(s.path[s.wi][0]-s.x,s.path[s.wi][1]-s.y)<=sp+0.3)s.wi++;if(s.wi<s.path.length-1){gx=s.path[s.wi][0];gy=s.path[s.wi][1];fin=false}}
+      const ddx=gx-s.x,ddy=gy-s.y,d=Math.hypot(ddx,ddy);
+      if(fin&&(navySnap||(s.eng&&d<P*0.6)||d<=sp)){s.x=tx;s.y=ty;s.eng=true;s.mv=0}
+      else{s.eng=false;if(d>0){const k=Math.min(sp,d)/d;s.x+=ddx*k;s.y+=ddy*k}s.mv=Math.abs(ddx)>0.01?Math.sign(ddx):s.mv}
       s.fc=!s.eng&&s.mv?s.mv:f.hx*(s.i?-1:1)}}
   navySnap=false;
-  for(const [key,F] of NAVY){if(F.live)continue;F.al-=rdt/2500;if(F.al<=0){NAVY.delete(key);continue}
-    for(const s of F.s){s.eng=false;const h=cityOf(s.port);if(!h||!h.alive)continue;const tx=G.w.tcx[h.t],ty=G.w.tcy[h.t],ddx=tx-s.x,ddy=ty-s.y,d=Math.hypot(ddx,ddy);
-      if(d>sp){s.x+=ddx/d*sp;s.y+=ddy/d*sp;if(Math.abs(ddx)>0.01)s.fc=s.mv=Math.sign(ddx)}}}
+  for(const [key,F] of NAVY){if(F.live)continue;F.ret=true;F.al-=rdt/2500;if(F.al<=0){NAVY.delete(key);continue}
+    for(const s of F.s){s.eng=false;if(!s.back){s.back=seaPath(s.x,s.y,s.hx,s.hy);s.bi=0}
+      const q=s.back[Math.min(s.bi,s.back.length-1)],ddx=q[0]-s.x,ddy=q[1]-s.y,d=Math.hypot(ddx,ddy);
+      if(d<=sp){s.x=q[0];s.y=q[1];if(s.bi<s.back.length-1)s.bi++}else{s.x+=ddx/d*sp;s.y+=ddy/d*sp;if(Math.abs(ddx)>0.01)s.fc=s.mv=Math.sign(ddx)}}}
   if(NOFL.size>80)NOFL.clear()}
 const SAIL='#f3ead2',WOOD1='#8a5a30',WOOD0='#5e3c1e';
 function sailRect(x0,y0,w,h,belly,col,lw,cross){ctx.beginPath();ctx.moveTo(x0,y0);ctx.quadraticCurveTo(x0+w/2+belly,y0-h*0.06,x0+w,y0);ctx.quadraticCurveTo(x0+w+belly,y0+h/2,x0+w,y0+h);
@@ -2539,7 +2567,7 @@ if(qs.has('probe')){
     setTimeout(()=>{document.title='READY '+document.title},900)}
   requestAnimationFrame(frame);
 }
-window.__imp={get G(){return G},get ARMY(){return ARMY},get NAVY(){return NAVY},navyFront,get cam(){return cam},get sel(){return sel},tick,boot,renderOwn,fitView,startReplay,endReplay,get RP(){return RP},setLang,draw,tap,SX,SY};
+window.__imp={get G(){return G},get ARMY(){return ARMY},get NAVY(){return NAVY},navyFront,seaPath,seaLine,get cam(){return cam},get sel(){return sel},tick,boot,renderOwn,fitView,startReplay,endReplay,get RP(){return RP},setLang,draw,tap,SX,SY};
 })();
 </script>
 </body>
