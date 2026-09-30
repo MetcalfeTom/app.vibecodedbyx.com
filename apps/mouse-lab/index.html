@@ -125,7 +125,7 @@ td.v{font-family:var(--serif);font-size:1.15rem;font-style:italic}
 
 <section class="note" aria-labelledby="hHow">
   <h2 id="hHow">What the numbers mean</h2>
-  <p><b>Drift up/down</b> adds up every vertical move while you rock sideways. A steady hand lands near zero; a browser or driver that adds its own vertical movement makes the view creep one way, run after run.</p>
+  <p><b>Drift up/down</b> adds up every vertical move while you rock sideways, in degrees of view (0.12° per pixel) and pixels. Level means within 3°, up to 10° is a slight drift, more is noticeable. A steady hand lands near zero; a browser or driver that adds its own vertical movement makes the view creep one way, run after run.</p>
   <p><b>Lean</b> splits that drift by direction: if moving right pushes the view up and moving left pushes it up too, it isn't your hand.</p>
   <p><b>Spikes</b> are single reports far bigger than your usual move: the view jumps somewhere you never pointed. <b>Stalls</b> are gaps of 60 ms or more with no reports while you keep moving.</p>
   <p><b>Pointer lock, raw</b> asks the browser to skip your system's mouse acceleration. Pointer lock isn't available on phones and some browsers.</p>
@@ -139,7 +139,8 @@ var $=function(id){return document.getElementById(id);};
 var cv=$('cv'),ctx=cv.getContext('2d'),bench=$('bench'),ov=$('ov');
 var MODES={free:'Free cursor: the plain pointer, the way a menu sees it.',lock:'Pointer lock: the cursor disappears and the browser sends raw distances, the way most 3D games turn the camera.',raw:'Pointer lock, raw: the same, but asking the browser to skip mouse acceleration (unadjusted movement).'};
 var NAMES={free:'Free cursor',lock:'Pointer lock',raw:'Pointer lock, raw'};
-var mode='free',slow=false,run=null,runs=[],yaw=0,pitch=0,trail=[],evTimes=[],hasLock='requestPointerLock' in bench;
+var mode='free',slow=false,run=null,runs=[],yaw=0,pitch=0,vpx=0,trail=[],evTimes=[],hasLock='requestPointerLock' in bench;
+var DEG=.12;   /* degrees of view per px, the bench's turn speed; the drift tile and the verdict both use it */
 var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 if(!hasLock){document.querySelectorAll('[data-mode=lock],[data-mode=raw]').forEach(function(b){b.disabled=true;b.title='Pointer lock is not available here';});}
 document.querySelectorAll('.seg').forEach(function(b){b.addEventListener('click',function(){if(run)return;mode=b.dataset.mode;
@@ -163,7 +164,7 @@ function report(dx,dy,src,t){
     R.lastT=t;R.lastMag=ax+ay;
   }
   R.sumAx+=ax;R.sumY+=dy;if(dx>0){R.rX+=dx;R.rY+=dy;}else if(dx<0){R.lX+=-dx;R.lY+=dy;}
-  yaw+=dx*.12;pitch=Math.max(-80,Math.min(80,pitch-dy*.12));
+  vpx+=dy;yaw+=dx*DEG;pitch=Math.max(-80,Math.min(80,pitch-dy*DEG));
   trail.push({x:yaw,y:pitch,t:t,sp:(ax>Math.max(40,(R.med||0)*8)||ay>Math.max(40,(R.med||0)*8))&&R.n>12});if(trail.length>900)trail.shift();
   evTimes.push(t);
   $('lDx').textContent=Math.round(dx);$('lDy').textContent=Math.round(dy);
@@ -184,7 +185,7 @@ document.addEventListener('mousemove',onMouse);
 
 function newRun(){return {mode:mode,slow:slow,n:0,mN:0,mSumX:0,mSumY:0,sumAx:0,sumY:0,rX:0,rY:0,lX:0,lY:0,spikes:0,bigSpike:0,stalls:0,coal:0,recent:[],med:0,lastT:0,lastMag:0,t0:0,dur:10000,done:false,started:false};}
 function start(){
-  if(run)return;run=newRun();yaw=0;pitch=0;trail=[];evTimes=[];lastFree=null;
+  if(run)return;run=newRun();yaw=0;pitch=0;vpx=0;trail=[];evTimes=[];lastFree=null;
   $('go').textContent='Stop';setStatus('Get ready…');
   if(run.mode==='free'){ov.innerHTML='<div class="big">Hover here and rock <em>left and right</em></div><div class="small">keep it level · the test starts on your first move</div>';begin();return;}
   ov.innerHTML='<div class="big">Click the bench to <em>lock</em> the mouse</div><div class="small">then rock it left and right, level · Escape stops</div>';
@@ -205,22 +206,29 @@ function finish(early){
   ov.innerHTML='<div class="big">'+res.verdict+'</div><div class="small">'+res.why+'</div>';
   setStatus(NAMES[R.mode]+(R.slow?' on a slow machine':'')+': '+res.verdict+'. '+res.why);
 }
+/* how far the view ended up or down: the same rounding for the tile, the verdict and the table (px down is +, so negative = up) */
+function driftDeg(px){return Math.round(Math.abs(px)*DEG*10)/10;}
+function fmtDrift(px){var a=driftDeg(px);return a?a+'\u00b0 '+(px<0?'up':'down'):'0\u00b0';}
 function judge(R,secs){
   var drift=R.sumY/R.sumAx,rl=R.rX>50?R.rY/R.rX:0,ll=R.lX>50?R.lY/R.lX:0,rate=secs>0?Math.round(R.n/secs):0;
   var same=Math.abs(rl)>.05&&Math.abs(ll)>.05&&Math.sign(rl)===Math.sign(ll);
   var mismatch=R.mN>20&&(Math.abs(R.mSumY-R.sumY)>Math.max(30,R.sumAx*.03));
-  var cls='ok',verdict='Level',why='Your sideways moves stayed sideways.';
-  if(Math.abs(drift)>.1||(same&&Math.abs(drift)>.05)){cls='bad';verdict=drift<0?'Creeps up':'Creeps down';why=same?'Both directions lean the same way, so it is not your hand.':'A lot of vertical movement came along with the sideways moves.';}
-  else if(Math.abs(drift)>.035){cls='warn';verdict='Slight lean';why='A little vertical drift, easily a tilted hand. Run it twice to see if it repeats.';}
-  if(R.spikes>=3&&cls!=='bad'){cls='bad';verdict='Jumpy';why=R.spikes+' reports far bigger than your usual move: the view jumps.';}
+  var ad=driftDeg(R.sumY),dir=R.sumY<0?'up':'down',px=Math.round(Math.abs(R.sumY)),pc=Math.round(Math.abs(drift)*1000)/10;
+  /* the view drift decides: level up to 3 degrees, slight up to 10, noticeable beyond; a big share of a short wiggle can raise it one step */
+  var sev=ad>10?2:ad>3?1:0,ps=(Math.abs(drift)>.1||(same&&Math.abs(drift)>.05))?2:Math.abs(drift)>.035?1:0;
+  sev=Math.max(sev,Math.min(ps,sev+1));
+  var amt=ad+'\u00b0 '+dir+' ('+px+' px, '+pc+'% of the sideways travel)',cls,verdict,why;
+  if(sev===2){cls='bad';verdict='Drifts '+dir+' noticeably';why='The view ended '+amt+'. '+(same?'Both directions lean the same way, so it is not your hand.':'That is a lot for sideways moves. Run it again: if it drifts '+dir+' again, it is not your hand.');}
+  else if(sev===1){cls='warn';verdict='Slight drift '+dir;why='The view ended '+amt+': a little, easily a tilted hand. Run it twice to see if it repeats.';}
+  else{cls='ok';verdict='Level';why=ad?'The view ended only '+ad+'\u00b0 '+dir+' ('+px+' px), so your sideways moves stayed sideways.':'The view ended level: your sideways moves stayed sideways.';}
+  if(R.spikes>=3&&cls!=='bad'){verdict='Jumpy';why=R.spikes+' reports far bigger than your usual move: the view jumps.'+(cls==='warn'?' Also a slight drift: '+amt+'.':'');cls='bad';}
   if(mismatch){cls='bad';why+=' The pointer and mouse event streams disagree on the vertical total, a browser bug.';}
-  return {mode:R.mode,slow:R.slow,rate:rate,side:Math.round(R.sumAx),drift:Math.round(R.sumY),pct:Math.round(drift*1000)/10,rl:Math.round(rl*1000)/10,ll:Math.round(ll*1000)/10,spikes:R.spikes,big:R.bigSpike,stalls:R.stalls,coal:R.coal,cls:cls,verdict:verdict,why:why};
+  return {mode:R.mode,slow:R.slow,rate:rate,side:Math.round(R.sumAx),drift:Math.round(R.sumY),deg:ad,pct:Math.round(drift*1000)/10,rl:Math.round(rl*1000)/10,ll:Math.round(ll*1000)/10,spikes:R.spikes,big:R.bigSpike,stalls:R.stalls,coal:R.coal,cls:cls,verdict:verdict,why:why};
 }
 function render(){
   var tb=$('res');tb.innerHTML='';
   runs.forEach(function(r,i){var tr=document.createElement('tr');
-    var dir=r.drift<0?'up':'down';
-    tr.innerHTML='<td>'+(i+1)+'. '+NAMES[r.mode]+(r.slow?' · slow':'')+'</td><td>'+r.rate+'</td><td>'+r.side+' px</td><td>'+Math.abs(r.drift)+' px '+(r.drift?dir:'')+' ('+Math.abs(r.pct)+'%)</td><td>'+fmtLean(r.rl)+' · '+fmtLean(r.ll)+'</td><td>'+r.spikes+(r.big?' (max '+r.big+')':'')+'</td><td>'+r.stalls+'</td><td class="v '+r.cls+'">'+r.verdict+'</td>';
+    tr.innerHTML='<td>'+(i+1)+'. '+NAMES[r.mode]+(r.slow?' · slow':'')+'</td><td>'+r.rate+'</td><td>'+r.side+' px</td><td>'+fmtDrift(r.drift)+' · '+Math.abs(r.drift)+' px ('+Math.abs(r.pct)+'%)</td><td>'+fmtLean(r.rl)+' · '+fmtLean(r.ll)+'</td><td>'+r.spikes+(r.big?' (max '+r.big+')':'')+'</td><td>'+r.stalls+'</td><td class="v '+r.cls+'">'+r.verdict+'</td>';
     tb.appendChild(tr);});
 }
 function fmtLean(v){if(!v)return '0';return (v<0?'up ':'down ')+Math.abs(v)+'%';}
@@ -229,7 +237,7 @@ $('go').addEventListener('click',function(){if(run)finish(true);else start();});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&run)finish(true);});
 $('copy').addEventListener('click',function(){
   if(!runs.length){$('copyMsg').textContent='Run a test first.';return;}
-  var ua=navigator.userAgent.match(/(Firefox|Edg|OPR|Chrome|Safari)\/[\d]+/),txt='Mouse Lab'+(ua?' ('+ua[0].replace('Edg','Edge')+')':'')+': '+runs.map(function(r){return NAMES[r.mode]+(r.slow?' slow':'')+' '+r.rate+'/s drift '+(r.drift<0?'up ':'down ')+Math.abs(r.pct)+'% spikes '+r.spikes+' stalls '+r.stalls+' → '+r.verdict;}).join(' | ');
+  var ua=navigator.userAgent.match(/(Firefox|Edg|OPR|Chrome|Safari)\/[\d]+/),txt='Mouse Lab'+(ua?' ('+ua[0].replace('Edg','Edge')+')':'')+': '+runs.map(function(r){return NAMES[r.mode]+(r.slow?' slow':'')+' '+r.rate+'/s drift '+fmtDrift(r.drift)+' ('+Math.abs(r.pct)+'%) spikes '+r.spikes+' stalls '+r.stalls+' → '+r.verdict;}).join(' | ');
   var done=function(){$('copyMsg').textContent='Copied. Paste it in chat.';},no=function(){$('copyMsg').textContent=txt;};
   if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(txt).then(done,no);else no();
 });
@@ -260,7 +268,7 @@ function draw(now){
   /* countdown */
   if(run&&run.t0&&!run.done){var k=Math.min(1,(now-run.t0)/run.dur);ctx.strokeStyle='#b8321f';ctx.lineWidth=4;ctx.beginPath();ctx.arc(34,34,18,-Math.PI/2,-Math.PI/2+k*6.283);ctx.stroke();
     ctx.fillStyle='#1c2230';ctx.font='700 13px "IBM Plex Mono",monospace';ctx.textAlign='center';ctx.fillText(Math.ceil((1-k)*run.dur/1000),34,39);ctx.textAlign='left';}
-  var dp=Math.round(-pitch*10)/10;$('lDrift').textContent=(dp>0?'+':'')+dp+'°';
+  $('lDrift').textContent=fmtDrift(vpx);
   requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
