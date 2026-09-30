@@ -23,7 +23,7 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 ## Test seams
 - `?probe=N&seed=X&trace=1` runs N headless games, JSON in title. Node harness: scratchpad nodeprobe.js.
 - `?shot=N&seed=X[&zoom=k][&ev=id][&info][&dip[=civ]][&env=gift][&lang=es]` renders tick N paused (`&dip` opens the card of the neighbour with the longest border); title "READY ..." / "FAIL ...".
-- `window.__imp` = {G,ARMY,NAVY,navyFront,seaPath,seaLine,tick,boot,setSel,dipAct,giftCost,peaceCost,dipRow,renderOwn,fitView,startReplay,endReplay,RP,setLang,draw,tap,cam,sel,SX,SY}.
+- `window.__imp` = {G,MON,monInit,monStrike,monPrey,ARMY,NAVY,navyFront,seaPath,seaLine,tick,boot,setSel,dipAct,giftCost,peaceCost,dipRow,renderOwn,fitView,startReplay,endReplay,RP,setLang,draw,tap,cam,sel,SX,SY}.
 
 ## log
 - v1.0 2026-09-30: first playable. Campfire opening, fire event, 3 paths, 8 eras, wars/alliances/rebels/
@@ -136,6 +136,16 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   message colour (gold gift, green ally, brown unally, red war, white peace); closer: a walker (era<2) or rider with the banner,
   a pack horse with a chest for gifts, the civ's ship over water. Arrival: a ring in the message colour. Tap one for its card.
   Seam `&env=<kind>[&eu=0.45][&ez=zoom][&esel][&efrom=them]`. O15 t200-329: 9 envoys, never more than 6 at once.
+- v1.15: the Leviathan, a sea serpent in atlas ink (green humps, red fins, forked tail, crested head), render-side MON object
+  (never touches the sim). monInit per world: BFS tile distance from land, up to 24 deep points (d >= min(5,max-1)) 9+ tiles apart,
+  scored min(d,10)*8 - distance to the land centroid, so it lives in deep water that is on the map, not in a corner; no deep water =
+  no monster. Roams between them on seaPath at 0.55 tiles/s. Ignores canoes: when both sides of a fleet battle are engaged, a side
+  of galleys+ with 2+ ships within 32 tiles is prey (biggest ship type first); it hunts at 3.4 tiles/s, drags the rearmost ship
+  under (s.lost on that fleet side; drawFleets and the fleet card show n-lost, a fleet keeps 1), dives, surfaces at a far deep point
+  and rests 45 s of wclock (first hunt 20 s after the world loads). Toast for the player's ship, or any when it was on screen.
+  Tap for its card: mood, the last 3 ships taken, a sailors' line by the era's ship type. Seam `&mon[=hunt|strike][&mu=0..1]
+  [&mz=zoom][&msel]` (hunt/strike need `&fleet`). C13 t240: hunt > strike (Toltec galleon) > dive > rise > roam in 8 s.
+  Name: the voice asked chat for one; 'The Leviathan' / 'El Leviatán' until someone suggests better (P2.mon.name).
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
