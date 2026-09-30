@@ -50,6 +50,11 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   flies in (tp 14) so its people show; town card lists its inhabitants by name + job as buttons (tap = select person).
   Tapping a town's centre prefers the town over a villager standing on it. Names persist and are unique per town.
   Mammoths stop breeding after the thaw and die out (~-4000 at the latest). New seam `&car`; `__imp` exposes tap/cam/sel/SX/SY.
+- v1.4: buildings from materials (townBuild, derived each frame, not stored): bronze/iron forge (copper+tin / iron,
+  capital, mining or big towns), potter's kiln (clay; river, capital, builders or clay nearby), water mill (river farm
+  towns, era 3+), mint (gold, capital, era 3+), steam works (coal, era 6+), stone ring walls (stone; capital from era 2,
+  pop>6 from era 4). Drawn at tp>=4 (forge glow + sparks, kiln/works smoke, turning mill wheel, walls back+front
+  around the town). Town card lists buildings with their material dot. Person card has "Necesita" (needText).
 ## issues
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
 - Probe mode (G.player=0) never declares war for civ 0 unless focus mil.
