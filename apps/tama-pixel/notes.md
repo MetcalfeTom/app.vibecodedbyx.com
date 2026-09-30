@@ -18,16 +18,17 @@ A pocket pet on an egg-shaped handheld: one-bit LCD, eight icons, three buttons.
 - Sick 15 min or starving 20 min: the pet flies home and leaves a new egg (gen +1, history on stats page 4). Never while you're away.
 - Away time: simulated up to 12 h at half decay, at most 2 care mistakes, sickness/starvation clocks capped so nobody dies offline.
 - Saved in localStorage 'tama-pixel-super-v1' (+ '-lang', '-snd'). ES/EN auto from the browser, toggle on the page.
-- window.__T exposes P, press, use, step, grow, mode, A, G, needNow for headless probes.
+- window.__T exposes P, press, use, step, grow, mode, A, G, J, needNow, play, shopBuy, SHOP for headless probes.
+- Hats: HATS rows; a hat's bottom row overlaps the head's top row by 1. Jump pet can push a tall hat off the top of the LCD (clipped, fine).
 
 ## log
+- v2.1 (2026-09-30): coins from games (Left-Right: 2 per hit +5 for 3 wins; Jump: 1 per rock +5 at 10), a Shop icon (cake 15, ball 25, bow 30, bunny ears 35, propeller beanie 40, wizard hat 60, crown 80), hats drawn on every form (hatTop finds the head at the sprite's centre), Play opens a game menu (Left-Right, Jump, Ball once bought), Jump game (40 ms loop, 5 px hitbox under the pet's centre, speed 26→44, ends at a hit or 20), cake in the feed menu, a Diary icon opening an HTML diary of the pet's life with renaming (A-Z0-9, 6), 5 icons per row. Coins, items and the diary carry over to the next egg.
 - v2.0 (2026-09-30): full rebuild as Tama Pixel SUPER: LCD renderer, 10 forms, 7 faces, 8 icons, feed menu (meal/snack), light/sleep, Left-Right game (5 rounds, 3 wins = happy +1), medicine, flush, 4 stats pages, scold/whine discipline, attention bell, evolution by care, going home + new egg, offline catch-up, WebAudio beeps, Spanish and English, og.png.
 
 ## issues
 - Percent padding on .toy measured the page width, not the toy's (desktop egg was 600 px tall): sizes now come from --tw.
 
 ## todos
-- Coins from games and a shop (hats, toys, a bigger room).
-- More games (jump rope, memory), a diary of the pet's life, naming it yourself.
+- A room upgrade in the shop, more food, a memory game.
 - Friends: visit another player's pet (supabase), pet talk via pollinations.
 - Adults grow old and retire after a few days, with a hall of fame.
