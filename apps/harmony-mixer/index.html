@@ -580,7 +580,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.41.1 · 2026-09-30</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.42 · 2026-09-30</span>
 </footer>
 
 <script id="dsp">
@@ -1206,7 +1206,7 @@ function deckMarkup(L){
         '</span>' +
         '<button type="button" class="btn small glock" aria-pressed="true" title="Grid lock ON: loops snap onto the beat grid. Turn off to loop from the EXACT playhead — free loops fight an engaged sync at every wrap">⊞ grid</button>' +
         '<button type="button" class="btn small ldir" title="Loop direction: forward → · reverse ← · ping-pong ⇄. Reverse and ping-pong play a reversed copy on the sample engine (keylock rests; sync rests too)" aria-label="Loop direction: forward">→</button>' +
-        '<button type="button" class="btn small onebtn" title="Tap the 1: press on the first beat of a bar while it plays (or park the playhead on it) — the bar lines move there and stay with this track. For when the found ONE sits a beat off">tap the 1</button>' +
+        '<button type="button" class="btn small onebtn" title="Tap the 1: press on the first beat of a bar while it plays (or park the playhead on it) — the beat grid slides so a bar line sits right on your tap, same tempo, and stays with this track. The song stays where it is">tap the 1</button>' +
         '<button type="button" class="btn phbtn" aria-pressed="false" aria-label="phrases" title="Phrase markers: local energy suggestions with confidence labels, four colour roles, all editable"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.5L14.5 8 8 14.5 1.5 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg></button>' +
       '</div>' +
       '<div class="cuepads" role="group" aria-label="Phrase pads" hidden></div>' +
@@ -1273,7 +1273,11 @@ function Deck(L, el){
   d.q.pre.addEventListener('click', function(){ d.preCount(); });
   d.q.loop.addEventListener('click', function(){ d.toggleLoop(); });
   d.q.rescan.addEventListener('click', function(){ d.rescan(); });
-  d.q.onebtn.addEventListener('click', function(){ d.setOne(); });
+  /* v4.42: a tap is timed at the PRESS; the click (on release, or Enter/Space) acts on that moment */
+  var oneDown = function(e){ d._oneTap = { t: d.tapTime(e), at: Date.now() }; };
+  d.q.onebtn.addEventListener('pointerdown', function(e){ if (e.button === 0) oneDown(e); });
+  d.q.onebtn.addEventListener('keydown', function(e){ if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) oneDown(e); });
+  d.q.onebtn.addEventListener('click', function(){ var p = d._oneTap; d._oneTap = null; d.setOne(p && typeof p.t === 'number' && Date.now() - p.at < 2000 ? p.t : undefined); });
   d.q.phbtn.addEventListener('click', function(){
     var open = d.q.phstrip.hidden;
     if (!open){ clearTimeout(d._phArmT); d._phArm = null; }   /* closing the editor disarms a pending delete; edits are already saved */
@@ -1625,22 +1629,40 @@ Deck.prototype.preCount = function(){
 /* looping: a whole number of bars from the current position, snapped to this deck's grid,
    so a looping deck stays on the same beat phase (and an engaged sync survives). */
 Deck.prototype.barSecs = function(){ return this.grid ? 4 * (60 / this.grid.bpm) : null; };
-/* v4.36 TAP THE 1 (pushedbutton: "if the grid aligned the mix would work"): the beat nearest the playhead becomes the ONE.
-   While playing, what you hear trails the media clock and a tap trails the beat — ONE_TAP_LAG (real seconds) comes off first;
-   nearest-beat rounding forgives ±half a beat. The grid is edited in place (the crate record shares it) and saved. */
-var ONE_TAP_LAG = 0.1;
-Deck.prototype.setOne = function(){
-  var d = this, g = d.grid, st = function(t){ d.setStatus(t); clearTimeout(d._oneT); d._oneT = setTimeout(function(){ d.setStatus(''); }, 2600); };
+/* v4.36 TAP THE 1 (pushedbutton: "if the grid aligned the mix would work") · v4.42 (pushedbutton, 2026-09-30: "the 'tap the 1'
+   needs to move the grid to align with the tap, not the other way around"). The tap is NOT rounded to a beat of the old grid any
+   more: the whole beat grid slides, same tempo, so a bar line sits exactly on the tapped moment (beat0 = the tap modulo one beat,
+   downbeat = the beat index of the tap, so every reader of {beat0, downbeat} follows). The song and the playhead never move.
+   The moment is the PRESS (pointerdown, Enter or Space: a click only fires on release), less the time the event waited and the
+   output latency the browser reports (tapLag), both in real seconds, scaled to track time by the playing rate. Paused, the
+   parked playhead itself is the tap. The grid is edited in place (the crate record shares it) and saved with the track. */
+function tapLag(){ var c = ctx, l = c ? (+c.baseLatency || 0) + (+c.outputLatency || 0) : 0; return l > 0 && l < 1 ? Math.min(0.3, l) : 0; }
+Deck.prototype.tapTime = function(e){
+  var d = this; if (!d.buffer) return null;
+  var t = d.pos(); if (!d.playing) return t;
+  var age = e && e.timeStamp > 0 && window.performance ? (performance.now() - e.timeStamp) / 1000 : 0; if (!(age > 0 && age < 0.5)) age = 0;
+  var back = (tapLag() + age) * d.rate * (d.bend || 1), t2 = t - back;
+  if (d.loopOn && d.loopB > d.loopA && t >= d.loopA && t2 < d.loopA) t2 += d.loopB - d.loopA;   /* just past a loop wrap you still heard its end */
+  return t2;
+};
+Deck.prototype.setOne = function(tap){
+  var d = this, g = d.grid, st = function(t){ d.setStatus(t); clearTimeout(d._oneT); d._oneT = setTimeout(function(){ d.setStatus(''); }, 3200); };
   if (!d.buffer || !g || !(g.bpm > 0)){ st(d.buffer ? 'no beat grid on this track — nothing to count from' : 'load a track first'); return false; }
-  var per = 60 / g.bpm, t = d.pos() - (d.playing ? ONE_TAP_LAG * d.rate * (d.bend || 1) : 0);
-  var db = ((Math.round((t - g.beat0) / per) % 4) + 4) % 4, a0 = gridAnchor(g), old = ((Math.round((a0 - g.beat0) / per) % 4) + 4) % 4, mv = (db - old + 4) % 4;
-  g.downbeat = db; g.dbv = 2; g.dbUser = true;
+  var per = 60 / g.bpm, bar = 4 * per, t = typeof tap === 'number' && isFinite(tap) ? tap : d.tapTime(), a0 = gridAnchor(g);
+  var b0 = ((t % per) + per) % per, db = ((Math.round((t - b0) / per) % 4) + 4) % 4;
+  g.beat0 = b0; g.downbeat = db; g.dbv = 2; g.dbUser = true;
+  var a1 = gridAnchor(g), sh = a1 - a0; sh -= Math.round(sh / bar) * bar;   /* how far the bar lines slid, within ± half a bar */
+  var bt = sh / per, rb = Math.round(bt), mv = ((rb % 4) + 4) % 4, ms = Math.round(Math.abs(sh) * 1000), dir = sh > 0 ? 'later' : 'earlier';
   var C = window.__C, rec = C && d._crateId ? C.byId[d._crateId] : null;
   if (rec){ rec.grid = g; try{ C.persist(rec); }catch(e){} }
   d.draw(); d.render(); try{ d.renderPhrases(); }catch(e){}
   try{ var J = window.__ADJ; if (J && J.drawPreview) J.drawPreview(null); if (J && J.renderCues) J.renderCues(); }catch(e){}
-  st(mv === 0 ? 'the 1 was already there — kept, and now it stays' : 'the 1 moved ' + (mv === 1 ? 'a beat later' : mv === 3 ? 'a beat earlier' : 'half a bar') + (rec ? ' — saved with the track' : ''));
-  return { db: db, moved: mv };
+  st((Math.abs(sh) < 0.004 ? 'the 1 was already on your tap — kept, and now it stays'
+    : Math.abs(bt) < 0.5 ? 'the grid slid ' + ms + ' ms ' + dir + ' onto your tap'
+    : Math.abs(bt - rb) < 0.03 ? 'the 1 moved ' + (Math.abs(rb) === 2 ? 'half a bar' : 'a beat ' + dir) + ' onto your tap'
+    : 'the 1 moved ' + Math.abs(bt).toFixed(1) + ' beats ' + dir + ' onto your tap') + (rec ? ' — saved with the track' : '') +
+    (d.gridUsable() ? '' : ' (beat map hidden: grid ' + g.bpm.toFixed(1) + ' vs ' + (d.bpm ? Math.round(d.bpm * 10) / 10 : '?') + ' BPM)'));
+  return { db: db, moved: mv, shift: sh, anchor: a1, tap: t };
 };
 /* v4.22: phrase marker bar n sits on the nth bar line of the BEAT MAP (phase of the first downbeat). It used to be
    n × bar from 0:00 — up to a bar off the real downbeats. No beat map shown → the shown BPM from 0:00. */
@@ -2690,7 +2712,7 @@ function renderSTrans(){
 }
 ['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
 renderSTrans();
-window.__X = { keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
@@ -5041,6 +5063,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.42', t:'Tap the 1 moves the grid', d:'A tap on the one slides the whole beat grid onto your tap, same tempo; the song never moves.', p:'reliability', i:'high', e:'low', st:'verified', ev:'tap42 headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.38', t:'Vocal button retired', d:'The half-baked manual vocal marker is gone; the phrase markers already show where the singing sits.', p:'presentability', i:'low', e:'low', st:'verified', ev:'pushedbutton 2026-09-26' },
   { s:'log', v:'v4.37', t:'Keys stay out of menus', d:'Space, Enter and arrows no longer fire from a focused menu or a Ctrl chord, and a held key toggles once.', p:'reliability', i:'low', e:'low', st:'verified', ev:'k37 19/19 ×2 widths' },
   { s:'log', v:'v4.36', t:'The one: a downbeat vote', d:'Five cues vote for bar one, so AutoDJ stops landing a beat off on four-on-the-floor; tap the 1 fixes a track by hand.', p:'reliability', i:'high', e:'med', st:'verified', ev:'one 23/23 · node downbeat harness 30/31' },
