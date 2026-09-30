@@ -45,9 +45,18 @@ audio goes to that service, POST each chunk, stitch with offsets.
 - v1.0 (2026-09-30): first version — dock, mic + system/tab audio mixing, live captions, downloads (.webm/.txt/.srt), session list,
   saved transcripts, guide dialog, PiP, PWA (manifest, sw, icons), ES/EN. Headless (Chromium 131, fake mic): record → pause → resume
   → stop gives a playable 4 s opus webm; txt/srt output checked; no overflow at 390 px.
+- v1.1 (2026-09-30): PiP fix (meters were looked up with `$()` in the main document after the dock moved into the PiP window →
+  setDock threw; now cached element refs), setup card collapses to just the language picker while recording (`.setup.busy`),
+  live captions fall back to the plain mic if `start(track)` throws, service worker registers on any secure context.
+  Headless checks: guide dialog + stubbed getDisplayMedia (both sources mixed, "Stop sharing" → message + re-add button, no-audio
+  pick → clear fix message, cancel → mic only); PiP opens, record/stop from inside PiP, caption shows there, closing returns
+  the dock; inside a bar-like same-origin iframe: mic recording works, install card says "open in its own tab", float opens
+  `?bare=1` in a new tab.
 
 ## issues
-- Headless can't test getDisplayMedia, PiP or real speech recognition; those paths are written against the specs, not verified live.
+- Headless can't test a real getDisplayMedia picker or real speech recognition (stubbed in tests); PiP does open in headless.
+- manifest `start_url` is `./?bare=1` on purpose (not `./`): the bar wrapper would put the installed app in an iframe, which blocks PiP.
+- The page has a beforeunload guard while recording or with undownloaded recordings — CDP `Page.navigate` in tests hangs on it.
 - Chrome's webm has no duration header; the card's `<audio>` uses the currentTime=1e101 trick to show the length.
 - iOS Safari may not like SpeechRecognition and getUserMedia at the same time (untested).
 - Live captions in Chrome/Edge are processed by the browser vendor's cloud (said in the footer).
