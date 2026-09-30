@@ -72,6 +72,13 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   no wars, gold >= cost+15, 2%/tick), ~9-18 per game. Drawn back-to-front with towns, a gold halo when zoomed far out,
   a light hole at night, names at tp>=12. Tap one: whose, when, who holds it now (conquered / ruins), a flavour line.
   Seams `&won` (fly to the newest + card), `&wgal` (all 8 in a row by the player's capital), `&wz=` zoom.
+- v1.8: wonder gifts + path stories. WPOW per glyph (totem +stab, stone circle +6% sci, ziggurat +faith +stab, colossus
+  +12% gold, cathedral +faith +stab, dome +8% sci, crystal palace +15% gold, radio tower +4% sci +stab) go to whoever holds
+  the wonder's city (wonHold: ct.civ, -1 = ruins once the city is gone). Capturing the city takes the wonder (chronicle
+  wonTake "X takes the Colossus of Y from Z"). Card row "Otorga/Grants". Player events per path from era 2: farm flood/harv
+  (granary = no famine for 60 ticks), herd fair/past (pastA grabs up to 6 border tiles, rel -30), sea isle (colonySpot:
+  free coast >=9 tiles from home, other landmass preferred; foundCity + toast) / pir; comet for everyone from era 1.
+  Seams `&ev=<id>&evch=A|B&evfly` (choose and fly to the newest city), `&won&wtk` (a conquered wonder).
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
@@ -82,5 +89,6 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - Desktop bar: flex-basis does not count toward a flex container's max-content width in Chrome; give buttons an explicit width.
 
 ## todos
-- More event variety per path. Maybe a wonder-specific bonus (colossus = sea trade, radio tower = stability).
+- AI civs never get path events (player only); maybe let AI roll them silently for chronicle flavour.
+- Colonies land on the same continent when no other landmass has free coast; a boat walking there would be nice.
 - Sea path is picked less often than farm/herd; watch it.
