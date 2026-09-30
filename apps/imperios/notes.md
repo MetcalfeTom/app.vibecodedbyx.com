@@ -23,7 +23,7 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 ## Test seams
 - `?probe=N&seed=X&trace=1` runs N headless games, JSON in title. Node harness: scratchpad nodeprobe.js.
 - `?shot=N&seed=X[&zoom=k][&ev=id][&info][&lang=es]` renders tick N paused; title "READY ..." / "FAIL ...".
-- `window.__imp` = {G,ARMY,tick,boot,renderOwn,fitView,setLang,draw,tap,cam,sel,SX,SY}.
+- `window.__imp` = {G,ARMY,NAVY,navyFront,tick,boot,renderOwn,fitView,setLang,draw,tap,cam,sel,SX,SY}.
 
 ## log
 - v1.0 2026-09-30: first playable. Campfire opening, fire event, 3 paths, 8 eras, wars/alliances/rebels/
@@ -95,6 +95,17 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   rotating ring in the besieger's colour. Captures raise the winner's flag over the town (fx 'flag', 3.6 s). City card row
   "Asedio/Siege". Seams `&siege` (fly to a besieged town, player's first; `=1` card), `&flagfx` (flag on the capital, or the
   besieged town with `&siege`). Siege ticks: seed 11 t260 (trebuchet, later cannon), 612 t210, C13 t240 (player's cannons).
+- v1.11: fleets (render-side NAVY map, sim untouched). A war gets a sea battle when both sides have a port (isPort: land
+  within 2 tiles of SEA; w.coast alone is too strict, most towns sit a tile inland) and it is overseas (no ft), has a sea-path
+  people, or both are Middle Ages+. navyFront: closest port pair <= 40 tiles, meeting point on the line nearest the middle with
+  open sea there and 12-24 px either way (room for both lines), else a spiral search; skipped when within 5 tiles of the land
+  front. Each side sails (2.2 tiles/s of wclock) from the first water on the line out of its port and stops ~2.4 tiles from the
+  point; 1-5 ships (str share x manpower, +1 sea path). Ship by era: war canoe with paddlers (1), galley with oars and square
+  sail (2-3), cog with castles and a cross sail (4), galleon with 3 masts and gunports (5), ironclad with a funnel (6),
+  destroyer with turrets (7). Arrows (fire arrows for cogs) or cannon flash + ball + splash; the side that lost the last clash
+  has its rear ship burning. Anchor badge far out / floating over the battle below tp 9. Tap: card "La flota de <port>" (ships,
+  course, status, a sailor line). Toast for the player's fleet setting sail. Seams `&fleet` (`=1` card, wz default 8).
+  Fleet wars in probes: C13 t235-245 (player vs Jade, galleons vs cogs), 275, 310; I14 t270. NOFL caches "no fleet" per tick.
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
@@ -109,4 +120,5 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - Colonies land on the same continent when no other landmass has free coast; a boat walking there would be nice.
 - Sea path is picked less often than farm/herd; watch it.
 - AI wars only start from era 3-4 in probes, so clubs/spears armies show up only when the player declares an early war.
-- Armies on overseas wars (no shared border) don't show; a fleet would be nice.
+- Fleets sail in straight lines from port to the battle and can cross a cape; a water path search would fix it.
+- Early fleets (canoes, galleys) only show when the player declares an early war (AI wars start era 3-4).
