@@ -65,6 +65,13 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - v1.6.1 fix: `[hidden]{display:none!important}`. Since v1.0 the third event button (.btn display) ignored `hidden`, so
   2-choice events (rebel...) showed a stale "Construir canoas" option; the #need line stayed visible with stale text.
   c.need is recomputed after the era-advance loop.
+- v1.7: wonders on the map (my pick from the todos, for Arian). Every wonder now stands on its own tile 1.9-3.5 tiles from
+  the capital that raised it (addWonder; G.wonders {n,civ,ct,cn,t,y}), one hand-drawn glyph per era: thunderbird totem,
+  stone circle, ziggurat, bronze colossus with a flickering torch, cathedral, ribbed dome, crystal palace with a moving
+  glint, radio tower with a blinking light and radio waves. AI peoples build them too (aiWonders: one per era, stab>=40,
+  no wars, gold >= cost+15, 2%/tick), ~9-18 per game. Drawn back-to-front with towns, a gold halo when zoomed far out,
+  a light hole at night, names at tp>=12. Tap one: whose, when, who holds it now (conquered / ruins), a flavour line.
+  Seams `&won` (fly to the newest + card), `&wgal` (all 8 in a row by the player's capital), `&wz=` zoom.
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
@@ -75,6 +82,5 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - Desktop bar: flex-basis does not count toward a flex container's max-content width in Chrome; give buttons an explicit width.
 
 ## todos
-- Horse domestication for the herd path, wonders drawn on the map.
-- Wonders drawn on the map, more event variety per path.
+- More event variety per path. Maybe a wonder-specific bonus (colossus = sea trade, radio tower = stability).
 - Sea path is picked less often than farm/herd; watch it.
