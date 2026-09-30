@@ -36,4 +36,4 @@ Hot-sauce label: cream paper, chili red #cf2f19, mustard gold #e0a21f, ink #2419
 ## todos
 - end-of-game replay: your words next to the best finish (voice's idea, not promised)
 - faster DP for 200k+ word lists if it drags (e.g. drop dominated anagram words, iterative DP)
-- expected spicy value in the look-ahead (each future word has ~k/9 chance to double)
+- expected spicy value in the look-ahead: with compounding, E[mult] = mean over the eligible tiles of SPX^(count of that letter in the word); per-word constant if every tile can be spicy (asked Tatum 22:44 which tiles can be picked)
