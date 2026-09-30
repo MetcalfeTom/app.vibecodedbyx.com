@@ -23,7 +23,7 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 ## Test seams
 - `?probe=N&seed=X&trace=1` runs N headless games, JSON in title. Node harness: scratchpad nodeprobe.js.
 - `?shot=N&seed=X[&zoom=k][&ev=id][&info][&lang=es]` renders tick N paused; title "READY ..." / "FAIL ...".
-- `window.__imp` = {G,ARMY,NAVY,navyFront,tick,boot,renderOwn,fitView,setLang,draw,tap,cam,sel,SX,SY}.
+- `window.__imp` = {G,ARMY,NAVY,navyFront,tick,boot,renderOwn,fitView,startReplay,endReplay,RP,setLang,draw,tap,cam,sel,SX,SY}.
 
 ## log
 - v1.0 2026-09-30: first playable. Campfire opening, fire event, 3 paths, 8 eras, wars/alliances/rebels/
@@ -106,6 +106,17 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   has its rear ship burning. Anchor badge far out / floating over the battle below tp 9. Tap: card "La flota de <port>" (ships,
   course, status, a sailor line). Toast for the player's fleet setting sail. Seams `&fleet` (`=1` card, wz default 8).
   Fleet wars in probes: C13 t235-245 (player vs Jade, galleons vs cogs), 275, 310; I14 t270. NOFL caches "no fleet" per tick.
+- v1.12: world history replay (my pick for Arian's "toda la evolución del ser humano"). histSnap() at the end of tick() stores
+  {y, own: Int8Array owner copy, ct: flat [tile, civ, era, flags cap|fire], n: chron length} every 2 ticks + at the end
+  (G.hist, ~165 snapshots / 2.4 MB a game; no rnd, probes unchanged). startReplay(from) pauses, hides HUD/bar/chronicle
+  (body.replay), fits the map above a parchment panel (#replay: era, big year, the headline event, progress bar, close) and
+  draw() hands off to drawReplay: renderOwn(snapshot.own) (renderOwn takes an optional owner array; labels from it), civ labels,
+  a night pass with the snapshot's campfires (drawNight takes a pts list, nightK takes a year), town dots (capitals ringed),
+  a ring where a town is founded and a flag + red ring where one changes hands. Headline: best chronicle line since the last one
+  (first to reach an era / first fire / dawn / fall / collapse > wonders, hordes, plagues, rebels, wars > conquests...), at most
+  one per 1.2 s. clamp(snapshots*110, 9-28 s), holds the last frame 2.6 s, then restores camera, speed and the results screen.
+  Buttons: results "▶ Ver la historia del mundo" (top of the card) and menu "Historia del mundo" (after the game starts).
+  Esc / ✕ end it; map taps are ignored during it. Seam `&replay[=0.42]` (a number freezes at that fraction).
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
