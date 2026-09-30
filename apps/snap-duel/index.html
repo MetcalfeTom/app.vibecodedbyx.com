@@ -303,7 +303,7 @@ const RANK_W = ['seven','eight','nine','ten','jack','queen','king','ace'];
 const SUITS = ['♠','♥','♦','♣'], SUIT_W = ['spades','hearts','diamonds','clubs'];
 const rk = c => c >> 2, su = c => c & 3, isRed = c => (c & 3) === 1 || (c & 3) === 2;
 const cardName = c => RANK_W[rk(c)] + ' of ' + SUIT_W[su(c)];
-const GAME_MS = 150000, DEAL_MS = 1500, SWEEP_MS = 950, JUDGE_MS = 200, LOCK_MS = 700;
+const GAME_MS = (T && T.gameMs) || 150000, DEAL_MS = 1500, SWEEP_MS = 950, JUDGE_MS = 200, LOCK_MS = 700;
 const RM = window.matchMedia('(prefers-reduced-motion: reduce)');
 const now = () => performance.now();
 const LS = {
@@ -704,7 +704,7 @@ $('#btnLeave').addEventListener('click', () => { leaveOnline(false); toMenu(); }
 $('#btnFind').addEventListener('click', () => { ac(); findOpponent(); });
 $('#btnCancel').addEventListener('click', cancelSearch);
 $('#btnBotInstead').addEventListener('click', () => { cancelSearch(); startBot(); });
-$('#btnWait').addEventListener('click', () => { NET.waitFrom = Date.now(); $('#btnWait').hidden = true; $('#btnBotInstead').hidden = true; setSearch('Still waiting at the bar…'); $('#btnCancel').focus(); });
+$('#btnWait').addEventListener('click', () => { if (NET.failed){ findOpponent(); return; } NET.waitFrom = Date.now(); $('#btnWait').hidden = true; $('#btnBotInstead').hidden = true; setSearch('Still waiting at the bar…'); $('#btnCancel').focus(); });
 document.querySelectorAll('input[name="rival"]').forEach(r => r.addEventListener('change', () => { LS.set('rival', rival()); $('#btnBotInstead').textContent = 'Play ' + BOTS[rival()].name + ' instead'; }));
 document.addEventListener('visibilitychange', () => {
   if (!G.engine || V.mode !== 'bot') return;
@@ -736,23 +736,55 @@ function pubName(){
   return cleanName(n);
 }
 function withTimeout(p, ms){ return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]); }
-async function getDb(){
-  if (T && T.db) return T.db();
-  const m = await import('/supabase-config.js');
-  const r = await m.supabaseSession();
-  return { client: r.client, user: r.user };
+/* The live host serves a different /supabase-config.js (no default export, and its database doesn't know
+   tables made lately), so the lobby loads this app's own copy of the connection file, as wire-desk does. */
+const CFG_URLS = Array.from(new Set(['/snap-duel/supabase-config-fixed.js', new URL('supabase-config-fixed.js', location.href).pathname]));
+let modP = null;
+const sess = {};
+function oops(code, e){ const x = new Error(code); x.code = code; x.why = e ? String((e.message || e.code) || e).slice(0, 180) : ''; x.pg = e && typeof e === 'object' && e.code ? String(e.code).slice(0, 10) : ''; return x; }
+function dbModule(){
+  if (!modP){
+    modP = (async () => {
+      let last = null;
+      for (const u of CFG_URLS){
+        try { const m = await import(u); if (m && m.default && typeof m.supabaseSession === 'function'){ NET.cfg = u; return m; } last = new Error('no client in ' + u); }
+        catch (e) { last = e; }
+      }
+      throw oops('module', last);
+    })();
+    modP.catch(() => { modP = null; });
+  }
+  return modP;
 }
-async function peekClient(){ if (T && T.peek) return T.peek(); const m = await import('/supabase-config.js'); return m.default; }
+async function soloSession(c){
+  let s = (await c.auth.getSession()).data.session;
+  if (!s){ const r = await c.auth.signInAnonymously(); if (r.error) throw r.error; s = r.data && r.data.session; }
+  if (!s || !s.user) throw new Error('no session');
+  return { client: c, user: s.user };
+}
+async function getDb(how){
+  if (T && T.db) return T.db(how);
+  const m = await dbModule();
+  if (!sess[how]){
+    const p = how === 'solo' && typeof m.soloClient === 'function' ? soloSession(m.soloClient())
+      : m.supabaseSession().then(r => ({ client: r.client || m.default, user: r.user }));
+    sess[how] = p; p.catch(() => { if (sess[how] === p) sess[how] = null; });
+  }
+  let r; try { r = await sess[how]; } catch (e) { throw oops('session', e); }
+  if (!r || !r.client || typeof r.client.from !== 'function' || !r.user || !r.user.id) throw oops('session');
+  return r;
+}
+async function peekClient(solo){ if (T && T.peek) return T.peek(solo); const m = await dbModule(); return solo && typeof m.soloClient === 'function' ? m.soloClient() : m.default; }
 function realTransport(room){
   const client = NET.client, ch = client.channel('snap-duel:room:' + room, { config: { broadcast: { self: false, ack: false }, presence: { key: NET.cid } } });
   let onMsg = null, onPres = null;
   ch.on('broadcast', { event: 'm' }, x => { if (onMsg && x && x.payload) onMsg(x.payload); });
   ch.on('presence', { event: 'sync' }, () => { try { if (onPres) onPres(Object.keys(ch.presenceState())); } catch (e) {} });
   const ready = new Promise(res => {
-    let done = false; const to = setTimeout(() => { if (!done){ done = true; res(false); } }, 9000);
-    ch.subscribe(async st => {
+    let done = false; const to = setTimeout(() => { if (!done){ done = true; NET.rtWhy = 'no reply in 9 s'; res(false); } }, 9000);
+    ch.subscribe(async (st, err) => {
       if (st === 'SUBSCRIBED' && !done){ done = true; clearTimeout(to); try { await ch.track({ at: Date.now() }); } catch (e) {} res(true); }
-      else if ((st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') && !done){ done = true; clearTimeout(to); res(false); }
+      else if ((st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') && !done){ done = true; clearTimeout(to); NET.rtWhy = st + (err && err.message ? ': ' + err.message : ''); res(false); }
     });
   });
   return { ready, send(m){ try { const r = ch.send({ type: 'broadcast', event: 'm', payload: m }); if (r && r.catch) r.catch(() => {}); } catch (e) {} },
@@ -763,11 +795,13 @@ function makeTransport(room){
   return { ready: raw.ready, send(m){ m.from = NET.cid; raw.send(m); }, onMsg: f => raw.onMsg(f), onPresence: f => raw.onPresence(f), close: () => raw.close() };
 }
 function setSearch(msg){ $('#searchMsg').textContent = msg; }
-function searchFail(msg){
+function searchFail(msg, err){
   NET.token++; if (NET.hostStop) NET.hostStop();
-  clearInterval(NET.cd);
-  setSearch(msg || "Couldn't reach the online lobby just now. Reg is always in, though.");
-  $('#asLine').hidden = true; $('#btnWait').hidden = true;
+  clearInterval(NET.cd); NET.failed = true; $('#searchTitle').textContent = 'Lobby’s shut';
+  const code = err ? String((err.code || err.message || '') + (err.pg ? ' ' + err.pg : '')).slice(0, 24) : '';
+  setSearch(msg || 'The online lobby is unavailable right now' + (code ? ' (' + code + ')' : '') + '. ' + BOTS[rival()].name + ' is always in, though.');
+  $('#asLine').hidden = true;
+  const w = $('#btnWait'); w.textContent = 'Try again'; w.hidden = false;
   const b = $('#btnBotInstead'); b.hidden = false; b.textContent = 'Play ' + BOTS[rival()].name + ' instead'; b.focus();
 }
 function cancelSearch(){
@@ -777,13 +811,24 @@ function cancelSearch(){
 }
 async function findOpponent(){
   leaveOnline(true); stopGame();
-  const tok = ++NET.token; V.mode = 'search';
-  $('#btnBotInstead').hidden = true; $('#btnWait').hidden = true; $('#asLine').hidden = true; $('#btnBotInstead').textContent = 'Play ' + BOTS[rival()].name + ' instead';
+  const tok = ++NET.token; V.mode = 'search'; NET.failed = false; $('#searchTitle').textContent = 'Finding a rival';
+  $('#btnBotInstead').hidden = true; $('#btnWait').hidden = true; $('#btnWait').textContent = 'Keep waiting'; $('#asLine').hidden = true; $('#btnBotInstead').textContent = 'Play ' + BOTS[rival()].name + ' instead';
   showDlg('dlgSearch'); setSearch('Pulling up a stool…');
-  try {
-    const db = await withTimeout(getDb(), 12000);
+  let err = null;
+  for (const how of ['shared', 'solo']){
+    try { await searchOnce(tok, how); return; }
+    catch (e) {
+      err = e; if (tok !== NET.token) return;
+      console.warn('[snap-duel] lobby (' + how + ' session) failed at ' + (e.code || e.message) + (e.why ? ': ' + e.why : ''));
+      if (how === 'shared'){ setSearch('Wiping the table, one more try…'); await new Promise(r => setTimeout(r, 700)); if (tok !== NET.token) return; }
+    }
+  }
+  searchFail(null, err);
+}
+async function searchOnce(tok, how){
+    const db = await withTimeout(getDb(how), 15000);
     if (tok !== NET.token) return;
-    NET.client = db.client; NET.uid = db.user.id;
+    NET.client = db.client; NET.uid = db.user.id; NET.how = how;
     const md = db.user.user_metadata || {};
     NET.name = cleanName((!db.user.is_anonymous && (md.user_name || md.preferred_username || md.name)) || pubName());
     $('#asName').textContent = NET.name; $('#asLine').hidden = false; $('#searchCount').textContent = '';
@@ -792,11 +837,10 @@ async function findOpponent(){
     for (const h of hosts.slice(0, 3)){ if (tok !== NET.token) return; if (await tryJoin(h, tok)) return; }
     if (tok !== NET.token) return;
     await hostRoom(tok);
-  } catch (e) { if (tok === NET.token) searchFail(); }
 }
 async function listHosts(){
   const r = await NET.client.from(LOBBY).select('id,room,name,user_id,created_at').eq('role', 'host').eq('status', 'waiting').gt('created_at', iso(-FRESH)).order('created_at', { ascending: true }).limit(10);
-  if (r.error) throw new Error('list');
+  if (r.error) throw oops('list', r.error);
   return (r.data || []).filter(x => x && typeof x.room === 'string' && /^[a-z0-9]{6,16}$/.test(x.room) && x.room !== NET.room);
 }
 async function tryJoin(h, tok){
@@ -822,9 +866,9 @@ async function hostRoom(tok){
   const room = rid(10); NET.room = room;
   const tr = makeTransport(room), ok = await tr.ready;
   if (tok !== NET.token){ tr.close(); return; }
-  if (!ok){ tr.close(); throw new Error('realtime'); }
+  if (!ok){ tr.close(); throw oops('realtime', NET.rtWhy); }
   const ins = await NET.client.from(LOBBY).insert({ user_id: NET.uid, room, role: 'host', name: NET.name, status: 'waiting' }).select('id,created_at').single();
-  if (ins.error || !ins.data){ tr.close(); throw new Error('insert'); }
+  if (ins.error || !ins.data){ tr.close(); throw oops('insert', ins.error); }
   let row = ins.data, matched = false, busy = false, poll = 0, refresh = 0;
   const dropRow = id => NET.client.from(LOBBY).delete().eq('id', id).then(() => {}, () => {});
   const stop = () => { clearInterval(poll); clearInterval(refresh); clearInterval(NET.cd); NET.hostStop = null; };
@@ -851,7 +895,7 @@ async function hostRoom(tok){
       const older = hs.find(x => x.room !== room && (Date.parse(x.created_at) < mine || (Date.parse(x.created_at) === mine && x.room < room)));
       if (older && !matched && !busy && tok === NET.token){
         matched = true; stop(); dropRow(row.id); tr.close();
-        if (!(await tryJoin(older, tok)) && tok === NET.token) hostRoom(tok).catch(() => { if (tok === NET.token) searchFail(); });
+        if (!(await tryJoin(older, tok)) && tok === NET.token) hostRoom(tok).catch(e => { if (tok === NET.token) searchFail(null, e); });
       }
     } catch (e) {}
   }, 2500);
@@ -875,6 +919,7 @@ async function hostRoom(tok){
 }
 function beginOnline(role, tr, room, opp){
   clearInterval(NET.cd);
+  if (opp.name === NET.name) opp.name = cleanName(opp.name.slice(0, 15) + ' II');
   NET.role = role; NET.tr = tr; NET.room = room; NET.opp = opp; NET.heard = Date.now(); NET.want = { me: false, opp: false }; NET.gone = false;
   V.mode = 'online'; V.seat = role === 'host' ? 0 : 1;
   V.names = role === 'host' ? [NET.name, opp.name] : [opp.name, NET.name]; setNames();
@@ -942,11 +987,13 @@ async function peekLobby(){
   if (peekBusy || document.hidden || $('#dlgMenu').hidden) return;
   peekBusy = true;
   try {
-    const c = await withTimeout(peekClient(), 8000);
-    const r = await withTimeout(c.from(LOBBY).select('room').eq('role', 'host').eq('status', 'waiting').gt('created_at', iso(-FRESH)).limit(20), 8000);
+    const q = c => withTimeout(c.from(LOBBY).select('room').eq('role', 'host').eq('status', 'waiting').gt('created_at', iso(-FRESH)).limit(20), 8000);
+    let r = await q(await withTimeout(peekClient(false), 8000));
+    if (!r || r.error) r = await q(await withTimeout(peekClient(true), 8000));
     const n = r && !r.error && Array.isArray(r.data) ? r.data.length : 0;
-    $('#waitNote').textContent = n ? (n === 1 ? '1 player waiting now' : n + ' players waiting now') : '';
-  } catch (e) { $('#waitNote').textContent = ''; }
+    NET.peek = r && r.error ? 'error: ' + String(r.error.message || r.error.code).slice(0, 80) : 'ok ' + n;
+    $('#waitNote').textContent = r && r.error ? 'Lobby offline right now' : n ? (n === 1 ? '1 player waiting now' : n + ' players waiting now') : '';
+  } catch (e) { $('#waitNote').textContent = ''; NET.peek = 'failed: ' + String(e.code || e.message).slice(0, 80); }
   peekBusy = false;
 }
 setInterval(peekLobby, 15000);
@@ -955,7 +1002,7 @@ setInterval(peekLobby, 15000);
 const savedRival = LS.get('rival', 'reg');
 const rr = document.querySelector('input[name="rival"][value="' + (BOTS[savedRival] ? savedRival : 'reg') + '"]'); if (rr) rr.checked = true;
 toMenu();
-window.__snap = { V, G, NET, Engine, onEvent, startBot, pressSnap, findOpponent, cancelSearch, toMenu, leaveOnline, oppLeft, rk, BOTS, stamp };
+window.__snap = { V, G, NET, Engine, onEvent, startBot, pressSnap, findOpponent, cancelSearch, toMenu, leaveOnline, oppLeft, rk, BOTS, stamp, dbModule, peekLobby };
 })();
 </script>
 </body>
