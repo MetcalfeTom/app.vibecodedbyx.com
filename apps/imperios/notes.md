@@ -34,12 +34,27 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - v1.1: era title card (big ribbon, year + path milestone: escritura, carros, velas...), chronicle era lines carry
   the milestone, city label collision pass, desktop bar overlap fixed (flex intrinsic width), clean og.png, ?lang=, &clean, &eracard seams.
 
+- v1.2: the people round (Arian: "faltan los habitantes, ahora son grupos").
+  Individual villagers with a name and job walk from each visible town (zoom in) to fields, forests, mines, rivers,
+  herds and trade partners, work, carry the goods home and re-decide. Tap one: name, job, what they are doing, why.
+  Town decisions (decide): job weights from surroundings + hunger (hunt/gather/farm/herd/fish/log/mine/build/trade/migrate).
+  Herds of mammoths, bison, deer and horses roam wild land, feed nearby towns, get hunted down; mammoths die out
+  after the thaw (-12000, last one gets a chronicle line). Materials on the map (stone, clay, copper, tin, iron, gold,
+  coal) with map symbols; eras need them (bronze = copper+tin, iron, medieval = stone, renaissance = gold,
+  industrial = coal), imported by trade/allies or bought from far merchants after a delay. HUD shows "Falta X para ...".
+  Town cards show food, what people live on and the town's decision; civ card lists materials.
+  Night villagers get a warm glow so they read in the campfire era.
+
 ## issues
+- Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
+- Probe mode (G.player=0) never declares war for civ 0 unless focus mil.
 - Headless screenshots use fallback fonts (fonts host mapped away), real look uses IM Fell.
 - rAF `now` can be earlier than performance.now() at fx creation; any time-based radius must clamp.
 
 - Desktop bar: flex-basis does not count toward a flex container's max-content width in Chrome; give buttons an explicit width.
 
 ## todos
+- Aggregate group markers when zoomed out; settlers visibly walking to found a new town.
+- Horse domestication for the herd path, wonders drawn on the map.
 - Wonders drawn on the map, more event variety per path.
 - Sea path is picked less often than farm/herd; watch it.
