@@ -31,11 +31,15 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   Balance (3 seeds): wars 4-10/game, 0-3 civs fall, ends by science ~1975 or score at 2050.
   Fixed: negative arc radius from fx age (rAF timestamp < fx t0) -> clamp age >= 0.
 
+- v1.1: era title card (big ribbon, year + path milestone: escritura, carros, velas...), chronicle era lines carry
+  the milestone, city label collision pass, desktop bar overlap fixed (flex intrinsic width), clean og.png, ?lang=, &clean, &eracard seams.
+
 ## issues
 - Headless screenshots use fallback fonts (fonts host mapped away), real look uses IM Fell.
 - rAF `now` can be earlier than performance.now() at fx creation; any time-based radius must clamp.
 
+- Desktop bar: flex-basis does not count toward a flex container's max-content width in Chrome; give buttons an explicit width.
+
 ## todos
-- Better og.png without UI chrome.
 - Wonders drawn on the map, more event variety per path.
 - Sea path is picked less often than farm/herd; watch it.
