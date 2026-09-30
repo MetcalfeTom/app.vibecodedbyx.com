@@ -583,7 +583,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.44 · 2026-09-30</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.45 · 2026-09-30</span>
 </footer>
 
 <script id="dsp">
@@ -3778,15 +3778,17 @@ function snapDownbeat(grid, sec){
   if (!grid) return sec;
   var bar = 4 * 60 / grid.bpm, d0 = barAnchor(grid);
   var n = Math.floor((sec - d0) / bar + 1e-6);   /* v4.15: a lattice point re-snapped stays put (float dust used to send it a bar back) */
-  return Math.max(0, d0 + n * bar);
+  var t = d0 + n * bar; while (t < -1e-6) t += bar;   /* v4.45: the first bar line, not 0 (which sits off the lattice) */
+  return Math.max(0, t);
 }
 /* v4.15: NEAREST bar line — for saved mix cues. A cue saved before the grid existed (or on an older fit of the
    same track) can sit a beat or two off the current lattice; a mix that starts there is a half-bar off for good,
    because the sync PLL only ever corrects modulo one beat. */
 function snapBarNear(grid, sec){
   if (!grid || !(grid.bpm > 0)) return sec;
-  var bar = 4 * 60 / grid.bpm, d0 = barAnchor(grid);
-  return Math.max(0, d0 + Math.round((sec - d0) / bar) * bar);
+  var bar = 4 * 60 / grid.bpm, d0 = barAnchor(grid), t = d0 + Math.round((sec - d0) / bar) * bar;
+  while (t < -1e-6) t += bar;   /* v4.45: the first bar line, not 0 (which sits off the lattice) */
+  return Math.max(0, t);
 }
 /* out/inn are plain infos: { name, bpm, key(camelot string|null), rate, dur, grid, cue:{in,out} } */
 function planTransition(out, inn, HM){
@@ -3875,6 +3877,19 @@ function barLanding(outGrid, outPos, innGrid, inStart, mult){
   if (p > 2) p -= 4;                                                                 /* nearest bar line: (−2, 2] */
   return inStart + (p / mult) * 60 / innGrid.bpm;
 }
+/* v4.45 BAR-AWARE START CHECK (pushedbutton 21:31: "the incoming song is generally a quarter bar behind when it's mixes - not all
+   the time, but it happens"). The settle check after the launch measured the start with phaseError, which is modulo ONE BEAT: an
+   incoming song that started more than half a beat late (media seek + play latency; half a beat is 242 ms at 124 BPM) read as a
+   bit EARLY, and the correction pulled it back onto the previous beat: a whole beat, a quarter bar, late for the rest of the blend.
+   Always late, only sometimes. Reproduced headless with the start delayed 330 and 420 ms: bar offset 1; 0 and 150 ms: 0.
+   This is the same error measured modulo a BAR (master beats, nearest bar line, (-2, 2]), so a late start is fixed forward. */
+function barPhaseError(gm, tm, gf, tf, mult){
+  mult = mult || 1;
+  if (!gm || !(gm.bpm > 0) || !gf || !(gf.bpm > 0)) return 0;
+  var e = ((tm - barAnchor(gm)) * gm.bpm / 60 - mult * (tf - barAnchor(gf)) * gf.bpm / 60) % 4;
+  e = (e + 4) % 4;
+  return e > 2 ? e - 4 : e;
+}
 /* v4.15: the outgoing deck's forward loop as the scheduler sees it (null when none, or when it runs backwards —
    sync rests during reverse / ping-pong loops anyway) */
 function liveLoop(d){ return d && d.loopOn && d.loopA != null && d.loopB != null && (d.loopDir || 'fwd') === 'fwd' ? { a: d.loopA, b: d.loopB } : null; }
@@ -3959,7 +3974,7 @@ function curveWords(spec, tailBeats, headBeats){
   else if (headBeats > 0) w += ' · incoming full ' + bw(headBeats) + ' early (as headroom allows)';
   return w;
 }
-var api = { equalPower: equalPower, snapDownbeat: snapDownbeat, snapBarNear: snapBarNear, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, barLanding: barLanding, loopContinuous: loopContinuous, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR,
+var api = { barPhaseError: barPhaseError, equalPower: equalPower, snapDownbeat: snapDownbeat, snapBarNear: snapBarNear, planTransition: planTransition, planQueue: planQueue, syncFirstSchedule: syncFirstSchedule, barAnchor: barAnchor, barLanding: barLanding, loopContinuous: loopContinuous, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR,
   curveAt: curveAt, curveNorm: curveNorm, curveIsDefault: curveIsDefault, curveResolve: curveResolve, curveWords: curveWords, cutShape: cutShape, CURVE_DEFAULT: CURVE_DEFAULT, CURVE_CAP: CURVE_CAP, OVERLAP_MAX: OVERLAP_MAX };
 if (typeof module !== 'undefined' && module.exports){ module.exports = api; return; }
 
@@ -4640,10 +4655,12 @@ function fireLive(){
     if (p > lastPos + 0.005) advancing++; lastPos = p;
     var waited = Date.now() - LIVE.fired.t;
     if (advancing < 2 && waited < 900) return;                /* clock not moving yet */
-    var e = X.phaseError(out.grid, out.pos(), inn.grid, p, SM);
+    var op = out.pos(), e = liveLoop(out) ? X.phaseError(out.grid, op, inn.grid, p, SM) : barPhaseError(out.grid, op, inn.grid, p, SM);   /* v4.45: modulo a bar */
     if (LIVE.fired.e0 === null) LIVE.fired.e0 = e;
     if (Math.abs(e) > 0.03 && LIVE.fired.corrections < 2 && waited < 1400){
-      inn.seek(p + e * 60 / (inn.grid.bpm * SM)); LIVE.fired.corrections++; advancing = 0; lastPos = inn.pos(); return;
+      /* v4.45: after a first correction, the lateness left over is about that seek's own latency, so the next seek leads by it */
+      var lead = LIVE.fired.corrections ? Math.max(0, Math.min(0.5, e)) : 0;
+      inn.seek(p + (e + lead) * 60 / (inn.grid.bpm * SM)); LIVE.fired.corrections++; advancing = 0; lastPos = inn.pos(); return;
     }
     LIVE.fired.e1 = e; LIVE.fired.settleMs = waited; LIVE.fired.barOff = X.barOffset(out.grid, out.pos(), inn.grid, p, SM);
     X.DIAG.launches.push({ t: Date.now(), outL: LIVE.outL, innL: LIVE.innL, residual: +LIVE.fired.residual.toFixed(4), e0: +LIVE.fired.e0.toFixed(4), e1: +e.toFixed(4), barOff: LIVE.fired.barOff, settleMs: waited, corrections: LIVE.fired.corrections }); if (X.DIAG.launches.length > 8) X.DIAG.launches.shift();
@@ -5141,6 +5158,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.45', t:'No more beat-late mixes', d:'An incoming song that starts more than half a beat late is now pushed forward onto the bar, instead of back onto the previous beat.', p:'reliability', i:'high', e:'low', st:'verified', ev:'lag probe headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.44', t:'Smoother timeline while mixing', d:'The aligned lanes follow a steady clock and stop shimmering, chord reading costs a fraction of what it did, and the live label under chord switches it off.', p:'reliability', i:'high', e:'med', st:'verified', ev:'prof/jit headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.43', t:'Fade handles for both decks', d:'The rehearsal curve follows whichever deck is leaving, its handles always show, and fades are set in beats so sliding the overlap no longer stretches them.', p:'creativity', i:'high', e:'med', st:'verified', ev:'v43 headless · pushedbutton 2026-09-30' },
   { s:'log', v:'v4.42', t:'Tap the 1 moves the grid', d:'A tap on the one slides the whole beat grid onto your tap, same tempo; the song never moves.', p:'reliability', i:'high', e:'low', st:'verified', ev:'tap42 headless · pushedbutton 2026-09-30' },
