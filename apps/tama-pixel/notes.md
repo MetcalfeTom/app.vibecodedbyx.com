@@ -33,6 +33,7 @@ A pocket pet on an egg-shaped handheld: one-bit LCD, eight icons, three buttons.
 - Percent padding on .toy measured the page width, not the toy's (desktop egg was 600 px tall): sizes now come from --tw.
 
 ## todos
-- A room upgrade in the shop, more food, a memory game.
+- A room upgrade in the shop, more food.
+- Talk: when the text service is back, check replies stay short and in the page language; maybe a tiny tune for tkSing.
 - Park: show how many pets visited today; wave or gift a coin to a visitor.
 - Adults grow old and retire after a few days, with a hall of fame.
