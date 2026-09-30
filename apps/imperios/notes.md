@@ -62,7 +62,11 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
 - v1.6: herd-path civs ride horses from the Bronze Age (herders, hunters, traders on the road; card says "a caballo"),
   herders at work graze a small flock of sheep, one-time hint toast "Toca a una persona..." the first time villagers
   are on screen (localStorage imp_hint, skipped in shot mode). People buttons get a real space for screen readers.
+- v1.6.1 fix: `[hidden]{display:none!important}`. Since v1.0 the third event button (.btn display) ignored `hidden`, so
+  2-choice events (rebel...) showed a stale "Construir canoas" option; the #need line stayed visible with stale text.
+  c.need is recomputed after the era-advance loop.
 ## issues
+- Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
 - Probe mode (G.player=0) never declares war for civ 0 unless focus mil.
 - Headless screenshots use fallback fonts (fonts host mapped away), real look uses IM Fell.
