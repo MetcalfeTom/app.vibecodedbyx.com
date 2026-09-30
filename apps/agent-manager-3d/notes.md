@@ -1,6 +1,7 @@
 # 3D Agent Manager
 
 ## log
+- 2026-09-30: the import map moved to the top of <head>, before anything else. A visitor's Firefox failed with "Error resolving module specifier three": an import map that comes after a module script has started loading is ignored there, and the map sat at the end of the page.
 - 2026-01-15: Added guild/faction system with territory control
   - 4 factions: Warrior Guild, Ninja Clan, Sura Order, Shaman Circle
   - Faction selection modal on first visit (persisted to localStorage)
