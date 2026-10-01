@@ -99,6 +99,10 @@ button{font:inherit;color:inherit;cursor:pointer}
 .btn.bluff:hover{background:rgba(255,79,129,.26)}
 .chip{min-height:2.75rem;padding:0 .8rem;border-radius:2rem;border:1px dashed rgba(255,191,94,.6);background:transparent;color:var(--amber);font-size:.75rem}
 .acts .say{margin:0;font-size:.8rem;color:var(--muted);text-align:center;width:100%}
+.acts .say.lost{color:var(--amber);animation:lostP 1.6s ease-in-out infinite alternate}
+@keyframes lostP{from{opacity:.65}to{opacity:1}}
+.acts .linkish{background:none;border:0;padding:0 2px;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
+@media (prefers-reduced-motion:reduce){.acts .say.lost{animation:none}}
 #handZone{min-height:var(--ch)}
 .me{display:flex;align-items:center;gap:.6rem;min-height:1.9rem}
 .me .who{flex:none}
@@ -673,6 +677,12 @@ function btn(txt, cls, fn, label){ const b = document.createElement('button'); b
 function drawActs(){
   const a = el.acts; a.textContent = '';
   if (!G) return;
+  if (V.mode === 'online' && NET.lost && !NET.gone){
+    const p = document.createElement('p'); p.className = 'say lost'; p.id = 'lostNote'; p.appendChild(document.createTextNode(''));
+    const c = document.createElement('button'); c.className = 'linkish'; c.id = 'btnClaim'; c.textContent = 'claim the win';
+    c.onclick = () => { if (NET.lost) oppLeft(); };
+    p.appendChild(c); a.appendChild(p); lostTick();
+  }
   const me = V.me, op = 1 - me;
   if (ASK.play){
     const n = V.sel.length, r = G.need;
@@ -1106,17 +1116,18 @@ async function joinTable(code){
 /* ---- the match: reliable, ordered delivery on top of broadcast ---- */
 function beginMatch(role, tr, opp){
   if (opp.name === NET.name) opp.name = cleanName(opp.name.slice(0, 15) + ' II');
-  NET.role = role; NET.tr = tr; NET.opp = opp; NET.gone = false; NET.heard = Date.now();
+  NET.role = role; NET.tr = tr; NET.opp = opp; NET.gone = false; NET.lost = 0; NET.heard = Date.now();
   NET.R = { out: 0, box: new Map(), in: 0, buf: new Map() }; NET.q = []; NET.waiter = null; NET.want = { me: false, opp: false }; NET.g = 0;
   V.mode = 'online'; V.me = role === 'host' ? 0 : 1;
   V.names = V.me === 0 ? ['You', opp.name] : [opp.name, 'You'];
   el.oppName.textContent = opp.name; el.meName.textContent = 'You';
   tr.onPresence(keys => {
     if (NET.tr !== tr || keys.indexOf(opp.cid) >= 0) return;
-    clearTimeout(NET.presT); NET.presT = setTimeout(() => { if (NET.tr === tr && Date.now() - NET.heard > 3000) oppLeft(); }, 3500);
+    clearTimeout(NET.presT); NET.presT = setTimeout(() => { if (NET.tr === tr && Date.now() - NET.heard > 3000) oppQuiet(); }, 3500);
   });
   clearInterval(NET.hb);
-  NET.hb = setInterval(() => { if (NET.tr !== tr) return; tr.send({ t: 'ping' }); resend(); if (Date.now() - NET.heard > 12000) oppLeft(); }, 1500);
+  NET.hb = setInterval(() => { if (NET.tr !== tr) return; tr.send({ t: 'ping' }); resend(); const q = Date.now() - NET.heard;
+    if (q > HOLD) oppLeft(); else if (q > 12000) oppQuiet(); if (NET.lost) lostTick(); }, 1500);
   say('Matched with ' + opp.name + '.');
   startOnlineGame();
 }
@@ -1129,7 +1140,7 @@ function resend(){
 function onNetMsg(m){
   if (!m || typeof m.t !== 'string' || !NET.opp) return;
   if (m.from !== NET.opp.cid){ if (m.t === 'hello' && NET.role === 'host') NET.tr.send({ t: 'full', to: m.from }); return; }
-  NET.heard = Date.now();
+  NET.heard = Date.now(); if (NET.lost) oppBack();
   switch (m.t){
     case 'r': {
       const R = NET.R, i = m.i;
@@ -1434,8 +1445,24 @@ function noteRematch(){
   if (NET.want.me && NET.want.opp){ n.textContent = 'Shuffling…'; setTimeout(() => { if (!NET.gone && NET.tr && NET.want.me && NET.want.opp) startOnlineGame(); }, 300); return; }
   n.textContent = NET.want.me ? 'Waiting for ' + NET.opp.name + '…' : NET.opp.name + ' wants a rematch!';
 }
+/* v2.2: 12 s of silence (or their presence dropping) = their connection is gone for now. The seat stays warm for HOLD:
+   pings and unacked messages keep going out, so when they come back the game carries on from the same spot.
+   You can claim the win any time; after HOLD it ends as a leave. Their own 'bye' (tab closed) still ends it at once. */
+const HOLD = 180000;
+function oppQuiet(){
+  if (V.mode !== 'online' || NET.gone || NET.lost) return;
+  if (!$('#dlgResult').hidden){ oppLeft(); return; }   /* between games there is nothing to hold */
+  NET.lost = Date.now(); say((NET.opp ? NET.opp.name : 'Your friend') + '’s connection dropped. Holding their seat.'); drawActs();
+}
+function lostTick(){
+  const p = document.getElementById('lostNote'); if (!p || !NET.lost) return;
+  const s = Math.max(0, Math.round((HOLD - (Date.now() - NET.heard)) / 1000));
+  p.firstChild.textContent = (NET.opp ? NET.opp.name : 'Your friend') + '’s connection dropped. Holding their seat for ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + '. ';
+}
+function oppBack(){ if (!NET.lost) return; NET.lost = 0; say((NET.opp ? NET.opp.name : 'Your friend') + ' is back.'); drawActs(); }
 function oppLeft(){
   if (V.mode !== 'online' || NET.gone) return;
+  NET.lost = 0;
   const name = NET.opp ? NET.opp.name : 'Your friend';
   NET.gone = true; clearInterval(NET.hb); clearTimeout(NET.presT);
   dropWaiter();

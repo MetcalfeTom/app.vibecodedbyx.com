@@ -8,6 +8,7 @@ Two-player "Cheat" (Bluff / I Doubt It) in a noir card room. Sparked by Tatum (s
   - Banner fix (05:52, "the Liar! You take the pile banner stays on screen while the next cards are already being played"). Cause: the stamp's entry animation (`neonOn`, fill-mode both) held opacity 1, so the `.fade` class (opacity 0 + transition) never won; every stamp stayed up until the next one. Now `.show.fade` runs its own `stampOut` keyframes, and every new turn calls `unstamp()`. Real-time probe (probe_fade.js): the old build read opacity 1.00 250 ms into the next turn, the new one 0.00.
   - Out-of-play pile (05:57: with the whole deck dealt, your opponent's hand is just the complement of yours). Now 13 cards each and 10 set aside face down, lying sideways left of the pile, labelled "10 out of play". Nobody sees them during the game; the result card lists what sat out ("Sat out: 7♠ J♦ …"), and online it only appears after a fair audit.
   - Online duel (v2): "Duel a friend" opens a table with a 6-letter code and an invite link (`#join=CODE`); the friend opens the link or types the code. Sealed deck by SRA mental poker (below). Rematch needs both to press it. The seal chip (casino chip with a keyhole, top right) explains the deal when tapped and shows sealing / sealed / audited / broken / unaudited.
+- v2.2 (2026-10-01), "the seat stays warm" (Tatum 00:49 "did you test P2P reconnection?", 00:53 "persisting the game state would be great"). Before: drops up to ~8 s already healed (the reliable layer resends), but 12 s of silence ended the game, and BOTH sides saw "left the table, so the game is yours" (blackout15 test). Now 12 s of silence (or presence lost for 3 s) = `oppQuiet()`: an amber pulsing note "X's connection dropped. Holding their seat for m:ss." with a "claim the win" link; pings and resends keep going, the first message back calls `oppBack()` ("X is back.") and the game carries on from the same spot. After HOLD (180 s) it ends as a leave. A 'bye' (tab closed/reloaded) still ends it at once, and between games (result card up) a drop is still a leave. PROTO unchanged.
 
 ## rules notes
 - 36 cards, not 32: with 8 ranks and alternating turns each player would get the SAME four ranks forever (7/9/J/K vs 8/10/Q/A), so half of every hand could only ever leave by lying. With 9 ranks the cycle is odd and both players get every rank in turn. The sign starts at 6 (the lowest rank) rather than 7 for the same reason.
@@ -35,6 +36,8 @@ Two-player "Cheat" (Bluff / I Doubt It) in a noir card room. Sparked by Tatum (s
 
 ## limits (be honest)
 - A leaver stops the audit: if someone closes the tab, that game is never audited (seal shows "unaudited").
+- A reload loses the hand: keys live only in memory, and pagehide sends 'bye'. Surviving a reload means persisting keys + deal + Game + NET.R counters (sessionStorage), treating 'bye' as a drop, and rejoining the same seat (todo, Tatum asked).
+- Tests use a BroadcastChannel stub, not the real Supabase relay; two separate real browsers over the relay are untested here (Tatum is trying it with two browsers + devtools offline).
 - Positions are stable identities. After you pick up the pile you can open those positions; if the opponent later replays some of them, a modified client recognises them. A fix would need a verifiable re-shuffle of picked-up cards (todo). The honest UI never shows this.
 - Timing: how long a browser takes to answer can leak a little (e.g. a quick "let go"). Not addressed.
 - Griefing: a modified client can always claim "you cheated" and stop the game (game void). It can't make a fake cheat pass the other side's checks.
@@ -46,6 +49,7 @@ Two-player "Cheat" (Bluff / I Doubt It) in a noir card room. Sparked by Tatum (s
 - Tatum: with the whole deck dealt, the opponent's hand was the complement of yours (fixed v2.1 with the out-of-play pile).
 
 ## todos
+- Survive a reload (see limits).
 - Verifiable re-shuffle after pickups (see limits).
 - Ideas for chat: a second house bot (a nervous one who never lies?), a turn timer online, emotes.
 
@@ -53,6 +57,6 @@ Two-player "Cheat" (Bluff / I Doubt It) in a noir card room. Sparked by Tatum (s
 - Scratch harness: session c15135b2 scratchpad `bluff/` (gen.py builds test_*.html from sw/bluff-duel/index.html; poll.sh = live browser + title poll; live.sh = CDP screenshot when the title starts SHOTREADY).
   - probe_bot.js auto-plays N house games through the real buttons (#g=N): position invariants incl. the out-of-play stack, winner has 0 cards, stats + "Sat out" line, no banner left up when a turn starts.
   - probe_fade.js: real-time banner check (opacity 250 ms into the next turn).
-  - Online: test_duel.html#s=honest|lossy|badkey|foreign|swapdeck|version|leave runs two same-origin iframes (host, then guest with #join=CODE) over a BroadcastChannel stub transport (stub_on.js: #lat=ms, #drop=p, #tamper=, #proto=). probe_on.js auto-plays and checks both sides agree on the winner, both audits say fair, every value known at the end, and no out-of-play key or value is ever known during play.
+  - Online: test_duel.html#s=honest|lossy|badkey|foreign|swapdeck|version|leave runs two same-origin iframes (host, then guest with #join=CODE) over a BroadcastChannel stub transport (stub_on.js: #lat=ms, #drop=p, #tamper=, #proto=). probe_on.js auto-plays and checks both sides agree on the winner, both audits say fair, every value known at the end, and no out-of-play key or value is ever known during play. v2.2: #s=blackout (A goes dark 6 s in for 8 s) and #s=blackout15 (15 s) via stub_on.js #bk=ms&bd=ms (drops sends + incoming, counts them in window.__dark); blackout15 failed on v2.1 (both "won"), passes on v2.2 in 33 s with 40 messages lost, same winner, both audits fair.
 - Test seams: `window.__BLUFF_TEST = { fast, hold, name, transport(room), tamper: 'foreign'|'badkey'|'swapdeck', proto }`. `window.__bluff` exposes V/G/ASK/NET/SRA for probes.
 - Both test frames share one renderer thread, so a scripted online game is slow in headless (minutes); that's the harness, not the app.
