@@ -1010,7 +1010,8 @@ function realTransport(room, client){
       else if ((st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') && !done){ done = true; clearTimeout(to); NET.rtWhy = st + (err && err.message ? ': ' + err.message : ''); res(false); }
     });
   });
-  return { ready, send(m){ try { const r = ch.send({ type: 'broadcast', event: 'm', payload: m }); if (r && r.catch) r.catch(() => {}); } catch (e) {} },
+  const up = () => { try { const rt = client.realtime; if (rt && typeof rt.isConnected === 'function' && !rt.isConnected()) return false; if (ch.state && ch.state !== 'joined') return false; } catch (e) {} return true; };
+  return { ready, up, send(m){ try { const r = ch.send({ type: 'broadcast', event: 'm', payload: m }); if (r && r.catch) r.catch(() => {}); } catch (e) {} },
     onMsg(f){ onMsg = f; }, onPresence(f){ onPres = f; }, close(){ onMsg = null; onPres = null; try { client.removeChannel(ch); } catch (e) {} } };
 }
 async function openTransport(room){
@@ -1030,7 +1031,7 @@ async function openTransport(room){
     if (!raw) throw new Error(why);
   }
   if (!(await raw.ready)) throw new Error(NET.rtWhy || 'realtime');
-  return { send(m){ m.from = NET.cid; raw.send(m); }, onMsg: f => raw.onMsg(f), onPresence: f => raw.onPresence(f), close: () => raw.close() };
+  return { send(m){ m.from = NET.cid; raw.send(m); }, up: () => !raw.up || raw.up(), onMsg: f => raw.onMsg(f), onPresence: f => raw.onPresence(f), close: () => raw.close() };
 }
 
 /* ---- room dialog ---- */
@@ -1448,18 +1449,20 @@ function noteRematch(){
 /* v2.2: 12 s of silence (or their presence dropping) = their connection is gone for now. The seat stays warm for HOLD:
    pings and unacked messages keep going out, so when they come back the game carries on from the same spot.
    You can claim the win any time; after HOLD it ends as a leave. Their own 'bye' (tab closed) still ends it at once. */
-const HOLD = 180000;
-const offline = () => navigator.onLine === false;
+const HOLD = (T && T.holdMs) || 180000;
+/* who dropped? Neither side can see the line between them; each only knows it stopped hearing the other.
+   'net' = the browser says it's offline, 'relay' = our own socket/channel to the relay is down; '' = as far as we can tell it's them */
+const offline = () => navigator.onLine === false ? 'net' : (NET.tr && NET.tr.up && !NET.tr.up()) ? 'relay' : '';
 function oppQuiet(){
   if (V.mode !== 'online' || NET.gone || NET.lost) return;
   if (!$('#dlgResult').hidden){ oppLeft(); return; }   /* between games there is nothing to hold */
-  NET.lost = Date.now(); say(offline() ? 'You’re offline. Your seat is held while you reconnect.' : (NET.opp ? NET.opp.name : 'Your friend') + '’s connection dropped. Holding their seat.'); drawActs();
+  NET.lost = Date.now(); say(offline() ? (offline() === 'net' ? 'You’re offline.' : 'Your link to the table dropped.') + ' Your seat is held while you reconnect.' : (NET.opp ? NET.opp.name : 'Your friend') + '’s connection dropped. Holding their seat.'); drawActs();
 }
 function lostTick(){
   const p = document.getElementById('lostNote'); if (!p || !NET.lost) return;
   const s = Math.max(0, Math.round((HOLD - (Date.now() - NET.heard)) / 1000));
   const t = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'), off = offline();
-  p.firstChild.textContent = off ? 'You’re offline. Your seat is held for ' + t + ' while you reconnect.' : (NET.opp ? NET.opp.name : 'Your friend') + '’s connection dropped. Holding their seat for ' + t + '. ';
+  p.firstChild.textContent = off ? (off === 'net' ? 'You’re offline.' : 'Your link to the table dropped.') + ' Your seat is held for ' + t + ' while you reconnect.' : (NET.opp ? NET.opp.name : 'Your friend') + '’s connection dropped. Holding their seat for ' + t + '. ';
   const c = document.getElementById('btnClaim'); if (c) c.hidden = off;
 }
 function oppBack(){ if (!NET.lost) return; NET.lost = 0; say((NET.opp ? NET.opp.name : 'Your friend') + ' is back.'); drawActs(); }
@@ -1477,7 +1480,7 @@ function oppLeft(self){   /* self: it was OUR connection that stayed down past H
   if (G && G.phase !== 'over' && NET.deal && NET.deal.D){
     setSeal('lost'); if (!self) sfx.win();
     $('#resKick').textContent = 'online duel'; $('#resTitle').textContent = self ? 'Game over' : 'You win'; $('#resTitle').classList.toggle('lose', !!self);
-    $('#resLine').textContent = self ? 'You were offline for over 3 minutes, so the game ended.' : name + ' left the table, so the game is yours.';
+    $('#resLine').textContent = self ? 'Your connection was down for over ' + (HOLD >= 60000 ? Math.round(HOLD / 60000) + ' minutes' : Math.round(HOLD / 1000) + ' seconds') + ', so the game ended.' : name + ' left the table, so the game is yours.';
     $('#resStats').innerHTML = ''; setAudit(null); $('#resOut').hidden = true;
     $('#resNote').textContent = 'Without their keys this deal can’t be audited.'; $('#btnAgain').hidden = true;
     showDlg('dlgResult'); say(self ? 'You were offline too long. The game ended.' : name + ' left. You win by forfeit.');
