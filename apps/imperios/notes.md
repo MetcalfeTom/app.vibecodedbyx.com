@@ -146,6 +146,20 @@ Alternatives offered to Arian: B) warm 16-bit pixel art, C) low-poly 3D diorama.
   Tap for its card: mood, the last 3 ships taken, a sailors' line by the era's ship type. Seam `&mon[=hunt|strike][&mu=0..1]
   [&mz=zoom][&msel]` (hunt/strike need `&fleet`). C13 t240: hunt > strike (Toltec galleon) > dive > rise > roam in 8 s.
   Name: the voice asked chat for one; 'The Leviathan' / 'El Leviatán' until someone suggests better (P2.mon.name).
+- v1.16 (2026-10-01): settlers by sea (todo "a boat walking there would be nice", for Arian). G.voy (sim state, no rnd of
+  its own): sailOut(c,t,cost,ev) leaves from the own port city (isPort) nearest the target, lands after
+  clamp(ceil(tiles/5),3,9) ticks; voyages() in tick() after tryFound founds the city then (shore taken or too close to a
+  city = no city; the land-ho event refunds its gold with a toast). Pending voyages count toward maxC and block
+  cityDistOK at their target. Who sails: the land-ho colony (isleA, always when a port exists, toast 'set sail', the
+  chronicle choice + 'land and found' toast at landing), AI cross-landmass colonies (overSea, rare: expand only looks 8-16
+  tiles out), and NEW: sea-path civs from era 2 pick colonySpot 30% of the times expand passes its gate (12 probe games:
+  11 voyages, all landed; this changes the rnd stream for sea civs only). Render-side VOYP route: sea tile next to the
+  port nearest the target > seaPath > sea tile next to the target; the boat (boat() glyph, min 24 px) with a wake, the
+  course ahead dashed in the civ colour, a pulsing ring on the landing shore; position by (tick - t0 + G.phase)/(trip).
+  Worlds: 30 seeds from K3X: about half have islands (22-253 tiles) next to one ~6100-tile continent.
+  Seam `&voy[=share][&vz=zoom]` (after `shot`: the player, else the first people with a port and a colonySpot, gets a
+  boat at that share of its trip, camera on it). Test copy probes (scratchpad imp/mk.py): `&land` ticks a seam voyage
+  ashore (6 ticks, city at the target), `&isle` runs the land-ho choice as a people with a port (sail toast, 8 ticks, landed).
 ## issues
 - Any element toggled with `hidden` that also gets a CSS display value needs the global [hidden] rule (now in place).
 - Walkers are render-side only (WK map, per city id), driven by ct.J / ct.why from the sim. Only drawn when tp>=3.2.
