@@ -198,6 +198,9 @@ h1 b{ font-weight:800; }
 .fader span{ display:flex; justify-content:space-between; }
 .fader b{ color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; text-transform:none; letter-spacing:0; }
 .fader b.warn{ color:var(--amber); }
+.lvl{ grid-column:2; justify-self:end; margin-top:-.35rem; padding:.1rem .45rem; border:1px solid transparent; border-radius:999px; background:none; color:var(--mute); font:inherit; font-size:.6rem; letter-spacing:.06em; text-transform:none; cursor:pointer; font-variant-numeric:tabular-nums; }
+.lvl:hover, .lvl:focus-visible{ border-color:currentColor; color:var(--ink); }
+.lvl[aria-pressed="false"]{ opacity:.6; text-decoration:line-through; }
 .fader.locked{ opacity:.55; }
 input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:2.75rem; background:transparent; margin:0; cursor:pointer; }
 input[type=range]::-webkit-slider-runnable-track{ height:.25rem; border-radius:.2rem; background:var(--dim); }
@@ -250,6 +253,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
   .val{ font-size:1.1rem; }
   .badge{ font-size:.95rem; min-width:3rem; }
   .faders{ grid-template-columns:1fr; }
+  .lvl{ grid-column:1; }
   .xf{ padding:.5rem .6rem .7rem; }
 }
 @media (prefers-reduced-motion: reduce){
@@ -583,7 +587,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.49 · 2026-09-30</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.50 · 2026-10-01</span>
 </footer>
 
 <script id="dsp">
@@ -1111,10 +1115,70 @@ var $ = function(s, r){ return (r || document).querySelector(s); };
 var AC = window.AudioContext || window.webkitAudioContext;
 var ctx = null, master = null;
 function audio(){
-  if (!ctx){ ctx = new AC(); master = ctx.createGain(); master.connect(ctx.destination); }
+  if (!ctx){ ctx = new AC(); master = ctx.createGain();
+    LVL.pre = ctx.createGain(); LVL.pre.gain.value = 0.5; LVL.clip = ctx.createWaveShaper(); lvlCurve();
+    master.connect(LVL.pre); LVL.pre.connect(LVL.clip); LVL.clip.connect(ctx.destination); }
   if (ctx.state === 'suspended') ctx.resume();
   return ctx;
 }
+
+/* v4.50 AUTO LEVEL (pushedbutton: "older tracks ... a need for some normalisation. can we employ some LUFS magic?").
+   Each song is measured once on load for integrated loudness (ITU-R BS.1770: K-weighting, 400 ms blocks every 100 ms,
+   -70 LUFS and -10 LU gates) and its deck gets a fixed trim toward LVL.target, BEFORE the level fader, so the fader
+   stays the DJ's. Trims are capped (+6 / -9 dB). With auto level on, a soft clipper on the master rounds off boosted
+   peaks; off, the clipper's curve is the identity. The master runs at half gain into the shaper (whose input is
+   clamped to +-1) and the curve doubles it back, so nothing up to 2.0 is cut. */
+var LVL = { on: true, target: -11, maxUp: 6, maxDown: 9, pre: null, clip: null };
+try{ if (localStorage.getItem('harmony-autolevel') === '0') LVL.on = false; }catch(e){}
+function lvlCurve(){
+  if (!LVL.clip) return;
+  var n = 4097, c = new Float32Array(n);
+  for (var i = 0; i < n; i++){ var v = (i / (n - 1) * 2 - 1) * 2, a = Math.abs(v);
+    c[i] = LVL.on && a > 0.8 ? (v < 0 ? -1 : 1) * (0.8 + 0.19 * Math.tanh((a - 0.8) / 0.19)) : v; }
+  LVL.clip.curve = c;
+}
+function lvlBiquads(sr){
+  function hs(f, g, q){ var A = Math.pow(10, g / 40), w = 2 * Math.PI * f / sr, cw = Math.cos(w), sA = 2 * Math.sqrt(A) * Math.sin(w) / (2 * q), a0 = (A + 1) - (A - 1) * cw + sA;
+    return [A * ((A + 1) + (A - 1) * cw + sA) / a0, -2 * A * ((A - 1) + (A + 1) * cw) / a0, A * ((A + 1) + (A - 1) * cw - sA) / a0, 2 * ((A - 1) - (A + 1) * cw) / a0, ((A + 1) - (A - 1) * cw - sA) / a0]; }
+  function hp(f, q){ var w = 2 * Math.PI * f / sr, cw = Math.cos(w), al = Math.sin(w) / (2 * q), a0 = 1 + al;
+    return [(1 + cw) / 2 / a0, -(1 + cw) / a0, (1 + cw) / 2 / a0, -2 * cw / a0, (1 - al) / a0]; }
+  return [hs(1500, 4, Math.SQRT1_2), hp(38, 0.5)];
+}
+/* integrated loudness of an AudioBuffer in LUFS (null for silence or under 0.4 s); runs in quarter-million-sample slices so the
+   page keeps drawing. A mono file counts as dual mono (it plays on both speakers). stale() true → rejects. */
+function measureLoudness(buf, stale){
+  return new Promise(function(res, rej){
+    var sr = buf.sampleRate, hop = Math.round(sr * 0.1), nseg = Math.floor(buf.length / hop), end = nseg * hop;
+    var nc = Math.min(2, buf.numberOfChannels), F = lvlBiquads(sr), seg = new Float64Array(nseg + 1), ch = [], st = [], i = 0;
+    for (var c = 0; c < nc; c++){ ch.push(buf.getChannelData(c)); st.push([0, 0, 0, 0, 0, 0]); }
+    if (nseg < 4) return res(null);
+    function slice(){
+      if (stale && stale()) return rej(new Error('stale'));
+      var to = Math.min(end, i + 262144), a = F[0], b = F[1];
+      for (var c = 0; c < nc; c++){
+        var x = ch[c], m = st[c], x1 = m[0], x2 = m[1], y1 = m[2], y2 = m[3], z1 = m[4], z2 = m[5], k = Math.floor(i / hop), kEnd = (k + 1) * hop, acc = 0;
+        for (var j = i; j < to; j++){
+          if (j === kEnd){ seg[k] += acc; acc = 0; k++; kEnd += hop; }
+          var xi = x[j], y = a[0] * xi + a[1] * x1 + a[2] * x2 - a[3] * y1 - a[4] * y2,
+              z = b[0] * y + b[1] * y1 + b[2] * y2 - b[3] * z1 - b[4] * z2;
+          x2 = x1; x1 = xi; y2 = y1; y1 = y; z2 = z1; z1 = z; acc += z * z;
+        }
+        seg[k] += acc; m[0] = x1; m[1] = x2; m[2] = y1; m[3] = y2; m[4] = z1; m[5] = z2;
+      }
+      i = to;
+      if (i < end) return setTimeout(slice, 0);
+      var w = (nc === 1 ? 2 : 1) / (4 * hop), zs = [], sum = 0, n = 0;
+      for (var q = 0; q + 4 <= nseg; q++){ var zb = (seg[q] + seg[q + 1] + seg[q + 2] + seg[q + 3]) * w;
+        if (zb > 0 && -0.691 + 10 * Math.log10(zb) > -70){ zs.push(zb); sum += zb; n++; } }
+      if (!n) return res(null);
+      var gate = -0.691 + 10 * Math.log10(sum / n) - 10, s2 = 0, n2 = 0;
+      for (var r = 0; r < zs.length; r++){ if (-0.691 + 10 * Math.log10(zs[r]) > gate){ s2 += zs[r]; n2++; } }
+      res(n2 ? -0.691 + 10 * Math.log10(s2 / n2) : null);
+    }
+    setTimeout(slice, 0);
+  });
+}
+function lvlDb(lufs){ return lufs == null ? 0 : Math.max(-LVL.maxDown, Math.min(LVL.maxUp, LVL.target - lufs)); }
 
 /* ── Camelot colours: 12 hues around the wheel, A (minor) pastel, B (major) saturated ── */
 function camelotColor(n, letter){
@@ -1208,6 +1272,7 @@ function deckMarkup(L){
       '<div class="faders">' +
         '<label class="fader pitch"><span>pitch <b class="pv">0.0%</b></span><input type="range" min="-8" max="8" step="0.1" value="0" aria-label="Deck ' + L + ' pitch, percent"></label>' +
         '<label class="fader vol"><span>level <b class="vv">100</b></span><input type="range" min="0" max="100" value="100" aria-label="Deck ' + L + ' level"></label>' +
+        '<button type="button" class="lvl" aria-pressed="true" aria-label="Auto level, deck ' + L + '">auto level</button>' +
       '</div>' +
       '<div class="syncrow">' +
         '<button type="button" class="btn klock" aria-pressed="true" title="Keylock keeps the musical key when tempo changes; vinyl lets pitch follow speed — click to switch"><span class="opt oa">♪ keylock</span><span class="opt ob">vinyl</span></button>' +
@@ -1260,10 +1325,11 @@ function Deck(L, el){
     file: $('input[type=file]', el), pitchLab: $('.fader.pitch', el),
     klock: $('.klock', el), sync: $('.sync', el), nm: $('.nm', el), np: $('.np', el), pre: $('.pre', el), presel: $('.presel', el),
     loop: $('.loop', el), lmin: $('.lmin', el), lplus: $('.lplus', el), lread: $('.lread', el), glock: $('.glock', el), ldir: $('.ldir', el),
-    rescan: $('.rescan', el), eject: $('.eject', el),
+    rescan: $('.rescan', el), eject: $('.eject', el), lvl: $('.lvl', el),
     onebtn: $('.onebtn', el), phbtn: $('.phbtn', el), phstrip: $('.phrasestrip', el), phsug: $('.phsug', el), phadd: $('.phadd', el), plist: $('.plist', el), pads: $('.cuepads', el), pcount: $('.pcount', el), pclick: $('.pclick', el), pclickl: $('.pclickl', el), pcwin: $('.pcwin', el)
   };
   d.color = null;
+  d.lufs = null; d.q.lvl.addEventListener('click', function(){ lvlToggle(); }); d.lvlShow();
   d.q.file.addEventListener('change', function(){ if (d.q.file.files[0]) d.loadFile(d.q.file.files[0]); d.q.file.value = ''; });
   el.addEventListener('dragover', function(e){ e.preventDefault(); el.classList.add('over'); });
   el.addEventListener('dragleave', function(){ el.classList.remove('over'); });
@@ -1446,6 +1512,7 @@ Deck.prototype.setBuffer = function(buf, name){
   var kept = d.fp ? phraseLoad(d.fp) : null;
   if (kept){ d.phrases = kept; d.renderPhrases(); }
   d.setColor(null); d.draw(); d.render(); d.setStatus('reading bpm + key…');
+  d.lvlMeasure();
   return d.rescan();
 };
 /* re-scan the CURRENT buffer in the background: playback keeps running and the existing
@@ -1472,6 +1539,7 @@ Deck.prototype.eject = function(){
   if (!d.buffer && !d.name) return;
   d.stop();
   d.buffer = null; d.bpm = null; d.key = null; d.grid = null; d.chord = null; d.posAtStart = 0; d.name = '';
+  d.lufs = null; d.lvlApply(0.08);
   d.resetTrackState();
   if (d.mediaURL){ try{ URL.revokeObjectURL(d.mediaURL); }catch(e){} d.mediaURL = null; }
   if (d.el2){ try{ d.el2.removeAttribute('src'); d.el2.load(); }catch(e){} }
@@ -1533,10 +1601,11 @@ Deck.prototype.ensureNodes = function(){
   if (d.nodes) return d.nodes;
   var an = c.createAnalyser(); an.fftSize = 8192; an.smoothingTimeConstant = 0.6;
   var vg = c.createGain(), fg = c.createGain(), xg = c.createGain();   /* fg: only the v4.29 fade-on-8 touches it */
-  an.connect(vg); vg.connect(fg); fg.connect(xg); xg.connect(master);
-  vg.gain.value = d.vol; xg.gain.value = d.xf;
+  var lg = c.createGain();   /* v4.50 auto level trim, before the fader */
+  an.connect(lg); lg.connect(vg); vg.connect(fg); fg.connect(xg); xg.connect(master);
+  vg.gain.value = d.vol; xg.gain.value = d.xf; lg.gain.value = d.lvlGain();
   d.fftBuf = new Float32Array(an.frequencyBinCount);
-  d.nodes = { an: an, vg: vg, fg: fg, xg: xg };
+  d.nodes = { an: an, vg: vg, fg: fg, xg: xg, lg: lg };
   return d.nodes;
 };
 Deck.prototype.pos = function(){
@@ -1635,6 +1704,25 @@ Deck.prototype.setRate = function(r){
   d.applyRate();
   d.render();
 };
+Deck.prototype.lvlGain = function(){ return LVL.on && this.lufs != null ? Math.pow(10, lvlDb(this.lufs) / 20) : 1; };
+Deck.prototype.lvlApply = function(tc){ var d = this; if (d.nodes && ctx) d.nodes.lg.gain.setTargetAtTime(d.lvlGain(), ctx.currentTime, tc || 0.25); d.lvlShow(); };
+Deck.prototype.lvlMeasure = function(){
+  var d = this, buf = d.buffer; d.lufs = null; d.lvlShow();
+  if (!buf) return Promise.resolve(null);
+  return measureLoudness(buf, function(){ return d.buffer !== buf; }).then(function(l){ if (d.buffer !== buf) return null; d.lufs = l; d.lvlApply(); return l; }, function(){ return null; });
+};
+Deck.prototype.lvlShow = function(){
+  var b = this.q.lvl; if (!b) return;
+  var l = this.lufs, db = lvlDb(l), t = (db >= 0 ? '+' : '−') + Math.abs(db).toFixed(1) + ' dB';
+  b.setAttribute('aria-pressed', String(LVL.on));
+  b.textContent = !LVL.on ? 'auto level off' : !this.buffer ? 'auto level' : l == null ? 'auto level …' : 'auto ' + t;
+  b.title = (this.buffer && l != null ? 'This song measures ' + l.toFixed(1).replace('-', '−') + ' LUFS. ' + (LVL.on ? 'Auto level ' + (db >= 0 ? 'lifts' : 'lowers') + ' it ' + t + ' toward ' + LVL.target + ' LUFS, before your level fader. ' : '') : '') +
+    'Auto level evens out loud and quiet masters (both decks). Click to turn it ' + (LVL.on ? 'off' : 'on') + '.';
+};
+function lvlToggle(){
+  LVL.on = !LVL.on; try{ localStorage.setItem('harmony-autolevel', LVL.on ? '1' : '0'); }catch(e){}
+  lvlCurve(); decks.A.lvlApply(0.08); decks.B.lvlApply(0.08);
+}
 Deck.prototype.setVol = function(v){ this.vol = v; if (this.nodes) this.nodes.vg.gain.setTargetAtTime(v, ctx.currentTime, 0.02); this.q.vv.textContent = Math.round(v * 100); };
 Deck.prototype.setXf = function(g){ this.xf = g; if (this.nodes) this.nodes.xg.gain.setTargetAtTime(g, ctx.currentTime, 0.02); };
 /* pre-count: jump back N whole bars on this deck's own grid, then play. Whole bars in track
@@ -2788,7 +2876,7 @@ function renderSTrans(){
 }
 ['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
 renderSTrans();
-window.__X = { chordSw: chordSw, get chordsOn(){ return CHORDS_ON; }, laneSummary: laneSummary, keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { LVL: LVL, measureLoudness: measureLoudness, lvlDb: lvlDb, lvlToggle: lvlToggle, chordSw: chordSw, get chordsOn(){ return CHORDS_ON; }, laneSummary: laneSummary, keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; } };
 })();
 </script>
@@ -5263,6 +5351,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.50', t:'Auto level', d:'Every song is measured for loudness when it loads (LUFS, the way ears hear it) and its deck is trimmed toward -11 LUFS before your level fader, so a quiet old master and a loud new one meet at the same level. The trim shows under the fader; click it to turn auto level off.', p:'presentability', i:'high', e:'low', st:'verified', ev:'headless: K-weighted sine checks, trim readout, toggle' },
   { s:'log', v:'v4.49', t:'Zoom out to the whole song', d:'The aligned timeline zooms out to 1/16x, about six and a half minutes across, so the sections coming up in both songs are in view before they surprise a mix.', p:'presentability', i:'mid', e:'low', st:'verified', ev:'headless screenshots at 1/4x and 1/16x' },
   { s:'log', v:'v4.48.1', t:'Wider second tap', d:'On a beat map you drew, the second tap tunes the tempo even when the outro has drifted up to a beat and a half, so the map sits right at both ends of a live track.', p:'workflow', i:'mid', e:'low', st:'verified', ev:'headless probe: 125 shown on a 124 loop, taps 32 bars apart' },
   { s:'log', v:'v4.48', t:'Tap draws a beat map', d:'A track that never got a beat map but has a BPM: TAP THE 1 now draws one at that BPM with the 1 on your tap. A second tap on a 1 later in the song fine-tunes the tempo so both taps sit on bar lines.', p:'workflow', i:'high', e:'low', st:'verified', ev:'headless probe: no-grid deck, two taps 32 bars apart' },
