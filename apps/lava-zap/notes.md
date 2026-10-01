@@ -79,6 +79,7 @@ Tatum's idea (sloppy.live chat, 2026-09-29): target practice inside a lava lamp.
 - Never go back to an import map or three r186 here: see v1.0.1.
 - Headless SwiftShader runs at a few fps, so probes freeze the loop (`renderer.setAnimationLoop(null)`) right after the action to screenshot it.
 - The dark disc you see when looking straight up is the lamp's lid, not a rendering bug.
+- Aim stays dead centre (decided 2026-10-01, Tatum 02:04 asked about zapping off to the side / at the cursor). The beam leaves from your eye, so a pair only lines up from the right spot whatever you aim with: cursor aim would only skip the turning, make free-mouse times beat touch and pointer-lock times on the boards, and look odd with the gun drawn fixed at the right. The forgiveness already exists: aimList() slack (5% desktop, 14% touch on bubble radius) plus the "seen" grace in fire() (a x2 the crosshair showed a moment ago still counts).
 
 ## Todos
 - Maybe a flow-map overlay for beginners (v1.8.5 vent arrows chip is a first step).
