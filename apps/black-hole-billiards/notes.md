@@ -58,7 +58,7 @@ Pool on a table in space: planets and stars bend shots, pockets are black holes.
 - 2P: optional player names (typed on the device, no fake defaults), ball-in-hand after a scratch, a mercy rule when one side can't be caught.
 - (done v1.12) A table built around the moon: Moonrise and Twin Moons.
 - More skies: a comet that sheds ice balls, a binary pulsar, a pulsar on the 2P duel.
-- Online 2P would need a realtime channel; not planned.
+- Online 2P would need a realtime channel; not planned. Tatum asked twice on 2026-10-01 (01:13, 02:33: 'P2P match-making like Bluff Duel'); parked that night to pace the weekly plan. Plan when it's picked up: a friend room with a code + #join link as in apps/bluff-duel (this app already ships its own supabase-config-fixed.js), the shooter's browser is the judge (send the shot input to replay plus the settled ball spots and scores, the other side snaps to them, since float physics can differ between browsers). Lighter fallback: play by link, the settled table state in the URL hash after each shot, no server.
 
 ## notes
 - World is 1000x500 with 46-unit rails; view() rotates for portrait, toWorld() inverts it.
