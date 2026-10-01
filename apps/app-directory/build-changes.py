@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # Bakes changes.json for the app directory's change log: the latest 8 commit
-# lines per app (date, subject), newest first, from one git log walk over apps/.
+# lines per app (UTC time as 2026-10-01T22:44Z, subject), newest first, from one git log walk over apps/.
 # Commits that only touch an app's notes, or touch more than 6 apps at once
 # (sweeps), are left out. Run it again to refresh the log; it is not on a cron.
 import subprocess, json, re, os, datetime
 ROOT = '/vibespace'
 N = 8
-raw = subprocess.run(['git', '-C', ROOT, 'log', '--format=%x01%ad%x02%s', '--date=short', '--name-only', '--', 'apps/'],
-                     capture_output=True, text=True, check=True).stdout
+raw = subprocess.run(['git', '-C', ROOT, 'log', '--format=%x01%ad%x02%s', '--date=format-local:%Y-%m-%dT%H:%MZ', '--name-only', '--', 'apps/'],
+                     capture_output=True, text=True, check=True, env=dict(os.environ, TZ='UTC')).stdout
 apps = {d for d in os.listdir(ROOT + '/apps') if os.path.isdir(ROOT + '/apps/' + d)}
 skip = re.compile(r'eyJ[A-Za-z0-9._-]{8,}|supabase\.co|password|passw|secret|api[_ -]?key|token|demo login', re.I)
 out = {}
