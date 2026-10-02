@@ -21,7 +21,7 @@ const dirs = fs.readdirSync(root, {withFileTypes:true})
 
 function pick(html, regex){
   const m = html.match(regex);
-  return m ? m[1].trim() : '';
+  return m ? (m[1] || m[2] || '').trim() : '';
 }
 function decode(s){
   return s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
@@ -209,12 +209,12 @@ for (const slug of dirs){
   try { html = fs.readFileSync(f, 'utf8').slice(0, 8192); }   // head section is plenty
   catch(e){ continue; }
   title = decode(
-    pick(html, /<meta\s+property=[\"']og:title[\"']\s+content=[\"']([^\"']+)[\"']/i) ||
+    pick(html, /<meta\s+property=[\"']og:title[\"']\s+content=(?:\"([^\"]+)\"|'([^']+)')/i) ||
     pick(html, /<title>([^<]+)<\/title>/i)
   );
   desc = decode(
-    pick(html, /<meta\s+property=[\"']og:description[\"']\s+content=[\"']([^\"']+)[\"']/i) ||
-    pick(html, /<meta\s+name=[\"']description[\"']\s+content=[\"']([^\"']+)[\"']/i)
+    pick(html, /<meta\s+property=[\"']og:description[\"']\s+content=(?:\"([^\"]+)\"|'([^']+)')/i) ||
+    pick(html, /<meta\s+name=[\"']description[\"']\s+content=(?:\"([^\"]+)\"|'([^']+)')/i)
   );
   // 'creators' on each entry merges both signals: chat handles
   // (real attribution from commit subjects, prioritised) followed by
