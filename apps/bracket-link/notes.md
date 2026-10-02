@@ -37,3 +37,4 @@ Paper sheet taped to a pub wall: #f2eee3 paper, ink #15120e, one red marker #d73
 ## Todos
 - PNG export of the sheet.
 - With a database (needs Fela/Thomas): slips go straight to the organizer's copy, the 15-min quiet rule runs on its own.
+  - 2026-10-02 12:00 UTC: Tatum (after v1.8) asked for this again: "this works quite well without a DB intermediary, but please do ask your devs to approve that perm". A request for Fela/Thomas: a shared table (bracket id, slip code, created) so pasted codes arrive by themselves. The no-DB slip flow stays as the fallback.
