@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Slosh Cube</title>
+<meta name="description" content="A glass cube full of water. Grab it, tilt it, flip it, and watch it slosh.">
+<link rel="icon" href="https://emojicdn.elk.sh/💧">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Slosh Cube">
+<meta property="og:description" content="A glass cube full of water. Grab it, tilt it, flip it, and watch it slosh.">
+<meta property="og:url" content="https://app.sloppy.live/slosh-cube/">
+<meta property="og:image" content="https://app.sloppy.live/slosh-cube/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#07101f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Martian+Mono:wght@300;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#07101f;--deep:#0d1d38;--cyan:#7fe7ff;--foam:#e9fbff;--coral:#ff7a59;--dim:#8aa6c8;
+  --serif:'Instrument Serif','Georgia',serif;--mono:'Martian Mono','Courier New',monospace}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:radial-gradient(90% 70% at 50% 38%,#16305a 0,#0b1730 45%,var(--ink) 100%);color:var(--foam);font:300 12px/1.5 var(--mono);touch-action:none;user-select:none;-webkit-user-select:none}
+canvas#c{position:fixed;inset:0;width:100vw;height:100vh;display:block;cursor:grab}
+canvas#c.grab{cursor:grabbing}
+header{position:fixed;left:0;right:0;top:0;padding:max(14px,env(safe-area-inset-top)) 18px 0;pointer-events:none;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+h1{margin:0;font:italic 400 clamp(40px,9vw,76px)/.85 var(--serif);letter-spacing:-.5px;color:var(--foam);text-shadow:0 0 30px rgba(127,231,255,.35);animation:drift .9s cubic-bezier(.2,.8,.2,1) both}
+h1 span{color:var(--cyan)}
+.sub{margin:6px 0 0;color:var(--dim);font-size:11px;letter-spacing:.06em;animation:drift .9s .12s cubic-bezier(.2,.8,.2,1) both}
+.bar{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:8px;animation:lift .8s .2s cubic-bezier(.2,.8,.2,1) both}
+.bar button{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--foam);background:rgba(13,29,56,.72);border:1px solid rgba(127,231,255,.35);border-radius:999px;padding:10px 15px;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.bar button:hover{border-color:var(--cyan)}
+.bar button.hot{background:var(--coral);border-color:var(--coral);color:var(--ink)}
+button:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+.hint{position:fixed;left:50%;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 56px);transform:translateX(-50%);color:var(--dim);font-size:11px;letter-spacing:.08em;white-space:nowrap;transition:opacity .6s,transform .6s}
+.hint.gone{opacity:0;transform:translate(-50%,8px)}
+.err{position:fixed;inset:auto 16px 50% 16px;text-align:center;font:italic 400 26px var(--serif);color:var(--foam)}
+@keyframes drift{from{transform:translateY(-14px)}}
+@keyframes lift{from{transform:translate(-50%,16px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="A glass cube of water. Drag to tilt it."></canvas>
+<header><div><h1>Slosh <span>Cube</span></h1><p class="sub">Navier–Stokes, one sphere at a time</p></div></header>
+<p class="hint" id="hint">drag to tilt the cube</p>
+<div class="bar">
+  <button id="splash">splash</button>
+  <button id="spin">spin</button>
+  <button id="level">level</button>
+</div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* ── the fluid: double density relaxation (Clavet et al. 2005) in cube-local space, units where the interaction radius is 1 ── */
+function makeSim(N, L, P) {
+  const x = new Float32Array(N * 3), xp = new Float32Array(N * 3), v = new Float32Array(N * 3);
+  const G = Math.ceil(2 * L), G3 = G * G * G;
+  const cellOf = new Int32Array(N), start = new Int32Array(G3 + 1), fill = new Int32Array(G3), order = new Int32Array(N);
+  const nb = new Int32Array(N * 64), nq = new Float32Array(N * 64), nc = new Int32Array(N);
+  const rho = new Float32Array(N), rhoN = new Float32Array(N), g = [0, -P.g, 0];
+  const s = P.s; let i = 0;
+  for (let y = -L + s / 2; y < L && i < N; y += s) for (let z = -L + s / 2; z < L - s / 4 && i < N; z += s) for (let xx = -L + s / 2; xx < L - s / 4 && i < N; xx += s) {
+    x[i * 3] = xx + (Math.random() - .5) * .05; x[i * 3 + 1] = y; x[i * 3 + 2] = z + (Math.random() - .5) * .05; i++;
+  }
+  function cell(px, py, pz) {
+    let cx = Math.floor(px + L), cy = Math.floor(py + L), cz = Math.floor(pz + L);
+    cx = cx < 0 ? 0 : cx >= G ? G - 1 : cx; cy = cy < 0 ? 0 : cy >= G ? G - 1 : cy; cz = cz < 0 ? 0 : cz >= G ? G - 1 : cz;
+    return (cz * G + cy) * G + cx;
+  }
+  function grid() {
+    start.fill(0);
+    for (let i = 0; i < N; i++) { const c = cell(x[i * 3], x[i * 3 + 1], x[i * 3 + 2]); cellOf[i] = c; start[c + 1]++; }
+    for (let c = 0; c < G3; c++) start[c + 1] += start[c];
+    fill.set(start.subarray(0, G3));
+    for (let i = 0; i < N; i++) order[fill[cellOf[i]]++] = i;
+  }
+  function neighbours() {
+    for (let i = 0; i < N; i++) {
+      const xi = x[i * 3], yi = x[i * 3 + 1], zi = x[i * 3 + 2], c = cellOf[i];
+      const cx = c % G, cy = ((c / G) | 0) % G, cz = (c / (G * G)) | 0; let n = 0;
+      for (let dz = -1; dz <= 1; dz++) { const z2 = cz + dz; if (z2 < 0 || z2 >= G) continue;
+        for (let dy = -1; dy <= 1; dy++) { const y2 = cy + dy; if (y2 < 0 || y2 >= G) continue;
+          for (let dx = -1; dx <= 1; dx++) { const x2 = cx + dx; if (x2 < 0 || x2 >= G) continue;
+            const cc = (z2 * G + y2) * G + x2;
+            for (let k = start[cc]; k < start[cc + 1]; k++) { const j = order[k]; if (j <= i) continue;
+              const rx = x[j * 3] - xi, ry = x[j * 3 + 1] - yi, rz = x[j * 3 + 2] - zi, r2 = rx * rx + ry * ry + rz * rz;
+              if (r2 < 1 && n < 64) { nb[i * 64 + n] = j; nq[i * 64 + n] = Math.sqrt(r2); n++; } } } } }
+      nc[i] = n;
+    }
+  }
+  function relax() {
+    rho.fill(0); rhoN.fill(0);
+    for (let i = 0; i < N; i++) for (let a = 0; a < nc[i]; a++) {
+      const j = nb[i * 64 + a], q = 1 - nq[i * 64 + a], q2 = q * q, q3 = q2 * q;
+      rho[i] += q2; rho[j] += q2; rhoN[i] += q3; rhoN[j] += q3;
+    }
+    for (let i = 0; i < N; i++) {
+      const Pi = P.k * (rho[i] - P.rho0), PNi = P.kn * rhoN[i];
+      for (let a = 0; a < nc[i]; a++) {
+        const j = nb[i * 64 + a], r = nq[i * 64 + a]; if (r < 1e-5) continue;
+        const Pj = P.k * (rho[j] - P.rho0), PNj = P.kn * rhoN[j], q = 1 - r;
+        /* each pair push is capped so a crowded corner can't blow up */
+        let D = ((Pi + Pj) * .5 * q + (PNi + PNj) * .5 * q * q) * .5; if (D > P.maxD) D = P.maxD; else if (D < -P.maxD) D = -P.maxD; D /= r;
+        const rx = (x[j * 3] - x[i * 3]) * D, ry = (x[j * 3 + 1] - x[i * 3 + 1]) * D, rz = (x[j * 3 + 2] - x[i * 3 + 2]) * D;
+        x[j * 3] += rx; x[j * 3 + 1] += ry; x[j * 3 + 2] += rz; x[i * 3] -= rx; x[i * 3 + 1] -= ry; x[i * 3 + 2] -= rz;
+      }
+    }
+  }
+  function viscosity() {
+    for (let i = 0; i < N; i++) for (let a = 0; a < nc[i]; a++) {
+      const j = nb[i * 64 + a], r = nq[i * 64 + a]; if (r < 1e-5) continue;
+      const ux = (x[j * 3] - x[i * 3]) / r, uy = (x[j * 3 + 1] - x[i * 3 + 1]) / r, uz = (x[j * 3 + 2] - x[i * 3 + 2]) / r;
+      const u = (v[i * 3] - v[j * 3]) * ux + (v[i * 3 + 1] - v[j * 3 + 1]) * uy + (v[i * 3 + 2] - v[j * 3 + 2]) * uz;
+      if (u > 0) { const I = Math.min((1 - r) * (P.sig * u + P.beta * u * u) * .5, u * .5);
+        v[i * 3] -= I * ux; v[i * 3 + 1] -= I * uy; v[i * 3 + 2] -= I * uz; v[j * 3] += I * ux; v[j * 3 + 1] += I * uy; v[j * 3 + 2] += I * uz; }
+    }
+  }
+  function walls() { const m = L - P.rad; for (let k = 0; k < N * 3; k++) { if (x[k] < -m) x[k] = -m; else if (x[k] > m) x[k] = m; } }
+  function step() {
+    for (let i = 0; i < N; i++) { v[i * 3] += g[0]; v[i * 3 + 1] += g[1]; v[i * 3 + 2] += g[2]; }
+    viscosity(); /* uses the previous step's neighbour list */
+    for (let k = 0; k < N * 3; k++) { xp[k] = x[k]; x[k] += v[k]; }
+    grid(); neighbours(); relax(); walls();
+    for (let i = 0; i < N; i++) {
+      let a = (x[i * 3] - xp[i * 3]) * P.damp, b = (x[i * 3 + 1] - xp[i * 3 + 1]) * P.damp, c = (x[i * 3 + 2] - xp[i * 3 + 2]) * P.damp;
+      const sp = Math.hypot(a, b, c); if (sp > P.vmax) { const f = P.vmax / sp; a *= f; b *= f; c *= f; }
+      v[i * 3] = a; v[i * 3 + 1] = b; v[i * 3 + 2] = c;
+    }
+  }
+  /* the cube turned under the water: carry positions and velocities into the new local frame (m is row-major 3x3) */
+  function turn(m) {
+    for (let i = 0; i < N; i++) for (const a of [x, v]) {
+      const px = a[i * 3], py = a[i * 3 + 1], pz = a[i * 3 + 2];
+      a[i * 3] = m[0] * px + m[1] * py + m[2] * pz; a[i * 3 + 1] = m[3] * px + m[4] * py + m[5] * pz; a[i * 3 + 2] = m[6] * px + m[7] * py + m[8] * pz;
+    }
+    walls();
+  }
+  return { x, v, g, step, turn, N, L };
+}
+
+/* ── scene ── */
+const canvas = document.getElementById('c');
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: devicePixelRatio < 2, alpha: true, powerPreference: 'high-performance' }); }
+catch (e) { document.body.insertAdjacentHTML('beforeend', '<p class="err">This browser can\'t do 3D graphics, so the cube stays dry. Try another browser?</p>'); throw e; }
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.NeutralToneMapping;
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), .04).texture;
+const camera = new THREE.PerspectiveCamera(38, 1, .1, 200);
+scene.add(new THREE.HemisphereLight('#cfe9ff', '#10213f', 1.2));
+const sun = new THREE.DirectionalLight('#fff3e0', 2.2); sun.position.set(6, 12, 8); scene.add(sun);
+
+const coarse = matchMedia('(pointer:coarse)').matches;
+const N = coarse ? 1000 : 1500;
+const L = .5 * Math.cbrt(N * .125 / .4); /* the water fills about 40% of the cube */
+const sim = makeSim(N, L, { g: .006, s: .5, rho0: 3, k: .08, kn: .2, sig: 0, beta: .05, rad: .24, damp: .999, maxD: .05, vmax: .4 });
+
+
+const box = new THREE.Group(); scene.add(box);
+const side = 2 * L + .04;
+const glass = new THREE.Mesh(new THREE.BoxGeometry(side, side, side), new THREE.MeshPhysicalMaterial({ color: '#bfe9ff', roughness: .05, metalness: 0, transparent: true, opacity: .08, depthWrite: false, side: THREE.DoubleSide }));
+const edges = new THREE.LineSegments(new THREE.EdgesGeometry(glass.geometry), new THREE.LineBasicMaterial({ color: '#9feaff', transparent: true, opacity: .75 }));
+box.add(glass, edges);
+
+const drops = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.27, 1), new THREE.MeshStandardMaterial({ roughness: .12, metalness: 0, envMapIntensity: 1.1 }), N);
+drops.frustumCulled = false; drops.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+const ident = new THREE.Matrix4(), col = new THREE.Color();
+for (let i = 0; i < N; i++) { drops.setMatrixAt(i, ident); drops.setColorAt(i, col.set('#1c6fd1')); }
+drops.instanceColor.setUsage(THREE.DynamicDrawUsage);
+box.add(drops);
+
+/* a soft shadow pool under the cube */
+const sc = document.createElement('canvas'); sc.width = sc.height = 128;
+const sx = sc.getContext('2d'), grd = sx.createRadialGradient(64, 64, 4, 64, 64, 64);
+grd.addColorStop(0, 'rgba(0,0,0,.55)'); grd.addColorStop(1, 'rgba(0,0,0,0)'); sx.fillStyle = grd; sx.fillRect(0, 0, 128, 128);
+const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sc), transparent: true, depthWrite: false }));
+shadow.rotation.x = -Math.PI / 2; shadow.position.y = -L * 1.9; shadow.scale.setScalar(L * 4.2); scene.add(shadow);
+
+/* water colours: deep blue at rest, bright cyan when moving, foam when it really flies */
+const C0 = new THREE.Color('#1557b8'), C1 = new THREE.Color('#38c6f4'), C2 = new THREE.Color('#effcff');
+function paint() {
+  const m = drops.instanceMatrix.array, c = drops.instanceColor.array, x = sim.x, v = sim.v;
+  for (let i = 0; i < N; i++) {
+    m[i * 16 + 12] = x[i * 3]; m[i * 16 + 13] = x[i * 3 + 1]; m[i * 16 + 14] = x[i * 3 + 2];
+    const sp = Math.hypot(v[i * 3], v[i * 3 + 1], v[i * 3 + 2]), t = Math.min(1, Math.max(0, (sp - .03) / .12)), f = Math.min(1, Math.max(0, (sp - .15) / .2));
+    col.copy(C0).lerp(C1, t).lerp(C2, f * .8);
+    c[i * 3] = col.r; c[i * 3 + 1] = col.g; c[i * 3 + 2] = col.b;
+  }
+  drops.instanceMatrix.needsUpdate = true; drops.instanceColor.needsUpdate = true;
+}
+
+function fit() {
+  const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h;
+  const r = L * 1.85, d = r / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect * .95);
+  camera.position.set(0, d * .32, d); camera.lookAt(0, -L * .12, 0); camera.updateProjectionMatrix();
+}
+addEventListener('resize', fit); fit();
+
+/* ── turning the cube ── */
+const q = new THREE.Quaternion(), qT = new THREE.Quaternion(), qPrev = new THREE.Quaternion(), qd = new THREE.Quaternion(), tmp = new THREE.Quaternion();
+const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), m4 = new THREE.Matrix4(), gv = new THREE.Vector3();
+let wx = 0, wy = 0, drag = null, leveling = false;
+const hint = document.getElementById('hint');
+canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, t: performance.now() }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('grab'); leveling = false; hint.classList.add('gone'); });
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return; const k = 4.2 / Math.min(innerWidth, innerHeight);
+  const dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k, dt = Math.max(8, performance.now() - drag.t) / 1000;
+  rot(dy, dx); wx = wx * .5 + dy / dt * .5; wy = wy * .5 + dx / dt * .5; drag.x = e.clientX; drag.y = e.clientY; drag.t = performance.now();
+});
+const up = () => { drag = null; canvas.classList.remove('grab'); };
+canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+/* turn around world axes so dragging always feels like pushing the glass */
+function rot(ax, ay) { tmp.setFromAxisAngle(AX, ax); qT.premultiply(tmp); tmp.setFromAxisAngle(AY, ay); qT.premultiply(tmp); qT.normalize(); }
+
+document.getElementById('splash').onclick = () => { for (let i = 0; i < N; i++) { sim.v[i * 3 + 1] += .12 + Math.random() * .12; sim.v[i * 3] += (Math.random() - .5) * .08; sim.v[i * 3 + 2] += (Math.random() - .5) * .08; } };
+document.getElementById('spin').onclick = () => { wy += 7; leveling = false; hint.classList.add('gone'); };
+document.getElementById('level').onclick = () => { leveling = true; wx = wy = 0; };
+
+window.__CUBE = { sim, rot, tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, frames: 0, simMs: 0 };
+/* ── loop: fixed 60 Hz physics, two relaxation steps per tick ── */
+let acc = 0, last = performance.now();
+const STEP = 1000 / 60;
+function tick() {
+  if (!drag) { wx *= .965; wy *= .965; if (Math.abs(wx) + Math.abs(wy) > 1e-3) rot(wx / 60, wy / 60); }
+  if (leveling) { qT.slerp(qd.identity(), .08); if (qT.angleTo(qd) < .002) { qT.identity(); leveling = false; } }
+  q.rotateTowards(qT, .07); box.quaternion.copy(q);
+  /* move the water into the cube's new frame, then point gravity down in that frame */
+  tmp.copy(q).invert().multiply(qPrev); m4.makeRotationFromQuaternion(tmp); const e = m4.elements;
+  if (Math.abs(tmp.w) < .999999) sim.turn([e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]]);
+  qPrev.copy(q);
+  gv.set(0, -.006, 0).applyQuaternion(tmp.copy(q).invert()); sim.g[0] = gv.x; sim.g[1] = gv.y; sim.g[2] = gv.z;
+  const t0 = performance.now(); sim.step(); sim.step(); window.__CUBE.simMs += performance.now() - t0; window.__CUBE.frames++;
+}
+renderer.setAnimationLoop(now => {
+  acc += Math.min(now - last, 100); last = now; let n = 0;
+  while (acc >= STEP && n < 2) { tick(); acc -= STEP; n++; }
+  if (n === 2) acc = 0;
+  paint(); renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
