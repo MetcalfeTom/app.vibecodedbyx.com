@@ -22,12 +22,12 @@ it only helps through its moves.
 - Keys: type a letter to pick that tile, Enter plays, Backspace takes the last tile back, Esc deselects.
 
 ## log
+- v1.1 (2026-10-02): load your own word list (Tatum: .txt, first word per line, a-z 2-15 letters, ≥500 words; stored in IndexedDB 'triple-cubed'/'lists'/'mine', 'use built-in' resets). Two's vocabulary = ai.fc ∩ your list; edges checked against your list's 15-letter words. Tile counting: an edge whose fitting words all need letters that are already on the board counts as dead.
 - v1.0 (2026-10-02): first version. 15x15 classic squares, Two with an open rack, live word + score preview, swap, pass (press twice), end card.
 
 ## issues
 - Tatum: the built-in word list misses words; bring-your-own word list is wanted (Tatum has a list with 15-letter words).
 
 ## todos
-- Load your own word list (a .txt file, one word per line), kept in IndexedDB.
-- Tile counting for Two (Tatum): weigh edge setups by the chance the missing letters are still unseen (bag + your rack), for setups more than one turn out.
+- Tile counting, next level: weigh setups two turns out by the chance you draw the missing letters.
 - Drag tiles onto the board; blanks.

@@ -93,6 +93,9 @@ h1 sup{ font-size:.5em; color:var(--brass); vertical-align:.9em; margin-left:.05
 .btn:focus-visible{ outline:3px solid var(--brass); outline-offset:2px; }
 .foot{ font-size:.66rem; color:var(--mute); text-align:center; line-height:1.6; max-width:var(--bw); }
 #buildstamp{ opacity:.55; font-size:.6rem; }
+.wl{ display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; justify-content:center; margin:.5rem 0 .2rem; }
+.wl .btn{ min-height:2.2rem; padding:0 .8rem; font-size:.68rem; }
+#wlline b{ color:var(--cream); font-weight:500; }
 
 .banner{ position:fixed; inset:0; display:grid; place-items:center; pointer-events:none; z-index:20; }
 .banner div{ font-family:var(--disp); font-size:clamp(2.4rem, 12vw, 5.5rem); color:var(--brass); text-shadow:0 4px 0 #6b4b12, 0 0 40px rgba(231,183,90,.6); animation:pop 2.6s ease-out forwards; text-align:center; line-height:1; }
@@ -130,7 +133,9 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
     <button type="button" class="btn" id="swap" title="Trade some tiles for new ones; it uses your turn">swap</button>
     <button type="button" class="btn" id="pass">pass</button>
   </div>
-  <p class="foot">You and Two share one score. Two never gives hints, it just sets things up.<br>The dream: one word along an edge across all three gold squares, ×27.<br><button type="button" class="btn" id="newgame" style="min-height:2.2rem;margin-top:.4rem">new game</button><br><span id="buildstamp" role="note" aria-label="Build information">build v1.0 · 2026-10-02 · c7a3da2ee</span></p>
+  <p class="foot">You and Two share one score. Two never gives hints, it just sets things up.<br>The dream: one word along an edge across all three gold squares, ×27.<br><button type="button" class="btn" id="newgame" style="min-height:2.2rem;margin-top:.4rem">new game</button></p>
+  <div class="foot wl"><span id="wlline" aria-live="polite">words: built-in list</span><button type="button" class="btn" id="wlload" title="A plain text file, one word per line">load your own</button><button type="button" class="btn" id="wlreset" hidden>use built-in</button><input type="file" id="wlfile" accept=".txt,text/plain" hidden></div>
+  <p class="foot"><span id="buildstamp" role="note" aria-label="Build information">build v1.1 · 2026-10-02 · c2d529272</span></p>
 </main>
 <div class="banner" id="banner" hidden></div>
 <dialog id="over" aria-labelledby="overh">
@@ -151,17 +156,59 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
 
   /* ── the dictionary: front-coded lists, one word per line ── */
   function unpack(txt) { var out = [], prev = '', ls = txt.split('\n'); for (var k = 0; k < ls.length; k++) { var l = ls[k]; if (!l) continue; prev = prev.slice(0, l.charCodeAt(0) - 48) + l.slice(1); out.push(prev); } return out; }
+  function get(f) { return fetch(f).then(function (r) { if (!r.ok) throw new Error(f + ' ' + r.status); return r.text(); }); }
+  var AI = null, MINE = null;
+  /* the word list in play: yours if you loaded one, else the built-in one. Two keeps its own everyday vocabulary,
+     trimmed to words your list allows, but it checks every edge against all the long words in yours */
+  function useList(all, name) {
+    ALLW = all instanceof Set ? all : new Set(all); longs = []; ALLW.forEach(function (w) { if (w.length === N) longs.push(w); });
+    trie = new TC.Trie(AI.filter(function (w) { return ALLW.has(w); }));
+    $('wlline').innerHTML = 'words: <b>' + name + '</b> · ' + ALLW.size.toLocaleString('en') + ' (' + longs.length.toLocaleString('en') + ' of 15 letters)';
+    $('wlreset').hidden = !MINE;
+  }
   function loadDict() {
     $('msay').textContent = 'unpacking the dictionary…';
-    Promise.all(['words.fc', 'ai.fc'].map(function (f) { return fetch(f).then(function (r) { if (!r.ok) throw new Error(f + ' ' + r.status); return r.text(); }); }))
+    Promise.all([get('ai.fc'), idbGet('mine').catch(function () { return null; })])
       .then(function (t) {
-        var all = unpack(t[0]), ai = unpack(t[1]);
-        ALLW = new Set(all); trie = new TC.Trie(ai); longs = all.filter(function (w) { return w.length === N; });
+        AI = unpack(t[0]); MINE = t[1] && t[1].text ? t[1] : null;
+        if (MINE) { useList(MINE.text.split('\n'), MINE.name); return; }
+        return get('words.fc').then(function (w) { useList(unpack(w), 'built-in list'); });
+      })
+      .then(function () {
         ready = true; say(S.log.length ? 'back at the table.' : 'your move. the star is in the middle.'); preview(); render();
         if (S.turn === 1 && !S.over) setTimeout(partner, 400);
       })
       .catch(function () { $('msay').textContent = 'couldn\'t load the dictionary'; status('The word list didn\'t load. Check your connection and reload.', 'bad'); });
   }
+  /* your own word list, kept in this browser (IndexedDB: a big list is several MB) */
+  function idb() { return new Promise(function (res, rej) { var r = indexedDB.open('triple-cubed', 1); r.onupgradeneeded = function () { r.result.createObjectStore('lists'); }; r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }
+  function idbDo(mode, fn) { return idb().then(function (db) { return new Promise(function (res, rej) { var tx = db.transaction('lists', mode), q = fn(tx.objectStore('lists')); tx.oncomplete = function () { res(q.result); }; tx.onerror = tx.onabort = function () { rej(tx.error); }; }); }); }
+  function idbGet(k) { return idbDo('readonly', function (o) { return o.get(k); }); }
+  function parseList(txt) {
+    var seen = new Set(), ls = txt.split(/\r?\n/);
+    for (var k = 0; k < ls.length; k++) { var w = ls[k].trim().split(/[\s,;\t]/)[0].toLowerCase(); if (/^[a-z]{2,15}$/.test(w)) seen.add(w); }
+    return seen;
+  }
+  $('wlload').onclick = function () { $('wlfile').value = ''; $('wlfile').click(); };
+  $('wlfile').onchange = function () {
+    var f = this.files && this.files[0]; if (!f || !AI) return;
+    $('wlline').textContent = 'reading ' + f.name + '…';
+    f.text().then(function (txt) {
+      var set = parseList(txt);
+      if (set.size < 500) { $('wlline').textContent = f.name + ' only had ' + set.size + ' usable words (a to z, 2 to 15 letters, one per line)'; return; }
+      var arr = Array.from(set).sort(), name = f.name.replace(/\.[^.]*$/, '').slice(0, 40) || 'your list';
+      MINE = { name: name, text: arr.join('\n') }; useList(set, name); preview(); render();
+      idbDo('readwrite', function (o) { return o.put(MINE, 'mine'); })
+        .then(function () { status('Using ' + name + ' from now on, in this browser.', 'ok'); })
+        .catch(function () { status('Using ' + name + ' for now; this browser wouldn\'t store it for next time.', 'bad'); });
+    }).catch(function () { $('wlline').textContent = 'couldn\'t read that file'; });
+  };
+  $('wlreset').onclick = function () {
+    MINE = null; $('wlline').textContent = 'loading the built-in list…';
+    idbDo('readwrite', function (o) { return o.delete('mine'); }).catch(function () {});
+    get('words.fc').then(function (w) { useList(unpack(w), 'built-in list'); preview(); render(); })
+      .catch(function () { $('wlline').textContent = 'couldn\'t load the built-in list; reload to try again'; });
+  };
 
   /* ── a game ── */
   function fresh() {
@@ -309,16 +356,16 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
   }
   /* how good the four edges look for a ×27: open ones are worth keeping, letters that still fit a long word are
      progress, and an edge your own rack can finish right now is the whole point (Two knows your tiles, it never says) */
-  function canFinish(f, rack) {
+  function counts(letters) { var c = new Array(26).fill(0); letters.forEach(function (l) { c[l.charCodeAt(0) - 97]++; }); return c; }
+  function canFinish(f, have) {   /* the first fitting word whose missing letters all come out of these letter counts */
     for (var h = 0; h < f.hits.length; h++) {
-      var w = f.hits[h], need = {}, ok = true;
-      for (var k = 0; k < TC.N; k++) if (!f.pat[k]) need[w[k]] = (need[w[k]] || 0) + 1;
-      for (var l in need) if (rack.filter(function (x) { return x === l; }).length < need[l]) { ok = false; break; }
+      var w = f.hits[h], need = have.slice(), ok = true;
+      for (var k = 0; k < TC.N && ok; k++) if (!f.pat[k]) ok = --need[w.charCodeAt(k) - 97] >= 0;
       if (ok) return w;
     }
     return '';
   }
-  function edgeValue(board, rack) {
+  function edgeValue(board, rack, unseen) {
     var v = 0;
     TC.EDGES.forEach(function (e) {
       if (!TC.edgeOpen(board, e)) return;
@@ -326,6 +373,7 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
       var f = TC.edgeFits(board, e, longs, isWord, 400);
       if (f.n < 0) return;
       if (f.n === 0) { v -= 18; return; }
+      if (unseen && f.n <= f.hits.length && !canFinish(f, unseen)) { v -= 18; return; }   /* tile counting: the letters it needs are all used up */
       v += 4 * f.fixed + Math.min(14, 2 * Math.log2(1 + f.n));
       if (f.empty <= TC.RACK && rack && canFinish(f, rack)) v += 90;
     });
@@ -338,10 +386,10 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
     var edgeSet = {}; TC.EDGES.forEach(function (e) { e.cells.forEach(function (c) { edgeSet[c] = 1; }); });
     list.sort(function (a, b) { return b.e.score - a.e.score; });
     var pool = list.slice(0, 40).concat(list.filter(function (x) { return x.m.some(function (p) { return edgeSet[p.i]; }); }).slice(0, 60));
-    var you = S.racks[0], base = edgeValue(S.board, you), bestM = null, bestV = -1e9;
+    var you = counts(S.racks[0]), off = S.racks[0].concat(S.racks[1], S.bag), base = edgeValue(S.board, you, counts(off)), bestM = null, bestV = -1e9;
     pool.forEach(function (x) {
-      var b = S.board.slice(); x.m.forEach(function (p) { b[p.i] = p.l; });
-      var v = x.e.score + 1.4 * (edgeValue(b, you) - base);
+      var b = S.board.slice(), left = off.slice(); x.m.forEach(function (p) { b[p.i] = p.l; left.splice(left.indexOf(p.l), 1); });
+      var v = x.e.score + 1.4 * (edgeValue(b, you, counts(left)) - base);
       if (v > bestV) { bestV = v; bestM = x; }
     });
     return bestM;
