@@ -29,6 +29,8 @@ as A/B/C/D, drawn as coloured arrows under the pieces. After you pick, every opt
 
 - v1.5: options numbered 1-4 instead of A-D, on the buttons and the board badges (Tatum 05:54: easier on the hand); keys 1-5 pick, a-e still work.
 
+- v1.6: the rules dialog's button says "Continue playing" (was "Deal me in", Tatum 05:55).
+
 ## Issues
 - Tatum 05:45-05:46: no plain free-move mode wanted (lichess does that); the point is a built-in opponent, which Stockfish is.
 - Headless test: the engine loads from cdnjs and deals in about 2 s a turn on the test box.
