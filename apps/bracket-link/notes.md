@@ -28,6 +28,7 @@ Paper sheet taped to a pub wall: #f2eee3 paper, ink #15120e, one red marker #d73
 - v1.7 kept slips: a code for a match the organizer's sheet hasn't set yet shows "Too early · M3" with keep/drop; kept codes ('bracket-link-held' {i: [codes]}) open by themselves from render() once their match has both players (heldCheck). inNo/inYes clear inbox before guard so a slip that opens meanwhile isn't lost.
 - v1.7.1 (Tatum: queue or reject a player's run of claimed wins): the organizer sees the queue under the code box ("2 slips kept for later · M5: Ada won · drop them"), heldList() from render(). Kept codes open one at a time, in whatever order their matches get set.
 - v1.7.2 (Tatum: banner left undecided, then another code pasted): the new code shows, the undecided one goes to the front of `queue` (in memory, not saved) with a "Next in line: …" note under the buttons; every banner close takes queue.shift(). Same code twice isn't queued twice. showInbox() = showSlip() + the line note.
+- v1.7.3: pencil is keyed per bracket AND player (`i.seat`, plain `i` for an anonymous viewer), so several players tested in one browser, or sharing a tablet, don't see each other's pencil.
 
 ## Issues
 - Tatum wants players to report results themselves and the organizer to settle disputes, ideally with a database. A live shared table is a new online mode: needs Fela/Thomas, don't promise it.
