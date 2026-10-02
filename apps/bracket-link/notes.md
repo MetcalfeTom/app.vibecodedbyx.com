@@ -16,10 +16,12 @@ Paper sheet taped to a pub wall: #f2eee3 paper, ink #15120e, one red marker #d73
 ## Log
 - v1.0 link-encoded bracket, share link + organizer link, view mode with "make my own copy", champion banner + confetti.
 - v1.1 report links (`#r=`, ~50 chars): in the share link a player taps a name -> sheet with "X won" and "send my name" -> a link for the organizer. The organizer opens it: the master copy comes from localStorage, an inbox strip offers add / rename / dispute (switch or keep) / out of date / not this device. Bracket size picker (how deep) + "fill empty slots with Player N" for lazy organizers (Tatum). Tabs follow each other through the storage event.
+- v1.2 personal links (Tatum): the organizer copy holds a key `k` (never in `#view=` links, see pub()); a player link is `#view=...&me=<seat>.<token>`, token = cyrb53(k:id:seat). The player's browser remembers the seat per bracket id (`bracket-link-me`) and strips `&me` from the address. Signed slips record who said what in `S.g[match] = [a, a's pick, b, b's pick, first-slip time]`: both agree -> on the sheet by itself, disagree -> the organizer picks, one slip and 15 quiet minutes -> it counts (sweep(), checked on load and every 30 s). The token is a friendly lock, not crypto.
 
 ## Issues
 - Tatum wants players to report results themselves and the organizer to settle disputes, ideally with a database. A live shared table is a new online mode: needs Fela/Thomas, don't promise it.
 
 ## Todos
-- Personal links per player (Tatum): the organizer keeps a secret in the master copy, each player's link carries their seat + a token derived from it, so a report says whose link it came from; two players' matching reports = agreed.
+- PNG export of the sheet.
+- With a database (needs Fela/Thomas): slips go straight to the organizer's copy, the 15-min quiet rule runs on its own.
 - PNG export of the sheet.
