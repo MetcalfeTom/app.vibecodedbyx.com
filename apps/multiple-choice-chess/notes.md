@@ -27,6 +27,8 @@ as A/B/C/D, drawn as coloured arrows under the pieces. After you pick, every opt
 
 - v1.4: title on one line, "Multiple Choice" in white and "Chess" in gold (Tatum 05:53); the buttons wrap under it on phones.
 
+- v1.5: options numbered 1-4 instead of A-D, on the buttons and the board badges (Tatum 05:54: easier on the hand); keys 1-5 pick, a-e still work.
+
 ## Issues
 - Tatum 05:45-05:46: no plain free-move mode wanted (lichess does that); the point is a built-in opponent, which Stockfish is.
 - Headless test: the engine loads from cdnjs and deals in about 2 s a turn on the test box.
