@@ -10,6 +10,7 @@ Idea: Tatum, "in honor of Navier-Stokes, a 3D fluid: a cube with spheres in" (20
 - Budget: 1 instanced mesh (1500 desktop / 1000 touch spheres, icosahedron detail 1) = 5 draw calls, ~120k triangles.
 
 ## log
+- v1.3 (Tatum: "gusts or jets into the water"): hold the JET button and a coral nozzle low on the left wall (cube-local, so it turns with the glass) sets every drop within 1.3 of it to .36 per step along (1,.9,0): a foamy plume across the cube. Tap from a keyboard = 0.9 s burst, release keeps it 0.35 s. Bar buttons tighter under 420 px so five fit. Probe hm/pjet.js: water top -1.08 -> 1.2 after 40 ticks, no NaN.
 - v1.2 (Tatum: "go ahead with that phone feature"): tilt button on touch devices. Gravity follows the phone (deviceorientation beta/gamma -> down in the phone frame, turned by screen.orientation.angle), smoothed 0.3 per event; the angle when tilt goes on counts as level (quaternion from that down to -Y), the level button re-sets it. iPhone permission asked from the tap; no events in 1.8 s = tilt off with a note. Cube levels when tilt goes on, drag still works. Probe hm/ptilt.js (synthetic DeviceOrientationEvent): tilt right -> water x +0.69, lie flatter -> water to the back.
 - v1.1: Tatum's Firefox said "Error resolving module specifier three": the import map was ignored. Now three r170 by full URL, no import map, and a homemade PMREM studio scene instead of the RoomEnvironment addon (addons import bare 'three').
 - v1.0: SPH-style fluid (double density relaxation, Clavet 2005) on the CPU, h = 1 units, grid neighbour search, 2 steps per 60 Hz tick (~7 ms per tick for 1500 in headless). Drag turns the glass (around world axes), spin / splash / level buttons. Colour by speed.
@@ -23,6 +24,6 @@ Idea: Tatum, "in honor of Navier-Stokes, a 3D fluid: a cube with spheres in" (20
 
 ## todos
 - Shake to splash (devicemotion; acceleration signs differ between iOS and Android, test on both).
-- Tatum: gusts or jets pushing the water.
+- More jets: a nozzle per wall, or tap the glass where you want one (raycast to the box face).
 - Voice's idea: one heavy golden marble that sinks and rolls.
 - Adaptive particle count if a phone runs slow.
