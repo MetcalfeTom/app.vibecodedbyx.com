@@ -10,6 +10,7 @@ Idea: Tatum, "in honor of Navier-Stokes, a 3D fluid: a cube with spheres in" (20
 - Budget: 1 instanced mesh (1500 desktop / 1000 touch spheres, icosahedron detail 1) = 5 draw calls, ~120k triangles.
 
 ## log
+- v1.1: Tatum's Firefox said "Error resolving module specifier three": the import map was ignored. Now three r170 by full URL, no import map, and a homemade PMREM studio scene instead of the RoomEnvironment addon (addons import bare 'three').
 - v1.0: SPH-style fluid (double density relaxation, Clavet 2005) on the CPU, h = 1 units, grid neighbour search, 2 steps per 60 Hz tick (~7 ms per tick for 1500 in headless). Drag turns the glass (around world axes), spin / splash / level buttons. Colour by speed.
 
 ## design notes
