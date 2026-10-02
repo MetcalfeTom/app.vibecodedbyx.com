@@ -14,6 +14,8 @@ the shrug, and both hands shrug.
 
 - v1.2: each hand's button fills the whole tower height (388 px on a 390x844 phone, was 114), with a faint glow on press (Tatum 01:35: "make the hit boxes ... much taller to be forgiving").
 
+- v1.3: the game in progress is saved in localStorage (`stack67_game`: round, points, target, tower, message) after every move, so a refresh picks up where you left off (Tatum 01:40). Cleared when the 10 rounds end. Tested: a reload mid-round 2 came back with the same target, tower and score.
+
 ## Maths
 - Impossible with 6s and 7s: 1-5, 8-11, 15-17, 22, 23, 29 (15 numbers). 29 = 6*7-6-7 is the largest (Frobenius number,
   6 and 7 share no factor); every number from 30 up can be made. Checked by brute force in python and in the page.
