@@ -20,10 +20,10 @@ as A/B/C/D, drawn as coloured arrows under the pieces. After you pick, every opt
 
 ## Log
 - v1.0 (2026-10-02): first version.
+- v1.1: A-D badges in their own layer above the pieces (they hid under the glyphs), badges spread to the square's corners when moves share a start square; keyboard focus on an option highlights its arrow; og.png.
 
 ## Issues
+- Tatum 05:45-05:46: no plain free-move mode wanted (lichess does that); the point is a built-in opponent, which Stockfish is.
 - Headless test: the engine loads from cdnjs and deals in about 2 s a turn on the test box.
 
 ## Todos
-- Tatum 05:44 "i'd still like to be able to play against stockfish": the opponent already is Stockfish; if they mean
-  free moves (no quiz), that needs tap-to-move.
