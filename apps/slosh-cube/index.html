@@ -379,14 +379,25 @@ sndUi();
 const nightBtn = document.getElementById('night'), AZ = new THREE.Vector3(0, 0, 1), rq = new THREE.Quaternion(), SUN0 = new THREE.Color('#fff3e0'), MOON = new THREE.Color('#a9c2ff');
 const ROCK = { a: .035, w: 2 * Math.PI / 3.2 }, WAVE = { T: 2.2, amp: 1.5 };
 let night = false, nt = 0, rockT = 0;
-try { night = localStorage.getItem('slosh-night') === 'on'; } catch (e) {}
+/* v1.9 (Dale: "both"): night falls on its own when it's dark where you are (8 pm to 6 am, your clock).
+   The button still flips it, and that choice holds until the next dusk or dawn, then the clock takes over again */
+const clockNight = d => { const h = d.getHours(); return h >= 20 || h < 6; };
+function nextEdge(d) { const e = new Date(d), h = d.getHours(); if (h >= 6 && h < 20) e.setHours(20, 0, 0, 0); else { if (h >= 20) e.setDate(e.getDate() + 1); e.setHours(6, 0, 0, 0); } return +e; }
+let manualUntil = 0;
+night = clockNight(new Date());
+try { const m = JSON.parse(localStorage.getItem('slosh-night2') || 'null'); if (m && m.until > Date.now()) { night = !!m.on; manualUntil = m.until; } } catch (e) {}
+function autoNight(now) {
+  if (now < manualUntil) return; const want = clockNight(new Date(now)); if (want === night) return;
+  night = want; nightUi(); sndMode(); say(night ? 'it got dark where you are: night water' : 'the sun came up where you are');
+}
+setInterval(() => autoNight(Date.now()), 30000);
 function nightUi() { nightBtn.textContent = night ? '☀ day' : '☾ night'; nightBtn.setAttribute('aria-pressed', night ? 'true' : 'false'); document.body.classList.toggle('night', night); }
 function sndMode(now) {
   if (!bp) return; bp.type = night ? 'lowpass' : 'bandpass';
   if (now) bp.frequency.value = night ? 420 : 900; else bp.frequency.setTargetAtTime(night ? 420 : 900, ac.currentTime, .3);
 }
 nightBtn.addEventListener('click', e => {
-  e.stopPropagation(); night = !night; try { localStorage.setItem('slosh-night', night ? 'on' : 'off'); } catch (er) {}
+  e.stopPropagation(); night = !night; manualUntil = nextEdge(new Date()); try { localStorage.setItem('slosh-night2', JSON.stringify({ on: night, until: manualUntil })); } catch (er) {}
   nightUi(); sndMode(); say(night ? 'night water: it rocks by itself' : 'good morning');
 });
 function nightTick() {   /* fades over about a second; the rocking rides on top of wherever you turned the cube */
@@ -451,9 +462,52 @@ function jetPush() {
     if (dx * dx + dy * dy + dz * dz < r2) { v[i * 3] = d.x * sp + (Math.random() - .5) * .03; v[i * 3 + 1] = d.y * sp + (Math.random() - .5) * .03; v[i * 3 + 2] = (Math.random() - .5) * .03; }
   }
 }
+/* ── v1.9 (Dale: "both"): a message in a bottle. Half as heavy as water, so it rides the surface, drifts with the
+   current and rolls round when you flip the cube; the sea flows round it. Nobody gets to read the note. ── */
+const BOT = { p: new THREE.Vector3(.4, .2, .3), v: new THREE.Vector3(), ax: new THREE.Vector3(1, 0, .4).normalize(), n0: 30, dens: .72, half: .5, rad: .5 };
+const bottle = new THREE.Group(); bottle.scale.setScalar(1.5); box.add(bottle);
+const scrollMat = new THREE.MeshStandardMaterial({ color: '#f3e2bd', roughness: .8, emissive: '#ffcf7a', emissiveIntensity: 0 });
+{
+  const prof = [[0, -.55], [.27, -.55], [.3, -.5], [.3, .18], [.25, .32], [.13, .43], [.11, .6], [.13, .63], [.13, .66], [0, .66]].map(([r, y]) => new THREE.Vector2(r, y));
+  const glassB = new THREE.Mesh(new THREE.LatheGeometry(prof, 16), new THREE.MeshStandardMaterial({ color: '#a6f7cf', roughness: .06, transparent: true, opacity: .55, envMapIntensity: 2.2, depthWrite: false }));
+  const cork = new THREE.Mesh(new THREE.CylinderGeometry(.1, .085, .16, 10), new THREE.MeshStandardMaterial({ color: '#b07a45', roughness: .9 })); cork.position.y = .7;
+  const note = new THREE.Mesh(new THREE.CylinderGeometry(.13, .13, .62, 12), scrollMat); note.position.y = -.12;
+  const tie = new THREE.Mesh(new THREE.CylinderGeometry(.137, .137, .06, 12), new THREE.MeshStandardMaterial({ color: '#d2453c', roughness: .6 })); tie.position.y = -.12;
+  bottle.add(note, tie, cork, glassB);
+}
+const _bg = new THREE.Vector3(), _bh = new THREE.Vector3(), _bd = new THREE.Vector3(), _bq = new THREE.Quaternion();
+function bottleStep() {
+  const x = sim.x, v = sim.v, g = sim.g, p = BOT.p, bv = BOT.v, a = BOT.ax, R2 = 1, rr = BOT.rad, rr2 = rr * rr;
+  let n = 0, ux = 0, uy = 0, uz = 0;
+  for (let i = 0; i < N; i++) {
+    const dx = x[i * 3] - p.x, dy = x[i * 3 + 1] - p.y, dz = x[i * 3 + 2] - p.z; if (dx * dx + dy * dy + dz * dz > 1.21) continue;
+    if (dx * dx + dy * dy + dz * dz < R2) { n++; ux += v[i * 3]; uy += v[i * 3 + 1]; uz += v[i * 3 + 2]; }
+    /* the sea flows round the bottle, not through it: push drops out of its capsule */
+    const t = Math.max(-BOT.half, Math.min(BOT.half, dx * a.x + dy * a.y + dz * a.z)), ex = dx - a.x * t, ey = dy - a.y * t, ez = dz - a.z * t, e2 = ex * ex + ey * ey + ez * ez;
+    if (e2 < rr2 && e2 > 1e-8) { const e = Math.sqrt(e2), k = (rr - e) / e * .5; x[i * 3] += ex * k; x[i * 3 + 1] += ey * k; x[i * 3 + 2] += ez * k; }
+  }
+  const f = Math.min(1, n / BOT.n0), b = 1 - f / BOT.dens;   /* gravity minus the water it pushes aside: floats where f = dens */
+  bv.x += g[0] * b; bv.y += g[1] * b; bv.z += g[2] * b;
+  if (n) { const k = .12 * f; bv.x += (ux / n - bv.x) * k; bv.y += (uy / n - bv.y) * k; bv.z += (uz / n - bv.z) * k; }
+  bv.multiplyScalar(f > 0 ? .985 : .997); const sp = bv.length(); if (sp > .3) bv.multiplyScalar(.3 / sp);
+  p.add(bv);
+  const m = L - .42, lo = [-m, -m, -m + sim.pad.d];
+  for (let c = 0; c < 3; c++) { const k = 'xyz'[c]; if (p[k] < lo[c]) { p[k] = lo[c]; if (bv[k] < 0) bv[k] *= -.3; } if (p[k] > m) { p[k] = m; if (bv[k] > 0) bv[k] *= -.3; } }
+}
+function bottleTurn(m) { for (const a of [BOT.p, BOT.v, BOT.ax]) { const px = a.x, py = a.y, pz = a.z; a.set(m[0] * px + m[1] * py + m[2] * pz, m[3] * px + m[4] * py + m[5] * pz, m[6] * px + m[7] * py + m[8] * pz); } }
+function bottlePose() {   /* lies level on the water, turns slowly with the drift, the corked end riding a little higher */
+  _bg.set(sim.g[0], sim.g[1], sim.g[2]).normalize(); const a = BOT.ax;
+  _bh.copy(BOT.v).addScaledVector(_bg, -BOT.v.dot(_bg));
+  if (_bh.lengthSq() > 1e-6) { _bh.normalize(); if (_bh.dot(a) < 0) _bh.negate(); a.lerp(_bh, .01); }
+  a.addScaledVector(_bg, -a.dot(_bg)); if (a.lengthSq() < 1e-6) a.set(_bg.y, -_bg.x, 0).add(AX).addScaledVector(_bg, -_bg.x); a.normalize();
+  _bd.copy(a).addScaledVector(_bg, -.2).normalize();
+  bottle.position.copy(BOT.p); bottle.quaternion.setFromUnitVectors(AY, _bd);
+  bottle.quaternion.multiply(_bq.setFromAxisAngle(AY, Math.sin(rockT * 1.3) * .35));
+  scrollMat.emissiveIntensity = .9 * nt;   /* at night the note glows faintly, like it's lit from inside */
+}
 if ('DeviceOrientationEvent' in window && (coarse || navigator.maxTouchPoints > 0)) tiltBtn.hidden = false;
 
-window.__CUBE = { sim, rot, tiltOn, jet: (on, k) => JETS.forEach((j, i) => { if (k === undefined || k === i) j.on = on; }),  tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), towers: n => { towers = n; aim(); }, snd: () => ({ want, voices, ac: ac && ac.state, muted }), tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, night: n => { night = n; nightUi(); sndMode(); }, nt: () => nt, ROCK, WAVE, calm: c => { if (c !== undefined) calm = c; return calm; }, ffR: () => { let a = 0, b = 0; for (const p of ffPh) { a += Math.cos(p); b += Math.sin(p); } return Math.hypot(a, b) / FF; }, frames: 0, simMs: 0 };
+window.__CUBE = { sim, rot, tiltOn, jet: (on, k) => JETS.forEach((j, i) => { if (k === undefined || k === i) j.on = on; }),  tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), towers: n => { towers = n; aim(); }, snd: () => ({ want, voices, ac: ac && ac.state, muted }), tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, night: n => { night = n; nightUi(); sndMode(); }, BOT, autoNight, clockNight, nextEdge, mu: () => manualUntil, nt: () => nt, ROCK, WAVE, calm: c => { if (c !== undefined) calm = c; return calm; }, ffR: () => { let a = 0, b = 0; for (const p of ffPh) { a += Math.cos(p); b += Math.sin(p); } return Math.hypot(a, b) / FF; }, frames: 0, simMs: 0 };
 /* ── loop: fixed 60 Hz physics, two relaxation steps per tick ── */
 let acc = 0, last = performance.now();
 const STEP = 1000 / 60;
@@ -463,11 +517,11 @@ function tick() {
   nightTick(); q.rotateTowards(rq, .07); box.quaternion.copy(q);
   /* move the water into the cube's new frame, then point gravity down in that frame */
   tmp.copy(q).invert().multiply(qPrev); m4.makeRotationFromQuaternion(tmp); const e = m4.elements;
-  if (Math.abs(tmp.w) < .999999) sim.turn([e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]]);
+  if (Math.abs(tmp.w) < .999999) { const mt = [e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]]; sim.turn(mt); bottleTurn(mt); }
   qPrev.copy(q);
   gv.copy(gDown).multiplyScalar(.006).applyQuaternion(tmp.copy(q).invert()); sim.g[0] = gv.x; sim.g[1] = gv.y; sim.g[2] = gv.z;
   jetPush(); nightWaves();
-  const t0 = performance.now(); sim.step(); sim.step(); window.__CUBE.simMs += performance.now() - t0; window.__CUBE.frames++;
+  const t0 = performance.now(); sim.step(); bottleStep(); sim.step(); bottleStep(); bottlePose(); window.__CUBE.simMs += performance.now() - t0; window.__CUBE.frames++;
   sound();
 }
 renderer.setAnimationLoop(now => {
