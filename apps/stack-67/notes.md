@@ -9,6 +9,8 @@ the shrug, and both hands shrug.
 - v1.0 (2026-10-02): 10 rounds, +3 for the fewest blocks or a right "can't be done" call, +1 for any other exact stack,
   best score in localStorage (`stack67_best`). A 7 landing straight on a 6 makes both hands juggle and flashes SIX SEVEN.
   Tap a block in the tower to take it off; keys 6, 7, Backspace, Enter.
+- v1.1: "how the maths works" panel under the game, closed by default (Tatum 01:30): the block-count ladder
+  (k blocks make 6k..7k, the gaps up to 29) and the one-line strategy (k = ceil(n/7); impossible if 6k > n; else n-6k sevens).
 
 ## Maths
 - Impossible with 6s and 7s: 1-5, 8-11, 15-17, 22, 23, 29 (15 numbers). 29 = 6*7-6-7 is the largest (Frobenius number,
@@ -20,4 +22,3 @@ the shrug, and both hands shrug.
 - Headless has no emoji font, so the 🤷 on the call button shows as a box in test shots only.
 
 ## Todos
-- Tatum 01:30: an optional panel that teaches the maths and strategy.
