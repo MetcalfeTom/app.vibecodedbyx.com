@@ -15,12 +15,11 @@ Paper sheet taped to a pub wall: #f2eee3 paper, ink #15120e, one red marker #d73
 
 ## Log
 - v1.0 link-encoded bracket, share link + organizer link, view mode with "make my own copy", champion banner + confetti.
+- v1.1 report links (`#r=`, ~50 chars): in the share link a player taps a name -> sheet with "X won" and "send my name" -> a link for the organizer. The organizer opens it: the master copy comes from localStorage, an inbox strip offers add / rename / dispute (switch or keep) / out of date / not this device. Bracket size picker (how deep) + "fill empty slots with Player N" for lazy organizers (Tatum). Tabs follow each other through the storage event.
 
 ## Issues
 - Tatum wants players to report results themselves and the organizer to settle disputes, ideally with a database. A live shared table is a new online mode: needs Fela/Thomas, don't promise it.
 
 ## Todos
-- Report links: a player taps the winner in their view copy, gets a tiny link for the group chat; the organizer opens it and accepts it into the master copy (two matching reports = agreed).
-- Placeholder names (Player 1..N) that players claim through the same report links (Tatum).
-- Organizer picks the bracket size ("how deep") with open slots.
+- Personal links per player (Tatum): the organizer keeps a secret in the master copy, each player's link carries their seat + a token derived from it, so a report says whose link it came from; two players' matching reports = agreed.
 - PNG export of the sheet.
