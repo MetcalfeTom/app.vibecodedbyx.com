@@ -37,6 +37,8 @@ h1 span{color:var(--cyan)}
 .jetb.l{left:max(16px,env(safe-area-inset-left))}.jetb.r{right:max(16px,env(safe-area-inset-right))}
 .jetb.hot{background:var(--coral);color:var(--ink);transform:scale(.94)}
 @keyframes pop{from{transform:scale(.5)}}
+.snd{pointer-events:auto;font:600 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);background:rgba(13,29,56,.5);border:1px solid rgba(127,231,255,.22);border-radius:999px;padding:7px 11px;cursor:pointer;margin-top:4px;white-space:nowrap}
+.snd[aria-pressed=true]{color:var(--cyan);border-color:rgba(127,231,255,.5)}
 .aimb{position:fixed;left:50%;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 117px);transform:translateX(-50%);font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--coral);background:rgba(13,29,56,.6);border:1px solid rgba(255,122,89,.45);border-radius:999px;padding:7px 12px;cursor:pointer;white-space:nowrap}
 .aimb:hover{border-color:var(--coral)}
 .bar button.hot{background:var(--coral);border-color:var(--coral);color:var(--ink)}
@@ -51,7 +53,7 @@ button:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
 </head>
 <body>
 <canvas id="c" aria-label="A glass cube of water. Drag to tilt it."></canvas>
-<header><div><h1>Slosh <span>Cube</span></h1><p class="sub">Navier–Stokes, one sphere at a time</p></div></header>
+<header><div><h1>Slosh <span>Cube</span></h1><p class="sub">Navier–Stokes, one sphere at a time</p></div><button class="snd" id="snd" aria-pressed="true" title="The water's sound">sound on</button></header>
 <p class="hint" id="hint">drag to tilt the cube</p>
 <button class="jetb l" id="jetL" title="Hold: the left nozzle fires (key A)">jet</button>
 <button class="jetb r" id="jetR" title="Hold: the right nozzle fires (key L)">jet</button>
@@ -130,7 +132,10 @@ function makeSim(N, L, P) {
         v[i * 3] -= I * ux; v[i * 3 + 1] -= I * uy; v[i * 3 + 2] -= I * uz; v[j * 3] += I * ux; v[j * 3 + 1] += I * uy; v[j * 3 + 2] += I * uz; }
     }
   }
-  function walls() { const m = L - P.rad; for (let k = 0; k < N * 3; k++) { if (x[k] < -m) x[k] = -m; else if (x[k] > m) x[k] = m; } }
+  /* v1.7: a drop that reaches the glass fast hit it hard: count it, the sound plays those as plinks (resting water presses on the glass too, so it's speed, not overshoot) */
+  let hits = 0, hitMax = 0;
+  function walls() { const m = L - P.rad; for (let k = 0; k < N * 3; k++) { const a = x[k]; if (a < -m || a > m) { const o = a < 0 ? -v[k] : v[k]; if (o > .05) { hits++; if (o > hitMax) hitMax = o; } x[k] = a < 0 ? -m : m; } } }
+  function takeHits() { const r = [hits, hitMax]; hits = 0; hitMax = 0; return r; }
   function step() {
     for (let i = 0; i < N; i++) { v[i * 3] += g[0]; v[i * 3 + 1] += g[1]; v[i * 3 + 2] += g[2]; }
     viscosity(); /* uses the previous step's neighbour list */
@@ -150,7 +155,7 @@ function makeSim(N, L, P) {
     }
     walls();
   }
-  return { x, v, g, step, turn, N, L };
+  return { x, v, g, step, turn, takeHits, N, L };
 }
 
 /* ── scene ── */
@@ -287,6 +292,50 @@ function aim() {
   towBtn.textContent = towers === 2 ? 'aim: 2 towers' : 'aim: 1 tower';
 }
 towBtn.onclick = () => { towers = 3 - towers; aim(); };
+/* ── v1.7 (Dale: "rain for real"): the water makes sound. A drop that hits the glass hard goes plink (a pentatonic
+   chime, so a storm sounds like rain on a window, not static) and the whole sea hisses as it moves ── */
+const sndBtn = document.getElementById('snd'); let ac = null, master = null, rushG = null, voices = 0, muted = false, want = 0;
+try { muted = localStorage.getItem('slosh-sound') === 'off'; } catch (e) {}
+const SCALE = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2, 9 / 4, 5 / 2];
+function sndUi() { sndBtn.textContent = muted ? 'sound off' : 'sound on'; sndBtn.setAttribute('aria-pressed', muted ? 'false' : 'true'); }
+function audio() {
+  if (muted) return;
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try {
+    ac = new AC(); master = ac.createGain(); master.gain.value = .6; master.connect(ac.destination);
+    const len = ac.sampleRate * 2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = .6;
+    rushG = ac.createGain(); rushG.gain.value = 0; src.connect(bp); bp.connect(rushG); rushG.connect(master); src.start();
+    if (ac.state === 'suspended') ac.resume();
+  } catch (e) { ac = null; }
+}
+plink.t = 0;
+function plink(o) {
+  if (voices > 20) { if (performance.now() - plink.t < 800) return; voices = 0; }   /* a lost onended can't silence it for good */
+  voices++; plink.t = performance.now();
+  const t = ac.currentTime, osc = ac.createOscillator(), g = ac.createGain();
+  osc.type = 'sine'; osc.frequency.value = 880 * SCALE[(Math.random() * SCALE.length) | 0] * (Math.random() < .3 ? 2 : 1);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(Math.min(.09, .02 + o * .5), t + .003); g.gain.exponentialRampToValueAtTime(.0005, t + .09 + Math.random() * .08);
+  osc.connect(g); g.connect(master); osc.start(t); osc.stop(t + .2); osc.onended = () => { voices--; };
+}
+function sound() {
+  const [h, mx] = sim.takeHits();
+  const n = Math.min(2, Math.round(h * .08 + Math.random() * .5 * Math.min(1, h))); want += n;
+  if (!ac || muted || ac.state !== 'running') return;
+  for (let i = 0; i < n; i++) plink(mx * Math.random());
+  let e = 0; const v = sim.v; for (let i = 0; i < N; i += 7) e += Math.hypot(v[i * 3], v[i * 3 + 1], v[i * 3 + 2]); e /= Math.ceil(N / 7);
+  rushG.gain.setTargetAtTime(Math.min(.12, Math.max(0, e - .02) * 1.2), ac.currentTime, .08);
+}
+['pointerdown', 'click', 'touchend', 'keydown'].forEach(t => addEventListener(t, audio, { passive: true }));   /* browsers only allow sound after a tap */
+sndBtn.addEventListener('click', e => {
+  e.stopPropagation(); muted = !muted; try { localStorage.setItem('slosh-sound', muted ? 'off' : 'on'); } catch (er) {}
+  if (muted) { if (ac) ac.suspend(); } else audio();
+  sndUi();
+});
+sndUi();
 const JKEY = { a: 0, arrowleft: 0, l: 1, arrowright: 1 };
 addEventListener('keydown', e => { const k = JKEY[e.key.toLowerCase()]; if (k !== undefined && !e.repeat) jetGo(JETS[k], true); });
 addEventListener('keyup', e => { const k = JKEY[e.key.toLowerCase()]; if (k !== undefined) jetGo(JETS[k], false); });
@@ -299,7 +348,7 @@ function jetPush() {
 }
 if ('DeviceOrientationEvent' in window && (coarse || navigator.maxTouchPoints > 0)) tiltBtn.hidden = false;
 
-window.__CUBE = { sim, rot, tiltOn, jet: (on, k) => JETS.forEach((j, i) => { if (k === undefined || k === i) j.on = on; }),  tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), towers: n => { towers = n; aim(); }, tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, frames: 0, simMs: 0 };
+window.__CUBE = { sim, rot, tiltOn, jet: (on, k) => JETS.forEach((j, i) => { if (k === undefined || k === i) j.on = on; }),  tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), towers: n => { towers = n; aim(); }, snd: () => ({ want, voices, ac: ac && ac.state, muted }), tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, frames: 0, simMs: 0 };
 /* ── loop: fixed 60 Hz physics, two relaxation steps per tick ── */
 let acc = 0, last = performance.now();
 const STEP = 1000 / 60;
@@ -314,6 +363,7 @@ function tick() {
   gv.copy(gDown).multiplyScalar(.006).applyQuaternion(tmp.copy(q).invert()); sim.g[0] = gv.x; sim.g[1] = gv.y; sim.g[2] = gv.z;
   jetPush();
   const t0 = performance.now(); sim.step(); sim.step(); window.__CUBE.simMs += performance.now() - t0; window.__CUBE.frames++;
+  sound();
 }
 renderer.setAnimationLoop(now => {
   acc += Math.min(now - last, 100); last = now; let n = 0;
