@@ -33,6 +33,7 @@ as A/B/C/D, drawn as coloured arrows under the pieces. After you pick, every opt
 
 - v1.7: in "pick 1, 2, 3 or 4" only the numbers are coloured, each in its option's colour (Tatum 05:57).
 - v1.8: "You play" has a random option, a coin flip each new game (Tatum 05:59); clicking outside the rules box closes it and keeps the choices, like Continue playing (Tatum 06:00). Test hook exposes `me`; the dialog close event is async, so probes read cfg after a timeout.
+- v1.9: the dealt options are saved too, so a reload brings back the same cards instead of re-rolling them (checked: same board, same 4 options after reload; Tatum asked 06:07 whether the game survives a reload).
 
 ## Issues
 - Tatum 05:45-05:46: no plain free-move mode wanted (lichess does that); the point is a built-in opponent, which Stockfish is.
