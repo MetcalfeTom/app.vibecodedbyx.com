@@ -18,6 +18,7 @@ Asked for by Tatum (2026-10-02 10:21 UTC): "is there a list of 3D equivalents of
 - Test hook window.__HC (go, step, render, info, look, setDrift). Headless: drive step() by hand.
 
 ## log
+- v1.1 (2026-10-02): "save png" button (Tatum: "can you add a button to export the image as a PNG"). Re-renders the view at up to 2x (long side capped at 3000 px), copies the WebGL canvas in the same task (no preserveDrawingBuffer needed), adds a caption (name + cell type) and downloads honeycomb-<name>.png; on touch devices with file sharing it opens the share sheet instead (Save Image on iOS). White flash + status toast.
 - v1.0 (2026-10-02): six honeycombs (Kelvin foam, cubes, rhombic dodecahedra, hexagonal prisms, elongated dodecahedra, Weaire-Phelan), drift / drag-look / WASD + space/shift / hold-to-fly on touch, rooms-crossed counter, placard with a fact that folds away after 14 s, reduced motion = no drift or fade.
 
 ## todos
