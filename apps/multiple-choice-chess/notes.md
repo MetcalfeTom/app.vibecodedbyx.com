@@ -34,6 +34,7 @@ as A/B/C/D, drawn as coloured arrows under the pieces. After you pick, every opt
 - v1.7: in "pick 1, 2, 3 or 4" only the numbers are coloured, each in its option's colour (Tatum 05:57).
 - v1.8: "You play" has a random option, a coin flip each new game (Tatum 05:59); clicking outside the rules box closes it and keeps the choices, like Continue playing (Tatum 06:00). Test hook exposes `me`; the dialog close event is async, so probes read cfg after a timeout.
 - v1.9: the dealt options are saved too, so a reload brings back the same cards instead of re-rolling them (checked: same board, same 4 options after reload; Tatum asked 06:07 whether the game survives a reload).
+- v2.0: number badges moved from the starting square to the landing square, and each line now ends at its badge (no arrowhead). Measured over ~600 random positions with 4 random options: shared starting squares in 49% of deals (61% in endgames), shared landing squares in 12%. Badges that would still overlap get nudged 0.3 squares apart (Tatum 06:09).
 
 ## Issues
 - Tatum 05:45-05:46: no plain free-move mode wanted (lichess does that); the point is a built-in opponent, which Stockfish is.
