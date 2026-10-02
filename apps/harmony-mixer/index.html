@@ -3600,7 +3600,9 @@ function status(t, cls){ els.status.textContent = t || ''; els.status.className 
 function uid(){ return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 var lastAdded = 0;
 function stamp(){ lastAdded = Math.max(Date.now(), lastAdded + 1); return lastAdded; }
-function isAudio(f){ return /^audio\//.test(f.type || '') || /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|webm|aif|aiff)$/i.test(f.name || ''); }
+/* v4.64 (pushedbutton): MIDI files and playlists say audio/* but hold no sound, so they stay out of the crate */
+function notSound(f){ return /\.(mid|midi|kar|rmi|smf|m3u|m3u8|pls|xspf|cue)$/i.test(f.name || f.fileName || '') || /midi|mpegurl|scpls|xspf/i.test(f.type || ''); }
+function isAudio(f){ return !notSound(f) && /^audio\//.test(f.type || '') || /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|webm|aif|aiff)$/i.test(f.name || ''); }
 function dupOf(f){ for (var i = 0; i < crate.length; i++){ var r = crate[i]; if (r.fileName === f.name && r.size === f.size) return r; } return null; }
 function relOf(f){ return String(f.webkitRelativePath || f._rel || '').replace(/^\/+/, ''); }
 function dirOf(p){ var i = p.lastIndexOf('/'); return i > 0 ? p.slice(0, i) : ''; }
@@ -3641,9 +3643,9 @@ function filesFromEntries(entries){
 var batchN = 0, batchDone = 0, batchNote = '', skipNote = '', playSel = '', plSig = '';
 
 function importFiles(list, fromFolder){
-  var files = Array.prototype.slice.call(list || []), added = 0, dups = 0, bad = 0, filed = 0, back = 0;
+  var files = Array.prototype.slice.call(list || []), added = 0, dups = 0, bad = 0, mids = 0, filed = 0, back = 0;
   files.forEach(function(f){
-    if (!isAudio(f)){ bad++; return; }
+    if (!isAudio(f)){ if (notSound(f)) mids++; else bad++; return; }
     var rp = relOf(f), dup = dupOf(f);
     if (dup && dup.missing){                                   /* v4.40: remembered without audio: the file brings it back */
       reattach(dup, f); if (rp && !dup.relPath){ dup.relPath = rp; dup.folder = dirOf(rp); } persist(dup); back++; return;
@@ -3663,8 +3665,9 @@ function importFiles(list, fromFolder){
   if (added) msg.push(added + ' added' + (fromFolder ? ' from the folder' : ''));
   if (dups) msg.push(dups + ' already in the crate — skipped' + (filed ? ' (' + filed + ' filed into playlists)' : ''));
   if (bad) msg.push(bad + " skipped — not audio (mp3, wav, flac + friends)");
-  if (added){ batchNote = msg.join(' · '); if (dups || bad){ var sn = msg.slice(1).join(' · '); skipNote = skipNote ? skipNote + ' · ' + sn : sn; } }
-  if (msg.length) status(msg.join(' · '), bad && !added && !back ? 'err' : '');
+  if (mids) msg.push(mids + (mids === 1 ? ' MIDI or playlist file' : ' MIDI + playlist files') + ' left out — no sound inside');
+  if (added){ batchNote = msg.join(' · '); if (dups || bad || mids){ var sn = msg.slice(1).join(' · '); skipNote = skipNote ? skipNote + ' · ' + sn : sn; } }
+  if (msg.length) status(msg.join(' · '), bad && !added && !back ? 'err' : '');  /* MIDI alone is no error */
   if (back) keepNote();
   render(); pump();
   return added;
@@ -4134,9 +4137,13 @@ ready = dbAll().then(function(rows){
   rows.sort(function(a, b){ return a.added - b.added; });
   var sep = rows.some(function(r){ return r && r.aud === 'sep' && !r.blob; });
   return (sep ? audioAll().catch(function(e){ audioErr = errInfo(e, null); return {}; }) : Promise.resolve({})).then(function(A){
-  rows.forEach(function(r){ if (!r || !r.id) return; if (r.blob){ r.aud = 'in'; r._idb = true; } else if (r.aud === 'sep' && A[r.id]){ r.blob = A[r.id]; r._idb = true; } else r.aud = null;
+  var junk = [];
+  rows.forEach(function(r){ if (!r || !r.id) return; if (notSound(r)){ junk.push(r.id); return; } if (r.blob){ r.aud = 'in'; r._idb = true; } else if (r.aud === 'sep' && A[r.id]){ r.blob = A[r.id]; r._idb = true; } else r.aud = null;
     r.missing = !r.blob; r.state = null; r._dbRefresh = false; if (r.added > lastAdded) lastAdded = r.added; crate.push(r); byId[r.id] = r; if (!r.done && !r.missing) queue.push(r); });
-  render(); pump(); recheckOnes(); keepNote(); linksBoot(); });
+  if (junk.length && storageOk){ junk.forEach(function(id){ saveQ.push({ del: id, done: [] }); }); saveNext(); }
+  render(); pump(); recheckOnes(); keepNote(); linksBoot();
+  if (junk.length) status('tidied ' + junk.length + (junk.length === 1 ? ' MIDI or playlist file' : ' MIDI + playlist files') + ' out of the crate — they hold no sound');
+  window.__C.tidied = junk.length; });
 }, function(e){ storageOk = false; storageErr = errInfo(e, null); status("browser storage is blocked (" + storageErr.name + ") — imports work but won't survive a reload · open Storage check below", 'err'); render(); });
 
 window.__C = { recheckOnes: recheckOnes, oneStale: oneStale, crate: crate, byId: byId, persist: persist, importFiles: importFiles, loadTo: loadTo, remove: remove, setMeta: setMeta, render: render, ranked: ranked, refDeck: refDeck, played: function(){ return PLAYED; }, resetPlayed: playedReset, playedReload: function(){ playedLoad(); render(); }, PLAYED_KEY: PLAYED_KEY, SL: function(){ return SL; }, slAdd: slAdd, renderSetlist: renderSetlist, SLS: function(){ return SLS; }, passed: function(){ return PASSED; }, slAddAuto: slAddAuto, slDropAuto: slDropAuto, scoreFor: scoreFor, slsReload: slsReload, slSaveAs: slSaveAs, slLoadSaved: slLoadSaved, slClear: slClear, slDeleteSaved: slDeleteSaved, slExportJSON: slExportJSON, slImportText: slImportText, slResolve: slResolve, slArmState: function(){ return SL_ARM.key; }, slReload: function(){ try{ var sv2 = JSON.parse(localStorage.getItem(SL_KEY) || 'null'); if (sv2 && Array.isArray(sv2.ids)) SL = { ids: sv2.ids, at: (typeof sv2.at === 'number' ? sv2.at : null), auto: Array.isArray(sv2.auto) ? sv2.auto : [] }; }catch(e){} renderSetlist(); },
