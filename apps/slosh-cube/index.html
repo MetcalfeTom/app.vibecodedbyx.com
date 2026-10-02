@@ -33,7 +33,7 @@ h1 span{color:var(--cyan)}
 .bar button:hover{border-color:var(--cyan)}
 .bar button.hot{background:var(--coral);border-color:var(--coral);color:var(--ink)}
 button:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
-.hint{position:fixed;left:50%;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 56px);transform:translateX(-50%);color:var(--dim);font-size:11px;letter-spacing:.08em;white-space:nowrap;transition:opacity .6s,transform .6s}
+.hint{position:fixed;left:50%;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 56px);transform:translateX(-50%);color:var(--dim);font-size:11px;letter-spacing:.08em;width:max-content;max-width:calc(100vw - 32px);text-align:center;transition:opacity .6s,transform .6s}
 .hint.gone{opacity:0;transform:translate(-50%,8px)}
 .err{position:fixed;inset:auto 16px 50% 16px;text-align:center;font:italic 400 26px var(--serif);color:var(--foam)}
 @keyframes drift{from{transform:translateY(-14px)}}
@@ -46,6 +46,7 @@ button:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
 <header><div><h1>Slosh <span>Cube</span></h1><p class="sub">Navier–Stokes, one sphere at a time</p></div></header>
 <p class="hint" id="hint">drag to tilt the cube</p>
 <div class="bar">
+  <button id="tilt" hidden aria-pressed="false" title="Tilt your phone to slosh the water">tilt</button>
   <button id="splash">splash</button>
   <button id="spin">spin</button>
   <button id="level">level</button>
@@ -223,9 +224,38 @@ function rot(ax, ay) { tmp.setFromAxisAngle(AX, ax); qT.premultiply(tmp); tmp.se
 
 document.getElementById('splash').onclick = () => { for (let i = 0; i < N; i++) { sim.v[i * 3 + 1] += .12 + Math.random() * .12; sim.v[i * 3] += (Math.random() - .5) * .08; sim.v[i * 3 + 2] += (Math.random() - .5) * .08; } };
 document.getElementById('spin').onclick = () => { wy += 7; leveling = false; hint.classList.add('gone'); };
-document.getElementById('level').onclick = () => { leveling = true; wx = wy = 0; };
+document.getElementById('level').onclick = () => { leveling = true; wx = wy = 0; if (tilt) { calib = true; say('level: this angle now'); } };
 
-window.__CUBE = { sim, rot, tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, frames: 0, simMs: 0 };
+/* ── v1.2 phone tilt (Tatum): the phone becomes the cube. Gravity follows the phone, and the way you hold it
+   when tilt goes on counts as level, so nobody has to hold the phone upright ── */
+const tiltBtn = document.getElementById('tilt'), gDown = new THREE.Vector3(0, -1, 0), gRaw = new THREE.Vector3(), gBase = new THREE.Quaternion(), DOWN = new THREE.Vector3(0, -1, 0);
+let tilt = false, tiltSeen = 0, calib = true;
+function say(t) { hint.textContent = t; hint.classList.remove('gone'); clearTimeout(say.t); say.t = setTimeout(() => hint.classList.add('gone'), 3200); }
+function onTilt(e) {
+  if (e.beta == null || e.gamma == null) return;
+  /* down in the phone's own frame (x right, y up the screen, z out of it), from the W3C Z-X'-Y'' angles */
+  const b = THREE.MathUtils.degToRad(e.beta), c = THREE.MathUtils.degToRad(e.gamma);
+  const dx = Math.sin(c) * Math.cos(b), dy = -Math.sin(b), dz = -Math.cos(c) * Math.cos(b);
+  /* a phone on its side: turn the phone frame into the screen's */
+  const a = THREE.MathUtils.degToRad((screen.orientation && screen.orientation.angle) || window.orientation || 0), ca = Math.cos(a), sa = Math.sin(a);
+  gRaw.set(dx * ca - dy * sa, dx * sa + dy * ca, dz).normalize();
+  if (calib) { gBase.setFromUnitVectors(gRaw, DOWN); calib = false; }
+  gRaw.applyQuaternion(gBase); gDown.lerp(gRaw, .3).normalize(); tiltSeen++;
+}
+function tiltOff(msg) { tilt = false; tiltBtn.classList.remove('hot'); tiltBtn.setAttribute('aria-pressed', 'false'); gDown.copy(DOWN); removeEventListener('deviceorientation', onTilt); say(msg); }
+function tiltOn() { tilt = true; calib = true; tiltSeen = 0; tiltBtn.classList.add('hot'); tiltBtn.setAttribute('aria-pressed', 'true'); addEventListener('deviceorientation', onTilt); leveling = true; wx = wy = 0; }
+tiltBtn.onclick = async () => {
+  hint.classList.add('gone');
+  if (tilt) { tiltOff('tilt off: drag to turn the cube'); return; }
+  try { /* iPhones ask first, and only from a tap */
+    if (typeof DeviceOrientationEvent.requestPermission === 'function' && await DeviceOrientationEvent.requestPermission() !== 'granted') { say('no motion access, so drag instead'); return; }
+  } catch (e) { say('no motion access, so drag instead'); return; }
+  tiltOn(); say('tilt your phone · this angle is level');
+  setTimeout(() => { if (tilt && !tiltSeen) tiltOff('this device sends no tilt, so drag instead'); }, 1800);
+};
+if ('DeviceOrientationEvent' in window && (coarse || navigator.maxTouchPoints > 0)) tiltBtn.hidden = false;
+
+window.__CUBE = { sim, rot, tiltOn, tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, frames: 0, simMs: 0 };
 /* ── loop: fixed 60 Hz physics, two relaxation steps per tick ── */
 let acc = 0, last = performance.now();
 const STEP = 1000 / 60;
@@ -237,7 +267,7 @@ function tick() {
   tmp.copy(q).invert().multiply(qPrev); m4.makeRotationFromQuaternion(tmp); const e = m4.elements;
   if (Math.abs(tmp.w) < .999999) sim.turn([e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]]);
   qPrev.copy(q);
-  gv.set(0, -.006, 0).applyQuaternion(tmp.copy(q).invert()); sim.g[0] = gv.x; sim.g[1] = gv.y; sim.g[2] = gv.z;
+  gv.copy(gDown).multiplyScalar(.006).applyQuaternion(tmp.copy(q).invert()); sim.g[0] = gv.x; sim.g[1] = gv.y; sim.g[2] = gv.z;
   const t0 = performance.now(); sim.step(); sim.step(); window.__CUBE.simMs += performance.now() - t0; window.__CUBE.frames++;
 }
 renderer.setAnimationLoop(now => {
