@@ -9,12 +9,16 @@ as A/B/C/D, drawn as coloured arrows under the pieces. After you pick, every opt
 - `rankAll(fen, legalCount)`: Skill 20, MultiPV = all legal moves (cap 60), `go movetime` 1.1-1.6 s, keeps the latest
   line per multipv, sorts by score for the side to move. Mate scores map to +-(100000 - 100n). Moves missing from the list
   are appended as the worst.
-- `dealFrom(rank, n, rule)`: rules `mix` (default, Tatum 05:41: best, worst, a slightly-off move about 60 cp worse, then
-  random ones), `gem` (best + traps 150+ cp worse, captures and checks first), `top` (top n), `spread` (evenly through the
-  ranking), `chaos` (random). Options per turn 2-5 (default 4).
+- `dealFrom(rank, types)` (v2.3, Tatum 06:21 "a buffet of option types the player toggles on and off"): each type switched on
+  deals one option: best move, runner-up, near miss (~60 cp worse), mistake (~250 cp), worst move, a capture, a check,
+  pawn move, and random moves (a 0-5 counter, may repeat). 2-5 options in total. Picked in `DEAL` order so random moves
+  can't steal a specific one; a type with nothing to offer (no checks in the opening) gets a random stand-in, shown as
+  "random move (no check this turn)" on reveal. Default deck = Tatum's original mix: best, near miss, worst, random.
+  The old presets (mix/gem/top/spread/chaos) are gone; old saved cfg falls back to the default deck.
+  Tatum asked for plain chess words, no card-game terms ("wild card" -> "random move").
 - Verdict by loss vs best: best <=10 cp, good <=50, inaccuracy <=150, mistake <=300, else blunder. Points 3/2/1/0.
 - Opponent: Skill 1/8/20 (gentle/club/brutal) at 250/500/900 ms, MultiPV 1.
-- Settings in a `<dialog>`: rule, options, arrows (all / on hover / off, Tatum 05:42-05:43: arrows under the pieces,
+- Settings in a `<dialog>`: option types, random-move counter, arrows (all / on hover / off, Tatum 05:42-05:43: arrows under the pieces,
   and a switch to turn them off), opponent, side (applies to a new game).
 - Saved in localStorage: `mcc_cfg`, `mcc_game` (uci moves + picks), replayed on load.
 
@@ -37,6 +41,7 @@ as A/B/C/D, drawn as coloured arrows under the pieces. After you pick, every opt
 - v2.0: number badges moved from the starting square to the landing square, and each line now ends at its badge (no arrowhead). Measured over ~600 random positions with 4 random options: shared starting squares in 49% of deals (61% in endgames), shared landing squares in 12%. Badges that would still overlap get nudged 0.3 squares apart (Tatum 06:09).
 - v2.1: when several options land on the same square, each number takes the free corner of that square nearest its own piece (greedy, in deal order); a lone number stays just inside the square on the side the move comes from (Tatum 06:14).
 - v2.2: number badges were painted UNDER the pieces (`.sq .p` has z-index:1 inside the boardwrap stacking context); `svg.tags{z-index:2}` puts them on top. Captures also use the corner rule, so the badge sits in the corner facing the attacker and the captured piece stays visible (Tatum 06:17). `__MCC.draw` added for probes.
+- v2.3: the option buffet (see above, Tatum 06:21-06:26); each option names its type after you pick; the trail of picks under the board is bigger CSS squares with an explanation on hover/tap (Tatum 06:23; a transform on the hovered square made it the tooltip's containing block, so no transform there); while the engine thinks, empty outlines hold the options' place so the page doesn't shrink (Tatum 06:27).
 
 ## Issues
 - Tatum 05:45-05:46: no plain free-move mode wanted (lichess does that); the point is a built-in opponent, which Stockfish is.
