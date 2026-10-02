@@ -22,6 +22,7 @@ Paper sheet taped to a pub wall: #f2eee3 paper, ink #15120e, one red marker #d73
 - v1.4 fix: `/re/.test(undefined)` tests the word "undefined", so a missing id passed the check and every bracket had id undefined. All string checks go through is(re, v) now.
 - v1.5 (Tatum, the banner was confusing): the organizer banner is a headline ("M1 · Ada beat Dax?"), one plain line on what happens next, and buttons with a sub line saying what they do ("count it now / Ada goes through", "wait for Dax / counts by itself in 15 min"). The match a slip is about gets a red frame. Match labels show the slips: a ticking clock with minutes left for a lone signed slip (claimed winner's slot gets the clock), "disputed: pick one", "1 slip: your call" (never mode), "both agree ✓✓". Labels tick every 15 s.
 - v1.5 undo (Tatum): changing an early result clears later results that depended on it; guard() snapshots S.w + S.g, counts what got cleared and toasts "N later results cleared · undo" (Ctrl+Z too). Used by taps on the sheet and by banner buttons that set a winner.
+- v1.5.1 (Tatum: the banner stayed up after the timer ran out): sweep() re-shows an open banner ("M1 · time's up ✓"), and the 15 s tick runs sweep, the clocks and the banner's minutes.
 
 ## Issues
 - Tatum wants players to report results themselves and the organizer to settle disputes, ideally with a database. A live shared table is a new online mode: needs Fela/Thomas, don't promise it.
