@@ -21,6 +21,7 @@ as A/B/C/D, drawn as coloured arrows under the pieces. After you pick, every opt
 ## Log
 - v1.0 (2026-10-02): first version.
 - v1.1: A-D badges in their own layer above the pieces (they hid under the glyphs), badges spread to the square's corners when moves share a start square; keyboard focus on an option highlights its arrow; og.png.
+- v1.2: the load animation no longer starts from invisible, so the site's auto screenshot shows the board (the first one was a blank navy page).
 
 ## Issues
 - Tatum 05:45-05:46: no plain free-move mode wanted (lichess does that); the point is a built-in opponent, which Stockfish is.

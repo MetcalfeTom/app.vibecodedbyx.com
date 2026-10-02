@@ -16,6 +16,8 @@ the shrug, and both hands shrug.
 
 - v1.3: the game in progress is saved in localStorage (`stack67_game`: round, points, target, tower, message) after every move, so a refresh picks up where you left off (Tatum 01:40). Cleared when the 10 rounds end. Tested: a reload mid-round 2 came back with the same target, tower and score.
 
+- v1.4: the load animation no longer starts from invisible, so the site's auto screenshot (taken right at load) shows the game instead of a blank page (Tatum 05:49: "needs a nicer preview image").
+
 ## Maths
 - Impossible with 6s and 7s: 1-5, 8-11, 15-17, 22, 23, 29 (15 numbers). 29 = 6*7-6-7 is the largest (Frobenius number,
   6 and 7 share no factor); every number from 30 up can be made. Checked by brute force in python and in the page.
