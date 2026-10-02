@@ -24,4 +24,3 @@ Paper sheet taped to a pub wall: #f2eee3 paper, ink #15120e, one red marker #d73
 ## Todos
 - PNG export of the sheet.
 - With a database (needs Fela/Thomas): slips go straight to the organizer's copy, the 15-min quiet rule runs on its own.
-- PNG export of the sheet.
