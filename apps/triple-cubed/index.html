@@ -48,6 +48,7 @@ h1 sup{ font-size:.5em; color:var(--brass); vertical-align:.9em; margin-left:.05
 @keyframes dots{ from{ width:0; } to{ width:1.2em; } }
 .mrack span.hop{ animation:hop .2s ease-out; }
 @keyframes hop{ 50%{ transform:translateY(-.3rem) rotate(-6deg); } }
+.fly{ position:fixed; z-index:15; pointer-events:none; margin:0; }
 .confetti{ position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:25; }
 
 .board{
@@ -138,7 +139,7 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
   </div>
   <p class="foot">You and Two share one score. Two never gives hints, it just sets things up.<br>The dream: one word along an edge across all three gold squares, ×27.<br><button type="button" class="btn" id="newgame" style="min-height:2.2rem;margin-top:.4rem">new game</button></p>
   <div class="foot wl"><span id="wlline" aria-live="polite">words: built-in list</span><button type="button" class="btn" id="wlload" title="A plain text file, one word per line">load your own</button><button type="button" class="btn" id="wlreset" hidden>use built-in</button><input type="file" id="wlfile" accept=".txt,text/plain" hidden></div>
-  <p class="foot"><span id="buildstamp" role="note" aria-label="Build information">build v1.2 · 2026-10-02 · d1c822e9f</span></p>
+  <p class="foot"><span id="buildstamp" role="note" aria-label="Build information">build v1.3 · 2026-10-02 · 5924aeecb</span></p>
 </main>
 <div class="banner" id="banner" hidden></div>
 <dialog id="over" aria-labelledby="overh">
@@ -153,27 +154,30 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
   var N = TC.N, $ = function (id) { return document.getElementById(id); };
   var KEY = 'triple-cubed-v1', BEST = 'triple-cubed-best';
   var S = null, pend = [], sel = -1, swapMode = false, swapSel = {}, busy = false;
-  var ALLW = null, trie = null, longs = null, ready = false;
+  var ALLW = null, trie = null, longs = null, aims = null, ready = false;
   function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
   function isWord(w) { return ALLW ? ALLW.has(w) : false; }
 
   /* ── the dictionary: front-coded lists, one word per line ── */
   function unpack(txt) { var out = [], prev = '', ls = txt.split('\n'); for (var k = 0; k < ls.length; k++) { var l = ls[k]; if (!l) continue; prev = prev.slice(0, l.charCodeAt(0) - 48) + l.slice(1); out.push(prev); } return out; }
   function get(f) { return fetch(f).then(function (r) { if (!r.ok) throw new Error(f + ' ' + r.status); return r.text(); }); }
-  var AI = null, MINE = null;
+  var AI = null, MINE = null, T15 = [];
   /* the word list in play: yours if you loaded one, else the built-in one. Two keeps its own everyday vocabulary,
      trimmed to words your list allows, but it checks every edge against all the long words in yours */
   function useList(all, name) {
     ALLW = all instanceof Set ? all : new Set(all); longs = []; ALLW.forEach(function (w) { if (w.length === N) longs.push(w); });
+    /* Two aims at the long words a team can really build (Tatum): ones whose stretches between the golds are words
+       it can lay along the edge in one go, and whose gold letters are common; made offline by build15.py */
+    aims = T15.filter(function (w) { return ALLW.has(w); }); if (aims.length < 100) aims = longs;
     trie = new TC.Trie(AI.filter(function (w) { return ALLW.has(w); }));
     $('wlline').innerHTML = 'words: <b>' + name + '</b> · ' + ALLW.size.toLocaleString('en') + ' (' + longs.length.toLocaleString('en') + ' of 15 letters)';
     $('wlreset').hidden = !MINE;
   }
   function loadDict() {
     $('msay').textContent = 'unpacking the dictionary…';
-    Promise.all([get('ai.fc'), idbGet('mine').catch(function () { return null; })])
+    Promise.all([get('ai.fc'), idbGet('mine').catch(function () { return null; }), get('t15.fc').catch(function () { return ''; })])
       .then(function (t) {
-        AI = unpack(t[0]); MINE = t[1] && t[1].text ? t[1] : null;
+        AI = unpack(t[0]); MINE = t[1] && t[1].text ? t[1] : null; T15 = unpack(t[2]);
         if (MINE) { useList(MINE.text.split('\n'), MINE.name); return; }
         return get('words.fc').then(function (w) { useList(unpack(w), 'built-in list'); });
       })
@@ -377,9 +381,28 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
       setTimeout(function () { clearInterval(jig); busy = false; play2(mv); }, Math.max(0, wait - (Date.now() - t0)));
     }, 60);
   }
+  /* Two's tiles slide from its rack to their squares, so you can see where it played (Tatum) */
+  function fromRack(placed) {
+    var sp = Array.prototype.slice.call($('mrack').children), used = [];
+    return placed.map(function (p) { for (var k = 0; k < sp.length; k++) if (used.indexOf(k) < 0 && sp[k].textContent === p.l) { used.push(k); return sp[k].getBoundingClientRect(); } return null; });
+  }
+  function fly(placed, src) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || window.__TCfast) return;
+    placed.forEach(function (p, k) {
+      var tile = cells[p.i].querySelector('.tile'), a = src[k]; if (!tile || !a) return;
+      var b = tile.getBoundingClientRect(), f = tile.cloneNode(true);
+      f.classList.remove('new'); f.classList.add('fly'); f.style.left = b.left + 'px'; f.style.top = b.top + 'px'; f.style.width = b.width + 'px'; f.style.height = b.height + 'px';
+      document.body.appendChild(f); tile.style.opacity = 0;
+      var sx = a.width / b.width, an = f.animate([
+        { transform: 'translate(' + (a.left - b.left + (a.width - b.width) / 2) + 'px,' + (a.top - b.top + (a.height - b.height) / 2) + 'px) scale(' + sx + ')' },
+        { transform: 'translate(0,-6px) scale(1.15)', offset: .8 },
+        { transform: 'none' }], { duration: 520, delay: k * 110, easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'backwards' });
+      an.onfinish = function () { tile.style.opacity = ''; f.remove(); };
+    });
+  }
   function play2(mv) {
     {
-      if (mv) { commit(1, mv.m, mv.e); say('played ' + mv.e.main.w.toUpperCase() + ' · ' + mv.e.score + '.'); }
+      if (mv) { var src = fromRack(mv.m); commit(1, mv.m, mv.e); say('played ' + mv.e.main.w.toUpperCase() + ' · ' + mv.e.score + '.'); endTurn(); fly(mv.m, src); return; }
       else if (S.bag.length >= 7) { var out = S.racks[1].splice(0, 7); draw(1); S.bag = S.bag.concat(out); shuffleBag(); S.passes++; S.log.push({ who: 1, swap: 7 }); S.last = []; say('traded its tiles.'); }
       else { S.passes++; S.log.push({ who: 1, pass: 1 }); S.last = []; say('passed.'); }
       endTurn();
@@ -397,18 +420,19 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
     return '';
   }
   /* a ×27 is worth ~500 points, so letters on a live edge are worth real points, and more so the fuller the edge gets */
-  var TW = { open: 12, dead: 30, lin: 15, sq: 3, hook: 6, fin: 400, near: 120 };
+  var TW = { open: 12, dead: 30, lin: 15, sq: 3, hook: 6, keep: 5, fin: 400, near: 120 };
   /* one edge: nothing if it's shut, a little for being open, then progress (letters that still fit a 15-letter word),
      trusted more while several words still fit, and a lot once your own tiles could finish one right now */
   function edgeOne(board, e, rack, unseen) {
     if (!TC.edgeOpen(board, e)) return 0;
-    var f = TC.edgeFits(board, e, longs, isWord, 400);
+    var f = TC.edgeFits(board, e, aims, isWord, 400);
     if (f.n < 0) return TW.open;
+    if (f.empty <= TC.RACK && rack) { var g = TC.edgeFits(board, e, longs, isWord, 400); if (g.n > 0 && canFinish(g, rack)) return TW.open + TW.fin; }   /* any long word you could lay right now */
     if (f.n === 0 || (unseen && f.n <= f.hits.length && !canFinish(f, unseen))) return TW.open - TW.dead;   /* tile counting: the letters it needs are gone */
     var trust = Math.min(1, (Math.log2(1 + f.n) + 1) / 5), hooks = 0;
     for (var k = 1; k < TC.N - 1; k++) if (k !== TC.MID && !board[e.cells[k]] && board[e.cells[k] + e.inward]) hooks++;   /* squares a letter can land on next turn */
     var v = TW.open + (TW.lin * f.fixed + TW.sq * f.fixed * f.fixed + TW.hook * Math.min(hooks, 6)) * trust;
-    if (f.empty <= TC.RACK) v += rack && canFinish(f, rack) ? TW.fin : TW.near * trust;
+    if (f.empty <= TC.RACK) v += TW.near * trust;
     return v;
   }
   /* the squares that matter to an edge: the edge itself and the row just inside it (their crossings decide what fits) */
@@ -422,20 +446,31 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
     var pool = list.slice(0, 40).concat(zoned.slice(0, 400));
     var you = counts(S.racks[0]), off = counts(S.racks[0].concat(S.racks[1], S.bag));
     var base = TC.EDGES.map(function (e) { return edgeOne(S.board, e, you, off); }), bestM = null, bestV = -1e9;
+    /* rack keeping: the letters the live edges still need (not the golds, those are yours) are worth holding on to */
+    var want = new Array(26).fill(0);
+    TC.EDGES.forEach(function (e) {
+      if (!TC.edgeOpen(S.board, e)) return; var f = TC.edgeFits(S.board, e, aims, isWord, 40); if (f.n <= 0) return;
+      f.hits.forEach(function (w) { var need = new Array(26).fill(0);
+        for (var k = 1; k < TC.N - 1; k++) if (k !== TC.MID && !f.pat[k]) need[w.charCodeAt(k) - 97]++;
+        for (var l = 0; l < 26; l++) if (need[l] > want[l]) want[l] = Math.min(need[l], 2); });
+    });
+    var mine = counts(S.racks[1]);
     pool.forEach(function (x) {
       var hit = TC.EDGES.map(function (e, j) { return x.m.some(function (p) { return ZONE[j][p.i]; }); }), d = 0;
       if (hit.some(Boolean)) {
         var b = S.board.slice(), left = off.slice(); x.m.forEach(function (p) { b[p.i] = p.l; left[p.l.charCodeAt(0) - 97]--; });
         TC.EDGES.forEach(function (e, j) { if (hit[j]) d += edgeOne(b, e, you, left) - base[j]; });
       }
-      var v = x.e.score + 1.4 * d;
+      var left = mine.slice(), keep = 0; x.m.forEach(function (p) { left[p.l.charCodeAt(0) - 97]--; });
+      for (var l = 0; l < 26; l++) keep += Math.min(left[l], want[l]);
+      var v = x.e.score + 1.4 * d + TW.keep * keep;
       if (v > bestV) { bestV = v; bestM = x; }
     });
     return bestM;
   }
 
   render(); loadDict();
-  window.__TC = { S: function () { return S; }, isWord: isWord, choose: function () { return choose(); }, partner: partner, ready: function () { return ready; }, trie: function () { return trie; }, bigTrie: function () { var t0 = performance.now(); trie = new TC.Trie(Array.from(ALLW).sort()); return performance.now() - t0; }, TW: TW, edges: function (bd) { bd = bd || S.board; return TC.EDGES.map(function (e) { var f = TC.edgeFits(bd, e, longs, isWord, 400); return { name: e.name, open: TC.edgeOpen(bd, e), n: f.n, fixed: f.fixed, empty: f.empty, fin: f.n > 0 ? canFinish(f, counts(S.racks[0])) : '', cells: e.cells }; }); }, render: render, confetti: confetti, pend: function (p) { pend = p; render(); preview(); } };
+  window.__TC = { S: function () { return S; }, isWord: isWord, choose: function () { return choose(); }, partner: partner, ready: function () { return ready; }, trie: function () { return trie; }, aims: function () { return aims; }, bigTrie: function () { var t0 = performance.now(); trie = new TC.Trie(Array.from(ALLW).sort()); return performance.now() - t0; }, TW: TW, edges: function (bd) { bd = bd || S.board; return TC.EDGES.map(function (e) { var f = TC.edgeFits(bd, e, longs, isWord, 400); return { name: e.name, open: TC.edgeOpen(bd, e), n: f.n, fixed: f.fixed, empty: f.empty, fin: f.n > 0 ? canFinish(f, counts(S.racks[0])) : '', cells: e.cells, aim: (function () { var a = TC.edgeFits(bd, e, aims, isWord, 400); return { n: a.n, alive: a.n > 0 && (a.n > a.hits.length || !!canFinish(a, counts(S.racks[0].concat(S.racks[1], S.bag)))), v: Math.round(edgeOne(bd, e, counts(S.racks[0]), counts(S.racks[0].concat(S.racks[1], S.bag)))) }; })() }; }); }, render: render, confetti: confetti, pend: function (p) { pend = p; render(); preview(); } };
 })();
 </script>
 </body>
