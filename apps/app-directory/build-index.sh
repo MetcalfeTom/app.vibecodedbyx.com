@@ -81,6 +81,14 @@ try {
   const d = JSON.parse(fs.readFileSync('/vibespace/apps/sloppy-ops/data.json','utf8'));
   CHAT_BY_APP = d.chat_credits_by_app || {};
 } catch(e){ console.error('chat-credits load failed:', e.message); }
+// credits.json (baked by build-changes.py, refreshed with it): every chat
+// name a commit subject credits, plain names like Tatum included, not only
+// handles with digits or underscores. Tatum asked 2026-10-01: creator search
+// only found Twitch-style usernames. Listed first, ahead of the older table.
+let CREDITS = {};
+try {
+  CREDITS = JSON.parse(fs.readFileSync('/vibespace/apps/app-directory/credits.json','utf8')).apps || {};
+} catch(e){ console.error('credits.json load failed:', e.message); }
 
 // ── strict genre classifier (server-side, baked into index.json) ─────
 // Cascade rule, per chat ask: game/sim signals ALWAYS beat ai/art
@@ -213,6 +221,11 @@ for (const slug of dirs){
   // any non-bot git authors. Each entry: {name, commits, kind:'chat'|'git'}.
   const merged = [];
   const seen = new Set();
+  for (const [name, n] of (CREDITS[slug] || [])){
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    merged.push({name, commits: n, kind: 'chat'});
+  }
   for (const c of (CHAT_BY_APP[slug] || [])){
     const name = c.username;
     if (!name || seen.has(name.toLowerCase())) continue;
