@@ -716,7 +716,7 @@ html[data-theme="light"] .adjcue b{ color:color-mix(in srgb, var(--ac, #7ec97a) 
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.59 · 2026-10-01</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.67 · 2026-10-03</span>
 </footer>
 
 <script id="dsp">
@@ -3217,20 +3217,36 @@ var storageOk = true, storageErr = null;
 /* v4.39: keep the real reason a save failed (the storage check shows it) */
 function errInfo(e, rec){ return { name: (e && e.name) || 'Error', msg: String((e && e.message) || e || '').slice(0, 240), at: Date.now(), track: rec && rec.name || null, size: rec && rec.blob && rec.blob.size || 0 }; }
 
-/* ── analysis worker (same DSP block as the decks) + offline decoder ── */
-var worker = null, jobs = {}, jobId = 0;
+/* ── analysis workers (same DSP block as the decks) + offline decoder ──
+   v4.67 (pushedbutton: "is Harmony restricted to a single core?"): the crate reads several songs at once, one worker per
+   lane. Lanes = cores minus two (the page and the decks keep theirs), at most 4; phones and low-memory machines keep 1,
+   because every lane holds a whole decoded song in memory. */
+var LANES = (function(){
+  var hc = navigator.hardwareConcurrency || 2, mem = navigator.deviceMemory || 8, phone = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '');
+  if (phone || mem < 4) return 1;
+  return Math.max(1, Math.min(mem < 8 ? 2 : 4, hc - 2));
+})();
+var workers = [], jobs = {}, jobId = 0;
+function makeWorker(){
+  var src = document.getElementById('dsp').textContent +
+    '\nself.onmessage=function(e){var d=e.data;try{var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid});}catch(err){postMessage({id:d.id,error:String(err)});}};';
+  var x = { n: 0, w: new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' }))) };
+  x.w.onmessage = function(e){ var j = jobs[e.data.id]; if (!j) return; delete jobs[e.data.id]; x.n--; e.data.error ? j.rej(new Error(e.data.error)) : j.res(e.data); };
+  x.w.onerror = function(e){
+    for (var k in jobs) if (jobs[k].x === x){ jobs[k].rej(new Error(e.message || 'worker error')); delete jobs[k]; }
+    var i = workers.indexOf(x); if (i >= 0) workers.splice(i, 1);
+  };
+  workers.push(x); return x;
+}
+function workerFor(){
+  var best = null; workers.forEach(function(x){ if (!best || x.n < best.n) best = x; });
+  return best && (best.n === 0 || workers.length >= LANES) ? best : makeWorker();
+}
 function analyse(mono, sr){
   return new Promise(function(res, rej){
     try{
-      if (!worker){
-        var src = document.getElementById('dsp').textContent +
-          '\nself.onmessage=function(e){var d=e.data;try{var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid});}catch(err){postMessage({id:d.id,error:String(err)});}};';
-        worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
-        worker.onmessage = function(e){ var j = jobs[e.data.id]; if (!j) return; delete jobs[e.data.id]; e.data.error ? j.rej(new Error(e.data.error)) : j.res(e.data); };
-        worker.onerror = function(e){ for (var k in jobs) jobs[k].rej(new Error(e.message || 'worker error')); jobs = {}; worker = null; };
-      }
-      var id = ++jobId; jobs[id] = { res: res, rej: rej };
-      worker.postMessage({ id: id, mono: mono, sr: sr }, [mono.buffer]);
+      var x = workerFor(), id = ++jobId; jobs[id] = { res: res, rej: rej, x: x }; x.n++;
+      x.w.postMessage({ id: id, mono: mono, sr: sr }, [mono.buffer]);
     }catch(err){ try{ res(analyseTrack(mono, sr)); }catch(e2){ rej(e2); } }
   });
 }
@@ -3363,7 +3379,7 @@ function refDeck(){
 function refOf(d){ return d ? { bpm: d.effBpm(), key: X.soundKey ? X.soundKey(d) : d.key, id: d._crateId || null, L: d.L } : null; }
 
 /* ── the crate ── */
-var crate = [], byId = {}, queue = [], pumping = false, ready;
+var crate = [], byId = {}, queue = [], pumping = 0, bigOn = false, ready;   /* pumping: songs being read right now (v4.67: up to LANES at once) */
 /* played set (v4.12.1): which crate tracks have PLAYED. Persisted in this browser and kept until the ↺ played button
    is pressed — a reload no longer forgets the night. Suggestions, the chain and the pool skip played tracks;
    manual loads/replays are untouched. */
@@ -3637,7 +3653,7 @@ document.getElementById('slrows').addEventListener('click', function(e){
 window.__crateScanInfo = function(){
   var cur = null;
   for (var i = 0; i < crate.length; i++) if (crate[i].state){ cur = crate[i]; break; }
-  return { pumping: pumping, queued: queue.length, name: cur ? cur.name : '', failed: crate.filter(function(r){ return r.err; }).length };
+  return { pumping: pumping, lanes: LANES, queued: queue.length, name: cur ? cur.name : '', failed: crate.filter(function(r){ return r.err; }).length };
 };
 function status(t, cls){ els.status.textContent = t || ''; els.status.className = 'cstatus' + (cls ? ' ' + cls : ''); }
 function uid(){ return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -3796,19 +3812,28 @@ function keepNote(){
   else if (missL) t = missL + (missL === 1 ? ' song lives' : ' songs live') + ' in your music folder: ↻ reconnect reads ' + (missL === 1 ? 'it' : 'them') + ' from your drive, no re-scan.';
   el.textContent = t; el.hidden = !t;
 }
+/* a song over ~60 MB (a long recorded set) decodes to a huge buffer, so it's read on its own */
+var BIG = 60e6;
 function pump(){
-  if (pumping) return; var rec = queue.shift();
-  if (!rec){
-    if (batchN > 1 && batchDone >= batchN) status(batchN + ' tracks read — bpm + key stored' + (skipNote ? ' · ' + skipNote : ''));
-    else if (crate.length && els.status.className.indexOf('busy') >= 0) status('');
-    batchN = batchDone = 0; batchNote = ''; skipNote = ''; return;
+  while (pumping < LANES && queue.length){
+    var nx = queue[0];
+    if (!byId[nx.id] || !nx.blob){ queue.shift(); continue; }
+    var big = (nx.blob.size || 0) > BIG;
+    if (pumping && (big || bigOn)) break;
+    queue.shift(); readOne(nx, big);
   }
-  if (!byId[rec.id] || !rec.blob){ pump(); return; }
-  pumping = true; rec.state = 'decoding'; render();
-  status((batchNote ? batchNote + ' — ' : '') + 'reading ' + rec.name + '…' + (batchN > 1 ? ' (' + Math.min(batchDone + 1, batchN) + ' of ' + batchN + ')' : queue.length ? ' (' + queue.length + ' more queued)' : ''), 'busy');
+  if (pumping || queue.length) return;
+  if (batchN > 1 && batchDone >= batchN) status(batchN + ' tracks read — bpm + key stored' + (skipNote ? ' · ' + skipNote : ''));
+  else if (crate.length && els.status.className.indexOf('busy') >= 0) status('');
+  batchN = batchDone = 0; batchNote = ''; skipNote = '';
+}
+function readOne(rec, big){
+  pumping++; if (big) bigOn = true; rec.state = 'decoding'; if (!rec._dbRefresh) render();   /* v4.67: a re-check shows nothing new until it ends */
+  status((batchNote ? batchNote + ' — ' : '') + 'reading ' + rec.name + '…' + (pumping > 1 ? ' +' + (pumping - 1) + ' at once' : '') +
+    (batchN > 1 ? ' (' + Math.min(batchDone + pumping, batchN) + ' of ' + batchN + ')' : queue.length ? ' (' + queue.length + ' more queued)' : ''), 'busy');
   readBlob(rec.blob).then(decode).then(function(buf){
     if (!byId[rec.id]) return;
-    rec.dur = buf.duration; rec.state = 'analysing'; render();
+    rec.dur = buf.duration; rec.state = 'analysing'; if (!rec._dbRefresh) render();
     if (!rec._dbRefresh) try{ rec.fp = crateFp(buf.getChannelData(0), buf.sampleRate); dupScan(rec); }catch(e){}
     return monoOfAsync(buf).then(function(m){ return analyse(m.mono, m.sr); }).then(function(r){ if (!byId[rec.id]) return;
       if (rec._dbRefresh){ oneRefreshed(rec, r.grid); return; }
@@ -3818,7 +3843,7 @@ function pump(){
   .then(function(){
     if (byId[rec.id]){ rec.done = true; rec.state = null; persist(rec); }
     if (batchN) batchDone++;
-    pumping = false; render(); pump();
+    pumping--; if (big) bigOn = false; render(); pump();
   });
 }
 /* v4.36: grids found before the downbeat vote (no dbv) get their ONE re-checked once, in the background. Only the grid
@@ -3928,6 +3953,30 @@ function ranked(){
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 var editing = null, armed = null, armT = 0;
+/* v4.67: pushedbutton's waveform stuttered all through an import — every step of every song rebuilt the WHOLE crate list
+   (~90 ms for 1500 tracks, three times a song, plus the clean-up after). Rows now remember their html (li._h): a render
+   keeps every row that looks the same, swaps the few that changed and only moves rows whose place in the order changed.
+   A mostly new list (first render, a new playlist or search) still goes in as one innerHTML. */
+function setRows(hs){
+  var box = els.rows, kids = box.children, old = {}, reuse = 0, i;
+  for (i = 0; i < kids.length; i++) if (kids[i]._h) old[kids[i].getAttribute('data-id')] = kids[i];
+  hs.forEach(function(x){ var o = old[x.id]; if (o && o._h === x.h) reuse++; });
+  if (reuse < hs.length / 2){
+    box.innerHTML = hs.map(function(x){ return x.h; }).join('');
+    for (i = 0; i < kids.length && i < hs.length; i++) kids[i]._h = hs[i].h;
+    return;
+  }
+  var tpl = document.createElement('template'), cur = box.firstChild;
+  hs.forEach(function(x){
+    var o = old[x.id], n = o; delete old[x.id];
+    if (!o || o._h !== x.h){
+      tpl.innerHTML = x.h; n = tpl.content.firstChild; n._h = x.h;
+      if (o && o.parentNode === box){ if (o === cur) cur = n; box.replaceChild(n, o); }
+    }
+    if (n === cur) cur = cur.nextSibling; else box.insertBefore(n, cur);
+  });
+  while (cur){ var nx = cur.nextSibling; box.removeChild(cur); cur = nx; }
+}
 function render(){
   var R = ranked(), ref = R.ref, other = R.deck ? (R.deck.L === 'A' ? 'B' : 'A') : 'A';
   try{ renderSetlist(); }catch(e){}
@@ -3984,7 +4033,7 @@ function render(){
     }
   }
   /* rows */
-  var html = R.items.map(function(it, idx){
+  var html = R.items.map(function(it, idx){   /* v4.67: one {id, h} per row; setRows rebuilds only the rows that changed */
     var r = it.r, s = it.s, col = keyColor(r.key), cls = 'row';
     if (it.on) cls += ' loaded'; if (!r.done) cls += ' pending'; if (r.missing) cls += ' missing'; if (editing === r.id) cls += ' edit';
     if (R.mode === 'match' && s && s.mixable && !it.isRef && !it.on && idx < 3) cls += ' top';
@@ -4014,10 +4063,10 @@ function render(){
     return '<li class="' + cls + '" data-id="' + r.id + '" style="' + (col ? '--rk:' + col + ';' : '') + (s ? '--m:' + s.score : '') + '">' +
       '<span class="badge camelot' + (r.key ? ' has' : '') + '" style="' + (col ? 'background:' + col : '') + '" title="' + (r.key ? esc(r.key.name) : 'key unknown') + '">' + (r.key ? r.key.camelot : '—') + '</span>' +
       '<div class="cmain">' + main + '</div><div class="cacts">' + acts + '</div></li>';
-  }).join('');
+  }).map(function(h, i){ return { id: R.items[i].r.id, h: h }; });
   var keep = null;
   if (editing){ var kb = $('.ebpm', els.rows), kk = $('.ekey', els.rows); if (kb && kk) keep = { bpm: kb.value, key: kk.value, focus: document.activeElement === kk ? 'ekey' : document.activeElement === kb ? 'ebpm' : null }; }
-  els.rows.innerHTML = html;
+  setRows(html);
   if (editing){
     var e0 = $('.ebpm', els.rows), e1 = $('.ekey', els.rows);
     if (e0 && e1 && keep){ e0.value = keep.bpm; e1.value = keep.key; if (keep.focus) $('.' + keep.focus, els.rows).focus(); }
@@ -4193,7 +4242,7 @@ window.__C = { recheckOnes: recheckOnes, oneStale: oneStale, crate: crate, byId:
   crateScore: crateScore, scoreFor: scoreFor, harmonic: harmonic, tempo: tempo, parseCam: parseCam, prefs: prefs, ready: ready, decode: decode,
   playlists: playlists, inPlaylist: inPlaylist, relOf: relOf, dirOf: dirOf, filesFromEntries: filesFromEntries,
   get playSel(){ return playSel; }, set playSel(v){ playSel = v; render(); }, get batch(){ return { n: batchN, done: batchDone }; },
-  get queue(){ return queue; }, get pumping(){ return pumping; }, get storageOk(){ return storageOk; },
+  get queue(){ return queue; }, get pumping(){ return pumping; }, get lanes(){ return LANES; }, set lanes(v){ LANES = Math.max(1, v | 0); }, get workers(){ return workers.length; }, get storageOk(){ return storageOk; },
   get storageErr(){ return storageErr; }, keepInfo: function(){ var m = 0; crate.forEach(function(r){ if (r.missing) m++; }); return { full: audioFull, fails: audioFails, err: audioErr, unkept: unkept(), missing: m, queued: saveQ.length + (saving ? 1 : 0) }; }, keepNote: keepNote, copyInfo: function(){ var n = 0, l = 0; crate.forEach(function(r){ if (kept(r)) n++; if (r.link) l++; }); return { n: n, bytes: copiedBytes(), cap: COPY_CAP, capHit: capHit, linked: l }; }, linkFolder: linkFolder, reconnect: reconnect, get links(){ return links; }, get canLink(){ return canLink; }, linkRender: linkRender, linksBoot: linksBoot, savedKeys: function(){ return tx('readonly', function(s){ return s.getAllKeys(); }); } };
 })();
 </script>
@@ -5321,7 +5370,7 @@ function queueState(){
     else parts.push('<b>deck analysis</b>: idle' + (D.failed.length ? ' · ' + D.failed.length + ' failed (see the strip above)' : ''));
   }
   var c = window.__crateScanInfo ? window.__crateScanInfo() : null;
-  if (c) parts.push('<b>crate</b>: ' + (c.pumping ? 'reading ' + esc(c.name || '') + (c.queued ? ', ' + c.queued + ' queued' : '') + ' — its own worker, it never blocks the decks' : 'idle' + (c.failed ? ' · ' + c.failed + ' failed' : '')));
+  if (c) parts.push('<b>crate</b>: ' + (c.pumping ? 'reading ' + esc(c.name || '') + (c.pumping > 1 ? ' +' + (c.pumping - 1) + ' at once' : '') + (c.queued ? ', ' + c.queued + ' queued' : '') + ' — its own workers (' + (c.lanes || 1) + ' at once on this machine), they never block the decks' : 'idle' + (c.failed ? ' · ' + c.failed + ' failed' : '')));
   if (typeof LIVE !== 'undefined' && LIVE) parts.push('<b>auto-mix</b>: ' + (LIVE.pending ? 'armed, waiting for the next bar line before the incoming deck starts' : 'mixing ' + LIVE.outL + ' → ' + LIVE.innL + ' now'));
   else parts.push('<b>auto-mix</b>: nothing running');
   if (typeof CHAIN !== 'undefined'){
