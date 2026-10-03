@@ -61,6 +61,13 @@ body.night::before{opacity:1}
 .invite span{font:400 11px/1.6 var(--mono)}
 .invite.bye{opacity:0}
 @keyframes unroll{from{transform:translateX(-50%) rotate(-3deg) scaleY(.05);opacity:0}to{transform:translateX(-50%) rotate(-3deg) scaleY(1);opacity:1}}
+/* v1.23 (Tatum): a recycling bin slides in at the left edge for the empty bottle */
+.bin{position:fixed;left:10px;top:60%;width:58px;height:52px;display:grid;place-items:center;border-radius:6px 6px 12px 12px;background:linear-gradient(#3fae6a,#2a8a52);
+  box-shadow:0 6px 18px rgba(0,0,0,.4),inset 0 3px 0 rgba(255,255,255,.18);color:#eafff1;font:400 28px/1 'Segoe UI Symbol','Noto Sans Symbols 2','Apple Symbols',sans-serif;
+  pointer-events:none;transform:translateX(-140%);transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+.bin.show{transform:none}
+.bin.got{animation:gulp .45s ease}
+@keyframes gulp{40%{transform:scale(1.18,.86)}}
 #orb{position:fixed;left:0;top:0;width:190px;height:190px;margin:-95px 0 0 -95px;pointer-events:none;border-radius:50%;will-change:transform,opacity;
   background:radial-gradient(circle,var(--o1,#fff6dc) 0 21px,var(--o2,rgba(255,236,190,.22)) 22px,rgba(255,236,190,0) 95px)}
 .bar button.hot{background:var(--coral);border-color:var(--coral);color:var(--ink)}
@@ -75,6 +82,7 @@ button:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
 </head>
 <body>
 <div id="orb" aria-hidden="true"></div>
+<div id="bin" class="bin" aria-hidden="true">♻</div>
 <div id="invite" class="invite" role="status" hidden><b>You're invited!</b><span>A party in the cube, right now.<br>Bring nothing: everyone's already in the water.</span></div>
 <canvas id="c" aria-label="A glass cube of water. Drag to tilt it."></canvas>
 <header><div><h1>Slosh <span>Cube</span></h1><p class="sub">Navier–Stokes, one sphere at a time</p></div><div class="pills"><button class="snd" id="snd" aria-pressed="true" title="The water's sound">sound on</button><button class="snd" id="waves" hidden aria-pressed="true" title="The wave machine: the glass paddle in the back wall that pushes slow waves at night">≋ waves on</button><button class="snd" id="more" aria-expanded="false" aria-controls="optbot optpit towers" title="More options">⋯ more</button><button class="snd" id="optbot" hidden aria-pressed="true" title="Show the message in a bottle">bottle on</button><button class="snd" id="optpit" hidden aria-pressed="false" title="Ball pit: the water turns into coloured play balls">ball pit off</button><button class="snd" id="towers" hidden title="Where the jets aim: at each other, or straight up.">jets: crash</button></div></header>
@@ -273,13 +281,13 @@ const q = new THREE.Quaternion(), qT = new THREE.Quaternion(), qPrev = new THREE
 const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), m4 = new THREE.Matrix4(), gv = new THREE.Vector3();
 let wx = 0, wy = 0, drag = null, leveling = false;
 const hint = document.getElementById('hint');
-canvas.addEventListener('pointerdown', e => { if (bottleDown(e)) return; drag = { x: e.clientX, y: e.clientY, t: performance.now() }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('grab'); leveling = false; hint.classList.add('gone'); });
+canvas.addEventListener('pointerdown', e => { if (orbTap(e) || bottleDown(e)) return; drag = { x: e.clientX, y: e.clientY, t: performance.now() }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('grab'); leveling = false; hint.classList.add('gone'); });
 canvas.addEventListener('pointermove', e => {
   if (BOT.grab) { bottleMove(e); return; } if (!drag) return; const k = 4.2 / Math.min(innerWidth, innerHeight);
   const dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k, dt = Math.max(8, performance.now() - drag.t) / 1000;
   rot(dy, dx); wx = wx * .5 + dy / dt * .5; wy = wy * .5 + dx / dt * .5; drag.x = e.clientX; drag.y = e.clientY; drag.t = performance.now();
 });
-const up = () => { drag = null; BOT.grab = null; canvas.classList.remove('grab'); };
+const up = () => { if (BOT.grab && BOT.grab.fl) bottleFling(); drag = null; BOT.grab = null; canvas.classList.remove('grab'); };
 canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
 /* turn around world axes so dragging always feels like pushing the glass */
 function rot(ax, ay) { tmp.setFromAxisAngle(AX, ax); qT.premultiply(tmp); tmp.setFromAxisAngle(AY, ay); qT.premultiply(tmp); qT.normalize(); }
@@ -462,6 +470,7 @@ function restTick() {   /* counted in ticks, so a hidden tab never flips it */
   gLast.copy(gDown);
   if (++restT < IDLE) return;
   restT = 0; orbP = 1; night = !night; nightUi(); sndMode(); say(night ? 'you let it rest, so night fell' : 'you let it rest, and morning came', 4500);
+  if (BOT.out === 3) { bottleBack(true); say(night ? 'night fell, and a new bottle washed up' : 'morning came, and a new bottle washed up', 4500); }
 }
 function nightUi() { document.body.classList.toggle('night', night); wavesBtn.hidden = !night; }
 /* the orb: high while you play; after 3 s untouched it starts down toward the right of the cube and has set by the flip.
@@ -656,15 +665,23 @@ const cork = bottle.getObjectByName('cork'), noteM = bottle.getObjectByName('not
 BOT.out = 0; BOT.grab = null; BOT.tp = new THREE.Vector3(); BOT.ck = 0;
 function pointRay(e) { _nd.set(e.clientX / innerWidth * 2 - 1, 1 - e.clientY / innerHeight * 2); ray.setFromCamera(_nd, camera); return ray.ray; }
 function bottleDown(e) {
-  if (!botOn) return false; bottle.getWorldPosition(_bw);
+  if (!botOn || BOT.out === 3) return false; bottle.getWorldPosition(_bw);
   if (pointRay(e).distanceSqToPoint(_bw) > (BOT.out ? 1.6 : 1.25) ** 2) return false;
   hint.classList.add('gone');
-  if (BOT.out === 1) uncork(); else if (BOT.out === 2) bottleBack();
-  else { camera.getWorldDirection(_cf); _pl.setFromNormalAndCoplanarPoint(_cf, _bw); BOT.grab = { id: e.pointerId }; try { canvas.setPointerCapture(e.pointerId); } catch (er) {} canvas.classList.add('grab'); bottleMove(e); }
+  if (BOT.out === 1) uncork();
+  else if (BOT.out === 2) {   /* v1.23: the empty bottle follows your finger, and flies off when you let go */
+    camera.getWorldDirection(_cf); _pl.setFromNormalAndCoplanarPoint(_cf, _bw); BOT.grab = { id: e.pointerId, fl: true, x: e.clientX, y: e.clientY, far: 0, t: performance.now() };
+    BOT.fly = false; BOT.wp.copy(_bw); BOT.fv.set(0, 0, 0); try { canvas.setPointerCapture(e.pointerId); } catch (er) {} canvas.classList.add('grab');
+  } else { camera.getWorldDirection(_cf); _pl.setFromNormalAndCoplanarPoint(_cf, _bw); BOT.grab = { id: e.pointerId }; try { canvas.setPointerCapture(e.pointerId); } catch (er) {} canvas.classList.add('grab'); bottleMove(e); }
   return true;
 }
 function bottleMove(e) {   /* the bottle follows your finger on a plane facing you; drag well past the glass and it comes out */
-  if (!pointRay(e).intersectPlane(_pl, _hp)) return; box.worldToLocal(BOT.tp.copy(_hp));
+  if (!pointRay(e).intersectPlane(_pl, _hp)) return;
+  if (BOT.grab.fl) {   /* the empty bottle: remember how fast your finger moved, in world units per tick */
+    const g = BOT.grab, now = performance.now(), dt = Math.max(8, now - g.t) / (1000 / 60);
+    g.far = Math.max(g.far, Math.hypot(e.clientX - g.x, e.clientY - g.y)); g.t = now;
+    BOT.fv.multiplyScalar(.4).addScaledVector(_hp.clone().sub(BOT.wp), .6 / dt); BOT.wp.copy(_hp); return;
+  } box.worldToLocal(BOT.tp.copy(_hp));
   const o = L + 1.4; if (Math.abs(BOT.tp.x) > o || Math.abs(BOT.tp.y) > o || Math.abs(BOT.tp.z) > o) bottleOut();
 }
 function bottleOut() {
@@ -674,18 +691,65 @@ function bottleOut() {
 function uncork() {
   BOT.out = 2; BOT.ck = 1; pop();
   setTimeout(() => {
-    noteM.visible = tieM.visible = false; invite.hidden = false; invite.classList.remove('bye'); clearTimeout(invite.t);
+    noteM.visible = tieM.visible = false; binShow(true); invite.hidden = false; invite.classList.remove('bye'); clearTimeout(invite.t);
     invite.t = setTimeout(() => { invite.classList.add('bye'); invite.t = setTimeout(() => { invite.hidden = true; }, 700); }, 6500);
-    if (!pit) { pit = true; optsSave(); } document.getElementById('splash').onclick(); say('party! tap the empty bottle to throw it back', 6000);
+    if (!pit) { pit = true; optsSave(); } document.getElementById('splash').onclick(); say('party! now fling the empty bottle into the recycling bin', 6000);
   }, 450);
 }
-function bottleBack() {
+function bottleBack(fresh) {
+  clearTimeout(binT); binShow(false); bin.classList.remove('got'); BOT.fly = false; BOT.grab = null;
   box.attach(bottle); bottle.scale.setScalar(1.5); BOT.out = 0; BOT.ck = 0; cork.visible = noteM.visible = tieM.visible = true; cork.position.set(0, .7, 0); cork.rotation.set(0, 0, 0);
-  BOT.p.set(0, L - .6, 0); BOT.v.set(0, 0, 0); say('back in the sea it goes, with a fresh note inside', 4000);
+  BOT.p.set(0, L - .6, 0); BOT.v.set(0, 0, 0); say(fresh ? 'a new bottle washed up in the sea, with a note inside' : 'back in the sea it goes, with a fresh note inside', 4500);
 }
 function bottleShelf() {   /* lies on its side by the cube, rocking a little; after the pop the cork flies out of the neck */
-  bottle.position.lerp(SHELF, .08); bottle.scale.setScalar(bottle.scale.x + (2.1 - bottle.scale.x) * .08); _bq.setFromAxisAngle(AZ, Math.sin(rockT * .9) * .06).multiply(SHQ); bottle.quaternion.slerp(_bq, .08);
+  if (BOT.out === 3) { bottle.scale.multiplyScalar(.84); return; }   /* in the bin: it shrinks away */
+  if (BOT.grab && BOT.grab.fl) bottle.position.lerp(BOT.wp, .5);
+  else if (BOT.fly) { bottle.position.add(BOT.fv); BOT.fv.multiplyScalar(.975); bottle.rotateX(.22); binCheck(); }
+  else bottle.position.lerp(SHELF, .08);
+  bottle.scale.setScalar(bottle.scale.x + (2.1 - bottle.scale.x) * .08);
+  if (!BOT.fly) { _bq.setFromAxisAngle(AZ, Math.sin(rockT * .9) * .06).multiply(SHQ); bottle.quaternion.slerp(_bq, .08); }
   if (BOT.ck) { const t = ++BOT.ck; cork.position.y = .7 + t * .05; cork.position.x = -t * t * .0012; cork.rotation.z += .35; if (t > 45) { cork.visible = false; BOT.ck = 0; } }
+}
+/* v1.23 (Tatum: "fling the empty bottle off to the edge of the screen, and a little recycling box captures it") */
+const bin = document.getElementById('bin'), _sp = new THREE.Vector3(); let binT = 0;
+BOT.wp = new THREE.Vector3(); BOT.fv = new THREE.Vector3(); BOT.fly = false; BOT.rec = 0;
+function binShow(on) {
+  if (on) { _sp.copy(SHELF).project(camera); bin.style.top = Math.max(70, Math.min(innerHeight - 200, (1 - _sp.y) / 2 * innerHeight - 26)) + 'px'; }
+  bin.classList.toggle('show', on);
+}
+function bottleFling() {
+  const g = BOT.grab; if (g.far < 10) { say('fling it into the recycling bin on the left', 3500); return; }
+  if (performance.now() - g.t > 120) BOT.fv.set(0, 0, 0);   /* you stopped before letting go: it just drops back */
+  const sp = BOT.fv.length(); if (sp > 1.2) BOT.fv.multiplyScalar(1.2 / sp); BOT.fly = sp > .04;
+}
+function binCheck() {
+  _sp.copy(bottle.position).project(camera); const x = (_sp.x + 1) / 2 * innerWidth, y = (1 - _sp.y) / 2 * innerHeight, r = bin.getBoundingClientRect(), m = 40;
+  if (x > r.left - m && x < r.right + m && y > r.top - m && y < r.bottom + m) { recycle(); return; }
+  if (BOT.fv.length() < .03 || Math.abs(_sp.x) > 1.25 || Math.abs(_sp.y) > 1.25) BOT.fly = false;   /* missed: it drifts back to its spot */
+}
+function recycle() {
+  BOT.fly = false; BOT.out = 3; BOT.rec++; thud(); bin.classList.remove('got'); void bin.offsetWidth; bin.classList.add('got');
+  say((BOT.rec > 1 ? 'recycled again! ' + BOT.rec + ' bottles out of the sea' : 'recycled! the sea is clean') + ' · double-tap the ' + (night ? 'moon' : 'sun') + ' to make a wish', 6500);
+  clearTimeout(binT); binT = setTimeout(() => binShow(false), 1400);
+}
+function thud() {
+  clink(BOT.cmin + .008); if (!ac || muted || ac.state !== 'running') return;
+  const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(); o.type = 'triangle';
+  o.frequency.setValueAtTime(170, t); o.frequency.exponentialRampToValueAtTime(70, t + .12);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.2, t + .005); g.gain.exponentialRampToValueAtTime(.0005, t + .2);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + .22);
+}
+addEventListener('resize', () => { if (bin.classList.contains('show')) binShow(true); });
+/* Tatum: "double click the moon or sun", "like wishing on a star ... the wish takes tangible form as a message in a bottle":
+   a double tap on the moon or the sun is a wish, and a new bottle washes up (one also washes up by itself at dusk or dawn) */
+let orbTapT = 0;
+function orbTap(e) {
+  const k = orbP * orbP * (3 - 2 * orbP); if (k > .75) return false;
+  if (Math.hypot(e.clientX - (.8 + .1 * k) * innerWidth, e.clientY - (.23 + .4 * k) * innerHeight) > 48) return false;
+  const now = performance.now(); if (now - orbTapT > 450) { orbTapT = now; return false; } orbTapT = 0;
+  if (BOT.out === 3) { bottleBack(true); say('you wished on the ' + (night ? 'moon' : 'sun') + ', and a bottle washed up', 4500); }
+  else say(BOT.out ? 'one bottle at a time: recycle the one you have first' : 'there is already a bottle in the sea', 3500);
+  return true;
 }
 function pop() {
   if (!ac || muted || ac.state !== 'running') return;
@@ -696,7 +760,7 @@ function pop() {
 }
 if ('DeviceOrientationEvent' in window && (coarse || navigator.maxTouchPoints > 0)) tiltBtn.hidden = false;
 
-window.__CUBE = { opts: () => ({ botOn, pit }), clack, sim, rot, tiltOn, jmap, jetSides, qT, q, saveTurn, wk: () => wk, JETS, jet: (on, k) => JETS.forEach((j, i) => { if (k === undefined || k === i) j.on = on; }),  tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), towers: n => { towers = n; aim(); }, snd: () => ({ want, voices, ac: ac && ac.state, muted }), tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, night: n => { night = n; nightUi(); sndMode(); }, rest: () => restT, IDLE, orbP: () => orbP, BOT, bottleDown, bottleMove, bottleOut, uncork, bottleBack, SHELF,  inP, bottle, camera, clockNight, nt: () => nt, ROCK, WAVE, calm: c => { if (c !== undefined) calm = c; return calm; }, ffR: () => { let a = 0, b = 0; for (const p of ffPh) { a += Math.cos(p); b += Math.sin(p); } return Math.hypot(a, b) / FF; }, frames: 0, simMs: 0 };
+window.__CUBE = { opts: () => ({ botOn, pit }), clack, sim, rot, tiltOn, jmap, jetSides, qT, q, saveTurn, wk: () => wk, JETS, jet: (on, k) => JETS.forEach((j, i) => { if (k === undefined || k === i) j.on = on; }),  tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), towers: n => { towers = n; aim(); }, snd: () => ({ want, voices, ac: ac && ac.state, muted }), tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, night: n => { night = n; nightUi(); sndMode(); }, rest: () => restT, IDLE, orbP: () => orbP, BOT, bottleDown, bottleMove, bottleOut, uncork, bottleBack, SHELF, recycle, orbTap,  inP, bottle, camera, clockNight, nt: () => nt, ROCK, WAVE, calm: c => { if (c !== undefined) calm = c; return calm; }, ffR: () => { let a = 0, b = 0; for (const p of ffPh) { a += Math.cos(p); b += Math.sin(p); } return Math.hypot(a, b) / FF; }, frames: 0, simMs: 0 };
 /* ── loop: fixed 60 Hz physics, two relaxation steps per tick ── */
 let acc = 0, last = performance.now();
 const STEP = 1000 / 60;
