@@ -18,6 +18,7 @@ examples still work when the lesson card is hidden.
 - 2026-10-03: game lesson 5 The splitting slime (fannar22: fire makes it split): list doubling, len(), ice empties the list. Game track is 8 lessons.
 - 2026-10-03: game lesson 6 The Overlord Zombie (fannar22's boss + my healing twist): heals every 3rd turn (turn % 3), an if inside the loop finishes him with a holy strike below 30. Game track is 9 lessons.
 - 2026-10-03: game lesson 7 The breakable sword (fannar22's weapon): counting down, `and` in a while. Game track is 10 lessons.
+- 2026-10-03: game lesson 8 The Iron Forge (fannar22, from Ironforge): first function with return, bag.count, >=; bonus throwing daggers from 1 iron. Game track is 11 lessons.
 - 2026-10-03: 🔊 read to me button (fannar22: "for people who can't read, or any kind of reading issue", "friendly sound voice"): speechSynthesis reads title, explanation, task and the last result; prefers a friendly English voice (Samantha/Aria/Jenny/Google…), rate 0.95; stops on lesson change. Hidden where speechSynthesis is missing. Headless has no voices (utterances error at once), so test by wrapping speechSynthesis.speak.
 
 ## issues
@@ -25,6 +26,7 @@ examples still work when the lesson card is hidden.
 - Headless Chrome has no emoji font: emoji show as boxes in test screenshots only.
 
 ## todos
+- fannar22: a throwing-daggers lesson, belt holds 6, every miss costs one (shrinking list, pop).
 - fannar22 asked for a "General C++" track. Not in the browser yet (no compiler); Python first, maybe later as read-along lessons.
 - fannar22 will review the wording of lessons: take their notes on explanations.
 - Boss ideas from fannar22: (slime: DONE, lesson 5).
