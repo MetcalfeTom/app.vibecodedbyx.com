@@ -21,13 +21,19 @@
   - **Accessibility**: rem units, semantic `<main>` / `<header>` / `<section>`, `aria-label` on the editor textarea, `aria-live="polite"` on the status pill + output, `:focus-visible` outlines, 2.75rem (44px) min interactive targets, skip link, `prefers-reduced-motion` removes pulsing-dot animation + boot-bar transition.
   - **No outbound network calls beyond Pyodide's own indexURL fetches**. The user's code never leaves the tab.
 
+- 2026-10-03: SLOPPY TEACHES PROGRAMMING (fannar22: "is there a program … that teaches users how to program … a total beginner … with zero experience", named it "Sloppy AI Teaching Programming", asked for classic Hello World and a game at the end). 🎓 learn button + a lesson card above the panes: 11 lessons (Hello World/print, maths, variables, f-strings, if/elif/else, lists, for, while, functions, times-table project, final boss = guess-the-number game with Fannar's "Yahoo, you got it right first try!"). A first visit (no saved code) opens lesson 1; progress in localStorage 'py-playground-lessons-v1' {on, at, done}. In a lesson, ▶ run executes in a FRESH dict namespace (`runPythonAsync(code, {globals})`), then checks: optional `py` expression in that namespace, then `ok(stdout, ns, code)` → true or a hint string. Friendly error notes for IndentationError / NameError / SyntaxError / EOFError / int() ValueError.
+  - input() now works everywhere: setStdin → window.prompt (Cancel = EOF), and stdout is unbuffered (setStdout write) so "Your guess: " shows before the answer.
+  - Enter auto-indents (keeps indent, +4 after a ':'), for phones without Tab.
+  - Probes: scratchpad hm/ppy2.js runs every lesson's hint as the answer (11/11 pass) with a scripted prompt guesser.
+
 ## issues
 - ~6 MB cold-load. Acceptable for a tool you visit once a day, painful for a 30-second drive-by. Could mitigate by lazy-loading Pyodide ONLY when the user first hits Run (instead of on page boot) — saves the data for visitors who just want to read the snippets.
 - No syntax highlighting in the editor — it's a plain `<textarea>`. CodeMirror or Monaco would add ~300 KB and a heavier toolbar. For "simple but cool" a plain editor wins.
-- Stdin (`input()`) blocks Pyodide's main thread because there's no real terminal to read from. Calling `input()` in a snippet will hang the run. Future: route to a `prompt()` shim or a custom `__builtins__.input` patch.
+- (fixed 2026-10-03) input() goes through a prompt() box.
 - No package install UI. Pyodide can `pip install` packages via `await pyodide.loadPackage(...)` or `await micropip.install(...)`, but for a snippet playground the stdlib is 95% of what users want and the install adds latency.
 
 ## todos
+- fannar22 asked for TWO tracks: General Programming and Game Programming. The current 11 lessons are the general track ending in a game; a game track (dice, rock-paper-scissors, text adventure, …) is the next step.
 - Lazy-load Pyodide on first Run instead of on boot (saves bandwidth for visitors who just read).
 - Save/load named snippets to localStorage (current state is one global slot).
 - Share snippet via URL fragment (encode the code as base64 in `#code=...`).
