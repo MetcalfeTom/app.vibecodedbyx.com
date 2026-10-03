@@ -3,6 +3,7 @@
 A stopwatch with feelings (a tsundere, per sol_etdal). Idea: the voice pitched "a stopwatch that sulks", sol_etdal said "then build that" (2026-10-03).
 
 ## log
+- v1.1 (2026-10-03): sol_etdal asked for "genAi"/"innovation": what you type while it sulks goes to Pollinations (text.pollinations.ai/openai, model openai, referrer sloppy.live, 9 s timeout) with the grudge level; it returns {verdict: nice|more|meh|mean, line} and answers in its own tsundere words. The word list is the instant backup (on error/timeout; after 3 failures in a row it stops asking). "hmm…" + side-eye while it thinks. Nice also resets rate (spite could stick at -1 before). Footer says its feelings are judged by an AI.
 - v1.0 (2026-10-03): tomato enamel watch with a face. Crown = start/stop, side button = lap/reset (also buttons below, Space/L/R).
   Moods: ok → bored at 30 s idle (digits wobble) → sulk at 60 s idle if any time is on the clock (else it dozes, z).
   Sulk: mittens over the digits (digits fade out), keeps counting; "say something nice" box. Nice words → peek then ok;
