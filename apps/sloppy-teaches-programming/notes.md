@@ -23,6 +23,8 @@ examples still work when the lesson card is hidden.
 
 - 2026-10-03: game lesson 1 starter rewritten as numbered notes with the exact lines (fannar22 didn't get "# Your turn: a = ..., b = ..."); p explains # comments. Rule: starter notes spell out the exact line to type, no "..." shorthand, and starter lines stay under ~30 characters so they fit a phone editor (no wrap).
 
+- 2026-10-03: game lesson 1 suggests the general track first while fewer than 5 general lessons are done (fannar22 found general-first easier).
+
 ## issues
 - input() uses window.prompt (Pyodide setStdin). Cancelling the box raises EOFError, explained in the lesson result.
 - Headless Chrome has no emoji font: emoji show as boxes in test screenshots only.
