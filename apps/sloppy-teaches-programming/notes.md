@@ -24,6 +24,7 @@ examples still work when the lesson card is hidden.
 - 2026-10-03: game lesson 1 starter rewritten as numbered notes with the exact lines (fannar22 didn't get "# Your turn: a = ..., b = ..."); p explains # comments. Rule: starter notes spell out the exact line to type, no "..." shorthand, and starter lines stay under ~30 characters so they fit a phone editor (no wrap).
 
 - 2026-10-03: game lesson 1 suggests the general track first while fewer than 5 general lessons are done (fannar22 found general-first easier).
+- 2026-10-03: game track starts from zero now (fannar22: "learning curve like General, but put a Game design twist"): 5 new opening lessons that mirror general 1-5: Title screen (print), Damage maths, Your hero's health (variables), Name your hero (input), The creaky door (if/else, an angry chicken). Dice moved to lesson 6; 16 game lessons. The general-first tip is gone. Saved game progress from before shifts by 5 (L.gv = 2 marks the new numbering).
 
 ## issues
 - input() uses window.prompt (Pyodide setStdin). Cancelling the box raises EOFError, explained in the lesson result.
