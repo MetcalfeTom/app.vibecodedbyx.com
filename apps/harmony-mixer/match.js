@@ -48,6 +48,7 @@
     if (!m) return null;
     var c = { n: +m[1], letter: m[2].toUpperCase() };
     c.id = c.n + c.letter;
+    c.ok = ((c.n + 4) % 12 + 1) + (c.letter === 'A' ? 'm' : 'd');   // v4.74 Open Key label for display
     c.name = keyName(c);
     return c;
   }
@@ -73,7 +74,7 @@
     var sa = pitchSet(A), sb = pitchSet(B), shared = 0;
     for (var pc in sa) if (sb[pc]) shared++;
     var reasons = [], relation;
-    var head = A.name + ' (' + A.id + ') → ' + B.name + ' (' + B.id + ')';
+    var head = A.name + ' (' + A.ok + ') → ' + B.name + ' (' + B.ok + ')';
 
     if (d === 0 && same) { relation = 'same'; reasons.push({ rule: 'same-key', points: score, text: 'same key — ' + head }); }
     else if (d === 0) { relation = 'relative'; reasons.push({ rule: 'relative', points: score, text: 'relative ' + (B.letter === 'A' ? 'minor' : 'major') + ' — same seven notes, mood shifts ' + (B.letter === 'A' ? 'darker' : 'brighter') + ' (' + head + ')' }); }
