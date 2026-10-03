@@ -13,6 +13,9 @@ examples still work when the lesson card is hidden.
   - Each run gets a fresh namespace; lessons check output + variables (`ok(out, ns, code)`, optional `py` expression).
   - State in localStorage `stp-lessons-v1` {on, track, at:{general,game}, done:{general:[],game:[]}}; code in `stp-code-v1`.
 
+- 2026-10-03: monster fight is now the Grim Reaper (fannar22's pick); runaway-loop guard in lesson mode (sys.settrace line budget 20000 → friendly "your program never stopped" note), since the Reaper starter loops forever until you write hp = hp - hit. Tip from fannar22 in both final lessons: end with input("Press Enter to quit") so a real terminal window doesn't close at once.
+- 2026-10-03: game lesson 4 Dracula's weakness (fannar22): lists, `in`, append — only garlic beats him. Game track is 7 lessons.
+
 ## issues
 - input() uses window.prompt (Pyodide setStdin). Cancelling the box raises EOFError, explained in the lesson result.
 - Headless Chrome has no emoji font: emoji show as boxes in test screenshots only.
@@ -20,4 +23,6 @@ examples still work when the lesson card is hidden.
 ## todos
 - fannar22 asked for a "General C++" track. Not in the browser yet (no compiler); Python first, maybe later as read-along lessons.
 - fannar22 will review the wording of lessons: take their notes on explanations.
+- Boss ideas from fannar22: Overlord Zombie (keeps getting back up), a slime that splits when hit (lists growing; fire splits it, ice freezes all?).
+- fannar22 really wants C++ too, even without a compiler (chat would catch mistakes): idea = C++ lessons side by side with the Python ones, read-along.
 - Ideas: monster name and health chosen by the player; a lesson that draws with turtle-like ASCII.
