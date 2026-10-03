@@ -77,7 +77,9 @@ h1 sup{ font-size:.5em; color:var(--brass); vertical-align:.9em; margin-left:.05
 
 .status{ width:var(--bw); min-height:1.4rem; text-align:center; font-size:.8rem; color:var(--mute); }
 .status.ok{ color:var(--good); } .status.bad{ color:var(--bad); } .status.warn{ color:var(--brass); }
-.rack{ display:flex; gap:.4rem; justify-content:center; min-height:3.3rem; }
+.rack{ position:relative; display:flex; gap:.4rem; justify-content:center; min-height:3.3rem; touch-action:pan-y; }
+/* v1.9 (Tatum): drag a tile left or right to put your rack in the order you like */
+.rt.drag{ z-index:2; transition:none; cursor:grabbing; box-shadow:0 0 0 2px var(--brass), 0 12px 18px rgba(0,0,0,.45); }
 .rt{
   position:relative; width:clamp(2.6rem, 11vw, 3.3rem); height:clamp(2.6rem, 11vw, 3.3rem); border:0; padding:0; border-radius:6px; cursor:pointer;
   background:linear-gradient(160deg, var(--tile), var(--tile2)); color:var(--ink); font-family:var(--disp); font-size:clamp(1.4rem, 6vw, 1.8rem); text-transform:uppercase;
@@ -168,7 +170,7 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
   <ul class="help" id="help" aria-label="Long words Two is working towards" hidden></ul>
   <p class="foot">You and Two share one score. Two never gives hints, it just sets things up (unless you turn on the helper).<br>The dream: one word along an edge across all three gold squares, ×27.<br><button type="button" class="btn" id="newgame" style="min-height:2.2rem;margin-top:.4rem">new game</button> <button type="button" class="btn" id="practice" style="min-height:2.2rem;margin-top:.4rem" title="A board where your rack can already finish a ×27">practice board</button></p>
   <div class="foot wl"><span id="wlline" aria-live="polite">words: built-in list</span><button type="button" class="btn" id="wlload" title="A plain text file, one word per line">load your own</button><button type="button" class="btn" id="wlreset" hidden>use built-in</button><input type="file" id="wlfile" accept=".txt,text/plain" hidden></div>
-  <p class="foot"><span id="buildstamp" role="note" aria-label="Build information">build v1.8.1 · 2026-10-03 · 75b27245b</span></p>
+  <p class="foot"><span id="buildstamp" role="note" aria-label="Build information">build v1.9 · 2026-10-03 · 64d66bc2a</span></p>
 </main>
 <div class="banner" id="banner" hidden></div>
 <dialog id="over" aria-labelledby="overh">
@@ -289,7 +291,7 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
     rack.innerHTML = S.racks[0].map(function (l, k) {
       return '<button type="button" class="rt' + (used[k] ? ' used' : '') + (tray.indexOf(k) >= 0 ? ' intray' : '') + (swapSel[k] ? ' swap' : '') + '" data-k="' + k + '" aria-pressed="' + (tray.indexOf(k) >= 0 || !!swapSel[k]) + '" aria-label="' + l.toUpperCase() + ', ' + TC.VAL[l] + ' points">' + l + '<i>' + TC.VAL[l] + '</i></button>';
     }).join('');
-    $('tray').innerHTML = tray.length ? tray.map(function (k, n) { var l = S.racks[0][k]; return '<button type="button" class="tt" data-n="' + n + '" aria-label="take ' + l.toUpperCase() + ' back">' + l + '</button>'; }).join('') : '<span class="tray0">' + (S.turn === 0 && !S.over ? 'tap your tiles to line up a word' : '') + '</span>';
+    $('tray').innerHTML = tray.length ? tray.map(function (k, n) { var l = S.racks[0][k]; return '<button type="button" class="tt" data-n="' + n + '" aria-label="take ' + l.toUpperCase() + ' back">' + l + '</button>'; }).join('') : '<span class="tray0">' + (S.turn === 0 && !S.over ? 'tap tiles to spell, drag to sort' : '') + '</span>';
     $('dir').textContent = dir === 1 ? '→ across' : '↓ down'; $('dir').setAttribute('aria-label', 'direction: ' + (dir === 1 ? 'across' : 'down'));
     ghost(); helpDraw();
     $('mrack').innerHTML = S.racks[1].map(function (l) { return '<span>' + l + '</span>'; }).join('');
@@ -410,6 +412,44 @@ dialog .btn.go{ background:var(--ink); color:var(--tile); }
     if (swapMode) { if (swapSel[k]) delete swapSel[k]; else swapSel[k] = 1; render(); preview(); return; }
     var at = tray.indexOf(k); if (at >= 0) tray.splice(at, 1); else tray.push(k); render();
   });
+  /* drag to reorder (Tatum: "allow players to reorder the tiles in their rack by dragging left and right"): a tap still
+     picks the tile; once it moves sideways it follows your finger, the others slide out of its way, and the new order
+     sticks, with your word so far and any swap picks following their tiles */
+  var drag = null, dragEnd = 0;
+  $('rack').addEventListener('pointerdown', function (ev) {
+    var t = ev.target.closest('.rt'); if (!t || (ev.pointerType === 'mouse' && ev.button)) return;
+    drag = { id: ev.pointerId, el: t, x0: ev.clientX, moved: false };
+  });
+  $('rack').addEventListener('pointermove', function (ev) {
+    if (!drag || ev.pointerId !== drag.id) return;
+    var rack = $('rack'), el = drag.el;
+    if (!el.isConnected) { drag = null; return; }
+    if (!drag.moved) { if (Math.abs(ev.clientX - drag.x0) < 8) return; drag.moved = true; try { rack.setPointerCapture(ev.pointerId); } catch (e) {} el.classList.add('drag'); }
+    ev.preventDefault();
+    var x = ev.clientX - rack.getBoundingClientRect().left, others = [].filter.call(rack.children, function (c) { return c !== el; });
+    var at = others.filter(function (c) { return c.offsetLeft + c.offsetWidth / 2 < x; }).length, now = [].indexOf.call(rack.children, el);
+    if (at !== now) {
+      var before = others.map(function (c) { return c.offsetLeft; });
+      rack.insertBefore(el, others[at] || null);
+      others.forEach(function (c, n) { var d = before[n] - c.offsetLeft; if (!d) return;
+        c.style.transition = 'none'; c.style.transform = 'translateX(' + d + 'px)'; void c.offsetWidth; c.style.transition = ''; c.style.transform = ''; });
+    }
+    el.style.transform = 'translateX(' + (x - el.offsetLeft - el.offsetWidth / 2) + 'px) translateY(-.3rem) scale(1.06)';
+  });
+  function dropTile(ev) {
+    if (!drag || ev.pointerId !== drag.id) return; var d = drag; drag = null;
+    if (!d.moved || !d.el.isConnected) return;
+    dragEnd = Date.now();
+    var order = [].map.call($('rack').children, function (c) { return +c.dataset.k; }), inv = [], sw = {};
+    order.forEach(function (o, n) { inv[o] = n; });
+    S.racks[0] = order.map(function (o) { return S.racks[0][o]; });
+    tray = tray.map(function (o) { return inv[o]; }); pend.forEach(function (p) { p.r = inv[p.r]; });
+    Object.keys(swapSel).forEach(function (o) { sw[inv[o]] = 1; }); swapSel = sw;
+    save(); render();
+  }
+  $('rack').addEventListener('pointerup', dropTile);
+  $('rack').addEventListener('pointercancel', dropTile);
+  $('rack').addEventListener('click', function (ev) { if (Date.now() - dragEnd < 350) { ev.stopImmediatePropagation(); ev.preventDefault(); } }, true);
   document.addEventListener('keydown', function (ev) {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || S.turn !== 0 || busy || swapMode) return;
     var k = ev.key.toLowerCase();
