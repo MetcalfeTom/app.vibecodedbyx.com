@@ -26,6 +26,8 @@ examples still work when the lesson card is hidden.
 - 2026-10-03: game lesson 1 suggests the general track first while fewer than 5 general lessons are done (fannar22 found general-first easier).
 - 2026-10-03: game track starts from zero now (fannar22: "learning curve like General, but put a Game design twist"): 5 new opening lessons that mirror general 1-5: Title screen (print), Damage maths, Your hero's health (variables), Name your hero (input), The creaky door (if/else, an angry chicken). Dice moved to lesson 6; 16 game lessons. The general-first tip is gone. Saved game progress from before shifts by 5 (L.gv = 2 marks the new numbering).
 
+- 2026-10-03: Name your hero: fannar22 typed "a sword", ran with only step 1 done and read the step-2 note as a failure. The note now starts "Step 1 worked: your hero has a sword!"; the task says any answer works and the questions in the quotes can be changed (they made theirs ask "#ofWeapon"). Rule: a check that is half passed says which half worked.
+
 ## issues
 - input() uses window.prompt (Pyodide setStdin). Cancelling the box raises EOFError, explained in the lesson result.
 - Headless Chrome has no emoji font: emoji show as boxes in test screenshots only.
