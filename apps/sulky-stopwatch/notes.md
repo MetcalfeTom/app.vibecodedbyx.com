@@ -3,6 +3,7 @@
 A stopwatch with feelings (a tsundere, per sol_etdal). Idea: the voice pitched "a stopwatch that sulks", sol_etdal said "then build that" (2026-10-03).
 
 ## log
+- v1.2 (2026-10-03): personalities as themes (sol_etdal: "add the personality to the themes"): tsundere (tomato red, teal), clingy (pink on lilac, panics when stopped, tears when it sulks, eye sparkles), smug (gold on plum, monocle, brags about laps). Each has its own lines (TSUN/CLINGY/SMUG objects, same keys), subtitle and AI persona (LINES.ai prefix of the system prompt). Picker buttons under the title, saved in localStorage sulky-p; switching resets grudge, rate and mood. Probes hm/pss4.js (smug + real AI), hm/pss5.js (clingy sulk).
 - v1.1 (2026-10-03): sol_etdal asked for "genAi"/"innovation": what you type while it sulks goes to Pollinations (text.pollinations.ai/openai, model openai, referrer sloppy.live, 9 s timeout) with the grudge level; it returns {verdict: nice|more|meh|mean, line} and answers in its own tsundere words. The word list is the instant backup (on error/timeout; after 3 failures in a row it stops asking). "hmm…" + side-eye while it thinks. Nice also resets rate (spite could stick at -1 before). Footer says its feelings are judged by an AI.
 - v1.0 (2026-10-03): tomato enamel watch with a face. Crown = start/stop, side button = lap/reset (also buttons below, Space/L/R).
   Moods: ok → bored at 30 s idle (digits wobble) → sulk at 60 s idle if any time is on the clock (else it dozes, z).
@@ -15,7 +16,6 @@ A stopwatch with feelings (a tsundere, per sol_etdal). Idea: the voice pitched "
 - The hands' fingertips left gaps over the digits; fixed by fading the digits out in sulk (the hands are the show, not the cover).
 
 ## todos
-- sol_etdal / voice ideas: personality types (clingy one that panics when stopped, smug one that brags about laps).
 - Maybe a "peek between fingers" frame, sounds (a huff), saving best laps.
 
 ## testing
