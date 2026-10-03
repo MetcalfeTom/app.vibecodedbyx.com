@@ -763,7 +763,7 @@ body.midilearn main button:not(#midipanel button):not(.hbtns button), body.midil
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.80 · 2026-10-03</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.81 · 2026-10-03</span>
 </footer>
 
 <script id="dsp">
@@ -4690,6 +4690,7 @@ sec.innerHTML =
   '<button type="button" class="btn small" id="adjstop" hidden aria-label="stop mix" title="Stop the autopilot immediately — everything stays exactly where it is"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="3" y="3" width="10" height="10" rx="1.6" fill="currentColor"/></svg><span class="bl">stop</span></button>' +
   '<button type="button" class="btn small" id="adjchain" aria-pressed="false" title="Opt-in: after every completed hand-off, load the next eligible setlist track into the freed deck and fire the next auto-mix when the live deck reaches its mix-out. Skips tracks already played tonight, tracks on a deck, and fingerprint duplicates. Any touch or ⏹ switches the chain off">⛓ chain: off</button>' +
   '<button type="button" class="btn small" id="adjhome" aria-pressed="true" title="After a completed auto-mix, ease the live deck back to its own tempo (pitch 0 %) — slowly, no faster than 0.1 % per second and over at least 16 bars. Moving its pitch fader or pressing sync stops the glide where it is">↺ tempo home: on</button>' +
+  '<button type="button" class="btn small" id="adjbass" aria-pressed="true" title="During an auto-mix the incoming track comes in with its bass cut, and on the bar line halfway through the two basses swap: the new track takes the low end, the old one lets go. Turning a bass knob mid-mix hands the swap to you">⇅ bass swap: on</button>' +
   '<button type="button" class="btn small" id="adjpool" aria-pressed="false" title="Opt-in extra tier for the chain: when the setlist has nothing eligible left, pick the best-matching unplayed crate track (match score 50 or better against the live deck) and append it to the setlist as an auto entry you can veto. Never starts from silence; ⏹ or any touch still switches the chain off">+ pool: off</button>' +
   '</div>' +
   '<span class="ssub">simulate + dry-run never touch playback · ⚡ auto-mix DOES drive one hand-off — any touch takes over, ⏹ stops it, flagged duplicates are blocked from the autopilot (mixing them manually stays yours) · ⛓ chain (off by default) keeps queueing from the setlist, hand-off after hand-off, until you touch something.</span></div>' +
@@ -5270,6 +5271,35 @@ function fallback(msg){
   statusMsg(msg + (dry ? ' — dry-run rehearsal running instead (audio untouched).' : ' — no dry-run possible either.'));
   return null;                                         /* …so the REASON stays on screen */
 }
+/* v4.81 (pushedbutton: "do you think AutoDJ could pull off some cool EQ mix techniques?"): the bass swap. Two kicks and
+   two bass lines at once turn to mud, so a DJ brings the new track in with its low end cut and swaps the basses in one
+   move on a bar line. The incoming deck's bass goes to kill as the hand-off starts; on the bar line nearest the ride's
+   middle the incoming gets its own setting back and the outgoing goes to kill; the stopped deck gets its setting back
+   when the hand-off completes. Turning either bass knob mid-mix hands the swap to you. On by default, ⇅ turns it off. */
+function bassPref(v){
+  if (v === undefined){ try{ return localStorage.getItem('harmony-bassswap-v1') !== 'off'; }catch(e){ return true; } }
+  try{ localStorage.setItem('harmony-bassswap-v1', v ? 'on' : 'off'); }catch(e){}
+  return !!v;
+}
+function bassSet(d, v){ var r = d.el.querySelector('.eqlo input'); if (r) r.value = v; d.setEq('lo', v); }   /* no input event: that is how a hand is told apart */
+function bassStart(){
+  if (!LIVE || !bassPref()) return;
+  var out = decks[LIVE.outL], inn = decks[LIVE.innL], bars = LIVE.plan.bars || 0;
+  LIVE.bass = { out0: out.eq.lo, inn0: inn.eq.lo, at: bars >= 2 ? Math.floor(bars / 2) / bars : 0.5, swapped: false, armed: false, hands: false };
+  bassSet(inn, 0);
+}
+function bassSwap(L){
+  if (!L || L !== LIVE || !L.bass || L.bass.swapped || L.bass.hands) return;
+  L.bass.swapped = true; L.bass.swapAt = Date.now();
+  bassSet(decks[L.innL], L.bass.inn0); bassSet(decks[L.outL], 0);
+  statusMsg('LIVE: bass swap on the bar — deck ' + L.innL + ' takes the low end, deck ' + L.outL + ' lets go. Touch the fader or a transport to take over, ⏹ to stop.');
+}
+function bassTick(){
+  var b = LIVE.bass; if (!b || b.swapped || b.armed || b.hands) return;
+  var left = b.at * LIVE.durMs - (Date.now() - LIVE.t0);   /* the ride's clock starts on a bar line, so this lands on one */
+  if (left > 60) return;
+  b.armed = true; var L = LIVE; setTimeout(function(){ bassSwap(L); }, Math.max(0, left));
+}
 function liveRun(opts){
   opts = opts || {};
   if (LIVE) return null;
@@ -5323,6 +5353,7 @@ function liveRun(opts){
              durMs: opts.durMs || testDurMs || plan.dur * 1000, outL: outL, innL: innL, plan: plan };
     LIVE.armTimer = setTimeout(fireLive, Math.max(0, sch.waitSec * 1000 - 6));
   }
+  bassStart();
   document.getElementById('adjstop').hidden = false;
   document.getElementById('adjlive').textContent = '⚡ mixing…';
   statusMsg('LIVE: mixing ' + outL + ' → ' + innL + ' over ' + plan.bars + ' bars' + (LIVE.pending ? ' — ' + (LIVE.innWasPlaying ? 're-seating ' : 'starting ') + innL + (LIVE.sch.wrap ? ' on deck ' + outL + '\'s loop wrap (its next bar line is outside the loop; ' : ' on the next bar line (') + LIVE.sch.waitSec.toFixed(2) + ' s)' : '') + (LIVE.gridless ? (doubtL ? ' — deck ' + doubtL + '\'s beat grid disagrees with its tagged BPM: blending by cue points, tempo from the tags, no beat lock' : ' — no beat grid on deck ' + (!out.grid ? outL : innL) + ': blending by cue points, no tempo sync') : '') + ' — touch the fader or a transport to take over, ⏹ to stop.');
@@ -5377,6 +5408,7 @@ function liveTick(){
   else rideHybrid(t, LIVE.curve);
   injecting = false;
   drawPreview(t);
+  if (t < 1) bassTick();
   if (t >= 1) finishLive();
 }
 /* hybrid ride (v4.9.1): gains straight from curveAt, scaled from wherever the fader started; the thumb parks at the
@@ -5391,9 +5423,10 @@ function rideHybrid(t, spec){
   LIVE.gains = { A: gA, B: gB, t: t };
 }
 function finishLive(){
-  var innL = LIVE.innL, outL = LIVE.outL;
+  var innL = LIVE.innL, outL = LIVE.outL, bs = LIVE.bass;
   clearInterval(LIVE.timer); LIVE = null;
   decks[outL].stop();
+  if (bs && !bs.hands){ if (!bs.swapped) bassSet(decks[innL], bs.inn0); bassSet(decks[outL], bs.out0); }   /* v4.81: the freed deck gets its bass back */
   if (X.SYNCST[innL]) X.toggleSync(decks[innL]);        /* release: bend resets to 1, the deck is free */
   document.getElementById('adjstop').hidden = true;
   document.getElementById('adjlive').textContent = '⚡ auto-mix';
@@ -5444,14 +5477,24 @@ setInterval(homeTick, HOME.tick);
   hb.addEventListener('click', function(){ var on = homePref(!homePref()); if (!on){ decks.A._home = null; decks.B._home = null; } hr(); });
   hr();
 })();
+(function(){
+  var bb = document.getElementById('adjbass');
+  function br(){ var on = bassPref(); bb.setAttribute('aria-pressed', String(on)); bb.textContent = '⇅ bass swap: ' + (on ? 'on' : 'off'); }
+  bb.addEventListener('click', function(){ bassPref(!bassPref()); br(); });
+  br();
+})();
+['A', 'B'].forEach(function(L){ var r = decks[L].el.querySelector('.eqlo input');
+  if (r) r.addEventListener('input', function(){ if (LIVE && LIVE.bass) LIVE.bass.hands = true; }); });   /* your knob wins */
 function takeover(why){
   if (!LIVE) return;
+  var bs = LIVE.bass, cutL = bs && !bs.hands ? (bs.swapped ? LIVE.outL : LIVE.innL) : null;   /* v4.81: say which bass is still cut */
   clearInterval(LIVE.timer); if (LIVE.armTimer) clearTimeout(LIVE.armTimer); if (LIVE.settleTimer) clearInterval(LIVE.settleTimer); LIVE = null;
   document.getElementById('adjstop').hidden = true;
   document.getElementById('adjlive').textContent = '⚡ auto-mix';
-  statusMsg(why === 'stop'
+  statusMsg((why === 'stop'
     ? 'auto-mix STOPPED — fader and decks stay exactly where they were; they are yours.'
-    : 'MANUAL TAKEOVER — the autopilot let go mid-flight; fader and decks stay where you grabbed them (sync still engaged).');
+    : 'MANUAL TAKEOVER — the autopilot let go mid-flight; fader and decks stay where you grabbed them (sync still engaged).')
+    + (cutL ? ' Deck ' + cutL + '\'s bass is still cut.' : ''));
   chainOff(why === 'stop' ? '⏹' : 'takeover');
 }
 xfEl.addEventListener('input', function(){ if (!injecting) takeover('manual'); }, true);
@@ -5630,7 +5673,7 @@ root.__ADJ = { HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower:
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rhAxis: rhAxis, get rhWin(){ return RH_WIN; }, get rhKnobs(){ return RH_KNOBS; }, curveEdit: curveEdit, get rhHold(){ return rhHold; }, slideStart: slideStart, slideTo: slideTo, slideBars: slideBars, slideEnd: slideEnd, overlapStep: overlapStep, overlapSet: overlapSet, overlapAuto: overlapAuto, rhSetStack: rhSetStack, get rhStack(){ return rhStackOn; }, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
-  liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor, barLanding: barLanding, snapBarNear: snapBarNear, loopContinuous: loopContinuous, liveLoop: liveLoop };
+  liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, bassPref: bassPref, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor, barLanding: barLanding, snapBarNear: snapBarNear, loopContinuous: loopContinuous, liveLoop: liveLoop };
 })(typeof window !== 'undefined' ? window : this);
 </script>
 <script id="knobcore">
