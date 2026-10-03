@@ -106,7 +106,9 @@ var TC = (function () {
           anc[c] = first ? (r === MID && c === MID) : !!(up || dn || (c > 0 && at(c - 1)) || (c < N - 1 && at(c + 1)));
         }
         var rec = function (start, placed) {
-          var key = placed.map(function (p) { return p[0] + p[1]; }).sort().join('');
+          /* the cell and letter of every tile (v1.9.2: was column + letter code summed, so TIL at the left edge clashed
+             with some other move's sum anywhere on the board and silently went missing) */
+          var key = placed.map(function (p) { return idx(r, p[0]) + String.fromCharCode(A + p[1]); }).sort().join(',');
           if (seen[key]) return; seen[key] = 1;
           out.push(placed.map(function (p) { return { i: idx(r, p[0]), l: String.fromCharCode(A + p[1]) }; }));
         };
