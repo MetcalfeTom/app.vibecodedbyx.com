@@ -226,6 +226,8 @@ h1 b{ font-weight:800; }
 .fader span{ display:flex; justify-content:space-between; }
 .fader b{ color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; text-transform:none; letter-spacing:0; }
 .fader b.warn{ color:var(--amber); }
+.eq{ grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, 1fr); gap:.6rem 1rem; }   /* v4.75 3-band EQ */
+.eq .fader span{ justify-content:flex-start; gap:.45rem; }
 .lvl{ grid-column:2; justify-self:end; margin-top:-.35rem; padding:.1rem .45rem; border:1px solid transparent; border-radius:999px; background:none; color:var(--mute); font:inherit; font-size:.6rem; letter-spacing:.06em; text-transform:none; cursor:pointer; font-variant-numeric:tabular-nums; }
 .lvl:hover, .lvl:focus-visible{ border-color:currentColor; color:var(--ink); }
 .lvl[aria-pressed="false"]{ opacity:.6; text-decoration:line-through; }
@@ -740,7 +742,7 @@ body.midilearn main button:not(#midipanel button):not(.hbtns button), body.midil
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.74 · 2026-10-03</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.75 · 2026-10-03</span>
 </footer>
 
 <script id="dsp">
@@ -1463,6 +1465,9 @@ function deckMarkup(L){
         '<label class="fader pitch"><span>pitch <b class="pv">0.0%</b></span><input type="range" min="-8" max="8" step="0.1" value="0" aria-label="Deck ' + L + ' pitch, percent"></label>' +
         '<label class="fader vol"><span>level <b class="vv">100</b></span><input type="range" min="0" max="100" value="100" aria-label="Deck ' + L + ' level"></label>' +
         '<button type="button" class="lvl" aria-pressed="true" aria-label="Auto level, deck ' + L + '">auto level</button>' +
+        '<div class="eq" role="group" aria-label="Deck ' + L + ' EQ" title="3-band EQ · middle = flat, all the way down = kill · double-click resets">' +
+          [['hi', 'high'], ['mid', 'mid'], ['lo', 'low']].map(function(b){ return '<label class="fader eqk eq' + b[0] + '"><span>' + b[0] + ' <b class="eqv">0</b></span><input type="range" min="0" max="100" value="50" aria-label="Deck ' + L + ' ' + b[1] + ' EQ" aria-valuetext="flat"></label>'; }).join('') +
+        '</div>' +
       '</div>' +
       '<div class="syncrow">' +
         '<button type="button" class="btn klock" aria-pressed="true" title="Keylock keeps the musical key when tempo changes; vinyl lets pitch follow speed — click to switch"><span class="opt oa">♪ keylock</span><span class="opt ob">vinyl</span></button>' +
@@ -1503,7 +1508,7 @@ function deckMarkup(L){
 function Deck(L, el){
   var d = this;
   d.L = L; d.el = el; el.innerHTML = deckMarkup(L);
-  d.buffer = null; d.name = ''; d.bpm = null; d.key = null; d.grid = null; d.rate = 1; d.vol = 1; d.xf = Math.SQRT1_2;
+  d.buffer = null; d.name = ''; d.bpm = null; d.key = null; d.grid = null; d.rate = 1; d.vol = 1; d.xf = Math.SQRT1_2; d.eq = { hi: 50, mid: 50, lo: 50 };
   d.keylock = true; d.bend = 1; d.mediaURL = null; d.el2 = null; d.mediaSrc = null;
   d.loopOn = false; d.loopA = null; d.loopB = null; d.resetSecs = null; d.loopLen = 4; d.loopSrc = null; d.loopEngine = null; d.lb = null; d.gridLock = true; d.loopDir = 'fwd'; d.loopSegs = null; d.lbTok = null;
   d.phrases = []; d.fp = null;
@@ -1541,6 +1546,9 @@ function Deck(L, el){
   $('.chordsw', el).addEventListener('click', function(){ chordSw(!CHORDS_ON); });   /* v4.44 */
   d.q.pitch.addEventListener('input', function(){ d.setRate(1 + parseFloat(d.q.pitch.value) / 100); if (state.lock && state.master === d.L) applyLock(); });
   d.q.vol.addEventListener('input', function(){ d.setVol(parseInt(d.q.vol.value, 10) / 100); });
+  ['hi', 'mid', 'lo'].forEach(function(b){ var r = d.el.querySelector('.eq' + b + ' input');
+    r.addEventListener('input', function(){ d.setEq(b, r.value); });
+    r.addEventListener('dblclick', function(){ setRange(r, 50); }); });
   d.q.klock.addEventListener('click', function(){
     d.keylock = !d.keylock;
     d.q.klock.setAttribute('aria-pressed', String(d.keylock));
@@ -1805,10 +1813,15 @@ Deck.prototype.ensureNodes = function(){
   var an = c.createAnalyser(); an.fftSize = 8192; an.smoothingTimeConstant = 0.6;
   var vg = c.createGain(), fg = c.createGain(), xg = c.createGain();   /* fg: only the v4.29 fade-on-8 touches it */
   var lg = c.createGain();   /* v4.50 auto level trim, before the fader */
-  an.connect(lg); lg.connect(vg); vg.connect(fg); fg.connect(xg); xg.connect(master);
+  var eq = { lo: c.createBiquadFilter(), mid: c.createBiquadFilter(), hi: c.createBiquadFilter() };   /* v4.75 3-band EQ, after the analyser so BPM/key reads stay clean */
+  eq.lo.type = 'lowshelf'; eq.lo.frequency.value = 200;
+  eq.mid.type = 'peaking'; eq.mid.frequency.value = 1000; eq.mid.Q.value = 0.7;
+  eq.hi.type = 'highshelf'; eq.hi.frequency.value = 3500;
+  ['lo', 'mid', 'hi'].forEach(function(b){ eq[b].gain.value = eqDb(d.eq[b]); });
+  an.connect(lg); lg.connect(eq.lo); eq.lo.connect(eq.mid); eq.mid.connect(eq.hi); eq.hi.connect(vg); vg.connect(fg); fg.connect(xg); xg.connect(master);
   vg.gain.value = d.vol; xg.gain.value = d.xf; lg.gain.value = d.lvlGain();
   d.fftBuf = new Float32Array(an.frequencyBinCount);
-  d.nodes = { an: an, vg: vg, fg: fg, xg: xg, lg: lg };
+  d.nodes = { an: an, vg: vg, fg: fg, xg: xg, lg: lg, eq: eq };
   return d.nodes;
 };
 Deck.prototype.pos = function(){
@@ -1926,6 +1939,17 @@ function lvlToggle(){
   LVL.on = !LVL.on; try{ localStorage.setItem('harmony-autolevel', LVL.on ? '1' : '0'); }catch(e){}
   lvlCurve(); decks.A.lvlApply(0.08); decks.B.lvlApply(0.08);
 }
+/* v4.75 (pushedbutton: "a 3 band EQ for each deck"): slider 0-100, 50 = flat (a controller knob's centre detent, CC 64),
+   the top half boosts up to +6 dB, the bottom half cuts to -26 dB, and 0 kills the band (-40 dB), like a DJ mixer. */
+function eqDb(v){ v = +v; return v <= 0 ? -40 : v >= 50 ? (v - 50) / 50 * 6 : -26 * (50 - v) / 50; }
+function eqTxt(v){ if (+v <= 0) return 'kill'; var db = eqDb(v); if (Math.abs(db) < 0.25) return '0'; return (db > 0 ? '+' : '−') + (Math.abs(db) < 10 ? Math.abs(db).toFixed(1) : Math.round(Math.abs(db))); }
+Deck.prototype.setEq = function(b, v){
+  var d = this; d.eq[b] = +v;
+  if (d.nodes && ctx) d.nodes.eq[b].gain.setTargetAtTime(eqDb(v), ctx.currentTime, 0.015);
+  var lab = d.el.querySelector('.eq' + b), t = eqTxt(v), bv = lab.querySelector('.eqv');
+  bv.textContent = t; bv.classList.toggle('warn', t === 'kill');
+  lab.querySelector('input').setAttribute('aria-valuetext', t === '0' ? 'flat' : t === 'kill' ? 'kill' : t.replace('−', 'minus ').replace('+', 'plus ') + ' decibels');
+};
 Deck.prototype.setVol = function(v){ this.vol = v; if (this.nodes) this.nodes.vg.gain.setTargetAtTime(v, ctx.currentTime, 0.02); this.q.vv.textContent = Math.round(v * 100); };
 Deck.prototype.setXf = function(g){ this.xf = g; if (this.nodes) this.nodes.xg.gain.setTargetAtTime(g, ctx.currentTime, 0.02); };
 /* pre-count: jump back N whole bars on this deck's own grid, then play. Whole bars in track
@@ -6164,10 +6188,10 @@ window.__ST = { run: run, get R(){ return R; }, get V(){ return V; }, verdictOf:
   var gbox = pan.querySelector('.mguide'), gq = pan.querySelector('.mgq');
   var STEPS = [['#xfader', 'Move your crossfader'],
     ['#deckA .play', 'Left deck: press PLAY'], ['#deckA .cue', 'Left deck: press CUE'], ['#deckA .pitch input', 'Left deck: move the TEMPO / pitch fader'],
-    ['#deckA .vol input', 'Left deck: move the channel VOLUME fader'], ['#deckA .np', 'Left deck: give the JOG WHEEL a spin'],
+    ['#deckA .vol input', 'Left deck: move the channel VOLUME fader'], ['#deckA .eqhi input', 'Left deck: turn the HIGH EQ knob'], ['#deckA .eqmid input', 'Left deck: turn the MID EQ knob'], ['#deckA .eqlo input', 'Left deck: turn the LOW EQ knob'], ['#deckA .np', 'Left deck: give the JOG WHEEL a spin'],
     ['#deckA .sync', 'Left deck: press SYNC'], ['#deckA .loop', 'Left deck: press LOOP (or auto loop)'],
     ['#deckB .play', 'Right deck: press PLAY'], ['#deckB .cue', 'Right deck: press CUE'], ['#deckB .pitch input', 'Right deck: move the TEMPO / pitch fader'],
-    ['#deckB .vol input', 'Right deck: move the channel VOLUME fader'], ['#deckB .np', 'Right deck: give the JOG WHEEL a spin'],
+    ['#deckB .vol input', 'Right deck: move the channel VOLUME fader'], ['#deckB .eqhi input', 'Right deck: turn the HIGH EQ knob'], ['#deckB .eqmid input', 'Right deck: turn the MID EQ knob'], ['#deckB .eqlo input', 'Right deck: turn the LOW EQ knob'], ['#deckB .np', 'Right deck: give the JOG WHEEL a spin'],
     ['#deckB .sync', 'Right deck: press SYNC'], ['#deckB .loop', 'Right deck: press LOOP (or auto loop)']];
   function save(){ if (dev) prof.p[dev] = map; else prof.p['*'] = map; prof.last = dev; try{ localStorage.setItem(KEY, JSON.stringify(prof)); }catch(e){} }
   function useDev(name){
