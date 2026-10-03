@@ -28,6 +28,8 @@ examples still work when the lesson card is hidden.
 
 - 2026-10-03: Name your hero: fannar22 typed "a sword", ran with only step 1 done and read the step-2 note as a failure. The note now starts "Step 1 worked: your hero has a sword!"; the task says any answer works and the questions in the quotes can be changed (they made theirs ask "#ofWeapon"). Rule: a check that is half passed says which half worked.
 
+- 2026-10-03: game lesson 9 Boss bug hunt: the Bug King (fannar22 picked "find bugs" + "fight a boss"): the fight code has 3 planted bugs (missing quote, missing colon after while, King vs king) fixed one error at a time. After the Grim Reaper because it uses while. 17 game lessons. L.gv 3: saved game progress shifts (gv1 +5, then indexes >= 8 +1).
+
 ## issues
 - input() uses window.prompt (Pyodide setStdin). Cancelling the box raises EOFError, explained in the lesson result.
 - Headless Chrome has no emoji font: emoji show as boxes in test screenshots only.
