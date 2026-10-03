@@ -30,6 +30,7 @@ examples still work when the lesson card is hidden.
 
 - 2026-10-03: game lesson 9 Boss bug hunt: the Bug King (fannar22 picked "find bugs" + "fight a boss"): the fight code has 3 planted bugs (missing quote, missing colon after while, King vs king) fixed one error at a time. After the Grim Reaper because it uses while. 17 game lessons. L.gv 3: saved game progress shifts (gv1 +5, then indexes >= 8 +1).
 - 2026-10-03: ↺ start over on the lesson card (fannar22: "start a lesson over again which refresh what is in main.py"). Puts the lesson's starting code back; for 8 s the button turns into ↶ undo and brings the old code back. Moving to another lesson clears the undo.
+- 2026-10-03: game lesson 10 "Be the Bug King" (fannar22 liked "break something on purpose"): break a working fight three ways, one run each (SyntaxError, NameError, IndentationError; tracked in the lesson's in-memory `seen` set, not saved), then fix it. Errors in this lesson set lres itself before the throw. L.gv 4 shifts saved game indexes >= 9 by one.
 
 ## issues
 - input() uses window.prompt (Pyodide setStdin). Cancelling the box raises EOFError, explained in the lesson result.
