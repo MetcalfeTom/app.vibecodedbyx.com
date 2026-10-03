@@ -1,6 +1,7 @@
 # py-playground
 
 ## log
+- 2026-10-03: the beginner course moved to its own app, sloppy-teaches-programming (general + game tracks, for fannar22). Here the 🎓 learn button opens that app; first visits get the sierpinski demo again. An already open lesson card still works and can be closed (old lessons code kept for that).
 - 2026-05-09: shipped — browser Python playground for isskren (chat ask: "can we build a simple browser-based python playground for isskren?"). Powered by Pyodide v0.26.4 (CPython compiled to WebAssembly). Python runs entirely in the user's tab — no server, no backend, no code-execution endpoint to secure. The Pyodide WASM + Python stdlib (~6 MB combined) downloads once from jsdelivr on first visit, then the browser caches it for next time.
   - **Two-pane layout**: left = Monaco-lite textarea editor with line-number gutter (rendered via absolutely-positioned overlay so the textarea can stay a single native control), right = scrolling output terminal. Stack vertically below 760px viewport.
   - **Editor**: 4-space-indenting Tab key, Cmd/Ctrl+Enter to run, auto-save to `localStorage['py-playground-code-v1']` on every keystroke. Char + line counter in the pane head.
@@ -33,7 +34,7 @@
 - No package install UI. Pyodide can `pip install` packages via `await pyodide.loadPackage(...)` or `await micropip.install(...)`, but for a snippet playground the stdlib is 95% of what users want and the install adds latency.
 
 ## todos
-- fannar22 asked for TWO tracks: General Programming and Game Programming. The current 11 lessons are the general track ending in a game; a game track (dice, rock-paper-scissors, text adventure, …) is the next step.
+- DONE in sloppy-teaches-programming: fannar22 asked for TWO tracks: General Programming and Game Programming. The current 11 lessons are the general track ending in a game; a game track (dice, rock-paper-scissors, text adventure, …) is the next step.
 - Lazy-load Pyodide on first Run instead of on boot (saves bandwidth for visitors who just read).
 - Save/load named snippets to localStorage (current state is one global slot).
 - Share snippet via URL fragment (encode the code as base64 in `#code=...`).
