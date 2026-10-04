@@ -763,7 +763,7 @@ body.midilearn main button:not(#midipanel button):not(.hbtns button), body.midil
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.82 · 2026-10-03</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.83 · 2026-10-04</span>
 </footer>
 
 <script id="dsp">
@@ -5290,20 +5290,56 @@ function workBand(d, band, v0, k){ if (v0 <= WORK) return; var v = Math.round(WO
 function bassStart(){
   if (!LIVE || !bassPref()) return;
   var out = decks[LIVE.outL], inn = decks[LIVE.innL], bars = LIVE.plan.bars || 0;
-  LIVE.bass = { out0: out.eq.lo, inn0: inn.eq.lo, mid0: inn.eq.mid, hi0: inn.eq.hi, at: bars >= 2 ? Math.floor(bars / 2) / bars : 0.5, swapped: false, armed: false, hand: {} };
+  LIVE.bass = { out0: out.eq.lo, inn0: inn.eq.lo, mid0: inn.eq.mid, hi0: inn.eq.hi, at: bars >= 2 ? Math.floor(bars / 2) / bars : 0.5, swapped: false, armed: false, hand: {}, lo: { o: 0, i: 0, n: 0, at: 0 } };
   bassSet(inn, 0); workBand(inn, 'mid', LIVE.bass.mid0, 0); workBand(inn, 'hi', LIVE.bass.hi0, 0);
 }
 function eqOwn(b, L, band){ return !b.hand[L + band]; }   /* a band you touched on that deck is yours from then on */
 function workUp(b, L, k){ var d = decks[L]; if (eqOwn(b, L, 'hi')) workBand(d, 'hi', b.hi0, k * 2); if (eqOwn(b, L, 'mid')) workBand(d, 'mid', b.mid0, k * 2 - 1); }
+/* v4.83 (pushedbutton 11:15: "if the outgoing track is already quite sparse the sudden addition of bass from the incoming track can be a bit
+   jarring"): the swap listens first. Over the two bars before it, both decks' low end (30-150 Hz from the analyser, which sits before the EQ,
+   times the auto level trim) is measured; when the outgoing deck's is more than 9 dB under the incoming's, the incoming bass eases in over
+   two bars from the swap's bar line (one bar if the ride has no room) and the thin outgoing low eases out the same way. Two full low ends
+   still swap in one move. */
+var THIN = 0.125;   /* power ratio: −9 dB */
+function lowPow(d){
+  var n = d.nodes; if (!n || !n.an || !d.fftBuf) return 0;
+  n.an.getFloatFrequencyData(d.fftBuf);
+  var bw = n.an.context.sampleRate / n.an.fftSize, a = Math.max(1, Math.floor(30 / bw)), z = Math.min(d.fftBuf.length - 1, Math.ceil(150 / bw)), s = 0, g = n.lg.gain.value;
+  for (var i = a; i <= z; i++){ var v = d.fftBuf[i]; if (v > -160) s += Math.pow(10, v / 10); }
+  return s * g * g;
+}
+function bassListen(b){
+  var now = Date.now(), barMs = LIVE.durMs / Math.max(1, LIVE.plan.bars || 1), left = b.at * LIVE.durMs - (now - LIVE.t0);
+  if (left > 2 * barMs || now - (b.lo.at || 0) < 90) return;
+  b.lo.at = now; b.lo.o += lowPow(decks[LIVE.outL]); b.lo.i += lowPow(decks[LIVE.innL]); b.lo.n++;
+}
+function bassEase(b){
+  var e = b.ease, L = LIVE; if (!e || e.done || !L) return;
+  if (!eqOwn(b, L.innL, 'lo') || !eqOwn(b, L.outL, 'lo')){ e.done = true; b.loOff = true; return; }   /* a hand on either low: it is yours from here */
+  var k = Math.max(0, Math.min(1, (Date.now() - e.t0) / e.ms));
+  bassSet(decks[L.innL], Math.round(b.inn0 * k)); bassSet(decks[L.outL], Math.round(b.out0 * (1 - k)));
+  if (k >= 1) e.done = true;
+}
 function bassSwap(L){
   if (!L || L !== LIVE || !L.bass || L.bass.swapped) return;
   var b = L.bass; b.swapped = true; b.swapAt = Date.now();
   workUp(b, L.innL, 1);
-  if (eqOwn(b, L.innL, 'lo') && eqOwn(b, L.outL, 'lo')){ bassSet(decks[L.innL], b.inn0); bassSet(decks[L.outL], 0); } else b.loOff = true;
+  var lo = b.lo, thin = lo.n >= 3 && lo.i > 1e-12 && lo.o < lo.i * THIN, bars = L.plan.bars || 1, barMs = L.durMs / bars;
+  b.thin = lo.n ? Math.round(10 * Math.log10(Math.max(1e-12, lo.o) / Math.max(1e-12, lo.i))) : null;   /* dB, for the status and the tests */
+  if (!(eqOwn(b, L.innL, 'lo') && eqOwn(b, L.outL, 'lo'))) b.loOff = true;
+  else if (thin){
+    var room = Math.max(1, Math.round((1 - b.at) * bars)), eb = Math.min(2, room);
+    b.ease = { t0: b.swapAt, ms: eb * barMs - 30, bars: eb, done: false }; bassSet(decks[L.outL], b.out0); bassEase(b);
+    statusMsg('LIVE: deck ' + L.outL + ' is thin down low (' + b.thin + ' dB), so deck ' + L.innL + '’s bass eases in over ' + eb + (eb > 1 ? ' bars' : ' bar') + ' instead of dropping in. Touch the fader or a transport to take over, ⏹ to stop.');
+    return;
+  }
+  else { bassSet(decks[L.innL], b.inn0); bassSet(decks[L.outL], 0); }
   statusMsg('LIVE: bass swap on the bar — deck ' + L.innL + ' takes the low end, deck ' + L.outL + ' lets go. Touch the fader or a transport to take over, ⏹ to stop.');
 }
 function bassTick(t){
-  var b = LIVE.bass; if (!b || b.swapped) return;
+  var b = LIVE.bass; if (!b) return;
+  if (b.swapped){ bassEase(b); return; }
+  bassListen(b);
   workUp(b, LIVE.innL, t / b.at);
   if (b.armed) return;
   var left = b.at * LIVE.durMs - (Date.now() - LIVE.t0);   /* the ride's clock starts on a bar line, so this lands on one */
@@ -5436,7 +5472,7 @@ function finishLive(){
   var innL = LIVE.innL, outL = LIVE.outL, bs = LIVE.bass;
   clearInterval(LIVE.timer); LIVE = null;
   decks[outL].stop();
-  if (bs){ if (!bs.swapped){ workUp(bs, innL, 1); if (eqOwn(bs, innL, 'lo')) bassSet(decks[innL], bs.inn0); }
+  if (bs){ if (!bs.swapped || (bs.ease && !bs.ease.done && !bs.loOff)){ workUp(bs, innL, 1); if (eqOwn(bs, innL, 'lo')) bassSet(decks[innL], bs.inn0); }   /* v4.83: an ease the ride outran finishes here */
     if (eqOwn(bs, outL, 'lo') && !bs.loOff) bassSet(decks[outL], bs.out0); }   /* v4.81: the freed deck gets its bass back */
   if (X.SYNCST[innL]) X.toggleSync(decks[innL]);        /* release: bend resets to 1, the deck is free */
   document.getElementById('adjstop').hidden = true;
