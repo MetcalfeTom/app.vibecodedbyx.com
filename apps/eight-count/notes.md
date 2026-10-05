@@ -3,6 +3,7 @@
 A choreography tool for dance instructors: load a song, the beat is found, the song splits into eight-counts, and each count gets a move. A 3D toon dancer performs the routine on the beat. Asked for by pushedbutton (Twitch) on 2026-10-05, inspired by Harmony's 8-count window: "a 3D dancer with editable moves, beat matched to a song with a wave form. No need for a crate or playlist".
 
 ## log
+- v1.8 (2026-10-05): move maker, step 1 of Pushed's move editor. '＋ make a move' in the palette (or '✎ edit move' on a custom slot) opens a maker: the stage sticks to the top, the routine editor hides. A move is keys on a 0..1 timeline (starts with a start and an end key, per Pushed: 'start and end keyframe, tweening, add a frame between if required'); keyPose() eases between keys with smoothstep. Joint sliders with real limits (JG table: arms forward/out/elbow, legs forward/out/knee, spine sway/lean/tilt/twist, head, turn, x/y in cm); moving a slider auto-keys at the scrub point (scrub snaps to a key within .025). Add / delete key, mirror (swap sides), loop preview, name, length 1-16 counts, 'start from' any built-in (sampled into 5 or 9 keys). Saved in localStorage `eight-count-moves` (cleanMove validates ids /^c[a-z0-9]{2,16}$/ and at most 64 keys); a deleted move's slots become bounce, and restore() maps unknown ids to bounce. Probes hm/pec10.js (flow), pec11.js (phone).
 - v1.7 (2026-10-05): floor marks (Pushed: 'any little fun embellishments'): a turn draws an amber ring round her feet (RingGeometry drawRange by progress) that fades over the next count; a jump landing sends one white ripple out over the following count. floorAt() in the app script, floorMarks() in the module; DANCER.marks() for probes (hm/pec9.js). Ideas: stomp ripple, sparkle on 'hit a pose'.
 - v1.6 (2026-10-05): practice speed (100/75/50%, saved in prefs as rate): song time t plays at audio time startAt + t / RATE via playbackRate (pitch drops like a slowed record; a pitch-keeping version would need a media element or a time-stretch). Count-in, click and the editor preview all scale. The dancer is named Emma, after the dance teacher who inspired Pushed. Probe hm/pec8.js measured 0.75 / 0.50.
 - v1.5 (2026-10-05): faster / slower for every move (Pushed's half-time / double-time idea). A slot holds id or id*L (L counts, from LENS .5-32; ½ = twice in one count); sl() parses, slotAt() is the raw slot, moveAt() the id, runIdx() compares raw slots, progAt() gives the move's progress. relen() rewrites the run from its start; counts it gives up become holds. Probe hm/pec6.js / pec7.js (phone, scrolled to the editor).
@@ -18,7 +19,8 @@ A choreography tool for dance instructors: load a song, the beat is found, the s
 
 ## todos
 - Speed control for practice (0.5×, 0.75×).
-- Move editor: pushedbutton is describing how it should work (next).
+- Move maker step 2: front + side views (split viewport) and drag handles on the joints (Pushed: handles for x/y/z and rotation).
+- Move maker step 3: onion skinning (ghost Emmas at the neighbouring keys).
 - More moves (grapevine, box step, slide, spin 2 beats), moves that span two beats.
 - Export/share a routine as text.
 
