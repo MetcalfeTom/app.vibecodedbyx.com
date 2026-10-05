@@ -13,6 +13,14 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - The drawings are inline SVG. There are no emoji in the UI because headless and og previews show tofu boxes for them.
   - Test probe: hm/pls.js (soup round → just right → 5 stars).
 
+- v1.1 (2026-10-05, ~05:10 UTC): PANCAKES, the first breakfast, with a FLIP (the producer's nudge plus my own pancake riff; nonamenumbe and holaholawedemboys were in chat).
+  - Added flour and milk to the fridge.
+  - A recipe with flip:true hides the stir meter and shows a 'flip it' button; tapping the pan also flips.
+  - Side 1's cook value is saved in S.sideA, then side 2 cooks from 0. Score = (judge(side 1) + judge(side 2)) × 0.6. Never flipping costs 2 stars plus half of side 1's penalty.
+  - Salt 0 shows 'no salt', and the hint only nags when salt is short.
+  - ?dish=<id> opens straight on a recipe (handy for links and tests).
+  - Probe hm/pfl.js: 60/60 → 5 stars, 'golden on both sides'.
+
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 
