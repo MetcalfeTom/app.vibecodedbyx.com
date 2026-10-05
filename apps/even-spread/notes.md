@@ -26,6 +26,14 @@ Tatum's thought experiment (a sloppy.live viewer, asked 2026-10-04): what if eve
   - Close-up: gradient plumes (dark at the dot, fading downwind) under the rings, plus a wind arrow top-left.
   - Perf (headless, software): 12.2k ≈ 0.2 s per change; 70k at 1 Mt ≈ 0.6 s; 70k at 50 Mt ≈ 1.9 s. One big path for all plumes took 1-2 s at 12k — always batch.
   - Probe es2/pw.js (#shuffle, #big): 12.2k at 1 Mt ≈ 25% of the land under a plume, 100 kt ≈ 2.7%, 50 Mt with 3,900 ≈ 91%.
+- v1.4 (2026-10-05 ~23:55 UTC): year slider 1945-2025, coupled to the radius (Tatum).
+  - STOCK = rounded public all-country stockpile table (1945 ≈2 … 1986 ≈70k … 2025 ≈12.2k); YIELD = very rough era-average kt (20 in 1945, 30 in 1950, 300 in 1954, 1,500 in 1957, 1,000 in 1960, 600, 450, 350, 300, 250 in 1986, 220 in 1995, 200 today). Both log-interpolated per year; counts rounded to 3 significant figures, yields to 2.
+  - applyYear(y) sets st.year, st.n, st.kt. Any count or size control sets st.year = 0 ('your own mix', the year fieldset dims). Default stays 0 (12,200 at 100 kt, the v1 look).
+  - Sparkline of the stockpile above the slider (click or drag it to pick a year), marker at the year, '1986: 70,000' label. Play button steps a year every 160 ms + compute, from the current year (or 1945). A big year stamp sits in the map's lower-left sea corner.
+  - Few dots: makeDots() searches the spiral size so exactly n land on land (1945 = 2 dots, drawn bigger); nearest() and underPlume() brute-force under 600 dots (the 1° grid search with an 8,600 km radius was 65k cell lookups per call).
+  - Fixed an old aliasing bug: at ~2,500 dots the sample spiral matched the dot spiral, so every sample sat next to a dot (mean 44 km instead of 99). measure() now tilts the sample spiral by 0.61 rad.
+  - Plume coverage now always uses the 10-point shape (the 6-point one under-counted, 21% vs 25% at 1 Mt).
+  - Probe es2/py.js (#wind, #play): 1945 → 2 dots, 8,583 km apart; 1957 → 5,970 × 1.5 Mt, 62 km mean, ~16% under plumes; 1986 → 18 km mean.
 - Probe: hm/pes.js (#tsar). 12,200 → 43 km mean, 92 km farthest, 110 km gap. 70k → 17.5 km mean. Tsar Bomba → 17% flattened, 71% burnt.
 
 ## issues
@@ -33,6 +41,6 @@ Tatum's thought experiment (a sloppy.live viewer, asked 2026-10-04): what if eve
 - Tiny islands can have no dot nearby, so the farthest figure uses the 99.5th percentile.
 
 ## todos
-- Year slider 1945-2025 coupled to the yield (Tatum), table in the memory file.
+- Year slider: maybe split the yield by country era (US vs USSR), or show megatonnage as a second sparkline (a separate chart, never a second axis).
 - A compass pointing to your nearest dot (the voice's idea).
 - A dark theme.
