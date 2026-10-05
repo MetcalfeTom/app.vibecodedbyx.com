@@ -25,9 +25,20 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - flip:true + roll:3 means a 'roll it' button: two rolls, and the third layer is judged at serving. S.sideA/S.side became S.parts (one cook value per finished layer or side).
   - Each layer cooks 15% faster than the one before (the pan heats up). A fattening egg log sits at the back of the pan.
   - Score: each layer's judge × 0.6, plus −1 per missing layer. Probe hm/ptam.js (#serve) rolls at 46 → 5 stars, 'every layer rolled just as it set'.
+- v1.3 (2026-10-05, ~16:10 UTC): SIZZLE, procedural cooking sounds (Web Audio, still no files).
+  - The audio context starts on the first tap (pointerdown/keydown capture listener → ac()); it suspends when the tab is hidden.
+  - A mute button sits in the header (aria-pressed). localStorage key little-stove-sound = 'off' / 'on'. When muted, no context is created at all; muting an existing one ramps the master gain to 0 and then suspends it.
+  - Graph: four looping pre-rendered buffers (wet crackle, sparse crackle, burn hiss, low boil), each through a filter and its own gain, into master → compressor. Loop lengths differ (3.3/4.1/3.7/2.9 s) so the mix doesn't audibly repeat. Live one-shots on top: pop() (noise scrap through a bandpass) and bubble() (a sine sliding up).
+  - sizzle(dt) runs every frame from loop(). SND.warm eases to 1 while the heat is on (the pan heats up, and cools slower than it heats). damp = how wet/loud: 1 while raw, ~0.3 at the start of the zone, 0.13 at the end, so the sizzle calms as it goes golden. Past zone[1] a dry hiss creeps in; past 100 it's a burning hiss with big pops. Tamagoyaki layers (×1.15) and a stuck stir-fry (×1.5) are louder.
+  - splash(k): wet food meeting a hot pan (into the pan, a flip, a new egg layer) = a loud burst that dies over ~1.5 s. Preheating is rewarded with the crackle.
+  - Pots: bubbles at 1/s when warming, up to 8/s at the zone, 13/s overdone; boiled dry (>100) they hiss like a pan.
+  - Visual twin: .hob.spit shows oil droplets (.spat) spitting off the pan while it's wet and hot, so muted players get the cue too. Hidden under prefers-reduced-motion.
+  - Fixed: the food icons floated above the pan (the .stuff offset was made for the pot). .vessel.pan .stuff now sits on the pan surface.
+  - Probe: scratch stove/pz.js measures master RMS with an AnalyserNode (stir-fry: hit .082, raw .047, nearly .026, golden ~.012, burnt .055; muted 0, context suspended).
 
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
+- Sound: headless Chromium runs the AudioContext fine (state 'running'), so probes can measure RMS on __LS.snd.master. __LS.AC is the context.
 
 ## todos
 - More recipes and a shopping trip (the fridge runs out).
