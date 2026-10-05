@@ -40,13 +40,21 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - potColour() tints moved into a TINT map keyed by recipe id.
   - Fixed 'cheese (grateed)'. Things that go in as they are no longer say '(whole)' in the recipe list (it read as 'soy sauce (whole)').
   - Probe stove/pr.js plays all four to mid-zone → 5 stars each.
+- v1.5 (2026-10-05, ~16:50 UTC): THE FRIDGE RUNS OUT + the corner shop (the first todo).
+  - save.stock (per ingredient, START counts) and save.coins (start 12) live in the same little-stove-v1 key; old saves get START stock and 12 coins.
+  - An ingredient is used up when it goes INTO the pot or pan (not when it's put on the board; 'put back' costs nothing). Fridge buttons show a count badge: red at 1, dashed 'out' at 0. Tapping an empty one says 'No eggs left. Pop to the shop.' and shakes it.
+  - Hint: if anything tonight still needs is out, it sends you to the shop before 'Grab a …'.
+  - Shop button (fridge header) opens dialog#shop. SHOP = { id: [pack size, coins] }. Tonight's needs are listed first. 'Buy what tonight needs' buys the packs for the gap and is never refused: when you're short it goes on the tab (coins go negative, shown as 'you owe the shop N'), so nobody gets stuck.
+  - Serving pays +6 grocery money plus a tip of floor(stars) − 2 (the cat tips a purr). Shown in the result dialog (#money).
+  - Fixed: an unrolled tamagoyaki said both '2 layers short' and 'every layer rolled just as it set'.
+  - Probe stove/psh.js: out-of-stock hint, the tab (2 coins − 1 onion − 3 eggs = −2), earnings → 5, localStorage round trip.
 
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 - Sound: headless Chromium runs the AudioContext fine (state 'running'), so probes can measure RMS on __LS.snd.master. __LS.AC is the context.
 
 ## todos
-- More recipes and a shopping trip (the fridge runs out).
+- Shop ideas: daily specials / a sale, a shopping list you tick off, a fridge that shows what spoils.
 - A drag-to-chop swipe gesture on phones.
 - Plating / a table scene for the result.
 - Day and night time with a clock.
