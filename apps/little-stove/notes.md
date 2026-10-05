@@ -48,14 +48,20 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - Serving pays +6 grocery money plus a tip of floor(stars) − 2 (the cat tips a purr). Shown in the result dialog (#money).
   - Fixed: an unrolled tamagoyaki said both '2 layers short' and 'every layer rolled just as it set'.
   - Probe stove/psh.js: out-of-stock hint, the tab (2 coins − 1 onion − 3 eggs = −2), earnings → 5, localStorage round trip.
+- v1.6 (2026-10-05, ~17:10 UTC): PHONE POLISH (390x844) + swipe to chop (the todo).
+  - Phone: the fridge is a horizontal strip, position:sticky to the bottom of the screen (section.area.fridge, inside .kitchen), with a compact coin/shop tile in front. Fridge, board and stove now fit on one phone screen, so no more scrolling down to the fridge and back up to chop for every ingredient. At 390x844 the whole page is 735 px tall; on shorter screens the strip stays pinned.
+  - The shelf lists tonight's ingredients first, fixed for the whole dinner (sorting by what's still missing would make tiles jump under your finger).
+  - Swipe to chop: every sideways stroke of 26 px over the food is one cut, with a white slash across the board. Taps still work. The board takes pointer capture only after the first swipe cut, otherwise the click of a plain tap lands on the board instead of #item (Chrome sends click to the capturing element). The click that trails a swipe is swallowed (450 ms). .item has touch-action:pan-y so vertical drags still scroll.
+  - Touch screens (pointer: coarse) say 'swipe to chop' / 'Swipe across the onion to chop it.'; eggs still say tap to crack. Probes run with a fine pointer, so 'tap to' labels stay the same there.
+  - Probe: stove/cdpdrive.py sends real CDP mouse events (2 strokes → 2 cuts, the trailing click doesn't add one, then a plain tap → 3).
 
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
+- Phone fridge strip: the sticky selector has to be section.area.fridge, because section.area{ position:relative } outranks .fridge.
 - Sound: headless Chromium runs the AudioContext fine (state 'running'), so probes can measure RMS on __LS.snd.master. __LS.AC is the context.
 
 ## todos
 - Shop ideas: daily specials / a sale, a shopping list you tick off, a fridge that shows what spoils.
-- A drag-to-chop swipe gesture on phones.
 - Plating / a table scene for the result.
 - Day and night time with a clock.
 - Tips from the diner.
