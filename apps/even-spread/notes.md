@@ -16,6 +16,7 @@ Tatum's thought experiment (a sloppy.live viewer, asked 2026-10-04): what if eve
   - Antarctica toggle.
   - Close-up: about 3.2 gaps across, the land drawn from the mask, rings to scale, and a dashed line to your nearest dot.
 - v1.1 (~11:30 UTC): the close-up is a slippy map (Tatum: hard to move around from the world map). Drag to pan (the pin is the centre), pinch, scroll wheel or +/- buttons to zoom (st.zoom multiplies the base view of 3.2 gaps), and arrow keys plus +/- when the canvas has focus. The world map redraws when the drag ends. Readout says '(at sea)' off land. Probe hm/pes2.js.
+- v1.2 (~11:35 UTC): remembers your last choices (Tatum). localStorage 'even-spread-v1' holds {n, kt, ant, pin, zoom}. It's written 300 ms after each readout(), and recall() range-checks every field before start's rebuild. Probe hm/pes4.js sets the key and reloads; check the screenshot.
 - Probe: hm/pes.js (#tsar). 12,200 → 43 km mean, 92 km farthest, 110 km gap. 70k → 17.5 km mean. Tsar Bomba → 17% flattened, 71% burnt.
 
 ## issues
