@@ -34,6 +34,9 @@ A choreography tool for dance instructors: load a song, the beat is found, the s
 
 ## todos
 - Foot locking for steps: the planted foot should stay put while the stepping foot moves to the new spot (now it skates ~.06 at count boundaries).
+- Pivot turn (Pushed): heel/ball of the planted foot stays put while she turns round it; needs foot locking first.
+- Idle animations (Pushed): when nothing has played for a while she sips from the bottle, towels off, stretches, bounces on the spot.
+- Webcam capture (Pushed): pose tracking in the browser, snapped to the counts as keys. Pushed: needs solid foundations first (feet, pivot) — do it after those.
 - Speed control for practice (0.5×, 0.75×).
 - Maker: elbow/knee handles (needs a pole/twist key), head handle, a planted foot that can slide on the floor, real tiptoes.
 - Move maker step 3: onion skinning (ghost Emmas at the neighbouring keys).
