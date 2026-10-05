@@ -34,6 +34,7 @@ Tatum's thought experiment (a sloppy.live viewer, asked 2026-10-04): what if eve
   - Fixed an old aliasing bug: at ~2,500 dots the sample spiral matched the dot spiral, so every sample sat next to a dot (mean 44 km instead of 99). measure() now tilts the sample spiral by 0.61 rad.
   - Plume coverage now always uses the 10-point shape (the 6-point one under-counted, 21% vs 25% at 1 Mt).
   - Probe es2/py.js (#wind, #play): 1945 → 2 dots, 8,583 km apart; 1957 → 5,970 × 1.5 Mt, 62 km mean, ~16% under plumes; 1986 → 18 km mean.
+- v1.5 (2026-10-06 ~00:10 UTC): phone polish. Under 46rem the settings section is display:contents, so its parts can interleave with the close-up: year + coverage lines (order 1), close-up (2), wind (3), count, size, Antarctica (4). Size chips are a 2×2 grid with 'flattens' and 'burns' on their own lines (.cv spans; the ' · ' .sep hides). Readout rows get a .9rem gap. World-map plume tint a bit stronger (.72, tails #94779f).
 - Probe: hm/pes.js (#tsar). 12,200 → 43 km mean, 92 km farthest, 110 km gap. 70k → 17.5 km mean. Tsar Bomba → 17% flattened, 71% burnt.
 
 ## issues
