@@ -35,6 +35,11 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - Visual twin: .hob.spit shows oil droplets (.spat) spitting off the pan while it's wet and hot, so muted players get the cue too. Hidden under prefers-reduced-motion.
   - Fixed: the food icons floated above the pan (the .stuff offset was made for the pot). .vessel.pan .stuff now sits on the pan surface.
   - Probe: scratch stove/pz.js measures master RMS with an AnalyserNode (stir-fry: hit .082, raw .047, nearly .026, golden ~.012, burnt .055; muted 0, context suspended).
+- v1.4 (2026-10-05, ~16:30 UTC): four new dinners from what's already in the fridge, 13 in the rotation now.
+  - Fried Rice (pan: rice, egg, onion, soy, no salt), Mac & Cheese (pot: pasta, milk, cheese, butter), Shakshuka (pan: 2 tomatoes, pepper, onion, egg), Mashed Potatoes (pot: 2 potatoes, butter, milk).
+  - potColour() tints moved into a TINT map keyed by recipe id.
+  - Fixed 'cheese (grateed)'. Things that go in as they are no longer say '(whole)' in the recipe list (it read as 'soy sauce (whole)').
+  - Probe stove/pr.js plays all four to mid-zone → 5 stars each.
 
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
