@@ -16,6 +16,7 @@ A fancy remake of the 1984 Sopwith, asked for by varj1 on 2026-10-03: "make a fa
 
 - 2026-10-06 v1.2: three missions (from the todo list): a mission picker on the title, each mission unlocked by clearing the one before, best score/time per mission (localStorage 'sopwith-dawn-prog'; mission 1 takes over the old 'sopwith-dawn-best'). 1 DAWN PATROL is v1.1's map. 2 FLAK ALLEY (seed 1918): 3 sandbagged AA guns whose barrels track you and fire shells fused for your height, leading you a little with 9-24 px of error; a burst within 13 px costs 1 hp (2 within 6). 3 THE ZEPPELIN (seed 1916): a 100 px dithered zeppelin drifts from the far end toward your runway at 11 px/s (about 3.7 min), bombing every 4-6.5 s, with a gondola gun that fires bursts of 3 inside 125 px; 100 hp, bullets 1, bombs 12, ramming crashes you; it smokes under half, falls nose-first and blows a crater for +1000 and the win; reaching your runway bombs it and ends the mission. HUD LEFT becomes ZEPPELIN %. On tall phones the menus are position:fixed over the whole screen.
 
+- 2026-10-06 v1.2.1: on a narrow phone (< 560 px) the score row sits under the fuel row (they overlapped, ZEPPELIN 93% made it worse); shorter zeppelin warnings.
 ## issues
 - Lift-off: holding the pull-up key straight after lift-off looped the plane backwards; the first .45 s in the air turns at a quarter rate.
 
