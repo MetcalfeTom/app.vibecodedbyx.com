@@ -8,6 +8,7 @@ Hard rules: never replicate the real cover or use/link any image of it; no exter
 - v1.0 (2026-10-06): first playable. three.js r170 (full URL, no import map, no addons). A dim museum room (oxblood walls, parquet, glass hood knocked over, cut police tape, drag marks to a SORTIE door, brass plaque), the book on a tilted stand on the plinth. Tools: gold leaf, gold stud, gemstone (5 colours), scallop, conch, cowrie, melting clock, stilt elephant, eye, crutch. Tap to place, drag to move, rotate/resize/duplicate/remove, undo, clear (tap twice). Weight meter (slab 120 kg, line at 150). Case mode: 7 witness statements, the curator checks the clues (1–3 stars), with chalk marks for the zones; stars and best scores saved in localStorage. Studio mode with Reveal + share link (#c=code).
 
 - v1.1 (2026-10-06): the cover as Marci described it: thick brass frame (beaded moulding, corner bosses) around a lumpy earthy panel (noise-displaced, bronze-yellow patina). New pieces (appended types 10-20): fork (4 or 3 prongs), knife, spoon, bead (5 colours), crucifix, spiral disc with white centre, rosette, wax drips, mirror shard, blue-gold sword, scratched inscription. Palette in families (Cutlery, Jewels, Relics, Shells, Dalí). The case is now 8 layered steps (torn pages 1-7 + Witness M.'s full statement); work carries over to the next step. Page 6 = prongs contradiction (Tatum: 3 or 4, all forks must match). Page 7 = patina contradiction (weathered brown is right; bonus: a wheelchair wheel glimpsed in the mirror shard). Curator: "the dinner table became an altar" when the fork cross is right. Storage key v2 (v1 studio carried over). Share code 'B'+patina prefix.
+- v1.2 (2026-10-06): surreal room. The walls sag and drip slowly over ~10 minutes while you work (segmented planes displaced in sagWalls(), glossy red drip streaks drawn on a canvas + roughness map; door area masked; the parquet floor untouched for Tatum). A melting gold clock low on the back wall ticks backwards (1 s interval, also renders one frame/s). The curator is a floating eye with a monocle, chain and lashes; it watches the camera, blinks now and then, and floats beside the cover to stare at you during the verdict; the verdict card has a small SVG eye. Default camera is lower (ph 1.25) so the wall and clock show. Test hook: __EP.sag(t).
 
 ## structure
 - One file. Script 1 = engine (window.EPC): TYPES (index order is the share-code format, only append), GEMS, ZONES, check(), ROUNDS, judge(), encode/decode. Script 2 = module (three.js scene, UI). Test hook: window.__EP.
@@ -15,10 +16,11 @@ Hard rules: never replicate the real cover or use/link any image of it; no exter
 - Share code: 'A' + 6 base64url chars per item (t5 v3 x8 y8 r6 s6).
 
 ## issues
+- KEEP THE FLOOR AS IS (Tatum loves the parquet).
+- The wall clock only shows at the lower camera angle (ph ~1.25); on phones it peeks out under the folder bar.
 - Headless SwiftShader is slow; thumbnails are rendered with the main renderer (scissor) at boot.
 
 ## todos (queued from Marci, in order)
-- Surreal room: melting wall clock ticking backwards, slowly sagging/dripping walls (KEEP THE FLOOR AS IS: Tatum loves it), curator = floating eye with a monocle giving the verdicts.
 - Dalí's ghost: translucent cartoon ghost with an upturned moustache, riddle hints on click, moustache points at the next torn page. No real quotes.
 - Dalí's cookbook easter egg: closed book "Les Dîners de Gala" (1973) on a side table, one line of our own. No recipes/images/ISBN/links.
 - Possible rename (coordinator will send the name; change title/og/heading only, no folder move).
