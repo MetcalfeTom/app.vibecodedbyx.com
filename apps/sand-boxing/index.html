@@ -386,18 +386,51 @@ sea.rotation.x = -Math.PI / 2; sea.position.set(-5.7 - 250, 0.02, 0); scene.add(
   grp.rotation.y = Math.atan2(SUN.x, SUN.z);
   gl.rotation.x = -Math.PI / 2; gl.position.z = 100; grp.add(gl); scene.add(grp);
 }
-const FOAMN = 4;
-const foam = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.04, 1), new THREE.MeshBasicMaterial({ color: '#fff3e2', transparent: true, opacity: 0.85 }), FOAMN);
-foam.frustumCulled = false; scene.add(foam);
+/* foam lace: u runs out to sea (0) -> shore (1); the leading edge wobbles round u = 0.78 and the foam thins into bubbles behind it */
+const LACE_LEN = 14; // world units of shoreline per texture repeat
+const laceTex = (() => {
+  const W = 128, H = 512, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'), img = x.createImageData(W, H), d = img.data, TAU = Math.PI * 2;
+  const ss = (a, b, v) => { const k = Math.min(1, Math.max(0, (v - a) / (b - a))); return k * k * (3 - 2 * k); };
+  for (let j = 0; j < H; j++) {
+    const v = j / H;
+    const e = 0.78 + 0.075 * Math.sin(TAU * 2 * v + 0.6) + 0.045 * Math.sin(TAU * 5 * v + 2.1) + 0.022 * Math.sin(TAU * 13 * v + 4.0);
+    for (let i = 0; i < W; i++) {
+      const u = i / (W - 1);
+      let a = u < e ? Math.pow(u / e, 0.9) : 1 - ss(e, e + 0.035, u);
+      const back = Math.max(0, 1 - u / (e - 0.2));
+      const lace = 0.5 + 0.5 * Math.sin(u * 41 + 3 * Math.sin(TAU * 7 * v)) * Math.sin(TAU * 17 * v + u * 19 + 2 * Math.sin(TAU * 3 * v));
+      a *= 1 - Math.min(1, back * 1.6) * 0.8 * (1 - ss(0.35, 0.75, lace));
+      if (u < e && u > e - 0.14) a = Math.max(a, 0.95);
+      const o = (j * W + i) * 4; d[o] = d[o + 1] = d[o + 2] = 255; d[o + 3] = Math.round(255 * Math.min(1, Math.max(0, a)));
+    }
+  }
+  x.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+})();
+const laceGeo = new THREE.PlaneGeometry(1, 1); laceGeo.rotateX(-Math.PI / 2);
+function laceMesh(len, op) {
+  const t = laceTex.clone(); t.repeat.set(1, len / LACE_LEN); t.offset.y = srnd(); t.needsUpdate = true;
+  const m = new THREE.Mesh(laceGeo, new THREE.MeshBasicMaterial({ color: '#fff3e2', map: t, transparent: true, opacity: op, depthWrite: false }));
+  m.scale.set(1, 1, len); m.frustumCulled = false; m.renderOrder = 1;
+  return m;
+}
+const FOAMN = 4, foam = [], foamP = [];
+for (let i = 0; i < FOAMN; i++) { foam.push(laceMesh(500, 0)); foamP.push(0); scene.add(foam[i]); }
+const shoreFoam = laceMesh(500, 0.5); scene.add(shoreFoam); // softens the straight line where the sea meets the sand
 function updFoam(t) {
   for (let i = 0; i < FOAMN; i++) {
-    const p = (t * 0.075 + i / FOAMN) % 1;
-    const x = lerp(-30.5, -5.4, p);
-    let w = 0.25 + 1.6 * p * p * p; if (p > 0.92) w *= (1 - p) / 0.08;
-    dummy.position.set(x, 0.035, 0); dummy.rotation.set(0, 0, 0); dummy.scale.set(Math.max(w, 0.001), 1, 500); dummy.updateMatrix();
-    foam.setMatrixAt(i, dummy.matrix);
+    const p = (t * 0.075 + i / FOAMN) % 1, m = foam[i];
+    if (p < foamP[i]) m.material.map.offset.y = srnd(); // a fresh crest each time round
+    foamP[i] = p;
+    const w = 0.8 + 2 * p * p * p;
+    m.scale.x = w; m.position.set(lerp(-30.5, -5.3, p) - 0.28 * w, 0.035, 0);
+    m.material.opacity = 0.95 * Math.min(1, p / 0.12) * (1 - Math.max(0, (p - 0.86) / 0.14));
   }
-  foam.instanceMatrix.needsUpdate = true;
+  const b = Math.sin(t * 0.47);
+  shoreFoam.scale.x = 1.1 + 0.15 * b; shoreFoam.position.set(-5.7 + 0.06 * b, 0.03, 0);
+  shoreFoam.material.opacity = 0.42 + 0.12 * b;
 }
 { // islands on the horizon
   const isl = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), mat('#9c5a66'), 3);
@@ -649,10 +682,22 @@ function updLabVis(t) {
 // drags loose sand back out to sea, then goes out again
 const T = { charge: 0, on: false, t: 0, edge: -5.8, hit: false, soak: 0, soaked: false, floor: 0, washStarted: false, lastC: 0, lastP: 0, washed: 0, used: 0 };
 const TIDE_IN = 1.1, TIDE_HOLD = 1.3, TIDE_OUT = 2.0, SOAK = 8, WETLINE = 0.6;
-const tideMat = new THREE.MeshStandardMaterial({ color: '#2687a6', transparent: true, opacity: 0.6, roughness: 0.12, metalness: 0.05, depthWrite: false });
+const endFade = (() => { // alpha (green channel): 1 in the middle, ragged fade at both ends along the shore
+  const W = 32, H = 256, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'), img = x.createImageData(W, H), d = img.data;
+  const ss = (a, b, v) => { const k = Math.min(1, Math.max(0, (v - a) / (b - a))); return k * k * (3 - 2 * k); };
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const v = j / (H - 1), u = i / (W - 1), k = 0.14 + 0.04 * Math.sin(u * 9 + 1) + 0.02 * Math.sin(u * 23);
+    const a = ss(0, k, v) * ss(0, k, 1 - v), o = (j * W + i) * 4;
+    d[o] = d[o + 1] = d[o + 2] = Math.round(255 * a); d[o + 3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  return new THREE.CanvasTexture(c);
+})();
+const tideMat = new THREE.MeshStandardMaterial({ color: '#2687a6', transparent: true, opacity: 0.6, roughness: 0.12, metalness: 0.05, depthWrite: false, alphaMap: endFade });
 const tideG = new THREE.PlaneGeometry(1, 1); tideG.rotateX(-Math.PI / 2); tideG.translate(0.5, 0, 0);
 const tideW = new THREE.Mesh(tideG, tideMat); tideW.position.set(-5.8, 0.075, 0); tideW.scale.set(0.01, 1, 40); tideW.visible = false; tideW.renderOrder = 3; scene.add(tideW);
-const tideFoam = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.05, 40), new THREE.MeshBasicMaterial({ color: '#fff3e2', transparent: true, opacity: 0.9 }));
+const tideFoam = laceMesh(40, 0.9); tideFoam.material.alphaMap = endFade;
 tideFoam.visible = false; tideFoam.renderOrder = 4; scene.add(tideFoam);
 const wetFloor = new THREE.Mesh(new THREE.CircleGeometry(RING + 0.7, 48), new THREE.MeshBasicMaterial({ color: '#4f2c14', transparent: true, opacity: 0, depthWrite: false }));
 wetFloor.rotation.x = -Math.PI / 2; wetFloor.position.y = 0.012; wetFloor.visible = false; wetFloor.renderOrder = 2; scene.add(wetFloor);
@@ -662,7 +707,7 @@ function updTideVis(t) {
     const fade = clamp((TIDE_IN + TIDE_HOLD + TIDE_OUT - T.t) / 0.5, 0, 1);
     tideW.scale.x = Math.max(0.01, T.edge + 5.8); tideW.position.y = 0.075 + Math.sin(t * 2.3) * 0.012;
     tideMat.opacity = 0.52 * fade; tideFoam.material.opacity = 0.9 * fade;
-    tideFoam.position.set(T.edge, 0.085 + Math.sin(t * 6) * 0.012, 0); tideFoam.scale.x = 0.7 + 0.3 * Math.sin(t * 9);
+    tideFoam.scale.x = 1.2 + 0.12 * Math.sin(t * 5); tideFoam.position.set(T.edge + 0.02 - 0.12 * tideFoam.scale.x, 0.085 + Math.sin(t * 6) * 0.012, 0);
   }
   const fo = 0.32 * T.floor; wetFloor.visible = fo > 0.01; wetFloor.material.opacity = fo;
 }
