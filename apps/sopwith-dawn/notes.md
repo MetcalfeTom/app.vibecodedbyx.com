@@ -17,11 +17,12 @@ A fancy remake of the 1984 Sopwith, asked for by varj1 on 2026-10-03: "make a fa
 - 2026-10-06 v1.2: three missions (from the todo list): a mission picker on the title, each mission unlocked by clearing the one before, best score/time per mission (localStorage 'sopwith-dawn-prog'; mission 1 takes over the old 'sopwith-dawn-best'). 1 DAWN PATROL is v1.1's map. 2 FLAK ALLEY (seed 1918): 3 sandbagged AA guns whose barrels track you and fire shells fused for your height, leading you a little with 9-24 px of error; a burst within 13 px costs 1 hp (2 within 6). 3 THE ZEPPELIN (seed 1916): a 100 px dithered zeppelin drifts from the far end toward your runway at 11 px/s (about 3.7 min), bombing every 4-6.5 s, with a gondola gun that fires bursts of 3 inside 125 px; 100 hp, bullets 1, bombs 12, ramming crashes you; it smokes under half, falls nose-first and blows a crater for +1000 and the win; reaching your runway bombs it and ends the mission. HUD LEFT becomes ZEPPELIN %. On tall phones the menus are position:fixed over the whole screen.
 
 - 2026-10-06 v1.2.1: on a narrow phone (< 560 px) the score row sits under the fuel row (they overlapped, ZEPPELIN 93% made it worse); shorter zeppelin warnings.
+- 2026-10-06 v1.3: mission 4 NIGHT RAID (seed 1915, night: no clouds): 4 searchlights (kind 'light', 4 hp, 125 pts) sweep a dithered cyan beam 185 px long (half-width 2 + d*.075); flying into one locks it on, and it follows at .6 rad/s (a hard turn gets out) and lets go after .7 s outside. While any light is on you (G.lit) the AA guns see you from 420 px instead of 290, fire every .75-1.3 s and aim within 4-11 px. 'CAUGHT IN A SEARCHLIGHT!' at most every 6 s.
 ## issues
 - Lift-off: holding the pull-up key straight after lift-off looped the plane backwards; the first .45 s in the air turns at a quarter rate.
 
 ## todos
-- Ideas: the ox on the runway joke; escort planes that stick to the zeppelin; a mission 4 (night raid with searchlights?). varj1 wanted a plain black sky, so no sunrise.
+- Ideas: the ox on the runway joke; escort planes that stick to the zeppelin; a mission 5 (a bridge? an observation balloon?). varj1 wanted a plain black sky, so no sunrise.
 
 ## testing
 - window.__S: freeze(true), start(), step(n, ['l','r','boost','fire','bomb']), draw(), G(), P(). Probe: scratchpad hm/psw.js (taxi, lift, bomb run, land/refuel, crash, respawn). v1.2 adds pick(i) (opens and selects a mission), prog(), end(won), zepHurt(d, x, y); probes hm/sd2/pf.js (flak), pt.js (end screen + picker), pz.js#fly|burn|fall|down|lost. hud() only runs in the frame loop, so frozen probes read stale HUD text.
