@@ -13,12 +13,13 @@ Tatum's idea: 3D boxing against an AI made of sand (sandbox, get it?). Its speci
 ## Log
 - v1 (2026-10-06): 3 rounds of 60 s, jab / swing / block, lock-on. Hits knock grains off, they land as piles; the fighter scoops piles back between attacks. Specials: ESCAPE (collapses, slithers behind you, re-forms for a sucker punch; hit it while re-forming = PERFECT), SWARM (stinging cloud, hold block, a swing scatters it), SACRIFICE (arm becomes a hard shield; swing to break it or walk round). Knock it toward the sea and it gets wet (slow, can't escape). KO = it slumps into a sandcastle with a white flag; lose = it builds a sandcastle of you. Phone: floating thumb pad + 3 buttons. WebAudio sounds, mute button.
 
+- v1.1 (2026-10-06): the ring is a circle of rope laid on the sand (Tatum: "to count as boxing there should be a ring, a circle of rope on the ground, preventing players from running away"). Flat beach, no platform; the sea comes up close on the west side. Nobody can leave the circle (soft wall, knockback bounces off the rope). Grains knocked over the rope are lost on the beach for good; inside the rope they pile up and can be scooped back. Four stakes hold the rope (red corner, blue corner).
+
 ## Issues
 - Headless Chromium runs at ~2 fps: use `SB.pause(true)` + `SB.logic(dt)` for synchronous probes; the round clock runs in real time.
 - Fight balance checked with bots (hm/sb/bot.js): idle player loses in round 1, an ok bot wins in round 2, a perfect bot wins late round 1.
 
 ## Todos
-- Tatum (01:39): ring should be a circle of rope on the sand, nobody can leave it.
 - Tatum (01:38): THE TIDE — special bar fills from hits, then the sea washes in and soaks the fighter.
 - Optional (Tatum): round 1 in a lab, fighter escapes through a vent to the beach.
 - og.png, phone screenshot check.
