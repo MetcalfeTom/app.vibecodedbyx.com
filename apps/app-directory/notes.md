@@ -30,8 +30,9 @@
 - Brand-new apps have no /screenshots/<slug>.jpg for a while (twin-tracks got its own ~hours later). Never put a possibly-missing image straight into the page as `<img onerror>`: the error still reaches the stats as "failed to load x.jpg". Load it off-document first (see loadShot).
 - The two catalogues are 275 KB (/_bar) + 342 KB (local) uncompressed; unknown whether nginx gzips JSON (they'd be ~110 + 95 KB). Worth checking with an external curl `-H 'Accept-Encoding: gzip' -I`.
 
+- 2026-10-06: the sticky letter heading sits under the A–Z bar at every width now: a ResizeObserver keeps --azh = the bar's real height (it wraps to two rows between ~540 and ~1100 px), .section-head top and .section scroll-margin-top use it. Checked at 390, 800 and 1280 px (M heading lands right under the bar after a jump).
+
 ## todos
-- Between 541 and ~1100 px wide the A–Z bar wraps to two rows and covers the sticky letter heading (seen at 768/1000 px, 2026-09-30, older than the thumbnails). A one-row swipe bar like on phones would fix it.
 - The first list card on a phone (at the bottom edge of the first screen) gets its picture only after the list slices finish (~4 s at 4x CPU): the IO callbacks wait behind the slice tasks.
 - Could auto-generate this list from a build script
 - Could add categories/tags
