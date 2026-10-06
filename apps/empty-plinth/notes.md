@@ -9,6 +9,7 @@ Hard rules: never replicate the real cover or use/link any image of it; no exter
 
 - v1.1 (2026-10-06): the cover as Marci described it: thick brass frame (beaded moulding, corner bosses) around a lumpy earthy panel (noise-displaced, bronze-yellow patina). New pieces (appended types 10-20): fork (4 or 3 prongs), knife, spoon, bead (5 colours), crucifix, spiral disc with white centre, rosette, wax drips, mirror shard, blue-gold sword, scratched inscription. Palette in families (Cutlery, Jewels, Relics, Shells, Dalí). The case is now 8 layered steps (torn pages 1-7 + Witness M.'s full statement); work carries over to the next step. Page 6 = prongs contradiction (Tatum: 3 or 4, all forks must match). Page 7 = patina contradiction (weathered brown is right; bonus: a wheelchair wheel glimpsed in the mirror shard). Curator: "the dinner table became an altar" when the fork cross is right. Storage key v2 (v1 studio carried over). Share code 'B'+patina prefix.
 - v1.2 (2026-10-06): surreal room. The walls sag and drip slowly over ~10 minutes while you work (segmented planes displaced in sagWalls(), glossy red drip streaks drawn on a canvas + roughness map; door area masked; the parquet floor untouched for Tatum). A melting gold clock low on the back wall ticks backwards (1 s interval, also renders one frame/s). The curator is a floating eye with a monocle, chain and lashes; it watches the camera, blinks now and then, and floats beside the cover to stare at you during the verdict; the verdict card has a small SVG eye. Default camera is lower (ph 1.25) so the wall and clock show. Test hook: __EP.sag(t).
+- v1.3 (2026-10-06): torn pages + Dalí's ghost. Nine torn pages lie in the room (PAGES in app.js: 1 by the toppled glass case, 2 under the new visitors' bench, 3 by the exit door, 4 caught in the police tape, 5 under the plinth, 6a by the new radiator, 6b in the new bin, 7a on the coat stand in the new VESTIAIRE corner, 7b, a lunch receipt, stuck in the new lift doors). The current step's pages glow; the case file hides the clue and notes until you click the page (or press "Show me where", which flies the camera there and opens it). Found pages are saved (store.found). Dalí's ghost drifts between 5 spots every 10 s; click him (or "Ask Dalí's ghost") for a riddle. Per fannar22: he is a liar whose every line hides one true clue (flip it), and his moustache points at the next page (or the cover once the pages are found). Camera got a focus point (camTo(..., focus)) and shortest-way yaw.
 
 ## structure
 - One file. Script 1 = engine (window.EPC): TYPES (index order is the share-code format, only append), GEMS, ZONES, check(), ROUNDS, judge(), encode/decode. Script 2 = module (three.js scene, UI). Test hook: window.__EP.
@@ -16,14 +17,14 @@ Hard rules: never replicate the real cover or use/link any image of it; no exter
 - Share code: 'A' + 6 base64url chars per item (t5 v3 x8 y8 r6 s6).
 
 ## issues
+- Ghost lines must stay original (no real Dalí quotes). Liar style: false on the surface, one true clue inside.
+- On phones the ghost is often off-screen (narrow view); the Ask button covers it.
 - KEEP THE FLOOR AS IS (Tatum loves the parquet).
 - The wall clock only shows at the lower camera angle (ph ~1.25); on phones it peeks out under the folder bar.
 - Headless SwiftShader is slow; thumbnails are rendered with the main renderer (scissor) at boot.
 
 ## todos (queued from Marci, in order)
-- Dalí's ghost: translucent cartoon ghost with an upturned moustache, riddle hints on click, moustache points at the next torn page. No real quotes.
 - Dalí's cookbook easter egg: closed book "Les Dîners de Gala" (1973) on a side table, one line of our own. No recipes/images/ISBN/links.
 - Possible rename (coordinator will send the name; change title/og/heading only, no folder move).
-- Torn parchment pages scattered around the room (by the case, under a bench, by the door); click one to read that round's clue in hand lettering (game fiction: the real pages were not stolen).
 - Museum facts (Karoutzos centre, toured 1961–72, 2 million francs, gendarmerie research section Clermont-Ferrand, fear of being broken up).
 - Case archive wall: 10 famous art heists, the Rolstoelrovers (Den Bosch 1981) highlighted, pinned 2026 Issoire card.
