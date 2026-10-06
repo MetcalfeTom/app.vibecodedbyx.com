@@ -84,4 +84,7 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 - Look at screenshots/flipbook-press.jpg once it's regenerated: v1.7 removed the opacity fade on `#drop` that the old one caught mid-way.
 - Watch next week's numbers (visitors from WhatsApp, time on page) to see whether v1.7-1.9 hooked anyone.
 - Open the Save PDF file on a real phone/computer and print it once (size check: a Tiny picture should measure 30 mm wide).
+- Draw your own (v1.10-1.12): check on a real iPhone and Android (finger drawing, no page scroll or long-press loupe on the pad, 🗑 / ↶ glyphs, the saved drawing after closing the tab). Ideas if people use it: onion skin of two pages, a "copy this page" button for things that stay still, a slower speed for drawings (now always 12 pages a second; 24/60 fps only doubles the paper), keep sound words when going back to edit the drawing.
+- Maybe: share the film with a line of text and the app's address (navigator.share {files, text}); left out because some share targets drop the file when text comes along, needs a real-device test first.
+- Ask pushedbutton: is drawing your own pages in the spirit of the press, and should drawings print in Pale too (they switch to Colour now, thin lines use little ink)?
 - Film a flick: check on a real iPhone and Android (mp4 type, share sheet, save link). Ideas if chat likes it: a paper riffle sound in the clip, a portrait 4:5 frame, a "film again" button, tell Pushed.
