@@ -24,8 +24,11 @@ Tatum's idea: 3D boxing against an AI made of sand (sandbox, get it?). Its speci
 - Tide state lives in `T` (SB.T); wet line is E.wet > 0.6 (WETLINE). The sea-side rope only dampens to 0.55 so it never stops healing.
 
 ## Todos
-- Optional (Tatum): round 1 in a lab, fighter escapes through a vent to the beach.
-- og.png, phone screenshot check.
+- Optional (Tatum): round 1 in a lab, fighter escapes through a vent to the beach (not done).
+- Escape could try to seep under the rope (Tatum's idea), you have to stop it.
+- Real-phone feel check of stamina numbers and the TIDE button spot; humans may find round 1 long.
 
 ## Debug
-- `window.SB` = { G, E, P, SH, newGame, queue, pause, logic, info, count }. `#shot` hash hides the end card.
+- og.png = headless shot of the tide washing in (hm/sb/p6.js `#shot&stage=og&og`, HUD hidden), convert to 1200x630.
+- Probes: p2 bot balance (idle/ok/good/notide/mash), p6 tide stages, p7 FIRSTFLAGPOISONED tell/cough, p8 phone HUD with tide ready.
+- `window.SB` = { G, E, P, SH, T, HEALS, tide, newGame, queue, pause, logic, info, count }. `#shot` hash hides the end card.
