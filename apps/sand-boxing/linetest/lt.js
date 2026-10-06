@@ -4,7 +4,10 @@
    This file only:
    - gives the old version its own in-memory localStorage, so your real saves are left alone
    - reload knobs (?opaque ?noaa ?keep ?dpr1) that change the WebGL context or the pixel ratio before three.js starts
-   - a small panel (bottom left) to hide layers one by one, freeze the frame, empty the 3D scene and read the sizes */
+   - a small panel (bottom left) to hide layers one by one, freeze the frame, empty the 3D scene and read the sizes
+   - a vignette chooser (Tatum found the line is the vignette layer, 14:44 UTC): the old CSS gradient, the same on its own GPU layer,
+     an inset box-shadow, a stretched 2D canvas image, or drawn inside the 3D view (the v1.21.2 fix)
+   - a version badge on the 🧪 button and a short toast on load, so it is plain which version is running */
 (function () {
   'use strict';
   var VERS = [
@@ -13,8 +16,10 @@
     ['v1.13', '6 Oct 05:50', 'sea sparkle line'],
     ['v1.16', '6 Oct 06:59', 'last one before the load rework'],
     ['v1.17', '6 Oct 09:29', 'sunset backdrop behind the canvas, faster load'],
-    ['v1.20', '6 Oct 13:12', 'the game as it is now']
+    ['v1.20', '6 Oct 13:12', 'before the stamina strip'],
+    ['v1.21.2', '6 Oct 15:10', 'the fix: the vignette is drawn inside the 3D view']
   ];
+  var BASE = '/sand-boxing/'; // absolute links: the same target from linetest.html, /linetest, /linetest/ or a version page
   var KNOBS = [
     ['opaque', 'opaque canvas (WebGL alpha off)'],
     ['noaa', 'no antialias'],
@@ -27,7 +32,7 @@
     card: 'start card', end: 'end card', pz: 'pause menu', touch: 'touch buttons', tipCatch: 'hint catcher', nogl: 'no-WebGL note'
   };
   var Q = new URLSearchParams(location.search);
-  var here = (location.pathname.match(/\/(v[\d-]+)\.html$/) || [])[1] || '';
+  var here = (location.pathname.match(/\/(v[\d-]+)(?:\.html)?\/?$/) || [])[1] || '';
   var curV = here.replace(/-/g, '.');
 
   /* 1. old versions save into memory only */
@@ -91,7 +96,7 @@
     var s = p.toString();
     return s ? '?' + s : '';
   }
-  function fileOf(v) { return v.replace(/\./g, '-') + '.html'; }
+  function fileOf(v) { return BASE + 'linetest/' + v.replace(/\./g, '-') + '.html'; }
 
   function ready(fn) { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
   ready(function () {
@@ -124,7 +129,16 @@
       '#lt pre{margin:3px 0 0;white-space:pre-wrap;word-break:break-word;color:#d9c7b4}',
       '#lt .lt-min{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;',
       ' background:rgba(18,8,14,.85);font:18px/1 serif}',
-      '#lt:not(.min) .lt-min{position:absolute;right:6px;top:6px;width:26px;height:26px;font-size:14px;background:#3a2230}'
+      '#lt:not(.min) .lt-min{position:absolute;right:6px;top:6px;height:26px;background:#3a2230}',
+      '#lt .lt-min{width:auto;min-width:34px;padding:0 9px;gap:6px;color:#ffd45e;font:800 12px/1 "Martian Mono",ui-monospace,Menlo,Consolas,monospace}',
+      '#lt .lt-min i{font:17px/1 serif;font-style:normal}',
+      '#lt:not(.min) .lt-min i{font-size:13px}',
+      '#lt h2{padding-right:6.5rem}',
+      '#lt-toast{position:fixed;left:50%;top:calc(30% + env(safe-area-inset-top,0px));transform:translate(-50%,-50%);z-index:2147483647;pointer-events:none;',
+      ' padding:12px 20px 13px;border-radius:12px;background:rgba(18,8,14,.9);color:#f7e6d2;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.5);',
+      ' font:400 12px/1.5 "Martian Mono",ui-monospace,Menlo,Consolas,monospace;transition:opacity .6s;max-width:calc(100vw - 32px)}',
+      '#lt-toast b{display:block;font:400 30px/1.1 "Alfa Slab One",Georgia,serif;color:#ffd45e}',
+      '#lt-toast.out{opacity:0}'
     ].join('\n');
     document.head.appendChild(css);
 
@@ -145,7 +159,9 @@
     }
     var tip = el('div', 'tip');
 
-    var minB = el('button', 'lt-min', '\u{1F9EA}');
+    var minB = el('button', 'lt-min');
+    minB.appendChild(el('i', '', '\u{1F9EA}'));
+    minB.appendChild(el('span', '', curV || 'line test'));
     minB.type = 'button';
     minB.title = 'Line test panel: show or tuck away';
     minB.setAttribute('aria-label', 'Show or tuck away the line test panel');
@@ -153,6 +169,19 @@
     root.appendChild(minB);
 
     var info = VERS.filter(function (v) { return v[0] === curV; })[0];
+    if (info) {
+      var toast = el('div', '');
+      toast.id = 'lt-toast';
+      toast.setAttribute('aria-hidden', 'true');
+      toast.appendChild(el('b', '', info[0]));
+      toast.appendChild(el('span', '', 'line test · ' + info[1] + ' UTC'));
+      document.body.appendChild(toast);
+      var bye = function () {
+        setTimeout(function () { toast.classList.add('out'); }, 3500);
+        setTimeout(function () { toast.remove(); }, 4300);
+      };
+      if (document.readyState === 'complete') bye(); else addEventListener('load', bye); // counted from when the page has loaded
+    }
     root.appendChild(el('h2', '', 'Line test · ' + (info ? info[0] + ' · ' + info[1] : 'Sand Boxing')));
     root.appendChild(el('div', 'note', 'This is ' + (info ? info[0] + "'s" : 'the') + ' real render code. Tap the 🧪 to tuck this panel away while you look for the line.'));
 
@@ -165,10 +194,97 @@
       vrow.appendChild(a);
     });
     var back = el('a', 'b', 'list');
-    back.href = '../linetest.html' + query();
+    back.href = BASE + 'linetest.html' + query();
     back.title = 'Back to the list of versions';
     vrow.appendChild(back);
     root.appendChild(vrow);
+
+    root.appendChild(el('h3', '', 'Vignette · which ones show the line?'));
+    var vrow2 = el('div', 'row');
+    root.appendChild(vrow2);
+    var VMODES = [
+      ['ship', 'as shipped', 'this version\'s own vignette (v1 to v1.21.1: the CSS gradient layer; v1.21.2: drawn in the 3D view)'],
+      ['off', 'none', 'no vignette at all'],
+      ['css', 'CSS gradient', 'the old layer: a full-screen div with a CSS radial-gradient'],
+      ['css3d', 'CSS + translateZ(0)', 'the same CSS gradient, pushed onto its own GPU layer with transform: translateZ(0)'],
+      ['shadow', 'inset box-shadow', 'a full-screen div with a blurred inset box-shadow instead of a gradient'],
+      ['img', '2D canvas image', 'the vignette painted once into a 256×256 canvas and stretched as the div\'s background image'],
+      ['gl', 'in the 3D view', 'drawn last into the WebGL canvas itself, no page layer at all (the v1.21.2 fix)']
+    ];
+    var vmode = 'ship', ltVig = null, vigImg = '', ourMesh = null;
+    var GRAD = 'radial-gradient(ellipse at 50% 46%,transparent 58%,rgba(46,12,26,.42))';
+    var VS = 'varying vec2 vUv; void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+    var FS = 'varying vec2 vUv; void main() { vec2 d = vec2((vUv.x - 0.5) / 0.70711, (vUv.y - 0.54) / 0.76368);' +
+      ' gl_FragColor = vec4(0.18039, 0.04706, 0.10196, 0.42 * clamp((length(d) - 0.58) / 0.42, 0.0, 1.0)); }';
+    function oldVig() { return document.querySelector('body > .vig'); }
+    function gameMesh() {
+      for (var i = 0; i < T.scenes.length; i++) { var m = T.scenes[i].getObjectByName('vignette'); if (m && m !== ourMesh) return m; }
+      return null;
+    }
+    /* versions before v1.21.2 have no 3D vignette: build the same quad from the version's own three.js classes */
+    function makeMesh() {
+      if (ourMesh) return ourMesh;
+      var s = T.scenes[0], plane = null, basic = null;
+      if (!s) return null;
+      s.traverse(function (o) {
+        if (!o.isMesh || o.type !== 'Mesh') return;
+        if (!plane && o.geometry && o.geometry.type === 'PlaneGeometry') plane = o;
+        var mt = o.material;
+        if (!basic && mt && !Array.isArray(mt) && mt.type === 'MeshBasicMaterial') basic = mt;
+      });
+      if (!plane || !basic) return null;
+      try {
+        var mat = new basic.constructor({ transparent: true, depthTest: false, depthWrite: false });
+        mat.onBeforeCompile = function (sh) { sh.vertexShader = VS; sh.fragmentShader = FS; };
+        mat.customProgramCacheKey = function () { return 'lt-vignette'; };
+        ourMesh = new plane.constructor(new plane.geometry.constructor(2, 2), mat);
+        ourMesh.name = 'vignette'; ourMesh.frustumCulled = false; ourMesh.renderOrder = 1e9; ourMesh.castShadow = ourMesh.receiveShadow = false;
+        s.add(ourMesh);
+      } catch (e) { ourMesh = null; }
+      return ourMesh;
+    }
+    function paintImg() {
+      if (vigImg) return vigImg;
+      var c = document.createElement('canvas'), N = 256;
+      c.width = c.height = N;
+      var g = c.getContext('2d'), im = g.createImageData(N, N), d = im.data;
+      for (var y = 0; y < N; y++) for (var x = 0; x < N; x++) {
+        var u = ((x + 0.5) / N - 0.5) / 0.70711, v = ((y + 0.5) / N - 0.46) / 0.76368;
+        var a = 0.42 * Math.min(1, Math.max(0, (Math.sqrt(u * u + v * v) - 0.58) / 0.42)), i = (y * N + x) * 4;
+        d[i] = 46; d[i + 1] = 12; d[i + 2] = 26; d[i + 3] = Math.round(a * 255);
+      }
+      g.putImageData(im, 0, 0);
+      return (vigImg = c.toDataURL('image/png'));
+    }
+    function setVis(m, on) { if (!m) return; if ('ltVis' in m.userData) m.userData.ltVis = on; else m.visible = on; }
+    function applyVig() {
+      var o = oldVig(), gm = gameMesh();
+      if (o) o.style.display = vmode === 'ship' ? '' : 'none';
+      setVis(gm, vmode === 'ship' || vmode === 'gl');
+      if (vmode === 'gl' && !gm) makeMesh();
+      setVis(ourMesh, vmode === 'gl' && !gm);
+      var css = vmode === 'css' || vmode === 'css3d' || vmode === 'shadow' || vmode === 'img';
+      if (!css && !ltVig) return;
+      if (!ltVig) {
+        ltVig = el('div');
+        ltVig.id = 'lt-vig';
+        ltVig.setAttribute('aria-hidden', 'true');
+        var gl = document.getElementById('gl');
+        if (gl && gl.parentNode === document.body) gl.after(ltVig); else document.body.prepend(ltVig);
+      }
+      ltVig.hidden = !css;
+      ltVig.style.cssText = 'position:fixed;inset:0;pointer-events:none;' + (
+        vmode === 'css' ? 'background:' + GRAD :
+        vmode === 'css3d' ? 'background:' + GRAD + ';transform:translateZ(0)' :
+        vmode === 'shadow' ? 'box-shadow:inset 0 0 22vmin 3vmin rgba(46,12,26,.42)' :
+        vmode === 'img' ? 'background:url(' + paintImg() + ') 0 0/100% 100% no-repeat' : '');
+    }
+    var vbtns = VMODES.map(function (m) {
+      var b = btn(m[1], function () { vmode = m[0]; applyVig(); }, m[2]);
+      b.dataset.vm = m[0];
+      vrow2.appendChild(b);
+      return b;
+    });
 
     root.appendChild(el('h3', '', 'Layers · tap to hide · dashed = hidden by the game, tap to force on'));
     var lrow = el('div', 'row');
@@ -179,7 +295,7 @@
     root.appendChild(trow);
     var onlyB = btn('only the 3D canvas', function () {
       var on = !onlyB.classList.contains('on');
-      layers().forEach(function (L) {
+      layers(true).forEach(function (L) {
         if (L.id === 'gl') { L.classList.remove('lt-off'); return; }
         if (on) L.classList.add('lt-off'); else L.classList.remove('lt-off');
       });
@@ -200,6 +316,7 @@
         });
       });
       emptyB.classList.toggle('on', on);
+      if (!on) applyVig();
     }, 'every 3D object (sky, sea, sand, fighters) is hidden, only the clear colour is left. Turn on cyan clear colour too for one flat colour');
     var cyanB = btn('cyan clear colour', function () {
       var on = !cyanB.classList.contains('on'), R = T.renderer;
@@ -244,9 +361,10 @@
     var pre = el('pre');
     root.appendChild(pre);
 
-    function layers() {
+    function layers(withTest) {
       return Array.from(document.body.children).filter(function (L) {
-        return L !== root && !/^(SCRIPT|STYLE|LINK|NOSCRIPT|TEMPLATE)$/.test(L.tagName);
+        if (L === root || L.id === 'lt-toast' || (L.id === 'lt-vig' && !withTest)) return false;
+        return !/^(SCRIPT|STYLE|LINK|NOSCRIPT|TEMPLATE)$/.test(L.tagName);
       });
     }
     function keyOf(L) { return L.id || L.classList[0] || L.tagName.toLowerCase(); }
@@ -286,9 +404,11 @@
         b.className = off ? 'off' : forced ? 'forced' : gh ? 'gh' : '';
         b.textContent = (NAMES[k] || k) + (off ? ' (off)' : forced ? ' (forced on)' : '');
         b.title = '#' + k + (gh ? ': hidden by the game, tap to force it on' : off ? ': hidden by you, tap to show' : ': tap to hide');
+        if (k === 'vig' && vmode !== 'ship' && !off) { b.className = 'gh'; b.textContent = 'vignette (swapped above)'; b.title = 'the vignette chooser has swapped this layer out'; }
         lrow.appendChild(b);
       });
       frzB.classList.toggle('on', frozen);
+      vbtns.forEach(function (b) { b.classList.toggle('on', b.dataset.vm === vmode); });
       snapB.classList.toggle('on', snapOn);
       magB.classList.toggle('on', document.documentElement.classList.contains('lt-magenta'));
       var c = document.getElementById('gl');
