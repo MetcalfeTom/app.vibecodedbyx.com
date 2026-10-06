@@ -39,7 +39,8 @@ A choreography tool for dance instructors: load a song, the beat is found, the s
 
 ## todos
 - Pivot turn (Pushed): heel/ball of the planted foot stays put while she turns round it; needs foot locking first.
-- Idle animations (Pushed): when nothing has played for a while she sips from the bottle, towels off, stretches, bounces on the spot.
+- More breaks (v1.27 has bottle, stretch, towel): a phone break (Pushed), a snack she forgets to eat.
+- Dance props (Pushed): e.g. a newspaper held in both hands, folded and tucked under the elbow. The held-prop system (P.hold/P.hu, heldDraw) can carry it; needs a left-hand hold and a prop picker per move.
 - Webcam capture (Pushed): pose tracking in the browser, snapped to the counts as keys. Pushed: needs solid foundations first (feet, pivot) — do it after those.
 - Speed control for practice (0.5×, 0.75×).
 - Maker: elbow/knee handles (needs a pole/twist key), head handle, a planted foot that can slide on the floor, real tiptoes.
