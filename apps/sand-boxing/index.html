@@ -445,7 +445,7 @@ function updTideVis(t) {
 
 /* ---------------- sand grains ---------------- */
 const N = 1500;
-const ST_ATT = 0, ST_FLY = 1, ST_PILE = 2, ST_RET = 3, ST_LOST = 4, ST_FX = 5, ST_CAS = 6, ST_WASH = 7;
+const ST_ATT = 0, ST_FLY = 1, ST_PILE = 2, ST_RET = 3, ST_LOST = 4, ST_FX = 5, ST_CAS = 6, ST_WASH = 7, ST_SEEP = 8;
 const FX_MOUND = 1, FX_CLOUD = 2, FX_SHIELD = 3, FX_HOME = 4, FX_REFORM = 5;
 const gx = new Float32Array(N), gy = new Float32Array(N), gz = new Float32Array(N);
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
@@ -509,6 +509,36 @@ grains.castShadow = true; grains.receiveShadow = true; grains.frustumCulled = fa
 scene.add(grains);
 const IM = grains.instanceMatrix.array, IC = grains.instanceColor.array;
 for (let i = 0; i < N; i++) IM[i * 16 + 15] = 1;
+
+/* ESCAPE seeps under the rope (Tatum): now and then a thin glowing trail of grains sneaks off toward the sea */
+const SEEP_T = 3.0, SEEP_N = 64;
+const SEEP = { on: false, rush: false, t: 0, at: 0, done: false, v: 1, ax: 0, az: 0, bx: 0, bz: 0, cx: 0, cz: 0, l1: 1, l2: 1, n1x: 0, n1z: 0, n2x: 0, n2z: 0, list: new Int32Array(SEEP_N), cnt: 0, hinted: false, saved: 0, lost: 0, glow: 0 };
+const seepTex = (() => { // soft-edged band with dashes that flow toward the sea
+  const c = document.createElement('canvas'); c.width = 32; c.height = 64;
+  const x = c.getContext('2d'), im = x.createImageData(32, 64);
+  for (let v = 0; v < 64; v++) for (let u = 0; u < 32; u++) {
+    const e = Math.max(0, 1 - Math.abs(u - 15.5) / 15.5), d = 0.5 + 0.5 * Math.cos(v / 64 * TAU), o = (v * 32 + u) * 4;
+    im.data[o] = im.data[o + 1] = im.data[o + 2] = 255; im.data[o + 3] = 255 * Math.pow(e, 1.4) * (0.35 + 0.65 * d * d);
+  }
+  x.putImageData(im, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.wrapT = THREE.RepeatWrapping; return t;
+})();
+const seepGeo = new THREE.PlaneGeometry(1, 1); seepGeo.rotateX(-Math.PI / 2); seepGeo.translate(0, 0, 0.5);
+const seepS = [0, 1].map(() => {
+  const tx = seepTex.clone(); tx.needsUpdate = true;
+  const m = new THREE.Mesh(seepGeo, new THREE.MeshBasicMaterial({ color: '#a8ff3c', map: tx, transparent: true, opacity: 0, depthWrite: false }));
+  m.position.y = 0.022; m.visible = false; m.renderOrder = 2; scene.add(m); return m;
+});
+function placeStrip(m, ax, az, bx, bz) { const l = Math.hypot(bx - ax, bz - az); m.position.x = ax; m.position.z = az; m.rotation.y = Math.atan2(bx - ax, bz - az); m.scale.set(0.5, 1, l); m.material.map.repeat.y = l / 0.55; }
+let _sn = 0, _snz = 0;
+function seepPath(d) { // a point d metres along the trail: feet -> under the rope -> the sea
+  if (d <= SEEP.l1) { const f = d / SEEP.l1; _x = SEEP.ax + (SEEP.bx - SEEP.ax) * f; _z = SEEP.az + (SEEP.bz - SEEP.az) * f; _sn = SEEP.n1x; _snz = SEEP.n1z; }
+  else { const f = Math.min(1, (d - SEEP.l1) / SEEP.l2); _x = SEEP.bx + (SEEP.cx - SEEP.bx) * f; _z = SEEP.bz + (SEEP.cz - SEEP.bz) * f; _sn = SEEP.n2x; _snz = SEEP.n2z; }
+}
+function segD(px, pz, ax, az, bx, bz) {
+  const ux = bx - ax, uz = bz - az, l2 = ux * ux + uz * uz || 1, t = clamp(((px - ax) * ux + (pz - az) * uz) / l2, 0, 1);
+  return Math.hypot(px - ax - ux * t, pz - az - uz * t);
+}
 
 /* dust puffs */
 const PUFFN = 60;
@@ -592,7 +622,7 @@ function placeSeg(m, a, b) {
 const G = { mode: 'title', round: 1, time: 60, introT: 0, breakT: 0, overT: 0, t: 0, knocked: 0, perfects: 0, counters: 0, result: '' };
 const ROUND_LEN = 60;
 const P = { x: 1.6, z: 0, yaw: -Math.PI / 2, hp: 100, act: '', actT: 0, hitDone: false, block: false, hurt: 0, kvx: 0, kvz: 0, walk: 0, spd: 0, down: 0, buf: '', bufT: 0, cough: 0, coughT: 0, sta: 1, pw: 1, lastPunch: -9, tiredShown: false };
-const E = { x: -1.6, z: 0, yaw: Math.PI / 2, c: 0, s: 1, state: 'wait', t: 0, sub: 0, rt: 9, kvx: 0, kvz: 0, atkT: 2, spT: 7, circ: 0.6, circT: 2, wet: 0, wetShown: false, body: N, lastHit: -9, jabs: 0, lastJab: -9, guardFor: 1, scoopAcc: 0, flash: 0, arm: 0, mx: 0, mz: 0, pcx: 0, pcz: 0, a0: 0, r0: 0, sgn: 1, after: 'idle', lx: -1.6, lz: 0, special: '', hitDone: false, dmg: 8 };
+const E = { x: -1.6, z: 0, yaw: Math.PI / 2, c: 0, s: 1, state: 'wait', t: 0, sub: 0, rt: 9, kvx: 0, kvz: 0, atkT: 2, spT: 7, circ: 0.6, circT: 2, wet: 0, wetShown: false, body: N, lastHit: -9, jabs: 0, lastJab: -9, guardFor: 1, scoopAcc: 0, flash: 0, arm: 0, mx: 0, mz: 0, pcx: 0, pcz: 0, a0: 0, r0: 0, sgn: 1, after: 'idle', lx: -1.6, lz: 0, special: '', hitDone: false, dmg: 8, esc: 0 };
 const SH = { arm: 0, on: false, cx: 0, cz: 0, nx: 0, nz: 0, tx: 0, tz: 0, t: 0, hard: 0 };
 const EP = { crouch: 0, pL: 0, pR: 0, wL: 0, wR: 0, uL: 0, uR: 0, lean: 0, step: 0, slump: 0 };
 const PA = new Float32Array(39), PBb = new Float32Array(39);
@@ -692,6 +722,20 @@ function updGrains(dt) {
       gy[i] = 0.05 + Math.sin(t * 7 + ph[i]) * 0.014;
       if (gx[i] < -5.5 || !T.on) { st[i] = ST_LOST; gx[i] = -6.4 - (i % 13) * 0.11; gy[i] = -0.25; }
     }
+    else if (s === ST_SEEP) { // ESCAPE: trickling along the trail (still its sand until it gets away)
+      body++;
+      prog[i] += SEEP.v * dt; dur[i] += dt;
+      const L = SEEP.l1 + SEEP.l2;
+      if (prog[i] >= L) {
+        if (SEEP.rush) { st[i] = ST_LOST; gx[i] = SEEP.cx - 0.3 - (i % 7) * 0.09; gz[i] = SEEP.cz + ((i % 5) - 2) * 0.1; gy[i] = -0.25; gsc[i] = 1; E.esc++; body--; continue; }
+        prog[i] = L - (i % 9) * 0.03;
+      }
+      seepPath(prog[i]);
+      const w = Math.sin(t * 7 + ph[i]) * 0.035 + (ph[i] / TAU - 0.5) * 0.09;
+      const px = _x + _sn * w, pz = _z + _snz * w, py = 0.035 + Math.abs(Math.sin(t * 9 + ph[i] * 3)) * 0.03;
+      const u = dur[i] < 0.4 ? ease(dur[i] / 0.4) : 1;
+      gx[i] = sx[i] + (px - sx[i]) * u; gy[i] = sy[i] + (py - sy[i]) * u; gz[i] = sz[i] + (pz - sz[i]) * u;
+    }
     else if (s === ST_CAS) {
       if (E.rt > del[i]) { gx[i] += (cx[i] - gx[i]) * kK; gy[i] += (cy[i] - gy[i]) * kK; gz[i] += (cz[i] - gz[i]) * kK; }
     }
@@ -716,6 +760,7 @@ function writeGrains(t) {
       else mul = 1 - 0.46 * wet + flash * 0.45;
     } else if (s === ST_LOST) mul = 0.86;
     else if (s === ST_PILE) mul = 0.95;
+    else if (s === ST_SEEP) { const g = 0.5 + 0.5 * Math.sin(t * 13 - prog[i] * 5); cr = lerp(cr, 0.72, 0.8); cg = lerp(cg, 1, 0.8); cb = lerp(cb, 0.3, 0.8); mul = 1.3 + 0.6 * g; }
     if (wet > 0 && (s === ST_ATT || (s === ST_FX && fm[i] !== FX_SHIELD))) { cb *= 1 + wet * 0.12; }
     IM[o + 12] = x; IM[o + 13] = y; IM[o + 14] = z;
     IC[i * 3] = cr * mul; IC[i * 3 + 1] = cg * mul; IC[i * 3 + 2] = cb * mul;
@@ -800,7 +845,7 @@ let shownHp = -1, shownSand = -1, shownClock = '', shownWet = null;
 function updHud() {
   const hp = Math.max(0, Math.round(P.hp));
   if (hp !== shownHp) { shownHp = hp; $('hpFill').style.transform = `scaleX(${hp / 100})`; $('hpBar').setAttribute('aria-valuenow', hp); }
-  const sb = E.body;
+  const sb = E.body + E.esc;
   if (sb !== shownSand) { shownSand = sb; const f = sb / N; $('sandFill').style.transform = `scaleX(${f})`; $('grains').textContent = sb; $('sandBar').setAttribute('aria-valuenow', Math.round(f * 100)); }
   const tt = Math.max(0, Math.ceil(G.time)), ck = Math.floor(tt / 60) + ':' + String(tt % 60).padStart(2, '0');
   if (ck !== shownClock) { shownClock = ck; $('clock').textContent = ck; $('clock').classList.toggle('low', tt <= 10 && G.mode === 'fight'); }
@@ -864,12 +909,14 @@ function placeFighters() {
   E.c = Math.cos(E.yaw); E.s = Math.sin(E.yaw);
 }
 function calmEnemy() {
+  for (let i = 0; i < N; i++) if (st[i] === ST_SEEP) { st[i] = ST_FX; fm[i] = FX_HOME; }
+  endSeep();
   for (let i = 0; i < N; i++) if (st[i] === ST_FX) { fm[i] = FX_HOME; gsc[i] = 1; }
   SH.on = false; E.state = 'wait'; EP.crouch = 0;
 }
 function newGame() {
   resetGrains(); placeFighters();
-  P.hp = 100; P.down = 0; E.wet = 0; E.wetShown = false; SH.on = false; E.rt = 9; flag.visible = false;
+  P.hp = 100; P.down = 0; E.wet = 0; E.esc = 0; E.wetShown = false; SEEP.saved = SEEP.lost = 0; endSeep(); SH.on = false; E.rt = 9; flag.visible = false;
   G.round = 1; G.knocked = 0; G.perfects = 0; G.counters = 0; bag.length = 0;
   Object.assign(T, { charge: 0, on: false, t: 0, edge: -5.8, hit: false, soak: 0, soaked: false, floor: 0, washStarted: false, lastC: 0, lastP: 0, washed: 0, used: 0 });
   pmEl.hidden = true; pmT = pmHideT = 0;
@@ -881,6 +928,7 @@ function newGame() {
 function startRound() {
   G.mode = 'intro'; G.introT = 1.7; G.time = ROUND_LEN;
   placeFighters(); E.state = 'wait'; E.atkT = 1.6; E.spT = G.round === 1 ? 6 : 5;
+  SEEP.done = false; SEEP.at = ROUND_LEN * lerp(0.3, 0.72, rnd()); // about once a round, somewhere in the middle
   $('rnd').textContent = 'ROUND ' + G.round;
   banner('ROUND ' + G.round, G.round === 1 ? 'dry sand heals itself — land punches to charge the tide' : (G.round === 3 ? 'last round' : ''), 1.6);
   SFX.bell(1);
@@ -891,7 +939,7 @@ function endRound() {
   else decision();
 }
 function decision() {
-  const you = P.hp, it = E.body / N * 100;
+  const you = P.hp, it = (E.body + E.esc) / N * 100;
   if (you >= it) finish(true, 'Judges’ decision', `You win on points: ${Math.round(you)}% health against ${Math.round(it)}% sand.`);
   else finish(false, 'Sand wins', `It wins on points: ${Math.round(it)}% sand against your ${Math.round(you)}% health.`);
 }
@@ -902,7 +950,7 @@ function finish(won, title, line) {
   else { buildCastle(true); P.down = 0.001; banner(title === 'Down' ? 'DOWN!' : 'SAND WINS', 'it’s building a sandcastle of you', 2.6); }
   $('endTitle').textContent = won ? (title === 'K.O.' ? 'K.O.!' : 'You win') : 'Sand wins';
   $('endLine').textContent = line;
-  $('stats').textContent = `Grains knocked off: ${G.knocked} · tides: ${T.used} (took ${T.washed} grains out to sea) · perfect counters: ${G.perfects} · specials countered: ${G.counters}`;
+  $('stats').textContent = `Grains knocked off: ${G.knocked} · tides: ${T.used} (took ${T.washed} grains out to sea) · ${SEEP.saved + SEEP.lost ? `escapes stopped: ${SEEP.saved}/${SEEP.saved + SEEP.lost} · ` : ''}perfect counters: ${G.perfects} · specials countered: ${G.counters}`;
 }
 
 const bag = [];
@@ -1019,6 +1067,88 @@ function knockOff(n, ix, iy, iz, dx, dz, power) {
   if (E.wet <= WETLINE && !T.on) addCharge(n / 330);
   return n;
 }
+function startSeep(force) {
+  // pick a near sea-side rope gap whose trail runs across your view (not hidden behind it, not right past you)
+  let best = 1e9, bx = -RING, bz = 0;
+  const vx0 = E.x - P.x, vz0 = E.z - P.z, vl = Math.hypot(vx0, vz0) || 1;
+  for (let k = 0; k <= 16; k++) {
+    const a = Math.PI * (0.65 + 0.7 * k / 16), qx = Math.cos(a) * RING, qz = Math.sin(a) * RING;
+    const dx = qx - E.x, dz = qz - E.z, dl = Math.hypot(dx, dz) || 1;
+    let c = dl + 2.2 * Math.abs((dx * vx0 + dz * vz0) / (dl * vl)); if (segD(P.x, P.z, E.x + dx / dl * 0.5, E.z + dz / dl * 0.5, qx, qz) < 1.7) c += 10;
+    if (c < best) { best = c; bx = qx; bz = qz; }
+  }
+  if (best >= 10 && !force) return; // you're standing right by every way out: try again in a moment
+  const dx = bx - E.x, dz = bz - E.z, dl = Math.hypot(dx, dz) || 1;
+  inRing(E.x + dx / dl * 0.5, E.z + dz / dl * 0.5, LIMR); SEEP.ax = _cx; SEEP.az = _cz;
+  SEEP.bx = bx; SEEP.bz = bz; SEEP.cx = -5.95; SEEP.cz = bz * 1.1;
+  SEEP.l1 = Math.max(0.3, Math.hypot(SEEP.bx - SEEP.ax, SEEP.bz - SEEP.az)); SEEP.l2 = Math.hypot(SEEP.cx - SEEP.bx, SEEP.cz - SEEP.bz);
+  SEEP.n1x = -(SEEP.bz - SEEP.az) / SEEP.l1; SEEP.n1z = (SEEP.bx - SEEP.ax) / SEEP.l1; SEEP.n2x = -(SEEP.cz - SEEP.bz) / SEEP.l2; SEEP.n2z = (SEEP.cx - SEEP.bx) / SEEP.l2;
+  SEEP.v = Math.max(0.9, (SEEP.l1 + 0.3) / 2.6); // the head slips under the rope just before time runs out
+  // the lowest grains go first: it leaks from its feet
+  let m = 0;
+  for (let i = 0; i < N; i++) if (st[i] === ST_ATT) { cd[i] = gy[i] + rnd() * 0.08; cand[m++] = i; }
+  const sub = cand.subarray(0, m); sub.sort((a, b) => cd[a] - cd[b]);
+  SEEP.cnt = Math.min(SEEP_N, m);
+  for (let k = 0; k < SEEP.cnt; k++) { const i = sub[k]; SEEP.list[k] = i; del[i] = k / SEEP.cnt * 1.4; }
+  SEEP.on = true; SEEP.rush = false; SEEP.t = 0; SEEP.done = true;
+  placeStrip(seepS[0], SEEP.ax, SEEP.az, SEEP.bx, SEEP.bz); placeStrip(seepS[1], SEEP.bx, SEEP.bz, SEEP.cx, SEEP.cz);
+  if (!SEEP.hinted) { SEEP.hinted = true; banner('LEAK!', 'it’s seeping out under the rope — stand on the glowing trail', 2.4, true); }
+  else banner('LEAK!', 'stand on the trail', 1.2, true);
+  SFX.hiss(0.9);
+}
+function endSeep() { SEEP.on = false; SEEP.rush = false; }
+function containSeep(how) {
+  if (!SEEP.on || SEEP.rush) return;
+  let n = 0;
+  for (let k = 0; k < SEEP.cnt; k++) {
+    const i = SEEP.list[k];
+    if (st[i] !== ST_SEEP) continue;
+    st[i] = ST_FLY; gsc[i] = 1;
+    const r = Math.hypot(gx[i], gz[i]) || 1, back = r > RING - 0.4 ? 2.4 + rnd() * 1.4 : 0.5 + rnd() * 1.2; // scattered back into the ring
+    vx[i] = -gx[i] / r * back + (rnd() - 0.5) * 1.8; vy[i] = 1.5 + rnd() * 2.4; vz[i] = -gz[i] / r * back + (rnd() - 0.5) * 1.8; n++;
+  }
+  endSeep(); SEEP.saved++; G.knocked += n;
+  if (how !== 'tide') { G.counters++; banner('CONTAINED', how === 'punch' ? 'punched it back into the ring' : 'you stepped on it — it stays in the ring', 1.3, true); }
+  SFX.thud(0.9); hitStop = Math.max(hitStop, 0.05); shake = Math.max(shake, 0.07);
+  seepPath(Math.min(SEEP.l1, SEEP.v * SEEP.t)); puff(how === 'tide' ? _x : P.x, 0.15, how === 'tide' ? _z : P.z, 5, 2.2, 0.24);
+}
+function escapedSeep() { // too slow: it got out under the rope, for good
+  SEEP.rush = true; SEEP.v = 7; SEEP.lost++;
+  for (let k = 0; k < SEEP.cnt; k++) { const i = SEEP.list[k]; if (st[i] === ST_ATT) { st[i] = ST_SEEP; sx[i] = gx[i]; sy[i] = gy[i]; sz[i] = gz[i]; prog[i] = 0; dur[i] = 0; gsc[i] = 0.72; } }
+  termFlash('ESCAPED', 1.7); SFX.perma();
+  P.hp -= 6; P.hurt = 0.2; flashHurt(0.4);
+  if (SEEP.lost === 1) banner('', 'some of it got out for good — step on the trail next time', 2, true);
+  if (P.hp <= 0) { P.hp = 0; finish(false, 'Down', 'Part of it escaped under the rope, and the rest built a sandcastle of you.'); }
+}
+function updSeep(dt) {
+  if (!SEEP.on) {
+    SEEP.glow = Math.max(0, SEEP.glow - dt * 3);
+    if (G.mode === 'fight' && !SEEP.done && G.time < SEEP.at && G.time > 6 && E.wet <= 0.35 && !T.on && !T.soaked && !SH.on && P.cough <= 0 && E.body > N * 0.45 &&
+      (E.state === 'idle' || E.state === 'recover' || E.state === 'guard')) startSeep();
+    return;
+  }
+  SEEP.t += dt; SEEP.glow = Math.min(1, SEEP.glow + dt * 4);
+  if (!SEEP.rush) {
+    for (let k = 0; k < SEEP.cnt; k++) {
+      const i = SEEP.list[k];
+      if (st[i] === ST_ATT && del[i] <= SEEP.t) { st[i] = ST_SEEP; sx[i] = gx[i]; sy[i] = gy[i]; sz[i] = gz[i]; prog[i] = 0; dur[i] = 0; gsc[i] = 0.72; del[i] = 99; }
+    }
+    if (rnd() < dt * 7) SFX.scoop();
+    if (SEEP.t > 0.15 && segD(P.x, P.z, SEEP.ax, SEEP.az, SEEP.bx, SEEP.bz) < 0.5) { containSeep('step'); return; }
+    if (SEEP.t >= SEEP_T) escapedSeep();
+  } else {
+    let left = 0; for (let k = 0; k < SEEP.cnt; k++) if (st[SEEP.list[k]] === ST_SEEP) left++;
+    if (!left) endSeep();
+  }
+}
+function updSeepVis(t) {
+  const g = SEEP.glow, on = g > 0.01;
+  seepS[0].visible = seepS[1].visible = on;
+  if (on) {
+    const f = SEEP.on && !SEEP.rush ? clamp(SEEP.t / SEEP_T, 0, 1) : 1, o = g * (0.62 + 0.2 * Math.sin(t * (7 + 9 * f)));
+    for (const m of seepS) { m.material.opacity = o; m.material.map.offset.y = t * (1.6 + 3 * f); }
+  }
+}
 function addCharge(x) {
   if (G.mode !== 'fight' || T.charge >= 1) return;
   T.charge = Math.min(1, T.charge + x);
@@ -1032,6 +1162,7 @@ function tryTide() {
   SFX.wave(); shake = Math.max(shake, 0.06);
 }
 function soakEnemy() {
+  if (SEEP.on && !SEEP.rush) containSeep('tide'); // wet sand can't seep
   T.soak = SOAK; T.soaked = true; E.wet = 1;
   if (E.state === 'swarm') endSwarm(false);
   else if (E.state === 'esc' && E.sub < 2) { E.sub = 2; E.t = 0; E.x = E.mx; E.z = E.mz; faceEnemy(); enemyPose(simT); startReform(FX_MOUND); }
@@ -1080,6 +1211,7 @@ function playerStrike(kind) {
   const jab = kind === 'jab', reach = jab ? 1.85 : 2.05;
   const dx = E.x - P.x, dz = E.z - P.z, d = Math.hypot(dx, dz) || 1, ux = dx / d, uz = dz / d;
   const gl = gloves[jab ? 0 : 1].getWorldPosition(_a);
+  if (SEEP.on && !SEEP.rush && (segD(gl.x, gl.z, SEEP.ax, SEEP.az, SEEP.bx, SEEP.bz) < 0.5 || segD(P.x, P.z, SEEP.ax, SEEP.az, SEEP.bx, SEEP.bz) < 0.75)) containSeep('punch');
   if (E.state === 'swarm') {
     if (!jab) { endSwarm(true); hitStop = 0.1; shake = Math.max(shake, 0.15); }
     else {
@@ -1190,7 +1322,7 @@ function updEnemy(dt) {
   const fight = G.mode === 'fight';
   if (fight && !SH.on && (E.state === 'idle' || E.state === 'guard' || E.state === 'recover' || E.state === 'stagger')) {
     E.spT -= dt;
-    if (E.wet > WETLINE) E.spT = Math.max(E.spT, 1.2); // too wet for tricks
+    if (E.wet > WETLINE || SEEP.on) E.spT = Math.max(E.spT, 1.2); // too wet for tricks (or busy seeping)
     if (E.spT <= 0 && d < 3.6 && E.state !== 'stagger') { E.spT = lerp(7, 9.5, rnd()) - (G.round - 1) * 0.8; startTell(nextSpecial()); }
   }
   switch (E.state) {
@@ -1515,11 +1647,12 @@ let acc = 0, last = performance.now(), frames = 0, ftSum = 0, adapted = false, w
 function update(dt) {
   simT += dt; G.t += dt;
   updEnemy(dt);
+  updSeep(dt);
   updTide(dt);
   updPlayer(dt);
   enemyPose(simT);
   updGrains(dt);
-  if (G.mode === 'fight' && E.body < N * 0.25) koEnemy();
+  if (G.mode === 'fight' && E.body + E.esc < N * 0.25) koEnemy();
   if (G.mode === 'over') {
     G.overT += dt;
     if (G.overT > 1.4) { const s = Math.min(1, (G.overT - 1.4) / 0.5); flag.scale.setScalar(Math.max(0.001, s * (G.castle ? G.castle[2] : 1))); }
@@ -1547,7 +1680,7 @@ function logic(rdt) {
 function frame(now) {
   const rdt = paused ? 0 : Math.min((now - last) / 1000, 0.1); last = now;
   if (!paused) logic(rdt);
-  updFoam(wallT); updGulls(wallT); updTideVis(wallT);
+  updFoam(wallT); updGulls(wallT); updTideVis(wallT); updSeepVis(wallT);
   posePlayer(simT);
   writeGrains(simT);
   if (flag.visible) { flagCloth.rotation.y = Math.sin(wallT * 5) * 0.35; flagCloth.scale.x = 0.9 + Math.sin(wallT * 7) * 0.1; }
@@ -1632,10 +1765,10 @@ if (SHOTMODE) document.body.classList.add('shot');
 renderer.setAnimationLoop(frame);
 
 window.SB = {
-  G, E, P, SH, T, N, HEALS, newGame, queue, startTell, endSwarm, tide: () => tryTide(),
+  G, E, P, SH, T, N, HEALS, SEEP, seep: () => startSeep(true), segD, newGame, queue, startTell, endSwarm, tide: () => tryTide(),
   pause: v => { paused = v; }, keys, joy, logic: dt => { logic(dt); posePlayer(simT); P3.updateMatrixWorld(true); },
   info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, body: E.body, mode: G.mode, state: E.state }),
-  count: () => { const c = [0, 0, 0, 0, 0, 0, 0, 0]; for (let i = 0; i < N; i++) c[st[i]]++; return c; }
+  count: () => { const c = [0, 0, 0, 0, 0, 0, 0, 0, 0]; for (let i = 0; i < N; i++) c[st[i]]++; return c; }
 };
 </script>
 </body>
