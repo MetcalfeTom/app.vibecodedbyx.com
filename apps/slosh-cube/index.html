@@ -285,13 +285,15 @@ const q = new THREE.Quaternion(), qT = new THREE.Quaternion(), qPrev = new THREE
 const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), m4 = new THREE.Matrix4(), gv = new THREE.Vector3();
 let wx = 0, wy = 0, drag = null, leveling = false;
 const hint = document.getElementById('hint');
-canvas.addEventListener('pointerdown', e => { if (orbTap(e) || bottleDown(e)) return; drag = { x: e.clientX, y: e.clientY, t: performance.now() }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('grab'); leveling = false; hint.classList.add('gone'); });
+canvas.addEventListener('pointerdown', e => { if (orbTap(e) || bottleDown(e)) return; drag = { x: e.clientX, y: e.clientY, t: performance.now(), x0: e.clientX, y0: e.clientY, t0: performance.now(), mv: 0 }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('grab'); leveling = false; hint.classList.add('gone'); });
 canvas.addEventListener('pointermove', e => {
   if (BOT.grab) { bottleMove(e); return; } if (!drag) return; const k = 4.2 / Math.min(innerWidth, innerHeight);
   const dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k, dt = Math.max(8, performance.now() - drag.t) / 1000;
+  drag.mv += Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y);
   rot(dy, dx); wx = wx * .5 + dy / dt * .5; wy = wy * .5 + dx / dt * .5; drag.x = e.clientX; drag.y = e.clientY; drag.t = performance.now();
 });
-const up = () => { if (BOT.grab && BOT.grab.fl) bottleFling(); drag = null; BOT.grab = null; canvas.classList.remove('grab'); };
+const up = e => { const d = drag; if (BOT.grab && BOT.grab.fl) bottleFling(); drag = null; BOT.grab = null; canvas.classList.remove('grab');
+  if (d && e && e.type === 'pointerup' && d.mv < 10 && performance.now() - d.t0 < 400) { wx = wy = 0; knock(d.x0, d.y0); } };
 canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
 /* turn around world axes so dragging always feels like pushing the glass */
 function rot(ax, ay) { tmp.setFromAxisAngle(AX, ax); qT.premultiply(tmp); tmp.setFromAxisAngle(AY, ay); qT.premultiply(tmp); qT.normalize(); }
@@ -585,6 +587,46 @@ const JKEY = { a: 0, arrowleft: 0, l: 1, arrowright: 1 };
 const keyJet = [null, null];   /* A and L follow the screen sides too, and let go of the nozzle they started */
 addEventListener('keydown', e => { const k = JKEY[e.key.toLowerCase()]; if (k !== undefined && !e.repeat && !keyJet[k]) { keyJet[k] = JETS[jmap[k]]; jetGo(keyJet[k], true); } });
 addEventListener('keyup', e => { const k = JKEY[e.key.toLowerCase()]; if (k !== undefined && keyJet[k]) { jetGo(keyJet[k], false); keyJet[k] = null; } });
+/* v1.29 (Tatum's todo "tap the glass where you want a jet"): tap the glass like a fish tank. The water behind your
+   finger is shoved into the cube (a wave rolls away from the tap), the bottle gets nudged, a ring ripples out on the
+   glass and it thuds. A drag still turns the cube: only a short tap that barely moves knocks */
+const KH = side / 2, _kb = new THREE.Box3(new THREE.Vector3(-KH, -KH, -KH), new THREE.Vector3(KH, KH, KH)), _kr = new THREE.Ray(), _ki = new THREE.Matrix4(), _kp = new THREE.Vector3(), _kn = new THREE.Vector3();
+const ringGeo = new THREE.RingGeometry(.86, 1, 48), RINGS = [];
+for (let i = 0; i < 4; i++) { const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: '#c9f4ff', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+  m.visible = false; m.renderOrder = 3; box.add(m); RINGS.push({ m, t: 1 }); }
+let knocks = 0;
+function knock(cx, cy) {
+  box.updateMatrixWorld(); _ki.copy(box.matrixWorld).invert(); _kr.copy(pointRay({ clientX: cx, clientY: cy })).applyMatrix4(_ki);
+  if (!_kr.intersectBox(_kb, _kp)) return false;
+  const ax = [Math.abs(_kp.x), Math.abs(_kp.y), Math.abs(_kp.z)], k = ax.indexOf(Math.max(...ax));   /* the face it hit */
+  _kn.set(0, 0, 0).setComponent(k, -Math.sign(_kp.getComponent(k)));   /* pointing into the cube */
+  const x = sim.x, v = sim.v, R = L * .55, R2 = R * R, kick = pit ? .26 : .34; let moved = 0;
+  for (let i = 0; i < N; i++) {
+    const dx = x[i * 3] - _kp.x, dy = x[i * 3 + 1] - _kp.y, dz = x[i * 3 + 2] - _kp.z, d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 >= R2) continue;
+    const d = Math.sqrt(d2) || 1e-6, f = kick * (1 - d / R) ** .7, rr = .35 / d;
+    v[i * 3] += f * (_kn.x + dx * rr); v[i * 3 + 1] += f * (_kn.y + dy * rr); v[i * 3 + 2] += f * (_kn.z + dz * rr); moved++;
+  }
+  if (botOn && !BOT.out && BOT.p.distanceTo(_kp) < R * 1.2) BOT.v.addScaledVector(_kn, kick * .25);
+  const r = RINGS.reduce((a, b) => (b.t > a.t ? b : a)); r.t = 0; r.m.visible = true;
+  r.m.position.copy(_kp).addScaledVector(_kn, -.03); r.m.quaternion.setFromUnitVectors(AZ, _kn);
+  restT = 0; knocks++; knockSnd(Math.min(1, moved / 120)); hint.classList.add('gone');
+  return true;
+}
+function knockTick() {   /* the rings spread and fade over about half a second */
+  for (const r of RINGS) { if (r.t >= 1) continue; r.t = Math.min(1, r.t + 1 / 32); const e = 1 - (1 - r.t) ** 3;
+    r.m.scale.setScalar(.25 + e * L * .36); r.m.material.opacity = (1 - r.t) * (night ? .55 : .8); if (r.t >= 1) r.m.visible = false; }
+}
+function knockSnd(o) {   /* a knuckle on thick glass: a low thump with a short glassy ring on top */
+  if (!ac || muted || ac.state !== 'running') return;
+  const t = ac.currentTime, th = ac.createOscillator(), tg = ac.createGain();
+  th.type = 'sine'; th.frequency.setValueAtTime(night ? 150 : 190, t); th.frequency.exponentialRampToValueAtTime(night ? 80 : 95, t + .12);
+  tg.gain.setValueAtTime(0, t); tg.gain.linearRampToValueAtTime(night ? .12 : .22, t + .004); tg.gain.exponentialRampToValueAtTime(.0004, t + .16);
+  th.connect(tg); tg.connect(master); th.start(t); th.stop(t + .2);
+  const f = (night ? 900 : 1500) + Math.random() * 120;
+  [[1, .05, night ? .9 : .22], [2.76, .02, night ? .5 : .12]].forEach(([m, a, dec]) => { const os = ac.createOscillator(), g = ac.createGain(); os.type = 'sine'; os.frequency.value = f * m;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(fin(a * (.5 + o)), t + .003); g.gain.exponentialRampToValueAtTime(.0004, t + dec); os.connect(g); g.connect(master); os.start(t); os.stop(t + dec + .05); });
+}
 function jetPush() {
   const x = sim.x, v = sim.v, r2 = 1.3 * 1.3, now = performance.now();
   for (const j of JETS) {   /* the firing nozzle lights up */
@@ -804,7 +846,7 @@ function blub() {   /* v1.25: lifting the bottle out of the water: a rising bloo
 }
 if ('DeviceOrientationEvent' in window && (coarse || navigator.maxTouchPoints > 0)) tiltBtn.hidden = false;
 
-window.__CUBE = { opts: () => ({ botOn, pit }), clack, sim, rot, tiltOn, jmap, jetSides, qT, q, saveTurn, wk: () => wk, JETS, jet: (on, k) => JETS.forEach((j, i) => { if (k === undefined || k === i) j.on = on; }),  tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), towers: n => { towers = n; aim(); }, snd: () => ({ want, voices, ac: ac && ac.state, muted }), tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, night: n => { night = n; nightUi(); sndMode(); }, rest: () => restT, setClk: f => { clk = f; rLast = 0; }, IDLE, orbP: () => orbP, orbR: () => orbR, tally, BOT, bottleDown, bottleMove, bottleOut, uncork, bottleBack, SHELF, recycle, orbTap,  inP, bottle, camera, clockNight, nt: () => nt, ROCK, WAVE, calm: c => { if (c !== undefined) calm = c; return calm; }, ffR: () => { let a = 0, b = 0; for (const p of ffPh) { a += Math.cos(p); b += Math.sin(p); } return Math.hypot(a, b) / FF; }, frames: 0, simMs: 0 };
+window.__CUBE = { knock, knocks: () => knocks, opts: () => ({ botOn, pit }), clack, sim, rot, tiltOn, jmap, jetSides, qT, q, saveTurn, wk: () => wk, JETS, jet: (on, k) => JETS.forEach((j, i) => { if (k === undefined || k === i) j.on = on; }),  tiltState: () => ({ tilt, seen: tiltSeen, g: gDown.toArray() }), towers: n => { towers = n; aim(); }, snd: () => ({ want, voices, ac: ac && ac.state, muted }), tick: () => tick(), spin: (ax, ay) => { wx = ax; wy = ay; }, info: () => renderer.info.render, night: n => { night = n; nightUi(); sndMode(); }, rest: () => restT, setClk: f => { clk = f; rLast = 0; }, IDLE, orbP: () => orbP, orbR: () => orbR, tally, BOT, bottleDown, bottleMove, bottleOut, uncork, bottleBack, SHELF, recycle, orbTap,  inP, bottle, camera, clockNight, nt: () => nt, ROCK, WAVE, calm: c => { if (c !== undefined) calm = c; return calm; }, ffR: () => { let a = 0, b = 0; for (const p of ffPh) { a += Math.cos(p); b += Math.sin(p); } return Math.hypot(a, b) / FF; }, frames: 0, simMs: 0 };
 /* ── loop: fixed 60 Hz physics, two relaxation steps per tick ── */
 let acc = 0, last = performance.now();
 const STEP = 1000 / 60;
@@ -818,7 +860,7 @@ function tick() {
   qPrev.copy(q);
   if (!Number.isFinite(gDown.x + gDown.y + gDown.z)) gDown.copy(DOWN);
   gv.copy(gDown).multiplyScalar(.006).applyQuaternion(tmp.copy(q).invert()); sim.g[0] = gv.x; sim.g[1] = gv.y; sim.g[2] = gv.z;
-  jetPush(); nightWaves();
+  jetPush(); knockTick(); nightWaves();
   const t0 = performance.now(); sim.step(); if (botOn && !BOT.out) bottleStep(); sim.step(); if (botOn && !BOT.out) bottleStep(); bottle.visible = botOn; if (botOn) { if (BOT.out) bottleShelf(); else bottlePose(); bottleSplash(); } calmStep(); window.__CUBE.simMs += performance.now() - t0; window.__CUBE.frames++;
   sound();
 }
