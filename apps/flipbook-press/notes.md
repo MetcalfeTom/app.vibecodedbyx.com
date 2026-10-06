@@ -69,6 +69,8 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 
 - 2026-10-06 v1.11: the film, the way to send it, right under the preview on phones. At 390×844 "Film a flick" sat below Print and Save PDF (about y 800 after the sample, under the fold with the browser bars); now `placeFilm()` moves `#filmRow` after `#dragHint` in `#cFlick` while `(max-width:820px)` matches (pink dashed box, 50 px button; screen y ≈ 350 after the sample tap) and back after `#pageMsg` in `#cPages` on wider screens (matchMedia change listener). Landscape phones (`orientation:landscape` and max-height 560px): `#film[open]` is a 2-column grid, the film square on the left at 96vh, heading/Close, message and buttons on the right; Close used to be scrolled out of the dialog at 844×390. Tested 390×844, 844×390, 1280×800: film mp4 9 s, Close on screen.
 
+- 2026-10-06 v1.12: a lighter pad. Finishing a line used to rebuild every page thumb (`renderStrip`, 7-13 ms with 41 pages in headless, several times that on a slow phone); now `padChanged()` only redraws the current page's thumb (`thumbDraw`) unless pages were added, removed or picked (2-3 ms). The empty-pad hint names things to draw ("a ball, a face, a stick person") so a blank page doesn't stall anyone.
+
 ## issues
 - Headless can't pick a real file; the `rec` probe records a canvas to webm instead. H.264 MP4 isn't testable in the headless shell.
 - iOS Safari sometimes draws a blank first frame from an unplayed video; `videoSource` does a muted play()/pause() after loading.
