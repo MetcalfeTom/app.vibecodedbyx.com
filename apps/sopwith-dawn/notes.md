@@ -18,6 +18,7 @@ A fancy remake of the 1984 Sopwith, asked for by varj1 on 2026-10-03: "make a fa
 
 - 2026-10-06 v1.2.1: on a narrow phone (< 560 px) the score row sits under the fuel row (they overlapped, ZEPPELIN 93% made it worse); shorter zeppelin warnings.
 - 2026-10-06 v1.3: mission 4 NIGHT RAID (seed 1915, night: no clouds): 4 searchlights (kind 'light', 4 hp, 125 pts) sweep a dithered cyan beam 185 px long (half-width 2 + d*.075); flying into one locks it on, and it follows at .6 rad/s (a hard turn gets out) and lets go after .7 s outside. While any light is on you (G.lit) the AA guns see you from 420 px instead of 290, fire every .75-1.3 s and aim within 4-11 px. 'CAUGHT IN A SEARCHLIGHT!' at most every 6 s.
+- 2026-10-06 v1.3.1: wings for each cleared mission (gold: no planes lost, silver: one, bronze: more; PROG.wing keeps the best) on the end screen and as ◆ pips under the mission buttons; the title stays on one line (it wrapped on big screens).
 ## issues
 - Lift-off: holding the pull-up key straight after lift-off looped the plane backwards; the first .45 s in the air turns at a quarter rate.
 
