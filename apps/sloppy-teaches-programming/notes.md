@@ -31,6 +31,7 @@ examples still work when the lesson card is hidden.
 - 2026-10-03: game lesson 9 Boss bug hunt: the Bug King (fannar22 picked "find bugs" + "fight a boss"): the fight code has 3 planted bugs (missing quote, missing colon after while, King vs king) fixed one error at a time. After the Grim Reaper because it uses while. 17 game lessons. L.gv 3: saved game progress shifts (gv1 +5, then indexes >= 8 +1).
 - 2026-10-03: ↺ start over on the lesson card (fannar22: "start a lesson over again which refresh what is in main.py"). Puts the lesson's starting code back; for 8 s the button turns into ↶ undo and brings the old code back. Moving to another lesson clears the undo.
 - 2026-10-03: game lesson 10 "Be the Bug King" (fannar22 liked "break something on purpose"): break a working fight three ways, one run each (SyntaxError, NameError, IndentationError; tracked in the lesson's in-memory `seen` set, not saved), then fix it. Errors in this lesson set lres itself before the throw. L.gv 4 shifts saved game indexes >= 9 by one.
+- 2026-10-06: C++ track (fannar22: "regardless if there is compiler or not just make C++ track", "teaches the basic first", "don't forget Module(-o)"). cpp.js = Sloppy's mini C++ compiler, no download: lex/parse → check (names + types, nothing runs if it doesn't compile) → tree-walk run. g++-style `main.cpp:N: error:` lines + a ↳ beginner help line, red gutter mark on the line, warnings (if (x = 5), ; after if, decimals cut off on int, missing return). Realism: 32-bit int wrap, 7/2 = 3, %g doubles, glibc rand() (1804289383 first without srand), cin token/fail/getline-newline gotcha, 400k step budget → "never stopped" note, stack overflow at depth 2500. Supports vector/array/string methods, references, prototypes, recursion, switch, do, range-for, casts, sort/reverse/count/find, to_string/stoi, <cmath>, toupper etc., system("pause"). No pointers/structs/classes/overloading (friendly errors). 12 lessons (CPPL): hello, maths, whole numbers + % (modulo), variables, mixing text, if/else if, vectors, for, while (starter loops forever), functions, times table, guessing game boss. Lesson checks use code with comments stripped. C++ runs without waiting for Pyodide (langSync hides the boot overlay). Tests: $SP/stp/t_run.js (56) + t_less.js (all starters compile, all solutions pass).
 
 ## issues
 - input() uses window.prompt (Pyodide setStdin). Cancelling the box raises EOFError, explained in the lesson result.
@@ -38,8 +39,7 @@ examples still work when the lesson card is hidden.
 
 ## todos
 - fannar22: a throwing-daggers lesson, belt holds 6, every miss costs one (shrinking list, pop).
-- fannar22 asked for a "General C++" track. Not in the browser yet (no compiler); Python first, maybe later as read-along lessons.
+- 🎮 C++ game track next (fannar22: gaming twist, basics first), mirroring the Python game track; data-track e.g. cppgame with lang 'cpp'.
 - fannar22 will review the wording of lessons: take their notes on explanations.
 - Boss ideas from fannar22: (slime: DONE, lesson 5).
-- fannar22 really wants C++ too, even without a compiler (chat would catch mistakes): idea = C++ lessons side by side with the Python ones, read-along.
 - Ideas: monster name and health chosen by the player; a lesson that draws with turtle-like ASCII.
