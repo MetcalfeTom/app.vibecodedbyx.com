@@ -523,6 +523,16 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
 .cempty{ color:var(--mute); font-size:.72rem; text-align:center; padding:1.2rem .5rem; border:1px dashed var(--line); border-radius:.6rem; line-height:1.6; }
 .cempty b{ color:var(--ink); font-weight:600; }
 
+/* v4.89 waveform thumbnail per crate row: the song's shape in its key colour; the part a deck has played fades behind an amber line */
+.row{ grid-template-columns:auto 1fr auto auto; }
+.cwave{ position:relative; display:block; width:clamp(4rem, 20vw - 4.5rem, 10rem); height:1.75rem; color:var(--rk, var(--mute)); overflow:hidden; }
+.cwave svg{ display:block; width:100%; height:100%; }
+.cwave path{ fill:none; stroke:currentColor; stroke-width:1.3; }
+.cwave.none{ background:linear-gradient(to right, var(--dim) 55%, transparent 0) 0 50% / .45rem 1px repeat-x; opacity:.7; }
+.cwave::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:calc(var(--pp, 0) * 100%); background:var(--panel2); opacity:.62; }
+.cwave::after{ content:''; position:absolute; top:0; bottom:0; width:2px; margin-left:-1px; left:calc(var(--pp, -1) * 100%); background:var(--amber); }
+.row.missing .cwave{ opacity:.5; }
+html[data-theme="light"] .cwave{ color:color-mix(in srgb, var(--rk, var(--mute)) 62%, #000); }
 @media (max-width:640px){
   .crate{ padding:.8rem; }
   .cfilter{ width:100%; }
@@ -531,6 +541,7 @@ kbd{ font:inherit; border:1px solid var(--line); border-radius:.25rem; padding:0
   .next{ grid-template-columns:auto minmax(0,1fr); }
   .next .btn{ grid-column:1 / -1; }
   .row{ grid-template-columns:auto 1fr; padding:.5rem; }
+  .cwave{ grid-column:2; width:auto; height:1rem; margin:-.45rem 0 -.3rem; }
   .cacts{ grid-column:1 / -1; justify-content:flex-end; }
   .row.edit .cmain{ grid-template-columns:1fr; }
 }
@@ -764,7 +775,7 @@ body.midilearn main button:not(#midipanel button):not(.hbtns button), body.midil
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.88 · 2026-10-06</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.89 · 2026-10-06</span>
 </footer>
 
 <script id="dsp">
@@ -3325,9 +3336,24 @@ var LANES = (function(){
   return Math.max(1, Math.min(mem < 8 ? 2 : 4, hc - 2));
 })();
 var workers = [], jobs = {}, jobId = 0;
+/* v4.89 crate waveform thumbnails: 64 loudness columns (RMS, the loudest column = 99), so a row shows a song's shape at a
+   glance: quiet intros, drops, breakdowns. Made once while a song is read (in the worker, from the mono it already has) or,
+   for older crates, when a song is next loaded on a deck. Reads at most ~400k samples, so it costs a millisecond or two. */
+function wave64(ch, ch2){
+  var N = 64, n = ch.length, out = [], mx = 0, k, i, step = Math.max(1, Math.floor(n / 400000));
+  if (n < N * 4) return null;
+  for (k = 0; k < N; k++){
+    var a = Math.floor(k * n / N), b = Math.floor((k + 1) * n / N), s = 0, c = 0;
+    for (i = a; i < b; i += step){ var v = ch2 ? (ch[i] + ch2[i]) * 0.5 : ch[i]; s += v * v; c++; }
+    out.push(c ? Math.sqrt(s / c) : 0); if (out[k] > mx) mx = out[k];
+  }
+  for (k = 0; k < N; k++) out[k] = mx > 1e-5 ? Math.round(out[k] / mx * 99) : 0;
+  return out;
+}
+function bufWave(buf){ try{ return wave64(buf.getChannelData(0), buf.numberOfChannels > 1 ? buf.getChannelData(1) : null); }catch(e){ return null; } }
 function makeWorker(){
-  var src = document.getElementById('dsp').textContent +
-    '\nself.onmessage=function(e){var d=e.data;try{var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid});}catch(err){postMessage({id:d.id,error:String(err)});}};';
+  var src = document.getElementById('dsp').textContent + '\n' + wave64.toString() +
+    '\nself.onmessage=function(e){var d=e.data;try{var w=null;try{w=wave64(d.mono);}catch(e2){}var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid,wv:w});}catch(err){postMessage({id:d.id,error:String(err)});}};';
   var x = { n: 0, w: new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' }))) };
   x.w.onmessage = function(e){ var j = jobs[e.data.id]; if (!j) return; delete jobs[e.data.id]; x.n--; e.data.error ? j.rej(new Error(e.data.error)) : j.res(e.data); };
   x.w.onerror = function(e){
@@ -3345,7 +3371,7 @@ function analyse(mono, sr){
     try{
       var x = workerFor(), id = ++jobId; jobs[id] = { res: res, rej: rej, x: x }; x.n++;
       x.w.postMessage({ id: id, mono: mono, sr: sr }, [mono.buffer]);
-    }catch(err){ try{ res(analyseTrack(mono, sr)); }catch(e2){ rej(e2); } }
+    }catch(err){ try{ var w = wave64(mono), a = analyseTrack(mono, sr); a.wv = w; res(a); }catch(e2){ rej(e2); } }
   });
 }
 var octx = null;
@@ -3939,6 +3965,7 @@ function readOne(rec, big){
     rec.dur = buf.duration; rec.state = 'analysing'; if (!rec._dbRefresh) render();
     if (!rec._dbRefresh) try{ rec.fp = crateFp(buf.getChannelData(0), buf.sampleRate); dupScan(rec); }catch(e){}
     return monoOfAsync(buf).then(function(m){ return analyse(m.mono, m.sr); }).then(function(r){ if (!byId[rec.id]) return;
+      if (r.wv && (!rec._dbRefresh || !rec.wv)) rec.wv = r.wv;   /* v4.89: a re-check fills in an older record's waveform too */
       if (rec._dbRefresh){ oneRefreshed(rec, r.grid); return; }
       if (!rec.manual){ rec.bpm = r.bpm; rec.key = r.key; } rec.grid = r.grid || null; rec.err = null; });
   }).catch(function(e){ if (rec._dbRefresh){ rec._dbRefresh = false; return; }   /* a failed re-check changes nothing; next visit tries again */
@@ -4012,6 +4039,7 @@ function loadTo(rec, L){
   return readBlob(rec.blob).then(decode).then(function(buf){
     if (d._crateId !== rec.id) return;
     if (!rec.dur){ rec.dur = buf.duration; persist(rec); }
+    if (!rec.wv){ rec.wv = bufWave(buf); if (rec.wv) persist(rec); }   /* v4.89: an older crate gains its waveform here (the render below draws it) */
     if (!rec.fp){ try{ rec.fp = crateFp(buf.getChannelData(0), buf.sampleRate); dupScan(rec); persist(rec); }catch(e){} }
     var pr = d.setBuffer(buf, rec.name);
     applyMeta(d, rec); render();
@@ -4029,14 +4057,16 @@ DeckP.setBuffer = function(buf, name){
     if (d.buffer !== buf) return;
     var rec = d._crateId && byId[d._crateId];
     if (rec){
+      if (!rec.wv){ rec.wv = bufWave(buf); if (rec.wv) persist(rec); }
       if (rec.manual || (rec.bpm && rec.key)) applyMeta(d, rec);
       else if (d.bpm || d.key){ rec.bpm = rec.bpm || d.bpm; rec.key = rec.key || d.key; rec.grid = rec.grid || d.grid || null; rec.done = true; persist(rec); }
     } else if (d._file && isAudio(d._file)){
       var f = d._file, dup = dupOf(f);
       if (dup && dup.missing){ reattach(dup, f); persist(dup); keepNote(); }
+      if (dup && !dup.wv){ dup.wv = bufWave(buf); if (dup.wv) persist(dup); }
       if (dup){ d._crateId = dup.id; if (!dup.bpm && d.bpm){ dup.bpm = d.bpm; dup.key = dup.key || d.key; dup.grid = dup.grid || d.grid || null; persist(dup); } }
       else {
-        var nr = { id: uid(), name: d.name, fileName: f.name, size: f.size, type: f.type || '', blob: f, added: stamp(), dur: buf.duration, bpm: d.bpm, key: d.key, grid: d.grid || null, done: true, manual: false };
+        var nr = { id: uid(), name: d.name, fileName: f.name, size: f.size, type: f.type || '', blob: f, added: stamp(), dur: buf.duration, bpm: d.bpm, key: d.key, grid: d.grid || null, done: true, manual: false, wv: bufWave(buf) };
         crate.push(nr); byId[nr.id] = nr; persist(nr); d._crateId = nr.id; status(nr.name + ' added to the crate');
       }
       d._file = null;
@@ -4077,6 +4107,55 @@ var editing = null, armed = null, armT = 0;
    (~90 ms for 1500 tracks, three times a song, plus the clean-up after). Rows now remember their html (li._h): a render
    keeps every row that looks the same, swaps the few that changed and only moves rows whose place in the order changed.
    A mostly new list (first render, a new playlist or search) still goes in as one innerHTML. */
+/* v4.89 the row's waveform: one svg path of 64 bars, built once per record (again only when its peaks change). The row's
+   html only carries an empty slot with a token (data-v); waveFill() puts the svgs in after the rows are placed, the first
+   rows at once and the rest in small idle chunks, so a full rebuild of a long crate costs no more than it did. */
+var wvSeq = 0, wvC = new WeakMap(), WV_NONE = '<span class="cwave none"></span>', WV_NONE_T = '<span class="cwave none" title="The waveform shows once this song has been loaded on a deck"></span>';
+function waveOf(w){   /* the cache sits beside the records (keyed by the peaks array), so records keep their shape */
+  var c = wvC.get(w);
+  if (!c){
+    var p = '';
+    for (var k = 0; k < 64; k++){ var h = 1 + Math.round(Math.max(0, Math.min(99, +w[k] || 0)) / 9.9); p += 'M' + (2 * k + 1) + ' ' + (12 - h) + 'v' + (2 * h); }
+    c = { n: String(++wvSeq), g: '<svg viewBox="0 0 128 24" preserveAspectRatio="none" aria-hidden="true"><path d="' + p + '"/></svg>' };
+    c.s = '<span class="cwave" data-v="' + c.n + '"></span>';
+    wvC.set(w, c);
+  }
+  return c;
+}
+function waveSlot(r){
+  var w = r.wv;
+  if (!w || w.length !== 64) return r.done && !r.state ? WV_NONE_T : WV_NONE;
+  return waveOf(w).s;
+}
+var wfT = 0, wfTpl = document.createElement('template');
+function waveFill(first){
+  if (wfT){ clearTimeout(wfT); wfT = 0; }
+  var li = els.rows.firstElementChild, spans = [], html = [], max = first ? 40 : 150;
+  for (; li && spans.length < max; li = li.nextElementSibling){
+    if (li._wf) continue;
+    li._wf = 1;
+    var r = byId[li.getAttribute('data-id')], sp = li.children[2], c = r && r.wv && r.wv.length === 64 ? waveOf(r.wv) : null;
+    if (!c || !sp || sp.getAttribute('data-v') !== c.n || sp.firstChild) continue;
+    spans.push(sp); html.push(c.g);
+  }
+  if (spans.length){ wfTpl.innerHTML = html.join(''); var c = wfTpl.content; spans.forEach(function(sp){ sp.appendChild(c.firstChild); }); }
+  if (li) wfT = setTimeout(function(){ wfT = 0; waveFill(false); }, 24);
+}
+/* where a deck is in its song, marked on that song's row (set straight on the element, so the row's html never changes) */
+var ppEl = {};
+function wavePP(){
+  ['A', 'B'].forEach(function(L){
+    var d = decks[L], id = d && d._crateId, el = null, f = -1;
+    if (id && d.buffer){
+      var li = els.rows.querySelector('li[data-id="' + id + '"]'); el = li && li.querySelector('.cwave:not(.none)');
+      try{ var dur = d.buffer.duration, t = d.playing ? d.pos() : d.posAtStart; if (dur > 0 && isFinite(t)) f = Math.max(0, Math.min(1, t / dur)); }catch(e){}
+    }
+    if (ppEl[L] && ppEl[L] !== el && ppEl[L] !== ppEl[L === 'A' ? 'B' : 'A']){ ppEl[L].style.removeProperty('--pp'); ppEl[L]._pp = null; }
+    ppEl[L] = el;
+    if (el && f >= 0){ var v = f.toFixed(4); if (el._pp !== v){ el._pp = v; el.style.setProperty('--pp', v); } }
+  });
+}
+setInterval(wavePP, 500);
 function setRows(hs){
   var box = els.rows, kids = box.children, old = {}, reuse = 0, i;
   for (i = 0; i < kids.length; i++) if (kids[i]._h) old[kids[i].getAttribute('data-id')] = kids[i];
@@ -4183,16 +4262,17 @@ function render(){
         '<button type="button" class="btn x" data-id="' + r.id + '" aria-label="Remove ' + esc(r.name) + ' from the crate"' + (armed === r.id ? ' data-arm="1" title="Click again to remove"' : ' title="Remove"') + '>' + (armed === r.id ? 'sure?' : '×') + '</button>';
     return '<li class="' + cls + '" data-id="' + r.id + '" style="' + (col ? '--rk:' + col + ';' : '') + (s ? '--m:' + s.score : '') + '">' +
       '<span class="badge camelot' + (r.key ? ' has' : '') + '" style="' + (col ? 'background:' + col : '') + '" title="' + (r.key ? esc(r.key.name) : 'key unknown') + '">' + (r.key ? okey(r.key) : '—') + '</span>' +
-      '<div class="cmain">' + main + '</div><div class="cacts">' + acts + '</div></li>';
+      '<div class="cmain">' + main + '</div>' + waveSlot(r) + '<div class="cacts">' + acts + '</div></li>';
   }).map(function(h, i){ return { id: R.items[i].r.id, h: h }; });
   var keep = null;
   if (editing){ var kb = $('.ebpm', els.rows), kk = $('.ekey', els.rows); if (kb && kk) keep = { bpm: kb.value, key: kk.value, focus: document.activeElement === kk ? 'ekey' : document.activeElement === kb ? 'ebpm' : null }; }
-  setRows(html);
+  setRows(html); waveFill(true);
   if (editing){
     var e0 = $('.ebpm', els.rows), e1 = $('.ekey', els.rows);
     if (e0 && e1 && keep){ e0.value = keep.bpm; e1.value = keep.key; if (keep.focus) $('.' + keep.focus, els.rows).focus(); }
     else if (e0 && !keep) e0.focus();
   }
+  wavePP();
   els.sort.value = prefs.sort; els.compat.checked = prefs.compat;
   Array.prototype.forEach.call(els.seg.querySelectorAll('button'), function(b){ b.setAttribute('aria-pressed', b.dataset.ref === prefs.ref ? 'true' : 'false'); });
 }
@@ -5999,6 +6079,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.89', t:'Waveform on every crate row', d:'Each crate song shows its shape in its key colour, so quiet intros, drops and breakdowns stand out; a playing song shows how far in it is.', p:'presentability', i:'high', e:'low', st:'verified', ev:'pushedbutton todo; 1,500-row render, scroll, theme and import probes' },
   { s:'log', v:'v4.88', t:'No sideways scroll on phones', d:'The buttons at the top fit a phone screen: daylight shows just its sun, and the row wraps instead of pushing the page sideways.', p:'presentability', i:'med', e:'low', st:'verified', ev:'phone check at 390 and 360 px wide' },
   { s:'log', v:'v4.87', t:'Filter sweep knob', d:'A filter knob beside each EQ: left muffles, right thins out, straight up is off; the autopilot never moves it.', p:'presentability', i:'high', e:'low', st:'verified', ev:'pushedbutton asked 2026-10-04; filter probe' },
   { s:'log', v:'v4.86', t:'Quick start', d:'One button switches on every auto feature, saves and clears the setlist, and plays a random song (or keeps yours playing).', p:'presentability', i:'high', e:'low', st:'verified', ev:'pushedbutton asked 2026-10-04; quick start probe' },
