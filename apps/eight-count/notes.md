@@ -38,6 +38,8 @@ A choreography tool for dance instructors: load a song, the beat is found, the s
 
 - v1.31 (2026-10-06 ~00:40 UTC): first visit. The analytics said half of the newcomers left within 30 s. A card on the stage now says what this is ('Every dance counts to eight', watch the demo / use my song), and Emma spots you and waves about 1.6 s after the page opens (waveSeg, a 'hello' break that doesn't count toward brkN). On phones the card sits under the stage so she stays visible. It goes away for good after the first play, song or ✕ (localStorage 'eight-count-hi'). It only shows when no song has been saved. Probe hm/pec40.js (__EC.hello()).
 
+- v1.32 (2026-10-06 ~00:50 UTC): which hand holds the prop (Pushed asked how props are held in one or two hands). Under the prop chips a 'held in' row appears for the cane and the parasol: her right (default), her left, both hands. Stored as 'cane', 'cane:l', 'cane:2' (propK/propH split it; restore accepts the suffixes). P.ph carries it to the module. Both hands: the cane lies across her fists, crook at the right, with idle arms carrying it across her hips; a twirl brings her fists together at her chest and spins it like a baton (with hands under .18 apart it falls back to the right hand). The parasol runs between both hands, held at her chest. Left: everything mirrors, a twirl swaps the move's arms. Also the tofu ＋ on 'make a move' is a plain +. Probe hm/pec41.js (#H=kind:hand:moves;… draws __EC.pose(c, p) for exact counts).
+
 ## issues
 - Tempo guess can land on half or double time, and the "1" can sit on the wrong beat; the timing drawer fixes both. Downbeat detection isn't attempted.
 - Songs themselves are not stored (too big); load the same file again to get its routine back.
