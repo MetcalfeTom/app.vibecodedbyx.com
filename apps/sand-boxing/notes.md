@@ -14,13 +14,14 @@ Tatum's idea: 3D boxing against an AI made of sand (sandbox, get it?). Its speci
 - v1 (2026-10-06): 3 rounds of 60 s, jab / swing / block, lock-on. Hits knock grains off, they land as piles; the fighter scoops piles back between attacks. Specials: ESCAPE (collapses, slithers behind you, re-forms for a sucker punch; hit it while re-forming = PERFECT), SWARM (stinging cloud, hold block, a swing scatters it), SACRIFICE (arm becomes a hard shield; swing to break it or walk round). Knock it toward the sea and it gets wet (slow, can't escape). KO = it slumps into a sandcastle with a white flag; lose = it builds a sandcastle of you. Phone: floating thumb pad + 3 buttons. WebAudio sounds, mute button.
 
 - v1.1 (2026-10-06): the ring is a circle of rope laid on the sand (Tatum: "to count as boxing there should be a ring, a circle of rope on the ground, preventing players from running away"). Flat beach, no platform; the sea comes up close on the west side. Nobody can leave the circle (soft wall, knockback bounces off the rope). Grains knocked over the rope are lost on the beach for good; inside the rope they pile up and can be scooped back. Four stakes hold the rope (red corner, blue corner).
+- v1.2 (2026-10-06): THE TIDE (Tatum, 01:38-01:52). Two phases: while the sand is dry it heals (scoops piles back, even from over the rope) and your hits charge the tide meter under the clock (knocked grains / 330, +0.08 per countered special, +0.1 per perfect). Full = T key, the meter button, or the TIDE button on phones. The sea washes across the ring, soaks the fighter (8 s soaked, then dries over ~4 s): no healing, no specials, slower windups, +30% grains per hit, and the going-out water drags 75% of the loose piles out to sea for good. ACCEPT PERMADEATH flashes as a glitchy terminal line (Tatum: the swarm's phrase), docks top-right and its letters crumble as the sand dries. "DRY AGAIN" when the window closes. Banner moved down to clear the tide meter.
 
 ## Issues
 - Headless Chromium runs at ~2 fps: use `SB.pause(true)` + `SB.logic(dt)` for synchronous probes; the round clock runs in real time.
-- Fight balance checked with bots (hm/sb/bot.js): idle player loses in round 1, an ok bot wins in round 2, a perfect bot wins late round 1.
+- Fight balance checked with bots (hm/sb/bot.js, they block perfectly and jab every 0.27 s): idle player loses ~50 s into round 1; bots with the tide win round 1 with 7-17 s left (tide ready ~15 s in), without it they win late round 1 or in round 2. Humans are far slower, expect 2-3 rounds.
+- Tide state lives in `T` (SB.T); wet line is E.wet > 0.6 (WETLINE). The sea-side rope only dampens to 0.55 so it never stops healing.
 
 ## Todos
-- Tatum (01:38): THE TIDE — special bar fills from hits, then the sea washes in and soaks the fighter.
 - Optional (Tatum): round 1 in a lab, fighter escapes through a vent to the beach.
 - og.png, phone screenshot check.
 
