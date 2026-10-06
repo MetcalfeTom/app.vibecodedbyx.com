@@ -176,7 +176,7 @@ body.making .vlab{ display:block; } body.making .stage::after{ content:''; posit
     <span class="bpm" id="bpm">112<small>bpm</small></span>
     <button type="button" id="click" aria-pressed="false" title="Click on every beat">click</button>
     <button type="button" id="cin" aria-pressed="false" title="Play starts four beats before the eight you're on, counted in out loud">5 6 7 8</button>
-    <button type="button" id="spd" aria-pressed="false" title="Practice speed: the song and the dancer slow down together (the music drops in pitch, like a slowed record)">speed 100%</button>
+    <button type="button" id="spd" aria-pressed="false" title="Practice speed (key S): the song and Emma slow down together, and the music keeps its key">speed 1×</button>
     <button type="button" id="view" title="Front: she faces you. Back: follow her, her left is your left. Mirror: she faces you like your reflection.">view: front</button>
   </div>
   <details>
@@ -372,7 +372,10 @@ var ST = { key: 'demo', name: 'demo groove', bpm: 112, offset: .5, one: 0, eight
 var RATE = 1, RATES = [1, .75, .5], buf = null, ac = null, gain = null, src = null, startAt = 0, pos = 0, playing = false, peaks = null, cur = 0, slot = 0, clickOn = false, lastClick = -1;
 function spb(){ return 60 / ST.bpm; }
 function dur(){ return buf ? buf.duration : 0; }
-function now(){ return playing ? (ac.currentTime - startAt) * RATE : pos; }
+/* v1.42 loop this eight: while it plays, song time wraps inside LP = [start, end) of eight LPE; rawNow() is the unwrapped clock */
+var loopOn = false, LP = null, LPE = 0;
+function rawNow(){ return playing ? (ac.currentTime - startAt) * RATE : pos; }
+function now(){ var t = rawNow(); return playing && LP && t >= LP[1] ? LP[0] + (t - LP[0]) % (LP[1] - LP[0]) : t; }
 function countAt(t){ return Math.floor((t - ST.offset) / spb() + 1e-6) - ST.one; }
 function eightStart(e){ return ST.offset + (e * 8 + ST.one) * spb(); }
 function nEights(){ return Math.max(1, Math.ceil(((dur() - ST.offset) / spb() - ST.one) / 8)); }
@@ -483,14 +486,78 @@ function detect(B){
       if (s > best.s) best = { s: s, bpm: bpm, ph: ph }; } }
   return { bpm: best.bpm, offset: best.ph / 100 };
 }
+/* ---------- practice speed that keeps the key (v1.41) ----------
+   Below 100% the song is time-stretched as it plays (WSOLA, like the browser's own slow-down: 20 ms grains overlapped by half,
+   each one taken from within 10 ms of where it belongs, at the spot that best carries on from the grain before), made about a
+   second ahead in short buffers that are queued back to back on the audio clock. Song time t still plays at audio time
+   startAt + t / RATE, so the counts, the click, the count-in and Emma all keep to the same clock. The loop of one eight (v1.42)
+   runs through the same path: at the end of the eight the next grain is taken from its start, matched to what came before */
+var TS = null, TSM = new WeakMap();
+function gcd(a, b){ a = Math.round(a); b = Math.round(b); while (b){ var t = a % b; a = b; b = t; } return a || 1; }
+/* a rough mono copy of the song at ~5.5 kHz for the grain search, made once per song */
+function tsLow(B){ var m = TSM.get(B); if (m) return m; var d = Math.max(1, Math.round(B.sampleRate / 5512)), a = B.getChannelData(0), b = B.numberOfChannels > 1 ? B.getChannelData(1) : a, n = Math.floor(B.length / d), lo = new Float32Array(n);
+  for (var i = 0, j = 0; i < n; i++){ var s = 0; for (var k = 0; k < d; k++, j++) s += a[j] + b[j]; lo[i] = s / (2 * d); }
+  m = { d: d, lo: lo }; TSM.set(B, m); return m; }
+/* start stretching song B at song time t0 (s) at speed rate; lp = [a, b] song seconds to loop, or null; outSr = the audio clock's rate */
+function tsNew(B, t0, rate, lp, outSr){ var sr = B.sampleRate, H = Math.round(.01 * sr), W = 2 * H, C = Math.min(2, B.numberOfChannels), L = tsLow(B), win = new Float32Array(W), ch = [], acc = [], i;
+  for (i = 0; i < W; i++) win[i] = .5 - .5 * Math.cos(TAU * i / W);
+  for (i = 0; i < C; i++) ch.push(B.getChannelData(i));
+  /* chunks of ~.6 s whose length is a whole number of frames on the audio clock too, so they butt up exactly */
+  var q = sr / gcd(sr, outSr || sr), N = q > .3 * sr ? Math.round(.6 * sr) : Math.max(1, Math.round(.6 * sr / q)) * q;
+  for (i = 0; i < C; i++) acc.push(new Float32Array(N + W + H));
+  return { sr: sr, H: H, W: W, D: Math.round(.01 * sr), C: C, ch: ch, len: B.length, lo: L.lo, d: L.d, win: win, rate: rate, cen: t0 * sr + H * rate,
+    lp: lp ? [lp[0] * sr, lp[1] * sr] : null, prev: -1, fp: 0, N: N, acc: acc, srcs: [], when: 0, done: false }; }
+/* where to take the next grain from: near nom, the start whose first half best matches how the last grain would have carried on
+   (that half is what the two grains overlap on). A slight pull toward nom (TSP) settles near-ties, which repeating notes are full of,
+   on the spot closest to the beat, so the music doesn't sit a few ms late or early for long */
+var TSP = .15;
+function tsPick(S, nom){ var len = S.len, W = S.W, H = S.H, x0 = Math.max(0, Math.min(len - W - 1, Math.round(nom))), tp = S.prev + H;
+  if (S.prev < 0 || tp + W >= len) return x0;
+  var lo = S.lo, d = S.d, w = Math.floor(H / d), a = Math.max(0, Math.floor((nom - S.D) / d)), b = Math.min(lo.length - w - 1, Math.ceil((nom + S.D) / d)), t = Math.min(lo.length - w - 1, Math.round(tp / d));
+  if (a > b || t < 0) return x0;
+  var e = 0, et = 1e-9, j, x, s, sc, bs = -1e30, best = a, k = TSP / (S.D * S.D);
+  for (j = 0; j < w; j++){ e += lo[a + j] * lo[a + j]; et += lo[t + j] * lo[t + j]; }
+  for (x = a; x <= b; x++){ s = 0; for (j = 0; j < w; j++) s += lo[t + j] * lo[x + j]; var dx = x * d - nom; sc = s / Math.sqrt((e + 1e-9) * et) - k * dx * dx; if (sc > bs){ bs = sc; best = x; } e += lo[x + w] * lo[x + w] - lo[x] * lo[x]; if (e < 0) e = 0; }
+  /* then the exact sample, full rate, a few either side */
+  var c0 = S.ch[0], c1 = S.C > 1 ? S.ch[1] : c0, r = (d >> 1) + 1, fa = Math.max(0, best * d - r), fb = Math.min(len - W - 1, best * d + r), fx = Math.max(0, Math.min(len - W - 1, best * d)); bs = -1e30; et = 1e-9;
+  for (j = 0; j < H; j += 2){ var u0 = c0[tp + j] + c1[tp + j]; et += u0 * u0; }
+  for (x = fa; x <= fb; x++){ s = 0; e = 0; for (j = 0; j < H; j += 2){ var u = c0[tp + j] + c1[tp + j], v = c0[x + j] + c1[x + j]; s += u * v; e += v * v; } sc = s / Math.sqrt((e + 1e-9) * et) - k * (x - nom) * (x - nom); if (sc > bs){ bs = sc; fx = x; } }
+  return fx; }
+/* fill the next chunk: returns how many output samples in S.acc are ready (the chunk), or 0 when the song is done */
+function tsChunk(S){ var N = S.N, H = S.H, W = S.W, end = false, c, j;
+  while (S.fp < N){ if (S.cen - H > S.len - W){ end = true; break; }
+    var x = tsPick(S, S.cen - H), f = S.fp, w = S.win, j0 = S.prev < 0 ? H : 0; /* the very first grain starts at full strength */
+    for (c = 0; c < S.C; c++){ var src = S.ch[c], o = S.acc[c]; for (j = 0; j < j0; j++) o[f + j] += src[x + j]; for (j = j0; j < W; j++) o[f + j] += src[x + j] * w[j]; }
+    S.prev = x; S.fp += H; S.cen += H * S.rate; if (S.lp && S.cen >= S.lp[1]) S.cen -= S.lp[1] - S.lp[0]; }
+  S.done = end; return end ? S.fp + H : N; }
+function tsShift(S){ var N = S.N; for (var c = 0; c < S.C; c++){ var o = S.acc[c]; o.copyWithin(0, N); o.fill(0, o.length - N); } S.fp -= N; }
+function tsFeed(){ var S = TS; if (!S || !playing) return; var k = 0;
+  /* a chunk a call while there's a second queued; more when it runs low (start, a slow phone, a hidden tab's slow timers) */
+  while (S.n || (!S.done && S.when < ac.currentTime + 2 && (k < 1 || S.when < ac.currentTime + 1 || document.hidden))){ k++;
+    var n = S.n || tsChunk(S), b = ac.createBuffer(S.C, n, S.sr), s = ac.createBufferSource(), late = ac.currentTime - S.when, last = S.done; S.n = 0;
+    for (var c = 0; c < S.C; c++) b.getChannelData(c).set(S.acc[c].subarray(0, n));
+    if (!last) tsShift(S);
+    s.buffer = b; s.connect(gain); if (late > 0) s.start(0, Math.min(late, b.duration)); else s.start(S.when); /* late: skip in, so it stays on the clock */
+    S.srcs.push(s); s.onended = (function(s, last){ return function(){ var i = S.srcs.indexOf(s); if (i >= 0) S.srcs.splice(i, 1); if (last && TS === S) ended(.3); }; })(s, last);
+    S.when += n / S.sr; } }
+function tsStop(){ if (!TS) return; TS.srcs.forEach(function(s){ try { s.onended = null; s.stop(); } catch (e){} }); TS = null; }
 /* Sloppy's own touch: when a song plays out to its very end, Emma takes a bow */
 var bowT0 = 0;
 function bowNow(){ if (!bowT0) return null; var q = (performance.now() - bowT0) / 1000 / (2 * spb()); if (q >= 1){ bowT0 = 0; return null; } var B = bow(q); if (ST.hat){ B.hat = 1; hatBow(B, q); } return B; }
 function play(noCount){ if (!buf) return; bowT0 = 0; var c = ctx(); if (c.state === 'suspended') c.resume(); if (pos >= dur() - .05) pos = 0;
   if (countIn && !noCount){ pos = eightStart(cur) - 4 * spb() - sayLag * RATE; sayWarm(); } /* a breath of lead so 'five' can leave early too */
-  var lead = Math.max(0, -pos) / RATE; src = c.createBufferSource(); src.buffer = buf; src.playbackRate.value = RATE; src.connect(gain); startAt = c.currentTime - pos / RATE; src.start(c.currentTime + lead, Math.max(0, pos)); playing = true; lastClick = countAt(pos) + ST.one - 1;
+  LP = null; if (loopOn){ /* the eight to loop: the one being counted in to, else the one the playhead is in (a whole one) */
+    var le = pos < eightStart(cur) && pos > eightStart(cur) - 4 * spb() - 1 ? cur : clamp(Math.floor(countAt(Math.max(pos, eightStart(0)) + 1e-4) / 8), 0, nEights() - 1);
+    if (le > 0 && eightStart(le + 1) > dur()) le--; LPE = le; LP = [eightStart(le), eightStart(le + 1)]; if (pos >= LP[1]) pos = LP[0]; }
+  var lead = Math.max(0, -pos) / RATE; src = null; tsStop();
+  if (RATE < 1 || LP){ TS = tsNew(buf, Math.max(0, pos), RATE, LP, c.sampleRate); TS.n = tsChunk(TS); } /* the first chunk is ready before the clock starts */
+  startAt = c.currentTime - pos / RATE;
+  if (TS){ TS.when = Math.round((c.currentTime + lead) * c.sampleRate) / c.sampleRate; playing = true; tsFeed(); }
+  else { src = c.createBufferSource(); src.buffer = buf; src.connect(gain); src.start(c.currentTime + lead, Math.max(0, pos)); src.onended = function(){ ended(.1); }; }
+  playing = true; lastClick = countAt(pos) + ST.one - 1;
   if (countIn && !noCount) sayCount(c);
-  src.onended = function(){ if (playing && now() >= dur() - .1){ playing = false; pos = 0; bowT0 = performance.now(); ui(); } }; ui(); }
+  ui(); }
+function ended(tol){ if (playing && !LP && now() >= dur() - tol){ playing = false; pos = 0; TS = null; bowT0 = performance.now(); ui(); } }
 /* the count-in: a higher blip on each of the four beats before the 1, and the words spoken when the browser has a voice.
    Pushed: the spoken 5 6 7 8 dragged behind the tempo. The browser's voice starts late and queues each word behind the last,
    so now each word is sent early by the voice's measured start-up lag (learned per device, kept in localStorage), cuts off
@@ -503,9 +570,10 @@ function sayCount(c){ var W = ['five', 'six', 'seven', 'eight'], one = startAt +
   for (var i = 0; i < 4; i++){ var at = one - (4 - i) * spb() / RATE; if (at < c.currentTime - .01) continue;
     var o = c.createOscillator(), g = c.createGain(); o.frequency.value = 660; g.gain.setValueAtTime(.3, at); g.gain.exponentialRampToValueAtTime(.001, at + .08); o.connect(g); g.connect(c.destination); o.start(at); o.stop(at + .1);
     (function(w, ms){ sayT.push(setTimeout(function(){ sayWord(w, rate); }, ms)); })(W[i], Math.max(0, (at - c.currentTime - sayLag) * 1000)); } }
-function pause(){ if (!playing) return; pos = Math.max(0, now()); playing = false; sayT.forEach(clearTimeout); sayT = []; try { speechSynthesis.cancel(); } catch (e){} try { src.onended = null; src.stop(); } catch (e){} ui(); }
+function pause(){ if (!playing) return; pos = Math.max(0, now()); playing = false; sayT.forEach(clearTimeout); sayT = []; try { speechSynthesis.cancel(); } catch (e){} try { src.onended = null; src.stop(); } catch (e){} tsStop(); ui(); }
 function seek(t){ var was = playing; if (was) pause(); pos = clamp(t, 0, Math.max(0, dur() - .05)); if (was) play(true); else { cur = Math.max(0, Math.floor(countAt(pos) / 8)); renderEd(); } }
-function tick(){ if (!playing || !clickOn) return; var t = now(), b = Math.floor((t + .12 - ST.offset) / spb());
+function tick(){ tsFeed(); if (playing && LP && (Math.abs(LP[0] - eightStart(LPE)) > 1e-6 || Math.abs(LP[1] - eightStart(LPE + 1)) > 1e-6)) seek(now()); /* the grid moved under the loop */
+  if (!playing || !clickOn) return; var t = rawNow(), b = Math.floor((t + .12 - ST.offset) / spb());
   for (var i = Math.max(lastClick + 1, b - 1); i <= b; i++){ var at = startAt + (ST.offset + i * spb()) / RATE; if (at < ac.currentTime) continue;
     var o = ac.createOscillator(), g = ac.createGain(), one = ((i - ST.one) % 8 + 8) % 8 === 0; o.frequency.value = one ? 1760 : 1100; g.gain.setValueAtTime(.25, at); g.gain.exponentialRampToValueAtTime(.001, at + .05);
     o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at + .06); lastClick = i; } }
@@ -531,7 +599,7 @@ var countIn = false, view = 'front', VIEWS = ['front', 'back', 'mirror'], PKEY =
 function prefs(save){ try { if (save) localStorage.setItem(PKEY, JSON.stringify({ click: clickOn, countIn: countIn, view: view, rate: RATE }));
   else { var p = JSON.parse(localStorage.getItem(PKEY)) || {}; clickOn = !!p.click; countIn = !!p.countIn; if (VIEWS.indexOf(p.view) >= 0) view = p.view; if (RATES.indexOf(p.rate) >= 0) RATE = p.rate; } } catch (e){}
   $('click').setAttribute('aria-pressed', String(clickOn)); $('cin').setAttribute('aria-pressed', String(countIn)); $('view').textContent = 'view: ' + view;
-  $('spd').textContent = 'speed ' + Math.round(RATE * 100) + '%'; $('spd').setAttribute('aria-pressed', String(RATE < 1)); }
+  $('spd').textContent = 'speed ' + (RATE === 1 ? '1' : RATE === .75 ? '0.75' : '0.5') + '×'; $('spd').setAttribute('aria-pressed', String(RATE < 1)); }
 $('click').addEventListener('click', function(){ clickOn = !clickOn; prefs(1); });
 $('cin').addEventListener('click', function(){ countIn = !countIn; prefs(1); if (countIn) sayWarm(); });
 $('spd').addEventListener('click', function(){ var was = playing; if (was) pause(); RATE = RATES[(RATES.indexOf(RATE) + 1) % RATES.length]; prefs(1); if (was) play(true); });
@@ -554,8 +622,8 @@ $('tap').addEventListener('click', function(){ var t = performance.now(); if (ta
   if (taps.length >= 4){ var iv = (taps[taps.length - 1] - taps[0]) / (taps.length - 1) / 1000; ST.bpm = Math.round(600 / iv) / 10;
     if (playing){ var st = now(), k = Math.round((st - ST.offset) / spb()); ST.offset = st - k * spb(); } ui(); renderEd(); save(); }
   this.textContent = taps.length < 4 ? 'tap ' + (4 - taps.length) + ' more' : 'tap the beat'; });
-document.addEventListener('keydown', function(e){ if (e.target.closest('input,textarea') || e.metaKey || e.ctrlKey) return;
-  if (e.key === ' '){ e.preventDefault(); $('play').click(); } else if (e.key === '1') markOne(); });
+document.addEventListener('keydown', function(e){ if (e.target.closest('input,textarea,select') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === ' '){ e.preventDefault(); $('play').click(); } else if (e.key === '1') markOne(); else if (e.key === 's' || e.key === 'S') $('spd').click(); });
 
 /* ---------- editor ---------- */
 function esc(t){ return String(t).replace(/[&<>"']/g, function(c){ return '&#' + c.charCodeAt(0) + ';'; }); }
@@ -907,7 +975,7 @@ function frame(){
   requestAnimationFrame(frame);
 }
 window.addEventListener('resize', function(){ drawWave(); });
-window.__EC = { get show(){ return SHOW; }, set show(v){ SHOW = v; }, showOn: function(){ shTouched = false; showOn(); }, showOff: showOff, showQ: showQ, showN: showN, get bowing(){ return !!bowT0; }, get brk(){ return BRK; }, breakNow: breakNow, idle: function(s){ lastAct = performance.now() - s * 1000; }, brkN: function(n){ brkN = n; }, hello: function(){ HELLO = true; }, pose: function(c, p){ return hatOn(propOn(poseAt(c, p), c, p), c, p); }, fresh: function(){ EDV++; }, get sayLag(){ return sayLag; }, homes: homes, travelIn: travelIn, travelX: travelX, ST: ST, MV: MV, detect: detect, poseAt: poseAt, loadDemo: loadDemo, play: play, pause: pause, seek: seek, now: now, eightMoves: eightMoves, fxAt: fxAt, slotAt: slotAt, get cur(){ return cur; }, get slot(){ return slot; }, set t0(v){ previewT0 = v; }, get MK(){ return MK; }, CM: function(){ return CM; } };
+window.__EC = { get show(){ return SHOW; }, set show(v){ SHOW = v; }, showOn: function(){ shTouched = false; showOn(); }, showOff: showOff, showQ: showQ, showN: showN, get bowing(){ return !!bowT0; }, get rate(){ return RATE; }, get LP(){ return LP; }, get TS(){ return TS; }, rawNow: rawNow, get buf(){ return buf; }, get brk(){ return BRK; }, breakNow: breakNow, idle: function(s){ lastAct = performance.now() - s * 1000; }, brkN: function(n){ brkN = n; }, hello: function(){ HELLO = true; }, pose: function(c, p){ return hatOn(propOn(poseAt(c, p), c, p), c, p); }, fresh: function(){ EDV++; }, get sayLag(){ return sayLag; }, homes: homes, travelIn: travelIn, travelX: travelX, ST: ST, MV: MV, detect: detect, poseAt: poseAt, loadDemo: loadDemo, play: play, pause: pause, seek: seek, now: now, eightMoves: eightMoves, fxAt: fxAt, slotAt: slotAt, get cur(){ return cur; }, get slot(){ return slot; }, set t0(v){ previewT0 = v; }, get MK(){ return MK; }, CM: function(){ return CM; } };
 
 /* first view: the demo routine, waveform drawn from the synthesized groove (sound starts on play) */
 try { loadDemo(); } catch (e){ msg('this browser can\'t play audio here'); }
