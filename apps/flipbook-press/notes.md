@@ -40,6 +40,10 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
   - Probe hooks: `__FB.film()`, `__FB.F()` (last film: size, type, dur, pages, fps, passes), `__FB.draw(t)` (a still of the flick at t). Harness probes in the session scratchpad hm/fp1/probe3-8.js.
   - Tested headless at 390×844: ball 12 fps → video/mp4, 720×720, 9.15 s, 1.1–1.2 MB, plays straight through; colour ink + BOING! + thought bubble show; 60 fps and a 270×480 portrait source look right; MediaRecorder removed → the friendly error.
 
+- v1.6 (2026-10-06): a shop window on the landing page (all visitors are on phones, 9 of them from WhatsApp shares, median visit 1 min: they saw a homework-like upload box first).
+  - `<canvas id="demo">` (720×720, shown at min(100%, 300 px)) inside the empty `#drop`, above "Choose a short video": the bouncing ball as a finished flipbook, flicked on the cutting mat by the same `drawFilm()` as "Film a flick". `flickPlan()` now ends in `planFor(pages,pics,fps0,size)`, which the demo calls with 29 ball frames (400×225, 12 fps, Pocket size) and no cover.
+  - `demoStart()` runs once the fonts are ready (or after 1.2 s), redraws at most every 30 ms, and stops for good when `#drop` hides (a video or the sample loads). prefers-reduced-motion gets one still at t = .75 s. Any error hides the canvas.
+
 ## issues
 - Headless can't pick a real file; the `rec` probe records a canvas to webm instead. H.264 MP4 isn't testable in the headless shell.
 - iOS Safari sometimes draws a blank first frame from an unplayed video; `videoSource` does a muted play()/pause() after loading.
