@@ -3,6 +3,7 @@
 sol_etdal's idea (2026-10-03): "what if you make a sloppy ai and that sloppy ai makes a ai and it keeps going". Their name: "I guess you could call it a 'Sloppy ai'".
 
 ## log
+- v1.14 (2026-10-06): share the family as a picture. famPic() draws a 1080x1350 PNG: the title, the whole line snaking in a grid (best cell size for the count; over 60 the first AI, a "+N" cell and the newest 58; the youngest outlined lime; names under faces when cells are >= 150 px), the youngest's big card (generation, name, first words, personality, wrapped and cut with an ellipsis), the count and the app address. Avatars go through ava() as data-URL SVG images (viewBox -12 -14 124 124 so hats/antennas fit; hsl now comma syntax so it works outside CSS). Buttons: "share" in the whisper row (from 3 AIs on, hidden while whispering) and "share it as a picture" in the footer. Phones with file sharing get the share sheet; otherwise a dialog with the picture and "save picture". Probe hm/aw/p114.js (families of 15/80/5/1 via mutate, pics returned as data URLs) and p114b.js (phone bar).
 - v1.0 (2026-10-03): the family starts with Sloppy (purple blob, bow, headphones); each AI builds one child via Pollinations text (name, personality, first words, why its parent built it, look). Inline SVG avatars from look params (8 shapes, 10 accessories, 6 moods). One AI call writes 3 generations; the extra two wait in a queue. "keep going" auto mode. Family saved in localStorage 'atwd-fam' (max 300). Fallback "home-made copy" mutation when the AI is unreachable, never repeating a name.
 - v1.1 (2026-10-03): "whisper a quirk for the next AI" (fannar22: "afraid of spiders", "afraid of hair", a Pinky-and-the-Brain villain AI). The quirk throws away queued children, becomes the heart of the next child and echoes (twisted) in its kids; cards show "whispered by a visitor". AI timeout 20 s -> 45 s (3-generation replies can take 20 s+). Copies keep the quirk too.
 - v1.2 (2026-10-03): the family grows its own language (sol_etdal: "they are probably developing their own language"): the prompt asks for made-up words or catchphrases that later generations keep using, garbled.
@@ -26,7 +27,7 @@ sol_etdal's idea (2026-10-03): "what if you make a sloppy ai and that sloppy ai 
 
 ## todos
 - Branching families (two kids, cousins).
-- Share a family line as an image.
+- Share card: an og-style preview so a shared link shows the sender's family (would need a server; skip unless asked).
 
 ## probes
 - hm/paw1.js clicks "build the next AI" 4 times, records gens and errs (wait 85 s). hm/pawog.js: two clicks, scroll to top, for og.png at 1200x630.
