@@ -372,23 +372,47 @@ function noiseTex(base, dots, n, rep) {
 }
 const beach = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), new THREE.MeshStandardMaterial({ color: '#ffffff', map: noiseTex('#e8b977', ['#c99555', '#f6d6a0', '#d7a565'], 1600, 90), roughness: 1 }));
 beach.rotation.x = -Math.PI / 2; beach.position.set(245, 0, 0); beach.receiveShadow = true; scene.add(beach);
-const wetBand = new THREE.Mesh(new THREE.PlaneGeometry(5, 500), mat('#b78a55', { flatShading: false, roughness: 0.55 }));
+const wetBand = new THREE.Mesh(new THREE.PlaneGeometry(5, 500), mat('#b78a55', { flatShading: false, roughness: 0.85 }));
 wetBand.rotation.x = -Math.PI / 2; wetBand.position.set(-6.2, 0.004, 0); wetBand.receiveShadow = true; scene.add(wetBand);
-const sea = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), new THREE.MeshStandardMaterial({ color: '#1f7d84', roughness: 0.22, metalness: 0.05 }));
+const sea = new THREE.Mesh( // matte: the glint below is the only sun on the water (no specular smear spilling up the beach)
+  new THREE.PlaneGeometry(500, 500), new THREE.MeshLambertMaterial({ color: '#1f7d84' }));
 sea.rotation.x = -Math.PI / 2; sea.position.set(-5.7 - 250, 0.02, 0); scene.add(sea);
-{ // sun glint path on the water
-  const c = document.createElement('canvas'); c.width = 64; c.height = 256;
-  const x = c.getContext('2d');
-  for (let y = 0; y < 256; y++) for (let i = 0; i < 64; i++) {
-    const u = Math.abs(i - 32) / 32, v = y / 256;
-    const a = Math.pow(1 - u, 2) * (0.25 + 0.75 * v) * (0.6 + 0.4 * Math.sin(y * 0.9 + i * 0.3) * Math.sin(y * 0.37));
-    if (a > 0.02) { x.fillStyle = `rgba(255,200,130,${a.toFixed(3)})`; x.fillRect(i, 255 - y, 1, 1); }
-  }
-  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-  const gl = new THREE.Mesh(new THREE.PlaneGeometry(14, 200), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0.8 }));
+// sun glint path on the water (Tatum): a narrow bright line far out that breaks into twinkling flecks
+// toward the shore and is gone by the waterline (x -5.7), so it never spills onto the sand
+const GLINT = { uT: { value: 0 } };
+{
+  const gl = new THREE.Mesh(new THREE.PlaneGeometry(16, 200), new THREE.ShaderMaterial({
+    uniforms: GLINT, transparent: true, depthWrite: false,
+    vertexShader: `varying vec2 vUv; varying vec3 vW;
+void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform float uT; varying vec2 vUv; varying vec3 vW;
+float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+void main(){
+  float d = (1.0 - vUv.y) * 200.0, x = (vUv.x - 0.5) * 16.0, D = d + 11.0; // metres out to sea, across, from the ring
+  x += sin(d * 0.045 + uT * 0.35) * 0.012 * D;                              // the line sways a little
+  float hw = mix(0.005, 0.032, smoothstep(2.0, 45.0, d)) * D;              // half width: thin by the shore, wider far out
+  float qy = log(D) * 22.0;                                                 // rows the same size on screen at any distance
+  float streak = 1.0 - (1.0 - smoothstep(30.0, 80.0, d)) * 0.5 * (0.5 + 0.5 * sin(qy * 2.1 + uT * 2.0 + sin(x / hw + uT) * 1.5));
+  float core = exp(-2.2 * (x / hw) * (x / hw)) * smoothstep(4.0, 20.0, d) * (1.0 - smoothstep(165.0, 200.0, d)) * streak;
+  vec2 q = vec2(x / (0.02 * D), qy), c = floor(q), f = fract(q) - 0.5;
+  float r = h21(c), r2 = h21(c + 17.3);
+  float tw = pow(max(0.0, sin(uT * (2.5 + r2 * 4.0) + r * 60.0)), 4.0) * step(0.3, r);
+  vec2 o = f - vec2(r2 - 0.5, r - 0.5) * 0.5;
+  float fleck = tw * smoothstep(0.3, 0.0, length(o * vec2(1.0, 1.8)));
+  float spread = max(hw * 2.4, 0.35), lat = exp(-(x / spread) * (x / spread));
+  float spark = fleck * lat * smoothstep(1.0, 7.0, d) * (1.0 - smoothstep(22.0, 60.0, d));
+  float shore = smoothstep(-5.75, -7.0, vW.x) * (1.0 - smoothstep(0.8, 1.0, abs(vUv.x - 0.5) * 2.0)); // nothing on the sand side of the waterline, soft sides
+  float haze = exp(-(x / (hw * 3.0)) * (x / (hw * 3.0))) * smoothstep(6.0, 30.0, d) * (1.0 - smoothstep(150.0, 200.0, d)) * 0.09;
+  float a = clamp(core * 1.1 + spark * 1.6 + haze, 0.0, 1.0) * shore;
+  vec3 col = mix(vec3(1.0, 0.66, 0.36), vec3(1.0, 0.95, 0.82), clamp(core * core + spark, 0.0, 1.0)); // gold, white-hot where it's brightest
+  gl_FragColor = vec4(col * 1.15, a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`
+  }));
   const grp = new THREE.Group(); grp.position.set(-6.5, 0.03, 0);
   grp.rotation.y = Math.atan2(SUN.x, SUN.z);
-  gl.rotation.x = -Math.PI / 2; gl.position.z = 100; grp.add(gl); scene.add(grp);
+  gl.rotation.x = -Math.PI / 2; gl.position.z = 100; gl.frustumCulled = false; grp.add(gl); scene.add(grp);
 }
 /* foam lace: u runs out to sea (0) -> shore (1); the leading edge wobbles round u = 0.78 and the foam thins into bubbles behind it */
 const LACE_LEN = 14; // world units of shoreline per texture repeat
@@ -2056,7 +2080,7 @@ function frame(now) {
   let rdt = paused ? 0 : Math.min(Math.max(0, now - last) / 1000, 0.1); last = now;
   if (PZ.fresh) { PZ.fresh = false; rdt = Math.min(rdt, 1 / 60); }
   if (!paused && !TIP.on) logic(rdt); // a held hint: nothing moves, the camera still settles
-  updFoam(wallT); updGulls(wallT); updTideVis(wallT); updSeepVis(wallT); updLabVis(wallT);
+  GLINT.uT.value = wallT; updFoam(wallT); updGulls(wallT); updTideVis(wallT); updSeepVis(wallT); updLabVis(wallT);
   posePlayer(simT);
   writeGrains(simT);
   if (flag.visible) { flagCloth.rotation.y = Math.sin(wallT * 5) * 0.35; flagCloth.scale.x = 0.9 + Math.sin(wallT * 7) * 0.1; }
