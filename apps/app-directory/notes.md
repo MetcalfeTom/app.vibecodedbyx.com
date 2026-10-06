@@ -1,6 +1,7 @@
 # App Directory
 
 ## log
+- 2026-10-06: **letter headings under the A–Z bar** at every width: a ResizeObserver keeps --azh = the bar's real height (it wraps to two rows between ~540 and ~1100 px), .section-head top and .section scroll-margin-top use it. Checked at 390, 800 and 1280 px (M heading lands right under the bar after a jump).
 - 2026-10-02: **whole descriptions**: build-index.sh's title/description regex stopped at the first apostrophe in either quote style ("Conway" for automata-bloom); it now matches the opening quote, so 134 apps read whole. Rebuilt with Stack 6 7.
 - 2026-10-02: **creator search finds plain names** (Tatum 23:33 "you can search by creator name, but only twitch usernames count, i think"). Creators came only from sloppy-ops/data.json (stale since 09-26, and its auto-discovery took only handles with a digit or underscore, so Tatum was never credited). build-changes.py now also bakes `credits.json`: names credited in commit subjects (`(Name`, `per Name`, `Name's idea/request…`, `Name asked/wants…`), kept when the name chatted at least twice in chat.jsonl, or is handle-shaped with a digit and credited twice and isn't part of an app slug (drops rs41, lv3, win95, finish_reason, test). build-index.sh lists credits.json first, then the old table, then git authors. 42 apps with creators (was 8); `creator:Tatum` shows 15 apps. Rerun build-changes.py then build-index.sh to refresh.
 - 2026-10-01: **log button off the pictures** (Tatum 23:06 "the word log appears all over the screen, and covers a lot of the preview image", "maybe make it only appear on hover, and maybe in the top right of the card"). The button is now an empty 28x28 `<button class="hist">` with a CSS-drawn clock (::before ring, ::after hands), top-right of the card (`.name` keeps 1.4rem free for it). With a mouse (`hover:hover` + `pointer:fine`) it is invisible until the card is hovered or has focus; on touch it stays faint (dim, 0.7). Headless can't show the hover state (CSS hover media is false there; the JS matchMedia stub only fakes the peek).
@@ -29,8 +30,6 @@
 - Static list needs manual updates when new apps are added
 - Brand-new apps have no /screenshots/<slug>.jpg for a while (twin-tracks got its own ~hours later). Never put a possibly-missing image straight into the page as `<img onerror>`: the error still reaches the stats as "failed to load x.jpg". Load it off-document first (see loadShot).
 - The two catalogues are 275 KB (/_bar) + 342 KB (local) uncompressed; unknown whether nginx gzips JSON (they'd be ~110 + 95 KB). Worth checking with an external curl `-H 'Accept-Encoding: gzip' -I`.
-
-- 2026-10-06: the sticky letter heading sits under the A–Z bar at every width now: a ResizeObserver keeps --azh = the bar's real height (it wraps to two rows between ~540 and ~1100 px), .section-head top and .section scroll-margin-top use it. Checked at 390, 800 and 1280 px (M heading lands right under the bar after a jump).
 
 ## todos
 - The first list card on a phone (at the bottom edge of the first screen) gets its picture only after the list slices finish (~4 s at 4x CPU): the IO callbacks wait behind the slice tasks.
