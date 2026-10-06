@@ -52,6 +52,12 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
   - Smaller: `#frameNo` is just "5 / 30" (fps is in the summary), `#dragHint` hides after the first drag, the grab status says "of the 4.5s clip. Slide Start and End to pick the moment." when there's more clip.
   - Result at 390×844: buttons at y 537/607 on the landing; after the sample tap Print is at y≈600 (was 1602), sheets ready in ~1.1 s. Probes hm/fp1/p.js (landing), p1.js (sample geometry), p2.js (words + 24 fps + colour + film from the new spot: mp4 8.7 s), p3.js (recorded 4.5 s webm).
 
+- v1.8 (2026-10-06): one PDF instead of a burst of JPG downloads ("Save pages" fired one `<a download>` per sheet on a 350 ms timer; phones, iOS above all, keep only the first).
+  - `pdfOf(blobs)`: a hand-written PDF 1.4, one A4 page (595.28×841.89 pt) per sheet, each sheet's JPEG as a DCTDecode XObject filling the page (objects: 1 catalog, 2 pages, then page/content/image per sheet; xref entries 20 bytes). `buildSheets` keeps `sheetBlobs` and calls `readyPdf(tok)` when the last sheet is in; `pdf={blob,file,name,url}`, dropped (URL revoked) on every rebuild. `#saveBtn` "Save PDF" downloads `<video>-flipbook.pdf`.
+  - `#sendBtn` "Send" (coarse pointer + navigator.canShare({files:[pdf]})): the share sheet with the PDF, made before the tap so the share keeps the tap's activation. The JPGs are still there: `#picsBtn` "Save the sheets as pictures" in `#picsLine` under the sheets.
+  - `#pageMsg` (role=status) in the pages card for save/send/print messages, so they show next to the buttons, not up in the Flick card.
+  - Tested headless (p4.js): 2 sheets → 317 KB, `file` says "PDF document, version 1.4, 2 pages", every xref offset lands on its `N 0 obj`, both image streams start FFD8 and end FFD9 right before `endstream`. Not rendered: there's no PDF renderer in the sandbox (no poppler/mutool/pdf.js), so a real-device open is still to do. p5.js stubs matchMedia coarse + canShare/share: Send shows, shares 1 file application/pdf named after the video, title = cover title.
+
 ## issues
 - Headless can't pick a real file; the `rec` probe records a canvas to webm instead. H.264 MP4 isn't testable in the headless shell.
 - iOS Safari sometimes draws a blank first frame from an unplayed video; `videoSource` does a muted play()/pause() after loading.
@@ -61,4 +67,5 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 ## todos
 - Real-device check of print scaling (some print dialogs default to "fit to page", the page says print at 100%).
 - Maybe: reverse order option (flick from the back); low value, the numbered tabs already let you stack either way.
+- Open the Save PDF file on a real phone/computer and print it once (size check: a Tiny picture should measure 30 mm wide).
 - Film a flick: check on a real iPhone and Android (mp4 type, share sheet, save link). Ideas if chat likes it: a paper riffle sound in the clip, a portrait 4:5 frame, a "film again" button, tell Pushed.
