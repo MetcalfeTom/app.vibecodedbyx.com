@@ -69,5 +69,8 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 ## todos
 - Real-device check of print scaling (some print dialogs default to "fit to page", the page says print at 100%).
 - Maybe: reverse order option (flick from the back); low value, the numbered tabs already let you stack either way.
+- Ask pushedbutton: (a) open Save PDF on a phone and print it, a Tiny picture should measure 30 mm; (b) should the bouncing-ball sample start in colour? The landing demo is pink, the sample then shows a grey ball because Pale is the low-ink default (his spec, so left as is).
+- Look at screenshots/flipbook-press.jpg once it's regenerated: v1.7 removed the opacity fade on `#drop` that the old one caught mid-way.
+- Watch next week's numbers (visitors from WhatsApp, time on page) to see whether v1.7-1.9 hooked anyone.
 - Open the Save PDF file on a real phone/computer and print it once (size check: a Tiny picture should measure 30 mm wide).
 - Film a flick: check on a real iPhone and Android (mp4 type, share sheet, save link). Ideas if chat likes it: a paper riffle sound in the clip, a portrait 4:5 frame, a "film again" button, tell Pushed.
