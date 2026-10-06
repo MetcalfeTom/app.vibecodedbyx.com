@@ -35,13 +35,23 @@ Tatum's thought experiment (a sloppy.live viewer, asked 2026-10-04): what if eve
   - Plume coverage now always uses the 10-point shape (the 6-point one under-counted, 21% vs 25% at 1 Mt).
   - Probe es2/py.js (#wind, #play): 1945 → 2 dots, 8,583 km apart; 1957 → 5,970 × 1.5 Mt, 62 km mean, ~16% under plumes; 1986 → 18 km mean.
 - v1.5 (2026-10-06 ~00:10 UTC): phone polish. Under 46rem the settings section is display:contents, so its parts can interleave with the close-up: year + coverage lines (order 1), close-up (2), wind (3), count, size, Antarctica (4). Size chips are a 2×2 grid with 'flattens' and 'burns' on their own lines (.cv spans; the ' · ' .sep hides). Readout rows get a .9rem gap. World-map plume tint a bit stronger (.72, tails #94779f).
+- v1.6 (2026-10-06 ~00:50 UTC): a compass to your nearest dot, and a night theme (Tatum).
+  - Compass: bearing() = the first heading of the great-circle path (0 = N, clockwise); point8() gives 8 points, PTS (N, NE…) for the canvas and PTW (northeast…) for the readout. compass() in drawZoom draws a faint ring with a north tick round the pin and a needle toward the dot (skipped when the dot is within 34 px), the dashed line, and a label 'NE, 38 km'. Label: beside the line if it is longer than 170 px, past the dot if shorter.
+  - Off-screen marker: when the dot is outside the close-up, an arrowhead sits on the edge along the true bearing, with the label beside it and a fainter dashed line from the pin. edgeT() stops the ray before the edge and before the zones it must not cover: the +/- buttons (top right), the scale bar (bottom left) and the wind badge (top left, wind on only). Labels are also nudged off those zones.
+  - Readout: 'from where you stand' became '<northeast> of where you stand', with a small rotated needle SVG (.ndl) after the km figure. The close-up's aria-label adds 'to the <direction>'.
+  - Theme: CSS tokens on :root (light), the same dark block twice (in @media prefers-color-scheme dark under :root:not([data-theme=light]), and :root[data-theme=dark]). All canvas colours are CSS variables read with getCss() (cache cleared in applyTheme): --graticule, --veil, --rim, --pin-ring, --burn-map, --burn-fill, --burn-line, --blast-fill, --plume-rgb, --pl-out/in/tail, --pl-alpha, --halo, --glass, --needle-ring. The close-up's land/sea pixels come from rgbOf(--land/--sea). The plume layer cache key includes --pl-out.
+  - Settings: 'colours: auto · day · night' (#themes, aria-pressed) under the coverage lines. st.theme is saved in 'even-spread-v1' (theme: auto|light|dark) and recall() range-checks it. A tiny head script applies a saved light/dark before the first paint (no flash). Auto follows matchMedia changes live. Two theme-color metas (media light/dark); an explicit choice sets both.
+  - Night palette: page #10141b, sea #09111e, land #2b2f34, dots cream #efe6d1, rust #f27a52, plume #b9a3dc; plume tails #9a6fe6 at .85 (lavender tails were lost among the cream dots).
+  - Contrast: light --rust #b8482a → #b04328 (4.85:1 on paper), --mute #6c675d → #625d54 (4.6:1 on the sea, for the year stamp). Dark text: ink 14.4, mute 6.4, rust 6.8, plume 8.2.
+  - Probes in the es6 scratch folder: p1.js (hash flags dark/light, wind/nowind, far, gap, nesw/nesw2, y1945, y1957, mt1, up, ph, mid2, bot, mz = magnified map), pr.js (recall of odd theme values in iframes), p2.js (media rule, drag updates the direction, redraw ≈ 9 ms).
 - Probe: hm/pes.js (#tsar). 12,200 → 43 km mean, 92 km farthest, 110 km gap. 70k → 17.5 km mean. Tsar Bomba → 17% flattened, 71% burnt.
 
 ## issues
+- Canvas colours must come from the CSS variables via getCss(); a hard-coded rgba() will look wrong in one of the two themes. After a theme change, clear cssCache and repaint.
 - The world-atlas rings are spherical and cross the date line. unwrap() makes longitudes continuous, Antarctica closes through the pole, and every ring is drawn at -360/0/+360. Without this you get false land strips (an Arctic band and a Fiji line).
 - Tiny islands can have no dot nearby, so the farthest figure uses the 99.5th percentile.
 
 ## todos
 - Year slider: maybe split the yield by country era (US vs USSR), or show megatonnage as a second sparkline (a separate chart, never a second axis).
-- A compass pointing to your nearest dot (the voice's idea).
-- A dark theme.
+- Compass: maybe a 16-point rose when zoomed far in, or the walking time ('about 8 hours on foot').
+- Night theme: the og.png is still the day map.
