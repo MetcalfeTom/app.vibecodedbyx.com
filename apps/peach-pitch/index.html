@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Peach Pitch — 30-voice changer: robot, ghost, choir of you</title>
+<title>Peach Pitch — 31-voice changer: robot, ghost, choir of you</title>
 <link rel="canonical" href="https://app.sloppy.live/peach-pitch/">
 <meta name="description" content="Talk or type a line and hear it as a vocoder robot, a ghost, a chipmunk, a choir of six of you and more. Live in your browser, nothing uploaded.">
 <link rel="icon" href="https://emojicdn.elk.sh/🍑">
-<meta property="og:title" content="Peach Pitch — 30-voice changer">
+<meta property="og:title" content="Peach Pitch — 31-voice changer">
 <meta property="og:description" content="Talk or type a line: vocoder robot, ghost, underwater, a choir of you. Live in the browser.">
 <meta property="og:url" content="https://sloppy.live/peach-pitch">
 <meta property="og:image" content="https://image.pollinations.ai/prompt/a%20ripe%20peach%20wearing%20tiny%20devil%20horns%20and%20a%20glowing%20halo%2C%20split%20lighting%20heaven%20and%20hell%2C%20microphone%2C%20playful%20studio%20poster%2C%20warm%20peach%20tones?width=1200&height=630&seed=6161&nologo=true&model=flux&image=.png">
@@ -240,6 +240,7 @@ footer{font-size:.62rem; color:rgba(255,243,234,.85); letter-spacing:.1em; text-
       <button class="mode" id="m-flanger" type="button" aria-pressed="false">🌀 flanger</button>
       <button class="mode" id="m-glitch" type="button" aria-pressed="false">📼 glitch</button>
       <button class="mode" id="m-musicbox" type="button" aria-pressed="false">🎠 haunted music box</button>
+      <button class="mode" id="m-reverse" type="button" aria-pressed="false">⏪ reverse</button>
     </div>
   </div>
   <div class="row">
@@ -460,6 +461,8 @@ function createEngine(sr){
   /* v1.16: the big chorus's clock, the flanger's own delay line, the battery's charge and beeps */
   var sm1=null, sm2=null, hist=new Float32Array(2048);
   var skF=0, skph=0, skh=0, skhx=0;
+  /* v1.31 reverse: two line buffers (one records while the other plays backwards), and a ring for live backwards chunks */
+  var rvA=new Float32Array(sr*10), rvB=new Float32Array(sr*10), rvN=0, rvP=-1, rvS=0, rvE=0, rvTalk=0, rvQ=0, rvR=new Float32Array(sr*4), rvW=0, rvG=[0,0], rvL=0, rvrev=makeReverb(sr), rvD=null;
   /* v1.28 late-night show: a studio audience (laughs, oohs, applause) through shared formant filters, and a ba-dum-tss */
   function mkBank(L){ return L.map(function(q,j){ var w=6.283*q[0]/sr, al=Math.sin(w)/(2*q[1]), a0=1+al;
     return {b0:al/a0, a1:-2*Math.cos(w)/a0, a2:(1-al)/a0, x1:0, x2:0, y1:0, y2:0, g:[1,.7,.35][j]||.3}; }); }
@@ -778,6 +781,39 @@ function createEngine(sr){
           trCh=trE>.02?1:trCh*.99993;
           out[i]+=trN*cenv*cenv*trc*.35*trCh;
         }
+      }else if(P.mode==='reverse'){          /* ⏪ reverse (pepedro10): your line comes back backwards — after you stop talking, or live in little backwards chunks */
+        var rMode=tv(P,'how','line'), rDry=tv(P,'dry',0), rWait=tv(P,'wait',.4), rFade=Math.round(sr*.02);
+        if(!rvD||rvD.length<out.length) rvD=new Float32Array(out.length);
+        var rd=rvD.subarray(0,out.length);
+        if(rMode==='chunks'){
+          var Lc=Math.max(256,Math.round(sr*tv(P,'chunk',.4))), RN=rvR.length;
+          if(Lc!==rvL){ rvL=Lc; rvG[0]=0; rvG[1]=Lc>>1; }
+          for(i=0;i<out.length;i++){
+            rvR[rvW]=inp[i];
+            var y=0;
+            for(var g=0;g<2;g++){                                              /* each grain reads the chunk it just heard, backwards, under a Hann window */
+              var pk=rvG[g], ix=rvW-1-2*pk; ix%=RN; if(ix<0) ix+=RN;
+              y+=rvR[ix]*(.5-.5*Math.cos(6.283*pk/Lc));
+              if(++rvG[g]>=Lc) rvG[g]=0;
+            }
+            rvW=(rvW+1)%RN; rd[i]=y;
+          }
+        }else{
+          for(i=0;i<out.length;i++){
+            var rx=inp[i], ra=Math.abs(rx); rvE=ra>rvE?ra:rvE*.9993;
+            if(rvE>.02){ rvTalk++; rvQ=0; } else rvQ++;
+            if(rvTalk>0&&rvN<rvA.length) rvA[rvN++]=rx;                       /* record from the first word */
+            if((rvQ>rWait*sr&&rvTalk>.25*sr)||rvN>=rvA.length){               /* the line is over: swap buffers and play it from the end */
+              var tr=Math.min(rvN,rvQ); var tmp=rvB; rvB=rvA; rvA=tmp; rvS=rvN-tr; rvP=rvS-1; rvN=0; rvTalk=0;
+            }else if(rvTalk>0&&rvQ>rWait*sr) { rvTalk=0; rvN=0; }                /* just a cough: forget it */
+            var y=0;
+            if(rvP>=0){ var fi=Math.min(1,(rvS-1-rvP)/rFade,rvP/rFade); y=rvB[rvP]*fi; rvP--; }
+            rd[i]=y;
+          }
+        }
+        for(i=0;i<out.length;i++) out[i]=rd[i]+inp[i]*rDry;
+        rvrev.run(rd,out,.75,tv(P,'verb',.12));
+        for(i=0;i<out.length;i++){ var rq=Math.abs(out[i]); if(rq>.85) out[i]=(out[i]<0?-1:1)*(.85+.15*Math.tanh((rq-.85)/.15)); }
       }else if(P.mode==='show'){             /* 📺 late-night show (from Sloppy's list): a warm host mic in a small studio; after each line the audience laughs, oohs or claps, sometimes after a ba-dum-tss */
         var tW=tv(P,'warm',.5), tN=Math.round(tv(P,'size',14)), tLd=tv(P,'loud',.55), tla=tv(P,'laugh',.5), too=tv(P,'ooh',.15), tcl=tv(P,'clap',.25), trm=tv(P,'rim',.2), tbo=tv(P,'boo',0);
         if(gdry.length<out.length) gdry=new Float32Array(out.length);
@@ -1133,7 +1169,7 @@ $('file-play').addEventListener('click',function(){
   /* files are not the mic — force-monitor so you actually hear it */
   if(monitorGain){ monitorGain.gain.cancelScheduledValues(AC.currentTime); monitorGain.gain.setTargetAtTime(1,AC.currentTime,.03); }
   var self=this;
-  fileSrcNode.onended=function(){ stopFilePlayback(3); fileOff=0; seekShow(0); };
+  fileSrcNode.onended=function(){ stopFilePlayback(P.mode==='reverse'&&fileBuf?Math.min(12,fileBuf.duration+2):3); fileOff=0; seekShow(0); };
   if(fileOff>=fileBuf.duration-.05) fileOff=0;
   fileT0=AC.currentTime;
   fileSrcNode.start(0,fileOff);
@@ -1164,7 +1200,7 @@ function renderBuffer(buf,params){
     var d=buf.getChannelData(c);
     for(i=0;i<len;i++) mono[i]+=d[i]/buf.numberOfChannels;
   }
-  var eng=createEngine(sr), full=len+Math.round(sr*4), out=new Float32Array(full), BLK=2048;
+  var eng=createEngine(sr), full=len+Math.round(sr*4)+(params.mode==='reverse'?len:0), out=new Float32Array(full), BLK=2048;
   var ib=new Float32Array(BLK), ob=new Float32Array(BLK);
   for(var pos=0;pos<full;pos+=BLK){
     var nn=Math.min(BLK,full-pos);
@@ -1283,7 +1319,7 @@ function bindDemo(){ /* restore default handler after stop */ }
 
 /* modes */
 function modeName(){ var b=document.querySelector('.mode[aria-pressed="true"]'); return b?b.textContent.replace(/^\S+\s+/,''):P.mode; }
-var MODES={'m-morph':'morph','m-demon':'demon','m-mono':'mono','m-tune':'tune','m-chip':'chip','m-giant':'giant','m-radio':'radio','m-cave':'cave','m-robot':'robot','m-ghost':'ghost','m-whisper':'whisper','m-angel':'angel','m-pdemon':'pdemon','m-choir':'choir','m-under':'under','m-buddy':'buddy','m-chorus':'chorus','m-bit':'bit','m-tin':'tin','m-alien':'alien','m-stadium':'stadium','m-flanger':'flanger','m-battery':'battery','m-sleek':'sleek','m-pepper':'pepper','m-phone':'phone','m-train':'train','m-glitch':'glitch','m-musicbox':'musicbox','m-show':'show'};
+var MODES={'m-morph':'morph','m-demon':'demon','m-mono':'mono','m-tune':'tune','m-chip':'chip','m-giant':'giant','m-radio':'radio','m-cave':'cave','m-robot':'robot','m-ghost':'ghost','m-whisper':'whisper','m-angel':'angel','m-pdemon':'pdemon','m-choir':'choir','m-under':'under','m-buddy':'buddy','m-chorus':'chorus','m-bit':'bit','m-tin':'tin','m-alien':'alien','m-stadium':'stadium','m-flanger':'flanger','m-battery':'battery','m-sleek':'sleek','m-pepper':'pepper','m-phone':'phone','m-train':'train','m-glitch':'glitch','m-musicbox':'musicbox','m-show':'show','m-reverse':'reverse'};
 Object.keys(MODES).forEach(function(id){
   $(id).addEventListener('click',function(){
     P.mode=MODES[id];
@@ -1350,6 +1386,8 @@ var TW={
   pepper:[{k:'ring',l:'hum',min:10,max:120,step:1,d:30,u:'Hz'},{k:'drive',l:'anger',min:1,max:8,step:.1,d:3,u:'x'},{k:'metal',l:'tin shell',min:0,max:.85,step:.01,d:.4,u:'%'},{k:'up',l:'pitch',min:-6,max:6,step:1,d:0,u:'st'}],
   phone:[{k:'rain',l:'rain',min:0,max:1,step:.01,d:.35,u:'%'},{k:'line',l:'bad line',min:0,max:1,step:.01,d:.2,u:'%'},{k:'bits',l:'line quality',min:3,max:8,step:1,d:5,u:''}],
   train:[{k:'pitch',l:'whistle pitch',min:-12,max:12,step:1,d:0,u:'st'},{k:'breath',l:'steam',min:0,max:1,step:.01,d:.3,u:'%'},{k:'chuff',l:'chuff-chuff',min:0,max:1,step:.01,d:.25,u:'%'}],
+  reverse:[{k:'how',l:'backwards',opts:[['line','the whole line, after you stop'],['chunks','live, in little chunks']],d:'line'},{k:'wait',l:'pause before it plays',min:.2,max:1.5,step:.05,d:.4,u:'s'},
+    {k:'chunk',l:'chunk length (live)',min:.1,max:1.5,step:.05,d:.4,u:'s'},{k:'verb',l:'spooky room',min:0,max:.8,step:.01,d:.12,u:'%'},{k:'dry',l:'your voice too',min:0,max:1,step:.01,d:0,u:'%'}],
   show:[{k:'laugh',l:'laughs',min:0,max:1,step:.01,d:.5,u:'%'},{k:'ooh',l:'oohs',min:0,max:1,step:.01,d:.15,u:'%'},{k:'clap',l:'applause',min:0,max:1,step:.01,d:.25,u:'%'},{k:'boo',l:'polite boos',min:0,max:1,step:.01,d:0,u:'%'},
     {k:'rim',l:'ba-dum-tss',min:0,max:1,step:.01,d:.2,u:'%'},{k:'size',l:'audience size',min:3,max:30,step:1,d:14,u:''},{k:'loud',l:'audience volume',min:0,max:1,step:.01,d:.55,u:'%'},{k:'warm',l:'mic warmth',min:0,max:1,step:.01,d:.5,u:'%'}],
   musicbox:[{k:'scale',l:'tune',opts:[['creepy','creepy (minor)'],['lullaby','lullaby (major)'],['whole','dream (whole-tone)'],['broken','broken (bent tines)']],d:'creepy'},{k:'high',l:'how high',min:0,max:3,step:1,d:2,u:'oct'},
