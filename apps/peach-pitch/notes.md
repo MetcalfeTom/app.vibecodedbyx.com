@@ -1,6 +1,7 @@
 # peach-pitch · notes
 
 ## log
+- v1.21 (2026-10-07, Sloppy's own): ☎️ payphone in the rain on the places shelf — 330-3100 Hz band, held at 8 kHz, mu-law to a few bits, random line dropouts, line hiss, rain (low-passed noise + drop taps) that follows the call and fades ~0.75 s after you stop. Knobs: rain, bad line, line quality (bits). 26 voices.
 - v1.20 (2026-10-07, pepedro10 asked for a Dalek; named 🧂 pepper-pot bot, no franchise name): 200 Hz high-pass, tanh overdrive (level / sqrt(drive)), full ring mod at 30 Hz, 3.4 ms resonant comb 'tin shell'. Knobs: hum (10-120 Hz), anger, tin shell, pitch. 25 voices. Sloppy's next own idea: telephone/payphone voice.
 - v1.19 (2026-10-07, pepedro10 asked for EVE from WALL-E; named 🤍 sleek bot, no character name): +5 st smooth shift, a vocoder over a saw+sine carrier that glides to your raised pitch (follows intonation, unlike the robot's flat note), octave shimmer, 320 Hz high-pass + tanh, a little hall. Knobs: how high, synth, shine. 24 voices.
 - v1.18 (2026-10-07, Sloppy's own): every voice on makeSmoothShifter (s1-s4 + extra voices share shared.period = the block's f0; mono/tune still pass their 512-hop period). Steady-tone flutter in node: chip .19->.03, 8-bit .21->.04, battery .22->.07, pitch+voices .20->.09, demon/cave ~halved; intended wobbles (under, alien, pdemon growl, tin) about the same. Output gain x.9 so levels match the old shifter (in-phase grains were ~10% louder). The old makeShifter is now unused by the engine but kept.
