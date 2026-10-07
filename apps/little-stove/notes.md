@@ -64,6 +64,11 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - aria-label says who is eating what and how they look.
 - v1.8 (2026-10-07): every guest has their own lines: SAY[who] = 5 tiers (5, 4+, 3+, 2+, below) x 2 lines, picked by save.dinners. Grandma's 'write this one down', Dad's 'Hi Burnt, I'm Dad', the cat tries to bury it. A new WHO entry needs a SAY entry and a GUEST drawing.
 - v1.9 (2026-10-07): guest wishes. From dinner 3, 7 in 10 dinners the guest asks for something (WISH[who], pickWish): no onions/peppers/mushrooms (little brother), easy/no salt (Grandma, cat), extra salty (Dad), extra garlic (neighbour), extra cheese (best friend), crispy (roommate, pan non-flip only), soft (yourself; Mum on pans only). S.r becomes a changed copy, so card, hints, shop list, zone bar and scoring all follow it. Remembering = +2 tip and a 'you remembered' note; forgetting = -½ star. Never garlic/cheese on pancakes; a new WHO entry needs a WISH entry (or none).
+- v2.0 (2026-10-07, Sloppy's own while chat was quiet): the oven. Five bakes in the rotation (pot:'oven', temp): Soda Bread (dinner 5), Choc Chip Cookies, Cheesy Pizza, Apple Crumble, Cheese Soufflé; new food sugar, apple, chocolate (START/SHOP/ORDER/ico).
+  - Oven temp S.temp: +16°/s with the oven on, -3°/s off; bakes at 6.5 × (temp-70)/(target-70) per s, only once slid in (#flip button = "slide it in", then "peek"). A ding at temperature.
+  - Door shut = .meter.fog (blurred fill) and fuzzy words (ovenLook: golden from zone start -7 to end +3). Peek (tap the oven or the button): door open 1.1 s, -30°/s while open, exact meter for 2.4 s.
+  - Serving: cold oven (in below 60% / 85% of target) -1 / -½, never slid in -2, soufflé sinks at 2+ peeks (-1). save.oven=1 after the first bake; older saves with 5+ dinners get Soda Bread next.
+  - Wishes: no 'add'/extra salt on sweet bakes; crispy also on r.crisp (cookies, pizza). Grab hint says "some flour". bakeArt() draws each bake in the oven window and on the plate.
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 - Phone fridge strip: the sticky selector has to be section.area.fridge, because section.area{ position:relative } outranks .fridge.
