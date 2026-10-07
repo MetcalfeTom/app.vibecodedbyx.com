@@ -1,6 +1,7 @@
 # peach-pitch · notes
 
 ## log
+- v1.27 (2026-10-07): 🎠 haunted music box (Sloppy's own; Pepedro asked for more of my ideas, with knobs): spoken pitch snapped to a scale (creepy minor / lullaby / whole-tone / broken bent tines) +0..3 oct plucks 10 comb tines (1, 3x, 6.27x partials, pin click); after a phrase it replays your last 6 notes slower and flatter; creaky spring = wow; reverb; your voice faintly under it. Levels: default pk .85 rms .115; busier rates play softer; soft knee .85.
 - v1.26 (2026-10-07): 🔗 share — the current voice rides in the link as #v=<url-encoded JSON>; opening it (or a hashchange) loads it via cleanVoice() (known modes/knobs only, numbers clamped, names ≤24), ⭐ save keeps it. cleanVoice also cleans localStorage on load. A loaded saved voice saves over itself.
 - v1.25 (2026-10-07): ⭐ my voices — save the current voice (mode, knobs, amount, pitch + extra voices, key/scale) under a name; a 'mine' shelf at the top (localStorage 'peach-pitch-mine', max 16, ✕ asks 'sure?' first). 🎲 surprise me rolls a different voice with knobs within half the range of their defaults.
 - v1.24 (2026-10-07): every voice has knobs now (pepedro10: "for Everyone to Customise"): demon (depth, alien height/loudness, wobble), angel (how high, halo, heaven hall), peach-demon (how low, growl, growl speed), choir (chord type, harmony, bass voice), tin can (the note, ring, crunch). Defaults identical (node regression max diff 0). These five soft-bend above .85 only when their drawer has values, so cranked knobs stay under 1.0.
