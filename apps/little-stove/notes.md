@@ -55,6 +55,13 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - Touch screens (pointer: coarse) say 'swipe to chop' / 'Swipe across the onion to chop it.'; eggs still say tap to crack. Probes run with a fine pointer, so 'tap to' labels stay the same there.
   - Probe: stove/cdpdrive.py sends real CDP mouse events (2 strokes → 2 cuts, the trailing click doesn't add one, then a plain tap → 3).
 
+- v1.7 (2026-10-07, ~04:25 UTC): THE TABLE SCENE (the 'plating / table scene' todo, Sloppy's pick while chat was quiet).
+  - svg#scene at the top of dialog#done: a dusk window, a hanging lamp, a gingham tablecloth and tonight's guest eating your dish. tableScene(who, stars, recipe, burnt) builds it as an SVG string (helpers pth/cir/ell, INK).
+  - GUEST has one drawing per WHO entry (skin, shirt, hair behind 'b' and in front 'f', glasses/beard/earrings/freckles flags); the cat is its own drawing that purrs at 4+ stars and turns its head away below that.
+  - Faces by tier (5 in heaven, 4 grinning, 3 smiling, 2 not sure + a sweat drop, 1 pulling a face + green tint + stink lines). Hearts float up at 5 stars. Steam rises at 3+, smoke when anything went over 100.
+  - dishArt: a bowl for pot dishes (with a spoon), a plate for pan dishes; pancakes are a stack with butter, tamagoyaki a rolled log. The colour comes from TINT.
+  - The guest is drawn 1.18x around (150,118) (ZOOM group). The animations (fork/spoon bite x3, rise, heart, purr) all sit under the global reduced-motion rule.
+  - aria-label says who is eating what and how they look.
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 - Phone fridge strip: the sticky selector has to be section.area.fridge, because section.area{ position:relative } outranks .fridge.
@@ -62,6 +69,5 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
 
 ## todos
 - Shop ideas: daily specials / a sale, a shopping list you tick off, a fridge that shows what spoils.
-- Plating / a table scene for the result.
 - Day and night time with a clock.
 - Tips from the diner.
