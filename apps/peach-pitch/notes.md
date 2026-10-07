@@ -1,6 +1,7 @@
 # peach-pitch · notes
 
 ## log
+- 2026-10-07: v1.9 two more voices: 🐣 echo buddy (my idea: dry .7 + an octave-up copy (s2 x2, .6) through a .45 s delay ring eb) and 👯 chorus 2x1 (pepedro10: 'a basic chorus'): dry + one copy through a 22±7 ms delay swept at .9 Hz, x.56. Node on the TTS line: buddy gain .86 peak .81, chorus gain ~.8 peak ~.8. Headless: 17 mode buttons, both play a TTS clip, no errors.
 - 2026-10-07: v1.8.1 polish: the scale picker (#scale-wrap) only lights up for autotune, the key picker for autotune/robot/ghost; messages and the status line use modeName() (the pressed button's label, so 'underwater' not 'under').
 - 2026-10-07: v1.8 seek bar for clips (pepedro10): #file-seek range (0-1000) with time/duration under the file row. fileOff + (AC.currentTime - fileT0) = filePos(); stopFilePlayback keeps the place (pause), the natural end resets to 0, start(0,fileOff); dragging shows the time (input), letting go jumps there (change) and restarts if it was playing. New buffers (file or typed line) reset to 0. Headless: seek 60% while playing -> 0:04 of 0:07, stop holds, play resumes there, seek back to 20% while playing.
 - 2026-10-07: v1.7 underwater remake (pepedro10: like Voice Changer Plus, vibrato + flanger, basic): s1 vibrato 6.5 Hz ±3.5% in 256-sample slices -> flanger (1.5-6 ms delay swept at .35 Hz, fb .55, 50/50) -> 2-pole LP 2.4 kHz -> tanh soft clip; bubbles rarer and quieter. Node: TTS line gain .52 peak .60 (was peak 1.43 before the soft clip). Headless: plays a TTS clip, no errors.
