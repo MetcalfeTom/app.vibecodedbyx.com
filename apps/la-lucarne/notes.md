@@ -21,14 +21,15 @@ Penalty shootout at night at the Vélodrome. You shoot as Payet (10), then dive 
 - Fan tribute: no club crest or logo, rivals are generic ("Rivaux").
 
 ## Log
-- v1.0 (2026-10-07): stadium, players, shootout, keeping, sound, FR/EN, share.
+- v1.0 (2026-10-07 19:13 UTC): stadium, players, shootout, keeping, sound, FR/EN, share. Back net was slanted the wrong way in the first render (fixed: rotation.x = +atan2(GD, GH)); after a goal the ball bounced off the back net and rolled out of the mouth (fixed: G.inNet keeps it behind the line, side netting clamps x).
+- v1.1 (2026-10-07 19:30 UTC): the tifo: before Payet's 5th kick, every sudden-death kick and on a win, the virage flips cards in a wave (34 m/s, left to right) into a hand-drawn 26x16 "10" (TIFO_10) in sky blue on white, with stripes out to the corners. A banner plane with the same bitmap sits just behind the cards so the seat gaps show the right colour; the crowd stops bouncing while it's held. Scoreboard: at most 6 dots per side (sudden death shows the last 5 plus the next), no empty placeholder after the end, smaller on phones. "Penalty shootout" kicker translated. Corner buttons stacked so the hint never covers them.
 
 ## Issues
+- G.speed (test hook) multiplies dt: a full 10-kick game runs in ~75 s headless at speed 4. But a probe polling every 20 ms can't time a keeper tap inside krun at 5 fps, so test dives through resolve() instead (a perfect, on-time dive saves ~90% of rival shots; one at 60% of the dive, ~11%).
 - Headless frames are slow: probe the logic directly (`__LU.resolve`, `kick`, `over`, `rivalTarget`) and freeze with `G.hold = 1` for screenshots.
 - Probe odds (v1.0): corner shots ~96% goal before the nerves, low/middle ~68%; keeping saves ~15-18% from a blind guess, more for a reaction dive.
 
 ## Todos
 - Free kicks mode (Payet's speciality): a wall and curl.
-- A tifo in the virage spelling 10, now and then.
 - A goal replay camera.
 - Ask Elieutch: free kicks or more of the shootout?
