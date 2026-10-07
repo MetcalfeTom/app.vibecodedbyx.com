@@ -62,6 +62,7 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - dishArt: a bowl for pot dishes (with a spoon), a plate for pan dishes; pancakes are a stack with butter, tamagoyaki a rolled log. The colour comes from TINT.
   - The guest is drawn 1.18x around (150,118) (ZOOM group). The animations (fork/spoon bite x3, rise, heart, purr) all sit under the global reduced-motion rule.
   - aria-label says who is eating what and how they look.
+- v1.8 (2026-10-07): every guest has their own lines: SAY[who] = 5 tiers (5, 4+, 3+, 2+, below) x 2 lines, picked by save.dinners. Grandma's 'write this one down', Dad's 'Hi Burnt, I'm Dad', the cat tries to bury it. A new WHO entry needs a SAY entry and a GUEST drawing.
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 - Phone fridge strip: the sticky selector has to be section.area.fridge, because section.area{ position:relative } outranks .fridge.
