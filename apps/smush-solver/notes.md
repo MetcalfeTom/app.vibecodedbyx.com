@@ -50,6 +50,7 @@ Hot-sauce label: cream paper, chili red #cf2f19, mustard gold #e0a21f, ink #2419
 - 2026-09-28 v1: board entry with uses −/+ and letter values, spicy tile tap, ranked candidates (score now / with look-ahead), played ✓ (takes uses from the fullest tile with that letter, undo), ✗ game says no (with undo toast), find box, best finish plan, BYOD file picker, new game keeps letters.
 
 ## issues
+- 2026-10-07 22:27 UTC error sweep, nothing changed: app analytics had 1 Firefox visitor with `TypeError: can't access dead object` at ?bare=1:381. Since v1.14 that line is fits(c,left), which only reads `c.vec` and `left`, arrays the page builds itself in model() and leftNow(). (In v1.11, live 10-02 23:49 to 10-04 02:53, it was the worker's eval reply.) Firefox raises "dead object" only for a wrapper into a global that has been destroyed: an extension's content-script sandbox, or another origin's window. The app has neither (no iframes, no window.open, no cross-window refs), so this was most likely an extension that wraps page built-ins and got reloaded. Not an app bug.
 - Probe: scratchpad smush/mkprobe.py (?g=&p=&sp=&play=N&fresh=1) seeds localStorage and waits for EV.done.
 
 ## todos
