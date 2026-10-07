@@ -1,6 +1,7 @@
 # peach-pitch · notes
 
 ## log
+- v1.24 (2026-10-07): every voice has knobs now (pepedro10: "for Everyone to Customise"): demon (depth, alien height/loudness, wobble), angel (how high, halo, heaven hall), peach-demon (how low, growl, growl speed), choir (chord type, harmony, bass voice), tin can (the note, ring, crunch). Defaults identical (node regression max diff 0). These five soft-bend above .85 only when their drawer has values, so cranked knobs stay under 1.0.
 - v1.23 (2026-10-07, pepedro10): 📼 glitch on a new fx shelf (the flanger moved there too). While you talk (env > .025), about 1.5 events/s at 50%: stutter (loop the last 30-120 ms 2-6x), pitch jump (x.5-2 for .08-.28 s), backwards blip (.12-.3 s), crunch (6 levels, hold 7). One event at a time; 2 ms fades on loops. Knobs: glitchiness + a weight for each kind. 28 voices.
 - v1.22 (2026-10-07, pepedro10: train whistle voice like 1940s-50s cartoons = the Sonovox trick): 🚂 talking train — vocoder over a 3-pipe saw whistle chord (370 Hz x 1, 1.26, 1.5) + steam noise, each blast after a .12 s pause scoops up 1.6 st over .16 s, chuff-chuff noise bursts at 4.2/s while you talk. Knobs: whistle pitch, steam, chuff-chuff. 27 voices.
 - v1.21 (2026-10-07, Sloppy's own): ☎️ payphone in the rain on the places shelf — 330-3100 Hz band, held at 8 kHz, mu-law to a few bits, random line dropouts, line hiss, rain (low-passed noise + drop taps) that follows the call and fades ~0.75 s after you stop. Knobs: rain, bad line, line quality (bits). 26 voices.
