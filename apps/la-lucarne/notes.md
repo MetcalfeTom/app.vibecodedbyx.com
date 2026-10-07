@@ -40,6 +40,15 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - Kick-off whistle + 'Coup d’envoi' call on the first roll; half-time (v1.8.1): when a roll crosses 45 (m0 <= 45 < m1) the clock stops at 45’ · Mi-temps for 1.8 s (M.ht = the roll time it reaches 45, M.wait += 1.8), two whistles and a 'Mi-temps · OM a – b' call. No Rivals goal is ever rolled at 45 (used.add(45)), so none lands after the half-time whistle.
 - Probe (q32.js, auto-player): a full match ran in ~3 min headless at speed 3 with no errors and won 3-2. 136 draw calls at 1280x720.
 
+## La Coupe (v1.9)
+- Title button La Coupe (gold, next to Le Match; it shows the round you're on and 🏆 cups won). Four rounds, each a Le Match: Huitième vs Les Cigales (yellow), Quart vs Les Goélands (teal, white shorts), Demi vs Le Mistral (orange, navy shorts), Finale vs Les Rivaux (maroon). All made up; EN names: the Cicadas, the Gulls, the Mistral, the Rivals.
+- CUP[r].rg: off-screen goal odds, 0/1/2(/3) goals: [.5,.4,.1], [.35,.45,.2], [.25,.45,.3], [.15,.45,.3,.1] (friendly Le Match keeps [.3,.5,.2]).
+- OPP = CUP[r] while a cup match is on: t_() reads OPP[LANG][k] first (rv, nm, m_keep, mRiv, ckBad), so every 'Rivaux' line names the club; the HUD name takes OPP.hud as its colour.
+- setKit(k): recolours the Rivals' meshes. Wall men, the man behind the wall and the corner markers (CKM.def) are merged vertex-coloured meshes: per-vertex roles (1 = shirt #7a1f3d, 2 = shorts #1d1d24) are found once and rewritten. RIVAL (the penalty taker) materials: role by colour hex, the back texture is a new shirtTex(shirt, trim, '', '9') cached on the club. setKit(null) restores the maroon (modes button, any non-cup game).
+- A draw at full time -> cupPens(): M.pens = 1, G.A/G.B = M.SA/M.SB, plain pens inside the match (dots/over/next skip the match branch while M.pens; finish() hands back to finishMatch -> finishCup). Magic boot off.
+- finishCup(): QUALIFIÉS ! / LA COUPE EST À NOUS ! / ÉLIMINÉS…, score (+ t.a.b. a–b), goal minutes, next round and opponent; again = Tour suivant / Nouvelle coupe. localStorage la-lucarne:cup {r, cups, best}: a win moves r on (the final resets it and adds a cup), a loss resets r to 0.
+- Probe q37.js: forced 0-0 -> shootout won 4-1 -> QUALIFIÉS, r 1; semi vs the Mistral won 5-2 with the next-round line; modes restores the maroon kit and RIVAUX. 99-132 draw calls.
+
 ## Free kicks (v1.2)
 - Five spots in order (FK_SPOTS): (-5.5, 21), (1.5, 23.5), (7.5, 20), (-9, 18.5), (3.5, 27). Score = goals out of 5, best kept in localStorage `la-lucarne:fkbest`. End titles: 4+ Magique, 2-3 Pas mal, 0-1 Le mur a gagné; the crowd celebrates from 3.
 - Input: press on the goal to aim (locked), slide sideways to curl (CURLMAX 2.2 m of bow at mid-flight, full curl = 30% of the screen width, max 260 px), release to shoot. Mouse hover previews. Keys: arrows curl, Q-D shoot, Space/Enter shoot at the previewed aim. A dotted preview shows the first half of the flight.
@@ -72,6 +81,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.7.2 (2026-10-07 ~22:40 UTC): the TV pan on corners (desktop and landscape): the camera swings to the flag as Payet runs up and rides the cross in, then settles on the box before the header.
 - v1.8 (2026-10-07 ~23:00 UTC): LE MATCH, a fourth mode: a 90-minute match night in six moments (free kicks, corners, a penalty, a Rivals penalty to keep, the last action in stoppage time). The Rivals score off screen now and then, and the full-time score decides it. Ticker pill, W/D/L record, share timeline.
 - v1.8.1 (2026-10-07 ~23:05 UTC): Le Match gets a kick-off whistle and a half-time stop at 45’ with the score; the title subtitle mentions the match.
+- v1.9 (2026-10-07 ~23:25 UTC): LA COUPE, a cup run of four Le Match rounds against made-up clubs in their own kits (Cigales, Goélands, Mistral, then the Rivals in the final), harder each round, draws go to penalties, progress saved. The title card scrolls instead of clipping (Défi du jour fell off the bottom at 1280x720), smaller mode buttons, a three-line how-to.
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
