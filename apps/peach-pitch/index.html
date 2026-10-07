@@ -414,30 +414,47 @@ function makeSmoothShifter(sr,shared){   /* shared.period: the engine's latest v
     }
   }};
 }
+var dpX=new Float32Array(1024), dpC=new Float32Array(400);
 function detectPitch(block,sr){
   /* autocorrelation over first 1024 samples, 70–400 Hz */
-  var N=Math.min(1024,block.length), rms=0, i;
-  for(i=0;i<N;i++) rms+=block[i]*block[i];
-  rms=Math.sqrt(rms/N);
-  if(rms<.004) return 0;
+  var N=Math.min(1024,block.length), norm=0, i;
+  for(i=0;i<N;i++) norm+=block[i]*block[i];
+  if(Math.sqrt(norm/N)<.004) return 0;
   var minLag=Math.floor(sr/400), maxLag=Math.min(Math.floor(sr/70),block.length-N);
   if(maxLag<=minLag) return 0;
-  var best=0,bestLag=0, norm=0;
-  for(i=0;i<N;i++) norm+=block[i]*block[i];
-  var corrs=new Float32Array(maxLag+1);
-  for(var lag=minLag;lag<=maxLag;lag++){
+  /* v1.41: search a half-rate copy first (a quarter of the work), then find the exact lag at full rate near what it found */
+  var H=N>>1, h0=minLag>>1, h1=maxLag>>1, nX=block.length>>1;
+  if(dpX.length<nX) dpX=new Float32Array(nX);
+  if(dpC.length<h1+2) dpC=new Float32Array(h1+2);
+  for(i=0;i<nX;i++) dpX[i]=block[2*i]+block[2*i+1];
+  var cb=0, cl=0;
+  for(var lag=h0;lag<=h1;lag++){
+    var c=0;
+    for(i=0;i<H;i++) c+=dpX[i]*dpX[i+lag];
+    dpC[lag]=c;
+    if(c>cb){ cb=c; cl=lag; }
+  }
+  if(cl===0) return 0;
+  /* every coarse peak close to the best gets its exact value at full rate; then the old rules pick: the highest wins,
+     unless an earlier peak ties it within 10% (subharmonic guard: else pure tones detect one or two octaves low) */
+  var best=0, bestLag=0, nk=0;
+  for(var l2=h0;l2<=h1&&nk<6;l2++){
+    if(l2===cl||(l2>h0&&l2<h1&&dpC[l2]>=cb*.7&&dpC[l2]>=dpC[l2-1]&&dpC[l2]>=dpC[l2+1])){ dpK[nk]=l2; dpV[nk]=dpFine(block,N,2*l2,minLag,maxLag); dpL[nk]=dpLag; if(dpV[nk]>best){ best=dpV[nk]; bestLag=dpLag; } nk++; }
+  }
+  for(var k=0;k<nk;k++) if(dpV[k]>=best*.9){ bestLag=dpL[k]; break; }
+  if(bestLag===0||best/norm<.35) return 0;
+  return sr/bestLag;
+}
+var dpLag=0, dpK=new Int32Array(6), dpV=new Float64Array(6), dpL=new Int32Array(6);
+function dpFine(block,N,ctr,minLag,maxLag){   /* the exact correlation for lags ctr-3..ctr+3; the best value, its lag in dpLag */
+  var fb=-1e30, lo=Math.max(minLag,ctr-3), hi=Math.min(maxLag,ctr+3), i;
+  dpLag=0;
+  for(var lag=lo;lag<=hi;lag++){
     var c=0;
     for(i=0;i<N;i++) c+=block[i]*block[i+lag];
-    corrs[lag]=c;
-    if(c>best){ best=c; bestLag=lag; }
+    if(c>fb){ fb=c; dpLag=lag; }
   }
-  if(bestLag===0||best/norm<.35) return 0;
-  /* subharmonic guard: earliest LOCAL PEAK that ties the global best wins the octave,
-     else pure tones detect one or two octaves low (period multiples all correlate) */
-  for(var l2=minLag+1;l2<bestLag;l2++){
-    if(corrs[l2]>=best*.9 && corrs[l2]>=corrs[l2-1] && corrs[l2]>=corrs[l2+1]){ bestLag=l2; break; }
-  }
-  return sr/bestLag;
+  return fb;
 }
 var SCALES={
   minPent:[0,3,5,7,10],            /* minor pentatonic — never sounds wrong */
@@ -560,17 +577,9 @@ function createEngine(sr){
   var ppph=0, pph=0, pphx=0, ppc=new Float32Array(Math.ceil(sr*.01)), ppw=0;   /* v1.20 pepper-pot bot: 30 Hz ring, high-pass, a tin-can comb */   /* v1.19 sleek bot: the synth that follows your melody, a high-pass */   /* v1.17 smooth monotone/autotune */
   var chT=0, fl2=new Float32Array(Math.ceil(sr*.025)), fw2=0, fph2=0, bat=1, btE=0, btQ=0, btph=0, bpT=1e9, bpph=0, bpDone=0;
   function rnd(){ seed=(seed*16807)%2147483647; return seed/2147483647; }
-  return {
-    lastF0:function(){ return lastF0; },
-    curF0:function(){ return curF0; },
-    process:function(inp,out,P){
-      var i;
-      for(i=0;i<out.length;i++) out[i]=0;
-      var f0=detectPitch(inp,sr);
-      if(f0) lastF0=f0;
-      curF0=f0||0;
-      shared.period=f0>0?sr/f0:0;
-      if(P.mode==='morph'){
+  /* v1.41: every voice is its own small function (it was one giant if-chain): a voice can't shadow another voice's variables any more,
+     and when the browser re-compiles one voice it doesn't throw away the fast version of the whole engine */
+  function md_morph(inp,out,P,f0){ var i;
         /* 🎚 pitch + voices (v1.13, pepedro10): your voice moved -12..+12 semitones, plus extra voices each on their own bar */
         /* v1.32 human pitch (pepedro10): the note moves but the throat stays yours, unless the throat bar (or its link to the pitch) moves it */
         var hv=P.voices||[], nv=hv.length, vg=1/(1+.4*nv), pit=P.pitch||0, lk=P.flink!==false, fm=+P.form||0, per=shared.period;
@@ -581,25 +590,29 @@ function createEngine(sr){
         if(!pit&&!nv&&(lk||!fm)) for(i=0;i<out.length;i++) out[i]=inp[i]*.95;   /* plain you: no delay */
         else for(i=0;i<out.length;i++) out[i]=hq[i];
         for(var k=0;k<nv;k++){ if(!hpv[k]) hpv[k]=makePsola(sr); hpv[k].run(inp,out,Math.pow(2,hv[k]/12),.6*vg,thr(hv[k]),per); }
-      }else if(P.mode==='angel'){           /* 😇 angel (the old bar's top end): up a third, an octave-up shimmer, a soft hall */
+  }
+  function md_angel(inp,out,P,f0){ var i; /* 😇 angel (the old bar's top end): up a third, an octave-up shimmer, a soft hall */
         var mpa=morphParams(.05), anr=Math.pow(2,tv(P,'up',5.25)/12);   /* v1.24 knobs: how high, halo, hall */
         s1.run(inp,out,anr,.85);
         s2.run(inp,out,Math.min(2.4,anr*2),tv(P,'halo',mpa.halo*.9));
         if(gdry.length<out.length) gdry=new Float32Array(out.length);
         var ga=gdry.subarray(0,out.length); ga.set(out);
         grev.run(ga,out,.8,tv(P,'hall',.35));
-      }else if(P.mode==='pdemon'){          /* 😈 peach-demon (the old bar's bottom end): way down and growling */
+  }
+  function md_pdemon(inp,out,P,f0){ var i; /* 😈 peach-demon (the old bar's bottom end): way down and growling */
         var mpd=morphParams(.95);
         s1.run(inp,out,Math.pow(2,tv(P,'down',-8.25)/12),1.25);
         var ad=Math.min(.75,tv(P,'growl',mpd.growl)), gsp=tv(P,'grate',42);   /* v1.24 knobs: how low, growl, growl speed */
         for(i=0;i<out.length;i++){ out[i]*=(1-ad)+ad*Math.sin(rm); rm+=6.283*gsp/sr; if(rm>6.283) rm-=6.283; }
-      }else if(P.mode==='demon'){
+  }
+  function md_demon(inp,out,P,f0){ var i;
         lfo+=.008;
         var dlo=tv(P,'low',null), dhi=tv(P,'high',null);   /* v1.24 knobs: the demon's depth, the alien's height, its loudness and wobble */
         s1.run(inp,out,dlo==null?.58:Math.pow(2,dlo/12),.8);
         s2.run(inp,out,(dhi==null?1.5:Math.pow(2,dhi/12))+Math.sin(lfo)*tv(P,'wobble',.06),tv(P,'alien',.55));
         for(i=0;i<out.length;i++) out[i]+=inp[i]*.12;
-      }else if(P.mode==='mono'||P.mode==='tune'){   /* 😐🎤 v1.17 remaster (pepedro10): pitch checked every 512 samples, the ratio glides sample by sample, through the smooth shifter */
+  }
+  function md_mono(inp,out,P,f0){ var i; /* 😐🎤 v1.17 remaster (pepedro10): pitch checked every 512 samples, the ratio glides sample by sample, through the smooth shifter */
         if(!sm1){ sm1=makeSmoothShifter(sr); sm2=makeSmoothShifter(sr); }
         var isT=P.mode==='tune', spd=isT?tv(P,'speed',.35):tv(P,'glide',.5), hum=tv(P,'how','human')==='human';   /* v1.33: 'human' keeps your throat (PSOLA), 'classic' is the old tape-style shifter */
         if(hum&&!tp1){ tp1=makePsola(sr); tp2=makePsola(sr); }
@@ -619,7 +632,8 @@ function createEngine(sr){
           }
         }
         if(hum) for(i=0;i<out.length;i++){ var uq=Math.abs(out[i]); if(uq>.85) out[i]=(out[i]<0?-1:1)*(.85+.15*Math.tanh((uq-.85)/.15)); }
-      }else if(P.mode==='witness'){         /* 🕵 secret witness (Sloppy's own): the TV-interview voice that hides who you are — pitched down tape-style, throat and all, a bit muffled, in a small room */
+  }
+  function md_witness(inp,out,P,f0){ var i; /* 🕵 secret witness (Sloppy's own): the TV-interview voice that hides who you are — pitched down tape-style, throat and all, a bit muffled, in a small room */
         s1.run(inp,out,Math.pow(2,tv(P,'down',-6)/12),1.05);
         var wtc=1-Math.exp(-6.283*tv(P,'muffle',2600)/sr), wth=Math.exp(-6.283*110/sr);
         for(i=0;i<out.length;i++){ var wx=out[i]; wtH=wth*(wtH+wx-wtHx); wtHx=wx; wtL1+=wtc*(wtH-wtL1); wtL2+=wtc*(wtL1-wtL2); out[i]=wtL2; }
@@ -627,7 +641,8 @@ function createEngine(sr){
         var wtd=wtBuf.subarray(0,out.length); wtd.set(out);
         wtRev.run(wtd,out,.5,tv(P,'room',.16));
         for(i=0;i<out.length;i++){ var wq=Math.abs(out[i]); if(wq>.85) out[i]=(out[i]<0?-1:1)*(.85+.15*Math.tanh((wq-.85)/.15)); }
-      }else if(P.mode==='mic'){             /* 🎙 studio mic (Sloppy's own): no character at all, just you on an expensive microphone — rumble cut, close-up warmth, presence, a smooth compressor; 'deeper' moves the note with your throat kept */
+  }
+  function md_mic(inp,out,P,f0){ var i; /* 🎙 studio mic (Sloppy's own): no character at all, just you on an expensive microphone — rumble cut, close-up warmth, presence, a smooth compressor; 'deeper' moves the note with your throat kept */
         var mcD=tv(P,'deeper',0);
         if(mcB.length<out.length) mcB=new Float32Array(out.length);
         var mcI=mcB.subarray(0,out.length);
@@ -650,13 +665,16 @@ function createEngine(sr){
           var mcQ=Math.abs(mcY); if(mcQ>.85) mcY=(mcY<0?-1:1)*(.85+.15*Math.tanh((mcQ-.85)/.15));
           out[i]=mcY;
         }
-      }else if(P.mode==='chip'){            /* 🐿 chipmunk: up an octave and a bit */
+  }
+  function md_chip(inp,out,P,f0){ var i; /* 🐿 chipmunk: up an octave and a bit */
         s1.run(inp,out,Math.pow(2,tv(P,'up',10)/12),1);
-      }else if(P.mode==='giant'){           /* 🗿 giant: way down, with a sub an octave under */
+  }
+  function md_giant(inp,out,P,f0){ var i; /* 🗿 giant: way down, with a sub an octave under */
         var gr0=Math.pow(2,tv(P,'down',-9)/12);
         s1.run(inp,out,gr0,.95);
         s2.run(inp,out,gr0*.75,tv(P,'sub',.35));
-      }else if(P.mode==='radio'){           /* 📻 old radio: band-limited, a bit overdriven, crackling */
+  }
+  function md_radio(inp,out,P,f0){ var i; /* 📻 old radio: band-limited, a bit overdriven, crackling */
         var ka=Math.exp(-6.283*450/sr), kb=1-Math.exp(-6.283*2600/sr), rdr=tv(P,'drive',3.2), rcr=.003*tv(P,'crack',.3);
         for(i=0;i<out.length;i++){
           var x=inp[i];
@@ -666,14 +684,16 @@ function createEngine(sr){
           if(rnd()<rcr) y+=(rnd()-.5)*.5;     /* crackle */
           out[i]=y+(rnd()-.5)*.012;            /* hiss */
         }
-      }else if(P.mode==='cave'){            /* 🕳 cave: slightly lower, with echoes that ring off the walls */
+  }
+  function md_cave(inp,out,P,f0){ var i; /* 🕳 cave: slightly lower, with echoes that ring off the walls */
         s1.run(inp,out,.9,.9);
         var N=dl.length, d1=Math.round(sr*tv(P,'time',.31)), d2=Math.min(N-1,Math.round(d1*1.71)), cfb=tv(P,'fb',.55);
         for(i=0;i<out.length;i++){
           var e=dl[(dw-d1+N)%N]*.42+dl[(dw-d2+N)%N]*.26;
           dl[dw]=out[i]+e*cfb; out[i]+=e; dw=(dw+1)%N;
         }
-      }else if(P.mode==='robot'){           /* 🤖 robot (v1.5 remake): a vocoder over a steady buzz, every word on one metal note */
+  }
+  function md_robot(inp,out,P,f0){ var i; /* 🤖 robot (v1.5 remake): a vocoder over a steady buzz, every word on one metal note */
         if(car.length<out.length){ car=new Float32Array(out.length); tmp=new Float32Array(out.length); }
         var rf=(P.key?rootFreq(P.key):110)*Math.pow(2,tv(P,'oct',0)), rty=tv(P,'buzz','synth');
         for(i=0;i<out.length;i++){
@@ -685,7 +705,8 @@ function createEngine(sr){
         }
         voc.run(inp,car,out,4);
         for(i=0;i<out.length;i++) out[i]=Math.tanh(out[i]*1.6)*.7;
-      }else if(P.mode==='ghost'){           /* 👻 ghost (pepedro10, after Voicemod's): one flat note, a slow eerie wobble, a big hall and a breath of whisper */
+  }
+  function md_ghost(inp,out,P,f0){ var i; /* 👻 ghost (pepedro10, after Voicemod's): one flat note, a slow eerie wobble, a big hall and a breath of whisper */
         if(car.length<out.length){ car=new Float32Array(out.length); tmp=new Float32Array(out.length); }
         if(gdry.length<out.length) gdry=new Float32Array(out.length);
         var gd=gdry.subarray(0,out.length); gd.fill(0);
@@ -700,7 +721,8 @@ function createEngine(sr){
         voc.run(inp,car,gd,1.4);
         grev.run(gd,out,tv(P,'hall',.86),.55);
         for(i=0;i<out.length;i++) out[i]+=gd[i]*.22;
-      }else if(P.mode==='whisper'){         /* 🌫 whisper: the vocoder over hiss, drifting through an echo */
+  }
+  function md_whisper(inp,out,P,f0){ var i; /* 🌫 whisper: the vocoder over hiss, drifting through an echo */
         if(car.length<out.length){ car=new Float32Array(out.length); tmp=new Float32Array(out.length); }
         for(i=0;i<out.length;i++) car[i]=rnd()*2-1;
         voc.run(inp,car,out,5.5);
@@ -710,13 +732,15 @@ function createEngine(sr){
           var eg=dl[(dw-g1+Ng)%Ng]*.45+dl[(dw-g2+Ng)%Ng]*.3;
           dl[dw]=out[i]+eg*wfb; out[i]=(out[i]+eg)*wob+inp[i]*wvo; dw=(dw+1)%Ng;
         }
-      }else if(P.mode==='choir'){           /* 🎶 choir: you, a third up, a fifth up and an octave down, all at once */
+  }
+  function md_choir(inp,out,P,f0){ var i; /* 🎶 choir: you, a third up, a fifth up and an octave down, all at once */
         var CH={major:[4,7,-12],minor:[3,7,-12],power:[7,12,-12],octaves:[12,-12,7]}[tv(P,'chord','major')]||[4,7,-12], chh=tv(P,'harm',1);   /* v1.24 knobs */
         s1.run(inp,out,1,.48);
         s2.run(inp,out,Math.pow(2,CH[0]/12),.36*chh);
         s3.run(inp,out,Math.pow(2,CH[1]/12),.32*chh);
         s4.run(inp,out,Math.pow(2,CH[2]/12),tv(P,'bass',.28));
-      }else if(P.mode==='under'){           /* 🫧 underwater (v1.7, pepedro10, after Voice Changer Plus): a fast vibrato through a swirling flanger, a little muffled, a few bubbles */
+  }
+  function md_under(inp,out,P,f0){ var i; /* 🫧 underwater (v1.7, pepedro10, after Voice Changer Plus): a fast vibrato through a swirling flanger, a little muffled, a few bubbles */
         for(var o=0;o<out.length;o+=256){       /* vibrato in short slices */
           var oe=Math.min(o+256,out.length);
           var udp=tv(P,'depth',.075);
@@ -735,14 +759,16 @@ function createEngine(sr){
         }
         if(lvl/out.length>.01&&bubA<.01&&rnd()<.24*tv(P,'bub',.5)){ bubA=.06; bubF=300+rnd()*500; }
         for(i=0;i<out.length;i++){ if(bubA>.001){ bubF*=1.00012; bub+=bubF/sr; out[i]+=Math.sin(bub*6.283)*bubA; bubA*=.9993; } }
-      }else if(P.mode==='buddy'){           /* 🐣 echo buddy: you, and half a second later a tiny you an octave up says it back */
+  }
+  function md_buddy(inp,out,P,f0){ var i; /* 🐣 echo buddy: you, and half a second later a tiny you an octave up says it back */
         if(car.length<out.length){ car=new Float32Array(out.length); tmp=new Float32Array(out.length); }
         var tb=tmp.subarray(0,out.length); tb.fill(0);
         s1.run(inp,out,1,.7);
         s2.run(inp,tb,Math.pow(2,tv(P,'pitch',12)/12),.6);
         var Ne=eb.length, ed=Math.min(Ne-1,Math.round(sr*tv(P,'time',.45))), efb=tv(P,'fb',0);
         for(i=0;i<out.length;i++){ var ev=eb[(ew-ed+Ne)%Ne]; eb[ew]=tb[i]+ev*efb; out[i]+=ev; ew=(ew+1)%Ne; }   /* repeats feed the echo back in */
-      }else if(P.mode==='chorus'){          /* 👯 chorus (pepedro10): you plus 1 to 16 more of you, each a hair late and drifting a hair off pitch; 1 = the old 2x1 */
+  }
+  function md_chorus(inp,out,P,f0){ var i; /* 👯 chorus (pepedro10): you plus 1 to 16 more of you, each a hair late and drifting a hair off pitch; 1 = the old 2x1 */
         s1.run(inp,out,1,1);
         var Nc=cbf.length, chr=tv(P,'rate',.9), chd=tv(P,'depth',.007), chn=Math.round(tv(P,'n',1)), chg=.56*Math.sqrt(2/(chn+1));
         for(i=0;i<out.length;i++){
@@ -754,14 +780,16 @@ function createEngine(sr){
           cbf[cw]=out[i]; cw=(cw+1)%Nc;
           out[i]=chn>1?Math.tanh(cs*chg*1.1)/1.1:cs*chg;
         }
-      }else if(P.mode==='bit'){             /* 👾 8-bit: up a bit, sampled like an old console and crushed to 4 bits */
+  }
+  function md_bit(inp,out,P,f0){ var i; /* 👾 8-bit: up a bit, sampled like an old console and crushed to 4 bits */
         s1.run(inp,out,1.25,1);
         var lv=Math.pow(2,tv(P,'bits',4)-1), hn=tv(P,'rate',6);
         for(i=0;i<out.length;i++){
           if(holdN<=0){ hold=Math.round(Math.max(-1,Math.min(1,out[i]*1.6))*lv)/lv; holdN=hn; } holdN--;
           out[i]=hold*.7;
         }
-      }else if(P.mode==='alien'){           /* 👽 alien (pepedro10): pitched up, a fast warble and a ring-mod buzz, every part on a knob */
+  }
+  function md_alien(inp,out,P,f0){ var i; /* 👽 alien (pepedro10): pitched up, a fast warble and a ring-mod buzz, every part on a knob */
         var aup=Math.pow(2,tv(P,'up',4)/12), adp=tv(P,'depth',.035), arf=tv(P,'ring',70), ara=tv(P,'buzz',.55);
         for(var o=0;o<out.length;o+=256){       /* warble in short slices, like the ghost's vibrato */
           var oe=Math.min(o+256,out.length);
@@ -772,7 +800,8 @@ function createEngine(sr){
           out[i]=Math.tanh(out[i]*((1-ara)+ara*Math.sin(alrm))*(1.3+.9*ara))*.8;
           alrm+=6.283*arf/sr; if(alrm>6.283) alrm-=6.283;
         }
-      }else if(P.mode==='stadium'){         /* 🏟 stadium announcer (Sloppy's own idea): a punchy PA voice, a slap echo off the far stand, a huge arena, and the crowd roars when you finish a line */
+  }
+  function md_stadium(inp,out,P,f0){ var i; /* 🏟 stadium announcer (Sloppy's own idea): a punchy PA voice, a slap echo off the far stand, a huge arena, and the crowd roars when you finish a line */
         if(gdry.length<out.length) gdry=new Float32Array(out.length);
         var sd=gdry.subarray(0,out.length); sd.fill(0);
         s1.run(inp,sd,.94,1);                   /* a touch deeper */
@@ -806,7 +835,8 @@ function createEngine(sr){
             out[i]+=y;
           }
         }
-      }else if(P.mode==='flanger'){         /* 🌀 flanger (pepedro10): you plus a copy on a sweeping 0.7-11 ms delay, fed back into itself for the jet whoosh */
+  }
+  function md_flanger(inp,out,P,f0){ var i; /* 🌀 flanger (pepedro10): you plus a copy on a sweeping 0.7-11 ms delay, fed back into itself for the jet whoosh */
         var Nf2=fl2.length, frt=tv(P,'rate',.8), fdp=tv(P,'depth',.004), ffb=tv(P,'fb',.6);
         for(i=0;i<out.length;i++){
           fph2+=frt/sr; if(fph2>=1) fph2-=1;
@@ -815,7 +845,8 @@ function createEngine(sr){
           fl2[fw2]=inp[i]+jv*ffb; fw2=(fw2+1)%Nf2;
           out[i]=Math.tanh((inp[i]+jv)*.6);
         }
-      }else if(P.mode==='battery'){         /* 🪫 dying battery (pepedro10): starts as you, sags lower and wobblier the longer you talk, beeps, sputters out; a pause recharges it */
+  }
+  function md_battery(inp,out,P,f0){ var i; /* 🪫 dying battery (pepedro10): starts as you, sags lower and wobblier the longer you talk, beeps, sputters out; a pause recharges it */
         var bdr=tv(P,'drain',3.5), bdn=tv(P,'down',-24);
         for(var o=0;o<out.length;o+=256){
           var oe=Math.min(o+256,out.length);
@@ -834,7 +865,8 @@ function createEngine(sr){
           if(bpT<.09*sr||(bpT>.18*sr&&bpT<.27*sr)) out[i]+=(bpph%1<.5?.07:-.07);
           bpph+=(bpT<.18*sr?1250:880)/sr; bpT++;
         }
-      }else if(P.mode==='sleek'){           /* 🤍 sleek bot (pepedro10, a WALL-E-era egg robot vibe): you a few steps up, a vocoder synth that sings your own melody, small-speaker bright, a glint of room */
+  }
+  function md_sleek(inp,out,P,f0){ var i; /* 🤍 sleek bot (pepedro10, a WALL-E-era egg robot vibe): you a few steps up, a vocoder synth that sings your own melody, small-speaker bright, a glint of room */
         if(car.length<out.length){ car=new Float32Array(out.length); tmp=new Float32Array(out.length); }
         if(gdry.length<out.length) gdry=new Float32Array(out.length);
         var skr=Math.pow(2,tv(P,'up',5)/12), skm=tv(P,'synth',.5), sko=tv(P,'shine',.15);
@@ -851,7 +883,8 @@ function createEngine(sr){
         for(i=0;i<out.length;i++){ var kx=kd[i]; skh=kh*(skh+kx-skhx); skhx=kx; kd[i]=Math.tanh(skh*1.6)*.9; }   /* small bright speaker */
         grev.run(kd,out,.7,.16);
         for(i=0;i<out.length;i++) out[i]+=kd[i];
-      }else if(P.mode==='pepper'){          /* 🧂 pepper-pot bot (pepedro10, the classic sci-fi trick): your voice overdriven and ring-modulated by a slow 30 Hz hum, rattling in a tin shell */
+  }
+  function md_pepper(inp,out,P,f0){ var i; /* 🧂 pepper-pot bot (pepedro10, the classic sci-fi trick): your voice overdriven and ring-modulated by a slow 30 Hz hum, rattling in a tin shell */
         var ppu=tv(P,'up',0);
         if(ppu) s1.run(inp,out,Math.pow(2,ppu/12),1); else for(i=0;i<out.length;i++) out[i]=inp[i];
         var ppf=tv(P,'ring',30), ppd=tv(P,'drive',3), ppm=tv(P,'metal',.4), pk2=Math.exp(-6.283*200/sr), Nq=ppc.length, qd=Math.round(sr*.0034);
@@ -862,7 +895,8 @@ function createEngine(sr){
           var qc=ppc[(ppw-qd+Nq)%Nq]; ppc[ppw]=qy+qc*ppm; ppw=(ppw+1)%Nq;   /* tin shell: a 3.4 ms resonant comb */
           out[i]=Math.tanh((qy+qc*ppm*.8)*1.1)*.7;
         }
-      }else if(P.mode==='phone'){           /* ☎️ payphone in the rain (Sloppy's own): squeezed into a phone line (300-3400 Hz, 8 kHz, companded crunch), line hiss, dropouts, rain on the booth */
+  }
+  function md_phone(inp,out,P,f0){ var i; /* ☎️ payphone in the rain (Sloppy's own): squeezed into a phone line (300-3400 Hz, 8 kHz, companded crunch), line hiss, dropouts, rain on the booth */
         var ka2=Math.exp(-6.283*330/sr), kb2=1-Math.exp(-6.283*3100/sr), hn2=Math.max(1,Math.round(sr/8000)), prn=tv(P,'rain',.35), pln=tv(P,'line',.2), pbits=tv(P,'bits',5);
         var plv=Math.pow(2,pbits);
         for(i=0;i<out.length;i++){
@@ -879,7 +913,8 @@ function createEngine(sr){
           ty+=(rainLp*.25+(rnd()*2-1)*rainD*.4)*prn*phE+(rnd()-.5)*.005;
           out[i]=ty;
         }
-      }else if(P.mode==='train'){           /* 🚂 talking train (pepedro10, the 1940s Sonovox cartoon-train trick): your words shape a three-pipe steam whistle, which scoops up into each blast, and the engine chuffs while you talk */
+  }
+  function md_train(inp,out,P,f0){ var i; /* 🚂 talking train (pepedro10, the 1940s Sonovox cartoon-train trick): your words shape a three-pipe steam whistle, which scoops up into each blast, and the engine chuffs while you talk */
         if(car.length<out.length){ car=new Float32Array(out.length); tmp=new Float32Array(out.length); }
         var trf=370*Math.pow(2,tv(P,'pitch',0)/12), trb=tv(P,'breath',.3), trc=tv(P,'chuff',.25), TRI=[1,1.26,1.5];
         for(i=0;i<out.length;i++){
@@ -899,7 +934,8 @@ function createEngine(sr){
           trCh=trE>.02?1:trCh*.99993;
           out[i]+=trN*cenv*cenv*trc*.35*trCh;
         }
-      }else if(P.mode==='reverse'){          /* ⏪ reverse (pepedro10): your line comes back backwards — after you stop talking, or live in little backwards chunks */
+  }
+  function md_reverse(inp,out,P,f0){ var i; /* ⏪ reverse (pepedro10): your line comes back backwards — after you stop talking, or live in little backwards chunks */
         var rMode=tv(P,'how','line'), rDry=tv(P,'dry',0), rWait=tv(P,'wait',.4), rFade=Math.round(sr*.02);
         if(!rvD||rvD.length<out.length) rvD=new Float32Array(out.length);
         var rd=rvD.subarray(0,out.length);
@@ -932,7 +968,8 @@ function createEngine(sr){
         for(i=0;i<out.length;i++) out[i]=rd[i]+inp[i]*rDry;
         rvrev.run(rd,out,.75,tv(P,'verb',.12));
         for(i=0;i<out.length;i++){ var rq=Math.abs(out[i]); if(rq>.85) out[i]=(out[i]<0?-1:1)*(.85+.15*Math.tanh((rq-.85)/.15)); }
-      }else if(P.mode==='show'){             /* 📺 late-night show (from Sloppy's list): a warm host mic in a small studio; after each line the audience laughs, oohs or claps, sometimes after a ba-dum-tss */
+  }
+  function md_show(inp,out,P,f0){ var i; /* 📺 late-night show (from Sloppy's list): a warm host mic in a small studio; after each line the audience laughs, oohs or claps, sometimes after a ba-dum-tss */
         var tW=tv(P,'warm',.5), tN=Math.round(tv(P,'size',14)), tLd=tv(P,'loud',.55), tla=tv(P,'laugh',.5), too=tv(P,'ooh',.15), tcl=tv(P,'clap',.25), trm=tv(P,'rim',.2), tbo=tv(P,'boo',0);
         if(gdry.length<out.length) gdry=new Float32Array(out.length);
         var td=gdry.subarray(0,out.length), tlpA=1-Math.exp(-6.283*260/sr);
@@ -981,7 +1018,8 @@ function createEngine(sr){
         }
         tsrev.run(td,out,.5,.1);
         for(i=0;i<out.length;i++){ var tq=Math.abs(out[i]); if(tq>.85) out[i]=(out[i]<0?-1:1)*(.85+.15*Math.tanh((tq-.85)/.15)); }
-      }else if(P.mode==='musicbox'){        /* 🎠 haunted music box (Sloppy's own): your words pluck a music box comb on the notes you speak, a scale and some octaves up; when you stop, it plays your last notes back, winding down */
+  }
+  function md_musicbox(inp,out,P,f0){ var i; /* 🎠 haunted music box (Sloppy's own): your words pluck a music box comb on the notes you speak, a scale and some octaves up; when you stop, it plays your last notes back, winding down */
         var mbHi=Math.pow(2,tv(P,'high',2)), mbRate=tv(P,'rate',0), mbJp=tv(P,'jump',0), mbSn=tv(P,'scale','creepy'), mbSc=MBSC[mbSn]||MBSC.creepy, mbCr=tv(P,'creak',.35), mbRe=tv(P,'replay',.5), mbV=tv(P,'voice',.12);
         if(gdry.length<out.length) gdry=new Float32Array(out.length);
         var md=gdry.subarray(0,out.length), mbNote=0, mbLv=Math.sqrt(7/Math.max(7,mbRate||7));   /* busier boxes play each note softer */
@@ -1031,7 +1069,8 @@ function createEngine(sr){
         }
         mbrev.run(md,out,.86,tv(P,'hall',.45));
         for(i=0;i<out.length;i++){ var mq=Math.abs(out[i]); if(mq>.85) out[i]=(out[i]<0?-1:1)*(.85+.15*Math.tanh((mq-.85)/.15)); }
-      }else if(P.mode==='glitch'){          /* 📼 glitch (pepedro10): while you talk, random stutters, pitch jumps, backwards blips and crunch, like a voice buffering on a bad stream */
+  }
+  function md_glitch(inp,out,P,f0){ var i; /* 📼 glitch (pepedro10): while you talk, random stutters, pitch jumps, backwards blips and crunch, like a voice buffering on a bad stream */
         var Ngb=gb.length, gfe=Math.max(1,Math.round(sr*.002)), grt=tv(P,'rate',.5), gws=[tv(P,'stutter',.6),tv(P,'jumps',.5),tv(P,'reverse',.3),tv(P,'crush',.3)];
         for(var o=0;o<out.length;o+=256){
           var oe=Math.min(o+256,out.length);
@@ -1057,7 +1096,8 @@ function createEngine(sr){
             if(gCr>0){ gCr--; if(--gHn<=0){ gH=Math.round(out[i]*6)/6; gHn=7; } out[i]=gH; }   /* crunch */
           }
         }
-      }else if(P.mode==='tin'){             /* 🥫 tin can (the first robot): flat pitch, ring-modulated, crunched to 5 bits */
+  }
+  function md_tin(inp,out,P,f0){ var i; /* 🥫 tin can (the first robot): flat pitch, ring-modulated, crunched to 5 bits */
         var tr=1;
         if(f0>0) tr=Math.max(.5,Math.min(2,tv(P,'hz',120)/f0));
         ratioSm+=(tr-ratioSm)*.4;
@@ -1068,9 +1108,20 @@ function createEngine(sr){
           rm+=6.283*trg/sr; if(rm>6.283) rm-=6.283;
           out[i]=Math.round(v*tlv)/tlv*1.4;
         }
-      }else{
-        for(i=0;i<out.length;i++) out[i]=inp[i];
-      }
+  }
+  var MDF={morph:md_morph, angel:md_angel, pdemon:md_pdemon, demon:md_demon, mono:md_mono, tune:md_mono, witness:md_witness, mic:md_mic, chip:md_chip, giant:md_giant, radio:md_radio, cave:md_cave, robot:md_robot, ghost:md_ghost, whisper:md_whisper, choir:md_choir, under:md_under, buddy:md_buddy, chorus:md_chorus, bit:md_bit, alien:md_alien, stadium:md_stadium, flanger:md_flanger, battery:md_battery, sleek:md_sleek, pepper:md_pepper, phone:md_phone, train:md_train, reverse:md_reverse, show:md_show, musicbox:md_musicbox, glitch:md_glitch, tin:md_tin};
+  return {
+    lastF0:function(){ return lastF0; },
+    curF0:function(){ return curF0; },
+    process:function(inp,out,P){
+      var i;
+      for(i=0;i<out.length;i++) out[i]=0;
+      var f0=detectPitch(inp,sr);
+      if(f0) lastF0=f0;
+      curF0=f0||0;
+      shared.period=f0>0?sr/f0:0;
+      var mdf=MDF[P.mode];
+      if(mdf) mdf(inp,out,P,f0); else for(i=0;i<out.length;i++) out[i]=inp[i];
       /* v1.24: the five voices that just got knobs bend softly above .85 when they're cranked, instead of clipping */
       if(P.tw&&P.tw[P.mode]&&/^(angel|pdemon|demon|choir|tin)$/.test(P.mode)) for(i=0;i<out.length;i++){
         var ax2=Math.abs(out[i]); if(ax2>.85) out[i]=(out[i]<0?-1:1)*(.85+.15*Math.tanh((ax2-.85)/.15));
