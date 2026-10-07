@@ -1,6 +1,7 @@
 # peach-pitch · notes
 
 ## log
+- v1.30 (2026-10-07): late-night show 'polite boos' knob (default 0): low voices on 'oo' sliding down (tsBo bank).
 - v1.29 (2026-10-07): music box less random (Pepedro): one note per syllable (fast/slow loudness onset) + a new note when your pitch moves to another scale note (≥.2 s apart); 'extra notes' a second now defaults off, octave 'sparkle' a knob (default 0), play-back default .35. ~4 notes/s on the test line instead of a 7/s metronome.
 - v1.28 (2026-10-07): 📺 late-night show (Sloppy's own): warm host mic + small studio; after a line (.6 s talk, .3 s pause) the audience laughs / oohs / claps (knobs = chances, sum<1 means sometimes silence), optional ba-dum-tss first; crowd = saw+breath per audience member through shared formant banks (mkBank/bankRun), hushes when you talk. Pepedro (02:31) isn't a fan of 'random sounds' in voices: added sounds should always have a knob to zero; ask which ones they meant.
 - v1.27 (2026-10-07): 🎠 haunted music box (Sloppy's own; Pepedro asked for more of my ideas, with knobs): spoken pitch snapped to a scale (creepy minor / lullaby / whole-tone / broken bent tines) +0..3 oct plucks 10 comb tines (1, 3x, 6.27x partials, pin click); after a phrase it replays your last 6 notes slower and flatter; creaky spring = wow; reverb; your voice faintly under it. Levels: default pk .85 rms .115; busier rates play softer; soft knee .85.
