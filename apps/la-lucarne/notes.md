@@ -48,6 +48,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - A draw at full time -> cupPens(): M.pens = 1, G.A/G.B = M.SA/M.SB, plain pens inside the match (dots/over/next skip the match branch while M.pens; finish() hands back to finishMatch -> finishCup). Magic boot off.
 - finishCup(): QUALIFIÉS ! / LA COUPE EST À NOUS ! / ÉLIMINÉS…, score (+ t.a.b. a–b), goal minutes, next round and opponent; again = Tour suivant / Nouvelle coupe. localStorage la-lucarne:cup {r, cups, best}: a win moves r on (the final resets it and adds a cup), a loss resets r to 0.
 - Probe q37.js: forced 0-0 -> shootout won 4-1 -> QUALIFIÉS, r 1; semi vs the Mistral won 5-2 with the next-round line; modes restores the maroon kit and RIVAUX. 99-132 draw calls.
+- Winning the final (v1.9.1) -> celeStart(): G.st 'cele', Payet alone at (0,0,9) facing the camera with CUPM (gold lathe cup + two half-torus handles, on SHOOTER.g at y 2.06, z -.12) over his head, arms up via celeStep (sh rotation x -.22, z ±(π-.3), runs after the idle poses, before the camera line), CONF (240 instanced confetti, sky blue/white/gold, settle flat then respawn), the camera orbits ±.75 rad (R 5.6 desktop / 6 portrait, look y 1.2/1.05), tifo, 3 roars, 'Aux armes !'. After 4.6 s of REAL time (performance.now; game time crawls in headless) the end card comes up with class 'cele' (sits low, transparent top, wider headline). celeStop() in newGame and modes. Probe q40*.js: forced 1-0 final (pushes A.pen, so the scoreboard shows 0-0 and 'pas de but' in the probe only). 90-94 draw calls.
 
 ## Free kicks (v1.2)
 - Five spots in order (FK_SPOTS): (-5.5, 21), (1.5, 23.5), (7.5, 20), (-9, 18.5), (3.5, 27). Score = goals out of 5, best kept in localStorage `la-lucarne:fkbest`. End titles: 4+ Magique, 2-3 Pas mal, 0-1 Le mur a gagné; the crowd celebrates from 3.
@@ -82,6 +83,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.8 (2026-10-07 ~23:00 UTC): LE MATCH, a fourth mode: a 90-minute match night in six moments (free kicks, corners, a penalty, a Rivals penalty to keep, the last action in stoppage time). The Rivals score off screen now and then, and the full-time score decides it. Ticker pill, W/D/L record, share timeline.
 - v1.8.1 (2026-10-07 ~23:05 UTC): Le Match gets a kick-off whistle and a half-time stop at 45’ with the score; the title subtitle mentions the match.
 - v1.9 (2026-10-07 ~23:25 UTC): LA COUPE, a cup run of four Le Match rounds against made-up clubs in their own kits (Cigales, Goélands, Mistral, then the Rivals in the final), harder each round, draws go to penalties, progress saved. The title card scrolls instead of clipping (Défi du jour fell off the bottom at 1280x720), smaller mode buttons, a three-line how-to.
+- v1.9.1 (2026-10-07 ~23:45 UTC): winning the cup final: Payet lifts a gold trophy in blue/white/gold confetti while the camera circles him, then a low winner's card.
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
