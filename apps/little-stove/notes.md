@@ -69,6 +69,7 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - Door shut = .meter.fog (blurred fill) and fuzzy words (ovenLook: golden from zone start -7 to end +3). Peek (tap the oven or the button): door open 1.1 s, -30°/s while open, exact meter for 2.4 s.
   - Serving: cold oven (in below 60% / 85% of target) -1 / -½, never slid in -2, soufflé sinks at 2+ peeks (-1). save.oven=1 after the first bake; older saves with 5+ dinners get Soda Bread next.
   - Wishes: no 'add'/extra salt on sweet bakes; crispy also on r.crisp (cookies, pizza). Grab hint says "some flour". bakeArt() draws each bake in the oven window and on the plate.
+- v2.1 (2026-10-07, Sloppy's own): 🎂 Birthday Cake (pot oven 180°, deco:true, after shak in RECIPES). Serve opens dialog#deco: frosting swatches (FROST), tap/drag sprinkles on the cake (decoAt via getScreenCTM, max 90), ✨ sprinkle button, 0-12 candles; "bring it out" serves. Two+ kinds of decoration = +2 tip; BDAY/BDSAY lines per guest; 🌬️ blow out the candles at the table (.scene.blown + wisps). No wishes on the cake. Probe: S.decoDone, S.deco={f,sp,n}.
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 - Phone fridge strip: the sticky selector has to be section.area.fridge, because section.area{ position:relative } outranks .fridge.
