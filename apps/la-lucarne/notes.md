@@ -37,6 +37,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - The Rivals score 0 (30%), 1 (50%) or 2 (20%) goals off screen at minutes 9-85 (M.rg). Each goal lands while the clock rolls past its minute (matchWait), with a groan and a call: a 0-1 already at kick-off gave it away before the fix.
 - Between moments G.st = 'mwait': #mt (the pill under the HUD) rolls the clock from the last moment's minute to the next one over 1.1 s, then shows what's next ("68' · Coup franc pour l'OM"). matchGo() starts it with G.A pointing at M.A[kind] (pens, fk, ck) or G.B = M.B for the Rivals' penalty (you keep). next() and over() hand back to matchNext() while G.match is set, which books the result into M.gl.
 - The HUD shows OM n - m RIVAUX all match (#hud.m hides the dots). Full time: VICTOIRE ! / MATCH NUL / DÉFAITE, the score, the OM goal minutes ("60' penalty, 68' coup franc, 81' de la tête"), lucarnes and the record W/D/L in localStorage la-lucarne:match. Share sends the score plus a timeline of ⚽ and 🔴 minutes.
+- Kick-off whistle + 'Coup d’envoi' call on the first roll; half-time (v1.8.1): when a roll crosses 45 (m0 <= 45 < m1) the clock stops at 45’ · Mi-temps for 1.8 s (M.ht = the roll time it reaches 45, M.wait += 1.8), two whistles and a 'Mi-temps · OM a – b' call. No Rivals goal is ever rolled at 45 (used.add(45)), so none lands after the half-time whistle.
 - Probe (q32.js, auto-player): a full match ran in ~3 min headless at speed 3 with no errors and won 3-2. 136 draw calls at 1280x720.
 
 ## Free kicks (v1.2)
@@ -70,6 +71,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.7.1 (2026-10-07 ~22:22 UTC): corner goals get a slow-motion replay from beside the far post (the whole cross from the flag, the leap, the header into the net); the keeper no longer lies on the grass during a replay's lead-in (free kicks too).
 - v1.7.2 (2026-10-07 ~22:40 UTC): the TV pan on corners (desktop and landscape): the camera swings to the flag as Payet runs up and rides the cross in, then settles on the box before the header.
 - v1.8 (2026-10-07 ~23:00 UTC): LE MATCH, a fourth mode: a 90-minute match night in six moments (free kicks, corners, a penalty, a Rivals penalty to keep, the last action in stoppage time). The Rivals score off screen now and then, and the full-time score decides it. Ticker pill, W/D/L record, share timeline.
+- v1.8.1 (2026-10-07 ~23:05 UTC): Le Match gets a kick-off whistle and a half-time stop at 45’ with the score; the title subtitle mentions the match.
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
