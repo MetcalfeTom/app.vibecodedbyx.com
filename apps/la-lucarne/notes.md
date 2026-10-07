@@ -20,6 +20,9 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - FR/EN (French by default for French browsers, a toggle bottom-left), mute, keys Q W E / A S D, F for the magic foot, M to mute.
 - Fan tribute: no club crest or logo, rivals are generic ("Rivaux").
 
+## Lucarne (v1.6)
+- The name: la lucarne is the top corner, and French commentary says a shot there knocks out the cobwebs (les toiles d'araignée). The webs are reset at every kick (resetSpot, startFk) and when a replay starts.
+
 ## Free kicks (v1.2)
 - Five spots in order (FK_SPOTS): (-5.5, 21), (1.5, 23.5), (7.5, 20), (-9, 18.5), (3.5, 27). Score = goals out of 5, best kept in localStorage `la-lucarne:fkbest`. End titles: 4+ Magique, 2-3 Pas mal, 0-1 Le mur a gagné; the crowd celebrates from 3.
 - Input: press on the goal to aim (locked), slide sideways to curl (CURLMAX 2.2 m of bow at mid-flight, full curl = 30% of the screen width, max 260 px), release to shoot. Mouse hover previews. Keys: arrows curl, Q-D shoot, Space/Enter shoot at the previewed aim. A dotted preview shows the first half of the flight.
@@ -45,6 +48,8 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.4 (2026-10-07 ~20:30 UTC): slow-motion replay of every free-kick goal from behind the net, with a blinking RALENTI badge; tap to skip.
 
 - v1.5 (2026-10-07 ~20:40 UTC): Défi du jour, five seeded free kicks a day, the same for everyone, first try counts, an emoji row to share.
+- v1.5.1 (2026-10-07 ~20:55 UTC): daily streak (localStorage la-lucarne:streak {n, c}: an official run on day n-1 then n adds one; shown as 🔥c on the daily button and in the share text, 'série c jours' on the end card from 2), a countdown to local midnight on the end card (nextIn), and the replay button reads S’entraîner / Practise on daily end cards.
+- v1.6 (2026-10-07 ~21:05 UTC): cobwebs in both top corners (WEBS: a 1.1 m plane each with a 256 px canvas cobweb (WEB_TEX: 7 thick spokes, 5 sagging rings, a misty veil; the 1 px LineSegments of the first try were invisible from the spot), opacity .9, at the bar/post joint just behind the line). A goal whose target is within .78 m of a post and above GH - .66 (isWeb) knocks that corner's web away (webKnock: it flies back, up, falls and fades over 1.3 s), the call reads LUCARNE ! / TOP CORNER!, the crowd jumps higher, and the daily row gets a 🕸️ tile (green with a gold ring). It tears again in the replay (webReset in startReplay, knock at the replay's net hit, webStep at replay speed). End cards count the game's lucarnes (websTxt). An 'Autres modes / Other modes' link under the end card's buttons goes back to the title (before, the only way to switch modes was a reload).
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
