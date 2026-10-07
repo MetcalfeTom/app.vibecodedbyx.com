@@ -1,6 +1,7 @@
 # peach-pitch · notes
 
 ## log
+- 2026-10-07: v1.11 shelves (my idea, 17 buttons had become a wall): #shelves holds 5 .shelf rows with a small label — classic (morph, demon, mono, autotune), creatures (chip, giant, ghost, whisper), machines (robot, tin, 8-bit, radio), places (cave, underwater), crowds (choir, chorus, buddy); key/scale picker in its own .row below. Labels stack above the buttons under 560px. Desktop + 390px phone screenshots read fine.
 - 2026-10-07: v1.10 effect amount slider (pepedro10: 'what percent of the vocoder'): #amt-wrap replaces the morph slider for every voice except morph (morph-wrap now hides instead of dimming); engine blends out*amt + inp*(1-amt) at the end of process; AMT{} remembers each voice's amount; renderBuffer gets amt so the .wav matches. Node: robot at 100/50/0% differs from the plain voice by 1.18/.59/0. Headless: robot 40% kept after visiting ghost (100%).
 - 2026-10-07: v1.9 two more voices: 🐣 echo buddy (my idea: dry .7 + an octave-up copy (s2 x2, .6) through a .45 s delay ring eb) and 👯 chorus 2x1 (pepedro10: 'a basic chorus'): dry + one copy through a 22±7 ms delay swept at .9 Hz, x.56. Node on the TTS line: buddy gain .86 peak .81, chorus gain ~.8 peak ~.8. Headless: 17 mode buttons, both play a TTS clip, no errors.
 - 2026-10-07: v1.8.1 polish: the scale picker (#scale-wrap) only lights up for autotune, the key picker for autotune/robot/ghost; messages and the status line use modeName() (the pressed button's label, so 'underwater' not 'under').
