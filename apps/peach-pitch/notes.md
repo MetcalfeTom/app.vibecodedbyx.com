@@ -1,6 +1,7 @@
 # peach-pitch · notes
 
 ## log
+- v1.32 (2026-10-07): human pitch (pepedro10: 'Humanised like a Real Male or Female Voice', 'it just AI Voice'): Pitch + Voices now runs makePsola (pitch marks on glottal peaks, asymmetric Hann grains Tl/Tr, gain/sqrt(overlap), 62 ms latency) instead of the grain shifter, so the throat (formants) stays put when the note moves; extra voices use it too. Markers under the pitch bar: 👨 -7, 🙂 0, 👩 +7, 🧒 +11. Throat bar (form, -6..6 st) follows pitch at .35x while 🔗 is on; moving it unlinks. Plain you (pitch 0, no voices, throat 0) bypasses. Node: pitch ±7 lands at 151/315 Hz from 222 Hz, centroid shifts only ~±80 Hz.
 - v1.31 (2026-10-07): ⏪ reverse (pepedro10): 'whole line' records from the first word into one of two 10 s buffers, and after a pause (knob, .4 s) plays it backwards while the other buffer records (exact reversal verified in node, corr 1.00); 'live chunks' = reverse-delay grains (two Hann grains reading the last chunk backwards, idx = w-1-2*pk). Renders add len to the tail for reverse; file playback keeps the monitor open duration+2 s.
 - v1.30 (2026-10-07): late-night show 'polite boos' knob (default 0): low voices on 'oo' sliding down (tsBo bank).
 - v1.29 (2026-10-07): music box less random (Pepedro): one note per syllable (fast/slow loudness onset) + a new note when your pitch moves to another scale note (≥.2 s apart); 'extra notes' a second now defaults off, octave 'sparkle' a knob (default 0), play-back default .35. ~4 notes/s on the test line instead of a 7/s metronome.
