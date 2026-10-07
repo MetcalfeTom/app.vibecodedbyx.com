@@ -1,6 +1,6 @@
 # La Lucarne
 
-Penalty shootout at night at the Vélodrome. You shoot as Payet (10), then dive in goal for OM. Asked for by Elieutch (French viewer, OM fan) on 2026-10-07: "fais un petit jeu avec Payet le joueur de l'OM".
+Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (10), then dive in goal for OM; or take five free kicks against a jumping wall. Asked for by Elieutch (French viewer, OM fan) on 2026-10-07: "fais un petit jeu avec Payet le joueur de l'OM".
 
 ## Art direction
 - **Look**: low-poly stadium at night, MeshStandard with flat colours, one InstancedMesh crowd (5,200 boxes in sky blue, white and navy) that bounces in a vertex shader.
@@ -20,16 +20,28 @@ Penalty shootout at night at the Vélodrome. You shoot as Payet (10), then dive 
 - FR/EN (French by default for French browsers, a toggle bottom-left), mute, keys Q W E / A S D, F for the magic foot, M to mute.
 - Fan tribute: no club crest or logo, rivals are generic ("Rivaux").
 
+## Free kicks (v1.2)
+- Five spots in order (FK_SPOTS): (-5.5, 21), (1.5, 23.5), (7.5, 20), (-9, 18.5), (3.5, 27). Score = goals out of 5, best kept in localStorage `la-lucarne:fkbest`. End titles: 4+ Magique, 2-3 Pas mal, 0-1 Le mur a gagné; the crowd celebrates from 3.
+- Input: press on the goal to aim (locked), slide sideways to curl (CURLMAX 2.2 m of bow at mid-flight, full curl = 30% of the screen width, max 260 px), release to shoot. Mouse hover previews. Keys: arrows curl, Q-D shoot, Space/Enter shoot at the previewed aim. A dotted preview shows the first half of the flight.
+- Flight: ballAt = straight line to the target + curl along the perpendicular (G.px, G.pz; 1, 0 for penalties) + arc G.arc (penalties .25 / .1 low; free kicks .35 + .5·aim y). tf = distance / 23 m/s.
+- Wall: 4 men (3 when |x| > 7), one merged vertex-coloured mesh each (wallMan), 9.15 m out on the line to the near post, the outer man .5 m past that line. Jumps .38 m for .55 s starting .08-.16 s after the kick, 70% of kicks. wallCheck() finds where the planned flight crosses the wall line: blocked (G.wallU) or over the top (G.over, the keeper reads it late).
+- Keeper: starts .5 m toward the far post (G.kx0), dives at his guess (target + error .35, +.3 for full curl, +.3 unsighted) .2-.46 s after the kick, with a .3 m shuffle step (G.step) that penalties don't get. diveState/keeperReaches work relative to G.kx0.
+- Camera: behind the ball on the line to the goal (8.2 back, 2.8 up; phones 9 back, 3.4 up), fov fitted so the bar and ball both show and 6.4 m (phones 5.4) either side of the goal centre fits; the ball sits at ~80% height.
+- Probe odds (v1.2, nerves of the first kick): aiming the centre with no curl ~10-17% goals; average over all aims ~18-25%; the best (near-post corners curled round the wall, or over the wall into the near top corner) ~62-68%.
+
 ## Log
 - v1.0 (2026-10-07 19:13 UTC): stadium, players, shootout, keeping, sound, FR/EN, share. Back net was slanted the wrong way in the first render (fixed: rotation.x = +atan2(GD, GH)); after a goal the ball bounced off the back net and rolled out of the mouth (fixed: G.inNet keeps it behind the line, side netting clamps x).
 - v1.1 (2026-10-07 19:30 UTC): the tifo: before Payet's 5th kick, every sudden-death kick and on a win, the virage flips cards in a wave (34 m/s, left to right) into a hand-drawn 26x16 "10" (TIFO_10) in sky blue on white, with stripes out to the corners. A banner plane with the same bitmap sits just behind the cards so the seat gaps show the right colour; the crowd stops bouncing while it's held. Scoreboard: at most 6 dots per side (sudden death shows the last 5 plus the next), no empty placeholder after the end, smaller on phones. "Penalty shootout" kicker translated. Corner buttons stacked so the hint never covers them.
 
+- v1.2 (2026-10-07 ~20:00 UTC): free kicks mode (Coups francs) with a jumping wall, spray foam, curl preview and a keeper cheating to the far post; title card has two buttons. First balance pass was far too easy (90% over the wall): lowered the arc, more nerves, wall outer man further out, keeper nearer the centre with a shuffle step.
+
 ## Issues
+- Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
 - G.speed (test hook) multiplies dt: a full 10-kick game runs in ~75 s headless at speed 4. But a probe polling every 20 ms can't time a keeper tap inside krun at 5 fps, so test dives through resolve() instead (a perfect, on-time dive saves ~90% of rival shots; one at 60% of the dive, ~11%).
 - Headless frames are slow: probe the logic directly (`__LU.resolve`, `kick`, `over`, `rivalTarget`) and freeze with `G.hold = 1` for screenshots.
 - Probe odds (v1.0): corner shots ~96% goal before the nerves, low/middle ~68%; keeping saves ~15-18% from a blind guess, more for a reaction dive.
 
 ## Todos
-- Free kicks mode (Payet's speciality): a wall and curl.
+- Free kicks: a lying-down player behind the wall, a goal replay, Elieutch's pick for a spot.
 - A goal replay camera.
 - Ask Elieutch: free kicks or more of the shootout?
