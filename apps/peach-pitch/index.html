@@ -63,6 +63,9 @@ input[type=range]#morph:focus-visible{outline:3px solid var(--focus); outline-of
 #marks{position:relative; height:1.9rem; margin:.15rem 1.2rem 0;}
 #marks .mk{position:absolute; top:0; transform:translateX(-50%); min-height:1.75rem; min-width:2rem; padding:0 .25rem; font-size:1rem; line-height:1; border-radius:99px; background:#fff8f2; letter-spacing:0;}
 #marks .mk:hover{background:var(--peach);}
+#marks .mk{transition:left .7s cubic-bezier(.3,1.35,.5,1);}
+#marks-note{margin:.2rem 0 0; text-align:center; font-size:.68rem; letter-spacing:.04em; color:#a0604a;}
+@media (prefers-reduced-motion: reduce){ #marks .mk{transition:none;} }
 #throat-box{margin-top:.55rem;}
 #throat-box input[type=range].vbar{background:linear-gradient(90deg,#6e4a3a 0%,#c99a80 40%,#fff3ea 50%,#f6c6d6 60%,#e88aa8 100%);}
 #form-link{min-height:1.7rem; padding:0 .4rem; margin-left:.35rem; font-size:.75rem; letter-spacing:0;}
@@ -271,10 +274,11 @@ footer{font-size:.62rem; color:rgba(255,243,234,.85); letter-spacing:.1em; text-
     <div class="ticks big" aria-hidden="true"><i style="left:0"></i><i style="left:calc(100% - 1px)"></i></div>
     <div id="marks">
       <button type="button" class="mk" data-p="-7" style="left:20.83%" aria-label="Man's voice, 7 lower" title="👨 a man's voice: 7 lower, bigger throat">👨</button>
-      <button type="button" class="mk" data-p="0" style="left:50%" aria-label="Your own voice" title="🙂 your own voice">🙂</button>
+      <button type="button" class="mk you" data-p="0" style="left:50%" aria-label="Your own voice" title="🙂 your own voice">🙂</button>
       <button type="button" class="mk" data-p="7" style="left:79.17%" aria-label="Woman's voice, 7 higher" title="👩 a woman's voice: 7 higher, smaller throat">👩</button>
       <button type="button" class="mk" data-p="11" style="left:95.83%" aria-label="Kid's voice, 11 higher" title="🧒 a kid's voice: 11 higher, tiny throat">🧒</button>
     </div>
+    <p id="marks-note" hidden></p>
     <div id="throat-box">
       <div class="morph-labels"><span>bigger</span><span>throat <b id="form-val">0 · follows pitch</b><button id="form-link" type="button" aria-pressed="true" aria-label="Throat follows your pitch">🔗</button></span><span>smaller</span></div>
       <input id="form" class="vbar" type="range" min="-6" max="6" step=".5" value="0" aria-label="Throat size: lower is bigger and deeper, higher is smaller and brighter">
@@ -498,7 +502,7 @@ function makeReverb(sr){
 }
 function createEngine(sr){
   var shared={period:0}, s1=makeSmoothShifter(sr,shared), s2=makeSmoothShifter(sr,shared), s3=makeSmoothShifter(sr,shared);   /* v1.18: all voices on the smooth shifter */
-  var ratioSm=1, lfo=0, rm=0, lastF0=0, hs=[], hp0=makePsola(sr), hpv=[], hpo=new Float32Array(4096);
+  var ratioSm=1, lfo=0, rm=0, lastF0=0, curF0=0, hs=[], hp0=makePsola(sr), hpv=[], hpo=new Float32Array(4096);
   /* v1.14 tweaks (pepedro10): P.tw[mode][key] overrides a voice's built-in number; missing = the old sound */
   function tv(P,k,d){ var t=P.tw&&P.tw[P.mode]; return t&&t[k]!=null?t[k]:d; }
   /* v2 voices: radio filter state, the cave's delay line, a little noise for the radio's crackle */
@@ -540,11 +544,13 @@ function createEngine(sr){
   function rnd(){ seed=(seed*16807)%2147483647; return seed/2147483647; }
   return {
     lastF0:function(){ return lastF0; },
+    curF0:function(){ return curF0; },
     process:function(inp,out,P){
       var i;
       for(i=0;i<out.length;i++) out[i]=0;
       var f0=detectPitch(inp,sr);
       if(f0) lastF0=f0;
+      curF0=f0||0;
       shared.period=f0>0?sr/f0:0;
       if(P.mode==='morph'){
         /* 🎚 pitch + voices (v1.13, pepedro10): your voice moved -12..+12 semitones, plus extra voices each on their own bar */
@@ -1150,12 +1156,14 @@ var AC=null, engine=null, proc=null, micStream=null, srcNode=null, demoNodes=nul
 var analyser=null, outGain=null, monitorGain=null, recDest=null;
 var P={mode:'morph', pitch:0, form:0, flink:true, voices:[], key:'A', scale:'minPent', amt:1, tw:{}}, AMT={};   /* AMT remembers each voice's amount */
 var running=false;
+var VF=[], VFc=0, VFn=0, VMED=0;   /* v1.36: your recent voiced pitches, for the smart markers */
 
 function buildGraph(inputNode){
   engine=createEngine(AC.sampleRate);
   proc=AC.createScriptProcessor(2048,1,1);
   proc.onaudioprocess=function(e){
     engine.process(e.inputBuffer.getChannelData(0), e.outputBuffer.getChannelData(0), P);
+    var cf=engine.curF0(); if(cf>60&&cf<500){ VF.push(cf); VFc++; if(VF.length>500) VF.shift(); }
   };
   outGain=AC.createGain(); outGain.gain.value=1;
   monitorGain=AC.createGain(); monitorGain.gain.value=$('monitor-btn').getAttribute('aria-pressed')==='true'?1:0;
@@ -1210,7 +1218,7 @@ function loadFile(file){
   var rd=new FileReader();
   rd.onload=function(){
     AC.decodeAudioData(rd.result).then(function(buf){
-      fileBuf=buf; fileOff=0; seekShow(0);
+      fileBuf=buf; fileOff=0; seekShow(0); VF.length=0; marksTune();
       $('file-name').textContent=file.name+' · '+buf.duration.toFixed(1)+'s';
       $('file-row').classList.add('on');
       msg('file loaded — play it through the effect, or render a processed .wav.');
@@ -1340,7 +1348,7 @@ function startMic(){
   return navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:CLEAN, autoGainControl:CLEAN}}).then(function(stream){
     stopInput();
     micStream=stream;
-    srcNode=AC.createMediaStreamSource(stream);
+    srcNode=AC.createMediaStreamSource(stream); VF.length=0; marksTune();
     if(!proc) buildGraph(srcNode); else { srcNode.connect(proc); running=true; }
     self.textContent='🎙 mic live';
     self.disabled=true;
@@ -1352,7 +1360,7 @@ function startMic(){
 $('start-btn').addEventListener('click',startMic);
 $('demo-btn').addEventListener('click',function(){
   if(!ensureAC()){ err('web audio unavailable'); return; }
-  stopInput();
+  stopInput(); VF.length=0; marksTune();
   /* a talky little sawtooth: vibrato + formant filter + syllable envelope */
   var osc=AC.createOscillator(); osc.type='sawtooth'; osc.frequency.value=155;
   var vib=AC.createOscillator(); vib.frequency.value=5.2;
@@ -1392,7 +1400,7 @@ function bindDemo(){ /* restore default handler after stop */ }
     var vi=+sel.value, d=synthSpeech(t,vi,AC.sampleRate);
     if(!d.length){ err('nothing to read in that, try some words.'); return; }
     var buf=AC.createBuffer(1,d.length,AC.sampleRate); buf.getChannelData(0).set(d);
-    stopFilePlayback(); fileBuf=buf; fileOff=0; seekShow(0);
+    stopFilePlayback(); fileBuf=buf; fileOff=0; seekShow(0); VF.length=0; marksTune();
     $('file-name').textContent='🗣 '+TTSV[vi][0]+': “'+(t.length>28?t.slice(0,27)+'…':t)+'” · '+buf.duration.toFixed(1)+'s';
     $('file-row').classList.add('on');
     $('file-play').click();
@@ -1435,10 +1443,29 @@ $('form-link').addEventListener('click',function(){
   P.flink=!P.flink; if(!P.flink) P.form=Math.round(P.pitch*.35*2)/2;
   formShow(); announce(P.flink?'throat follows your pitch':'throat stays where it is');
 });
+/* v1.36 smart markers (Sloppy's own idea): after a couple of seconds of your voice, 👨 👩 🧒 slide to where those voices sit for YOU
+   (typical speaking pitch: a man ~115 Hz, a woman ~210 Hz, a kid ~290 Hz) */
+var MKT={'-7':[115,"👨 a man's voice","Man's voice",'bigger throat'],'7':[210,"👩 a woman's voice","Woman's voice",'smaller throat'],'11':[290,"🧒 a kid's voice","Kid's voice",'tiny throat']};
+function marksTune(){
+  var med=0, near=false;
+  if(VF.length>=40){ var v=VF.slice().sort(function(a,b){ return a-b; }); med=v[v.length>>1]; }
+  VMED=med;
+  Array.prototype.forEach.call(document.querySelectorAll('#marks .mk:not(.you)'),function(b){
+    var d=b.dataset.d||(b.dataset.d=b.dataset.p), M=MKT[d], raw=med?12*Math.log2(M[0]/med):+d, p=Math.max(-12,Math.min(12,Math.round(raw)));
+    b.dataset.p=p; b.style.left=((p+12)/24*100).toFixed(2)+'%';
+    b.hidden=raw>12.5||raw<-12.5;                       /* out of reach from your voice */
+    if(!b.hidden&&Math.abs(p)<=1&&med) near=true;
+    var how=p?Math.abs(p)+(p>0?' higher':' lower'):'about where you are';
+    b.title=M[1]+': '+how+(med?' for your voice':'')+', '+M[3];
+    b.setAttribute('aria-label',M[2]+', '+how+(med?' for your voice':''));
+  });
+  document.querySelector('#marks .mk.you').hidden=near;   /* you already are one of them */
+  var n=$('marks-note'); n.hidden=!med; if(med) n.textContent='🎯 markers tuned to your voice · about '+Math.round(med)+' Hz';
+}
 Array.prototype.forEach.call(document.querySelectorAll('#marks .mk'),function(b){
   b.addEventListener('click',function(){
     P.pitch=+b.dataset.p; P.flink=true; $('morph').value=P.pitch; $('pitch-val').textContent=semi(P.pitch); formShow();
-    msg(b.title+(P.pitch?' — works best from the other end: men try 👩, women try 👨.':'')); announce(b.getAttribute('aria-label'));
+    msg(b.title+(P.pitch&&!VMED?' — say a few words first and the markers tune to your voice.':'')); announce(b.getAttribute('aria-label'));
   });
 });
 /* ＋ add a voice: each new one starts on a chord note (5th, 3rd, octave down, octave up, 6th), up to six of you */
@@ -1695,6 +1722,7 @@ function pitchLoop(){
   clearInterval(pitchT);
   pitchT=setInterval(function(){
     if(engine) $('st-pitch').textContent=noteName(engine.lastF0());
+    if(VF.length>=40&&VFc-VFn>=24){ VFn=VFc; marksTune(); }
   },180);
 }
 var viz=$('viz'), vctx=viz.getContext('2d');
