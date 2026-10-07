@@ -23,6 +23,14 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 ## Lucarne (v1.6)
 - The name: la lucarne is the top corner, and French commentary says a shot there knocks out the cobwebs (les toiles d'araignée). The webs are reset at every kick (resetSpot, startFk) and when a replay starts.
 
+## Corners (v1.7)
+- Five corners, alternating sides (1st from the right, x = +25.6, z .4, by a blue corner flag at x = ±26; touchlines at x = ±26 and corner arcs painted on the pitch canvas, the goal line now stops at the corners).
+- ckaim: the intro opens on Payet at the flag (INTRO, the FK hold/swoop), then the box camera (ckCam: high behind the box, portrait h 11 / z 20 with a lens wide enough for x ±5.6, looking 1.6 m (.8 portrait) toward the flag side). Three gold rings on the grass: near post, penalty spot, far post (CK_Z, mirrored by side). Four Rivals mark three OM attackers in a [2,1,1] or [2,2,0] pattern, shuffled, so one zone is always lighter; reading it is the game. Tap near a zone (ckZoneAt: nearest projected zone within ~110 px+), keys 1/2/3 or a/s/d.
+- ckrun (.75 s, off screen) -> ckfly: ckBallAt = a line from the flag to the contact point H (zone + 2.25 m up, ±.2 m delivery noise) + a 2.3 m arc (3.3 left the ball above the frame until the last third) + a curl across the line (inswinger from the left, outswinger from the right; Payet is right-footed). tf = distance / 19.5 (~1.2-1.5 s).
+- The timing ring (TRING) shrinks onto the gold dot (TDOT) over the last .9 s; tap the goal: where you tap is where you head it (goalPoint), when you tap sets the quality q (window -.3 s .. +.2 s around contact; outside it: TROP TÔT ! / TROP TARD ! and a Rival clears). A marker wins the header with p = .03 (none), .08 + .3(1-q) (one), .18 + .4(1-q) (two) -> DÉGAGÉ !. Header error .2 + 1.4(1-q)^1.5 + .06 per marker, speed 10 + 8q m/s, the keeper (kx0 = .7 towards the near post) dives at his guess with error .3 + .5q after .1 + .1q s, then resolve()/landed() as ever (HEADER! / DE LA TÊTE !, LUCARNE ! still wins for a top corner).
+- The corner men are merged wallMan meshes (wallMan now takes shirt, shorts and a loose-arms pose), 1 draw call each; the attacker in your zone jumps to peak at contact, his markers jump with him (higher when they win it).
+- Best in localStorage la-lucarne:ckbest. No replay for corner goals yet.
+
 ## Free kicks (v1.2)
 - Five spots in order (FK_SPOTS): (-5.5, 21), (1.5, 23.5), (7.5, 20), (-9, 18.5), (3.5, 27). Score = goals out of 5, best kept in localStorage `la-lucarne:fkbest`. End titles: 4+ Magique, 2-3 Pas mal, 0-1 Le mur a gagné; the crowd celebrates from 3.
 - Input: press on the goal to aim (locked), slide sideways to curl (CURLMAX 2.2 m of bow at mid-flight, full curl = 30% of the screen width, max 260 px), release to shoot. Mouse hover previews. Keys: arrows curl, Q-D shoot, Space/Enter shoot at the previewed aim. A dotted preview shows the first half of the flight.
@@ -50,6 +58,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.5 (2026-10-07 ~20:40 UTC): Défi du jour, five seeded free kicks a day, the same for everyone, first try counts, an emoji row to share.
 - v1.5.1 (2026-10-07 ~20:55 UTC): daily streak (localStorage la-lucarne:streak {n, c}: an official run on day n-1 then n adds one; shown as 🔥c on the daily button and in the share text, 'série c jours' on the end card from 2), a countdown to local midnight on the end card (nextIn), and the replay button reads S’entraîner / Practise on daily end cards.
 - v1.6 (2026-10-07 ~21:05 UTC): cobwebs in both top corners (WEBS: a 1.1 m plane each with a 256 px canvas cobweb (WEB_TEX: 7 thick spokes, 5 sagging rings, a misty veil; the 1 px LineSegments of the first try were invisible from the spot), opacity .9, at the bar/post joint just behind the line). A goal whose target is within .78 m of a post and above GH - .66 (isWeb) knocks that corner's web away (webKnock: it flies back, up, falls and fades over 1.3 s), the call reads LUCARNE ! / TOP CORNER!, the crowd jumps higher, and the daily row gets a 🕸️ tile (green with a gold ring). It tears again in the replay (webReset in startReplay, knock at the replay's net hit, webStep at replay speed). End cards count the game's lucarnes (websTxt). An 'Autres modes / Other modes' link under the end card's buttons goes back to the title (before, the only way to switch modes was a reload).
+- v1.7 (2026-10-07 ~22:20 UTC): CORNERS, a third mode (title button Corners): five corners from alternating flags, pick near post / penalty spot / far post against a shuffled marking pattern, time the header on the closing ring, tap where to head it. Touchlines, corner arcs and two blue corner flags on the pitch. wallMan takes kit colours and a loose pose. Probe: perfect timing 6/9 goals (2 saves, 1 marker won it), +.12 s wide/post, -.2 s saved, -.45 TROP TÔT !, no tap TROP TARD !; 96-99 draw calls, 85k triangles at 1280x720.
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
@@ -58,5 +67,6 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - Probe odds (v1.0): corner shots ~96% goal before the nerves, low/middle ~68%; keeping saves ~15-18% from a blind guess, more for a reaction dive.
 
 ## Todos
+- Corners: the cross is on screen only for its last ~.5 s on desktop (the flag is ~35° outside the lens); a replay of corner goals, or a brief side camera for the delivery, would show the whole whip.
 - Free kicks: Elieutch's pick for a spot (the voice suggested dead centre, ~25 m).
 - Ask Elieutch: free kicks or more of the shootout?
