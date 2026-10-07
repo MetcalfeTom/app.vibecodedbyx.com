@@ -63,6 +63,7 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - The guest is drawn 1.18x around (150,118) (ZOOM group). The animations (fork/spoon bite x3, rise, heart, purr) all sit under the global reduced-motion rule.
   - aria-label says who is eating what and how they look.
 - v1.8 (2026-10-07): every guest has their own lines: SAY[who] = 5 tiers (5, 4+, 3+, 2+, below) x 2 lines, picked by save.dinners. Grandma's 'write this one down', Dad's 'Hi Burnt, I'm Dad', the cat tries to bury it. A new WHO entry needs a SAY entry and a GUEST drawing.
+- v1.9 (2026-10-07): guest wishes. From dinner 3, 7 in 10 dinners the guest asks for something (WISH[who], pickWish): no onions/peppers/mushrooms (little brother), easy/no salt (Grandma, cat), extra salty (Dad), extra garlic (neighbour), extra cheese (best friend), crispy (roommate, pan non-flip only), soft (yourself; Mum on pans only). S.r becomes a changed copy, so card, hints, shop list, zone bar and scoring all follow it. Remembering = +2 tip and a 'you remembered' note; forgetting = -½ star. Never garlic/cheese on pancakes; a new WHO entry needs a WISH entry (or none).
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 - Phone fridge strip: the sticky selector has to be section.area.fridge, because section.area{ position:relative } outranks .fridge.
