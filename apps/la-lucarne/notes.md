@@ -32,6 +32,13 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - Best in localStorage la-lucarne:ckbest.
 - Corner goals get a replay (v1.7.1, ckReplay): RP.cks 1.7x slow from c.k0 (the cross leaves the flag), camera fixed at (-sg*5.2, 3, -4.6) beside the far post behind the goal line, look lerps after the ball; ckBallAt before G.kickT (the header), ballAt after; ckMen(t) takes the replay clock; ckStep returns early in replay. The keeper stands at kx0 until his dive starts (fk replays too: he used to lie where he landed during the lead-in).
 
+## Le Match (v1.8)
+- Title button Le Match (gold, row 2): a whole match night in six moments. mkMatch() shuffles fk, ck, pen, keep and one more fk|ck into one ~16-minute slot each (6-19, 22-35, 38-51, 54-67, 70-83), then the last action at 90+2..4 (fk or ck, last: true, the tifo goes up). Free kicks use two random FK_SPOTS (M.fs).
+- The Rivals score 0 (30%), 1 (50%) or 2 (20%) goals off screen at minutes 9-85 (M.rg). Each goal lands while the clock rolls past its minute (matchWait), with a groan and a call: a 0-1 already at kick-off gave it away before the fix.
+- Between moments G.st = 'mwait': #mt (the pill under the HUD) rolls the clock from the last moment's minute to the next one over 1.1 s, then shows what's next ("68' · Coup franc pour l'OM"). matchGo() starts it with G.A pointing at M.A[kind] (pens, fk, ck) or G.B = M.B for the Rivals' penalty (you keep). next() and over() hand back to matchNext() while G.match is set, which books the result into M.gl.
+- The HUD shows OM n - m RIVAUX all match (#hud.m hides the dots). Full time: VICTOIRE ! / MATCH NUL / DÉFAITE, the score, the OM goal minutes ("60' penalty, 68' coup franc, 81' de la tête"), lucarnes and the record W/D/L in localStorage la-lucarne:match. Share sends the score plus a timeline of ⚽ and 🔴 minutes.
+- Probe (q32.js, auto-player): a full match ran in ~3 min headless at speed 3 with no errors and won 3-2. 136 draw calls at 1280x720.
+
 ## Free kicks (v1.2)
 - Five spots in order (FK_SPOTS): (-5.5, 21), (1.5, 23.5), (7.5, 20), (-9, 18.5), (3.5, 27). Score = goals out of 5, best kept in localStorage `la-lucarne:fkbest`. End titles: 4+ Magique, 2-3 Pas mal, 0-1 Le mur a gagné; the crowd celebrates from 3.
 - Input: press on the goal to aim (locked), slide sideways to curl (CURLMAX 2.2 m of bow at mid-flight, full curl = 30% of the screen width, max 260 px), release to shoot. Mouse hover previews. Keys: arrows curl, Q-D shoot, Space/Enter shoot at the previewed aim. A dotted preview shows the first half of the flight.
@@ -62,6 +69,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.7 (2026-10-07 ~22:12 UTC): CORNERS, a third mode (title button Corners): five corners from alternating flags, pick near post / penalty spot / far post against a shuffled marking pattern, time the header on the closing ring, tap where to head it. Touchlines, corner arcs and two blue corner flags on the pitch. wallMan takes kit colours and a loose pose. Probe: perfect timing 6/9 goals (2 saves, 1 marker won it), +.12 s wide/post, -.2 s saved, -.45 TROP TÔT !, no tap TROP TARD !; 96-99 draw calls, 85k triangles at 1280x720.
 - v1.7.1 (2026-10-07 ~22:22 UTC): corner goals get a slow-motion replay from beside the far post (the whole cross from the flag, the leap, the header into the net); the keeper no longer lies on the grass during a replay's lead-in (free kicks too).
 - v1.7.2 (2026-10-07 ~22:40 UTC): the TV pan on corners (desktop and landscape): the camera swings to the flag as Payet runs up and rides the cross in, then settles on the box before the header.
+- v1.8 (2026-10-07 ~23:00 UTC): LE MATCH, a fourth mode: a 90-minute match night in six moments (free kicks, corners, a penalty, a Rivals penalty to keep, the last action in stoppage time). The Rivals score off screen now and then, and the full-time score decides it. Ticker pill, W/D/L record, share timeline.
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
@@ -72,4 +80,4 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 ## Todos
 - Corners: live, the cross is on screen only for its last ~.5 s on desktop (the flag is ~35° outside the lens); goals now replay the whole whip (v1.7.1). v1.7.2 adds the TV pan (ckPan/ckNeed: bisect the lerp weight toward the ball that keeps it at <= 80% across (sg-mirrored), rise over the .6 s run-up, then max(need, prev - 1.6/s) so it settles ~.2-.5 s before contact; $SP/lu/pansim.py simulates it). Portrait phones keep the still box view (a pan there loses the goal for most of the ring countdown).
 - Free kicks: Elieutch's pick for a spot (the voice suggested dead centre, ~25 m).
-- Ask Elieutch: free kicks or more of the shootout?
+- Ask Elieutch: free kicks or more of the shootout? And how Le Match feels: more moments, a half-time, named Rivals (generic only)?
