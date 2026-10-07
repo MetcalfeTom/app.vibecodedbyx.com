@@ -24,7 +24,7 @@ Marci's rooms so far: Madrid fine-arts education (expelled from the academy, 192
 - Facts used (FACTS1904): born in Figueres, Catalonia, 1904; older brother also named Salvador died 1903, before he was born; the Theatre-Museum opened in Figueres in 1974. Nothing else stated as fact.
 - Losing recipe: "Consommé for Two, served in a mirror" (our own).
 - How the mirror works: group MW with scale.z -1 holds clones of each thing (shared materials) + a twin detective + twin ghost synced in R.tick; differences only touch the twin (material swap by material.name, hide a part, rotate a part; DIFF map in buildBrother). The wall doesn't cast shadows (mirror-world shadow artifacts). def.kind 'diff': newGame calls R.setDiffs(G.chain), search() goes to diffSearch() until G.hid. Probes: scratchpad hm/dgh b1 (look), b2 (full play: alias tap, wrong, found, chase, win, hall relit, cooked; needs dgh/hlong.sh, CDPT 430), b3 (memory over 3 visits).
-- Camera: ROOMS.brother.cam {D [12, 8.4], H [7.8, 4.9], A 4, Y 1.1} via followCfg(); portrait cuts the horse/shoes at the edges at spawn, walking reveals them.
+- Camera: ROOMS.brother.cam {D [13.5, 8.4], H [8.6, 4.9], A 4, Y 1.1, fov [72, 48]} via followCfg() and ROOMFOV; all eight things and their reflections fit at 390x844.
 
 Hard rules: homage, never a replica of real artworks (motifs and moods only: soft watches, crutches, drawers, ants, eggs, long shadows); facts must be accurate (only ones I'm sure of or verified); no external links; no database.
 
@@ -45,9 +45,9 @@ Hard rules: homage, never a replica of real artworks (motifs and moods only: sof
 
 - v2.2 (2026-10-07 ~21:45 UTC) room 1904, Two Salvadors: the 1904 door opens. A mirror room at dusk, spot the 3 differences between this side and the reflection (details in the room section). Rooms can now bring their own follow camera (def.cam / followCfg()), bound (R.bound), spawn, tap aliases (R.alias: the mirror twins resolve to the real thing) and spare materials to dispose (R.spare). Losing recipe per room (COOK[room] fills #cookH/#cookI/#cookS). Fixed: put() on a Mesh returns undefined (Object3D.applyMatrix4 has no return), so c.add(put(mesh...)) silently added nothing; use placeM() for meshes, put() only for geometries.
 
+- v2.2.1 (2026-10-07 ~22:00 UTC) polish: the mirror room's phone camera is wider (ROOMFOV: a room can set cam.fov [portrait, landscape]; enterRoom sets it and calls resize(); brother uses 72/48 with D 13.5 H 8.6 in portrait) so all eight things and their reflections fit at 390x844 (scratchpad projb.py does the maths). The desert's exit door sits between the follow camera and the spawn: it now fades to .16 while it hides the detective (own cloned materials, tick in buildDesert). New og.png: the hall (case under the beam, three gilded doors, the detective), shot at 1200x630 with hm/dgh/og.js and passed through convert.
 ## todos
 - Room 1926 (The Academy): expelled from the Madrid academy in 1926. Puzzle idea from Marci welcome.
 - When all three are lit: an ending in the hall (the cover reassembled, the ghost's confession).
 - 1904 room: harder mode (4-5 differences, subtler ones) if Marci wants; maybe let the twin detective lag a beat behind you.
 - More rooms: the Madrid academy (expelled 1926), Impressionism/Renaissance to Cubism, the Les Dîners de Gala cookbook dinner, Dumas (verify first). Each room its own losing recipe.
-- og.png still shows the desert; a hall shot could replace it.
