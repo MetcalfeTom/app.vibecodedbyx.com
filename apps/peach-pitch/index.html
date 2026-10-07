@@ -1097,13 +1097,19 @@ function synthSpeech(text,vi,sr){
   var V=TTSV[vi]||TTSV[0], f0b=V[2], fsc=V[3], spd=V[4], br=V[5], vib=V[6], bright=V[7];
   var seq=textPhones(text); if(!seq.some(function(s){ return s.p!=='_'; })) return new Float32Array(0);
   var segs=[], t=0, nv=seq.length;
+  var ms=seq.map(function(s){ return s.p==='_'?s.ms:PHS[s.p][4]*(s.st?1.25:1)*(s.dip===1?.6:s.dip===2?.75:1); });
+  /* v1.34 (pepedro10: "it just AI Voice"): people slow down on the last vowel before a pause */
+  function lastV(k){ for(var b=k-1;b>=0;b--){ var q=seq[b]; if(q.p==='_'){ if(q.ms>=170) return -1; continue; } if(PHS[q.p][3]==='v') return b; } return -1; }
+  seq.forEach(function(s,k){ if(s.p==='_'&&s.ms>=170){ var b=lastV(k); if(b>=0) ms[b]*=1.35; } });
+  var lv=lastV(seq.length); if(lv>=0) ms[lv]*=1.35;
   seq.forEach(function(s,k){
-    var P=PHS[s.p], ms=s.p==='_'?s.ms:P[4]*(s.st?1.25:1)*(s.dip===1?.6:s.dip===2?.75:1);
-    var n=Math.round(ms*.85*spd*sr/1000); segs.push({s:s,P:P,a:t,n:n,k:k}); t+=n; });
+    var P=PHS[s.p], n=Math.round(ms[k]*.85*spd*sr/1000); segs.push({s:s,P:P,a:t,n:n,k:k}); t+=n; });
   var N=t+Math.round(sr*.15), out=new Float32Array(N);
   /* formant tracks: each voiced phone's formants, held through hiss and stops, blended over the first 35% of the next */
   var cur=[500,1500,2500], seed=12345, rnd=function(){ seed=(seed*16807)%2147483647; return seed/2147483647*2-1; };
-  var R=[0,1,2].map(function(){ return {y1:0,y2:0}; }), RN={y1:0,y2:0}, ph=0, gPrev=0, av=0, an=0, ah=0, lpN=0, totalV=0;
+  var R=[0,1,2,3].map(function(){ return {y1:0,y2:0}; }), RN={y1:0,y2:0}, ph=0, gPrev=0, av=0, an=0, ah=0, lpN=0, totalV=0;
+  /* v1.34 a more human throat: accents glide, the pitch wanders slowly, and every vocal-fold cycle is a touch different (jitter + shimmer) */
+  var fS=f0b*1.12, fK=1-Math.exp(-1/(.045*sr)), jit=1, shim=1, w1=6.283*.7/sr, w2=6.283*1.9/sr, d1=rnd()*3.14, d2=rnd()*3.14;
   function reso(st,x,F,bw){ var r=Math.exp(-Math.PI*bw/sr), B=2*r*Math.cos(2*Math.PI*F/sr), C=-r*r, A=1-B-C, y=A*x+B*st.y1+C*st.y2; st.y2=st.y1; st.y1=y; return y; }
   var segI=0;
   for(var i=0;i<N;i++){
@@ -1113,19 +1119,23 @@ function synthSpeech(text,vi,sr){
     if(tgt) for(var j=0;j<3;j++) cur[j]+=(tgt[j]-cur[j])*Math.min(1,(1/(g.n*.35+1))*3);
     /* targets for voicing, hiss and breath */
     var tv=0, tn=0, th=0, nc=0;
-    if(kind==='v') tv=1; else if(kind==='n') tv=.55;
+    if(kind==='v') tv=g.s.st?1:.8; else if(kind==='n') tv=.55;
     else if(kind==='f'){ tn=g.s.p==='S'||g.s.p==='SH'?.5:.18; nc=P[5]; }
     else if(kind==='z'){ tv=.35; tn=g.s.p==='Z'||g.s.p==='ZH'?.3:.12; nc=P[5]; }
     else if(kind==='h') th=.35;
     else if(kind==='p'||kind==='b'){ var cl=kind==='p'?.62:.5; if(u<cl) tv=kind==='b'?.12:0; else { tn=u<cl+.18?.7:0; th=kind==='p'&&u>=cl+.18?.3:0; tv=kind==='b'&&u>=cl+.1?.6:0; } nc=P[5]; }
     av+=(tv-av)*.0035*48000/sr*1.6; an+=(tn-an)*.02; ah+=(th-ah)*.01;
     /* the glottis: a pitch that falls through the sentence, lifts on stressed vowels, wobbles a bit and rises for a question */
-    var prog=i/N, f0=f0b*(1.12-.27*prog)*(g.s.st?1.1:1)*(g.s.q?1+.35*prog:1)*(1+vib*Math.sin(i/sr*6.283*5.5))*(1+.006*rnd());
-    ph+=f0/sr; if(ph>=1) ph-=1;
-    var oq=.35+.3*(1-bright), gl=ph<oq?Math.sin(Math.PI*ph/oq):0; gl=gl*gl; var src=(gl-gPrev)*sr/f0*.3; gPrev=gl;   /* scaled by the period, so low voices are as loud as high ones */
+    var prog=i/N, ft=f0b*(1.12-.27*prog)*(g.s.st?1.1:1)*(g.s.q?1+.35*prog:1);
+    fS+=(ft-fS)*fK;
+    var f0=fS*(1+.012*Math.sin(i*w1+d1)+.008*Math.sin(i*w2+d2))*(1+vib*Math.sin(i/sr*6.283*5.5))*jit;
+    ph+=f0/sr; if(ph>=1){ ph-=1; jit=1+.008*rnd(); shim=1+.06*rnd(); }
+    /* Rosenberg pulse: a slow opening and a quick closing snap, which is where a real voice gets its edge */
+    var tp=.3+.15*(1-bright), tn=.22-.12*bright, gl=ph<tp?.5-.5*Math.cos(Math.PI*ph/tp):ph<tp+tn?Math.cos(Math.PI*(ph-tp)/(2*tn)):0;
+    var src=(gl-gPrev)*sr/f0*.3*shim; gPrev=gl;   /* scaled by the period, so low voices are as loud as high ones */
     var noise=rnd();
-    var x=src*av+noise*(br*av*.5+ah);
-    var y=reso(R[0],x,cur[0],70*fsc); y=reso(R[1],y,cur[1],100*fsc); y=reso(R[2],y,cur[2],140*fsc);
+    var x=src*av+noise*(br*av*.5*(.4+1.3*gl)+ah);   /* breath puffs with each opening */
+    var y=reso(R[0],x,cur[0],70*fsc); y=reso(R[1],y,cur[1],100*fsc); y=reso(R[2],y,cur[2],140*fsc); y=reso(R[3],y,3300*fsc,260*fsc);
     var hiss=0; if(an>.001&&nc){ hiss=reso(RN,noise,Math.min(sr*.45,nc*(fsc*.5+.5)),nc*.35)*an*1.6; }
     out[i]=y*.25+hiss; totalV+=Math.abs(out[i]);
   }
