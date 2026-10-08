@@ -31,10 +31,11 @@ Paper sheet taped to a pub wall: #f2eee3 paper, ink #15120e, one red marker #d73
 - v1.7.3: pencil is keyed per bracket AND player (`i.seat`, plain `i` for an anonymous viewer), so several players tested in one browser, or sharing a tablet, don't see each other's pencil.
 - v1.8 (Tatum: "it needs to accept concessions"): a signed slip where the sender says their opponent won counts at once (no clock, no question mark), banner "M1 · Dax concedes ✓"; if the sheet says otherwise the organizer gets switch/keep. Bracket label "conceded ✓" on every copy (g travels in the view link). The loser's slip text says it counts as soon as it's pasted. Probe hm/bl18.js.
 
+- v1.9 (2026-10-08, own idea from the todo list): "⤓ picture" saves the sheet as a PNG for the group chat, in every copy (organizer and players). sheetPic() draws it on a canvas from layout(null), so sheet results only, never pencil: paper grid, red kicker, title (shrinks 68->40 px, then clips), players/played/date line, champion band with a drawn gold cup (emoji fonts differ per phone), round heads, wires, matches, "made with Bracket Link". Scale 2x, capped at 16 Mpx for big brackets. Phones with pointer:coarse and canShare(files) get the share sheet, everyone else a download. Test hook __BL.pic / picName; probe hm/bl19a.js, bl19b.js.
+
 ## Issues
 - Tatum wants players to report results themselves and the organizer to settle disputes, ideally with a database. A live shared table is a new online mode: needs Fela/Thomas, don't promise it.
 
 ## Todos
-- PNG export of the sheet.
 - With a database (needs Fela/Thomas): slips go straight to the organizer's copy, the 15-min quiet rule runs on its own.
   - 2026-10-02 12:00 UTC: Tatum (after v1.8) asked for this again: "this works quite well without a DB intermediary, but please do ask your devs to approve that perm". A request for Fela/Thomas: a shared table (bracket id, slip code, created) so pasted codes arrive by themselves. The no-DB slip flow stays as the fallback.
