@@ -60,6 +60,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - Each cup club has a kick-off line OPP[LANG].kc after the round name ('Huitième de finale · les cigales chantent', 'Quart de finale · les goélands tournent', 'Demi-finale · le Mistral souffle !') and CUP[i].amb: 'cicada' (round of 16) or 'gull' (quarter).
 - ambStep(dt) in the loop: GULLS = 7 gulls in three InstancedMeshes (bodies, left wings, right wings; 3 draw calls), MeshBasicMaterial with vertex colours (unlit: white on the night, grey mid-wing, black tips), M-shaped wings (inner arm up, hand drooping and swept back), circling 3.3-5.3 m over the box (r 3.5-9 so phones see them, centre z -2..3), flapping 1.6 s in every 5, gliding otherwise. First try came out as dark fighter jets (lit DoubleSide planes seen from below + flat swept wings) and flew above the frame at y 5-8.
 - Sounds: gullCry() (2-3 sawtooth kee-ows through a 1.7 kHz bandpass) every 3.5-8.5 s; cicada() (narrow 4.4-5.8 kHz noise, 50-80 Hz square AM, 1.5-2.7 s swell) every 2.2-5.2 s. Silent at the title, the trophy lift and the end card.
+- Rain (v1.9.4, the final, CUP[3].amb 'rain', kick-off 'Finale · sous la pluie'): RAIN = 420 instanced thin planes (.014 x .55, #cfe0ff, opacity .32, additive, 1 draw call) in a 20x13x20 box kept 9 m in front of the camera, turned to its yaw, tilted .06, falling 11-15 m/s (slower in slow-mo replays). rainSnd(on): a looping 2 s noise buffer, lowpass 2.8 kHz + highpass 500 Hz, gain ramping to .09. ~105 draw calls on a phone with rain on.
 
 ## Free kicks (v1.2)
 - Five spots in order (FK_SPOTS): (-5.5, 21), (1.5, 23.5), (7.5, 20), (-9, 18.5), (3.5, 27). Score = goals out of 5, best kept in localStorage `la-lucarne:fkbest`. End titles: 4+ Magique, 2-3 Pas mal, 0-1 Le mur a gagné; the crowd celebrates from 3.
@@ -97,6 +98,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.9.1 (2026-10-07 ~23:45 UTC): winning the cup final: Payet lifts a gold trophy in blue/white/gold confetti while the camera circles him, then a low winner's card.
 - v1.9.2 (2026-10-08 ~00:05 UTC): the Mistral semi-final blows: a gust per free kick and penalty bends the ball sideways (about a metre on a long free kick), arrows under the score show which way and how hard, wind streaks across the stadium.
 - v1.9.3 (2026-10-08 ~00:25 UTC): each cup round has its own feel: cicadas chirr through the round of 16 against the Cigales, a flock of gulls circles over the box crying in the quarter-final against the Goélands, and the kick-off line says so.
+- v1.9.4 (2026-10-08 ~00:32 UTC): the cup final is played in the rain: streaks falling past the floodlights and a soft hiss of rain under the crowd, the kick-off line says 'Finale · sous la pluie'.
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
