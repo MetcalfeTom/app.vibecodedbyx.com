@@ -227,6 +227,23 @@ select:focus-visible{outline:3px solid var(--focus); outline-offset:2px;}
   #skit .row{flex-wrap:wrap;} #skit .row #skit-go{flex:1 1 100%; max-width:none;} #skit .row button{white-space:nowrap;} }
 #player-row{display:none; align-items:center; gap:.7rem; justify-content:center; margin-top:.6rem; flex-wrap:wrap;}
 #player-row.on{display:flex;}
+#tkshelf{margin:.7rem auto 0; max-width:34rem; border:2px solid #e8b898; border-radius:14px; background:#fffaf5; padding:.5rem .6rem .35rem;}
+#tkshelf[hidden]{display:none;}
+.tk-h{display:flex; justify-content:space-between; align-items:baseline; gap:.5rem; font-size:.78rem; margin:0 .2rem .3rem;}
+.tk-h b{font-family:'Shrikhand',serif; font-weight:400; font-size:1rem; color:var(--demon);}
+#tk-note{font-size:.62rem; color:var(--dim);}
+#tk-list{list-style:none; margin:0; padding:0; max-height:16.5rem; overflow-y:auto;}
+#tk-list li{display:flex; align-items:center; gap:.35rem; padding:.25rem .2rem; border-top:1px dashed #edc7ad;}
+#tk-list li:first-child{border-top:0;}
+#tk-list li.on{background:rgba(255,176,138,.22); border-radius:9px;}
+#tk-list button{min-width:2.4rem; min-height:2.4rem; padding:0 .5rem; font-size:.8rem;}
+#tk-list .tk-x.sure{background:var(--demon-hot); color:#fff; border-color:var(--demon);}
+.tk-name{flex:1 1 6rem; min-width:0; font:600 .74rem 'IBM Plex Mono',monospace; color:var(--ink); background:transparent; border:1px solid transparent; border-radius:7px; padding:.3rem .35rem;}
+.tk-name:hover,.tk-name:focus{border-color:#e8b898; background:#fff;}
+.tk-meta{font-size:.62rem; color:var(--dim); white-space:nowrap;}
+a.tk-dl{display:inline-flex; align-items:center; justify-content:center; min-width:2.4rem; min-height:2.4rem; border-radius:10px; color:var(--demon); font-weight:700; text-decoration:none;}
+a.tk-dl:hover{background:#ffe8d6;}
+@media (max-width:480px){ .tk-meta{display:none;} }
 #card.dragging{outline:4px dashed var(--peach-deep); outline-offset:-8px; background:rgba(255,232,214,.97);}
 body.dropping::after{content:'drop it here: a sound or a video, I keep the sound'; position:fixed; left:50%; top:45%; transform:translate(-50%,-50%);
   width:min(22rem,86vw); padding:1.1rem 1.2rem; border-radius:18px; background:var(--peach-deep); color:#fff; font-weight:700; text-align:center;
@@ -386,6 +403,10 @@ Giant (happy): It was me. It was delicious.
     <button id="rec-btn" class="rec" type="button" aria-pressed="false" disabled>⏺ record</button><button id="rec-pause" type="button" aria-pressed="false" hidden>⏸ pause</button>
   </div>
   <div id="player-row"><audio id="player" controls></audio><a id="dl" class="dl" download="peach-pitch.webm" href="#">download</a></div>
+  <section id="tkshelf" hidden aria-label="your takes">
+    <div class="tk-h"><b>🎞 your takes</b><span id="tk-note">kept on this device</span></div>
+    <ol id="tk-list"></ol>
+  </section>
   <canvas id="viz" aria-hidden="true"></canvas>
   <div id="status">
     <span id="pitch-pill">pitch <b id="st-pitch">—</b></span>
@@ -394,7 +415,7 @@ Giant (happy): It was me. It was delicious.
   </div>
   <p id="msg">start the mic, pick a mode, speak. monitor off = no feedback squeal; use record to hear yourself.</p>
 </main>
-<footer>🍑 all processing is local web audio · monitor with headphones or record instead · <span id="buildstamp">v1.53.2</span></footer>
+<footer>🍑 all processing is local web audio · monitor with headphones or record instead · <span id="buildstamp">v1.54</span></footer>
 <p id="sr-status" role="status" aria-live="polite"></p>
 
 <script>
@@ -1516,10 +1537,7 @@ $('file-render').addEventListener('click',function(){
       var out=renderBuffer(fileBuf,{mode:P.mode,pitch:P.pitch,form:P.form,flink:P.flink,voices:P.voices.slice(),key:P.key,scale:P.scale,amt:P.amt,tw:JSON.parse(JSON.stringify(P.tw))});
       var bytes=wavBytes(out,fileBuf.sampleRate);
       var blob=new Blob([bytes],{type:'audio/wav'});
-      var url=URL.createObjectURL(blob);
-      $('player').src=url;
-      $('dl').href=url; $('dl').setAttribute('download','peach-pitch-'+P.mode+'.wav');
-      $('player-row').classList.add('on');
+      tkAdd(blob,'wav',fmtT(fileBuf.duration),($('file-name').textContent.split(' · ')[0]||'file').replace(/\.[a-z0-9]+$/i,''));
       msg('rendered with '+P.mode+' — playing below, download link ready.');
       $('player').play().catch(function(){});
       announce('render complete');
@@ -1527,6 +1545,54 @@ $('file-render').addEventListener('click',function(){
     self.textContent='⬇ render .wav'; self.disabled=false;
   },30);
 });
+/* 🎞 your takes (v1.54, pepedro10: "we need a new voice recorder"): every recording, rendered file and skit lands on a shelf instead
+   of replacing the last one, each with ▶, a name you can edit, ⬇ download and ✕ (tap twice). They're kept on this device in IndexedDB,
+   so a reload or a closed tab doesn't lose a 30 minute take; when IndexedDB is off (private tabs) they last until the page closes.
+   The newest 40 stay */
+var TK=[], tkDB=null, TK_MAX=40;
+function tkFile(t){ var n=(t.name||'').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-')||'peach-pitch'; return 'peach-pitch-'+n.toLowerCase().slice(0,48)+'.'+t.ext; }
+function tkSize(b){ return b>=1e6?(b/1e6).toFixed(1)+' MB':Math.max(1,Math.round(b/1e3))+' kB'; }
+function tkStore(fn){ if(!tkDB) return; try{ var tx=tkDB.transaction('takes','readwrite'); fn(tx.objectStore('takes')); tx.onerror=function(){ $('tk-note').textContent='this device is full: new takes last until you close the page'; }; }catch(e){} }
+function tkRec(t){ return {id:t.id, name:t.name, kind:t.kind, mode:t.mode, dur:t.dur, size:t.size, ext:t.ext, t:t.t, blob:t.blob}; }
+function tkUse(t, play){ var p=$('player'); p.src=t.url; $('dl').href=t.url; $('dl').setAttribute('download',tkFile(t));
+  $('dl').textContent='download · '+t.dur+(t.size>1e6?' · '+tkSize(t.size):''); $('player-row').classList.add('on');
+  TK.forEach(function(x){ x.on=x===t; }); tkDraw(); if(play) p.play().catch(function(){}); }
+function tkAdd(blob, ext, dur, kind){ var n=1;
+  TK.forEach(function(x){ var m=/^take (\d+)/.exec(x.name); if(m&&+m[1]>=n) n=+m[1]+1; });
+  var t={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), name:kind==='take'?'take '+n+' · '+P.mode:kind+' · '+P.mode, kind:kind, mode:P.mode,
+    dur:dur, size:blob.size, ext:ext, t:Date.now(), blob:blob, url:URL.createObjectURL(blob)};
+  TK.unshift(t);
+  while(TK.length>TK_MAX){ var o=TK.pop(); try{ URL.revokeObjectURL(o.url); }catch(e){} tkStore(function(st){ st.delete(o.id); }); }
+  tkStore(function(st){ st.put(tkRec(t)); });
+  tkUse(t,false); return t; }
+function tkDraw(){ var L=$('tk-list'); L.textContent=''; $('tkshelf').hidden=!TK.length;
+  TK.forEach(function(t){ var li=document.createElement('li'); li.dataset.id=t.id; if(t.on) li.className='on';
+    var pb=document.createElement('button'); pb.type='button'; pb.className='tk-play'; pb.textContent='▶'; pb.setAttribute('aria-label','play '+t.name);
+    var nm=document.createElement('input'); nm.className='tk-name'; nm.value=t.name; nm.maxLength=40; nm.spellcheck=false; nm.setAttribute('aria-label','name of this take');
+    var mt=document.createElement('span'); mt.className='tk-meta'; mt.textContent=t.dur+' · '+tkSize(t.size);
+    var dl=document.createElement('a'); dl.className='tk-dl'; dl.href=t.url; dl.download=tkFile(t); dl.textContent='⬇'; dl.setAttribute('aria-label','download '+t.name);
+    var x=document.createElement('button'); x.type='button'; x.className='tk-x'; x.textContent='✕'; x.setAttribute('aria-label','delete '+t.name);
+    li.append(pb,nm,mt,dl,x); L.appendChild(li); }); }
+function tkOf(el){ var li=el.closest('li'), id=li&&li.dataset.id; for(var i=0;i<TK.length;i++) if(TK[i].id===id) return TK[i]; return null; }
+$('tk-list').addEventListener('click',function(e){ var b=e.target.closest('button'); if(!b) return; var t=tkOf(b); if(!t) return;
+  if(b.classList.contains('tk-play')){ tkUse(t,true); return; }
+  if(b.classList.contains('tk-x')){
+    if(!b.classList.contains('sure')){ b.classList.add('sure'); b.textContent='sure?'; setTimeout(function(){ if(b.isConnected){ b.classList.remove('sure'); b.textContent='✕'; } },3000); return; }
+    TK=TK.filter(function(x){ return x!==t; }); tkStore(function(st){ st.delete(t.id); });
+    if(t.on){ var p=$('player'); p.pause(); p.removeAttribute('src'); $('player-row').classList.remove('on'); }
+    try{ URL.revokeObjectURL(t.url); }catch(e2){} tkDraw(); announce('take deleted'); } });
+$('tk-list').addEventListener('change',function(e){ if(!e.target.classList.contains('tk-name')) return; var t=tkOf(e.target); if(!t) return;
+  t.name=e.target.value.trim()||t.name; e.target.value=t.name; tkStore(function(st){ st.put(tkRec(t)); });
+  var li=e.target.closest('li'); li.querySelector('.tk-dl').download=tkFile(t); if(t.on) $('dl').setAttribute('download',tkFile(t)); });
+$('tk-list').addEventListener('keydown',function(e){ if(e.key==='Enter'&&e.target.classList.contains('tk-name')) e.target.blur(); });
+(function(){ try{ var rq=indexedDB.open('peach-pitch-takes',1);
+  rq.onupgradeneeded=function(){ rq.result.createObjectStore('takes',{keyPath:'id'}); };
+  rq.onsuccess=function(){ tkDB=rq.result; try{ var g=tkDB.transaction('takes').objectStore('takes').getAll();
+    g.onsuccess=function(){ var have={}; TK.forEach(function(x){ have[x.id]=1; });
+      (g.result||[]).forEach(function(r){ if(have[r.id]||!r.blob) return; r.url=URL.createObjectURL(r.blob); TK.push(r); });
+      TK.sort(function(a,b){ return b.t-a.t; }); tkDraw(); }; }catch(e){} };
+  rq.onerror=function(){ $('tk-note').textContent='kept until you close the page'; };
+}catch(e){ $('tk-note').textContent='kept until you close the page'; } })();
 function ensureAC(){
   if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return null; } }
   if(AC.state==='suspended'){ try{ var p=AC.resume(); if(p&&p.catch) p.catch(function(){ err('your device won\'t start the sound: if you\'re on a call, '+MIC_CALL); }); }catch(e){} }   /* v1.53.2: a call holding the audio device rejected this unseen */
@@ -1984,11 +2050,8 @@ $('rec-btn').addEventListener('click',function(){
     clearInterval(recT); recT=null; recWake(false); RSTAT.on=false;
     btn.setAttribute('aria-pressed','false'); btn.classList.remove('held'); btn.textContent='⏺ record'; pb.hidden=true;
     if(!chunks.length) return;
-    var type=rec.mimeType||'audio/webm', blob=new Blob(chunks,{type:type}), url=URL.createObjectURL(blob), ext=/wav/.test(type)?'wav':/mp4|aac/.test(type)?'m4a':/ogg/.test(type)?'ogg':'webm';
-    if($('dl').href&&$('dl').href.indexOf('blob:')===0){ try{ URL.revokeObjectURL($('dl').href); }catch(e){} }
-    $('player').src=url; $('dl').href=url; $('dl').download='peach-pitch-'+P.mode+'-'+recClock().replace(':','m')+'s.'+ext;
-    $('dl').textContent='download · '+recClock()+(blob.size>1e6?' · '+(blob.size/1e6).toFixed(1)+' MB':'');
-    $('player-row').classList.add('on');
+    var type=rec.mimeType||'audio/webm', blob=new Blob(chunks,{type:type}), ext=/wav/.test(type)?'wav':/mp4|aac/.test(type)?'m4a':/ogg/.test(type)?'ogg':'webm';
+    tkAdd(blob,ext,recClock(),'take');
     if(recMs<20000) $('player').play().catch(function(){});
     announce('recording ready, '+recClock());
     var why=recWhy(); if(why) err(why);
@@ -2541,9 +2604,8 @@ var SKIT=(function(){
   });
   wav.addEventListener('click',function(){
     if(!SK) return;
-    var url=URL.createObjectURL(new Blob([wavBytes(SK.mix,SK.sr)],{type:'audio/wav'}));
-    $('player').src=url; $('dl').href=url; $('dl').setAttribute('download','peach-pitch-skit.wav');
-    $('player-row').classList.add('on'); $('dl').click();
+    tkAdd(new Blob([wavBytes(SK.mix,SK.sr)],{type:'audio/wav'}),'wav',fmtT(SK.mix.length/SK.sr),'skit');
+    $('dl').click();
     msg('skit saved as a .wav, and it is in the player at the bottom too.');
   });
   /* 🔗 share a skit (v1.43): the script, who plays who and their knobs ride in the link after #skit= */
