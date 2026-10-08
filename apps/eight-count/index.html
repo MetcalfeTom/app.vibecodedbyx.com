@@ -1484,19 +1484,32 @@ function restore(key){ var s = (loadAll().songs || {})[key]; if (!s) return fals
 
 /* ---------- audio ---------- */
 function ctx(){ if (!ac){ ac = new (window.AudioContext || window.webkitAudioContext)(); gain = ac.createGain(); gain.connect(ac.destination); } return ac; }
-function demoBuffer(){
+/* v2.15 the demo groove, built for phone speakers too (77% of visits; a phone plays little below ~300 Hz, and the old groove was mostly a
+   45-125 Hz kick and an 87-131 Hz bass: through a 300 Hz high-pass only 17% of it was left, -30.5 dBFS). The kick is the same thump
+   driven into a soft clip (its overtones carry) with a short knock on top; the bass has harmonics; Am F C G stabs on the 'and', one chord
+   an eight; a bell on every 1. Same beat positions and length, so routines sit exactly where they did. It repeats every 32 beats, exactly
+   378000 samples at 112 bpm: each sound is made once and laid down per beat into one round, which is copied out (the old one took
+   ~0.5 s of main thread at load and on every party dance / shared routine; now ~15 ms in node, built once and kept in DEMOB) */
+var DEMOB = null;
+function demoBuffer(){ if (DEMOB) return DEMOB;
   var c = ctx(), sr = 22050, b = 60 / 112, beats = 132, len = Math.ceil((.5 + beats * b + 1) * sr), B = c.createBuffer(1, len, sr), d = B.getChannelData(0), seed = 7;
   function rnd(){ seed = (seed * 16807) % 2147483647; return seed / 2147483647 * 2 - 1; }
-  var roots = [110, 87.31, 130.81, 98];
-  for (var i = 0; i < beats; i++){
-    var t0 = Math.round((.5 + i * b) * sr), j, n, ph = 0, cnt = i % 8, root = roots[Math.floor(i / 8) % 4];
-    for (j = 0; j < .32 * sr && t0 + j < len; j++){ var tt = j / sr, f = 45 + 80 * Math.exp(-tt * 28); ph += TAU * f / sr; d[t0 + j] += .9 * Math.sin(ph) * Math.exp(-tt * 9); }
-    if (cnt % 2 === 1) for (j = 0; j < .16 * sr && t0 + j < len; j++){ var u = j / sr; d[t0 + j] += (.35 * rnd() + .25 * Math.sin(TAU * 185 * u)) * Math.exp(-u * 24); }
-    var h = t0 + Math.round(b / 2 * sr), last = 0; for (j = 0; j < .05 * sr && h + j < len; j++){ var r = rnd(); d[h + j] += .18 * (r - last) * Math.exp(-j / sr * 90); last = r; }
-    for (n = 0; n < 2; n++){ var s0 = t0 + Math.round(n * b / 2 * sr), fq = root * (n ? 2 : 1); for (j = 0; j < b / 2 * sr * .9 && s0 + j < len; j++){ var v = j / sr; d[s0 + j] += .22 * Math.sin(TAU * fq * v) * Math.min(1, v * 80) * Math.exp(-v * 5); } }
-  }
-  for (i = 0; i < len; i++) d[i] = Math.tanh(d[i] * 1.1) * .8;
-  return B;
+  function mk(sec, f){ var n = Math.round(sec * sr), a = new Float32Array(n), fo = Math.round(.008 * sr); for (var j = 0; j < n; j++) a[j] = f(j / sr) * Math.min(1, (n - j) / fo); return a; }   /* 8 ms fade out: no click where a sound stops */
+  var P = Math.round(32 * b * sr), R = new Float32Array(P), o0 = Math.round(.5 * sr), i, j, n;
+  function put(a, at){ for (var j = 0; j < a.length && at + j < P; j++) R[at + j] += a[j]; }
+  var ph = 0, KICK = mk(.32, function(t){ ph += TAU * (45 + 80 * Math.exp(-t * 28)) / sr; return .7 * Math.tanh(2.2 * Math.sin(ph)) * Math.exp(-t * 9) + .3 * Math.sin(TAU * 1250 * t) * Math.exp(-t * 260); }),
+    CLAP = mk(.16, function(u){ return (.42 * rnd() + .25 * Math.sin(TAU * 185 * u) + .12 * Math.sin(TAU * 370 * u)) * Math.exp(-u * 22); }),
+    last = 0, HAT = mk(.05, function(u){ var r = rnd(), v = .24 * (r - last) * Math.exp(-u * 90); last = r; return v; }),
+    BELL = mk(.6, function(z){ return .09 * (Math.sin(TAU * 1760 * z) + .5 * Math.sin(TAU * 2637 * z)) * Math.exp(-z * 6); }),
+    roots = [110, 87.31, 130.81, 98], CH = [[440, 523.25, 659.26], [349.23, 440, 523.25], [392, 523.25, 659.26], [392, 493.88, 587.33]];
+  function bass(fq){ return mk(b / 2 * .9, function(v){ var w = TAU * fq * v; return .2 * (Math.sin(w) + .45 * Math.sin(2 * w) + .25 * Math.sin(3 * w) + .12 * Math.sin(4 * w)) * Math.min(1, v * 80) * Math.exp(-v * 5); }); }
+  function stab(ch){ return mk(.2, function(q){ var a = 0; for (var k = 0; k < 3; k++){ var x = TAU * ch[k] * q; a += Math.sin(x) + .3 * Math.sin(2 * x); } return .12 * Math.min(1, q * 300) * Math.exp(-q * 16) * a; }); }
+  for (var ci = 0; ci < 4; ci++){ var B1 = bass(roots[ci]), B2 = bass(roots[ci] * 2), S = stab(CH[ci]);
+    for (n = 0; n < 8; n++){ i = ci * 8 + n; var t0 = Math.round(i * b * sr), h = t0 + Math.round(b / 2 * sr);
+      put(KICK, t0); if (n % 2 === 1) put(CLAP, t0); put(HAT, h); put(B1, t0); put(B2, h); put(S, h); if (!n) put(BELL, t0); } }
+  for (i = 0; i < P; i++) R[i] = Math.tanh(R[i] * 1.6) * .92;
+  var end = Math.min(len, o0 + Math.round(beats * b * sr)); for (i = o0; i < end; i++) d[i] = R[(i - o0) % P];
+  return DEMOB = B;
 }
 function makePeaks(){ var ch = buf.getChannelData(0), hop = Math.max(1, Math.round(buf.sampleRate / 100)), n = Math.floor(ch.length / hop), pk = new Float32Array(n), mx = 1e-6;
   for (var i = 0; i < n; i++){ var m = 0; for (var j = i * hop, e = j + hop; j < e; j += 4){ var a = Math.abs(ch[j]); if (a > m) m = a; } pk[i] = m; if (m > mx) mx = m; }
@@ -1580,7 +1593,7 @@ function tsStop(){ if (!TS) return; TS.srcs.forEach(function(s){ try { s.onended
 /* Sloppy's own touch: when a song plays out to its very end, Emma takes a bow */
 var bowT0 = 0;
 function bowNow(){ if (!bowT0) return null; var q = (performance.now() - bowT0) / 1000 / (2 * spb()); if (q >= 1){ bowT0 = 0; return null; } var B = bow(q); if (ST.hat){ B.hat = 1; hatBow(B, q); } return B; }
-function play(noCount){ if (!buf) return; bowT0 = 0; FRZ = null; var c = ctx(); if (c.state === 'suspended') c.resume(); if (pos >= dur() - .05) pos = 0;
+function play(noCount){ if (!buf) return; bowT0 = 0; FRZ = null; var c = ctx(); try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e){} if (c.state === 'suspended') c.resume(); if (pos >= dur() - .05) pos = 0;
   if (countIn && !noCount){ pos = eightStart(cur) - 4 * spb() - sayLag * RATE; sayWarm(); } /* a breath of lead so 'five' can leave early too */
   var LP0 = LP; LP = null; if (loopOn){ /* the eight to loop: the one being counted in to, else the one the playhead is in (a whole one) */
     var le = pos < eightStart(cur) && pos > eightStart(cur) - 4 * spb() - 1 ? cur : clamp(Math.floor(countAt(Math.max(pos, eightStart(0)) + 1e-4) / 8), 0, nEights() - 1);
@@ -2440,8 +2453,9 @@ $('shx').addEventListener('click', function(){ if (SHR && SHR.party && SHR.ask) 
   $('hchips').hidden = own.length > 0 || /[#&]r=/.test(location.hash); })();   /* a shared routine link: one tap mustn't swap it away */
 $('hchips').addEventListener('click', function(e){ var b = e.target.closest('button[data-pd]'); if (!b) return; byeHello(); $(b.getAttribute('data-pd')).click();
   $('hchips').querySelectorAll('button[data-pd]').forEach(function(c){ c.setAttribute('aria-pressed', c === b ? 'true' : 'false'); });
-  if ((SHR && SHR.ask) || playing) return; if (ST.key === SHK && SHR && SHR.party) $('song').textContent = SHR.n + ' · on the demo groove';
-  $('play').click(); var t = $('shtxt'); t.innerHTML = t.innerHTML.replace(/ ?Press <b>▶ play<\/b>[^.]*\./, ''); shFit(); });
+  if ((SHR && SHR.ask) || playing) return; var demo = ST.key === SHK && SHR && SHR.party, nm = demo && SHR.n; if (demo) $('song').textContent = nm + ' · on the demo groove';
+  $('play').click(); if (demo){ shBar('Got the song? <b>♫ load a song</b> and the ' + esc(nm) + ' moves go onto it.', false); return; }
+  var t = $('shtxt'); t.innerHTML = t.innerHTML.replace(/ ?Press <b>▶ play<\/b>[^.]*\./, ''); shFit(); });
 $('file').addEventListener('change', function(){ $('hchips').querySelectorAll('button[aria-pressed]').forEach(function(c){ c.setAttribute('aria-pressed', 'false'); }); });
 (function(){ var m = location.hash.match(/[#&]r=([zj][A-Za-z0-9_-]+)/); if (!m) return;
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e){}
