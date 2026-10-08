@@ -45,14 +45,14 @@ it only helps through its moves.
 - v1.1 (2026-10-02): load your own word list (Tatum: .txt, first word per line, a-z 2-15 letters, ≥500 words; stored in IndexedDB 'triple-cubed'/'lists'/'mine', 'use built-in' resets). Two's vocabulary = ai.fc ∩ your list; edges checked against your list's 15-letter words. Tile counting: an edge whose fitting words all need letters that are already on the board counts as dead.
 - v1.0 (2026-10-02): first version. 15x15 classic squares, Two with an open rack, live word + score preview, swap, pass (press twice), end card.
 
+- v1.11 (2026-10-08, own polish): drag a tile up out of the rack and drop it on any empty square; it goes down as a pending tile like a tapped one (tap-to-tray, sideways sort and keyboard unchanged). Decided on the first 10 px: mostly upward = carry, sideways = sort. The carried tile is a clone (.rt.carry, fixed) riding .85 tile-heights above a finger, the target square shows the ghost letter; the board's mouse hover ghost is off while carrying. .rack is touch-action:none now (was pan-y, which cancelled vertical drags on phones). Probe hm/tcd.js (synthetic pointer events).
+
 ## issues
 - Tatum: the built-in word list misses words; bring-your-own word list is wanted (Tatum has a list with 15-letter words).
 
 ## todos
 - v1.3 sims (ptc11: timeline per Two turn 'fixed/aims fitting'): edges now stall rather than die, e.g. 4 letters with 4 targets for 25 tiles, because Two rarely has a legal word that drops the exact letter on the exact square. Next idea: when stuck, Two swaps only the letters it doesn't need, or a 2-turn lookahead for hooks under the target squares.
 - The ×27 is still basically unreachable: self-play (probes ptc5-ptc8, two cooperative players, even with Two on the full 270k list) never landed one in 12 games; edges die at 4-5 letters (no word fits, or the letters it needs are used up). Only 3 of 5,812 fifteen-letter words have both 6-letter edge stretches as words (troubleshooters, whippersnappers, snippersnappers); 92 have 5+5. Tatum's idea: precompute for each 15-letter word how its 12 non-gold letters can be laid (which stretches are words, which need hooks), and let Two commit to one target per edge.
-- End card that tells the story of the game (closest edge, best word).
-- Two's tiles flying: fromRack()/fly() clone tiles to body (.cell clips overflow), Web Animations, skipped with reduced motion and __TCfast.
 - Tatum's input idea: tap tiles into a tray, an across/down toggle, a ghost of the word that follows the pointer, then place.
 - Tile counting, next level: weigh setups two turns out by the chance you draw the missing letters.
-- Drag tiles onto the board; blanks.
+- Blanks (drag tiles onto the board: done in v1.11).
