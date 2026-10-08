@@ -1354,6 +1354,7 @@ function buildGraph(inputNode){
   proc=AC.createScriptProcessor(2048,1,1);
   proc.onaudioprocess=function(e){
     engine.process(e.inputBuffer.getChannelData(0), e.outputBuffer.getChannelData(0), P);
+    if(RSTAT.on) recSeen(e.inputBuffer.getChannelData(0), e.outputBuffer.getChannelData(0));
     var cf=engine.curF0(); if(cf>60&&cf<500){ VF.push(cf); VFc++; if(VF.length>500) VF.shift(); }
   };
   outGain=AC.createGain(); outGain.gain.value=1;
@@ -1914,6 +1915,47 @@ $('monitor-btn').addEventListener('click',function(){
    ⏸ pause / resume, and the screen kept awake while it runs (a phone that locks stops the mic). Saved in 1 s pieces, so a long take
    doesn't sit in one buffer */
 var mediaRec=null, chunks=[], REC_MAX=30*60, recT=null, recMs=0, recLast=0, wakeL=null;
+/* v1.52 (Pepedro's friend: an iPhone take comes back as a silent file). iPhones' MediaRecorder can record the changed voice as silence,
+   so on iPhone/iPad (or with no MediaRecorder) I write the WAV myself from the engine's output: 16-bit mono at half the rate
+   (24 kHz from 48), lightly smoothed before halving, in 64k-sample pieces so a 30 min take never sits in one buffer (about 85 MB).
+   PcmRec looks like a MediaRecorder (state, start, stop, pause, resume, ondataavailable, onstop), so the record button code is shared.
+   RSTAT counts what every take heard: blocks the engine ran, the loudest mic input and output, to say why a take came out silent */
+var RSTAT={on:false, blocks:0, inPk:0, outPk:0}, pcmTap=null;
+function recSeen(inp, out){ var a=RSTAT.inPk, b=RSTAT.outPk, i, x;
+  for(i=0;i<inp.length;i+=2){ x=inp[i]<0?-inp[i]:inp[i]; if(x>a) a=x; }
+  for(i=0;i<out.length;i+=2){ x=out[i]<0?-out[i]:out[i]; if(x>b) b=x; }
+  RSTAT.inPk=a; RSTAT.outPk=b; RSTAT.blocks++; if(pcmTap) pcmTap.tap(out); }
+function recWav(){ if(window.PP_WAV!=null) return !!window.PP_WAV;
+  var ua=navigator.userAgent||''; return !window.MediaRecorder||/iPhone|iPad|iPod/.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1); }
+function PcmRec(){ var me=this, sr=AC.sampleRate, dec=sr>=32000?2:1, parts=[], cur=new Int16Array(65536), ci=0, prev=0, n=0;
+  me.state='inactive'; me.mimeType='audio/wav'; me.rate=Math.round(sr/dec);
+  me.tap=function(x){ if(me.state!=='recording') return; var g=outGain?outGain.gain.value:1, i, v;
+    for(i=0;i+dec<=x.length;i+=dec){
+      v=dec===2?(.25*prev+.5*x[i]+.25*x[i+1])*g:x[i]*g; prev=x[i+dec-1];
+      v=v>1?1:v<-1?-1:v; cur[ci++]=v<0?v*32768:v*32767;
+      if(ci===cur.length){ parts.push(cur); n+=ci; cur=new Int16Array(65536); ci=0; } } };
+  me.start=function(){ me.state='recording'; pcmTap=me; };
+  me.pause=function(){ if(me.state==='recording') me.state='paused'; };
+  me.resume=function(){ if(me.state==='paused') me.state='recording'; };
+  me.stop=function(){ if(me.state==='inactive') return; me.state='inactive'; if(pcmTap===me) pcmTap=null;
+    parts.push(cur.subarray(0,ci)); n+=ci; cur=null;
+    var h=new DataView(new ArrayBuffer(44)), r=me.rate;
+    function ws(o,t){ for(var k=0;k<t.length;k++) h.setUint8(o+k,t.charCodeAt(k)); }
+    ws(0,'RIFF'); h.setUint32(4,36+n*2,true); ws(8,'WAVE'); ws(12,'fmt '); h.setUint32(16,16,true); h.setUint16(20,1,true); h.setUint16(22,1,true);
+    h.setUint32(24,r,true); h.setUint32(28,r*2,true); h.setUint16(32,2,true); h.setUint16(34,16,true); ws(36,'data'); h.setUint32(40,n*2,true);
+    var blob=new Blob([h.buffer].concat(parts),{type:'audio/wav'}); parts=[];
+    if(me.ondataavailable) me.ondataavailable({data:blob});
+    setTimeout(function(){ if(me.onstop) me.onstop(); },0); };
+}
+/* why a take came out silent, in plain words, or '' when it heard sound */
+function recWhy(){ if(recMs<1500) return '';
+  if(!RSTAT.blocks) return 'this take is silent: your phone put the sound to sleep (that happens after a call, an alarm or another app playing). Tap 🎙 start microphone, say something, then record again.';
+  if(RSTAT.inPk<3e-5) return 'this take is silent: your phone sent me pure silence from the mic. If another app has it (a call, a voice channel, voice memos), close that, then tap 🎙 start microphone again.';
+  if(RSTAT.outPk<3e-5) return 'this take is silent: your voice came in, but this voice setting sent nothing out. Try another voice, then record again.';
+  return ''; }
+/* iPhones stop the sound engine ('interrupted') after a call or an alarm: wake it on the next tap */
+function acWake(){ if(AC&&AC.state!=='running'&&AC.state!=='closed'){ try{ var p=AC.resume(); if(p&&p.catch) p.catch(function(){}); }catch(e){} } }
+document.addEventListener('pointerdown',acWake,true);
 function recClock(){ var s=Math.floor(recMs/1000); return Math.floor(s/60)+':'+('0'+s%60).slice(-2); }
 function recTick(){ if(mediaRec&&mediaRec.state==='recording'){ var n=performance.now(); recMs+=n-recLast; recLast=n; }
   $('rec-btn').textContent='■ stop · '+recClock();
@@ -1922,25 +1964,29 @@ function recWake(on){ try{ if(on){ if(navigator.wakeLock&&!wakeL) navigator.wake
   else if(wakeL){ wakeL.release().catch(function(){}); wakeL=null; } }catch(e){} }
 document.addEventListener('visibilitychange',function(){ if(!document.hidden&&mediaRec&&mediaRec.state!=='inactive') recWake(true); });
 $('rec-btn').addEventListener('click',function(){
-  if(!recDest||!window.MediaRecorder){ err('recording unsupported here'); return; }
+  acWake();
   if(mediaRec&&mediaRec.state!=='inactive'){ recTick(); mediaRec.stop(); return; }
+  var wav=recWav();
+  if(!recDest||(!wav&&!window.MediaRecorder)){ err('recording unsupported here'); return; }
   chunks=[];
-  try{ mediaRec=new MediaRecorder(recDest.stream); }catch(e){ err('recording unsupported here'); return; }
+  try{ mediaRec=wav?new PcmRec():new MediaRecorder(recDest.stream); }catch(e){ err('recording unsupported here'); return; }
   var btn=this, pb=$('rec-pause'), rec=mediaRec;
   rec.ondataavailable=function(e){ if(e.data&&e.data.size) chunks.push(e.data); };
   rec.onstop=function(){
-    clearInterval(recT); recT=null; recWake(false);
+    clearInterval(recT); recT=null; recWake(false); RSTAT.on=false;
     btn.setAttribute('aria-pressed','false'); btn.classList.remove('held'); btn.textContent='⏺ record'; pb.hidden=true;
     if(!chunks.length) return;
-    var type=rec.mimeType||'audio/webm', blob=new Blob(chunks,{type:type}), url=URL.createObjectURL(blob), ext=/mp4|aac/.test(type)?'m4a':/ogg/.test(type)?'ogg':'webm';
+    var type=rec.mimeType||'audio/webm', blob=new Blob(chunks,{type:type}), url=URL.createObjectURL(blob), ext=/wav/.test(type)?'wav':/mp4|aac/.test(type)?'m4a':/ogg/.test(type)?'ogg':'webm';
     if($('dl').href&&$('dl').href.indexOf('blob:')===0){ try{ URL.revokeObjectURL($('dl').href); }catch(e){} }
     $('player').src=url; $('dl').href=url; $('dl').download='peach-pitch-'+P.mode+'-'+recClock().replace(':','m')+'s.'+ext;
     $('dl').textContent='download · '+recClock()+(blob.size>1e6?' · '+(blob.size/1e6).toFixed(1)+' MB':'');
     $('player-row').classList.add('on');
     if(recMs<20000) $('player').play().catch(function(){});
     announce('recording ready, '+recClock());
+    var why=recWhy(); if(why) err(why);
   };
   try{ rec.start(1000); }catch(e){ err('recording unsupported here'); return; }
+  RSTAT.blocks=0; RSTAT.inPk=0; RSTAT.outPk=0; RSTAT.on=true;
   recMs=0; recLast=performance.now(); recT=setInterval(recTick,250); recWake(true);
   btn.setAttribute('aria-pressed','true'); btn.textContent='■ stop · 0:00';
   pb.hidden=!rec.pause; pb.setAttribute('aria-pressed','false'); pb.textContent='⏸ pause';
