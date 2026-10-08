@@ -26,6 +26,7 @@ Two-player "Cheat" (Bluff / I Doubt It) in a noir card room. Sparked by Tatum (s
   - Phones: `.dlg` had an auto grid column as wide as the panel's 26rem, so on a 390 px phone the menu ran ~26 px off the right edge (Join button and tagline cut). `grid-template-columns:minmax(0,1fr)` fixes every dialog.
   - A first visit (no `#join=`, LS seen = 0, no records) skips the menu: Madame Fib deals you straight in and you play first (`LS starter` set to 0). `V.first` makes the hints bigger and amber (`.hint.coach`), the first hint names the rank ("claim they're sixes"), and your second turn says how to win. Cleared at game over and on toMenu.
   - The four rules fold under a "How to play" `<details id="how">` on the menu.
+- v2.7.1 (2026-10-08): on phones (≤430 px) the opponent's "cards" word is visually hidden (`#oppWho .cw`, still read by screen readers), so "Madame Fib 13" fits instead of "Mada… 13 cards"; under 380 px her name drops to 1.1rem (measured: 127 px name in a 119 px slot at 360).
 
 ## rules notes
 - 36 cards, not 32: with 8 ranks and alternating turns each player would get the SAME four ranks forever (7/9/J/K vs 8/10/Q/A), so half of every hand could only ever leave by lying. With 9 ranks the cycle is odd and both players get every rank in turn. The sign starts at 6 (the lowest rank) rather than 7 for the same reason.
