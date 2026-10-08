@@ -104,6 +104,8 @@ details[open] > summary::before{ transform:rotate(90deg); }
 summary:hover{ color:var(--ink); }
 .timing{ display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }
 .timing span{ color:var(--mute); font-size:.8rem; }
+.onemsg{ flex-basis:100%; display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; font-size:.85rem; color:var(--mute); }
+.onemsg b{ color:#5fd3c4; }
 .wave{ position:relative; }
 #wave{ display:block; width:100%; height:110px; border:1px solid var(--line); border-radius:6px 6px 0 0; background:#0b1012; cursor:pointer; touch-action:pan-y; }
 /* v2.32 zoom buttons in the waveform's bottom-right corner */
@@ -377,7 +379,9 @@ body.making .spotb{ display:none; }
       <button type="button" id="tap">tap the beat</button>
       <button type="button" id="early" title="Beats 10 ms earlier">◀ 10ms</button><button type="button" id="late" title="Beats 10 ms later">10ms ▶</button>
       <button type="button" id="shift" title="Move the 1 a beat later">move the 1 →</button>
+      <button type="button" id="oneGs" title="Listen to the whole song and put the 1 where the music changes">🧭 guess the 1</button>
       <span id="tinfo"></span>
+      <div class="onemsg" id="oneMsg" hidden aria-live="polite"></div>
     </div>
   </details>
 
@@ -1750,7 +1754,7 @@ function callAhead(){ var t = rawNow(), s = spb(), b = Math.floor((t + s + (sayL
 
 /* ---------- loading a song ---------- */
 function msg(t){ $('stmsg').hidden = !t; $('stmsg').textContent = t || ''; }
-function useBuffer(B, key, name, info){ if ($('seqGb')){ $('seqGb').hidden = true; GSL = null; }
+function useBuffer(B, key, name, info){ if ($('seqGb')){ $('seqGb').hidden = true; GSL = null; } if ($('oneMsg')){ $('oneMsg').hidden = true; ONEU = null; }
   pause(); FRZ = null; lastC = -9; buf = B; pos = 0; cur = 0; slot = 0; ST.key = key; ST.name = name; ST.eights = {}; ST.props = {}; ST.secs = {}; ST.hat = false; ST.one = 0;
   if (info){ ST.bpm = info.bpm; ST.offset = info.offset; } var had = restore(key); makePeaks();
   /* v2.11 a song saved before the fine tune, with the beat as it was found (not tapped or nudged), takes the fine-tuned beat. It stays
@@ -1795,6 +1799,54 @@ $('dbl').addEventListener('click', function(){ retime(function(){ if (ST.bpm * 2
 $('early').addEventListener('click', function(){ retime(function(){ ST.offset -= .01; }); });
 $('late').addEventListener('click', function(){ retime(function(){ ST.offset += .01; }); });
 $('shift').addEventListener('click', function(){ retime(function(){ ST.one = (ST.one + 1) % 8; }); });
+/* v2.33 🧭 guess the 1 (Pushed: "not easy to find the 1"). Two things move on the 1. Chords change at the start of a bar, so the bar's
+   first beat is the count (of 4) where the notes differ most from the beat before. Which of the bar's two halves of an eight is the 1:
+   new parts come in at the start of an eight or a phrase, so it's the one of the two where the 8, 16 and 32 beats after differ most from
+   the ones before (notes .7, sound colour .3). Each beat is heard just past its middle, clear of the next beat's attack.
+   Returns { q: the count (0 = where the 1 is now) the 1 should move to, bar, ph: how clear each answer was, 0 to 1 } */
+function oneGuess(){ var B = buf, sr = B.sampleRate, a = B.getChannelData(0), b = B.numberOfChannels > 1 ? B.getChannelData(1) : a, N = HRN, d = Math.max(1, Math.round(sr / 11025)), fs = sr / d,
+    nb = nEights() * 8, re = new Float64Array(N), im = new Float64Array(N), wn = new Float64Array(N), PC = new Int8Array(N / 2), BD = new Int8Array(N / 2), EDG = [0, 150, 400, 1000, 2500, 5000],
+    C = [], T = [], E = [], i, j, k, c, q, emax = 1e-30;
+  for (i = 0; i < N; i++) wn[i] = .5 - .5 * Math.cos(TAU * i / N);
+  for (i = 1; i < N / 2; i++){ var f = i * fs / N; PC[i] = f >= 60 && f <= 2000 ? ((Math.round(12 * Math.log2(f / 440)) % 12) + 12) % 12 : -1; for (k = 5; k > 0 && f < EDG[k]; k--); BD[i] = k; }
+  for (c = 0; c < nb; c++){ var ch = new Float64Array(12), bd = new Float64Array(6), s0 = Math.round((eightStart(Math.floor(c / 8)) + (c % 8 + .55) * spb()) * sr) - (N * d >> 1), e = 0, nn = 0;
+    for (i = 0; i < N; i++){ var x = 0; j = s0 + i * d; if (j >= 0 && j + d <= a.length) for (k = 0; k < d; k++) x += a[j + k] + b[j + k]; re[i] = x * wn[i]; im[i] = 0; }
+    hrFFT(re, im);
+    for (i = 1; i < N / 2; i++){ var p = re[i] * re[i] + im[i] * im[i]; bd[BD[i]] += p; if (PC[i] >= 0) ch[PC[i]] += Math.sqrt(p); }
+    for (k = 0; k < 6; k++){ e += bd[k]; bd[k] = Math.log(1e-12 + bd[k]); } for (k = 0; k < 12; k++) nn += ch[k] * ch[k]; nn = Math.sqrt(nn) || 1; for (k = 0; k < 12; k++) ch[k] /= nn;
+    C.push(ch); T.push(bd); E.push(e); if (e > emax) emax = e; }
+  var L = E.map(function(e){ return e > emax * 1e-4; }), mt = new Float64Array(6), lv = 0;
+  for (c = 0; c < nb; c++) if (L[c]){ lv++; for (k = 0; k < 6; k++) mt[k] += T[c][k]; }
+  for (c = 0; c < nb; c++) for (k = 0; k < 6; k++) T[c][k] -= mt[k] / (lv || 1);
+  /* the bar: how much the notes change from the beat before, per count of 4 */
+  var s4 = [0, 0, 0, 0], n4 = [0, 0, 0, 0];
+  for (c = 1; c < nb; c++){ if (!L[c] || !L[c - 1]) continue; var dd = 0; for (k = 0; k < 12; k++) dd += C[c][k] * C[c - 1][k]; s4[c % 4] += 1 - dd; n4[c % 4]++; }
+  for (q = 0; q < 4; q++) s4[q] = n4[q] ? s4[q] / n4[q] : 0;
+  var p4 = 0; for (q = 1; q < 4; q++) if (s4[q] > s4[p4]) p4 = q;
+  var r4 = s4.slice().sort(function(x, y){ return y - x; }), bar = r4[0] > 0 ? (r4[0] - r4[1]) / r4[0] : 0;
+  /* the eight: of p4 and p4 + 4, where the 8, 16 and 32 beats after differ most from the ones before */
+  var pc = [new Float64Array(12)], pt = [new Float64Array(6)];
+  for (c = 0; c < nb; c++){ var A = new Float64Array(12), Z = new Float64Array(6); for (k = 0; k < 12; k++) A[k] = pc[c][k] + (L[c] ? C[c][k] : 0); for (k = 0; k < 6; k++) Z[k] = pt[c][k] + (L[c] ? T[c][k] : -3); pc.push(A); pt.push(Z); }
+  function cd(P, i0, i1, i2, K){ var u = 0, v = 0, d = 0, x, y; for (var k = 0; k < K; k++){ x = P[i1][k] - P[i0][k]; y = P[i2][k] - P[i1][k]; d += x * y; u += x * x; v += y * y; } return u && v ? 1 - d / Math.sqrt(u * v) : 0; }
+  var s8 = [0, 0];
+  [8, 16, 32].forEach(function(w){ var S = [0, 0], n = [0, 0];
+    for (c = w; c + w <= nb; c++){ var h = c % 8 === p4 ? 0 : c % 8 === p4 + 4 ? 1 : -1; if (h < 0) continue; S[h] += .7 * cd(pc, c - w, c, c + w, 12) + .3 * cd(pt, c - w, c, c + w, 6); n[h]++; }
+    for (var h = 0; h < 2; h++) if (n[h]) s8[h] += S[h] / n[h]; });
+  var hi = s8[1] > s8[0] ? 1 : 0, ph = Math.max(s8[0], s8[1]) > 0 ? Math.abs(s8[0] - s8[1]) / Math.max(s8[0], s8[1]) : 0;
+  return { q: p4 + 4 * hi, bar: bar, ph: ph, s4: s4, s8: s8 }; }
+var ONEU = null;
+function oneShow(html){ var b = $('oneMsg'); b.innerHTML = html; b.hidden = !html; }
+$('oneGs').addEventListener('click', function(){ if (!buf){ oneShow('<span>Load a song first, then I can listen for its 1.</span>'); return; }
+  if (nEights() < 4){ oneShow('<span>This song is too short for me to hear where its 1 is.</span>'); return; }
+  oneShow('<span>listening to the whole song…</span>');
+  setTimeout(function(){ try {
+    var G = oneGuess(), q = G.q, close = G.bar < .05 || G.ph < .02;
+    if (!q){ oneShow('<span>The 1 is already where I hear it' + (close ? ', but it\'s a close call: zoom into the waveform to check' : '') + '.</span>'); return; }
+    var was = ST.one; ONEU = was; retime(function(){ ST.one = (ST.one + q) % 8; }); lastC = -9;
+    var mv = q <= 4 ? q + ' beat' + (q > 1 ? 's' : '') + ' later' : (8 - q) + ' beat' + (q < 7 ? 's' : '') + ' earlier';
+    oneShow('<span>I moved the 1 <b>' + mv + '</b>: that\'s where the chords change and new parts come in' + (close ? ', but it\'s a close call: zoom into the waveform to check' : '') + '.</span><button type="button" id="oneUn">↶ put it back</button>');
+  } catch (x){ oneShow('<span>Something went wrong while I listened. Try again, or use mark the 1.</span>'); } }, 30); });
+$('oneMsg').addEventListener('click', function(e){ if (!e.target.closest('#oneUn') || ONEU == null) return; var u = ONEU; ONEU = null; retime(function(){ ST.one = u; }); lastC = -9; oneShow('<span>The 1 is back where it was.</span>'); });
 /* mark the 1: the beat at the playhead becomes count 1 (snaps to the nearest beat when it's within 120 ms, else the grid moves to the press) */
 function markOne(){ if (!buf || now() < 0) return; var t = now(), sp = spb(), k = Math.round((t - ST.offset) / sp), nb = ST.offset + k * sp, at = Math.abs(t - nb) < .12 ? nb : t;
   var o = ((at % sp) + sp) % sp, idx = Math.round((at - o) / sp); ST.offset = o; ST.one = ((idx % 8) + 8) % 8;
