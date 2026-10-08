@@ -40,6 +40,8 @@ button[aria-pressed="true"]{background:var(--peach); border-color:var(--peach-de
 #start-btn[disabled]{opacity:.55; cursor:default;}
 .rec{border-color:var(--demon-hot); color:var(--demon);}
 .rec[aria-pressed="true"]{background:var(--demon-hot); color:#fff; animation:recpulse 1s ease-in-out infinite;}
+.rec[aria-pressed="true"].held{animation:none; opacity:.75;}
+#rec-btn{font-variant-numeric:tabular-nums;}
 @keyframes recpulse{50%{filter:brightness(1.2);}}
 /* the slider */
 #morph-wrap{margin:.9rem 0 .3rem;}
@@ -378,7 +380,7 @@ Giant (happy): It was me. It was delicious.
   <div class="row">
     <button id="monitor-btn" type="button" aria-pressed="false">🎧 monitor: off</button>
     <button id="clean-btn" type="button" aria-pressed="false" title="The browser's noise clean-up hides room noise but can make a voice sound watery and robotic">🧽 mic clean-up: off</button>
-    <button id="rec-btn" class="rec" type="button" aria-pressed="false" disabled>⏺ record 6s</button>
+    <button id="rec-btn" class="rec" type="button" aria-pressed="false" disabled>⏺ record</button><button id="rec-pause" type="button" aria-pressed="false" hidden>⏸ pause</button>
   </div>
   <div id="player-row"><audio id="player" controls></audio><a id="dl" class="dl" download="peach-pitch.webm" href="#">download</a></div>
   <canvas id="viz" aria-hidden="true"></canvas>
@@ -1888,28 +1890,45 @@ $('monitor-btn').addEventListener('click',function(){
   if(on) msg('monitor ON — use headphones or the demons will feedback.');
 });
 
-/* recording */
-var mediaRec=null, chunks=[];
+/* recording (v1.50, Pepedro's friend: long recordings): records until you press stop, up to 30 minutes, with a running clock,
+   ⏸ pause / resume, and the screen kept awake while it runs (a phone that locks stops the mic). Saved in 1 s pieces, so a long take
+   doesn't sit in one buffer */
+var mediaRec=null, chunks=[], REC_MAX=30*60, recT=null, recMs=0, recLast=0, wakeL=null;
+function recClock(){ var s=Math.floor(recMs/1000); return Math.floor(s/60)+':'+('0'+s%60).slice(-2); }
+function recTick(){ if(mediaRec&&mediaRec.state==='recording'){ var n=performance.now(); recMs+=n-recLast; recLast=n; }
+  $('rec-btn').textContent='■ stop · '+recClock();
+  if(recMs>=REC_MAX*1000&&mediaRec&&mediaRec.state!=='inactive'){ mediaRec.stop(); msg('30 minutes is the most I keep in one take. It\'s saved below, press record for the next part.'); } }
+function recWake(on){ try{ if(on){ if(navigator.wakeLock&&!wakeL) navigator.wakeLock.request('screen').then(function(w){ wakeL=w; w.addEventListener('release',function(){ wakeL=null; }); }).catch(function(){}); }
+  else if(wakeL){ wakeL.release().catch(function(){}); wakeL=null; } }catch(e){} }
+document.addEventListener('visibilitychange',function(){ if(!document.hidden&&mediaRec&&mediaRec.state!=='inactive') recWake(true); });
 $('rec-btn').addEventListener('click',function(){
   if(!recDest||!window.MediaRecorder){ err('recording unsupported here'); return; }
-  if(mediaRec&&mediaRec.state==='recording'){ mediaRec.stop(); return; }
+  if(mediaRec&&mediaRec.state!=='inactive'){ recTick(); mediaRec.stop(); return; }
   chunks=[];
   try{ mediaRec=new MediaRecorder(recDest.stream); }catch(e){ err('recording unsupported here'); return; }
-  var btn=this;
-  mediaRec.ondataavailable=function(e){ if(e.data.size) chunks.push(e.data); };
-  mediaRec.onstop=function(){
-    btn.setAttribute('aria-pressed','false'); btn.textContent='⏺ record 6s';
+  var btn=this, pb=$('rec-pause'), rec=mediaRec;
+  rec.ondataavailable=function(e){ if(e.data&&e.data.size) chunks.push(e.data); };
+  rec.onstop=function(){
+    clearInterval(recT); recT=null; recWake(false);
+    btn.setAttribute('aria-pressed','false'); btn.classList.remove('held'); btn.textContent='⏺ record'; pb.hidden=true;
     if(!chunks.length) return;
-    var blob=new Blob(chunks,{type:mediaRec.mimeType||'audio/webm'});
-    var url=URL.createObjectURL(blob);
-    $('player').src=url; $('dl').href=url;
+    var type=rec.mimeType||'audio/webm', blob=new Blob(chunks,{type:type}), url=URL.createObjectURL(blob), ext=/mp4|aac/.test(type)?'m4a':/ogg/.test(type)?'ogg':'webm';
+    if($('dl').href&&$('dl').href.indexOf('blob:')===0){ try{ URL.revokeObjectURL($('dl').href); }catch(e){} }
+    $('player').src=url; $('dl').href=url; $('dl').download='peach-pitch-'+P.mode+'-'+recClock().replace(':','m')+'s.'+ext;
+    $('dl').textContent='download · '+recClock()+(blob.size>1e6?' · '+(blob.size/1e6).toFixed(1)+' MB':'');
     $('player-row').classList.add('on');
-    $('player').play().catch(function(){});
-    announce('recording ready');
+    if(recMs<20000) $('player').play().catch(function(){});
+    announce('recording ready, '+recClock());
   };
-  mediaRec.start();
-  btn.setAttribute('aria-pressed','true'); btn.textContent='■ stop';
-  setTimeout(function(){ if(mediaRec&&mediaRec.state==='recording') mediaRec.stop(); },6000);
+  try{ rec.start(1000); }catch(e){ err('recording unsupported here'); return; }
+  recMs=0; recLast=performance.now(); recT=setInterval(recTick,250); recWake(true);
+  btn.setAttribute('aria-pressed','true'); btn.textContent='■ stop · 0:00';
+  pb.hidden=!rec.pause; pb.setAttribute('aria-pressed','false'); pb.textContent='⏸ pause';
+});
+$('rec-pause').addEventListener('click',function(){
+  if(!mediaRec||mediaRec.state==='inactive') return;
+  if(mediaRec.state==='recording'){ recTick(); mediaRec.pause(); this.setAttribute('aria-pressed','true'); this.textContent='⏵ resume'; $('rec-btn').classList.add('held'); announce('recording paused'); }
+  else { mediaRec.resume(); recLast=performance.now(); this.setAttribute('aria-pressed','false'); this.textContent='⏸ pause'; $('rec-btn').classList.remove('held'); announce('recording again'); }
 });
 
 /* ── pitch readout + peach viz ── */
