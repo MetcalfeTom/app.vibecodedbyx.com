@@ -22,6 +22,10 @@ Two-player "Cheat" (Bluff / I Doubt It) in a noir card room. Sparked by Tatum (s
   - Sim, 1000 games per cell (scripted player, honest when it can and one-card lies otherwise): never calling wins 46-49%, calling 25% at random 12%, and counting (calling his single cards when you hold 2-3 of that rank or he is nearly out) about 51%. Fib is 75% and Augie 69% for the same player. Calibration buckets are roughly honest (his "50-60%" calls are lies about 45% of the time).
   - Two counting strategies played against each other (the scripted 'count'/'single' vs Ledger) can bounce small piles for thousands of turns in about 3-7% of sim games, because both sides are deterministic. Humans vary, so it's left alone; watch for "endless endgame" reports.
   - Record per regular in LS `bluff-duel:rec` = { id: [won, lost] }, updated in houseOver (finished games only; quitting to the menu doesn't count), shown on the pick screen ("won 5 / lost 2") with an aria-label.
+- v2.7 (2026-10-08 ~03:35 UTC), a quicker start (app_stats: half of 4 visitors left the menu within 30 s):
+  - Phones: `.dlg` had an auto grid column as wide as the panel's 26rem, so on a 390 px phone the menu ran ~26 px off the right edge (Join button and tagline cut). `grid-template-columns:minmax(0,1fr)` fixes every dialog.
+  - A first visit (no `#join=`, LS seen = 0, no records) skips the menu: Madame Fib deals you straight in and you play first (`LS starter` set to 0). `V.first` makes the hints bigger and amber (`.hint.coach`), the first hint names the rank ("claim they're sixes"), and your second turn says how to win. Cleared at game over and on toMenu.
+  - The four rules fold under a "How to play" `<details id="how">` on the menu.
 
 ## rules notes
 - 36 cards, not 32: with 8 ranks and alternating turns each player would get the SAME four ranks forever (7/9/J/K vs 8/10/Q/A), so half of every hand could only ever leave by lying. With 9 ranks the cycle is odd and both players get every rank in turn. The sign starts at 6 (the lowest rank) rather than 7 for the same reason.
