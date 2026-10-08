@@ -67,6 +67,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - localStorage 'la-lucarne:grudge' {l: [zones]} = where your last 24 penalty goals went in (shoot mode in the shootout, match and cup penalties; not free kicks or corners). zoneOf(G.T): row y < 1.1 low / high, column x < -1.2 left, > 1.2 right, else middle (0-2 low L/M/R, 3-5 high). grudgeTop() = the most-scored zone once it has 2+ goals.
 - startShoot: once a game (G.grudgeSaid) the call says 'Il s'en souvient…' / 'He remembers…' and the hint 'Il n'a pas oublié tes 4 buts en haut à gauche.'; every shot he points at that corner for G.t .15-2.2 s (keeperPoint: arm toward the zone with a wag, head turned; straight at you for the middle zones).
 - kick(): with chance min(.3, .08 + .04 n) he dives to the grudge zone before the usual guess. Top corners still can't be saved, so there he only sulks.
+- The end card shows his notebook (carnetFill, v1.10.1): tallies per zone from the same list, the grudge zone circled.
 - landed(): a goal in the grudge zone sets G.sulk (call 'Encore là ?! Il boude.' / 'There AGAIN?! He's sulking.'; keeperMood from G.t .9: gets up, hands on hips, head down and shaking; the replay waits .8 s longer); a save there sets G.gloat ('Pas cette fois !', a fist pump). KEEPER.head is reset every frame before posing.
 
 ## Free kicks (v1.2)
@@ -108,6 +109,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.9.4 (2026-10-08 ~00:32 UTC): the cup final is played in the rain: streaks falling past the floodlights and a soft hiss of rain under the crowd, the kick-off line says 'Finale · sous la pluie'.
 - v1.9.5 (2026-10-08 ~00:58 UTC): fireworks over the stadium when you lift the cup: rockets climb from behind the roofs and burst in sky blue, white and gold (peonies, rings, drooping gold willows) with a thump and a crackle; the trophy camera drops to a low angle so the sky shows.
 - v1.10 (2026-10-08 ~03:05 UTC): the keeper with a grudge (my own idea): he remembers where your last 24 penalty goals went in, points at his sore corner before you shoot, now and then dives there on purpose, sulks with his hands on his hips if you score there again and pumps a fist if he saves it. Probe hm/lu/q47.js (a point, b sulk, c gloat, e English; r47.sh). Gotcha: the strings table already had `again` ('Rejouer'), so the sulk line is `sulk`.
+- v1.10.1 (2026-10-08 ~03:25 UTC): the keeper's notebook on the end card (shootout, match and cup; not free kicks, corners or the trophy cele card): a ruled cream page in Caveat, a hand-drawn goal split into the six zones with tally marks per zone (digits above 10), the grudge zone circled in red, and his note ('Note : en haut à gauche. Encore. Je t'attends.' / 'Nothing suspicious… yet.'). carnetFill() runs before every `$('end').hidden = false` and on a language switch. Probe hm/lu/q48.js.
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
