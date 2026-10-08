@@ -14,7 +14,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 ## Rules and feel
 - 5 kicks each, alternating, you shoot first; it ends early when one side can't catch up, then sudden death.
 - Shooting: tap the goal. The shot lands at the aim plus nerves (σ .13 → .40 as the kicks go on). The top corners can't be saved even when the keeper reads you. ✨ Pied magique (one per game): no nerves, faster, with curl.
-- The AI keeper dives at the kick: a side (leaning toward where you've shot before) or stays in the middle; 18% of the time he reads the shot (never against the magic foot).
+- The AI keeper dives at the kick: a grudge dive now and then (v1.10, below), else a side (leaning toward where you've shot this game) or stays in the middle; 18% of the time he reads the shot (never against the magic foot).
 - Keeping: tap where to dive. A tap more than .2 s before the kick lets the shooter see you and switch sides half the time. No tap means you stand in the middle, which still saves central shots. The rivals' ball gets faster each kick (.80 s → .60 s).
 - Crowd bounce, crowd noise and nerves all rise with the kick number.
 - FR/EN (French by default for French browsers, a toggle bottom-left), mute, keys Q W E / A S D, F for the magic foot, M to mute.
@@ -63,6 +63,12 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - Sounds: gullCry() (2-3 sawtooth kee-ows through a 1.7 kHz bandpass) every 3.5-8.5 s; cicada() (narrow 4.4-5.8 kHz noise, 50-80 Hz square AM, 1.5-2.7 s swell) every 2.2-5.2 s. Silent at the title, the trophy lift and the end card.
 - Rain (v1.9.4, the final, CUP[3].amb 'rain', kick-off 'Finale · sous la pluie'): RAIN = 420 instanced thin planes (.014 x .55, #cfe0ff, opacity .32, additive, 1 draw call) in a 20x13x20 box kept 9 m in front of the camera, turned to its yaw, tilted .06, falling 11-15 m/s (slower in slow-mo replays). rainSnd(on): a looping 2 s noise buffer, lowpass 2.8 kHz + highpass 500 Hz, gain ramping to .09. ~105 draw calls on a phone with rain on.
 
+## The keeper with a grudge (v1.10)
+- localStorage 'la-lucarne:grudge' {l: [zones]} = where your last 24 penalty goals went in (shoot mode in the shootout, match and cup penalties; not free kicks or corners). zoneOf(G.T): row y < 1.1 low / high, column x < -1.2 left, > 1.2 right, else middle (0-2 low L/M/R, 3-5 high). grudgeTop() = the most-scored zone once it has 2+ goals.
+- startShoot: once a game (G.grudgeSaid) the call says 'Il s'en souvient…' / 'He remembers…' and the hint 'Il n'a pas oublié tes 4 buts en haut à gauche.'; every shot he points at that corner for G.t .15-2.2 s (keeperPoint: arm toward the zone with a wag, head turned; straight at you for the middle zones).
+- kick(): with chance min(.3, .08 + .04 n) he dives to the grudge zone before the usual guess. Top corners still can't be saved, so there he only sulks.
+- landed(): a goal in the grudge zone sets G.sulk (call 'Encore là ?! Il boude.' / 'There AGAIN?! He's sulking.'; keeperMood from G.t .9: gets up, hands on hips, head down and shaking; the replay waits .8 s longer); a save there sets G.gloat ('Pas cette fois !', a fist pump). KEEPER.head is reset every frame before posing.
+
 ## Free kicks (v1.2)
 - Five spots in order (FK_SPOTS): (-5.5, 21), (1.5, 23.5), (7.5, 20), (-9, 18.5), (3.5, 27). Score = goals out of 5, best kept in localStorage `la-lucarne:fkbest`. End titles: 4+ Magique, 2-3 Pas mal, 0-1 Le mur a gagné; the crowd celebrates from 3.
 - Input: press on the goal to aim (locked), slide sideways to curl (CURLMAX 2.2 m of bow at mid-flight, full curl = 30% of the screen width, max 260 px), release to shoot. Mouse hover previews. Keys: arrows curl, Q-D shoot, Space/Enter shoot at the previewed aim. A dotted preview shows the first half of the flight.
@@ -101,6 +107,7 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - v1.9.3 (2026-10-08 ~00:25 UTC): each cup round has its own feel: cicadas chirr through the round of 16 against the Cigales, a flock of gulls circles over the box crying in the quarter-final against the Goélands, and the kick-off line says so.
 - v1.9.4 (2026-10-08 ~00:32 UTC): the cup final is played in the rain: streaks falling past the floodlights and a soft hiss of rain under the crowd, the kick-off line says 'Finale · sous la pluie'.
 - v1.9.5 (2026-10-08 ~00:58 UTC): fireworks over the stadium when you lift the cup: rockets climb from behind the roofs and burst in sky blue, white and gold (peonies, rings, drooping gold willows) with a thump and a crackle; the trophy camera drops to a low angle so the sky shows.
+- v1.10 (2026-10-08 ~03:05 UTC): the keeper with a grudge (my own idea): he remembers where your last 24 penalty goals went in, points at his sore corner before you shoot, now and then dives there on purpose, sulks with his hands on his hips if you score there again and pumps a fist if he saves it. Probe hm/lu/q47.js (a point, b sulk, c gloat, e English; r47.sh). Gotcha: the strings table already had `again` ('Rejouer'), so the sulk line is `sulk`.
 
 ## Issues
 - Probing free-kick odds: let the game run at G.speed 60 for a moment first so the clock T is past ~2 s, otherwise `diveAt - tf` goes negative and the keeper never dives in the sim.
