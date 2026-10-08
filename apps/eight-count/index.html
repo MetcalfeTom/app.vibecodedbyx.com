@@ -105,8 +105,13 @@ summary:hover{ color:var(--ink); }
 .timing{ display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }
 .timing span{ color:var(--mute); font-size:.8rem; }
 .wave{ position:relative; }
-#wave{ display:block; width:100%; height:110px; border:1px solid var(--line); border-radius:6px 6px 0 0; background:#0b1012; cursor:pointer; touch-action:manipulation; }
-#over{ display:block; width:100%; height:26px; border:1px solid var(--line); border-top:0; border-radius:0 0 6px 6px; background:#0b1012; cursor:pointer; }
+#wave{ display:block; width:100%; height:110px; border:1px solid var(--line); border-radius:6px 6px 0 0; background:#0b1012; cursor:pointer; touch-action:pan-y; }
+/* v2.32 zoom buttons in the waveform's bottom-right corner */
+.wz{ position:absolute; right:5px; top:70px; display:flex; gap:4px; }
+.wz button{ min-height:34px; min-width:34px; padding:0 .4rem; font-weight:900; font-size:1.05rem; line-height:1; background:rgba(11,16,18,.82); border-color:rgba(244,239,230,.22); }
+.wz button:not(:disabled):hover{ border-color:#ffb000; color:#ffb000; }
+#wzback{ color:#5fd3c4; }
+#over{ display:block; width:100%; height:26px; border:1px solid var(--line); border-top:0; border-radius:0 0 6px 6px; background:#0b1012; cursor:pointer; touch-action:pan-y; }
 .ed{ margin-top:1rem; padding:1rem; background:var(--panel); border:1px solid var(--line); border-radius:6px; }
 .ed h2{ margin:0 0 .6rem; font:900 1.6rem/1 'Big Shoulders Display', sans-serif; text-transform:uppercase; letter-spacing:.04em; display:flex; align-items:baseline; gap:.6rem; flex-wrap:wrap; }
 .ed h2 small{ font:400 .8rem 'Fragment Mono', monospace; color:var(--mute); text-transform:none; letter-spacing:0; }
@@ -376,7 +381,7 @@ body.making .spotb{ display:none; }
     </div>
   </details>
 
-  <div class="wave"><canvas id="wave" aria-label="Song waveform split into eight-counts; tap to jump"></canvas><canvas id="over" aria-label="Whole song overview; tap to jump"></canvas></div>
+  <div class="wave"><canvas id="wave" aria-label="Song waveform split into eight-counts; tap to jump, drag to slide along the song, pinch to zoom"></canvas><canvas id="over" aria-label="Whole song overview; tap to jump or drag to scrub"></canvas><div class="wz"><button type="button" id="wzback" hidden title="Back to the eight you're on">↺</button><button type="button" id="wzout" title="Zoom out: more eights at once" aria-label="Zoom out">−</button><button type="button" id="wzin" title="Zoom in: down to a single beat" aria-label="Zoom in">+</button></div></div>
 
   <section class="ed" aria-labelledby="edh">
     <h2 id="edh">eight <span id="edn">1</span> <small id="edsub">tap a count, then a move</small></h2>
@@ -1594,7 +1599,7 @@ function demoBuffer(){ if (DEMOB) return DEMOB;
 }
 function makePeaks(){ var ch = buf.getChannelData(0), hop = Math.max(1, Math.round(buf.sampleRate / 100)), n = Math.floor(ch.length / hop), pk = new Float32Array(n), mx = 1e-6;
   for (var i = 0; i < n; i++){ var m = 0; for (var j = i * hop, e = j + hop; j < e; j += 4){ var a = Math.abs(ch[j]); if (a > m) m = a; } pk[i] = m; if (m > mx) mx = m; }
-  for (i = 0; i < n; i++) pk[i] /= mx; peaks = pk; }
+  for (i = 0; i < n; i++) pk[i] /= mx; peaks = pk; PKMX = mx; }
 /* tempo: a bass-weighted onset envelope at 100 frames a second, then the comb that lines up best, nudged toward 90-150 bpm */
 function detect(B){
   var sr = B.sampleRate, a0 = B.getChannelData(0), a1 = B.numberOfChannels > 1 ? B.getChannelData(1) : a0, hop = Math.round(sr / 100), n = Math.floor(a0.length / hop);
@@ -2267,38 +2272,80 @@ $('clear').addEventListener('click', function(){ setEight(cur, ['bounce','bounce
 /* ---------- waveform: four eights around the one you're on, plus the whole song ---------- */
 var wv = $('wave'), ov = $('over');
 function fitCanvas(c){ var r = Math.min(2, window.devicePixelRatio || 1), w = c.clientWidth, h = c.clientHeight; if (c.width !== Math.round(w * r)){ c.width = Math.round(w * r); c.height = Math.round(h * r); } var x = c.getContext('2d'); x.setTransform(r, 0, 0, r, 0, 0); return [x, w, h]; }
-function win(){ var t0 = eightStart(cur - 1), t1 = eightStart(cur + 3); return [t0, t1]; }
+/* v2.32 Pushed: scroll and zoom. WZ = eights across the waveform (4 = the old view), WV = where a free view starts (null = follow the
+   eight you're on). Dragging, pinching or the wheel set WV; while playing it lets go 4 s after your last touch, while paused when you go to another eight */
+var WZ = 4, WV = null, WVT = 0, WVC = 0, WDR = null, WP = {}, WSUP = 0, PKMX = 1, OSC = null, OSUP = 0;
+function wspan(){ return WZ * 8 * spb(); }
+function win(){ var sp = wspan(), t0;
+  if (WV != null && (playing ? performance.now() - WVT > 4000 : cur !== WVC)) WV = null;
+  if (WV != null) t0 = WV;
+  else if (WZ >= 4){ t0 = eightStart(cur - Math.floor(WZ / 4)); if (WZ > 4) t0 = Math.max(eightStart(-1), Math.min(t0, dur() + 8 * spb() - sp)); }   /* zoomed out, the song fills the view */
+  else if (WZ >= 1) t0 = eightStart(cur) - sp * .03;
+  else t0 = (playing ? now() : pos) - sp / 2;
+  return [t0, t0 + sp]; }
+function wvFree(v){ var sp = wspan(), d = dur() || sp; WV = clamp(v, -sp / 2, Math.max(-sp / 2, d - sp / 2)); WVT = performance.now(); WVC = cur; drawWave(); }
+function wzSet(z, ta, fr){ WZ = clamp(z, .125, 32); wvFree(ta - fr * wspan()); }
+function wzStep(f){ if (!peaks) return; var R = win(), tc = WV != null ? (R[0] + R[1]) / 2 : null; WZ = clamp(WZ * f, .125, 32); if (Math.abs(WZ - Math.round(WZ)) < .02) WZ = Math.round(WZ);
+  if (tc != null) wvFree(tc - wspan() / 2); else drawWave(); }
 function drawWave(){
   if (!peaks){ return; } var W = fitCanvas(wv), c = W[0], w = W[1], h = W[2], R = win(), t0 = R[0], t1 = R[1], k = w / (t1 - t0), t = now();
+  var bw = spb() * k, ew = bw * 8, e0 = Math.floor(countAt(t0) / 8), e1 = Math.floor(countAt(t1 - 1e-6) / 8), nst = ew >= 22 ? 1 : Math.ceil(30 / ew), bands = ew < 70 && Object.keys(ST.secs).length;
+  var wb = $('wzback'); if (wb.hidden !== (WV == null)){ wb.hidden = WV == null; } $('wzin').disabled = WZ <= .125; $('wzout').disabled = WZ >= 32;
   c.clearRect(0, 0, w, h);
-  for (var e = cur - 1; e <= cur + 2; e++){ var x0 = (eightStart(e) - t0) * k, x1 = (eightStart(e + 1) - t0) * k;
+  for (var e = e0; e <= e1; e++){ var x0 = (eightStart(e) - t0) * k, x1 = (eightStart(e + 1) - t0) * k;
     c.fillStyle = e === cur ? 'rgba(255,176,0,.12)' : e % 2 ? 'rgba(255,255,255,.03)' : 'rgba(0,0,0,0)'; c.fillRect(x0, 0, x1 - x0, h);
-    for (var b = 0; b < 8; b++){ var bx = (eightStart(e) + b * spb() - t0) * k; c.fillStyle = b === 0 ? 'rgba(255,93,115,.8)' : 'rgba(244,239,230,.13)'; c.fillRect(bx, 0, b === 0 ? 2 : 1, h); }
-    if (e >= 0){ c.fillStyle = e === cur ? '#ffb000' : '#8fa3a3'; c.font = '900 15px "Big Shoulders Display", sans-serif'; c.fillText(String(e + 1), x0 + 5, 16);
-      if (ST.secs[e]){ var nw = c.measureText(String(e + 1)).width; c.save(); c.beginPath(); c.rect(x0, 0, Math.max(0, x1 - x0 - 6), 22); c.clip();   /* v2.24 its section label beside the number */
-        c.fillStyle = '#5fd3c4'; c.font = '700 11px "Fragment Mono", monospace'; c.fillText(ST.secs[e], x0 + 11 + nw, 15); c.restore(); } } }
-  c.fillStyle = 'rgba(244,239,230,.55)'; var mid = h / 2 + 6;
-  for (var px = 0; px < w; px += 2){ var a = Math.floor((t0 + px / k) * 100), z = Math.floor((t0 + (px + 2) / k) * 100), m = 0;
-    for (var i = Math.max(0, a); i < Math.min(peaks.length, z); i++) if (peaks[i] > m) m = peaks[i];
-    var hh = m * (h / 2 - 12); c.fillRect(px, mid - hh, 1.4, hh * 2); }
+    for (var b = 0; b < 8; b++){ if (b && bw < 5) continue; var bx = (eightStart(e) + b * spb() - t0) * k; c.fillStyle = b === 0 ? (ew >= 20 ? 'rgba(255,93,115,.8)' : 'rgba(255,93,115,.4)') : 'rgba(244,239,230,.13)'; c.fillRect(bx, 0, b === 0 && ew >= 20 ? 2 : 1, h);
+      if (bw >= 22 && e >= 0){ c.fillStyle = b === 0 ? '#ff5d73' : 'rgba(244,239,230,.4)'; c.font = '700 10px "Fragment Mono", monospace'; c.fillText(String(b + 1), bx + 4, h - 5); } }   /* v2.32 the counts under each beat once there's room */
+    var nx = Math.max(x0, 0) + 5;
+    if (e >= 0 && e < nEights() && (e % nst === 0 || e === cur) && (nst > 1 || x1 - nx > 12)){ c.fillStyle = e === cur ? '#ffb000' : '#8fa3a3'; c.font = '900 ' + (ew >= 40 ? 15 : 12) + 'px "Big Shoulders Display", sans-serif'; c.fillText(String(e + 1), nx, 16);
+      if (ST.secs[e] && !bands){ var nw = c.measureText(String(e + 1)).width; c.save(); c.beginPath(); c.rect(x0, 0, Math.max(0, x1 - x0 - 6), 22); c.clip();   /* v2.24 its section label beside the number */
+        c.fillStyle = '#5fd3c4'; c.font = '700 11px "Fragment Mono", monospace'; c.fillText(ST.secs[e], nx + 6 + nw, 15); c.restore(); } } }
+  if (bands) secBands(c, h, function(x){ return (x - t0) * k; }, Math.max(0, e0), e1, 21);   /* zoomed out: the parts as bands under the numbers */
+  c.fillStyle = 'rgba(244,239,230,.55)'; var mid = h / 2 + 6, deep = t1 - t0 < 6, step = deep ? 1 : 2, ch = deep ? buf.getChannelData(0) : null, sr = buf ? buf.sampleRate : 1;
+  for (var px = 0; px < w; px += step){ var m = 0, a, z, i;
+    if (deep){ a = Math.floor((t0 + px / k) * sr); z = Math.floor((t0 + (px + step) / k) * sr); for (i = Math.max(0, a); i < Math.min(ch.length, z); i++){ var av = ch[i] < 0 ? -ch[i] : ch[i]; if (av > m) m = av; } m = Math.min(1, m / PKMX); }
+    else { a = Math.floor((t0 + px / k) * 100); z = Math.floor((t0 + (px + 2) / k) * 100); for (i = Math.max(0, a); i < Math.min(peaks.length, z); i++) if (peaks[i] > m) m = peaks[i]; }
+    var hh = m * (h / 2 - 12); c.fillRect(px, mid - hh, deep ? 1 : 1.4, hh * 2); }
   if (playing && LP){ var lx0 = (LP[0] - t0) * k, lx1 = (LP[1] - t0) * k; c.fillStyle = '#ffb000'; c.fillRect(lx0, h - 4, lx1 - lx0, 4); c.fillRect(lx0, h - 14, 2, 14); c.fillRect(lx1 - 2, h - 14, 2, 14); } /* the loop's bracket */
   var p = (t - t0) * k; if (p >= 0 && p <= w){ c.fillStyle = '#ff5d73'; c.fillRect(p - 1, 0, 2, h); }
   var O = fitCanvas(ov), o = O[0], ow = O[1], oh = O[2], d = dur() || 1; o.clearRect(0, 0, ow, oh); o.fillStyle = 'rgba(244,239,230,.35)';
   for (px = 0; px < ow; px++){ a = Math.floor(px / ow * peaks.length); z = Math.floor((px + 1) / ow * peaks.length); m = 0; for (i = a; i < z; i++) if (peaks[i] > m) m = peaks[i]; o.fillRect(px, oh / 2 - m * oh / 2, 1, m * oh); }
-  secBands(o, ow, oh, d);
+  secBands(o, oh, function(x){ return x / d * ow; }, 0, nEights() - 1, 0);
   o.fillStyle = 'rgba(255,176,0,.35)'; o.fillRect(t0 / d * ow, 0, (t1 - t0) / d * ow, oh); if (playing && LP){ o.fillStyle = '#ffb000'; o.fillRect(LP[0] / d * ow, oh - 3, Math.max(2, (LP[1] - LP[0]) / d * ow), 3); } o.fillStyle = '#ff5d73'; o.fillRect(t / d * ow - 1, 0, 2, oh);
   if (!$('seqbox').hidden) sqMarks(o, ow, oh, d);
 }
 /* v2.24 the whole song's sections on the overview: a teal bar over each labelled eight, the name where a section starts (if it fits) */
-function secBands(o, ow, oh, d){ var n = nEights(), e, lb, x0, x1, z; if (!Object.keys(ST.secs).length) return; o.font = '700 10px "Fragment Mono", monospace';
-  for (e = 0; e < n; e++){ lb = ST.secs[e]; if (!lb) continue; x0 = eightStart(e) / d * ow; x1 = eightStart(e + 1) / d * ow;
-    o.fillStyle = 'rgba(95,211,196,.8)'; o.fillRect(x0, 0, Math.max(1, x1 - x0 - 1), 3);
-    if (ST.secs[e - 1] === lb) continue; for (z = e; z + 1 < n && ST.secs[z + 1] === lb; z++); x1 = eightStart(z + 1) / d * ow;
-    if (x1 - x0 < 22) continue; o.save(); o.beginPath(); o.rect(x0, 0, x1 - x0 - 2, oh); o.clip(); o.fillStyle = 'rgba(11,16,18,.75)';
-    o.fillRect(x0, 3, Math.min(x1 - x0 - 2, o.measureText(lb).width + 5), 12); o.fillStyle = '#5fd3c4'; o.fillText(lb, x0 + 2, 13); o.restore(); } }
+function secBands(o, oh, X, ea, eb, y){ var n = nEights(), e, lb, x0, x1, z; if (!Object.keys(ST.secs).length) return; o.font = '700 10px "Fragment Mono", monospace'; eb = Math.min(eb, n - 1);
+  for (e = ea; e <= eb; e++){ lb = ST.secs[e]; if (!lb) continue; x0 = X(eightStart(e)); x1 = X(eightStart(e + 1));
+    o.fillStyle = 'rgba(95,211,196,.8)'; o.fillRect(x0, y, Math.max(1, x1 - x0 - 1), 3);
+    if (e > ea && ST.secs[e - 1] === lb) continue; for (z = e; z + 1 < n && ST.secs[z + 1] === lb; z++); x1 = X(eightStart(z + 1)); x0 = Math.max(x0, 0);
+    if (x1 - x0 < 22) continue; o.save(); o.beginPath(); o.rect(x0, y, x1 - x0 - 2, oh); o.clip(); o.fillStyle = 'rgba(11,16,18,.75)';
+    o.fillRect(x0, y + 3, Math.min(x1 - x0 - 2, o.measureText(lb).width + 5), 12); o.fillStyle = '#5fd3c4'; o.fillText(lb, x0 + 2, y + 13); o.restore(); } }
 function waveT(e, c, a, b){ var r = c.getBoundingClientRect(); return a + (e.clientX - r.left) / r.width * (b - a); }
-wv.addEventListener('click', function(e){ if (!buf) loadDemo(); var R = win(), t = waveT(e, wv, R[0], R[1]); cur = clamp(Math.floor(countAt(t) / 8), 0, nEights() - 1); seek(Math.max(0, t)); renderEd(); });
-ov.addEventListener('click', function(e){ if (!buf) loadDemo(); var t = waveT(e, ov, 0, dur()); cur = clamp(Math.floor(countAt(t) / 8), 0, nEights() - 1); seek(t); renderEd(); });
+wv.addEventListener('click', function(e){ if (performance.now() - WSUP < 450) return; if (!buf) loadDemo(); var R = win(), t = waveT(e, wv, R[0], R[1]); cur = clamp(Math.floor(countAt(t) / 8), 0, nEights() - 1); WVC = cur; WVT = performance.now(); seek(Math.max(0, t)); renderEd(); });
+ov.addEventListener('click', function(e){ if (performance.now() - OSUP < 450) return; if (!buf) loadDemo(); var t = waveT(e, ov, 0, dur()); cur = clamp(Math.floor(countAt(t) / 8), 0, nEights() - 1); WV = null; seek(t); renderEd(); });
+/* v2.32 drag to slide along the song, two fingers to pinch-zoom, ctrl/trackpad-pinch wheel zooms at the pointer, sideways wheel scrolls */
+wv.addEventListener('pointerdown', function(e){ if (!peaks || (e.pointerType === 'mouse' && e.button)) return; WP[e.pointerId] = e.clientX; try { wv.setPointerCapture(e.pointerId); } catch (x){}
+  var ids = Object.keys(WP), R = win();
+  if (ids.length === 1) WDR = { x: e.clientX, v: R[0], sp: R[1] - R[0], moved: false };
+  else if (ids.length === 2){ var a = WP[ids[0]], b = WP[ids[1]]; WDR = { pinch: Math.max(8, Math.abs(a - b)), z: WZ, ta: waveT({ clientX: (a + b) / 2 }, wv, R[0], R[1]), moved: true }; } });
+wv.addEventListener('pointermove', function(e){ if (!(e.pointerId in WP) || !WDR) return; WP[e.pointerId] = e.clientX; var r = wv.getBoundingClientRect(), ids = Object.keys(WP);
+  if (WDR.pinch){ if (ids.length < 2) return; var a = WP[ids[0]], b = WP[ids[1]]; wzSet(WDR.z * WDR.pinch / Math.max(8, Math.abs(a - b)), WDR.ta, ((a + b) / 2 - r.left) / r.width); return; }
+  var dx = e.clientX - WDR.x; if (!WDR.moved && Math.abs(dx) < 6) return; WDR.moved = true; wvFree(WDR.v - dx / r.width * WDR.sp); });
+function wvUp(e){ if (!(e.pointerId in WP)) return; delete WP[e.pointerId]; if (!Object.keys(WP).length){ if (WDR && WDR.moved) WSUP = performance.now(); WDR = null; } }
+wv.addEventListener('pointerup', wvUp); wv.addEventListener('pointercancel', wvUp);
+wv.addEventListener('wheel', function(e){ if (!peaks) return; var r = wv.getBoundingClientRect(), R = win(), fr = (e.clientX - r.left) / r.width, u = e.deltaMode === 1 ? 16 : 1;
+  if (e.ctrlKey){ e.preventDefault(); wzSet(WZ * Math.exp(clamp(e.deltaY * u, -60, 60) * .01), R[0] + fr * (R[1] - R[0]), fr); return; }
+  var dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0; if (!dx) return; e.preventDefault(); wvFree(R[0] + dx * u / r.width * (R[1] - R[0])); }, { passive: false });
+$('wzin').addEventListener('click', function(){ wzStep(.5); });
+$('wzout').addEventListener('click', function(){ wzStep(2); });
+$('wzback').addEventListener('click', function(){ WV = null; drawWave(); });
+/* v2.32 drag along the overview to scrub the whole song: it pauses while you drag and plays on from where you let go */
+ov.addEventListener('pointerdown', function(e){ if (!peaks || (e.pointerType === 'mouse' && e.button)) return; OSC = { x: e.clientX, id: e.pointerId, on: false, was: false }; try { ov.setPointerCapture(e.pointerId); } catch (x){} });
+ov.addEventListener('pointermove', function(e){ if (!OSC || e.pointerId !== OSC.id) return; if (!OSC.on){ if (Math.abs(e.clientX - OSC.x) < 4) return; OSC.on = true; OSC.was = playing; if (playing) pause(); }
+  var t = clamp(waveT(e, ov, 0, dur()), 0, Math.max(0, dur() - .05)), se = clamp(Math.floor(countAt(t) / 8), 0, nEights() - 1); pos = t; WV = null; if (se !== cur){ cur = se; renderEd(); } else drawWave(); });
+function ovUp(e){ if (!OSC || e.pointerId !== OSC.id) return; var o = OSC; OSC = null; if (o.on){ OSUP = performance.now(); if (o.was) play(true); } }
+ov.addEventListener('pointerup', ovUp); ov.addEventListener('pointercancel', ovUp);
 
 /* ---------- the move maker: keys on a timeline, a slider per joint within real limits ---------- */
 /* v1.90 shift reaches a metre either way, like travel (Pushed: a walk-on of your own across the stage); it was a hip sway's 25 cm */
