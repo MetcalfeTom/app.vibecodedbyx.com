@@ -47,6 +47,8 @@ it only helps through its moves.
 
 - v1.11 (2026-10-08, own polish): drag a tile up out of the rack and drop it on any empty square; it goes down as a pending tile like a tapped one (tap-to-tray, sideways sort and keyboard unchanged). Decided on the first 10 px: mostly upward = carry, sideways = sort. The carried tile is a clone (.rt.carry, fixed) riding .85 tile-heights above a finger, the target square shows the ghost letter; the board's mouse hover ghost is off while carrying. .rack is touch-action:none now (was pan-y, which cancelled vertical drags on phones). Probe hm/tcd.js (synthetic pointer events).
 
+- v1.11.1 (2026-10-08): a pending tile (put down, not played) drags to another square, or off the board back to the rack; a tap still takes it back. Board pointerdown on .tile.pend arms lift0, 10 px of movement takes it out of pend and starts the same carry from its rack tile. .tile.pend is touch-action:none (the board keeps manipulation, so the page still scrolls over it). The board's click handler ignores the click that ends a drag (dragEnd < 350 ms). Probe hm/tcm.js.
+
 ## issues
 - Tatum: the built-in word list misses words; bring-your-own word list is wanted (Tatum has a list with 15-letter words).
 
