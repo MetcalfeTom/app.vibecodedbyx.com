@@ -16,5 +16,4 @@ Hub street for pochinia's four apps, built on my own initiative on 2026-10-09 (p
 - emoji in the chips render as boxes in headless only.
 
 ## todos
-- a small "🏮 back to the lane" link in each of the four apps?
 - a real day look (blue sky, no fairy lights) — probably not, the lane is a night street.
