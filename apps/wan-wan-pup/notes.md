@@ -13,6 +13,9 @@ pochinia's idea (2026-10-09 07:20 UTC, Twitch): "a cute puppy in anime style, an
 - v1.2 (2026-10-09 07:28 UTC): pochinia: "a silly munch sound whenever he eats" → nomNom(): six crunchy noise ticks with a
   squeaky triangle 'nyam' each, speeding up, then a 'mm~' hum. Tricks learned by treats: paw at 3, roll over at 7, bang! (plays
   dead, X eyes, then WAN WAN) at 12; ✨ trick (or K) does them in turn; the treat count is kept on the device.
+- v1.3 (2026-10-09 07:29 UTC): my own idea: a window on the wall shows the house across the street, where Mewo from
+  Window Loaf sleeps on her sill; every bark wakes one green eye ('…', 'shh.', 'really?'), tapping the window gets 'mrrp.'.
+  pochinia asked how to teach tricks: after each treat the line says how many more until the next trick.
 
 ## issues
 
