@@ -814,7 +814,7 @@ body.midilearn main button:not(#midipanel button):not(.hbtns button), body.midil
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.101 · 2026-10-08</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.102 · 2026-10-09</span>
 </footer>
 
 <script id="dsp">
@@ -1335,11 +1335,71 @@ function fingerprint(chan, sr){
   return ('00000000' + h1.toString(16)).slice(-8) + ('00000000' + h2.toString(16)).slice(-8);
 }
 
-/* everything the worker computes for a track: tempo, beat grid, key */
+/* ── v4.102 SONG SHAPE (pushedbutton: "could harmony be smart enough to tell the difference between a radio edit and a club mix?
+   Perhaps it could use that information to decide how long the mix should be"). Bar by bar: is the SONG there (chords or a voice:
+   a tonal chroma with real weight in the mids) or only the BEAT (kick, clap and hats: noise, little in 250-2500 Hz)?
+   intro = whole bars of beat before the song arrives, outro = whole bars of beat after it leaves, fade = the level sinks away over
+   the last bars (a radio fade). A club/extended mix has 16+ bars of beat at an end; a radio edit starts and stops on the song.
+   Conservative on purpose: a stretch only counts as beat when every bar of it is clearly below the song's mids and still loud. ── */
+function songShape(x, sr, grid, dur){
+  if (!grid || !(grid.bpm > 0) || !(sr > 0)) return null;
+  var per = 60 / grid.bpm, bar = 4 * per, db = grid.downbeat, d0 = db == null ? (grid.beat0 || 0) : (db === Math.floor(db) && db >= 0 && db <= 3 ? (grid.beat0 || 0) + db * per : db);
+  dur = dur || x.length / sr;
+  var nb = Math.floor((dur - d0) / bar + 1e-6);
+  if (nb < 24) return null;
+  var N = 2048; while (N * 2 <= bar * sr / 2 && N < 8192) N *= 2;   /* about two windows per bar */
+  var binHz = sr / N, re = new Float32Array(N), im = new Float32Array(N), mag = new Float32Array(N / 2), win = new Float32Array(N), i, b;
+  for (i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+  var m0 = Math.ceil(250 / binHz), m1 = Math.min(N / 2 - 1, Math.floor(2500 / binHz));
+  var E = new Float64Array(nb), M = new Float64Array(nb), T = new Float64Array(nb), ch = new Float32Array(12);
+  for (b = 0; b < nb; b++){
+    var a = Math.floor((d0 + b * bar) * sr), z = Math.min(x.length, Math.floor((d0 + (b + 1) * bar) * sr)), acc = 0, cnt = 0;
+    for (i = a; i < z; i += 4){ acc += x[i] * x[i]; cnt++; }
+    E[b] = cnt ? Math.sqrt(acc / cnt) : 0;
+    for (i = 0; i < 12; i++) ch[i] = 0;
+    var mid = 0, fr = 0;
+    for (var p0 = a; p0 + N <= z; p0 += N >> 1){
+      for (i = 0; i < N; i++){ re[i] = x[p0 + i] * win[i]; im[i] = 0; }
+      fftInPlace(re, im);
+      for (i = 0; i < N / 2; i++) mag[i] = Math.sqrt(re[i] * re[i] + im[i] * im[i]);
+      for (i = m0; i <= m1; i++) mid += mag[i] * mag[i];
+      chromaFromMag(mag, binHz, ch); fr++;
+    }
+    M[b] = fr ? Math.sqrt(mid / fr) : 0;
+    var nrm = 0, best = 0; for (i = 0; i < 12; i++) nrm += ch[i] * ch[i]; nrm = Math.sqrt(nrm);
+    if (nrm > 0) for (var r = 0; r < 12; r++) for (var mm = 0; mm < 2; mm++){
+      var sc = (ch[r] * 1.15 + ch[(r + (mm ? 3 : 4)) % 12] + ch[(r + 7) % 12]) / (nrm * 1.8248);
+      if (sc > best) best = sc;
+    }
+    T[b] = best;
+  }
+  /* the body of the track (its middle half) sets what "the song is playing" sounds like */
+  function med(arr, lo, hi){ var v = Array.prototype.slice.call(arr, lo, hi).sort(function(p, q){ return p - q; }); return v.length ? v[v.length >> 1] : 0; }
+  var lo = Math.floor(nb * 0.25), hi = Math.max(lo + 1, Math.floor(nb * 0.75)), Eb = med(E, lo, hi), Mb = med(M, lo, hi), Tb = med(T, lo, hi);
+  if (!(Eb > 1e-5) || !(Mb > 1e-9)) return null;
+  /* beat bar: still loud (the drums carry on) but the mids are thin or the chroma is noise */
+  function beatBar(k){ return E[k] >= Eb * 0.4 && (M[k] < Mb * 0.42 || (M[k] < Mb * 0.6 && T[k] < Math.min(0.6, Tb * 0.85))); }
+  var intro = 0; while (intro < nb && beatBar(intro)) intro++;
+  var outro = 0; while (outro < nb - intro && beatBar(nb - 1 - outro)) outro++;
+  /* a radio fade: the last bars sink steadily from the body's level */
+  var fade = false;
+  if (nb >= 16){
+    var tail = E[nb - 1], pre = Math.max(E[nb - 12], E[nb - 11], E[nb - 10]), downs = 0;
+    for (b = nb - 10; b < nb; b++) if (E[b] <= E[b - 1] * 1.02) downs++;
+    fade = pre >= Eb * 0.6 && tail < pre * 0.4 && downs >= 7;
+  }
+  var ph = function(n){ return n >= 32 ? 32 : n >= 16 ? 16 : n >= 8 ? 8 : n >= 4 ? 4 : 0; };   /* whole phrases, so a 31-bar outro counts as 16 */
+  /* +1: a bar the grid's first downbeat leaves half in the song (or a fill/sweep on the last bar) still ends the phrase */
+  var shape = { v: 1, bars: nb, intro: ph(intro + 1), outro: fade ? 0 : ph(outro + 1), fade: fade, introRaw: intro, outroRaw: outro };
+  shape.kind = shape.intro >= 16 || shape.outro >= 16 ? 'club' : shape.intro <= 4 && shape.outro <= 4 ? 'radio' : '';
+  return shape;
+}
+/* everything the worker computes for a track: tempo, beat grid, key, and (v4.102) its shape */
 function analyseTrack(x, sr){
   var env = onsetEnvelope(x, sr), bpm = env ? tempoFromOnsets(env.on, env.fr) : null, grid = bpm ? beatGrid(env, bpm, x, sr) : null;
   if (grid && grid.conf < 0.25) grid = null;
-  return { bpm: grid ? grid.bpm : bpm, key: detectKey(x, sr), grid: grid };
+  var shape = null; try{ shape = grid ? songShape(x, sr, grid) : null; }catch(e){}
+  return { bpm: grid ? grid.bpm : bpm, key: detectKey(x, sr), grid: grid, shape: shape };
 }
 </script>
 
@@ -1499,7 +1559,7 @@ function runAnalyse(mono, sr){
     try{
       if (!worker){
         var src = document.getElementById('dsp').textContent +
-          '\nself.onmessage=function(e){var d=e.data;try{var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid});}catch(err){postMessage({id:d.id,error:String(err)});}};';
+          '\nself.onmessage=function(e){var d=e.data;try{var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid,shape:a.shape});}catch(err){postMessage({id:d.id,error:String(err)});}};';
         workerURL = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
         worker = new Worker(workerURL);
         worker.onmessage = function(e){ var j = jobs[e.data.id]; if (!j) return; delete jobs[e.data.id]; e.data.error ? j.rej(new Error(e.data.error)) : j.res(e.data); };
@@ -1755,7 +1815,7 @@ Deck.prototype.renderTime = function(){
 Deck.prototype.setStatus = function(t, err){ this.q.status.textContent = t || ''; this.q.status.classList.toggle('err', !!err); };
 Deck.prototype.loadFile = function(file){
   var d = this;
-  d.stop(); d.buffer = null; d.bpm = null; d.key = null; d.grid = null; d.chord = null; d.posAtStart = 0;
+  d.stop(); d.buffer = null; d.bpm = null; d.key = null; d.grid = null; d.shape = null; d.chord = null; d.posAtStart = 0;
   d.resetTrackState();
   d.setMedia(file);
   d.name = file.name.replace(/\.[^.]+$/, '');
@@ -1797,7 +1857,7 @@ Deck.prototype.resetTrackState = function(){
 Deck.prototype.setBuffer = function(buf, name){
   var d = this;
   d.stop(); d.buffer = null; d.resetTrackState();
-  d.buffer = buf; d.name = name || d.name; d.posAtStart = 0; d.bpm = null; d.key = null; d.grid = null; d.scanDone = false;
+  d.buffer = buf; d.name = name || d.name; d.posAtStart = 0; d.bpm = null; d.key = null; d.grid = null; d.shape = null; d.scanDone = false;
   d.q.track.textContent = d.name; d.q.track.classList.add('has');
   d.q.wave.classList.add('has'); d.renderTime();
   try{ d.fp = fingerprint(buf.getChannelData(0), buf.sampleRate); }catch(e){ d.fp = null; }
@@ -1819,7 +1879,7 @@ Deck.prototype.rescan = function(){
   var token = buf;
   return monoDownsampleAsync(chans, factor).then(function(mono){ return analyse(mono, sr, { label: 'deck ' + d.L, playing: d.playing }); }).then(function(r){
     if (d.buffer !== token) return;
-    d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.scanDone = true; d.setStatus('');
+    d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.shape = r.shape || null; d.scanDone = true; d.setStatus('');
     d.setColor(r.key ? camelotColor(r.key.n, r.key.letter) : null);
     d.draw(); d.render(); applyLock(); renderCentre();
   }, function(){ if (d.buffer === token){ d.scanDone = true; d.setStatus('analysis failed — deck still plays', true); } d.render(); });
@@ -1830,7 +1890,7 @@ Deck.prototype.eject = function(){
   var d = this;
   if (!d.buffer && !d.name) return;
   d.stop();
-  d.buffer = null; d.bpm = null; d.key = null; d.grid = null; d.chord = null; d.posAtStart = 0; d.name = '';
+  d.buffer = null; d.bpm = null; d.key = null; d.grid = null; d.shape = null; d.chord = null; d.posAtStart = 0; d.name = '';
   d.lufs = null; d.lvlApply(0.08);
   d.resetTrackState();
   if (d.mediaURL){ try{ URL.revokeObjectURL(d.mediaURL); }catch(e){} d.mediaURL = null; }
@@ -3393,7 +3453,7 @@ function wave64(ch, ch2){
 function bufWave(buf){ try{ return wave64(buf.getChannelData(0), buf.numberOfChannels > 1 ? buf.getChannelData(1) : null); }catch(e){ return null; } }
 function makeWorker(){
   var src = document.getElementById('dsp').textContent + '\n' + wave64.toString() +
-    '\nself.onmessage=function(e){var d=e.data;try{var w=null;try{w=wave64(d.mono);}catch(e2){}var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid,wv:w});}catch(err){postMessage({id:d.id,error:String(err)});}};';
+    '\nself.onmessage=function(e){var d=e.data;try{var w=null;try{w=wave64(d.mono);}catch(e2){}var a=analyseTrack(d.mono,d.sr);postMessage({id:d.id,bpm:a.bpm,key:a.key,grid:a.grid,shape:a.shape,wv:w});}catch(err){postMessage({id:d.id,error:String(err)});}};';
   var x = { n: 0, w: new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' }))) };
   x.w.onmessage = function(e){ var j = jobs[e.data.id]; if (!j) return; delete jobs[e.data.id]; x.n--; e.data.error ? j.rej(new Error(e.data.error)) : j.res(e.data); };
   x.w.onerror = function(e){
@@ -4007,7 +4067,7 @@ function readOne(rec, big){
     return monoOfAsync(buf).then(function(m){ return analyse(m.mono, m.sr); }).then(function(r){ if (!byId[rec.id]) return;
       if (r.wv && (!rec._dbRefresh || !rec.wv)) rec.wv = r.wv;   /* v4.89: a re-check fills in an older record's waveform too */
       if (rec._dbRefresh){ oneRefreshed(rec, r.grid); return; }
-      if (!rec.manual){ rec.bpm = r.bpm; rec.key = r.key; } rec.grid = r.grid || null; rec.err = null; });
+      if (!rec.manual){ rec.bpm = r.bpm; rec.key = r.key; } rec.grid = r.grid || null; rec.shape = r.shape || null; rec.err = null; });
   }).catch(function(e){ if (rec._dbRefresh){ rec._dbRefresh = false; return; }   /* a failed re-check changes nothing; next visit tries again */
     if (byId[rec.id]) rec.err = /decod/i.test(String(e && e.message || e)) || !rec.dur ? "couldn't decode" : 'analysis failed'; })
   .then(function(){
@@ -4098,6 +4158,7 @@ DeckP.setBuffer = function(buf, name){
     var rec = d._crateId && byId[d._crateId];
     if (rec){
       if (!rec.wv){ rec.wv = bufWave(buf); if (rec.wv) persist(rec); }
+      if (d.shape && !rec.shape){ rec.shape = d.shape; persist(rec); }   /* v4.102: an older record learns its shape from the deck scan */
       if (rec.manual || (rec.bpm && rec.key)) applyMeta(d, rec);
       else if (d.bpm || d.key){ rec.bpm = rec.bpm || d.bpm; rec.key = rec.key || d.key; rec.grid = rec.grid || d.grid || null; rec.done = true; persist(rec); }
     } else if (d._file && isAudio(d._file)){
@@ -4519,14 +4580,33 @@ function snapBarNear(grid, sec){
   return Math.max(0, t);
 }
 /* out/inn are plain infos: { name, bpm, key(camelot string|null), rate, dur, grid, cue:{in,out} } */
+/* v4.102 the overlap's own length, from the LEAVING song's shape (songShape in the scan): its last bars of drums alone are
+   where a blend can't clash, so a club outro of 16 or 32 bars gets a blend that long; a radio fade keeps the 8 bars (the fade
+   does the work); a song that sings to its last bar gets a quick 4-bar swap. No shape yet (an older scan) = the old 8 (4 on a
+   very short track). A length slid by hand (cue.bars) always wins. tag/why name the reason in the overlap readout. */
+function autoBars(out){
+  var outBar = out.grid ? 240 / (out.grid.bpm * (out.rate || 1)) : 240 / (out.bpm || 120), s = out.grid && out.shape;
+  if (out.dur < 24 * outBar) return { bars: 4, tag: '', why: '' };
+  if (!s || !(s.v >= 1)) return { bars: 8, tag: '', why: '' };
+  if (s.outro >= 16) return { bars: Math.min(OVERLAP_MAX, s.outro), tag: 'club', why: 'club mix: ' + s.outro + ' bars of drums to the end, so a long blend' };
+  if (s.outro >= 8) return { bars: 8, tag: 'outro', why: '8 bars of drums to the end' };
+  if (s.fade) return { bars: 8, tag: 'fade', why: 'radio edit: it fades out, so the fade carries the mix' };
+  return { bars: 4, tag: 'radio', why: 'radio edit: it sings to the last bar, so a quick swap' };
+}
+function shapeWords(s){
+  if (!s) return '';
+  return (s.kind === 'club' ? 'club mix' : s.kind === 'radio' ? 'radio edit' : 'song') + ' · ' + (s.intro ? s.intro + '-bar drum intro' : 'starts on the song') + ' · ' +
+    (s.fade ? 'fades out' : s.outro ? s.outro + '-bar drum outro' : 'ends on the song');
+}
 function planTransition(out, inn, HM){
   var warn = [], bars = 8;
   if (!out || !inn || !out.dur || !inn.dur) return null;
   if (!out.grid || !inn.grid) warn.push(out.gridDoubt || inn.gridDoubt ? 'beat grid disagrees with the tagged BPM — cue-timed, tempo from the tags' : 'needs a beat grid on both tracks');
   var outBar = out.grid ? 4 * 60 / (out.grid.bpm * (out.rate || 1)) : 4 * 60 / (out.bpm || 120);
-  if (out.dur < 24 * outBar) bars = 4;
+  var ab = autoBars(out), tag = ab.tag, why = ab.why;
+  bars = Math.min(ab.bars, Math.max(1, Math.floor(out.dur / outBar) - 2));
   var ob = out.cue && out.cue.bars;   /* v4.33 (pushedbutton): the overlap slid by hand in the rehearsal window, saved with the leaving track */
-  if (ob >= 1 && ob <= OVERLAP_MAX && ob === Math.floor(ob)) bars = Math.min(ob, Math.max(1, Math.floor(out.dur / outBar) - 2));
+  if (ob >= 1 && ob <= OVERLAP_MAX && ob === Math.floor(ob)){ bars = Math.min(ob, Math.max(1, Math.floor(out.dur / outBar) - 2)); tag = ''; why = ''; }
   var dur = bars * outBar;
   /* v4.70 (pushedbutton: "the end of the outgoing track is inaccessible. Sometimes the very last beat is important"):
      the overlap may END on the first bar line at or after the track's end, so a last hit ON the final 1 plays out
@@ -4558,7 +4638,7 @@ function planTransition(out, inn, HM){
       if (score != null && score < 40) warn.push('rough key/tempo match');
     }catch(e){}
   }
-  return { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn };
+  return { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn, tag: tag, why: why };
 }
 function planQueue(entries, HM){
   /* entries: [{name,bpm,key,dur,grid,cue,src}] in play order → one plan per adjacent pair */
@@ -4800,13 +4880,13 @@ function deckInfo(d){
   if (!d || !d.buffer) return null;
   var k = cueKey(d);
   return { name: d.name, bpm: d.bpm, key: d.key ? d.key.camelot : null, rate: d.rate || 1,
-           dur: d.buffer.duration, grid: d.gridTrusted() ? d.grid : null, gridDoubt: !!d.grid && !d.gridTrusted(), cue: cueGet(k), k: k };
+           dur: d.buffer.duration, grid: d.gridTrusted() ? d.grid : null, gridDoubt: !!d.grid && !d.gridTrusted(), cue: cueGet(k), k: k, shape: d.shape || null };
 }
 function recInfo(rec){
   var c = cues[rec.id] || {};
   return { name: rec.name, bpm: rec.bpm, key: rec.key ? rec.key.camelot : null, rate: 1,
            dur: rec.dur || 0, grid: rec.grid && X.gridTrust(rec.bpm, rec.grid) ? rec.grid : null, gridDoubt: !!rec.grid && !X.gridTrust(rec.bpm, rec.grid),
-           cue: { 'in': c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut, bars: c.bars }, k: rec.id };
+           cue: { 'in': c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut, bars: c.bars }, k: rec.id, shape: rec.shape || null };
 }
 /* ── panel markup, inserted after the aligned timeline ── */
 var sec = document.createElement('section');
@@ -5010,7 +5090,7 @@ function statusMsg(t){ var el = $('#adjstatus'); el.textContent = t; el.title = 
 /* ── v4.33 overlap slide (pushedbutton): push the lanes together for more overlap, pull them apart for less.
    Whole bars. The END of the mix stays where it was on the leaving song and the start moves: a saved mix-out cue
    moves with it (−N bars for +N bars of overlap), without one the planner's end-anchored default already does. ── */
-function overlapAuto(out){ var ob = out.grid ? 240 / (out.grid.bpm * (out.rate || 1)) : 240 / (out.bpm || 120); return out.dur < 24 * ob ? 4 : 8; }   /* = planTransition's own pick */
+function overlapAuto(out){ var ob = out.grid ? 240 / (out.grid.bpm * (out.rate || 1)) : 240 / (out.bpm || 120); return Math.min(autoBars(out).bars, Math.max(1, Math.floor(out.dur / ob) - 2)); }   /* = planTransition's own pick (v4.102: from the song's shape) */
 function slideStart(side, hold){
   if (LIVE || dry) return null;
   var v = rehearseView(false); if (!v || !RH_WIN) return null;
@@ -5038,9 +5118,11 @@ function overlapStep(d){
 }
 function overlapUI(v){
   var m = document.getElementById('ovm'), pb = document.getElementById('ovp'), val = document.getElementById('ovv'); if (!m) return;
-  var lock = !v || !!LIVE || !!dry, t = v ? v.plan.bars + (v.plan.bars === 1 ? ' bar' : ' bars') + (cueGet(v.out.k).bars ? ' · set' : '') : '—';
+  var lock = !v || !!LIVE || !!dry, t = v ? v.plan.bars + (v.plan.bars === 1 ? ' bar' : ' bars') + (cueGet(v.out.k).bars ? ' · set' : v.plan.tag ? ' · ' + v.plan.tag : '') : '—';
   if (m.disabled !== lock){ m.disabled = lock; pb.disabled = lock; }
   if (val.textContent !== t) val.textContent = t;
+  var wt = v ? (cueGet(v.out.k).bars ? 'overlap set by hand for this song' : v.plan.why || 'the default overlap') + (v.out.shape ? ' — leaving: ' + shapeWords(v.out.shape) : '') + (v.inn && v.inn.shape ? ' — coming in: ' + shapeWords(v.inn.shape) : '') : '';
+  if (val.title !== wt) val.title = wt;   /* v4.102 */
 }
 document.getElementById('ovm').addEventListener('click', function(){ overlapStep(-1); });
 document.getElementById('ovp').addEventListener('click', function(){ overlapStep(1); });
@@ -5301,7 +5383,7 @@ function dryRun(){
   var p = v.plan, T = dryDurMs || p.dur * 1000, lead = v.lead * 1000, t0 = Date.now();
   dry = { v: v, T: T, lead: lead };
   dryBtn(true);
-  statusMsg('rehearsing ' + v.outL + '→' + v.innL + ': ' + p.bars + ' bars (' + (p.dur).toFixed(1) + ' s) from ' + fmtT(v.outAt) + ' on ' + v.outL +
+  statusMsg('rehearsing ' + v.outL + '→' + v.innL + ': ' + p.bars + ' bars (' + (p.dur).toFixed(1) + ' s' + (p.why ? ', ' + p.why : '') + ') from ' + fmtT(v.outAt) + ' on ' + v.outL +
     (v.mode === 'now' ? (v.gridless ? ' (now — no beat grid, so no bar-line wait)' : ' (' + (v.wrap ? 'its loop wrap' : 'its next bar line') + ', ' + v.lead.toFixed(2) + ' s from now — where ⚡ would start)') : ' (the planned mix-out — play a deck to rehearse from where it is)') +
     ' into ' + fmtT(v.inAt) + ' on ' + v.innL +
     (p.rateNote && !v.gridless ? ' · ' + v.innL + ' would run ' + (p.rateNote.pct >= 0 ? '+' : '') + p.rateNote.pct.toFixed(1) + '%' + (p.rateNote.mult !== 1 ? ' at ' + p.rateNote.mult + '×' : '') : '') + ' — simulation only.');
@@ -6119,6 +6201,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.102', t:'Club mix or radio edit', d:'Each song\u2019s drum intro, drum outro or fade is read on load and sets the mix: long for club mixes, quick for radio edits.', p:'reliability', i:'med', e:'med', st:'verified', ev:'shape.test.js 6/6 synthetic songs (club 32/32, extended 16/16, bass intro, radio fade, radio cold, 8-bar intro); real songs untested' },
   { s:'log', v:'v4.101', t:'Bold visuals', d:'A bold button fills the space between the lines with solid, strongly contrasting colours that still follow the music and the fader.', p:'creativity', i:'med', e:'low', st:'verified', ev:'headless 1280 px + 390 px: bold draws in every look, on-screen brightness changes stay at or under 0.1 per frame' },
   { s:'log', v:'v4.100', t:'Visuals without name tags', d:'A tag button in the visuals switches off the look names that pop up on the picture, remembered per browser.', p:'presentability', i:'med', e:'low', st:'verified', ev:'headless 1280 px pop-out + 390 px saver: tags off = no look names on screen, the setting survives a reload' },
   { s:'log', v:'v4.99', t:'Visuals fit tall phones', d:'On a phone held upright the rings and spirals now stay inside the screen in party mode and the screensaver.', p:'presentability', i:'med', e:'low', st:'verified', ev:'headless 390x844 saver: the spectrum ring sits inside the width; 1280 px desktop unchanged' },
