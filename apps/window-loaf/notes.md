@@ -3,6 +3,7 @@
 pochinia's idea (2026-10-09 07:08 UTC, Twitch): "can you make a gif of a cute cat or something?" — ginger, named Mewo.
 
 ## log
+- v1.4 (2026-10-09 07:48 UTC): Wan-kun (Wan Wan Pup) lives across the street: pupWin() is the right-hand lit window, a tiny shiba with a red bow pops up and yaps 'wan!' every 16-30 s or on a tap (x 280-326, y 214-266); Mewo's ear turns and she says a tsundere line (WANLINES). Reads localStorage 'wan-wan-pup-friend' (same origin): friends ≥5 → heart in his window + softer lines. GIF stays loop-safe (gifState has no wan).
 - v1 (2026-10-09 07:16 UTC): a ginger loaf cat (Mewo) asleep on a snowy windowsill, all drawn on canvas in a 400×400 scene.
   Breathes, the left ear turns to listen, the tail tip flicks, the whiskers twitch. Tap it: one eye opens with a flat lid and a line
   ("…", "five more hours."); three taps in 6 s: both eyes wide, "mrrp!" and a little chirp sound. Tapping elsewhere turns the ear.
