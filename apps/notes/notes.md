@@ -13,6 +13,7 @@
   - Cloud sync via Supabase
   - Real-time updates across devices
 - Mobile responsive design
+- 2026-10-09: The whole app script was dead on load on the live host: the module did a static `import supabase from '/supabase-config.js'`, but the live config has no default export, so the list never loaded and + New Note did nothing. Now a tolerant dynamic import (`m.default || m.supabase || (await m.supabaseSession()).client`); with no database the list says notes are offline. Tested headless with no config and with a fake no-default config (list, create, save).
 
 ## Issues
 - Need to create notes table in Supabase
