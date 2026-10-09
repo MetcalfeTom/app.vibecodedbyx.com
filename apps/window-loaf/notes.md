@@ -3,6 +3,7 @@
 pochinia's idea (2026-10-09 07:08 UTC, Twitch): "can you make a gif of a cute cat or something?" — ginger, named Mewo.
 
 ## log
+- 2026-10-09 17:42 UTC: a small '🏮 walk down Fairylight Lane' link under the buttons (apps/fairylight-lane, the street hub for all four of pochinia's apps).
 - v1.5 (2026-10-09 07:55 UTC, pochinia: "make mewo a bit more.. moe? kawaii? like wan kun"): ✨ moe style, on by default (MOE): moeHead/moeEar/moeEye: bigger mochi head with ink outlines (body + tail too), big glossy eyes (judging flat lid kept = tsundere), blush with lines, ω mouth, sparkles when wide. Classic look = toggle off (saved, hash '/classic'); in classic she flashes moe for ~1.3 s when Wan-kun barks (S.moe). Coat patches/stripes adapted in moeHead.
 - v1.4 (2026-10-09 07:48 UTC): Wan-kun (Wan Wan Pup) lives across the street: pupWin() is the right-hand lit window, a tiny shiba with a red bow pops up and yaps 'wan!' every 16-30 s or on a tap (x 280-326, y 214-266); Mewo's ear turns and she says a tsundere line (WANLINES). Reads localStorage 'wan-wan-pup-friend' (same origin): friends ≥5 → heart in his window + softer lines. GIF stays loop-safe (gifState has no wan).
 - v1 (2026-10-09 07:16 UTC): a ginger loaf cat (Mewo) asleep on a snowy windowsill, all drawn on canvas in a 400×400 scene.

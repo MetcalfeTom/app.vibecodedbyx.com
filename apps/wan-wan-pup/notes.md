@@ -3,6 +3,7 @@
 pochinia's idea (2026-10-09 07:20 UTC, Twitch): "a cute puppy in anime style, and you can give it a treat and it barks cutely".
 
 ## log
+- 2026-10-09 17:42 UTC: a small '🏮 walk down Fairylight Lane' link under the buttons (apps/fairylight-lane, the street hub for all four of pochinia's apps).
 - v1.7 (2026-10-09 07:51 UTC): the gif sheet gets 🦴 treat / 🗯 vs Mewo: argP(t) scripts 'WAN!' (he means: you have pretty eyes) then 'hssss.' (she means: …thank you.) + his happy hearts; 44 frames, file <name>-vs-mewo.gif.
 - v1.6 (2026-10-09 07:43 UTC, pochinia: "mewo and wan kun argue, but in reality wan kun wants to be mewo's friend" + "make mewo a tsundere"): 🗯 argue button / tap her window / A: 4-line window-to-window arguments (FIGHTS), anime fansub subtitles at the bottom ('he means:' yellow, 'she means:' green), bone gifts land on her sill and vanish by the next fight, a friendship heart on her window fills per fight (localStorage 'wan-wan-pup-friend' = friend/fi); at 5 she says '…fine.' (you can be my friend. don't tell anyone.); tsundere: from fight 3 her soft subtitles leak ~60% with a blush, after 5 MEWO_SOFT lines.
 - v1.5 (2026-10-09 07:40 UTC, pochinia: "a small bow and maybe a blanket"): red bow at the base of his right ear (ribbon(), jiggles on hops, droops in naps); strawberry polka-dot blanket folded behind the bowl; 💤 nap button / tap the blanket / N: blanket floats over him, room dims, sleepy eyes, z's, soft whistle snore every breath (hum()), Mewo keeps one eye open ('finally.'); pat while napping = snuggle, treat wakes him, tricks wait.
