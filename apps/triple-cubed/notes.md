@@ -53,6 +53,8 @@ it only helps through its moves.
 
 - v1.13 (2026-10-09 17:03): today's board, my own idea so chat can compare scores. The bag is shuffled from the UTC date (FNV hash of 'triple-cubed YYYY-MM-DD' → mulberry32), S.daily + S.rs saved with the game so trades (shuffleBag via rand()) stay seeded too; Two has no randomness in its moves, so the same plays meet the same answers. 'today's board' button in the foot row (arm-confirm when leaving a game), 'today ·' before the bag count, daily record in localStorage 'triple-cubed-daily' {day:{first,best,n}} (last 30 days), the game-over story opens with the first-go/best line and a 'copy result' button (clipboard, else a selected text field). Probe ptcday.js: same racks twice, plain new game not daily, record + share text.
 
+- v1.13.1 (2026-10-09 17:06): the copied result links to #today; fromLink() after the dictionary loads opens today's board for a fresh or finished game (keeps a game in progress and says how to switch), then drops the hash. Note: a player with their own word list gets a different Two, so 'same answers' holds only on the built-in list.
+
 ## issues
 - Tatum: the built-in word list misses words; bring-your-own word list is wanted (Tatum has a list with 15-letter words).
 
