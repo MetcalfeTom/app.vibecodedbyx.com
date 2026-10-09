@@ -8,6 +8,7 @@ Local 2-player Bomberman clone with neon aesthetics. Plant bombs, dodge blasts, 
 - 2026-03-23: Added mobile touch d-pads. Two d-pad overlays (P1 cyan left, P2 pink right) with directional buttons + bomb button. Shown on touch devices via (pointer:coarse). Canvas resizes smaller on mobile to leave room for d-pads. Touch uses elementFromPoint for multi-touch support.
 
 - 2026-03-23: Added Supabase leaderboard. neon_bomber_scores table (username, wins). Submits every 3 round wins. Top 10 panel shown during gameplay. Name cached in localStorage.
+- 2026-10-09: The leaderboard module died at load on the live host (static `import supabase from '/supabase-config.js'`, but the live config has no default export), so the Top Bombers panel never showed. Now a tolerant dynamic import (`m.default || m.supabase || (await m.supabaseSession()).client`); with no database the board says "Scores offline" and the game is unaffected. Tested headless with no config and with a fake no-default config.
 
 ## issues
 - None yet
