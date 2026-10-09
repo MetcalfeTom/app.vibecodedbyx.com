@@ -3,6 +3,7 @@
 pochinia's idea (2026-10-09 07:20 UTC, Twitch): "a cute puppy in anime style, and you can give it a treat and it barks cutely".
 
 ## log
+- v1.4 (2026-10-09 07:36 UTC): 🎞 gif button: the treat moment (toss, catch, munch, wan! + Mewo opening an eye) as a 3.2 s 320 px looping GIF, scripted P per frame through gifP(t), encoder copied from Window Loaf; save/share sheet, file named after the pup.
 - v1 (2026-10-09 07:25 UTC): a chibi shiba drawn on canvas (400×400 scene, thick brown line art, big glossy eyes with two
   highlights that follow your finger, eyebrow dots, blush lines). 🦴 give a treat (or tap the jar, or T): a bone arcs from the jar,
   the eyes sparkle and the mouth opens as it comes, hop + munch with puffed cheeks and crumbs, then a bark bubble (wan!, ワン!, arf!)
