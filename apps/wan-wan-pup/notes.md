@@ -10,8 +10,11 @@ pochinia's idea (2026-10-09 07:20 UTC, Twitch): "a cute puppy in anime style, an
   Every 5th treat: ZOOMIES (spins by flipping its x scale, WAN WAN! double yip, sparkle ring). ✋ pat / tap the pup: head tilt, wan? / kyun~.
 - v1.1 (2026-10-09 07:26 UTC): pochinia named the pup Wan-kun: red collar with a gold tag, a pink food bowl with the
   name on it, a name field (kept on the device), lines use the name.
+- v1.2 (2026-10-09 07:28 UTC): pochinia: "a silly munch sound whenever he eats" → nomNom(): six crunchy noise ticks with a
+  squeaky triangle 'nyam' each, speeding up, then a 'mm~' hum. Tricks learned by treats: paw at 3, roll over at 7, bang! (plays
+  dead, X eyes, then WAN WAN) at 12; ✨ trick (or K) does them in turn; the treat count is kept on the device.
 
 ## issues
 
 ## todos
-- a gif of it (copy Window Loaf's encoder), tricks after N treats (sit, paw, roll), a name, more treats (cookie, sausage)
+- a gif of it (copy Window Loaf's encoder), more treats (cookie, sausage), more tricks (spin, high five, sing)
