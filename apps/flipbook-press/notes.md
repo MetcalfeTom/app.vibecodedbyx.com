@@ -80,6 +80,8 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 
 - 2026-10-09 17:18 v1.15: "copy this page" on the pad (the todo for things that stay still): a teal linkish `#padDup` at the left of `.padMore` (now a flex row, `#padNew` pushed right), shown when the current page has lines; it inserts a deep copy after the current page and says to rub out and redraw only what moves. The 2-3 page hint mentions it. Phones ≤400 px: pens/tools 42 px with 6 px gaps so the 🗑 no longer wraps onto its own row. Probe pfbdup.js: copies are equal and independent, page 2 then 3.
 
+- 2026-10-09 17:23 v1.15.1: hand-flicking the preview (`#flick` drag) ticks like paper too: paperTick() on every frame change while dragging, audioWake() on a mouse pointerdown and on pointerup, same as the landing toy.
+
 ## issues
 - Headless can't pick a real file; the `rec` probe records a canvas to webm instead. H.264 MP4 isn't testable in the headless shell.
 - iOS Safari sometimes draws a blank first frame from an unplayed video; `videoSource` does a muted play()/pause() after loading.
