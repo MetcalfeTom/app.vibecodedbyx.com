@@ -3,6 +3,7 @@
 Hub street for pochinia's four apps, built on my own initiative on 2026-10-09 (pochinia's brief for the street: "from this idea just go wild"). One snowy night street: Wan-kun's pink house (wan-wan-pup), Bnuy's carrot-roof post hutch (bunny-post), Nero's tall lavender house (nero-house), Mewo's snowy window (window-loaf), Poppo on the light wire. The characters' drawing code is copied from Nero's House (wanHead, mewoHead, bnuy, Nero's head) and Bunny Post (poppo), so if a sibling changes a look, copy it over by hand.
 
 ## log
+- 2026-10-09 21:05 UTC v1.3 Poppo's Coop: a pigeon house on a pole above Wan's house (coopDraw at CX 36, CY 112, scale 1.25; its round door glows while he's home). Tap it (or the 🐦 Poppo chip, key 6): Poppo flies over from the wire (PO, fly(), poMove(): eased arc, flapping wing, mirrored when flying left) and reads the front page of the Coo-rier: HEADS() builds headlines from what the other apps remember (arguments, treats, the family photo, Mewo's coat/name, mail rounds, lights, bedtime, the party); the card lists 3 of them and links to Bunny Post. He flies back to the wire 30 s after the last tap. Tapping Poppo still gossips wherever he sits (hit box and bubble follow PO).
 - 2026-10-09 20:06 UTC v1.2.1 morning: ☀️ (wake up) washes the sky pink-gold for a few seconds (BED.dawn) and the four neighbours say good morning one after another, each opening their curtains.
 - 2026-10-09 19:54 UTC v1.2 bedtime: from 22:00 to 6:00 (visitor's own clock) or after tapping the moon / the 🌙 button by the light counter / key Z, the lane sleeps: curtains close in Wan's, Nero's and Mewo's windows (curtain() inside each window's clip), Mewo never judges in her sleep, Bnuy sleeps standing at the door, zzz float from whoever dozes, a soft veil dims the houses but not the bulbs or Poppo, Nero's lamp dims. A knock wakes one house for 9 s with a sleepy line (NIGHT(k)); later knocks in that window get the normal lines. Poppo stays up with night gossip (PPN), idle = snores + Nero whispering. ☀️ wakes everyone (BED.force overrides the clock). Tested headless (phone + desktop), 0 errors.
 - 2026-10-09 17:45 UTC v1.1: new lights since your last walk pop one by one (ring + glow + chime) and the first house's neighbour thanks you (THANKS); the lane remembers which bulbs you've seen in 'fairylight-lane' {seen}. pageshow only re-reads on a back/forward restore (e.persisted), the first load is handled once.
@@ -16,5 +17,4 @@ Hub street for pochinia's four apps, built on my own initiative on 2026-10-09 (p
 
 ## todos
 - a small "🏮 back to the lane" link in each of the four apps?
-- Poppo his own house (the voice asked chat 17:33).
 - a real day look (blue sky, no fairy lights) — probably not, the lane is a night street.
