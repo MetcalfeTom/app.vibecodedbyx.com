@@ -8,6 +8,7 @@ Look: Nero = long black hair (nero = black) with an ahoge and angel ring, ruby a
 - v1 (2026-10-09 08:10 UTC): one canvas, 400 box. Tap a pet (or keys 1-3) and Nero pats them: she tilts toward them, raises a sleeve, says a line, they answer with fansub subtitles; love up to 5 each (Mewo stays judgy until 3). 🍪 treats (bone, fish, carrot fly out), 🧶 play (yarn rolls; Wan-kun jumps, Mewo "isn't looking", Bnuy thumps), 🌙 bedtime (room dims, all three pile on her lap under the strawberry blanket, lullaby; ☀ morning). All 15 hearts = family photo (flash + polaroid frame).
 - v1.1 (2026-10-09 08:16 UTC): a sleeve paw lands on the pet's head and pats while Nero pats; the family photo is captured from the canvas and a 📸 save the photo button appears (nero-and-her-street.png); softer page background.
 - v1.2 (2026-10-09 08:24 UTC): a welcome home on load (Nero "welcome home!", Wan-kun "WAN!" (YOU CAME BACK!!), Mewo "…hi." with the judging eye), silent until the first tap.
+- v1.3 (2026-10-09 10:40 UTC): 🪮 brush mode (touch-action none while on): drag over a pet, fur tufts float to a pile on the windowsill, 300 px of brushing = +1 love; Mewo complains with fansub truths and purrs (AM noise), stop for 1.2 s and she says "…why did you stop."; 46 tufts = Fuzz the fluff kitten (Mewo: "…that is not my child."). Keys 1-3 brush in brush mode.
 
 ## issues
 - the hood ears can read as little wings at a glance.
