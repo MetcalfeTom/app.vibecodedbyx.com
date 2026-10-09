@@ -10,6 +10,7 @@
 - Stats tracker: Total transmissions, corrupted messages, fluctuating "void strength"
 - Cosmic aesthetic: Purple/magenta/green color scheme, space theme, spinning wormholes
 - Real-time updates via Supabase subscriptions
+- 2026-10-09: The whole void was dead on load on the live host: the module did a static `import supabase from '/supabase-config.js'`, but the live config has no default export, so no messages, stars or sending. Now a tolerant dynamic import (`m.default || m.supabase || (await m.supabaseSession()).client`); with no database the page shows "the void is unreachable right now" and still draws. Tested headless with no config and with a fake no-default config (load + send).
 
 ## Issues
 - None yet
