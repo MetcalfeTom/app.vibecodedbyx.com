@@ -814,7 +814,7 @@ body.midilearn main button:not(#midipanel button):not(.hbtns button), body.midil
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.103 · 2026-10-09</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.104 · 2026-10-09</span>
 </footer>
 
 <script id="dsp">
@@ -1888,6 +1888,7 @@ Deck.prototype.rescan = function(){
   return monoDownsampleAsync(chans, factor).then(function(mono){ return analyse(mono, sr, { label: 'deck ' + d.L, playing: d.playing }); }).then(function(r){
     if (d.buffer !== token) return;
     d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.shape = r.shape || null; d.scanDone = true; d.setStatus('');
+    try{ var J = window.__ADJ; d.q.wave.title = d.shape && d.grid && J && J.shapeWords ? 'song shape: ' + J.shapeWords(d.shape) + ' (the strip under the waveform)' : ''; }catch(e){}   /* v4.104 */
     d.setColor(r.key ? camelotColor(r.key.n, r.key.letter) : null);
     d.draw(); d.render(); applyLock(); renderCentre();
   }, function(){ if (d.buffer === token){ d.scanDone = true; d.setStatus('analysis failed — deck still plays', true); } d.render(); });
@@ -2907,8 +2908,34 @@ Deck.prototype.draw = function(){
   d.drawGrid(g, w, h, 0, d.buffer.duration);
   d.drawHead(g, w, h);
 };
+/* v4.104 (pushedbutton 16:17: "I'd definitely use more visual cues like that"): the song's skyline along the bottom of its
+   waveform, from the shape read on load: the drum intro green, the song in the deck's colour, the drum runway at the end blue
+   with a light on every bar, a fade sinking away, silence before or after the music dim. Hover the waveform for the words. */
+Deck.prototype.drawShape = function(g, w, h, vw){
+  var d = this, s = d.shape, gr = d.grid; if (!s || !(s.v >= 1) || !gr || !(gr.bpm > 0)) return;
+  var per = 60 / gr.bpm, db = gr.downbeat, a0 = db == null ? (gr.beat0 || 0) : (db === Math.floor(db) && db >= 0 && db <= 3 ? (gr.beat0 || 0) + db * per : db);   /* = songShape's own first bar */
+  var dur = d.buffer.duration, bar = 240 / gr.bpm, z = vw && vw.zoomed, t0 = z ? vw.t0 : 0, t1 = z ? vw.t1 : dur;
+  var X = function(t){ return (t - t0) / (t1 - t0) * w; }, sh = Math.max(4, Math.round(h * 0.07)), y = h - sh;
+  var ms = a0 + (s.quietStart || 0) * bar, me = Math.min(dur, s.musicEnd || a0 + s.bars * bar), iE = ms + (s.introRaw || 0) * bar;
+  var oS = s.fade ? me : Math.max(iE, me - (s.outroRaw || 0) * bar), fS = s.fade ? Math.max(iE, me - 10 * bar) : oS;
+  function band(a, b, col, al){ var xa = Math.max(0, X(a)), xb = Math.min(w, X(b)); if (xb > xa){ g.globalAlpha = al; g.fillStyle = col; g.fillRect(xa, y, xb - xa, sh); } }
+  g.clearRect(0, y - 1, w, sh + 1);
+  band(0, ms, HTH().ink, 0.14); band(me, dur, HTH().ink, 0.14);
+  band(ms, iE, PH_ROLES.intro, 0.9);
+  band(iE, fS, HWC(d.color), 0.8);
+  if (s.fade){
+    var xa = Math.max(0, X(fS)), xb = Math.min(w, X(me));
+    if (xb > xa){ var gd = g.createLinearGradient(X(fS), 0, X(me), 0); gd.addColorStop(0, HWC(d.color)); gd.addColorStop(1, 'rgba(0,0,0,0)'); g.globalAlpha = 0.8; g.fillStyle = gd; g.fillRect(xa, y, xb - xa, sh); }
+  }
+  band(oS, me, PH_ROLES.outro, 0.9);
+  var step = bar * Math.max(1, Math.ceil(5 / Math.max(0.01, bar / (t1 - t0) * w)));   /* the runway's lights: one a bar, thinned when bars get tiny */
+  g.globalAlpha = 0.95; g.fillStyle = '#fff';
+  for (var t = oS + step / 2; t < me; t += step){ var x = X(t); if (x >= 0 && x <= w) g.fillRect(Math.round(x) - 1, y + (sh >> 1) - 1, 2, 2); }
+  g.globalAlpha = 1;
+};
 Deck.prototype.drawHead = function(g, w, h, vw){
   if (!this.buffer) return;
+  this.drawShape(g, w, h, vw);
   if (this.loopOn && this.loopA != null){
     var dur0 = this.buffer.duration;
     var xa, xb;
@@ -4633,6 +4660,15 @@ function planTransition(out, inn, HM){
   if (out.grid) outStart = snapDownbeat(out.grid, Math.max(0, Math.min(endMax - span, outStart)));
   else outStart = Math.max(0, Math.min(out.dur - dur, outStart));
   var inStart = inn.cue && inn.cue.in != null ? snapBarNear(inn.grid, inn.cue.in) : (inn.grid ? snapDownbeat(inn.grid, barAnchor(inn.grid)) : 0);
+  /* v4.104 (pushedbutton 16:27: a radio track into a club track — "the club track was left coming in too early so it got
+     boring"): with no mix-in set by hand, a drum intro longer than the overlap is entered late, so only its last bars play
+     under the leaving song and the song itself starts just as the old one is gone */
+  var inSkip = 0, inWhy = '', si = inn.shape;
+  if (!(inn.cue && inn.cue.in != null) && inn.grid && si && si.v >= 1 && si.intro > bars){
+    inSkip = (si.quietStart || 0) + si.intro - bars;
+    inStart = snapDownbeat(inn.grid, barAnchor(inn.grid) + inSkip * 240 / inn.grid.bpm);
+    inWhy = 'comes in ' + (si.intro - bars) + ' bars into its ' + si.intro + '-bar drum intro, so its song starts as the old one leaves';
+  }
   /* what the incoming deck WOULD need (reported, never applied) */
   var rateNote = null;
   if (out.bpm && inn.bpm){
@@ -4650,7 +4686,7 @@ function planTransition(out, inn, HM){
       if (score != null && score < 40) warn.push('rough key/tempo match');
     }catch(e){}
   }
-  return { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn, tag: tag, why: why };
+  return { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn, tag: tag, why: why, inSkip: inSkip, inWhy: inWhy };
 }
 function planQueue(entries, HM){
   /* entries: [{name,bpm,key,dur,grid,cue,src}] in play order → one plan per adjacent pair */
@@ -5133,7 +5169,7 @@ function overlapUI(v){
   var lock = !v || !!LIVE || !!dry, t = v ? v.plan.bars + (v.plan.bars === 1 ? ' bar' : ' bars') + (cueGet(v.out.k).bars ? ' · set' : v.plan.tag ? ' · ' + v.plan.tag : '') : '—';
   if (m.disabled !== lock){ m.disabled = lock; pb.disabled = lock; }
   if (val.textContent !== t) val.textContent = t;
-  var wt = v ? (cueGet(v.out.k).bars ? 'overlap set by hand for this song' : v.plan.why || 'the default overlap') + (v.out.shape ? ' — leaving: ' + shapeWords(v.out.shape) : '') + (v.inn && v.inn.shape ? ' — coming in: ' + shapeWords(v.inn.shape) : '') : '';
+  var wt = v ? (cueGet(v.out.k).bars ? 'overlap set by hand for this song' : v.plan.why || 'the default overlap') + (v.plan.inWhy ? ' — the new song ' + v.plan.inWhy : '') + (v.out.shape ? ' — leaving: ' + shapeWords(v.out.shape) : '') + (v.inn && v.inn.shape ? ' — coming in: ' + shapeWords(v.inn.shape) : '') : '';
   if (val.title !== wt) val.title = wt;   /* v4.102 */
 }
 document.getElementById('ovm').addEventListener('click', function(){ overlapStep(-1); });
@@ -5395,7 +5431,7 @@ function dryRun(){
   var p = v.plan, T = dryDurMs || p.dur * 1000, lead = v.lead * 1000, t0 = Date.now();
   dry = { v: v, T: T, lead: lead };
   dryBtn(true);
-  statusMsg('rehearsing ' + v.outL + '→' + v.innL + ': ' + p.bars + ' bars (' + (p.dur).toFixed(1) + ' s' + (p.why ? ', ' + p.why : '') + ') from ' + fmtT(v.outAt) + ' on ' + v.outL +
+  statusMsg('rehearsing ' + v.outL + '→' + v.innL + ': ' + p.bars + ' bars (' + (p.dur).toFixed(1) + ' s' + (p.why ? ', ' + p.why : '') + (p.inWhy ? '; the new song ' + p.inWhy : '') + ') from ' + fmtT(v.outAt) + ' on ' + v.outL +
     (v.mode === 'now' ? (v.gridless ? ' (now — no beat grid, so no bar-line wait)' : ' (' + (v.wrap ? 'its loop wrap' : 'its next bar line') + ', ' + v.lead.toFixed(2) + ' s from now — where ⚡ would start)') : ' (the planned mix-out — play a deck to rehearse from where it is)') +
     ' into ' + fmtT(v.inAt) + ' on ' + v.innL +
     (p.rateNote && !v.gridless ? ' · ' + v.innL + ' would run ' + (p.rateNote.pct >= 0 ? '+' : '') + p.rateNote.pct.toFixed(1) + '%' + (p.rateNote.mult !== 1 ? ' at ' + p.rateNote.mult + '×' : '') : '') + ' — simulation only.');
@@ -5983,7 +6019,7 @@ function nowNext(){
 var nnLast = '';
 function renderNowNext(){ var el = document.getElementById('nnNow'); if (!el) return; var s2 = nowNext(), key = s2.now + '|' + s2.next; if (key === nnLast) return; nnLast = key; el.textContent = s2.now; el.title = s2.now; var nx = document.getElementById('nnNext'); nx.textContent = s2.next; nx.title = s2.next; }
 CHAIN.timer = setInterval(chainTick, 250);
-root.__ADJ = { HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
+root.__ADJ = { shapeWords: shapeWords, HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rhAxis: rhAxis, get rhWin(){ return RH_WIN; }, get rhKnobs(){ return RH_KNOBS; }, curveEdit: curveEdit, get rhHold(){ return rhHold; }, slideStart: slideStart, slideTo: slideTo, slideBars: slideBars, slideEnd: slideEnd, overlapStep: overlapStep, overlapSet: overlapSet, overlapAuto: overlapAuto, rhSetStack: rhSetStack, get rhStack(){ return rhStackOn; }, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
@@ -6213,6 +6249,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.104', t:'Song skyline + late intros', d:'A strip under each waveform maps drums, song and silence; a long drum intro now comes in late, as the old song leaves.', p:'creativity', i:'med', e:'low', st:'verified', ev:'planner probe 7/7 (radio to club 32 skips 28, hand cue wins, no shape = start) + skyline screenshot on synthetic club/fade songs; real songs untested' },
   { s:'log', v:'v4.103', t:'Silence at the end', d:'Quiet bars after the last drum no longer hide a drum outro, the mix ends where the music stops, and the overlap label says why.', p:'reliability', i:'med', e:'low', st:'verified', ev:'shape tests 11/11 (silent bars after a drum outro, a song, a fade; silent intro) + planner probe; real songs untested' },
   { s:'log', v:'v4.102', t:'Club mix or radio edit', d:'Each song\u2019s drum intro, drum outro or fade is read on load and sets the mix: long for club mixes, quick for radio edits.', p:'reliability', i:'med', e:'med', st:'verified', ev:'shape.test.js 6/6 synthetic songs (club 32/32, extended 16/16, bass intro, radio fade, radio cold, 8-bar intro); real songs untested' },
   { s:'log', v:'v4.101', t:'Bold visuals', d:'A bold button fills the space between the lines with solid, strongly contrasting colours that still follow the music and the fader.', p:'creativity', i:'med', e:'low', st:'verified', ev:'headless 1280 px + 390 px: bold draws in every look, on-screen brightness changes stay at or under 0.1 per frame' },
