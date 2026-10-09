@@ -1,6 +1,7 @@
 # Chatter - Discord Clone
 
 ## Log
+- 2026-10-09 16:44 UTC: /supabase-config.js loaded with a tolerant dynamic import (top-level await). The live host serves a config without a default export, so the static import threw a SyntaxError and the page was dead (app_stats: 1 of 1 visitors). Without a database every query now answers with an error (Proxy stub), so the chat shows its own "Can't reach the chat" note with Try again. Headless: offline note, no errors. Online path untested against the live host.
 - 2026-09-29: +own tables. The app read and wrote 'chat_messages', which is the STREAM's chat table (username/text/sent_to_model columns): its channel/author/content inserts never matched, so nothing ever saved. Now discord_clone_messages (id bigserial, channel, author, content; index channel+created_at) and discord_clone_hides (message_id bigint). Hide: a message not yours has a hide button; hidden for you at once, for everyone at HIDE_AT=2 hides from non-authors; the author sees a note. Display name from user_metadata (preferred_username/nickname/name), else Guest-NNNN: it used to show the email prefix of logged-in users. 1.5 s send gap, 2000-char cut in JS, send errors shown under the input (it used to fake-add failed messages), load errors shown with Try again. Live inserts are checked against the current channel (the old filter stayed on #general after switching). Demo-message seeding removed (user_id 'system' failed RLS anyway).
 - Initial creation: Discord-like chat application
 - Features:
