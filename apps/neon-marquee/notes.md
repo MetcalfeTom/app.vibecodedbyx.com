@@ -18,6 +18,7 @@
   - **WCAG basics** · `<header>`/`<form>` semantics, `role="status"` + `aria-live` on toast, aria-label on every swatch, `:focus-visible` cyan outline, prefers-reduced-motion kills title flicker + dot pulse + perspective grid.
   - **Mobile** · billboard + compose width drop to `calc(100vw - 16px)` below 640px, ticker font shrinks to 40px, author input narrows to 80px.
   - **OG image** · Pollinations flux seed 4747, "Retro neon billboard at night with three stacked scrolling message lanes in pink cyan and yellow, Times Square LED ticker, rainy synthwave cityscape background". No `referrer` param per project notes.
+- 2026-10-09: The whole billboard was dead on load on the live host: the module did a static `import supabase from '/supabase-config.js'`, but the live config has no default export, so nothing scrolled and BROADCAST did nothing. Now a tolerant dynamic import (`m.default || m.supabase || (await m.supabaseSession()).client`); the realtime channel is set up in setupChannel() after the config loads, the user id comes from supabaseSession first. With no database the plate says OFFLINE and your messages scroll locally. Tested headless with no config and with a fake no-default config (history + broadcast).
 
 ## issues
 - Lane picker can occasionally overlap if many messages arrive in a burst — the `rightEdge` value resets after the setTimeout regardless of incoming bursts. Not catastrophic; just looks busy.
