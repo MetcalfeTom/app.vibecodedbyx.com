@@ -14,11 +14,13 @@ pochinia's idea (2026-10-09 07:08 UTC, Twitch): "can you make a gif of a cute ca
   white) and a name field carved into the sill; kept on the device and in the link (#coat/name); the gif is saved as <name>.gif.
 - v1.2 (2026-10-09 07:19 UTC): the gif sheet has 😴 asleep / 👁 judging me; the judging loop opens one eye at 1.2 s with a
   '…' bubble and shuts it before the loop comes round (decoded frames 0/20/28/49 checked). pochinia loves the ear twitch: keep it.
+- v1.3 (2026-10-09 07:20 UTC): hold a finger on the cat (or press P) to pet it: a purr (filtered noise, 25 Hz flutter,
+  slow in/out), a tiny shiver and hearts. A short tap still pokes, now on release (hold > 0.3 s = petting).
 
 ## issues
 - everything that moves on its own must loop every L=4 s (snow falls 1 or 2 window heights per loop, two breaths per loop), or the gif seams.
 
 ## todos
 - name tag you can change (other visitors' own cats), coat colours (black, grey tabby, calico, white)
-- a judging gif, a belly-trap roll-over after many pokes, purr while you hold it
+- a belly-trap roll-over after many pokes; a petting gif with hearts
 - probe: ImageDecoder in headless decodes the gif frames (s_loaf1.json)
