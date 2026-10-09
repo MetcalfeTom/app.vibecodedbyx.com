@@ -12,6 +12,8 @@ findlogin's idea (Twitch, 2026-10-09 19:20): a 2D side-scrolling battle against 
 
 - v1.3 (2026-10-09 19:41 UTC): big events (tower fell, grudge wave, Drizzleworth strike, overtime) show as a toast under the minimap so they're seen even off-screen; phone buzz on strikes and falls (pointer:coarse only); slow motion for 1.4 s when a castle falls.
 
+- v1.4 (2026-10-09 19:43 UTC): end screen shows your MVP unit type by damage dealt (G.dmg via G.src, set per unit action / projectile src / 'tower' / 'cloud') and how often Drizzleworth struck.
+
 ## issues
 - Random-buying sim player: easy won in ~3 min, normal 4-7 min, hard often stalls past 7 min. Real players should do better; watch for stalemates.
 - Emoji coins show as boxes only in headless.
