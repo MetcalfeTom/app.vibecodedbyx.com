@@ -10,6 +10,8 @@ findlogin's idea (Twitch, 2026-10-09 19:20): a 2D side-scrolling battle against 
 - v1.2 (2026-10-09 19:39 UTC): Sir Drizzleworth (the voice named the cloud) likes players who grab his coins: every coin you tap fills his meter (v*.8, under the cloud); full = he zips over the CPU front line and strikes lightning (80 dmg r58, buildings x.5). Field shortened 2200 → 1900. CPU saves up for GRUDGE WAVES (normal 12%, hard 22% chance after a buy; target 170-250 coins, buys all four cards at once) and its savings show as a coin pile by its castle ('saving up… n/target'). Hard income x1.32, normal x1.0.
 - Balance sims (v1.2): no coin taps = you lose (normal ~3 min, hard ~2 min); tapping half the coins = you win normal in 2.5-5 min; hard with random buys stalls, smart buys (tank+mage) win in 5-6 min. The CPU rarely touches your buildings once you tap well, so watch whether hard is hard enough for humans.
 
+- v1.3 (2026-10-09 19:41 UTC): big events (tower fell, grudge wave, Drizzleworth strike, overtime) show as a toast under the minimap so they're seen even off-screen; phone buzz on strikes and falls (pointer:coarse only); slow motion for 1.4 s when a castle falls.
+
 ## issues
 - Random-buying sim player: easy won in ~3 min, normal 4-7 min, hard often stalls past 7 min. Real players should do better; watch for stalemates.
 - Emoji coins show as boxes only in headless.
