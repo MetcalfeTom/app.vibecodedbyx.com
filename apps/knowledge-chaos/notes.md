@@ -9,6 +9,7 @@
 - Preset videos: Alan Watts, Terence McKenna, Carl Sagan, Richard Feynman, Ram Dass, Jordan Peterson
 - Glitch and flicker animations for chaotic feel
 - Split-screen layout: video on left, chat on right
+- 2026-10-09: The page script was dead on load on the live host: the module did a static `import supabase from '/supabase-config.js'`, but the live config has no default export, so the chat, the preset buttons and the video-URL box did nothing (only the default embed showed). Now a tolerant dynamic import (`m.default || m.supabase || (await m.supabaseSession()).client`); with no database the chat says it is offline and the videos still work. Tested headless with no config and with a fake no-default config (load + send; YouTube blanked in the test copy).
 
 ## Issues
 - None yet
