@@ -17,6 +17,7 @@
   - Responsive canvas
 - Made for @Jo! Have fun! 🎮
 - 2026-10-09: The head module (static `import supabaseDefault from '/supabase-config.js'`) died at load on the live host because the live config has no default export, so window.supabase was never set and the leaderboard and score submit always failed. Now a classic head script loads the config with a tolerant dynamic import into window.supabase/window.supabaseSession (window.__sbReady); submit and the board await it and say "offline" when there is no database. Tested headless with no config and with a fake no-default config (insert + select).
+- 2026-10-09: The leaderboard popup no longer stacks on top of the game-over window: opening it hides the game-over panel, Close brings the panel back (if no game is running).
 
 ## Issues
 - None yet
