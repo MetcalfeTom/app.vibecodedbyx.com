@@ -8,6 +8,8 @@ pochinia's idea (2026-10-09 07:20 UTC, Twitch): "a cute puppy in anime style, an
   the eyes sparkle and the mouth opens as it comes, hop + munch with puffed cheeks and crumbs, then a bark bubble (wan!, ワン!, arf!)
   with a synthesized yip (saw tone 560→1020→640 Hz through two vowel-ish band-passes), hearts and a helicopter tail.
   Every 5th treat: ZOOMIES (spins by flipping its x scale, WAN WAN! double yip, sparkle ring). ✋ pat / tap the pup: head tilt, wan? / kyun~.
+- v1.1 (2026-10-09 07:26 UTC): pochinia named the pup Wan-kun: red collar with a gold tag, a pink food bowl with the
+  name on it, a name field (kept on the device), lines use the name.
 
 ## issues
 
