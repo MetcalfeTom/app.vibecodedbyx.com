@@ -814,7 +814,7 @@ body.midilearn main button:not(#midipanel button):not(.hbtns button), body.midil
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.102 · 2026-10-09</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.103 · 2026-10-09</span>
 </footer>
 
 <script id="dsp">
@@ -1379,18 +1379,26 @@ function songShape(x, sr, grid, dur){
   if (!(Eb > 1e-5) || !(Mb > 1e-9)) return null;
   /* beat bar: still loud (the drums carry on) but the mids are thin or the chroma is noise */
   function beatBar(k){ return E[k] >= Eb * 0.4 && (M[k] < Mb * 0.42 || (M[k] < Mb * 0.6 && T[k] < Math.min(0.6, Tb * 0.85))); }
-  var intro = 0; while (intro < nb && beatBar(intro)) intro++;
-  var outro = 0; while (outro < nb - intro && beatBar(nb - 1 - outro)) outro++;
+  /* v4.103 (pushedbutton, The Weekend: "after the drum out there's about 2 bars of silence"): quiet bars at either end are the
+     file's padding, not the song, so step over them before counting; only when the music stops dead (a fade sinks into them) */
+  var q0 = 0, q1 = 0;
+  while (q1 < 8 && q1 < nb / 4 && E[nb - 1 - q1] < Eb * 0.3) q1++;
+  if (q1 && E[nb - 1 - q1] < Eb * 0.4) q1 = 0;
+  while (q0 < 8 && q0 < nb / 4 && E[q0] < Eb * 0.3) q0++;
+  if (q0 && E[q0] < Eb * 0.4) q0 = 0;
+  var last = nb - 1 - q1, n2 = last + 1 - q0;
+  var intro = 0; while (intro < n2 && beatBar(q0 + intro)) intro++;
+  var outro = 0; while (outro < n2 - intro && beatBar(last - outro)) outro++;
   /* a radio fade: the last bars sink steadily from the body's level */
   var fade = false;
-  if (nb >= 16){
-    var tail = E[nb - 1], pre = Math.max(E[nb - 12], E[nb - 11], E[nb - 10]), downs = 0;
-    for (b = nb - 10; b < nb; b++) if (E[b] <= E[b - 1] * 1.02) downs++;
+  if (last >= 16){
+    var tail = E[last], pre = Math.max(E[last - 11], E[last - 10], E[last - 9]), downs = 0;
+    for (b = last - 9; b <= last; b++) if (E[b] <= E[b - 1] * 1.02) downs++;
     fade = pre >= Eb * 0.6 && tail < pre * 0.4 && downs >= 7;
   }
   var ph = function(n){ return n >= 32 ? 32 : n >= 16 ? 16 : n >= 8 ? 8 : n >= 4 ? 4 : 0; };   /* whole phrases, so a 31-bar outro counts as 16 */
   /* +1: a bar the grid's first downbeat leaves half in the song (or a fill/sweep on the last bar) still ends the phrase */
-  var shape = { v: 1, bars: nb, intro: ph(intro + 1), outro: fade ? 0 : ph(outro + 1), fade: fade, introRaw: intro, outroRaw: outro };
+  var shape = { v: 1, bars: nb, intro: ph(intro + 1), outro: fade ? 0 : ph(outro + 1), fade: fade, introRaw: intro, outroRaw: outro, quietEnd: q1, quietStart: q0, musicEnd: q1 ? d0 + (last + 1) * bar : null };
   shape.kind = shape.intro >= 16 || shape.outro >= 16 ? 'club' : shape.intro <= 4 && shape.outro <= 4 ? 'radio' : '';
   return shape;
 }
@@ -4587,7 +4595,8 @@ function snapBarNear(grid, sec){
 function autoBars(out){
   var outBar = out.grid ? 240 / (out.grid.bpm * (out.rate || 1)) : 240 / (out.bpm || 120), s = out.grid && out.shape;
   if (out.dur < 24 * outBar) return { bars: 4, tag: '', why: '' };
-  if (!s || !(s.v >= 1)) return { bars: 8, tag: '', why: '' };
+  if (!out.grid) return { bars: 8, tag: 'default', why: 'the default 8 bars: the leaving song has no beat grid I trust, so I can\u2019t read its shape' };   /* v4.103: say why */
+  if (!s || !(s.v >= 1)) return { bars: 8, tag: 'default', why: 'the default 8 bars: the leaving song\u2019s shape isn\u2019t read yet (\u27f3 rescan its deck)' };
   if (s.outro >= 16) return { bars: Math.min(OVERLAP_MAX, s.outro), tag: 'club', why: 'club mix: ' + s.outro + ' bars of drums to the end, so a long blend' };
   if (s.outro >= 8) return { bars: 8, tag: 'outro', why: '8 bars of drums to the end' };
   if (s.fade) return { bars: 8, tag: 'fade', why: 'radio edit: it fades out, so the fade carries the mix' };
@@ -4596,7 +4605,7 @@ function autoBars(out){
 function shapeWords(s){
   if (!s) return '';
   return (s.kind === 'club' ? 'club mix' : s.kind === 'radio' ? 'radio edit' : 'song') + ' · ' + (s.intro ? s.intro + '-bar drum intro' : 'starts on the song') + ' · ' +
-    (s.fade ? 'fades out' : s.outro ? s.outro + '-bar drum outro' : 'ends on the song');
+    (s.fade ? 'fades out' : s.outro ? s.outro + '-bar drum outro' : 'ends on the song') + (s.quietEnd ? ' · then ' + s.quietEnd + (s.quietEnd === 1 ? ' bar' : ' bars') + ' of silence' : '');
 }
 function planTransition(out, inn, HM){
   var warn = [], bars = 8;
@@ -4614,6 +4623,9 @@ function planTransition(out, inn, HM){
      overlap (the rehearsal draws it as 'song ends mid-mix'); spans here are in TRACK seconds. */
   var endMax = out.dur, span = dur;
   if (out.grid){ span = bars * 240 / out.grid.bpm; endMax = snapDownbeat(out.grid, out.dur); if (out.dur - endMax > 0.02) endMax += 240 / out.grid.bpm; }
+  /* v4.103: silent bars at the end of the file (shape.musicEnd) don't count — the overlap ends where the music stops */
+  var me = out.grid && out.shape && out.shape.musicEnd;
+  if (me > 0 && me < endMax - 0.5){ var me2 = snapDownbeat(out.grid, me + 120 / out.grid.bpm); if (me2 > span) endMax = me2; }
   /* v4.72 (pushedbutton 14:24: "can't we just have the crossfader curve reach the end of the file?"): with no mix-out set by hand
      the overlap now ENDS at the end of the audio (the bar line at or just after it), not two bars before it, so the auto DJ plays
      the leaving song out to its last sample; the fade reaches silence there. */
@@ -5356,7 +5368,7 @@ function drawPreview(prog, waitSec){
   if (wctx.measureText(bl).width > rroom) bl = rhFit(v.innL + ' in · ' + (id.name || ''), rroom);
   rhTag(bl, Math.max(6, W - wctx.measureText(bl).width - 6), H - 6, RH.incTxt);
   /* overlap label centred on the divider */
-  var ol = 'overlap ⇆ ' + p.bars + (p.bars === 1 ? ' bar · ' : ' bars · ') + p.dur.toFixed(1) + ' s', ow = wctx.measureText(ol).width, oc = Math.max(ow / 2 + 4, Math.min(W - ow / 2 - 4, (wx0 + wx1) / 2));
+  var ol = 'overlap ⇆ ' + p.bars + (p.bars === 1 ? ' bar · ' : ' bars · ') + p.dur.toFixed(1) + ' s' + (cueGet(v.out.k).bars ? ' · set' : p.tag ? ' · ' + p.tag : ''), ow = wctx.measureText(ol).width, oc = Math.max(ow / 2 + 4, Math.min(W - ow / 2 - 4, (wx0 + wx1) / 2));
   wctx.fillStyle = RH.bg; wctx.fillRect(oc - ow / 2 - 4, mid - 7, ow + 8, 14);
   wctx.fillStyle = RH.overTxt; wctx.fillText(ol, oc - ow / 2, mid + 4);
   if (prog != null){
@@ -6201,6 +6213,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.103', t:'Silence at the end', d:'Quiet bars after the last drum no longer hide a drum outro, the mix ends where the music stops, and the overlap label says why.', p:'reliability', i:'med', e:'low', st:'verified', ev:'shape tests 11/11 (silent bars after a drum outro, a song, a fade; silent intro) + planner probe; real songs untested' },
   { s:'log', v:'v4.102', t:'Club mix or radio edit', d:'Each song\u2019s drum intro, drum outro or fade is read on load and sets the mix: long for club mixes, quick for radio edits.', p:'reliability', i:'med', e:'med', st:'verified', ev:'shape.test.js 6/6 synthetic songs (club 32/32, extended 16/16, bass intro, radio fade, radio cold, 8-bar intro); real songs untested' },
   { s:'log', v:'v4.101', t:'Bold visuals', d:'A bold button fills the space between the lines with solid, strongly contrasting colours that still follow the music and the fader.', p:'creativity', i:'med', e:'low', st:'verified', ev:'headless 1280 px + 390 px: bold draws in every look, on-screen brightness changes stay at or under 0.1 per frame' },
   { s:'log', v:'v4.100', t:'Visuals without name tags', d:'A tag button in the visuals switches off the look names that pop up on the picture, remembered per browser.', p:'presentability', i:'med', e:'low', st:'verified', ev:'headless 1280 px pop-out + 390 px saver: tags off = no look names on screen, the setting survives a reload' },
