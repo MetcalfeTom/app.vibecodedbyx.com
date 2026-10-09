@@ -12,6 +12,8 @@ pochinia's idea (2026-10-09 07:08 UTC, Twitch): "can you make a gif of a cute ca
 - v1.1 (2026-10-09 07:17 UTC): pochinia found the moon weird: the crescent was a sky-coloured disc over the moon, a dark blot
   on the glow; now cut out for real on its own canvas (MOON sprite). Five coats (ginger, black, grey tabby, calico with patches, snow
   white) and a name field carved into the sill; kept on the device and in the link (#coat/name); the gif is saved as <name>.gif.
+- v1.2 (2026-10-09 07:19 UTC): the gif sheet has 😴 asleep / 👁 judging me; the judging loop opens one eye at 1.2 s with a
+  '…' bubble and shuts it before the loop comes round (decoded frames 0/20/28/49 checked). pochinia loves the ear twitch: keep it.
 
 ## issues
 - everything that moves on its own must loop every L=4 s (snow falls 1 or 2 window heights per loop, two breaths per loop), or the gif seams.
