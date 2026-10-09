@@ -16,6 +16,8 @@ findlogin's idea (Twitch, 2026-10-09 19:20): a 2D side-scrolling battle against 
 
 - v1.5 (2026-10-09 19:46 UTC): coins you miss fly over to the CPU castle (fx 'fly', x G.D.miss) and Drizzleworth frowns; the CPU's automatic share of each drop dropped to easy 0 / normal .15 / hard .3. Sudden death: 3:00 warning toast, 3:30 'Drizzleworth is BORED' = every 6 s he strikes the castle of whoever is losing (losing(): structure hp fraction, then kills-lost, then alternate) for 100 (x1.6 overtime). Sims with 30-50% missed coins now end at 3:45-4:15 with mixed winners (before: 7-min stalemates).
 
+- v1.5.1 (2026-10-09 19:47 UTC): short stages (landscape phones, cssH<420) zoom in: world y 50-330 visible instead of 0-360, units ~30% bigger.
+
 ## issues
 - Random-buying sim player: easy won in ~3 min, normal 4-7 min, hard often stalls past 7 min. Real players should do better; watch for stalemates.
 - Emoji coins show as boxes only in headless.
