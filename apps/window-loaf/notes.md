@@ -9,6 +9,9 @@ pochinia's idea (2026-10-09 07:08 UTC, Twitch): "can you make a gif of a cute ca
   🎞 make a gif: my own GIF89a encoder (50 frames × 8 cs = one 4 s loop, palette from the scene colours + the most used 15-bit bins,
   unchanged pixels transparent with keep-frame disposal, LZW like omggif). 320×320, about 200 kB, made in about 1 s. Sheet with
   the gif, ⬇ save, 📤 share (when the phone can share files), press-and-hold tip.
+- v1.1 (2026-10-09 07:17 UTC): pochinia found the moon weird: the crescent was a sky-coloured disc over the moon, a dark blot
+  on the glow; now cut out for real on its own canvas (MOON sprite). Five coats (ginger, black, grey tabby, calico with patches, snow
+  white) and a name field carved into the sill; kept on the device and in the link (#coat/name); the gif is saved as <name>.gif.
 
 ## issues
 - everything that moves on its own must loop every L=4 s (snow falls 1 or 2 window heights per loop, two breaths per loop), or the gif seams.
