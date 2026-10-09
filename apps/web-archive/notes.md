@@ -15,6 +15,7 @@
   - Statistics dashboard
   - Recent snapshots gallery
   - Neon cyberpunk aesthetic matching sloppy.live
+- 2026-10-09: The whole page script was dead on load on the live host: the module did a static `import supabase from '/supabase-config.js'`, but the live config has no default export, so stats, recent snapshots, Save and Search never worked. Now a tolerant dynamic import (`m.default || m.supabase || (await m.supabaseSession()).client`); with no database the grid and the buttons say the archive is offline. Tested headless with no config and with a fake no-default config (stats, save, search).
 
 ## Issues
 - Need to create web_snapshots table in Supabase if not exists
