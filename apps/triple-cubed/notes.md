@@ -55,6 +55,7 @@ it only helps through its moves.
 - Tatum: the built-in word list misses words; bring-your-own word list is wanted (Tatum has a list with 15-letter words).
 
 ## todos
+- Ask Tatum (2026-10-09, the voice's idea on stream): should Two say ONE line after a game ends ("you had the S", "nice edge"), never during play? Tatum's rule is that Two never gives hints, so only with their yes.
 - v1.3 sims (ptc11: timeline per Two turn 'fixed/aims fitting'): edges now stall rather than die, e.g. 4 letters with 4 targets for 25 tiles, because Two rarely has a legal word that drops the exact letter on the exact square. Next idea: when stuck, Two swaps only the letters it doesn't need, or a 2-turn lookahead for hooks under the target squares.
 - The ×27 is still basically unreachable: self-play (probes ptc5-ptc8, two cooperative players, even with Two on the full 270k list) never landed one in 12 games; edges die at 4-5 letters (no word fits, or the letters it needs are used up). Only 3 of 5,812 fifteen-letter words have both 6-letter edge stretches as words (troubleshooters, whippersnappers, snippersnappers); 92 have 5+5. Tatum's idea: precompute for each 15-letter word how its 12 non-gold letters can be laid (which stretches are words, which need hooks), and let Two commit to one target per edge.
 - Tatum's input idea: tap tiles into a tray, an across/down toggle, a ghost of the word that follows the pointer, then place.
