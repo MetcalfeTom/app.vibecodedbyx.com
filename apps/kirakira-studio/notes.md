@@ -72,7 +72,7 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
 - (done v1.3) Genres round: a picker with 🎵 pop / 💧 sad / 🎸 rock / 🌙 lullaby. The Web Audio backing band (drums, bass, chords following key/tempo/swing) plus singing-style changes per genre.
   - Each singer reacts with one line + a tiny expression. Nemu loves sad/lullaby and yawns at rock ("...too loud... *yawn*"). Tinka lives for pop and curtsies at the end of sad songs. Cursed ones do their own thing.
   - It must never block a genre.
-- Full-body follow-ups (v1.9.x): og.png still shows the old bust cards (fine, the cards are still face crops); a small hop on tap could become a real jump with the shadow staying; Nemu could sit on a cloud at the end of a lullaby; Tinka's wind-up key could slow down at the end of a song (wind-down).
+- Full-body follow-ups (v1.9.x): og.png redone 22:20 2026-10-10 as a 2x2 of the four full-body singers on their stages with a KIRA KIRA STUDIO badge (probe scratchpad hm/kks/og2.js draws stageX + drawX with the full-figure k from drawStage); a small hop on tap could become a real jump with the shadow staying; Nemu could sit on a cloud at the end of a lullaby; Tinka's wind-up key could slow down at the end of a song (wind-down).
 - More cute banks: Konta Hidamari (fox-boy tenor), Shuwa Ramune (soda girl).
 - Cursed shelf: dial-up modem choir (promised on stream), goose, and a generic monster energy-drink can (no brand: fangs on the pull tab, claw stripes, jittery eyes, fizzy over-caffeinated voice, fast vibrato, crackle, a burp at phrase ends).
 - Languages: per-language phoneme tables (EN vowels beyond aiueo, DE ü/ö, FR nasal vowels). An explicit language toggle could beat the line-sniffing heuristic.
