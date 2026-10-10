@@ -23,6 +23,12 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
 - The app caches the last 8 renders and pre-renders 0.5 s after an edit. Note taps preview one syllable on the main thread.
 
 ## log
+- 06:12 v1.2 portrait polish (pochinia: "a bit more detailed and cuter"):
+  - All faces: layered anime irises (dark top band, pupil, light lower crescent, flecks) with two catchlights, lids per singer (lashShape) + outer lash flicks on Tinka, soft gradient blush ovals, cleaner line weight, hair strands + a shine band in the fringe.
+  - Tinka: a big gold wind-up key in her back (drawn first, only the wings poke out past her right pigtail, turns while she sings), ribbon streamers from the tail bows with spinning gear charms, a gear hair clip, a gear on the chest bow, music-box comb lines on the skirt. The old key in her hair is gone.
+  - Nemu: fluffy pom + tiny star charm on the nightcap tip, dots on the cap cuff, 3 ghost-tail wisps, a stronger tail sway (9 px), stitched pillow. No ahoge: her cap covers the crown (tried one, it read as a stray line).
+  - Chin-chan (light): a second glass glare streak, a twinkle on the glass, a peeling heart sticker on the door.
+  - Before/after grid probe: scratchpad hm/kks/grid.js (loads hm/kks/art_old.js = v1.1 art in a Function wrapper). Shown on stream.
 - 05:59 v1.1:
   - Volume: pochinia found v1.0 too loud. The default is now about 6 dB lower (gain = (vol/100)^2, default 67). A speaker button + slider sit in the transport; on phones the button opens a popover. Saved in 'kks-vol'. The meters read pre-fader.
   - A first visit opens with Nemu + "Five More Minutes" (her app hook).

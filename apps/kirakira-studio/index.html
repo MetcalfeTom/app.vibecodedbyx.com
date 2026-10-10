@@ -202,7 +202,7 @@ footer{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;font-
   </section>
 
   <footer><span>Original singers. Public-domain melodies + one original jingle. Every voice is synthesised in your browser.</span>
-    <span id="buildstamp" role="note" aria-label="Build information">build v1.1 · 2026-10-10</span></footer>
+    <span id="buildstamp" role="note" aria-label="Build information">build v1.2 · 2026-10-10</span></footer>
 </main>
 
 <div class="transport" role="region" aria-label="Transport">
@@ -698,12 +698,138 @@ var EXTRAS = {
   }
 };
 
+/* ---------- the backing band: key + chords from the melody, then drums/bass/keys per genre ---------- */
+var KPROF = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+var DEG = [[0, 0], [2, 1], [4, 1], [5, 0], [7, 0], [9, 1]], DEGP = [.35, .05, 0, .2, .28, .15];
+function keyOf(tl){
+  var h = new Array(12).fill(0); tl.forEach(function(x){ h[((x.p % 12) + 12) % 12] += x.d; });
+  var best = 0, bs = -1e9;
+  for (var k = 0; k < 12; k++) { var s = 0; for (var i = 0; i < 12; i++) s += h[(i + k) % 12] * KPROF[i]; if (s > bs) { bs = s; best = k; } }
+  return best;
+}
+function chordsFor(tl, key, segs, seg8){
+  /* one chord per half bar: chord tones score, clashes cost, staying put and I at both ends are cheap */
+  var out = [], prev = 0;
+  for (var h = 0; h < segs; h++) {
+    var a = h * seg8, b = a + seg8, best = prev, bs = -1e9, any = false;
+    for (var c = 0; c < DEG.length; c++) {
+      var root = (key + DEG[c][0]) % 12, tones = DEG[c][1] ? [0, 3, 7] : [0, 4, 7], s = DEGP[c] + (c === prev ? .3 : 0);
+      if (h === 0 && c === 0) s += .8;
+      if (h >= segs - 2 && c === 0) s += h === segs - 1 ? 1.4 : .2;
+      tl.forEach(function(x){
+        var o = Math.min(b, x.t8 + x.d) - Math.max(a, x.t8); if (o <= 0) return; any = true;
+        var iv = (((x.p % 12) + 12) % 12 - root + 12) % 12;
+        s += o * (tones.indexOf(iv) >= 0 ? 1 : [0, 2, 4, 5, 7, 9, 11].indexOf((iv + root - key + 24) % 12) >= 0 ? -.25 : -1.2);
+      });
+      if (s > bs) { bs = s; best = c; }
+    }
+    if (!any) best = prev;
+    out.push({ root: (key + DEG[best][0]) % 12, minor: DEG[best][1], deg: best });
+    prev = best;
+  }
+  return out;
+}
+function bOsc(buf, sr, t, dur, f, o){
+  /* o: wave saw|tri|sine, amp, atk, dec (exp decay s) or 0 = sustain, rel, lp (one-pole cutoff Hz), det (cents), drive */
+  var a = Math.round(t * sr), n = Math.round((dur + (o.rel || .02)) * sr), ph = Math.random(), ph2 = Math.random(), lp1 = 0, lp2 = 0;
+  var k = o.lp ? 1 - Math.exp(-2 * Math.PI * o.lp / sr) : 1, f2 = f * Math.pow(2, (o.det || 0) / 1200), atk = o.atk || .004, rel = o.rel || .02;
+  for (var j = 0; j < n; j++) {
+    var i = a + j; if (i < 0) continue; if (i >= buf.length) break;
+    var tt = j / sr, e = Math.min(1, tt / atk) * (o.dec ? Math.exp(-tt / o.dec) : 1) * (tt > dur ? Math.max(0, 1 - (tt - dur) / rel) : 1);
+    ph += f / sr; if (ph >= 1) ph -= 1; ph2 += f2 / sr; if (ph2 >= 1) ph2 -= 1;
+    var s;
+    if (o.wave === 'saw') s = (2 * ph - 1) + (o.det ? 2 * ph2 - 1 : 0);
+    else if (o.wave === 'tri') s = (ph < .5 ? 4 * ph - 1 : 3 - 4 * ph);
+    else s = Math.sin(6.2832 * ph) + (o.h2 ? o.h2 * Math.sin(12.566 * ph) : 0) + (o.h3 ? o.h3 * Math.sin(18.85 * ph) * Math.exp(-tt * 6) : 0);
+    if (o.drive) s = Math.tanh(s * o.drive);
+    lp1 += (s - lp1) * k; lp2 += (lp1 - lp2) * k;
+    buf[i] += (o.lp ? lp2 : s) * e * (o.amp || .2);
+  }
+}
+function bDrum(buf, sr, t, kind, amp, rnd){
+  var n, a = Math.round(t * sr), ph = 0, lp = 0, hp = 0, prev = 0;
+  if (kind === 'kick') { n = Math.round(.32 * sr); for (var j = 0; j < n; j++) { var i = a + j; if (i < 0 || i >= buf.length) continue; var tt = j / sr, f = 45 + 95 * Math.exp(-tt * 28); ph += f / sr; buf[i] += Math.sin(6.2832 * ph) * Math.exp(-tt * 9) * amp + (j < 40 ? rnd() * .3 * amp * (1 - j / 40) : 0); } }
+  else if (kind === 'snare' || kind === 'rim') {
+    n = Math.round((kind === 'rim' ? .06 : .2) * sr);
+    for (j = 0; j < n; j++) { i = a + j; if (i < 0 || i >= buf.length) continue; tt = j / sr; var x = rnd(); hp = x - prev; prev = x; lp += (hp - lp) * .5;
+      ph += (kind === 'rim' ? 820 : 190) / sr; buf[i] += (lp * 1.1 * Math.exp(-tt * (kind === 'rim' ? 60 : 17)) + Math.sin(6.2832 * ph) * Math.exp(-tt * 30) * .6) * amp; }
+  } else if (kind === 'hat' || kind === 'crash' || kind === 'shaker') {
+    var len = kind === 'crash' ? 1.4 : kind === 'shaker' ? .07 : .045, dk = kind === 'crash' ? 2.6 : kind === 'shaker' ? 40 : 75;
+    n = Math.round(len * sr);
+    for (j = 0; j < n; j++) { i = a + j; if (i < 0 || i >= buf.length) continue; tt = j / sr; x = rnd(); hp = x - prev; prev = x; var sh = kind === 'shaker' ? Math.min(1, tt / .015) : 1; buf[i] += hp * .5 * Math.exp(-tt * dk) * sh * amp; }
+  }
+}
+var GENRES = {
+  pop:     { swing: 0,   lvl: .62, drums: 1 },
+  sad:     { swing: 0,   lvl: .5,  drums: 1 },
+  rock:    { swing: 0,   lvl: .75, drums: 1 },
+  lullaby: { swing: .16, lvl: .45, drums: 0 }
+};
+function hzm(m){ return 440 * Math.pow(2, (m - 69) / 12); }
+function band(song, P, genre, sr, N){
+  var G = GENRES[genre]; if (!G || !P.tl.length) return null;
+  var tl = P.tl, e8 = P.spb8, lead = P.lead, key = keyOf(tl), rnd = mkRnd(4242), buf = new Float32Array(N);
+  var last = 0; tl.forEach(function(x){ last = Math.max(last, x.t8 + x.d); });
+  var bars = Math.max(1, Math.ceil(last / 8)), segs = bars * 2, ch = chordsFor(tl, key, segs, 4);
+  /* keep the band in a friendly register whatever octave the singer is in */
+  function nearest(pc, around){ var m = around - 6 + ((pc - (around - 6)) % 12 + 12) % 12; return m; }
+  function at(e){ var sw = (e % 2 === 1) ? G.swing * e8 : 0; return lead + e * e8 + sw; }
+  function triad(c, around){ var r = nearest(c.root, around); return [r, r + (c.minor ? 3 : 4), r + 7]; }
+  /* one bar of count-in for the drums, a pickup for the keys */
+  if (G.drums) for (var q = 0; q < 4; q++) bDrum(buf, sr, lead - 8 * e8 + q * 2 * e8, genre === 'rock' ? 'rim' : 'hat', genre === 'rock' ? .5 : .55, rnd);
+  for (var h = 0; h < segs; h++) {
+    var c = ch[h], e0 = h * 4, bass = nearest(c.root, 40), tri = triad(c, 62);
+    if (genre === 'pop') {
+      bOsc(buf, sr, at(e0), e8 * 1.6, hzm(bass), { wave: 'tri', amp: .5, dec: .5, lp: 900, rel: .05 });
+      bOsc(buf, sr, at(e0 + 2), e8 * .9, hzm(bass + (h % 2 ? 7 : 12)), { wave: 'tri', amp: .38, dec: .4, lp: 900, rel: .05 });
+      bOsc(buf, sr, at(e0 + 3), e8 * .8, hzm(bass), { wave: 'tri', amp: .3, dec: .3, lp: 900, rel: .04 });
+      [1, 3].forEach(function(o){ tri.forEach(function(m){ bOsc(buf, sr, at(e0 + o), e8 * .7, hzm(m), { amp: .09, dec: .35, h2: .35, h3: .2, rel: .06 }); }); });
+      bDrum(buf, sr, at(e0), 'kick', .9, rnd); bDrum(buf, sr, at(e0 + 2), 'snare', .55, rnd);
+      if (h % 2) bDrum(buf, sr, at(e0 + 3), 'kick', .5, rnd);
+      for (q = 0; q < 4; q++) bDrum(buf, sr, at(e0 + q), 'hat', q % 2 ? .35 : .5, rnd);
+    } else if (genre === 'rock') {
+      var pr = nearest(c.root, 45);
+      for (q = 0; q < 4; q++) {
+        bOsc(buf, sr, at(e0 + q), e8 * .5, hzm(bass), { wave: 'saw', amp: .32, dec: .2, lp: 520, drive: 2.2, rel: .03 });
+        [pr, pr + 7, pr + 12].forEach(function(m){ bOsc(buf, sr, at(e0 + q), e8 * (q === 0 ? .9 : .45), hzm(m), { wave: 'saw', amp: .085, det: 9, drive: 5, lp: 2200, dec: q === 0 ? .6 : .12, rel: .03 }); });
+      }
+      bDrum(buf, sr, at(e0), 'kick', 1, rnd); bDrum(buf, sr, at(e0 + 2), 'snare', .8, rnd);
+      if (h % 2 === 0) bDrum(buf, sr, at(e0 + 1), 'kick', .55, rnd);
+      for (q = 0; q < 4; q++) bDrum(buf, sr, at(e0 + q), 'hat', .45, rnd);
+      if (h % 8 === 0) bDrum(buf, sr, at(e0), 'crash', .55, rnd);
+    } else if (genre === 'sad') {
+      bOsc(buf, sr, at(e0), e8 * 4, hzm(bass), { amp: .45, atk: .02, dec: 1.6, rel: .25, h2: .2 });
+      tri.forEach(function(m){ bOsc(buf, sr, at(e0), e8 * 4, hzm(m), { wave: 'saw', amp: .028, det: 12, atk: .35, lp: 900, rel: .4 }); });
+      var arp = [tri[0], tri[1] + 12, tri[2], tri[1] + 12 - (h % 2 ? 0 : 0)];
+      arp.forEach(function(m, k){ bOsc(buf, sr, at(e0 + k), e8 * 1.6, hzm(m + 12), { amp: .1, dec: .55, h2: .25, h3: .15, rel: .2 }); });
+      if (h % 2 === 0) bDrum(buf, sr, at(e0), 'kick', .45, rnd); else bDrum(buf, sr, at(e0), 'rim', .3, rnd);
+      bDrum(buf, sr, at(e0 + 2), 'shaker', .18, rnd);
+    } else if (genre === 'lullaby') {
+      if (h % 2 === 0) bOsc(buf, sr, at(e0), e8 * 7.5, hzm(bass + 12), { amp: .3, atk: .05, dec: 2.2, rel: .3 });
+      tri.forEach(function(m){ bOsc(buf, sr, at(e0), e8 * 4, hzm(m), { wave: 'tri', amp: .03, atk: .4, lp: 1400, rel: .5 }); });
+      [tri[0] + 12, tri[2] + 12, tri[1] + 24, tri[2] + 12].forEach(function(m, k){
+        var f = hzm(m); addTone(buf, sr, at(e0 + k), 1.2, [[f, 1, .6], [f * 2, .15, .2], [f * 6.27, .12, .04]], .07, 'bell');
+      });
+    }
+  }
+  /* last chord rings out on the downbeat after the song */
+  var lc = ch[segs - 1], lt = at(bars * 8), lb = nearest(lc.root, 40);
+  if (genre === 'rock') { bDrum(buf, sr, lt, 'crash', .8, rnd); bDrum(buf, sr, lt, 'kick', 1, rnd); [lb + 5, lb + 12, lb + 17].forEach(function(m){ bOsc(buf, sr, lt, 1.6, hzm(m), { wave: 'saw', amp: .08, det: 9, drive: 5, lp: 2200, dec: 1.2, rel: .3 }); }); }
+  else if (genre === 'lullaby') { var f = hzm(nearest(lc.root, 74)); addTone(buf, sr, lt, 2.4, [[f, 1, 1.2], [f * 2, .15, .4]], .08, 'bell'); }
+  else { triad(lc, 62).forEach(function(m){ bOsc(buf, sr, lt, 1.5, hzm(m), { amp: .1, dec: 1.1, h2: .3, rel: .3 }); }); bOsc(buf, sr, lt, 1.5, hzm(lb), { wave: genre === 'pop' ? 'tri' : 'sine', amp: .45, dec: 1, lp: 900, rel: .3 }); if (genre === 'pop') bDrum(buf, sr, lt, 'kick', .9, rnd); }
+  P.key = key; P.chords = ch; P.bandEnd = lt + 1.8;
+  return { buf: buf, lvl: G.lvl };
+}
+
 /* ---------- render a song for a bank ---------- */
 function render(song, V, sr){
   sr = sr || 32000;
+  var genre = GENRES[song.genre] ? song.genre : null;
+  if (genre) V = Object.assign({}, V, { lead: Math.max(V.lead || .3, 8 * 60 / song.bpm / 2 + .15) });
   var P = plan(song, V), tl = P.tl;
   if (V.cutPhrase) tl.forEach(function(x){ if (x.pEnd && x.d >= 3) x.cut = x.s + (x.e - x.s) * .55; });
   var end = (tl.length ? tl[tl.length - 1].e : P.lead) + (V.tail || 1.4);
+  if (genre && tl.length) { var last8 = 0; tl.forEach(function(x){ last8 = Math.max(last8, x.t8 + x.d); }); end = Math.max(end, P.lead + Math.ceil(last8 / 8) * 8 * P.spb8 + 2.2); }
   var N = Math.ceil(end * sr), out = new Float32Array(N);
   var parts = V.choir || [{}];
   parts.forEach(function(pt, k){ var p2 = Object.assign({ seed: 1234 + k * 977 }, pt), sg = renderVoice(P, V, sr, out, p2); if (!k) P.segs = sg; });
@@ -719,6 +845,17 @@ function render(song, V, sr){
   var rnd = mkRnd(777);
   (V.extras || []).forEach(function(n){ if (EXTRAS[n]) EXTRAS[n](out, sr, P, V, rnd); });
   reverb(out, sr, V.verb || 0, V.room || 1);
+  if (genre) {
+    var B = band(song, P, genre, sr, N);
+    if (B) {
+      /* the band sits under the voice: its own loudness match, then a touch of the same room */
+      var rb = [];
+      for (w0 = 0; w0 + W <= N; w0 += W) { ss = 0; for (j = w0; j < w0 + W; j++) ss += B.buf[j] * B.buf[j]; ss = Math.sqrt(ss / W); if (ss > 1e-4) rb.push(ss); }
+      rb.sort(function(a, b){ return a - b; });
+      var qb = rb.length ? rb[Math.floor(rb.length * .9)] : 0;
+      if (qb > 0) { reverb(B.buf, sr, .1, 1); var gb = .17 * B.lvl / qb; for (i = 0; i < N; i++) out[i] += B.buf[i] * gb; }
+    }
+  }
   /* gentle limiter: nothing past ~0.9 */
   for (i = 0; i < N; i++) { var v = out[i]; out[i] = v > .7 ? .7 + Math.tanh((v - .7) / .3) * .25 : v < -.7 ? -.7 - Math.tanh((-v - .7) / .3) * .25 : v; }
   return { buf: out, sr: sr, dur: end, tl: tl, P: P };
@@ -738,7 +875,7 @@ function parseMelody(str){
   return { notes: notes, len: t };
 }
 
-return { render: render, plan: plan, tokenize: tokenize, parseSyl: parseSyl, parseMelody: parseMelody, hz: hz, VOW: VOW, OPEN: OPEN, kanaToRomaji: kanaToRomaji };
+return { render: render, band: band, GENRES: GENRES, plan: plan, tokenize: tokenize, parseSyl: parseSyl, parseMelody: parseMelody, hz: hz, VOW: VOW, OPEN: OPEN, kanaToRomaji: kanaToRomaji };
 })();
 if (typeof module !== 'undefined') module.exports = KKSynth;
 </script>
@@ -755,7 +892,7 @@ function HEART(g, x, y, r){ g.beginPath(); g.moveTo(x, y + r * .9); g.bezierCurv
 
 function face(g, S){
   g.beginPath(); g.moveTo(-50, -12); g.bezierCurveTo(-52, -64, 52, -64, 50, -12); g.bezierCurveTo(50, 20, 26, 46, 0, 49); g.bezierCurveTo(-26, 46, -50, 20, -50, -12); g.closePath();
-  FS(g, S.skin, S.line, 2.4);
+  FS(g, S.skin, S.line, 2);
 }
 function eyes(g, S, st, sc){
   var shut = st.blink > .5 || st.shut, lid = st.lid == null ? (S.sleepy || 0) : st.lid;
@@ -775,8 +912,14 @@ function eyes(g, S, st, sc){
     g.save(); E(g, 0, 1, 12.5, 15.5); g.clip();
     var gr = g.createLinearGradient(0, -14, 0, 16); gr.addColorStop(0, S.eye[0]); gr.addColorStop(.48, S.eye[1]); gr.addColorStop(1, S.eye[2]);
     E(g, lk, 2.5, 10.5, 14); g.fillStyle = gr; g.fill();
-    E(g, lk, 0, 5, 7.6); g.fillStyle = S.eye[0]; g.fill();
-    g.beginPath(); g.ellipse(lk, 9, 7, 4, 0, 0, Math.PI); g.fillStyle = 'rgba(255,255,255,.35)'; g.fill();
+    /* layered iris: a dark upper band under the lid, a rim, the pupil, a glowing lower crescent, faint flecks */
+    g.save(); E(g, lk, 2.5, 10.5, 14); g.clip(); E(g, lk, -11, 16, 10.5); g.globalAlpha = .6; g.fillStyle = S.eye[0]; g.fill(); g.restore();
+    E(g, lk, 1, 4.8, 7.2); g.fillStyle = S.eye[0]; g.fill();
+    g.beginPath(); g.ellipse(lk, 9.6, 7.6, 4.8, 0, 0, Math.PI); g.globalAlpha = .7; g.fillStyle = S.eye[2]; g.fill(); g.globalAlpha = 1;
+    g.strokeStyle = S.eye[2]; g.globalAlpha = .35; g.lineWidth = .9;
+    for (var fk = 0; fk < 5; fk++) { var fa = Math.PI * (.15 + fk * .17); g.beginPath(); g.moveTo(lk + Math.cos(fa) * 5.5, 2.5 + Math.sin(fa) * 7.5); g.lineTo(lk + Math.cos(fa) * 9, 2.5 + Math.sin(fa) * 12); g.stroke(); }
+    g.globalAlpha = 1;
+    E(g, lk, 2.5, 10.5, 14); g.lineWidth = 1.2; g.strokeStyle = S.eye[0]; g.stroke();
     var lt = -17 + 17 * lid, LS = S.lashShape || [4, 6, 3, 1];
     if (lid > 0) {
       /* the lid follows the lash curve (outer corner lower on droopy eyes), never a flat bar */
@@ -785,13 +928,14 @@ function eyes(g, S, st, sc){
     }
     g.restore();
     var hy = Math.max(-6, lt + 5);
-    E(g, lk - 4, hy, 4.2, 4.8); g.fillStyle = '#fff'; g.fill();
-    E(g, lk + 4.5, 7.5, 2, 2); g.fill();
+    E(g, lk - 4, hy, 4.4, 5, -.35); g.fillStyle = '#fff'; g.fill();
+    E(g, lk + 4.5, 8, 2.1, 2.1); g.fill();
     if (S.starEye) { SPK(g, lk + 4.2, -1.5, 3.4); g.fillStyle = '#fffbe6'; g.fill(); }
     g.save(); g.scale(s, 1);
     var top = lid > 0 ? lt : -14;
     g.beginPath(); g.moveTo(-13, top + LS[0]); g.quadraticCurveTo(-1, top - (lid > 0 ? LS[1] * .35 : LS[1]), 13, top + LS[2]); g.lineTo(16.5, top + LS[3]);
     FS(g, null, S.lash, 3.6);
+    if (S.flicks) { g.beginPath(); g.moveTo(14, top + LS[2] - .5); g.quadraticCurveTo(18, top + LS[3] - 2, 20, top + LS[3] - 5.5); g.moveTo(11, top + LS[2] - 2); g.quadraticCurveTo(14, top + LS[2] - 5, 15, top + LS[2] - 8); FS(g, null, S.lash, 1.6); }
     g.beginPath(); g.moveTo(9.5, 15); g.quadraticCurveTo(12, 13, 12.5, 10); FS(g, null, S.lash, 1.4);
     g.restore();
     g.restore();
@@ -816,9 +960,10 @@ function mouth(g, S, st, y0){
 function blush(g, S, k){
   k = k == null ? 1 : k;
   for (var s = -1; s <= 1; s += 2) {
-    E(g, s * 31, 24, 9.5, 5.2); g.fillStyle = S.blush; g.globalAlpha = k; g.fill(); g.globalAlpha = 1;
-    g.strokeStyle = S.blushLine; g.lineWidth = 1.4;
-    for (var i = 0; i < 3; i++) { g.beginPath(); g.moveTo(s * 31 - 5.5 + i * 4, 27.5); g.lineTo(s * 31 - 2.5 + i * 4, 20.5); g.stroke(); }
+    var bg = g.createRadialGradient(s * 31, 24, 0, s * 31, 24, 12); bg.addColorStop(0, S.blush); bg.addColorStop(.6, S.blush); bg.addColorStop(1, 'rgba(255,170,200,0)');
+    E(g, s * 31, 24, 12, 6.8); g.fillStyle = bg; g.globalAlpha = k; g.fill(); g.globalAlpha = 1;
+    g.strokeStyle = S.blushLine; g.lineWidth = 1.1; g.lineCap = 'round';
+    for (var i = 0; i < 3; i++) { g.beginPath(); g.moveTo(s * 31 - 4.5 + i * 3.6, 26); g.lineTo(s * 31 - 2.5 + i * 3.6, 21.5); g.stroke(); }
   }
 }
 function bow(g, x, y, sc, r, c, cl, ln){
@@ -844,13 +989,24 @@ function fringe(g, H, tips, lockR, lockL, top){
   });
   g.quadraticCurveTo(-50, lockL[1] * .45, lockL[0], lockL[1]); g.quadraticCurveTo(-62, lockL[1] * .6, -57, -2);
   g.closePath();
-  FS(g, LG(g, top, 50, [H.l, H.b, H.b, H.d]), H.ln, 2.4);
-  g.save(); g.beginPath(); g.ellipse(0, -52, 40, 13, 0, Math.PI * 1.08, Math.PI * 1.92); FS(g, null, 'rgba(255,255,255,.7)', 4.2); g.restore();
+  FS(g, LG(g, top, 50, [H.l, H.b, H.b, H.d]), H.ln, 2.2);
+  g.save(); g.clip();
+  /* strands from the crown down to each tip */
+  g.strokeStyle = H.ln; g.globalAlpha = .32; g.lineWidth = 1.1;
+  tips.forEach(function(q, i){ if (i % 2) return; g.beginPath(); g.moveTo(q[0] * .35, top + 10); g.quadraticCurveTo(q[0] * .8, (top + q[1]) / 2, q[0] * .97, q[1] - 3); g.stroke(); });
+  g.globalAlpha = 1;
+  /* angel ring: a band of little light shards across the crown */
+  for (var a = 0; a < 9; a++) {
+    var ang = Math.PI * (1.12 + a * .095), x = Math.cos(ang) * 42, y = -50 + Math.sin(ang) * 14, w = 3.2 - Math.abs(a - 4) * .35;
+    g.beginPath(); g.moveTo(x - w, y - 1.5); g.lineTo(x + w, y - 1.5); g.lineTo(x + w * .3, y + 5 + (a % 2) * 3); g.closePath(); g.fillStyle = 'rgba(255,255,255,.8)'; g.fill();
+  }
+  g.beginPath(); g.ellipse(0, -52, 40, 13, 0, Math.PI * 1.1, Math.PI * 1.9); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 2.4; g.stroke();
+  g.restore();
 }
 var FRINGE = [[36, -6], [30, -23], [22, -8], [13, -27], [4, -9], [-5, -29], [-13, -9], [-21, -25], [-28, -6], [-35, -20], [-42, 4]];
 
 /* ── Tinka Orgel: pink music-box idol, twin tails, a winding key in her hair ── */
-var TK = { skin:'#fff1ea', line:'#9c4a64', lash:'#5a1d3a', eye:['#5e2a12', '#d9842a', '#ffe08f'], blush:'rgba(255,120,160,.5)', blushLine:'rgba(226,80,124,.55)', starEye:1, lashShape:[2.5, 7, 4.5, 2.5],
+var TK = { skin:'#fff1ea', line:'#9c4a64', lash:'#5a1d3a', eye:['#5e2a12', '#d9842a', '#ffe08f'], blush:'rgba(255,120,160,.5)', blushLine:'rgba(226,80,124,.55)', starEye:1, flicks:1, lashShape:[2.5, 7, 4.5, 2.5],
   H:{ b:'#ff92c6', l:'#ffd0e6', d:'#e2629f', ln:'#a3346a' } };
 function windKey(g, x, y, t, spin){
   var a = spin ? t * 5 : t * .6, sx = Math.cos(a);
@@ -862,8 +1018,15 @@ function windKey(g, x, y, t, spin){
   g.restore(); E(g, 0, -6, 4, 4); FS(g, '#e9b949', '#8a5a14', 1.8);
   g.restore();
 }
+function GEAR(g, x, y, r, teeth, rot, fill, line){
+  g.save(); g.translate(x, y); g.rotate(rot || 0); g.beginPath();
+  for (var i = 0; i < teeth * 2; i++) { var a0 = i * Math.PI / teeth, a1 = (i + 1) * Math.PI / teeth, rr = i % 2 ? r * .78 : r; g.arc(0, 0, rr, a0, a1); }
+  g.closePath(); FS(g, fill, line, 1.5); E(g, 0, 0, r * .32, r * .32); FS(g, '#fff6cf', line, 1.2); g.restore();
+}
 function drawTinka(g, st){
   var t = st.t, H = TK.H, sw = Math.sin(t * 2.1) * 4 * st.m + st.hop * 5;
+  /* the big wind-up key in her back: only its wings poke out past her hair, turning while she sings */
+  g.save(); g.translate(108, 34); g.rotate(Math.PI / 2 - .55 - .12); g.scale(1.3, 1.3); windKey(g, 0, 0, t, st.singing); g.restore();
   for (var s = -1; s <= 1; s += 2) {
     var sx = s * sw * (s > 0 ? 1 : .8);
     g.beginPath(); g.moveTo(s * 40, -54);
@@ -873,7 +1036,6 @@ function drawTinka(g, st){
     FS(g, LG(g, -64, 112, [H.l, H.b, H.d]), H.ln, 2.4);
     g.beginPath(); g.moveTo(s * 54, -42); g.bezierCurveTo(s * 86, -32, s * 92 + sx, 30, s * 80 + sx, 84); FS(g, null, 'rgba(163,52,106,.4)', 1.4);
   }
-  windKey(g, 36, -66, t, st.singing);
   E(g, 0, -8, 60, 58); FS(g, H.d, H.ln, 2.4);
   /* dress */
   g.beginPath(); g.rect(-9, 38, 18, 24); FS(g, '#ffd9cc');
@@ -883,7 +1045,9 @@ function drawTinka(g, st){
   for (var k = -3; k <= 3; k++) { g.beginPath(); g.arc(k * 8.5, 62 + Math.abs(k) * 1.2, 5.2, 0, Math.PI); FS(g, '#ffffff', TK.line, 1.6); }
   g.beginPath(); g.moveTo(-26, 100); g.quadraticCurveTo(0, 108, 26, 100); FS(g, null, '#8fd3ff', 3);
   bow(g, 0, 70, 1.1, 0, '#ee4a86', '#ff9cc2', '#8e2350');
-  g.save(); g.translate(0, 70); g.fillStyle = '#ffe9a6'; g.font = '700 9px sans-serif'; g.textAlign = 'center'; g.fillText('♪', 0, 3.5); g.restore();
+  GEAR(g, 0, 70, 5, 6, t * (st.singing ? 2 : .2), '#f3c650', '#8a5a14');
+  /* music-box comb pattern on the skirt */
+  g.save(); g.strokeStyle = 'rgba(194,61,120,.28)'; g.lineWidth = 1.2; for (k = -4; k <= 4; k++) { g.beginPath(); g.moveTo(k * 7, 112); g.lineTo(k * 7.6, 126); g.stroke(); } g.restore();
   face(g, TK);
   eyes(g, TK, st);
   blush(g, TK, .7 + .3 * st.glow);
@@ -891,16 +1055,28 @@ function drawTinka(g, st){
   fringe(g, H, FRINGE, [54, 44], [-54, 44]);
   /* ahoge + bows on the tails + a star clip */
   g.beginPath(); g.moveTo(0, -79); g.bezierCurveTo(4, -104, 30, -104, 22, -88); g.bezierCurveTo(18, -82, 10, -88, 14, -92); FS(g, null, H.ln, 2.6);
+  /* ribbon streamers from the tail bows, each with a tiny gear charm */
+  for (s = -1; s <= 1; s += 2) {
+    var rs = Math.sin(t * 2.4 + s) * 3 * st.m;
+    for (var r2 = 0; r2 < 2; r2++) {
+      var ox = s * (40 + r2 * 9), ex = s * (58 + r2 * 10) + rs, ey = -2 + r2 * 10;
+      g.beginPath(); g.moveTo(s * 44, -46); g.quadraticCurveTo(ox + rs, -26, ex, ey); g.lineTo(ex + s * 4, ey - 4); g.quadraticCurveTo(ox + 4 * s + rs, -28, s * 48, -46);
+      FS(g, '#ee4a86', '#8e2350', 1.4);
+    }
+    GEAR(g, s * 64 + rs, 14, 5.5, 7, t * (st.singing ? 3 : .4) * s, '#f3c650', '#8a5a14');
+  }
   bow(g, -46, -50, .95, -.35, '#ee4a86', '#ff9cc2', '#8e2350');
   bow(g, 46, -50, .95, .35, '#ee4a86', '#ff9cc2', '#8e2350');
   STAR(g, -30, -38, 7, 3.2, .2); FS(g, '#ffe27a', '#b07a10', 1.6);
+  /* a gold gear hair clip that spins when she sings */
+  GEAR(g, 30, -62, 8.5, 8, t * (st.singing ? 2.6 : .3), '#f3c650', '#8a5a14');
 }
 
 /* ── Nemu Kasumi: a sleepy ghost girl, nightcap, pillow, a soft ghost tail ── */
 var NM = { skin:'#fff6fb', line:'#8a6a9e', lash:'#4a3570', eye:['#33276e', '#8a7be3', '#dcd3ff'], blush:'rgba(255,150,205,.45)', blushLine:'rgba(220,110,170,.45)',
   sleepy:.52, lashShape:[1.5, 5, 6.5, 9.5], idleMouth:'tiny', mouthIn:'#a3507a', tongue:'#ffb1cb', H:{ b:'#e9e2fb', l:'#ffffff', d:'#bcaeea', ln:'#7a68b8' } };
 function drawNemu(g, st){
-  var t = st.t, H = NM.H, w1 = Math.sin(t * 1.3) * 5, tw = Math.sin(t * 1.7) * 6;
+  var t = st.t, H = NM.H, w1 = Math.sin(t * 1.3) * 5, tw = Math.sin(t * 1.7) * 9 * (st.m == null ? 1 : Math.max(.35, st.m));
   /* long wispy hair behind, fading out */
   var hg = g.createLinearGradient(0, -70, 0, 128); hg.addColorStop(0, H.b); hg.addColorStop(.62, H.d); hg.addColorStop(1, 'rgba(188,174,234,0)');
   g.beginPath(); g.moveTo(-48, -40);
@@ -919,9 +1095,20 @@ function drawNemu(g, st){
   FS(g, 'rgba(255,255,255,.96)'); g.restore();
   g.stroke();
   g.lineWidth = 2.2; g.strokeStyle = '#9d8dcc'; g.stroke();
+  /* little wisps trailing off the tail tip */
+  g.save(); g.lineCap = 'round';
+  for (var wi = 0; wi < 3; wi++) {
+    var wx = 74 + wi * 7, wy = 90 + tw * (1 + wi * .25) - wi * 6, wph = Math.sin(t * 2 + wi) * 3;
+    g.globalAlpha = .75 - wi * .2; g.beginPath(); g.moveTo(wx - 4, wy + 2); g.bezierCurveTo(wx + 2, wy - 6 + wph, wx + 9, wy - 2, wx + 6, wy - 9 + wph);
+    g.strokeStyle = '#ffffff'; g.lineWidth = 3.4 - wi * .8; g.stroke(); g.strokeStyle = 'rgba(157,141,204,.6)'; g.lineWidth = .8; g.stroke();
+  }
+  g.restore();
   /* pillow hugged under her chin */
   g.save(); g.translate(-8, 86); g.rotate(-.08);
   RR(g, -34, -16, 68, 32, 13); FS(g, LG(g, -16, 16, ['#e1ecff', '#b9cdf6']), '#6f7fb8', 2);
+  /* stitching around the pillow */
+  g.save(); g.setLineDash([3, 2.6]); RR(g, -29.5, -11.5, 59, 23, 9); g.strokeStyle = 'rgba(111,127,184,.7)'; g.lineWidth = 1.1; g.stroke(); g.restore();
+  for (var sd = 0; sd < 3; sd++) { E(g, -6 + sd * 6, 9, 1, 1); FS(g, '#ffffff'); }
   g.beginPath(); g.arc(14, -1, 7, .6, 5.2); g.arc(17, -3, 5.6, 4.9, .9, true); FS(g, '#ffe58f', '#b8902a', 1.2);
   E(g, -34, -14, 3, 3); FS(g, '#b9cdf6', '#6f7fb8', 1.4); E(g, 34, 14, 3, 3); FS(g, '#b9cdf6', '#6f7fb8', 1.4);
   E(g, -24, -12, 8, 7); FS(g, '#fff', '#9d8dcc', 1.8); E(g, 22, -13, 8, 7); FS(g, '#fff', '#9d8dcc', 1.8);
@@ -946,7 +1133,13 @@ function drawNemu(g, st){
   g.restore();
   g.beginPath(); g.moveTo(-56, -40); g.quadraticCurveTo(-4, -78, 52, -58);
   FS(g, null, '#5f72ad', 12); g.beginPath(); g.moveTo(-56, -40); g.quadraticCurveTo(-4, -78, 52, -58); FS(g, null, '#ffffff', 8.5);
-  STAR(g, 84 + fl, -20, 9, 4.2, fl * .05); FS(g, '#ffe58f', '#b8902a', 1.6);
+  /* cuff dots, then a fluffy pom with a little star charm */
+  for (var cd = 0; cd < 6; cd++) { var cx2 = -44 + cd * 17, cy2 = -45 - Math.sin((cd + .5) / 6 * Math.PI) * 14 + cd * 2.4; E(g, cx2, cy2, 1.6, 1.6); FS(g, '#a9c3f7'); }
+  var px = 84 + fl, py = -20;
+  [[0, 0, 8], [-6, -3, 5.5], [6, -4, 5.5], [-4, 5, 5.5], [5, 5, 5.5], [0, -7, 5]].forEach(function(b){ E(g, px + b[0], py + b[1], b[2], b[2]); FS(g, '#ffffff', '#8ea2d6', 1.4); });
+  [[0, 0, 7.4], [-6, -3, 4.9], [6, -4, 4.9], [-4, 5, 4.9], [5, 5, 4.9], [0, -7, 4.4]].forEach(function(b){ E(g, px + b[0], py + b[1], b[2], b[2]); FS(g, '#ffffff'); });
+  g.beginPath(); g.moveTo(px + 2, py + 8); g.lineTo(px + 3, py + 15); FS(g, null, '#b8902a', 1.2);
+  STAR(g, px + 3, py + 19, 4.5, 2, fl * .08); FS(g, '#ffe58f', '#b8902a', 1.2);
   /* hitodama: a little blue wisp that circles her */
   var a = t * .9, hx = Math.cos(a) * 78, hy = -24 + Math.sin(a * 1.3) * 14;
   g.save(); g.globalAlpha = .85; g.shadowColor = '#9fd0ff'; g.shadowBlur = 12;
@@ -990,8 +1183,12 @@ function drawChin(g, st){
   mouth(g, CH, st, 28);
   g.restore();
   /* glass glare */
-  g.globalAlpha = .18 + (fl ? .25 : 0); g.beginPath(); g.moveTo(-70, -10); g.lineTo(-40, -48); g.lineTo(-24, -48); g.lineTo(-70, 12); g.closePath(); FS(g, '#ffffff'); g.globalAlpha = 1;
+  g.globalAlpha = .18 + (fl ? .25 : 0); g.beginPath(); g.moveTo(-70, -10); g.lineTo(-40, -48); g.lineTo(-24, -48); g.lineTo(-70, 12); g.closePath(); FS(g, '#ffffff');
+  g.globalAlpha = .12 + (fl ? .2 : 0); g.beginPath(); g.moveTo(-70, 22); g.lineTo(-18, -48); g.lineTo(-12, -48); g.lineTo(-70, 30); g.closePath(); FS(g, '#ffffff'); g.globalAlpha = 1;
+  var tk = .5 + .5 * Math.sin(t * 2.6); SPK(g, 14, -34, 4 + tk * 3); FS(g, 'rgba(255,255,255,' + (.55 + tk * .4) + ')');
   g.restore();
+  /* heart sticker on the door, a little peeled */
+  HEART(g, -66, 51, 5.2); FS(g, '#ff8fb8', '#8e2350', 1.3); g.beginPath(); g.moveTo(-69, 48); g.lineTo(-66.5, 47); FS(g, null, 'rgba(255,255,255,.85)', 1.2);
   RR(g, 28, -40, 6, 80, 3); FS(g, '#e9c6d4', CH.line, 1.8);
   /* panel: LCD clock, keypad, dial */
   RR(g, 44, -52, 40, 22, 4); FS(g, '#1d3328', CH.line, 1.8);
