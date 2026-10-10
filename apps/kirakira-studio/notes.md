@@ -23,6 +23,7 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
 - The app caches the last 8 renders and pre-renders 0.5 s after an edit. Note taps preview one syllable on the main thread.
 
 ## log
+- 06:17 v1.2.1: pochinia asked "is tinka's wind up key supposed to be in her hair?" The key now comes out of her lower BACK: backKey() is drawn first (the dress hides the root, the pigtail tips end above it, so no hair can cover it), with a shadow where the shaft leaves the dress, a collar, and two loops that turn around the shaft while she sings. og.png re-rendered with Tinka smaller so the key shows. Before/after crop probe: scratchpad hm/kks/keycrop.js.
 - 06:12 v1.2 portrait polish (pochinia: "a bit more detailed and cuter"):
   - All faces: layered anime irises (dark top band, pupil, light lower crescent, flecks) with two catchlights, lids per singer (lashShape) + outer lash flicks on Tinka, soft gradient blush ovals, cleaner line weight, hair strands + a shine band in the fringe.
   - Tinka: a big gold wind-up key in her back (drawn first, only the wings poke out past her right pigtail, turns while she sings), ribbon streamers from the tail bows with spinning gear charms, a gear hair clip, a gear on the chest bow, music-box comb lines on the skirt. The old key in her hair is gone.
