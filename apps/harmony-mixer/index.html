@@ -814,7 +814,7 @@ body.midilearn main button:not(#midipanel button):not(.hbtns button), body.midil
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.107 · 2026-10-10</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.108 · 2026-10-10</span>
 </footer>
 
 <script id="dsp">
@@ -1351,21 +1351,35 @@ function songShape(x, sr, grid, dur){
   var binHz = sr / N, re = new Float32Array(N), im = new Float32Array(N), mag = new Float32Array(N / 2), win = new Float32Array(N), i, b;
   for (i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
   var m0 = Math.ceil(250 / binHz), m1 = Math.min(N / 2 - 1, Math.floor(2500 / binHz));
+  var SBE = [30, 60, 120, 250, 500, 1000, 2000, 3500, 1e9], bOf = new Int8Array(N / 2);   /* v4.108: 8 bands, low to high, for songSections */
+  for (i = 0; i < N / 2; i++){ var fq = i * binHz; bOf[i] = -1; for (var e8 = 0; e8 < 8; e8++) if (fq >= SBE[e8] && fq < SBE[e8 + 1]) bOf[i] = e8; }
   var E = new Float64Array(nb), M = new Float64Array(nb), T = new Float64Array(nb), ch = new Float32Array(12);
+  var BD = new Float64Array(nb * 8), bd8 = new Float64Array(8), CB = new Float32Array(nb * 12);
+  /* notes, not noise: a spectral peak counts for the parts' chord colour only when it stands 10 dB over its neighbourhood
+     (noise almost never does; a held note or a voice does) */
+  var t0b = Math.max(2, Math.ceil(70 / binHz)), t1b = Math.min(N / 2 - 2, Math.floor(2000 / binHz)), pcB = new Int8Array(N / 2), cum = new Float64Array(N / 2 + 1), hw = Math.max(4, Math.round(30 / binHz));
+  for (i = t0b; i <= t1b; i++) pcB[i] = ((Math.round(12 * Math.log(i * binHz / 440) / Math.LN2) + 69) % 12 + 12) % 12;
   for (b = 0; b < nb; b++){
     var a = Math.floor((d0 + b * bar) * sr), z = Math.min(x.length, Math.floor((d0 + (b + 1) * bar) * sr)), acc = 0, cnt = 0;
     for (i = a; i < z; i += 4){ acc += x[i] * x[i]; cnt++; }
     E[b] = cnt ? Math.sqrt(acc / cnt) : 0;
     for (i = 0; i < 12; i++) ch[i] = 0;
-    var mid = 0, fr = 0;
+    var mid = 0, fr = 0; for (i = 0; i < 8; i++) bd8[i] = 0;
     for (var p0 = a; p0 + N <= z; p0 += N >> 1){
       for (i = 0; i < N; i++){ re[i] = x[p0 + i] * win[i]; im[i] = 0; }
       fftInPlace(re, im);
       for (i = 0; i < N / 2; i++) mag[i] = Math.sqrt(re[i] * re[i] + im[i] * im[i]);
       for (i = m0; i <= m1; i++) mid += mag[i] * mag[i];
+      for (i = 1; i < N / 2; i++) if (bOf[i] >= 0) bd8[bOf[i]] += mag[i] * mag[i];
+      for (i = 0; i < N / 2; i++) cum[i + 1] = cum[i] + mag[i];
+      var tmx = 0; for (i = t0b; i <= t1b; i++) if (mag[i] > tmx) tmx = mag[i];
+      for (i = t0b; i <= t1b; i++){ var mi = mag[i]; if (!(mi > mag[i - 1] && mi >= mag[i + 1] && mi > tmx * 0.01)) continue;
+        var la = Math.max(0, i - hw), lz = Math.min(N / 2, i + hw + 1); if (mi > 3.2 * (cum[lz] - cum[la]) / (lz - la)) CB[b * 12 + pcB[i]] += Math.sqrt(mi / tmx); }
       chromaFromMag(mag, binHz, ch); fr++;
     }
     M[b] = fr ? Math.sqrt(mid / fr) : 0;
+    for (i = 0; i < 8; i++) BD[b * 8 + i] = fr ? Math.sqrt(bd8[i] / fr) : 0;
+    if (fr) for (i = 0; i < 12; i++) CB[b * 12 + i] /= fr;
     var nrm = 0, best = 0; for (i = 0; i < 12; i++) nrm += ch[i] * ch[i]; nrm = Math.sqrt(nrm);
     if (nrm > 0) for (var r = 0; r < 12; r++) for (var mm = 0; mm < 2; mm++){
       var sc = (ch[r] * 1.15 + ch[(r + (mm ? 3 : 4)) % 12] + ch[(r + 7) % 12]) / (nrm * 1.8248);
@@ -1400,7 +1414,105 @@ function songShape(x, sr, grid, dur){
   /* +1: a bar the grid's first downbeat leaves half in the song (or a fill/sweep on the last bar) still ends the phrase */
   var shape = { v: 1, bars: nb, intro: ph(intro + 1), outro: fade ? 0 : ph(outro + 1), fade: fade, introRaw: intro, outroRaw: outro, quietEnd: q1, quietStart: q0, musicEnd: q1 ? d0 + (last + 1) * bar : null };
   shape.kind = shape.intro >= 16 || shape.outro >= 16 ? 'club' : shape.intro <= 4 && shape.outro <= 4 ? 'radio' : '';
+  try{ var sx = songSections(E, BD, CB, 0, nb - 1); if (sx){ sx.forEach(function(p){ p.t = p.b ? Math.round((d0 + p.b * bar) * 1000) / 1000 : 0; }); shape.secs = sx; } }catch(e){}   /* v4.108: t = where the part starts, in seconds */
   return shape;
+}
+/* v4.108 SONG PARTS (pushedbutton 2026-10-10: "the waveform using a change of colour to show song sections ... I like the existing
+   colours, but distinct shading to show a different section"). From the bars songShape reads anyway: the bar's level, 8 bands
+   (30 Hz-3.5 kHz and up), how much of it is clear notes, and the chord colour of those notes. A part starts where the bars
+   before and after sound most different (levels in spread units + chord colour, over 8 and over 4 bars), only on the song's
+   4-bar phrase lines; parts are 8+ bars (only the first may be a short 4-bar intro). Parts that sound alike share a group, so
+   a chorus comes back in the same shade; at most 4 groups, ranked by fullness (r 0 = the fullest). Bars b0..b1 = the music.
+   Returns [{b: first bar (from the grid's first downbeat), g: group, r: rank}], b of the first part 0; null = no clear parts. */
+var KC = 5, LW = 1, THR0 = 0.6, THRR = 0.2, TAUF = 0.7;   /* chord weight, level weight, least change, change vs the biggest, group closeness */
+function songSections(E, BD, C, b0, b1){
+  var n = b1 - b0 + 1, NL = 10, K = NL + 12, i, k, d, sc = new Float64Array(NL), mdv = new Float64Array(NL), tmp = new Float64Array(n);
+  if (n < 16) return null;
+  var F = new Float64Array(n * K), P = new Float64Array((n + 1) * K);
+  function lvl(d2, k2){ if (d2 === 9){ var t = 0; for (var j = 0; j < 12; j++) t += C[(b0 + k2) * 12 + j]; return t; } return d2 ? BD[(b0 + k2) * 8 + d2 - 1] : E[b0 + k2]; }   /* 0 whole, 1-8 bands, 9 how much is notes */
+  for (d = 0; d < NL; d++){
+    var mx = 0; for (k = 0; k < n; k++) if (lvl(d, k) > mx) mx = lvl(d, k);
+    var fl = d === 9 ? 0.3 : mx * 0.003 + 1e-9;   /* floor at -50 dB: a missing band is "quiet", not minus infinity (notes: a third of one a frame) */
+    for (k = 0; k < n; k++) tmp[k] = F[k * K + d] = Math.log(lvl(d, k) + fl);
+    var srt = Array.prototype.slice.call(tmp).sort(function(p, q){ return p - q; }), md = srt[n >> 1];
+    for (k = 0; k < n; k++) tmp[k] = Math.abs(F[k * K + d] - md);
+    srt = Array.prototype.slice.call(tmp).sort(function(p, q){ return p - q; }); mdv[d] = md;
+    sc[d] = Math.max(0.35, 1.4826 * srt[n >> 1]);   /* robust spread, never finer than ~3 dB: a steady loop must not split on noise */
+  }
+  for (k = 0; k < n; k++) for (i = 0; i < 12; i++) F[k * K + NL + i] = C[(b0 + k) * 12 + i];   /* chord colour */
+  for (k = 0; k < n; k++) for (d = 0; d < K; d++) P[(k + 1) * K + d] = P[k * K + d] + F[k * K + d];
+  /* how different bars a0..a1 and c0..c1 sound (ends exclusive) */
+  var ua = new Float64Array(12), wa = new Float64Array(12), lastL = 0;
+  function above(v){   /* a stretch's chord colour above its own floor (drum noise lights every pitch class a little) */
+    var t = Array.prototype.slice.call(v).sort(function(p, q){ return p - q; }), f0 = (t[5] + t[6]) / 2;
+    for (var j = 0; j < 12; j++) v[j] = Math.max(0, v[j] - f0);
+  }
+  function dist(a0, a1, c0, c1){
+    var na = a1 - a0, nc = c1 - c0, de = 0, dot = 0, qa = 0, qc = 0, e;
+    for (e = 0; e < K; e++){
+      var u = (P[a1 * K + e] - P[a0 * K + e]) / na, w = (P[c1 * K + e] - P[c0 * K + e]) / nc;
+      if (e < NL) de += Math.pow(Math.min(4, Math.abs(u - w) / sc[e]), 2); else { ua[e - NL] = u; wa[e - NL] = w; }
+    }
+    var ma = 0, mw = 0; for (e = 0; e < 12; e++){ ma += ua[e]; mw += wa[e]; }
+    above(ua); above(wa);
+    for (e = 0; e < 12; e++){ dot += ua[e] * wa[e]; qa += ua[e] * ua[e]; qc += wa[e] * wa[e]; }
+    /* chords only count where both stretches have notes (about one clear note a frame) and about as many: drums alone have no
+       chord colour, and a stretch that is half drums, half chords is a level change (the notes dim) more than a new chord */
+    var mn = Math.min(ma, mw), mm = Math.max(ma, mw);
+    lastL = LW * Math.sqrt(de / NL);
+    return lastL + (mm > 0 ? KC * Math.min(1, mn) * (mn / mm) * (1 - dot / (Math.sqrt(qa * qc) || 1)) : 0);
+  }
+  var nv = new Float64Array(n + 1), nl = new Float64Array(n + 1), cands = [], top = 0, ph = [0, 0, 0, 0], o = 0;
+  /* whole 4-bar runs each side, so a chord loop never splits; 8 bars steady the read, 4 bars keep a big change from hiding the
+     smaller one right before it: a line has to stand out at both sizes */
+  for (k = 4; k <= n - 4; k++){ var v8 = dist(k - (Math.min(8, k) & ~3), k, k, k + (Math.min(8, n - k) & ~3)), l8 = lastL, v4 = dist(k - 4, k, k, k + 4); nv[k] = Math.min(v8, v4); nl[k] = Math.min(l8, lastL); }
+  /* the phrase lines: parts start every 4 bars from some first line, and the level changes (free of the ripples a half-counted
+     chord loop leaves in the chord colour) vote for which one; only those lines can start a part */
+  for (k = 5; k < n - 4; k++) ph[k & 3] += Math.max(0, nl[k] - Math.max(nl[k - 1], nl[k + 1]));   /* how far each line stands above the bars beside it */
+  for (i = 1; i < 4; i++) if (ph[i] > ph[o]) o = i;
+  var sv = function(k2){ return k2 < 4 || k2 > n - 4 ? 0 : nv[k2] * ((k2 - o) % 8 === 0 ? 1.1 : 1); };   /* an 8-bar line counts a little more */
+  for (k = 4 + ((o - 4) % 4 + 4) % 4; k <= n - 4; k += 4){
+    if (sv(k) >= sv(k - 4) && sv(k) > sv(k + 4)){ cands.push({ k: k, s: sv(k) }); if (sv(k) > top) top = sv(k); }
+  }
+  var thr = Math.max(THR0, top * THRR), cut = [];
+  cands.sort(function(p, q){ return q.s - p.s; });
+  cands.forEach(function(c){
+    if (c.s < thr || cut.length >= Math.ceil(n / 8)) return;
+    var gap = Math.min(c.k >= 4 && c.s >= thr * 1.6 ? 8 : c.k, n - c.k); cut.forEach(function(j){ gap = Math.min(gap, Math.abs(j - c.k)); });   /* only the first part may be a short 4-bar intro */
+    if (gap >= 8) cut.push(c.k);
+  });
+  if (!cut.length) return null;
+  cut.sort(function(p, q){ return p - q; });
+  var st = [0].concat(cut), en = cut.concat([n]), ns = st.length, gr = [], gs = [];
+  /* groups: a part joins the group it sounds most like when that's closer than a real change (average over the members) */
+  var tau = thr * TAUF;
+  function gd(gi, si){ var t = 0; gs[gi].forEach(function(j){ t += dist(st[j], Math.min(en[j], st[j] + 16), st[si], Math.min(en[si], st[si] + 16)); }); return t / gs[gi].length; }   /* a part's first 16 bars: a chorus that fades out is still the chorus */
+  for (i = 0; i < ns; i++){
+    var bg = -1, bd = Infinity;
+    for (var g = 0; g < gs.length; g++){ var dd = gd(g, i); if (dd < bd){ bd = dd; bg = g; } }
+    if (bg >= 0 && bd < tau){ gr[i] = bg; gs[bg].push(i); } else { gr[i] = gs.length; gs.push([i]); }
+  }
+  while (gs.length > 4){   /* at most four shades: fold the two closest groups together */
+    var ba = 0, bb = 1, bv = Infinity;
+    for (var ga = 0; ga < gs.length; ga++) for (var gb = ga + 1; gb < gs.length; gb++){
+      var t2 = 0; gs[gb].forEach(function(j){ t2 += gd(ga, j); }); t2 /= gs[gb].length;
+      if (t2 < bv){ bv = t2; ba = ga; bb = gb; }
+    }
+    gs[ba] = gs[ba].concat(gs[bb]); gs.splice(bb, 1);
+    gs.forEach(function(m, gi){ m.forEach(function(j){ gr[j] = gi; }); });
+  }
+  /* neighbours in one group are one part */
+  var out = [];
+  for (i = 0; i < ns; i++) if (!out.length || out[out.length - 1].g !== gr[i]) out.push({ k: st[i], g: gr[i] });
+  if (out.length < 2) return null;
+  /* rank the groups by fullness (every level over its own middle, in spread units, over each part's first 16 bars): the
+     fullest keeps the deck's own colour */
+  var lvlG = gs.map(function(m, gi){ var t = 0, c = 0; for (var j = 0; j < ns; j++) if (gr[j] === gi){ var e1 = Math.min(en[j], st[j] + 16); for (var d1 = 0; d1 < NL; d1++) t += ((P[e1 * K + d1] - P[st[j] * K + d1]) / (e1 - st[j]) - mdv[d1]) / sc[d1]; c++; } return { gi: gi, l: c ? t / c : -99 }; });
+  var used = {}; out.forEach(function(o){ used[o.g] = 1; });
+  lvlG = lvlG.filter(function(o){ return used[o.gi]; }).sort(function(p, q){ return q.l - p.l; });
+  var rk = {}, gid = {}; lvlG.forEach(function(o, r){ rk[o.gi] = r; });
+  out.forEach(function(o){ if (!(o.g in gid)) gid[o.g] = Object.keys(gid).length; });   /* groups numbered in order of first appearance */
+  return out.map(function(o, j){ return { b: j ? b0 + o.k : 0, g: gid[o.g], r: rk[o.g] }; });
 }
 /* everything the worker computes for a track: tempo, beat grid, key, and (v4.102) its shape */
 function analyseTrack(x, sr){
@@ -1888,7 +2000,7 @@ Deck.prototype.rescan = function(){
   return monoDownsampleAsync(chans, factor).then(function(mono){ return analyse(mono, sr, { label: 'deck ' + d.L, playing: d.playing }); }).then(function(r){
     if (d.buffer !== token) return;
     d.bpm = r.bpm; d.key = r.key; d.grid = r.grid || null; d.shape = r.shape || null; d.scanDone = true; d.setStatus('');
-    try{ var J = window.__ADJ; d.q.wave.title = d.shape && d.grid && J && J.shapeWords ? 'song shape: ' + J.shapeWords(d.shape) + ' (the strip under the waveform)' : ''; }catch(e){}   /* v4.104 */
+    try{ var J = window.__ADJ; d.q.wave.title = (d.shape && d.grid && J && J.shapeWords ? 'song shape: ' + J.shapeWords(d.shape) + ' (the strip under the waveform)' : '') + (d.shape && d.shape.secs ? '\nshading: the song\'s parts, brightest = the fullest part, a part that comes back keeps its shade, a notch where each part starts' : ''); }catch(e){}   /* v4.104, v4.108 */
     d.setColor(r.key ? camelotColor(r.key.n, r.key.letter) : null);
     d.draw(); d.render(); applyLock(); renderCentre();
   }, function(){ if (d.buffer === token){ d.scanDone = true; d.setStatus('analysis failed — deck still plays', true); } d.render(); });
@@ -2901,13 +3013,44 @@ Deck.prototype.draw = function(){
     }
     d.peaks = pk;
   }
-  g.fillStyle = HWC(d.color); g.globalAlpha = 0.85;
-  var mid = h / 2;
-  for (x = 0; x < w; x++){ var y0 = mid + d.peaks[x * 2] * mid * 0.92, y1 = mid + d.peaks[x * 2 + 1] * mid * 0.92; g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0))); }
-  g.globalAlpha = 1;
+  var pkz = d.peaks; secWave(g, d, w, h, 0, d.buffer.duration, 0.85, function(x, o){ o[0] = pkz[x * 2]; o[1] = pkz[x * 2 + 1]; return true; });   /* v4.108 parts shaded */
   d.drawGrid(g, w, h, 0, d.buffer.duration);
   d.drawHead(g, w, h);
 };
+/* v4.108 (pushedbutton 12:39: "I like the existing colours, but distinct shading to show a different section"): the song's
+   parts shade the deck's own colour. The fullest part (a chorus, a drop) keeps full strength, quieter parts are paler, and a
+   part that comes back (the second chorus) comes back in its shade. With phrase flags set the shading follows the flags
+   instead (drop full, build paler, intro/outro palest), so the two never disagree. Spans: [{t: start s, r: 0-3}], t ascending. */
+var SEC_AL = [1, 0.64, 0.44, 0.3];   /* strength per rank, times the wave's own alpha */
+function secSpans(d){
+  if (!d.buffer) return null;
+  var ph = d.phrases, s = d.shape;
+  if (ph && ph.length){
+    var RR = { drop: 0, build: 1, intro: 2, outro: 2 }, out = [{ t: 0, r: 2 }];
+    ph.map(function(m){ return { t: d.phraseT(m.bar), r: m.role in RR ? RR[m.role] : 1 }; }).sort(function(a, b){ return a.t - b.t; })
+      .forEach(function(p){ if (p.t <= 0.05) out[0].r = p.r; else if (out[out.length - 1].r !== p.r) out.push(p); });
+    return out.length > 1 ? out : null;
+  }
+  return s && s.secs && s.secs.length > 1 && s.secs[1].t != null ? s.secs : null;
+}
+/* the shaded waveform: columns x of [t0, t1], peak pair (mn, mx) per column from get(x, out); a seam (a short notch at the top
+   and the bottom, in the deck's colour) where a part starts */
+function secWave(g, d, w, h, t0, t1, al, get){
+  var sp = secSpans(d), mid = h / 2, pk = [0, 0], j = 0, cur = -1, col = HWC(d.color), span = t1 - t0;
+  g.fillStyle = col;
+  for (var x = 0; x < w; x++){
+    if (!get(x, pk)) continue;
+    if (sp){ var tm = t0 + (x + 0.5) / w * span; while (j + 1 < sp.length && sp[j + 1].t <= tm) j++; var a = al * (tm < sp[0].t ? SEC_AL[0] : SEC_AL[sp[j].r] || 1); if (a !== cur){ g.globalAlpha = cur = a; } }
+    else if (cur < 0) g.globalAlpha = cur = al;
+    var y0 = mid + pk[0] * mid * 0.92, y1 = mid + pk[1] * mid * 0.92;
+    g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0)));
+  }
+  if (sp && !(d.phrases && d.phrases.length)){
+    var nh = Math.max(3, Math.round(h * 0.13)); g.globalAlpha = 0.95;
+    for (var i = 1; i < sp.length; i++){ var sx = Math.round((sp[i].t - t0) / span * w); if (sx < -1 || sx > w + 1) continue; g.fillRect(sx - 1, 0, 2, nh); g.fillRect(sx - 1, h - nh, 2, nh); }
+  }
+  g.globalAlpha = 1;
+}
 /* v4.104 (pushedbutton 16:17: "I'd definitely use more visual cues like that"): the song's skyline along the bottom of its
    waveform, from the shape read on load: the drum intro green, the song in the deck's colour, the drum runway at the end blue
    with a light on every bar, a fade sinking away, silence before or after the music dim. Hover the waveform for the words. */
@@ -2981,9 +3124,7 @@ Deck.prototype.tick = function(){
   var vz = d.viewWindow();
   if (vz.zoomed){ d.drawZoomed(g, w, h, vz.t0, vz.t1); }
   else {
-    g.fillStyle = HWC(d.color); g.globalAlpha = 0.85; var mid = h / 2;
-    if (d.peaks) for (var x = 0; x < w; x++){ var y0 = mid + d.peaks[x * 2] * mid * 0.92, y1 = mid + d.peaks[x * 2 + 1] * mid * 0.92; g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0))); }
-    g.globalAlpha = 1;
+    var pkz = d.peaks; if (pkz && pkz.length === w * 2) secWave(g, d, w, h, 0, d.buffer.duration, 0.85, function(x, o){ o[0] = pkz[x * 2]; o[1] = pkz[x * 2 + 1]; return true; });   /* v4.108 parts shaded */
     d.drawGrid(g, w, h, 0, d.buffer.duration);
   }
   d.drawHead(g, w, h, vz);
@@ -3165,19 +3306,16 @@ function drawStackLane(g, d, w, laneH){
     return;
   }
   var ch = d.buffer.getChannelData(0), sr = d.buffer.sampleRate, dur = d.buffer.duration;
-  var mid = laneH / 2, per = vw2.span * sr / w, S = per >= LANE_BLK * 2 ? laneSummary(d) : null;
-  g.fillStyle = HWC(d.color); g.globalAlpha = 0.9;
-  for (var x = 0; x < w; x++){
+  var per = vw2.span * sr / w, S = per >= LANE_BLK * 2 ? laneSummary(d) : null;
+  secWave(g, d, w, laneH, vw2.t0, vw2.t1, 0.9, function(x, o){   /* v4.108 parts shaded, as on the deck */
     var ta = vw2.t0 + x / w * vw2.span, tb = ta + vw2.span / w;
-    if (tb <= 0 || ta >= dur) continue;
+    if (tb <= 0 || ta >= dur) return false;
     var a = Math.max(0, Math.floor(ta * sr)), b = Math.min(ch.length, Math.floor(tb * sr)), mn = 0, mx = 0;
     if (S && per >= LANE_BLK * 32){ var B2 = LANE_BLK * 16; for (var k2 = Math.floor(a / B2), kb2 = Math.min(S.mn2.length, Math.max(k2 + 1, Math.ceil(b / B2))); k2 < kb2; k2++){ if (S.mn2[k2] < mn) mn = S.mn2[k2]; if (S.mx2[k2] > mx) mx = S.mx2[k2]; } }
     else if (S){ for (var k = Math.floor(a / LANE_BLK), kb = Math.min(S.mn.length, Math.max(k + 1, Math.ceil(b / LANE_BLK))); k < kb; k++){ if (S.mn[k] < mn) mn = S.mn[k]; if (S.mx[k] > mx) mx = S.mx[k]; } }
     else for (var i = a; i < b; i++){ var v = ch[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-    var y0 = mid + mn * mid * 0.92, y1 = mid + mx * mid * 0.92;
-    g.fillRect(x, Math.min(y0, y1), 1, Math.max(1, Math.abs(y1 - y0)));
-  }
-  g.globalAlpha = 1;
+    o[0] = mn; o[1] = mx; return true;
+  });
   d.drawGrid(g, w, laneH, vw2.t0, vw2.t1);
 }
 function drawStack(){
@@ -6249,6 +6387,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.108', t:'Song parts shaded on the waveform', d:"The waveforms shade each song part in the deck's colour, the fullest brightest; a returning chorus keeps its shade, a notch at each start.", p:'presentability', i:'med', e:'low', st:'verified', ev:'node: 6/6 synthetic songs, 19/22 part starts within a bar, 0 false, 9/9 repeats grouped; headless shots both themes 1280 + 390, 0 errors; real songs untested' },
   { s:'log', v:'v4.107', t:'Outlines switch', d:'A pencil button next to bold turns the ink lines off, so the colours melt into each other; the white wash still draws its sketch.', p:'creativity', i:'low', e:'low', st:'verified', ev:'headless probe: button hidden until bold is on, aria-pressed, saved per browser, lines fade over a third of a second, max frame swing .016; screenshot without lines' },
   { s:'log', v:'v4.106', t:'White wash', d:'Now and then a big drop fades bold mode to white for a couple of bars, the drawing still showing, then the colours return.', p:'creativity', i:'low', e:'low', st:'verified', ev:'headless probe: 1.4 s in, 3.2 s hold, 2.6 s out, max frame swing .061 (limit .1), screenshot of the white sketch; real drops untested' },
   { s:'log', v:'v4.105', t:'Bold colours take turns', d:'Bold mode turns through eleven hand-picked colours and a new scheme each look, so green and pink stop hogging it.', p:'creativity', i:'med', e:'low', st:'verified', ev:'headless flash probe swing .025-.042 (limit .1), screenshots across 3 looks show lime, violet, red; real hours-long sets untested' },
