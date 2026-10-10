@@ -11,7 +11,7 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
 - 05:33: the real singers' voice quality comes first. The cursed shelf stays small and simple.
 
 ## cast
-- Tinka Orgel: music-box soprano, pink twin tails, a gold wind-up key on her back. Bell partials + winding ratchet ("musicbox" extra). Bright, light vibrato. Demo: Kira Kira Boshi.
+- Tinka Orgel: music-box soprano, pink twin tails, a gold wind-up key on her back. Bell partials + winding ratchet ("musicbox" extra). Bright, light vibrato. Demo: Wind Me Up! (her own song).
 - Nemu Kasumi: sleepy ghost alto. Ghost tail, nightcap, pillow hug, droopy lids. Breathy (breath .8, whisper .2), slow vibrato, scoops, phrase-end falls. Yawns ("sleepy" extra). Dozes between phrases and when idle, with z particles. Demo: "Five More Minutes" (coordinator's lyric, trails off into a hum).
 - Chin-chan (cursed shelf): haunted microwave. Square-wave quantised voice, band-limited, cut-off phrases, 3 beeps per phrase end + a final CHIN. A tiny ghost rides the turntable and the LCD shows the syllable. Demo: the jingle.
 
@@ -23,6 +23,16 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
 - The app caches the last 8 renders and pre-renders 0.5 s after an edit. Note taps preview one syllable on the main thread.
 
 ## log
+- 05:59 v1.1:
+  - Volume: pochinia found v1.0 too loud. The default is now about 6 dB lower (gain = (vol/100)^2, default 67). A speaker button + slider sit in the transport; on phones the button opens a popover. Saved in 'kks-vol'. The meters read pre-fader.
+  - A first visit opens with Nemu + "Five More Minutes" (her app hook).
+  - New original songs: "Wind Me Up!" (Tinka's own bubbly music-box pop, chorus leaps up to E6, her demo now) and "Paper Wings / Kami no Tsubasa" (Nemu's sleepy flying song, pochinia asked for a "Fly, My Wings" vibe; original melody + lyrics).
+  - Tempo moved to the transport (pochinia 05:59): a 'Tempo · BPM' − [typable number] + stepper (hold to run, clamped 50-200). Changing it stops playback (needs a re-render). On phones the clock hides and the status wraps under the transport row.
+  - The song picker is a row of studio tiles (dot = whose song) instead of a native select.
+  - Softer faces: lids follow the lash curve; Nemu has droopy tareme corners.
+  - Voice: a few cents of slow pitch drift, a vibrato rate wobble + slight loudness coupling, and soft breath intakes before phrases (Tinka .7, Nemu 1.5).
+  - English lines (l/v/th/consonant endings) no longer auto-split like romaji ("five" stays one note); magic-e diphthongs.
+  - Note-length buttons read 1/8 1/4 3/8 1/2. Desktop editor overflow fixed (grid children min-width 0).
 - 05:50 v1.0: Tinka, Nemu, Chin-chan. 6 songs (Twinkle, the jingle, Five More Minutes, Frère Jacques, Sakura Sakura, Ode to Joy). Tap piano roll with keyboard access, lyrics, tempo, karaoke, VU meters. Each singer brings her demo song when the current song is another singer's demo. Fixed a hiss-resonator blow-up that clicked before s/sh after l/m/n (stale coefficients + zero noise centre).
 
 ## issues
@@ -36,6 +46,5 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
   - It must never block a genre.
 - More cute banks: Konta Hidamari (fox-boy tenor), Shuwa Ramune (soda girl).
 - Cursed shelf: dial-up modem choir (promised on stream), goose, and a generic monster energy-drink can (no brand: fangs on the pull tab, claw stripes, jittery eyes, fizzy over-caffeinated voice, fast vibrato, crackle, a burp at phrase ends).
-- Restyle the song picker to match the studio chrome (song tiles or a styled select). pochinia/coordinator 05:48.
 - Languages: per-language phoneme tables (EN vowels beyond aiueo, DE ü/ö, FR nasal vowels). An explicit language toggle could beat the line-sniffing heuristic.
 - A share link (#hash with the notes + lyrics + singer).
