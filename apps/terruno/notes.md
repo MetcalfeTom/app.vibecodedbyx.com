@@ -10,6 +10,7 @@ An editable, never-ending top-down pixel world for arianmartiz (2026-10-10 18:17
 - UI: Pixelify Sans + Silkscreen, plum panels (#2a2033) with gold accent (#f2b94b).
 
 ## log
+- v1.9 (2026-10-10 22:26 UTC, Pushed's idea): the bucket. The grudge visit ends with v.tossUntil (bucket in hand, raised) and ru.soak: at soak .5 a water arc of fx drops flies from the bucket, at 0 Russ is wet (drips, dark wet streaks, shake + droplet puff at the end) and runs. A soaked Russ sulks: sulkDay = next day, no dawn crow (toast), night() keeps villagers in bed until p .2 or until his late crow at p .125 ('Everyone overslept!'). Probe tip: the capture fires one more frame with now ~2 s later, so pose timers need +2 s.
 - v1.8.1 (2026-10-10 22:21 UTC): Russ's false alarm sets off the frogs: each frog (m.storm) croaks ~7 times fast, staggered, then the pond goes silent for 14-22 s.
 - v1.8 (2026-10-10 22:18 UTC): pond frogs. updFrogs() at darkness>.25 hops up to 5 frogs out of the water onto shore tiles 4-16 tiles away (m.jump arc + splash puff); they sit, croak (frame 2 throat sac, ribbit() square-wave synth, only when AC is running) and plop back into the water (jump.out -> removed) when you come within 34 px or dawn comes. Eyeshine pixels drawn in drawNight so they read in the dark.
 - v1.7 (2026-10-10 22:14 UTC): the grudge. Anyone Russ wakes with a false alarm gets v.grudge; next morning think() sends them to the nearest rooster (st 'grudge'), arrived() shows the 'mad' storm-cloud bubble (BK.c grey) and Russ bolts with a squawk. Roosters squawk when they flee too.
