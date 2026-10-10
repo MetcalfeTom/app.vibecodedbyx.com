@@ -23,6 +23,11 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
 - The app caches the last 8 renders and pre-renders 0.5 s after an edit. Note taps preview one syllable on the main thread.
 
 ## log
+- 06:23 v1.3 genres: a Band row under the song tiles (Solo / Pop / Sad / Rock / Lullaby, radiogroup). The band follows the melody: Krumhansl key (major AND minor now; Sakura and Paper Wings read as A minor), half-bar diatonic chords, drums/bass/keys per genre, 1-bar count-in (lullaby: a 2-bell pickup, no drums), the final chord rings. Lullaby swings the eighths for the voice and the band alike (plan T8). Each genre also changes how she sings (engine GSTYLE: pop brighter/lighter vibrato, sad breathier + slower wider vibrato + falls, rock brighter + onset overshoot, lullaby breathier/softer); the cursed square voices ignore GSTYLE. Breathy singers (Nemu) only get 30% of the extra breath (bz()).
+  - Presets bring a default band (GDEF): Kira/Wind Me Up/jingle pop, Nemu's two songs lullaby, Sakura sad; Frere/Ode solo. song.genre is saved and part of the render cache key.
+  - Reactions (REACT table): one bubble line + a tiny expression when you pick a band, never blocking. Nemu yawns at rock ("...too loud... *yawn*"), Tinka hops for pop and curtsies at the end of a sad song, Nemu drifts off after a lullaby, Chin-chan flashes BEEP.
+  - Clock/playhead now use the render's own lead (count-in). Key readout ("key C major") next to the band picker.
+  - bOsc rewritten without per-sample exp (multiplicative envelopes). Band renders add ~0.2-0.6 s in node.
 - 06:17 v1.2.1: pochinia asked "is tinka's wind up key supposed to be in her hair?" The key now comes out of her lower BACK: backKey() is drawn first (the dress hides the root, the pigtail tips end above it, so no hair can cover it), with a shadow where the shaft leaves the dress, a collar, and two loops that turn around the shaft while she sings. og.png re-rendered with Tinka smaller so the key shows. Before/after crop probe: scratchpad hm/kks/keycrop.js.
 - 06:12 v1.2 portrait polish (pochinia: "a bit more detailed and cuter"):
   - All faces: layered anime irises (dark top band, pupil, light lower crescent, flecks) with two catchlights, lids per singer (lashShape) + outer lash flicks on Tinka, soft gradient blush ovals, cleaner line weight, hair strands + a shine band in the fringe.
@@ -48,7 +53,7 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
 
 ## todos
 - Voice polish for Tinka and Nemu (vowel naturalness, glides, vibrato shape). Listen on real speakers and ask pochinia.
-- Genres round: a picker with 🎵 pop / 💧 sad / 🎸 rock / 🌙 lullaby. The Web Audio backing band (drums, bass, chords following key/tempo/swing) plus singing-style changes per genre.
+- (done v1.3) Genres round: a picker with 🎵 pop / 💧 sad / 🎸 rock / 🌙 lullaby. The Web Audio backing band (drums, bass, chords following key/tempo/swing) plus singing-style changes per genre.
   - Each singer reacts with one line + a tiny expression. Nemu loves sad/lullaby and yawns at rock ("...too loud... *yawn*"). Tinka lives for pop and curtsies at the end of sad songs. Cursed ones do their own thing.
   - It must never block a genre.
 - More cute banks: Konta Hidamari (fox-boy tenor), Shuwa Ramune (soda girl).

@@ -102,6 +102,9 @@ header .sp{flex:1}
 #lenSeg button{font-family:var(--mono);font-size:.78rem;font-weight:700}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--acc);color:var(--accInk)}
+.gseg button{font-size:.8rem;font-weight:600;padding:0 .62rem;letter-spacing:.02em}
+.gseg button[aria-checked="true"]{background:var(--acc);color:var(--accInk)}
+.keyinfo{font:500 .72rem "IBM Plex Mono",monospace;color:var(--mute);padding-bottom:.35rem;white-space:nowrap}
 .tb{min-height:2.75rem;min-width:2.75rem;border:1px solid var(--line2);border-radius:.35rem;background:var(--panel2);cursor:pointer;font-weight:600;padding:0 .7rem}
 .tb:hover,.seg button:hover:not([aria-pressed="true"]){background:#2a2e38}
 .bar .sp{flex:1}
@@ -180,6 +183,12 @@ footer{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;font-
       <div class="fld songs"><span class="lbl" id="songL">Song</span><div class="tiles" id="songSel" role="radiogroup" aria-labelledby="songL"></div></div>
       <span class="sp"></span>
     </div>
+    <div class="bar band">
+      <div class="fld"><span class="lbl" id="bandL">Band</span>
+        <div class="seg gseg" id="bandSeg" role="radiogroup" aria-labelledby="bandL"></div></div>
+      <span class="sp"></span>
+      <span class="keyinfo" id="keyInfo"></span>
+    </div>
     <div class="lyr"><label class="lbl" for="lyr">Lyrics · one syllable per note</label>
       <textarea id="lyr" rows="2" spellcheck="false" autocomplete="off" placeholder="ki ra ki ra · twin-kle · きらきら · _ holds a note"></textarea></div>
     <div class="bar">
@@ -202,7 +211,7 @@ footer{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;font-
   </section>
 
   <footer><span>Original singers. Public-domain melodies + one original jingle. Every voice is synthesised in your browser.</span>
-    <span id="buildstamp" role="note" aria-label="Build information">build v1.2.1 · 2026-10-10</span></footer>
+    <span id="buildstamp" role="note" aria-label="Build information">build v1.3 · 2026-10-10</span></footer>
 </main>
 
 <div class="transport" role="region" aria-label="Transport">
@@ -378,11 +387,13 @@ function transposeFor(notes, V){
 
 /* ---------- plan: notes -> timeline (seconds) ---------- */
 function plan(song, V){
-  var spb8 = 60 / song.bpm / 2, lead = V.lead || .3;
+  var spb8 = 60 / song.bpm / 2, lead = V.lead || .3, sw8 = (V.swing || 0) * spb8;
+  /* swung eighths: off-beats land a little late (the band uses the same rule) */
+  function T8(e){ var fl = Math.floor(e + 1e-6); return lead + e * spb8 + (fl % 2 === 1 && Math.abs(e - fl) < 1e-6 ? sw8 : 0); }
   var notes = (song.notes || []).slice().sort(function(a, b){ return a.t - b.t; });
   var syl = assign(notes, song.lyrics, V), tr = transposeFor(notes, V) + (V.semi || 0);
   var tl = notes.map(function(n, i){
-    return { i: i, s: lead + n.t * spb8, e: lead + (n.t + n.d) * spb8, p: n.p + tr, wp: n.p, d: n.d, y: syl[i], t8: n.t };
+    return { i: i, s: T8(n.t), e: T8(n.t + n.d), p: n.p + tr, wp: n.p, d: n.d, y: syl[i], t8: n.t };
   });
   if (V.honk) tl.forEach(function(x, i){ if (i % V.honk === V.honk - 1 && !x.y.hold) { x.y = parseSyl('honk'); x.honk = 1; } });
   for (var i = 0; i < tl.length; i++) {
@@ -700,14 +711,23 @@ var EXTRAS = {
 
 /* ---------- the backing band: key + chords from the melody, then drums/bass/keys per genre ---------- */
 var KPROF = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
-var DEG = [[0, 0], [2, 1], [4, 1], [5, 0], [7, 0], [9, 1]], DEGP = [.35, .05, 0, .2, .28, .15];
+var KPROFM = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+var DEG0 = [[0, 0], [2, 1], [4, 1], [5, 0], [7, 0], [9, 1]], DEGP0 = [.35, .05, 0, .2, .28, .15];
+/* minor keys: i, III, iv, v, VI, VII (+ a major V for the cadence) */
+var DEGM = [[0, 1], [3, 0], [5, 1], [7, 1], [8, 0], [10, 0], [7, 0]], DEGPM = [.35, .1, .2, .12, .18, .1, .15];
+var SCALE = [0, 2, 4, 5, 7, 9, 11], SCALEM = [0, 2, 3, 5, 7, 8, 10, 11];
 function keyOf(tl){
   var h = new Array(12).fill(0); tl.forEach(function(x){ h[((x.p % 12) + 12) % 12] += x.d; });
-  var best = 0, bs = -1e9;
-  for (var k = 0; k < 12; k++) { var s = 0; for (var i = 0; i < 12; i++) s += h[(i + k) % 12] * KPROF[i]; if (s > bs) { bs = s; best = k; } }
-  return best;
+  var best = 0, bs = -1e9, mi = 0;
+  for (var k = 0; k < 12; k++) for (var m = 0; m < 2; m++) {
+    var pr = m ? KPROFM : KPROF, s = 0; for (var i = 0; i < 12; i++) s += h[(i + k) % 12] * pr[i];
+    if (m) s -= 1e-6; /* a tie goes to major */
+    if (s > bs) { bs = s; best = k; mi = m; }
+  }
+  return { k: best, minor: mi };
 }
-function chordsFor(tl, key, segs, seg8){
+function chordsFor(tl, key, segs, seg8, minor){
+  var DEG = minor ? DEGM : DEG0, DEGP = minor ? DEGPM : DEGP0, SC = minor ? SCALEM : SCALE;
   /* one chord per half bar: chord tones score, clashes cost, staying put and I at both ends are cheap */
   var out = [], prev = 0;
   for (var h = 0; h < segs; h++) {
@@ -719,7 +739,7 @@ function chordsFor(tl, key, segs, seg8){
       tl.forEach(function(x){
         var o = Math.min(b, x.t8 + x.d) - Math.max(a, x.t8); if (o <= 0) return; any = true;
         var iv = (((x.p % 12) + 12) % 12 - root + 12) % 12;
-        s += o * (tones.indexOf(iv) >= 0 ? 1 : [0, 2, 4, 5, 7, 9, 11].indexOf((iv + root - key + 24) % 12) >= 0 ? -.25 : -1.2);
+        s += o * (tones.indexOf(iv) >= 0 ? 1 : SC.indexOf((iv + root - key + 24) % 12) >= 0 ? -.25 : -1.2);
       });
       if (s > bs) { bs = s; best = c; }
     }
@@ -730,20 +750,24 @@ function chordsFor(tl, key, segs, seg8){
   return out;
 }
 function bOsc(buf, sr, t, dur, f, o){
-  /* o: wave saw|tri|sine, amp, atk, dec (exp decay s) or 0 = sustain, rel, lp (one-pole cutoff Hz), det (cents), drive */
-  var a = Math.round(t * sr), n = Math.round((dur + (o.rel || .02)) * sr), ph = Math.random(), ph2 = Math.random(), lp1 = 0, lp2 = 0;
-  var k = o.lp ? 1 - Math.exp(-2 * Math.PI * o.lp / sr) : 1, f2 = f * Math.pow(2, (o.det || 0) / 1200), atk = o.atk || .004, rel = o.rel || .02;
+  /* o: wave saw|tri|sine, amp, atk, dec (exp decay s) or 0 = sustain, rel, lp (one-pole cutoff Hz), det (cents), drive, h2/h3 partials (sine) */
+  var rel = o.rel || .02, a = Math.round(t * sr), n = Math.round((dur + rel) * sr), ph = Math.random(), ph2 = Math.random(), lp1 = 0, lp2 = 0;
+  var k = o.lp ? 1 - Math.exp(-2 * Math.PI * o.lp / sr) : 1, df = f / sr, df2 = f * Math.pow(2, (o.det || 0) / 1200) / sr;
+  var nA = Math.max(1, (o.atk || .004) * sr), nD = dur * sr, nR = Math.max(1, rel * sr), dm = o.dec ? Math.exp(-1 / (o.dec * sr)) : 1, hm = Math.exp(-6 / sr), ed = 1, eh = 1;
+  var w = o.wave === 'saw' ? 1 : o.wave === 'tri' ? 2 : 0, det = o.det ? 1 : 0, h2 = o.h2 || 0, h3 = o.h3 || 0, drv = o.drive || 0, amp = o.amp || .2, lp = !!o.lp, L = buf.length;
   for (var j = 0; j < n; j++) {
-    var i = a + j; if (i < 0) continue; if (i >= buf.length) break;
-    var tt = j / sr, e = Math.min(1, tt / atk) * (o.dec ? Math.exp(-tt / o.dec) : 1) * (tt > dur ? Math.max(0, 1 - (tt - dur) / rel) : 1);
-    ph += f / sr; if (ph >= 1) ph -= 1; ph2 += f2 / sr; if (ph2 >= 1) ph2 -= 1;
+    var i = a + j; if (i >= L) break;
+    var e = (j < nA ? j / nA : 1) * ed * (j > nD ? Math.max(0, 1 - (j - nD) / nR) : 1);
+    ed *= dm; eh *= hm;
+    ph += df; if (ph >= 1) ph -= 1; ph2 += df2; if (ph2 >= 1) ph2 -= 1;
+    if (i < 0) continue;
     var s;
-    if (o.wave === 'saw') s = (2 * ph - 1) + (o.det ? 2 * ph2 - 1 : 0);
-    else if (o.wave === 'tri') s = (ph < .5 ? 4 * ph - 1 : 3 - 4 * ph);
-    else s = Math.sin(6.2832 * ph) + (o.h2 ? o.h2 * Math.sin(12.566 * ph) : 0) + (o.h3 ? o.h3 * Math.sin(18.85 * ph) * Math.exp(-tt * 6) : 0);
-    if (o.drive) s = Math.tanh(s * o.drive);
-    lp1 += (s - lp1) * k; lp2 += (lp1 - lp2) * k;
-    buf[i] += (o.lp ? lp2 : s) * e * (o.amp || .2);
+    if (w === 1) s = (2 * ph - 1) + (det ? 2 * ph2 - 1 : 0);
+    else if (w === 2) s = (ph < .5 ? 4 * ph - 1 : 3 - 4 * ph);
+    else s = Math.sin(6.2832 * ph) + (h2 ? h2 * Math.sin(12.566 * ph) : 0) + (h3 ? h3 * Math.sin(18.85 * ph) * eh : 0);
+    if (drv) s = Math.tanh(s * drv);
+    if (lp) { lp1 += (s - lp1) * k; lp2 += (lp1 - lp2) * k; s = lp2; }
+    buf[i] += s * e * amp;
   }
 }
 function bDrum(buf, sr, t, kind, amp, rnd){
@@ -765,18 +789,31 @@ var GENRES = {
   rock:    { swing: 0,   lvl: .75, drums: 1 },
   lullaby: { swing: .16, lvl: .45, drums: 0 }
 };
+/* how each singer leans into a genre (the cursed square-wave voices ignore this: they do their own thing) */
+var GSTYLE = {
+  pop:     function(V){ return { bright: Math.min(1, br(V) + .12), vib: vb(V) * .8, vibDelay: vd(V) * .8, scoop: (V.scoop || 0) * .7, over: V.over || .3 }; },
+  sad:     function(V){ return { breath: bz(V, .08), vib: vb(V) * 1.15, vibRate: (V.vibRate || 5.5) * .88, vibDelay: vd(V) * 1.4, fall: (V.fall || 0) + .6, verb: (V.verb || 0) + .06, rel: (V.rel || .08) * 1.4, porta: (V.porta || .03) * 1.5 }; },
+  rock:    function(V){ return { bright: Math.min(1, br(V) + .25), vib: vb(V) * .7, atk: (V.atk || .03) * .6, breath: (V.breath || 0) * .6, over: .45, scoop: (V.scoop || 0) * .8 }; },
+  lullaby: function(V){ return { breath: bz(V, .12), bright: Math.max(0, br(V) - .12), vib: vb(V) * .75, vibRate: (V.vibRate || 5.5) * .85, verb: (V.verb || 0) + .08, atk: (V.atk || .03) * 1.4, scoop: (V.scoop || 0) * 1.2 }; }
+};
+/* breathy singers only get a whisper more */
+function bz(V, add){ var b = V.breath || 0; return b + (b > .5 ? add * .3 : add); }
+function br(V){ return V.bright == null ? .5 : V.bright; }
+function vb(V){ return V.vib == null ? .3 : V.vib; }
+function vd(V){ return V.vibDelay == null ? .25 : V.vibDelay; }
 function hzm(m){ return 440 * Math.pow(2, (m - 69) / 12); }
 function band(song, P, genre, sr, N){
   var G = GENRES[genre]; if (!G || !P.tl.length) return null;
-  var tl = P.tl, e8 = P.spb8, lead = P.lead, key = keyOf(tl), rnd = mkRnd(4242), buf = new Float32Array(N);
+  var tl = P.tl, e8 = P.spb8, lead = P.lead, KY = keyOf(tl), key = KY.k, rnd = mkRnd(4242), buf = new Float32Array(N);
   var last = 0; tl.forEach(function(x){ last = Math.max(last, x.t8 + x.d); });
-  var bars = Math.max(1, Math.ceil(last / 8)), segs = bars * 2, ch = chordsFor(tl, key, segs, 4);
+  var bars = Math.max(1, Math.ceil(last / 8)), segs = bars * 2, ch = chordsFor(tl, key, segs, 4, KY.minor);
   /* keep the band in a friendly register whatever octave the singer is in */
   function nearest(pc, around){ var m = around - 6 + ((pc - (around - 6)) % 12 + 12) % 12; return m; }
   function at(e){ var sw = (e % 2 === 1) ? G.swing * e8 : 0; return lead + e * e8 + sw; }
   function triad(c, around){ var r = nearest(c.root, around); return [r, r + (c.minor ? 3 : 4), r + 7]; }
   /* one bar of count-in for the drums, a pickup for the keys */
   if (G.drums) for (var q = 0; q < 4; q++) bDrum(buf, sr, lead - 8 * e8 + q * 2 * e8, genre === 'rock' ? 'rim' : 'hat', genre === 'rock' ? .5 : .55, rnd);
+  else [0, 7].forEach(function(iv, k){ var f = hzm(nearest(key, 74) + iv); addTone(buf, sr, lead - (4 - k * 2) * e8, 1.2, [[f, 1, .7], [f * 2, .15, .2]], .06, 'bell'); });
   for (var h = 0; h < segs; h++) {
     var c = ch[h], e0 = h * 4, bass = nearest(c.root, 40), tri = triad(c, 62);
     if (genre === 'pop') {
@@ -817,7 +854,7 @@ function band(song, P, genre, sr, N){
   if (genre === 'rock') { bDrum(buf, sr, lt, 'crash', .8, rnd); bDrum(buf, sr, lt, 'kick', 1, rnd); [lb + 5, lb + 12, lb + 17].forEach(function(m){ bOsc(buf, sr, lt, 1.6, hzm(m), { wave: 'saw', amp: .08, det: 9, drive: 5, lp: 2200, dec: 1.2, rel: .3 }); }); }
   else if (genre === 'lullaby') { var f = hzm(nearest(lc.root, 74)); addTone(buf, sr, lt, 2.4, [[f, 1, 1.2], [f * 2, .15, .4]], .08, 'bell'); }
   else { triad(lc, 62).forEach(function(m){ bOsc(buf, sr, lt, 1.5, hzm(m), { amp: .1, dec: 1.1, h2: .3, rel: .3 }); }); bOsc(buf, sr, lt, 1.5, hzm(lb), { wave: genre === 'pop' ? 'tri' : 'sine', amp: .45, dec: 1, lp: 900, rel: .3 }); if (genre === 'pop') bDrum(buf, sr, lt, 'kick', .9, rnd); }
-  P.key = key; P.chords = ch; P.bandEnd = lt + 1.8;
+  P.key = key; P.minor = KY.minor; P.chords = ch; P.bandEnd = lt + 1.8;
   return { buf: buf, lvl: G.lvl };
 }
 
@@ -825,7 +862,7 @@ function band(song, P, genre, sr, N){
 function render(song, V, sr){
   sr = sr || 32000;
   var genre = GENRES[song.genre] ? song.genre : null;
-  if (genre) V = Object.assign({}, V, { lead: Math.max(V.lead || .3, 8 * 60 / song.bpm / 2 + .15) });
+  if (genre) V = Object.assign({}, V, V.square ? {} : GSTYLE[genre](V), { lead: Math.max(V.lead || .3, (GENRES[genre].drums ? 8 : 4) * 60 / song.bpm / 2 + .15), swing: GENRES[genre].swing });
   var P = plan(song, V), tl = P.tl;
   if (V.cutPhrase) tl.forEach(function(x){ if (x.pEnd && x.d >= 3) x.cut = x.s + (x.e - x.s) * .55; });
   var end = (tl.length ? tl[tl.length - 1].e : P.lead) + (V.tail || 1.4);
@@ -875,7 +912,7 @@ function parseMelody(str){
   return { notes: notes, len: t };
 }
 
-return { render: render, band: band, GENRES: GENRES, plan: plan, tokenize: tokenize, parseSyl: parseSyl, parseMelody: parseMelody, hz: hz, VOW: VOW, OPEN: OPEN, kanaToRomaji: kanaToRomaji };
+return { render: render, band: band, GENRES: GENRES, GSTYLE: GSTYLE, plan: plan, tokenize: tokenize, parseSyl: parseSyl, parseMelody: parseMelody, hz: hz, VOW: VOW, OPEN: OPEN, kanaToRomaji: kanaToRomaji };
 })();
 if (typeof module !== 'undefined') module.exports = KKSynth;
 </script>
@@ -1307,19 +1344,28 @@ var SONGS = [
 ];
 
 /* ═══════════ state ═══════════ */
+/* every preset song walks in with its own band; Solo is one tap away */
+var GDEF = { kira:'pop', windup:'pop', jingle:'pop', nemu:'lullaby', paper:'lullaby', sakura:'sad' };
+var GNAME = { pop:'Pop', sad:'Sad', rock:'Rock', lullaby:'Lullaby' };
+/* how each singer feels about a genre: one line + a tiny expression (never blocks anything) */
+var REACT = {
+  tinka:{ solo:['Just me and my music box~', 'happy'], pop:['Pop?! My favourite stage! ☆', 'hop'], sad:['I’ll sing it gently… and curtsy at the end.', 'soft'], rock:['Wind me up tighter! Let’s rock ♪', 'hop'], lullaby:['Music-box mode… ♪', 'happy'] },
+  nemu:{ solo:['…just my voice… okay…', 'lid'], pop:['…so bright… okay… mm.', 'lid'], sad:['…rainy songs are cosy… ♡', 'happy'], rock:['…too loud… *yawn*', 'yawn'], lullaby:['…my favourite… zz… I mean, ready.', 'happy'] },
+  chin:{ solo:['SOLO. NO PLATE SPIN.', 'flash'], pop:['BEEP BEEP BEEP ♪ POPCORN MODE', 'flash'], sad:['…the popcorn went cold.', 'tear'], rock:['1200 WATTS. MAXIMUM.', 'flash'], lullaby:['defrost… mode… beep.', 'lid'] }
+};
 var LS = 'kks-v1';
 var state = { singer:'nemu', songId:'nemu', song:null, len:2 };
 function loadSong(id){
   var S = SONGS.filter(function(s){ return s.id === id; })[0] || SONGS[0], m = K.parseMelody(S.mel);
   state.songId = S.id;
-  state.song = { bpm:S.bpm, bars:Math.max(2, Math.ceil(m.len / 8)), notes:m.notes, lyrics:S.lyr };
+  state.song = { bpm:S.bpm, bars:Math.max(2, Math.ceil(m.len / 8)), notes:m.notes, lyrics:S.lyr, genre:GDEF[S.id] || null };
 }
 function save(){ try { localStorage.setItem(LS, JSON.stringify({ singer:state.singer, songId:state.songId, song:state.song, len:state.len })); } catch (e) {} }
 (function restore(){
   try {
     var d = JSON.parse(localStorage.getItem(LS) || 'null');
     if (d && d.song && Array.isArray(d.song.notes)) {
-      state.song = { bpm:+d.song.bpm || 100, bars:Math.max(2, Math.min(32, +d.song.bars || 4)), lyrics:String(d.song.lyrics || ''),
+      state.song = { bpm:+d.song.bpm || 100, bars:Math.max(2, Math.min(32, +d.song.bars || 4)), lyrics:String(d.song.lyrics || ''), genre:K.GENRES[d.song.genre] ? d.song.genre : null,
         notes:d.song.notes.filter(function(n){ return n && isFinite(n.t) && isFinite(n.d) && isFinite(n.p); }).map(function(n){ return { t:+n.t, d:+n.d, p:+n.p }; }) };
       state.songId = d.songId || 'mine';
       if (SINGERS.some(function(s){ return s.id === d.singer; })) state.singer = d.singer;
@@ -1336,28 +1382,28 @@ function sortedNotes(){ return state.song.notes.slice().sort(function(a, b){ ret
 var worker = null, wseq = 0, wwait = {};
 try {
   var src = document.getElementById('engine').textContent +
-    '\nonmessage=function(e){var d=e.data;try{var r=KKSynth.render(d.song,d.voice,d.sr);postMessage({id:d.id,buf:r.buf,sr:r.sr,dur:r.dur,tl:r.tl,P:{beeps:r.P.beeps||[],chin:r.P.chin||0,yawn:r.P.yawn||0}},[r.buf.buffer]);}catch(err){postMessage({id:d.id,err:String(err)});}};';
+    '\nonmessage=function(e){var d=e.data;try{var r=KKSynth.render(d.song,d.voice,d.sr);postMessage({id:d.id,buf:r.buf,sr:r.sr,dur:r.dur,tl:r.tl,P:{beeps:r.P.beeps||[],chin:r.P.chin||0,yawn:r.P.yawn||0,lead:r.P.lead,key:r.P.key,minor:r.P.minor}},[r.buf.buffer]);}catch(err){postMessage({id:d.id,err:String(err)});}};';
   worker = new Worker(URL.createObjectURL(new Blob([src], { type:'text/javascript' })));
   worker.onmessage = function(e){ var w = wwait[e.data.id]; if (w) { delete wwait[e.data.id]; e.data.err ? w.no(e.data.err) : w.ok(e.data); } };
   worker.onerror = function(){ worker = null; Object.keys(wwait).forEach(function(k){ wwait[k].no('worker'); }); wwait = {}; };
 } catch (e) { worker = null; }
 var SR = 32000, cache = new Map();
-function songKey(S, song){ return JSON.stringify([S.id, song.bpm, song.notes, song.lyrics]); }
-function renderMain(song, S){ var r = K.render(song, S.voice, SR); return { buf:r.buf, sr:r.sr, dur:r.dur, tl:r.tl, P:{ beeps:r.P.beeps || [], chin:r.P.chin || 0, yawn:r.P.yawn || 0 } }; }
+function songKey(S, song){ return JSON.stringify([S.id, song.bpm, song.notes, song.lyrics, song.genre || '']); }
+function renderMain(song, S){ var r = K.render(song, S.voice, SR); return { buf:r.buf, sr:r.sr, dur:r.dur, tl:r.tl, P:{ beeps:r.P.beeps || [], chin:r.P.chin || 0, yawn:r.P.yawn || 0, lead:r.P.lead, key:r.P.key, minor:r.P.minor } }; }
 function getRender(song, S){
   var key = songKey(S, song);
   if (cache.has(key)) return Promise.resolve(cache.get(key));
   var pr = new Promise(function(ok, no){
     if (!worker) { try { ok(renderMain(song, S)); } catch (e) { no(e); } return; }
     var id = ++wseq; wwait[id] = { ok:ok, no:function(err){ try { ok(renderMain(song, S)); } catch (e) { no(e); } } };
-    worker.postMessage({ id:id, song:{ bpm:song.bpm, notes:song.notes, lyrics:song.lyrics }, voice:S.voice, sr:SR });
+    worker.postMessage({ id:id, song:{ bpm:song.bpm, notes:song.notes, lyrics:song.lyrics, genre:song.genre || null }, voice:S.voice, sr:SR });
   }).then(function(r){ cache.set(key, r); if (cache.size > 8) cache.delete(cache.keys().next().value); return r; });
   cache.set(key, pr);
   pr.catch(function(){ cache.delete(key); });
   return pr;
 }
 var preT = 0;
-function prerender(){ clearTimeout(preT); preT = setTimeout(function(){ if (state.song.notes.length) getRender(state.song, singer()).catch(function(){}); }, 500); }
+function prerender(){ clearTimeout(preT); preT = setTimeout(function(){ if (!state.song.notes.length) return; var k = songKey(singer(), state.song); getRender(state.song, singer()).then(function(r){ if (songKey(singer(), state.song) === k) showKey(r); }).catch(function(){}); }, 500); }
 
 /* ═══════════ audio out ═══════════ */
 var AC = null, OUT = null, AN = null, PLAY = null, PREV = null;
@@ -1416,8 +1462,9 @@ function play(){
   getRender(state.song, S).then(function(r){
     if (!PLAY || PLAY.pending !== token) return;
     PLAY = startBuf(r);
-    PLAY.src.onended = function(){ if (PLAY && PLAY.R === r) { stop(true); setStatus('That was “' + songTitle() + '” ♥'); } };
-    setStatus(S.name + ' sings “' + songTitle() + '”');
+    PLAY.src.onended = function(){ if (PLAY && PLAY.R === r) { stop(true); setStatus('That was “' + songTitle() + '” ♥'); ended(S); } };
+    setStatus(S.name + ' sings “' + songTitle() + '”' + (state.song.genre ? ' with the ' + GNAME[state.song.genre].toLowerCase() + ' band' : ''));
+    showKey(r);
   }).catch(function(){ PLAY = null; setPlayUI(false); setStatus('Her voice glitched. Try again?'); });
 }
 function songTitle(){ var s = SONGS.filter(function(x){ return x.id === state.songId; })[0]; return s ? s.title : 'your song'; }
@@ -1441,6 +1488,7 @@ function sayHi(){
 /* ═══════════ stage ═══════════ */
 var cv = $('#stageCv'), g = cv.getContext('2d'), DPR = 1, SW = 0, SH = 0;
 function fitStage(){ DPR = Math.min(2, window.devicePixelRatio || 1); SW = cv.clientWidth; SH = cv.clientHeight; cv.width = Math.round(SW * DPR); cv.height = Math.round(SH * DPR); }
+var reactUntil = 0, reactKind = '', curtsyUntil = 0;
 var parts = [], blinkAt = 2, blinkEnd = 0, lastNoteK = -1, idleSince = performance.now() / 1000, yawnUntil = 0, beepFlash = 0, spin = 0, hopV = 0, hop = 0;
 function spawn(kind, x, y, n){
   if (reduce) return;
@@ -1486,7 +1534,7 @@ function frame(now){
     idleSince = t;
   }
   if (P === PLAY && P) {
-    var pos = Math.max(0, (pt - (S.voice.lead || .3)) / (60 / state.song.bpm / 2));
+    var pos = Math.max(0, (pt - (P.R.P.lead || S.voice.lead || .3)) / (60 / state.song.bpm / 2));
     playPos = pos; rollDirty = true;
     $('#clock').textContent = (Math.floor(pos / 8) + 1) + ' · ' + (Math.floor(pos % 8 / 2) + 1);
   } else if (playPos >= 0 && !PLAY) { playPos = -1; rollDirty = true; $('#clock').textContent = '1 · 1'; }
@@ -1499,6 +1547,13 @@ function frame(now){
     if (t < yawnUntil) { st.shut = 1; st.happy = 0; st.open = .9; st.v = 'o'; st.tear = 1; }
     else if (!reduce && idle > 2 && Math.random() < dt / 9) yawnUntil = t + 1.6;
   }
+  if (t < reactUntil && !st.singing) {
+    if (reactKind === 'happy') { st.shut = 1; st.happy = 1; }
+    else if (reactKind === 'lid') st.lid = .72;
+    else if (reactKind === 'soft') { st.lid = .38; st.look = .3; }
+    else if (reactKind === 'tear') { st.shut = 1; st.tear = 1; }
+  }
+  if (t < curtsyUntil) { st.shut = 1; st.happy = 1; }
   if (S.id === 'chin') { st.flicker = !reduce && (Math.sin(t * 13) > .97 || beepFlash > 0); if (P && st.singing) spin += dt * 2.4; else spin += dt * .2; st.spin = spin; }
   if (beepFlash > 0) beepFlash -= dt;
   hop += hopV * dt * 8; hopV += (-hop * 30 - hopV * 6) * dt; st.hop = hop;
@@ -1517,6 +1572,7 @@ function drawStage(S, st, dt){
   if (S.id === 'chin') cy = SH * .42;
   g.save(); g.translate(cx, cy); g.scale(k, k);
   if (S.sleepy && st.shut && !st.open) g.rotate(Math.sin(st.t * .8) * .05 * st.m + .06);
+  if (st.t < curtsyUntil) { var cp = Math.sin(Math.PI * Math.min(1, 1 - (curtsyUntil - st.t) / 1.5)); g.translate(0, cp * 9); g.rotate(-cp * .05); g.scale(1, 1 - cp * .03); }
   S.draw(g, st);
   g.restore();
   if (beepFlash > 0 && S.id === 'chin') {
@@ -1785,7 +1841,52 @@ function chooseSong(id){
   if (id === 'mine' || id === state.songId) return;
   stop(true); loadSong(id); syncAll(); centerRoll(); save(); prerender(); setStatus('Loaded “' + songTitle() + '”. Press play.');
 }
+function syncBand(){
+  var gn = state.song.genre || 'solo';
+  document.querySelectorAll('#bandSeg button').forEach(function(b){ var on = b.dataset.g === gn; b.setAttribute('aria-checked', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
+  $('#keyInfo').textContent = '';
+}
+function react(gn){
+  var S = singer(), R = (REACT[S.id] || {})[gn]; if (!R) return;
+  bubble(R[0]); var now = performance.now() / 1000; idleSince = now;
+  reactKind = R[1]; reactUntil = now + 1.8;
+  if (R[1] === 'hop') hopV = reduce ? 0 : -3.4;
+  else if (R[1] === 'yawn') yawnUntil = now + 1.6;
+  else if (R[1] === 'flash') beepFlash = .45;
+}
+function setGenre(gn){
+  gn = K.GENRES[gn] ? gn : null;
+  if ((state.song.genre || null) === gn) return;
+  stop(true); state.song.genre = gn; syncBand(); save(); prerender();
+  setStatus(gn ? GNAME[gn] + ' band: drums, bass and chords follow your melody.' : 'Solo: just her voice.');
+  react(gn || 'solo');
+}
+function showKey(r){
+  var k = r && r.P && r.P.key, NNk = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+  $('#keyInfo').textContent = state.song.genre && k != null ? 'key ' + NNk[k] + (r.P.minor ? ' minor' : ' major') : '';
+}
+function ended(S){
+  /* Tinka curtsies after a sad song, Nemu drifts off after a lullaby */
+  var now = performance.now() / 1000;
+  if (state.song.genre === 'sad' && S.id === 'tinka') { curtsyUntil = now + 1.5; bubble('*curtsy* …thank you for listening.'); }
+  else if (state.song.genre === 'lullaby' && S.id === 'nemu') { idleSince = now - 6; bubble('…zz… mm… goodnight…'); }
+}
+(function(){
+  var box = $('#bandSeg'), list = ['solo', 'pop', 'sad', 'rock', 'lullaby'];
+  list.forEach(function(gn){
+    var b = document.createElement('button'); b.type = 'button'; b.dataset.g = gn; b.setAttribute('role', 'radio');
+    b.textContent = gn === 'solo' ? 'Solo' : GNAME[gn];
+    b.addEventListener('click', function(){ setGenre(gn === 'solo' ? null : gn); });
+    b.addEventListener('keydown', function(e){
+      var d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0; if (!d) return;
+      e.preventDefault(); var nx = list[(list.indexOf(gn) + d + list.length) % list.length]; setGenre(nx === 'solo' ? null : nx);
+      var nb = box.querySelector('[data-g="' + nx + '"]'); if (nb) nb.focus();
+    });
+    box.appendChild(b);
+  });
+})();
 function syncAll(){
+  syncBand();
   $('#lyr').value = state.song.lyrics; $('#bpm').value = state.song.bpm;
   document.querySelectorAll('#lenSeg button').forEach(function(b){ b.setAttribute('aria-pressed', +b.dataset.len === state.len ? 'true' : 'false'); });
   syncSongSel(); fitRoll();
