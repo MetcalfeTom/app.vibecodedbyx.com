@@ -19,7 +19,7 @@ A 3D globe of the live weather, for iamflax (Twitch, 2026-10-11 21:38 UTC: "Pitc
 
 - v1.1 (2026-10-11 ~21:58 UTC): iamflax asked to rename the app "Flax World". The name stays Sky Marble (for search), but typing "Flax World" or "flax" in the find box flies to the windiest grid point right now, and the card is named Flax World ("the windiest place on Earth right now, named after Flax"). The first test landed in Antarctica: −34°, 72 km/h, gusts 98.
 
-## issues
+- v1.2 (2026-10-11 ~22:08 UTC): 48-hour forecast slider + ▶ play under the dock. The grid request adds `hourly=...&forecast_hours=48` (same 288 points; hourly[0] is the current hour). Cached as 'skymarble-grid2' with g.h = {time, t,s,d,c,p,w} laid out hour-major (index k*288+i). Hour 0 = the current readings, hour k = hourly[k]. Scrubbing repaints map + clouds (≈47 ms desktop headless), throttled to 110 ms in the render loop via st.wantHour; play steps 1 h per 420 ms. The sun follows the chosen hour (sunNow uses st.when). A spot card at a forecast hour shows the globe's estimate for that hour (no exact fetch); "rain now" becomes "rain"; the header says "forecast · drag back to now". Flax World search uses the windiest point of the shown hour. Phones: find box moved to the top under the title so the time bar fits above the chips.
 - Open-Meteo counts EVERY grid point as a call: 600 a minute, 5000 an hour and 10000 a day per IP. The first build asked for 648 points (10° grid), and the next spot lookup got a 429. Keep the grid under ~300 points. A 429 on a spot shows "the weather service is busy for a minute, this is the globe's estimate".
 - Testing from the sandbox burns the same quota (each headless run = 288 calls). Space out the runs.
 - Land rings crossing the date line are unwrapped and drawn at −360, 0 and +360. Without this, the coast stroke drew rings round the north pole.
@@ -27,6 +27,6 @@ A 3D globe of the live weather, for iamflax (Twitch, 2026-10-11 21:38 UTC: "Pitc
 
 ## todos
 - A wildest-storm button that flies to the strongest wind or heaviest rain right now.
-- A time slider: hourly forecast for the next 24-48 h, so the winds and clouds move.
+- Forecast spot card: fetch the exact hourly forecast for the picked spot (one call) instead of the globe estimate.
 - City lights on the night side, and a terminator glow.
 - Phones: move the globe up when the card is open.
