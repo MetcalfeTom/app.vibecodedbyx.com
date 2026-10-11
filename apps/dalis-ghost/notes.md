@@ -73,3 +73,5 @@ Hard rules: homage, never a replica of real artworks (motifs and moods only: sof
 - The dream floor (Marci's list, only teased so far): Lobster Telephone, Mae West Lips Sofa, Metamorphosis of Narcissus, The Elephants, Soft Construction, ants, drawers, crutches, eggs, Freud's dreams, automatic drawing. Ask her which comes first; the staircase is the way up.
 - 1904 room: harder mode (4-5 differences, subtler ones) if Marci wants; maybe let the twin detective lag a beat behind you.
 - More rooms: Impressionism/Renaissance to Cubism, the Les Dîners de Gala cookbook dinner, Dumas (verify first). Each room its own losing recipe.
+
+- 2026-10-11 17:55 SEO pass (no version bump): 138-char description, VideoGame JSON-LD (title was already good).
