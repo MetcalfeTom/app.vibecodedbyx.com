@@ -74,3 +74,5 @@
 ## todos
 - AudioWorklet migration; wet/dry knob; more scales for autotune (major, chromatic).
 - Upload-a-clip mode (process a file offline via OfflineAudioContext).
+
+- 2026-10-11 18:00 SEO pass (no version bump): schema.org JSON-LD + 110-155 char description.

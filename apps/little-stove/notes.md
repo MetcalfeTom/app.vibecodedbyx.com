@@ -80,3 +80,5 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
 - Shop ideas: daily specials / a sale, a shopping list you tick off, a fridge that shows what spoils.
 - Day and night time with a clock.
 - Tips from the diner.
+
+- 2026-10-11 18:00 SEO pass (no version bump): schema.org JSON-LD + 110-155 char description.

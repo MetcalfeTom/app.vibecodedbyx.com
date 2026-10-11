@@ -77,3 +77,5 @@ pochinia's request (2026-10-10, ~05:15 UTC): a vocaloid-like app with ORIGINAL v
 - Cursed shelf: dial-up modem choir (promised on stream), goose, and a generic monster energy-drink can (no brand: fangs on the pull tab, claw stripes, jittery eyes, fizzy over-caffeinated voice, fast vibrato, crackle, a burp at phrase ends).
 - Languages: per-language phoneme tables (EN vowels beyond aiueo, DE ü/ö, FR nasal vowels). An explicit language toggle could beat the line-sniffing heuristic.
 - (done v1.8) A share link (#hash with the notes + lyrics + singer).
+
+- 2026-10-11 18:00 SEO pass (no version bump): schema.org JSON-LD + 110-155 char description, search title + og:title.
