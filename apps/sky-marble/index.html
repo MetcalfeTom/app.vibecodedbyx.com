@@ -52,6 +52,10 @@ button{font:inherit;color:inherit;cursor:pointer}
 #timebar{display:flex;align-items:center;gap:.6rem;width:min(30rem,100%);background:var(--glass);border:1px solid var(--line);border-radius:999px;padding:.2rem .9rem .2rem .2rem;backdrop-filter:blur(6px)}
 #timebar .chip{border:0;background:var(--cream);color:var(--ink);font-size:.9rem;min-width:2.5rem;min-height:2.5rem;padding:0}
 #timebar .chip[aria-pressed="true"]{background:var(--amber)}
+#timebar .chip:disabled{opacity:.45}
+#storm{position:fixed;left:0;top:0;z-index:3;display:flex;flex-direction:column;align-items:flex-start;gap:.1rem;transform:translate(-50%,calc(-100% - 1rem));background:rgba(20,8,26,.86);border:1px solid #ff6fa8;border-radius:.7rem;padding:.35rem .65rem;color:var(--cream);font:inherit;font-size:.72rem;text-align:left;white-space:nowrap;cursor:pointer;pointer-events:auto}
+#storm b{font-family:var(--disp);font-style:italic;font-weight:800;font-size:1rem;color:#ff9cc4}
+#storm.far{opacity:0;pointer-events:none}
 #hour{flex:1;accent-color:var(--amber);min-height:2.5rem;margin:0}
 #when{font-size:.78rem;color:var(--cream);min-width:6.6rem;text-align:right;white-space:nowrap}
 #hint{font-size:.8rem;color:var(--dim);background:var(--glass);border-radius:999px;padding:.45rem .9rem;transition:opacity .6s}
@@ -110,6 +114,7 @@ button{font:inherit;color:inherit;cursor:pointer}
   <p id="hint">drag to spin · tap anywhere for its weather</p>
   <div id="timebar">
     <button type="button" class="chip" id="play" aria-label="Play the next 48 hours" aria-pressed="false">▶</button>
+    <button type="button" class="chip" id="stormbtn" aria-label="Follow the storm of the day" aria-pressed="false" disabled><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 12c0-1.5 2-1.6 2.4-.2.5 1.9-1.6 3.4-3.4 3-2.6-.6-3.2-3.9-1.5-5.8 2.3-2.6 6.6-2 8.2 1 1.9 3.6-.3 8-4.3 8.9C8.6 19.8 4.3 17 3.8 12.6"/></svg></button>
     <input type="range" id="hour" min="0" max="47" step="1" value="0" aria-label="Forecast hour" aria-valuetext="now" disabled>
     <span id="when" aria-hidden="true">now</span>
   </div>
@@ -122,6 +127,7 @@ button{font:inherit;color:inherit;cursor:pointer}
   </div>
   <div id="legend" aria-hidden="true"><span id="lgLo">−40°</span><i></i><span id="lgHi">45°</span></div>
 </main>
+<button type="button" id="storm" hidden aria-label="Storm details"><b id="stName"></b><span id="stLine"></span></button>
 <aside id="card" hidden aria-live="polite" aria-label="Local weather">
   <button type="button" class="x" id="cardX" aria-label="Close">×</button>
   <p id="place">—</p>
@@ -574,7 +580,7 @@ function flash(msg){ const s = $('status'); s.textContent = msg; s.hidden = fals
 function gridUrl(){
   const la = [], lo = [];
   for (let i = 0; i < G.nLat; i++) for (let j = 0; j < G.nLon; j++){ la.push(G.lat0 + i * G.dLat); lo.push(G.lon0 + j * G.dLon); }
-  return `${API}?latitude=${la.join(',')}&longitude=${lo.join(',')}&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code&forecast_hours=48&wind_speed_unit=ms`;
+  return `${API}?latitude=${la.join(',')}&longitude=${lo.join(',')}&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code,pressure_msl&forecast_hours=48&wind_speed_unit=ms`;
 }
 /* v1.2 forecast: hour 0 = the current readings, hour k = the hourly forecast k hours on (hourly[0] is this hour) */
 function fieldOf(T, S, Dd, C, Pp, W, o){
@@ -588,8 +594,97 @@ function fieldOf(T, S, Dd, C, Pp, W, o){
 function useGrid(g){
   st.grid = g; st.hours = g.h ? g.h.time.length : 1;
   $('hour').max = String(Math.max(0, st.hours - 1)); $('hour').disabled = st.hours < 2;
+  findStorm(); $('stormbtn').disabled = !st.storm;
   st.hour = -1; setHour(+$('hour').value || 0);
 }
+/* v1.4 🌀 the storm of the day: the strongest long-lived low that starts between 20° and 64° latitude (sea-level pressure minima on the grid, refined
+   with a parabola so it glides between grid points), followed hour by hour through the forecast while it lasts. It gets a name
+   for the day and a mood: brewing while it deepens, sulking while it fills, grumbling over land, fizzling when it's lost. */
+const STORM_NAMES = ['Mabel', 'Bramble', 'Gusty Gus', 'Wendell', 'Petula', 'Barnaby', 'Dolores', 'Rumbold', 'Hortense', 'Clement', 'Ottoline', 'Grizelda', 'Fergus', 'Nimbus Nell', 'Sir Drizzle', 'Big Wendy'];
+function lowsAt(R, o){
+  const out = [], W = G.nLon, at = (i, j) => R[o + i * W + ((j % W) + W) % W];
+  for (let i = 1; i < G.nLat - 1; i++){
+    const lat = G.lat0 + i * G.dLat; if (Math.abs(lat) < 20 || Math.abs(lat) > 72) continue;
+    for (let j = 0; j < W; j++){
+      const p = at(i, j); if (p > 1004) continue;
+      let low = true, sum = 0;
+      for (let a = -1; a <= 1 && low; a++) for (let b = -1; b <= 1; b++){ if (!a && !b) continue; const q = at(i + a, j + b); sum += q; if (q < p){ low = false; break; } }
+      if (!low) continue;
+      const pl = at(i, j - 1), pr = at(i, j + 1), pd = at(i - 1, j), pu = at(i + 1, j);
+      const fx = Math.max(-.5, Math.min(.5, .5 * (pl - pr) / ((pl - 2 * p + pr) || 1e-6))), fy = Math.max(-.5, Math.min(.5, .5 * (pd - pu) / ((pd - 2 * p + pu) || 1e-6)));
+      let wmax = 0; for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++){ const ii = i + a; if (ii >= 0 && ii < G.nLat) wmax = Math.max(wmax, st.grid.h.s[o + ii * W + ((j + b) % W + W) % W]); }
+      out.push({ lat: lat + fy * G.dLat, lon: ((G.lon0 + (j + fx) * G.dLon + 540) % 360) - 180, p: Math.round(p - .2 * ((pl + pr + pd + pu) / 4 - p)), wind: wmax });
+    }
+  }
+  return out;
+}
+const angBetween = (a, b) => Math.acos(Math.max(-1, Math.min(1, ll2v(a.lat, a.lon, 1).dot(ll2v(b.lat, b.lon, 1, _v2))))) / D2R;
+function findStorm(){
+  const g = st.grid; st.storm = null; if (!g || !g.h || !g.h.r || !g.h.r.length) return;
+  const n = G.nLat * G.nLon, H = st.hours, lows = [];
+  for (let k = 0; k < H; k++) lows.push(lowsAt(g.h.r, k * n));
+  let best = null;
+  for (const c0 of lows[0]){
+    if (Math.abs(c0.lat) > 64 || c0.p > 1000) continue;   /* skip the lows parked on the Antarctic coast and the desert heat lows */
+    const tr = [c0];
+    for (let k = 1; k < H; k++){
+      let pick = null, dm = 9;
+      for (const c of lows[k]){ const d = angBetween(tr[k - 1], c); if (d < dm){ dm = d; pick = c; } }
+      if (!pick) break; tr.push(pick);
+    }
+    const score = tr.length * .5 + Math.max(...tr.map(t => t.wind)) * 3.6 * .6 + (1012 - Math.min(...tr.map(t => t.p))) * .4 + (c0.lat > 0 ? 8 : 0);
+    if (!best || score > best.score) best = { tr, score };
+  }
+  if (!best) return;
+  const day = Math.floor(Date.parse(g.h.time[0] + ':00Z') / 864e5);
+  st.storm = { name: STORM_NAMES[day % STORM_NAMES.length], tr: best.tr };
+  buildStormPath();
+}
+function stormMood(k){
+  const S = st.storm, tr = S.tr;
+  if (k >= tr.length) return { gone: true, line: 'fizzled out ' + (k - tr.length + 1) + ' h ago, nobody misses it' };
+  const t = tr[k], was = tr[Math.max(0, k - 3)], land = onLand(t.lat, t.lon), dp = t.p - was.p;
+  const mood = land ? 'grumbling over land' : dp < -1.5 ? 'brewing' : dp > 1.5 ? 'sulking, running out of puff' : k === tr.length - 1 && tr.length < st.hours ? 'about to fizzle' : 'cruising';
+  return { gone: false, line: t.p + ' hPa · ' + fmtW(t.wind) + ' · ' + mood };
+}
+const _v2 = new THREE.Vector3();
+const stormG = new THREE.Group(); stormG.visible = false; world.add(stormG);
+const stormPathMat = new THREE.PointsMaterial({ color: 0xff9cc4, size: PHONE ? 3 : 4, sizeAttenuation: false, transparent: true, opacity: .9, depthWrite: false });
+let stormPath = null;
+const stormMark = new THREE.Group(); stormG.add(stormMark);
+const stormArms = new THREE.Mesh(new THREE.RingGeometry(0.026, 0.085, 48, 1, 0, Math.PI * 1.15), new THREE.MeshBasicMaterial({ color: 0xff6fa8, transparent: true, opacity: .6, side: THREE.DoubleSide, depthWrite: false }));
+const stormArms2 = stormArms.clone(); stormArms2.rotation.z = Math.PI;
+stormMark.add(stormArms, stormArms2, new THREE.Mesh(new THREE.RingGeometry(0.011, 0.018, 24), new THREE.MeshBasicMaterial({ color: 0xffe0ee, side: THREE.DoubleSide })));
+function buildStormPath(){
+  if (stormPath){ stormG.remove(stormPath); stormPath.geometry.dispose(); }
+  const pts = [], tr = st.storm.tr;
+  for (let k = 0; k < tr.length; k++){
+    const a = ll2v(tr[k].lat, tr[k].lon, 1.022);
+    if (k === 0){ pts.push(a); continue; }
+    const b = ll2v(tr[k - 1].lat, tr[k - 1].lon, 1.022);
+    for (let q = 1; q <= 4; q++) pts.push(b.clone().lerp(a, q / 4).setLength(1.022));
+  }
+  if (pts.length < 2) pts.push(pts[0].clone());
+  stormPath = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), stormPathMat); stormPath.renderOrder = 4;
+  stormG.add(stormPath);
+}
+function stormHour(fly){
+  const S = st.storm, on = st.stormOn && !!S;
+  stormG.visible = on; $('storm').hidden = !on; if (!on) return;
+  const k = Math.max(0, st.hour), m = stormMood(k), t = S.tr[Math.min(k, S.tr.length - 1)];
+  const v = ll2v(t.lat, t.lon, 1.024); stormMark.position.copy(v); stormMark.lookAt(v.clone().multiplyScalar(2)); stormMark.visible = !m.gone;
+  $('stName').textContent = 'Storm ' + S.name; $('stLine').textContent = m.line;
+  if (fly) lookAtLL(t.lat, t.lon);
+}
+$('stormbtn').addEventListener('click', () => {
+  st.stormOn = !st.stormOn; $('stormbtn').setAttribute('aria-pressed', String(st.stormOn)); hideHint();
+  if (st.stormOn && !st.storm){ st.stormOn = false; $('stormbtn').setAttribute('aria-pressed', 'false'); $('hint').textContent = 'no proper storm out there right now, the planet is behaving'; $('hint').classList.remove('gone'); return; }
+  stormHour(st.stormOn);
+});
+$('storm').addEventListener('click', () => {
+  const S = st.storm, t = S.tr[Math.min(Math.max(0, st.hour), S.tr.length - 1)];
+  showSpot(t.lat, t.lon, 'Storm ' + S.name);
+});
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 function setHour(k){
   const g = st.grid; if (!g) return;
@@ -598,10 +693,11 @@ function setHour(k){
   st.data = k === 0 || !h ? fieldOf(g.t, g.s, g.d, g.c, g.p, g.w, 0) : fieldOf(h.t, h.s, h.d, h.c, h.p, h.w, k * n);
   st.when = k === 0 ? null : new Date(h.time[k] + ':00Z');
   const lbl = k === 0 ? 'now' : DAYS[st.when.getDay()] + ' ' + String(st.when.getHours()).padStart(2, '0') + ':00 · +' + k + ' h';
-  $('when').textContent = lbl;
+  $('when').innerHTML = k === 0 ? 'now' : lbl.replace(' · ', '<span class="lg"> · ') + '</span>';
   $('live').innerHTML = k === 0 ? '<b>●</b> live · ' + g.time.slice(11, 16) + ' UTC' : '◷ forecast · drag back to now'; $('hour').setAttribute('aria-valuetext', k === 0 ? 'now' : lbl.replace('·', ',') + ' your time');
   sunNow(); paintMap(); paintClouds(); applyLayers(false);
   if (st.pick && !$('card').hidden) cardForHour();
+  stormHour(st.stormOn && $('card').hidden);
 }
 function cardForHour(){
   const p = st.pick;
@@ -612,12 +708,12 @@ function cardForHour(){
   if (ix >= 0){
     const row = {}; for (const k in H) if (k !== 'time') row[k] = H[k][ix];
     fillCard(row, false);
-    $('note').textContent = (p.name === 'Flax World' ? 'Flax World as of now · ' : '') + 'forecast for ' + lbl + (p.tz ? ' · ' + H.time[ix].slice(11, 16) + ' ' + p.tz + ' there' : '');
+    $('note').textContent = (p.name === 'Flax World' ? 'Flax World as of now · ' : p.name && p.name.startsWith('Storm ') && st.storm ? stormMood(st.hour).line.split(' · ').pop() + ' · ' : '') + 'forecast for ' + lbl + (p.tz ? ' · ' + H.time[ix].slice(11, 16) + ' ' + p.tz + ' there' : '');
     return;
   }
   fillCard(estimate(p.lat, p.lon), true);
   $('where').textContent = coordTxt(p.lat, p.lon);
-  $('note').textContent = (p.name === 'Flax World' ? 'Flax World as of now · ' : '') + 'forecast for ' + lbl + ', estimated from the globe';
+  $('note').textContent = (p.name === 'Flax World' ? 'Flax World as of now · ' : p.name && p.name.startsWith('Storm ') && st.storm ? stormMood(st.hour).line.split(' · ').pop() + ' · ' : '') + 'forecast for ' + lbl + ', estimated from the globe';
   $('cond').textContent = '';
 }
 function estimate(lat, lon){
@@ -625,7 +721,7 @@ function estimate(lat, lon){
   return { temperature_2m: t, wind_speed_10m: Math.hypot(u, v), wind_direction_10m: (Math.atan2(-u, -v) / D2R + 360) % 360, cloud_cover: sample(d.c, lat, lon), precipitation: Math.max(0, sample(d.p, lat, lon)) };
 }
 function loadGrid(){
-  try{ const c = JSON.parse(store.get('skymarble-grid2') || 'null'); if (c && Date.now() - c.at < 20 * 60e3 && c.t.length === G.nLat * G.nLon){ useGrid(c); return; } }catch(e){}
+  try{ const c = JSON.parse(store.get('skymarble-grid3') || 'null'); if (c && Date.now() - c.at < 20 * 60e3 && c.t.length === G.nLat * G.nLon){ useGrid(c); return; } }catch(e){}
   $('live').textContent = 'fetching the world’s weather…';
   fetch(gridUrl()).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(arr => {
     if (!Array.isArray(arr) || arr.length !== G.nLat * G.nLon) throw new Error('shape');
@@ -633,12 +729,12 @@ function loadGrid(){
     for (const o of arr){ const c = o.current; g.t.push(c.temperature_2m); g.s.push(c.wind_speed_10m); g.d.push(c.wind_direction_10m); g.c.push(c.cloud_cover); g.p.push(c.precipitation); g.w.push(c.weather_code); }
     const H = arr[0].hourly;
     if (H && H.time && arr.every(o => o.hourly && o.hourly.time.length === H.time.length)){
-      const nh = H.time.length, h = { time: H.time, t: [], s: [], d: [], c: [], p: [], w: [] };
-      const keys = [['t', 'temperature_2m'], ['s', 'wind_speed_10m'], ['d', 'wind_direction_10m'], ['c', 'cloud_cover'], ['p', 'precipitation'], ['w', 'weather_code']];
-      for (let k = 0; k < nh; k++) for (const o of arr) for (const [a, b] of keys){ const x = o.hourly[b][k]; h[a].push(x === null ? 0 : x); }
+      const nh = H.time.length, h = { time: H.time, t: [], s: [], d: [], c: [], p: [], w: [], r: [] };
+      const keys = [['t', 'temperature_2m'], ['s', 'wind_speed_10m'], ['d', 'wind_direction_10m'], ['c', 'cloud_cover'], ['p', 'precipitation'], ['w', 'weather_code'], ['r', 'pressure_msl']];
+      for (let k = 0; k < nh; k++) for (const o of arr) for (const [a, b] of keys){ const x = o.hourly[b][k]; h[a].push(x === null ? (a === 'r' ? 1013 : 0) : x); }
       g.h = h;
     }
-    store.set('skymarble-grid2', JSON.stringify(g)); useGrid(g);
+    store.set('skymarble-grid3', JSON.stringify(g)); useGrid(g);
   }).catch(() => {
     $('live').textContent = 'weather offline';
     const s = $('status'); s.hidden = false; s.innerHTML = 'Couldn’t reach the weather service.<br>';
@@ -670,6 +766,13 @@ renderer.setAnimationLoop(ms => {
   if (st.wantHour !== undefined && st.wantHour !== st.hour && ms - (st.paintAt || 0) > 110){ st.paintAt = ms; setHour(st.wantHour); }
   if (st.data && wind.visible) stepWind(Math.min(3, dt * 60) * (RM ? 0.35 : 1));
   if (pin.visible){ const s = 1 + ((ms / 900) % 1) * 1.6; pinRing.scale.setScalar(s); pinRing.material.opacity = 1 - ((ms / 900) % 1); }
+  if (st.stormOn && st.storm){
+    stormArms2.rotation.z -= dt * (RM ? .3 : 1.6); stormArms.rotation.z = stormArms2.rotation.z + Math.PI;
+    stormMark.getWorldPosition(_v2); const facing = _v2.clone().normalize().dot(camera.position.clone().normalize()) > .18;
+    _v2.project(camera); const el = $('storm');
+    el.style.left = ((_v2.x + 1) / 2 * innerWidth).toFixed(1) + 'px'; el.style.top = ((1 - _v2.y) / 2 * innerHeight).toFixed(1) + 'px';
+    el.classList.toggle('far', !facing || !stormMark.visible);
+  }
   renderer.render(scene, camera);
 });
 
@@ -684,7 +787,7 @@ function start(){
     makeLandMask(); paintMap();
   }).catch(() => {});
   loadGrid();
-  setInterval(() => { if (!document.hidden){ store.set('skymarble-grid2', ''); loadGrid(); } }, 20 * 60e3);
+  setInterval(() => { if (!document.hidden){ store.set('skymarble-grid3', ''); loadGrid(); } }, 20 * 60e3);
 }
 start();
 </script>
