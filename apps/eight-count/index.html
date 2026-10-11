@@ -116,6 +116,8 @@ summary:hover{ color:var(--ink); }
 .timing span{ color:var(--mute); font-size:.8rem; }
 .onemsg{ flex-basis:100%; display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; font-size:.85rem; color:var(--mute); }
 .onemsg b{ color:#5fd3c4; }
+.onemsg[hidden]{ display:none; }
+.bmline{ color:var(--mute); }
 .wave{ position:relative; }
 #wave{ display:block; width:100%; height:110px; border:1px solid var(--line); border-radius:6px 6px 0 0; background:#0b1012; cursor:pointer; touch-action:pan-y; }
 /* v2.32 zoom buttons in the waveform's bottom-right corner */
@@ -426,6 +428,7 @@ body.making .spotb{ display:none; }
       <button type="button" id="oneGs" title="Listen to the whole song and put the 1 where the music changes">🧭 guess the 1</button>
       <span id="tinfo"></span>
       <div class="onemsg" id="oneMsg" hidden aria-live="polite"></div>
+      <div class="onemsg bmline" id="bmLine" hidden><span id="bmTxt"></span><button type="button" id="bmTgl"></button></div>
     </div>
   </details>
 
@@ -1273,7 +1276,7 @@ function spotUI(t){ var b = $('spotb'); b.hidden = !SPOT.on; clearTimeout(SPOT.t
   $('spots').textContent = t || (SPOT.got + SPOT.miss + SPOT.oops ? (SPOT.hard ? '🔥 ' : '') + '✓ ' + SPOT.got + ' caught · ' + SPOT.miss + ' missed' + (SPOT.oops ? ' · ' + SPOT.oops + ' false alarm' + (SPOT.oops > 1 ? 's' : '') : '') : '');
   if (t) SPOT.t = setTimeout(function(){ spotUI(); }, 3800); }
 function spotTap(){ if (!SPOT.on) return; if (!playing){ spotUI('Press ▶ play, then watch her arms.'); return; }
-  var x = (now() - ST.offset) / spb() - ST.one, W = spotPlan(), hit = null;
+  var x = beatAt(now()) - ST.one, W = spotPlan(), hit = null;
   for (var i = 0; i < W.length; i++) if (x >= W[i].c0 - .1 && x < W[i].c0 + W[i].n + 1) hit = W[i];
   if (hit && SPOT.done[hit.c0]) return;
   if (hit){ SPOT.done[hit.c0] = 1; SPOT.got++; spotUI('✓ Caught her! ' + hit.g); }
@@ -1515,7 +1518,7 @@ loadMoves();
 function blend(A, B, t){ var o = {}; KEYS.forEach(function(k){ var a = A[k] || 0; o[k] = a + ((B[k] || 0) - a) * t; }); return o; }
 
 /* ---------- state ---------- */
-var ST = { key: 'demo', name: 'demo groove', bpm: 112, offset: .5, one: 0, eights: {}, props: {}, secs: {}, hat: false };
+var ST = { key: 'demo', name: 'demo groove', bpm: 112, offset: .5, one: 0, eights: {}, props: {}, secs: {}, hat: false, steady: false };
 var RATE = 1, RATES = [1, .75, .5], buf = null, ac = null, gain = null, src = null, startAt = 0, pos = 0, playing = false, peaks = null, cur = 0, slot = 0, clickOn = false, lastClick = -1, callOn = false, lastCall = -1;
 function spb(){ return 60 / ST.bpm; }
 function dur(){ return buf ? buf.duration : 0; }
@@ -1532,9 +1535,32 @@ function crosses(e){ if (e <= 0 || e >= nEights()) return false; var c = e * 8, 
 function loopSpan(e){ var a = e, b = e; while (a > 0 && crosses(a)) a--; while (b + 1 < nEights() && crosses(b + 1)) b++; return [a, b]; }
 function rawNow(){ return playing ? (ac.currentTime - startAt) * RATE : pos; }
 function now(){ var t = rawNow(); return playing && LP && t >= LP[1] ? LP[0] + (t - LP[0]) % (LP[1] - LP[0]) : t; }
-function countAt(t){ return Math.floor((t - ST.offset) / spb() + 1e-6) - ST.one; }
-function eightStart(e){ return ST.offset + (e * 8 + ST.one) * spb(); }
-function nEights(){ return Math.max(1, Math.ceil(((dur() - ST.offset) / spb() - ST.one) / 8)); }
+/* v2.52 the beat map: BMAP (from bmTrack, made by detect for the song's own beat) bends the straight grid to follow a band whose tempo
+   drifts. It's tied to the bpm it was made for: a hand-set tempo (tap, ÷2, ×2) leaves the straight grid; offset nudges and the 1 still
+   apply on top (the map is a function of grid time g = ST.offset + beat * spb(), so they move the grid along it). 'steady tempo' in the
+   timing drawer (ST.steady, saved with the song) switches it off. All beat <-> time math goes through beatAt / beatT */
+var BMAP = null;
+function bmOn(){ return !!(BMAP && !ST.steady && BMAP.bpm === ST.bpm && ST.key !== 'demo'); }
+function bmK(){ return bmOn() ? '|m' + BMAP.d.length : ''; }
+function warpG(g){ if (!bmOn()) return g; var M = BMAP, d = M.d, n = d.length, x = (g - M.g0) / M.sp;
+  if (x <= 0) return g + d[0]; if (x >= n - 1) return g + d[n - 1]; var i = Math.floor(x), f = x - i; return g + d[i] + (d[i + 1] - d[i]) * f; }
+function unwarpT(t){ if (!bmOn()) return t; var M = BMAP, d = M.d, n = d.length, a = M.g0 + d[0], z = M.g0 + (n - 1) * M.sp + d[n - 1];
+  if (t <= a) return t - d[0]; if (t >= z) return t - d[n - 1]; var lo = 0, hi = n - 1;
+  while (hi - lo > 1){ var mi = (lo + hi) >> 1; if (M.g0 + mi * M.sp + d[mi] <= t) lo = mi; else hi = mi; }
+  var ta = M.g0 + lo * M.sp + d[lo], tb = M.g0 + hi * M.sp + d[hi]; return M.g0 + (lo + (t - ta) / Math.max(1e-9, tb - ta)) * M.sp; }
+/* the beat (counting from the first beat, ST.offset, fractional) at song time t, and the song time of beat b */
+function beatAt(t){ return (unwarpT(t) - ST.offset) / spb(); }
+function beatT(b){ return warpG(ST.offset + b * spb()); }
+/* the same on the unwrapped clock (rawNow) of a loop: every pass round the loop is the loop's beats again */
+function ubAt(t){ if (!LP || t < LP[1] || !bmOn()) return beatAt(t); var L = LP[1] - LP[0], k = Math.floor((t - LP[0]) / L), b0 = Math.round(beatAt(LP[0])), wn = Math.round(beatAt(LP[1])) - b0;
+  return beatAt(LP[0] + (t - LP[0]) - k * L) + k * wn; }
+function ubT(i){ if (!LP || !bmOn()) return beatT(i); var b0 = Math.round(beatAt(LP[0])), wn = Math.round(beatAt(LP[1])) - b0; if (i < b0 + wn || wn < 1) return beatT(i);
+  var k = Math.floor((i - b0) / wn); return beatT(i - k * wn) + k * (LP[1] - LP[0]); }
+/* seconds a beat lasts round eight e (the paused preview dances at that speed) */
+function espb(e){ return bmOn() ? (eightStart(e + 1) - eightStart(e)) / 8 : spb(); }
+function countAt(t){ return Math.floor(beatAt(t) + 1e-6) - ST.one; }
+function eightStart(e){ return beatT(e * 8 + ST.one); }
+function nEights(){ return Math.max(1, Math.ceil((beatAt(dur()) - ST.one) / 8)); }
 function eightMoves(e){ return ST.eights[e] || (ST.key === 'demo' ? DEMO[((e % DEMO.length) + DEMO.length) % DEMO.length] : ['bounce','bounce','bounce','bounce','bounce','bounce','bounce','bounce']); }
 function slotAt(c){ if (c < 0) return 'bounce'; return eightMoves(Math.floor(c / 8))[c % 8]; }
 function moveAt(c){ return sl(slotAt(c)).id; }
@@ -1640,11 +1666,11 @@ var SKEY = 'eight-count-v1';
 function loadAll(){ try { return JSON.parse(localStorage.getItem(SKEY)) || {}; } catch (e){ return {}; } }
 var svT = 0;
 function save(){ EDV++; clearTimeout(svT); svT = setTimeout(function(){ try { var all = loadAll(); all.songs = all.songs || {};
-  all.songs[ST.key] = { bpm: ST.bpm, offset: ST.offset, one: ST.one, eights: ST.eights, props: ST.props, secs: ST.secs, hat: ST.hat ? 1 : 0 }; localStorage.setItem(SKEY, JSON.stringify(all)); } catch (e){} }, 250); }
+  all.songs[ST.key] = { bpm: ST.bpm, offset: ST.offset, one: ST.one, eights: ST.eights, props: ST.props, secs: ST.secs, hat: ST.hat ? 1 : 0, steady: ST.steady ? 1 : 0 }; localStorage.setItem(SKEY, JSON.stringify(all)); } catch (e){} }, 250); }
 function restore(key){ var s = (loadAll().songs || {})[key]; if (!s) return false;
   if (s.bpm > 30 && s.bpm < 300) ST.bpm = s.bpm; if (isFinite(s.offset)) ST.offset = s.offset; if (s.one >= 0 && s.one < 8) ST.one = s.one | 0;
   if (s.eights && typeof s.eights === 'object') Object.keys(s.eights).forEach(function(k){ var a = s.eights[k]; if (Array.isArray(a) && a.length === 8) ST.eights[k] = a.map(function(x){ var q = sl(x); return q.m && LENS.indexOf(q.L) >= 0 ? x : 'bounce'; }); });
-  ST.hat = s.hat === 1;
+  ST.hat = s.hat === 1; ST.steady = s.steady === 1;
   if (s.secs && typeof s.secs === 'object') Object.keys(s.secs).forEach(function(k){ var v = s.secs[k]; if (+k >= 0 && typeof v === 'string' && v) ST.secs[k] = v.slice(0, 24); });
   if (s.props && typeof s.props === 'object') Object.keys(s.props).forEach(function(k){ if (s.props[k] === '' || PROPK.indexOf(s.props[k]) >= 0 || /^(cane|parasol):[l2]$/.test(s.props[k])) ST.props[k] = s.props[k]; });
   return true; }
@@ -1700,8 +1726,95 @@ function detect(B){
   for (var q = -50; q <= 50; q++){ var fb = best.bpm + q / 100, FP = 6000 / fb, fs = Math.floor((n - FP) / FP); if (fs < 4) continue;
     for (var fp = Math.max(0, best.ph - FP / 2); fp < best.ph + FP / 2; fp += .25){ var s2 = 0; for (k = 0; k < fs; k++) s2 += ev(fp + k * FP); s2 /= fs;
       if (s2 > fine.s) fine = { s: s2, bpm: fb, ph: fp }; } }
-  return { bpm: Math.round(fine.bpm * 100) / 100, offset: fine.ph / 100, bpm0: best.bpm, offset0: best.ph / 100 };
+  var o = { bpm: Math.round(fine.bpm * 100) / 100, offset: fine.ph / 100, bpm0: best.bpm, offset0: best.ph / 100 };
+  /* v2.52 follow the beat through the song: a beat map when the band drifts, a better straight grid when it keeps a steady tempo the
+     grid missed, nothing when the grid is right */
+  try { var M = bmTrack(env, n, o.bpm, o.offset); if (M && M.fit){ o.bpm = M.bpm; o.offset = M.offset; o.fit = 1; } else if (M) o.map = M; } catch (x){}
+  return o;
 }
+/* v2.52 the beat map (Pushed: "a real dancer would just feel the rhythm and adjust"): follow the band when its tempo drifts. env = detect()'s
+   onset envelope (100 frames a second, n frames), bpm + off = the straight grid detect() found. Returns null when the band keeps time
+   (every beat within 30 ms of the straight grid), else { bpm, g0, sp, d } where d[k] = how far the band's beat k sits from the grid's
+   beat k (seconds; grid beat k = g0 + k * sp), plus the band's tempo at the start (a), the end (z) and its range (lo, hi).
+   1. a PLL along the song: from the first beat (the grid's, nudged to the nearest clear beat, at the band's own tempo there) each next
+      beat is predicted one beat length on, and a comb of 9 beats round the prediction (nearer ones count more) looks for the beat within
+      .3 of a beat and its length within 6%. A clear answer pulls the beat 70% of the way and the beat length a quarter; an unclear one
+      (a breakdown) or one more than a quarter beat out (a fill) is ignored and she carries on at the tempo she had. Three unclear beats
+      in a row: did the band suddenly change tempo? It listens from the last clear beat for any beat length from .45 to 2.2 times, and starts
+      again from there when the next 6 beats line up clearly.
+   2. smoothing that keeps corners: round each beat a straight line fitted over about 6 beats either side, or over only the ones before
+      or only the ones after when that fits much better (a sudden tempo change), weighted by how clear each beat was.
+   3. two finer passes listen again on the bent grid (within a sixth of a beat, 2.5 ms steps) and smooth again. */
+function bmTrack(env, n, bpm, off){
+  var fr = 100, sp = 60 / bpm, dur = n / fr, K = Math.floor((dur - off) / sp) - 1, k, j, x, r, s;
+  if (!(K >= 48)) return null;
+  var ev = function(t){ var i = Math.floor(t * fr), f = t * fr - i; return i >= 0 && i + 1 < n ? env[i] * (1 - f) + env[i + 1] * f : 0; },
+    W = 4, wj = [], d, cf = [1], P = sp, b = [], bx = 0, br = 1, best = -1, sum, cnt, miss = 0, L = 0, reL = -1;
+  for (j = -W; j <= W; j++) wj.push(Math.exp(-j * j / 8));
+  function pk(t){ return Math.max(ev(t - .01), ev(t), ev(t + .01)); }
+  function srch(pred, P, x0, x1, xs, r0, r1){ var o = { s: -1, x: 0, r: 1, m: 0 }, sm = 0, c = 0;
+    for (var x = x0; x <= x1; x += xs) for (var r = r0; r <= r1 + 1e-9; r += .01){ var s = 0; for (var j = -W; j <= W; j++) s += wj[j + W] * ev(pred + x + j * P * r); sm += s; c++; if (s > o.s){ o.s = s; o.x = x; o.r = r; } }
+    o.m = sm / c; return o; }
+  /* 1. the PLL */
+  for (x = -sp / 2; x < sp / 2; x += .01) for (r = .86; r <= 1.145; r += .01){ s = 0; for (j = 0; j <= 8; j++) s += Math.exp(-j * j / 32) * ev(off + x + j * sp * r); if (s > best){ best = s; bx = x; br = r; } }
+  b.push(off + bx); P = sp * br;
+  while (b[b.length - 1] < dur - .3 && b.length < 4 * K){ var pred = b[b.length - 1] + P, A = srch(pred, P, -.3 * P, .3 * P, .01, .94, 1.06), F = srch(pred, P, A.x - .0075, A.x + .0075, .0025, A.r, A.r),
+      c = A.s / (A.m + 1e-9), tm = 0; for (j = -W; j <= W; j++) tm = Math.max(tm, pk(pred + F.x + j * P * A.r));
+    var ok = c > 1.25 && Math.abs(F.x) < .25 * P && pk(pred + F.x) >= .3 * tm;   /* and a beat of its own, not a gap between two */
+    b.push(ok ? pred + .7 * F.x : pred); cf.push(ok ? Math.min(1, (c - 1.25) / 1) : 0);
+    if (ok){ P = Math.min(sp * 2.5, Math.max(sp * .4, P + .25 * (P * A.r - P) + .1 * F.x)); miss = 0; L = b.length - 1;
+      /* counting at half the song's speed (every other beat)? when the beat halfway between hers is a hit every time and half her beat
+         length is nearer the song's own tempo, she goes back over that stretch and puts the in-between beats in */
+      var i = L; if (i >= 8 && i % 4 === 0 && Math.abs(Math.log(P / 2 / sp)) < Math.abs(Math.log(P / sp)) - .1){ var bv = [], q;
+        for (q = i - 8; q <= i; q++) bv.push(pk(b[q])); bv.sort(function(p, q){ return p - q; }); var bs = bv[4], q0 = i - 8, mh = 0;
+        for (q = i - 8; q < i; q++) if (pk((b[q] + b[q + 1]) / 2) >= .4 * bs) mh++;
+        if (mh >= 7){ while (q0 > 0 && cf[q0] > 0 && pk((b[q0 - 1] + b[q0]) / 2) >= .4 * bs && Math.abs(Math.log((b[q0] - b[q0 - 1]) / P)) < .1) q0--;
+          var nb = b.slice(0, q0 + 1), nc = cf.slice(0, q0 + 1); for (q = q0; q < i; q++){ nb.push((b[q] + b[q + 1]) / 2, b[q + 1]); nc.push(cf[q + 1], cf[q + 1]); }
+          b = nb; cf = nc; P /= 2; L = b.length - 1; reL = -1; } }
+      continue; }
+    if (++miss < 3 || reL === L) continue;
+    reL = L; var bl = b[L], R = { s: -1 }, sm = 0, sc = 0;   /* a sudden tempo change? */
+    for (r = .45; r <= 2.2; r += .01){ var Pr = P * r, pri = Math.exp(-.5 * Math.pow(Math.log(Pr / sp) / .5, 2)), vs = [];   /* tempos near the song's own count more */
+      for (x = -.3 * Pr; x <= .3 * Pr; x += .01){ s = 0; var vm = 0, nh = 0; for (j = 1; j <= 6; j++){ vs[j] = pk(bl + x + j * Pr); vm = Math.max(vm, vs[j]); s += Math.exp(-(j - 1) * (j - 1) / 30) * vs[j]; }
+        for (j = 1; j <= 6; j++) if (vs[j] >= .3 * vm) nh++; sm += s; sc++; s *= pri; if (nh >= 5 && s > R.s) R = { s: s, x: x, r: r }; } }   /* 5 of the next 6 beats must land on a hit */
+    if (R.s / (sm / sc + 1e-9) > 1.5 && Math.abs(R.r - 1) > .06){ b.length = L + 1; cf.length = L + 1; P *= R.r; b.push(bl + P + R.x); cf.push(.5); L = b.length - 1; miss = 0; } }
+  K = b.length - 1; d = new Float64Array(K + 1); var tw = new Float64Array(cf), ntr = 0;
+  for (k = 0; k <= K; k++){ d[k] = b[k] - (off + k * sp); if (tw[k] > 0) ntr++; }
+  if (ntr < .5 * (K + 1)) return null;   /* mostly unclear: not a beat she can follow */
+  /* 2. smoothing that keeps corners */
+  function fit(y, w, k, a, z, sg){ var A = 0, B = 0, C = 0, E = 0, G = 0, q, u, ww;
+    for (q = Math.max(0, a); q <= Math.min(K, z); q++){ u = q - k; ww = w[q] * Math.exp(-u * u / (2 * sg * sg)); A += ww; B += ww * u; C += ww * u * u; E += ww * y[q]; G += ww * u * y[q]; }
+    if (A < 1.5) return null; var den = A * C - B * B, sl = Math.abs(den) > 1e-9 ? (A * G - B * E) / den : 0, v = (E - sl * B) / A, rs = 0;
+    for (q = Math.max(0, a); q <= Math.min(K, z); q++){ u = q - k; ww = w[q] * Math.exp(-u * u / (2 * sg * sg)); rs += ww * Math.pow(y[q] - v - sl * u, 2); }
+    return { v: v, r: rs / A }; }
+  function smooth(y, w){ var o = new Float64Array(K + 1);
+    for (var k = 0; k <= K; k++){ var sg = 3, f0 = null; while (!(f0 = fit(y, w, k, k - 3 * sg, k + 3 * sg, sg)) && sg < 60) sg *= 2;
+      if (!f0){ o[k] = y[k]; continue; } var fl = fit(y, w, k, k - 6 * sg, k, 2 * sg), fh = fit(y, w, k, k, k + 6 * sg, 2 * sg), v = f0.v, rr = f0.r;
+      if (fl && fl.r * 3 < rr){ v = fl.v; rr = fl.r * 3; } if (fh && fh.r * 3 < rr) v = fh.v; o[k] = v; }
+    return o; }
+  d = smooth(d, tw);
+  /* 3. listen again on the bent grid */
+  for (var pass = 0; pass < 2; pass++){ var yy = new Float64Array(K + 1), w2 = new Float64Array(K + 1);
+    for (k = 0; k <= K; k++){ var b2 = -1, x2 = 0, lp = k > 0 ? sp + d[k] - d[k - 1] : sp + d[1] - d[0];
+      for (x = -lp / 6; x <= lp / 6; x += .0025){ s = 0; for (j = -W; j <= W; j++){ var q = k + j; if (q >= 0 && q <= K) s += wj[j + W] * ev(off + q * sp + d[q] + x); } if (s > b2){ b2 = s; x2 = x; } }
+      yy[k] = d[k] + x2; w2[k] = Math.abs(x2) < lp / 7 ? tw[k] : 0; }
+    d = smooth(yy, w2); }
+  /* steady? the drift from the straight grid (round its middle) stays within 30 ms, allowing 7 stray beats in a row */
+  var srt = Array.prototype.slice.call(d).sort(function(p, q){ return p - q; }), md = srt[srt.length >> 1], far = 0, run = 0;
+  for (k = 0; k <= K; k++){ if (Math.abs(d[k] - md) > .03){ run++; if (run > far) far = run; } else run = 0; }
+  var g1 = 0, g0 = 0; for (k = 0; k <= K; k++){ g1 += ev(off + k * sp + d[k]); g0 += ev(off + k * sp); }
+  if (far < 8 || g1 < g0 * 1.04) return null;
+  /* what to tell the dancer: the band's tempo at the start, the end and its range (each beat's tempo over 8 beats) */
+  var lb = []; for (k = 4; k + 4 <= K; k++) lb.push(480 / (8 * sp + d[k + 4] - d[k - 4]));
+  var pc = function(v, q){ var s = v.slice().sort(function(p, q){ return p - q; }); return s[Math.round(q * (s.length - 1))]; }, lo = pc(lb, .05), hi = pc(lb, .95);
+  /* the band keeps a steady tempo, just not the one the grid has (the grid's tempo was a little off, or a 4:3 kind of mistake): a
+     straight grid through her beats instead, and no map */
+  if (hi - lo < Math.max(1, .01 * pc(lb, .5))){ var A = 0, B = 0, C = 0, E = 0, G = 0;
+    for (k = 0; k <= K; k++){ var ww = tw[k], yk = off + k * sp + d[k]; A += ww; B += ww * k; C += ww * k * k; E += ww * yk; G += ww * k * yk; }
+    var Pf = (A * G - B * E) / (A * C - B * B), of = (E - Pf * B) / A; if (!(Pf > .25 && Pf < 1.5)) return null;
+    return { fit: 1, bpm: Math.round(6000 / Pf) / 100, offset: ((of % Pf) + Pf) % Pf }; }
+  return { bpm: bpm, g0: off, sp: sp, d: d, a: pc(lb.slice(0, 16), .5), z: pc(lb.slice(-16), .5), lo: lo, hi: hi, gain: g1 / g0, tr: ntr / (K + 1) }; }
+
 /* ---------- practice speed that keeps the key (v1.41) ----------
    Below 100% the song is time-stretched as it plays (WSOLA, like the browser's own slow-down: 20 ms grains overlapped by half,
    each one taken from within 10 ms of where it belongs, at the spot that best carries on from the grain before), made about a
@@ -1761,9 +1874,9 @@ function tsStop(){ if (!TS) return; TS.srcs.forEach(function(s){ try { s.onended
 var bowT0 = 0;
 function bowNow(){ if (!bowT0) return null; var q = (performance.now() - bowT0) / 1000 / (2 * spb()); if (q >= 1){ bowT0 = 0; return null; } var B = bow(q); if (ST.hat){ B.hat = 1; hatBow(B, q); } return B; }
 function play(noCount){ if (!buf) return; bowT0 = 0; FRZ = null; var c = ctx(); try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e){} if (c.state === 'suspended') c.resume(); if (pos >= dur() - .05) pos = 0;
-  if (countIn && !noCount){ pos = eightStart(cur) - 4 * spb() - sayLag * RATE; sayWarm(); } /* a breath of lead so 'five' can leave early too */
+  if (countIn && !noCount){ pos = beatT(cur * 8 + ST.one - 4) - sayLag * RATE; sayWarm(); } /* a breath of lead so 'five' can leave early too */
   var LP0 = LP; LP = null; if (loopOn){ /* the eight to loop: the one being counted in to, else the one the playhead is in (a whole one) */
-    var le = pos < eightStart(cur) && pos > eightStart(cur) - 4 * spb() - 1 ? cur : clamp(Math.floor(countAt(Math.max(pos, eightStart(0)) + 1e-4) / 8), 0, nEights() - 1);
+    var le = pos < eightStart(cur) && pos > beatT(cur * 8 + ST.one - 4) - 1 ? cur : clamp(Math.floor(countAt(Math.max(pos, eightStart(0)) + 1e-4) / 8), 0, nEights() - 1);
     if (LP0 && LP0.length === 2 && pos >= LP0[0] - 1e-6 && pos < LP0[1]) le = LPE; /* still inside the loop: it keeps its first eight */
     if (le > 0 && eightStart(le + 1) > dur()) le--; var sp = loopSpan(le); LPE = sp[0]; LPB = loopSpan(Math.min(nEights() - 1, le + LPN - 1))[1]; while (LPB > LPE && eightStart(LPB + 1) > dur()) LPB--; LP = [eightStart(LPE), eightStart(LPB + 1)]; if (pos >= LP[1]) pos = LP[0]; }
   if (BU && !buStep && !(LP0 && LP && LP0[0] === LP[0])){ BUi = 0; RATE = BUS[0]; spdUI(); }
@@ -1785,16 +1898,16 @@ function sayWarm(){ try { if (speechSynthesis.speaking) return; var u = new Spee
 function sayWord(w, rate){ try { var ss = speechSynthesis; if (ss.speaking || ss.pending) ss.cancel(); var u = new SpeechSynthesisUtterance(w), t0 = performance.now();
   u.rate = rate; u.lang = 'en-US'; u.onstart = function(){ var lag = (performance.now() - t0) / 1000; if (lag < 1.5){ sayLag = clamp(sayLag * .6 + lag * .4, .02, .6); try { localStorage.setItem(SLK, sayLag.toFixed(3)); } catch (e){} } }; ss.speak(u); } catch (e){} }
 function sayCount(c){ var W = ['five', 'six', 'seven', 'eight'], one = startAt + eightStart(cur) / RATE, rate = clamp(1.7 * ST.bpm * RATE / 112, 1.3, 2.4);
-  for (var i = 0; i < 4; i++){ var at = one - (4 - i) * spb() / RATE; if (at < c.currentTime - .01) continue;
+  for (var i = 0; i < 4; i++){ var at = startAt + beatT(cur * 8 + ST.one - 4 + i) / RATE; if (at < c.currentTime - .01) continue;
     var o = c.createOscillator(), g = c.createGain(); o.frequency.value = 660; g.gain.setValueAtTime(.3, at); g.gain.exponentialRampToValueAtTime(.001, at + .08); o.connect(g); g.connect(c.destination); o.start(at); o.stop(at + .1);
     (function(w, ms){ sayT.push(setTimeout(function(){ sayWord(w, rate); }, ms)); })(W[i], Math.max(0, (at - c.currentTime - sayLag) * 1000)); } }
 function pause(){ if (!playing) return; pos = Math.max(0, now()); playing = false; frzStart(); sayT.forEach(clearTimeout); sayT = []; try { speechSynthesis.cancel(); } catch (e){} try { src.onended = null; src.stop(); } catch (e){} tsStop(); ui(); }
 /* musical statues (Sloppy's idea, Pushed said yes): when the music stops mid-routine she freezes right where she was and tries
    to hold it, wobbling a little and not daring to blink, then lets go after a few seconds and carries on with the eight */
 var FRZ = null, FRZT = 4;
-function frzStart(){ var b = (pos - ST.offset) / spb(), c = Math.floor(b) - ST.one; FRZ = c >= 0 && !MK ? { c: c, p: b - Math.floor(b), t0: performance.now() } : null;
+function frzStart(){ var b = beatAt(pos), c = Math.floor(b) - ST.one; FRZ = c >= 0 && !MK ? { c: c, p: b - Math.floor(b), t0: performance.now() } : null;
   if (FRZ && Math.floor(c / 8) !== cur && Math.floor(c / 8) < nEights()){ cur = Math.floor(c / 8); renderEd(); } }
-function frzEnd(){ if (!FRZ) return; previewT0 = performance.now() - ((((FRZ.c % 8) + 8) % 8) + FRZ.p) * spb() * 1000 / RATE; FRZ = null; }
+function frzEnd(){ if (!FRZ) return; previewT0 = performance.now() - ((((FRZ.c % 8) + 8) % 8) + FRZ.p) * espb(cur) * 1000 / RATE; FRZ = null; }
 function frzW(P){ if (!FRZ) return P; var t = (performance.now() - FRZ.t0) / 1000, e = sm(clamp((t - .35) / .8, 0, 1)) * (1 - sm(clamp((t - FRZT + .7) / .7, 0, 1)));
   P.sway = (P.sway || 0) + .045 * e * Math.sin(TAU * 1.1 * t); P.tilt = (P.tilt || 0) + .03 * e * Math.sin(TAU * 1.6 * t + 1);
   P.lean = (P.lean || 0) + .02 * e * Math.sin(TAU * .8 * t + 2); P.look = (P.look || 0) + .12 * e * Math.sin(TAU * .5 * t);
@@ -1808,8 +1921,8 @@ function tick(){ tsFeed(); frzDuck();
   if (playing && BU && LP && BUi < BUS.length - 1 && rawNow() >= LP[1]){ BUi++; buStep = true; pause(); RATE = BUS[BUi]; play(true); buStep = false; spdUI();
     if (callOn) sayWord(BUi === BUS.length - 1 ? 'full speed' : 'faster', 1.5); } if (playing && LP && (Math.abs(LP[0] - eightStart(LPE)) > 1e-6 || Math.abs(LP[1] - eightStart(LPB + 1)) > 1e-6)) seek(now()); /* the grid moved under the loop */
   if (playing && callOn) callAhead();
-  if (!playing || !clickOn) return; var t = rawNow(), b = Math.floor((t + .12 - ST.offset) / spb());
-  for (var i = Math.max(lastClick + 1, b - 1); i <= b; i++){ var at = startAt + (ST.offset + i * spb()) / RATE; if (at < ac.currentTime) continue;
+  if (!playing || !clickOn) return; var t = rawNow(), b = Math.floor(ubAt(t + .12));
+  for (var i = Math.max(lastClick + 1, b - 1); i <= b; i++){ var at = startAt + ubT(i) / RATE; if (at < ac.currentTime) continue;
     var o = ac.createOscillator(), g = ac.createGain(), one = ((i - ST.one) % 8 + 8) % 8 === 0; o.frequency.value = one ? 1760 : 1100; g.gain.setValueAtTime(.25, at); g.gain.exponentialRampToValueAtTime(.001, at + .05);
     o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at + .06); lastClick = i; } }
 setInterval(tick, 40);
@@ -1821,22 +1934,22 @@ setInterval(tick, 40);
    when the pass before ended on a different move.
    The jump-back reset waits for 5 beats: the count-in starts 3 beats behind lastCall on purpose (it used to fire there, so the
    last moves of the eight before were called over 'six, seven' and the 1's move cut off 'eight') */
-function callAhead(){ var t = rawNow(), s = spb(), b = Math.floor((t + s + (sayLag + .15) * RATE - ST.offset) / s), rate = clamp(1.5 * ST.bpm * RATE / 112, 1.2, 2.2);
+function callAhead(){ var t = rawNow(), s = bmOn() ? Math.max(.2, ubT(Math.floor(ubAt(t)) + 1) - ubT(Math.floor(ubAt(t)))) : spb(), b = Math.floor(ubAt(t + s + (sayLag + .15) * RATE)), rate = clamp(1.5 * ST.bpm * RATE / 112, 1.2, 2.2);
   if (b < lastCall - 4) lastCall = b - 1;   /* the clock jumped back (a retime) */
   var w0 = LP ? LPE * 8 + ST.one : 0, wn = LP ? (LPB + 1 - LPE) * 8 : 0, wb = function(i){ return wn > 0 && i >= w0 + wn ? w0 + (i - w0) % wn : i; };
   for (var i = Math.max(lastCall + 1, b - 2); i <= b; i++){ lastCall = i; var c = wb(i) - ST.one, v = slotAt(c); if (i - ST.one <= 0 || v === slotAt(c - 1) && v === slotAt(wb(i - 1) - ST.one)) continue;
-    var m = sl(v).m; if (!m || m.id === 'bounce') continue; var ms = (startAt + (ST.offset + (i - 1) * s) / RATE - ac.currentTime - sayLag) * 1000; if (ms < -150) continue;
+    var m = sl(v).m; if (!m || m.id === 'bounce') continue; var ms = (startAt + ubT(i - 1) / RATE - ac.currentTime - sayLag) * 1000; if (ms < -150) continue;
     (function(w){ sayT.push(setTimeout(function(){ sayWord(w, rate); }, Math.max(0, ms))); })(m.name); }
   if (sayT.length > 64) sayT = sayT.slice(-16); }
 
 /* ---------- loading a song ---------- */
 function msg(t){ $('stmsg').hidden = !t; $('stmsg').textContent = t || ''; }
 function useBuffer(B, key, name, info){ if ($('seqGb')){ $('seqGb').hidden = true; GSL = null; } if ($('seqFs')){ $('seqFs').hidden = true; FSL = null; } if ($('oneMsg')){ $('oneMsg').hidden = true; ONEU = null; }
-  pause(); FRZ = null; lastC = -9; buf = B; pos = 0; cur = 0; slot = 0; ST.key = key; ST.name = name; ST.eights = {}; ST.props = {}; ST.secs = {}; ST.hat = false; ST.one = 0;
+  pause(); FRZ = null; lastC = -9; buf = B; pos = 0; cur = 0; slot = 0; ST.key = key; ST.name = name; ST.eights = {}; ST.props = {}; ST.secs = {}; ST.hat = false; ST.one = 0; ST.steady = false; BMAP = info && info.map || null;
   if (info){ ST.bpm = info.bpm; ST.offset = info.offset; } var had = restore(key); makePeaks();
   /* v2.11 a song saved before the fine tune, with the beat as it was found (not tapped or nudged), takes the fine-tuned beat. It stays
      within half a beat of the old one, so every count and the 1 keep their place in the music */
-  if (had && info && info.bpm0 && ST.bpm === info.bpm0 && Math.abs(ST.offset - info.offset0) < 1e-9 && (info.bpm !== info.bpm0 || info.offset !== info.offset0)){ ST.bpm = info.bpm; ST.offset = info.offset; save(); }
+  if (had && info && info.bpm0 && ST.bpm === info.bpm0 && Math.abs(ST.offset - info.offset0) < 1e-9 && (info.bpm !== info.bpm0 || info.offset !== info.offset0) && Math.abs(info.bpm - info.bpm0) <= .5){ ST.bpm = info.bpm; ST.offset = info.offset; save(); }
   $('seqHl').hidden = true; HRL = null;
   $('song').textContent = name + (had ? ' · your routine is back' : ''); ui(); renderEd(); if (typeof songLoaded === 'function') songLoaded(had);
 }
@@ -1858,7 +1971,7 @@ function rateTxt(r){ return (r === 1 ? '1' : r === .75 ? '0.75' : '0.5') + '×';
 function spdUI(){ var b = $('spd'); b.textContent = BU ? '↗ build up ' + rateTxt(RATE) : 'speed ' + rateTxt(RATE); b.setAttribute('aria-pressed', String(RATE < 1 || BU)); }
 function loopUI(){ var b = $('loop'); b.setAttribute('aria-pressed', String(loopOn)); b.textContent = loopOn ? '⟲ loop ' + LPN + ' eight' + (LPN > 1 ? 's' : '') : '⟲ loop eight'; }
 $('click').addEventListener('click', function(){ clickOn = !clickOn; prefs(1); });
-$('call').addEventListener('click', function(){ callOn = !callOn; prefs(1); if (callOn){ sayWarm(); lastCall = Math.floor((rawNow() - ST.offset) / spb()); } });
+$('call').addEventListener('click', function(){ callOn = !callOn; prefs(1); if (callOn){ sayWarm(); lastCall = Math.floor(ubAt(rawNow())); } });
 $('cin').addEventListener('click', function(){ countIn = !countIn; prefs(1); if (countIn) sayWarm(); });
 $('spd').addEventListener('click', function(){ var was = playing; if (was) pause();
   if (BU){ BU = false; RATE = 1; } else if (RATE === .5){ BU = true; BUi = 0; if (!loopOn){ loopOn = true; LPN = 1; lastC = -9; } } else RATE = RATES[(RATES.indexOf(RATE) + 1) % RATES.length];
@@ -1886,7 +1999,7 @@ function oneGuess(){ var B = buf, sr = B.sampleRate, a = B.getChannelData(0), b 
     C = [], T = [], E = [], i, j, k, c, q, emax = 1e-30;
   for (i = 0; i < N; i++) wn[i] = .5 - .5 * Math.cos(TAU * i / N);
   for (i = 1; i < N / 2; i++){ var f = i * fs / N; PC[i] = f >= 60 && f <= 2000 ? ((Math.round(12 * Math.log2(f / 440)) % 12) + 12) % 12 : -1; for (k = 5; k > 0 && f < EDG[k]; k--); BD[i] = k; }
-  for (c = 0; c < nb; c++){ var ch = new Float64Array(12), bd = new Float64Array(6), s0 = Math.round((eightStart(Math.floor(c / 8)) + (c % 8 + .55) * spb()) * sr) - (N * d >> 1), e = 0, nn = 0;
+  for (c = 0; c < nb; c++){ var ch = new Float64Array(12), bd = new Float64Array(6), s0 = Math.round(beatT(c + ST.one + .55) * sr) - (N * d >> 1), e = 0, nn = 0;
     for (i = 0; i < N; i++){ var x = 0; j = s0 + i * d; if (j >= 0 && j + d <= a.length) for (k = 0; k < d; k++) x += a[j + k] + b[j + k]; re[i] = x * wn[i]; im[i] = 0; }
     hrFFT(re, im);
     for (i = 1; i < N / 2; i++){ var p = re[i] * re[i] + im[i] * im[i]; bd[BD[i]] += p; if (PC[i] >= 0) ch[PC[i]] += Math.sqrt(p); }
@@ -1925,7 +2038,7 @@ $('oneGs').addEventListener('click', function(){ if (!buf){ oneShow('<span>Load 
   } catch (x){ oneShow('<span>Something went wrong while I listened. Try again, or use mark the 1.</span>'); } }, 30); });
 $('oneMsg').addEventListener('click', function(e){ if (!e.target.closest('#oneUn') || ONEU == null) return; var u = ONEU; ONEU = null; retime(function(){ ST.one = u; }); lastC = -9; oneShow('<span>The 1 is back where it was.</span>'); });
 /* mark the 1: the beat at the playhead becomes count 1 (snaps to the nearest beat when it's within 120 ms, else the grid moves to the press) */
-function markOne(){ if (!buf || now() < 0) return; var t = now(), sp = spb(), k = Math.round((t - ST.offset) / sp), nb = ST.offset + k * sp, at = Math.abs(t - nb) < .12 ? nb : t;
+function markOne(){ if (!buf || now() < 0) return; var t = now(), sp = spb(), g = unwarpT(t), k = Math.round((g - ST.offset) / sp), nb = ST.offset + k * sp, at = Math.abs(t - warpG(nb)) < .12 ? nb : g;
   var o = ((at % sp) + sp) % sp, idx = Math.round((at - o) / sp); ST.offset = o; ST.one = ((idx % 8) + 8) % 8;
   cur = clamp(Math.floor(countAt(t + 1e-3) / 8), 0, nEights() - 1); lastC = -9; ui(); renderEd(); save();
   var b = $('mark'); b.textContent = '1 marked ✓'; clearTimeout(markOne.t); markOne.t = setTimeout(function(){ b.textContent = 'mark the 1'; }, 1200); }
@@ -2048,18 +2161,18 @@ function renderEd(){
   drawWave();
 }
 function markNow(c){ [].forEach.call($('slots').children, function(b, i){ b.classList.toggle('now', playing && Math.floor(c / 8) === cur && ((c % 8) + 8) % 8 === i); }); }
-$('slots').addEventListener('click', function(e){ var b = e.target.closest('[data-s]'); if (!b) return; slot = +b.dataset.s; previewT0 = performance.now() - slot * spb() * 1000; renderEd(); });
+$('slots').addEventListener('click', function(e){ var b = e.target.closest('[data-s]'); if (!b) return; slot = +b.dataset.s; previewT0 = performance.now() - slot * espb(cur) * 1000; renderEd(); });
 $('moves').addEventListener('click', function(e){ if (e.target.closest('[data-new]')) return openMaker(null); var b = e.target.closest('[data-m]'); if (!b) return; var m = MV[b.dataset.m];
   var c0 = cur * 8 + slot, q0 = sl(slotAt(c0));
   if (armMode){ armMode = false; if (q0.m && q0.m.f && m && m.f) setArms(c0, b.dataset.m === q0.a ? '' : b.dataset.m); else renderEd(); return; }
   if (b.dataset.m === 'flail' && FLV[q0.id] && !q0.a){ var L0 = Math.max(1, q0.L), raw0 = slotAt(c0), st0 = c0 - runIdx(c0) % L0, v0 = slotStr(FLV[q0.id], q0.L);
     for (var j = 0; j < L0; j++){ var cj = st0 + j, Ej = Math.floor(cj / 8); if (Ej >= nEights()) break; var aj = eightMoves(Ej).slice(); if (aj[cj % 8] === raw0){ aj[cj % 8] = v0; ST.eights[Ej] = aj; } }
-    save(); previewT0 = performance.now() - slot * spb() * 1000; renderEd(); return; }
+    save(); previewT0 = performance.now() - slot * espb(cur) * 1000; renderEd(); return; }
   var n = m.len || m.def, v = m.len ? m.id : slotStr(m.id, m.def);
   if (n){ for (var i = 0; i < n; i++){ var c = cur * 8 + slot + i, E = Math.floor(c / 8); if (E >= nEights()) break; var ar = eightMoves(E).slice(); ar[c % 8] = v; ST.eights[E] = ar; }
-    save(); previewT0 = performance.now() - slot * spb() * 1000; renderEd(); return; }
+    save(); previewT0 = performance.now() - slot * espb(cur) * 1000; renderEd(); return; }
   var a = eightMoves(cur).slice(); a[slot] = b.dataset.m; setEight(cur, a);
-  previewT0 = performance.now() - slot * spb() * 1000; slot = (slot + 1) % 8; renderEd(); });
+  previewT0 = performance.now() - slot * espb(cur) * 1000; slot = (slot + 1) % 8; renderEd(); });
 /* Pushed: hold a move for half a second to edit it. Your own move opens as it is; a built-in one opens as a new move of yours that
    starts from it (the built-ins stay as they are). The click that ends the press doesn't also pick it */
 var LPR = { t: 0, b: null, fired: false };
@@ -2097,7 +2210,7 @@ $('teachbtn').addEventListener('click', function(){ if (TEACH){ teachStop(); ret
 var armMode = false;
 function setArms(c0, a){ var raw = slotAt(c0), q = sl(raw), L = Math.max(1, q.L), st = c0 - runIdx(c0) % L, v = slotStr(q.id, q.L, a);
   for (var j = 0; j < L; j++){ var cj = st + j, Ej = Math.floor(cj / 8); if (Ej >= nEights()) break; var aj = eightMoves(Ej).slice(); if (aj[cj % 8] === raw){ aj[cj % 8] = v; ST.eights[Ej] = aj; } }
-  save(); previewT0 = performance.now() - slot * spb() * 1000; renderEd(); }
+  save(); previewT0 = performance.now() - slot * espb(cur) * 1000; renderEd(); }
 $('armsbtn').addEventListener('click', function(){ var q = sl(slotAt(cur * 8 + slot)); if (!q.m.f) return;
   if (!armMode && q.a){ setArms(cur * 8 + slot, ''); return; } armMode = !armMode; renderEd(); });
 /* faster / slower: halve or double how many counts the selected move takes; counts it gives up become holds */
@@ -2105,7 +2218,7 @@ function relen(f){ var c0 = cur * 8 + slot, raw = slotAt(c0), q = sl(raw); if (!
   var st = q.L >= 1 ? c0 - runIdx(c0) % q.L : c0, n = Math.max(1, L2), v = slotStr(q.id, L2, q.a);
   for (var i = 0; i < Math.max(n, q.L); i++){ var c = st + i, E = Math.floor(c / 8); if (E >= nEights()) break; var ar = eightMoves(E).slice();
     if (i < n) ar[c % 8] = v; else if (ar[c % 8] === raw) ar[c % 8] = 'hold'; ST.eights[E] = ar; }
-  if (Math.floor(st / 8) === cur) slot = st % 8; previewT0 = performance.now() - slot * spb() * 1000; save(); renderEd(); }
+  if (Math.floor(st / 8) === cur) slot = st % 8; previewT0 = performance.now() - slot * espb(cur) * 1000; save(); renderEd(); }
 $('faster').addEventListener('click', function(){ relen(.5); });
 $('slower').addEventListener('click', function(){ relen(2); });
 function goEight(e){ cur = clamp(e, 0, nEights() - 1); if (!playing) pos = Math.max(0, eightStart(cur)); renderEd(); }
@@ -2205,7 +2318,7 @@ function shiftBeat(by){ var st = beatFrom(), n = nEights(), had = {}, F = [], E 
   if (by > 0) F.splice(st, 0, 'bounce'); else F.splice(st - 1, 1);
   for (e = 0; e * 8 < F.length; e++){ var a = F.slice(e * 8, e * 8 + 8); while (a.length < 8) a.push('bounce'); if (had[e] || a.some(function(x){ return x !== 'bounce'; })) E[e] = a; }
   ST.eights = E; var c = st + by; cur = Math.floor(c / 8); slot = c % 8; if (cur > nEights() - 1){ cur = nEights() - 1; slot = 7; }
-  previewT0 = performance.now() - slot * spb() * 1000; save(); renderEd(); if (whOn) requestAnimationFrame(function(){ whTo(whCurId(), 1); }); if (playing && LP) seek(now()); }   /* a loop takes its long moves whole again */
+  previewT0 = performance.now() - slot * espb(cur) * 1000; save(); renderEd(); if (whOn) requestAnimationFrame(function(){ whTo(whCurId(), 1); }); if (playing && LP) seek(now()); }   /* a loop takes its long moves whole again */
 $('insB').addEventListener('click', function(){ shiftBeat(1); });
 $('delB').addEventListener('click', function(){ shiftBeat(-1); });
 $('copy').addEventListener('click', function(){ copyProp(cur, cur + 1); setEight(cur + 1, eightMoves(cur).slice()); goEight(cur + 1); });
@@ -2284,14 +2397,14 @@ function hrFFT(re, im){ var N = re.length, i, j = 0, k, l, t;
     for (i = 0; i < N; i += l){ var cr = 1, ci = 0;
       for (k = 0; k < h; k++){ var p = i + k, q = p + h, xr = re[q] * cr - im[q] * ci, xi = re[q] * ci + im[q] * cr;
         re[q] = re[p] - xr; im[q] = im[p] - xi; re[p] += xr; im[p] += xi; t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } } } }
-function hrBeats(){ var key = ST.bpm + '|' + ST.offset + '|' + ST.one + '|' + nEights(), m = HRM.get(buf); if (m && m.key === key) return m;
+function hrBeats(){ var key = ST.bpm + '|' + ST.offset + '|' + ST.one + '|' + nEights() + bmK(), m = HRM.get(buf); if (m && m.key === key) return m;
   var B = buf, sr = B.sampleRate, a = B.getChannelData(0), b = B.numberOfChannels > 1 ? B.getChannelData(1) : a, N = HRN, d = Math.max(1, Math.round(sr / 11025)), fs = sr / d,
     nb = nEights() * 8, re = new Float64Array(N), im = new Float64Array(N), win = new Float64Array(N), PC = new Int8Array(N / 2), BD = new Int8Array(N / 2),
     EDG = [0, 150, 400, 1000, 2500, 5000], C = [], T = [], E = [], i, j, k, c, hf;
   for (i = 0; i < N; i++) win[i] = .5 - .5 * Math.cos(TAU * i / N);
   for (i = 1; i < N / 2; i++){ var f = i * fs / N; PC[i] = f >= 60 && f <= 2000 ? ((Math.round(12 * Math.log2(f / 440)) % 12) + 12) % 12 : -1; for (k = 5; k > 0 && f < EDG[k]; k--); BD[i] = k; }
-  for (c = 0; c < nb; c++){ var ch = new Float64Array(12), bd = new Float64Array(6), t0 = eightStart(Math.floor(c / 8)) + (c % 8) * spb();
-    for (hf = 0; hf < 2; hf++){ var s0 = Math.round((t0 + (2 * hf + 1) * spb() / 4) * sr) - (N * d >> 1);
+  for (c = 0; c < nb; c++){ var ch = new Float64Array(12), bd = new Float64Array(6), t0 = beatT(c + ST.one);
+    for (hf = 0; hf < 2; hf++){ var s0 = Math.round(beatT(c + ST.one + (2 * hf + 1) / 4) * sr) - (N * d >> 1);
       for (i = 0; i < N; i++){ var x = 0; j = s0 + i * d; if (j >= 0 && j + d <= a.length) for (k = 0; k < d; k++) x += a[j + k] + b[j + k]; re[i] = x * win[i]; im[i] = 0; }
       hrFFT(re, im);
       for (i = 1; i < N / 2; i++){ var p = re[i] * re[i] + im[i] * im[i]; bd[BD[i]] += p; if (PC[i] >= 0) ch[PC[i]] += Math.sqrt(p); } }
@@ -2443,7 +2556,7 @@ $('seqGb').addEventListener('click', function(e){ var b = e.target.closest('[dat
    sideways steps only come in right-and-left pairs, and every phrase ends on a hit. A part that comes back gets the same moves
    (a verse changes a little the second time). Seeded by the song, so it's the same routine every time; 🎲 another idea rolls again */
 var FSL = null, FSM = new WeakMap();
-function fsEnergy(){ var n = nEights(), key = ST.bpm + '|' + ST.offset + '|' + ST.one + '|' + n, m = FSM.get(buf); if (m && m.key === key) return m;
+function fsEnergy(){ var n = nEights(), key = ST.bpm + '|' + ST.offset + '|' + ST.one + '|' + n + bmK(), m = FSM.get(buf); if (m && m.key === key) return m;
   var B = buf, sr = B.sampleRate, a = B.getChannelData(0), b = B.numberOfChannels > 1 ? B.getChannelData(1) : a, d = Math.max(1, Math.round(sr / 11025)), fs = sr / d, N = 512, hop = N * d,
     re = new Float64Array(N), im = new Float64Array(N), win = new Float64Array(N), BD = new Int8Array(N / 2), EDG = [0, 150, 400, 1000, 2500, 5000],
     nf = Math.max(0, Math.floor((a.length - d) / hop)), BE = new Float32Array(nf * 6), TT = new Float32Array(nf), mx = 1e-20, i, k, f, e;
@@ -2471,7 +2584,7 @@ function fsEnergy(){ var n = nEights(), key = ST.bpm + '|' + ST.offset + '|' + S
      doesn't count as music), and the sharpest attack in the count's first quarter */
   var sp = spb(), CL = new Float64Array(n * 8), CB = new Float64Array(n * 8), CO = new Float64Array(n * 8), tmA = [], tmB = [],
     md2 = function(v){ if (!v.length) return 0; v.sort(function(p, q){ return p - q; }); return v[v.length >> 1]; };
-  for (e = 0; e < n; e++) for (var c8 = 0; c8 < 8; c8++){ var t0 = eightStart(e) + c8 * sp, g0 = Math.max(1, Math.floor(t0 * sr / hop)), g1 = Math.min(nf, Math.max(g0 + 1, Math.floor((t0 + sp) * sr / hop))),
+  for (e = 0; e < n; e++) for (var c8 = 0; c8 < 8; c8++){ var bm = bmOn(), t0 = bm ? beatT(e * 8 + c8 + ST.one) : eightStart(e) + c8 * sp; if (bm) sp = beatT(e * 8 + c8 + ST.one + 1) - t0; var g0 = Math.max(1, Math.floor(t0 * sr / hop)), g1 = Math.min(nf, Math.max(g0 + 1, Math.floor((t0 + sp) * sr / hop))),
       ga = Math.min(g1, g0 + Math.max(1, Math.round(sp * sr / hop / 4))), o2 = 0, x8 = e * 8 + c8;
     tmA.length = 0; tmB.length = 0;
     for (f = g0; f < g1; f++){ tmA.push(TT[f]); tmB.push(BE[f * 6] + BE[f * 6 + 1]); }
@@ -2751,7 +2864,7 @@ function drawWave(){
   c.clearRect(0, 0, w, h);
   for (var e = e0; e <= e1; e++){ var x0 = (eightStart(e) - t0) * k, x1 = (eightStart(e + 1) - t0) * k;
     c.fillStyle = e === cur ? 'rgba(255,176,0,.12)' : e % 2 ? 'rgba(255,255,255,.03)' : 'rgba(0,0,0,0)'; c.fillRect(x0, 0, x1 - x0, h);
-    for (var b = 0; b < 8; b++){ if (b && bw < 5) continue; var bx = (eightStart(e) + b * spb() - t0) * k; c.fillStyle = b === 0 ? (ew >= 20 ? 'rgba(255,93,115,.8)' : 'rgba(255,93,115,.4)') : 'rgba(244,239,230,.13)'; c.fillRect(bx, 0, b === 0 && ew >= 20 ? 2 : 1, h);
+    for (var b = 0; b < 8; b++){ if (b && bw < 5) continue; var bx = (beatT(e * 8 + ST.one + b) - t0) * k; c.fillStyle = b === 0 ? (ew >= 20 ? 'rgba(255,93,115,.8)' : 'rgba(255,93,115,.4)') : 'rgba(244,239,230,.13)'; c.fillRect(bx, 0, b === 0 && ew >= 20 ? 2 : 1, h);
       if (bw >= 22 && e >= 0){ c.fillStyle = b === 0 ? '#ff5d73' : 'rgba(244,239,230,.4)'; c.font = '700 10px "Fragment Mono", monospace'; c.fillText(String(b + 1), bx + 4, h - 5); } }   /* v2.32 the counts under each beat once there's room */
     var nx = Math.max(x0, 0) + 5;
     if (e >= 0 && e < nEights() && (e % nst === 0 || e === cur) && (nst > 1 || x1 - nx > 12)){ c.fillStyle = e === cur ? '#ffb000' : '#8fa3a3'; c.font = '900 ' + (ew >= 40 ? 15 : 12) + 'px "Big Shoulders Display", sans-serif'; c.fillText(String(e + 1), nx, 16);
@@ -2768,6 +2881,8 @@ function drawWave(){
   var O = fitCanvas(ov), o = O[0], ow = O[1], oh = O[2], d = dur() || 1; o.clearRect(0, 0, ow, oh); o.fillStyle = 'rgba(244,239,230,.35)';
   for (px = 0; px < ow; px++){ a = Math.floor(px / ow * peaks.length); z = Math.floor((px + 1) / ow * peaks.length); m = 0; for (i = a; i < z; i++) if (peaks[i] > m) m = peaks[i]; o.fillRect(px, oh / 2 - m * oh / 2, 1, m * oh); }
   secBands(o, oh, function(x){ return x / d * ow; }, 0, nEights() - 1, 0);
+  if (bmOn()){ var tb0 = BMAP.lo - 1, tb1 = BMAP.hi + 1; o.strokeStyle = 'rgba(95,211,196,.85)'; o.lineWidth = 1.5; o.beginPath();   /* v2.52 the band's tempo along the song */
+    for (px = 0; px <= ow; px += 3){ var tq = px / ow * d, bq = beatAt(tq), lb = 60 / Math.max(.05, beatT(bq + 2) - beatT(bq - 2)) * 4, yq = oh - 3 - clamp((lb - tb0) / (tb1 - tb0), 0, 1) * (oh - 6); if (px) o.lineTo(px, yq); else o.moveTo(px, yq); } o.stroke(); }
   o.fillStyle = 'rgba(255,176,0,.35)'; o.fillRect(t0 / d * ow, 0, (t1 - t0) / d * ow, oh); if (playing && LP){ o.fillStyle = '#ffb000'; o.fillRect(LP[0] / d * ow, oh - 3, Math.max(2, (LP[1] - LP[0]) / d * ow), 3); } o.fillStyle = '#ff5d73'; o.fillRect(t / d * ow - 1, 0, 2, oh);
   if (!$('seqbox').hidden) sqMarks(o, ow, oh, d);
 }
@@ -3294,7 +3409,7 @@ function capGo(){ var C = CAP; if (!C) return; if (C.open && (C.st === 'count' |
   C.seq = capSeqOn(); C.open = C.seq && $('caplen').value === 'e0'; var L = capCounts(C), bs = spb() / RATE, t5 = c.currentTime + .35 + CAPLEAD, t1 = t5 + 4 * bs, lat = Math.min(.5, (c.outputLatency || 0) + (c.baseLatency || 0));
   var mus = $('capmus').getAttribute('aria-pressed') === 'true' && buf && RATE === 1;
   C.L = L; C.bms = bs * 1000; C.t1 = performance.now() + (t1 - c.currentTime + lat) * 1000; C.t5 = C.t1 - 4 * C.bms; C.ci = false; C.frames = []; C.st = 'count'; capAudioStop(C);
-  if (mus){ var g = c.createGain(), s = c.createBufferSource(), p5 = eightStart(C.seq ? C.e0 : cur) - 4 * spb(), te = t1 + L * bs; g.connect(c.destination); g.gain.setValueAtTime(1, te); g.gain.linearRampToValueAtTime(0, te + .5);
+  if (mus){ var g = c.createGain(), s = c.createBufferSource(), p5 = beatT((C.seq ? C.e0 : cur) * 8 + ST.one - 4), te = t1 + L * bs; g.connect(c.destination); g.gain.setValueAtTime(1, te); g.gain.linearRampToValueAtTime(0, te + .5);
     s.buffer = buf; s.connect(g); if (p5 >= 0) s.start(t5, p5); else s.start(t5 - p5, 0); s.stop(te + .6); C.au.push(s); }
   var rate = clamp(1.7 * ST.bpm * RATE / 112, 1.3, 2.4); sayWarm();
   for (var i = 0; i < 4; i++) capBeep(c, C, t5 + i * bs, 660, .3);
@@ -3384,10 +3499,10 @@ function byeHello(){ if ($('hello').hidden) return; $('hello').hidden = true; tr
    and everything is as before: the eight she's on loops, breaks after 30 s */
 var SHOW = 0, SHB = 0, shTouched = false, shDown = null, shDrawn = 0;
 function showQ(){ return (performance.now() - SHOW) / 1000 / spb() * RATE; }
-function showN(){ var n = Math.floor((dur() - eightStart(0)) / spb() - .05); return Math.max(8, n - n % 8); } /* whole eights: she bows at the end of the last full one */
+function showN(){ var n = bmOn() ? Math.floor(beatAt(dur()) - ST.one - .05) : Math.floor((dur() - eightStart(0)) / spb() - .05); return Math.max(8, n - n % 8); } /* whole eights: she bows at the end of the last full one */
 function showOn(){ if (shTouched) return; SHOW = performance.now(); SHB = 0; $('hpill').classList.add('on'); }   /* v2.16 the pill (phones) while she dances without sound */
 function showOff(){ shTouched = true; $('hpill').classList.remove('on'); if (!SHOW) return; var q = Math.min(showQ(), showN() - .001), c = Math.max(0, Math.floor(q)), p = q < 0 ? 0 : q - c;
-  SHOW = 0; SHB = 0; bowT0 = 0; cur = clamp(Math.floor(c / 8), 0, nEights() - 1); pos = clamp(eightStart(0) + (c + p) * spb(), 0, Math.max(0, dur() - .05));
+  SHOW = 0; SHB = 0; bowT0 = 0; cur = clamp(Math.floor(c / 8), 0, nEights() - 1); pos = clamp(bmOn() ? beatT(ST.one + c + p) : eightStart(0) + (c + p) * spb(), 0, Math.max(0, dur() - .05));
   previewT0 = performance.now() - ((c % 8) + p) * spb() * 1000 / RATE; renderEd(); }
 $('gl').addEventListener('pointerdown', function(e){ shDown = [e.clientX, e.clientY]; });
 addEventListener('click', function(e){ if (!SHOW){ shTouched = true; return; } var t = e.target, tap = t === $('gl') && shDown && Math.hypot(e.clientX - shDown[0], e.clientY - shDown[1]) < 8;
@@ -3536,7 +3651,7 @@ function breakNow(c, p){
   if (P && BRK.cut === 1){ /* cut short: she puts it straight back and hurries to her mark */
     var Q = set({}, P); delete Q.hold; delete Q.hu; BRK = { t0: tn, kind: BRK.kind, cut: 2, segs: [blendSeg(Q, stand([Q.x, Q.z], wrapA(Q.turn)), Q.sit ? .9 : .2)].concat(homeSegs([Q.x, Q.z], wrapA(Q.turn), 1.3)) };
     P = brkEval(BRK, 0); }
-  if (!P){ BRK = null; lastAct = tn; previewT0 = tn - slot * spb() * 1000 / RATE; return null; }
+  if (!P){ BRK = null; lastAct = tn; previewT0 = tn - slot * espb(cur) * 1000 / RATE; return null; }
   return P; }
 
 /* Pushed: dance props, one per eight. P.prop names it, P.tk (0..1) how far the newspaper is tucked under an arm (P.tks -1: the
@@ -3576,20 +3691,27 @@ function hatOn(P, c, p){ if (!ST.hat) return P; P.hat = 1; if (c < 0) return P; 
 
 /* ---------- the frame loop ---------- */
 var previewT0 = performance.now(), lastE = -9, lastC = -9, spans = $('counts').children;
+/* v2.52 one quiet line in the timing drawer when the song has a beat map: what the band does, and steady tempo / follow the band */
+function bmUI(){ var M = BMAP, on = !!(M && M.bpm === ST.bpm && ST.key !== 'demo' && buf), l = $('bmLine'); if (l.hidden !== !on) l.hidden = !on; if (!on) return;
+  var a = Math.round(M.a), z = Math.round(M.z), lo = Math.round(M.lo), hi = Math.round(M.hi),
+    t = Math.abs(z - a) >= Math.max(2, .6 * (hi - lo)) ? 'The band ' + (z > a ? 'speeds up' : 'slows down') + ' from ' + a + ' to ' + z + ' bpm' : 'The band drifts between ' + lo + ' and ' + hi + ' bpm';
+  $('bmTxt').innerHTML = ST.steady ? t + ', but Emma keeps a steady <b>' + (Math.round(ST.bpm * 10) / 10) + '</b>.' : t + ', so <b>Emma follows the drummer</b>.';
+  $('bmTgl').textContent = ST.steady ? '🥁 follow the band' : '⏱ steady tempo instead'; }
+$('bmTgl').addEventListener('click', function(){ var t = now(); retime(function(){ ST.steady = !ST.steady; }); if (!playing){ pos = clamp(t, 0, Math.max(0, dur() - .05)); cur = clamp(Math.floor(countAt(pos) / 8), 0, nEights() - 1); renderEd(); } lastC = -9; });
 function ui(){ $('play').textContent = playing ? '❚❚ pause' : '▶ play'; $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
-  $('bpm').innerHTML = (Math.round(ST.bpm * 10) / 10) + '<small>bpm</small>'; $('tinfo').textContent = 'first beat ' + ST.offset.toFixed(2) + ' s · the 1 on beat ' + (ST.one + 1); }
+  $('bpm').innerHTML = (Math.round(ST.bpm * 10) / 10) + '<small>bpm</small>'; $('tinfo').textContent = 'first beat ' + ST.offset.toFixed(2) + ' s · the 1 on beat ' + (ST.one + 1); bmUI(); }
 var SPW = 0, spBow = false, spHold = 0;
 function frame(){
   var c, p;
-  if (playing){ var b = (now() - ST.offset) / spb(); c = Math.floor(b) - ST.one; p = b - Math.floor(b);
+  if (playing){ var b = beatAt(now()); c = Math.floor(b) - ST.one; p = b - Math.floor(b);
     var e = Math.floor(c / 8); if (e !== Math.floor(lastC / 8) && e >= 0 && e < nEights()){ cur = e; renderEd(); } else if (c !== lastC) markNow(c); }
   else if (SHOW){ if (shDrawn < 2){ SHOW = performance.now(); if (window.DANCER) shDrawn++; } /* she starts on the 1 once her first frame is up */
     var sq = showQ(), sn = showN();
     if (sq >= sn){ if (!SHB){ SHB = 1; bowT0 = offAt(sn) ? 0 : performance.now(); sq = sn - .001; } else if (!bowT0){ SHB = 0; SHOW = performance.now(); sq = 0; } else sq = sn - .001; }
-    c = Math.floor(sq); p = sq - c; pos = clamp(eightStart(0) + (c + p) * spb(), 0, Math.max(0, dur() - .05));
+    c = Math.floor(sq); p = sq - c; pos = clamp(bmOn() ? beatT(ST.one + c + p) : eightStart(0) + (c + p) * spb(), 0, Math.max(0, dur() - .05));
     var se = clamp(Math.floor(c / 8), 0, nEights() - 1); if (se !== cur){ cur = se; renderEd(); } else drawWave(); }
   else if (FRZ && (performance.now() - FRZ.t0) / 1000 < FRZT){ c = FRZ.c; p = FRZ.p; }
-  else { if (FRZ) frzEnd(); var q = (performance.now() - previewT0) / 1000 / spb() * RATE; c = cur * 8 + (Math.floor(q) % 8); p = q - Math.floor(q); }
+  else { if (FRZ) frzEnd(); var q = (performance.now() - previewT0) / 1000 / espb(cur) * RATE; c = cur * 8 + (Math.floor(q) % 8); p = q - Math.floor(q); }
   if (c !== lastC){ spotTick(c); for (var i = 0; i < 8; i++) spans[i].classList.toggle('on', ((c % 8) + 8) % 8 === i); lastC = c;
     var E = c >= 0 ? Math.floor(c / 8) : -1; $('elbl').innerHTML = E >= 0 ? 'eight <b>' + (E + 1) + '</b>' + (ST.secs[E] ? '<span class="sec">' + esc(ST.secs[E]) + '</span>' : '') + (playing && LP ? ' <i class="lp" title="looping">⟲' + (LPB > LPE ? ' <small>' + (LPE + 1) + '–' + (LPB + 1) + '</small>' : '') + (BU ? ' <small>↗ ' + rateTxt(RATE) + '</small>' : '') + '</i>' : '') : (c >= -4 ? 'count in' : 'intro'); var ml = $('mlbl'); ml.textContent = c >= 0 ? MV[moveAt(c)].name : ''; ml.parentNode.classList.toggle('ml2', ml.offsetHeight > 1.6 * parseFloat(getComputedStyle(ml).fontSize)); }
   /* v1.93 Pushed + Sloppy: the finale. On the routine's last count the house lights go down and one hard white spot finds her for
@@ -3605,6 +3727,7 @@ function frame(){
 window.addEventListener('resize', function(){ drawWave(); });
 window.__EC = { get teach(){ return TEACH; }, get playing(){ return playing; }, get show(){ return SHOW; }, set show(v){ SHOW = v; }, showOn: function(){ shTouched = false; showOn(); }, showOff: showOff, showQ: showQ, showN: showN, get bowing(){ return !!bowT0; }, get spot(){ return SPW; }, get spotG(){ return SPOT; }, spotPlan: spotPlan, spotTap: spotTap, get frz(){ return FRZG; }, bow: function(){ bowT0 = performance.now(); }, reach: reach, gait: gait, tkAt: tkAt, get rate(){ return RATE; }, get LP(){ return LP; }, get LPE(){ return LPE; }, get LPB(){ return LPB; }, loopSpan: loopSpan, nE: function(){ return nEights(); }, get TS(){ return TS; }, rawNow: rawNow, get buf(){ return buf; }, get brk(){ return BRK; }, breakNow: breakNow, idle: function(s){ lastAct = performance.now() - s * 1000; }, brkN: function(n){ brkN = n; }, hello: function(){ HELLO = true; }, pose: function(c, p){ return hatOn(propOn(poseAt(c, p), c, p), c, p); }, fresh: function(){ EDV++; }, get sayLag(){ return sayLag; }, homes: homes, travelIn: travelIn, travelX: travelX, ST: ST, MV: MV, detect: detect, poseAt: poseAt, loadDemo: loadDemo, play: play, pause: pause, seek: seek, now: now, eightMoves: eightMoves, fxAt: fxAt, slotAt: slotAt, get cur(){ return cur; }, get slot(){ return slot; }, set t0(v){ previewT0 = v; }, get MK(){ return MK; }, CM: function(){ return CM; } };
 window.__EC.cap = CAPHOOK;
+window.__EC.bm = { beatAt: beatAt, beatT: beatT, on: bmOn, track: bmTrack, get map(){ return BMAP; }, ubAt: ubAt, ubT: ubT };
 window.__EC.fs = { energy: fsEnergy, plan: fsPlan, go: fsGo, put: fsPut, use: useBuffer, guess: gsGuess, desc: fsDesc, get L(){ return FSL; } };
 
 /* first view: the demo routine, waveform drawn from the synthesized groove (sound starts on play) */
