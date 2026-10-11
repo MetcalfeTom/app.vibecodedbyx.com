@@ -446,3 +446,5 @@
 - 2026-09-19 plan (see fantasy-realm/notes.md "SAFE INCREMENTAL 3D REPLACEMENT PLAN"): this app stays the arena/art reference; the main game gets a 3D LENS over its turn engine instead of a second rules engine here.
 - More than one encounter type (wolves on the corridor), a lock-on for the camera during the fight, footstep/hit sounds behind a mute toggle.
 - Knight leash could use a visible clearing boundary.
+
+- v2.40.25 (2026-10-11 02:15, fannar22): emptying a body closes the bag too when the loot window opened it (lootSync no longer clears lootInv); a bag you opened yourself stays open.
