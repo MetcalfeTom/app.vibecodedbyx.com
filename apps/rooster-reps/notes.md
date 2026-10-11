@@ -5,6 +5,7 @@ iamflax's idea (2026-10-11): "i need a caliathetics app, that shows me different
 ## Log
 - v1.0 2026-10-11: phone-first single file. Setup (5/10/15 min, easy/normal/beast, full/upper/legs/core, Drill Sergeant or Hype Friend), 18 no-equipment moves drawn as animated SVG figures, get ready → work → rest with a next-up preview, countdown ring, beeps in the last 3 s, pause/skip/back, wake lock, a speaking rooster coach, a done screen with a morning streak and share.
 - v1.1 2026-10-11: a rep counter chip ("Rep 4 of 12"). The demo figure now moves at the goal pace (work s / reps, clamped to 0.75-1.35x the authored cycle), so you can rep along with it; goal reached → "Bonus n". Headband tails trail behind the head to show which way the figure faces. In the last 10 s holds tremble and a sweat drop falls. Coach lines use lowercase move names mid-sentence.
+- v1.2 2026-10-11: side plank mirrors to the other side at halfway, and arm circles play backwards after halfway. Reduced motion turns off the tremble, sweat and tail flutter (the demo itself keeps moving, since it is the content). Focus moves to Pause on start, to the heading on the done screen and back to Start on New workout. The og.png has a bigger rooster.
 
 ## Art direction
 - Retro gym poster at sunrise: paper #fbefd9, ink #2a1a1f, red #c7361f, sun #ffc23a, sky #2f6f86. Conic sunburst rays plus a halftone dot layer.
@@ -25,6 +26,8 @@ iamflax's idea (2026-10-11): "i need a caliathetics app, that shows me different
 - Toe stroke radius touches the floor by ~0.05 on some moves. This is visual only.
 
 ## Todos
+- Upper focus has only 5 upper moves at normal, so arm circles/dips can repeat in a 10-15 min plan. More upper moves would help (e.g. plank shoulder taps, inchworm).
+- Rep pace: one figure cycle = one rep (each-side moves: one cycle = left + right). Phase 0 of every rep move must be the start pose.
 - Ask Flax: is the drill sergeant too shouty or just right? Any moves to add (e.g. a dead bug or calf raises)?
 - Possible later: a custom routine builder, rep counting via tap, and a longer 20 min option.
 
