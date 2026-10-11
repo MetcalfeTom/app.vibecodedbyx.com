@@ -17,6 +17,8 @@ A 3D globe of the live weather, for iamflax (Twitch, 2026-10-11 21:38 UTC: "Pitc
   - Toggles: °C/°F (saved as 'skymarble-unit'), and the layer chips (saved as 'skymarble-layers').
   - The initial view faces the visitor's longitude, taken from their timezone offset.
 
+- v1.1 (2026-10-11 ~21:58 UTC): iamflax asked to rename the app "Flax World". The name stays Sky Marble (for search), but typing "Flax World" or "flax" in the find box flies to the windiest grid point right now, and the card is named Flax World ("the windiest place on Earth right now, named after Flax"). The first test landed in Antarctica: −34°, 72 km/h, gusts 98.
+
 ## issues
 - Open-Meteo counts EVERY grid point as a call: 600 a minute, 5000 an hour and 10000 a day per IP. The first build asked for 648 points (10° grid), and the next spot lookup got a 429. Keep the grid under ~300 points. A 429 on a spot shows "the weather service is busy for a minute, this is the globe's estimate".
 - Testing from the sandbox burns the same quota (each headless run = 288 calls). Space out the runs.
