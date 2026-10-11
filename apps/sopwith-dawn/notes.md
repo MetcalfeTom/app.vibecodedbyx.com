@@ -98,3 +98,5 @@ A fancy remake of the 1984 Sopwith, asked for by varj1 on 2026-10-03: "make a fa
 
 ## testing
 - window.__S: freeze(true), start(), step(n, ['l','r','boost','fire','bomb']), draw(), G(), P(). Probe: scratchpad hm/psw.js (taxi, lift, bomb run, land/refuel, crash, respawn). v1.2 adds pick(i) (opens and selects a mission), prog(), end(won), zepHurt(d, x, y); probes hm/sd2/pf.js (flak), pt.js (end screen + picker), pz.js#fly|burn|fall|down|lost. v1.48.1: hm/sd2/tw/pr.js (#crown, #crown2, #tag, #flag, #flag2, #sun, #bye; a z suffix zooms 64 x 40 round the Baron) and hm/sd2/tw/hu.js#careful,sloppy,eager,rough:3 (human-ish bots; ~14 s per run). hud() only runs in the frame loop, so frozen probes read stale HUD text.
+
+- 2026-10-11 17:50 SEO pass (no version bump): schema.org JSON-LD, title "Sopwith Dawn — retro CGA biplane game with 44 missions, free in your browser", 146-char description (was ~600), og:title.

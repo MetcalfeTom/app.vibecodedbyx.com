@@ -99,3 +99,5 @@ Pick a short video (or the bouncing-ball sample), get A4 sheets of tiny numbered
 - Maybe: share the film with a line of text and the app's address (navigator.share {files, text}); left out because some share targets drop the file when text comes along, needs a real-device test first.
 - Ask pushedbutton: is drawing your own pages in the spirit of the press, and should drawings print in Pale too (they switch to Colour now, thin lines use little ink)?
 - Film a flick: check on a real iPhone and Android (mp4 type, share sheet, save link). Ideas if chat likes it: a paper riffle sound in the clip, a portrait 4:5 frame, a "film again" button, tell Pushed.
+
+- 2026-10-11 17:50 SEO pass (no version bump): schema.org JSON-LD.
