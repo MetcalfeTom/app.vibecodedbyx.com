@@ -22,8 +22,10 @@ A watch-only cutaway apartment block (Pushed's Little Computer People idea): tin
 ## Log
 - v1 2026-10-11 ~23:45 UTC: ten flats, the café, basement and roof; deterministic days; move-in vans for the four walk-ins (Wilf 23:54, Imogen 23:57, Gordon 00:00, Morwenna 00:03 UTC); the gazette (newest first, yesterday's evening fills a quiet morning); neighbour cards with a thought line; keyboard cycling.
 
+- v1.1 2026-10-11 23:50: phones zoom in on the neighbour you tap (2.4x close-up that follows them, card docked underneath); the world now draws off screen and is blitted at device resolution (VIEW in w4, present()).
+
 ## Issues
-- Sprites are small on phones (the building is ~374 px wide); a zoom may help.
+- Sprites are small on phones (the building is ~374 px wide): tapping someone zooms in (v1.1); a pinch zoom is not there yet.
 - The café sign clips to "THE KETTL" — kept on purpose, the voice made it a joke.
 
 ## Todos
