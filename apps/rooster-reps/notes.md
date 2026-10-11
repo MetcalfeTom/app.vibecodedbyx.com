@@ -4,6 +4,7 @@ iamflax's idea (2026-10-11): "i need a caliathetics app, that shows me different
 
 ## Log
 - v1.0 2026-10-11: phone-first single file. Setup (5/10/15 min, easy/normal/beast, full/upper/legs/core, Drill Sergeant or Hype Friend), 18 no-equipment moves drawn as animated SVG figures, get ready → work → rest with a next-up preview, countdown ring, beeps in the last 3 s, pause/skip/back, wake lock, a speaking rooster coach, a done screen with a morning streak and share.
+- v1.1 2026-10-11: a rep counter chip ("Rep 4 of 12"). The demo figure now moves at the goal pace (work s / reps, clamped to 0.75-1.35x the authored cycle), so you can rep along with it; goal reached → "Bonus n". Headband tails trail behind the head to show which way the figure faces. In the last 10 s holds tremble and a sweat drop falls. Coach lines use lowercase move names mid-sentence.
 
 ## Art direction
 - Retro gym poster at sunrise: paper #fbefd9, ink #2a1a1f, red #c7361f, sun #ffc23a, sky #2f6f86. Conic sunburst rays plus a halftone dot layer.
