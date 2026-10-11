@@ -20,15 +20,17 @@ self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
   if (!cacheable(req, url)) return;
   e.respondWith((async () => {
+    const fallback = async () => (await caches.match(req, { ignoreVary: true })) ||
+      (req.mode === 'navigate' ? (await caches.match('./?bare=1')) || (await caches.match('./index.html')) : null);
     try {
-      const res = await fetch(req);
-      if (res && (res.ok || res.type === 'opaque')) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {}); }
+      /* v4.114 (pushedbutton: "when the servers went down I'd be lost"): a server that answers with an error page (502/503/504)
+         or doesn't answer within 6 s counts as offline too, so the last good copy opens instead of the error */
+      const res = await Promise.race([fetch(req), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 6000))]);
+      if (res && (res.ok || res.type === 'opaque')) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {}); return res; }
+      if (res && res.status >= 500) { const hit = await fallback(); if (hit) return hit; }
       return res;
     } catch (err) {
-      const hit = await caches.match(req, { ignoreVary: true });
-      if (hit) return hit;
-      if (req.mode === 'navigate') return (await caches.match('./?bare=1')) || (await caches.match('./index.html')) || Response.error();
-      return Response.error();
+      return (await fallback()) || Response.error();
     }
   })());
 });
