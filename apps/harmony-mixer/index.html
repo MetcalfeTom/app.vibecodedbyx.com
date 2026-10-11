@@ -914,7 +914,7 @@ html[data-theme="light"] #mfbtoast{ box-shadow:0 .4rem 1.4rem rgba(60,40,10,.2);
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.117 · 2026-10-11</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.118 · 2026-10-11</span>
 </footer>
 
 <script id="dsp">
@@ -1806,7 +1806,7 @@ function deckMarkup(L){
       '<div class="read"><span class="lbl">key</span><span class="badge camelot" aria-live="polite">—</span><span class="sm keyname">—</span></div>' +
       '<div class="read"><span class="lbl">chord</span><span class="val chordv" aria-live="off">·</span><button type="button" class="sm chordsw" aria-pressed="true" aria-label="Live chord reading">live</button></div>' +
     '</div>' +
-    '<div class="wave" role="slider" aria-label="Deck ' + L + ' position — click to seek this deck; hold pauses while held, drag left or right to scrub" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><canvas></canvas><div class="hint">drop a track here</div><div class="status"></div></div>' +
+    '<div class="wave" role="slider" aria-label="Deck ' + L + ' position — click to cue that spot; drag left or right to scratch, a playing song comes back in time when you let go" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><canvas></canvas><div class="hint">drop a track here</div><div class="status"></div></div>' +
     '<div class="time"><span class="el">0:00</span><button type="button" class="tot" aria-pressed="false" aria-label="Deck ' + L + ' total time — click to show remaining" title="click: total ↔ remaining">0:00</button></div>' +
     '<div class="ctrl">' +
       '<button type="button" class="btn cue" title="Back to the start">cue</button>' +
@@ -1977,14 +1977,14 @@ function Deck(L, el){
     var up = function(){ if (SYNCST.nudging){ SYNCST.nudging = false; d.bend = 1; d.applyRate(); } };
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up);
   });
-  /* v1.5: vinyl-style hold — the press is a finger on the record (sound pauses while held),
-     release restores the prior state, and horizontal drag scrubs directionally, scaled by the
-     visible window so a zoomed view scrubs finely. Nothing seeks on a plain click. */
+  /* v1.5 vinyl hold, v4.118 scratch: the press is a hand on the record. A playing song goes quiet but keeps running underneath
+     (slip, see scratchStart), a drag scratches at SCR_PX s per pixel, and letting go brings the song back in time. A clean,
+     quick click still cues the clicked spot (full-track mapping) or a phrase flag. */
   var hold = null;
   d.q.wave.addEventListener('pointerdown', function(e){
     if (!d.buffer) return;
     hold = { x0: e.clientX, y0: e.clientY, t0: performance.now(), pos0: d.playing ? d.pos() : d.posAtStart, wasPlaying: d.playing, moved: false };
-    if (d.playing) d.stop();
+    try{ d.scratchStart(hold.pos0); }catch(err){ if (d.playing) d.stop(); }
     try{ d.q.wave.setPointerCapture(e.pointerId); }catch(err){}
   });
   d.q.wave.addEventListener('pointermove', function(e){
@@ -1992,22 +1992,20 @@ function Deck(L, el){
     var dx = e.clientX - hold.x0;
     if (!hold.moved && Math.abs(dx) < 4) return;
     hold.moved = true;
-    var r = d.q.wave.getBoundingClientRect(), vw2 = d.viewWindow();
-    var span = vw2.zoomed ? (vw2.t1 - vw2.t0) : d.buffer.duration;
-    d.posAtStart = Math.max(-d.preLimit(), Math.min(d.buffer.duration, hold.pos0 + dx / r.width * span));
-    d.render();
+    if (d._scr) d._scr.hand = hold.pos0 + dx * SCR_PX;
   });
   function waveRelease(tapSeek){
     if (!hold) return;
-    /* a clean, quick press is a click: seek this deck to the pressed spot (full-track mapping).
-       A long press stays the vinyl hold; any real drag stays a scrub. */
+    var S = d.scratchEnd();
     if (tapSeek && !hold.moved && performance.now() - hold.t0 < 250 && d.buffer){
       var rr = d.q.wave.getBoundingClientRect(), hit = d.phraseAt(hold.x0 - rr.left, hold.y0 - rr.top, rr.width);
-      d.posAtStart = hit >= 0 ? Math.max(0, Math.min(d.buffer.duration - 0.05, d.phraseT(d.phrases[hit].bar)))   /* v4.22: a flag tap cues its phrase exactly */
-                              : Math.max(0, Math.min(d.buffer.duration, (hold.x0 - rr.left) / rr.width * d.buffer.duration));
-      if (hit >= 0){ var hm = d.phrases[hit]; d.setStatus('cued phrase ' + (hit + 1) + (phName(hm) ? ' · ' + phName(hm) : '') + ' at ' + fmtTime(d.posAtStart)); clearTimeout(d._cueT); d._cueT = setTimeout(function(){ d.setStatus(''); }, 2200); }
-    }
-    if (hold.wasPlaying) d.play(); else d.render();
+      var to = hit >= 0 ? Math.max(0, Math.min(d.buffer.duration - 0.05, d.phraseT(d.phrases[hit].bar)))   /* v4.22: a flag tap cues its phrase exactly */
+                        : Math.max(0, Math.min(d.buffer.duration, (hold.x0 - rr.left) / rr.width * d.buffer.duration));
+      if (d.playing) d.seek(to); else d.posAtStart = to;
+      if (hit >= 0){ var hm = d.phrases[hit]; d.setStatus('cued phrase ' + (hit + 1) + (phName(hm) ? ' · ' + phName(hm) : '') + ' at ' + fmtTime(to)); clearTimeout(d._cueT); d._cueT = setTimeout(function(){ d.setStatus(''); }, 2200); }
+    } else if (S && !S.slip) d.posAtStart = Math.max(-d.preLimit(), Math.min(d.buffer.duration, S.hand));
+    if (!S && hold.wasPlaying && !d.playing) d.play();
+    d.render();
     hold = null;
   }
   d.q.wave.addEventListener('pointerup', function(){ waveRelease(true); });
@@ -2182,10 +2180,11 @@ Deck.prototype.ensureNodes = function(){
   ['lo', 'mid', 'hi'].forEach(function(b){ eq[b].gain.value = eqDb(d.eq[b]); });
   eq.lp = c.createBiquadFilter(); eq.lp.type = 'lowpass'; eq.hp = c.createBiquadFilter(); eq.hp.type = 'highpass';   /* v4.87 filter sweep knob */
   var f0 = fxHz(d.eq.fx); eq.lp.frequency.value = f0.lp; eq.hp.frequency.value = f0.hp; eq.lp.Q.value = eq.hp.Q.value = f0.q;
+  var sg = c.createGain(); sg.connect(an);   /* v4.118 slip: the song's own sources come in here, a scratch mutes it while the song runs on */
   an.connect(lg); lg.connect(eq.lo); eq.lo.connect(eq.mid); eq.mid.connect(eq.hi); eq.hi.connect(eq.lp); eq.lp.connect(eq.hp); eq.hp.connect(vg); vg.connect(fg); fg.connect(xg); xg.connect(master);
   vg.gain.value = d.vol; xg.gain.value = d._gateHold ? 0 : d.xf; lg.gain.value = d.lvlGain();
   d.fftBuf = new Float32Array(an.frequencyBinCount);
-  d.nodes = { an: an, vg: vg, fg: fg, xg: xg, lg: lg, eq: eq };
+  d.nodes = { an: an, vg: vg, fg: fg, xg: xg, lg: lg, eq: eq, sg: sg };
   return d.nodes;
 };
 Deck.prototype.pos = function(){
@@ -2230,7 +2229,7 @@ Deck.prototype.play = function(){
     if (!d.mediaSrc){ try{ d.mediaSrc = c.createMediaElementSource(d.el2); }catch(e){ d.mediaSrc = null; } }
     if (d.mediaSrc){
       try{ d.mediaSrc.disconnect(); }catch(e){}
-      d.mediaSrc.connect(n.an);
+      d.mediaSrc.connect(n.sg);
       d.el2.currentTime = d.posAtStart;
       d.playing = true;
       d.applyRate();
@@ -2239,7 +2238,7 @@ Deck.prototype.play = function(){
       return;
     }
   }
-  var s = c.createBufferSource(); s.buffer = d.buffer; s.playbackRate.value = d.rate * (d.bend || 1); s.connect(n.an);
+  var s = c.createBufferSource(); s.buffer = d.buffer; s.playbackRate.value = d.rate * (d.bend || 1); s.connect(n.sg);
   var mySrc = s;
   s.onended = function(){ if (d.src !== mySrc) return; var p = d.pos(); d.playing = false; d.src = null; d.posAtStart = p; d.render(); };
   s.start(0, d.posAtStart); d.src = s; d.tStart = c.currentTime; d.playing = true; d.render();
@@ -2251,6 +2250,71 @@ Deck.prototype.stop = function(){
   if (d.el2 && d.mediaURL){ try{ d.el2.pause(); }catch(e){} }
   try{ if (s) s.stop(); }catch(e){}
   d.chord = null; d.render();
+};
+/* v4.118 SCRATCH (pushedbutton 21:01: the deck's whole-track wave "might be a good, safe place to have the scratch. The aligned
+   timeline is already much better for navigating"). A drag on the deck wave is a hand on the record: the sound follows the hand
+   forwards and backwards at its speed, 1 px = SCR_PX s of music (the old drag scrubbed silently at the overview's scale, and a
+   playing deck stopped dead). Engine: forward + reversed copies of +-SCR_HALF s around the grab (like buildLoopSegs), one source
+   per stroke on the right copy, playbackRate = the hand's eased speed, gain ducks at crawling speeds (no thump while the record is
+   pinned). SLIP: a playing deck keeps running underneath, muted at n.sg, so letting go lands where the song would have been;
+   the mix keeps its beat and sync never notices. A stopped deck stays where you let go (cue by ear). */
+var SCR_PX = 0.005, SCR_HALF = 12, SCR_TAU = 0.03;
+Deck.prototype.scratchStart = function(p0){
+  var d = this, c = audio(), n = d.ensureNodes(), buf = d.buffer, sr = buf.sampleRate;
+  d.scratchEnd();
+  var ia = Math.max(0, Math.floor((p0 - SCR_HALF) * sr)), ib = Math.min(buf.length, Math.floor((Math.max(0, p0) + SCR_HALF) * sr));
+  var len = Math.max(2, ib - ia), chs = buf.numberOfChannels;
+  var fwd = c.createBuffer(chs, len, sr), rev = c.createBuffer(chs, len, sr);
+  for (var ch = 0; ch < chs; ch++){
+    var f = fwd.getChannelData(ch), r = rev.getChannelData(ch);
+    f.set(buf.getChannelData(ch).subarray(ia, ia + len));
+    for (var i = 0; i < len; i++) r[i] = f[len - 1 - i];
+  }
+  var out = c.createGain(); out.connect(n.an);
+  var S = d._scr = { a: ia / sr, b: (ia + len) / sr, fwd: fwd, rev: rev, out: out, head: p0, hand: p0, dir: 0, src: null, g: null, t: performance.now(), raf: 0, slip: d.playing };
+  if (S.slip){ var t = c.currentTime, sg = n.sg.gain; sg.cancelScheduledValues(t); sg.setValueAtTime(sg.value, t); sg.linearRampToValueAtTime(0, t + 0.008); }
+  var tick = function(){
+    if (d._scr !== S) return;
+    var now = performance.now(), dt = Math.min(0.05, Math.max(0.001, (now - S.t) / 1000)); S.t = now;
+    var target = Math.max(S.a, Math.min(S.b - 0.01, S.hand)), nh = target + (S.head - target) * Math.exp(-dt / SCR_TAU);
+    var v = (nh - S.head) / dt; S.head = nh;
+    try{ d.scratchVoice(v); }catch(e){}
+    if (!S.slip){ d.posAtStart = Math.max(-d.preLimit(), Math.min(buf.duration, Math.abs(S.hand - target) > 0.02 ? S.hand : S.head)); }
+    S.raf = requestAnimationFrame(tick);
+  };
+  S.raf = requestAnimationFrame(tick);
+  return S;
+};
+Deck.prototype.scratchVoice = function(v){
+  var d = this, S = d._scr, c = audio(), t = c.currentTime, sp = Math.min(6, Math.abs(v));
+  var dir = sp < 0.02 ? S.dir : (v > 0 ? 1 : -1);
+  if (dir && (dir !== S.dir || !S.src)){
+    d.scratchCut(t);
+    var s = c.createBufferSource(), g = c.createGain();
+    s.buffer = dir > 0 ? S.fwd : S.rev; g.gain.value = 0; s.connect(g); g.connect(S.out);
+    var off = dir > 0 ? S.head - S.a : S.b - S.head;
+    s.playbackRate.value = Math.max(0.001, sp);
+    s.start(t, Math.max(0, Math.min(s.buffer.duration - 0.002, off)));
+    S.src = s; S.g = g; S.dir = dir;
+  }
+  if (S.src){
+    S.src.playbackRate.setTargetAtTime(Math.max(0.001, sp), t, 0.008);
+    S.g.gain.setTargetAtTime(Math.min(1, sp / 0.12), t, 0.006);
+  }
+};
+Deck.prototype.scratchCut = function(t){
+  var S = this._scr; if (!S || !S.src) return;
+  var s = S.src, g = S.g; S.src = null; S.g = null;
+  s.onended = function(){ try{ s.disconnect(); g.disconnect(); }catch(e){} };
+  try{ g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(0, t, 0.003); s.stop(t + 0.03); }catch(e){}
+};
+Deck.prototype.scratchEnd = function(){
+  var d = this, S = d._scr; if (!S) return null;
+  var t = audio().currentTime;
+  d.scratchCut(t); d._scr = null; cancelAnimationFrame(S.raf);
+  setTimeout(function(){ try{ S.out.disconnect(); }catch(e){} }, 150);
+  if (S.slip && d.nodes){ var sg = d.nodes.sg.gain; sg.cancelScheduledValues(t); sg.setValueAtTime(sg.value, t); sg.linearRampToValueAtTime(1, t + 0.012); }
+  return S;
 };
 Deck.prototype.toggle = function(){ this.playing ? this.stop() : this.play(); };
 Deck.prototype.cue = function(){ this.stop(); this.posAtStart = 0; this.render(); };
@@ -2793,7 +2857,7 @@ Deck.prototype.startLoopLeg = function(dir, fromPos){
   off = Math.max(0, Math.min(segLen - 0.001, off));
   if (dir === 'rev'){ src.loop = true; src.loopStart = 0; src.loopEnd = segLen; }
   src.playbackRate.value = d.rate * (d.bend || 1);
-  src.connect(n.an);
+  src.connect(n.sg);
   var tok = d.lbTok;
   if (dir === 'fwdpass' || dir === 'revpass'){
     src.onended = function(){
@@ -2820,7 +2884,7 @@ Deck.prototype.engageLoopEngine = function(){
     var src = c.createBufferSource();
     src.buffer = d.buffer; src.loop = true; src.loopStart = d.loopA; src.loopEnd = d.loopB;
     src.playbackRate.value = d.rate * (d.bend || 1);
-    src.connect(n.an);
+    src.connect(n.sg);
     src.start(0, p);
     d.loopSrc = src;
     d.lb = { t0: c.currentTime, p0: p, dir: 'fwd' };
@@ -3187,7 +3251,7 @@ Deck.prototype.drawHead = function(g, w, h, vw){
     g.fillStyle = 'rgba(126,201,122,.16)'; g.fillRect(xa, 0, Math.max(1, xb - xa), h);
     g.fillStyle = 'rgba(126,201,122,.75)'; g.fillRect(Math.round(xa), 0, 1, h); g.fillRect(Math.round(xb) - 1, 0, 1, h);
   }
-  var pos = this.pos(), p = pos / this.buffer.duration;
+  var pos = this._scr ? this._scr.head : this.pos(), p = pos / this.buffer.duration;   /* v4.118 the head follows the scratching hand */
   var x = vw && vw.zoomed ? Math.round((pos - vw.t0) / (vw.t1 - vw.t0) * w) : Math.round(p * w);
   g.fillStyle = HTH().shade; g.fillRect(0, 0, x, h);
   g.fillStyle = HTH().ink; g.fillRect(x, 0, 2, h);
@@ -3381,7 +3445,7 @@ var stackCv = document.getElementById('stack'), stackPanel = document.getElement
 var STACK_BASE = 24;   /* wall-seconds visible at 1x — each lane scales by its own rate, so locked tempos show matching grids */
 function stackWindow(d){
   if (!d.buffer) return null;
-  var span = (STACK_BASE / ZOOM.z) * d.rate, p = d.playing ? d.viewPos() + (d._ghost || 0) : d.posAtStart;   /* v4.44 smooth clock; v4.110 + a held lane's ghost offset */
+  var span = (STACK_BASE / ZOOM.z) * d.rate, p = d._scr ? d._scr.head : d.playing ? d.viewPos() + (d._ghost || 0) : d.posAtStart;   /* v4.44 smooth clock; v4.110 + a held lane's ghost offset */
   /* quarter-way pin: a quarter of the window behind the head, three quarters of what's coming */
   return { t0: p - span * 0.25, t1: p + span * 0.75, span: span };
 }
@@ -7603,6 +7667,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.118', t:'Scratch on the deck wave', d:"Drag the deck wave to scratch both ways; a playing song comes back in time when you let go.", p:'creativity', i:'med', e:'med', st:'verified', ev:'headless: scratch voice follows the hand both ways, slip lands within a few ms of where the song would be; not yet tried by hand on a real trackpad' },
   { s:'log', v:'v4.117', t:'The emergency stick gets its own icon', d:"The emergency DJ drive is now a small kit: on Windows the USB stick shows up as EMERGENCY DJ with a red record icon.", p:'reliability', i:'low', e:'low', st:'verified', ev:'headless: zip unpacks clean, icon checked; not yet on a real stick in Windows' },
   { s:'log', v:'v4.116', t:'Emergency DJ drive', d:"🚨 in the backup box saves one file for a USB stick; double-click it on any laptop, pick the music folder, and quick start plays offline.", p:'reliability', i:'high', e:'med', st:'verified', ev:'headless: kit built over http, opened from file://, backup restored, folder button wired' },
   { s:'log', v:'v4.115', t:'Quick start plays where the fader is', d:"Quick start plays its song on the deck the crossfader leans to, and a song stuck behind a closed fader gets it back to the middle.", p:'reliability', i:'high', e:'low', st:'verified', ev:'headless: fader on B, B paused, quick start' },
