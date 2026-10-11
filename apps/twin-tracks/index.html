@@ -126,6 +126,24 @@ details li{overflow-wrap:anywhere}
 .dock .btn{min-height:42px;padding:.5rem .9rem;background:var(--paper);color:var(--ink);border-color:var(--paper);box-shadow:3px 3px 0 var(--red);font-size:.74rem}
 .toast{position:fixed;left:50%;top:18px;transform:translate(-50%,-160%);background:var(--ink);color:var(--paper);padding:.6rem 1rem;font-size:.76rem;z-index:70;transition:transform .25s;max-width:calc(100% - 32px)}
 .toast.show{transform:translate(-50%,0)}
+/* the move-script sheet: what the script will do, before anything downloads */
+.sheet{position:fixed;inset:0;z-index:65;display:grid;place-items:center;padding:16px;background:rgba(29,27,24,.45)}
+.sheet[hidden]{display:none}
+.sheet .box{width:min(40rem,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--card);border:2px solid var(--ink);box-shadow:8px 8px 0 var(--red);padding:1.2rem 1.2rem 1.1rem;animation:rise .25s both}
+.sheet h3{font:800 clamp(1.7rem,6vw,2.5rem)/1 "Bricolage Grotesque",Georgia,serif;letter-spacing:-.03em;margin:0 0 .9rem}
+.sheet .big{font-family:"Bricolage Grotesque",Georgia,serif;font-size:clamp(1.1rem,3.6vw,1.4rem);line-height:1.3;margin:0 0 .6rem;color:var(--ink)}
+.sheet .big b{font-weight:800;color:var(--red)}
+.sheet p,.sheet li{font-size:.76rem;color:var(--dim);margin:.35rem 0}
+.sheet b{font-weight:500;color:var(--ink)}
+.sheet ol{padding-left:1.3rem;margin:.8rem 0 .4rem}
+.sheet .warn{border-left:4px solid var(--red);padding:.35rem .7rem;background:rgba(199,54,31,.06);color:var(--ink)}
+.sheet .fname{overflow-wrap:anywhere;color:var(--ink);font-weight:500}
+.sheet .acts{display:flex;flex-wrap:wrap;gap:.8rem;margin-top:1.1rem}
+.sheet details{margin:.6rem 0 0}
+.sheet details ul{margin:.3rem 0 0;padding-left:1.1rem;max-height:14rem;overflow:auto}
+.sheet details li{overflow-wrap:anywhere;margin:.15rem 0}
+.sheet details li.away{text-decoration:line-through;text-decoration-color:var(--dim)}
+.facts .away{color:var(--red);font-weight:500}
 footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
 
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -189,16 +207,24 @@ footer{margin:3rem 0 0;font-size:.64rem;color:var(--dim);letter-spacing:.06em}
     <details id="skipped" hidden><summary id="skippedSum"></summary><ul id="skippedList"></ul></details>
     <button class="btn ghost again" id="againBtn" type="button">Scan another folder</button>
   </section>
-  <footer><span role="note" aria-label="Build information">build v2.4 · 2026-09-28</span></footer>
+  <footer><span role="note" aria-label="Build information">build v2.5 · 2026-10-11</span></footer>
 </div>
 
 <div class="dock" id="dock" role="region" aria-label="Files marked for removal">
   <p id="dockTxt"></p>
   <button class="btn" id="copyList" type="button">Copy list</button>
   <button class="btn" id="saveList" type="button">Save list</button>
-  <button class="btn" id="saveScript" type="button" title="A script that moves every marked file into one _twin-tracks-removed folder, so you can check them before you delete anything.">Move script</button>
+  <button class="btn" id="saveScript" type="button" title="A script that moves every marked file into one _twin-tracks-removed folder, so you can check them before you delete anything. It shows how many first.">Move script</button>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="sheet" id="batchSheet" hidden role="dialog" aria-modal="true" aria-labelledby="batchTitle">
+  <div class="box">
+    <h3 id="batchTitle">Move script</h3>
+    <p class="big" id="batchBig" aria-live="polite"></p>
+    <div id="batchMore"></div>
+    <div class="acts"><button class="btn" id="batchGo" type="button" disabled>Save the script</button><button class="btn ghost" id="batchNo" type="button">Not now</button></div>
+  </div>
+</div>
 <audio id="player" preload="auto"></audio>
 
 <script>
@@ -213,7 +239,7 @@ const SAME = 0.8, MAYBE = 0.62, COARSE = 0.6, QUICK = 0.5, MAX_LAG = 16, DUR_SLA
 
 const $ = id => document.getElementById(id);
 let items = [];     // {file, path, name, size, ext, a0, a1, fmt, ahash (music bytes), hash (whole file), fp, err, nodec, gone}
-let ignoredCount = 0;
+let ignoredCount = 0, heldCount = 0;
 let groups = [];
 let stopFlag = false;
 let filter = 'all';
@@ -522,11 +548,13 @@ function famTier(members) { return members.every(m => m.hash === members[0].hash
 
 // sweep 1: read the files, never play them. Same music bytes = a copy, found in seconds.
 async function scanFiles(fileList) {
-  const all = Array.from(fileList);
-  items = all.filter(f => AUDIO_RE.test(f.name) || (f.type || '').startsWith('audio/')).map(f => ({
+  // files a move script already put aside in _twin-tracks-removed are not part of the library any more
+  const all = Array.from(fileList), held = new Set(all.filter(f => relOf(f).split('/').includes(QDIR)));
+  items = all.filter(f => !held.has(f) && (AUDIO_RE.test(f.name) || (f.type || '').startsWith('audio/'))).map(f => ({
     file: f, path: relOf(f), name: f.name, size: f.size, ext: (f.name.match(/\.([^.]+)$/) || [, ''])[1].toUpperCase()
   }));
-  ignoredCount = all.length - items.length;
+  heldCount = held.size;
+  ignoredCount = all.length - items.length - heldCount;
   if (!items.length) { toast(all.length ? 'No music files in there. I read mp3, m4a, flac, ogg, opus and wav.' : 'That folder looks empty.'); return; }
   stopFlag = false; deepDone = false; fams = new Map(); filter = 'all';
   document.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.f === 'all')));
@@ -567,6 +595,9 @@ async function deepListen() {
   stopFlag = false;
   show('scan');
   $('scanTitle').textContent = 'Deep listen…';
+  // a file an earlier move script took away can't be read any more: spot those first, so no ★ lands on one
+  setProgress(0, 1, 'Checking which marked files are still in their folders…', '');
+  await checkAway(items.filter(it => it.gone && !it.err));
   // one listen per family of identical music
   const todo = [];
   items.forEach(it => { if (!it.err && !it.nodec && !it.fp && famOf(it)[0] === it) todo.push(it); });
@@ -596,10 +627,18 @@ async function deepListen() {
 
 async function fpOf(it) {
   if (it.fp || it.nodec) return it.fp;
-  let fp = null;
-  try { fp = fingerprint(await decode(await it.file.arrayBuffer())); } catch (e) {}
+  let fp = null, heard = false;
+  // a copy moved or changed since the scan can't be read: listen to another copy of the same music instead
+  const fam = famOf(it), order = [...fam.filter(m => !m.away && !m.gone), ...fam.filter(m => !m.away && m.gone)];
+  for (const m of order) {
+    let buf;
+    try { buf = await m.file.arrayBuffer(); } catch (e) { m.away = awayWhy(e); continue; }
+    heard = true;
+    try { fp = fingerprint(await decode(buf)); } catch (e) {}
+    break;
+  }
   if (fp) { setFp(it, fp); cachePut(it); }
-  else famOf(it).forEach(m => { m.nodec = "couldn't be decoded (DRM, damaged, or a format your browser can't play)"; });
+  else if (heard) famOf(it).forEach(m => { m.nodec = "couldn't be decoded (DRM, damaged, or a format your browser can't play)"; });
   return fp;
 }
 function setFp(it, fp) { famOf(it).forEach(m => { m.fp = fp; }); }
@@ -827,14 +866,15 @@ try { prefer = localStorage.getItem('twin-tracks.prefer') || ''; } catch (e) {}
 function topOf(it) { const p = it.path.split('/'); return p.length > 2 ? p[1] : ''; }
 function setKeeper(g) {
   const worth = g.tier === 'pcm' ? it => -it.size - (/(\(\d+\)|\bcopy\b|kopie|copia|\bdup)/i.test(it.name) ? 1e12 : 0) - it.path.length : keepScore;
-  // a cut-off copy never gets the ★ while a whole one is there
-  const ok = g.rows.filter(r => !r.it.cut), base = ok.length ? ok : g.rows;
+  // a cut-off copy never gets the ★ while a whole one is there, nor does a copy that's gone from its folder
+  const here = g.rows.filter(r => !r.it.away), rows0 = here.length ? here : g.rows;
+  const ok = rows0.filter(r => !r.it.cut), base = ok.length ? ok : rows0;
   const mine = prefer ? base.filter(r => topOf(r.it) === prefer) : [];
   const pool = mine.length ? mine : base;
   let best = pool[0];
   pool.forEach(r => { if (worth(r.it) > worth(best.it)) best = r; });
   g.rows.forEach(r => { r.keeper = r === best; });
-  g.waste = g.rows.reduce((s, r) => s + (r === best ? 0 : r.it.size), 0);
+  g.waste = g.rows.reduce((s, r) => s + (r === best || r.it.away ? 0 : r.it.size), 0);
 }
 // the folder picker only shows when the sets span two or more top folders
 function preferUI() {
@@ -1005,7 +1045,7 @@ function renderResults() {
       ? `Quick sweep of <b>${readable}</b> files, without playing a note: <b>${extra}</b> extra copies of the very same music, about <b>${mb(waste)}</b> you could free.`
       : `Quick sweep of <b>${readable}</b> files, without playing a note: none of them hold the very same music.`;
   }
-  const left = items.filter(i => !i.err && !i.nodec && !i.fp).length;
+  const left = items.filter(i => !i.err && !i.nodec && !i.fp && !i.away).length;
   $('deepBox').hidden = deepDone || !left;
   $('deepTxt').innerHTML = heard
     ? `<b>Stopped partway.</b> ${left} songs still haven't been listened to. I'll pick up where I left off.`
@@ -1021,8 +1061,8 @@ function renderResults() {
   bulkLabel();
   const bad = items.filter(i => i.err || i.nodec);
   const stopped = !deepDone && heard && left;
-  $('skipped').hidden = !bad.length && !ignoredCount && !stopped;
-  $('skippedSum').textContent = [bad.length ? bad.length + (bad.length === 1 ? " file" : " files") + " I couldn't read" : '', ignoredCount ? ignoredCount + ' non-music files ignored' : '', stopped ? 'stopped early: ' + left + ' not listened to' : ''].filter(Boolean).join(' · ');
+  $('skipped').hidden = !bad.length && !ignoredCount && !heldCount && !stopped;
+  $('skippedSum').textContent = [bad.length ? bad.length + (bad.length === 1 ? " file" : " files") + " I couldn't read" : '', ignoredCount ? ignoredCount + ' non-music files ignored' : '', heldCount ? heldCount + ' already in ' + QDIR + ' left out' : '', stopped ? 'stopped early: ' + left + ' not listened to' : ''].filter(Boolean).join(' · ');
   $('skippedList').innerHTML = bad.map(i => `<li>${esc(i.path)}: ${esc(i.err || i.nodec)}</li>`).join('');
   // songs that stop early, with or without a whole twin
   const cut = items.filter(i => i.cut);
@@ -1104,7 +1144,7 @@ function cutTxt(it) {
 }
 function factsOf(r) {
   const it = r.it, f = it.fp;
-  return (it.cut ? '<b class="cut">✂ ' + esc(cutTxt(it)) + '</b> · ' : '') + (f ? Math.round(it.size * 8 / 1000 / Math.max(1, f.dur)) + ' kbps · ' : '') + mb(it.size) + (f ? ' · ' + mmss(f.dur) : '') + ' · ' + esc(it.ext) +
+  return (it.away ? '<b class="away">' + (it.away === 'moved' ? 'not in its folder any more' : 'changed since the scan') + '</b> · ' : '') + (it.cut ? '<b class="cut">✂ ' + esc(cutTxt(it)) + '</b> · ' : '') + (f ? Math.round(it.size * 8 / 1000 / Math.max(1, f.dur)) + ' kbps · ' : '') + mb(it.size) + (f ? ' · ' + mmss(f.dur) : '') + ' · ' + esc(it.ext) +
     (r.off && Math.abs(r.off) >= 0.05 ? ' · starts ' + Math.abs(r.off).toFixed(2) + ' s ' + (r.off > 0 ? 'later' : 'earlier') : '');
 }
 
@@ -1116,7 +1156,7 @@ function syncGroup(el) {
     b.setAttribute('aria-pressed', String(!!r.it.gone));
     b.textContent = r.it.gone ? 'Remove' : 'Keep';
   });
-  if (g.rows.every(r => r.it.gone)) toast('Careful: every copy in that set is marked. Keep at least one!');
+  if (lastGone(g)) toast('Careful: every copy in that set is marked. Keep at least one!');
   if (el._seen) paintGroup(el);
   updateDock();
 }
@@ -1216,9 +1256,9 @@ player.addEventListener('ended', stopPlayback);
 // ---------- the removal list ----------
 function marked() { return [...new Set(groups.flatMap(g => g.rows.filter(r => r.it.gone).map(r => r.it)))]; }
 function updateDock() {
-  const m = marked(), bytes = m.reduce((s, it) => s + it.size, 0);
+  const m = marked(), away = m.filter(it => it.away).length, bytes = m.reduce((s, it) => s + (it.away ? 0 : it.size), 0);
   $('dock').classList.toggle('show', m.length > 0);
-  $('dockTxt').innerHTML = `<b>${m.length}</b> ${m.length === 1 ? 'file' : 'files'} marked · ${mb(bytes)} to free`;
+  $('dockTxt').innerHTML = `<b>${m.length}</b> ${m.length === 1 ? 'file' : 'files'} marked · ${mb(bytes)} to free` + (away ? ` · ${away} not there any more` : '');
   if (groups.length) saveMarks();
 }
 function listText() {
@@ -1245,30 +1285,67 @@ function scriptPlan() {
   if (!m.length || m.some(it => !it.path.includes('/'))) return null;
   const tops = [...new Set(m.map(it => it.path.split('/')[0]))];
   const strip = tops.length === 1;
-  return { m, strip, where: strip ? `inside your "${tops[0]}" folder` : `in the folder that holds ${tops.map(t => '"' + t + '"').join(', ')}`,
-    rel: it => strip ? it.path.slice(it.path.indexOf('/') + 1) : it.path };
+  const rel = it => strip ? it.path.slice(it.path.indexOf('/') + 1) : it.path;
+  // proof the script sits in the picked folder: files and folders the scan saw there that a move script never takes away
+  const kept = items.filter(it => !it.gone && !it.away && !it.err && it.path.includes('/') && (!strip || it.path.split('/')[0] === tops[0]));
+  const dirs = [...new Set(kept.map(rel).filter(r => r.includes('/')).map(r => r.slice(0, r.lastIndexOf('/'))))];
+  const d = new Date(), z = n => String(n).padStart(2, '0'), day = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  return { m, strip, rel, where: strip ? `inside your "${tops[0]}" folder` : `in the folder that holds ${tops.map(t => '"' + t + '"').join(', ')}`,
+    look: { files: [...m.filter(it => !it.away).slice(0, 4), ...kept.slice(0, 4)].map(rel), dirs: dirs.slice(0, 4) },
+    made: `${day} ${z(d.getHours())}:${z(d.getMinutes())}`,
+    // a new name every time: the browser can't turn it into "(1)", and an older script in the folder can't be run by mistake
+    fname: `twin-tracks-move-${day}-${z(d.getHours())}${z(d.getMinutes())}.${isWin ? 'bat' : 'sh'}` };
 }
+// every line: the exact path inside the picked folder and the size the scan saw, or the file stays put and gets named. Never stops early.
 function batScript(p) {
-  const w = x => x.replace(/\//g, '\\').replace(/%/g, '%%');
+  const w = x => x.replace(/\//g, '\\').replace(/%/g, '%%'), n = p.m.length;
   const lines = p.m.map(it => {
-    const f = w(p.rel(it)), d = f.includes('\\') ? f.slice(0, f.lastIndexOf('\\')) : '';
-    return `if exist "${f}" (mkdir "${QDIR}${d ? '\\' + d : ''}" 2>nul & move "${f}" "${QDIR}\\${f}" >nul && set /a moved+=1) else (echo   not found: "${f}")`;
+    // the path is written once, in the for list; the body only uses %%A, so a name holding "%A" can't be read as the loop variable
+    const q = `"${QDIR}\\%%~A"`;
+    return `for %%A in ("${w(p.rel(it))}") do if not exist %%A (if exist ${q} (set /a already+=1) else (set /a missing+=1 & echo   not found: %%A)) else if not "%%~zA"=="${it.size}" (set /a changed+=1 & echo   size changed since the scan, left in place: %%A) else if exist ${q} (set /a clash+=1 & echo   left in place, ${QDIR} already has one with that name: %%A) else ((for %%B in (${q}) do mkdir "%%~dpB" 2>nul ) & move %%A ${q} >nul 2>nul && set /a moved+=1 || (set /a failed+=1 & echo   could not move: %%A))`;
   });
-  // run from the wrong folder (say, still in Downloads), it says where it belongs instead of printing a wall of "not found"
-  const look = p.m.slice(0, 5).map(it => `if exist "${w(p.rel(it))}" set found=1`);
-  return ['@echo off', 'chcp 65001 >nul', 'cd /d "%~dp0"', 'set moved=0', 'set found=0', ...look, 'if %found%==1 goto run',
-    'echo None of the marked files are next to this script.', `echo Move it ${w(p.where)} and double-click it again.`,
-    `echo Already ran it? Then the files are waiting in ${QDIR}.`, 'pause', 'exit /b', ':run',
-    `echo Twin Tracks: moving ${p.m.length} marked files into ${QDIR}`, ...lines,
-    `echo Moved %moved% files into ${QDIR}. Check them, then delete that folder.`, 'pause', ''].join('\r\n');
+  // run from the wrong folder (say, still in Downloads), it says where it is and what it looked for, and moves nothing
+  const look = [`if exist "${QDIR}\\" set here=1`, ...p.look.files.map(f => `if exist "${w(f)}" set here=1`), ...p.look.dirs.map(f => `if exist "${w(f)}\\" set here=1`)];
+  return ['@echo off', 'chcp 65001 >nul', 'cd /d "%~dp0"', 'set here=0', ...look, 'if %here%==1 goto run',
+    'echo Twin Tracks: this script is not in the folder you picked.', 'echo It is in "%cd%"', 'echo and none of these are next to it:',
+    ...p.look.files.slice(0, 3).map(f => `echo   "${w(f)}"`),
+    `echo Move it ${w(p.where)}, the folder you picked in Twin Tracks, not a folder inside it. Then double-click it again.`, 'pause', 'exit /b', ':run',
+    'set moved=0', 'set already=0', 'set missing=0', 'set changed=0', 'set clash=0', 'set failed=0',
+    `echo Twin Tracks move script made ${p.made}: ${n} marked files go into ${QDIR}`, 'echo Working in "%cd%"', 'echo.',
+    ...lines, 'echo.',
+    `echo Moved %moved% of ${n} marked files into ${QDIR}.`,
+    `if %already% gtr 0 echo Skipped %already%: already in ${QDIR}, an earlier script moved them.`,
+    'if %missing% gtr 0 echo Skipped %missing%: not found, see the names above.',
+    'if %changed% gtr 0 echo Skipped %changed%: a different size than when Twin Tracks saw them, see above.',
+    `if %clash% gtr 0 echo Skipped %clash%: ${QDIR} already has a file with that name, see above.`,
+    'if %failed% gtr 0 echo %failed% could not be moved, see above. Is a music player using them?',
+    `echo Nothing was deleted. Check ${QDIR}, then delete that folder yourself.`, 'pause', ''].join('\r\n');
 }
 function shScript(p) {
-  const q = x => "'" + x.replace(/'/g, "'\\''") + "'";
-  return ['#!/bin/sh', '# Twin Tracks move script: moves the marked files into ' + QDIR + ', nothing is deleted', 'cd "$(dirname "$0")" || exit 1', 'n=0',
-    'm() { [ -e "$1" ] || { echo "  not found: $1"; return; }; mkdir -p "' + QDIR + '/$(dirname "$1")" && mv -n -- "$1" "' + QDIR + '/$1" && n=$((n+1)); }',
-    'f=0; for p in ' + p.m.slice(0, 5).map(it => q(p.rel(it))).join(' ') + '; do [ -e "$p" ] && f=1; done',
-    '[ $f = 1 ] || { echo "None of the marked files are next to this script."; echo ' + q('Move it ' + p.where + ' and run it again.') + '; echo "Already ran it? Then the files are waiting in ' + QDIR + '."; exit 1; }',
-    ...p.m.map(it => 'm ' + q(p.rel(it))), 'echo "Moved $n files into ' + QDIR + '. Check them, then delete that folder."', ''].join('\n');
+  const q = x => "'" + x.replace(/'/g, "'\\''") + "'", n = p.m.length;
+  const loop = (xs, t) => xs.length ? ['for p in ' + xs.map(q).join(' ') + '; do [ ' + t + ' "$p" ] && here=1; done'] : [];
+  return ['#!/bin/sh', `# Twin Tracks move script made ${p.made}: moves ${n} marked files into ${QDIR}, nothing is deleted`,
+    '# a file only moves when it is at the same path inside the folder you picked and has the size Twin Tracks saw', 'cd "$(dirname "$0")" || exit 1', 'Q=' + QDIR,
+    'here=0; [ -d "$Q" ] && here=1', ...loop(p.look.files, '-e'), ...loop(p.look.dirs, '-d'),
+    '[ $here = 1 ] || { echo "Twin Tracks: this script is not in the folder you picked."; echo "It is in $(pwd)"; echo "and none of these are next to it:"; ' +
+      p.look.files.slice(0, 3).map(f => "printf '  %s\\n' " + q(f) + '; ').join('') + 'echo ' + q('Move it ' + p.where + ', the folder you picked in Twin Tracks, not a folder inside it. Then run it again.') + '; exit 1; }',
+    'n=0; a=0; s=0; c=0; k=0; f=0',
+    'm() {',
+    '  if [ ! -e "$1" ]; then',
+    "    if [ -e \"$Q/$1\" ]; then a=$((a+1)); else s=$((s+1)); printf '  not found: %s\\n' \"$1\"; fi",
+    "  elif [ \"$(wc -c < \"$1\" | tr -d ' ')\" != \"$2\" ]; then c=$((c+1)); printf '  size changed since the scan, left in place: %s\\n' \"$1\"",
+    "  elif [ -e \"$Q/$1\" ]; then k=$((k+1)); printf '  left in place, %s already has one with that name: %s\\n' \"$Q\" \"$1\"",
+    "  else d=${1%/*}; [ \"$d\" = \"$1\" ] && d=.; if mkdir -p \"$Q/$d\" && mv -n -- \"$1\" \"$Q/$1\" && [ ! -e \"$1\" ]; then n=$((n+1)); else f=$((f+1)); printf '  could not move: %s\\n' \"$1\"; fi",
+    '  fi', '}',
+    'echo ' + q(`Twin Tracks move script made ${p.made}: ${n} marked files go into ${QDIR}`), 'echo "Working in $(pwd)"', 'echo',
+    ...p.m.map(it => 'm ' + q(p.rel(it)) + ' ' + it.size), 'echo',
+    `echo "Moved $n of ${n} marked files into $Q."`,
+    '[ $a = 0 ] || echo "Skipped $a: already in $Q, an earlier script moved them."',
+    '[ $s = 0 ] || echo "Skipped $s: not found, see the names above."',
+    '[ $c = 0 ] || echo "Skipped $c: a different size than when Twin Tracks saw them, see above."',
+    '[ $k = 0 ] || echo "Skipped $k: $Q already has a file with that name, see above."',
+    '[ $f = 0 ] || echo "$f could not be moved, see above."',
+    'echo "Nothing was deleted. Check $Q, then delete that folder yourself."', ''].join('\n');
 }
 // undo: put everything in _twin-tracks-removed back where it came from. It needs no list: the folder mirrors the paths.
 function backBat() {
@@ -1318,13 +1395,82 @@ $('saveBack').onclick = () => {
   saveText(name, isWin ? backBat() : backSh());
   toast(`Saved ${name}. Put it next to the ${QDIR} folder (where the move script was) and ${isWin ? 'double-click it' : 'run it with sh'}. Every file goes back to its old place.`, 12000);
 };
-$('saveScript').onclick = () => {
+// a file an earlier move script took away (or one that changed since the scan) can't be read any more
+function awayWhy(e) { return e && e.name === 'NotFoundError' ? 'moved' : 'changed'; }
+async function checkAway(list) {
+  let i = 0;
+  const w = async () => { while (i < list.length) { const it = list[i++]; try { await it.file.slice(0, 1).arrayBuffer(); it.away = null; } catch (e) { it.away = awayWhy(e); } } };
+  await Promise.all([w(), w(), w(), w(), w(), w()]);
+  return list.filter(it => it.away);
+}
+// a set where something will move and no copy that's still there stays
+function lastGone(g) { return g.rows.some(r => r.it.gone && !r.it.away) && g.rows.every(r => r.it.gone || r.it.away); }
+// the move script: say what it will do before anything downloads
+let batchPlan = null, lastFocus = null;
+const savedScripts = new Set();
+function closeBatch() { $('batchSheet').hidden = true; batchPlan = null; if (lastFocus && lastFocus.focus) lastFocus.focus(); }
+async function openBatch() {
+  if (!scriptPlan()) { toast('The move script needs a scanned folder. Choose a folder instead of single files.'); return; }
+  lastFocus = document.activeElement;
+  batchPlan = null;
+  $('batchBig').textContent = 'Checking which marked files are still in their folders…';
+  $('batchMore').textContent = '';
+  $('batchGo').disabled = true;
+  $('batchSheet').hidden = false;
+  $('batchNo').focus();
+  await checkAway(marked());
+  if ($('batchSheet').hidden) return;
+  document.querySelectorAll('.group').forEach(el => { if (el._seen) el.querySelectorAll('.row').forEach(rowEl => { rowEl.querySelector('.facts').innerHTML = factsOf(el._g.rows[+rowEl.dataset.r]); }); });
+  updateDock();
+  fillBatch();
+}
+function fillBatch() {
   const p = scriptPlan();
-  if (!p) { toast('The move script needs a scanned folder. Choose a folder instead of single files.'); return; }
-  const name = isWin ? 'twin-tracks-move.bat' : 'twin-tracks-move.sh';
-  saveText(name, isWin ? batScript(p) : shScript(p));
+  if (!p) { closeBatch(); return; }
+  // two scripts in the same minute still get different names
+  if (savedScripts.has(p.fname)) p.fname = p.fname.replace(/(\.\w+)$/, '-' + String(new Date().getSeconds()).padStart(2, '0') + '$1');
+  batchPlan = p;
+  const n = p.m.length, away = p.m.filter(it => it.away), go = n - away.length, bytes = p.m.reduce((s, it) => s + (it.away ? 0 : it.size), 0);
+  const moved = away.filter(it => it.away === 'moved').length, files = k => k === 1 ? 'file' : 'files';
+  const proven = new Set(groups.filter(g => g.tier === 'exact' || g.tier === 'tags' || g.tier === 'pcm').flatMap(g => g.rows.map(r => r.it)));
+  const quick = p.m.filter(it => proven.has(it)).length, deep = n - quick;
+  const risky = groups.filter(lastGone);
+  $('batchBig').innerHTML = go ? `It will move <b>${go}</b> ${files(go)} (${mb(bytes)}) into ${QDIR}.` : `Nothing left to move: all ${n} marked files are gone from their folders already.`;
+  $('batchMore').innerHTML =
+    `<p>${n} marked: ${quick} from byte-proven sets${deep ? `, ${deep} from sets found by listening` : ''}.</p>` +
+    (away.length ? `<p class="warn">${away.length} marked ${files(away.length)} ${away.length === 1 ? "isn't" : "aren't"} in ${away.length === 1 ? 'its' : 'their'} folder any more${moved === away.length ? ' (an earlier script moved them)' : moved ? ` (${moved} moved, ${away.length - moved} changed since the scan)` : ' (changed since the scan)'}. The script checks each one and skips it.</p>` : '') +
+    (risky.length ? `<p class="warn">In ${risky.length} ${risky.length === 1 ? 'set' : 'sets'} every copy that's still there is marked: ${risky.slice(0, 3).map(g => '<b>' + esc(g.rows[0].it.name) + '</b>').join(', ')}${risky.length > 3 ? '…' : ''}. <button class="linkish" id="batchKeep" type="button">Keep one copy of each</button></p>` : '') +
+    `<ol><li>Save <span class="fname">${esc(p.fname)}</span>. It gets a new name each time, so an older script can't get mixed up with it.</li>` +
+    `<li>Put it ${esc(p.where)}: the folder you picked here, not a folder inside it. Next to an older script is fine.</li>` +
+    `<li>${isWin ? 'Double-click it' : 'Run it with sh'}. It only moves a file that is at the same path with the same size as here, names anything it skips, and ends with how many it moved and skipped.</li></ol>` +
+    `<details><summary>The ${n} marked ${files(n)}</summary><ul>${p.m.slice(0, 400).map(it => `<li${it.away ? ' class="away"' : ''}>${esc(p.rel(it))}</li>`).join('')}${n > 400 ? `<li>…and ${n - 400} more</li>` : ''}</ul></details>`;
+  $('batchGo').disabled = false;
+  $('batchGo').textContent = go ? `Save the script (${go} ${files(go)})` : 'Save it anyway';
+  const k = $('batchKeep');
+  if (k) k.onclick = () => {
+    risky.forEach(g => { setKeeper(g); const r = g.rows.find(x => x.keeper); if (r) r.it.gone = false; });
+    drawGroups(); updateDock(); fillBatch();
+    toast(`Kept the ★ copy in ${risky.length} ${risky.length === 1 ? 'set' : 'sets'}.`);
+  };
+}
+$('saveScript').onclick = () => { stopPlayback(); openBatch(); };
+$('batchNo').onclick = closeBatch;
+$('batchSheet').addEventListener('click', e => { if (e.target === $('batchSheet')) closeBatch(); });
+$('batchSheet').addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); closeBatch(); return; }
+  if (e.key !== 'Tab') return;
+  const f = [...$('batchSheet').querySelectorAll('button:not([disabled]),summary')], a = f[0], z = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+});
+$('batchGo').onclick = () => {
+  const p = batchPlan;
+  if (!p) return;
+  const go = p.m.filter(it => !it.away).length;
+  savedScripts.add(p.fname);
+  saveText(p.fname, isWin ? batScript(p) : shScript(p));
   try { localStorage.setItem('twin-tracks.moved', '1'); } catch (e) {}
-  toast(`Saved ${name}. First move it ${p.where}, then ${isWin ? 'double-click it' : 'run it with sh'}. It moves the files into ${QDIR}; nothing gets deleted, and the put-back script on the start page undoes it.`, 12000);
+  closeBatch();
+  toast(`Saved ${p.fname}. Put it ${p.where} (the folder you picked), then ${isWin ? 'double-click it' : 'run it with sh'}. It moves ${go} ${go === 1 ? 'file' : 'files'} into ${QDIR}; nothing gets deleted, and the put-back script on the start page undoes it.`, 12000);
 };
 // one click for a whole pile: byte-proven sets by default, "same audio" only when that filter is picked, "maybe" never
 function bulkSets() { return groups.filter(g => filter === 'all' ? g.tier === 'exact' || g.tier === 'tags' || g.tier === 'pcm' : filter !== 'maybe' && g.tier === filter); }
