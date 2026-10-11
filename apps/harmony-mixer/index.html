@@ -737,7 +737,7 @@ html[data-theme="light"] #mfbtoast{ box-shadow:0 .4rem 1.4rem rgba(60,40,10,.2);
   </div>
 
   <section class="stackpanel" id="stackpanel" aria-label="Aligned timeline">
-    <canvas id="stack" role="img" aria-label="Stacked shared-timeline view: deck A's waveform over deck B's, both playheads fixed at the quarter mark — a quarter of the window behind, three quarters of what's coming. Holding a lane pauses that deck while held; dragging left or right scrubs it. Lane windows scale with each deck's pitch"></canvas>
+    <canvas id="stack" role="img" aria-label="Stacked shared-timeline view: deck A's waveform over deck B's, both playheads fixed at the quarter mark — a quarter of the window behind, three quarters of what's coming. Dragging a playing lane shows where it will land while the music plays on, and the jump happens when you let go (a bar or more snaps to whole bars); a paused lane scrubs directly. Lane windows scale with each deck's pitch"></canvas>
     <div class="shead"><span class="stitle">aligned timeline</span><div class="sgroup"><span class="strans"><button type="button" class="btn small" id="stA" aria-pressed="false" disabled title="Play or pause deck A from the timeline">A ▶</button><button type="button" class="btn small" id="stB" aria-pressed="false" disabled title="Play or pause deck B from the timeline">B ▶</button></span><label class="zoomrow"><span>grid zoom · both decks <b id="zoomv">1×</b></span><input type="range" id="zoom" min="-4" max="6" step="0.25" value="0" aria-label="Beat grid zoom for both decks, 1/16x (six and a half minutes) to 64x — the scrollwheel over a waveform zooms too"></label></div><span class="ssub" id="drift" role="status" aria-live="off"></span></div>
   </section>
 
@@ -844,6 +844,7 @@ html[data-theme="light"] #mfbtoast{ box-shadow:0 .4rem 1.4rem rgba(60,40,10,.2);
         <button type="button" class="btn small mfbc" data-fb="voc" aria-pressed="false" title="Vocals clashed: next time these two songs overlap for less and the basses swap sooner (and every mix gets a little shorter after a few of these). Tap again to take it back">🎤 vocals clashed</button>
         <button type="button" class="btn small mfbc" data-fb="fade" aria-pressed="false" title="Fade too long: mixes out of the song that just left get shorter next time. Tap again to take it back">⏳ fade too long</button>
         <button type="button" class="btn small mfbc" data-fb="intro" aria-pressed="false" title="Intro too long: next time the new song comes in 4 bars later, skipping more of its intro. Tap again to take it back">⏩ intro too long</button>
+        <button type="button" class="btn small mfbc" data-fb="top" aria-pressed="false" title="Start cut off: the new song comes in from the top next time (0:00, beats before its first bar line included). Tap again to take it back">⏮ start cut off</button>
         <button type="button" class="btn small mfbc" data-fb="outro" aria-pressed="false" title="Outro too long: next time the old song leaves 4 bars earlier. Tap again to take it back">⏪ outro too long</button>
       </span>
       <span class="mfbset">
@@ -862,7 +863,7 @@ html[data-theme="light"] #mfbtoast{ box-shadow:0 .4rem 1.4rem rgba(60,40,10,.2);
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.109 · 2026-10-10</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.110 · 2026-10-11</span>
 </footer>
 
 <script id="dsp">
@@ -3329,7 +3330,7 @@ var stackCv = document.getElementById('stack'), stackPanel = document.getElement
 var STACK_BASE = 24;   /* wall-seconds visible at 1x — each lane scales by its own rate, so locked tempos show matching grids */
 function stackWindow(d){
   if (!d.buffer) return null;
-  var span = (STACK_BASE / ZOOM.z) * d.rate, p = d.playing ? d.viewPos() : d.posAtStart;   /* v4.44 smooth clock */
+  var span = (STACK_BASE / ZOOM.z) * d.rate, p = d.playing ? d.viewPos() + (d._ghost || 0) : d.posAtStart;   /* v4.44 smooth clock; v4.110 + a held lane's ghost offset */
   /* quarter-way pin: a quarter of the window behind the head, three quarters of what's coming */
   return { t0: p - span * 0.25, t1: p + span * 0.75, span: span };
 }
@@ -3381,25 +3382,77 @@ function drawStack(){
   g.fillStyle = HTH().ink; g.fillRect(cx - 1, 0, 2, h);
   g.fillStyle = HTH().label; g.font = '9px "Martian Mono", monospace';
   g.fillText('A', 6, 12); g.fillText('B', 6, laneH + 18);
+  laneGhost(g, decks.A, w, laneH, 0, cx); laneGhost(g, decks.B, w, laneH, laneH + 6, cx);
 }
 if (stackCv) stackCv.addEventListener('wheel', function(e){ e.preventDefault(); setZoom(ZOOM.z * Math.pow(1.25, e.deltaY < 0 ? 1 : -1)); }, { passive: false });
-/* independent lane scrub: top half = deck A, bottom half = deck B; vinyl semantics per lane */
+/* independent lane scrub: top half = deck A, bottom half = deck B; vinyl semantics per lane.
+   v4.110 IGNORE TILL DROPPED (pushedbutton: "holding the mouse on a track goes silent instantly"): a playing deck plays on untouched while its
+   lane is held and dragged. The lane shows where it will land (the dashed line is where the music really is, the label the jump) and the jump
+   happens on release. A paused deck still drags directly. A drop, or a paused lane's first move, fires 'lanetouch', which is what makes the
+   autopilot let go; a bare press no longer does. */
 var SLANE = null, LGLIDE = null;
-function glideStop(resume){ var g = LGLIDE; if (!g) return; LGLIDE = null; cancelAnimationFrame(g.raf); if (resume && g.wasPlaying && !g.d.playing && g.d.buffer) g.d.play(); }
-function glideStart(d, v, wasPlaying){ glideStop(false); var g = LGLIDE = { d: d, v: v, wasPlaying: wasPlaying, t: performance.now(), raf: 0 };
-  function step(now){ if (LGLIDE !== g) return; if (d.playing || !d.buffer){ LGLIDE = null; return; }
+/* v4.110 where a held lane lands. With a trusted grid a move of a bar or more snaps to whole bars, so a big jump keeps the beat running like a
+   clean edit (pushedbutton: "bigger drags could do a little on-the-fly beatmatch"); under a bar it is a free nudge, or whole beats while sync
+   is on (the sync loop would pull a part-beat move straight back). */
+function ghostSnap(d, off){
+  var gr = d.grid; if (!gr || !gr.bpm || !d.gridTrusted()) return { off: off, unit: '' };
+  var bt = 60 / gr.bpm, bar = 4 * bt;
+  if (Math.abs(off) >= bar - bt / 2) return { off: Math.round(off / bar) * bar, unit: 'bar' };
+  if (SYNCST.A || SYNCST.B) return { off: Math.round(off / bt) * bt, unit: 'beat' };
+  return { off: off, unit: 'free' };
+}
+function ghostFmt(d, s){
+  var a = Math.abs(s.off), dir = s.off < 0 ? ' back' : ' ahead', n;
+  if (s.unit === 'bar'){ n = Math.round(a / (240 / d.grid.bpm)); return n + (n === 1 ? ' bar' : ' bars') + dir; }
+  if (s.unit){ n = Math.round(a / (60 / d.grid.bpm) * (s.unit === 'beat' ? 1 : 100)) / (s.unit === 'beat' ? 1 : 100); return n + (n === 1 ? ' beat' : ' beats') + dir; }
+  return a.toFixed(2) + ' s' + dir;
+}
+function laneTouched(){ try{ stackCv.dispatchEvent(new CustomEvent('lanetouch')); }catch(e){} }
+function ghostDrop(d){
+  var off = d._ghost || 0; d._ghost = 0;
+  if (!d.buffer || Math.abs(off) < 1e-4) return;
+  if (d.playing){ d.seek(d.pos() + off); if (d._vp) d._vp.p += off; }   /* the smoothed display clock jumps with it, no slide */
+  else { d.posAtStart = Math.max(-d.preLimit(), Math.min(d.buffer.duration, d.posAtStart + off)); d.render(); }
+  laneTouched();
+}
+/* v4.110: a playing lane under the hand. The thin dashed line is where the music really is; the label is the jump that lands on release. */
+function laneGhost(g, d, w, laneH, y0, cx){
+  var off = d._ghost; if (!off || !d.playing || !d.buffer) return;
+  var vw = stackWindow(d); if (!vw) return;
+  var T = HTH(), x = Math.round(cx - off / vw.span * w);
+  g.save(); g.globalAlpha = .75; g.fillStyle = T.ghost;
+  if (x > -2 && x < w + 2) for (var y = y0; y < y0 + laneH; y += 6) g.fillRect(x, y, 1, 3);
+  g.globalAlpha = 1;
+  var s = ghostFmt(d, ghostSnap(d, off)) + ' · on release';
+  g.font = '9px "Martian Mono", monospace';
+  var tw = g.measureText(s).width, lx = cx + 6, ly = y0 + 12;
+  g.fillStyle = T.shade; g.fillRect(lx - 3, ly - 9, tw + 6, 12);
+  g.fillStyle = T.ink; g.fillText(s, lx, ly);
+  g.restore();
+}
+function glideStop(resume){ var g = LGLIDE; if (!g) return; LGLIDE = null; cancelAnimationFrame(g.raf);
+  if (g.live){ if (resume) ghostDrop(g.d); return; }   /* a caught ghost keeps its offset for the hand that caught it */
+  if (resume && g.wasPlaying && !g.d.playing && g.d.buffer) g.d.play(); }
+/* off != null: a playing lane's ghost coasts (the music plays on underneath) and lands where it comes to rest */
+function glideStart(d, v, wasPlaying, off){ glideStop(false); var live = off != null;
+  var g = LGLIDE = { d: d, buf: d.buffer, v: v, wasPlaying: wasPlaying, live: live, off: off || 0, t: performance.now(), raf: 0 };
+  function step(now){ if (LGLIDE !== g) return;
+    if (!d.buffer || d.buffer !== g.buf){ LGLIDE = null; d._ghost = 0; return; }
+    if (live ? !d.playing : d.playing){ if (live) glideStop(true); else LGLIDE = null; return; }   /* the deck stopped (or started) mid-coast */
     /* v4.59 (pushedbutton 22:20 "limited to couple of bars before and after the track"): a fling stops at most two bars before the song's
        start (a hand drag still reaches the four-bar pre-roll) and at its end. Near an edge the friction rises just enough that the coast
        eases to rest exactly on it, a soft wall instead of a hard stop. */
     var dt = Math.min(.05, Math.max(0, (now - g.t) / 1000)); g.t = now;
     var bs = d.barSecs() || 0, lo = -Math.min(d.preLimit(), 2 * bs), hi = d.buffer.duration;
-    var room = g.v < 0 ? d.posAtStart - lo : hi - d.posAtStart;
+    var at = live ? d.pos() + g.off : d.posAtStart;
+    var room = g.v < 0 ? at - lo : hi - at;
     if (room <= 0){ glideStop(true); return; }   /* let go already past the edge by hand: it stays where the hand left it */
     var k = Math.max(4.2, Math.abs(g.v) / room);
     g.v *= Math.exp(-dt * k);
-    var p = d.posAtStart + g.v * dt;
+    var p = at + g.v * dt;
     if (p <= lo || p >= hi){ p = Math.max(lo, Math.min(hi, p)); g.v = 0; }
-    d.posAtStart = p; d.render();
+    if (live){ g.off = p - d.pos(); d._ghost = ghostSnap(d, g.off).off; }
+    else { d.posAtStart = p; d.render(); }
     if (Math.abs(g.v) < stackWindow(d).span * .04){ glideStop(true); return; }
     g.raf = requestAnimationFrame(step); }
   g.raf = requestAnimationFrame(step); }
@@ -3411,30 +3464,48 @@ if (stackCv){
   stackCv.addEventListener('pointerdown', function(e){
     var d = laneDeckAt(e);
     if (!d.buffer) return;
-    var gl = LGLIDE && LGLIDE.d === d ? LGLIDE : null; if (gl) glideStop(false);   /* catching a coasting lane holds it, and its deck still plays on when let go */
-    SLANE = { d: d, x0: e.clientX, pos0: d.playing ? d.pos() : d.posAtStart, wasPlaying: gl ? gl.wasPlaying : d.playing, moved: false, vs: [] };
-    if (d.playing) d.stop();
+    var gl = LGLIDE && LGLIDE.d === d ? LGLIDE : null; if (gl) glideStop(false);   /* catching a coasting lane holds it */
+    var live = d.playing;
+    if (!live && d._ghost) ghostDrop(d);   /* a ghost whose deck has stopped since: it lands now */
+    SLANE = { d: d, buf: d.buffer, x0: e.clientX, live: live, off0: live ? (gl && gl.live ? gl.off : (d._ghost || 0)) : 0, raw: null,
+      pos0: d.posAtStart, wasPlaying: gl ? gl.wasPlaying : false, moved: false, vs: [] };
     try{ stackCv.setPointerCapture(e.pointerId); }catch(err){}
   });
   stackCv.addEventListener('pointermove', function(e){
-    if (!SLANE) return;
-    var dx = e.clientX - SLANE.x0;
-    if (!SLANE.moved && Math.abs(dx) < 4) return;
-    SLANE.moved = true;
-    var r = stackCv.getBoundingClientRect(), vw2 = stackWindow(SLANE.d);
-    SLANE.d.posAtStart = Math.max(-SLANE.d.preLimit(), Math.min(SLANE.d.buffer.duration, SLANE.pos0 + dx / r.width * vw2.span));
-    var tn = performance.now(); SLANE.vs.push({ t: tn, p: SLANE.d.posAtStart }); while (SLANE.vs.length > 2 && tn - SLANE.vs[0].t > 100) SLANE.vs.shift();
-    SLANE.d.render();
+    var s = SLANE; if (!s) return;
+    var d = s.d;
+    if (d.buffer !== s.buf){ SLANE = null; d._ghost = 0; return; }
+    if (s.live !== d.playing){   /* the deck stopped or started under the hand: carry on from here in the other mode */
+      if (s.live) ghostDrop(d);
+      s.live = d.playing; s.x0 = e.clientX; s.off0 = 0; s.raw = null; s.pos0 = d.posAtStart; s.vs = [];
+    }
+    var dx = e.clientX - s.x0;
+    if (!s.moved && Math.abs(dx) < 4) return;
+    var first = !s.moved; s.moved = true;
+    var r = stackCv.getBoundingClientRect(), span = stackWindow(d).span, q;
+    if (s.live){
+      var p = d.pos();
+      q = s.raw = Math.max(-d.preLimit() - p, Math.min(d.buffer.duration - p, s.off0 + dx / r.width * span));
+      d._ghost = ghostSnap(d, q).off;
+    } else {
+      q = d.posAtStart = Math.max(-d.preLimit(), Math.min(d.buffer.duration, s.pos0 + dx / r.width * span));
+      d.render(); if (first) laneTouched();
+    }
+    var tn = performance.now(); s.vs.push({ t: tn, p: q }); while (s.vs.length > 2 && tn - s.vs[0].t > 100) s.vs.shift();
   });
   stackCv.addEventListener('dblclick', function(e){ var d = laneDeckAt(e); if (d.buffer) d.resetBy(); });
   /* v4.58 INERTIA (pushedbutton 22:08 "Can the Aligned timeline have some inertia when it is dragged quickly?"): let go of a lane mid-fling and it
-     coasts on, friction slowing it to rest like a nudged record; then a deck that was playing plays on from there. Grab it again to catch it. */
-  var laneRelease = function(e){ if (!SLANE) return; var s = SLANE; SLANE = null;
+     coasts on, friction slowing it to rest like a nudged record. Grab it again to catch it. v4.110: a playing lane's ghost coasts the same way
+     and the jump lands where it comes to rest. */
+  var laneRelease = function(e){ if (!SLANE) return; var s = SLANE, d = s.d; SLANE = null;
+    if (d.buffer !== s.buf){ d._ghost = 0; return; }
+    if (s.live && e && e.type === 'pointercancel'){ d._ghost = 0; return; }   /* the gesture was taken away: nothing lands */
     var v = 0, now = performance.now(), vs = s.vs.filter(function(q){ return now - q.t < 90; });
     if (e && e.type === 'pointerup' && s.moved && vs.length > 1){ var a = vs[0], b = vs[vs.length - 1]; if (b.t - a.t > 8) v = (b.p - a.p) / ((b.t - a.t) / 1000); }
-    var span = stackWindow(s.d).span;
-    if (Math.abs(v) > span * .6 && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)){ glideStart(s.d, Math.max(-span * 6, Math.min(span * 6, v)), s.wasPlaying); return; }
-    if (s.wasPlaying) s.d.play(); };
+    var span = stackWindow(d).span;
+    if (Math.abs(v) > span * .6 && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)){
+      glideStart(d, Math.max(-span * 6, Math.min(span * 6, v)), s.wasPlaying, s.live ? (s.raw != null ? s.raw : s.off0) : null); return; }
+    if (s.live) ghostDrop(d); };
   stackCv.addEventListener('pointerup', laneRelease);
   stackCv.addEventListener('pointercancel', laneRelease);
 }
@@ -3595,7 +3666,7 @@ function renderSTrans(){
 }
 ['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
 renderSTrans();
-window.__X = { LVL: LVL, measureLoudness: measureLoudness, lvlDb: lvlDb, lvlToggle: lvlToggle, chordSw: chordSw, get chordsOn(){ return CHORDS_ON; }, laneSummary: laneSummary, keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { ghostSnap: ghostSnap, LVL: LVL, measureLoudness: measureLoudness, lvlDb: lvlDb, lvlToggle: lvlToggle, chordSw: chordSw, get chordsOn(){ return CHORDS_ON; }, laneSummary: laneSummary, keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; }, get master(){ return master; } };
 })();
 </script>
@@ -4911,9 +4982,12 @@ function planTransition(out, inn, HM, FS){
      overlap (the rehearsal draws it as 'song ends mid-mix'); spans here are in TRACK seconds. */
   var endMax = out.dur, span = dur;
   if (out.grid){ span = bars * 240 / out.grid.bpm; endMax = snapDownbeat(out.grid, out.dur); if (out.dur - endMax > 0.02) endMax += 240 / out.grid.bpm; }
-  /* v4.103: silent bars at the end of the file (shape.musicEnd) don't count — the overlap ends where the music stops */
-  var me = out.grid && out.shape && out.shape.musicEnd;
-  if (me > 0 && me < endMax - 0.5){ var me2 = snapDownbeat(out.grid, me + 120 / out.grid.bpm); if (me2 > span) endMax = me2; }
+  /* v4.103: silent bars at the end of the file (shape.musicEnd) don't count — the overlap ends where the music stops.
+     v4.110 (pushedbutton: "long fade ... then silence ... but the fader still holds on till the bitter end"): musicEnd only knows a song
+     that stops dead; a radio fade sinks into its silent bars, so it had none and the ride ran on to the last sample of the file.
+     out.audEnd (deckInfo: where the deck's own audio drops 24 dB under the song's body) stands in for it. */
+  var me = out.grid && ((out.shape && out.shape.musicEnd) || out.audEnd), tailCut = 0;
+  if (me > 0 && me < endMax - 0.5){ var me2 = snapDownbeat(out.grid, me + 120 / out.grid.bpm); if (me2 > span){ endMax = me2; if (!(out.shape && out.shape.musicEnd)) tailCut = Math.max(0, out.dur - me); } }
   /* v4.109 ⏪ outro too long: the old song leaves 4 bars earlier per answer (no hand-set mix-out; never before 40% of the song) */
   var fbEarly = 0;
   if (f && f.outro && !(out.cue && out.cue.out != null)){
@@ -4926,19 +5000,34 @@ function planTransition(out, inn, HM, FS){
      the leaving song out to its last sample; the fade reaches silence there. */
   var outStart = out.cue && out.cue.out != null ? snapBarNear(out.grid, out.cue.out) : (out.grid ? endMax - span : out.dur - dur);
   if (out.grid) outStart = snapDownbeat(out.grid, Math.max(0, Math.min(endMax - span, outStart)));
-  else outStart = Math.max(0, Math.min(out.dur - dur - (fbEarly ? fbEarly * outBar : 0), outStart));
+  else outStart = Math.max(0, Math.min((out.audEnd > dur ? out.audEnd : out.dur) - dur - (fbEarly ? fbEarly * outBar : 0), outStart));   /* v4.110: no grid: the fade's silent tail is skipped too */
   var inStart = inn.cue && inn.cue.in != null ? snapBarNear(inn.grid, inn.cue.in) : (inn.grid ? snapDownbeat(inn.grid, barAnchor(inn.grid)) : 0);
   /* v4.104 (pushedbutton 16:27: a radio track into a club track — "the club track was left coming in too early so it got
      boring"): with no mix-in set by hand, a drum intro longer than the overlap is entered late, so only its last bars play
      under the leaving song and the song itself starts just as the old one is gone */
-  var inSkip = 0, inWhy = '', si = inn.shape;
-  if (!(inn.cue && inn.cue.in != null) && inn.grid && si && si.v >= 1 && si.intro > bars){
+  /* v4.110 FROM THE TOP (pushedbutton: Sweet Caroline came in after Do Wah Diddy with its first 3 beats cut, and no cue could bring
+     them back: every mix-in snaps to a bar line at or after 0:00, so whatever plays before the grid's first bar line, a pickup into
+     bar 1, was skipped). inn.cue.top: the song enters from 0:00 (no mix-in, no intro skip). Its first bar line still lands on the
+     leaving song's bar line; the beats before it play as a count-in from bar 0 (a negative start = the deck's pre-roll), and the
+     overlap reaches one bar further back on the leaving song to hold them, so the phrases still line up (lead = that extra bar).
+     No room for the extra bar (or no grid on the leaving song): bar 0 without it. */
+  var top = !!(inn.cue && inn.cue.top), lead = 0;
+  if (top){
+    inStart = inn.grid ? snapDownbeat(inn.grid, barAnchor(inn.grid)) : 0;
+    var pick = inn.grid ? Math.round(inStart * inn.grid.bpm / 60) : 0;
+    if (inn.grid && inStart > 15 / inn.grid.bpm){
+      inStart -= 240 / inn.grid.bpm;
+      if (out.grid && outStart >= 240 / out.grid.bpm - 1e-6){ outStart -= 240 / out.grid.bpm; bars += 1; dur += outBar; lead = 1; }
+    }
+  }
+  var inSkip = 0, inWhy = top ? (inStart < 0 ? 'comes in from the top: ' + (pick ? 'the ' + pick + (pick === 1 ? ' beat' : ' beats') : 'the moment') + ' before its first bar line play' + (pick === 1 ? 's' : '') + (lead ? ' over one extra bar of the old song' : ' as a count-in') : 'comes in from the top') : '', si = inn.shape;
+  if (!top && !(inn.cue && inn.cue.in != null) && inn.grid && si && si.v >= 1 && si.intro > bars){
     inSkip = (si.quietStart || 0) + si.intro - bars;
     inStart = snapDownbeat(inn.grid, barAnchor(inn.grid) + inSkip * 240 / inn.grid.bpm);
     inWhy = 'comes in ' + (si.intro - bars) + ' bars into its ' + si.intro + '-bar drum intro, so its song starts as the old one leaves';
   }
   /* v4.109 ⏩ intro too long: the new song comes in 4 more bars into itself per answer (no hand-set mix-in; the overlap stays in its first half) */
-  if (f && f.intro && inn.grid && !(inn.cue && inn.cue.in != null)){
+  if (!top && f && f.intro && inn.grid && !(inn.cue && inn.cue.in != null)){
     var fbIB = 240 / inn.grid.bpm, fbAdd = Math.max(0, Math.min(f.intro * FB_SHIFT, Math.floor(inn.dur / fbIB / 2) - inSkip - bars));
     if (fbAdd){ inSkip += fbAdd; inStart = snapDownbeat(inn.grid, barAnchor(inn.grid) + inSkip * fbIB); inWhy = (inWhy ? inWhy + '; ' : '') + 'your feedback skips ' + fbAdd + ' more bars of its intro'; fbw.push('the new song comes in ' + fbAdd + ' bars later'); }
   }
@@ -4959,9 +5048,11 @@ function planTransition(out, inn, HM, FS){
       if (score != null && score < 40) warn.push('rough key/tempo match');
     }catch(e){}
   }
-  var swap0 = fbSwapAt(bars, 0.5); swapAt = fbSwapAt(bars, swapAt);
+  var B = bars - lead, swap0 = fbSwapAt(B, 0.5); swapAt = fbSwapAt(B, swapAt);   /* v4.110: a from-the-top lead bar sits in front of the ride's own bars */
   if (swapAt < swap0) fbw.push('bass swap at ' + Math.round(swapAt * 100) + '% of the mix, not ' + Math.round(swap0 * 100) + '%');
-  return { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn, tag: tag, why: why, inSkip: inSkip, inWhy: inWhy, swapAt: swapAt, outEarly: fbEarly, fb: fbw };
+  if (lead) swapAt = (lead + B * swapAt) / bars;
+  if (tailCut >= 1) why = (why ? why + '; ' : '') + 'its fade is silent for the last ' + Math.round(tailCut) + ' s, so the mix ends before that';
+  return { bars: bars, dur: dur, outStart: outStart, inStart: inStart, rateNote: rateNote, score: score, label: label, warnings: warn, tag: tag, why: why, inSkip: inSkip, inWhy: inWhy, swapAt: swapAt, outEarly: fbEarly, fb: fbw, lead: lead, top: top, tailCut: tailCut };
 }
 function planQueue(entries, HM, FS){
   /* entries: [{name,bpm,key,dur,grid,cue,src}] in play order → one plan per adjacent pair */
@@ -5201,19 +5292,66 @@ function overlapSet(k, nb){
   if (!Object.keys(cues[k]).length) delete cues[k];
   try{ localStorage.setItem(CUE_KEY, JSON.stringify(cues)); }catch(e){}
 }
+/* v4.110 FROM THE TOP store: cues[key].top on the track that COMES IN. It replaces a mix-in cue (one or the other); returns the
+   mix-in it cleared, so an undo can put it back */
+function topSet(k, on){
+  if (!k) return null;
+  var prevIn = cues[k] && cues[k]['in'] != null ? cues[k]['in'] : null;
+  if (on){ if (prevIn != null) cueSet(k, 'in', null); cues[k] = cues[k] || {}; cues[k].top = true; }
+  else if (cues[k]){ delete cues[k].top; if (!Object.keys(cues[k]).length) delete cues[k]; }
+  try{ localStorage.setItem(CUE_KEY, JSON.stringify(cues)); }catch(e){}
+  return prevIn;
+}
+/* v4.110 the deck's own audio, read once per decoded buffer (WeakMap: never on records): 0.5 s levels over every channel and the
+   body's level (the median of the middle half). audEnd = where the audio last stands within 24 dB of the body, null when that is
+   within a second of the file's end (pushedbutton: a fade's silent tail held the fader to the bitter end). */
+var BUFLV = new WeakMap();
+function bufLevels(buf){
+  if (!buf) return null;
+  if (BUFLV.has(buf)) return BUFLV.get(buf);
+  var r = null;
+  try{
+    var sr = buf.sampleRate, W = Math.max(1, Math.round(sr * 0.5)), nw = Math.floor(buf.length / W), chs = [], c, i, w;
+    for (c = 0; c < Math.min(2, buf.numberOfChannels); c++) chs.push(buf.getChannelData(c));
+    if (nw >= 40 && chs.length){
+      var lv = new Float32Array(nw);
+      for (w = 0; w < nw; w++){ var a = 0, k = 0; for (c = 0; c < chs.length; c++){ var x = chs[c]; for (i = w * W; i < (w + 1) * W; i += 8){ a += x[i] * x[i]; k++; } } lv[w] = Math.sqrt(a / k); }
+      var mid = Array.prototype.slice.call(lv, Math.floor(nw * .25), Math.floor(nw * .75)).sort(function(p, q){ return p - q; }), body = mid[mid.length >> 1] || 0, end = null;
+      if (body > 1e-4){ var last = nw - 1; while (last > nw * .5 && lv[last] < body * 0.063) last--; var e = (last + 1) * W / sr; if (buf.duration - e > 1) end = e; }
+      r = { body: body, audEnd: end };
+    }
+  }catch(err){ r = null; }
+  BUFLV.set(buf, r); return r;
+}
+/* v4.110 what plays before the grid's first bar line, in beats (a pickup into bar 1): 0 when bar 1 starts within a quarter beat
+   of 0:00 or what is there is quieter than 20 dB under the body. Cached on the deck per buffer + bar line. */
+function openBeats(d){
+  if (!d || !d.buffer || !d.grid || !d.gridTrusted()) return 0;
+  var fb = snapDownbeat(d.grid, barAnchor(d.grid)), per = 60 / d.grid.bpm;
+  if (fb <= per / 4) return 0;
+  var ck = d._openB; if (ck && ck.buf === d.buffer && Math.abs(ck.fb - fb) < 1e-3) return ck.n;
+  var lv = bufLevels(d.buffer), n = 0;
+  if (lv && lv.body > 0){
+    var x = d.buffer.getChannelData(0), z = Math.min(x.length, Math.floor(fb * d.buffer.sampleRate)), a = 0, k = 0;
+    for (var i = 0; i < z; i += 4){ a += x[i] * x[i]; k++; }
+    if (k && Math.sqrt(a / k) >= lv.body * 0.1) n = Math.round(fb / per * 2) / 2;
+  }
+  d._openB = { buf: d.buffer, fb: fb, n: n }; return n;
+}
 /* gridless (v4.4): a deck counts as analysed once its scan has finished — a gated or failed grid is a fact, not a wait */
 function analysed(d){ return !!(d && d.buffer && (d.scanDone || d.grid)); }
 function deckInfo(d){
   if (!d || !d.buffer) return null;
   var k = cueKey(d);
   return { name: d.name, bpm: d.bpm, key: d.key ? d.key.camelot : null, rate: d.rate || 1,
-           dur: d.buffer.duration, grid: d.gridTrusted() ? d.grid : null, gridDoubt: !!d.grid && !d.gridTrusted(), cue: cueGet(k), k: k, shape: d.shape || null };
+           dur: d.buffer.duration, grid: d.gridTrusted() ? d.grid : null, gridDoubt: !!d.grid && !d.gridTrusted(), cue: cueGet(k), k: k, shape: d.shape || null,
+           audEnd: (bufLevels(d.buffer) || {}).audEnd || null };   /* v4.110 */
 }
 function recInfo(rec){
   var c = cues[rec.id] || {};
   return { name: rec.name, bpm: rec.bpm, key: rec.key ? rec.key.camelot : null, rate: 1,
            dur: rec.dur || 0, grid: rec.grid && X.gridTrust(rec.bpm, rec.grid) ? rec.grid : null, gridDoubt: !!rec.grid && !X.gridTrust(rec.bpm, rec.grid),
-           cue: { 'in': c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut, bars: c.bars }, k: rec.id, shape: rec.shape || null };
+           cue: { 'in': c.top ? null : c['in'] != null ? c['in'] : rec.mixIn, out: c.out != null ? c.out : rec.mixOut, bars: c.bars, top: !!c.top }, k: rec.id, shape: rec.shape || null };
 }
 /* ── panel markup, inserted after the aligned timeline ── */
 var sec = document.createElement('section');
@@ -5238,6 +5376,7 @@ sec.innerHTML =
     return '<div class="adjcue" data-l="' + L + '"><b>' + L + '</b>' +
       '<button type="button" class="btn small adjin" disabled aria-label="mix-in @ head" title="Mix-in @ head: save where this track should ENTER a mix (at the playhead, snapped to the bar)"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M1 8h8.5M6.5 4.5L10 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="12.5" y="2" width="2.5" height="12" rx=".6" fill="currentColor"/></svg><span class="bl">in</span></button>' +
       '<button type="button" class="btn small adjout" disabled aria-label="mix-out @ head" title="Mix-out @ head: save where this track should LEAVE (at the playhead, snapped to the bar)"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="1" y="2" width="2.5" height="12" rx=".6" fill="currentColor"/><path d="M6 8h8.5M11 4.5L14.5 8 11 11.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="bl">out</span></button>' +
+      '<button type="button" class="btn small adjtop" disabled aria-pressed="false" aria-label="From the top: this song enters a mix from 0:00" title="From the top: this song enters a mix from 0:00, beats before its first bar line included"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="1.5" y="2.5" width="2.4" height="11" rx=".6" fill="currentColor"/><path d="M14.5 2.5L5.5 8l9 5.5z" fill="currentColor"/></svg><span class="bl">top</span></button>' +
       '<span class="adjread" aria-live="off"></span>' +
       ['in', 'out'].map(function(w){ return '<span class="cuechip" data-w="' + w + '" hidden><b class="cuelbl"></b><span class="cueval"></span>' +
         '<button type="button" class="btn small cuenm" title="Move this cue one bar earlier" aria-label="Move the mix-' + w + ' cue one bar earlier">−1 bar</button>' +
@@ -5274,6 +5413,8 @@ st.textContent =
   '.adjcue{ display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; font-size:.68rem; }' +
   '.adjcue b{ color:var(--ac, #7ec97a); }' +
   '.adjread{ font-size:.6rem; opacity:.75; }' +
+  '.adjcue .adjtop[aria-pressed="true"]{ background:var(--amber); border-color:var(--amber); color:var(--bg, #0e0f12); }' +
+  '.adjcue .adjtop.pick:not([aria-pressed="true"]){ border-color:var(--amber); color:var(--amber); }' +   /* v4.110: a pickup a mix would skip */
   '.adjcue{ flex-wrap:wrap; row-gap:.3rem; }' +
   '.cuechip[hidden]{ display:none; }' +
   '.cuechip{ display:inline-flex; flex-wrap:wrap; max-width:100%; align-items:center; gap:.25rem; font-size:.7rem; padding:.15rem .35rem; border:1px solid #2a3140; border-radius:.5rem; background:#12161e; }' +
@@ -5421,9 +5562,9 @@ function overlapAuto(out){ var ob = out.grid ? 240 / (out.grid.bpm * (out.rate |
 function slideStart(side, hold){
   if (LIVE || dry) return null;
   var v = rehearseView(false); if (!v || !RH_WIN) return null;
-  var p = v.plan, bpm = v.out.grid ? v.out.grid.bpm : v.out.bpm, cu = cueGet(v.out.k), outBar = p.dur / p.bars;
-  if (hold) rhHold = { side: side, bars0: p.bars, tMin: RH_WIN.tMin, tMax: RH_WIN.tMax };
-  return { k: v.out.k, name: decks[v.outL].name || ('deck ' + v.outL), side: side, bars0: p.bars, cur: p.bars, out0: cu.out, trackBar: 240 / (bpm || 120),
+  var p = v.plan, bpm = v.out.grid ? v.out.grid.bpm : v.out.bpm, cu = cueGet(v.out.k), outBar = p.dur / p.bars, b0 = p.bars - (p.lead || 0);   /* v4.110: the from-the-top lead bar is not the overlap's own */
+  if (hold) rhHold = { side: side, bars0: b0, tMin: RH_WIN.tMin, tMax: RH_WIN.tMax };
+  return { k: v.out.k, name: decks[v.outL].name || ('deck ' + v.outL), side: side, bars0: b0, cur: b0, out0: cu.out, trackBar: 240 / (bpm || 120),
            pxBar: RH_WIN.pxBar, auto: overlapAuto(v.out), max: Math.min(OVERLAP_MAX, Math.max(1, Math.floor(v.out.dur / outBar) - 2)) };
 }
 function slideBars(sl, nb){
@@ -5445,7 +5586,7 @@ function overlapStep(d){
 }
 function overlapUI(v){
   var m = document.getElementById('ovm'), pb = document.getElementById('ovp'), val = document.getElementById('ovv'); if (!m) return;
-  var lock = !v || !!LIVE || !!dry, t = v ? v.plan.bars + (v.plan.bars === 1 ? ' bar' : ' bars') + (cueGet(v.out.k).bars ? ' · set' : v.plan.tag ? ' · ' + v.plan.tag : '') : '—';
+  var lock = !v || !!LIVE || !!dry, t = v ? (v.plan.lead ? (v.plan.bars - v.plan.lead) + '+' + v.plan.lead + ' bars' : v.plan.bars + (v.plan.bars === 1 ? ' bar' : ' bars')) + (cueGet(v.out.k).bars ? ' · set' : v.plan.tag ? ' · ' + v.plan.tag : '') : '—';   /* v4.110: 8+1 = a from-the-top lead bar */
   if (m.disabled !== lock){ m.disabled = lock; pb.disabled = lock; }
   if (val.textContent !== t) val.textContent = t;
   var wt = v ? (cueGet(v.out.k).bars ? 'overlap set by hand for this song' : v.plan.why || 'the default overlap') + (v.plan.inWhy ? ' — the new song ' + v.plan.inWhy : '') + (v.out.shape ? ' — leaving: ' + shapeWords(v.out.shape) : '') + (v.inn && v.inn.shape ? ' — coming in: ' + shapeWords(v.inn.shape) : '') : '';
@@ -5560,7 +5701,7 @@ function rhSetStack(on){ rhStackOn = !!on; try{ localStorage.setItem(RH_LANES_KE
 lanesUI();
 function rhAxis(v){
   var a = rehearseAxis(v); if (!rhHold) return a;
-  var sh = rhHold.side === 'in' ? (v.plan.bars - rhHold.bars0) * v.plan.dur / v.plan.bars : 0, t0 = rhHold.tMin + sh, t1 = rhHold.tMax + sh;
+  var sh = rhHold.side === 'in' ? (v.plan.bars - (v.plan.lead || 0) - rhHold.bars0) * v.plan.dur / v.plan.bars : 0, t0 = rhHold.tMin + sh, t1 = rhHold.tMax + sh;
   if (t0 > -0.25 || t1 < v.plan.dur + 0.25) return a;
   return { tMin: t0, tMax: t1, aLeft: a.aLeft, endInView: a.aLeft <= t1, endsMidMix: a.endsMidMix };
 }
@@ -5683,7 +5824,7 @@ function drawPreview(prog, waitSec){
   if (wctx.measureText(bl).width > rroom) bl = rhFit(v.innL + ' in · ' + (id.name || ''), rroom);
   rhTag(bl, Math.max(6, W - wctx.measureText(bl).width - 6), H - 6, RH.incTxt);
   /* overlap label centred on the divider */
-  var ol = 'overlap ⇆ ' + p.bars + (p.bars === 1 ? ' bar · ' : ' bars · ') + p.dur.toFixed(1) + ' s' + (cueGet(v.out.k).bars ? ' · set' : p.tag ? ' · ' + p.tag : ''), ow = wctx.measureText(ol).width, oc = Math.max(ow / 2 + 4, Math.min(W - ow / 2 - 4, (wx0 + wx1) / 2));
+  var ol = 'overlap ⇆ ' + (p.lead ? (p.bars - p.lead) + '+' + p.lead + ' bars · ' : p.bars + (p.bars === 1 ? ' bar · ' : ' bars · ')) + p.dur.toFixed(1) + ' s' + (cueGet(v.out.k).bars ? ' · set' : p.tag ? ' · ' + p.tag : ''), ow = wctx.measureText(ol).width, oc = Math.max(ow / 2 + 4, Math.min(W - ow / 2 - 4, (wx0 + wx1) / 2));
   wctx.fillStyle = RH.bg; wctx.fillRect(oc - ow / 2 - 4, mid - 7, ow + 8, 14);
   wctx.fillStyle = RH.overTxt; wctx.fillText(ol, oc - ow / 2, mid + 4);
   if (prog != null){
@@ -5696,7 +5837,7 @@ function drawPreview(prog, waitSec){
     wctx.beginPath(); wctx.moveTo(fx, 0); wctx.lineTo(fx, H); wctx.stroke(); wctx.lineWidth = 1;
   }
   rhLabel('Rehearsal timeline, ' + v.outL + ' to ' + v.innL + (stack ? ', both tracks on one lane' : '') + ': the outgoing track on deck ' + v.outL + (stack ? ' (red, left) ' : ' (red, top lane, left) ') + endTxt +
-    '; the incoming track on deck ' + v.innL + (stack ? ' (blue, right) enters at ' : ' (blue, lower lane, right) enters at ') + fmtT(v.inAt) + '; they overlap for ' + p.bars + ' bars, ' + p.dur.toFixed(1) + ' s (purple), with the gain curves');
+    '; the incoming track on deck ' + v.innL + (stack ? ' (blue, right) enters at ' : ' (blue, lower lane, right) enters at ') + inAtT(v.inAt) + '; they overlap for ' + p.bars + ' bars, ' + p.dur.toFixed(1) + ' s (purple), with the gain curves');
 }
 /* ── dry-run: rehearses the hand-off ⚡ would do, on screen and at its real pace; audio untouched ── */
 var dry = null, dryDurMs = null;   /* dryDurMs: probe seam only — null = the plan's real length */
@@ -5712,7 +5853,7 @@ function dryRun(){
   dryBtn(true);
   statusMsg('rehearsing ' + v.outL + '→' + v.innL + ': ' + p.bars + ' bars (' + (p.dur).toFixed(1) + ' s' + (p.why ? ', ' + p.why : '') + (p.inWhy ? '; the new song ' + p.inWhy : '') + ') from ' + fmtT(v.outAt) + ' on ' + v.outL +
     (v.mode === 'now' ? (v.gridless ? ' (now — no beat grid, so no bar-line wait)' : ' (' + (v.wrap ? 'its loop wrap' : 'its next bar line') + ', ' + v.lead.toFixed(2) + ' s from now — where ⚡ would start)') : ' (the planned mix-out — play a deck to rehearse from where it is)') +
-    ' into ' + fmtT(v.inAt) + ' on ' + v.innL +
+    ' into ' + inAtT(v.inAt) + ' on ' + v.innL +
     (p.rateNote && !v.gridless ? ' · ' + v.innL + ' would run ' + (p.rateNote.pct >= 0 ? '+' : '') + p.rateNote.pct.toFixed(1) + '%' + (p.rateNote.mult !== 1 ? ' at ' + p.rateNote.mult + '×' : '') : '') + ' — simulation only.');
   dry.t = setInterval(function(){
     var el = Date.now() - t0;
@@ -5729,7 +5870,8 @@ function dryRun(){
   }, 50);
   drawPreview(0, lead > 0 ? lead / 1000 : null);
 }
-function fmtT(s2){ var m = Math.floor(s2 / 60); return m + ':' + ('0' + Math.floor(s2 % 60)).slice(-2); }
+function fmtT(s2){ var ng = s2 < -0.005; s2 = Math.abs(s2); var m = Math.floor(s2 / 60); return (ng ? '−' : '') + m + ':' + ('0' + Math.floor(s2 % 60)).slice(-2); }   /* v4.110: a count-in before 0:00 */
+function inAtT(t){ return t < 0 ? 'the top (counted in ' + (-t).toFixed(1) + ' s before 0:00)' : fmtT(t); }
 /* ── queue simulation from the decks + setlist (metadata only, no decoding) ── */
 function simulate(){
   var entries = [];
@@ -5772,9 +5914,14 @@ function renderCues(){
     $('.adjin', row).disabled = !has;
     $('.adjout', row).disabled = !has;
     var read = $('.adjread', row);
-    if (!has){ read.textContent = 'no track'; return; }
-    var c = cueGet(cueKey(d));
-    read.textContent = 'in ' + (c['in'] != null ? fmtT(c['in']) : '—') + ' · out ' + (c.out != null ? fmtT(c.out) : '—');
+    if (!has){ read.textContent = 'no track'; var tb0 = $('.adjtop', row); tb0.disabled = true; tb0.setAttribute('aria-pressed', 'false'); tb0.classList.remove('pick'); return; }
+    var c = cueGet(cueKey(d)), tb = $('.adjtop', row), ob = openBeats(d), nm = titleOf(d) || 'this song';
+    read.textContent = 'in ' + (c.top ? 'from the top' : c['in'] != null ? fmtT(c['in']) : '—') + ' · out ' + (c.out != null ? fmtT(c.out) : '—');
+    tb.disabled = false; tb.setAttribute('aria-pressed', String(!!c.top)); tb.classList.toggle('pick', ob > 0);   /* v4.110 */
+    var tt = c.top ? 'From the top is on: "' + nm + '" enters a mix from 0:00' + (ob ? ', its ' + ob + (ob === 1 ? ' beat' : ' beats') + ' before bar 1 included' : '') + '. Tap to start on its first bar line again'
+      : ob ? '"' + nm + '" has ' + ob + (ob === 1 ? ' beat' : ' beats') + ' of music before its first bar line, and a mix skips them. Tap to keep them: it will enter from 0:00'
+      : 'From the top: "' + nm + '" enters a mix from 0:00 instead of at a mix-in cue';
+    if (tb.title !== tt) tb.title = tt;
     ['in', 'out'].forEach(function(w){ var chip = $('.cuechip[data-w="' + w + '"]', row); var v = c[w]; chip.hidden = v == null; if (v == null) return;
       $('.cuelbl', chip).textContent = 'mix-' + w; $('.cueval', chip).textContent = fmtT(v) + (d.grid ? ' · bar ' + Math.round((v - barAnchor(d.grid)) / (4 * 60 / d.grid.bpm)) : ''); });
   });
@@ -5787,9 +5934,11 @@ function renderCues(){
   var row = $('.adjcue[data-l="' + L + '"]');
   $('.adjin', row).addEventListener('click', function(){ saveCue(L, 'in'); });
   $('.adjout', row).addEventListener('click', function(){ saveCue(L, 'out'); });
+  $('.adjtop', row).addEventListener('click', function(){ topToggle(L); });
   ['in', 'out'].forEach(function(w){ var chip = $('.cuechip[data-w="' + w + '"]', row);
     function nudge(dir){ var d = decks[L]; if (!d || !d.buffer) return; var k = cueKey(d), c = cueGet(k); if (c[w] == null) return;
       var bar = d.grid ? 4 * 60 / d.grid.bpm : 2, v = Math.max(0, Math.min(d.buffer.duration, c[w] + dir * bar));
+      if (w === 'in' && dir < 0 && (d.grid ? c[w] - bar < snapDownbeat(d.grid, barAnchor(d.grid)) - 1e-3 : c[w] <= 0)){ topToggle(L, true); return; }   /* v4.110: before bar 1 = from the top */
       cueSet(k, w, v); renderCues(); drawPreview(null); statusMsg('deck ' + L + ' mix-' + w + ' moved to ' + fmtT(v) + (d.grid ? ' (one bar ' + (dir < 0 ? 'earlier' : 'later') + ')' : ' (two seconds, no grid)')); }
     $('.cuenm', chip).addEventListener('click', function(){ nudge(-1); });
     $('.cuenp', chip).addEventListener('click', function(){ nudge(1); });
@@ -5800,10 +5949,26 @@ function renderCues(){
 function saveCue(L, which){
   var d = decks[L]; if (!d || !d.buffer) return;
   var p = d.playing ? d.pos() : d.posAtStart;
+  /* v4.110: a mix-in saved before the first bar line can't snap to a bar there (it used to land on bar 1): it means from the top */
+  if (which === 'in' && d.grid && p < snapDownbeat(d.grid, barAnchor(d.grid)) - 15 / d.grid.bpm){ topToggle(L, true); return; }
   var snapped = d.grid ? snapDownbeat(d.grid, p) : p;
+  if (which === 'in' && cueGet(cueKey(d)).top) topSet(cueKey(d), false);
   cueSet(cueKey(d), which, snapped);
   renderCues(); drawPreview(null);
   statusMsg('deck ' + L + ' mix-' + which + ' saved at ' + fmtT(snapped) + (d.grid ? ' (bar-snapped)' : '') + ' — remembered for this track.');
+}
+/* v4.110 ⏮ from the top, per song (the deck row's top button, a mix-in nudged or saved before bar 1, or the mix feedback chip) */
+function topToggle(L, on){
+  var d = decks[L]; if (!d || !d.buffer) return null;
+  var k = cueKey(d), was = !!cueGet(k).top; if (on === undefined) on = !was; if (on === was && on){ statusMsg('deck ' + L + ' already comes in from the top.'); return true; }
+  var prevIn = topSet(k, on), ob = openBeats(d), nm = titleOf(d) || ('deck ' + L);
+  renderCues(); drawPreview(null);
+  var msg = on ? '⏮ “' + mfbShort(nm) + '” now comes in from the top' + (ob ? ': its ' + ob + (ob === 1 ? ' beat' : ' beats') + ' before bar 1 play' : '') + (prevIn != null ? ' (its mix-in at ' + fmtT(prevIn) + ' is replaced)' : '') + '.'
+    : '“' + mfbShort(nm) + '” starts on its first bar line again.';
+  statusMsg('deck ' + L + ': ' + msg);
+  if (C.toast) C.toast(msg, function(){ topSet(k, was); if (prevIn != null) cueSet(k, 'in', prevIn); renderCues(); drawPreview(null); mfbSync(); });
+  mfbSync();
+  return on;
 }
 /* ── MILESTONE TWO: one live hand-off with takeover, stop, dup-blocking, sim fallback ── */
 var LIVE = null, injecting = false, testDurMs = null;
@@ -6097,7 +6262,7 @@ xfEl.addEventListener('input', function(){ if (!injecting) takeover('manual'); }
   });
 });
 var stackCv = document.getElementById('stack');
-if (stackCv) stackCv.addEventListener('pointerdown', function(){ takeover('manual'); }, true);
+if (stackCv) stackCv.addEventListener('lanetouch', function(){ takeover('manual'); });   /* v4.110: a lane drop, not a bare press (the music no longer stops when held) */
 document.getElementById('adjstop').addEventListener('click', function(){ takeover('stop'); });
 document.getElementById('adjlive').addEventListener('click', function(){ liveRun(); });
 $('#adjsim').addEventListener('click', simulate);
@@ -6326,7 +6491,7 @@ function mfbEmpty(){ return !Object.keys(MFB.t).length && !Object.keys(MFB.p).le
 function mfbSync(){
   if (!mfbRow || !LASTMIX) return;
   var lm = LASTMIX;
-  Array.prototype.forEach.call(mfbRow.querySelectorAll('.mfbc'), function(b){ b.setAttribute('aria-pressed', String(!!lm.on[b.dataset.fb])); });
+  Array.prototype.forEach.call(mfbRow.querySelectorAll('.mfbc'), function(b){ b.setAttribute('aria-pressed', String(b.dataset.fb === 'top' ? !!cueGet(lm.innK).top : !!lm.on[b.dataset.fb])); });   /* v4.110: ⏮ shows the song's own from-the-top setting */
   Array.prototype.forEach.call(mfbRow.querySelectorAll('.mfbb'), function(b){
     var id = b.dataset.na === 'out' ? lm.outId : lm.innId, nm = b.dataset.na === 'out' ? lm.outName : lm.innName, on = !!(id && C.noAuto && C.noAuto(id));
     b.setAttribute('aria-pressed', String(on)); b.disabled = !id;
@@ -6369,13 +6534,28 @@ function mfbSay(lm, kind, p0, p1, undone){
     (p1.swapAt < p0.swapAt ? ', and the basses swap sooner (' + Math.round(p1.swapAt * 100) + '% in).' : '.');
   if (kind === 'fade') return c.bars ? o + ' has an overlap set by hand (' + p1.bars + ' bars) and that still wins: slide it in the rehearsal window.' :
     p1.bars < p0.bars ? 'Next time mixes out of ' + o + ' run ' + p1.bars + ' bars, not ' + p0.bars + '.' : 'Noted, but mixes out of ' + o + ' are already the shortest (' + p1.bars + ' bars).';
-  if (kind === 'intro') return ci['in'] != null ? i + ' has a mix-in set by hand, and that still wins.' :
+  if (kind === 'intro') return cueGet(lm.innK).top ? i + ' comes in from the top (⏮), and that still wins.' : ci['in'] != null ? i + ' has a mix-in set by hand, and that still wins.' :
     p1.inSkip > p0.inSkip ? 'Next time ' + i + ' comes in ' + (p1.inSkip - p0.inSkip) + ' bars later, skipping more of its intro.' : 'Noted, but ' + i + ' already skips as much intro as it can.';
   if (kind === 'outro') return c.out != null ? o + ' has a mix-out set by hand, and that still wins.' :
     p1.outStart < p0.outStart - 0.01 ? 'Next time ' + o + ' leaves ' + ((p1.outEarly || 0) - (p0.outEarly || 0)) + ' bars earlier.' : 'Noted, but ' + o + ' already leaves as early as it can.';
   return 'Noted for next time.';
 }
+/* v4.110 ⏮ start cut off: not a count in MFB but the new song's own from-the-top setting (cues[key].top), so the deck row's top
+   button and this chip are one switch. The message re-plans the same pair with and without it. */
+function mfbTop(){
+  var lm = LASTMIX; if (!lm) return null;
+  var k = lm.innK, was = !!cueGet(k).top, on = !was, i = '“' + mfbShort(lm.innName) + '”';
+  function pl(t){ if (!lm.oi || !lm.ii) return null; var ii = {}, c = {}; Object.keys(lm.ii).forEach(function(q){ ii[q] = lm.ii[q]; }); Object.keys(lm.ii.cue || {}).forEach(function(q){ c[q] = lm.ii.cue[q]; }); c.top = t; if (t) c['in'] = null; ii.cue = c; return planTransition(lm.oi, ii, root.HarmonyMatch, MFB); }
+  var p0 = pl(was), p1 = pl(on), prevIn = topSet(k, on);
+  var msg = on ? 'Next time ' + i + ' comes in from the top' + (p1 && p1.inStart < 0 ? ': the beats before its first bar line play' + (p1.lead ? ', over one extra bar of the old song' : '') : '') + (prevIn != null ? ' (its mix-in cue is replaced)' : '') + '.'
+    : 'Taken back: ' + i + ' starts on its first bar line again.';
+  mfbSync(); renderCues(); drawPreview(null);
+  if (C.toast) C.toast(msg, function(){ topSet(k, was); if (prevIn != null) cueSet(k, 'in', prevIn); mfbSync(); renderCues(); drawPreview(null); });
+  statusMsg('mix feedback: ' + msg);
+  return { msg: msg, before: p0, after: p1 };
+}
 function mfbPress(kind){
+  if (kind === 'top') return mfbTop();
   var lm = LASTMIX; if (!lm) return null;
   var before = JSON.parse(JSON.stringify(MFB)), was = !!lm.on[kind], p0 = mfbPlan(lm, before);
   mfbBump(lm, kind, was ? -1 : 1);
@@ -6408,7 +6588,7 @@ if (mfbRow){
 CHAIN.timer = setInterval(chainTick, 250);
 root.__ADJ = { mfb: function(){ return MFB; }, mfbShow: mfbShow, mfbPress: mfbPress, mfbBlock: mfbBlock, mfbLast: mfbLast, get lastMix(){ return LASTMIX; }, shapeWords: shapeWords, HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
-  cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun,
+  cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun, topSet: topSet, topToggle: topToggle, openBeats: openBeats, bufLevels: bufLevels, mfbTop: mfbTop,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rhAxis: rhAxis, get rhWin(){ return RH_WIN; }, get rhKnobs(){ return RH_KNOBS; }, curveEdit: curveEdit, get rhHold(){ return rhHold; }, slideStart: slideStart, slideTo: slideTo, slideBars: slideBars, slideEnd: slideEnd, overlapStep: overlapStep, overlapSet: overlapSet, overlapAuto: overlapAuto, rhSetStack: rhSetStack, get rhStack(){ return rhStackOn; }, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
   liveRun: liveRun, takeover: takeover, get LIVE(){ return LIVE; }, bassPref: bassPref, set testDurMs(v){ testDurMs = v; }, syncFirstSchedule: syncFirstSchedule, fireLive: fireLive, barAnchor: barAnchor, barLanding: barLanding, snapBarNear: snapBarNear, loopContinuous: loopContinuous, liveLoop: liveLoop };
 })(typeof window !== 'undefined' ? window : this);
@@ -6636,6 +6816,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.110', t:'Drag without silence, from the top', d:"A held lane plays on and jumps on release, whole bars for big drags; a song can keep its pickup; a fade's silent tail ends the mix.", p:'reliability', i:'high', e:'low', st:'verified', ev:'node top.test 22/22 + fb.test 19/19; headless 1280 dark + 390 light: hold plays on, jump = ghost within 3 ms, live from the top bar offset 0, 0 errors' },
   { s:'log', v:'v4.109', t:'How was that mix?', d:"After an AutoDJ mix: tap vocals clashed, fade, intro or outro too long and the next plan changes; 🚫 keeps a song out of auto picks.", p:'reliability', i:'med', e:'low', st:'verified', ev:'node fb.test 19/19 (each answer moves bars, swap, inStart or outStart; hand-set cues win); headless 2 live mixes, 0 JS errors, both themes 1280 + 390' },
   { s:'log', v:'v4.108', t:'Song parts shaded on the waveform', d:"The waveforms shade each song part in the deck's colour, the fullest brightest; a returning chorus keeps its shade, a notch at each start.", p:'presentability', i:'med', e:'low', st:'verified', ev:'node: 6/6 synthetic songs, 19/22 part starts within a bar, 0 false, 9/9 repeats grouped; headless shots both themes 1280 + 390, 0 errors; real songs untested' },
   { s:'log', v:'v4.107', t:'Outlines switch', d:'A pencil button next to bold turns the ink lines off, so the colours melt into each other; the white wash still draws its sketch.', p:'creativity', i:'low', e:'low', st:'verified', ev:'headless probe: button hidden until bold is on, aria-pressed, saved per browser, lines fade over a third of a second, max frame swing .016; screenshot without lines' },
@@ -6758,17 +6939,18 @@ var ITEMS = [
   { s:'active', t:'Key reads on sparse material', d:'A neighbour key can win on thin fixtures; the crate keeps the ✎ manual fix.', p:'reliability', i:'low', e:'high', st:'partial', ev:'issues list' },
   { s:'active', t:'Crate load re-runs analysis', d:'About 1.6 s per 30 s of audio on every crate-to-deck load; a meta argument on setBuffer would skip it.', p:'reliability', i:'low', e:'low', st:'unverified', ev:'issues list' },
   { s:'active', t:'The planner ignores vinyl pitch', d:'The rehearsal plan scores keys at 0 % pitch; only the badge, the wheel and next-up show the pitched key.', p:'reliability', i:'low', e:'low', st:'partial', ev:'v4.35 notes' },
-  { s:'active', t:'Long blends are new', d:'Rides of 33 to 64 bars have only run in tests, not in a real set; tempo drift over that length is not measured.', p:'reliability', i:'med', e:'low', st:'unverified', ev:'v4.84 notes' },
+  { s:'active', t:'Long blends are new', d:'Pushed has run 64-bar mixes in a real set since v4.85; tempo drift over that length is still not measured.', p:'reliability', i:'med', e:'low', st:'partial', ev:'v4.85 notes (pushedbutton 2026-10-04)' },
+  { s:'active', t:'From the top is untested on real songs', d:'The count-in bar starts the song from 0:00 on the virtual clock; real media start latency is left to the sync loop.', p:'reliability', i:'med', e:'low', st:'unverified', ev:'synthetic headless only (v4.110)' },
   { s:'active', t:'Hidden-tab timers fire late', d:'The seat now wraps to the nearest bar, but the blend clock still starts late. Not measured.', p:'reliability', i:'low', e:'med', st:'unverified', ev:'v4.15 code reading' },
 
+  { s:'planned', t:'Crate backup file', d:'Save grids, keys, cues, tags, blocks and mix feedback to a .harm file and restore them by file name and size, no rescan.', p:'reliability', i:'high', e:'med', st:'proposal', ev:'pushedbutton 2026-10-11 picked it first' },
   { s:'planned', t:'Symbol controls, tier two', d:'The remaining oversized text buttons as symbols with tooltips; tier one shipped in v4.13.', p:'presentability', i:'low', e:'med', st:'proposal', ev:'button audit 2026-09-19' },
   { s:'planned', t:'Marker-role mini knob', d:'Scope C of the knob proposal: the marker role select as a four-stop knob.', p:'presentability', i:'low', e:'low', st:'proposal', ev:'knob proposal 2026-09-18' },
   { s:'planned', t:'Audio-level duplicate identity', d:'Identity from the audio itself, shipped with a collision fixture, so trims and re-encodes are caught.', p:'reliability', i:'med', e:'high', st:'proposal', ev:'inspection 2026-09-10' },
   { s:'planned', t:'Opposite-key vocal highlight', d:'Flag crate rows opposite on the wheel as acapella-layer candidates.', p:'creativity', i:'med', e:'low', st:'proposal', ev:'chat 2026-09-04' },
 
   { s:'ideas', t:'Load + match in one click', d:'Pre-set the other deck\u2019s pitch to the suggested value when loading from next-up.', p:'creativity', i:'med', e:'low', st:'idea', ev:'todo' },
-  { s:'ideas', t:'Crate metadata export / import', d:'A JSON of BPM, key and cues; the audio blobs stay local.', p:'reliability', i:'med', e:'med', st:'idea', ev:'todo' },
-  { s:'ideas', t:'Waveform thumbnails per crate row', d:'A 64-peak array stored with each record.', p:'presentability', i:'low', e:'med', st:'idea', ev:'todo' },
+  { s:'ideas', t:'Phrase-matched big jumps', d:'A big drag lands on the same spot of another phrase and never mid-vocal, so a skip to the outro sounds like an edit.', p:'creativity', i:'med', e:'med', st:'idea', ev:'pushedbutton 2026-10-11' },
   { s:'ideas', t:'Cue / PFL headphone preview', d:'Hear the next song in headphones before the crowd does; needs a second audio output the browser may not offer.', p:'creativity', i:'high', e:'high', st:'idea', ev:'todo' }
 ];
 function validate(items){
