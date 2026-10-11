@@ -33,3 +33,5 @@ An editable, never-ending top-down pixel world for arianmartiz (2026-10-10 18:17
 
 ## todos (ideas)
 - chickens / animals; villagers who walk your paths (Arian asked for inhabitants with their own decisions in Imperios); worn paths where you walk often; seasons; share a world (seed + edits) by link; undo; brush size; minimap.
+
+- 2026-10-11 18:25 SEO pass (no version bump): schema.org JSON-LD, description 110-155 chars, search title where it was just the name.

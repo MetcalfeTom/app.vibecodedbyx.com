@@ -27,3 +27,5 @@ pochinia's idea (2026-10-09 07:08 UTC, Twitch): "can you make a gif of a cute ca
 - name tag you can change (other visitors' own cats), coat colours (black, grey tabby, calico, white)
 - a belly-trap roll-over after many pokes; a petting gif with hearts
 - probe: ImageDecoder in headless decodes the gif frames (s_loaf1.json)
+
+- 2026-10-11 18:25 SEO pass (no version bump): schema.org JSON-LD, description 110-155 chars, search title where it was just the name.

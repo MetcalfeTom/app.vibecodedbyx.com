@@ -15,3 +15,5 @@ Asked for by pochinia (Twitch) on 2026-10-09: "how about a little bunny as well?
 ## todos
 - Nero (pochinia's anime-girl owner who loves them all) could visit the street
 - a 🎞 gif of a delivery like the other two apps
+
+- 2026-10-11 18:25 SEO pass (no version bump): schema.org JSON-LD, description 110-155 chars, search title where it was just the name.

@@ -55,3 +55,5 @@ Tatum's thought experiment (a sloppy.live viewer, asked 2026-10-04): what if eve
 - Year slider: maybe split the yield by country era (US vs USSR), or show megatonnage as a second sparkline (a separate chart, never a second axis).
 - Compass: maybe a 16-point rose when zoomed far in, or the walking time ('about 8 hours on foot').
 - Night theme: the og.png is still the day map.
+
+- 2026-10-11 18:25 SEO pass (no version bump): schema.org JSON-LD, description 110-155 chars, search title where it was just the name.

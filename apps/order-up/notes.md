@@ -13,3 +13,5 @@ lightup79's "build me a todo app" (Twitch, 2026-10-10 08:03 UTC, first visit). T
 
 ## todos
 - ask lightup79 what they'd change; ideas: drag tickets along the rail, a "86'd" bin, a closing-time recap (tickets spiked per day), sections (grill / fryer = categories).
+
+- 2026-10-11 18:25 SEO pass (no version bump): schema.org JSON-LD, description 110-155 chars, search title where it was just the name.

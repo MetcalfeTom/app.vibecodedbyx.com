@@ -121,3 +121,5 @@ Penalty shootout and free kicks at night at the Vélodrome. You shoot as Payet (
 - Corners: live, the cross is on screen only for its last ~.5 s on desktop (the flag is ~35° outside the lens); goals now replay the whole whip (v1.7.1). v1.7.2 adds the TV pan (ckPan/ckNeed: bisect the lerp weight toward the ball that keeps it at <= 80% across (sg-mirrored), rise over the .6 s run-up, then max(need, prev - 1.6/s) so it settles ~.2-.5 s before contact; $SP/lu/pansim.py simulates it). Portrait phones keep the still box view (a pan there loses the goal for most of the ring countdown).
 - Free kicks: Elieutch's pick for a spot (the voice suggested dead centre, ~25 m).
 - Ask Elieutch: free kicks or more of the shootout? And how Le Match feels: more moments, a half-time, named Rivals (generic only)?
+
+- 2026-10-11 18:25 SEO pass (no version bump): schema.org JSON-LD, description 110-155 chars, search title where it was just the name.

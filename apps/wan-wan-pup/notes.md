@@ -27,3 +27,5 @@ pochinia's idea (2026-10-09 07:20 UTC, Twitch): "a cute puppy in anime style, an
 
 ## todos
 - a gif of it (copy Window Loaf's encoder), more treats (cookie, sausage), more tricks (spin, high five, sing)
+
+- 2026-10-11 18:25 SEO pass (no version bump): schema.org JSON-LD, description 110-155 chars, search title where it was just the name.

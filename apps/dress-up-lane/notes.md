@@ -17,3 +17,5 @@ Art direction: one 400-box canvas, a night dressing room (plum wall with soft st
 ## todos
 - more clothes (Nero's long purple scarf is the scarf; maybe a winter coat slot, earmuffs, a cape for Poppo).
 - show the outfits on Fairylight Lane itself.
+
+- 2026-10-11 18:25 SEO pass (no version bump): schema.org JSON-LD, description 110-155 chars, search title where it was just the name.
