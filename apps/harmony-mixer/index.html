@@ -891,7 +891,7 @@ html[data-theme="light"] #mfbtoast{ box-shadow:0 .4rem 1.4rem rgba(60,40,10,.2);
 </main>
 <footer>
   <p>everything stays in your browser · <kbd>space</kbd> play A · <kbd>enter</kbd> play B · <kbd>←</kbd><kbd>→</kbd> crossfade · keylock keeps the key · ♪ toggles vinyl mode</p>
-  <span id="buildstamp" role="note" aria-label="Build information">build v4.112 · 2026-10-11</span>
+  <span id="buildstamp" role="note" aria-label="Build information">build v4.113 · 2026-10-11</span>
 </footer>
 
 <script id="dsp">
@@ -3489,21 +3489,29 @@ function glideStart(d, v, wasPlaying, off){ glideStop(false); var live = off != 
    used to Reason and video editors): a clip edge where each song comes in to a mix and where it is gone by, the trimmed-off part dimmed.
    Amber = set by hand, grey = Harmony's guess. A handle drags to the beat (Alt or Shift, or a long-press on touch, = free), catches for a
    moment on Harmony's guess as it passes it, and a double-click (double-tap) puts it back on the guess. Where they sit and what they mean
-   is trimView/trimCommit in the AutoDJ script; the hit zone is 44 px wide on touch. */
+   is trimView/trimCommit in the AutoDJ script; the hit zone is 44 px wide on touch.
+   v4.113 (pushedbutton: "they would also be handy to access on the mix rehearsal waveforms"): the rehearsal window's lanes use this same code:
+   a SURFACE says how a pointer maps to track time on it ({ el, at(clientX) -> { t, pxs } }), and trimGrab/trimMove/trimUp drive TRIM from
+   either one, so a handle held in one view moves in the other too, and both commit through trimCommit. */
 var TRIM = null, TRIMTAP = null, TRIMHOV = null;
-function trimDraw(g, d, w, laneH, vw){
+/* o (v4.113): { part: 'edges' or 'pill' (default both), hov: the hovered handle (default the lanes' own), noDim, ly: the readout's baseline } */
+function trimDraw(g, d, w, laneH, vw, o){
   var A = window.__ADJ; if (!A || !A.trimView) return;
   var tv = A.trimView(d); if (!tv) return;
-  var T = HTH(), hold = TRIM && TRIM.d === d ? TRIM : null;
+  o = o || {};
+  var T = HTH(), hold = TRIM && TRIM.d === d ? TRIM : null, hov = o.hov !== undefined ? o.hov : TRIMHOV;
   var s = hold && hold.which === 's' ? hold.t : tv.s, e = hold && hold.which === 'e' ? hold.t : tv.e;
   var xs = (s - vw.t0) / vw.span * w, xe = (e - vw.t0) / vw.span * w;
   g.save();
-  g.fillStyle = T.trimDim;
-  if (xs > 0) g.fillRect(0, 0, Math.min(w, xs), laneH);
-  if (xe < w) g.fillRect(Math.max(0, xe), 0, w - Math.max(0, xe), laneH);
+  if (o.part !== 'pill'){
+  if (!o.noDim){
+    g.fillStyle = T.trimDim;
+    if (xs > 0) g.fillRect(0, 0, Math.min(w, xs), laneH);
+    if (xe < w) g.fillRect(Math.max(0, xe), 0, w - Math.max(0, xe), laneH);
+  }
   [['s', xs, tv.sHand], ['e', xe, tv.eHand]].forEach(function(h){
     var x = Math.round(h[1]), st = h[0] === 's'; if (x < -12 || x > w + 12) return;
-    var held = hold && hold.which === h[0], act = held || (TRIMHOV && TRIMHOV.d === d && TRIMHOV.which === h[0]), hand = h[2] || (held && hold.moved && !hold.det);
+    var held = hold && hold.which === h[0], act = held || (hov && hov.d === d && hov.which === h[0]), hand = h[2] || (held && hold.moved && !hold.det);
     g.globalAlpha = hand || act ? 1 : .8; g.fillStyle = hand || act ? T.trim : T.label;
     var lw = act ? 3 : 2;
     g.fillRect(st ? x : x - lw, 0, lw, laneH);                                       /* the edge */
@@ -3512,46 +3520,59 @@ function trimDraw(g, d, w, laneH, vw){
     g.fillRect(gx, gy, 6, gh);                                                        /* the grip */
     g.globalAlpha = .7; g.fillStyle = T.lane; g.fillRect(gx + 2, gy + 3, 1, gh - 6); g.fillRect(gx + 4, gy + 3, 1, gh - 6);
   });
-  if (hold){
+  }
+  if (hold && o.part !== 'edges'){
     var lbl = A.trimLabel(d, hold.which, hold.t, hold), hx = hold.which === 's' ? xs : xe;
     g.globalAlpha = 1; g.font = '10px "Martian Mono", monospace';
     var tw = g.measureText(lbl).width, lx = hold.which === 's' ? hx + 14 : hx - 14 - tw;
     if (lx + tw > w - 4) lx = hx - 14 - tw; if (lx < 4) lx = Math.min(w - 4 - tw, hx + 14); lx = Math.max(4, lx);
-    var ly = Math.min(laneH - 3, 13);
+    var ly = o.ly != null ? o.ly : Math.min(laneH - 3, 13);
     g.fillStyle = T.shade; g.fillRect(lx - 4, ly - 10, tw + 8, 13);
     g.fillStyle = T.ink; g.fillText(lbl, lx, ly);
   }
   g.restore();
 }
-/* the handle under the pointer: the zone reaches a bit further into the clip (where the grip is) than out of it */
-function trimHit(e){
-  var A = window.__ADJ; if (!A || !A.trimView || !stackCv) return null;
-  var r = stackCv.getBoundingClientRect(), d = laneDeckAt(e); if (!d.buffer || !r.width) return null;
-  var tv = A.trimView(d), vw = stackWindow(d); if (!tv || !vw) return null;
-  var x = e.clientX - r.left, tol = e.pointerType === 'mouse' ? 9 : 22, best = null;
+/* the handle under the pointer: the zone reaches a bit further into the clip (where the grip is) than out of it.
+   v4.113 trimNear is the shared part: x in the same units as w, vw = the track seconds the strip shows (t0, span). */
+function trimNear(d, tv, x, vw, w, tol){
+  var best = null;
   [['s', tv.s], ['e', tv.e]].forEach(function(h){
-    var dd = x - (h[1] - vw.t0) / vw.span * r.width, inn = h[0] === 's' ? dd : -dd;
+    var dd = x - (h[1] - vw.t0) / vw.span * w, inn = h[0] === 's' ? dd : -dd;
     if (inn >= -tol * .7 && inn <= tol * 1.3 && (!best || Math.abs(dd) < Math.abs(best.dd))) best = { d: d, which: h[0], t: h[1], dd: dd };
   });
   return best;
 }
-function trimDown(e){
-  var h = trimHit(e); if (!h) return false;
-  var r = stackCv.getBoundingClientRect(), vw = stackWindow(h.d);
-  TRIM = { d: h.d, buf: h.d.buffer, which: h.which, t: h.t, t0: h.t, grab: h.t - (vw.t0 + (e.clientX - r.left) / r.width * vw.span), x0: e.clientX,
+function trimHit(e){
+  var A = window.__ADJ; if (!A || !A.trimView || !stackCv) return null;
+  var r = stackCv.getBoundingClientRect(), d = laneDeckAt(e); if (!d.buffer || !r.width) return null;
+  var tv = A.trimView(d), vw = stackWindow(d); if (!tv || !vw) return null;
+  return trimNear(d, tv, e.clientX - r.left, vw, r.width, e.pointerType === 'mouse' ? 9 : 22);
+}
+/* the aligned timeline as a surface: its window follows the playhead, so it is read fresh on every move */
+function laneSurf(d){
+  return { el: stackCv, at: function(cx){ var vw = stackWindow(d), r = stackCv.getBoundingClientRect(); return vw && r.width ? { t: vw.t0 + (cx - r.left) / r.width * vw.span, pxs: vw.span / r.width } : null; } };
+}
+/* pick up handle h (from trimHit or the rehearsal's own hit test) on surface sf */
+function trimGrab(h, e, sf){
+  var a = sf && sf.at(e.clientX); if (!a) return false;
+  TRIM = { d: h.d, buf: h.d.buffer, which: h.which, t: h.t, t0: h.t, grab: h.t - a.t, x0: e.clientX, sf: sf,
     moved: false, free0: !!(e.altKey || e.shiftKey), free: !!(e.altKey || e.shiftKey), det: false, lp: 0 };
   if (e.pointerType !== 'mouse') TRIM.lp = setTimeout(function(){ var s = TRIM; if (s && !s.moved){ s.free0 = s.free = true; try{ if (navigator.vibrate) navigator.vibrate(12); }catch(err){} } }, 450);
-  try{ stackCv.setPointerCapture(e.pointerId); }catch(err){}
-  stackCv.style.cursor = 'ew-resize';
+  try{ sf.el.setPointerCapture(e.pointerId); }catch(err){}
+  sf.el.style.cursor = 'ew-resize';
   return true;
+}
+function trimDown(e){
+  var h = trimHit(e); if (!h) return false;
+  return trimGrab(h, e, laneSurf(h.d));
 }
 function trimMove(e){
   var s = TRIM, d = s.d, A = window.__ADJ;
   if (d.buffer !== s.buf){ clearTimeout(s.lp); TRIM = null; return; }
   if (!s.moved && Math.abs(e.clientX - s.x0) < 3) return;
   s.moved = true; clearTimeout(s.lp);
-  var tv = A.trimView(d), vw = stackWindow(d), r = stackCv.getBoundingClientRect(); if (!tv || !vw) return;
-  var pxs = vw.span / r.width, raw = vw.t0 + (e.clientX - r.left) * pxs + s.grab, free = s.free0 || e.altKey || e.shiftKey;
+  var tv = A.trimView(d), at = s.sf.at(e.clientX); if (!tv || !at) return;
+  var pxs = at.pxs, raw = at.t + s.grab, free = s.free0 || e.altKey || e.shiftKey;
   var a = s.which === 's' ? tv.sAuto : tv.eAuto, t = raw, det = false;
   /* the detent: a catch on Harmony's guess as the handle passes it (in at 6 px, out at 14), not in a free drag */
   if (!free && Math.abs(raw - a) <= (s.det ? 14 : 6) * pxs){ t = a; det = true; }
@@ -3561,10 +3582,12 @@ function trimMove(e){
   if (s.which === 's') t = Math.max(0, Math.min(tv.e - tv.minGap, t)); else t = Math.min(tv.dur, Math.max(tv.s + tv.minGap, t));
   if (det && !s.det) try{ if (navigator.vibrate && e.pointerType !== 'mouse') navigator.vibrate(8); }catch(err){}
   s.t = t; s.det = det && Math.abs(t - a) < 1e-6; s.free = free;
+  if (A.trimMoved) A.trimMoved();   /* v4.113: the rehearsal window follows a handle held on the lanes, and the other way round */
 }
 function trimUp(e){
   var s = TRIM, A = window.__ADJ; TRIM = null; clearTimeout(s.lp);
-  if (!(TRIMHOV && e && e.pointerType === 'mouse')) stackCv.style.cursor = '';
+  if (s.sf.el !== stackCv || !(TRIMHOV && e && e.pointerType === 'mouse')) s.sf.el.style.cursor = '';
+  if (A && A.trimMoved) A.trimMoved();
   if (!e || e.type === 'pointercancel' || s.d.buffer !== s.buf || !A) return;
   var tv = A.trimView(s.d), hand = tv && (s.which === 's' ? tv.sHand : tv.eHand);
   if (s.moved){
@@ -3603,7 +3626,7 @@ if (stackCv){
     try{ stackCv.setPointerCapture(e.pointerId); }catch(err){}
   });
   stackCv.addEventListener('pointermove', function(e){
-    if (TRIM){ trimMove(e); return; }
+    if (TRIM){ if (TRIM.sf.el === stackCv) trimMove(e); return; }   /* v4.113: a handle held on the rehearsal window moves there */
     var s = SLANE; if (!s){ trimHover(e); return; }
     var d = s.d;
     if (d.buffer !== s.buf){ SLANE = null; d._ghost = 0; return; }
@@ -3630,7 +3653,7 @@ if (stackCv){
   /* v4.58 INERTIA (pushedbutton 22:08 "Can the Aligned timeline have some inertia when it is dragged quickly?"): let go of a lane mid-fling and it
      coasts on, friction slowing it to rest like a nudged record. Grab it again to catch it. v4.110: a playing lane's ghost coasts the same way
      and the jump lands where it comes to rest. */
-  var laneRelease = function(e){ if (TRIM){ trimUp(e); return; } if (!SLANE) return; var s = SLANE, d = s.d; SLANE = null;
+  var laneRelease = function(e){ if (TRIM && TRIM.sf.el === stackCv){ trimUp(e); return; } if (!SLANE) return; var s = SLANE, d = s.d; SLANE = null;
     if (d.buffer !== s.buf){ d._ghost = 0; return; }
     if (s.live && e && e.type === 'pointercancel'){ d._ghost = 0; return; }   /* the gesture was taken away: nothing lands */
     var v = 0, now = performance.now(), vs = s.vs.filter(function(q){ return now - q.t < 90; });
@@ -3799,7 +3822,7 @@ function renderSTrans(){
 }
 ['A', 'B'].forEach(function(L){ if (sT[L]) sT[L].addEventListener('click', function(){ decks[L].toggle(); }); });
 renderSTrans();
-window.__X = { get trim(){ return TRIM; }, trimHit: trimHit, ghostSnap: ghostSnap, LVL: LVL, measureLoudness: measureLoudness, lvlDb: lvlDb, lvlToggle: lvlToggle, chordSw: chordSw, get chordsOn(){ return CHORDS_ON; }, laneSummary: laneSummary, keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
+window.__X = { get trim(){ return TRIM; }, trimHit: trimHit, trimNear: trimNear, trimGrab: trimGrab, trimMove: trimMove, trimUp: trimUp, trimDraw: trimDraw, ghostSnap: ghostSnap, LVL: LVL, measureLoudness: measureLoudness, lvlDb: lvlDb, lvlToggle: lvlToggle, chordSw: chordSw, get chordsOn(){ return CHORDS_ON; }, laneSummary: laneSummary, keyShift: keyShift, soundKey: soundKey, BIGC: BIGC, bigTheme: bigTheme, bigCountState: bigCountState, bigCountOpen: bigCountOpen, clickPref: clickPref, CLICK_LVS: CLICK_LVS, padKey: padKey, phName: phName, countPref: countPref, SYNCTAG: SYNCTAG, gridTrust: gridTrust, ZOOM: ZOOM, setZoom: setZoom, drawStack: drawStack, stackWindow: stackWindow, SYNCST: SYNCST, SYNCMULT: SYNCMULT, foldMult: foldMult, DSCAN: DSCAN, phraseSuggest: phraseSuggest, phraseLabel: phraseLabel, PH_ROLES: PH_ROLES, PH_KEY: PH_KEY, LOOP_STEPS: LOOP_STEPS, MICRO_MAX: MICRO_MAX, loopLenLabel: loopLenLabel, toggleSync: toggleSync, phaseError: phaseError, alignDelta: alignDelta, barOffset: barOffset, gridAnchor: gridAnchor, tapLag: tapLag, DIAG: DIAG, diagReport: diagReport, preCount: function(L){ decks[L].preCount(); }, laneDeckAt: function(e){ return laneDeckAt(e); }, decks: decks, state: state, audio: audio, applyXf: applyXf, xf: xf, camelotColor: camelotColor, compatibility: compatibility, renderCentre: renderCentre, applyLock: applyLock,
   get ctx(){ return ctx; }, get master(){ return master; } };
 })();
 </script>
@@ -5301,7 +5324,7 @@ function planTransition(out, inn, HM, FS){
      the bar line at or before it, and gets shorter if the song would end before the overlap could start. */
   var ce = out.cue && out.cue.end, endHand = typeof ce === 'number' && ce > 0, tailCut = 0;
   if (endHand && ce < out.dur - 0.05){
-    endMax = ce;
+    endMax = out.grid ? ce + 0.002 : ce;   /* v4.113: a handle snapped to a bar line is saved to the ms, so it can sit a hair before the line: it is still that line (it ended the mix a whole bar early) */
     var eU = out.grid ? oBT : outBar;
     if (span > endMax - 1e-6){ var eNb = Math.max(1, Math.floor(endMax / eU + 1e-6)); if (eNb < bars){ bars = eNb; dur = bars * outBar; span = out.grid ? bars * oBT : dur; } }
   }
@@ -5860,6 +5883,12 @@ function curveEdit(patch, why){
     var g = RH_WIN; if (!g) return;
     var r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (g.W / r.width), y = (e.clientY - r.top) * (g.H / r.height);
     var st = curveState(), w = PREVIEW_WIN, cv = !!(st.k && w && st.beats), m = 'slide';
+    /* v4.113 a song's start or end handle comes first, unless the press is right on a curve dot */
+    var th = rhTrimHit(e);
+    if (th && !(cv && rhKnobNear(x, y, e.pointerType === 'mouse' ? 8 : 14))){
+      if (LIVE || dry){ statusMsg('the start and end handles are locked here while ' + (LIVE ? 'an auto-mix' : 'a dry-run') + ' is running'); return; }
+      if (X.trimGrab && X.trimGrab(th, e, rhTrimSurf(th.ln))){ e.preventDefault(); rhRedraw(); return; }
+    }
     if (cv && x >= w.x0 - 8 && x <= w.x1 + 8){
       var tol = e.pointerType === 'touch' ? 20 : 12, best = null, bd = 1e9;
       (RH_KNOBS || []).forEach(function(kb){ var dd = Math.hypot(x - kb.x, (y - kb.y) * 0.6); if (dd < bd){ bd = dd; best = kb.id; } });
@@ -5874,7 +5903,8 @@ function curveEdit(patch, why){
     e.preventDefault();
   });
   wave.addEventListener('pointermove', function(e){
-    if (!drag) return;
+    if (rhTrimHeld()){ X.trimMove(e); return; }   /* v4.113 */
+    if (!drag){ rhTrimHover(e); return; }
     if (drag === 'pick' || drag === 'slide'){
       var g = RH_WIN; if (!g || !slide) return;
       var r0 = wave.getBoundingClientRect(), x0 = (e.clientX - r0.left) * (g.W / r0.width), y0 = (e.clientY - r0.top) * (g.H / r0.height);
@@ -5896,9 +5926,73 @@ function curveEdit(patch, why){
     }
     curveEdit(p);
   });
-  function endDrag(){ var was = slide && slide.s, held = RH_DRAG; drag = null; slide = null; RH_DRAG = null; wave.classList.remove('sliding'); if (was) slideEnd(); if (held) drawPreview(null); }
+  function endDrag(e){ if (rhTrimHeld()){ X.trimUp(e); return; }   /* v4.113 */
+    var was = slide && slide.s, held = RH_DRAG; drag = null; slide = null; RH_DRAG = null; wave.classList.remove('sliding'); if (was) slideEnd(); if (held) drawPreview(null); }
   wave.addEventListener('pointerup', endDrag); wave.addEventListener('pointercancel', endDrag);
+  wave.addEventListener('pointerleave', function(){ if (RH_TRHOV && !rhTrimHeld()){ RH_TRHOV = null; wave.style.cursor = ''; if (RH_TITLE != null) wave.title = RH_TITLE; rhRedraw(); } });
 })();
+/* v4.113 TRIM HANDLES ON THE REHEARSAL (pushedbutton, 2026-10-11: "I assumed the handles would be going on the mix rehearsal window ... they
+   would also be handy to access on the mix rehearsal waveforms"). Each lane here shows one deck's track at its own rate from where the plan
+   puts it (track time = anchor + real seconds from the overlap start × rate), so it is a trim surface like a timeline lane: the same handles,
+   drawn by the deck script's trimDraw and dragged by its trimGrab/trimMove/trimUp (snap, Alt/Shift or long-press free, the detent on the
+   guess, double-click back to it, the 22 px touch zone), committed by trimCommit into the same cues. The view holds still while a handle is
+   held (nothing is committed until it is let go); then the plan, and this picture with it, re-anchor on the new edge. */
+var RH_TR = null, RH_TRHOV = null, RH_TITLE = null, RHT_RAF = 0;
+function rhTrimLanes(v, ax, W, H, stack, mid){
+  var span = ax.tMax - ax.tMin;
+  return [[decks[v.outL], v.outAt, v.outRate, 0, stack ? H : mid], [decks[v.innL], v.inAt, v.innRate, stack ? 0 : mid, H]].map(function(q){
+    var rt = q[2] || 1; return { d: q[0], y0: q[3], y1: q[4], vw: { t0: q[1] + ax.tMin * rt, span: span * rt } }; });
+}
+function rhTrimPaint(part){
+  var g = RH_TR; if (!g || !X.trimDraw) return;
+  g.lanes.forEach(function(ln){
+    if (!ln.d || !ln.d.buffer || (part === 'pill' && !(X.trim && X.trim.d === ln.d))) return;
+    wctx.save(); wctx.translate(0, ln.y0); wctx.beginPath(); wctx.rect(0, 0, g.W, ln.y1 - ln.y0); wctx.clip();
+    try{ X.trimDraw(wctx, ln.d, g.W, ln.y1 - ln.y0, ln.vw, { part: part, hov: RH_TRHOV, noDim: g.stack, ly: ln.y0 > 0 ? 26 : undefined }); }catch(e){}   /* the lower lane's readout clears the overlap label */
+    wctx.restore();
+  });
+}
+function rhTrimHit(e){
+  var g = RH_TR; if (!g || !X.trimNear) return null;
+  var r = wave.getBoundingClientRect(); if (!r.width || !r.height) return null;
+  var x = (e.clientX - r.left) * (g.W / r.width), y = (e.clientY - r.top) * (g.H / r.height), tol = e.pointerType === 'mouse' ? 9 : 22, best = null;
+  g.lanes.forEach(function(ln){
+    if (y < ln.y0 || y > ln.y1 || !ln.d || !ln.d.buffer) return;
+    var tv = trimView(ln.d); if (!tv) return;
+    var h = X.trimNear(ln.d, tv, x, ln.vw, g.W, tol * g.W / r.width);
+    if (h && (!best || Math.abs(h.dd) < Math.abs(best.dd))){ h.ln = ln; best = h; }
+  });
+  return best;
+}
+function rhKnobNear(x, y, tol){
+  var w = PREVIEW_WIN; if (!w || !RH_KNOBS || x < w.x0 - 8 || x > w.x1 + 8) return false;
+  return RH_KNOBS.some(function(kb){ return Math.hypot(x - kb.x, y - kb.y) <= tol; });
+}
+/* the lane's mapping as drawn when the handle was picked up: it stays put for the whole drag */
+function rhTrimSurf(ln){
+  var vw = { t0: ln.vw.t0, span: ln.vw.span };
+  return { el: wave, at: function(cx){ var r = wave.getBoundingClientRect(); return r.width ? { t: vw.t0 + (cx - r.left) / r.width * vw.span, pxs: vw.span / r.width } : null; } };
+}
+function rhTrimHeld(){ var t = X.trim; return !!(t && t.sf && t.sf.el === wave); }
+function rhRedraw(){   /* one redraw per frame; the timer covers a frame that never comes (a hidden tab, like the deck loop's schedule) */
+  if (RHT_RAF) return; RHT_RAF = 1;
+  var go = function(){ if (!RHT_RAF) return; RHT_RAF = 0; if (!dry && !LIVE) drawPreview(null); };
+  requestAnimationFrame(go); setTimeout(go, 60);
+}
+function trimMoved(){ rhRedraw(); }   /* called by the deck script whenever a held handle moves or is let go */
+function rhTrimHover(e){
+  if (e.pointerType !== 'mouse' || e.buttons) return;
+  var h = LIVE || dry ? null : rhTrimHit(e);
+  if (h){ var g = RH_TR, r = wave.getBoundingClientRect(), x = (e.clientX - r.left) * (g.W / r.width), y = (e.clientY - r.top) * (g.H / r.height), st = curveState();
+    if (st.k && st.beats && rhKnobNear(x, y, 8)) h = null; }
+  var k = h ? h.d.L + h.which : '', k0 = RH_TRHOV ? RH_TRHOV.d.L + RH_TRHOV.which : '';
+  if (k === k0) return;
+  if (RH_TITLE == null) RH_TITLE = wave.title;
+  RH_TRHOV = h ? { d: h.d, which: h.which } : null;
+  wave.style.cursor = h ? 'ew-resize' : '';
+  wave.title = h ? 'Drag the ' + (h.which === 's' ? 'start' : 'end') + ' of deck ' + h.d.L + '’s song in a mix: snaps to the beat (Alt or Shift = free) · double-click = back to Harmony’s guess' : RH_TITLE;
+  rhRedraw();
+}
 function statusMsg(t){ var el = $('#adjstatus'); el.textContent = t; el.title = t; }
 /* ── v4.33 overlap slide (pushedbutton): push the lanes together for more overlap, pull them apart for less.
    Whole bars. The END of the mix stays where it was on the leaving song and the start moves: a saved mix-out cue
@@ -6070,7 +6164,7 @@ function drawPreview(prog, waitSec){
   }
   var W = wave.width = wave.clientWidth || 600, H = wave.height;
   wctx.fillStyle = RH.bg; wctx.fillRect(0, 0, W, H);
-  if (!v){ PREVIEW_WIN = null; RH_WIN = null; overlapUI(null); wctx.fillStyle = HTH().hint; wctx.font = '11px system-ui'; wctx.fillText('load + analyse both decks to rehearse the hand-off', 12, H / 2);
+  if (!v){ PREVIEW_WIN = null; RH_WIN = null; RH_TR = null; overlapUI(null); wctx.fillStyle = HTH().hint; wctx.font = '11px system-ui'; wctx.fillText('load + analyse both decks to rehearse the hand-off', 12, H / 2);
     rhLabel('Rehearsal timeline: load and analyse both decks to rehearse the hand-off'); return; }
   var p = v.plan, ax = rhAxis(v), span = ax.tMax - ax.tMin, od = decks[v.outL], id = decks[v.innL];
   var xAt = function(t){ return (t - ax.tMin) / span * W; };
@@ -6109,6 +6203,9 @@ function drawPreview(prog, waitSec){
   /* window edges + lane divider */
   wctx.fillStyle = RH.edge; wctx.fillRect(Math.round(wx0) - 1, 0, 2, H); wctx.fillRect(Math.round(wx1) - 1, 0, 2, H);
   if (!stack){ wctx.fillStyle = HTH().faint; wctx.fillRect(0, mid, W, 1); }
+  /* v4.113 the songs' start and end handles, as on the aligned timeline (under the curves and their dots; the readout goes on last) */
+  RH_TR = { W: W, H: H, stack: stack, lanes: rhTrimLanes(v, ax, W, H, stack, mid) };
+  rhTrimPaint('edges');
   /* gain curves across the overlap (the curve ⚡ would ride = the outgoing track's shape, equal-power by default) */
   if (stack){   /* one lane: the classic X — the outgoing gain falls from the top, the incoming rises from the bottom */
     rhCurve(function(u){ var g = curveAt(u, spec); return [wx0 + u * (wx1 - wx0), 6 + (1 - g.a) * (H - 12)]; }, RH.out);
@@ -6172,6 +6269,7 @@ function drawPreview(prog, waitSec){
   var ol = 'overlap ⇆ ' + (p.lead ? (p.bars - p.lead) + '+' + p.lead + ' bars · ' : p.bars + (p.bars === 1 ? ' bar · ' : ' bars · ')) + p.dur.toFixed(1) + ' s' + (cueGet(v.out.k).bars ? ' · set' : p.tag ? ' · ' + p.tag : ''), ow = wctx.measureText(ol).width, oc = Math.max(ow / 2 + 4, Math.min(W - ow / 2 - 4, (wx0 + wx1) / 2));
   wctx.fillStyle = RH.bg; wctx.fillRect(oc - ow / 2 - 4, mid - 7, ow + 8, 14);
   wctx.fillStyle = RH.overTxt; wctx.fillText(ol, oc - ow / 2, mid + 4);
+  rhTrimPaint('pill');   /* v4.113 */
   if (prog != null){
     var fx = wx0 + prog * (wx1 - wx0);
     var g3 = curveAt(prog, spec), gl = {}; gl[v.outL] = g3.a; gl[v.innL] = g3.b;
@@ -6182,7 +6280,8 @@ function drawPreview(prog, waitSec){
     wctx.beginPath(); wctx.moveTo(fx, 0); wctx.lineTo(fx, H); wctx.stroke(); wctx.lineWidth = 1;
   }
   rhLabel('Rehearsal timeline, ' + v.outL + ' to ' + v.innL + (stack ? ', both tracks on one lane' : '') + ': the outgoing track on deck ' + v.outL + (stack ? ' (red, left) ' : ' (red, top lane, left) ') + endTxt +
-    '; the incoming track on deck ' + v.innL + (stack ? ' (blue, right) enters at ' : ' (blue, lower lane, right) enters at ') + inAtT(v.inAt) + '; they overlap for ' + p.bars + ' bars, ' + p.dur.toFixed(1) + ' s (purple), with the gain curves');
+    '; the incoming track on deck ' + v.innL + (stack ? ' (blue, right) enters at ' : ' (blue, lower lane, right) enters at ') + inAtT(v.inAt) + '; they overlap for ' + p.bars + ' bars, ' + p.dur.toFixed(1) + ' s (purple), with the gain curves' +
+    '; each song has a start and an end handle to drag, the same ones as on the aligned timeline');
 }
 /* ── dry-run: rehearses the hand-off ⚡ would do, on screen and at its real pace; audio untouched ── */
 var dry = null, dryDurMs = null;   /* dryDurMs: probe seam only — null = the plan's real length */
@@ -6376,7 +6475,7 @@ function trimView(d){
 /* bar.beat the way a DAW counts: bar 1 = the song's first bar line, a pickup before it is bar 0 */
 function trimBB(g, t){
   if (!g || !(g.bpm > 0)) return null;
-  var bt = 60 / g.bpm, x = (t - snapDownbeat(g, barAnchor(g))) / bt, br = Math.floor(x / 4 + 1e-6), bb = Math.floor(x - br * 4 + 1e-6);
+  var bt = 60 / g.bpm, x = (t - snapDownbeat(g, barAnchor(g))) / bt + .01, br = Math.floor(x / 4), bb = Math.floor(x - br * 4);   /* v4.113: + a hundredth of a beat, so a cue rounded to the ms reads the same beat in the chip and the toast */
   return (br + 1) + '.' + (Math.min(3, Math.max(0, bb)) + 1);
 }
 /* the readout while a handle is held: which edge, bar.beat, the time, and what it means against the guess */
@@ -7125,7 +7224,7 @@ function bakIn(o, map){
   return n;
 }
 CHAIN.timer = setInterval(chainTick, 250);
-root.__ADJ = { trimView: trimView, trimCommit: trimCommit, trimLabel: trimLabel, trimBB: trimBB, tailToggle: tailToggle, tailOn: tailOn, mfbTail: mfbTail, bakOut: bakOut, bakIn: bakIn, mfb: function(){ return MFB; }, mfbShow: mfbShow, mfbPress: mfbPress, mfbBlock: mfbBlock, mfbLast: mfbLast, get lastMix(){ return LASTMIX; }, shapeWords: shapeWords, HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
+root.__ADJ = { trimView: trimView, trimCommit: trimCommit, trimMoved: trimMoved, rhTrimHit: rhTrimHit, get rhTrim(){ return RH_TR; }, trimLabel: trimLabel, trimBB: trimBB, tailToggle: tailToggle, tailOn: tailOn, mfbTail: mfbTail, bakOut: bakOut, bakIn: bakIn, mfb: function(){ return MFB; }, mfbShow: mfbShow, mfbPress: mfbPress, mfbBlock: mfbBlock, mfbLast: mfbLast, get lastMix(){ return LASTMIX; }, shapeWords: shapeWords, HOME: HOME, homeStart: homeStart, homePref: homePref, equalPower: equalPower, snapDownbeat: snapDownbeat, planTransition: planTransition, planQueue: planQueue,
   chain: CHAIN, chainPick: chainPick, chainTick: chainTick, chainEligible: chainEligible, queueState: queueState, CHAIN_LEAD: CHAIN_LEAD, poolPick: poolPick, poolRank: poolRank, POOL_FLOOR: POOL_FLOOR, nowNext: nowNext, renderNowNext: renderNowNext, curveAt: curveAt, curveGet: curveGet, curveSet: curveSet, rideCurve: rideCurve, curveUI: curveUI, curveState: curveState, curveWords: curveWords, get previewWin(){ return PREVIEW_WIN; },
   cueSet: cueSet, cueGet: cueGet, cueKey: cueKey, deckInfo: deckInfo, simulate: simulate, dryRun: dryRun, topSet: topSet, topToggle: topToggle, openBeats: openBeats, bufLevels: bufLevels, mfbTop: mfbTop,
   drawPreview: drawPreview, renderCues: renderCues, get dry(){ return dry; }, cues: function(){ return cues; }, rehearseView: rehearseView, rehearseDir: rehearseDir, currentPlan: currentPlan, rehearseAxis: rehearseAxis, rhAxis: rhAxis, get rhWin(){ return RH_WIN; }, get rhKnobs(){ return RH_KNOBS; }, curveEdit: curveEdit, get rhHold(){ return rhHold; }, slideStart: slideStart, slideTo: slideTo, slideBars: slideBars, slideEnd: slideEnd, overlapStep: overlapStep, overlapSet: overlapSet, overlapAuto: overlapAuto, rhSetStack: rhSetStack, get rhStack(){ return rhStackOn; }, rehearseColors: RH, set dryDurMs(v){ dryDurMs = v; },
@@ -7355,6 +7454,7 @@ var SECTIONS = [
 var PILLARS = ['reliability', 'presentability', 'creativity'], LEVELS = ['low', 'med', 'high'], STATUS = ['verified', 'partial', 'unverified', 'proposal', 'idea'];
 /* s: section · v: version (log) · t: title · d: one concise sentence · p: pillar · i: impact · e: effort · st: status · ev: evidence */
 var ITEMS = [
+  { s:'log', v:'v4.113', t:'Trim handles on the rehearsal too', d:"The mix rehearsal waveforms get the same start and end handles as the lanes; a trim set in either view shows in both and in the plan.", p:'creativity', i:'high', e:'low', st:'verified', ev:'node trim.test 27/27 + top 22/22 + shape 6/6 + 11/11; headless 1280 dark 34/34 + 390 light (touch) 32/32: rehearsal snapped, Alt and long-press drags, detent, double-click reset, lanes mirror both ways, cue + plan follow, locked in dry-runs, a hand end on a bar line no longer ends a bar early, 0 JS errors' },
   { s:'log', v:'v4.112', t:'Trim handles on the lanes', d:"Drag a lane\'s edges to set where a song starts and ends in a mix, snapped to the beat; ⏭ end plays a fade out to its last sample.", p:'reliability', i:'high', e:'med', st:'verified', ev:'node trim.test 27/27 + top 22/22 + fb 19/19; headless: snapped, Alt and long-press drags, detent, double-click reset, gate silent to the handle, bar offset 0, 0 JS errors, 1280 dark + 390 light' },
   { s:'log', v:'v4.111', t:'Crate backup file', d:"💾 backup saves grids, keys, cues, 🚫, mix feedback and setlists to a .harm file; a restore merges, and songs return with no re-scan.", p:'reliability', i:'high', e:'med', st:'verified', ev:'headless, fresh browser profile: 4 songs back with grids, keys, a hand-set grid and bpm, cues, top, 🚫, feedback, setlists; the files then return with no scan; a restore mid-scan keeps the backup; a bad file changes nothing; 0 JS errors, 1280 dark + 390 light' },
   { s:'log', v:'v4.110', t:'Drag without silence, from the top', d:"A held lane plays on and jumps on release, whole bars for big drags; a song can keep its pickup; a fade's silent tail ends the mix.", p:'reliability', i:'high', e:'low', st:'verified', ev:'node top.test 22/22 + fb.test 19/19; headless 1280 dark + 390 light: hold plays on, jump = ghost within 3 ms, live from the top bar offset 0, 0 errors' },
