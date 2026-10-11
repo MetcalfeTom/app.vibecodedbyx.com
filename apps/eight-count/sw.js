@@ -3,6 +3,8 @@
    copy answers when the server is down, sends an error page (5xx) or says nothing for 6 s. Emma's 3D library (three.js,
    a pinned version that never changes) comes from this cache first. Only GETs under this folder, that library and Google
    Fonts are kept. Your songs never go through here: they are files you pick, and your routines live in this browser. */
+/* v2.52.2: the page and its files are always checked with the server (no-cache), so the browser's own cache can't hand back last
+   week's page while you're online. */
 const CACHE = 'eightcount-v1';
 const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js';
 const SHELL = ['./?bare=1', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
@@ -34,7 +36,7 @@ self.addEventListener('fetch', e => {
     const fallback = async () => (await caches.match(req, { ignoreVary: true })) ||
       (req.mode === 'navigate' ? (await caches.match('./?bare=1')) || (await caches.match('./index.html')) : null);
     try {
-      const res = await Promise.race([fetch(req), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 6000))]);
+      const res = await Promise.race([fetch(req, url.origin === self.location.origin ? { cache: 'no-cache' } : undefined), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 6000))]);
       if (res && (res.ok || res.type === 'opaque')) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {}); return res; }
       if (res && res.status >= 500) { const hit = await fallback(); if (hit) return hit; }
       return res;
