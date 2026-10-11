@@ -454,3 +454,4 @@
 - Knight leash could use a visible clearing boundary.
 
 - v2.40.25 (2026-10-11 02:15, fannar22): emptying a body closes the bag too when the loot window opened it (lootSync no longer clears lootInv); a bag you opened yourself stays open.
+- v2.40.32 (2026-10-11 15:50): the difficulty orb update (WO.od) no longer reads OPTS.diff while bootRealm has OPTS emptied - a visitor hit "reading diff" of undefined in this week's stats.
