@@ -13,11 +13,17 @@ Credit line "idea by Flax" on the title card. Never use Tetris branding or music
   - Rainbow piece every 18-27 pieces (first after 10-15): locks as prism cells (colour 8) and pours into up to 8 holes (covered gaps first, then gaps in the fullest rows).
   - Flax 23:21 "hold button does not bring the blocks down": HOLD worked under real CDP touch (it stashes), Flax expected a drop. Added: ⬇ SOFT button (press and hold), ⤓ DROP button (touch devices only, body.touch), finger resting 260 ms on the board below the piece = soft drop (stops at the next spawn), "stash" label under HOLD, shake when hold is already used this turn. Game buttons fire on pointerdown. Flick velocity now measured up to the last move (CDP flick at 0.8 px/ms was missed before).
 
+- v3 (2026-10-12 ~23:50): music + sound.
+  - Original synthwave loop in A minor (i-VI-III-VII), all Web Audio oscillators/noise, lookahead scheduler (25 ms tick, 120 ms ahead, 64-step loop). Title: soft pad + triangle + sparse arp at 92 bpm. Playing: kick, saw bass with filter pluck, hats; level 3+ adds snare + 16th hats; level 5+ open hats + a lead hook. Tempo 104 bpm + 4 per level (cap 144); overdrive = 3/4 tempo + lowpass 1200 Hz; pause = quiet + lowpass 600 Hz.
+  - Big clears/bomb/laser/game over duck the music. SFX: move, rotate, hold, lock, hard drop, clear (pitch climbs with combo), RAZIS sweep, blast, charge zap, bomb sparkle, colour wipe, laser, overdrive on/off, rainbow pour, level up, nope, game over. Chain: master -> compressor -> limiter (-4 dB, 20:1).
+  - Starts on the first pointerdown/key/tap (browser rule); suspends when the tab is hidden. ♪ SOUND ON/OFF button on the title, pause and run-over cards + M key; remembered in localStorage razis-mute.
+  - Juice: score punch (scale + acid flash) on clears, acid flash on level up (both off with reduced motion).
+  - Tested headless with real CDP taps + an AnalyserNode: context runs after the first tap, every SFX fires without errors, music peak ~0.4, pause/mute/resume restore gain + filter. Not heard by a human yet.
+
 ## issues
 - Flax read HOLD as "hold to drop": keep the stash label + the SOFT/DROP buttons.
 
 ## todos
-- music + sfx, mute toggle
 - polish: share line, difficulty curve check, small phones
 
 ## art direction
@@ -28,4 +34,5 @@ Credit line "idea by Flax" on the title card. Never use Tetris branding or music
 ## testing
 - Scratch: $SP/razis (index.html is the source; build_test.py injects window.__RB + a freeze flag into gaunt/sw/hm43/razis/t.html). Live page has only a `/*@@HOOK@@*/` comment.
 - Touch: razis/touchrun.sh <page> 390,844 <steps.json> [shot.png] drives real CDP touch events (cdptouch.py: tap/hold/drag/eval). tt3.json = hold/soft/drop/board-hold/tap/drag/flick check.
+- Audio: tt4.json (touchrun) with an analyser tap added to the test copy (window.__AUD); first tap must not hit the SOUND button.
 - Probe hm/rz2.js: unit tests (blast chain, bomb, laser, rainbow, overdrive) + bots with boosters. hm/rz1.js: greedy bot plays 2x400 pieces + a random bot tops out, then touch (tap/drag/flick/swipe) and key tests. v1: 0 errors, 158 lines per 400 pieces, game over works.
