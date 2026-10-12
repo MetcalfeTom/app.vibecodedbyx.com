@@ -974,6 +974,13 @@ function toBeach() {
   LAB.came = true; G.round = 1; startRound();
   fadeEl.classList.remove('on');
 }
+function updVent() { // fan louder the closer you stand to the vent (left wall); surf back outside
+  if (!ventG) return;
+  const lab = LAB.on && !G.escEnd, k = lab ? Math.min(1, Math.max(0, 1 - (P.x - VENT_X) / 10)) : 0;
+  const v = lab ? 0.005 + 0.055 * k * k : 0, sea = lab ? 0 : 1;
+  if (Math.abs(v - ventLv) > 0.002) { ventLv = v; ventG.gain.setTargetAtTime(v, AC.currentTime, 0.25); }
+  if (sea !== seaLv) { seaLv = sea; ambSea.gain.setTargetAtTime(sea, AC.currentTime, 0.6); }
+}
 function updLabVis(t) {
   if (!LAB.on || !LAB.set) return;
   const p = SEEP.on || G.mode === 'labout' ? 0.5 + 0.5 * Math.sin(t * 10) : 0;
@@ -1400,7 +1407,7 @@ function writeGrains(t) {
 /* ---------------- audio ---------------- */
 let AC = null, master = null, noiseBuf = null, muted = false;
 try { muted = localStorage.getItem('sandboxing-mute') === '1'; } catch (e) {}
-let ambD = null;
+let ambD = null, ambSea = null, ventG = null, ventLv = -1, seaLv = -1;
 function duck(v, k) { if (AC && ambD) ambD.gain.setTargetAtTime(v, AC.currentTime, k); }
 function initAudio() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
@@ -1458,8 +1465,19 @@ function ambience() {
   const g = AC.createGain(); g.gain.value = 0.05;
   const lfo = AC.createOscillator(); lfo.frequency.value = 0.09; const lg = AC.createGain(); lg.gain.value = 0.035;
   ambD = AC.createGain(); // the hum's own fader: it sags while the lab's sand coils up for its long punch
-  lfo.connect(lg).connect(g.gain); s.connect(fl).connect(g).connect(ambD).connect(master); s.start(); lfo.start();
-  (function gullLoop() { setTimeout(() => { if (!document.hidden && !PZ.on) SFX.gull(); gullLoop(); }, 7000 + Math.random() * 9000); })();
+  ambSea = AC.createGain(); ambSea.gain.value = 0; // the surf's own fader: shut indoors
+  lfo.connect(lg).connect(g.gain); s.connect(fl).connect(g).connect(ambSea).connect(ambD).connect(master); s.start(); lfo.start();
+  // the lab's vent fan: a low motor hum plus rushing air, chopped by the blades
+  const vn = AC.createBufferSource(); vn.buffer = noiseBuf; vn.loop = true; vn.playbackRate.value = 0.93;
+  const vb = AC.createBiquadFilter(); vb.type = 'bandpass'; vb.frequency.value = 240; vb.Q.value = 1.3;
+  const m1 = AC.createOscillator(); m1.type = 'triangle'; m1.frequency.value = 58; const m1g = AC.createGain(); m1g.gain.value = 0.32;
+  const m2 = AC.createOscillator(); m2.frequency.value = 116.4; const m2g = AC.createGain(); m2g.gain.value = 0.16;
+  const blade = AC.createGain(); blade.gain.value = 0.72;
+  const bo = AC.createOscillator(); bo.frequency.value = 10.5; const bog = AC.createGain(); bog.gain.value = 0.26; bo.connect(bog).connect(blade.gain);
+  vn.connect(vb).connect(blade); m1.connect(m1g).connect(blade); m2.connect(m2g).connect(blade);
+  ventG = AC.createGain(); ventG.gain.value = 0; blade.connect(ventG).connect(ambD);
+  vn.start(); m1.start(); m2.start(); bo.start();
+  (function gullLoop() { setTimeout(() => { if (!document.hidden && !PZ.on && !LAB.on && !G.escEnd) SFX.gull(); gullLoop(); }, 7000 + Math.random() * 9000); })();
 }
 const masterLvl = () => muted ? 0 : PZ.on ? 0.2 : 0.85;
 function setMute(m) {
@@ -1554,10 +1572,17 @@ const pmEl = $('perma'), PMTXT = 'ACCEPT PERMADEATH', pmL = [];
 const pmOrder = pmL.map((_, i) => i);
 for (let i = pmOrder.length - 1; i > 0; i--) { const j = (srnd() * (i + 1)) | 0; const t = pmOrder[i]; pmOrder[i] = pmOrder[j]; pmOrder[j] = t; }
 let pmT = 0, pmHideT = 0, pmShown = -1;
+function dockPerma() { // docked: just under the meters (clear of the special meter), left of the round buttons
+  const bn = $('banner'); bn.style.top = '';
+  if (pmEl.hidden || !pmEl.classList.contains('dock')) { pmEl.style.top = ''; return; }
+  pmEl.style.top = Math.round($('hud').getBoundingClientRect().bottom + 6) + 'px';
+  const pb = pmEl.getBoundingClientRect().bottom + 4;
+  if (bn.getBoundingClientRect().top < pb) bn.style.top = Math.round(pb) + 'px';
+}
 function permaFlash() {
   pmEl.hidden = false; pmEl.classList.remove('dock', 'glitch'); void pmEl.offsetWidth; pmEl.classList.add('glitch');
   for (const l of pmL) l.classList.remove('fall');
-  pmShown = pmL.length; pmT = 1.8; pmHideT = 0;
+  pmShown = pmL.length; pmT = 1.8; pmHideT = 0; dockPerma();
 }
 let shownTired = null, shownSta = -1;
 const staEl = $('sta'), staFill = $('staFill');
@@ -1622,7 +1647,7 @@ function newGame(lab, title) {
   P.hp = 100; P.down = 0; E.wet = 0; E.esc = 0; E.wetShown = false; SEEP.saved = SEEP.lost = 0; endSeep(); SEEP.parade = false; SEEP.glow = 0; SH.on = false; E.rt = 9; flag.visible = false; bucket.visible = false; G.castle = null;
   G.round = lab ? 0 : 1; G.knocked = 0; G.perfects = 0; G.counters = 0; bag.length = 0;
   Object.assign(T, { charge: 0, on: false, t: 0, edge: -5.8, hit: false, soak: 0, soaked: false, floor: 0, washStarted: false, lastC: 0, lastP: 0, washed: 0, used: 0 });
-  pmEl.hidden = true; pmT = pmHideT = 0;
+  pmEl.hidden = true; pmT = pmHideT = 0; dockPerma();
   P.cough = 0; P.sta = 1; P.tired = false; P.pw = 1; P.lastPunch = -9; P.tiredShown = false; touchEl.classList.remove('cough'); termEl.hidden = coughEl.hidden = true; termT = coughT = 0;
   P3.rotation.set(0, P.yaw, 0); P3.visible = !title;
   $('end').hidden = true; $('card').hidden = true;
@@ -2866,10 +2891,10 @@ function logic(rdt) {
   while (acc >= STEP && n < 8) { update(STEP); acc -= STEP; n++; }
   if (n >= 8) acc = 0;
   if (banT > 0) { banT -= rdt; if (banT <= 0) banEl.classList.add('out'); }
-  if (pmT > 0) { pmT -= rdt; if (pmT <= 0) { pmEl.classList.remove('glitch'); pmEl.classList.add('dock'); } }
+  if (pmT > 0) { pmT -= rdt; if (pmT <= 0) { pmEl.classList.remove('glitch'); pmEl.classList.add('dock'); dockPerma(); } }
   if (termT > 0) { termT -= rdt; if (termT <= 0) termEl.hidden = true; }
   if (coughT > 0) { coughT -= rdt; if (coughT <= 0) coughEl.hidden = true; }
-  if (pmHideT > 0) { pmHideT -= rdt; if (pmHideT <= 0 && !T.soaked) pmEl.hidden = true; }
+  if (pmHideT > 0) { pmHideT -= rdt; if (pmHideT <= 0 && !T.soaked) { pmEl.hidden = true; dockPerma(); } }
   updPuffs(rdt);
 }
 let firstFrame = true;
@@ -2879,7 +2904,7 @@ function frame(now) {
   let rdt = paused ? 0 : Math.min(Math.max(0, now - last) / 1000, 0.1); last = now;
   if (PZ.fresh) { PZ.fresh = false; rdt = Math.min(rdt, 1 / 60); }
   if (!paused && !TIP.on) logic(rdt); // a held hint: nothing moves, the camera still settles
-  GLINT.uT.value = wallT; updFoam(wallT); updGulls(wallT); if (LOUNGE.visible) { updSwarm(wallT); updCas(); } updTideVis(wallT); updSeepVis(wallT); updLabVis(wallT);
+  GLINT.uT.value = wallT; updFoam(wallT); updGulls(wallT); if (LOUNGE.visible) { updSwarm(wallT); updCas(); } updTideVis(wallT); updSeepVis(wallT); updLabVis(wallT); updVent();
   posePlayer(simT);
   writeGrains(simT);
   if (flag.visible) { flagCloth.rotation.y = Math.sin(wallT * 5) * 0.35; flagCloth.scale.x = 0.9 + Math.sin(wallT * 7) * 0.1; }
@@ -2897,6 +2922,7 @@ function resize() {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight, false);
   if (!$('end').hidden) drawRecap();
+  dockPerma();
 }
 addEventListener('resize', resize);
 const SHOTMODE = location.hash.includes('shot');
@@ -3060,6 +3086,7 @@ window.SB = {
   G, E, P, SH, T, N, HEALS, ES, SEEP, LAB, LR, REC, STA, labOut, labWin, finish, koEnemy, tune: o => { if (o.big) LAB_BIG = o.big; if (o.len) LAB_LEN = o.len; if (o.gap) LAB_GAP = o.gap; if (o.hit) LAB_HIT = o.hit; if (o.heal != null) LAB_HEAL = o.heal; if (o.ko) LAB_KO = o.ko; if (o.act) LAB_ACT = o.act; if (o.leak != null) LAB_LEAK = o.leak; return { LAB_LEN, LAB_GAP, LAB_HIT, LAB_HEAL, LAB_KO, LAB_ACT, LAB_BIG }; }, seep: () => startSeep(true), segD, newGame, queue, startTell, endSwarm, tide: () => tryTide(),
   pause: v => { paused = v; }, setPause, PZ, TIP, cleared, endTip, seenM, meet, keys, joy, logic: dt => { logic(dt); posePlayer(simT); P3.updateMatrixWorld(true); },
   info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, body: E.body, mode: G.mode, state: E.state }),
+  aud: () => ({ vent: ventLv, sea: seaLv }),
   count: () => { const c = [0, 0, 0, 0, 0, 0, 0, 0, 0]; for (let i = 0; i < N; i++) c[st[i]]++; return c; }
 };
 </script>
