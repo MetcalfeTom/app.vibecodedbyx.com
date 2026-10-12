@@ -38,6 +38,9 @@ body{ margin:0; min-height:100vh; background:
 h1{ margin:0; font-weight:800; font-size:clamp(1.9rem, 4vw, 2.8rem); letter-spacing:-.01em; line-height:1; }
 h1 em{ font-weight:300; color:var(--amber); }
 #clock{ margin:0; font-family:var(--pix); font-size:1.05rem; color:var(--dim); }
+#snd{ margin-left:auto; align-self:center; font:600 .85rem var(--pix); color:var(--dim); background:transparent; border:1px solid var(--rule); border-radius:.45rem; padding:.3rem .65rem; cursor:pointer; min-height:2.2rem; }
+#snd:hover, #snd:focus-visible{ color:var(--ink); border-color:var(--amber); outline:none; }
+#snd[aria-pressed="true"]{ color:var(--amber); border-color:var(--amber); }
 #clock b{ color:var(--ink); font-weight:700; font-size:1.3rem; margin-right:.35rem; }
 #stage{ position:relative; display:flex; align-items:flex-start; justify-content:center; min-height:0; }
 #scene{ display:block; image-rendering:pixelated; image-rendering:crisp-edges; border-radius:6px;
@@ -74,6 +77,7 @@ h1 em{ font-weight:300; color:var(--amber); }
   <header id="top">
     <h1>Kettle <em>Court</em></h1>
     <p id="clock" aria-live="off"><b>--:--</b><span></span></p>
+    <button type="button" id="snd" aria-pressed="false" title="Rain, thunder and the neighbours: Gordon's piano, kettles, the lift bell…">🔈 sound</button>
   </header>
   <div id="stage">
     <canvas id="scene" tabindex="0" role="img" aria-label="A cutaway apartment building with ten flats, a café, a lobby, a basement and a roof garden, full of tiny neighbours. Tap a neighbour to read about them."></canvas>
@@ -1086,6 +1090,7 @@ function frame(ts){
     if (p.id === 'rosa' && !st.walk) awake.add('cafe');
   }
   drawCageFront(); drawLiftFront(min);
+  soundTick(min, day);
   /* lighting: a room is lit at night when somebody in it is awake */
   for (const fl of FLATS) roomLight(fl.side === 'A' ? AX0 : BX0, CEIL(fl.f), 96, 40, awake.has(fl.id), dl);
   roomLight(AX0, CEIL(0), 96, 40, awake.has('cafe'), dl); roomLight(BX0, CEIL(0), 96, 40, true, dl);
@@ -1400,6 +1405,139 @@ function mopUp(d, L){
   if (!mid.length && prev) evs.push(Object.assign({}, prev, { t: t + 36, gz: null, jump: false }));
   return occupy(L, t, t + 35, evs);
 }
+
+/* ================= sound: off until you switch it on; everything is synthesised here, nothing loads =================
+   a bed of rain and street hush, thunder after the flashes, a foghorn in the fog, and the neighbours: Gordon's sad
+   piano, the cello, the radio at breakfast, kettles, clocks, snoring through the wall, singing on the stairs, the
+   boiler's noise, cups in The Kettle, the lift bell, the van's horn, the bucket in 6B, and a purr if you open a cat's card */
+const SND = { on: false, ac: null, out: null, nb: null, rainG: null, hushG: null, next: {}, seen: {}, seq: {}, flash: -1, ly: null, lmove: false, stuck: false, vans: '', t: 0 };
+const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+function sndInit(){
+  if (SND.ac) return true;
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return false;
+  let ac; try { ac = new AC(); } catch (e) { return false; }
+  const out = ac.createGain(), comp = ac.createDynamicsCompressor();
+  out.gain.value = .9; out.connect(comp); comp.connect(ac.destination);
+  const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), d = nb.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const bed = (hpF, lpF, rate) => {
+    const s = ac.createBufferSource(); s.buffer = nb; s.loop = true; s.playbackRate.value = rate;
+    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = hpF;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = lpF;
+    const gn = ac.createGain(); gn.gain.value = 0;
+    s.connect(hp); hp.connect(lp); lp.connect(gn); gn.connect(out); s.start(); return gn;
+  };
+  SND.rainG = bed(700, 5200, 1); SND.hushG = bed(40, 380, .6);
+  Object.assign(SND, { ac, out, nb });
+  return true;
+}
+/* one voice: an oscillator with an envelope, panned to where it happens */
+function tone(f, at, dur, o){
+  const ac = SND.ac, t = ac.currentTime + (at || 0), os = ac.createOscillator(), gn = ac.createGain(), pn = ac.createStereoPanner ? ac.createStereoPanner() : null;
+  os.type = o.type || 'sine'; os.frequency.setValueAtTime(f, t);
+  if (o.to) os.frequency.exponentialRampToValueAtTime(o.to, t + dur);
+  if (o.det) os.detune.value = o.det;
+  let node = os;
+  if (o.lp){ const lp = ac.createBiquadFilter(); lp.type = o.bp ? 'bandpass' : 'lowpass'; lp.frequency.value = o.lp; if (o.q) lp.Q.value = o.q; os.connect(lp); node = lp; }
+  if (o.vib){ const lf = ac.createOscillator(), lg = ac.createGain(); lf.frequency.value = o.vib; lg.gain.value = f * .012; lf.connect(lg); lg.connect(os.frequency); lf.start(t); lf.stop(t + dur + .1); }
+  const a = o.a || .01, v = o.v || .05;
+  gn.gain.setValueAtTime(0, t); gn.gain.linearRampToValueAtTime(v, t + a);
+  if (o.hold) gn.gain.setValueAtTime(v, t + dur - (o.r || .2)), gn.gain.linearRampToValueAtTime(0, t + dur);
+  else gn.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  node.connect(gn);
+  if (pn){ pn.pan.value = o.pan || 0; gn.connect(pn); pn.connect(SND.out); } else gn.connect(SND.out);
+  os.start(t); os.stop(t + dur + .05);
+}
+/* a burst of filtered noise: thunder, snores, the espresso machine, a tick */
+function hiss(at, dur, o){
+  const ac = SND.ac, t = ac.currentTime + (at || 0), s = ac.createBufferSource(), f = ac.createBiquadFilter(), gn = ac.createGain(), pn = ac.createStereoPanner ? ac.createStereoPanner() : null;
+  s.buffer = SND.nb; s.playbackRate.value = o.rate || 1;
+  f.type = o.type || 'lowpass'; f.frequency.setValueAtTime(o.f, t); if (o.to) f.frequency.exponentialRampToValueAtTime(o.to, t + dur); if (o.q) f.Q.value = o.q;
+  const a = o.a || .005, v = o.v || .05;
+  gn.gain.setValueAtTime(0, t); gn.gain.linearRampToValueAtTime(v, t + a); gn.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  if (o.am){ const lf = ac.createOscillator(), lg = ac.createGain(); lf.type = 'square'; lf.frequency.value = o.am; lg.gain.value = v * .6; lf.connect(lg); lg.connect(gn.gain); lf.start(t); lf.stop(t + dur); }
+  s.connect(f); f.connect(gn);
+  if (pn){ pn.pan.value = o.pan || 0; gn.connect(pn); pn.connect(SND.out); } else gn.connect(SND.out);
+  s.start(t, Math.random() * 1.5); s.stop(t + dur + .05);
+}
+const PIANO = [69, 72, 76, 74, 72, 71, 69, 64, 65, 69, 72, 71, 69, 68, 69, 0];
+const CELLO = [50, 53, 57, 55, 53, 52, 50, 45];
+const RADIO = [72, 76, 79, 76, 74, 77, 81, 77, 76, 79, 84, 79, 77, 74, 72, 0];
+const SONG = [67, 69, 71, 72, 74, 72, 71, 69, 67, 0, 64, 67, 69, 67, 0, 0];
+/* how loud someone at x,y is: everything is soft on the whole building; zoomed in on a phone, what's in view is louder */
+function near(x, y){
+  if (VIEW.z < 1.2) return .75;
+  return x >= VIEW.x - 8 && x <= VIEW.x + VIEW.w + 8 && y >= VIEW.y - 8 && y <= VIEW.y + VIEW.h + 8 ? 1.1 : .2;
+}
+const panOf = x => Math.max(-.8, Math.min(.8, x / W * 2 - 1));
+function due(k, gap){ const n = SND.ac.currentTime; if ((SND.next[k] || 0) > n) return false; SND.next[k] = n + gap; return true; }
+function soundTick(min, day){
+  if (!SND.on || !SND.ac || SND.ac.state !== 'running') return;
+  const now = performance.now(); if (now - SND.t < 180) return; SND.t = now;
+  const X = WXN, dl = daylight(min), ac = SND.ac, ct = ac.currentTime;
+  SND.rainG.gain.setTargetAtTime(X.w.snow ? X.rain * .03 : X.rain * .2, ct, .8);
+  SND.hushG.gain.setTargetAtTime(.025 + .05 * dl + (X.fog ? .03 : 0), ct, 1.5);
+  /* thunder after each flash (same slots as the bolts), farther ones later and softer */
+  if (X.storm){
+    const slot = Math.floor(min / 4), f = (min / 4) % 1;
+    if (slot !== SND.flash && hash(day, 820, slot) < .28 && f < .2){
+      SND.flash = slot; const far = hash(day, 823, slot), pan = (hash(day, 821, slot) * 248 + 20) / W * 2 - 1;
+      hiss(.5 + far * 2, 3.5 + far * 2, { f: 900 - far * 500, to: 60, v: .55 - far * .3, a: .04, pan: pan * .6 });
+      hiss(.55 + far * 2, 4, { f: 120, to: 40, v: .35, a: .3, rate: .5 });
+    }
+  }
+  if (X.rain > .2 && !X.w.snow && due('plink', .35 / X.rain)) tone(1600 + Math.random() * 1400, 0, .08, { v: .012 * X.rain, pan: Math.random() * 1.6 - .8 });
+  /* the bucket under the leak in 6B */
+  if (inBy('socks', day, min) && X.puddle > .3 && X.rain > .3 && !X.w.snow && due('bucket', 1.4)){ const fl = FLAT['6B'], bx = rx(fl.side, 48, 4); tone(900 + Math.random() * 200, 0, .18, { to: 1500, v: .03 * near(bx, FY[fl.f]), pan: panOf(bx) }); }
+  if (X.fog > .5 && due('horn', 38)){ tone(87, 0, 3.2, { type: 'sawtooth', lp: 320, v: .07, a: .8, hold: true, r: 1.2, pan: -.7 }); tone(110, .05, 3.1, { type: 'sawtooth', lp: 320, v: .05, a: .8, hold: true, r: 1.2, pan: -.7 }); }
+  /* the lift bell when it stops; a clunk and the alarm bell if it sticks */
+  const ly = liftY(min);
+  if (SND.ly !== null){
+    const moving = Math.abs(ly - SND.ly) > .02, lx = (SX0 + SX1) / 2;
+    if (SND.lmove && !moving && !liftStuck(min)){ tone(1318, 0, .9, { v: .05 * near(lx, ly), pan: panOf(lx) }); tone(1046, .28, 1.2, { v: .05 * near(lx, ly), pan: panOf(lx) }); }
+    const st = liftStuck(min);
+    if (st && !SND.stuck){ hiss(0, .5, { f: 180, v: .25, pan: panOf(lx) }); for (let i = 0; i < 8; i++) tone(1480, 1.2 + i * .12, .1, { type: 'square', lp: 2400, v: .02, pan: panOf(lx) }); }
+    SND.lmove = moving; SND.stuck = st;
+  }
+  SND.ly = ly;
+  /* a moving van honks as it pulls up */
+  const D = dayPlan(day); for (const [a] of D.vans){ const k = day + ':' + a; if (min > a && min < a + 2 && !SND.seen[k]){ SND.seen[k] = 1; tone(440, 0, .18, { type: 'square', lp: 1400, v: .05, pan: .8 }); tone(554, .26, .3, { type: 'square', lp: 1400, v: .05, pan: .8 }); } }
+  /* the neighbours */
+  for (const v of VIS){
+    const st = v.st, e = st.e, act = (e && e.act) || '', id = v.p.id, k = near(v.x, v.y), pan = panOf(v.x);
+    if (v.p.ghost){ if (due('ghost', 22)) tone(520, 0, 2.6, { to: 430, v: .018 * k, vib: 4, a: .9, pan }); continue; }
+    if (st.walk && !/singing/.test(act)) continue;
+    if (/piano/.test(act)){ if (due(id + 'pn', 1.15)){ const s = SND.seq[id] = ((SND.seq[id] || 0) + 1) % PIANO.length, n = PIANO[s]; if (n){ tone(midi(n), 0, 2.4, { type: 'triangle', v: .05 * k, pan }); tone(midi(n - 12), 0, 2.4, { v: .03 * k, pan }); } } }
+    else if (/cello/.test(act)){ if (due(id + 'vc', 2.3)){ const s = SND.seq[id] = ((SND.seq[id] || 0) + 1) % CELLO.length; tone(midi(CELLO[s]), 0, 2.2, { type: 'sawtooth', lp: 800, v: .05 * k, vib: 5, a: .35, hold: true, r: .5, pan }); } }
+    else if (/radio/.test(act)){ if (due(id + 'rd', .26)){ const s = SND.seq[id] = ((SND.seq[id] || 0) + 1) % RADIO.length, n = RADIO[s]; if (n) tone(midi(n), 0, .22, { type: 'square', lp: 1800, bp: true, q: 3, v: .03 * k, pan }); } }
+    else if (/gaming/.test(act)){ if (due(id + 'gm', .18 + Math.random() * .4)) tone(500 + Math.random() * 900, 0, .07, { type: 'square', lp: 2600, v: .015 * k, pan }); }
+    else if (/kettle on/.test(act)){ if (SND.seen[id] !== e && st.f !== null){ SND.seen[id] = e; tone(1500, 3, 3.5, { to: 2300, v: .03 * k, a: 1.2, hold: true, r: .4, pan }); hiss(3, 3.5, { type: 'bandpass', f: 2600, q: 2, v: .02 * k, a: 1, pan }); } }
+    else if (/clock/.test(act)){ if (due(id + 'ck', .5)){ const tk = (SND.seq[id] = ((SND.seq[id] || 0) + 1) % 2); hiss(0, .03, { type: 'highpass', f: tk ? 3200 : 2400, v: .05 * k, pan }); }
+      if (/winding/.test(act) && due(id + 'wd', 3.2)) for (let i = 0; i < 6; i++) hiss(i * .07, .025, { type: 'highpass', f: 4200, v: .04 * k, pan }); }
+    else if (/snor/.test(act)){ if (due(id + 'zz', 3.8)){ hiss(0, 1.5, { f: 260, q: 6, v: .05 * k, a: 1, am: 28, pan }); hiss(1.7, 1, { type: 'bandpass', f: 900, q: 1, v: .015 * k, a: .3, pan }); } }
+    else if (/singing/.test(act)){ if (due(id + 'sg', .48)){ const s = SND.seq[id] = ((SND.seq[id] || 0) + 1) % SONG.length, n = SONG[s]; if (n) tone(midi(n), 0, .5, { type: 'triangle', v: .035 * k, vib: 5.5, det: (Math.random() - .5) * 60, a: .05, hold: true, r: .15, pan }); } }
+    else if (/boiler/.test(act)){ if (due(id + 'bl', 6)) tone(52, 0, 1.6, { type: 'sawtooth', to: 41, lp: 220, v: .1 * k, a: .2, pan }); }
+    if (id === 'rosa' && !st.walk && due('cups', 2.5 + Math.random() * 5)){ tone(2500 + Math.random() * 900, 0, .3, { v: .02 * k, pan }); if (Math.random() < .12) hiss(.3, 1.6, { type: 'bandpass', f: 3200, q: 1.5, v: .025 * k, a: .2, pan }); }
+    if (v.p.cat && SEL === id && !st.walk && due('purr', 1.9)) hiss(0, 1.8, { f: 180, q: 3, v: .07, a: .5, am: 24, pan, rate: .7 });
+  }
+}
+/* the switch: remembered, but browsers only let sound start after a tap, so a remembered 'on' waits for the first one */
+function sndSet(on){
+  SND.on = on;
+  try { localStorage.setItem('kc-sound', on ? '1' : '0'); } catch (e) {}
+  const b = document.getElementById('snd'); if (b){ b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.textContent = on ? '🔊 sound on' : '🔈 sound'; }
+  if (on){ if (!sndInit()){ const b2 = document.getElementById('snd'); if (b2) b2.textContent = 'no sound here'; SND.on = false; return; } SND.ac.resume(); }
+  else if (SND.ac) SND.ac.suspend();
+}
+(function(){
+  const b = document.getElementById('snd'); if (!b) return;
+  const EV = ['pointerdown', 'touchend', 'click', 'keydown'], drop = () => EV.forEach(t => removeEventListener(t, go, true));
+  const go = ev => { if (ev.target === b) return; drop(); sndSet(true); };
+  b.addEventListener('click', () => { drop(); sndSet(!SND.on); });
+  let want = false; try { want = localStorage.getItem('kc-sound') === '1'; } catch (e) {}
+  if (want){ b.textContent = '🔊 tap for sound'; EV.forEach(t => addEventListener(t, go, true)); }
+  document.addEventListener('visibilitychange', () => { if (!SND.ac || !SND.on) return; if (document.hidden) SND.ac.suspend(); else SND.ac.resume(); });
+})();
 /* ================= lighting ================= */
 function roomLight(x, y, w, h, on, dl){
   const dark = 1 - dl;
