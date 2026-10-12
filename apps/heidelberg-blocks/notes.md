@@ -28,6 +28,11 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   image, squashed toward the horizon (x .32, rippled water), drawn where the line of sight meets the water, only over
   the river, as short vertical streaks with a shimmer. Two pooled Points clouds (560 each, one ShaderMaterial + a STREAK
   clone), no lights: +2 draw calls at night, no triangles. Best seen from the Neckarwiese by the water.
+- v1.3 2026-10-12 01:40: fannar22's bug: swimming into a quay wall or a bridge pier climbed it to street level. Now only
+  low banks (the Neckarwiese meadow) can be climbed from the water (climb needs P.y<WATER+1.6 and a free cell at WATER+2
+  ahead); 9 stone river steps (buildSteps, 11 steps, 2 wide, cobble treads) against the quays, 6 south + 3 north east of
+  the bridge, placed last so they skip spots with a house at the landing; a toast points to the nearest steps after 1 s
+  against a tall wall (once per 20 s). Probe hm/hb_steps.js (all 9 flights reach the quay, quays/piers/edges max 10).
 
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
