@@ -25,13 +25,15 @@ A watch-only cutaway apartment block (Pushed's Little Computer People idea): tin
 - v1.1 2026-10-11 23:50: phones zoom in on the neighbour you tap (2.4x close-up that follows them, card docked underneath); the world now draws off screen and is blitted at device resolution (VIEW in w4, present()).
 - v1.2 2026-10-11 23:48: move-in boxes are actually drawn now (the carry flag never reached drawPerson); Morwenna, last to move in, takes the bins out at 08:06 with a bin bag (house rule: whoever moved in last does the bins). Todo: hand the bins to the next walk-in.
 - v1.3 2026-10-11 23:58: Pushed's telescope: with a mouse, a brass-rimmed lens follows the pointer and magnifies 3x (LENS + telescope() in w4, pointermove/leave in w5; cursor hidden over the canvas; clicks still pick the person under the lens centre). Touch keeps the tap-to-zoom.
+- v1.4 2026-10-12 00:10: a sixth floor (NF = 6, canvas 288x408). 6A: Barry Doyle aka Captain Keen (pushedbutton's superhero who hasn't worked out his powers): crime board, cape + mask in the evenings (weekends all day), tests one power a day (POWERS, gazette), investigates the laundry sock thefts, questions the stranger, intercepts Teo's pizza, investigates Wilf's howl from the ground floor. 6B: Dirty Old Socks (fannar22's tenant): laundry basket, socks on the floor, stink pixels, laundry on Saturdays, sings up the stairs from the pub, Captain Keen suspects him. Vans at 00:22 and 00:28 UTC. Bins now go to whoever moved in last (binsBy over MOVE), so Socks has them. vacant() = nobody moved in, so a flat with no tenant shows TO LET. Ghost bio: looks like a certain purple streamer (Fannar spotted it).
 
 ## Issues
 - Sprites are small on phones (the building is ~374 px wide): tapping someone zooms in (v1.1); a pinch zoom is not there yet.
 - The café sign clips to "THE KETTL" — kept on purpose, the voice made it a joke.
 
 ## Todos
-- Grow a sixth floor when more tenants come from chat (NF = 6 in w1).
+- Grow a seventh floor when more tenants come from chat (NF in w1; the canvas grows 44 px per floor).
+- Fannar's idea: Major Major Major (Catch-22) as Captain Keen's sidekick, who only turns up when he isn't looking (idea only).
 - Sloppy's complication idea: whoever moves in last gets the worst job in the place.
 - Agnes vs the ghost: rival gossip columns in the gazette.
 - Ask Pushed about the walk-in names and whether Otis may cameo.
