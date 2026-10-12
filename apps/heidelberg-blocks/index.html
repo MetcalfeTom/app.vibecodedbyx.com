@@ -127,7 +127,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 <p id="toast" role="status" aria-live="polite" hidden></p>
 <div id="stick" hidden aria-hidden="true"><div id="knob"></div></div>
 <button id="jump" type="button" hidden aria-label="Jump">⤒</button>
-<span id="buildstamp" role="note" aria-label="Build information">build v1.1 · 2026-10-11</span>
+<span id="buildstamp" role="note" aria-label="Build information">build v1.2 · 2026-10-12</span>
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
@@ -906,6 +906,7 @@ function applyTime(i){
   scene.fog.color.set(t.hor); water.material.color.set(t.water); clouds.material.color.set(t.cloud);
   blockMat.emissive.set(t.em?0xffffff:0x000000); blockMat.emissiveIntensity=t.em||0;
   renderer.toneMappingExposure=t.exp; G.sunDir=dir;
+  fwNight(t.id==='night');
   const b=$('timebtn'); b.textContent=t.icon; b.setAttribute('aria-label','Time of day: '+t.label+'. Press to change.');
 }
 
@@ -1118,10 +1119,95 @@ function frame(now){
   if(!RM){ water.material.map.offset.x=(tAcc*.012)%1; water.material.map.offset.y=Math.sin(tAcc*.3)*.004; clouds.material.map.offset.x=(tAcc*.0016)%1; }
   const under=camera.position.y<WATER-.1; if(under!==G.under){ G.under=under; $('under').hidden=!under; }
   tickSparks(dt);
+  tickFireworks(dt);
   renderer.render(scene,camera);
 }
 
-G.physics=physics; G.inp=inp; G.rub=rub;
+/* ---------------- night fireworks over the Neckar (Flax's idea) ----------------
+   one pooled Points cloud for the shells + stars, one for their reflections on the water; no lights */
+const FW_N=560, FWC=[[1,.42,.06],[1,.22,.03],[1,.08,.04],[1,.3,.05],[1,.62,.3]];   // gold, orange, red, amber, warm white
+const fw={on:false,wait:0,t:0,q:[],cur:0,shows:0};
+const fwP=new Float32Array(FW_N*3), fwV=new Float32Array(FW_N*3), fwB=new Float32Array(FW_N*3), fwB2=new Float32Array(FW_N*3), fwC=new Float32Array(FW_N*3), fwS=new Float32Array(FW_N),
+      fwL=new Float32Array(FW_N), fwM=new Float32Array(FW_N), fwK=new Uint8Array(FW_N), fwSz=new Float32Array(FW_N), fwE=new Float32Array(FW_N),
+      rfP=new Float32Array(FW_N*3), rfC=new Float32Array(FW_N*3), rfS=new Float32Array(FW_N);
+const fwMat=new THREE.ShaderMaterial({ uniforms:{uScale:{value:400}}, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false, toneMapped:false,
+  vertexShader:`attribute float fsize; attribute vec3 fcol; uniform float uScale; varying vec3 vC;
+    void main(){ vC=fcol; vec4 mv=modelViewMatrix*vec4(position,1.); gl_Position=projectionMatrix*mv; gl_PointSize= fsize<=0. ? 0. : clamp(fsize*uScale/max(.1,-mv.z),1.,90.); }`,
+  fragmentShader:`varying vec3 vC; void main(){ vec2 d=gl_PointCoord-.5;
+    #ifdef STREAK
+    d.x*=3.4;
+    #endif
+    float r=dot(d,d)*4.; if(r>1.) discard; gl_FragColor=vec4(vC*exp(-r*3.2),1.);
+    #include <colorspace_fragment>
+  }` });
+const fwRefMat=fwMat.clone(); fwRefMat.defines={STREAK:1};   // reflections: short vertical streaks on the water
+function fwCloud(P,C,S,mat){ const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(P,3)); g.setAttribute('fcol',new THREE.BufferAttribute(C,3)); g.setAttribute('fsize',new THREE.BufferAttribute(S,1));
+  const p=new THREE.Points(g,mat); p.frustumCulled=false; p.visible=false; p.renderOrder=3; scene.add(p); return p; }
+const fwSky=fwCloud(fwP,fwC,fwS,fwMat), fwRef=fwCloud(rfP,rfC,rfS,fwRefMat);
+function fwSlot(){ for(let k=0;k<FW_N;k++){ const i=(fw.cur+k)%FW_N; if(!fwK[i]){ fw.cur=(i+1)%FW_N; return i; } } return -1; }
+function fwAdd(kind,x,y,z,vx,vy,vz,col,life,size){ const i=fwSlot(); if(i<0) return -1;
+  fwK[i]=kind; fwP[i*3]=x; fwP[i*3+1]=y; fwP[i*3+2]=z; fwV[i*3]=vx; fwV[i*3+1]=vy; fwV[i*3+2]=vz;
+  fwB[i*3]=col[0]; fwB[i*3+1]=col[1]; fwB[i*3+2]=col[2]; fwL[i]=fwM[i]=life; fwSz[i]=size; fwE[i]=0; return i; }
+// a shell is aimed at the stretch of river you are looking at, so the show is never behind you
+function fwAim(){ const f=new THREE.Vector3(); camera.getWorldDirection(f); f.y=0; f.normalize(); const cx=camera.position.x, cz=camera.position.z;
+  let best=null, bs=-1e9;
+  for(let k=0;k<7;k++){ const x=clamp(cx+(Math.random()*2-1)*70,-90,90), z=riverZ(x)+(Math.random()*2-1)*(RIVER_HALF-8), dx=x-cx, dz=z-cz, d=Math.hypot(dx,dz)||1;
+    const s=(dx*f.x+dz*f.z)/d - Math.abs(d-62)/90 - (Math.abs(x)<6?.4:0) - (d<38?3:0); if(s>bs){ bs=s; best=[x,z]; } }
+  return best; }
+function fwLaunch(type){ const [x,z]=fwAim(), h=31+Math.random()*16, c1=FWC[Math.floor(Math.random()*FWC.length)], c2=FWC[Math.floor(Math.random()*FWC.length)];
+  const T=1.15+Math.random()*.3, vy=(h-WATER)/T+13*T/2;   // reaches h after T seconds against gravity 13
+  const i=fwAdd(1,x,WATER+.3,z,(Math.random()-.5)*1.2,vy,(Math.random()-.5)*1.2,c1,T,.6); if(i>=0){ fwE[i]=type; for(let c=0;c<3;c++) fwB2[i*3+c]=c2[c]; } }
+function fwBurst(i){ const x=fwP[i*3], y=fwP[i*3+1], z=fwP[i*3+2], type=fwE[i], c1=[fwB[i*3],fwB[i*3+1],fwB[i*3+2]], c2=[fwB2[i*3],fwB2[i*3+1],fwB2[i*3+2]];
+  fwAdd(3,x,y,z,0,0,0,[.55,.3,.1],.24,3.2);   // flash
+  const n=type===2?44:type===1?64:60, sp=type===1?13:type===2?19:17.5;
+  const ax=Math.random()*2-1, az=Math.random()*2-1;   // tilt of the ring
+  for(let k=0;k<n;k++){ let vx,vy,vz;
+    if(type===2){ const a=k/n*Math.PI*2; vx=Math.cos(a); vy=Math.sin(a)*.45+ax*Math.cos(a)*.3; vz=Math.sin(a)*az; const l=Math.hypot(vx,vy,vz); vx/=l; vy/=l; vz/=l; }
+    else { const u=Math.random()*2-1, a=Math.random()*Math.PI*2, r=Math.sqrt(1-u*u); vx=r*Math.cos(a); vy=u; vz=r*Math.sin(a); }
+    const s=sp*(.86+Math.random()*.2), col=(type===3&&k%2)?c2:c1;
+    fwAdd(type===1?4:2,x,y,z,vx*s,vy*s+(type===1?2:0),vz*s,col,type===1?2.8+Math.random()*.6:1.5+Math.random()*.6,type===1?.8:.95);
+  } }
+// one show: a dozen shells, then a quick finale; then a pause
+function fwShow(){ const q=[]; let t=0; const n=10+Math.floor(Math.random()*3);
+  for(let k=0;k<n;k++){ t+=1.1+Math.random()*1.5; q.push([t,Math.floor(Math.random()*4)]); }
+  t+=1.4; for(let k=0;k<6;k++){ t+=.22+Math.random()*.3; q.push([t,k%4]); }
+  fw.q=q; fw.t=0; fw.end=t+4; }
+function fwNight(on){
+  if(RM) on=false;
+  if(on===fw.on) return; fw.on=on; fw.wait=2.2; fw.q=[];
+  if(!on){ fwK.fill(0); fwS.fill(0); rfS.fill(0); fwSky.visible=fwRef.visible=false; }
+}
+const fwM3=new THREE.Vector3();
+function tickFireworks(dt){
+  if(!fw.on) return;
+  if(fw.wait>0){ fw.wait-=dt; if(fw.wait<=0){ fwShow(); fw.shows++; if(started && fw.shows===1) showHint('Fireworks over the Neckar',4000); } }
+  else { fw.t+=dt; while(fw.q.length && fw.q[0][0]<=fw.t){ fwLaunch(fw.q.shift()[1]); } if(fw.t>fw.end) fw.wait=14; }
+  const cam=camera.position, W=WATER-.08; let any=0;
+  for(let i=0;i<FW_N;i++){
+    const k=fwK[i]; if(!k){ fwS[i]=0; rfS[i]=0; continue; }
+    fwL[i]-=dt; if(fwL[i]<=0){ if(k===1) fwBurst(i); fwK[i]=0; fwS[i]=0; rfS[i]=0; continue; }
+    any++; const j=i*3, t=fwL[i]/fwM[i];
+    if(k===1){ fwV[j+1]-=13*dt; if(Math.random()<dt*40) fwAdd(5,fwP[j],fwP[j+1],fwP[j+2],(Math.random()-.5)*.6,-.5,(Math.random()-.5)*.6,[1,.62,.3],.32,.3); }
+    else if(k!==3){ const drag=k===4?1.2:1.5; fwV[j]-=fwV[j]*drag*dt; fwV[j+1]-=fwV[j+1]*drag*dt+(k===4?5.2:3.6)*dt; fwV[j+2]-=fwV[j+2]*drag*dt; }
+    fwP[j]+=fwV[j]*dt; fwP[j+1]+=fwV[j+1]*dt; fwP[j+2]+=fwV[j+2]*dt;
+    let b = k===3 ? t*t*1.3 : k===1 ? 1 : k===5 ? t : Math.min(1,t/.35);
+    if(k===2||k===4){ if(fwM[i]-fwL[i]<.12) b=1.4; if(k===4 && t<.3) b*=Math.random()<.5?1.5:.25; }   // white-hot start, willow crackle at the end
+    const hot=(k===2||k===4)?clamp((fwM[i]-fwL[i]-.04)/.16,0,1):1;
+    for(let c=0;c<3;c++) fwC[j+c]=(fwB[j+c]*hot+(1-hot))*b;
+    fwS[i]=fwSz[i]*(k===3?1:.7+.3*Math.min(1,t*2));
+    // reflection: a squashed mirror image (rippled water pulls the glitter toward the horizon), drawn where its line of sight meets the water
+    rfS[i]=0;
+    if(cam.y>W+.3 && fwP[j+1]>W){ fwM3.set(fwP[j],W-(fwP[j+1]-W)*.32,fwP[j+2]); const s=(W-cam.y)/(fwM3.y-cam.y);
+      const px=cam.x+(fwM3.x-cam.x)*s, pz=cam.z+(fwM3.z-cam.z)*s;
+      if(Math.abs(pz-riverZ(px))<RIVER_HALF-1.5){ rfP[j]=px; rfP[j+1]=W; rfP[j+2]=pz; const sh=.2+.22*Math.random();
+        for(let c=0;c<3;c++) rfC[j+c]=fwC[j+c]*sh; rfS[i]=fwS[i]*s*(k===3?1.4:2.6); } }
+  }
+  fwSky.visible=fwRef.visible=any>0; fw.live=any;
+  if(any){ for(const p of [fwSky,fwRef]) for(const a of ['position','fcol','fsize']) p.geometry.attributes[a].needsUpdate=true;
+    fwMat.uniforms.uScale.value=fwRefMat.uniforms.uScale.value=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360)); }
+}
+
+G.physics=physics; G.inp=inp; G.rub=rub; G.fwTick=tickFireworks; G.fw=fw;
 /*HOOK*/
 resize(); applyTime(0);
 requestAnimationFrame(()=>setTimeout(()=>{

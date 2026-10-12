@@ -20,13 +20,21 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   textureGrad and adds the per-block shade from the world position. og.png (1200x630 headless shot of the bridge).
   Fannar's bug fixed: swimming into the map edge (or diagonally into it) climbed forever into the sky. Now the edge is
   a plain wall (blockB 255 never climbs) and swim-climbing stops at street level (P.y < TOWN+.6).
+- v1.2 2026-10-12: night fireworks over the Neckar (Flax's idea). Only in the 🌙 night preset (off with
+  prefers-reduced-motion): a show of 10-12 shells + a 6-shell finale, then a 14 s pause, repeating. Shells rise from the
+  river with ember trails; peony / willow (crackles) / tilted ring / two-colour bursts in warm colours (gold, orange,
+  red, amber, warm white) with a white-hot start. Shells are aimed at the stretch of river you are looking at (best of
+  7 random spots over the water, 38+ blocks away) so the show is never behind you. Reflections: each particle's mirror
+  image, squashed toward the horizon (x .32, rippled water), drawn where the line of sight meets the water, only over
+  the river, as short vertical streaks with a shimmer. Two pooled Points clouds (560 each, one ShaderMaterial + a STREAK
+  clone), no lights: +2 draw calls at night, no triangles. Best seen from the Neckarwiese by the water.
 
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
 ## todos
-- night fireworks over the bridge (Flax 23:38) - next
+- red castle glow during the fireworks (the real Schlossbeleuchtung), optional bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge, castle garden (Hortus Palatinus), Königstuhl funicular
 - real phone test of the touch stick + look; real GPU fps
 
