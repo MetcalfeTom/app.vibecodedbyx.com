@@ -68,6 +68,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 #place.pop{transform:scale(1.08)}
 
 #timebtn{position:fixed;right:max(.8rem, env(safe-area-inset-right));top:var(--top);min-width:2.75rem;min-height:2.75rem;background:var(--panel);border:2px solid #0008;font-size:1.3rem;display:grid;place-items:center}
+#sndbtn{position:fixed;right:max(.8rem, env(safe-area-inset-right));top:calc(var(--top) + 3.3rem);min-width:2.75rem;min-height:2.75rem;background:var(--panel);border:2px solid #0008;font-size:1.25rem;display:grid;place-items:center}
 #hint{position:fixed;left:50%;bottom:var(--bot);transform:translateX(-50%);background:var(--panel);padding:.45rem .9rem;border:2px solid #0008;font-size:.95rem;pointer-events:none;text-align:center;transition:opacity .6s}
 #hint.fade{opacity:0}
 #rub{position:fixed;left:50%;bottom:calc(var(--bot) + 3.2rem);transform:translateX(-50%);display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 2rem)}
@@ -114,6 +115,7 @@ button{font:inherit;color:inherit;cursor:pointer}
   <div id="kiss" hidden aria-label="Studentenkuss chocolates found"></div>
 </div>
 <button id="timebtn" type="button" hidden aria-label="Time of day: golden hour. Press to change.">🌇</button>
+<button id="sndbtn" type="button" hidden aria-pressed="true" aria-label="Sound on. Press to mute (M).">🔊</button>
 
 <main>
 <section id="intro" aria-labelledby="ttl">
@@ -142,7 +144,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 <p id="toast" role="status" aria-live="polite" hidden></p>
 <div id="stick" hidden aria-hidden="true"><div id="knob"></div></div>
 <button id="jump" type="button" hidden aria-label="Jump">⤒</button>
-<span id="buildstamp" role="note" aria-label="Build information">build v1.5.4 · 2026-10-12</span>
+<span id="buildstamp" role="note" aria-label="Build information">build v1.6 · 2026-10-12</span>
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
@@ -1325,7 +1327,7 @@ function frame(now){
     readInput();
     if(inp.turn) P.yaw-=inp.turn*dt*2.2;
     const steps=dt>.03?2:1; for(let i=0;i<steps;i++) physics(dt/steps,inp);
-    updateHud(dt); checkMonkey(); tickFolk(dt);
+    updateHud(dt); checkMonkey(); tickFolk(dt); SND.tick(dt);
   }
   const bobY=Math.sin(P.bob*2)*.05, bobX=Math.cos(P.bob)*.03;
   camera.position.set(P.x+bobX*Math.cos(P.yaw),P.y+EYE+P.eyeLag+bobY,P.z-bobX*Math.sin(P.yaw));
@@ -1423,6 +1425,147 @@ function tickFireworks(dt){
     fwMat.uniforms.uScale.value=fwRefMat.uniforms.uScale.value=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360)); }
 }
 
+/* ---------------- town sound (v1.6, Flax): all synthesized with Web Audio, no music loop - the river carries the mood ----------------
+   starts with the Start click (a gesture), 🔊/🔇 button + M key, remembered in 'hb-sound'. River hiss near the Neckar, footsteps by
+   surface (cobbles, the bridge deck's hollow wooden knock, gravel, grass, planks, swimming), wind up high, a slap echo in the bridge
+   gate (and under the arches), crickets + an owl at night, and the Heiliggeistkirche bell striking the quarters and the hour of the
+   visitor's own clock, a little flat (the town loves it) */
+const SND=(function(){
+  let ac=null, on=true, out=null, mix, muff, stepBus, echoWet, revWet, wbuf, bbuf, riverG, windG, windF;
+  try{ on=localStorage.getItem('hb-sound')!=='0'; }catch(e){}
+  const S={ get on(){ return on; }, get ac(){ return ac; } };
+  const gainN=v=>{ const g=ac.createGain(); g.gain.value=v; return g; };
+  const biq=(type,f,q)=>{ const b=ac.createBiquadFilter(); b.type=type; b.frequency.value=f; if(q!=null) b.Q.value=q; return b; };
+  const chain=(...n)=>{ for(let i=0;i<n.length-1;i++) n[i].connect(n[i+1]); return n[n.length-1]; };
+  const panN=v=>{ if(!ac.createStereoPanner) return null; const p=ac.createStereoPanner(); p.pan.value=clamp(v,-1,1); return p; };
+  function loopBuf(len,brown){   // a seamless noise loop (the tail is cross-faded into the head, so no click at the seam)
+    const sr=ac.sampleRate, n=Math.floor(sr*len), M=Math.floor(sr*.25), raw=new Float32Array(n+M); let l=0;
+    for(let i=0;i<n+M;i++){ const w=Math.random()*2-1; if(brown){ l=(l+.02*w)/1.02; raw[i]=l*3.5; } else raw[i]=w; }
+    const b=ac.createBuffer(1,n,sr), d=b.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]= i<M ? raw[i]*(i/M)+raw[n+i]*(1-i/M) : raw[i];
+    return b; }
+  function loopSrc(buf,rate){ const s=ac.createBufferSource(); s.buffer=buf; s.loop=true; s.playbackRate.value=rate||1; s.start(ac.currentTime+.02,Math.random()*buf.duration); return s; }
+  function caveIR(){ const sr=ac.sampleRate, n=Math.floor(sr*2.3), b=ac.createBuffer(2,n,sr);
+    for(let c=0;c<2;c++){ const d=b.getChannelData(c); for(let i=0;i<n;i++){ const t=i/sr; d[i]=(Math.random()*2-1)*Math.exp(-t*2.6)*(t<.012?t/.012:1); } } return b; }
+  function boot(){
+    if(ac) return true;
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return false;
+    try{ ac=new AC({latencyHint:'playback'}); }catch(e){ try{ ac=new AC(); }catch(e2){ ac=null; return false; } }
+    out=gainN(0); const comp=ac.createDynamicsCompressor(); comp.threshold.value=-16; comp.knee.value=10; comp.ratio.value=6; comp.attack.value=.004; comp.release.value=.3;
+    mix=gainN(.85); muff=biq('lowpass',18000,.5);
+    chain(mix,muff,comp,out,ac.destination);
+    out.gain.setTargetAtTime(on?1:0,ac.currentTime+.05,.8);   // fades in gently, never a loud start
+    wbuf=loopBuf(3,false); bbuf=loopBuf(5,true);
+    // the Neckar: a brown-noise rumble + a soft white fizz on top
+    riverG=gainN(0); riverG.connect(mix);
+    chain(loopSrc(bbuf),biq('lowpass',650,.4),biq('highpass',80,.5),gainN(.9),riverG);
+    chain(loopSrc(wbuf,.93),biq('bandpass',2400,.6),gainN(.05),riverG);
+    // wind up at the castle and on the hills
+    windG=gainN(0); windF=biq('bandpass',520,.8); chain(loopSrc(wbuf,.71),windF,windG,mix);
+    // footsteps go dry + into a slap echo (bridge gate) + a big cellar reverb
+    stepBus=gainN(1); stepBus.connect(mix);
+    const echoIn=gainN(1), dl=ac.createDelay(1), fb=gainN(.36); dl.delayTime.value=.13; echoWet=gainN(0);
+    chain(stepBus,echoIn,dl,biq('lowpass',2400,.5),fb,dl); chain(dl,echoWet,mix);
+    if(ac.createConvolver){ const cv=ac.createConvolver(); cv.buffer=caveIR(); revWet=gainN(0); chain(stepBus,cv,revWet,mix); S.revIn=cv; }
+    S.mix=mix;
+    document.addEventListener('visibilitychange',()=>{ if(!ac) return; if(document.hidden) ac.suspend().catch(()=>{}); else if(on) ac.resume().catch(()=>{}); });
+    return true;
+  }
+  S.start=function(){ if(on) boot(); S.wake(); };
+  S.wake=function(){ if(ac && on && ac.state!=='running' && !document.hidden) ac.resume().catch(()=>{}); };
+  S.setOn=function(v){ on=!!v; try{ localStorage.setItem('hb-sound',on?'1':'0'); }catch(e){}
+    if(on && !ac) boot(); if(!ac) return;
+    const t=ac.currentTime; out.gain.cancelScheduledValues(t); out.gain.setTargetAtTime(on?1:0,t,on?.3:.06);
+    if(on) S.wake(); else setTimeout(()=>{ if(!on&&ac) ac.suspend().catch(()=>{}); },500); };
+
+  /* footsteps: a filtered noise tick per step, plus a little knock on hollow wood */
+  const STEP={ stone:{f:2000,q:1.1,d:.055,g:.3}, deck:{f:760,q:1.5,d:.08,g:.26,knock:150}, wood:{f:950,q:1.3,d:.08,g:.26,knock:230},
+    gravel:{f:3300,q:.7,d:.11,g:.2,grit:1}, soft:{f:520,q:.6,d:.09,g:.15}, sand:{f:1250,q:.7,d:.1,g:.14}, swim:{f:850,q:.45,d:.3,g:.16,slow:1} };
+  function step(kind,k){ if(!ac||!on) return; const s=STEP[kind]||STEP.stone, t=ac.currentTime+.004, v=s.g*(k||1)*(.78+Math.random()*.36), d=s.d*(k>1?1.7:1);
+    const burst=(t0,vv,ff)=>{ const src=ac.createBufferSource(); src.buffer=wbuf; src.playbackRate.value=.75+Math.random()*.5;
+      const g=gainN(0); g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(vv,t0+(s.slow?.05:.004)); g.gain.exponentialRampToValueAtTime(.0008,t0+d);
+      chain(src,biq('bandpass',ff*(.85+Math.random()*.3),s.q),g,stepBus); src.start(t0,Math.random()*2.5,d+.06); };
+    burst(t,v,s.f);
+    if(s.grit){ burst(t+.025+Math.random()*.02,v*.6,s.f*1.2); burst(t+.06,v*.35,s.f*.8); }
+    if(s.knock){ const o=ac.createOscillator(), og=gainN(0); o.type='triangle'; o.frequency.setValueAtTime(s.knock*(.9+Math.random()*.2)*(k>1?.8:1),t); o.frequency.exponentialRampToValueAtTime(s.knock*.55,t+.09);
+      og.gain.setValueAtTime(0,t); og.gain.linearRampToValueAtTime(v*.85,t+.003); og.gain.exponentialRampToValueAtTime(.0008,t+.12); chain(o,og,stepBus); o.start(t); o.stop(t+.14); }
+  }
+  S.step=step;
+  function surface(){
+    const fy=Math.floor(P.y+.02)-1; let b=solidAt(Math.floor(P.x),fy,Math.floor(P.z));
+    if(!b||b===255) for(const [dx,dz] of [[.3,0],[-.3,0],[0,.3],[0,-.3]]){ b=solidAt(Math.floor(P.x+dx),fy,Math.floor(P.z+dz)); if(b&&b!==255) break; }
+    if(b===B.cobble && Math.abs(P.x-.5)<3.6 && Math.abs(P.z)<44.5) return 'deck';   // the Old Bridge deck sounds hollow over its arches
+    if(b===B.plank||b===B.log||b===B.door||(S.woodB&&S.woodB[b])) return 'wood';
+    if(b===B.gravel) return 'gravel';
+    if(b===B.grass||b===B.forest||b===B.dirt||b===B.leaves||b===B.leavesY||b===B.leavesR) return 'soft';
+    if(b===B.sand) return 'sand';
+    return 'stone';
+  }
+  S.surface=surface;
+
+  /* the Heiliggeistkirche bell: hum, prime, a slightly sour tierce, quint, nominal... tuned a touch flat */
+  const BELL=[[.5,.28,7],[1,.4,5.2],[1.183,.34,4.2],[1.5,.16,3.2],[2,.48,3],[2.52,.15,1.8],[3,.11,1.3],[4.17,.07,.8]];
+  const BELLPOS={x:-29.5,y:TOWN+21,z:78.5};
+  function strike(f0,amp,t){ const dx=BELLPOS.x-camera.position.x, dz=BELLPOS.z-camera.position.z, dy=BELLPOS.y-camera.position.y, d=Math.hypot(dx,dy,dz)||1;
+    const lvl=amp*clamp(1.5/(1+d/28),.14,1), pan=(dx*Math.cos(P.yaw)-dz*Math.sin(P.yaw))/d*.75;
+    const g=gainN(lvl), p=panN(pan); if(p) chain(g,p,mix); else g.connect(mix);
+    for(const [r,a,dec] of BELL){ const o=ac.createOscillator(), og=gainN(0); o.frequency.value=f0*r*(1+(Math.random()-.5)*.003);
+      og.gain.setValueAtTime(0,t); og.gain.linearRampToValueAtTime(a,t+.005); og.gain.exponentialRampToValueAtTime(.0004,t+dec); chain(o,og,g); o.start(t); o.stop(t+dec+.05); }
+    const src=ac.createBufferSource(), cg=gainN(0); src.buffer=wbuf; cg.gain.setValueAtTime(.3,t); cg.gain.exponentialRampToValueAtTime(.001,t+.05);
+    chain(src,biq('bandpass',3100,1.6),cg,g); src.start(t,Math.random(),.07);
+  }
+  const FLAT=Math.pow(2,-.38/12);   // about a third of a semitone flat
+  S.ring=function(quarters,hours){ if(!ac||!on) return; let t=ac.currentTime+.1;
+    for(let i=0;i<quarters;i++){ strike(207.65*FLAT,.11,t); t+=1.25; }
+    if(hours){ t+=1.4; for(let i=0;i<hours;i++){ strike(155.56*FLAT,.15,t); t+=2.5; } }
+    S.lastRing={quarters,hours}; };
+  let lastQ=-1;
+  function clockBell(){ const d=new Date(), m=d.getMinutes(), s=d.getSeconds(); if(m%15!==0||s>2) return;
+    const q=d.getHours()*4+m/15; if(q===lastQ) return; lastQ=q; S.ring(m===0?4:m/15, m===0?(d.getHours()%12||12):0); }
+
+  /* night: thin cricket trills and the odd owl */
+  let chirpT=0, owlT=9;
+  function chirp(t){ const f=4300+Math.random()*500, g=gainN(0), o=ac.createOscillator(), p=panN(Math.random()*1.4-.7); o.frequency.value=f;
+    const n=2+(Math.random()*3|0); for(let i=0;i<n;i++){ const a=t+i*.06; g.gain.setValueAtTime(0,a); g.gain.linearRampToValueAtTime(.02,a+.008); g.gain.linearRampToValueAtTime(0,a+.032); }
+    if(p) chain(o,g,p,mix); else chain(o,g,mix); o.start(t); o.stop(t+n*.06+.05); }
+  function owl(t){ const g=gainN(0), o=ac.createOscillator(), p=panN(Math.random()*1.6-.8); o.type='sine';
+    const hoot=(a,len)=>{ o.frequency.setValueAtTime(410,a); o.frequency.linearRampToValueAtTime(355,a+len); g.gain.setValueAtTime(0,a); g.gain.linearRampToValueAtTime(.028,a+.06); g.gain.linearRampToValueAtTime(0,a+len); };
+    hoot(t,.45); hoot(t+.85,.18); hoot(t+1.1,.5);
+    if(p) chain(o,biq('lowpass',900,.5),g,p,mix); else chain(o,biq('lowpass',900,.5),g,mix); o.start(t); o.stop(t+1.7); }
+
+  let stepPh=.6, wasGround=true, prevVy=0, tA=0;
+  S.tick=function(dt){ if(!ac||!on||ac.state!=='running') return; const now=ac.currentTime; tA+=dt;
+    // the river: louder by the water, fading up the hills
+    const ez=Math.abs(P.z-riverZ(P.x))-RIVER_HALF, up=clamp((P.y-TOWN)/34,0,1);
+    let rv=clamp(1-Math.max(0,ez)/50,0,1); rv=rv*rv*(1-up*.8);
+    riverG.gain.setTargetAtTime(.2*rv+.006,now,.4);
+    // wind high up, in gusts
+    const hi=sstep(TOWN+10,CASTLE_Y+6,P.y), gust=clamp(.55+.45*Math.sin(tA*.31)*Math.sin(tA*.53+1)+.2*Math.sin(tA*1.7+2),.12,1.1);
+    windG.gain.setTargetAtTime(.11*hi*gust+.003,now,.7); windF.frequency.setTargetAtTime(360+300*gust,now,.6);
+    // under water everything goes muffled
+    muff.frequency.setTargetAtTime(camera.position.y<WATER-.1?480:18000,now,.08);
+    // the bridge gate's passage (and the arches when you swim under them) throw your steps back
+    const gate=P.x>-2.3&&P.x<3.3&&P.z>49.5&&P.z<57.5&&P.y<TOWN+3, arch=P.inWater&&Math.abs(P.x-.5)<5&&Math.abs(P.z)<44;
+    echoWet.gain.setTargetAtTime(gate?.6:arch?.42:0,now,.12);
+    if(revWet) revWet.gain.setTargetAtTime(S.caveLevel?S.caveLevel():0,now,.25);
+    // footsteps: one per stride, landings a bit heavier
+    const sp=Math.hypot(P.vx,P.vz);
+    if(P.onGround&&!wasGround&&prevVy<-9) S.step(surface(),1.6);
+    if((P.onGround||P.inWater)&&sp>.7){ stepPh+=dt*sp*(P.inWater?.3:.6); if(stepPh>=1){ stepPh-=1; S.step(P.inWater?'swim':surface(),1); } }
+    else stepPh=Math.min(stepPh,.6);
+    wasGround=P.onGround; prevVy=P.vy;
+    // night: crickets + owl
+    if(TIMES[timeIdx].id==='night'){
+      if(now>chirpT){ chirp(now+.05); chirpT=now+.35+Math.random()*1.2; }
+      owlT-=dt; if(owlT<0){ owl(now+.05); owlT=28+Math.random()*40; }
+    } else owlT=Math.min(owlT,9);
+    clockBell();
+    if(S.tickMore) S.tickMore(dt,now);
+  };
+  return S;
+})();
+G.SND=SND;
+
 G.physics=physics; G.inp=inp; G.rub=rub; G.fwTick=tickFireworks; G.fw=fw;
 /*HOOK*/
 resize(); applyTime(0);
@@ -1433,11 +1576,16 @@ requestAnimationFrame(()=>setTimeout(()=>{
 },30));
 
 $('go').addEventListener('click',()=>{
-  started=true; $('intro').hidden=true; $('hud').hidden=false; $('timebtn').hidden=false;
+  started=true; $('intro').hidden=true; $('hud').hidden=false; $('timebtn').hidden=false; $('sndbtn').hidden=false; SND.start(); sndUi();
   if(TOUCH){ $('jump').hidden=false; showHint('Left thumb walks, right thumb looks',4500); }
   else { canvas.focus(); try{ const r=canvas.requestPointerLock&&canvas.requestPointerLock(); if(r&&r.catch) r.catch(()=>showHint('Click to look around',0)); }catch(e){ showHint('Click to look around',0); } }
 });
 $('timebtn').addEventListener('click',()=>{ applyTime((timeIdx+1)%TIMES.length); canvas.focus(); });
+function sndUi(){ const b=$('sndbtn'), o=SND.on; b.textContent=o?'🔊':'🔇'; b.setAttribute('aria-pressed',o?'true':'false'); b.setAttribute('aria-label',o?'Sound on. Press to mute (M).':'Sound off. Press to turn it on (M).'); }
+function sndToggle(){ SND.setOn(!SND.on); sndUi(); showHint(SND.on?'Sound on: the river, your steps, the church bell':'Sound off',2200); }
+$('sndbtn').addEventListener('click',()=>{ sndToggle(); canvas.focus(); });
+addEventListener('keydown',e=>{ if(started && e.code==='KeyM' && !e.repeat) sndToggle(); SND.wake(); });
+addEventListener('pointerdown',()=>SND.wake(),{passive:true});
 </script>
 </body>
 </html>
