@@ -27,8 +27,10 @@ Idea by **iamflax (Flax)**, 2026-10-12 20:02 UTC ("Sloppy's Mind", renamed Slopp
 
 - v1.3 2026-10-12 23:45 UTC: "Build your own AI streamer" blueprint (#blue: BLUE.pieces/loop/safety/autonomy on blueprint paper) + Reading mode (button + #read in the URL; body.reading hides the illustrated sections and renders guideMD() through the tiny md2html()) + guide.md next to index.html. guide.md is GENERATED from the page: everything between /*DATA-START and /*DATA-END*/ is pure data + guideMD(), so run `node mkguide.js index.html > guide.md` (mkguide.js = read the file, slice the DATA region, `new Function(region+';return guideMD();')()`). Regenerate guide.md whenever stations/replays/rejects/blueprint change.
 
+- v1.4 2026-10-12 23:55 UTC: two more replays: Mike's stone (Heidelberg Blocks, iamflax, 11 steps, 14:00-14:37, respectful tone: it's a memorial) and the lab camera (Sand Boxing, Tatum, 12 steps 13:22-14:35, faceplants link to 'coaster' + 'planks'). Sound: Web Audio blips (clunk/stamp/crash/win/flip/warn), OFF by default, 'Sound: off/on' button, remembered in localStorage 'sloppys-factory-sound'. Nav compacted (Flip all / Play / Build your own / Reading mode / Sound; the SAFETY sign is the way into the reject bin).
+
 ## issues
 - (none reported yet)
 
 ## todos
-Mike's stone + lab camera replays; sound; LIVE crate from now.json.
+LIVE crate from now.json.

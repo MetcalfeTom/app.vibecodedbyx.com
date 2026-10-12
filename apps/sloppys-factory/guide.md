@@ -93,6 +93,39 @@ Sakurahime, asked by bereonion, 2026-10-12, 22:10–23:01 UTC.
 - **Mailroom.** bereonion in chat: "a little market". And "dumbbells". Both, then.
 - **23:00 · Loading dock.** v1.7: a night market of ten stalls under lantern strings, a goldfish tub, steam off the grills, and the town strongman curling at his dumbbell stall. Eight versions in 50 minutes, every one from a chat line. (Live.)
 
+### Mike's stone: four moves to the right spot
+
+Heidelberg Blocks, asked by iamflax (Flax), 2026-10-12, about 14:00–14:37 UTC.
+
+- **Mailroom.** iamflax in chat: "in Memory of Mike - Flax". Flax asks for these words carved into the arch of the Old Bridge in Heidelberg Blocks, as an everlasting memory.
+- **Notes shelf.** Before anything else, the notes get a line marked PERMANENT: keep the stone through every upgrade and rebuild, never move it out of sight, no hint markers, it's a quiet find. Flax also asks that upgrades never break the town.
+- **Planning desk.** A pale sandstone tablet over the last arch of the bridge, on the old-town side, seen from the river and the quay steps.
+- **Code bench.** The lettering is drawn onto the tablet and glows a little, so it can be read in the bridge's shade.
+- **14:03 · Commit stamp.** Committed and live: a quiet tablet you find from the river or the quay steps. (Committed: v1.5.1.)
+- **14:12 · Commit stamp.** Flax wants it where people pass: it moves into the bridge gate's archway, at eye height on the passage wall. (Committed: v1.5.2.)
+- **Mailroom.** iamflax in chat: "when the tour starts, you look at the gate and right above the arch, below the 3 windows". Now Flax describes exactly where they picture it.
+- **14:18 · Commit stamp.** On the gate's face, right above the arch and below the windows, in view from the very start of the tour. (Committed: v1.5.3.)
+- **Mailroom.** iamflax in chat: "I love it, maybe a little smaller and placed 2 rows down". Almost there.
+- **14:37 · Loading dock.** A little smaller, two rows lower, set into the red band right on top of the gate's arch. Still visible from the start. (Live.)
+- **Notes shelf.** The notes now call this its final spot: don't move it again unless Flax asks. The lesson: when a place matters, ask exactly where they picture it, and make each move small.
+
+### The lab camera: roller coaster to still turn
+
+Sand Boxing, asked by Tatum, 2026-10-12, 13:22–14:35 UTC.
+
+- **Mailroom.** Tatum in chat: "trapped in a cylindrical glass tank in the lab". Tatum designs the good ending for the lab level of Sand Boxing: the sand monster in a tank, and wooden boards nailed haphazardly over the vent.
+- **13:22 · Commit stamp.** A glass tank drops, the sand stands inside with its hands on the glass, and six crooked planks slam over the vent. (Committed: v1.43.)
+- **Mailroom.** Tatum in chat: "start with just the tank in shot, and slowly pan round". So the sloppy planks come into view.
+- **Planning desk.** Start tight on the tank, then swing the camera round and pull back while the planks are hammered on.
+- **13:59 · Loading dock.** v1.44 is live. (Live.)
+- **Mailroom.** Tatum in chat: "the final pan is a bit of a roller coaster. don't fly the camera". The swing was too much. (Faceplant: The roller-coaster camera, see the reject bin.)
+- **14:11 · Commit stamp.** Back to the old gentle sway, aimed so the vent stays in shot. The planks now get hammered on after the end card: an easter egg for patient players. (Committed: v1.44.1.)
+- **Mailroom.** Tatum in chat: "everything appears in shot at once. the vent should start out of shot". Close. Now the reveal is missing.
+- **Planning desk.** The camera stands still and only turns: it starts on the tank with the vent just off screen, then turns until the boarded-up vent drifts in from the side.
+- **Test booth.** Tested on desktop and phone with the fighters in three different places. When no clear spot exists, it falls back to the gentle sway instead of breaking.
+- **Mailroom.** Tatum in chat: "double-planing". Tatum also spots the planks flickering into each other. Each one now sits a hair in front of the last. (Faceplant: The flickering planks, see the reject bin.)
+- **14:35 · Loading dock.** v1.44.2: the camera stands still and turns, the tank first, then the vent. Three tries, each smaller than the last. (Live.)
+
 ## The reject bin
 
 Real faceplants, newest first. Each one taught a rule the factory still follows.
