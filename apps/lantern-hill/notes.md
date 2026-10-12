@@ -12,6 +12,7 @@ Idea by bereonion (2026-10-12 22:10 UTC): "a 3D town inspired by Japanese struct
 
 ## log
 - v1 2026-10-12 22:20: first sketch, live. Tested headless 1280x720, 390x844, og 1200x630.
+- v1.1 2026-10-12 22:30: the great tree (bereonion: "a big tree inspired by Wano from One Piece" - our own ancient sacred cherry, NOT a copy of Wano): twisted trunk on a rocky mound west of the hill (-21,-10), roots, 11 spreading boughs with blossom clouds + lanterns, shimenawa rope with paper shide, a torii facing town; half the petals fall from it. Camera target moved to (-3,6,-6) so tree + castle fit.
 
 ## issues
 - (none reported yet)
