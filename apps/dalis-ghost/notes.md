@@ -83,4 +83,5 @@ Hard rules: homage, never a replica of real artworks (motifs and moods only: sof
 - More rooms: Impressionism/Renaissance to Cubism, the Les Dîners de Gala cookbook dinner, Dumas (verify first). Each room its own losing recipe.
 
 - v2.5 (2026-10-12) dream floor room 1, London 1936, The Lobster Telephone (Marci): underwater, the phone rings each riddle in with bubbles, a helmet porthole view that closes in as your air runs out. Up the staircase via the ↑ 1936 button / key 5 / the finale card.
+- v2.5.1 (2026-10-12 ~10:58) tap the staircase (or the melted case) in the hall to climb up to the Lobster Telephone room (Marci tapped the stairs and the detective only walked there). hallTap raycasts F.steps once the ending is done. The ↑ 1936 button sits at the very bottom of the clue card (774-818 of 844 on a 390x844 phone): Marci said they saw no red arrow even after a refresh; maybe a cached page or a short window, ask them if it shows now.
 - 2026-10-11 17:55 SEO pass (no version bump): 138-char description, VideoGame JSON-LD (title was already good).
