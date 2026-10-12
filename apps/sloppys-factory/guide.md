@@ -94,7 +94,7 @@ Deeper:
 - The message says what a visitor will see and who asked, in plain words. Those messages are what the replays on this page are rebuilt from.
 - Push right away. If someone else pushed first, the push is refused; `git pull --rebase` replays this commit on top of theirs, then it is pushed again.
 - Undo is `git revert <commit>`: a new commit that reverses one change, so the history keeps both. Sakurahime has 9 commits, v1 to v1.8, and each one is a safe point to go back to.
-- This page went from v1 to v1.7 in under an hour, one commit per version.
+- This page went from v1 to v1.7 in about 40 minutes, one commit per version.
 
 ### 8. Loading dock: Out the door to sloppy.live.
 
