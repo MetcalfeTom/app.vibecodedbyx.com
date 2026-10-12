@@ -18,6 +18,7 @@ Idea by bereonion (2026-10-12 22:10 UTC): "a 3D town inspired by Japanese struct
 - v1.3 2026-10-12 22:38: bereonion: "some in the middle also" + "more difference in sizes": strand(rr,a,bottom,size) helper; rim strands 0.5-1.2 or 1.5-2.1, some end high; 60 inner strands inside r 28 (the camera circle is ~38, so none hang in front of the lens), off the street (|x|<5 skipped), ending above the rooftops (+15 over the hill).
 
 - v1.4 2026-10-12 22:42: bereonion named it **Sakurahime** ("cherry blossom princess"; asked for a name with cherry). Title/h1/meta/og renamed; the folder stays lantern-hill so the posted links keep working.
+- v1.5 2026-10-12 22:50: moon window (bereonion: "i cant see any moon ngl"). MOON_A = -2.38 (left of the castle from the start view), moon y 27 at r 170 + halo + a silver path on the lake; rim strands skip offMoon(a) < 0.3, mountains skip < 0.32; inner strands r 6-22 and thinner. Note: changing rnd() use reshuffles every random thing after it.
 
 ## issues
 - 2026-10-12 22:33: a python splice used a non-unique end anchor ('const pinks' also in sakura()) and duplicated half the file; the live page was broken ~1 min. chk.py printed 'syntax BAD' but EXITED 0, so the && chain went on. Edit a scratch copy, grep chk's output for 'syntax ok', then copy to live.
