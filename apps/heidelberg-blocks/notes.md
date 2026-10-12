@@ -33,6 +33,11 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   ahead); 9 stone river steps (buildSteps, 11 steps, 2 wide, cobble treads) against the quays, 6 south + 3 north east of
   the bridge, placed last so they skip spots with a house at the landing; a toast points to the nearest steps after 1 s
   against a tall wall (once per 20 s). Probe hm/hb_steps.js (all 9 flights reach the quay, quays/piers/edges max 10).
+- v1.4 2026-10-12 01:47: fannar22: past the east/west border the scenery didn't line up along the water (8-block skirt cells
+  put the far river 3-4 blocks narrower and stood house walls in it). Skirt cells within 48 blocks of the border and
+  RIVER_HALF+22 of the river are now built per block from terrainH (water, quay rows, street, 8-wide house lots with
+  roofs, meadow), side faces vs coarse neighbours use the min edge height; stepped quay faces share one normal (no
+  stripes); coarse cells beside the river are flat quay, meadow no longer gets houses. Busiest view 258k tris / 69.
 
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
