@@ -19,6 +19,7 @@ Idea by bereonion (2026-10-12 22:10 UTC): "a 3D town inspired by Japanese struct
 
 - v1.4 2026-10-12 22:42: bereonion named it **Sakurahime** ("cherry blossom princess"; asked for a name with cherry). Title/h1/meta/og renamed; the folder stays lantern-hill so the posted links keep working.
 - v1.5 2026-10-12 22:50: moon window (bereonion: "i cant see any moon ngl"). MOON_A = -2.38 (left of the castle from the start view), moon y 27 at r 170 + halo + a silver path on the lake; rim strands skip offMoon(a) < 0.3, mountains skip < 0.32; inner strands r 6-22 and thinner. Note: changing rnd() use reshuffles every random thing after it.
+- v1.6 2026-10-12 22:58: stairs rebuilt as three flights (ground→3.2→6.4→9.6) running up the terrace fronts with landings, stone cheeks and 7 torii on them; the old straight ramp was mostly buried inside the terraces (bereonion: "hard to climb"). The street's 4th house pair (z -1.7) sat inside tier 1 (bereonion: "a house inside the mountain"): moved to (-18.5, 8.5) and (18.5, 9), same number of house() calls so rnd stays in step. Terrace front faces: tier1 z -0.78 top, tier2 -5.54, tier3 -9.82.
 
 ## issues
 - 2026-10-12 22:33: a python splice used a non-unique end anchor ('const pinks' also in sakura()) and duplicated half the file; the live page was broken ~1 min. chk.py printed 'syntax BAD' but EXITED 0, so the && chain went on. Edit a scratch copy, grep chk's output for 'syntax ok', then copy to live.
