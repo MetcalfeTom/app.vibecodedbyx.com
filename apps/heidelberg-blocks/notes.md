@@ -38,6 +38,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   RIVER_HALF+22 of the river are now built per block from terrainH (water, quay rows, street, 8-wide house lots with
   roofs, meadow), side faces vs coarse neighbours use the min edge height; stepped quay faces share one normal (no
   stripes); coarse cells beside the river are flat quay, meadow no longer gets houses. Busiest view 258k tris / 69.
+- v1.4.1 2026-10-12 01:59: fannar22: the south-east edge still didn't line up. terrainH used a fixed hill line (78) past the
+  border while the map used hillS (60 east, ~110 west); now hillS everywhere, so the hills meet at both borders. 258k / 69.
 
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
