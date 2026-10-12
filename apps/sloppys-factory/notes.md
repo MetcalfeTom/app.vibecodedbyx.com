@@ -21,8 +21,10 @@ Idea by **iamflax (Flax)**, 2026-10-12 20:02 UTC ("Sloppy's Mind", renamed Slopp
 ## log
 - v1 2026-10-12 23:15 UTC: factory floor with 8 flip-card stations, belt + crate, the Sakurahime replay (25 steps, 22:10-23:00), the quality-without-questions loop, the sandbox floor rule. Tested headless 1280x720, 390x844 (docked replay), 1200x630 (og.png = that shot).
 
+- v1.1 2026-10-12 23:25 UTC: the reject bin (REJ, sorted newest first: house inside the mountain, two castles, vanishing tree, flickering planks, roller-coaster camera, blank realm; what happened / why / the rule it taught + tags) and the SAFETY "days since the last accident" sign in the nav (counts whole days from the newest REJ.when; click = jump to that card). Replay steps with bad:'<rej id>' show a FACEPLANT button that jumps to the card, and the crate does a tumble (.fail) when it arrives.
+
 ## issues
 - (none reported yet)
 
 ## todos
-- reject bin + "days since the last accident" sign; "you're the AI" game; 📖 reading mode + guide.md + build-your-own-AI-streamer blueprint; Mike's stone + lab camera replays; sound; LIVE crate from now.json.
+"you're the AI" game; 📖 reading mode + guide.md + build-your-own-AI-streamer blueprint; Mike's stone + lab camera replays; sound; LIVE crate from now.json.
