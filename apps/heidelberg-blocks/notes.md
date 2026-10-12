@@ -40,6 +40,10 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   stripes); coarse cells beside the river are flat quay, meadow no longer gets houses. Busiest view 258k tris / 69.
 - v1.4.1 2026-10-12 01:59: fannar22: the south-east edge still didn't line up. terrainH used a fixed hill line (78) past the
   border while the map used hillS (60 east, ~110 west); now hillS everywhere, so the hills meet at both borders. 258k / 69.
+- v1.4.2 2026-10-12 02:08: fannar22: walking along the west border, the backdrop looked hollow (floating slabs on
+  stilts). The skirt never drew faces toward the map, so wherever it stood higher than the map's edge you saw under it.
+  Now faces toward the map go down to clamp(terrainH) of the map's edge columns (mapMin/mapH). Viewpoint tip: views
+  at y=21 on hill cells put the camera underground (looks like hills hanging from the sky) - pick town cells.
 
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
