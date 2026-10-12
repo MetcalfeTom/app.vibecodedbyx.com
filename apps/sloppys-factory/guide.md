@@ -93,6 +93,24 @@ Sakurahime, asked by bereonion, 2026-10-12, 22:10–23:01 UTC.
 - **Mailroom.** bereonion in chat: "a little market". And "dumbbells". Both, then.
 - **23:00 · Loading dock.** v1.7: a night market of ten stalls under lantern strings, a goldfish tub, steam off the grills, and the town strongman curling at his dumbbell stall. Eight versions in 50 minutes, every one from a chat line. (Live.)
 
+### Sky Marble: the live weather globe
+
+Sky Marble, asked by iamflax (Flax), 2026-10-11, 21:38–23:03 UTC.
+
+- **21:38 · Mailroom.** iamflax in chat: "Pitch: Global weather seen on a globe". Flax pitches a globe of the world's weather.
+- **Planning desk.** iamflax in chat: "Globally". One question back, as an easy choice: your side of the world, or the wildest storm? Flax: the whole world. So the plan is a 3D globe of the live weather everywhere: temperatures, wind, clouds, rain, and the real night side. *Deeper:* The source had to be free and keyless: nobody can sign up for an API key from inside the sandbox. Open-Meteo fits: no key, current weather plus forecasts, many points per request.
+- **Planning desk.** You can't fetch every spot on Earth. The globe asks for a grid of sample points and fills in between them. *Deeper:* Grid: 12 rows × 24 columns = 288 points, every 15° of latitude and longitude, all in ONE request. Between the points the colours are blended (bilinear interpolation), so the globe looks continuous. Tapping a spot shows that estimate at once, then asks for the exact weather of that one place.
+- **Code bench.** One HTML file with three.js. The globe is a sphere wearing a texture painted from the grid, with clouds on a second, slightly bigger sphere and wind as moving streaks. *Deeper:* Temperature colours run from −40 to 45 °C. The sun is real: its position comes from the UTC time and the day of the year, refreshed every 30 s, and the night side is darkened to 6% so temperatures still show faintly. Clouds: a sphere 1.2% bigger than the earth, see-through where the cloud cover is low, broken up with 3D noise. Wind: short additive line trails of 8 points each. Coastlines come from a public world atlas (1:110 million scale) as ink strokes, with a grid line every 30°.
+- **Test booth.** Faceplant: the first build asked for a finer grid of 648 points, and the next lookup came back "429: too many requests". *Deeper:* The free weather service counts every grid point as one call: 600 a minute, 5,000 an hour and 10,000 a day per address. 648 points in one page load was more than a whole minute's budget. Fix: 15° steps (288 points), the grid cached in the browser for 20 minutes and refetched only while the tab is visible. Every headless test run costs 288 calls too, so test runs get spaced out. (Faceplant: The 429 wall, see the reject bin.)
+- **Syntax gate.** The syntax check passes the page's main script. *Deeper:* node --check parses the script without running it. Today that script is about 42,000 characters and the check takes about 50 milliseconds.
+- **21:49 · Commit stamp.** The world's live weather on a 3D globe: real temperatures, wind streaks, clouds and rain, the night side in shadow. Tap anywhere or find a town. *Deeper:* v1 was one file of 38 KB in 597 lines. Drag to spin with inertia, pinch or wheel to zoom, arrow keys and Enter for the keyboard; the first view faces the visitor's own longitude, read from their time zone. (Committed: Sky Marble v1.)
+- **Mailroom.** iamflax in chat: "Flax World". Flax asks to rename the app Flax World.
+- **21:51 · Commit stamp.** A compromise that keeps both: the name stays Sky Marble so people can find it in search, but typing "Flax World" flies the globe to the windiest place on Earth right now. The first test landed in Antarctica: −34°, 72 km/h, gusts of 98. (Committed: v1.1.)
+- **22:02 · Loading dock.** v1.2: a 48-hour forecast slider with a play button. Temperatures, clouds, rain, wind and the day/night line move through the next two days. *Deeper:* The same single request now also asks for 48 hourly forecasts at the same 288 points. Scrubbing repaints the map and clouds in about 47 ms (desktop, headless), limited to one repaint per 110 ms so dragging stays smooth; play steps one hour every 420 ms, and the sun moves with the chosen hour. (Live.)
+- **22:04 · Commit stamp.** A picked town shows its own hourly forecast while you scrub, with the local time there. On phones the globe slides up out of the card's way. *Deeper:* On screens up to 640 px wide, an open card would cover the globe, so the camera's view is shifted up into the free gap (recomputed every quarter second). That came from looking at the phone screenshot, not from an error message. (Committed: v1.3.)
+- **22:18 · Loading dock.** v1.4, Sloppy's own idea: the storm of the day. A named storm is found in the forecast and followed for 48 hours, with a mood: brewing, sulking, grumbling over land. *Deeper:* Sea-level pressure joins the request. The finder looks for low-pressure dips of 1004 hPa or less between 20° and 72° latitude, follows each one hour by hour to the nearest low within 9°, and keeps the best by lifetime, wind and depth. "Brewing" means the pressure dropped more than 1.5 hPa in 3 hours. The first storm was Bramble, 974 falling to 963 hPa, in the Southern Ocean south of Africa. Its button is a small drawn spiral, not an emoji: the test browser has no emoji font, so emoji show up as empty boxes in test shots. (Live.)
+- **23:03 · Loading dock.** v1.5: a rose dusk band along the line between day and night, and clouds near it catch the sunset colour. *Deeper:* A soft band (a bell curve 0.075 wide) sits just on the night side of the line. Orange got lost in the warm temperature colours, so the band is rose. The app is now 53 KB in 797 lines, seven commits in all. (Live.)
+
 ### Mike's stone: four moves to the right spot
 
 Heidelberg Blocks, asked by iamflax (Flax), 2026-10-12, about 14:00–14:37 UTC.
@@ -169,6 +187,22 @@ Sand Boxing, 2026-10-12 · 14:00–14:11 UTC, at the planning desk.
 - **What happened:** The lab win's new camera swooped round the tank. Tatum: "a bit of a roller coaster. don't fly the camera".
 - **Why:** The ask was a slow pan; the build flew the camera instead of turning it.
 - **The rule it taught:** Use the smallest motion that tells the story. The final version stands still and turns.
+
+### The 429 wall
+
+Sky Marble, 2026-10-11 · during v1, before 21:49 UTC, at the test booth.
+
+- **What happened:** The first build asked the weather service for 648 grid points. The next lookup was refused: "429: too many requests".
+- **Why:** The free service counts every grid point as a call: 600 a minute, 5,000 an hour, 10,000 a day per address. One page load spent more than a minute's budget.
+- **The rule it taught:** Count the calls before you design the data: 288 points, one request, cached for 20 minutes.
+
+### Rings round the North Pole
+
+Sky Marble, 2026-10-11 · during v1, at the code bench.
+
+- **What happened:** The coastline strokes drew rings round the North Pole.
+- **Why:** Land outlines that cross the date line jump from +180° to −180°; drawn as they come, the stroke runs the wrong way round the globe.
+- **The rule it taught:** Unwrap shapes that cross the date line, and draw them at −360°, 0° and +360°.
 
 ### The blank realm
 
