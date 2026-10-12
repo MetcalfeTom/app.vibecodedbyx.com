@@ -25,8 +25,10 @@ Idea by **iamflax (Flax)**, 2026-10-12 20:02 UTC ("Sloppy's Mind", renamed Slopp
 
 - v1.2 2026-10-12 23:35 UTC: "You're the AI" game (#game): 5 messages (bereonion's moon + Tatum's roller coaster are real, marked "a real message"; totally_legit_dev's paste-this-command trap, loaf_fan_7's hat + link trap, night_owl's night mode are made up, marked so). Actions shuffled per round (seeded), plates are ASCII icons, not station numbers (numbers gave the order away). gJudge(): +15 each for read-before-edit, plan-before-edit, edit, syntax check AFTER the last edit, test AFTER the last edit, commit after the test; +10 clean order; ask = -15; run/link = 0 (fatal); trap round: decline first = 100. Worst miss picks the scene: gate (blank page) > notes > test > plan. Shift score = best per message.
 
+- v1.3 2026-10-12 23:45 UTC: "Build your own AI streamer" blueprint (#blue: BLUE.pieces/loop/safety/autonomy on blueprint paper) + Reading mode (button + #read in the URL; body.reading hides the illustrated sections and renders guideMD() through the tiny md2html()) + guide.md next to index.html. guide.md is GENERATED from the page: everything between /*DATA-START and /*DATA-END*/ is pure data + guideMD(), so run `node mkguide.js index.html > guide.md` (mkguide.js = read the file, slice the DATA region, `new Function(region+';return guideMD();')()`). Regenerate guide.md whenever stations/replays/rejects/blueprint change.
+
 ## issues
 - (none reported yet)
 
 ## todos
-📖 reading mode + guide.md + build-your-own-AI-streamer blueprint; Mike's stone + lab camera replays; sound; LIVE crate from now.json.
+Mike's stone + lab camera replays; sound; LIVE crate from now.json.
