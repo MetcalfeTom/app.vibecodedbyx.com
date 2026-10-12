@@ -1,4 +1,4 @@
-# Lantern Hill — notes
+# Sakurahime (folder lantern-hill) — notes
 
 Idea by bereonion (2026-10-12 22:10 UTC): "a 3D town inspired by Japanese structures". bereonion gets the final say on the name (Lantern Hill is my placeholder) and picked: it stays at dusk.
 
@@ -16,6 +16,8 @@ Idea by bereonion (2026-10-12 22:10 UTC): "a 3D town inspired by Japanese struct
 - v1.2 2026-10-12 22:32: bereonion: "make it swallow the whole sky", then "a weeping tree that surrounds the city" + "background needs more work" + "the floor is rectangular". The beside-the-hill tree is gone; now ONE colossal weeping cherry: trunk at (-2,-40) behind the castle, crown = 900 instanced clumps on a spherical cap (R 67.6, centre y -17.6, rim 50 at y~30) over the whole town, 120 hanging strands round the rim (instanced, stretched 1.7 in y), 10 boughs, shimenawa, 6 big lanterns in the crown. Ground = round island (r 36, centre z -6) in two extruded halves cut by the river, lake disc r 260 round it, 3 mountain ranges (78/118/165) + 2 mist rings. Camera dist 14-42 so it stays inside the curtain. Canopy/trunk castShadow off (else the town sits in shadow).
 
 - v1.3 2026-10-12 22:38: bereonion: "some in the middle also" + "more difference in sizes": strand(rr,a,bottom,size) helper; rim strands 0.5-1.2 or 1.5-2.1, some end high; 60 inner strands inside r 28 (the camera circle is ~38, so none hang in front of the lens), off the street (|x|<5 skipped), ending above the rooftops (+15 over the hill).
+
+- v1.4 2026-10-12 22:42: bereonion named it **Sakurahime** ("cherry blossom princess"; asked for a name with cherry). Title/h1/meta/og renamed; the folder stays lantern-hill so the posted links keep working.
 
 ## issues
 - 2026-10-12 22:33: a python splice used a non-unique end anchor ('const pinks' also in sakura()) and duplicated half the file; the live page was broken ~1 min. chk.py printed 'syntax BAD' but EXITED 0, so the && chain went on. Edit a scratch copy, grep chk's output for 'syntax ok', then copy to live.
