@@ -19,12 +19,21 @@ Credit line "idea by Flax" on the title card. Never use Tetris branding or music
   - Starts on the first pointerdown/key/tap (browser rule); suspends when the tab is hidden. ♪ SOUND ON/OFF button on the title, pause and run-over cards + M key; remembered in localStorage razis-mute.
   - Juice: score punch (scale + acid flash) on clears, acid flash on level up (both off with reduced motion).
   - Tested headless with real CDP taps + an AnalyserNode: context runs after the first tap, every SFX fires without errors, music peak ~0.4, pause/mute/resume restore gain + filter. Not heard by a human yet.
+- v4 (2026-10-13 ~00:10 UTC): How to play popup (Flax 23:50: controls fine now, asked for help on the features) + polish.
+  - ? HOW TO PLAY button on the start card and in the pause menu opens #help: goal, PHONE + KEYBOARD controls (phone first on touch devices, keyboard first otherwise), a card per feature with a swatch drawn like the game (charged bolt tile, bomb orb, laser beam, overdrive », rainbow frame, music EQ bars, sound ♪). Closes on ✕, Esc, tap on the backdrop; GOT IT button. Game keys are ignored while it is open.
+  - First visit: the first PLAY press opens it once (button reads GOT IT, PLAY and starts the run); localStorage razis-help (store helper = try/catch). Not shown at page load, so the auto preview and og still show the title card.
+  - Run-over card: booster tally line (blasts, bombs, lasers, overdrives, rainbows) or a tip if none; ⧉ COPY SCORE copies a plain text line (no link) and falls back to a selectable textarea when the clipboard is blocked (headless shows the fallback).
+  - Fixed since v1: .card p outranked .big/.newbest, so the run-over score was drawn small and grey.
+  - Title: dropped the one-line controls text (now in the popup); boosters legend stays.
+  - Tests: rz5.js (open on first PLAY, backdrop/Esc/✕ close, pause path, keys ignored), tt5.json real touch scroll inside the popup reaches the bottom (#ui has touch-action:none, .hcard sets pan-y), shots at 390x844 (top + scrolled) and 1280x800; rz2 bots unchanged, 0 errors. rz4.js = forced top-out run-over card.
 
 ## issues
 - Flax read HOLD as "hold to drop": keep the stash label + the SOFT/DROP buttons.
 
 ## todos
-- polish: share line, difficulty curve check, small phones
+- difficulty: gravity 0.85 s x 0.82^(level-1), floor 0.04 s at level 16; gentler than guideline at 10+. Ask Flax if late levels feel too easy/hard.
+- refresh og.png with boosters on the board (still the v1 shot)
+- real phone: hear the music on iPhone (silent switch mutes Web Audio), check the popup scroll
 
 ## art direction
 - Night city in rain: deep indigo sky, magenta halo, cyan accents, acid-yellow for numbers/buttons. Blocks are dark glass tiles with a bright neon border, glow baked into sprites (buildSprites) so the frame stays cheap.
