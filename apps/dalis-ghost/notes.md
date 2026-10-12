@@ -44,6 +44,14 @@ Marci's rooms so far: Madrid fine-arts education (expelled from the academy, 192
 - Budget: the finale hall is ~200 draw calls / ~44k triangles (was ~70); fine on phones in tests but the first place to trim (merge the eyes/phones) if Marci reports lag.
 - Probes: scratchpad hm/dg5 f1 (wake), f2 (puzzle -> confession), f3 (egg, stairs, card, save; headless needs ~200 s), f4 (done state on load), f5/f5t (replay, landscape talk framing; set F.mk = .97 to skip the melt), f6 (keyboard only: 4 replays, 1-4, Enter through talk + egg), f7 (Back to the hall), f8 (tap target sizes: .sen 80x48). Headless gotchas: a long walk at ~3 fps lets an eye wake up (by design); __DG has no hallUI.
 
+## dream floor room 1: London 1936, The Lobster Telephone (v2.5, Marci's wishlist)
+- Reached only after the finale: the ↑ 1936 button under the doors (key 5, #doors.fin .door.up) or "Climb the stairs ↑" on the finale card -> goUp() walks to UPD.front, tweens up the staircase, fades into ROOMS.lobster (def.up = true). Back = upDoor() (eye/center from finView('stair')), no coin logic; SAVE.r.lobster holds its stars, shown on the up button.
+- Marci's asks: underwater, Dalí's suffocation (the 1936 London diving-suit lecture), bubbles when the phone rings, an old phone, a view through the old helmet. So: a teal sea floor with a telephone-dial rug, the giant black phone with its lobster (rings each riddle in: R.ring() = tones + 18 bubbles), #helm brass porthole overlay whose clear area (--air) shrinks with G.day and breathes (.low) past 75% (not with reduced motion). Losing to the timer = air ran out (R.nightWhy) -> COOK.lobster "Detective Thermidor".
+- 8 things (riddle kind, CLUES.lobster): phone, diver suit, Venus with drawers + pompoms, grilled-telephone dinner plate, lips sofa under a dust sheet (teases room 2), switchboard, lobster pot, green armchair with bowler hat (Edward James). Background: coral rocks, sunken red phone box, pocket-watch fish (instanced), bubbles (instanced), light beams, a lobster on stilts walking past far away.
+- Win card: "Line cut", "% of your air left", UPD.end teases the lips sofa. R.lines / R.place / R.ring / R.nightWhy are generic hooks for the next dream rooms.
+- Budget: 76 calls / 56k tris at 390x844. Probes: hm/dgl1 (up button flow), dgl2 (wrong + right searches, ring, chase, caught, won), dgl3 (helm low, back to hall, stars on the up button, cooked by air). Headless timers crawl (~300 ms per wait(30)), give waits 25 s+.
+- Next on Marci's list: Mae West Lips Sofa (my twist: it blows a raspberry at wrong guesses; the room as a face that only reads from one spot), then Narcissus, the Elephants.
+
 Hard rules: homage, never a replica of real artworks (motifs and moods only: soft watches, crutches, drawers, ants, eggs, long shadows); facts must be accurate (only ones I'm sure of or verified); no external links; no database.
 
 ## log
@@ -70,8 +78,9 @@ Hard rules: homage, never a replica of real artworks (motifs and moods only: sof
 ## todos
 - Academy: ask Marci if it's too easy (a harder mode: linked turntables, or a second lamp from the side) and whether the moustache bust silhouette is right.
 - Finale: ask Marci if 4 objects is the right length (more eyes, faster blinks?) and if the confession tone fits. Merge eye/phone meshes if phones lag.
-- The dream floor (Marci's list, only teased so far): Lobster Telephone, Mae West Lips Sofa, Metamorphosis of Narcissus, The Elephants, Soft Construction, ants, drawers, crutches, eggs, Freud's dreams, automatic drawing. Ask her which comes first; the staircase is the way up.
+- The dream floor (Marci's list; Lobster Telephone done in v2.5): Mae West Lips Sofa, Metamorphosis of Narcissus, The Elephants, Soft Construction, ants, drawers, crutches, eggs, Freud's dreams, automatic drawing. Ask her which comes first; the staircase is the way up.
 - 1904 room: harder mode (4-5 differences, subtler ones) if Marci wants; maybe let the twin detective lag a beat behind you.
 - More rooms: Impressionism/Renaissance to Cubism, the Les Dîners de Gala cookbook dinner, Dumas (verify first). Each room its own losing recipe.
 
+- v2.5 (2026-10-12) dream floor room 1, London 1936, The Lobster Telephone (Marci): underwater, the phone rings each riddle in with bubbles, a helmet porthole view that closes in as your air runs out. Up the staircase via the ↑ 1936 button / key 5 / the finale card.
 - 2026-10-11 17:55 SEO pass (no version bump): 138-char description, VideoGame JSON-LD (title was already good).
