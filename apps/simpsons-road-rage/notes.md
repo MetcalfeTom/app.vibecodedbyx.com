@@ -28,6 +28,12 @@
   - **glowing rods**: 5 in the plant yard each shift (`populateRods`); +4 s and 3 s of green-glow turbo (car pulses green, goes past 60).
   - **buses** now drive the right-hand lanes of the two roads (6 buses, `LANE` 4.6), give way at the crossing (east-west gives way to north-south), brake for a bus ahead and for the car in their lane (±4.8), and **stop dead when they touch the car** (`busTouches`) so they never shove it into a wall. Buses are solid for the car (`movers[].box` in `collideCar`); a hit honks, halves your speed and breaks the combo (1.2 s cooldown). Windscreen, back window, head and tail lamps.
   - tested headless (srrp2 on the stubbed test copy): landmarks/trees solid, donuts + rods clear of everything, every wall box the right way round and off the roads, 90 s of traffic with 0 house/tree contacts and 0 bus overlaps (every bus travels >1100), ramming a bus (no driving through, combo lost), a bus never shoves a crooked parked car, rod +4 s/glow/turbo 71/wears off; 0 JS errors at 1280×720 and 390×844 (touch).
+- 2026-10-13 14:40 UTC — **v2.3 phone pass** (390×844 touch, helper session):
+  - **portrait camera**: `fitView()` (load + resize) opens the vertical FOV on tall screens (`2·atan(tan 26°/aspect)`, clamped 70–95 → 93° ≈ 52° across at 390×844, was ~36°), camera a touch higher/further (`view.back` 12.5, `view.up` 8.2) and looks 6 ahead of the car. Landscape/desktop unchanged (70°, 12 back, 7 up).
+  - **analog pad**: `padSteer` −1..1 (dead zone 0.15, full at ~40 px); pushing up **or sideways** drives, pulling down backs up; keys win over the pad. Brake button + pad still drifts.
+  - **layout**: stick + buttons lifted to 52 px (42 px on short landscape) + safe-area, clear of the 36 px site strip at the bottom; buttons 66 px, stick 128 px with a 22 px invisible margin; **⟳ moved to the top-right corner** (it sat right next to brake); mute chip 44 px wide.
+  - **no camera swinging while driving**: `orbit.enableRotate/enableZoom` off during a shift (a thumb that missed the pad rotated the camera, which then fought the chase cam), back on behind the card.
+  - tested headless (srrp3): fov/view at both sizes, every control inside the screen, nothing overlapping, all ≥44 px, controls ≥40 px off the bottom, toast below the HUD, the car never under a control, analog steering (small push turns ~1/6 as much as a full push, tiny wobble = no steer, left mirrors right), sideways drives, down backs up, release clears, brake + pad drifts, ⟳ resets, shift-over card fits at 390×844 and 1280×720; 0 JS errors at both.
 
 ## issues
 - `populateDonuts()` runs at top level before later `const`s exist → the donut kit is a lazily built `var`. Keep new top-level consts above their first use.
@@ -37,6 +43,7 @@
 - Headless probe: scratch `gaunt/mkrr.sh` swaps the supabase import for a local stub (`sbstub.js`) so tests never write to the real table.
 
 ## todos
-- v2.3: phone pass at 390×844 (portrait view is narrow: wider FOV / camera further back; a bus right behind the camera can fill the screen; controls, HUD)
+- real phones still untested: iOS Safari audio unlock, multi-touch feel of the analog pad, frame rate on low-end phones (each house has its own cloned texture), sign fonts on slow connections (they redraw once the font loads)
+- a bus right behind the camera can fill the bottom of the screen
 - maybe: the camera could pull in when something is between it and the car
 - never use show character names, likenesses, catchphrases or music
