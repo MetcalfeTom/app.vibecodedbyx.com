@@ -31,7 +31,11 @@ Never use Minecraft names, textures or assets: inspiration only. The name must n
 
 - v1.2 2026-10-13: Stamps (🏠 Stamp shape / H, then 1-5): Cottage, Tower (stone, slit windows, wide pointed hat), Pagoda (three tiers with flared stone skirts, gold tip), Pine, Tree. Drops on the lattice point nearest the tap, on the level tapped; door faces the camera (snapped to one of the six flat sides); clears room and fills a stone plinth with a grass top under the footprint so nothing floats, raised to above sea level (stamps in the sea make a little island). Hex prism outline shows where it goes (red when too high). Undo now works in groups: one undo takes back a whole stamp. hutBuild = cottage(…, [0,1]) + gold, generated islands unchanged (hash-checked in node).
 
+- v1.3 2026-10-13: Villagers. Every stamped cottage, tower or pagoda is a home (saved as h: [i, j, g, kind, ux, uz, name]) and gets a villager (max 12): Wick-style body with baked vertex colours (one merged mesh + 2 feet), pointy hat (cottage), tall indigo wizard hat (tower), wide straw hat (pagoda). They wander up to ~5 from their door, sometimes go inside, jump once when blocked, swim. Tap one in build mode (or walk up as Wick) for a speech bubble: an intro, then lines about triangles. Pip lives in the starter cottage (not saved, comes from HUT). Undoing a stamp moves its villager out. New og.png: a little wedge village with Trix talking.
+
 ## issues
+- Headless runs at ~5 fps with dt capped at .05, so the villager sim crawls there: test with __WG.stepVillagers(1/30, t) in a loop.
+- The speech bubble shows even when a tree hides the villager.
 
 ## todos
 - Hamburglar's wishes first when they come back.
