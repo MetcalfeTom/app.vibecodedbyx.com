@@ -373,6 +373,20 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   kick with a pitch tail to A/G (the bass), snare on 2 and 4, eighth hats with swing, an open hat, a scratch every 4th
   bar; gain falls off over 34 m. Never real lyrics, melodies or song titles; the talk lines are generic and respectful.
   Probe p/b1.py: talk + coin, BEAT running, tags on. 0 JS errors at 1280 and 390 ?touch.
+- v1.21 2026-10-13 13:50 (helper): THE NECKARWIESE COMES ALIVE + DUCKS (Flax 12:16) + TONI L THE FUNKJOKER (Flax 13:43).
+  One code block before wegSign (WIESE, wieseBuild after uniBuild, wieseTick after uniTick). It fits the map:
+  the meadow is x<-14, z -44..-58 (place name 'Neckarwiese' when x<-14, -59<z<-43, P.y<TOWN+1.5).
+  Ducks: 7 birds (mother, 3 ducklings at .72, 3 more at 1.3; drakes have a green head) in 4 InstancedMesh (drake/duck
+  body + head), one loop path DUCK_PATH (67 m): paddle along the bank, waddle up the grass to Max's blanket, peck there
+  for 7 s (hold at segs[5]), back into the river. Swim .55 m/s, waddle .42 with a roll. Quacks within 9 m (sfxBus).
+  Shown only within 95 m of (-40,-48). At night they sit in a row at the water's edge (-42.4+i*.72, -44.45), heads tucked.
+  Night: string lights on two poles over the studis, lanterns at three blankets, additive halo sprites; two night-only
+  picnics, 'wieseA' Pia & Jonte (-60.5,-56.5) and 'wieseB' Elif, Ben & Noor with a speaker glow (-93.5,-56.5).
+  The lit old town in the river: one additive mesh of warm streaks (22-52 m long, fade to the north) below the south bank,
+  castle streaks in orange at x 18+, a scrolling stripe texture for the shimmer, fog off, night only.
+  Funkjoker: Toni L's first talk line is "Servus! Toni L, the Funkjoker, at your service.", a bark "Servus! The Funkjoker
+  is in the house.", his tag reads "Toni L · Funkjoker" (bkTag uses a 512 canvas for text longer than 8 characters).
+  Probes p/d1.py + p/d3.py: ducks at the blanket, night picnics, reflections, busk tag + talk. 0 JS errors at 1280 and 390 ?touch.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -393,8 +407,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
   (walkers, a stall/bench crowd, lit windows at night)
 - Flax 12:08-13:15 queue, in this order: (1) named crew DONE v1.18.2; (2) university + Karzer DONE v1.19;
-  (2b) Torch + Toni L busking DONE v1.20; (3) Neckarwiese on the north bank (night: blankets, lanterns/string lights, a speaker glow) + a flock of blocky
-  ducks (paddle by the bank, waddle on the grass, heads tucked in at night), only if the map reaches that far west
+  (2b) Torch + Toni L busking DONE v1.20 (Funkjoker intro v1.21); (3) Neckarwiese at night + ducks DONE v1.21
 - Café Nerd ideas: a board game you can join, Nele's daily special
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
 
