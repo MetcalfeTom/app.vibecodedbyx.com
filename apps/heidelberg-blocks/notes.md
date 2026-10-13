@@ -217,13 +217,47 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   landscape philS 255k / 88; SwiftShader is fill-bound (PR 1 -> .75 halves the frame). Mike's stone untouched.
   Scratch $SP/hb2 (mk.sh, drv.py CDP driver, audit3.py, drive.py, perf.py; ?touch and ?pr only in the test copy).
   Untested on real phones: real fps + where the adaptive step settles, iOS low power, how the car feels on a thumb.
+- 2026-10-13 07:08 (helper): v1.15 Bergbahn designed (route, stations, summit, Frieda + Fernrohr quest), no code
+  shipped; stopped for a session restart. Full plan + scratch path under todos. Live index.html unchanged (v1.14).
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
 ## todos
-- big round (Flax, 2026-10-13) done through v1.13; later: Bergbahn up to the castle, German dialogue switch,
+- v1.15 BERGBAHN, designed but NOT BUILT (helper stopped at 07:08 for a session restart; live = v1.14).
+  Scratch: /tmp/claude-1000/-vibespace/c15135b2-3c29-43bc-9198-9a7bf45fb281/scratchpad/hbb (index.html = v1.14
+  copy, mk.sh = test build with hooks, hrun.sh = headless runner, plan/plan.js = track solver, hdump.json = height map).
+  The plan, in case scratch is gone:
+  - Track: Catmull-Rom (200 samples/segment) through [5,64.6] [5,80] [5,100] [5,106] [3.8,112] [.8,117.5] [-3.5,122]
+    [-8.5,126] [-13.5,129.5] [-17.5,132.5], with outer handles [5,60] and [-20.5,135]. Rail y starts at 19.3.
+    Slope is .872 below the Schloss and .5558 above it, blended over 12 around z 97.5.
+    u = 3D arclength. The loop sits at M = u(z 97.5); L = 2M ≈ 86.8, so the track ends near (-11.9,128.4) at y 69.
+  - Cars: two cars at s and L-s, so they pass at M with a lateral offset of ±1.45 (smoothstep 6..12 from M).
+    Cars stop at 3.2 from each end. Each car has 3 stepped compartments: local rail line y = .72z, floors .95+.72zc.
+    Pose: bogies at s±2; rotation order YXZ with pitch = atan(.72) - track angle.
+    Each car is one folkMat mesh; the conductor's arm (gesture channel) waves at the loop.
+  - Voxels (bbWorld, after vehWorld): corridor cells ±1.2 around each branch.
+    - Bed: gravel at floor(lowest rail - .3) - 1, never below 18. Everything above is cleared; sandstone fill below.
+    - Where the gap is 5 or more: arches every 6 u (1.5 pier + 4.5 opening).
+    - Natural blocks next to a cutting become sandstone; trees within 6 of the corridor are removed.
+  - Kornmarkt station: stair platform x 7..8, z 64..69 (walk 20,21,22,22,23,24), wall + parapet at x 9.
+    Pillars at (2,64) (2,68) (9,64) (9,68). Slate roof x 2..9 at floor(railY(z+.5)) + 5.
+    A passage under the track at z 70..71, y 19..21. Anselm's x 7.5 route points move to 10.5.
+  - Schloss stop: platform x 8..9, z 95..99 at the floors of the east car parked at M.
+    A walkway z 96..98 runs through a tunnel in x 10..11 (sandstone roof at y 51); the parapet at x 12 is opened.
+  - Summit: cobble plaza x -25..-8, z 123..131 at walk 68 (sandstone fill), parapet on the drop edges.
+    Gipfelkiosk x -24..-20, z 127..131 (counter on the east side). Telescope pedestal at (-15,68,124).
+    TV tower near (-3.5,141.5).
+  - Zones (show the ride button / call the car): Kornmarkt x 5.5..12, z 62..73; Schloss x 7..18, z 93..101;
+    summit x -13.5..-5, z 121..131. Hooks: rideKey/rideUi, frame (no physics while aboard), tickFolk, placeName.
+  - Reason to go: Frieda Wolkenstein at the kiosk (German lines, glasses at the optician's). She asks you to spot
+    Kapitän Jupp, Fritz and Clara through the coin Fernrohr. The view narrows to 8° wide on portrait, 12° on landscape;
+    hold a target in the centre ring for .6 s with a clear line of sight. Hilde can't be seen from the top.
+    All three found = "Ehrenausguck vom Königstuhl" and she refills an empty water bottle.
+    Saved in 'hb-berg' {met,seen,done,rides}. Never touch SECS (the nine secrets) or Mike's stone.
+  - The telescope eye has to sit at y 70 (stand at 68.4), or the z 123 parapet blocks the view to the town.
+- big round (Flax, 2026-10-13) done through v1.13; later: German dialogue switch,
   garden lanterns at night, a second garden terrace (the south wall is one tall cut)
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge, Königstuhl funicular
