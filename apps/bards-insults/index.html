@@ -409,6 +409,7 @@
   .p-sp .p-say { display: block; white-space: pre-line; padding-left: 0.4em; }
   .p-dir { font-style: italic; color: var(--ink-soft); margin: 12px 0 12px 2.4em; }
   .p-fin { font: 700 24px 'UnifrakturCook', serif; text-align: center; color: var(--wax); margin-top: 28px; }
+  .p-sp.reading, .p-dir.reading, .p-h.reading, .p-title.reading { background: rgba(198, 154, 82, 0.24); box-shadow: 0 0 0 6px rgba(198, 154, 82, 0.24); border-radius: 2px; }
   .p-note { text-align: center; font-size: 14px; font-style: italic; color: #7a5a30; margin-top: 10px; }
   @media (max-width: 600px) {
     .modes button { padding: 11px 13px; font-size: 13px; letter-spacing: 0.08em; }
@@ -587,6 +588,7 @@
     <div class="tools" id="playTools" hidden>
       <button type="button" id="playCopy">Copy</button>
       <button type="button" id="playAgain">Another take</button>
+      <button type="button" id="playRead" hidden>🔊 Read aloud</button>
       <button type="button" id="playPrint">Print</button>
     </div>
   </article>
@@ -911,7 +913,7 @@
       (on ? tabP : tabI).focus();
     }
   }
-  tabI.addEventListener('click', () => setMode(false, true));
+  tabI.addEventListener('click', () => { stopReading(); setMode(false, true); });
   tabP.addEventListener('click', () => setMode(true, true));
   [tabI, tabP].forEach((t) => t.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); setMode(t === tabI, true); }
@@ -1031,7 +1033,8 @@
         let say = m[2];
         const asides = [];
         say = say.replace(/\(([^)]{1,80})\)/g, (z, a) => { asides.push(a); return ''; }).trim();
-        asides.forEach((a) => lines.push({ dir: bardify(a) }));
+        const nice = name.charAt(0) + name.slice(1).toLowerCase();
+        asides.forEach((a) => lines.push({ dir: bardify(a.toLowerCase().indexOf(nice.toLowerCase()) === 0 ? a : nice + ' ' + a) }));
         if (say) lines.push({ who: name, say: bardify(say) });
       });
     } else {
@@ -1069,7 +1072,7 @@
       sc.lines.forEach((l) => {
         if (l.dir != null) { add(el('p', 'p-dir', '[' + l.dir.replace(/^\[|\]$/g, '') + ']')); return; }
         const sp = add(el('p', 'p-sp'));
-        if (l.who) sp.appendChild(el('span', 'p-who', l.who));
+        if (l.who) { sp.appendChild(el('span', 'p-who', l.who)); sp.dataset.who = l.who; }
         sp.appendChild(el('span', 'p-say', l.say.replace(/\\n/g, '\n')));
       });
     });
@@ -1091,6 +1094,7 @@
   const WAIT = ['The Bard dips his quill…', 'Counting syllables on his fingers…', 'Finding a rhyme for that…', 'Hiring a bear, just in case…', 'Blotting the ink…', 'Rehearsing the Chorus…'];
   let busy = false;
   async function make(again) {
+    stopReading();
     const text = tale.value.trim();
     if (!text) { st.className = 'q-status err'; st.textContent = 'The Bard needs a tale first. Write a few lines, or try a sample.'; tale.focus(); return; }
     if (busy) return;
@@ -1108,6 +1112,63 @@
     busy = false; go.disabled = false; $('playAgain').disabled = false;
     if (again || matchMedia('(max-width: 600px)').matches) play.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  /* 🔊 read aloud: every character gets their own voice (or at least their own pitch and pace); the narrator reads the
+     stage directions a little lower and quieter. The line being read lights up and scrolls into view. */
+  const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
+  const readBtn = $('playRead');
+  let reading = false, items = [], qi = 0, cast = {}, castN = 0, guard = 0, fails = 0;
+  if (synth) readBtn.hidden = false;
+  function voiceFor(who) {
+    if (!cast[who]) {
+      const all = synth.getVoices(), en = all.filter((v) => /^en/i.test(v.lang)), vs = en.length ? en : all, k = castN++;
+      cast[who] = { voice: vs.length ? vs[(k * 3 + 1) % vs.length] : null, pitch: [1, 0.7, 1.4, 0.88, 1.2, 0.6, 1.55][k % 7], rate: [1, 0.9, 1.08, 0.95, 1.04][k % 5] };
+    }
+    return cast[who];
+  }
+  function mark(node) {
+    play.querySelectorAll('.reading').forEach((n) => n.classList.remove('reading'));
+    if (node) { node.classList.add('reading'); try { node.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {} }
+  }
+  function stopReading() {
+    if (!synth) return;
+    reading = false; clearTimeout(guard); synth.cancel(); mark(null); readBtn.textContent = '🔊 Read aloud';
+  }
+  function nextLine() {
+    clearTimeout(guard);
+    if (!reading) return;
+    const it = items[qi++];
+    if (!it) { stopReading(); return; }
+    mark(it.node);
+    const u = new SpeechSynthesisUtterance(it.text);
+    if (it.who) { const c = voiceFor(it.who); if (c.voice) u.voice = c.voice; u.pitch = c.pitch; u.rate = c.rate; }
+    else { const n = voiceFor('~narrator'); if (n.voice) u.voice = n.voice; u.pitch = 0.8; u.rate = 1.06; u.volume = 0.8; }
+    let done = false;
+    const on = () => { if (done) return; done = true; nextLine(); };
+    u.onend = on;
+    u.onerror = (e) => {
+      if (done) return;
+      if (e && e.error !== 'interrupted' && e.error !== 'canceled' && ++fails >= 2 && qi <= 2) { done = true; stopReading(); st.className = 'q-status err'; st.textContent = 'Alas, this browser hath no voice to read with.'; return; }
+      on();
+    };
+    /* some engines never fire onend: move on after a generous guess of the line's length */
+    guard = setTimeout(on, Math.max(7000, it.text.length * 140));
+    synth.speak(u);
+  }
+  function readAloud() {
+    if (!synth || !shown) return;
+    if (reading) { stopReading(); return; }
+    cast = {}; castN = 0; voiceFor('~narrator');
+    items = [];
+    play.querySelectorAll('.p-title, .p-h, .p-set, .p-dir, .p-sp').forEach((n) => {
+      if (n.classList.contains('p-h') && /personae/i.test(n.textContent)) return;
+      if (n.classList.contains('p-sp')) { const say = n.querySelector('.p-say'); if (say && say.textContent.trim()) items.push({ node: n, who: n.dataset.who || 'SOMEONE', text: say.textContent }); }
+      else items.push({ node: n, text: n.textContent.replace(/^\[|\]$/g, '') });
+    });
+    qi = 0; fails = 0; reading = true; readBtn.textContent = '■ Stop';
+    synth.cancel(); nextLine();
+  }
+  readBtn.addEventListener('click', readAloud);
+  if (synth) synth.addEventListener && synth.addEventListener('voiceschanged', () => {});
   go.addEventListener('click', () => make(false));
   $('playAgain').addEventListener('click', () => make(true));
   $('playPrint').addEventListener('click', () => { try { window.print(); } catch (e) {} });
