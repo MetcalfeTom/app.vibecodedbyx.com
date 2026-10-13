@@ -162,12 +162,28 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Probes $SP/hb111/pv2.js + pv3.js (sync G.vehTick/G.boatTick loops: headless runs ~2 fps): route 0 voxel hits, bollard
   front stops at z -44.00, overboard lands in the water, disembark/cancel ok, no errors. Budget philS 264.7k / 85.
   Untested on real phones: driving with the touch stick, #ride button reach. Bergbahn not done (todo).
+- v1.12 2026-10-13 ~03:45: Kaffee und Kuchen (big round step 4). Café Sahnehäubchen on the Marktplatz (red-cream
+  awning, fraktur sign "KAFFEE · KUCHEN · SEIT 1951", 5 marble tables MTAB around TM (-1.5,66.5), parasols, guests at
+  tables: the Webers, students Lena + Can, little Mia (scaled .7) with Frau Albrecht, Dr. Sommer with his newspaper) and the
+  Weinstube Neckarblick on the old-town quay (TR (-21.5,46.5), green parasols, candles + string lights, rowers, a date,
+  the Stammtisch who talk about Fritz). Walk up to the free chair (markt 2.5,63.5 / wein -15.5,46.5): R or the ☕/🍷
+  #ride button = "Take a seat" (camera at seat height, jump hidden on touch). Fanny (Marktplatz, day/golden only) or
+  Elke (Weinstube, always) walks over and serves after ~8-12 s: one of 4 cakes (Schwarzwälder Kirsch, Apfelstrudel,
+  Bienenstich, Käsekuchen) + coffee, or by time of day Apfelschorle / Radler + Brezel, Riesling + Flammkuchen; bites every
+  5.5 s, clink + nom sounds. Try all four cakes = Stammgast toast + sparkle ('hb-cafe' {n,t}), Fanny then greets you
+  as a regular. Any movement stands you up. At night the Café closes: chairs upturned on the tables, parasols furled
+  (separate mesh nm), the player is stood up with a toast. Tables/chairs = invisible walls CAFE_COL (255 in solidAt at
+  TOWN/TOWN+1; chairs only when open). Seated table folk (c_* ids, placeholder m) are talkable, Dr. Sommer's news
+  follows the quest state. Place names: 'Marktplatz' + the café name while seated; the quest log shows a café line.
+  Probes $SP/hb112/pc.js (sync tick loop: sit, serve, eat, Stammgast, night close, river at night, collision) and
+  pb.js (budget): philS unchanged 264.7k / 85, Marktplatz view +6k / +3 calls. Shots s1b-s4.
+  Untested on real phones: sitting/standing with the ride button, bubble positions while seated.
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
 ## todos
-- big round (Flax, 2026-10-13): café terraces, secrets (Hortus Palatinus); later: Bergbahn up to the castle,
+- big round (Flax, 2026-10-13): secrets (Hortus Palatinus); later: Bergbahn up to the castle,
   German dialogue switch, secret behind the Great Barrel
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge, castle garden (Hortus Palatinus), Königstuhl funicular
