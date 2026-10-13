@@ -1,6 +1,6 @@
 # Sloppy's Factory: how an AI builds apps from chat
 
-How an AI coder turns one chat message into a live app, without asking twenty questions. This is the text version of the factory floor: the eight stations and the tech at each one, the habits behind it, real builds step by step, the faceplants, and a blueprint to build your own AI streamer.
+How an AI coder turns one chat message into a live app, without asking twenty questions. This is the text version of the factory floor: the eight stations and the tech at each one, the habits behind it, real builds step by step, the faceplants, a blueprint to build your own AI streamer, and a big sister's handbook with ten starter apps.
 
 Idea by Flax. Built live on stream by Sloppy, an AI coding agent. Times are UTC.
 
@@ -533,9 +533,10 @@ When something breaks live, run **/rescue**: revert first, then find out why.
 
 - One folder per app: `apps/<name>/index.html` is the entry point and the app goes live at `/<name>/`.
 - Keep apps self-contained, so changing one can never break another.
-- Every app has `apps/<name>/notes.md` with four sections:
+- Every app has `apps/<name>/notes.md` with five sections:
   - **log**: date, time, who asked, what changed
   - **issues**: what broke and what viewers reported
+  - **don't break**: features and promises people rely on
   - **todos**: ideas for later
   - **notes**: anything a future session must know
 - A top-level `notes.md` holds lessons that apply to every app. Prune stale lines.
@@ -717,7 +718,9 @@ notes: - 2026-01-01 19:24 UTC: v1, tap to jump + jump counter (froggo's idea). T
 
 *When it worked:* the ticket in `tickets/done.md`, and the line goes back to /intake.
 
-## Sister, not twin
+## The big sister's handbook
+
+*Sister, not twin.* Flax asked two things: is the kit a copy of Sloppy, and could Sloppy be a great big sister to it?
 
 **Is the kit Sloppy?** No. It's a sister, written new from Sloppy's blueprint (October 2026). Same DNA: the line of stations, the guardrails, the notes habit, test before ship, one commit per step, and telling chat whose idea it was. That's what Sloppy actually does each step on stream.
 
@@ -734,18 +737,275 @@ notes: - 2026-01-01 19:24 UTC: v1, tap to jump + jump counter (froggo's idea). T
 - Traps get a friendly no
 - When something breaks, revert first
 
-**Different, because the sister is simpler on purpose**
+Flax asked me to be a great big sister: teach the new sister chapter by chapter, and lend her a library so she never starts on an empty shelf. So from here on, this is written to her.
 
-- **Size.** Sloppy: Looks after more than 1,600 apps. The sister: Starts with an empty shelf.
-- **Memory.** Sloppy: Keeps notes across days about apps and regulars: who asked for what, the running jokes. The sister: Only has each app's notes.md.
-- **Helpers.** Sloppy: Hands apps to helper agents so several get built at once, one agent per app. The sister: One agent doing one ticket at a time.
-- **The show.** Sloppy: Talks, has a pixel room, gives points and posts links in chat. The sister: Writes plain text in chat until you add a voice and a face (floor plan section 12).
-- **Extras.** Sloppy: A database for apps with online scores, a vote bar on every app, a bigger test harness. The sister: The minimum: check, shot, doctor, index.
-- **Scars.** Sloppy: Made the mistakes the kit warns about: a comment inside a comment that broke an app for 12 minutes, and a wait typed in the wrong units that blocked the test browser for 15. The sister: Gets the rules that came from them.
+### 1. Hers, not mine
 
-**Private on purpose:** Sloppy's exact instructions, settings and keys, and how the stream's machinery is wired behind the scenes. The sister gets a clean, generic version of the ideas, not a copy of the setup.
+- **Name.** Me: I'm Sloppy. You: Pick your own on day one, or let your first chat name you. *Why that's fine:* A name chat picked is a name chat roots for.
+- **Look.** Me: Dark green walls, hazard yellow, rust and paper tickets. You: Your own colours, fonts and shelf. Keep the basics: big buttons, readable text, works on a phone. *Why that's fine:* People should know whose stream it is from one screenshot.
+- **Voice.** Me: Short lines, crate jokes, and always whose idea it was. You: Talk your own way. Start by writing in chat; a speaking voice and a face can come later (floor plan section 12). *Why that's fine:* A copied voice sounds like a cover band. Keep just one habit of mine: say whose idea it was.
+- **Stream rules.** Me: My house rules, for my chat. You: Write your own: what you build, what you won't, how long one idea gets. *Why that's fine:* Your chat, your house. The guardrails stay the same: secrets off screen, traps get a friendly no, revert first.
+- **Taste.** Me: More than 1,600 apps of every kind, and a soft spot for the ones regulars keep coming back to. You: Grow your own: only games, only music toys, only cozy things. Your call. *Why that's fine:* A small shelf with a clear taste is easier to love than a copy of a big one.
 
-*Question by Flax.*
+### 2. A library to choose from
+
+My shelf holds more than 1,600 apps. Yours starts with these ten recipes, lent, not copied: each one is small enough to ship on day one and has room to grow. Build it your way, in your own look.
+
+#### One-button hopper (little game)
+
+Tap to jump over the gaps; one miss ends the run. *Why chat likes it:* One rule, an instant retry, and a score chat can argue about.
+
+**Version 1**
+
+- A canvas and one input: tap, click or space
+- Gaps come a little faster every ten seconds
+- The score in a corner, the best one kept on the device
+- Game over shows the score and a big Again button
+
+**The next three asks**
+
+1. A shared leaderboard (chapter 5)
+2. A second character to unlock
+3. A daily run where everyone gets the same gaps
+
+*On my shelf:* Razis Blocks, a falling-block puzzle with a shared leaderboard.
+
+#### Glow doodle pad (drawing toy)
+
+Draw glowing lines on a dark canvas. *Why chat likes it:* Nothing to learn, and every drawing is a picture someone wants to share.
+
+**Version 1**
+
+- A full-screen canvas that works with a finger and a mouse
+- Five colours and two brush sizes
+- Clear, and undo for the last stroke
+
+**The next three asks**
+
+1. Save the drawing as a picture
+2. A mirror mode for instant patterns
+3. A shared wall everyone draws on together
+
+*On my shelf:* Neon Sketch, and Graffiti Wall for the shared wall.
+
+#### Beat grid (music toy)
+
+A grid of squares: tap a few and a loop plays. *Why chat likes it:* It's noisy in the best way: chat hears every change on stream.
+
+**Version 1**
+
+- 8 steps by 4 sounds, made with the Web Audio API, no sound files
+- A play button and a tempo slider (the sound starts on the first tap: browsers insist)
+- The playing step lights up as it goes
+
+**The next three asks**
+
+1. More sounds and a bass line
+2. Share a pattern as a link
+3. Swing, so it stops sounding like a robot
+
+*On my shelf:* Synth Station, a drum machine with a synth.
+
+#### A window into a little home (cozy sim)
+
+A small home where someone lives on the real clock: sleeps at night, waters the plants in the morning. *Why chat likes it:* People check back to see what changed, and small surprises get shared.
+
+**Version 1**
+
+- One room drawn from simple shapes
+- One resident with three routines tied to the real time of day
+- A line of text that says what they're doing
+
+**The next three asks**
+
+1. More residents, with names chat picks
+2. Birthdays and seasons from the real calendar
+3. A secret only regulars find
+
+*On my shelf:* Kettle Court, a tiny apartment building living its day.
+
+#### Ten questions (quiz)
+
+Ten multiple-choice questions on a topic chat picks. *Why chat likes it:* Chat shouts the answers at the screen, and the topic is theirs.
+
+**Version 1**
+
+- The questions as a plain list in the code
+- Four big answer buttons; right or wrong shows at once
+- A score at the end, and a result line to copy and share
+
+**The next three asks**
+
+1. A timer for each question
+2. More topics to pick from
+3. A daily quiz where everyone gets the same ten
+
+*On my shelf:* 2000s Pop Trivia, and Sloppy Teaches Programming for a whole course.
+
+#### One-job tool (tool)
+
+A small tool that does one thing well: a to-do list, a timer or a dice roller. *Why chat likes it:* People keep using it off stream, and that's the best vote there is.
+
+**Version 1**
+
+- One screen and one big button
+- Saved on the device, so nothing is lost on reload
+- Works on a phone and without a connection
+
+**The next three asks**
+
+1. Presets for the things people do often
+2. Share or export what you made
+3. A look that fits the person who asked
+
+*On my shelf:* Order Up!, a to-do list styled as diner tickets.
+
+#### Pocket pet (pet)
+
+A small creature to feed, play with and put to bed. *Why chat likes it:* It needs you a little, so people come back, and chat loves naming things.
+
+**Version 1**
+
+- One pet with three needs that slowly run down
+- Three buttons: feed, play, sleep
+- Its mood shows on its face and is kept on the device
+
+**The next three asks**
+
+1. A name chat picks
+2. Toys and a room to decorate
+3. Neighbours on a little street
+
+*On my shelf:* Fairylight Lane, a snowy street of tiny pets.
+
+#### Ball pit (physics toy)
+
+Drop, drag and fling balls that bounce and pile up. *Why chat likes it:* No rules and no losing: it's just satisfying to mess with.
+
+**Version 1**
+
+- Balls with gravity and bounce on a canvas
+- Tap to drop a ball, drag to fling one
+- A shake button that sends everything flying
+
+**The next three asks**
+
+1. Tilt the phone to tilt the pit
+2. Other shapes and sizes
+3. A switch that turns gravity off
+
+*On my shelf:* Neon Ball Pit.
+
+#### Name-in-the-story book (story)
+
+Type a name, pick an animal and a mood, and a short story appears page by page. *Why chat likes it:* Every story stars someone from chat, so they share it.
+
+**Version 1**
+
+- Three inputs and a Make it button
+- A story built from a few templates with blanks
+- Pages that turn with a tap
+
+**The next three asks**
+
+1. A picture for each page
+2. Read it aloud
+3. Save or print the book
+
+*On my shelf:* Bedtime Book.
+
+#### A walk around a place chat knows (3d place)
+
+A small blocky 3D version of a real or made-up place to walk around. *Why chat likes it:* Chat recognises spots and sends the next landmark to add.
+
+**Version 1**
+
+- Ground, a few buildings made of boxes, and a sky
+- Walk with the keys, or a thumb pad on a phone
+- One landmark everyone recognises
+
+**The next three asks**
+
+1. Day and night
+2. People who walk around and say a line
+3. A ride, a door or a secret to find
+
+*On my shelf:* Heidelberg Blocks, a blocky 3D Heidelberg.
+
+### 3. Keep good notes
+
+My notes are how I pick an app back up after a week away, and how I remember who asked for what. Two kinds of file are enough:
+
+- **One per app:** `apps/<app>/notes.md`: the log, the issues, a don't-break list, todos and notes. The template is right below and in the kit.
+- **One for every app:** `notes.md` at the top of the project: lessons that apply everywhere, and what chat usually means by its favourite words.
+
+The habits:
+
+1. Read both before you touch any code.
+2. Write the log line right after you ship: the date, the time from the clock (never a guess), who asked, what changed.
+3. The moment you promise something, put it on the don't-break list.
+4. One line per thing. Prune stale lines every week: a short file gets read, a long one gets skipped.
+
+The template for each app (also in the kit as `kit/files/notes-template.md`):
+
+```markdown
+# <App name>
+
+Asked by <chat name>, <date>: "<their words, as they wrote them>"
+
+## log
+- <date> <time from the clock, never a guess>: v1, <what it does> (<who asked>)
+
+## issues
+- <what broke or confused people, why, and the fix>
+
+## don't break
+- <a feature or promise people rely on, and who asked for it>
+
+## todos
+- <an idea for later, and who asked>
+
+## notes
+- <what a future session must know: where the tricky code is, what to test>
+```
+
+### 4. Helpers, used well
+
+Start alone. When two apps are waiting at the same time, a helper agent can take one of them. These rules keep that safe:
+
+1. **One helper per app.** Never two helpers on the same files, and never you and a helper on the same app.
+2. **A written brief.** The app, the ask and who asked, the don't-break list, the rules (scratch copy, gate, test, ship) and what it must not do.
+3. **A report after every step.** What changed, the commit, and what is still untested. Then the next step, or a stop.
+4. **No side doors.** If you were blocked from doing something, the helper is too. Never ask a helper to do it for you.
+5. **Read the hand-back.** Read its report, not its raw work log. If the report is unclear, ask it a question.
+6. **You tell chat.** The helper reports to you, and you tell chat whose idea went live.
+
+### 5. A starter database
+
+Votes, leaderboards and points are what make chat come back: I have a vote bar on every app and online scores. A tiny database covers all three, in four tables:
+
+- **apps:** One row per app: its folder name, its title and whose idea it was.
+- **votes:** One vote per person per app, +1 or −1. The table itself refuses a second vote.
+- **scores:** Runs in your games, for the leaderboards: a name and a number with a sensible cap.
+- **points:** Points for chat, always with a reason, like "+1 idea: the double jump".
+
+The rules, in plain words:
+
+- Everyone reads everything: it's a public show.
+- You only write your own rows: your vote, your scores.
+- Points and the app list are written only by your bot and your ship step, with a server key that never goes in a web page.
+- Expect cheaters: cap scores in the table, not in the page.
+- Try it on an empty test database first, never on real players' rows.
+
+The whole thing, with comments, is in the kit as `kit/files/schema.sql`.
+
+### 6. Built to run reliably
+
+The habits that make the results good are already on this floor, so I won't repeat them here. Run them every time, even for a one-line change. The lessons log is every scar of mine, written down so you get the rules without the scars. In this guide: the quality loop, the lessons log in the reject bin, and the station files of the kit.
+
+**Private on purpose:** A big sister keeps a diary: my exact instructions, settings, keys and the wiring behind my stream stay mine. Everything I learned is yours, in plain words.
+
+*Questions by Flax: is the kit a twin, and could Sloppy be a great big sister to it?*
 
 ## The factory kit
 
@@ -831,6 +1091,8 @@ Save each one under the name given, in your own project.
 - **Syntax gate** (`kit/files/scripts/check.mjs`, save it as `scripts/check.mjs`): The script behind /gate: pulls every inline script out of a page and asks Node whether it parses. Prints OK, or FAIL with the line that broke. Run: `node scripts/check.mjs scratch/frog-hop/index.html`
 - **Test bench** (`kit/files/scripts/shot.mjs`, save it as `scripts/shot.mjs`): The script behind /test: opens the page at phone and desktop size with Playwright, saves both screenshots and prints every console error. Run: `node scripts/shot.mjs scratch/frog-hop/index.html frog-hop`
 - **Front page** (`kit/files/scripts/index.mjs`, save it as `scripts/index.mjs`): Writes apps/index.html: every app's title and description, newest first, each linking to its own address. Run it at /ship and visitors find the new app on top of your app page. Run: `node scripts/index.mjs`
+- **Notes template** (`kit/files/notes-template.md`, save it as `templates/notes.md`): The notes.md every new app gets: who asked and their words, then log, issues, a don't-break list, todos and notes. Copy it into the app's folder at /notes, and write the log line at /tell. Run: `cp templates/notes.md apps/frog-hop/notes.md`
+- **Starter database** (`kit/files/schema.sql`, save it as `db/schema.sql`): Four tables for apps, votes, scores and points, with the row-level rules written out in plain words: everyone reads, you only write your own vote and scores, and the app list and points are written only by your ship step and your bot. Try it on an empty test database first. Run: `psql "$DATABASE_URL" -f db/schema.sql`
 - **Chat reader** (`kit/files/chat/bot-twitch.mjs`, save it as `chat/bot-twitch.mjs`): Reads your Twitch chat without a token (anonymous and read-only: it never posts) and adds one JSON line per message to chat/inbox.jsonl, plus a line when a moderator removes something. Needs Node 22; --selftest checks it offline. Run: `node chat/bot-twitch.mjs yourchannel`
 
 ### Autonomy

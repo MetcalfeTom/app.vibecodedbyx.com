@@ -89,7 +89,7 @@ your-factory/
     index.html         the list of apps, newest first (written by index.mjs)
     hello/
       index.html       the app, one self-contained file
-      notes.md         log, issues, todos, notes
+      notes.md         log, issues, don't break, todos, notes
   chat/bot-twitch.mjs  reads chat into the inbox
   chat/inbox.jsonl     chat messages, one JSON line each (not committed)
   tickets/now.md       the work ticket on the line right now (not committed)

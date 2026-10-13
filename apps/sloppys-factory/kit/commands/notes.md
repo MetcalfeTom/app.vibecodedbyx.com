@@ -36,6 +36,8 @@ Before any edit, find out what the app already is and what must not break. Most 
 
 ## issues
 
+## don't break
+
 ## todos
 
 ## notes

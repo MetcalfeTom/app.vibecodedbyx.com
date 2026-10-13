@@ -69,9 +69,10 @@ When something breaks live, run **/rescue**: revert first, then find out why.
 
 - One folder per app: `apps/<name>/index.html` is the entry point and the app goes live at `/<name>/`.
 - Keep apps self-contained, so changing one can never break another.
-- Every app has `apps/<name>/notes.md` with four sections:
+- Every app has `apps/<name>/notes.md` with five sections:
   - **log**: date, time, who asked, what changed
   - **issues**: what broke and what viewers reported
+  - **don't break**: features and promises people rely on
   - **todos**: ideas for later
   - **notes**: anything a future session must know
 - A top-level `notes.md` holds lessons that apply to every app. Prune stale lines.
