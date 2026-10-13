@@ -130,12 +130,28 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   panned and quiet. Probe $SP/hb19s1/pl1.js (routes have no jumps, 2-min sims per time, every talk list), shots s_*.png.
   Budget: busiest philS 263k tris / 81 calls (was 262k/78), spawn 196k/58, __E []. Untested: real phones, real audio levels.
 
+- v1.10 2026-10-13 ~02:30: quest log (big round step 2). Five chained quests "Ein Walzer für Hilde":
+  1 Die verlorene Gruppe: Kowalski lost 5 tourists in yellow caps (Ingrid by the bridge monkey, Takeshi up at the castle, Maureen
+  on the Philosophenweg, Bob waiting for Jupp's boat, Priya halfway up the Snake Path; TOUR entries in FOLK, spotFn + qFree());
+  walk within 2.2 and they head back (bark + burst), then they walk behind Kowalski (merged into his mesh, kowGroup()).
+  2 Ein neues Lied: Matthias wants a new song: stand 5 s by the music box on the Großes Fass, hum it back; Rosi then alternates
+  the polka with the music-box waltz (walz() = WZ on the accordion, accNext()). 3 Für Hilde: she'll dance only with Anselm.
+  4 Der Nachtwächter (night): Anselm says yes. 5 Ein Walzer auf der Brücke (night): come within 9 of Matthias and Hilde + Anselm
+  dance on the bridge (one merged pair mesh, holding hands, turning in a small circle, LANT lights them) for one waltz (21 s),
+  Tusch + grandShow, done. Replay: talk to Matthias at night. Hilde/Anselm are hidden from their usual spots while dancing (f.dances).
+  Q fields: qs (quest 0-5), qp (step), qk (met Kowalski), tz (tourist ids). Tracker chip #qt under the place name (📜 text,
+  🌙/☀ gate when the quest needs night/day, ▲ arrow turned toward the target + distance), gold ◆ #qmark on the compass,
+  tap or J = log #qlog (done ✓, current with the long text, locked ???, the Studentenkuss side quest). Toast moved to top+6.9rem.
+  Folk materials got a self-glow uniform hbE (userData.e): Anselm .3, Matthias .22 at night, dancers .45.
+  Probe $SP/hb19s1/pq.js runs the whole chain (talkTo + teleports + tickTown) with no errors; shots s_qhud/qgroup/qdance/qlog.
+  Budget philS 264k / 83 calls (+2: tourists in view). Untested on a real phone: tracker chip width with long texts.
+
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
 
 ## todos
-- big round (Flax, 2026-10-13): quest log + tracker, drivable car + Neckar ferry (+ Bergbahn?), café terraces, secrets
+- big round (Flax, 2026-10-13): drivable car + Neckar ferry (+ Bergbahn?), café terraces, secrets
   (Hortus Palatinus); later: German dialogue switch, secret behind the Great Barrel
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge, castle garden (Hortus Palatinus), Königstuhl funicular
