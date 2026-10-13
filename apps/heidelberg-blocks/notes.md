@@ -395,6 +395,15 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   additive, fog off, within 160 m) and pools of light on the gravel (one additive mesh, within 70 m), night only.
   Probe p/l1.py: views + collision. 0 JS errors at 1280 and 390 ?touch. World tris unchanged (307k; the lamps are ~1.5k).
 - 2026-10-13 14:00 UTC v1.22.1: the luck/secret sparks and the Geheimrat fountain jets get a round soft dot texture (roundDot(), a hoisted function so it's safe anywhere in the module); before, these points drew as pale squares up close.
+- v1.23 2026-10-13 14:32 (helper): RIDE THE BERGBAHN BY WALKING IN (Max 14:22: "I'd like to be able to enter the cable car and
+  travel with it. Currently it simply tells me to get off the rails"). Walk into a car's footprint (bergInside: within 2.9 m
+  along the line and .75 m across of that car's own rails, |dy|<2.2) and you board it (bergIn, shared with the button);
+  at a stop, walking or pushing the stick (after letting go once, b.rel) steps you out (bergWalkOut -> bergOff).
+  The brakes and the 'Off the rails, bitte' toast now fire only for someone ON a car's rails in front of it
+  (within 1.4 m across its branch, |dy|<2.2): not on the platform beside it, not under the line at the Kornmarkt passage.
+  A hint at the stop ('Step into the car, or press R / tap the Ride button'), and on touch the Bergbahn buttons are big
+  (#ride.big, 62 px tall at 390). Probe p/r1.py: walk in -> ride=1, departs, rides to the Schloss, walk out at Kornmarkt,
+  brakes on rails 1 / under 0 / platform 0. 0 JS errors at 1280 and 390 ?touch.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
