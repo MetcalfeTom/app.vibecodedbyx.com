@@ -5,7 +5,7 @@ Asked for by pochinia (Twitch) on 2026-10-09 08:00: "make an owner, shes an anim
 Look: Nero = long black hair (nero = black) with an ahoge and angel ring, ruby anime eyes, a dark oversized hoodie with white bunny ears on the hood (Bnuy), a paw-print pocket (Wan-kun), a fish hair clip (Mewo), drawstrings with red tips (Wan-kun's bow), striped pink socks. Room: pink wallpaper, the street through the window, Wan-kun's potato drawing of Mewo framed on the wall, the six fairy lights from Bunny Post.
 
 ## log
-- 2026-10-13 04:02 UTC: SEO pass (title 'Nero's House — pat a puppy, a grumpy cat and a mail bunny', 132-char description, canonical + og:url with the trailing slash, VideoGame JSON-LD).
+- 2026-10-13 03:50 UTC: SEO pass (title 'Nero's House — pat a puppy, a grumpy cat and a mail bunny', 132-char description, canonical + og:url with the trailing slash, VideoGame JSON-LD).
 - 2026-10-09 17:42 UTC: a small '🏮 walk down Fairylight Lane' link under the buttons (apps/fairylight-lane, the street hub for all four of pochinia's apps).
 - 2026-10-09 17:41 UTC v1.4.1: the family photo is remembered in localStorage 'nero-house' {photo:1}, so Fairylight Lane lights Nero's second bulb.
 - 2026-10-09 12:21 UTC v1.4: Poppo the gossip pigeon (from Bunny Post v1.2) visits the window: every ~55 s when idle (not bed/brush/busy), or tap the top window panes. Knock knock, perches on the window cross bar (ppWin inside the window clip, behind the glare), coos a rumour about the house (PP_RUM, lavender source subtitle, Fuzz rumour once Fuzz exists), then Nero/Mewo/Wan react (PP_RE) and he flies off at 6.8 s. Bubble anchor p:[214,58] so it does not cover him.
