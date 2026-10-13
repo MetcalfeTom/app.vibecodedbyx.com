@@ -149,7 +149,7 @@
           <p class="muted" id="lbStatus">Loading…</p>
           <div id="leaderboard" class="leaderboard-list"></div>
         </div>
-        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v3.3 · 2026-10-13</p>
+        <p class="stamp" id="buildstamp" role="note" aria-label="Build information">v3.3.1 · 2026-10-13</p>
       </div>
     </div>
 
@@ -618,7 +618,7 @@
         node: makePool(townKit.nodeGeo, townKit.nodeMat, 60, false),
         side: makePool(townKit.segGeo, townKit.sideMat, 104, false),
         ave: makePool(townKit.segGeo, townKit.aveMat, 104, false),
-        walk: makePool(townKit.boxGeo, townKit.walkMat, 270, false),
+        walk: makePool(townKit.boxGeo, townKit.walkMat, 330, false),
         house: makePool(townKit.boxGeo, townKit.houseMat, 420, true, true),
         roof: makePool(townKit.roofGeo, townKit.roofMat, 420, true, true),
         door: makePool(townKit.boxGeo, townKit.doorMat, 420, false, true),
@@ -665,12 +665,13 @@
         }
         if (!segOn(0, i - 1, j)) { trs(x0 - 12, 0, z0, 0, 6, WALK_Y, 30); putIn(c, P.walk); }
         if (!segOn(1, i, j - 1)) { trs(x0, 0, z0 - 12, 0, 18, WALK_Y, 6); putIn(c, P.walk); }
-        if (!isHomeLot(i, j)) buildLot(c, i, j);
+        if (!isHomeLot(i, j)) buildBlock(c, i, j);
         return c;
       }
       function dropChunk(key, c) {
         for (let n = 0; n < c.slots.length; n += 2) poolFree(c.slots[n], c.slots[n + 1]);
         chunks.delete(key);
+        plantSpots.delete(key);
       }
       // where a street piece was left out: a strip of grass with a few trees
       function parkStrip(c, t, i, j) {
@@ -699,9 +700,11 @@
           (a, b) => [lx + b, lz + a, Math.PI / 2],
           (a, b) => [lx + L - b, lz + a, -Math.PI / 2],
         ];
+        const shop = open[0] && open[2] && hash2(i, j, 61) < 0.16; // some corners get a corner shop instead of a house
         for (let s = 0; s < 4; s++) {
           for (const a of s < 2 ? [8.3, 25, 41.7] : [25]) {
-            if (open[s]) house(c, rnd, side[s], a);
+            if (shop && s === 0 && a === 8.3) cornerShop(c, rnd, lx, lz);
+            else if (open[s]) house(c, rnd, side[s], a);
             else { const [x, z] = side[s](a + (rnd() - 0.5) * 4, 5 + rnd() * 4); tree(c, rnd, x, z, 0.9 + rnd() * 0.3); }
           }
           if (s < 2 && open[s]) for (const a of [16.7, 33.3]) if (rnd() < 0.45) { const [x, z] = side[s](a, 1.6); tree(c, rnd, x, z, 0.62); }
@@ -787,7 +790,371 @@
         homeGroup.visible = Math.abs(p.x) < 420 && Math.abs(p.z) < 420;
         if (state.playing) recycleDonuts();
         drawBuses();
+        steamTick(state.t, p.x, p.z);
         flushPools();
+      }
+
+      // v3.3.1 neighbourhoods: slow noise over the blocks gives each block a district. The suburb (houses, as before) is most of the
+      // town; downtown has office towers with lit windows on paved plazas; the works have warehouses, tanks, containers and chimneys
+      // on concrete yards. On a coarse lattice some blocks are landmarks instead, seen from far off: a water tower or a donut stand
+      // in the suburb, a mast tower downtown, a power plant with two cooling towers in the works. Generic, no names.
+      function vnoise(x, z, s) {
+        const i = Math.floor(x), j = Math.floor(z), u = x - i, v = z - j, su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+        const a = hash2(i, j, s), b = hash2(i + 1, j, s), c = hash2(i, j + 1, s), d = hash2(i + 1, j + 1, s);
+        return a + (b - a) * su + (c - a) * sv + (a - b - c + d) * su * sv;
+      }
+      const SUBURB = 0, DOWNTOWN = 1, WORKS = 2;
+      function district(i, j) {
+        if (Math.abs(i + 0.5) < 3 && Math.abs(j + 0.5) < 3) return SUBURB; // home and a ring of streets round it
+        const n = vnoise(i / 4.5 + 0.37, j / 4.5 + 0.61, 41), m = vnoise(i / 5.5 + 17.3, j / 5.5 - 9.1, 43);
+        if (n > 0.64) return DOWNTOWN;
+        if (m > 0.65 && n < 0.55) return WORKS;
+        return SUBURB;
+      }
+      // landmark blocks: every third block each way may hold one (so they are at least 240 m apart), never round home
+      function landmarkAt(i, j) {
+        if (((i % 3) + 3) % 3 !== 1 || ((j % 3) + 3) % 3 !== 1) return 0;
+        if (Math.abs(i + 0.5) < 3 && Math.abs(j + 0.5) < 3) return 0;
+        const h = hash2(i, j, 51);
+        if (h > 0.45) return 0;
+        const d = district(i, j);
+        return d === DOWNTOWN ? 'mast' : d === WORKS ? 'plant' : h < 0.2 ? 'stand' : 'water';
+      }
+
+      // the kit: office towers (one storey of window bays tiled up the walls, a quarter of the windows lit), plain coloured boxes and
+      // drums for everything else, and three landmark shapes. All instanced like the houses.
+      function vcolGeo(list) { // [geometry, colour] pairs -> one vertex-coloured geometry
+        return mergeGeometries(list.map(([g, hex]) => {
+          const n = g.index ? g.toNonIndexed() : g, c = new THREE.Color(hex), a = new Float32Array(n.attributes.position.count * 3);
+          for (let k = 0; k < a.length; k += 3) { a[k] = c.r; a[k + 1] = c.g; a[k + 2] = c.b; }
+          n.deleteAttribute('uv');
+          n.setAttribute('color', new THREE.BufferAttribute(a, 3));
+          return n;
+        }));
+      }
+      const distKit = (() => {
+        const BW = 144, BH = 120; // one bay: 3.6 m x 3 m at 40 px a metre; the tile is 4 x 4 bays
+        const office = canvasTex(BW * 4, BH * 4, (x) => {
+          for (let by = 0; by < 4; by++) for (let bx = 0; bx < 4; bx++) {
+            const ox = bx * BW, oy = by * BH;
+            x.fillStyle = '#ffffff';
+            x.fillRect(ox, oy, BW, BH);
+            x.fillStyle = 'rgba(0,0,0,0.08)';
+            x.fillRect(ox, oy + BH - 4, BW, 4);
+            const g = x.createLinearGradient(0, oy + 16, 0, oy + 90);
+            g.addColorStop(0, '#86a0bb');
+            g.addColorStop(1, '#3b4f68');
+            x.fillStyle = g;
+            x.fillRect(ox + 6, oy + 16, BW - 12, 74);
+            x.fillStyle = 'rgba(255,255,255,0.14)'; // the sky in the glass
+            x.beginPath();
+            x.moveTo(ox + 34, oy + 16); x.lineTo(ox + 60, oy + 16); x.lineTo(ox + 32, oy + 90); x.lineTo(ox + 6, oy + 90);
+            x.fill();
+            x.fillStyle = '#e8e3da';
+            x.fillRect(ox + 70, oy + 16, 4, 74);
+            x.fillStyle = 'rgba(0,0,0,0.22)';
+            x.fillRect(ox + 6, oy + 88, BW - 12, 3);
+          }
+        });
+        const glow = canvasTex(BW * 4, BH * 4, (x) => {
+          x.fillStyle = '#000000';
+          x.fillRect(0, 0, BW * 4, BH * 4);
+          let seed = 5;
+          const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+          for (let by = 0; by < 4; by++) for (let bx = 0; bx < 4; bx++) {
+            for (const [x0, w] of [[6, 64], [74, 64]]) {
+              if (rnd() > 0.3) continue;
+              const ox = bx * BW + x0, oy = by * BH, g = x.createLinearGradient(0, oy + 16, 0, oy + 90);
+              g.addColorStop(0, '#ffd68a');
+              g.addColorStop(1, '#ff9a4a');
+              x.fillStyle = g;
+              x.fillRect(ox, oy + 16, w, 74);
+            }
+          }
+        });
+        for (const t of [office, glow]) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        const officeMat = new THREE.MeshStandardMaterial({ map: office, emissive: 0xffffff, emissiveMap: glow, emissiveIntensity: 0.5, roughness: 0.6 });
+        officeMat.onBeforeCompile = (sh) => { // whole bays and storeys whatever the tower's size; each tower starts the lit pattern somewhere else
+          sh.vertexShader = sh.vertexShader.replace('#include <uv_vertex>', [
+            '#include <uv_vertex>',
+            '#ifdef USE_INSTANCING',
+            '  vec3 hs = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));',
+            '  float side = step(0.5, abs(normal.x));',
+            '  float bays = max(1.0, floor(mix(hs.x, hs.z, side) / 3.6 + 0.5));',
+            '  vec2 shift = floor(mod(vec2(instanceMatrix[3].x * 0.37 + instanceMatrix[3].z * 0.11, instanceMatrix[3].z * 0.29 + side * 2.0), 4.0));',
+            '  vec2 ouv = (vec2((mix(position.x, position.z, side) + 0.5) * bays, position.y * hs.y / 3.0) + shift) * 0.25;',
+            '  vMapUv = ouv;',
+            '  vEmissiveMapUv = ouv;',
+            '#endif',
+          ].join('\n'));
+        };
+        const wt = [];
+        for (const [x, z] of [[-2.8, -2.8], [2.8, -2.8], [-2.8, 2.8], [2.8, 2.8]]) wt.push([new THREE.CylinderGeometry(0.26, 0.34, 13.2, 6).translate(x, 6.6, z), 0x5e6573]);
+        for (const y of [4.5, 9]) for (const [x, z, r] of [[0, -2.8, 0], [0, 2.8, 0], [-2.8, 0, 1], [2.8, 0, 1]]) wt.push([new THREE.BoxGeometry(5.6, 0.16, 0.16).rotateY(r * Math.PI / 2).translate(x, y, z), 0x5e6573]);
+        wt.push([new THREE.CylinderGeometry(4.7, 4.7, 0.25, 24).translate(0, 13.1, 0), 0x7d8390]);
+        wt.push([new THREE.CylinderGeometry(4.2, 4.2, 5.6, 24).translate(0, 16, 0), 0xffffff]);
+        wt.push([new THREE.CylinderGeometry(4.26, 4.26, 0.8, 24).translate(0, 17.2, 0), 0xc8beb4]);
+        wt.push([new THREE.ConeGeometry(4.6, 2.6, 24).translate(0, 20.1, 0), 0xd0674f]);
+        wt.push([new THREE.SphereGeometry(0.4, 10, 6).translate(0, 21.6, 0), 0xd0674f]);
+        const cool = [[new THREE.LatheGeometry([[8.2, 0], [7.4, 5], [6.3, 11], [5.7, 16], [5.9, 20], [6.6, 25]].map(([r, y]) => new THREE.Vector2(r, y)), 28), 0xd8d4cc],
+          [new THREE.TorusGeometry(6.6, 0.3, 6, 28).rotateX(Math.PI / 2).translate(0, 25, 0), 0x9c968c]];
+        return {
+          officeMat,
+          plainMat: new THREE.MeshStandardMaterial({ roughness: 0.82 }),
+          drumGeo: new THREE.CylinderGeometry(1, 1, 1, 16).translate(0, 0.5, 0),
+          drumMat: new THREE.MeshStandardMaterial({ roughness: 0.55 }),
+          waterGeo: vcolGeo(wt),
+          coolGeo: vcolGeo(cool),
+          vcolMat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 }),
+          coolMat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }),
+        };
+      })();
+      townPool.tower = makePool(townKit.boxGeo, distKit.officeMat, 230, true, true);
+      townPool.block = makePool(townKit.boxGeo, distKit.plainMat, 900, true, true);
+      townPool.drum = makePool(distKit.drumGeo, distKit.drumMat, 300, true, true);
+      townPool.water = makePool(distKit.waterGeo, distKit.vcolMat, 12, true, true);
+      townPool.cool = makePool(distKit.coolGeo, distKit.coolMat, 16, true, true);
+      function bigDonutPools() { // the donut stands' giant donuts share the collectable donuts' look (built on first use, like them)
+        if (townPool.bigDough) return;
+        const k = donutKit || (donutKit = makeDonutKit());
+        const frost = mergeGeometries([-1, 1].map((s) => k.donutGeo.clone().applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(0, 0, s * 0.16), new THREE.Quaternion(), new THREE.Vector3(1.02, 1.02, 0.72)))));
+        townPool.bigDough = makePool(k.donutGeo, k.doughMat, 12, true);
+        townPool.bigFrost = makePool(frost, k.frostMat, 12, false);
+      }
+      const hexes = (list) => list.map((c) => new THREE.Color(c));
+      const OFFICE = hexes(['#f3e6d3', '#e6d2bd', '#d9dde2', '#f0c9b0', '#cfe0d6', '#f5dccf', '#e3d9f0', '#c9d6e8']);
+      const AWNINGS = hexes(['#d94b3b', '#2a6f8f', '#f1b82d', '#3f7f6e', '#ff7fa8']);
+      const SHEDS = hexes(['#8fa3b8', '#b8c4b0', '#c9a58a', '#9db7b5', '#d8cfc0', '#a99fb8']);
+      const BOXES = hexes(['#c0392b', '#2a6f8f', '#e67e22', '#3f7f6e', '#f1c40f', '#7f8c8d', '#8e5a3c']);
+      const TANKS = hexes(['#e8e6e1', '#d6dde3', '#f1ece2']);
+      const WATER = hexes(['#a7c7e7', '#f4b6c2', '#b8e0d2', '#fff1b8', '#e8e6e1']);
+      const [CONCRETE, ROOFTOP, STEEL, BRICK, CREAM, GLASS, SIGN, ASPHALT] = hexes(['#c2bcb1', '#8a8790', '#9aa0a8', '#b5523b', '#fff6e8', '#34495e', '#ffd23f', '#5a5660']);
+      const _colB = new THREE.Color();
+      function boxAt(c, x, y, z, w, h, d, col, solid) {
+        trs(x, y, z, 0, w, h, d);
+        if (!putIn(c, townPool.block, col)) return false;
+        if (solid) c.solids.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 });
+        return true;
+      }
+      function drumAt(c, x, y, z, r, h, col, solid) {
+        trs(x, y, z, 0, r, h, r);
+        if (!putIn(c, townPool.drum, col)) return false;
+        if (solid) c.solids.push({ cx: x, cz: z, r });
+        return true;
+      }
+      // the lot of block (i, j): x from lx to lx + L, z from lz to lz + L; open[s]: is there a street along side s (z low, z high, x low, x high)
+      function lotOf(i, j) {
+        const lx = i * BLOCK + WALK_HW, lz = j * BLOCK + WALK_HW, L = BLOCK - 2 * WALK_HW;
+        return { lx, lz, L, mx: lx + L / 2, mz: lz + L / 2, open: [segOn(0, i, j), segOn(0, i, j + 1), segOn(1, i, j), segOn(1, i + 1, j)] };
+      }
+      function buildBlock(c, i, j) {
+        const lm = landmarkAt(i, j);
+        if (lm) return landmarkLot(c, i, j, lm);
+        const d = district(i, j);
+        if (d === DOWNTOWN) return downtownLot(c, i, j);
+        if (d === WORKS) return worksLot(c, i, j);
+        buildLot(c, i, j);
+      }
+      // an office tower: walls of windows, a parapet, a plant room or a water tank on the roof, an awning over a street-side door
+      function towerAt(c, rnd, lot, x, z, w, d, floors, col) {
+        const h = floors * 3 + 0.6;
+        trs(x, 0, z, 0, w, h, d);
+        if (!putIn(c, townPool.tower, col)) return 0;
+        c.solids.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 });
+        boxAt(c, x, h, z, w + 0.5, 0.9, d + 0.5, _colB.copy(col).multiplyScalar(0.66));
+        if (rnd() < 0.8) {
+          const bw = 3 + rnd() * Math.min(6, w - 7), bd = 3 + rnd() * Math.min(5, d - 7);
+          boxAt(c, x + (rnd() - 0.5) * (w - bw - 3), h + 0.9, z + (rnd() - 0.5) * (d - bd - 3), bw, 2 + rnd() * 1.5, bd, ROOFTOP);
+        }
+        if (rnd() < 0.35) drumAt(c, x + (rnd() < 0.5 ? -1 : 1) * (w / 2 - 2.6), h + 0.9, z + (rnd() < 0.5 ? -1 : 1) * (d / 2 - 2.6), 1.5, 2.8, TANKS[0]);
+        // the awning: on the first face that looks onto a street
+        const faces = [[0, z - d / 2 - lot.lz], [1, lot.lz + lot.L - z - d / 2], [2, x - w / 2 - lot.lx], [3, lot.lx + lot.L - x - w / 2]];
+        for (const [s, gap] of faces) {
+          if (gap > 3 || !lot.open[s]) continue;
+          const aw = pick(rnd, AWNINGS), n = s < 2 ? Math.min(12, w * 0.6) : Math.min(12, d * 0.6);
+          if (s < 2) boxAt(c, x, 3.1, s ? z + d / 2 + 0.7 : z - d / 2 - 0.7, n, 0.18, 1.4, aw);
+          else boxAt(c, s === 3 ? x + w / 2 + 0.7 : x - w / 2 - 0.7, 3.1, z, 1.4, 0.18, n, aw);
+          break;
+        }
+        return h;
+      }
+      function downtownLot(c, i, j) {
+        const rnd = townRng(i, j, 5), lot = lotOf(i, j), { L, mx, mz } = lot;
+        trs(mx, 0, mz, 0, L, 0.06, L); // a paved plaza
+        putIn(c, townPool.walk);
+        const r = rnd(), col = () => pick(rnd, OFFICE);
+        if (r < 0.45) { // four towers
+          for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+            const w = 18 + rnd() * 4, d = 18 + rnd() * 4;
+            towerAt(c, rnd, lot, mx + sx * (L / 2 - 1.5 - w / 2), mz + sz * (L / 2 - 1.5 - d / 2), w, d, 3 + Math.floor(rnd() * 6), col());
+          }
+        } else if (r < 0.8) { // two long blocks with a lane between
+          const alongX = rnd() < 0.5;
+          for (const s of [-1, 1]) {
+            const t = 19 + rnd() * 3, w = alongX ? L - 3 : t, d = alongX ? t : L - 3;
+            towerAt(c, rnd, lot, alongX ? mx : mx + s * (L / 2 - 1.5 - w / 2), alongX ? mz + s * (L / 2 - 1.5 - d / 2) : mz, w, d, 2 + Math.floor(rnd() * 4), col());
+          }
+        } else { // one tall tower on a plaza, a tree in each corner
+          const w = 24 + rnd() * 5;
+          towerAt(c, rnd, lot, mx, mz, w, w, 9 + Math.floor(rnd() * 5), col());
+          for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) tree(c, rnd, mx + sx * 20.5, mz + sz * 20.5, 0.72);
+        }
+      }
+      // the works: a warehouse along one street with loading doors onto a concrete yard of tanks, containers and maybe a chimney
+      function worksLot(c, i, j) {
+        const rnd = townRng(i, j, 6), lot = lotOf(i, j), { lx, lz, L, mx, mz } = lot;
+        boxAt(c, mx, 0, mz, L, 0.05, L, CONCRETE);
+        const s = Math.floor(rnd() * 4), alongX = s < 2;
+        const F = [(a, b) => [lx + a, lz + b], (a, b) => [lx + a, lz + L - b], (a, b) => [lx + b, lz + a], (a, b) => [lx + L - b, lz + a]][s];
+        const W = (a, b) => (alongX ? a : b), D = (a, b) => (alongX ? b : a); // sizes along x / z for a (along the street) x b (into the lot)
+        const w = 30 + rnd() * 14, d = 17 + rnd() * 6, h = 7 + rnd() * 3, wall = pick(rnd, SHEDS);
+        let [x, z] = F(L / 2, 2 + d / 2);
+        boxAt(c, x, 0, z, W(w, d), h, D(w, d), wall, true);
+        boxAt(c, x, h, z, W(w, d) + 0.6, 0.6, D(w, d) + 0.6, _colB.copy(wall).multiplyScalar(0.6));
+        for (let k = -1; k <= 1; k++) {
+          [x, z] = F(L / 2 + k * w / 3.4, 2 + d / 2 + (rnd() - 0.5) * d * 0.4);
+          drumAt(c, x, h + 0.6, z, 0.8, 1.2 + rnd(), STEEL);
+          [x, z] = F(L / 2 + k * 9, 2 + d + 0.08); // loading doors onto the yard
+          trs(x, 0, z, alongX ? 0 : Math.PI / 2, 4.2, 4.6, 0.16);
+          putIn(c, townPool.door, STEEL);
+        }
+        const b0 = d + 7, b1 = L - 2, bm = (b0 + b1) / 2;
+        let a = 3;
+        if (rnd() < 0.75) for (let k = 0, n = 1 + Math.floor(rnd() * 2); k < n; k++) { // tanks
+          const r = 3 + rnd() * 1.4;
+          if (2 * r > b1 - b0) break;
+          [x, z] = F(a + r, bm);
+          drumAt(c, x, 0, z, r, 6 + rnd() * 4, pick(rnd, TANKS), true);
+          a += 2 * r + 2.5;
+        }
+        while (a < L - 10) { // containers, side by side, some stacked
+          const n = 2 + Math.floor(rnd() * 3), gw = n * 2.9;
+          if (a + gw > L - 3) break;
+          for (let k = 0; k < n; k++) {
+            [x, z] = F(a + k * 2.9 + 1.45, bm);
+            boxAt(c, x, 0, z, W(2.45, 6.1), 2.6, D(2.45, 6.1), pick(rnd, BOXES));
+            if (rnd() < 0.4) boxAt(c, x, 2.6, z, W(2.45, 6.1), 2.6, D(2.45, 6.1), pick(rnd, BOXES));
+          }
+          [x, z] = F(a + gw / 2, bm);
+          c.solids.push({ x0: x - W(gw, 6.1) / 2, x1: x + W(gw, 6.1) / 2, z0: z - D(gw, 6.1) / 2, z1: z + D(gw, 6.1) / 2 });
+          a += gw + 4;
+        }
+        if (rnd() < 0.5) { // a brick chimney with white bands, in a far corner of the yard
+          [x, z] = F(rnd() < 0.5 ? 3 : L - 3, L - 3);
+          const sh = 20 + rnd() * 8;
+          drumAt(c, x, 0, z, 1.3, sh, BRICK, true);
+          for (const f of [0.72, 0.9]) drumAt(c, x, sh * f, z, 1.36, 1.2, CREAM);
+        }
+      }
+      // a corner shop where two streets meet: shop windows and awnings on both, a sign board on the roof (blank: no names)
+      function cornerShop(c, rnd, lx, lz) {
+        const x = lx + 7.5, z = lz + 6.5, aw = pick(rnd, AWNINGS);
+        boxAt(c, x, 0, z, 13, 4.4, 11, pick(rnd, WALLS), true);
+        boxAt(c, x, 4.4, z, 13.4, 0.4, 11.4, ROOFTOP);
+        boxAt(c, x, 0.5, lz + 0.95, 9.5, 2.3, 0.12, GLASS);
+        boxAt(c, lx + 0.95, 0.5, z, 0.12, 2.3, 7.5, GLASS);
+        boxAt(c, x, 3.1, lz + 0.3, 11, 0.18, 1.4, aw);
+        boxAt(c, lx + 0.3, 3.1, z, 1.4, 0.18, 9, aw);
+        boxAt(c, x, 4.8, lz + 1.2, 9, 1.5, 0.3, SIGN);
+      }
+      function landmarkLot(c, i, j, kind) {
+        const rnd = townRng(i, j, 52), lot = lotOf(i, j), { lx, lz, L, mx, mz } = lot;
+        if (kind === 'water') { // a water tower in a little park: you can drive between its legs
+          trs(mx, 0, mz, 0, 1, 1, 1);
+          if (putIn(c, townPool.water, pick(rnd, WATER))) for (const [x, z] of [[-2.8, -2.8], [2.8, -2.8], [-2.8, 2.8], [2.8, 2.8]]) c.solids.push({ cx: mx + x, cz: mz + z, r: 0.45 });
+          for (let k = 0; k < 7; k++) {
+            const t = (k / 7) * Math.PI * 2 + rnd() * 0.5, rr = 14 + rnd() * 7;
+            tree(c, rnd, mx + Math.cos(t) * rr, mz + Math.sin(t) * rr, 0.8 + rnd() * 0.4);
+          }
+        } else if (kind === 'stand') { // a donut stand with a giant donut on the roof, and a car park
+          bigDonutPools();
+          const s = lot.open.indexOf(true) < 0 ? 0 : lot.open.indexOf(true);
+          const F = [(a, b) => [lx + a, lz + b], (a, b) => [lx + a, lz + L - b], (a, b) => [lx + b, lz + a], (a, b) => [lx + L - b, lz + a]][s];
+          const alongX = s < 2, ry = [0, Math.PI, Math.PI / 2, -Math.PI / 2][s];
+          let [x, z] = F(L / 2, 8);
+          boxAt(c, x, 0, z, alongX ? 14 : 10, 4.2, alongX ? 10 : 14, CREAM, true);
+          boxAt(c, x, 4.2, z, alongX ? 14.6 : 10.6, 0.5, alongX ? 10.6 : 14.6, AWNINGS[4]);
+          [x, z] = F(L / 2, 2.4);
+          boxAt(c, x, 2.9, z, alongX ? 12 : 1.6, 0.2, alongX ? 1.6 : 12, AWNINGS[4]);
+          [x, z] = F(L / 2, 3.05);
+          boxAt(c, x, 0.6, z, alongX ? 9 : 0.1, 2, alongX ? 0.1 : 9, GLASS);
+          [x, z] = F(L / 2, 8);
+          drumAt(c, x, 4.7, z, 0.35, 2, STEEL);
+          _q.setFromAxisAngle(_yAxis, ry + Math.PI / 4);
+          _m4.compose(_p3.set(x, 4.7 + 2 + 5.4, z), _q, _s3.set(3.6, 3.6, 3.6));
+          if (putIn(c, townPool.bigDough)) putIn(c, townPool.bigFrost);
+          [x, z] = F(L / 2, 31); // the car park
+          boxAt(c, x, 0, z, alongX ? 40 : 26, 0.04, alongX ? 26 : 40, ASPHALT);
+          for (const a of [6, L - 6]) { [x, z] = F(a, 46); tree(c, rnd, x, z, 0.9 + rnd() * 0.3); }
+        } else if (kind === 'mast') { // a tall tower with a setback top and a radio mast, on a plaza
+          trs(mx, 0, mz, 0, L, 0.06, L);
+          putIn(c, townPool.walk);
+          const col = pick(rnd, OFFICE), w = 26, floors = 15 + Math.floor(rnd() * 5);
+          const h = towerAt(c, rnd, lot, mx, mz, w, w, floors, col);
+          if (h) {
+            trs(mx, h + 0.9, mz, 0, 17, 9.6, 17);
+            putIn(c, townPool.tower, col);
+            boxAt(c, mx, h + 10.5, mz, 17.5, 0.9, 17.5, _colB.copy(col).multiplyScalar(0.66));
+            drumAt(c, mx, h + 11.4, mz, 0.45, 16, STEEL);
+            drumAt(c, mx, h + 27.4, mz, 0.6, 0.8, AWNINGS[0]);
+          }
+          for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) tree(c, rnd, mx + sx * 20.5, mz + sz * 20.5, 0.75);
+        } else { // the power plant: two cooling towers on a concrete yard, a striped chimney
+          boxAt(c, mx, 0, mz, L, 0.05, L, CONCRETE);
+          const alongX = rnd() < 0.5;
+          for (const s of [-1, 1]) {
+            const x = alongX ? mx + s * 12.5 : mx, z = alongX ? mz : mz + s * 12.5;
+            trs(x, 0, z, rnd() * 6.28, 1, 1, 1);
+            if (putIn(c, townPool.cool, TANKS[0])) {
+              c.solids.push({ cx: x, cz: z, r: 8 });
+              if (!plantSpots.has(i + ',' + j)) plantSpots.set(i + ',' + j, []);
+              plantSpots.get(i + ',' + j).push([x, z]);
+            }
+          }
+          const x = alongX ? mx : mx + 21, z = alongX ? mz + 21 : mz;
+          drumAt(c, x, 0, z, 1.4, 26, CREAM, true);
+          for (let k = 0; k < 4; k++) drumAt(c, x, 3 + k * 6, z, 1.46, 3, BRICK);
+        }
+      }
+      // steam over the cooling towers of the nearest power plants (the home plant has its own): one instanced mesh of puffs, each
+      // rising, swelling and fading, for up to four towers
+      const plantSpots = new Map(); // block key -> the cooling towers' [x, z]
+      let worksSteam = null, steamFade = null;
+      const STEAM_TOWERS = 4, _near = [];
+      function steamTick(t, px, pz) {
+        _near.length = 0;
+        for (const list of plantSpots.values()) for (const s of list) {
+          const d = Math.hypot(s[0] - px, s[1] - pz);
+          if (d < 300) _near.push([d, s[0], s[1]]);
+        }
+        if (!_near.length) { if (worksSteam) worksSteam.visible = false; return; }
+        if (!worksSteam) {
+          const n = STEAM_TOWERS * 4, geo = new THREE.SphereGeometry(1, 12, 8);
+          steamFade = new THREE.InstancedBufferAttribute(new Float32Array(n).fill(1), 1);
+          geo.setAttribute('aFade', steamFade);
+          const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, roughness: 1, depthWrite: false });
+          mat.onBeforeCompile = (sh) => {
+            sh.vertexShader = 'attribute float aFade;\nvarying float vFade;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;');
+            sh.fragmentShader = 'varying float vFade;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vFade;');
+          };
+          worksSteam = new THREE.InstancedMesh(geo, mat, n);
+          worksSteam.frustumCulled = false;
+          world.add(worksSteam);
+        }
+        _near.sort((a, b) => a[0] - b[0]);
+        const m = Math.min(STEAM_TOWERS, _near.length);
+        for (let k = 0; k < m; k++) {
+          const x = _near[k][1], z = _near[k][2];
+          for (let i = 0; i < 4; i++) {
+            const f = (t * 0.11 + i / 4 + (x + z) * 0.0013) % 1, s = 2.4 + f * 4.5;
+            worksSteam.setMatrixAt(k * 4 + i, trs(x + Math.sin(f * 3 + i) * 1.4, 24 + f * 18, z + f * 4, 0, s, s, s));
+            steamFade.setX(k * 4 + i, 1 - f);
+          }
+        }
+        worksSteam.count = m * 4;
+        worksSteam.visible = true;
+        worksSteam.instanceMatrix.needsUpdate = true;
+        steamFade.needsUpdate = true;
       }
 
       // ---- the donut jump: a kicker ramp lined up with a giant donut statue. Fly through the hole for a big reward; clip it and you
@@ -2698,6 +3065,7 @@
         for (let i = 0; i < DONUT_LIVE; i++) spawnDonut(donutItems[i], true);
         for (const st of stunts) st.donut.alive = true;
         populateRods();
+        resetBuses();
       }
       // the first frame: landmarks (baked into a few meshes), donuts, rods and buses, then every block in reach of the start
       function primeTown() {
@@ -2751,7 +3119,7 @@
           const lane = axis === 'z' ? -LANE * dir : LANE * dir;
           if (axis === 'z') { bus.position.set(lane, 0.2, at); bus.rotation.y = dir > 0 ? 0 : Math.PI; }
           else { bus.position.set(at, 0.2, lane); bus.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
-          const m = { mesh: bus, axis, dir, lane, cruise: 13 + i * 1.3, v: 0, box: { x0: 0, x1: 0, z0: 0, z1: 0 } };
+          const m = { mesh: bus, axis, dir, lane, line: 0, off: lane, at, cruise: 13 + i * 1.3, v: 0, box: { x0: 0, x1: 0, z0: 0, z1: 0 } };
           setBusBox(m);
           movers.push(m);
         });
@@ -2767,8 +3135,39 @@
         m.box.x0 = p.x - hw; m.box.x1 = p.x + hw; m.box.z0 = p.z - hd; m.box.z1 = p.z + hd;
       }
       function busAlong(m) { return m.axis === 'z' ? m.mesh.position.z : m.mesh.position.x; }
-      function busToCrossing(m) { return -9 - (busAlong(m) + 5 * m.dir) * m.dir; } // nose to the edge of the crossing, in travel direction
-      function busInCrossing(m) { return Math.abs(busAlong(m)) < 14; }
+      const AVE_GAP = 4 * BLOCK; // buses only drive the avenues: every fourth street
+      function crossAt(m) { return Math.round(busAlong(m) / AVE_GAP) * AVE_GAP; } // the avenue crossing a bus is nearest
+      function busToCrossing(m) { return -9 - (busAlong(m) - crossAt(m) + 5 * m.dir) * m.dir; } // nose to the edge of that crossing
+      function busInCrossing(m) { return Math.abs(busAlong(m) - crossAt(m)) < 14; }
+      function sameCrossing(m, o) { return Math.abs(o.line - crossAt(m)) < 1 && Math.abs(m.line - crossAt(o)) < 1; }
+      // buses stay on the avenues nearest the car: one more than 205 m ahead or behind loops round to the other side of the car, and
+      // one whose avenue is out of sight moves (past the fog, unseen) onto the avenue the car is nearest, a little up the road
+      function busWrap(m, next, cp) {
+        const ca = m.axis === 'z' ? cp.z : cp.x, cl = m.axis === 'z' ? cp.x : cp.z, rel = next - ca;
+        if (Math.abs(rel) > 205) next += Math.round(-rel / 410) * 410;
+        const line = Math.round(cl / AVE_GAP) * AVE_GAP;
+        if (line !== m.line && Math.hypot(next - ca, m.line - cl) > 175) {
+          const lane = line + m.off;
+          let at = ca - m.dir * (182 + Math.random() * 20);
+          for (let k = 0; k < 6 && movers.some((o) => o !== m && o.axis === m.axis && o.lane === lane && Math.abs(busAlong(o) - at) < 26); k++) at -= m.dir * 30;
+          m.line = line;
+          m.lane = lane;
+          m.v = m.cruise;
+          next = at;
+          if (m.axis === 'z') m.mesh.position.x = lane; else m.mesh.position.z = lane;
+        }
+        return next;
+      }
+      function resetBuses() { // a new shift: the buses back on the home avenues where they started
+        for (const m of movers) {
+          m.line = 0;
+          m.lane = m.off;
+          m.v = 0;
+          if (m.axis === 'z') m.mesh.position.set(m.lane, 0.2, m.at); else m.mesh.position.set(m.at, 0.2, m.lane);
+          setBusBox(m);
+        }
+        drawBuses();
+      }
       function busTouches(m, cp) {
         const b = m.box, fx = Math.sin(car.heading), fz = Math.cos(car.heading), reach = CAR_RAD + 0.3;
         for (const off of CAR_CIRC) {
@@ -3297,8 +3696,8 @@
           // the crossing: buses on the east-west road give way to the north-south ones; those wait only for a bus already halfway over
           if (toCross > -1.5 && toCross < 7) {
             const blocked = m.axis === 'x'
-              ? movers.some((o) => o.axis === 'z' && (busInCrossing(o) || (busToCrossing(o) > -1.5 && busToCrossing(o) < 12)))
-              : movers.some((o) => o.axis === 'x' && busInCrossing(o) && busToCrossing(o) < -1.5);
+              ? movers.some((o) => o.axis === 'z' && sameCrossing(m, o) && (busInCrossing(o) || (busToCrossing(o) > -1.5 && busToCrossing(o) < 12)))
+              : movers.some((o) => o.axis === 'x' && sameCrossing(m, o) && busInCrossing(o) && busToCrossing(o) < -1.5);
             if (blocked) want = 0;
           }
           // brake for the car or a bus ahead in the lane
@@ -3307,14 +3706,13 @@
           // a bus that bumps the car stops dead, so it never shoves the car into a wall
           if (busTouches(m, cp)) { want = 0; m.v = 0; }
           movers.forEach((o) => {
-            if (o === m || o.axis !== m.axis || o.dir !== m.dir) return;
+            if (o === m || o.axis !== m.axis || o.dir !== m.dir || o.lane !== m.lane) return;
             const gap = (busAlong(o) - along) * m.dir;
             if (gap > 0 && gap < 20) want = Math.min(want, Math.max(0, (gap - 13) * 2));
           });
           m.v += THREE.MathUtils.clamp(want - m.v, -30 * h, 12 * h);
           let next = along + m.v * m.dir * h;
-          const rel = next - (m.axis === 'z' ? cp.z : cp.x); // buses loop in a 410 m stretch that moves with the car
-          if (Math.abs(rel) > 205) next += Math.round(-rel / 410) * 410;
+          next = busWrap(m, next, cp);
           if (m.axis === 'z') m.mesh.position.z = next; else m.mesh.position.x = next;
           setBusBox(m);
         });
