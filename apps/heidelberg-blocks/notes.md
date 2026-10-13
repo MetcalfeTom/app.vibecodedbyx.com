@@ -254,6 +254,30 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   ?touch (p/f1.py full desktop flow, p/f2.py phone flow incl. a left-half drag aim). Scope views are cheaper than walking
   (narrow FOV): phone 152-157k/29-34, desktop 130-155k/26-31 (p/sperf.py).
   Untested: a real thumb aiming at 7.5 deg, sounds, how it reads at night on a real screen.
+- v1.16 2026-10-13 10:55 (helper): CAFÉ NERD + Liselotte easier to find + phone thumbs.
+  Café Nerd (Flax): a blue house x -40..-33 z 60..68 on the west side of the Marktplatz, across from the
+  Heiliggeistkirche (house(-40,60,8,9,4,...) then hollowed): walk-in room x -39..-34 z 61..67, plank floor + ceiling,
+  south windows + door x -37..-36 on the lane, east windows onto the Marktplatz. Sign on the south + east faces: canvas,
+  the title drawn as our own 5x7 pixel letters (NGLY/nerdTitle: the web font's C read as an O from the lane),
+  'Kaffee · Brettspiele · Pixel', a pixel cup + a pink die; chalk KARTE behind the bar. Inside: counter with a pixel
+  invader front, stools, shelves of board games, a TV with a pixel game, pendant lamps (NERD_LAMPS light the room in the
+  block shader), warm pools on the cobbles at night (NERD_U). People: Nele the barista (static, wipes; pull:1.5 so she
+  wins the talk button over the guest on the next stool; nearFolk now ranks by d - pull), Malte the waiter (walker,
+  outdoor tables), Ozan (headphones), Jule & Ben (board game), Merve (laptop), outside by day Hartmann & Yusuf (chess)
+  and Sophie (comics). Sit at the bar (middle stool, SEATS 'nerd', srv 'nele', pitch -.14): Flat White with a pixel
+  heart, Chai Latte + Zimtschnecke, Kakao with dice marshmallows (NDR), 'hb-nerd' {n,t}; all three = Café Nerd
+  Stammgast toast + burst. Quest log line nerdSide(); place name 'Café Nerd' inside.
+  Liselotte (Flax 10:39 "i miss the captain and boattour"): the tour still worked on live (p/b1.py: Jupp at 9.5,-45.5,
+  talk starts it, full loop, home, 0 errors), it was just hard to find. Now a quest log line (boatSide), rounds
+  remembered ('hb-boat'), and until your first round Jupp toots the horn every 50 s while you are on the north half of
+  the bridge or the north bank (P.z<-12, 6..70 blocks; one toast per visit), plus a white LISELOTTE · Rundfahrt gratis
+  board on the boat roof (a little self-lit, +1 draw call).
+  Phone thumbs (Flax: "controlling the left trigger is gotten harder"): v1.14 had moved the talk button left of centre
+  on narrow phones, right where the left thumb starts the walk stick, so a thumb there talked instead of walking.
+  Touch now: talk on the right above the jump button (short landscape: left of jump), ride moves above talk when both
+  show and hides during a dialog (it overlapped the dialog box on 390 px). The stick centre follows a thumb that slides past the rim (quick turn-round), small dead zone .12.
+  Probes p/n1.py + p/n2.py (drinks to done, Nele talk, stick follow), p/b1.py (live boat), p/b2.py + p/bs.py.
+  Untested: a real thumb on the moved buttons, the horn level on real speakers, Café Nerd night light on a real GPU.
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
@@ -267,6 +291,12 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
+- Flax's 2026-10-13 list after Café Nerd: castle (a proper Schlossterrasse over the Altstadt + river, the
+  Schlossgarten park terrace with trees and paths, closer castle/park shapes), more room round the Fass in the cellar,
+  Torch + Toni L busking on the Alte Brücke (original beat only, no real lyrics/melodies), life in the west Altstadt
+  (walkers, a stall/bench crowd, lit windows at night)
+- Café Nerd ideas: a board game you can join, Nele's daily special
+- the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
 
 ## art direction
 - 1 block ≈ 1 m-ish but the bridge is shortened: 9 arches of span 7 + piers of 3 = river 87 blocks wide (z -43..43).
@@ -286,6 +316,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 - v1.15 (Bergbahn): world chunks 304k tris. Phone FOV (390x844): spawn 161k/54, philS 225k/68, Königstuhl north
   243k/79 (busiest). Desktop 1280x800: philS 261k/88, Königstuhl north 293k/97. Probe $SP/hb15/p/perf.py.
 - v1.15 step 2 (Fernrohr): +1 Frieda mesh; scope view phone 157k/34 max, desktop 155k/31 (p/sperf.py).
+- v1.16 (Café Nerd): views nerdL/nerdIn phone 115-126k/27-33, desktop 153-162k/38-48; max unchanged
+  (Königstuhl north phone 250k/86, desktop 299k/103).
 
 ## testing
 - scratch: $SP/hb (index.html + mk.sh injects window.__G/__E into gaunt/sw/hm43/hb). The live file only has a
