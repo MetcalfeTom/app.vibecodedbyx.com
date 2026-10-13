@@ -29,10 +29,13 @@ Never use Minecraft names, textures or assets: inspiration only. The name must n
 - v1.0 2026-10-13: first playable. Island, cottage, trees, 12 blocks, block/peak/ramp shapes, dig, undo, new island, reset, sound.
 - v1.1 2026-10-13: Walk mode: Wick, a villager in a pointy three-sided hat (🚶 Walk button / F). WASD or touch stick to walk, Space / jump button to jump (1.2 high, a block is .75), walks up ramps and peaks smoothly (surface height = barycentric blend of the cell's corner heights), Q/E turn, swims, falls back to the cottage door from the sea floor. Camera follows and pulls in before roofs/hills; squeezed under 1.5 it goes first-person. A block placed on Wick lifts him on top. Tiered pine trees (two hex wedge skirts) next to the round 'mushroom' trees.
 
+- v1.2 2026-10-13: Stamps (🏠 Stamp shape / H, then 1-5): Cottage, Tower (stone, slit windows, wide pointed hat), Pagoda (three tiers with flared stone skirts, gold tip), Pine, Tree. Drops on the lattice point nearest the tap, on the level tapped; door faces the camera (snapped to one of the six flat sides); clears room and fills a stone plinth with a grass top under the footprint so nothing floats, raised to above sea level (stamps in the sea make a little island). Hex prism outline shows where it goes (red when too high). Undo now works in groups: one undo takes back a whole stamp. hutBuild = cottage(…, [0,1]) + gold, generated islands unchanged (hash-checked in node).
+
 ## issues
 
 ## todos
 - Hamburglar's wishes first when they come back.
 - Day/night, clouds made of wedges, water you can place.
-- Stamp tools: a cottage, a tree, a hex tower.
+- More stamps: a bridge, a well, a windmill with turning sails, a lighthouse; a spiral stair inside the tower (blocks one layer apart, Wick jumps 1.2).
+- The 'blocks placed' chip counts every cell a stamp changed (896 after six stamps); maybe count stamps separately.
 - Save several islands; share an island as a code.
