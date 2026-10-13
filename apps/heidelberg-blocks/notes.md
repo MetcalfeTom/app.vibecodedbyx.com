@@ -429,6 +429,24 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   y 2.66 vs Toni L's 2.3). Speech bubble clamp (v1.24) checked at 390x624 + 844x300. Probe $SP/hbpol/p/small.py checks
   HUD overlaps/off-screen at 390x624 + 844x300 (bark, talk, Bergbahn stop, quest log): no overlaps except the
   quest log, which is a panel over the HUD by design. 0 JS errors at 390x624, 844x300, 390x844 and 1280x720.
+- 2026-10-13 21:22 UTC v1.26 (helper, Flax 19:27 "back of castle ... looks like a half baked movie set"): the back of
+  the castle rebuilt. The terrace runs 3 rows further south (ZS = Z1+3 = 101): a walk along the back (Südterrasse,
+  z 98..100) with a wall (parapet z 101), the moat moved with it (floor z 102..106, outer wall z 107). The bare earth
+  cliff behind the moat is now walled garden terraces (tops 52/56/60/64 at z 107/111/115/119, red faces with ivy,
+  hedge rails, trees on the upper two), walled at both ends (x 11 by the Bergbahn, x 66 flush with the hill).
+  The hollow west wing shell is gone: its ground is a real courtyard (Schlosshof, x 13..24, z 81..100) with a well
+  (19,90), worn cobbled paths (Bergbahn -> gate, back walk -> Gartenbrücke), a bench by the ivy wall, ivy on the
+  Fassbau's west wall, a tunnel portal on the courtyard side and two boards in the tunnel ("Schlosshof" for whoever
+  steps off the train, "Bergbahn" on the way back). Statues in niches: 8 electors on the Friedrichsbau's courtyard
+  face, 6 on the Ottheinrichsbau's south face (courtMesh, one merged mesh + 2 board planes). The Gläserner Saalbau
+  has an arcade on the courtyard side (2 deep, door at the back). Ludwigsbau: a small roofed wing at x 53..58,
+  z 97..100 closing the SE corner. Fallen stones + grass inside the Ottheinrichsbau. 5 lanterns (CASTLE_LAMPS, in
+  the GLAMP set, lit at night) + a parapet along the garden-bridge side of the SE court. Place names Schlosshof,
+  Südterrasse, Gartenterrassen; Burggraben box follows the moat. Walk (p/bfs.py from the platform): courtyard 17
+  steps, gate 44 (was 66), Altan 54 (78), garden 76 (76). Budget 1280x720 golden (before -> after, k tris/calls):
+  bergExit 147/57 -> 151/60, tunnelOut 209/74 -> 212/76, courtW 137/52 -> 141/53, courtE 259/120 -> 265/125,
+  parkEntr 112/30 -> 114/30, aerialSW 272/111 -> 275/114, aerialSE 336/133 -> 340/136. Phone 390x844: tunnelOut
+  167k/52, courtyard 207k/51. 0 JS errors at 1280x720 + 390x844, day + night.
 
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
@@ -449,7 +467,11 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   6. life in the west Altstadt: lit windows at night, a stall or a bench crowd (Manuel + Petra already walk there, v1.18.2)
   (garden lanterns DONE v1.22; Neckarwiese + ducks DONE v1.21; busking DONE v1.20, Funkjoker v1.21; Karzer DONE v1.19)
 - Fernrohr ideas: more friends to spot later (Anselm on his night round, Hilde at a window), a postcard of the view
-- a second garden terrace (the south wall is one tall cut)
+- a second garden terrace (the south wall is one tall cut). v1.26 terraced the hill behind the castle moat; the
+  Hortus' own south wall (z 101, up to y 77) and its sandy west end are still one tall cut
+- castle: more room round the Großes Fass (the Fassbau x 25..43 z 85..97 is boxed in: FASS lamps, bar row z 84,
+  carpet, hatch, clock, Perkeo all hang on those numbers; the south wall could move to z 98 now the back walk is there)
+- castle: the garden terraces behind the moat (v1.26) have no way in yet (v1.27 herb garden + steps planned)
 - optional firework bang sounds after a tap
 - real phone test of the touch stick + look; real GPU fps (v1.14 adaptive sharpness: ask phone users if it looks soft)
 - the monkey rub buttons still sit bottom-left on narrow phones (only near the monkey)
