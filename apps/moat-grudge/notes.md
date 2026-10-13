@@ -1,6 +1,7 @@
 # Moat Grudge
 
 findlogin's idea (Twitch, 2026-10-09 19:20): a 2D side-scrolling battle against a computer opponent. Coins drop, unit cards at the bottom (tank, archer, swordsman, mage) with different costs and spawn times, every unit fires an ultimate every few seconds, destroy the towers and castle.
+- 2026-10-13 03:20 SEO pass: title "Moat Grudge — castle war game: send your army, drain the moat", 148-char description, canonical + og:url with trailing slash, VideoGame JSON-LD. Start box already says what it is.
 
 ## log
 - 2026-10-10 04:46 UTC v1.21 Queen Hoarfrost on Rimefell (key 'frost'), a sixth lord unlocked by beating Baron Cinders (menu button #fB, 'a frosty letter'; not part of MARCH). Trick 'Hold still.': dashed frost rings under your 4 front soldiers (st1), then u.stun 3.4 s in ice blocks that crack as k.life runs out, shatter bursts at the end. Land: aurora bands + ice spires (drawIce in the .2 layer, L.ice), snow fx, icicle deco + snow drifts on her buildings, ice moat (the orange moat glow is now only for L.volc), thumb branch. Grizzlewick snows instead of rains on ice land. Menu: three march-row buttons share one row on desktop (flex 9.5rem). Full simulated battle: trick fires at ~54 s, freezes 3.4 s, ends; 0 errors. Probe note: the lord's queue (G.lq) only advances when the toast is older than 1.6 s, so sync probes must clear G.toast each step.
