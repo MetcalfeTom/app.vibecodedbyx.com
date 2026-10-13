@@ -98,6 +98,12 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   Measured on the deck -25 dB RMS (peaks -13), courtyard -36 dB. Birds stay quiet inside. Probe $SP/hb161/p17.js (Greta, wet push stops
   at z 83.70, drink, walk in, stairs to C+9, deck toast, music notes, fountain refill), shots $SP/hb17/v3.png v7.png. World 305k tris.
 
+- v1.8 2026-10-13 ~00:00: the Schlossbeleuchtung (Flax): while a firework show runs (fw.on && fw.wait<=0, also grandShow) the castle
+  ruin glows deep red. One uniform hbGlow (GLOW, eased in over ~1.8 s and out over ~2.6 s, flicker .8-1 unless reduced motion) in the
+  block shader adds diffuse*vec3(1.55,.3,.08) + a little red emissive inside a soft box (x 7..71, z 66..111, from CASTLE_Y-10 up),
+  brighter at the foot of the walls like fire from below. The Fasskeller's own lantern light overrides it inside. No extra draw calls.
+  Shots $SP/hb18/g0.png (off) / g2.png (on) from the bridge at night.
+
 ## issues
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
 - pathLine drop walls: a one-block drop must not get a parapet (blocked the Snake Path entry from Brückenstraße).
@@ -105,7 +111,7 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
 ## todos
 - big build after the reset (Flax): ferry/boat ride with Jupp, more folk with jobs + routines, sounds around corners,
   an original town waltz, German dialogue switch, secret behind the Great Barrel, more easter eggs
-- red castle glow during the fireworks (the real Schlossbeleuchtung), optional bang sounds after a tap
+- optional firework bang sounds after a tap
 - Jesuit church, Marstall, Karl Theodor statue on the bridge, castle garden (Hortus Palatinus), Königstuhl funicular
 - real phone test of the touch stick + look; real GPU fps
 
