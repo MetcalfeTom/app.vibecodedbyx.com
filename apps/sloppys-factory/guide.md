@@ -110,6 +110,14 @@ Deeper:
 - Link previews come from tags in the page head: a title, a short description and a 1200×630 PNG picture.
 - Then comes the real test: chat. Viewers find what tests miss (the moon behind the curtain, the planks flickering into each other), and their message is the next crate.
 
+## The shipping log
+
+Every crate that left the loading dock, newest first. Each line is one crate that passed the commit stamp and the loading dock: one saved change to one app, live on sloppy.live.
+
+- **The tech:** git. A commit is a saved, labelled snapshot of the files that you can always go back to. Its label is the commit message, its name is the short code (like `6034407`), and + and − count the lines added and removed.
+- **The stamps:** a gold stamp means a viewer sent the crate back with a note: their name is in brackets at the end of the line. A grey stamp means it shipped without one.
+- **Where it comes from:** the same change log the App Directory shows, rebuilt after every commit. The live list sits on the factory page by the loading dock: the newest 50 crates, a filter by app, and a label card for each one.
+
 ## Quality without questions: the loop
 
 1. **A strong coding model with file and shell tools.** It reads, edits, runs and checks things itself, so nobody has to copy and paste. Real build: Claude Code builds and tests every app on stream.
