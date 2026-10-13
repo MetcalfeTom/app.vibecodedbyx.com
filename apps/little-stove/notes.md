@@ -71,14 +71,25 @@ A cozy home-cooking game, built phone-first. You grab food from the fridge, chop
   - Wishes: no 'add'/extra salt on sweet bakes; crispy also on r.crisp (cookies, pizza). Grab hint says "some flour". bakeArt() draws each bake in the oven window and on the plate.
 - v2.1 (2026-10-07, Sloppy's own): 🎂 Birthday Cake (pot oven 180°, deco:true, after shak in RECIPES). Serve opens dialog#deco: frosting swatches (FROST), tap/drag sprinkles on the cake (decoAt via getScreenCTM, max 90), ✨ sprinkle button, 0-12 candles; "bring it out" serves. Two+ kinds of decoration = +2 tip; BDAY/BDSAY lines per guest; 🌬️ blow out the candles at the table (.scene.blown + wisps). No wishes on the cake. Probe: S.decoDone, S.deco={f,sp,n}.
 - v2.2 (2026-10-07, Sloppy's pick for Pushed's morning): the oven dial (#dial −/+, 120-260° in 10s, save.dial keeps it between dinners, default 180). The oven heats to S.set and drifts down to it (thermostat); the recipe card shows "bake at X°" (ok when it matches). Baking heat is averaged (S.bkS/S.bkN while cook < 100): over the recipe by 25° = -1 (45° = -1.5, "browned outside before the middle"), under by 25° = -½ ("pale and dense"). The dial wobbles red until it matches and food is on the tray. Probe tip: re-read L.S after every #next (S is a new object per dinner).
+- v2.3 (2026-10-13, ~06:05 UTC, helper job for Sloppy): DAY AND NIGHT + a better first 30 seconds.
+  - The clock: todAt(n) = { ph:(n+2)%4, day:floor((n+2)/4) } from save.dinners, so no new save field. TOD = morning/afternoon/evening/night; every dish served moves it on. Dinner 1 is day 1, evening (still soup for the roommate).
+  - MENU[ph] (recipe ids) and GUESTS[ph] rotate by day: breakfasts in the morning (pancakes, tamagoyaki, egg on toast, shakshuka, mushroom toast), bakes and lunches in the afternoon (soda bread, pasta, cake, soufflé, crumble), dinners in the evening, a snack at night (toast, cookies, mushroom toast, fried rice). Each list starts where a new cook first meets it: soup → egg on toast for the cat → pancakes → Grandma's soda bread (the oven). The cat never gets a sweet bake (swapped for 'yourself'). DISP[ph] gives display names ('Grandma, over for tea', 'the cat, who heard the fridge open'); WHO keys are unchanged, so SAY/WISH/GUEST/BDAY still work. LEAD[ph] = 'This morning you're cooking for…' / 'It's late. A little snack for…'.
+  - The header has svg#win (winArt(ph)): a lamp (on in the evening and at night) and a window whose sky, sun/moon, roofs and the neighbours' lights tell the time. The 'dinner N' text became '<b>evening</b> day 1' (screen-reader only on phones). html[data-tod] swaps --wall/--grout/--hi and a body::before light layer (--light: morning sunbeams, afternoon wash, evening amber, night lamp pool + vignette). theme-color follows. The table scene uses the same sky (skyStops), wall (WALLS) and a lamp that's off by day.
+  - #next says what's next ('next: breakfast'). ?tod=night starts at that time of day (like ?dish=).
+  - Corner shop: todaySpecial() = one thing that normally costs 2+ is a coin cheaper, new every clock-day (#special line in the shop, li.deal). costOf(id) is used by shortList, buy, the aisle buttons and the buy-all total.
+  - First dinner only (save.dinners === 0): coach() puts .coach on whatever the hint is about (the fridge tile, the food on the board, into the pot, heat, salt, serve), a soft pulse that moves with each step and is gone from dinner 2. The first hint reads 'Start here: tap the tomato in the fridge.' Reduced motion gets a static outline instead.
+  - Wide screens (min-width 60rem): stove | board | fridge in one row (fridge shelf scrolls inside, grid-auto-rows:max-content or the 2.75rem min-height squashes the tiles). At 1280x800 the fridge was below the fold before.
+  - Fixed: the oven dial showed on every recipe ([hidden] lost to .dial{display:inline-flex}); the stylesheet now starts with [hidden]{display:none!important}. On phones the heat button takes its own row.
+  - Build stamp under the cookbook. __LS gains todAt, todaySpecial, costOf, art.win/art.table (for probes).
+  - Probes (scratch hm/lsd*.js): lsd3 plays dinner 1 and logs the coach target per step (tomato → item → add → … → heat → salt → serve), then the schedule for dinners 2-21 (set save.oven=1 first or every dinner from 5 turns into soda bread, the pre-v2.0 catch-up rule). pfl/ptam/oven bread/cake all still 5 stars.
 ## issues
 - Phone layout: the stove and board sit side by side. The phone media query must stay LAST in the CSS, or the 12rem .hob height wins.
 - Phone fridge strip: the sticky selector has to be section.area.fridge, because section.area{ position:relative } outranks .fridge.
 - Sound: headless Chromium runs the AudioContext fine (state 'running'), so probes can measure RMS on __LS.snd.master. __LS.AC is the context.
 
 ## todos
-- Shop ideas: daily specials / a sale, a shopping list you tick off, a fridge that shows what spoils.
-- Day and night time with a clock.
-- Tips from the diner.
+- Shop ideas: a shopping list you tick off, a fridge that shows what spoils (the daily special is done).
+- Tips from the diner (a guest tells you a trick after a good meal?).
+- Day/night follow-ups: a real-clock option, a cat-only snack (a saucer of something), morning birdsong / night crickets in the sound mix.
 
 - 2026-10-11 18:00 SEO pass (no version bump): schema.org JSON-LD + 110-155 char description.
