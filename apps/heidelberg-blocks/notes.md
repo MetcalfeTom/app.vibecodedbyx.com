@@ -405,6 +405,8 @@ Our own blocky art: never use the Minecraft name, textures or logos in the app.
   (#ride.big, 62 px tall at 390). Probe p/r1.py: walk in -> ride=1, departs, rides to the Schloss, walk out at Kornmarkt,
   brakes on rails 1 / under 0 / platform 0. 0 JS errors at 1280 and 390 ?touch.
 
+- 2026-10-13 14:38 UTC v1.23.1 (Flax 14:37): Max, Marco, Ramona and Josie are NOT students; Ramona and Josie are yoga teachers. Ramona's 'then the library' bark is now 'then sunset yoga', Josie tells you about their sunrise yoga class on the Neckarwiese and tells Max to drop his shoulders. Flax played it through and loved the secret at the Fass.
+
 ## issues
 - Phones see the app inside the nginx bar iframe: about 390x624 portrait, 844x300 landscape. Test 800x300.
 - fannar22 2026-10-11 23:50: rising into the sky at the east/west map edge in the river (fixed v1.1, probe hb_edge.js).
